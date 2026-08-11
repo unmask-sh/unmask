@@ -41,6 +41,16 @@ func uaRequiresCaptchaGrade(ua string, cfg settings.Settings) bool {
 	return act == settings.RateChallengeCaptchaOnly || act == settings.RateChallengePoWThenCaptcha
 }
 
+// chainEndsInCaptcha reports whether a served chain finishes with a CAPTCHA --
+// i.e. whether clearing it mints a CAPTCHA-grade pass.  The counterpart to
+// gradeSatisfies: one says what a chain produces, the other what a gate
+// accepts, and ServeChallenge refuses to hand out a chain whose product the
+// gate would reject.
+func chainEndsInCaptcha(chMode string) bool {
+	return chMode == settings.RateChallengeCaptchaOnly ||
+		chMode == settings.RateChallengePoWThenCaptcha
+}
+
 // requestNeedsCaptchaGrade reports whether THIS request must be backed by a
 // CAPTCHA-grade cookie to pass, folding the two independent sources of a CAPTCHA
 // requirement:

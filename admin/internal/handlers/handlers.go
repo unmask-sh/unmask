@@ -921,6 +921,40 @@ func (h *Handler) ServeAxisDeny(w http.ResponseWriter, r *http.Request) {
 // /unmask/challenge/... in this header (the reason a blanket fallback was once
 // dropped), which the guard rejects.  Display-only; the ban keeps enforcing
 // per-request while the daemon is up.  Empty when there is nothing safe to use.
+// protectedOrigURI recovers the URI a challenge is being served FOR, so the
+// serve can resolve the same protected-path rule the forward-auth check just
+// enforced.
+//
+// It deliberately does NOT apply banProbedOrigPath's off-basePath guard.  That
+// guard exists so a direct hit on the challenge cannot masquerade as a probed
+// URL, but reusing it here dropped exactly the path the shipped "unmask itself"
+// preset is for: /unmask/admin/.  The two halves of one decision then
+// disagreed -- the check resolved the rule and demanded a CAPTCHA-grade pass
+// for a captcha-ending mode, while the serve, blind to the URI, handed out
+// whatever the UA axis picked (a PoW-only screen on a stock install).  The
+// visitor solved it, was refused for holding the wrong grade, and was
+// challenged again, forever.  Observed on a production forward-auth node:
+// 103 serve/check pairs in 30 minutes for one operator trying to reach
+// their own admin.
+//
+// The unmask mount itself is still excluded -- a direct request to the
+// challenge / api / static endpoints must not resolve to a rule about itself
+// -- but everything under it that a preset or a custom row can name is kept.
+func protectedOrigURI(r *http.Request, basePath string) string {
+	oru := strings.TrimSpace(r.Header.Get("X-Original-URI"))
+	if !strings.HasPrefix(oru, "/") {
+		return ""
+	}
+	// The endpoints the forward-auth conf leaves auth_request off: they can
+	// never be the protected URI, and a direct hit carries them here.
+	for _, self := range []string{"/challenge/", "/challenge.html", "/api/", "/static/", "/_deny"} {
+		if strings.HasPrefix(oru, basePath+self) {
+			return ""
+		}
+	}
+	return truncateAt(oru, 200)
+}
+
 func banProbedOrigPath(r *http.Request, basePath string) string {
 	oru := strings.TrimSpace(r.Header.Get("X-Original-URI"))
 	if strings.HasPrefix(oru, "/") && !strings.HasPrefix(oru, basePath+"/") {
@@ -1058,13 +1092,12 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// protected rule (and its per-path mode) from the URI the visitor
 	// originally tried: the _orig query (apache mode's lua redirect), else
 	// X-Original-URI (fa-nginx's internal rewrite keeps $request_uri = the
-	// protected URI; banProbedOrigPath already rejects direct /unmask/...
-	// requests).  Gated on forceReason=="none" so a honeypot / ban / JA4
+	// protected URI).  Gated on forceReason=="none" so a honeypot / ban / JA4
 	// escalation keeps its own screen.
 	if ppMode == "" && forceReason == "none" {
 		orig := r.URL.Query().Get("_orig")
 		if orig == "" {
-			orig = banProbedOrigPath(r, h.basePath())
+			orig = protectedOrigURI(r, h.basePath())
 		}
 		if m := protectedModeForOrig(h.cfg().Nginx,
 			siteFromRequest(r, h.snapshotSettings()), orig); m != "" {
@@ -1516,6 +1549,28 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	}
 	if cm := strings.TrimSpace(r.URL.Query().Get("chm")); cm != "" && settings.IsValidRateChallengeMode(cm) {
 		chMode = cm
+	}
+	// Never serve a chain that cannot mint what the gate will demand.
+	//
+	// The requirement (a CAPTCHA-grade pass) and the screen (this chain) are
+	// computed from the same settings but along different paths, and any input
+	// one of them cannot see is a chance for them to disagree.  When they do,
+	// the visitor is not merely inconvenienced: they solve the screen they were
+	// given, present the credential it minted, are refused for holding the
+	// wrong grade, and are handed the same screen again -- forever, with no way
+	// out from the client side.  That is what a forward-auth node did to its
+	// own operator's admin login, because the serve could not see the URI the
+	// check had just matched a protected rule against.
+	//
+	// The resolver above is fixed, so this is the backstop: whatever route
+	// picked the chain, if a CAPTCHA-grade pass is required then the chain has
+	// to end in a CAPTCHA.  Escalating keeps the PoW leg, so it is never weaker
+	// than what was picked, and it costs a request nothing when they agree.
+	if chMode != settings.RateChallengeDeny && !chainEndsInCaptcha(chMode) {
+		if requestNeedsCaptchaGrade(r.Header.Get("User-Agent"), protectedOrigURI(r, h.basePath()),
+			siteFromRequest(r, h.snapshotSettings()), h.snapshotSettings()) {
+			chMode = settings.RateChallengePoWThenCaptcha
+		}
 	}
 	switch strings.TrimSpace(r.URL.Query().Get("_force")) {
 	case "pow":
