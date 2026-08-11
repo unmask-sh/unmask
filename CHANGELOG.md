@@ -8,6 +8,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - Each entry starts with `(YYYY-MM-DD)` — the date the change landed.
 - Within a release, entries are sorted by date descending (newest at top).
 
+## [0.1.29] - 2026-08-11
+
+> A fix for anyone running behind forward-auth on nginx: a fresh install would
+> challenge you for your own admin login, refuse the credential that challenge
+> minted, and challenge you again -- with no way out from the browser.  Nothing
+> had to be misconfigured to reach it.  Native (nginx module) and Apache
+> forward-auth deployments were never affected.
+
+### Fixed
+- (2026-08-11) **A fresh forward-auth install on nginx locked you out of its own admin.**  The shipped "unmask itself" preset gates `/unmask/admin/`, and with no mode pinned it follows the tab default, which ends in a CAPTCHA -- so the check demanded a CAPTCHA-grade pass.  The challenge, reached through a plain internal redirect that carries no protected-mode header, had to recover the URI from `X-Original-URI`, and did so through the helper that deliberately drops anything under the unmask mount (so a direct hit on the challenge cannot pose as a probed URL).  That is exactly where the preset points, so the challenge never learned the request was protected and served the user-agent axis's proof-of-work screen instead.  The visitor solved it, was refused for holding the wrong grade, and was served the same screen again, forever.  Every input was a default: the first thing a new install does is open the admin.  The protected rule is now resolved from a helper that keeps those URIs, excluding only the unmask endpoints that can never be a protected path themselves.
+- (2026-08-11) **A challenge is never served that the gate would refuse.**  The requirement and the screen are derived from the same settings along different paths, and anything one of them cannot see is a chance for them to disagree -- which costs the visitor not an inconvenience but every future request.  If a CAPTCHA-grade pass is required, the chain now ends in a CAPTCHA whatever route picked it, including an explicit hint from the check.  Escalation keeps the proof-of-work leg, so it is never weaker than what was chosen, and costs nothing when the two already agree.
+- (2026-08-11) **Collapsing a session in the bot hunt threw away its badges.**  The collapsed row rebuilds its phase cell, and carried across only the rate-limit badge -- and only when that badge sat on the row chosen to represent the session, which is its LAST phase while the badge is minted at the START.  So `rl:<zone>` was dropped in the ordinary case, and the load-balancer misconfiguration warning was dropped unconditionally because nothing re-attached it at all: a warning that the forwarded client address is spoofable disappeared the moment a session had a second row.  The abandon row's returned/gone badge and the reload counter went the same way.  All four now survive.
+
 ## [0.1.28] - 2026-08-11
 
 > The community feed now enforces on every deployment.  It shipped enforced by
