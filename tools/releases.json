@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.28",
+  "latest": "0.1.29",
   "releases": [
+    {
+      "version": "0.1.29",
+      "date": "2026-08-11",
+      "notes": "A fix for anyone running behind forward-auth on nginx: a fresh install would challenge you for your own admin login, refuse the credential that challenge minted, and challenge you again - with no way out from the browser. The shipped 'unmask itself' preset gates /unmask/admin/, and with no mode pinned it follows the tab default, which ends in a CAPTCHA, so the check demanded a CAPTCHA-grade pass; the challenge, reached through a plain internal redirect that carries no protected-mode header, recovered the URI through a helper that deliberately drops anything under the unmask mount - exactly where the preset points - so it served the user-agent axis's proof-of-work screen instead. Every input was a default, and the first thing a new install does is open the admin. Native (nginx module) and Apache forward-auth deployments were never affected. A challenge is also never served now that the gate would refuse: if a CAPTCHA-grade pass is required the chain ends in a CAPTCHA whatever route picked it, escalating in a way that keeps the proof-of-work leg so it is never weaker than what was chosen. Also fixed: collapsing a session in the bot hunt threw away its badges - the rate-limit zone in the ordinary case, and the load-balancer misconfiguration warning unconditionally, so a warning that the forwarded client address is spoofable vanished the moment a session had a second row."
+    },
     {
       "version": "0.1.28",
       "date": "2026-08-11",
