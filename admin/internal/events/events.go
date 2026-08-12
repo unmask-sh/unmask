@@ -1252,15 +1252,28 @@ type RankRow struct {
 	Count int
 }
 
-// OverBlockStats returns the challenge serve volume and the distinct client-IP
-// count over the last `minutes`, for the over-block circuit breaker.  A high
-// serves/distinctIPs ratio means the same visitors are being re-challenged
-// instead of passing -- a challenge loop (the 2026-06-08 tool1-jp incident).
-func OverBlockStats(ctx context.Context, d *db.DB, minutes int) (serves, distinctIPs int, err error) {
-	stmt := `SELECT COUNT(*), COUNT(DISTINCT ip_address) FROM unmask_event
-	         WHERE phase = 'serve' AND date_created > ` + d.NowMinusMinutes(minutes)
-	err = d.QueryRowContext(ctx, stmt).Scan(&serves, &distinctIPs)
-	return serves, distinctIPs, err
+// OverBlockStats returns the challenge serve volume, the distinct client-IP
+// count, and how many of those challenges were LOADED, over the last `minutes`
+// -- the inputs to the over-block circuit breaker.
+//
+// A high serves/distinctIPs ratio means the same visitors are being
+// re-challenged instead of passing (the 2026-06-08 tool1-jp challenge loop).
+// The load count is what separates that from its twin: a scanner farm on a
+// handful of addresses produces the same ratio while never running the JS at
+// all.  Measured on a production node: 6,403 serves across 46 addresses --
+// 139/IP, comfortably over the threshold -- with ONE load in ten minutes, all
+// of it Azure-hosted web-shell probing with no user-agent and no TLS
+// fingerprint.  A visitor stuck in a loop loads every challenge they are
+// served; a scanner loads none.
+func OverBlockStats(ctx context.Context, d *db.DB, minutes int) (serves, distinctIPs, loads int, err error) {
+	stmt := `SELECT
+	           COALESCE(SUM(CASE WHEN phase = 'serve' THEN 1 ELSE 0 END), 0),
+	           COUNT(DISTINCT CASE WHEN phase = 'serve' THEN ip_address END),
+	           COALESCE(SUM(CASE WHEN phase = 'load'  THEN 1 ELSE 0 END), 0)
+	         FROM unmask_event
+	         WHERE phase IN ('serve','load') AND date_created > ` + d.NowMinusMinutes(minutes)
+	err = d.QueryRowContext(ctx, stmt).Scan(&serves, &distinctIPs, &loads)
+	return serves, distinctIPs, loads, err
 }
 
 // eventDateHint pins an unmask_event query to the date_created index.  It is
