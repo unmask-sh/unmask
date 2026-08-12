@@ -178,15 +178,11 @@ var BypassIPGroups = []BypassIPGroup{
 		// which left ClaudeBot as the one major AI crawler unmask could not
 		// verify (measured on a production node: 110k ClaudeBot-claimed
 		// requests in 30 days, all passed on the UA string alone).
-		ID:     "claude",
-		Label:  "Anthropic (ClaudeBot / Claude-User / Claude-SearchBot)",
-		Source: "https://claude.com/crawling/bots.json",
-		File:   "iprange/claude.json",
-		// Stamped with the tree's current release: repocheck pins
-		// AddedIn <= Version so no preset ever ships wearing a version the
-		// binary cannot have installed under.  Restamp at the release cut if
-		// it ships under a later number.
-		AddedIn: "v0.1.29",
+		ID:      "claude",
+		Label:   "Anthropic (ClaudeBot / Claude-User / Claude-SearchBot)",
+		Source:  "https://claude.com/crawling/bots.json",
+		File:    "iprange/claude.json",
+		AddedIn: "v0.1.30",
 	},
 	{
 		// Real-user Chrome prefetch traffic transits via *.fetch.tunnel.googlezip.net,
