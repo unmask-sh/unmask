@@ -144,8 +144,23 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// funnel below, where it means "challenge pages served", which is what the
 	// pass counts beside it are a fraction of.
 	kpiFired := comp.Challenged
-	if kpiFired < kpiServes {
-		// No log feed (or it is behind): fall back to what the events know.
+	if !comp.OK {
+		// No log feed at all: fall back to what the events know.
+		//
+		// The condition used to be `kpiFired < kpiServes`, which also fired
+		// whenever the event side merely read HIGHER -- and it systematically
+		// does.  The log side is counted in minute buckets over exactly 1440
+		// of them; the event side comes from hourly buckets bounded inclusively
+		// on both ends, so it carries up to a whole extra hour.  On a node
+		// taking ~37k requests an hour that is thousands of requests of
+		// difference, drifting in and out as the window slides.
+		//
+		// Everything else in the composition comes from one snapshot of one
+		// table, and the solve counts cancel exactly (same variable on both
+		// sides).  So this was the ONLY term that could push the segments past
+		// the total -- which it did, by 926 on a production node, taking the
+		// whole residue breakdown down with it.  A feed that is merely behind
+		// now understates the card consistently instead of mixing two rulers.
 		kpiFired = kpiServes
 	}
 	// The abandon figure: ordinary visitors who ran the transparent
