@@ -399,6 +399,11 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	compState := compSegsParam(enabledSegs)
+	ovSites := make([]string, 0, len(recent))
+	for _, r := range recent {
+		ovSites = append(ovSites, r.Site)
+	}
+	ovMultiSite, ovGhostSites := siteBadgeState(ovSites, h.snapshotSettings())
 	data := map[string]any{
 		"Lang":           i18n.Resolve(r),
 		"TZ":             resolveTZ(r),
@@ -461,10 +466,12 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		// honours its "10 most recent" heading even though we pre-fetched 40 raw rows.
 		// UABotNote: see hunt_admin.go -- same key the shared events partial
 		// reads to caption a listed-crawler badge.
-		"UABotNote": uaBotNoteByUA(recentUAList, h.snapshotSettings().Nginx),
-		"Rows":      recent,
-		"EventsCap": 10,
-		"Range":     "",
+		"UABotNote":      uaBotNoteByUA(recentUAList, h.snapshotSettings().Nginx),
+		"Rows":           recent,
+		"RowsMultiSite":  ovMultiSite,
+		"RowsGhostSites": ovGhostSites,
+		"EventsCap":      10,
+		"Range":          "",
 		// Drop the per-row BAN action column on the overview card so the URL /
 		// UA columns get the recovered ~4rem of horizontal room.  The hunt page
 		// (= the actual deep-dive destination) keeps the action column on.
