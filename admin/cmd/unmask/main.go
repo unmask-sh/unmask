@@ -114,6 +114,8 @@ func main() {
 		err = cmdEvents(args)
 	case "analyze":
 		err = cmdAnalyze(args)
+	case "stats":
+		err = cmdStats(args)
 	case "db-analyze":
 		err = cmdDBAnalyze(args)
 	case "user":
@@ -155,6 +157,7 @@ usage:
   unmask render-nginx [-config PATH] [-out-dir DIR] [-dry-run]
   unmask events [-config PATH] [-site SITE] [-phase PHASE] [-host HOST[,HOST]] [-since ID] [-poll-ms 1000]
   unmask analyze [-config PATH] [-days 30] [-threshold 100] [-limit 20] [-site SITE]
+  unmask stats [-config PATH] [-kind traffic|phase|verdict|ip|ua|ja4|all] [-since 24h] [-site SITE] [-limit 20] [-tsv]
   unmask db-analyze [-config PATH] [-timeout 10m]
   unmask user list [-config PATH]
   unmask user create <username> [-role superadmin|admin|viewer] [-password PASS]

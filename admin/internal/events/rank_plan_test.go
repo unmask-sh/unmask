@@ -76,8 +76,22 @@ func TestRankByIPPinsDateIndex(t *testing.T) {
 			"(cost would grow with the table, not the window); plan:\n%s", plan)
 	}
 
+	// The site filter must not cost the index.  It is an extra predicate on a
+	// low-cardinality column, so the plan should still seek the date index and
+	// filter rows -- not fall back to scanning the (ip_address, date_created)
+	// covering index, which is what made this query slow in the first place.
+	condStmt := `SELECT ip_address, COUNT(*) AS c FROM unmask_event` + eventDateHint(d, win) + `
+	         WHERE ` + win + ` AND site = ?
+	         GROUP BY ip_address ORDER BY c DESC LIMIT ?`
+	sitePlan := planOf(t, d, condStmt, "example.com", 30)
+	if !strings.Contains(sitePlan, "idx_unmask_event_date") {
+		t.Errorf("RankByIP with a site filter stopped seeking the date index; plan:\n%s", sitePlan)
+	}
+	if strings.Contains(sitePlan, "idx_unmask_event_ip_date") {
+		t.Errorf("RankByIP with a site filter fell back to the covering index; plan:\n%s", sitePlan)
+	}
 	// The hint must not change the answer: 5 distinct IPs, 4 events each.
-	got, err := RankByIP(ctx, d, 60, 30)
+	got, err := RankByIP(ctx, d, 60, 30, "")
 	if err != nil {
 		t.Fatal(err)
 	}
