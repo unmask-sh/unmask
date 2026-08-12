@@ -615,7 +615,7 @@ func TestIsSearchBotUA(t *testing.T) {
 // TestIsSearchBotUARangeVerified: with every range preset enabled, crawler UAs
 // backed by an official IP range are NOT rescued by their UA string (the
 // bypass-IP veto carries the genuine article; a surviving match is a spoof),
-// while range-less crawlers (ClaudeBot) keep the UA rescue.  An operator
+// while range-less crawlers (YandexBot) keep the UA rescue.  An operator
 // Extra row rescues a range-verified UA regardless (explicit wins).
 func TestIsSearchBotUARangeVerified(t *testing.T) {
 	allOn := make([]string, 0, len(nginxconf.BypassIPGroups))
@@ -637,8 +637,11 @@ func TestIsSearchBotUARangeVerified(t *testing.T) {
 		{"Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)", false},
 		{"Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.0", false},
 		{"Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Amazonbot/0.1)", false},
+		// ClaudeBot used to sit on the "no published range" side of this
+		// table, until Anthropic published bots.json -- with the claude
+		// preset on, a UA-only ClaudeBot is a spoof like any other.
+		{"Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)", false},
 		// No published range -> UA rescue stays.
-		{"Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)", true},
 		{"Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)", true},
 	}
 	for _, c := range cases {

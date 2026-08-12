@@ -109,6 +109,17 @@ var UARangePresets = map[string][]string{
 	`Perplexity-User`: {"perplexity-user"},
 	`PerplexityUser`:  {"perplexity-user"},
 
+	// Anthropic — one shared list (claude.com/crawling/bots.json) covers the
+	// whole fleet.  Claude-Web and anthropic-ai are retired UA names, listed
+	// on purpose (see the package comment): genuine traffic for them no
+	// longer exists, so range verification simply turns their spoofs into
+	// challenges.
+	`[cC]laude[bB]ot`:  {"claude"},
+	`Claude-User`:      {"claude"},
+	`Claude-SearchBot`: {"claude"},
+	`Claude-Web`:       {"claude"},
+	`anthropic-ai`:     {"claude"},
+
 	// Apple.  Applebot-Extended is the AI-training opt-out token riding the
 	// same fleet.
 	`Applebot`:          {"applebot"},
