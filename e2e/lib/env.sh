@@ -27,10 +27,12 @@ UA_GOOGLEBOT='Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot
 UA_BINGBOT='Mozilla/5.0 (compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm)'
 UA_GPTBOT='Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.2; +https://openai.com/gptbot'
 UA_CLAUDEBOT='Mozilla/5.0 (compatible; ClaudeBot/1.0; +claudebot@anthropic.com)'
-# Matches the upstream `Claude-Web` pattern: a crawler with NO published IP
+# Matches the upstream `PetalBot` pattern: a crawler with NO published IP
 # range, so it must keep the UA-string rescue after the range-verified
-# inversion (scenarios 15 / 05 / 51 use it as the control).
-UA_CLAUDEWEB='Mozilla/5.0 (compatible; Claude-Web/1.0; +https://www.anthropic.com)'
+# inversion (scenarios 15 / 05 use it as the control).  Claude-Web held this
+# role until Anthropic published bots.json and every Claude pattern became
+# range-backed — the transition the inversion exists for.
+UA_PETALBOT='Mozilla/5.0 (Linux; Android 7.0;) AppleWebKit/537.36 (KHTML, like Gecko) Mobile Safari/537.36 (compatible; PetalBot;+https://webmaster.petalsearch.com/site/petalbot)'
 
 # Short curl wrapper.  $1 = path, remainder = extra curl args.
 # Echoes only the status code.  Options are written inline to avoid quote-leakage bugs.

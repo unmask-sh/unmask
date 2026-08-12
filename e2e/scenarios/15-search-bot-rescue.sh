@@ -4,7 +4,7 @@
 # "Never block a legitimate search bot" is the SEO-safe design principle, but
 # since the range-verified inversion (uarange.go) the UA string alone no
 # longer proves legitimacy for vendors that publish official IP ranges:
-#   - a crawler UA WITHOUT a published range (Claude-Web) keeps the pure
+#   - a crawler UA WITHOUT a published range (PetalBot) keeps the pure
 #     UA-string rescue — it must sail through even a protected path;
 #   - a crawler UA WITH a published range (Googlebot / bingbot / GPTBot)
 #     is rescued by IP instead.  This suite's client IP is not in any vendor
@@ -73,13 +73,15 @@ check_challenged() {
 }
 
 # Range-less crawler: pure UA rescue must survive, including on a protected path.
-check_rescued "Claude-Web" "$UA_CLAUDEWEB" "/"
-check_rescued "Claude-Web" "$UA_CLAUDEWEB" "$PROTECTED_PATH"
+check_rescued "PetalBot" "$UA_PETALBOT" "/"
+check_rescued "PetalBot" "$UA_PETALBOT" "$PROTECTED_PATH"
 
 # Range-verified vendors from a non-vendor IP (= spoofs): no UA exemption on
-# the protected path.
+# the protected path.  ClaudeBot joined this list when Anthropic published
+# bots.json — it used to be the range-less control above.
 check_challenged "Googlebot (spoof)" "$UA_GOOGLEBOT" "$PROTECTED_PATH"
 check_challenged "Bingbot (spoof)"   "$UA_BINGBOT"   "$PROTECTED_PATH"
 check_challenged "GPTBot (spoof)"    "$UA_GPTBOT"    "$PROTECTED_PATH"
+check_challenged "ClaudeBot (spoof)" "$UA_CLAUDEBOT" "$PROTECTED_PATH"
 
 exit "$fails"
