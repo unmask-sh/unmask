@@ -86,9 +86,9 @@ func evalOverBlock(cfg overBlockThresholds, serves, ips, loads int, tripped bool
 	// a few addresses hammering the site produce exactly the same
 	// serves-per-IP as a browser trapped in a loop.  The difference is whether
 	// anything ran the JS -- a trapped visitor loads every challenge they are
-	// handed, a scanner loads none.  Measured on a production node while this
-	// alarm was up: 6,403 serves over 46 addresses (139/IP) with ONE load in
-	// ten minutes, all of it Azure-hosted probing for web shells with no
+	// handed, a scanner loads none.  Observed in production while this alarm
+	// was up: a serves-per-IP ratio far over the threshold with essentially no
+	// loads behind it, all of it cloud-hosted probing for web shells with no
 	// user-agent and no TLS fingerprint.  Nothing was over-blocked; the alarm
 	// was reporting the product working.
 	//
