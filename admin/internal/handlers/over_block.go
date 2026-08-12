@@ -48,12 +48,12 @@ func (h *Handler) checkOverBlock(ctx context.Context) {
 
 	qctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	serves, ips, err := events.OverBlockStats(qctx, h.DB, cfg.WindowMinutesResolved())
+	serves, ips, loads, err := events.OverBlockStats(qctx, h.DB, cfg.WindowMinutesResolved())
 	if err != nil {
 		log.Printf("over-block monitor: %v", err)
 		return
 	}
-	tripped, overBlocking, ratio := evalOverBlock(cfg, serves, ips, h.overBlockTripped.Load())
+	tripped, overBlocking, ratio := evalOverBlock(cfg, serves, ips, loads, h.overBlockTripped.Load())
 
 	switch {
 	case overBlocking && !tripped:
@@ -74,12 +74,31 @@ func (h *Handler) checkOverBlock(ctx context.Context) {
 // overBlocking requires both enough volume and a high re-serve ratio (= the
 // same IPs being challenged again and again).  Split out so it is unit-testable
 // without a DB or a ticker.
-func evalOverBlock(cfg overBlockThresholds, serves, ips int, tripped bool) (bool, bool, float64) {
+func evalOverBlock(cfg overBlockThresholds, serves, ips, loads int, tripped bool) (bool, bool, float64) {
 	ratio := 0.0
 	if ips > 0 {
 		ratio = float64(serves) / float64(ips)
 	}
 	overBlocking := serves >= cfg.MinServesResolved() && ratio >= float64(cfg.MaxServesPerIPResolved())
+	// A challenge nobody even loaded is not a visitor who cannot get past it.
+	//
+	// The ratio alone cannot tell the breaker's own alarm from a scanner farm:
+	// a few addresses hammering the site produce exactly the same
+	// serves-per-IP as a browser trapped in a loop.  The difference is whether
+	// anything ran the JS -- a trapped visitor loads every challenge they are
+	// handed, a scanner loads none.  Measured on a production node while this
+	// alarm was up: 6,403 serves over 46 addresses (139/IP) with ONE load in
+	// ten minutes, all of it Azure-hosted probing for web shells with no
+	// user-agent and no TLS fingerprint.  Nothing was over-blocked; the alarm
+	// was reporting the product working.
+	//
+	// The bar is deliberately low.  One load per hundred serves is already far
+	// below anything a real loop produces (a loop's load count TRACKS its serve
+	// count), and staying low keeps the breaker firing for the case it exists
+	// for even when most of the traffic in the window is bots.
+	if overBlocking && loads*100 < serves {
+		overBlocking = false
+	}
 	return tripped, overBlocking, ratio
 }
 
@@ -100,9 +119,13 @@ func (h *Handler) overBlockPassthrough() bool {
 // OverBlockHealth is the breaker's live signal for the overview's trip banner
 // (only rendered when Tripped).
 type OverBlockHealth struct {
-	Tripped   bool
-	Serves    int
-	IPs       int
+	Tripped bool
+	Serves  int
+	IPs     int
+	// Loads: how many of those challenges were actually loaded.  Reported
+	// alongside the ratio because the ratio alone reads the same for a visitor
+	// trapped in a loop and for a scanner farm that never runs the JS.
+	Loads     int
 	Ratio     float64 // serves / IPs over the window
 	Threshold int     // MaxServesPerIP -- Ratio at/above this trips
 	WindowMin int
@@ -120,11 +143,11 @@ func (h *Handler) OverBlockHealth(ctx context.Context) (OverBlockHealth, error) 
 		WindowMin: cfg.WindowMinutesResolved(),
 		AutoPass:  cfg.AutoPassthrough,
 	}
-	serves, ips, err := events.OverBlockStats(ctx, h.DB, hh.WindowMin)
+	serves, ips, loads, err := events.OverBlockStats(ctx, h.DB, hh.WindowMin)
 	if err != nil {
 		return hh, err
 	}
-	hh.Serves, hh.IPs = serves, ips
+	hh.Serves, hh.IPs, hh.Loads = serves, ips, loads
 	if ips > 0 {
 		hh.Ratio = float64(serves) / float64(ips)
 	}
