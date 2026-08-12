@@ -540,6 +540,11 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		renderedCards = append(renderedCards, "asn")
 	}
 	rankFolded = dropFoldIfAllFolded(rankFolded, renderedCards)
+	huntSites := make([]string, 0, len(enriched))
+	for _, r := range enriched {
+		huntSites = append(huntSites, r.Site)
+	}
+	huntMultiSite, huntGhostSites := siteBadgeState(huntSites, h.snapshotSettings())
 	data := map[string]any{
 		"Lang":        i18n.Resolve(r),
 		"TZ":          resolveTZ(r),
@@ -569,18 +574,20 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		"Filtering":     ipFilter != "" || ja4Filter != "" || uaFilter != "" || refFilter != "" || phaseFilter != "" || asnFilter > 0,
 		// UABotNote: per listed-crawler UA, which reading its badge note
 		// carries (address check failed / configured target / generic).
-		"UABotNote":  uaBotNoteByUA(rowUAList, cur),
-		"Rows":       enriched,
-		"IPRank":     ipRank,
-		"JA4Rank":    ja4Rank,
-		"UARank":     uaRank,
-		"ASNRank":    asnRank,
-		"Offset":     offset,
-		"PageSize":   pageSize,
-		"NextOffset": offset + pageSize,
-		"PrevOffset": maxInt(offset-pageSize, 0),
-		"HasMore":    hasMore,
-		"HasPrev":    offset > 0,
+		"UABotNote":      uaBotNoteByUA(rowUAList, cur),
+		"Rows":           enriched,
+		"RowsMultiSite":  huntMultiSite,
+		"RowsGhostSites": huntGhostSites,
+		"IPRank":         ipRank,
+		"JA4Rank":        ja4Rank,
+		"UARank":         uaRank,
+		"ASNRank":        asnRank,
+		"Offset":         offset,
+		"PageSize":       pageSize,
+		"NextOffset":     offset + pageSize,
+		"PrevOffset":     maxInt(offset-pageSize, 0),
+		"HasMore":        hasMore,
+		"HasPrev":        offset > 0,
 		// Range caption fits the seek pager's right-hand info slot.  We don't
 		// expose a total (= unmask_event would need a window-scoped COUNT(*)
 		// that doesn't scale), but "N-M 件目を表示中" is cheap and useful.
@@ -914,6 +921,43 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 	default:
 		redir("unknown op: " + op)
 	}
+}
+
+// siteBadgeState decides whether an events row should show which site it
+// belongs to, from the rows themselves rather than from how many options the
+// site picker happens to offer.
+//
+// The badge used to be gated on `len(SitePickerOptions) > 1`, which is a proxy
+// for "this install has several sites" -- and in defined mode the picker lists
+// only DECLARED sites, so an install that declared exactly one never showed the
+// badge at all.  That is precisely the install where it matters: the log still
+// carries every Host the server answered, so the operator saw records for a
+// Host they never declared with nothing naming it.  Observed on unmask.sh,
+// where 296 scanner hits on the bare IP sat in the log indistinguishable from
+// traffic to the real site.
+//
+// Returns whether the visible rows span more than one site, and the set of
+// sites that are NOT declared (empty outside defined mode).  A row shows its
+// site when either applies: mixed view, or a Host nobody declared.
+func siteBadgeState(sites []string, cfg settings.Settings) (multi bool, ghosts map[string]bool) {
+	seen := map[string]bool{}
+	for _, s := range sites {
+		if s != "" {
+			seen[s] = true
+		}
+	}
+	multi = len(seen) > 1
+	ghosts = map[string]bool{}
+	if cfg.Sites.ResolvedMode() != settings.SiteModeDefined {
+		return multi, ghosts
+	}
+	defined := cfg.Sites.DefinedSet()
+	for s := range seen {
+		if !defined[s] {
+			ghosts[s] = true
+		}
+	}
+	return multi, ghosts
 }
 
 // resolvedUABlacklistAction: the chain a black-listed UA actually walks into.

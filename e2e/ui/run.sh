@@ -59,6 +59,13 @@ server:
   bind: 127.0.0.1
   port: $PORT
   base_path: /unmask
+# Defined mode with exactly one declared site: the shape where a badge gated on
+# the site picker's length can never appear, which is what site-badge.test.js
+# covers.
+sites:
+  mode: defined
+  defined:
+    - ui-e2e.example
 nginx_log:
   socket_path: $WORK/log.sock
 nginx:
@@ -113,6 +120,16 @@ for phase, payload, reloads, ago in [
         VALUES ('','','',0,x'7f000001','UI-E2E','','',0,?,0,?,'','',?,
                 datetime('now', '-' || ? || ' seconds'))""",
         (phase, reloads, payload, ago))
+# A record for a Host nobody declared: in defined mode the site picker lists
+# only declared sites, so a badge gated on the picker's length never appears --
+# exactly the install where the operator most needs to know which Host a row
+# came from.
+c.execute("""INSERT INTO unmask_event
+    (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
+     phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+    VALUES ('203.0.113.77','','https',443,x'7f000002','UI-E2E-ghost','','',0,
+            'serve',0,0,'','','{"bt":"uiGhost","orig_path":"/vpnsvc/connect.cgi"}',
+            datetime('now','-15 seconds'))""")
 c.commit()
 PY
 

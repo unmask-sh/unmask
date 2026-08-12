@@ -11,7 +11,8 @@
     .Lang                  i18n key (= 'ja' / 'en' / ...)
     .BasePath              admin base (= '/unmask')
     .Hosts                 map[host]bool (= len > 1 hides the host-badge)
-    .SitePickerOptions     []sitepicker.Option (= len > 1 hides the site-badge)
+    .RowsMultiSite         bool            (= the visible rows span >1 site)
+    .RowsGhostSites        map[string]bool (= sites not in the defined list)
     .Range                 range token (= passed back via the ban form)
     .EventsCap             int -- optional client-side hard cap on visible
                            sessions after collapse.  Zero / missing = no cap.
@@ -36,6 +37,7 @@
      Colour deliberately differs from rl-badge (= yellow) so the two are
      distinguishable when both fire on the same row. */}}
 <style>
+.site-badge.site-ghost{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
 .lb-warn-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.7rem;font-weight:700;background:#fee2e2;color:#991b1b;cursor:help;vertical-align:baseline}
 .lb-warn-badge:hover{filter:brightness(.95)}
 /* force_reason badge: which axis (header / stale / asn / ...) raised this challenge */
@@ -270,7 +272,7 @@
   <tbody>
     {{ range .Rows }}
     <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}" data-referer="{{ .Referer }}"{{ if gt .LocalPort 0 }} data-local-port="{{ .LocalPort }}"{{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .Returned 0 }}{{ t $.Lang "hunt.returned_stayed_long" }}{{ else }}{{ t $.Lang "hunt.returned_gone_long" }}{{ end }}"{{ end }}>
-      <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (gt (len $.SitePickerOptions) 1) }} <span class="site-badge cellpop">{{ .Site }}</span>{{ end }}</td>
+      <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (or $.RowsMultiSite (index $.RowsGhostSites .Site)) }} <span class="site-badge cellpop{{ if index $.RowsGhostSites .Site }} site-ghost{{ end }}">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       {{/* Empty verdict renders as "ok" (no JA4 rule matched -- a benign
