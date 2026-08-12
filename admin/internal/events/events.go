@@ -1290,23 +1290,35 @@ func eventDateHint(d *db.DB, window string) string {
 	return d.EventDateIndexHint()
 }
 
+// rankSiteCond builds the optional site predicate for the hunt rankings.
+// Bound rather than interpolated: these take a caller-supplied string, and a
+// site id is not something to trust into a statement.  Empty = every site.
+func rankSiteCond(site string) (string, []any) {
+	if site == "" {
+		return "", nil
+	}
+	return " AND site = ?", []any{site}
+}
+
 // RankByIP aggregates unmask_event from the last sinceMin minutes by IP.  Top limit entries.
-func RankByIP(ctx context.Context, d *db.DB, sinceMin, limit int) ([]RankRow, error) {
+func RankByIP(ctx context.Context, d *db.DB, sinceMin, limit int, site string) ([]RankRow, error) {
 	if limit < 1 || limit > 200 {
 		limit = 30
 	}
 	win := dateCreatedWindow(ctx, d, sinceMin)
+	cond, args := rankSiteCond(site)
+	args = append(args, limit)
 	stmt := `SELECT ip_address, COUNT(*) AS c FROM unmask_event` + eventDateHint(d, win) + `
-	         WHERE ` + win + `
+	         WHERE ` + win + cond + `
 	         GROUP BY ip_address ORDER BY c DESC LIMIT ?`
-	rows, err := d.QueryContext(ctx, stmt, limit)
+	rows, err := d.QueryContext(ctx, stmt, args...)
 	if err != nil && strings.Contains(err.Error(), "idx_unmask_event_date") {
 		// INDEXED BY turns a MISSING index into a hard error rather than a slow
 		// plan (failed/blocked migrate, hand-rebuilt schema).  Degrade to the
 		// unhinted slow-but-correct query instead of an empty hunt ranking.
 		rows, err = d.QueryContext(ctx, `SELECT ip_address, COUNT(*) AS c FROM unmask_event
-	         WHERE `+win+`
-	         GROUP BY ip_address ORDER BY c DESC LIMIT ?`, limit)
+	         WHERE `+win+cond+`
+	         GROUP BY ip_address ORDER BY c DESC LIMIT ?`, args...)
 	}
 	if err != nil {
 		return nil, err
@@ -1325,14 +1337,16 @@ func RankByIP(ctx context.Context, d *db.DB, sinceMin, limit int) ([]RankRow, er
 }
 
 // RankByJA4 aggregates unmask_event from the last sinceMin minutes by JA4.
-func RankByJA4(ctx context.Context, d *db.DB, sinceMin, limit int) ([]RankRow, error) {
+func RankByJA4(ctx context.Context, d *db.DB, sinceMin, limit int, site string) ([]RankRow, error) {
 	if limit < 1 || limit > 200 {
 		limit = 30
 	}
+	cond, args := rankSiteCond(site)
+	args = append(args, limit)
 	stmt := `SELECT COALESCE(ja4, ''), COUNT(*) AS c FROM unmask_event
-	         WHERE ` + dateCreatedWindow(ctx, d, sinceMin) + `
+	         WHERE ` + dateCreatedWindow(ctx, d, sinceMin) + cond + `
 	         GROUP BY ja4 ORDER BY c DESC LIMIT ?`
-	rows, err := d.QueryContext(ctx, stmt, limit)
+	rows, err := d.QueryContext(ctx, stmt, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -1387,14 +1401,16 @@ func SampleIPForJA4(ctx context.Context, d *db.DB, sinceMin int, ja4 string) (st
 }
 
 // RankByUA aggregates unmask_event from the last sinceMin minutes by UA.
-func RankByUA(ctx context.Context, d *db.DB, sinceMin, limit int) ([]RankRow, error) {
+func RankByUA(ctx context.Context, d *db.DB, sinceMin, limit int, site string) ([]RankRow, error) {
 	if limit < 1 || limit > 200 {
 		limit = 30
 	}
+	cond, args := rankSiteCond(site)
+	args = append(args, limit)
 	stmt := `SELECT COALESCE(user_agent, ''), COUNT(*) AS c FROM unmask_event
-	         WHERE ` + dateCreatedWindow(ctx, d, sinceMin) + `
+	         WHERE ` + dateCreatedWindow(ctx, d, sinceMin) + cond + `
 	         GROUP BY user_agent ORDER BY c DESC LIMIT ?`
-	rows, err := d.QueryContext(ctx, stmt, limit)
+	rows, err := d.QueryContext(ctx, stmt, args...)
 	if err != nil {
 		return nil, err
 	}

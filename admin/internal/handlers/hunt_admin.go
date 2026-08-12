@@ -273,9 +273,9 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 
 	// Three ranking tables (= filters are not applied.  Top entries within
 	// the tab's sinceMin window).
-	ipRankRaw, _ := events.RankByIP(huntCtx, h.DB, sinceMin, 30)
-	ja4RankRaw, _ := events.RankByJA4(huntCtx, h.DB, sinceMin, 30)
-	uaRankRaw, _ := events.RankByUA(huntCtx, h.DB, sinceMin, 30)
+	ipRankRaw, _ := events.RankByIP(huntCtx, h.DB, sinceMin, 30, "")
+	ja4RankRaw, _ := events.RankByJA4(huntCtx, h.DB, sinceMin, 30, "")
+	uaRankRaw, _ := events.RankByUA(huntCtx, h.DB, sinceMin, 30, "")
 
 	cur := h.snapshotSettings().Nginx
 
