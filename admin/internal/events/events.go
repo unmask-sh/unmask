@@ -1260,11 +1260,10 @@ type RankRow struct {
 // re-challenged instead of passing (the 2026-06-08 tool1-jp challenge loop).
 // The load count is what separates that from its twin: a scanner farm on a
 // handful of addresses produces the same ratio while never running the JS at
-// all.  Measured on a production node: 6,403 serves across 46 addresses --
-// 139/IP, comfortably over the threshold -- with ONE load in ten minutes, all
-// of it Azure-hosted web-shell probing with no user-agent and no TLS
-// fingerprint.  A visitor stuck in a loop loads every challenge they are
-// served; a scanner loads none.
+// all -- observed in production as a swarm of cloud-hosted web-shell probing
+// with no user-agent and no TLS fingerprint, sitting far above the threshold
+// with essentially no loads behind it.  A visitor stuck in a loop loads every
+// challenge they are served; a scanner loads none.
 func OverBlockStats(ctx context.Context, d *db.DB, minutes int) (serves, distinctIPs, loads int, err error) {
 	stmt := `SELECT
 	           COALESCE(SUM(CASE WHEN phase = 'serve' THEN 1 ELSE 0 END), 0),

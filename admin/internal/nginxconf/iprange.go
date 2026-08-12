@@ -176,8 +176,9 @@ var BypassIPGroups = []BypassIPGroup{
 		// address on this list, it indicates that the crawler is coming from
 		// Anthropic."  Anthropic previously published no ranges at all --
 		// which left ClaudeBot as the one major AI crawler unmask could not
-		// verify (measured on a production node: 110k ClaudeBot-claimed
-		// requests in 30 days, all passed on the UA string alone).
+		// verify: every request wearing the name passed on the UA string
+		// alone, and in production the overwhelming majority of them came
+		// from somewhere else entirely.
 		ID:      "claude",
 		Label:   "Anthropic (ClaudeBot / Claude-User / Claude-SearchBot)",
 		Source:  "https://claude.com/crawling/bots.json",
