@@ -310,11 +310,25 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// where that is visible instead of a named segment quietly absorbing it --
 	// so the unknown case lives HERE now, and the human share always renders a
 	// real measurement.
-	rOther := comp.Total - comp.Benign - tileBlocked - comp.Bypassed - rHuman
-	rOtherKnown := rOther >= 0
-	if !rOtherKnown {
+	// The shares are measured by two systems -- the access log counts requests,
+	// the event log counts solves and abandons -- read by five queries at five
+	// different instants.  On a busy node they disagree by a fraction of a
+	// percent, and when the disagreement runs the wrong way the parts come out
+	// slightly over the whole.  Measured on a production node: 942,209 against
+	// a total of 941,283, or 0.1%.
+	//
+	// That used to hide the entire breakdown behind "the counters are double
+	// counting", which is both a dead end for the reader and, as far as the
+	// counters go, untrue: summed straight from the access-log table the parts
+	// equal the total exactly.  Keep the segment at zero on the bar, show the
+	// breakdown as always, and let the balance line carry the real figure --
+	// negative is a legitimate reading there and says what it is.
+	rOtherRaw := comp.Total - comp.Benign - tileBlocked - comp.Bypassed - rHuman
+	rOther := rOtherRaw
+	if rOther < 0 {
 		rOther = 0
 	}
+	rOtherKnown := true
 	// Named components for the segment's popover, so "other" is a description
 	// rather than a shrug.  The balance is what the two measured terms do not
 	// account for: window edges (a solve counted whose serve fell before the
@@ -323,7 +337,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// whole, which is worth more than the line's absence, and a skew worth
 	// noticing is exactly what an operator should see rather than a tidied
 	// number.
-	rOtherSkew := rOther - abandon - comp.Unchallenged - comp.Passthrough - rRebound
+	rOtherSkew := rOtherRaw - abandon - comp.Unchallenged - comp.Passthrough - rRebound
 
 	// Which denominator the share is taken against.  Bypassed requests are the
 	// ones the operator exempted from judgement -- package managers, monitors,
