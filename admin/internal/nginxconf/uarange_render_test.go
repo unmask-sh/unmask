@@ -35,14 +35,16 @@ func TestRangeVerifiedUAInversionRender(t *testing.T) {
 		s.Nginx.BypassIPEnabledPresets = allOn
 		s.Nginx.SeenVersion = "v0.1.7"
 	})
-	for _, gone := range []string{`"~*Googlebot\/" 1;`, `"~*bingbot" 1;`, `"~*GPTBot" 1;`, `"~*Amazonbot" 1;`, `"~*DuckAssistBot" 1;`, `"~*Applebot" 1;`} {
+	for _, gone := range []string{`"~*Googlebot\/" 1;`, `"~*bingbot" 1;`, `"~*GPTBot" 1;`, `"~*Amazonbot" 1;`, `"~*DuckAssistBot" 1;`, `"~*Applebot" 1;`, `"~*[cC]laude[bB]ot" 1;`, `"~*Claude-User" 1;`, `"~*Claude-Web" 1;`} {
 		if strings.Contains(on, gone) {
 			t.Errorf("all presets on: %q must be dropped from $is_search_bot", gone)
 		}
 	}
-	// Range-less crawlers keep the UA rescue.
-	if !strings.Contains(on, `"~*Claude-Web" 1;`) {
-		t.Error("all presets on: range-less crawler (Claude-Web) must keep its UA line")
+	// Range-less crawlers keep the UA rescue.  (Claude-Web used to be the
+	// exemplar here, until Anthropic published bots.json and its patterns
+	// became range-backed -- exactly the transition this map exists for.)
+	if !strings.Contains(on, `"~*PetalBot" 1;`) {
+		t.Error("all presets on: range-less crawler (PetalBot) must keep its UA line")
 	}
 	if !strings.Contains(on, "deliberately NOT listed here") {
 		t.Error("all presets on: inversion note missing")

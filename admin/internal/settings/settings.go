@@ -3866,6 +3866,7 @@ func defaults() Settings {
 				"applebot", "amazonbot",
 				"openai-gptbot", "openai-searchbot", "openai-chatgpt-user",
 				"perplexitybot", "perplexity-user",
+				"claude",
 				"chrome-prefetch-proxy",
 			},
 			ChallengeTargets: ChallengeTargetsConfig{
