@@ -68,9 +68,15 @@ func TestOverBlockStats(t *testing.T) {
 	ins("10.0.0.3", "serve", 1)
 	ins("10.0.0.4", "load", 4) // non-serve must be excluded from both counts
 
-	serves, ips, err := OverBlockStats(ctx, d, 60)
+	serves, ips, loads, err := OverBlockStats(ctx, d, 60)
 	if err != nil {
 		t.Fatal(err)
+	}
+	// The loads are counted too -- they are what tells a trapped visitor from a
+	// scanner that never runs the JS -- but they must not leak into the serve
+	// or IP figures.
+	if loads != 4 {
+		t.Errorf("loads = %d, want 4", loads)
 	}
 	if serves != 9 {
 		t.Errorf("serves = %d, want 9 (load events must be excluded)", serves)
