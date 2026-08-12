@@ -76,8 +76,16 @@ func dropPrivilegesIfRoot() (string, error) {
 	if err := syscall.Setuid(uid); err != nil {
 		return "", fmt.Errorf("drop privileges to %s: setuid(%d): %w", name, uid, err)
 	}
+	droppedFromRoot = name
 	return fmt.Sprintf("dropped privileges to %s (uid %d) -- files this command creates belong to the daemon", name, uid), nil
 }
+
+// droppedFromRoot names the account this process switched to, or "" when it
+// never had root to give up.  Read by checks whose advice would otherwise be
+// impossible to follow: `doctor` is not exempt from the drop, so anything it
+// cannot do as the daemon user it cannot do under sudo either, and telling the
+// operator to re-run with sudo sends them in a circle.
+var droppedFromRoot string
 
 // daemonIdentity reads the uid/gid off the data directory and resolves a name
 // for it (falling back to the numeric uid when the account has no passwd
