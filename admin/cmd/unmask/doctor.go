@@ -706,6 +706,24 @@ func checkApacheConnPeer(addWarn func(t, m string)) {
 // (admin-only box / central forward-auth).  nginx -t needs root (reads 0640
 // http.inc, bind-tests), so a non-root permission failure is a WARN nudging sudo,
 // not a hard ERR.
+// nginxTestPermissionAdvice builds the warning for an nginx -t that could not
+// read what it needs.
+//
+// Do not send the operator round in a circle: doctor is not exempt from the
+// privilege drop, so `sudo unmask doctor` arrives here as the daemon user just
+// the same and prints the identical line.  Advice that cannot be followed reads
+// as a broken check -- observed across a 7-node fleet, where re-running under
+// sudo changed nothing.  Name the account that actually ran the test, and a
+// command that works.
+func nginxTestPermissionAdvice(msg string) string {
+	if droppedFromRoot != "" {
+		return "not validated: unmask drops to " + droppedFromRoot +
+			" before running checks, and nginx -t needs root to read the host's keys (" +
+			msg + ") — run `sudo nginx -t` directly"
+	}
+	return "couldn't validate as non-root (" + msg + ") — re-run as root"
+}
+
 func checkNginxConfTest(addOK, addWarn, addErr func(t, m string)) {
 	nginxBin, err := exec.LookPath("nginx")
 	if err != nil {
@@ -721,7 +739,7 @@ func checkNginxConfTest(addOK, addWarn, addErr func(t, m string)) {
 	msg := nginxErrLine(string(out))
 	low := strings.ToLower(string(out))
 	if os.Geteuid() != 0 && (strings.Contains(low, "permission denied") || strings.Contains(low, "operation not permitted")) {
-		addWarn("nginx -t", "couldn't validate as non-root ("+msg+") — re-run `sudo unmask doctor`")
+		addWarn("nginx -t", nginxTestPermissionAdvice(msg))
 		return
 	}
 	if strings.Contains(low, "unmask") || strings.Contains(string(out), "/var/lib/unmask/nginx/") {
