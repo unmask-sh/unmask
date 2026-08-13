@@ -63,7 +63,7 @@ func TestRankByIPPinsDateIndex(t *testing.T) {
 	}
 
 	win := dateCreatedWindow(ctx, d, 60)
-	stmt := `SELECT ip_address, COUNT(*) AS c FROM unmask_event` + eventDateHint(d, win) + `
+	stmt := `SELECT ip_address, COUNT(*) AS c FROM unmask_event` + d.EventDateIndexHint(win) + `
 	         WHERE ` + win + `
 	         GROUP BY ip_address ORDER BY c DESC LIMIT ?`
 	plan := planOf(t, d, stmt, 30)
@@ -80,7 +80,7 @@ func TestRankByIPPinsDateIndex(t *testing.T) {
 	// low-cardinality column, so the plan should still seek the date index and
 	// filter rows -- not fall back to scanning the (ip_address, date_created)
 	// covering index, which is what made this query slow in the first place.
-	condStmt := `SELECT ip_address, COUNT(*) AS c FROM unmask_event` + eventDateHint(d, win) + `
+	condStmt := `SELECT ip_address, COUNT(*) AS c FROM unmask_event` + d.EventDateIndexHint(win) + `
 	         WHERE ` + win + ` AND site = ?
 	         GROUP BY ip_address ORDER BY c DESC LIMIT ?`
 	sitePlan := planOf(t, d, condStmt, "example.com", 30)
@@ -110,10 +110,10 @@ func TestRankByIPPinsDateIndex(t *testing.T) {
 // carries no date_created constraint.
 func TestEventDateHintSkippedWithoutWindow(t *testing.T) {
 	d := &db.DB{Driver: db.DriverSQLite}
-	if got := eventDateHint(d, ""); got != "" {
+	if got := d.EventDateIndexHint(""); got != "" {
 		t.Errorf("no window must yield no hint, got %q", got)
 	}
-	if got := eventDateHint(d, "date_created > 'x'"); got == "" {
+	if got := d.EventDateIndexHint("date_created > 'x'"); got == "" {
 		t.Error("a windowed query on sqlite must be pinned to the date index")
 	}
 }
@@ -132,7 +132,7 @@ func TestSampleIPForJA4PinsDateIndex(t *testing.T) {
 	}
 	ctx := context.Background()
 	win := dateCreatedWindow(ctx, d, 60)
-	stmt := `SELECT ip_address FROM unmask_event` + eventDateHint(d, win) + `
+	stmt := `SELECT ip_address FROM unmask_event` + d.EventDateIndexHint(win) + `
 	         WHERE ` + win + `
 	           AND COALESCE(ja4, '') = ?
 	           AND COALESCE(ip_address, '') <> ''
