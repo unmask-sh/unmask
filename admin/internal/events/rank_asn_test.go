@@ -129,7 +129,7 @@ func TestRankByASNPinsDateIndex(t *testing.T) {
 		t.Fatal(err)
 	}
 	win := dateCreatedWindow(ctx, d, 60)
-	plan := planOf(t, d, `SELECT ip_address, COUNT(*) AS c FROM unmask_event`+eventDateHint(d, win)+
+	plan := planOf(t, d, `SELECT ip_address, COUNT(*) AS c FROM unmask_event`+d.EventDateIndexHint(win)+
 		` WHERE `+win+` GROUP BY ip_address`)
 	if !strings.Contains(plan, "idx_unmask_event_date") {
 		t.Fatalf("query must be pinned to the date index, plan was:\n%s", plan)

@@ -274,7 +274,7 @@ func PruneOldEvents(ctx context.Context, d *db.DB, retentionDays int) (int64, er
 	stmt := `DELETE FROM unmask_event WHERE date_created < ? LIMIT ?`
 	if d.Driver == db.DriverSQLite {
 		stmt = `DELETE FROM unmask_event WHERE id IN
-	        (SELECT id FROM unmask_event` + d.EventDateIndexHint() + ` WHERE date_created < ? LIMIT ?)`
+	        (SELECT id FROM unmask_event` + d.EventDateIndexHint("date_created < ?") + ` WHERE date_created < ? LIMIT ?)`
 	}
 	var total int64
 	for {
@@ -1275,20 +1275,6 @@ func OverBlockStats(ctx context.Context, d *db.DB, minutes int) (serves, distinc
 	return serves, distinctIPs, loads, err
 }
 
-// eventDateHint pins an unmask_event query to the date_created index.  It is
-// applied only to the GROUP BY ip_address queries: those are the ones SQLite
-// otherwise answers by scanning the entire (ip_address, date_created) covering
-// index, making them cost O(all events) instead of O(events in the window) --
-// and unlike the low-cardinality columns, ANALYZE does not rescue them.  Skipped
-// when there is no date window, since INDEXED BY on a query that cannot use the
-// index is a SQLite error.  See db.EventDateIndexHint.
-func eventDateHint(d *db.DB, window string) string {
-	if window == "" {
-		return ""
-	}
-	return d.EventDateIndexHint()
-}
-
 // rankSiteCond builds the optional site predicate for the hunt rankings.
 // Bound rather than interpolated: these take a caller-supplied string, and a
 // site id is not something to trust into a statement.  Empty = every site.
@@ -1307,7 +1293,7 @@ func RankByIP(ctx context.Context, d *db.DB, sinceMin, limit int, site string) (
 	win := dateCreatedWindow(ctx, d, sinceMin)
 	cond, args := rankSiteCond(site)
 	args = append(args, limit)
-	stmt := `SELECT ip_address, COUNT(*) AS c FROM unmask_event` + eventDateHint(d, win) + `
+	stmt := `SELECT ip_address, COUNT(*) AS c FROM unmask_event` + d.EventDateIndexHint(win) + `
 	         WHERE ` + win + cond + `
 	         GROUP BY ip_address ORDER BY c DESC LIMIT ?`
 	rows, err := d.QueryContext(ctx, stmt, args...)
@@ -1373,7 +1359,7 @@ func SampleIPForJA4(ctx context.Context, d *db.DB, sinceMin int, ja4 string) (st
 		return "", nil
 	}
 	win := dateCreatedWindow(ctx, d, sinceMin)
-	stmt := `SELECT ip_address FROM unmask_event` + eventDateHint(d, win) + `
+	stmt := `SELECT ip_address FROM unmask_event` + d.EventDateIndexHint(win) + `
 	         WHERE ` + win + `
 	           AND COALESCE(ja4, '') = ?
 	           AND COALESCE(ip_address, '') <> ''
@@ -1457,7 +1443,7 @@ func RankByASN(ctx context.Context, d *db.DB, sinceMin, limit int, resolve func(
 	}
 	win := dateCreatedWindow(ctx, d, sinceMin)
 	const cols = `SELECT ip_address, COUNT(*) AS c FROM unmask_event`
-	rows, err := d.QueryContext(ctx, cols+eventDateHint(d, win)+` WHERE `+win+` GROUP BY ip_address`)
+	rows, err := d.QueryContext(ctx, cols+d.EventDateIndexHint(win)+` WHERE `+win+` GROUP BY ip_address`)
 	if err != nil && strings.Contains(err.Error(), "idx_unmask_event_date") {
 		// Same degradation as RankByIP: INDEXED BY makes a missing index a hard
 		// error, and a slow ranking beats an empty one.
@@ -1711,7 +1697,7 @@ func IPsInASN(ctx context.Context, d *db.DB, sinceMin int, asn uint, resolve fun
 	}
 	win := dateCreatedWindow(ctx, d, sinceMin)
 	const cols = `SELECT ip_address, COUNT(*) AS c FROM unmask_event`
-	rows, err := d.QueryContext(ctx, cols+eventDateHint(d, win)+` WHERE `+win+` GROUP BY ip_address ORDER BY c DESC`)
+	rows, err := d.QueryContext(ctx, cols+d.EventDateIndexHint(win)+` WHERE `+win+` GROUP BY ip_address ORDER BY c DESC`)
 	if err != nil && strings.Contains(err.Error(), "idx_unmask_event_date") {
 		rows, err = d.QueryContext(ctx, cols+` WHERE `+win+` GROUP BY ip_address ORDER BY c DESC`)
 	}
