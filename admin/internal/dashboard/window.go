@@ -21,6 +21,37 @@ func OldestEventTS(ctx context.Context, d *db.DB) (int64, error) {
 	return ts, err
 }
 
+// OldestAggregateTS returns the unix time of the oldest hourly-aggregate bucket
+// on hand, or 0 when there is none.
+//
+// It bounds how far back the stats page can honestly look.  The page mixes two
+// sources: the summary figures and the per-day series read
+// unmask_aggregate_hourly, which is pruned on a fixed window (hourlyKeep) and
+// deliberately does NOT follow events_retention_days; the funnel, country and
+// flag cards read raw unmask_event, which does.  Offering a range the
+// aggregates cannot cover produces a page whose totals are labelled with a
+// window several times longer than the data behind them -- the kind of figure
+// an operator has no way to spot as wrong.  So the range picker asks this, not
+// just how old the oldest event is.
+func OldestAggregateTS(ctx context.Context, d *db.DB) (int64, error) {
+	// bucket_hour is the text 'YYYY-MM-DD HH', not an epoch: MIN() over it is
+	// still the oldest bucket (the format sorts chronologically), but it has to
+	// be parsed back rather than multiplied.
+	var b string
+	if err := d.QueryRowContext(ctx,
+		`SELECT COALESCE(MIN(bucket_hour), '') FROM unmask_aggregate_hourly`).Scan(&b); err != nil {
+		return 0, err
+	}
+	if b == "" {
+		return 0, nil
+	}
+	t, err := time.Parse("2006-01-02 15", b)
+	if err != nil {
+		return 0, nil // unparseable = treat as no history rather than a bogus bound
+	}
+	return t.Unix(), nil
+}
+
 // windowCtxKey carries a request's resolved Window through context so the query
 // helpers can apply a custom [from,to] range without threading a new parameter
 // through ~40 query signatures.  The window is a single per-request ambient
