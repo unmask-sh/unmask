@@ -1266,9 +1266,30 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	}
 	hours := dashboard.RangeHours(rng) // "all"/"custom" resolve via the ctx window below
 	nowTime := time.Now()
-	oldestTS, _ := dashboard.OldestEventTS(r.Context(), h.DB)
+	// How far back this page can honestly look is the SHORTER of its two
+	// sources.  The summary figures and the per-day series come from the hourly
+	// aggregate, pruned on a fixed window that deliberately does not follow
+	// events_retention_days; the funnel / country / flag cards come from raw
+	// events, which does.  Gating the picker on raw age alone offered ranges
+	// the aggregates could not fill: on an install keeping 90 days of events,
+	// "90d" appeared and the totals under it were a month of data wearing a
+	// quarter's label, with nothing on screen to say so.
+	//
+	// Timestamps run the other way from history: the LATER of the two oldest
+	// marks is the SHORTER reach.  Either source missing entirely means the
+	// page cannot fill a long window at all, so it offers none.
+	oldestEventTS, _ := dashboard.OldestEventTS(r.Context(), h.DB)
+	oldestAggTS, _ := dashboard.OldestAggregateTS(r.Context(), h.DB)
+	oldestTS := int64(0)
+	if oldestEventTS > 0 && oldestAggTS > 0 {
+		oldestTS = oldestEventTS
+		if oldestAggTS > oldestTS {
+			oldestTS = oldestAggTS
+		}
+	}
 	// custom range: from/to are operator-TZ calendar dates (YYYY-MM-DD), resolved
-	// to a UTC [00:00 from, 23:59:59 to] window.  "all" spans [oldest event, now].
+	// to a UTC [00:00 from, 23:59:59 to] window.  "all" spans [the bound above,
+	// now] -- the oldest point both sources reach, not the oldest event.
 	// An invalid custom range KEEPS rng="custom" (so the picker still renders,
 	// pre-filled) but leaves the window unset, so the queries fall back to the 24h
 	// span until the operator picks valid dates.
@@ -1284,8 +1305,11 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	}
 	win := dashboard.WindowFromRange(rng, nowTime, customFromTS, customToTS)
 	// Range-bar presets, widened to the data actually on hand: the long presets
-	// only appear once there's enough history behind them, and "all" once there's
-	// more than the 30d default.  See DataMinDate for the calendar bound.
+	// only appear once BOTH sources have enough history behind them, and "all"
+	// once there's more than the 30d default.  With the aggregate window fixed
+	// well under a quarter, that means 90d and beyond stay hidden until the
+	// aggregates themselves reach back that far -- the page does not offer a
+	// span it would have to pad.  See DataMinDate for the calendar bound.
 	rangePresets := []string{"24h", "7d", "30d"}
 	if oldestTS > 0 {
 		availDays := (nowTime.Unix() - oldestTS) / 86400
