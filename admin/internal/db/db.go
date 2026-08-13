@@ -479,7 +479,8 @@ func (d *DB) HasPlannerStats(ctx context.Context) (bool, error) {
 }
 
 // EventDateIndexHint returns the driver's hint that pins an unmask_event query
-// to the date_created index, or "" when the driver needs none.
+// to the date_created index, or "" when the driver needs none -- or when the
+// query has no date window to pin it by.
 //
 // RefreshPlannerStats fixes the bad plan for low-cardinality GROUP BY columns
 // (the planner can skip-scan them once it has statistics), but NOT for
@@ -490,11 +491,17 @@ func (d *DB) HasPlannerStats(ctx context.Context) (bool, error) {
 // 10.3s cold and did NOT get faster with a narrower window -- pinned to the date
 // index it is 0.005s.
 //
-// Only append this to a query that actually constrains date_created: INDEXED BY
-// makes SQLite reject a plan that cannot use the named index.  MariaDB names its
-// indexes differently (idx_date) and its optimizer estimates the range from live
-// InnoDB statistics, so it is deliberately left unhinted.
-func (d *DB) EventDateIndexHint() string {
+// window is the query's date_created predicate, or "" when it has none.  It is
+// a parameter rather than a caller-side precondition because INDEXED BY makes
+// SQLite reject a plan that cannot use the named index: a caller that pins an
+// unwindowed query gets a hard error, so the guard belongs where it cannot be
+// forgotten.  MariaDB names its indexes differently (idx_date) and its
+// optimizer estimates the range from live InnoDB statistics, so it is
+// deliberately left unhinted.
+func (d *DB) EventDateIndexHint(window string) string {
+	if window == "" {
+		return ""
+	}
 	if d.Driver == DriverSQLite {
 		return " INDEXED BY idx_unmask_event_date"
 	}

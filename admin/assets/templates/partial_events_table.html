@@ -1035,12 +1035,22 @@ document.addEventListener('DOMContentLoaded', function(){
     // for any path, truncated or not).  Other columns only get the popover
     // when the value is actually clipped -- a short JA4 / UA has nothing
     // extra to show.
+    //
+    // Re-checked at hover/click time, not decided once at load: scrollWidth is
+    // only meaningful after layout settles, and these cells sit in an
+    // auto-layout table whose column widths shift as the web font swaps in.  A
+    // one-shot test at DOMContentLoaded therefore misses cells that ARE
+    // truncated and never wires their popover -- the same trap the dashboard's
+    // copy of this hit, where the UA popovers on the cookie-err / reload-loop
+    // rows silently went missing.
     var isURL = el.classList.contains('url');
-    if (!isURL && !full && el.scrollWidth - el.clientWidth <= 1) return;
-    el.classList.add('cellpop-active');
+    function clipped(){ return isURL || (full && full.length > 0) || (el.scrollWidth - el.clientWidth > 1); }
+    if (clipped()) el.classList.add('cellpop-active');
     var url = isURL ? fullURL(el, val) : '';
     el.addEventListener('mouseenter', function(e){
       clearTimeout(timer);
+      if (!clipped()) return;
+      el.classList.add('cellpop-active');
       if (pin.hasPinFor(el)) return;
       var x = e.pageX, y = e.pageY;
       // Hover gets the summary as a heading inside the popover; the pinned
@@ -1053,6 +1063,7 @@ document.addEventListener('DOMContentLoaded', function(){
     });
     el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
     el.addEventListener('click', function(e){
+      if (!clipped()) return;
       e.preventDefault();
       e.stopPropagation();
       clearTimeout(timer);

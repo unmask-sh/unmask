@@ -12,11 +12,20 @@ import (
 // ANALYZE); MariaDB names its indexes differently and estimates the range from
 // live InnoDB statistics, so it must stay unhinted.
 func TestEventDateIndexHint(t *testing.T) {
-	if got := (&DB{Driver: DriverSQLite}).EventDateIndexHint(); got != " INDEXED BY idx_unmask_event_date" {
+	const win = "date_created > 'x'"
+	if got := (&DB{Driver: DriverSQLite}).EventDateIndexHint(win); got != " INDEXED BY idx_unmask_event_date" {
 		t.Errorf("sqlite hint = %q", got)
 	}
-	if got := (&DB{Driver: DriverMariaDB}).EventDateIndexHint(); got != "" {
+	if got := (&DB{Driver: DriverMariaDB}).EventDateIndexHint(win); got != "" {
 		t.Errorf("mariadb must be unhinted, got %q", got)
+	}
+	// No window, no hint: INDEXED BY on a query that cannot use the index is a
+	// hard SQLite error, so this guard is the reason the window is a parameter
+	// rather than something every caller has to remember.
+	for _, d := range []*DB{{Driver: DriverSQLite}, {Driver: DriverMariaDB}} {
+		if got := d.EventDateIndexHint(""); got != "" {
+			t.Errorf("%s: an unwindowed query must not be pinned, got %q", d.Driver, got)
+		}
 	}
 }
 

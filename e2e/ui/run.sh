@@ -130,6 +130,17 @@ c.execute("""INSERT INTO unmask_event
     VALUES ('203.0.113.77','','https',443,x'7f000002','UI-E2E-ghost','','',0,
             'serve',0,0,'','','{"bt":"uiGhost","orig_path":"/vpnsvc/connect.cgi"}',
             datetime('now','-15 seconds'))""")
+# A row whose UA is far too long for the column: the cellpop popover only
+# exists for values the cell cannot show, so without a clipped cell there is
+# nothing to test.  Long enough that it is truncated at any plausible width.
+c.execute("""INSERT INTO unmask_event
+    (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
+     phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+    VALUES ('','','https',443,x'7f000003',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 UI-E2E-longua-padding-so-the-cell-must-truncate-no-matter-how-wide-the-viewport-is',
+            't13d1516h2_8daaf6152771_02713d6af862','ok',0,
+            'serve',0,0,'','','{"bt":"uiCellpop"}',
+            datetime('now','-10 seconds'))""")
 c.commit()
 PY
 
