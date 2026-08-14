@@ -208,7 +208,7 @@ c.commit()
 c.execute("""INSERT OR REPLACE INTO unmask_ban
     (ip, ja4, source, reason, banned_at, expires_at, banned_by, action, scope)
     VALUES ('203.0.113.77','t13d_uiban','honeypot',?,strftime('%s','now'),0,'','','ip_ja4')""",
-    ("hit /cgi-bin/test?cmd=%3B+echo+GSCAN_BEGIN%3B+echo+%22%3D%3D%3Did%3D%3D%3D%22%3B"
+    ("hit example.test/cgi-bin/test?cmd=%3B+echo+GSCAN_BEGIN%3B+echo+%22%3D%3D%3Did%3D%3D%3D%22%3B"
      "id%3Becho+%22%3D%3D%3Dhost%3D%3D%3D%22%3Bhostname%3Becho+%22%3D%3D%3Dpwd%3D%3D%3D"
      "%22%3Bpwd%3Becho+%22%3D%3D%3Dwhoami%3D%3D%3D%22%3Bwhoami",))
 # ...and a short one, which must NOT get a popover: an affordance on a value

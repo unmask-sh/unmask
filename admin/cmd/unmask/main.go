@@ -577,13 +577,10 @@ func cmdServe(args []string) error {
 				return h.SnapshotSettings().Nginx.HTTPSRedirect
 			})
 			nlog.SetHoneypotCallback(func(ip, ja4, uri, site string) {
-				reason := "honeypot"
-				if uri != "" {
-					if len(uri) > 200 {
-						uri = uri[:200]
-					}
-					reason = "hit " + uri
-				}
+				// site is $host from the access line, so the reason can name the
+				// vhost that was probed.  On a multi-site install a path alone
+				// does not say which site owns the trap that fired.
+				reason := handlers.HoneypotReason(site, uri)
 				action, _ := nginxconf.ResolveHoneypotAction(uri, site, h.SnapshotSettings().Nginx)
 				banMgr.AddWithSourceAction(context.Background(), ip, ja4, ban.SourceHoneypot, reason, "", action)
 			})

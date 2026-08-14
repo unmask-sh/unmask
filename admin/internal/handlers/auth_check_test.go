@@ -368,7 +368,7 @@ func TestHoneypotDecidePerPreset(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			m := pathMatchers{honeypot: c.rules}
-			d, ok := honeypotDecide(context.Background(), c.uri, m, c.cfg, nil, "203.0.113.9")
+			d, ok := honeypotDecide(context.Background(), c.uri, m, c.cfg, nil, "203.0.113.9", "example.test")
 			if ok != c.wantOK {
 				t.Fatalf("ok=%v, want %v (decision=%+v)", ok, c.wantOK, d)
 			}
@@ -655,5 +655,34 @@ func TestIsSearchBotUARangeVerified(t *testing.T) {
 	ua := "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
 	if !isSearchBotUA(ua, "", n, re) {
 		t.Error("operator Extra row must rescue a range-verified UA")
+	}
+}
+
+// A honeypot ban's reason is read months after the trip, often by someone
+// deciding whether to lift it.  It has to say which host was probed: on a
+// multi-site install /cgi-bin/ exists on every vhost that has one, and a path
+// alone cannot answer "which site is being scanned".  Both wires build it here
+// so the two cannot drift into two spellings of the same event.
+func TestHoneypotReason(t *testing.T) {
+	long := "/cgi-bin/x?" + strings.Repeat("a", 400)
+	for _, tc := range []struct{ name, host, uri, want string }{
+		{"host and path", "uic.jp", "/cgi-bin/test?cmd=id", "hit uic.jp/cgi-bin/test?cmd=id"},
+		{"no host still names the path", "", "/cgi-bin/test", "hit /cgi-bin/test"},
+		{"no path still names the host", "uic.jp", "", "honeypot on uic.jp"},
+		{"neither", "", "", "honeypot"},
+		{"whitespace is not a value", "  ", "  ", "honeypot"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := honeypotReason(tc.host, tc.uri); got != tc.want {
+				t.Errorf("honeypotReason(%q, %q) = %q, want %q", tc.host, tc.uri, got, tc.want)
+			}
+		})
+	}
+	// Both halves are attacker-supplied, so both are bounded.  The reason
+	// column is VARCHAR(255); a scanner that sends a kilobyte of path must not
+	// be able to decide how much of the row survives the insert.
+	got := honeypotReason(strings.Repeat("h", 200), long)
+	if len(got) > reasonMaxLen {
+		t.Errorf("reason is %d chars, past what the column holds: %q", len(got), got[:80])
 	}
 }

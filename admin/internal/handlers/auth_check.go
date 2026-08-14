@@ -464,7 +464,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 					decisions = append(decisions, d)
 				}
 			}
-			if d, ok := honeypotDecide(r.Context(), uri, matchers, cfg, h.BanMgr, ip); ok {
+			if d, ok := honeypotDecide(r.Context(), uri, matchers, cfg, h.BanMgr, ip, host); ok {
 				decisions = append(decisions, d)
 			}
 			if d, ok := protectedDecide(uri, matchers, cfg, site); ok {
@@ -952,7 +952,7 @@ func asnDecideFor(asn uint, org string, cfg settings.AsnConfig) (axisDecision, b
 // whether honeypot wins the max — the trap counts even if a stronger axis
 // is the visible verdict).
 func honeypotDecide(ctx context.Context, uri string, matchers pathMatchers, cfg settings.Settings,
-	banMgr *ban.Manager, ip string) (axisDecision, bool) {
+	banMgr *ban.Manager, ip, host string) (axisDecision, bool) {
 	presetAct, ok := matchHoneypot(uri, matchers.honeypot)
 	if !ok {
 		return axisDecision{}, false
@@ -963,7 +963,7 @@ func honeypotDecide(ctx context.Context, uri string, matchers pathMatchers, cfg 
 		// forward-auth (banDecide rowAction) alike -- enforces the operator's
 		// per-preset choice, not just this first trip.
 		banMgr.AddWithSourceAction(ctx, ip, "", "honeypot",
-			"auth_request: hit "+truncateAt(uri, 80), "", presetAct)
+			"auth_request: "+honeypotReason(host, uri), "", presetAct)
 	}
 	// Immediate decision: per-preset override -> Honeypot.DefaultAction -> the
 	// same rate-limit chain default the other axes inherit.  A per-preset
@@ -981,6 +981,50 @@ func honeypotDecide(ctx context.Context, uri string, matchers pathMatchers, cfg 
 	}
 	s := severityFromAction(act)
 	return axisDecision{sev: s, reason: "honeypot:" + act, chMode: chModeFromSeverity(s)}, true
+}
+
+// HoneypotReason writes the ban reason for a honeypot trip: which host was
+// probed and which trap fired.  One function for both wires, because a reason
+// is what the operator reads months later and two spellings of the same event
+// read as two different events.
+//
+// The host leads because on a multi-site install a path alone does not say
+// whose trap this was -- /cgi-bin/ exists on every vhost that has one, and
+// "which site is being scanned" is usually the first question.  It is the
+// request's own Host, so it is attacker-supplied like the path; both are
+// truncated and neither is interpreted.
+//
+// honeypotReason is the unexported spelling used inside this package; the
+// exported one exists for the native wire, which builds the same reason from
+// an access-log line in main.go.
+func HoneypotReason(host, uri string) string { return honeypotReason(host, uri) }
+
+// reasonMaxLen mirrors the reason column (VARCHAR(255) on both backends).  The
+// parts are budgeted to fit rather than trimmed afterwards, so a scanner
+// sending a kilobyte of path cannot decide how much of the host survives --
+// the host is the half that answers "which site", and it is never the part
+// that gets cut.
+const (
+	reasonMaxLen  = 255
+	reasonHostMax = 60
+	reasonURIMax  = 180 // 4 ("hit ") + 60 + 180 = 244
+)
+
+func honeypotReason(host, uri string) string {
+	uri = truncateAt(strings.TrimSpace(uri), reasonURIMax)
+	host = truncateAt(strings.TrimSpace(host), reasonHostMax)
+	if uri == "" {
+		// Nothing to name.  "honeypot" alone is what the column said before a
+		// trip carried its URL, and it stays truthful when one does not.
+		if host == "" {
+			return "honeypot"
+		}
+		return "honeypot on " + host
+	}
+	if host == "" {
+		return "hit " + uri
+	}
+	return "hit " + host + uri
 }
 
 // matchHoneypot returns the action override of the FIRST honeypot rule uri hits.

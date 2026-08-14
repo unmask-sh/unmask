@@ -43,7 +43,20 @@ table.bans td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
    The clamp sits on an inner span rather than the cell: max-width on a <td>
    is advisory under table-layout:auto and browsers size the column by content
    anyway, which is the very thing being prevented here. */
-table.bans .clamp-v{display:inline-block;max-width:24rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+table.bans .clamp-v{display:inline-block;max-width:20rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+/* Every other column holds a value that has no sensible break point -- an
+   address, a fingerprint, an action name, a timestamp -- so wrapping one does
+   not fit more in, it just makes the whole row two lines tall and harder to
+   scan.  The reason is the only column allowed to be long, and it is clamped
+   above, so nothing here can push the table off the page.
+   ("pow_then_captcha (default)" was the one that actually wrapped, taking
+   every row with it, since a table row is as tall as its tallest cell.) */
+table.bans tbody td:not(:nth-child(5)){white-space:nowrap}
+/* With nothing left to wrap, a narrow window would push the table past the
+   page instead.  Scroll it inside its own box -- the same treatment the events
+   tables get (.events-scroll) -- so the body never scrolls sideways and a row
+   stays one line at any width. */
+.bans-scroll{overflow-x:auto;max-width:100%}
 /* Country flag PNG (left side of the IP cell). 16x12 png, subtle. Same as hunt.html.
  * Popover base is shared from /static/popover-pin.css. */
 img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
@@ -197,6 +210,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
     <span style="flex:1"></span>
     <button type="button" class="btn" id="ban-add-btn" data-default-action="{{ .Bans.ManualDefaultAction }}">{{ t .Lang "bans.btn.add" }}</button>
   </h2>
+  <div class="bans-scroll">
   <table class="bans">
     <thead>
       <tr>
@@ -271,6 +285,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
       {{ end }}
     </tbody>
   </table>
+  </div>
 </div>
 
 {{/* Shared add/edit dialog.  The single form posts op=add (no id) or op=edit
