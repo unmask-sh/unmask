@@ -504,6 +504,18 @@ type Row struct {
 	// was really shown -- but this answers the question at the point of the
 	// decision, without correlating a session.
 	ChMode string `json:"ch_mode,omitempty"`
+	// Seq / ElapsedMs: the browser's account of when it sent this beacon --
+	// which number in the page's own sequence, and how long after the page
+	// started.  -1 means the beacon carried neither (a server-side row such as
+	// serve, or a page from before the counter shipped).
+	//
+	// These exist because date_created answers a different question: it is
+	// arrival, and beacons leaving in one JS tick arrive in whichever order the
+	// network settled on.  Ordering a session by arrival therefore prints a
+	// route the visitor never walked.  Untrusted input, so their reach stops at
+	// arranging the rows of the session that supplied them.
+	Seq       int `json:"seq,omitempty"`
+	ElapsedMs int `json:"elapsed_ms,omitempty"`
 	// AbandonPhase / LeftAtMs / NoticeDelayMs: departure detail, sourced from
 	// the abandon beacon.  AbandonPhase is the step the visitor was on when
 	// they left; LeftAtMs is when they actually left (the browser's own event
@@ -589,6 +601,16 @@ func decorateRowFromPayload(row *Row, payload string) {
 	row.Reason = extractReason(payload)
 	row.ForceReason = extractForceReason(payload)
 	row.ChMode = extractStringField(payload, "ch_mode", 24)
+	// What the browser said about its own timing, kept beside what the server
+	// measured.  date_created is when the beacon ARRIVED, and arrival order is
+	// not emission order: phases sent in one JS tick race each other over the
+	// wire.  Seq is the emission order the page counted, ElapsedMs the interval
+	// it measured; the hunt log orders on those and spaces the timeline by
+	// them, while every filter and rollup keeps using the server's clock.
+	// Both are client-supplied and thus untrusted -- deliberately confined to
+	// arranging one session's own rows, where a lie costs the liar only.
+	row.Seq = extractIntFieldOr(payload, "seq", -1)
+	row.ElapsedMs = extractIntFieldOr(payload, "elapsed_ms", -1)
 	if row.Phase == "abandon" {
 		row.AbandonPhase = extractStringField(payload, "abandon_phase", 32)
 		row.AbandonVia = extractStringField(payload, "abandon_via", 16)
@@ -597,14 +619,25 @@ func decorateRowFromPayload(row *Row, payload string) {
 	}
 }
 
-// extractIntField pulls a bare (unquoted) numeric field out of payload_json.
-// Same hand-rolled approach as extractStringField: these run on every hunt row,
-// and a full JSON parse per row costs more than the field is worth.
+// extractIntField pulls a bare (unquoted) numeric field out of payload_json,
+// reading an absent field as zero.
 func extractIntField(payload, key string) int {
+	return extractIntFieldOr(payload, key, 0)
+}
+
+// extractIntFieldOr is extractIntField for fields where zero is a real value
+// and so cannot double as "absent" -- seq counts from 0, and a load beacon can
+// genuinely report elapsed_ms 0.  Callers pass a sentinel they can test for.
+//
+// Same hand-rolled approach as extractStringField: these run on every hunt row,
+// and a full JSON parse per row costs more than the field is worth.  Only
+// unsigned digits are accepted, so a negative or oversized client value reads
+// as absent rather than as a number that could reorder a timeline.
+func extractIntFieldOr(payload, key string, missing int) int {
 	needle := `"` + key + `":`
 	i := strings.Index(payload, needle)
 	if i < 0 {
-		return 0
+		return missing
 	}
 	rest := payload[i+len(needle):]
 	j := 0
@@ -616,11 +649,11 @@ func extractIntField(payload, key string) int {
 		j++
 	}
 	if j == start || j-start > 12 {
-		return 0
+		return missing
 	}
 	n, err := strconv.Atoi(rest[start:j])
 	if err != nil {
-		return 0
+		return missing
 	}
 	return n
 }

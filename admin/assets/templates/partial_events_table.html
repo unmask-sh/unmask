@@ -271,7 +271,7 @@
   </thead>
   <tbody>
     {{ range .Rows }}
-    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}" data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}" data-referer="{{ .Referer }}"{{ if gt .LocalPort 0 }} data-local-port="{{ .LocalPort }}"{{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .Returned 0 }}{{ t $.Lang "hunt.returned_stayed_long" }}{{ else }}{{ t $.Lang "hunt.returned_gone_long" }}{{ end }}"{{ end }}>
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}"{{ if ge .Seq 0 }} data-seq="{{ .Seq }}"{{ end }}{{ if ge .ElapsedMs 0 }} data-elapsed-ms="{{ .ElapsedMs }}"{{ end }} data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}" data-referer="{{ .Referer }}"{{ if gt .LocalPort 0 }} data-local-port="{{ .LocalPort }}"{{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .Returned 0 }}{{ t $.Lang "hunt.returned_stayed_long" }}{{ else }}{{ t $.Lang "hunt.returned_gone_long" }}{{ end }}"{{ end }}>
       <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (or $.RowsMultiSite (index $.RowsGhostSites .Site)) }} <span class="site-badge cellpop{{ if index $.RowsGhostSites .Site }} site-ghost{{ end }}">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -454,8 +454,21 @@ document.addEventListener('DOMContentLoaded', function(){
     // rather than renumbering the scale: the two rows can share a millisecond,
     // and then the time-sort alone would order them arbitrarily.
     'bv_rebind_reject':0.5,
-    'serve':1, 'load':2, 'pow':3, 'captcha':4,
-    'verify_ok':5, 'verify_ng':5,
+    // pow_pass and captcha are emitted by the same JS tick -- the proof of work
+    // finishes, then the CAPTCHA is drawn -- so they reach the server as two
+    // beacons sent microseconds apart and are stamped on arrival.  Which one
+    // lands first is a race, and it does invert: observed on a production
+    // session as captcha .574 / pow_pass .576, reading as though a CAPTCHA had
+    // preceded the proof of work.  The weight is what keeps the chain in the
+    // order the visitor actually walked, so both phases must be named here --
+    // the entry used to say 'pow', which no phase is called, leaving pow_pass
+    // to fall through to 99 and sort after everything.
+    'serve':1, 'load':2, 'pow_pass':3, 'captcha':4,
+    'verify_ng':5,
+    // The visitor closed the challenge without finishing it: terminal, and it
+    // shares its millisecond with nothing, but naming it keeps the table an
+    // inventory of the real phases rather than a partial one.
+    'abandon':6.5,
     // A successful rebind ends the session (no challenge page is served), so
     // it sits with the other terminal pass phases.
     'bv_pow_only':6, 'bv_captcha_only':6, 'bv_pow_then_captcha':6, 'bv_rebind':6,
@@ -478,6 +491,19 @@ document.addEventListener('DOMContentLoaded', function(){
     if (!ms) ms = Number(tr.getAttribute('data-ts')||0) * 1000;
     return ms;
   }
+  // The browser's own account of a beacon: which number it was in the page's
+  // sequence, and how long after the page started it left.  Absent on rows the
+  // server wrote (serve, check) and on pages older than the counter -- read as
+  // null so callers fall back rather than treating a missing field as 0, which
+  // is a real value for both.
+  function attrNum(tr, name){
+    var v = tr.getAttribute(name);
+    if (v == null || v === '') return null;
+    var n = Number(v);
+    return isFinite(n) && n >= 0 ? n : null;
+  }
+  function rowSeq(tr){ return attrNum(tr, 'data-seq'); }
+  function rowElapsed(tr){ return attrNum(tr, 'data-elapsed-ms'); }
   // Forward-auth: fold the standalone auth_request 'check' row into the
   // challenge session it triggered.  A 'check' has no beacon_token (it fires
   // during the auth subrequest, BEFORE the challenge page -- and thus its
@@ -539,18 +565,72 @@ document.addEventListener('DOMContentLoaded', function(){
   Object.keys(groups).forEach(function(bt){
     var grp = groups[bt];
     if (grp.length < 2) return;
+    // Order the session by the route the visitor walked, not by the order the
+    // beacons happened to arrive.
+    //
+    // Phases that follow one another inside a single JS tick (pow_pass, then
+    // the CAPTCHA it hands off to) leave as separate requests microseconds
+    // apart and are stamped when the server receives them, so which is
+    // recorded first is a race the network decides -- and it does invert.
+    // Seen on a production session as captcha .574 against pow_pass .576,
+    // which reads as a CAPTCHA solved before the proof of work ran.
+    //
+    // So ask the page, which is the only party that knows: every beacon now
+    // carries the number it was in that page's sequence.  That settles the
+    // same-tick pair exactly, where elapsed_ms cannot (same tick, same
+    // millisecond) and arrival time is actively wrong.
+    //
+    // The fallbacks matter as much as the rule, because rows recorded before
+    // the counter shipped have no seq and never will: for those the phase
+    // order -- a fact about the flow rather than about the wire -- leads, and
+    // arrival time separates only what the weights cannot (repeats of one
+    // phase, anything not in the table).
     grp.sort(function(a, b){
+      var sa = rowSeq(a), sb = rowSeq(b);
+      if (sa != null && sb != null && sa !== sb) return sa - sb;
+      var wa = PHASE_WEIGHT[a.getAttribute('data-phase')];
+      var wb = PHASE_WEIGHT[b.getAttribute('data-phase')];
+      if (wa != null && wb != null && wa !== wb) return wa - wb;
       var d = rowKey(a) - rowKey(b);
       if (d) return d;
-      var wa = PHASE_WEIGHT[a.getAttribute('data-phase')] || 99;
-      var wb = PHASE_WEIGHT[b.getAttribute('data-phase')] || 99;
-      return wa - wb;
+      return (wa == null ? 99 : wa) - (wb == null ? 99 : wb);
     });
     // Freeze every event's own timestamp before the promotion below rewrites
     // the rep row's data-ts / data-ts-ms to the session-start time -- the
     // timeline popover must keep showing each phase's real time (without this
     // the terminal bv_* line displays the serve's timestamp).
     grp.forEach(function(tr){ if (tr.__origMs == null) tr.__origMs = rowKey(tr); });
+    // When each phase actually happened, as opposed to when its beacon landed.
+    //
+    // Every beacon crosses the network before it is stamped, so a recorded
+    // time is the real one plus that trip.  The trip is not constant, and its
+    // variation is the whole defect: two phases 0ms apart in the browser can
+    // be recorded 2ms apart in the wrong order, and printing those numbers
+    // tells the operator the visitor did something they did not do.
+    //
+    // Each measurement is used for what it is good for.  The absolute anchor
+    // comes from the server -- the client's wall clock is unknown and
+    // unverifiable, and a page free to name its own time could place itself
+    // outside the range being queried.  The intervals come from the page,
+    // which measured them without a network in between.  The result is the
+    // session's own timeline pinned to an instant the server vouches for; no
+    // time is invented, the delivery jitter is simply not counted twice.
+    //
+    // Rows the server wrote itself (serve, the folded forward-auth check)
+    // carry no elapsed_ms and need none: nothing was in transit, so their
+    // recorded time is already the time they happened.
+    var anchor = null, anchorEl = null;
+    grp.forEach(function(tr){
+      var el = rowElapsed(tr);
+      if (el == null) { tr.__firedMs = tr.__origMs; return; }
+      if (anchor == null) { anchor = tr.__origMs; anchorEl = el; tr.__firedMs = tr.__origMs; return; }
+      var delta = el - anchorEl;
+      // A page can send anything.  Accept only an interval that could belong
+      // to the session in front of us; anything else falls back to the
+      // recorded time, so a bogus value costs nothing but the correction.
+      if (delta < 0 || delta > 86400000) { tr.__firedMs = tr.__origMs; return; }
+      tr.__firedMs = anchor + delta;
+    });
     // Collapse consecutive same-phase rows (= rare but happens when the
     // server fires the same phase twice for one request).  The timeline
     // popover still shows every event with its own timestamp.
@@ -699,7 +779,8 @@ document.addEventListener('DOMContentLoaded', function(){
       // with several of them gets several notes.
       var notes = [];
       var lines = grp.map(function(tr){
-        var ms = (tr.__origMs != null) ? tr.__origMs : rowKey(tr);
+        var ms = (tr.__firedMs != null) ? tr.__firedMs
+               : (tr.__origMs != null) ? tr.__origMs : rowKey(tr);
         var ph = tr.getAttribute('data-phase') || '';
         var pillCls = 'phase-pill ph-' + ph;
         // Full phase name here, not the chain's short label: the chain trades
@@ -768,7 +849,7 @@ document.addEventListener('DOMContentLoaded', function(){
       // paginated off): the span would then cover only what survived on this
       // page, and labelling that "total" would be wrong.
       if (hasServe && grp.length > 1) {
-        var firstMs = grp[0].__origMs, lastMs = grp[grp.length - 1].__origMs;
+        var firstMs = grp[0].__firedMs, lastMs = grp[grp.length - 1].__firedMs;
         if (firstMs != null && lastMs != null && lastMs >= firstMs) {
           // Just the span: the first and last timestamps are already the top
           // and bottom lines of the timeline right above this.
