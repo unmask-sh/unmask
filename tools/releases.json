@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.30",
+  "latest": "0.1.31",
   "releases": [
+    {
+      "version": "0.1.31",
+      "date": "2026-08-15",
+      "notes": "Two rules that did not do what they said. An ASN rule matching on organisation rendered an nginx configuration nginx refuses to load: organisation patterns contain spaces (\"china unicom\") and the value went out unquoted, so nginx read the space as a third parameter and rejected the whole file - and it did so in the worst possible order, with the render succeeding and the test failing afterwards, which leaves an install one restart away from not coming back up. Exact-ASN rules were never affected. Separately, a geo or ASN rule set to a CAPTCHA was satisfied by a proof-of-work cookie: the pass-cookie exemption asked three sources whether a request needs a CAPTCHA-grade cookie - the user-agent chain, protected paths and the community feed - and the two network axes were never wired in, on either deployment mode, so an address holding a cookie minted under a global pow_only posture walked past a rule that said CAPTCHA for the rest of that cookie's life. Both modes now fold the network axes into the same requirement, minus each axis's own exempt paths; rules in rate-limit mode are unchanged. The bot-hunt log also stops misreporting sessions: it orders a session by the sequence the browser counted rather than the order beacons happened to arrive, since phases leaving in one JavaScript tick race each other over the wire and could show a CAPTCHA recorded before the proof of work that led to it; and it no longer announces pow_then_captcha as a departure from itself the moment it reaches its second leg, reading the reason the page recorded instead of guessing from the timeline. A honeypot ban now names the host that was probed, not just the path, which on a multi-site install is the difference between knowing which site is being scanned and not. The built-in CAPTCHA is the recommended one: an external provider has to be told which domains may use it, and an admin panel on an unregistered host fails that check, locking the operator out of the page they would use to change the setting. Native installs should reload nginx after upgrading - the package re-renders the snippets, but does not reload for you."
+    },
     {
       "version": "0.1.30",
       "date": "2026-08-12",
