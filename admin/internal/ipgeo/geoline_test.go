@@ -14,14 +14,14 @@ func nginxGeoParams(line string) int {
 	inQuote := false
 	inTok := false
 	for _, r := range line {
-		switch {
-		case r == '"':
+		switch r {
+		case '"':
 			inQuote = !inQuote
 			if !inTok {
 				n++
 				inTok = true
 			}
-		case r == ' ' || r == '\t':
+		case ' ', '\t':
 			if !inQuote {
 				inTok = false
 			}
