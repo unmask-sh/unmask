@@ -201,6 +201,23 @@ for phase, seq, el, off in [
         (phase, json.dumps(pl, separators=(',', ':')), _at(off)))
 c.commit()
 
+# A ban whose reason is a whole request line.  The honeypot writes the path
+# that tripped it, and a shell-injection probe's path is hundreds of
+# percent-encoded characters -- in an auto-layout table that one row decides
+# how wide the reason column is for every other row.
+c.execute("""INSERT OR REPLACE INTO unmask_ban
+    (ip, ja4, source, reason, banned_at, expires_at, banned_by, action, scope)
+    VALUES ('203.0.113.77','t13d_uiban','honeypot',?,strftime('%s','now'),0,'','','ip_ja4')""",
+    ("hit /cgi-bin/test?cmd=%3B+echo+GSCAN_BEGIN%3B+echo+%22%3D%3D%3Did%3D%3D%3D%22%3B"
+     "id%3Becho+%22%3D%3D%3Dhost%3D%3D%3D%22%3Bhostname%3Becho+%22%3D%3D%3Dpwd%3D%3D%3D"
+     "%22%3Bpwd%3Becho+%22%3D%3D%3Dwhoami%3D%3D%3D%22%3Bwhoami",))
+# ...and a short one, which must NOT get a popover: an affordance on a value
+# that is fully visible teaches the operator to click things that do nothing.
+c.execute("""INSERT OR REPLACE INTO unmask_ban
+    (ip, ja4, source, reason, banned_at, expires_at, banned_by, action, scope)
+    VALUES ('203.0.113.78','t13d_uiban2','manual','scraper',strftime('%s','now'),0,'ui-e2e','','ip_ja4')""")
+c.commit()
+
 # A row whose UA is far too long for the column: the cellpop popover only
 # exists for values the cell cannot show, so without a clipped cell there is
 # nothing to test.  Long enough that it is truncated at any plausible width.
