@@ -130,6 +130,77 @@ c.execute("""INSERT INTO unmask_event
     VALUES ('203.0.113.77','','https',443,x'7f000002','UI-E2E-ghost','','',0,
             'serve',0,0,'','','{"bt":"uiGhost","orig_path":"/vpnsvc/connect.cgi"}',
             datetime('now','-15 seconds'))""")
+# A session whose beacons arrived out of order.  pow_pass and captcha are
+# emitted by the same JS tick, sent as separate requests microseconds apart and
+# stamped on arrival, so which lands first is a race -- observed in production
+# as captcha .574 / pow_pass .576.  Seeded with those timestamps inverted so the
+# chain has to put them back in the order the visitor walked.
+# Sub-second precision matters: the inversion is 2 MILLISECONDS, and the hunt
+# rows carry ts_ms.  sqlite's datetime() truncates to the second, so the stamps
+# are written with explicit millis the way the server records them.
+import datetime as _dt
+import json
+_base = _dt.datetime.utcnow() - _dt.timedelta(seconds=30)
+def _at(offset_ms):
+    return (_base + _dt.timedelta(milliseconds=offset_ms)).strftime("%Y-%m-%d %H:%M:%S.") + \
+           "%03d" % ((_base + _dt.timedelta(milliseconds=offset_ms)).microsecond // 1000)
+# The pair that matters carries the SAME elapsed_ms: pow_pass and the CAPTCHA
+# it hands off to leave in one JS tick, so the browser's own millisecond clock
+# cannot separate them either.  Only seq can -- and the arrival times are
+# inverted, exactly as observed in production.
+#
+# (phase, seq, elapsed_ms, arrival offset ms)
+for phase, seq, el, off in [
+        ("serve",               None, None, 0),
+        ("load",                0,    500,  507),
+        ("captcha",             2,    725,  725),   # arrived FIRST
+        ("pow_pass",            1,    725,  727),   # sent first, arrived second
+        ("bv_pow_then_captcha", 3,    900,  900)]:
+    pl = {"bt": "uiRace"}
+    if phase == "serve":
+        pl["force_reason"] = "ua_target"
+        pl["ch_mode"] = "pow_then_captcha"
+    if seq is not None:
+        pl["seq"] = seq
+        pl["elapsed_ms"] = el
+    # separators matter: the server's payload readers are hand-rolled and
+    # match what JSON.stringify emits, which has no space after the colon.
+    if phase == "pow_pass":
+        pl["next"] = "captcha"
+    c.execute("""INSERT INTO unmask_event
+        (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
+         phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+        VALUES ('','','https',443,x'7f000004','UI-E2E-race','t13d_race','',0,?,0,0,'','',?,?)""",
+        (phase, json.dumps(pl, separators=(',', ':')), _at(off)))
+
+# A second session where the phase order alone cannot be the answer: a CAPTCHA
+# shown, failed, and shown again.  Every beacon here arrives in the order it
+# was sent -- nothing is racing -- but the two captcha rows carry the same
+# phase and therefore the same weight, so ordering by weight puts them
+# side by side and buries the verify_ng that happened between them.  The page
+# is the only party that can say which captcha came after the failure, and it
+# says so with seq.
+for phase, seq, el, off in [
+        ("serve",           None, None, 0),
+        ("load",            0,    500,  505),
+        ("captcha",         1,    1000, 1005),
+        ("verify_ng",       2,    3000, 3005),
+        ("captcha",         3,    3200, 3205),   # a second attempt, after the failure
+        ("bv_captcha_only", 4,    5000, 5005)]:
+    pl = {"bt": "uiRetry"}
+    if phase == "serve":
+        pl["force_reason"] = "rate_limit"
+        pl["ch_mode"] = "captcha_only"
+    if seq is not None:
+        pl["seq"] = seq
+        pl["elapsed_ms"] = el
+    c.execute("""INSERT INTO unmask_event
+        (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
+         phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+        VALUES ('','','https',443,x'7f000005','UI-E2E-retry','t13d_retry','',0,?,0,0,'','',?,?)""",
+        (phase, json.dumps(pl, separators=(',', ':')), _at(off)))
+c.commit()
+
 # A row whose UA is far too long for the column: the cellpop popover only
 # exists for values the cell cannot show, so without a clipped cell there is
 # nothing to test.  Long enough that it is truncated at any plausible width.

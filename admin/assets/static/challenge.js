@@ -54,6 +54,7 @@
   //   - browsers without sendBeacon fall back to fetch keepalive
   //   - errors stay silent (don't disturb the normal challenge flow)
   // ============================================================
+  var _bcSeq = 0;
   function _bcDebug(phase, extra){
     // Remember the last phase reached so an abandonment beacon can say WHERE
     // the visitor gave up.  Recording it here rather than at each call site
@@ -87,7 +88,16 @@
         force_reason: (window.UNMASK && window.UNMASK.force_reason) || 'none',
         bt: (window.UNMASK && window.UNMASK.beacon_token) || '',
         ts: Date.now(),
-        elapsed_ms: (typeof start !== 'undefined') ? Date.now() - start : null
+        elapsed_ms: (typeof start !== 'undefined') ? Date.now() - start : null,
+        // Emission order, stated rather than inferred.  Beacons are separate
+        // requests stamped when the server receives them, so two phases sent
+        // microseconds apart arrive in whichever order the network chose --
+        // and pow_pass/captcha, which leave in the same tick, do invert in
+        // production.  elapsed_ms cannot break that tie either: same tick,
+        // same millisecond.  A counter can, because it is the one fact only
+        // this page knows.  Scoped to one page instance, which is also the
+        // scope of a beacon token, so it needs no cross-page uniqueness.
+        seq: _bcSeq++
       };
       if (extra) for (var k in extra) pl[k] = extra[k];
       var body = JSON.stringify(pl);
