@@ -41,9 +41,12 @@ func TestHuntAbandonRowShowsDetail(t *testing.T) {
 			t.Errorf("the departure detail must include %s", want)
 		}
 	}
-	// Gone / stayed, the only available answer to "back or closed".
-	if !strings.Contains(body, "ret-gone") && !strings.Contains(body, "ret-stayed") {
-		t.Error("an abandon row must show whether the client came back")
+	// Back or closed, the only available answer -- and it has to ride INSIDE
+	// the pill.  Beside it, the fact wrapped onto its own line on a narrow
+	// column and read as another step in the chain.  Nothing else followed this
+	// seeded row, so the mark is the empty one.
+	if !strings.Contains(body, `abandon(captcha)<span class="ret-mark">∅</span>`) {
+		t.Error("the abandon pill must carry what happened next, inside the pill")
 	}
 }
 
