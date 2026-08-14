@@ -23,7 +23,7 @@ func TestAxisGrade_ASNCaptchaRuleRequires(t *testing.T) {
 	if !axisNeedsCaptchaGrade(132203, "Tencent", "", false, false, cfg) {
 		t.Error("a captcha_only ASN rule imposed no grade requirement")
 	}
-	if axisNeedsCaptchaGrade(4837, "China Unicom", "", false, false, cfg) {
+	if axisNeedsCaptchaGrade(64500, "Example Telecom", "", false, false, cfg) {
 		t.Error("an unmatched network was asked for a grade")
 	}
 }
