@@ -33,6 +33,17 @@ table.bans thead th{text-align:left;padding:.5rem .6rem;border-bottom:2px solid 
 table.bans tbody td{padding:.45rem .6rem;border-bottom:1px solid #f1f5f9;vertical-align:middle}
 table.bans tbody tr:hover{background:#f8fafc}
 table.bans td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
+/* A reason can be an entire request line: the honeypot writes the path that
+   tripped it, and an injection probe's path carries a whole shell command in
+   percent-encoding.  This table is auto-layout, so one such row sets the
+   column width for every row and squeezes every other column out of shape.
+   Clamp it and hand the full text to a popover -- the same gesture and the
+   same #clamp-popover the community feed table uses, so the two ban pages do
+   not teach different things.
+   The clamp sits on an inner span rather than the cell: max-width on a <td>
+   is advisory under table-layout:auto and browsers size the column by content
+   anyway, which is the very thing being prevented here. */
+table.bans .clamp-v{display:inline-block;max-width:24rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 /* Country flag PNG (left side of the IP cell). 16x12 png, subtle. Same as hunt.html.
  * Popover base is shared from /static/popover-pin.css. */
 img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
@@ -227,7 +238,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
             <span class="muted" title="{{ t $.Lang "bans.action.default_tooltip" }}" style="font-size:.78em">(default)</span>
           {{ end }}
         </td>
-        <td>{{ if .Reason }}{{ .Reason }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td>{{ if .Reason }}<span class="clamp-v" data-full="{{ .Reason }}">{{ .Reason }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td><time class="js-datetime js-datetime-notz" data-ts="{{ .BannedAt.Unix }}">{{ .BannedAt.Format "2006-01-02 15:04" }}</time></td>
         <td>
           {{ if .ExpiresAt.IsZero }}
@@ -362,7 +373,52 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
 
 </main>
 <div id="ip-popover" data-popover="ip"></div>
+<div id="clamp-popover" data-popover="clamp"></div>
 <script>
+
+// Clamp popover for the reason column.  Same behaviour as the community feed
+// table: hover measures the span, and only a value that actually overflows
+// gets a popover -- a short reason has nothing more to show and should stay
+// silent.  Click pins it, which is what gives the operator a copy button and
+// selectable text; a reason that is really a request line is something you
+// want to paste somewhere, not just read.
+//
+// The measurement runs at hover rather than once at load, because scrollWidth
+// means nothing until layout settles and these columns move again when the
+// web font swaps in.
+(function(){
+  var pop = document.getElementById('clamp-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]);
+  }
+  function isTruncated(el){
+    // +1 to tolerate sub-pixel rounding on high-DPI displays.
+    return el.scrollWidth > el.clientWidth + 1;
+  }
+  function fmt(text){
+    return '<div style="white-space:pre-wrap;max-width:32rem;font-size:.85rem;line-height:1.5;' +
+           'word-break:break-all;font-family:ui-monospace,Menlo,monospace">' + esc(text) + '</div>';
+  }
+  document.querySelectorAll('table.bans .clamp-v[data-full]').forEach(function(el){
+    el.style.cursor = 'default';
+    el.addEventListener('mouseenter', function(e){
+      if (pin.hasPinFor(el)) return;
+      if (!isTruncated(el)) return;
+      el.style.cursor = 'help';
+      pin.showHover(fmt(el.dataset.full), e.pageX, e.pageY, el);
+    });
+    el.addEventListener('mouseleave', function(){ pin.hideHover(); });
+    el.addEventListener('click', function(e){
+      if (!isTruncated(el) && !pin.hasPinFor(el)) return;
+      e.preventDefault();
+      pin.handleClick(fmt(el.dataset.full), e.pageX, e.pageY, el, '{{ t .Lang "bans.col.reason" }}');
+    });
+  });
+})();
 
 // IP popover (rDNS + IP-geo + ASN). Same pattern as hunt.html / dashboard.html.
 (function(){
