@@ -514,8 +514,11 @@ type Row struct {
 	// network settled on.  Ordering a session by arrival therefore prints a
 	// route the visitor never walked.  Untrusted input, so their reach stops at
 	// arranging the rows of the session that supplied them.
-	Seq       int `json:"seq,omitempty"`
-	ElapsedMs int `json:"elapsed_ms,omitempty"`
+	// CapReason: present on phase=captcha rows; empty elsewhere and on rows
+	// recorded before the field shipped.
+	CapReason string `json:"cap_reason,omitempty"`
+	Seq       int    `json:"seq,omitempty"`
+	ElapsedMs int    `json:"elapsed_ms,omitempty"`
 	// AbandonPhase / LeftAtMs / NoticeDelayMs: departure detail, sourced from
 	// the abandon beacon.  AbandonPhase is the step the visitor was on when
 	// they left; LeftAtMs is when they actually left (the browser's own event
@@ -609,6 +612,14 @@ func decorateRowFromPayload(row *Row, payload string) {
 	// them, while every filter and rollup keeps using the server's clock.
 	// Both are client-supplied and thus untrusted -- deliberately confined to
 	// arranging one session's own rows, where a lie costs the liar only.
+	// Why a CAPTCHA was put on screen, as the page recorded it rather than as
+	// the timeline implies: "chain" (the operator asked for captcha_only),
+	// "pow_then_captcha" (the configured chain's second leg) or "flags_retry"
+	// (the client tripped the bot-flag threshold after a retry -- a page-side
+	// escalation the server cannot know at serve time).  Only the last is a
+	// departure from what was served, and reading it here is what keeps the
+	// hunt log from having to guess.
+	row.CapReason = extractStringField(payload, "cap_reason", 24)
 	row.Seq = extractIntFieldOr(payload, "seq", -1)
 	row.ElapsedMs = extractIntFieldOr(payload, "elapsed_ms", -1)
 	if row.Phase == "abandon" {
