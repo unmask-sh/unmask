@@ -1054,10 +1054,10 @@
   // the page stays responsive, and THAT is what produced the long tail in
   // production: browsers clamp a background tab's setTimeout to 1s, so a
   // visitor who switched tabs paid ~1s per 5000-iteration batch -- about 52
-  // seconds for the default difficulty instead of under one.  Measured on the
-  // fleet before this change, the solve-time histogram had a distinct cluster
-  // at 41-70s that matched that arithmetic exactly (42 sessions), plus 28 past
-  // 70s; device speed alone produces a smooth tail, not a bump.
+  // seconds for the default difficulty instead of under one.  Before this
+  // change the solve-time histogram carried a distinct cluster right where
+  // that arithmetic predicts, with a further group beyond it; device speed
+  // alone produces a smooth tail, not a bump.
   //
   // A worker needs no yielding at all -- it cannot block the UI thread -- so
   // the clamp never applies and the loop runs flat out whether or not the tab
@@ -1275,10 +1275,9 @@
   //
   // It used to sit at the solve, ahead of all of that, so a visitor who closed
   // the tab during a hold WE imposed lost the solve they had already paid for:
-  // no _bv, no bv_pow_only, and an abandon beacon instead.  Measured on the
-  // fleet the hour it shipped -- gb's abandonment went 2.20% (16-bit, no hold)
-  // to 17.9% (16-bit + hold) against an 11.87% baseline, an effect big enough
-  // to mask a real improvement underneath it.
+  // no _bv, no bv_pow_only, and an abandon beacon instead.  The hour it
+  // shipped, abandonment jumped several times over -- an effect big enough to
+  // mask a real improvement underneath it.
   //
   // Deferring it costs nothing: the cookie write and the beacon are
   // synchronous or keepalive, so the only thing between them and the redirect

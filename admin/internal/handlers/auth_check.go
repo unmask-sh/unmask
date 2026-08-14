@@ -378,9 +378,9 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		// It has to sit ABOVE the pass cookie (case bvOK below) -- where it used
 		// to be, under it, "deny" meant "deny unless you cleared a challenge at
 		// some point in the last week", so anything able to clear one met the
-		// rule exactly once.  Measured: a crawler already removed from the
-		// rescue list solved the proof-of-work from 419 addresses and took
-		// 137,051 requests in a day.
+		// rule exactly once.  Observed: a crawler already removed from the
+		// rescue list solved the proof-of-work across its whole address pool
+		// and then took as much as it wanted for a day.
 		//
 		// It also has to sit above the Web Bot Auth and Privacy Pass vetoes,
 		// because native does: server.inc dispatches $unmask_deny_now before
@@ -710,8 +710,8 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		// pass cookie, then challenged, then listed crawler, then bypassed.
 		// Exactly one may fire, because all four are shares of the one total the
 		// composition card divides up -- counting a cookie holder twice steals
-		// from the human remainder (measured at 397,043 of 3,582,523 requests a
-		// day on an install serving its own assets from bypassed paths).
+		// from the human remainder, which on an install serving its own assets
+		// from bypassed paths is a large share of the total.
 		//
 		// The crawler arm was absent here, and only this wire can lose it:
 		// native reads the classification off the log line, forward-auth has to

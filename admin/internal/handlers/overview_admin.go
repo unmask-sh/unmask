@@ -300,9 +300,10 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// solve somewhere else.  Kept OUT of the human share -- "solved once, then
 	// roamed" is the shape a distributed crawler has and a person rarely does,
 	// and folding it in there is what hid one for months -- but not given a
-	// segment of its own either: measured across the fleet it is 3.3% of a
-	// day on the busiest node and 0.0% on three others, and a bar segment
-	// that is invisible everywhere teaches the eye to skip the card.  It
+	// segment of its own either: across the fleet it is a low single-digit
+	// percentage on the busiest node and rounds to nothing on the others, and
+	// a bar segment that is invisible everywhere teaches the eye to skip the
+	// card.  It
 	// lands in the residue with a line of its own in the breakdown, so the
 	// number is still one hover away and still not claimed as people.
 	//

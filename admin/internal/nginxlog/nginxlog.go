@@ -559,16 +559,14 @@ func (r *Reader) onLine(line string) {
 	//      first and this should keep only what is left (a package manager, a
 	//      monitor, an API client).
 	//
-	// Both overlaps have been measured in production.  Crawler and bypass
-	// firing TOGETHER pushed the human remainder to -2,493 of 718,238 on
-	// tool1-us (fixed in 0.1.18 -- by exclusivity, which is what mattered;
-	// the order chosen there was the wrong way round).  Cookie-over-bypass was
-	// the bigger one and hid behind it: on an install serving its own assets
-	// from bypassed paths, 397,043 of 3,582,523 requests in a day were counted
-	// twice, and the excess tracked the site's bypass-path share exactly --
-	// 80.1% on the site serving 51% of its requests from /lib/ and /design/,
-	// 1.4% on the sister site whose assets live on a CDN and whose bypass-path
-	// share is 3%.
+	// Both overlaps have been seen in production.  Crawler and bypass firing
+	// TOGETHER drove the human remainder negative (fixed in 0.1.18 -- by
+	// exclusivity, which is what mattered; the order chosen there was the
+	// wrong way round).  Cookie-over-bypass was the bigger one and hid behind
+	// it: on an install serving its own assets from bypassed paths a large
+	// share of the day's requests was counted twice, and the excess tracked
+	// each site's bypass-path share exactly -- heavy where the assets are
+	// local, negligible where they sit on a CDN.
 	switch {
 	case p.kind != "":
 		// counted by Bump above as "pow" / "captcha"; nothing further.

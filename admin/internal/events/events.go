@@ -406,7 +406,7 @@ func Insert(ctx context.Context, d *db.DB, e *Event) error {
 		// this async insert finished, or the daemon is shutting down -- is
 		// expected on a busy node and aborts the insert ("context canceled" or
 		// the SQLite "interrupted" it maps to).  That is not an error worth a log
-		// line (it was ~0.05% of inserts on the busiest fleet node); real insert
+		// line (a small fraction of a busy node's inserts); real insert
 		// failures, where the context is still live, still log.
 		if ctx.Err() == nil {
 			log.Printf("unmask_event insert failed: %v", err)
@@ -964,10 +964,10 @@ func dateCreatedWindow(ctx context.Context, d *db.DB, sinceMin int) string {
 // whole.  What matters is not how many rows a session HAS (3-4 in practice)
 // but how far they SPREAD once interleaved with concurrent traffic -- a
 // 4-row session that takes a minute to finish can span hundreds of row
-// positions on a busy install.  Measured on a 60k-row fleet sample: 2.6% of
-// sessions spread past 8 rows (the old value, which left orphan fragments on
-// page boundaries), 0.08% past 100, 0.03% past 200 (max seen 658).  200
-// covers 99.97% for a worst-case read of pageSize+400 rows -- the bleed is
+// positions on a busy install.  Sampled from a production log: a few percent
+// of sessions spread past 8 rows (the old value, which left orphan fragments
+// on page boundaries), and the tail past 200 is a rounding error.  200 covers
+// all but a sliver for a worst-case read of pageSize+400 rows -- the bleed is
 // fetched and scanned but never enriched, so the cost is a few ms of extra
 // SQLite scan.  The residual tail still degrades to the fragment marker the
 // UI draws.
