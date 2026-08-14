@@ -58,21 +58,26 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
       collapsed: !!cell && !!cell.querySelector('.session-chain'),
       rl: !!(cell && cell.querySelector('.rl-badge')),
       lb: !!(cell && cell.querySelector('.lb-warn-badge')),
-      ret: !!(cell && cell.querySelector('.ret-badge')),
-      // Which of the pair, not just that one is there.  The badge answers a
-      // question the abandon pill does not -- whether the visitor came back
-      // within 30s -- and the seeded session did (returned:1), so getting the
-      // polarity backwards would report a departure that never happened.
+      // What followed the abandon now lives inside the abandon pill, so the
+      // check is that the chain's own pill carries it -- the collapse rebuilds
+      // that pill from scratch and could silently drop the mark.
+      ret: !!(cell && cell.querySelector('.phase-pill.ph-abandon .ret-mark')),
+      // Which of the two, not just that one is there.  The seeded session came
+      // back within 30s, so getting the polarity backwards would report a
+      // departure that never happened.
       retVariant: (function(){
-        var b = cell && cell.querySelector('.ret-badge');
-        if (!b) return null;
-        return b.classList.contains('ret-stayed') ? 'stayed'
-             : b.classList.contains('ret-gone') ? 'gone' : 'unknown';
+        var m = cell && cell.querySelector('.phase-pill.ph-abandon .ret-mark');
+        if (!m) return null;
+        return m.classList.contains('ret-back') ? 'back' : 'gone';
       })(),
-      retText: (function(){
-        var b = cell && cell.querySelector('.ret-badge');
-        return b ? b.textContent.trim() : null;
+      retMark: (function(){
+        var m = cell && cell.querySelector('.phase-pill.ph-abandon .ret-mark');
+        return m ? m.textContent.trim() : null;
       })(),
+      // It must sit INSIDE the pill, which is the whole point of moving it:
+      // beside the pill it wrapped onto its own line and read as a step.
+      retInsidePill: !!(cell && cell.querySelector('.phase-pill .ret-mark')),
+      strayBadge: !!(cell && cell.querySelector('.ret-badge')),
       reload: !!(cell && cell.querySelector('.reload-badge')),
       repPhase: rep ? rep.getAttribute('data-phase') : null,
     };
@@ -88,14 +93,13 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     // The four badges, none of which live on the representative row.
     ok(res.rl, 'the rl:<zone> badge was dropped by the collapse');
     ok(res.lb, 'the LB-misconfiguration warning was dropped by the collapse');
-    ok(res.ret, 'the abandon returned/gone badge was dropped by the collapse');
-    ok(res.retVariant === 'stayed',
-      `the seeded session came back within 30s but the badge says ${res.retVariant} (${res.retText})`);
-    // And the badge must not simply restate the phase beside it: a label that
-    // reads as a synonym of "abandon" looks like a duplicate rather than the
-    // second fact it is.
-    ok(res.retText && res.retText.toLowerCase() !== 'abandon',
-      `the badge restates the phase instead of answering what happened next: ${res.retText}`);
+    ok(res.ret, 'the abandon pill lost its what-happened-next mark in the collapse');
+    ok(res.retInsidePill, 'the mark is not inside the phase pill');
+    ok(!res.strayBadge, 'the old standalone badge is still being rendered beside the pill');
+    ok(res.retVariant === 'back',
+      `the seeded session came back within 30s but the mark says ${res.retVariant} (${res.retMark})`);
+    ok(res.retMark === '↩',
+      `the came-back mark should be ↩, got ${JSON.stringify(res.retMark)}`);
     ok(res.reload, 'the reload counter was dropped by the collapse');
   }
 
