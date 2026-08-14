@@ -77,6 +77,16 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
       // It must sit INSIDE the pill, which is the whole point of moving it:
       // beside the pill it wrapped onto its own line and read as a step.
       retInsidePill: !!(cell && cell.querySelector('.phase-pill .ret-mark')),
+      // And FIRST inside it.  abandon is the only phase that also names the
+      // step it left from, so its pill is the widest in the column; a mark on
+      // the far end sits against the escalation-reason cell and reads as
+      // belonging to that column.
+      retLeads: (function(){
+        var pill = cell && cell.querySelector('.phase-pill.ph-abandon');
+        if (!pill || !pill.firstChild) return false;
+        return pill.firstChild.nodeType === 1 &&
+               pill.firstChild.classList.contains('ret-mark');
+      })(),
       strayBadge: !!(cell && cell.querySelector('.ret-badge')),
       reload: !!(cell && cell.querySelector('.reload-badge')),
       repPhase: rep ? rep.getAttribute('data-phase') : null,
@@ -95,6 +105,7 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     ok(res.lb, 'the LB-misconfiguration warning was dropped by the collapse');
     ok(res.ret, 'the abandon pill lost its what-happened-next mark in the collapse');
     ok(res.retInsidePill, 'the mark is not inside the phase pill');
+    ok(res.retLeads, 'the mark trails the pill instead of leading it, so it lands against the next column');
     ok(!res.strayBadge, 'the old standalone badge is still being rendered beside the pill');
     ok(res.retVariant === 'back',
       `the seeded session came back within 30s but the mark says ${res.retVariant} (${res.retMark})`);
