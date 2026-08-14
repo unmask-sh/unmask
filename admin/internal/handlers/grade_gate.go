@@ -18,8 +18,8 @@ import (
 // some other way -- and "some other way" is a real, measured thing: a crawler
 // read the challenge page, solved the 16-bit proof-of-work in its own code
 // (never running our JavaScript, which is why the load counter stayed at 1 for
-// a week), minted the cookie itself and served itself 137,051 requests a day
-// through a rule that said CAPTCHA.
+// a week), minted the cookie itself and then served itself as much as it
+// liked through a rule that said CAPTCHA.
 //
 // The rule's own action wins over the list default, exactly as the render side
 // resolves it.  An unlisted UA requires nothing: the operator has said nothing
@@ -94,9 +94,9 @@ func gradeSatisfies(have string) bool {
 // country rule saying captcha_only finds it stops only ADDRESSES THAT ARRIVE
 // BARE.  Every address already holding a proof-of-work cookie -- minted under
 // the global pow_only posture before the rule existed -- sails past the rule
-// for the cookie's remaining lifetime.  Measured during the incident that
-// motivated this: 1,096 content pages served in two hours through an ASN rule
-// that said captcha_only, all to pow-cookie holders.
+// for the cookie's remaining lifetime -- which during the incident that
+// motivated this meant a steady stream of content pages going out through an
+// ASN rule that said captcha_only, all to pow-cookie holders.
 //
 // Pure: lookups and exempt-path matching stay with the caller, so the
 // requirement logic is testable without an mmdb on disk.

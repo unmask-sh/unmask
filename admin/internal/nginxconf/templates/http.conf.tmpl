@@ -374,8 +374,8 @@ map $unmask_bv_kind $bv_any_valid     { default 1;  ""        0; }
 # measured thing rather than a hypothetical: a crawler read the challenge page,
 # solved the 16-bit proof-of-work in its own code (never running challenge.js,
 # which is why the load counter stayed at 1 for a week), minted the cookie
-# itself, and served itself 137,051 requests in a day through a rule that said
-# CAPTCHA.
+# itself, and then served itself as much traffic as it liked through a rule
+# that said CAPTCHA.
 #
 # Keyed on the UA alone, and consumed through the SAME $bv_kind the decision
 # map already builds -- so this adds one string map lookup per request and no
@@ -400,8 +400,8 @@ map $http_user_agent $unmask_ua_needs_captcha {
 # rule saying captcha_only stopped only addresses arriving bare -- every
 # address already holding a proof-of-work cookie (minted under the global
 # pow_only posture before the rule existed) sailed past it for the cookie's
-# remaining lifetime.  Measured live: 1,096 content pages in two hours through
-# a captcha_only ASN rule, all to pow-cookie holders.  Rate-mode entries stay
+# remaining lifetime -- which, on a busy site, is most of what the rule was
+# meant to stop.  Rate-mode entries stay
 # out on the render side (AsnRules / GeoRules carry only immediate-action
 # entries; throttled ones render as rate zones), matching the forward-auth
 # gate's rate==0 condition.
@@ -775,9 +775,9 @@ map "$geo_challenge_eff:$asn_challenge_eff" $is_net_challenge {
 # It used to go through $final_challenge, whose first rule is "a valid _bv
 # exempts you".  That made "deny" mean "deny unless this client has cleared a
 # challenge at some point in the last week", which against anything that can
-# clear one is not a deny at all.  Measured on a production install: a crawler
-# the operator had already taken out of the rescue list solved the
-# proof-of-work from 419 addresses and served itself 137,051 requests in a day.
+# clear one is not a deny at all.  Seen on a production install: a crawler the
+# operator had already taken out of the rescue list solved the proof-of-work
+# from its whole address pool and then served itself freely for a day.
 # Difficulty is no answer either -- the pass cookie lasts a week, so the cost is
 # one solve per address per week whatever the difficulty is.
 #
@@ -853,9 +853,10 @@ map "$geo_deny_eff:$asn_deny_eff:$unmask_ua_deny:$unmask_ja4_deny:$unmask_cb_den
 # eagerly -- every variable in it, every request -- but resolves only the
 # matched entry's value.  $is_search_bot is the expensive one (a UA regex list
 # plus $effective_ja4 behind the notification-preview composite), and asking it
-# on every request would make adding one deny rule cost the whole vhost:
-# measured on a location that does NOT include protect.inc, 46k -> 3.4k req/s,
-# because such a location otherwise never builds these variables at all.
+# on every request would make adding one deny rule cost the whole vhost: on a
+# location that does NOT include protect.inc, a synthetic benchmark lost an
+# order of magnitude in throughput, because such a location otherwise never
+# builds these variables at all.
 # Keyed this way, only a request that actually matched a deny rule pays.
 map $unmask_axis_deny $unmask_deny_raw {
     default 0;
