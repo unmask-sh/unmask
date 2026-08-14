@@ -395,12 +395,34 @@ map $http_user_agent $unmask_ua_needs_captcha {
 # ends in a CAPTCHA ($unmask_cb_captcha).  "pow" and "" (no match) impose
 # nothing.  (Both companions are maps defined further down; nginx resolves map
 # cross-references at request time, so block order does not matter.)
-map "$unmask_ua_needs_captcha:$protected_mode:$unmask_cb_captcha" $unmask_needs_captcha_grade {
+# The by-network sources: a geo / ASN rule that ends in a CAPTCHA demands the
+# grade too, minus each axis's own exempt paths.  Without these two, an ASN
+# rule saying captcha_only stopped only addresses arriving bare -- every
+# address already holding a proof-of-work cookie (minted under the global
+# pow_only posture before the rule existed) sailed past it for the cookie's
+# remaining lifetime.  Measured live: 1,096 content pages in two hours through
+# a captcha_only ASN rule, all to pow-cookie holders.  Rate-mode entries stay
+# out on the render side (AsnRules / GeoRules carry only immediate-action
+# entries; throttled ones render as rate zones), matching the forward-auth
+# gate's rate==0 condition.
+map "$is_geo_exempt_path:$unmask_geo_action" $unmask_geo_captcha {
+    default              0;
+    "0:captcha_only"     1;
+    "0:pow_then_captcha" 1;
+}
+map "$is_asn_exempt_path:$unmask_asn_action" $unmask_asn_captcha {
+    default              0;
+    "0:captcha_only"     1;
+    "0:pow_then_captcha" 1;
+}
+map "$unmask_ua_needs_captcha:$protected_mode:$unmask_cb_captcha:$unmask_geo_captcha$unmask_asn_captcha" $unmask_needs_captcha_grade {
     default                 0;
     "~^1:"                  1;   # UA on a captcha-ending chain (any other source)
     "~^0:captcha:"          1;   # protected path: straight CAPTCHA
     "~^0:pow_then_captcha:" 1;   # protected path: PoW -> CAPTCHA
-    "~^0:[^:]*:1$"          1;   # community feed hit on a captcha-ending action
+    "~^0:[^:]*:1:"          1;   # community feed hit on a captcha-ending action
+    "~1.$"                  1;   # geo rule ends in a CAPTCHA (last two digits: geo, asn)
+    "~1$"                   1;   # ASN rule ends in a CAPTCHA
 }
 # "<needs captcha grade>:<kind the cookie verified as>" -> is this request
 # holding a pass that satisfies its rule?

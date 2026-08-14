@@ -67,7 +67,7 @@ func TestProtectedGradeRender(t *testing.T) {
 		}
 	})
 	for _, want := range []string{
-		`map "$unmask_ua_needs_captcha:$protected_mode:$unmask_cb_captcha" $unmask_needs_captcha_grade`,
+		`map "$unmask_ua_needs_captcha:$protected_mode:$unmask_cb_captcha:$unmask_geo_captcha$unmask_asn_captcha" $unmask_needs_captcha_grade`,
 		`"~^0:captcha:"`,          // protected captcha -> needs a CAPTCHA-grade cookie
 		`"~^0:pow_then_captcha:"`, // protected chain   -> needs a CAPTCHA-grade cookie
 		`map "$unmask_needs_captcha_grade:$bv_kind" $bv_pass_ok`,
