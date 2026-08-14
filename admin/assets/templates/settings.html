@@ -3078,7 +3078,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <label class="captcha-opt"><input type="radio" name="provider" value="builtin"   {{ if or (eq .Captcha.Provider "") (eq .Captcha.Provider "builtin") }}checked{{ end }}>
         <strong>{{ t .Lang "settings.captcha.provider.builtin" }}</strong>
         <button type="button" class="ua-help-trigger" data-help-target="captcha-builtin-help" aria-label="?">?</button>
-        <span class="captcha-tag captcha-tag-rec">{{ t .Lang "settings.captcha.tag.no_setup" }}</span>
+        <span class="captcha-tag captcha-tag-rec">{{ t .Lang "settings.captcha.tag.recommended" }}</span>
+        <span class="captcha-tag">{{ t .Lang "settings.captcha.tag.no_setup" }}</span>
         <span class="captcha-tag">{{ t .Lang "settings.captcha.tag.fast" }}</span>
         <div class="captcha-keys">
           <label class="captcha-keylabel">
@@ -3096,7 +3097,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <label class="captcha-opt"><input type="radio" name="provider" value="turnstile" {{ if eq .Captcha.Provider "turnstile" }}checked{{ end }}>
         <strong>Cloudflare Turnstile</strong>
         <button type="button" class="ua-help-trigger" data-help-target="captcha-turnstile-help" aria-label="?">?</button>
-        <span class="captcha-tag captcha-tag-rec">{{ t .Lang "settings.captcha.tag.recommended" }}</span>
         <span class="captcha-tag">{{ t .Lang "settings.captcha.tag.free" }}</span>
         <div class="captcha-keys">
           <label class="captcha-keylabel">{{ t .Lang "settings.captcha.site_key" }}<input type="text"     name="turnstile_site_key"   value="{{ .Captcha.TurnstileSiteKey }}" autocomplete="off" placeholder="0x4AAAAAAA..."></label>
