@@ -167,6 +167,9 @@ for phase, seq, el, off in [
     # match what JSON.stringify emits, which has no space after the colon.
     if phase == "pow_pass":
         pl["next"] = "captcha"
+    if phase == "captcha":
+        # The chain's own second leg -- not an escalation.
+        pl["cap_reason"] = "pow_then_captcha"
     c.execute("""INSERT INTO unmask_event
         (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
          phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
@@ -216,6 +219,26 @@ c.execute("""INSERT OR REPLACE INTO unmask_ban
 c.execute("""INSERT OR REPLACE INTO unmask_ban
     (ip, ja4, source, reason, banned_at, expires_at, banned_by, action, scope)
     VALUES ('203.0.113.78','t13d_uiban2','manual','scraper',strftime('%s','now'),0,'ui-e2e','','ip_ja4')""")
+c.commit()
+
+# A pow_only serve whose client tripped the bot-flag threshold after a retry
+# and got walked into a CAPTCHA the server never offered.  This IS a departure
+# from what was served, and the only case the session lead should announce.
+for phase, seq, el, off, extra in [
+        ("serve",     None, None, 0,    {"force_reason": "none", "ch_mode": "pow_only"}),
+        ("load",      0,    500,  505,  {}),
+        ("captcha",   1,    900,  905,  {"cap_reason": "flags_retry"}),
+        ("verify_ng", 2,    4000, 4005, {})]:
+    pl = {"bt": "uiEsc"}
+    pl.update(extra)
+    if seq is not None:
+        pl["seq"] = seq
+        pl["elapsed_ms"] = el
+    c.execute("""INSERT INTO unmask_event
+        (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
+         phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+        VALUES ('','','https',443,x'7f000006','UI-E2E-esc','t13d_esc','',0,?,3,2,'','',?,?)""",
+        (phase, json.dumps(pl, separators=(',', ':')), _at(off)))
 c.commit()
 
 # A row whose UA is far too long for the column: the cellpop popover only
