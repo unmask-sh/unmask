@@ -113,7 +113,13 @@ for phase, payload, reloads, ago in [
                   '"lb_warning":"X-Client-JA4 from an untrusted peer"}', 0, 40),
         ("serve", '{"bt":"uiCollapse","force_reason":"rate_limit"}', 0, 39),
         ("load", '{"bt":"uiCollapse"}', 0, 35),
-        ("abandon", '{"bt":"uiCollapse","abandon_phase":"pow","returned":1}', 2, 20)]:
+        ("abandon", '{"bt":"uiCollapse","abandon_phase":"pow"}', 2, 20),
+        # The visitor pressed Back rather than closing the tab: another request
+        # from the same address 10s later.  "returned" is NOT a payload field --
+        # the server answers it by looking for exactly this, so a seed that only
+        # claims it in JSON proves nothing.  Outside the beacon token, because a
+        # follow-up navigation is its own request, not part of the session.
+        ("check", '{"action":"pass"}', 0, 10)]:
     c.execute("""INSERT INTO unmask_event
         (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
          phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)

@@ -59,6 +59,20 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
       rl: !!(cell && cell.querySelector('.rl-badge')),
       lb: !!(cell && cell.querySelector('.lb-warn-badge')),
       ret: !!(cell && cell.querySelector('.ret-badge')),
+      // Which of the pair, not just that one is there.  The badge answers a
+      // question the abandon pill does not -- whether the visitor came back
+      // within 30s -- and the seeded session did (returned:1), so getting the
+      // polarity backwards would report a departure that never happened.
+      retVariant: (function(){
+        var b = cell && cell.querySelector('.ret-badge');
+        if (!b) return null;
+        return b.classList.contains('ret-stayed') ? 'stayed'
+             : b.classList.contains('ret-gone') ? 'gone' : 'unknown';
+      })(),
+      retText: (function(){
+        var b = cell && cell.querySelector('.ret-badge');
+        return b ? b.textContent.trim() : null;
+      })(),
       reload: !!(cell && cell.querySelector('.reload-badge')),
       repPhase: rep ? rep.getAttribute('data-phase') : null,
     };
@@ -75,6 +89,13 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     ok(res.rl, 'the rl:<zone> badge was dropped by the collapse');
     ok(res.lb, 'the LB-misconfiguration warning was dropped by the collapse');
     ok(res.ret, 'the abandon returned/gone badge was dropped by the collapse');
+    ok(res.retVariant === 'stayed',
+      `the seeded session came back within 30s but the badge says ${res.retVariant} (${res.retText})`);
+    // And the badge must not simply restate the phase beside it: a label that
+    // reads as a synonym of "abandon" looks like a duplicate rather than the
+    // second fact it is.
+    ok(res.retText && res.retText.toLowerCase() !== 'abandon',
+      `the badge restates the phase instead of answering what happened next: ${res.retText}`);
     ok(res.reload, 'the reload counter was dropped by the collapse');
   }
 
