@@ -18,8 +18,8 @@ import (
 // differ only in this aggregate: how many distinct addresses one solve has
 // been carried to.
 //
-// Measured on a production install, the crawler that prompted this had solved
-// once and re-bound across 419 addresses, and nothing in the interface could
+// On a production install the crawler that prompted this had solved once and
+// re-bound across its whole address pool, and nothing in the interface could
 // say so.
 type RebindLineageRow struct {
 	Lineage  string // random id from the _bvj cookie

@@ -843,10 +843,10 @@ func (h *Handler) ServeBanDeny(w http.ResponseWriter, r *http.Request) {
 // It exists because "deny" did not deny.  Every axis below the pass cookie was
 // only consulted when $bv_any_valid was 0, so the word meant "deny unless this
 // client already cleared a challenge once".  Against anything that can mint a
-// cookie that is not a block at all: measured on a production install,
-// Bytespider solved the proof-of-work from 419 addresses and served itself
-// 137,051 requests in a day through a UA the operator had already taken out of
-// the rescue list.  Raising the PoW difficulty cannot reach it either -- a
+// cookie that is not a block at all: on a production install, Bytespider
+// solved the proof-of-work across a large address pool and then served itself
+// freely for a day through a UA the operator had already taken out of the
+// rescue list.  Raising the PoW difficulty cannot reach it either -- a
 // cookie lasts a week, so the cost is one solve per address per week no matter
 // what the difficulty is.  The only fix is ordering.
 //
