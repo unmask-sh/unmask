@@ -84,3 +84,64 @@ func requestNeedsCaptchaGrade(ua, uri, site string, cfg settings.Settings) bool 
 func gradeSatisfies(have string) bool {
 	return have == "captcha"
 }
+
+// axisNeedsCaptchaGrade reports whether the geo or ASN axis puts this visitor
+// on a chain that ends in a CAPTCHA -- the by-network sources of the grade
+// requirement, joining the UA-chain / protected-path / community-feed sources.
+//
+// Why these belong in the gate: the pass-cookie veto runs before the axes, so
+// without this an operator who answers a JS-executing botnet with an ASN or
+// country rule saying captcha_only finds it stops only ADDRESSES THAT ARRIVE
+// BARE.  Every address already holding a proof-of-work cookie -- minted under
+// the global pow_only posture before the rule existed -- sails past the rule
+// for the cookie's remaining lifetime.  Measured during the incident that
+// motivated this: 1,096 content pages served in two hours through an ASN rule
+// that said captcha_only, all to pow-cookie holders.
+//
+// Pure: lookups and exempt-path matching stay with the caller, so the
+// requirement logic is testable without an mmdb on disk.
+//
+// Rate-mode entries (rate>0) impose nothing here: their action fires only on
+// the overage, so under the cap the rule itself lets requests through -- a
+// blanket grade demand would be stricter than the rule.  Deny ends nowhere, so
+// it imposes nothing either (it never accepts any cookie; the deny path is
+// enforced before cookies).
+func axisNeedsCaptchaGrade(asn uint, org, country string, asnExempt, geoExempt bool, cfg settings.Settings) bool {
+	if !asnExempt {
+		if act, rate, ok := cfg.Nginx.Asn.ResolveRule(asn, org); ok && rate == 0 && chainEndsInCaptcha(act) {
+			return true
+		}
+	}
+	if !geoExempt {
+		if d, rate, ok := geoDecideForCountry(country, cfg.Nginx.Geo); ok && rate == 0 && chainEndsInCaptcha(d.chMode) {
+			return true
+		}
+	}
+	return false
+}
+
+// axisNeedsCaptchaGradeFor is the handler-side wrapper: resolve the visitor's
+// network identity from the mmdbs and the per-axis exempt paths, then ask the
+// pure form.  Nil / unloaded readers contribute nothing, mirroring how
+// asnDecide / geoDecide go inert without their databases.
+func (h *Handler) axisNeedsCaptchaGradeFor(ip, uri string, matchers pathMatchers, cfg settings.Settings) bool {
+	if h.IPGeo == nil {
+		return false
+	}
+	var asn uint
+	var org, country string
+	if h.IPGeo.ASNLoaded() || h.IPGeo.Loaded() {
+		info := h.IPGeo.LookupInfo(ip)
+		if h.IPGeo.ASNLoaded() {
+			asn, org = info.ASN, info.ASNOrg
+		}
+		if h.IPGeo.Loaded() {
+			country = strings.ToUpper(strings.TrimSpace(info.Country))
+		}
+	}
+	if asn == 0 && org == "" && country == "" {
+		return false
+	}
+	return axisNeedsCaptchaGrade(asn, org, country,
+		matchPath(uri, matchers.asnExempt), matchPath(uri, matchers.geoExempt), cfg)
+}

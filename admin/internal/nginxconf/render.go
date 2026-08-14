@@ -725,6 +725,16 @@ type RatePathZoneRender struct {
 	Patterns []string // regex-escaped literal path prefixes (anchored as ~^<pattern>)
 }
 
+// actionEndsInCaptcha reports whether clearing a rule with this action mints a
+// CAPTCHA-grade cookie -- the same question grade_gate.go's chainEndsInCaptcha
+// answers for served chains, asked of geo/ASN rule actions at render time so
+// the grade block (and its $unmask_geo_captcha / $unmask_asn_captcha inputs)
+// is emitted whenever some network rule will demand the grade.
+func actionEndsInCaptcha(action string) bool {
+	return action == settings.RateChallengeCaptchaOnly ||
+		action == settings.RateChallengePoWThenCaptcha
+}
+
 // GeoRuleRender: one entry of the $unmask_geo_action map.
 type GeoRuleRender struct {
 	Country string // ISO 3166-1 alpha-2 uppercase
@@ -1538,7 +1548,14 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// have been resolved, so adding a fourth source is one line in one place
 	// instead of two or-chains that must be kept identical.
 	d.GradeCheckedPass = len(d.CaptchaGradeUAPatterns) > 0 ||
-		d.ProtectedNeedsCaptchaGrade || d.CommunityBansNeedsCaptchaGrade
+		d.ProtectedNeedsCaptchaGrade || d.CommunityBansNeedsCaptchaGrade ||
+		actionEndsInCaptcha(d.GeoDefaultAction) || actionEndsInCaptcha(d.AsnDefaultAction)
+	for _, r := range d.GeoRules {
+		d.GradeCheckedPass = d.GradeCheckedPass || actionEndsInCaptcha(r.Action)
+	}
+	for _, r := range d.AsnRules {
+		d.GradeCheckedPass = d.GradeCheckedPass || actionEndsInCaptcha(r.Action)
+	}
 
 	// The community feed is the one deny source resolved after the seed above,
 	// so it is folded in here.  Missing this would emit $unmask_cb_deny into a
