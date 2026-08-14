@@ -624,16 +624,24 @@ func CIDRsForASNTargets(path string, targets []ASNTarget) (string, error) {
 		if val == "" {
 			continue
 		}
-		b.WriteString("    ")
-		b.WriteString(cidr.String())
-		b.WriteString(" ")
-		b.WriteString(val)
-		b.WriteString(";\n")
+		b.WriteString(geoLine(cidr.String(), val))
 	}
 	if err := nets.Err(); err != nil {
 		return b.String(), err
 	}
 	return b.String(), nil
+}
+
+// geoLine renders one `<cidr> <value>;` entry for an nginx geo block, with the
+// value quoted.  Quoting is not optional: an org rule's map value is
+// "org:<pattern>" and the pattern may contain spaces ("china unicom"), which
+// nginx's geo parser reads as a third parameter and rejects the whole config
+// ("invalid number of the geo parameters").  That failure mode is as bad as it
+// gets -- render succeeds, nginx -t fails afterwards, and until someone
+// re-renders, a restart would keep nginx down.  Hit live on tool1-gb
+// (2026-08-13) applying org rules against a Chinese residential botnet.
+func geoLine(cidr, value string) string {
+	return "    " + cidr + " \"" + value + "\";\n"
 }
 
 // ASNRateCIDRs is the geo-block body for a native ASN rate-limit zone.  For every
