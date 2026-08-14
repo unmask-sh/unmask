@@ -406,13 +406,17 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			// Attested real client (Privacy Pass / PAT): an origin-bound token
 			// from a trusted issuer.  Reason carries the issuer for dashboards.
 			action, reason, status = "pass", "privacy_pass:"+patResult.Issuer, http.StatusOK
-		case bvOK && !(requestNeedsCaptchaGrade(ua, uri, site, cfg) && !gradeSatisfies(bvCookieKind)):
+		case bvOK && !(!gradeSatisfies(bvCookieKind) &&
+			(requestNeedsCaptchaGrade(ua, uri, site, cfg) ||
+				h.axisNeedsCaptchaGradeFor(ip, uri, matchers, cfg))):
 			// Named after the entry that verified (see pickValidBV): a PoW
 			// solve, a CAPTCHA solve, or a credential re-bound onto this
 			// address after a solve elsewhere.  A PoW cookie does NOT pass here
-			// when the UA's chain or the protected path it hit ends in a CAPTCHA
-			// (requestNeedsCaptchaGrade) — it falls through to the gating axes,
-			// where protectedDecide / the UA axis re-issues the right challenge.
+			// when the UA's chain, the protected path it hit, or its network's
+			// geo/ASN rule ends in a CAPTCHA — it falls through to the gating
+			// axes, which re-issue the right challenge.  Grade first: a
+			// CAPTCHA-grade cookie satisfies every source, so the common
+			// repeat-visitor case skips both the UA scan and the mmdb lookup.
 			action, reason, status = "pass", "bv-"+bvCookieKind, http.StatusOK
 		case isSearchBotUA(ua, ja4Action, cfg.Nginx, matchers.rangeVerifiedUA):
 			// Search / AI crawler rescue.  Must win over geo / protected / ja4 /
