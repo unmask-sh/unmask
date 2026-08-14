@@ -44,8 +44,10 @@ func TestHuntAbandonRowShowsDetail(t *testing.T) {
 	// Back or closed, the only available answer -- and it has to ride INSIDE
 	// the pill.  Beside it, the fact wrapped onto its own line on a narrow
 	// column and read as another step in the chain.  Nothing else followed this
-	// seeded row, so the mark is the empty one.
-	if !strings.Contains(body, `abandon(captcha)<span class="ret-mark">∅</span>`) {
+	// seeded row, so the mark is the empty one.  It leads the pill: abandon's
+	// is the widest pill in the column, and a trailing mark ends up against the
+	// next cell.
+	if !strings.Contains(body, `<span class="ret-mark">∅</span>abandon(captcha)`) {
 		t.Error("the abandon pill must carry what happened next, inside the pill")
 	}
 }

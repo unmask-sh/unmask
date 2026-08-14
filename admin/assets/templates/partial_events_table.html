@@ -111,11 +111,15 @@
    mistaken for an event.
      ↩  another request followed within 30s -- they went back
      ∅  nothing followed
+   It leads the pill rather than trailing it: abandon is the only phase that
+   also names the step it left from, so its pill is the widest in the column,
+   and a mark on the far end sits against the escalation-reason cell and reads
+   as belonging to that column instead.
    Not a cross: leaving is not a failure, and the pair answers "what came
    next", which is the question.  No title on the mark (a glyph that pops a
    yellow bubble on every hover is noise); the popover footnote already spells
    both out in words. */
-.ret-mark{margin-left:.25rem;font-size:.9em;opacity:.65}
+.ret-mark{margin-right:.25rem;font-size:.9em;opacity:.65}
 .ret-back{opacity:1}
 /* Session popover: footnotes.  The timeline lines stay nowrap (they are one
    short sequence and wrapping them would break the scan), so the prose lives
@@ -293,7 +297,7 @@
            the group's real verdict onto the rep row so a bot session still shows
            its verdict rather than this "ok" fallback. */}}
       <td class="mono verdict-cell{{ if .Verdict }} cellpop{{ end }}">{{ if .Verdict }}{{ .Verdict }}{{ else }}ok{{ end }}</td>
-      <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}"{{ if eq .Phase "abandon" }} title="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}"{{ end }}>{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }}({{ .Reason }}){{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }}({{ .AbandonPhase }}){{ end }}{{ if eq .Phase "abandon" }}<span class="ret-mark{{ if gt .Returned 0 }} ret-back{{ end }}">{{ if gt .Returned 0 }}↩{{ else }}∅{{ end }}</span>{{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted reload-badge" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}</td>
+      <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}"{{ if eq .Phase "abandon" }} title="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}"{{ end }}>{{ if eq .Phase "abandon" }}<span class="ret-mark{{ if gt .Returned 0 }} ret-back{{ end }}">{{ if gt .Returned 0 }}↩{{ else }}∅{{ end }}</span>{{ end }}{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }}({{ .Reason }}){{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }}({{ .AbandonPhase }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted reload-badge" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}</td>
       {{/* Escalation axis in its own cell (= not a phase): the phase cell was
            getting crowded and the dashboard cards already give 昇格理由 a
            dedicated column -- keep the two views consistent.  Same value on
@@ -780,7 +784,12 @@ document.addEventListener('DOMContentLoaded', function(){
         var mark = document.createElement('span');
         mark.className = 'ret-mark' + (back ? ' ret-back' : '');
         mark.textContent = back ? '↩' : '∅';
-        pill.appendChild(mark);
+        // Leading, not trailing: abandon carries the step it left from, so its
+        // pill is the widest one in the column, and a mark on the far end sits
+        // against the next column and reads as belonging to it.  At the front
+        // it stays beside the phase it qualifies.  textContent above wiped the
+        // children, so this insert has to come after it.
+        pill.insertBefore(mark, pill.firstChild);
       }
       chain.appendChild(pill);
     });
