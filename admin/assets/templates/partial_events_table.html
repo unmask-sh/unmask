@@ -271,7 +271,7 @@
   </thead>
   <tbody>
     {{ range .Rows }}
-    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}"{{ if ge .Seq 0 }} data-seq="{{ .Seq }}"{{ end }}{{ if ge .ElapsedMs 0 }} data-elapsed-ms="{{ .ElapsedMs }}"{{ end }} data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}" data-referer="{{ .Referer }}"{{ if gt .LocalPort 0 }} data-local-port="{{ .LocalPort }}"{{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .Returned 0 }}{{ t $.Lang "hunt.returned_stayed_long" }}{{ else }}{{ t $.Lang "hunt.returned_gone_long" }}{{ end }}"{{ end }}>
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}"{{ with .CapReason }} data-cap-reason="{{ . }}"{{ end }}{{ if ge .Seq 0 }} data-seq="{{ .Seq }}"{{ end }}{{ if ge .ElapsedMs 0 }} data-elapsed-ms="{{ .ElapsedMs }}"{{ end }} data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}" data-referer="{{ .Referer }}"{{ if gt .LocalPort 0 }} data-local-port="{{ .LocalPort }}"{{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .Returned 0 }}{{ t $.Lang "hunt.returned_stayed_long" }}{{ else }}{{ t $.Lang "hunt.returned_gone_long" }}{{ end }}"{{ end }}>
       <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (or $.RowsMultiSite (index $.RowsGhostSites .Site)) }} <span class="site-badge cellpop{{ if index $.RowsGhostSites .Site }} site-ghost{{ end }}">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -826,13 +826,38 @@ document.addEventListener('DOMContentLoaded', function(){
       // means knowing what pow_only implies and spotting the contradiction
       // yourself, which is the same "recorded but unreadable" trap this
       // popover exists to close.
-      var sawCaptcha = dedupedChain.some(function(tr){
+      // Whether the visitor met something other than what was served.
+      //
+      // The page records WHY each CAPTCHA appeared -- "chain" (the operator
+      // asked for captcha_only), "pow_then_captcha" (that chain's second leg)
+      // or "flags_retry" (the client tripped the bot-flag threshold after a
+      // retry, which is a page-side escalation the server cannot know at serve
+      // time).  Only the last is a departure, and it is the only one worth a
+      // line here.
+      //
+      // This used to be inferred instead: any captcha phase, on any chain that
+      // was not captcha_only, was called a divergence.  That reported
+      // pow_then_captcha -- a chain whose entire definition is "pow, then
+      // captcha" -- as having departed from itself, on every session that ran
+      // exactly as served.  The field exists precisely so a CAPTCHA never has
+      // to be explained by reading the timeline; it just was not being read.
+      var capReasons = dedupedChain.filter(function(tr){
         return tr.getAttribute('data-phase') === 'captcha';
+      }).map(function(tr){
+        return (tr.getAttribute('data-cap-reason') || '').replace(/[^a-z0-9_]/g, '');
       });
+      var escalated = capReasons.indexOf('flags_retry') >= 0;
+      // Rows recorded before cap_reason shipped carry no answer, so fall back
+      // to the old inference for those -- corrected, so a chain that ends in a
+      // CAPTCHA is not surprised to find one.  Mirrors chainEndsInCaptcha in
+      // grade_gate.go: same question, same enum, keep the two together.
+      if (!escalated && capReasons.length && !capReasons.some(Boolean)) {
+        escalated = (chm !== 'captcha_only' && chm !== 'pow_then_captcha');
+      }
       var lead = '';
       if (chm) {
         lead = {{ t .Lang "th.ch_mode" }} + ' <strong>' + chm + '</strong>';
-        if (sawCaptcha && chm !== 'captcha_only') {
+        if (escalated) {
           lead += ' &rarr; ' + {{ t .Lang "th.ch_mode_actual" }} + ' <strong>captcha</strong>';
         }
       }
