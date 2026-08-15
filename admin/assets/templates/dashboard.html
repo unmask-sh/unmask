@@ -1770,7 +1770,7 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
     var isURL = el.classList.contains('url');
     // A path cell opens whether or not it is visually clipped: it carries the
     // Open / Copy actions and the host, which the cell itself cannot show.
-    function clipped(){ return isURL || (full && full.length) || (el.scrollWidth - el.clientWidth > 1); }
+    function clipped(){ return isURL || (full && full.length) || window.popoverContentOverflows(el); }
     function syncMark(){ el.classList.toggle('cellpop-active', clipped()); }
     syncMark();
     // The one-shot above races layout and loses: it runs during parse, and the

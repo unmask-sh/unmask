@@ -414,8 +414,10 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
     })[c]);
   }
   function isTruncated(el){
-    // +1 to tolerate sub-pixel rounding on high-DPI displays.
-    return el.scrollWidth > el.clientWidth + 1;
+    // Range-based: a td's scrollWidth equals its clientWidth in Firefox
+    // (cells cannot be scroll containers there), which silently disabled
+    // every truncation popover.  See popoverContentOverflows.
+    return window.popoverContentOverflows(el);
   }
   function fmt(text){
     return '<div style="white-space:pre-wrap;max-width:32rem;font-size:.85rem;line-height:1.5;' +

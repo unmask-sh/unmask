@@ -50,6 +50,30 @@ window.popoverClampToViewport = window.popoverClampToViewport || function(x, y, 
   return { x: ax, y: ay };
 };
 
+// contentOverflows: does el's content run wider than the box shows?
+//
+// NOT scrollWidth - clientWidth: table cells cannot be scroll containers in
+// Gecko, so in Firefox a td's scrollWidth equals its clientWidth no matter how
+// far the text runs past the ellipsis -- every truncation check built on that
+// difference reads "fits" and the popovers it gates never open.  Both values
+// are also rounded integers, so even in Chromium a cell overflowing by a
+// fraction of a pixel shows an ellipsis the check cannot see.
+//
+// A Range measures the laid-out content itself, fractionally, in every
+// engine; the box side subtracts padding and border from the border-box rect
+// the same way.  0.5px of slack absorbs rounding.
+window.popoverContentOverflows = window.popoverContentOverflows || function(el){
+  var r = document.createRange();
+  r.selectNodeContents(el);
+  var w = r.getBoundingClientRect().width;
+  if (!w) return false;
+  var cs = getComputedStyle(el);
+  var avail = el.getBoundingClientRect().width
+    - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0)
+    - (parseFloat(cs.borderLeftWidth) || 0) - (parseFloat(cs.borderRightWidth) || 0);
+  return w - avail > 0.5;
+};
+
 window.popoverPin = window.popoverPin || (function(){
   // helper that builds the tools (= top-right action buttons).
   // [drag handle] [collapse toggle] [close].  drag uses mousedown to move the popover.
