@@ -305,7 +305,17 @@
  * table and the dashboard.
  * ------------------------------------------------------------------------- */
 .cellpop{position:relative}
-.cellpop-active{cursor:pointer}
+/* The uniform "there is more here" marker.  help-dotted, ipclick and the URL
+   cells each grew their own dotted underline while the UA / JA4 / clamp cells
+   -- the ones whose popover holds the most text -- signalled nothing until the
+   pointer happened to cross them.  One rule, one look: a value with a popover
+   is dotted-underlined, a value without one is not.
+   Badges are excluded: a chip already reads as an interactive element, and an
+   underline inside a pill is noise.  (Being inline-block, chips nested inside
+   an underlined cell also do not inherit the line -- decoration does not
+   propagate into atomic inline boxes.) */
+.cellpop-active{cursor:pointer;text-decoration:underline dotted #94a3b8;text-underline-offset:2px}
+.host-badge.cellpop-active,.site-badge.cellpop-active{text-decoration:none}
 .cellpop-pop{display:block}
 .cellpop-val{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;user-select:all;-webkit-user-select:all;word-break:break-all;max-width:32rem;display:block}
 /* Action chips (Open in new tab / Copy URL) inside a cellpop popover. */
