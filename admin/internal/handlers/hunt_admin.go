@@ -273,9 +273,30 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 
 	// Three ranking tables (= filters are not applied.  Top entries within
 	// the tab's sinceMin window).
-	ipRankRaw, _ := events.RankByIP(huntCtx, h.DB, sinceMin, 30, "")
-	ja4RankRaw, _ := events.RankByJA4(huntCtx, h.DB, sinceMin, 30, "")
-	uaRankRaw, _ := events.RankByUA(huntCtx, h.DB, sinceMin, 30, "")
+	//
+	// Bounded, and the failure is shown.  These are aggregate scans over the
+	// event table; on a large database a cold one is slow, and with the request
+	// context alone there was nothing to stop a ranking holding the whole page
+	// until the visitor gave up.  Worse, the error was dropped: a query that
+	// failed rendered as an empty table, which is the same thing the page shows
+	// when a window genuinely has no traffic.  "Nothing happened" and "we could
+	// not find out" are opposite answers for an operator hunting a bot.
+	rankCtx, cancelRank := context.WithTimeout(huntCtx, rankQueryTimeout)
+	defer cancelRank()
+	// Per table, because they fail independently: the UA scan is the expensive
+	// one and can time out while the others land.  Saying so table by table is
+	// the same rule the retention card follows -- name the metric that could
+	// not be read, rather than blanking the card around it.
+	rankFailed := map[string]bool{}
+	ipRankRaw, ipRankErr := events.RankByIP(rankCtx, h.DB, sinceMin, 30, "")
+	ja4RankRaw, ja4RankErr := events.RankByJA4(rankCtx, h.DB, sinceMin, 30, "")
+	uaRankRaw, uaRankErr := events.RankByUA(rankCtx, h.DB, sinceMin, 30, "")
+	logRankErr("ip", ipRankErr)
+	logRankErr("ja4", ja4RankErr)
+	logRankErr("ua", uaRankErr)
+	rankFailed["ip"] = ipRankErr != nil
+	rankFailed["ja4"] = ja4RankErr != nil
+	rankFailed["ua"] = uaRankErr != nil
 
 	cur := h.snapshotSettings().Nginx
 
@@ -360,7 +381,9 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		// LookupASN, not LookupInfo: this walks every distinct IP in the window
 		// once, where LookupInfo's country lookup is wasted work and its cache
 		// is pure overhead (see ipgeo.LookupASN).
-		asnRaw, _ := events.RankByASN(huntCtx, h.DB, sinceMin, 20, h.IPGeo.LookupASN)
+		asnRaw, asnRankErr := events.RankByASN(rankCtx, h.DB, sinceMin, 20, h.IPGeo.LookupASN)
+		logRankErr("asn", asnRankErr)
+		rankFailed["asn"] = asnRankErr != nil
 		asnRank = make([]asnRankRow, 0, len(asnRaw))
 		for _, r0 := range asnRaw {
 			asnRank = append(asnRank, asnRankRow{
@@ -578,6 +601,8 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		"Rows":           enriched,
 		"RowsMultiSite":  huntMultiSite,
 		"RowsGhostSites": huntGhostSites,
+		"RankFailed":     rankFailed,
+		"RankTimeout":    int(rankQueryTimeout / time.Second),
 		"IPRank":         ipRank,
 		"JA4Rank":        ja4Rank,
 		"UARank":         uaRank,
@@ -1370,4 +1395,26 @@ func rebindLineageRows(ctx context.Context, h *Handler, rows []events.RebindLine
 		out = append(out, row)
 	}
 	return out
+}
+
+// rankQueryTimeout bounds the hunt page's ranking scans.  Ten seconds is the
+// figure the retention card settled on for the same reason: long enough that a
+// cold cache on a large database still answers, short enough that a page which
+// cannot answer says so instead of hanging.
+//
+// A var, not a const, so a test can make the deadline expire immediately.  The
+// alternative -- removing the table the rankings read -- fails every other
+// query on the page too, which is a different failure and takes the page down
+// with it; the case worth pinning is the one where only these are missing.
+var rankQueryTimeout = 10 * time.Second
+
+// logRankErr records a ranking that could not be read.  Written to the log as
+// well as shown in the UI: the operator sees WHICH table is missing, and the
+// log says why -- a deadline against a slow scan reads differently from a
+// database that is gone, and only one of them is fixed by waiting.
+func logRankErr(name string, err error) {
+	if err == nil {
+		return
+	}
+	log.Printf("unmask: hunt %s ranking failed: %v", name, err)
 }

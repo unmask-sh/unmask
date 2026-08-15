@@ -125,6 +125,9 @@ table.rank,table.events{width:100%;border-collapse:collapse;font-size:.8rem}
    Every value here has a popover with the full string, so the ellipsis costs
    nothing.  The ASN and UA cards override this -- their values have no length
    limit at all, so they fill the card instead of sizing it. */
+/* A ranking that could not be read.  Muted rather than red: nothing is broken
+   for the visitor, the operator simply has one fewer answer than usual. */
+.rank-unavailable td{padding:.5rem .6rem;color:#64748b;font-size:.8rem;font-style:italic}
 table.rank{table-layout:auto;width:auto}
 table.rank td.key{max-width:var(--key-max,none);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace,Menlo,monospace;color:#0f172a}
 /* In rem, not ch: ch is the width of "0", and the fonts ui-monospace resolves
@@ -346,6 +349,9 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     <table class="rank">
       <thead><tr><th>IP</th><th class="num">req</th><th></th></tr></thead>
       <tbody>
+      {{ if index $.RankFailed "ip" }}
+      <tr class="rank-unavailable"><td colspan="3">{{ tf $.Lang "hunt.rank.unavailable" $.RankTimeout }}</td></tr>
+      {{ end }}
       {{ range .IPRank }}
       <tr>
         <td class="key ipclick" data-ip="{{ .Key }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .Key }}</td>
@@ -386,12 +392,18 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
        the bottom of the IP ranking, and the network is the only handle wide
        enough to act on.  Omitted entirely when the ASN mmdb is not loaded --
        an empty card would read as "no networks", not "cannot tell". */}}
-  {{ if .ASNRank }}
+  {{/* ...and shown when the lookup failed, since an omitted card would say
+       "no networks" about a question that was never answered.  The key is only
+       set when the mmdb IS loaded, so a node without one still omits it. */}}
+  {{ if or .ASNRank (index .RankFailed "asn") }}
   <div class="rank-card rank-card-asn{{ if index $.RankFolded "asn" }} folded{{ end }}" data-rank-card="asn">
     <h3><button type="button" class="rank-fold" aria-expanded="{{ if index $.RankFolded "asn" }}false{{ else }}true{{ end }}" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.asn_h" }} ({{ len .ASNRank }})</span><span class="rank-fold-short">ASN</span></button></h3>
     <table class="rank">
       <thead><tr><th>{{ t .Lang "hunt.rank.asn_net" }}</th><th class="num">{{ t .Lang "hunt.rank.asn_ips" }}</th><th class="num">req</th><th></th></tr></thead>
       <tbody>
+      {{ if index $.RankFailed "asn" }}
+      <tr class="rank-unavailable"><td colspan="4">{{ tf $.Lang "hunt.rank.unavailable" $.RankTimeout }}</td></tr>
+      {{ end }}
       {{ range .ASNRank }}
       <tr>
         {{/* The organisation is what an operator recognises; almost nobody reads
@@ -440,6 +452,9 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     <table class="rank">
       <thead><tr><th>JA4</th><th class="num">req</th><th></th></tr></thead>
       <tbody>
+      {{ if index $.RankFailed "ja4" }}
+      <tr class="rank-unavailable"><td colspan="3">{{ tf $.Lang "hunt.rank.unavailable" $.RankTimeout }}</td></tr>
+      {{ end }}
       {{ range .JA4Rank }}
       <tr>
         {{/* JA4 strings are always fully visible in this column (= no
@@ -492,6 +507,9 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     <table class="rank">
       <thead><tr><th>UA</th><th class="num">req</th><th></th></tr></thead>
       <tbody>
+      {{ if index $.RankFailed "ua" }}
+      <tr class="rank-unavailable"><td colspan="3">{{ tf $.Lang "hunt.rank.unavailable" $.RankTimeout }}</td></tr>
+      {{ end }}
       {{ range .UARank }}
       <tr>
         {{/* Same reading as the log below: the raw string is 100+ characters of
