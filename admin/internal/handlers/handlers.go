@@ -1072,6 +1072,10 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// rate_limit / test are placed later than others to reliably override
 	// debug / RL-via paths.
 	forceReason := "none"
+	// The chain the network axis resolved, kept from the same lookup that
+	// named the axis so the two cannot disagree.  Empty unless a geo / ASN
+	// rule matched.
+	netChMode := ""
 	if action == "bot" {
 		forceReason = "ja4_bot"
 	}
@@ -1230,8 +1234,9 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			forceReason = "stale"
 		}
 		if forceReason == "none" {
-			if reason := h.netChallengeReason(adminClientIP(r, *h.cfg()), *h.cfg()); reason != "" {
+			if reason, act := h.netChallengeReason(adminClientIP(r, *h.cfg()), *h.cfg()); reason != "" {
 				forceReason = reason
+				netChMode = act
 			}
 		}
 		// The operator's own UA rule, last: nginx fires this challenge off
@@ -1420,6 +1425,18 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		// No default-action / rate-limit-linkage override on top (removed in the
 		// redesign) -- the mode the operator picked is exactly what gets served.
 		chMode = nginxconf.ChModeForProtectedMode(ppMode)
+	} else if forceReason == "asn" || forceReason == "geo" {
+		// The matched rule's own action, the way honeypot and ja4_bot already
+		// serve theirs.  Without this branch the network axis was attributed
+		// and then handed the default chain: a rule saying captcha_only was
+		// served as pow_then_captcha, because the grade backstop below saw a
+		// chain that did not end in a CAPTCHA and escalated it -- which keeps
+		// the proof-of-work leg on purpose, and the proof-of-work leg is
+		// precisely what an operator picking captcha_only is declining to
+		// offer a network whose clients run JavaScript.
+		if settings.IsValidRateChallengeMode(netChMode) {
+			chMode = netChMode
+		}
 	} else if forceReason == "honeypot" {
 		// The trap's own action (its row, or its preset group), then the tab
 		// default -- the same order forward-auth's honeypotDecide resolves, via
