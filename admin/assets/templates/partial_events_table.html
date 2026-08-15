@@ -1060,7 +1060,14 @@ document.addEventListener('DOMContentLoaded', function(){
     var esc = function(v){ var d = document.createElement('div'); d.textContent = v; return d.innerHTML; };
     var html = function(){
       var ph = tr.getAttribute('data-phase') || '';
-      var when = (tr.querySelector('td:first-child') || {}).textContent || '';
+      // The <time> element, not the whole cell: the date cell also carries the
+      // host and site badges, and textContent on the container glued the host
+      // onto the timestamp -- unlabelled, so it read as part of the time.  The
+      // host is already displayed right there in the row, one column to the
+      // left of where the popover opens.
+      var whenEl = tr.querySelector('td:first-child time');
+      var when = whenEl ? whenEl.textContent
+               : ((tr.querySelector('td:first-child') || {}).textContent || '');
       var chm = (tr.getAttribute('data-ch-mode') || '').replace(/[^a-z0-9_]/g, '');
       return (chm ? '<div class="session-lead">' + {{ t .Lang "th.ch_mode" }} + ' <strong>' + chm + '</strong></div>' : '') +
              '<div class="session-timeline"><div class="session-line">' +
