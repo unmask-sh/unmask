@@ -1771,11 +1771,24 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
     // A path cell opens whether or not it is visually clipped: it carries the
     // Open / Copy actions and the host, which the cell itself cannot show.
     function clipped(){ return isURL || (full && full.length) || (el.scrollWidth - el.clientWidth > 1); }
-    if (clipped()) el.classList.add('cellpop-active');
+    function syncMark(){ el.classList.toggle('cellpop-active', clipped()); }
+    syncMark();
+    // The one-shot above races layout and loses: it runs during parse, and the
+    // js-datetime formatter runs at DOMContentLoaded, widening the last-seen
+    // column and SHRINKING this flexible one -- so on a wide window a UA that
+    // ends up visually clipped was measured unclipped, and the marker never
+    // appeared (observed in production: only the one row the operator had
+    // hovered carried the underline, because hovering re-measures).  A
+    // ResizeObserver re-runs the measurement whenever the cell's size actually
+    // changes -- the reformat reflow, a window resize, a show-more expansion --
+    // so the marker follows the layout instead of the first paint.
+    if (typeof ResizeObserver !== 'undefined'){
+      new ResizeObserver(syncMark).observe(el);
+    }
     el.addEventListener('mouseenter', function(e){
       clearTimeout(timer);
+      syncMark();
       if (!clipped()) return;
-      el.classList.add('cellpop-active');
       if (pin.hasPinFor(el)) return;
       var x = e.pageX, y = e.pageY;
       timer = setTimeout(function(){ pin.showHover(popHtml(val, fullURL(el, val), queryHTML(val)), x, y, el); }, 200);

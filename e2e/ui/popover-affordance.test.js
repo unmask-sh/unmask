@@ -99,6 +99,41 @@ const dotted = s => s && s.line.indexOf('underline') >= 0 && s.style === 'dotted
   });
   ok(opened === true, 'a marked cell did not open its popover on hover');
 
+  // The marker follows the layout, not the first paint.  The one-shot check
+  // used to run during parse, before the js-datetime reformat widened the
+  // last-seen column and shrank the flexible UA column -- so on a wide window
+  // a UA that ended up clipped had been measured unclipped, and the only
+  // underline on the page was on whichever row the operator happened to hover
+  // (hover re-measures).  Reproduced here without depending on fonts or
+  // viewport: at a width where nothing clips, squeeze the column AFTER load
+  // and require the markers to appear on their own -- no hover anywhere.
+  await page.setViewport({ width: 2400, height: 900 });
+  await page.goto(BASE + '/admin/stats/', { waitUntil: 'networkidle2' });
+  const measure = () => page.evaluate(() => {
+    const cells = Array.from(document.querySelectorAll('table.cp-rankable td.bcd-ua.cellpop'))
+      .filter(c => c.offsetParent !== null);
+    return {
+      total: cells.length,
+      clipped: cells.filter(c => c.scrollWidth - c.clientWidth > 1).length,
+      marked: cells.filter(c => c.classList.contains('cellpop-active')).length,
+    };
+  });
+  const before = await measure();
+  // The reflow: shrink the window.  Same category of post-load layout change
+  // as the date reformat, and unambiguous at any font.
+  await page.setViewport({ width: 900, height: 900 });
+  await new Promise(r => setTimeout(r, 300));
+  const after = await measure();
+  const race = { missing: before.total === 0, before, after, total: before.total };
+  if (race.missing) {
+    ok(false, 'no reuse UA cells at the wide viewport');
+  } else {
+    ok(race.after.clipped > race.before.clipped,
+      `the squeeze did not clip anything new (${race.before.clipped} -> ${race.after.clipped} of ${race.total}) -- the reproduction lost its footing`);
+    ok(race.after.marked === race.after.clipped,
+      `after a post-load reflow, ${race.after.clipped} cells are clipped but ${race.after.marked} are marked -- the marker is still frozen at first paint`);
+  }
+
   await browser.close();
   if (fails.length) {
     console.error('FAIL\n- ' + fails.join('\n- '));
