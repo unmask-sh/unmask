@@ -148,7 +148,11 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     // time, and on the same visual row as it.
     tl.rows.forEach((r, i) => {
       if (!r.geom) return;
-      ok(r.geom.gap <= 3, `line ${i} (${r.phase}): the mark sits ${r.geom.gap}px from its time`);
+      // A gap, but a small one: flush against the digits the mark and the time
+      // read as a single token, and far from them it stops belonging to the
+      // line.
+      ok(r.geom.gap >= 1 && r.geom.gap <= 6,
+        `line ${i} (${r.phase}): the mark sits ${r.geom.gap}px from its time`);
       ok(r.geom.dy <= 3, `line ${i} (${r.phase}): the mark is ${r.geom.dy}px off its time's centre`);
     });
     // The serve is the server's own event -- nothing was in transit -- so it
