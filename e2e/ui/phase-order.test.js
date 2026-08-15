@@ -92,7 +92,12 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
       rows: lines.map(l => ({
         ts: (l.querySelector('.ts-mono') || {}).textContent || '',
         phase: (l.querySelector('.phase-pill') || {}).textContent || '',
+        // Which clock this line's time came from: a leading ~ means the
+        // browser's measured interval, blank means the server's own record.
+        src: l.querySelector('.ts-src-client') ? 'client' : 'server',
       })),
+      // The legend only appears where a derived line does.
+      legend: !!document.querySelector('.session-tssrc'),
     };
   });
 
@@ -118,6 +123,20 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     if (iPow >= 0 && iCap >= 0) {
       ok(tl.rows[iPow].ts === tl.rows[iCap].ts,
         `same-tick phases are printed 'apart': pow_pass ${tl.rows[iPow].ts} vs captcha ${tl.rows[iCap].ts}`);
+      // Those two times were computed from the browser's own intervals, and
+      // the timeline has to say so: an operator comparing them against an
+      // access log will not find them there to the millisecond, and silence
+      // about that reads as the log being wrong.
+      ok(tl.rows[iPow].src === 'client' && tl.rows[iCap].src === 'client',
+        `derived times are not marked as such: pow=${tl.rows[iPow].src} captcha=${tl.rows[iCap].src}`);
+      ok(tl.legend, 'a derived time is shown with no legend explaining the mark');
+    }
+    // The serve is the server's own event -- nothing was in transit -- so it
+    // must NOT be marked, or the mark says nothing by applying to everything.
+    const iServe = tl.rows.findIndex(r => r.phase.indexOf('serve') === 0);
+    if (iServe >= 0) {
+      ok(tl.rows[iServe].src === 'server',
+        'the serve, which the server wrote itself, is marked as a browser-derived time');
     }
   }
 
