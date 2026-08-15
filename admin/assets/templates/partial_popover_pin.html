@@ -5,9 +5,12 @@
   `{{ template "popover_pin_assets" . }}` at the end of <head>.
 
   Backing assets: admin/assets/static/popover-pin.{js,css} (served via
-  ServePopoverPinJS / ServePopoverPinCSS handlers).
+  ServePopoverPinJS / ServePopoverPinCSS handlers).  ?v= carries the process
+  start stamp: the assets are max-age cached, and without the buster a binary
+  swap left browsers pairing the new page HTML with the previous build's
+  JS/CSS for up to an hour.
 */ -}}
 {{ define "popover_pin_assets" -}}
-<link rel="stylesheet" href="{{ .BasePath }}/static/popover-pin.css">
-<script src="{{ .BasePath }}/static/popover-pin.js"></script>
+<link rel="stylesheet" href="{{ .BasePath }}/static/popover-pin.css?v={{ assetv }}">
+<script src="{{ .BasePath }}/static/popover-pin.js?v={{ assetv }}"></script>
 {{- end }}
