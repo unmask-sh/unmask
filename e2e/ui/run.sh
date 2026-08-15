@@ -114,12 +114,11 @@ for phase, payload, reloads, ago in [
         ("serve", '{"bt":"uiCollapse","force_reason":"rate_limit"}', 0, 39),
         ("load", '{"bt":"uiCollapse"}', 0, 35),
         ("abandon", '{"bt":"uiCollapse","abandon_phase":"pow"}', 2, 20),
-        # The visitor pressed Back rather than closing the tab: another request
-        # from the same address 10s later.  "returned" is NOT a payload field --
-        # the server answers it by looking for exactly this, so a seed that only
-        # claims it in JSON proves nothing.  Outside the beacon token, because a
-        # follow-up navigation is its own request, not part of the session.
-        ("check", '{"action":"pass"}', 0, 10)]:
+        # They left this attempt and got in on the next one: a pass from the
+        # same address 10s later.  It has to be a pass -- another challenge
+        # being served is what a looping bot produces, and counting that was
+        # the bug.  Outside the beacon token, since it is a separate session.
+        ("bv_pow_only", '{"bt":"uiCollapseRetry"}', 0, 10)]:
     c.execute("""INSERT INTO unmask_event
         (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
          phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
