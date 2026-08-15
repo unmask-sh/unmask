@@ -532,15 +532,25 @@ type Row struct {
 	AbandonVia    string `json:"abandon_via,omitempty"`
 	LeftAtMs      int    `json:"left_at_ms,omitempty"`
 	NoticeDelayMs int    `json:"notice_delay_ms,omitempty"`
-	// Returned: on phase=abandon rows, whether the same client sent anything
-	// else within the next 30 seconds.  Browsers refuse to tell JS whether a
-	// visitor pressed Back or closed the tab, and the one hint they do give
-	// (the bfcache persisted flag) is structurally false here because a
-	// challenge page must be served no-store.  The server can still answer the
-	// question that matters: going back lands the visitor somewhere and
-	// produces another request, while closing produces silence.  0 = nothing
-	// followed (gone), >0 = they stayed on the site.
-	Returned int `json:"returned,omitempty"`
+	// PassedAfter: on phase=abandon rows, whether the same address obtained a
+	// pass within the next 30 seconds -- i.e. whether leaving this attempt was
+	// the end of it, or just a detour on the way in.
+	//
+	// It used to count ANY later event from the address, on the theory that
+	// pressing Back lands the visitor somewhere and produces a request while
+	// closing the tab produces silence.  That reads a bot's next attempt as a
+	// human going back: a client challenged, abandoning, and being challenged
+	// again three seconds later produced a "they stayed" on the first abandon
+	// and again on the second, having never once been let in.  Seen on a
+	// production node, and it is the common case -- a bot that loops is exactly
+	// the client that abandons most.
+	//
+	// So the bar is a pass (bv_*), which is the one event that means the gate
+	// opened.  bv_rebind counts (a silently re-bound cookie IS entry);
+	// bv_rebind_reject does not, being a refusal.  0 means no pass was seen --
+	// honest about what is knowable, since a visitor who already holds a cookie
+	// and browses on produces no event at all in native mode.
+	PassedAfter int `json:"passed_after,omitempty"`
 }
 
 // extractAction is a lightweight parser that pulls "action" out of payload_json.
@@ -1179,23 +1189,22 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, re
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	fillAbandonReturned(ctx, d, out)
+	fillAbandonPassedAfter(ctx, d, out)
 	return out, nil
 }
 
-// fillAbandonReturned answers, for each abandon row on the page, whether that
-// client sent anything else in the following 30 seconds.
+// fillAbandonPassedAfter answers, for each abandon row on the page, whether
+// that address got in during the next 30 seconds.
 //
-// It is the only way to tell "pressed Back" from "closed the tab": browsers do
-// not expose the gesture, and the bfcache hint that hints at it is always false
-// for a no-store challenge page.  Going back navigates somewhere and shows up
-// as another request; closing shows up as nothing.
+// The useful question is not "did they make another request" -- a bot looping
+// on the challenge makes one every few seconds -- but "did the gate ever open
+// for them".  A pass is the event that says so.
 //
 // One query per abandon row, and only for abandon rows -- a page of the hunt
 // log holds a handful at most, so this costs nothing on the common path and
 // nothing at all on pages with none.  A failing lookup leaves the field at 0
 // rather than failing the page: this is a hint beside the row, not the row.
-func fillAbandonReturned(ctx context.Context, d *db.DB, rows []Row) {
+func fillAbandonPassedAfter(ctx context.Context, d *db.DB, rows []Row) {
 	for i := range rows {
 		if rows[i].Phase != "abandon" || rows[i].IP == "" {
 			continue
@@ -1212,15 +1221,19 @@ func fillAbandonReturned(ctx context.Context, d *db.DB, rows []Row) {
 		}
 		until := time.UnixMilli(rows[i].TsMs).UTC().Add(30 * time.Second).Format(eventTimeFormat)
 		var n sql.NullInt64
+		// substr rather than LIKE 'bv_%': _ is a LIKE wildcard, and the escape
+		// syntax differs between SQLite and MariaDB.  bv_rebind_reject is
+		// excluded by name -- it is the one bv_ phase that means refused.
 		err := d.QueryRowContext(ctx, `
             SELECT COUNT(*) FROM unmask_event
             WHERE ip_address = ? AND id <> ?
-              AND date_created > ? AND date_created <= ?`,
+              AND date_created > ? AND date_created <= ?
+              AND substr(phase, 1, 3) = 'bv_' AND phase <> 'bv_rebind_reject'`,
 			ipb, rows[i].ID, rows[i].Date, until).Scan(&n)
 		if err != nil {
 			continue
 		}
-		rows[i].Returned = int(n.Int64)
+		rows[i].PassedAfter = int(n.Int64)
 	}
 }
 
