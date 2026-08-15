@@ -1243,12 +1243,20 @@ document.addEventListener('DOMContentLoaded', function(){
     // rows silently went missing.
     var isURL = el.classList.contains('url');
     function clipped(){ return isURL || (full && full.length > 0) || (el.scrollWidth - el.clientWidth > 1); }
-    if (clipped()) el.classList.add('cellpop-active');
+    function syncMark(){ el.classList.toggle('cellpop-active', clipped()); }
+    syncMark();
+    // Same layout race the dashboard's copy hit: the one-shot runs during
+    // parse, the js-datetime reformat reflows at DOMContentLoaded, and a cell
+    // that ends up clipped can have been measured unclipped.  The observer
+    // keeps the marker tied to the layout, not to the first paint.
+    if (typeof ResizeObserver !== 'undefined'){
+      new ResizeObserver(syncMark).observe(el);
+    }
     var url = isURL ? fullURL(el, val) : '';
     el.addEventListener('mouseenter', function(e){
       clearTimeout(timer);
+      syncMark();
       if (!clipped()) return;
-      el.classList.add('cellpop-active');
       if (pin.hasPinFor(el)) return;
       var x = e.pageX, y = e.pageY;
       // Hover gets the summary as a heading inside the popover; the pinned
