@@ -102,6 +102,15 @@ var (
 func loadDashboardTemplate() (*template.Template, error) {
 	dashboardTmplOnce.Do(func() {
 		funcs := template.FuncMap{
+			// assetv: cache-buster for the shared static assets
+			// (popover-pin.css / .js).  They are served with max-age caching
+			// and were linked bare, so after a binary swap every browser kept
+			// the previous build's copy for up to an hour -- new page HTML
+			// driving old JS/CSS, which is how a fix can be deployed and a
+			// fresh reload still shows the old behaviour.  Same stamp
+			// challenge.js already uses (process start), so one restart moves
+			// every asset forward together.
+			"assetv": func() int64 { return buildVersionStamp },
 			// dict builds a map from alternating key/value args, for passing a
 			// small bundle of named values into a {{ template }} partial.
 			"dict": func(kv ...any) map[string]any {
