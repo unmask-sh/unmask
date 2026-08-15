@@ -127,8 +127,16 @@
    long text ran straight out of the popover box.  max-width keeps a long note
    from widening the popover instead of wrapping inside it; overflow-wrap
    handles an unbroken token (a URL, a UA) that is itself wider than the box. */
-.ts-src{display:inline-block;width:.6rem;font-family:ui-monospace,Menlo,monospace;font-size:.78rem;color:#94a3b8}
-.ts-src-client{color:#64748b;font-weight:700}
+/* The mark and the time are ONE flex item.  As two, .session-line's own
+   gap (.5rem) pushed them apart and align-items:center floated the smaller
+   mark above the digits, so which line it belonged to was a guess.  Sharing an
+   item removes the gap and lets them share a baseline instead.
+   1ch of the same monospace face = exactly one character cell, so a marked and
+   an unmarked line indent identically and the mark sits right against the
+   time it qualifies. */
+.ts-cell{display:flex;align-items:baseline;flex:none}
+.ts-src{display:inline-block;width:1ch;flex:none;font-family:ui-monospace,Menlo,monospace;font-size:.75rem;color:#94a3b8}
+.ts-src-client{color:#475569;font-weight:700}
 .session-tssrc{margin-top:.4rem;padding-top:.35rem;border-top:1px solid #e2e8f0;font-size:.72rem;line-height:1.5;color:#64748b}
 .session-notes{margin-top:.45rem;padding-top:.4rem;border-top:1px solid #e2e8f0;
   display:flex;flex-direction:column;gap:.3rem}
@@ -837,7 +845,10 @@ document.addEventListener('DOMContentLoaded', function(){
         // one that never distinguished them at all.
         var srcMark = (tr.__firedFrom === 'client')
           ? '<span class="ts-src ts-src-client">~</span>'
-          : '<span class="ts-src"> </span>';
+          // &nbsp;, not a plain space: HTML collapses the latter away, the
+          // span then has no line box at all, and the slot stops holding the
+          // indent it exists to hold.
+          : '<span class="ts-src">&nbsp;</span>';
         var ph = tr.getAttribute('data-phase') || '';
         var pillCls = 'phase-pill ph-' + ph;
         // Full phase name here, not the chain's short label: the chain trades
@@ -864,8 +875,9 @@ document.addEventListener('DOMContentLoaded', function(){
           notes.push(det);
           mark = ' <span class="session-note-ref">*' + notes.length + '</span>';
         }
-        return '<div class="session-line">' + srcMark + '<time class="ts-mono">' + fmtTs(ms) +
-               '</time> <span class="' + pillCls + '">' + label + '</span>' + mark + '</div>';
+        return '<div class="session-line"><span class="ts-cell">' + srcMark +
+               '<time class="ts-mono">' + fmtTs(ms) + '</time></span>' +
+               ' <span class="' + pillCls + '">' + label + '</span>' + mark + '</div>';
       });
       // The chain the challenge offered, stated once for the session rather
       // than glued to the serve line: it is what the visitor was about to
