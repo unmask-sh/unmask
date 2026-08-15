@@ -81,6 +81,11 @@ table.feed thead th:nth-child(2),table.feed thead th:nth-child(3),table.feed the
 /* status column (= 適用 badge / toggle button): 1-char icons, never clip. */
 table.feed tbody td:nth-child(4){overflow:visible;text-overflow:clip}
 table.feed td.clamp{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The uniform popover marker (same look as .cellpop-active / help-dotted).
+   clamp-active rides truncation; reason and comments carry it always, since
+   their reports popover opens regardless of how much text fits. */
+table.feed td.clamp.clamp-active{cursor:help;text-decoration:underline dotted #94a3b8;text-underline-offset:2px}
+table.feed td.feed-reason,table.feed td.feed-comments{text-decoration:underline dotted #94a3b8;text-underline-offset:2px}
 /* Inside the comments column the .cmt spans render inline (no chip styling)
  * so multiple comments collapse onto a single line + ellipsis once overflow
  * triggers.  Detail-panel .cmt (= block chip) is unaffected by this scope. */
@@ -626,11 +631,14 @@ document.addEventListener('click', function(e){
     // clamp truncation popover for them -- otherwise both would fire on
     // hover and the less-informative one would race ahead.
     if (td.classList.contains('feed-reason') || td.classList.contains('feed-comments')) return;
-    td.style.cursor = 'default';
+    // The marker rides the measurement, refreshed at hover like the popover's
+    // own truncation re-check.
+    function sync(){ td.classList.toggle('clamp-active', isTruncated(td)); }
+    sync();
     td.addEventListener('mouseenter', function(e){
+      sync();
       if (pin.hasPinFor(td)) return;
       if (!isTruncated(td)) return;
-      td.style.cursor = 'help';
       pin.showHover(fmt(td.dataset.full), e.pageX, e.pageY, td);
     });
     td.addEventListener('mouseleave', function(){ pin.hideHover(); });
