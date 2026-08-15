@@ -69,6 +69,9 @@ func mergeChallenge(base, over ChallengeValues) ChallengeValues {
 	if over.ChallengeHTMLPath != "" {
 		out.ChallengeHTMLPath = over.ChallengeHTMLPath
 	}
+	if over.ChallengeJSPath != "" {
+		out.ChallengeJSPath = over.ChallengeJSPath
+	}
 	if over.PublicTestPages != nil {
 		out.PublicTestPages = over.PublicTestPages
 	}
@@ -166,6 +169,9 @@ func SparsifyChallenge(v, def ChallengeValues) ChallengeValues {
 	}
 	if v.ChallengeHTMLPath == def.ChallengeHTMLPath {
 		v.ChallengeHTMLPath = ""
+	}
+	if v.ChallengeJSPath == def.ChallengeJSPath {
+		v.ChallengeJSPath = ""
 	}
 	if boolEq(v.PublicTestPages, def.PublicTestPages) {
 		v.PublicTestPages = nil
@@ -271,6 +277,7 @@ func ChallengeOverridesFor(c ChallengeConfig, site string) map[string]bool {
 		"captcha_cookie_valid_seconds":  v.CaptchaCookieValidSeconds != 0,
 		"debug_rate_limit_per_5min":     v.DebugRateLimitPer5Min != 0,
 		"challenge_html_path":           v.ChallengeHTMLPath != "",
+		"challenge_js_path":             v.ChallengeJSPath != "",
 		"public_test_pages":             v.PublicTestPages != nil,
 		"public_test_pages_password":    v.PublicTestPagesPassword != "",
 		"public_test_pages_site_picker": v.PublicTestPagesSitePicker != nil,

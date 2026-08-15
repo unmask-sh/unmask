@@ -40,7 +40,11 @@ contents:
   - src: ../nginx/vts.conf.example
     dst: /usr/share/doc/unmask/vts.conf.example
 
-  # challenge HTML + JS (admin has an embedded copy, but also drop an external copy that ops can edit)
+  # challenge HTML + JS.  A REFERENCE copy: the daemon serves the copy built
+  # into the binary and does not read these unless challenge_html_path /
+  # challenge_js_path names them.  They are here to be copied and edited --
+  # preferring them automatically is what pinned a whole fleet to an old
+  # release when only the binary was upgraded.
   - src: ../admin/assets/static/challenge.html
     dst: /usr/share/unmask/challenge/challenge.html
   - src: ../admin/assets/static/challenge.js

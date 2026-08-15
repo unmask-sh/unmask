@@ -409,13 +409,42 @@ func (h *Handler) basePath() string {
 
 // loadChallengeHTML returns the challenge.html bytes.  Order:
 //
-//   - settings.challenge.challenge_html_path (override for ops)
-//   - /usr/share/unmask/challenge/challenge.html (RPM/deb)
+//   - settings.challenge.challenge_html_path (the operator named a file)
 //   - embedded assets/static/challenge.html (default)
+//
+// The packaged copy under /usr/share/unmask/challenge/ is NOT consulted.  It
+// used to win automatically, which made it a trap rather than a convenience:
+// the package writes it at install time, so after an upgrade that replaced only
+// the binary the visitor kept being served the previous release's page, with
+// nothing in the UI to say so.  It is still shipped, as the file to copy and
+// point challenge_html_path at.
 
-// challengeHTMLPackagePath is the package-deployed override location; a package
-// var so tests can point it at a stale fixture to exercise the __POW_SEED__
-// guard below.
+// ignoredAssetOnce keeps the notice below to one line per path for the life of
+// the process.  These loaders run on every challenge served, and a warning
+// repeated at that rate is a log nobody can read rather than a warning.
+var ignoredAssetOnce onceByKey
+
+type onceByKey struct {
+	mu   sync.Mutex
+	seen map[string]bool
+}
+
+func (o *onceByKey) Do(key string, f func()) {
+	o.mu.Lock()
+	if o.seen == nil {
+		o.seen = map[string]bool{}
+	}
+	first := !o.seen[key]
+	o.seen[key] = true
+	o.mu.Unlock()
+	if first {
+		f()
+	}
+}
+
+// challengeHTMLPackagePath is where the package drops its reference copy.  Read
+// only to notice an edited one and say it is being ignored; a package var so
+// tests can point it elsewhere.
 var challengeHTMLPackagePath = "/usr/share/unmask/challenge/challenge.html"
 
 func (h *Handler) loadChallengeHTML() ([]byte, error) {
@@ -433,36 +462,50 @@ func (h *Handler) loadChallengeHTML() ([]byte, error) {
 	// placeholder before trusting the on-disk copy; otherwise fall back to the
 	// embedded (always-current) one rather than serving a challenge that can
 	// never be solved.
-	if b, err := os.ReadFile(challengeHTMLPackagePath); err == nil {
-		if bytes.Contains(b, []byte("__POW_SEED__")) {
-			return b, nil
-		}
-		log.Printf("challenge.html at %s lacks __POW_SEED__ (stale pre-seed-bound-PoW asset); using embedded copy to avoid a challenge loop", challengeHTMLPackagePath)
+	b, err := assets.Static.ReadFile(filepath.ToSlash("static/challenge.html"))
+	if err != nil {
+		return nil, err
 	}
-	return assets.Static.ReadFile(filepath.ToSlash("static/challenge.html"))
+	warnIgnoredPackagedAsset(challengeHTMLPackagePath, "challenge_html_path", b)
+	return b, nil
 }
 
 // challengeJSPackagePath is the package-deployed challenge.js override; a
 // package var so tests can point it at a stale fixture.
 var challengeJSPackagePath = "/usr/share/unmask/challenge/challenge.js"
 
-// loadChallengeJS returns the challenge.js bytes, mirroring loadChallengeHTML's
-// override order: a deployed /usr/share/unmask/challenge/challenge.js wins, else
-// the embedded copy.  Used by ServeChallengeJS and the inline path.
+// loadChallengeJS returns the challenge.js bytes, mirroring loadChallengeHTML:
+// the operator's challenge_js_path if set, else the embedded copy.  Used by
+// ServeChallengeJS and the inline path.
 func (h *Handler) loadChallengeJS() ([]byte, error) {
-	// Same stale-asset guard as loadChallengeHTML.  A challenge.js that predates
-	// the seed-bound PoW (an old djb2 build that never reads
-	// window.UNMASK.pow_seed) makes the browser solve a PoW the current plugin
-	// rejects, looping every visitor -- exactly what shipped to tool1 alongside
-	// the stale HTML.  Require the pow_seed marker before trusting the on-disk
-	// copy; otherwise use the embedded (always-current) one.
-	if b, err := os.ReadFile(challengeJSPackagePath); err == nil {
-		if bytes.Contains(b, []byte("pow_seed")) {
-			return b, nil
-		}
-		log.Printf("challenge.js at %s lacks pow_seed handling (stale pre-seed-bound-PoW asset); using embedded copy to avoid a challenge loop", challengeJSPackagePath)
+	if p := h.cfg().Challenge.Default.ChallengeJSPath; p != "" {
+		return os.ReadFile(p)
 	}
-	return assets.Static.ReadFile(filepath.ToSlash("static/challenge.js"))
+	b, err := assets.Static.ReadFile(filepath.ToSlash("static/challenge.js"))
+	if err != nil {
+		return nil, err
+	}
+	warnIgnoredPackagedAsset(challengeJSPackagePath, "challenge_js_path", b)
+	return b, nil
+}
+
+// warnIgnoredPackagedAsset says once, per path, that an edited copy under
+// /usr/share/unmask/challenge/ is not being served.
+//
+// Silence would be the wrong kindness here.  An operator who customised that
+// file -- which the packaging invited, and which the daemon used to honour --
+// would otherwise see their edit simply stop applying, with the page looking
+// correct and nothing anywhere explaining it.  A copy that still matches what
+// this build embeds is the package's own default and says nothing.
+func warnIgnoredPackagedAsset(path, setting string, embedded []byte) {
+	ignoredAssetOnce.Do(path, func() {
+		b, err := os.ReadFile(path)
+		if err != nil || bytes.Equal(b, embedded) {
+			return
+		}
+		log.Printf("unmask: %s differs from the built-in copy and is NOT being served; "+
+			"set challenge.%s to that path to use it", path, setting)
+	})
 }
 
 // stripOrKeepCredit processes the
