@@ -127,6 +127,9 @@
    long text ran straight out of the popover box.  max-width keeps a long note
    from widening the popover instead of wrapping inside it; overflow-wrap
    handles an unbroken token (a URL, a UA) that is itself wider than the box. */
+.ts-src{display:inline-block;width:.6rem;font-family:ui-monospace,Menlo,monospace;font-size:.78rem;color:#94a3b8}
+.ts-src-client{color:#64748b;font-weight:700}
+.session-tssrc{margin-top:.4rem;padding-top:.35rem;border-top:1px solid #e2e8f0;font-size:.72rem;line-height:1.5;color:#64748b}
 .session-notes{margin-top:.45rem;padding-top:.4rem;border-top:1px solid #e2e8f0;
   display:flex;flex-direction:column;gap:.3rem}
 .session-note{max-width:32rem;white-space:normal;overflow-wrap:anywhere;word-break:normal;
@@ -634,17 +637,31 @@ document.addEventListener('DOMContentLoaded', function(){
     // Rows the server wrote itself (serve, the folded forward-auth check)
     // carry no elapsed_ms and need none: nothing was in transit, so their
     // recorded time is already the time they happened.
+    // __firedFrom records WHICH clock a line's time came from, because the two
+    // are not equally direct and an operator comparing this against an access
+    // log deserves to know which lines will line up to the millisecond.
+    //   'server' -- the time the server wrote down when the request arrived
+    //              (a serve it rendered itself, or the first beacon of the
+    //              session, which is the anchor everything else hangs off)
+    //   'client' -- the anchor plus the interval the page measured, so it
+    //              carries no per-beacon delivery jitter and will differ from
+    //              the arrival time by a millisecond or two
     var anchor = null, anchorEl = null;
     grp.forEach(function(tr){
       var el = rowElapsed(tr);
-      if (el == null) { tr.__firedMs = tr.__origMs; return; }
-      if (anchor == null) { anchor = tr.__origMs; anchorEl = el; tr.__firedMs = tr.__origMs; return; }
+      if (el == null) { tr.__firedMs = tr.__origMs; tr.__firedFrom = 'server'; return; }
+      if (anchor == null) {
+        anchor = tr.__origMs; anchorEl = el;
+        tr.__firedMs = tr.__origMs; tr.__firedFrom = 'server';
+        return;
+      }
       var delta = el - anchorEl;
       // A page can send anything.  Accept only an interval that could belong
       // to the session in front of us; anything else falls back to the
       // recorded time, so a bogus value costs nothing but the correction.
-      if (delta < 0 || delta > 86400000) { tr.__firedMs = tr.__origMs; return; }
+      if (delta < 0 || delta > 86400000) { tr.__firedMs = tr.__origMs; tr.__firedFrom = 'server'; return; }
       tr.__firedMs = anchor + delta;
+      tr.__firedFrom = 'client';
     });
     // Collapse consecutive same-phase rows (= rare but happens when the
     // server fires the same phase twice for one request).  The timeline
@@ -814,6 +831,13 @@ document.addEventListener('DOMContentLoaded', function(){
       var lines = grp.map(function(tr){
         var ms = (tr.__firedMs != null) ? tr.__firedMs
                : (tr.__origMs != null) ? tr.__origMs : rowKey(tr);
+        // A leading ~ on the lines the browser's own clock spaced.  Server
+        // lines get the same slot as a blank so the column still lines up --
+        // a timeline whose times jump left and right is harder to scan than
+        // one that never distinguished them at all.
+        var srcMark = (tr.__firedFrom === 'client')
+          ? '<span class="ts-src ts-src-client">~</span>'
+          : '<span class="ts-src"> </span>';
         var ph = tr.getAttribute('data-phase') || '';
         var pillCls = 'phase-pill ph-' + ph;
         // Full phase name here, not the chain's short label: the chain trades
@@ -840,7 +864,7 @@ document.addEventListener('DOMContentLoaded', function(){
           notes.push(det);
           mark = ' <span class="session-note-ref">*' + notes.length + '</span>';
         }
-        return '<div class="session-line"><time class="ts-mono">' + fmtTs(ms) +
+        return '<div class="session-line">' + srcMark + '<time class="ts-mono">' + fmtTs(ms) +
                '</time> <span class="' + pillCls + '">' + label + '</span>' + mark + '</div>';
       });
       // The chain the challenge offered, stated once for the session rather
@@ -896,6 +920,15 @@ document.addEventListener('DOMContentLoaded', function(){
       }
       var out = (lead ? '<div class="session-lead">' + lead + '</div>' : '') +
                 '<div class="session-timeline">' + lines.join('') + '</div>';
+      // Say what the ~ means, but only where one appears.  A session with no
+      // derived line has nothing to explain, and a legend printed under every
+      // popover regardless is the kind of permanent furniture that stops being
+      // read.
+      if (grp.some(function(tr){ return tr.__firedFrom === 'client'; })) {
+        out += '<div class="session-tssrc">' +
+               '<span class="ts-src ts-src-client">~</span> ' +
+               {{ t .Lang "hunt.timeline.client_clock" }} + '</div>';
+      }
       // Total time across the session -- first event to last.  The lines above
       // say when each step happened; the figure worth comparing between
       // sessions is how long the whole thing took, and reading it off the
