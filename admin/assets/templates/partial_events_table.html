@@ -135,7 +135,13 @@
    an unmarked line indent identically and the mark sits right against the
    time it qualifies. */
 .ts-cell{display:flex;align-items:baseline;flex:none}
-.ts-src{display:inline-block;width:1ch;flex:none;font-family:ui-monospace,Menlo,monospace;font-size:.75rem;color:#94a3b8}
+/* U+2248, not an ASCII tilde: ~ is a spacing modifier and sits high in the em
+   box, so beside a row of digits it read as hanging above the line rather than
+   belonging to it.  The math operator is positioned on the math axis, which is
+   the middle -- and it still says "approximately", which is the point.
+   The margin is small but not nothing: flush against the digits the two read
+   as one token. */
+.ts-src{display:inline-block;width:1ch;flex:none;margin-right:.18rem;font-family:ui-monospace,Menlo,monospace;font-size:.75rem;color:#94a3b8}
 .ts-src-client{color:#475569;font-weight:700}
 .session-tssrc{margin-top:.4rem;padding-top:.35rem;border-top:1px solid #e2e8f0;font-size:.72rem;line-height:1.5;color:#64748b}
 .session-notes{margin-top:.45rem;padding-top:.4rem;border-top:1px solid #e2e8f0;
@@ -839,12 +845,12 @@ document.addEventListener('DOMContentLoaded', function(){
       var lines = grp.map(function(tr){
         var ms = (tr.__firedMs != null) ? tr.__firedMs
                : (tr.__origMs != null) ? tr.__origMs : rowKey(tr);
-        // A leading ~ on the lines the browser's own clock spaced.  Server
+        // A leading mark on the lines the browser's own clock spaced.  Server
         // lines get the same slot as a blank so the column still lines up --
         // a timeline whose times jump left and right is harder to scan than
         // one that never distinguished them at all.
         var srcMark = (tr.__firedFrom === 'client')
-          ? '<span class="ts-src ts-src-client">~</span>'
+          ? '<span class="ts-src ts-src-client">\u2248</span>'
           // &nbsp;, not a plain space: HTML collapses the latter away, the
           // span then has no line box at all, and the slot stops holding the
           // indent it exists to hold.
@@ -932,13 +938,13 @@ document.addEventListener('DOMContentLoaded', function(){
       }
       var out = (lead ? '<div class="session-lead">' + lead + '</div>' : '') +
                 '<div class="session-timeline">' + lines.join('') + '</div>';
-      // Say what the ~ means, but only where one appears.  A session with no
+      // Say what the mark means, but only where one appears.  A session with no
       // derived line has nothing to explain, and a legend printed under every
       // popover regardless is the kind of permanent furniture that stops being
       // read.
       if (grp.some(function(tr){ return tr.__firedFrom === 'client'; })) {
         out += '<div class="session-tssrc">' +
-               '<span class="ts-src ts-src-client">~</span> ' +
+               '<span class="ts-src ts-src-client">\u2248</span> ' +
                {{ t .Lang "hunt.timeline.client_clock" }} + '</div>';
       }
       // Total time across the session -- first event to last.  The lines above
