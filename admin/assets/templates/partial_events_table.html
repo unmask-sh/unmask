@@ -109,8 +109,9 @@
    "left" is the Japanese for "abandon" and the badge looked like the pill's
    own label, repeated.  Attached to the pill it costs no width and cannot be
    mistaken for an event.
-     ↩  another request followed within 30s -- they went back
-     ∅  nothing followed
+     ✓  the address obtained a pass within 30s -- leaving this attempt was
+        a detour, not the end of it
+     ∅  no pass followed
    It leads the pill rather than trailing it: abandon is the only phase that
    also names the step it left from, so its pill is the widest in the column,
    and a mark on the far end sits against the escalation-reason cell and reads
@@ -303,7 +304,7 @@
   </thead>
   <tbody>
     {{ range .Rows }}
-    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}"{{ with .CapReason }} data-cap-reason="{{ . }}"{{ end }}{{ if ge .Seq 0 }} data-seq="{{ .Seq }}"{{ end }}{{ if ge .ElapsedMs 0 }} data-elapsed-ms="{{ .ElapsedMs }}"{{ end }} data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}" data-referer="{{ .Referer }}"{{ if gt .LocalPort 0 }} data-local-port="{{ .LocalPort }}"{{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (eq .Phase "abandon") (gt .Returned 0) }} data-returned="1"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .Returned 0 }}{{ t $.Lang "hunt.returned_stayed_long" }}{{ else }}{{ t $.Lang "hunt.returned_gone_long" }}{{ end }}"{{ end }}>
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}"{{ with .CapReason }} data-cap-reason="{{ . }}"{{ end }}{{ if ge .Seq 0 }} data-seq="{{ .Seq }}"{{ end }}{{ if ge .ElapsedMs 0 }} data-elapsed-ms="{{ .ElapsedMs }}"{{ end }} data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}" data-referer="{{ .Referer }}"{{ if gt .LocalPort 0 }} data-local-port="{{ .LocalPort }}"{{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (eq .Phase "abandon") (gt .PassedAfter 0) }} data-passed-after="1"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .PassedAfter 0 }}{{ t $.Lang "hunt.passed_after_long" }}{{ else }}{{ t $.Lang "hunt.no_pass_after_long" }}{{ end }}"{{ end }}>
       <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if and .Site (or $.RowsMultiSite (index $.RowsGhostSites .Site)) }} <span class="site-badge cellpop{{ if index $.RowsGhostSites .Site }} site-ghost{{ end }}">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -314,7 +315,7 @@
            the group's real verdict onto the rep row so a bot session still shows
            its verdict rather than this "ok" fallback. */}}
       <td class="mono verdict-cell{{ if .Verdict }} cellpop{{ end }}">{{ if .Verdict }}{{ .Verdict }}{{ else }}ok{{ end }}</td>
-      <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}"{{ if eq .Phase "abandon" }} title="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}"{{ end }}>{{ if eq .Phase "abandon" }}<span class="ret-mark{{ if gt .Returned 0 }} ret-back{{ end }}">{{ if gt .Returned 0 }}↩{{ else }}∅{{ end }}</span>{{ end }}{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }}({{ .Reason }}){{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }}({{ .AbandonPhase }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted reload-badge" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}</td>
+      <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}"{{ if eq .Phase "abandon" }} title="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}"{{ end }}>{{ if eq .Phase "abandon" }}<span class="ret-mark{{ if gt .PassedAfter 0 }} ret-back{{ end }}">{{ if gt .PassedAfter 0 }}✓{{ else }}∅{{ end }}</span>{{ end }}{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }}({{ .Reason }}){{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }}({{ .AbandonPhase }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted reload-badge" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}</td>
       {{/* Escalation axis in its own cell (= not a phase): the phase cell was
            getting crowded and the dashboard cards already give 昇格理由 a
            dedicated column -- keep the two views consistent.  Same value on
@@ -811,10 +812,10 @@ document.addEventListener('DOMContentLoaded', function(){
       // again -- otherwise collapsing a session drops the one thing that
       // separates a visitor who went back from one who closed the tab.
       if (ph === 'abandon'){
-        var back = tr.getAttribute('data-returned') === '1';
+        var back = tr.getAttribute('data-passed-after') === '1';
         var mark = document.createElement('span');
         mark.className = 'ret-mark' + (back ? ' ret-back' : '');
-        mark.textContent = back ? '↩' : '∅';
+        mark.textContent = back ? '\u2713' : '\u2205';
         // Leading, not trailing: abandon carries the step it left from, so its
         // pill is the widest one in the column, and a mark on the far end sits
         // against the next column and reads as belonging to it.  At the front

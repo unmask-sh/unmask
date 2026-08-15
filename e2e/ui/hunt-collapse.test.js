@@ -62,9 +62,9 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
       // check is that the chain's own pill carries it -- the collapse rebuilds
       // that pill from scratch and could silently drop the mark.
       ret: !!(cell && cell.querySelector('.phase-pill.ph-abandon .ret-mark')),
-      // Which of the two, not just that one is there.  The seeded session came
-      // back within 30s, so getting the polarity backwards would report a
-      // departure that never happened.
+      // Which of the two, not just that one is there.  The seeded address got
+      // in 10s later, so the wrong polarity would report a client that never
+      // entered -- the failure this mark was rebuilt to stop.
       retVariant: (function(){
         var m = cell && cell.querySelector('.phase-pill.ph-abandon .ret-mark');
         if (!m) return null;
@@ -108,9 +108,9 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     ok(res.retLeads, 'the mark trails the pill instead of leading it, so it lands against the next column');
     ok(!res.strayBadge, 'the old standalone badge is still being rendered beside the pill');
     ok(res.retVariant === 'back',
-      `the seeded session came back within 30s but the mark says ${res.retVariant} (${res.retMark})`);
-    ok(res.retMark === '↩',
-      `the came-back mark should be ↩, got ${JSON.stringify(res.retMark)}`);
+      `the seeded address passed within 30s but the mark says ${res.retVariant} (${res.retMark})`);
+    ok(res.retMark === '✓',
+      `the got-in mark should be ✓, got ${JSON.stringify(res.retMark)}`);
     ok(res.reload, 'the reload counter was dropped by the collapse');
   }
 
