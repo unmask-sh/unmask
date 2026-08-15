@@ -470,6 +470,7 @@ window.popoverPin = window.popoverPin || (function(){
     // are unaffected (= they intentionally persist).
     var hoverTrigger = null;
     var hoverShown = false;
+    var hoverHideTimer = null;
     function reconcileHover(){
       if (!hoverShown) return;
       if (hoverTrigger && hoverTrigger.matches && hoverTrigger.matches(':hover')) return;
@@ -486,6 +487,9 @@ window.popoverPin = window.popoverPin || (function(){
     }, { passive: true });
     return {
       showHover: function(html, x, y, trigger){
+        // A pending grace-hide from the previous trigger must not outlive the
+        // new content it would be hiding.
+        if (hoverHideTimer){ clearTimeout(hoverHideTimer); hoverHideTimer = null; }
         showAt(primary, html, x, y);
         hoverShown = true;
         if (trigger) {
@@ -502,7 +506,28 @@ window.popoverPin = window.popoverPin || (function(){
           hoverTrigger = (under && !primary.contains(under)) ? under : null;
         }
       },
-      hideHover: function(){ primary.style.display = 'none'; hoverShown = false; hoverTrigger = null; },
+      // A grace period, not an immediate hide.  Every wiring calls this from
+      // its trigger's mouseleave, and the popover opens 12px BELOW the pointer
+      // -- so the natural next gesture, moving into the popover to read or
+      // copy the full value, begins by leaving the trigger.  Hiding on that
+      // first pixel makes the popover unreachable: it vanishes the moment the
+      // reader goes to read it, which on a clipped UA column presents as "the
+      // popover sometimes doesn't appear" (still pointer: stays; drifting
+      // pointer: gone).
+      //
+      // 150ms covers the crossing, and at expiry the SAME ground truth
+      // reconcileHover already trusts decides the outcome: pointer on the
+      // popover or back on its trigger keeps it (re-entering the trigger
+      // within the grace therefore no longer blinks), anywhere else hides it.
+      // Once the pointer is on the popover, eventual dismissal belongs to the
+      // mousemove reconciler, exactly as before.
+      hideHover: function(){
+        if (hoverHideTimer) clearTimeout(hoverHideTimer);
+        hoverHideTimer = setTimeout(function(){
+          hoverHideTimer = null;
+          reconcileHover();
+        }, 150);
+      },
       hasPinFor: function(trigger){
         var c = pins.get(trigger);
         if (c && c.isConnected) return true;

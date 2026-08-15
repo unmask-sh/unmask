@@ -258,6 +258,27 @@ c.execute("""INSERT INTO unmask_event
                  "orig_path":"/en/calendar/22" + "78"*40 + "326/" + "78"*33}, separators=(',',':')),))
 c.commit()
 
+# PoW cookie-reuse ranking rows, with UA lengths spanning the interesting
+# range: hugely clipped, barely clipped, and short.  The popover must appear on
+# every row whose UA the column cannot show whole.
+c.execute("""CREATE TABLE IF NOT EXISTS unmask_cookie_ip_minute (
+    bucket_min INTEGER NOT NULL, site VARCHAR(64) NOT NULL, ip BLOB NOT NULL,
+    kind VARCHAR(16) NOT NULL DEFAULT 'captcha', ja4 VARCHAR(40) NOT NULL DEFAULT '',
+    ua VARCHAR(255) NOT NULL DEFAULT '', cnt INTEGER NOT NULL DEFAULT 0,
+    last_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (bucket_min, site, ip, kind))""")
+import time as _time
+_bm = int(_time.time()) // 60 - 2
+_long = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0"
+_uas = [(bytes([10,1,1,n]), _long + " row%02d" % n, 1000 - n*10) for n in range(1, 14)]
+_uas.append((bytes([10,1,1,14]), "Go-http-client/1.1", 500))
+for ipb, ua, cnt in _uas:
+    c.execute("""INSERT OR REPLACE INTO unmask_cookie_ip_minute
+        (bucket_min, site, ip, kind, ja4, ua, cnt, last_seen)
+        VALUES (?, 'default', ?, 'pow', 't13d_reuse', ?, ?, datetime('now'))""",
+        (_bm, ipb, ua, cnt))
+c.commit()
+
 # A row whose UA is far too long for the column: the cellpop popover only
 # exists for values the cell cannot show, so without a clipped cell there is
 # nothing to test.  Long enough that it is truncated at any plausible width.
