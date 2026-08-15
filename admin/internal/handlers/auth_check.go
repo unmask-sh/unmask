@@ -1190,23 +1190,30 @@ func staleBrowserFiresForServe(r *http.Request, g settings.GlobalConfig) bool {
 // rule (rate>0) serves through the rate-limit path (force_reason="rate_limit"),
 // so those matches are left for that bucket.  Side-effect-free (no rate-limiter
 // Hit): it uses the pure resolvers, not asnDecide/geoDecide.
-func (h *Handler) netChallengeReason(ip string, cfg settings.Settings) string {
+//
+// It returns the matched rule's chain as well as the label, from the same
+// lookup.  Attribution and chain used to be answered separately -- this named
+// the axis and nothing applied its action, so a rule set to captcha_only was
+// attributed correctly and then served whatever the default chain was.  One
+// lookup cannot drift between the two, and it costs one mmdb read rather than
+// two.
+func (h *Handler) netChallengeReason(ip string, cfg settings.Settings) (reason, chMode string) {
 	if h.IPGeo == nil || ip == "" {
-		return ""
+		return "", ""
 	}
 	info := h.IPGeo.LookupInfo(ip)
 	if h.IPGeo.ASNLoaded() {
 		if d, _, rate, ok := asnResolve(info.ASN, info.ASNOrg, cfg.Nginx.Asn); ok && d.sev != sevPass && rate == 0 {
-			return "asn"
+			return "asn", d.chMode
 		}
 	}
 	if h.IPGeo.Loaded() {
 		cc := strings.ToUpper(strings.TrimSpace(info.Country))
 		if d, rate, ok := geoDecideForCountry(cc, cfg.Nginx.Geo); ok && d.sev != sevPass && rate == 0 {
-			return "geo"
+			return "geo", d.chMode
 		}
 	}
-	return ""
+	return "", ""
 }
 
 // ja4Decide returns a challenge decision when the JA4 verdict says "bot".
