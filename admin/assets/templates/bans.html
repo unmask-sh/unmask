@@ -60,7 +60,10 @@ table.bans tbody td:not(:nth-child(5)){white-space:nowrap}
 /* Country flag PNG (left side of the IP cell). 16x12 png, subtle. Same as hunt.html.
  * Popover base is shared from /static/popover-pin.css. */
 img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
-.ipclick{cursor:help;text-decoration:underline dotted;text-decoration-color:#cbd5e1;text-underline-offset:.2em}
+.ipclick{cursor:help;text-decoration:underline dotted #94a3b8;text-underline-offset:2px}
+/* Same marker as .cellpop-active: a clamped value carries a popover, and the
+   popover's presence is signalled the same way everywhere. */
+.clamp-v.clamp-active{cursor:help;text-decoration:underline dotted #94a3b8;text-underline-offset:2px}
 .source-pill{display:inline-block;padding:.05rem .45rem;border-radius:.25rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace}
 .src-honeypot{background:#fee2e2;color:#991b1b}
 .src-manual{background:#dbeafe;color:#1e40af}
@@ -419,11 +422,14 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
            'word-break:break-all;font-family:ui-monospace,Menlo,monospace">' + esc(text) + '</div>';
   }
   document.querySelectorAll('table.bans .clamp-v[data-full]').forEach(function(el){
-    el.style.cursor = 'default';
+    // The marker rides the measurement: set once layout has settled, refreshed
+    // at hover exactly like the popover's own truncation re-check.
+    function sync(){ el.classList.toggle('clamp-active', isTruncated(el)); }
+    sync();
     el.addEventListener('mouseenter', function(e){
+      sync();
       if (pin.hasPinFor(el)) return;
       if (!isTruncated(el)) return;
-      el.style.cursor = 'help';
       pin.showHover(fmt(el.dataset.full), e.pageX, e.pageY, el);
     });
     el.addEventListener('mouseleave', function(){ pin.hideHover(); });
