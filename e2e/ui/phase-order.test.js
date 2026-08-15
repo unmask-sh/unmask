@@ -95,6 +95,19 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
         // Which clock this line's time came from: a leading ~ means the
         // browser's measured interval, blank means the server's own record.
         src: l.querySelector('.ts-src-client') ? 'client' : 'server',
+        // Geometry, because the mark's job is to point at ONE line.  As a
+        // separate flex item it inherited .session-line's .5rem gap and
+        // align-items:center, which floated it above the digits and left it
+        // ambiguous which row it belonged to.
+        geom: (function(){
+          const m = l.querySelector('.ts-src'), ts = l.querySelector('.ts-mono');
+          if (!m || !ts) return null;
+          const a = m.getBoundingClientRect(), b = ts.getBoundingClientRect();
+          return {
+            gap: Math.round(b.left - a.right),
+            dy: Math.round(Math.abs((a.top + a.bottom) / 2 - (b.top + b.bottom) / 2)),
+          };
+        })(),
       })),
       // The legend only appears where a derived line does.
       legend: !!document.querySelector('.session-tssrc'),
@@ -131,6 +144,13 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
         `derived times are not marked as such: pow=${tl.rows[iPow].src} captcha=${tl.rows[iCap].src}`);
       ok(tl.legend, 'a derived time is shown with no legend explaining the mark');
     }
+    // The mark has to read as belonging to its own line: tight against the
+    // time, and on the same visual row as it.
+    tl.rows.forEach((r, i) => {
+      if (!r.geom) return;
+      ok(r.geom.gap <= 3, `line ${i} (${r.phase}): the mark sits ${r.geom.gap}px from its time`);
+      ok(r.geom.dy <= 3, `line ${i} (${r.phase}): the mark is ${r.geom.dy}px off its time's centre`);
+    });
     // The serve is the server's own event -- nothing was in transit -- so it
     // must NOT be marked, or the mark says nothing by applying to everything.
     const iServe = tl.rows.findIndex(r => r.phase.indexOf('serve') === 0);
