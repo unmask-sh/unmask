@@ -134,6 +134,50 @@ const dotted = s => s && s.line.indexOf('underline') >= 0 && s.style === 'dotted
       `after a post-load reflow, ${race.after.clipped} cells are clipped but ${race.after.marked} are marked -- the marker is still frozen at first paint`);
   }
 
+  // Gecko's table cells cannot be scroll containers, so in Firefox a td's
+  // scrollWidth equals its clientWidth however far the text overflows -- a
+  // check built on their difference reads every cell as fitting, and the
+  // markers and popovers silently never exist there.  Chromium reproduces
+  // that engine exactly by overriding the property, and the measurement must
+  // not care.
+  const ff = await browser.newPage();
+  await ff.evaluateOnNewDocument(() => {
+    Object.defineProperty(Element.prototype, 'scrollWidth', {
+      get() { return this.clientWidth; },
+      configurable: true,
+    });
+  });
+  await ff.goto(BASE + '/admin/login', { waitUntil: 'networkidle2' });
+  const loggedIn = await ff.evaluate(() => !document.querySelector('input[name="password"]'));
+  if (!loggedIn) {
+    await ff.type('input[name="username"]', USER);
+    await ff.type('input[name="password"]', PASS);
+    await Promise.all([
+      ff.waitForNavigation({ waitUntil: 'networkidle2' }),
+      ff.click('button[type="submit"], input[type="submit"]'),
+    ]);
+  }
+  await ff.setViewport({ width: 1100, height: 900 });
+  await ff.goto(BASE + '/admin/stats/', { waitUntil: 'networkidle2' });
+  await new Promise(r => setTimeout(r, 700));
+  const gecko = await ff.evaluate(() => {
+    const cells = Array.from(document.querySelectorAll('table.cp-rankable td.bcd-ua.cellpop'))
+      .filter(c => c.offsetParent !== null);
+    // Truth via Range, independent of the neutered scrollWidth.
+    const over = c => {
+      const r = document.createRange(); r.selectNodeContents(c);
+      return r.getBoundingClientRect().width - c.getBoundingClientRect().width > 1;
+    };
+    return {
+      clipped: cells.filter(over).length,
+      marked: cells.filter(c => c.classList.contains('cellpop-active')).length,
+    };
+  });
+  ok(gecko.clipped > 0, 'the Gecko simulation has nothing clipped -- the reproduction lost its footing');
+  ok(gecko.marked >= gecko.clipped,
+    `under Gecko's scrollWidth (== clientWidth), ${gecko.clipped} cells overflow but ${gecko.marked} are marked -- the check still leans on scrollWidth`);
+  await ff.close();
+
   await browser.close();
   if (fails.length) {
     console.error('FAIL\n- ' + fails.join('\n- '));

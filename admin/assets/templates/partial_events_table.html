@@ -1242,7 +1242,7 @@ document.addEventListener('DOMContentLoaded', function(){
     // copy of this hit, where the UA popovers on the cookie-err / reload-loop
     // rows silently went missing.
     var isURL = el.classList.contains('url');
-    function clipped(){ return isURL || (full && full.length > 0) || (el.scrollWidth - el.clientWidth > 1); }
+    function clipped(){ return isURL || (full && full.length > 0) || window.popoverContentOverflows(el); }
     function syncMark(){ el.classList.toggle('cellpop-active', clipped()); }
     syncMark();
     // Same layout race the dashboard's copy hit: the one-shot runs during
