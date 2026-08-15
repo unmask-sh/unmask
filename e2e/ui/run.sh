@@ -246,6 +246,18 @@ for phase, seq, el, off, extra in [
         (phase, json.dumps(pl, separators=(',', ':')), _at(off)))
 c.commit()
 
+# A CAPTCHA pass whose orig_path is a scanner probe hundreds of characters
+# long -- the stats page's "recent passes" table shows the path, and one such
+# row used to stretch the column to the path's full length.
+c.execute("""INSERT INTO unmask_event
+    (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
+     phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+    VALUES ('uiStatsSite','uistats.example','https',443,x'7f000007','UI-E2E-longpath','t13d_lp','',0,
+            'bv_captcha_only',0,0,'','',?, datetime('now','-5 minutes'))""",
+    (json.dumps({"bt":"uiLongPath","force_reason":"asn",
+                 "orig_path":"/en/calendar/22" + "78"*40 + "326/" + "78"*33}, separators=(',',':')),))
+c.commit()
+
 # A row whose UA is far too long for the column: the cellpop popover only
 # exists for values the cell cannot show, so without a clipped cell there is
 # nothing to test.  Long enough that it is truncated at any plausible width.

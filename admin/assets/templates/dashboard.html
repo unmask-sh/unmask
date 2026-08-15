@@ -437,7 +437,14 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
   {{ if .Recent }}
   <h6 class="cp-h">{{ t $.Lang "captcha_report.recent_heading" }}</h6>
   <div class="bcd-cliptable-scroll">
-  <table class="bcd-table bcd-cliptable" data-no-zero-toggle>
+  {{/* bcd-twoflex: this table has TWO long columns, the path and the UA --
+       the shape the js-error table already solved.  Without it td.bcd-clip has
+       no clip rule at all (that rule is scoped to .bcd-twoflex), so a scanner
+       probing /calendar/22787878...78 stretched the row to the path's full
+       length and the whole card scrolled sideways.  The UA pins at 24rem, the
+       path clips with an ellipsis, and the cellpop already wired on both
+       cells carries the full value. */}}
+  <table class="bcd-table bcd-cliptable bcd-twoflex" data-no-zero-toggle>
     <thead><tr><th>{{ t $.Lang "th.date" }}</th><th>{{ t $.Lang "th.ip" }}</th><th>{{ t $.Lang "th.verdict" }}</th><th><span class="help-dotted" data-help-key="phase.force_reason">{{ t $.Lang "th.force_reason" }}</span></th><th>{{ t $.Lang "th.path" }}</th><th>{{ t $.Lang "th.ua" }}</th></tr></thead>
     <tbody>
       {{ range .Recent }}
