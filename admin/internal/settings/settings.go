@@ -21,7 +21,9 @@
 //	  pow_cookie_valid_seconds: 604800       # 7 days
 //	  captcha_cookie_valid_seconds: 1209600  # 14 days
 //	  debug_rate_limit_per_5min: 20
-//	  challenge_html_path: ""            # empty → use the embedded copy
+//	  challenge_html_path: ""            # empty → use the built-in copy
+//	  challenge_js_path: ""              # ditto; /usr/share/unmask/challenge/
+//	                                     # holds a copy to start from
 //	  captcha:
 //	    provider: builtin
 //	    builtin_score_threshold: 0.5     # behavioral pass threshold (builtin only)
@@ -161,9 +163,21 @@ type ChallengeValues struct {
 	PowCookieValidSeconds int `yaml:"pow_cookie_valid_seconds,omitempty"`
 	// CaptchaCookieValidSeconds: same but for _bv issued via the CAPTCHA path
 	// (= 3-segment HMAC cookie).
-	CaptchaCookieValidSeconds int    `yaml:"captcha_cookie_valid_seconds,omitempty"`
-	DebugRateLimitPer5Min     int    `yaml:"debug_rate_limit_per_5min"`
-	ChallengeHTMLPath         string `yaml:"challenge_html_path"`
+	CaptchaCookieValidSeconds int `yaml:"captcha_cookie_valid_seconds,omitempty"`
+	DebugRateLimitPer5Min     int `yaml:"debug_rate_limit_per_5min"`
+	// ChallengeHTMLPath / ChallengeJSPath: serve the operator's own copy of the
+	// challenge page or its script instead of the built-in one.  Empty (the
+	// default) uses the copy embedded in the binary, which is always the one
+	// this build was tested with.
+	//
+	// The package also drops a copy under /usr/share/unmask/challenge/ to start
+	// from.  That copy is a REFERENCE, not an override: it used to be preferred
+	// automatically, which meant a file left over from an older release quietly
+	// pinned the challenge to that release -- an upgrade that swapped only the
+	// binary changed nothing the visitor saw.  Naming a path here is the only
+	// way to override, so an override is now always something someone chose.
+	ChallengeHTMLPath string `yaml:"challenge_html_path"`
+	ChallengeJSPath   string `yaml:"challenge_js_path"`
 	// PublicTestPages: /unmask/test/ + /unmask/test/{reset-cookie,force-pow,force-captcha}
 	// **publicly**. Default false (= 404). /unmask/admin/test/ is always
 	// available to logged-in users regardless of this flag. Turning public
