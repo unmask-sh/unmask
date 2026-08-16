@@ -496,7 +496,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     <div class="sub">{{ t .Lang "overview.kpi.serves_sub" }}</div>
   </div>
   <div class="kpi k-pow">
-    <div class="label"><span class="kdot" style="background:#0ea5e9"></span>{{ t .Lang "overview.kpi.pow_pass" }}</div>
+    <div class="label"><span class="kdot" style="background:#0ea5e9"></span>{{ t .Lang "overview.kpi.pow_pass" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.pow_pass_help") }}</span></span></div>
     <div class="value">{{ if .KPIKnown }}{{ comma .KPIPoWPass }}{{ else }}—{{ end }}</div>
     <div class="sub">{{ t .Lang "overview.kpi.pow_pass_sub" }}</div>
     {{/* Solves vs. the requests those solves then admit: the headline is the
