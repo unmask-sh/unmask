@@ -567,7 +567,9 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	for _, r := range enriched {
 		huntSites = append(huntSites, r.Site)
 	}
-	huntMultiSite, huntGhostSites := siteBadgeState(huntSites, h.snapshotSettings())
+	// multi-site or not no longer gates the badge (a row always names its
+	// site); only the ghost styling still needs the defined-set comparison.
+	_, huntGhostSites := siteBadgeState(huntSites, h.snapshotSettings())
 	data := map[string]any{
 		"Lang":        i18n.Resolve(r),
 		"TZ":          resolveTZ(r),
@@ -599,7 +601,6 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		// carries (address check failed / configured target / generic).
 		"UABotNote":      uaBotNoteByUA(rowUAList, cur),
 		"Rows":           enriched,
-		"RowsMultiSite":  huntMultiSite,
 		"RowsGhostSites": huntGhostSites,
 		"RankFailed":     rankFailed,
 		"RankTimeout":    int(rankQueryTimeout / time.Second),

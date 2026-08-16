@@ -54,6 +54,22 @@ const ok = (c, m) => { if (!c) fails.push(m); };
     ok(res.ghost, 'an undeclared Host should be marked as a ghost, not styled like a declared site');
   }
 
+  // The badge is no longer gated on "several sites": a row that carries a
+  // site names it, on a single-site install too.  Every visible row with a
+  // non-empty data-site must have one -- the ghost case above is just the
+  // styled variant.
+  const univ = await page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll('table.events tbody tr'))
+      .filter(r => r.style.display !== 'none' && (r.getAttribute('data-site') || '') !== '');
+    return {
+      withSite: rows.length,
+      badged: rows.filter(r => r.querySelector('.site-badge')).length,
+    };
+  });
+  ok(univ.withSite > 0, 'no visible row carries a site at all -- seeding changed');
+  ok(univ.badged === univ.withSite,
+    `${univ.withSite} rows carry a site but only ${univ.badged} show the badge -- the multi-site gate is back`);
+
   await browser.close();
   if (fails.length) { console.error('FAIL\n- ' + fails.join('\n- ')); process.exit(1); }
   console.log('site-badge: OK');

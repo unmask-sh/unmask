@@ -279,6 +279,16 @@ for ipb, ua, cnt in _uas:
         (_bm, ipb, ua, cnt))
 c.commit()
 
+# A row on the DECLARED site (ui-e2e.example).  Not a ghost, and the install
+# has exactly one site -- the case the badge used to hide entirely.  The badge
+# now shows whenever a row carries a site, so this row must have one too.
+c.execute("""INSERT INTO unmask_event
+    (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
+     phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+    VALUES ('ui-e2e.example','ui-e2e.example','https',443,x'7f000008','UI-E2E-declared','','',0,
+            'serve',0,0,'','','{"force_reason":"none"}', datetime('now','-3 minutes'))""")
+c.commit()
+
 # A row whose UA is far too long for the column: the cellpop popover only
 # exists for values the cell cannot show, so without a clipped cell there is
 # nothing to test.  Long enough that it is truncated at any plausible width.
