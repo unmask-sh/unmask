@@ -433,7 +433,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	for _, r := range recent {
 		ovSites = append(ovSites, r.Site)
 	}
-	ovMultiSite, ovGhostSites := siteBadgeState(ovSites, h.snapshotSettings())
+	_, ovGhostSites := siteBadgeState(ovSites, h.snapshotSettings())
 	data := map[string]any{
 		"Lang":           i18n.Resolve(r),
 		"TZ":             resolveTZ(r),
@@ -498,7 +498,6 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		// reads to caption a listed-crawler badge.
 		"UABotNote":      uaBotNoteByUA(recentUAList, h.snapshotSettings().Nginx),
 		"Rows":           recent,
-		"RowsMultiSite":  ovMultiSite,
 		"RowsGhostSites": ovGhostSites,
 		"EventsCap":      10,
 		"Range":          "",
