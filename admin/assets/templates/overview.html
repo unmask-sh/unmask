@@ -506,7 +506,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     <div class="sub sub-cookie">{{ t .Lang "overview.kpi.pass_cookie" }}: {{ if .KPICookieKnown }}{{ comma .KPIPoWCookie }}{{ else }}—{{ end }}</div>
   </div>
   <div class="kpi k-captcha">
-    <div class="label"><span class="kdot" style="background:#16a34a"></span>{{ t .Lang "overview.kpi.captcha_pass" }}</div>
+    <div class="label"><span class="kdot" style="background:#16a34a"></span>{{ t .Lang "overview.kpi.captcha_pass" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.captcha_pass_help") }}</span></span></div>
     <div class="value">{{ if .KPIKnown }}{{ comma .KPICaptchaPass }}{{ else }}—{{ end }}</div>
     <div class="sub">{{ t .Lang "overview.kpi.captcha_pass_sub" }}</div>
     <div class="sub sub-cookie">{{ t .Lang "overview.kpi.pass_cookie" }}: {{ if .KPICookieKnown }}{{ comma .KPICaptchaCookie }}{{ else }}—{{ end }}</div>
