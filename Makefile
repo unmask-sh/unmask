@@ -810,7 +810,7 @@ release: release-clean
 ## release-github - create a DRAFT GitHub Release for v$(UNMASK_VERSION) and
 ##                  attach the dist/ rpm/deb/apk + checksums.txt.
 ##                  Release pipeline: `make release` (build) -> publish to the
-##                  test /dl/ -> `make distro-check` (e2e + 8-distro install
+##                  test /dl/ -> `make distro-check` (e2e + full install
 ##                  matrix) -> `make release-github`.  This target REFUSES to
 ##                  run unless distro-check passed for the current build.
 ##                  The release is left as a draft — review the assets, then
@@ -823,7 +823,7 @@ release-github:
 	@ls $(DIST)/unmask*.rpm $(DIST)/unmask*.deb $(DIST)/unmask*.apk >/dev/null 2>&1 || { \
 		echo "!!! no packages in $(DIST)/ — run 'make release' first"; exit 1; }
 	@test -f $(DIST)/.release-gate-ok || { \
-		echo "!!! release gate not passed — run 'make distro-check' (e2e + 8-distro install matrix) first"; exit 1; }
+		echo "!!! release gate not passed — run 'make distro-check' (e2e + full install matrix) first"; exit 1; }
 	@if find $(DIST) \( -name 'unmask*.rpm' -o -name 'unmask*.deb' -o -name 'unmask*.apk' \) \
 		-newer $(DIST)/.release-gate-ok -print -quit | grep -q .; then \
 		echo "!!! packages were rebuilt after 'make distro-check' — re-run 'make distro-check'"; exit 1; fi
@@ -979,7 +979,7 @@ distro-check:
 	$(MAKE) e2e-docker
 	@echo '=== gate 4/5: e2e — MariaDB backend (docker compose) ==='
 	$(MAKE) e2e-docker-mariadb
-	@echo '=== gate 5/5: install matrix (10 distros, verdict-gated) ==='
+	@echo '=== gate 5/5: install matrix (all distros, verdict-gated) ==='
 	cd ../distro-verify/e2e && ./install-test-official.sh
 	@mkdir -p $(DIST) && touch $(DIST)/.release-gate-ok
 	@echo '=== release gate PASSED — package behaviour + e2e (SQLite + MariaDB) + 10-distro install matrix green ==='
