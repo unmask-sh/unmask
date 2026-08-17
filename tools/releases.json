@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.31",
+  "latest": "0.1.32",
   "releases": [
+    {
+      "version": "0.1.32",
+      "date": "2026-08-18",
+      "notes": "The serving half of 0.1.31's network-axis fix. That release taught the pass-cookie gate that a geo or ASN rule ending in a CAPTCHA refuses proof-of-work cookies; this one makes the serve itself obey the rule. On a native install the challenge endpoint attributed a serve to the geo/ASN rule that fired and then handed out the site's default chain anyway, so a rule saying captcha_only was served as pow_then_captcha - and the proof-of-work leg is precisely what an operator picking captcha_only was declining to offer that network. The serve now uses the same resolution that named the axis, for exact-ASN rules, organisation rules, provider presets and country rules alike. Also fixed: a challenge-page copy under /usr/share/unmask/challenge/ silently outranked the assets embedded in the binary, so an upgrade could ship a new page while an old overlay kept serving; the embedded assets win now, the explicit challenge_html_path/js_path settings are the only override, and a stray overlay is warned about at startup. The rest is operator observability. Overview: the CAPTCHA tile separates actual solves from returning cookie traffic and both pass tiles explain themselves in a ? popover; the CAPTCHA report's ok column is named as the TLS grade it is. Bot hunt: timeline lines reconstructed from the browser's clock are marked and explained, an abandon pill says whether the client ever got in, a ranking that exceeded its time budget says unavailable instead of rendering as an empty section, and every row names its site. Admin-wide: truncation is measured with a DOM Range so Firefox shows the same popovers as everyone else, every popover carrier wears the same dotted underline, and tables use two deliberate size tiers with long request lines clipped instead of stretching the table. No nginx or module changes: upgrading the binary is the whole upgrade."
+    },
     {
       "version": "0.1.31",
       "date": "2026-08-15",
