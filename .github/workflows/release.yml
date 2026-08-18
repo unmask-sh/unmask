@@ -31,6 +31,28 @@ jobs:
         goarch: [amd64, arm64]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      # The embedded bypass-IP snapshot ships inside this binary, and installs
+      # that cannot sync (locked-down trust stores) run on it alone.  It went
+      # stale silently for six weeks once -- 642 vendor prefixes missing,
+      # genuine crawlers 403'd -- because refreshing it is a human step
+      # (`make update-iprange-embed`, run + commit before release).  This gate
+      # turns the forgotten step into a failed release instead of a shipped
+      # regression.  7 days: the hub feed regenerates daily, so a snapshot
+      # older than that means the step was skipped, not that vendors idled.
+      - name: embedded iprange snapshot freshness
+        run: |
+          meta=admin/assets/iprange/snapshot-meta.json
+          test -f "$meta" || { echo "::error::$meta missing — run 'make update-iprange-embed' and commit before tagging"; exit 1; }
+          gen=$(python3 -c "import json;print(json.load(open('$meta'))['generatedAt'])")
+          age_days=$(python3 -c "
+          import json,datetime
+          g=datetime.datetime.fromisoformat(json.load(open('$meta'))['generatedAt'].replace('Z','+00:00'))
+          print((datetime.datetime.now(datetime.timezone.utc)-g).days)")
+          echo "snapshot generatedAt=$gen (${age_days}d old)"
+          if [ "$age_days" -gt 7 ]; then
+            echo "::error::embedded iprange snapshot is ${age_days} days old (ceiling 7) — run 'make update-iprange-embed', commit admin/assets/iprange, then re-tag"
+            exit 1
+          fi
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: "1.25.10"
