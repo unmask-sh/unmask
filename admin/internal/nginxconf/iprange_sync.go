@@ -216,7 +216,7 @@ func (s *Sync) httpClient() *http.Client {
 				// The content signature carries the trust here (see the
 				// InsecureTLS field comment); the transport check is what the
 				// operator explicitly waived.
-				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, // #nosec G402 -- operator opt-in escape hatch, gated on a mandatory content signature (signatureRequired)
 			},
 		}
 	}
