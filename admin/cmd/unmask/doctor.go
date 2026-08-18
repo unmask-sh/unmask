@@ -18,6 +18,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -228,6 +229,25 @@ func cmdDoctor(args []string) error {
 			addWarn("crawler rescue", fmt.Sprintf(
 				"%d crawler UA pattern(s) have NO rescue path (UA rescue off + range presets inactive) — a genuine crawler gets challenged: %s. Re-enable the pattern on the UA-filter tab or the vendor's range preset on the Bypass IPs tab.",
 				len(none), strings.Join(none, ", ")))
+		}
+	}
+
+	// 2d2. feed signature: what the last pull established.  Recorded by the
+	// pull itself in snapshot-meta.json -- "the daemon verified a signature"
+	// is a fact about that pull, not something doctor can re-derive offline.
+	if b, err := os.ReadFile(filepath.Join(nginxconf.SyncDefaultDir, "snapshot-meta.json")); err == nil {
+		var meta struct {
+			GeneratedAt string `json:"generatedAt"`
+			Signature   string `json:"signature"`
+		}
+		if json.Unmarshal(b, &meta) == nil && meta.Signature != "" {
+			if strings.HasPrefix(meta.Signature, "verified:") {
+				addOK("feed signature", fmt.Sprintf("last sync verified (key %s, doc %s)",
+					strings.TrimPrefix(meta.Signature, "verified:"), meta.GeneratedAt))
+			} else {
+				addOK("feed signature", fmt.Sprintf(
+					"last sync was unsigned (%s) — transport trust only; the hub publishes signatures since 0.1.33", meta.GeneratedAt))
+			}
 		}
 	}
 

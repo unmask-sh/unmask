@@ -81,6 +81,12 @@ const snapshotMetaBase = "snapshot-meta.json"
 
 type snapshotMeta struct {
 	GeneratedAt string `json:"generatedAt"`
+	// Signature: what the pull that wrote this snapshot established about
+	// the document's authenticity -- "verified:<keyid>" or "unsigned".
+	// Empty on snapshots written before this field existed.  Doctor reads
+	// it: "the daemon verified a signature" is a fact about the PULL, so it
+	// is recorded by the pull rather than re-derived later.
+	Signature string `json:"signature,omitempty"`
 }
 
 // Sync polls the hub on an interval and writes refreshed JSON to OverrideDir.
@@ -305,11 +311,12 @@ func (s *Sync) PullOnce(ctx context.Context) error {
 		return fmt.Errorf("read body: %w", err)
 	}
 
-	if err := s.verifyAgainstDetachedSig(ctx, body); err != nil {
+	sigState, err := s.verifyAgainstDetachedSig(ctx, body)
+	if err != nil {
 		return err
 	}
 
-	written, err := s.ingest(body, "hub")
+	written, err := s.ingest(body, "hub", sigState)
 	if err != nil {
 		return err
 	}
@@ -329,17 +336,17 @@ func (s *Sync) PullOnce(ctx context.Context) error {
 // always fails (that is the tamper signal this exists for); an absent one
 // fails only when the policy requires it, and is logged otherwise so an
 // operator can see whether their hub signs at all.
-func (s *Sync) verifyAgainstDetachedSig(ctx context.Context, body []byte) error {
+func (s *Sync) verifyAgainstDetachedSig(ctx context.Context, body []byte) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.hubURL()+FeedSigSuffix, nil)
 	if err != nil {
 		// A hub URL that cannot even form a .sig sibling (odd custom URLs)
 		// counts as "no signature published there": fatal only when the
 		// policy requires one.
 		if s.signatureRequired() {
-			return fmt.Errorf("feed signature required but its URL cannot be formed: %w", err)
+			return "", fmt.Errorf("feed signature required but its URL cannot be formed: %w", err)
 		}
 		s.logf("iprange sync: no signature URL (%v); proceeding on transport trust", err)
-		return nil
+		return "unsigned", nil
 	}
 	if s.UserAgent != "" {
 		req.Header.Set("User-Agent", s.UserAgent)
@@ -352,24 +359,25 @@ func (s *Sync) verifyAgainstDetachedSig(ctx context.Context, body []byte) error 
 	case err == nil && resp.StatusCode == http.StatusOK:
 		sig, rerr := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
 		if rerr != nil {
-			return fmt.Errorf("read signature: %w", rerr)
+			return "", fmt.Errorf("read signature: %w", rerr)
 		}
-		if verr := VerifyFeedSignature(body, sig); verr != nil {
-			return fmt.Errorf("feed signature: %w", verr)
+		keyID, verr := VerifyFeedSignatureKeyID(body, sig)
+		if verr != nil {
+			return "", fmt.Errorf("feed signature: %w", verr)
 		}
-		return nil
+		return "verified:" + keyID, nil
 	case s.signatureRequired():
 		if err != nil {
-			return fmt.Errorf("feed signature required but unavailable: %w", err)
+			return "", fmt.Errorf("feed signature required but unavailable: %w", err)
 		}
-		return fmt.Errorf("feed signature required but the hub returned %d for it", resp.StatusCode)
+		return "", fmt.Errorf("feed signature required but the hub returned %d for it", resp.StatusCode)
 	default:
 		if err != nil {
 			s.logf("iprange sync: no signature available (%v); proceeding on transport trust", err)
 		} else {
 			s.logf("iprange sync: hub serves no signature (%d); proceeding on transport trust", resp.StatusCode)
 		}
-		return nil
+		return "unsigned", nil
 	}
 }
 
@@ -393,18 +401,21 @@ func (s *Sync) PullFromFile(path string) error {
 	}
 	// Sidecar signature: verify when present (a transferred file can be
 	// checked exactly like a fetched one), require per policy.
+	sigState := "unsigned"
 	if sig, serr := os.ReadFile(path + FeedSigSuffix); serr == nil {
-		if verr := VerifyFeedSignature(body, sig); verr != nil {
+		keyID, verr := VerifyFeedSignatureKeyID(body, sig)
+		if verr != nil {
 			verr = fmt.Errorf("feed signature: %w", verr)
 			s.recordError(verr)
 			return verr
 		}
+		sigState = "verified:" + keyID
 	} else if s.signatureRequired() {
 		err := fmt.Errorf("feed signature required but %s%s is missing", path, FeedSigSuffix)
 		s.recordError(err)
 		return err
 	}
-	written, err := s.ingest(body, path)
+	written, err := s.ingest(body, path, sigState)
 	if err != nil {
 		s.recordError(err)
 		return err
@@ -416,7 +427,7 @@ func (s *Sync) PullFromFile(path string) error {
 // ingest parses one aggregated document, writes the per-vendor files, and
 // reloads + re-renders.  Shared by the hub pull and the local-file path so
 // the two cannot drift; `from` names the origin in log lines only.
-func (s *Sync) ingest(body []byte, from string) (int, error) {
+func (s *Sync) ingest(body []byte, from, sigState string) (int, error) {
 	var doc AggregatedDoc
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return 0, fmt.Errorf("unmarshal: %w", err)
@@ -473,7 +484,7 @@ func (s *Sync) ingest(body []byte, from string) (int, error) {
 	if t, err := time.Parse(time.RFC3339, doc.GeneratedAt); err == nil {
 		stamp = t
 	}
-	if meta, err := json.Marshal(snapshotMeta{GeneratedAt: stamp.Format(time.RFC3339)}); err == nil {
+	if meta, err := json.Marshal(snapshotMeta{GeneratedAt: stamp.Format(time.RFC3339), Signature: sigState}); err == nil {
 		if err := os.WriteFile(filepath.Join(dir, snapshotMetaBase), meta, 0o644); err != nil {
 			s.logf("iprange sync: write %s: %v", snapshotMetaBase, err)
 		}
