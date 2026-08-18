@@ -10,9 +10,11 @@
 #      passes via the bypass-IP set (reason=bypass:ip).  Simulated by writing
 #      an iprange override file (the hub-sync target) containing a test CIDR
 #      and restarting the admin.
-#   B. auto fallback: with no explicit lists saved, disabling the vendor's
-#      range presets reverts that vendor to UA-only rescue (reason carries
-#      search_ai again) — never "UA dropped AND ranges off" by default.
+#   B. auto derivation: dropping the presets from the explicit list no longer
+#      reverts the vendor to name-only rescue — the UA still passes by the
+#      operator's policy, so autobypass derives the presets back and the
+#      vendor stays address-verified.  B2: the bypass_ip_auto_from_ua kill
+#      switch restores the old UA-only fallback.
 #   C. explicit UA-off: search_bots.upstream_disabled beats the auto
 #      fallback — presets off AND the pattern disabled = no rescue at all
 #      (both axes off is reachable only through explicit choices).
@@ -121,9 +123,13 @@ case "$r" in
     *) log_pass "Googlebot UA outside the range stays unrescued (reason=$r)" ;;
 esac
 
-# B. Auto fallback: with the Google range presets disabled and no explicit
-#    lists saved, the vendor reverts to UA-only rescue — the same UA from a
-#    non-Google IP is rescued again (v0.1.7-compatible default).
+# B. Auto derivation: dropping the Google presets from the EXPLICIT list no
+#    longer reverts the vendor to name-only rescue — the UA still passes by
+#    the operator's own policy, so autobypass derives the presets right back
+#    (the override file written in A is fresh, so the freshness gate is open)
+#    and the vendor stays address-verified: inside the range passes by IP,
+#    outside gets challenged.  The v0.1.7-era fallback is still reachable,
+#    but only by switching the derivation off — that is B2.
 admin_exec "sed -i 's/^  seen_version: v0.1.0\$/  seen_version: v0.1.0\n  bypass_ip_enabled_presets: [\"chrome-prefetch-proxy\"]/' '$CONF'"
 if ! admin_exec "grep -q 'bypass_ip_enabled_presets' '$CONF'"; then
     log_fail "failed to inject bypass_ip_enabled_presets into $CONF (seen_version anchor moved?)"
@@ -133,8 +139,29 @@ if ! restart_admin; then
     log_fail "admin did not come back after the preset-off restart (healthz $(healthz))"
     exit 1
 fi
+assert_in "bypass:ip" "$(reason_for_ip "$IP_IN_RANGE")" \
+    "explicit presets off → auto derivation keeps the vendor verified (inside range still bypass:ip)"
+r=$(reason_for_ip "$IP_OUT_RANGE")
+case "$r" in
+    *search_ai*|*bypass:ip*)
+        log_fail "explicit presets off + auto derivation: outside the range must stay challenged, got reason=$r"
+        ;;
+    *) log_pass "explicit presets off + auto derivation → outside the range stays challenged (reason=$r)" ;;
+esac
+
+# B2. The kill switch restores the old fallback: derivation off + presets off
+#     = the vendor reverts to UA-only rescue (reason carries search_ai).
+admin_exec "sed -i 's/^  seen_version: v0.1.0\$/  seen_version: v0.1.0\n  bypass_ip_auto_from_ua: false/' '$CONF'"
+if ! admin_exec "grep -q 'bypass_ip_auto_from_ua' '$CONF'"; then
+    log_fail "failed to inject bypass_ip_auto_from_ua into $CONF"
+    exit 1
+fi
+if ! restart_admin; then
+    log_fail "admin did not come back after the derivation-off restart (healthz $(healthz))"
+    exit 1
+fi
 assert_in "search_ai" "$(reason_for_ip "$IP_OUT_RANGE")" \
-    "range presets off → Googlebot falls back to UA-only rescue (reason carries search_ai)"
+    "derivation off + presets off → Googlebot falls back to UA-only rescue (reason carries search_ai)"
 
 # C. Explicit UA-off beats the auto fallback: presets still off, and the
 #    pattern in upstream_disabled — no rescue path remains (yaml flow plain

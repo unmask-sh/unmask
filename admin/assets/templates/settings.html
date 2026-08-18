@@ -1567,10 +1567,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <tbody>
         {{ range .BypassPresetGroups }}
         <tr>
-          <td><input type="checkbox" name="bypass_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }}></td>
+          <td><input type="checkbox" name="bypass_preset_enabled" value="{{ .ID }}" {{ if or .Enabled .AutoEnabled }}checked{{ end }}>{{ if .AutoEnabled }}<input type="hidden" name="bypass_preset_auto" value="{{ .ID }}">{{ end }}</td>
           <td>
             {{ .Label }}
             {{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}
+            {{ if .AutoEnabled }}<span class="added auto-bp" title="{{ tf $.Lang "settings.bypass.preset.auto_tooltip" .AutoNames }}">{{ t $.Lang "settings.bypass.preset.auto_badge" }}</span>{{ end }}
+            {{ if .AutoExcluded }}<span class="added auto-bp" title="{{ t $.Lang "settings.bypass.preset.auto_excluded_tooltip" }}">{{ t $.Lang "settings.bypass.preset.auto_excluded_badge" }}</span>{{ end }}
             {{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}
           </td>
           <td class="num">{{ .PrefixCount }}</td>

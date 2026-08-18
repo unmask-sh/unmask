@@ -137,8 +137,13 @@ func RangePresetsActive(n settings.Nginx, pattern string) bool {
 	if len(ids) == 0 {
 		return false
 	}
-	enabled := make(map[string]bool, len(n.BypassIPEnabledPresets))
-	for _, id := range n.BypassIPEnabledPresets {
+	// The effective list, not the saved one: an auto-derived preset
+	// (autobypass.go) is wired into the geo block / matcher exactly like an
+	// explicit one, so the UA resolution must see it too -- that flip from
+	// name-rescue to address-verification is the point of deriving it.
+	eff := EffectiveBypassIPPresets(n)
+	enabled := make(map[string]bool, len(eff))
+	for _, id := range eff {
 		enabled[id] = true
 	}
 	for _, id := range ids {
