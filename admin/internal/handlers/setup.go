@@ -1070,9 +1070,16 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 		// event flusher still hold the now-closed boot handle), which silently
 		// breaks the funnel + serve recording until a restart.  Re-exec so they
 		// rebind to the new DB -- no manual restart needed.
-		scheduleReexec()
+		scheduleReexecFn()
 	}
 }
+
+// scheduleReexecFn is a seam so the wizard test can pin WHEN the self-restart
+// fires without the test process actually exec'ing itself away mid-run.  The
+// trigger condition is the whole bug class (a DB switch that nobody restarts
+// after), so it deserves a regression test even though syscall.Exec itself
+// cannot run under `go test`.
+var scheduleReexecFn = scheduleReexec
 
 // reexecOnce guards the post-setup self-restart so a page refresh can't fire it twice.
 var reexecOnce sync.Once
