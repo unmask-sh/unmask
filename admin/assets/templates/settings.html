@@ -6165,7 +6165,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       </div>
       <script type="text/html" id="retention-events-days-help">{{ safeHTML (t .Lang "settings.retention.events_days_desc") }}</script>
       <input type="number" name="events_retention_days" value="{{ .EventsRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
-      {{ if .Retention.TimedOut }}
+      {{ if .Retention.EventsTimedOut }}
       <div style="font-size:.78rem;margin-top:.5rem;padding:.4rem .6rem;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:.25rem">⚠ {{ t .Lang "settings.retention.timeout_warn" }}</div>
       {{ end }}
       <div style="font-size:.78rem;color:#64748b;margin-top:.5rem">
@@ -6192,10 +6192,13 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       <script type="text/html" id="retention-nginx-log-help">{{ safeHTML (t .Lang "settings.retention.nginx_log_enabled_desc") }}</script>
       <div style="font-size:.78rem;color:#64748b;margin-top:.5rem">
         {{ t .Lang "settings.retention.current_label" }}:
-        {{ if .Retention.CookieMinuteRowsOK }}<strong>{{ comma .Retention.CookieMinuteRows }}</strong>{{ else }}<strong title="{{ t .Lang "settings.retention.timeout_value_title" }}">??</strong>{{ end }} {{ t .Lang "settings.retention.rows_unit" }}
+        {{ if .Retention.CookieMinuteRowsOK }}<strong{{ if .Retention.CookieMinuteRowsApprox }} title="{{ t .Lang "settings.retention.approx_count_title" }}"{{ end }}>{{ if .Retention.CookieMinuteRowsApprox }}≈{{ end }}{{ comma .Retention.CookieMinuteRows }}</strong>{{ else }}<strong title="{{ t .Lang "settings.retention.timeout_value_title" }}">??</strong>{{ end }} {{ t .Lang "settings.retention.rows_unit" }}
         {{ if not .Retention.CookieMinuteOldestOK }} · {{ t .Lang "settings.retention.oldest_label" }} <strong title="{{ t .Lang "settings.retention.timeout_value_title" }}">??</strong>
         {{ else if gt .Retention.CookieMinuteOldestTS 0 }} · {{ t .Lang "settings.retention.oldest_label" }} <time class="js-datetime" data-ts="{{ .Retention.CookieMinuteOldestTS }}">{{ .Retention.CookieMinuteOldest }}</time> · {{ printf (t .Lang "settings.retention.days_ago") .Retention.CookieMinuteOldestDaysAgo }}{{ end }}
       </div>
+      {{ if .Retention.CookieTimedOut }}
+      <div style="font-size:.78rem;margin-top:.5rem;padding:.4rem .6rem;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:.25rem">⚠ {{ t .Lang "settings.retention.timeout_warn" }}</div>
+      {{ end }}
     </div>
   </div>
 
