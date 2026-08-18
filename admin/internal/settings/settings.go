@@ -787,6 +787,35 @@ type Nginx struct {
 	// every shipped group ID so a fresh install still rescues crawlers out of
 	// the box; toggling a group OFF in the UI removes its ID from this list.
 	BypassIPEnabledPresets []string `yaml:"bypass_ip_enabled_presets,omitempty"`
+	// BypassIPAutoFromUA: derive additional enabled presets from the UA-filter
+	// tab's standing intent.  A vendor the operator already passes by UA
+	// string (its patterns rescued: group mode white, not upstream-disabled)
+	// gets its published-range preset enabled automatically -- which flips
+	// that vendor to address verification (uarange resolution), so the only
+	// visitors whose fate changes are impostors wearing the name.  The
+	// derived set is never written back to this file: it is computed at read
+	// time (nginxconf.EffectiveBypassIPPresets) so the operator's saved list
+	// stays exactly what they wrote.  Guarded by snapshot freshness: with no
+	// address data newer than the staleness ceiling the derivation stops
+	// adding presets (a stale range list must never demote a genuine crawler
+	// from "passes by name" to "challenged").  nil / unset = ON.
+	BypassIPAutoFromUA *bool `yaml:"bypass_ip_auto_from_ua,omitempty"`
+	// SyncInsecureTLS: let the iprange hub pull skip transport certificate
+	// verification -- for hosts whose CA bundle cannot verify the hub
+	// (legacy trust stores).  The daemon honors it only together with the
+	// feed's detached signature: with this set, an unsigned or badly signed
+	// document is refused outright, so the trust the transport no longer
+	// provides is carried by the content signature instead.  Prefer fixing
+	// the trust store; this is the escape hatch when you cannot.
+	SyncInsecureTLS bool `yaml:"sync_insecure_tls,omitempty"`
+	// SyncRequireSignature: refuse an unsigned feed document even over
+	// verified TLS.  Implied by SyncInsecureTLS.
+	SyncRequireSignature bool `yaml:"sync_require_signature,omitempty"`
+	// BypassIPAutoExcluded: preset IDs the operator explicitly opted OUT of
+	// the auto-from-UA derivation (= unchecked an auto-enabled row in the
+	// UI).  An excluded preset behaves exactly as before the feature: off
+	// unless listed in BypassIPEnabledPresets.
+	BypassIPAutoExcluded []string `yaml:"bypass_ip_auto_excluded,omitempty"`
 	// IP / CIDR list excluded entirely from statistics (= own monitoring tools,
 	// internal probes etc. that would otherwise be dashboard noise).  These IPs
 	// skip the challenge AND are dropped from the unmask_minimal access_log, so
@@ -1268,6 +1297,14 @@ type GeoConfig struct {
 	// For endpoints that legitimately draw overseas traffic (RSS/Atom feeds)
 	// that a country policy would otherwise sweep up.  Reuses BypassPath rows.
 	ExemptPaths []BypassPath `yaml:"exempt_paths,omitempty"`
+}
+
+// BypassIPAutoFromUAEnabled reports whether the auto-from-UA preset
+// derivation is on.  Unset means ON: the feature only ever narrows a pass
+// the operator already grants (name -> verified address), and the stale-
+// snapshot guard keeps it from acting on data it cannot trust.
+func (n Nginx) BypassIPAutoFromUAEnabled() bool {
+	return n.BypassIPAutoFromUA == nil || *n.BypassIPAutoFromUA
 }
 
 // ResolveExemptPaths filters ExemptPaths by site: an empty Site matches every
