@@ -30,6 +30,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -267,6 +268,14 @@ func (s *Sync) PullOnce(ctx context.Context) (err error) {
 	if err != nil {
 		return err
 	}
+	// Same content-signature policy as the iprange sync: a published
+	// signature that fails to verify is a tamper signal and fails the pull;
+	// an unsigned hub proceeds on transport trust.  These baselines steer
+	// who gets a CAPTCHA (the stale-browser tier), so they earn the same
+	// treatment as the bypass ranges.
+	if sigErr := s.verifySig(ctx, body); sigErr != nil {
+		return sigErr
+	}
 	var doc Doc
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return fmt.Errorf("parse: %w", err)
@@ -282,6 +291,37 @@ func (s *Sync) PullOnce(ctx context.Context) (err error) {
 	}
 	s.logf("browsermajors sync: chrome=%d firefox=%d esr=%v",
 		doc.Chrome.Major, doc.Firefox.Major, doc.Firefox.ESRMajors)
+	return nil
+}
+
+// verifySig fetches <hub>.sig and checks it against body; absent = proceed
+// (logged), invalid = fail.
+func (s *Sync) verifySig(ctx context.Context, body []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.hubURL()+nginxconf.FeedSigSuffix, nil)
+	if err != nil {
+		s.logf("browsermajors: no signature URL (%v); proceeding on transport trust", err)
+		return nil
+	}
+	if s.UserAgent != "" {
+		req.Header.Set("User-Agent", s.UserAgent)
+	}
+	resp, err := s.httpClient().Do(req)
+	if err != nil {
+		s.logf("browsermajors: signature fetch failed (%v); proceeding on transport trust", err)
+		return nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		s.logf("browsermajors: hub serves no signature (%d); proceeding on transport trust", resp.StatusCode)
+		return nil
+	}
+	sig, err := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+	if err != nil {
+		return fmt.Errorf("read signature: %w", err)
+	}
+	if err := nginxconf.VerifyFeedSignature(body, sig); err != nil {
+		return fmt.Errorf("feed signature: %w", err)
+	}
 	return nil
 }
 

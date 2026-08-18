@@ -73,23 +73,30 @@ func SignFeed(priv ed25519.PrivateKey, body []byte) string {
 // VerifyFeedSignature checks sigLine against body using the trusted key list.
 // A nil error means the bytes are exactly what a signing key holder signed.
 func VerifyFeedSignature(body, sigLine []byte) error {
+	_, err := VerifyFeedSignatureKeyID(body, sigLine)
+	return err
+}
+
+// VerifyFeedSignatureKeyID is VerifyFeedSignature returning the signing key's
+// id on success -- for status surfaces (doctor, logs) that name the key.
+func VerifyFeedSignatureKeyID(body, sigLine []byte) (string, error) {
 	parts := strings.SplitN(strings.TrimSpace(string(sigLine)), ":", 3)
 	if len(parts) != 3 || parts[0] != "ed25519" {
-		return fmt.Errorf("unrecognized signature format")
+		return "", fmt.Errorf("unrecognized signature format")
 	}
 	pub, ok := feedSigningPubKeys[parts[1]]
 	if !ok {
-		return fmt.Errorf("signed by unknown key %s (this build trusts: %s)",
+		return "", fmt.Errorf("signed by unknown key %s (this build trusts: %s)",
 			parts[1], strings.Join(trustedFeedKeyIDs(), ", "))
 	}
 	sig, err := base64.StdEncoding.DecodeString(parts[2])
 	if err != nil || len(sig) != ed25519.SignatureSize {
-		return fmt.Errorf("malformed signature")
+		return "", fmt.Errorf("malformed signature")
 	}
 	if !ed25519.Verify(pub, body, sig) {
-		return fmt.Errorf("signature does not match the document")
+		return "", fmt.Errorf("signature does not match the document")
 	}
-	return nil
+	return parts[1], nil
 }
 
 func trustedFeedKeyIDs() []string {
