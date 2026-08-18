@@ -18,6 +18,7 @@ package nginxconf
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
@@ -72,6 +73,16 @@ type AggregatedPrefix struct {
 	IPv6Prefix string `json:"ipv6Prefix,omitempty"`
 }
 
+// snapshotMetaBase: written by iprange sync (hub pull, -file, and the
+// release-time embed refresh alike) next to the per-vendor files; records
+// when the address data was assembled.  The embed copy dates the binary's
+// built-in snapshot, the override copy dates the last successful sync.
+const snapshotMetaBase = "snapshot-meta.json"
+
+type snapshotMeta struct {
+	GeneratedAt string `json:"generatedAt"`
+}
+
 // Sync polls the hub on an interval and writes refreshed JSON to OverrideDir.
 //
 // Construct via NewSync(...) and call Start(ctx); the goroutine returns when
@@ -84,6 +95,18 @@ type Sync struct {
 	HTTPClient *http.Client  // nil → 30s timeout
 	UserAgent  string        // sent on every request
 	Logger     *log.Logger   // nil → log default
+
+	// InsecureTLS: skip transport certificate verification on the hub pull.
+	// For hosts whose trust store cannot verify the hub (legacy CA bundles).
+	// Honored ONLY together with signature verification: with this set, a
+	// document that does not carry a valid detached signature is refused --
+	// waiving the transport check while also accepting unsigned bytes would
+	// hand the bypass list to whoever sits on the network path.
+	InsecureTLS bool
+	// RequireSignature: refuse an unsigned document even over verified TLS.
+	// Implied by InsecureTLS; settable on its own for operators who want the
+	// content check unconditionally.
+	RequireSignature bool
 
 	// RenderFunc: called after a successful pull writes at least one file.
 	// Typically wired to a closure that calls nginxconf.Render(settings,
@@ -183,7 +206,20 @@ func (s *Sync) interval() time.Duration {
 	return SyncDefaultInterval
 }
 
+func (s *Sync) signatureRequired() bool { return s.InsecureTLS || s.RequireSignature }
+
 func (s *Sync) httpClient() *http.Client {
+	if s.HTTPClient == nil && s.InsecureTLS {
+		return &http.Client{
+			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				// The content signature carries the trust here (see the
+				// InsecureTLS field comment); the transport check is what the
+				// operator explicitly waived.
+				TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+			},
+		}
+	}
 	if s.HTTPClient != nil {
 		return s.HTTPClient
 	}
@@ -269,20 +305,148 @@ func (s *Sync) PullOnce(ctx context.Context) error {
 		return fmt.Errorf("read body: %w", err)
 	}
 
+	if err := s.verifyAgainstDetachedSig(ctx, body); err != nil {
+		return err
+	}
+
+	written, err := s.ingest(body, "hub")
+	if err != nil {
+		return err
+	}
+
+	// Capture Last-Modified for next request.
+	if lm := resp.Header.Get("Last-Modified"); lm != "" {
+		s.lastModified = lm
+		s.saveLastModified()
+	}
+
+	s.recordSuccess(written)
+	return nil
+}
+
+// verifyAgainstDetachedSig fetches <hub>.sig and checks it against body.
+// A present-and-valid signature always passes; a present-and-INVALID one
+// always fails (that is the tamper signal this exists for); an absent one
+// fails only when the policy requires it, and is logged otherwise so an
+// operator can see whether their hub signs at all.
+func (s *Sync) verifyAgainstDetachedSig(ctx context.Context, body []byte) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.hubURL()+FeedSigSuffix, nil)
+	if err != nil {
+		// A hub URL that cannot even form a .sig sibling (odd custom URLs)
+		// counts as "no signature published there": fatal only when the
+		// policy requires one.
+		if s.signatureRequired() {
+			return fmt.Errorf("feed signature required but its URL cannot be formed: %w", err)
+		}
+		s.logf("iprange sync: no signature URL (%v); proceeding on transport trust", err)
+		return nil
+	}
+	if s.UserAgent != "" {
+		req.Header.Set("User-Agent", s.UserAgent)
+	}
+	resp, err := s.httpClient().Do(req)
+	if err == nil {
+		defer resp.Body.Close()
+	}
+	switch {
+	case err == nil && resp.StatusCode == http.StatusOK:
+		sig, rerr := io.ReadAll(io.LimitReader(resp.Body, 4<<10))
+		if rerr != nil {
+			return fmt.Errorf("read signature: %w", rerr)
+		}
+		if verr := VerifyFeedSignature(body, sig); verr != nil {
+			return fmt.Errorf("feed signature: %w", verr)
+		}
+		return nil
+	case s.signatureRequired():
+		if err != nil {
+			return fmt.Errorf("feed signature required but unavailable: %w", err)
+		}
+		return fmt.Errorf("feed signature required but the hub returned %d for it", resp.StatusCode)
+	default:
+		if err != nil {
+			s.logf("iprange sync: no signature available (%v); proceeding on transport trust", err)
+		} else {
+			s.logf("iprange sync: hub serves no signature (%d); proceeding on transport trust", resp.StatusCode)
+		}
+		return nil
+	}
+}
+
+// PullFromFile ingests an aggregated document from a local file instead of
+// the hub.  For hosts whose trust store cannot verify the hub's certificate
+// (the CentOS 6 class: no ISRG Root X1), where the operator transfers
+// bypass-iprange-all.json out of band and points this at the copy -- without
+// standing up a loopback HTTP server just to feed -url.
+func (s *Sync) PullFromFile(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		s.recordError(err)
+		return err
+	}
+	defer f.Close()
+	body, err := io.ReadAll(io.LimitReader(f, 32<<20)) // same ceiling as the hub pull
+	if err != nil {
+		err = fmt.Errorf("read %s: %w", path, err)
+		s.recordError(err)
+		return err
+	}
+	// Sidecar signature: verify when present (a transferred file can be
+	// checked exactly like a fetched one), require per policy.
+	if sig, serr := os.ReadFile(path + FeedSigSuffix); serr == nil {
+		if verr := VerifyFeedSignature(body, sig); verr != nil {
+			verr = fmt.Errorf("feed signature: %w", verr)
+			s.recordError(verr)
+			return verr
+		}
+	} else if s.signatureRequired() {
+		err := fmt.Errorf("feed signature required but %s%s is missing", path, FeedSigSuffix)
+		s.recordError(err)
+		return err
+	}
+	written, err := s.ingest(body, path)
+	if err != nil {
+		s.recordError(err)
+		return err
+	}
+	s.recordSuccess(written)
+	return nil
+}
+
+// ingest parses one aggregated document, writes the per-vendor files, and
+// reloads + re-renders.  Shared by the hub pull and the local-file path so
+// the two cannot drift; `from` names the origin in log lines only.
+func (s *Sync) ingest(body []byte, from string) (int, error) {
 	var doc AggregatedDoc
 	if err := json.Unmarshal(body, &doc); err != nil {
-		return fmt.Errorf("unmarshal: %w", err)
+		return 0, fmt.Errorf("unmarshal: %w", err)
 	}
 	if doc.SchemaVersion != 1 {
-		return fmt.Errorf("unsupported schemaVersion=%d", doc.SchemaVersion)
+		return 0, fmt.Errorf("unsupported schemaVersion=%d", doc.SchemaVersion)
 	}
 	if len(doc.Sources) == 0 {
-		return fmt.Errorf("empty sources")
+		return 0, fmt.Errorf("empty sources")
 	}
 
 	dir := s.dir()
+	// Rollback guard: refuse a document older than the one already ingested.
+	// With signatures on, an attacker's remaining move is replaying an OLD
+	// signed document to reopen ranges a vendor has since rotated away from;
+	// without them it still catches a misconfigured mirror serving stale
+	// bytes.  Equal timestamps pass (idempotent re-pull).
+	if newT, err := time.Parse(time.RFC3339, doc.GeneratedAt); err == nil {
+		if b, rerr := os.ReadFile(filepath.Join(dir, snapshotMetaBase)); rerr == nil {
+			var m snapshotMeta
+			if json.Unmarshal(b, &m) == nil {
+				if curT, perr := time.Parse(time.RFC3339, m.GeneratedAt); perr == nil && newT.Before(curT) {
+					return 0, fmt.Errorf("document generatedAt %s is older than the ingested %s (rollback refused)",
+						doc.GeneratedAt, m.GeneratedAt)
+				}
+			}
+		}
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("mkdir %s: %w", dir, err)
+		return 0, fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
 	written := 0
@@ -298,18 +462,25 @@ func (s *Sync) PullOnce(ctx context.Context) error {
 		written++
 	}
 	if written == 0 {
-		return fmt.Errorf("no group matched hub doc")
+		return 0, fmt.Errorf("no group matched hub doc")
 	}
 
-	// Capture Last-Modified for next request.
-	if lm := resp.Header.Get("Last-Modified"); lm != "" {
-		s.lastModified = lm
-		s.saveLastModified()
+	// Date the snapshot.  AutoBypassPresetIDs refuses to derive from data
+	// older than its ceiling, and this file is what tells it (and doctor)
+	// how old the data is.  The document's own generatedAt when it parses,
+	// else the moment of this write.
+	stamp := time.Now().UTC()
+	if t, err := time.Parse(time.RFC3339, doc.GeneratedAt); err == nil {
+		stamp = t
+	}
+	if meta, err := json.Marshal(snapshotMeta{GeneratedAt: stamp.Format(time.RFC3339)}); err == nil {
+		if err := os.WriteFile(filepath.Join(dir, snapshotMetaBase), meta, 0o644); err != nil {
+			s.logf("iprange sync: write %s: %v", snapshotMetaBase, err)
+		}
 	}
 
 	Reload()
-	s.recordSuccess(written)
-	s.logf("iprange sync: wrote %d source(s) from hub", written)
+	s.logf("iprange sync: wrote %d source(s) from %s", written, from)
 
 	// Re-render http.inc / server.inc so the new prefixes land in the
 	// `$is_bypass_ip` map.  nginx -s reload is the operator's call.  Render
@@ -320,7 +491,7 @@ func (s *Sync) PullOnce(ctx context.Context) error {
 			s.logf("iprange sync: render after pull failed: %v", err)
 		}
 	}
-	return nil
+	return written, nil
 }
 
 // writeSource writes one vendor-shaped JSON atomically (= tmp + rename).

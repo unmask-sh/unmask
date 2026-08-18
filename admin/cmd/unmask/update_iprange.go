@@ -30,6 +30,12 @@ func cmdUpdateIPRange(args []string) error {
 	out := fs.String("out", nginxconf.SyncDefaultDir,
 		"output dir for the per-vendor JSONs (= pass admin/assets/iprange to refresh the embed source)")
 	url := fs.String("url", nginxconf.SyncDefaultHubURL, "hub aggregated-doc URL")
+	file := fs.String("file", "",
+		"read the aggregated doc from a local file instead of the hub (for hosts that cannot verify the hub TLS certificate; transfer bypass-iprange-all.json out of band)")
+	insecure := fs.Bool("insecure-tls", false,
+		"skip transport certificate verification; the feed's detached signature then becomes REQUIRED (unsigned documents are refused)")
+	requireSig := fs.Bool("require-signature", false,
+		"refuse an unsigned document even over verified TLS")
 	timeout := fs.Duration("timeout", 60*time.Second, "HTTP timeout")
 	_ = fs.Parse(args)
 
@@ -37,12 +43,22 @@ func cmdUpdateIPRange(args []string) error {
 	s.Dir = *out
 	s.HubURL = *url
 	s.UserAgent = "unmask/" + Version
-	s.HTTPClient = &http.Client{Timeout: *timeout}
+	s.InsecureTLS = *insecure
+	s.RequireSignature = *requireSig
+	if !*insecure {
+		s.HTTPClient = &http.Client{Timeout: *timeout}
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), *timeout+5*time.Second)
-	defer cancel()
-	if err := s.PullOnce(ctx); err != nil {
-		return fmt.Errorf("refresh from %s: %w", *url, err)
+	if *file != "" {
+		if err := s.PullFromFile(*file); err != nil {
+			return fmt.Errorf("refresh from %s: %w", *file, err)
+		}
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), *timeout+5*time.Second)
+		defer cancel()
+		if err := s.PullOnce(ctx); err != nil {
+			return fmt.Errorf("refresh from %s: %w", *url, err)
+		}
 	}
 	// Drop the If-Modified-Since marker PullOnce leaves behind.  It is not
 	// embedded (go:embed is iprange/*.json) but keeps the embed tree clean.
@@ -50,6 +66,14 @@ func cmdUpdateIPRange(args []string) error {
 
 	entries, _ := filepath.Glob(filepath.Join(*out, "*.json"))
 	fmt.Fprintf(os.Stderr, "refreshed %d vendor iprange file(s) in %s\n", len(entries), *out)
+	if *out == nginxconf.SyncDefaultDir {
+		// The point the incident hinged on: this CLI is its own process, so
+		// the daemon's memory is untouched.  Since 0.1.33 the daemon notices
+		// the newer files by mtime on its next render; say so, and say what
+		// older daemons need, because "worked, then a settings save undid it"
+		// is the failure nobody catches.
+		fmt.Fprintf(os.Stderr, "a running daemon picks these up automatically within seconds (0.1.33+); on older daemons restart unmask BEFORE render-nginx, or the next settings save re-renders from its stale in-memory snapshot\n")
+	}
 	for _, e := range entries {
 		if fi, err := os.Stat(e); err == nil {
 			fmt.Fprintf(os.Stderr, "  %s (%d bytes)\n", filepath.Base(e), fi.Size())

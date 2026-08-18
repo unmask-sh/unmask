@@ -108,6 +108,8 @@ func main() {
 		err = cmdReviewCrawlerList(args)
 	case "update-iprange":
 		err = cmdUpdateIPRange(args)
+	case "sign-feed":
+		err = cmdSignFeed(args)
 	case "render-nginx":
 		err = cmdRenderNginx(args)
 	case "events":
@@ -153,7 +155,8 @@ usage:
   unmask config-init [-out PATH]
   unmask update-crawler-list [-out PATH]
   unmask review-crawler-list [-url URL]
-  unmask update-iprange [-out DIR] [-url URL]
+  unmask update-iprange [-out DIR] [-url URL | -file PATH]
+  unmask sign-feed [-keygen] [-verify] -key SEED FILE
   unmask render-nginx [-config PATH] [-out-dir DIR] [-dry-run]
   unmask events [-config PATH] [-site SITE] [-phase PHASE] [-host HOST[,HOST]] [-since ID] [-poll-ms 1000]
   unmask analyze [-config PATH] [-days 30] [-threshold 100] [-limit 20] [-site SITE]
@@ -651,6 +654,11 @@ func cmdServe(args []string) error {
 	// settings snapshot so future config edits are honoured.
 	ipSync := nginxconf.NewSync()
 	ipSync.UserAgent = "unmask/" + Version
+	// Read once at construction: transport trust policy is not a live-tunable
+	// (changing it means the operator re-thought their trust model; a restart
+	// is the honest cost).
+	ipSync.InsecureTLS = s.Nginx.SyncInsecureTLS
+	ipSync.RequireSignature = s.Nginx.SyncRequireSignature
 	ipSync.RenderFunc = func() error {
 		cur := h.SnapshotSettings()
 		out := strings.TrimSpace(cur.Nginx.OutputDir)
