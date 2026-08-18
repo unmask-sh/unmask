@@ -231,6 +231,29 @@ func cmdDoctor(args []string) error {
 		}
 	}
 
+	// 2e. auto address-verification (autobypass.go): say what it derived, and
+	// say loudly when it is standing down.  The operator who leaves the
+	// feature on believes vendors they pass by UA are being address-verified;
+	// a stale snapshot silently returns those vendors to name-only rescue,
+	// which is exactly the state this feature exists to end.
+	if s.Nginx.BypassIPAutoFromUAEnabled() {
+		if ids, dataAt, suspended := nginxconf.AutoBypassSuspended(s.Nginx); suspended {
+			addWarn("auto range verification", fmt.Sprintf(
+				"suspended: address data is %d days old (ceiling %d) — %d preset(s) fall back to name-only UA rescue: %s. Run `unmask update-iprange` (or -file with an out-of-band copy) and re-render.",
+				int(time.Since(dataAt).Hours()/24), int(nginxconf.AutoBypassMaxSnapshotAge.Hours()/24),
+				len(ids), strings.Join(ids, ", ")))
+		} else if auto := nginxconf.AutoBypassPresetIDs(s.Nginx); len(auto) > 0 {
+			ids := make([]string, 0, len(auto))
+			for id := range auto {
+				ids = append(ids, id)
+			}
+			sort.Strings(ids)
+			addOK("auto range verification", fmt.Sprintf(
+				"%d preset(s) enabled from the UA policy: %s",
+				len(ids), strings.Join(ids, ", ")))
+		}
+	}
+
 	// 3. DB ping + tables
 	conn, err := db.Open(s.DB)
 	if err != nil {

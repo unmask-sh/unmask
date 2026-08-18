@@ -343,6 +343,12 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// bypass IP preset groups: enabled/disabled for official IP ranges + creationTime + count.
 	// EnabledPresets is an opt-in list; a group is on when its ID appears in the set.
 	enabledBP := toSet(cur.BypassIPEnabledPresets)
+	// Auto-derived presets (autobypass.go): shown checked with a badge naming
+	// the crawlers whose UA-pass justified them, so the row explains itself.
+	// An excluded row shows its own badge -- an unchecked box with a recorded
+	// reason reads differently from one nobody ever touched.
+	autoBP := nginxconf.AutoBypassPresetIDs(cur)
+	excludedBP := toSet(cur.BypassIPAutoExcluded)
 	bypassPresetGroups := make([]map[string]any, 0, len(nginxconf.BypassIPGroups))
 	for i := range nginxconf.BypassIPGroups {
 		g := &nginxconf.BypassIPGroups[i]
@@ -352,11 +358,18 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		if ts < 0 {
 			ts = 0
 		}
+		autoNames := make([]string, 0, len(autoBP[g.ID]))
+		for _, pat := range autoBP[g.ID] {
+			autoNames = append(autoNames, classify.CrawlerNameFromPattern(pat))
+		}
 		bypassPresetGroups = append(bypassPresetGroups, map[string]any{
 			"ID":           g.ID,
 			"Label":        g.Label,
 			"Source":       g.Source,
 			"Enabled":      enabled,
+			"AutoEnabled":  len(autoNames) > 0,
+			"AutoNames":    strings.Join(autoNames, ", "),
+			"AutoExcluded": excludedBP[g.ID],
 			"AddedIn":      g.AddedIn,
 			"IsNew":        isNew,
 			"PrefixCount":  g.PrefixCount(),
@@ -3373,13 +3386,40 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 	for _, id := range r.Form["bypass_preset_enabled"] {
 		enabledForm[strings.TrimSpace(id)] = true
 	}
+	// Rows the page showed as auto-derived (autobypass.go) carry a marker so
+	// this save can tell "checked because the derivation checked it" from
+	// "checked by the operator": an auto row that comes back checked stays
+	// derived (nothing written -- the config keeps only what the operator
+	// decided), and one that comes back unchecked is a recorded opt-out.
+	// Unchecking any previously-ON row of a derivable preset is likewise an
+	// opt-out, or the derivation would re-enable on the next page load and
+	// the checkbox would refuse to stay off.
+	autoForm := map[string]bool{}
+	for _, id := range r.Form["bypass_preset_auto"] {
+		autoForm[strings.TrimSpace(id)] = true
+	}
+	prevExplicit := map[string]bool{}
+	for _, id := range n.BypassIPEnabledPresets {
+		prevExplicit[id] = true
+	}
+	prevExcluded := map[string]bool{}
+	for _, id := range n.BypassIPAutoExcluded {
+		prevExcluded[id] = true
+	}
+	derivable := nginxconf.AutoBypassCandidateIDs()
 	enabledOut := []string{}
+	excludedOut := []string{}
 	for _, g := range nginxconf.BypassIPGroups {
-		if enabledForm[g.ID] {
+		switch {
+		case enabledForm[g.ID] && !autoForm[g.ID]:
 			enabledOut = append(enabledOut, g.ID)
+		case !enabledForm[g.ID] && derivable[g.ID] &&
+			(autoForm[g.ID] || prevExcluded[g.ID] || prevExplicit[g.ID]):
+			excludedOut = append(excludedOut, g.ID)
 		}
 	}
 	n.BypassIPEnabledPresets = enabledOut
+	n.BypassIPAutoExcluded = excludedOut
 
 	// stats_exclude_ips (+ _title): row UI, parallel arrays zipped by index --
 	// IPs dropped entirely from statistics.  Rows are paired BEFORE blanks and

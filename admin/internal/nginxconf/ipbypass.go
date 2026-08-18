@@ -77,7 +77,7 @@ func (m *IPBypassMatcher) Empty() bool {
 // The forward-auth CHALLENGE bypass, which DOES mirror native's stats-exclude
 // exemption, is ChallengeBypassIPCIDRs.
 func BypassIPCIDRs(n settings.Nginx) []string {
-	out := FlattenBypassPresets(n.BypassIPEnabledPresets)
+	out := FlattenBypassPresets(EffectiveBypassIPPresets(n))
 	for i, ip := range n.BypassIPs {
 		if i < len(n.BypassIPsDisabled) && n.BypassIPsDisabled[i] {
 			continue
