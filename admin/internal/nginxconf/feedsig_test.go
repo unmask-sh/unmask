@@ -91,6 +91,19 @@ func TestSyncSignaturePolicy(t *testing.T) {
 	if err := s.PullOnce(t.Context()); err != nil {
 		t.Fatalf("valid signature refused: %v", err)
 	}
+	metaRaw, err := os.ReadFile(filepath.Join(s.Dir, "snapshot-meta.json"))
+	if err != nil {
+		t.Fatalf("snapshot meta not written: %v", err)
+	}
+	var meta struct {
+		Signature string `json:"signature"`
+	}
+	if err := json.Unmarshal(metaRaw, &meta); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(meta.Signature, "verified:") {
+		t.Fatalf("a verified pull must record it in the snapshot meta, got %q", meta.Signature)
+	}
 	srv.Close()
 
 	// Signed hub + WRONG signature (for other bytes) -> hard fail, even

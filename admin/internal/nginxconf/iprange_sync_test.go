@@ -276,6 +276,9 @@ func TestSyncPullFromFile(t *testing.T) {
 	if meta.GeneratedAt != "2026-08-18T00:00:00Z" {
 		t.Fatalf("snapshot meta carries %q, want the doc generatedAt", meta.GeneratedAt)
 	}
+	if meta.Signature != "unsigned" {
+		t.Fatalf("a sidecar-less import must record the snapshot as unsigned, got %q", meta.Signature)
+	}
 
 	// A missing file records the error instead of leaving the gauge blank.
 	s2 := NewSync()
