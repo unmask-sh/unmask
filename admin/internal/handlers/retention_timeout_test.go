@@ -40,6 +40,84 @@ func TestRetentionStatsPerMetricOK(t *testing.T) {
 	if !to.TimedOut {
 		t.Error("a cancelled context must set TimedOut")
 	}
+	// The banner lands on the card whose numbers are missing: every section
+	// failed here, so both per-card flags are up.  (A cookie_minute-only
+	// timeout used to put its banner on the events-prune card.)
+	if !to.EventsTimedOut || !to.CookieTimedOut {
+		t.Errorf("per-card flags after a full timeout: events=%v cookie=%v, want both true",
+			to.EventsTimedOut, to.CookieTimedOut)
+	}
+	if ok.EventsTimedOut || ok.CookieTimedOut {
+		t.Error("healthy queries must not raise the per-card timeout flags")
+	}
+}
+
+// TestRetentionCookieMinuteRowEstimate: the nginx-log card's row count is the
+// same O(1) endpoint estimate the events card uses (sqlite: rowid range), not
+// a full COUNT(*) — a 25-day window's 1.6M rows outran the query budget on a
+// modest host.  Dense after an oldest-first prune; flagged approximate.
+func TestRetentionCookieMinuteRowEstimate(t *testing.T) {
+	h := newTestHandler(t)
+	// The shared test schema omits this table on purpose (the "??" test
+	// leans on its absence); create the production shape here.
+	if _, err := h.DB.Exec(`CREATE TABLE unmask_cookie_minute (
+		bucket_min INTEGER NOT NULL, site VARCHAR(64) NOT NULL,
+		kind VARCHAR(32) NOT NULL, cnt INTEGER NOT NULL DEFAULT 0,
+		PRIMARY KEY (bucket_min, site, kind))`); err != nil {
+		t.Fatal(err)
+	}
+	ins := func(bucket int) {
+		if _, err := h.DB.Exec(
+			`INSERT INTO unmask_cookie_minute (bucket_min, site, kind, cnt) VALUES (?, 'default', 'total', 1)`, bucket); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for b := 100; b < 105; b++ {
+		ins(b)
+	}
+	// Oldest-first prune (buckets 100,101 gone) leaves a dense rowid range of 3.
+	if _, err := h.DB.Exec(`DELETE FROM unmask_cookie_minute WHERE bucket_min < 102`); err != nil {
+		t.Fatal(err)
+	}
+	v := h.retentionStats(context.Background(), time.UTC)
+	if !v.CookieMinuteRowsOK || !v.CookieMinuteRowsApprox {
+		t.Fatalf("want OK+approx, got OK=%v approx=%v", v.CookieMinuteRowsOK, v.CookieMinuteRowsApprox)
+	}
+	if v.CookieMinuteRows != 3 {
+		t.Errorf("dense rowid estimate = %d, want 3", v.CookieMinuteRows)
+	}
+	// An upsert that lands on UPDATE allocates no rowid, so the estimate
+	// does not drift when counters increment.
+	if _, err := h.DB.Exec(
+		`INSERT INTO unmask_cookie_minute (bucket_min, site, kind, cnt) VALUES (104, 'default', 'total', 1)
+		 ON CONFLICT(bucket_min, site, kind) DO UPDATE SET cnt = cnt + 1`); err != nil {
+		t.Fatal(err)
+	}
+	if v := h.retentionStats(context.Background(), time.UTC); v.CookieMinuteRows != 3 {
+		t.Errorf("estimate after an upsert-update = %d, want 3", v.CookieMinuteRows)
+	}
+}
+
+// TestRetentionTimeoutFlagIsPerCard: the banner flags are per card, and only a
+// deadline raises them.  A plain query error (here: unmask_cookie_minute
+// dropped) marks the metric unknown ("??") but must not raise ANY timeout
+// banner -- and must not touch the other card, whose metrics stay readable.
+func TestRetentionTimeoutFlagIsPerCard(t *testing.T) {
+	h := newTestHandler(t)
+	if _, err := h.DB.Exec(`DROP TABLE IF EXISTS unmask_cookie_minute`); err != nil {
+		t.Fatal(err)
+	}
+	v := h.retentionStats(context.Background(), time.UTC)
+	if v.CookieMinuteRowsOK {
+		t.Error("count over a missing table must be unknown")
+	}
+	if v.TimedOut || v.EventsTimedOut || v.CookieTimedOut {
+		t.Errorf("a plain query error is not a timeout: TimedOut=%v events=%v cookie=%v",
+			v.TimedOut, v.EventsTimedOut, v.CookieTimedOut)
+	}
+	if !v.EventsRowsOK {
+		t.Error("the events card's metrics must stay readable")
+	}
 }
 
 // TestRetentionStatsRowEstimate: the event row count is the O(1) id-range

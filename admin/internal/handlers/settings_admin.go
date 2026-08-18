@@ -5558,6 +5558,12 @@ type retentionStatsView struct {
 	// outran the budget.  The template surfaces a warning instead of silently
 	// rendering the zeroed-out counts as if the DB were genuinely empty.
 	TimedOut bool
+	// Per-card timeout flags: the warning has to land on the card whose
+	// numbers are missing.  One shared flag put a cookie_minute timeout's
+	// banner on the events-prune card -- the operator reads "the prune stats
+	// are broken" while the prune stats sit right there, correct.
+	EventsTimedOut bool // events prune card (unmask_event count/oldest, DB size)
+	CookieTimedOut bool // nginx-log ingest card (unmask_cookie_minute count/oldest)
 	// Per-metric success flags: true = the value was read, false = its query
 	// errored/timed out and the value is unknown (rendered "??" rather than a
 	// misleading 0, so the operator sees WHICH metric could not be computed).
@@ -5565,6 +5571,10 @@ type retentionStatsView struct {
 	EventsOldestOK       bool
 	CookieMinuteRowsOK   bool
 	CookieMinuteOldestOK bool
+	// CookieMinuteRowsApprox mirrors EventsRowsApprox: the count is an O(1)
+	// estimate (sqlite rowid endpoints / InnoDB's own statistics), rendered
+	// with the same ≈ marker.
+	CookieMinuteRowsApprox bool
 	// Disk-fill projection (projectRetentionDisk): what the DB grows to at the
 	// current retention setting, against the DB volume's free space.  ProjShow
 	// gates the whole block (needs >=1 day of history + a known size).
@@ -5653,13 +5663,16 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 	// note logs a query error, flags the view as timed-out on a deadline/cancel,
 	// and returns whether the query succeeded so each metric can record its own
 	// known/unknown state.
-	note := func(label string, err error) bool {
+	note := func(label string, sectionTimedOut *bool, err error) bool {
 		if err == nil {
 			return true
 		}
 		log.Printf("retentionStats %s: %v", label, err)
 		if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 			v.TimedOut = true
+			if sectionTimedOut != nil {
+				*sectionTimedOut = true
+			}
 		}
 		return false
 	}
@@ -5675,9 +5688,9 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 	// (measured 0.7s) — two statements each SEARCH one endpoint in ~4ms O(1).  It
 	// never scans, so it never times out; EventsRowsApprox marks it "≈".
 	var minID, maxID int64
-	okMin := note("events min id", h.DB.QueryRowContext(ctx,
+	okMin := note("events min id", &v.EventsTimedOut, h.DB.QueryRowContext(ctx,
 		`SELECT COALESCE(MIN(id), 0) FROM unmask_event`).Scan(&minID))
-	okMax := note("events max id", h.DB.QueryRowContext(ctx,
+	okMax := note("events max id", &v.EventsTimedOut, h.DB.QueryRowContext(ctx,
 		`SELECT COALESCE(MAX(id), 0) FROM unmask_event`).Scan(&maxID))
 	v.EventsRowsOK = okMin && okMax
 	if v.EventsRowsOK {
@@ -5692,14 +5705,39 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 	if h.cfg().DB.Driver == "mariadb" {
 		eventsOldestSQL = `SELECT COALESCE(UNIX_TIMESTAMP(MIN(date_created)), 0) FROM unmask_event`
 	}
-	v.EventsOldestOK = note("events oldest", h.DB.QueryRowContext(ctx, eventsOldestSQL).Scan(&v.EventsOldestTS))
+	v.EventsOldestOK = note("events oldest", &v.EventsTimedOut, h.DB.QueryRowContext(ctx, eventsOldestSQL).Scan(&v.EventsOldestTS))
 	if v.EventsOldestTS > 0 {
 		v.EventsOldest = time.Unix(v.EventsOldestTS, 0).In(loc).Format("2006-01-02 15:04 MST")
 		v.EventsOldestDaysAgo = int(time.Since(time.Unix(v.EventsOldestTS, 0)).Hours() / 24)
 	}
-	v.CookieMinuteRowsOK = note("cookie_minute count", h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_cookie_minute`).Scan(&v.CookieMinuteRows))
+	// Row count estimate, NOT COUNT(*): the exact count scans the whole
+	// table, and a modest host with a 25-day window (1.6M rows observed)
+	// outran the budget — the same failure mode the events card already
+	// solved.  sqlite reads the rowid endpoints (dense for this table: rows
+	// append per minute bucket, the prune deletes oldest-first, and an
+	// upsert that lands on UPDATE allocates no rowid), each endpoint its own
+	// statement so the min/max-is-one-seek optimization applies.  mariadb
+	// has no rowid; InnoDB's own statistics row is the O(1) estimate there.
+	if h.cfg().DB.Driver == "mariadb" {
+		v.CookieMinuteRowsOK = note("cookie_minute rows", &v.CookieTimedOut, h.DB.QueryRowContext(ctx,
+			`SELECT COALESCE(TABLE_ROWS, 0) FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = 'unmask_cookie_minute'`).Scan(&v.CookieMinuteRows))
+		v.CookieMinuteRowsApprox = v.CookieMinuteRowsOK
+	} else {
+		var cmMin, cmMax int64
+		cmOKMin := note("cookie_minute min rowid", &v.CookieTimedOut, h.DB.QueryRowContext(ctx,
+			`SELECT COALESCE(MIN(rowid), 0) FROM unmask_cookie_minute`).Scan(&cmMin))
+		cmOKMax := note("cookie_minute max rowid", &v.CookieTimedOut, h.DB.QueryRowContext(ctx,
+			`SELECT COALESCE(MAX(rowid), 0) FROM unmask_cookie_minute`).Scan(&cmMax))
+		v.CookieMinuteRowsOK = cmOKMin && cmOKMax
+		if v.CookieMinuteRowsOK {
+			v.CookieMinuteRowsApprox = true
+			if cmMax > 0 {
+				v.CookieMinuteRows = int(cmMax - cmMin + 1)
+			}
+		}
+	}
 	var oldestMin int64
-	v.CookieMinuteOldestOK = note("cookie_minute oldest", h.DB.QueryRowContext(ctx,
+	v.CookieMinuteOldestOK = note("cookie_minute oldest", &v.CookieTimedOut, h.DB.QueryRowContext(ctx,
 		`SELECT COALESCE(MIN(bucket_min), 0) FROM unmask_cookie_minute`).Scan(&oldestMin))
 	if oldestMin > 0 {
 		v.CookieMinuteOldestTS = oldestMin * 60
@@ -5718,7 +5756,7 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 		// data_length + index_length across this schema's tables.  COALESCE so an
 		// empty schema reads 0 (not NULL).  No password is exposed.
 		var sz int64
-		note("mariadb size", h.DB.QueryRowContext(ctx,
+		note("mariadb size", &v.EventsTimedOut, h.DB.QueryRowContext(ctx,
 			`SELECT COALESCE(SUM(data_length+index_length),0) FROM information_schema.tables WHERE table_schema = DATABASE()`).Scan(&sz))
 		if sz > 0 {
 			v.DBSize = sz
