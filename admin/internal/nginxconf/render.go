@@ -1927,7 +1927,7 @@ func defStr(v, fallback string) string {
 func mergeBypassIPs(s settings.Settings) []string {
 	out := []string{}
 	seen := map[string]bool{}
-	for _, p := range FlattenBypassPresets(s.Nginx.BypassIPEnabledPresets) {
+	for _, p := range FlattenBypassPresets(EffectiveBypassIPPresets(s.Nginx)) {
 		if seen[p] {
 			continue
 		}
