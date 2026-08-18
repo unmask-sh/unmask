@@ -214,7 +214,39 @@ var (
 	iprangeMu          sync.RWMutex
 	iprangeLoaded      bool
 	iprangeOverrideDir string // empty → embed-only.  Set via SetOverrideDir().
+	// External-sync pickup: the cache must notice override files written by
+	// ANOTHER process.  `unmask update-iprange` runs as its own process, so
+	// the daemon's in-memory snapshot survived it -- and the next UI save
+	// re-rendered nginx from the stale memory, silently rolling the on-disk
+	// conf back to the pre-sync ranges (observed in production: a CLI sync
+	// followed 12 minutes later by a settings save reverted 15 CIDRs).  The
+	// fix: loadAll re-stats the override dir (throttled) and reloads when
+	// any file is newer than what memory was built from.
+	iprangeDiskStamp    time.Time // newest override-file mtime the cache reflects
+	iprangeCheckedAt    time.Time // last time the override dir was stat'ed
+	iprangeRecheckEvery = 2 * time.Second
 )
+
+// newestOverrideMtime: the newest mtime across the override dir's *.json
+// (snapshot-meta.json included -- the sync always rewrites it, so it advances
+// even when a vendor file's bytes happen to be unchanged).  Zero when the dir
+// is unset, missing, or empty.
+func newestOverrideMtime(dir string) time.Time {
+	var newest time.Time
+	if dir == "" {
+		return newest
+	}
+	entries, err := filepath.Glob(filepath.Join(dir, "*.json"))
+	if err != nil {
+		return newest
+	}
+	for _, e := range entries {
+		if fi, err := os.Stat(e); err == nil && fi.ModTime().After(newest) {
+			newest = fi.ModTime()
+		}
+	}
+	return newest
+}
 
 // SetOverrideDir registers a directory whose <file>.json contents take
 // precedence over the embed snapshot.  Subsequent loadAll() calls re-parse
@@ -251,7 +283,7 @@ func resetGroupsLocked() {
 // render "load failed" via a zero CreationTime()).
 func loadAll() {
 	iprangeMu.RLock()
-	if iprangeLoaded {
+	if iprangeLoaded && (iprangeOverrideDir == "" || time.Since(iprangeCheckedAt) < iprangeRecheckEvery) {
 		iprangeMu.RUnlock()
 		return
 	}
@@ -260,7 +292,17 @@ func loadAll() {
 	iprangeMu.Lock()
 	defer iprangeMu.Unlock()
 	if iprangeLoaded {
-		return
+		if iprangeOverrideDir == "" || time.Since(iprangeCheckedAt) < iprangeRecheckEvery {
+			return
+		}
+		// Loaded, but due for a disk check: reload only when some override
+		// file is newer than what memory was built from (see the var block).
+		iprangeCheckedAt = time.Now()
+		if stamp := newestOverrideMtime(iprangeOverrideDir); !stamp.After(iprangeDiskStamp) {
+			return
+		}
+		iprangeLoaded = false
+		resetGroupsLocked()
 	}
 	overrideDir := iprangeOverrideDir
 
@@ -312,6 +354,8 @@ func loadAll() {
 			}
 		}
 	}
+	iprangeDiskStamp = newestOverrideMtime(overrideDir)
+	iprangeCheckedAt = time.Now()
 	iprangeLoaded = true
 }
 

@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestSyncPullOnce_HappyPath: the hub returns one source, the override file
@@ -210,5 +211,125 @@ func TestReloadFromDisk(t *testing.T) {
 	}
 	if got := g.PrefixCount(); got != 1 {
 		t.Fatalf("expected 1 prefix from override, got %d", got)
+	}
+}
+
+// TestSyncPullFromFile: the local-file path writes the same override files
+// the hub pull does, and records success.  This is the offline route for
+// hosts whose trust store cannot verify the hub certificate: the operator
+// transfers bypass-iprange-all.json by hand and points -file at it.
+func TestSyncPullFromFile(t *testing.T) {
+	dir := t.TempDir()
+
+	doc := AggregatedDoc{
+		SchemaVersion: 1,
+		GeneratedAt:   "2026-08-18T00:00:00Z",
+		Sources: map[string]AggregatedSource{
+			"amazonbot": {
+				CreationTime: "2026-08-17T00:00:00.000000",
+				// Bare host IPs, the shape Amazon actually publishes: the
+				// offline path must not be stricter than the hub pull.
+				Prefixes: []AggregatedPrefix{
+					{IPv4Prefix: "198.51.100.7"},
+					{IPv4Prefix: "203.0.113.0/24"},
+				},
+			},
+		},
+	}
+	src := filepath.Join(t.TempDir(), "bypass-iprange-all.json")
+	raw, _ := json.Marshal(doc)
+	if err := os.WriteFile(src, raw, 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	s := NewSync()
+	s.Dir = dir
+	if err := s.PullFromFile(src); err != nil {
+		t.Fatalf("PullFromFile: %v", err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(dir, "amazonbot.json"))
+	if err != nil {
+		t.Fatalf("read override file: %v", err)
+	}
+	var got iprangePayload
+	if err := json.Unmarshal(body, &got); err != nil {
+		t.Fatalf("unmarshal written file: %v", err)
+	}
+	if len(got.Prefixes) != 2 {
+		t.Fatalf("expected 2 prefixes, got %d", len(got.Prefixes))
+	}
+	if s.LastSyncedAt().IsZero() {
+		t.Fatal("LastSyncedAt zero after successful file pull")
+	}
+
+	// The pull dates the snapshot: autobypass's freshness gate and doctor
+	// both read this file.
+	metaRaw, err := os.ReadFile(filepath.Join(dir, snapshotMetaBase))
+	if err != nil {
+		t.Fatalf("snapshot meta not written: %v", err)
+	}
+	var meta snapshotMeta
+	if err := json.Unmarshal(metaRaw, &meta); err != nil {
+		t.Fatalf("snapshot meta unparsable: %v", err)
+	}
+	if meta.GeneratedAt != "2026-08-18T00:00:00Z" {
+		t.Fatalf("snapshot meta carries %q, want the doc generatedAt", meta.GeneratedAt)
+	}
+
+	// A missing file records the error instead of leaving the gauge blank.
+	s2 := NewSync()
+	s2.Dir = t.TempDir()
+	if err := s2.PullFromFile(filepath.Join(dir, "no-such.json")); err == nil {
+		t.Fatal("expected an error for a missing file")
+	}
+	if s2.LastError() == "" {
+		t.Fatal("LastError empty after failed file pull")
+	}
+}
+
+// TestExternalSyncPickup: override files written by ANOTHER process (the
+// update-iprange CLI) must reach this process's cache without a restart.
+// The production incident: a CLI sync, then a settings save 12 minutes later
+// re-rendered nginx from the daemon's stale memory and silently rolled the
+// on-disk conf back to the pre-sync ranges.
+func TestExternalSyncPickup(t *testing.T) {
+	dir := t.TempDir()
+	SetOverrideDir(dir)
+	t.Cleanup(func() { SetOverrideDir("") })
+	prevEvery := iprangeRecheckEvery
+	iprangeRecheckEvery = 0 // every access is due for a disk check
+	t.Cleanup(func() { iprangeRecheckEvery = prevEvery })
+
+	// Memory built from the embed snapshot (empty override dir).
+	g := bypassIPGroupByID("google-common")
+	if g == nil {
+		t.Fatal("google-common group missing")
+	}
+	before := g.PrefixCount()
+	if before == 0 {
+		t.Fatal("embed snapshot empty — cannot exercise the pickup")
+	}
+
+	// Another process writes an override file...
+	payload := `{"creationTime":"2026-08-18T00:00:00.000000","prefixes":[{"ipv4Prefix":"198.51.100.0/24"}]}`
+	path := filepath.Join(dir, "googlebot.json")
+	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// ...with an mtime clearly ahead of what memory was built from (the fs
+	// clock can be coarser than this test).
+	future := time.Now().Add(3 * time.Second)
+	if err := os.Chtimes(path, future, future); err != nil {
+		t.Fatal(err)
+	}
+
+	// The very next read reflects the external write: 1 prefix, no restart.
+	if got := g.PrefixCount(); got != 1 {
+		t.Fatalf("external override not picked up: PrefixCount=%d (was %d)", got, before)
+	}
+	// And an unchanged dir does not thrash: the same read keeps the state.
+	if got := g.PrefixCount(); got != 1 {
+		t.Fatalf("second read changed the state: %d", got)
 	}
 }
