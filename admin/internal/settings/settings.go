@@ -6,7 +6,7 @@
 // Layout:
 //
 //	db:
-//	  driver: sqlite | mariadb
+//	  driver: sqlite | mariadb   ("mysql" is accepted as an alias for mariadb)
 //	  sqlite_path: /var/lib/unmask/unmask.sqlite
 //	  mariadb:
 //	    host: 127.0.0.1
@@ -4055,6 +4055,7 @@ func Load(path string) (Settings, error) {
 	if s.Secret.CaptchaSecretBase == "" {
 		s.Secret.CaptchaSecretBase = randomHex(24)
 	}
+	normalizeDBDriver(&s)
 	BackfillExtraVerdictIDs(&s)
 	// Rate-limit preset backfill, stamp persisted to a sibling file so
 	// the "do not reappear after operator delete" guarantee survives a
@@ -4235,12 +4236,23 @@ func MarshalYAML(s Settings) (string, error) {
 // LoadFromYAML parses a yaml string into Settings.  Counterpart of MarshalYAML
 // for the audit-rollback path.  Starts from defaults() so missing fields stay
 // at sane defaults (matches the Load() contract).
+// normalizeDBDriver: "mysql" is accepted as an alias for "mariadb" -- one
+// wire protocol, one Go driver, and every internal comparison keys on the
+// canonical value.  Normalized at load so a hand-written config using the
+// name the operator's server actually goes by just works.
+func normalizeDBDriver(s *Settings) {
+	if strings.EqualFold(strings.TrimSpace(string(s.DB.Driver)), "mysql") {
+		s.DB.Driver = "mariadb"
+	}
+}
+
 func LoadFromYAML(body string) (Settings, error) {
 	s := defaults()
 	if err := yaml.Unmarshal([]byte(body), &s); err != nil {
 		return Settings{}, err
 	}
 	relocateLegacyAppearance(&s, []byte(body))
+	normalizeDBDriver(&s)
 	return s, nil
 }
 

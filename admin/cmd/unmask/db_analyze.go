@@ -45,7 +45,7 @@ func cmdDBAnalyze(args []string) error {
 	defer conn.Close()
 
 	if conn.Driver != db.DriverSQLite {
-		fmt.Println("db-analyze: nothing to do (MariaDB maintains its own index statistics)")
+		fmt.Println("db-analyze: nothing to do (MariaDB/MySQL maintains its own index statistics)")
 		return nil
 	}
 
