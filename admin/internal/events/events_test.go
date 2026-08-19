@@ -42,8 +42,11 @@ func TestNormalizeEventTimeFractional(t *testing.T) {
 }
 
 // TestOverBlockStats checks the circuit-breaker signal query: it counts only
-// phase='serve' events in the window and reports distinct client IPs, so the
-// caller can derive serves-per-IP (the re-challenge loop ratio).
+// browser-grade phase='serve' events in the window and reports distinct client
+// IPs, so the caller can derive serves-per-IP (the re-challenge loop ratio).
+// Bot-class serves (empty UA, or a confirmed bot_* JA4 verdict) must not touch
+// either figure -- a scanner swarm is not a visitor trapped in a loop, and its
+// volume otherwise drowns the ratio (the 2026-07-04 false trip).
 func TestOverBlockStats(t *testing.T) {
 	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
 	if err != nil {
@@ -55,18 +58,24 @@ func TestOverBlockStats(t *testing.T) {
 	}
 	ctx := context.Background()
 	now := time.Now().UTC()
-	ins := func(ip, phase string, n int) {
+	ins := func(ip, phase, ua, verdict string, n int) {
 		for i := 0; i < n; i++ {
-			if err := Insert(ctx, d, &Event{IPPacked: PackIP(ip), Phase: phase, OccurredAt: now}); err != nil {
+			ev := &Event{IPPacked: PackIP(ip), Phase: phase, UserAgent: ua, JA4Verdict: verdict, OccurredAt: now}
+			if err := Insert(ctx, d, ev); err != nil {
 				t.Fatal(err)
 			}
 		}
 	}
-	// 3 distinct IPs served, 9 serve events total (.1 looped 5x, .2 looped 3x).
-	ins("10.0.0.1", "serve", 5)
-	ins("10.0.0.2", "serve", 3)
-	ins("10.0.0.3", "serve", 1)
-	ins("10.0.0.4", "load", 4) // non-serve must be excluded from both counts
+	const chrome = "Mozilla/5.0 Chrome/126"
+	// 3 distinct browser-grade IPs served, 9 serve events total (.1 looped 5x,
+	// .2 looped 3x).  suspect_* is browser-shaped and stays in the count.
+	ins("10.0.0.1", "serve", chrome, "", 5)
+	ins("10.0.0.2", "serve", chrome, "suspect_chrome_h1", 3)
+	ins("10.0.0.3", "serve", chrome, "ok", 1)
+	ins("10.0.0.4", "load", chrome, "", 4) // non-serve must be excluded from both counts
+	// Bot-class serves: excluded from serves AND from the distinct-IP figure.
+	ins("10.0.0.5", "serve", "", "", 7)               // no User-Agent
+	ins("10.0.0.6", "serve", "curl/8", "bot_curl", 6) // confirmed-bot verdict
 
 	serves, ips, loads, err := OverBlockStats(ctx, d, 60)
 	if err != nil {
@@ -79,10 +88,10 @@ func TestOverBlockStats(t *testing.T) {
 		t.Errorf("loads = %d, want 4", loads)
 	}
 	if serves != 9 {
-		t.Errorf("serves = %d, want 9 (load events must be excluded)", serves)
+		t.Errorf("serves = %d, want 9 (load events and bot-class serves must be excluded)", serves)
 	}
 	if ips != 3 {
-		t.Errorf("distinct IPs = %d, want 3", ips)
+		t.Errorf("distinct IPs = %d, want 3 (bot-class IPs must be excluded)", ips)
 	}
 }
 

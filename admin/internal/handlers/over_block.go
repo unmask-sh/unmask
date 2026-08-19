@@ -58,12 +58,12 @@ func (h *Handler) checkOverBlock(ctx context.Context) {
 	switch {
 	case overBlocking && !tripped:
 		h.overBlockTripped.Store(true)
-		log.Printf("over-block TRIPPED: %d serves / %d IPs = %.1f/IP over %dm (auto_passthrough=%v)",
+		log.Printf("over-block TRIPPED: %d browser-grade serves / %d IPs = %.1f/IP over %dm (auto_passthrough=%v)",
 			serves, ips, ratio, cfg.WindowMinutesResolved(), cfg.AutoPassthrough)
 		h.Notifier.OverBlock(true, serves, ips, ratio, cfg.AutoPassthrough)
 	case !overBlocking && tripped:
 		h.overBlockTripped.Store(false)
-		log.Printf("over-block cleared: %d serves / %d IPs = %.1f/IP over %dm",
+		log.Printf("over-block cleared: %d browser-grade serves / %d IPs = %.1f/IP over %dm",
 			serves, ips, ratio, cfg.WindowMinutesResolved())
 		h.Notifier.OverBlock(false, serves, ips, ratio, cfg.AutoPassthrough)
 	}
