@@ -633,6 +633,11 @@ function dismissHuntTip(id){
       <option value="rate_limit" {{ if eq .ForceReason "rate_limit" }}selected{{ end }}>rate_limit</option>
       <option value="ja4_bot"    {{ if eq .ForceReason "ja4_bot"    }}selected{{ end }}>ja4_bot</option>
       <option value="ua_target"  {{ if eq .ForceReason "ua_target"  }}selected{{ end }}>ua_target</option>
+      <option value="geo_deny"       {{ if eq .ForceReason "geo_deny"       }}selected{{ end }}>geo_deny</option>
+      <option value="asn_deny"       {{ if eq .ForceReason "asn_deny"       }}selected{{ end }}>asn_deny</option>
+      <option value="ua_deny"        {{ if eq .ForceReason "ua_deny"        }}selected{{ end }}>ua_deny</option>
+      <option value="ja4_deny"       {{ if eq .ForceReason "ja4_deny"       }}selected{{ end }}>ja4_deny</option>
+      <option value="community_deny" {{ if eq .ForceReason "community_deny" }}selected{{ end }}>community_deny</option>
       <option value="none"       {{ if eq .ForceReason "none"       }}selected{{ end }}>none</option>
     </select>
     <select name="n">
