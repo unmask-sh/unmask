@@ -2672,9 +2672,16 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var payload struct {
-		Token         string          `json:"token"`
-		Ct            string          `json:"ct"` // proof-of-load token (window.UNMASK.ct) for the behavioral path
-		Answer        json.RawMessage `json:"answer"`
+		Token  string          `json:"token"`
+		Ct     string          `json:"ct"` // proof-of-load token (window.UNMASK.ct) for the behavioral path
+		Answer json.RawMessage `json:"answer"`
+		// IV / DT: liveness evidence for the typed math answer -- how many
+		// input events the answer field saw, and how long the visitor took.
+		// Pointers so "the client never reported this" (a challenge page
+		// cached from before this shipped) stays distinguishable from "the
+		// client reported zero", which is the machine tell.
+		IV            *int            `json:"iv"`
+		DT            *int            `json:"dt"`
 		Sig           *captcha.Signal `json:"sig"`
 		ProviderToken string          `json:"provider_token"` // release token from a 3rd-party CAPTCHA widget
 	}
@@ -2796,10 +2803,37 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if captcha.VerifyMath(ans, payload.Token, h.cfg().Secret.CaptchaSecretBase, ip, 900) {
-		val := cookies.IssueValue(h.cfg().Secret.BVSecret, ip, host, kind)
+		// Correct arithmetic proves very little: it is the one task a headless
+		// browser does better than the person this fallback exists for.  What
+		// separates them is how the answer got into the field -- a person
+		// produces input events on every input method there is; a script that
+		// assigns .value produces none.
+		//
+		// A client reporting zero input events is therefore answering
+		// programmatically.  It still passes (dead-ending a visitor over a
+		// heuristic is the one outcome this project refuses), but the pass it
+		// earns is proof-of-work grade rather than CAPTCHA grade: enough for
+		// the ordinary posture, not enough where an operator demanded a
+		// CAPTCHA -- a protected path, or a geo / ASN rule.  Those are exactly
+		// the populations the fallback was being used to walk past.
+		//
+		// Absent fields mean a challenge page cached from before this shipped;
+		// those keep the full grade so an upgrade never strands anyone
+		// mid-answer.
+		downgraded := payload.IV != nil && *payload.IV == 0
+		issueKind := kind
+		if downgraded {
+			issueKind = "pow"
+			Metrics.CountMathNoInputEvidence()
+		}
+		val := cookies.IssueValue(h.cfg().Secret.BVSecret, ip, host, issueKind)
 		h.setBVCookie(w, r, val)
-		h.mintBVJ(w, r, ip, host, kind)
-		writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
+		h.mintBVJ(w, r, ip, host, issueKind)
+		out := map[string]any{"ok": 1}
+		if downgraded {
+			out["downgraded"] = 1
+		}
+		writeJSON(w, http.StatusOK, out)
 		return
 	}
 	writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "wrong"})

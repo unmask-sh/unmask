@@ -35,7 +35,13 @@ type metricsState struct {
 	scoreCount uint64
 	scoreSum   uint64   // microsecond-style fixed-point: x1000
 	scoreBkt   []uint64 // len = len(scoreBuckets)+1 (last = +Inf)
-	qLat       sync.Map // op string -> *latencyAcc
+	// mathNoInput: correct math answers that arrived with zero input events on
+	// the answer field -- answered programmatically.  Those passes are issued
+	// at proof-of-work grade instead of CAPTCHA grade; this counts how often
+	// that happens, which is also how an operator sees automated traffic
+	// leaning on the accessibility fallback.
+	mathNoInput uint64
+	qLat        sync.Map // op string -> *latencyAcc
 
 	cache      *metricsSnapshot
 	cacheUntil time.Time
@@ -49,6 +55,12 @@ type latencyAcc struct {
 
 var Metrics = &metricsState{
 	scoreBkt: make([]uint64, len(scoreBuckets)+1),
+}
+
+// CountMathNoInputEvidence: called when a correct math answer arrived with no
+// input events behind it (see the downgrade in VerifyJSON).
+func (m *metricsState) CountMathNoInputEvidence() {
+	atomic.AddUint64(&m.mathNoInput, 1)
 }
 
 // ObserveScore: called each time /api/verify computes a score.
@@ -128,6 +140,10 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "unmask_verify_score_bucket{le=\"+Inf\"} %d\n", cum)
 	fmt.Fprintf(w, "unmask_verify_score_sum %g\n", float64(sum)/1000)
 	fmt.Fprintf(w, "unmask_verify_score_count %d\n", count)
+
+	fmt.Fprintln(w, "# HELP unmask_captcha_math_no_input_total Correct math answers with no input events (answered programmatically; passed at proof-of-work grade)")
+	fmt.Fprintln(w, "# TYPE unmask_captcha_math_no_input_total counter")
+	fmt.Fprintf(w, "unmask_captcha_math_no_input_total %d\n", atomic.LoadUint64(&Metrics.mathNoInput))
 
 	// DB latency
 	fmt.Fprintln(w, "# HELP unmask_db_query_seconds DB query latency (sum & count, per op)")

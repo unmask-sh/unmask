@@ -713,10 +713,20 @@
       document.getElementById('submitBtn').disabled=false;
     });
     document.getElementById('submitBtn').onclick = submitMath;
-    document.getElementById('answerInput').addEventListener('keydown', function(e){
+    // Liveness evidence for the typed answer.  A person entering a number
+    // produces input events on any input method -- physical keyboard, IME,
+    // on-screen keyboard, speech, paste.  A script that computes the sum and
+    // assigns .value produces none, which is the one thing the arithmetic
+    // itself cannot tell us (machines are better at addition than people).
+    mathShownAt = Date.now();
+    mathInputEvents = 0;
+    var ai = document.getElementById('answerInput');
+    ai.addEventListener('input', function(){ mathInputEvents++; });
+    ai.addEventListener('keydown', function(e){
       if(e.key==='Enter') submitMath();
     });
   }
+  var mathShownAt = 0, mathInputEvents = 0;
 
   function submitMath(){
     var ans = document.getElementById('answerInput').value.trim();
@@ -728,11 +738,13 @@
     fetch(API_BASE + '/verify',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({answer:parseInt(ans), token:captchaToken, ct:captchaCt})
+      body:JSON.stringify({answer:parseInt(ans), token:captchaToken, ct:captchaCt,
+                           iv:mathInputEvents, dt:(mathShownAt ? Date.now()-mathShownAt : 0)})
     }).then(function(r){return r.json().then(function(d){return{status:r.status,data:d};});})
     .then(function(res){
       if(res.data.ok===1){
-        _bcDebug(bvPhaseForCaptchaPass(), { method:'math' });
+        _bcDebug(bvPhaseForCaptchaPass(), { method:'math', iv:mathInputEvents,
+                                           downgraded: res.data.downgraded ? 1 : 0 });
         passAndRedirect();
       } else {
         _bcDebug('verify_ng', { method:'math', http_status: res.status });
