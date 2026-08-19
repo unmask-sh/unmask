@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.32",
+  "latest": "0.1.33",
   "releases": [
+    {
+      "version": "0.1.33",
+      "date": "2026-08-20",
+      "notes": "The behavioural CAPTCHA now scores how a movement was built, not just the shape it drew. A headless browser that curves its mouse path used to score full marks, because the check read the trail's geometry and ignored its clock even though every point carried a timestamp. A driver interpolating a path divides each leg by a step count and emits that one delta for the whole leg; an arm accelerating and settling between clock-driven samples produces a different length almost every time. Verified against a real automation-driven Chrome rather than a fixture - its timing jittered like any other input, so what gave it away was 69 segments carrying 8 distinct lengths - and that browser now scores 0.4 where it scored 1.0. Input the page dispatched to itself, and phones that report no touch capability while a cursor crosses them, are scored too. The numeric-add fallback stopped handing out CAPTCHA grade to scripts: it asked for arithmetic and nothing else, which is the one task a headless browser does better than the person the fallback exists for, so it now asks for an answer that was typed - a pass with no input events behind it clears the ordinary posture but not a protected path or a geo/ASN rule. Nothing here dead-ends a visitor. Also: the hub feeds are signed end to end (detached ed25519, produced on a host that is not the one serving them), which is what makes sync_insecure_tls offerable for hosts whose trust store cannot verify the hub - it waives the transport check and makes the signature mandatory in exchange; update-iprange -file imports a hand-carried copy for hosts with no outbound HTTPS at all; a running daemon notices override files another process wrote, closing a case where a settings save silently rolled a command-line sync back; bypass presets follow the user-agent policy you already set, so a vendor you already pass by name gets its published ranges enabled and becomes address-verified; refusals name the axis that refused (geo_deny / asn_deny / ua_deny / ja4_deny / community_deny) and the rule that matched; notification settings become their own tab with mail and SMTP, invitations are a settings link rather than a shared password, and an admin account can be disabled without being deleted; mysql is accepted as a driver name; and the release itself now refuses to ship a range snapshot older than a week."
+    },
     {
       "version": "0.1.32",
       "date": "2026-08-18",
