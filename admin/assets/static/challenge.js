@@ -410,6 +410,8 @@
   // On checkbox click, send this sig to the server which makes the bot decision.
   var sig = {
     mouseTrail: [],   // [[clientX, clientY, t_ms], ...] capped at 200 points
+    untrusted: false, // any input event the page dispatched to itself
+    maxTouchPoints: (navigator.maxTouchPoints || 0),
     scrolls:    [],   // [[scrollY, t_ms], ...] capped at 50 points
     keys:       0,
     hasMouseEvents: false,
@@ -419,7 +421,14 @@
     loadAt:     0,    // time showCaptcha was called (= performance.now())
   };
 
+  // isTrusted: the browser sets it, a page cannot.  An event the page
+  // dispatched to itself says so here, which is the cheapest automation tell
+  // there is and one a real visitor never trips.
+  function noteTrust(e){ if (e && e.isTrusted === false) sig.untrusted = true; }
+  document.addEventListener('click', noteTrust, true);
+  document.addEventListener('touchstart', noteTrust, true);
   document.addEventListener('mousemove', function(e){
+    noteTrust(e);
     sig.hasMouseEvents = true;
     if (sig.mouseTrail.length < 200) {
       sig.mouseTrail.push([Math.round(e.clientX), Math.round(e.clientY), Math.round(performance.now())]);
@@ -617,6 +626,8 @@
         ct: (window.UNMASK && window.UNMASK.ct) || '', // proof-of-load token bound to IP + this challenge
         sig: {
           mouseTrail: sig.mouseTrail,
+          untrusted:  sig.untrusted,
+          maxTouchPoints: sig.maxTouchPoints,
           scrolls:    sig.scrolls,
           keys:       sig.keys,
           hasMouseEvents: sig.hasMouseEvents,

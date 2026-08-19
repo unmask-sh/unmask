@@ -42,14 +42,83 @@ type Signal struct {
 	HasTouchEvents bool        `json:"hasTouchEvents"`
 	WindowSize     []float64   `json:"windowSize"`
 	ScreenSize     []float64   `json:"screenSize"`
+	// Untrusted: at least one input event arrived with isTrusted false, i.e.
+	// the page dispatched it to itself.  A browser sets this flag itself and a
+	// page cannot forge it upward, so a real person never trips it.
+	Untrusted bool `json:"untrusted"`
+	// MaxTouchPoints: navigator.maxTouchPoints.  Used against the user agent:
+	// a phone that reports no touch capability is not a phone.
+	MaxTouchPoints int `json:"maxTouchPoints"`
 }
 
-// Score returns a [0, 1] human-likelihood score.
-func Score(s *Signal) float64 {
+// Score returns a [0, 1] human-likelihood score.  ua is the request's own
+// User-Agent as the server saw it: some of what separates a person from a
+// driver is not in the input at all but in whether the input agrees with the
+// device being claimed.
+func Score(s *Signal, ua string) float64 {
 	if s == nil {
 		return 0
 	}
 	score := 1.0
+
+	// Self-dispatched events.  dispatchEvent() cannot set isTrusted, so a page
+	// that fakes its own interaction is saying so in the flag.  (Automation
+	// driven through the browser's input layer -- CDP and friends -- produces
+	// trusted events, so this catches the cheap tier and only the cheap tier.)
+	if s.Untrusted {
+		score -= 0.6
+	}
+
+	// A device that cannot be what it says it is.  A phone reporting no touch
+	// points, or one whose only input was a mouse cursor, is a desktop
+	// automation wearing a phone's name -- and the name is the part that is
+	// free to change.  Only this direction is a contradiction: touch-capable
+	// laptops are ordinary, so touch from a desktop UA says nothing.
+	if isMobileUA(ua) {
+		if s.MaxTouchPoints == 0 && (s.HasMouseEvents || len(s.MouseTrail) > 0) {
+			// No touch capability at all while a cursor moved across the page:
+			// every phone browser in circulation reports touch points, so this
+			// pair cannot both be true of one device.  Decisive on its own.
+			score -= 0.6
+		} else if s.HasMouseEvents && !s.HasTouchEvents && len(s.MouseTrail) >= 5 {
+			score -= 0.4
+		}
+	}
+
+	// Motion that no hand produced.  The trail carries a timestamp per point
+	// and nothing here used to read it, which left the whole time axis
+	// unguarded: a driver can shape a curve to satisfy the geometry checks
+	// below while still stepping it at a fixed interval and a constant speed,
+	// neither of which survives contact with a human arm.  Both tests are
+	// deliberately extreme -- real hardware jitters -- so a person tripping one
+	// still clears the threshold on the rest.
+	if m := motionRegularity(s.MouseTrail); m.samples >= 8 {
+		// How many DIFFERENT step lengths the movement contains.  A driver
+		// interpolating a path divides each leg by a step count and emits that
+		// one delta for the whole leg, so a long trail carries a handful of
+		// lengths; a hand accelerating and slowing between clock-driven
+		// samples produces a different length almost every time.
+		//
+		// Measured against a real CDP-driven browser rather than assumed.  Its
+		// timing jittered like any other input (5-30ms gaps) and the spread of
+		// lengths across the whole trail was wide, because each leg used its
+		// own step -- so neither the interval nor the variance says anything.
+		// What it could not hide: 69 segments carrying 8 distinct lengths.
+		//
+		// Only steps beyond a few pixels count.  Below that, integer
+		// coordinates quantise a slow hand's movement into a small set of
+		// lengths for reasons that have nothing to do with automation.
+		if m.qualifying >= 15 && m.distinctRatio <= 0.25 {
+			score -= 0.6
+		}
+		// Equal gaps: the cruder shape, a loop dispatching on a timer.
+		if m.identicalRatio >= 0.8 {
+			score -= 0.4
+		}
+		if m.speedCV >= 0 && m.speedCV < 0.05 {
+			score -= 0.4
+		}
+	}
 
 	hasInput := s.HasMouseEvents || s.HasTouchEvents
 	if !hasInput {
@@ -111,6 +180,112 @@ func Score(s *Signal) float64 {
 		return 0
 	}
 	return score
+}
+
+// motionStats: what the trail's time axis says about who moved the cursor.
+type motionStats struct {
+	samples        int
+	identicalRatio float64 // share of inter-point gaps that are exactly equal
+	speedCV        float64 // coefficient of variation of per-segment speed; -1 = not computable
+	distCV         float64 // coefficient of variation of per-segment distance; -1 = not computable
+	// qualifying: segments long enough to be deliberate movement rather than
+	// coordinate rounding.  distinctRatio: how many different lengths those
+	// carry, over how many there are -- interpolation's signature is a
+	// handful of lengths spread over a long trail.
+	qualifying    int
+	distinctRatio float64
+}
+
+// motionRegularity reads the timestamps the trail already carried.  A hand
+// moving a mouse produces gaps that scatter (the OS samples at its own rate,
+// the arm accelerates and stops) and speeds that rise and fall.  A driver
+// stepping a path emits one gap and one speed.
+func motionRegularity(trail [][]float64) motionStats {
+	out := motionStats{speedCV: -1, distCV: -1}
+	if len(trail) < 3 {
+		return out
+	}
+	gaps := map[int]int{}
+	var speeds, dists []float64
+	prev := trail[0]
+	for _, pt := range trail[1:] {
+		if len(pt) < 3 || len(prev) < 3 {
+			prev = pt
+			continue
+		}
+		dt := pt[2] - prev[2]
+		if dt <= 0 {
+			prev = pt
+			continue
+		}
+		gaps[int(dt)]++
+		out.samples++
+		d := math.Hypot(pt[0]-prev[0], pt[1]-prev[1])
+		dists = append(dists, d)
+		speeds = append(speeds, d/dt)
+		prev = pt
+	}
+	if out.samples == 0 {
+		return out
+	}
+	most := 0
+	for _, n := range gaps {
+		if n > most {
+			most = n
+		}
+	}
+	out.identicalRatio = float64(most) / float64(out.samples)
+
+	out.speedCV = coeffVar(speeds)
+	out.distCV = coeffVar(dists)
+
+	// Only movements of a few pixels or more: below that, rounding to integer
+	// coordinates gives a hand few distinct lengths for its own reasons.
+	seen := map[int]struct{}{}
+	for _, d := range dists {
+		if d <= 3 {
+			continue
+		}
+		out.qualifying++
+		seen[int(d*10)] = struct{}{} // 0.1px resolution
+	}
+	if out.qualifying > 0 {
+		out.distinctRatio = float64(len(seen)) / float64(out.qualifying)
+	}
+	return out
+}
+
+// coeffVar: standard deviation over mean, or -1 when the sample says nothing.
+func coeffVar(xs []float64) float64 {
+	if len(xs) < 3 {
+		return -1
+	}
+	var sum float64
+	for _, v := range xs {
+		sum += v
+	}
+	mean := sum / float64(len(xs))
+	if mean <= 0 {
+		return -1
+	}
+	var vr float64
+	for _, v := range xs {
+		vr += (v - mean) * (v - mean)
+	}
+	return math.Sqrt(vr/float64(len(xs))) / mean
+}
+
+// isMobileUA: does this user agent claim a phone or tablet?  Only the claim
+// matters here -- the point of the check above is comparing it against what
+// the device actually did.
+func isMobileUA(ua string) bool {
+	u := strings.ToLower(ua)
+	for _, tok := range []string{"android", "iphone", "ipad", "ipod", "windows phone", "mobile safari"} {
+		if strings.Contains(u, tok) {
+			return true
+		}
+	}
+	return false
 }
 
 // MathChallenge returns (a, b, token) for the client at ip.  token is
