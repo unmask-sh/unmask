@@ -20,8 +20,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"net"
 	"net/smtp"
+	"os"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -137,19 +137,31 @@ func (m *Mailer) sendOne(cfg Config, to, subject, body string) error {
 		return sendImplicitTLS(addr, cfg, auth, from, to, msg)
 	}
 
-	// Everything else (587 / 25 / etc): plain dial → STARTTLS upgrade or plaintext.
+	// Everything else (587 / 25 / etc): plain dial, then either a STARTTLS
+	// upgrade or a true plaintext session -- the operator's choice.
 	if cfg.StartTLS {
-		return sendStartTLS(addr, cfg, auth, from, to, msg)
+		return sendSession(addr, cfg, auth, from, to, msg, true)
 	}
-	// plaintext.  Limited to use cases like internal relays.
-	if err := smtp.SendMail(addr, auth, from, []string{to}, msg); err != nil {
+	// plaintext.  Limited to use cases like internal relays.  Deliberately NOT
+	// stdlib smtp.SendMail: that one upgrades to STARTTLS (with certificate
+	// verification) whenever the server merely advertises it, so "starttls:
+	// false" against a localhost relay with a self-signed or expired
+	// certificate still failed on the certificate -- the exact relay this
+	// mode exists for (observed on a fleet postfix, 2026-08-19).
+	if err := sendSession(addr, cfg, auth, from, to, msg, false); err != nil {
 		log.Printf("mail send failed (plain): %v", err)
 		return err
 	}
 	return nil
 }
 
-func sendStartTLS(addr string, cfg Config, auth smtp.Auth, from, to string, msg []byte) error {
+// sendSession: one SMTP session over a plain-dialed connection.  With
+// useStartTLS the session upgrades via STARTTLS when the server offers it
+// (and proceeds in the clear when it does not); without it the session NEVER
+// upgrades.  AUTH PLAIN over a cleartext session is refused by net/smtp
+// itself except to localhost, so the no-TLS paths stay safe against
+// credential leakage by construction.
+func sendSession(addr string, cfg Config, auth smtp.Auth, from, to string, msg []byte, useStartTLS bool) error {
 	c, err := smtp.Dial(addr)
 	if err != nil {
 		return fmt.Errorf("smtp dial: %w", err)
@@ -158,13 +170,15 @@ func sendStartTLS(addr string, cfg Config, auth smtp.Auth, from, to string, msg 
 	if err := c.Hello(localhostHello()); err != nil {
 		return fmt.Errorf("smtp hello: %w", err)
 	}
-	if ok, _ := c.Extension("STARTTLS"); ok {
-		tlsCfg := &tls.Config{
-			ServerName:         cfg.Host,
-			InsecureSkipVerify: cfg.InsecureSkipVerify, //nolint:gosec // operator opt-in (default false) for self-signed local SMTP relays
-		}
-		if err := c.StartTLS(tlsCfg); err != nil {
-			return fmt.Errorf("smtp starttls: %w", err)
+	if useStartTLS {
+		if ok, _ := c.Extension("STARTTLS"); ok {
+			tlsCfg := &tls.Config{
+				ServerName:         cfg.Host,
+				InsecureSkipVerify: cfg.InsecureSkipVerify, //nolint:gosec // operator opt-in (default false) for self-signed local SMTP relays
+			}
+			if err := c.StartTLS(tlsCfg); err != nil {
+				return fmt.Errorf("smtp starttls: %w", err)
+			}
 		}
 	}
 	if auth != nil {
@@ -316,10 +330,14 @@ func port(p int) int {
 	return p
 }
 
-// localhostHello: hostname to advertise in HELO / EHLO.  Falls back to "localhost" on resolution failure.
+// localhostHello: hostname to advertise in HELO / EHLO.  os.Hostname with a
+// "localhost" fallback.  This used to resolve CNAME("localhost") through DNS,
+// which is the wrong name to advertise anyway (EHLO names the CLIENT) and
+// blocked every send up to the resolver timeout (~10s observed) on hosts
+// whose resolver has no answer for it.
 func localhostHello() string {
-	if h, err := net.LookupCNAME("localhost"); err == nil && h != "" {
-		return strings.TrimSuffix(h, ".")
+	if h, err := os.Hostname(); err == nil && strings.TrimSpace(h) != "" {
+		return h
 	}
 	return "localhost"
 }
