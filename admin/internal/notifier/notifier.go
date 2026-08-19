@@ -35,15 +35,20 @@ const (
 	EventOverBlock      = "over_block"
 )
 
-// Config: webhook notification settings.  Disabled or empty URL → no-op.
+// Config: notification settings.  Disabled mutes both channels; the
+// per-channel flags mute one transport while its settings stay intact.
+// A webhook also needs a non-empty URL, mail a configured Mailer.
 type Config struct {
 	Disabled            bool
 	URL                 string
 	Format              string
-	Sites               string // label to show in notification messages (= arbitrary operator-defined site name)
-	BanEvents           bool   // send ban_created (= honeypot / manual)
-	ChallengeBurst      bool   // send challenge_burst
-	BurstThresholdPer5m int    // challenge count in the last 5 minutes.  0 disables
+	Sites               string   // label to show in notification messages (= arbitrary operator-defined site name)
+	BanEvents           bool     // send ban_created (= honeypot / manual)
+	ChallengeBurst      bool     // send challenge_burst
+	BurstThresholdPer5m int      // challenge count in the last 5 minutes.  0 disables
+	WebhookDisabled     bool     // pause the webhook channel (URL kept)
+	MailDisabled        bool     // pause alert mail (SMTP transport stays up for password reset)
+	MailTo              []string // explicit alert recipients; empty = resolve via mailGetTo (admin users)
 }
 
 // MailSender: thin interface used by notifier for mail sending.  Taking
@@ -138,7 +143,7 @@ func (n *Notifier) BanCreated(ip, ja4, source, reason, bannedBy string) {
 		"site":      cfg.Sites,
 		"ts":        time.Now().Unix(),
 	}
-	if cfg.URL != "" {
+	if cfg.URL != "" && !cfg.WebhookDisabled {
 		go n.send(cfg, EventBanCreated, fields, text)
 	}
 	subject := "[unmask] BAN: " + ip
@@ -187,7 +192,7 @@ func (n *Notifier) ChallengeServed() {
 		"site":         cfg.Sites,
 		"ts":           now.Unix(),
 	}
-	if cfg.URL != "" {
+	if cfg.URL != "" && !cfg.WebhookDisabled {
 		go n.send(cfg, EventChallengeBurst, fields, text)
 	}
 	subject := fmt.Sprintf("[unmask] challenge burst: %d/5min", count)
@@ -218,7 +223,7 @@ func (n *Notifier) OverBlock(tripped bool, serves, ips int, ratio float64, autoP
 		if autoPass {
 			act = "AUTO-PASSTHROUGH engaged (visitors let through until it clears)"
 		}
-		text = fmt.Sprintf("[CRITICAL] over-block %s: %d challenge serves to %d IPs (= %.1f/IP) -- the same visitors are being re-challenged instead of passing. %s%s",
+		text = fmt.Sprintf("[CRITICAL] over-block %s: %d browser-grade challenge serves to %d IPs (= %.1f/IP) -- the same visitors are being re-challenged instead of passing. %s%s",
 			state, serves, ips, ratio, act, siteSuffix(cfg.Sites))
 	} else {
 		text = fmt.Sprintf("[OK] over-block %s: serves/IP back to %.1f -- the challenge funnel recovered%s",
@@ -234,7 +239,7 @@ func (n *Notifier) OverBlock(tripped bool, serves, ips int, ratio float64, autoP
 		"site":             cfg.Sites,
 		"ts":               time.Now().Unix(),
 	}
-	if cfg.URL != "" {
+	if cfg.URL != "" && !cfg.WebhookDisabled {
 		go n.send(cfg, EventOverBlock, fields, text)
 	}
 	subject := "[unmask] over-block " + state
@@ -244,14 +249,27 @@ func (n *Notifier) OverBlock(tripped bool, serves, ips int, ratio float64, autoP
 	go n.sendMail(subject, text)
 }
 
-// sendMail: if both mailer and recipient resolver are set, send the same
-// mail to every recipient.  no-op if either is nil or mailer.Enabled()=false.
-// Failures are logged only.
+// sendMail: send the same mail to every alert recipient.  Recipients come
+// from cfg.MailTo when the operator set one explicitly; otherwise from the
+// mailGetTo resolver (the admin users' emails).  no-op if the mailer is
+// nil / disabled, or the mail channel is paused (MailDisabled mutes alert
+// mail only — the mailer itself stays up for password reset).  Failures are
+// logged only.
 func (n *Notifier) sendMail(subject, body string) {
-	if n == nil || n.mailer == nil || n.mailGetTo == nil || !n.mailer.Enabled() {
+	if n == nil || n.mailer == nil || !n.mailer.Enabled() {
 		return
 	}
-	to := n.mailGetTo()
+	cfg := n.currentCfg()
+	if cfg.MailDisabled {
+		return
+	}
+	to := cfg.MailTo
+	if len(to) == 0 {
+		if n.mailGetTo == nil {
+			return
+		}
+		to = n.mailGetTo()
+	}
 	for _, t := range to {
 		if t == "" {
 			continue

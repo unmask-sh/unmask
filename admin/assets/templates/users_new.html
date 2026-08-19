@@ -92,7 +92,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
       </div>
       <div>
         <label>{{ t .Lang "users.col.password" }}</label>
-        <input type="password" name="password" required autocomplete="new-password">
+        <input type="password" name="password" id="new-user-password" required autocomplete="new-password">
       </div>
       <div>
         <label>{{ t .Lang "users.col.role" }}</label>
@@ -104,14 +104,41 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
       </div>
       <div>
         <label>{{ t .Lang "users.col.email" }} <span class="muted">({{ t .Lang "users.optional" }})</span></label>
-        <input type="email" name="email" autocomplete="off" placeholder="user@example.com">
+        <input type="email" name="email" id="new-user-email" autocomplete="off" placeholder="user@example.com">
       </div>
     </div>
+    {{ if .MailerEnabled }}
+    <label style="display:flex;align-items:center;gap:.4rem;margin-top:.8rem">
+      <input type="checkbox" name="send_invite" value="1" id="send-invite-cb">
+      {{ t .Lang "users.new.send_invite" }}
+    </label>
+    <p class="muted" style="margin:.3rem 0 0;font-size:.8rem">{{ t .Lang "users.new.send_invite_note" }}</p>
+    {{ else }}
+    <p class="muted" style="margin:.8rem 0 0;font-size:.8rem">{{ t .Lang "users.new.send_invite_no_smtp" }}</p>
+    {{ end }}
     <div class="actions">
       <a class="btn btn-secondary" href="{{ .BasePath }}/admin/users/">{{ t .Lang "users.new.cancel" }}</a>
       <button type="submit" class="btn">{{ t .Lang "users.btn.add" }}</button>
     </div>
   </form>
+  <script>
+  // Invite mode: the invitee sets their own password through the mailed link,
+  // so the password field empties and locks; the email becomes required.
+  (function(){
+    var cb = document.getElementById('send-invite-cb');
+    var pw = document.getElementById('new-user-password');
+    var em = document.getElementById('new-user-email');
+    if (!cb || !pw || !em) return;
+    function sync(){
+      pw.disabled = cb.checked;
+      pw.required = !cb.checked;
+      if (cb.checked) pw.value = '';
+      em.required = cb.checked;
+    }
+    cb.addEventListener('change', sync);
+    sync();
+  })();
+  </script>
 </div>
 
 <p class="meta">{{ safeHTML (t .Lang "users.help") }}</p>

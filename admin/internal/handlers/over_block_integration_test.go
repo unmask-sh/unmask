@@ -34,17 +34,19 @@ func TestCheckOverBlockTripsAndPassesThrough(t *testing.T) {
 	// threshold -- and the visitor LOADS each one, which is what a browser
 	// stuck in a loop does and what a scanner farm never does.  Without the
 	// loads this is indistinguishable from probing traffic and the breaker
-	// deliberately stays quiet.
+	// deliberately stays quiet.  The serves carry a User-Agent: only
+	// browser-grade serves feed the signal, and a trapped browser sends one.
+	const loopUA = "Mozilla/5.0 Chrome/126"
 	for i := 0; i < 30; i++ {
 		if err := events.Insert(ctx, h.DB, &events.Event{
-			IPPacked: events.PackIP("203.0.113.7"), Phase: "serve", OccurredAt: now,
+			IPPacked: events.PackIP("203.0.113.7"), Phase: "serve", UserAgent: loopUA, OccurredAt: now,
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for i := 0; i < 30; i++ {
 		if err := events.Insert(ctx, h.DB, &events.Event{
-			IPPacked: events.PackIP("203.0.113.7"), Phase: "load", OccurredAt: now,
+			IPPacked: events.PackIP("203.0.113.7"), Phase: "load", UserAgent: loopUA, OccurredAt: now,
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -84,11 +86,13 @@ func TestCheckOverBlockHealthyDoesNotTrip(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 
-	// 30 serves spread across 30 distinct IPs = 1/IP -- healthy.
+	// 30 browser-grade serves spread across 30 distinct IPs = 1/IP -- healthy.
+	// (With a User-Agent so they COUNT: an all-excluded window not tripping
+	// would pass this test for the wrong reason.)
 	for i := 0; i < 30; i++ {
 		ip := fmt.Sprintf("203.0.113.%d", i+1)
 		if err := events.Insert(ctx, h.DB, &events.Event{
-			IPPacked: events.PackIP(ip), Phase: "serve", OccurredAt: now,
+			IPPacked: events.PackIP(ip), Phase: "serve", UserAgent: "Mozilla/5.0 Chrome/126", OccurredAt: now,
 		}); err != nil {
 			t.Fatal(err)
 		}

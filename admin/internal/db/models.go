@@ -51,6 +51,7 @@ type User struct {
 	Role                string     `gorm:"column:role;not null"`
 	Email               *string    `gorm:"column:email"`
 	AlertOptOut         int        `gorm:"column:alert_opt_out;not null;default:0"`
+	Disabled            int        `gorm:"column:disabled;not null;default:0"`
 	ResetToken          *string    `gorm:"column:reset_token"`
 	ResetTokenExpiresAt *int64     `gorm:"column:reset_token_expires_at"`
 	CreatedAt           time.Time  `gorm:"column:created_at;not null;autoCreateTime:false"`

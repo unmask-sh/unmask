@@ -544,6 +544,16 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				// a blip doesn't log every admin out.
 				if h.UserRepo != nil {
 					if u, uerr := h.UserRepo.GetByID(r.Context(), pay.UserID); uerr == nil && u != nil {
+						if u.Disabled {
+							// A suspended account loses its session on the very
+							// next request — same treatment as a deleted one.
+							// This immediacy is the point of disabling: it cuts
+							// access faster than a password change ever could.
+							sec := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+							http.SetCookie(w, clearSessionCookie(sec))
+							http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/login", http.StatusFound)
+							return
+						}
 						pay.Role = u.Role
 					} else if errors.Is(uerr, user.ErrNotFound) {
 						sec := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
@@ -1089,6 +1099,13 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := user.CheckPassword(u.PasswordHash, password); err != nil {
+		rejectInvalid()
+		return
+	}
+	if u.Disabled {
+		// Correct password, suspended account.  Same rejection as a wrong
+		// password, and checked AFTER the argon2 run: a distinct message or a
+		// pre-hash return would confirm the account exists and is suspended.
 		rejectInvalid()
 		return
 	}
