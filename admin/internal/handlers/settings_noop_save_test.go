@@ -317,7 +317,7 @@ func TestSettingsTabsNoOpSave(t *testing.T) {
 	tabs := []string{"top", "network", "global", "ua-filter", "ja4-verdicts",
 		"honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass",
 		"protected", "captcha", "challenge", "rate-limit", "deny-design", "geo",
-		"theme", "notifications", "smtp", "retention", "community-bans", "sites",
+		"theme", "notifications", "retention", "community-bans", "sites",
 		"about"}
 	var forms []htmlForm
 	for _, tab := range tabs {

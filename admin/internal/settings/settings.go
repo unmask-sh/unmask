@@ -3136,15 +3136,52 @@ func (s CommunityBans) TermsStale() bool {
 	return s.TermsAcceptedAt > 0 && s.TermsAcceptedVersion < CurrentCommunityBansTermsVersion
 }
 
-// Notifications: external webhook notifications (= Slack / Discord / generic).
+// Notifications: alert notifications over two channels (webhook + mail).
 type Notifications struct {
-	Disabled            bool   `yaml:"disabled,omitempty"`
+	Disabled            bool   `yaml:"disabled,omitempty"` // master switch: mutes both channels
 	URL                 string `yaml:"url,omitempty"`
 	Format              string `yaml:"format,omitempty"`                 // "slack" | "discord" | "generic"
-	SiteLabel           string `yaml:"site_label,omitempty"`             // optional label shown in notifications (e.g., "blog-jp")
+	SiteLabel           string `yaml:"site_label,omitempty"`             // optional label shown in notifications; __hostname__ expands to the host id
 	BanEvents           bool   `yaml:"ban_events,omitempty"`             // notify on honeypot / manual ban
 	ChallengeBurst      bool   `yaml:"challenge_burst,omitempty"`        // notify when the 5min threshold is exceeded
 	BurstThresholdPer5m int    `yaml:"burst_threshold_per_5m,omitempty"` // 0 = disabled
+	// Per-channel pauses: mute one transport without destroying its settings
+	// (the alternative was blanking the webhook URL / SMTP host to stop it).
+	// MailDisabled mutes alert mail ONLY — password-reset mail still rides the
+	// SMTP transport, so muting alerts cannot lock an operator out.
+	WebhookDisabled bool `yaml:"webhook_disabled,omitempty"`
+	MailDisabled    bool `yaml:"mail_disabled,omitempty"`
+	// MailTo: explicit alert-mail recipients (comma-separated).  When set it
+	// IS the recipient list; when empty, alerts fall back to the admin users'
+	// emails — so the account contact and the alert destination can be
+	// separated (a mailing list, a shared alerts@ box) without registering a
+	// pseudo-user to carry the address.
+	MailTo string `yaml:"mail_to,omitempty"`
+}
+
+// MailToResolved splits MailTo into clean addresses (comma-separated, blanks
+// dropped).  Empty means "fall back to the admin users' emails".
+func (n Notifications) MailToResolved() []string {
+	var out []string
+	for _, p := range strings.Split(n.MailTo, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// HostPlaceholder in notifications.site_label and smtp.from_name expands to
+// the install's host id (server.host_id, falling back to the OS hostname) when
+// the notifier / mailer config is assembled.  It lets a fleet share one
+// literal config fragment instead of baking each machine's name in — and it
+// deliberately expands to the HOST ID, not the raw hostname, so an alert's
+// label matches the events.host column the operator would filter on.
+const HostPlaceholder = "__hostname__"
+
+// ExpandHostPlaceholder replaces every HostPlaceholder in s with hostID.
+func ExpandHostPlaceholder(s, hostID string) string {
+	return strings.ReplaceAll(s, HostPlaceholder, hostID)
 }
 
 // RateLimitConfig: rate-limit settings. Introduced in v0.1 (= 2026-05-10).

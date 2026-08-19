@@ -106,6 +106,13 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     </div>
     <div class="field">
       <label class="check"><input type="checkbox" name="alert_opt_out" value="1" {{ if .User.AlertOptOut }}checked{{ end }}> {{ t .Lang "profile.alert_opt_out_label" }}</label>
+      {{ if .MailToActive }}
+      {{/* mail_to routes alerts past the admin users, so this toggle has no
+           effect right now.  It stays editable — the stored value matters
+           again the moment mail_to is emptied — and the annotation says why
+           it is currently moot. */}}
+      <div style="margin-top:.35rem;font-size:.78rem;color:#64748b;line-height:1.5">{{ t .Lang "profile.alert_opt_out_mailto_note" }}</div>
+      {{ end }}
     </div>
     <button type="submit" class="btn">{{ t .Lang "profile.btn.save_profile" }}</button>
   </form>

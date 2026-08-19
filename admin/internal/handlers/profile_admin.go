@@ -48,6 +48,11 @@ func (h *Handler) AdminProfileIndex(w http.ResponseWriter, r *http.Request) {
 		"Error":    readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		"Me":       pay,
 		"User":     me,
+		// MailToActive: notifications.mail_to is set, so alert mail goes to
+		// that explicit list and the per-user opt-out is never consulted.  The
+		// template disables the checkbox and says why, instead of showing a
+		// setting that silently does nothing.
+		"MailToActive": len(h.snapshotSettings().Notifications.MailToResolved()) > 0,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)

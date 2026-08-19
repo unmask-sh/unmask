@@ -628,7 +628,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <ul>
     <li><a href="{{ .BasePath }}/admin/settings/network/"       {{ if eq .Tab "network"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.network"       }}</a></li>
     <li><a href="{{ .BasePath }}/admin/settings/sites/"         {{ if eq .Tab "sites"         }}class="active"{{ end }}>{{ t .Lang "settings.tab.sites"         }}</a></li>
-    {{/* SMTP / notifications tabs hidden until post-v0.1 (= feature still ships but the UI entry point is closed). */}}
+    {{/* Hidden until post-v0.1; opened 2026-08-19 so the over-block breaker's
+         alert has a place to be configured.  One tab carries the channels AND
+         the SMTP server (as separate cards): the event checkboxes gate
+         webhook and mail equally, and setting mail up is one screen. */}}
+    <li><a href="{{ .BasePath }}/admin/settings/notifications/" {{ if eq .Tab "notifications" }}class="active"{{ end }}>{{ t .Lang "settings.tab.notifications" }}</a></li>
     <li><a href="{{ .BasePath }}/admin/settings/retention/"     {{ if eq .Tab "retention"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.retention"     }}</a></li>
     <li><a href="{{ .BasePath }}/admin/settings/performance/"   {{ if eq .Tab "performance"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.performance"   }}</a></li>
   </ul>
@@ -714,6 +718,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <h3>{{ t .Lang "settings.section.basic" }}</h3>
   <a class="sti" href="{{ .BasePath }}/admin/settings/network/"><b>{{ t .Lang "settings.tab.network" }}</b><span>{{ t .Lang "settings.top.desc.network" }}</span></a>
   <a class="sti" href="{{ .BasePath }}/admin/settings/sites/"><b>{{ t .Lang "settings.tab.sites" }}</b><span>{{ t .Lang "settings.top.desc.sites" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/notifications/"><b>{{ t .Lang "settings.tab.notifications" }}</b><span>{{ t .Lang "settings.top.desc.notifications" }}</span></a>
   <a class="sti" href="{{ .BasePath }}/admin/settings/retention/"><b>{{ t .Lang "settings.tab.retention" }}</b><span>{{ t .Lang "settings.top.desc.retention" }}</span></a>
   <a class="sti" href="{{ .BasePath }}/admin/settings/performance/"><b>{{ t .Lang "settings.tab.performance" }}</b><span>{{ t .Lang "settings.top.desc.performance" }}</span></a>
 </div>
@@ -5712,6 +5717,7 @@ function secToHuman(s){
 {{ if eq .Tab "notifications" }}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=notifications" id="notify-form">
   <div class="bcd-card">
+    <h2>{{ t .Lang "settings.notify.common_h" }}</h2>
 
     <div class="field">
       <div class="field-label field-label-row">
@@ -5721,6 +5727,50 @@ function secToHuman(s){
       <script type="text/html" id="notify-disabled-help">{{ t .Lang "settings.notify.disabled_desc" }}</script>
     </div>
 
+    <div class="field">
+      <div class="field-label field-label-row">
+        <span>{{ t .Lang "settings.notify.site_label" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="notify-site-label-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="notify-site-label-help">{{ t .Lang "settings.notify.site_label_desc" }}</script>
+      <input type="text" name="site_label" value="{{ .Notifications.SiteLabel }}" placeholder="__hostname__ / blog-jp / ..." style="width:24rem">
+    </div>
+
+    <h3 style="margin:1rem 0 .4rem;font-size:.95rem">{{ t .Lang "settings.notify.events" }}</h3>
+    <div class="field">
+      <div class="field-label field-label-row">
+        <label><input type="checkbox" name="ban_events" value="1" {{ if .Notifications.BanEvents }}checked{{ end }}> {{ t .Lang "settings.notify.ban_events" }}</label>
+        <button type="button" class="ua-help-trigger" data-help-target="notify-ban-events-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="notify-ban-events-help">{{ t .Lang "settings.notify.ban_events_desc" }}</script>
+    </div>
+    <div class="field">
+      <div class="field-label field-label-row">
+        <label><input type="checkbox" name="challenge_burst" value="1" {{ if .Notifications.ChallengeBurst }}checked{{ end }}> {{ t .Lang "settings.notify.challenge_burst" }}</label>
+        <button type="button" class="ua-help-trigger" data-help-target="notify-burst-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="notify-burst-help">{{ t .Lang "settings.notify.challenge_burst_desc" }}</script>
+      <div class="field-label" style="margin-top:.5rem">{{ t .Lang "settings.notify.burst_threshold" }}</div>
+      <input type="number" name="burst_threshold_per_5m" value="{{ if gt .Notifications.BurstThresholdPer5m 0 }}{{ .Notifications.BurstThresholdPer5m }}{{ else }}50{{ end }}" min="0" step="10" style="width:8rem">
+    </div>
+    {{/* The over-block breaker alert has no per-event toggle on purpose: it is
+         the fail-safe of last resort, and a switch that silently turns it off
+         recreates the incident it exists for.  Muting it means disabling
+         notifications as a whole (or the breaker itself, in config.yml). */}}
+    <div class="note">{{ t .Lang "settings.notify.over_block_note" }}</div>
+  </div>
+
+  {{/* Channel 1: webhook.  The event selection above gates this channel and
+       the mail channel below equally -- one decision, two transports. */}}
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.notify.webhook_h" }}</h2>
+    <div class="field">
+      <div class="field-label field-label-row">
+        <label><input type="checkbox" name="webhook_disabled" value="1" {{ if .Notifications.WebhookDisabled }}checked{{ end }}> {{ t .Lang "settings.notify.webhook_disabled" }}</label>
+        <button type="button" class="ua-help-trigger" data-help-target="notify-webhook-disabled-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="notify-webhook-disabled-help">{{ t .Lang "settings.notify.webhook_disabled_desc" }}</script>
+    </div>
     <div class="field">
       <div class="field-label field-label-row">
         <span>{{ t .Lang "settings.notify.url" }}</span>
@@ -5743,39 +5793,11 @@ function secToHuman(s){
       </select>
     </div>
 
-    <div class="field">
-      <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.notify.site_label" }}</span>
-        <button type="button" class="ua-help-trigger" data-help-target="notify-site-label-help" aria-label="?">?</button>
-      </div>
-      <script type="text/html" id="notify-site-label-help">{{ t .Lang "settings.notify.site_label_desc" }}</script>
-      <input type="text" name="site_label" value="{{ .Notifications.SiteLabel }}" placeholder="blog-jp / ec-prod / ..." style="width:24rem">
-    </div>
-
-    <h3 style="margin:1rem 0 .4rem;font-size:.95rem">{{ t .Lang "settings.notify.events" }}</h3>
-    <div class="field">
-      <div class="field-label field-label-row">
-        <label><input type="checkbox" name="ban_events" value="1" {{ if .Notifications.BanEvents }}checked{{ end }}> {{ t .Lang "settings.notify.ban_events" }}</label>
-        <button type="button" class="ua-help-trigger" data-help-target="notify-ban-events-help" aria-label="?">?</button>
-      </div>
-      <script type="text/html" id="notify-ban-events-help">{{ t .Lang "settings.notify.ban_events_desc" }}</script>
-    </div>
-    <div class="field">
-      <div class="field-label field-label-row">
-        <label><input type="checkbox" name="challenge_burst" value="1" {{ if .Notifications.ChallengeBurst }}checked{{ end }}> {{ t .Lang "settings.notify.challenge_burst" }}</label>
-        <button type="button" class="ua-help-trigger" data-help-target="notify-burst-help" aria-label="?">?</button>
-      </div>
-      <script type="text/html" id="notify-burst-help">{{ t .Lang "settings.notify.challenge_burst_desc" }}</script>
-      <div class="field-label" style="margin-top:.5rem">{{ t .Lang "settings.notify.burst_threshold" }}</div>
-      <input type="number" name="burst_threshold_per_5m" value="{{ if gt .Notifications.BurstThresholdPer5m 0 }}{{ .Notifications.BurstThresholdPer5m }}{{ else }}50{{ end }}" min="0" step="10" style="width:8rem">
+    <div class="field" style="display:flex;gap:.6rem;align-items:center;margin-bottom:0">
+      <button type="button" class="btn" id="notify-test-btn" style="background:#475569">{{ t .Lang "settings.notify.test_send" }}</button>
+      <span id="notify-test-result" style="font-size:.875rem"></span>
     </div>
   </div>
-  <div style="display:flex;gap:.6rem;align-items:center">
-    <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
-    <button type="button" class="btn" id="notify-test-btn" style="background:#475569">{{ t .Lang "settings.notify.test_send" }}</button>
-    <span id="notify-test-result" style="font-size:.875rem"></span>
-  </div>
-</form>
 <script>
 document.getElementById('notify-test-btn').addEventListener('click', function(){
   var form = document.getElementById('notify-form');
@@ -5803,10 +5825,35 @@ document.getElementById('notify-test-btn').addEventListener('click', function(){
     });
 });
 </script>
-{{ end }}
 
-{{ if eq .Tab "smtp" }}
-<form method="post" action="{{ .BasePath }}/admin/settings/save?section=smtp" id="smtp-form">
+  {{/* Channel 2: mail.  The pause and the recipients belong here, beside the
+       other channel; the SMTP server itself is install infrastructure
+       (password reset rides it too) and lives on its own tab under Basic. */}}
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.notify.mail_h" }}</h2>
+    <div class="field">
+      <div class="field-label field-label-row">
+        <label><input type="checkbox" name="mail_disabled" value="1" {{ if .Notifications.MailDisabled }}checked{{ end }}> {{ t .Lang "settings.notify.mail_disabled" }}</label>
+        <button type="button" class="ua-help-trigger" data-help-target="notify-mail-disabled-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="notify-mail-disabled-help">{{ t .Lang "settings.notify.mail_disabled_desc" }}</script>
+    </div>
+    <div class="field">
+      <div class="field-label field-label-row">
+        <span>{{ t .Lang "settings.notify.mail_to" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="notify-mail-to-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="notify-mail-to-help">{{ t .Lang "settings.notify.mail_to_desc" }}</script>
+      <input type="text" name="mail_to" value="{{ .Notifications.MailTo }}" placeholder="alerts@example.com, oncall@example.com" style="width:100%;font-family:ui-monospace,monospace">
+      <div class="note" style="margin-top:.35rem">{{ t .Lang "settings.notify.mail_to_note" }}</div>
+    </div>
+  </div>
+
+  {{/* The mail SERVER, right under its channel: same tab, same form, one
+       save.  A separate card on purpose — the transport (which password-reset
+       mail rides too, as its heading says) is not the same thing as the
+       channel above — but not a separate tab: setting mail up stays one
+       screen, one save. */}}
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.smtp.h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.smtp.desc") }}</span></span></h2>
     <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.smtp.intro") }}</div>
@@ -5847,8 +5894,10 @@ document.getElementById('notify-test-btn').addEventListener('click', function(){
         <input type="email" name="from_address" value="{{ .SMTP.FromAddress }}" placeholder="unmask@example.com" style="width:100%;font-family:ui-monospace,monospace">
       </div>
       <div>
-        <label class="field-label">{{ t .Lang "settings.smtp.from_name" }}</label>
-        <input type="text" name="from_name" value="{{ .SMTP.FromName }}" placeholder="unmask" style="width:100%">
+        <div class="field-label field-label-row"><span>{{ t .Lang "settings.smtp.from_name" }}</span>
+          <button type="button" class="ua-help-trigger" data-help-target="smtp-from-name-help" aria-label="?">?</button></div>
+        <script type="text/html" id="smtp-from-name-help">{{ t .Lang "settings.smtp.from_name_desc" }}</script>
+        <input type="text" name="from_name" value="{{ .SMTP.FromName }}" placeholder="unmask __hostname__" style="width:100%">
       </div>
     </div>
 
@@ -5869,11 +5918,13 @@ document.getElementById('notify-test-btn').addEventListener('click', function(){
       <script type="text/html" id="smtp-test-to-help">{{ t .Lang "settings.smtp.test_to_desc" }}</script>
       <input type="email" id="smtp-test-to" placeholder="you@example.com" style="width:24rem">
     </div>
+    <div class="field" style="display:flex;gap:.6rem;align-items:center;margin-bottom:0">
+      <button type="button" class="btn" id="smtp-test-btn" style="background:#475569">{{ t .Lang "settings.smtp.test_send" }}</button>
+      <span id="smtp-test-result" style="font-size:.875rem"></span>
+    </div>
   </div>
   <div style="display:flex;gap:.6rem;align-items:center">
     <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
-    <button type="button" class="btn" id="smtp-test-btn" style="background:#475569">{{ t .Lang "settings.smtp.test_send" }}</button>
-    <span id="smtp-test-result" style="font-size:.875rem"></span>
   </div>
 </form>
 <style>
@@ -5882,7 +5933,7 @@ document.getElementById('notify-test-btn').addEventListener('click', function(){
 </style>
 <script>
 document.getElementById('smtp-test-btn').addEventListener('click', function(){
-  var form = document.getElementById('smtp-form');
+  var form = document.getElementById('notify-form');
   var result = document.getElementById('smtp-test-result');
   result.textContent = '...';
   result.style.color = '#64748b';

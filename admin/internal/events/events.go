@@ -1309,22 +1309,31 @@ type RankRow struct {
 	Count int
 }
 
-// OverBlockStats returns the challenge serve volume, the distinct client-IP
-// count, and how many of those challenges were LOADED, over the last `minutes`
-// -- the inputs to the over-block circuit breaker.
+// OverBlockStats returns the browser-grade challenge serve volume, the
+// distinct client-IP count behind it, and how many challenges were LOADED,
+// over the last `minutes` -- the inputs to the over-block circuit breaker.
 //
 // A high serves/distinctIPs ratio means the same visitors are being
 // re-challenged instead of passing (the 2026-06-08 tool1-jp challenge loop).
-// The load count is what separates that from its twin: a scanner farm on a
-// handful of addresses produces the same ratio while never running the JS at
-// all -- observed in production as a swarm of cloud-hosted web-shell probing
-// with no user-agent and no TLS fingerprint, sitting far above the threshold
-// with essentially no loads behind it.  A visitor stuck in a loop loads every
-// challenge they are served; a scanner loads none.
+// Two layers keep bot swarms from imitating that: serves and IPs only count
+// browser-grade traffic (see the query), and the load count separates a loop
+// from its remaining twin -- a scanner farm on a handful of addresses produces
+// the same ratio while never running the JS at all.  A visitor stuck in a loop
+// loads every challenge they are served; a scanner loads none.
 func OverBlockStats(ctx context.Context, d *db.DB, minutes int) (serves, distinctIPs, loads int, err error) {
+	// Serves and IPs count browser-grade traffic only: a request with no
+	// User-Agent, or one whose JA4 verdict is a confirmed bot (bot_*), is not a
+	// visitor who could be trapped in a challenge loop, and a scanner swarm's
+	// serves otherwise dominate the ratio the breaker fires on (observed
+	// 2026-07-04: a trip on 170 serves that were all UA-less probes).  suspect_*
+	// stays in -- those are browser-shaped and may be humans.  Loads stay
+	// unfiltered: running the challenge JS is itself browser-grade evidence, and
+	// counting every load only makes the no-loads guard more conservative.
+	// ESCAPE: _ is a LIKE wildcard, and the verdict prefix is literally "bot_".
+	grade := `COALESCE(user_agent, '') <> '' AND COALESCE(ja4_verdict, '') NOT LIKE 'bot|_%' ESCAPE '|'`
 	stmt := `SELECT
-	           COALESCE(SUM(CASE WHEN phase = 'serve' THEN 1 ELSE 0 END), 0),
-	           COUNT(DISTINCT CASE WHEN phase = 'serve' THEN ip_address END),
+	           COALESCE(SUM(CASE WHEN phase = 'serve' AND ` + grade + ` THEN 1 ELSE 0 END), 0),
+	           COUNT(DISTINCT CASE WHEN phase = 'serve' AND ` + grade + ` THEN ip_address END),
 	           COALESCE(SUM(CASE WHEN phase = 'load'  THEN 1 ELSE 0 END), 0)
 	         FROM unmask_event
 	         WHERE phase IN ('serve','load') AND date_created > ` + d.NowMinusMinutes(minutes)

@@ -82,9 +82,40 @@ func Migrate(conn *DB) error {
 	if err := ensureUserEmailUnique(conn); err != nil {
 		return fmt.Errorf("ensure user email unique: %w", err)
 	}
+	if err := ensureUserDisabledColumn(conn); err != nil {
+		return fmt.Errorf("ensure user disabled column: %w", err)
+	}
 	// numbered migration framework.  Apply the baseline marker + future deltas.
 	if err := RunMigrations(conn); err != nil {
 		return fmt.Errorf("run numbered migrations: %w", err)
+	}
+	return nil
+}
+
+// ensureUserDisabledColumn: ALTER an old-schema unmask_user table (= no
+// disabled column) to add the account-suspension flag.  Idempotent + no-op on
+// a fresh install where the schema already includes it.
+func ensureUserDisabledColumn(conn *DB) error {
+	hasTbl, err := hasTable(conn, "unmask_user")
+	if err != nil {
+		return fmt.Errorf("introspect table: %w", err)
+	}
+	if !hasTbl {
+		return nil
+	}
+	hasCol, err := hasColumn(conn, "unmask_user", "disabled")
+	if err != nil {
+		return fmt.Errorf("introspect disabled column: %w", err)
+	}
+	if hasCol {
+		return nil
+	}
+	stmt := `ALTER TABLE unmask_user ADD COLUMN disabled INTEGER NOT NULL DEFAULT 0`
+	if conn.Driver == DriverMariaDB {
+		stmt = `ALTER TABLE unmask_user ADD COLUMN disabled TINYINT NOT NULL DEFAULT 0 COMMENT '1 = sign-in and alerts suspended (account kept)'`
+	}
+	if _, err := conn.Exec(stmt); err != nil {
+		return fmt.Errorf("add disabled column: %w", err)
 	}
 	return nil
 }
@@ -984,6 +1015,7 @@ CREATE TABLE IF NOT EXISTS unmask_user (
     role                     VARCHAR(16) NOT NULL,                         -- superadmin / admin / viewer
     email                    VARCHAR(255),                                -- optional contact for notifications / password reset (unique when set)
     alert_opt_out            INTEGER NOT NULL DEFAULT 0,                   -- 1 = suppress alert emails to this user
+    disabled                 INTEGER NOT NULL DEFAULT 0,                   -- 1 = sign-in and alerts suspended (account kept)
     reset_token              VARCHAR(64),                                 -- one-time password-reset token (opaque)
     reset_token_expires_at   INTEGER,                                     -- reset token expiry (unix seconds, UTC)
     created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,  -- account creation time (UTC)
@@ -1113,6 +1145,7 @@ CREATE TABLE IF NOT EXISTS unmask_user (
     role                     VARCHAR(16) NOT NULL COMMENT 'superadmin / admin / viewer',
     email                    VARCHAR(255) COMMENT 'optional contact for notifications / password reset (unique when set)',
     alert_opt_out            TINYINT NOT NULL DEFAULT 0 COMMENT '1 = suppress alert emails to this user',
+    disabled                 TINYINT NOT NULL DEFAULT 0 COMMENT '1 = sign-in and alerts suspended (account kept)',
     reset_token              VARCHAR(64) COMMENT 'one-time password-reset token (opaque)',
     reset_token_expires_at   BIGINT COMMENT 'reset token expiry (unix seconds, UTC)',
     created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'account creation time (UTC)',

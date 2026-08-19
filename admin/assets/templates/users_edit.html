@@ -35,6 +35,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .banner.ok{background:#dcfce7;color:#166534;border:1px solid #86efac}
 .banner.bad{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
 .role-pill{display:inline-block;padding:.05rem .45rem;border-radius:.25rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.disabled-pill{display:inline-block;padding:.05rem .45rem;border-radius:.25rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
 .role-superadmin{background:#fee2e2;color:#991b1b}
 .role-admin{background:#dbeafe;color:#1e40af}
 .role-viewer{background:#dcfce7;color:#166534}
@@ -100,7 +101,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   <h2>{{ t .Lang "users.edit.meta_h" }}</h2>
   <dl class="meta-grid">
     <dt>{{ t .Lang "users.col.username" }}</dt><dd><strong>{{ .User.Username }}</strong></dd>
-    <dt>{{ t .Lang "users.col.role" }}</dt><dd><span class="role-pill role-{{ .User.Role }}">{{ .User.Role }}</span></dd>
+    <dt>{{ t .Lang "users.col.role" }}</dt><dd><span class="role-pill role-{{ .User.Role }}">{{ .User.Role }}</span>{{ if .User.Disabled }} <span class="disabled-pill">{{ t .Lang "users.badge.disabled" }}</span>{{ end }}</dd>
     <dt>{{ t .Lang "users.col.created" }}</dt><dd><time class="js-datetime" data-ts="{{ .User.CreatedAt.Unix }}">{{ .User.CreatedAt.Format "2006-01-02 15:04" }}</time></dd>
     <dt>{{ t .Lang "users.col.last_login" }}</dt><dd>{{ if .User.LastLogin.Valid }}<time class="js-datetime" data-ts="{{ .User.LastLogin.Time.Unix }}">{{ .User.LastLogin.Time.Format "2006-01-02 15:04" }}</time>{{ else }}<span class="muted">{{ t .Lang "users.never" }}</span>{{ end }}</dd>
   </dl>
@@ -146,6 +147,34 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 </form>
 
 {{ if and .Me (ne .Me.UserID .User.ID) }}
+{{/* Account status: the deletion-free lock-out.  Own-account suspension is
+     refused by the handler too; hiding the card here just keeps the footgun
+     out of sight. */}}
+<div class="bcd-card">
+  <h2>{{ t .Lang "users.edit.status_h" }}</h2>
+  {{ if .User.Disabled }}
+  <p class="desc">{{ t .Lang "users.edit.status_disabled_desc" }}</p>
+  <form method="POST" action="{{ .BasePath }}/admin/users/save">
+    <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+    <input type="hidden" name="op" value="set_disabled">
+    <input type="hidden" name="id" value="{{ .User.ID }}">
+    <input type="hidden" name="disabled" value="0">
+    <input type="hidden" name="redirect" value="{{ .BasePath }}/admin/users/{{ .User.ID }}/edit">
+    <button type="submit" class="btn">{{ t .Lang "users.btn.enable" }}</button>
+  </form>
+  {{ else }}
+  <p class="desc">{{ t .Lang "users.edit.status_enabled_desc" }}</p>
+  <form method="POST" action="{{ .BasePath }}/admin/users/save" onsubmit="return confirm('Disable {{ .User.Username }}?')">
+    <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+    <input type="hidden" name="op" value="set_disabled">
+    <input type="hidden" name="id" value="{{ .User.ID }}">
+    <input type="hidden" name="disabled" value="1">
+    <input type="hidden" name="redirect" value="{{ .BasePath }}/admin/users/{{ .User.ID }}/edit">
+    <button type="submit" class="btn btn-danger">{{ t .Lang "users.btn.disable" }}</button>
+  </form>
+  {{ end }}
+</div>
+
 <div class="bcd-card danger">
   <h2>{{ t .Lang "users.edit.danger_h" }}</h2>
   <p class="desc">{{ t .Lang "users.edit.danger_desc" }}</p>

@@ -425,27 +425,13 @@ func cmdServe(args []string) error {
 		nlog.SetIPGeo(gip)
 	}
 
+	// Resolved early: the notifier / mailer configs expand __hostname__ with it.
+	hostID := resolveHostID(s.Server.HostID)
+
 	// External webhook notifications (optional).  Safe no-op even when URL is empty.
-	notifierInst := notifier.New(notifier.Config{
-		Disabled:            s.Notifications.Disabled,
-		URL:                 s.Notifications.URL,
-		Format:              s.Notifications.Format,
-		Sites:               s.Notifications.SiteLabel,
-		BanEvents:           s.Notifications.BanEvents,
-		ChallengeBurst:      s.Notifications.ChallengeBurst,
-		BurstThresholdPer5m: s.Notifications.BurstThresholdPer5m,
-	})
+	notifierInst := notifier.New(handlers.NotifierConfigFrom(s.Notifications, hostID))
 	// SMTP mailer (optional).  Empty Host -> no-op.  Used by alert mail / password reset.
-	mailerInst := mail.New(mail.Config{
-		Host:               s.SMTP.Host,
-		Port:               s.SMTP.Port,
-		Username:           s.SMTP.Username,
-		Password:           s.SMTP.Password,
-		FromAddress:        s.SMTP.FromAddress,
-		FromName:           s.SMTP.FromName,
-		StartTLS:           s.SMTP.StartTLS,
-		InsecureSkipVerify: s.SMTP.InsecureSkipVerify,
-	})
+	mailerInst := mail.New(handlers.MailConfigFrom(s.SMTP, hostID))
 	// Wire mail notifications into the notifier.  The recipient resolver is a
 	// thin closure that calls UserRepo.AlertRecipients.  On failure, return
 	// an empty list to skip mail sending.
@@ -463,7 +449,6 @@ func cmdServe(args []string) error {
 		banMgr.OnCreated = notifierInst.BanCreated
 	}
 
-	hostID := resolveHostID(s.Server.HostID)
 	log.Printf("host id: %s (recorded in the events.host column)", hostID)
 
 	limiter := ratelimit.New()

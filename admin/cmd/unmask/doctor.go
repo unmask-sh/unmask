@@ -516,6 +516,21 @@ func cmdDoctor(args []string) error {
 		}
 	}
 
+	// 10b. over-block breaker alert deliverability.  The breaker is armed by
+	// default, but its trip alert only reaches the operator through the
+	// webhook or mail; with neither configured, a trip shows nowhere but the
+	// daemon log and the admin overview banner -- the shape of the 2026-06-08
+	// incident, where a challenge loop over-blocked visitors for ~14h before
+	// anyone looked.  (Mail delivery also needs alert recipients on admin
+	// users; this check covers the transport being configured at all.)
+	if !s.OverBlock.Disabled {
+		if via := overBlockAlertRoute(s); via != "" {
+			addOK("over-block alerts", "deliverable via "+via)
+		} else {
+			addWarn("over-block alerts", "the breaker is armed but its trip alert has nowhere to go (no webhook URL, no SMTP host) — a challenge-loop trip only shows in the daemon log and the admin overview banner. Configure Settings → Notifications, or SMTP.")
+		}
+	}
+
 	// 11. runtime SLO self-curl (= measure /unmask/healthz round-trip latency
 	// + error rate on the configured admin bind).  When admin is not running,
 	// produces a single WARN and skips.  When running, fires 30 sequential
@@ -579,6 +594,29 @@ var (
 // deliberately customised the file.  The message names the supported way to do
 // that (challenge_html_path), so a deliberate override is distinguishable from
 // a forgotten one.
+// overBlockAlertRoute reports how an over-block trip alert can reach the
+// operator: "webhook", "mail", "webhook + mail", or "" when no transport can
+// deliver.  Notifications.Disabled gates both transports (notifier's OverBlock
+// returns before either path when the section is off), and each channel's
+// pause flag mutes just that one -- a paused channel is configured but not a
+// route.
+func overBlockAlertRoute(s settings.Settings) string {
+	if s.Notifications.Disabled {
+		return ""
+	}
+	via := ""
+	if s.Notifications.URL != "" && !s.Notifications.WebhookDisabled {
+		via = "webhook"
+	}
+	if s.SMTP.Host != "" && !s.Notifications.MailDisabled {
+		if via != "" {
+			via += " + "
+		}
+		via += "mail"
+	}
+	return via
+}
+
 func checkChallengeAssets(addOK, addWarn func(t, m string)) {
 	type pair struct {
 		name     string

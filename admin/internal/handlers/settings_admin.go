@@ -85,7 +85,7 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	tab := r.PathValue("tab")
 	switch tab {
-	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "asn", "theme", "notifications", "smtp", "retention", "performance", "community-bans", "sites", "about":
+	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "asn", "theme", "notifications", "retention", "performance", "community-bans", "sites", "about":
 		// ok
 	case "search-bots", "challenge-targets":
 		tab = "ua-filter"
@@ -1047,8 +1047,8 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"BrandingPresets": []string{settings.BrandingPresetFriendly, settings.BrandingPresetNeutral, settings.BrandingPresetMinimal},
 		// Notification webhook settings (= used by the notifications tab).
 		"Notifications": h.snapshotSettings().Notifications,
-		// SMTP settings (= used by the smtp tab). Mask the password (= empty
-		// submit preserves the saved value).
+		// SMTP settings (= the mail card on the notifications tab). Mask the
+		// password (= empty submit preserves the saved value).
 		"SMTP": maskedSMTP(h.snapshotSettings().SMTP),
 		// community-bans tab. Mask the token (= not shown in UI; the admin issues
 		// the submit token via auto-register).
@@ -1299,7 +1299,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "smtp", "retention", "performance", "community-bans", "sites", "about", "geo", "asn":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "retention", "performance", "community-bans", "sites", "about", "geo", "asn":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -1653,8 +1653,9 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// alongside it.  Plain checkbox -> bool.
 		cur.Branding.Default.ShowCredit = settings.BoolPtr(r.FormValue("show_credit") == "1")
 	case "notifications":
+		// One tab, one form: the channel fields and the SMTP-server card
+		// submit together.  There is no separate smtp section.
 		applyNotificationsForm(&cur.Notifications, r)
-	case "smtp":
 		applySMTPForm(&cur.SMTP, r)
 	case "web-bot-auth":
 		applyWebBotAuthForm(&cur.Nginx.WebBotAuth, r)
@@ -1830,29 +1831,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 
 	// notifier hot-swap (= picks up URL / format / threshold changes immediately)
 	if h.Notifier != nil {
-		h.Notifier.SetConfig(notifier.Config{
-			Disabled:            cur.Notifications.Disabled,
-			URL:                 cur.Notifications.URL,
-			Format:              cur.Notifications.Format,
-			Sites:               cur.Notifications.SiteLabel,
-			BanEvents:           cur.Notifications.BanEvents,
-			ChallengeBurst:      cur.Notifications.ChallengeBurst,
-			BurstThresholdPer5m: cur.Notifications.BurstThresholdPer5m,
-		})
+		h.Notifier.SetConfig(NotifierConfigFrom(cur.Notifications, h.HostID))
 	}
 
 	// mailer hot-swap (= picks up host/auth changes immediately)
 	if h.Mailer != nil {
-		h.Mailer.SetConfig(mail.Config{
-			Host:               cur.SMTP.Host,
-			Port:               cur.SMTP.Port,
-			Username:           cur.SMTP.Username,
-			Password:           cur.SMTP.Password,
-			FromAddress:        cur.SMTP.FromAddress,
-			FromName:           cur.SMTP.FromName,
-			StartTLS:           cur.SMTP.StartTLS,
-			InsecureSkipVerify: cur.SMTP.InsecureSkipVerify,
-		})
+		h.Mailer.SetConfig(MailConfigFrom(cur.SMTP, h.HostID))
 	}
 
 	// Avoid "no token" right after enabling community-bans and immediately BANning:
@@ -5296,6 +5280,9 @@ func applyNotificationsForm(c *settings.Notifications, r *http.Request) {
 	if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("burst_threshold_per_5m"))); err == nil && v >= 0 {
 		c.BurstThresholdPer5m = v
 	}
+	c.WebhookDisabled = r.FormValue("webhook_disabled") == "1"
+	c.MailDisabled = r.FormValue("mail_disabled") == "1"
+	c.MailTo = strings.TrimSpace(r.FormValue("mail_to"))
 }
 
 // AdminNotifyTest: POST {base}/admin/api/notify/test — send a test event.
@@ -5320,9 +5307,11 @@ func (h *Handler) AdminNotifyTest(w http.ResponseWriter, r *http.Request) {
 		format = "slack"
 	}
 	tmp := notifier.New(notifier.Config{
-		URL:       url,
-		Format:    format,
-		Sites:     strings.TrimSpace(r.FormValue("site_label")),
+		URL:    url,
+		Format: format,
+		// Expand __hostname__ here too, so the test message shows exactly the
+		// label a real alert would carry.
+		Sites:     settings.ExpandHostPlaceholder(strings.TrimSpace(r.FormValue("site_label")), h.HostID),
 		BanEvents: true,
 	})
 	if err := tmp.TestSend(r.Context()); err != nil {
@@ -5386,7 +5375,7 @@ func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
 	// checkbox (= ticking it IS the acceptance).
 }
 
-// applySMTPForm: receive the SMTP tab form. Empty password submit preserves
+// applySMTPForm: receive the SMTP card of the notifications form. Empty password submit preserves
 // current value (= matches the "***" placeholder UX where the value is
 // untouched). Port: 0 / invalid → 587.
 // normalizeHNOverride: client-side parity with the hub's validHN().  Empty
@@ -5467,12 +5456,13 @@ func (h *Handler) AdminSMTPTest(w http.ResponseWriter, r *http.Request) {
 		password = h.snapshotSettings().SMTP.Password
 	}
 	tmp := mail.New(mail.Config{
-		Host:               host,
-		Port:               port,
-		Username:           username,
-		Password:           password,
-		FromAddress:        strings.TrimSpace(r.FormValue("from_address")),
-		FromName:           strings.TrimSpace(r.FormValue("from_name")),
+		Host:        host,
+		Port:        port,
+		Username:    username,
+		Password:    password,
+		FromAddress: strings.TrimSpace(r.FormValue("from_address")),
+		// Expand __hostname__ so the test mail's From shows what a real alert would.
+		FromName:           settings.ExpandHostPlaceholder(strings.TrimSpace(r.FormValue("from_name")), h.HostID),
 		StartTLS:           r.FormValue("starttls") == "1",
 		InsecureSkipVerify: r.FormValue("insecure_skip_verify") == "1",
 	})
@@ -5492,8 +5482,6 @@ func tabHelpKey(tab string) string {
 	switch tab {
 	case "network":
 		return "settings.network.intro"
-	case "smtp":
-		return "settings.smtp.intro"
 	case "notifications":
 		return "settings.notify.desc"
 	case "retention":

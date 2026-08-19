@@ -63,6 +63,10 @@ type User struct {
 	Email sql.NullString
 	// AlertOptOut: 1 means don't deliver alert mail.  default 0.
 	AlertOptOut bool
+	// Disabled: 1 suspends the account — sign-in refused, sessions cut on the
+	// next request, alert mail skipped — while the row (role, email, history)
+	// is kept for re-enabling.  The deletion-free way to lock someone out.
+	Disabled bool
 	// ResetToken / ResetTokenExpiresAt: for the password reset link.  Expires is unix-sec.
 	ResetToken          sql.NullString
 	ResetTokenExpiresAt sql.NullInt64
@@ -262,7 +266,7 @@ func (r *Repository) CreateWithHash(ctx context.Context, username, passwordHash,
 // GetByUsername: primary lookup used during authentication.
 func (r *Repository) GetByUsername(ctx context.Context, username string) (*User, error) {
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, reset_token, reset_token_expires_at, created_at, last_login
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login
 		 FROM unmask_user WHERE username = ?`, username)
 	return scanUser(row)
 }
@@ -270,7 +274,7 @@ func (r *Repository) GetByUsername(ctx context.Context, username string) (*User,
 // GetByID: load the user from the session cookie payload (= user_id).
 func (r *Repository) GetByID(ctx context.Context, id int64) (*User, error) {
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, reset_token, reset_token_expires_at, created_at, last_login
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login
 		 FROM unmask_user WHERE id = ?`, id)
 	return scanUser(row)
 }
@@ -278,7 +282,7 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*User, error) {
 // List: for the superadmin user-management UI.  Ascending by username.
 func (r *Repository) List(ctx context.Context) ([]*User, error) {
 	rows, err := r.DB.QueryContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, reset_token, reset_token_expires_at, created_at, last_login
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login
 		 FROM unmask_user ORDER BY username`)
 	if err != nil {
 		return nil, err
@@ -312,6 +316,19 @@ func (r *Repository) SetPassword(ctx context.Context, userID int64, plainPasswor
 	return nil
 }
 
+// otherActiveSuperadmins counts ENABLED superadmins besides userID.  The
+// last-superadmin guards count against this, not a raw role count: a disabled
+// superadmin cannot administer anything, so it must not keep the guard
+// satisfied while the only working superadmin is removed, demoted or
+// suspended.
+func (r *Repository) otherActiveSuperadmins(ctx context.Context, userID int64) (int, error) {
+	var n int
+	err := r.DB.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM unmask_user WHERE role = ? AND disabled = 0 AND id <> ?`,
+		RoleSuperadmin, userID).Scan(&n)
+	return n, err
+}
+
 // SetRole: superadmin changes a role.  Prevent "demote the last superadmin."
 func (r *Repository) SetRole(ctx context.Context, userID int64, newRole string) error {
 	if !IsValidRole(newRole) {
@@ -322,18 +339,48 @@ func (r *Repository) SetRole(ctx context.Context, userID int64, newRole string) 
 		return err
 	}
 	if cur.Role == RoleSuperadmin && newRole != RoleSuperadmin {
-		// About to demote.  Check whether there's another superadmin.
-		var n int
-		if err := r.DB.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM unmask_user WHERE role = ?`, RoleSuperadmin).Scan(&n); err != nil {
+		n, err := r.otherActiveSuperadmins(ctx, userID)
+		if err != nil {
 			return err
 		}
-		if n <= 1 {
+		if n == 0 {
 			return ErrLastSuperadmin
 		}
 	}
 	return r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
 		Update("role", newRole).Error
+}
+
+// SetDisabled: suspend or restore an account.  Suspending the last enabled
+// superadmin is refused — it would leave nobody able to administer the
+// install (the same lock-out the delete / demote guards exist for).
+func (r *Repository) SetDisabled(ctx context.Context, userID int64, disabled bool) error {
+	cur, err := r.GetByID(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if disabled && cur.Role == RoleSuperadmin {
+		n, err := r.otherActiveSuperadmins(ctx, userID)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			return ErrLastSuperadmin
+		}
+	}
+	v := 0
+	if disabled {
+		v = 1
+	}
+	res := r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
+		Update("disabled", v)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 // Delete: remove the user.  The last superadmin cannot be removed.
@@ -343,12 +390,11 @@ func (r *Repository) Delete(ctx context.Context, userID int64) error {
 		return err
 	}
 	if cur.Role == RoleSuperadmin {
-		var n int
-		if err := r.DB.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM unmask_user WHERE role = ?`, RoleSuperadmin).Scan(&n); err != nil {
+		n, err := r.otherActiveSuperadmins(ctx, userID)
+		if err != nil {
 			return err
 		}
-		if n <= 1 {
+		if n == 0 {
 			return ErrLastSuperadmin
 		}
 	}
@@ -368,8 +414,8 @@ func scanUser(r interface {
 	Scan(...any) error
 }) (*User, error) {
 	var u User
-	var optOut int64
-	err := r.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.Email, &optOut, &u.ResetToken, &u.ResetTokenExpiresAt, &u.CreatedAt, &u.LastLogin)
+	var optOut, disabled int64
+	err := r.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.Email, &optOut, &disabled, &u.ResetToken, &u.ResetTokenExpiresAt, &u.CreatedAt, &u.LastLogin)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -377,6 +423,7 @@ func scanUser(r interface {
 		return nil, err
 	}
 	u.AlertOptOut = optOut != 0
+	u.Disabled = disabled != 0
 	return &u, nil
 }
 
@@ -447,7 +494,7 @@ func (r *Repository) ConsumeResetToken(ctx context.Context, token string) (*User
 		return nil, ErrNotFound
 	}
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, reset_token, reset_token_expires_at, created_at, last_login
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login
 		 FROM unmask_user WHERE reset_token = ?`, token)
 	u, err := scanUser(row)
 	if err != nil {
@@ -488,7 +535,7 @@ func (r *Repository) GetByEmail(ctx context.Context, email string) (*User, error
 		return nil, ErrNotFound
 	}
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, reset_token, reset_token_expires_at, created_at, last_login
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login
 		 FROM unmask_user WHERE email = ? ORDER BY id LIMIT 1`, email)
 	return scanUser(row)
 }
@@ -499,7 +546,7 @@ func (r *Repository) GetByEmail(ctx context.Context, email string) (*User, error
 func (r *Repository) AlertRecipients(ctx context.Context) ([]string, error) {
 	rows, err := r.DB.QueryContext(ctx,
 		`SELECT email FROM unmask_user
-		 WHERE email IS NOT NULL AND email <> '' AND alert_opt_out = 0 AND role IN (?, ?)`,
+		 WHERE email IS NOT NULL AND email <> '' AND alert_opt_out = 0 AND disabled = 0 AND role IN (?, ?)`,
 		RoleSuperadmin, RoleAdmin)
 	if err != nil {
 		return nil, err

@@ -33,12 +33,13 @@ table.users thead th{text-align:left;padding:.5rem .6rem;border-bottom:2px solid
 table.users tbody td{padding:.55rem .6rem;border-bottom:1px solid #f1f5f9;vertical-align:middle;font-size:.92rem}
 table.users tbody tr:hover{background:#f8fafc}
 .role-pill{display:inline-block;padding:.05rem .45rem;border-radius:.25rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.disabled-pill{display:inline-block;padding:.05rem .45rem;border-radius:.25rem;font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
 .role-superadmin{background:#fee2e2;color:#991b1b}
 .role-admin{background:#dbeafe;color:#1e40af}
 .role-viewer{background:#dcfce7;color:#166534}
 .row-actions{display:flex;gap:.4rem;align-items:center}
-.row-actions a.edit-link{display:inline-block;padding:.25rem .7rem;font-size:.8rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;cursor:pointer;color:#334155;text-decoration:none}
-.row-actions a.edit-link:hover{background:#0f172a;color:#fff;border-color:#0f172a}
+.row-actions .edit-link{display:inline-block;padding:.25rem .7rem;font-size:.8rem;font-family:inherit;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;cursor:pointer;color:#334155;text-decoration:none}
+.row-actions .edit-link:hover{background:#0f172a;color:#fff;border-color:#0f172a}
 .muted{color:#94a3b8}
 .btn-add{display:inline-block;padding:.45rem 1rem;background:#0f172a;color:#fff;border:none;border-radius:.25rem;font-weight:600;font-size:.9rem;text-decoration:none}
 .btn-add:hover{background:#1e293b}
@@ -84,6 +85,7 @@ table.users tbody tr:hover{background:#f8fafc}
 <p class="meta">{{ t .Lang "users.subtitle" }}</p>
 
 {{ if .Saved }}<div class="banner ok">{{ t .Lang "users.saved" }}</div>{{ end }}
+{{ if .LinkSent }}<div class="banner ok">{{ t .Lang "users.link_sent" }}</div>{{ end }}
 {{ if .Error }}<div class="banner bad">{{ t .Lang "users.error_prefix" }}{{ .Error }}</div>{{ end }}
 
 <p style="margin:.5rem 0 1rem"><a href="{{ .BasePath }}/admin/users/new" class="btn-add">+ {{ t .Lang "users.btn.add" }}</a></p>
@@ -105,8 +107,8 @@ table.users tbody tr:hover{background:#f8fafc}
     <tbody>
       {{ range .Users }}
       <tr>
-        <td><strong>{{ .Username }}</strong></td>
-        <td><span class="role-pill role-{{ .Role }}">{{ .Role }}</span></td>
+        <td><strong{{ if .Disabled }} style="color:#94a3b8"{{ end }}>{{ .Username }}</strong></td>
+        <td><span class="role-pill role-{{ .Role }}">{{ .Role }}</span>{{ if .Disabled }} <span class="disabled-pill">{{ t $.Lang "users.badge.disabled" }}</span>{{ end }}</td>
         <td>{{ if .Email.Valid }}<code style="font-size:.78rem">{{ .Email.String }}</code>{{ else }}<span class="muted">—</span>{{ end }}</td>
         <td>{{ if .AlertOptOut }}<span class="muted">opt-out</span>{{ else if .Email.Valid }}<span style="color:#16a34a">✓</span>{{ else }}<span class="muted">—</span>{{ end }}</td>
         <td><time class="js-datetime" data-ts="{{ .CreatedAt.Unix }}">{{ .CreatedAt.Format "2006-01-02 15:04" }}</time></td>
@@ -117,6 +119,16 @@ table.users tbody tr:hover{background:#f8fafc}
         </td>
         <td class="row-actions">
           <a class="edit-link" href="{{ $.BasePath }}/admin/users/{{ .ID }}/edit">{{ t $.Lang "users.btn.edit" }}</a>
+          {{ if and $.MailerEnabled .Email.Valid (not .Disabled) }}
+          {{/* Invite resend / admin-side reset: mails a fresh 72h setup link
+               (replacing any earlier one).  Never a password. */}}
+          <form method="POST" action="{{ $.BasePath }}/admin/users/save" style="display:inline">
+            <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+            <input type="hidden" name="op" value="send_setup_link">
+            <input type="hidden" name="id" value="{{ .ID }}">
+            <button type="submit" class="edit-link">{{ t $.Lang "users.btn.send_setup_link" }}</button>
+          </form>
+          {{ end }}
         </td>
       </tr>
       {{ end }}
