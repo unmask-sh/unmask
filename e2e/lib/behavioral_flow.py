@@ -8,6 +8,7 @@
 # this asserts the behavioral path itself still issues a _bv for a real browser.
 import os
 import sys
+import math
 import time
 
 from playwright.sync_api import sync_playwright
@@ -40,9 +41,21 @@ with sync_playwright() as p:
     page.wait_for_selector("#notRobot", state="attached", timeout=15000)
 
     # human-like signal: a moving mouse trail, a scroll, a keypress.
+    #
+    # The trail has to look like an arm, not like a driver.  Scoring reads the
+    # step lengths now: a hand accelerating and settling between clock-driven
+    # samples produces a different length almost every time, while a driver
+    # interpolating a path emits one length per leg -- which is what a fixed
+    # `i * 9` stride was, and it now (correctly) scores as automation.  So the
+    # movement here accelerates, drifts and slows the way a real one does, and
+    # the pauses between samples vary.
+    x, y, v = 80.0, 140.0, 2.0
     for i in range(40):
-        page.mouse.move(80 + i * 9, 140 + (i % 11) * 7)
-        time.sleep(0.015)
+        v = 2 + 17 * math.sin((i + 1) / 13.0) + 1.7 * math.sin(i / 2.1)
+        x += v
+        y += 1.3 * math.cos(i / 6.0) + 0.6 * math.sin(i / 1.6)
+        page.mouse.move(round(x), round(y))
+        time.sleep(0.008 + 0.013 * abs(math.sin(i / 3.3)))
     page.mouse.wheel(0, 250)
     page.keyboard.press("Tab")
     time.sleep(0.4)

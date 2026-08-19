@@ -2808,7 +2808,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
 			return
 		}
-		score := captcha.Score(payload.Sig)
+		score := captcha.Score(payload.Sig, r.Header.Get("User-Agent"))
 		Metrics.ObserveScore(score)
 		// Zero-guard the threshold the same way the reCAPTCHA path does above:
 		// a hand-edited config with provider:builtin but no builtin_score_threshold
