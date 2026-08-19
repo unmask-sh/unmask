@@ -880,6 +880,50 @@ func (h *Handler) ServeBanDeny(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(renderBanDenyC(br, banPreset, br.ResolvedDenyBanTheme(), r.Header.Get("Accept-Language"), h.basePath(), ref, denyColorsBan(br)))
 }
 
+// axisDenyReason re-derives WHICH axis denied this request, for the event
+// label.  nginx made the decision from the rendered maps and dispatches here
+// without carrying the reason, so "a rule said no" was all the hunt log could
+// show -- true, and useless to the operator asking WHICH rule, on a page whose
+// whole job is answering that.
+//
+// The daemon asks the same resolvers in the same order server.inc composes
+// them ($unmask_axis_deny: country, then ASN, then UA, then JA4 verdict, then
+// the community feed), so the label matches the decision that was actually
+// made.  This is a label, never a decision: the block already happened, and an
+// answer this cannot derive falls back to the generic name rather than
+// guessing.
+func (h *Handler) axisDenyReason(r *http.Request, ja4, verdict string) (reason, rule string) {
+	cfg := *h.cfg()
+	if h.IPGeo != nil {
+		if ip := adminClientIP(r, cfg); ip != "" {
+			info := h.IPGeo.LookupInfo(ip)
+			if h.IPGeo.Loaded() {
+				cc := strings.ToUpper(strings.TrimSpace(info.Country))
+				if d, _, ok := geoDecideForCountry(cc, cfg.Nginx.Geo); ok && d.sev == sevDeny {
+					return "geo_deny", cc
+				}
+			}
+			if h.IPGeo.ASNLoaded() {
+				if d, netKey, _, ok := asnResolve(info.ASN, info.ASNOrg, cfg.Nginx.Asn); ok && d.sev == sevDeny {
+					return "asn_deny", strings.TrimPrefix(netKey, "asn:")
+				}
+			}
+		}
+	}
+	if ua := r.Header.Get("User-Agent"); ua != "" && hardDenyUA(ua, cfg.Nginx) {
+		return "ua_deny", ""
+	}
+	if nginxconf.ResolveJA4VerdictAction(verdict, cfg.Nginx) == settings.RateChallengeDeny {
+		return "ja4_deny", verdict
+	}
+	if m := h.communityBansMatcher(); m != nil {
+		if d, ok := communityBansDecide(m, adminClientIP(r, cfg), ja4, cfg); ok && d.sev == sevDeny {
+			return "community_deny", strings.TrimPrefix(d.reason, "community_bans:")
+		}
+	}
+	return "axis_deny", ""
+}
+
 // ServeAxisDeny writes the "blocked" page for a request an axis resolved to
 // "deny" -- a UA black-list row pinned to deny, a country rule, an ASN rule.
 //
@@ -906,7 +950,27 @@ func (h *Handler) ServeAxisDeny(w http.ResponseWriter, r *http.Request) {
 	if p := r.URL.RequestURI(); strings.HasPrefix(p, h.basePath()+"/_deny") {
 		origPath = truncateAt(strings.TrimPrefix(p, h.basePath()+"/_deny"), 200)
 	}
+	denyReason, denyRule := h.axisDenyReason(r, ja4, verdict)
 	if pkt := events.PackIP(clientIP(r)); pkt != nil {
+		payload := map[string]any{
+			// Named for the axis that fired, not folded into "banned": the hunt
+			// log has to separate "a rule the operator wrote said no" from "a
+			// signal fired and banned this client", or the one row that explains
+			// a support ticket is the one that reads wrong.  And it names WHICH
+			// axis, because "some rule" sends the operator back to reading
+			// config to find out which.
+			"force_reason": denyReason,
+			"deny":         1,
+			"method":       r.Method,
+			"ref":          ref,
+			"orig_path":    origPath,
+		}
+		// deny_rule: the specific entry that matched (AS number, country code,
+		// verdict name).  Which rule, not just which axis -- an operator running
+		// a dozen ASN rules needs the one that fired.
+		if denyRule != "" {
+			payload["deny_rule"] = denyRule
+		}
 		events.InsertAsync(h.DB, &events.Event{
 			Site:         site,
 			Host:         h.HostID,
@@ -918,17 +982,7 @@ func (h *Handler) ServeAxisDeny(w http.ResponseWriter, r *http.Request) {
 			JA4Verdict:   verdict,
 			JA4VerdictID: h.VerdictNameToID(verdict),
 			Phase:        string(events.PhaseServe),
-			Payload: map[string]any{
-				// Named for the axis rather than folded into "banned": the hunt
-				// log has to separate "a rule the operator wrote said no" from
-				// "a signal fired and banned this client", or the one row that
-				// explains a support ticket is the one that reads wrong.
-				"force_reason": "axis_deny",
-				"deny":         1,
-				"method":       r.Method,
-				"ref":          ref,
-				"orig_path":    origPath,
-			},
+			Payload:      payload,
 		})
 	}
 
@@ -939,7 +993,7 @@ func (h *Handler) ServeAxisDeny(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error":  "blocked",
-			"reason": "axis_deny",
+			"reason": denyReason,
 		})
 		return
 	}
