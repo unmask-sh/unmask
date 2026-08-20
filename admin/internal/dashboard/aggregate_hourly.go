@@ -133,10 +133,10 @@ const (
 	hourlyBatch = 20000    // unmask_event rows per backfill chunk / tx
 	hourlyKeep  = 32       // days of buckets to retain (covers the 30d range)
 	// cookieIPPowKeepDays: PoW rows in unmask_cookie_ip_minute expire ahead of
-	// the shared window.  A _bv lives 3 days, so a longer window stops measuring
-	// one cookie's reuse and starts summing cookie generations; 8 days covers
-	// more than two lifetimes.  See PruneHourly for the volume side.
-	cookieIPPowKeepDays = 8
+	// the shared window.  A PoW _bv lives 7 days by default, so a longer window
+	// stops measuring one cookie's reuse and starts summing cookie generations;
+	// 15 days covers two full lifetimes.  See PruneHourly for the volume side.
+	cookieIPPowKeepDays = 15
 )
 
 // hourColExpr formats a datetime column to a 'YYYY-MM-DD HH' bucket string.
@@ -270,13 +270,14 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 		return err
 	}
 	// PoW rows go earlier than the shared window, for two reasons that point the
-	// same way.  Correctness: a _bv lives 3 days, so past that "how much was one
-	// cookie reused" stops being one cookie — a 30-day row sums ten generations
-	// and reads the same whether it is a scraper riding a single solve or a
-	// regular visitor coming back all month.  Cost: measured on a ~196k req/day
-	// install, PoW reuse is ~4.6x the CAPTCHA volume (15k rows/day), so the
-	// shared 32-day window would grow this table from 18 MB to ~170 MB; 8 days
-	// keeps it near 40 MB while still covering more than two cookie lifetimes.
+	// same way.  Correctness: a PoW _bv lives 7 days by default, so past two
+	// lifetimes "how much was one cookie reused" stops being one cookie — a
+	// 30-day row sums four generations and reads the same whether it is a
+	// scraper riding a single solve or a regular visitor coming back all month.
+	// Cost: measured on a ~196k req/day install, PoW reuse is ~4.6x the CAPTCHA
+	// volume (15k rows/day), so the shared 32-day window would grow this table
+	// from 18 MB to ~170 MB; 15 days keeps it near 60 MB while covering two
+	// full cookie lifetimes.
 	if _, err := d.ExecContext(ctx,
 		`DELETE FROM unmask_cookie_ip_minute WHERE kind = 'pow' AND bucket_min < ?`,
 		time.Now().Unix()/60-cookieIPPowKeepDays*1440); err != nil {
@@ -291,12 +292,15 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 		return err
 	}
 	// Rebind lineages: drop rows idle past the longest plausible _bvj window.
-	// The solve windows are operator-tunable; 8 days comfortably exceeds the
-	// 3-day default, and an expired _bvj never consults its row again, so a
-	// generous fixed cutoff beats threading per-site settings in here.
+	// The cookie windows are operator-tunable; 15 days exceeds both defaults
+	// (PoW 7, CAPTCHA 14 — the old 8-day cutoff predated those and could drop
+	// a lineage while its CAPTCHA cookie still lived, resetting the per-lineage
+	// caps on the next rebind), and an expired _bvj never consults its row
+	// again, so a generous fixed cutoff beats threading per-site settings in
+	// here.
 	_, err := d.ExecContext(ctx,
 		`DELETE FROM unmask_rebind_lineage WHERE updated_at < ?`,
-		time.Now().Add(-8*24*time.Hour).Unix())
+		time.Now().Add(-15*24*time.Hour).Unix())
 	return err
 }
 
