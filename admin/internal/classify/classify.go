@@ -1169,10 +1169,10 @@ func UASummaryParts(summary string) (platform, browser string) {
 
 // uaBrowserName strips a trailing version from a browser half.  Only when the
 // tail is actually a number: several app names carry spaces of their own
-// ("Yahoo! JAPAN アプリ"), and cutting at the last space would eat the name.
+// ("Yahoo! JAPAN App"), and cutting at the last space would eat the name.
 func uaBrowserName(browser string) string {
 	// A version tail is digits, optionally dotted ("3.1" is Trident's).  An
-	// app name can carry spaces of its own ("Yahoo! JAPAN アプリ"), so only a
+	// app name can carry spaces of its own ("Yahoo! JAPAN App"), so only a
 	// numeric tail is treated as a version.
 	if j := strings.LastIndexByte(browser, ' '); j > 0 && isVersionTail(browser[j+1:]) {
 		return browser[:j]
@@ -1220,13 +1220,13 @@ func UABrowserIcon(summary string) string {
 		return "ie"
 	case "Opera", "Opera Mini":
 		return "opera"
-	case "Google アプリ":
+	case "Google App":
 		return "gsa"
-	case "Yahoo! JAPAN アプリ":
+	case "Yahoo! JAPAN App":
 		return "yjapp"
 	case "LINE":
 		return "line"
-	case "アプリ内ブラウザ", "アプリ (Dalvik)":
+	case "In-app browser", "App (Dalvik)":
 		// The platform half decides which glyph: an app WebView is a
 		// different thing to look at on an iPhone than on a Mac, and Android
 		// app traffic (Dalvik) is not a WebView at all.  Live traffic carries
@@ -1267,17 +1267,17 @@ func UABrowserColor(summary string) string {
 		// No brand nostalgia: a browser that has not shipped since 2022 is
 		// mostly a forged UA, and grey is the right amount of attention.
 		return "#94a3b8"
-	case "アプリ (Dalvik)":
+	case "App (Dalvik)":
 		return "#3ddc84"
-	case "アプリ内ブラウザ":
+	case "In-app browser":
 		return "#94a3b8"
 	case "okhttp":
 		return "#5d8f3f"
 	case "LINE":
 		return "#06c755"
-	case "Yahoo! JAPAN アプリ":
+	case "Yahoo! JAPAN App":
 		return "#ff0033"
-	case "Google アプリ":
+	case "Google App":
 		return "#4285f4"
 	case "SmartNews":
 		return "#ea4b3b"
@@ -1419,10 +1419,10 @@ func uaBrowser(ua string) (name, ver string) {
 		return "LINE", v
 	}
 	if v := first(uaGSARE); v != "" {
-		return "Google アプリ", v
+		return "Google App", v
 	}
 	if uaYJAppRE.MatchString(ua) {
-		return "Yahoo! JAPAN アプリ", ""
+		return "Yahoo! JAPAN App", ""
 	}
 	if v := first(uaSmartNewRE); v != "" {
 		return "SmartNews", v
@@ -1460,11 +1460,11 @@ func uaBrowser(ua string) (name, ver string) {
 	// no Chrome or Safari token, so their position here is not load-bearing.
 	if uaDalvikRE.MatchString(ua) {
 		// Android's own runtime UA: an app making a plain HTTP request
-		// (HttpURLConnection with no UA set), not a browser.  "アプリ" is the
+		// (HttpURLConnection with no UA set), not a browser.  "App" is the
 		// honest word -- no page is being rendered.  The Dalvik version is
 		// dropped: it is the runtime's, has been 2.1.0 for a decade, and
 		// would read as an app version it is not.
-		return "アプリ (Dalvik)", ""
+		return "App (Dalvik)", ""
 	}
 	if v := first(uaOkHTTPRE); v != "" {
 		return "okhttp", v
@@ -1480,7 +1480,7 @@ func uaBrowser(ua string) (name, ver string) {
 	// "Mobile/" shape, 1779 hits) and macOS (90 hits) alike.
 	if strings.Contains(ua, "AppleWebKit") && !strings.Contains(ua, "Safari/") &&
 		!strings.Contains(ua, "Version/") {
-		return "アプリ内ブラウザ", ""
+		return "In-app browser", ""
 	}
 	// Internet Explorer / anything claiming its engine.
 	if v := first(uaMSIERE); v != "" {

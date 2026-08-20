@@ -130,9 +130,9 @@ func TestUASummaryNamesInAppBrowsers(t *testing.T) {
 		{"Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Safari Line/26.11.0",
 			"iPhone 18.7 · LINE 26"},
 		{"Mozilla/5.0 (iPhone; CPU iPhone OS 26_5_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Version/26.5.2 YJApp-IOS jp.co.yahoo.ipn.appli/4.168.0",
-			"iPhone 26.5 · Yahoo! JAPAN アプリ"},
+			"iPhone 26.5 · Yahoo! JAPAN App"},
 		{"Mozilla/5.0 (iPhone; CPU iPhone OS 26_5_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) GSA/431.2.950282168 Mobile/15E148 Safari/604.1",
-			"iPhone 26.5 · Google アプリ 431"},
+			"iPhone 26.5 · Google App 431"},
 		{"Mozilla/5.0 (compatible; MSIE 7.0; Windows NT 10.0; Trident/3.1)",
 			"Windows 10+ · IE 7"},
 	} {
@@ -230,7 +230,7 @@ func TestUABrowserColor(t *testing.T) {
 		{"Ubuntu · Firefox 128", "#ff7139"},
 		{"Windows 10+ · Edge 126", "#0f7c9e"},
 		{"iPhone 18.7 · LINE 26", "#06c755"},
-		{"iPhone 26.5 · Yahoo! JAPAN アプリ", "#ff0033"},
+		{"iPhone 26.5 · Yahoo! JAPAN App", "#ff0033"},
 		{"Windows 10+ · IE 7", "#94a3b8"},
 		{"Windows 10+ · Netscape 4", ""}, // unknown browser: no colour invented
 		{"Googlebot", ""},                // no browser part at all
@@ -365,8 +365,8 @@ func TestUASummaryReportsEveryWindowsShape(t *testing.T) {
 // the rows showed a raw string among "platform · browser" neighbours.
 func TestUASummaryNamesAndroidAppClients(t *testing.T) {
 	for _, c := range []struct{ ua, want string }{
-		{"Dalvik/2.1.0 (Linux; U; Android 17; Pixel 8a Build/CP2A.260705.006)", "Android 17 · アプリ (Dalvik)"},
-		{"Dalvik/2.1.0 (Linux; U; Android 9.0; ZTE BA520 Build/MRA58K)", "Android 9 · アプリ (Dalvik)"},
+		{"Dalvik/2.1.0 (Linux; U; Android 17; Pixel 8a Build/CP2A.260705.006)", "Android 17 · App (Dalvik)"},
+		{"Dalvik/2.1.0 (Linux; U; Android 9.0; ZTE BA520 Build/MRA58K)", "Android 9 · App (Dalvik)"},
 		{"okhttp/5.3.0", "okhttp 5"},
 	} {
 		if got := UASummary(c.ua); got != c.want {
@@ -396,12 +396,12 @@ func TestAndroidTabSuffixSkipsAppRuntimes(t *testing.T) {
 func TestUASummaryNamesBareIOSWebView(t *testing.T) {
 	for _, c := range []struct{ ua, want string }{
 		{"Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148",
-			"iPhone 18.5 · アプリ内ブラウザ"},
+			"iPhone 18.5 · In-app browser"},
 		// The macOS shape of the same thing: AppleWebKit and nothing after it.
 		{"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)",
-			"Mac 10.15+ · アプリ内ブラウザ"},
+			"Mac 10.15+ · In-app browser"},
 		{"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-			"Mac 10.15+ · アプリ内ブラウザ"},
+			"Mac 10.15+ · In-app browser"},
 		// A Mac Firefox UA also lacks "Safari/" -- it must not be swept up.
 		{"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.13; rv:109.0) Gecko/20100101 Firefox/115.0",
 			"Mac 10.13 · Firefox 115"},
@@ -414,7 +414,7 @@ func TestUASummaryNamesBareIOSWebView(t *testing.T) {
 	// Safari: the WebView branch runs after both.
 	for _, c := range []struct{ ua, want string }{
 		{"Mozilla/5.0 (iPad; CPU OS 15_6_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 YJApp-IOS jp.co.yahoo.ipn.appli/4.1",
-			"iPad 15.6 · Yahoo! JAPAN アプリ"},
+			"iPad 15.6 · Yahoo! JAPAN App"},
 		{"Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
 			"iPhone 17.0 · Safari 17"},
 		{"Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 Safari Line/26.11.0",
@@ -492,13 +492,13 @@ func TestUABrowserIconCoversTheDrawnSet(t *testing.T) {
 		{"Mac 12.0 · Safari 17", "safari"},
 		{"Windows 7 · Opera 10", "opera"},
 		{"Windows 95 · IE 6", "ie"},
-		{"iPhone 18.5 · アプリ内ブラウザ", "wv-apple"},
-		{"Mac 10.15+ · アプリ内ブラウザ", "wv-apple"},
-		{"Android 17 · アプリ (Dalvik)", "wv-android"},
+		{"iPhone 18.5 · In-app browser", "wv-apple"},
+		{"Mac 10.15+ · In-app browser", "wv-apple"},
+		{"Android 17 · App (Dalvik)", "wv-android"},
 		// Named in-app browsers get a mark once they carry real traffic:
 		// the Google app (2379 hits) and the Yahoo! JAPAN app (2416).
-		{"iPhone 26.5 · Google アプリ 431", "gsa"},
-		{"iPad 15.6 · Yahoo! JAPAN アプリ", "yjapp"},
+		{"iPhone 26.5 · Google App 431", "gsa"},
+		{"iPad 15.6 · Yahoo! JAPAN App", "yjapp"},
 		// LINE carries 2565 requests on jp once Android stops reading as
 		// Chrome, which is well past the point of deserving a mark.
 		{"iPhone 18.7 · LINE 26", "line"},
