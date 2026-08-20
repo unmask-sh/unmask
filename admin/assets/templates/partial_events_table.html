@@ -68,6 +68,10 @@
    the browser marks are brand-coloured because they identify a brand; this
    one only says "bot", which the badge already says in colour. */
 .ua-bi-bot{color:#92400e;margin-right:.2rem}
+/* Summary heading shown on HOVER only (the pinned clone carries it in the
+   title bar, where the copy button cannot reach it).  Rides ua_assets because
+   the stats page's UA popovers carry the same heading. */
+.cellpop-summary{margin-bottom:.35rem;padding-bottom:.3rem;border-bottom:1px solid rgba(148,163,184,.35);font-weight:600;font-size:.82rem}
 </style>
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <symbol id="bi-chrome" viewBox="0 0 16 16">
@@ -219,10 +223,7 @@
 /* A row whose UA claims a listed crawler.  Marked rather than merely named:
    the whole point is that it should catch the eye while scanning a page of
    rows -- a crawler sitting in the CHALLENGE log did not pass verification. */
-/* Summary heading shown on HOVER only (the pinned clone carries it in the
-   title bar, where the copy button cannot reach it). */
 .cellpop-note{margin-top:.4rem;padding-top:.35rem;border-top:1px solid #e2e8f0;font-size:.78rem;line-height:1.55;color:#475569}
-.cellpop-summary{margin-bottom:.35rem;padding-bottom:.3rem;border-bottom:1px solid rgba(148,163,184,.35);font-weight:600;font-size:.82rem}
 .ph-bv_pow_then_captcha{background:#dcfce7;color:#166534}/* green pass (= terminal: _bv via pow_then_captcha) */
 .ph-bv_rebind{background:#dcfce7;color:#166534}          /* green pass (= terminal: _bv silently re-bound, roaming) */
 .ph-bv_rebind_reject{background:#fee2e2;color:#991b1b}   /* red reject (= rebind refused -> re-challenge) */
