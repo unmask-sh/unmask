@@ -48,6 +48,8 @@
 .ts-ja4{font-family:ui-monospace,Menlo,monospace;color:#475569;font-size:.72rem}
 .ts-ja4-chg{color:#3730a3;font-weight:700}
 .ts-verdict{color:#94a3b8;font-weight:400}
+.tl-ph{display:inline-block;min-width:10.5rem;vertical-align:baseline}
+.ts-ja4-mark{display:inline-block;width:1rem;color:#3730a3;font-weight:700}
 /* force_reason badge: which axis (header / stale / asn / ...) raised this challenge */
 .fr-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.68rem;font-weight:700;background:#ddd6fe;color:#5b21b6;vertical-align:baseline}
 /* phase pill: inline here so EVERY host page that renders this partial styles the
@@ -876,11 +878,12 @@ document.addEventListener('DOMContentLoaded', function(){
       // that have one.  Each qualifying row gets its own number, so a session
       // with several of them gets several notes.
       var notes = [];
-      // Fingerprint column, only when the session actually varied: a uniform
-      // session repeating the same 36 characters per line is noise, a varied
-      // one is exactly what the timeline should show.  Seeded with the
-      // serve-time echo so the first beacon marks its change even when the
-      // serve row itself is off screen.
+      // Fingerprint column on every line, aligned: the pill sits in a
+      // fixed-width slot so the JA4 always starts at the same x, and the
+      // change mark occupies its own fixed slot inside the column so a line
+      // with a ⇄ and a line without still line their fingerprints up.
+      // Seeded with the serve-time echo so the first beacon marks its change
+      // even when the serve row itself is off screen.
       var prevJ = serveJa4;
       var lines = grp.map(function(tr){
         var ms = (tr.__firedMs != null) ? tr.__firedMs
@@ -921,28 +924,26 @@ document.addEventListener('DOMContentLoaded', function(){
           notes.push(det);
           mark = ' <span class="session-note-ref">*' + notes.length + '</span>';
         }
-        var ja4Seg = '';
-        if (groupVaried) {
-          var j = tr.getAttribute('data-ja4') || '';
-          var v = tr.getAttribute('data-verdict') || '';
-          var changed = j && prevJ && j !== prevJ;
-          if (j) prevJ = j;
-          ja4Seg = ' <span class="ts-ja4' + (changed ? ' ts-ja4-chg' : '') + '">' +
-                   (changed ? '\u21c4 ' : '') + tlEsc(j || '-') +
-                   (v ? ' <span class="ts-verdict">' + tlEsc(v) + '</span>' : '') + '</span>';
-        }
+        var j = tr.getAttribute('data-ja4') || '';
+        var v = tr.getAttribute('data-verdict') || '';
+        var changed = j && prevJ && j !== prevJ;
+        if (j) prevJ = j;
+        var ja4Seg = ' <span class="ts-ja4' + (changed ? ' ts-ja4-chg' : '') + '">' +
+                 '<span class="ts-ja4-mark">' + (changed ? '\u21c4' : '&nbsp;') + '</span>' +
+                 tlEsc(j || '-') +
+                 (v ? ' <span class="ts-verdict">' + tlEsc(v) + '</span>' : '') + '</span>';
         return '<div class="session-line"><span class="ts-cell">' + srcMark +
                '<time class="ts-mono">' + fmtTs(ms) + '</time></span>' +
-               ' <span class="' + pillCls + '">' + label + '</span>' + ja4Seg + mark + '</div>';
+               ' <span class="tl-ph"><span class="' + pillCls + '">' + label + '</span></span>' + ja4Seg + mark + '</div>';
       });
       // The fingerprint the challenge was served to, as its own leading line
       // when the serve row itself is not in this view -- otherwise the first
       // change mark would point at nothing visible.
-      if (groupVaried && serveJa4 && !hasServe) {
+      if (serveJa4 && !hasServe) {
         lines.unshift('<div class="session-line"><span class="ts-cell"><span class="ts-src">&nbsp;</span>' +
           '<time class="ts-mono">--:--:--.---</time></span>' +
-          ' <span class="phase-pill ph-serve">serve</span>' +
-          ' <span class="ts-ja4">' + tlEsc(serveJa4) + '</span></div>');
+          ' <span class="tl-ph"><span class="phase-pill ph-serve">serve</span></span>' +
+          ' <span class="ts-ja4"><span class="ts-ja4-mark">&nbsp;</span>' + tlEsc(serveJa4) + '</span></div>');
       }
       // The chain the challenge offered, stated once for the session rather
       // than glued to the serve line: it is what the visitor was about to
@@ -1162,24 +1163,19 @@ document.addEventListener('DOMContentLoaded', function(){
         .then(function(d){
           var rowsD = (d && d.rows) || [];
           if (rowsD.length < 2) { fallback(); return; }
-          var fps = [];
-          rowsD.forEach(function(rw){ if (rw.j && fps.indexOf(rw.j) < 0) fps.push(rw.j); });
-          var varied = fps.length > 1;
           var prevJ = '';
           var out = '<div class="session-timeline">';
           rowsD.forEach(function(rw){
             var ph2 = String(rw.p || '').replace(/[^a-z0-9_]/g, '');
-            var seg = '';
-            if (varied) {
-              var changed = rw.j && prevJ && rw.j !== prevJ;
-              if (rw.j) prevJ = rw.j;
-              seg = ' <span class="ts-ja4' + (changed ? ' ts-ja4-chg' : '') + '">' +
-                    (changed ? '\u21c4 ' : '') + esc(rw.j || '-') +
-                    (rw.v ? ' <span class="ts-verdict">' + esc(rw.v) + '</span>' : '') + '</span>';
-            }
+            var changed = rw.j && prevJ && rw.j !== prevJ;
+            if (rw.j) prevJ = rw.j;
+            var seg = ' <span class="ts-ja4' + (changed ? ' ts-ja4-chg' : '') + '">' +
+                  '<span class="ts-ja4-mark">' + (changed ? '\u21c4' : '&nbsp;') + '</span>' +
+                  esc(rw.j || '-') +
+                  (rw.v ? ' <span class="ts-verdict">' + esc(rw.v) + '</span>' : '') + '</span>';
             out += '<div class="session-line"><span class="ts-cell"><span class="ts-src">&nbsp;</span>' +
                    '<time class="ts-mono">' + esc(fmtTs(rw.t)) + '</time></span>' +
-                   ' <span class="phase-pill ph-' + ph2 + '">' + esc(rw.p || '') + '</span>' + seg + '</div>';
+                   ' <span class="tl-ph"><span class="phase-pill ph-' + ph2 + '">' + esc(rw.p || '') + '</span></span>' + seg + '</div>';
           });
           out += '</div>';
           if (d.truncated) out += '<div class="session-notes">' + esc({{ t .Lang "hunt.ja4chain_truncated" }}) + '</div>';
