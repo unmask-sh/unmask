@@ -82,20 +82,26 @@ func TestVariationBadgeMarksOnlyRealDifferences(t *testing.T) {
 		t.Fatal(err)
 	}
 	tpl := string(raw)
-	if !strings.Contains(tpl, `$varied := and .ServeJA4 (ne .ServeJA4 .JA4)`) {
+	if !strings.Contains(tpl, `{{ if and .ServeJA4 (ne .ServeJA4 .JA4) }}`) {
 		t.Error("the mark is not gated on an actual serve-vs-beacon difference")
 	}
 	if !strings.Contains(tpl, `tf $.Lang "hunt.ja4_varied_info" .ServeJA4`) {
 		t.Error("the popover does not name the serve-time fingerprint")
 	}
-	// The mark annotates the fingerprint VALUE: it leads the JA4 cell (the
-	// cell ellipsis-truncates on the right, so trailing would clip it) and
-	// stays out of the escalation cell, where it used to wrap the pill onto
-	// two lines.
-	if !strings.Contains(tpl, `cellpop{{ end }}">{{ if $varied }}<span class="ja4var-badge"`) {
-		t.Error("the mark no longer leads the JA4 cell")
+	// The mark lives with the session badges in the phase cell: its click
+	// opens the session's phase timeline, which is also the way back to the
+	// sibling phases a filtered view hides.  (It wandered: first beside the
+	// escalation pill, where the two wrapped the cell onto two lines, then
+	// the JA4 cell, whose right-side ellipsis was one truncation away from
+	// eating it.)
+	phaseCell := tpl[strings.Index(tpl, `lb-warn-badge" data-info`):]
+	if i := strings.Index(phaseCell, "</td>"); i >= 0 {
+		phaseCell = phaseCell[:i]
+	}
+	if !strings.Contains(phaseCell, `class="ja4var-badge"`) {
+		t.Error("the mark left the phase cell's badge cluster")
 	}
 	if n := strings.Count(tpl, `class="ja4var-badge" data-info`); n != 1 {
-		t.Errorf("the mark renders %d times; it belongs in the JA4 cell alone", n)
+		t.Errorf("the mark renders %d times; it belongs in the phase cell alone", n)
 	}
 }
