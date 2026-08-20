@@ -487,7 +487,10 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       {{ range $i, $r := .Rows }}
       <tr class="{{ if $r.IsBot }}cp-bot-row {{ end }}{{ if ge $i 10 }}cp-row-extra{{ end }}">
         <td class="bcd-mono ipclick" data-ip="{{ $r.IP }}"><img class="flag" src="{{ $base }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{ $r.IP }}</td>
-        <td>{{ if $r.Verdict }}<span class="help-dotted cp-verdict{{ if $r.IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ $r.Verdict }}">{{ $r.Verdict }}</span>{{ else if $r.JA4 }}<span class="muted">ok</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td>{{ if $r.Verdict }}<span class="help-dotted cp-verdict{{ if $r.IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ $r.Verdict }}">{{ $r.Verdict }}</span>{{ else if $r.JA4 }}{{/* matchJA4 found no rule for the stored JA4 -- that is
+            the absence of a verdict, not a clean bill: rules move under old
+            rows, and a synthesized "ok" both overclaims and collides with a
+            rule genuinely named ok.  Same word the funnel uses for (none). */}}<span class="muted">none</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="bcd-num">{{ comma $r.Requests }}</td>
         {{ if $show }}<td class="bcd-num{{ if eq $r.JA4Count 1 }} cr-ja4n-single{{ end }}">{{ $r.JA4Count }}</td>{{ end }}
         <td class="bcd-mono bcd-ua cellpop">{{ $r.UAFull }}</td>
