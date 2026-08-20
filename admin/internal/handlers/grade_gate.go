@@ -45,10 +45,32 @@ func uaRequiresCaptchaGrade(ua string, cfg settings.Settings) bool {
 // i.e. whether clearing it mints a CAPTCHA-grade pass.  The counterpart to
 // gradeSatisfies: one says what a chain produces, the other what a gate
 // accepts, and ServeChallenge refuses to hand out a chain whose product the
-// gate would reject.
+// gate would reject.  Thin alias of the shared resolver-side helper so the
+// render and both wires agree on what "ends in a CAPTCHA" means.
 func chainEndsInCaptcha(chMode string) bool {
-	return chMode == settings.RateChallengeCaptchaOnly ||
-		chMode == settings.RateChallengePoWThenCaptcha
+	return nginxconf.ChainEndsInCaptcha(chMode)
+}
+
+// ja4NeedsCaptchaGrade reports whether the JA4 verdict axis puts this visitor
+// on a chain that ends in a CAPTCHA -- the by-fingerprint source of the grade
+// requirement, joining the UA / protected-path / community-feed / geo / ASN
+// sources.  verdict and action are the matchJA4 results the caller resolved
+// once per request already, so this is a pure lookup with no extra scan.
+//
+// The requirement follows the EFFECTIVE chain (EffectiveJA4BotChain: the tab
+// default -> preset -> row, else inheriting the operating default chain) --
+// the same resolver ja4Decide answers checks with and the serve hands chains
+// out with.  Keying the gate on anything narrower would re-open the hole: a
+// bot-verdict fingerprint is CAPTCHA-gated when it arrives bare, so a
+// proof-of-work cookie obtained some other way must not be the one credential
+// that sails past the rule.  An operator whose effective chain is pow_only
+// (an explicit row, or an operating default of pow_only) imposes nothing --
+// that chain mints exactly the cookie it accepts, so gate and serve agree.
+func ja4NeedsCaptchaGrade(verdict, action string, cfg settings.Settings) bool {
+	if action != nginxconf.JA4ActionBot || verdict == "" {
+		return false
+	}
+	return chainEndsInCaptcha(nginxconf.EffectiveJA4BotChain(verdict, cfg))
 }
 
 // requestNeedsCaptchaGrade reports whether THIS request must be backed by a

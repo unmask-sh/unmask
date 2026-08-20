@@ -96,3 +96,96 @@ func TestAxisGrade_NoReaderMeansNoRequirement(t *testing.T) {
 		t.Error("a nil IPGeo reader still produced a grade requirement")
 	}
 }
+
+// The by-fingerprint sibling: a JA4 verdict row whose effective chain ends in
+// a CAPTCHA must make a proof-of-work cookie insufficient for that
+// fingerprint.  Driven through matchJA4 (the per-request resolution the veto
+// reuses) so the test exercises the same verdict/action pair the wire sees.
+func TestAxisGrade_JA4CaptchaRowRequires(t *testing.T) {
+	const herd = "t13d1516h2_8daaf6152771_d8a2da3f94cd"
+	var s settings.Settings
+	s.Nginx.JA4Verdicts.Extra = []settings.JA4VerdictExtraRule{{
+		ID: 100, Pattern: "^" + herd + "$", Verdict: "bot_residential_herd", Action: "bot",
+	}}
+	s.Nginx.JA4Verdicts.ExtraAction = []string{settings.RateChallengeCaptchaOnly}
+
+	verdict, action := matchJA4(herd, s.Nginx)
+	if !ja4NeedsCaptchaGrade(verdict, action, s) {
+		t.Error("a captcha_only JA4 row imposed no grade requirement")
+	}
+	verdict, action = matchJA4("t13d1516h2_8daaf6152771_806a8c22fdea", s.Nginx)
+	if ja4NeedsCaptchaGrade(verdict, action, s) {
+		t.Error("an unmatched fingerprint was asked for a grade")
+	}
+}
+
+// A bot row with no configured chain anywhere inherits the operating default
+// (pow_then_captcha on a fresh install) -- the same chain ja4Decide answers
+// checks with and the serve hands out.  The grade requirement has to follow
+// it, or a proof-of-work cookie obtained under some other fingerprint becomes
+// the one credential that sails past a bot verdict.
+func TestAxisGrade_JA4UnconfiguredChainInheritsOperatingDefault(t *testing.T) {
+	const herd = "t13d1516h2_8daaf6152771_d8a2da3f94cd"
+	var s settings.Settings
+	s.Nginx.JA4Verdicts.Extra = []settings.JA4VerdictExtraRule{{
+		ID: 100, Pattern: "^" + herd + "$", Verdict: "bot_residential_herd", Action: "bot",
+	}}
+	verdict, action := matchJA4(herd, s.Nginx)
+	if !ja4NeedsCaptchaGrade(verdict, action, s) {
+		t.Error("the inherited pow_then_captcha default imposed no grade requirement")
+	}
+
+	// An operating default of pow_only flows through the same inheritance:
+	// serve and gate then agree on a chain that mints exactly the cookie it
+	// accepts, so no requirement -- and no gate/serve challenge loop.
+	s.RateLimit.Default.ChallengeMode = settings.RateChallengePoWOnly
+	verdict, action = matchJA4(herd, s.Nginx)
+	if ja4NeedsCaptchaGrade(verdict, action, s) {
+		t.Error("a pow_only operating default still imposed a grade requirement")
+	}
+}
+
+// The JA4 tab's own default chain covers rows without a per-row action --
+// the live fleet shape (default_action: pow_then_captcha, rows inherit).
+// A suspect row stays observation-only regardless.
+func TestAxisGrade_JA4DefaultChainAndSuspect(t *testing.T) {
+	const hunt = "t13d450900_d524c25c267f_9da38b6fd1bc"
+	var s settings.Settings
+	s.Nginx.JA4Verdicts.DefaultAction = settings.RateChallengePoWThenCaptcha
+	s.Nginx.JA4Verdicts.Extra = []settings.JA4VerdictExtraRule{{
+		ID: 100, Pattern: hunt, Verdict: "hunt_row", Action: "bot",
+	}}
+	verdict, action := matchJA4(hunt, s.Nginx)
+	if !ja4NeedsCaptchaGrade(verdict, action, s) {
+		t.Error("the tab default pow_then_captcha chain imposed no grade requirement")
+	}
+
+	s.Nginx.JA4Verdicts.Extra[0].Action = "suspect"
+	verdict, action = matchJA4(hunt, s.Nginx)
+	if ja4NeedsCaptchaGrade(verdict, action, s) {
+		t.Error("a suspect (observation-only) row imposed a grade requirement")
+	}
+}
+
+// An explicit pow_only row is the per-row opt-out even under a captcha-ending
+// tab default.  A disabled row matches nothing at all.
+func TestAxisGrade_JA4RowOptOutAndDisabled(t *testing.T) {
+	const herd = "t13d1516h2_8daaf6152771_d8a2da3f94cd"
+	var s settings.Settings
+	s.Nginx.JA4Verdicts.DefaultAction = settings.RateChallengeCaptchaOnly
+	s.Nginx.JA4Verdicts.Extra = []settings.JA4VerdictExtraRule{{
+		ID: 100, Pattern: "^" + herd + "$", Verdict: "bot_residential_herd", Action: "bot",
+	}}
+	s.Nginx.JA4Verdicts.ExtraAction = []string{settings.RateChallengePoWOnly}
+	verdict, action := matchJA4(herd, s.Nginx)
+	if ja4NeedsCaptchaGrade(verdict, action, s) {
+		t.Error("an explicit pow_only row still imposed a grade requirement")
+	}
+
+	s.Nginx.JA4Verdicts.ExtraAction = []string{settings.RateChallengeCaptchaOnly}
+	s.Nginx.JA4Verdicts.ExtraDisabled = []bool{true}
+	verdict, action = matchJA4(herd, s.Nginx)
+	if ja4NeedsCaptchaGrade(verdict, action, s) {
+		t.Error("a disabled row still imposed a grade requirement")
+	}
+}
