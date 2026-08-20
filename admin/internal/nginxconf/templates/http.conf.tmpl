@@ -404,7 +404,9 @@ map $http_user_agent $unmask_ua_needs_captcha {
 # meant to stop.  Rate-mode entries stay
 # out on the render side (AsnRules / GeoRules carry only immediate-action
 # entries; throttled ones render as rate zones), matching the forward-auth
-# gate's rate==0 condition.
+# gate's rate==0 condition.  The JA4 verdict axis joins them below
+# ($unmask_ja4_captcha) for the same reason: a fingerprint row saying CAPTCHA
+# used to stop only bare addresses.
 map "$is_geo_exempt_path:$unmask_geo_action" $unmask_geo_captcha {
     default              0;
     "0:captcha_only"     1;
@@ -415,14 +417,31 @@ map "$is_asn_exempt_path:$unmask_asn_action" $unmask_asn_captcha {
     "0:captcha_only"     1;
     "0:pow_then_captcha" 1;
 }
-map "$unmask_ua_needs_captcha:$protected_mode:$unmask_cb_captcha:$unmask_geo_captcha$unmask_asn_captcha" $unmask_needs_captcha_grade {
+# The by-fingerprint source: a JA4 verdict row (preset or the operator's own)
+# whose EFFECTIVE chain ends in a CAPTCHA -- the configured tab default /
+# preset / row action, else the inherited operating default chain -- exactly
+# the chain the serve hands out.  Pattern-keyed on $effective_ja4 like the
+# deny map; constant 0 when no bot verdict resolves that way (rows pinned to
+# pow_only / deny, or an operating default of pow_only with nothing pinned).
+{{- if .CaptchaGradeJA4Patterns }}
+map $effective_ja4 $unmask_ja4_captcha {
+    default 0;
+{{- range .CaptchaGradeJA4Patterns }}
+    "~^{{ rx . }}" 1;
+{{- end }}
+}
+{{- else }}
+map "" $unmask_ja4_captcha { default 0; }
+{{- end }}
+map "$unmask_ua_needs_captcha:$protected_mode:$unmask_cb_captcha:$unmask_geo_captcha$unmask_asn_captcha$unmask_ja4_captcha" $unmask_needs_captcha_grade {
     default                 0;
     "~^1:"                  1;   # UA on a captcha-ending chain (any other source)
     "~^0:captcha:"          1;   # protected path: straight CAPTCHA
     "~^0:pow_then_captcha:" 1;   # protected path: PoW -> CAPTCHA
     "~^0:[^:]*:1:"          1;   # community feed hit on a captcha-ending action
-    "~1.$"                  1;   # geo rule ends in a CAPTCHA (last two digits: geo, asn)
-    "~1$"                   1;   # ASN rule ends in a CAPTCHA
+    "~1..$"                 1;   # geo rule ends in a CAPTCHA (last three digits: geo, asn, ja4)
+    "~1.$"                  1;   # ASN rule ends in a CAPTCHA
+    "~1$"                   1;   # JA4 verdict row ends in a CAPTCHA
 }
 # "<needs captcha grade>:<kind the cookie verified as>" -> is this request
 # holding a pass that satisfies its rule?

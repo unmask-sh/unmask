@@ -408,15 +408,17 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			action, reason, status = "pass", "privacy_pass:"+patResult.Issuer, http.StatusOK
 		case bvOK && !(!gradeSatisfies(bvCookieKind) &&
 			(requestNeedsCaptchaGrade(ua, uri, site, cfg) ||
+				ja4NeedsCaptchaGrade(ja4Verdict, ja4Action, cfg) ||
 				h.axisNeedsCaptchaGradeFor(ip, uri, matchers, cfg))):
 			// Named after the entry that verified (see pickValidBV): a PoW
 			// solve, a CAPTCHA solve, or a credential re-bound onto this
 			// address after a solve elsewhere.  A PoW cookie does NOT pass here
-			// when the UA's chain, the protected path it hit, or its network's
-			// geo/ASN rule ends in a CAPTCHA — it falls through to the gating
-			// axes, which re-issue the right challenge.  Grade first: a
-			// CAPTCHA-grade cookie satisfies every source, so the common
-			// repeat-visitor case skips both the UA scan and the mmdb lookup.
+			// when the UA's chain, the protected path it hit, its JA4 verdict
+			// row, or its network's geo/ASN rule ends in a CAPTCHA — it falls
+			// through to the gating axes, which re-issue the right challenge.
+			// Grade first: a CAPTCHA-grade cookie satisfies every source, so
+			// the common repeat-visitor case skips both the UA scan and the
+			// mmdb lookup.
 			action, reason, status = "pass", "bv-"+bvCookieKind, http.StatusOK
 		case isSearchBotUA(ua, ja4Action, cfg.Nginx, matchers.rangeVerifiedUA):
 			// Search / AI crawler rescue.  Must win over geo / protected / ja4 /
@@ -470,7 +472,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			if d, ok := protectedDecide(uri, matchers, cfg, site); ok {
 				decisions = append(decisions, d)
 			}
-			if d, ok := ja4Decide(ja4Action, ja4Verdict, cfg.Nginx); ok {
+			if d, ok := ja4Decide(ja4Action, ja4Verdict, cfg); ok {
 				decisions = append(decisions, d)
 			}
 			// Header integrity is listed BEFORE the UA axis.  pickStrongest
@@ -1259,18 +1261,17 @@ func communityBansDecide(m *communitybans.Matcher, ip, ja4 string, cfg settings.
 	return axisDecision{sev: s, reason: reason, chMode: chModeFromSeverity(s)}, true
 }
 
-func ja4Decide(ja4Action, ja4Verdict string, n settings.Nginx) (axisDecision, bool) {
+func ja4Decide(ja4Action, ja4Verdict string, cfg settings.Settings) (axisDecision, bool) {
 	if ja4Action != "bot" {
 		return axisDecision{}, false
 	}
-	// The operator's configured chain (tab default -> preset -> row), the same
-	// resolver the native serve path uses.  This axis used to hardcode
-	// captcha_only and never read settings at all, so every JA4 action picked in
-	// the UI applied on native and did nothing behind a load balancer.
-	act := nginxconf.ResolveJA4VerdictAction(ja4Verdict, n)
-	if act == "" {
-		act = settings.RateChallengeCaptchaOnly // historical default for this axis
-	}
+	// The operator's configured chain (tab default -> preset -> row) plus the
+	// inherit fallback (= the operating default chain), through the ONE
+	// effective-chain resolver (EffectiveJA4BotChain) the serve, the render,
+	// and the pass-cookie grade gate share.  This axis used to hardcode
+	// captcha_only and never read settings at all, so every JA4 action picked
+	// in the UI applied on native and did nothing behind a load balancer.
+	act := nginxconf.EffectiveJA4BotChain(ja4Verdict, cfg)
 	if act == settings.RateChallengeDeny {
 		// deny is terminal: no chain to serve.  The rescues (search bot, bypass
 		// IP / path) sit above this in the decision switch, so a JA4 deny cannot

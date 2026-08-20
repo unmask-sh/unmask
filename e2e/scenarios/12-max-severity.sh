@@ -15,8 +15,9 @@
 # Cases:
 #   A) US visitor (= no geo rule, default=skip), benign JA4 → pass
 #   B) JP visitor + benign JA4 → pow_only (= geo rule only)
-#   C) US visitor + bot JA4 → captcha_only (= ja4 only)
-#   D) JP visitor + bot JA4 → captcha_only (= max(geo:pow_only, ja4:captcha_only))
+#   C) US visitor + bot JA4 → pow_then_captcha (= ja4 only; the fixture rule
+#      has no explicit action, so the chain inherits the operating default)
+#   D) JP visitor + bot JA4 → pow_then_captcha (= max(geo:pow_only, ja4))
 #   E) CN visitor + bot JA4 → deny (= geo deny > ja4 captcha)
 
 set -u
@@ -63,18 +64,19 @@ assert_eq 401 "${res%%|*}"             "B: JP+ok → 401 (geo:pow_only)" || fail
 [[ "$res" == *"|challenge|pow_only|"* ]] || { log_fail "B: expected challenge|pow_only, got $res"; fails=$((fails+1)); }
 [[ "$res" == *"geo:JP:pow_only"* ]]      || { log_fail "B: reason missing geo:JP:pow_only, got $res"; fails=$((fails+1)); }
 
-# C) US + bot JA4 -> challenge / chMode=captcha_only (ja4 only)
+# C) US + bot JA4 -> challenge / chMode=pow_then_captcha (ja4 only, inherited
+#    from the operating default -- the fixture rule pins no action)
 res=$(check "192.0.2.83" "$JA4_BOT")
 log "C: US+bot       = $res"
-assert_eq 401 "${res%%|*}"             "C: US+bot → 401 (ja4:captcha_only)" || fails=$((fails+1))
-[[ "$res" == *"|challenge|captcha_only|"* ]] || { log_fail "C: expected challenge|captcha_only, got $res"; fails=$((fails+1)); }
+assert_eq 401 "${res%%|*}"             "C: US+bot → 401 (ja4: inherited pow_then_captcha)" || fails=$((fails+1))
+[[ "$res" == *"|challenge|pow_then_captcha|"* ]] || { log_fail "C: expected challenge|pow_then_captcha, got $res"; fails=$((fails+1)); }
 [[ "$res" == *"ja4:e2e-fixture-bot"* ]]      || { log_fail "C: reason missing ja4:e2e-fixture-bot, got $res"; fails=$((fails+1)); }
 
-# D) JP + bot JA4 -> max(pow_only, captcha_only) = captcha_only
+# D) JP + bot JA4 -> max(pow_only, pow_then_captcha) = pow_then_captcha
 res=$(check "192.0.2.81" "$JA4_BOT")
 log "D: JP+bot       = $res"
-assert_eq 401 "${res%%|*}"             "D: JP+bot → 401 (max -> captcha_only)" || fails=$((fails+1))
-[[ "$res" == *"|challenge|captcha_only|"* ]] || { log_fail "D: expected challenge|captcha_only, got $res"; fails=$((fails+1)); }
+assert_eq 401 "${res%%|*}"             "D: JP+bot → 401 (max -> pow_then_captcha)" || fails=$((fails+1))
+[[ "$res" == *"|challenge|pow_then_captcha|"* ]] || { log_fail "D: expected challenge|pow_then_captcha, got $res"; fails=$((fails+1)); }
 [[ "$res" == *"ja4:e2e-fixture-bot"* ]]      || { log_fail "D: reason missing ja4:e2e-fixture-bot, got $res"; fails=$((fails+1)); }
 [[ "$res" == *"suppressed:"* && "$res" == *"geo:JP:pow_only"* ]] \
     || { log_fail "D: reason missing suppressed:geo:JP:pow_only, got $res"; fails=$((fails+1)); }

@@ -2181,8 +2181,10 @@ type JA4VerdictsConfig struct {
 	// 0 while untouched.
 	ExtraUpdatedAt []int64 `yaml:"extra_updated_at,omitempty"`
 	// DefaultAction: chain to run when a request hits a JA4 verdict that
-	// resolves to action="bot".  Empty = inherit from
-	// ChallengeTargets.DefaultAction → RateLimit.Default.ChallengeMode.
+	// resolves to action="bot".  Empty = inherit the operating default chain
+	// (RateLimit.Default.ResolvedChallengeMode — pow_then_captcha on a fresh
+	// install), resolved through nginxconf.EffectiveJA4BotChain on every
+	// consumer (check / serve / grade gate / render).
 	DefaultAction string `yaml:"default_action,omitempty"`
 	// PresetAction: per-preset (= JA4VerdictGroups[i].ID) action override.
 	// Empty / absent = inherit DefaultAction.

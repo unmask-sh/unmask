@@ -1567,9 +1567,11 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			chMode = act
 		}
 	} else if forceReason == "ja4_bot" {
-		if act := nginxconf.ResolveJA4VerdictAction(verdict, h.cfg().Nginx); act != "" {
-			chMode = act
-		}
+		// EffectiveJA4BotChain, not the raw resolver: the same effective
+		// chain ja4Decide answers checks with and the grade gate demands.
+		// Serving anything else for an unconfigured axis could mint the very
+		// cookie the gate refuses -- a challenge loop.
+		chMode = nginxconf.EffectiveJA4BotChain(verdict, *h.cfg())
 	} else if forceReason != "rate_limit" {
 		// ChallengeTargets.DefaultAction is the black-list chain (ua-filter
 		// tab: "chain used when a black-list UA match triggers a challenge"),

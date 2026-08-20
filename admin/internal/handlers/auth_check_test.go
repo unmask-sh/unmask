@@ -229,33 +229,35 @@ func TestBanDecideFromSource(t *testing.T) {
 }
 
 // TestJA4Decide: the axis runs the operator's configured chain, resolved the
-// same way the native serve path resolves it (tab default -> preset -> row).
-// It used to hardcode captcha_only and never take settings at all, so every
-// action picked in the JA4 tab applied on native and did nothing behind a load
-// balancer -- and `deny`, which the UI offers, could not be reached on either
-// wire.  The old test pinned that hardcoding, which is why it never caught it.
+// same way the native serve path resolves it (tab default -> preset -> row),
+// else inheriting the operating default chain (pow_then_captcha on a fresh
+// install).  It used to hardcode captcha_only and never take settings at all,
+// so every action picked in the JA4 tab applied on native and did nothing
+// behind a load balancer -- and `deny`, which the UI offers, could not be
+// reached on either wire.  The old test pinned that hardcoding, which is why
+// it never caught it.
 func TestJA4Decide(t *testing.T) {
-	cfg := func(def string, extraVerdict, extraAct string) settings.Nginx {
-		var n settings.Nginx
-		n.JA4Verdicts.DefaultAction = def
+	cfg := func(def string, extraVerdict, extraAct string) settings.Settings {
+		var s settings.Settings
+		s.Nginx.JA4Verdicts.DefaultAction = def
 		if extraVerdict != "" {
-			n.JA4Verdicts.Extra = []settings.JA4VerdictExtraRule{{Verdict: extraVerdict}}
-			n.JA4Verdicts.ExtraAction = []string{extraAct}
+			s.Nginx.JA4Verdicts.Extra = []settings.JA4VerdictExtraRule{{Verdict: extraVerdict}}
+			s.Nginx.JA4Verdicts.ExtraAction = []string{extraAct}
 		}
-		return n
+		return s
 	}
 	const v = "t13d3515h2_bfa"
 	cases := []struct {
 		name    string
 		action  string
 		verdict string
-		n       settings.Nginx
+		n       settings.Settings
 		wantOK  bool
 		wantSev axisSeverity
 		wantChM string
 	}{
-		{"unconfigured keeps the historical captcha_only", "bot", v, cfg("", "", ""),
-			true, sevCaptchaOnly, settings.RateChallengeCaptchaOnly},
+		{"unconfigured inherits the operating default (pow_then_captcha)", "bot", v, cfg("", "", ""),
+			true, sevPoWThenCaptcha, settings.RateChallengePoWThenCaptcha},
 		{"tab default applies", "bot", v, cfg(settings.RateChallengePoWOnly, "", ""),
 			true, sevPoWOnly, settings.RateChallengePoWOnly},
 		{"a row override beats the tab default", "bot", v,

@@ -484,6 +484,13 @@ type renderData struct {
 	// by a fingerprint, which matters because a JA4 is far easier to share
 	// between a crawler and a real browser than a UA string is.
 	HardDenyJA4Patterns []string
+	// CaptchaGradeJA4Patterns: the subset of JA4 verdict rows (preset + extra)
+	// whose resolved chain ends in a CAPTCHA -- the by-fingerprint source of
+	// $unmask_needs_captcha_grade, sibling of HardDenyJA4Patterns above.  Only
+	// an explicitly configured chain lands here (a blank resolve falls back to
+	// the operating posture, which must not demand the grade), mirroring the
+	// forward-auth gate's ja4NeedsCaptchaGrade.
+	CaptchaGradeJA4Patterns []string
 	// CaptchaGradeUAPatterns: the subset of challenge-target UAs whose chain
 	// ends in a CAPTCHA.  For those, holding SOME pass cookie is not enough --
 	// the cookie has to be a CAPTCHA-grade one.  Empty (and the maps then not
@@ -957,6 +964,24 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		}
 		if ResolveJA4VerdictAction(r.Verdict, s.Nginx) == settings.RateChallengeDeny {
 			d.HardDenyJA4Patterns = append(d.HardDenyJA4Patterns, r.Pattern)
+		}
+	}
+
+	// The CAPTCHA-grade sibling of the deny walk above: a bot-verdict row
+	// whose EFFECTIVE chain (EffectiveJA4BotChain -- configured, else the
+	// operating default chain) ends in a CAPTCHA makes a proof-of-work cookie
+	// insufficient for that fingerprint ($unmask_ja4_captcha ->
+	// $unmask_needs_captcha_grade).  Without this, such a rule stopped only
+	// addresses arriving bare -- every pow-cookie holder sailed past it for
+	// the cookie's remaining lifetime, exactly the geo/ASN hole this axis
+	// still had.  A pow_only effective chain opts out (it mints exactly the
+	// cookie it accepts), matching ja4NeedsCaptchaGrade.
+	for _, r := range d.JA4Verdicts {
+		if r.Action != JA4ActionBot {
+			continue
+		}
+		if ChainEndsInCaptcha(EffectiveJA4BotChain(r.Verdict, s)) {
+			d.CaptchaGradeJA4Patterns = append(d.CaptchaGradeJA4Patterns, r.Pattern)
 		}
 	}
 
@@ -1548,6 +1573,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// have been resolved, so adding a fourth source is one line in one place
 	// instead of two or-chains that must be kept identical.
 	d.GradeCheckedPass = len(d.CaptchaGradeUAPatterns) > 0 ||
+		len(d.CaptchaGradeJA4Patterns) > 0 ||
 		d.ProtectedNeedsCaptchaGrade || d.CommunityBansNeedsCaptchaGrade ||
 		actionEndsInCaptcha(d.GeoDefaultAction) || actionEndsInCaptcha(d.AsnDefaultAction)
 	for _, r := range d.GeoRules {
