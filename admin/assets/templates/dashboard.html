@@ -1719,11 +1719,15 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
     return '<div class="cellpop-note"><b>' + esc(String(list.length)) +
       '</b> {{ t .Lang "dashboard.rl.query_top" }}' + rows + '</div>';
   }
-  function popHtml(val, url, extra){
+  function popHtml(val, url, extra, summary){
     // For a path cell the full address is the more useful thing to show and
     // copy -- a path alone cannot be opened, and on the all-sites view it
     // cannot even be attributed.
-    var body = '<code class="cellpop-val">' + esc(url || val) + '</code>';
+    var body = '';
+    if (summary){
+      body += '<div class="cellpop-summary">' + summary + '</div>';
+    }
+    body += '<code class="cellpop-val">' + esc(url || val) + '</code>';
     if (url){
       body += '<div class="cellpop-actions">' +
         '<a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer" class="cellpop-btn">' +
@@ -1756,6 +1760,26 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
       });
     }
   });
+  // summaryHTML / popTitle: a summarised cell (the UA columns) renders a
+  // short reading of the value; the popover repeats that reading -- as a
+  // heading on hover, in the title bar when pinned (the pinned copy button
+  // takes the body verbatim, so the body must stay the raw value there).
+  // The cell's own server-rendered markup is reused so the icons survive;
+  // safe as innerHTML because the template escaped it.  Both only engage on
+  // cells with data-full-value, so path / JA4 cells keep their behavior.
+  function summaryHTML(el, val){
+    var txt = (el.textContent || '').trim();
+    return (txt && txt !== val) ? el.innerHTML : '';
+  }
+  function popTitle(el, val){
+    var txt = (el.textContent || '').trim();
+    if (!txt || txt === val) return '';
+    var frag = document.createDocumentFragment();
+    for (var i = 0; i < el.childNodes.length; i++) {
+      frag.appendChild(el.childNodes[i].cloneNode(true));
+    }
+    return frag;
+  }
   document.querySelectorAll('.cellpop').forEach(function(el){
     var full = el.getAttribute('data-full-value');
     // A path cell renders a host badge beside the path, so its textContent is
@@ -1793,7 +1817,7 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
       if (!clipped()) return;
       if (pin.hasPinFor(el)) return;
       var x = e.pageX, y = e.pageY;
-      timer = setTimeout(function(){ pin.showHover(popHtml(val, fullURL(el, val), queryHTML(val)), x, y, el); }, 200);
+      timer = setTimeout(function(){ pin.showHover(popHtml(val, fullURL(el, val), queryHTML(val), full ? summaryHTML(el, val) : ''), x, y, el); }, 200);
     });
     el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
     el.addEventListener('click', function(e){
@@ -1801,7 +1825,7 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
       e.preventDefault();
       e.stopPropagation();
       clearTimeout(timer);
-      pin.handleClick(popHtml(val, fullURL(el, val), queryHTML(val)), e.pageX, e.pageY, el, val);
+      pin.handleClick(popHtml(val, fullURL(el, val), queryHTML(val)), e.pageX, e.pageY, el, full ? (popTitle(el, val) || val) : val);
     });
   });
 })();
