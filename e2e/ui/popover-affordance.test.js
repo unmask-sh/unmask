@@ -59,13 +59,22 @@ const dotted = s => s && s.line.indexOf('underline') >= 0 && s.style === 'dotted
       return { clipped: c.scrollWidth - c.clientWidth > 1,
                line: cs.textDecorationLine, style: cs.textDecorationStyle };
     };
+    const hasFull = c => !!c.getAttribute('data-full-value');
+    // Three populations since the UA cells learned to summarise: a summarised
+    // cell hides the raw UA behind data-full-value (more to show by
+    // construction, however short it renders); a raw cell has more to show
+    // only when it visually clips; a raw cell that fits has nothing more.
     return {
-      clipped: cells.filter(c => c.scrollWidth - c.clientWidth > 1).map(pick)[0] || null,
-      short: cells.filter(c => c.scrollWidth - c.clientWidth <= 1).map(pick)[0] || null,
+      clipped: cells.filter(c => !hasFull(c) && c.scrollWidth - c.clientWidth > 1).map(pick)[0] || null,
+      short: cells.filter(c => !hasFull(c) && c.scrollWidth - c.clientWidth <= 1).map(pick)[0] || null,
+      summarised: cells.filter(c => hasFull(c) && c.scrollWidth - c.clientWidth <= 1).map(pick)[0] || null,
     };
   });
   ok(stats.clipped, 'no clipped UA cell on the stats page -- seeding changed');
   ok(dotted(stats.clipped), `a clipped UA carries no marker: ${JSON.stringify(stats.clipped)}`);
+  ok(stats.summarised, 'no summarised UA cell on the stats page -- seeding changed');
+  ok(dotted(stats.summarised),
+    `a summarised UA hides the raw string but carries no marker: ${JSON.stringify(stats.summarised)}`);
   if (stats.short) {
     ok(!dotted(stats.short), `a fully-visible UA is marked as having more: ${JSON.stringify(stats.short)}`);
   }
@@ -112,9 +121,11 @@ const dotted = s => s && s.line.indexOf('underline') >= 0 && s.style === 'dotted
   const measure = () => page.evaluate(() => {
     const cells = Array.from(document.querySelectorAll('table.cp-rankable td.bcd-ua.cellpop'))
       .filter(c => c.offsetParent !== null);
+    const hasFull = c => !!c.getAttribute('data-full-value');
     return {
       total: cells.length,
-      clipped: cells.filter(c => c.scrollWidth - c.clientWidth > 1).length,
+      withFull: cells.filter(hasFull).length,
+      clipped: cells.filter(c => !hasFull(c) && c.scrollWidth - c.clientWidth > 1).length,
       marked: cells.filter(c => c.classList.contains('cellpop-active')).length,
     };
   });
@@ -130,8 +141,11 @@ const dotted = s => s && s.line.indexOf('underline') >= 0 && s.style === 'dotted
   } else {
     ok(race.after.clipped > race.before.clipped,
       `the squeeze did not clip anything new (${race.before.clipped} -> ${race.after.clipped} of ${race.total}) -- the reproduction lost its footing`);
-    ok(race.after.marked === race.after.clipped,
-      `after a post-load reflow, ${race.after.clipped} cells are clipped but ${race.after.marked} are marked -- the marker is still frozen at first paint`);
+    // A summarised cell is marked from the start (data-full-value); the raw
+    // cells must gain their marker as they clip, which is exactly the frozen-
+    // first-paint regression this reproduction guards.
+    ok(race.after.marked === race.after.withFull + race.after.clipped,
+      `after a post-load reflow, ${race.after.withFull} summarised + ${race.after.clipped} clipped raw cells but ${race.after.marked} marked -- the marker is still frozen at first paint`);
   }
 
   // Gecko's table cells cannot be scroll containers, so in Firefox a td's

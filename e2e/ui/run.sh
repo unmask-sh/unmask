@@ -272,6 +272,15 @@ _bm = int(_time.time()) // 60 - 2
 _long = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Safari/537.36 Edg/151.0.0.0"
 _uas = [(bytes([10,1,1,n]), _long + " row%02d" % n, 1000 - n*10) for n in range(1, 14)]
 _uas.append((bytes([10,1,1,14]), "Go-http-client/1.1", 500))
+# Two rows that do NOT summarise (no browser/platform token, no bot word), so
+# the cell holds the raw string: the huge one clips at any viewport (the
+# popover-reach and marker tests need a genuinely clipped cell), the medium one
+# fits a 2400px window and clips at 900 (the reflow-race test squeezes it).
+# The summarised rows above never clip -- their marker rides data-full-value.
+# cnt puts them in the visible top-10 of the ranking -- rows 11+ hide behind
+# "show more" (display:none), and a hidden cell measures as unclipped.
+_uas.append((bytes([10,1,1,15]), "UI-E2E rawua " + "padding "*36, 995))
+_uas.append((bytes([10,1,1,16]), "UI-E2E rawua " + "padding "*12, 985))
 for ipb, ua, cnt in _uas:
     c.execute("""INSERT OR REPLACE INTO unmask_cookie_ip_minute
         (bucket_min, site, ip, kind, ja4, ua, cnt, last_seen)
