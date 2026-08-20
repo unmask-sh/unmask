@@ -1162,7 +1162,10 @@ func (h *Handler) AdminLogout(w http.ResponseWriter, r *http.Request) {
 // forces the list view (useful for verifying once more sites are added).
 func (h *Handler) AdminSiteList(w http.ResponseWriter, r *http.Request) {
 	rng := r.URL.Query().Get("range")
-	if rng != "7d" && rng != "30d" {
+	switch rng {
+	case "1h", "3h", "6h", "12h", "7d", "30d":
+		// valid
+	default:
 		rng = "24h"
 	}
 	hours := dashboard.RangeHours(rng)
@@ -1285,7 +1288,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 
 	rng := r.URL.Query().Get("range")
 	switch rng {
-	case "7d", "30d", "90d", "180d", "365d", "all", "custom":
+	case "1h", "3h", "6h", "12h", "7d", "30d", "90d", "180d", "365d", "all", "custom":
 		// valid
 	default:
 		rng = "24h"
@@ -1336,7 +1339,9 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	// well under a quarter, that means 90d and beyond stay hidden until the
 	// aggregates themselves reach back that far -- the page does not offer a
 	// span it would have to pad.  See DataMinDate for the calendar bound.
-	rangePresets := []string{"24h", "7d", "30d"}
+	// The sub-day presets are unconditional like 24h: their use is "since I
+	// changed that rule ten minutes ago", which every install has data for.
+	rangePresets := []string{"1h", "3h", "6h", "12h", "24h", "7d", "30d"}
 	if oldestTS > 0 {
 		availDays := (nowTime.Unix() - oldestTS) / 86400
 		if availDays > 30 {

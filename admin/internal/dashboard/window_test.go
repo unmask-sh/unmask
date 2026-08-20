@@ -119,3 +119,57 @@ func TestWindowFromRangeExtended(t *testing.T) {
 		}
 	}
 }
+
+// TestWindowFromRangeShortPresets: the sub-day presets resolve through
+// RangeHours -- the one token table -- so the picker, the queries and the
+// window can never disagree about what "3h" spans.
+func TestWindowFromRangeShortPresets(t *testing.T) {
+	now := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
+	for tok, hours := range map[string]int{"1h": 1, "3h": 3, "6h": 6, "12h": 12, "24h": 24, "7d": 24 * 7} {
+		w := WindowFromRange(tok, now, 0, 0)
+		wantStart := now.Add(-time.Duration(hours) * time.Hour).Unix()
+		if w.Start != wantStart || w.End != now.Unix() {
+			t.Errorf("WindowFromRange(%q) = {%d,%d}, want {%d,%d}", tok, w.Start, w.End, wantStart, now.Unix())
+		}
+		if got := RangeHours(tok); got != hours {
+			t.Errorf("RangeHours(%q) = %d, want %d", tok, got, hours)
+		}
+	}
+	// Unknown tokens keep the historical 24h fallback on both resolvers.
+	if got := RangeHours("2h"); got != 24 {
+		t.Errorf("RangeHours(unknown) = %d, want 24", got)
+	}
+}
+
+// TestHourlyAggUsableSubDay: the rollup's finest grain is an hour and its
+// window clause is inclusive at both ends, so a sub-day read would answer a
+// "what happened since I changed that rule" question with up to an hour of
+// pre-change traffic on either side.  Sub-day windows must fall through to the
+// raw scan, which bounds on exact timestamps.
+func TestHourlyAggUsableSubDay(t *testing.T) {
+	hourlyReady.Store(true)
+	defer hourlyReady.Store(false)
+
+	for _, tok := range []string{"1h", "3h", "6h", "12h"} {
+		if hourlyAggUsable(context.Background(), RangeHours(tok)) {
+			t.Errorf("range %q was answered from the hourly rollup", tok)
+		}
+	}
+	for _, tok := range []string{"24h", "7d", "30d"} {
+		if !hourlyAggUsable(context.Background(), RangeHours(tok)) {
+			t.Errorf("range %q needlessly dropped to the raw scan", tok)
+		}
+	}
+	// A ctx window overrides the trailing hours, so the span it carries -- not
+	// the fallback arg -- decides.
+	now := time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC)
+	short := WithWindow(context.Background(), WindowTrailing(now, 2))
+	if hourlyAggUsable(short, 24*30) {
+		t.Error("a 2h ctx window was answered from the rollup because the fallback arg was long")
+	}
+	// Not ready means not usable regardless of span.
+	hourlyReady.Store(false)
+	if hourlyAggUsable(context.Background(), 24*7) {
+		t.Error("the rollup answered while not ready")
+	}
+}
