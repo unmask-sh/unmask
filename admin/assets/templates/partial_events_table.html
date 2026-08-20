@@ -33,61 +33,11 @@
   cell-popover div + popover-pin partial must be on the surrounding page; the
   partial does NOT inject either so the page keeps full layout control.
 */}}
-{{ define "events_table_block" }}
-{{/* lb-warn-badge: per-row warning emitted by the events partial itself.
-     Inline so the partial doesn't depend on the host page (= overview /
-     hunt) carrying a matching rule (see [[feedback_partial_inject_css_colocate]]).
-     Colour deliberately differs from rl-badge (= yellow) so the two are
-     distinguishable when both fire on the same row. */}}
+{{/* ua_assets: everything the UA cell needs besides its own markup -- the
+     browser-mark sprite and the cell's CSS.  A shared define because the
+     stats page renders the same cells; each page includes it exactly once. */}}
+{{ define "ua_assets" }}
 <style>
-.site-badge.site-ghost{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
-.lb-warn-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.7rem;font-weight:700;background:#fee2e2;color:#991b1b;cursor:help;vertical-align:baseline}
-.lb-warn-badge:hover{filter:brightness(.95)}
-/* Same visual family as the abandon pill's ∅/✓ (.ret-mark): a quiet inline
-   glyph, not a boxed badge.  Passive on purpose -- no cursor change, no click
-   of its own; the session timeline (which shows the fingerprints) opens from
-   the chain / pill this mark sits beside. */
-.ja4var-badge{margin-left:.25rem;font-size:.9em;opacity:.65;color:#3730a3;vertical-align:baseline}
-.ts-ja4{font-family:ui-monospace,Menlo,monospace;color:#475569;font-size:.72rem}
-.ts-ja4-chg{color:#3730a3;font-weight:700}
-.ts-verdict{color:#94a3b8;font-weight:400}
-/* tl-grid: the timeline as a 3-column grid (time / phase / fingerprint) so
-   every column sizes to its longest member -- fingerprints line up without a
-   guessed fixed slot wasting width after short pills.  display:contents lets
-   each .session-line keep its DOM identity while its three cells join the
-   shared tracks.  Opt-in class: the one-line fallback popover renders 2-cell
-   lines and would drift across the tracks. */
-.session-timeline.tl-grid{display:grid;grid-template-columns:max-content max-content max-content;column-gap:.5rem;justify-content:start;overflow-x:auto}
-.tl-grid .session-line{display:contents}
-.tl-ph{vertical-align:baseline}
-.tl-rest{white-space:nowrap}
-.ts-ja4-mark{display:inline-block;width:1rem;color:#3730a3;font-weight:700}
-/* A timeline popover carries mono fingerprints; the generic 30rem cap clipped
-   it on hover and scrolled it when pinned.  Lift the cap to the viewport for
-   popovers that hold one -- and cap the PROSE blocks instead: an absolutely
-   positioned popover shrink-to-fits to its children's max-content, and a
-   footnote measured unwrapped is effectively infinite, so without these the
-   popover always ballooned to whatever cap it was given rather than hugging
-   the grid. */
-[data-popover]:has(.session-timeline.tl-grid),.info-popup-pinned:has(.session-timeline.tl-grid){max-width:calc(100vw - 2rem)}
-.session-lead,.session-tssrc,.session-total,.session-notes{max-width:28rem}
-/* force_reason badge: which axis (header / stale / asn / ...) raised this challenge */
-.fr-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.68rem;font-weight:700;background:#ddd6fe;color:#5b21b6;vertical-align:baseline}
-/* phase pill: inline here so EVERY host page that renders this partial styles the
-   pills, instead of each carrying its own copy (overview.html drifted and lost the
-   bv_rebind / bv_rebind_reject colours before this was colocated -- the exact
-   failure [[feedback_partial_inject_css_colocate]] warns about).  3 colour families:
-   green=pass / red=reject / yellow=in-progress / gray=meta. */
-.phase-pill{display:inline-block;padding:.05rem .4rem;border-radius:.2rem;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace}
-.ph-serve{background:#fef3c7;color:#92400e}              /* yellow in-progress (= challenge HTML returned) */
-.ph-load{background:#fef3c7;color:#92400e}               /* yellow in-progress (= challenge JS started) */
-.ph-captcha{background:#fef3c7;color:#92400e}            /* yellow in-progress (= CAPTCHA shown) */
-.ph-pow_pass{background:#fef3c7;color:#92400e}           /* yellow in-progress (= PoW solved, handing off) */
-.ph-bv_pow_only{background:#dcfce7;color:#166534}        /* green pass (= terminal: _bv via pow_only) */
-.ph-bv_captcha_only{background:#dcfce7;color:#166534}    /* green pass (= terminal: _bv via captcha_only) */
-/* A row whose UA claims a listed crawler.  Marked rather than merely named:
-   the whole point is that it should catch the eye while scanning a page of
-   rows -- a crawler sitting in the CHALLENGE log did not pass verification. */
 /* Platform glyph in front of the summary.  aria-hidden: the platform name is
    right there in the text, so a screen reader announcing "red apple" first
    would only add noise.  The icon is decoration on top of the label, never a
@@ -109,10 +59,6 @@
    which is the spoof signal, so it gets the warning colour.  self = a client
    that merely says it is a bot; nothing was verified and nothing failed, so
    it stays neutral. */
-/* Summary heading shown on HOVER only (the pinned clone carries it in the
-   title bar, where the copy button cannot reach it). */
-.cellpop-note{margin-top:.4rem;padding-top:.35rem;border-top:1px solid #e2e8f0;font-size:.78rem;line-height:1.55;color:#475569}
-.cellpop-summary{margin-bottom:.35rem;padding-bottom:.3rem;border-bottom:1px solid rgba(148,163,184,.35);font-weight:600;font-size:.82rem}
 .ua-bot{display:inline-block;padding:0 .3rem;border-radius:.2rem;font-weight:600}
 .ua-bot-listed{background:#fef3c7;color:#92400e}
 .ua-bot-self{background:#eef2f7;color:#475569;font-weight:500}
@@ -122,80 +68,7 @@
    the browser marks are brand-coloured because they identify a brand; this
    one only says "bot", which the badge already says in colour. */
 .ua-bi-bot{color:#92400e;margin-right:.2rem}
-.ph-bv_pow_then_captcha{background:#dcfce7;color:#166534}/* green pass (= terminal: _bv via pow_then_captcha) */
-.ph-bv_rebind{background:#dcfce7;color:#166534}          /* green pass (= terminal: _bv silently re-bound, roaming) */
-.ph-bv_rebind_reject{background:#fee2e2;color:#991b1b}   /* red reject (= rebind refused -> re-challenge) */
-.ph-verify_ng{background:#fee2e2;color:#991b1b}          /* red reject (= bad solve / cookie) */
-.ph-cookie_err{background:#fee2e2;color:#991b1b}         /* red reject (= cookie format invalid) */
-/* Grey, not red: leaving is not a rejection.  The visitor closed the tab or
-   went back while the challenge was still running -- an outcome to measure,
-   not a failure to flag. */
-.ph-abandon{background:#e2e8f0;color:#475569}
-/* Did the visitor go back (another request followed) or close the tab
-   (silence)?  Browsers refuse to say; the server can tell from what arrives
-   next.  Muted styling both ways -- neither is an error. */
-/* One character inside the abandon pill, rather than a chip beside it.  As a
-   separate chip it took a line of its own once the column was narrow and read
-   as another step in the chain; as a word it was worse, since the Japanese for
-   "left" is the Japanese for "abandon" and the badge looked like the pill's
-   own label, repeated.  Attached to the pill it costs no width and cannot be
-   mistaken for an event.
-     ✓  the address obtained a pass within 30s -- leaving this attempt was
-        a detour, not the end of it
-     ∅  no pass followed
-   It leads the pill rather than trailing it: abandon is the only phase that
-   also names the step it left from, so its pill is the widest in the column,
-   and a mark on the far end sits against the escalation-reason cell and reads
-   as belonging to that column instead.
-   Not a cross: leaving is not a failure, and the pair answers "what came
-   next", which is the question.  No title on the mark (a glyph that pops a
-   yellow bubble on every hover is noise); the popover footnote already spells
-   both out in words. */
-.ret-mark{margin-right:.25rem;font-size:.9em;opacity:.65}
-.ret-back{opacity:1}
-/* Session popover: footnotes.  The timeline lines stay nowrap (they are one
-   short sequence and wrapping them would break the scan), so the prose lives
-   below with wrapping explicitly re-enabled -- inheriting the line rule is how
-   long text ran straight out of the popover box.  max-width keeps a long note
-   from widening the popover instead of wrapping inside it; overflow-wrap
-   handles an unbroken token (a URL, a UA) that is itself wider than the box. */
-/* The mark and the time are ONE flex item.  As two, .session-line's own
-   gap (.5rem) pushed them apart and align-items:center floated the smaller
-   mark above the digits, so which line it belonged to was a guess.  Sharing an
-   item removes the gap and lets them share a baseline instead.
-   1ch of the same monospace face = exactly one character cell, so a marked and
-   an unmarked line indent identically and the mark sits right against the
-   time it qualifies. */
-.ts-cell{display:flex;align-items:baseline;flex:none}
-/* U+2248, not an ASCII tilde: ~ is a spacing modifier and sits high in the em
-   box, so beside a row of digits it read as hanging above the line rather than
-   belonging to it.  The math operator is positioned on the math axis, which is
-   the middle -- and it still says "approximately", which is the point.
-   The margin is small but not nothing: flush against the digits the two read
-   as one token. */
-.ts-src{display:inline-block;width:1ch;flex:none;margin-right:.18rem;font-family:ui-monospace,Menlo,monospace;font-size:.75rem;color:#94a3b8}
-.ts-src-client{color:#475569;font-weight:700}
-.session-tssrc{margin-top:.4rem;padding-top:.35rem;border-top:1px solid #e2e8f0;font-size:.72rem;line-height:1.5;color:#64748b}
-.session-notes{margin-top:.45rem;padding-top:.4rem;border-top:1px solid #e2e8f0;
-  display:flex;flex-direction:column;gap:.3rem}
-.session-note{max-width:32rem;white-space:normal;overflow-wrap:anywhere;word-break:normal;
-  font-size:.74rem;line-height:1.5;color:#475569}
-.session-note-ref{color:#0f172a;font-weight:700;font-size:.7rem;flex:none}
-/* Session total: separated from the per-phase lines by a rule, since it is a
-   summary of them rather than another step in the sequence. */
-.session-lead{margin-bottom:.4rem;padding-bottom:.35rem;border-bottom:1px solid #e2e8f0;font-size:.72rem;color:#475569}
-.session-total{margin-top:.4rem;padding-top:.35rem;border-top:1px solid #e2e8f0;
-  font-size:.75rem;color:#334155;white-space:nowrap}
-.session-total strong{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;color:#0f172a}
-.ph-error{background:#e2e8f0;color:#475569}              /* gray meta (= JS exception / unclassified) */
-.ph-check{background:#e2e8f0;color:#475569}              /* gray meta (= auth_request parent event) */
-.ph-check-pass{background:#dcfce7;color:#166534}         /* green pass (= check sub-decision) */
-.ph-check-block{background:#fee2e2;color:#991b1b}        /* red reject (= check sub-decision) */
 </style>
-{{/* Browser marks, defined once and referenced per row with <use>.  Drawn
-     rather than emoji: no glyph reads as "Chrome" or "Edge", and inlining the
-     same SVG on every row would bloat a 1000-row page.  These are simplified
-     marks -- recognisable by shape and colour at 13px, not reproductions. */}}
 <svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
   <symbol id="bi-chrome" viewBox="0 0 16 16">
     <circle cx="8" cy="8" r="7.5" fill="#f1f3f4"/>
@@ -284,6 +157,148 @@
     <path d="M6.9 6.9 4.6 11.4l4.5-2.3z" fill="#f1f1f1"/>
   </symbol>
 </svg>
+{{ end }}
+{{/* ua_cell: one UA rendered as the hunt table shows it -- bot badge, or
+     platform glyph + name + browser mark + name, or the raw string when
+     nothing summarises.  Takes the raw UA; the caller keeps the td (class,
+     data-full-value for the popover, notes).  Shared with the stats page
+     so every UA column speaks one language. */}}
+{{ define "ua_cell" }}{{ $uaShort := uaSummary . }}{{ $uaBot := uaBotKind . }}{{ if . }}{{ if $uaBot }}<span class="ua-bot ua-bot-{{ $uaBot }}"><svg class="ua-bi ua-bi-bot" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-bot"/></svg>{{ $uaShort }}</span>{{ else if $uaShort }}{{ $plat := uaSummaryPlat $uaShort }}{{ $br := uaSummaryBrowser $uaShort }}{{ with uaPlatformIcon $uaShort }}<span class="ua-os" aria-hidden="true">{{ . }}</span>{{ end }}{{ if $plat }}{{ $plat }} · {{ end }}{{ with uaBrowserIcon $uaShort }}<svg class="ua-bi" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-{{ . }}"/></svg>{{ else }}{{ with uaBrowserColor $uaShort }}<span class="ua-br" aria-hidden="true" style="background:{{ . }}"></span>{{ end }}{{ end }}{{ $br }}{{ else }}{{ . }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}{{ end }}
+{{ define "events_table_block" }}
+{{/* lb-warn-badge: per-row warning emitted by the events partial itself.
+     Inline so the partial doesn't depend on the host page (= overview /
+     hunt) carrying a matching rule (see [[feedback_partial_inject_css_colocate]]).
+     Colour deliberately differs from rl-badge (= yellow) so the two are
+     distinguishable when both fire on the same row. */}}
+<style>
+.site-badge.site-ghost{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
+.lb-warn-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.7rem;font-weight:700;background:#fee2e2;color:#991b1b;cursor:help;vertical-align:baseline}
+.lb-warn-badge:hover{filter:brightness(.95)}
+/* Same visual family as the abandon pill's ∅/✓ (.ret-mark): a quiet inline
+   glyph, not a boxed badge.  Passive on purpose -- no cursor change, no click
+   of its own; the session timeline (which shows the fingerprints) opens from
+   the chain / pill this mark sits beside. */
+.ja4var-badge{margin-left:.25rem;font-size:.9em;opacity:.65;color:#3730a3;vertical-align:baseline}
+.ts-ja4{font-family:ui-monospace,Menlo,monospace;color:#475569;font-size:.72rem}
+.ts-ja4-chg{color:#3730a3;font-weight:700}
+.ts-verdict{color:#94a3b8;font-weight:400}
+/* tl-grid: the timeline as a 3-column grid (time / phase / fingerprint) so
+   every column sizes to its longest member -- fingerprints line up without a
+   guessed fixed slot wasting width after short pills.  display:contents lets
+   each .session-line keep its DOM identity while its three cells join the
+   shared tracks.  Opt-in class: the one-line fallback popover renders 2-cell
+   lines and would drift across the tracks. */
+.session-timeline.tl-grid{display:grid;grid-template-columns:max-content max-content max-content;column-gap:.5rem;justify-content:start;overflow-x:auto}
+.tl-grid .session-line{display:contents}
+.tl-ph{vertical-align:baseline}
+.tl-rest{white-space:nowrap}
+.ts-ja4-mark{display:inline-block;width:1rem;color:#3730a3;font-weight:700}
+/* A timeline popover carries mono fingerprints; the generic 30rem cap clipped
+   it on hover and scrolled it when pinned.  Lift the cap to the viewport for
+   popovers that hold one -- and cap the PROSE blocks instead: an absolutely
+   positioned popover shrink-to-fits to its children's max-content, and a
+   footnote measured unwrapped is effectively infinite, so without these the
+   popover always ballooned to whatever cap it was given rather than hugging
+   the grid. */
+[data-popover]:has(.session-timeline.tl-grid),.info-popup-pinned:has(.session-timeline.tl-grid){max-width:calc(100vw - 2rem)}
+.session-lead,.session-tssrc,.session-total,.session-notes{max-width:28rem}
+/* force_reason badge: which axis (header / stale / asn / ...) raised this challenge */
+.fr-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.68rem;font-weight:700;background:#ddd6fe;color:#5b21b6;vertical-align:baseline}
+/* phase pill: inline here so EVERY host page that renders this partial styles the
+   pills, instead of each carrying its own copy (overview.html drifted and lost the
+   bv_rebind / bv_rebind_reject colours before this was colocated -- the exact
+   failure [[feedback_partial_inject_css_colocate]] warns about).  3 colour families:
+   green=pass / red=reject / yellow=in-progress / gray=meta. */
+.phase-pill{display:inline-block;padding:.05rem .4rem;border-radius:.2rem;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace}
+.ph-serve{background:#fef3c7;color:#92400e}              /* yellow in-progress (= challenge HTML returned) */
+.ph-load{background:#fef3c7;color:#92400e}               /* yellow in-progress (= challenge JS started) */
+.ph-captcha{background:#fef3c7;color:#92400e}            /* yellow in-progress (= CAPTCHA shown) */
+.ph-pow_pass{background:#fef3c7;color:#92400e}           /* yellow in-progress (= PoW solved, handing off) */
+.ph-bv_pow_only{background:#dcfce7;color:#166534}        /* green pass (= terminal: _bv via pow_only) */
+.ph-bv_captcha_only{background:#dcfce7;color:#166534}    /* green pass (= terminal: _bv via captcha_only) */
+/* A row whose UA claims a listed crawler.  Marked rather than merely named:
+   the whole point is that it should catch the eye while scanning a page of
+   rows -- a crawler sitting in the CHALLENGE log did not pass verification. */
+/* Summary heading shown on HOVER only (the pinned clone carries it in the
+   title bar, where the copy button cannot reach it). */
+.cellpop-note{margin-top:.4rem;padding-top:.35rem;border-top:1px solid #e2e8f0;font-size:.78rem;line-height:1.55;color:#475569}
+.cellpop-summary{margin-bottom:.35rem;padding-bottom:.3rem;border-bottom:1px solid rgba(148,163,184,.35);font-weight:600;font-size:.82rem}
+.ph-bv_pow_then_captcha{background:#dcfce7;color:#166534}/* green pass (= terminal: _bv via pow_then_captcha) */
+.ph-bv_rebind{background:#dcfce7;color:#166534}          /* green pass (= terminal: _bv silently re-bound, roaming) */
+.ph-bv_rebind_reject{background:#fee2e2;color:#991b1b}   /* red reject (= rebind refused -> re-challenge) */
+.ph-verify_ng{background:#fee2e2;color:#991b1b}          /* red reject (= bad solve / cookie) */
+.ph-cookie_err{background:#fee2e2;color:#991b1b}         /* red reject (= cookie format invalid) */
+/* Grey, not red: leaving is not a rejection.  The visitor closed the tab or
+   went back while the challenge was still running -- an outcome to measure,
+   not a failure to flag. */
+.ph-abandon{background:#e2e8f0;color:#475569}
+/* Did the visitor go back (another request followed) or close the tab
+   (silence)?  Browsers refuse to say; the server can tell from what arrives
+   next.  Muted styling both ways -- neither is an error. */
+/* One character inside the abandon pill, rather than a chip beside it.  As a
+   separate chip it took a line of its own once the column was narrow and read
+   as another step in the chain; as a word it was worse, since the Japanese for
+   "left" is the Japanese for "abandon" and the badge looked like the pill's
+   own label, repeated.  Attached to the pill it costs no width and cannot be
+   mistaken for an event.
+     ✓  the address obtained a pass within 30s -- leaving this attempt was
+        a detour, not the end of it
+     ∅  no pass followed
+   It leads the pill rather than trailing it: abandon is the only phase that
+   also names the step it left from, so its pill is the widest in the column,
+   and a mark on the far end sits against the escalation-reason cell and reads
+   as belonging to that column instead.
+   Not a cross: leaving is not a failure, and the pair answers "what came
+   next", which is the question.  No title on the mark (a glyph that pops a
+   yellow bubble on every hover is noise); the popover footnote already spells
+   both out in words. */
+.ret-mark{margin-right:.25rem;font-size:.9em;opacity:.65}
+.ret-back{opacity:1}
+/* Session popover: footnotes.  The timeline lines stay nowrap (they are one
+   short sequence and wrapping them would break the scan), so the prose lives
+   below with wrapping explicitly re-enabled -- inheriting the line rule is how
+   long text ran straight out of the popover box.  max-width keeps a long note
+   from widening the popover instead of wrapping inside it; overflow-wrap
+   handles an unbroken token (a URL, a UA) that is itself wider than the box. */
+/* The mark and the time are ONE flex item.  As two, .session-line's own
+   gap (.5rem) pushed them apart and align-items:center floated the smaller
+   mark above the digits, so which line it belonged to was a guess.  Sharing an
+   item removes the gap and lets them share a baseline instead.
+   1ch of the same monospace face = exactly one character cell, so a marked and
+   an unmarked line indent identically and the mark sits right against the
+   time it qualifies. */
+.ts-cell{display:flex;align-items:baseline;flex:none}
+/* U+2248, not an ASCII tilde: ~ is a spacing modifier and sits high in the em
+   box, so beside a row of digits it read as hanging above the line rather than
+   belonging to it.  The math operator is positioned on the math axis, which is
+   the middle -- and it still says "approximately", which is the point.
+   The margin is small but not nothing: flush against the digits the two read
+   as one token. */
+.ts-src{display:inline-block;width:1ch;flex:none;margin-right:.18rem;font-family:ui-monospace,Menlo,monospace;font-size:.75rem;color:#94a3b8}
+.ts-src-client{color:#475569;font-weight:700}
+.session-tssrc{margin-top:.4rem;padding-top:.35rem;border-top:1px solid #e2e8f0;font-size:.72rem;line-height:1.5;color:#64748b}
+.session-notes{margin-top:.45rem;padding-top:.4rem;border-top:1px solid #e2e8f0;
+  display:flex;flex-direction:column;gap:.3rem}
+.session-note{max-width:32rem;white-space:normal;overflow-wrap:anywhere;word-break:normal;
+  font-size:.74rem;line-height:1.5;color:#475569}
+.session-note-ref{color:#0f172a;font-weight:700;font-size:.7rem;flex:none}
+/* Session total: separated from the per-phase lines by a rule, since it is a
+   summary of them rather than another step in the sequence. */
+.session-lead{margin-bottom:.4rem;padding-bottom:.35rem;border-bottom:1px solid #e2e8f0;font-size:.72rem;color:#475569}
+.session-total{margin-top:.4rem;padding-top:.35rem;border-top:1px solid #e2e8f0;
+  font-size:.75rem;color:#334155;white-space:nowrap}
+.session-total strong{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;color:#0f172a}
+.ph-error{background:#e2e8f0;color:#475569}              /* gray meta (= JS exception / unclassified) */
+.ph-check{background:#e2e8f0;color:#475569}              /* gray meta (= auth_request parent event) */
+.ph-check-pass{background:#dcfce7;color:#166534}         /* green pass (= check sub-decision) */
+.ph-check-block{background:#fee2e2;color:#991b1b}        /* red reject (= check sub-decision) */
+</style>
+{{/* Browser marks, defined once and referenced per row with <use>.  Drawn
+     rather than emoji: no glyph reads as "Chrome" or "Edge", and inlining the
+     same SVG on every row would bloat a 1000-row page.  These are simplified
+     marks -- recognisable by shape and colour at 13px, not reproductions. */}}
+{{ template "ua_assets" }}
+
 <table class="events"{{ if and .EventsCap (gt .EventsCap 0) }} data-events-cap="{{ .EventsCap }}"{{ end }}>
   <thead>
     <tr>
@@ -383,7 +398,7 @@
         {{ else if eq $kind "challenged" }}{{ $botNote = t $.Lang "hunt.ua.bot_challenged" }}
         {{ else }}{{ $botNote = t $.Lang "hunt.ua.bot_listed" }}{{ end }}
       {{ end }}
-      <td class="ua{{ if .UA }} cellpop{{ end }}"{{ if $uaShort }} data-full-value="{{ .UA }}"{{ end }}{{ with $botNote }} data-note="{{ . }}"{{ end }}>{{ if .UA }}{{ if $uaBot }}<span class="ua-bot ua-bot-{{ $uaBot }}"><svg class="ua-bi ua-bi-bot" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-bot"/></svg>{{ $uaShort }}</span>{{ else if $uaShort }}{{ $plat := uaSummaryPlat $uaShort }}{{ $br := uaSummaryBrowser $uaShort }}{{ with uaPlatformIcon $uaShort }}<span class="ua-os" aria-hidden="true">{{ . }}</span>{{ end }}{{ if $plat }}{{ $plat }} · {{ end }}{{ with uaBrowserIcon $uaShort }}<svg class="ua-bi" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-{{ . }}"/></svg>{{ else }}{{ with uaBrowserColor $uaShort }}<span class="ua-br" aria-hidden="true" style="background:{{ . }}"></span>{{ end }}{{ end }}{{ $br }}{{ else }}{{ .UA }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      <td class="ua{{ if .UA }} cellpop{{ end }}"{{ if $uaShort }} data-full-value="{{ .UA }}"{{ end }}{{ with $botNote }} data-note="{{ . }}"{{ end }}>{{ template "ua_cell" .UA }}</td>
       {{ if not $.HideActions }}
       <td class="actions">
         {{ if .Banned }}

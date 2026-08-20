@@ -37,8 +37,10 @@ func TestEventsTableUARendersSummaryWithFullValueForPopover(t *testing.T) {
 	// raw bytes on the row: on a bot-hunting surface that is the row the
 	// operator most wants to read in full.  Listed crawlers are the exception
 	// -- they summarise to their name and render marked, see
-	// TestHuntMarksCrawlerRows.
-	if !strings.Contains(tpl, `{{ $br }}{{ else }}{{ .UA }}{{ end }}`) {
+	// TestHuntMarksCrawlerRows.  (The cell innards live in the shared
+	// "ua_cell" define, whose dot is the raw UA string -- the stats page
+	// renders the same define, see TestStatsUAColumnsShareTheHuntCell.)
+	if !strings.Contains(tpl, `{{ $br }}{{ else }}{{ . }}{{ end }}`) {
 		t.Error("a non-summarisable UA must fall back to the raw string in the cell")
 	}
 	// Each half of the summary carries its own marker, in front of its own
