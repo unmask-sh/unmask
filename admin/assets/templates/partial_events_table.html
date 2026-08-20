@@ -60,9 +60,14 @@
 .tl-rest{white-space:nowrap}
 .ts-ja4-mark{display:inline-block;width:1rem;color:#3730a3;font-weight:700}
 /* A timeline popover carries mono fingerprints; the generic 30rem cap clipped
-   it on hover and scrolled it when pinned.  Widen only popovers that hold one,
-   still fenced to the viewport. */
-[data-popover]:has(.session-timeline.tl-grid),.info-popup-pinned:has(.session-timeline.tl-grid){max-width:min(48rem,calc(100vw - 2rem))}
+   it on hover and scrolled it when pinned.  Lift the cap to the viewport for
+   popovers that hold one -- and cap the PROSE blocks instead: an absolutely
+   positioned popover shrink-to-fits to its children's max-content, and a
+   footnote measured unwrapped is effectively infinite, so without these the
+   popover always ballooned to whatever cap it was given rather than hugging
+   the grid. */
+[data-popover]:has(.session-timeline.tl-grid),.info-popup-pinned:has(.session-timeline.tl-grid){max-width:calc(100vw - 2rem)}
+.session-lead,.session-tssrc,.session-total,.session-notes{max-width:28rem}
 /* force_reason badge: which axis (header / stale / asn / ...) raised this challenge */
 .fr-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.68rem;font-weight:700;background:#ddd6fe;color:#5b21b6;vertical-align:baseline}
 /* phase pill: inline here so EVERY host page that renders this partial styles the
@@ -1142,10 +1147,21 @@ document.addEventListener('DOMContentLoaded', function(){
       var when = whenEl ? whenEl.textContent
                : ((tr.querySelector('td:first-child') || {}).textContent || '');
       var chm = (tr.getAttribute('data-ch-mode') || '').replace(/[^a-z0-9_]/g, '');
+      // Same three-cell grid shape as the session timelines, fingerprint
+      // column included -- one popover language everywhere, whether the
+      // session has one line or ten.  The mark slot fills when the serve-time
+      // echo says this row's connection differed from the serve.
+      var j = tr.getAttribute('data-ja4') || '';
+      var v = tr.getAttribute('data-verdict') || '';
+      var sj = tr.getAttribute('data-serve-ja4') || '';
+      var changed = j && sj && j !== sj;
       return (chm ? '<div class="session-lead">' + {{ t .Lang "th.ch_mode" }} + ' <strong>' + chm + '</strong></div>' : '') +
-             '<div class="session-timeline"><div class="session-line">' +
-             '<time class="ts-mono">' + esc(when.trim()) + '</time> ' +
-             '<span class="phase-pill ph-' + ph.replace(/[^a-z0-9_]/g, '') + '">' + esc(ph) + '</span>' +
+             '<div class="session-timeline tl-grid"><div class="session-line">' +
+             '<span class="ts-cell"><span class="ts-src">&nbsp;</span><time class="ts-mono">' + esc(when.trim()) + '</time></span>' +
+             '<span class="tl-ph"><span class="phase-pill ph-' + ph.replace(/[^a-z0-9_]/g, '') + '">' + esc(ph) + '</span></span>' +
+             '<span class="tl-rest"><span class="ts-ja4' + (changed ? ' ts-ja4-chg' : '') + '">' +
+             '<span class="ts-ja4-mark">' + (changed ? '\u21c4' : '&nbsp;') + '</span>' + esc(j || '-') +
+             (v ? ' <span class="ts-verdict">' + esc(v) + '</span>' : '') + '</span></span>' +
              '</div></div>';
     };
     pill.style.cursor = 'pointer';
@@ -1176,7 +1192,7 @@ document.addEventListener('DOMContentLoaded', function(){
         .then(function(r){ if (!r.ok) throw 0; return r.json(); })
         .then(function(d){
           var rowsD = (d && d.rows) || [];
-          if (rowsD.length < 2) { fallback(); return; }
+          if (!rowsD.length) { fallback(); return; }
           var prevJ = '';
           var out = '<div class="session-timeline tl-grid">';
           rowsD.forEach(function(rw){
