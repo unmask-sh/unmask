@@ -231,11 +231,29 @@ func loadDashboardTemplate() (*template.Template, error) {
 				return out
 			},
 			// Ratio formatter: returns "-" when load=0 (or denom=0).
+			//
+			// Never rounds to a figure the row it sits in contradicts.  A pass
+			// rate of 10,005/10,009 is 99.96%, which "%.1f" prints as "100.0%"
+			// -- beside a Challenged column reading 4, that is a table arguing
+			// with itself, and the reader trusts the smaller number.  The floor
+			// case is the same shape and already handled elsewhere (pctLabel's
+			// "<0.1%"): a rate that rounds to 0.0% next to a non-zero count
+			// reads as broken.  So the endpoints are reserved for the exact
+			// values and anything short of them is shown as approaching.
 			"rate": func(num, denom int) string {
 				if denom <= 0 {
 					return "-"
 				}
-				return fmt.Sprintf("%.1f%%", float64(num)/float64(denom)*100)
+				pct := float64(num) / float64(denom) * 100
+				switch {
+				case num >= denom:
+					return "100.0%"
+				case pct >= 99.95:
+					return ">99.9%"
+				case num > 0 && pct < 0.05:
+					return "<0.1%"
+				}
+				return fmt.Sprintf("%.1f%%", pct)
 			},
 			// Bypass HTML escaping (used to embed <code> etc. in descriptions).
 			"safeHTML": func(s string) template.HTML { return template.HTML(s) },
