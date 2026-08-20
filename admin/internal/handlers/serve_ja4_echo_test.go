@@ -104,4 +104,10 @@ func TestVariationBadgeMarksOnlyRealDifferences(t *testing.T) {
 	if n := strings.Count(tpl, `class="ja4var-badge" data-info`); n != 1 {
 		t.Errorf("the mark renders %d times; it belongs in the phase cell alone", n)
 	}
+	// The row hands the serve-time fingerprint to the client-side session
+	// grouping: a collapsed session keeps only its latest row, so without
+	// this attribute the group cannot tell it varied.
+	if !strings.Contains(tpl, `data-serve-ja4="{{ .ServeJA4 }}"`) {
+		t.Error("rows no longer carry serve_ja4 for the session grouping")
+	}
 }

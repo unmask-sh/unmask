@@ -45,6 +45,9 @@
 .lb-warn-badge:hover{filter:brightness(.95)}
 .ja4var-badge{display:inline-block;padding:.05rem .3rem;margin-left:.25rem;border-radius:.2rem;font-size:.7rem;font-weight:700;background:#e0e7ff;color:#3730a3;cursor:help;vertical-align:baseline}
 .ja4var-badge:hover{filter:brightness(.95)}
+.ts-ja4{font-family:ui-monospace,Menlo,monospace;color:#475569;font-size:.72rem}
+.ts-ja4-chg{color:#3730a3;font-weight:700}
+.ts-verdict{color:#94a3b8;font-weight:400}
 /* force_reason badge: which axis (header / stale / asn / ...) raised this challenge */
 .fr-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.68rem;font-weight:700;background:#ddd6fe;color:#5b21b6;vertical-align:baseline}
 /* phase pill: inline here so EVERY host page that renders this partial styles the
@@ -309,7 +312,7 @@
   </thead>
   <tbody>
     {{ range .Rows }}
-    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}"{{ with .CapReason }} data-cap-reason="{{ . }}"{{ end }}{{ if ge .Seq 0 }} data-seq="{{ .Seq }}"{{ end }}{{ if ge .ElapsedMs 0 }} data-elapsed-ms="{{ .ElapsedMs }}"{{ end }} data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}" data-referer="{{ .Referer }}"{{ if gt .LocalPort 0 }} data-local-port="{{ .LocalPort }}"{{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (eq .Phase "abandon") (gt .PassedAfter 0) }} data-passed-after="1"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .PassedAfter 0 }}{{ t $.Lang "hunt.passed_after_long" }}{{ else }}{{ t $.Lang "hunt.no_pass_after_long" }}{{ end }}"{{ end }}>
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}"{{ with .CapReason }} data-cap-reason="{{ . }}"{{ end }}{{ if ge .Seq 0 }} data-seq="{{ .Seq }}"{{ end }}{{ if ge .ElapsedMs 0 }} data-elapsed-ms="{{ .ElapsedMs }}"{{ end }} data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}"{{ if .ServeJA4 }} data-serve-ja4="{{ .ServeJA4 }}"{{ end }} data-referer="{{ .Referer }}"{{ if gt .LocalPort 0 }} data-local-port="{{ .LocalPort }}"{{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (eq .Phase "abandon") (gt .PassedAfter 0) }} data-passed-after="1"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .PassedAfter 0 }}{{ t $.Lang "hunt.passed_after_long" }}{{ else }}{{ t $.Lang "hunt.no_pass_after_long" }}{{ end }}"{{ end }}>
       <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if .Site }} <span class="site-badge cellpop{{ if index $.RowsGhostSites .Site }} site-ghost{{ end }}">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
@@ -841,6 +844,25 @@ document.addEventListener('DOMContentLoaded', function(){
       phaseCell.appendChild(document.createTextNode(' '));
       phaseCell.appendChild(b);
     });
+    // Did this session's connections present more than one fingerprint?  The
+    // serve-time echo counts as one of them, so a session whose only loaded
+    // row is a beacon on a different connection still registers.  The mark
+    // must be re-added here because collapsing keeps only the latest row --
+    // a ⇄ rendered on a folded row vanished with it.
+    var sessionFps = [];
+    var addFp = function(j){ if (j && sessionFps.indexOf(j) < 0) sessionFps.push(j); };
+    grp.forEach(function(tr){ addFp(tr.getAttribute('data-ja4')); addFp(tr.getAttribute('data-serve-ja4')); });
+    var groupVaried = sessionFps.length > 1;
+    var serveJa4 = '';
+    grp.forEach(function(tr){ if (!serveJa4) serveJa4 = tr.getAttribute('data-serve-ja4') || ''; });
+    if (groupVaried && !phaseCell.querySelector('.ja4var-badge')) {
+      phaseCell.appendChild(document.createTextNode(' '));
+      var vm = document.createElement('span');
+      vm.className = 'ja4var-badge';
+      vm.setAttribute('aria-hidden', 'true');
+      vm.textContent = '\u21c4';
+      phaseCell.appendChild(vm);
+    }
     function tlEsc(s){
       return String(s).replace(/[&<>"']/g, function(c){
         return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
@@ -854,6 +876,12 @@ document.addEventListener('DOMContentLoaded', function(){
       // that have one.  Each qualifying row gets its own number, so a session
       // with several of them gets several notes.
       var notes = [];
+      // Fingerprint column, only when the session actually varied: a uniform
+      // session repeating the same 36 characters per line is noise, a varied
+      // one is exactly what the timeline should show.  Seeded with the
+      // serve-time echo so the first beacon marks its change even when the
+      // serve row itself is off screen.
+      var prevJ = serveJa4;
       var lines = grp.map(function(tr){
         var ms = (tr.__firedMs != null) ? tr.__firedMs
                : (tr.__origMs != null) ? tr.__origMs : rowKey(tr);
@@ -893,10 +921,29 @@ document.addEventListener('DOMContentLoaded', function(){
           notes.push(det);
           mark = ' <span class="session-note-ref">*' + notes.length + '</span>';
         }
+        var ja4Seg = '';
+        if (groupVaried) {
+          var j = tr.getAttribute('data-ja4') || '';
+          var v = tr.getAttribute('data-verdict') || '';
+          var changed = j && prevJ && j !== prevJ;
+          if (j) prevJ = j;
+          ja4Seg = ' <span class="ts-ja4' + (changed ? ' ts-ja4-chg' : '') + '">' +
+                   (changed ? '\u21c4 ' : '') + tlEsc(j || '-') +
+                   (v ? ' <span class="ts-verdict">' + tlEsc(v) + '</span>' : '') + '</span>';
+        }
         return '<div class="session-line"><span class="ts-cell">' + srcMark +
                '<time class="ts-mono">' + fmtTs(ms) + '</time></span>' +
-               ' <span class="' + pillCls + '">' + label + '</span>' + mark + '</div>';
+               ' <span class="' + pillCls + '">' + label + '</span>' + ja4Seg + mark + '</div>';
       });
+      // The fingerprint the challenge was served to, as its own leading line
+      // when the serve row itself is not in this view -- otherwise the first
+      // change mark would point at nothing visible.
+      if (groupVaried && serveJa4 && !hasServe) {
+        lines.unshift('<div class="session-line"><span class="ts-cell"><span class="ts-src">&nbsp;</span>' +
+          '<time class="ts-mono">--:--:--.---</time></span>' +
+          ' <span class="phase-pill ph-serve">serve</span>' +
+          ' <span class="ts-ja4">' + tlEsc(serveJa4) + '</span></div>');
+      }
       // The chain the challenge offered, stated once for the session rather
       // than glued to the serve line: it is what the visitor was about to
       // meet, not a phase they passed through.  It leads, because the total
@@ -1095,19 +1142,60 @@ document.addEventListener('DOMContentLoaded', function(){
       t = setTimeout(function(){ pin.showHover(html(), x, y, pill); }, 200);
     });
     pill.addEventListener('mouseleave', function(){ clearTimeout(t); pin.hideHover(); });
+    // Click reaches for the session's RECORDED timeline: a lone row is what a
+    // filtered view (phase=abandon) leaves of a session, and its sibling
+    // phases live on the server, not in this DOM.  Same shape as the chain
+    // popover -- time, phase, and the fingerprint column with change marks
+    // when the session varied -- so where the detail opens from does not
+    // change what the detail looks like.  Falls back to the one-line summary
+    // when there is no beacon token or the fetch fails.
     pill.addEventListener('click', function(e){
       e.preventDefault(); e.stopPropagation(); clearTimeout(t);
-      pin.handleClick(html(), e.pageX, e.pageY, pill, tr.getAttribute('data-phase') || 'event');
+      var x = e.pageX, y = e.pageY;
+      var fallback = function(){ pin.handleClick(html(), x, y, pill, tr.getAttribute('data-phase') || 'event'); };
+      var btv = tr.getAttribute('data-bt') || '';
+      if (!btv) { fallback(); return; }
+      var tsSec = Math.floor(Number(tr.getAttribute('data-ts-ms') || '0') / 1000);
+      var base = location.pathname.split('/admin/')[0];
+      fetch(base + '/admin/hunt/ja4chain?bt=' + encodeURIComponent(btv) + '&ts=' + tsSec, { credentials: 'same-origin' })
+        .then(function(r){ if (!r.ok) throw 0; return r.json(); })
+        .then(function(d){
+          var rowsD = (d && d.rows) || [];
+          if (rowsD.length < 2) { fallback(); return; }
+          var fps = [];
+          rowsD.forEach(function(rw){ if (rw.j && fps.indexOf(rw.j) < 0) fps.push(rw.j); });
+          var varied = fps.length > 1;
+          var prevJ = '';
+          var out = '<div class="session-timeline">';
+          rowsD.forEach(function(rw){
+            var ph2 = String(rw.p || '').replace(/[^a-z0-9_]/g, '');
+            var seg = '';
+            if (varied) {
+              var changed = rw.j && prevJ && rw.j !== prevJ;
+              if (rw.j) prevJ = rw.j;
+              seg = ' <span class="ts-ja4' + (changed ? ' ts-ja4-chg' : '') + '">' +
+                    (changed ? '\u21c4 ' : '') + esc(rw.j || '-') +
+                    (rw.v ? ' <span class="ts-verdict">' + esc(rw.v) + '</span>' : '') + '</span>';
+            }
+            out += '<div class="session-line"><span class="ts-cell"><span class="ts-src">&nbsp;</span>' +
+                   '<time class="ts-mono">' + esc(fmtTs(rw.t)) + '</time></span>' +
+                   ' <span class="phase-pill ph-' + ph2 + '">' + esc(rw.p || '') + '</span>' + seg + '</div>';
+          });
+          out += '</div>';
+          if (d.truncated) out += '<div class="session-notes">' + esc({{ t .Lang "hunt.ja4chain_truncated" }}) + '</div>';
+          pin.handleClick(out, x, y, pill, 'session (' + rowsD.length + ' phases)');
+        })
+        .catch(fallback);
     });
   });
 
   // Optional client-side hard cap on visible sessions (= overview card caps
   // [data-info] badges (⚠ lb-warn, ⇄ ja4var): static hover note.  Nothing on
   // the host pages consumed data-info before this, so both popovers were
-  // silently dead.  The ⇄ badge additionally fetches the session's recorded
-  // JA4/verdict history on click -- the sibling rows are exactly what a
-  // filtered view does not have on screen, so the history comes from the
-  // server (each connection's fingerprint as recorded), not from the DOM.
+  // silently dead.  The ⇄ badge is a marker, not a second popover home: its
+  // click opens the same session timeline the phase cell already offers
+  // (the collapsed chain's, or the lone pill's server-fetched one), so the
+  // detail always looks the same and always carries the dates.
   var escT = function(v){ var d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; };
   document.querySelectorAll('table.events [data-info]').forEach(function(el){
     var note = el.getAttribute('data-info') || '';
@@ -1119,51 +1207,18 @@ document.addEventListener('DOMContentLoaded', function(){
       tmr = setTimeout(function(){ pin.showHover(noteHtml, x, y, el); }, 200);
     });
     el.addEventListener('mouseleave', function(){ clearTimeout(tmr); pin.hideHover(); });
-    if (!el.classList.contains('ja4var-badge')) {
-      el.addEventListener('click', function(e){
-        e.preventDefault(); e.stopPropagation(); clearTimeout(tmr);
-        pin.handleClick(noteHtml, e.pageX, e.pageY, el, '');
-      });
-      return;
-    }
     el.style.cursor = 'pointer';
     el.addEventListener('click', function(e){
       e.preventDefault(); e.stopPropagation(); clearTimeout(tmr);
-      var tr = el.closest('tr');
-      var btv = tr ? (tr.getAttribute('data-bt') || '') : '';
-      var tsSec = tr ? Math.floor(Number(tr.getAttribute('data-ts-ms') || '0') / 1000) : 0;
-      var x = e.pageX, y = e.pageY;
-      var title = {{ t $.Lang "hunt.ja4chain_title" }};
-      if (!btv) { pin.handleClick(noteHtml, x, y, el, title); return; }
-      var base = location.pathname.split('/admin/')[0];
-      fetch(base + '/admin/hunt/ja4chain?bt=' + encodeURIComponent(btv) + '&ts=' + tsSec, { credentials: 'same-origin' })
-        .then(function(r){ if (!r.ok) throw r.status; return r.json(); })
-        .then(function(d){
-          var rows = (d && d.rows) || [];
-          if (!rows.length) {
-            pin.handleClick(noteHtml + '<div class="cellpop-note">' + escT({{ t $.Lang "hunt.ja4chain_empty" }}) + '</div>', x, y, el, title);
-            return;
-          }
-          var prev = '';
-          var out = '<div style="max-width:36rem;font-size:.78rem;line-height:1.65;white-space:normal">';
-          rows.forEach(function(rw){
-            var changed = prev && rw.j && rw.j !== prev;
-            if (rw.j) prev = rw.j;
-            out += '<div style="font-family:ui-monospace,monospace;white-space:nowrap;overflow-x:auto">'
-                 + '<span style="color:#64748b">' + escT(fmtTs(rw.t)) + '</span> '
-                 + '<span style="display:inline-block;min-width:7rem">' + escT(rw.p) + '</span>'
-                 + (changed ? '<span style="color:#3730a3;font-weight:700">⇄ </span>' : '')
-                 + '<span' + (changed ? ' style="font-weight:700"' : '') + '>' + escT(rw.j || '-') + '</span>'
-                 + ' <span style="color:#94a3b8">' + escT(rw.v || 'ok') + '</span>'
-                 + '</div>';
-          });
-          if (d.truncated) out += '<div class="cellpop-note">' + escT({{ t $.Lang "hunt.ja4chain_truncated" }}) + '</div>';
-          out += '<div class="cellpop-note">' + escT(note) + '</div></div>';
-          pin.handleClick(out, x, y, el, title);
-        })
-        .catch(function(){
-          pin.handleClick(noteHtml + '<div class="cellpop-note">' + escT({{ t $.Lang "hunt.ja4chain_error" }}) + '</div>', x, y, el, title);
-        });
+      if (el.classList.contains('ja4var-badge')) {
+        var tr2 = el.closest('tr');
+        var opener = tr2 && tr2.querySelector('td:nth-child(5) .session-chain, td:nth-child(5) .phase-pill');
+        if (opener) {
+          opener.dispatchEvent(new MouseEvent('click', { bubbles: false, cancelable: true, clientX: e.clientX, clientY: e.clientY }));
+          return;
+        }
+      }
+      pin.handleClick(noteHtml, e.pageX, e.pageY, el, '');
     });
   });
   // at 5; hunt leaves it uncapped).  Read from a data-attr on the table to

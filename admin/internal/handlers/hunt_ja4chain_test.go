@@ -77,9 +77,11 @@ func TestJA4ChainPopoverWiring(t *testing.T) {
 	}
 	tpl := string(raw)
 	for _, want := range []string{
-		`/admin/hunt/ja4chain?bt=`,
-		`table.events [data-info]`, // the hover handler that also revives the ⚠ badge
-		`hunt.ja4chain_title`,
+		`/admin/hunt/ja4chain?bt=`,                    // the lone pill's server fetch
+		`table.events [data-info]`,                    // the hover handler that also revives the ⚠ badge
+		`hunt.ja4chain_truncated`,                     // the fetched timeline's cap note
+		`groupVaried`,                                 // collapsed sessions re-mark themselves
+		`.session-chain, td:nth-child(5) .phase-pill`, // ⇄ delegates, owns no popover
 	} {
 		if !strings.Contains(tpl, want) {
 			t.Errorf("partial lost %q", want)
