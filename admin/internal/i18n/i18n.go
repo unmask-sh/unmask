@@ -797,7 +797,7 @@ var dict = map[Lang]map[string]string{
 		"dashboard.trend_serve.desc":     "上の チャート の <strong>not pass (challenge 表示)</strong> の内訳。challenge ページを返したリクエストを bot 種別に分類した積み上げ チャート。<br><br><strong>各分類 (優先順):</strong><br>・<code>search/AI/ads</code> = Googlebot / Bingbot / GPTBot / ClaudeBot などの<strong>正規 crawler</strong>。本来は素通りすべきもので、ここに出るのは UA や IP が救済 list と合わず challenge を踏んだ分。設定の<strong>ホワイトリスト IP (公式 IP range preset)</strong> を見直す候補。<br>・<code>ja4_bot</code> = TLS fingerprint (JA4) が <strong>block 判定</strong>。UA がブラウザを名乗っていても TLS の形で露呈している。確度高め。<br>・<code>old_ua</code> = 実機にはほぼ存在しない<strong>古すぎるブラウザ version を名乗る</strong> client。古典的な bot シグナル。<br>・<code>user_dev</code> = curl / requests / playwright など、bot であることを隠さない<strong>開発ツール / scraper ライブラリ</strong>。<br>・<code>service</code> = SEO / 監視 / scanner / archiver / feed reader などの<strong>サービス系 bot</strong>。一律 block すべきとは限らず、自社の監視ツールも該当しうる。母数から外したい場合は<strong>統計除外 IP</strong> (設定 &gt; ホワイトリスト IP の末尾 card) に登録する。<br>・<code>human</code> = 上のどれにも該当しない<strong>人間のブラウザ</strong>。初回アクセスは透過 PoW を踏むため <strong>0 にはならない</strong>。通過後は cookie で素通りする。<br><br>※ 上の「全リクエスト」チャート は判定時点の集計、この チャート は challenge ページの生成まで完走したリクエストの集計。bot が応答を読まずに切断した分だけ少なくなる。<br>※ rate-limit hit は bot 種別と独立した軸のため、ここには含めない (専用の「レート制限ヒット」card で確認)。",
 
 		// table header (= 共有)
-		"th.verdict":             "判定",
+		"th.verdict":             "verdict",
 		"th.force_reason":        "昇格理由",
 		"th.ch_mode":             "提示",
 		"th.ch_mode_actual":      "実際",
