@@ -358,7 +358,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
           {{- else if eq .Verdict "ok" -}}
             <span class="tag ok">ok</span>
           {{- else if eq .Verdict "(none)" -}}
-            <span class="tag none">none</span>
+            <span class="tag none">(none)</span>
           {{- else -}}
             {{- /* badge is decided by the settings-derived action enum (= source of truth).
                   No prefix fallback (= verdicts not classified by the current spec render
@@ -423,7 +423,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       {{ range $i, $r := .TopIPs }}
       <tr class="{{ if $r.IsBot }}cp-bot-row {{ end }}{{ if ge $i 10 }}cp-row-extra{{ end }}">
         <td class="bcd-mono ipclick" data-ip="{{ $r.IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{ $r.IP }}</td>
-        <td>{{ if $r.Verdict }}<span class="help-dotted cp-verdict{{ if $r.IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ $r.Verdict }}">{{ $r.Verdict }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td>{{ if $r.Verdict }}<span class="help-dotted cp-verdict{{ if $r.IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ $r.Verdict }}">{{ $r.Verdict }}</span>{{ else }}<span class="muted">(none)</span>{{ end }}</td>
         <td class="bcd-num">{{ comma $r.Passes }}</td>
         <td class="bcd-num">{{ comma $r.Paths }}</td>
         <td class="bcd-mono bcd-ua cellpop">{{ $r.UAFull }}</td>
@@ -451,7 +451,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       <tr{{ if .IsBot }} class="cp-bot-row"{{ end }} data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}">
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{ .TS }}">{{ .Date }}</time></td>
         <td class="bcd-mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
-        <td>{{ if .Verdict }}<span class="help-dotted cp-verdict{{ if .IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ .Verdict }}">{{ .Verdict }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td>{{ if .Verdict }}<span class="help-dotted cp-verdict{{ if .IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ .Verdict }}">{{ .Verdict }}</span>{{ else }}<span class="muted">(none)</span>{{ end }}</td>
         <td>{{ if and .ForceReason (ne .ForceReason "none") }}<span class="cp-fr help-dotted" data-help-key="captcha_force.kind.{{ .ForceReason }}">{{ .ForceReason }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
         {{/* The site rides with the path: this table's default view spans
              every site (site="default" means "no filter"), so a bare
@@ -490,7 +490,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
         <td>{{ if $r.Verdict }}<span class="help-dotted cp-verdict{{ if $r.IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ $r.Verdict }}">{{ $r.Verdict }}</span>{{ else if $r.JA4 }}{{/* matchJA4 found no rule for the stored JA4 -- that is
             the absence of a verdict, not a clean bill: rules move under old
             rows, and a synthesized "ok" both overclaims and collides with a
-            rule genuinely named ok.  Same word the funnel uses for (none). */}}<span class="muted">none</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+            rule genuinely named ok.  Same token every verdict column uses. */}}<span class="muted">(none)</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="bcd-num">{{ comma $r.Requests }}</td>
         {{ if $show }}<td class="bcd-num{{ if eq $r.JA4Count 1 }} cr-ja4n-single{{ end }}">{{ $r.JA4Count }}</td>{{ end }}
         <td class="bcd-mono bcd-ua cellpop">{{ $r.UAFull }}</td>
@@ -683,7 +683,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
         <td class="bcd-num">{{comma $r.Behavioral}}</td>
         <td class="bcd-num{{if gt $r.Math 0}} n-stealth{{end}}">{{comma $r.Math}}</td>
         <td class="bcd-num n-muted">{{score $r.AvgScore}}</td>
-        <td><span class="help-dotted" data-help-key="verdict.{{$r.JA4}}">{{$r.JA4}}</span></td>
+        <td>{{ if $r.JA4 }}<span class="help-dotted" data-help-key="verdict.{{$r.JA4}}">{{$r.JA4}}</span>{{ else }}<span class="muted">(none)</span>{{ end }}</td>
         <td>{{ range $r.ForceReasons }}<span class="cp-fr help-dotted" data-help-key="captcha_force.kind.{{.}}">{{.}}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>

@@ -339,13 +339,14 @@
       <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if .Site }} <span class="site-badge cellpop{{ if index $.RowsGhostSites .Site }} site-ghost{{ end }}">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-      {{/* Empty verdict renders as "ok" (no JA4 rule matched -- a benign
-           result, same label the native nginx $ja4_verdict map's `default "ok"`
-           produces).  forward-auth records the verdict only on the check event,
-           so serve / beacon rows are empty; the session-collapse below promotes
-           the group's real verdict onto the rep row so a bot session still shows
-           its verdict rather than this "ok" fallback. */}}
-      <td class="mono verdict-cell{{ if .Verdict }} cellpop{{ end }}">{{ if .Verdict }}{{ .Verdict }}{{ else }}ok{{ end }}</td>
+      {{/* No stored verdict renders as "(none)" -- the one token every verdict
+           column uses for the absence of a label.  It used to synthesize "ok",
+           which overclaimed (no rule matched is not an evaluation the row can
+           vouch for) and collided with a rule genuinely named ok.  forward-auth
+           records the verdict only on the check event, so serve / beacon rows
+           are empty; the session-collapse below promotes the group's real
+           verdict onto the rep row so a folded bot session still shows it. */}}
+      <td class="mono verdict-cell{{ if .Verdict }} cellpop{{ end }}">{{ if .Verdict }}{{ .Verdict }}{{ else }}<span class="muted">(none)</span>{{ end }}</td>
       <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}"{{ if eq .Phase "abandon" }} title="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}"{{ end }}>{{ if eq .Phase "abandon" }}<span class="ret-mark{{ if gt .PassedAfter 0 }} ret-back{{ end }}">{{ if gt .PassedAfter 0 }}✓{{ else }}∅{{ end }}</span>{{ end }}{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }}({{ .Reason }}){{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }}({{ .AbandonPhase }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted reload-badge" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}{{/* ⇄: this row's JA4 differs from the one its challenge was served
            to (same device, connection-to-connection variation).  It sits with
            the session badges because its click opens the session's phase
@@ -754,7 +755,7 @@ document.addEventListener('DOMContentLoaded', function(){
       // phase (= bv / load) and in forward-auth mode carries none (the verdict
       // rides only on the check event there).  Promote the first non-empty
       // verdict in the group onto the rep's cell so a folded bot session shows
-      // its verdict instead of the empty-cell "ok" fallback.
+      // its verdict instead of the "(none)" placeholder.
       if (!(rep.getAttribute('data-verdict') || '')){
         for (var vi = 0; vi < grp.length; vi++){
           var vv = grp[vi].getAttribute('data-verdict');
