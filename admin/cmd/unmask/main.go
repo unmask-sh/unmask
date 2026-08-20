@@ -1237,6 +1237,9 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminHuntIndex)))
 	mux.HandleFunc("POST "+base+"/admin/hunt/action",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminHuntAction)))
+	// ⇄ badge detail: a challenge session's recorded JA4/verdict history.
+	mux.HandleFunc("GET "+base+"/admin/hunt/ja4chain",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminHuntJA4Chain)))
 
 	// audit log viewer tab (admin or above)
 	mux.HandleFunc("GET "+base+"/admin/audit/{$}",
