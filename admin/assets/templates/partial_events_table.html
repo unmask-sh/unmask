@@ -1102,6 +1102,70 @@ document.addEventListener('DOMContentLoaded', function(){
   });
 
   // Optional client-side hard cap on visible sessions (= overview card caps
+  // [data-info] badges (⚠ lb-warn, ⇄ ja4var): static hover note.  Nothing on
+  // the host pages consumed data-info before this, so both popovers were
+  // silently dead.  The ⇄ badge additionally fetches the session's recorded
+  // JA4/verdict history on click -- the sibling rows are exactly what a
+  // filtered view does not have on screen, so the history comes from the
+  // server (each connection's fingerprint as recorded), not from the DOM.
+  var escT = function(v){ var d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; };
+  document.querySelectorAll('table.events [data-info]').forEach(function(el){
+    var note = el.getAttribute('data-info') || '';
+    var noteHtml = '<div style="max-width:30rem;font-size:.8rem;line-height:1.55;white-space:normal">' + escT(note) + '</div>';
+    var tmr = null;
+    el.addEventListener('mouseenter', function(e){
+      if (pin.hasPinFor(el)) return;
+      var x = e.pageX, y = e.pageY;
+      tmr = setTimeout(function(){ pin.showHover(noteHtml, x, y, el); }, 200);
+    });
+    el.addEventListener('mouseleave', function(){ clearTimeout(tmr); pin.hideHover(); });
+    if (!el.classList.contains('ja4var-badge')) {
+      el.addEventListener('click', function(e){
+        e.preventDefault(); e.stopPropagation(); clearTimeout(tmr);
+        pin.handleClick(noteHtml, e.pageX, e.pageY, el, '');
+      });
+      return;
+    }
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', function(e){
+      e.preventDefault(); e.stopPropagation(); clearTimeout(tmr);
+      var tr = el.closest('tr');
+      var btv = tr ? (tr.getAttribute('data-bt') || '') : '';
+      var tsSec = tr ? Math.floor(Number(tr.getAttribute('data-ts-ms') || '0') / 1000) : 0;
+      var x = e.pageX, y = e.pageY;
+      var title = {{ t $.Lang "hunt.ja4chain_title" }};
+      if (!btv) { pin.handleClick(noteHtml, x, y, el, title); return; }
+      var base = location.pathname.split('/admin/')[0];
+      fetch(base + '/admin/hunt/ja4chain?bt=' + encodeURIComponent(btv) + '&ts=' + tsSec, { credentials: 'same-origin' })
+        .then(function(r){ if (!r.ok) throw r.status; return r.json(); })
+        .then(function(d){
+          var rows = (d && d.rows) || [];
+          if (!rows.length) {
+            pin.handleClick(noteHtml + '<div class="cellpop-note">' + escT({{ t $.Lang "hunt.ja4chain_empty" }}) + '</div>', x, y, el, title);
+            return;
+          }
+          var prev = '';
+          var out = '<div style="max-width:36rem;font-size:.78rem;line-height:1.65;white-space:normal">';
+          rows.forEach(function(rw){
+            var changed = prev && rw.j && rw.j !== prev;
+            if (rw.j) prev = rw.j;
+            out += '<div style="font-family:ui-monospace,monospace;white-space:nowrap;overflow-x:auto">'
+                 + '<span style="color:#64748b">' + escT(fmtTs(rw.t)) + '</span> '
+                 + '<span style="display:inline-block;min-width:7rem">' + escT(rw.p) + '</span>'
+                 + (changed ? '<span style="color:#3730a3;font-weight:700">⇄ </span>' : '')
+                 + '<span' + (changed ? ' style="font-weight:700"' : '') + '>' + escT(rw.j || '-') + '</span>'
+                 + ' <span style="color:#94a3b8">' + escT(rw.v || 'ok') + '</span>'
+                 + '</div>';
+          });
+          if (d.truncated) out += '<div class="cellpop-note">' + escT({{ t $.Lang "hunt.ja4chain_truncated" }}) + '</div>';
+          out += '<div class="cellpop-note">' + escT(note) + '</div></div>';
+          pin.handleClick(out, x, y, el, title);
+        })
+        .catch(function(){
+          pin.handleClick(noteHtml + '<div class="cellpop-note">' + escT({{ t $.Lang "hunt.ja4chain_error" }}) + '</div>', x, y, el, title);
+        });
+    });
+  });
   // at 5; hunt leaves it uncapped).  Read from a data-attr on the table to
   // keep the partial parameterless.
   var capAttr = document.querySelector('table.events');
