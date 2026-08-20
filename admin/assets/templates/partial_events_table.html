@@ -48,8 +48,21 @@
 .ts-ja4{font-family:ui-monospace,Menlo,monospace;color:#475569;font-size:.72rem}
 .ts-ja4-chg{color:#3730a3;font-weight:700}
 .ts-verdict{color:#94a3b8;font-weight:400}
-.tl-ph{display:inline-block;min-width:10.5rem;vertical-align:baseline}
+/* tl-grid: the timeline as a 3-column grid (time / phase / fingerprint) so
+   every column sizes to its longest member -- fingerprints line up without a
+   guessed fixed slot wasting width after short pills.  display:contents lets
+   each .session-line keep its DOM identity while its three cells join the
+   shared tracks.  Opt-in class: the one-line fallback popover renders 2-cell
+   lines and would drift across the tracks. */
+.session-timeline.tl-grid{display:grid;grid-template-columns:max-content max-content max-content;column-gap:.5rem;justify-content:start;overflow-x:auto}
+.tl-grid .session-line{display:contents}
+.tl-ph{vertical-align:baseline}
+.tl-rest{white-space:nowrap}
 .ts-ja4-mark{display:inline-block;width:1rem;color:#3730a3;font-weight:700}
+/* A timeline popover carries mono fingerprints; the generic 30rem cap clipped
+   it on hover and scrolled it when pinned.  Widen only popovers that hold one,
+   still fenced to the viewport. */
+[data-popover]:has(.session-timeline.tl-grid),.info-popup-pinned:has(.session-timeline.tl-grid){max-width:min(48rem,calc(100vw - 2rem))}
 /* force_reason badge: which axis (header / stale / asn / ...) raised this challenge */
 .fr-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.68rem;font-weight:700;background:#ddd6fe;color:#5b21b6;vertical-align:baseline}
 /* phase pill: inline here so EVERY host page that renders this partial styles the
@@ -934,7 +947,8 @@ document.addEventListener('DOMContentLoaded', function(){
                  (v ? ' <span class="ts-verdict">' + tlEsc(v) + '</span>' : '') + '</span>';
         return '<div class="session-line"><span class="ts-cell">' + srcMark +
                '<time class="ts-mono">' + fmtTs(ms) + '</time></span>' +
-               ' <span class="tl-ph"><span class="' + pillCls + '">' + label + '</span></span>' + ja4Seg + mark + '</div>';
+               '<span class="tl-ph"><span class="' + pillCls + '">' + label + '</span></span>' +
+               '<span class="tl-rest">' + ja4Seg + mark + '</span></div>';
       });
       // The fingerprint the challenge was served to, as its own leading line
       // when the serve row itself is not in this view -- otherwise the first
@@ -942,8 +956,8 @@ document.addEventListener('DOMContentLoaded', function(){
       if (serveJa4 && !hasServe) {
         lines.unshift('<div class="session-line"><span class="ts-cell"><span class="ts-src">&nbsp;</span>' +
           '<time class="ts-mono">--:--:--.---</time></span>' +
-          ' <span class="tl-ph"><span class="phase-pill ph-serve">serve</span></span>' +
-          ' <span class="ts-ja4"><span class="ts-ja4-mark">&nbsp;</span>' + tlEsc(serveJa4) + '</span></div>');
+          '<span class="tl-ph"><span class="phase-pill ph-serve">serve</span></span>' +
+          '<span class="tl-rest"><span class="ts-ja4"><span class="ts-ja4-mark">&nbsp;</span>' + tlEsc(serveJa4) + '</span></span></div>');
       }
       // The chain the challenge offered, stated once for the session rather
       // than glued to the serve line: it is what the visitor was about to
@@ -997,7 +1011,7 @@ document.addEventListener('DOMContentLoaded', function(){
         }
       }
       var out = (lead ? '<div class="session-lead">' + lead + '</div>' : '') +
-                '<div class="session-timeline">' + lines.join('') + '</div>';
+                '<div class="session-timeline tl-grid">' + lines.join('') + '</div>';
       // Say what the mark means, but only where one appears.  A session with no
       // derived line has nothing to explain, and a legend printed under every
       // popover regardless is the kind of permanent furniture that stops being
@@ -1164,7 +1178,7 @@ document.addEventListener('DOMContentLoaded', function(){
           var rowsD = (d && d.rows) || [];
           if (rowsD.length < 2) { fallback(); return; }
           var prevJ = '';
-          var out = '<div class="session-timeline">';
+          var out = '<div class="session-timeline tl-grid">';
           rowsD.forEach(function(rw){
             var ph2 = String(rw.p || '').replace(/[^a-z0-9_]/g, '');
             var changed = rw.j && prevJ && rw.j !== prevJ;
@@ -1175,7 +1189,8 @@ document.addEventListener('DOMContentLoaded', function(){
                   (rw.v ? ' <span class="ts-verdict">' + esc(rw.v) + '</span>' : '') + '</span>';
             out += '<div class="session-line"><span class="ts-cell"><span class="ts-src">&nbsp;</span>' +
                    '<time class="ts-mono">' + esc(fmtTs(rw.t)) + '</time></span>' +
-                   ' <span class="tl-ph"><span class="phase-pill ph-' + ph2 + '">' + esc(rw.p || '') + '</span></span>' + seg + '</div>';
+                   '<span class="tl-ph"><span class="phase-pill ph-' + ph2 + '">' + esc(rw.p || '') + '</span></span>' +
+                   '<span class="tl-rest">' + seg + '</span></div>';
           });
           out += '</div>';
           if (d.truncated) out += '<div class="session-notes">' + esc({{ t .Lang "hunt.ja4chain_truncated" }}) + '</div>';
