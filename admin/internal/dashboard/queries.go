@@ -1160,16 +1160,19 @@ func buildFunnelRowsWithUniq(ctx context.Context, d *db.DB, site string, hosts [
 	sort.Strings(unknown)
 	order = append(order, unknown...)
 
-	// "ok" (= normal traffic, no bot/suspect rule matched) always reads last
-	// among the verdict rows, below every bot / suspect / unknown verdict.
+	// "ok" (= normal traffic, no bot/suspect rule matched) and "(none)" (= no
+	// verdict recorded at all) always read last among the verdict rows, in that
+	// order: the rows carrying no signal sink below every bot / suspect /
+	// unknown verdict.  Without this, verdicts first observed in the DB append
+	// after the fixed list and strand "(none)" mid-table.
 	{
 		reordered := make([]string, 0, len(order))
 		for _, v := range order {
-			if v != "ok" {
+			if v != "ok" && v != "(none)" {
 				reordered = append(reordered, v)
 			}
 		}
-		order = append(reordered, "ok")
+		order = append(reordered, "ok", "(none)")
 	}
 
 	var out []FunnelRow
