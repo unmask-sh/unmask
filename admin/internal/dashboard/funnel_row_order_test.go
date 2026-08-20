@@ -6,12 +6,14 @@ import (
 	"time"
 )
 
-// TestFunnel_NoSignalRowsSinkToBottom pins the funnel's row order at its weak
-// point: verdicts first observed in the DB (user extra rules, auto hunt_*
-// rules) append after the fixed preset list, which used to strand "(none)"
-// mid-table between the presets and the newcomers.  The rows carrying no
-// signal must read last -- "ok" below every named verdict, "(none)" below
-// even that -- no matter what the window happens to contain.
+// TestFunnel_NoSignalRowsSinkToBottom pins two funnel-order facts.  "(none)"
+// (the no-verdict bucket -- current versions record a rule miss as NULL) reads
+// last among the verdict rows no matter what extra verdicts the window
+// observed; without that, verdicts first seen in the DB (user extra rules,
+// auto hunt_* rules) append after the fixed preset list and strand "(none)"
+// mid-table.  And "ok" claims no fixed seat: nothing records it any more, so
+// a fresh install's funnel simply has no such row -- legacy data that still
+// holds 'ok' rides as an ordinary observed verdict instead.
 func TestFunnel_NoSignalRowsSinkToBottom(t *testing.T) {
 	d := iwTestDB(t)
 	ctx := context.Background()
@@ -27,7 +29,6 @@ func TestFunnel_NoSignalRowsSinkToBottom(t *testing.T) {
 	seed(1, "bot_curl")  // a preset-style named verdict
 	seed(2, "hunt_zzzz") // an extra verdict unknown to the fixed list
 	seed(3, nil)         // NULL ja4_verdict -> the "(none)" row
-	seed(4, "ok")
 
 	rows, err := funnelScan(ctx, d, "", nil, 24, nil, nil)
 	if err != nil {
@@ -37,14 +38,17 @@ func TestFunnel_NoSignalRowsSinkToBottom(t *testing.T) {
 	for i, r := range rows {
 		pos[r.Verdict] = i
 	}
-	for _, v := range []string{"hunt_zzzz", "ok", "(none)", "TOTAL"} {
+	if i, found := pos["ok"]; found {
+		t.Errorf("an 'ok' row appeared at %d with no 'ok' in the data; it lost its fixed seat", i)
+	}
+	for _, v := range []string{"hunt_zzzz", "(none)", "TOTAL"} {
 		if _, found := pos[v]; !found {
 			t.Fatalf("row %q missing from funnel: %+v", v, rows)
 		}
 	}
-	if !(pos["hunt_zzzz"] < pos["ok"] && pos["ok"] < pos["(none)"]) {
-		t.Errorf("no-signal rows did not sink: hunt_zzzz=%d ok=%d (none)=%d",
-			pos["hunt_zzzz"], pos["ok"], pos["(none)"])
+	if pos["hunt_zzzz"] > pos["(none)"] {
+		t.Errorf("(none) did not sink below the observed verdict: hunt_zzzz=%d (none)=%d",
+			pos["hunt_zzzz"], pos["(none)"])
 	}
 	if pos["(none)"] != pos["TOTAL"]-1 {
 		t.Errorf("(none) is not the last verdict row before TOTAL: (none)=%d TOTAL=%d",

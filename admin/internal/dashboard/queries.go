@@ -561,10 +561,13 @@ func hostInventoryScan(ctx context.Context, d *db.DB) ([]HostInfo, error) {
 	return out, nil
 }
 
-// fixedVerdicts: verdicts always shown even at 0 (= all presets + ok + (none)).
+// fixedVerdicts: verdicts always shown even at 0 (= all presets + (none)).
 // Preset verdict names are collected dynamically from nginxconf.JA4VerdictGroups
 // (= no hardcode). User-added extra-rule verdicts appear on first observed
-// traffic, so they are not part of the fixed list.
+// traffic, so they are not part of the fixed list.  "ok" has no seat: current
+// versions record a rule miss as NULL (= the "(none)" bucket), so a fixed ok
+// row would just sit at 0 forever; legacy data that still holds 'ok' rides as
+// an ordinary observed verdict.
 func fixedVerdicts() []string {
 	out := make([]string, 0, 16)
 	seen := map[string]bool{}
@@ -578,7 +581,7 @@ func fixedVerdicts() []string {
 		}
 	}
 	sort.Strings(out)
-	out = append(out, "ok", "(none)")
+	out = append(out, "(none)")
 	return out
 }
 
@@ -1160,19 +1163,18 @@ func buildFunnelRowsWithUniq(ctx context.Context, d *db.DB, site string, hosts [
 	sort.Strings(unknown)
 	order = append(order, unknown...)
 
-	// "ok" (= normal traffic, no bot/suspect rule matched) and "(none)" (= no
-	// verdict recorded at all) always read last among the verdict rows, in that
-	// order: the rows carrying no signal sink below every bot / suspect /
-	// unknown verdict.  Without this, verdicts first observed in the DB append
-	// after the fixed list and strand "(none)" mid-table.
+	// "(none)" (= no verdict recorded) always reads last among the verdict
+	// rows, below every named and unknown verdict: the row carrying no signal
+	// sinks to the bottom.  Without this, verdicts first observed in the DB
+	// append after the fixed list and strand "(none)" mid-table.
 	{
 		reordered := make([]string, 0, len(order))
 		for _, v := range order {
-			if v != "ok" && v != "(none)" {
+			if v != "(none)" {
 				reordered = append(reordered, v)
 			}
 		}
-		order = append(reordered, "ok", "(none)")
+		order = append(reordered, "(none)")
 	}
 
 	var out []FunnelRow

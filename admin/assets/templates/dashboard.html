@@ -355,8 +355,6 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
             <span class="help-dotted" data-help-key="captcha_force.kind.{{.Verdict}}" style="color:#4338ca;border-bottom-color:#4338ca;font-weight:600">{{.Verdict}}</span>
           {{- else if eq .Verdict "TOTAL" -}}
             <span class="help-dotted" data-help-key="verdict.TOTAL" style="color:#4338ca;border-bottom-color:#4338ca">TOTAL</span>
-          {{- else if eq .Verdict "ok" -}}
-            <span class="tag ok">ok</span>
           {{- else if eq .Verdict "(none)" -}}
             <span class="tag none">(none)</span>
           {{- else -}}
