@@ -86,6 +86,10 @@
         // can attribute the whole serve->load->pass chain to the axis that
         // raised it (header / asn / geo / rate_limit / ...), not only counts.
         force_reason: (window.UNMASK && window.UNMASK.force_reason) || 'none',
+        // The JA4 the page was served to.  The beacon POST rides its own TLS
+        // connection whose fingerprint can differ on the same device; echoing
+        // the serve-time one lets a single hunt row show the variation.
+        serve_ja4: (window.UNMASK && window.UNMASK.serve_ja4) || '',
         bt: (window.UNMASK && window.UNMASK.beacon_token) || '',
         ts: Date.now(),
         elapsed_ms: (typeof start !== 'undefined') ? Date.now() - start : null,
