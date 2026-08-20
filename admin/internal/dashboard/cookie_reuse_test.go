@@ -101,15 +101,19 @@ func TestCookieReuseJA4Count(t *testing.T) {
 }
 
 // TestPruneKeepsCaptchaDropsOldPow: PoW rows expire ahead of the shared window
-// because a _bv lives 3 days -- past that the count stops describing one cookie
-// and starts summing generations -- and because PoW volume would otherwise grow
-// this table by an order of magnitude.  CAPTCHA rows must keep the full window.
+// because a PoW _bv lives 7 days by default -- past two lifetimes the count
+// stops describing one cookie and starts summing generations -- and because
+// PoW volume would otherwise grow this table by an order of magnitude.
+// CAPTCHA rows must keep the full window.
 func TestPruneKeepsCaptchaDropsOldPow(t *testing.T) {
 	d := reuseTestDB(t)
 	const day = 1440
 	insReuse(t, d, "s1", "1.1.1.1", "captcha", "t13d_a", 1, 20*day) // inside 32d
-	insReuse(t, d, "s1", "2.2.2.2", "pow", "t13d_b", 1, 20*day)     // outside 8d
-	insReuse(t, d, "s1", "3.3.3.3", "pow", "t13d_c", 1, 2*day)      // inside 8d
+	insReuse(t, d, "s1", "2.2.2.2", "pow", "t13d_b", 1, 20*day)     // outside 15d
+	insReuse(t, d, "s1", "3.3.3.3", "pow", "t13d_c", 1, 2*day)      // inside 15d
+	// A second cookie lifetime: gone under the old 8-day cap, and exactly what
+	// widening to 15 days is meant to keep.
+	insReuse(t, d, "s1", "4.4.4.4", "pow", "t13d_d", 1, 10*day)
 
 	if err := PruneHourly(context.Background(), d); err != nil {
 		t.Fatal(err)
@@ -133,9 +137,12 @@ func TestPruneKeepsCaptchaDropsOldPow(t *testing.T) {
 		t.Error("a 20-day-old CAPTCHA row was pruned; that section keeps the full 32-day window")
 	}
 	if got["2.2.2.2/pow"] {
-		t.Error("a 20-day-old PoW row survived; PoW is capped at 8 days")
+		t.Error("a 20-day-old PoW row survived; PoW is capped at 15 days")
 	}
 	if !got["3.3.3.3/pow"] {
-		t.Error("a 2-day-old PoW row was pruned; it is well inside the 8-day window")
+		t.Error("a 2-day-old PoW row was pruned; it is well inside the 15-day window")
+	}
+	if !got["4.4.4.4/pow"] {
+		t.Error("a 10-day-old PoW row was pruned; the window covers two 7-day cookie lifetimes")
 	}
 }
