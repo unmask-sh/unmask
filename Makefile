@@ -27,7 +27,7 @@
 #   - aarch64-linux-gnu-gcc (cross compile of arm64 nginx module; optional)
 #
 
-UNMASK_VERSION ?= 0.1.33
+UNMASK_VERSION ?= 0.1.34
 # Package release / revision.  1 for a normal build.  A build published to the
 # testing channel bumps it for every attempt (2, 3, ...), because promotion
 # copies the file rather than renaming it -- reusing a number would put two
