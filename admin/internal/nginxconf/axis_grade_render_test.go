@@ -44,8 +44,8 @@ func TestAxisCaptchaRulesArmTheGradeGate(t *testing.T) {
 		if !strings.Contains(out, "$unmask_asn_captcha") {
 			t.Fatal("the ASN grade signal was not emitted")
 		}
-		if !strings.Contains(out, ":$unmask_geo_captcha$unmask_asn_captcha\" $unmask_needs_captcha_grade") {
-			t.Fatal("the grade requirement key does not consult the network axes")
+		if !strings.Contains(out, ":$unmask_geo_captcha$unmask_asn_captcha$unmask_ja4_captcha\" $unmask_needs_captcha_grade") {
+			t.Fatal("the grade requirement key does not consult the network + fingerprint axes")
 		}
 		// Exempt-awareness: the signal keys on the axis's own exempt-path map.
 		if !strings.Contains(out, `"$is_asn_exempt_path:$unmask_asn_action" $unmask_asn_captcha`) {
@@ -73,6 +73,86 @@ func TestAxisCaptchaRulesArmTheGradeGate(t *testing.T) {
 		out := render(s)
 		if !strings.Contains(out, `"$is_geo_exempt_path:$unmask_geo_action" $unmask_geo_captcha`) {
 			t.Fatal("the geo grade signal was not emitted")
+		}
+	})
+
+	t.Run("a captcha_only JA4 verdict row arms the fingerprint signal", func(t *testing.T) {
+		var s settings.Settings
+		noPresets(&s)
+		s.Nginx.JA4Verdicts.Extra = []settings.JA4VerdictExtraRule{{
+			ID:      100,
+			Pattern: "^t13d1516h2_8daaf6152771_d8a2da3f94cd$",
+			Verdict: "bot_residential_herd",
+			Action:  JA4ActionBot,
+		}}
+		s.Nginx.JA4Verdicts.ExtraAction = []string{settings.RateChallengeCaptchaOnly}
+		out := render(s)
+		if !strings.Contains(out, "map $effective_ja4 $unmask_ja4_captcha") {
+			t.Fatal("the JA4 grade signal map was not emitted")
+		}
+		if !strings.Contains(out, `"~^^t13d1516h2_8daaf6152771_d8a2da3f94cd$" 1;`) {
+			t.Error("the captcha-ending row's pattern is missing from the signal map")
+		}
+	})
+
+	t.Run("an unconfigured bot row inherits the operating default into the map", func(t *testing.T) {
+		var s settings.Settings
+		noPresets(&s)
+		// No tab default, no row action: EffectiveJA4BotChain inherits the
+		// operating default chain (pow_then_captcha on a fresh install) --
+		// the chain the check answers with and the serve hands out -- so the
+		// grade signal must carry the row too.
+		s.Nginx.JA4Verdicts.Extra = []settings.JA4VerdictExtraRule{{
+			ID:      100,
+			Pattern: "^t13d1516h2_8daaf6152771_d8a2da3f94cd$",
+			Verdict: "bot_residential_herd",
+			Action:  JA4ActionBot,
+		}}
+		out := render(s)
+		if !strings.Contains(out, `"~^^t13d1516h2_8daaf6152771_d8a2da3f94cd$" 1;`) {
+			t.Error("the inherited operating-default chain left the row out of the signal map")
+		}
+	})
+
+	t.Run("an operating default of pow_only leaves the whole axis inert", func(t *testing.T) {
+		var s settings.Settings
+		noPresets(&s)
+		for _, g := range JA4VerdictGroups {
+			s.Nginx.JA4Verdicts.DisabledPresets = append(s.Nginx.JA4Verdicts.DisabledPresets, g.ID)
+		}
+		s.Nginx.JA4Verdicts.Extra = []settings.JA4VerdictExtraRule{{
+			ID:      100,
+			Pattern: "^t13d1516h2_8daaf6152771_d8a2da3f94cd$",
+			Verdict: "bot_residential_herd",
+			Action:  JA4ActionBot,
+		}}
+		s.RateLimit.Default.ChallengeMode = settings.RateChallengePoWOnly
+		out := render(s)
+		// With every source empty the whole grade block may drop out; either
+		// way, no pattern-keyed fingerprint signal may exist.
+		if strings.Contains(out, "map $effective_ja4 $unmask_ja4_captcha") {
+			t.Error("a pow_only operating default still armed the fingerprint signal")
+		}
+	})
+
+	t.Run("an explicit pow_only JA4 row opts its fingerprint out of the signal", func(t *testing.T) {
+		var s settings.Settings
+		noPresets(&s)
+		// Silence the shipped JA4 presets too: with them on, their bot rows
+		// legitimately populate the map and the constant-0 form never renders.
+		for _, g := range JA4VerdictGroups {
+			s.Nginx.JA4Verdicts.DisabledPresets = append(s.Nginx.JA4Verdicts.DisabledPresets, g.ID)
+		}
+		s.Nginx.JA4Verdicts.Extra = []settings.JA4VerdictExtraRule{{
+			ID:      100,
+			Pattern: "^t13d1516h2_8daaf6152771_d8a2da3f94cd$",
+			Verdict: "bot_residential_herd",
+			Action:  JA4ActionBot,
+		}}
+		s.Nginx.JA4Verdicts.ExtraAction = []string{settings.RateChallengePoWOnly}
+		out := render(s)
+		if !strings.Contains(out, `map "" $unmask_ja4_captcha { default 0; }`) {
+			t.Error("a pow_only-only axis should render the constant-0 signal")
 		}
 	})
 
