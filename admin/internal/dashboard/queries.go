@@ -2821,7 +2821,7 @@ func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hosts []string,
                COUNT(*) - SUM(CASE WHEN %s = 'math' THEN 1 ELSE 0 END) AS n_beh,
                AVG(%s + 0.0) AS avg_score,
                MAX(user_agent) AS ua,
-               MAX(COALESCE(ja4_verdict, '(none)')) AS ja4,
+               COALESCE(MAX(ja4_verdict), '') AS ja4,
                MAX(date_created) AS last_seen,
                GROUP_CONCAT(DISTINCT NULLIF(COALESCE(%s, 'none'), 'none')) AS reasons
         FROM unmask_event WHERE %s%s AND phase='verify_ng'
