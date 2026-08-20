@@ -124,16 +124,6 @@ func WindowTrailing(now time.Time, hours int) Window {
 // range or unknown token falls back to the 24h trailing default.
 func WindowFromRange(rng string, now time.Time, fromTS, toTS int64) Window {
 	switch rng {
-	case "7d":
-		return WindowTrailing(now, 24*7)
-	case "30d":
-		return WindowTrailing(now, 24*30)
-	case "90d":
-		return WindowTrailing(now, 24*90)
-	case "180d":
-		return WindowTrailing(now, 24*180)
-	case "365d":
-		return WindowTrailing(now, 24*365)
 	case "all":
 		// handler passes [oldest event, now]; fall back to a year if unknown.
 		if fromTS > 0 && toTS > fromTS {
@@ -145,8 +135,12 @@ func WindowFromRange(rng string, now time.Time, fromTS, toTS int64) Window {
 			return Window{Start: fromTS, End: toTS}
 		}
 		return WindowTrailing(now, 24)
-	default: // "24h" and anything unrecognised
-		return WindowTrailing(now, 24)
+	default:
+		// Every trailing preset ("1h" .. "365d") resolves through RangeHours —
+		// ONE token table for the picker, the queries and this window, so a
+		// new preset cannot be half-wired.  Unknown tokens fall back to 24h
+		// there, preserving this function's historical default.
+		return WindowTrailing(now, RangeHours(rng))
 	}
 }
 
@@ -172,6 +166,26 @@ func (w Window) Days() int {
 
 func (w Window) hourLo() string { return time.Unix(w.Start, 0).UTC().Format("2006-01-02 15") }
 func (w Window) hourHi() string { return time.Unix(w.End, 0).UTC().Format("2006-01-02 15") }
+
+// hourlyAggUsable reports whether the hourly rollup may answer THIS window.
+//
+// Ready is necessary but not sufficient: the rollup's finest grain is one hour
+// and HourClause is inclusive at both ends, so a window shorter than a day is
+// answered by up to an hour of data on each side of what was asked for.  On a
+// 24h read that rounding is noise; on a 1h read it is most of the answer — and
+// the sub-day presets exist precisely to look at the minutes after a rule
+// changed, where the hour before the change is the very thing being excluded.
+// Sub-day windows therefore fall through to the raw-event scan, which bounds
+// on exact timestamps.  The scan is affordable here for the same reason the
+// window is short: it walks at most half a day of events, well under the 24h
+// and 30d scans the site- and host-filtered views already run.
+func hourlyAggUsable(ctx context.Context, hours int) bool {
+	if !HourlyAggReady() {
+		return false
+	}
+	w := windowOr(ctx, hours)
+	return w.End-w.Start >= 24*3600
+}
 
 // HourClause is the window predicate for a 'YYYY-MM-DD HH' string column
 // (unmask_aggregate_hourly.bucket_hour / unmask_aggregate_hll.bucket).  The

@@ -121,9 +121,20 @@ func parseDateTimeToUnix(s string) int64 {
 	return 0
 }
 
-// Range accepts 1d / 7d / 30d. Invalid input falls back to 1d.
+// RangeHours resolves a range token to its trailing span in hours.  Short
+// sub-day presets exist for "what happened since I changed that rule" reads
+// -- a fresh JA4 / geo rule is judged on the last hour, not on a day that is
+// mostly pre-change noise.  Invalid input falls back to 24h.
 func RangeHours(s string) int {
 	switch s {
+	case "1h":
+		return 1
+	case "3h":
+		return 3
+	case "6h":
+		return 6
+	case "12h":
+		return 12
 	case "7d":
 		return 24 * 7
 	case "30d":
@@ -239,7 +250,7 @@ type SiteSummary struct {
 // available; the raw scan stays as a fallback for the brief window after a
 // fresh start before AggregateHourly has run to completion.
 func Sites(ctx context.Context, d *db.DB, hours int) ([]SiteSummary, error) {
-	if HourlyAggReady() {
+	if hourlyAggUsable(ctx, hours) {
 		return sitesAgg(ctx, d, hours)
 	}
 	return sitesScan(ctx, d, hours)
@@ -650,7 +661,7 @@ func canonVerdict(reg *nginxconf.VerdictRegistry, id int64, raw string) string {
 // Undeclared-site or host-filtered views, and the brief pre-backfill window
 // after a restart, fall back to scanning raw events (bounded by events_retention).
 func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours int, botVerdicts []string, reg *nginxconf.VerdictRegistry, siteAggregated bool) ([]FunnelRow, error) {
-	if len(hosts) == 0 && HourlyAggReady() && (site == "" || siteAggregated) {
+	if len(hosts) == 0 && hourlyAggUsable(ctx, hours) && (site == "" || siteAggregated) {
 		return funnelAgg(ctx, d, site, hours, botVerdicts, reg)
 	}
 	return funnelScan(ctx, d, site, hosts, hours, botVerdicts, reg)
@@ -1321,7 +1332,7 @@ type VerdictCount struct {
 // view (no site / no host filter) reads the hourly aggregate; filtered views
 // and the pre-backfill window fall back to scanning raw events.
 func VerdictDistribution(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]VerdictCount, error) {
-	if site == "" && len(hosts) == 0 && HourlyAggReady() {
+	if site == "" && len(hosts) == 0 && hourlyAggUsable(ctx, hours) {
 		return verdictDistAgg(ctx, d, hours)
 	}
 	return verdictDistScan(ctx, d, site, hosts, hours)
@@ -1540,7 +1551,7 @@ var flagsNotes = map[int]string{
 }
 
 func FlagsDistribution(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]FlagsRow, error) {
-	if site == "" && len(hosts) == 0 && HourlyAggReady() {
+	if site == "" && len(hosts) == 0 && hourlyAggUsable(ctx, hours) {
 		return flagsDistributionAgg(ctx, d, hours)
 	}
 	return flagsDistributionScan(ctx, d, site, hosts, hours)
@@ -1728,6 +1739,12 @@ type AITrafficRow struct {
 // by host sees an honest empty card instead of a 30s raw scan.  Same
 // principle for the post-restart window where the aggregate hasn't caught
 // up yet — better to render zeros than to time out the entire dashboard.
+// Note: unlike the funnel / verdict / flags cards, this one stays on the
+// hourly rollup even for a sub-day window (hourlyAggUsable).  It has no raw
+// path to fall through to -- by design, per the paragraph above -- so honouring
+// sub-hour precision here would mean rendering an empty card instead of a
+// slightly over-inclusive one.  A crawler breakdown reads the same either way;
+// it is not the card anyone judges a just-changed rule by.
 func AITrafficBreakdown(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]AITrafficRow, error) {
 	if len(hosts) > 0 || !HourlyAggReady() {
 		return orderAITrafficRows(nil), nil
@@ -1907,7 +1924,7 @@ func orderAITrafficRows(by map[string]AITrafficRow) []AITrafficRow {
 }
 
 func CaptchaForceBreakdown(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]CaptchaForceRow, error) {
-	if site == "" && len(hosts) == 0 && HourlyAggReady() {
+	if site == "" && len(hosts) == 0 && hourlyAggUsable(ctx, hours) {
 		return captchaForceBreakdownAgg(ctx, d, hours)
 	}
 	return captchaForceBreakdownScan(ctx, d, site, hosts, hours)
