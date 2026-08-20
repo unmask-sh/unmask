@@ -77,6 +77,7 @@ const (
 	revealFadePH            = "/*__REVEAL_FADE_MS__*/200"
 	origPathPlaceholder     = `/*__ORIG_PATH__*/""`
 	beaconTokenPlaceholder  = `/*__BEACON_TOKEN__*/""`
+	serveJA4Placeholder     = `/*__SERVE_JA4__*/""`
 	issuedAtPlaceholder     = `/*__ISSUED_AT__*/0`
 	powSeedPlaceholder      = `/*__POW_SEED__*/""`
 	ctTokenPlaceholder      = `/*__CT__*/""`
@@ -1698,6 +1699,14 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	}
 	body = bytes.ReplaceAll(body, []byte(chmodePlaceholder),
 		[]byte(`/*__CHMODE__*/"`+chMode+`"`))
+
+	// The fingerprint this challenge is being served to, echoed back by every
+	// beacon so a beacon row can say when its own connection's JA4 differs
+	// (same device, different connection -- mobile Chrome does this).  Through
+	// safeJA4: the header is client-influencable on a direct hit, and this
+	// string lands inside a <script> block.
+	body = bytes.ReplaceAll(body, []byte(serveJA4Placeholder),
+		[]byte(`/*__SERVE_JA4__*/"`+safeJA4(ja4)+`"`))
 
 	// PoW difficulty (settings.Challenge.PowDifficulty; the target
 	// leading-zero-bits used by challenge.js's SHA-256 hashcash).

@@ -498,6 +498,15 @@ type Row struct {
 	// (the roaming-rebind cause); notably surfaces rate_limit so a rate-limit
 	// block is greppable / countable from `unmask events`.
 	ForceReason string `json:"force_reason,omitempty"`
+	// ServeJA4: the JA4 the challenge was SERVED to, echoed back by every
+	// beacon (payload "serve_ja4") the way force_reason travels.  Beacons
+	// arrive on their own TLS connection, and the same device can present a
+	// different fingerprint there -- so a beacon row's JA4 column and its
+	// serve-time force_reason can honestly disagree.  This field lets the UI
+	// say so on the one row, which matters exactly when the operator filters
+	// to a beacon phase and the sibling serve row is not on screen.  Empty on
+	// serve/check rows and on events recorded before the field existed.
+	ServeJA4 string `json:"serve_ja4,omitempty"`
 	// ChMode: the chain the serve offered (pow_only / captcha_only /
 	// pow_then_captcha / deny).  Present on phase=serve rows.  What actually
 	// happened is a separate row -- a phase=captcha beacon means the CAPTCHA
@@ -613,6 +622,7 @@ func decorateRowFromPayload(row *Row, payload string) {
 	row.Ref = extractRef(payload)
 	row.Reason = extractReason(payload)
 	row.ForceReason = extractForceReason(payload)
+	row.ServeJA4 = extractStringField(payload, "serve_ja4", 40)
 	row.ChMode = extractStringField(payload, "ch_mode", 24)
 	// What the browser said about its own timing, kept beside what the server
 	// measured.  date_created is when the beacon ARRIVED, and arrival order is
