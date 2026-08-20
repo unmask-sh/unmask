@@ -424,7 +424,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
         <td>{{ if $r.Verdict }}<span class="help-dotted cp-verdict{{ if $r.IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ $r.Verdict }}">{{ $r.Verdict }}</span>{{ else }}<span class="muted">(none)</span>{{ end }}</td>
         <td class="bcd-num">{{ comma $r.Passes }}</td>
         <td class="bcd-num">{{ comma $r.Paths }}</td>
-        <td class="bcd-mono bcd-ua cellpop">{{ $r.UAFull }}</td>
+        <td class="bcd-ua{{ if $r.UAFull }} cellpop{{ end }}"{{ if uaSummary $r.UAFull }} data-full-value="{{ $r.UAFull }}"{{ end }}>{{ template "ua_cell" $r.UAFull }}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{ $r.LastSeenTS }}">{{ $r.LastSeen }}</time></td>
       </tr>
       {{ end }}
@@ -457,7 +457,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
              is dropped when the page is already narrowed to one site -- there
              it would repeat the heading on every row. */}}
         <td class="bcd-mono bcd-clip cellpop url"{{ if .Path }} data-path="{{ .Path }}"{{ end }}>{{ if .Path }}{{ if and .Site (not $.Site) }}<span class="cp-site">{{ .Site }}</span>{{ end }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-        <td class="bcd-mono bcd-ua cellpop">{{ .UAFull }}</td>
+        <td class="bcd-ua{{ if .UAFull }} cellpop{{ end }}"{{ if uaSummary .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{ template "ua_cell" .UAFull }}</td>
       </tr>
       {{ end }}
     </tbody>
@@ -491,7 +491,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
             rule genuinely named ok.  Same token every verdict column uses. */}}<span class="muted">(none)</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="bcd-num">{{ comma $r.Requests }}</td>
         {{ if $show }}<td class="bcd-num{{ if eq $r.JA4Count 1 }} cr-ja4n-single{{ end }}">{{ $r.JA4Count }}</td>{{ end }}
-        <td class="bcd-mono bcd-ua cellpop">{{ $r.UAFull }}</td>
+        <td class="bcd-ua{{ if $r.UAFull }} cellpop{{ end }}"{{ if uaSummary $r.UAFull }} data-full-value="{{ $r.UAFull }}"{{ end }}>{{ template "ua_cell" $r.UAFull }}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{ $r.LastSeenTS }}">{{ $r.LastSeen }}</time></td>
       </tr>
       {{ end }}
@@ -683,7 +683,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
         <td class="bcd-num n-muted">{{score $r.AvgScore}}</td>
         <td>{{ if $r.JA4 }}<span class="help-dotted" data-help-key="verdict.{{$r.JA4}}">{{$r.JA4}}</span>{{ else }}<span class="muted">(none)</span>{{ end }}</td>
         <td>{{ range $r.ForceReasons }}<span class="cp-fr help-dotted" data-help-key="captcha_force.kind.{{.}}">{{.}}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
-        <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
+        <td class="bcd-ua{{ if $r.UAFull }} cellpop{{ end }}"{{ if uaSummary $r.UAFull }} data-full-value="{{ $r.UAFull }}"{{ end }}>{{ template "ua_cell" $r.UAFull }}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>
       </tr>
       {{else}}
@@ -705,7 +705,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
         <td class="bcd-mono ipclick" data-ip="{{$r.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{$r.IP}}</td>
         <td><span class="help-dotted" data-help-key="verdict.{{$r.Verdict}}" style="color:#dc2626;border-bottom-color:#dc2626;font-weight:600">{{$r.Verdict}}</span></td>
         <td class="bcd-num n-stealth">{{comma $r.Count}}</td>
-        <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
+        <td class="bcd-ua{{ if $r.UAFull }} cellpop{{ end }}"{{ if uaSummary $r.UAFull }} data-full-value="{{ $r.UAFull }}"{{ end }}>{{ template "ua_cell" $r.UAFull }}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>
       </tr>
       {{else}}
@@ -737,7 +737,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
           <tr class="{{ if ge $i 10 }}cp-row-extra{{ end }}">
             <td class="bcd-mono ipclick" data-ip="{{$r.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{$r.IP}}</td>
             <td class="bcd-num{{if ge $r.Count 100}} n-stealth{{end}}">{{comma $r.Count}}</td>
-            <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
+            <td class="bcd-ua{{ if $r.UAFull }} cellpop{{ end }}"{{ if uaSummary $r.UAFull }} data-full-value="{{ $r.UAFull }}"{{ end }}>{{ template "ua_cell" $r.UAFull }}</td>
             <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>
           </tr>
           {{else}}
@@ -782,7 +782,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       {{range .JSErrors}}
       <tr>
         <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
-        <td class="bcd-mono bcd-ua cellpop">{{.UAFull}}</td>
+        <td class="bcd-ua{{ if .UAFull }} cellpop{{ end }}"{{ if uaSummary .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{ template "ua_cell" .UAFull }}</td>
         <td class="bcd-num">{{.Flags}}</td>
         <td class="bcd-mono bcd-clip cellpop">{{.Error}}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{.DateTS}}">{{.Date}}</time></td>
@@ -804,7 +804,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       {{range .JSForeignErrors}}
       <tr>
         <td class="bcd-mono ipclick" data-ip="{{.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{.IP}}</td>
-        <td class="bcd-mono bcd-ua cellpop">{{.UAFull}}</td>
+        <td class="bcd-ua{{ if .UAFull }} cellpop{{ end }}"{{ if uaSummary .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}>{{ template "ua_cell" .UAFull }}</td>
         <td class="bcd-num">{{.Flags}}</td>
         <td class="bcd-mono bcd-clip cellpop">{{.Error}}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{.DateTS}}">{{.Date}}</time></td>
@@ -838,7 +838,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
       <tr class="{{ if ge $i 10 }}cp-row-extra{{ end }}">
         <td class="bcd-mono ipclick" data-ip="{{$r.IP}}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{$r.IP}}</td>
         <td class="bcd-num">{{comma $r.Count}}</td>
-        <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
+        <td class="bcd-ua{{ if $r.UAFull }} cellpop{{ end }}"{{ if uaSummary $r.UAFull }} data-full-value="{{ $r.UAFull }}"{{ end }}>{{ template "ua_cell" $r.UAFull }}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>
       </tr>
       {{else}}
@@ -861,7 +861,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
         <td class="bcd-num">{{comma $r.Count}}</td>
         <td class="bcd-num">{{comma $r.MaxReload}}</td>
         <td class="bcd-num">{{$r.MaxFlags}}</td>
-        <td class="bcd-mono bcd-ua cellpop">{{$r.UAFull}}</td>
+        <td class="bcd-ua{{ if $r.UAFull }} cellpop{{ end }}"{{ if uaSummary $r.UAFull }} data-full-value="{{ $r.UAFull }}"{{ end }}>{{ template "ua_cell" $r.UAFull }}</td>
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{$r.LastSeenTS}}">{{$r.LastSeen}}</time></td>
       </tr>
       {{else}}
@@ -1443,6 +1443,7 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
 <div id="ip-popover" data-popover="ip"></div>
 <div id="cell-popover" data-popover="cell"></div>
 
+{{ template "ua_assets" }}
 <script id="help-data" type="application/json">{{ helpJSON .Lang }}</script>
 <script>
 // (popoverPin is already defined earlier.  The old definition (= duplicate made a no-op by `||`)
