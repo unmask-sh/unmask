@@ -36,6 +36,15 @@ func TestStatsUAColumnsShareTheHuntCell(t *testing.T) {
 		!strings.Contains(tpl, `data-full-value="{{ .UAFull }}"`) {
 		t.Error("no stats UA cell carries data-full-value; the full UA is unreachable")
 	}
+	// And the popover repeats the summarised reading, like hunt's: a heading
+	// on hover, the title bar when pinned.  Both gate on data-full-value so
+	// path / JA4 cells keep their plain behavior.
+	if !strings.Contains(tpl, `full ? summaryHTML(el, val) : ''`) {
+		t.Error("the hover popover lost its summary heading for summarised cells")
+	}
+	if !strings.Contains(tpl, `full ? (popTitle(el, val) || val) : val`) {
+		t.Error("the pinned popover no longer titles a summarised cell with its summary")
+	}
 
 	// Functional: the shared define really renders the hunt shapes.
 	tmpl, err := loadDashboardTemplate()
