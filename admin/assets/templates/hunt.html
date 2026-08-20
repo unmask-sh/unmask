@@ -79,6 +79,18 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .rank-grid:has(.folded) .rank-card-ip:not(.folded),
 .rank-grid:has(.folded) .rank-card-ja4:not(.folded){flex-grow:1;max-width:32rem}
 .rank-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.6rem .9rem}
+/* Cap how tall a ranking may grow and scroll the overflow inside the card.
+   The three cards sit in one row and each sizes to its own data, but their
+   cardinalities are nothing alike: a busy window holds thirty distinct
+   addresses against a handful of TLS fingerprints, so the IP card alone set
+   the row's height and left two thirds of the space beside it blank -- and
+   pushed the event log that far down the page.  A shared cap makes the row
+   read as three cards instead of one tall one, and nothing is lost: the rows
+   past the cap are a scroll away, not gone.  The header stays put while they
+   move, so a scrolled column still says what it is counting. */
+.rank-scroll{max-height:18rem;overflow-y:auto}
+.rank-scroll table.rank thead th{position:sticky;top:0;z-index:1;background:#fff}
+.rank-card.folded .rank-scroll{display:none}
 .rank-card h3{font-size:.95rem;margin:0 0 .4rem;color:#475569}
 /* Folding.  The four cards share one row and the widest data decides what is
    left for the others, so an operator who does not need a card right now can
@@ -346,6 +358,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   <!-- IP ranking -->
   <div class="rank-card rank-card-ip{{ if index $.RankFolded "ip" }} folded{{ end }}" data-rank-card="ip">
     <h3><button type="button" class="rank-fold" aria-expanded="{{ if index $.RankFolded "ip" }}false{{ else }}true{{ end }}" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.ip_h" }} ({{ len .IPRank }})</span><span class="rank-fold-short">IP</span></button></h3>
+    <div class="rank-scroll">
     <table class="rank">
       <thead><tr><th>IP</th><th class="num">req</th><th></th></tr></thead>
       <tbody>
@@ -385,6 +398,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       {{ end }}
       </tbody>
     </table>
+    </div>
   </div>
 
   {{/* ASN ranking.  Ordered by distinct IPs, not requests: a botnet renting a
@@ -398,6 +412,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   {{ if or .ASNRank (index .RankFailed "asn") }}
   <div class="rank-card rank-card-asn{{ if index $.RankFolded "asn" }} folded{{ end }}" data-rank-card="asn">
     <h3><button type="button" class="rank-fold" aria-expanded="{{ if index $.RankFolded "asn" }}false{{ else }}true{{ end }}" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.asn_h" }} ({{ len .ASNRank }})</span><span class="rank-fold-short">ASN</span></button></h3>
+    <div class="rank-scroll">
     <table class="rank">
       <thead><tr><th>{{ t .Lang "hunt.rank.asn_net" }}</th><th class="num">{{ t .Lang "hunt.rank.asn_ips" }}</th><th class="num">req</th><th></th></tr></thead>
       <tbody>
@@ -442,6 +457,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       {{ end }}
       </tbody>
     </table>
+    </div>
     <p class="rank-note muted">{{ safeHTML (t .Lang "hunt.rank.asn_note") }}</p>
   </div>
   {{ end }}
@@ -449,6 +465,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   <!-- JA4 ranking -->
   <div class="rank-card rank-card-ja4{{ if index $.RankFolded "ja4" }} folded{{ end }}" data-rank-card="ja4">
     <h3><button type="button" class="rank-fold" aria-expanded="{{ if index $.RankFolded "ja4" }}false{{ else }}true{{ end }}" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.ja4_h" }} ({{ len .JA4Rank }})</span><span class="rank-fold-short">JA4</span></button></h3>
+    <div class="rank-scroll">
     <table class="rank">
       <thead><tr><th>JA4</th><th class="num">req</th><th></th></tr></thead>
       <tbody>
@@ -499,11 +516,13 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       {{ end }}
       </tbody>
     </table>
+    </div>
   </div>
 
   <!-- UA ranking -->
   <div class="rank-card rank-card-ua{{ if index $.RankFolded "ua" }} folded{{ end }}{{ if $.RankUAFull }} ua-full{{ end }}" data-rank-card="ua">
     <h3><button type="button" class="rank-fold" aria-expanded="{{ if index $.RankFolded "ua" }}false{{ else }}true{{ end }}" aria-label="{{ t $.Lang "hunt.rank.fold" }}"><span class="rank-fold-caret" aria-hidden="true">▾</span><span class="rank-fold-full">{{ t .Lang "hunt.rank.ua_h" }} ({{ len .UARank }})</span><span class="rank-fold-short">UA</span></button><button type="button" class="ua-mode" data-ua-mode aria-label="{{ t $.Lang "hunt.rank.ua_mode" }}"><span class="ua-mode-on">{{ t $.Lang "hunt.rank.ua_mode_full" }}</span><span class="ua-mode-off">{{ t $.Lang "hunt.rank.ua_mode_short" }}</span></button></h3>
+    <div class="rank-scroll">
     <table class="rank">
       <thead><tr><th>UA</th><th class="num">req</th><th></th></tr></thead>
       <tbody>
@@ -552,6 +571,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       {{ end }}
       </tbody>
     </table>
+    </div>
   </div>
 
 </div>
