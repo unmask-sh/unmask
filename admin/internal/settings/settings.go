@@ -1213,9 +1213,12 @@ func (c PrivacyPassConfig) IssuerConfigs() []privacypass.IssuerConfig {
 // "honeypot" source defers to HoneypotConfig.DefaultAction (= keeps the
 // existing knob untouched); "manual" consults this struct.  Values follow the
 // rate-limit chain modes: deny / pow_only / pow_then_captcha / captcha_only.
-// An empty field falls back to "captcha_only" -- a false positive on a manual
-// entry recovers when the visitor is actually human; the operator can pick
-// "deny" per row when certainty is high.
+// An empty field falls back to "pow_then_captcha" -- the same chain every
+// other unset axis resolves to, so an operator does not have to remember which
+// tier is the exception.  It still ends in a CAPTCHA, so a false positive on a
+// manual entry recovers when the visitor is actually human; the operator can
+// pick "deny" per row when certainty is high, or captcha_only to drop the
+// proof-of-work leg.
 //
 // The community feed is NOT a ban source here: its entries are never copied
 // into unmask_ban (map-only enforcement, and ban.Manager.Start deletes any
@@ -1243,7 +1246,7 @@ func (b BansConfig) ResolveAction(source, honeypotDefault string) string {
 	case "honeypot":
 		return resolve(honeypotDefault, RateChallengePoWThenCaptcha)
 	case "manual":
-		return resolve(b.ManualDefaultAction, RateChallengeCaptchaOnly)
+		return resolve(b.ManualDefaultAction, RateChallengePoWThenCaptcha)
 	}
 	return RateChallengeDeny
 }
@@ -2436,9 +2439,11 @@ type GlobalConfig struct {
 	// would over-block real users -- the chrome_fake_h1 lesson).
 	HeaderIntegrity bool `yaml:"header_integrity,omitempty"`
 	// HeaderIntegrityAction: the chain a header-mismatch gets.  Empty ->
-	// captcha_only (the point is to demand the interaction a header-spoofing
-	// bot can't cheaply provide).  Only pow_only / captcha_only are valid; deny
-	// is rejected on save so this axis can never hard-block.
+	// pow_then_captcha, which ends in the interaction a header-spoofing bot
+	// cannot cheaply provide and, before it, records whether the client could
+	// run the JavaScript at all (see HeaderIntegrityResolvedAction).  pow_only
+	// and captcha_only are also honoured; deny is rejected on save so this axis
+	// can never hard-block.
 	HeaderIntegrityAction string `yaml:"header_integrity_action,omitempty"`
 	// StaleBrowserChallenge enables the stale-browser tier: a UA advertising a
 	// Chromium-family major version far behind the current stable is escalated
@@ -2453,6 +2458,17 @@ type GlobalConfig struct {
 	// without hard-blocking the genuine long-tail of old-browser humans (who can
 	// still solve it).  bypass_ips (monitoring probes) are evaluated first and
 	// are never subject to this tier.
+	//
+	// Off by default is a MEASURED choice, not caution: run in production, this
+	// tier reached noticeably more real people than the header-integrity axis
+	// did.  A browser major two or three releases behind is an ordinary state
+	// for someone who has not restarted their browser in a fortnight, and the
+	// version distribution has no gap between "a little behind" and "frozen" to
+	// put a threshold in.  header_integrity, measured the same way, caught few
+	// enough real users to ship on by default; this one did not.  So an operator
+	// turning it on should expect to show CAPTCHAs to some humans, and should
+	// pick current_chrome_major / stale_browser_lag against their own traffic
+	// rather than trusting the shipped floor.
 	StaleBrowserChallenge bool `yaml:"stale_browser_challenge,omitempty"`
 	// CurrentChromeMajor is the operator-maintained "current stable" Chromium
 	// major (unmask cannot discover it on its own; update it centrally on
@@ -2476,10 +2492,12 @@ type GlobalConfig struct {
 	// Empty/<=0 -> DefaultStaleBrowserLagFirefox.
 	StaleBrowserLagFirefox int `yaml:"stale_browser_lag_firefox,omitempty"`
 	// StaleBrowserAction is the chain a stale UA gets.  Empty ->
-	// DefaultStaleBrowserAction (captcha_only): the whole point is to demand the
-	// harder screen a headless PoW-solver cannot cheaply clear.  pow_then_captcha
-	// and deny are also accepted; pow_only is accepted but pointless (the scraper
-	// already solves PoW), so the UI steers away from it.
+	// DefaultStaleBrowserAction (pow_then_captcha): it ends in the harder
+	// screen a headless PoW-solver cannot cheaply clear, and the leg before it
+	// is what separates a client that cannot run JavaScript from one that
+	// solves the work and then abandons the CAPTCHA.  captcha_only and deny are
+	// also accepted; pow_only is accepted but pointless (the scraper already
+	// solves PoW), so the UI steers away from it.
 	StaleBrowserAction string `yaml:"stale_browser_action,omitempty"`
 }
 
@@ -2506,9 +2524,25 @@ const (
 	// lag) applies the same way, and leaving Firefox stricter than Chromium
 	// would be an accident rather than a decision.
 	DefaultStaleBrowserLagFirefox = 15
-	// DefaultStaleBrowserAction: CAPTCHA is the point of the tier (a headless
-	// PoW-solver clears pow_only/pow_then_captcha's PoW leg for free).
-	DefaultStaleBrowserAction = RateChallengeCaptchaOnly
+	// DefaultStaleBrowserAction: the chain, for the same reason the
+	// header-integrity axis runs it -- what the operator learns.  The extra leg
+	// costs a person 123ms at the median (measured over a day of real passes:
+	// p90 366ms, p99 1.2s), which disappears under the CAPTCHA that follows it;
+	// what this tier costs real users is the CAPTCHA itself, and that is the
+	// same either way.
+	//
+	// This tier was built for an adversary that solves the proof-of-work
+	// headlessly, so the original default skipped straight to the CAPTCHA on
+	// the grounds that the PoW leg is free to that adversary.  True, and
+	// beside the point: the leg it clears for free is the leg that PROVES it
+	// clears it.  A frozen-major client that never reaches pow_pass could not
+	// run the JavaScript at all; one that reaches pow_pass and then abandons
+	// the CAPTCHA is the PoW-solving bot this tier exists for; one that clears
+	// both is a person on an old browser.  Sending all three straight to the
+	// CAPTCHA records the same outcome for each and tells them apart nowhere.
+	// Both chains end in a CAPTCHA, so nothing that was stopped now passes,
+	// and the PoW leg mints no cookie of its own.
+	DefaultStaleBrowserAction = RateChallengePoWThenCaptcha
 	// DefaultCurrentChromeMajor: the Chrome stable major current when this
 	// binary was built, shipped so the tier works out of the box with just the
 	// toggle — no operator bookkeeping required.  It is a floor, not a ceiling:
@@ -2688,13 +2722,25 @@ func (g GlobalConfig) StaleBrowserResolvedAction() string {
 // deny is never honored here even if somehow stored (this axis structurally
 // cannot hard-block; a stripped header is a legitimate state, so a misclassified
 // real user must always be able to clear the chain).  Empty / anything else ->
-// captcha_only.
+// pow_then_captcha.
+//
+// Why the unset default is the chain and not captcha_only, which it used to be:
+// both end in a CAPTCHA, so they stop the same clients and demand the same
+// pass grade -- the difference is what the operator gets to see.  Sending a
+// suspected spoof straight to the CAPTCHA records one outcome, solved or not.
+// Running the proof-of-work first splits that into two: a client that cannot
+// execute the JavaScript at all never reaches pow_pass, and one that clears the
+// work but abandons the CAPTCHA is a different animal from one that clears
+// both.  The funnel reads those apart, and this axis -- a Chromium user-agent
+// with no client hints -- is precisely where an operator is trying to tell a
+// spoof from a stripped-header proxy.  The cost is a transparent PoW leg for a
+// misclassified person, who was going to be shown a CAPTCHA either way.
 func (g GlobalConfig) HeaderIntegrityResolvedAction() string {
 	switch g.HeaderIntegrityAction {
 	case RateChallengePoWOnly, RateChallengeCaptchaOnly, RateChallengePoWThenCaptcha:
 		return g.HeaderIntegrityAction
 	default:
-		return RateChallengeCaptchaOnly
+		return RateChallengePoWThenCaptcha
 	}
 }
 
@@ -3031,8 +3077,12 @@ func (s Settings) VersionCheckURLResolved() string {
 }
 
 // DefaultCommunityBansAction: what a community-feed hit does when the
-// operator has not picked an action.  CAPTCHA-only -- see CommunityBans.Action.
-const DefaultCommunityBansAction = RateChallengeCaptchaOnly
+// operator has not picked an action.  The chain, like every other unset axis
+// -- it ends in the same CAPTCHA, and the proof-of-work leg in front of it is
+// how an operator judges a feed they did not compile themselves: an entry
+// whose traffic cannot even run the JavaScript is a different report from one
+// that clears the work and stops at the CAPTCHA.  See CommunityBans.Action.
+const DefaultCommunityBansAction = RateChallengePoWThenCaptcha
 
 // ResolvedAction returns the effective action for a feed hit: the operator's
 // pick when it is a valid chain mode, else DefaultCommunityBansAction.
