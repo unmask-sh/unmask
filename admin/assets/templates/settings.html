@@ -2201,10 +2201,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.header_action_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.header_action_help") }}</div>
       <select name="header_integrity_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""             {{ if eq $hia "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "captcha_only" }}</option>
+        <option value=""             {{ if eq $hia "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_then_captcha" }}</option>
+        <option value="pow_then_captcha" {{ if eq $hia "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $hia "captcha_only" }}selected{{ end }}>captcha_only</option>
         <option value="pow_only"         {{ if eq $hia "pow_only" }}selected{{ end }}>pow_only</option>
-        <option value="pow_then_captcha" {{ if eq $hia "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
       </select>
     </div>
     <script type="text/html" id="ua-header-help">
@@ -2305,9 +2305,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.stale_action_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.stale_action_help") }}</div>
       <select name="stale_browser_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $sba "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "captcha_only" }}</option>
-        <option value="captcha_only"     {{ if eq $sba "captcha_only" }}selected{{ end }}>captcha_only</option>
+        <option value=""                 {{ if eq $sba "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_then_captcha" }}</option>
         <option value="pow_then_captcha" {{ if eq $sba "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+        <option value="captcha_only"     {{ if eq $sba "captcha_only" }}selected{{ end }}>captcha_only</option>
         <option value="deny"             {{ if eq $sba "deny" }}selected{{ end }}>deny</option>
       </select>
     </div>
@@ -6481,10 +6481,10 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       </div>
       {{ $cba := .CommunityBans.Action }}
       <select name="community_bans_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $cba "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "captcha_only" }}</option>
-        <option value="pow_only"         {{ if eq $cba "pow_only" }}selected{{ end }}>pow_only</option>
+        <option value=""                 {{ if eq $cba "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_then_captcha" }}</option>
         <option value="pow_then_captcha" {{ if eq $cba "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $cba "captcha_only" }}selected{{ end }}>captcha_only</option>
+        <option value="pow_only"         {{ if eq $cba "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="deny"             {{ if eq $cba "deny" }}selected{{ end }}>deny</option>
       </select>
       <div class="note" style="margin-top:.3rem">{{ safeHTML (t .Lang "settings.community_bans.action_desc") }}</div>

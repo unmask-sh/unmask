@@ -10,7 +10,9 @@
 # clear.
 #
 # admin.yml (e2e): stale_browser_challenge on, current 150 / lag 35 -> threshold
-# 115.  So Chrome/120 (every other scenario's UA) stays fresh and passes, while
+# 115, and header_integrity OFF -- a Chromium UA with no Sec-CH-UA is what that
+# axis fires on too, so leaving it on would let it out-rank the stale tier's own
+# action and this scenario would be watching the wrong axis.  So Chrome/120 (every other scenario's UA) stays fresh and passes, while
 # Chrome/100 here is stale.  known_browser_action is "pass", so a pass here would
 # mean the tier did nothing.  Three cases:
 #   1. stale UA  + ordinary IP -> 403 challenge, chmode escalated to captcha_only

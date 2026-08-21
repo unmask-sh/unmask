@@ -46,12 +46,12 @@ func TestCommunityBansDecideHonoursTheAction(t *testing.T) {
 		action  string
 		wantSev axisSeverity
 	}{
-		{"default (unset) -> captcha", "", sevCaptchaOnly},
+		{"default (unset) -> the chain", "", sevPoWThenCaptcha},
 		{"pow_only", settings.RateChallengePoWOnly, sevPoWOnly},
 		{"captcha_only", settings.RateChallengeCaptchaOnly, sevCaptchaOnly},
 		{"pow_then_captcha", settings.RateChallengePoWThenCaptcha, sevPoWThenCaptcha},
 		{"deny", settings.RateChallengeDeny, sevDeny},
-		{"garbage falls back to the default", "not-a-mode", sevCaptchaOnly},
+		{"garbage falls back to the default", "not-a-mode", sevPoWThenCaptcha},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			cfg := cbSettings(settings.SubscribeFetchApply, c.action)
