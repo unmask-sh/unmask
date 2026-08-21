@@ -86,6 +86,12 @@ global:
   current_chrome_major:    150
   stale_browser_lag:       35
   stale_browser_action:    captcha_only
+  # Scenario 52 drives a Chromium UA with no Sec-CH-UA over h2, which is also
+  # exactly what the header-integrity axis fires on -- and that axis is ON by
+  # default.  Two axes then compose by severity and the stale tier's own action
+  # stops being what the scenario observes.  Turn the other one off here so the
+  # tier under test is the one being tested; scenario 12 covers composition.
+  header_integrity: false
 
 server:
   bind: 0.0.0.0

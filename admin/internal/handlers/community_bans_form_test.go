@@ -58,8 +58,8 @@ func TestCommunityBansActionSurvivesTheSettingsForm(t *testing.T) {
 	for _, tc := range []struct{ post, wantStored, wantResolved string }{
 		{"deny", "deny", "deny"},
 		{"pow_only", "pow_only", "pow_only"},
-		{"", "", "captcha_only"},
-		{"garbage", "", "captcha_only"},
+		{"", "", "pow_then_captcha"},
+		{"garbage", "", "pow_then_captcha"},
 	} {
 		form := url.Values{"subscribe_mode": {"fetch_apply"}, "community_bans_action": {tc.post}}
 		pr := httptest.NewRequest(http.MethodPost,

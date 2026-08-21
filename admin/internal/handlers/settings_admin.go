@@ -1475,12 +1475,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// DefaultCurrentChromeMajor at render/serve time (CurrentChromeMajorResolved)
 		// — so the toggle alone works out of the box; the field is an optional
 		// override.  Action restricted to real screens; anything else falls back
-		// to the captcha_only default via StaleBrowserResolvedAction.
+		// to the pow_then_captcha default via StaleBrowserResolvedAction.
 		cur.Global.StaleBrowserChallenge = r.FormValue("stale_browser_challenge") == "1"
 		// Header-integrity axis: toggle + optional action (pow_only / captcha_only
 		// / pow_then_captcha -- deny is never accepted here; a blank / anything else
-		// stores unset so HeaderIntegrityResolvedAction applies its captcha_only
-		// default).
+		// stores unset so HeaderIntegrityResolvedAction applies its
+		// pow_then_captcha default).
 		cur.Global.HeaderIntegrity = r.FormValue("header_integrity") == "1"
 		switch strings.TrimSpace(r.FormValue("header_integrity_action")) {
 		case settings.RateChallengePoWOnly, settings.RateChallengeCaptchaOnly, settings.RateChallengePoWThenCaptcha:

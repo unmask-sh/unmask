@@ -374,11 +374,11 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
       <div>
         <label>{{ t .Lang "settings.bans.manual_action_h" }}</label>
         {{ $bma := .Bans.ManualDefaultAction }}
-        {{ if eq $bma "" }}{{ $bma = "captcha_only" }}{{ end }}
+        {{ if eq $bma "" }}{{ $bma = "pow_then_captcha" }}{{ end }}
         <select name="bans_manual_default_action">
-          <option value="pow_only"         {{ if eq $bma "pow_only" }}selected{{ end }}>pow_only</option>
           <option value="pow_then_captcha" {{ if eq $bma "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
           <option value="captcha_only"     {{ if eq $bma "captcha_only" }}selected{{ end }}>captcha_only</option>
+          <option value="pow_only"         {{ if eq $bma "pow_only" }}selected{{ end }}>pow_only</option>
           <option value="deny"             {{ if eq $bma "deny" }}selected{{ end }}>deny</option>
         </select>
       </div>

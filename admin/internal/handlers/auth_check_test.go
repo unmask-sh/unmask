@@ -200,7 +200,7 @@ func TestBanDecideFromSource(t *testing.T) {
 		{"honeypot + DefaultAction=deny", "", "honeypot", cfgHpDeny, sevDeny, "ban:honeypot:deny"},
 		{"honeypot + DefaultAction=pow_then_captcha", "", "honeypot", cfgHpPoWCap, sevPoWThenCaptcha, "ban:honeypot:pow_then_captcha"},
 		{"honeypot + empty -> default pow_then_captcha", "", "honeypot", cfgHpEmpty, sevPoWThenCaptcha, "ban:honeypot:pow_then_captcha"},
-		{"manual ban + empty default -> captcha_only", "", "manual", cfgHpEmpty, sevCaptchaOnly, "ban:manual:captcha_only"},
+		{"manual ban + empty default -> the chain", "", "manual", cfgHpEmpty, sevPoWThenCaptcha, "ban:manual:pow_then_captcha"},
 		{"unknown source -> hard deny", "", "future_src", cfgHpEmpty, sevDeny, "ban:future_src:deny"},
 		// The community feed is NOT a ban source: its entries are never copied
 		// into unmask_ban (ban.Manager.Start deletes any legacy rows), and its
@@ -211,8 +211,8 @@ func TestBanDecideFromSource(t *testing.T) {
 		// per-row action override wins over the source default (B1): a manual ban
 		// explicitly set to "deny" must hard-403 even though manual's default is
 		// captcha_only -- matching native's EffectiveAction precedence.
-		{"manual + per-row action=deny overrides captcha_only", "deny", "manual", cfgHpEmpty, sevDeny, "ban:manual:deny"},
-		{"manual + per-row action=pow_only overrides captcha_only", "pow_only", "manual", cfgHpEmpty, sevPoWOnly, "ban:manual:pow_only"},
+		{"manual + per-row action=deny overrides the default", "deny", "manual", cfgHpEmpty, sevDeny, "ban:manual:deny"},
+		{"manual + per-row action=pow_only overrides the default", "pow_only", "manual", cfgHpEmpty, sevPoWOnly, "ban:manual:pow_only"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -527,7 +527,7 @@ func TestResolveForwardedJA4ConnPeerGate(t *testing.T) {
 }
 
 // TestUaDecideStaleBrowser: the forward-auth UA axis escalates a stale-Chrome
-// UA to the operator's stale action (default captcha_only) even when the
+// UA to the operator's stale action (unset -> pow_then_captcha) even when the
 // Global known-browser action would pass, and leaves a current browser alone.
 func TestUaDecideStaleBrowser(t *testing.T) {
 	scraper := "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.7258.5 Safari/537.36"
@@ -539,13 +539,14 @@ func TestUaDecideStaleBrowser(t *testing.T) {
 	cfg.Global.CurrentChromeMajor = 150
 	cfg.Global.StaleBrowserLag = 11
 
-	// Stale UA: even though known browsers PASS, the scraper is escalated.
+	// Stale UA: even though known browsers PASS, the scraper is escalated --
+	// to the chain, which is what an unset stale action resolves to.
 	d, ok := uaDecide(scraper, "", cfg, nil)
-	if !ok || d.sev != sevCaptchaOnly {
-		t.Fatalf("stale scraper: sev=%v ok=%v, want captcha_only", d.sev, ok)
+	if !ok || d.sev != sevPoWThenCaptcha {
+		t.Fatalf("stale scraper: sev=%v ok=%v, want pow_then_captcha", d.sev, ok)
 	}
-	if d.chMode != settings.RateChallengeCaptchaOnly {
-		t.Errorf("stale scraper chMode=%q want captcha_only", d.chMode)
+	if d.chMode != settings.RateChallengePoWThenCaptcha {
+		t.Errorf("stale scraper chMode=%q want pow_then_captcha", d.chMode)
 	}
 	if !strings.HasPrefix(d.reason, "ua:stale_browser:") {
 		t.Errorf("stale scraper reason=%q want ua:stale_browser prefix", d.reason)
@@ -556,13 +557,18 @@ func TestUaDecideStaleBrowser(t *testing.T) {
 		t.Errorf("current browser: sev=%v want pass", d.sev)
 	}
 
-	// The stale action REPLACES the base pick even when the base is the
-	// nominally-higher-severity pow_then_captcha: the operator picked
-	// captcha_only for stale UAs precisely to skip the pointless PoW leg.
+	// The stale action REPLACES the base pick rather than being max()'d with
+	// it -- an operator who picks captcha_only for stale UAs, to skip a PoW leg
+	// the scraper solves for free anyway, gets captcha_only even though the
+	// base is the nominally-higher-severity chain.  Driven with the action set
+	// explicitly, since the default is now that same chain and would not tell
+	// "replaced" from "inherited" apart.
+	cfg.Global.StaleBrowserAction = settings.RateChallengeCaptchaOnly
 	cfg.Global.KnownBrowserAction = "pow_then_captcha"
 	if d, _ := uaDecide(scraper, "", cfg, nil); d.sev != sevCaptchaOnly {
 		t.Errorf("stale over pow_then_captcha base: sev=%v want captcha_only (stale action must win)", d.sev)
 	}
+	cfg.Global.StaleBrowserAction = ""
 
 	// ...but a deny base is never softened to a captcha.
 	cfg.Global.KnownBrowserAction = "deny"
@@ -583,8 +589,8 @@ func TestUaDecideStaleBrowser(t *testing.T) {
 	cfg.Global.StaleBrowserChallenge = true
 	ffScraper := "Mozilla/5.0 (X11; Linux x86_64; rv:115.0) Gecko/20100101 Firefox/115.0"
 	ffESRUA := "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
-	if d, _ := uaDecide(ffScraper, "", cfg, nil); d.sev != sevCaptchaOnly {
-		t.Errorf("stale Firefox: sev=%v want captcha_only", d.sev)
+	if d, _ := uaDecide(ffScraper, "", cfg, nil); d.sev != sevPoWThenCaptcha {
+		t.Errorf("stale Firefox: sev=%v want pow_then_captcha", d.sev)
 	}
 	if d, _ := uaDecide(ffESRUA, "", cfg, nil); d.sev != sevPass {
 		t.Errorf("Firefox ESR: sev=%v want pass (exempt)", d.sev)

@@ -31,7 +31,7 @@ func TestHeaderDecide(t *testing.T) {
 		wantSev    axisSeverity
 		wantReason string
 	}{
-		{"chromium https h2 no CH -> fire captcha", chrome, "", "https", true, on, true, sevCaptchaOnly, "header:no_sch_ua"},
+		{"chromium https h2 no CH -> fire the chain", chrome, "", "https", true, on, true, sevPoWThenCaptcha, "header:no_sch_ua"},
 		{"axis off -> silent", chrome, "", "https", true, off, false, sevPass, ""},
 		{"CH present -> silent", chrome, `"Chromium";v="120"`, "https", true, on, false, sevPass, ""},
 		{"http (not https) -> silent", chrome, "", "http", true, on, false, sevPass, ""},
@@ -45,8 +45,8 @@ func TestHeaderDecide(t *testing.T) {
 		// next request, forever.
 		{"chromium 55 (pre-CH) -> silent", strings.Replace(chrome, "Chrome/120.", "Chrome/55.", 1), "", "https", true, on, false, sevPass, ""},
 		{"chromium 88 (pre-CH) -> silent", strings.Replace(chrome, "Chrome/120.", "Chrome/88.", 1), "", "https", true, on, false, sevPass, ""},
-		{"chromium 89 (first CH major) -> fire", strings.Replace(chrome, "Chrome/120.", "Chrome/89.", 1), "", "https", true, on, true, sevCaptchaOnly, "header:no_sch_ua"},
-		{"chromium 125 -> fire", strings.Replace(chrome, "Chrome/120.", "Chrome/125.", 1), "", "https", true, on, true, sevCaptchaOnly, "header:no_sch_ua"},
+		{"chromium 89 (first CH major) -> fire", strings.Replace(chrome, "Chrome/120.", "Chrome/89.", 1), "", "https", true, on, true, sevPoWThenCaptcha, "header:no_sch_ua"},
+		{"chromium 125 -> fire", strings.Replace(chrome, "Chrome/120.", "Chrome/125.", 1), "", "https", true, on, true, sevPoWThenCaptcha, "header:no_sch_ua"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -64,7 +64,7 @@ func TestHeaderDecide(t *testing.T) {
 	}
 
 	// The operator's action tunes the severity, but deny can never be reached:
-	// HeaderIntegrityResolvedAction clamps a stored "deny" to captcha_only.
+	// HeaderIntegrityResolvedAction clamps a stored "deny" to the unset default.
 	denyish := settings.GlobalConfig{HeaderIntegrity: true, HeaderIntegrityAction: settings.RateChallengeDeny}
 	if d, ok := headerDecide(chrome, "", "https", true, denyish); !ok || d.sev == sevDeny {
 		t.Errorf("a stored deny action must clamp to a challenge, got sev=%d ok=%v", d.sev, ok)
