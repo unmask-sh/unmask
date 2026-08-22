@@ -125,8 +125,8 @@ func cmdDoctor(args []string) error {
 	// smaller -- conf than the daemon and render-nginx produce.  The freshness
 	// check then compared that against the real conf and reported every node
 	// that had ever pulled ranges as stale, sending operators to re-render a
-	// conf that was already correct.  (Observed on tool1-jp / tool1-us: 146
-	// missing Google range lines out of 4,844.)
+	// conf that was already correct.  (Seen in production: a hundred-odd Google
+	// range lines missing from a set of several thousand.)
 	nginxconf.SetOverrideDir(nginxconf.SyncDefaultDir)
 	if err := browsermajors.LoadState(""); err != nil {
 		addWarn("browser baselines", fmt.Sprintf("%v (render check falls back to the built-in baselines)", err))
@@ -1013,7 +1013,7 @@ var httpsRedirectProbeURL = "http://127.0.0.1:80/"
 // X-Forwarded-Proto (health probes reach the backend directly, bypassing the
 // LB proxy that would set it) — and warns if it gets a 301.  A 301 to a health
 // check is a FAILED check: the LB marks the node unhealthy and drops it from
-// rotation, so its traffic (and stats) go silent.  This is what stopped tool1-jp
+// rotation, so its traffic (and stats) go silent.  This is what stopped web1-jp
 // recording on 2026-07-04 before the load-balancer-health redirect exemption
 // existed.  With that exemption on (the default) the probe is not redirected and
 // this is silent; it fires only when the redirect is on and the exemption was

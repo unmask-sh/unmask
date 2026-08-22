@@ -18,7 +18,7 @@ import (
 // production install: a crawler passing entirely by roaming produced a steady
 // 1-3 "CAPTCHA passes" per five minutes for days while the proof-of-work
 // counters it never touched read zero -- so the dashboard reported the
-// challenge as unbroken while 137k requests a day walked through it.
+// challenge as unbroken while a day's worth of requests walked through it.
 func TestTrafficRequestsSplitsRebindFromHuman(t *testing.T) {
 	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
 	if err != nil {

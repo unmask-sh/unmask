@@ -151,9 +151,9 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		// whenever the event side merely read HIGHER -- and it systematically
 		// does.  The log side is counted in minute buckets over exactly 1440
 		// of them; the event side comes from hourly buckets bounded inclusively
-		// on both ends, so it carries up to a whole extra hour.  On a node
-		// taking ~37k requests an hour that is thousands of requests of
-		// difference, drifting in and out as the window slides.
+		// on both ends, so it carries up to a whole extra hour.  On a busy
+		// node that is thousands of requests of difference, drifting in and
+		// out as the window slides.
 		//
 		// Everything else in the composition comes from one snapshot of one
 		// table, and the solve counts cancel exactly (same variable on both
@@ -330,8 +330,8 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// the event log counts solves and abandons -- read by five queries at five
 	// different instants.  On a busy node they disagree by a fraction of a
 	// percent, and when the disagreement runs the wrong way the parts come out
-	// slightly over the whole.  Measured on a production node: 942,209 against
-	// a total of 941,283, or 0.1%.
+	// slightly over the whole -- observed on a production node at around a
+	// tenth of a percent of the total.
 	//
 	// That used to hide the entire breakdown behind "the counters are double
 	// counting", which is both a dead end for the reader and, as far as the
@@ -762,10 +762,11 @@ func sparkPoints(series []int) string {
 // counting every abandon answers a different question badly.  A client the
 // operator deliberately targeted -- a UA rule, a JA4 bot verdict, a header
 // mismatch -- being shown a CAPTCHA and walking away is the configuration
-// working, not a visitor lost.  Measured on one node over a day: 65,634 of
-// 65,676 abandons carried force_reason=ua_target at captcha_only, so the tile
-// read 99.2% while ordinary visitors abandoned 32 times.  Red, and about
-// nothing the operator would want to act on.
+// working, not a visitor lost.  Observed on a production node over a day:
+// all but a handful of abandons carried force_reason=ua_target at
+// captcha_only, so the tile read near-total abandonment while ordinary
+// visitors walked away a few dozen times.  Red, and about nothing the
+// operator would want to act on.
 //
 // Switching to the `abandon` beacon alone does not fix it: the residential
 // browser farm sends the beacon faithfully, so that reading was still 83.6%.

@@ -439,7 +439,7 @@ type HostInfo struct {
 // the operator can spot stale entries in a shared DB.  Capped at 200.
 //
 // The old `GROUP BY host` full-scanned the (host, date_created) covering index
-// (6.6M rows / ~34s cold on tool1-us — worse now that the pickers no longer
+// (a multi-million-row table, ~34s cold in production — worse now that the pickers no longer
 // incidentally warm that index).  SQLite gets the same loose-index-scan
 // treatment as the pickers: enumerate hosts with a recursive skip-scan, then
 // one index seek per host for last-seen (MAX(date_created) WHERE host=? is an
@@ -4178,8 +4178,8 @@ func ObserveOnlyWouldBlock(ctx context.Context, d *db.DB, site string, hosts []s
 //	          one.  Reading the fires from the event log instead undercounts
 //	          badly wherever the action is deny: no challenge page is served,
 //	          so no serve event exists, while the access log still records it.
-//	          Measured: 493 serve events against 6,329 log fires on a site that
-//	          denies bots outright.
+//	          Observed: serve events an order of magnitude below the log
+//	          fires, on a site that denies bots outright.
 //	bypassed = requests let through without being judged (a bypass IP or path).
 //	benign  = requests from listed crawlers we passed on purpose
 //	          ('crawler_pass')

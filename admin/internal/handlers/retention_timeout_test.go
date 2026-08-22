@@ -54,7 +54,7 @@ func TestRetentionStatsPerMetricOK(t *testing.T) {
 
 // TestRetentionCookieMinuteRowEstimate: the nginx-log card's row count is the
 // same O(1) endpoint estimate the events card uses (sqlite: rowid range), not
-// a full COUNT(*) — a 25-day window's 1.6M rows outran the query budget on a
+// a full COUNT(*) — a 25-day window's millions of rows outran the query budget on a
 // modest host.  Dense after an oldest-first prune; flagged approximate.
 func TestRetentionCookieMinuteRowEstimate(t *testing.T) {
 	h := newTestHandler(t)

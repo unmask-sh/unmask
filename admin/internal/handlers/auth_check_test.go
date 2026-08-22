@@ -674,9 +674,9 @@ func TestIsSearchBotUARangeVerified(t *testing.T) {
 func TestHoneypotReason(t *testing.T) {
 	long := "/cgi-bin/x?" + strings.Repeat("a", 400)
 	for _, tc := range []struct{ name, host, uri, want string }{
-		{"host and path", "uic.jp", "/cgi-bin/test?cmd=id", "hit uic.jp/cgi-bin/test?cmd=id"},
+		{"host and path", "www.example.com", "/cgi-bin/test?cmd=id", "hit www.example.com/cgi-bin/test?cmd=id"},
 		{"no host still names the path", "", "/cgi-bin/test", "hit /cgi-bin/test"},
-		{"no path still names the host", "uic.jp", "", "honeypot on uic.jp"},
+		{"no path still names the host", "www.example.com", "", "honeypot on www.example.com"},
 		{"neither", "", "", "honeypot"},
 		{"whitespace is not a value", "  ", "  ", "honeypot"},
 	} {

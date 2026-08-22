@@ -77,8 +77,8 @@ map $http_x_forwarded_proto $unmask_forwarded_proto {
 # commonly forwards X-Forwarded-Proto but NOT X-Forwarded-Port (GCP's HTTP(S)
 # load balancer is exactly this), and then $server_port is the port the LB used
 # to reach THIS nginx -- 80 -- not the port the visitor connected to.  Recording
-# that produced "80 (https)", a combination no visitor ever used, on 3.1M events
-# of one fleet node.  So: the LB's own header wins; failing that, a request the
+# that produced "80 (https)", a combination no visitor ever used, across millions
+# of events on one node.  So: the LB's own header wins; failing that, a request the
 # LB forwarded (= X-Forwarded-Proto present) takes the default port for the
 # forwarded scheme; only a request nobody forwarded keeps $server_port, which is
 # the true listener there.  The scheme-derived value is an inference -- an LB
@@ -1069,9 +1069,9 @@ map "{{ if .GradeCheckedPass }}$bv_pass_ok{{ else }}$bv_any_valid{{ end }}:$is_s
 # Stale-browser tier (Global.StaleBrowserEnabled)
 # -----------------------------------------------------------------------------
 # A UA advertising a Chromium-family major far behind current stable is a
-# distributed-scraper tell (the 2026-07-15 uic.io incident pinned Chrome/139
-# while stable was 150 and solved the transparent PoW headlessly across ~4k
-# residential-proxy IPs).  $unmask_stale_browser matches that UA shape; the
+# distributed-scraper tell (a 2026-07-15 incident pinned Chrome/139 while
+# stable was 150 and solved the transparent PoW headlessly from a large pool of
+# residential-proxy addresses).  $unmask_stale_browser matches that UA shape; the
 # combiner below escalates the base decision to a challenge for it — but ONLY
 # when the request was not already exempted (a bypass IP / bypass path / search
 # bot / valid _bv keeps its pass), so monitoring probes and genuine crawlers

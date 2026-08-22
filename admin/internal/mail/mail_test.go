@@ -96,7 +96,7 @@ func (s *smtpStub) waitDone(t *testing.T) {
 // stdlib smtp.SendMail, which upgrades opportunistically and verifies the
 // certificate -- so the plaintext setting still failed against a localhost
 // relay with an expired self-signed certificate, the exact relay the setting
-// exists for (observed on a fleet postfix, 2026-08-19).
+// exists for (observed on a production postfix relay, 2026-08-19).
 func TestPlaintextNeverUpgrades(t *testing.T) {
 	s := startSMTPStub(t)
 	m := New(Config{Host: "127.0.0.1", Port: s.port(), FromAddress: "notify@unmask.sh", FromName: "unmask test"})

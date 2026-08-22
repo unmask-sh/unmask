@@ -2,7 +2,7 @@
 # 26: solving the challenge once must STOP it -- the visitor must not be
 # re-challenged on the next request.
 #
-# The tool1-jp loop was exactly this failing: a solved _bv the plugin rejected,
+# The web1-jp loop was exactly this failing: a solved _bv the plugin rejected,
 # so every request re-challenged forever.  Assert the whole boundary: no _bv ->
 # 403, a solved seed-bound PoW _bv -> 200, and the SAME _bv still -> 200 on the
 # next request (a rejected _bv would 403 here and loop).

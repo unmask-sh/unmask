@@ -9,7 +9,7 @@ import (
 // The challenge page must inline challenge.js rather than loading it as an
 // external <script src>.  A client that can't fetch the external file renders
 // the challenge but never runs the PoW, so it loops forever -- the widespread
-// tool1-jp production loop (JS-load count was a fraction of the serve count).
+// web1-jp production loop (JS-load count was a fraction of the serve count).
 func TestServeChallenge_InlinesJS(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest("GET", "/unmask/challenge/", nil)

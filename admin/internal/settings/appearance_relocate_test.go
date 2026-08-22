@@ -7,7 +7,7 @@ import (
 
 // TestLegacyAppearanceMovesAndPrunes: a config written before the appearance
 // move must keep working, and the sites it pinned must come back to
-// inheritance.  The uic.io shape below is copied from a live install: the
+// inheritance.  The news.example.com shape below is copied from a live install: the
 // operator picked a theme, and the theme tab responded by writing a verbatim
 // snapshot of Challenge.Default beside it -- which is what made the site read
 // as "has challenge overrides" and stopped it tracking Default afterwards.
@@ -15,7 +15,7 @@ func TestLegacyAppearanceMovesAndPrunes(t *testing.T) {
 	// Shape copied from a live install: the theme tab wrote a verbatim snapshot
 	// of Challenge.Default beside the theme the operator picked, which is what
 	// made the site read as "has challenge overrides" and stopped it tracking
-	// Default afterwards.  uic.io is still identical to Default; shop diverged
+	// Default afterwards.  news.example.com is still identical to Default; shop diverged
 	// on pow_difficulty.
 	const legacy = `
 challenge:
@@ -32,7 +32,7 @@ challenge:
         pow_difficulty: 18
         show_credit: true
     sites:
-        uic.io:
+        news.example.com:
             pow_cookie_valid_seconds: 259200
             captcha_cookie_valid_seconds: 604800
             debug_rate_limit_per_5min: 20
@@ -58,8 +58,8 @@ branding:
     default:
         copy_preset: friendly
     sites:
-        uic.io:
-            site_name: uic.io
+        news.example.com:
+            site_name: news.example.com
 `
 	s, err := LoadFromYAML(legacy)
 	if err != nil {
@@ -71,22 +71,22 @@ branding:
 		t.Errorf("default appearance lost: theme=%q credit=%v",
 			s.Branding.Default.Theme, s.Branding.Default.IsShowCredit())
 	}
-	if got := s.Branding.Sites["uic.io"].Theme; got != "paper" {
-		t.Errorf("uic.io theme = %q, want paper carried onto its branding record", got)
+	if got := s.Branding.Sites["news.example.com"].Theme; got != "paper" {
+		t.Errorf("news.example.com theme = %q, want paper carried onto its branding record", got)
 	}
 	// ...without disturbing what that record already held.
-	if got := s.Branding.Sites["uic.io"].SiteName; got != "uic.io" {
-		t.Errorf("uic.io site_name = %q, want it untouched by the move", got)
+	if got := s.Branding.Sites["news.example.com"].SiteName; got != "news.example.com" {
+		t.Errorf("news.example.com site_name = %q, want it untouched by the move", got)
 	}
 	// A site with a theme but no branding record still gets one.
 	if got := s.Branding.Sites["shop.example.com"].Theme; got != "terminal" {
 		t.Errorf("shop theme = %q, want a branding record minted to hold it", got)
 	}
 
-	// uic.io's challenge entry said nothing Default did not, so it goes: the
+	// news.example.com's challenge entry said nothing Default did not, so it goes: the
 	// site returns to inheritance, which is what "I picked a theme" meant.
-	if _, ok := s.Challenge.Sites["uic.io"]; ok {
-		t.Error("uic.io still has a challenge override; it only ever carried a theme")
+	if _, ok := s.Challenge.Sites["news.example.com"]; ok {
+		t.Error("news.example.com still has a challenge override; it only ever carried a theme")
 	}
 	// shop really does differ (pow_difficulty 20), so it stays -- deleting a
 	// diverged record would silently change how that site is challenged.
@@ -104,7 +104,8 @@ branding:
 // change exists to stop creating.  Those records must survive the move: from
 // the file alone there is no way to tell "the operator wanted this off here"
 // from "Default gained it later", and guessing wrong changes live behaviour.
-// (Observed on tool1-jp, whose uic.io snapshot predates public_test_pages.)
+// (Observed on a production node whose site snapshot predates
+// public_test_pages.)
 func TestPruneLeavesRecordsThatDivergedFromDefault(t *testing.T) {
 	const drifted = `
 challenge:
@@ -113,7 +114,7 @@ challenge:
         public_test_pages: true
         theme: auto
     sites:
-        uic.io:
+        news.example.com:
             pow_difficulty: 18
             theme: paper
 `
@@ -121,10 +122,10 @@ challenge:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := s.Challenge.Sites["uic.io"]; !ok {
+	if _, ok := s.Challenge.Sites["news.example.com"]; !ok {
 		t.Error("a record that differs from Default (public_test_pages) was pruned")
 	}
-	if got := s.Branding.Sites["uic.io"].Theme; got != "paper" {
+	if got := s.Branding.Sites["news.example.com"].Theme; got != "paper" {
 		t.Errorf("theme = %q, want it relocated even though the record stayed", got)
 	}
 }

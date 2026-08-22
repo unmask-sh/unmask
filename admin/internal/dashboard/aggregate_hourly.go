@@ -52,8 +52,8 @@ const (
 	// hkPhase / hkUnruledPoW exist for the landing page, which until now
 	// counted its 24h KPIs by scanning raw unmask_event on every load -- the
 	// one dashboard left doing that after the stats page moved to this table.
-	// On a node whose database outgrew its page cache (measured: 9.4GB against
-	// 7GB of RAM, 9.2M events) that scan cost 20s cold and made the page look
+	// On a node whose database outgrew its page cache (a multi-GB database on a
+	// host with less RAM than that) the scan cost 20s cold and made the page look
 	// hung.  Nothing about the numbers changes; only where they are read from.
 	//
 	// hkPhase is deliberately its own kind rather than a sum over hkFunnel's
@@ -274,10 +274,9 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 	// lifetimes "how much was one cookie reused" stops being one cookie — a
 	// 30-day row sums four generations and reads the same whether it is a
 	// scraper riding a single solve or a regular visitor coming back all month.
-	// Cost: measured on a ~196k req/day install, PoW reuse is ~4.6x the CAPTCHA
-	// volume (15k rows/day), so the shared 32-day window would grow this table
-	// from 18 MB to ~170 MB; 15 days keeps it near 60 MB while covering two
-	// full cookie lifetimes.
+	// Cost: PoW reuse runs several times the CAPTCHA volume, so the shared
+	// 32-day window would grow this table by nearly an order of magnitude;
+	// 15 days keeps it moderate while covering two full cookie lifetimes.
 	if _, err := d.ExecContext(ctx,
 		`DELETE FROM unmask_cookie_ip_minute WHERE kind = 'pow' AND bucket_min < ?`,
 		time.Now().Unix()/60-cookieIPPowKeepDays*1440); err != nil {

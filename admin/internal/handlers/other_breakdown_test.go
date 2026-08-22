@@ -9,8 +9,9 @@ import "testing"
 // when it is really a whole category filed under the wrong name.
 //
 // Re-bound passes moved into this residue rather than carrying a segment of
-// their own: measured across the fleet they are 3.3% of a day on the busiest
-// node and 0.0% on three others, and a bar segment invisible on most installs
+// their own: in production they are a low single-digit share of a day on the
+// busiest node and nothing at all on several others, and a bar segment
+// invisible on most installs
 // teaches the eye to skip the card.  They must still be NAMED here, because
 // the one thing they must never be is silently part of the human share again.
 func TestResidueBreakdownAddsUp(t *testing.T) {

@@ -3,7 +3,7 @@
 # movement + scroll + a keypress, automation flags hidden) must PASS the checkbox
 # behavioral check and clear the challenge WITHOUT ever seeing the math fallback.
 #
-# This guards the "happy path" most real visitors take.  The tool1-jp incident
+# This guards the "happy path" most real visitors take.  The web1-jp incident
 # showed every behavioral score coming back null (so everyone dropped to math);
 # this asserts the behavioral path itself still issues a _bv for a real browser.
 import os

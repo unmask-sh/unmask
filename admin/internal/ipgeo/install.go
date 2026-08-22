@@ -638,7 +638,7 @@ func CIDRsForASNTargets(path string, targets []ASNTarget) (string, error) {
 // nginx's geo parser reads as a third parameter and rejects the whole config
 // ("invalid number of the geo parameters").  That failure mode is as bad as it
 // gets -- render succeeds, nginx -t fails afterwards, and until someone
-// re-renders, a restart would keep nginx down.  Hit live on tool1-gb
+// re-renders, a restart would keep nginx down.  Hit live in production
 // (2026-08-13) applying org rules against a Chinese residential botnet.
 func geoLine(cidr, value string) string {
 	return "    " + cidr + " \"" + value + "\";\n"

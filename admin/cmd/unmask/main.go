@@ -804,7 +804,7 @@ func cmdServe(args []string) error {
 
 	// NOTE: the query planner's statistics (sqlite_stat1) are deliberately NOT
 	// refreshed from here — ANALYZE holds a write lock for its whole pass (60-70s
-	// measured on a 3.4GB production DB, starving event inserts).  It runs only
+	// measured on a multi-GB production DB, starving event inserts).  It runs only
 	// from `unmask db-analyze` and migrate; see db.RefreshPlannerStats for why.
 
 	listener, listenDesc, err := openListener(s.Server)

@@ -59,7 +59,7 @@ const (
 	// The external challenge.js <script> tag.  ServeChallenge inlines the JS
 	// verbatim in its place so a client that cannot fetch the 53KB external file
 	// (an extension / flaky network / odd proxy) never loops on a challenge
-	// whose PoW never ran -- the widespread tool1-jp loop.
+	// whose PoW never ran -- the widespread web1-jp loop.
 	challengeJSScriptTag = `<script src="/unmask/static/challenge.js?v=__BUILD_V__" defer></script>`
 	chmodePlaceholder    = `/*__CHMODE__*/"pow_then_captcha"`
 	powDiffPlaceholder   = "/*__POW_DIFFICULTY__*/18"
@@ -458,7 +458,7 @@ func (h *Handler) loadChallengeHTML() ([]byte, error) {
 	// A packaged /usr/share/unmask/challenge/challenge.html that predates the
 	// seed-bound PoW (no __POW_SEED__ placeholder) makes every visitor loop:
 	// challenge.js solves a seedless PoW the current plugin rejects, so no _bv
-	// ever verifies.  This actually shipped to tool1 -- a 2026-05-25 asset left
+	// ever verifies.  This actually shipped to a production node -- a 2026-05-25 asset left
 	// in place across a plugin upgrade looped every real visitor.  Require the
 	// placeholder before trusting the on-disk copy; otherwise fall back to the
 	// embedded (always-current) one rather than serving a challenge that can
@@ -1436,7 +1436,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// Inline challenge.js into the page instead of loading it as an external
 	// <script src>.  A client that fails to fetch the 53KB external file (an
 	// extension, a flaky network, an odd proxy) renders the challenge but never
-	// runs the PoW, so it re-challenges forever -- the widespread tool1-jp loop
+	// runs the PoW, so it re-challenges forever -- the widespread web1-jp loop
 	// where the JS-load count was a fraction of the serve count.  Inlining
 	// removes the external fetch entirely.  Escape any "</script>" in the JS so
 	// it can't terminate the inline block early; fall back to the external tag
@@ -1640,7 +1640,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		chMode = h.cfg().CommunityBans.ResolvedAction()
 	}
 	// Stale-browser escalation.  A UA whose Chromium-family major is far behind
-	// current stable is a headless-scraper tell (2026-07-15 uic.io incident);
+	// current stable is a headless-scraper tell (the 2026-07-15 incident);
 	// serve it the operator's stale screen (default captcha_only) so a
 	// PoW-solving headless engine hits the CAPTCHA it cannot cheaply clear.  The
 	// stale action REPLACES the base chMode — the operator picked it precisely

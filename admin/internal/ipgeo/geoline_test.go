@@ -39,7 +39,7 @@ func nginxGeoParams(line string) int {
 // and patterns contain spaces.  Unquoted, nginx read the space as a third geo
 // parameter and rejected the whole rendered config -- render succeeded,
 // nginx -t failed afterwards, and a restart in that window would have kept
-// nginx down.  Hit live on tool1-gb applying "china unicom".
+// nginx down.  Hit live in production applying "china unicom".
 func TestGeoLineSurvivesSpaceyValues(t *testing.T) {
 	for _, val := range []string{"org:china unicom", "AS4837", "org:t-mobile"} {
 		line := geoLine("1.2.3.0/24", val)

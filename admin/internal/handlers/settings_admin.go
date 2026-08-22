@@ -459,7 +459,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	var retentionView retentionStatsView
 	if tab == "retention" || tab == "performance" {
 		// 10s, not 3s: COUNT(*)/MIN() over unmask_event is a full table scan, and
-		// on a large sqlite DB (millions of rows -- tool1-us hit 2.1M / 1.9GB) the
+		// on a large sqlite DB (millions of rows -- web1-us hit 2.1M / 1.9GB) the
 		// 3s budget expired, so retentionStats returned zeros and the template
 		// gated out the WHOLE "current size" line -- row count, oldest, AND the
 		// os.Stat DB size.  The DB-size line is now rendered independently of the
@@ -2654,7 +2654,7 @@ func overlaySectionDraft(c *settings.Settings, section, raw string) netDraftView
 //   - Backslashes are kept.  The shared parser drops any value containing one,
 //     which is right for lists that end up in the nginx config but wrong here:
 //     this list is matched in-app (see hostMatchesPattern), so a regex like
-//     "tool\d+-[a-z]+" is both safe and the whole point of the mode toggle.
+//     "web\d+-[a-z]+" is both safe and the whole point of the mode toggle.
 //     The old behaviour dropped such a value silently, leaving an empty list
 //     that then saved as "no restriction" under a green "saved" banner.
 //
@@ -5665,12 +5665,12 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 		return false
 	}
 	// Row count via the id range, NOT COUNT(*).  An exact COUNT(*) scans the
-	// whole covering index (6.6M entries / ~6GB on tool1-us) and, cold or under
+	// whole covering index (6.6M entries / ~6GB on web1-us) and, cold or under
 	// the aggregation goroutine's write load, outran even the 10s budget — the
 	// timeout this tab kept hitting.  unmask_event is append-only and pruned
 	// oldest-first, so its id range [MIN(id), MAX(id)] is dense: MAX-MIN+1 is a
 	// near-exact estimate (measured 127 rows off out of 6.6M = 0.002% on
-	// tool1-us).  MIN(id) and MAX(id) MUST be two separate queries: SQLite only
+	// web1-us).  MIN(id) and MAX(id) MUST be two separate queries: SQLite only
 	// applies its min/max-is-one-index-seek optimization to a lone aggregate, so
 	// `SELECT MIN(id), MAX(id)` in one statement falls back to a full index SCAN
 	// (measured 0.7s) — two statements each SEARCH one endpoint in ~4ms O(1).  It
@@ -5699,7 +5699,7 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 		v.EventsOldestDaysAgo = int(time.Since(time.Unix(v.EventsOldestTS, 0)).Hours() / 24)
 	}
 	// Row count estimate, NOT COUNT(*): the exact count scans the whole
-	// table, and a modest host with a 25-day window (1.6M rows observed)
+	// table, and a modest host with a 25-day window (millions of rows)
 	// outran the budget — the same failure mode the events card already
 	// solved.  sqlite reads the rowid endpoints (dense for this table: rows
 	// append per minute bucket, the prune deletes oldest-first, and an
@@ -6378,7 +6378,7 @@ func (h *Handler) adminScalarSiteSave(w http.ResponseWriter, r *http.Request, ta
 	// Stay on the just-saved scope even when the save dropped the entry
 	// (= operator unchecked "override on" + saved).  The redirect target is
 	// still ?scope=<host>, where the picker keeps the host selected and the
-	// banner shows "editing uic.io" + override toggle off.  Operators that
+	// banner shows "editing <that host>" + override toggle off.  Operators that
 	// truly want to leave the per-site view do so via the side menu (which
 	// drops scope intentionally) or by typing default into the scope picker.
 	redirBack("", site)

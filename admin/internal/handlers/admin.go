@@ -604,7 +604,7 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				// for an entire cross-site-initiated redirect chain, and did
 				// so here while the cookie was still Strict -- turns that
 				// into an infinite 303 loop (ERR_TOO_MANY_REDIRECTS on
-				// /unmask/admin/, tool1-jp 2026-07-10).  A POST in this state
+				// /unmask/admin/, web1-jp 2026-07-10).  A POST in this state
 				// still 403s: its form was rendered under the old, expired
 				// token (= the operator reloads, picks up the cookie, retries).
 				if CSRFTokenFromRequest(r) == "" {
@@ -852,7 +852,7 @@ func hostAllowed(host string, allowList []string) bool {
 // FULLY ANCHORED.  Everywhere else the lists are challenge / deny targets,
 // where matching more traffic only means more scrutiny; this list is an ALLOW
 // list guarding the admin UI, where matching more means granting more access.
-// An unanchored "tool\d+-[a-z]+" would admit "tool1-jp.attacker.com"; anchored,
+// An unanchored "web\d+-[a-z]+" would admit "web1-jp.attacker.com"; anchored,
 // it admits exactly the hostnames it spells out.
 func hostMatchesPattern(host, entry string) bool {
 	if entry == "" {
@@ -862,7 +862,7 @@ func hostMatchesPattern(host, entry string) bool {
 	case settings.ModeExact, settings.ModeContains:
 		// Exact host.  A legacy "contains:" entry is read as exact rather than
 		// substring: the UI no longer offers contains here because a substring
-		// match on an allowlist admits uic.jp.attacker.com, so we fail closed.
+		// match on an allowlist admits example.com.attacker.com, so we fail closed.
 		return strings.EqualFold(host, settings.PatternText(entry))
 	case settings.ModeSubdomain:
 		// The host itself or any subdomain of it, anchored: example.com matches

@@ -12,12 +12,12 @@ import (
 // "deny" has to deny.  It did not: every axis except the ban was consulted only
 // when $bv_any_valid was 0, so the word meant "deny unless this client has
 // cleared a challenge at some point in the last week".  Against anything that
-// can clear one, that is not a block -- measured on a production install, a
+// can clear one, that is not a block -- observed on a production install, a
 // crawler the operator had already taken out of the rescue list solved the
-// proof-of-work from 419 addresses and served itself 137,051 requests in a day
-// through a UA row set to deny.  Difficulty cannot reach it either: a pass
-// cookie lasts a week, so the cost is one solve per address per week whatever
-// the difficulty.  Ordering is the only fix.
+// proof-of-work across a large pool of addresses and served itself a day's
+// worth of traffic through a UA row set to deny.  Difficulty cannot reach it
+// either: a pass cookie lasts a week, so the cost is one solve per address per
+// week whatever the difficulty.  Ordering is the only fix.
 func TestDenyIsNotEscapedByAPassCookie(t *testing.T) {
 	n := settings.Nginx{}
 	n.ChallengeTargets.Extra = []string{"contains:Bytespider"}

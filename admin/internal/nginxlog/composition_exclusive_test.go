@@ -9,14 +9,14 @@ import (
 // The composition card divides ONE total into four shares, so every request has
 // to land in exactly one bucket.  Two overlaps have shipped:
 //
-//   - a listed crawler fetching a bypassed path counted as both, which pushed
-//     the human remainder to -2,493 of 718,238 on tool1-us (fixed in 0.1.18)
+//   - a listed crawler fetching a bypassed path counted as both, which drove
+//     the human remainder negative in production (fixed in 0.1.18)
 //   - a request carrying a pass cookie AND matching a bypass rule counted as
-//     both, which is bigger and hid behind the first: 397,043 of 3,582,523
-//     requests in a day on an install serving its own assets from bypassed
-//     paths.  The excess tracked each site's bypass-path share exactly (80.1%
-//     where 51% of requests came from /lib/ and /design/, 1.4% on the sister
-//     site whose assets are on a CDN), which is what identified it.
+//     both, which is bigger and hid behind the first, on an install serving
+//     its own assets from bypassed paths.  The excess tracked each site's
+//     bypass-path share exactly -- large where the assets sat under bypassed
+//     paths, near zero on a sister site serving them from a CDN -- which is
+//     what identified it.
 //
 // Both are invisible in a unit test that only checks counts, because the
 // arithmetic is right and the classification is wrong.  What has to hold is

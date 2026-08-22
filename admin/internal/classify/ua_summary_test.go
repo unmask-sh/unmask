@@ -243,8 +243,9 @@ func TestUABrowserColor(t *testing.T) {
 }
 
 // Self-identified bots.  crawler-user-agents.json is curated and cannot keep
-// up: on live fleet traffic the two biggest unsummarised UAs were
-// Amzn-SearchBot and AzureAI-SearchBot, 11k requests over 48h, neither on the
+// up: in production the two biggest unsummarised UAs were
+// Amzn-SearchBot and AzureAI-SearchBot, thousands of requests over two days,
+// neither on the
 // list.  They all name themselves, and several wrap that name in a full
 // Chrome-shaped UA that would otherwise read as an ordinary desktop browser.
 func TestUASummaryNamesSelfDeclaredBots(t *testing.T) {

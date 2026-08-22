@@ -212,8 +212,8 @@ func dropPopups(s string) string { return popupRe.ReplaceAllString(s, "") }
 // invariant -- the crawler table counts a crawler that hit a bypassed path,
 // and the same request already counted as bypassed, so the shares
 // oversubscribed the total and the human remainder could not be computed at
-// all.  Measured on the install where it surfaced: 535,977 requests double
-// counted in a day, and the card rendered "human" as unknown.
+// all.  Observed on the install where it surfaced: a large share of a day's
+// requests were double counted, and the card rendered "human" as unknown.
 func TestCompositionSharesDivideOneTotal(t *testing.T) {
 	h := newTestHandler(t)
 	s := h.snapshotSettings()
@@ -264,8 +264,8 @@ func TestCompositionSharesDivideOneTotal(t *testing.T) {
 // A visitor who loaded the challenge and walked away was not stopped by
 // unmask, and the abandons are recorded -- so they come out of the blocked
 // figure rather than being disclosed in a footnote on every number that uses
-// it.  Measured on the fleet before this: 283 of ~9,900 on one node (2.9%),
-// 175 of ~246,000 on another.
+// it.  Observed in production before this: a low single-digit percent of the
+// blocked figure on one node, a fraction of a percent on another.
 func TestAbandonsAreSubtractedFromTheBlockedHalf(t *testing.T) {
 	h := newTestHandler(t)
 	s := h.snapshotSettings()
@@ -469,8 +469,9 @@ func TestCompositionLegendShowsShares(t *testing.T) {
 // A deny serves no challenge page, so it writes no serve event -- while the
 // access log records it like any other fired challenge.  Reading the fires
 // from the event log therefore undercounts wherever the action is deny:
-// measured on unmask.sh, 493 serve events against 6,329 log fires, so the
-// dashboard reported 5.4% malicious where the truth was 69%.
+// observed in production, serve events ran an order of magnitude below the
+// log fires, so the dashboard reported a small fraction of the malicious
+// share that was really there.
 //
 // The hero, the challenges-fired tile and the composition card all read the
 // same figure, so a page that disagrees with itself cannot come back.
@@ -640,8 +641,8 @@ func TestOtherSegmentBreaksDownIntoItsParts(t *testing.T) {
 
 // The four segments are shares of one total, so any request counted twice
 // surfaces as a negative human remainder.  It did: a listed crawler fetching a
-// bypassed path was both crawler_pass and bypass_pass, and tool1-us rendered
-// "人間 -2,493" against 718,238 requests.
+// bypassed path was both crawler_pass and bypass_pass, and a production node
+// rendered the human segment as a negative number.
 func TestSegmentsNeverOversubscribeTheTotal(t *testing.T) {
 	h := newTestHandler(t)
 	s := h.snapshotSettings()

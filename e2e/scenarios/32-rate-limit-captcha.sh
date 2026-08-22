@@ -3,7 +3,7 @@
 # _bv, and pass again.
 #
 # Scenario 09 only proves the limit fires.  This proves the escape hatch works
-# end to end: rate-limit -> CAPTCHA -> _bv -> exempt.  (The tool1-jp incident was
+# end to end: rate-limit -> CAPTCHA -> _bv -> exempt.  (The web1-jp incident was
 # real users wedged at a challenge they could not clear; recovery paths matter.)
 set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"

@@ -21,8 +21,8 @@ func TestConfigAssemblyExpandsHostPlaceholder(t *testing.T) {
 		WebhookDisabled: true,
 		MailDisabled:    true,
 	}
-	nc := NotifierConfigFrom(n, "tool1-jp")
-	if nc.Sites != "tool1-jp" {
+	nc := NotifierConfigFrom(n, "web1-jp")
+	if nc.Sites != "web1-jp" {
 		t.Errorf("Sites = %q, want the resolved host id", nc.Sites)
 	}
 	if nc.URL != n.URL || nc.Format != n.Format {
@@ -47,8 +47,8 @@ func TestConfigAssemblyExpandsHostPlaceholder(t *testing.T) {
 		FromAddress: "notify+__hostname__@example.com",
 		FromName:    "unmask __hostname__ (__hostname__)",
 	}
-	mc := MailConfigFrom(m, "tool2-jp")
-	if mc.FromName != "unmask tool2-jp (tool2-jp)" {
+	mc := MailConfigFrom(m, "web2-jp")
+	if mc.FromName != "unmask web2-jp (web2-jp)" {
 		t.Errorf("FromName = %q, want every placeholder expanded", mc.FromName)
 	}
 	if mc.FromAddress != m.FromAddress {

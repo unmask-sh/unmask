@@ -29,7 +29,7 @@ func fakeProc(t *testing.T, pid, cmdline, maps string) {
 	t.Cleanup(func() { procRoot = old })
 }
 
-// The exact shape captured from the tool1-sg incident (2026-07-27): a
+// The exact shape captured from a production incident (2026-07-27): a
 // sssd-client upgrade replaced libnss_sss.so.2 under an nginx that was only
 // ever reloaded afterwards, and its workers segfaulted for two days.  The
 // benign deleted mappings a healthy nginx always carries sit right next to the

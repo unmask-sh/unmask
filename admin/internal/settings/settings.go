@@ -2236,7 +2236,7 @@ type JA4VerdictExtraRule struct {
 // OverBlockConfig: the over-block circuit breaker.  The daemon samples the
 // challenge funnel; when the same visitors are being re-challenged instead of
 // passing (a high serves-per-IP ratio over the window = a challenge loop, the
-// shape of the 2026-06-08 tool1-jp incident that ran ~14h before anyone
+// shape of the 2026-06-08 production incident that ran ~14h before anyone
 // noticed), it raises an alert and -- when AutoPassthrough is set -- temporarily
 // lets visitors through until the signal clears, capping the blast radius of any
 // challenge regression.
@@ -2450,9 +2450,9 @@ type GlobalConfig struct {
 	// to a CAPTCHA even when it would otherwise pass or only face PoW.  Off by
 	// default (zero behaviour change / zero rendered-config diff on upgrade).
 	//
-	// Rationale (2026-07-15 uic.io incident): a distributed scraper pinned one
-	// outdated Chrome build (Chrome/139 while stable was 150) across ~4k
-	// residential-proxy IPs and solved the transparent PoW headlessly.  Its one
+	// Rationale (a 2026-07-15 incident): a distributed scraper pinned one
+	// outdated Chrome build (Chrome/139 while stable was 150) across a large pool
+	// of residential-proxy addresses and solved the transparent PoW headlessly.  Its one
 	// tell was the frozen version.  PoW is cheap for a headless engine; a CAPTCHA
 	// is not, so escalating stale UAs to CAPTCHA raises the automation cost
 	// without hard-blocking the genuine long-tail of old-browser humans (who can
@@ -2507,10 +2507,10 @@ const (
 	// counts as stale when the operator leaves StaleBrowserLag unset.  The
 	// 2026-07-15 scraper sat 11 behind (139 vs 150), so the threshold has to
 	// stay under that -- but 10 sat right on top of the genuine long tail.
-	// Measured over a production day: visitors escalated by this tier
-	// abandoned at 51% against a 4.5% baseline, and 44% of the ones who stayed
-	// solved the CAPTCHA -- i.e. they were people, and the tier was costing
-	// about half of them.  At Chromium's ~4-week cadence 10 majors is roughly
+	// Over a production day, visitors escalated by this tier abandoned at many
+	// times the baseline rate, and a large share of the ones who stayed solved
+	// the CAPTCHA -- i.e. they were people, and the tier was costing a sizeable
+	// fraction of them.  At Chromium's ~4-week cadence 10 majors is roughly
 	// ten months; a corporate or auto-update-disabled browser lands there
 	// routinely.  15 (~14 months) still catches the incident's UA with room to
 	// spare while stepping off the population that was paying for it.
@@ -2897,7 +2897,7 @@ type Settings struct {
 	// and undeclared-site views; everything long-range reads the fixed 32-day
 	// aggregates (install-wide dashboard, crawler trend, declared-site funnel),
 	// which this setting does NOT touch.  7 keeps a high-volume install's DB
-	// bounded (~1.3M events/day measured ≈ 8 GB at 7d vs ~33 GB at 30d) — a
+	// bounded (single-digit GB at 7d against tens of GB at 30d) — a
 	// disk-full is a hard failure the default must not be able to cause, while
 	// an operator who wants deeper raw history raises this knowingly.
 	// 0 = retain forever (= prune disabled). On admin server startup, a
@@ -3919,10 +3919,10 @@ func defaults() Settings {
 			// Header integrity on by default.  A UA claiming Chrome / Edge /
 			// Opera that carries no Sec-CH-UA over HTTPS is contradicting
 			// itself -- a real Chromium always sends client hints there -- and
-			// the population it catches is almost purely non-human: measured
-			// over 24h on two production sites it served 7,856 and 1,120
-			// challenges while 0.3% / 2.9% of them ran the page's JS at all
-			// and exactly one visitor per site completed one.  That is a lower
+			// the population it catches is almost purely non-human: over a day
+			// on two production sites, a vanishingly small share of the
+			// challenges it served ran the page's JS at all, and hardly any
+			// visitor completed one.  That is a lower
 			// false-positive rate than the stale-browser tier next to it.
 			// Forging a User-Agent is a one-liner; sending the whole coherent
 			// header set a browser sends is not, and this axis charges for the

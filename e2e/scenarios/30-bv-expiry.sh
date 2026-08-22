@@ -5,7 +5,7 @@
 # verifyPowSHA256 checks the issued-at validity window BEFORE the PoW, so a _bv
 # with a long-past issued is rejected as expired (no valid nonce needed).  The
 # point: expiry leads to a clean re-challenge that a fresh solve clears, not a
-# dead-end -- the failure mode behind the tool1-jp loop was "valid-looking _bv,
+# dead-end -- the failure mode behind the web1-jp loop was "valid-looking _bv,
 # still re-challenged forever".
 set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"

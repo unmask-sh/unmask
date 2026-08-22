@@ -31,7 +31,7 @@ func TestAxisGrade_ASNCaptchaRuleRequires(t *testing.T) {
 // The live-incident shape: a ticked provider with nothing else filled in.  Its
 // blank action inherits DefaultRuleAction (pow_then_captcha), and that chain
 // ends in a CAPTCHA -- so a pow cookie must NOT satisfy it.  This is exactly
-// the combination that passed 1,096 content pages in two hours.
+// the combination that let a proxy herd ride content pages in bulk.
 func TestAxisGrade_ProviderInheritedChainRequires(t *testing.T) {
 	cfg := asnCfg(nil, []settings.AsnProviderSel{{ID: "tencent", Enabled: true}})
 	if !axisNeedsCaptchaGrade(132203, "Tencent Building, Kejizhongyi Avenue", "", false, false, cfg) {

@@ -2,7 +2,7 @@
 # 52: a browser pinned to a stale Chromium major is escalated to a CAPTCHA,
 # even though known_browser_action is "pass".
 #
-# Regression guard for the 2026-07-15 uic.io scraper: a distributed bot pinned
+# Regression guard for the 2026-07-15 scraper: a distributed bot pinned
 # one outdated Chrome build (Chrome/139 while stable was 150) across ~4k
 # residential-proxy IPs and solved the transparent PoW headlessly, so its JA4
 # and UA read as a real browser and it passed.  The stale-browser tier catches

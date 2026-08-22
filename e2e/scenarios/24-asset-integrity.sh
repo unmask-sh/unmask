@@ -2,7 +2,7 @@
 # 24: the served challenge assets must be the current seed-bound build, never a
 # stale pre-seed-bound (djb2) copy.
 #
-# The tool1-jp loop shipped a 2026-05-25 djb2 challenge.html/js that the
+# The web1-jp loop shipped a 2026-05-25 djb2 challenge.html/js that the
 # seed-bound plugin rejected, looping every visitor.  This scenario fails loudly
 # the moment a stale / incompatible asset is served: it checks that the page
 # carries a real seed, inlines its JS, and contains no djb2 PoW.

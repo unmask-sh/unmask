@@ -63,9 +63,9 @@ func TestParseUA(t *testing.T) {
 func TestParseNoJA4Placeholder(t *testing.T) {
 	r := &Reader{}
 
-	// The real-world shape from the tool1-us incident: second honeypot trip
+	// The real-world shape from a production incident: second honeypot trip
 	// over a resumed session, ja4=- but hpuri/ua present.
-	line := `<134>1751400000.123 site=tool1-us kind= fc=0 hp=1 ip=20.220.217.32 ` +
+	line := `<134>1751400000.123 site=shop.example.com kind= fc=0 hp=1 ip=20.220.217.32 ` +
 		`ja4=- hpuri=//cgi-bin/index.php ua=Mozilla/5.0 zgrab/0.x`
 	p, ok := r.parse(line)
 	if !ok {

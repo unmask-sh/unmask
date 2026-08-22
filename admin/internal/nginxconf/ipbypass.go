@@ -94,7 +94,7 @@ func BypassIPCIDRs(n settings.Nginx) []string {
 // $is_bypass_ip`, so the forward-auth authcheck must exempt the same set from the
 // challenge -- else the two modes derive "bypass IP" from different sets and
 // disagree on the same request (a monitoring probe from a stats-exclude IP was
-// challenged on forward-auth tool1-sg but passed on the native hosts).  Unlike
+// challenged on forward-auth web1-sg but passed on the native hosts).  Unlike
 // the ban guard, a monitoring probe legitimately wants BOTH stats exclusion and
 // challenge bypass; it does not want to become unbannable, which is why the two
 // sets differ.

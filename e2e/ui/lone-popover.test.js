@@ -3,7 +3,7 @@
 //
 // The builder read the whole date cell with textContent.  That cell also holds
 // the Host and site badges, so the popover printed "2026/08/15 13:50:01
-// ko.tool.uic.jp" -- the host glued onto the time, unlabelled, reading as part
+// news.example.com" -- the host glued onto the time, unlabelled, reading as part
 // of it.  And redundantly: the badge is displayed in the row itself, in the
 // very cell the popover was opened next to.
 //

@@ -575,8 +575,8 @@ func FirefoxMajor(ua string) int {
 // IsStaleBrowser reports whether a UA advertises a Chromium-family or Firefox
 // major that is at least lagN releases behind that family's current stable
 // (operator-maintained / shipped baselines, since unmask cannot know them on
-// its own).  A distributed scraper that pins one outdated build (the
-// 2026-07-15 uic.io incident pinned Chrome/139 while stable was 150) is
+// its own).  A distributed scraper that pins one outdated build (a
+// 2026-07-15 incident pinned Chrome/139 while stable was 150) is
 // caught here; a genuine visitor on a slightly old browser is at most a few
 // majors behind and is not.
 //

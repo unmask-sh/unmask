@@ -22,7 +22,7 @@ import (
 // A scanner probing a honeypot path over :80 therefore produced an "hp=1 ja4=-"
 // line and earned a scope=ip_only ban on its WHOLE IP -- broader than, and a
 // duplicate of, the precise (ip, ja4) ban its HTTPS visit already earns.
-// Reproduced on tool1-jp 2026-07-14: one plaintext curl to a honeypot path
+// Reproduced in production 2026-07-14: one plaintext curl to a honeypot path
 // returned 301 and still banned the caller.
 //
 // With https_redirect off the operator has deliberately kept the plaintext port

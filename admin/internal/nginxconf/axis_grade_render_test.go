@@ -13,8 +13,8 @@ import (
 // geo/ASN rule has to (a) arm the grade block at all and (b) appear in its
 // key.  Before this wiring, an ASN captcha_only rule stopped only addresses
 // arriving bare: every pow-cookie holder passed for the cookie's remaining
-// lifetime -- measured live as 1,096 content pages in two hours through a rule
-// that said captcha_only.
+// lifetime -- observed live as a proxy herd riding content pages in bulk
+// through a rule that said captcha_only.
 func TestAxisCaptchaRulesArmTheGradeGate(t *testing.T) {
 	render := func(s settings.Settings) string {
 		dir := t.TempDir()

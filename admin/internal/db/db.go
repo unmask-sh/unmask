@@ -54,7 +54,7 @@ type DB struct {
 // cache_size and mmap_size are PER CONNECTION, and the pool opens one per CPU
 // (up to sqliteMaxConnsCeil) -- so a flat "128MB cache" is really up to
 // 8 x 128MB of page cache plus 8 x mmap once the dashboard runs a few queries
-// in parallel.  Measured on a 2.2GB / 6.9M-row event DB with the production
+// in parallel.  Measured on a multi-GB, multi-million-row event DB with production
 // query mix (hunt page, 30-day aggregate, funnel counts) at 8 concurrent
 // workers: 128MB cache + 256MB mmap peaked at 3.7GB RSS, while 4MB + 8MB
 // peaked at 99MB and finished in the same wall-clock time (71.9s vs 71.6s).
@@ -434,8 +434,8 @@ func (d *DB) NowMinusMinutes(n int) string {
 // transaction for its whole run, and its run is proportional to the size of the
 // indexes: `PRAGMA analysis_limit` only lets it skip runs of DUPLICATE keys, and
 // every unmask_event index carries date_created, so they are all near-unique and
-// nothing gets skipped.  Measured on tool1-us (3.4GB database, 3.9M events, 1.1GB
-// of event indexes): 60-70s, during which every event insert failed with
+// nothing gets skipped.  Measured on a multi-GB production database (millions of
+// events, ~1GB of event indexes): 60-70s, during which every event insert failed with
 // SQLITE_BUSY and the challenge beacon's writes took 5s.  On a freshly installed
 // database it is instant.  Call it from `unmask db-analyze` or from migrate (the
 // service is stopped there) -- never from serve.
@@ -486,8 +486,8 @@ func (d *DB) HasPlannerStats(ctx context.Context) (bool, error) {
 // (the planner can skip-scan them once it has statistics), but NOT for
 // ip_address: with roughly one distinct IP per three rows a skip-scan is
 // worthless, so even a fully analysed SQLite keeps scanning the whole
-// (ip_address, date_created) covering index.  Measured on the tool1-us database
-// (3.9M events): `GROUP BY ip_address` over a 1-hour window took 1.4s warm /
+// (ip_address, date_created) covering index.  Measured on a multi-million-row
+// production database: `GROUP BY ip_address` over a 1-hour window took 1.4s warm /
 // 10.3s cold and did NOT get faster with a narrower window -- pinned to the date
 // index it is 0.005s.
 //

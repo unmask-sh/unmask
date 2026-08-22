@@ -71,8 +71,8 @@ func TestBypassIPCIDRsIncludesPresets(t *testing.T) {
 // Forward-auth parity: stats_exclude_ips are folded into the native
 // geo $is_bypass_ip (they skip the challenge), so the CHALLENGE matcher the
 // forward-auth authcheck consults must match them too -- otherwise a monitoring
-// probe from a stats-exclude IP is challenged on a forward-auth host (tool1-sg)
-// but passes on a native one (tool1-jp/us/gb), a permanent xymon false-positive.
+// probe from a stats-exclude IP is challenged on a forward-auth host (web1-sg)
+// but passes on a native one (web1-jp/us/gb), a permanent xymon false-positive.
 func TestChallengeBypassMatcherIncludesStatsExclude(t *testing.T) {
 	var n settings.Nginx // no explicit bypass_ips rows: the IPs come only from stats_exclude
 	n.StatsExcludeIPs = []string{"10.8.100.1", "153.121.77.40"}
