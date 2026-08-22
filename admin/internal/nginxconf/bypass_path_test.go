@@ -134,7 +134,7 @@ func TestSplitBypassPathsForRender_PerHost(t *testing.T) {
 func TestHostToNginxVarSegment(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"shop.example", "shop_example"},
-		{"tool-jp.example.com", "tool_jp_example_com"},
+		{"web-jp.example.com", "web_jp_example_com"},
 		{"", "default"},
 		{"plain", "plain"},
 		{"a1b2c3", "a1b2c3"},

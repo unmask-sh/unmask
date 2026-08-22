@@ -11,8 +11,8 @@ import (
 // reports that as an X-Original-UA the proxy set to the empty string.  Falling
 // through to this request's own User-Agent replaced that fact with the
 // identity of whatever made the subrequest: under Apache/mod_lua that is
-// luasocket, so on a live install 60% of all events were recorded as
-// "LuaSocket 3.0.0" -- and classified as that rather than as UA-less.  nginx's
+// luasocket, so on a live install a large share of all events were recorded
+// as "LuaSocket 3.0.0" -- and classified as that rather than as UA-less.  nginx's
 // auth_request inherits the client's headers, which is why the substitution
 // stayed invisible until unmask ran behind Apache.
 func TestEmptyOriginalUAIsNotTheFetchersUA(t *testing.T) {

@@ -5,10 +5,11 @@
 # The bug this pins down: every axis except the ban was consulted only when
 # $bv_any_valid was 0, so "deny" meant "deny unless this client cleared a
 # challenge at some point in the last week".  Anything able to clear one met
-# the rule exactly once and never again.  Measured on a production install: a
+# the rule exactly once and never again.  Observed on a production install: a
 # crawler the operator had already removed from the rescue list solved the
-# proof-of-work from 419 addresses and served itself 137,051 requests in a day
-# through a row set to deny.  Raising the difficulty cannot reach it -- the
+# proof-of-work across a large pool of addresses and served itself a day's
+# worth of traffic through a row set to deny.  Raising the difficulty cannot
+# reach it -- the
 # cookie lasts a week, so the cost is one solve per address per week whatever
 # the difficulty is.
 #

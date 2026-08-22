@@ -12,7 +12,7 @@ import (
 // Passthrough ("全通過モード") must issue a PROPERLY-SIGNED _bv.  The native C
 // plugin (and the Go /api/check verifier) check the HMAC and reject an unsigned
 // sentinel, so the old "passthrough.0.c" placeholder re-challenged forever in
-// native mode -- the tool1-jp production loop where "全通過モードで復旧できない".
+// native mode -- the web1-jp production loop where "全通過モードで復旧できない".
 func TestServeChallenge_PassthroughIssuesVerifiableBV(t *testing.T) {
 	h := newTestHandler(t)
 	h.updateSettingsInMemory(func(s *settings.Settings) { s.Global.Passthrough = true })

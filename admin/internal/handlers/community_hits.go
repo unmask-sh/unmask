@@ -64,7 +64,7 @@ func (c *communityHitsCache) get(now time.Time, compute func() (communityHitStat
 	}
 	// Nothing cached yet: compute in the BACKGROUND, never on the request path.
 	// The 30-day impact scan reads payload_json for every serve row in the
-	// window (3.4M rows / ~38s on the 6.6M-row tool1-us DB), so blocking the
+	// window (millions of rows, ~38s on a multi-million-row production DB), so blocking the
 	// first Community Bans page load on it made the tab hang for tens of
 	// seconds.  Return "not known yet" so the page renders instantly; a reload
 	// after the background scan finishes shows the figure.
@@ -94,8 +94,8 @@ func (c *communityHitsCache) refresh(compute func() (communityHitStats, error)) 
 }
 
 // communityBansHits30d runs the impact query.  The LIKE prefilter lets the
-// scan skip the JSON parse on the ~100% of rows that never mention
-// community_bans (5.0s -> 0.8s measured); json_extract stays as the
+// scan skip the JSON parse on the overwhelming majority of rows, which never
+// mention community_bans (5.0s -> 0.8s measured); json_extract stays as the
 // authoritative predicate so a stray substring match can't inflate the count.
 func communityBansHits30d(ctx context.Context, d *db.DB) (communityHitStats, error) {
 	var jsonExpr, dateExpr string
@@ -110,7 +110,7 @@ func communityBansHits30d(ctx context.Context, d *db.DB) (communityHitStats, err
 	// path) and at most once per communityHitsTTL, so a slow 30-day scan on a
 	// large DB should be allowed to finish and populate the cache rather than
 	// time out at 30s and leave the figure unknown forever (measured 38s on the
-	// 6.6M-row tool1-us DB).
+	// 6.6M-row web1-us DB).
 	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
 	defer cancel()
 	var s communityHitStats

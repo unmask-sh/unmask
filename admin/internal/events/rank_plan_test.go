@@ -37,7 +37,7 @@ func planOf(t *testing.T, d *db.DB, stmt string, args ...any) string {
 // predicate on ip_address, SQLite prefers scanning that entire covering index
 // (it then gets GROUP BY order for free) over seeking the date_created range --
 // so `GROUP BY ip_address` costs O(all events), not O(events in the window).  On
-// the tool1-us production DB (3.9M events) that measured 1.4s warm / 10.3s cold
+// a multi-million-event production DB that measured 1.4s warm / 10.3s cold
 // for a *one hour* window, and it did not get cheaper with a narrower window.
 // ANALYZE does not rescue it: ip_address is too high-cardinality to skip-scan.
 // The query must therefore be pinned to idx_unmask_event_date.

@@ -544,7 +544,7 @@ document.addEventListener('DOMContentLoaded', function(){
     // pow_pass and captcha are emitted by the same JS tick -- the proof of work
     // finishes, then the CAPTCHA is drawn -- so they reach the server as two
     // beacons sent microseconds apart and are stamped on arrival.  Which one
-    // lands first is a race, and it does invert: observed on a production
+    // lands first is a race, and it does invert: seen in a production
     // session as captcha .574 / pow_pass .576, reading as though a CAPTCHA had
     // preceded the proof of work.  The weight is what keeps the chain in the
     // order the visitor actually walked, so both phases must be named here --
@@ -835,9 +835,10 @@ document.addEventListener('DOMContentLoaded', function(){
     // view.  Three real causes, in observed order of frequency: the serve
     // was recorded on ANOTHER fleet node (a GCP-LB-style balancer picks a
     // backend per request, so one client's session can straddle nodes --
-    // verified in production: serve on tool1-gb, beacons on tool1-jp), the
-    // serve fell outside the time range, or pagination cut it (rare since
-    // SessionBleed covers 99.97% of spreads).  Without an indicator the
+    // verified in production, with the serve on one node and the beacons on
+    // another), the serve fell outside the time range, or pagination cut it
+    // (rare, since SessionBleed covers all but a sliver of spreads).
+    // Without an indicator the
     // chain reads as a session that simply skipped serve, which is
     // misleading.  The matching grp.length === 1 single-fragment case is
     // handled separately further below.

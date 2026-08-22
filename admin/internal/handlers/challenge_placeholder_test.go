@@ -20,7 +20,7 @@ import (
 // the real PoW solve time") while the HTML carried 1500, so every visitor was
 // held for an extra 1.5 seconds after a solve that takes 30-100ms, and the
 // /unmask/test/ override that was the whole point could not fire either.
-// Measured on the fleet: a median load-to-pass of 1,508ms against a 1,500ms
+// Measured in production: a median load-to-pass of 1,508ms against a 1,500ms
 // floor.
 func TestChallengePlaceholdersMatchTheHandlersConstants(t *testing.T) {
 	html, err := assets.Static.ReadFile("static/challenge.html")
