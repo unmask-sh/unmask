@@ -10,6 +10,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.35] - 2026-08-23
+
 ### Added
 - (2026-08-21) **The bot-hunt timeline says which fingerprint each phase actually presented.**  A beacon is its own TLS connection, and the same device can present a different JA4 there than the one its challenge was served to — so a row could carry a bot-verdict pill beside a fingerprint that matches no rule at all: two honest statements about two different connections, with nothing on the row saying as much.  Filtered to a single phase, the sibling row that would give it away is off screen entirely.  The serve-time fingerprint now travels with the challenge page and rides every phase beacon back, a quiet `⇄` marks the rows whose own connection differed, and the session timeline — the popover an operator already opens — grows a fingerprint column: each phase's recorded JA4 with the changes marked, and the verdict as it stood at the time.  A lone row left behind by a filter fetches that timeline from the server rather than inferring a session from the one line on screen.  The echoed value is display-only by design: recording still keeps each connection's own fingerprint, and no enforcement reads the echo back — it is client-repeatable, exactly as trustworthy as the pill it annotates.  Rows written before the field existed stay unmarked rather than guessed at.
 
