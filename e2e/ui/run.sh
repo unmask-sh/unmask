@@ -330,7 +330,13 @@ export UI_E2E_OUT="$WORK/out"
 export CHROME_BIN
 
 fail=0
+# UI_E2E_ONLY=<substring> runs just the matching test(s) -- these are slow and
+# each one drives a real browser, so debugging one check should not mean sitting
+# through the other seventeen.
 for t in "$DIR"/*.test.js; do
+    if [ -n "${UI_E2E_ONLY:-}" ]; then
+        case "$(basename "$t")" in *"$UI_E2E_ONLY"*) ;; *) continue ;; esac
+    fi
     echo "== $(basename "$t")"
     if ! node "$t"; then
         fail=$((fail + 1))
