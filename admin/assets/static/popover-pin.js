@@ -509,8 +509,13 @@ window.popoverPin = window.popoverPin || (function(){
       hoverRaf = true;
       requestAnimationFrame(function(){ hoverRaf = false; reconcileHover(); });
     }, { passive: true });
-    return {
-      showHover: function(html, x, y, trigger){
+    // showHoverAt is the ONE way the primary popover goes on screen in hover
+    // form.  It is a named function rather than an inline method because the
+    // unpin path needs it too: painting with showAt() alone leaves hoverShown
+    // false, and every dismissal route (hideHover's grace timer, the mousemove
+    // watchdog) returns early on that flag -- so the popover would be visible
+    // and uncloseable.
+    function showHoverAt(html, x, y, trigger){
         // A pending grace-hide from the previous trigger must not outlive the
         // new content it would be hiding.
         if (hoverHideTimer){ clearTimeout(hoverHideTimer); hoverHideTimer = null; }
@@ -529,7 +534,9 @@ window.popoverPin = window.popoverPin || (function(){
           primary.style.pointerEvents = prevPE;
           hoverTrigger = (under && !primary.contains(under)) ? under : null;
         }
-      },
+    }
+    return {
+      showHover: showHoverAt,
       // A grace period, not an immediate hide.  Every wiring calls this from
       // its trigger's mouseleave, and the popover opens 12px BELOW the pointer
       // -- so the natural next gesture, moving into the popover to read or
@@ -573,13 +580,22 @@ window.popoverPin = window.popoverPin || (function(){
           // fully close" makes the pinned -> hover return awkward UX-wise, so we behave as
           // "click again = unpin only".
           existing.remove(); pins.delete(trigger);
-          if (html) showAt(primary, html, x, y);
+          // Back to hover form -- and hover form means the hover STATE, not
+          // just the paint.  Handing the trigger over is what lets mouseleave
+          // (and the watchdog) close it again.
+          if (html) showHoverAt(html, x, y, trigger);
           return;
         }
         if (existing) pins.delete(trigger);
         var clone = makeClone(html, x, y, trigger, customTitle);
         pins.set(trigger, clone);
+        // The hover popover is what the clone was made from; hiding it without
+        // clearing the flag would leave the two disagreeing about whether a
+        // hover popover is on screen.
         primary.style.display = 'none';
+        hoverShown = false;
+        hoverTrigger = null;
+        if (hoverHideTimer){ clearTimeout(hoverHideTimer); hoverHideTimer = null; }
       }
     };
   }

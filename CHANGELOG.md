@@ -10,6 +10,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- (2026-08-23) **Unpinning a popover left it stranded on screen.**  Clicking a pinned popover a second time unpins rather than closes it -- the popover returns to its hover form, because "click again = fully close" makes the pinned-to-hover return awkward.  It came back painted but not *registered*: the return path drew the popover directly instead of going through the one function that also records which trigger the popover now belongs to, and every route that closes a hover popover -- the grace timer on mouseleave, and the watchdog that polls `:hover` for pointers that leave too fast to fire an event -- checks that registration first and gives up when it is missing.  So the popover stayed up, and no gesture would take it down: not leaving, not moving away, not hovering something else.  Two clicks on a bot-hunt phase reached it.  The return path now goes through the same function every other hover opening does, and pinning clears the hover bookkeeping it supersedes, so the flag and the screen cannot disagree in either direction.
+
+
 ## [0.1.35] - 2026-08-23
 
 ### Added
