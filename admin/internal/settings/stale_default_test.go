@@ -5,8 +5,8 @@ import "testing"
 // TestStaleBrowserDefaults pins the two decisions that keep this tier from
 // costing more than it catches.
 //
-// Off by default: measured over a production day, visitors it escalated
-// abandoned at 51% against a 4.5% baseline, and 44% of those who stayed solved
+// Off by default: over a production day, visitors it escalated abandoned at
+// many times the baseline rate, and a large share of those who stayed solved
 // the CAPTCHA -- they were people.  It is a deliberate opt-in, not a posture
 // the product takes on someone's behalf.
 //

@@ -1,7 +1,7 @@
 #!/bin/bash
 # 28: a real headless browser must clear the math-CAPTCHA fallback end-to-end.
 #
-# This is the path the tool1-jp incident wedged real users on: 98.5% JA4=ok,
+# This is the path a production challenge-loop incident wedged real users on: JA4=ok,
 # every behavioral score null, all dropped to the numeric-add fallback, and 87%
 # never cleared it.  Scenario 04 hits the captcha API directly; this runs the
 # actual challenge.js UI (tick "I'm not a robot" -> headless fails the behavioral

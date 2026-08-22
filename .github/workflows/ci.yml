@@ -25,6 +25,13 @@ jobs:
         with:
           go-version: "1.25.10"
           cache-dependency-path: admin/go.sum
+      # Figures measured on our own nodes have leaked into public text four
+      # times; each cleanup was scoped to the release being cut, so older
+      # entries survived every sweep.  This runs over everything, every push.
+      - name: public text carries no production measurements
+        run: |
+          ./tools/check-public-text.sh --self-test
+          ./tools/check-public-text.sh
       - name: gofmt
         working-directory: admin
         run: |

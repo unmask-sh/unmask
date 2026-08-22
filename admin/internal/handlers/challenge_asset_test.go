@@ -13,7 +13,7 @@ import (
 //
 // It used to win automatically, and the history of that is a list of outages:
 // a 2026-05-25 asset left in place across a plugin upgrade looped every visitor
-// on tool1-jp (it solved a seedless proof of work the plugin then rejected),
+// on web1-jp (it solved a seedless proof of work the plugin then rejected),
 // and a marker guard was added to catch assets that old.  The guard only ever
 // caught the ancient ones.  A copy one release behind carries every marker and
 // was trusted, so an upgrade that swapped the binary changed nothing the

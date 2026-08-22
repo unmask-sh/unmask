@@ -11,8 +11,8 @@ import (
 // obtained a pass.
 //
 // The old test was "did anything else arrive from this address", which a bot
-// satisfies by being challenged again.  Observed on tool1-us: one client, two
-// sessions three seconds apart --
+// satisfies by being challenged again.  Observed in production: one client,
+// two sessions three seconds apart --
 //
 //	02:50:41.742 serve   (session A)
 //	02:50:42.009 captcha

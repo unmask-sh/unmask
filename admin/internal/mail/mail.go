@@ -147,7 +147,7 @@ func (m *Mailer) sendOne(cfg Config, to, subject, body string) error {
 	// verification) whenever the server merely advertises it, so "starttls:
 	// false" against a localhost relay with a self-signed or expired
 	// certificate still failed on the certificate -- the exact relay this
-	// mode exists for (observed on a fleet postfix, 2026-08-19).
+	// mode exists for (observed on a production postfix relay, 2026-08-19).
 	if err := sendSession(addr, cfg, auth, from, to, msg, false); err != nil {
 		log.Printf("mail send failed (plain): %v", err)
 		return err

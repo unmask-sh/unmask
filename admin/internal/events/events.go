@@ -1324,7 +1324,7 @@ type RankRow struct {
 // over the last `minutes` -- the inputs to the over-block circuit breaker.
 //
 // A high serves/distinctIPs ratio means the same visitors are being
-// re-challenged instead of passing (the 2026-06-08 tool1-jp challenge loop).
+// re-challenged instead of passing (the 2026-06-08 web1-jp challenge loop).
 // Two layers keep bot swarms from imitating that: serves and IPs only count
 // browser-grade traffic (see the query), and the load count separates a loop
 // from its remaining twin -- a scanner farm on a handful of addresses produces
@@ -1510,8 +1510,8 @@ type ASNRankRow struct {
 //
 // Cost: this reads EVERY distinct IP in the window (no LIMIT can be pushed into
 // SQL -- the ranking key is computed after the query), so the date-index hint is
-// load-bearing.  Measured on a 6.6M-row production DB over 24h / 111k distinct
-// IPs: 0.36s with the hint, 48s without it, because the unhinted planner walks
+// load-bearing.  Measured on a multi-million-row production DB over a busy 24h
+// window: 0.36s with the hint, 48s without it, because the unhinted planner walks
 // the whole (ip_address, date_created) index instead of seeking the window.
 func RankByASN(ctx context.Context, d *db.DB, sinceMin, limit int, resolve func(ip string) (uint, string)) ([]ASNRankRow, error) {
 	if limit < 1 || limit > 200 {
@@ -1588,7 +1588,7 @@ func RankByASN(ctx context.Context, d *db.DB, sinceMin, limit int, resolve func(
 //
 // A plain `SELECT DISTINCT <col> ... ORDER BY <col> LIMIT n` scans the ENTIRE
 // (<col>, date_created) covering index because SQLite cannot early-terminate a
-// DISTINCT — on tool1-us (6.6M rows, ONE distinct host) that measured ~34s cold
+// DISTINCT — on a multi-million-row production DB with ONE distinct host that measured ~34s cold
 // / ~1s warm, paid on every admin page load.  For SQLite we emulate a loose
 // index scan with a recursive CTE: each step seeks the next value with
 // MIN(<col>) WHERE <col> > prev, i.e. one index seek per DISTINCT value, so the

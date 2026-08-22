@@ -1,7 +1,7 @@
 #!/bin/bash
 # 49: the ban file's action column survives a daemon restart.
 #
-# The regression this pins (found on tool1-jp, 2026-07-14): Manager.Start() writes
+# The regression this pins (found on web1-jp, 2026-07-14): Manager.Start() writes
 # the ban file immediately (initial flush), and flush() resolves every row whose
 # action column is empty (= "inherit the source default") through EffectiveAction.
 # main.go used to register the per-source action resolver ~100 lines AFTER

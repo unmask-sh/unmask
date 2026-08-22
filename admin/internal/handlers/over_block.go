@@ -11,7 +11,7 @@ import (
 
 // RunOverBlockMonitor samples the challenge funnel on a ticker and trips the
 // over-block circuit breaker when the same visitors are being re-challenged
-// instead of passing -- the shape of the 2026-06-08 tool1-jp incident, which
+// instead of passing -- the shape of the 2026-06-08 production incident, which
 // over-blocked real users for ~14h before anyone noticed.  On a trip it alerts
 // (and, when AutoPassthrough is set, flips serveBotChallenge to passthrough so
 // visitors get through); it clears and alerts again when the signal recovers.

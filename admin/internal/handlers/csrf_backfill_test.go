@@ -13,7 +13,7 @@ import (
 // "pick the cookie up" -- which has no terminating condition when the client
 // does not return the cookie (Chrome withholds SameSite=Strict cookies for a
 // whole cross-site-initiated redirect chain), and locked an operator out of
-// /unmask/admin/ with ERR_TOO_MANY_REDIRECTS (tool1-jp, 2026-07-10).
+// /unmask/admin/ with ERR_TOO_MANY_REDIRECTS (web1-jp, 2026-07-10).
 
 // backfillRequest runs one request with a valid session and no CSRF cookie
 // through AuthMiddleware and returns the recorder plus the token the inner

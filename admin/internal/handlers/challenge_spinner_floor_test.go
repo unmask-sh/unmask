@@ -116,9 +116,9 @@ func TestPassRedirectHoldIsHonest(t *testing.T) {
 	// used to sit at the solve, ahead of the cookie and the beacon, so a
 	// visitor who closed the tab during a hold WE imposed lost the solve they
 	// had already paid for: no _bv, no bv_pow_only, an abandon beacon instead.
-	// Measured the hour it shipped: gb went 2.20% abandonment (16-bit, no hold)
-	// to 17.9% (16-bit + hold) against an 11.87% baseline -- big enough to hide
-	// a real improvement underneath it.
+	// Split at the hour it shipped, one production node's abandonment fell well
+	// below its own baseline without the hold and rose several times above it
+	// with the hold -- big enough to hide a real improvement underneath it.
 	paint := strings.Index(js, "var holdUntil")
 	cookie := strings.Index(js, "document.cookie='_bv='")
 	wait := strings.Index(js, "holdUntil - Date.now()")

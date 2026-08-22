@@ -15,7 +15,7 @@ import (
 // (stash -> overlay) directly.
 func TestNetListDraftRoundTrip(t *testing.T) {
 	form := url.Values{}
-	form["admin_allowed_hosts"] = []string{`tool\d+\-[a-z]`, "admin.example.com"}
+	form["admin_allowed_hosts"] = []string{`web\d+\-[a-z]`, "admin.example.com"}
 	form["admin_allowed_hosts_enabled"] = []string{"1", "0"}
 	form["admin_allowed_ips"] = []string{"10.0.0.0/8"}
 	form["admin_allowed_ips_enabled"] = []string{"1"}
@@ -23,7 +23,7 @@ func TestNetListDraftRoundTrip(t *testing.T) {
 	// Stash, then read the flash back the way the GET render would.
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/unmask/admin/settings/save?section=network", nil)
-	setSectionDraft(w, r, "/unmask", "network", form, []string{`tool\d+\-[a-z]`}, "admin_allowed_hosts", "", "boom")
+	setSectionDraft(w, r, "/unmask", "network", form, []string{`web\d+\-[a-z]`}, "admin_allowed_hosts", "", "boom")
 
 	var cookie string
 	for _, c := range w.Result().Cookies() {
@@ -44,7 +44,7 @@ func TestNetListDraftRoundTrip(t *testing.T) {
 	full.Nginx.AdminAllowedHosts = []string{"stale.example.com"}
 	view := overlaySectionDraft(full, "network", raw)
 	n := &full.Nginx
-	if !view.Focus[`tool\d+\-[a-z]`] {
+	if !view.Focus[`web\d+\-[a-z]`] {
 		t.Errorf("the changed value is not in the focus set: %#v", view.Focus)
 	}
 	if view.Focus["admin.example.com"] {
@@ -54,7 +54,7 @@ func TestNetListDraftRoundTrip(t *testing.T) {
 	if view.ErrField != "admin_allowed_hosts" || view.ErrMsg != "boom" {
 		t.Errorf("the located error did not survive the round-trip: %#v", view)
 	}
-	if len(n.AdminAllowedHosts) != 2 || n.AdminAllowedHosts[0] != `tool\d+\-[a-z]` {
+	if len(n.AdminAllowedHosts) != 2 || n.AdminAllowedHosts[0] != `web\d+\-[a-z]` {
 		t.Fatalf("the invalid value the operator typed was not preserved: %#v", n.AdminAllowedHosts)
 	}
 	if n.AdminAllowedHosts[1] != "admin.example.com" {
@@ -125,7 +125,7 @@ func TestChangedListValues(t *testing.T) {
 	form := url.Values{}
 	// One unchanged host, one brand-new host; the IP list resubmitted as-is;
 	// a new metrics entry.
-	form["admin_allowed_hosts"] = []string{"admin.example.com", `tool\d+-[a-z]+`}
+	form["admin_allowed_hosts"] = []string{"admin.example.com", `web\d+-[a-z]+`}
 	form["admin_allowed_ips"] = []string{"10.0.0.0/8"}
 	form["metrics_allow_from"] = []string{"192.0.2.1"}
 
@@ -134,7 +134,7 @@ func TestChangedListValues(t *testing.T) {
 	for _, v := range got {
 		set[v] = true
 	}
-	if !set[`tool\d+-[a-z]+`] {
+	if !set[`web\d+-[a-z]+`] {
 		t.Errorf("the newly-added host is not in the changed set: %v", got)
 	}
 	if !set["192.0.2.1"] {

@@ -1,11 +1,11 @@
 #!/bin/bash
 # 59: a bot-verdict JA4 is not satisfied by a proof-of-work cookie.
 #
-# The by-fingerprint sibling of scenario 56.  Measured live (2026-08-20): a
+# The by-fingerprint sibling of scenario 56.  Observed live (2026-08-20): a
 # residential-proxy herd solved the 16-bit proof-of-work through rotating
-# exits, then rode the minted cookies through content pages -- 1,086 riding
-# addresses in one hour -- while the CAPTCHA the fingerprint rule asked for
-# stopped it cold (0 solves in 3,060 serves).  The cookie was valid; it was
+# exits, then rode the minted cookies through content pages in bulk, while
+# the CAPTCHA the fingerprint rule asked for stopped it cold -- it never
+# cleared one.  The cookie was valid; it was
 # simply not the credential the rule demanded.  Before the fix, the JA4 axis
 # was the one grade source missing from $unmask_needs_captcha_grade (native)
 # and the pass-cookie veto (forward-auth): a bot-verdict fingerprint was

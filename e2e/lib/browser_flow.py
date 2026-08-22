@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Drive the FULL challenge in a real headless browser -- the only e2e that runs
 # the actual challenge.js (the curl scenarios re-implement the PoW).  A stale or
-# broken challenge.js (the tool1-jp loop) can never pass here.
+# broken challenge.js (the web1-jp loop) can never pass here.
 #
 # challenge.js flags a plain headless browser as a bot (navigator.webdriver +
 # zero plugins => flags>=3) and routes it to the CAPTCHA path, never the PoW.

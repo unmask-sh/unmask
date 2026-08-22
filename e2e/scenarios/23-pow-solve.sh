@@ -2,7 +2,7 @@
 # 23: solve the seed-bound SHA-256 PoW (= challenge.js's exact algorithm) and
 # pass the challenge with the resulting _bv.
 #
-# Guards against a challenge.js <-> plugin seed-binding desync.  The tool1-jp
+# Guards against a challenge.js <-> plugin seed-binding desync.  The web1-jp
 # production loop was a stale challenge.js that solved a seedless/djb2 PoW the
 # seed-bound plugin rejected, looping every visitor -- and the curl-based e2e
 # never exercised the PoW (only the CAPTCHA _bv in 04 and tamper in 08), so it

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # Drive the math-CAPTCHA fallback in a real headless browser -- the exact path
-# the tool1-jp incident wedged real users on (98.5% JA4=ok, behavioral score
+# a production challenge-loop incident wedged real users on (a JA4 verdict of ok, behavioral score
 # null for everyone, all dropped to the numeric-add fallback, 87% never cleared
 # it).  The curl scenario 04 hits the captcha API directly; this runs the actual
 # challenge.js UI: click "I'm not a robot" -> headless fails the behavioral check

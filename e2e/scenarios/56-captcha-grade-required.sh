@@ -1,11 +1,11 @@
 #!/bin/bash
 # 56: a rule that ends in a CAPTCHA is not satisfied by a proof-of-work cookie.
 #
-# The hole this closes, measured on a production install: a crawler read the
+# The hole this closes, observed on a production install: a crawler read the
 # challenge page, solved the 16-bit proof-of-work in its own code -- never
 # running challenge.js, which is why the load counter stayed at 1 for a week --
-# minted the 4-segment cookie itself, and served itself 137,051 requests a day
-# through a UA rule whose chain ends in a CAPTCHA.  Every request was a genuine
+# minted the 4-segment cookie itself, and served itself a day's worth of
+# traffic through a UA rule whose chain ends in a CAPTCHA.  Every request was a genuine
 # pass on a valid cookie.  The cookie was simply not the one the rule asked for.
 #
 # What must NOT break: the same cookie on a UA with no such rule still passes,
