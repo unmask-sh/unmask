@@ -568,32 +568,42 @@ func cmdDoctor(args []string) error {
 //
 // doctor is the right place for it precisely because doctor was the tool that
 // missed it: reading a file as root says nothing about whether the daemon can.
-// Package-deployed challenge assets: the paths the RPM / deb install to, and
-// the ones the runtime prefers over its embedded copies.  Vars so the doctor
-// test can point them at fixtures.
+// Package-deployed challenge assets: the paths the RPM / deb install to.  The
+// runtime does NOT read them -- 0.1.32 made the embedded copies authoritative
+// -- so they are checked here only because a copy that differs is an edit
+// nobody is serving.  Vars so the doctor test can point them at fixtures.
 var (
 	challengeAssetHTMLPath = "/usr/share/unmask/challenge/challenge.html"
 	challengeAssetJSPath   = "/usr/share/unmask/challenge/challenge.js"
 )
 
 // checkChallengeAssets compares the package-deployed challenge assets against
-// the ones embedded in this binary.  A deployed copy WINS at serve time, so
-// when it is older than the binary the operator ships new code and old
-// behaviour: the daemon reports the new version, the tests pass, and visitors
-// keep running the previous challenge.
+// the ones embedded in this binary, and reports a difference as an edit that
+// is going nowhere.
 //
-// The runtime already refuses assets that predate the seed-bound PoW, but that
-// guard tests for one specific marker -- it catches an asset from two releases
-// ago and waves through yesterday's.  That is exactly what happened on
-// 2026-08-02: the fleet ran a new binary while every node served the previous
-// day's challenge.js, so the proof-of-work fix reached nobody until the
-// overlay was replaced by hand.  Bytes are the only reliable test, so compare
-// bytes.
+// The check was written for the opposite world.  A deployed copy used to WIN
+// at serve time, which is how 2026-08-02 happened: the fleet ran a new binary
+// while every node served the previous day's challenge.js, so a proof-of-work
+// fix reached nobody.  0.1.32 answered that by making the embedded assets
+// authoritative, and this check kept its old wording for three weeks -- it
+// told operators visitors were running the deployed file when the runtime had
+// stopped reading it.  A doctor that is confidently wrong is worse than one
+// that is silent, so the message now says what actually happens.
 //
-// A difference is reported as a warning, not an error: an operator may have
-// deliberately customised the file.  The message names the supported way to do
-// that (challenge_html_path), so a deliberate override is distinguishable from
-// a forgotten one.
+// The check still earns its place, for the case the runtime's own one-shot
+// startup log covers: an operator who customised the packaged file and cannot
+// see why their edit does nothing.  doctor is where they can ask on demand,
+// and the answer names both exits -- delete the file, or point
+// challenge_html_path / challenge_js_path at it.
+//
+// It is NOT a warning.  doctor has two levels, and a warning has to mean
+// "this needs your attention"; here nothing does, because the install serves
+// this binary's assets whatever sits in that directory.  The packaging drops
+// the file as a template to copy, and a binary upgraded ahead of its package
+// makes it differ with no mistake involved -- which on a fleet deployed by
+// swapping the binary is every node, permanently.  A warning nobody can clear
+// is how a tool teaches people to stop reading it, and the next one that
+// matters goes with it.
 // overBlockAlertRoute reports how an over-block trip alert can reach the
 // operator: "webhook", "mail", "webhook + mail", or "" when no transport can
 // deliver.  Notifications.Disabled gates both transports (notifier's OverBlock
@@ -623,7 +633,7 @@ func checkChallengeAssets(addOK, addWarn func(t, m string)) {
 		deployed string
 		embedded string
 	}
-	var stale, missing, current []string
+	var ignored, missing, current []string
 	for _, p := range []pair{
 		{"challenge.html", challengeAssetHTMLPath, "static/challenge.html"},
 		{"challenge.js", challengeAssetJSPath, "static/challenge.js"},
@@ -643,9 +653,9 @@ func checkChallengeAssets(addOK, addWarn func(t, m string)) {
 			current = append(current, p.name)
 			continue
 		}
-		stale = append(stale, fmt.Sprintf("%s (%s)", p.name, p.deployed))
+		ignored = append(ignored, fmt.Sprintf("%s (%s)", p.name, p.deployed))
 	}
-	if len(stale) == 0 {
+	if len(ignored) == 0 {
 		switch {
 		case len(current) > 0:
 			addOK("challenge assets", fmt.Sprintf("deployed %s match this binary", strings.Join(current, " + ")))
@@ -654,11 +664,10 @@ func checkChallengeAssets(addOK, addWarn func(t, m string)) {
 		}
 		return
 	}
-	addWarn("challenge assets", fmt.Sprintf(
-		"%s differ from the copies embedded in this binary — the deployed file WINS at serve time, so visitors are running that version, not this one. "+
-			"After upgrading, redeploy the package assets (or delete them to fall back to the embedded copies). "+
-			"If the difference is a deliberate customisation, use challenge.challenge_html_path instead so an upgrade cannot silently keep an old file in play.",
-		strings.Join(stale, ", ")))
+	addOK("challenge assets", fmt.Sprintf(
+		"%s differ from the copies embedded in this binary and are NOT being served — the embedded copies are, so visitors are on this binary's assets. "+
+			"An edit to those files is doing nothing: delete them, or set challenge.challenge_html_path / challenge.challenge_js_path to those paths if it was deliberate.",
+		strings.Join(ignored, ", ")))
 }
 
 func checkDataOwnership(s settings.Settings, addOK, addWarn func(t, m string)) {
