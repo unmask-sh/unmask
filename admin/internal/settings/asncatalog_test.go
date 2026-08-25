@@ -67,6 +67,7 @@ func TestCatalogCleanup(t *testing.T) {
 	vultr := HostingProviderByID("vultr")
 	if vultr == nil {
 		t.Fatal("vultr missing")
+		return // staticcheck does not read t.Fatal as terminating (SA5011)
 	}
 	hasChoopa := false
 	for _, p := range vultr.OrgPatterns {
