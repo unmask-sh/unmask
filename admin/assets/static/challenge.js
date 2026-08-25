@@ -695,16 +695,31 @@
     if (u.pathname === '/unmask/challenge.html' ||
         /^\/unmask\/challenge\/?$/.test(u.pathname) ||
         /^\/unmask\/(admin\/)?test(\/|$)/.test(u.pathname)) {
-      // Test-only override: ?_test_redirect=PATH (same-origin only).  Must
-      // start with `/` and must not be protocol-relative `//host`, so a
-      // hostile URL crafted with `_test_redirect=https://evil.example/` is
-      // ignored.  Empty / invalid falls back to "/".
+      // Test-only override: ?_test_redirect=PATH (same-origin only).  Empty
+      // or off-site falls back to "/".
+      //
+      // Resolving against location.origin and comparing origins is not a
+      // stylistic choice over inspecting the first two characters -- it is the
+      // only form that holds.  The previous guard required a leading "/" and
+      // rejected "//host" and "/\host" by looking at charAt(1), which reads as
+      // exhaustive and is not: the URL parser strips TAB, CR and LF from
+      // anywhere in the input BEFORE parsing, so "/<TAB>/evil.example" passes a
+      // character check on the string as written and is then parsed as
+      // "//evil.example" -- a protocol-relative, off-site redirect.  Any such
+      // check is a guess about what the parser will do with the string; asking
+      // the parser is not.  A "javascript:" URL falls out too (its origin is
+      // "null"), as does anything unparseable.
+      //
+      // The gate around this block is the challenge / test path, not a test
+      // flag, so this runs on ordinary installs: a visitor who completes a
+      // challenge at /unmask/challenge/?_test_redirect=... goes where it says.
       var target = '/';
       var qsRedir = u.searchParams.get('_test_redirect');
-      // Local path only: reject "//host" AND "/\host" (browsers normalize the
-      // backslash to "//" = off-site protocol-relative redirect).
-      if (qsRedir && qsRedir.length > 0 && qsRedir.charAt(0) === '/' && qsRedir.charAt(1) !== '/' && qsRedir.charAt(1) !== '\\') {
-        target = qsRedir;
+      if (qsRedir) {
+        try {
+          var rt = new URL(qsRedir, location.origin);
+          if (rt.origin === location.origin) target = rt.pathname + rt.search + rt.hash;
+        } catch (e) { /* unparseable -> "/" */ }
       }
       location.replace(target);
     } else {

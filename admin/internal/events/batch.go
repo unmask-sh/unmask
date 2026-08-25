@@ -81,12 +81,24 @@ func (f *Flusher) Submit(e *Event) {
 	}
 }
 
+// maxBatchSize bounds the hot-reloadable batch size.  Events are flushed in one
+// transaction, so a batch this large is already far past useful; the point of
+// the ceiling is that the value is narrowed to int32 below.
+const maxBatchSize = 1 << 20
+
 // SetConfig: hot-reload batchSize / flushInterval (= called from settings save).
 func (f *Flusher) SetConfig(batchSize int, intervalMs int) {
 	if f == nil {
 		return
 	}
+	// Clamped before the narrowing conversion: int is 64-bit here and the
+	// counter is 32, so a settings value above math.MaxInt32 would wrap -- a
+	// large positive batch size arriving as a negative one, which reads as
+	// "flush never".  The ceiling is far above any useful batch anyway.
 	if batchSize >= 1 {
+		if batchSize > maxBatchSize {
+			batchSize = maxBatchSize
+		}
 		f.batchSize.Store(int32(batchSize))
 	}
 	if intervalMs >= 50 {

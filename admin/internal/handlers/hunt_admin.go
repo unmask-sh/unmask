@@ -828,7 +828,7 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 					IP: ip, JA4: ja4, Reason: reason, Comment: comment,
 					BanSource: ban.SourceManual,
 				}); err != nil {
-					log.Printf("communitybans: submit ban %s|%s: %v", ip, ja4, err)
+					log.Printf("communitybans: submit ban %s|%s: %v", LogSafe(ip), LogSafe(ja4), err)
 				}
 			}(ip, ja4, rawReason, comment)
 		}
@@ -937,7 +937,7 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 					IP: ip, JA4: ja4, Reason: reason, Comment: comment,
 					BanSource: ban.SourceJA4Ranking,
 				}); err != nil {
-					log.Printf("communitybans: submit ja4_ranking %s|%s: %v", ip, ja4, err)
+					log.Printf("communitybans: submit ja4_ranking %s|%s: %v", LogSafe(ip), LogSafe(ja4), err)
 				}
 			}(sampleIP, ja4, rawReason, comment)
 		}

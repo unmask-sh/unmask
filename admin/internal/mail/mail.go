@@ -249,19 +249,59 @@ func sendImplicitTLS(addr string, cfg Config, auth smtp.Auth, from, to string, m
 	return c.Quit()
 }
 
+// headerValue makes a string safe to place after "Name: " in a mail header.
+//
+// A header line ends at the first CRLF, so a value carrying one does not stay a
+// value: everything after it is read as the next header, or -- after a blank
+// line -- as the body.  That is mail header injection, and the message is
+// written into the DATA payload, which nothing else checks.  net/smtp's
+// validateLine covers the SMTP commands (MAIL FROM, RCPT TO, EHLO) and stops
+// command injection there, but it never sees what Data()'s writer carries.
+//
+// Every header this file writes is therefore filtered here rather than at the
+// callers.  The values arrive from several directions -- the operator's
+// from_name and site label, an admin account's stored address, and a
+// notification subject that names the address or site an event came from --
+// and the last of those is reachable by whoever caused the event.  Auditing
+// each source means being right every time, including for a source added
+// later; filtering the sink means being right once.
+//
+// CR and LF become spaces rather than being dropped, so a value that had a
+// line break still reads as separate words instead of running together.  The
+// remaining C0 controls (NUL in particular) are dropped: they carry no meaning
+// in a header and some agents parse them surprisingly.  Tab is kept -- it is
+// legal inside a header value, and folding uses it.
+func headerValue(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == '\r' || r == '\n':
+			return ' '
+		case r == '\t':
+			return r
+		case r < 0x20 || r == 0x7f:
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // buildMessage: RFC 5322 minimal.  From / To / Subject / Date / MIME headers + body.
 // Non-ASCII subjects are wrapped in a UTF-8 base64 encoded-word (= "=?utf-8?B?...?=").
+//
+// The body needs no such filtering: it sits after the blank line, where a CRLF
+// is just a line break, and Data()'s textproto.DotWriter does the dot-stuffing
+// that would otherwise let a lone "." end the message early.
 func buildMessage(cfg Config, to, subject, body string) []byte {
-	from := cfg.FromAddress
+	from := headerValue(cfg.FromAddress)
 	if from == "" {
-		from = "unmask@" + cfg.Host
+		from = "unmask@" + headerValue(cfg.Host)
 	}
 	if cfg.FromName != "" {
 		from = fmt.Sprintf("%s <%s>", encodeHeader(cfg.FromName), from)
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "From: %s\r\n", from)
-	fmt.Fprintf(&b, "To: %s\r\n", to)
+	fmt.Fprintf(&b, "To: %s\r\n", headerValue(to))
 	fmt.Fprintf(&b, "Subject: %s\r\n", encodeHeader(subject))
 	fmt.Fprintf(&b, "Date: %s\r\n", time.Now().Format(time.RFC1123Z))
 	fmt.Fprintf(&b, "MIME-Version: 1.0\r\n")
@@ -275,9 +315,14 @@ func buildMessage(cfg Config, to, subject, body string) []byte {
 	return []byte(b.String())
 }
 
-// encodeHeader: wrap a header value containing non-ASCII characters in a MIME encoded-word.
-// All-ASCII values are returned as-is.
+// encodeHeader: wrap a header value containing non-ASCII characters in a MIME
+// encoded-word.  All-ASCII values are returned as-is -- after headerValue, which
+// is the whole reason this is not a passthrough: CR and LF are ASCII, so the
+// all-ASCII branch was exactly the path an injected header would have taken.
+// The non-ASCII branch was already safe by accident, base64 having no way to
+// emit a line break.
 func encodeHeader(s string) string {
+	s = headerValue(s)
 	allASCII := true
 	for _, r := range s {
 		if r > 127 {

@@ -5561,8 +5561,13 @@ function secToHuman(s){
     if (savedRedirect) redirectInput.value = savedRedirect;
     redirectInput.addEventListener('input', function(){
       var v = redirectInput.value;
-      // Accept only `/foo` paths.  Blank means "use default `/`".
-      if (v === '' || (v.indexOf('/') === 0 && v.indexOf('//') !== 0)) {
+      // Same contract as challenge.js: resolve against the origin instead of
+      // reading the first characters, so this box and the page that consumes
+      // the value agree on what is same-origin.  Blank means "use default `/`".
+      var ok = false;
+      if (v === '') { ok = true; }
+      else { try { ok = new URL(v, location.origin).origin === location.origin; } catch (_) { ok = false; } }
+      if (ok) {
         try { localStorage.setItem('unmask:test-redirect-to', v); } catch (_) {}
         updatePreviewLinks();
       }
@@ -6803,7 +6808,14 @@ document.addEventListener('DOMContentLoaded', function(){
     let label = '';
     const listID = patInput.getAttribute('list');
     if (listID) {
-      const opt = document.querySelector('#' + listID + ' option[value="' + val.replace(/"/g, '\\"') + '"]');
+      // Look the option up by walking the list rather than building a
+      // selector out of the value.  Escaping only the quote is not enough for
+      // a CSS selector -- a backslash or bracket in the value produces either
+      // a different selector or a SyntaxError from querySelector -- and the
+      // value here is whatever an operator typed into the pattern box.
+      // Comparing values needs no escaping at all.
+      const dl = document.getElementById(listID);
+      const opt = dl ? Array.prototype.find.call(dl.options || [], function (o) { return o.value === val; }) : null;
       if (opt) {
         // Datalist labels read "JP — Japan (日本)"; the code is shown already.
         label = (opt.textContent || '').replace(/^\s*[^—]*—\s*/, '').trim();

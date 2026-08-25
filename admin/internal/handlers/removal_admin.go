@@ -102,7 +102,7 @@ func (h *Handler) AdminRemovalRequestPatch(w http.ResponseWriter, r *http.Reques
 	base := h.cfg().Server.BasePath + "/admin/community-bans/removals"
 	back := base + "?status=pending"
 	if err := cli.PatchRemoval(r.Context(), id, status); err != nil {
-		log.Printf("removal patch id=%d status=%s: %v", id, status, err)
+		log.Printf("removal patch id=%d status=%s: %v", id, LogSafe(status), err)
 		http.Redirect(w, r, back+"&err=patch+failed", http.StatusSeeOther)
 		return
 	}

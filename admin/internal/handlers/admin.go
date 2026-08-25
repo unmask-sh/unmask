@@ -543,7 +543,7 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// still get the restriction).
 		ip := adminClientIP(r, h.snapshotSettings())
 		if allowIPs := settings.EnabledValues(h.cfg().Nginx.AdminAllowedIPs, h.cfg().Nginx.AdminAllowedIPsDisabled); !ipAllowed(ip, allowIPs) {
-			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, allowIPs)
+			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", LogSafe(ip), LogSafe(r.URL.Path), LogSafeAll(allowIPs))
 			adminIPForbidden(w, ip)
 			return
 		}
@@ -767,13 +767,13 @@ func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc
 		}
 		ip := adminClientIP(r, h.snapshotSettings())
 		if allowIPs := settings.EnabledValues(h.cfg().Nginx.AdminAllowedIPs, h.cfg().Nginx.AdminAllowedIPsDisabled); !ipAllowed(ip, allowIPs) {
-			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", ip, r.URL.Path, allowIPs)
+			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", LogSafe(ip), LogSafe(r.URL.Path), LogSafeAll(allowIPs))
 			adminIPForbidden(w, ip)
 			return
 		}
 		host := adminClientHost(r, h.snapshotSettings())
 		if allowHosts := settings.EnabledValues(h.cfg().Nginx.AdminAllowedHosts, h.cfg().Nginx.AdminAllowedHostsDisabled); !hostAllowed(host, allowHosts) {
-			log.Printf("admin host denied: host=%s path=%s allowed_hosts=%v", host, r.URL.Path, allowHosts)
+			log.Printf("admin host denied: host=%s path=%s allowed_hosts=%v", LogSafe(host), LogSafe(r.URL.Path), LogSafeAll(allowHosts))
 			adminHostForbidden(w, host)
 			return
 		}
@@ -1701,7 +1701,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	select {
 	case <-waitDone:
 	case <-ctx.Done():
-		log.Printf("dashboard: overall deadline reached, rendering partial (site=%s hosts=%v range=%s)", site, hosts, rng)
+		log.Printf("dashboard: overall deadline reached, rendering partial (site=%s hosts=%v range=%s)", LogSafe(site), LogSafeAll(hosts), LogSafe(rng))
 	}
 	// Cards that errored (or panicked) -- surfaced as a "data incomplete" banner
 	// so an operator doesn't read a silently-empty card as a real zero.  Copied
@@ -1711,7 +1711,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	cardMu.Unlock()
 	if qElapsed := time.Since(qStart); qElapsed > 800*time.Millisecond {
 		log.Printf("stats queries: %v elapsed (site=%s hosts=%v range=%s aggReady=%v)",
-			qElapsed, site, hosts, rng, dashboard.HourlyAggReady())
+			qElapsed, LogSafe(site), LogSafeAll(hosts), LogSafe(rng), dashboard.HourlyAggReady())
 	}
 
 	// LastSeen / Date cells on every row carry the SQL driver's UTC datetime
