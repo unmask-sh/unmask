@@ -1287,7 +1287,7 @@ func withAccessLog(next http.Handler) http.Handler {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, code: 200}
 		next.ServeHTTP(rec, r)
-		log.Printf("%s %s %d %s", r.Method, r.URL.Path, rec.code, time.Since(start))
+		log.Printf("%s %s %d %s", handlers.LogSafe(r.Method), handlers.LogSafe(r.URL.Path), rec.code, time.Since(start))
 	})
 }
 

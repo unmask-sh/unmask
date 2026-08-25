@@ -520,6 +520,13 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 			http.SetCookie(w, &http.Cookie{
 				Name: compSegCookieName, Value: compSegsParam(on), Path: h.basePath(),
 				MaxAge: 365 * 24 * 3600, SameSite: http.SameSiteLaxMode,
+				// Secure on the same terms as every other cookie here.  This one
+				// is a view preference rather than a credential, so nothing is
+				// disclosed by it travelling in the clear -- but an install that
+				// is on HTTPS has no reason to emit a cookie that would also go
+				// over HTTP, and being the one exception is how a convention
+				// stops being one.
+				Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
 			})
 		}
 	}
