@@ -275,7 +275,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			// allowlist looks exactly like a hostile forgery from the outside.
 			// Only requests that DID carry a Signature-Input reach here, so
 			// this stays quiet for normal traffic.
-			log.Printf("unmask: web-bot-auth: signature rejected: %s", wbaResult.Reason)
+			log.Printf("unmask: web-bot-auth: signature rejected: %s", LogSafe(wbaResult.Reason))
 		}
 	}
 

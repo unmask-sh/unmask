@@ -1945,7 +1945,38 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 // admin-login check so every redirect that echoes a request-supplied path
 // (observe-only, passthrough) is open-redirect-safe.
 func isLocalRedirect(s string) bool {
-	return strings.HasPrefix(s, "/") && !strings.HasPrefix(s, "//") && !strings.HasPrefix(s, "/\\")
+	if !strings.HasPrefix(s, "/") {
+		return false
+	}
+	// TAB, CR and LF are removed from a URL anywhere in the input BEFORE it is
+	// parsed, so a prefix check runs against a string the browser never sees:
+	// "/\t/evil.example" begins with a single slash as written and is fetched as
+	// "//evil.example", which is protocol-relative and off-site.  This is not a
+	// theoretical shape -- the same guard in challenge.js had the same hole.
+	// Refusing them is simpler than predicting the parse.
+	if strings.ContainsAny(s, "\t\r\n") {
+		return false
+	}
+	// Any other C0 control has no business in a redirect target either, and
+	// agents differ on what they do with one.
+	for i := 0; i < len(s); i++ {
+		if s[i] < 0x20 || s[i] == 0x7f {
+			return false
+		}
+	}
+	// A backslash in the authority position is a slash to every browser, so
+	// "/\host" and "//host" name the same off-site target.  Normalise before
+	// asking, rather than enumerating the two spellings.
+	if strings.HasPrefix(strings.ReplaceAll(s, `\`, "/"), "//") {
+		return false
+	}
+	// Finally the parser's own opinion: anything carrying a scheme or an
+	// authority is not a local path, whatever it looks like.
+	u, err := url.Parse(s)
+	if err != nil {
+		return false
+	}
+	return u.Scheme == "" && u.Host == ""
 }
 
 // serveObserveOnlyRedirect is a lightweight handler that, under monitor mode,
@@ -2594,9 +2625,15 @@ const testIndexBody = `<h1>unmask test pages</h1>
   if (redirectInp) {
     redirectInp.addEventListener('input', function(){
       var v = redirectInp.value;
-      // Same client-side contract as challenge.js: only "/foo" paths
-      // (not protocol-relative "//host").  Empty means "fall back to /".
-      if (v === '' || (v.indexOf('/') === 0 && v.indexOf('//') !== 0)) {
+      // Same client-side contract as challenge.js, which resolves the value
+      // against the origin rather than inspecting its first characters -- a
+      // check on the raw string disagrees with the parser (TAB / CR / LF are
+      // stripped before parsing), and disagreeing here means the box accepts a
+      // value the challenge page then silently drops to "/".
+      var ok = false;
+      if (v === '') { ok = true; }
+      else { try { ok = new URL(v, location.origin).origin === location.origin; } catch (e) { ok = false; } }
+      if (ok) {
         redirectTo = v;
         try { localStorage.setItem('unmask:test-redirect-to', v); } catch(e){}
         update();

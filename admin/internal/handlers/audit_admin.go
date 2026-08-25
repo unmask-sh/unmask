@@ -12,6 +12,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -310,6 +311,10 @@ func (h *Handler) AdminAuditRestore(w http.ResponseWriter, r *http.Request) {
 	redir("")
 }
 
+// maxDiffLines bounds the snapshot sizes UnifiedDiff will build an LCS table
+// for.  See the note at the allocation.
+const maxDiffLines = 20000
+
 // UnifiedDiff produces a compact unified-diff-style text from two snapshots.
 // Only changed lines are emitted (= no surrounding context) so storage stays
 // bounded — large preset / extra list edits otherwise blow the audit row past
@@ -318,6 +323,16 @@ func UnifiedDiff(before, after string) string {
 	a := strings.Split(strings.TrimRight(before, "\n"), "\n")
 	b := strings.Split(strings.TrimRight(after, "\n"), "\n")
 	m, n := len(a), len(b)
+	// The LCS table below is (m+1)*(n+1) ints -- quadratic in the line counts,
+	// while the output is capped at 500 lines.  Two large snapshots (a preset
+	// list edited wholesale, a pasted allowlist) therefore cost memory out of
+	// all proportion to what anyone will read: a pair of 50k-line settings
+	// snapshots is 2.5 billion cells, or ~20 GB.  Above the ceiling, say so
+	// instead of computing it; a diff nobody can read is not worth an OOM in
+	// the daemon that is also serving challenges.
+	if m > maxDiffLines || n > maxDiffLines {
+		return fmt.Sprintf("(diff omitted: %d -> %d lines, over the %d-line limit)", m, n, maxDiffLines)
+	}
 	dp := make([][]int, m+1)
 	for i := range dp {
 		dp[i] = make([]int, n+1)
