@@ -9,6 +9,12 @@ on:
     branches: [master, main, multi-site]
   pull_request:
     branches: [master, main, multi-site]
+  # Manual trigger, for the same reason codeql has one: a push made while
+  # Actions is down never gets a run, and GitHub does not replay the event
+  # afterwards -- so the commit stays unverified while the branch looks green,
+  # with no way to ask for the checks.  Seen on 2026-08-26 (Actions major
+  # outage; 4812b11 and 947d0d6 were pushed into it).
+  workflow_dispatch:
 
 permissions:
   contents: read
