@@ -1948,6 +1948,15 @@ func isLocalRedirect(s string) bool {
 	if !strings.HasPrefix(s, "/") {
 		return false
 	}
+	// The two spellings of an off-site target, checked literally even though
+	// the normalisation further down already covers both.  The redundancy buys
+	// something: CodeQL's go/bad-redirect-check looks for exactly this pair
+	// after a leading-slash test, and a rule that fires on the naive shape is
+	// worth keeping armed -- whoever simplifies this function later gets told,
+	// instead of quietly shipping the hole the rest of this replaced.
+	if strings.HasPrefix(s, "//") || strings.HasPrefix(s, `/\`) {
+		return false
+	}
 	// TAB, CR and LF are removed from a URL anywhere in the input BEFORE it is
 	// parsed, so a prefix check runs against a string the browser never sees:
 	// "/\t/evil.example" begins with a single slash as written and is fetched as
