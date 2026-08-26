@@ -2,19 +2,36 @@
 # - Go modules under admin/ (= the admin daemon source).
 # - GitHub Actions used by ci.yml / release.yml.
 #
-# Weekly cadence to avoid PR noise; security updates are still applied
-# immediately by Dependabot when the corresponding "security advisory"
-# fires.
+# These pull requests are a REPORT, not something to merge.  Dependabot has no
+# way to set the git author on its commits (dependabot-core#6586), and GitHub's
+# contributors list is built from commit authors -- so merging even one of them
+# puts a bot beside the humans on the repo page, permanently, with no way back
+# short of rewriting published history.  Apply the diff by hand instead
+# (`gh pr diff <n> | git apply`), commit it, and close the pull request.
+#
+# One group per ecosystem, monthly, so that stays a couple of minutes a month
+# rather than a standing chore.  Grouping also fixes a class of breakage on its
+# own: an action split across several steps (github/codeql-action's init and
+# analyze, pinned here to one SHA) used to arrive as separate pull requests,
+# and whichever landed first left the two on mismatched versions with the
+# analysis failing.  Grouped, they move together.
+#
+# Slowing the cadence costs nothing in security terms: Dependabot security
+# updates fire on advisory publication, not on this schedule.
 version: 2
 updates:
   - package-ecosystem: gomod
     directory: /admin
     schedule:
-      interval: weekly
+      interval: monthly
       day: monday
       time: "06:00"
       timezone: Asia/Tokyo
     open-pull-requests-limit: 5
+    groups:
+      go-dependencies:
+        patterns:
+          - "*"
     commit-message:
       prefix: "deps"
     labels:
@@ -24,11 +41,15 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
       day: monday
       time: "06:00"
       timezone: Asia/Tokyo
     open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"
     commit-message:
       prefix: "ci"
     labels:
