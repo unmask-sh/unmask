@@ -18,15 +18,16 @@
 #
 # Slowing the cadence costs nothing in security terms: Dependabot security
 # updates fire on advisory publication, not on this schedule.
+#
+# A monthly interval runs on the first of the month; the day / time / timezone
+# keys apply to daily and weekly schedules only, so they are left off rather
+# than kept as decoration that reads like a setting.
 version: 2
 updates:
   - package-ecosystem: gomod
     directory: /admin
     schedule:
       interval: monthly
-      day: monday
-      time: "06:00"
-      timezone: Asia/Tokyo
     open-pull-requests-limit: 5
     groups:
       go-dependencies:
@@ -42,9 +43,6 @@ updates:
     directory: /
     schedule:
       interval: monthly
-      day: monday
-      time: "06:00"
-      timezone: Asia/Tokyo
     open-pull-requests-limit: 5
     groups:
       github-actions:
