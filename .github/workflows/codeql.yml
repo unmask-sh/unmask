@@ -13,6 +13,12 @@ on:
     branches: [main]
   schedule:
     - cron: "30 18 * * 1"   # Mondays 18:30 UTC = 03:30 JST
+  # Manual trigger, because a run that ends in startup_failure cannot be
+  # retried ("This workflow run cannot be retried") and nothing else here
+  # fires on demand -- so a scan lost to a transient GitHub-side failure
+  # stayed lost until somebody happened to push again, with the SAST gate
+  # quietly not covering the commit in between.  Seen on 2026-08-26.
+  workflow_dispatch:
 
 permissions:
   contents: read
