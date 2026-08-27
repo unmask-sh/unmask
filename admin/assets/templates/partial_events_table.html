@@ -4,13 +4,15 @@
   source of truth for: the <tr> shape (= data-bt / data-phase / data-ts /
   data-ts-ms), the cell layout, the session-collapse JS (= group rows by
   beacon_token, show the phase chain on the latest row), and the cellpop JS
-  (= popover on truncated JA4 / verdict / URL / UA / host-badge / site-badge).
+  (= popover on truncated JA4 / verdict / URL / site-badge).
 
   Context expected (= pass via {{ template "events_table_block" . }}):
     .Rows                  []events.Row (= the events to render)
     .Lang                  i18n key (= 'ja' / 'en' / ...)
     .BasePath              admin base (= '/unmask')
-    .Hosts                 map[host]bool (= len > 1 hides the host-badge)
+    .Hosts                 map[host]bool (= len > 1 puts the recording node's
+                           host id in the date popover; one host means one
+                           possible answer, so the row says nothing)
     .RowsGhostSites        map[string]bool (= sites not in the defined list;
                            drives only the ghost styling -- the badge itself
                            shows whenever a row carries a site, single-site
@@ -303,7 +305,7 @@
 <table class="events"{{ if and .EventsCap (gt .EventsCap 0) }} data-events-cap="{{ .EventsCap }}"{{ end }}>
   <thead>
     <tr>
-      <th style="width:13rem">{{ t .Lang "hunt.col.at" }}</th>
+      <th style="width:15rem">{{ t .Lang "hunt.col.at" }}</th>
       <th style="width:10.5rem">IP</th>
       <th style="width:10rem">JA4</th>
       <th style="width:5rem">verdict</th>
@@ -351,8 +353,8 @@
   </thead>
   <tbody>
     {{ range .Rows }}
-    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}"{{ with .CapReason }} data-cap-reason="{{ . }}"{{ end }}{{ if ge .Seq 0 }} data-seq="{{ .Seq }}"{{ end }}{{ if ge .ElapsedMs 0 }} data-elapsed-ms="{{ .ElapsedMs }}"{{ end }} data-ref="{{ .Ref }}" data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}"{{ if .ServeJA4 }} data-serve-ja4="{{ .ServeJA4 }}"{{ end }} data-referer="{{ .Referer }}"{{ if gt .LocalPort 0 }} data-local-port="{{ .LocalPort }}"{{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (eq .Phase "abandon") (gt .PassedAfter 0) }} data-passed-after="1"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .PassedAfter 0 }}{{ t $.Lang "hunt.passed_after_long" }}{{ else }}{{ t $.Lang "hunt.no_pass_after_long" }}{{ end }}"{{ end }}>
-      <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if and .Host (gt (len $.Hosts) 1) }} <span class="host-badge cellpop">{{ .Host }}</span>{{ end }}{{ if .Site }} <span class="site-badge cellpop{{ if index $.RowsGhostSites .Site }} site-ghost{{ end }}">{{ .Site }}</span>{{ end }}</td>
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}"{{ with .CapReason }} data-cap-reason="{{ . }}"{{ end }}{{ if ge .Seq 0 }} data-seq="{{ .Seq }}"{{ end }}{{ if ge .ElapsedMs 0 }} data-elapsed-ms="{{ .ElapsedMs }}"{{ end }} data-ref="{{ .Ref }}" data-site="{{ .Site }}"{{ if and .Host (gt (len $.Hosts) 1) }} data-host="{{ .Host }}"{{ end }} data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}"{{ if .ServeJA4 }} data-serve-ja4="{{ .ServeJA4 }}"{{ end }} data-referer="{{ .Referer }}"{{ if gt .LocalPort 0 }} data-local-port="{{ .LocalPort }}"{{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (eq .Phase "abandon") (gt .PassedAfter 0) }} data-passed-after="1"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .PassedAfter 0 }}{{ t $.Lang "hunt.passed_after_long" }}{{ else }}{{ t $.Lang "hunt.no_pass_after_long" }}{{ end }}"{{ end }}>
+      <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if .Site }} <span class="site-badge cellpop{{ if index $.RowsGhostSites .Site }} site-ghost{{ end }}">{{ .Site }}</span>{{ end }}</td>
       <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
       <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       {{/* No stored verdict renders as "(none)" -- the one token every verdict
@@ -1276,7 +1278,7 @@ document.addEventListener('DOMContentLoaded', function(){
   }
 })();
 
-// JA4 / UA / URL / verdict / host-badge / site-badge cellpop.  A truncated
+// JA4 / UA / URL / verdict / site-badge cellpop.  A truncated
 // cell opens a pinnable popover holding the full value (= selectable text +
 // the title-bar copy button on popoverPin).  Untruncated cells stay quiet.
 //
@@ -1503,14 +1505,34 @@ document.addEventListener('DOMContentLoaded', function(){
       body += '<div class="dtpop-row"><span class="dtpop-k">Ref ID</span>' +
         '<code class="dtpop-v dtpop-ref">' + esc(ref) + '</code></div>';
     }
-    // Request Host (= the visitor's Host header) and the scheme/port this event
-    // came in on -- surfaced here so an operator reading a timestamp can see
-    // "which vhost, http/https, which port" without a dedicated column.  The
-    // values are carried on the row as data-site / data-scheme / data-port.
+    // Which vhost the request asked for, which unmask node recorded it, and the
+    // scheme/port it came in on -- surfaced here so an operator reading a
+    // timestamp can see all four without any of them costing a column.  Carried
+    // on the row as data-site / data-host / data-scheme / data-port.
+    //
+    // "Site" and "Host" are the two words the hunt filters already use -- site =
+    // the visitor's Host header, host = server.host_id -- so the popover names
+    // things the way the controls above it do.  This row used to say "Host" for
+    // the vhost, which collided with the grey host pill sitting a few pixels
+    // away meaning the opposite thing.
+    //
+    // Every value gets its own LABELLED row.  An unlabelled one appended to the
+    // timestamp reads as part of the timestamp; that was the 2026-08-15 bug, and
+    // e2e/ui/lone-popover.test.js is the note it left behind.
     var site = (tr.getAttribute('data-site') || '').trim();
     if (site){
-      body += '<div class="dtpop-row"><span class="dtpop-k">Host</span>' +
+      body += '<div class="dtpop-row"><span class="dtpop-k">Site</span>' +
         '<span class="dtpop-v">' + esc(site) + '</span></div>';
+    }
+    // Only rendered when this database holds more than one host id, which for a
+    // node that writes one value forever means a rename happened.  It was a pill
+    // in the date cell until 2026-08-27, where it shared a fixed 15rem with the
+    // timestamp and the site badge -- three things in a column sized for two, so
+    // it spilled over the IP next to it.
+    var host = (tr.getAttribute('data-host') || '').trim();
+    if (host){
+      body += '<div class="dtpop-row"><span class="dtpop-k">Host</span>' +
+        '<span class="dtpop-v">' + esc(host) + '</span></div>';
     }
     var portNum = parseInt(tr.getAttribute('data-port') || '0', 10);
     if (portNum > 0){
