@@ -118,3 +118,65 @@ func TestEventsTableActionsColumnIsNotPaddedWithEmptySpace(t *testing.T) {
 			"as blank space next to the UA")
 	}
 }
+
+// The date column is table-layout:fixed and everything in it is white-space:
+// nowrap with no overflow:hidden -- so what does not fit is not clipped, it is
+// painted over the IP cell next to it.  On 2026-08-26 a host rename split the
+// recorded host id in two, which switched on the host pill that normally never
+// shows, and the cell was suddenly holding a ~9rem timestamp plus two 4rem
+// badges inside 13rem of column.  The IP disappeared underneath them.
+//
+// The host id moved into the date popover, where a value costs no width, and
+// the column grew to fit what is left.  Both halves are pinned here: widening
+// alone would still overflow if the pill came back, and removing the pill
+// without widening would leave the site badge cut at 4rem for nothing.
+func TestEventsTableDateCellCarriesOneBadge(t *testing.T) {
+	raw, err := assets.Templates.ReadFile("templates/partial_events_table.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tpl := string(raw)
+
+	if !strings.Contains(tpl, `<th style="width:15rem">{{ t .Lang "hunt.col.at" }}</th>`) {
+		t.Error("the at column is no longer 15rem -- a ~9rem timestamp plus a site badge needs it, " +
+			"and this column overflows onto the IP rather than clipping")
+	}
+	if strings.Contains(tpl, `class="host-badge`) {
+		t.Error("the host pill is back in the date cell; it belongs in the date popover, " +
+			"which is where the row's data-host attribute sends it")
+	}
+	// The value still has to reach the popover, or the fix is just a deletion.
+	if !strings.Contains(tpl, `{{ if and .Host (gt (len $.Hosts) 1) }} data-host="{{ .Host }}"{{ end }}`) {
+		t.Error("the row no longer carries data-host, so the date popover has no host id to show")
+	}
+	if !strings.Contains(tpl, `var host = (tr.getAttribute('data-host') || '').trim();`) {
+		t.Error("the date popover no longer reads data-host")
+	}
+
+	// Both values are labelled rows.  An unlabelled one appended to the
+	// timestamp reads as part of the timestamp -- the 2026-08-15 bug that
+	// e2e/ui/lone-popover.test.js exists for.  And they are labelled with the
+	// words the hunt filters use (site = the visitor's Host header,
+	// host = server.host_id), which is why the vhost row is no longer the one
+	// called "Host".
+	for _, row := range []string{
+		`'<div class="dtpop-row"><span class="dtpop-k">Site</span>'`,
+		`'<div class="dtpop-row"><span class="dtpop-k">Host</span>'`,
+	} {
+		if !strings.Contains(tpl, row) {
+			t.Errorf("the date popover lost a labelled row: %s", row)
+		}
+	}
+
+	// The shared badge rule caps every badge on the page at 4rem, which is the
+	// live stream's constraint, not this cell's.
+	for _, page := range []string{"templates/hunt.html", "templates/overview.html"} {
+		pageRaw, err := assets.Templates.ReadFile(page)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(pageRaw), "table.events td.at .site-badge{max-width:") {
+			t.Errorf("%s: the site badge in the date cell is back to the shared 4rem cap", page)
+		}
+	}
+}
