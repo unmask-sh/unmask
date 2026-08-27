@@ -131,7 +131,7 @@ func TestEventsTableActionsColumnIsNotPaddedWithEmptySpace(t *testing.T) {
 // the date popover, where a value costs no width.  The column grew to fit what
 // is left.  And the cell clips, which is the only one of the three that holds
 // regardless of which monospace font the viewer's machine resolves -- the same
-// timestamp measures 121.6px here and 162.1px on the CI runner, so a column
+// timestamp measures 121.6px here and 146.4px on the CI runner, so a column
 // sized against one font is not sized against the other.  e2e/ui/
 // date-cell-fit.test.js measures the widths; this pins that they are declared.
 func TestEventsTableDateCellCarriesOneBadge(t *testing.T) {
@@ -143,7 +143,7 @@ func TestEventsTableDateCellCarriesOneBadge(t *testing.T) {
 
 	if !strings.Contains(tpl, `<th style="width:18rem">{{ t .Lang "hunt.col.at" }}</th>`) {
 		t.Error("the at column is no longer 18rem -- it has to hold a timestamp that reaches " +
-			"~162px under a wide monospace font, plus a site badge, before anything is cut")
+			"~146px under a wide monospace font, plus a site badge, before anything is cut")
 	}
 	if strings.Contains(tpl, `class="host-badge`) {
 		t.Error("the host pill is back in the date cell; it belongs in the date popover, " +
