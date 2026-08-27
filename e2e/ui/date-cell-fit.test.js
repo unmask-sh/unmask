@@ -12,10 +12,16 @@
 // dtPopHtml), and the cell now clips.  Clipping is the half that actually
 // holds, because the width needed is a function of which monospace font the
 // viewer's machine resolves, and that is not knowable from here: measured on
-// the same page, the same timestamp is 121.6px under Noto Sans Mono CJK JP,
-// 146.4px under DejaVu Sans Mono, and 162.1px on the CI runner.  A column
-// sized for one of those overflows under another -- which is exactly how the
-// first attempt at this fix passed locally and failed in CI.
+// the same page, the same timestamp is 121.6px under Noto Sans Mono CJK JP
+// and 146.4px under DejaVu Sans Mono, which is what the CI runner resolves.
+// A column sized for one of those overflows under the other -- which is
+// exactly how the first attempt at this fix passed locally and failed in CI.
+//
+// (The first correction of that failure put the runner at 162.1px.  That was
+// a back-calculation from an overflow measured against the border box, and it
+// forgot the cell's left padding and the badge's own padding and border.  The
+// runner prints its own numbers now, which is why this measures rather than
+// derives.)
 //
 // So the assertions are in two tiers: the cell must clip (true for any font),
 // and the contents must fit as laid out (true for the fonts reachable here,
