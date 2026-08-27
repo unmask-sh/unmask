@@ -120,16 +120,20 @@ func TestEventsTableActionsColumnIsNotPaddedWithEmptySpace(t *testing.T) {
 }
 
 // The date column is table-layout:fixed and everything in it is white-space:
-// nowrap with no overflow:hidden -- so what does not fit is not clipped, it is
-// painted over the IP cell next to it.  On 2026-08-26 a host rename split the
-// recorded host id in two, which switched on the host pill that normally never
-// shows, and the cell was suddenly holding a ~9rem timestamp plus two 4rem
-// badges inside 13rem of column.  The IP disappeared underneath them.
+// nowrap, and it used to leave overflow visible -- so what did not fit was not
+// clipped, it was painted over the IP cell next to it.  On 2026-08-26 a host
+// rename split the recorded host id in two, which switched on the host pill
+// that normally never shows, and the cell was suddenly holding a ~9rem
+// timestamp plus two 4rem badges inside 13rem of column.  The IP disappeared
+// underneath them.
 //
-// The host id moved into the date popover, where a value costs no width, and
-// the column grew to fit what is left.  Both halves are pinned here: widening
-// alone would still overflow if the pill came back, and removing the pill
-// without widening would leave the site badge cut at 4rem for nothing.
+// Three things fix that, and all three are pinned here.  The host id moved to
+// the date popover, where a value costs no width.  The column grew to fit what
+// is left.  And the cell clips, which is the only one of the three that holds
+// regardless of which monospace font the viewer's machine resolves -- the same
+// timestamp measures 121.6px here and 162.1px on the CI runner, so a column
+// sized against one font is not sized against the other.  e2e/ui/
+// date-cell-fit.test.js measures the widths; this pins that they are declared.
 func TestEventsTableDateCellCarriesOneBadge(t *testing.T) {
 	raw, err := assets.Templates.ReadFile("templates/partial_events_table.html")
 	if err != nil {
@@ -137,9 +141,9 @@ func TestEventsTableDateCellCarriesOneBadge(t *testing.T) {
 	}
 	tpl := string(raw)
 
-	if !strings.Contains(tpl, `<th style="width:15rem">{{ t .Lang "hunt.col.at" }}</th>`) {
-		t.Error("the at column is no longer 15rem -- a ~9rem timestamp plus a site badge needs it, " +
-			"and this column overflows onto the IP rather than clipping")
+	if !strings.Contains(tpl, `<th style="width:18rem">{{ t .Lang "hunt.col.at" }}</th>`) {
+		t.Error("the at column is no longer 18rem -- it has to hold a timestamp that reaches " +
+			"~162px under a wide monospace font, plus a site badge, before anything is cut")
 	}
 	if strings.Contains(tpl, `class="host-badge`) {
 		t.Error("the host pill is back in the date cell; it belongs in the date popover, " +
@@ -177,6 +181,11 @@ func TestEventsTableDateCellCarriesOneBadge(t *testing.T) {
 		}
 		if !strings.Contains(string(pageRaw), "table.events td.at .site-badge{max-width:") {
 			t.Errorf("%s: the site badge in the date cell is back to the shared 4rem cap", page)
+		}
+		// The backstop.  Whatever font a viewer resolves, an overflow here has
+		// to become a cut badge rather than one drawn over the IP.
+		if !strings.Contains(string(pageRaw), "table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-space:nowrap;overflow:hidden}") {
+			t.Errorf("%s: td.at no longer clips; a wide font now paints the date cell over the IP", page)
 		}
 	}
 }
