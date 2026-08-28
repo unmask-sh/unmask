@@ -37,6 +37,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/assets"
 	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
+	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
@@ -360,6 +361,7 @@ func cmdDoctor(args []string) error {
 		default:
 			addOK("DB planner stats", "index statistics present")
 		}
+		checkHostIDPinned(s, conn, addOK, addWarn)
 	}
 
 	// 4. IP-geo mmdb (= optional).  When set, check existence + freshness
@@ -668,6 +670,54 @@ func checkChallengeAssets(addOK, addWarn func(t, m string)) {
 		"%s differ from the copies embedded in this binary and are NOT being served — the embedded copies are, so visitors are on this binary's assets. "+
 			"An edit to those files is doing nothing: delete them, or set challenge.challenge_html_path / challenge.challenge_js_path to those paths if it was deliberate.",
 		strings.Join(ignored, ", ")))
+}
+
+// checkHostIDPinned: an install names itself in the events table with
+// server.host_id, and when that is unset the name is the OS hostname.  A
+// hostname is not a stable identifier: rename the machine and the daemon
+// simply starts writing under the new one, so the install's history becomes
+// two histories with nothing on any page saying they are the same install.
+// Seen on 2026-08-26, where the bot-hunt log's host pill -- which exists to
+// mark exactly this and is therefore invisible almost always -- appeared
+// because one install had become two.
+//
+// It cannot warn on every default install, since most machines are never
+// renamed and a warning that fires everywhere is one nobody reads.  So it is
+// gated on the database already holding more than one host id.  That state has
+// two readings -- this machine was renamed, or several nodes share the
+// database -- and this deliberately does not guess between them, because the
+// remedy is the same either way and the operator knows which it is.
+func checkHostIDPinned(s settings.Settings, conn *db.DB, addOK, addWarn func(t, m string)) {
+	resolved := resolveHostID(s.Server.HostID)
+	if strings.TrimSpace(s.Server.HostID) != "" {
+		addOK("host id", fmt.Sprintf("pinned to %q in config, so renaming this machine cannot split its history", resolved))
+		return
+	}
+	// HostInventory rather than a SELECT DISTINCT: the plain GROUP BY full-scans
+	// a covering index over the whole event table (~34s cold in production), and
+	// that function is the one place where the cheap enumeration lives.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	hosts, err := dashboard.HostInventory(ctx, conn)
+	if err != nil {
+		// Do not go quiet on a timeout: an unreadable answer is not a clean bill
+		// of health, and this is cheap advice that costs nothing to follow.
+		addWarn("host id", fmt.Sprintf(
+			"server.host_id is unset, so this install records as %q (its OS hostname), and the recorded host ids could not be read to check for a split (%v) -- pin it with `server.host_id: %s` in config.yml either way",
+			resolved, err, resolved))
+		return
+	}
+	if len(hosts) <= 1 {
+		addOK("host id", fmt.Sprintf("unset, so this install records as %q (its OS hostname); one name in the database", resolved))
+		return
+	}
+	names := make([]string, 0, len(hosts))
+	for _, h := range hosts {
+		names = append(names, h.HostID)
+	}
+	addWarn("host id", fmt.Sprintf(
+		"this database holds %d host ids (%s) and server.host_id is unset here, so this install records under its OS hostname (%s) -- either this machine was renamed and its own history is now split across two of those names, or several nodes share the database; both are settled the same way, by pinning `server.host_id` on each node so a later rename cannot move it",
+		len(hosts), strings.Join(names, ", "), resolved))
 }
 
 func checkDataOwnership(s settings.Settings, addOK, addWarn func(t, m string)) {
