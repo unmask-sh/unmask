@@ -10,6 +10,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- (2026-08-29) **doctor now notices when an install's history has split in two.**  An install names itself in the events table with `server.host_id`, and when that is unset the name is whatever the OS hostname happens to be.  A hostname is not a stable identifier: rename the machine and the daemon simply starts writing under the new one, so the install's own history becomes two histories with nothing on any page saying they are the same install -- the bot-hunt log's host pill exists to mark exactly that, and it is invisible almost always, which is why its appearance reads as a display bug rather than as the report it is.  doctor now reads the host ids the database actually holds and says so.  It stays quiet on the ordinary install, because an unset `host_id` is the default and most machines are never renamed: the line is a warning only when the database already holds more than one name while nothing is pinned here.  That state has two readings -- this machine was renamed, or several nodes share one database -- and doctor does not guess between them, because the remedy is the same either way and the operator knows which it is: pin `server.host_id` on each node so a later rename cannot move it.  When it is pinned, the check says so and stops.
+
 ## [0.1.36] - 2026-08-28
 
 ### Fixed
