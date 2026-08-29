@@ -46,3 +46,6 @@ dist/
 # demo state (= a sandbox kept running on a test host: cert / sqlite / logs etc.)
 demo/
 e2e/ui/node_modules/
+
+# TLS material for docker-compose.example.yml (never commit private keys)
+/tls/

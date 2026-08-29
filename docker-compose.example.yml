@@ -1,53 +1,87 @@
-# unmask docker-compose example.  Adjust cert path / volumes / network for prod.
+# unmask with Docker Compose -- the admin daemon plus nginx with the module.
 #
-# Start:
-#   docker compose -f docker-compose.example.yml up -d --build
-#   open http://localhost:8443/unmask/admin/   ← install wizard
+#   1. Put a TLS certificate for your site in ./tls/ (fullchain.pem, privkey.pem).
+#      For a first look, a self-signed pair will do:
+#        mkdir -p tls && openssl req -x509 -nodes -newkey rsa:2048 -days 30 \
+#          -keyout tls/privkey.pem -out tls/fullchain.pem -subj "/CN=localhost"
+#   2. docker compose -f docker-compose.example.yml up -d
+#   3. docker compose -f docker-compose.example.yml logs admin | grep "setup token"
+#   4. open https://localhost/unmask/admin/  -> install wizard (paste the token)
 #
-# Services:
-#   admin   : unmask (= web UI + API + ban / log aggregator)
-#   nginx   : nginx 1.26 + ngx_http_unmask_module.so (= TLS termination + bot
-#             classification)
+# Two containers, same shape as a host install:
 #
-# Shared volumes:
-#   unmask-config : /etc/unmask  (admin.yml + nginx-rendered*.conf shared)
-#   unmask-data   : /var/lib/unmask  (sqlite / logs)
+#   admin   the daemon: admin UI, challenge verification, ban list, stats.
+#           On first start it writes a minimal admin.yml, migrates the DB,
+#           renders the nginx includes into /etc/unmask, then serves.
+#   nginx   the official nginx image + the unmask module.  Terminates TLS
+#           (that is where JA4 comes from), classifies, and either serves the
+#           challenge or proxies to UNMASK_UPSTREAM.  With UNMASK_UPSTREAM
+#           unset it is a plain nginx-with-module and your own conf.d applies.
+#
+# The volumes are not optional: /etc/unmask carries the rendered includes
+# (nginx reads what admin wrote) and the secrets; drop it and every restart
+# mints new secrets, which logs every visitor out and re-challenges them.
+#
+# After changing settings in the admin UI, apply them to nginx as on a host:
+#   docker compose -f docker-compose.example.yml exec nginx nginx -s reload
 
 services:
   admin:
-    build: .
-    image: unmask/admin:latest
-    container_name: unmask
+    image: ghcr.io/unmask-sh/admin:latest
+    build: .                       # or build from this checkout
+    container_name: unmask-admin
     restart: unless-stopped
+    environment:
+      TZ: Asia/Tokyo
+      # The rendered nginx config proxies /unmask/ here; "admin" is this
+      # service's name on the compose network.
+      UNMASK_DAEMON_ADDR: admin:9477
     volumes:
       - unmask-config:/etc/unmask
       - unmask-data:/var/lib/unmask
-    environment:
-      TZ: Asia/Tokyo
-    ports:
-      - "9477:9477"  # Direct-hit debug only.  Normally accessed via nginx.
+      - unmask-run:/run/unmask      # access-log socket, nginx -> admin
     healthcheck:
-      test: ["CMD", "/usr/local/bin/unmask", "doctor", "-config", "/etc/unmask/admin.yml"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9477/unmask/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
 
   nginx:
+    image: ghcr.io/unmask-sh/nginx:1.28
     build:
       context: .
-      dockerfile: e2e/docker/nginx/Dockerfile
-    image: unmask/nginx:latest
+      dockerfile: docker/nginx/Dockerfile
     container_name: unmask-nginx
     restart: unless-stopped
     depends_on:
-      - admin
-    volumes:
-      - unmask-config:/etc/unmask:ro  # Read-only view of nginx-*.conf rendered by admin.
-    ports:
-      - "8443:8443"
+      admin:
+        condition: service_healthy
     environment:
       TZ: Asia/Tokyo
+      # Gateway mode: terminate TLS on :443, challenge what needs it, proxy
+      # the rest to this URL.  Any HTTP server works as the upstream; nothing
+      # is installed on it.  Remove this variable to run module-only with your
+      # own conf.d mounted at /etc/nginx/conf.d.
+      UNMASK_UPSTREAM: http://app:80
+      UNMASK_SERVER_NAME: localhost     # your hostname; "_" matches any
+      # UNMASK_TLS_CERT: /etc/unmask/tls/fullchain.pem   (defaults)
+      # UNMASK_TLS_KEY:  /etc/unmask/tls/privkey.pem
+    volumes:
+      - unmask-config:/etc/unmask:ro
+      - unmask-run:/run/unmask
+      - ./tls:/etc/unmask/tls:ro
+    ports:
+      - "80:80"
+      - "443:443"
+
+  # Stand-in upstream so the example answers on its own.  Replace with your
+  # application, or point UNMASK_UPSTREAM at one running elsewhere.
+  app:
+    image: traefik/whoami
+    container_name: unmask-example-app
+    restart: unless-stopped
 
 volumes:
   unmask-config:
   unmask-data:
+  unmask-run:

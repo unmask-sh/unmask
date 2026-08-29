@@ -11,6 +11,11 @@
 #   - secret.bv_secret / captcha_secret_base: random 32B on each startup (= if a
 #     yml already exists it is never touched; generated only on the first run).
 #   - server.bind: 0.0.0.0,  port: 9477,  base_path: /unmask
+#   - nginx.upstream_addr: $UNMASK_DAEMON_ADDR (default 127.0.0.1:9477) = what
+#     the rendered nginx config proxies /unmask/ to; compose sets admin:9477
+#   - nginx_log.socket_path: /run/unmask/log.sock (share /run/unmask with nginx)
+#   3. Before `serve`: migrate the schema and render the nginx includes, the
+#      two steps a host install gets from postinstall / the wizard.
 set -e
 
 CFG=/etc/unmask/admin.yml
@@ -45,12 +50,16 @@ server:
     port: 9477
     base_path: /unmask
 
+nginx_log:
+    # nginx ships its access log over this unix socket (shared /run/unmask
+    # volume) so the dashboard can see cookie-passed traffic.
+    socket_path: /run/unmask/log.sock
 nginx:
     output_dir: /etc/unmask
-    upstream_addr: 127.0.0.1:9477
-    admin_allow_from:
-        - 127.0.0.1
-        - ::1
+    # Where the rendered nginx config proxies /unmask/ to.  A sidecar nginx
+    # container reaches this one by service name (compose: admin:9477); a
+    # host nginx talking to a published port keeps the loopback default.
+    upstream_addr: ${UNMASK_DAEMON_ADDR:-127.0.0.1:9477}
     metrics_allow_from:
         - 127.0.0.1
 EOF
@@ -72,4 +81,23 @@ EOF
     echo "==> unmask setup token (enter this in the wizard): $token"
 fi
 
+# Volumes are populated by whichever container mounts them first, and the
+# nginx sidecar may win that race and leave them root-owned; the skeleton
+# above is also written by root.  The binary drops to `unmask` right after
+# start, so everything it will touch has to belong to that user before then.
+# Skipped when not root (someone ran the image with --user).
+if [ "$(id -u)" = "0" ]; then
+    for d in /etc/unmask /var/lib/unmask /run/unmask; do
+        [ -d "$d" ] && chown -R unmask:unmask "$d"
+    done
+fi
+
+# `serve` does not migrate or render on its own (on a host those are
+# postinstall / wizard steps).  A container has neither, so do both here:
+# the schema must exist before the wizard, and the nginx sidecar refuses to
+# start until the includes it references exist in the shared volume.
+if [ "${1:-}" = "serve" ]; then
+    /usr/local/bin/unmask migrate      -config "$CFG"
+    /usr/local/bin/unmask render-nginx -config "$CFG"
+fi
 exec /usr/local/bin/unmask "$@"

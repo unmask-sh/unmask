@@ -1,16 +1,20 @@
-# unmask: single image (= multi-stage Go build → minimal runtime).
+# unmask admin image (= multi-stage Go build → minimal runtime).
+# Published per release as ghcr.io/unmask-sh/admin:<version>.
 #
 # Use:
-#   docker build -t unmask/admin:latest .
-#   docker run -p 9477:9477 -v unmask-data:/var/lib/unmask unmask/admin:latest
-#   → http://localhost:9477/unmask/admin/  for the install wizard.
+#   docker build -t ghcr.io/unmask-sh/admin:latest .
+#   docker run -p 9477:9477 -v unmask-data:/var/lib/unmask -v unmask-config:/etc/unmask \
+#       ghcr.io/unmask-sh/admin:latest
+#   → http://localhost:9477/unmask/admin/  for the install wizard (the setup
+#     token is printed in the container log).
 #
 # multi-arch:
-#   docker buildx build --platform linux/amd64,linux/arm64 -t unmask/admin:latest .
+#   docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/unmask-sh/admin:latest .
 #
-# Note: this image is admin only.  Pair it with a separate nginx + unmask
-# module image (= see e2e/docker/nginx/Dockerfile) or install the host nginx
-# from rpm/deb.  docker-compose.example.yml shows a combined setup.
+# This image is the admin daemon only.  The nginx side is a second image --
+# the official nginx image with the unmask module (docker/nginx/Dockerfile,
+# published as ghcr.io/unmask-sh/nginx:<nginx version>) -- or a host nginx
+# from rpm/deb.  docker-compose.example.yml wires the two containers.
 
 # -------------------------------------------------------------------------
 # build stage: Go static binary
@@ -52,9 +56,15 @@ COPY --from=build /out/unmask /usr/local/bin/unmask
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh
 
-USER unmask
+# No USER here on purpose.  A named volume takes its ownership from whichever
+# container first populates it; when that is the nginx sidecar, /etc/unmask
+# arrives root-owned and a non-root entrypoint cannot write admin.yml (seen on
+# the first compose bring-up).  The entrypoint starts as root, fixes the
+# ownership of the three volumes, and hands over to the binary, which drops to
+# the `unmask` user itself before doing anything else -- the same path a
+# host install takes under systemd.
 EXPOSE 9477
-VOLUME ["/var/lib/unmask", "/etc/unmask"]
+VOLUME ["/var/lib/unmask", "/etc/unmask", "/run/unmask"]
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["serve", "-config", "/etc/unmask/admin.yml"]
