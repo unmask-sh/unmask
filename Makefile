@@ -715,20 +715,31 @@ package-all:
 		echo "!! skipping arm64 package.  install gcc-aarch64-linux-gnu or build artifacts on arm64 host."; \
 	fi
 
-## docker        - unmask Docker image (host arch). tag: unmask/admin:$(UNMASK_VERSION)
+## docker        - admin image (host arch). tag: ghcr.io/unmask-sh/admin:$(UNMASK_VERSION)
+DOCKER_IMAGE_ADMIN ?= ghcr.io/unmask-sh/admin
+DOCKER_IMAGE_NGINX ?= ghcr.io/unmask-sh/nginx
+DOCKER_NGINX_VERSION ?= 1.28.3
 docker:
-	docker build -t unmask/admin:$(UNMASK_VERSION) -t unmask/admin:latest \
+	docker build -t $(DOCKER_IMAGE_ADMIN):$(UNMASK_VERSION) -t $(DOCKER_IMAGE_ADMIN):latest \
 		--build-arg UNMASK_VERSION=$(UNMASK_VERSION) .
 
-## docker-buildx - multi-arch image (amd64 + arm64).  To push to a registry,
-# pass DOCKER_REGISTRY=docker.io/youruser/.  Unset = local image only.
+## docker-nginx  - official nginx image + the unmask module, built against
+#                 DOCKER_NGINX_VERSION (must exist on nginx.org and Docker Hub).
+docker-nginx:
+	docker build -f docker/nginx/Dockerfile \
+		--build-arg NGINX_VERSION=$(DOCKER_NGINX_VERSION) \
+		-t $(DOCKER_IMAGE_NGINX):$(DOCKER_NGINX_VERSION) -t $(DOCKER_IMAGE_NGINX):latest .
+
+## docker-buildx - multi-arch admin image (amd64 + arm64).  Set DOCKER_REGISTRY
+# to a prefix ending in "/" to push there; unset = local image only.  Releases
+# push both images from the release workflow (GHCR), so this is for one-offs.
 DOCKER_REGISTRY ?=
 docker-buildx:
 	docker buildx build \
 		--platform linux/amd64,linux/arm64 \
 		--build-arg UNMASK_VERSION=$(UNMASK_VERSION) \
-		-t $(DOCKER_REGISTRY)unmask/admin:$(UNMASK_VERSION) \
-		-t $(DOCKER_REGISTRY)unmask/admin:latest \
+		-t $(DOCKER_REGISTRY)$(DOCKER_IMAGE_ADMIN):$(UNMASK_VERSION) \
+		-t $(DOCKER_REGISTRY)$(DOCKER_IMAGE_ADMIN):latest \
 		$(if $(DOCKER_REGISTRY),--push,--load) \
 		.
 
