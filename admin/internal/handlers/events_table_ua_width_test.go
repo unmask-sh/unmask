@@ -143,7 +143,7 @@ func TestEventsTableDateCellCarriesOneBadge(t *testing.T) {
 
 	if !strings.Contains(tpl, `<th style="width:15rem">{{ t .Lang "hunt.col.at" }}</th>`) {
 		t.Error("the at column is no longer 15rem -- the narrowest width where a ~146px timestamp " +
-			"(the widest monospace font seen) and a capped site badge both still fit; wider than " +
+			"(the widest monospace font seen) and a 4rem site badge both still fit; wider than " +
 			"that is dead space beside the timestamp on every row without a badge")
 	}
 	if strings.Contains(tpl, `class="host-badge`) {
