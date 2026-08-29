@@ -1,0 +1,46 @@
+#!/bin/sh
+# Gateway mode switch for the unmask nginx image.
+#
+# Sourced (not executed) by the stock /docker-entrypoint.sh -- that is what
+# the .envsh suffix means there -- so the defaults exported here are visible
+# to 20-envsubst-on-templates.sh, which renders ${UNMASK_*} in the gateway
+# template.  A plain .sh runs in its own process and its exports would be
+# lost; that is exactly how the first cut failed ("unknown unmask_tls_cert
+# variable").
+#
+# Off unless UNMASK_UPSTREAM is set: without it the image is a plain nginx
+# with the module loaded, and your own conf.d applies (module-only use).
+if [ -n "${UNMASK_UPSTREAM:-}" ]; then
+    : "${UNMASK_SERVER_NAME:=_}"
+    : "${UNMASK_TLS_CERT:=/etc/unmask/tls/fullchain.pem}"
+    : "${UNMASK_TLS_KEY:=/etc/unmask/tls/privkey.pem}"
+    export UNMASK_UPSTREAM UNMASK_SERVER_NAME UNMASK_TLS_CERT UNMASK_TLS_KEY
+
+    # The stock default vhost owns :80; the gateway replaces it with a redirect.
+    rm -f /etc/nginx/conf.d/default.conf
+    mkdir -p /etc/nginx/templates
+    cp /usr/share/unmask/gateway.conf.template /etc/nginx/templates/unmask-gateway.conf.template
+
+    # The includes are rendered by the admin container into the shared volume.
+    # Under compose the admin healthcheck orders the two, but give a plain
+    # `docker run` a moment before nginx -t fails on a missing include.
+    for f in http.inc upstream.conf server.inc protect.inc forward-auth-lbtrust.conf; do
+        i=0
+        while [ ! -f "/etc/unmask/$f" ]; do
+            i=$((i+1))
+            if [ "$i" -gt 30 ]; then
+                echo "unmask-gateway: /etc/unmask/$f is missing after 60s -- is the admin container up, and is /etc/unmask shared with it?" >&2
+                exit 1
+            fi
+            [ "$i" -eq 1 ] && echo "unmask-gateway: waiting for the admin container to render /etc/unmask/$f ..." >&2
+            sleep 2
+        done
+    done
+    for f in "$UNMASK_TLS_CERT" "$UNMASK_TLS_KEY"; do
+        if [ ! -f "$f" ]; then
+            echo "unmask-gateway: TLS file $f not found (mount your certificate at /etc/unmask/tls or set UNMASK_TLS_CERT / UNMASK_TLS_KEY)" >&2
+            exit 1
+        fi
+    done
+    echo "unmask-gateway: :443 -> ${UNMASK_UPSTREAM} (server_name ${UNMASK_SERVER_NAME})"
+fi
