@@ -1,0 +1,19 @@
+# {{ .OutputDir }}/gateway-acme.inc — auto-rendered by unmask / DO NOT EDIT
+#
+# generated_at: {{ .GeneratedAt }} / version: {{ .Version }}
+#
+# The ACME issuer for the gateway vhost, when settings > Gateway puts the
+# certificate on Let's Encrypt.  http scope.  The resolver the module needs
+# is written by the nginx container itself (it knows its own nameservers);
+# the gateway template includes both.  Empty when the certificate comes
+# from files.
+{{- if eq .Gateway.TLSMode "acme" }}
+acme_shared_zone zone=unmask_acme:1M;
+acme_issuer unmask_le {
+    uri         {{ .Gateway.ACMEDirectory }};
+    contact     mailto:{{ .Gateway.ACMEEmail }};
+    state_path  /var/cache/nginx/unmask-acme;
+    ssl_verify  {{ .Gateway.ACMEVerify }};
+    accept_terms_of_service;
+}
+{{- end }}

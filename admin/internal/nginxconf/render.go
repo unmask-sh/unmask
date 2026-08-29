@@ -78,6 +78,7 @@ func Render(s settings.Settings, outDir, version string) error {
 	if err != nil {
 		return err
 	}
+	data.Gateway = gatewayRenderOf(s, outDir)
 	// Surface a host map_hash mismatch (probed in buildRenderData) once per actual
 	// render.  RenderSignature shares buildRenderData but must not log, so the
 	// warning rides on the (unexported) renderData field and is emitted only here.
@@ -122,6 +123,16 @@ func Render(s settings.Settings, outDir, version string) error {
 	// symlinks it into conf.d/.  Plugin-var-free, so it loads without the module.
 	if err := render("forward-auth-lbtrust.conf", "templates/forward-auth-lbtrust.conf.tmpl", 0o644); err != nil {
 		return err
+	}
+	// Container gateway (settings > Gateway): the vhost name and certificate
+	// source the unmask nginx image's gateway template includes.  Only when
+	// a gateway is configured -- a host install never gets these files.
+	if data.Gateway.Active {
+		for _, gt := range gatewayTemplates {
+			if err := render(gt[0], gt[1], 0o644); err != nil {
+				return err
+			}
+		}
 	}
 	// The daemon upstream both deploy modes proxy to (`upstream
 	// unmask_daemon`) -- the ONLY place it is defined (http.inc carries
@@ -341,15 +352,22 @@ func RenderSignature(s settings.Settings, outDir, version string) (string, error
 	if err != nil {
 		return "", err
 	}
+	data.Gateway = gatewayRenderOf(s, outDir)
 	data.GeneratedAt = ""
-	var sig strings.Builder
-	for _, tmpl := range []string{
+	tmpls := []string{
 		"templates/http.conf.tmpl",
 		"templates/server.inc.tmpl",
 		"templates/protect.inc.tmpl",
 		"templates/forward-auth-lbtrust.conf.tmpl",
 		"templates/upstream.conf.tmpl",
-	} {
+	}
+	if data.Gateway.Active {
+		for _, gt := range gatewayTemplates {
+			tmpls = append(tmpls, gt[1])
+		}
+	}
+	var sig strings.Builder
+	for _, tmpl := range tmpls {
 		out, err := renderToString(tmpl, data)
 		if err != nil {
 			return "", err
@@ -360,8 +378,54 @@ func RenderSignature(s settings.Settings, outDir, version string) (string, error
 	return sig.String(), nil
 }
 
+// gatewayRender: the container gateway's vhost name and certificate source,
+// resolved from settings.Gateway for the gateway-*.inc templates.  Only
+// meaningful when Active; the files are not rendered otherwise.
+type gatewayRender struct {
+	Active        bool
+	ServerName    string
+	TLSMode       string // "acme" | "files" (upload resolves to files with the stored paths)
+	CertPath      string
+	KeyPath       string
+	ACMEEmail     string
+	ACMEDirectory string
+	ACMEVerify    string // "on" | "off"
+}
+
+func gatewayRenderOf(s settings.Settings, outDir string) gatewayRender {
+	g := s.Gateway
+	if !g.Active() {
+		return gatewayRender{}
+	}
+	out := gatewayRender{
+		Active:     true,
+		ServerName: strings.TrimSpace(g.ServerName),
+		TLSMode:    "files",
+		CertPath:   g.CertPathResolved(outDir),
+		KeyPath:    g.KeyPathResolved(outDir),
+		ACMEVerify: "on",
+	}
+	if g.TLSModeResolved() == settings.GatewayTLSACME {
+		out.TLSMode = "acme"
+		out.ACMEEmail = strings.TrimSpace(g.ACMEEmail)
+		out.ACMEDirectory = g.ACMEDirectoryResolved()
+		if g.ACMEInsecure {
+			out.ACMEVerify = "off"
+		}
+	}
+	return out
+}
+
+// gatewayTemplates: output name -> template, in render order.
+var gatewayTemplates = [][2]string{
+	{"gateway-server.inc", "templates/gateway-server.inc.tmpl"},
+	{"gateway-tls.inc", "templates/gateway-tls.inc.tmpl"},
+	{"gateway-acme.inc", "templates/gateway-acme.inc.tmpl"},
+}
+
 // renderData: flat struct passed to text/template.
 type renderData struct {
+	Gateway               gatewayRender
 	GeneratedAt           string
 	Version               string
 	OutputDir             string

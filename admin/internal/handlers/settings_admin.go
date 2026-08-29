@@ -85,7 +85,7 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	tab := r.PathValue("tab")
 	switch tab {
-	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "asn", "theme", "notifications", "retention", "performance", "community-bans", "sites", "about":
+	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "asn", "theme", "notifications", "retention", "performance", "community-bans", "sites", "gateway", "about":
 		// ok
 	case "search-bots", "challenge-targets":
 		tab = "ua-filter"
@@ -617,9 +617,33 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"EventsDropped":         events.GlobalFlusherDropped(),
 		"NginxLogEnabled":       h.cfg().NginxLog.Enabled,
 		"Retention":             retentionView,
-		"Tab":                   tab,
-		"TabHelpKey":            tabHelpKey(tab),
-		"Saved":                 r.URL.Query().Get("saved") != "",
+		// Container gateway (settings > Gateway).  The tab exists only while
+		// a gateway is configured; the certificate probe dials the gateway's
+		// :443 and is done only when that tab is open.
+		"Gateway":       h.cfg().Gateway,
+		"GatewayActive": h.cfg().Gateway.Active(),
+		"GatewayCert": func() gatewayCertView {
+			if tab != "gateway" || !h.cfg().Gateway.Active() {
+				return gatewayCertView{}
+			}
+			return gatewayCertStatus(gatewayAddr(), strings.TrimSpace(h.cfg().Gateway.ServerName))
+		}(),
+		"GatewayUploaded": func() map[string]any {
+			subj, iss, exp, ok := uploadedCertInfo(nginxOutDir(*h.cfg()))
+			return map[string]any{"OK": ok, "Subject": subj, "Issuer": iss, "NotAfter": exp}
+		}(),
+		"GatewayACMEChoice": func() string {
+			switch h.cfg().Gateway.ACMEDirectoryResolved() {
+			case settings.ACMEDirectoryLetsEncrypt:
+				return "production"
+			case settings.ACMEDirectoryLetsEncryptStaging:
+				return "staging"
+			}
+			return "custom"
+		}(),
+		"Tab":        tab,
+		"TabHelpKey": tabHelpKey(tab),
+		"Saved":      r.URL.Query().Get("saved") != "",
 		// SavedReload: whether the just-saved section ends up in the
 		// rendered http.inc.  Drives the post-save banner copy: true =
 		// "needs nginx -s reload on native mode"; false = "applies
@@ -1299,7 +1323,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "retention", "performance", "community-bans", "sites", "about", "geo", "asn":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "retention", "performance", "community-bans", "sites", "about", "geo", "asn", "gateway":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -1586,6 +1610,15 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 	case "rate_limit":
 		if err := applyRateLimitForm(&cur.RateLimit, r); err != nil {
+			redirBack(err.Error())
+			return
+		}
+	case "gateway":
+		// The container gateway's hostname + certificate source.  A pasted
+		// certificate is validated and stored under the render directory
+		// here, before the config is saved, so a bad paste leaves both the
+		// files and the config as they were.
+		if err := applyGatewayForm(&cur.Gateway, r, nginxOutDir(cur)); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -5510,6 +5543,8 @@ func tabHelpKey(tab string) string {
 		return "settings.geo.intro"
 	case "captcha":
 		return "settings.captcha.desc"
+	case "gateway":
+		return "settings.gateway.tab_help"
 	case "challenge":
 		return "settings.challenge.intro"
 	case "theme":

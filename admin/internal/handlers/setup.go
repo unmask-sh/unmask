@@ -143,7 +143,7 @@ func (h *Handler) SetupNeeded(r *http.Request) (needed bool, step string) {
 	// Wizard phase = the setup token file is still present.  Step comes
 	// from in-flight wizard state (= deferred-commit model).  The token
 	// file is removed at the end of AdminSetupInstall.
-	if _, err := os.Stat(SetupTokenPath); err == nil {
+	if readSetupToken() != "" {
 		// A token file is present but the admin user table is already
 		// populated -> the token is stale.  A deb `configure` (and any package
 		// that re-runs the postinstall) recreates .setup-token on EVERY

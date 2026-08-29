@@ -1,0 +1,7 @@
+# Publishes the admin daemon on the loopback so a test can drive the setup
+# wizard and the settings forms directly, without nginx's challenge in the
+# way (curl has a bot fingerprint and would be challenged on :443).
+services:
+  admin:
+    ports:
+      - "127.0.0.1:19477:9477"
