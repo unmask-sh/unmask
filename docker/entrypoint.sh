@@ -67,6 +67,27 @@ EOF
     # (= docker-compose.example.yml: unmask-config:/etc/unmask) surface this
     # file on the host fs -- without this chmod the default umask leaves it
     # world-readable there.
+    # Container gateway: seed settings > Gateway from the environment the
+    # compose file hands this container (the same variables the nginx side
+    # documents), so the first render already carries the vhost name and
+    # certificate source and the gateway can start.  Seeded once; from then
+    # on the admin UI is the source of truth.
+    if [ -n "${UNMASK_SERVER_NAME:-}${UNMASK_ACME_EMAIL:-}${UNMASK_TLS_CERT:-}" ]; then
+        mode=files
+        [ -n "${UNMASK_ACME_EMAIL:-}" ] && mode=acme
+        insecure=false
+        case "${UNMASK_ACME_INSECURE:-}" in 1|true|yes|on) insecure=true ;; esac
+        cat >> "$CFG" <<EOF
+gateway:
+    server_name: ${UNMASK_SERVER_NAME:-_}
+    tls_mode: ${mode}
+    acme_email: ${UNMASK_ACME_EMAIL:-}
+    acme_directory: ${UNMASK_ACME_DIRECTORY:-}
+    acme_insecure: ${insecure}
+    tls_cert_path: ${UNMASK_TLS_CERT:-/etc/unmask/tls/fullchain.pem}
+    tls_key_path: ${UNMASK_TLS_KEY:-/etc/unmask/tls/privkey.pem}
+EOF
+    fi
     chmod 0600 "$CFG"
     echo "==> generated minimal $CFG (= visit /unmask/admin/ to start install wizard)"
 
@@ -77,7 +98,7 @@ EOF
     # the wizard).  SetupNeeded clears the token automatically once an admin user
     # exists, so a recreate against a persisted DB never re-locks the UI.
     token=$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')
-    ( umask 077; printf '%s\n' "$token" > /etc/unmask/.setup-token )
+    ( umask 077; printf '%s\n' "$token" > /var/lib/unmask/.setup-token )
     echo "==> unmask setup token (enter this in the wizard): $token"
 fi
 
