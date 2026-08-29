@@ -12,23 +12,23 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
-
-### Fixed
-- (2026-08-30) **The setup wizard no longer dead-ends when the token sits at the legacy path.**  The token step was shown only when `/var/lib/unmask/.setup-token` existed, while every wizard POST validated against either that file or `/etc/unmask/.setup-token`; an install with only the legacy file skipped the token step and then silently bounced the admin-user step back to itself.  Both now use the same lookup.  The container entrypoint, which wrote the legacy path, now mints the token where the daemon looks first.
-
-- (2026-08-30) **The live tail no longer drops and reconnects every minute.**  A vhost-level `proxy_read_timeout 60` -- a common default -- was inherited by the admin location and closed the SSE stream at 60s regardless of its 5-second heartbeat, so the tail flickered "(reconnecting)" once a minute for as long as it was open.  The rendered location now sets its own hour-long read and send timeout.  Native installs: `render-nginx` + reload.
-
-- (2026-08-29) **The bot-hunt date column is back to 13rem.**  0.1.36 moved the host pill out of the cell and then widened the column to 18rem, so on every row without a site badge -- most rows on a single-site install -- the timestamp sat beside a hand's width of empty space before the IP.  The width is what it was before any of this; the cell keeps clipping, so a badge that does not fit under an unusually wide font is cut rather than painted over the IP, and its full value is in the popover.
+## [0.1.37] - 2026-08-30
 
 ### Added
-- (2026-08-30) **Container images, with a gateway that needs no nginx of your own.**  `unmask.sh/admin` is the daemon; `unmask.sh/nginx` is the official nginx image plus the module.  Like the packages, the images are served from unmask.sh -- as static files behind plain nginx (`docker/registry/`), no registry daemon -- and mirrored on GHCR (`ghcr.io/unmask-sh/*`); the compose file lives at `unmask.sh/dl/docker/`.  With `UNMASK_UPSTREAM` set the nginx container terminates TLS on :443 -- so it sees the real ClientHello and JA4 works -- runs the decision, and proxies what passes to any HTTP server; without it, it is a plain nginx-with-module for your own conf.d.  The nginx container reloads itself a few seconds after the admin renders a change (`nginx -t` first; `UNMASK_AUTORELOAD=0` turns it off).  `docker-compose.example.yml` wires the two up with a stand-in upstream.
+- (2026-08-30) **Container images, and a gateway that needs no nginx of your own.**  `unmask.sh/admin` and `unmask.sh/nginx` (the official nginx image with the module) are served from unmask.sh like the packages, and mirrored on GHCR.  With `UNMASK_UPSTREAM` set, the nginx container terminates TLS, so JA4 works, and proxies what passes to any HTTP server; the compose file is at `unmask.sh/dl/docker/`.
 
-- (2026-08-30) **Settings > Gateway: the vhost name and its certificate, managed in the admin.**  Shown only on a gateway install.  Three certificate sources: automatic HTTPS through nginx's own ACME module (Let's Encrypt, production or staging, issued and renewed in place with no client or cron), a pasted purchased certificate (certificate, intermediate chain, key; checked for a matching pair and expiry, stored with the key readable by nobody else and never shown again), or paths to files something else keeps current.  The tab shows what :443 is actually serving -- issuer, expiry, name match.  The `UNMASK_SERVER_NAME` / `UNMASK_ACME_*` / `UNMASK_TLS_*` variables on the admin service only seed the tab on the first boot.
+- (2026-08-30) **Settings > Gateway: the vhost name and its certificate, managed in the admin.**  On a gateway install the tab holds the hostname and the certificate source -- Let's Encrypt through nginx's own ACME module, a pasted purchased certificate (checked as a pair, key stored readable by nobody else and never shown again), or files -- and shows what :443 actually serves.  Environment variables only seed the first boot.
 
 - (2026-08-30) **The live tail shows the flag, the network, the user agent and the path.**  Each streamed event now carries the country and ASN its address resolves to and the same short user-agent reading the static rows use, so a line reads like a table row: flag, address, network, phase, fingerprint, verdict, UA, path.  The path and UA are clipped at the end of the line with the full value on hover.
 
 - (2026-08-29) **doctor notices when an install's history has split in two.**  With `server.host_id` unset an install records under its OS hostname, so a rename splits its history into two names with nothing saying they are the same node.  doctor now warns when the database holds several host ids and none is pinned here; the fix is `server.host_id` on each node.
+
+### Fixed
+- (2026-08-30) **The setup wizard no longer dead-ends when the token sits at the legacy path.**  The token step was shown only when `/var/lib/unmask/.setup-token` existed, while every wizard POST accepted `/etc/unmask/.setup-token` as well, so an install with only the legacy file skipped the token step and then bounced the admin-user step back to itself with no message.  Both use one lookup now.
+
+- (2026-08-30) **The live tail no longer drops and reconnects every minute.**  A vhost-level `proxy_read_timeout 60` -- a common default -- was inherited by the admin location and closed the SSE stream at 60s regardless of its 5-second heartbeat, so the tail flickered "(reconnecting)" once a minute for as long as it was open.  The rendered location now sets its own hour-long read and send timeout.  Native installs: `render-nginx` + reload.
+
+- (2026-08-29) **The bot-hunt date column is back to 13rem.**  0.1.36 moved the host pill out of the cell and then widened the column to 18rem, so on every row without a site badge -- most rows on a single-site install -- the timestamp sat beside a hand's width of empty space before the IP.  The width is what it was before any of this; the cell keeps clipping, so a badge that does not fit under an unusually wide font is cut rather than painted over the IP, and its full value is in the popover.
 
 ## [0.1.36] - 2026-08-28
 

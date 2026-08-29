@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.36",
+  "latest": "0.1.37",
   "releases": [
+    {
+      "version": "0.1.37",
+      "date": "2026-08-30",
+      "notes": "Container images and a gateway mode: unmask.sh/admin and unmask.sh/nginx (the official nginx image with the module) are served from unmask.sh like the packages, mirrored on GHCR; with UNMASK_UPSTREAM set the nginx container terminates TLS, so JA4 works, and proxies what passes to any HTTP server. Settings > Gateway manages the vhost name and certificate (Let's Encrypt via nginx's ACME module, a pasted purchased certificate, or files) and shows what :443 serves. Fixed: the setup wizard dead-ended when the token existed only at the legacy path; the live tail dropped and reconnected every minute behind a vhost-level proxy_read_timeout. The live tail now shows flag, network, user agent and path; doctor warns when an install's history has split across host ids; the bot-hunt date column is back to 13rem."
+    },
     {
       "version": "0.1.36",
       "date": "2026-08-28",
