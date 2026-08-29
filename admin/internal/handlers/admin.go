@@ -2022,6 +2022,23 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 //   - since omitted: anchor at MAX(id) at start time (events "from now on" only).
 //   - Poll every 1 second; emit progress as `data: <json>\n\n`.
 //   - Connection ending (browser close / disconnect) terminates the goroutine immediately.
+//
+// streamRow is one live-tail event on the wire: the stored row plus what the
+// static table derives at render time and the tail cannot -- the country and
+// network the address resolves to, and the user agent's short reading.  All
+// display concerns, resolved at read time everywhere else too.
+//
+// UASummary is done here rather than in the page's JavaScript because the
+// classifier is a few hundred lines of Go that already exist; sending the
+// reading costs a few bytes per event and keeps one parser, not two.
+type streamRow struct {
+	events.Row
+	CountryCode string `json:"cc,omitempty"`
+	ASNOrg      string `json:"asn_org,omitempty"`
+	ASN         uint   `json:"asn,omitempty"`
+	UAShort     string `json:"ua_short,omitempty"`
+}
+
 func (h *Handler) AdminEventsStream(w http.ResponseWriter, r *http.Request) {
 	// site filter (= shared site_picker, single-select.  cookie / ?site=).
 	// No charset check needed: FetchSince binds it as a ? parameter.
@@ -2103,7 +2120,17 @@ func (h *Handler) AdminEventsStream(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			for _, row := range rows {
-				buf, _ := json.Marshal(row)
+				// The live tail draws the same flag the static rows do, so the
+				// country rides along.  Looked up per row here rather than
+				// per page: a tail poll returns a handful of rows at most, and
+				// the reader caches internally.  An unloaded geo DB yields ""
+				// and the client draws the unknown flag, as the table does.
+				sr := streamRow{Row: row, UAShort: classify.UASummary(row.UA)}
+				if h.IPGeo != nil && row.IP != "" {
+					info := h.IPGeo.LookupInfo(row.IP)
+					sr.CountryCode, sr.ASN, sr.ASNOrg = info.Country, info.ASN, info.ASNOrg
+				}
+				buf, _ := json.Marshal(sr)
 				_, _ = fmt.Fprintf(w, "data: %s\n\n", buf)
 				if row.ID > sinceID {
 					sinceID = row.ID

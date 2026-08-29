@@ -350,6 +350,17 @@ location @unmask_rate_challenge {
     proxy_http_version 1.1;
     proxy_set_header   Connection "";
     proxy_buffering    off;
+    # ...and a read timeout longer than the vhost's.  The stream heartbeats
+    # every 5s, but a vhost-level `proxy_read_timeout 60` (a common default)
+    # is inherited here and still closes it at 60s -- the timeout is per
+    # read, and the heartbeat is a read, so what actually expired was the
+    # operator's budget for the whole response.  Every minute the browser
+    # reconnected, the tail flickered "(reconnecting)", and a client that
+    # reconnects on a schedule looks, from the page, like one that is
+    # struggling.  Set here so the vhost value does not apply to this one
+    # location; the daemon-down and challenge paths keep the vhost's.
+    proxy_read_timeout 3600s;
+    proxy_send_timeout 3600s;
     # Daemon unreachable -> fail open via @unmask_daemon_down (replays orig).
     proxy_intercept_errors on;
     error_page 502 503 504 = @unmask_daemon_down;

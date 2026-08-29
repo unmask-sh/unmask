@@ -15,9 +15,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Fixed
+- (2026-08-30) **The live tail no longer drops and reconnects every minute.**  A vhost-level `proxy_read_timeout 60` -- a common default -- was inherited by the admin location and closed the SSE stream at 60s regardless of its 5-second heartbeat, so the tail flickered "(reconnecting)" once a minute for as long as it was open.  The rendered location now sets its own hour-long read and send timeout.  Native installs: `render-nginx` + reload.
+
 - (2026-08-29) **The bot-hunt date column is back to 13rem.**  0.1.36 moved the host pill out of the cell and then widened the column to 18rem, so on every row without a site badge -- most rows on a single-site install -- the timestamp sat beside a hand's width of empty space before the IP.  The width is what it was before any of this; the cell keeps clipping, so a badge that does not fit under an unusually wide font is cut rather than painted over the IP, and its full value is in the popover.
 
 ### Added
+- (2026-08-30) **The live tail shows the flag, the network, the user agent and the path.**  Each streamed event now carries the country and ASN its address resolves to and the same short user-agent reading the static rows use, so a line reads like a table row: flag, address, network, phase, fingerprint, verdict, UA, path.  The path and UA are clipped at the end of the line with the full value on hover.
+
 - (2026-08-29) **doctor notices when an install's history has split in two.**  With `server.host_id` unset an install records under its OS hostname, so a rename splits its history into two names with nothing saying they are the same node.  doctor now warns when the database holds several host ids and none is pinned here; the fix is `server.host_id` on each node.
 
 ## [0.1.36] - 2026-08-28
