@@ -141,10 +141,11 @@ func TestEventsTableDateCellCarriesOneBadge(t *testing.T) {
 	}
 	tpl := string(raw)
 
-	if !strings.Contains(tpl, `<th style="width:15rem">{{ t .Lang "hunt.col.at" }}</th>`) {
-		t.Error("the at column is no longer 15rem -- the narrowest width where a ~146px timestamp " +
-			"(the widest monospace font seen) and a 4rem site badge both still fit; wider than " +
-			"that is dead space beside the timestamp on every row without a badge")
+	if !strings.Contains(tpl, `<th style="width:13rem">{{ t .Lang "hunt.col.at" }}</th>`) {
+		t.Error("the at column is no longer 13rem -- it went to 15 and 18 on 2026-08-29 to fit a " +
+			"site badge under the widest font, and both were reported as too wide the same day: " +
+			"most rows carry no badge, and every rem past the timestamp is empty space on all of them. " +
+			"The badge fitting is the clip's job now, not the width's")
 	}
 	if strings.Contains(tpl, `class="host-badge`) {
 		t.Error("the host pill is back in the date cell; it belongs in the date popover, " +
