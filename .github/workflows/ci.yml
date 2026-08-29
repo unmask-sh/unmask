@@ -211,6 +211,34 @@ jobs:
         run: |
           docker run --rm unmask-ci/nginx:test nginx -t
           docker run --rm unmask-ci/nginx:test nginx -V 2>&1 | grep -q -- '--with-compat'
+      # The compose example, end to end, on the images just built: first boot
+      # of the admin container (skeleton config, migrate, render), the nginx
+      # sidecar picking up the rendered includes, and the gateway answering --
+      # the redirect on :80, the challenge for a curl fingerprint on /, and
+      # the daemon reached through the gateway on /unmask/healthz.  Nothing
+      # else in CI executes the gateway template; e2e-docker carries its own
+      # nginx.conf.
+      - name: compose example boots and the gateway answers
+        run: |
+          docker tag unmask-ci/admin:test ghcr.io/unmask-sh/admin:latest
+          docker tag unmask-ci/nginx:test ghcr.io/unmask-sh/nginx:1.28
+          mkdir -p tls && openssl req -x509 -nodes -newkey rsa:2048 -days 2 \
+            -keyout tls/privkey.pem -out tls/fullchain.pem -subj "/CN=localhost" 2>/dev/null
+          docker compose -f docker-compose.example.yml up -d --no-build
+          for i in $(seq 1 40); do
+            [ "$(docker inspect -f '{{.State.Status}}' unmask-nginx 2>/dev/null)" = running ] && break
+            sleep 3
+          done
+          sleep 5
+          docker compose -f docker-compose.example.yml ps
+          test "$(docker inspect -f '{{.RestartCount}}' unmask-admin)" = 0
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/)" = 301
+          curl -sk https://127.0.0.1/ | grep -q '<title>Security check</title>'
+          test "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1/unmask/healthz)" = 200
+          docker exec unmask-nginx nginx -t
+      - name: compose logs on failure
+        if: failure()
+        run: docker compose -f docker-compose.example.yml logs --no-color | tail -80
 
   e2e-docker:
     runs-on: ubuntu-latest
