@@ -14,15 +14,18 @@ services:
     environment:
       PEBBLE_VA_ALWAYS_VALID: "1"
       PEBBLE_VA_NOSLEEP: "1"
-  nginx:
-    depends_on:
-      pebble:
-        condition: service_started
+  admin:
     environment:
+      # Seeds settings > Gateway on the first boot; the admin renders the
+      # gateway-*.inc the nginx container includes.
       UNMASK_SERVER_NAME: example.test
       UNMASK_ACME_EMAIL: ops@example.test
       UNMASK_ACME_DIRECTORY: https://pebble:14000/dir
       UNMASK_ACME_INSECURE: "1"
+  nginx:
+    depends_on:
+      pebble:
+        condition: service_started
     volumes: !override
       - unmask-config:/etc/unmask:ro
       - unmask-run:/run/unmask

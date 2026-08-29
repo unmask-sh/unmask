@@ -16,7 +16,7 @@
 # UNMASK_AUTORELOAD=0 turns it off.
 case "${UNMASK_AUTORELOAD:-1}" in 0|false|no|off) exit 0 ;; esac
 
-WATCH="/etc/unmask/http.inc /etc/unmask/upstream.conf /etc/unmask/server.inc /etc/unmask/protect.inc /etc/unmask/forward-auth-lbtrust.conf /etc/unmask/community-bans-ip.map /etc/unmask/community-bans-ja4.map /etc/unmask/community-bans-ipja4.map"
+WATCH="/etc/unmask/http.inc /etc/unmask/upstream.conf /etc/unmask/server.inc /etc/unmask/protect.inc /etc/unmask/forward-auth-lbtrust.conf /etc/unmask/community-bans-ip.map /etc/unmask/community-bans-ja4.map /etc/unmask/community-bans-ipja4.map /etc/unmask/gateway-server.inc /etc/unmask/gateway-tls.inc /etc/unmask/gateway-acme.inc /etc/unmask/gateway.crt"
 INTERVAL="${UNMASK_AUTORELOAD_INTERVAL:-3}"
 
 sig() {

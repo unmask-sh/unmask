@@ -9,9 +9,11 @@ include /etc/unmask/http.inc;
 include /etc/unmask/upstream.conf;
 include /etc/unmask/forward-auth-lbtrust.conf;
 
-# Empty unless UNMASK_ACME_EMAIL is set; then the ACME issuer + resolver
-# (written by 10-unmask-gateway.envsh).
-include /etc/nginx/unmask-gateway-acme-http.inc;
+# The resolver (this container's nameservers, written by the .envsh) and the
+# ACME issuer (rendered by the admin from settings > Gateway; empty unless
+# the certificate is on Let's Encrypt).
+include /etc/nginx/unmask-resolver.inc;
+include /etc/unmask/gateway-acme.inc;
 
 map $http_upgrade $connection_upgrade {
     default upgrade;
@@ -24,7 +26,7 @@ map $http_upgrade $connection_upgrade {
 server {
     listen 80;
     listen [::]:80;
-    server_name ${UNMASK_SERVER_NAME};
+    include /etc/unmask/gateway-server.inc;
     return 301 https://$host$request_uri;
 }
 
@@ -32,10 +34,11 @@ server {
     listen 443 ssl;
     listen [::]:443 ssl;
     http2 on;
-    server_name ${UNMASK_SERVER_NAME};
+    include /etc/unmask/gateway-server.inc;
 
-    # Either your certificate files or the ACME-managed one; see the .envsh.
-    include /etc/nginx/unmask-gateway-tls.inc;
+    # The certificate source (files or ACME), rendered by the admin from
+    # settings > Gateway.
+    include /etc/unmask/gateway-tls.inc;
     ssl_protocols TLSv1.2 TLSv1.3;
 
     # unmask: ban enforcement, the /unmask/ admin + challenge routes, and the
