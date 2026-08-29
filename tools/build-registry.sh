@@ -7,6 +7,11 @@
 #
 # usage:
 #   tools/build-registry.sh <version>            e.g. 0.1.37
+#   tools/build-registry.sh <version> --from-layouts <dir>
+#       use OCI layouts already on disk (<dir>/admin, <dir>/nginx, each with
+#       index.json + blobs/, as `docker buildx build --output type=oci`
+#       writes after untarring) instead of pulling from GHCR -- for a build
+#       host that cannot reach the registry, or images built locally.
 #
 # Environment:
 #   UNMASK_DL_BUILD_DIR   default ../unmask-dl-build (publish-repo.sh reads it)
@@ -16,7 +21,9 @@
 #
 # Then: tools/publish-repo.sh (rsyncs registry/ -> /v2/ and docker/ -> /dl/docker/).
 set -eu
-VER="${1:?usage: build-registry.sh <version>}"
+VER="${1:?usage: build-registry.sh <version> [--from-layouts <dir>]}"
+LAYOUTS=""
+if [ "${2:-}" = "--from-layouts" ]; then LAYOUTS="${3:?--from-layouts needs a directory}"; fi
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${UNMASK_DL_BUILD_DIR:-$ROOT/../unmask-dl-build}"
 SRC="${UNMASK_IMAGE_SOURCE:-ghcr.io/unmask-sh}"
@@ -42,10 +49,16 @@ skopeo_copy() {   # <src ref> <layout dir> <ref name>
 
 lay() {   # <name> <source tag> <tag>...
     local name="$1" src="$2"; shift 2
+    local args=(); for t in "$@"; do args+=(--tag "$t"); done
+    if [ -n "$LAYOUTS" ]; then
+        echo "==> $LAYOUTS/$name (OCI layout on disk)"
+        python3 "$ROOT/tools/oci-static-registry.py" --layout "$LAYOUTS/$name" \
+            --name "$name" "${args[@]}" --out "$OUT/registry"
+        return
+    fi
     local dir="$WORK/$name"; mkdir -p "$dir"
     echo "==> $SRC/$name:$src -> OCI layout"
     skopeo_copy "$SRC/$name:$src" "$dir" "$src"
-    local args=(); for t in "$@"; do args+=(--tag "$t"); done
     python3 "$ROOT/tools/oci-static-registry.py" --layout "$dir" --ref "$src" \
         --name "$name" "${args[@]}" --out "$OUT/registry"
 }
