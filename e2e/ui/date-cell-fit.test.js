@@ -127,13 +127,19 @@ const ok = (c, m) => { if (!c) fails.push(m); };
       `td.at has overflow:${res.overflow}; without clipping, anything too wide for ` +
       `this column is painted over the IP cell rather than cut`);
 
-    // Tier 2: nothing is actually being cut here.  17rem at a 16px root.
+    // Tier 2: nothing is actually being cut here.  15rem at a 16px root --
+    // the narrowest width where the widest timestamp seen (146px, DejaVu Sans
+    // Mono on the CI runner) plus a site badge at its 4.5rem cap still fit:
+    // 8 + 146 + 4 + 72 + 8 = 238 < 240.  It went to 18rem first, which fit
+    // everything and was reported as "too wide" the same day: most rows have
+    // no badge, and every extra rem is dead space between the timestamp and
+    // the IP on all of them.
+    //
     // Pinned tightly on purpose: a loose band is worse than none, because the
     // fit assertions below then report the symptom while the assertion meant
-    // to name the cause stays quiet.  (The first attempt used a 200-280 band,
-    // which the 208px it was meant to catch passed.)
-    ok(res.atWidth >= 280 && res.atWidth <= 296,
-      `the at column measured ${res.atWidth.toFixed(1)}px, want ~288px (18rem)`);
+    // to name the cause stays quiet.
+    ok(res.atWidth >= 232 && res.atWidth <= 248,
+      `the at column measured ${res.atWidth.toFixed(1)}px, want ~240px (15rem)`);
 
     ok(res.asRendered.over <= 1,
       `the date cell's contents run ${res.asRendered.over.toFixed(1)}px past its content box ` +
