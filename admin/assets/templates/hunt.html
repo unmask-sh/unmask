@@ -263,6 +263,12 @@ table.events td.at .site-badge{max-width:4rem}
 .live-tail .ev .ip{color:#93c5fd;margin-right:.6rem}
 .live-tail .ev .ph{color:#fbbf24;margin-right:.4rem}
 .live-tail .ev .ja4{color:#86efac}
+/* The path is the only piece with no natural width, so it sits last and is
+   clipped; the rows are one line each and stay aligned whatever it holds. */
+.live-tail .ev .net{color:#c4b5fd;margin-right:.6rem;display:inline-block;max-width:11rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.live-tail .ev .ua{color:#e2e8f0;margin-left:.6rem;display:inline-block;max-width:13rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.live-tail .ev .path{color:#94a3b8;margin-left:.6rem;display:inline-block;max-width:20rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.live-tail .ev img.flag{margin-right:.3em}
 /* dropdown CSS for the user-menu partial */
 .user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
 .user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
@@ -1093,13 +1099,49 @@ function dismissHuntTip(id){
     // Same rule as the server-rendered rows: a row that carries a site names
     // it, single-site installs included.
     if (ev.site) siteHtml = '<span class="site-badge cellpop">' + escapeText(ev.site) + '</span> ';
+    // Flag: the same PNG the static rows use, keyed on the country the
+    // stream resolved (cc).  No / unknown country draws the unknown flag
+    // rather than nothing, so a row without geo still lines up.
+    var cc = (ev.cc && ev.cc.length === 2) ? ev.cc : '';
+    var flagHtml = '<img class="flag" src="{{.BasePath}}/static/flags/' +
+      (cc ? cc.toLowerCase() : 'unknown') + '.png" alt="' + (cc || '??') + '" loading="lazy">';
+    // Network: the org name when the ASN database resolves one, else the
+    // bare AS number, else nothing.  Sits right after the address it
+    // qualifies -- "which network is this" is read together with "which
+    // address", the way the rankings pair them.
+    var netTxt = ev.asn_org ? ev.asn_org : (ev.asn ? 'AS' + ev.asn : '');
+    var netHtml = netTxt ? '<span class="net">' + escapeText(netTxt) + '</span>' : '';
+    // User agent: the same short reading the static rows show ("Windows 10 ·
+    // Chrome 126"), computed server-side.  A UA that has no reading -- curl,
+    // a crawler, a library -- comes through raw, which on a bot-hunting
+    // surface is the informative form.  The raw string rides as the title
+    // only when it differs from what is shown, so a hover reveals it.
+    var uaTxt = ev.ua_short || ev.ua || '';
+    var uaHtml = '';
+    if (uaTxt) {
+      var uaEsc = escapeText(uaTxt);
+      uaHtml = '<span class="ua"' + (ev.ua_short && ev.ua ? ' title="' + escapeText(ev.ua) + '"' : '') + '>' + uaEsc + '</span>';
+    }
+    // Path: what the visitor asked for, the field the static URL column
+    // shows.  Last on the line and clipped by CSS, because it is the one
+    // piece with no natural width and everything after it would drift.  One
+    // escape, reused for the title: a clipped path is the one the hover
+    // needs whole.
+    var pathHtml = '';
+    if (ev.path) {
+      var pathEsc = escapeText(ev.path);
+      pathHtml = '<span class="path" title="' + pathEsc + '">' + pathEsc + '</span>';
+    }
     d.innerHTML =
       '<span class="ts">' + escapeText(fmtTs(ev)) + '</span>' +
       hostHtml + siteHtml +
-      '<span class="ip">' + escapeText(ev.ip || '-') + '</span>' +
+      '<span class="ip">' + flagHtml + escapeText(ev.ip || '-') + '</span>' +
+      netHtml +
       '<span class="ph">' + escapeText(phaseTxt) + '</span>' +
       '<span class="ja4">' + escapeText(ev.ja4 || '-') + '</span> ' +
-      '<span class="muted">' + escapeText(ev.verdict || '') + '</span>';
+      '<span class="muted">' + escapeText(ev.verdict || '') + '</span>' +
+      uaHtml +
+      pathHtml;
     return d;
   }
   function escapeText(s){
