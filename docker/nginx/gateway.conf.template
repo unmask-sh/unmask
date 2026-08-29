@@ -9,11 +9,18 @@ include /etc/unmask/http.inc;
 include /etc/unmask/upstream.conf;
 include /etc/unmask/forward-auth-lbtrust.conf;
 
+# Empty unless UNMASK_ACME_EMAIL is set; then the ACME issuer + resolver
+# (written by 10-unmask-gateway.envsh).
+include /etc/nginx/unmask-gateway-acme-http.inc;
+
 map $http_upgrade $connection_upgrade {
     default upgrade;
     ''      close;
 }
 
+# :80 redirects to https.  It is also the listener the ACME module answers
+# http-01 challenges on -- the module intercepts /.well-known/acme-challenge/
+# itself, ahead of this redirect.
 server {
     listen 80;
     listen [::]:80;
@@ -27,8 +34,8 @@ server {
     http2 on;
     server_name ${UNMASK_SERVER_NAME};
 
-    ssl_certificate     ${UNMASK_TLS_CERT};
-    ssl_certificate_key ${UNMASK_TLS_KEY};
+    # Either your certificate files or the ACME-managed one; see the .envsh.
+    include /etc/nginx/unmask-gateway-tls.inc;
     ssl_protocols TLSv1.2 TLSv1.3;
 
     # unmask: ban enforcement, the /unmask/ admin + challenge routes, and the
