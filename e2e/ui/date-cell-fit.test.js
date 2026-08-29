@@ -127,29 +127,23 @@ const ok = (c, m) => { if (!c) fails.push(m); };
       `td.at has overflow:${res.overflow}; without clipping, anything too wide for ` +
       `this column is painted over the IP cell rather than cut`);
 
-    // Tier 2: nothing is actually being cut here.  15rem at a 16px root --
-    // the narrowest width where the widest timestamp seen (146px, DejaVu Sans
-    // Mono on the CI runner) plus a site badge at its 4rem cap still fit:
-    // 8 + 146 + 4 + 64 + 8 = 230 < 240.  It went to 18rem first, which fit
-    // everything and was reported as "too wide" the same day: most rows have
-    // no badge, and every extra rem is dead space between the timestamp and
-    // the IP on all of them.
+    // Tier 2: the column is 13rem -- the width it had before any of this.
+    // It went to 15 and to 18 on 2026-08-29 so that a site badge would fit
+    // beside the widest timestamp any machine had produced, and both were
+    // reported as too wide the same day: on a single-site install most rows
+    // carry no badge at all, and every rem past what the timestamp needs is
+    // empty space between it and the IP, on every one of those rows.  The
+    // operator looks at the bare rows all day and at a clipped badge rarely;
+    // the badge's full value is one hover away in the popover anyway.
     //
-    // Pinned tightly on purpose: a loose band is worse than none, because the
-    // fit assertions below then report the symptom while the assertion meant
-    // to name the cause stays quiet.
-    ok(res.atWidth >= 232 && res.atWidth <= 248,
-      `the at column measured ${res.atWidth.toFixed(1)}px, want ~240px (15rem)`);
+    // So the badge fitting is the clip's job (tier 1), not the width's.  The
+    // timestamp itself must still fit -- that is the one thing on every row.
+    ok(res.atWidth >= 200 && res.atWidth <= 216,
+      `the at column measured ${res.atWidth.toFixed(1)}px, want ~208px (13rem)`);
 
-    ok(res.asRendered.over <= 1,
-      `the date cell's contents run ${res.asRendered.over.toFixed(1)}px past its content box ` +
-      `as rendered (timestamp ${res.timeWidth.toFixed(1)}px, badge "${res.badgeText}") -- ` +
-      `the badge is being cut`);
-
-    ok(res.atCap.over <= 1,
-      `a site badge at its CSS max-width runs ${res.atCap.over.toFixed(1)}px past the content ` +
-      `box (timestamp ${res.timeWidth.toFixed(1)}px); widen the at column or lower ` +
-      `td.at .site-badge{max-width}`);
+    ok(res.timeWidth + 16 <= res.atWidth,
+      `the timestamp alone (${res.timeWidth.toFixed(1)}px) does not fit the ` +
+      `${res.atWidth.toFixed(1)}px column with its padding -- that clips the time itself`);
 
     // The cap has to actually bind, or the measurement above proved nothing
     // about long names -- it would just be measuring the seed again.  Pinned at
@@ -174,11 +168,9 @@ const ok = (c, m) => { if (!c) fails.push(m); };
       `the date popover's Site row reads ${JSON.stringify(res.popSite)}, ` +
       `the row's badge reads ${JSON.stringify(res.badgeText)}`);
 
-    if (res.ipLeft !== null) {
-      ok(res.atCap.reach <= res.ipLeft + 1,
-        `the date cell's contents reach ${(res.atCap.reach - res.ipLeft).toFixed(1)}px into ` +
-        `the IP cell -- the 2026-08-26 symptom exactly`);
-    }
+    // No "reach into the IP cell" check any more: with overflow:hidden the
+    // layout box can extend past the cell while nothing is painted there,
+    // and the paint is what tier 1 already guarantees.
   }
 
   await browser.close();
@@ -191,9 +183,9 @@ const ok = (c, m) => { if (!c) fails.push(m); };
   // column has room to spare or is one font substitution away from spilling.
   if (!res.missing) {
     console.log(`date-cell-fit: OK (at ${res.atWidth.toFixed(1)}px, overflow:${res.overflow}; ` +
-      `timestamp ${res.timeWidth.toFixed(1)}px; headroom as rendered ` +
-      `${(-res.asRendered.over).toFixed(1)}px, at the badge's cap ` +
-      `${(-res.atCap.over).toFixed(1)}px; badge capped at ${res.capWidth.toFixed(1)}px)`);
+      `timestamp ${res.timeWidth.toFixed(1)}px; badge overflow as rendered ` +
+      `${res.asRendered.over.toFixed(1)}px, at its cap ${res.atCap.over.toFixed(1)}px -- ` +
+      `clipped, not painted over the IP; badge capped at ${res.capWidth.toFixed(1)}px)`);
   } else {
     console.log('date-cell-fit: OK');
   }
