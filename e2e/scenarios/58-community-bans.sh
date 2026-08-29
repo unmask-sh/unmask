@@ -111,13 +111,13 @@ if ! adm "grep -q '$JA4_LISTED' $MAP_DIR/community-bans-ja4.map"; then
     exit 1
 fi
 # Finish setup so the feed loop runs at all, then restart into it.
-adm "unmask user create $E2E_USER -role admin -password cb58-$(date +%s)x" >/dev/null 2>&1
+adm "unmask user create -config /etc/unmask/admin.yml $E2E_USER -role admin -password cb58-$(date +%s)x" >/dev/null 2>&1
 docker compose -f "$COMPOSE" restart admin >/dev/null 2>&1
 if ! wait_healthz_200; then
     log_fail "admin did not come back after the restart"
     exit 1
 fi
-if ! adm "unmask user list" | grep -q "$E2E_USER"; then
+if ! adm "unmask user list -config /etc/unmask/admin.yml" | grep -q "$E2E_USER"; then
     log_fail "could not finish setup (no user) -- the feed loop would never start"
     exit 1
 fi
