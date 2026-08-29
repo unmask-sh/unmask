@@ -1,0 +1,8 @@
+# {{ .OutputDir }}/gateway-server.inc — auto-rendered by unmask / DO NOT EDIT
+#
+# generated_at: {{ .GeneratedAt }} / version: {{ .Version }}
+#
+# The gateway vhost's name.  The unmask nginx image's gateway template
+# includes this in both its servers (the :80 redirect and the :443 vhost),
+# so the name lives in one place: settings > Gateway.
+server_name {{ .Gateway.ServerName }};

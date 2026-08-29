@@ -1,0 +1,17 @@
+# {{ .OutputDir }}/gateway-tls.inc — auto-rendered by unmask / DO NOT EDIT
+#
+# generated_at: {{ .GeneratedAt }} / version: {{ .Version }}
+#
+# Where the gateway vhost's certificate comes from (settings > Gateway).
+# Included inside the :443 server block of the gateway template.
+{{- if eq .Gateway.TLSMode "acme" }}
+# ACME: issued and renewed by nginx's own ACME module; the issuer is
+# defined in gateway-acme.inc (http scope).
+acme_certificate      unmask_le;
+ssl_certificate       $acme_certificate;
+ssl_certificate_key   $acme_certificate_key;
+ssl_certificate_cache max=2;
+{{- else }}
+ssl_certificate     {{ .Gateway.CertPath }};
+ssl_certificate_key {{ .Gateway.KeyPath }};
+{{- end }}

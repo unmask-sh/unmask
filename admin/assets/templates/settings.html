@@ -635,6 +635,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <li><a href="{{ .BasePath }}/admin/settings/notifications/" {{ if eq .Tab "notifications" }}class="active"{{ end }}>{{ t .Lang "settings.tab.notifications" }}</a></li>
     <li><a href="{{ .BasePath }}/admin/settings/retention/"     {{ if eq .Tab "retention"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.retention"     }}</a></li>
     <li><a href="{{ .BasePath }}/admin/settings/performance/"   {{ if eq .Tab "performance"   }}class="active"{{ end }}>{{ t .Lang "settings.tab.performance"   }}</a></li>
+    {{/* Only while a container gateway is configured (settings.gateway.
+         server_name set, seeded from the compose environment): a host
+         install has no vhost for the admin to own, so no tab. */}}
+    {{ if .GatewayActive }}
+    <li><a href="{{ .BasePath }}/admin/settings/gateway/"       {{ if eq .Tab "gateway"       }}class="active"{{ end }}>{{ t .Lang "settings.tab.gateway"       }}</a></li>
+    {{ end }}
   </ul>
   <h3>{{ t .Lang "settings.section.bypass" }}</h3>
   <ul>
@@ -5715,6 +5721,112 @@ function secToHuman(s){
     updatePreviewLinks();
     refreshThemeIframesDebounced(e.detail && e.detail.theme);
   });
+})();
+</script>
+{{ end }}
+
+{{ if eq .Tab "gateway" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=gateway" id="gateway-form">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.gateway.vhost_h" }}</h2>
+    <div class="field">
+      <div class="field-label field-label-row">
+        <span>{{ t .Lang "settings.gateway.server_name" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="gw-server-name-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="gw-server-name-help">{{ safeHTML (t .Lang "settings.gateway.server_name_desc") }}</script>
+      <input type="text" name="server_name" value="{{ .Gateway.ServerName }}" placeholder="example.com" style="width:24rem;font-family:ui-monospace,monospace">
+    </div>
+    {{/* What the gateway is serving right now, read off its :443 -- the
+         truth, whatever the settings say.  Absent when the probe was not
+         run (the tab is the only place it runs). */}}
+    {{ if .GatewayCert.Checked }}
+    <div class="field">
+      <div class="field-label field-label-row">
+        <span>{{ t .Lang "settings.gateway.cert_status" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="gw-cert-status-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="gw-cert-status-help">{{ t .Lang "settings.gateway.cert_status_desc" }}</script>
+      {{ if .GatewayCert.OK }}
+      <div class="note" style="font-family:ui-monospace,monospace;font-size:.85rem">
+        {{ t .Lang "settings.gateway.cert_issuer" }}: <b>{{ .GatewayCert.Issuer }}</b>
+        &nbsp;·&nbsp; {{ t .Lang "settings.gateway.cert_expires" }}: <b>{{ .GatewayCert.NotAfter }}</b>
+        ({{ tf .Lang "settings.gateway.cert_days_left" .GatewayCert.DaysLeft }})
+        {{ if .GatewayCert.Names }}<br>SAN: {{ .GatewayCert.Names }}{{ end }}
+        {{ if and (ne .Gateway.ServerName "_") (not .GatewayCert.NameMatch) }}<br><span style="color:#b91c1c">⚠ {{ t .Lang "settings.gateway.cert_name_mismatch" }}</span>{{ end }}
+      </div>
+      {{ else }}
+      <div class="note" style="color:#b91c1c">{{ t .Lang "settings.gateway.cert_probe_failed" }}: <code>{{ .GatewayCert.Err }}</code></div>
+      {{ end }}
+    </div>
+    {{ end }}
+  </div>
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.gateway.tls_h" }}</h2>
+    {{ $mode := .Gateway.TLSModeResolved }}
+    <div class="field">
+      <div class="field-label">{{ t .Lang "settings.gateway.tls_mode" }}</div>
+      {{/* One radio per source; the matching panel below opens.  The JS only
+           hides panels -- every field is always submitted, so switching back
+           and forth loses nothing the operator typed for another mode. */}}
+      <label style="display:block;margin:.3rem 0"><input type="radio" name="tls_mode" value="acme"   {{ if eq $mode "acme"   }}checked{{ end }} data-gw-mode> {{ t .Lang "settings.gateway.mode_acme" }}</label>
+      <label style="display:block;margin:.3rem 0"><input type="radio" name="tls_mode" value="upload" {{ if eq $mode "upload" }}checked{{ end }} data-gw-mode> {{ t .Lang "settings.gateway.mode_upload" }}</label>
+      <label style="display:block;margin:.3rem 0"><input type="radio" name="tls_mode" value="files"  {{ if eq $mode "files"  }}checked{{ end }} data-gw-mode> {{ t .Lang "settings.gateway.mode_files" }}</label>
+    </div>
+
+    <div class="field" data-gw-panel="acme">
+      <p class="note">{{ t .Lang "settings.gateway.mode_acme_desc" }}</p>
+      <div class="field-label">{{ t .Lang "settings.gateway.acme_email" }}</div>
+      <input type="email" name="acme_email" value="{{ .Gateway.ACMEEmail }}" placeholder="you@example.com" style="width:24rem">
+      <div class="field-label" style="margin-top:.6rem">{{ t .Lang "settings.gateway.acme_directory" }}</div>
+      <select name="acme_directory" data-gw-acme-dir>
+        <option value="production" {{ if eq .GatewayACMEChoice "production" }}selected{{ end }}>{{ t .Lang "settings.gateway.acme_production" }}</option>
+        <option value="staging"    {{ if eq .GatewayACMEChoice "staging"    }}selected{{ end }}>{{ t .Lang "settings.gateway.acme_staging" }}</option>
+        <option value="custom"     {{ if eq .GatewayACMEChoice "custom"     }}selected{{ end }}>{{ t .Lang "settings.gateway.acme_custom" }}</option>
+      </select>
+      <div data-gw-acme-custom style="margin-top:.4rem">
+        <input type="url" name="acme_directory_custom" value="{{ if eq .GatewayACMEChoice "custom" }}{{ .Gateway.ACMEDirectory }}{{ end }}" placeholder="https://acme.example/directory" style="width:100%;font-family:ui-monospace,monospace">
+        <label style="display:block;margin:.3rem 0"><input type="checkbox" name="acme_insecure" value="1" {{ if .Gateway.ACMEInsecure }}checked{{ end }}> {{ t .Lang "settings.gateway.acme_insecure" }}</label>
+      </div>
+    </div>
+
+    <div class="field" data-gw-panel="upload">
+      <p class="note">{{ t .Lang "settings.gateway.mode_upload_desc" }}</p>
+      <div class="note" style="font-size:.85rem">
+        {{ t .Lang "settings.gateway.uploaded_current" }}:
+        {{ if .GatewayUploaded.OK }}<b>{{ .GatewayUploaded.Subject }}</b> ({{ t .Lang "settings.gateway.cert_issuer" }}: {{ .GatewayUploaded.Issuer }}, {{ t .Lang "settings.gateway.cert_expires" }}: {{ .GatewayUploaded.NotAfter }}) — {{ t .Lang "settings.gateway.uploaded_keep" }}{{ else }}{{ t .Lang "settings.gateway.uploaded_none" }}{{ end }}
+      </div>
+      <div class="field-label" style="margin-top:.6rem">{{ t .Lang "settings.gateway.cert_pem" }}</div>
+      <textarea name="cert_pem" rows="6" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
+      <div class="field-label" style="margin-top:.6rem">{{ t .Lang "settings.gateway.chain_pem" }}</div>
+      <textarea name="chain_pem" rows="4" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
+      <div class="field-label" style="margin-top:.6rem">{{ t .Lang "settings.gateway.key_pem" }}</div>
+      <textarea name="key_pem" rows="6" spellcheck="false" autocomplete="off" placeholder="-----BEGIN PRIVATE KEY-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
+    </div>
+
+    <div class="field" data-gw-panel="files">
+      <p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_files_desc") }}</p>
+      <div class="field-label">{{ t .Lang "settings.gateway.tls_cert_path" }}</div>
+      <input type="text" name="tls_cert_path" value="{{ .Gateway.TLSCertPath }}" placeholder="/etc/unmask/tls/fullchain.pem" style="width:100%;font-family:ui-monospace,monospace">
+      <div class="field-label" style="margin-top:.6rem">{{ t .Lang "settings.gateway.tls_key_path" }}</div>
+      <input type="text" name="tls_key_path" value="{{ .Gateway.TLSKeyPath }}" placeholder="/etc/unmask/tls/privkey.pem" style="width:100%;font-family:ui-monospace,monospace">
+    </div>
+  </div>
+  <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
+</form>
+<script>
+(function(){
+  var form = document.getElementById('gateway-form'); if (!form) return;
+  function sync(){
+    var mode = (form.querySelector('input[name=tls_mode]:checked') || {}).value;
+    form.querySelectorAll('[data-gw-panel]').forEach(function(p){ p.style.display = p.getAttribute('data-gw-panel') === mode ? '' : 'none'; });
+    var dir = form.querySelector('[data-gw-acme-dir]');
+    var custom = form.querySelector('[data-gw-acme-custom]');
+    if (dir && custom) custom.style.display = dir.value === 'custom' ? '' : 'none';
+  }
+  form.querySelectorAll('[data-gw-mode], [data-gw-acme-dir]').forEach(function(el){ el.addEventListener('change', sync); });
+  sync();
 })();
 </script>
 {{ end }}

@@ -2885,6 +2885,9 @@ type Settings struct {
 	Rebind        RebindConfig         `yaml:"rebind,omitempty"`
 	Sites         SiteAcceptanceConfig `yaml:"sites,omitempty"`
 	Hosts         HostInventoryConfig  `yaml:"hosts,omitempty"`
+	// Gateway: the container gateway's hostname and certificate source
+	// (see gateway.go).  Absent on host installs.
+	Gateway GatewayConfig `yaml:"gateway,omitempty"`
 	// VersionCheckURL: where the admin overview checks for the latest unmask
 	// release + changelog.  Empty -> the default (unmask.sh).  Advanced override;
 	// the on/off switch is VersionCheckDisabled (toggled from the About tab).
