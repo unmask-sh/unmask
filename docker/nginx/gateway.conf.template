@@ -35,12 +35,23 @@ server {
     # daemon-down fail-open live here (rendered by the admin container).
     include /etc/unmask/server.inc;
 
+    # A transparent gateway must not impose limits the upstream does not:
+    # nginx's stock 1m body cap would 413 an upload the app happily accepts,
+    # and its 60s read timeout would cut a long poll or an SSE stream.  The
+    # upstream keeps its own limits.
+    client_max_body_size 0;
+
     location / {
         # The challenge decision for everything proxied.
         include /etc/unmask/protect.inc;
 
         proxy_pass ${UNMASK_UPSTREAM};
         proxy_http_version 1.1;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+        # An https upstream (a second nginx that keeps its own certificate)
+        # needs SNI to pick the right vhost.
+        proxy_ssl_server_name on;
         proxy_set_header Host              $host;
         proxy_set_header X-Real-IP         $remote_addr;
         proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
