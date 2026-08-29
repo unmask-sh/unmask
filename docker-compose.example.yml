@@ -22,8 +22,9 @@
 # (nginx reads what admin wrote) and the secrets; drop it and every restart
 # mints new secrets, which logs every visitor out and re-challenges them.
 #
-# After changing settings in the admin UI, apply them to nginx as on a host:
-#   docker compose -f docker-compose.example.yml exec nginx nginx -s reload
+# Settings changed in the admin UI are rendered into the shared volume and the
+# nginx container reloads itself within a few seconds (after nginx -t; a render
+# that does not parse is logged and skipped).  UNMASK_AUTORELOAD=0 disables that.
 
 services:
   admin:

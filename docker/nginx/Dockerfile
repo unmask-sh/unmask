@@ -63,5 +63,8 @@ RUN sed -i '1i load_module modules/ngx_http_unmask_module.so;' /etc/nginx/nginx.
 # subprocess and lose them).
 COPY --chmod=0755 docker/nginx/10-unmask-gateway.envsh /docker-entrypoint.d/10-unmask-gateway.envsh
 COPY docker/nginx/gateway.conf.template /usr/share/unmask/gateway.conf.template
+# Reloads nginx when the admin container re-renders the includes, so a
+# settings change applies without anyone running `nginx -s reload`.
+COPY --chmod=0755 docker/nginx/30-unmask-autoreload.sh /docker-entrypoint.d/30-unmask-autoreload.sh
 # The entrypoint skips a non-executable file even when it would only source it.
-RUN test -x /docker-entrypoint.d/10-unmask-gateway.envsh
+RUN test -x /docker-entrypoint.d/10-unmask-gateway.envsh && test -x /docker-entrypoint.d/30-unmask-autoreload.sh
