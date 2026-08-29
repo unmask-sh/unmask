@@ -247,6 +247,28 @@ jobs:
             sleep 1
           done
           docker logs unmask-nginx 2>&1 | grep -q 'unmask-autoreload: includes changed, nginx reloaded'
+      # Automatic HTTPS: the same stack with UNMASK_ACME_EMAIL set, issuing
+      # from Pebble (Let's Encrypt's test server, validation off).  The
+      # certificate nginx serves must be Pebble's, and it must survive a
+      # restart from the state volume rather than be issued again.
+      - name: gateway obtains its certificate over ACME
+        run: |
+          docker compose -f docker-compose.example.yml down -v
+          docker compose -f docker-compose.example.yml -f e2e/docker/acme-override.yml up -d --no-build
+          for i in $(seq 1 40); do
+            [ "$(docker inspect -f '{{.State.Status}}' unmask-nginx 2>/dev/null)" = running ] && break
+            sleep 3
+          done
+          for i in $(seq 1 30); do
+            iss=$(echo | timeout 5 openssl s_client -connect 127.0.0.1:443 -servername example.test 2>/dev/null | openssl x509 -noout -issuer 2>/dev/null)
+            echo "$iss" | grep -q 'Pebble' && break
+            sleep 3
+          done
+          echo "served: $iss"; echo "$iss" | grep -q 'Pebble'
+          s1=$(echo | timeout 5 openssl s_client -connect 127.0.0.1:443 -servername example.test 2>/dev/null | openssl x509 -noout -serial)
+          docker restart unmask-nginx && sleep 8
+          s2=$(echo | timeout 5 openssl s_client -connect 127.0.0.1:443 -servername example.test 2>/dev/null | openssl x509 -noout -serial)
+          echo "before=$s1 after=$s2"; test "$s1" = "$s2"
       - name: compose logs on failure
         if: failure()
         run: docker compose -f docker-compose.example.yml logs --no-color | tail -80
