@@ -32,7 +32,7 @@ Official install guide: **https://unmask.sh/install/**
 
 rpm / deb / apk packages, per-HTTP-server snippets, and an install wizard — step by step.
 
-Containers: `ghcr.io/unmask-sh/admin` (the daemon) and `ghcr.io/unmask-sh/nginx` (the official nginx image plus the module). `docker-compose.example.yml` pairs them; set `UNMASK_UPSTREAM` on the nginx container and it also works as a JA4-aware gateway in front of any HTTP server.
+Containers: `unmask.sh/admin` (the daemon) and `unmask.sh/nginx` (the official nginx image plus the module), served from unmask.sh like the packages and mirrored on GHCR (`ghcr.io/unmask-sh/*`). `docker-compose.example.yml` pairs them; set `UNMASK_UPSTREAM` on the nginx container and it also works as a JA4-aware gateway in front of any HTTP server.
 
 ## Docs
 

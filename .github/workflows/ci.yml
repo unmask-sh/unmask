@@ -211,6 +211,32 @@ jobs:
         run: |
           docker run --rm unmask-ci/nginx:test nginx -t
           docker run --rm unmask-ci/nginx:test nginx -V 2>&1 | grep -q -- '--with-compat'
+      # unmask.sh serves the images as static files (docker/registry/).  Lay
+      # the admin image out the way tools/build-registry.sh does at release
+      # time, serve the tree with stock nginx and the include, and pull it
+      # with docker: the media types, headers and file names the client
+      # expects are all in that include, and nothing else exercises them.
+      - name: static registry layout pulls with docker
+        run: |
+          docker buildx build --output type=oci,dest=/tmp/admin.oci.tar --build-arg UNMASK_VERSION=ci .
+          mkdir -p /tmp/admin-layout && tar -xf /tmp/admin.oci.tar -C /tmp/admin-layout
+          python3 tools/oci-static-registry.py --layout /tmp/admin-layout --name admin --tag ci --tag latest --out /tmp/registry
+          docker run -d --name oci-static -p 127.0.0.1:5999:80 \
+            -v /tmp/registry/v2:/var/www/unmask.sh/v2:ro \
+            -v $PWD/docker/registry/oci-static.inc:/etc/nginx/unmask-registry/oci-static.inc:ro \
+            -v $PWD/docker/registry/oci-static-map.conf:/etc/nginx/conf.d/zz-oci-static-map.conf:ro \
+            -v $PWD/docker/registry/nginx-test.conf:/etc/nginx/conf.d/default.conf:ro \
+            nginx:1.28
+          sleep 2
+          docker exec oci-static nginx -t
+          curl -sI http://127.0.0.1:5999/v2/ | grep -q 'Docker-Distribution-API-Version: registry/2.0'
+          docker pull 127.0.0.1:5999/admin:ci
+          docker run --rm 127.0.0.1:5999/admin:ci version
+          # by digest, and the moving tag
+          dgst=$(sha256sum /tmp/registry/v2/admin/manifests/ci.man | cut -d' ' -f1)
+          docker pull 127.0.0.1:5999/admin@sha256:$dgst
+          docker pull 127.0.0.1:5999/admin:latest
+          docker rm -f oci-static
       # The compose example, end to end, on the images just built: first boot
       # of the admin container (skeleton config, migrate, render), the nginx
       # sidecar picking up the rendered includes, and the gateway answering --
@@ -220,8 +246,8 @@ jobs:
       # nginx.conf.
       - name: compose example boots and the gateway answers
         run: |
-          docker tag unmask-ci/admin:test ghcr.io/unmask-sh/admin:latest
-          docker tag unmask-ci/nginx:test ghcr.io/unmask-sh/nginx:1.28
+          docker tag unmask-ci/admin:test unmask.sh/admin:latest
+          docker tag unmask-ci/nginx:test unmask.sh/nginx:1.28
           mkdir -p tls && openssl req -x509 -nodes -newkey rsa:2048 -days 2 \
             -keyout tls/privkey.pem -out tls/fullchain.pem -subj "/CN=localhost" 2>/dev/null
           docker compose -f docker-compose.example.yml -f e2e/docker/admin-port-override.yml up -d --no-build
