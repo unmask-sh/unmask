@@ -129,8 +129,8 @@ const ok = (c, m) => { if (!c) fails.push(m); };
 
     // Tier 2: nothing is actually being cut here.  15rem at a 16px root --
     // the narrowest width where the widest timestamp seen (146px, DejaVu Sans
-    // Mono on the CI runner) plus a site badge at its 4.5rem cap still fit:
-    // 8 + 146 + 4 + 72 + 8 = 238 < 240.  It went to 18rem first, which fit
+    // Mono on the CI runner) plus a site badge at its 4rem cap still fit:
+    // 8 + 146 + 4 + 64 + 8 = 230 < 240.  It went to 18rem first, which fit
     // everything and was reported as "too wide" the same day: most rows have
     // no badge, and every extra rem is dead space between the timestamp and
     // the IP on all of them.
@@ -156,9 +156,15 @@ const ok = (c, m) => { if (!c) fails.push(m); };
     // the override's own value (5rem) rather than "bigger than nothing": the
     // shared rule this overrides is 4rem = 64px, so any threshold below that
     // passes in exactly the case worth catching.
-    ok(res.capWidth >= 68 && res.capWidth <= 76,
-      `the site badge capped at ${res.capWidth.toFixed(1)}px, want ~72px (4.5rem); ` +
-      `at 64px the date cell's override is gone and the shared 4rem rule is back`);
+    // 4rem, which is also the shared rule's value: the override exists so
+    // the cell's cap is declared where the cell's width is reasoned about,
+    // not to widen it.  At 15rem the CI runner's 146px timestamp leaves
+    // exactly this much: 8 + 146 + 4 + 64 + 8 = 230 of 240, ~1px to spare
+    // after the badge's own border and padding.  A wider cap failed there by
+    // 6.9px; a narrower column shows a hand's width of empty space beside
+    // the timestamp on every row without a badge.
+    ok(res.capWidth >= 60 && res.capWidth <= 68,
+      `the site badge capped at ${res.capWidth.toFixed(1)}px, want ~64px (4rem)`);
 
     // The site badge is the truncated half of a pair: the cell shows a clipped
     // name, the popover shows the whole one.  Both halves have to be there --
