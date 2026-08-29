@@ -236,6 +236,17 @@ jobs:
           curl -sk https://127.0.0.1/ | grep -q '<title>Security check</title>'
           test "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1/unmask/healthz)" = 200
           docker exec unmask-nginx nginx -t
+          # The reload watcher is up, and acts: touching the rendered includes
+          # through the admin (a re-render with a changed setting) must make
+          # nginx reload on its own.
+          docker logs unmask-nginx 2>&1 | grep -q 'unmask-autoreload: watching'
+          docker exec unmask-admin sh -c 'sed -i "s|^nginx:$|nginx:\n    bypass_ips:\n        - 203.0.113.9|" /etc/unmask/admin.yml'
+          docker exec unmask-admin /usr/local/bin/unmask render-nginx -config /etc/unmask/admin.yml
+          for i in $(seq 1 20); do
+            docker logs unmask-nginx 2>&1 | grep -q 'nginx reloaded' && break
+            sleep 1
+          done
+          docker logs unmask-nginx 2>&1 | grep -q 'unmask-autoreload: includes changed, nginx reloaded'
       - name: compose logs on failure
         if: failure()
         run: docker compose -f docker-compose.example.yml logs --no-color | tail -80
