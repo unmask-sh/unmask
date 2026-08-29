@@ -107,6 +107,7 @@ rsync -avhz $DRY \
     --delete-after \
     --exclude=feed/ \
     --exclude=ipgeo/ \
+    --exclude=registry/ \
     $CHANNEL_EXCLUDE \
     $APK_EXCLUDE \
     --info=progress2 \
@@ -116,6 +117,21 @@ rsync -avhz $DRY \
 
 echo
 echo "==> rsync complete."
+
+# The container images: the static registry tree (tools/build-registry.sh)
+# goes to /v2/ on the same host, beside /dl/.  Additive on purpose -- an
+# older tag stays pullable, and the blobs are content-addressed, so nothing
+# here is ever "stale" the way a repo index is.  Prune by hand when needed.
+REG_SRC="$SRC/registry/v2"
+REG_DEST="${UNMASK_REGISTRY_PATH:-/var/www/unmask.sh/v2/}"
+if [ "$CHANNEL" = stable ] && [ -d "$REG_SRC" ]; then
+    echo "==> rsync registry $REG_SRC/ -> $USER@$HOST:$REG_DEST (additive)"
+    rsync -avhz $DRY \
+        --info=progress2 \
+        -e "$RSH -o BatchMode=yes" \
+        "$REG_SRC/" "$USER@$HOST:$REG_DEST"
+    echo "==> registry rsync complete."
+fi
 
 if [ -n "$DRY" ]; then
     exit 0

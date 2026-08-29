@@ -28,7 +28,7 @@
 
 services:
   admin:
-    image: ghcr.io/unmask-sh/admin:latest
+    image: unmask.sh/admin:latest      # mirrored at ghcr.io/unmask-sh/admin
     build: .                       # or build from this checkout
     container_name: unmask-admin
     restart: unless-stopped
@@ -64,7 +64,7 @@ services:
       retries: 20
 
   nginx:
-    image: ghcr.io/unmask-sh/nginx:1.28
+    image: unmask.sh/nginx:1.28        # mirrored at ghcr.io/unmask-sh/nginx
     build:
       context: .
       dockerfile: docker/nginx/Dockerfile
