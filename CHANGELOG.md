@@ -14,6 +14,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- (2026-08-29) **The bot-hunt date column is 15rem, not 18rem.**  0.1.36 moved the host pill out of the cell and then widened the column by more than the pill had ever needed, so on every row without a site badge -- most rows on a single-site install -- the timestamp sat beside a hand's width of empty space before the IP.  15rem is the narrowest width where the widest monospace font seen and a capped site badge still fit; the cell keeps clipping, so a wider font cuts a badge rather than spilling.
+
 ### Added
 - (2026-08-29) **doctor notices when an install's history has split in two.**  With `server.host_id` unset an install records under its OS hostname, so a rename splits its history into two names with nothing saying they are the same node.  doctor now warns when the database holds several host ids and none is pinned here; the fix is `server.host_id` on each node.
 
