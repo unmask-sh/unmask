@@ -174,13 +174,13 @@ func gatewayCertStatus(addr, serverName string) gatewayCertView {
 	d := &net.Dialer{Timeout: 3 * time.Second}
 	conn, err := tls.DialWithDialer(d, "tcp", addr, &tls.Config{
 		ServerName:         serverName,
-		InsecureSkipVerify: true, // we want to SEE the certificate, whatever it is
+		InsecureSkipVerify: true, //nolint:gosec // the probe shows whatever :443 serves, self-signed included; verification is the browser's job
 	})
 	if err != nil {
 		v.Err = err.Error()
 		return v
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	certs := conn.ConnectionState().PeerCertificates
 	if len(certs) == 0 {
 		v.Err = "no certificate presented"
