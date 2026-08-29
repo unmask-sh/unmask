@@ -55,9 +55,15 @@ COPY admin/assets/static/challenge.html admin/assets/static/challenge.js /usr/sh
 # rather than replacing the file, so upstream changes to that file keep
 # flowing through.  The rendered includes land in /etc/unmask (shared volume
 # with the admin container); /run/unmask carries the access-log socket.
-RUN sed -i '1i load_module modules/ngx_http_unmask_module.so;' /etc/nginx/nginx.conf \
-    && mkdir -p /etc/unmask /run/unmask /etc/unmask/tls \
+# The official image ships nginx's own ACME module (ngx_http_acme_module,
+# nginx-module-acme); loading it costs nothing when unused and lets the
+# gateway do automatic HTTPS with one variable (UNMASK_ACME_EMAIL).  Its
+# state directory must be writable by the worker user and should persist.
+RUN sed -i '1i load_module modules/ngx_http_unmask_module.so;\nload_module modules/ngx_http_acme_module.so;' /etc/nginx/nginx.conf \
+    && mkdir -p /etc/unmask /run/unmask /etc/unmask/tls /var/cache/nginx/unmask-acme \
+    && chown nginx:nginx /var/cache/nginx/unmask-acme \
     && nginx -t
+VOLUME ["/var/cache/nginx/unmask-acme"]
 # .envsh: the stock entrypoint sources it, so the defaults it exports reach
 # the envsubst step that renders the gateway template (a .sh would run in a
 # subprocess and lose them).

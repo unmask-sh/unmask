@@ -65,12 +65,21 @@ services:
       # own conf.d mounted at /etc/nginx/conf.d.
       UNMASK_UPSTREAM: http://app:80
       UNMASK_SERVER_NAME: localhost     # your hostname; "_" matches any
-      # UNMASK_TLS_CERT: /etc/unmask/tls/fullchain.pem   (defaults)
+      # TLS, one of:
+      #  (a) your own files, mounted below (the default):
+      # UNMASK_TLS_CERT: /etc/unmask/tls/fullchain.pem
       # UNMASK_TLS_KEY:  /etc/unmask/tls/privkey.pem
+      #  (b) automatic HTTPS: set the contact address and nginx's own ACME
+      #      module obtains and renews a Let's Encrypt certificate for
+      #      UNMASK_SERVER_NAME (a real hostname; :80 reachable from the
+      #      internet for the http-01 challenge).  Nothing else to run.
+      # UNMASK_ACME_EMAIL: you@example.com
+      # UNMASK_ACME_DIRECTORY: https://acme-staging-v02.api.letsencrypt.org/directory  # staging, while testing
     volumes:
       - unmask-config:/etc/unmask:ro
       - unmask-run:/run/unmask
       - ./tls:/etc/unmask/tls:ro
+      - unmask-acme:/var/cache/nginx/unmask-acme   # ACME account + certificate; keep it
     ports:
       - "80:80"
       - "443:443"
@@ -86,3 +95,4 @@ volumes:
   unmask-config:
   unmask-data:
   unmask-run:
+  unmask-acme:

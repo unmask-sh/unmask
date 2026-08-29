@@ -10,16 +10,79 @@
 #
 # Off unless UNMASK_UPSTREAM is set: without it the image is a plain nginx
 # with the module loaded, and your own conf.d applies (module-only use).
+#
+# TLS comes from one of two places, chosen here and written as two include
+# files the template pulls in (envsubst has no conditionals):
+#
+#   UNMASK_ACME_EMAIL set  -> automatic HTTPS.  nginx's own ACME module
+#                             (shipped in the official image) requests the
+#                             certificate for UNMASK_SERVER_NAME from
+#                             Let's Encrypt over http-01 on :80 and renews it
+#                             in place; nothing else to run.  State (account
+#                             key, certificate) lives in /var/cache/nginx/
+#                             unmask-acme -- mount a volume there.
+#   otherwise              -> your own files at UNMASK_TLS_CERT / _KEY.
 if [ -n "${UNMASK_UPSTREAM:-}" ]; then
     : "${UNMASK_SERVER_NAME:=_}"
     : "${UNMASK_TLS_CERT:=/etc/unmask/tls/fullchain.pem}"
     : "${UNMASK_TLS_KEY:=/etc/unmask/tls/privkey.pem}"
+    : "${UNMASK_ACME_DIRECTORY:=https://acme-v02.api.letsencrypt.org/directory}"
     export UNMASK_UPSTREAM UNMASK_SERVER_NAME UNMASK_TLS_CERT UNMASK_TLS_KEY
 
     # The stock default vhost owns :80; the gateway replaces it with a redirect.
     rm -f /etc/nginx/conf.d/default.conf
     mkdir -p /etc/nginx/templates
     cp /usr/share/unmask/gateway.conf.template /etc/nginx/templates/unmask-gateway.conf.template
+
+    if [ -n "${UNMASK_ACME_EMAIL:-}" ]; then
+        case "$UNMASK_SERVER_NAME" in
+            _|*"*"*|"")
+                echo "unmask-gateway: UNMASK_ACME_EMAIL needs a real hostname in UNMASK_SERVER_NAME (got '${UNMASK_SERVER_NAME}'); Let's Encrypt issues for names, not wildcards or catch-alls" >&2
+                exit 1 ;;
+        esac
+        # The module resolves the ACME server itself and needs a resolver.
+        # Read the container's nameservers the same way the stock
+        # 15-local-resolvers.envsh does -- but here and now, because this
+        # file is written by this script, not rendered by envsubst later.
+        resolvers=$(awk 'BEGIN{ORS=" "} $1=="nameserver" {if ($2 ~ ":") {print "["$2"]"} else {print $2}}' /etc/resolv.conf)
+        resolvers="${resolvers% }"
+        [ -n "$resolvers" ] || resolvers="127.0.0.11"
+        verify=on
+        case "${UNMASK_ACME_INSECURE:-}" in 1|true|yes|on) verify=off ;; esac
+        cat > /etc/nginx/unmask-gateway-acme-http.inc <<EOF
+# rendered by 10-unmask-gateway.envsh: ACME issuer (http scope)
+resolver ${resolvers};
+acme_shared_zone zone=unmask_acme:1M;
+acme_issuer unmask_le {
+    uri         ${UNMASK_ACME_DIRECTORY};
+    contact     mailto:${UNMASK_ACME_EMAIL};
+    state_path  /var/cache/nginx/unmask-acme;
+    ssl_verify  ${verify};
+    accept_terms_of_service;
+}
+EOF
+        cat > /etc/nginx/unmask-gateway-tls.inc <<'EOF'
+# rendered by 10-unmask-gateway.envsh: certificate from the ACME module
+acme_certificate      unmask_le;
+ssl_certificate       $acme_certificate;
+ssl_certificate_key   $acme_certificate_key;
+ssl_certificate_cache max=2;
+EOF
+        echo "unmask-gateway: TLS via ACME (${UNMASK_ACME_DIRECTORY}) for ${UNMASK_SERVER_NAME}; :80 must be reachable from the internet for the http-01 challenge"
+    else
+        : > /etc/nginx/unmask-gateway-acme-http.inc
+        cat > /etc/nginx/unmask-gateway-tls.inc <<EOF
+# rendered by 10-unmask-gateway.envsh: certificate from files
+ssl_certificate     ${UNMASK_TLS_CERT};
+ssl_certificate_key ${UNMASK_TLS_KEY};
+EOF
+        for f in "$UNMASK_TLS_CERT" "$UNMASK_TLS_KEY"; do
+            if [ ! -f "$f" ]; then
+                echo "unmask-gateway: TLS file $f not found -- mount your certificate at /etc/unmask/tls, set UNMASK_TLS_CERT / UNMASK_TLS_KEY, or set UNMASK_ACME_EMAIL for automatic HTTPS" >&2
+                exit 1
+            fi
+        done
+    fi
 
     # The includes are rendered by the admin container into the shared volume.
     # Under compose the admin healthcheck orders the two, but give a plain
@@ -35,12 +98,6 @@ if [ -n "${UNMASK_UPSTREAM:-}" ]; then
             [ "$i" -eq 1 ] && echo "unmask-gateway: waiting for the admin container to render /etc/unmask/$f ..." >&2
             sleep 2
         done
-    done
-    for f in "$UNMASK_TLS_CERT" "$UNMASK_TLS_KEY"; do
-        if [ ! -f "$f" ]; then
-            echo "unmask-gateway: TLS file $f not found (mount your certificate at /etc/unmask/tls or set UNMASK_TLS_CERT / UNMASK_TLS_KEY)" >&2
-            exit 1
-        fi
     done
     echo "unmask-gateway: :443 -> ${UNMASK_UPSTREAM} (server_name ${UNMASK_SERVER_NAME})"
 fi
