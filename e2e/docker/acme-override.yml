@@ -1,0 +1,29 @@
+# Compose override for testing the gateway's automatic HTTPS without the
+# internet: Pebble (Let's Encrypt's own test ACME server) issues for
+# example.test with validation switched off, and the gateway talks to it
+# over its self-signed endpoint (UNMASK_ACME_INSECURE).  Used by CI
+# (docker-images job) on top of docker-compose.example.yml:
+#
+#   docker compose -f docker-compose.example.yml -f e2e/docker/acme-override.yml up -d
+#
+# The served certificate must then come from "Pebble Intermediate CA".
+services:
+  pebble:
+    image: ghcr.io/letsencrypt/pebble:latest
+    command: ["-config", "/test/config/pebble-config.json"]
+    environment:
+      PEBBLE_VA_ALWAYS_VALID: "1"
+      PEBBLE_VA_NOSLEEP: "1"
+  nginx:
+    depends_on:
+      pebble:
+        condition: service_started
+    environment:
+      UNMASK_SERVER_NAME: example.test
+      UNMASK_ACME_EMAIL: ops@example.test
+      UNMASK_ACME_DIRECTORY: https://pebble:14000/dir
+      UNMASK_ACME_INSECURE: "1"
+    volumes: !override
+      - unmask-config:/etc/unmask:ro
+      - unmask-run:/run/unmask
+      - unmask-acme:/var/cache/nginx/unmask-acme
