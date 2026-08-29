@@ -82,6 +82,10 @@ services:
       UNMASK_UPSTREAM: http://app:80
       # The vhost name and certificate are settings > Gateway in the admin
       # (seeded from the admin service's environment above).
+    # Upstream on the Docker host itself (a server you moved to port 8080 --
+    # bound to an address the container can reach, not 127.0.0.1):
+    # extra_hosts: ["host.docker.internal:host-gateway"]
+    # ... with UNMASK_UPSTREAM: http://host.docker.internal:8080
     volumes:
       - unmask-config:/etc/unmask:ro
       - unmask-run:/run/unmask
