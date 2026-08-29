@@ -168,7 +168,11 @@ jobs:
           ls -la dist/
       - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         with:
-          files: dist/*
+          # The compose example rides along so the install page can point at
+          # a release-pinned copy (releases/latest/download/...).
+          files: |
+            dist/*
+            docker-compose.example.yml
           generate_release_notes: true
           draft: true
           body: |
