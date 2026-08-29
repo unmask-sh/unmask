@@ -715,9 +715,9 @@ package-all:
 		echo "!! skipping arm64 package.  install gcc-aarch64-linux-gnu or build artifacts on arm64 host."; \
 	fi
 
-## docker        - admin image (host arch). tag: ghcr.io/unmask-sh/admin:$(UNMASK_VERSION)
-DOCKER_IMAGE_ADMIN ?= ghcr.io/unmask-sh/admin
-DOCKER_IMAGE_NGINX ?= ghcr.io/unmask-sh/nginx
+## docker        - admin image (host arch). tag: unmask.sh/admin:$(UNMASK_VERSION)
+DOCKER_IMAGE_ADMIN ?= unmask.sh/admin
+DOCKER_IMAGE_NGINX ?= unmask.sh/nginx
 DOCKER_NGINX_VERSION ?= 1.28.3
 docker:
 	docker build -t $(DOCKER_IMAGE_ADMIN):$(UNMASK_VERSION) -t $(DOCKER_IMAGE_ADMIN):latest \
@@ -732,7 +732,8 @@ docker-nginx:
 
 ## docker-buildx - multi-arch admin image (amd64 + arm64).  Set DOCKER_REGISTRY
 # to a prefix ending in "/" to push there; unset = local image only.  Releases
-# push both images from the release workflow (GHCR), so this is for one-offs.
+# build both images in the release workflow (GHCR, the build source) and
+# tools/build-registry.sh lays them out for unmask.sh, so this is for one-offs.
 DOCKER_REGISTRY ?=
 docker-buildx:
 	docker buildx build \
