@@ -5783,9 +5783,12 @@ function secToHuman(s){
           <option value="upload" {{ if eq .C.ModeResolved "upload" }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_upload" }}</option>
           <option value="files"  {{ if eq .C.ModeResolved "files"  }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_files" }}</option>
         </select>
-        <div class="field-label">{{ t $.Lang "settings.gateway.cert_domains" }}</div>
-        <input type="text" name="cert_domains" value="{{ .C.Domains }}" placeholder="example.com www.example.com" style="width:100%;font-family:ui-monospace,monospace">
-        <p class="note" data-gw-domains-note>{{ safeHTML (t $.Lang "settings.gateway.cert_domains_desc") }}</p>
+        <div data-gw-domains>
+          <div class="field-label" data-gw-domains-label>{{ t $.Lang "settings.gateway.cert_domains_acme" }}</div>
+          <input type="text" name="cert_domains" value="{{ .C.Domains }}" placeholder="example.com www.example.com" style="width:100%;font-family:ui-monospace,monospace">
+          <p class="note" data-gw-domains-note>{{ safeHTML (t $.Lang "settings.gateway.cert_domains_acme_desc") }}</p>
+        </div>
+        <p class="note" data-gw-domains-auto>{{ if .C.Domains }}{{ t $.Lang "settings.gateway.cert_domains_san" }}: <code>{{ .C.Domains }}</code>{{ else }}{{ t $.Lang "settings.gateway.cert_domains_san_pending" }}{{ end }}</p>
         <div class="field" data-gw-panel="acme"><p class="note">{{ safeHTML (t $.Lang "settings.gateway.mode_acme_desc") }}</p></div>
         <div class="field" data-gw-panel="upload">
           <p class="note">{{ safeHTML (t $.Lang "settings.gateway.mode_upload_desc") }}</p>
@@ -5839,9 +5842,12 @@ function secToHuman(s){
           <option value="upload">{{ t .Lang "settings.gateway.mode_upload" }}</option>
           <option value="files">{{ t .Lang "settings.gateway.mode_files" }}</option>
         </select>
-        <div class="field-label">{{ t .Lang "settings.gateway.cert_domains" }}</div>
-        <input type="text" name="cert_domains" value="" placeholder="example.com www.example.com" style="width:100%;font-family:ui-monospace,monospace">
-        <p class="note" data-gw-domains-note>{{ safeHTML (t .Lang "settings.gateway.cert_domains_desc") }}</p>
+        <div data-gw-domains>
+          <div class="field-label" data-gw-domains-label>{{ t .Lang "settings.gateway.cert_domains_acme" }}</div>
+          <input type="text" name="cert_domains" value="" placeholder="example.com www.example.com" style="width:100%;font-family:ui-monospace,monospace">
+          <p class="note" data-gw-domains-note>{{ safeHTML (t .Lang "settings.gateway.cert_domains_acme_desc") }}</p>
+        </div>
+        <p class="note" data-gw-domains-auto>{{ t .Lang "settings.gateway.cert_domains_san_pending" }}</p>
         <div class="field" data-gw-panel="acme"><p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_acme_desc") }}</p></div>
         <div class="field" data-gw-panel="upload">
           <p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_upload_desc") }}</p>
@@ -5892,14 +5898,25 @@ function secToHuman(s){
   var form = document.getElementById('gateway-form'); if (!form) return;
   var certList = form.querySelector('[data-gw-certs]');
   var certLabel = {{ t .Lang "settings.gateway.cert_n" }};
-  var domainsAuto = {{ t .Lang "settings.gateway.cert_domains_auto" }};
-  var domainsDesc = {{ t .Lang "settings.gateway.cert_domains_desc" }};
+  // The domains field: typed for Let's Encrypt (what to issue for) and,
+  // optionally, for files (SNI selection between several); a pasted
+  // certificate brings its own (SANs), so the field hides and the text shows.
+  var domainsUI = {
+    acme:  {label: {{ t .Lang "settings.gateway.cert_domains_acme" }},  note: {{ t .Lang "settings.gateway.cert_domains_acme_desc" }}},
+    files: {label: {{ t .Lang "settings.gateway.cert_domains_files" }}, note: {{ t .Lang "settings.gateway.cert_domains_files_desc" }}}
+  };
   function syncCert(cert, i){
     var mode = cert.querySelector('[data-gw-mode]').value;
     cert.querySelectorAll('[data-gw-panel]').forEach(function(p){ p.style.display = p.getAttribute('data-gw-panel') === mode ? '' : 'none'; });
     cert.querySelector('[data-gw-cert-title]').textContent = certLabel.replace('%d', String(i + 1));
     cert.querySelector('[data-gw-default-badge]').style.display = i === 0 ? '' : 'none';
-    cert.querySelector('[data-gw-domains-note]').innerHTML = mode === 'upload' ? domainsAuto : domainsDesc;
+    var dom = cert.querySelector('[data-gw-domains]'), auto = cert.querySelector('[data-gw-domains-auto]');
+    dom.style.display = mode === 'upload' ? 'none' : '';
+    auto.style.display = mode === 'upload' ? '' : 'none';
+    if (domainsUI[mode]) {
+      cert.querySelector('[data-gw-domains-label]').textContent = domainsUI[mode].label;
+      cert.querySelector('[data-gw-domains-note]').innerHTML = domainsUI[mode].note;
+    }
   }
   function syncAll(){
     var none = (form.querySelector('input[name=tls]:checked') || {}).value === 'none';
