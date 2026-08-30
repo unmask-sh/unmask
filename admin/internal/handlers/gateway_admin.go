@@ -18,10 +18,13 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// applyGatewayForm reads settings > Gateway: where TLS ends, which
-// hostnames the gateway answers for (all, or a list), the certificates
-// (parallel arrays, one entry each in DOM order, a <select> per entry and
-// never a checkbox), and the ACME account.  A pasted pair is checked and
+// applyGatewayForm reads settings > Gateway: what it listens on, which
+// hostnames it answers for (all, or a list), the certificates (parallel
+// arrays, one entry each in DOM order, a <select> per entry and never a
+// checkbox), and the ACME account.  Sections that do not apply to the
+// current choice are disabled in the tab rather than hidden, and a
+// disabled fieldset is not submitted: each carries a *_present marker, and
+// a section without its marker keeps its stored values.  A pasted pair is checked and
 // stored under the entry's id before the config is validated, and its
 // SANs are the entry's domains; so are a mounted file's when the admin
 // can read it (same mount as the nginx service).  The field is typed for
@@ -44,26 +47,37 @@ func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string)
 	}
 	switch strings.TrimSpace(r.FormValue("hostnames_mode")) {
 	case "", settings.GatewayHostsAll:
-		g.Hostnames = settings.GatewayHostnames{Mode: settings.GatewayHostsAll}
+		// The list is disabled (kept, so switching back shows it again).
+		g.Hostnames.Mode = settings.GatewayHostsAll
 	case settings.GatewayHostsCustom:
-		g.Hostnames = settings.GatewayHostnames{Mode: settings.GatewayHostsCustom, Names: strings.Join(strings.Fields(strings.ToLower(r.FormValue("hostnames"))), " ")}
+		g.Hostnames.Mode = settings.GatewayHostsCustom
+		if r.Form.Has("hostnames_present") {
+			g.Hostnames.Names = strings.Join(strings.Fields(strings.ToLower(r.FormValue("hostnames"))), " ")
+		}
 	default:
 		return errors.New("hostnames: unknown choice")
 	}
 	g.Upstream = strings.TrimSpace(r.FormValue("upstream"))
-	g.ACMEEmail = strings.TrimSpace(r.FormValue("acme_email"))
-	switch strings.TrimSpace(r.FormValue("acme_directory")) {
-	case "", "production":
-		g.ACMEDirectory = ""
-		g.ACMEInsecure = false
-	case "staging":
-		g.ACMEDirectory = settings.ACMEDirectoryLetsEncryptStaging
-		g.ACMEInsecure = false
-	case "custom":
-		g.ACMEDirectory = strings.TrimSpace(r.FormValue("acme_directory_custom"))
-		g.ACMEInsecure = r.FormValue("acme_insecure") == "1"
-	default:
-		return errors.New("ACME directory: unknown choice")
+	if r.Form.Has("acme_present") {
+		g.ACMEEmail = strings.TrimSpace(r.FormValue("acme_email"))
+		switch strings.TrimSpace(r.FormValue("acme_directory")) {
+		case "", "production":
+			g.ACMEDirectory = ""
+			g.ACMEInsecure = false
+		case "staging":
+			g.ACMEDirectory = settings.ACMEDirectoryLetsEncryptStaging
+			g.ACMEInsecure = false
+		case "custom":
+			g.ACMEDirectory = strings.TrimSpace(r.FormValue("acme_directory_custom"))
+			g.ACMEInsecure = r.FormValue("acme_insecure") == "1"
+		default:
+			return errors.New("ACME directory: unknown choice")
+		}
+	}
+	if !r.Form.Has("certs_present") {
+		// The certificates section is disabled (no https): keep what is
+		// stored, so ticking https again finds it as it was.
+		return g.Validate()
 	}
 
 	col := func(k string) []string { return r.Form[k] }

@@ -81,7 +81,8 @@ func postGateway(t *testing.T, h *Handler, form url.Values) string {
 func oneCert(hostnames, domains, mode string, extra url.Values) url.Values {
 	f := url.Values{
 		"listen_http": {"1"}, "listen_https": {"1"},
-		"hostnames_mode": {"custom"}, "hostnames": {hostnames},
+		"hostnames_mode": {"custom"}, "hostnames_present": {"1"}, "hostnames": {hostnames},
+		"certs_present": {"1"}, "acme_present": {"1"},
 		"cert_id": {""}, "cert_domains": {domains}, "cert_mode": {mode},
 		"cert_cert_path": {""}, "cert_key_path": {""},
 		"cert_cert_pem": {""}, "cert_chain_pem": {""}, "cert_key_pem": {""},
@@ -205,7 +206,8 @@ func TestGatewayTwoCertificatesForm(t *testing.T) {
 	h, _ := gatewayHandler(t)
 	two := url.Values{
 		"listen_http": {"1"}, "listen_https": {"1"},
-		"hostnames_mode": {"custom"}, "hostnames": {"shop.example\nwww.shop.example\nblog.example"},
+		"hostnames_mode": {"custom"}, "hostnames_present": {"1"}, "hostnames": {"shop.example\nwww.shop.example\nblog.example"},
+		"certs_present": {"1"}, "acme_present": {"1"},
 		"cert_id":        {"", ""},
 		"cert_domains":   {"shop.example www.shop.example", "blog.example"},
 		"cert_mode":      {settings.GatewayTLSACME, settings.GatewayTLSFiles},
@@ -343,6 +345,46 @@ func TestGatewayBareCommonNameAndDomainlessFile(t *testing.T) {
 	}
 }
 
+// The tab disables what does not apply instead of hiding it: the sections
+// render as fieldsets with a presence marker, and the ACME account
+// survives a save made while its card was disabled.
+func TestGatewayDisabledSectionsKeepValues(t *testing.T) {
+	h, _ := gatewayHandler(t)
+	f := oneCert("shop.example", "shop.example", settings.GatewayTLSACME, url.Values{"acme_email": {"ops@shop.example"}, "acme_directory": {"staging"}})
+	if loc := postGateway(t, h, f); !strings.Contains(loc, "saved=1") {
+		t.Fatalf("acme save: %s", loc)
+	}
+	body := renderSettingsTab(t, h, "gateway")
+	for _, want := range []string{`<fieldset data-gw-certs-card>`, `<fieldset data-gw-acme-card>`, `<fieldset class="field" data-gw-hosts-list>`, `name="certs_present"`, `name="acme_present"`, `name="hostnames_present"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("gateway tab lacks %s", want)
+		}
+	}
+	// Switch the certificate to a mounted file: the ACME card is disabled
+	// (not submitted) and the account must stay as it was.
+	f = oneCert("shop.example", "", settings.GatewayTLSFiles, url.Values{"cert_cert_path": {"/c.pem"}, "cert_key_path": {"/k.pem"}})
+	f.Del("acme_present")
+	f.Del("acme_email")
+	if loc := postGateway(t, h, f); !strings.Contains(loc, "saved=1") {
+		t.Fatalf("files save: %s", loc)
+	}
+	saved, _ := settings.Load(h.ConfigPath)
+	if saved.Gateway.ACMEEmail != "ops@shop.example" || saved.Gateway.ACMEDirectory != settings.ACMEDirectoryLetsEncryptStaging {
+		t.Errorf("a disabled ACME card must keep the account: %+v", saved.Gateway)
+	}
+	// "All hostnames" disables the list, which keeps its names.
+	f.Set("hostnames_mode", "all")
+	f.Del("hostnames_present")
+	f.Del("hostnames")
+	if loc := postGateway(t, h, f); !strings.Contains(loc, "saved=1") {
+		t.Fatalf("all hostnames: %s", loc)
+	}
+	saved, _ = settings.Load(h.ConfigPath)
+	if !saved.Gateway.HostnamesAll() || saved.Gateway.Hostnames.Names != "shop.example" {
+		t.Errorf("the disabled custom list must keep its names: %+v", saved.Gateway.Hostnames)
+	}
+}
+
 // The upstream saves from the tab; a bad upstream is refused; the tab
 // offers the self-signed source, reports what the nginx container's
 // environment carries, and shows settings > Network's trusted LB set as
@@ -418,8 +460,13 @@ func TestGatewayListenForm(t *testing.T) {
 		t.Fatalf("http only: %s", loc)
 	}
 	saved, _ := settings.Load(h.ConfigPath)
-	if !saved.Gateway.TLSInFront() || saved.Gateway.ListenHTTPS() || !saved.Gateway.ListenHTTP() || !saved.Gateway.HostnamesAll() || len(saved.Gateway.Certificates) != 0 {
+	if !saved.Gateway.TLSInFront() || saved.Gateway.ListenHTTPS() || !saved.Gateway.ListenHTTP() || !saved.Gateway.HostnamesAll() {
 		t.Errorf("saved %+v", saved.Gateway)
+	}
+	// The certificates section was disabled (not submitted): the stored
+	// certificate and the custom list survive for when https comes back.
+	if len(saved.Gateway.Certificates) != 1 || saved.Gateway.Certificates[0].Domains != "shop.example" || saved.Gateway.Hostnames.Names != "shop.example" {
+		t.Errorf("disabled sections must keep their stored values: %+v", saved.Gateway)
 	}
 	body := renderSettingsTab(t, h, "gateway")
 	if !strings.Contains(body, `name="listen_http" value="1" data-gw-listen checked`) || !strings.Contains(body, `name="listen_https" value="1" data-gw-listen>`) {
@@ -428,9 +475,13 @@ func TestGatewayListenForm(t *testing.T) {
 	if !strings.Contains(body, `name="hostnames_mode" value="all" data-gw-hosts checked`) {
 		t.Error("the tab does not show all hostnames as selected")
 	}
-	// Both again: a certificate is required.
-	if loc := postGateway(t, h, url.Values{"listen_http": {"1"}, "listen_https": {"1"}, "hostnames_mode": {"all"}}); strings.Contains(loc, "saved=1") {
+	// Both again with every certificate removed: a certificate is required.
+	if loc := postGateway(t, h, url.Values{"listen_http": {"1"}, "listen_https": {"1"}, "hostnames_mode": {"all"}, "certs_present": {"1"}}); strings.Contains(loc, "saved=1") {
 		t.Fatal("https with no certificate was accepted")
+	}
+	// Both again with the section untouched (no marker): the stored one serves.
+	if loc := postGateway(t, h, url.Values{"listen_http": {"1"}, "listen_https": {"1"}, "hostnames_mode": {"all"}}); !strings.Contains(loc, "saved=1") {
+		t.Fatalf("https back with the stored certificate: %s", loc)
 	}
 	// Neither.
 	if loc := postGateway(t, h, url.Values{"hostnames_mode": {"all"}}); strings.Contains(loc, "saved=1") {
