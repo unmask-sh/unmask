@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.37",
+  "latest": "0.1.38",
   "releases": [
+    {
+      "version": "0.1.38",
+      "date": "2026-08-31",
+      "notes": "Gateway: nothing to edit in the compose file. The first start serves a self-signed certificate the admin generates, so the wizard is reachable over https right away, and Settings > Gateway holds the upstream, what the gateway listens on (http and/or https; https unticked = a load balancer in front terminates TLS), the hostnames it answers for, and the certificates, each with its own domains (read from a pasted or mounted certificate's SANs). The proxies whose X-Forwarded-For names the visitor are the Network tab's trusted LB / CDN set. The environment variables remain first-boot seeds. Fixed: the gateway behind a load balancer that terminates TLS and forwards on :80 (health checks and forwarded https served, the redirect keyed on X-Forwarded-Proto); a renewed certificate file mounted from the host reloads the nginx container on its own."
+    },
     {
       "version": "0.1.37",
       "date": "2026-08-30",
