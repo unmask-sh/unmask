@@ -73,25 +73,31 @@ func postGateway(t *testing.T, h *Handler, form url.Values) string {
 	return rr.Header().Get("Location")
 }
 
-// oneVhost builds the row arrays for a single vhost.
-func oneVhost(kind, names, mode string, extra url.Values) url.Values {
-	f := url.Values{"vh_id": {""}, "vh_kind": {kind}, "vh_names": {names}, "vh_mode": {mode}, "vh_cert_path": {""}, "vh_key_path": {""}, "vh_cert_pem": {""}, "vh_chain_pem": {""}, "vh_key_pem": {""}}
+// oneCert: the hostnames card plus a single certificate entry covering
+// `names`.
+func oneCert(hostnames, names, mode string, extra url.Values) url.Values {
+	f := url.Values{
+		"hostnames": {hostnames},
+		"cert_id":   {""}, "cert_names": {names}, "cert_mode": {mode},
+		"cert_cert_path": {""}, "cert_key_path": {""},
+		"cert_cert_pem": {""}, "cert_chain_pem": {""}, "cert_key_pem": {""},
+	}
 	for k, v := range extra {
 		f[k] = v
 	}
 	return f
 }
 
-// A pasted certificate lands as the row's stored pair (key private), the
-// row switches to upload mode, and a later save with the fields left blank
-// keeps the stored pair -- the UI never echoes the key back, so "blank"
-// must mean "unchanged", not "removed".
+// A pasted certificate lands as the entry's stored pair (key private), the
+// entry switches to upload mode, and a later save with the fields left
+// blank keeps the stored pair -- the UI never echoes the key back, so
+// "blank" must mean "unchanged", not "removed".
 func TestGatewayUploadStoresPairAndKeepsItOnBlankSave(t *testing.T) {
 	h, outDir := gatewayHandler(t)
 	now := time.Now()
 	certPEM, keyPEM := selfSignedPEM(t, "shop.example", now.Add(-time.Hour), now.Add(365*24*time.Hour))
 
-	loc := postGateway(t, h, oneVhost("named", "shop.example", settings.GatewayTLSUpload, url.Values{"vh_cert_pem": {certPEM}, "vh_key_pem": {keyPEM}}))
+	loc := postGateway(t, h, oneCert("shop.example", "shop.example", settings.GatewayTLSUpload, url.Values{"cert_cert_pem": {certPEM}, "cert_key_pem": {keyPEM}}))
 	if !strings.Contains(loc, "saved=1") {
 		t.Fatalf("upload save did not reach the success path: Location=%q", loc)
 	}
@@ -126,7 +132,7 @@ func TestGatewayUploadStoresPairAndKeepsItOnBlankSave(t *testing.T) {
 	}
 
 	// Blank PEM fields on a later save: the pair stays.
-	loc = postGateway(t, h, oneVhost("named", "shop.example", settings.GatewayTLSUpload, nil))
+	loc = postGateway(t, h, oneCert("shop.example", "shop.example", settings.GatewayTLSUpload, nil))
 	if !strings.Contains(loc, "saved=1") {
 		t.Fatalf("blank re-save must succeed while a pair is stored: Location=%q", loc)
 	}
@@ -136,7 +142,7 @@ func TestGatewayUploadStoresPairAndKeepsItOnBlankSave(t *testing.T) {
 
 	// A pair that does not match is refused and the stored one is untouched.
 	otherCert, _ := selfSignedPEM(t, "shop.example", now.Add(-time.Hour), now.Add(24*time.Hour))
-	loc = postGateway(t, h, oneVhost("named", "shop.example", settings.GatewayTLSUpload, url.Values{"vh_cert_pem": {otherCert}, "vh_key_pem": {keyPEM}}))
+	loc = postGateway(t, h, oneCert("shop.example", "shop.example", settings.GatewayTLSUpload, url.Values{"cert_cert_pem": {otherCert}, "cert_key_pem": {keyPEM}}))
 	if strings.Contains(loc, "saved=1") {
 		t.Fatal("a certificate that does not match the key was accepted")
 	}
@@ -149,13 +155,13 @@ func TestGatewayUploadStoresPairAndKeepsItOnBlankSave(t *testing.T) {
 // serve; expired material is refused up front rather than at the next reload.
 func TestGatewayUploadRefusesMissingAndExpired(t *testing.T) {
 	h, outDir := gatewayHandler(t)
-	loc := postGateway(t, h, oneVhost("named", "shop.example", settings.GatewayTLSUpload, nil))
+	loc := postGateway(t, h, oneCert("shop.example", "shop.example", settings.GatewayTLSUpload, nil))
 	if strings.Contains(loc, "saved=1") {
 		t.Fatal("upload mode with no certificate at all was accepted")
 	}
 	now := time.Now()
 	certPEM, keyPEM := selfSignedPEM(t, "shop.example", now.Add(-48*time.Hour), now.Add(-24*time.Hour))
-	loc = postGateway(t, h, oneVhost("named", "shop.example", settings.GatewayTLSUpload, url.Values{"vh_cert_pem": {certPEM}, "vh_key_pem": {keyPEM}}))
+	loc = postGateway(t, h, oneCert("shop.example", "shop.example", settings.GatewayTLSUpload, url.Values{"cert_cert_pem": {certPEM}, "cert_key_pem": {keyPEM}}))
 	if strings.Contains(loc, "saved=1") {
 		t.Fatal("an expired certificate was accepted")
 	}
@@ -168,16 +174,19 @@ func TestGatewayUploadRefusesMissingAndExpired(t *testing.T) {
 	}
 }
 
-// Two rows: the named one on Let's Encrypt (staging), the catch-all on files.
-// The second row gets an id of its own for a stored pair; ACME needs the
-// account; a relative path is refused.
-func TestGatewayTwoVhostsForm(t *testing.T) {
+// Three names and the catch-all, two certificates: Let's Encrypt (staging)
+// for the shop names, a mounted pair for the blog and everything else.
+// Every name must sit on a certificate; a name on two is refused; a
+// relative path is refused; the second entry gets an id of its own.
+func TestGatewayTwoCertificatesForm(t *testing.T) {
 	h, _ := gatewayHandler(t)
 	two := url.Values{
-		"vh_id": {"", ""}, "vh_kind": {"named", "any"}, "vh_names": {"shop.example www.shop.example", ""},
-		"vh_mode":      {settings.GatewayTLSACME, settings.GatewayTLSFiles},
-		"vh_cert_path": {"", "/certs/default.pem"}, "vh_key_path": {"", "/certs/default.key"},
-		"vh_cert_pem": {"", ""}, "vh_chain_pem": {"", ""}, "vh_key_pem": {"", ""},
+		"hostnames": {"shop.example\nwww.shop.example\nblog.example"}, "catch_all": {"1"},
+		"cert_id":        {"", ""},
+		"cert_names":     {"shop.example www.shop.example", "blog.example _"},
+		"cert_mode":      {settings.GatewayTLSACME, settings.GatewayTLSFiles},
+		"cert_cert_path": {"", "/certs/default.pem"}, "cert_key_path": {"", "/certs/default.key"},
+		"cert_cert_pem": {"", ""}, "cert_chain_pem": {"", ""}, "cert_key_pem": {"", ""},
 	}
 	if loc := postGateway(t, h, two); strings.Contains(loc, "saved=1") {
 		t.Fatal("ACME without a contact address was accepted")
@@ -185,15 +194,15 @@ func TestGatewayTwoVhostsForm(t *testing.T) {
 	two.Set("acme_email", "ops@shop.example")
 	two.Set("acme_directory", "staging")
 	if loc := postGateway(t, h, two); !strings.Contains(loc, "saved=1") {
-		t.Fatalf("two-vhost save failed: Location=%q", loc)
+		t.Fatalf("two-certificate save failed: Location=%q", loc)
 	}
 	saved, _ := settings.Load(h.ConfigPath)
 	g := saved.Gateway
 	if len(g.Vhosts) != 2 || g.Vhosts[0].Names != "shop.example www.shop.example" || g.Vhosts[0].ModeResolved() != settings.GatewayTLSACME {
 		t.Errorf("first vhost = %+v", g.Vhosts)
 	}
-	if !g.Vhosts[1].CatchAll() || g.Vhosts[1].CertPath != "/certs/default.pem" || g.Vhosts[1].ID == "" {
-		t.Errorf("second vhost = %+v (wants a catch-all with its own id)", g.Vhosts[1])
+	if g.Vhosts[1].Names != "blog.example _" || !g.Vhosts[1].CatchAll() || g.Vhosts[1].CertPath != "/certs/default.pem" || g.Vhosts[1].ID == "" {
+		t.Errorf("second vhost = %+v (wants the blog + catch-all with its own id)", g.Vhosts[1])
 	}
 	if g.ACMEDirectory != settings.ACMEDirectoryLetsEncryptStaging || g.ACMEInsecure {
 		t.Errorf("ACME account = %+v", g)
@@ -201,34 +210,48 @@ func TestGatewayTwoVhostsForm(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(h.cfg().Nginx.OutputDir, "gateway-vhosts.inc")); err != nil {
 		t.Errorf("a gateway save must re-render the includes: %v", err)
 	}
-	two.Set("vh_cert_path", "certs/relative.pem")
-	two["vh_cert_path"] = []string{"", "certs/relative.pem"}
+
+	// A name left off every certificate.
+	two["cert_names"] = []string{"shop.example", "blog.example _"}
+	if loc := postGateway(t, h, two); strings.Contains(loc, "saved=1") {
+		t.Fatal("a hostname with no certificate was accepted")
+	}
+	// A name on two certificates.
+	two["cert_names"] = []string{"shop.example www.shop.example", "www.shop.example blog.example _"}
+	if loc := postGateway(t, h, two); strings.Contains(loc, "saved=1") {
+		t.Fatal("a hostname on two certificates was accepted")
+	}
+	two["cert_names"] = []string{"shop.example www.shop.example", "blog.example _"}
+	two["cert_cert_path"] = []string{"", "certs/relative.pem"}
 	if loc := postGateway(t, h, two); strings.Contains(loc, "saved=1") {
 		t.Fatal("a relative certificate path was accepted")
 	}
 }
 
-// TLS terminated in front: the vhosts save with no certificate at all.
+// TLS terminated in front: the names save with no certificate at all.
 func TestGatewayTLSInFrontForm(t *testing.T) {
 	h, _ := gatewayHandler(t)
-	f := oneVhost("any", "", settings.GatewayTLSFiles, nil)
-	f.Set("tls", "none")
+	f := url.Values{"tls": {"none"}, "hostnames": {"shop.example"}, "catch_all": {"1"}}
 	if loc := postGateway(t, h, f); !strings.Contains(loc, "saved=1") {
 		t.Fatalf("none: %s", loc)
 	}
 	saved, _ := settings.Load(h.ConfigPath)
-	if !saved.Gateway.TLSInFront() || !saved.Gateway.Vhosts[0].CatchAll() {
+	if !saved.Gateway.TLSInFront() || len(saved.Gateway.Vhosts) != 1 || saved.Gateway.Vhosts[0].Names != "shop.example _" {
 		t.Errorf("saved %+v", saved.Gateway)
 	}
 	body := renderSettingsTab(t, h, "gateway")
 	if !strings.Contains(body, `name="tls" value="none" data-gw-tls checked`) {
 		t.Error("the tab does not show TLS in front as selected")
 	}
+	if !strings.Contains(body, `data-gw-catchall checked`) || !strings.Contains(body, ">shop.example</textarea>") {
+		t.Error("the hostnames card does not show the saved names and catch-all")
+	}
 }
 
 // The tab exists only for a gateway install: a host install (no gateway
 // configured) must not grow a Gateway entry in the settings nav, while a
-// gateway install renders one row per vhost with the add/remove controls.
+// gateway install renders the hostnames card and one certificate entry per
+// vhost with the add/remove controls.
 func TestGatewayTabRendersOnlyForGatewayInstalls(t *testing.T) {
 	s, err := settings.LoadFromYAML("")
 	if err != nil {
@@ -242,13 +265,13 @@ func TestGatewayTabRendersOnlyForGatewayInstalls(t *testing.T) {
 
 	h, _ := gatewayHandler(t)
 	body := renderSettingsTab(t, h, "gateway")
-	for _, want := range []string{`name="vh_names"`, `name="vh_mode"`, `name="vh_cert_pem"`, `name="vh_key_pem"`, `name="acme_email"`, `name="vh_cert_path"`, `data-gw-vhost-add`, `data-gw-vhost-template`, `?section=gateway`} {
+	for _, want := range []string{`name="hostnames"`, `name="catch_all"`, `name="cert_names"`, `name="cert_mode"`, `name="cert_cert_pem"`, `name="cert_key_pem"`, `name="acme_email"`, `name="cert_cert_path"`, `data-gw-cert-add`, `data-gw-cert-template`, `?section=gateway`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("gateway tab lacks %s", want)
 		}
 	}
-	if strings.Count(body, `data-gw-vhost `) != 2 { // one row + the template
-		t.Errorf("expected one rendered row plus the template, got %d", strings.Count(body, `data-gw-vhost `))
+	if strings.Count(body, `data-gw-cert>`) != 2 { // one entry + the template
+		t.Errorf("expected one rendered entry plus the template, got %d", strings.Count(body, `data-gw-cert>`))
 	}
 	if !strings.Contains(renderSettingsTab(t, h, "global"), "settings/gateway/") {
 		t.Error("a gateway install does not show the Gateway tab in the settings nav")
