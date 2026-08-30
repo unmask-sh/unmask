@@ -156,24 +156,19 @@ func TestGatewayIncludesRenderOnlyWhenConfigured(t *testing.T) {
 	if !strings.Contains(vh, "# unmask-gateway-http: none") || !strings.Contains(vh, "server_name shop.example;") || strings.Contains(vh, "unmask-gateway-tls: none") {
 		t.Errorf("https only must mark the missing :80 and keep :443:\n%s", vh)
 	}
-	// http only without a trusted load balancer: no https to redirect to,
-	// so server.inc carries no redirect even though the setting is on.
+	// http only keeps the nginx tab's https redirect as it is: a load
+	// balancer in front (trusted in the Network tab, or only on the nginx
+	// container's environment, the 0.1.37 way) says X-Forwarded-Proto:
+	// https and is served; a plain-http-only setup turns the redirect off
+	// under settings > nginx.
 	s.Nginx.HTTPSRedirect = true
 	s.Gateway = settings.GatewayConfig{Listen: []string{"http"}}
 	if err := Render(s, out, "test"); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(read("server.inc"), "return 301 https://") {
-		t.Error("http only with no trusted LB must not redirect to an https that does not exist")
-	}
-	s.Nginx.TrustedLBPresets = []string{"gcp"}
-	if err := Render(s, out, "test"); err != nil {
-		t.Fatal(err)
-	}
 	if !strings.Contains(read("server.inc"), "return 301 https://") {
-		t.Error("http only behind a trusted LB keeps the redirect (keyed on X-Forwarded-Proto)")
+		t.Error("http only must leave the https redirect to the nginx tab's setting")
 	}
-	s.Nginx.TrustedLBPresets = nil
 	s.Nginx.HTTPSRedirect = false
 
 	// The 0.1.37 single-vhost config still renders (migration on load).
