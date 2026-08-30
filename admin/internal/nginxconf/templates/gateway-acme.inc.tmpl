@@ -7,7 +7,7 @@
 # is written by the nginx container itself (it knows its own nameservers);
 # the gateway template includes both.  Empty when the certificate comes
 # from files.
-{{- if eq .Gateway.TLSMode "acme" }}
+{{- if .Gateway.ACME }}
 acme_shared_zone zone=unmask_acme:1M;
 acme_issuer unmask_le {
     uri         {{ .Gateway.ACMEDirectory }};

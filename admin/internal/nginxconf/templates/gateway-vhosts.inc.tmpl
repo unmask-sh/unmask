@@ -1,0 +1,35 @@
+# {{ .OutputDir }}/gateway-vhosts.inc — auto-rendered by unmask / DO NOT EDIT
+#
+# generated_at: {{ .GeneratedAt }} / version: {{ .Version }}
+#
+# The gateway's :443 servers, one per vhost (settings > Gateway).  nginx picks
+# the block by SNI, so each vhost carries its own certificate.  The proxy
+# location is written by the nginx image (unmask-gateway-location.inc), which
+# is where the upstream address lives.  http scope.
+{{- if .Gateway.TLSNone }}
+# unmask-gateway-tls: none
+# TLS is terminated in front of the gateway (a load balancer); the nginx
+# image serves :80 only and renders no :443 server.
+{{- else }}
+{{- range .Gateway.Vhosts }}
+server {
+    listen 443 ssl{{ if .Default }} default_server{{ end }};
+    listen [::]:443 ssl{{ if .Default }} default_server{{ end }};
+    http2 on;
+    server_name {{ .Names }};
+{{- if eq .TLSMode "acme" }}
+    acme_certificate      unmask_le;
+    ssl_certificate       $acme_certificate;
+    ssl_certificate_key   $acme_certificate_key;
+    ssl_certificate_cache max=2;
+{{- else }}
+    ssl_certificate     {{ .CertPath }};
+    ssl_certificate_key {{ .KeyPath }};
+{{- end }}
+    ssl_protocols TLSv1.2 TLSv1.3;
+    include /etc/unmask/server.inc;
+    client_max_body_size 0;
+    include /etc/nginx/unmask-gateway-location.inc;
+}
+{{- end }}
+{{- end }}

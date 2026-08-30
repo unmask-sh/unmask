@@ -622,16 +622,13 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// :443 and is done only when that tab is open.
 		"Gateway":       h.cfg().Gateway,
 		"GatewayActive": h.cfg().Gateway.Active(),
-		"GatewayCert": func() gatewayCertView {
-			if tab != "gateway" || !h.cfg().Gateway.Active() || h.cfg().Gateway.TLSModeResolved() == settings.GatewayTLSNone {
-				return gatewayCertView{}
+		"GatewayVhosts": func() []gatewayVhostView {
+			if !h.cfg().Gateway.Active() {
+				return nil
 			}
-			return gatewayCertStatus(gatewayAddr(), strings.TrimSpace(h.cfg().Gateway.ServerName))
+			return gatewayVhostViews(h.cfg().Gateway, nginxOutDir(*h.cfg()), tab == "gateway")
 		}(),
-		"GatewayUploaded": func() map[string]any {
-			subj, iss, exp, ok := uploadedCertInfo(nginxOutDir(*h.cfg()))
-			return map[string]any{"OK": ok, "Subject": subj, "Issuer": iss, "NotAfter": exp}
-		}(),
+		"GatewayTLSInFront": h.cfg().Gateway.TLSInFront(),
 		"GatewayACMEChoice": func() string {
 			switch h.cfg().Gateway.ACMEDirectoryResolved() {
 			case settings.ACMEDirectoryLetsEncrypt:
