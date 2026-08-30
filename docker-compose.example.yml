@@ -82,6 +82,12 @@ services:
       UNMASK_UPSTREAM: http://app:80
       # The vhost name and certificate are settings > Gateway in the admin
       # (seeded from the admin service's environment above).
+      # Behind a load balancer: its address ranges, space separated, so the
+      # visitor's address is taken from the X-Forwarded-For it sends (bans,
+      # rate limits and geo rules then see the visitor, not the balancer).
+      # A balancer that terminates TLS and forwards on :80 is served on :80
+      # like :443; its health checks pass the https redirect by user agent.
+      # UNMASK_TRUSTED_PROXIES: "130.211.0.0/22 35.191.0.0/16"
     # Upstream on the Docker host itself (a server you moved to port 8080 --
     # bound to an address the container can reach, not 127.0.0.1):
     # extra_hosts: ["host.docker.internal:host-gateway"]
