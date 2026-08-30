@@ -1020,12 +1020,6 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	d.HeaderIntegrityLBFronted = len(d.LBIPRanges) > 0
 
 	d.HTTPSRedirect = s.Nginx.HTTPSRedirect
-	// A gateway serving no https of its own redirects only when a trusted
-	// load balancer in front terminates TLS (the redirect keys on its
-	// X-Forwarded-Proto); with neither there is no https to send anyone to.
-	if gw := s.Gateway; gw.Active() && !gw.ListenHTTPS() && len(EffectiveLBs(s.Nginx)) == 0 {
-		d.HTTPSRedirect = false
-	}
 	if d.HTTPSRedirect {
 		ex := s.Nginx.HTTPSRedirectExempt
 		custom := make([]CustomExemptRule, 0, len(ex.Rules))

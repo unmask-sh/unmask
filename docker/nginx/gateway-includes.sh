@@ -87,7 +87,7 @@ LOCATION
         trusted=""
         if [ -f "$adm_prx" ] && ! grep -q '^# unmask-gateway-proxies: none' "$adm_prx"; then
             printf 'include %s;\n' "$adm_prx"
-            trusted=" (settings > Gateway)"
+            trusted=" (settings > Network: trusted LB / CDN)"
         else
             for cidr in ${UNMASK_TRUSTED_PROXIES:-}; do
                 case "$cidr" in
