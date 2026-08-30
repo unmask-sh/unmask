@@ -12,22 +12,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
-
-## [0.1.38] - 2026-08-31
-
-### Added
-- (2026-08-31) **Gateway: nothing to edit in the compose file.**  The first start serves a self-signed certificate the admin generates, so the wizard is reachable over https right away; the upstream (where passing requests go), the trusted proxies, the hostnames and the real certificate are then all set under Settings > Gateway.  The environment variables remain as first-boot seeds, and `UNMASK_UPSTREAM` on the nginx service still works as a fallback.
-
-- (2026-08-31) **Gateway tab: what it listens on, and one list of trusted proxies.**  Listen on http and/or https -- https unticked is a load balancer in front terminating TLS (no :443, no certificate), http unticked is https only.  The proxies whose X-Forwarded-For names the visitor are the Network tab's trusted LB / CDN set, presets included.  Sections that do not apply are disabled, not hidden.
-
-- (2026-08-30) **Gateway: hostnames and certificates, managed independently.**  Settings > Gateway asks two separate questions: which hostnames the gateway answers for (any, or a list -- any other Host is refused at the TLS handshake), and which certificates it has, each from Let's Encrypt, pasted, or files, each with its own domains (read off the SANs of a pasted certificate).  nginx picks the certificate by SNI; the first one is the default.  TLS can also end at a load balancer in front, in which case the gateway serves :80 only and needs no certificate.  A 0.1.37 gateway config migrates on load.
-
-### Fixed
-- (2026-08-30) **A renewed certificate file reaches the gateway on its own.**  The nginx container watches the certificate files the gateway is configured with, not only the rendered includes, and reloads when one changes -- a renewal mounted in from the host needs no reload by hand.
-
-- (2026-08-30) **The gateway works behind a load balancer that terminates TLS.**  :80 used to redirect everything to https, so a balancer forwarding on :80 got a redirect loop and its health checks marked the node down.  :80 now carries the same https redirect as a native install -- keyed on X-Forwarded-Proto, exempting health-check user agents -- and serves forwarded https traffic like :443.  `UNMASK_TRUSTED_PROXIES` names the balancer's ranges so the visitor's address comes from X-Forwarded-For.
-
 ## [0.1.37] - 2026-08-30
 
 ### Added
