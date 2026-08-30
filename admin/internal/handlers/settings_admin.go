@@ -623,7 +623,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Gateway":       h.cfg().Gateway,
 		"GatewayActive": h.cfg().Gateway.Active(),
 		"GatewayCert": func() gatewayCertView {
-			if tab != "gateway" || !h.cfg().Gateway.Active() {
+			if tab != "gateway" || !h.cfg().Gateway.Active() || h.cfg().Gateway.TLSModeResolved() == settings.GatewayTLSNone {
 				return gatewayCertView{}
 			}
 			return gatewayCertStatus(gatewayAddr(), strings.TrimSpace(h.cfg().Gateway.ServerName))

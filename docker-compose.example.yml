@@ -51,6 +51,9 @@ services:
       # UNMASK_ACME_EMAIL: you@example.com
       # UNMASK_ACME_DIRECTORY: https://acme-staging-v02.api.letsencrypt.org/directory  # staging, while testing
       #  (c) paste a purchased certificate in the admin UI (settings > Gateway).
+      #  (d) none: a load balancer in front terminates TLS and forwards on :80;
+      #      the nginx container serves :80 only (set its UNMASK_TRUSTED_PROXIES).
+      # UNMASK_TLS_MODE: none
       # Where the admin reaches the gateway to show the served certificate.
       UNMASK_GATEWAY_ADDR: nginx:443
     volumes:

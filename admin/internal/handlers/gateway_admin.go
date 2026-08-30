@@ -25,13 +25,20 @@ import (
 // render directory; a pasted certificate is stored under it so the nginx
 // container reaches it through the shared volume.
 func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string) error {
-	g.ServerName = strings.TrimSpace(r.FormValue("server_name"))
+	// The form offers "any name" (nginx's "_") as a choice; a form without
+	// the choice (older clients, scripts) still sends the name itself.
+	switch r.FormValue("server_name_mode") {
+	case "any":
+		g.ServerName = "_"
+	default:
+		g.ServerName = strings.TrimSpace(r.FormValue("server_name"))
+	}
 	if g.ServerName == "" {
 		return errors.New("hostname: required (the name the gateway answers for)")
 	}
 	mode := strings.TrimSpace(r.FormValue("tls_mode"))
 	switch mode {
-	case settings.GatewayTLSACME, settings.GatewayTLSUpload, settings.GatewayTLSFiles:
+	case settings.GatewayTLSACME, settings.GatewayTLSUpload, settings.GatewayTLSFiles, settings.GatewayTLSNone:
 	default:
 		return fmt.Errorf("certificate source: unknown value %q", mode)
 	}
