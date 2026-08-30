@@ -8,6 +8,11 @@
 # block by SNI.  The proxy location is written by the nginx image
 # (unmask-gateway-location.inc), which is where the upstream address lives.
 # http scope.
+{{- if .Gateway.HTTPNone }}
+# unmask-gateway-http: none
+# No :80 server (settings > Gateway > listen): https only.  The nginx image
+# renders the template without the :80 server.
+{{- end }}
 {{- if .Gateway.TLSNone }}
 # unmask-gateway-tls: none
 # TLS is terminated in front of the gateway (a load balancer); the nginx

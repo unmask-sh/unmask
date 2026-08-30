@@ -71,6 +71,7 @@ COPY --chmod=0755 docker/nginx/10-unmask-gateway.envsh /docker-entrypoint.d/10-u
 COPY docker/nginx/gateway.conf.template /usr/share/unmask/gateway.conf.template
 COPY docker/nginx/gateway-includes.sh /usr/share/unmask/gateway-includes.sh
 COPY docker/nginx/gateway-http.conf.template /usr/share/unmask/gateway-http.conf.template
+COPY docker/nginx/gateway-https.conf.template /usr/share/unmask/gateway-https.conf.template
 # Reloads nginx when the admin container re-renders the includes, so a
 # settings change applies without anyone running `nginx -s reload`.
 COPY --chmod=0755 docker/nginx/30-unmask-autoreload.sh /docker-entrypoint.d/30-unmask-autoreload.sh

@@ -31,13 +31,16 @@ func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string)
 	if err := r.ParseForm(); err != nil {
 		return err
 	}
-	switch strings.TrimSpace(r.FormValue("tls")) {
-	case "", "here":
-		g.TLS = ""
-	case settings.GatewayTLSNone:
-		g.TLS = settings.GatewayTLSNone
-	default:
-		return errors.New("TLS: unknown choice")
+	g.TLS = ""
+	g.Listen = nil
+	if r.FormValue("listen_http") == "1" {
+		g.Listen = append(g.Listen, settings.GatewayListenHTTP)
+	}
+	if r.FormValue("listen_https") == "1" {
+		g.Listen = append(g.Listen, settings.GatewayListenHTTPS)
+	}
+	if len(g.Listen) == 0 {
+		return errors.New("listen: the gateway must serve http, https or both")
 	}
 	switch strings.TrimSpace(r.FormValue("hostnames_mode")) {
 	case "", settings.GatewayHostsAll:

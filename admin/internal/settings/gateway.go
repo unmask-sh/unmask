@@ -23,7 +23,13 @@ import (
 // the hostnames are a list).  TLS may also end in front of the gateway (a
 // load balancer forwarding on :80), in which case no :443 server exists.
 type GatewayConfig struct {
-	// TLS: "" = terminated here, "none" = terminated in front, :80 only.
+	// Listen: what the gateway serves -- "http" (:80), "https" (:443), or
+	// both (empty = both).  Without https no certificate is used: TLS is a
+	// load balancer's in front, forwarding on :80.  Without http there is
+	// no redirect and no ACME http-01.
+	Listen []string `yaml:"listen,omitempty,flow"`
+	// TLS: the 0.1.38-development spelling of "no https" ("none"), folded
+	// into Listen on load.
 	TLS string `yaml:"tls,omitempty"`
 
 	// Upstream: where passing requests go, scheme://host[:port].  Empty =
@@ -101,6 +107,9 @@ const (
 	GatewayHostsAll    = "all"
 	GatewayHostsCustom = "custom"
 
+	GatewayListenHTTP  = "http"
+	GatewayListenHTTPS = "https"
+
 	ACMEDirectoryLetsEncrypt        = "https://acme-v02.api.letsencrypt.org/directory"
 	ACMEDirectoryLetsEncryptStaging = "https://acme-staging-v02.api.letsencrypt.org/directory"
 
@@ -116,6 +125,25 @@ func (g *GatewayConfig) Normalize() {
 	if strings.TrimSpace(g.TLSMode) == GatewayTLSNone {
 		g.TLS = GatewayTLSNone
 		g.TLSMode = ""
+	}
+	if strings.TrimSpace(g.TLS) == GatewayTLSNone {
+		g.Listen = []string{GatewayListenHTTP}
+	}
+	g.TLS = ""
+	if len(g.Listen) > 0 {
+		var l []string
+		for _, want := range []string{GatewayListenHTTP, GatewayListenHTTPS} {
+			for _, x := range g.Listen {
+				if strings.ToLower(strings.TrimSpace(x)) == want {
+					l = append(l, want)
+					break
+				}
+			}
+		}
+		if len(l) == 2 {
+			l = nil // both = the default; keep the file short
+		}
+		g.Listen = l
 	}
 	if len(g.Vhosts) == 0 && strings.TrimSpace(g.ServerName) != "" {
 		g.Vhosts = []GatewayVhost{{Names: g.ServerName, TLSMode: strings.TrimSpace(g.TLSMode), CertPath: strings.TrimSpace(g.TLSCertPath), KeyPath: strings.TrimSpace(g.TLSKeyPath)}}
@@ -146,7 +174,7 @@ func (g *GatewayConfig) Normalize() {
 	}
 	g.ServerName, g.TLSMode, g.TLSCertPath, g.TLSKeyPath, g.Vhosts = "", "", "", "", nil
 	g.Upstream = strings.TrimSpace(g.Upstream)
-	if g.Hostnames.Mode == "" && (len(g.Certificates) > 0 || strings.TrimSpace(g.Hostnames.Names) != "") {
+	if g.Hostnames.Mode == "" && g.Active() {
 		g.Hostnames.Mode = GatewayHostsAll
 	}
 	g.Hostnames.Names = strings.Join(fields(g.Hostnames.Names), " ")
@@ -157,7 +185,30 @@ func (g *GatewayConfig) Normalize() {
 
 // Active: a gateway is configured.
 func (g GatewayConfig) Active() bool {
-	return g.Hostnames.Mode != "" || len(g.Certificates) > 0 || len(g.Vhosts) > 0 || strings.TrimSpace(g.ServerName) != "" || strings.TrimSpace(g.Upstream) != ""
+	return g.Hostnames.Mode != "" || len(g.Certificates) > 0 || len(g.Vhosts) > 0 || strings.TrimSpace(g.ServerName) != "" || strings.TrimSpace(g.Upstream) != "" || len(g.Listen) > 0 || strings.TrimSpace(g.TLS) == GatewayTLSNone
+}
+
+func (g GatewayConfig) listens(what string) bool {
+	if len(g.Listen) == 0 {
+		return true
+	}
+	for _, x := range g.Listen {
+		if strings.ToLower(strings.TrimSpace(x)) == what {
+			return true
+		}
+	}
+	return false
+}
+
+// ListenHTTP: the gateway serves :80.
+func (g GatewayConfig) ListenHTTP() bool { return g.listens(GatewayListenHTTP) }
+
+// ListenHTTPS: the gateway serves :443 with its certificates.
+func (g GatewayConfig) ListenHTTPS() bool {
+	if strings.TrimSpace(g.TLS) == GatewayTLSNone || strings.TrimSpace(g.TLSMode) == GatewayTLSNone {
+		return false
+	}
+	return g.listens(GatewayListenHTTPS)
 }
 
 // SelfSignedNames: what a generated certificate carries -- the entry's
@@ -172,10 +223,9 @@ func (g GatewayConfig) SelfSignedNames(c GatewayCertificate) []string {
 	return []string{"localhost"}
 }
 
-// TLSInFront: TLS is terminated before the gateway; it serves :80 only.
-func (g GatewayConfig) TLSInFront() bool {
-	return strings.TrimSpace(g.TLS) == GatewayTLSNone || strings.TrimSpace(g.TLSMode) == GatewayTLSNone
-}
+// TLSInFront: no https here -- TLS is terminated before the gateway,
+// which serves :80 only.
+func (g GatewayConfig) TLSInFront() bool { return !g.ListenHTTPS() }
 
 // HostnamesAll: the gateway answers for any hostname.
 func (g GatewayConfig) HostnamesAll() bool { return g.Hostnames.Mode != GatewayHostsCustom }
@@ -328,6 +378,17 @@ func (g GatewayConfig) Validate() error {
 	n.Normalize()
 	if !n.Active() {
 		return nil
+	}
+	for _, x := range n.Listen {
+		if x != GatewayListenHTTP && x != GatewayListenHTTPS {
+			return fmt.Errorf("listen: unknown %q (http or https)", x)
+		}
+	}
+	if !n.ListenHTTP() && !n.ListenHTTPS() {
+		return errors.New("listen: the gateway must serve http, https or both")
+	}
+	if !n.ListenHTTP() && n.UsesACME() {
+		return errors.New("listen: Let's Encrypt answers its http-01 challenge on :80 -- serve http too, or use another certificate source")
 	}
 	if u := n.Upstream; u != "" {
 		if err := nginxToken("upstream", u); err != nil {
