@@ -629,6 +629,8 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			return gatewayVhostViews(h.cfg().Gateway, nginxOutDir(*h.cfg()), tab == "gateway")
 		}(),
 		"GatewayTLSInFront": h.cfg().Gateway.TLSInFront(),
+		"GatewayNames":      gatewayNamesText(h.cfg().Gateway),
+		"GatewayCatchAll":   gatewayCatchAll(h.cfg().Gateway),
 		"GatewayACMEChoice": func() string {
 			switch h.cfg().Gateway.ACMEDirectoryResolved() {
 			case settings.ACMEDirectoryLetsEncrypt:
