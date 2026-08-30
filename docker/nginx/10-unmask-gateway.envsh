@@ -24,10 +24,8 @@ case "${UNMASK_GATEWAY:-}" in 1|true|yes|on) UNMASK_GATEWAY=1 ;; *) UNMASK_GATEW
 if [ -n "${UNMASK_UPSTREAM:-}${UNMASK_GATEWAY}" ]; then
     export UNMASK_UPSTREAM
 
-    # The stock default vhost owns :80; the gateway replaces it with a redirect.
+    # The stock default vhost owns :80; the gateway replaces it.
     rm -f /etc/nginx/conf.d/default.conf
-    mkdir -p /etc/nginx/templates
-    cp /usr/share/unmask/gateway.conf.template /etc/nginx/templates/unmask-gateway.conf.template
 
     # The ACME module resolves the ACME server itself and needs a resolver;
     # this container knows its own nameservers, the admin does not, so the
@@ -55,20 +53,16 @@ if [ -n "${UNMASK_UPSTREAM:-}${UNMASK_GATEWAY}" ]; then
             sleep 2
         done
     done
-    # The proxy location and the trusted proxies: the admin's (settings >
-    # Gateway) when set there, this container's environment otherwise.
+    # The template for what the gateway listens on (settings > Gateway >
+    # listen: both, :80 only, :443 only), the proxy location and the trusted
+    # proxies: the admin's when set there, this container's environment
+    # otherwise.  The watcher re-evaluates all of it on every change.
     . /usr/share/unmask/gateway-includes.sh
+    unmask_gateway_template || true
     unmask_gateway_includes
+    tls=$UNMASK_GATEWAY_TLS
     # A certificate from files must exist before nginx starts, or -t fails
     # with a less helpful message.  ACME needs nothing on disk.
-    # TLS terminated in front (settings > Gateway > "terminated by a load
-    # balancer"): serve :80 only, from the template without a :443 server.
-    tls=files
-    grep -q 'acme_certificate' /etc/unmask/gateway-vhosts.inc && tls=ACME
-    if grep -q '^# unmask-gateway-tls: none' /etc/unmask/gateway-vhosts.inc; then
-        tls=none
-        cp /usr/share/unmask/gateway-http.conf.template /etc/nginx/templates/unmask-gateway.conf.template
-    fi
     if [ "$tls" = files ]; then
         for f in $(sed -n 's/^[[:space:]]*ssl_certificate\(_key\)\?[[:space:]]\+\([^;$]*\);.*/\2/p' /etc/unmask/gateway-vhosts.inc); do
             [ -f "$f" ] || { echo "unmask-gateway: TLS file $f not found -- mount your certificate at /etc/unmask/tls, paste one in settings > Gateway, or switch that tab to Let's Encrypt" >&2; exit 1; }
@@ -80,5 +74,5 @@ if [ -n "${UNMASK_UPSTREAM:-}${UNMASK_GATEWAY}" ]; then
         env)   target="${UNMASK_UPSTREAM} (UNMASK_UPSTREAM)" ;;
         *)     target="no upstream yet -- set it under settings > Gateway" ;;
     esac
-    echo "unmask-gateway: $([ "$tls" = none ] && echo ':80' || echo ':443') -> $target ($(grep -c '^server {' /etc/unmask/gateway-vhosts.inc) server(s): $(sed -n 's/^[[:space:]]*server_name[[:space:]]\+\([^;]*\);.*/\1/p' /etc/unmask/gateway-vhosts.inc | tr '\n' ',' | sed 's/,$//'); tls: $tls)"
+    echo "unmask-gateway: $UNMASK_GATEWAY_LISTEN -> $target ($(grep -c '^server {' /etc/unmask/gateway-vhosts.inc) server(s): $(sed -n 's/^[[:space:]]*server_name[[:space:]]\+\([^;]*\);.*/\1/p' /etc/unmask/gateway-vhosts.inc | tr '\n' ',' | sed 's/,$//'); tls: $tls)"
 fi

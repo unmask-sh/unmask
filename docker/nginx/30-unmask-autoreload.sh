@@ -40,15 +40,32 @@ sig() {
         cur=$(sig)
         [ "$cur" = "$last" ] && continue
         last=$cur
-        # Give a multi-file render a moment to finish before testing it.
-        sleep 1
-        cur=$(sig); last=$cur
+        # A render writes several files over a moment (a hub sync in the
+        # same run can stretch that to seconds): wait until the signature
+        # holds still for a poll before acting, so no decision (template,
+        # includes, nginx -t) is taken on a half-written set.
+        settle=0
+        while :; do
+            sleep 2
+            nxt=$(sig)
+            [ "$nxt" = "$cur" ] && break
+            cur=$nxt
+            settle=$((settle+1))
+            [ "$settle" -ge 15 ] && break
+        done
+        last=$cur
         # The nginx-local includes follow the admin's: an upstream set (or
         # cleared) in settings > Gateway switches between the admin's
         # location and this container's environment.
         if [ -f /usr/share/unmask/gateway-includes.sh ] && [ -f /etc/nginx/unmask-gateway-location.inc ]; then
             . /usr/share/unmask/gateway-includes.sh
             unmask_gateway_includes
+            # settings > Gateway > listen changed (both / :80 only / :443
+            # only): a different template, rendered again by the stock
+            # envsubst step, then the reload below opens or closes :443.
+            if unmask_gateway_template; then
+                /docker-entrypoint.d/20-envsubst-on-templates.sh >/dev/null 2>&1 && echo "unmask-autoreload: gateway now listens on $UNMASK_GATEWAY_LISTEN"
+            fi
         fi
         if nginx -t >/dev/null 2>&1; then
             if nginx -s reload 2>/dev/null; then

@@ -16,6 +16,33 @@
 # It also leaves /run/unmask/gateway-nginx.status for the admin, so the tab
 # can say what an empty field falls back to.
 
+# unmask_gateway_template: pick the gateway template for what settings >
+# Gateway > listen says (markers in gateway-vhosts.inc): both servers, :80
+# only (no https here), or :443 only.  Returns 0 when the choice changed
+# (the caller re-runs envsubst), 1 when it did not.
+unmask_gateway_template() {
+    vh=/etc/unmask/gateway-vhosts.inc
+    src=/usr/share/unmask/gateway.conf.template
+    UNMASK_GATEWAY_LISTEN=":80+:443"
+    UNMASK_GATEWAY_TLS=files
+    grep -q 'acme_certificate' "$vh" 2>/dev/null && UNMASK_GATEWAY_TLS=ACME
+    if grep -q '^# unmask-gateway-tls: none' "$vh" 2>/dev/null; then
+        src=/usr/share/unmask/gateway-http.conf.template
+        UNMASK_GATEWAY_LISTEN=":80"
+        UNMASK_GATEWAY_TLS=none
+    elif grep -q '^# unmask-gateway-http: none' "$vh" 2>/dev/null; then
+        src=/usr/share/unmask/gateway-https.conf.template
+        UNMASK_GATEWAY_LISTEN=":443"
+    fi
+    dst=/etc/nginx/templates/unmask-gateway.conf.template
+    mkdir -p /etc/nginx/templates
+    if [ -f "$dst" ] && cmp -s "$src" "$dst"; then
+        return 1
+    fi
+    cp "$src" "$dst"
+    return 0
+}
+
 unmask_gateway_includes() {
     adm_loc=/etc/unmask/gateway-location.inc
     adm_prx=/etc/unmask/gateway-proxies.inc
