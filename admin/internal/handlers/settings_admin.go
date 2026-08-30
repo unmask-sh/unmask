@@ -628,10 +628,11 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			}
 			return gatewayCertViews(h.cfg().Gateway, nginxOutDir(*h.cfg()), tab == "gateway")
 		}(),
-		"GatewayTLSInFront": h.cfg().Gateway.TLSInFront(),
-		"GatewayHostsAll":   h.cfg().Gateway.HostnamesAll(),
-		"GatewayHostnames":  gatewayHostnamesText(h.cfg().Gateway),
-		"GatewayUncovered":  strings.Join(h.cfg().Gateway.UncoveredWarn(), " "),
+		"GatewayListenHTTP":  h.cfg().Gateway.ListenHTTP(),
+		"GatewayListenHTTPS": h.cfg().Gateway.ListenHTTPS(),
+		"GatewayHostsAll":    h.cfg().Gateway.HostnamesAll(),
+		"GatewayHostnames":   gatewayHostnamesText(h.cfg().Gateway),
+		"GatewayUncovered":   strings.Join(h.cfg().Gateway.UncoveredWarn(), " "),
 		"GatewayLBs": func() []nginxconf.LBIPRange {
 			if !h.cfg().Gateway.Active() {
 				return nil

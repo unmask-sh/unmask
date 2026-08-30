@@ -120,8 +120,13 @@ func TestGatewayNormalizeMigratesEarlierShapes(t *testing.T) {
 	}
 	n := GatewayConfig{ServerName: "_", TLSMode: GatewayTLSNone}
 	n.Normalize()
-	if !n.TLSInFront() || !n.HostnamesAll() || !n.Active() {
+	if !n.TLSInFront() || n.ListenHTTPS() || !n.ListenHTTP() || !n.HostnamesAll() || !n.Active() || strings.Join(n.Listen, ",") != "http" || n.TLS != "" {
 		t.Errorf("none migration = %+v", n)
+	}
+	d := GatewayConfig{TLS: GatewayTLSNone}
+	d.Normalize()
+	if strings.Join(d.Listen, ",") != "http" || d.TLS != "" {
+		t.Errorf("tls: none must fold into listen [http]: %+v", d)
 	}
 	if err := n.Validate(); err != nil {
 		t.Errorf("TLS in front needs no certificate: %v", err)
@@ -215,5 +220,41 @@ func TestGatewayUpstreamAndSelfSigned(t *testing.T) {
 	}
 	if got := names(GatewayConfig{Hostnames: GatewayHostnames{Mode: GatewayHostsCustom, Names: "a.example"}}, GatewayCertificate{Mode: GatewayTLSSelfSigned, Domains: "x.example"}); got != "x.example" {
 		t.Errorf("the entry's own domains win, got %q", got)
+	}
+}
+
+// Listen: both by default (and the file stays short), http only = TLS in
+// front, https only refuses Let's Encrypt (no :80 for http-01), neither
+// is refused.
+func TestGatewayListen(t *testing.T) {
+	var g GatewayConfig
+	if !g.ListenHTTP() || !g.ListenHTTPS() {
+		t.Error("the default is both")
+	}
+	both := GatewayConfig{Listen: []string{"https", "HTTP"}, Certificates: []GatewayCertificate{{CertPath: "/c", KeyPath: "/k"}}}
+	both.Normalize()
+	if both.Listen != nil || !both.ListenHTTP() || !both.ListenHTTPS() {
+		t.Errorf("both folds to the default, got %+v", both.Listen)
+	}
+	httpOnly := GatewayConfig{Listen: []string{"http"}}
+	httpOnly.Normalize()
+	if !httpOnly.TLSInFront() || httpOnly.ListenHTTPS() || !httpOnly.Active() {
+		t.Errorf("http only = TLS in front, got %+v", httpOnly)
+	}
+	if err := httpOnly.Validate(); err != nil {
+		t.Errorf("http only needs no certificate: %v", err)
+	}
+	httpsOnly := GatewayConfig{Listen: []string{"https"}, ACMEEmail: "ops@example.test", Certificates: []GatewayCertificate{{Mode: GatewayTLSACME, Domains: "example.test"}}}
+	if err := httpsOnly.Validate(); err == nil || !strings.Contains(err.Error(), "http-01") {
+		t.Errorf("https only with Let's Encrypt must be refused, got %v", err)
+	}
+	httpsOnly.Certificates[0] = GatewayCertificate{CertPath: "/c", KeyPath: "/k"}
+	if err := httpsOnly.Validate(); err != nil {
+		t.Errorf("https only with a mounted certificate: %v", err)
+	}
+	junk := GatewayConfig{Listen: []string{"ftp", "http"}}
+	junk.Normalize()
+	if strings.Join(junk.Listen, ",") != "http" {
+		t.Errorf("an unknown listen entry is dropped on load, got %+v", junk.Listen)
 	}
 }
