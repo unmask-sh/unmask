@@ -382,35 +382,69 @@ func RenderSignature(s settings.Settings, outDir, version string) (string, error
 // resolved from settings.Gateway for the gateway-*.inc templates.  Only
 // meaningful when Active; the files are not rendered otherwise.
 type gatewayRender struct {
-	Active        bool
-	ServerName    string
-	TLSMode       string // "acme" | "files" | "none" (upload resolves to files with the stored paths)
-	CertPath      string
-	KeyPath       string
+	Active  bool
+	TLSNone bool // TLS terminated in front: no :443 server at all
+	// The first vhost, for the 0.1.37 nginx image's single-block template
+	// (gateway-server.inc / gateway-tls.inc); a 0.1.38 image renders every
+	// vhost from gateway-vhosts.inc instead.
+	ServerName string
+	TLSMode    string // "acme" | "files" | "none"
+	CertPath   string
+	KeyPath    string
+	Vhosts     []gatewayVhostRender
+	// The shared ACME account, rendered when any vhost uses it.
+	ACME          bool
 	ACMEEmail     string
 	ACMEDirectory string
 	ACMEVerify    string // "on" | "off"
 }
 
+type gatewayVhostRender struct {
+	Names    string
+	Default  bool // default_server: the catch-all if there is one, else the first
+	TLSMode  string
+	CertPath string
+	KeyPath  string
+}
+
 func gatewayRenderOf(s settings.Settings, outDir string) gatewayRender {
 	g := s.Gateway
+	g.Normalize()
 	if !g.Active() {
 		return gatewayRender{}
 	}
-	out := gatewayRender{
-		Active:     true,
-		ServerName: strings.TrimSpace(g.ServerName),
-		TLSMode:    "files",
-		CertPath:   g.CertPathResolved(outDir),
-		KeyPath:    g.KeyPathResolved(outDir),
-		ACMEVerify: "on",
-	}
-	if g.TLSModeResolved() == settings.GatewayTLSNone {
+	out := gatewayRender{Active: true, ACMEVerify: "on"}
+	if g.TLSInFront() {
+		out.TLSNone = true
 		out.TLSMode = "none"
-		out.CertPath, out.KeyPath = "", ""
 	}
-	if g.TLSModeResolved() == settings.GatewayTLSACME {
-		out.TLSMode = "acme"
+	def := 0
+	for i, v := range g.Vhosts {
+		if v.CatchAll() {
+			def = i
+			break
+		}
+	}
+	for i, v := range g.Vhosts {
+		r := gatewayVhostRender{Names: v.Names, Default: i == def, TLSMode: "files"}
+		if !out.TLSNone {
+			switch v.ModeResolved() {
+			case settings.GatewayTLSACME:
+				r.TLSMode = "acme"
+			default:
+				r.CertPath = v.CertPathResolved(outDir)
+				r.KeyPath = v.KeyPathResolved(outDir)
+			}
+		}
+		out.Vhosts = append(out.Vhosts, r)
+	}
+	if first := out.Vhosts[0]; !out.TLSNone {
+		out.ServerName, out.TLSMode, out.CertPath, out.KeyPath = first.Names, first.TLSMode, first.CertPath, first.KeyPath
+	} else {
+		out.ServerName = out.Vhosts[0].Names
+	}
+	if g.UsesACME() {
+		out.ACME = true
 		out.ACMEEmail = strings.TrimSpace(g.ACMEEmail)
 		out.ACMEDirectory = g.ACMEDirectoryResolved()
 		if g.ACMEInsecure {
@@ -425,6 +459,7 @@ var gatewayTemplates = [][2]string{
 	{"gateway-server.inc", "templates/gateway-server.inc.tmpl"},
 	{"gateway-tls.inc", "templates/gateway-tls.inc.tmpl"},
 	{"gateway-acme.inc", "templates/gateway-acme.inc.tmpl"},
+	{"gateway-vhosts.inc", "templates/gateway-vhosts.inc.tmpl"},
 }
 
 // renderData: flat struct passed to text/template.

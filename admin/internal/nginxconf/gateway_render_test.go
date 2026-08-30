@@ -9,9 +9,10 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// The gateway includes exist only while a gateway is configured, and say
-// exactly one thing each: the vhost name, the certificate source, the ACME
-// issuer (or nothing).  A host install must not grow these files.
+// The gateway includes exist only while a gateway is configured.  A host
+// install must not grow these files.  Each vhost becomes one :443 server in
+// gateway-vhosts.inc; the single-block files (gateway-server.inc,
+// gateway-tls.inc) keep describing the first vhost for the 0.1.37 image.
 func TestGatewayIncludesRenderOnlyWhenConfigured(t *testing.T) {
 	out := t.TempDir()
 	s, err := settings.LoadFromYAML("")
@@ -28,11 +29,6 @@ func TestGatewayIncludesRenderOnlyWhenConfigured(t *testing.T) {
 			t.Errorf("%s rendered with no gateway configured; a host install must not get it", gt[0])
 		}
 	}
-
-	s.Gateway = settings.GatewayConfig{ServerName: "example.test", TLSMode: settings.GatewayTLSACME, ACMEEmail: "ops@example.test"}
-	if err := Render(s, out, "test"); err != nil {
-		t.Fatal(err)
-	}
 	read := func(n string) string {
 		b, err := os.ReadFile(filepath.Join(out, n))
 		if err != nil {
@@ -40,14 +36,34 @@ func TestGatewayIncludesRenderOnlyWhenConfigured(t *testing.T) {
 		}
 		return string(b)
 	}
-	if !strings.Contains(read("gateway-server.inc"), "server_name example.test;") {
-		t.Error("gateway-server.inc does not carry the vhost name")
+
+	// Two vhosts: ACME for the named one, a mounted pair for the catch-all,
+	// which is the default server whatever its position.
+	s.Gateway = settings.GatewayConfig{ACMEEmail: "ops@example.test", Vhosts: []settings.GatewayVhost{
+		{Names: "example.test www.example.test", TLSMode: settings.GatewayTLSACME},
+		{ID: "b", Names: "_", TLSMode: settings.GatewayTLSFiles, CertPath: "/certs/a.pem", KeyPath: "/certs/a.key"},
+	}}
+	if err := Render(s, out, "test"); err != nil {
+		t.Fatal(err)
 	}
-	tls := read("gateway-tls.inc")
-	for _, want := range []string{"acme_certificate      unmask_le;", "ssl_certificate       $acme_certificate;", "ssl_certificate_key   $acme_certificate_key;"} {
-		if !strings.Contains(tls, want) {
-			t.Errorf("gateway-tls.inc (acme) lacks %q", want)
+	vh := read("gateway-vhosts.inc")
+	if strings.Count(vh, "server {") != 2 {
+		t.Errorf("two vhosts must render two server blocks:\n%s", vh)
+	}
+	for _, want := range []string{
+		"server_name example.test www.example.test;", "acme_certificate      unmask_le;", "ssl_certificate       $acme_certificate;",
+		"listen 443 ssl default_server;", "server_name _;", "ssl_certificate     /certs/a.pem;", "ssl_certificate_key /certs/a.key;",
+		"include /etc/unmask/server.inc;", "include /etc/nginx/unmask-gateway-location.inc;",
+	} {
+		if !strings.Contains(vh, want) {
+			t.Errorf("gateway-vhosts.inc lacks %q", want)
 		}
+	}
+	if strings.Contains(vh, "listen 443 ssl;\n    listen [::]:443 ssl;\n    http2 on;\n    server_name _;") {
+		t.Error("the catch-all vhost must be the default server")
+	}
+	if !strings.Contains(read("gateway-server.inc"), "server_name example.test www.example.test;") {
+		t.Error("gateway-server.inc must carry the first vhost's names (0.1.37 image)")
 	}
 	acme := read("gateway-acme.inc")
 	for _, want := range []string{"acme_issuer unmask_le {", "uri         " + settings.ACMEDirectoryLetsEncrypt + ";", "contact     mailto:ops@example.test;", "ssl_verify  on;", "state_path  /var/cache/nginx/unmask-acme;"} {
@@ -61,52 +77,44 @@ func TestGatewayIncludesRenderOnlyWhenConfigured(t *testing.T) {
 		}
 	}
 
-	// Files mode: paths in, issuer out.
-	s.Gateway = settings.GatewayConfig{ServerName: "_", TLSMode: settings.GatewayTLSFiles, TLSCertPath: "/certs/a.pem", TLSKeyPath: "/certs/a.key"}
+	// Upload mode: the row's stored pair under the render directory.
+	s.Gateway = settings.GatewayConfig{Vhosts: []settings.GatewayVhost{{ID: "ab12", Names: "shop.example", TLSMode: settings.GatewayTLSUpload}}}
 	if err := Render(s, out, "test"); err != nil {
 		t.Fatal(err)
 	}
-	tls = read("gateway-tls.inc")
-	if !strings.Contains(tls, "ssl_certificate     /certs/a.pem;") || !strings.Contains(tls, "ssl_certificate_key /certs/a.key;") {
-		t.Errorf("gateway-tls.inc (files) does not point at the given files:\n%s", tls)
-	}
-	if strings.Contains(tls, "acme_certificate") {
-		t.Error("files mode still references the ACME certificate")
+	if !strings.Contains(read("gateway-vhosts.inc"), "ssl_certificate     "+filepath.Join(out, "gateway-ab12.crt")+";") {
+		t.Errorf("upload mode does not point at the row's stored certificate:\n%s", read("gateway-vhosts.inc"))
 	}
 	if strings.Contains(read("gateway-acme.inc"), "acme_issuer") {
-		t.Error("files mode still renders an ACME issuer")
+		t.Error("no ACME vhost, yet an issuer was rendered")
 	}
 
-	// Upload mode: the stored pair under the render directory.
-	s.Gateway = settings.GatewayConfig{ServerName: "shop.example", TLSMode: settings.GatewayTLSUpload}
+	// TLS in front: the marker, no server blocks, no certificates.
+	s.Gateway = settings.GatewayConfig{TLS: settings.GatewayTLSNone, Vhosts: []settings.GatewayVhost{{Names: "shop.example www.shop.example"}}}
 	if err := Render(s, out, "test"); err != nil {
 		t.Fatal(err)
 	}
-	tls = read("gateway-tls.inc")
-	if !strings.Contains(tls, "ssl_certificate     "+filepath.Join(out, "gateway.crt")+";") {
-		t.Errorf("upload mode does not point at the stored certificate:\n%s", tls)
+	vh = read("gateway-vhosts.inc")
+	if !strings.Contains(vh, "# unmask-gateway-tls: none") || strings.Contains(vh, "server {") || strings.Contains(vh, "ssl_certificate") {
+		t.Errorf("TLS in front must render the marker and nothing to listen on:\n%s", vh)
+	}
+	if !strings.Contains(read("gateway-tls.inc"), "# unmask-gateway-tls: none") {
+		t.Error("gateway-tls.inc must carry the marker too (0.1.37 image)")
 	}
 
-	// None: TLS terminated in front.  The include says so and carries no
-	// certificate; the nginx image picks its :80-only template from that
-	// marker.  Several names pass through as nginx's list.
-	s.Gateway = settings.GatewayConfig{ServerName: "shop.example www.shop.example", TLSMode: settings.GatewayTLSNone}
+	// The 0.1.37 single-vhost config still renders (migration on load).
+	s.Gateway = settings.GatewayConfig{ServerName: "old.example", TLSMode: settings.GatewayTLSFiles, TLSCertPath: "/c.pem", TLSKeyPath: "/k.pem"}
 	if err := Render(s, out, "test"); err != nil {
 		t.Fatal(err)
 	}
-	tls = read("gateway-tls.inc")
-	if !strings.Contains(tls, "# unmask-gateway-tls: none") || strings.Contains(tls, "ssl_certificate") {
-		t.Errorf("none mode did not render the marker without certificates:\n%s", tls)
-	}
-	if !strings.Contains(read("gateway-server.inc"), "server_name shop.example www.shop.example;") {
-		t.Error("several names did not reach server_name")
+	if !strings.Contains(read("gateway-vhosts.inc"), "server_name old.example;") || !strings.Contains(read("gateway-tls.inc"), "ssl_certificate     /c.pem;") {
+		t.Error("a 0.1.37 config must render as one vhost")
 	}
 
 	// The signature covers the gateway files: a certificate-source change
 	// must read as "nginx config changed" (the reload banner keys on it).
 	before, _ := RenderSignature(s, out, "test")
-	s.Gateway.TLSMode = settings.GatewayTLSACME
-	s.Gateway.ACMEEmail = "ops@example.test"
+	s.Gateway = settings.GatewayConfig{ACMEEmail: "ops@example.test", Vhosts: []settings.GatewayVhost{{Names: "old.example", TLSMode: settings.GatewayTLSACME}}}
 	after, _ := RenderSignature(s, out, "test")
 	if before == after {
 		t.Error("RenderSignature ignores the gateway files")

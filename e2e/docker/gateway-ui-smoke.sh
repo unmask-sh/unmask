@@ -43,10 +43,10 @@ case "$loc" in */admin/setup/*) fail "login still redirects to the wizard ($loc)
 # 2. The Gateway tab renders for a gateway install, and a pasted pair lands
 #    on :443.  Self-signed, with a subject nothing else uses.
 page=$($C "$ADMIN_URL/admin/settings/gateway/")
-echo "$page" | grep -q 'name="cert_pem"' && pass "gateway tab renders the paste form" || fail "gateway tab has no paste form"
+echo "$page" | grep -q 'name="vh_cert_pem"' && pass "gateway tab renders the paste form" || fail "gateway tab has no paste form"
 openssl req -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:P-256 -days 90 -keyout $W/k.pem -out $W/c.pem -subj "/CN=$SERVER_NAME/O=Pasted Via UI" 2>/dev/null
 t=$(csrf)
-loc=$($C -o /dev/null -w '%{redirect_url}' --data-urlencode "_csrf=$t" --data-urlencode "server_name=$SERVER_NAME" --data-urlencode "tls_mode=upload" --data-urlencode "cert_pem@$W/c.pem" --data-urlencode "key_pem@$W/k.pem" "$ADMIN_URL/admin/settings/save?section=gateway")
+loc=$($C -o /dev/null -w '%{redirect_url}' --data-urlencode "_csrf=$t" --data-urlencode "tls=here" --data-urlencode "vh_id=" --data-urlencode "vh_kind=named" --data-urlencode "vh_names=$SERVER_NAME" --data-urlencode "vh_mode=upload" --data-urlencode "vh_cert_path=" --data-urlencode "vh_key_path=" --data-urlencode "vh_cert_pem@$W/c.pem" --data-urlencode "vh_chain_pem=" --data-urlencode "vh_key_pem@$W/k.pem" "$ADMIN_URL/admin/settings/save?section=gateway")
 case "$loc" in *saved=1*) pass "paste saved" ;; *) fail "paste save: $loc" ;; esac
 mode=$(docker exec "$ADMIN_CONTAINER" stat -c '%a' /etc/unmask/gateway.key 2>/dev/null)
 [ "$mode" = "600" ] && pass "stored key is 0600" || fail "stored key mode: '$mode'"
@@ -61,7 +61,7 @@ echo "$page" | grep -q 'Pasted Via UI' && pass "the tab shows the served certifi
 # 3. A pair that does not match is refused, and :443 keeps the good one.
 openssl req -x509 -nodes -newkey ec -pkeyopt ec_paramgen_curve:P-256 -days 90 -keyout $W/k2.pem -out $W/c2.pem -subj "/CN=$SERVER_NAME/O=Mismatch" 2>/dev/null
 t=$(csrf)
-loc=$($C -o /dev/null -w '%{redirect_url}' --data-urlencode "_csrf=$t" --data-urlencode "server_name=$SERVER_NAME" --data-urlencode "tls_mode=upload" --data-urlencode "cert_pem@$W/c2.pem" --data-urlencode "key_pem@$W/k.pem" "$ADMIN_URL/admin/settings/save?section=gateway")
+loc=$($C -o /dev/null -w '%{redirect_url}' --data-urlencode "_csrf=$t" --data-urlencode "tls=here" --data-urlencode "vh_id=" --data-urlencode "vh_kind=named" --data-urlencode "vh_names=$SERVER_NAME" --data-urlencode "vh_mode=upload" --data-urlencode "vh_cert_path=" --data-urlencode "vh_key_path=" --data-urlencode "vh_cert_pem@$W/c2.pem" --data-urlencode "vh_chain_pem=" --data-urlencode "vh_key_pem@$W/k.pem" "$ADMIN_URL/admin/settings/save?section=gateway")
 case "$loc" in *saved=1*) fail "a mismatched pair was accepted" ;; *) pass "a mismatched pair is refused" ;; esac
 sleep 4
 served | grep -q 'Pasted Via UI' && pass "gateway keeps the good certificate" || fail "gateway changed after a refused upload: $(served)"

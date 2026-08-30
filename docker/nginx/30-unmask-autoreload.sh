@@ -16,7 +16,7 @@
 # UNMASK_AUTORELOAD=0 turns it off.
 case "${UNMASK_AUTORELOAD:-1}" in 0|false|no|off) exit 0 ;; esac
 
-WATCH="/etc/unmask/http.inc /etc/unmask/upstream.conf /etc/unmask/server.inc /etc/unmask/protect.inc /etc/unmask/forward-auth-lbtrust.conf /etc/unmask/community-bans-ip.map /etc/unmask/community-bans-ja4.map /etc/unmask/community-bans-ipja4.map /etc/unmask/gateway-server.inc /etc/unmask/gateway-tls.inc /etc/unmask/gateway-acme.inc /etc/unmask/gateway.crt"
+WATCH="/etc/unmask/http.inc /etc/unmask/upstream.conf /etc/unmask/server.inc /etc/unmask/protect.inc /etc/unmask/forward-auth-lbtrust.conf /etc/unmask/community-bans-ip.map /etc/unmask/community-bans-ja4.map /etc/unmask/community-bans-ipja4.map /etc/unmask/gateway-server.inc /etc/unmask/gateway-tls.inc /etc/unmask/gateway-acme.inc /etc/unmask/gateway-vhosts.inc"
 INTERVAL="${UNMASK_AUTORELOAD_INTERVAL:-3}"
 
 sig() {
@@ -26,7 +26,7 @@ sig() {
     # Gateway > files) are watched too, so a renewal mounted in from the
     # host is picked up without anyone reloading by hand.
     certs=""
-    [ -f /etc/unmask/gateway-tls.inc ] && certs=$(sed -n 's/^ssl_certificate\(_key\)\?[[:space:]]\+\([^;$]*\);.*/\2/p' /etc/unmask/gateway-tls.inc)
+    [ -f /etc/unmask/gateway-vhosts.inc ] && certs=$(sed -n 's/^[[:space:]]*ssl_certificate\(_key\)\?[[:space:]]\+\([^;$]*\);.*/\2/p' /etc/unmask/gateway-vhosts.inc)
     for f in $WATCH $certs; do [ -f "$f" ] && cat "$f"; done | md5sum | cut -d' ' -f1
 }
 

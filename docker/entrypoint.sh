@@ -87,17 +87,21 @@ EOF
         # UNMASK_TLS_MODE overrides: none (TLS terminated by a load balancer
         # in front, :80 only), files, acme, upload.
         case "${UNMASK_TLS_MODE:-}" in none|files|acme|upload) mode="$UNMASK_TLS_MODE" ;; esac
+        gwtls='""'; vhmode="$mode"
+        if [ "$mode" = none ]; then gwtls=none; vhmode=files; fi
         insecure=false
         case "${UNMASK_ACME_INSECURE:-}" in 1|true|yes|on) insecure=true ;; esac
         cat >> "$CFG" <<EOF
 gateway:
-    server_name: ${UNMASK_SERVER_NAME:-_}
-    tls_mode: ${mode}
+    tls: ${gwtls}
     acme_email: ${UNMASK_ACME_EMAIL:-}
     acme_directory: ${UNMASK_ACME_DIRECTORY:-}
     acme_insecure: ${insecure}
-    tls_cert_path: ${UNMASK_TLS_CERT:-/etc/unmask/tls/fullchain.pem}
-    tls_key_path: ${UNMASK_TLS_KEY:-/etc/unmask/tls/privkey.pem}
+    vhosts:
+        - names: ${UNMASK_SERVER_NAME:-_}
+          tls_mode: ${vhmode}
+          cert_path: ${UNMASK_TLS_CERT:-/etc/unmask/tls/fullchain.pem}
+          key_path: ${UNMASK_TLS_KEY:-/etc/unmask/tls/privkey.pem}
 EOF
     fi
     chmod 0600 "$CFG"
