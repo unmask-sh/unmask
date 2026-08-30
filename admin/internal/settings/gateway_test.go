@@ -64,3 +64,30 @@ func TestGatewayDefaults(t *testing.T) {
 		t.Errorf("upload mode must resolve to the stored pair under the render dir, got %s", g.CertPathResolved("/etc/unmask"))
 	}
 }
+
+// server_name is a list: every name is checked, and ACME needs every one of
+// them to be a real name.  "none" is a TLS mode of its own: nothing to check.
+func TestGatewayMultipleNamesAndNoneMode(t *testing.T) {
+	g := GatewayConfig{ServerName: "shop.example www.shop.example", TLSMode: GatewayTLSACME, ACMEEmail: "ops@shop.example"}
+	if err := g.Validate(); err != nil {
+		t.Fatalf("two real names with ACME must validate: %v", err)
+	}
+	if got := g.ServerNames(); len(got) != 2 || got[1] != "www.shop.example" {
+		t.Errorf("ServerNames = %v", got)
+	}
+	g.ServerName = "shop.example _"
+	if err := g.Validate(); err == nil || !strings.Contains(err.Error(), "real name") {
+		t.Errorf("a catch-all among ACME names must be refused, got %v", err)
+	}
+	g.ServerName = "shop.example bad;name"
+	if err := g.Validate(); err == nil {
+		t.Error("a directive breaker inside the list validated")
+	}
+	n := GatewayConfig{ServerName: "_", TLSMode: GatewayTLSNone}
+	if err := n.Validate(); err != nil {
+		t.Errorf("none mode needs no certificate: %v", err)
+	}
+	if n.TLSModeResolved() != GatewayTLSNone {
+		t.Errorf("none resolved to %q", n.TLSModeResolved())
+	}
+}

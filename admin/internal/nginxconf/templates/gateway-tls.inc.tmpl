@@ -4,7 +4,11 @@
 #
 # Where the gateway vhost's certificate comes from (settings > Gateway).
 # Included inside the :443 server block of the gateway template.
-{{- if eq .Gateway.TLSMode "acme" }}
+{{- if eq .Gateway.TLSMode "none" }}
+# unmask-gateway-tls: none
+# TLS is terminated in front of the gateway (a load balancer); the nginx
+# image serves :80 only and renders no :443 server.
+{{- else if eq .Gateway.TLSMode "acme" }}
 # ACME: issued and renewed by nginx's own ACME module; the issuer is
 # defined in gateway-acme.inc (http scope).
 acme_certificate      unmask_le;

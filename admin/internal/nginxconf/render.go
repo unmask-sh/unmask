@@ -384,7 +384,7 @@ func RenderSignature(s settings.Settings, outDir, version string) (string, error
 type gatewayRender struct {
 	Active        bool
 	ServerName    string
-	TLSMode       string // "acme" | "files" (upload resolves to files with the stored paths)
+	TLSMode       string // "acme" | "files" | "none" (upload resolves to files with the stored paths)
 	CertPath      string
 	KeyPath       string
 	ACMEEmail     string
@@ -404,6 +404,10 @@ func gatewayRenderOf(s settings.Settings, outDir string) gatewayRender {
 		CertPath:   g.CertPathResolved(outDir),
 		KeyPath:    g.KeyPathResolved(outDir),
 		ACMEVerify: "on",
+	}
+	if g.TLSModeResolved() == settings.GatewayTLSNone {
+		out.TLSMode = "none"
+		out.CertPath, out.KeyPath = "", ""
 	}
 	if g.TLSModeResolved() == settings.GatewayTLSACME {
 		out.TLSMode = "acme"
