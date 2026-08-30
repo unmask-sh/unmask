@@ -54,44 +54,7 @@ server {
     }
 }
 
-server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;
-    include /etc/unmask/gateway-server.inc;
-
-    # The certificate source (files or ACME), rendered by the admin from
-    # settings > Gateway.
-    include /etc/unmask/gateway-tls.inc;
-    ssl_protocols TLSv1.2 TLSv1.3;
-
-    # unmask: ban enforcement, the /unmask/ admin + challenge routes, and the
-    # daemon-down fail-open live here (rendered by the admin container).
-    include /etc/unmask/server.inc;
-
-    # A transparent gateway must not impose limits the upstream does not:
-    # nginx's stock 1m body cap would 413 an upload the app happily accepts,
-    # and its 60s read timeout would cut a long poll or an SSE stream.  The
-    # upstream keeps its own limits.
-    client_max_body_size 0;
-
-    location / {
-        # The challenge decision for everything proxied.
-        include /etc/unmask/protect.inc;
-
-        proxy_pass ${UNMASK_UPSTREAM};
-        proxy_http_version 1.1;
-        proxy_read_timeout 1h;
-        proxy_send_timeout 1h;
-        # An https upstream (a second nginx that keeps its own certificate)
-        # needs SNI to pick the right vhost.
-        proxy_ssl_server_name on;
-        proxy_ssl_name $host;            # SNI = the visitor's host, so an https upstream picks the right vhost
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
-        proxy_set_header Upgrade           $http_upgrade;
-        proxy_set_header Connection        $connection_upgrade;
-    }
-}
+# The :443 servers -- one per vhost (settings > Gateway), each with its own
+# certificate, picked by SNI -- are rendered by the admin.  Their proxy
+# location is written by 10-unmask-gateway.envsh (it knows the upstream).
+include /etc/unmask/gateway-vhosts.inc;

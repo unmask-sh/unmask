@@ -17,35 +17,24 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// The Gateway settings tab: the container gateway's hostname and where its
-// certificate comes from.  See settings.GatewayConfig for what is
-// deliberately not here.
-
-// applyGatewayForm reads the gateway tab's form into g.  outDir is the
-// render directory; a pasted certificate is stored under it so the nginx
-// container reaches it through the shared volume.
+// applyGatewayForm reads settings > Gateway.  The vhosts come as parallel
+// arrays, one entry per row in DOM order (a <select> per row keeps the
+// arrays aligned; nothing in a row is a checkbox or a radio).  A row whose
+// certificate is pasted has its pair checked and stored under the row's id
+// before the config is validated, so a bad paste never reaches the render.
 func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string) error {
-	// The form offers "any name" (nginx's "_") as a choice; a form without
-	// the choice (older clients, scripts) still sends the name itself.
-	switch r.FormValue("server_name_mode") {
-	case "any":
-		g.ServerName = "_"
+	g.Normalize()
+	if err := r.ParseForm(); err != nil {
+		return err
+	}
+	switch strings.TrimSpace(r.FormValue("tls")) {
+	case "", "here":
+		g.TLS = ""
+	case settings.GatewayTLSNone:
+		g.TLS = settings.GatewayTLSNone
 	default:
-		g.ServerName = strings.TrimSpace(r.FormValue("server_name"))
+		return errors.New("TLS: unknown choice")
 	}
-	if g.ServerName == "" {
-		return errors.New("hostname: required (the name the gateway answers for)")
-	}
-	mode := strings.TrimSpace(r.FormValue("tls_mode"))
-	switch mode {
-	case settings.GatewayTLSACME, settings.GatewayTLSUpload, settings.GatewayTLSFiles, settings.GatewayTLSNone:
-	default:
-		return fmt.Errorf("certificate source: unknown value %q", mode)
-	}
-	g.TLSMode = mode
-
-	// Every field is kept regardless of the active mode, so switching modes
-	// back and forth does not lose what was typed for the other one.
 	g.ACMEEmail = strings.TrimSpace(r.FormValue("acme_email"))
 	switch strings.TrimSpace(r.FormValue("acme_directory")) {
 	case "", "production":
@@ -56,45 +45,80 @@ func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string)
 		g.ACMEInsecure = false
 	case "custom":
 		g.ACMEDirectory = strings.TrimSpace(r.FormValue("acme_directory_custom"))
-		// Skipping verification of the ACME server's certificate is only
-		// meaningful against a private test server, so it rides the custom
-		// choice alone: a public directory never gets it, however the box
-		// was left.
 		g.ACMEInsecure = r.FormValue("acme_insecure") == "1"
 	default:
 		return errors.New("ACME directory: unknown choice")
 	}
-	g.TLSCertPath = strings.TrimSpace(r.FormValue("tls_cert_path"))
-	g.TLSKeyPath = strings.TrimSpace(r.FormValue("tls_key_path"))
 
-	if mode == settings.GatewayTLSUpload {
-		certPEM := strings.TrimSpace(r.FormValue("cert_pem"))
-		chainPEM := strings.TrimSpace(r.FormValue("chain_pem"))
-		keyPEM := strings.TrimSpace(r.FormValue("key_pem"))
-		switch {
-		case certPEM == "" && keyPEM == "":
-			// Nothing pasted: keep the certificate already stored, which
-			// must exist for the mode to mean anything.
-			if _, err := os.Stat(settings.UploadedCertPath(outDir)); err != nil {
-				return errors.New("certificate: paste the certificate and its private key (none is stored yet)")
-			}
-		case certPEM == "" || keyPEM == "":
-			return errors.New("certificate: paste both the certificate and the private key")
+	col := func(k string) []string { return r.Form[k] }
+	ids, kinds, names, modes := col("vh_id"), col("vh_kind"), col("vh_names"), col("vh_mode")
+	certPaths, keyPaths := col("vh_cert_path"), col("vh_key_path")
+	certPEMs, chainPEMs, keyPEMs := col("vh_cert_pem"), col("vh_chain_pem"), col("vh_key_pem")
+	at := func(a []string, i int) string {
+		if i < len(a) {
+			return strings.TrimSpace(a[i])
+		}
+		return ""
+	}
+	n := len(names)
+	if n == 0 {
+		return errors.New("vhost: at least one vhost is required (a hostname the gateway answers for)")
+	}
+	old := map[string]settings.GatewayVhost{}
+	for _, v := range g.Vhosts {
+		old[v.ID] = v
+	}
+	var vhosts []settings.GatewayVhost
+	for i := 0; i < n; i++ {
+		v := settings.GatewayVhost{ID: at(ids, i)}
+		if v.ID == "" && i > 0 {
+			v.ID = settings.NewVhostID()
+		}
+		if at(kinds, i) == "any" {
+			v.Names = "_"
+		} else {
+			v.Names = strings.Join(strings.Fields(at(names, i)), " ")
+		}
+		if v.Names == "" {
+			return fmt.Errorf("vhost %d: hostname: required", i+1)
+		}
+		mode := at(modes, i)
+		switch mode {
+		case settings.GatewayTLSACME, settings.GatewayTLSUpload, settings.GatewayTLSFiles:
+		case "":
+			mode = settings.GatewayTLSFiles
 		default:
-			if err := storeUploadedCert(outDir, certPEM, chainPEM, keyPEM); err != nil {
-				return err
+			return fmt.Errorf("vhost %d: certificate source: unknown value %q", i+1, mode)
+		}
+		v.TLSMode = mode
+		v.CertPath = at(certPaths, i)
+		v.KeyPath = at(keyPaths, i)
+		if mode == settings.GatewayTLSUpload && !g.TLSInFront() {
+			certPEM, chainPEM, keyPEM := at(certPEMs, i), at(chainPEMs, i), at(keyPEMs, i)
+			switch {
+			case certPEM == "" && keyPEM == "":
+				if _, err := os.Stat(settings.UploadedCertPath(outDir, v.ID)); err != nil {
+					return fmt.Errorf("vhost %d: paste the certificate and its private key (none is stored yet)", i+1)
+				}
+			case certPEM == "" || keyPEM == "":
+				return fmt.Errorf("vhost %d: paste both the certificate and the private key", i+1)
+			default:
+				if err := storeUploadedCert(outDir, v.ID, certPEM, chainPEM, keyPEM); err != nil {
+					return fmt.Errorf("vhost %d: %w", i+1, err)
+				}
 			}
 		}
+		_ = old
+		vhosts = append(vhosts, v)
 	}
+	g.Vhosts = vhosts
 	return g.Validate()
 }
 
-// storeUploadedCert validates a pasted certificate + key pair and writes it
-// under outDir/tls.  The chain (intermediates a commercial CA hands out
-// separately) is appended to the certificate, which is how nginx wants it.
-// The key file is 0600; the render directory is not world-readable either,
-// but a private key gets its own lock regardless.
-func storeUploadedCert(outDir, certPEM, chainPEM, keyPEM string) error {
+// storeUploadedCert validates a pasted pair and stores it as the vhost's
+// files, key readable by the daemon only.  Temp-file + rename, so nginx
+// never reads a half-written certificate.
+func storeUploadedCert(outDir, id, certPEM, chainPEM, keyPEM string) error {
 	full := certPEM + "\n"
 	if chainPEM != "" {
 		full += chainPEM + "\n"
@@ -109,21 +133,18 @@ func storeUploadedCert(outDir, certPEM, chainPEM, keyPEM string) error {
 	if time.Now().After(leaf.NotAfter) {
 		return fmt.Errorf("certificate: expired on %s", leaf.NotAfter.UTC().Format("2006-01-02"))
 	}
-	dir := filepath.Join(outDir, "tls")
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return fmt.Errorf("certificate: mkdir %s: %w", dir, err)
+	if err := os.MkdirAll(outDir, 0o750); err != nil {
+		return fmt.Errorf("certificate: mkdir %s: %w", outDir, err)
 	}
-	if err := writePrivate(settings.UploadedKeyPath(outDir), []byte(keyPEM+"\n"), 0o600); err != nil {
+	if err := writePrivate(settings.UploadedKeyPath(outDir, id), []byte(keyPEM+"\n"), 0o600); err != nil {
 		return fmt.Errorf("certificate: store key: %w", err)
 	}
-	if err := writePrivate(settings.UploadedCertPath(outDir), []byte(full), 0o644); err != nil {
+	if err := writePrivate(settings.UploadedCertPath(outDir, id), []byte(full), 0o644); err != nil {
 		return fmt.Errorf("certificate: store certificate: %w", err)
 	}
 	return nil
 }
 
-// writePrivate writes via a temp file in the same directory and renames it
-// into place, so nginx never reads a half-written key.
 func writePrivate(path string, b []byte, perm os.FileMode) error {
 	f, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".tmp-*")
 	if err != nil {
@@ -146,7 +167,6 @@ func writePrivate(path string, b []byte, perm os.FileMode) error {
 	return os.Rename(tmp, path)
 }
 
-// parseLeafCert returns the first certificate in a PEM bundle.
 func parseLeafCert(bundle string) (*x509.Certificate, error) {
 	block, _ := pem.Decode([]byte(bundle))
 	if block == nil || block.Type != "CERTIFICATE" {
@@ -159,9 +179,8 @@ func parseLeafCert(bundle string) (*x509.Certificate, error) {
 	return c, nil
 }
 
-// gatewayCertView is what the tab shows about the certificate the gateway
-// is serving right now -- read off its :443, so it reflects reality (an
-// ACME issuance that has not happened yet shows as an error here).
+// gatewayCertView: what the gateway's :443 serves for one vhost, read off
+// the wire -- the truth, whatever the settings say.
 type gatewayCertView struct {
 	Checked   bool
 	OK        bool
@@ -174,11 +193,9 @@ type gatewayCertView struct {
 	Names     string
 }
 
-// gatewayCertStatus dials the gateway and reports its served certificate.
-// addr is host:port as the admin container reaches nginx (compose: nginx:443).
 func gatewayCertStatus(addr, serverName string) gatewayCertView {
 	v := gatewayCertView{Checked: true}
-	d := &net.Dialer{Timeout: 3 * time.Second}
+	d := &net.Dialer{Timeout: 2 * time.Second}
 	conn, err := tls.DialWithDialer(d, "tcp", addr, &tls.Config{
 		ServerName:         serverName,
 		InsecureSkipVerify: true, //nolint:gosec // the probe shows whatever :443 serves, self-signed included; verification is the browser's job
@@ -200,14 +217,14 @@ func gatewayCertStatus(addr, serverName string) gatewayCertView {
 	v.NotAfter = c.NotAfter.UTC().Format("2006-01-02")
 	v.DaysLeft = int(time.Until(c.NotAfter).Hours() / 24)
 	v.Names = strings.Join(c.DNSNames, ", ")
-	if serverName != "" && serverName != "_" {
+	if serverName != "" {
 		v.NameMatch = c.VerifyHostname(serverName) == nil
 	}
 	return v
 }
 
-// gatewayAddr: where the admin reaches the gateway's :443.  The nginx
-// service name under compose; overridable for other layouts.
+// gatewayAddr: where the admin reaches the gateway's :443 (compose: the
+// nginx service).
 func gatewayAddr() string {
 	if a := strings.TrimSpace(os.Getenv("UNMASK_GATEWAY_ADDR")); a != "" {
 		return a
@@ -215,10 +232,34 @@ func gatewayAddr() string {
 	return "nginx:443"
 }
 
-// uploadedCertInfo describes a stored (pasted) certificate without dialing
-// anything, for the tab to show what is on disk.
-func uploadedCertInfo(outDir string) (subject, issuer, notAfter string, ok bool) {
-	b, err := os.ReadFile(settings.UploadedCertPath(outDir))
+// gatewayVhostView: one row of the tab.
+type gatewayVhostView struct {
+	Index    int
+	V        settings.GatewayVhost
+	Any      bool // catch-all row
+	Cert     gatewayCertView
+	Uploaded map[string]any
+}
+
+// gatewayVhostViews builds the rows; probe = dial :443 per vhost (the tab is
+// the only place that happens).
+func gatewayVhostViews(g settings.GatewayConfig, outDir string, probe bool) []gatewayVhostView {
+	g.Normalize()
+	var out []gatewayVhostView
+	for i, v := range g.Vhosts {
+		row := gatewayVhostView{Index: i + 1, V: v, Any: v.CatchAll()}
+		subj, iss, exp, ok := uploadedCertInfo(outDir, v.ID)
+		row.Uploaded = map[string]any{"OK": ok, "Subject": subj, "Issuer": iss, "NotAfter": exp}
+		if probe && !g.TLSInFront() {
+			row.Cert = gatewayCertStatus(gatewayAddr(), v.FirstName())
+		}
+		out = append(out, row)
+	}
+	return out
+}
+
+func uploadedCertInfo(outDir, id string) (subject, issuer, notAfter string, ok bool) {
+	b, err := os.ReadFile(settings.UploadedCertPath(outDir, id))
 	if err != nil {
 		return "", "", "", false
 	}
@@ -229,7 +270,7 @@ func uploadedCertInfo(outDir string) (subject, issuer, notAfter string, ok bool)
 	return dnLabel(c.Subject), dnLabel(c.Issuer), c.NotAfter.UTC().Format("2006-01-02"), true
 }
 
-// nginxOutDir mirrors nginxconf.Render's default for the render directory.
+// nginxOutDir: where the admin renders, and where uploaded pairs live.
 func nginxOutDir(s settings.Settings) string {
 	if s.Nginx.OutputDir != "" {
 		return s.Nginx.OutputDir
