@@ -1,0 +1,39 @@
+# unmask gateway vhost, :443 only -- rendered into conf.d by the stock nginx entrypoint
+# (envsubst) when UNMASK_GATEWAY=1 (or UNMASK_UPSTREAM is set).  http scope, like every conf.d file.
+#
+# Only ${UNMASK_*} placeholders are substituted; nginx's own $variables are
+# left alone because the entrypoint substitutes defined environment names
+# only.
+
+include /etc/unmask/http.inc;
+include /etc/unmask/upstream.conf;
+include /etc/unmask/forward-auth-lbtrust.conf;
+
+# The resolver (this container's nameservers, written by the .envsh) and the
+# ACME issuer (rendered by the admin from settings > Gateway; empty unless
+# the certificate is on Let's Encrypt).
+include /etc/nginx/unmask-resolver.inc;
+include /etc/unmask/gateway-acme.inc;
+include /etc/nginx/unmask-gateway-proxies.inc;
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+# X-Forwarded-Proto for the upstream: https on the TLS listener, as
+# received on :80 (a health check carries none; a balancer that terminated
+# TLS says https, and an upstream that redirects "http" itself must not be
+# told otherwise).
+map $scheme $unmask_gw_xfp {
+    https   https;
+    default $http_x_forwarded_proto;
+}
+
+# No :80 server (settings > Gateway > listen: https only).  Let's Encrypt's
+# http-01 would need it, which the admin refuses in this shape.
+
+# The :443 servers -- one per vhost (settings > Gateway), each with its own
+# certificate, picked by SNI -- are rendered by the admin.  Their proxy
+# location is written by 10-unmask-gateway.envsh (it knows the upstream).
+include /etc/unmask/gateway-vhosts.inc;

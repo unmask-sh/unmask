@@ -80,6 +80,7 @@ func postGateway(t *testing.T, h *Handler, form url.Values) string {
 // oneCert: a custom hostname list plus a single certificate entry.
 func oneCert(hostnames, domains, mode string, extra url.Values) url.Values {
 	f := url.Values{
+		"listen_http": {"1"}, "listen_https": {"1"},
 		"hostnames_mode": {"custom"}, "hostnames": {hostnames},
 		"cert_id": {""}, "cert_domains": {domains}, "cert_mode": {mode},
 		"cert_cert_path": {""}, "cert_key_path": {""},
@@ -203,6 +204,7 @@ func TestGatewayUploadRefusesMissingAndExpired(t *testing.T) {
 func TestGatewayTwoCertificatesForm(t *testing.T) {
 	h, _ := gatewayHandler(t)
 	two := url.Values{
+		"listen_http": {"1"}, "listen_https": {"1"},
 		"hostnames_mode": {"custom"}, "hostnames": {"shop.example\nwww.shop.example\nblog.example"},
 		"cert_id":        {"", ""},
 		"cert_domains":   {"shop.example www.shop.example", "blog.example"},
@@ -406,27 +408,49 @@ func TestGatewayUpstreamForm(t *testing.T) {
 	}
 }
 
-// TLS terminated in front: the hostnames save with no certificate at all.
-func TestGatewayTLSInFrontForm(t *testing.T) {
+// http only (TLS terminated in front): the hostnames save with no
+// certificate at all; https only drops the :80 server and refuses Let's
+// Encrypt; neither is refused.
+func TestGatewayListenForm(t *testing.T) {
 	h, _ := gatewayHandler(t)
-	f := url.Values{"tls": {"none"}, "hostnames_mode": {"all"}}
+	f := url.Values{"listen_http": {"1"}, "hostnames_mode": {"all"}}
 	if loc := postGateway(t, h, f); !strings.Contains(loc, "saved=1") {
-		t.Fatalf("none: %s", loc)
+		t.Fatalf("http only: %s", loc)
 	}
 	saved, _ := settings.Load(h.ConfigPath)
-	if !saved.Gateway.TLSInFront() || !saved.Gateway.HostnamesAll() || len(saved.Gateway.Certificates) != 0 {
+	if !saved.Gateway.TLSInFront() || saved.Gateway.ListenHTTPS() || !saved.Gateway.ListenHTTP() || !saved.Gateway.HostnamesAll() || len(saved.Gateway.Certificates) != 0 {
 		t.Errorf("saved %+v", saved.Gateway)
 	}
 	body := renderSettingsTab(t, h, "gateway")
-	if !strings.Contains(body, `name="tls" value="none" data-gw-tls checked`) {
-		t.Error("the tab does not show TLS in front as selected")
+	if !strings.Contains(body, `name="listen_http" value="1" data-gw-listen checked`) || !strings.Contains(body, `name="listen_https" value="1" data-gw-listen>`) {
+		t.Error("the tab does not show http ticked and https unticked")
 	}
 	if !strings.Contains(body, `name="hostnames_mode" value="all" data-gw-hosts checked`) {
 		t.Error("the tab does not show all hostnames as selected")
 	}
-	// Back to TLS here: a certificate is required again.
-	if loc := postGateway(t, h, url.Values{"tls": {"here"}, "hostnames_mode": {"all"}}); strings.Contains(loc, "saved=1") {
-		t.Fatal("TLS here with no certificate was accepted")
+	// Both again: a certificate is required.
+	if loc := postGateway(t, h, url.Values{"listen_http": {"1"}, "listen_https": {"1"}, "hostnames_mode": {"all"}}); strings.Contains(loc, "saved=1") {
+		t.Fatal("https with no certificate was accepted")
+	}
+	// Neither.
+	if loc := postGateway(t, h, url.Values{"hostnames_mode": {"all"}}); strings.Contains(loc, "saved=1") {
+		t.Fatal("a gateway listening on nothing was accepted")
+	}
+	// https only with a mounted certificate: saved, the :80 server dropped.
+	f = oneCert("shop.example", "", settings.GatewayTLSFiles, url.Values{"listen_https": {"1"}, "cert_cert_path": {"/c.pem"}, "cert_key_path": {"/k.pem"}})
+	f.Del("listen_http")
+	if loc := postGateway(t, h, f); !strings.Contains(loc, "saved=1") {
+		t.Fatalf("https only: %s", loc)
+	}
+	vh, _ := os.ReadFile(filepath.Join(h.cfg().Nginx.OutputDir, "gateway-vhosts.inc"))
+	if !strings.Contains(string(vh), "# unmask-gateway-http: none") || !strings.Contains(string(vh), "server_name shop.example;") {
+		t.Errorf("https only must mark the missing :80 and keep the :443 blocks:\n%s", vh)
+	}
+	// https only + Let's Encrypt: no :80 for http-01.
+	f = oneCert("shop.example", "shop.example", settings.GatewayTLSACME, url.Values{"listen_https": {"1"}, "acme_email": {"ops@shop.example"}})
+	f.Del("listen_http")
+	if loc := postGateway(t, h, f); strings.Contains(loc, "saved=1") {
+		t.Fatal("Let's Encrypt without :80 was accepted")
 	}
 }
 

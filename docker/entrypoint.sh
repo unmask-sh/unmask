@@ -110,8 +110,8 @@ EOF
         # UNMASK_TLS_MODE overrides: none (TLS terminated by a load balancer
         # in front, :80 only), files, acme, upload, selfsigned.
         case "${UNMASK_TLS_MODE:-}" in none|files|acme|upload|selfsigned) mode="$UNMASK_TLS_MODE" ;; esac
-        gwtls='""'; vhmode="$mode"
-        if [ "$mode" = none ]; then gwtls=none; vhmode=selfsigned; fi
+        listen='[http, https]'; vhmode="$mode"
+        if [ "$mode" = none ]; then listen='[http]'; vhmode=selfsigned; fi
         # "_" (or nothing) = any hostname; otherwise the list, which is
         # also what the seeded certificate is for.
         hostmode=all; hostnames='""'
@@ -120,7 +120,7 @@ EOF
         case "${UNMASK_ACME_INSECURE:-}" in 1|true|yes|on) insecure=true ;; esac
         cat >> "$CFG" <<EOF
 gateway:
-    tls: ${gwtls}
+    listen: ${listen}
     upstream: ${UNMASK_UPSTREAM:-}
     hostnames:
         mode: ${hostmode}

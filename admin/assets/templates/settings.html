@@ -5755,12 +5755,13 @@ function secToHuman(s){
     <p class="note">{{ safeHTML (t .Lang "settings.gateway.trusted_proxies_desc") }}</p>
   </div>
 
-  {{/* 1. Where TLS ends. */}}
+  {{/* 1. What the gateway listens on. */}}
   <div class="bcd-card">
-    <h2>{{ t .Lang "settings.gateway.term_h" }}</h2>
-    <label style="display:block;margin:.3rem 0"><input type="radio" name="tls" value="here" data-gw-tls {{ if not .GatewayTLSInFront }}checked{{ end }}> {{ t .Lang "settings.gateway.term_here" }}</label>
-    <label style="display:block;margin:.3rem 0"><input type="radio" name="tls" value="none" data-gw-tls {{ if .GatewayTLSInFront }}checked{{ end }}> {{ t .Lang "settings.gateway.mode_none" }}</label>
-    <p class="note" data-gw-tls-note style="margin-top:.5rem">{{ safeHTML (t .Lang "settings.gateway.mode_none_desc") }}</p>
+    <h2>{{ t .Lang "settings.gateway.listen_h" }}</h2>
+    <label style="display:block;margin:.3rem 0"><input type="checkbox" name="listen_http" value="1" data-gw-listen{{ if .GatewayListenHTTP }} checked{{ end }}> <b>http</b> (:80) — {{ t .Lang "settings.gateway.listen_http" }}</label>
+    <p class="note" style="margin:0 0 .6rem 1.5rem">{{ safeHTML (t .Lang "settings.gateway.listen_http_desc") }}</p>
+    <label style="display:block;margin:.3rem 0"><input type="checkbox" name="listen_https" value="1" data-gw-listen{{ if .GatewayListenHTTPS }} checked{{ end }}> <b>https</b> (:443) — {{ t .Lang "settings.gateway.listen_https" }}</label>
+    <p class="note" style="margin:0 0 0 1.5rem">{{ safeHTML (t .Lang "settings.gateway.listen_https_desc") }}</p>
   </div>
 
   {{/* 2. Which hostnames the gateway answers for.  Independent of the
@@ -5947,8 +5948,7 @@ function secToHuman(s){
     }
   }
   function syncAll(){
-    var none = (form.querySelector('input[name=tls]:checked') || {}).value === 'none';
-    form.querySelector('[data-gw-tls-note]').style.display = none ? '' : 'none';
+    var none = !form.querySelector('input[name=listen_https]').checked;
     form.querySelector('[data-gw-certs-card]').style.display = none ? 'none' : '';
     var custom = (form.querySelector('input[name=hostnames_mode]:checked') || {}).value === 'custom';
     form.querySelector('[data-gw-hosts-list]').style.display = custom ? '' : 'none';
@@ -5968,7 +5968,7 @@ function secToHuman(s){
     certList.appendChild(node); wire(node); syncAll();
     node.querySelector('input[name=cert_domains]').focus();
   });
-  form.querySelectorAll('[data-gw-tls], [data-gw-hosts], [data-gw-acme-dir]').forEach(function(el){ el.addEventListener('change', syncAll); });
+  form.querySelectorAll('[data-gw-listen], [data-gw-hosts], [data-gw-acme-dir]').forEach(function(el){ el.addEventListener('change', syncAll); });
   syncAll();
 })();
 </script>

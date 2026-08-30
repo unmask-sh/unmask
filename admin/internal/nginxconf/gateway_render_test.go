@@ -147,6 +147,35 @@ func TestGatewayIncludesRenderOnlyWhenConfigured(t *testing.T) {
 		t.Error("gateway-tls.inc must carry the marker too (0.1.37 image)")
 	}
 
+	// https only: the :443 blocks as usual, plus the marker that drops :80.
+	s.Gateway = settings.GatewayConfig{Listen: []string{"https"}, Certificates: []settings.GatewayCertificate{{Domains: "shop.example", CertPath: "/c.pem", KeyPath: "/k.pem"}}}
+	if err := Render(s, out, "test"); err != nil {
+		t.Fatal(err)
+	}
+	vh = read("gateway-vhosts.inc")
+	if !strings.Contains(vh, "# unmask-gateway-http: none") || !strings.Contains(vh, "server_name shop.example;") || strings.Contains(vh, "unmask-gateway-tls: none") {
+		t.Errorf("https only must mark the missing :80 and keep :443:\n%s", vh)
+	}
+	// http only without a trusted load balancer: no https to redirect to,
+	// so server.inc carries no redirect even though the setting is on.
+	s.Nginx.HTTPSRedirect = true
+	s.Gateway = settings.GatewayConfig{Listen: []string{"http"}}
+	if err := Render(s, out, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(read("server.inc"), "return 301 https://") {
+		t.Error("http only with no trusted LB must not redirect to an https that does not exist")
+	}
+	s.Nginx.TrustedLBPresets = []string{"gcp"}
+	if err := Render(s, out, "test"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(read("server.inc"), "return 301 https://") {
+		t.Error("http only behind a trusted LB keeps the redirect (keyed on X-Forwarded-Proto)")
+	}
+	s.Nginx.TrustedLBPresets = nil
+	s.Nginx.HTTPSRedirect = false
+
 	// The 0.1.37 single-vhost config still renders (migration on load).
 	s.Gateway = settings.GatewayConfig{ServerName: "old.example", TLSMode: settings.GatewayTLSFiles, TLSCertPath: "/c.pem", TLSKeyPath: "/k.pem"}
 	if err := Render(s, out, "test"); err != nil {

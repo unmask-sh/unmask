@@ -387,8 +387,9 @@ func RenderSignature(s settings.Settings, outDir, version string) (string, error
 // resolved from settings.Gateway for the gateway-*.inc templates.  Only
 // meaningful when Active; the files are not rendered otherwise.
 type gatewayRender struct {
-	Active  bool
-	TLSNone bool // TLS terminated in front: no :443 server at all
+	Active   bool
+	TLSNone  bool // no https here (TLS terminated in front): no :443 server at all
+	HTTPNone bool // no :80 server: https only
 	// The first block, for the 0.1.37 nginx image's single-block template
 	// (gateway-server.inc / gateway-tls.inc); a 0.1.38 image renders every
 	// block from gateway-vhosts.inc instead.
@@ -432,7 +433,7 @@ func gatewayRenderOf(s settings.Settings, outDir string) gatewayRender {
 	if !g.Active() {
 		return gatewayRender{}
 	}
-	out := gatewayRender{Active: true, ACMEVerify: "on", Upstream: g.Upstream}
+	out := gatewayRender{Active: true, ACMEVerify: "on", Upstream: g.Upstream, HTTPNone: !g.ListenHTTP()}
 	for _, lb := range EffectiveLBs(s.Nginx) {
 		out.TrustedProxies = append(out.TrustedProxies, lb.CIDRs...)
 	}
@@ -1019,6 +1020,12 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	d.HeaderIntegrityLBFronted = len(d.LBIPRanges) > 0
 
 	d.HTTPSRedirect = s.Nginx.HTTPSRedirect
+	// A gateway serving no https of its own redirects only when a trusted
+	// load balancer in front terminates TLS (the redirect keys on its
+	// X-Forwarded-Proto); with neither there is no https to send anyone to.
+	if gw := s.Gateway; gw.Active() && !gw.ListenHTTPS() && len(EffectiveLBs(s.Nginx)) == 0 {
+		d.HTTPSRedirect = false
+	}
 	if d.HTTPSRedirect {
 		ex := s.Nginx.HTTPSRedirectExempt
 		custom := make([]CustomExemptRule, 0, len(ex.Rules))
