@@ -397,8 +397,10 @@ type gatewayRender struct {
 	CertPath   string
 	KeyPath    string
 	Vhosts     []gatewayVhostRender
-	// The proxy target and the trusted proxy ranges (gateway-location.inc /
-	// gateway-proxies.inc); empty = the nginx image's own environment.
+	// The proxy target (gateway-location.inc) and the trusted proxy ranges
+	// (gateway-proxies.inc: settings > Network's trusted LB / CDN set, the
+	// same one trusted for the JA4 header); empty = the nginx image's own
+	// environment.
 	Upstream       string
 	TrustedProxies []string
 	// The shared ACME account, rendered when any certificate uses it.
@@ -430,7 +432,10 @@ func gatewayRenderOf(s settings.Settings, outDir string) gatewayRender {
 	if !g.Active() {
 		return gatewayRender{}
 	}
-	out := gatewayRender{Active: true, ACMEVerify: "on", Upstream: g.Upstream, TrustedProxies: g.TrustedProxyList()}
+	out := gatewayRender{Active: true, ACMEVerify: "on", Upstream: g.Upstream}
+	for _, lb := range EffectiveLBs(s.Nginx) {
+		out.TrustedProxies = append(out.TrustedProxies, lb.CIDRs...)
+	}
 	if g.TLSInFront() {
 		out.TLSNone = true
 		out.TLSMode = "none"

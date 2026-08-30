@@ -28,6 +28,22 @@ if [ ! -f "$CFG" ]; then
     # checks and ACME.  A module-only container leaves it to the operator's
     # own vhost, as on a host install.
     GATEWAY_REDIRECT_LINE=""
+    # UNMASK_TRUSTED_PROXIES on this container seeds a custom row of
+    # settings > Network's trusted LB / CDN list (the set the gateway takes
+    # the visitor's address from, and the JA4 header is trusted from); the
+    # presets there (GCP, Cloudflare, ...) are the usual answer.
+    TRUSTED_LB_LINES=""
+    if [ -n "${UNMASK_TRUSTED_PROXIES:-}" ]; then
+        cidrs=""
+        for cidr in ${UNMASK_TRUSTED_PROXIES}; do
+            case "$cidr" in *[!0-9a-fA-F:./]*) continue ;; esac
+            cidrs="${cidrs}${cidrs:+, }\"${cidr}\""
+        done
+        [ -n "$cidrs" ] && TRUSTED_LB_LINES="    trusted_lb_extra:
+        - id: env_trusted_proxies
+          label: UNMASK_TRUSTED_PROXIES
+          cidrs: [${cidrs}]"
+    fi
     case "${UNMASK_GATEWAY:-}" in 1|true|yes|on) UNMASK_GATEWAY=1 ;; *) UNMASK_GATEWAY="" ;; esac
     if [ -n "${UNMASK_GATEWAY}${UNMASK_UPSTREAM:-}${UNMASK_SERVER_NAME:-}${UNMASK_ACME_EMAIL:-}${UNMASK_TLS_CERT:-}${UNMASK_TLS_MODE:-}" ]; then
         GATEWAY_REDIRECT_LINE="    https_redirect: true"
@@ -72,6 +88,7 @@ ${GATEWAY_REDIRECT_LINE}
     upstream_addr: ${UNMASK_DAEMON_ADDR:-127.0.0.1:9477}
     metrics_allow_from:
         - 127.0.0.1
+${TRUSTED_LB_LINES}
 EOF
     # The file embeds bv_secret + captcha_secret_base, and host bind-mounts
     # (= docker-compose.example.yml: unmask-config:/etc/unmask) surface this
@@ -105,7 +122,6 @@ EOF
 gateway:
     tls: ${gwtls}
     upstream: ${UNMASK_UPSTREAM:-}
-    trusted_proxies: ${UNMASK_TRUSTED_PROXIES:-}
     hostnames:
         mode: ${hostmode}
         names: ${hostnames}
