@@ -5739,6 +5739,12 @@ function secToHuman(s){
 .gw-cert.gw-new{border-color:#93c5fd;background:#f0f9ff}
 .gw-badge{display:inline-block;font-size:.7rem;font-weight:700;padding:.1rem .45rem;border-radius:.2rem;background:#dbeafe;color:#1e3a8a;margin-left:.4rem;vertical-align:middle}
 .gw-warn{color:#b91c1c;font-size:.82rem;margin:.4rem 0}
+/* Sections that do not apply to the current choice are disabled, not
+   hidden: what they hold stays readable, so the choice is made knowing
+   what it switches on.  A disabled fieldset is not submitted; the handler
+   keeps the stored values for it. */
+#gateway-form fieldset{border:0;margin:0;padding:0;min-width:0}
+#gateway-form fieldset:disabled{opacity:.5}
 </style>
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=gateway" id="gateway-form">
   {{/* 0. Where passing requests go. */}}
@@ -5771,17 +5777,19 @@ function secToHuman(s){
     <p class="note">{{ safeHTML (t .Lang "settings.gateway.hostnames_desc") }}</p>
     <label style="display:block;margin:.3rem 0"><input type="radio" name="hostnames_mode" value="all" data-gw-hosts {{ if .GatewayHostsAll }}checked{{ end }}> {{ t .Lang "settings.gateway.hostnames_all" }}</label>
     <label style="display:block;margin:.3rem 0"><input type="radio" name="hostnames_mode" value="custom" data-gw-hosts {{ if not .GatewayHostsAll }}checked{{ end }}> {{ t .Lang "settings.gateway.hostnames_custom" }}</label>
-    <div class="field" data-gw-hosts-list>
+    <fieldset class="field" data-gw-hosts-list>
+      <input type="hidden" name="hostnames_present" value="1">
       <textarea name="hostnames" rows="3" spellcheck="false" autocomplete="off" placeholder="example.com&#10;www.example.com&#10;shop.example.com" style="width:100%;font-family:ui-monospace,monospace">{{ .GatewayHostnames }}</textarea>
       <p class="note">{{ safeHTML (t .Lang "settings.gateway.hostnames_custom_desc") }}</p>
       {{ if .GatewayUncovered }}<p class="gw-warn" data-gw-uncovered>{{ t .Lang "settings.gateway.uncovered" }} <code>{{ .GatewayUncovered }}</code></p>{{ end }}
-    </div>
+    </fieldset>
   </div>
 
   {{/* 3. The certificates: one entry each, with its source and its
        domains.  The first is the default.  Entries are parallel arrays
        (cert_* per entry, in DOM order). */}}
-  <div class="bcd-card" data-gw-certs-card>
+  <div class="bcd-card"><fieldset data-gw-certs-card>
+    <input type="hidden" name="certs_present" value="1">
     <h2>{{ t .Lang "settings.gateway.certs_h" }}</h2>
     <p class="note">{{ safeHTML (t .Lang "settings.gateway.certs_desc") }}</p>
     <div data-gw-certs>
@@ -5893,10 +5901,11 @@ function secToHuman(s){
       </div>
     </template>
     <button type="button" class="btn-sm" data-gw-cert-add>{{ t .Lang "settings.gateway.cert_add" }}</button>
-  </div>
+  </fieldset></div>
 
   {{/* 4. The ACME account, shared by every certificate from Let's Encrypt. */}}
-  <div class="bcd-card" data-gw-acme-card>
+  <div class="bcd-card"><fieldset data-gw-acme-card>
+    <input type="hidden" name="acme_present" value="1">
     <h2>{{ t .Lang "settings.gateway.acme_h" }}</h2>
     <p class="note">{{ safeHTML (t .Lang "settings.gateway.acme_desc") }}</p>
     <div class="field">
@@ -5915,7 +5924,7 @@ function secToHuman(s){
         <label style="display:block;margin-top:.4rem"><input type="checkbox" name="acme_insecure" value="1" {{ if .Gateway.ACMEInsecure }}checked{{ end }}> {{ t .Lang "settings.gateway.acme_insecure" }}</label>
       </div>
     </div>
-  </div>
+  </fieldset></div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
 <script>
@@ -5948,13 +5957,16 @@ function secToHuman(s){
     }
   }
   function syncAll(){
+    // Disabled, not hidden: the sections stay readable, and a disabled
+    // fieldset is left out of the submission (the handler keeps what is
+    // stored for it).
     var none = !form.querySelector('input[name=listen_https]').checked;
-    form.querySelector('[data-gw-certs-card]').style.display = none ? 'none' : '';
+    form.querySelector('[data-gw-certs-card]').disabled = none;
     var custom = (form.querySelector('input[name=hostnames_mode]:checked') || {}).value === 'custom';
-    form.querySelector('[data-gw-hosts-list]').style.display = custom ? '' : 'none';
+    form.querySelector('[data-gw-hosts-list]').disabled = !custom;
     var anyAcme = false;
     certList.querySelectorAll('[data-gw-cert]').forEach(function(c, i){ syncCert(c, i); if (c.querySelector('[data-gw-mode]').value === 'acme') anyAcme = true; });
-    form.querySelector('[data-gw-acme-card]').style.display = (anyAcme && !none) ? '' : 'none';
+    form.querySelector('[data-gw-acme-card]').disabled = none || !anyAcme;
     var dir = form.querySelector('[data-gw-acme-dir]'), cust = form.querySelector('[data-gw-acme-custom]');
     if (dir && cust) cust.style.display = dir.value === 'custom' ? '' : 'none';
   }
