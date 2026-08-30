@@ -87,6 +87,21 @@ func TestGatewayIncludesRenderOnlyWhenConfigured(t *testing.T) {
 		t.Errorf("upload mode does not point at the stored certificate:\n%s", tls)
 	}
 
+	// None: TLS terminated in front.  The include says so and carries no
+	// certificate; the nginx image picks its :80-only template from that
+	// marker.  Several names pass through as nginx's list.
+	s.Gateway = settings.GatewayConfig{ServerName: "shop.example www.shop.example", TLSMode: settings.GatewayTLSNone}
+	if err := Render(s, out, "test"); err != nil {
+		t.Fatal(err)
+	}
+	tls = read("gateway-tls.inc")
+	if !strings.Contains(tls, "# unmask-gateway-tls: none") || strings.Contains(tls, "ssl_certificate") {
+		t.Errorf("none mode did not render the marker without certificates:\n%s", tls)
+	}
+	if !strings.Contains(read("gateway-server.inc"), "server_name shop.example www.shop.example;") {
+		t.Error("several names did not reach server_name")
+	}
+
 	// The signature covers the gateway files: a certificate-source change
 	// must read as "nginx config changed" (the reload banner keys on it).
 	before, _ := RenderSignature(s, out, "test")

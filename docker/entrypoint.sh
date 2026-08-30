@@ -28,7 +28,7 @@ if [ ! -f "$CFG" ]; then
     # checks and ACME.  A module-only container leaves it to the operator's
     # own vhost, as on a host install.
     GATEWAY_REDIRECT_LINE=""
-    if [ -n "${UNMASK_SERVER_NAME:-}${UNMASK_ACME_EMAIL:-}${UNMASK_TLS_CERT:-}" ]; then
+    if [ -n "${UNMASK_SERVER_NAME:-}${UNMASK_ACME_EMAIL:-}${UNMASK_TLS_CERT:-}${UNMASK_TLS_MODE:-}" ]; then
         GATEWAY_REDIRECT_LINE="    https_redirect: true"
     fi
     cat > "$CFG" <<EOF
@@ -81,9 +81,12 @@ EOF
     # documents), so the first render already carries the vhost name and
     # certificate source and the gateway can start.  Seeded once; from then
     # on the admin UI is the source of truth.
-    if [ -n "${UNMASK_SERVER_NAME:-}${UNMASK_ACME_EMAIL:-}${UNMASK_TLS_CERT:-}" ]; then
+    if [ -n "${UNMASK_SERVER_NAME:-}${UNMASK_ACME_EMAIL:-}${UNMASK_TLS_CERT:-}${UNMASK_TLS_MODE:-}" ]; then
         mode=files
         [ -n "${UNMASK_ACME_EMAIL:-}" ] && mode=acme
+        # UNMASK_TLS_MODE overrides: none (TLS terminated by a load balancer
+        # in front, :80 only), files, acme, upload.
+        case "${UNMASK_TLS_MODE:-}" in none|files|acme|upload) mode="$UNMASK_TLS_MODE" ;; esac
         insecure=false
         case "${UNMASK_ACME_INSECURE:-}" in 1|true|yes|on) insecure=true ;; esac
         cat >> "$CFG" <<EOF

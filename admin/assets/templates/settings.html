@@ -5735,7 +5735,24 @@ function secToHuman(s){
         <button type="button" class="ua-help-trigger" data-help-target="gw-server-name-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="gw-server-name-help">{{ safeHTML (t .Lang "settings.gateway.server_name_desc") }}</script>
-      <input type="text" name="server_name" value="{{ .Gateway.ServerName }}" placeholder="example.com" style="width:24rem;font-family:ui-monospace,monospace">
+      {{/* "_" is nginx's catch-all; shown as a choice rather than a token the
+           operator has to know.  The text field only counts for "named". */}}
+      <label style="display:block;margin:.2rem 0">
+        <input type="radio" name="server_name_mode" value="any" data-gw-name-mode{{ if eq .Gateway.ServerName "_" }} checked{{ end }}>
+        {{ t .Lang "settings.gateway.server_name_any" }}
+      </label>
+      <label style="display:block;margin:.2rem 0">
+        <input type="radio" name="server_name_mode" value="named" data-gw-name-mode{{ if ne .Gateway.ServerName "_" }} checked{{ end }}>
+        {{ t .Lang "settings.gateway.server_name_named" }}
+        <input type="text" name="server_name" value="{{ if ne .Gateway.ServerName "_" }}{{ .Gateway.ServerName }}{{ end }}" placeholder="example.com" data-gw-name-input style="width:20rem;font-family:ui-monospace,monospace;margin-left:.4rem"{{ if eq .Gateway.ServerName "_" }} disabled{{ end }}>
+      </label>
+      <script>
+      (function(){
+        var radios = document.querySelectorAll('[data-gw-name-mode]'), input = document.querySelector('[data-gw-name-input]');
+        function sync(){ var named = document.querySelector('[data-gw-name-mode][value="named"]').checked; input.disabled = !named; if (named) input.focus(); }
+        radios.forEach(function(r){ r.addEventListener('change', sync); });
+      })();
+      </script>
     </div>
     {{/* What the gateway is serving right now, read off its :443 -- the
          truth, whatever the settings say.  Absent when the probe was not
@@ -5772,6 +5789,7 @@ function secToHuman(s){
            and forth loses nothing the operator typed for another mode. */}}
       <label style="display:block;margin:.3rem 0"><input type="radio" name="tls_mode" value="acme"   {{ if eq $mode "acme"   }}checked{{ end }} data-gw-mode> {{ t .Lang "settings.gateway.mode_acme" }}</label>
       <label style="display:block;margin:.3rem 0"><input type="radio" name="tls_mode" value="upload" {{ if eq $mode "upload" }}checked{{ end }} data-gw-mode> {{ t .Lang "settings.gateway.mode_upload" }}</label>
+      <label style="display:block;margin:.3rem 0"><input type="radio" name="tls_mode" value="none"   {{ if eq $mode "none"   }}checked{{ end }} data-gw-mode> {{ t .Lang "settings.gateway.mode_none" }}</label>
       <label style="display:block;margin:.3rem 0"><input type="radio" name="tls_mode" value="files"  {{ if eq $mode "files"  }}checked{{ end }} data-gw-mode> {{ t .Lang "settings.gateway.mode_files" }}</label>
     </div>
 
@@ -5805,6 +5823,9 @@ function secToHuman(s){
       <textarea name="key_pem" rows="6" spellcheck="false" autocomplete="off" placeholder="-----BEGIN PRIVATE KEY-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
     </div>
 
+    <div class="field" data-gw-panel="none">
+      <p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_none_desc") }}</p>
+    </div>
     <div class="field" data-gw-panel="files">
       <p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_files_desc") }}</p>
       <div class="field-label">{{ t .Lang "settings.gateway.tls_cert_path" }}</div>

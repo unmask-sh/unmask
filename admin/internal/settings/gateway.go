@@ -49,6 +49,7 @@ const (
 	GatewayTLSACME   = "acme"
 	GatewayTLSUpload = "upload"
 	GatewayTLSFiles  = "files"
+	GatewayTLSNone   = "none" // TLS terminated in front of the gateway (a load balancer); :80 only
 
 	ACMEDirectoryLetsEncrypt        = "https://acme-v02.api.letsencrypt.org/directory"
 	ACMEDirectoryLetsEncryptStaging = "https://acme-staging-v02.api.letsencrypt.org/directory"
@@ -61,10 +62,13 @@ const (
 // Active reports whether a gateway is configured at all.
 func (g GatewayConfig) Active() bool { return strings.TrimSpace(g.ServerName) != "" }
 
+// ServerNames splits the configured name list (space separated).
+func (g GatewayConfig) ServerNames() []string { return strings.Fields(g.ServerName) }
+
 // TLSModeResolved folds the empty value onto files.
 func (g GatewayConfig) TLSModeResolved() string {
 	switch g.TLSMode {
-	case GatewayTLSACME, GatewayTLSUpload:
+	case GatewayTLSACME, GatewayTLSUpload, GatewayTLSNone:
 		return g.TLSMode
 	}
 	return GatewayTLSFiles
@@ -116,13 +120,17 @@ func (g GatewayConfig) Validate() error {
 	if !g.Active() {
 		return nil
 	}
-	name := strings.TrimSpace(g.ServerName)
-	if err := nginxToken("hostname", name); err != nil {
-		return err
-	}
-	for _, r := range name {
-		if !(r == '.' || r == '-' || r == '_' || r == '*' || r == '~' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
-			return fmt.Errorf("hostname: unexpected character %q", r)
+	// One or more names, space separated (nginx's server_name takes a list;
+	// ACME issues one certificate covering all of them).
+	names := g.ServerNames()
+	for _, name := range names {
+		if err := nginxToken("hostname", name); err != nil {
+			return err
+		}
+		for _, r := range name {
+			if !(r == '.' || r == '-' || r == '_' || r == '*' || r == '~' || (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9')) {
+				return fmt.Errorf("hostname: unexpected character %q", r)
+			}
 		}
 	}
 	switch g.TLSModeResolved() {
@@ -137,8 +145,10 @@ func (g GatewayConfig) Validate() error {
 		if !strings.Contains(email, "@") || strings.ContainsAny(email, "/:") {
 			return errors.New("ACME: the contact must be a plain e-mail address")
 		}
-		if name == "_" || strings.ContainsAny(name, "*~") {
-			return errors.New("ACME: the hostname must be a real name -- the certificate is issued for it (no catch-all, no wildcard)")
+		for _, n := range names {
+			if n == "_" || strings.ContainsAny(n, "*~") {
+				return errors.New("ACME: every hostname must be a real name -- the certificate is issued for them (no catch-all, no wildcard)")
+			}
 		}
 		dir := g.ACMEDirectoryResolved()
 		if err := nginxToken("ACME directory", dir); err != nil {
