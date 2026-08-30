@@ -104,6 +104,21 @@ func TestGatewayIncludesRenderOnlyWhenConfigured(t *testing.T) {
 		t.Errorf("custom list: expected 4 blocks (2 certificates, uncovered, reject):\n%s", vh)
 	}
 
+	// A custom list with a domain-less certificate (a mounted file the admin
+	// cannot read): the listed names get the certificate, everything else is
+	// rejected -- the names must not fall through to the reject block.
+	s.Gateway = settings.GatewayConfig{
+		Hostnames:    settings.GatewayHostnames{Mode: settings.GatewayHostsCustom, Names: "localhost"},
+		Certificates: []settings.GatewayCertificate{{Mode: settings.GatewayTLSFiles, CertPath: "/certs/a.pem", KeyPath: "/certs/a.key"}},
+	}
+	if err := Render(s, out, "test"); err != nil {
+		t.Fatal(err)
+	}
+	vh = read("gateway-vhosts.inc")
+	if !strings.Contains(vh, "server_name localhost;") || !strings.Contains(vh, "ssl_certificate     /certs/a.pem;") || strings.Count(vh, "server {") != 2 {
+		t.Errorf("a domain-less certificate must serve the custom hostnames:\n%s", vh)
+	}
+
 	// Upload mode: the certificate's stored pair under the render directory.
 	s.Gateway = settings.GatewayConfig{Certificates: []settings.GatewayCertificate{{ID: "ab12", Mode: settings.GatewayTLSUpload, Domains: "shop.example"}}}
 	if err := Render(s, out, "test"); err != nil {

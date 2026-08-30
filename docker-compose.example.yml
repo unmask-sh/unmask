@@ -63,6 +63,10 @@ services:
       - unmask-config:/etc/unmask
       - unmask-data:/var/lib/unmask
       - unmask-run:/run/unmask      # access-log socket, nginx -> admin
+      # The same certificate directory as the nginx service, read-only: the
+      # admin reads a mounted certificate's names (SANs) for the Gateway tab
+      # and never touches the key.
+      - ./tls:/etc/unmask/tls:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9477/unmask/healthz"]
       interval: 5s
