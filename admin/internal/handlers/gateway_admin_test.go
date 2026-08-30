@@ -235,7 +235,7 @@ func TestGatewayTwoCertificatesForm(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(h.cfg().Nginx.OutputDir, "gateway-vhosts.inc")); err != nil {
 		t.Errorf("a gateway save must re-render the includes: %v", err)
 	}
-	if strings.Contains(renderSettingsTab(t, h, "gateway"), `class="gw-warn"`) {
+	if strings.Contains(renderSettingsTab(t, h, "gateway"), `data-gw-uncovered`) {
 		t.Error("every hostname is on a certificate, yet the tab warns")
 	}
 
@@ -244,7 +244,7 @@ func TestGatewayTwoCertificatesForm(t *testing.T) {
 	if loc := postGateway(t, h, two); !strings.Contains(loc, "saved=1") {
 		t.Fatalf("a hostname without a certificate is a warning, not an error: %s", loc)
 	}
-	if body := renderSettingsTab(t, h, "gateway"); !strings.Contains(body, `class="gw-warn"`) || !strings.Contains(body, "extra.example</code>") {
+	if body := renderSettingsTab(t, h, "gateway"); !strings.Contains(body, `data-gw-uncovered`) || !strings.Contains(body, "extra.example</code>") {
 		t.Error("the tab does not warn about the uncovered hostname")
 	}
 	// A domain on two certificates.
@@ -332,12 +332,57 @@ func TestGatewayBareCommonNameAndDomainlessFile(t *testing.T) {
 	if !strings.Contains(loc, "saved=1") {
 		t.Fatalf("files: %s", loc)
 	}
-	if strings.Contains(renderSettingsTab(t, h, "gateway"), `class="gw-warn"`) {
+	if strings.Contains(renderSettingsTab(t, h, "gateway"), `data-gw-uncovered`) {
 		t.Error("a domain-less mounted certificate stands for every hostname; the tab must not warn")
 	}
 	vh, _ := os.ReadFile(filepath.Join(h.cfg().Nginx.OutputDir, "gateway-vhosts.inc"))
 	if !strings.Contains(string(vh), "server_name shop.example www.shop.example;") {
 		t.Errorf("the custom hostnames must be served the domain-less certificate:\n%s", vh)
+	}
+}
+
+// The upstream and the trusted proxies save from the tab; a bad upstream
+// is refused; the tab offers the self-signed source and reports what the
+// nginx container's environment carries.
+func TestGatewayUpstreamForm(t *testing.T) {
+	h, _ := gatewayHandler(t)
+	status := filepath.Join(t.TempDir(), "gateway-nginx.status")
+	if err := os.WriteFile(status, []byte("location_source=env\nupstream_env=http://app:80\ntrusted_proxies_env=\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("UNMASK_GATEWAY_STATUS", status)
+	body := renderSettingsTab(t, h, "gateway")
+	for _, want := range []string{`name="upstream"`, `name="trusted_proxies"`, `value="selfsigned"`, "http://app:80</code>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("gateway tab lacks %s", want)
+		}
+	}
+	f := oneCert("shop.example", "", settings.GatewayTLSFiles, url.Values{"upstream": {"http://host.docker.internal:8080"}, "trusted_proxies": {"130.211.0.0/22\n35.191.0.0/16"}, "cert_cert_path": {"/c.pem"}, "cert_key_path": {"/k.pem"}})
+	if loc := postGateway(t, h, f); !strings.Contains(loc, "saved=1") {
+		t.Fatalf("upstream save: %s", loc)
+	}
+	saved, _ := settings.Load(h.ConfigPath)
+	if saved.Gateway.Upstream != "http://host.docker.internal:8080" || saved.Gateway.TrustedProxies != "130.211.0.0/22 35.191.0.0/16" {
+		t.Errorf("saved upstream/proxies = %q / %q", saved.Gateway.Upstream, saved.Gateway.TrustedProxies)
+	}
+	locInc, _ := os.ReadFile(filepath.Join(h.cfg().Nginx.OutputDir, "gateway-location.inc"))
+	if !strings.Contains(string(locInc), "proxy_pass http://host.docker.internal:8080;") {
+		t.Errorf("the save must render the proxy location:\n%s", locInc)
+	}
+	f.Set("upstream", "host.docker.internal:8080")
+	if loc := postGateway(t, h, f); strings.Contains(loc, "saved=1") {
+		t.Fatal("an upstream without a scheme was accepted")
+	}
+	// Self-signed: nothing to type, the pair appears with the render.
+	f = oneCert("shop.example", "", settings.GatewayTLSSelfSigned, url.Values{"upstream": {"http://app:3000"}})
+	if loc := postGateway(t, h, f); !strings.Contains(loc, "saved=1") {
+		t.Fatalf("self-signed save: %s", loc)
+	}
+	if _, err := os.Stat(settings.UploadedCertPath(h.cfg().Nginx.OutputDir, "")); err != nil {
+		t.Errorf("the self-signed pair was not generated: %v", err)
+	}
+	if body := renderSettingsTab(t, h, "gateway"); !strings.Contains(body, `value="selfsigned" selected`) {
+		t.Error("the tab does not show self-signed as selected")
 	}
 }
 

@@ -8,15 +8,20 @@
 # lost; that is exactly how the first cut failed ("unknown unmask_tls_cert
 # variable").
 #
-# Off unless UNMASK_UPSTREAM is set: without it the image is a plain nginx
-# with the module loaded, and your own conf.d applies (module-only use).
+# Off unless UNMASK_GATEWAY=1 (or, the 0.1.37 way, UNMASK_UPSTREAM is set):
+# without either the image is a plain nginx with the module loaded, and your
+# own conf.d applies (module-only use).
 #
-# Everything else about the vhost -- its name, where the certificate comes
-# from (Let's Encrypt via nginx's ACME module, a pasted certificate, or
-# mounted files) -- is settings > Gateway in the admin, rendered into the
-# shared volume as gateway-*.inc.  The admin container seeds those settings
-# from its environment on first boot; this side only waits for the files.
-if [ -n "${UNMASK_UPSTREAM:-}" ]; then
+# Everything about the gateway -- the upstream, the hostnames, where the
+# certificates come from (Let's Encrypt via nginx's ACME module, a pasted
+# certificate, mounted files, or the self-signed pair of the first start) --
+# is settings > Gateway in the admin, rendered into the shared volume as
+# gateway-*.inc.  The admin container seeds those settings from its
+# environment on first boot; this side waits for the files and falls back
+# to its own UNMASK_UPSTREAM / UNMASK_TRUSTED_PROXIES while the tab leaves
+# them empty (gateway-includes.sh).
+case "${UNMASK_GATEWAY:-}" in 1|true|yes|on) UNMASK_GATEWAY=1 ;; *) UNMASK_GATEWAY="" ;; esac
+if [ -n "${UNMASK_UPSTREAM:-}${UNMASK_GATEWAY}" ]; then
     export UNMASK_UPSTREAM
 
     # The stock default vhost owns :80; the gateway replaces it with a redirect.
@@ -35,53 +40,13 @@ if [ -n "${UNMASK_UPSTREAM:-}" ]; then
     # The includes are rendered by the admin container into the shared volume.
     # Under compose the admin healthcheck orders the two, but give a plain
     # `docker run` a moment before nginx -t fails on a missing include.
-    # Behind a load balancer: UNMASK_TRUSTED_PROXIES lists its address ranges
-    # (space separated).  The visitor's address is then taken from the
-    # X-Forwarded-For those proxies send, so bans, rate limits and geo rules
-    # see the visitor rather than the balancer.  (X-Forwarded-Proto is read
-    # by the rendered config itself; a balancer that terminates TLS and
-    # forwards on :80 is served on :80 like :443.)
-    {
-        printf '# written by 10-unmask-gateway.envsh from UNMASK_TRUSTED_PROXIES\n'
-        trusted=""
-        for cidr in ${UNMASK_TRUSTED_PROXIES:-}; do
-            case "$cidr" in
-                *[!0-9a-fA-F:./]*) echo "unmask-gateway: ignoring UNMASK_TRUSTED_PROXIES entry '$cidr' (not an address or CIDR)" >&2; continue ;;
-            esac
-            trusted="$trusted $cidr"
-            printf 'set_real_ip_from %s;\n' "$cidr"
-        done
-        if [ -n "$trusted" ]; then
-            printf 'real_ip_header X-Forwarded-For;\nreal_ip_recursive on;\n'
-        fi
-    } > /etc/nginx/unmask-gateway-proxies.inc
-    # The proxy location every :443 vhost includes (the vhosts themselves
-    # are rendered by the admin into gateway-vhosts.inc).
-    cat > /etc/nginx/unmask-gateway-location.inc <<LOCATION
-# written by 10-unmask-gateway.envsh from UNMASK_UPSTREAM
-location / {
-    include /etc/unmask/protect.inc;
-    proxy_pass ${UNMASK_UPSTREAM};
-    proxy_http_version 1.1;
-    proxy_read_timeout 1h;
-    proxy_send_timeout 1h;
-    proxy_ssl_server_name on;
-    proxy_ssl_name \$host;
-    proxy_set_header Host              \$host;
-    proxy_set_header X-Real-IP         \$remote_addr;
-    proxy_set_header X-Forwarded-For   \$proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto https;
-    proxy_set_header Upgrade           \$http_upgrade;
-    proxy_set_header Connection        \$connection_upgrade;
-}
-LOCATION
     for f in http.inc upstream.conf server.inc protect.inc forward-auth-lbtrust.conf gateway-server.inc gateway-tls.inc gateway-acme.inc gateway-vhosts.inc; do
         i=0
         while [ ! -f "/etc/unmask/$f" ]; do
             i=$((i+1))
             if [ "$i" -gt 30 ]; then
                 case "$f" in
-                    gateway-*) echo "unmask-gateway: /etc/unmask/$f is missing after 60s -- the admin container renders it from settings > Gateway; under compose, pass UNMASK_SERVER_NAME (and UNMASK_ACME_EMAIL or a certificate) to the admin service so its first boot seeds them" >&2 ;;
+                    gateway-*) echo "unmask-gateway: /etc/unmask/$f is missing after 60s -- the admin container renders it from settings > Gateway; under compose, set UNMASK_GATEWAY=1 on the admin service so its first boot seeds them" >&2 ;;
                     *)         echo "unmask-gateway: /etc/unmask/$f is missing after 60s -- is the admin container up, and is /etc/unmask shared with it?" >&2 ;;
                 esac
                 exit 1
@@ -90,6 +55,10 @@ LOCATION
             sleep 2
         done
     done
+    # The proxy location and the trusted proxies: the admin's (settings >
+    # Gateway) when set there, this container's environment otherwise.
+    . /usr/share/unmask/gateway-includes.sh
+    unmask_gateway_includes
     # A certificate from files must exist before nginx starts, or -t fails
     # with a less helpful message.  ACME needs nothing on disk.
     # TLS terminated in front (settings > Gateway > "terminated by a load
@@ -105,6 +74,11 @@ LOCATION
             [ -f "$f" ] || { echo "unmask-gateway: TLS file $f not found -- mount your certificate at /etc/unmask/tls, paste one in settings > Gateway, or switch that tab to Let's Encrypt" >&2; exit 1; }
         done
     fi
-    [ -n "$trusted" ] && echo "unmask-gateway: trusted proxies:$trusted (visitor address from X-Forwarded-For)"
-    echo "unmask-gateway: $([ "$tls" = none ] && echo ':80' || echo ':443') -> ${UNMASK_UPSTREAM} ($(grep -c '^server {' /etc/unmask/gateway-vhosts.inc) vhost(s): $(sed -n 's/^[[:space:]]*server_name[[:space:]]\+\([^;]*\);.*/\1/p' /etc/unmask/gateway-vhosts.inc | tr '\n' ',' | sed 's/,$//'); tls: $tls)"
+    [ -n "$UNMASK_GATEWAY_TRUSTED" ] && echo "unmask-gateway: trusted proxies:$UNMASK_GATEWAY_TRUSTED (visitor address from X-Forwarded-For)"
+    case "$UNMASK_GATEWAY_LOCATION_SOURCE" in
+        admin) target="$(sed -n 's/^[[:space:]]*proxy_pass[[:space:]]\+\([^;]*\);.*/\1/p' /etc/unmask/gateway-location.inc | head -1) (settings > Gateway)" ;;
+        env)   target="${UNMASK_UPSTREAM} (UNMASK_UPSTREAM)" ;;
+        *)     target="no upstream yet -- set it under settings > Gateway" ;;
+    esac
+    echo "unmask-gateway: $([ "$tls" = none ] && echo ':80' || echo ':443') -> $target ($(grep -c '^server {' /etc/unmask/gateway-vhosts.inc) server(s): $(sed -n 's/^[[:space:]]*server_name[[:space:]]\+\([^;]*\);.*/\1/p' /etc/unmask/gateway-vhosts.inc | tr '\n' ',' | sed 's/,$//'); tls: $tls)"
 fi
