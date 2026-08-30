@@ -5790,6 +5790,7 @@ function secToHuman(s){
         </div>
         <p class="note" data-gw-domains-auto>{{ if .C.Domains }}{{ t $.Lang "settings.gateway.cert_domains_san" }}: <code>{{ .C.Domains }}</code>{{ else }}{{ t $.Lang "settings.gateway.cert_domains_san_pending" }}{{ end }}</p>
         <p class="note" data-gw-domains-file>{{ t $.Lang "settings.gateway.cert_domains_file" }}: <code>{{ if .FileSANs }}{{ .FileSANs }}{{ else }}—{{ end }}</code></p>
+        {{ if .FileDenied }}<p class="gw-warn">{{ t $.Lang "settings.gateway.cert_file_denied" }} <code>{{ .C.CertPathResolved "" }}</code></p>{{ end }}
         <div class="field" data-gw-panel="acme"><p class="note">{{ safeHTML (t $.Lang "settings.gateway.mode_acme_desc") }}</p></div>
         <div class="field" data-gw-panel="upload">
           <p class="note">{{ safeHTML (t $.Lang "settings.gateway.mode_upload_desc") }}</p>
