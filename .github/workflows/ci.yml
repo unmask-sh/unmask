@@ -274,10 +274,17 @@ jobs:
           done
           docker logs unmask-nginx 2>&1 | grep -q 'unmask-autoreload: includes changed, nginx reloaded'
           # :80 behind a load balancer: a health-check user agent is exempt
-          # from the https redirect and reaches the upstream; forwarded https
-          # traffic (X-Forwarded-Proto) is served on :80 like :443 -- it gets
-          # the challenge, not a redirect; plain http still redirects.
-          test "$(curl -s -o /dev/null -w '%{http_code}' -A 'GoogleHC/1.0' http://127.0.0.1/)" = 200
+          # from the https redirect and, on a bypass path, reaches the
+          # upstream; forwarded https traffic (X-Forwarded-Proto) is served
+          # on :80 like :443 -- it gets the challenge, not a redirect; plain
+          # http still redirects.
+          docker exec unmask-admin sh -c 'sed -i "s|^nginx:$|nginx:\n    bypass_paths:\n        paths:\n            - path: \"^/lb-probe/\"|" /etc/unmask/admin.yml'
+          docker exec unmask-admin /usr/local/bin/unmask render-nginx -config /etc/unmask/admin.yml
+          for i in $(seq 1 20); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' -A 'GoogleHC/1.0' http://127.0.0.1/lb-probe/x)" = 200 ] && break
+            sleep 1
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' -A 'GoogleHC/1.0' http://127.0.0.1/lb-probe/x)" = 200
           curl -s -H 'X-Forwarded-Proto: https' http://127.0.0.1/ | grep -q '<title>Security check</title>'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/still-redirected)" = 301
       # The admin UI on the container: the setup wizard completes with the
