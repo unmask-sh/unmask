@@ -5750,8 +5750,9 @@ function secToHuman(s){
     {{ if .GatewayNginx.upstream_env }}<p class="note">{{ if .Gateway.Upstream }}{{ t .Lang "settings.gateway.upstream_env_overridden" }}{{ else }}{{ t .Lang "settings.gateway.upstream_env_used" }}{{ end }}: <code>{{ .GatewayNginx.upstream_env }}</code></p>{{ else if not .Gateway.Upstream }}<p class="gw-warn">{{ t .Lang "settings.gateway.upstream_unset" }}</p>{{ end }}
     <p class="note">{{ safeHTML (t .Lang "settings.gateway.upstream_examples") }}</p>
     <div class="field-label">{{ t .Lang "settings.gateway.trusted_proxies" }}</div>
-    <textarea name="trusted_proxies" rows="2" spellcheck="false" autocomplete="off" placeholder="130.211.0.0/22 35.191.0.0/16" style="width:100%;font-family:ui-monospace,monospace">{{ .GatewayTrustedProxies }}</textarea>
-    <p class="note">{{ safeHTML (t .Lang "settings.gateway.trusted_proxies_desc") }}{{ if .GatewayNginx.trusted_proxies_env }} ({{ t .Lang "settings.gateway.upstream_env_used" }}: <code>{{ .GatewayNginx.trusted_proxies_env }}</code>){{ end }}</p>
+    <p class="note" data-gw-lbs>{{ if .GatewayLBs }}{{ range $i, $lb := .GatewayLBs }}{{ if $i }}, {{ end }}<code>{{ $lb.Label }}</code> ({{ len $lb.CIDRs }}){{ end }}{{ else }}{{ t .Lang "settings.gateway.trusted_proxies_none" }}{{ if .GatewayNginx.trusted_proxies_env }} — {{ t .Lang "settings.gateway.upstream_env_used" }}: <code>{{ .GatewayNginx.trusted_proxies_env }}</code>{{ end }}{{ end }}
+      · <a href="{{ .BasePath }}/admin/settings/network/">{{ t .Lang "settings.gateway.trusted_proxies_edit" }}</a></p>
+    <p class="note">{{ safeHTML (t .Lang "settings.gateway.trusted_proxies_desc") }}</p>
   </div>
 
   {{/* 1. Where TLS ends. */}}

@@ -30,9 +30,10 @@ type GatewayConfig struct {
 	// the nginx container's own UNMASK_UPSTREAM if it has one, else the
 	// gateway answers with a notice.
 	Upstream string `yaml:"upstream,omitempty"`
-	// TrustedProxies: address ranges of a load balancer in front, space
-	// separated; the visitor's address then comes from its X-Forwarded-For.
-	TrustedProxies string `yaml:"trusted_proxies,omitempty"`
+	// The trusted proxies in front of the gateway (the visitor's address
+	// comes from their X-Forwarded-For) are not here: they are settings >
+	// Network's trusted LB / CDN list, the same set that is trusted for
+	// the forwarded JA4 header.
 
 	Hostnames GatewayHostnames `yaml:"hostnames,omitempty"`
 
@@ -145,7 +146,6 @@ func (g *GatewayConfig) Normalize() {
 	}
 	g.ServerName, g.TLSMode, g.TLSCertPath, g.TLSKeyPath, g.Vhosts = "", "", "", "", nil
 	g.Upstream = strings.TrimSpace(g.Upstream)
-	g.TrustedProxies = strings.Join(strings.Fields(g.TrustedProxies), " ")
 	if g.Hostnames.Mode == "" && (len(g.Certificates) > 0 || strings.TrimSpace(g.Hostnames.Names) != "") {
 		g.Hostnames.Mode = GatewayHostsAll
 	}
@@ -159,9 +159,6 @@ func (g *GatewayConfig) Normalize() {
 func (g GatewayConfig) Active() bool {
 	return g.Hostnames.Mode != "" || len(g.Certificates) > 0 || len(g.Vhosts) > 0 || strings.TrimSpace(g.ServerName) != "" || strings.TrimSpace(g.Upstream) != ""
 }
-
-// TrustedProxyList splits the trusted proxy ranges.
-func (g GatewayConfig) TrustedProxyList() []string { return strings.Fields(g.TrustedProxies) }
 
 // SelfSignedNames: what a generated certificate carries -- the entry's
 // domains, else the custom hostname list, else localhost.
@@ -342,11 +339,6 @@ func (g GatewayConfig) Validate() error {
 		}
 		if (pu.Path != "" && pu.Path != "/") || pu.RawQuery != "" || pu.Fragment != "" || pu.User != nil {
 			return errors.New("upstream: scheme://host[:port] only -- no path, query or credentials")
-		}
-	}
-	for _, cidr := range n.TrustedProxyList() {
-		if strings.Trim(cidr, "0123456789abcdefABCDEF:./") != "" {
-			return fmt.Errorf("trusted proxies: %q is not an address or CIDR", cidr)
 		}
 	}
 	switch n.Hostnames.Mode {

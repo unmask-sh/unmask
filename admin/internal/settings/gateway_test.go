@@ -180,10 +180,9 @@ func TestGatewayDefaults(t *testing.T) {
 }
 
 // The upstream is a proxy_pass target: scheme://host[:port], nothing that
-// changes the location's meaning or breaks the directive.  Trusted proxies
-// are addresses or CIDRs.  A self-signed entry resolves to the stored-pair
-// location and needs nothing typed.
-func TestGatewayUpstreamProxiesAndSelfSigned(t *testing.T) {
+// changes the location's meaning or breaks the directive.  A self-signed
+// entry resolves to the stored-pair location and needs nothing typed.
+func TestGatewayUpstreamAndSelfSigned(t *testing.T) {
 	files := []GatewayCertificate{{CertPath: "/c", KeyPath: "/k"}}
 	for _, u := range []string{"http://app:3000", "https://10.0.0.5:8443", "http://host.docker.internal:8080/"} {
 		g := GatewayConfig{Upstream: u, Certificates: files}
@@ -196,15 +195,6 @@ func TestGatewayUpstreamProxiesAndSelfSigned(t *testing.T) {
 		if err := g.Validate(); err == nil {
 			t.Errorf("upstream %q validated; it must not", u)
 		}
-	}
-	g := GatewayConfig{Upstream: "http://app:3000", TrustedProxies: " 130.211.0.0/22  35.191.0.0/16 ", Certificates: files}
-	g.Normalize()
-	if got := strings.Join(g.TrustedProxyList(), ","); got != "130.211.0.0/22,35.191.0.0/16" {
-		t.Errorf("trusted proxies = %q", got)
-	}
-	g.TrustedProxies = "10.0.0.0/8 evil;"
-	if err := g.Validate(); err == nil {
-		t.Error("a trusted proxy entry that is not an address must be refused")
 	}
 	if !(GatewayConfig{Upstream: "http://app:3000"}).Active() {
 		t.Error("an upstream alone is an active gateway")
