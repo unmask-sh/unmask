@@ -27,7 +27,24 @@ server {
     listen 80;
     listen [::]:80;
     include /etc/unmask/gateway-server.inc;
-    return 301 https://$host$request_uri;
+    # Everything redirects to https, except the paths the operator exempted
+    # from unmask altogether (settings > bypass paths): a load balancer's
+    # health check lives on one of those, and it must answer on plain HTTP
+    # or the node drops out of the balancer.
+    location / {
+        if ($is_bypass_path != "1") {
+            return 301 https://$host$request_uri;
+        }
+        proxy_pass ${UNMASK_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # Forwarded as received, not synthesized: a health check arrives with
+        # no X-Forwarded-Proto, and an upstream that redirects "http" to
+        # https would otherwise answer the probe with a 301.
+        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+    }
 }
 
 server {
