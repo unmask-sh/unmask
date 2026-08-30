@@ -4148,6 +4148,7 @@ func Load(path string) (Settings, error) {
 		s.Secret.CaptchaSecretBase = randomHex(24)
 	}
 	normalizeDBDriver(&s)
+	s.Gateway.Normalize()
 	BackfillExtraVerdictIDs(&s)
 	// Rate-limit preset backfill, stamp persisted to a sibling file so
 	// the "do not reappear after operator delete" guarantee survives a
@@ -4345,6 +4346,7 @@ func LoadFromYAML(body string) (Settings, error) {
 	}
 	relocateLegacyAppearance(&s, []byte(body))
 	normalizeDBDriver(&s)
+	s.Gateway.Normalize()
 	return s, nil
 }
 

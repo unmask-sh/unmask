@@ -5727,111 +5727,154 @@ function secToHuman(s){
 
 {{ if eq .Tab "gateway" }}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=gateway" id="gateway-form">
+  {{/* 1. Where TLS ends.  "In front" (a load balancer forwarding on :80)
+       means no :443 server at all; the vhosts below then only name what
+       the gateway answers for. */}}
   <div class="bcd-card">
-    <h2>{{ t .Lang "settings.gateway.vhost_h" }}</h2>
-    <div class="field">
-      <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.gateway.server_name" }}</span>
-        <button type="button" class="ua-help-trigger" data-help-target="gw-server-name-help" aria-label="?">?</button>
-      </div>
-      <script type="text/html" id="gw-server-name-help">{{ safeHTML (t .Lang "settings.gateway.server_name_desc") }}</script>
-      {{/* "_" is nginx's catch-all; shown as a choice rather than a token the
-           operator has to know.  The text field only counts for "named". */}}
-      <label style="display:block;margin:.2rem 0">
-        <input type="radio" name="server_name_mode" value="any" data-gw-name-mode{{ if eq .Gateway.ServerName "_" }} checked{{ end }}>
-        {{ t .Lang "settings.gateway.server_name_any" }}
-      </label>
-      <label style="display:block;margin:.2rem 0">
-        <input type="radio" name="server_name_mode" value="named" data-gw-name-mode{{ if ne .Gateway.ServerName "_" }} checked{{ end }}>
-        {{ t .Lang "settings.gateway.server_name_named" }}
-        <input type="text" name="server_name" value="{{ if ne .Gateway.ServerName "_" }}{{ .Gateway.ServerName }}{{ end }}" placeholder="example.com" data-gw-name-input style="width:20rem;font-family:ui-monospace,monospace;margin-left:.4rem"{{ if eq .Gateway.ServerName "_" }} disabled{{ end }}>
-      </label>
-      <script>
-      (function(){
-        var radios = document.querySelectorAll('[data-gw-name-mode]'), input = document.querySelector('[data-gw-name-input]');
-        function sync(){ var named = document.querySelector('[data-gw-name-mode][value="named"]').checked; input.disabled = !named; if (named) input.focus(); }
-        radios.forEach(function(r){ r.addEventListener('change', sync); });
-      })();
-      </script>
-    </div>
+    <h2>{{ t .Lang "settings.gateway.term_h" }}</h2>
+    <label style="display:block;margin:.3rem 0"><input type="radio" name="tls" value="here" data-gw-tls {{ if not .GatewayTLSInFront }}checked{{ end }}> {{ t .Lang "settings.gateway.term_here" }}</label>
+    <label style="display:block;margin:.3rem 0"><input type="radio" name="tls" value="none" data-gw-tls {{ if .GatewayTLSInFront }}checked{{ end }}> {{ t .Lang "settings.gateway.mode_none" }}</label>
+    <p class="note" data-gw-tls-note="none" style="margin-top:.5rem">{{ safeHTML (t .Lang "settings.gateway.mode_none_desc") }}</p>
   </div>
 
+  {{/* 2. The vhosts: one :443 server each, picked by SNI, so every row can
+       carry its own certificate.  Rows are parallel arrays (vh_*), one entry
+       per row in DOM order -- a <select> per row, never a checkbox. */}}
   <div class="bcd-card">
-    <h2>{{ t .Lang "settings.gateway.tls_h" }}</h2>
-    {{/* What the gateway is serving right now, read off its :443 -- the
-         truth, whatever the settings say.  Absent when the probe was not
-         run (the tab is the only place it runs). */}}
-    {{ if .GatewayCert.Checked }}
-    <div class="field">
-      <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.gateway.cert_status" }}</span>
-        <button type="button" class="ua-help-trigger" data-help-target="gw-cert-status-help" aria-label="?">?</button>
+    <h2>{{ t .Lang "settings.gateway.vhosts_h" }}</h2>
+    <p class="note">{{ safeHTML (t .Lang "settings.gateway.vhosts_desc") }}</p>
+    <div data-gw-vhosts>
+    {{ range .GatewayVhosts }}
+      <div class="gw-vhost" data-gw-vhost style="border:1px solid #e2e8f0;border-radius:.4rem;padding:.8rem 1rem;margin:.6rem 0;background:#fafbfc">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem">
+          <b data-gw-vhost-title>{{ tf $.Lang "settings.gateway.vhost_n" .Index }}</b>
+          <button type="button" class="btn-sm" data-gw-vhost-delete>{{ t $.Lang "settings.gateway.vhost_delete" }}</button>
+        </div>
+        <input type="hidden" name="vh_id" value="{{ .V.ID }}">
+        <div class="field" style="margin-top:.5rem">
+          <div class="field-label">{{ t $.Lang "settings.gateway.server_name" }}</div>
+          <select name="vh_kind" data-gw-kind style="margin-right:.5rem">
+            <option value="named" {{ if not .Any }}selected{{ end }}>{{ t $.Lang "settings.gateway.server_name_named" }}</option>
+            <option value="any" {{ if .Any }}selected{{ end }}>{{ t $.Lang "settings.gateway.server_name_any" }}</option>
+          </select>
+          <input type="text" name="vh_names" value="{{ if not .Any }}{{ .V.Names }}{{ end }}" placeholder="example.com www.example.com" data-gw-names style="width:24rem;font-family:ui-monospace,monospace" {{ if .Any }}disabled{{ end }}>
+        </div>
+        <div data-gw-cert-block>
+          <div class="field">
+            <div class="field-label">{{ t $.Lang "settings.gateway.tls_mode" }}</div>
+            <select name="vh_mode" data-gw-mode>
+              <option value="acme"   {{ if eq .V.ModeResolved "acme"   }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_acme" }}</option>
+              <option value="upload" {{ if eq .V.ModeResolved "upload" }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_upload" }}</option>
+              <option value="files"  {{ if eq .V.ModeResolved "files"  }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_files" }}</option>
+            </select>
+          </div>
+          <div class="field" data-gw-panel="acme"><p class="note">{{ safeHTML (t $.Lang "settings.gateway.mode_acme_desc") }}</p></div>
+          <div class="field" data-gw-panel="upload">
+            <p class="note">{{ safeHTML (t $.Lang "settings.gateway.mode_upload_desc") }}</p>
+            <p class="note" style="font-family:ui-monospace,monospace;font-size:.85rem">
+              {{ t $.Lang "settings.gateway.uploaded_current" }}:
+              {{ if .Uploaded.OK }}<b>{{ .Uploaded.Subject }}</b> ({{ t $.Lang "settings.gateway.cert_issuer" }}: {{ .Uploaded.Issuer }}, {{ t $.Lang "settings.gateway.cert_expires" }}: {{ .Uploaded.NotAfter }}) — {{ t $.Lang "settings.gateway.uploaded_keep" }}{{ else }}{{ t $.Lang "settings.gateway.uploaded_none" }}{{ end }}
+            </p>
+            <div class="field-label">{{ t $.Lang "settings.gateway.cert_pem" }}</div>
+            <textarea name="vh_cert_pem" rows="5" spellcheck="false" autocomplete="off" placeholder="-----BEGIN CERTIFICATE-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
+            <div class="field-label" style="margin-top:.6rem">{{ t $.Lang "settings.gateway.chain_pem" }}</div>
+            <textarea name="vh_chain_pem" rows="3" spellcheck="false" autocomplete="off" placeholder="-----BEGIN CERTIFICATE-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
+            <div class="field-label" style="margin-top:.6rem">{{ t $.Lang "settings.gateway.key_pem" }}</div>
+            <textarea name="vh_key_pem" rows="5" spellcheck="false" autocomplete="off" placeholder="-----BEGIN PRIVATE KEY-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
+          </div>
+          <div class="field" data-gw-panel="files">
+            <p class="note">{{ safeHTML (t $.Lang "settings.gateway.mode_files_desc") }}</p>
+            <div class="field-label">{{ t $.Lang "settings.gateway.tls_cert_path" }}</div>
+            <input type="text" name="vh_cert_path" value="{{ .V.CertPath }}" placeholder="/etc/unmask/tls/fullchain.pem" style="width:100%;font-family:ui-monospace,monospace">
+            <div class="field-label" style="margin-top:.6rem">{{ t $.Lang "settings.gateway.tls_key_path" }}</div>
+            <input type="text" name="vh_key_path" value="{{ .V.KeyPath }}" placeholder="/etc/unmask/tls/privkey.pem" style="width:100%;font-family:ui-monospace,monospace">
+          </div>
+          {{ if .Cert.Checked }}
+          <div class="field">
+            <div class="field-label">{{ t $.Lang "settings.gateway.cert_status" }}</div>
+            {{ if .Cert.OK }}
+            <div class="note" style="font-family:ui-monospace,monospace;font-size:.85rem">
+              {{ t $.Lang "settings.gateway.cert_issuer" }}: <b>{{ .Cert.Issuer }}</b>
+              &nbsp;·&nbsp; {{ t $.Lang "settings.gateway.cert_expires" }}: <b>{{ .Cert.NotAfter }}</b>
+              ({{ tf $.Lang "settings.gateway.cert_days_left" .Cert.DaysLeft }})
+              {{ if .Cert.Names }}<br>SAN: {{ .Cert.Names }}{{ end }}
+              {{ if and (not .Any) (not .Cert.NameMatch) }}<br><span style="color:#b91c1c">⚠ {{ t $.Lang "settings.gateway.cert_name_mismatch" }}</span>{{ end }}
+            </div>
+            {{ else }}
+            <div class="note" style="color:#b91c1c">{{ t $.Lang "settings.gateway.cert_probe_failed" }}: <code>{{ .Cert.Err }}</code></div>
+            {{ end }}
+          </div>
+          {{ end }}
+        </div>
       </div>
-      <script type="text/html" id="gw-cert-status-help">{{ t .Lang "settings.gateway.cert_status_desc" }}</script>
-      {{ if .GatewayCert.OK }}
-      <div class="note" style="font-family:ui-monospace,monospace;font-size:.85rem">
-        {{ t .Lang "settings.gateway.cert_issuer" }}: <b>{{ .GatewayCert.Issuer }}</b>
-        &nbsp;·&nbsp; {{ t .Lang "settings.gateway.cert_expires" }}: <b>{{ .GatewayCert.NotAfter }}</b>
-        ({{ tf .Lang "settings.gateway.cert_days_left" .GatewayCert.DaysLeft }})
-        {{ if .GatewayCert.Names }}<br>SAN: {{ .GatewayCert.Names }}{{ end }}
-        {{ if and (ne .Gateway.ServerName "_") (not .GatewayCert.NameMatch) }}<br><span style="color:#b91c1c">⚠ {{ t .Lang "settings.gateway.cert_name_mismatch" }}</span>{{ end }}
-      </div>
-      {{ else }}
-      <div class="note" style="color:#b91c1c">{{ t .Lang "settings.gateway.cert_probe_failed" }}: <code>{{ .GatewayCert.Err }}</code></div>
-      {{ end }}
-    </div>
     {{ end }}
-    {{ $mode := .Gateway.TLSModeResolved }}
-    <div class="field">
-      <div class="field-label">{{ t .Lang "settings.gateway.tls_mode" }}</div>
-      {{/* One radio per source; the matching panel below opens.  The JS only
-           hides panels -- every field is always submitted, so switching back
-           and forth loses nothing the operator typed for another mode. */}}
-      <label style="display:block;margin:.3rem 0"><input type="radio" name="tls_mode" value="acme"   {{ if eq $mode "acme"   }}checked{{ end }} data-gw-mode> {{ t .Lang "settings.gateway.mode_acme" }}</label>
-      <label style="display:block;margin:.3rem 0"><input type="radio" name="tls_mode" value="upload" {{ if eq $mode "upload" }}checked{{ end }} data-gw-mode> {{ t .Lang "settings.gateway.mode_upload" }}</label>
-      <label style="display:block;margin:.3rem 0"><input type="radio" name="tls_mode" value="none"   {{ if eq $mode "none"   }}checked{{ end }} data-gw-mode> {{ t .Lang "settings.gateway.mode_none" }}</label>
-      <label style="display:block;margin:.3rem 0"><input type="radio" name="tls_mode" value="files"  {{ if eq $mode "files"  }}checked{{ end }} data-gw-mode> {{ t .Lang "settings.gateway.mode_files" }}</label>
     </div>
+    <template data-gw-vhost-template>
+      <div class="gw-vhost" data-gw-vhost style="border:1px solid #93c5fd;border-radius:.4rem;padding:.8rem 1rem;margin:.6rem 0;background:#f0f9ff">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem">
+          <b data-gw-vhost-title></b>
+          <button type="button" class="btn-sm" data-gw-vhost-delete>{{ t .Lang "settings.gateway.vhost_delete" }}</button>
+        </div>
+        <input type="hidden" name="vh_id" value="">
+        <div class="field" style="margin-top:.5rem">
+          <div class="field-label">{{ t .Lang "settings.gateway.server_name" }}</div>
+          <select name="vh_kind" data-gw-kind style="margin-right:.5rem">
+            <option value="named" selected>{{ t .Lang "settings.gateway.server_name_named" }}</option>
+            <option value="any">{{ t .Lang "settings.gateway.server_name_any" }}</option>
+          </select>
+          <input type="text" name="vh_names" value="" placeholder="example.com www.example.com" data-gw-names style="width:24rem;font-family:ui-monospace,monospace">
+        </div>
+        <div data-gw-cert-block>
+          <div class="field">
+            <div class="field-label">{{ t .Lang "settings.gateway.tls_mode" }}</div>
+            <select name="vh_mode" data-gw-mode>
+              <option value="acme" selected>{{ t .Lang "settings.gateway.mode_acme" }}</option>
+              <option value="upload">{{ t .Lang "settings.gateway.mode_upload" }}</option>
+              <option value="files">{{ t .Lang "settings.gateway.mode_files" }}</option>
+            </select>
+          </div>
+          <div class="field" data-gw-panel="acme"><p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_acme_desc") }}</p></div>
+          <div class="field" data-gw-panel="upload">
+            <p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_upload_desc") }}</p>
+            <div class="field-label">{{ t .Lang "settings.gateway.cert_pem" }}</div>
+            <textarea name="vh_cert_pem" rows="5" spellcheck="false" autocomplete="off" placeholder="-----BEGIN CERTIFICATE-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
+            <div class="field-label" style="margin-top:.6rem">{{ t .Lang "settings.gateway.chain_pem" }}</div>
+            <textarea name="vh_chain_pem" rows="3" spellcheck="false" autocomplete="off" placeholder="-----BEGIN CERTIFICATE-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
+            <div class="field-label" style="margin-top:.6rem">{{ t .Lang "settings.gateway.key_pem" }}</div>
+            <textarea name="vh_key_pem" rows="5" spellcheck="false" autocomplete="off" placeholder="-----BEGIN PRIVATE KEY-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
+          </div>
+          <div class="field" data-gw-panel="files">
+            <p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_files_desc") }}</p>
+            <div class="field-label">{{ t .Lang "settings.gateway.tls_cert_path" }}</div>
+            <input type="text" name="vh_cert_path" value="" placeholder="/etc/unmask/tls/fullchain.pem" style="width:100%;font-family:ui-monospace,monospace">
+            <div class="field-label" style="margin-top:.6rem">{{ t .Lang "settings.gateway.tls_key_path" }}</div>
+            <input type="text" name="vh_key_path" value="" placeholder="/etc/unmask/tls/privkey.pem" style="width:100%;font-family:ui-monospace,monospace">
+          </div>
+        </div>
+      </div>
+    </template>
+    <button type="button" class="btn-sm" data-gw-vhost-add>{{ t .Lang "settings.gateway.vhost_add" }}</button>
+  </div>
 
-    <div class="field" data-gw-panel="acme">
-      <p class="note">{{ t .Lang "settings.gateway.mode_acme_desc" }}</p>
+  {{/* 3. The ACME account, shared by every vhost issued by Let's Encrypt. */}}
+  <div class="bcd-card" data-gw-acme-card>
+    <h2>{{ t .Lang "settings.gateway.acme_h" }}</h2>
+    <p class="note">{{ safeHTML (t .Lang "settings.gateway.acme_desc") }}</p>
+    <div class="field">
       <div class="field-label">{{ t .Lang "settings.gateway.acme_email" }}</div>
       <input type="email" name="acme_email" value="{{ .Gateway.ACMEEmail }}" placeholder="you@example.com" style="width:24rem">
-      <div class="field-label" style="margin-top:.6rem">{{ t .Lang "settings.gateway.acme_directory" }}</div>
+    </div>
+    <div class="field">
+      <div class="field-label">{{ t .Lang "settings.gateway.acme_directory" }}</div>
       <select name="acme_directory" data-gw-acme-dir>
         <option value="production" {{ if eq .GatewayACMEChoice "production" }}selected{{ end }}>{{ t .Lang "settings.gateway.acme_production" }}</option>
         <option value="staging"    {{ if eq .GatewayACMEChoice "staging"    }}selected{{ end }}>{{ t .Lang "settings.gateway.acme_staging" }}</option>
         <option value="custom"     {{ if eq .GatewayACMEChoice "custom"     }}selected{{ end }}>{{ t .Lang "settings.gateway.acme_custom" }}</option>
       </select>
-      <div data-gw-acme-custom style="margin-top:.4rem">
-        <input type="url" name="acme_directory_custom" value="{{ if eq .GatewayACMEChoice "custom" }}{{ .Gateway.ACMEDirectory }}{{ end }}" placeholder="https://acme.example/directory" style="width:100%;font-family:ui-monospace,monospace">
-        <label style="display:block;margin:.3rem 0"><input type="checkbox" name="acme_insecure" value="1" {{ if .Gateway.ACMEInsecure }}checked{{ end }}> {{ t .Lang "settings.gateway.acme_insecure" }}</label>
+      <div data-gw-acme-custom style="margin-top:.5rem">
+        <input type="text" name="acme_directory_custom" value="{{ if eq .GatewayACMEChoice "custom" }}{{ .Gateway.ACMEDirectory }}{{ end }}" placeholder="https://acme.example/directory" style="width:100%;font-family:ui-monospace,monospace">
+        <label style="display:block;margin-top:.4rem"><input type="checkbox" name="acme_insecure" value="1" {{ if .Gateway.ACMEInsecure }}checked{{ end }}> {{ t .Lang "settings.gateway.acme_insecure" }}</label>
       </div>
-    </div>
-
-    <div class="field" data-gw-panel="upload">
-      <p class="note">{{ t .Lang "settings.gateway.mode_upload_desc" }}</p>
-      <div class="note" style="font-size:.85rem">
-        {{ t .Lang "settings.gateway.uploaded_current" }}:
-        {{ if .GatewayUploaded.OK }}<b>{{ .GatewayUploaded.Subject }}</b> ({{ t .Lang "settings.gateway.cert_issuer" }}: {{ .GatewayUploaded.Issuer }}, {{ t .Lang "settings.gateway.cert_expires" }}: {{ .GatewayUploaded.NotAfter }}) — {{ t .Lang "settings.gateway.uploaded_keep" }}{{ else }}{{ t .Lang "settings.gateway.uploaded_none" }}{{ end }}
-      </div>
-      <div class="field-label" style="margin-top:.6rem">{{ t .Lang "settings.gateway.cert_pem" }}</div>
-      <textarea name="cert_pem" rows="6" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
-      <div class="field-label" style="margin-top:.6rem">{{ t .Lang "settings.gateway.chain_pem" }}</div>
-      <textarea name="chain_pem" rows="4" spellcheck="false" placeholder="-----BEGIN CERTIFICATE-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
-      <div class="field-label" style="margin-top:.6rem">{{ t .Lang "settings.gateway.key_pem" }}</div>
-      <textarea name="key_pem" rows="6" spellcheck="false" autocomplete="off" placeholder="-----BEGIN PRIVATE KEY-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
-    </div>
-
-    <div class="field" data-gw-panel="none">
-      <p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_none_desc") }}</p>
-    </div>
-    <div class="field" data-gw-panel="files">
-      <p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_files_desc") }}</p>
-      <div class="field-label">{{ t .Lang "settings.gateway.tls_cert_path" }}</div>
-      <input type="text" name="tls_cert_path" value="{{ .Gateway.TLSCertPath }}" placeholder="/etc/unmask/tls/fullchain.pem" style="width:100%;font-family:ui-monospace,monospace">
-      <div class="field-label" style="margin-top:.6rem">{{ t .Lang "settings.gateway.tls_key_path" }}</div>
-      <input type="text" name="tls_key_path" value="{{ .Gateway.TLSKeyPath }}" placeholder="/etc/unmask/tls/privkey.pem" style="width:100%;font-family:ui-monospace,monospace">
     </div>
   </div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
@@ -5839,15 +5882,44 @@ function secToHuman(s){
 <script>
 (function(){
   var form = document.getElementById('gateway-form'); if (!form) return;
-  function sync(){
-    var mode = (form.querySelector('input[name=tls_mode]:checked') || {}).value;
-    form.querySelectorAll('[data-gw-panel]').forEach(function(p){ p.style.display = p.getAttribute('data-gw-panel') === mode ? '' : 'none'; });
-    var dir = form.querySelector('[data-gw-acme-dir]');
-    var custom = form.querySelector('[data-gw-acme-custom]');
+  var list = form.querySelector('[data-gw-vhosts]');
+  var vhostLabel = {{ printf "%q" (t .Lang "settings.gateway.vhost_n") }};
+  function syncRow(row){
+    var mode = row.querySelector('[data-gw-mode]').value;
+    row.querySelectorAll('[data-gw-panel]').forEach(function(p){ p.style.display = p.getAttribute('data-gw-panel') === mode ? '' : 'none'; });
+    var kind = row.querySelector('[data-gw-kind]'), names = row.querySelector('[data-gw-names]');
+    names.disabled = kind.value === 'any';
+  }
+  function syncAll(){
+    var none = (form.querySelector('input[name=tls]:checked') || {}).value === 'none';
+    form.querySelectorAll('[data-gw-tls-note]').forEach(function(n){ n.style.display = none ? '' : 'none'; });
+    var rows = list.querySelectorAll('[data-gw-vhost]');
+    var anyAcme = false;
+    rows.forEach(function(row, i){
+      row.querySelector('[data-gw-vhost-title]').textContent = vhostLabel.replace('%d', String(i + 1));
+      row.querySelector('[data-gw-cert-block]').style.display = none ? 'none' : '';
+      row.querySelector('[data-gw-vhost-delete]').style.display = rows.length > 1 ? '' : 'none';
+      syncRow(row);
+      if (!none && row.querySelector('[data-gw-mode]').value === 'acme') anyAcme = true;
+    });
+    var acme = form.querySelector('[data-gw-acme-card]');
+    if (acme) acme.style.display = anyAcme ? '' : 'none';
+    var dir = form.querySelector('[data-gw-acme-dir]'), custom = form.querySelector('[data-gw-acme-custom]');
     if (dir && custom) custom.style.display = dir.value === 'custom' ? '' : 'none';
   }
-  form.querySelectorAll('[data-gw-mode], [data-gw-acme-dir]').forEach(function(el){ el.addEventListener('change', sync); });
-  sync();
+  function wire(row){
+    row.querySelectorAll('[data-gw-mode], [data-gw-kind]').forEach(function(el){ el.addEventListener('change', syncAll); });
+    row.querySelector('[data-gw-vhost-delete]').addEventListener('click', function(){ row.remove(); syncAll(); });
+  }
+  list.querySelectorAll('[data-gw-vhost]').forEach(wire);
+  form.querySelector('[data-gw-vhost-add]').addEventListener('click', function(){
+    var tpl = form.querySelector('[data-gw-vhost-template]');
+    var node = tpl.content.firstElementChild.cloneNode(true);
+    list.appendChild(node); wire(node); syncAll();
+    node.querySelector('[data-gw-names]').focus();
+  });
+  form.querySelectorAll('[data-gw-tls], [data-gw-acme-dir]').forEach(function(el){ el.addEventListener('change', syncAll); });
+  syncAll();
 })();
 </script>
 {{ end }}
