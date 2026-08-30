@@ -319,6 +319,22 @@ jobs:
           docker restart unmask-nginx && sleep 8
           s2=$(cert -serial)
           echo "before=$s1 after=$s2"; test -n "$s1" && test "$s1" = "$s2"
+      # TLS terminated in front: no :443, and :80 serves forwarded https
+      # traffic (X-Forwarded-Proto from a trusted range) like :443 would.
+      - name: gateway serves :80 only when TLS ends at a load balancer
+        run: |
+          docker compose -f docker-compose.example.yml down -v
+          docker compose -f docker-compose.example.yml -f e2e/docker/admin-port-override.yml -f e2e/docker/tls-none-override.yml up -d --no-build
+          for i in $(seq 1 40); do
+            [ "$(docker inspect -f '{{.State.Status}}' unmask-nginx 2>/dev/null)" = running ] && break
+            sleep 3
+          done
+          sleep 5
+          docker logs unmask-nginx 2>&1 | grep -q 'tls: none'
+          test "$(docker inspect -f '{{.RestartCount}}' unmask-nginx)" = 0
+          curl -s -H 'X-Forwarded-Proto: https' http://127.0.0.1/ | grep -q '<title>Security check</title>'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/)" = 301
+          ! curl -sk --max-time 5 -o /dev/null https://127.0.0.1/
       - name: compose logs on failure
         if: failure()
         run: docker compose -f docker-compose.example.yml logs --no-color | tail -80

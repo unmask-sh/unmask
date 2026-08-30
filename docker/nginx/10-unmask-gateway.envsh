@@ -72,11 +72,19 @@ if [ -n "${UNMASK_UPSTREAM:-}" ]; then
     done
     # A certificate from files must exist before nginx starts, or -t fails
     # with a less helpful message.  ACME needs nothing on disk.
-    if ! grep -q '^acme_certificate' /etc/unmask/gateway-tls.inc; then
+    # TLS terminated in front (settings > Gateway > "terminated by a load
+    # balancer"): serve :80 only, from the template without a :443 server.
+    tls=files
+    grep -q '^acme_certificate' /etc/unmask/gateway-tls.inc && tls=ACME
+    if grep -q '^# unmask-gateway-tls: none' /etc/unmask/gateway-tls.inc; then
+        tls=none
+        cp /usr/share/unmask/gateway-http.conf.template /etc/nginx/templates/unmask-gateway.conf.template
+    fi
+    if [ "$tls" = files ]; then
         for f in $(sed -n 's/^ssl_certificate\(_key\)\?[[:space:]]\+\([^;]*\);.*/\2/p' /etc/unmask/gateway-tls.inc); do
             [ -f "$f" ] || { echo "unmask-gateway: TLS file $f not found -- mount your certificate at /etc/unmask/tls, paste one in settings > Gateway, or switch that tab to Let's Encrypt" >&2; exit 1; }
         done
     fi
     [ -n "$trusted" ] && echo "unmask-gateway: trusted proxies:$trusted (visitor address from X-Forwarded-For)"
-    echo "unmask-gateway: :443 -> ${UNMASK_UPSTREAM} ($(sed -n 's/^server_name[[:space:]]\+\([^;]*\);.*/server_name \1/p' /etc/unmask/gateway-server.inc); tls: $(grep -q '^acme_certificate' /etc/unmask/gateway-tls.inc && echo ACME || echo files))"
+    echo "unmask-gateway: $([ "$tls" = none ] && echo ':80' || echo ':443') -> ${UNMASK_UPSTREAM} ($(sed -n 's/^server_name[[:space:]]\+\([^;]*\);.*/server_name \1/p' /etc/unmask/gateway-server.inc); tls: $tls)"
 fi

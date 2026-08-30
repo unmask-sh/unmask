@@ -1,0 +1,56 @@
+# unmask gateway vhost, :80 only -- TLS is terminated in front of the gateway
+# (settings > Gateway > "terminated by a load balancer").  Rendered into conf.d by the stock nginx entrypoint
+# (envsubst) when UNMASK_UPSTREAM is set.  http scope, like every conf.d file.
+#
+# Only ${UNMASK_*} placeholders are substituted; nginx's own $variables are
+# left alone because the entrypoint substitutes defined environment names
+# only.
+
+include /etc/unmask/http.inc;
+include /etc/unmask/upstream.conf;
+include /etc/unmask/forward-auth-lbtrust.conf;
+
+# The resolver (this container's nameservers, written by the .envsh) and the
+# ACME issuer (rendered by the admin from settings > Gateway; empty unless
+# the certificate is on Let's Encrypt).
+include /etc/nginx/unmask-resolver.inc;
+include /etc/unmask/gateway-acme.inc;
+include /etc/nginx/unmask-gateway-proxies.inc;
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+# :80 redirects to https.  It is also the listener the ACME module answers
+# http-01 challenges on -- the module intercepts /.well-known/acme-challenge/
+# itself, ahead of this redirect.
+server {
+    listen 80;
+    listen [::]:80;
+    include /etc/unmask/gateway-server.inc;
+    # server.inc carries the http->https redirect (settings > nginx >
+    # https_redirect, on by default): keyed on X-Forwarded-Proto behind a
+    # terminating load balancer, on the scheme otherwise, and exempting ACME
+    # and health-check user agents.  So a balancer that forwards on :80 is
+    # served here exactly like :443, and its probes pass.
+    include /etc/unmask/server.inc;
+    client_max_body_size 0;
+    location / {
+        include /etc/unmask/protect.inc;
+        proxy_pass ${UNMASK_UPSTREAM};
+        proxy_http_version 1.1;
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+        proxy_ssl_server_name on;
+        proxy_ssl_name $host;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        # As received, not synthesized: a health check carries none, and an
+        # upstream that redirects "http" itself must not see one.
+        proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        $connection_upgrade;
+    }
+}

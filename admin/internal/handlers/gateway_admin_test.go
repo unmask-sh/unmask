@@ -255,3 +255,40 @@ func TestGatewayTabRendersOnlyForGatewayInstalls(t *testing.T) {
 		t.Error("a gateway install does not show the Gateway tab in the settings nav")
 	}
 }
+
+// The hostname form is a choice: "any" saves nginx's catch-all "_", "named"
+// saves the typed name, and a form without the choice still works.
+func TestGatewayServerNameModeForm(t *testing.T) {
+	h, _ := gatewayHandler(t)
+	if loc := postGateway(t, h, url.Values{"server_name_mode": {"any"}, "server_name": {"ignored.example"}, "tls_mode": {settings.GatewayTLSFiles}, "tls_cert_path": {"/c.pem"}, "tls_key_path": {"/k.pem"}}); !strings.Contains(loc, "saved=1") {
+		t.Fatalf("any: %s", loc)
+	}
+	if saved, _ := settings.Load(h.ConfigPath); saved.Gateway.ServerName != "_" {
+		t.Errorf("any saved %q, want _", saved.Gateway.ServerName)
+	}
+	if loc := postGateway(t, h, url.Values{"server_name_mode": {"named"}, "server_name": {"shop.example"}, "tls_mode": {settings.GatewayTLSFiles}, "tls_cert_path": {"/c.pem"}, "tls_key_path": {"/k.pem"}}); !strings.Contains(loc, "saved=1") {
+		t.Fatalf("named: %s", loc)
+	}
+	if saved, _ := settings.Load(h.ConfigPath); saved.Gateway.ServerName != "shop.example" {
+		t.Errorf("named saved %q", saved.Gateway.ServerName)
+	}
+	body := renderSettingsTab(t, h, "gateway")
+	if !strings.Contains(body, `name="server_name_mode" value="named" data-gw-name-mode checked`) {
+		t.Error("the named choice is not pre-selected for a named install")
+	}
+}
+
+// TLS terminated in front: the mode saves with no certificate at all.
+func TestGatewayNoneModeForm(t *testing.T) {
+	h, _ := gatewayHandler(t)
+	if loc := postGateway(t, h, url.Values{"server_name_mode": {"any"}, "tls_mode": {settings.GatewayTLSNone}}); !strings.Contains(loc, "saved=1") {
+		t.Fatalf("none: %s", loc)
+	}
+	saved, _ := settings.Load(h.ConfigPath)
+	if saved.Gateway.TLSMode != settings.GatewayTLSNone || saved.Gateway.ServerName != "_" {
+		t.Errorf("saved %+v", saved.Gateway)
+	}
+	if !strings.Contains(renderSettingsTab(t, h, "gateway"), `name="tls_mode" value="none"`) {
+		t.Error("the none choice is missing from the tab")
+	}
+}

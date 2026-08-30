@@ -1,0 +1,14 @@
+# Compose override for the "TLS terminated in front" shape: the admin seeds
+# settings > Gateway with tls_mode none, and the nginx container serves :80
+# only.  Used by CI on top of docker-compose.example.yml.
+services:
+  admin:
+    environment:
+      UNMASK_SERVER_NAME: example.test
+      UNMASK_TLS_MODE: none
+  nginx:
+    environment:
+      UNMASK_TRUSTED_PROXIES: "172.16.0.0/12"
+    volumes: !override
+      - unmask-config:/etc/unmask:ro
+      - unmask-run:/run/unmask
