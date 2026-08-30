@@ -5754,6 +5754,10 @@ function secToHuman(s){
       })();
       </script>
     </div>
+  </div>
+
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.gateway.tls_h" }}</h2>
     {{/* What the gateway is serving right now, read off its :443 -- the
          truth, whatever the settings say.  Absent when the probe was not
          run (the tab is the only place it runs). */}}
@@ -5777,10 +5781,6 @@ function secToHuman(s){
       {{ end }}
     </div>
     {{ end }}
-  </div>
-
-  <div class="bcd-card">
-    <h2>{{ t .Lang "settings.gateway.tls_h" }}</h2>
     {{ $mode := .Gateway.TLSModeResolved }}
     <div class="field">
       <div class="field-label">{{ t .Lang "settings.gateway.tls_mode" }}</div>
