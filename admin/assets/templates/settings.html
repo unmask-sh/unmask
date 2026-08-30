@@ -5726,6 +5726,17 @@ function secToHuman(s){
 {{ end }}
 
 {{ if eq .Tab "gateway" }}
+<style>
+/* Gateway vhost rows sit on a tinted card; their inputs must read as inputs
+   (white, bordered) and a disabled name field must read as switched off. */
+.gw-vhost input[type=text], .gw-vhost input[type=email], .gw-vhost textarea, .gw-vhost select,
+#gateway-form input[type=email], #gateway-form input[type=text]:not(.gw-vhost *) {
+  background:#fff;border:1px solid #cbd5e1;border-radius:.3rem;padding:.35rem .55rem;color:#0f172a;box-sizing:border-box}
+.gw-vhost textarea{line-height:1.45}
+.gw-vhost input[type=text]:focus, .gw-vhost textarea:focus, .gw-vhost select:focus{outline:none;border-color:#3b82f6;box-shadow:0 0 0 .15rem rgba(59,130,246,.15)}
+.gw-vhost input[type=text]:disabled{background:#e2e8f0;color:#94a3b8;border-color:#e2e8f0;cursor:not-allowed}
+.gw-vhost .field-label{color:#334155;font-weight:600;font-size:.82rem;margin:.5rem 0 .25rem}
+</style>
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=gateway" id="gateway-form">
   {{/* 1. Where TLS ends.  "In front" (a load balancer forwarding on :80)
        means no :443 server at all; the vhosts below then only name what
@@ -5889,6 +5900,7 @@ function secToHuman(s){
     row.querySelectorAll('[data-gw-panel]').forEach(function(p){ p.style.display = p.getAttribute('data-gw-panel') === mode ? '' : 'none'; });
     var kind = row.querySelector('[data-gw-kind]'), names = row.querySelector('[data-gw-names]');
     names.disabled = kind.value === 'any';
+    names.placeholder = kind.value === 'any' ? '_' : 'example.com www.example.com';
   }
   function syncAll(){
     var none = (form.querySelector('input[name=tls]:checked') || {}).value === 'none';
