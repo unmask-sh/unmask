@@ -22,7 +22,12 @@ INTERVAL="${UNMASK_AUTORELOAD_INTERVAL:-3}"
 sig() {
     # Content signature over the files that exist; a missing file simply
     # contributes nothing, so a first render appearing later is a change.
-    for f in $WATCH; do [ -f "$f" ] && cat "$f"; done | md5sum | cut -d' ' -f1
+    # The certificate files the gateway is configured with (settings >
+    # Gateway > files) are watched too, so a renewal mounted in from the
+    # host is picked up without anyone reloading by hand.
+    certs=""
+    [ -f /etc/unmask/gateway-tls.inc ] && certs=$(sed -n 's/^ssl_certificate\(_key\)\?[[:space:]]\+\([^;$]*\);.*/\2/p' /etc/unmask/gateway-tls.inc)
+    for f in $WATCH $certs; do [ -f "$f" ] && cat "$f"; done | md5sum | cut -d' ' -f1
 }
 
 (
