@@ -2,7 +2,8 @@
 #
 # generated_at: {{ .GeneratedAt }} / version: {{ .Version }}
 #
-# Trusted proxies (settings > Gateway): a load balancer in front of the
+# Trusted proxies: settings > Network's trusted LB / CDN set (the same one
+# trusted for the forwarded JA4 header) -- a load balancer in front of the
 # gateway whose X-Forwarded-For names the visitor.  Included by the nginx
 # image through /etc/nginx/unmask-gateway-proxies.inc.  http scope.
 {{- if .Gateway.TrustedProxies }}
@@ -13,5 +14,6 @@ real_ip_header X-Forwarded-For;
 real_ip_recursive on;
 {{- else }}
 # unmask-gateway-proxies: none
-# None configured here; the nginx image falls back to UNMASK_TRUSTED_PROXIES.
+# Nothing trusted in settings > Network; the nginx image falls back to its
+# UNMASK_TRUSTED_PROXIES.
 {{- end }}

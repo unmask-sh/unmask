@@ -166,9 +166,10 @@ func TestGatewayIncludesRenderOnlyWhenConfigured(t *testing.T) {
 	}
 }
 
-// The proxy location and the trusted proxies are the admin's when set in
-// the tab (gateway-location.inc / gateway-proxies.inc), and carry a marker
-// the nginx image reads to fall back to its own environment otherwise.
+// The proxy location is the admin's when an upstream is set in the tab
+// (gateway-location.inc), and the trusted proxies are settings > Network's
+// trusted LB / CDN set (gateway-proxies.inc); each carries a marker the
+// nginx image reads to fall back to its own environment otherwise.
 func TestGatewayLocationAndProxiesRender(t *testing.T) {
 	out := t.TempDir()
 	s, err := settings.LoadFromYAML("")
@@ -191,10 +192,14 @@ func TestGatewayLocationAndProxiesRender(t *testing.T) {
 		t.Errorf("no upstream must render the marker and no location:\n%s", loc)
 	}
 	if prx := read("gateway-proxies.inc"); !strings.Contains(prx, "# unmask-gateway-proxies: none") || strings.Contains(prx, "set_real_ip_from") {
-		t.Errorf("no trusted proxies must render the marker:\n%s", prx)
+		t.Errorf("no trusted LB must render the marker:\n%s", prx)
 	}
 	s.Gateway.Upstream = "http://host.docker.internal:8080"
-	s.Gateway.TrustedProxies = "130.211.0.0/22 35.191.0.0/16"
+	s.Nginx.TrustedLBPresets = []string{"gcp"}
+	s.Nginx.TrustedLBExtra = []settings.TrustedLBExtra{
+		{ID: "office", CIDRs: []string{"203.0.113.0/24"}},
+		{ID: "old", CIDRs: []string{"198.51.100.0/24"}, Disabled: true},
+	}
 	if err := Render(s, out, "test"); err != nil {
 		t.Fatal(err)
 	}
@@ -208,10 +213,13 @@ func TestGatewayLocationAndProxiesRender(t *testing.T) {
 		t.Error("the none marker must go once an upstream is set")
 	}
 	prx := read("gateway-proxies.inc")
-	for _, want := range []string{"set_real_ip_from 130.211.0.0/22;", "set_real_ip_from 35.191.0.0/16;", "real_ip_header X-Forwarded-For;", "real_ip_recursive on;"} {
+	for _, want := range []string{"set_real_ip_from 130.211.0.0/22;", "set_real_ip_from 35.191.0.0/16;", "set_real_ip_from 203.0.113.0/24;", "real_ip_header X-Forwarded-For;", "real_ip_recursive on;"} {
 		if !strings.Contains(prx, want) {
 			t.Errorf("gateway-proxies.inc lacks %q:\n%s", want, prx)
 		}
+	}
+	if strings.Contains(prx, "198.51.100.0/24") {
+		t.Error("a disabled custom LB row must not be trusted")
 	}
 	// TLS in front still needs the location (:80 proxies too).
 	s.Gateway.TLS = settings.GatewayTLSNone

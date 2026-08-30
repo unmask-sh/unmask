@@ -341,33 +341,53 @@ func TestGatewayBareCommonNameAndDomainlessFile(t *testing.T) {
 	}
 }
 
-// The upstream and the trusted proxies save from the tab; a bad upstream
-// is refused; the tab offers the self-signed source and reports what the
-// nginx container's environment carries.
+// The upstream saves from the tab; a bad upstream is refused; the tab
+// offers the self-signed source, reports what the nginx container's
+// environment carries, and shows settings > Network's trusted LB set as
+// the proxies the visitor's address is taken from.
 func TestGatewayUpstreamForm(t *testing.T) {
-	h, _ := gatewayHandler(t)
+	// The GCP preset ticked under settings > Network, in the stored config
+	// (a save reloads it from disk before rendering).
+	s, err := settings.LoadFromYAML("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.Nginx.OutputDir = t.TempDir()
+	s.Nginx.TrustedLBPresets = []string{"gcp"}
+	s.Gateway = settings.GatewayConfig{
+		Hostnames:    settings.GatewayHostnames{Mode: settings.GatewayHostsCustom, Names: "shop.example"},
+		Certificates: []settings.GatewayCertificate{{Mode: settings.GatewayTLSFiles, Domains: "shop.example"}},
+	}
+	h := modeHandler(t, s)
 	status := filepath.Join(t.TempDir(), "gateway-nginx.status")
 	if err := os.WriteFile(status, []byte("location_source=env\nupstream_env=http://app:80\ntrusted_proxies_env=\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("UNMASK_GATEWAY_STATUS", status)
 	body := renderSettingsTab(t, h, "gateway")
-	for _, want := range []string{`name="upstream"`, `name="trusted_proxies"`, `value="selfsigned"`, "http://app:80</code>"} {
+	for _, want := range []string{`name="upstream"`, `value="selfsigned"`, "http://app:80</code>", "GCP HTTPS Load Balancer", `settings/network/`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("gateway tab lacks %s", want)
 		}
 	}
-	f := oneCert("shop.example", "", settings.GatewayTLSFiles, url.Values{"upstream": {"http://host.docker.internal:8080"}, "trusted_proxies": {"130.211.0.0/22\n35.191.0.0/16"}, "cert_cert_path": {"/c.pem"}, "cert_key_path": {"/k.pem"}})
+	if strings.Contains(body, `name="trusted_proxies"`) {
+		t.Error("the trusted proxies are settings > Network's; the tab must not carry a second list")
+	}
+	f := oneCert("shop.example", "", settings.GatewayTLSFiles, url.Values{"upstream": {"http://host.docker.internal:8080"}, "cert_cert_path": {"/c.pem"}, "cert_key_path": {"/k.pem"}})
 	if loc := postGateway(t, h, f); !strings.Contains(loc, "saved=1") {
 		t.Fatalf("upstream save: %s", loc)
 	}
 	saved, _ := settings.Load(h.ConfigPath)
-	if saved.Gateway.Upstream != "http://host.docker.internal:8080" || saved.Gateway.TrustedProxies != "130.211.0.0/22 35.191.0.0/16" {
-		t.Errorf("saved upstream/proxies = %q / %q", saved.Gateway.Upstream, saved.Gateway.TrustedProxies)
+	if saved.Gateway.Upstream != "http://host.docker.internal:8080" {
+		t.Errorf("saved upstream = %q", saved.Gateway.Upstream)
 	}
 	locInc, _ := os.ReadFile(filepath.Join(h.cfg().Nginx.OutputDir, "gateway-location.inc"))
 	if !strings.Contains(string(locInc), "proxy_pass http://host.docker.internal:8080;") {
 		t.Errorf("the save must render the proxy location:\n%s", locInc)
+	}
+	prx, _ := os.ReadFile(filepath.Join(h.cfg().Nginx.OutputDir, "gateway-proxies.inc"))
+	if !strings.Contains(string(prx), "set_real_ip_from 130.211.0.0/22;") {
+		t.Errorf("the gateway's real_ip ranges must come from the Network tab's trusted LBs:\n%s", prx)
 	}
 	f.Set("upstream", "host.docker.internal:8080")
 	if loc := postGateway(t, h, f); strings.Contains(loc, "saved=1") {

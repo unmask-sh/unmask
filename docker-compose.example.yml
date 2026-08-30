@@ -57,7 +57,8 @@ services:
       # UNMASK_TLS_CERT: /etc/unmask/tls/fullchain.pem  # your own files (./tls, mounted below)
       # UNMASK_TLS_KEY:  /etc/unmask/tls/privkey.pem
       # UNMASK_TLS_MODE: none   # a load balancer in front terminates TLS and forwards on :80
-      # UNMASK_TRUSTED_PROXIES: "130.211.0.0/22 35.191.0.0/16"  # that balancer's ranges
+      # UNMASK_TRUSTED_PROXIES: "130.211.0.0/22 35.191.0.0/16"  # that balancer's ranges, as a custom row of
+      #                                                        # Settings > Network > trusted LB / CDN (presets there too)
       # Where the admin reaches the gateway to show the served certificate.
       UNMASK_GATEWAY_ADDR: nginx:443
     volumes:
