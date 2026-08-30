@@ -37,9 +37,12 @@ services:
       # The rendered nginx config proxies /unmask/ here; "admin" is this
       # service's name on the compose network.
       UNMASK_DAEMON_ADDR: admin:9477
-      # Gateway vhost, seeded into settings > Gateway on the first boot and
-      # editable in the admin UI from then on (hostname, certificate source).
-      UNMASK_SERVER_NAME: localhost     # your hostname; "_" matches any
+      # The hostnames the gateway answers for, seeded into settings > Gateway
+      # on the first boot and editable in the admin UI from then on (hostnames
+      # and certificates are managed there, independently).  A list (space
+      # separated) answers for those names only -- any other Host is refused
+      # at the TLS handshake; "_" answers for any hostname.
+      UNMASK_SERVER_NAME: localhost     # your hostname(s); "_" matches any
       # TLS, one of:
       #  (a) your own files, mounted on the nginx container (the default):
       # UNMASK_TLS_CERT: /etc/unmask/tls/fullchain.pem
