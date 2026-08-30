@@ -128,6 +128,11 @@ func Render(s settings.Settings, outDir, version string) error {
 	// source the unmask nginx image's gateway template includes.  Only when
 	// a gateway is configured -- a host install never gets these files.
 	if data.Gateway.Active {
+		// A self-signed entry's pair must exist before the include that
+		// names it is written (nginx -t reads the files).
+		if err := ensureGatewaySelfSigned(s, outDir); err != nil {
+			return err
+		}
 		for _, gt := range gatewayTemplates {
 			if err := render(gt[0], gt[1], 0o644); err != nil {
 				return err
@@ -392,6 +397,10 @@ type gatewayRender struct {
 	CertPath   string
 	KeyPath    string
 	Vhosts     []gatewayVhostRender
+	// The proxy target and the trusted proxy ranges (gateway-location.inc /
+	// gateway-proxies.inc); empty = the nginx image's own environment.
+	Upstream       string
+	TrustedProxies []string
 	// The shared ACME account, rendered when any certificate uses it.
 	ACME          bool
 	ACMEEmail     string
@@ -421,7 +430,7 @@ func gatewayRenderOf(s settings.Settings, outDir string) gatewayRender {
 	if !g.Active() {
 		return gatewayRender{}
 	}
-	out := gatewayRender{Active: true, ACMEVerify: "on"}
+	out := gatewayRender{Active: true, ACMEVerify: "on", Upstream: g.Upstream, TrustedProxies: g.TrustedProxyList()}
 	if g.TLSInFront() {
 		out.TLSNone = true
 		out.TLSMode = "none"
@@ -487,6 +496,8 @@ var gatewayTemplates = [][2]string{
 	{"gateway-tls.inc", "templates/gateway-tls.inc.tmpl"},
 	{"gateway-acme.inc", "templates/gateway-acme.inc.tmpl"},
 	{"gateway-vhosts.inc", "templates/gateway-vhosts.inc.tmpl"},
+	{"gateway-location.inc", "templates/gateway-location.inc.tmpl"},
+	{"gateway-proxies.inc", "templates/gateway-proxies.inc.tmpl"},
 }
 
 // renderData: flat struct passed to text/template.

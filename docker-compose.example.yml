@@ -1,12 +1,11 @@
 # unmask with Docker Compose -- the admin daemon plus nginx with the module.
 #
-#   1. Put a TLS certificate for your site in ./tls/ (fullchain.pem, privkey.pem).
-#      For a first look, a self-signed pair will do:
-#        mkdir -p tls && openssl req -x509 -nodes -newkey rsa:2048 -days 30 \
-#          -keyout tls/privkey.pem -out tls/fullchain.pem -subj "/CN=localhost"
-#   2. docker compose -f docker-compose.example.yml up -d
-#   3. docker compose -f docker-compose.example.yml logs admin | grep "setup token"
-#   4. open https://localhost/unmask/admin/  -> install wizard (paste the token)
+#   1. docker compose -f docker-compose.example.yml up -d
+#   2. docker compose -f docker-compose.example.yml logs admin | grep "setup token"
+#   3. open https://localhost/unmask/admin/  -> install wizard (paste the token).
+#      The first start serves a self-signed certificate (your browser warns
+#      once); Settings > Gateway is where the upstream, the hostnames and the
+#      real certificate (Let's Encrypt, pasted, or mounted files) are set.
 #
 # Two containers, same shape as a host install:
 #
@@ -15,8 +14,9 @@
 #           renders the nginx includes into /etc/unmask, then serves.
 #   nginx   the official nginx image + the unmask module.  Terminates TLS
 #           (that is where JA4 comes from), classifies, and either serves the
-#           challenge or proxies to UNMASK_UPSTREAM.  With UNMASK_UPSTREAM
-#           unset it is a plain nginx-with-module and your own conf.d applies.
+#           challenge or proxies to the upstream (Settings > Gateway).  With
+#           UNMASK_GATEWAY unset it is a plain nginx-with-module and your own
+#           conf.d applies.
 #
 # The volumes are not optional: /etc/unmask carries the rendered includes
 # (nginx reads what admin wrote) and the secrets; drop it and every restart
@@ -37,35 +37,36 @@ services:
       # The rendered nginx config proxies /unmask/ here; "admin" is this
       # service's name on the compose network.
       UNMASK_DAEMON_ADDR: admin:9477
-      # The hostnames the gateway answers for, seeded into settings > Gateway
-      # on the first boot and editable in the admin UI from then on (hostnames
-      # and certificates are managed there, independently).  A list (space
-      # separated) answers for those names only -- any other Host is refused
-      # at the TLS handshake; "_" answers for any hostname.
-      UNMASK_SERVER_NAME: localhost     # your hostname(s); "_" matches any
-      # TLS, one of:
-      #  (a) your own files, mounted on the nginx container (the default):
-      # UNMASK_TLS_CERT: /etc/unmask/tls/fullchain.pem
-      # UNMASK_TLS_KEY:  /etc/unmask/tls/privkey.pem
-      #  (b) automatic HTTPS: set the contact address and nginx's own ACME
-      #      module obtains and renews a Let's Encrypt certificate for
-      #      UNMASK_SERVER_NAME (a real hostname; :80 reachable from the
-      #      internet for the http-01 challenge).  Nothing else to run.
-      # UNMASK_ACME_EMAIL: you@example.com
+      # Gateway mode.  Everything about the gateway lives in the admin UI,
+      # Settings > Gateway: the upstream, the hostnames it answers for, and
+      # the certificates.  The variables below only seed that tab on the
+      # first boot; leave them out and the tab starts with any hostname, a
+      # self-signed certificate, and the upstream below.
+      UNMASK_GATEWAY: "1"
+      # Where passing requests go (seed; change it in the tab later).  Any
+      # HTTP server works, nothing is installed on it: a container in this
+      # compose (http://app:80), another host (http://10.0.0.5:8080), or a
+      # server on this Docker host moved to 8080 (http://host.docker.internal:8080).
+      UNMASK_UPSTREAM: http://app:80
+      # Seeds, all optional:
+      # UNMASK_SERVER_NAME: example.com  # the hostnames to answer for (space separated; "_" = any)
+      # UNMASK_ACME_EMAIL: you@example.com  # automatic HTTPS: nginx's own ACME module obtains
+      #                                     # and renews a Let's Encrypt certificate for the
+      #                                     # hostnames (:80 reachable from the internet)
       # UNMASK_ACME_DIRECTORY: https://acme-staging-v02.api.letsencrypt.org/directory  # staging, while testing
-      #  (c) paste a purchased certificate in the admin UI (settings > Gateway).
-      #  (d) none: a load balancer in front terminates TLS and forwards on :80;
-      #      the nginx container serves :80 only (set its UNMASK_TRUSTED_PROXIES).
-      # UNMASK_TLS_MODE: none
+      # UNMASK_TLS_CERT: /etc/unmask/tls/fullchain.pem  # your own files (./tls, mounted below)
+      # UNMASK_TLS_KEY:  /etc/unmask/tls/privkey.pem
+      # UNMASK_TLS_MODE: none   # a load balancer in front terminates TLS and forwards on :80
+      # UNMASK_TRUSTED_PROXIES: "130.211.0.0/22 35.191.0.0/16"  # that balancer's ranges
       # Where the admin reaches the gateway to show the served certificate.
       UNMASK_GATEWAY_ADDR: nginx:443
     volumes:
       - unmask-config:/etc/unmask
       - unmask-data:/var/lib/unmask
       - unmask-run:/run/unmask      # access-log socket, nginx -> admin
-      # The same certificate directory as the nginx service, read-only: the
-      # admin reads a mounted certificate's names (SANs) for the Gateway tab
-      # and never touches the key.
+      # Your own certificate files, if any (Settings > Gateway > files), the
+      # same directory as on the nginx service, read-only: the admin reads
+      # a mounted certificate's names (SANs) and never touches the key.
       - ./tls:/etc/unmask/tls:ro
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9477/unmask/healthz"]
@@ -86,22 +87,18 @@ services:
     environment:
       TZ: Asia/Tokyo
       # Gateway mode: terminate TLS on :443, challenge what needs it, proxy
-      # the rest to this URL.  Any HTTP server works as the upstream; nothing
-      # is installed on it.  Remove this variable to run module-only with your
-      # own conf.d mounted at /etc/nginx/conf.d.
-      UNMASK_UPSTREAM: http://app:80
-      # The vhost name and certificate are settings > Gateway in the admin
-      # (seeded from the admin service's environment above).
-      # Behind a load balancer: its address ranges, space separated, so the
-      # visitor's address is taken from the X-Forwarded-For it sends (bans,
-      # rate limits and geo rules then see the visitor, not the balancer).
-      # A balancer that terminates TLS and forwards on :80 is served on :80
-      # like :443; its health checks pass the https redirect by user agent.
+      # the rest to the upstream from Settings > Gateway (rendered by the
+      # admin into the shared volume).  Remove this variable to run
+      # module-only with your own conf.d mounted at /etc/nginx/conf.d.
+      UNMASK_GATEWAY: "1"
+      # Fallbacks while the tab leaves them empty (the 0.1.37 variables):
+      # UNMASK_UPSTREAM: http://app:80
       # UNMASK_TRUSTED_PROXIES: "130.211.0.0/22 35.191.0.0/16"
-    # Upstream on the Docker host itself (a server you moved to port 8080 --
-    # bound to an address the container can reach, not 127.0.0.1):
-    # extra_hosts: ["host.docker.internal:host-gateway"]
-    # ... with UNMASK_UPSTREAM: http://host.docker.internal:8080
+    # Lets the container reach a server on the Docker host itself
+    # (upstream http://host.docker.internal:8080 -- a server you moved to
+    # port 8080, bound to an address the container can reach, not
+    # 127.0.0.1).  Harmless otherwise.
+    extra_hosts: ["host.docker.internal:host-gateway"]
     volumes:
       - unmask-config:/etc/unmask:ro
       - unmask-run:/run/unmask
@@ -112,7 +109,8 @@ services:
       - "443:443"
 
   # Stand-in upstream so the example answers on its own.  Replace with your
-  # application, or point UNMASK_UPSTREAM at one running elsewhere.
+  # application, or point the upstream (Settings > Gateway) at one running
+  # elsewhere and drop this service.
   app:
     image: traefik/whoami
     container_name: unmask-example-app

@@ -28,7 +28,8 @@ if [ ! -f "$CFG" ]; then
     # checks and ACME.  A module-only container leaves it to the operator's
     # own vhost, as on a host install.
     GATEWAY_REDIRECT_LINE=""
-    if [ -n "${UNMASK_SERVER_NAME:-}${UNMASK_ACME_EMAIL:-}${UNMASK_TLS_CERT:-}${UNMASK_TLS_MODE:-}" ]; then
+    case "${UNMASK_GATEWAY:-}" in 1|true|yes|on) UNMASK_GATEWAY=1 ;; *) UNMASK_GATEWAY="" ;; esac
+    if [ -n "${UNMASK_GATEWAY}${UNMASK_UPSTREAM:-}${UNMASK_SERVER_NAME:-}${UNMASK_ACME_EMAIL:-}${UNMASK_TLS_CERT:-}${UNMASK_TLS_MODE:-}" ]; then
         GATEWAY_REDIRECT_LINE="    https_redirect: true"
     fi
     cat > "$CFG" <<EOF
@@ -76,19 +77,24 @@ EOF
     # (= docker-compose.example.yml: unmask-config:/etc/unmask) surface this
     # file on the host fs -- without this chmod the default umask leaves it
     # world-readable there.
-    # Container gateway: seed settings > Gateway from the environment the
-    # compose file hands this container (the same variables the nginx side
-    # documents), so the first render already carries the vhost name and
-    # certificate source and the gateway can start.  Seeded once; from then
+    # Container gateway (UNMASK_GATEWAY=1, or any of the older variables):
+    # seed settings > Gateway from the environment the compose file hands
+    # this container, so the first render already carries the upstream,
+    # the hostnames and a certificate source and the gateway can start.
+    # With nothing but UNMASK_GATEWAY=1 that is: any hostname, a self-signed
+    # certificate the render generates, and the upstream left to the tab
+    # (or to the nginx container's UNMASK_UPSTREAM).  Seeded once; from then
     # on the admin UI is the source of truth.
-    if [ -n "${UNMASK_SERVER_NAME:-}${UNMASK_ACME_EMAIL:-}${UNMASK_TLS_CERT:-}${UNMASK_TLS_MODE:-}" ]; then
-        mode=files
+    if [ -n "${UNMASK_GATEWAY}${UNMASK_UPSTREAM:-}${UNMASK_SERVER_NAME:-}${UNMASK_ACME_EMAIL:-}${UNMASK_TLS_CERT:-}${UNMASK_TLS_MODE:-}" ]; then
+        mode=selfsigned
+        # Files when named, or when the default mount is there to be read.
+        if [ -n "${UNMASK_TLS_CERT:-}${UNMASK_TLS_KEY:-}" ] || [ -f /etc/unmask/tls/fullchain.pem ]; then mode=files; fi
         [ -n "${UNMASK_ACME_EMAIL:-}" ] && mode=acme
         # UNMASK_TLS_MODE overrides: none (TLS terminated by a load balancer
-        # in front, :80 only), files, acme, upload.
-        case "${UNMASK_TLS_MODE:-}" in none|files|acme|upload) mode="$UNMASK_TLS_MODE" ;; esac
+        # in front, :80 only), files, acme, upload, selfsigned.
+        case "${UNMASK_TLS_MODE:-}" in none|files|acme|upload|selfsigned) mode="$UNMASK_TLS_MODE" ;; esac
         gwtls='""'; vhmode="$mode"
-        if [ "$mode" = none ]; then gwtls=none; vhmode=files; fi
+        if [ "$mode" = none ]; then gwtls=none; vhmode=selfsigned; fi
         # "_" (or nothing) = any hostname; otherwise the list, which is
         # also what the seeded certificate is for.
         hostmode=all; hostnames='""'
@@ -98,6 +104,8 @@ EOF
         cat >> "$CFG" <<EOF
 gateway:
     tls: ${gwtls}
+    upstream: ${UNMASK_UPSTREAM:-}
+    trusted_proxies: ${UNMASK_TRUSTED_PROXIES:-}
     hostnames:
         mode: ${hostmode}
         names: ${hostnames}
@@ -107,9 +115,13 @@ gateway:
     certificates:
         - mode: ${vhmode}
           domains: ${hostnames}
+EOF
+        if [ "$vhmode" = files ]; then
+            cat >> "$CFG" <<EOF
           cert_path: ${UNMASK_TLS_CERT:-/etc/unmask/tls/fullchain.pem}
           key_path: ${UNMASK_TLS_KEY:-/etc/unmask/tls/privkey.pem}
 EOF
+        fi
     fi
     chmod 0600 "$CFG"
     echo "==> generated minimal $CFG (= visit /unmask/admin/ to start install wizard)"

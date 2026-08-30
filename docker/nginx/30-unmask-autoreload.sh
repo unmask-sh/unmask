@@ -16,7 +16,7 @@
 # UNMASK_AUTORELOAD=0 turns it off.
 case "${UNMASK_AUTORELOAD:-1}" in 0|false|no|off) exit 0 ;; esac
 
-WATCH="/etc/unmask/http.inc /etc/unmask/upstream.conf /etc/unmask/server.inc /etc/unmask/protect.inc /etc/unmask/forward-auth-lbtrust.conf /etc/unmask/community-bans-ip.map /etc/unmask/community-bans-ja4.map /etc/unmask/community-bans-ipja4.map /etc/unmask/gateway-server.inc /etc/unmask/gateway-tls.inc /etc/unmask/gateway-acme.inc /etc/unmask/gateway-vhosts.inc"
+WATCH="/etc/unmask/http.inc /etc/unmask/upstream.conf /etc/unmask/server.inc /etc/unmask/protect.inc /etc/unmask/forward-auth-lbtrust.conf /etc/unmask/community-bans-ip.map /etc/unmask/community-bans-ja4.map /etc/unmask/community-bans-ipja4.map /etc/unmask/gateway-server.inc /etc/unmask/gateway-tls.inc /etc/unmask/gateway-acme.inc /etc/unmask/gateway-vhosts.inc /etc/unmask/gateway-location.inc /etc/unmask/gateway-proxies.inc"
 INTERVAL="${UNMASK_AUTORELOAD_INTERVAL:-3}"
 
 sig() {
@@ -43,6 +43,13 @@ sig() {
         # Give a multi-file render a moment to finish before testing it.
         sleep 1
         cur=$(sig); last=$cur
+        # The nginx-local includes follow the admin's: an upstream set (or
+        # cleared) in settings > Gateway switches between the admin's
+        # location and this container's environment.
+        if [ -f /usr/share/unmask/gateway-includes.sh ] && [ -f /etc/nginx/unmask-gateway-location.inc ]; then
+            . /usr/share/unmask/gateway-includes.sh
+            unmask_gateway_includes
+        fi
         if nginx -t >/dev/null 2>&1; then
             if nginx -s reload 2>/dev/null; then
                 echo "unmask-autoreload: includes changed, nginx reloaded"
