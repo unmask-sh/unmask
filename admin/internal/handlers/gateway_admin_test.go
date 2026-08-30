@@ -151,14 +151,15 @@ func TestGatewayUploadStoresPairAndKeepsItOnBlankSave(t *testing.T) {
 		t.Errorf("blank re-save lost the domains: %+v", saved.Gateway.Certificates[0])
 	}
 
-	// Typed domains win over the SANs.
-	loc = postGateway(t, h, oneCert("shop.example", "shop.example", settings.GatewayTLSUpload, nil))
+	// The SANs are the domains of a pasted certificate; a stale value in the
+	// (hidden) field does not override them.
+	loc = postGateway(t, h, oneCert("shop.example", "stale.example", settings.GatewayTLSUpload, nil))
 	if !strings.Contains(loc, "saved=1") {
-		t.Fatalf("typed domains: %s", loc)
+		t.Fatalf("stale domains: %s", loc)
 	}
 	saved, _ = settings.Load(h.ConfigPath)
-	if saved.Gateway.Certificates[0].Domains != "shop.example" {
-		t.Errorf("typed domains must override the SANs: %+v", saved.Gateway.Certificates[0])
+	if saved.Gateway.Certificates[0].Domains != "shop.example www.shop.example" {
+		t.Errorf("the SANs must be the domains of a pasted certificate: %+v", saved.Gateway.Certificates[0])
 	}
 
 	// A pair that does not match is refused and the stored one is untouched.
@@ -299,7 +300,7 @@ func TestGatewayTabRendersOnlyForGatewayInstalls(t *testing.T) {
 
 	h, _ := gatewayHandler(t)
 	body := renderSettingsTab(t, h, "gateway")
-	for _, want := range []string{`name="hostnames_mode"`, `name="hostnames"`, `name="cert_domains"`, `name="cert_mode"`, `name="cert_cert_pem"`, `name="cert_key_pem"`, `name="acme_email"`, `name="cert_cert_path"`, `data-gw-cert-add`, `data-gw-cert-template`, `?section=gateway`, `name="hostnames_mode" value="custom" data-gw-hosts checked`, ">shop.example</textarea>"} {
+	for _, want := range []string{`name="hostnames_mode"`, `name="hostnames"`, `name="cert_domains"`, `data-gw-domains-auto`, `name="cert_mode"`, `name="cert_cert_pem"`, `name="cert_key_pem"`, `name="acme_email"`, `name="cert_cert_path"`, `data-gw-cert-add`, `data-gw-cert-template`, `?section=gateway`, `name="hostnames_mode" value="custom" data-gw-hosts checked`, ">shop.example</textarea>"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("gateway tab lacks %s", want)
 		}

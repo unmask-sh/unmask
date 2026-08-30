@@ -22,7 +22,8 @@ import (
 // (parallel arrays, one entry each in DOM order, a <select> per entry and
 // never a checkbox), and the ACME account.  A pasted pair is checked and
 // stored under the entry's id before the config is validated, and its
-// SANs become the entry's domains unless the operator typed some.
+// SANs are the entry's domains (the field is typed for Let's Encrypt and,
+// optionally, for files).
 func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string) error {
 	g.Normalize()
 	if err := r.ParseForm(); err != nil {
@@ -95,10 +96,8 @@ func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string)
 				if err != nil {
 					return fmt.Errorf("certificate %d: paste the certificate and its private key (none is stored yet)", i+1)
 				}
-				if c.Domains == "" {
-					if leaf, err := parseLeafCert(string(b)); err == nil {
-						c.Domains = strings.Join(certDomains(leaf), " ")
-					}
+				if leaf, err := parseLeafCert(string(b)); err == nil {
+					c.Domains = strings.Join(certDomains(leaf), " ")
 				}
 			case certPEM == "" || keyPEM == "":
 				return fmt.Errorf("certificate %d: paste both the certificate and the private key", i+1)
@@ -107,9 +106,7 @@ func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string)
 				if err != nil {
 					return fmt.Errorf("certificate %d: %w", i+1, err)
 				}
-				if c.Domains == "" {
-					c.Domains = strings.Join(certDomains(leaf), " ")
-				}
+				c.Domains = strings.Join(certDomains(leaf), " ")
 			}
 		}
 		certs = append(certs, c)

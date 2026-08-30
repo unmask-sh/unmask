@@ -83,6 +83,11 @@ func TestGatewayUncovered(t *testing.T) {
 	if got := strings.Join(g.Uncovered(), " "); got != "www.shop.example blog.example" {
 		t.Errorf("Uncovered = %q", got)
 	}
+	g.Certificates[0].Domains = ""
+	if g.Uncovered() != nil {
+		t.Error("a default certificate without domains (one mounted file) is for every hostname; nothing is uncovered")
+	}
+	g.Certificates[0].Domains = "shop.example"
 	g.Hostnames = GatewayHostnames{Mode: GatewayHostsAll}
 	if g.Uncovered() != nil {
 		t.Error("with all hostnames nothing is uncovered (the default certificate answers)")
