@@ -384,29 +384,37 @@ func RenderSignature(s settings.Settings, outDir, version string) (string, error
 type gatewayRender struct {
 	Active  bool
 	TLSNone bool // TLS terminated in front: no :443 server at all
-	// The first vhost, for the 0.1.37 nginx image's single-block template
+	// The first block, for the 0.1.37 nginx image's single-block template
 	// (gateway-server.inc / gateway-tls.inc); a 0.1.38 image renders every
-	// vhost from gateway-vhosts.inc instead.
+	// block from gateway-vhosts.inc instead.
 	ServerName string
 	TLSMode    string // "acme" | "files" | "none"
 	CertPath   string
 	KeyPath    string
 	Vhosts     []gatewayVhostRender
-	// The shared ACME account, rendered when any vhost uses it.
+	// The shared ACME account, rendered when any certificate uses it.
 	ACME          bool
 	ACMEEmail     string
 	ACMEDirectory string
 	ACMEVerify    string // "on" | "off"
 }
 
+// gatewayVhostRender: one :443 server block.  Reject = a handshake-refusing
+// default for hostnames outside the custom list (no certificate needed).
 type gatewayVhostRender struct {
 	Names    string
-	Default  bool // default_server: the catch-all if there is one, else the first
+	Default  bool
+	Reject   bool
 	TLSMode  string
 	CertPath string
 	KeyPath  string
 }
 
+// gatewayRenderOf turns hostnames + certificates into server blocks: one
+// per certificate that names something the gateway answers for, then the
+// default block -- the first certificate for any other hostname (all mode)
+// or for the custom names no certificate covers, and a handshake-rejecting
+// block for everything else in custom mode.
 func gatewayRenderOf(s settings.Settings, outDir string) gatewayRender {
 	g := s.Gateway
 	g.Normalize()
@@ -417,31 +425,50 @@ func gatewayRenderOf(s settings.Settings, outDir string) gatewayRender {
 	if g.TLSInFront() {
 		out.TLSNone = true
 		out.TLSMode = "none"
+		out.ServerName = "_"
+		return out
 	}
-	def := 0
-	for i, v := range g.Vhosts {
-		if v.CatchAll() {
-			def = i
-			break
+	tlsOf := func(c settings.GatewayCertificate) (mode, cert, key string) {
+		if c.ModeResolved() == settings.GatewayTLSACME {
+			return "acme", "", ""
 		}
+		return "files", c.CertPathResolved(outDir), c.KeyPathResolved(outDir)
 	}
-	for i, v := range g.Vhosts {
-		r := gatewayVhostRender{Names: v.Names, Default: i == def, TLSMode: "files"}
-		if !out.TLSNone {
-			switch v.ModeResolved() {
-			case settings.GatewayTLSACME:
-				r.TLSMode = "acme"
-			default:
-				r.CertPath = v.CertPathResolved(outDir)
-				r.KeyPath = v.KeyPathResolved(outDir)
+	custom := map[string]bool{}
+	for _, n := range g.HostnameList() {
+		custom[n] = true
+	}
+	for _, c := range g.Certificates {
+		var names []string
+		for _, d := range c.DomainList() {
+			if g.HostnamesAll() || custom[d] {
+				names = append(names, d)
 			}
 		}
-		out.Vhosts = append(out.Vhosts, r)
+		if len(names) == 0 {
+			continue
+		}
+		mode, cert, key := tlsOf(c)
+		out.Vhosts = append(out.Vhosts, gatewayVhostRender{Names: strings.Join(names, " "), TLSMode: mode, CertPath: cert, KeyPath: key})
 	}
-	if first := out.Vhosts[0]; !out.TLSNone {
+	if len(g.Certificates) > 0 {
+		def := g.Certificates[0]
+		mode, cert, key := tlsOf(def)
+		if g.HostnamesAll() {
+			out.Vhosts = append(out.Vhosts, gatewayVhostRender{Names: "_", Default: true, TLSMode: mode, CertPath: cert, KeyPath: key})
+		} else {
+			if un := g.Uncovered(); len(un) > 0 {
+				out.Vhosts = append(out.Vhosts, gatewayVhostRender{Names: strings.Join(un, " "), TLSMode: mode, CertPath: cert, KeyPath: key})
+			}
+			out.Vhosts = append(out.Vhosts, gatewayVhostRender{Names: "_", Default: true, Reject: true})
+		}
+	}
+	if len(out.Vhosts) > 0 {
+		first := out.Vhosts[0]
 		out.ServerName, out.TLSMode, out.CertPath, out.KeyPath = first.Names, first.TLSMode, first.CertPath, first.KeyPath
-	} else {
-		out.ServerName = out.Vhosts[0].Names
+		if first.Reject {
+			out.TLSMode = "files"
+		}
 	}
 	if g.UsesACME() {
 		out.ACME = true
