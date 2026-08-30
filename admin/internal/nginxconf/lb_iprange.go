@@ -145,6 +145,12 @@ func EffectiveLBCIDRs(n settings.Nginx) []string {
 	return out
 }
 
+// EffectiveLBs: the trusted LB / CDN set of settings > Network (enabled
+// presets + custom rows), for the gateway's real_ip ranges and the tab.
+func EffectiveLBs(n settings.Nginx) []LBIPRange {
+	return effectiveLBs(n.TrustedLBPresets, n.TrustedLBExtra)
+}
+
 // effectiveLBs: return the merged list of user-enabled presets + custom
 // extras.  Both empty -> empty (= trust no LB.  secure default).  Extras
 // win on ID collisions.

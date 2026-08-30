@@ -48,7 +48,6 @@ func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string)
 		return errors.New("hostnames: unknown choice")
 	}
 	g.Upstream = strings.TrimSpace(r.FormValue("upstream"))
-	g.TrustedProxies = strings.Join(strings.Fields(r.FormValue("trusted_proxies")), " ")
 	g.ACMEEmail = strings.TrimSpace(r.FormValue("acme_email"))
 	switch strings.TrimSpace(r.FormValue("acme_directory")) {
 	case "", "production":
