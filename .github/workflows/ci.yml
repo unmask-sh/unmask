@@ -273,6 +273,16 @@ jobs:
             sleep 1
           done
           docker logs unmask-nginx 2>&1 | grep -q 'unmask-autoreload: includes changed, nginx reloaded'
+          # A bypass path answers on plain :80 (a load balancer's health check
+          # lives there); everything else still redirects.
+          docker exec unmask-admin sh -c 'sed -i "s|^nginx:$|nginx:\n    bypass_paths:\n        paths:\n            - path: \"^/lb-probe/\"|" /etc/unmask/admin.yml'
+          docker exec unmask-admin /usr/local/bin/unmask render-nginx -config /etc/unmask/admin.yml
+          for i in $(seq 1 20); do
+            [ "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/lb-probe/x)" = 200 ] && break
+            sleep 1
+          done
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/lb-probe/x)" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/still-redirected)" = 301
       # The admin UI on the container: the setup wizard completes with the
       # token the entrypoint minted, and settings > Gateway takes a pasted
       # certificate that :443 then serves (stored pair, key 0600, reload).
