@@ -35,7 +35,11 @@ case "$loc" in *err=*) fail "user step: $loc" ;; *) pass "user step accepted" ;;
 step=$(h2)
 loc=$($C -o /dev/null -w '%{http_code} %{redirect_url}' -X POST "$ADMIN_URL/admin/setup/install")
 case "$loc" in *err=*) fail "install step: $loc (after user step the wizard showed: $step)" ;; *) pass "install step: $loc" ;; esac
-# Setup ends in a re-exec of the daemon; wait for it to answer again.
+# Setup ends in a re-exec of the daemon, a few seconds after the done page:
+# wait for it to happen (the log line), then for the new process to answer,
+# so no later request lands on the swap and gets its connection reset.
+for i in $(seq 1 45); do docker logs "$ADMIN_CONTAINER" 2>&1 | grep -q 'setup: re-exec' && break; sleep 1; done
+sleep 1
 for i in $(seq 1 30); do [ "$(curl -s -o /dev/null -w '%{http_code}' "$ADMIN_URL/healthz")" = 200 ] && break; sleep 1; done
 loc=$($C -o /dev/null -w '%{redirect_url}' --data-urlencode "username=admin" --data-urlencode "password=$PW" "$ADMIN_URL/admin/login")
 case "$loc" in */admin/setup/*) fail "login still redirects to the wizard ($loc) -- setup did not complete" ;; *) pass "login: $loc" ;; esac
