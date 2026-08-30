@@ -132,7 +132,11 @@ fi
 # Skipped when not root (someone ran the image with --user).
 if [ "$(id -u)" = "0" ]; then
     for d in /etc/unmask /var/lib/unmask /run/unmask; do
-        [ -d "$d" ] && chown -R unmask:unmask "$d"
+        # A read-only bind mount inside the volume (certificates mounted for
+        # the Gateway tab, e.g. ./tls) cannot be chowned and need not be:
+        # the daemon only reads them.  Keep going; a volume that really is
+        # not writable fails loudly at migrate/render right after.
+        [ -d "$d" ] && { chown -R unmask:unmask "$d" 2>/dev/null || echo "entrypoint: chown $d: read-only entries left as they are" >&2; }
     done
 fi
 

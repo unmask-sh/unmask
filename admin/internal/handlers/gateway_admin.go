@@ -22,8 +22,9 @@ import (
 // (parallel arrays, one entry each in DOM order, a <select> per entry and
 // never a checkbox), and the ACME account.  A pasted pair is checked and
 // stored under the entry's id before the config is validated, and its
-// SANs are the entry's domains (the field is typed for Let's Encrypt and,
-// optionally, for files).
+// SANs are the entry's domains; so are a mounted file's when the admin
+// can read it (same mount as the nginx service).  The field is typed for
+// Let's Encrypt and, optionally, for a file the admin cannot see.
 func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string) error {
 	g.Normalize()
 	if err := r.ParseForm(); err != nil {
@@ -109,10 +110,24 @@ func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string)
 				c.Domains = strings.Join(certDomains(leaf), " ")
 			}
 		}
+		if mode == settings.GatewayTLSFiles && !g.TLSInFront() {
+			if leaf, err := readLeafFile(c.CertPathResolved(outDir)); err == nil {
+				c.Domains = strings.Join(certDomains(leaf), " ")
+			}
+		}
 		certs = append(certs, c)
 	}
 	g.Certificates = certs
 	return g.Validate()
+}
+
+// readLeafFile: the leaf of a certificate file, when the admin can see it.
+func readLeafFile(path string) (*x509.Certificate, error) {
+	b, err := os.ReadFile(path) //nolint:gosec // the operator's own certificate path, validated as an absolute nginx token
+	if err != nil {
+		return nil, err
+	}
+	return parseLeafCert(string(b))
 }
 
 // certDomains: the names a certificate is for -- its SANs, or the common
@@ -126,7 +141,7 @@ func certDomains(c *x509.Certificate) []string {
 		}
 	}
 	if len(out) == 0 {
-		if cn := strings.ToLower(strings.TrimSpace(c.Subject.CommonName)); cn != "" && strings.Contains(cn, ".") && !strings.ContainsAny(cn, " ;{}\"'$#\\") {
+		if cn := strings.ToLower(strings.TrimSpace(c.Subject.CommonName)); cn != "" && strings.Trim(cn, "abcdefghijklmnopqrstuvwxyz0123456789.-*") == "" {
 			out = append(out, cn)
 		}
 	}
@@ -257,6 +272,10 @@ type gatewayCertEntryView struct {
 	Default  bool // the first: served to any hostname no certificate names
 	Cert     gatewayCertView
 	Uploaded map[string]any
+	// FileReadable: files mode and the admin can read the certificate, so
+	// FileSANs are its names and no domains need typing.
+	FileReadable bool
+	FileSANs     string
 }
 
 // gatewayCertViews builds the entries; probe = dial :443 per certificate
@@ -269,6 +288,12 @@ func gatewayCertViews(g settings.GatewayConfig, outDir string, probe bool) []gat
 		row := gatewayCertEntryView{Index: i + 1, C: c, Default: i == 0}
 		subj, iss, exp, ok := uploadedCertInfo(outDir, c.ID)
 		row.Uploaded = map[string]any{"OK": ok, "Subject": subj, "Issuer": iss, "NotAfter": exp}
+		if c.ModeResolved() == settings.GatewayTLSFiles {
+			if leaf, err := readLeafFile(c.CertPathResolved(outDir)); err == nil {
+				row.FileReadable = true
+				row.FileSANs = strings.Join(certDomains(leaf), " ")
+			}
+		}
 		if probe && !g.TLSInFront() {
 			row.Cert = gatewayCertStatus(gatewayAddr(), c.FirstDomain())
 		}
