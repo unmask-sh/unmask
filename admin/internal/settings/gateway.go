@@ -182,12 +182,12 @@ func (g GatewayConfig) ACMEDirectoryResolved() string {
 	return strings.TrimSpace(g.ACMEDirectory)
 }
 
-// Uncovered: custom hostnames no certificate names (they get the default
-// certificate, and a browser warning).  A default certificate without
-// domains (a mounted file, the single-certificate case) is taken to be for
-// every hostname, so nothing is uncovered then.
+// Uncovered: custom hostnames no certificate names.  The renderer serves
+// them the default certificate; the tab warns about them unless the default
+// certificate has no domains of its own (a mounted file the admin cannot
+// read: it is taken to be for every hostname), see UncoveredWarn.
 func (g GatewayConfig) Uncovered() []string {
-	if g.HostnamesAll() || len(g.Certificates) == 0 || len(g.Certificates[0].DomainList()) == 0 {
+	if g.HostnamesAll() {
 		return nil
 	}
 	covered := map[string]bool{}
@@ -203,6 +203,15 @@ func (g GatewayConfig) Uncovered() []string {
 		}
 	}
 	return out
+}
+
+// UncoveredWarn: the uncovered hostnames worth a warning -- none when the
+// default certificate carries no domains, since it then stands for all.
+func (g GatewayConfig) UncoveredWarn() []string {
+	if len(g.Certificates) == 0 || len(g.Certificates[0].DomainList()) == 0 {
+		return nil
+	}
+	return g.Uncovered()
 }
 
 // NewCertificateID mints the stable key of a certificate's stored pair.
