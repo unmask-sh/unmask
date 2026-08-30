@@ -17,14 +17,12 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// applyGatewayForm reads settings > Gateway.  The tab is two lists: the
-// hostnames the gateway answers for (a textarea plus a catch-all box), and
-// the certificates, each covering some of those names.  A certificate is
-// one vhost; the covered names travel in a hidden cert_names the chips
-// maintain, and every name must sit on exactly one certificate.  Entries
-// are parallel arrays in DOM order (a <select> per entry, never a checkbox).
-// A pasted pair is checked and stored under the entry's id before the
-// config is validated, so a bad paste never reaches the render.
+// applyGatewayForm reads settings > Gateway: where TLS ends, which
+// hostnames the gateway answers for (all, or a list), the certificates
+// (parallel arrays, one entry each in DOM order, a <select> per entry and
+// never a checkbox), and the ACME account.  A pasted pair is checked and
+// stored under the entry's id before the config is validated, and its
+// SANs become the entry's domains unless the operator typed some.
 func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string) error {
 	g.Normalize()
 	if err := r.ParseForm(); err != nil {
@@ -37,6 +35,14 @@ func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string)
 		g.TLS = settings.GatewayTLSNone
 	default:
 		return errors.New("TLS: unknown choice")
+	}
+	switch strings.TrimSpace(r.FormValue("hostnames_mode")) {
+	case "", settings.GatewayHostsAll:
+		g.Hostnames = settings.GatewayHostnames{Mode: settings.GatewayHostsAll}
+	case settings.GatewayHostsCustom:
+		g.Hostnames = settings.GatewayHostnames{Mode: settings.GatewayHostsCustom, Names: strings.Join(strings.Fields(strings.ToLower(r.FormValue("hostnames"))), " ")}
+	default:
+		return errors.New("hostnames: unknown choice")
 	}
 	g.ACMEEmail = strings.TrimSpace(r.FormValue("acme_email"))
 	switch strings.TrimSpace(r.FormValue("acme_directory")) {
@@ -53,38 +59,8 @@ func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string)
 		return errors.New("ACME directory: unknown choice")
 	}
 
-	// The names, deduplicated, lower-cased, in the order given; "_" is the
-	// catch-all box, never a typed name.
-	var names []string
-	seen := map[string]bool{}
-	for _, n := range strings.Fields(strings.ToLower(r.FormValue("hostnames"))) {
-		if n == "_" || seen[n] {
-			continue
-		}
-		seen[n] = true
-		names = append(names, n)
-	}
-	catchAll := r.FormValue("catch_all") == "1"
-	if len(names) == 0 && !catchAll {
-		return errors.New("hostnames: enter at least one hostname, or answer for any hostname")
-	}
-	if catchAll {
-		names = append(names, "_")
-	}
-
-	// TLS in front: no certificates; one vhost naming everything is enough
-	// (the :80 server is a catch-all anyway, the list just records intent).
-	if g.TLSInFront() {
-		id := ""
-		if len(g.Vhosts) > 0 {
-			id = g.Vhosts[0].ID
-		}
-		g.Vhosts = []settings.GatewayVhost{{ID: id, Names: strings.Join(names, " ")}}
-		return g.Validate()
-	}
-
 	col := func(k string) []string { return r.Form[k] }
-	ids, covered, modes := col("cert_id"), col("cert_names"), col("cert_mode")
+	ids, modes, domains := col("cert_id"), col("cert_mode"), col("cert_domains")
 	certPaths, keyPaths := col("cert_cert_path"), col("cert_key_path")
 	certPEMs, chainPEMs, keyPEMs := col("cert_cert_pem"), col("cert_chain_pem"), col("cert_key_pem")
 	at := func(a []string, i int) string {
@@ -93,32 +69,12 @@ func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string)
 		}
 		return ""
 	}
-	n := len(modes)
-	if n == 0 {
-		return errors.New("certificates: add a certificate for the hostnames above")
-	}
-	owner := map[string]int{}
-	var vhosts []settings.GatewayVhost
-	for i := 0; i < n; i++ {
-		v := settings.GatewayVhost{ID: at(ids, i)}
-		if v.ID == "" && i > 0 {
-			v.ID = settings.NewVhostID()
+	var certs []settings.GatewayCertificate
+	for i := 0; i < len(modes); i++ {
+		c := settings.GatewayCertificate{ID: at(ids, i)}
+		if c.ID == "" && i > 0 {
+			c.ID = settings.NewCertificateID()
 		}
-		var mine []string
-		for _, c := range strings.Fields(strings.ToLower(at(covered, i))) {
-			if !seen[c] && !(c == "_" && catchAll) {
-				continue // a name that is no longer in the list
-			}
-			if j, taken := owner[c]; taken {
-				return fmt.Errorf("certificate %d: %s is already on certificate %d", i+1, c, j+1)
-			}
-			owner[c] = i
-			mine = append(mine, c)
-		}
-		if len(mine) == 0 {
-			return fmt.Errorf("certificate %d: pick at least one hostname for it", i+1)
-		}
-		v.Names = strings.Join(mine, " ")
 		mode := at(modes, i)
 		switch mode {
 		case settings.GatewayTLSACME, settings.GatewayTLSUpload, settings.GatewayTLSFiles:
@@ -127,70 +83,87 @@ func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string)
 		default:
 			return fmt.Errorf("certificate %d: unknown source %q", i+1, mode)
 		}
-		v.TLSMode = mode
-		v.CertPath = at(certPaths, i)
-		v.KeyPath = at(keyPaths, i)
-		if mode == settings.GatewayTLSUpload {
+		c.Mode = mode
+		c.Domains = strings.Join(strings.Fields(strings.ToLower(at(domains, i))), " ")
+		c.CertPath = at(certPaths, i)
+		c.KeyPath = at(keyPaths, i)
+		if mode == settings.GatewayTLSUpload && !g.TLSInFront() {
 			certPEM, chainPEM, keyPEM := at(certPEMs, i), at(chainPEMs, i), at(keyPEMs, i)
 			switch {
 			case certPEM == "" && keyPEM == "":
-				if _, err := os.Stat(settings.UploadedCertPath(outDir, v.ID)); err != nil {
+				b, err := os.ReadFile(settings.UploadedCertPath(outDir, c.ID))
+				if err != nil {
 					return fmt.Errorf("certificate %d: paste the certificate and its private key (none is stored yet)", i+1)
+				}
+				if c.Domains == "" {
+					if leaf, err := parseLeafCert(string(b)); err == nil {
+						c.Domains = strings.Join(certDomains(leaf), " ")
+					}
 				}
 			case certPEM == "" || keyPEM == "":
 				return fmt.Errorf("certificate %d: paste both the certificate and the private key", i+1)
 			default:
-				if err := storeUploadedCert(outDir, v.ID, certPEM, chainPEM, keyPEM); err != nil {
+				leaf, err := storeUploadedCert(outDir, c.ID, certPEM, chainPEM, keyPEM)
+				if err != nil {
 					return fmt.Errorf("certificate %d: %w", i+1, err)
+				}
+				if c.Domains == "" {
+					c.Domains = strings.Join(certDomains(leaf), " ")
 				}
 			}
 		}
-		vhosts = append(vhosts, v)
+		certs = append(certs, c)
 	}
-	var uncovered []string
-	for _, nm := range names {
-		if _, ok := owner[nm]; !ok {
-			if nm == "_" {
-				nm = "(any other hostname)"
-			}
-			uncovered = append(uncovered, nm)
-		}
-	}
-	if len(uncovered) > 0 {
-		return fmt.Errorf("hostnames with no certificate: %s", strings.Join(uncovered, ", "))
-	}
-	g.Vhosts = vhosts
+	g.Certificates = certs
 	return g.Validate()
 }
 
-// storeUploadedCert validates a pasted pair and stores it as the vhost's
+// certDomains: the names a certificate is for -- its SANs, or the common
+// name when it has none (old-style certificates).
+func certDomains(c *x509.Certificate) []string {
+	var out []string
+	for _, n := range c.DNSNames {
+		n = strings.ToLower(strings.TrimSpace(n))
+		if n != "" && !strings.ContainsAny(n, " ;{}\"'$#\\") {
+			out = append(out, n)
+		}
+	}
+	if len(out) == 0 {
+		if cn := strings.ToLower(strings.TrimSpace(c.Subject.CommonName)); cn != "" && strings.Contains(cn, ".") && !strings.ContainsAny(cn, " ;{}\"'$#\\") {
+			out = append(out, cn)
+		}
+	}
+	return out
+}
+
+// storeUploadedCert validates a pasted pair and stores it as the entry's
 // files, key readable by the daemon only.  Temp-file + rename, so nginx
-// never reads a half-written certificate.
-func storeUploadedCert(outDir, id, certPEM, chainPEM, keyPEM string) error {
+// never reads a half-written certificate.  Returns the leaf.
+func storeUploadedCert(outDir, id, certPEM, chainPEM, keyPEM string) (*x509.Certificate, error) {
 	full := certPEM + "\n"
 	if chainPEM != "" {
 		full += chainPEM + "\n"
 	}
 	leaf, err := parseLeafCert(full)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := tls.X509KeyPair([]byte(full), []byte(keyPEM+"\n")); err != nil {
-		return fmt.Errorf("certificate: the private key does not match the certificate, or is not a PEM key (%v)", err)
+		return nil, fmt.Errorf("certificate: the private key does not match the certificate, or is not a PEM key (%v)", err)
 	}
 	if time.Now().After(leaf.NotAfter) {
-		return fmt.Errorf("certificate: expired on %s", leaf.NotAfter.UTC().Format("2006-01-02"))
+		return nil, fmt.Errorf("certificate: expired on %s", leaf.NotAfter.UTC().Format("2006-01-02"))
 	}
 	if err := os.MkdirAll(outDir, 0o750); err != nil {
-		return fmt.Errorf("certificate: mkdir %s: %w", outDir, err)
+		return nil, fmt.Errorf("certificate: mkdir %s: %w", outDir, err)
 	}
 	if err := writePrivate(settings.UploadedKeyPath(outDir, id), []byte(keyPEM+"\n"), 0o600); err != nil {
-		return fmt.Errorf("certificate: store key: %w", err)
+		return nil, fmt.Errorf("certificate: store key: %w", err)
 	}
 	if err := writePrivate(settings.UploadedCertPath(outDir, id), []byte(full), 0o644); err != nil {
-		return fmt.Errorf("certificate: store certificate: %w", err)
+		return nil, fmt.Errorf("certificate: store certificate: %w", err)
 	}
-	return nil
+	return leaf, nil
 }
 
 func writePrivate(path string, b []byte, perm os.FileMode) error {
@@ -227,8 +200,8 @@ func parseLeafCert(bundle string) (*x509.Certificate, error) {
 	return c, nil
 }
 
-// gatewayCertView: what the gateway's :443 serves for one vhost, read off
-// the wire -- the truth, whatever the settings say.
+// gatewayCertView: what the gateway's :443 serves for a name, read off the
+// wire -- the truth, whatever the settings say.
 type gatewayCertView struct {
 	Checked   bool
 	OK        bool
@@ -280,26 +253,27 @@ func gatewayAddr() string {
 	return "nginx:443"
 }
 
-// gatewayVhostView: one row of the tab.
-type gatewayVhostView struct {
+// gatewayCertEntryView: one certificate entry of the tab.
+type gatewayCertEntryView struct {
 	Index    int
-	V        settings.GatewayVhost
-	Any      bool // catch-all row
+	C        settings.GatewayCertificate
+	Default  bool // the first: served to any hostname no certificate names
 	Cert     gatewayCertView
 	Uploaded map[string]any
 }
 
-// gatewayVhostViews builds the rows; probe = dial :443 per vhost (the tab is
-// the only place that happens).
-func gatewayVhostViews(g settings.GatewayConfig, outDir string, probe bool) []gatewayVhostView {
+// gatewayCertViews builds the entries; probe = dial :443 per certificate
+// with its first domain as SNI (the default without one), only when the tab
+// is open.
+func gatewayCertViews(g settings.GatewayConfig, outDir string, probe bool) []gatewayCertEntryView {
 	g.Normalize()
-	var out []gatewayVhostView
-	for i, v := range g.Vhosts {
-		row := gatewayVhostView{Index: i + 1, V: v, Any: v.CatchAll()}
-		subj, iss, exp, ok := uploadedCertInfo(outDir, v.ID)
+	var out []gatewayCertEntryView
+	for i, c := range g.Certificates {
+		row := gatewayCertEntryView{Index: i + 1, C: c, Default: i == 0}
+		subj, iss, exp, ok := uploadedCertInfo(outDir, c.ID)
 		row.Uploaded = map[string]any{"OK": ok, "Subject": subj, "Issuer": iss, "NotAfter": exp}
 		if probe && !g.TLSInFront() {
-			row.Cert = gatewayCertStatus(gatewayAddr(), v.FirstName())
+			row.Cert = gatewayCertStatus(gatewayAddr(), c.FirstDomain())
 		}
 		out = append(out, row)
 	}
@@ -316,6 +290,12 @@ func uploadedCertInfo(outDir, id string) (subject, issuer, notAfter string, ok b
 		return "", "", "", false
 	}
 	return dnLabel(c.Subject), dnLabel(c.Issuer), c.NotAfter.UTC().Format("2006-01-02"), true
+}
+
+// gatewayHostnamesText: the custom list, one per line.
+func gatewayHostnamesText(g settings.GatewayConfig) string {
+	g.Normalize()
+	return strings.Join(g.HostnameList(), "\n")
 }
 
 // nginxOutDir: where the admin renders, and where uploaded pairs live.
@@ -344,29 +324,4 @@ func dnLabel(n pkix.Name) string {
 	default:
 		return cn + " (" + org + ")"
 	}
-}
-
-// gatewayNamesText: the hostnames card, one per line, the catch-all left
-// to its checkbox.
-func gatewayNamesText(g settings.GatewayConfig) string {
-	g.Normalize()
-	var out []string
-	for _, v := range g.Vhosts {
-		for _, n := range v.NameList() {
-			if n != "_" {
-				out = append(out, n)
-			}
-		}
-	}
-	return strings.Join(out, "\n")
-}
-
-func gatewayCatchAll(g settings.GatewayConfig) bool {
-	g.Normalize()
-	for _, v := range g.Vhosts {
-		if v.CatchAll() {
-			return true
-		}
-	}
-	return false
 }

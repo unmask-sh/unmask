@@ -2,16 +2,28 @@
 #
 # generated_at: {{ .GeneratedAt }} / version: {{ .Version }}
 #
-# The gateway's :443 servers, one per vhost (settings > Gateway).  nginx picks
-# the block by SNI, so each vhost carries its own certificate.  The proxy
-# location is written by the nginx image (unmask-gateway-location.inc), which
-# is where the upstream address lives.  http scope.
+# The gateway's :443 servers (settings > Gateway): one per certificate, named
+# by its domains, plus the default server, which carries the first certificate
+# (or rejects the handshake when the hostnames are a list).  nginx picks the
+# block by SNI.  The proxy location is written by the nginx image
+# (unmask-gateway-location.inc), which is where the upstream address lives.
+# http scope.
 {{- if .Gateway.TLSNone }}
 # unmask-gateway-tls: none
 # TLS is terminated in front of the gateway (a load balancer); the nginx
 # image serves :80 only and renders no :443 server.
 {{- else }}
 {{- range .Gateway.Vhosts }}
+{{- if .Reject }}
+# Hostnames outside the configured list: refuse the handshake (no
+# certificate is presented, nothing is served).
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
+    ssl_reject_handshake on;
+}
+{{- else }}
 server {
     listen 443 ssl{{ if .Default }} default_server{{ end }};
     listen [::]:443 ssl{{ if .Default }} default_server{{ end }};
@@ -31,5 +43,6 @@ server {
     client_max_body_size 0;
     include /etc/nginx/unmask-gateway-location.inc;
 }
+{{- end }}
 {{- end }}
 {{- end }}

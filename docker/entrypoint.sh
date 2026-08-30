@@ -89,17 +89,24 @@ EOF
         case "${UNMASK_TLS_MODE:-}" in none|files|acme|upload) mode="$UNMASK_TLS_MODE" ;; esac
         gwtls='""'; vhmode="$mode"
         if [ "$mode" = none ]; then gwtls=none; vhmode=files; fi
+        # "_" (or nothing) = any hostname; otherwise the list, which is
+        # also what the seeded certificate is for.
+        hostmode=all; hostnames='""'
+        case "${UNMASK_SERVER_NAME:-_}" in _|"") ;; *) hostmode=custom; hostnames="${UNMASK_SERVER_NAME}" ;; esac
         insecure=false
         case "${UNMASK_ACME_INSECURE:-}" in 1|true|yes|on) insecure=true ;; esac
         cat >> "$CFG" <<EOF
 gateway:
     tls: ${gwtls}
+    hostnames:
+        mode: ${hostmode}
+        names: ${hostnames}
     acme_email: ${UNMASK_ACME_EMAIL:-}
     acme_directory: ${UNMASK_ACME_DIRECTORY:-}
     acme_insecure: ${insecure}
-    vhosts:
-        - names: ${UNMASK_SERVER_NAME:-_}
-          tls_mode: ${vhmode}
+    certificates:
+        - mode: ${vhmode}
+          domains: ${hostnames}
           cert_path: ${UNMASK_TLS_CERT:-/etc/unmask/tls/fullchain.pem}
           key_path: ${UNMASK_TLS_KEY:-/etc/unmask/tls/privkey.pem}
 EOF

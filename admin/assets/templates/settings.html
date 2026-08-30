@@ -5737,12 +5737,8 @@ function secToHuman(s){
 #gateway-form .field-label{color:#334155;font-weight:600;font-size:.82rem;margin:.5rem 0 .25rem}
 .gw-cert{border:1px solid #e2e8f0;border-radius:.4rem;padding:.8rem 1rem;margin:.6rem 0;background:#fafbfc}
 .gw-cert.gw-new{border-color:#93c5fd;background:#f0f9ff}
-.gw-chips{display:flex;flex-wrap:wrap;gap:.35rem;margin:.2rem 0 .4rem}
-.gw-chip{display:inline-flex;align-items:center;gap:.3rem;border:1px solid #cbd5e1;border-radius:1rem;padding:.15rem .6rem;font-size:.82rem;background:#fff;cursor:pointer;font-family:ui-monospace,monospace}
-.gw-chip.on{background:#dbeafe;border-color:#3b82f6;color:#1e3a8a}
-.gw-chip.taken{opacity:.45;cursor:not-allowed}
-.gw-chips-empty{font-size:.8rem;color:#94a3b8}
-.gw-uncovered{color:#b91c1c;font-size:.82rem}
+.gw-badge{display:inline-block;font-size:.7rem;font-weight:700;padding:.1rem .45rem;border-radius:.2rem;background:#dbeafe;color:#1e3a8a;margin-left:.4rem;vertical-align:middle}
+.gw-warn{color:#b91c1c;font-size:.82rem;margin:.4rem 0}
 </style>
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=gateway" id="gateway-form">
   {{/* 1. Where TLS ends. */}}
@@ -5753,44 +5749,43 @@ function secToHuman(s){
     <p class="note" data-gw-tls-note style="margin-top:.5rem">{{ safeHTML (t .Lang "settings.gateway.mode_none_desc") }}</p>
   </div>
 
-  {{/* 2. The names the gateway answers for.  Just names; certificates are
-       the next card's business. */}}
+  {{/* 2. Which hostnames the gateway answers for.  Independent of the
+       certificates: each of those knows its own domains. */}}
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.gateway.hostnames_h" }}</h2>
     <p class="note">{{ safeHTML (t .Lang "settings.gateway.hostnames_desc") }}</p>
-    <div class="field">
-      <div class="field-label">{{ t .Lang "settings.gateway.hostnames" }}</div>
-      <textarea name="hostnames" rows="3" spellcheck="false" autocomplete="off" placeholder="example.com&#10;www.example.com&#10;shop.example.com" data-gw-hostnames style="width:100%;font-family:ui-monospace,monospace">{{ .GatewayNames }}</textarea>
+    <label style="display:block;margin:.3rem 0"><input type="radio" name="hostnames_mode" value="all" data-gw-hosts {{ if .GatewayHostsAll }}checked{{ end }}> {{ t .Lang "settings.gateway.hostnames_all" }}</label>
+    <label style="display:block;margin:.3rem 0"><input type="radio" name="hostnames_mode" value="custom" data-gw-hosts {{ if not .GatewayHostsAll }}checked{{ end }}> {{ t .Lang "settings.gateway.hostnames_custom" }}</label>
+    <div class="field" data-gw-hosts-list>
+      <textarea name="hostnames" rows="3" spellcheck="false" autocomplete="off" placeholder="example.com&#10;www.example.com&#10;shop.example.com" style="width:100%;font-family:ui-monospace,monospace">{{ .GatewayHostnames }}</textarea>
+      <p class="note">{{ safeHTML (t .Lang "settings.gateway.hostnames_custom_desc") }}</p>
+      {{ if .GatewayUncovered }}<p class="gw-warn">{{ t .Lang "settings.gateway.uncovered" }} <code>{{ .GatewayUncovered }}</code></p>{{ end }}
     </div>
-    <label style="display:block;margin:.4rem 0"><input type="checkbox" name="catch_all" value="1" data-gw-catchall {{ if .GatewayCatchAll }}checked{{ end }}> {{ t .Lang "settings.gateway.catch_all" }}</label>
-    <p class="note">{{ safeHTML (t .Lang "settings.gateway.catch_all_desc") }}</p>
   </div>
 
-  {{/* 3. The certificates: one entry per certificate, each with how it is
-       obtained and which of the names above it covers.  Every name needs
-       exactly one; the chips enforce that.  Entries are parallel arrays
-       (cert_* per entry, in DOM order); the covered names travel in a hidden
-       cert_names the chips maintain. */}}
+  {{/* 3. The certificates: one entry each, with its source and its
+       domains.  The first is the default.  Entries are parallel arrays
+       (cert_* per entry, in DOM order). */}}
   <div class="bcd-card" data-gw-certs-card>
     <h2>{{ t .Lang "settings.gateway.certs_h" }}</h2>
     <p class="note">{{ safeHTML (t .Lang "settings.gateway.certs_desc") }}</p>
     <div data-gw-certs>
-    {{ range .GatewayVhosts }}
+    {{ range .GatewayCerts }}
       <div class="gw-cert" data-gw-cert>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem">
-          <b data-gw-cert-title>{{ tf $.Lang "settings.gateway.cert_n" .Index }}</b>
+          <span><b data-gw-cert-title>{{ tf $.Lang "settings.gateway.cert_n" .Index }}</b><span class="gw-badge" data-gw-default-badge>{{ t $.Lang "settings.gateway.cert_default" }}</span></span>
           <button type="button" class="btn-sm" data-gw-cert-delete>{{ t $.Lang "settings.gateway.vhost_delete" }}</button>
         </div>
-        <input type="hidden" name="cert_id" value="{{ .V.ID }}">
-        <input type="hidden" name="cert_names" value="{{ .V.Names }}" data-gw-cert-names>
-        <div class="field-label">{{ t $.Lang "settings.gateway.cert_targets" }}</div>
-        <div class="gw-chips" data-gw-chips></div>
+        <input type="hidden" name="cert_id" value="{{ .C.ID }}">
         <div class="field-label">{{ t $.Lang "settings.gateway.tls_mode" }}</div>
         <select name="cert_mode" data-gw-mode>
-          <option value="acme"   {{ if eq .V.ModeResolved "acme"   }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_acme" }}</option>
-          <option value="upload" {{ if eq .V.ModeResolved "upload" }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_upload" }}</option>
-          <option value="files"  {{ if eq .V.ModeResolved "files"  }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_files" }}</option>
+          <option value="acme"   {{ if eq .C.ModeResolved "acme"   }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_acme" }}</option>
+          <option value="upload" {{ if eq .C.ModeResolved "upload" }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_upload" }}</option>
+          <option value="files"  {{ if eq .C.ModeResolved "files"  }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_files" }}</option>
         </select>
+        <div class="field-label">{{ t $.Lang "settings.gateway.cert_domains" }}</div>
+        <input type="text" name="cert_domains" value="{{ .C.Domains }}" placeholder="example.com www.example.com" style="width:100%;font-family:ui-monospace,monospace">
+        <p class="note" data-gw-domains-note>{{ safeHTML (t $.Lang "settings.gateway.cert_domains_desc") }}</p>
         <div class="field" data-gw-panel="acme"><p class="note">{{ safeHTML (t $.Lang "settings.gateway.mode_acme_desc") }}</p></div>
         <div class="field" data-gw-panel="upload">
           <p class="note">{{ safeHTML (t $.Lang "settings.gateway.mode_upload_desc") }}</p>
@@ -5808,9 +5803,9 @@ function secToHuman(s){
         <div class="field" data-gw-panel="files">
           <p class="note">{{ safeHTML (t $.Lang "settings.gateway.mode_files_desc") }}</p>
           <div class="field-label">{{ t $.Lang "settings.gateway.tls_cert_path" }}</div>
-          <input type="text" name="cert_cert_path" value="{{ .V.CertPath }}" placeholder="/etc/unmask/tls/fullchain.pem" style="width:100%;font-family:ui-monospace,monospace">
+          <input type="text" name="cert_cert_path" value="{{ .C.CertPath }}" placeholder="/etc/unmask/tls/fullchain.pem" style="width:100%;font-family:ui-monospace,monospace">
           <div class="field-label">{{ t $.Lang "settings.gateway.tls_key_path" }}</div>
-          <input type="text" name="cert_key_path" value="{{ .V.KeyPath }}" placeholder="/etc/unmask/tls/privkey.pem" style="width:100%;font-family:ui-monospace,monospace">
+          <input type="text" name="cert_key_path" value="{{ .C.KeyPath }}" placeholder="/etc/unmask/tls/privkey.pem" style="width:100%;font-family:ui-monospace,monospace">
         </div>
         {{ if .Cert.Checked }}
         <div class="field">
@@ -5821,7 +5816,7 @@ function secToHuman(s){
             &nbsp;·&nbsp; {{ t $.Lang "settings.gateway.cert_expires" }}: <b>{{ .Cert.NotAfter }}</b>
             ({{ tf $.Lang "settings.gateway.cert_days_left" .Cert.DaysLeft }})
             {{ if .Cert.Names }}<br>SAN: {{ .Cert.Names }}{{ end }}
-            {{ if and (not .Any) (not .Cert.NameMatch) }}<br><span style="color:#b91c1c">⚠ {{ t $.Lang "settings.gateway.cert_name_mismatch" }}</span>{{ end }}
+            {{ if and .C.FirstDomain (not .Cert.NameMatch) }}<br><span style="color:#b91c1c">⚠ {{ t $.Lang "settings.gateway.cert_name_mismatch" }}</span>{{ end }}
           </div>
           {{ else }}
           <div class="note" style="color:#b91c1c">{{ t $.Lang "settings.gateway.cert_probe_failed" }}: <code>{{ .Cert.Err }}</code></div>
@@ -5834,19 +5829,19 @@ function secToHuman(s){
     <template data-gw-cert-template>
       <div class="gw-cert gw-new" data-gw-cert>
         <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem">
-          <b data-gw-cert-title></b>
+          <span><b data-gw-cert-title></b><span class="gw-badge" data-gw-default-badge>{{ t .Lang "settings.gateway.cert_default" }}</span></span>
           <button type="button" class="btn-sm" data-gw-cert-delete>{{ t .Lang "settings.gateway.vhost_delete" }}</button>
         </div>
         <input type="hidden" name="cert_id" value="">
-        <input type="hidden" name="cert_names" value="" data-gw-cert-names>
-        <div class="field-label">{{ t .Lang "settings.gateway.cert_targets" }}</div>
-        <div class="gw-chips" data-gw-chips></div>
         <div class="field-label">{{ t .Lang "settings.gateway.tls_mode" }}</div>
         <select name="cert_mode" data-gw-mode>
           <option value="acme" selected>{{ t .Lang "settings.gateway.mode_acme" }}</option>
           <option value="upload">{{ t .Lang "settings.gateway.mode_upload" }}</option>
           <option value="files">{{ t .Lang "settings.gateway.mode_files" }}</option>
         </select>
+        <div class="field-label">{{ t .Lang "settings.gateway.cert_domains" }}</div>
+        <input type="text" name="cert_domains" value="" placeholder="example.com www.example.com" style="width:100%;font-family:ui-monospace,monospace">
+        <p class="note" data-gw-domains-note>{{ safeHTML (t .Lang "settings.gateway.cert_domains_desc") }}</p>
         <div class="field" data-gw-panel="acme"><p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_acme_desc") }}</p></div>
         <div class="field" data-gw-panel="upload">
           <p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_upload_desc") }}</p>
@@ -5867,10 +5862,9 @@ function secToHuman(s){
       </div>
     </template>
     <button type="button" class="btn-sm" data-gw-cert-add>{{ t .Lang "settings.gateway.cert_add" }}</button>
-    <p class="gw-uncovered" data-gw-uncovered style="display:none"></p>
   </div>
 
-  {{/* 4. The ACME account, shared by every certificate issued by Let's Encrypt. */}}
+  {{/* 4. The ACME account, shared by every certificate from Let's Encrypt. */}}
   <div class="bcd-card" data-gw-acme-card>
     <h2>{{ t .Lang "settings.gateway.acme_h" }}</h2>
     <p class="note">{{ safeHTML (t .Lang "settings.gateway.acme_desc") }}</p>
@@ -5897,67 +5891,27 @@ function secToHuman(s){
 (function(){
   var form = document.getElementById('gateway-form'); if (!form) return;
   var certList = form.querySelector('[data-gw-certs]');
-  var certLabel = {{ printf "%q" (t .Lang "settings.gateway.cert_n") }};
-  var anyLabel = {{ printf "%q" (t .Lang "settings.gateway.catch_all_chip") }};
-  var uncoveredLabel = {{ printf "%q" (t .Lang "settings.gateway.uncovered") }};
-  var noNamesLabel = {{ printf "%q" (t .Lang "settings.gateway.no_names_yet") }};
-  function names(){
-    var v = form.querySelector('[data-gw-hostnames]').value.split(/\s+/).filter(Boolean);
-    var seen = {}, out = [];
-    v.forEach(function(n){ n = n.toLowerCase(); if (n !== '_' && !seen[n]) { seen[n] = 1; out.push(n); } });
-    if (form.querySelector('[data-gw-catchall]').checked) out.push('_');
-    return out;
-  }
-  function assigned(cert){ return cert.querySelector('[data-gw-cert-names]').value.split(/\s+/).filter(Boolean); }
-  function setAssigned(cert, list){ cert.querySelector('[data-gw-cert-names]').value = list.join(' '); }
-  function ownerOf(name){
-    var owner = null;
-    certList.querySelectorAll('[data-gw-cert]').forEach(function(c){ if (assigned(c).indexOf(name) !== -1) owner = c; });
-    return owner;
-  }
-  function renderChips(){
-    var all = names();
-    var certs = certList.querySelectorAll('[data-gw-cert]');
-    certs.forEach(function(cert, i){
-      cert.querySelector('[data-gw-cert-title]').textContent = certLabel.replace('%d', String(i + 1));
-      // drop names that no longer exist
-      setAssigned(cert, assigned(cert).filter(function(n){ return all.indexOf(n) !== -1; }));
-      var box = cert.querySelector('[data-gw-chips]'); box.innerHTML = '';
-      if (!all.length) { var e = document.createElement('span'); e.className = 'gw-chips-empty'; e.textContent = noNamesLabel; box.appendChild(e); }
-      all.forEach(function(n){
-        var chip = document.createElement('span'); chip.className = 'gw-chip';
-        var mine = assigned(cert).indexOf(n) !== -1, owner = ownerOf(n);
-        if (mine) chip.classList.add('on'); else if (owner && owner !== cert) chip.classList.add('taken');
-        chip.textContent = n === '_' ? anyLabel : n;
-        chip.addEventListener('click', function(){
-          if (chip.classList.contains('taken')) return;
-          var list = assigned(cert);
-          if (mine) list = list.filter(function(x){ return x !== n; }); else list.push(n);
-          setAssigned(cert, list); renderChips();
-        });
-        box.appendChild(chip);
-      });
-    });
-    var uncovered = all.filter(function(n){ return !ownerOf(n); });
-    var u = form.querySelector('[data-gw-uncovered]');
-    var none = (form.querySelector('input[name=tls]:checked') || {}).value === 'none';
-    u.style.display = (uncovered.length && !none) ? '' : 'none';
-    u.textContent = uncoveredLabel + ' ' + uncovered.map(function(n){ return n === '_' ? anyLabel : n; }).join(', ');
-  }
-  function syncCert(cert){
+  var certLabel = {{ t .Lang "settings.gateway.cert_n" }};
+  var domainsAuto = {{ t .Lang "settings.gateway.cert_domains_auto" }};
+  var domainsDesc = {{ t .Lang "settings.gateway.cert_domains_desc" }};
+  function syncCert(cert, i){
     var mode = cert.querySelector('[data-gw-mode]').value;
     cert.querySelectorAll('[data-gw-panel]').forEach(function(p){ p.style.display = p.getAttribute('data-gw-panel') === mode ? '' : 'none'; });
+    cert.querySelector('[data-gw-cert-title]').textContent = certLabel.replace('%d', String(i + 1));
+    cert.querySelector('[data-gw-default-badge]').style.display = i === 0 ? '' : 'none';
+    cert.querySelector('[data-gw-domains-note]').innerHTML = mode === 'upload' ? domainsAuto : domainsDesc;
   }
   function syncAll(){
     var none = (form.querySelector('input[name=tls]:checked') || {}).value === 'none';
     form.querySelector('[data-gw-tls-note]').style.display = none ? '' : 'none';
     form.querySelector('[data-gw-certs-card]').style.display = none ? 'none' : '';
+    var custom = (form.querySelector('input[name=hostnames_mode]:checked') || {}).value === 'custom';
+    form.querySelector('[data-gw-hosts-list]').style.display = custom ? '' : 'none';
     var anyAcme = false;
-    certList.querySelectorAll('[data-gw-cert]').forEach(function(c){ syncCert(c); if (c.querySelector('[data-gw-mode]').value === 'acme') anyAcme = true; });
+    certList.querySelectorAll('[data-gw-cert]').forEach(function(c, i){ syncCert(c, i); if (c.querySelector('[data-gw-mode]').value === 'acme') anyAcme = true; });
     form.querySelector('[data-gw-acme-card]').style.display = (anyAcme && !none) ? '' : 'none';
-    var dir = form.querySelector('[data-gw-acme-dir]'), custom = form.querySelector('[data-gw-acme-custom]');
-    if (dir && custom) custom.style.display = dir.value === 'custom' ? '' : 'none';
-    renderChips();
+    var dir = form.querySelector('[data-gw-acme-dir]'), cust = form.querySelector('[data-gw-acme-custom]');
+    if (dir && cust) cust.style.display = dir.value === 'custom' ? '' : 'none';
   }
   function wire(cert){
     cert.querySelector('[data-gw-mode]').addEventListener('change', syncAll);
@@ -5966,14 +5920,10 @@ function secToHuman(s){
   certList.querySelectorAll('[data-gw-cert]').forEach(wire);
   form.querySelector('[data-gw-cert-add]').addEventListener('click', function(){
     var node = form.querySelector('[data-gw-cert-template]').content.firstElementChild.cloneNode(true);
-    certList.appendChild(node); wire(node);
-    // a fresh certificate takes every name nobody covers yet
-    var free = names().filter(function(n){ return !ownerOf(n); });
-    setAssigned(node, free); syncAll();
+    certList.appendChild(node); wire(node); syncAll();
+    node.querySelector('input[name=cert_domains]').focus();
   });
-  form.querySelector('[data-gw-hostnames]').addEventListener('input', renderChips);
-  form.querySelector('[data-gw-catchall]').addEventListener('change', renderChips);
-  form.querySelectorAll('[data-gw-tls], [data-gw-acme-dir]').forEach(function(el){ el.addEventListener('change', syncAll); });
+  form.querySelectorAll('[data-gw-tls], [data-gw-hosts], [data-gw-acme-dir]').forEach(function(el){ el.addEventListener('change', syncAll); });
   syncAll();
 })();
 </script>
