@@ -259,8 +259,12 @@ jobs:
           docker compose -f docker-compose.example.yml ps
           test "$(docker inspect -f '{{.RestartCount}}' unmask-admin)" = 0
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/)" = 301
-          curl -sk https://127.0.0.1/ | grep -q '<title>Security check</title>'
-          test "$(curl -sk -o /dev/null -w '%{http_code}' https://127.0.0.1/unmask/healthz)" = 200
+          # The example seeds UNMASK_SERVER_NAME=localhost, a custom hostname
+          # list: :443 answers for that name only and rejects any other SNI
+          # at the handshake, so the probes must say the name.
+          curl -sk --resolve localhost:443:127.0.0.1 https://localhost/ | grep -q '<title>Security check</title>'
+          test "$(curl -sk --resolve localhost:443:127.0.0.1 -o /dev/null -w '%{http_code}' https://localhost/unmask/healthz)" = 200
+          test "$(curl -sk --max-time 5 -o /dev/null -w '%{http_code}' https://127.0.0.1/unmask/healthz)" = 000
           docker exec unmask-nginx nginx -t
           # The reload watcher is up, and acts: touching the rendered includes
           # through the admin (a re-render with a changed setting) must make
