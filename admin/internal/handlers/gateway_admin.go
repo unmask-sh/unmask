@@ -47,6 +47,8 @@ func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string)
 	default:
 		return errors.New("hostnames: unknown choice")
 	}
+	g.Upstream = strings.TrimSpace(r.FormValue("upstream"))
+	g.TrustedProxies = strings.Join(strings.Fields(r.FormValue("trusted_proxies")), " ")
 	g.ACMEEmail = strings.TrimSpace(r.FormValue("acme_email"))
 	switch strings.TrimSpace(r.FormValue("acme_directory")) {
 	case "", "production":
@@ -80,7 +82,7 @@ func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string)
 		}
 		mode := at(modes, i)
 		switch mode {
-		case settings.GatewayTLSACME, settings.GatewayTLSUpload, settings.GatewayTLSFiles:
+		case settings.GatewayTLSACME, settings.GatewayTLSUpload, settings.GatewayTLSFiles, settings.GatewayTLSSelfSigned:
 		case "":
 			mode = settings.GatewayTLSFiles
 		default:
@@ -320,6 +322,29 @@ func uploadedCertInfo(outDir, id string) (subject, issuer, notAfter string, ok b
 		return "", "", "", false
 	}
 	return dnLabel(c.Subject), dnLabel(c.Issuer), c.NotAfter.UTC().Format("2006-01-02"), true
+}
+
+// gatewayNginxStatus reads what the nginx container reported about itself
+// (its 10-unmask-gateway.envsh writes key=value lines into the shared
+// /run/unmask): which upstream / trusted proxies its environment carries,
+// so the tab can say what an empty field falls back to.
+func gatewayNginxStatus() map[string]string {
+	path := strings.TrimSpace(os.Getenv("UNMASK_GATEWAY_STATUS"))
+	if path == "" {
+		path = "/run/unmask/gateway-nginx.status"
+	}
+	b, err := os.ReadFile(path) //nolint:gosec // a fixed path in the daemon's own run directory
+	if err != nil {
+		return nil
+	}
+	out := map[string]string{}
+	for _, line := range strings.Split(string(b), "\n") {
+		k, v, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if ok && k != "" {
+			out[k] = strings.TrimSpace(v)
+		}
+	}
+	return out
 }
 
 // gatewayHostnamesText: the custom list, one per line.

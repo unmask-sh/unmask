@@ -178,3 +178,52 @@ func TestGatewayDefaults(t *testing.T) {
 		t.Errorf("a certificate alone = an active gateway answering for all hostnames, got %+v", a)
 	}
 }
+
+// The upstream is a proxy_pass target: scheme://host[:port], nothing that
+// changes the location's meaning or breaks the directive.  Trusted proxies
+// are addresses or CIDRs.  A self-signed entry resolves to the stored-pair
+// location and needs nothing typed.
+func TestGatewayUpstreamProxiesAndSelfSigned(t *testing.T) {
+	files := []GatewayCertificate{{CertPath: "/c", KeyPath: "/k"}}
+	for _, u := range []string{"http://app:3000", "https://10.0.0.5:8443", "http://host.docker.internal:8080/"} {
+		g := GatewayConfig{Upstream: u, Certificates: files}
+		if err := g.Validate(); err != nil {
+			t.Errorf("upstream %q must validate: %v", u, err)
+		}
+	}
+	for _, u := range []string{"app:3000", "ftp://app", "http://", "http://app:3000/api", "http://app;x", "http://u:p@app", "http://app?x=1"} {
+		g := GatewayConfig{Upstream: u, Certificates: files}
+		if err := g.Validate(); err == nil {
+			t.Errorf("upstream %q validated; it must not", u)
+		}
+	}
+	g := GatewayConfig{Upstream: "http://app:3000", TrustedProxies: " 130.211.0.0/22  35.191.0.0/16 ", Certificates: files}
+	g.Normalize()
+	if got := strings.Join(g.TrustedProxyList(), ","); got != "130.211.0.0/22,35.191.0.0/16" {
+		t.Errorf("trusted proxies = %q", got)
+	}
+	g.TrustedProxies = "10.0.0.0/8 evil;"
+	if err := g.Validate(); err == nil {
+		t.Error("a trusted proxy entry that is not an address must be refused")
+	}
+	if !(GatewayConfig{Upstream: "http://app:3000"}).Active() {
+		t.Error("an upstream alone is an active gateway")
+	}
+	c := GatewayCertificate{Mode: GatewayTLSSelfSigned}
+	if c.ModeResolved() != GatewayTLSSelfSigned || c.CertPathResolved("/etc/unmask") != "/etc/unmask/gateway.crt" || c.KeyPathResolved("/etc/unmask") != "/etc/unmask/gateway.key" {
+		t.Errorf("self-signed must resolve to the stored pair: %+v", c)
+	}
+	if err := (GatewayConfig{Certificates: []GatewayCertificate{c}}).Validate(); err != nil {
+		t.Errorf("a self-signed entry needs nothing typed: %v", err)
+	}
+	names := func(g GatewayConfig, c GatewayCertificate) string { return strings.Join(g.SelfSignedNames(c), " ") }
+	if got := names(GatewayConfig{}, c); got != "localhost" {
+		t.Errorf("no names anywhere -> localhost, got %q", got)
+	}
+	if got := names(GatewayConfig{Hostnames: GatewayHostnames{Mode: GatewayHostsCustom, Names: "a.example b.example"}}, c); got != "a.example b.example" {
+		t.Errorf("the custom list names the pair, got %q", got)
+	}
+	if got := names(GatewayConfig{Hostnames: GatewayHostnames{Mode: GatewayHostsCustom, Names: "a.example"}}, GatewayCertificate{Mode: GatewayTLSSelfSigned, Domains: "x.example"}); got != "x.example" {
+		t.Errorf("the entry's own domains win, got %q", got)
+	}
+}

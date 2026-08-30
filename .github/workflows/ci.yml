@@ -248,8 +248,8 @@ jobs:
         run: |
           docker tag unmask-ci/admin:test unmask.sh/admin:latest
           docker tag unmask-ci/nginx:test unmask.sh/nginx:1.28
-          mkdir -p tls && openssl req -x509 -nodes -newkey rsa:2048 -days 2 \
-            -keyout tls/privkey.pem -out tls/fullchain.pem -subj "/CN=localhost" 2>/dev/null
+          # No certificate prepared: the first start serves a self-signed one
+          # the admin generated (Settings > Gateway > self-signed).
           docker compose -f docker-compose.example.yml -f e2e/docker/admin-port-override.yml up -d --no-build
           for i in $(seq 1 40); do
             [ "$(docker inspect -f '{{.State.Status}}' unmask-nginx 2>/dev/null)" = running ] && break
@@ -259,12 +259,16 @@ jobs:
           docker compose -f docker-compose.example.yml ps
           test "$(docker inspect -f '{{.RestartCount}}' unmask-admin)" = 0
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/)" = 301
-          # The example seeds UNMASK_SERVER_NAME=localhost, a custom hostname
-          # list: :443 answers for that name only and rejects any other SNI
-          # at the handshake, so the probes must say the name.
+          # The example seeds no hostname: :443 answers for any, with the
+          # self-signed pair the admin generated (O = unmask gateway).
           curl -sk --resolve localhost:443:127.0.0.1 https://localhost/ | grep -q '<title>Security check</title>'
           test "$(curl -sk --resolve localhost:443:127.0.0.1 -o /dev/null -w '%{http_code}' https://localhost/unmask/healthz)" = 200
-          test "$(curl -sk --max-time 5 -o /dev/null -w '%{http_code}' https://127.0.0.1/unmask/healthz)" = 000
+          test "$(curl -sk --max-time 5 -o /dev/null -w '%{http_code}' https://127.0.0.1/unmask/healthz)" = 200
+          echo | openssl s_client -connect 127.0.0.1:443 -servername localhost 2>/dev/null | openssl x509 -noout -subject | grep -q 'unmask gateway (self-signed)'
+          # The upstream is the admin's (seeded from UNMASK_UPSTREAM on the
+          # admin service); the nginx side says so.
+          docker logs unmask-nginx 2>&1 | grep -q -- '-> http://app:80 (settings > Gateway)'
+          docker exec unmask-admin grep -q 'proxy_pass http://app:80;' /etc/unmask/gateway-location.inc
           docker exec unmask-nginx nginx -t
           # The reload watcher is up, and acts: touching the rendered includes
           # through the admin (a re-render with a changed setting) must make

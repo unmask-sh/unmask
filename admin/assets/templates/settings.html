@@ -5741,6 +5741,19 @@ function secToHuman(s){
 .gw-warn{color:#b91c1c;font-size:.82rem;margin:.4rem 0}
 </style>
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=gateway" id="gateway-form">
+  {{/* 0. Where passing requests go. */}}
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.gateway.upstream_h" }}</h2>
+    <p class="note">{{ safeHTML (t .Lang "settings.gateway.upstream_desc") }}</p>
+    <div class="field-label">{{ t .Lang "settings.gateway.upstream" }}</div>
+    <input type="text" name="upstream" value="{{ .Gateway.Upstream }}" placeholder="http://host.docker.internal:8080" spellcheck="false" autocomplete="off" style="width:100%;font-family:ui-monospace,monospace">
+    {{ if .GatewayNginx.upstream_env }}<p class="note">{{ if .Gateway.Upstream }}{{ t .Lang "settings.gateway.upstream_env_overridden" }}{{ else }}{{ t .Lang "settings.gateway.upstream_env_used" }}{{ end }}: <code>{{ .GatewayNginx.upstream_env }}</code></p>{{ else if not .Gateway.Upstream }}<p class="gw-warn">{{ t .Lang "settings.gateway.upstream_unset" }}</p>{{ end }}
+    <p class="note">{{ safeHTML (t .Lang "settings.gateway.upstream_examples") }}</p>
+    <div class="field-label">{{ t .Lang "settings.gateway.trusted_proxies" }}</div>
+    <textarea name="trusted_proxies" rows="2" spellcheck="false" autocomplete="off" placeholder="130.211.0.0/22 35.191.0.0/16" style="width:100%;font-family:ui-monospace,monospace">{{ .GatewayTrustedProxies }}</textarea>
+    <p class="note">{{ safeHTML (t .Lang "settings.gateway.trusted_proxies_desc") }}{{ if .GatewayNginx.trusted_proxies_env }} ({{ t .Lang "settings.gateway.upstream_env_used" }}: <code>{{ .GatewayNginx.trusted_proxies_env }}</code>){{ end }}</p>
+  </div>
+
   {{/* 1. Where TLS ends. */}}
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.gateway.term_h" }}</h2>
@@ -5759,7 +5772,7 @@ function secToHuman(s){
     <div class="field" data-gw-hosts-list>
       <textarea name="hostnames" rows="3" spellcheck="false" autocomplete="off" placeholder="example.com&#10;www.example.com&#10;shop.example.com" style="width:100%;font-family:ui-monospace,monospace">{{ .GatewayHostnames }}</textarea>
       <p class="note">{{ safeHTML (t .Lang "settings.gateway.hostnames_custom_desc") }}</p>
-      {{ if .GatewayUncovered }}<p class="gw-warn">{{ t .Lang "settings.gateway.uncovered" }} <code>{{ .GatewayUncovered }}</code></p>{{ end }}
+      {{ if .GatewayUncovered }}<p class="gw-warn" data-gw-uncovered>{{ t .Lang "settings.gateway.uncovered" }} <code>{{ .GatewayUncovered }}</code></p>{{ end }}
     </div>
   </div>
 
@@ -5782,6 +5795,7 @@ function secToHuman(s){
           <option value="acme"   {{ if eq .C.ModeResolved "acme"   }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_acme" }}</option>
           <option value="upload" {{ if eq .C.ModeResolved "upload" }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_upload" }}</option>
           <option value="files"  {{ if eq .C.ModeResolved "files"  }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_files" }}</option>
+          <option value="selfsigned" {{ if eq .C.ModeResolved "selfsigned" }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_selfsigned" }}</option>
         </select>
         <div data-gw-domains>
           <div class="field-label" data-gw-domains-label>{{ t $.Lang "settings.gateway.cert_domains_acme" }}</div>
@@ -5811,6 +5825,10 @@ function secToHuman(s){
           <input type="text" name="cert_cert_path" value="{{ .C.CertPath }}" placeholder="/etc/unmask/tls/fullchain.pem" style="width:100%;font-family:ui-monospace,monospace">
           <div class="field-label">{{ t $.Lang "settings.gateway.tls_key_path" }}</div>
           <input type="text" name="cert_key_path" value="{{ .C.KeyPath }}" placeholder="/etc/unmask/tls/privkey.pem" style="width:100%;font-family:ui-monospace,monospace">
+        </div>
+        <div class="field" data-gw-panel="selfsigned">
+          <p class="note">{{ safeHTML (t $.Lang "settings.gateway.mode_selfsigned_desc") }}</p>
+          {{ if .Uploaded.OK }}<p class="note" style="font-family:ui-monospace,monospace;font-size:.85rem">{{ t $.Lang "settings.gateway.uploaded_current" }}: <b>{{ .Uploaded.Subject }}</b> ({{ t $.Lang "settings.gateway.cert_expires" }}: {{ .Uploaded.NotAfter }})</p>{{ end }}
         </div>
         {{ if .Cert.Checked }}
         <div class="field">
@@ -5843,6 +5861,7 @@ function secToHuman(s){
           <option value="acme" selected>{{ t .Lang "settings.gateway.mode_acme" }}</option>
           <option value="upload">{{ t .Lang "settings.gateway.mode_upload" }}</option>
           <option value="files">{{ t .Lang "settings.gateway.mode_files" }}</option>
+          <option value="selfsigned">{{ t .Lang "settings.gateway.mode_selfsigned" }}</option>
         </select>
         <div data-gw-domains>
           <div class="field-label" data-gw-domains-label>{{ t .Lang "settings.gateway.cert_domains_acme" }}</div>
@@ -5868,6 +5887,7 @@ function secToHuman(s){
           <div class="field-label">{{ t .Lang "settings.gateway.tls_key_path" }}</div>
           <input type="text" name="cert_key_path" value="" placeholder="/etc/unmask/tls/privkey.pem" style="width:100%;font-family:ui-monospace,monospace">
         </div>
+        <div class="field" data-gw-panel="selfsigned"><p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_selfsigned_desc") }}</p></div>
       </div>
     </template>
     <button type="button" class="btn-sm" data-gw-cert-add>{{ t .Lang "settings.gateway.cert_add" }}</button>
@@ -5907,7 +5927,8 @@ function secToHuman(s){
   // its own (SANs), so the field hides and the text shows.
   var domainsUI = {
     acme:  {label: {{ t .Lang "settings.gateway.cert_domains_acme" }},  note: {{ t .Lang "settings.gateway.cert_domains_acme_desc" }}},
-    files: {label: {{ t .Lang "settings.gateway.cert_domains_files" }}, note: {{ t .Lang "settings.gateway.cert_domains_files_desc" }}}
+    files: {label: {{ t .Lang "settings.gateway.cert_domains_files" }}, note: {{ t .Lang "settings.gateway.cert_domains_files_desc" }}},
+    selfsigned: {label: {{ t .Lang "settings.gateway.cert_domains_selfsigned" }}, note: {{ t .Lang "settings.gateway.cert_domains_selfsigned_desc" }}}
   };
   function syncCert(cert, i){
     var mode = cert.querySelector('[data-gw-mode]').value;
