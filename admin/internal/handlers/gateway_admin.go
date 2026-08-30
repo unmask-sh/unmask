@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"os"
@@ -276,6 +277,9 @@ type gatewayCertEntryView struct {
 	// FileSANs are its names and no domains need typing.
 	FileReadable bool
 	FileSANs     string
+	// FileDenied: the file is there but the daemon (user unmask) may not
+	// read it -- a 0600 certificate; nginx reads as root and never notices.
+	FileDenied bool
 }
 
 // gatewayCertViews builds the entries; probe = dial :443 per certificate
@@ -289,9 +293,13 @@ func gatewayCertViews(g settings.GatewayConfig, outDir string, probe bool) []gat
 		subj, iss, exp, ok := uploadedCertInfo(outDir, c.ID)
 		row.Uploaded = map[string]any{"OK": ok, "Subject": subj, "Issuer": iss, "NotAfter": exp}
 		if c.ModeResolved() == settings.GatewayTLSFiles {
-			if leaf, err := readLeafFile(c.CertPathResolved(outDir)); err == nil {
+			leaf, err := readLeafFile(c.CertPathResolved(outDir))
+			switch {
+			case err == nil:
 				row.FileReadable = true
 				row.FileSANs = strings.Join(certDomains(leaf), " ")
+			case errors.Is(err, fs.ErrPermission):
+				row.FileDenied = true
 			}
 		}
 		if probe && !g.TLSInFront() {

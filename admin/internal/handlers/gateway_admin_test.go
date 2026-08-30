@@ -283,6 +283,21 @@ func TestGatewayFilesReadsDomainsFromReadableCertificate(t *testing.T) {
 	if !strings.Contains(body, `data-gw-file-readable="1"`) || !strings.Contains(body, "shop.example www.shop.example</code>") {
 		t.Error("the tab does not show the domains read from the file")
 	}
+	// A 0600 certificate: present, but the daemon may not read it -- the tab
+	// says so (root reads anything, so only when not root).
+	if os.Geteuid() != 0 {
+		if err := os.Chmod(certPath, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		f = oneCert("shop.example", "typed.example", settings.GatewayTLSFiles, url.Values{"cert_cert_path": {certPath}, "cert_key_path": {filepath.Join(dir, "site.key")}})
+		if loc := postGateway(t, h, f); !strings.Contains(loc, "saved=1") {
+			t.Fatalf("files save (denied): %s", loc)
+		}
+		if body := renderSettingsTab(t, h, "gateway"); !strings.Contains(body, "user unmask") || !strings.Contains(body, certPath+"</code>") {
+			t.Error("the tab does not point at the unreadable certificate file")
+		}
+		_ = os.Chmod(certPath, 0o644)
+	}
 	// Unreadable (the nginx-only mount): the typed domains stand.
 	f = oneCert("shop.example", "typed.example", settings.GatewayTLSFiles, url.Values{"cert_cert_path": {"/etc/unmask/tls/nowhere.pem"}, "cert_key_path": {"/etc/unmask/tls/nowhere.key"}})
 	if loc := postGateway(t, h, f); !strings.Contains(loc, "saved=1") {
