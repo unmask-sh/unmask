@@ -259,6 +259,73 @@ func TestGatewayTwoCertificatesForm(t *testing.T) {
 	}
 }
 
+// A mounted certificate the admin can read brings its own domains, like a
+// pasted one, and the tab shows them instead of the field; one it cannot
+// read keeps whatever was typed.
+func TestGatewayFilesReadsDomainsFromReadableCertificate(t *testing.T) {
+	h, _ := gatewayHandler(t)
+	now := time.Now()
+	certPEM, _ := selfSignedPEM(t, "shop.example www.shop.example", now.Add(-time.Hour), now.Add(365*24*time.Hour))
+	dir := t.TempDir()
+	certPath := filepath.Join(dir, "site.crt")
+	if err := os.WriteFile(certPath, []byte(certPEM), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := oneCert("shop.example", "", settings.GatewayTLSFiles, url.Values{"cert_cert_path": {certPath}, "cert_key_path": {filepath.Join(dir, "site.key")}})
+	if loc := postGateway(t, h, f); !strings.Contains(loc, "saved=1") {
+		t.Fatalf("files save: %s", loc)
+	}
+	saved, _ := settings.Load(h.ConfigPath)
+	if saved.Gateway.Certificates[0].Domains != "shop.example www.shop.example" {
+		t.Errorf("a readable certificate file must give the domains: %+v", saved.Gateway.Certificates[0])
+	}
+	body := renderSettingsTab(t, h, "gateway")
+	if !strings.Contains(body, `data-gw-file-readable="1"`) || !strings.Contains(body, "shop.example www.shop.example</code>") {
+		t.Error("the tab does not show the domains read from the file")
+	}
+	// Unreadable (the nginx-only mount): the typed domains stand.
+	f = oneCert("shop.example", "typed.example", settings.GatewayTLSFiles, url.Values{"cert_cert_path": {"/etc/unmask/tls/nowhere.pem"}, "cert_key_path": {"/etc/unmask/tls/nowhere.key"}})
+	if loc := postGateway(t, h, f); !strings.Contains(loc, "saved=1") {
+		t.Fatalf("files save (unreadable): %s", loc)
+	}
+	saved, _ = settings.Load(h.ConfigPath)
+	if saved.Gateway.Certificates[0].Domains != "typed.example" {
+		t.Errorf("an unreadable file must keep the typed domains: %+v", saved.Gateway.Certificates[0])
+	}
+	if strings.Contains(renderSettingsTab(t, h, "gateway"), `data-gw-file-readable="1"`) {
+		t.Error("the tab claims to have read a file it cannot see")
+	}
+}
+
+// A pasted certificate with a bare common name and no SAN (openssl's
+// one-liner for localhost) still names its host; and a domain-less mounted
+// file next to a custom list draws no warning -- it stands for every name.
+func TestGatewayBareCommonNameAndDomainlessFile(t *testing.T) {
+	h, _ := gatewayHandler(t)
+	now := time.Now()
+	certPEM, keyPEM := selfSignedPEM(t, "localhost", now.Add(-time.Hour), now.Add(24*time.Hour))
+	certPEM = strings.TrimSpace(certPEM)
+	loc := postGateway(t, h, oneCert("localhost", "", settings.GatewayTLSUpload, url.Values{"cert_cert_pem": {certPEM}, "cert_key_pem": {keyPEM}}))
+	if !strings.Contains(loc, "saved=1") {
+		t.Fatalf("upload: %s", loc)
+	}
+	saved, _ := settings.Load(h.ConfigPath)
+	if saved.Gateway.Certificates[0].Domains != "localhost" {
+		t.Errorf("domains = %q, want localhost (from the SAN)", saved.Gateway.Certificates[0].Domains)
+	}
+	loc = postGateway(t, h, oneCert("shop.example www.shop.example", "", settings.GatewayTLSFiles, url.Values{"cert_cert_path": {"/etc/unmask/tls/nowhere.pem"}, "cert_key_path": {"/etc/unmask/tls/nowhere.key"}}))
+	if !strings.Contains(loc, "saved=1") {
+		t.Fatalf("files: %s", loc)
+	}
+	if strings.Contains(renderSettingsTab(t, h, "gateway"), `class="gw-warn"`) {
+		t.Error("a domain-less mounted certificate stands for every hostname; the tab must not warn")
+	}
+	vh, _ := os.ReadFile(filepath.Join(h.cfg().Nginx.OutputDir, "gateway-vhosts.inc"))
+	if !strings.Contains(string(vh), "server_name shop.example www.shop.example;") {
+		t.Errorf("the custom hostnames must be served the domain-less certificate:\n%s", vh)
+	}
+}
+
 // TLS terminated in front: the hostnames save with no certificate at all.
 func TestGatewayTLSInFrontForm(t *testing.T) {
 	h, _ := gatewayHandler(t)
@@ -305,8 +372,8 @@ func TestGatewayTabRendersOnlyForGatewayInstalls(t *testing.T) {
 			t.Errorf("gateway tab lacks %s", want)
 		}
 	}
-	if strings.Count(body, `data-gw-cert>`) != 2 { // one entry + the template
-		t.Errorf("expected one rendered entry plus the template, got %d", strings.Count(body, `data-gw-cert>`))
+	if n := strings.Count(body, `data-gw-cert data-gw-file-readable=`); n != 2 { // one entry + the template
+		t.Errorf("expected one rendered entry plus the template, got %d", n)
 	}
 	if !strings.Contains(renderSettingsTab(t, h, "global"), "settings/gateway/") {
 		t.Error("a gateway install does not show the Gateway tab in the settings nav")

@@ -5771,7 +5771,7 @@ function secToHuman(s){
     <p class="note">{{ safeHTML (t .Lang "settings.gateway.certs_desc") }}</p>
     <div data-gw-certs>
     {{ range .GatewayCerts }}
-      <div class="gw-cert" data-gw-cert>
+      <div class="gw-cert" data-gw-cert data-gw-file-readable="{{ if .FileReadable }}1{{ end }}">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem">
           <span><b data-gw-cert-title>{{ tf $.Lang "settings.gateway.cert_n" .Index }}</b><span class="gw-badge" data-gw-default-badge>{{ t $.Lang "settings.gateway.cert_default" }}</span></span>
           <button type="button" class="btn-sm" data-gw-cert-delete>{{ t $.Lang "settings.gateway.vhost_delete" }}</button>
@@ -5789,6 +5789,7 @@ function secToHuman(s){
           <p class="note" data-gw-domains-note>{{ safeHTML (t $.Lang "settings.gateway.cert_domains_acme_desc") }}</p>
         </div>
         <p class="note" data-gw-domains-auto>{{ if .C.Domains }}{{ t $.Lang "settings.gateway.cert_domains_san" }}: <code>{{ .C.Domains }}</code>{{ else }}{{ t $.Lang "settings.gateway.cert_domains_san_pending" }}{{ end }}</p>
+        <p class="note" data-gw-domains-file>{{ t $.Lang "settings.gateway.cert_domains_file" }}: <code>{{ if .FileSANs }}{{ .FileSANs }}{{ else }}—{{ end }}</code></p>
         <div class="field" data-gw-panel="acme"><p class="note">{{ safeHTML (t $.Lang "settings.gateway.mode_acme_desc") }}</p></div>
         <div class="field" data-gw-panel="upload">
           <p class="note">{{ safeHTML (t $.Lang "settings.gateway.mode_upload_desc") }}</p>
@@ -5830,7 +5831,7 @@ function secToHuman(s){
     {{ end }}
     </div>
     <template data-gw-cert-template>
-      <div class="gw-cert gw-new" data-gw-cert>
+      <div class="gw-cert gw-new" data-gw-cert data-gw-file-readable="">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:.6rem">
           <span><b data-gw-cert-title></b><span class="gw-badge" data-gw-default-badge>{{ t .Lang "settings.gateway.cert_default" }}</span></span>
           <button type="button" class="btn-sm" data-gw-cert-delete>{{ t .Lang "settings.gateway.vhost_delete" }}</button>
@@ -5848,6 +5849,7 @@ function secToHuman(s){
           <p class="note" data-gw-domains-note>{{ safeHTML (t .Lang "settings.gateway.cert_domains_acme_desc") }}</p>
         </div>
         <p class="note" data-gw-domains-auto>{{ t .Lang "settings.gateway.cert_domains_san_pending" }}</p>
+        <p class="note" data-gw-domains-file></p>
         <div class="field" data-gw-panel="acme"><p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_acme_desc") }}</p></div>
         <div class="field" data-gw-panel="upload">
           <p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_upload_desc") }}</p>
@@ -5899,8 +5901,9 @@ function secToHuman(s){
   var certList = form.querySelector('[data-gw-certs]');
   var certLabel = {{ t .Lang "settings.gateway.cert_n" }};
   // The domains field: typed for Let's Encrypt (what to issue for) and,
-  // optionally, for files (SNI selection between several); a pasted
-  // certificate brings its own (SANs), so the field hides and the text shows.
+  // optionally, for a file the admin cannot read (SNI selection between
+  // several); a pasted certificate, or a file the admin can read, brings
+  // its own (SANs), so the field hides and the text shows.
   var domainsUI = {
     acme:  {label: {{ t .Lang "settings.gateway.cert_domains_acme" }},  note: {{ t .Lang "settings.gateway.cert_domains_acme_desc" }}},
     files: {label: {{ t .Lang "settings.gateway.cert_domains_files" }}, note: {{ t .Lang "settings.gateway.cert_domains_files_desc" }}}
@@ -5910,9 +5913,11 @@ function secToHuman(s){
     cert.querySelectorAll('[data-gw-panel]').forEach(function(p){ p.style.display = p.getAttribute('data-gw-panel') === mode ? '' : 'none'; });
     cert.querySelector('[data-gw-cert-title]').textContent = certLabel.replace('%d', String(i + 1));
     cert.querySelector('[data-gw-default-badge]').style.display = i === 0 ? '' : 'none';
-    var dom = cert.querySelector('[data-gw-domains]'), auto = cert.querySelector('[data-gw-domains-auto]');
-    dom.style.display = mode === 'upload' ? 'none' : '';
+    var dom = cert.querySelector('[data-gw-domains]'), auto = cert.querySelector('[data-gw-domains-auto]'), file = cert.querySelector('[data-gw-domains-file]');
+    var fileKnown = mode === 'files' && cert.getAttribute('data-gw-file-readable') === '1';
+    dom.style.display = (mode === 'upload' || fileKnown) ? 'none' : '';
     auto.style.display = mode === 'upload' ? '' : 'none';
+    file.style.display = fileKnown ? '' : 'none';
     if (domainsUI[mode]) {
       cert.querySelector('[data-gw-domains-label]').textContent = domainsUI[mode].label;
       cert.querySelector('[data-gw-domains-note]').innerHTML = domainsUI[mode].note;

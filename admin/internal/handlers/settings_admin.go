@@ -631,7 +631,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"GatewayTLSInFront": h.cfg().Gateway.TLSInFront(),
 		"GatewayHostsAll":   h.cfg().Gateway.HostnamesAll(),
 		"GatewayHostnames":  gatewayHostnamesText(h.cfg().Gateway),
-		"GatewayUncovered":  strings.Join(h.cfg().Gateway.Uncovered(), " "),
+		"GatewayUncovered":  strings.Join(h.cfg().Gateway.UncoveredWarn(), " "),
 		"GatewayACMEChoice": func() string {
 			switch h.cfg().Gateway.ACMEDirectoryResolved() {
 			case settings.ACMEDirectoryLetsEncrypt:
