@@ -14,6 +14,7 @@ include /etc/unmask/forward-auth-lbtrust.conf;
 # the certificate is on Let's Encrypt).
 include /etc/nginx/unmask-resolver.inc;
 include /etc/unmask/gateway-acme.inc;
+include /etc/nginx/unmask-gateway-proxies.inc;
 
 map $http_upgrade $connection_upgrade {
     default upgrade;
@@ -27,23 +28,29 @@ server {
     listen 80;
     listen [::]:80;
     include /etc/unmask/gateway-server.inc;
-    # Everything redirects to https, except the paths the operator exempted
-    # from unmask altogether (settings > bypass paths): a load balancer's
-    # health check lives on one of those, and it must answer on plain HTTP
-    # or the node drops out of the balancer.
+    # server.inc carries the http->https redirect (settings > nginx >
+    # https_redirect, on by default): keyed on X-Forwarded-Proto behind a
+    # terminating load balancer, on the scheme otherwise, and exempting ACME
+    # and health-check user agents.  So a balancer that forwards on :80 is
+    # served here exactly like :443, and its probes pass.
+    include /etc/unmask/server.inc;
+    client_max_body_size 0;
     location / {
-        if ($is_bypass_path != "1") {
-            return 301 https://$host$request_uri;
-        }
+        include /etc/unmask/protect.inc;
         proxy_pass ${UNMASK_UPSTREAM};
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        # Forwarded as received, not synthesized: a health check arrives with
-        # no X-Forwarded-Proto, and an upstream that redirects "http" to
-        # https would otherwise answer the probe with a 301.
+        proxy_read_timeout 1h;
+        proxy_send_timeout 1h;
+        proxy_ssl_server_name on;
+        proxy_ssl_name $host;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        # As received, not synthesized: a health check carries none, and an
+        # upstream that redirects "http" itself must not see one.
         proxy_set_header X-Forwarded-Proto $http_x_forwarded_proto;
+        proxy_set_header Upgrade           $http_upgrade;
+        proxy_set_header Connection        $connection_upgrade;
     }
 }
 

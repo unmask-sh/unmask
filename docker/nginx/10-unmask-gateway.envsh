@@ -35,6 +35,26 @@ if [ -n "${UNMASK_UPSTREAM:-}" ]; then
     # The includes are rendered by the admin container into the shared volume.
     # Under compose the admin healthcheck orders the two, but give a plain
     # `docker run` a moment before nginx -t fails on a missing include.
+    # Behind a load balancer: UNMASK_TRUSTED_PROXIES lists its address ranges
+    # (space separated).  The visitor's address is then taken from the
+    # X-Forwarded-For those proxies send, so bans, rate limits and geo rules
+    # see the visitor rather than the balancer.  (X-Forwarded-Proto is read
+    # by the rendered config itself; a balancer that terminates TLS and
+    # forwards on :80 is served on :80 like :443.)
+    {
+        printf '# written by 10-unmask-gateway.envsh from UNMASK_TRUSTED_PROXIES\n'
+        trusted=""
+        for cidr in ${UNMASK_TRUSTED_PROXIES:-}; do
+            case "$cidr" in
+                *[!0-9a-fA-F:./]*) echo "unmask-gateway: ignoring UNMASK_TRUSTED_PROXIES entry '$cidr' (not an address or CIDR)" >&2; continue ;;
+            esac
+            trusted="$trusted $cidr"
+            printf 'set_real_ip_from %s;\n' "$cidr"
+        done
+        if [ -n "$trusted" ]; then
+            printf 'real_ip_header X-Forwarded-For;\nreal_ip_recursive on;\n'
+        fi
+    } > /etc/nginx/unmask-gateway-proxies.inc
     for f in http.inc upstream.conf server.inc protect.inc forward-auth-lbtrust.conf gateway-server.inc gateway-tls.inc gateway-acme.inc; do
         i=0
         while [ ! -f "/etc/unmask/$f" ]; do
@@ -57,5 +77,6 @@ if [ -n "${UNMASK_UPSTREAM:-}" ]; then
             [ -f "$f" ] || { echo "unmask-gateway: TLS file $f not found -- mount your certificate at /etc/unmask/tls, paste one in settings > Gateway, or switch that tab to Let's Encrypt" >&2; exit 1; }
         done
     fi
+    [ -n "$trusted" ] && echo "unmask-gateway: trusted proxies:$trusted (visitor address from X-Forwarded-For)"
     echo "unmask-gateway: :443 -> ${UNMASK_UPSTREAM} ($(sed -n 's/^server_name[[:space:]]\+\([^;]*\);.*/server_name \1/p' /etc/unmask/gateway-server.inc); tls: $(grep -q '^acme_certificate' /etc/unmask/gateway-tls.inc && echo ACME || echo files))"
 fi
