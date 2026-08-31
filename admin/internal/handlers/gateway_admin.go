@@ -106,6 +106,11 @@ func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string)
 		}
 		c.Mode = mode
 		c.Domains = strings.Join(strings.Fields(strings.ToLower(at(domains, i))), " ")
+		if mode == settings.GatewayTLSSelfSigned {
+			// A self-signed pair is temporary; its names are always the
+			// automatic rule (the hostnames, else localhost) -- no field.
+			c.Domains = ""
+		}
 		c.CertPath = at(certPaths, i)
 		c.KeyPath = at(keyPaths, i)
 		if mode == settings.GatewayTLSUpload && !g.TLSInFront() {

@@ -437,10 +437,14 @@ func TestGatewayUpstreamForm(t *testing.T) {
 	if loc := postGateway(t, h, f); strings.Contains(loc, "saved=1") {
 		t.Fatal("an upstream without a scheme was accepted")
 	}
-	// Self-signed: nothing to type, the pair appears with the render.
-	f = oneCert("shop.example", "", settings.GatewayTLSSelfSigned, url.Values{"upstream": {"http://app:3000"}})
+	// Self-signed: nothing to type -- the names are always the automatic
+	// rule, so even a stale value in the (hidden) field is discarded.
+	f = oneCert("shop.example", "stale.example", settings.GatewayTLSSelfSigned, url.Values{"upstream": {"http://app:3000"}})
 	if loc := postGateway(t, h, f); !strings.Contains(loc, "saved=1") {
 		t.Fatalf("self-signed save: %s", loc)
+	}
+	if saved, _ := settings.Load(h.ConfigPath); saved.Gateway.Certificates[0].Domains != "" {
+		t.Errorf("a self-signed entry stores no domains (the rule is automatic): %+v", saved.Gateway.Certificates[0])
 	}
 	if _, err := os.Stat(settings.UploadedCertPath(h.cfg().Nginx.OutputDir, "")); err != nil {
 		t.Errorf("the self-signed pair was not generated: %v", err)
