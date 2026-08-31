@@ -5814,6 +5814,7 @@ function secToHuman(s){
         </div>
         <p class="note" data-gw-domains-auto>{{ if .C.Domains }}{{ t $.Lang "settings.gateway.cert_domains_san" }}: <code>{{ .C.Domains }}</code>{{ else }}{{ t $.Lang "settings.gateway.cert_domains_san_pending" }}{{ end }}</p>
         <p class="note" data-gw-domains-file>{{ t $.Lang "settings.gateway.cert_domains_file" }}: <code>{{ if .FileSANs }}{{ .FileSANs }}{{ else }}—{{ end }}</code></p>
+        <p class="note" data-gw-domains-selfsigned>{{ safeHTML (t $.Lang "settings.gateway.cert_domains_selfsigned_desc") }}</p>
         {{ if .FileDenied }}<p class="gw-warn">{{ t $.Lang "settings.gateway.cert_file_denied" }} <code>{{ .C.CertPathResolved "" }}</code></p>{{ end }}
         <div class="field" data-gw-panel="acme"><p class="note">{{ safeHTML (t $.Lang "settings.gateway.mode_acme_desc") }}</p></div>
         <div class="field" data-gw-panel="upload">
@@ -5880,6 +5881,7 @@ function secToHuman(s){
         </div>
         <p class="note" data-gw-domains-auto>{{ t .Lang "settings.gateway.cert_domains_san_pending" }}</p>
         <p class="note" data-gw-domains-file></p>
+        <p class="note" data-gw-domains-selfsigned>{{ safeHTML (t .Lang "settings.gateway.cert_domains_selfsigned_desc") }}</p>
         <div class="field" data-gw-panel="acme"><p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_acme_desc") }}</p></div>
         <div class="field" data-gw-panel="upload">
           <p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_upload_desc") }}</p>
@@ -5938,19 +5940,19 @@ function secToHuman(s){
   // its own (SANs), so the field hides and the text shows.
   var domainsUI = {
     acme:  {label: {{ t .Lang "settings.gateway.cert_domains_acme" }},  note: {{ t .Lang "settings.gateway.cert_domains_acme_desc" }}},
-    files: {label: {{ t .Lang "settings.gateway.cert_domains_files" }}, note: {{ t .Lang "settings.gateway.cert_domains_files_desc" }}},
-    selfsigned: {label: {{ t .Lang "settings.gateway.cert_domains_selfsigned" }}, note: {{ t .Lang "settings.gateway.cert_domains_selfsigned_desc" }}}
+    files: {label: {{ t .Lang "settings.gateway.cert_domains_files" }}, note: {{ t .Lang "settings.gateway.cert_domains_files_desc" }}}
   };
   function syncCert(cert, i){
     var mode = cert.querySelector('[data-gw-mode]').value;
     cert.querySelectorAll('[data-gw-panel]').forEach(function(p){ p.style.display = p.getAttribute('data-gw-panel') === mode ? '' : 'none'; });
     cert.querySelector('[data-gw-cert-title]').textContent = certLabel.replace('%d', String(i + 1));
     cert.querySelector('[data-gw-default-badge]').style.display = i === 0 ? '' : 'none';
-    var dom = cert.querySelector('[data-gw-domains]'), auto = cert.querySelector('[data-gw-domains-auto]'), file = cert.querySelector('[data-gw-domains-file]');
+    var dom = cert.querySelector('[data-gw-domains]'), auto = cert.querySelector('[data-gw-domains-auto]'), file = cert.querySelector('[data-gw-domains-file]'), selfp = cert.querySelector('[data-gw-domains-selfsigned]');
     var fileKnown = mode === 'files' && cert.getAttribute('data-gw-file-readable') === '1';
-    dom.style.display = (mode === 'upload' || fileKnown) ? 'none' : '';
+    dom.style.display = (mode === 'upload' || mode === 'selfsigned' || fileKnown) ? 'none' : '';
     auto.style.display = mode === 'upload' ? '' : 'none';
     file.style.display = fileKnown ? '' : 'none';
+    selfp.style.display = mode === 'selfsigned' ? '' : 'none';
     if (domainsUI[mode]) {
       cert.querySelector('[data-gw-domains-label]').textContent = domainsUI[mode].label;
       cert.querySelector('[data-gw-domains-note]').innerHTML = domainsUI[mode].note;
