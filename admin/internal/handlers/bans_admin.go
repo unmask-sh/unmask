@@ -172,6 +172,7 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 	// whole 30-day serve window (measured 5s on a fleet DB).  The community
 	// tab (AdminCommunityBansIndex) shows them via the communityHits cache.
 	data := map[string]any{
+		"BanTab":                    "bans",
 		"Lang":                      i18n.Resolve(r),
 		"TZ":                        resolveTZ(r),
 		"BasePath":                  h.cfg().Server.BasePath,
@@ -381,6 +382,7 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 	}
 
 	data := map[string]any{
+		"BanTab":                       "community",
 		"Lang":                         i18n.Resolve(r),
 		"TZ":                           resolveTZ(r),
 		"BasePath":                     h.cfg().Server.BasePath,
