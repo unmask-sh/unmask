@@ -7,6 +7,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -50,14 +51,61 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 
 	// Optional LLM layer (settings > AI advisor).  Inert unless the operator
 	// opted in and configured a provider; a failure there degrades to the
-	// deterministic list rather than taking the page down.
+	// deterministic list rather than taking the page down.  With it on, the
+	// model also sees the wider pool and may nominate actors the engine has
+	// no rule for; a nomination becomes a row like any other, marked as the
+	// model's pick, and can only name something the pool contained.
 	var reviews map[string]advisor.Review
 	llmErr := ""
 	aiCfg := h.cfg().AIAdvisor
-	if aiCfg.Active() && len(cands) > 0 {
-		reviews, err = advisor.ReviewCandidates(r.Context(), aiCfg, cands)
-		if err != nil {
-			llmErr = err.Error()
+	if aiCfg.Active() {
+		pool, perr := advisor.BuildPool(r.Context(), h.DB, h.IPGeo, excl,
+			advisor.Options{WindowMinutes: windowH * 60})
+		if perr != nil {
+			log.Printf("advisor pool: %v", perr)
+			pool = advisor.Pool{}
+		}
+		ptr := map[string]advisor.PoolIP{}
+		for _, row := range pool.IPs {
+			ptr[row.IP] = row
+		}
+		for i := range cands {
+			if row, ok := ptr[cands[i].Target]; ok && cands[i].Type == "ip" {
+				cands[i].RDNS = row.RDNS
+			}
+		}
+		res, lerr := advisor.ReviewWithPoolCached(r.Context(), aiCfg, cands, pool,
+			fmt.Sprintf("w%d", windowH))
+		if lerr != nil {
+			llmErr = lerr.Error()
+		} else {
+			reviews = res.Reviews
+			if reviews == nil {
+				reviews = map[string]advisor.Review{}
+			}
+			for _, n := range res.Nominations {
+				c := advisor.Candidate{Type: n.Type, Target: n.Target, Nominated: true,
+					Signals: []advisor.Signal{{ID: "ai_pick", Detail: "proposed by the model from the wider ranking"}}}
+				switch n.Type {
+				case "ip":
+					c.Scope = "ip_only"
+					if row, ok := ptr[n.Target]; ok {
+						c.Requests, c.Serves, c.Passes, c.ScannerHits = row.Requests, row.Serves, row.Passes, row.ScannerHits
+						c.JA4, c.UA, c.ASN, c.ASNOrg, c.Country, c.RDNS = row.JA4, row.UA, row.ASN, row.ASNOrg, row.Country, row.RDNS
+						c.FirstSeen, c.LastSeen = row.FirstSeen, row.LastSeen
+					}
+				case "ja4":
+					c.Scope = "ja4_only"
+					for _, row := range pool.JA4s {
+						if row.JA4 == n.Target {
+							c.Requests, c.Serves, c.Passes, c.DistinctIPs, c.UA = row.Requests, row.Serves, row.Passes, row.DistinctIPs, row.UA
+						}
+					}
+				}
+				c.Contained = c.Passes == 0
+				reviews[n.Target] = advisor.Review{Target: n.Target, Priority: n.Priority, Reasoning: n.Reasoning}
+				cands = append(cands, c)
+			}
 		}
 	}
 

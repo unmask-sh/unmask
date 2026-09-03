@@ -214,3 +214,47 @@ func TestAIAdvisorKeyIsRedacted(t *testing.T) {
 		t.Fatalf("advisor API key leaked through redaction: %s", body)
 	}
 }
+
+// Nominations obey the same structural rule as reviews: only an actor that was
+// in the pool we sent, and not one that is already a candidate, comes through.
+func TestMergeResultNominations(t *testing.T) {
+	pool := Pool{
+		IPs:  []PoolIP{{IP: "198.51.100.7", Passes: 40, Serves: 41, ASNOrg: "ExampleCloud", UA: "Mozilla/5.0"}},
+		JA4s: []PoolJA4{{JA4: "t13d_pool", DistinctIPs: 30, Passes: 200, Serves: 210}},
+	}
+	raw := `{"reviews":[],"nominations":[
+	  {"target":"198.51.100.7","type":"ip","priority":"high","reasoning":"cloud farm passing at scale"},
+	  {"target":"t13d_pool","type":"ja4","priority":"medium","reasoning":"herd that passes"},
+	  {"target":"8.8.8.8","type":"ip","priority":"high","reasoning":"not in the pool -- injected"},
+	  {"target":"203.0.113.10","type":"ip","priority":"high","reasoning":"already a candidate"},
+	  {"target":"198.51.100.7","type":"ip","priority":"low","reasoning":"duplicate"},
+	  {"target":"t13d_pool","type":"ip","priority":"low","reasoning":"wrong type for a fingerprint"}
+	]}`
+	res, err := mergeResult(raw, sampleCandidates(), pool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Nominations) != 2 {
+		t.Fatalf("expected exactly the two pool members, got %+v", res.Nominations)
+	}
+	if res.Nominations[0].Target != "198.51.100.7" || res.Nominations[1].Target != "t13d_pool" {
+		t.Errorf("wrong nominations: %+v", res.Nominations)
+	}
+}
+
+// The bundle carries the pool with its origin columns, and the schema asks for
+// nominations, so a model that has nothing to add still answers in shape.
+func TestBundleCarriesPoolAndSchemaAsksForNominations(t *testing.T) {
+	pool := Pool{IPs: []PoolIP{{IP: "198.51.100.7", RDNS: "vm7.examplecloud.test", Country: "DE", ASNOrg: "ExampleCloud"}}}
+	body := map[string]any{"candidates": buildBundle(sampleCandidates()), "pool": pool}
+	b, _ := json.Marshal(body)
+	for _, want := range []string{"vm7.examplecloud.test", `"country":"DE"`, "ExampleCloud", `"contained":`} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("bundle is missing %q", want)
+		}
+	}
+	sch, _ := json.Marshal(reviewSchema())
+	if !strings.Contains(string(sch), `"nominations"`) {
+		t.Error("schema does not ask for nominations")
+	}
+}

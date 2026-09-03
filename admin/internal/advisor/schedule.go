@@ -39,6 +39,10 @@ import (
 // a returning scanner is news again.
 const notifiedTTL = 14 * 24 * time.Hour
 
+// containedAlertServes: a client the challenge already contains is only worth
+// an alert once serving it that many challenges in a day is a cost in itself.
+const containedAlertServes = 300
+
 // Digest is what one scheduled pass found worth announcing.
 type Digest struct {
 	New   []Candidate // candidates above the score floor, not announced before
@@ -128,6 +132,11 @@ func RunDigestOnce(ctx context.Context, deps Deps) error {
 		if c.Score < minScore || seen[notifiedKey(c.Type, c.Target)] {
 			continue
 		}
+		// A contained client is not news: the challenge already stops it.
+		// It earns an alert only when its volume is itself the cost.
+		if c.Contained && c.Serves < containedAlertServes {
+			continue
+		}
 		fresh = append(fresh, c)
 	}
 	if len(fresh) == 0 {
@@ -192,7 +201,11 @@ func FormatDigest(d Digest, adminURL string) string {
 		for _, s := range c.Signals {
 			ids = append(ids, s.ID)
 		}
-		fmt.Fprintf(&b, "- %s %s [%s]\n", c.Type, c.Target, strings.Join(ids, ", "))
+		state := "PASSING the challenge"
+		if c.Contained {
+			state = "contained by the challenge"
+		}
+		fmt.Fprintf(&b, "- %s %s [%s] -- %s\n", c.Type, c.Target, strings.Join(ids, ", "), state)
 		fmt.Fprintf(&b, "    %d challenges served, %d passed", c.Serves, c.Passes)
 		if c.ScannerHits > 0 {
 			fmt.Fprintf(&b, ", %d scanner-path hits", c.ScannerHits)
