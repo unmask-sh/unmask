@@ -672,6 +672,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"SavedRestart": r.URL.Query().Get("restart") == "1",
 		"Error":        readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		"Cur":          cur,
+		"AIAdvisor":    maskedAIAdvisor(h.snapshotSettings().AIAdvisor),
 		// After a rejected save, open exactly the rows the operator added or
 		// changed (matched by value), so they land on the input they were
 		// fixing while the already-saved rows stay confirmed.  nil on a normal
@@ -1105,6 +1106,16 @@ func maskedCommunityBans(s settings.CommunityBans) settings.CommunityBans {
 // maskedSMTP: SMTP-settings copy for display. Replace non-empty password with
 // "***" (= don't surface cleartext; matches the apply-side design where an
 // empty submit preserves the saved value).
+// maskedAIAdvisor: the key never travels to the page.  The tab only needs
+// to know whether one is set (to label the write-only field), so a
+// placeholder keeps that truthiness.
+func maskedAIAdvisor(c settings.AIAdvisorConfig) settings.AIAdvisorConfig {
+	if c.APIKey != "" {
+		c.APIKey = "set"
+	}
+	return c
+}
+
 func maskedSMTP(s settings.SMTP) settings.SMTP {
 	if s.Password != "" {
 		s.Password = ""

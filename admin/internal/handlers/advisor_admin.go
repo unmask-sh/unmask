@@ -74,6 +74,10 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 		"LLMErr":     llmErr,
 		"Saved":      r.URL.Query().Get("saved") != "",
 		"Dismissed":  r.URL.Query().Get("dismissed") != "",
+		// The BAN dialog is the bot-hunt one (partial_ban_dialog.html): same
+		// sharing gate, and here the reason row is always editable.
+		"CommunityBansActive":   h.snapshotSettings().CommunityBans.SubmitActive(),
+		"BanDialogReasonAlways": true,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
