@@ -42,6 +42,11 @@ table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
 .btn.danger:hover{background:#fef2f2}
 .actions form{display:inline-block;margin:0 .25rem .25rem 0}
 .note{color:#64748b;font-size:.8rem;line-height:1.6;margin-top:.8rem}
+.prio{display:inline-block;border-radius:.25rem;padding:.05rem .45rem;font-size:.72rem;font-weight:700;white-space:nowrap}
+.prio.high{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+.prio.medium{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
+.prio.low{background:#f1f5f9;color:#475569;border:1px solid #cbd5e1}
+.ai-reason{color:#334155;font-size:.8rem;line-height:1.6;margin-top:.35rem;padding-left:.5rem;border-left:2px solid #bfdbfe}
 .windowbar{display:flex;align-items:center;gap:.5rem;margin-bottom:1rem;font-size:.85rem;color:#475569}
 .windowbar select{padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.3rem;font-size:.85rem}
 .user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
@@ -86,6 +91,7 @@ table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
   {{ if .Saved }}<div class="banner ok">{{ t .Lang "advisor.saved" }}</div>{{ end }}
   {{ if .Dismissed }}<div class="banner ok">{{ t .Lang "advisor.dismissed_ok" }}</div>{{ end }}
   {{ if .EngineErr }}<div class="banner bad">{{ t .Lang "advisor.engine_err" }}: {{ .EngineErr }}</div>{{ end }}
+  {{ if .LLMErr }}<div class="banner bad">{{ t .Lang "advisor.llm_err" }}: {{ .LLMErr }}</div>{{ end }}
 
   <div class="bcd-card">
     <form method="get" action="{{.BasePath}}/admin/advisor/" class="windowbar">
@@ -123,9 +129,12 @@ table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
             {{ else if .JA4 }}<span class="kv"><br>{{ .JA4 }}</span>{{ end }}
           </td>
           <td>
+            {{ $rv := "" }}{{ if $.Reviews }}{{ $rv = index $.Reviews .Target }}{{ end }}
+            {{ if $rv }}<span class="prio {{ $rv.Priority }}">{{ $rv.Priority }}</span>{{ end }}
             {{ range .Signals }}
               <span class="sig">{{ .ID }}</span><span class="sig-detail">{{ .Detail }}</span>
             {{ end }}
+            {{ if $rv }}<div class="ai-reason">{{ $rv.Reasoning }}</div>{{ end }}
           </td>
           <td class="kv">
             {{ .Serves }} {{ t $.Lang "advisor.serves" }} / {{ .Passes }} {{ t $.Lang "advisor.passes" }}<br>
@@ -163,7 +172,8 @@ table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
     </table>
     </div>
     {{ end }}
-    <p class="note">{{ t .Lang "advisor.note" }}</p>
+    <p class="note">{{ t .Lang "advisor.note" }}
+      {{ if .AIActive }}{{ t .Lang "advisor.note_ai_on" }}{{ else }}{{ safeHTML (tf .Lang "advisor.note_ai_off" (printf "%s/admin/settings/ai-advisor/" .BasePath)) }}{{ end }}</p>
   </div>
 </main>
 </body>

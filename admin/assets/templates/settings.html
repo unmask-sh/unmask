@@ -685,6 +685,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <h3>{{ t .Lang "settings.section.community" }}</h3>
   <ul>
     <li><a href="{{ .BasePath }}/admin/settings/community-bans/" {{ if eq .Tab "community-bans" }}class="active"{{ end }}>{{ t .Lang "settings.tab.community_bans" }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/ai-advisor/" {{ if eq .Tab "ai-advisor" }}class="active"{{ end }}>{{ t .Lang "settings.tab.ai_advisor" }}</a></li>
     <li><a href="{{ .BasePath }}/admin/settings/about/" {{ if eq .Tab "about" }}class="active"{{ end }}>{{ t .Lang "settings.tab.about" }}{{ if .VersionStatus.UpdateAvailable }} <span class="nav-dot" aria-label="update available"></span>{{ end }}</a></li>
   </ul>
 </aside>
@@ -765,6 +766,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 <div class="settings-top-grp">
   <h3>{{ t .Lang "settings.section.community" }}</h3>
   <a class="sti" href="{{ .BasePath }}/admin/settings/community-bans/"><b>{{ t .Lang "settings.tab.community_bans" }}</b><span>{{ t .Lang "settings.top.desc.community_bans" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/ai-advisor/"><b>{{ t .Lang "settings.tab.ai_advisor" }}</b><span>{{ t .Lang "settings.top.desc.ai_advisor" }}</span></a>
   <a class="sti" href="{{ .BasePath }}/admin/settings/about/"><b>{{ t .Lang "settings.tab.about" }}</b><span>{{ t .Lang "settings.top.desc.about" }}</span></a>
 </div>
 {{ end }}
@@ -6725,6 +6727,61 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 .host-id-card{background:#f8fafc}
 .host-id-hint{font-size:.72rem;color:#64748b;line-height:1.5}
 </style>
+{{ end }}
+
+{{ if eq .Tab "ai-advisor" }}
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=ai-advisor">
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.ai_advisor.h" }}</h2>
+    <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.ai_advisor.intro") }}</div>
+
+    {{ $ai := .Cur.AIAdvisor }}
+    <div class="field">
+      <label><input type="checkbox" name="ai_enabled" value="1" {{ if $ai.Enabled }}checked{{ end }}>
+        <strong>{{ t .Lang "settings.ai_advisor.enabled_label" }}</strong></label>
+      <div class="note" style="margin-top:.3rem">{{ t .Lang "settings.ai_advisor.enabled_desc" }}</div>
+    </div>
+
+    <div class="field" style="margin-top:1rem">
+      <label class="field-label" for="ai_provider"><strong>{{ t .Lang "settings.ai_advisor.provider_label" }}</strong></label>
+      {{ $p := $ai.ResolvedProvider }}
+      <select id="ai_provider" name="ai_provider" style="padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;font-size:.92rem;min-width:22rem">
+        <option value="anthropic" {{ if eq $p "anthropic" }}selected{{ end }}>Anthropic (Claude API)</option>
+        <option value="openai"    {{ if eq $p "openai" }}selected{{ end }}>OpenAI-compatible</option>
+        <option value="ollama"    {{ if eq $p "ollama" }}selected{{ end }}>Ollama ({{ t .Lang "settings.ai_advisor.local" }})</option>
+      </select>
+      <div class="note" style="margin-top:.3rem">{{ safeHTML (t .Lang "settings.ai_advisor.provider_desc") }}</div>
+    </div>
+
+    <div class="field" style="margin-top:1rem">
+      <label class="field-label" for="ai_model"><strong>{{ t .Lang "settings.ai_advisor.model_label" }}</strong></label>
+      <input id="ai_model" type="text" name="ai_model" value="{{ $ai.Model }}" placeholder="{{ $ai.ResolvedModel }}"
+             style="padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;min-width:22rem;font-family:ui-monospace,Menlo,monospace">
+      <div class="note" style="margin-top:.3rem">{{ tf .Lang "settings.ai_advisor.model_desc" $ai.ResolvedModel }}</div>
+    </div>
+
+    <div class="field" style="margin-top:1rem">
+      <label class="field-label" for="ai_endpoint"><strong>{{ t .Lang "settings.ai_advisor.endpoint_label" }}</strong></label>
+      <input id="ai_endpoint" type="text" name="ai_endpoint" value="{{ $ai.Endpoint }}" placeholder="http://127.0.0.1:11434"
+             style="padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;min-width:22rem;font-family:ui-monospace,Menlo,monospace">
+      <div class="note" style="margin-top:.3rem">{{ t .Lang "settings.ai_advisor.endpoint_desc" }}</div>
+    </div>
+
+    <div class="field" style="margin-top:1rem">
+      <label class="field-label" for="ai_api_key"><strong>{{ t .Lang "settings.ai_advisor.key_label" }}</strong></label>
+      <input id="ai_api_key" type="password" name="ai_api_key" value="" autocomplete="new-password"
+             placeholder="{{ if $ai.APIKey }}{{ t .Lang "settings.ai_advisor.key_set" }}{{ else }}{{ t .Lang "settings.ai_advisor.key_unset" }}{{ end }}"
+             style="padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;min-width:22rem;font-family:ui-monospace,Menlo,monospace">
+      <div class="note" style="margin-top:.3rem">{{ t .Lang "settings.ai_advisor.key_desc" }}</div>
+    </div>
+
+    <div class="callout" style="margin-top:1.2rem;padding:.7rem .9rem;background:#fffbeb;border:1px solid #fde68a;border-radius:.3rem;font-size:.86rem;line-height:1.7">
+      {{ safeHTML (t .Lang "settings.ai_advisor.privacy") }}
+    </div>
+
+    <div style="margin-top:1.2rem"><button type="submit" class="btn-primary">{{ t .Lang "settings.save" }}</button></div>
+  </div>
+</form>
 {{ end }}
 
 {{ if eq .Tab "community-bans" }}

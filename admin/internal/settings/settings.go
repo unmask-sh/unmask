@@ -2868,16 +2868,18 @@ func (c HostInventoryConfig) IsDisabled(host string) bool {
 }
 
 type Settings struct {
-	DB            DB                   `yaml:"db"`
-	Secret        Secret               `yaml:"secret"`
-	Challenge     ChallengeConfig      `yaml:"challenge"`
-	Branding      Branding             `yaml:"branding,omitempty"`
-	Server        Server               `yaml:"server"`
-	IPGeo         IPGeo                `yaml:"ipgeo"`
-	NginxLog      NginxLog             `yaml:"nginx_log"`
-	Nginx         Nginx                `yaml:"nginx"`
-	RateLimit     RateLimitConfig      `yaml:"rate_limit"`
-	CommunityBans CommunityBans        `yaml:"community_bans,omitempty"`
+	DB            DB              `yaml:"db"`
+	Secret        Secret          `yaml:"secret"`
+	Challenge     ChallengeConfig `yaml:"challenge"`
+	Branding      Branding        `yaml:"branding,omitempty"`
+	Server        Server          `yaml:"server"`
+	IPGeo         IPGeo           `yaml:"ipgeo"`
+	NginxLog      NginxLog        `yaml:"nginx_log"`
+	Nginx         Nginx           `yaml:"nginx"`
+	RateLimit     RateLimitConfig `yaml:"rate_limit"`
+	CommunityBans CommunityBans   `yaml:"community_bans,omitempty"`
+	// AIAdvisor: optional LLM layer for the ban advisor (default off).
+	AIAdvisor     AIAdvisorConfig      `yaml:"ai_advisor,omitempty"`
 	Notifications Notifications        `yaml:"notifications,omitempty"`
 	SMTP          SMTP                 `yaml:"smtp,omitempty"`
 	Global        GlobalConfig         `yaml:"global,omitempty"`
@@ -4297,6 +4299,65 @@ func BackfillExtraVerdictIDs(s *Settings) {
 // WithSecretsRedacted returns a copy with secret fields blanked, for the
 // settings EXPORT / audit display.  bv_secret is the admin session-signing key
 // (session.go), so an unredacted export lets an admin-role downloader forge a
+// AIAdvisorConfig: the optional LLM layer of the ban advisor (Phase 2 of the
+// advisor design).  OFF by default and inert without a key -- the deterministic
+// candidate engine is what every install gets.  When it is on, unmask sends a
+// SUMMARY bundle (candidate rows plus their evidence, never raw logs) to the
+// operator's chosen provider and shows the returned prioritisation and
+// reasoning next to the candidates.  The model only ever comments: applying a
+// ban stays a human click, and a returned target that is not in the bundle we
+// sent is discarded, so a user agent carrying instructions cannot conjure one.
+type AIAdvisorConfig struct {
+	Enabled bool `yaml:"enabled,omitempty"`
+	// Provider: "anthropic" (Claude API), "openai" (any OpenAI-compatible
+	// chat-completions endpoint) or "ollama" (a local model -- nothing leaves
+	// the host).  Empty behaves as "anthropic".
+	Provider string `yaml:"provider,omitempty"`
+	// Endpoint overrides the provider's default base URL.  Required for
+	// ollama / self-hosted OpenAI-compatible servers.
+	Endpoint string `yaml:"endpoint,omitempty"`
+	// APIKey is a credential: redacted by WithSecretsRedacted, write-only in
+	// the settings UI.  Empty for a local ollama.
+	APIKey string `yaml:"api_key,omitempty"`
+	Model  string `yaml:"model,omitempty"`
+}
+
+// AIAdvisorActive reports whether the LLM layer should run: opted in, and
+// configured enough to reach a provider.
+func (c AIAdvisorConfig) Active() bool {
+	if !c.Enabled {
+		return false
+	}
+	if c.ResolvedProvider() == "ollama" {
+		return c.Endpoint != ""
+	}
+	return c.APIKey != ""
+}
+
+func (c AIAdvisorConfig) ResolvedProvider() string {
+	switch c.Provider {
+	case "openai", "ollama", "anthropic":
+		return c.Provider
+	default:
+		return "anthropic"
+	}
+}
+
+// ResolvedModel: the operator's choice, else a sensible per-provider default.
+func (c AIAdvisorConfig) ResolvedModel() string {
+	if c.Model != "" {
+		return c.Model
+	}
+	switch c.ResolvedProvider() {
+	case "ollama":
+		return "llama3.1"
+	case "openai":
+		return "gpt-4o-mini"
+	default:
+		return "claude-opus-5"
+	}
+}
+
 // superadmin session and mint _bv bypass cookies for every site; the rest are
 // credentials.  Only scalar string fields are touched, so the value-receiver
 // copy fully isolates the original.  Keep in sync with the index page masks.
@@ -4312,6 +4373,7 @@ func (s Settings) WithSecretsRedacted() Settings {
 	redact(&s.DB.MariaDB.Password)
 	redact(&s.SMTP.Password)
 	redact(&s.CommunityBans.Token)
+	redact(&s.AIAdvisor.APIKey)
 	return s
 }
 
