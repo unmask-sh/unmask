@@ -6,9 +6,13 @@
 # Local release procedure (= after the tag is pushed):
 #
 #   make package-all       # admin + plugin-nginx-fat + web-{nginx,apache}
-#   make sign-rpm
-#   (cd dist && sha256sum *.rpm *.deb *.apk *-linux-* > checksums.txt \
-#                && gpg --detach-sign --armor -o checksums.txt.sig checksums.txt)
+#   make sign-rpm          # do NOT skip: 0.1.36-38 shipped UNSIGNED rpms to the
+#                          # release page because this step was missed (the /dl/
+#                          # repo copies are signed separately by build-repo.sh,
+#                          # which hid the gap).  checksums.txt must be generated
+#                          # AFTER signing so it hashes the signed rpms.
+#   (cd dist && sha256sum unmask-linux-* *.rpm *.deb *.apk > checksums.txt \
+#                && gpg --detach-sign -o checksums.txt.sig checksums.txt)
 #   gh release upload v0.X.Y dist/*.{rpm,deb,apk} dist/checksums.txt dist/checksums.txt.sig
 #   gh release edit v0.X.Y --draft=false
 name: release
@@ -157,19 +161,43 @@ jobs:
     permissions:
       contents: write # create the GitHub release + upload assets
     steps:
+      # Guard: a tag push for a tag whose release is already PUBLISHED must not
+      # touch that release.  action-gh-release (draft: true below) does not
+      # create a second draft in that case -- it uploads into the existing
+      # release, silently replacing its hand-built assets with CI ones.  That
+      # is exactly what happened on 2026-09-03, when re-pushing v0.1.36-38
+      # after a history rewrite overwrote the signed checksums + binaries of
+      # three published releases.  Draft releases (the normal flow: this job
+      # creates the draft, the local release procedure fills and publishes it)
+      # are still updated as before.
+      - name: skip when the tag already has a published release
+        id: guard
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${GITHUB_REF_NAME}" --jq .draft 2>/dev/null)" = "false" ]; then
+            echo "published release exists for ${GITHUB_REF_NAME}; leaving its assets alone"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
       # The compose example is attached from the checkout (0.1.37 shipped it
       # by hand: without this step the release job had no working tree).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: steps.guard.outputs.skip != 'true'
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        if: steps.guard.outputs.skip != 'true'
         with:
           path: artifacts
       - name: flatten + checksums for admin binaries + SBOM
+        if: steps.guard.outputs.skip != 'true'
         run: |
           mkdir -p dist
           find artifacts -type f -exec cp {} dist/ \;
           ( cd dist && sha256sum unmask-linux-* unmask-*.cdx.* > checksums.txt )
           ls -la dist/
       - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        if: steps.guard.outputs.skip != 'true'
         with:
           # The compose example rides along so the install page can point at
           # a release-pinned copy (releases/latest/download/...).

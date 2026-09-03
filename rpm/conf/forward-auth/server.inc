@@ -86,9 +86,10 @@ location ^~ /unmask/admin/ {
 
 # /unmask/challenge/ — challenge HTML (= PoW / CAPTCHA).  Passes various hint headers.
 # When the admin is down (= 502/503/504), fall back to @unmask_daemon_down.
-# Default behavior is 503 + Retry-After; defining @unmask_daemon_down BEFORE
-# this include (see the note at its definition below) switches to full
-# fail-open (= pass through to the backend).
+# The default definition below redirects to / (fail-open: the request then
+# flows through to the backend); define @unmask_daemon_down BEFORE this
+# include (see the note at its definition below) to override — e.g. return
+# 503 + Retry-After to fail closed so an upstream LB drains this node.
 location ^~ /unmask/challenge/ {
     auth_request off;
     proxy_pass        http://unmask_daemon;
