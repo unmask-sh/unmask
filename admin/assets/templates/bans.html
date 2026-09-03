@@ -188,9 +188,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
     <a href="{{.BasePath}}/admin/">{{ t .Lang "nav.dashboard" }}</a>
     <a href="{{.BasePath}}/admin/stats/">{{ t .Lang "nav.stats" }}</a>
     <a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
-    <a href="{{.BasePath}}/admin/bans/" class="active">{{ t .Lang "nav.bans" }}</a>
-    <a href="{{.BasePath}}/admin/advisor/">{{ t .Lang "nav.advisor" }}</a>
-      <a href="{{.BasePath}}/admin/community-bans/">{{ t .Lang "nav.community_bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
+    <a href="{{.BasePath}}/admin/bans/" class="active">{{ t .Lang "nav.bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
     <a href="{{.BasePath}}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
     <a href="{{.BasePath}}/admin/playground/">{{ t .Lang "nav.playground" }}</a>
     <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>
@@ -203,6 +201,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
   {{ t .Lang "bans.title" }}
   <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "bans.subtitle") }}</span></span>
 </h1>
+  {{ template "ban_tabs" . }}
 
 {{ if .Saved }}<div class="banner ok">{{ t .Lang "bans.saved" }}</div>{{ end }}
 {{ if .Error }}<div class="banner bad">{{ t .Lang "bans.error_prefix" }}{{ .Error }}</div>{{ end }}

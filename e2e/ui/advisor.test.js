@@ -74,7 +74,8 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
       dialog: !!document.getElementById('ban-dialog'),
       ipPop: !!document.getElementById('ip-popover'),
       uaPop: !!document.getElementById('ua-popover'),
-      navAdvisor: !!document.querySelector('header .nav a[href$="/admin/advisor/"]'),
+      navAdvisor: !document.querySelector('header .nav a[href$="/admin/advisor/"]') &&
+        !!document.querySelector('.ban-tabs a.active[href$="/admin/advisor/"]'),
     };
   }, SEED_IP);
   if (adv.missing) {
@@ -88,7 +89,7 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
       `the magnifier does not open the raw events for the target: ${adv.loglink}`);
     ok(adv.hasBanForm, 'the row has no BAN button');
     ok(adv.dialog && adv.ipPop && adv.uaPop, 'a shared popover / dialog element is missing on the advisor page');
-    ok(adv.navAdvisor, 'the global nav has no advisor entry');
+    ok(adv.navAdvisor, 'advisor must live in the BAN tab strip, not the global nav');
 
     // IP popover: hover fetches the lookup and shows the address.
     const popText = await page.evaluate(async (ip) => {
