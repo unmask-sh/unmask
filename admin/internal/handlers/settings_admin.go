@@ -6580,6 +6580,13 @@ func applyAIAdvisorForm(c *settings.AIAdvisorConfig, r *http.Request) {
 	}
 	c.Endpoint = strings.TrimSpace(r.FormValue("ai_endpoint"))
 	c.Model = strings.TrimSpace(r.FormValue("ai_model"))
+	c.NotifyEnabled = r.FormValue("ai_notify_enabled") == "1"
+	if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("ai_notify_interval"))); err == nil {
+		c.NotifyIntervalHours = v
+	}
+	if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("ai_notify_min_score"))); err == nil {
+		c.NotifyMinScore = v
+	}
 	if k := strings.TrimSpace(r.FormValue("ai_api_key")); k != "" {
 		if k == "-" {
 			c.APIKey = ""
