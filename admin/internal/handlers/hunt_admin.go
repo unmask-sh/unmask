@@ -722,6 +722,11 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 	base := h.cfg().Server.BasePath
 	redirFlag := func(msg, extra string) {
 		dst := base + "/admin/hunt/?range=" + url.QueryEscape(r.FormValue("range"))
+		// The advisor page posts its BAN through this handler so both pages
+		// share one dialog and one code path; send it back where it came from.
+		if strings.TrimSpace(r.FormValue("return_to")) == "advisor" {
+			dst = base + "/admin/advisor/?range="
+		}
 		if msg == "" {
 			dst += "&saved=1" + extra
 		} else {

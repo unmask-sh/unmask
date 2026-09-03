@@ -606,6 +606,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <a href="/unmask/admin/stats/">{{ t .Lang "nav.stats" }}</a>
     <a href="/unmask/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
     <a href="/unmask/admin/bans/">{{ t .Lang "nav.bans" }}</a>
+    <a href="/unmask/admin/advisor/">{{ t .Lang "nav.advisor" }}</a>
       <a href="/unmask/admin/community-bans/">{{ t .Lang "nav.community_bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
     <a href="/unmask/admin/settings/" class="active">{{ t .Lang "nav.settings" }}</a>
     <a href="/unmask/admin/playground/">{{ t .Lang "nav.playground" }}</a>
@@ -6735,7 +6736,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     <h2>{{ t .Lang "settings.ai_advisor.h" }}</h2>
     <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.ai_advisor.intro") }}</div>
 
-    {{ $ai := .Cur.AIAdvisor }}
+    {{ $ai := .AIAdvisor }}
     <div class="field">
       <label><input type="checkbox" name="ai_enabled" value="1" {{ if $ai.Enabled }}checked{{ end }}>
         <strong>{{ t .Lang "settings.ai_advisor.enabled_label" }}</strong></label>
