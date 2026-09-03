@@ -15,6 +15,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- (2026-09-03) **Advisor: let a model prioritise the candidates and explain them (optional).**  Settings > AI advisor connects the advisor page to Anthropic, any OpenAI-compatible endpoint, or a local Ollama with your own key.  Off by default; while it is off nothing leaves the host.  Only the candidate summary rows are sent -- never raw logs, cookies or payloads -- and the model can only annotate candidates the deterministic engine already found: a target it did not receive is discarded, so an instruction hidden in a user agent cannot introduce one.  Applying a ban stays a human click.
+
+### Added
 - (2026-09-03) **Advisor: mechanical ban candidates with the evidence attached.**  A new admin tab (/admin/advisor/) extracts ban candidates from the recent event window -- addresses that hammer challenges without ever running the JavaScript, scanner-path rakers, hosting networks wearing a browser user agent, and single fingerprints fanning out across many addresses.  Every row shows its evidence; applying is one click through the ordinary BAN path, a dismissal is remembered.  Nothing is ever applied automatically.
 
 ### Added
