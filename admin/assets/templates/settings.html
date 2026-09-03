@@ -6779,6 +6779,27 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       {{ safeHTML (t .Lang "settings.ai_advisor.privacy") }}
     </div>
 
+    <h3 style="font-size:1rem;margin:1.6rem 0 .4rem">{{ t .Lang "settings.ai_advisor.schedule_h" }}</h3>
+    <div class="note" style="margin-bottom:.8rem">{{ safeHTML (t .Lang "settings.ai_advisor.schedule_intro") }}</div>
+    <div class="field">
+      <label><input type="checkbox" name="ai_notify_enabled" value="1" {{ if $ai.NotifyEnabled }}checked{{ end }}>
+        <strong>{{ t .Lang "settings.ai_advisor.notify_label" }}</strong></label>
+    </div>
+    <div class="field" style="margin-top:.7rem">
+      <label class="field-label" for="ai_notify_interval">{{ t .Lang "settings.ai_advisor.interval_label" }}</label>
+      <input id="ai_notify_interval" type="number" name="ai_notify_interval" min="1" max="336"
+             value="{{ if $ai.NotifyIntervalHours }}{{ $ai.NotifyIntervalHours }}{{ else }}24{{ end }}"
+             style="padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;width:6rem">
+      <span class="note">{{ t .Lang "settings.ai_advisor.interval_unit" }}</span>
+    </div>
+    <div class="field" style="margin-top:.7rem">
+      <label class="field-label" for="ai_notify_min_score">{{ t .Lang "settings.ai_advisor.minscore_label" }}</label>
+      <input id="ai_notify_min_score" type="number" name="ai_notify_min_score" min="1" max="12"
+             value="{{ $ai.ResolvedNotifyMinScore }}"
+             style="padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;width:6rem">
+      <div class="note" style="margin-top:.3rem">{{ t .Lang "settings.ai_advisor.minscore_desc" }}</div>
+    </div>
+
     <div style="margin-top:1.2rem"><button type="submit" class="btn-primary">{{ t .Lang "settings.save" }}</button></div>
   </div>
 </form>

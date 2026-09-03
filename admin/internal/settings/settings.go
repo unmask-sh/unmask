@@ -4320,6 +4320,38 @@ type AIAdvisorConfig struct {
 	// the settings UI.  Empty for a local ollama.
 	APIKey string `yaml:"api_key,omitempty"`
 	Model  string `yaml:"model,omitempty"`
+	// NotifyEnabled turns on the scheduled pass: the deterministic engine runs
+	// on its own every NotifyIntervalHours and the existing alert channels
+	// (webhook / mail, Settings > notifications) carry a digest of candidates
+	// that are NEW since the last one.  Independent of Enabled -- the schedule
+	// is worth having without a key, and deliberately does NOT call the model:
+	// a recurring background job should not spend the operator's tokens while
+	// nobody is watching.  The reasoning is added when they open the page.
+	NotifyEnabled bool `yaml:"notify_enabled,omitempty"`
+	// NotifyIntervalHours: how often the scheduled pass runs.  0 -> 24.
+	NotifyIntervalHours int `yaml:"notify_interval_hours,omitempty"`
+	// NotifyMinScore: only candidates scoring at least this much are worth
+	// waking someone for.  0 -> 6, which is two independent signals (e.g.
+	// challenge hammering AND scanner paths) rather than one.
+	NotifyMinScore int `yaml:"notify_min_score,omitempty"`
+}
+
+// NotifyActive reports whether the scheduled digest pass should run.
+func (c AIAdvisorConfig) NotifyActive() bool { return c.NotifyEnabled }
+
+func (c AIAdvisorConfig) ResolvedNotifyInterval() time.Duration {
+	h := c.NotifyIntervalHours
+	if h < 1 || h > 24*14 {
+		h = 24
+	}
+	return time.Duration(h) * time.Hour
+}
+
+func (c AIAdvisorConfig) ResolvedNotifyMinScore() int {
+	if c.NotifyMinScore < 1 {
+		return 6
+	}
+	return c.NotifyMinScore
 }
 
 // AIAdvisorActive reports whether the LLM layer should run: opted in, and

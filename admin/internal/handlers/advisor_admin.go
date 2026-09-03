@@ -6,6 +6,7 @@
 package handlers
 
 import (
+	"context"
 	"log"
 	"net/http"
 	"strconv"
@@ -17,6 +18,8 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/advisor"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
+	"github.com/unmask-sh/unmask/admin/internal/safe"
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
 // AdminAdvisorIndex: GET {base}/admin/advisor/
@@ -32,7 +35,7 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 		windowH = v
 	}
 
-	excl, err := h.advisorExclusions(r)
+	excl, err := h.advisorExclusions(r.Context())
 	if err != nil {
 		log.Printf("advisor exclusions: %v", err)
 	}
@@ -120,7 +123,7 @@ func (h *Handler) AdminAdvisorDismiss(w http.ResponseWriter, r *http.Request) {
 // advisorExclusions assembles everything the engine must never propose:
 // existing bans, dismissed candidates, and the install's own monitoring
 // addresses (stats_exclude_ips).
-func (h *Handler) advisorExclusions(r *http.Request) (advisor.Exclusions, error) {
+func (h *Handler) advisorExclusions(ctx context.Context) (advisor.Exclusions, error) {
 	excl := advisor.Exclusions{
 		BannedIPs:    map[string]bool{},
 		BannedJA4s:   map[string]bool{},
@@ -132,7 +135,7 @@ func (h *Handler) advisorExclusions(r *http.Request) (advisor.Exclusions, error)
 		excl.ExcludeIPs[strings.TrimSpace(ip)] = true
 	}
 	var bans []db.Ban
-	if err := h.DB.Gorm.WithContext(r.Context()).Find(&bans).Error; err != nil {
+	if err := h.DB.Gorm.WithContext(ctx).Find(&bans).Error; err != nil {
 		return excl, err
 	}
 	for _, b := range bans {
@@ -144,7 +147,7 @@ func (h *Handler) advisorExclusions(r *http.Request) (advisor.Exclusions, error)
 		}
 	}
 	var dis []db.AdvisorDismiss
-	if err := h.DB.Gorm.WithContext(r.Context()).Find(&dis).Error; err != nil {
+	if err := h.DB.Gorm.WithContext(ctx).Find(&dis).Error; err != nil {
 		return excl, err
 	}
 	for _, d := range dis {
@@ -155,4 +158,42 @@ func (h *Handler) advisorExclusions(r *http.Request) (advisor.Exclusions, error)
 		}
 	}
 	return excl, nil
+}
+
+// RunAdvisorSchedule starts the scheduled digest pass.  Started unconditionally
+// at boot like the other monitors: the schedule itself is read live inside the
+// loop, so switching it on in the web UI takes effect without a restart, and
+// with it off the loop just sleeps.
+func (h *Handler) RunAdvisorSchedule(ctx context.Context) {
+	if h.DB == nil {
+		return
+	}
+	advisor.RunSchedule(ctx, advisor.Deps{
+		DB:  h.DB,
+		Geo: h.IPGeo,
+		Cfg: func() settings.AIAdvisorConfig { return h.cfg().AIAdvisor },
+		Excl: func(c context.Context) (advisor.Exclusions, error) {
+			return h.advisorExclusions(c)
+		},
+		Notify: func(d advisor.Digest) {
+			defer safe.Recover("advisor-digest-notify")
+			if h.Notifier == nil {
+				return
+			}
+			h.Notifier.AdvisorDigest(len(d.New), d.Total,
+				advisor.FormatDigest(d, h.advisorPageURL()))
+		},
+	})
+}
+
+// advisorPageURL builds the link carried in the digest.  The daemon does not
+// know the name visitors reach it by, so it uses the first configured admin
+// hostname when there is one and leaves the link out otherwise -- a wrong URL
+// in an alert is worse than none.
+func (h *Handler) advisorPageURL() string {
+	hosts := settings.EnabledValues(h.cfg().Nginx.AdminAllowedHosts, h.cfg().Nginx.AdminAllowedHostsDisabled)
+	if len(hosts) == 0 {
+		return ""
+	}
+	return "https://" + hosts[0] + h.cfg().Server.BasePath + "/admin/advisor/"
 }

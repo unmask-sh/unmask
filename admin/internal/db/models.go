@@ -50,6 +50,19 @@ type AdvisorDismiss struct {
 
 func (AdvisorDismiss) TableName() string { return "unmask_advisor_dismiss" }
 
+// AdvisorNotified: a row of unmask_advisor_notified — an advisor candidate a
+// scheduled digest has already announced.  The scheduler subtracts these so
+// each digest reports what is new; rows age out (see the scheduler) so a
+// target that goes quiet and returns can be announced again.
+type AdvisorNotified struct {
+	ID         int64  `gorm:"primaryKey;autoIncrement"`
+	TargetType string `gorm:"column:target_type;not null"` // "ip" | "ja4"
+	Target     string `gorm:"column:target;not null"`
+	NotifiedAt int64  `gorm:"column:notified_at;not null;autoCreateTime:false"`
+}
+
+func (AdvisorNotified) TableName() string { return "unmask_advisor_notified" }
+
 // User: a row of unmask_user.  Pointer fields (Email / ResetToken /
 // ResetTokenExpiresAt / LastLogin) map to NULL-able columns -- GORM persists
 // nil as SQL NULL, so the "clear reset_token" path stays one Update call on

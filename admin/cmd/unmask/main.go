@@ -737,6 +737,15 @@ func cmdServe(args []string) error {
 		go h.RunOverBlockMonitor(context.Background())
 	}
 
+	// Scheduled advisor digest: run the deterministic candidate engine on a
+	// timer and hand anything new to the alert channels, so a scanner that
+	// arrives overnight is on record by morning instead of waiting for
+	// somebody to open the page.  The schedule is read live inside the loop
+	// (off by default), and the pass never calls a model.
+	if conn != nil {
+		go h.RunAdvisorSchedule(context.Background())
+	}
+
 	// Roll new unmask_event rows into unmask_aggregate_hourly every 60s (plus a
 	// startup pass).  The stats page reads those hourly rollups instead of
 	// scanning the raw event table, which is ~10x slower under pure-Go SQLite.

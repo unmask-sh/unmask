@@ -15,6 +15,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- (2026-09-03) **Advisor: a scheduled pass that tells you about new candidates.**  Settings > AI advisor can run the candidate extraction on a timer and send what is new since the last run through the alert channels already configured under Settings > notifications.  A scanner that arrives overnight is on record by morning instead of waiting for someone to open the page.  Off by default, and the scheduled pass never calls a model -- it should not spend your tokens while nobody is watching.
+
+### Added
 - (2026-09-03) **Advisor: let a model prioritise the candidates and explain them (optional).**  Settings > AI advisor connects the advisor page to Anthropic, any OpenAI-compatible endpoint, or a local Ollama with your own key.  Off by default; while it is off nothing leaves the host.  Only the candidate summary rows are sent -- never raw logs, cookies or payloads -- and the model can only annotate candidates the deterministic engine already found: a target it did not receive is discarded, so an instruction hidden in a user agent cannot introduce one.  Applying a ban stays a human click.
 
 ### Added
