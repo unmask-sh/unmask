@@ -38,9 +38,9 @@ func TestAdvisorTemplateRenders(t *testing.T) {
 			},
 			{
 				Type: "ja4", Target: "q13d_herd", Scope: "ja4_only",
-				Signals:     []advisor.Signal{{ID: "ja4_herd", Detail: "12 addresses", Weight: 3}},
-				Score:       3, Serves: 60, Passes: 0, DistinctIPs: 12,
-				FirstSeen:   "2026-09-03 00:00:00", LastSeen: "2026-09-03 01:00:00",
+				Signals: []advisor.Signal{{ID: "ja4_herd", Detail: "12 addresses", Weight: 3}},
+				Score:   3, Serves: 60, Passes: 0, DistinctIPs: 12,
+				FirstSeen: "2026-09-03 00:00:00", LastSeen: "2026-09-03 01:00:00",
 			},
 		},
 		"EngineErr":         "",
