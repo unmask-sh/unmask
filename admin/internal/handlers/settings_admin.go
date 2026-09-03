@@ -85,7 +85,7 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	tab := r.PathValue("tab")
 	switch tab {
-	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "asn", "theme", "notifications", "retention", "performance", "community-bans", "sites", "gateway", "about":
+	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "asn", "theme", "notifications", "retention", "performance", "community-bans", "sites", "gateway", "ai-advisor", "about":
 		// ok
 	case "search-bots", "challenge-targets":
 		tab = "ua-filter"
@@ -1707,6 +1707,8 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		applyWebBotAuthForm(&cur.Nginx.WebBotAuth, r)
 	case "privacy-pass":
 		applyPrivacyPassForm(&cur.Nginx.PrivacyPass, r)
+	case "ai-advisor":
+		applyAIAdvisorForm(&cur.AIAdvisor, r)
 	case "community-bans":
 		// Snapshot the pre-apply subscribe state.  When the operator flips
 		// subscribe from off to fetch / fetch_apply they expect the "共有 BAN"
@@ -6564,4 +6566,25 @@ func (h *Handler) AdminIPRangeSync(w http.ResponseWriter, r *http.Request) {
 		"ok":             1,
 		"last_synced_at": h.IPRangeSync.LastSyncedAt().Unix(),
 	})
+}
+
+// applyAIAdvisorForm reads the AI-advisor tab.  The API key field is
+// write-only in the UI: it renders empty and an empty submit keeps the stored
+// key, so saving an unrelated field on the tab never wipes the credential.
+// Submitting the literal "-" clears it.
+func applyAIAdvisorForm(c *settings.AIAdvisorConfig, r *http.Request) {
+	c.Enabled = r.FormValue("ai_enabled") == "1"
+	switch v := strings.TrimSpace(r.FormValue("ai_provider")); v {
+	case "anthropic", "openai", "ollama":
+		c.Provider = v
+	}
+	c.Endpoint = strings.TrimSpace(r.FormValue("ai_endpoint"))
+	c.Model = strings.TrimSpace(r.FormValue("ai_model"))
+	if k := strings.TrimSpace(r.FormValue("ai_api_key")); k != "" {
+		if k == "-" {
+			c.APIKey = ""
+		} else {
+			c.APIKey = k
+		}
+	}
 }

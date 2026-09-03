@@ -45,14 +45,30 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 		engineErr = err.Error()
 	}
 
+	// Optional LLM layer (settings > AI advisor).  Inert unless the operator
+	// opted in and configured a provider; a failure there degrades to the
+	// deterministic list rather than taking the page down.
+	var reviews map[string]advisor.Review
+	llmErr := ""
+	aiCfg := h.cfg().AIAdvisor
+	if aiCfg.Active() && len(cands) > 0 {
+		reviews, err = advisor.ReviewCandidates(r.Context(), aiCfg, cands)
+		if err != nil {
+			llmErr = err.Error()
+		}
+	}
+
 	data := map[string]any{
 		"Lang":       i18n.Resolve(r),
 		"TZ":         resolveTZ(r),
 		"BasePath":   h.cfg().Server.BasePath,
 		"Version":    h.Version,
 		"Candidates": cands,
+		"Reviews":    reviews,
+		"AIActive":   aiCfg.Active(),
 		"WindowH":    windowH,
 		"EngineErr":  engineErr,
+		"LLMErr":     llmErr,
 		"Saved":      r.URL.Query().Get("saved") != "",
 		"Dismissed":  r.URL.Query().Get("dismissed") != "",
 	}
