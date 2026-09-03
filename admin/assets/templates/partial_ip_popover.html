@@ -1,0 +1,128 @@
+{{- /*
+  ip_popover: the hover / click-to-pin address popover (rDNS + IP-geo + ASN)
+  shared by the bot-hunt page and the advisor page.  Any element carrying
+  class="ipclick" data-ip="<address>" gets it.
+
+  Three defines, spliced where the inline block used to live:
+    ip_popover_css : the trigger-side rule -> inside the page's <style>
+    ip_popover_el  : the popover host div  -> after </main>
+    ip_popover_js  : bare JS (IIFE)        -> inside the page's <script>, after
+                                             popover_pin_assets has loaded
+  Reads .BasePath (flag images + the myip lookup).
+*/ -}}
+{{ define "ip_popover_css" -}}
+/* IP popover (= rDNS + IP-geo + ASN, same shape as the dashboard).
+ * popover base + pinned styling (= drag / collapse / close) live in /static/popover-pin.css.
+ * This page only carries the trigger-side .ipclick CSS. */
+.ipclick{cursor:help;text-decoration:underline dotted;text-decoration-color:#cbd5e1;text-underline-offset:.2em}
+{{- end }}
+{{ define "ip_popover_el" -}}
+<div id="ip-popover" data-popover="ip"></div>
+{{- end }}
+{{ define "ip_popover_js" -}}
+// IP popover (rDNS + IP-geo + ASN).
+(function(){
+  var pop = document.getElementById('ip-popover');
+  if (!pop) return;
+  var pin = window.popoverPin.install(pop);
+  var cache = new Map();
+  var timer = null;
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]);
+  }
+  function fmt(d){
+    if (d.error) return '<span style="color:#dc2626">' + esc(d.error) + '</span>';
+    // unavailable placeholder
+    var na = '<span class="muted">(unavailable)</span>';
+    // flag PNG (= server-side ServeFlag falls back to unknown.png; JS branches explicitly too)
+    var ccLow = (d.country && d.country.length === 2) ? d.country.toLowerCase() : 'unknown';
+    var ccLabel = (d.country && d.country.length === 2) ? d.country : '??';
+    var flagImg = '<img class="flag" src="{{.BasePath}}/static/flags/' + ccLow +
+                  '.png" alt="' + ccLabel + '" loading="lazy" style="width:1rem;height:.75rem;vertical-align:-.05em;margin-right:.3em">';
+
+    var h = '<h3>' + flagImg + esc(d.ip) + '</h3><dl>';
+
+    // family (= v4/v6, required)
+    h += '<dt>family</dt><dd>' + esc(d.family || '?') + '</dd>';
+
+    // type (= private / loopback / public, always decided)
+    var types = [];
+    if (d.is_private) types.push('private');
+    if (d.is_loopback) types.push('loopback');
+    if (!types.length) types.push('public');
+    h += '<dt>type</dt><dd>' + types.join(', ') + '</dd>';
+
+    // rDNS (= can be empty / can fail lookup)
+    if (d.reverse_dns && d.reverse_dns.length){
+      h += '<dt>rDNS</dt><dd>' + d.reverse_dns.map(esc).join('<br>') + '</dd>';
+    } else if (d.reverse_dns_error){
+      h += '<dt>rDNS</dt><dd>' + na + ' <span class="muted" style="font-size:.78em">' +
+           esc(d.reverse_dns_error) + '</span></dd>';
+    } else {
+      h += '<dt>rDNS</dt><dd>' + na + '</dd>';
+    }
+
+    // country (= IP-geo. may be empty if mmdb isn't loaded or there's no match)
+    if (d.country || d.country_name) {
+      var cn = d.country_name ? esc(d.country_name) : '';
+      var cc = d.country ? '<span class="muted">(' + esc(d.country) + ')</span>' : '';
+      h += '<dt>country</dt><dd>' + cn + (cn && cc ? ' ' : '') + cc + '</dd>';
+    } else {
+      h += '<dt>country</dt><dd>' + na + '</dd>';
+    }
+
+    // city (= needs the IP-geo City DB. Always empty with country-only DB)
+    if (d.city) {
+      h += '<dt>city</dt><dd>' + esc(d.city) + '</dd>';
+    } else {
+      h += '<dt>city</dt><dd>' + na + '</dd>';
+    }
+
+    // ASN + org (= GeoLite2-ASN.mmdb. empty when mmdb isn't loaded)
+    if (d.asn) {
+      h += '<dt>ASN</dt><dd>AS' + d.asn +
+           (d.asn_org ? ' <span class="muted">' + esc(d.asn_org) + '</span>' : '') + '</dd>';
+    } else {
+      h += '<dt>ASN</dt><dd>' + na + '</dd>';
+    }
+
+    h += '</dl>';
+    return h;
+  }
+  function fetchAndFmt(ip, cb){
+    if (cache.has(ip)){ cb(fmt(cache.get(ip))); return; }
+    cb('looking up ' + esc(ip) + '…');
+    fetch('{{.BasePath}}/admin/api/myip?ip=' + encodeURIComponent(ip))
+      .then(function(r){ return r.json(); })
+      .then(function(d){ cache.set(ip, d); cb(fmt(d)); })
+      .catch(function(){ cb('lookup failed'); });
+  }
+  document.querySelectorAll('.ipclick').forEach(function(td){
+    td.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (pin.hasPinFor(td)) return;
+      var ip = td.dataset.ip;
+      if (!ip) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){
+        fetchAndFmt(ip, function(html){ pin.showHover(html, x, y, td); });
+      }, 200);
+    });
+    td.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    td.addEventListener('click', function(e){
+      e.preventDefault();
+      var ip = td.dataset.ip;
+      if (!ip) return;
+      clearTimeout(timer);
+      var x = e.pageX, y = e.pageY;
+      // pass html so the unpin path can also re-display primary as a hover popover
+      // (= instant on fetchAndFmt cache hit. UX: "click again = unpin + return to hover state").
+      // ip is also passed as the title-bar title so a pinned popover identifies
+      // itself with the IP value rather than the column heading text.
+      fetchAndFmt(ip, function(html){ pin.handleClick(html, x, y, td, ip); });
+    });
+  });
+})();
+{{- end }}

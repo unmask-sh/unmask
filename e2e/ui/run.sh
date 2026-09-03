@@ -310,6 +310,21 @@ c.execute("""INSERT INTO unmask_event
             'serve',0,0,'','','{"bt":"uiCellpop"}',
             datetime('now','-10 seconds'))""")
 c.commit()
+# advisor seed: one public address hammering the challenge and raking scanner
+# paths, so /admin/advisor/ has a candidate row (the engine skips loopback and
+# private addresses, which every other seed uses).  35 serves with no JS-side
+# phase = challenge_hammering; three scanner paths = scanner_paths -> score 6.
+# Declared site, no host -> no ghost badge, so the lone-popover predicate
+# (badge in the date cell) does not pick these rows up.
+for n in range(35):
+    path = ["/.env", "/wp-config.php.bak", "/.git/config"][n % 3]
+    c.execute("""INSERT INTO unmask_event
+        (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
+         phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+        VALUES ('ui-e2e.example','','https',443,x'cb00711a','UI-E2E-hammer/1.0 (+scanner)','t13d_hammer','',0,
+                'serve',0,0,'','',?, datetime('now', '-' || ? || ' seconds'))""",
+        (json.dumps({"path": path}, separators=(',', ':')), 60 + n))
+c.commit()
 PY
 
 "$BIN" serve -config "$WORK/config.yml" > "$WORK/serve.log" 2>&1 &

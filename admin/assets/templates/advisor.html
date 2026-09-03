@@ -30,7 +30,9 @@ table.cands{width:100%;border-collapse:collapse;font-size:.86rem}
 table.cands thead th{text-align:left;padding:.5rem .6rem;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:600;font-size:.78rem}
 table.cands tbody td{padding:.5rem .6rem;border-bottom:1px solid #f1f5f9;vertical-align:top}
 table.cands tbody tr:hover{background:#f8fafc}
-table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
+table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569;white-space:nowrap}
+/* The UA cell clips like the bot-hunt log's; the full string is a popover away. */
+table.cands td.ua{color:#64748b;font-size:.78rem;white-space:nowrap;max-width:13rem;overflow:hidden;text-overflow:ellipsis}
 .cands-scroll{overflow-x:auto;max-width:100%}
 .sig{display:inline-block;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:.25rem;padding:.05rem .4rem;font-size:.72rem;font-family:ui-monospace,Menlo,monospace;margin:0 .25rem .2rem 0;white-space:nowrap}
 .sig-detail{color:#64748b;font-size:.78rem;display:block;margin-top:.15rem}
@@ -49,6 +51,21 @@ table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
 .ai-reason{color:#334155;font-size:.8rem;line-height:1.6;margin-top:.35rem;padding-left:.5rem;border-left:2px solid #bfdbfe}
 .windowbar{display:flex;align-items:center;gap:.5rem;margin-bottom:1rem;font-size:.85rem;color:#475569}
 .windowbar select{padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.3rem;font-size:.85rem}
+/* The magnifier opens the target's raw events in bot hunt -- the evidence
+   behind the summary numbers, one click away. */
+.loglink{display:inline-block;margin-left:.35rem;font-size:.85rem;text-decoration:none;vertical-align:middle;opacity:.7}
+.loglink:hover{opacity:1}
+/* Same dotted-underline marker as .ipclick: a value that carries a popover. */
+.uaclick{cursor:help;text-decoration:underline dotted;text-decoration-color:#cbd5e1;text-underline-offset:.2em}
+img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
+.muted{color:#94a3b8}
+/* The dialog's buttons come from the bot-hunt page (.rank-act). */
+.rank-act{display:inline-block;padding:.1rem .45rem;font-size:.7rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;cursor:pointer;color:#334155;margin-left:.2rem;text-decoration:none}
+.rank-act:hover{background:#0f172a;color:#fff;border-color:#0f172a}
+.rank-act.danger{color:#b91c1c;border-color:#fca5a5}
+.rank-act.danger:hover{background:#dc2626;color:#fff;border-color:#dc2626}
+{{ template "ban_dialog_css" . }}
+{{ template "ip_popover_css" . }}
 .user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
 .user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
 .user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
@@ -63,6 +80,7 @@ table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
 .picker select{font-size:.75rem;color:#cbd5e1;background:#1e293b;border:1px solid #334155;border-radius:.2rem;padding:.15rem .35rem;cursor:pointer}
 .picker select option{color:#0f172a;background:#fff}
 </style>
+{{ template "popover_pin_assets" . }}
 </head>
 <body>
 <header class="unmask-header">
@@ -85,6 +103,7 @@ table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
   {{ template "header_tools" . }}
 </header>
 <main class="unmask-main">
+  {{ template "ua_assets" . }}
   <h1>{{ t .Lang "advisor.title" }}</h1>
   <p class="meta">{{ t .Lang "advisor.subtitle" }}</p>
 
@@ -116,6 +135,7 @@ table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
           <th>{{ t .Lang "advisor.col.signals" }}</th>
           <th>{{ t .Lang "advisor.col.traffic" }}</th>
           <th>{{ t .Lang "advisor.col.origin" }}</th>
+          <th>UA</th>
           <th>{{ t .Lang "advisor.col.paths" }}</th>
           <th>{{ t .Lang "advisor.col.actions" }}</th>
         </tr>
@@ -124,7 +144,7 @@ table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
         {{ range .Candidates }}
         <tr>
           <td class="mono">
-            {{ .Target }}
+            {{ if eq .Type "ip" }}<span class="ipclick" data-ip="{{ .Target }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .Country }}.png" alt="{{ ccLabel .Country }}" loading="lazy">{{ .Target }}</span>{{ else }}{{ .Target }}{{ end }}<a class="loglink" href="{{ $.BasePath }}/admin/hunt/?{{ if eq .Type "ip" }}ip{{ else }}ja4{{ end }}={{ urlquery .Target }}" aria-label="{{ t $.Lang "advisor.log_aria" }}">🔍</a>
             {{ if eq .Type "ja4" }}<span class="kv"><br>{{ .DistinctIPs }} {{ t $.Lang "advisor.ips" }}</span>
             {{ else if .JA4 }}<span class="kv"><br>{{ .JA4 }}</span>{{ end }}
           </td>
@@ -142,25 +162,34 @@ table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
           </td>
           <td class="kv">
             {{ if .ASNOrg }}{{ .ASNOrg }}{{ if .Country }} ({{ .Country }}){{ end }}{{ else }}–{{ end }}
-            {{ if .UA }}<br><span class="clamp-v" title="{{ .UA }}">{{ .UA }}</span>{{ end }}
+          </td>
+          <td class="ua">
+            {{ if .UA }}<span class="uaclick" data-ua="{{ .UA }}">{{ template "ua_cell" .UA }}</span>{{ else }}<span class="muted">-</span>{{ end }}
           </td>
           <td>
-            {{ range .SamplePaths }}<span class="clamp-v" title="{{ . }}">{{ . }}</span><br>{{ end }}
+            {{ range .SamplePaths }}<span class="clamp-v uaclick" data-ua="{{ . }}">{{ . }}</span><br>{{ end }}
           </td>
           <td class="actions">
-            <form method="post" action="{{$.BasePath}}/admin/bans/save"
-                  onsubmit="return confirm('{{ t $.Lang "advisor.ban_confirm" }}')">
-              <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
-              <input type="hidden" name="op" value="add">
+            {{/* The BAN goes through bot hunt's handler and its dialog (reason,
+                 optional community share) so both pages offer the same
+                 gesture.  return_to brings the operator back here. */}}
+            <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" class="js-ban-form"
+                  data-ip="{{ if eq .Type "ip" }}{{ .Target }}{{ end }}"
+                  data-ja4="{{ if eq .Type "ja4" }}{{ .Target }}{{ end }}">
+              <input type="hidden" name="op" value="ban">
               <input type="hidden" name="return_to" value="advisor">
+              <input type="hidden" name="range" value="">
               <input type="hidden" name="ip" value="{{ if eq .Type "ip" }}{{ .Target }}{{ end }}">
               <input type="hidden" name="ja4" value="{{ if eq .Type "ja4" }}{{ .Target }}{{ else }}{{ .JA4 }}{{ end }}">
               <input type="hidden" name="scope" value="{{ .Scope }}">
+              <input type="hidden" name="duration_sec" value="0">
               <input type="hidden" name="reason" value="advisor: {{ range $i, $s := .Signals }}{{ if $i }}, {{ end }}{{ $s.ID }}{{ end }}">
+              <input type="hidden" name="share" value="">
+              <input type="hidden" name="comment" value="">
+              <input type="hidden" name="accept_terms" value="">
               <button type="submit" class="btn danger">{{ t $.Lang "advisor.ban" }}</button>
             </form>
             <form method="post" action="{{$.BasePath}}/admin/advisor/dismiss">
-              <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
               <input type="hidden" name="target_type" value="{{ .Type }}">
               <input type="hidden" name="target" value="{{ .Target }}">
               <button type="submit" class="btn">{{ t $.Lang "advisor.dismiss" }}</button>
@@ -176,5 +205,47 @@ table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
       {{ if .AIActive }}{{ t .Lang "advisor.note_ai_on" }}{{ else }}{{ safeHTML (tf .Lang "advisor.note_ai_off" (printf "%s/admin/settings/ai-advisor/" .BasePath)) }}{{ end }}</p>
   </div>
 </main>
+{{ template "ip_popover_el" . }}
+<div id="ua-popover" data-popover="ua"></div>
+{{ template "ban_dialog" . }}
+<script>
+{{ template "ip_popover_js" . }}
+
+{{ template "ban_dialog_js" . }}
+
+// UA / path popover: the cell clips the value; hover shows the whole string and
+// a click pins it so it can be selected and copied.  Same popoverPin the IP
+// popover uses, no lookup involved.
+(function(){
+  var pop = document.getElementById('ua-popover');
+  if (!pop || !window.popoverPin) return;
+  var pin = window.popoverPin.install(pop);
+  var timer = null;
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, function(c){ return ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]; });
+  }
+  function html(v){
+    return '<code style="display:block;white-space:pre-wrap;word-break:break-all;font-size:.78rem;line-height:1.5">' + esc(v) + '</code>';
+  }
+  document.querySelectorAll('.uaclick').forEach(function(el){
+    var v = el.dataset.ua;
+    if (!v) return;
+    el.addEventListener('mouseenter', function(e){
+      clearTimeout(timer);
+      if (pin.hasPinFor(el)) return;
+      var x = e.pageX, y = e.pageY;
+      timer = setTimeout(function(){ pin.showHover(html(v), x, y, el); }, 200);
+    });
+    el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+    el.addEventListener('click', function(e){
+      e.preventDefault();
+      clearTimeout(timer);
+      pin.handleClick(html(v), e.pageX, e.pageY, el, 'UA');
+    });
+  });
+})();
+</script>
 </body>
 </html>

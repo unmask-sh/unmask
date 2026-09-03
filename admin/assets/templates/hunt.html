@@ -284,10 +284,7 @@ table.events td.at .site-badge{max-width:4rem}
 .picker label{color:#94a3b8}
 .picker select{font-size:.75rem;color:#cbd5e1;background:#1e293b;border:1px solid #334155;border-radius:.2rem;padding:.15rem .35rem;cursor:pointer}
 .picker select option{color:#0f172a;background:#fff}
-/* IP popover (= rDNS + IP-geo + ASN, same shape as the dashboard).
- * popover base + pinned styling (= drag / collapse / close) live in /static/popover-pin.css.
- * This page only carries the trigger-side .ipclick CSS. */
-.ipclick{cursor:help;text-decoration:underline dotted;text-decoration-color:#cbd5e1;text-underline-offset:.2em}
+{{ template "ip_popover_css" . }}
 /* JA4 / UA cells: a truncated value opens a pinnable popover so the full
    string can be selected + copied (the native title tooltip cannot). */
 /* .cellpop-actions / .cellpop-btn live in partial_events_table.html (= same
@@ -344,6 +341,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   <a href="?range=6h"  {{ if eq .Range "6h" }}class="active"{{ end }}>6 {{ t .Lang "hunt.range.hour" }}</a>
   <a href="?range=24h" {{ if eq .Range "24h" }}class="active"{{ end }}>24 {{ t .Lang "hunt.range.hour" }}</a>
   {{ template "range_custom_modal" . }}
+  <a href="{{ .BasePath }}/admin/advisor/" style="margin-left:1rem;font-size:.8rem;color:#1d4ed8;text-decoration:none">{{ t .Lang "hunt.advisor_link" }} &rarr;</a>
 </div>
 
 {{/* Live tail + rank cards are 'now' surfaces -- relevant when the operator
@@ -693,51 +691,12 @@ function dismissHuntTip(id){
 </div>
 
 </main>
-<div id="ip-popover" data-popover="ip"></div>
+{{ template "ip_popover_el" . }}
 <div id="cell-popover" data-popover="cell"></div>
 
 <!-- BAN confirmation modal (= with share / comment).  If CommunityBansActive=true,
      shows the share row.  Otherwise behaves like a simple confirm. -->
-<dialog id="ban-dialog" class="ban-dialog" data-feed-active="{{ if .CommunityBansActive }}1{{ else }}0{{ end }}">
-  <form method="dialog" class="ban-dialog-body">
-    <h3>{{ t .Lang "hunt.ban.dialog_h" }}</h3>
-    <p class="ban-dialog-target"><code id="ban-dialog-target"></code></p>
-    {{/* share group: share checkbox + (only when no prior opt-in) a nested terms gate beneath it.
-         The BAN itself doesn't require consent (= the group is fully optional). */}}
-    <div class="ban-dialog-share-group">
-      {{/* one unified clickwrap.  Not yet opted in: ticking share also accepts
-           the terms (the label carries the links), and the server flips
-           submit_enabled + TermsAcceptedAt via accept_terms=1.  Already opted
-           in: it's a plain per-BAN share toggle.  The BAN never needs consent.
-           The detailed disclosure (= terms_note) sits in a `<details>` block
-           below the label.  A popover would get trapped inside the dialog's
-           top-layer; a native `<details>` expands inline and dodges that. */}}
-      <label class="ban-dialog-share">
-        <input type="checkbox" id="ban-dialog-share">
-        <span>{{ if .CommunityBansActive }}{{ t .Lang "hunt.ban.share_label" }}{{ else }}{{ safeHTML (t .Lang "hunt.ban.share_consent_label") }}{{ end }}</span>
-      </label>
-      {{ if not .CommunityBansActive }}
-      <details class="ban-dialog-terms-details">
-        <summary>{{ t .Lang "hunt.ban.terms_more" }}</summary>
-        <div class="ban-dialog-terms-note">{{ t .Lang "hunt.ban.terms_note" }}</div>
-      </details>
-      {{ end }}
-      <div id="ban-dialog-reason-row" class="ban-dialog-reason" style="display:none">
-        <label for="ban-dialog-reason">{{ t .Lang "hunt.ban.reason_shared_label" }}</label>
-        <input type="text" id="ban-dialog-reason" maxlength="200" placeholder="{{ t .Lang "hunt.ban.reason_placeholder" }}">
-      </div>
-      <div id="ban-dialog-comment-row" class="ban-dialog-comment" style="display:none">
-        <label for="ban-dialog-comment">{{ t .Lang "hunt.ban.comment_label" }}</label>
-        <textarea id="ban-dialog-comment" maxlength="280" rows="2" placeholder="{{ t .Lang "hunt.ban.comment_placeholder" }}"></textarea>
-        <div class="ban-dialog-counter"><span id="ban-dialog-counter">0</span>/280</div>
-      </div>
-    </div>
-    <div class="ban-dialog-actions">
-      <button type="submit" value="cancel" class="rank-act">{{ t .Lang "hunt.ban.cancel" }}</button>
-      <button type="submit" value="ok" class="rank-act danger" id="ban-dialog-ok">{{ t .Lang "hunt.ban.confirm" }}</button>
-    </div>
-  </form>
-</dialog>
+{{ template "ban_dialog" . }}
 <!-- UA black-list dialog.  The action cell used to be a native confirm() that
      wrote the raw UA straight into the nginx config: no way to see or correct
      the pattern, and no mention that the rule is not live until a reload. -->
@@ -812,32 +771,7 @@ function dismissHuntTip(id){
   </form>
 </dialog>
 <style>
-.ban-dialog{border:1px solid #cbd5e1;border-radius:.4rem;padding:0;max-width:28rem;width:90%;background:#fff;color:#0f172a}
-.ban-dialog::backdrop{background:rgba(15,23,42,.45)}
-.ban-dialog-body{display:flex;flex-direction:column;gap:.6rem;padding:1rem 1.1rem;margin:0}
-.ban-dialog-body h3{margin:0;font-size:1rem}
-.ban-dialog-target{margin:0;font-size:.85rem;color:#475569;word-break:break-all}
-.ban-dialog-reason{display:flex;flex-direction:column;gap:.25rem;font-size:.8rem}
-.ban-dialog-reason label{color:#475569;font-size:.78rem}
-.ban-dialog-target code{background:#f1f5f9;padding:.1rem .35rem;border-radius:.2rem;font-family:ui-monospace,monospace}
-.ban-dialog-share-group{display:flex;flex-direction:column;gap:.4rem;margin-top:1.2rem}
-.ban-dialog-terms-details{font-size:.78rem;color:#64748b}
-.ban-dialog-terms-details summary{cursor:pointer;color:#3b82f6;user-select:none;list-style:revert}
-.ban-dialog-terms-details summary:hover{text-decoration:underline}
-.ban-dialog-terms-details .ban-dialog-terms-note{margin-top:.4rem;padding:.5rem .7rem;background:#f8fafc;border-left:.15rem solid #cbd5e1;border-radius:.2rem;line-height:1.7}
-/* align-items:flex-start so the unified consent label (= terms links + share
- * copy on no-prior-opt-in) wraps cleanly with the checkbox pinned to the top. */
-.ban-dialog-share{display:flex;align-items:flex-start;gap:.45rem;font-size:.875rem;cursor:pointer;line-height:1.4}
-.ban-dialog-share input{margin-top:.15rem}
-.ban-dialog-share input:disabled+span{color:#94a3b8;cursor:not-allowed}
-.ban-dialog-share a{color:#1d4ed8;text-decoration:underline}
-.ban-dialog-terms-note{font-size:.7rem;color:#64748b;margin:.1rem 0 0 1.6rem;line-height:1.45}
-.ban-dialog-comment{display:flex;flex-direction:column;gap:.25rem;font-size:.8rem}
-.ban-dialog-comment label{color:#475569;font-size:.78rem}
-.ban-dialog-comment textarea,.ban-dialog-reason input{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:.25rem;padding:.4rem .55rem;font:inherit;font-size:.85rem}
-.ban-dialog-comment textarea{resize:vertical}
-.ban-dialog-counter{text-align:right;color:#94a3b8;font-size:.72rem}
-.ban-dialog-actions{display:flex;gap:.5rem;justify-content:flex-end;margin-top:.3rem}
+{{ template "ban_dialog_css" . }}
 /* rule dialogs (UA black list / ASN rule).  Same shell as the BAN dialog --
    they are the same gesture from the same rank cards -- with a field stack in
    place of the share group. */
@@ -908,111 +842,7 @@ function dismissHuntTip(id){
 // (= loaded by the "popover_pin_assets" partial. defer ensures DOM-ready execution).
 
 
-// IP popover (rDNS + IP-geo + ASN).
-(function(){
-  var pop = document.getElementById('ip-popover');
-  if (!pop) return;
-  var pin = window.popoverPin.install(pop);
-  var cache = new Map();
-  var timer = null;
-  function esc(s){
-    return String(s).replace(/[&<>"']/g, c => ({
-      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-    })[c]);
-  }
-  function fmt(d){
-    if (d.error) return '<span style="color:#dc2626">' + esc(d.error) + '</span>';
-    // unavailable placeholder
-    var na = '<span class="muted">(unavailable)</span>';
-    // flag PNG (= server-side ServeFlag falls back to unknown.png; JS branches explicitly too)
-    var ccLow = (d.country && d.country.length === 2) ? d.country.toLowerCase() : 'unknown';
-    var ccLabel = (d.country && d.country.length === 2) ? d.country : '??';
-    var flagImg = '<img class="flag" src="{{.BasePath}}/static/flags/' + ccLow +
-                  '.png" alt="' + ccLabel + '" loading="lazy" style="width:1rem;height:.75rem;vertical-align:-.05em;margin-right:.3em">';
-
-    var h = '<h3>' + flagImg + esc(d.ip) + '</h3><dl>';
-
-    // family (= v4/v6, required)
-    h += '<dt>family</dt><dd>' + esc(d.family || '?') + '</dd>';
-
-    // type (= private / loopback / public, always decided)
-    var types = [];
-    if (d.is_private) types.push('private');
-    if (d.is_loopback) types.push('loopback');
-    if (!types.length) types.push('public');
-    h += '<dt>type</dt><dd>' + types.join(', ') + '</dd>';
-
-    // rDNS (= can be empty / can fail lookup)
-    if (d.reverse_dns && d.reverse_dns.length){
-      h += '<dt>rDNS</dt><dd>' + d.reverse_dns.map(esc).join('<br>') + '</dd>';
-    } else if (d.reverse_dns_error){
-      h += '<dt>rDNS</dt><dd>' + na + ' <span class="muted" style="font-size:.78em">' +
-           esc(d.reverse_dns_error) + '</span></dd>';
-    } else {
-      h += '<dt>rDNS</dt><dd>' + na + '</dd>';
-    }
-
-    // country (= IP-geo. may be empty if mmdb isn't loaded or there's no match)
-    if (d.country || d.country_name) {
-      var cn = d.country_name ? esc(d.country_name) : '';
-      var cc = d.country ? '<span class="muted">(' + esc(d.country) + ')</span>' : '';
-      h += '<dt>country</dt><dd>' + cn + (cn && cc ? ' ' : '') + cc + '</dd>';
-    } else {
-      h += '<dt>country</dt><dd>' + na + '</dd>';
-    }
-
-    // city (= needs the IP-geo City DB. Always empty with country-only DB)
-    if (d.city) {
-      h += '<dt>city</dt><dd>' + esc(d.city) + '</dd>';
-    } else {
-      h += '<dt>city</dt><dd>' + na + '</dd>';
-    }
-
-    // ASN + org (= GeoLite2-ASN.mmdb. empty when mmdb isn't loaded)
-    if (d.asn) {
-      h += '<dt>ASN</dt><dd>AS' + d.asn +
-           (d.asn_org ? ' <span class="muted">' + esc(d.asn_org) + '</span>' : '') + '</dd>';
-    } else {
-      h += '<dt>ASN</dt><dd>' + na + '</dd>';
-    }
-
-    h += '</dl>';
-    return h;
-  }
-  function fetchAndFmt(ip, cb){
-    if (cache.has(ip)){ cb(fmt(cache.get(ip))); return; }
-    cb('looking up ' + esc(ip) + '…');
-    fetch('{{.BasePath}}/admin/api/myip?ip=' + encodeURIComponent(ip))
-      .then(function(r){ return r.json(); })
-      .then(function(d){ cache.set(ip, d); cb(fmt(d)); })
-      .catch(function(){ cb('lookup failed'); });
-  }
-  document.querySelectorAll('.ipclick').forEach(function(td){
-    td.addEventListener('mouseenter', function(e){
-      clearTimeout(timer);
-      if (pin.hasPinFor(td)) return;
-      var ip = td.dataset.ip;
-      if (!ip) return;
-      var x = e.pageX, y = e.pageY;
-      timer = setTimeout(function(){
-        fetchAndFmt(ip, function(html){ pin.showHover(html, x, y, td); });
-      }, 200);
-    });
-    td.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
-    td.addEventListener('click', function(e){
-      e.preventDefault();
-      var ip = td.dataset.ip;
-      if (!ip) return;
-      clearTimeout(timer);
-      var x = e.pageX, y = e.pageY;
-      // pass html so the unpin path can also re-display primary as a hover popover
-      // (= instant on fetchAndFmt cache hit. UX: "click again = unpin + return to hover state").
-      // ip is also passed as the title-bar title so a pinned popover identifies
-      // itself with the IP value rather than the column heading text.
-      fetchAndFmt(ip, function(html){ pin.handleClick(html, x, y, td, ip); });
-    });
-  });
-})();
+{{ template "ip_popover_js" . }}
 
 // Session view + cellpop IIFEs moved into partial_events_table.html so the
 // overview card's recent-events block shares the exact same logic without
@@ -1328,89 +1158,7 @@ function dismissHuntTip(id){
   window.addEventListener('beforeunload', function(){ stopSSE(false); });
 })();
 
-// BAN confirm dialog: preventDefault the form submit once -> show the dialog ->
-// on "BAN execute" copy share / comment into hidden inputs and submit.
-// With CommunityBansActive the dialog enables share checkbox + comment row;
-// otherwise it still acts as a simple confirm dialog (= equivalent to the legacy confirm()).
-(function(){
-  var dlg = document.getElementById('ban-dialog');
-  if (!dlg || !dlg.showModal) return; // no <dialog> support -> fall back to the legacy confirm
-  var feedActive = dlg.dataset.feedActive === '1';
-  var target  = document.getElementById('ban-dialog-target');
-  var shareCb = document.getElementById('ban-dialog-share');
-  var cmtRow  = document.getElementById('ban-dialog-comment-row');
-  var cmtTa   = document.getElementById('ban-dialog-comment');
-  var cmtCnt  = document.getElementById('ban-dialog-counter');
-  var reasonRow = document.getElementById('ban-dialog-reason-row');
-  var reasonEl  = document.getElementById('ban-dialog-reason');
-  var pending = null; // the form currently being confirmed
-  // Reason + comment rows share the same visibility as the share checkbox
-  // (= they're only relevant when the BAN is being shared).
-  function syncShareRows(on){
-    if (cmtRow) cmtRow.style.display = on ? '' : 'none';
-    if (reasonRow) reasonRow.style.display = on ? '' : 'none';
-  }
-
-  if (cmtTa && cmtCnt){
-    cmtTa.addEventListener('input', function(){
-      cmtCnt.textContent = String(cmtTa.value.length);
-    });
-  }
-  if (shareCb && cmtRow){
-    shareCb.addEventListener('change', function(){
-      if (shareCb.disabled) return;
-      syncShareRows(shareCb.checked);
-    });
-  }
-  dlg.addEventListener('close', function(){
-    if (!pending) return;
-    var form = pending; pending = null;
-    if (dlg.returnValue !== 'ok') return;
-    var sIn = form.querySelector('input[name=share]');
-    var cIn = form.querySelector('input[name=comment]');
-    var aIn = form.querySelector('input[name=accept_terms]');
-    var sharing = shareCb && shareCb.checked && !shareCb.disabled;
-    if (sIn) sIn.value = sharing ? '1' : '';
-    // editable reason overrides the auto default when sharing (empty = the
-    // operator chose to share without a reason); when not sharing, the hidden
-    // auto reason is kept as the local-BAN reason.
-    var rIn = form.querySelector('input[name=reason]');
-    if (rIn && reasonEl && sharing) rIn.value = reasonEl.value;
-    if (cmtTa && cIn) cIn.value = sharing ? cmtTa.value : '';
-    // accept_terms: ticking share while not yet opted in IS the consent (the
-    // unified clickwrap label carries the terms + privacy links).
-    if (aIn) aIn.value = (!feedActive && sharing) ? '1' : '';
-    // re-submit (= bypass the js-ban-form intercept)
-    form.dataset.confirmed = '1';
-    form.submit();
-  });
-
-
-  document.querySelectorAll('form.js-ban-form').forEach(function(form){
-    form.addEventListener('submit', function(ev){
-      if (form.dataset.confirmed === '1') return; // the re-submit passes straight through
-      ev.preventDefault();
-      var ip  = form.dataset.ip  || '';
-      var ja4 = form.dataset.ja4 || '';
-      if (target) target.textContent = [ip, ja4].filter(Boolean).join(' / ');
-      if (cmtTa)  { cmtTa.value = ''; if (cmtCnt) cmtCnt.textContent = '0'; }
-      // Seed the editable reason with the auto-generated default so the operator
-      // can review, tweak, or clear it before sharing.
-      if (reasonEl){ var rIn = form.querySelector('input[name=reason]'); reasonEl.value = rIn ? rIn.value : ''; }
-      if (shareCb){
-        // Sharing is opt-in per BAN: always start unchecked so a routine BAN
-        // never silently shares.  The box is always enabled now -- ticking it
-        // when not yet opted in doubles as the terms acceptance.
-        shareCb.checked = false;
-        shareCb.disabled = false;
-      }
-      syncShareRows(false);
-      pending = form;
-      dlg.returnValue = '';
-      dlg.showModal();
-    });
-  });
-})();
+{{ template "ban_dialog_js" . }}
 
 // UA black list.  The pattern is a regex in an nginx map, so it is checked
 // here before the round trip: the server applies the same rule and would
