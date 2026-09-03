@@ -14,6 +14,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- (2026-09-03) **`unmask mcp` — plug your own AI assistant into the install's data.**  A read-only Model Context Protocol server over stdio: six tools covering stats, the hunt event log, per-IP lookup (rDNS / GeoIP / ASN / bans), the BAN list, doctor and a redacted settings summary.  unmask itself never calls an LLM — the operator's assistant connects in (remotely via plain ssh), so the no-outbound-calls posture is unchanged.  No mutations: the assistant reads and proposes; changes stay with the human.
+
+### Fixed
+- (2026-09-03) **The forward-auth snippet no longer mis-describes its daemon-down default.**  A comment in the shipped `/etc/unmask/forward-auth/server.inc` still said the default was a 503 -- the actual default has long been fail-open (a redirect to `/`, flowing through to the backend), as the FAQ and the install page state.  The comment now matches, with 503 shown as the fail-closed override.  The README also gains the release-signing key fingerprints for out-of-band verification.
+
 ## [0.1.38] - 2026-09-01
 
 ### Added
