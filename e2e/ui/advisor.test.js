@@ -142,10 +142,8 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     dialog: !!document.getElementById('ban-dialog'),
     ipPop: !!document.getElementById('ip-popover'),
     banBtn: !!document.querySelector('.rank-card-ip form.js-ban-form button'),
-    advisorLink: !!document.querySelector('.range-bar a[href$="/admin/advisor/"]'),
   }));
   ok(hunt.dialog && hunt.ipPop, 'bot hunt lost its dialog / IP popover after the partial extraction');
-  ok(hunt.advisorLink, 'bot hunt has no link to the advisor page');
   if (hunt.banBtn) {
     await page.click('.rank-card-ip form.js-ban-form button');
     await new Promise(r => setTimeout(r, 300));

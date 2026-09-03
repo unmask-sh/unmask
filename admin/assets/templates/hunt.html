@@ -341,7 +341,6 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   <a href="?range=6h"  {{ if eq .Range "6h" }}class="active"{{ end }}>6 {{ t .Lang "hunt.range.hour" }}</a>
   <a href="?range=24h" {{ if eq .Range "24h" }}class="active"{{ end }}>24 {{ t .Lang "hunt.range.hour" }}</a>
   {{ template "range_custom_modal" . }}
-  <a href="{{ .BasePath }}/admin/advisor/" style="margin-left:1rem;font-size:.8rem;color:#1d4ed8;text-decoration:none">{{ t .Lang "hunt.advisor_link" }} &rarr;</a>
 </div>
 
 {{/* Live tail + rank cards are 'now' surfaces -- relevant when the operator
