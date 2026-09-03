@@ -53,9 +53,13 @@ admin_exec() {
 healthz() {
     curl -s -o /dev/null -w '%{http_code}' --max-time 3 "${ADMIN_URL}/unmask/healthz"
 }
+# 60s, not the 30s the sibling scenarios use: this one restarts the admin six
+# times, and on a loaded CI runner one of those restarts has taken 31s twice
+# in one night (2026-09-03/04) -- the daemon's graceful stop is capped at 5s,
+# so the excess is runner load, not a hang, and a longer wait is the honest fix.
 wait_healthz_200() {
     local i
-    for i in $(seq 1 30); do
+    for i in $(seq 1 60); do
         [ "$(healthz)" = 200 ] && return 0
         sleep 1
     done
