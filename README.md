@@ -34,6 +34,17 @@ rpm / deb / apk packages, per-HTTP-server snippets, and an install wizard — st
 
 Containers: `unmask.sh/admin` (the daemon) and `unmask.sh/nginx` (the official nginx image plus the module), served from unmask.sh like the packages and mirrored on GHCR (`ghcr.io/unmask-sh/*`). `docker-compose.example.yml` pairs them; set `UNMASK_UPSTREAM` on the nginx container and it also works as a JA4-aware gateway in front of any HTTP server.
 
+### Package signing
+
+Every package (rpm / deb / apk) is signed; `unmask-release` installs the public
+keys, and the package manager verifies everything from then on.  Fingerprints
+for bootstrapping trust by hand (cross-check with https://unmask.sh/keys/):
+
+- OpenPGP, rpm / deb (`RPM-GPG-KEY-unmask`):
+  `C03D D45E 28C4 446F DDC4  8EFC 34A3 20B5 44B2 8158`
+- Alpine RSA, apk (`unmask.rsa.pub`), SHA-256 of the DER public key:
+  `63:77:6a:f3:57:b7:be:aa:db:2a:83:67:9d:ae:46:42:ac:78:6d:ad:49:95:9b:7c:1f:cb:3d:16:5c:c9:a5:dc`
+
 ## Docs
 
 Official docs: **https://unmask.sh/docs/**
