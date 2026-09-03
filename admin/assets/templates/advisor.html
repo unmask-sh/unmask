@@ -36,6 +36,12 @@ table.cands td.ua{color:#64748b;font-size:.78rem;white-space:nowrap;max-width:13
 .cands-scroll{overflow-x:auto;max-width:100%}
 .sig{display:inline-block;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:.25rem;padding:.05rem .4rem;font-size:.72rem;font-family:ui-monospace,Menlo,monospace;margin:0 .25rem .2rem 0;white-space:nowrap}
 .sig-detail{color:#64748b;font-size:.78rem;display:block;margin-top:.15rem}
+.sig.ai{background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe}
+/* contained vs passing: the one distinction that decides whether a ban buys
+   protection or merely quiet. */
+.state{display:block;font-size:.74rem;margin-bottom:.25rem}
+.state.contained{color:#64748b}
+.state.passing{color:#b91c1c;font-weight:700}
 .kv{color:#64748b;font-size:.78rem}
 .clamp-v{display:inline-block;max-width:16rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;font-family:ui-monospace,Menlo,monospace;font-size:.78rem;color:#475569}
 .btn{display:inline-block;border:1px solid #cbd5e1;background:#fff;border-radius:.3rem;padding:.25rem .7rem;font-size:.8rem;cursor:pointer;color:#0f172a}
@@ -148,10 +154,11 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
             {{ else if .JA4 }}<span class="kv"><br>{{ .JA4 }}</span>{{ end }}
           </td>
           <td>
+            {{ if .Contained }}<span class="state contained">{{ t $.Lang "advisor.state.contained" }}</span>{{ else }}<span class="state passing">{{ t $.Lang "advisor.state.passing" }}</span>{{ end }}
             {{ $rv := "" }}{{ if $.Reviews }}{{ $rv = index $.Reviews .Target }}{{ end }}
             {{ if $rv }}<span class="prio {{ $rv.Priority }}">{{ $rv.Priority }}</span>{{ end }}
             {{ range .Signals }}
-              <span class="sig">{{ .ID }}</span><span class="sig-detail">{{ .Detail }}</span>
+              <span class="sig{{ if eq .ID "ai_pick" }} ai{{ end }}">{{ .ID }}</span><span class="sig-detail">{{ .Detail }}</span>
             {{ end }}
             {{ if $rv }}<div class="ai-reason">{{ $rv.Reasoning }}</div>{{ end }}
           </td>
@@ -161,6 +168,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
           </td>
           <td class="kv">
             {{ if .ASNOrg }}{{ .ASNOrg }}{{ if .Country }} ({{ .Country }}){{ end }}{{ else }}–{{ end }}
+            {{ if .RDNS }}<br><span class="clamp-v uaclick" data-ua="{{ .RDNS }}">{{ .RDNS }}</span>{{ end }}
           </td>
           <td class="ua">
             {{ if .UA }}<span class="uaclick" data-ua="{{ .UA }}">{{ template "ua_cell" .UA }}</span>{{ else }}<span class="muted">-</span>{{ end }}

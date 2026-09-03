@@ -54,7 +54,16 @@ type Candidate struct {
 	ASN         uint     `json:"asn,omitempty"`
 	ASNOrg      string   `json:"asn_org,omitempty"`
 	Country     string   `json:"country,omitempty"`
+	RDNS        string   `json:"rdns,omitempty"`
 	SamplePaths []string `json:"sample_paths,omitempty"`
+	// Contained: the client never completed a challenge.  The challenge is
+	// already doing its job; a ban buys the daemon fewer round trips and the
+	// log less noise, not more protection.  What deserves attention is the
+	// opposite -- an actor that passes.
+	Contained bool `json:"contained"`
+	// Nominated: proposed by the model from the wider pool rather than by a
+	// signal (page only; the scheduled pass never asks the model).
+	Nominated bool `json:"nominated,omitempty"`
 }
 
 // Options tunes the extraction.  Zero values resolve to the defaults below —
@@ -64,6 +73,7 @@ type Options struct {
 	WindowMinutes int // default 24h
 	MinServes     int // default 30: challenge serves before an IP is "hammering"
 	MinScanner    int // default 3: distinct-ish scanner-path hits
+	MinPasses     int // default 5: passes before a hosting-network client is "getting through"
 	HerdMinIPs    int // default 10: distinct IPs behind one JA4
 	Limit         int // default 20 candidates
 }
@@ -77,6 +87,9 @@ func (o Options) resolved() Options {
 	}
 	if o.MinScanner <= 0 {
 		o.MinScanner = 3
+	}
+	if o.MinPasses <= 0 {
+		o.MinPasses = 5
 	}
 	if o.HerdMinIPs <= 0 {
 		o.HerdMinIPs = 10
@@ -174,9 +187,10 @@ func ipCandidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Excl
 	      GROUP BY ip_address
 	      HAVING SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END) >= ?
 	          OR SUM(CASE WHEN ` + scannerCond() + ` THEN 1 ELSE 0 END) >= ?
+	          OR SUM(CASE WHEN phase IN ` + passPhaseList + ` THEN 1 ELSE 0 END) >= ?
 	      ORDER BY serves DESC
 	      LIMIT 200`
-	rows, err := conn.QueryContext(ctx, q, opt.MinServes, opt.MinScanner)
+	rows, err := conn.QueryContext(ctx, q, opt.MinServes, opt.MinScanner, opt.MinPasses)
 	if err != nil {
 		return nil, err
 	}
@@ -196,6 +210,7 @@ func ipCandidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Excl
 		}
 		c.Type, c.Target, c.Scope = "ip", ip, "ip_only"
 		c.JA4, c.UA, c.FirstSeen, c.LastSeen = ja4, ua, first, last
+		c.Contained = c.Passes == 0
 
 		if c.Serves >= opt.MinServes && c.Passes == 0 {
 			c.Signals = append(c.Signals, Signal{
@@ -220,6 +235,16 @@ func ipCandidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Excl
 					detail += " wearing a browser User-Agent"
 				}
 				c.Signals = append(c.Signals, Signal{ID: "hosting_network", Weight: w, Detail: detail})
+				// The shape that gets THROUGH: a server farm running a real
+				// browser engine completes the challenge like a person would.
+				// This is the one signal about an actor the challenge is not
+				// stopping, so it outweighs every "contained" signal.
+				if c.Passes >= opt.MinPasses && strings.HasPrefix(ua, "Mozilla/") {
+					c.Signals = append(c.Signals, Signal{
+						ID: "passing_hosting", Weight: 4,
+						Detail: fmt.Sprintf("%d challenges passed from a hosting network (%s) with a browser User-Agent", c.Passes, hp),
+					})
+				}
 			}
 		}
 		for _, s := range c.Signals {
@@ -275,6 +300,7 @@ func ja4Candidates(ctx context.Context, conn *db.DB, excl Exclusions, opt Option
 		}
 		c.Type, c.Target, c.Scope = "ja4", ja4, "ja4_only"
 		c.UA, c.FirstSeen, c.LastSeen = ua, first, last
+		c.Contained = c.Passes == 0
 		c.Signals = append(c.Signals, Signal{
 			ID: "ja4_herd", Weight: 3,
 			Detail: fmt.Sprintf("one fingerprint across %d addresses, %d serves, %d passes", c.DistinctIPs, c.Serves, c.Passes),
