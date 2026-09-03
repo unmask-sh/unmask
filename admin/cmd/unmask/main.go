@@ -128,6 +128,8 @@ func main() {
 		err = cmdUpgradeReview(args)
 	case "install-ipgeo":
 		err = cmdInstallIPGeo(args)
+	case "mcp":
+		err = cmdMCP(args)
 	case "version", "-v", "--version":
 		if Commit != "" {
 			fmt.Println("unmask", Version, "("+Commit+")")
@@ -170,6 +172,7 @@ usage:
   unmask doctor [-config PATH]
   unmask upgrade-review [-config PATH] [--apply] [--policy review|apply]
   unmask install-ipgeo [-config PATH] [-path PATH] [-kind country|asn|all] [-quiet]
+  unmask mcp [-config PATH]
   unmask version
 
 note: the hub-server commands (= /api/feed/* on unmask.sh) moved to a
