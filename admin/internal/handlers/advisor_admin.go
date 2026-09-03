@@ -66,6 +66,7 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 		"TZ":         resolveTZ(r),
 		"BasePath":   h.cfg().Server.BasePath,
 		"Version":    h.Version,
+		"BanTab":     "advisor",
 		"Candidates": cands,
 		"Reviews":    reviews,
 		"AIActive":   aiCfg.Active(),

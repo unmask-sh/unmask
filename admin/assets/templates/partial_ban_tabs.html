@@ -1,0 +1,22 @@
+{{- /*
+  ban_tabs: the secondary tab strip shared by the three BAN-family pages --
+  the persistent BAN list, the advisor's candidates, and the community feed.
+  The top nav carries one "BAN" entry (with the community badge); which of the
+  three the operator is on is shown here.  Reads .BanTab ("bans" | "advisor" |
+  "community"), .BasePath, .Lang, .NavCommunityBadge.
+*/ -}}
+{{ define "ban_tabs" -}}
+<style>
+.ban-tabs{display:flex;gap:.35rem;flex-wrap:wrap;margin:0 0 1rem}
+.ban-tabs a{display:inline-block;padding:.3rem .8rem;border:1px solid #cbd5e1;border-radius:.3rem;background:#fff;color:#334155;font-size:.85rem;text-decoration:none}
+.ban-tabs a:hover{background:#f1f5f9}
+.ban-tabs a.active{background:#0f172a;color:#fff;border-color:#0f172a}
+.ban-tabs a .badge{margin-left:.3rem;font-weight:normal;color:#fca5a5}
+.ban-tabs a.active .badge{color:#fecaca}
+</style>
+<nav class="ban-tabs" aria-label="BAN">
+  <a href="{{ .BasePath }}/admin/bans/"{{ if eq .BanTab "bans" }} class="active" aria-current="page"{{ end }}>{{ t .Lang "nav.bans" }}</a>
+  <a href="{{ .BasePath }}/admin/advisor/"{{ if eq .BanTab "advisor" }} class="active" aria-current="page"{{ end }}>{{ t .Lang "nav.advisor" }}</a>
+  <a href="{{ .BasePath }}/admin/community-bans/"{{ if eq .BanTab "community" }} class="active" aria-current="page"{{ end }}>{{ t .Lang "nav.community_bans" }}{{ if gt .NavCommunityBadge 0 }}<span class="badge">({{ .NavCommunityBadge }})</span>{{ end }}</a>
+</nav>
+{{- end }}
