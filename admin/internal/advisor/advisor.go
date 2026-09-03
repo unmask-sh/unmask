@@ -156,6 +156,10 @@ func Candidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclus
 }
 
 func ipCandidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusions, opt Options) ([]Candidate, error) {
+	// ja4 / user_agent / payload_json are nullable (a forward-auth check writes
+	// no user agent, an old row no payload); MAX over an all-NULL group is NULL
+	// and Scan into a string rejects it -- seen live on 2026-09-04.  COALESCE
+	// keeps the scan simple and is portable across both drivers.
 	// HAVING repeats the aggregate expressions instead of the aliases: sqlite
 	// accepts aliases there, MariaDB in some modes does not.
 	q := `SELECT ip_address,
@@ -163,7 +167,8 @@ func ipCandidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Excl
 	        SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END) AS serves,
 	        SUM(CASE WHEN phase IN ` + passPhaseList + ` THEN 1 ELSE 0 END) AS passes,
 	        SUM(CASE WHEN ` + scannerCond() + ` THEN 1 ELSE 0 END) AS scanner_hits,
-	        MIN(date_created), MAX(date_created), MAX(ja4), MAX(user_agent)
+	        MIN(date_created), MAX(date_created),
+	        COALESCE(MAX(ja4), ''), COALESCE(MAX(user_agent), '')
 	      FROM unmask_event` + conn.EventDateIndexHint("w") + `
 	      WHERE date_created > ` + conn.NowMinusMinutes(opt.WindowMinutes) + `
 	      GROUP BY ip_address
@@ -235,7 +240,7 @@ func ja4Candidates(ctx context.Context, conn *db.DB, excl Exclusions, opt Option
 	        COUNT(*) AS total,
 	        SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END) AS serves,
 	        SUM(CASE WHEN phase IN ` + passPhaseList + ` THEN 1 ELSE 0 END) AS passes,
-	        MIN(date_created), MAX(date_created), MAX(user_agent)
+	        MIN(date_created), MAX(date_created), COALESCE(MAX(user_agent), '')
 	      FROM unmask_event` + conn.EventDateIndexHint("w") + `
 	      WHERE date_created > ` + conn.NowMinusMinutes(opt.WindowMinutes) + `
 	        AND ja4 <> ''
@@ -302,7 +307,7 @@ func fillSamplePaths(ctx context.Context, conn *db.DB, cands []Candidate, opt Op
 		return nil
 	}
 	ph := strings.TrimRight(strings.Repeat("?,", len(args)), ",")
-	q := `SELECT ip_address, payload_json FROM unmask_event` + conn.EventDateIndexHint("w") + `
+	q := `SELECT ip_address, COALESCE(payload_json, '') FROM unmask_event` + conn.EventDateIndexHint("w") + `
 	      WHERE date_created > ` + conn.NowMinusMinutes(opt.WindowMinutes) + `
 	        AND ip_address IN (` + ph + `)
 	      ORDER BY id DESC LIMIT 400`

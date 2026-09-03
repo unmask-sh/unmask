@@ -155,3 +155,34 @@ func hasSignal(c Candidate, id string) bool {
 	}
 	return false
 }
+
+// A group whose every row has NULL user_agent / ja4 / payload_json (a
+// forward-auth check writes none) must not break the extraction: MAX over an
+// all-NULL group is NULL, and the first cut scanned that into a string.
+func TestCandidatesTolerateNullColumns(t *testing.T) {
+	d := newTestDB(t)
+	for i := 0; i < 6; i++ {
+		if _, err := d.Exec(`INSERT INTO unmask_event
+			(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+			VALUES ('','','',0,?,NULL,NULL,'',0,'serve',0,0,'','',NULL,datetime('now'))`,
+			events.PackIP("203.0.113.90")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cands, err := Candidates(context.Background(), d, nil, Exclusions{}, Options{MinServes: 5, Limit: 50})
+	if err != nil {
+		t.Fatalf("NULL columns broke the extraction: %v", err)
+	}
+	var found bool
+	for _, c := range cands {
+		if c.Target == "203.0.113.90" {
+			found = true
+			if c.UA != "" || c.JA4 != "" {
+				t.Errorf("NULL columns should read as empty, got ua=%q ja4=%q", c.UA, c.JA4)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("the NULL-column hammering address was not extracted")
+	}
+}
