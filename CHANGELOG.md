@@ -15,6 +15,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- (2026-09-03) **Advisor: mechanical ban candidates with the evidence attached.**  A new admin tab (/admin/advisor/) extracts ban candidates from the recent event window -- addresses that hammer challenges without ever running the JavaScript, scanner-path rakers, hosting networks wearing a browser user agent, and single fingerprints fanning out across many addresses.  Every row shows its evidence; applying is one click through the ordinary BAN path, a dismissal is remembered.  Nothing is ever applied automatically.
+
+### Added
 - (2026-09-03) **`unmask mcp` — plug your own AI assistant into the install's data.**  A read-only Model Context Protocol server over stdio: six tools covering stats, the hunt event log, per-IP lookup (rDNS / GeoIP / ASN / bans), the BAN list, doctor and a redacted settings summary.  unmask itself never calls an LLM — the operator's assistant connects in (remotely via plain ssh), so the no-outbound-calls posture is unchanged.  No mutations: the assistant reads and proposes; changes stay with the human.
 
 ### Fixed

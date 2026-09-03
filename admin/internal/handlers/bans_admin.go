@@ -759,6 +759,8 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 	switch strings.TrimSpace(r.FormValue("return_to")) {
 	case "community-bans":
 		returnTo = base + "/admin/community-bans/"
+	case "advisor":
+		returnTo = base + "/admin/advisor/"
 	case "bans", "":
 		returnTo = base + "/admin/bans/"
 	}
