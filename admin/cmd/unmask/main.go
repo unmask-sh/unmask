@@ -1235,6 +1235,12 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux.HandleFunc("POST "+base+"/admin/bans/save",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminBansSave)))
 
+	// advisor candidates tab (admin or above): read-only suggestions + dismiss
+	mux.HandleFunc("GET "+base+"/admin/advisor/{$}",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAdvisorIndex)))
+	mux.HandleFunc("POST "+base+"/admin/advisor/dismiss",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAdvisorDismiss)))
+
 	// bot hunt tab (admin or above)
 	mux.HandleFunc("GET "+base+"/admin/hunt/{$}",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminHuntIndex)))

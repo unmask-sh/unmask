@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>unmask · {{ t .Lang "advisor.title" }}</title>
+<link rel="icon" type="image/png" href="/unmask/static/icon.png">
+<link rel="apple-touch-icon" href="/unmask/static/icon.png">
+<meta name="robots" content="noindex, nofollow">
+<style>
+html{font-size:16px}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0;background:#f1f5f9;color:#0f172a;font-size:1rem;line-height:1.5}
+.unmask-header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1.5rem;background:#0f172a;color:#f1f5f9;border-bottom:1px solid #1e293b}
+.unmask-header a.logo{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:inherit;font-weight:700;font-size:1.1rem}
+.unmask-header a.logo:hover{color:#93c5fd}
+.unmask-header .spacer{flex:1}
+.unmask-header .nav{display:flex;gap:1.1rem;margin-left:.6rem;padding-left:.6rem;border-left:1px solid #334155}
+.unmask-header .nav a,.unmask-header .nav-logout{font-size:.85rem;color:#cbd5e1;text-decoration:none}
+.unmask-header .nav a:hover,.unmask-header .nav-logout:hover{color:#fff}
+.unmask-header .nav a.active{color:#fff;font-weight:600}
+.unmask-main{padding:1.5rem 2rem}
+h1{font-size:1.5rem;margin:0 0 .2rem}
+.meta{color:#64748b;font-size:.875rem;margin-bottom:1rem}
+.bcd-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:1rem 1.25rem;margin-bottom:1rem}
+.banner{padding:.6rem .9rem;border-radius:.3rem;margin-bottom:1rem;font-weight:600}
+.banner.ok{background:#dcfce7;color:#166534;border:1px solid #86efac}
+.banner.bad{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
+table.cands{width:100%;border-collapse:collapse;font-size:.86rem}
+table.cands thead th{text-align:left;padding:.5rem .6rem;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:600;font-size:.78rem}
+table.cands tbody td{padding:.5rem .6rem;border-bottom:1px solid #f1f5f9;vertical-align:top}
+table.cands tbody tr:hover{background:#f8fafc}
+table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
+.cands-scroll{overflow-x:auto;max-width:100%}
+.sig{display:inline-block;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:.25rem;padding:.05rem .4rem;font-size:.72rem;font-family:ui-monospace,Menlo,monospace;margin:0 .25rem .2rem 0;white-space:nowrap}
+.sig-detail{color:#64748b;font-size:.78rem;display:block;margin-top:.15rem}
+.kv{color:#64748b;font-size:.78rem}
+.clamp-v{display:inline-block;max-width:16rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;font-family:ui-monospace,Menlo,monospace;font-size:.78rem;color:#475569}
+.btn{display:inline-block;border:1px solid #cbd5e1;background:#fff;border-radius:.3rem;padding:.25rem .7rem;font-size:.8rem;cursor:pointer;color:#0f172a}
+.btn:hover{background:#f1f5f9}
+.btn.danger{border-color:#fca5a5;color:#b91c1c}
+.btn.danger:hover{background:#fef2f2}
+.actions form{display:inline-block;margin:0 .25rem .25rem 0}
+.note{color:#64748b;font-size:.8rem;line-height:1.6;margin-top:.8rem}
+.windowbar{display:flex;align-items:center;gap:.5rem;margin-bottom:1rem;font-size:.85rem;color:#475569}
+.windowbar select{padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.3rem;font-size:.85rem}
+.user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
+.user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
+.user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
+.user-menu-name{font-weight:600}
+.user-menu-arrow{font-size:.7rem;opacity:.7}
+.user-menu-pop{display:none;position:absolute;top:calc(100% + .35rem);right:0;min-width:11rem;background:#1e293b;border:1px solid #334155;border-radius:.3rem;padding:.3rem;z-index:200;box-shadow:0 .35rem 1rem rgba(0,0,0,.25)}
+.user-menu.open .user-menu-pop{display:block}
+.user-menu-pop a{display:block;padding:.4rem .7rem;color:#cbd5e1;text-decoration:none;font-size:.85rem;border-radius:.2rem;font-weight:normal}
+.user-menu-pop a:hover{background:#334155;color:#fff}
+.picker{display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:#cbd5e1}
+.picker label{color:#94a3b8}
+.picker select{font-size:.75rem;color:#cbd5e1;background:#1e293b;border:1px solid #334155;border-radius:.2rem;padding:.15rem .35rem;cursor:pointer}
+.picker select option{color:#0f172a;background:#fff}
+</style>
+</head>
+<body>
+<header class="unmask-header">
+  <a href="{{.BasePath}}/admin/" class="logo">
+    <img src="/unmask/static/icon.png" alt="" width="22" height="22" style="display:block;border-radius:.25rem;flex:none">
+    unmask
+  </a>
+  <nav class="nav">
+    <a href="{{.BasePath}}/admin/">{{ t .Lang "nav.dashboard" }}</a>
+    <a href="{{.BasePath}}/admin/stats/">{{ t .Lang "nav.stats" }}</a>
+    <a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
+    <a href="{{.BasePath}}/admin/bans/">{{ t .Lang "nav.bans" }}</a>
+    <a href="{{.BasePath}}/admin/advisor/" class="active">{{ t .Lang "nav.advisor" }}</a>
+    <a href="{{.BasePath}}/admin/community-bans/">{{ t .Lang "nav.community_bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
+    <a href="{{.BasePath}}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
+    <a href="{{.BasePath}}/admin/playground/">{{ t .Lang "nav.playground" }}</a>
+    <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>
+  </nav>
+  <span class="spacer"></span>
+  {{ template "header_tools" . }}
+</header>
+<main class="unmask-main">
+  <h1>{{ t .Lang "advisor.title" }}</h1>
+  <p class="meta">{{ t .Lang "advisor.subtitle" }}</p>
+
+  {{ if .Saved }}<div class="banner ok">{{ t .Lang "advisor.saved" }}</div>{{ end }}
+  {{ if .Dismissed }}<div class="banner ok">{{ t .Lang "advisor.dismissed_ok" }}</div>{{ end }}
+  {{ if .EngineErr }}<div class="banner bad">{{ t .Lang "advisor.engine_err" }}: {{ .EngineErr }}</div>{{ end }}
+
+  <div class="bcd-card">
+    <form method="get" action="{{.BasePath}}/admin/advisor/" class="windowbar">
+      <label for="adv-window">{{ t .Lang "advisor.window" }}</label>
+      <select id="adv-window" name="window" onchange="this.form.submit()">
+        {{ $w := .WindowH }}
+        <option value="6"  {{ if eq $w 6 }}selected{{ end }}>6h</option>
+        <option value="24" {{ if eq $w 24 }}selected{{ end }}>24h</option>
+        <option value="72" {{ if eq $w 72 }}selected{{ end }}>72h</option>
+        <option value="168"{{ if eq $w 168 }}selected{{ end }}>7d</option>
+      </select>
+    </form>
+
+    {{ if not .Candidates }}
+      <p class="kv">{{ t .Lang "advisor.empty" }}</p>
+    {{ else }}
+    <div class="cands-scroll">
+    <table class="cands">
+      <thead>
+        <tr>
+          <th>{{ t .Lang "advisor.col.target" }}</th>
+          <th>{{ t .Lang "advisor.col.signals" }}</th>
+          <th>{{ t .Lang "advisor.col.traffic" }}</th>
+          <th>{{ t .Lang "advisor.col.origin" }}</th>
+          <th>{{ t .Lang "advisor.col.paths" }}</th>
+          <th>{{ t .Lang "advisor.col.actions" }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{ range .Candidates }}
+        <tr>
+          <td class="mono">
+            {{ .Target }}
+            {{ if eq .Type "ja4" }}<span class="kv"><br>{{ .DistinctIPs }} {{ t $.Lang "advisor.ips" }}</span>
+            {{ else if .JA4 }}<span class="kv"><br>{{ .JA4 }}</span>{{ end }}
+          </td>
+          <td>
+            {{ range .Signals }}
+              <span class="sig">{{ .ID }}</span><span class="sig-detail">{{ .Detail }}</span>
+            {{ end }}
+          </td>
+          <td class="kv">
+            {{ .Serves }} {{ t $.Lang "advisor.serves" }} / {{ .Passes }} {{ t $.Lang "advisor.passes" }}<br>
+            {{ .FirstSeen }} –<br>{{ .LastSeen }}
+          </td>
+          <td class="kv">
+            {{ if .ASNOrg }}{{ .ASNOrg }}{{ if .Country }} ({{ .Country }}){{ end }}{{ else }}–{{ end }}
+            {{ if .UA }}<br><span class="clamp-v" title="{{ .UA }}">{{ .UA }}</span>{{ end }}
+          </td>
+          <td>
+            {{ range .SamplePaths }}<span class="clamp-v" title="{{ . }}">{{ . }}</span><br>{{ end }}
+          </td>
+          <td class="actions">
+            <form method="post" action="{{$.BasePath}}/admin/bans/save"
+                  onsubmit="return confirm('{{ t $.Lang "advisor.ban_confirm" }}')">
+              <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+              <input type="hidden" name="op" value="add">
+              <input type="hidden" name="return_to" value="advisor">
+              <input type="hidden" name="ip" value="{{ if eq .Type "ip" }}{{ .Target }}{{ end }}">
+              <input type="hidden" name="ja4" value="{{ if eq .Type "ja4" }}{{ .Target }}{{ else }}{{ .JA4 }}{{ end }}">
+              <input type="hidden" name="scope" value="{{ .Scope }}">
+              <input type="hidden" name="reason" value="advisor: {{ range $i, $s := .Signals }}{{ if $i }}, {{ end }}{{ $s.ID }}{{ end }}">
+              <button type="submit" class="btn danger">{{ t $.Lang "advisor.ban" }}</button>
+            </form>
+            <form method="post" action="{{$.BasePath}}/admin/advisor/dismiss">
+              <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+              <input type="hidden" name="target_type" value="{{ .Type }}">
+              <input type="hidden" name="target" value="{{ .Target }}">
+              <button type="submit" class="btn">{{ t $.Lang "advisor.dismiss" }}</button>
+            </form>
+          </td>
+        </tr>
+        {{ end }}
+      </tbody>
+    </table>
+    </div>
+    {{ end }}
+    <p class="note">{{ t .Lang "advisor.note" }}</p>
+  </div>
+</main>
+</body>
+</html>

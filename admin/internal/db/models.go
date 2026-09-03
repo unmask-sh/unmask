@@ -36,6 +36,20 @@ type Ban struct {
 
 func (Ban) TableName() string { return "unmask_ban" }
 
+// AdvisorDismiss: a row of unmask_advisor_dismiss — an advisor ban candidate
+// the operator explicitly rejected.  The advisor page filters these out so a
+// judged-and-declined suggestion does not nag on every visit.  (target_type,
+// target) is unique in the schema; writes upsert onto it.
+type AdvisorDismiss struct {
+	ID          int64  `gorm:"primaryKey;autoIncrement"`
+	TargetType  string `gorm:"column:target_type;not null"` // "ip" | "ja4"
+	Target      string `gorm:"column:target;not null"`
+	DismissedBy string `gorm:"column:dismissed_by"`
+	DismissedAt int64  `gorm:"column:dismissed_at;not null;autoCreateTime:false"`
+}
+
+func (AdvisorDismiss) TableName() string { return "unmask_advisor_dismiss" }
+
 // User: a row of unmask_user.  Pointer fields (Email / ResetToken /
 // ResetTokenExpiresAt / LastLogin) map to NULL-able columns -- GORM persists
 // nil as SQL NULL, so the "clear reset_token" path stays one Update call on
