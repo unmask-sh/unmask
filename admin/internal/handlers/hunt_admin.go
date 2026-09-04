@@ -570,6 +570,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	// multi-site or not no longer gates the badge (a row always names its
 	// site); only the ghost styling still needs the defined-set comparison.
 	_, huntGhostSites := siteBadgeState(huntSites, h.snapshotSettings())
+	huntBanAct, huntBanEffect := h.banDialogEffect()
 	data := map[string]any{
 		"Lang":        i18n.Resolve(r),
 		"TZ":          resolveTZ(r),
@@ -640,6 +641,8 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		// confirmation dialog.  true only when submit_enabled=true AND the
 		// terms have been accepted.  false -> the dialog is a plain confirm.
 		"CommunityBansActive": h.snapshotSettings().CommunityBans.SubmitActive(),
+		"BanDialogAction":     huntBanAct,
+		"BanDialogEffectKey":  huntBanEffect,
 		// Defaults the two rule dialogs quote back.  A UA rule carries no
 		// action of its own -- the whole black list runs one -- so the UA
 		// dialog states which one will apply instead of offering a choice the

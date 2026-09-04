@@ -607,8 +607,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <a href="/unmask/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
     <a href="/unmask/admin/bans/">{{ t .Lang "nav.bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
     <a href="/unmask/admin/settings/" class="active">{{ t .Lang "nav.settings" }}</a>
-    <a href="/unmask/admin/playground/">{{ t .Lang "nav.playground" }}</a>
-    <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>
   </nav>
   <span class="spacer"></span>
   {{ template "header_tools" . }}
@@ -685,6 +683,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <ul>
     <li><a href="{{ .BasePath }}/admin/settings/community-bans/" {{ if eq .Tab "community-bans" }}class="active"{{ end }}>{{ t .Lang "settings.tab.community_bans" }}</a></li>
     <li><a href="{{ .BasePath }}/admin/settings/ai-advisor/" {{ if eq .Tab "ai-advisor" }}class="active"{{ end }}>{{ t .Lang "settings.tab.ai_advisor" }}</a></li>
+  </ul>
+  {{/* About stands alone: this install's version and its update check, not
+       an integration and not a setting. */}}
+  <ul style="margin-top:1rem;padding-top:.6rem;border-top:1px solid #e2e8f0">
     <li><a href="{{ .BasePath }}/admin/settings/about/" {{ if eq .Tab "about" }}class="active"{{ end }}>{{ t .Lang "settings.tab.about" }}{{ if .VersionStatus.UpdateAvailable }} <span class="nav-dot" aria-label="update available"></span>{{ end }}</a></li>
   </ul>
 </aside>
@@ -766,12 +768,19 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <h3>{{ t .Lang "settings.section.community" }}</h3>
   <a class="sti" href="{{ .BasePath }}/admin/settings/community-bans/"><b>{{ t .Lang "settings.tab.community_bans" }}</b><span>{{ t .Lang "settings.top.desc.community_bans" }}</span></a>
   <a class="sti" href="{{ .BasePath }}/admin/settings/ai-advisor/"><b>{{ t .Lang "settings.tab.ai_advisor" }}</b><span>{{ t .Lang "settings.top.desc.ai_advisor" }}</span></a>
+</div>
+
+<div class="settings-top-grp">
+  <h3>{{ t .Lang "settings.section.about" }}</h3>
   <a class="sti" href="{{ .BasePath }}/admin/settings/about/"><b>{{ t .Lang "settings.tab.about" }}</b><span>{{ t .Lang "settings.top.desc.about" }}</span></a>
 </div>
 {{ end }}
 
 {{ if eq .Tab "about" }}
 <div class="settings-about">
+  {{/* The documentation link lives here (and on the dashboard's shortcut
+       card), not in the global nav. */}}
+  <p class="note" style="margin:0 0 .8rem"><a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a> — unmask.sh/docs</p>
   <div class="about-row">
     <code>unmask {{ .VersionStatus.Current }}</code>
     {{ if .VersionStatus.Checked }}
@@ -1901,6 +1910,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "ua-filter" }}
+{{/* The JA4 / UA playground is reached from here (not the global nav): it
+     answers "how would unmask classify this fingerprint / User-Agent" against
+     the rules on this tab. */}}
+<p class="note" style="margin:0 0 .8rem"><a href="{{ .BasePath }}/admin/playground/">{{ t .Lang "playground.title" }}</a> — {{ t .Lang "settings.playground_hint" }}</p>
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=ua-filter">
   <!-- preset card (= upstream-rescue groups placed into white / none / black).
        Renders BEFORE the whitelist/blacklist custom cards so the preset axis
@@ -2630,6 +2643,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 {{ end }}
 
 {{ if eq .Tab "ja4-verdicts" }}
+{{/* The JA4 / UA playground is reached from here (not the global nav): it
+     answers "how would unmask classify this fingerprint / User-Agent" against
+     the rules on this tab. */}}
+<p class="note" style="margin:0 0 .8rem"><a href="{{ .BasePath }}/admin/playground/">{{ t .Lang "playground.title" }}</a> — {{ t .Lang "settings.playground_hint" }}</p>
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=ja4-verdicts">
   <!-- parent card: JA4 verdict (= contains preset + custom) -->
   <div class="bcd-card" style="border-left:.25rem solid #6366f1">
@@ -6753,11 +6770,92 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     </div>
 
     <div class="field" style="margin-top:1rem">
-      <label class="field-label" for="ai_model"><strong>{{ t .Lang "settings.ai_advisor.model_label" }}</strong></label>
-      <input id="ai_model" type="text" name="ai_model" value="{{ $ai.Model }}" placeholder="{{ $ai.ResolvedModel }}"
-             style="padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;min-width:22rem;font-family:ui-monospace,Menlo,monospace">
-      <div class="note" style="margin-top:.3rem">{{ tf .Lang "settings.ai_advisor.model_desc" $ai.ResolvedModel }}</div>
+      <label class="field-label" for="ai_model_sel"><strong>{{ t .Lang "settings.ai_advisor.model_label" }}</strong></label>
+      <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+        <select id="ai_model_sel" style="padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;font-size:.92rem;min-width:22rem">
+          <option value="">{{ tf .Lang "settings.ai_advisor.model_desc" $ai.ResolvedModel }}</option>
+          {{ range index $.AIModelPresets $p }}<option value="{{ .ID }}"{{ if eq .ID $ai.Model }} selected{{ end }}>{{ .Label }}</option>
+          {{ end }}<option value="__custom__">{{ t .Lang "settings.ai_advisor.model_custom" }}</option>
+        </select>
+        <button type="button" class="btn-secondary" id="ai_model_fetch" style="padding:.35rem .7rem;font-size:.85rem">{{ t .Lang "settings.ai_advisor.model_fetch" }}</button>
+        <span class="note" id="ai_model_status"></span>
+      </div>
+      <input id="ai_model" type="text" name="ai_model" value="{{ $ai.Model }}" placeholder="{{ $ai.ResolvedModel }}" autocomplete="off" spellcheck="false"
+             style="margin-top:.4rem;padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;min-width:22rem;font-family:ui-monospace,Menlo,monospace">
+      <div class="note" style="margin-top:.3rem">{{ t .Lang "settings.ai_advisor.model_desc2" }}</div>
     </div>
+    {{/* every provider's presets and default, so the picker can follow the
+         provider select without a round trip */}}
+    <script type="application/json" id="ai_model_presets">{{ json (dict "presets" $.AIModelPresets "defaults" $.AIModelDefaults) }}</script>
+    <script>
+    // Model picker: the <select> is a convenience over the text field that is
+    // actually submitted, so a model newer than any list can still be typed.
+    // The list follows the provider select: pick openai and the options are
+    // openai's, with openai's default as the first entry.
+    (function(){
+      var sel = document.getElementById('ai_model_sel'), txt = document.getElementById('ai_model');
+      var btn = document.getElementById('ai_model_fetch'), st = document.getElementById('ai_model_status');
+      var prov = document.getElementById('ai_provider');
+      if (!sel || !txt) return;
+      var data = { presets: {}, defaults: {} };
+      try { data = JSON.parse(document.getElementById('ai_model_presets').textContent) || data; } catch (e) {}
+      var DESC = {{ t .Lang "settings.ai_advisor.model_desc" }};
+      var CUSTOM = {{ t .Lang "settings.ai_advisor.model_custom" }};
+      function presetIDs(p){ return (data.presets[p] || []).map(function(m){ return m.id; }); }
+      function rebuild(p){
+        var def = data.defaults[p] || '';
+        while (sel.options.length) sel.remove(0);
+        var first = document.createElement('option'); first.value = ''; first.textContent = DESC.replace('%s', def); sel.appendChild(first);
+        (data.presets[p] || []).forEach(function(m){
+          var o = document.createElement('option'); o.value = m.id; o.textContent = m.label || m.id; sel.appendChild(o);
+        });
+        var c = document.createElement('option'); c.value = '__custom__'; c.textContent = CUSTOM; sel.appendChild(c);
+        txt.placeholder = def;
+      }
+      function sync(){
+        var v = txt.value.trim(), found = false;
+        for (var i = 0; i < sel.options.length; i++) {
+          if (sel.options[i].value === v && v !== '__custom__') { sel.value = v; found = true; break; }
+        }
+        if (!found) sel.value = v ? '__custom__' : '';
+        txt.style.display = (sel.value === '__custom__') ? '' : 'none';
+      }
+      sel.addEventListener('change', function(){
+        if (sel.value === '__custom__') { txt.style.display = ''; txt.focus(); }
+        else { txt.value = sel.value; txt.style.display = 'none'; }
+      });
+      if (prov) {
+        var prevProv = prov.value;
+        prov.addEventListener('change', function(){
+          // A model that belonged to the previous provider's list is not a
+          // choice under the new one: fall back to its default.  A typed
+          // custom model is kept.
+          if (txt.value.trim() === '' || presetIDs(prevProv).indexOf(txt.value.trim()) >= 0) txt.value = '';
+          prevProv = prov.value;
+          rebuild(prov.value);
+          st.textContent = '';
+          sync();
+        });
+      }
+      if (btn) btn.addEventListener('click', function(){
+        st.textContent = '…';
+        fetch('{{ .BasePath }}/admin/api/ai-models', {credentials: 'same-origin'})
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if (d.error) { st.textContent = d.error; return; }
+            while (sel.options.length > 1) sel.remove(1);
+            (d.models || []).forEach(function(m){
+              var o = document.createElement('option'); o.value = m.id; o.textContent = m.label || m.id; sel.appendChild(o);
+            });
+            var c = document.createElement('option'); c.value = '__custom__'; c.textContent = {{ t .Lang "settings.ai_advisor.model_custom" }}; sel.appendChild(c);
+            st.textContent = (d.models || []).length + ' ' + {{ t .Lang "settings.ai_advisor.model_fetched" }};
+            sync();
+          })
+          .catch(function(e){ st.textContent = String(e); });
+      });
+      sync();
+    })();
+    </script>
 
     <div class="field" style="margin-top:1rem">
       <label class="field-label" for="ai_endpoint"><strong>{{ t .Lang "settings.ai_advisor.endpoint_label" }}</strong></label>

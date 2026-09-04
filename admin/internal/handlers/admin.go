@@ -113,6 +113,14 @@ func loadDashboardTemplate() (*template.Template, error) {
 			"assetv": func() int64 { return buildVersionStamp },
 			// dict builds a map from alternating key/value args, for passing a
 			// small bundle of named values into a {{ template }} partial.
+			// json: a value as JSON for an inline <script type="application/json">.
+			"json": func(v any) template.JS {
+				b, err := json.Marshal(v)
+				if err != nil {
+					return "null"
+				}
+				return template.JS(b)
+			},
 			"dict": func(kv ...any) map[string]any {
 				m := make(map[string]any, len(kv)/2)
 				for i := 0; i+1 < len(kv); i += 2 {
@@ -416,6 +424,13 @@ func loadDashboardTemplate() (*template.Template, error) {
 			//   {{ tf .Lang "dashboard.range_text" .Range .StartedAt }}
 			"t": func(lang i18n.Lang, key string) string {
 				return i18n.T(lang, key)
+			},
+			// ago: "2 時間前" / "2h ago" for a unix timestamp; "" for zero.
+			"ago": func(lang i18n.Lang, ts int64) string {
+				if ts <= 0 {
+					return ""
+				}
+				return i18n.Ago(lang, time.Since(time.Unix(ts, 0)))
 			},
 			"tf": func(lang i18n.Lang, key string, args ...any) string {
 				return i18n.Tf(lang, key, args...)

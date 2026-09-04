@@ -99,7 +99,12 @@
       .then(function(d){ cache.set(ip, d); cb(fmt(d)); })
       .catch(function(){ cb('lookup failed'); });
   }
-  document.querySelectorAll('.ipclick').forEach(function(td){
+  // wire(root) binds every .ipclick under root; pages that swap rows in
+  // (advisor) call it again through window.unmaskRewire.
+  function wire(root){
+  root.querySelectorAll('.ipclick').forEach(function(td){
+    if (td.dataset.ipWired) return;
+    td.dataset.ipWired = '1';
     td.addEventListener('mouseenter', function(e){
       clearTimeout(timer);
       if (pin.hasPinFor(td)) return;
@@ -124,5 +129,8 @@
       fetchAndFmt(ip, function(html){ pin.handleClick(html, x, y, td, ip); });
     });
   });
+  }
+  wire(document);
+  (window.unmaskRewire = window.unmaskRewire || []).push(wire);
 })();
 {{- end }}
