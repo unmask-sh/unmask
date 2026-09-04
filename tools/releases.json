@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.38",
+  "latest": "0.1.39",
   "releases": [
+    {
+      "version": "0.1.39",
+      "date": "2026-09-04",
+      "notes": "AI advisor: a Ban candidates tab beside the BAN list extracts, from the recent event window, the addresses and fingerprints worth a ban -- challenge hammering without ever running the JavaScript, scanner paths, hosting networks wearing a browser user agent, fingerprint herds -- with the evidence beside each row and the stage counts (served, JS loaded, PoW solved, CAPTCHA shown, passed) so a client the challenge already stops reads as contained. Every ban stays a click of yours. Optionally your own API key (Anthropic, an OpenAI-compatible endpoint or a local Ollama; off by default, only aggregate rows leave the host) lets a model prioritise and explain the candidates on request, and a scheduled pass reports new candidates through the alert channels already configured. unmask mcp: a read-only Model Context Protocol server over stdio, so your own AI assistant can query stats, the event log, per-IP lookups, bans and doctor. Fixed: a pasted gateway certificate's id is checked before its files are written; the forward-auth snippet's daemon-down comment matches the fail-open default."
+    },
     {
       "version": "0.1.38",
       "date": "2026-09-01",

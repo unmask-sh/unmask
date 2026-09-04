@@ -14,6 +14,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.39] - 2026-09-04
+
 ### Added
 - (2026-09-03) **Advisor: a scheduled pass that tells you about new candidates.**  Settings > AI advisor can run the candidate extraction on a timer and send what is new since the last run through the alert channels already configured under Settings > notifications.  A scanner that arrives overnight is on record by morning instead of waiting for someone to open the page.  Off by default, and the scheduled pass never calls a model -- it should not spend your tokens while nobody is watching.
 
