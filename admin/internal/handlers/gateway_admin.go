@@ -96,6 +96,11 @@ func applyGatewayForm(g *settings.GatewayConfig, r *http.Request, outDir string)
 		if c.ID == "" && i > 0 {
 			c.ID = settings.NewCertificateID()
 		}
+		// Before any file is read or written under the id (Validate runs
+		// after this loop, too late for the stored pair).
+		if err := settings.CheckCertificateID(c.ID); err != nil {
+			return fmt.Errorf("certificate %d: %w", i+1, err)
+		}
 		mode := at(modes, i)
 		switch mode {
 		case settings.GatewayTLSACME, settings.GatewayTLSUpload, settings.GatewayTLSFiles, settings.GatewayTLSSelfSigned:

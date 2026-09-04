@@ -538,3 +538,25 @@ func TestGatewayTabRendersOnlyForGatewayInstalls(t *testing.T) {
 		t.Error("a gateway install does not show the Gateway tab in the settings nav")
 	}
 }
+
+// The certificate id names the stored pair's files, so it is checked before
+// the first read or write under it: a save with a traversal id is refused
+// and nothing lands outside the output directory.
+func TestGatewayUploadRefusesTraversalID(t *testing.T) {
+	h, outDir := gatewayHandler(t)
+	now := time.Now()
+	certPEM, keyPEM := selfSignedPEM(t, "shop.example", now.Add(-time.Hour), now.Add(24*time.Hour))
+	id := "../../escaped"
+	loc := postGateway(t, h, oneCert("shop.example", "", settings.GatewayTLSUpload, url.Values{"cert_id": {id}, "cert_cert_pem": {certPEM}, "cert_key_pem": {keyPEM}}))
+	if strings.Contains(loc, "saved=1") {
+		t.Fatal("a certificate id with a path separator was accepted")
+	}
+	for _, p := range []string{settings.UploadedCertPath(outDir, id), settings.UploadedKeyPath(outDir, id)} {
+		if _, err := os.Stat(p); err == nil {
+			t.Errorf("the refused id still wrote %s", p)
+		}
+	}
+	if m, _ := filepath.Glob(filepath.Join(outDir, "..", "*escaped*")); len(m) > 0 {
+		t.Errorf("files escaped the output directory: %v", m)
+	}
+}
