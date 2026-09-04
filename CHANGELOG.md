@@ -14,6 +14,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+- (2026-09-05) **Native / gateway: no more `using uninitialized "unmask_failopen"` warning on every health check.**  The fail-open variables were initialised after the HTTPS-redirect exemptions, and an exemption is a rewrite-phase `break` that stops the rest of the server's rewrite directives.  A load-balancer probe that went on to a protected location then read them uninitialised and nginx logged a warning per probe.  The initialisation now comes first.  Behaviour is unchanged; nginx reload after re-render.
+
 ## [0.1.39] - 2026-09-04
 
 ### Added

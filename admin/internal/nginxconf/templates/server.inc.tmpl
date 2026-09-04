@@ -42,12 +42,31 @@ access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_lo
 # nginx_log.socket_path is empty in config.yml → delivery to admin disabled.
 {{- end }}
 
+# Daemon-down fail-open scaffolding (consumed by @unmask_daemon_down below
+# and by protect.inc's challenge gate).  Initialized here -- server rewrite
+# phase, which runs exactly once per request -- so the variables always exist
+# before any location-level logic reads them.  Emitted before the HTTPS
+# redirect block on purpose: its exemptions are rewrite-phase `break`s, and a
+# `break` ends the server rewrite phase, so anything set after it never runs
+# for an exempt request -- a load-balancer health check that goes on to a
+# protected location (the gateway's does) then reads these uninitialized and
+# nginx logs a [warn] per probe.
+#   $unmask_failopen  : "1" after @unmask_daemon_down replays a request,
+#                       suppressing the challenge gate on the replay pass.
+#   $unmask_orig_path : pre-challenge $uri, saved by the gates that rewrite
+#                       into /unmask/*; empty for direct /unmask/* requests.
+#   $unmask_orig_args : pre-challenge $args, restored on replay.
+set $unmask_failopen  "";
+set $unmask_orig_path "";
+set $unmask_orig_args "";
+
 {{- if .HTTPSRedirect }}
-# HTTP -> HTTPS redirect (settings: nginx.https_redirect).  Emitted at the very
-# top so a plaintext request returns 301 in the rewrite phase, before the ban /
-# honeypot / challenge gates below.  A request with no TLS carries no JA4, so
-# challenging it (and honeypot-banning it) would only record JA4-less rows;
-# redirecting sends the client back over HTTPS where the fingerprint exists.
+# HTTP -> HTTPS redirect (settings: nginx.https_redirect).  Emitted right after
+# the variable scaffolding so a plaintext request returns 301 in the rewrite
+# phase, before the ban / honeypot / challenge gates below.  A request with no
+# TLS carries no JA4, so challenging it (and honeypot-banning it) would only
+# record JA4-less rows; redirecting sends the client back over HTTPS where the
+# fingerprint exists.
 # Keys off $unmask_forwarded_proto (computed in http.conf: X-Forwarded-Proto
 # behind a terminating LB, else $scheme for a direct edge) so it works in both
 # topologies -- $scheme alone would loop behind an HTTPS-terminating LB that
@@ -69,19 +88,6 @@ if ($unmask_forwarded_proto = "http") {
 }
 
 {{ end -}}
-# Daemon-down fail-open scaffolding (consumed by @unmask_daemon_down below
-# and by protect.inc's challenge gate).  Initialized here -- server rewrite
-# phase, which runs exactly once per request -- so the variables always exist
-# before any location-level logic reads them.
-#   $unmask_failopen  : "1" after @unmask_daemon_down replays a request,
-#                       suppressing the challenge gate on the replay pass.
-#   $unmask_orig_path : pre-challenge $uri, saved by the gates that rewrite
-#                       into /unmask/*; empty for direct /unmask/* requests.
-#   $unmask_orig_args : pre-challenge $args, restored on replay.
-set $unmask_failopen  "";
-set $unmask_orig_path "";
-set $unmask_orig_args "";
-
 # Persistent BAN application.  The native plugin reads the ban file and the
 # http-scope map ($unmask_ban_action_effective / $unmask_banned_effective in
 # http.inc) blanks out /unmask/* so the challenge HTML still loads.
