@@ -29,6 +29,26 @@ func TestRedirectExemptDefaults(t *testing.T) {
 	}
 }
 
+// TestRedirectExemptBreaksAfterFailopenInit: the fail-open scaffolding
+// (`set $unmask_failopen ""` and friends) must be emitted before the first
+// exemption `break`.  A `break` ends the server rewrite phase, so a health
+// check that then reaches a protected location would read the variables
+// uninitialized -- nginx logs a [warn] per probe (seen on the gateway, where
+// the health-check path goes through protect.inc).
+func TestRedirectExemptBreaksAfterFailopenInit(t *testing.T) {
+	got := renderServerInc(t, func(s *settings.Settings) {
+		s.Nginx.HTTPSRedirect = true
+	})
+	init := strings.Index(got, `set $unmask_failopen  "";`)
+	brk := strings.Index(got, `{ break; }`)
+	if init < 0 || brk < 0 {
+		t.Fatalf("scaffolding or exemption break missing (init=%d break=%d):\n%s", init, brk, got)
+	}
+	if init > brk {
+		t.Errorf("fail-open init must precede the first exemption break (init=%d break=%d):\n%s", init, brk, got)
+	}
+}
+
 // TestRedirectExemptDisablePreset: disabling the acme preset drops its break;
 // the lb-health preset stays.
 func TestRedirectExemptDisablePreset(t *testing.T) {
