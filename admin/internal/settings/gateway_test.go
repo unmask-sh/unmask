@@ -258,3 +258,18 @@ func TestGatewayListen(t *testing.T) {
 		t.Errorf("an unknown listen entry is dropped on load, got %+v", junk.Listen)
 	}
 }
+
+// The id names the stored pair's files, so it is a plain token: the
+// generated form passes, anything with a separator or a dot does not.
+func TestCheckCertificateID(t *testing.T) {
+	for _, ok := range []string{"", NewCertificateID(), "c", "site-2", "a_b", strings.Repeat("f", 64)} {
+		if err := CheckCertificateID(ok); err != nil {
+			t.Errorf("%q: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"../x", "a/b", "a.b", "a b", "a;b", "x\\y", strings.Repeat("f", 65)} {
+		if CheckCertificateID(bad) == nil {
+			t.Errorf("%q was accepted", bad)
+		}
+	}
+}

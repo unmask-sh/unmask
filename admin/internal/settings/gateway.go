@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
@@ -297,6 +298,21 @@ func NewCertificateID() string {
 	return hex.EncodeToString(b)
 }
 
+// certIDRe: a certificate id names the stored pair's files
+// (gateway-<id>.crt / .key), so it is a plain token.
+var certIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// CheckCertificateID rejects an id that cannot name a stored pair --
+// anything but letters, digits, '-' and '_'.  "" is the legacy single pair.
+// Whoever reads or writes the pair's files checks the id first; Validate
+// alone runs after the form handler has already touched them.
+func CheckCertificateID(id string) error {
+	if id == "" || certIDRe.MatchString(id) {
+		return nil
+	}
+	return errors.New("id: letters, digits, '-' and '_' only")
+}
+
 // DomainList splits the certificate's domains.
 func (c GatewayCertificate) DomainList() []string { return strings.Fields(strings.ToLower(c.Domains)) }
 
@@ -428,11 +444,8 @@ func (g GatewayConfig) Validate() error {
 	}
 	seen := map[string]int{}
 	for i, c := range n.Certificates {
-		if err := nginxToken("certificate id", "x"+c.ID); err != nil {
+		if err := CheckCertificateID(c.ID); err != nil {
 			return fmt.Errorf("certificate %d: %w", i+1, err)
-		}
-		if strings.ContainsAny(c.ID, "/.") {
-			return fmt.Errorf("certificate %d: id must not contain '/' or '.'", i+1)
 		}
 		domains := c.DomainList()
 		for _, d := range domains {
