@@ -186,3 +186,177 @@ func TestCandidatesTolerateNullColumns(t *testing.T) {
 		t.Fatal("the NULL-column hammering address was not extracted")
 	}
 }
+
+// Passes are pass cookies, not JS-side phases: one challenge flow writes
+// load, pow_pass and captcha rows on its way, and a client that solves the
+// proof-of-work but never clears the CAPTCHA is contained, not passing.
+func TestCandidatesPassSemantics(t *testing.T) {
+	d := newTestDB(t)
+	opt := Options{MinServes: 5, Limit: 50}
+	// Solves PoW, stopped at the CAPTCHA -- six full attempts, three of them
+	// on scanner paths (the informational captcha_held alone does not make a
+	// candidate; the score floor is 3).
+	scan := []string{"/.env", "/wp-config.php.save", "/.git/config"}
+	for i := 0; i < 6; i++ {
+		payload := ""
+		if i < len(scan) {
+			payload = `{"path":"` + scan[i] + `"}`
+		}
+		insertEvent(t, d, "203.0.113.70", "t13d_held", "serve", "Mozilla/5.0", payload)
+		for _, ph := range []string{"load", "pow_pass", "captcha"} {
+			insertEvent(t, d, "203.0.113.70", "t13d_held", ph, "Mozilla/5.0", "")
+		}
+	}
+	// Completes the challenge -- a real pass each time.
+	for i := 0; i < 6; i++ {
+		for _, ph := range []string{"serve", "load", "pow_pass", "captcha", "bv_pow_then_captcha"} {
+			insertEvent(t, d, "203.0.113.71", "t13d_through", ph, "Mozilla/5.0", "")
+		}
+	}
+	cands, err := Candidates(context.Background(), d, nil, Exclusions{}, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]Candidate{}
+	for _, c := range cands {
+		by[c.Target] = c
+	}
+	held, ok := by["203.0.113.70"]
+	if !ok {
+		t.Fatalf("the CAPTCHA-held client should be a candidate (6 serves): %+v", cands)
+	}
+	if !held.Contained || held.Passes != 0 || held.PowPassed != 6 || held.Loads != 6 || held.CaptchaShown != 6 {
+		t.Errorf("stage counts wrong for the held client: %+v", held)
+	}
+	if hasSignal(held, "challenge_hammering") {
+		t.Error("a client that ran the JS must not be called hammering")
+	}
+	if !hasSignal(held, "captcha_held") {
+		t.Error("expected the captcha_held signal")
+	}
+	if !held.HeldAtCaptcha() {
+		t.Error("HeldAtCaptcha must be true for the held client")
+	}
+	if _, ok := by["203.0.113.71"]; ok {
+		t.Error("a client that completes the challenge (no other signal) must not be a candidate")
+	}
+	// The pool carries the same stage counts; the completing client shows
+	// passes == serves there, never more.
+	orig := LookupPTR
+	LookupPTR = func(ctx context.Context, ip string) []string { return nil }
+	t.Cleanup(func() { LookupPTR = orig })
+	pool, err := BuildPool(context.Background(), d, nil, Exclusions{}, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var through *PoolIP
+	for i := range pool.IPs {
+		if pool.IPs[i].IP == "203.0.113.71" {
+			through = &pool.IPs[i]
+		}
+	}
+	if through == nil {
+		t.Fatalf("the completing client is missing from the pool: %+v", pool.IPs)
+	}
+	if through.Serves != 6 || through.JSLoaded != 6 || through.PowPassed != 6 || through.CaptchaShown != 6 || through.Passes != 6 {
+		t.Errorf("pool stage counts wrong: %+v", *through)
+	}
+}
+
+// Volume is a signal of its own: a hammerer at a few hundred serves is load
+// whatever it is, and the score lifts it above the attention floor; the same
+// shape at thirty serves stays a lone signal below it.
+func TestCandidatesHighVolume(t *testing.T) {
+	d := newTestDB(t)
+	opt := Options{MinServes: 5, Limit: 50}
+	for i := 0; i < volumeServes; i++ {
+		insertEvent(t, d, "203.0.113.80", "t13d_heavy", "serve", "curl/8", "")
+	}
+	for i := 0; i < 30; i++ {
+		insertEvent(t, d, "203.0.113.81", "t13d_light", "serve", "curl/8", "")
+	}
+	cands, err := Candidates(context.Background(), d, nil, Exclusions{}, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]Candidate{}
+	for _, c := range cands {
+		by[c.Target] = c
+	}
+	heavy, light := by["203.0.113.80"], by["203.0.113.81"]
+	if !hasSignal(heavy, "high_volume") || heavy.Score < AttentionScore {
+		t.Errorf("the heavy hammerer must carry high_volume and clear the attention floor: %+v", heavy)
+	}
+	if hasSignal(light, "high_volume") || light.Score >= AttentionScore {
+		t.Errorf("thirty serves is not volume: %+v", light)
+	}
+}
+
+// Sample paths come from the payload the module actually writes: the
+// requested path sits in orig_path on real events (path is the older / test
+// shape).  The page showed an empty column on every install until this read
+// both.
+func TestSamplePathsReadOrigPath(t *testing.T) {
+	d := newTestDB(t)
+	opt := Options{MinServes: 5, Limit: 50}
+	for i, path := range []string{"/wp-login.php", "/.env", "/xmlrpc.php", "/wp-login.php", "/.git/config", "/cgi-bin/luci"} {
+		payload := `{"bt":"x","ch_mode":"pow_then_captcha","force_reason":"header","orig_path":"` + path + `","rl":0}`
+		if i == 5 {
+			payload = `{"path":"` + path + `"}` // the older shape still reads
+		}
+		insertEvent(t, d, "203.0.113.90", "t13d_scan", "serve", "Mozilla/5.0", payload)
+	}
+	cands, err := Candidates(context.Background(), d, nil, Exclusions{}, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c *Candidate
+	for i := range cands {
+		if cands[i].Target == "203.0.113.90" {
+			c = &cands[i]
+		}
+	}
+	if c == nil {
+		t.Fatalf("scanner not a candidate: %+v", cands)
+	}
+	if len(c.SamplePaths) != 3 {
+		t.Fatalf("want 3 distinct sample paths from orig_path, got %v", c.SamplePaths)
+	}
+	for _, p := range c.SamplePaths {
+		if !strings.HasPrefix(p, "/") {
+			t.Errorf("sample path is not a path: %q", p)
+		}
+	}
+}
+
+// In a proof-of-work-only chain the solve is the pass: it counts as PoW
+// solved and shows up in the pass breakdown as pass_pow.
+func TestPowOnlyChainCountsAsPowSolved(t *testing.T) {
+	d := newTestDB(t)
+	opt := Options{MinServes: 5, Limit: 50}
+	for i := 0; i < 6; i++ {
+		payload := ""
+		if i < 3 {
+			payload = `{"orig_path":"/.env"}` // scanner paths: makes it a candidate despite passing
+		}
+		insertEvent(t, d, "203.0.113.95", "t13d_powonly", "serve", "Mozilla/5.0", payload)
+		insertEvent(t, d, "203.0.113.95", "t13d_powonly", "load", "Mozilla/5.0", "")
+		insertEvent(t, d, "203.0.113.95", "t13d_powonly", "bv_pow_only", "Mozilla/5.0", "")
+	}
+	cands, err := Candidates(context.Background(), d, nil, Exclusions{}, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var c *Candidate
+	for i := range cands {
+		if cands[i].Target == "203.0.113.95" {
+			c = &cands[i]
+		}
+	}
+	if c == nil {
+		t.Fatalf("not a candidate: %+v", cands)
+	}
+	if c.PowPassed != 6 || c.Passes != 6 || c.PassPow != 6 || c.PassCaptcha != 0 || c.PassBoth != 0 || c.Contained {
+		t.Errorf("pow_only chain: want PoW solved 6 = passes 6 = pass_pow 6, got %+v", c)
+	}
+}

@@ -1249,6 +1249,20 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAdvisorIndex)))
 	mux.HandleFunc("POST "+base+"/admin/advisor/dismiss",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAdvisorDismiss)))
+	mux.HandleFunc("POST "+base+"/admin/advisor/undismiss",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAdvisorUndismiss)))
+	// the click that asks the model (the page itself never does)
+	mux.HandleFunc("POST "+base+"/admin/advisor/ai-run",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAdvisorAIRun)))
+	// the page polls this while a run is out, then fills its rows in place
+	mux.HandleFunc("GET "+base+"/admin/advisor/ai-status",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAdvisorAIStatus)))
+	// model picker: the saved provider's model list (no overrides -- see handler)
+	// what a fingerprint ban would hit (the BAN dialog asks before confirming)
+	mux.HandleFunc("GET "+base+"/admin/api/ja4-collateral",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminJA4Collateral)))
+	mux.HandleFunc("GET "+base+"/admin/api/ai-models",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAIModels)))
 
 	// bot hunt tab (admin or above)
 	mux.HandleFunc("GET "+base+"/admin/hunt/{$}",

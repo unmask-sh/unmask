@@ -28,15 +28,15 @@ func TestBuildPool(t *testing.T) {
 	}
 
 	var calls int32
-	orig := lookupPTR
-	lookupPTR = func(ctx context.Context, ip string) []string {
+	orig := LookupPTR
+	LookupPTR = func(ctx context.Context, ip string) []string {
 		atomic.AddInt32(&calls, 1)
 		if ip == "198.51.100.7" {
 			return []string{"vm7.examplecloud.test."}
 		}
 		return nil
 	}
-	t.Cleanup(func() { lookupPTR = orig })
+	t.Cleanup(func() { LookupPTR = orig })
 	// The package cache outlives tests; start this one from a clean slate.
 	ptrCache.Lock()
 	ptrCache.m = map[string]ptrEntry{}

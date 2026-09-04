@@ -206,7 +206,10 @@ func FormatDigest(d Digest, adminURL string) string {
 			state = "contained by the challenge"
 		}
 		fmt.Fprintf(&b, "- %s %s [%s] -- %s\n", c.Type, c.Target, strings.Join(ids, ", "), state)
-		fmt.Fprintf(&b, "    %d challenges served, %d passed", c.Serves, c.Passes)
+		fmt.Fprintf(&b, "    %d challenges served, %d completed", c.Serves, c.Passes)
+		if c.HeldAtCaptcha() {
+			fmt.Fprintf(&b, " (proof-of-work solved %d times, CAPTCHA reached %d times, never completed)", c.PowPassed, c.CaptchaShown)
+		}
 		if c.ScannerHits > 0 {
 			fmt.Fprintf(&b, ", %d scanner-path hits", c.ScannerHits)
 		}

@@ -25,6 +25,7 @@ const SEED_IP = '203.0.113.26';
 
 const fails = [];
 const ok = (cond, msg) => { if (!cond) fails.push(msg); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 (async () => {
   const browser = await puppeteer.launch({
@@ -55,6 +56,32 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   ok(fields.length === 0, `settings/ai-advisor is missing fields: ${fields.join(', ')}`);
   const keyVal = await page.evaluate(() => (document.querySelector('[name="ai_api_key"]') || {}).value);
   ok(keyVal === '', `the API key field must render empty, got ${JSON.stringify(keyVal)}`);
+  // Model picker: presets in a select, custom reveals the free-text field.
+  const picker = await page.evaluate(() => {
+    const sel = document.getElementById('ai_model_sel'), txt = document.getElementById('ai_model');
+    if (!sel || !txt) return { missing: true };
+    const hiddenBefore = getComputedStyle(txt).display === 'none';
+    sel.value = '__custom__'; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    const shownAfter = getComputedStyle(txt).display !== 'none';
+    return { options: sel.options.length, hiddenBefore, shownAfter };
+  });
+  ok(!picker.missing, 'the model picker is missing');
+  ok(!picker.missing && picker.options >= 4, `the picker has too few options: ${JSON.stringify(picker)}`);
+  ok(!picker.missing && picker.hiddenBefore && picker.shownAfter, `custom did not reveal the text field: ${JSON.stringify(picker)}`);
+  // The list follows the provider: openai's models under openai, and the
+  // default becomes openai's.
+  const follow = await page.evaluate(() => {
+    const prov = document.querySelector('[name="ai_provider"]'), sel = document.getElementById('ai_model_sel'), txt = document.getElementById('ai_model');
+    if (!prov || !sel || !txt) return { missing: true };
+    txt.value = 'claude-opus-5';
+    prov.value = 'openai'; prov.dispatchEvent(new Event('change', { bubbles: true }));
+    const ids = Array.from(sel.options).map(o => o.value);
+    return { ids, placeholder: txt.placeholder, value: txt.value, hidden: getComputedStyle(txt).display === 'none' };
+  });
+  ok(!follow.missing && follow.ids.some(v => v.startsWith('gpt')) && !follow.ids.some(v => v.startsWith('claude')),
+    `under openai the picker must list openai models only: ${JSON.stringify(follow.ids)}`);
+  ok(!follow.missing && follow.placeholder === 'gpt-4o-mini' && follow.value === '' && follow.hidden,
+    `switching provider must fall back to its default: ${JSON.stringify(follow)}`);
 
   // --- advisor page ----------------------------------------------------------
   resp = await page.goto(BASE + '/admin/advisor/?window=24', { waitUntil: 'networkidle2' });
@@ -76,6 +103,31 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
       uaPop: !!document.getElementById('ua-popover'),
       navAdvisor: !document.querySelector('header .nav a[href$="/admin/advisor/"]') &&
         !!document.querySelector('.ban-tabs a.active[href$="/admin/advisor/"]'),
+      // The harness has no key: the page must not offer (or run) the model.
+      aiButton: !!document.querySelector('form[action$="/admin/advisor/ai-run"]'),
+      // The heading and the traffic column each carry a ? help popover.
+      helpH1: !!document.querySelector('main h1 .info-tip .info-popup'),
+      helpTraffic: !!document.querySelector('table.cands thead th .info-tip .info-popup'),
+      // The traffic cell: served -> passed on the main line, the middle
+      // stages under it, the window as a compact range.
+      traffic: (row.querySelector('.tf-main') || {}).textContent || '',
+      trafficSub: (row.querySelector('.tf-sub') || {}).textContent || '',
+      trafficWhen: !!row.querySelector('.tf-when time.js-datetime-short[data-ts]'),
+      // Sample paths: the long one is clipped (popover), the short ones are not.
+      clippedPaths: Array.from(row.querySelectorAll('td .clamp-v.uaclick')).filter(e => e.classList.contains('clipped')).length,
+      plainPaths: Array.from(row.querySelectorAll('td .clamp-v.uaclick')).filter(e => !e.classList.contains('clipped')).length,
+      // The rows carry the slot the model's answer is filled into in place.
+      hasSlot: !!row.querySelector('.ai-slot[data-ai="1"]') && !!document.getElementById('cands-body'),
+      // ... and it takes no room while it has nothing to say.
+      slotHidden: getComputedStyle(row.querySelector('.ai-slot[data-ai="1"]')).display === 'none',
+      // The shared partials expose their wiring for swapped-in rows.
+      rewire: Array.isArray(window.unmaskRewire) && window.unmaskRewire.length >= 2,
+      // The attention filter.
+      filter: !!document.querySelector('select[name="min"] option[value="all"]'),
+      // Six columns: the origin (ASN / rDNS) lives under the address now.
+      ths: document.querySelectorAll('table.cands thead th').length,
+      // The engine's score on the row (hammering 3 + scanner 3 for the seed).
+      score: (row.querySelector('.score') || {}).textContent || '',
     };
   }, SEED_IP);
   if (adv.missing) {
@@ -90,6 +142,21 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     ok(adv.hasBanForm, 'the row has no BAN button');
     ok(adv.dialog && adv.ipPop && adv.uaPop, 'a shared popover / dialog element is missing on the advisor page');
     ok(adv.navAdvisor, 'advisor must live in the BAN tab strip, not the global nav');
+    ok(!adv.aiButton, 'with no key saved the page must not offer the model button');
+    ok(adv.helpH1 && adv.helpTraffic, 'the ? help popovers are missing on the heading / traffic column');
+    ok(adv.hasSlot, 'the seed row has no eligible .ai-slot / the table body has no id for the in-place swap');
+    ok(adv.slotHidden, 'the empty AI sub-row must be hidden');
+    ok(adv.rewire, 'the IP popover / BAN dialog partials did not register their re-wire hooks');
+    ok(adv.filter, 'the attention filter select is missing');
+    ok(adv.ths === 6, `expected 6 columns (origin folded under the address), got ${adv.ths}`);
+    ok(/\b6\b/.test(adv.score), `the seed row must show its score 6: ${JSON.stringify(adv.score)}`);
+    const main = (adv.traffic.match(/\d+/g) || []).map(Number);
+    ok(main.length === 2 && main[0] === 35 && main[1] === 0,
+      `the traffic main line must read 35 served -> 0 passed: ${JSON.stringify(adv.traffic.trim().slice(0, 80))}`);
+    ok((adv.trafficSub.match(/\d+/g) || []).length === 3, `the middle stages line must carry three counts: ${JSON.stringify(adv.trafficSub.trim())}`);
+    ok(adv.trafficWhen, 'the window must be a tz-aware compact time range');
+    ok(adv.clippedPaths >= 1 && adv.plainPaths >= 1,
+      `expected both a clipped and an unclipped sample path, got clipped=${adv.clippedPaths} plain=${adv.plainPaths}`);
 
     // IP popover: hover fetches the lookup and shows the address.
     const popText = await page.evaluate(async (ip) => {
@@ -99,6 +166,29 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
       return document.getElementById('ip-popover').textContent;
     }, SEED_IP);
     ok(popText.indexOf(SEED_IP) >= 0, `the IP popover did not show the address: ${JSON.stringify(popText.slice(0, 80))}`);
+
+    // Sample paths: hovering a value that fits opens nothing; hovering the
+    // clipped one opens the full path.
+    const pathPop = await page.evaluate(async () => {
+      const pop = document.getElementById('ua-popover');
+      const visible = () => !!(pop.offsetWidth || pop.offsetHeight);
+      const plain = Array.from(document.querySelectorAll('table.cands td .clamp-v.uaclick')).find(e => !e.classList.contains('clipped'));
+      const clip = Array.from(document.querySelectorAll('table.cands td .clamp-v.uaclick')).find(e => e.classList.contains('clipped'));
+      if (!plain || !clip) return { missing: true };
+      plain.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: 300, clientY: 400 }));
+      await new Promise(r => setTimeout(r, 500));
+      const plainShown = visible() && pop.textContent.indexOf(plain.dataset.ua) >= 0;
+      plain.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+      clip.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: 300, clientY: 400 }));
+      await new Promise(r => setTimeout(r, 500));
+      const clipShown = visible() && pop.textContent.indexOf('ui-e2e-long-path-to-clip') >= 0;
+      clip.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+      return { plainShown, clipShown, plainCursor: getComputedStyle(plain).cursor };
+    });
+    ok(!pathPop.missing, 'no clipped / unclipped sample path pair to test the popover rule with');
+    ok(!pathPop.missing && !pathPop.plainShown, 'a sample path that fits must not open a popover');
+    ok(!pathPop.missing && pathPop.clipShown, 'the clipped sample path must open the full value');
+    ok(!pathPop.missing && pathPop.plainCursor !== 'help', `an unclipped value must not advertise a popover (cursor ${pathPop.plainCursor})`);
 
     // UA popover: the clipped cell opens the full string.
     const uaText = await page.evaluate(async () => {
@@ -136,6 +226,54 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     ok(page.url() === before, `cancel navigated away: ${page.url()}`);
   }
 
+  // --- dismiss -> gone; show dismissed -> back, marked; un-dismiss -> plain --
+  const findRow = (ip) => Array.from(document.querySelectorAll('#cands-body tr'))
+    .find(r => r.querySelector('.ipclick') && r.querySelector('.ipclick').dataset.ip === ip);
+  await page.goto(BASE + '/admin/advisor/?window=24', { waitUntil: 'networkidle2' });
+  const hasDismiss = await page.evaluate((ip) => {
+    const r = Array.from(document.querySelectorAll('#cands-body tr')).find(r => r.querySelector('.ipclick') && r.querySelector('.ipclick').dataset.ip === ip);
+    return !!(r && r.querySelector('form[action$="/admin/advisor/dismiss"] button'));
+  }, SEED_IP);
+  if (!hasDismiss) {
+    ok(false, 'the seed row has no dismiss button');
+  } else {
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'networkidle2' }),
+      page.evaluate((ip) => {
+        const r = Array.from(document.querySelectorAll('#cands-body tr')).find(r => r.querySelector('.ipclick') && r.querySelector('.ipclick').dataset.ip === ip);
+        r.querySelector('form[action$="/admin/advisor/dismiss"] button').click();
+      }, SEED_IP),
+    ]);
+    const gone = await page.evaluate((ip) => !Array.from(document.querySelectorAll('#cands-body .ipclick')).some(e => e.dataset.ip === ip), SEED_IP);
+    ok(gone, 'a dismissed candidate must leave the list');
+    await page.goto(BASE + '/admin/advisor/?window=24&show_dismissed=1', { waitUntil: 'networkidle2' });
+    const back = await page.evaluate((ip) => {
+      const r = Array.from(document.querySelectorAll('#cands-body tr')).find(r => r.querySelector('.ipclick') && r.querySelector('.ipclick').dataset.ip === ip);
+      return {
+        present: !!r,
+        marked: !!(r && r.classList.contains('dismissed') && r.querySelector('.state.dismissed')),
+        undismiss: !!(r && r.querySelector('form[action$="/admin/advisor/undismiss"] button')),
+        checked: !!(document.querySelector('input[name="show_dismissed"]') || {}).checked,
+      };
+    }, SEED_IP);
+    ok(back.present && back.marked && back.undismiss && back.checked, `show dismissed must bring the row back, marked, with un-dismiss: ${JSON.stringify(back)}`);
+    if (back.undismiss) {
+      await Promise.all([
+        page.waitForNavigation({ waitUntil: 'networkidle2' }),
+        page.evaluate((ip) => {
+          const r = Array.from(document.querySelectorAll('#cands-body tr')).find(r => r.querySelector('.ipclick') && r.querySelector('.ipclick').dataset.ip === ip);
+          r.querySelector('form[action$="/admin/advisor/undismiss"] button').click();
+        }, SEED_IP),
+      ]);
+      await page.goto(BASE + '/admin/advisor/?window=24', { waitUntil: 'networkidle2' });
+      const plain = await page.evaluate((ip) => {
+        const r = Array.from(document.querySelectorAll('#cands-body tr')).find(r => r.querySelector('.ipclick') && r.querySelector('.ipclick').dataset.ip === ip);
+        return !!r && !r.classList.contains('dismissed');
+      }, SEED_IP);
+      ok(plain, 'after un-dismissing the candidate is back in the default list, unmarked');
+    }
+  }
+
   // --- bot hunt: the same dialog still behaves as before -------------------
   resp = await page.goto(BASE + '/admin/hunt/?range=24h', { waitUntil: 'networkidle2' });
   ok(resp.status() === 200, `/admin/hunt/ status ${resp.status()}`);
@@ -145,15 +283,66 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     banBtn: !!document.querySelector('.rank-card-ip form.js-ban-form button'),
   }));
   ok(hunt.dialog && hunt.ipPop, 'bot hunt lost its dialog / IP popover after the partial extraction');
+  // A fingerprint target: the dialog measures the collateral before it lets
+  // the operator confirm.  The seed fingerprint never passed -> allowed.
+  const ja4Btn = await page.evaluate(() => !!document.querySelector('.rank-card-ja4 form.js-ban-form button'));
+  if (ja4Btn) {
+    await page.click('.rank-card-ja4 form.js-ban-form button');
+    await sleep(900);
+    const cd = await page.evaluate(() => {
+      const col = document.getElementById('ban-dialog-collateral');
+      return {
+        open: document.getElementById('ban-dialog').open,
+        shown: !!col && getComputedStyle(col).display !== 'none',
+        level: col ? col.className.replace('ban-dialog-collateral', '').trim() : '',
+        text: (document.getElementById('ban-dialog-collateral-body') || {}).textContent || '',
+        okEnabled: !(document.getElementById('ban-dialog-ok') || { disabled: true }).disabled,
+      };
+    });
+    ok(cd.open && cd.shown, 'a fingerprint ban must show the collateral check');
+    ok(cd.level === 'none' && cd.okEnabled, `the seed fingerprint has no passer: level none, ban allowed -- got ${JSON.stringify(cd)}`);
+    await page.click('#ban-dialog button[value="cancel"]');
+    await sleep(200);
+    // ... and an address target shows no check and stays enabled.
+    await page.click('.rank-card-ip form.js-ban-form button');
+    await sleep(300);
+    const ipd = await page.evaluate(() => ({
+      shown: getComputedStyle(document.getElementById('ban-dialog-collateral')).display !== 'none',
+      okEnabled: !document.getElementById('ban-dialog-ok').disabled,
+    }));
+    ok(!ipd.shown && ipd.okEnabled, `an address target has no collateral check: ${JSON.stringify(ipd)}`);
+    await page.click('#ban-dialog button[value="cancel"]');
+    await sleep(200);
+  } else {
+    ok(false, 'the JA4 ranking has no BAN button to test the collateral check with');
+  }
   if (hunt.banBtn) {
     await page.click('.rank-card-ip form.js-ban-form button');
     await new Promise(r => setTimeout(r, 300));
-    const hd = await page.evaluate(() => ({
-      open: document.getElementById('ban-dialog').open,
-      reasonShown: getComputedStyle(document.getElementById('ban-dialog-reason-row')).display !== 'none',
-    }));
+    const hd = await page.evaluate(() => {
+      const more = document.getElementById('ban-dialog-share-more');
+      const shownBefore = getComputedStyle(more).display !== 'none';
+      const cb = document.getElementById('ban-dialog-share');
+      cb.checked = true; cb.dispatchEvent(new Event('change', { bubbles: true }));
+      const shownAfter = getComputedStyle(more).display !== 'none';
+      cb.checked = false; cb.dispatchEvent(new Event('change', { bubbles: true }));
+      return {
+        open: document.getElementById('ban-dialog').open,
+        kind: document.getElementById('ban-dialog-kind').textContent.trim(),
+        reasonShown: getComputedStyle(document.getElementById('ban-dialog-reason-row')).display !== 'none',
+        shareFolded: !shownBefore, shareUnfolds: shownAfter,
+        afterNote: !!document.querySelector('#ban-dialog .ban-dialog-after a[href$="/admin/bans/"]'),
+        effect: ((document.querySelector('#ban-dialog .ban-dialog-effect') || {}).textContent || '').trim(),
+        defaultOK: (document.querySelector('#ban-dialog form button[type="submit"]') || {}).value === 'ok',
+      };
+    });
     ok(hd.open, 'the bot-hunt BAN dialog did not open');
-    ok(!hd.reasonShown, 'on bot hunt the reason row must stay hidden until sharing is ticked');
+    ok(hd.reasonShown, 'the reason belongs to the BAN and shows on bot hunt too');
+    ok(hd.kind.length > 0, 'the dialog must name the target kind (IP / JA4)');
+    ok(hd.shareFolded && hd.shareUnfolds, `sharing must be one folded line that unfolds when ticked: ${JSON.stringify(hd)}`);
+    ok(hd.afterNote, 'the dialog must say where the ban can be reviewed or lifted');
+    ok(hd.effect.length > 0, 'the dialog must say what the ban does (challenge vs refusal)');
+    ok(hd.defaultOK, 'Enter must confirm, not cancel (the default submit button is OK)');
     await page.click('#ban-dialog button[value="cancel"]');
   } else {
     ok(false, 'the IP ranking has no BAN button to test the dialog with');

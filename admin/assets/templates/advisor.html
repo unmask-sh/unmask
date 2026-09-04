@@ -28,8 +28,11 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .banner.bad{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
 table.cands{width:100%;border-collapse:collapse;font-size:.86rem}
 table.cands thead th{text-align:left;padding:.5rem .6rem;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:600;font-size:.78rem}
-table.cands tbody td{padding:.5rem .6rem;border-bottom:1px solid #f1f5f9;vertical-align:top}
-table.cands tbody tr:hover{background:#f8fafc}
+table.cands tbody td{padding:.6rem .6rem;border-bottom:1px solid #cbd5e1;vertical-align:top}
+/* Zebra + a firmer rule: the rows are tall (signals, a card, a range), so
+   the boundary between two candidates has to be obvious. */
+table.cands tbody tr:nth-child(even) td{background:#f8fafc}
+table.cands tbody tr:hover td{background:#eef2f7}
 table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569;white-space:nowrap}
 /* The UA cell clips like the bot-hunt log's; the full string is a popover away. */
 table.cands td.ua{color:#64748b;font-size:.78rem;white-space:nowrap;max-width:13rem;overflow:hidden;text-overflow:ellipsis}
@@ -39,10 +42,26 @@ table.cands td.ua{color:#64748b;font-size:.78rem;white-space:nowrap;max-width:13
 .sig.ai{background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe}
 /* contained vs passing: the one distinction that decides whether a ban buys
    protection or merely quiet. */
+.score{display:inline-block;background:#f8fafc;color:#334155;border:1px solid #cbd5e1;border-radius:.25rem;padding:.05rem .45rem;font-size:.72rem;font-weight:700;font-family:ui-monospace,Menlo,monospace;margin-bottom:.25rem}
 .state{display:block;font-size:.74rem;margin-bottom:.25rem}
 .state.contained{color:#64748b}
 .state.passing{color:#b91c1c;font-weight:700}
 .kv{color:#64748b;font-size:.78rem}
+td.traffic{white-space:nowrap}
+.tf-main{color:#334155;font-size:.8rem}
+.tf-main strong{color:#0f172a;font-size:.92rem}
+.tf-arrow{color:#94a3b8;margin:0 .15rem}
+.tf-kinds{color:#64748b;font-size:.72rem}
+.windowbar .chk{display:inline-flex;align-items:center;gap:.3rem;margin-left:.4rem;cursor:pointer}
+.windowbar .cand-age{margin-left:auto}
+.state.dismissed{color:#64748b;font-weight:700}
+table.cands tbody tr.dismissed td{color:#94a3b8}
+table.cands tbody tr.dismissed td .sig,table.cands tbody tr.dismissed td .score{opacity:.6}
+.tf-sub{color:#64748b;font-size:.72rem;margin-top:.15rem}
+.tf-when time{cursor:default}
+/* A clipped value (paths, network, reverse DNS) is what the popover is for;
+   one that fits is left alone -- no underline, no popover. */
+.clamp-v.uaclick:not(.clipped){cursor:default;text-decoration:none}
 .clamp-v{display:inline-block;max-width:16rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;font-family:ui-monospace,Menlo,monospace;font-size:.78rem;color:#475569}
 .btn{display:inline-block;border:1px solid #cbd5e1;background:#fff;border-radius:.3rem;padding:.25rem .7rem;font-size:.8rem;cursor:pointer;color:#0f172a}
 .btn:hover{background:#f1f5f9}
@@ -54,9 +73,38 @@ table.cands td.ua{color:#64748b;font-size:.78rem;white-space:nowrap;max-width:13
 .prio.high{background:#fee2e2;color:#991b1b;border:1px solid #fca5a5}
 .prio.medium{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
 .prio.low{background:#f1f5f9;color:#475569;border:1px solid #cbd5e1}
-.ai-reason{color:#334155;font-size:.8rem;line-height:1.6;margin-top:.35rem;padding-left:.5rem;border-left:2px solid #bfdbfe}
+/* The model's take: a card in the AI accent under the engine's evidence,
+   in the same cell.  It takes the cell's width (no max-width of its own);
+   the origin column was folded under the address to give this room. */
+.ai-box{margin-top:.4rem;padding:.4rem .6rem .45rem;background:#f5f3ff;border:1px solid #ddd6fe;border-left:.2rem solid #7c3aed;border-radius:.3rem}
+.ai-tag{display:inline-block;background:#7c3aed;color:#fff;font-size:.66rem;font-weight:700;letter-spacing:.03em;padding:.08rem .45rem;border-radius:.25rem;margin-right:.4rem;vertical-align:middle}
+.ai-box .prio{vertical-align:middle}
+.ai-when{margin-left:.5rem;color:#6d28d9;font-size:.72rem;vertical-align:middle}
+.ai-reason{color:#312e81;font-size:.8rem;line-height:1.6;margin-top:.3rem}
+/* A row the last run did not cover (it appeared since, or sat below the
+   floor then): say so instead of showing nothing -- or worse, an empty card. */
+.ai-missing{margin-top:.4rem;padding:.35rem .6rem;border:1px dashed #c4b5fd;border-radius:.3rem;color:#6d28d9;font-size:.76rem}
+.ai-missing .ai-tag{background:#c4b5fd}
+/* "kept (evidence unchanged)" during a run: inside the card, on the line
+   with the tag, the priority and the time -- it is about that review. */
+.ai-kept{margin-left:.5rem;color:#64748b;font-size:.72rem;vertical-align:middle}
+.badge-new{display:inline-block;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:.25rem;padding:.05rem .4rem;font-size:.66rem;font-weight:700;letter-spacing:.03em;text-transform:uppercase;margin-left:.3rem;vertical-align:middle}
+.clamp-v.origin{max-width:14rem;font-family:inherit;color:#64748b}
 .windowbar{display:flex;align-items:center;gap:.5rem;margin-bottom:1rem;font-size:.85rem;color:#475569}
 .windowbar select{padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.3rem;font-size:.85rem}
+/* The AI bar: what the last click produced, and the button that asks again.
+   The page never calls the model on its own. */
+.ai-bar{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin:-.4rem 0 1rem;padding:.5rem .8rem;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:.3rem;font-size:.82rem;color:#4c1d95}
+.ai-bar form{display:inline;margin:0}
+.ai-bar .ai-delta{flex-basis:100%;margin-top:.1rem}
+.ai-spin{display:inline-block;width:.85rem;height:.85rem;border:.15rem solid #c4b5fd;border-top-color:#6d28d9;border-radius:50%;animation:ai-spin .8s linear infinite;vertical-align:-.15rem;margin-right:.35rem}
+@keyframes ai-spin{to{transform:rotate(360deg)}}
+.ai-wait{display:inline-flex;align-items:center;color:#6d28d9;font-size:.8rem;margin-top:.3rem}
+.ai-slot:empty{display:none}
+.ai-failed{color:#b91c1c;font-weight:700}
+.hidden-note{margin:.4rem 0 0;font-size:.8rem;color:#64748b}
+.btn.ai{border-color:#c4b5fd;color:#5b21b6;background:#fff}
+.btn.ai:hover{background:#ede9fe}
 /* The magnifier opens the target's raw events in bot hunt -- the evidence
    behind the summary numbers, one click away. */
 .loglink{display:inline-block;margin-left:.35rem;font-size:.85rem;text-decoration:none;vertical-align:middle;opacity:.7}
@@ -100,22 +148,23 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     <a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
     <a href="{{.BasePath}}/admin/bans/" class="active">{{ t .Lang "nav.bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
     <a href="{{.BasePath}}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
-    <a href="{{.BasePath}}/admin/playground/">{{ t .Lang "nav.playground" }}</a>
-    <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>
   </nav>
   <span class="spacer"></span>
   {{ template "header_tools" . }}
 </header>
 <main class="unmask-main">
   {{ template "ua_assets" . }}
-  <h1>{{ t .Lang "advisor.title" }}</h1>
+  <h1 style="display:flex;align-items:center;gap:.5rem">
+    {{ t .Lang "advisor.title" }}
+    <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "advisor.help") }}</span></span>
+  </h1>
   {{ template "ban_tabs" . }}
-  <p class="meta">{{ t .Lang "advisor.subtitle" }}</p>
 
   {{ if .Saved }}<div class="banner ok">{{ t .Lang "advisor.saved" }}</div>{{ end }}
   {{ if .Dismissed }}<div class="banner ok">{{ t .Lang "advisor.dismissed_ok" }}</div>{{ end }}
+  {{ if .Undismissed }}<div class="banner ok">{{ t .Lang "advisor.undismissed_ok" }}</div>{{ end }}
   {{ if .EngineErr }}<div class="banner bad">{{ t .Lang "advisor.engine_err" }}: {{ .EngineErr }}</div>{{ end }}
-  {{ if .LLMErr }}<div class="banner bad">{{ t .Lang "advisor.llm_err" }}: {{ .LLMErr }}</div>{{ end }}
+  <div id="llm-err">{{ if .LLMErr }}<div class="banner bad">{{ t .Lang "advisor.llm_err" }}: {{ .LLMErr }}</div>{{ end }}</div>
 
   <div class="bcd-card">
     <form method="get" action="{{.BasePath}}/admin/advisor/" class="windowbar">
@@ -127,7 +176,49 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         <option value="72" {{ if eq $w 72 }}selected{{ end }}>72h</option>
         <option value="168"{{ if eq $w 168 }}selected{{ end }}>7d</option>
       </select>
+      {{/* Default: the rows worth attention (score >= AttentionScore) plus the
+           model's nominations; "all" lifts the floor. */}}
+      <label for="adv-min">{{ t .Lang "advisor.filter" }}</label>
+      <select id="adv-min" name="min" onchange="this.form.submit()">
+        <option value=""   {{ if not .ShowAll }}selected{{ end }}>{{ tf .Lang "advisor.filter_attention" .AttentionScore }}</option>
+        <option value="all"{{ if .ShowAll }} selected{{ end }}>{{ t .Lang "advisor.filter_all" }}</option>
+      </select>
+      <label class="chk"><input type="checkbox" name="show_dismissed" value="1"{{ if .ShowDismissed }} checked{{ end }} onchange="this.form.submit()"> {{ t .Lang "advisor.show_dismissed" }}</label>
+      {{/* the list is served from memory and refreshed behind the page */}}
+      {{ if .CandStale }}<span class="kv cand-age">{{ tf .Lang "advisor.list_age" .CandAge }}</span>{{ end }}
     </form>
+
+    {{ if .AIActive }}
+    {{/* The click starts a background run (ai-run) and the page stays: the
+         bar turns into a progress line, every eligible row's AI slot shows
+         it is being analysed, and the script polls ai-status, then swaps
+         the bar, the rows and the error banner in from a fresh render.  A
+         reload mid-run lands on the same state (AIRunning). */}}
+    <div class="ai-bar" id="ai-bar" data-base="{{ .BasePath }}" data-window="{{ .WindowH }}" data-min="{{ if .ShowAll }}all{{ end }}" data-dismissed="{{ if .ShowDismissed }}1{{ end }}" data-state="{{ if .AIRunning }}running{{ else if .AIHave }}have{{ else if .AIFailed }}failed{{ else }}none{{ end }}"
+         data-running-text="{{ t .Lang "advisor.ai_running" }}" data-running-hint="{{ t .Lang "advisor.ai_running_hint" }}"{{ if .AIRunning }} data-running="1" data-since="{{ .AIRunningSince }}"{{ end }}>
+      <span id="ai-bar-state">
+        {{- if .AIRunning }}<span class="ai-spin"></span>{{ t .Lang "advisor.ai_running" }} <span class="kv" id="ai-elapsed"></span>
+        {{- else if .AIHave }}{{ t .Lang "advisor.ai_asof" }} <strong>{{ .AIAge }}</strong> <span class="kv">(<time class="js-datetime js-datetime-short ai-at" data-ts="{{ .AIAtTs }}">{{ .AIAt }}</time> · {{ .AIModel }})</span>
+
+        {{- else if .AIFailed }}<span class="ai-failed">{{ t .Lang "advisor.ai_failed" }}</span> <strong>{{ .AIAge }}</strong> <span class="kv">(<time class="js-datetime js-datetime-short ai-at" data-ts="{{ .AIAtTs }}">{{ .AIAt }}</time> · {{ .AIModel }})</span>
+        {{- else }}{{ t .Lang "advisor.ai_none" }}{{ end -}}
+      </span>
+      <form method="post" action="{{ .BasePath }}/admin/advisor/ai-run" id="ai-run-form">
+        <input type="hidden" name="window" value="{{ .WindowH }}">
+        <input type="hidden" name="min" value="{{ if .ShowAll }}all{{ end }}">
+        <input type="hidden" name="show_dismissed" value="{{ if .ShowDismissed }}1{{ end }}">
+        <button type="submit" class="btn ai"{{ if .AIRunning }} disabled{{ end }}>{{ if .AIHave }}{{ t .Lang "advisor.ai_rerun" }}{{ else if .AIFailed }}{{ t .Lang "advisor.ai_retry" }}{{ else }}{{ t .Lang "advisor.ai_run" }}{{ end }}</button>
+      </form>
+      <span class="kv" id="ai-hint">{{ if .AIRunning }}{{ t .Lang "advisor.ai_running_hint" }}{{ else }}{{ t .Lang "advisor.ai_hint" }}{{ end }}</span>
+      {{- /* what the last click did, on its own line: sent N / kept M, or nothing sent */ -}}
+      {{ if and .AIHave (not .AIRunning) }}
+      {{ if .AIReviewed }}<span class="kv ai-delta" data-reviewed="{{ .AIReviewed }}" data-kept="{{ .AIKept }}">{{ t .Lang "advisor.ai_last_run" }} {{ if .AIKept }}{{ tf .Lang "advisor.ai_delta" .AIReviewed .AIKept }}{{ else }}{{ tf .Lang "advisor.ai_reviewed" .AIReviewed }}{{ end }}{{ if or .AIInTokens .AIOutTokens }} · {{ tf .Lang "advisor.ai_tokens" (comma .AIInTokens) (comma .AIOutTokens) }}{{ end }}</span>
+      {{ else if .AIKept }}<span class="kv ai-delta" data-reviewed="0" data-kept="{{ .AIKept }}">{{ t .Lang "advisor.ai_last_run" }} {{ tf .Lang "advisor.ai_nochange" .AIKept }}</span>{{ end }}
+      {{ end }}
+    </div>
+    <template id="ai-wait-tpl"><span class="ai-wait"><span class="ai-spin"></span>{{ t .Lang "advisor.ai_row_wait" }}</span></template>
+    <template id="ai-keep-tpl"><span class="ai-kept">{{ t .Lang "advisor.ai_row_kept" }}</span></template>
+    {{ end }}
 
     {{ if not .Candidates }}
       <p class="kv">{{ t .Lang "advisor.empty" }}</p>
@@ -138,37 +229,62 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         <tr>
           <th>{{ t .Lang "advisor.col.target" }}</th>
           <th>{{ t .Lang "advisor.col.signals" }}</th>
-          <th>{{ t .Lang "advisor.col.traffic" }}</th>
-          <th>{{ t .Lang "advisor.col.origin" }}</th>
+          <th>{{ t .Lang "advisor.col.traffic" }}<span class="info-tip" tabindex="0" aria-label="help" style="font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "advisor.col.traffic_help") }}</span></span></th>
           <th>UA</th>
           <th>{{ t .Lang "advisor.col.paths" }}</th>
           <th>{{ t .Lang "advisor.col.actions" }}</th>
         </tr>
       </thead>
-      <tbody>
+      <tbody id="cands-body">
         {{ range .Candidates }}
-        <tr>
+        {{/* The model's review for this row, if the last run covered it.  index
+             on a missing key yields a zero Review, and a struct is always true
+             to {{ if }} -- so test the target, or a row that appeared after the
+             run gets an empty card. */}}
+        {{ $rv := "" }}{{ if $.Reviews }}{{ with index $.Reviews .Target }}{{ if .Target }}{{ $rv = . }}{{ end }}{{ end }}{{ end }}
+        <tr{{ if .Dismissed }} class="dismissed"{{ end }}>
           <td class="mono">
             {{ if eq .Type "ip" }}<span class="ipclick" data-ip="{{ .Target }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .Country }}.png" alt="{{ ccLabel .Country }}" loading="lazy">{{ .Target }}</span>{{ else }}{{ .Target }}{{ end }}<a class="loglink" href="{{ $.BasePath }}/admin/hunt/?{{ if eq .Type "ip" }}ip{{ else }}ja4{{ end }}={{ urlquery .Target }}" aria-label="{{ t $.Lang "advisor.log_aria" }}">🔍</a>
             {{ if eq .Type "ja4" }}<span class="kv"><br>{{ .DistinctIPs }} {{ t $.Lang "advisor.ips" }}</span>
             {{ else if .JA4 }}<span class="kv"><br>{{ .JA4 }}</span>{{ end }}
+            {{/* Origin under the address: network (country) and reverse DNS,
+                 clipped with the full value in the popover. */}}
+            {{ if .ASNOrg }}<br><span class="clamp-v origin uaclick" data-ua="{{ .ASNOrg }}{{ if .Country }} ({{ .Country }}){{ end }}">{{ .ASNOrg }}{{ if .Country }} ({{ .Country }}){{ end }}</span>{{ end }}
+            {{ if .RDNS }}<br><span class="clamp-v origin uaclick" data-ua="{{ .RDNS }}">{{ .RDNS }}</span>{{ end }}
           </td>
           <td>
-            {{ if .Contained }}<span class="state contained">{{ t $.Lang "advisor.state.contained" }}</span>{{ else }}<span class="state passing">{{ t $.Lang "advisor.state.passing" }}</span>{{ end }}
-            {{ $rv := "" }}{{ if $.Reviews }}{{ $rv = index $.Reviews .Target }}{{ end }}
-            {{ if $rv }}<span class="prio {{ $rv.Priority }}">{{ $rv.Priority }}</span>{{ end }}
+            {{/* The engine's score (signal weights added up): what the default
+                 filter and the model threshold are measured against.  A
+                 nominated row has none -- the model picked it, not a rule. */}}
+            {{ if .Score }}<span class="score">{{ tf $.Lang "advisor.score" .Score }}</span>{{ end }}
+            {{- /* new since the last answer: no review for it yet */ -}}
+            {{ if and .Attention (not $rv) (or $.AIHave $.AIRunning) }}<span class="badge-new">{{ t $.Lang "advisor.badge_new" }}</span>{{ end }}
+            {{ if .Dismissed }}<span class="state dismissed">{{ t $.Lang "advisor.state.dismissed" }}</span>{{ end }}
+            {{ if .Contained }}<span class="state contained">{{ if .HeldAtCaptcha }}{{ t $.Lang "advisor.state.captcha_held" }}{{ else }}{{ t $.Lang "advisor.state.contained" }}{{ end }}</span>{{ else }}<span class="state passing">{{ t $.Lang "advisor.state.passing" }}</span>{{ end }}
             {{ range .Signals }}
-              <span class="sig{{ if eq .ID "ai_pick" }} ai{{ end }}">{{ .ID }}</span><span class="sig-detail">{{ .Detail }}</span>
+              <span class="sig{{ if eq .ID "ai_pick" }} ai{{ end }}">{{ .ID }}</span><span class="sig-detail">{{ template "advisor_sig_detail" (dict "Lang" $.Lang "Sig" .) }}</span>
             {{ end }}
-            {{ if $rv }}<div class="ai-reason">{{ $rv.Reasoning }}</div>{{ end }}
+            {{/* The model's take, under the engine's evidence: a small label,
+                 the priority, the reasoning as one indented line -- or
+                 "analysing" while a run is out.  data-ai marks the rows a run
+                 covers (score >= AttentionScore, or nominated); the script
+                 fills the same slot. */}}
+            {{/* While a run is out the plan is known from the first moment:
+                 rows sent to the model spin, rows whose evidence has not
+                 changed say "kept" and keep showing their review. */}}
+            <div class="ai-slot"{{ if .Attention }} data-ai="1" data-target="{{ .Target }}"{{ end }}>
+              {{- if and $.AIRunning .Attention (index $.AIKeptRows .Target) }}{{ if $rv }}<div class="ai-box"><span class="ai-tag">{{ t $.Lang "advisor.ai_tag" }}</span><span class="prio {{ $rv.Priority }}">{{ $rv.Priority }}</span>{{ if $rv.At }}<span class="ai-when">{{ ago $.Lang $rv.At }}</span>{{ end }}<span class="ai-kept">{{ t $.Lang "advisor.ai_row_kept" }}</span><div class="ai-reason">{{ $rv.Reasoning }}</div></div>{{ else }}<span class="ai-kept">{{ t $.Lang "advisor.ai_row_kept" }}</span>{{ end }}
+              {{- else if and $.AIRunning .Attention }}<span class="ai-wait"><span class="ai-spin"></span>{{ t $.Lang "advisor.ai_row_wait" }}</span>
+              {{- else if $rv }}<div class="ai-box"><span class="ai-tag">{{ t $.Lang "advisor.ai_tag" }}</span><span class="prio {{ $rv.Priority }}">{{ $rv.Priority }}</span>{{ if $rv.At }}<span class="ai-when">{{ ago $.Lang $rv.At }}</span>{{ end }}<div class="ai-reason">{{ $rv.Reasoning }}</div></div>
+              {{- else if and $.AIHave .Attention }}<div class="ai-missing"><span class="ai-tag">{{ t $.Lang "advisor.ai_tag" }}</span>{{ t $.Lang "advisor.ai_missing" }}</div>{{ end -}}
+            </div>
           </td>
-          <td class="kv">
-            {{ .Serves }} {{ t $.Lang "advisor.serves" }} / {{ .Passes }} {{ t $.Lang "advisor.passes" }}<br>
-            {{ .FirstSeen }} –<br>{{ .LastSeen }}
-          </td>
-          <td class="kv">
-            {{ if .ASNOrg }}{{ .ASNOrg }}{{ if .Country }} ({{ .Country }}){{ end }}{{ else }}–{{ end }}
-            {{ if .RDNS }}<br><span class="clamp-v uaclick" data-ua="{{ .RDNS }}">{{ .RDNS }}</span>{{ end }}
+          <td class="kv traffic">
+            {{/* served -> passed on the main line, the middle stages under it,
+                 then the window as a compact range in the operator's tz. */}}
+            <div class="tf-main"><strong>{{ .Serves }}</strong> {{ t $.Lang "advisor.serves" }} <span class="tf-arrow">→</span> <strong>{{ .Passes }}</strong> {{ t $.Lang "advisor.passes" }}{{ if .Passes }} <span class="tf-kinds">({{ if .PassPow }}PoW {{ .PassPow }}{{ end }}{{ if .PassCaptcha }}{{ if .PassPow }} · {{ end }}CAPTCHA {{ .PassCaptcha }}{{ end }}{{ if .PassBoth }}{{ if or .PassPow .PassCaptcha }} · {{ end }}PoW+CAPTCHA {{ .PassBoth }}{{ end }})</span>{{ end }}</div>
+            <div class="tf-sub">{{ t $.Lang "advisor.loads" }} {{ .Loads }} · {{ t $.Lang "advisor.pow" }} {{ .PowPassed }} · {{ t $.Lang "advisor.captcha" }} {{ .CaptchaShown }}</div>
+            <div class="tf-sub tf-when">{{ if .FirstTs }}<time class="js-datetime js-datetime-short" data-ts="{{ .FirstTs }}">{{ .FirstSeen }}</time>{{ else }}{{ .FirstSeen }}{{ end }} – {{ if .LastTs }}<time class="js-datetime js-datetime-short" data-ts="{{ .LastTs }}">{{ .LastSeen }}</time>{{ else }}{{ .LastSeen }}{{ end }}</div>
           </td>
           <td class="ua">
             {{ if .UA }}<span class="uaclick" data-ua="{{ .UA }}">{{ template "ua_cell" .UA }}</span>{{ else }}<span class="muted">-</span>{{ end }}
@@ -194,18 +310,32 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
               <input type="hidden" name="share" value="">
               <input type="hidden" name="comment" value="">
               <input type="hidden" name="accept_terms" value="">
-              <button type="submit" class="btn danger">{{ t $.Lang "advisor.ban" }}</button>
+              {{- /* a contained fingerprint: the ban would only reduce load and
+                   the dialog measures the collateral first -- the button is
+                   the quiet style, not red */ -}}
+              <button type="submit" class="btn{{ if not (and (eq .Type "ja4") .Contained) }} danger{{ end }}">{{ t $.Lang "advisor.ban" }}</button>
             </form>
+            {{ if .Dismissed }}
+            <form method="post" action="{{$.BasePath}}/admin/advisor/undismiss">
+              <input type="hidden" name="target_type" value="{{ .Type }}">
+              <input type="hidden" name="target" value="{{ .Target }}">
+              <input type="hidden" name="window" value="{{ $.WindowH }}">
+              <button type="submit" class="btn">{{ t $.Lang "advisor.undismiss" }}</button>
+            </form>
+            {{ else }}
             <form method="post" action="{{$.BasePath}}/admin/advisor/dismiss">
               <input type="hidden" name="target_type" value="{{ .Type }}">
               <input type="hidden" name="target" value="{{ .Target }}">
               <button type="submit" class="btn">{{ t $.Lang "advisor.dismiss" }}</button>
             </form>
+            {{ end }}
           </td>
         </tr>
+
         {{ end }}
       </tbody>
     </table>
+    {{ if .Hidden }}<p class="hidden-note">{{ tf .Lang "advisor.hidden_note" .Hidden }} <a href="{{ .BasePath }}/admin/advisor/?window={{ .WindowH }}&amp;min=all{{ if .ShowDismissed }}&amp;show_dismissed=1{{ end }}">{{ t .Lang "advisor.filter_all" }}</a></p>{{ end }}
     </div>
     {{ end }}
     <p class="note">{{ t .Lang "advisor.note" }}
@@ -236,23 +366,173 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   function html(v){
     return '<code style="display:block;white-space:pre-wrap;word-break:break-all;font-size:.78rem;line-height:1.5">' + esc(v) + '</code>';
   }
-  document.querySelectorAll('.uaclick').forEach(function(el){
+  // A clipped cell (.clamp-v: paths, network, reverse DNS) gets the popover;
+  // one whose value fits does not.  The UA cell shows a summary, so its
+  // popover (the full string) is always wanted.
+  function isClamp(el){ return el.classList.contains('clamp-v'); }
+  function clipped(el){ return !isClamp(el) || el.scrollWidth > el.clientWidth + 1; }
+  function measure(root){
+    root.querySelectorAll('.clamp-v.uaclick').forEach(function(el){
+      el.classList.toggle('clipped', el.scrollWidth > el.clientWidth + 1);
+    });
+  }
+  function wire(root){
+  root.querySelectorAll('.uaclick').forEach(function(el){
     var v = el.dataset.ua;
-    if (!v) return;
+    if (!v || el.dataset.uaWired) return;
+    el.dataset.uaWired = '1';
     el.addEventListener('mouseenter', function(e){
       clearTimeout(timer);
-      if (pin.hasPinFor(el)) return;
+      if (pin.hasPinFor(el) || !clipped(el)) return;
       var x = e.pageX, y = e.pageY;
       timer = setTimeout(function(){ pin.showHover(html(v), x, y, el); }, 200);
     });
     el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
     el.addEventListener('click', function(e){
+      if (!clipped(el)) return;
       e.preventDefault();
       clearTimeout(timer);
       pin.handleClick(html(v), e.pageX, e.pageY, el, 'UA');
     });
   });
+  measure(root);
+  }
+  wire(document);
+  var resizeTimer = null;
+  window.addEventListener('resize', function(){ clearTimeout(resizeTimer); resizeTimer = setTimeout(function(){ measure(document); }, 150); });
+  (window.unmaskRewire = window.unmaskRewire || []).push(wire);
+})();
+
+// Ask the model without leaving the page.  The click posts to ai-run and
+// gets a 202 back at once; the bar turns into a progress line, every eligible
+// row's AI slot shows "analysing", and ai-status is polled until the run is
+// done.  Then the bar, the rows and the error banner are swapped in from a
+// fresh render of this page, and the popover / dialog wiring is re-run on the
+// new rows (window.unmaskRewire).  If fetch is unavailable the form posts as
+// a plain form and the page comes back in the same running state.
+(function(){
+  if (!document.getElementById('ai-bar') || !window.fetch || !window.DOMParser) return;
+  var t0 = 0, timer = null, ticker = null;
+  function bar(){ return document.getElementById('ai-bar'); }
+  function pageQuery(){
+    var b = bar();
+    return '?window=' + encodeURIComponent(b ? b.dataset.window : '24') + (b && b.dataset.min === 'all' ? '&min=all' : '') + (b && b.dataset.dismissed === '1' ? '&show_dismissed=1' : '');
+  }
+  function base(){ var b = bar(); return b ? b.dataset.base : ''; }
+  function waitMarkup(){ var t = document.getElementById('ai-wait-tpl'); return t ? t.innerHTML : ''; }
+  function tick(){
+    var el = document.getElementById('ai-elapsed');
+    if (el) el.textContent = Math.max(0, Math.round((Date.now() - t0) / 1000)) + 's';
+  }
+  // plan = {sent:[targets], kept:[targets]} from the click's answer; null
+  // when the page was rendered mid-run (the server already drew the slots).
+  function showRunning(sinceSec, plan){
+    var b = bar();
+    if (!b) return;
+    t0 = Date.now() - (sinceSec || 0) * 1000;
+    var st = document.getElementById('ai-bar-state');
+    if (st) {
+      st.textContent = '';
+      var sp = document.createElement('span'); sp.className = 'ai-spin';
+      var el = document.createElement('span'); el.className = 'kv'; el.id = 'ai-elapsed';
+      st.appendChild(sp); st.appendChild(document.createTextNode(b.dataset.runningText + ' ')); st.appendChild(el);
+    }
+    var hint = document.getElementById('ai-hint');
+    if (hint) hint.textContent = b.dataset.runningHint;
+    var delta = b.querySelector('.ai-delta');
+    if (delta) delta.style.display = 'none';   // the last run's tally does not describe this one
+    var f = document.getElementById('ai-run-form');
+    var btn = f && f.querySelector('button');
+    if (btn) btn.disabled = true;
+    if (plan) {
+      var wait = waitMarkup();
+      var keepT = document.getElementById('ai-keep-tpl');
+      var keep = keepT ? keepT.innerHTML : '';
+      var sent = {}, kept = {};
+      (plan.sent || []).forEach(function(t){ sent[t] = true; });
+      (plan.kept || []).forEach(function(t){ kept[t] = true; });
+      document.querySelectorAll('#cands-body .ai-slot[data-ai="1"]').forEach(function(s){
+        var t = s.dataset.target;
+        if (kept[t]) {
+          // the review stays; the note joins its header line
+          var reason = s.querySelector('.ai-box .ai-reason');
+          if (reason) reason.insertAdjacentHTML('beforebegin', keep); else s.insertAdjacentHTML('afterbegin', keep);
+        }
+        else if (sent[t]) { s.innerHTML = wait; }
+      });
+    }
+    tick();
+    clearInterval(ticker);
+    ticker = setInterval(tick, 1000);
+  }
+  function poll(){
+    fetch(base() + '/admin/advisor/ai-status' + pageQuery(),
+          { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.running) { timer = setTimeout(poll, 2000); return; }
+        finish();
+      })
+      .catch(function(){ timer = setTimeout(poll, 4000); });
+  }
+  function finish(){
+    clearInterval(ticker);
+    fetch(base() + '/admin/advisor/' + pageQuery(), { credentials: 'same-origin' })
+      .then(function(r){ return r.text(); })
+      .then(function(html){
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var nb = doc.getElementById('cands-body'), nbar = doc.getElementById('ai-bar'), nerr = doc.getElementById('llm-err');
+        var ob = document.getElementById('cands-body'), obar = bar(), oerr = document.getElementById('llm-err');
+        if (!nb || !nbar || !ob || !obar) { location.reload(); return; }
+        ob.parentNode.replaceChild(document.importNode(nb, true), ob);
+        obar.parentNode.replaceChild(document.importNode(nbar, true), obar);
+        if (nerr && oerr) oerr.parentNode.replaceChild(document.importNode(nerr, true), oerr);
+        (window.unmaskRewire || []).forEach(function(fn){ try { fn(document.getElementById('cands-body')); } catch (e) {} });
+        if (window.unmaskFmtTimes) { try { window.unmaskFmtTimes(); } catch (e) {} }
+        bind();
+      })
+      .catch(function(){ location.reload(); });
+  }
+  function bind(){
+    var f = document.getElementById('ai-run-form');
+    if (!f || f.dataset.bound) return;
+    f.dataset.bound = '1';
+    f.addEventListener('submit', function(ev){
+      ev.preventDefault();
+      var btn = f.querySelector('button');
+      if (btn) btn.disabled = true;
+      fetch(f.action, { method: 'POST', credentials: 'same-origin',
+                        headers: { 'Accept': 'application/json' },
+                        body: new URLSearchParams(new FormData(f)) })
+        .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .then(function(d){
+          if (!d.running) { finish(); return; }       // nothing to send, or an engine error: the page says so
+          showRunning(d.since || 0, { sent: d.sent || [], kept: d.kept || [] });
+          poll();
+        })
+        .catch(function(){ f.submit(); }); // the plain post; the page comes back running
+    });
+  }
+  bind();
+  var b0 = bar();
+  if (b0 && b0.dataset.running === '1') { showRunning(parseInt(b0.dataset.since || '0', 10), null); poll(); }
 })();
 </script>
 </body>
 </html>
+{{/* advisor_sig_detail: the signal's evidence in the operator's language.  The
+     English Detail stays on the struct for the model bundle and the digest;
+     the page renders from the parameters.  Unknown ids fall back to Detail. */}}
+{{ define "advisor_sig_detail" -}}
+{{- $s := .Sig -}}
+{{- if eq $s.ID "challenge_hammering" }}{{ tf .Lang "advisor.sig.challenge_hammering" $s.A }}
+{{- else if eq $s.ID "captcha_held" }}{{ tf .Lang "advisor.sig.captcha_held" $s.A $s.B }}
+{{- else if eq $s.ID "scanner_paths" }}{{ tf .Lang "advisor.sig.scanner_paths" $s.A }}
+{{- else if eq $s.ID "hosting_network" }}{{ tf .Lang "advisor.sig.hosting_network" $s.S }}
+{{- else if eq $s.ID "hosting_network_browser" }}{{ tf .Lang "advisor.sig.hosting_network_browser" $s.S }}
+{{- else if eq $s.ID "passing_hosting" }}{{ tf .Lang "advisor.sig.passing_hosting" $s.A $s.S }}
+{{- else if eq $s.ID "ja4_herd" }}{{ tf .Lang "advisor.sig.ja4_herd" $s.A $s.B $s.C }}
+{{- else if eq $s.ID "high_volume" }}{{ tf .Lang "advisor.sig.high_volume" $s.A $s.B }}
+{{- else if eq $s.ID "ai_pick" }}{{ t .Lang "advisor.sig.ai_pick" }}
+{{- else }}{{ $s.Detail }}{{ end -}}
+{{- end }}

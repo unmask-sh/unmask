@@ -63,6 +63,20 @@ type AdvisorNotified struct {
 
 func (AdvisorNotified) TableName() string { return "unmask_advisor_notified" }
 
+// AdvisorResult: a row of unmask_advisor_result — the model's last answer for
+// one window (per provider / model / endpoint / language), kept so a restart
+// does not turn a paid answer into "not asked yet".  Upserted on key_hash.
+type AdvisorResult struct {
+	KeyHash   string `gorm:"column:key_hash;primaryKey"`
+	ResultKey string `gorm:"column:result_key;not null"`
+	RanAt     int64  `gorm:"column:ran_at;not null;autoCreateTime:false"`
+	Model     string `gorm:"column:model;not null"`
+	Payload   string `gorm:"column:payload;not null"`
+	Err       string `gorm:"column:err;not null"`
+}
+
+func (AdvisorResult) TableName() string { return "unmask_advisor_result" }
+
 // User: a row of unmask_user.  Pointer fields (Email / ResetToken /
 // ResetTokenExpiresAt / LastLogin) map to NULL-able columns -- GORM persists
 // nil as SQL NULL, so the "clear reset_token" path stays one Update call on

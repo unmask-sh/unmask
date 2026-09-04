@@ -26,14 +26,33 @@
 .ban-dialog-reason{display:flex;flex-direction:column;gap:.25rem;font-size:.8rem}
 .ban-dialog-reason label{color:#475569;font-size:.78rem}
 .ban-dialog-target code{background:#f1f5f9;padding:.1rem .35rem;border-radius:.2rem;font-family:ui-monospace,monospace}
-.ban-dialog-share-group{display:flex;flex-direction:column;gap:.4rem;margin-top:1.2rem}
+.ban-dialog-collateral{margin:.5rem 0 .7rem;padding:.5rem .7rem;border:1px solid #e2e8f0;border-radius:.3rem;background:#f8fafc;font-size:.8rem;line-height:1.5;color:#334155}
+.ban-dialog-collateral .bdc-head{font-weight:700;margin-bottom:.2rem}
+.bdc-spin{display:inline-block;width:.8rem;height:.8rem;border:.15rem solid #cbd5e1;border-top-color:#475569;border-radius:50%;animation:bdc-spin .8s linear infinite;vertical-align:-.15rem;margin-right:.35rem}
+@keyframes bdc-spin{to{transform:rotate(360deg)}}
+.ban-dialog-collateral .bdc-body{white-space:pre-line;word-break:break-all}
+.ban-dialog-collateral .bdc-ack{display:flex;align-items:center;gap:.4rem;margin-top:.4rem;font-weight:700;cursor:pointer}
+.ban-dialog-collateral.none{border-color:#bbf7d0;background:#f0fdf4;color:#166534}
+.ban-dialog-collateral.some{border-color:#fcd34d;background:#fffbeb;color:#92400e}
+.ban-dialog-collateral.block{border-color:#fca5a5;background:#fef2f2;color:#991b1b}
+#ban-dialog-ok:disabled{opacity:.45;cursor:not-allowed}
+.ban-dialog-after{margin:0;font-size:.74rem;color:#64748b;line-height:1.5}
+.ban-dialog-effect{margin:.2rem 0 0;font-size:.74rem;color:#475569;line-height:1.5}
+.ban-dialog-effect code{background:#f1f5f9;padding:.05rem .3rem;border-radius:.2rem;font-family:ui-monospace,monospace}
+.ban-dialog-effect-where{color:#94a3b8;font-size:.72rem}
+.ban-dialog-after a{color:#1d4ed8;text-decoration:underline}
+.ban-dialog-kind{display:inline-block;background:#e2e8f0;color:#334155;border-radius:.25rem;padding:.05rem .45rem;font-size:.7rem;font-weight:700;letter-spacing:.03em;vertical-align:middle}
+.ban-dialog-share-group{display:flex;flex-direction:column;gap:.35rem;margin-top:.4rem;padding-top:.6rem;border-top:1px solid #f1f5f9}
+.ban-dialog-share-more{display:flex;flex-direction:column;gap:.4rem;margin-left:1.5rem}
+.ban-dialog-consent{font-size:.74rem;color:#64748b;line-height:1.5}
+.ban-dialog-consent a{color:#1d4ed8;text-decoration:underline}
 .ban-dialog-terms-details{font-size:.78rem;color:#64748b}
 .ban-dialog-terms-details summary{cursor:pointer;color:#3b82f6;user-select:none;list-style:revert}
 .ban-dialog-terms-details summary:hover{text-decoration:underline}
 .ban-dialog-terms-details .ban-dialog-terms-note{margin-top:.4rem;padding:.5rem .7rem;background:#f8fafc;border-left:.15rem solid #cbd5e1;border-radius:.2rem;line-height:1.7}
 /* align-items:flex-start so the unified consent label (= terms links + share
  * copy on no-prior-opt-in) wraps cleanly with the checkbox pinned to the top. */
-.ban-dialog-share{display:flex;align-items:flex-start;gap:.45rem;font-size:.875rem;cursor:pointer;line-height:1.4}
+.ban-dialog-share{display:flex;align-items:flex-start;gap:.45rem;font-size:.8rem;color:#475569;cursor:pointer;line-height:1.4}
 .ban-dialog-share input{margin-top:.15rem}
 .ban-dialog-share input:disabled+span{color:#94a3b8;cursor:not-allowed}
 .ban-dialog-share a{color:#1d4ed8;text-decoration:underline}
@@ -48,38 +67,57 @@
 {{ define "ban_dialog" -}}
 <dialog id="ban-dialog" class="ban-dialog" data-feed-active="{{ if .CommunityBansActive }}1{{ else }}0{{ end }}">
   <form method="dialog" class="ban-dialog-body">
+    {{/* First submit button in tree order = the form's default, so Enter in
+         the reason field confirms instead of hitting Cancel.  Mirrors the
+         visible button's disabled state (the collateral gate). */}}
+    <button type="submit" value="ok" id="ban-dialog-ok-default" style="display:none" aria-hidden="true" tabindex="-1"></button>
     <h3>{{ t .Lang "hunt.ban.dialog_h" }}</h3>
-    <p class="ban-dialog-target"><code id="ban-dialog-target"></code></p>
+    <p class="ban-dialog-target"><span class="ban-dialog-kind" id="ban-dialog-kind"></span> <code id="ban-dialog-target"></code></p>
+    {{/* A fingerprint ban hits everyone with that device + browser stack.
+         For JA4 targets the dialog measures the last seven days before it
+         lets the operator confirm: no passer -> allowed; a few -> only with
+         an explicit acknowledgement; many -> refused here. */}}
+    <div id="ban-dialog-collateral" class="ban-dialog-collateral" style="display:none">
+      <div class="bdc-head">{{ t .Lang "hunt.ban.collateral_h" }}</div>
+      <div id="ban-dialog-collateral-body" class="bdc-body"></div>
+      <label id="ban-dialog-collateral-ack-row" class="bdc-ack" style="display:none"><input type="checkbox" id="ban-dialog-collateral-ack"> {{ t .Lang "hunt.ban.collateral_ack" }}</label>
+    </div>
     {{/* share group: share checkbox + (only when no prior opt-in) a nested terms gate beneath it.
          The BAN itself doesn't require consent (= the group is fully optional). */}}
+    {{/* The reason belongs to the BAN itself (it is written to the ban
+         record), so it comes first and always shows.  Sharing with the
+         community is one line below it; ticking it unfolds the comment box
+         and, for an operator who has not opted in yet, the terms it
+         accepts.  Kept small: most bans are not shared. */}}
+    <div id="ban-dialog-reason-row" class="ban-dialog-reason">
+      <label for="ban-dialog-reason">{{ t .Lang "advisor.ban.reason_label" }}</label>
+      <input type="text" id="ban-dialog-reason" maxlength="200" placeholder="{{ t .Lang "hunt.ban.reason_placeholder" }}">
+    </div>
     <div class="ban-dialog-share-group">
-      {{/* one unified clickwrap.  Not yet opted in: ticking share also accepts
-           the terms (the label carries the links), and the server flips
-           submit_enabled + TermsAcceptedAt via accept_terms=1.  Already opted
-           in: it's a plain per-BAN share toggle.  The BAN never needs consent.
-           The detailed disclosure (= terms_note) sits in a `<details>` block
-           below the label.  A popover would get trapped inside the dialog's
-           top-layer; a native `<details>` expands inline and dodges that. */}}
       <label class="ban-dialog-share">
         <input type="checkbox" id="ban-dialog-share">
-        <span>{{ if .CommunityBansActive }}{{ t .Lang "hunt.ban.share_label" }}{{ else }}{{ safeHTML (t .Lang "hunt.ban.share_consent_label") }}{{ end }}</span>
+        <span>{{ t .Lang "hunt.ban.share_short" }}</span>
       </label>
-      {{ if not .CommunityBansActive }}
-      <details class="ban-dialog-terms-details">
-        <summary>{{ t .Lang "hunt.ban.terms_more" }}</summary>
-        <div class="ban-dialog-terms-note">{{ t .Lang "hunt.ban.terms_note" }}</div>
-      </details>
-      {{ end }}
-      <div id="ban-dialog-reason-row" class="ban-dialog-reason"{{ if not .BanDialogReasonAlways }} style="display:none"{{ end }}>
-        <label for="ban-dialog-reason">{{ if .BanDialogReasonAlways }}{{ t .Lang "advisor.ban.reason_label" }}{{ else }}{{ t .Lang "hunt.ban.reason_shared_label" }}{{ end }}</label>
-        <input type="text" id="ban-dialog-reason" maxlength="200" placeholder="{{ t .Lang "hunt.ban.reason_placeholder" }}">
-      </div>
-      <div id="ban-dialog-comment-row" class="ban-dialog-comment" style="display:none">
-        <label for="ban-dialog-comment">{{ t .Lang "hunt.ban.comment_label" }}</label>
-        <textarea id="ban-dialog-comment" maxlength="280" rows="2" placeholder="{{ t .Lang "hunt.ban.comment_placeholder" }}"></textarea>
-        <div class="ban-dialog-counter"><span id="ban-dialog-counter">0</span>/280</div>
+      <div id="ban-dialog-share-more" class="ban-dialog-share-more" style="display:none">
+        {{ if not .CommunityBansActive }}
+        <div class="ban-dialog-consent">{{ safeHTML (t .Lang "hunt.ban.share_consent_note") }}</div>
+        <details class="ban-dialog-terms-details">
+          <summary>{{ t .Lang "hunt.ban.terms_more" }}</summary>
+          <div class="ban-dialog-terms-note">{{ t .Lang "hunt.ban.terms_note" }}</div>
+        </details>
+        {{ end }}
+        <div id="ban-dialog-comment-row" class="ban-dialog-comment">
+          <label for="ban-dialog-comment">{{ t .Lang "hunt.ban.comment_label" }}</label>
+          <textarea id="ban-dialog-comment" maxlength="280" rows="2" placeholder="{{ t .Lang "hunt.ban.comment_placeholder" }}"></textarea>
+          <div class="ban-dialog-counter"><span id="ban-dialog-counter">0</span>/280</div>
+        </div>
       </div>
     </div>
+    {{/* What the ban does here (by default a challenge, not a refusal -- a
+         human still gets through; resolved from settings by the page) and
+         where it can be reviewed or lifted: the two closing notes. */}}
+    {{ if .BanDialogEffectKey }}<p class="ban-dialog-effect">{{ t .Lang "hunt.ban.effect_label" }} <code>{{ .BanDialogAction }}</code> — {{ t .Lang .BanDialogEffectKey }} <span class="ban-dialog-effect-where">({{ t .Lang "hunt.ban.effect_where" }})</span></p>{{ end }}
+    <p class="ban-dialog-after">{{ safeHTML (tf .Lang "hunt.ban.after_note" .BasePath) }}</p>
     <div class="ban-dialog-actions">
       <button type="submit" value="cancel" class="rank-act">{{ t .Lang "hunt.ban.cancel" }}</button>
       <button type="submit" value="ok" class="rank-act danger" id="ban-dialog-ok">{{ t .Lang "hunt.ban.confirm" }}</button>
@@ -104,14 +142,61 @@
   var reasonRow = document.getElementById('ban-dialog-reason-row');
   var reasonEl  = document.getElementById('ban-dialog-reason');
   var pending = null; // the form currently being confirmed
+  // Collateral check for fingerprint targets (see the markup comment).
+  var col = document.getElementById('ban-dialog-collateral');
+  var colBody = document.getElementById('ban-dialog-collateral-body');
+  var colAckRow = document.getElementById('ban-dialog-collateral-ack-row');
+  var colAck = document.getElementById('ban-dialog-collateral-ack');
+  var okBtn = document.getElementById('ban-dialog-ok');
+  var COL = {
+    loading: {{ t .Lang "hunt.ban.collateral_loading" }},
+    none:    {{ t .Lang "hunt.ban.collateral_none" }},
+    some:    {{ t .Lang "hunt.ban.collateral_some" }},
+    block:   {{ t .Lang "hunt.ban.collateral_block" }},
+    uas:     {{ t .Lang "hunt.ban.collateral_uas" }},
+    verdict: {{ t .Lang "hunt.ban.collateral_verdict" }},
+    err:     {{ t .Lang "hunt.ban.collateral_err" }}
+  };
+  function fmtN(pat){ var a = Array.prototype.slice.call(arguments, 1), i = 0; return pat.replace(/%d/g, function(){ return String(a[i++]); }); }
+  var okDefault = document.getElementById('ban-dialog-ok-default');
+  function setOK(on){ if (okBtn) okBtn.disabled = !on; if (okDefault) okDefault.disabled = !on; }
+  function collateral(ip, ja4){
+    if (!col) return;
+    if (ip || !ja4) { col.style.display = 'none'; col.className = 'ban-dialog-collateral'; setOK(true); return; }
+    col.style.display = ''; col.className = 'ban-dialog-collateral';
+    colBody.textContent = '';
+    var sp = document.createElement('span'); sp.className = 'bdc-spin'; colBody.appendChild(sp); colBody.appendChild(document.createTextNode(COL.loading));
+    colAckRow.style.display = 'none'; colAck.checked = false; setOK(false);
+    fetch('{{ .BasePath }}/admin/api/ja4-collateral?ja4=' + encodeURIComponent(ja4), { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (!d || d.error) { colBody.textContent = COL.err; col.className = 'ban-dialog-collateral some'; colAckRow.style.display = ''; return; }
+        var lines = [];
+        if (d.level === 'none') lines.push(fmtN(COL.none, d.ips));
+        else if (d.level === 'some') lines.push(fmtN(COL.some, d.pass_ips, d.passes));
+        else lines.push(fmtN(COL.block, d.pass_ips));
+        if (d.pass_uas && d.pass_uas.length) lines.push(COL.uas + ' ' + d.pass_uas.join(' / '));
+        if (d.verdict) lines.push(COL.verdict + ' ' + d.verdict);
+        colBody.textContent = lines.join('\n');
+        col.className = 'ban-dialog-collateral ' + d.level;
+        if (d.level === 'none') setOK(true);
+        else if (d.level === 'some') { colAckRow.style.display = ''; setOK(false); }
+        else setOK(false);
+      })
+      .catch(function(){ colBody.textContent = COL.err; col.className = 'ban-dialog-collateral some'; colAckRow.style.display = ''; });
+  }
+  if (colAck) colAck.addEventListener('change', function(){ if (col.classList.contains('some')) setOK(colAck.checked); });
   // The advisor page shows the reason row unconditionally and applies its
   // value to the local BAN too; on bot hunt it stays a sharing-only field.
-  var reasonAlways = {{ if .BanDialogReasonAlways }}true{{ else }}false{{ end }};
+  var reasonAlways = true; // the reason is the BAN's own field now, on every page
+  var kindEl = document.getElementById('ban-dialog-kind');
+  var shareMore = document.getElementById('ban-dialog-share-more');
+  var KIND = { ip: {{ t .Lang "hunt.ban.kind_ip" }}, ja4: {{ t .Lang "hunt.ban.kind_ja4" }} };
   // Reason + comment rows share the same visibility as the share checkbox
   // (= they're only relevant when the BAN is being shared).
   function syncShareRows(on){
+    if (shareMore) shareMore.style.display = on ? '' : 'none';
     if (cmtRow) cmtRow.style.display = on ? '' : 'none';
-    if (reasonRow && !reasonAlways) reasonRow.style.display = on ? '' : 'none';
   }
 
   if (cmtTa && cmtCnt){
@@ -149,13 +234,19 @@
   });
 
 
-  document.querySelectorAll('form.js-ban-form').forEach(function(form){
+  // wire(root) binds every BAN form under root; pages that swap rows in
+  // (advisor) call it again through window.unmaskRewire.
+  function wire(root){
+  root.querySelectorAll('form.js-ban-form').forEach(function(form){
+    if (form.dataset.banWired) return;
+    form.dataset.banWired = '1';
     form.addEventListener('submit', function(ev){
       if (form.dataset.confirmed === '1') return; // the re-submit passes straight through
       ev.preventDefault();
       var ip  = form.dataset.ip  || '';
       var ja4 = form.dataset.ja4 || '';
       if (target) target.textContent = [ip, ja4].filter(Boolean).join(' / ');
+      if (kindEl) kindEl.textContent = ip ? KIND.ip : (ja4 ? KIND.ja4 : '');
       if (cmtTa)  { cmtTa.value = ''; if (cmtCnt) cmtCnt.textContent = '0'; }
       // Seed the editable reason with the auto-generated default so the operator
       // can review, tweak, or clear it before sharing.
@@ -168,10 +259,14 @@
         shareCb.disabled = false;
       }
       syncShareRows(false);
+      collateral(ip, ja4);
       pending = form;
       dlg.returnValue = '';
       dlg.showModal();
     });
   });
+  }
+  wire(document);
+  (window.unmaskRewire = window.unmaskRewire || []).push(wire);
 })();
 {{- end }}

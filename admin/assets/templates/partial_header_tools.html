@@ -140,7 +140,7 @@
     // Operator language picker controls the rest of the UI -- only the
     // datetime layout is forced here, deliberately.
     var tzVal = lsGet('unmask:tz') || undefined; // undefined → Intl auto
-    var dtFmt, dtFmtNoTz, dFmt, utcFmt;
+    var dtFmt, dtFmtNoTz, dFmt, utcFmt, dtFmtShort;
     try {
       dtFmt = new Intl.DateTimeFormat('ja', {
         timeZone: tzVal,
@@ -163,6 +163,15 @@
         timeZone: tzVal,
         year: 'numeric', month: '2-digit', day: '2-digit',
       });
+      // Compact variant for ranges in narrow cells (.js-datetime-short):
+      // month-day hour:minute in the operator tz; the title still spells
+      // out the full local + UTC values.
+      dtFmtShort = new Intl.DateTimeFormat('ja', {
+        timeZone: tzVal,
+        month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit',
+        hour12: false,
+      });
       // UTC variant for the hover detail (= title).  The inline value may omit
       // the tz (.js-datetime-notz) or show only the operator tz, so the title
       // always spells out BOTH operator-local and UTC to remove all ambiguity.
@@ -178,7 +187,8 @@
       var ts = parseInt(el.getAttribute('data-ts'), 10);
       if (!ts || isNaN(ts)) return;
       var d = new Date(ts * 1000);
-      var fmt = el.classList.contains('js-datetime-notz') ? dtFmtNoTz : dtFmt;
+      var fmt = el.classList.contains('js-datetime-short') ? dtFmtShort
+              : el.classList.contains('js-datetime-notz') ? dtFmtNoTz : dtFmt;
       el.textContent = fmt.format(d);
       // Hover detail: operator-local (with tz label) + UTC, both spelled out.
       // Skipped when the element carries the events-table datetime popover
@@ -201,6 +211,8 @@
   } else {
     fmtAll();
   }
+  // Pages that swap rows in after load (advisor) re-run the formatter.
+  window.unmaskFmtTimes = fmtAll;
 })();
 </script>
 {{ end }}

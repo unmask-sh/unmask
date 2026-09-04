@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/oschwald/maxminddb-golang"
+	"github.com/unmask-sh/unmask/admin/internal/advisor"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/crawlerverify"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
@@ -669,10 +670,17 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// SavedRestart: a listen-side change (Server.*) was saved; it takes effect
 		// only on `systemctl restart unmask` (serve reads these at start, not on
 		// reload).  Independent of SavedReload -- a TCP<->socket switch needs both.
-		"SavedRestart": r.URL.Query().Get("restart") == "1",
-		"Error":        readFlash(w, r, h.cfg().Server.BasePath, "err"),
-		"Cur":          cur,
-		"AIAdvisor":    maskedAIAdvisor(h.snapshotSettings().AIAdvisor),
+		"SavedRestart":   r.URL.Query().Get("restart") == "1",
+		"Error":          readFlash(w, r, h.cfg().Server.BasePath, "err"),
+		"Cur":            cur,
+		"AIAdvisor":      maskedAIAdvisor(h.snapshotSettings().AIAdvisor),
+		"AIModelPresets": advisor.ModelPresets,
+		// what an empty model means per provider (the picker's first option)
+		"AIModelDefaults": map[string]string{
+			"anthropic": settings.AIAdvisorConfig{Provider: "anthropic"}.ResolvedModel(),
+			"openai":    settings.AIAdvisorConfig{Provider: "openai"}.ResolvedModel(),
+			"ollama":    settings.AIAdvisorConfig{Provider: "ollama"}.ResolvedModel(),
+		},
 		// After a rejected save, open exactly the rows the operator added or
 		// changed (matched by value), so they land on the input they were
 		// fixing while the already-saved rows stay confirmed.  nil on a normal
@@ -1347,7 +1355,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "retention", "performance", "community-bans", "sites", "about", "geo", "asn", "gateway":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "retention", "performance", "community-bans", "sites", "about", "geo", "asn", "gateway", "ai-advisor":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
