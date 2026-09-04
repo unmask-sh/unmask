@@ -82,8 +82,6 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     <a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
     <a href="{{.BasePath}}/admin/bans/">{{ t .Lang "nav.bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
     <a href="{{.BasePath}}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
-    <a href="{{.BasePath}}/admin/playground/">{{ t .Lang "nav.playground" }}</a>
-    <a href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">{{ t .Lang "nav.docs" }} ↗</a>
   </nav>
   <span class="spacer"></span>
   {{ template "header_tools" . }}

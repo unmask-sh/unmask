@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -178,27 +179,35 @@ func TestOllamaAndOpenAIShapes(t *testing.T) {
 		raw, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(raw, &body)
 		if strings.Contains(path, "chat/completions") {
-			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"reviews\":[]}"}}]}`))
+			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"{\"reviews\":[]}"}}],"usage":{"prompt_tokens":1200,"completion_tokens":34}}`))
 			return
 		}
-		_, _ = w.Write([]byte(`{"message":{"content":"{\"reviews\":[]}"}}`))
+		_, _ = w.Write([]byte(`{"message":{"content":"{\"reviews\":[]}"},"prompt_eval_count":900,"eval_count":21}`))
 	}))
 	defer srv.Close()
 
-	if _, err := ReviewCandidates(context.Background(),
-		settings.AIAdvisorConfig{Enabled: true, Provider: "ollama", Endpoint: srv.URL}, sampleCandidates()); err != nil {
+	res, err := ReviewWithPool(context.Background(),
+		settings.AIAdvisorConfig{Enabled: true, Provider: "ollama", Endpoint: srv.URL}, sampleCandidates(), Pool{}, "")
+	if err != nil {
 		t.Fatal(err)
 	}
 	if path != "/api/chat" || body["format"] == nil || body["stream"] != false {
 		t.Errorf("ollama request wrong: path=%s body=%+v", path, body)
 	}
+	if res.Usage.Input != 900 || res.Usage.Output != 21 {
+		t.Errorf("ollama usage not read: %+v", res.Usage)
+	}
 
-	if _, err := ReviewCandidates(context.Background(),
-		settings.AIAdvisorConfig{Enabled: true, Provider: "openai", APIKey: "k", Endpoint: srv.URL}, sampleCandidates()); err != nil {
+	res, err = ReviewWithPool(context.Background(),
+		settings.AIAdvisorConfig{Enabled: true, Provider: "openai", APIKey: "k", Endpoint: srv.URL}, sampleCandidates(), Pool{}, "")
+	if err != nil {
 		t.Fatal(err)
 	}
 	if path != "/v1/chat/completions" || body["response_format"] == nil {
 		t.Errorf("openai request wrong: path=%s body=%+v", path, body)
+	}
+	if res.Usage.Input != 1200 || res.Usage.Output != 34 {
+		t.Errorf("openai usage not read: %+v", res.Usage)
 	}
 }
 
@@ -256,5 +265,178 @@ func TestBundleCarriesPoolAndSchemaAsksForNominations(t *testing.T) {
 	sch, _ := json.Marshal(reviewSchema())
 	if !strings.Contains(string(sch), `"nominations"`) {
 		t.Error("schema does not ask for nominations")
+	}
+}
+
+// The reasoning is written in the operator's language: a JA request carries
+// the instruction, an EN one does not, and the stage counts ride along.
+func TestReviewWithPoolLanguageAndStages(t *testing.T) {
+	var bodies []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		raw, _ := io.ReadAll(r.Body)
+		bodies = append(bodies, string(raw))
+		_, _ = w.Write([]byte(`{"stop_reason":"end_turn","content":[{"type":"text","text":"{\"reviews\":[],\"nominations\":[]}"}]}`))
+	}))
+	defer srv.Close()
+	cfg := settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k", Endpoint: srv.URL}
+	cands := sampleCandidates()
+	cands[0].PowPassed = 3
+	for _, lang := range []string{"ja", "en"} {
+		if _, err := ReviewWithPool(context.Background(), cfg, cands, Pool{}, lang); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("expected two provider calls, got %d", len(bodies))
+	}
+	if !strings.Contains(bodies[0], "日本語") {
+		t.Error("the JA request does not ask for Japanese reasoning")
+	}
+	if strings.Contains(bodies[1], "日本語") {
+		t.Error("the EN request must not ask for Japanese")
+	}
+	if !strings.Contains(bodies[0], `\"pow_passed\":3`) && !strings.Contains(bodies[0], `pow_passed`) {
+		t.Errorf("stage counts missing from the bundle: %s", bodies[0][:200])
+	}
+}
+
+// The last answer survives a restart: stored in unmask_advisor_result, read
+// back when the in-memory copy is gone, with every field intact -- and a
+// failed run keeps its error.
+func TestStoreLastSurvivesRestart(t *testing.T) {
+	d := newTestDB(t)
+	key := "w1440|anthropic|claude-opus-5||ja"
+	st := Stored{
+		At:    time.Unix(1_700_000_000, 0).UTC(),
+		Model: "claude-opus-5",
+		Reviews: map[string]Review{
+			"203.0.113.10": {Target: "203.0.113.10", Priority: "high", Reasoning: "スキャナーです"},
+		},
+		Nominated: []Candidate{{
+			Type: "ip", Target: "198.51.100.7", Nominated: true, Requests: 14, Serves: 8, Passes: 6,
+			Signals: []Signal{{ID: "ai_pick", Weight: 3, Detail: "passes at scale"}},
+		}},
+		RDNS: map[string]string{"198.51.100.7": "vm7.examplecloud.test."},
+	}
+	StoreLast(d, key, st)
+	ForgetInMemory()
+	got, ok := LastResult(d, key)
+	if !ok {
+		t.Fatal("the stored answer did not come back from the database")
+	}
+	if !got.At.Equal(st.At) || got.Model != st.Model || got.Err != "" ||
+		got.Reviews["203.0.113.10"].Reasoning != "スキャナーです" ||
+		len(got.Nominated) != 1 || !got.Nominated[0].Nominated || got.Nominated[0].Passes != 6 || len(got.Nominated[0].Signals) != 1 ||
+		got.RDNS["198.51.100.7"] != "vm7.examplecloud.test." {
+		t.Errorf("round trip lost something: %+v", got)
+	}
+	if _, ok := LastResult(d, "w60|anthropic|claude-opus-5||ja"); ok {
+		t.Error("an unknown key must not produce a result")
+	}
+	StoreLast(d, key, Stored{At: st.At, Model: st.Model, Err: "overloaded"})
+	ForgetInMemory()
+	if got, ok := LastResult(d, key); !ok || got.Err != "overloaded" || len(got.Reviews) != 0 {
+		t.Errorf("a failed run must overwrite the answer with its error: %+v ok=%v", got, ok)
+	}
+	// nil conn: memory only, still works.
+	StoreLast(nil, "mem", st)
+	if _, ok := LastResult(nil, "mem"); !ok {
+		t.Error("memory-only store failed")
+	}
+}
+
+// A rerun sends what is new or changed and keeps the rest: the fingerprint
+// decides, kept reviews and old nominations survive the merge, a re-nominated
+// or now-engine target is not duplicated.
+func TestPlanAndMergeIncremental(t *testing.T) {
+	a := Candidate{Type: "ip", Target: "203.0.113.1", Score: 6, Serves: 40, Signals: []Signal{{ID: "challenge_hammering"}}, FirstSeen: "2026-09-04 01:00", LastSeen: "2026-09-04 02:00"}
+	b := Candidate{Type: "ip", Target: "203.0.113.2", Score: 6, Serves: 50, Signals: []Signal{{ID: "scanner_paths"}}, LastSeen: "2026-09-04 02:00"}
+	c := Candidate{Type: "ip", Target: "203.0.113.3", Score: 5, Serves: 300}
+	bOld := b
+	bOld.Serves = 45 // evidence moved on since it was reviewed
+	prev := Stored{Model: "m", Reviews: map[string]Review{
+		a.Target:       {Target: a.Target, Priority: "low", Reasoning: "kept", Fingerprint: a.Fingerprint()},
+		b.Target:       {Target: b.Target, Priority: "high", Reasoning: "stale", Fingerprint: bOld.Fingerprint()},
+		"198.51.100.9": {Target: "198.51.100.9", Priority: "high", Reasoning: "old nomination"},
+	}, Nominated: []Candidate{{Type: "ip", Target: "198.51.100.9", Nominated: true}}}
+
+	send, kept := Plan(prev, []Candidate{a, b, c})
+	if len(send) != 2 || send[0].Target != b.Target || send[1].Target != c.Target {
+		t.Fatalf("send = %v, want b and c", send)
+	}
+	if len(kept) != 1 || kept[a.Target].Reasoning != "kept" {
+		t.Fatalf("kept = %v, want a", kept)
+	}
+	// A failed previous run keeps nothing.
+	if s2, k2 := Plan(Stored{Err: "boom", Reviews: prev.Reviews}, []Candidate{a}); len(s2) != 1 || len(k2) != 0 {
+		t.Errorf("after a failed run everything is sent: send=%d kept=%d", len(s2), len(k2))
+	}
+
+	pool := Pool{IPs: []PoolIP{{IP: "198.51.100.7"}, {IP: "198.51.100.9"}}}
+	res := Result{
+		Reviews:     map[string]Review{b.Target: {Target: b.Target, Priority: "medium", Reasoning: "fresh b"}, c.Target: {Target: c.Target, Priority: "low", Reasoning: "fresh c"}},
+		Nominations: []Nomination{{Target: "198.51.100.7", Type: "ip", Priority: "high", Reasoning: "new nomination"}},
+	}
+	got := Merge(prev, send, res, pool, kept, map[string]bool{a.Target: true, b.Target: true, c.Target: true})
+	if got.Reviewed != 2 || got.Kept != 1 {
+		t.Errorf("counts: reviewed %d kept %d", got.Reviewed, got.Kept)
+	}
+	if got.Reviews[a.Target].Reasoning != "kept" || got.Reviews[b.Target].Reasoning != "fresh b" || got.Reviews[c.Target].Reasoning != "fresh c" {
+		t.Errorf("reviews merged wrong: %+v", got.Reviews)
+	}
+	if got.Reviews[b.Target].Fingerprint != b.Fingerprint() || got.Reviews[c.Target].Fingerprint != c.Fingerprint() {
+		t.Error("fresh reviews must carry the evidence fingerprint")
+	}
+	if got.Reviews[b.Target].At == 0 || got.Reviews["198.51.100.7"].At == 0 {
+		t.Error("fresh reviews and nominations carry the time they were fetched")
+	}
+	if got.Reviews[a.Target].At != 0 {
+		t.Error("a kept review keeps its own time (none was set here)")
+	}
+	if got.Reviews[b.Target].At == 0 || got.Reviews["198.51.100.7"].At == 0 {
+		t.Error("fresh reviews and nominations carry the time they were fetched")
+	}
+	if got.Reviews[a.Target].At != 0 {
+		t.Error("a kept review keeps its own time (none was set here)")
+	}
+	targets := []string{}
+	for _, n := range got.Nominated {
+		targets = append(targets, n.Target)
+	}
+	if len(targets) != 2 || targets[0] != "198.51.100.7" || targets[1] != "198.51.100.9" {
+		t.Errorf("nominated = %v, want the new one then the carried-over one", targets)
+	}
+	if got.Reviews["198.51.100.9"].Reasoning != "old nomination" || got.Reviews["198.51.100.7"].Reasoning != "new nomination" {
+		t.Errorf("nomination reviews: %+v", got.Reviews)
+	}
+	// A carried-over nomination that became an engine candidate is dropped
+	// (the engine row carries it now), and a re-nominated one is not doubled.
+	got = Merge(prev, nil, Result{Nominations: []Nomination{{Target: "198.51.100.9", Type: "ip", Priority: "low", Reasoning: "again"}}}, pool, nil, map[string]bool{})
+	if len(got.Nominated) != 1 || got.Reviews["198.51.100.9"].Reasoning != "again" {
+		t.Errorf("re-nomination must replace, not double: %+v", got.Nominated)
+	}
+}
+
+// The fingerprint moves with the evidence and with nothing else.
+func TestFingerprint(t *testing.T) {
+	c := Candidate{Type: "ip", Target: "203.0.113.1", Score: 6, Serves: 40, Passes: 0, Signals: []Signal{{ID: "challenge_hammering", Detail: "x"}}, LastSeen: "2026-09-04 02:00"}
+	same := c
+	same.Signals = []Signal{{ID: "challenge_hammering", Detail: "different wording"}}
+	same.UA = "another UA"
+	if c.Fingerprint() != same.Fingerprint() {
+		t.Error("wording and UA are not evidence")
+	}
+	for _, mod := range []func(*Candidate){
+		func(x *Candidate) { x.Serves++ },
+		func(x *Candidate) { x.LastSeen = "2026-09-04 03:00" },
+		func(x *Candidate) { x.Score = 8 },
+		func(x *Candidate) { x.Signals = append(x.Signals, Signal{ID: "high_volume"}) },
+	} {
+		d := c
+		d.Signals = append([]Signal(nil), c.Signals...)
+		mod(&d)
+		if d.Fingerprint() == c.Fingerprint() {
+			t.Errorf("a change in evidence must change the fingerprint: %+v", d)
+		}
 	}
 }

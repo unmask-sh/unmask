@@ -315,15 +315,19 @@ c.commit()
 # private addresses, which every other seed uses).  35 serves with no JS-side
 # phase = challenge_hammering; three scanner paths = scanner_paths -> score 6.
 # Declared site, no host -> no ghost badge, so the lone-popover predicate
-# (badge in the date cell) does not pick these rows up.
+# (badge in the date cell) does not pick these rows up.  The payload carries
+# the requested path as orig_path, the way the module writes it; one path is
+# long enough to clip in the sample-paths column (the popover is for clipped
+# values only) and the newest three rows cover indexes 2, 1, 0.
+LONG = "/wp-content/plugins/wp-file-manager/lib/php/connector.minimal.php?cmd=upload&target=l1_Lw&ui-e2e-long-path-to-clip=1"
 for n in range(35):
-    path = ["/.env", "/wp-config.php.bak", "/.git/config"][n % 3]
+    path = ["/.env", LONG, "/.git/config", "/wp-config.php.bak"][n % 4]
     c.execute("""INSERT INTO unmask_event
         (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
          phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
         VALUES ('ui-e2e.example','','https',443,x'cb00711a','UI-E2E-hammer/1.0 (+scanner)','t13d_hammer','',0,
                 'serve',0,0,'','',?, datetime('now', '-' || ? || ' seconds'))""",
-        (json.dumps({"path": path}, separators=(',', ':')), 60 + n))
+        (json.dumps({"bt": "uiAdvisor", "ch_mode": "pow_then_captcha", "force_reason": "header", "orig_path": path, "rl": 0}, separators=(',', ':')), 60 + n))
 c.commit()
 PY
 

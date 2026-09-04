@@ -22,19 +22,22 @@ import (
 
 // PoolIP is one address in the pool.  JSON names are what the model reads.
 type PoolIP struct {
-	IP          string `json:"ip"`
-	Requests    int    `json:"requests"`
-	Serves      int    `json:"challenges_served"`
-	Passes      int    `json:"challenges_passed"`
-	ScannerHits int    `json:"scanner_path_hits,omitempty"`
-	JA4         string `json:"ja4,omitempty"`
-	UA          string `json:"user_agent,omitempty"`
-	ASN         uint   `json:"asn,omitempty"`
-	ASNOrg      string `json:"network,omitempty"`
-	Country     string `json:"country,omitempty"`
-	RDNS        string `json:"reverse_dns,omitempty"`
-	FirstSeen   string `json:"first_seen"`
-	LastSeen    string `json:"last_seen"`
+	IP           string `json:"ip"`
+	Requests     int    `json:"requests"`
+	Serves       int    `json:"challenges_served"`
+	JSLoaded     int    `json:"js_loaded"`
+	PowPassed    int    `json:"pow_passed"`
+	CaptchaShown int    `json:"captcha_shown"`
+	Passes       int    `json:"challenges_passed"`
+	ScannerHits  int    `json:"scanner_path_hits,omitempty"`
+	JA4          string `json:"ja4,omitempty"`
+	UA           string `json:"user_agent,omitempty"`
+	ASN          uint   `json:"asn,omitempty"`
+	ASNOrg       string `json:"network,omitempty"`
+	Country      string `json:"country,omitempty"`
+	RDNS         string `json:"reverse_dns,omitempty"`
+	FirstSeen    string `json:"first_seen"`
+	LastSeen     string `json:"last_seen"`
 }
 
 // PoolJA4 is one TLS fingerprint in the pool.
@@ -102,7 +105,10 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 	q := `SELECT ip_address,
 	        COUNT(*) AS total,
 	        SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END) AS serves,
-	        SUM(CASE WHEN phase IN ` + passPhaseList + ` THEN 1 ELSE 0 END) AS passes,
+	        SUM(CASE WHEN phase IN ` + loadPhaseList + ` THEN 1 ELSE 0 END) AS loads,
+	        SUM(CASE WHEN phase IN ` + powPhaseList + ` THEN 1 ELSE 0 END) AS pow_passed,
+	        SUM(CASE WHEN phase IN ` + captchaPhaseList + ` THEN 1 ELSE 0 END) AS captcha_shown,
+	        SUM(CASE WHEN phase IN ` + cookiePhaseList + ` THEN 1 ELSE 0 END) AS passes,
 	        SUM(CASE WHEN ` + scannerCond() + ` THEN 1 ELSE 0 END) AS scanner_hits,
 	        MIN(date_created), MAX(date_created),
 	        COALESCE(MAX(ja4), ''), COALESCE(MAX(user_agent), '')
@@ -118,7 +124,7 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 	for rows.Next() {
 		var r PoolIP
 		var ipBytes []byte
-		if err := rows.Scan(&ipBytes, &r.Requests, &r.Serves, &r.Passes, &r.ScannerHits,
+		if err := rows.Scan(&ipBytes, &r.Requests, &r.Serves, &r.JSLoaded, &r.PowPassed, &r.CaptchaShown, &r.Passes, &r.ScannerHits,
 			&r.FirstSeen, &r.LastSeen, &r.JA4, &r.UA); err != nil {
 			rows.Close()
 			return pool, err
@@ -145,7 +151,7 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 	        COUNT(DISTINCT ip_address) AS ips,
 	        COUNT(*) AS total,
 	        SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END) AS serves,
-	        SUM(CASE WHEN phase IN ` + passPhaseList + ` THEN 1 ELSE 0 END) AS passes,
+	        SUM(CASE WHEN phase IN ` + cookiePhaseList + ` THEN 1 ELSE 0 END) AS passes,
 	        COALESCE(MAX(user_agent), '')
 	      FROM unmask_event` + conn.EventDateIndexHint("w") + `
 	      WHERE date_created > ` + conn.NowMinusMinutes(opt.WindowMinutes) + `
@@ -180,7 +186,7 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 	        COUNT(DISTINCT ip_address) AS ips,
 	        COUNT(*) AS total,
 	        SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END) AS serves,
-	        SUM(CASE WHEN phase IN ` + passPhaseList + ` THEN 1 ELSE 0 END) AS passes
+	        SUM(CASE WHEN phase IN ` + cookiePhaseList + ` THEN 1 ELSE 0 END) AS passes
 	      FROM unmask_event` + conn.EventDateIndexHint("w") + `
 	      WHERE date_created > ` + conn.NowMinusMinutes(opt.WindowMinutes) + `
 	      GROUP BY user_agent
@@ -222,8 +228,8 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 
 // --- reverse DNS, bounded ----------------------------------------------------
 
-// lookupPTR is a variable so tests can stand in a resolver.
-var lookupPTR = func(ctx context.Context, ip string) []string {
+// LookupPTR is a variable so tests can stand in a resolver.
+var LookupPTR = func(ctx context.Context, ip string) []string {
 	names, err := net.DefaultResolver.LookupAddr(ctx, ip)
 	if err != nil {
 		return nil
@@ -280,7 +286,7 @@ func resolvePTRs(ctx context.Context, ips []string) map[string]string {
 			lctx, cancel := context.WithTimeout(ctx, ptrTimeout)
 			defer cancel()
 			name := ""
-			if names := lookupPTR(lctx, ip); len(names) > 0 {
+			if names := LookupPTR(lctx, ip); len(names) > 0 {
 				name = names[0]
 			}
 			mu.Lock()
