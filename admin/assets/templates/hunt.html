@@ -175,7 +175,10 @@ table.rank td.key{max-width:var(--key-max,none);white-space:nowrap;overflow:hidd
    ellipsise by design.  Shrinking all four equally clipped the identifiers to
    buy room for a string that was going to be clipped anyway. */
 .rank-card-ip:not(.folded),.rank-card-ja4:not(.folded){flex-shrink:0}
-table.rank td.actions{text-align:left;white-space:nowrap}
+/* Right-aligned: the column is as wide as its widest pill (a JA4 verdict name, a
+   "bypass" tag), and a left-aligned button then floats away from the card's
+   edge with a margin the neighbouring cards do not have. */
+table.rank td.actions{text-align:right;white-space:nowrap}
 table.rank td.num{white-space:nowrap}
 /* raw-log table: fixed-content columns use nowrap with their natural width.  UA / verdict use ellipsis. */
 table.events td.at,table.events td.ipclick{white-space:nowrap}
@@ -231,7 +234,7 @@ table.events{table-layout:fixed;width:100%}
 img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
 table.events td.verdict-cell{max-width:8rem}
 table.events td.actions{text-align:right;white-space:nowrap}
-table.rank td.actions{text-align:left;white-space:nowrap}
+table.rank td.actions{text-align:right;white-space:nowrap}
 .rank-act{display:inline-block;padding:.1rem .45rem;font-size:.7rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;cursor:pointer;color:#334155;margin-left:.2rem;text-decoration:none}
 .rank-act:hover{background:#0f172a;color:#fff;border-color:#0f172a}
 .rank-act.danger{color:#b91c1c;border-color:#fca5a5}
