@@ -670,3 +670,29 @@ func TestAdminJA4Collateral(t *testing.T) {
 		t.Fatalf("missing ja4: %d", code)
 	}
 }
+
+// The bar shows what the last 30 days cost -- requests and tokens across
+// every window -- once there is something to add up.
+func TestAdvisorMonthTotalsShown(t *testing.T) {
+	h := newTestHandler(t)
+	cur := h.snapshotSettings()
+	cur.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k"}
+	h.settingsPtr.Store(&cur)
+	preq := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
+	prr := httptest.NewRecorder()
+	h.AdminAdvisorIndex(prr, preq)
+	if strings.Contains(prr.Body.String(), `class="kv ai-delta ai-month"`) {
+		t.Fatal("no runs yet: no monthly line")
+	}
+	lang := string(i18n.Resolve(preq))
+	advisor.StoreLast(h.DB, advisor.ResultKey(cur.AIAdvisor, 6*60, lang), advisor.Stored{At: time.Now(), Model: "claude-opus-5", Reviewed: 2, InTokens: 12345, OutTokens: 678,
+		Reviews: map[string]advisor.Review{"203.0.113.10": {Target: "203.0.113.10", Priority: "low", Reasoning: "r"}}})
+	prr = httptest.NewRecorder()
+	h.AdminAdvisorIndex(prr, httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil))
+	body := prr.Body.String()
+	// The harness resolves the UI language to Japanese.
+	if !strings.Contains(body, `class="kv ai-delta ai-month"`) || !strings.Contains(body, "直近 30 日: 1 回相談、tokens 入力 12,345 / 出力 678") {
+		i := strings.Index(body, `id="ai-bar"`)
+		t.Fatalf("monthly totals line missing (a run on another window still counts); bar: %s", body[i:min(len(body), i+1500)])
+	}
+}

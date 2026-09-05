@@ -421,6 +421,58 @@ type Stored struct {
 // HasResult reports whether an answer is stored (a failure alone is not one).
 func (st Stored) HasResult() bool { return !st.At.IsZero() }
 
+// runLogKeep bounds unmask_advisor_run: a row per click that reached the
+// model, pruned on insert.
+const runLogKeep = 400 * 24 * time.Hour
+
+// recordRun appends one row to unmask_advisor_run for an attempt that
+// reached the model (something sent, tokens reported, or a failure).  A
+// click that sent nothing because no evidence changed writes none.
+func recordRun(conn *db.DB, key string, st Stored) {
+	if conn == nil || (st.Reviewed == 0 && st.InTokens == 0 && st.OutTokens == 0 && st.Err == "") {
+		return
+	}
+	at := st.At
+	if st.Err != "" && !st.ErrAt.IsZero() {
+		at = st.ErrAt
+	}
+	if at.IsZero() {
+		at = time.Now()
+	}
+	row := db.AdvisorRun{RanAt: at.UTC().Unix(), ResultKey: key, Model: st.Model, Reviewed: st.Reviewed, Kept: st.Kept, InTokens: st.InTokens, OutTokens: st.OutTokens, Err: st.Err}
+	if err := conn.Gorm.Create(&row).Error; err != nil {
+		log.Printf("advisor: record run: %v", err)
+		return
+	}
+	if err := conn.Gorm.Where("ran_at < ?", time.Now().Add(-runLogKeep).UTC().Unix()).Delete(&db.AdvisorRun{}).Error; err != nil {
+		log.Printf("advisor: prune run log: %v", err)
+	}
+}
+
+// RunTotals is what the model calls since a point in time added up to.
+type RunTotals struct {
+	Runs      int64
+	Failed    int64
+	InTokens  int64
+	OutTokens int64
+}
+
+// Totals sums unmask_advisor_run since `since`, across every window, model
+// and language: the number the operator compares with the provider's bill.
+func Totals(conn *db.DB, since time.Time) RunTotals {
+	var t RunTotals
+	if conn == nil {
+		return t
+	}
+	row := conn.Gorm.Raw(`SELECT COUNT(*) AS runs, COALESCE(SUM(CASE WHEN err <> '' THEN 1 ELSE 0 END), 0) AS failed,
+		COALESCE(SUM(in_tokens), 0) AS in_tokens, COALESCE(SUM(out_tokens), 0) AS out_tokens
+		FROM unmask_advisor_run WHERE ran_at >= ?`, since.UTC().Unix()).Row()
+	if err := row.Scan(&t.Runs, &t.Failed, &t.InTokens, &t.OutTokens); err != nil {
+		log.Printf("advisor: run totals: %v", err)
+	}
+	return t
+}
+
 var lastResults = struct {
 	mu sync.Mutex
 	m  map[string]Stored
@@ -457,6 +509,8 @@ func ResultKey(cfg settings.AIAdvisorConfig, windowMinutes int, lang string) str
 // answer is kept as it was and the failure is noted beside it, dated by
 // st.ErrAt (or now).  A success clears any earlier failure.
 func StoreLast(conn *db.DB, key string, st Stored) {
+	attempt := st // what this attempt did, before a failure is folded onto the kept answer
+	defer recordRun(conn, key, attempt)
 	if st.Err != "" {
 		msg, model, at := st.Err, st.Model, st.ErrAt
 		if at.IsZero() {

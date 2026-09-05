@@ -63,6 +63,23 @@ type AdvisorNotified struct {
 
 func (AdvisorNotified) TableName() string { return "unmask_advisor_notified" }
 
+// AdvisorRun: a row of unmask_advisor_run — one model call the advisor made
+// (or tried to).  The page sums the last 30 days into "N requests, X in /
+// Y out"; the last answer itself lives in AdvisorResult.
+type AdvisorRun struct {
+	ID        int64  `gorm:"primaryKey;autoIncrement"`
+	RanAt     int64  `gorm:"column:ran_at;not null;autoCreateTime:false"`
+	ResultKey string `gorm:"column:result_key;not null"`
+	Model     string `gorm:"column:model;not null"`
+	Reviewed  int    `gorm:"column:reviewed;not null"`
+	Kept      int    `gorm:"column:kept;not null"`
+	InTokens  int    `gorm:"column:in_tokens;not null"`
+	OutTokens int    `gorm:"column:out_tokens;not null"`
+	Err       string `gorm:"column:err;not null"`
+}
+
+func (AdvisorRun) TableName() string { return "unmask_advisor_run" }
+
 // AdvisorResult: a row of unmask_advisor_result — the model's last answer for
 // one window (per provider / model / endpoint / language), kept so a restart
 // does not turn a paid answer into "not asked yet".  Upserted on key_hash.

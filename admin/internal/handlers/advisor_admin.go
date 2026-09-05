@@ -71,7 +71,11 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 	lang := string(i18n.Resolve(r))
 	aiRunning, aiSince := false, 0
 	aiSentRows, aiKeptRows := map[string]bool{}, map[string]bool{}
+	var month advisor.RunTotals
 	if aiCfg.Active() {
+		// What the last 30 days cost, across every window and model: the
+		// number to hold against the provider's bill (no prices here).
+		month = advisor.Totals(h.DB, time.Now().Add(-30*24*time.Hour))
 		if info, ok := advisor.Running(advisor.ResultKey(aiCfg, windowH*60, lang)); ok {
 			aiRunning, aiSince = true, int(time.Since(info.Since).Seconds())
 			aiSentRows, aiKeptRows = info.Sent, info.Kept
@@ -171,6 +175,10 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 		"AIModel":        aiModel,
 		"AIErrAt":        aiErrAt,
 		"AIErrAtTs":      aiErrAtTs,
+		"AIMonthRuns":    int(month.Runs), // ints: the template's comma helper takes int
+		"AIMonthFailed":  int(month.Failed),
+		"AIMonthIn":      int(month.InTokens),
+		"AIMonthOut":     int(month.OutTokens),
 		// A run in flight: the bar says so, the rows show they are being
 		// analysed, and the page's script polls until the answer lands.
 		"AIRunning":      aiRunning,

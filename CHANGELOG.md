@@ -20,6 +20,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-09-06) **Admin: the pages before login carry the same protective headers as the pages after it.**  Login, setup and password reset now send `X-Frame-Options: DENY`, a Content-Security-Policy that forbids framing, `<base>` retargeting, plugins and cross-origin form targets, `nosniff` and `Referrer-Policy: same-origin`; the authenticated pages gain the same policy additions.
 
 ### Added
+- (2026-09-06) **AI advisor: what the last 30 days cost, in tokens.**  Under the last-run line the page now adds up every model call of the past 30 days -- requests, input and output tokens, failures -- across every window and model, so the number can be held against the provider's bill.  No prices: the invoice is the truth.
+
 - (2026-09-05) **AI advisor: one automatic retry on a transient provider failure.**  A timeout, a 429 or a 5xx from the model endpoint is retried once after a short pause, inside the same run; a bad key, an unknown model or a refusal is not.  Nothing changes on the page except that fewer clicks end in a failure line.
 
 - (2026-09-05) **`unmask doctor` reads nginx's error log.**  The tail of the log is scanned for a variable read before it is set -- the warning behind the health-check noise 0.1.39 shipped with -- and for [emerg] / [crit] / [alert] lines.  When the log is not readable by the daemon user, the check says which command to run instead of staying quiet.

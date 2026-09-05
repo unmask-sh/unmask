@@ -69,6 +69,18 @@ func newTestHandler(t *testing.T) *Handler {
             payload TEXT NOT NULL,
             err TEXT NOT NULL DEFAULT ''
         );
+        CREATE TABLE unmask_advisor_run (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            ran_at INTEGER NOT NULL,
+            result_key TEXT NOT NULL,
+            model TEXT NOT NULL,
+            reviewed INTEGER NOT NULL DEFAULT 0,
+            kept INTEGER NOT NULL DEFAULT 0,
+            in_tokens INTEGER NOT NULL DEFAULT 0,
+            out_tokens INTEGER NOT NULL DEFAULT 0,
+            err TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX idx_unmask_advisor_run_ran_at ON unmask_advisor_run (ran_at);
     `
 	for _, stmt := range strings.Split(schema, ";") {
 		if strings.TrimSpace(stmt) == "" {
