@@ -57,7 +57,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .rank-card-asn{flex:0 1 auto}
 /* The UA card is the one with no natural width -- a raw UA is 150 characters
    -- so it takes what the others leave rather than competing for it. */
-.rank-card-ua{flex:1 1 14rem;max-width:none}
+.rank-card-ua{flex:1 1 11rem;max-width:none}
 /* A folded card gives up its share of the row.  Spelled out for the two cards
    that carry a flex-grow of their own -- same specificity as those rules, so
    without naming them the fold would lose and the strip would stay full width. */
@@ -88,8 +88,16 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
    read as three cards instead of one tall one, and nothing is lost: the rows
    past the cap are a scroll away, not gone.  The header stays put while they
    move, so a scrolled column still says what it is counting. */
-.rank-scroll{max-height:18rem;overflow-y:auto}
-.rank-scroll table.rank thead th{position:sticky;top:0;z-index:1;background:#fff}
+/* The cards used to scroll at 18rem.  A classic scrollbar took ~1rem of width
+   from every card and the content-sized ASN card lost it; overlay scrollbars
+   (macOS) hid the cost, which is why it looked like a regression on one
+   machine and not another.  Now a card shows its top 10 rows and a button
+   reveals the rest: compact by default, full width always, and the event
+   table below is pushed down only when the operator asks for the rows. */
+.rank-card:not(.expanded) tr.rank-more{display:none}
+.rank-expand{display:block;width:100%;margin:.35rem 0 0;padding:.25rem .3rem;border:1px dashed #cbd5e1;border-radius:.25rem;background:none;font:inherit;font-size:.78rem;color:#475569;cursor:pointer}
+.rank-expand:hover{background:#f1f5f9;color:#0f172a;border-color:#94a3b8}
+.rank-expand:focus-visible{outline:.125rem solid #93c5fd;outline-offset:.0625rem}
 .rank-card.folded .rank-scroll{display:none}
 .rank-card h3{font-size:.95rem;margin:0 0 .4rem;color:#475569}
 /* Folding.  The four cards share one row and the widest data decides what is
@@ -370,8 +378,8 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       {{ if index $.RankFailed "ip" }}
       <tr class="rank-unavailable"><td colspan="3">{{ tf $.Lang "hunt.rank.unavailable" $.RankTimeout }}</td></tr>
       {{ end }}
-      {{ range .IPRank }}
-      <tr>
+      {{ range $i, $r := .IPRank }}
+      <tr{{ if ge $i 10 }} class="rank-more"{{ end }}>
         <td class="key ipclick" data-ip="{{ .Key }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .Key }}</td>
         <td class="num"><a class="req-search" href="?range={{ $.Range }}&ip={{ urlquery .Key }}" aria-label="{{ t $.Lang "hunt.filter.ip_search_title" }}">{{ .Count }}<span class="req-mag">🔍</span></a></td>
         <td class="actions">
@@ -403,6 +411,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       {{ end }}
       </tbody>
     </table>
+    {{ if gt (len $.IPRank) 10 }}<button type="button" class="rank-expand" aria-expanded="false" data-more="{{ tf $.Lang "hunt.rank.show_all" (len $.IPRank) }}" data-less="{{ t $.Lang "hunt.rank.show_top" }}">{{ tf $.Lang "hunt.rank.show_all" (len $.IPRank) }}</button>{{ end }}
     </div>
   </div>
 
@@ -424,8 +433,8 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       {{ if index $.RankFailed "asn" }}
       <tr class="rank-unavailable"><td colspan="4">{{ tf $.Lang "hunt.rank.unavailable" $.RankTimeout }}</td></tr>
       {{ end }}
-      {{ range .ASNRank }}
-      <tr>
+      {{ range $i, $r := .ASNRank }}
+      <tr{{ if ge $i 10 }} class="rank-more"{{ end }}>
         {{/* The organisation is what an operator recognises; almost nobody reads
              an AS number.  Lead with the name and keep the number on the cell,
              where it is still there to be read but is not spending column width
@@ -462,6 +471,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       {{ end }}
       </tbody>
     </table>
+    {{ if gt (len $.ASNRank) 10 }}<button type="button" class="rank-expand" aria-expanded="false" data-more="{{ tf $.Lang "hunt.rank.show_all" (len $.ASNRank) }}" data-less="{{ t $.Lang "hunt.rank.show_top" }}">{{ tf $.Lang "hunt.rank.show_all" (len $.ASNRank) }}</button>{{ end }}
     </div>
   </div>
   {{ end }}
@@ -476,8 +486,8 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       {{ if index $.RankFailed "ja4" }}
       <tr class="rank-unavailable"><td colspan="3">{{ tf $.Lang "hunt.rank.unavailable" $.RankTimeout }}</td></tr>
       {{ end }}
-      {{ range .JA4Rank }}
-      <tr>
+      {{ range $i, $r := .JA4Rank }}
+      <tr{{ if ge $i 10 }} class="rank-more"{{ end }}>
         {{/* JA4 strings are always fully visible in this column (= no
              truncation), so a native title= would just repeat the same
              value as a tooltip and clutter the UI.  When the operator opens
@@ -520,6 +530,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       {{ end }}
       </tbody>
     </table>
+    {{ if gt (len $.JA4Rank) 10 }}<button type="button" class="rank-expand" aria-expanded="false" data-more="{{ tf $.Lang "hunt.rank.show_all" (len $.JA4Rank) }}" data-less="{{ t $.Lang "hunt.rank.show_top" }}">{{ tf $.Lang "hunt.rank.show_all" (len $.JA4Rank) }}</button>{{ end }}
     </div>
   </div>
 
@@ -533,8 +544,8 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       {{ if index $.RankFailed "ua" }}
       <tr class="rank-unavailable"><td colspan="3">{{ tf $.Lang "hunt.rank.unavailable" $.RankTimeout }}</td></tr>
       {{ end }}
-      {{ range .UARank }}
-      <tr>
+      {{ range $i, $r := .UARank }}
+      <tr{{ if ge $i 10 }} class="rank-more"{{ end }}>
         {{/* Same reading as the log below: the raw string is 100+ characters of
              boilerplate whose only distinguishing parts are the platform and the
              browser version.  Full value in the popover. */}}
@@ -575,6 +586,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       {{ end }}
       </tbody>
     </table>
+    {{ if gt (len $.UARank) 10 }}<button type="button" class="rank-expand" aria-expanded="false" data-more="{{ tf $.Lang "hunt.rank.show_all" (len $.UARank) }}" data-less="{{ t $.Lang "hunt.rank.show_top" }}">{{ tf $.Lang "hunt.rank.show_all" (len $.UARank) }}</button>{{ end }}
     </div>
   </div>
 
@@ -809,7 +821,30 @@ function dismissHuntTip(id){
   }
   var grid = document.querySelector('.rank-grid');
   if (!grid) return;
+  // "Show all" is a per-viewer convenience, remembered in this browser.
+  var EXPANDED = 'unmask:hunt:rank-expanded';
+  function expandedKeys(){ try { return (localStorage.getItem(EXPANDED) || '').split(',').filter(Boolean); } catch (e) { return []; } }
+  function setExpanded(card, on){
+    var b = card.querySelector('.rank-expand');
+    card.classList.toggle('expanded', on);
+    if (b) { b.setAttribute('aria-expanded', on ? 'true' : 'false'); b.textContent = b.getAttribute(on ? 'data-less' : 'data-more'); }
+  }
+  expandedKeys().forEach(function(k){
+    var c = grid.querySelector('[data-rank-card="' + k + '"]');
+    if (c && c.querySelector('.rank-expand')) setExpanded(c, true);
+  });
   grid.addEventListener('click', function(ev){
+    var ex = ev.target.closest('.rank-expand');
+    if (ex){
+      var exCard = ex.closest('[data-rank-card]');
+      var on = !exCard.classList.contains('expanded');
+      setExpanded(exCard, on);
+      var k = exCard.getAttribute('data-rank-card'), keys = expandedKeys(), at = keys.indexOf(k);
+      if (on && at === -1) keys.push(k);
+      if (!on && at !== -1) keys.splice(at, 1);
+      try { localStorage.setItem(EXPANDED, keys.join(',')); } catch (e) {}
+      return;
+    }
     var modeBtn = ev.target.closest('[data-ua-mode]');
     if (modeBtn){
       var uaCard = modeBtn.closest('[data-rank-card]');

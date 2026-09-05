@@ -27,6 +27,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-09-05) **`unmask doctor` reads nginx's error log.**  The tail of the log is scanned for a variable read before it is set -- the warning behind the health-check noise 0.1.39 shipped with -- and for [emerg] / [crit] / [alert] lines.  When the log is not readable by the daemon user, the check says which command to run instead of staying quiet.
 
 ### Fixed
+- (2026-09-06) **Bot hunt: the ranking cards no longer scroll; each shows its top 10 and a button reveals the rest.**  The 18rem scroll boxes cost every card the width of a scrollbar, and the content-sized ASN card was the one squeezed.  A card now lists ten rows, "show all" reveals the others and the choice is remembered in the browser; the UA card yields a little width to the ASN card.
+
 - (2026-09-06) **Settings > Sites refuses two hostnames that would share one nginx variable.**  The rendered config folds `.`, `-` and `:` into `_`, so `shop.example.com` and `shop-example.com` would define the same variable twice and nginx would refuse the whole configuration.  The form now names both hosts and asks for a rename instead.
 
 - (2026-09-05) **AI advisor: a failed request no longer wipes the last answer, and is reported once.**  When the model call failed (a timeout, an overloaded endpoint) the failure replaced the stored answer: every review vanished from the rows and an error banner greeted each reload, next to the same message in the bar.  The answer now stays, the failure is one dated line in the bar with the reason, the next success clears it, and the model call may take up to five minutes instead of ninety seconds.

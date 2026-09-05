@@ -328,6 +328,18 @@ for n in range(35):
         VALUES ('ui-e2e.example','','https',443,x'cb00711a','UI-E2E-hammer/1.0 (+scanner)','t13d_hammer','',0,
                 'serve',0,0,'','',?, datetime('now', '-' || ? || ' seconds'))""",
         (json.dumps({"bt": "uiAdvisor", "ch_mode": "pow_then_captcha", "force_reason": "header", "orig_path": path, "rl": 0}, separators=(',', ':')), 60 + n))
+# ranking-expand seed: twelve distinct public addresses, one serve each, two
+# hours ago, so the hunt IP ranking has more than the ten rows a card shows
+# before "show all" (hunt-rank-expand.test.js).  One request each keeps them
+# below the advisor seed's hammer, so the ranking's first row -- the BAN
+# button advisor.test.js clicks -- does not move.
+for n in range(12):
+    c.execute("""INSERT INTO unmask_event
+        (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
+         phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+        VALUES ('ui-e2e.example','','https',443,?,'UI-E2E-rank/1.0','t13d_rank','',0,
+                'serve',0,0,'','','{"bt":"uiRank","ch_mode":"pow_then_captcha"}', datetime('now', '-2 hours', '-' || ? || ' seconds'))""",
+        (bytes([203, 0, 113, 101 + n]), n))
 c.commit()
 PY
 
