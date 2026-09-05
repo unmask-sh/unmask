@@ -257,7 +257,7 @@ func ReviewWithPool(ctx context.Context, cfg settings.AIAdvisorConfig, cands []C
 		userMsg += "\n\nWrite every reasoning field in Japanese (日本語で書いてください)."
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, providerTimeout)
 	defer cancel()
 
 	var raw string
@@ -358,9 +358,19 @@ func normPriority(p string) string {
 // Nominated rows are stored with the evidence they had at the time, so
 // showing them again needs no second pool build.
 
-// Stored is the last model result for one window key.
+// providerTimeout bounds the model call itself.  The run is detached from
+// the click (runs.go), so this is a ceiling against a hung endpoint, not a
+// budget the operator waits out: a large model writing the reasoning for a
+// long list in Japanese has taken well over the 90 seconds this used to be.
+const providerTimeout = 5 * time.Minute
+
+// Stored is the last known state of one window key: the last answer
+// (At, Model, Reviews, ...) and, when the most recent attempt failed, that
+// failure beside it (Err, ErrAt).  A failure never replaces the answer --
+// StoreLast keeps it -- so the page can go on showing what the model said
+// while telling the operator the latest attempt did not land.
 type Stored struct {
-	At        time.Time
+	At        time.Time // when the answer was produced; zero = no answer yet
 	Model     string
 	Reviewed  int // candidates sent to the model in this run
 	Kept      int // candidates whose evidence had not changed: review carried over, nothing sent
@@ -369,8 +379,12 @@ type Stored struct {
 	Reviews   map[string]Review
 	Nominated []Candidate
 	RDNS      map[string]string // reverse DNS the pool resolved, for the engine's rows too
-	Err       string            // the last run failed with this; shown until a run succeeds
+	Err       string            // the latest attempt failed with this; cleared by the next success
+	ErrAt     time.Time         // when that attempt failed
 }
+
+// HasResult reports whether an answer is stored (a failure alone is not one).
+func (st Stored) HasResult() bool { return !st.At.IsZero() }
 
 var lastResults = struct {
 	mu sync.Mutex
@@ -386,6 +400,7 @@ type storedPayload struct {
 	Kept      int               `json:"kept,omitempty"`
 	InTokens  int               `json:"in_tokens,omitempty"`
 	OutTokens int               `json:"out_tokens,omitempty"`
+	ErrAt     int64             `json:"err_at,omitempty"` // unix seconds; beside the err column
 }
 
 func keyHash(key string) string {
@@ -402,19 +417,49 @@ func ResultKey(cfg settings.AIAdvisorConfig, windowMinutes int, lang string) str
 // StoreLast keeps the outcome of one run for its window: in memory for the
 // page, and in unmask_advisor_result so a restart does not lose it.  conn may
 // be nil (memory only).
+//
+// A failed attempt (st.Err set) does not erase the last answer: the stored
+// answer is kept as it was and the failure is noted beside it, dated by
+// st.ErrAt (or now).  A success clears any earlier failure.
 func StoreLast(conn *db.DB, key string, st Stored) {
+	if st.Err != "" {
+		msg, model, at := st.Err, st.Model, st.ErrAt
+		if at.IsZero() {
+			at = st.At
+		}
+		if at.IsZero() {
+			at = time.Now()
+		}
+		if prev, ok := LastResult(conn, key); ok && prev.HasResult() {
+			st = prev
+		} else {
+			st = Stored{}
+		}
+		if st.Model == "" {
+			st.Model = model
+		}
+		st.Err, st.ErrAt = msg, at
+	}
 	lastResults.mu.Lock()
 	lastResults.m[key] = st
 	lastResults.mu.Unlock()
 	if conn == nil {
 		return
 	}
-	raw, err := json.Marshal(storedPayload{Reviews: st.Reviews, Nominated: st.Nominated, RDNS: st.RDNS, Reviewed: st.Reviewed, Kept: st.Kept, InTokens: st.InTokens, OutTokens: st.OutTokens})
+	pl := storedPayload{Reviews: st.Reviews, Nominated: st.Nominated, RDNS: st.RDNS, Reviewed: st.Reviewed, Kept: st.Kept, InTokens: st.InTokens, OutTokens: st.OutTokens}
+	if !st.ErrAt.IsZero() {
+		pl.ErrAt = st.ErrAt.UTC().Unix()
+	}
+	raw, err := json.Marshal(pl)
 	if err != nil {
 		log.Printf("advisor: encode result: %v", err)
 		return
 	}
-	row := db.AdvisorResult{KeyHash: keyHash(key), ResultKey: key, RanAt: st.At.UTC().Unix(), Model: st.Model, Payload: string(raw), Err: st.Err}
+	var ranAt int64 // 0 = no answer yet (a failure stored before any answer)
+	if st.HasResult() {
+		ranAt = st.At.UTC().Unix()
+	}
+	row := db.AdvisorResult{KeyHash: keyHash(key), ResultKey: key, RanAt: ranAt, Model: st.Model, Payload: string(raw), Err: st.Err}
 	if err := conn.Gorm.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "key_hash"}},
 		DoUpdates: clause.AssignmentColumns([]string{"result_key", "ran_at", "model", "payload", "err"}),
@@ -447,7 +492,13 @@ func LastResult(conn *db.DB, key string) (Stored, bool) {
 			return Stored{}, false
 		}
 	}
-	st = Stored{At: time.Unix(row.RanAt, 0).UTC(), Model: row.Model, Reviews: pl.Reviews, Nominated: pl.Nominated, RDNS: pl.RDNS, Reviewed: pl.Reviewed, Kept: pl.Kept, InTokens: pl.InTokens, OutTokens: pl.OutTokens, Err: row.Err}
+	st = Stored{Model: row.Model, Reviews: pl.Reviews, Nominated: pl.Nominated, RDNS: pl.RDNS, Reviewed: pl.Reviewed, Kept: pl.Kept, InTokens: pl.InTokens, OutTokens: pl.OutTokens, Err: row.Err}
+	if row.RanAt > 0 {
+		st.At = time.Unix(row.RanAt, 0).UTC()
+	}
+	if pl.ErrAt > 0 {
+		st.ErrAt = time.Unix(pl.ErrAt, 0).UTC()
+	}
 	// Reviews stored before they carried their own time: they are from this
 	// run, so this run's time is theirs.
 	for t, r := range st.Reviews {
@@ -691,16 +742,16 @@ func callOllama(ctx context.Context, cfg settings.AIAdvisorConfig, userMsg strin
 // called at all.
 
 // Plan splits the current candidates into those to send (new, or evidence
-// changed since prev reviewed them) and the reviews to keep.  A previous run
-// that failed keeps nothing.
+// changed since prev reviewed them) and the reviews to keep.  prev is the
+// last answer -- a failed attempt after it carries that answer along
+// (StoreLast), so its reviews are kept the same way and nothing is paid for
+// twice.
 func Plan(prev Stored, cands []Candidate) (send []Candidate, kept map[string]Review) {
 	kept = map[string]Review{}
 	for _, c := range cands {
-		if prev.Err == "" {
-			if r, ok := prev.Reviews[c.Target]; ok && r.Fingerprint != "" && r.Fingerprint == c.Fingerprint() {
-				kept[c.Target] = r
-				continue
-			}
+		if r, ok := prev.Reviews[c.Target]; ok && r.Fingerprint != "" && r.Fingerprint == c.Fingerprint() {
+			kept[c.Target] = r
+			continue
 		}
 		send = append(send, c)
 	}
@@ -736,16 +787,14 @@ func Merge(prev Stored, sent []Candidate, res Result, pool Pool, kept map[string
 	for _, n := range nominated {
 		nominatedNow[n.Target] = true
 	}
-	if prev.Err == "" {
-		for _, n := range prev.Nominated {
-			if nominatedNow[n.Target] || current[n.Target] {
-				continue
-			}
-			nominated = append(nominated, n)
-			if r, ok := prev.Reviews[n.Target]; ok {
-				if _, fresh := reviews[n.Target]; !fresh {
-					reviews[n.Target] = r
-				}
+	for _, n := range prev.Nominated {
+		if nominatedNow[n.Target] || current[n.Target] {
+			continue
+		}
+		nominated = append(nominated, n)
+		if r, ok := prev.Reviews[n.Target]; ok {
+			if _, fresh := reviews[n.Target]; !fresh {
+				reviews[n.Target] = r
 			}
 		}
 	}

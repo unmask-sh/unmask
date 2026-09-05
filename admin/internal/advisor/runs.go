@@ -16,8 +16,10 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/db"
 )
 
-// runTimeout bounds one run end to end: engine, pool, reverse DNS, model.
-const runTimeout = 120 * time.Second
+// runTimeout bounds one run end to end: engine, pool, reverse DNS, model
+// (providerTimeout, llm.go, is the model's share).  The click does not wait
+// for it, so it only has to beat a hung run, not the operator's patience.
+const runTimeout = 6 * time.Minute
 
 // RunInfo describes a run in flight: when it started and, from the plan
 // made before it started, which candidates were sent to the model and which
@@ -66,7 +68,7 @@ func StartRun(conn *db.DB, key string, info RunInfo, fn func(ctx context.Context
 		st := func() (st Stored) {
 			defer func() {
 				if r := recover(); r != nil {
-					st = Stored{At: time.Now(), Err: fmt.Sprintf("advisor run: %v", r)}
+					st = Stored{ErrAt: time.Now(), Err: fmt.Sprintf("advisor run: %v", r)}
 				}
 			}()
 			return fn(ctx)
