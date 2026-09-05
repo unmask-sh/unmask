@@ -22,19 +22,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Added
 - (2026-09-03) **Advisor: a scheduled pass that tells you about new candidates.**  Settings > AI advisor can run the candidate extraction on a timer and send what is new since the last run through the alert channels already configured under Settings > notifications.  A scanner that arrives overnight is on record by morning instead of waiting for someone to open the page.  Off by default, and the scheduled pass never calls a model -- it should not spend your tokens while nobody is watching.
 
-### Added
 - (2026-09-03) **Advisor: let a model prioritise the candidates and explain them (optional).**  Settings > AI advisor connects the advisor page to Anthropic, any OpenAI-compatible endpoint, or a local Ollama with your own key.  Off by default; while it is off nothing leaves the host.  The model sees the candidate rows and the top of the window's rankings (with origin network, country and reverse DNS) -- never raw logs, cookies or payloads -- and may propose extra candidates from that pool, but it can only name actors that were actually observed: anything else is discarded.  The page never calls the model by itself: an "Ask the model" button does, and the answer stays on the page for that window, with its age, until you ask again.  Every row says whether the client is already contained by the challenge or is passing it, because only the latter needs you.  Applying a ban stays a human click.
 
-### Added
 - (2026-09-03) **Advisor: mechanical ban candidates with the evidence attached.**  A new admin tab (/admin/advisor/) extracts ban candidates from the recent event window -- addresses that hammer challenges without ever running the JavaScript, scanner-path rakers, hosting networks wearing a browser user agent, and single fingerprints fanning out across many addresses.  Every row shows its evidence, with the same address popover, user-agent popover and BAN dialog as bot hunt, and a magnifier that opens the target's raw events; a dismissal is remembered.  Nothing is ever applied automatically.
 
-### Added
 - (2026-09-03) **`unmask mcp` — plug your own AI assistant into the install's data.**  A read-only Model Context Protocol server over stdio: six tools covering stats, the hunt event log, per-IP lookup (rDNS / GeoIP / ASN / bans), the BAN list, doctor and a redacted settings summary.  unmask itself never calls an LLM — the operator's assistant connects in (remotely via plain ssh), so the no-outbound-calls posture is unchanged.  No mutations: the assistant reads and proposes; changes stay with the human.
 
 ### Fixed
 - (2026-09-04) **Gateway: a pasted certificate's id is checked before its files are touched.**  The id names the stored pair (`gateway-<id>.crt` / `.key`); the form handler read and wrote those files before the validation that rejects a separator in the id ran.  Reachable only by a signed-in superadmin, and the daemon writes as its own unprivileged user, so the reach was the daemon's own directories.  The check now runs first, and CodeQL's four path-injection findings on the file close with it.
 
-### Fixed
 - (2026-09-03) **The forward-auth snippet no longer mis-describes its daemon-down default.**  A comment in the shipped `/etc/unmask/forward-auth/server.inc` still said the default was a 503 -- the actual default has long been fail-open (a redirect to `/`, flowing through to the backend), as the FAQ and the install page state.  The comment now matches, with 503 shown as the fail-closed override.  The README also gains the release-signing key fingerprints for out-of-band verification.
 
 ## [0.1.38] - 2026-09-01
@@ -412,11 +408,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Added
 - (2026-08-04) **The traffic-composition card can be read against the traffic unmask actually judged.**  Bypassed requests -- 56% of a day on one node -- sat in the denominator and halved every other share.  The card now names its denominator and offers both: all traffic, or judged only.
 
+- (2026-08-04) **The challenge page's presentation is a setting.**  The visible style holds the page a configurable minimum (`min_display_ms`, default 800) with "✓ Verified"; the invisible style shows nothing until `invisible_reveal_ms` (default 1200), so a fast device sees no interstitial at all.  CAPTCHA and error screens appear immediately, and the hold is never counted into solve-time metrics.
+
 ### Changed
 - (2026-08-04) **Lowering the proof-of-work difficulty now warns that it breaks the site until nginx reloads.**  The native module verifies cookies against the rendered difficulty, so dropping it daemon-side alone loops visitors about four times before one solve happens to pass.  `render-nginx` now prints the share of solves that will be refused and the reload command.  Lower the gate first, then the daemon.
-
-### Added
-- (2026-08-04) **The challenge page's presentation is a setting.**  The visible style holds the page a configurable minimum (`min_display_ms`, default 800) with "✓ Verified"; the invisible style shows nothing until `invisible_reveal_ms` (default 1200), so a fast device sees no interstitial at all.  CAPTCHA and error screens appear immediately, and the hold is never counted into solve-time metrics.
 
 ### Fixed
 - (2026-08-04) **The rate-limit funnel rollup wedged forever on the first hour containing a verdict-less event.**  A NULL `ja4_verdict` errored the scan, the cursor never advanced, and the dashboard fell back to raw-scanning an ever-growing window.  The fix un-wedges existing installs on its own.
@@ -624,6 +619,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-07-27) **Challenge a Chromium browser that is missing its client-hint header (opt-in).**  A UA claiming Chrome / Edge / Opera that carries no `Sec-CH-UA` over HTTPS on HTTP/2·3 is flagged -- a real Chromium always sends it there.  Never touches plain HTTP, HTTP/1.1, Firefox / Safari; clamped to a challenge.  Off by default.
 
+- (2026-07-25) **`unmask doctor` warns when config.yml has been hand-edited without re-rendering.**  A direct edit does nothing until `render-nginx` and a reload (a factor in the 2026-07-21 incident).  doctor compares the loaded conf against a fresh render, ignoring the per-render stamps.
+
 ### Changed
 - (2026-07-27) **The stale-browser tier's lag is set per browser.**  Chrome and Firefox thresholds are now independent, each defaulting to the built-in value.
 
@@ -631,9 +628,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 - (2026-07-25) **Hover popovers no longer vanish mid-hover and go dead until you leave and re-enter.**  The watchdog derived the trigger by hit-testing the entry point, so moving off a child inside the cell dismissed the popover.  Every hover popover now names its real trigger element (21 call sites).
-
-### Added
-- (2026-07-25) **`unmask doctor` warns when config.yml has been hand-edited without re-rendering.**  A direct edit does nothing until `render-nginx` and a reload (a factor in the 2026-07-21 incident).  doctor compares the loaded conf against a fresh render, ignoring the per-render stamps.
 
 ## [0.1.10] — 2026-07-25
 
@@ -804,6 +798,182 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-07-02) **The plugin postinstall printed `unrecognized libcrypto` on nginx built against a statically-linked OpenSSL.**  Detection now falls back to `nginx -V` and then to the newest system libcrypto.
 
+- (2026-06-19) **`ja4_mismatch` false positives from HTTP/2 <-> HTTP/3 drift on roaming rebind.**  A browser presents a different JA4 over QUIC than over TCP, so `_bvj` refused rebinds on the other transport -- daily, and none were bots.  `_bvj` now stores up to 3 JA4s and matches any.
+
+- (2026-06-19) **Stats queries warn instead of returning a silent zero on timeout.**  A 0 reads as "no traffic", not "could not compute".  Cards now show a warning or "—".
+
+- (2026-06-18) **A roaming `_bvj` whose fingerprint had drifted stranded the holder on repeated PoW.**  It was never re-minted, so each roam failed the JA4 / UA match.  It now re-mints whenever the stored fingerprint no longer matches.
+
+- (2026-06-15) **The Daily-Unique-IPs card timed out on large databases.**  It merged ~65k per-minute HLL sketches in Go (~15s); they are now pre-merged hourly, so the card reads ~720 sketches plus a short tail.
+
+- (2026-06-15) **Two `nginx -t` failures from unmask's rendered config.**  The variable count exceeded nginx's 1024 default (now `variables_hash_max_size 2048`), and the community-bans `map_hash_*` directive was a fatal duplicate on Alpine 3.23's stock conf, silently disabling native mode.  Both guarded.
+
+- (2026-06-13) **Several setup-wizard papercuts.**  Enter no longer triggers Skip, passwords are match-checked client-side, a duplicate username is rejected at the user step, and errors are localized.
+
+- (2026-06-13) **Admin authentication hardening.**  Session signature widened to 128-bit, the setup password is argon2id-hashed the instant it is submitted, reset-token consumption is atomic so a token cannot be redeemed twice, and an unknown role denies instead of admitting everyone.
+
+- (2026-06-13) **Data-integrity and input-sanitization hardening.**  A `UNIQUE` index on user email, manual bans reject `|` and newline so they cannot smuggle a ban-file line, operator paths are sanitized before entering an nginx `include`, logo upload is atomic, and feed-URL logging strips userinfo.
+
+- (2026-06-13) **The challenge primitives are hardened against replay and overflow.**  The CAPTCHA math token is IP-bound with a 15-minute window; the auto-generated `_bv` secret persists to a `0600` sidecar so `render-nginx` and the daemon share one key; a native int64 overflow on 19-digit input is removed; the rate-limiter uses the monotonic clock with a hard map cap.
+
+- (2026-06-13) **The admin web surface is hardened against XSS and cookie leakage.**  Uploaded SVG logos ship a `sandbox` CSP, the challenge page's preview overrides require a same-origin `/admin/` referrer, the flash cookie carries `Secure`, and payload extraction is escape-aware.
+
+- (2026-06-13) **A manual ban could silently widen a honeypot ban into a
+  JA4-wide block (DB-3).**  The ban list keyed UNIQUE(ip, ja4), so manually
+  banning an (ip, ja4) that a honeypot had already auto-banned overwrote the
+  existing row — including its scope.  An `ip_ja4` ban rewritten to `ja4_only`
+  silently expands "this one device" into "every IP presenting this JA4", the
+  exact ranking accident the search-bot rescue (CLAUDE.md #4) guards against,
+  with no signal to the operator.  Scope now joins the conflict/UNIQUE key so a
+  honeypot `ip_ja4` ban and a manual `ja4_only` ban on the same (ip, ja4)
+  coexist as separate rows (the native plugin already matches each scope
+  independently).  Existing databases migrate in place, rows preserved.
+
+- (2026-06-12) **The forgot-password endpoint is now rate-limited like
+  login (AUTH-5).**  The per-IP admin-login zone (5/min, CAPTCHA on trip)
+  covered only `/admin/login`, leaving `/admin/forgot-password` open: a flood
+  could spam reset emails and clobber a pending reset token (each request
+  overwrites the previous), blocking a legitimate reset.  Both auth-credential
+  endpoints now share the one zone.
+
+- (2026-06-12) **An operator could be locked out of changing their own
+  password (AUTH-4).**  The profile form hard-capped new passwords at 72 bytes
+  (a bcrypt leftover) while every other path caps at 1024 (argon2), so after an
+  operator reset another user's >72-char passphrase they couldn't set their own
+  through the profile form.  Both paths now share `user.MaxPasswordLen`.
+
+- (2026-06-12) **A search/AI crawler landing on a honeypot URI could be
+  auto-banned, and a freshly added bypass IP was ignored until restart (M-3 /
+  DB-4).**  The ban manager's bypass allowlist was a literal-IP map snapshotted
+  at startup — it held no preset crawler ranges (Googlebot / Bingbot / GPTBot)
+  and no CIDRs, and never refreshed.  So a crawler range tripping a honeypot got
+  banned (the exact ranking accident the search-bot rescue exists to prevent),
+  and toggling a preset / adding a bypass IP in the admin UI didn't protect it
+  until the next restart.  The allowlist is now the same preset+CIDR matcher the
+  native geo block and forward-auth path use, injected over live settings so a
+  bypass change applies immediately.
+
+- (2026-06-12) **The placer's verify fail-safe no longer strips a healthy
+  native module over an error that merely mentions an unmask path.**  The
+  "is this nginx -t failure unmask's fault?" classifier matched any error
+  containing `unmask` — including an OPERATOR vhost whose
+  `include /etc/unmask/forward-auth/server.inc` (the documented forward-auth
+  wiring) pointed at a file that did not exist at that instant.  That is
+  exactly the mid-transaction state on a remove→reinstall: the plugin's
+  postinstall verify runs BEFORE unmask-web-nginx lays its files back down,
+  so the fail-safe deleted the just-placed `.so` and autoload conf — and the
+  strip could not even fix the error it reacted to (the operator's include
+  stays).  Found on the install matrix (AlmaLinux 8 carried such a vhost).
+  The classifier now keys on unmask's OWN wiring artifacts only
+  (`ngx_http_unmask*`, `00-unmask*`, `50-mod-unmask.conf`,
+  `/var/lib/unmask/nginx/`); anything else is a host config error that the
+  operator (or the rest of the same package transaction) resolves.
+
+- (2026-06-12) **The module placer no longer duplicates an
+  operator-managed `load_module` — which used to escalate into the fail-safe
+  stripping a healthy module.**  `place-module.sh` (run before every nginx
+  start via the service drop-in) dropped its `50-mod-unmask.conf` autoload
+  unconditionally whenever a main-scope include dir existed.  If the operator
+  already loaded the module themselves — a hand-added `load_module` line in
+  nginx.conf, or their own conf file in that include dir — nginx saw the
+  directive twice, `nginx -t` failed with "module is already loaded", and the
+  placer's verify fail-safe classified that as an unmask-caused breakage and
+  stripped the module wiring **including the placed `.so`**, leaving the
+  operator's own (now dangling) `load_module` pointing at a deleted file:
+  nginx could not start at all.  Caught by the 9-distro install matrix (every
+  rpm/deb distro's native mode failed this way once the ExecStartPre re-pick
+  ran on restart).  The placer (and the slim plugin postinstall) now detect a
+  foreign `load_module ngx_http_unmask_module` in nginx.conf or any other
+  conf in the include dir, skip dropping their own, and remove a stale drop
+  of ours — self-healing an already-duplicated setup on the next start.
+  Overwriting our own previous drop (the normal re-pick path) is unaffected.
+
+- (2026-06-12) **A headless browser could clear the behavioral check
+  without ever seeing the math fallback.**  The behavioral score penalized a
+  short `mouseTrail` by a flat -0.3, so a headless Chromium (Playwright /
+  Puppeteer) that reports `hasMouseEvents=true`, a non-zero `windowSize` and an
+  unhurried `clickAt` scored 0.7 and passed on behavioral signal alone — its
+  `.click()` synthesizes the click without the human mousemove run, so the
+  trail is just the single click coordinate.  A trail of ≤1 point (mouse events
+  claimed, yet no actual movement) is now penalized -0.6, dropping that score
+  to 0.4 so the math fallback engages; a merely short trail (2-4 points, a fast
+  but real cursor move) keeps the soft -0.3.  The fallback is math, not denial,
+  so a fast human with a near-empty trail solves an addition rather than being
+  locked out, and a human-like trail is unaffected.
+
+- (2026-06-12) **The cookie_minute v1→kind/cnt migration is now safe to
+  re-run, so an interrupted MariaDB upgrade can't double historical stats.**
+  The copy INSERTs run in a transaction, but the table rename and the final
+  `DROP TABLE …_v1` are DDL, which auto-commits OUTSIDE that transaction on
+  MariaDB — so a dropped connection in the gap between COMMIT and DROP left the
+  v1 table in place, and the next startup re-ran the copy on top of the
+  already-committed rows, doubling every cookie_minute bucket the dashboard
+  aggregates.  The copy now clears the destination inside its transaction
+  before re-inserting (safe: the migration runs at startup before the daemon
+  serves, and Migrate aborts on error, so a lingering v1 means the table holds
+  only migration output).  Covered by a re-run test that doubles the rows
+  without the guard.
+
+- (2026-06-12) **The English community-bans "not applied" tooltip no
+  longer shows raw `%d` / `%s`.**  Two catalog strings
+  (`community_bans.below_threshold_title` / `reports_only_title`) carried
+  `fmt.Sprintf` placeholders, but the badge renders them through the plain
+  (non-formatting) `t` template helper, so English readers saw the literal
+  `currently %d` and a bogus `href="%s"` link in the hover popover; the
+  Japanese strings were already placeholder-free.  Rewrote the English to be
+  self-contained.  A new locale test (`TestLocaleFormatVerbParity`) now fails
+  the build if any key's ja/en strings carry mismatched format verbs, so this
+  class of drift can't return.
+
+- (2026-06-12) **The live settings hot-swap is race-free.**  A request in flight during a save could observe a torn settings struct and mis-evaluate a decision.  It is now an `atomic.Pointer`, tested under `go test -race`.
+
+- (2026-06-11) **A config that omits secret.bv_secret no longer passes
+  doctor while silently breaking the site.**  Load() fills an empty bv_secret
+  with a per-process random key that is never persisted, so render-nginx and
+  the daemon sign / verify _bv with different keys and every visitor loops on
+  the challenge — yet `unmask doctor` checked the post-Load value (a
+  healthy-looking 24-byte string) and reported a false green.  Load() now logs
+  a loud WARNING when it has to fabricate the key, and doctor reads the RAW
+  config so a missing secret is an [ERR], not an [OK].  Only hand-rolled
+  configs are affected (package install runs config-init; docker persists one).
+
+- (2026-06-11) **A fresh box no longer contacts the hub before setup is
+  finished.**  community-bans register / pull and the managed-mmdb auto-fetch
+  fired on the first daemon start whenever a config path was set — before the
+  operator had opened the install wizard — so an unconfigured box POSTed its
+  public IP + version + publish-country flag to unmask.sh/api/feed/register,
+  and an air-gapped box logged alarming register / fetch failures, both
+  contradicting the README's opt-in framing.  All three are now gated on setup
+  completion (an admin user existing); the wizard's post-completion auto
+  re-exec starts them on the next boot.  The default subscribe mode is
+  unchanged — only the timing of the first contact moves to after the operator
+  has actually set the box up.  Verified: a DB-connected box with no admin user
+  makes zero hub calls; creating the admin user and restarting starts them.
+
+- (2026-06-11) **Event writes are no longer dropped on a transient DB
+  error.**  The async event flusher logged an insertBulk failure and then
+  cleared the batch, permanently losing those unmask_event rows on a brief
+  SQLite-busy or MariaDB blip.  It now retains the batch and retries on the
+  next tick (matching nginxlog's flushOnce), bounded so a persistent outage
+  can't grow it without limit — overflow drops the oldest events and counts
+  them in a droppedOnError metric kept distinct from the queue-full drop
+  counter.
+
+- (2026-06-11) **Saving settings on a dev / source build no longer
+  NEW-badges every preset and drops them from the rendered conf.**  Every
+  settings save stamps `seen_version: v<admin version>`; dev builds carry a
+  git hash there (`v6f94983`), which the version parser mapped to v0.0
+  (= oldest).  All preset groups (AddedIn >= v0.1) then counted as
+  "not yet seen": forced-off NEW checkboxes on every preset tab (re-saving
+  would wipe the enabled list), and enabled presets silently skipped at
+  render time — the JA4 verdict map rendered empty and honeypot /
+  bypass-path preset patterns vanished from http.inc.  An unparseable
+  seen_version now means "runs tip" (= nothing is new) at all 10 gate
+  sites (`PresetIsNew`), and saves keep the previous seen_version unless
+  `v<version>` parses as a release number.
+
+- (2026-06-10) **Web Bot Auth actually works in native mode.**  Three fatal flaws in the signed-route -- a header gate that also fired in the verification subrequest, a phantom proxy endpoint, and a filesystem `try_files` on proxied vhosts -- meant the daemon was never consulted (the dlvr.it incident).  Redesigned around `@unmask_signed_continue`; a daemon outage degrades to the normal challenge.  New `web_bot_auth.allow_private_networks`.
+
 ### Added
 - (2026-06-28) **Apache forward-auth captures and LB-gates a forwarded JA4, at parity with nginx.**  Nothing verified that a forwarded `X-Client-JA4` came via a trusted LB, so a direct client could forge one.  The Lua hook forwards the raw TCP peer, and the daemon honours the JA4 only when that peer is a configured trusted LB.  The never-implemented `ja4_source` / `trusted_forward_auth_proxies` keys are removed.
 
@@ -858,12 +1028,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   arm64 builder container the old fallback silently no-op'ed the whole build
   against the amd64 cache).
 
-### Removed
-- (2026-06-15) **Dropped Traefik as a shipped integration -- nginx and Apache only.**  Forward-auth stays HTTP-server-agnostic (`/unmask/api/check` speaks the standard `200/401/403` contract), so it can still be wired by hand; it is no longer a documented sample.
-
-- (2026-06-12) **Dropped Caddy support** (the `unmask-web-caddy` package and its snippet).  The install matrix covers nginx and Apache end-to-end; the Caddy artifacts were never integration-tested.  Forward-auth itself is unchanged.
-
-### Added
 - (2026-06-12) **Roaming clients keep their challenge clearance across
   IP changes (silent rebind).**  `_bv` entries are IP-bound by design (replay
   defense), so a phone hopping cells (5G CGNAT churn) re-solved the PoW once
@@ -882,6 +1046,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   rebind.  The native C plugin is unchanged — rolling this out is an
   admin-binary swap.  On by default; the `rebind:` config block (no settings
   UI) tunes or disables it, and `unmask doctor` reports how the gates resolve.
+
+### Removed
+- (2026-06-15) **Dropped Traefik as a shipped integration -- nginx and Apache only.**  Forward-auth stays HTTP-server-agnostic (`/unmask/api/check` speaks the standard `200/401/403` contract), so it can still be wired by hand; it is no longer a documented sample.
+
+- (2026-06-12) **Dropped Caddy support** (the `unmask-web-caddy` package and its snippet).  The install matrix covers nginx and Apache end-to-end; the Caddy artifacts were never integration-tested.  Forward-auth itself is unchanged.
 
 ### Changed
 - (2026-06-28) **Forward-auth JA4 trust is driven by the trusted-LB list; the `trust_forwarded_ja4` toggle is gone.**  `render-nginx` emits `forward-auth-lbtrust.conf`, which resolves the client JA4 only when the original peer is inside a trusted-LB range -- a direct visitor's spoofed JA4 is dropped at the edge.  One setting for both modes.
@@ -906,6 +1075,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   same.  The placer's fail-safe (it strips the module so nginx still starts
   when no bundled `.so` matches) means the worst case is a visible, recoverable
   `nginx -t` failure, not the silent systemd-era outage this guards.
+
 - (2026-06-12) **The web / plugin sub-packages now pin the `unmask`
   daemon to the exact build version.**  Every sub-package
   (`unmask-web-nginx` / `-apache` / `-caddy`, `unmask-plugin-nginx` and the
@@ -919,6 +1089,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   a single `make release`, so a normal `dnf upgrade` / `apt full-upgrade`
   resolves the whole set in one transaction; only a partial daemon-only
   upgrade is now (intentionally) held until the matching components publish.
+
 - (2026-06-11) **doctor and the daemon now self-check three operator
   mistakes that previously stayed silent**.  `unmask doctor` gained — and the
   daemon now also warns about at startup — a **bv_secret desync**: when the
@@ -1016,170 +1187,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   challenge, query-string survival, the 503 + Retry-After branch, and that
   protection resumes on recovery).
 
-### Fixed
-- (2026-06-19) **`ja4_mismatch` false positives from HTTP/2 <-> HTTP/3 drift on roaming rebind.**  A browser presents a different JA4 over QUIC than over TCP, so `_bvj` refused rebinds on the other transport -- daily, and none were bots.  `_bvj` now stores up to 3 JA4s and matches any.
-
-- (2026-06-19) **Stats queries warn instead of returning a silent zero on timeout.**  A 0 reads as "no traffic", not "could not compute".  Cards now show a warning or "—".
-
-- (2026-06-18) **A roaming `_bvj` whose fingerprint had drifted stranded the holder on repeated PoW.**  It was never re-minted, so each roam failed the JA4 / UA match.  It now re-mints whenever the stored fingerprint no longer matches.
-
-- (2026-06-15) **The Daily-Unique-IPs card timed out on large databases.**  It merged ~65k per-minute HLL sketches in Go (~15s); they are now pre-merged hourly, so the card reads ~720 sketches plus a short tail.
-
-- (2026-06-15) **Two `nginx -t` failures from unmask's rendered config.**  The variable count exceeded nginx's 1024 default (now `variables_hash_max_size 2048`), and the community-bans `map_hash_*` directive was a fatal duplicate on Alpine 3.23's stock conf, silently disabling native mode.  Both guarded.
-
-- (2026-06-13) **Several setup-wizard papercuts.**  Enter no longer triggers Skip, passwords are match-checked client-side, a duplicate username is rejected at the user step, and errors are localized.
-
-- (2026-06-13) **Admin authentication hardening.**  Session signature widened to 128-bit, the setup password is argon2id-hashed the instant it is submitted, reset-token consumption is atomic so a token cannot be redeemed twice, and an unknown role denies instead of admitting everyone.
-
-- (2026-06-13) **Data-integrity and input-sanitization hardening.**  A `UNIQUE` index on user email, manual bans reject `|` and newline so they cannot smuggle a ban-file line, operator paths are sanitized before entering an nginx `include`, logo upload is atomic, and feed-URL logging strips userinfo.
-
-- (2026-06-13) **The challenge primitives are hardened against replay and overflow.**  The CAPTCHA math token is IP-bound with a 15-minute window; the auto-generated `_bv` secret persists to a `0600` sidecar so `render-nginx` and the daemon share one key; a native int64 overflow on 19-digit input is removed; the rate-limiter uses the monotonic clock with a hard map cap.
-
-- (2026-06-13) **The admin web surface is hardened against XSS and cookie leakage.**  Uploaded SVG logos ship a `sandbox` CSP, the challenge page's preview overrides require a same-origin `/admin/` referrer, the flash cookie carries `Secure`, and payload extraction is escape-aware.
-
-- (2026-06-13) **A manual ban could silently widen a honeypot ban into a
-  JA4-wide block (DB-3).**  The ban list keyed UNIQUE(ip, ja4), so manually
-  banning an (ip, ja4) that a honeypot had already auto-banned overwrote the
-  existing row — including its scope.  An `ip_ja4` ban rewritten to `ja4_only`
-  silently expands "this one device" into "every IP presenting this JA4", the
-  exact ranking accident the search-bot rescue (CLAUDE.md #4) guards against,
-  with no signal to the operator.  Scope now joins the conflict/UNIQUE key so a
-  honeypot `ip_ja4` ban and a manual `ja4_only` ban on the same (ip, ja4)
-  coexist as separate rows (the native plugin already matches each scope
-  independently).  Existing databases migrate in place, rows preserved.
-- (2026-06-12) **The forgot-password endpoint is now rate-limited like
-  login (AUTH-5).**  The per-IP admin-login zone (5/min, CAPTCHA on trip)
-  covered only `/admin/login`, leaving `/admin/forgot-password` open: a flood
-  could spam reset emails and clobber a pending reset token (each request
-  overwrites the previous), blocking a legitimate reset.  Both auth-credential
-  endpoints now share the one zone.
-- (2026-06-12) **An operator could be locked out of changing their own
-  password (AUTH-4).**  The profile form hard-capped new passwords at 72 bytes
-  (a bcrypt leftover) while every other path caps at 1024 (argon2), so after an
-  operator reset another user's >72-char passphrase they couldn't set their own
-  through the profile form.  Both paths now share `user.MaxPasswordLen`.
-- (2026-06-12) **A search/AI crawler landing on a honeypot URI could be
-  auto-banned, and a freshly added bypass IP was ignored until restart (M-3 /
-  DB-4).**  The ban manager's bypass allowlist was a literal-IP map snapshotted
-  at startup — it held no preset crawler ranges (Googlebot / Bingbot / GPTBot)
-  and no CIDRs, and never refreshed.  So a crawler range tripping a honeypot got
-  banned (the exact ranking accident the search-bot rescue exists to prevent),
-  and toggling a preset / adding a bypass IP in the admin UI didn't protect it
-  until the next restart.  The allowlist is now the same preset+CIDR matcher the
-  native geo block and forward-auth path use, injected over live settings so a
-  bypass change applies immediately.
-- (2026-06-12) **The placer's verify fail-safe no longer strips a healthy
-  native module over an error that merely mentions an unmask path.**  The
-  "is this nginx -t failure unmask's fault?" classifier matched any error
-  containing `unmask` — including an OPERATOR vhost whose
-  `include /etc/unmask/forward-auth/server.inc` (the documented forward-auth
-  wiring) pointed at a file that did not exist at that instant.  That is
-  exactly the mid-transaction state on a remove→reinstall: the plugin's
-  postinstall verify runs BEFORE unmask-web-nginx lays its files back down,
-  so the fail-safe deleted the just-placed `.so` and autoload conf — and the
-  strip could not even fix the error it reacted to (the operator's include
-  stays).  Found on the install matrix (AlmaLinux 8 carried such a vhost).
-  The classifier now keys on unmask's OWN wiring artifacts only
-  (`ngx_http_unmask*`, `00-unmask*`, `50-mod-unmask.conf`,
-  `/var/lib/unmask/nginx/`); anything else is a host config error that the
-  operator (or the rest of the same package transaction) resolves.
-- (2026-06-12) **The module placer no longer duplicates an
-  operator-managed `load_module` — which used to escalate into the fail-safe
-  stripping a healthy module.**  `place-module.sh` (run before every nginx
-  start via the service drop-in) dropped its `50-mod-unmask.conf` autoload
-  unconditionally whenever a main-scope include dir existed.  If the operator
-  already loaded the module themselves — a hand-added `load_module` line in
-  nginx.conf, or their own conf file in that include dir — nginx saw the
-  directive twice, `nginx -t` failed with "module is already loaded", and the
-  placer's verify fail-safe classified that as an unmask-caused breakage and
-  stripped the module wiring **including the placed `.so`**, leaving the
-  operator's own (now dangling) `load_module` pointing at a deleted file:
-  nginx could not start at all.  Caught by the 9-distro install matrix (every
-  rpm/deb distro's native mode failed this way once the ExecStartPre re-pick
-  ran on restart).  The placer (and the slim plugin postinstall) now detect a
-  foreign `load_module ngx_http_unmask_module` in nginx.conf or any other
-  conf in the include dir, skip dropping their own, and remove a stale drop
-  of ours — self-healing an already-duplicated setup on the next start.
-  Overwriting our own previous drop (the normal re-pick path) is unaffected.
-- (2026-06-12) **A headless browser could clear the behavioral check
-  without ever seeing the math fallback.**  The behavioral score penalized a
-  short `mouseTrail` by a flat -0.3, so a headless Chromium (Playwright /
-  Puppeteer) that reports `hasMouseEvents=true`, a non-zero `windowSize` and an
-  unhurried `clickAt` scored 0.7 and passed on behavioral signal alone — its
-  `.click()` synthesizes the click without the human mousemove run, so the
-  trail is just the single click coordinate.  A trail of ≤1 point (mouse events
-  claimed, yet no actual movement) is now penalized -0.6, dropping that score
-  to 0.4 so the math fallback engages; a merely short trail (2-4 points, a fast
-  but real cursor move) keeps the soft -0.3.  The fallback is math, not denial,
-  so a fast human with a near-empty trail solves an addition rather than being
-  locked out, and a human-like trail is unaffected.
-- (2026-06-12) **The cookie_minute v1→kind/cnt migration is now safe to
-  re-run, so an interrupted MariaDB upgrade can't double historical stats.**
-  The copy INSERTs run in a transaction, but the table rename and the final
-  `DROP TABLE …_v1` are DDL, which auto-commits OUTSIDE that transaction on
-  MariaDB — so a dropped connection in the gap between COMMIT and DROP left the
-  v1 table in place, and the next startup re-ran the copy on top of the
-  already-committed rows, doubling every cookie_minute bucket the dashboard
-  aggregates.  The copy now clears the destination inside its transaction
-  before re-inserting (safe: the migration runs at startup before the daemon
-  serves, and Migrate aborts on error, so a lingering v1 means the table holds
-  only migration output).  Covered by a re-run test that doubles the rows
-  without the guard.
-- (2026-06-12) **The English community-bans "not applied" tooltip no
-  longer shows raw `%d` / `%s`.**  Two catalog strings
-  (`community_bans.below_threshold_title` / `reports_only_title`) carried
-  `fmt.Sprintf` placeholders, but the badge renders them through the plain
-  (non-formatting) `t` template helper, so English readers saw the literal
-  `currently %d` and a bogus `href="%s"` link in the hover popover; the
-  Japanese strings were already placeholder-free.  Rewrote the English to be
-  self-contained.  A new locale test (`TestLocaleFormatVerbParity`) now fails
-  the build if any key's ja/en strings carry mismatched format verbs, so this
-  class of drift can't return.
-- (2026-06-12) **The live settings hot-swap is race-free.**  A request in flight during a save could observe a torn settings struct and mis-evaluate a decision.  It is now an `atomic.Pointer`, tested under `go test -race`.
-
-- (2026-06-11) **A config that omits secret.bv_secret no longer passes
-  doctor while silently breaking the site.**  Load() fills an empty bv_secret
-  with a per-process random key that is never persisted, so render-nginx and
-  the daemon sign / verify _bv with different keys and every visitor loops on
-  the challenge — yet `unmask doctor` checked the post-Load value (a
-  healthy-looking 24-byte string) and reported a false green.  Load() now logs
-  a loud WARNING when it has to fabricate the key, and doctor reads the RAW
-  config so a missing secret is an [ERR], not an [OK].  Only hand-rolled
-  configs are affected (package install runs config-init; docker persists one).
-- (2026-06-11) **A fresh box no longer contacts the hub before setup is
-  finished.**  community-bans register / pull and the managed-mmdb auto-fetch
-  fired on the first daemon start whenever a config path was set — before the
-  operator had opened the install wizard — so an unconfigured box POSTed its
-  public IP + version + publish-country flag to unmask.sh/api/feed/register,
-  and an air-gapped box logged alarming register / fetch failures, both
-  contradicting the README's opt-in framing.  All three are now gated on setup
-  completion (an admin user existing); the wizard's post-completion auto
-  re-exec starts them on the next boot.  The default subscribe mode is
-  unchanged — only the timing of the first contact moves to after the operator
-  has actually set the box up.  Verified: a DB-connected box with no admin user
-  makes zero hub calls; creating the admin user and restarting starts them.
-- (2026-06-11) **Event writes are no longer dropped on a transient DB
-  error.**  The async event flusher logged an insertBulk failure and then
-  cleared the batch, permanently losing those unmask_event rows on a brief
-  SQLite-busy or MariaDB blip.  It now retains the batch and retries on the
-  next tick (matching nginxlog's flushOnce), bounded so a persistent outage
-  can't grow it without limit — overflow drops the oldest events and counts
-  them in a droppedOnError metric kept distinct from the queue-full drop
-  counter.
-- (2026-06-11) **Saving settings on a dev / source build no longer
-  NEW-badges every preset and drops them from the rendered conf.**  Every
-  settings save stamps `seen_version: v<admin version>`; dev builds carry a
-  git hash there (`v6f94983`), which the version parser mapped to v0.0
-  (= oldest).  All preset groups (AddedIn >= v0.1) then counted as
-  "not yet seen": forced-off NEW checkboxes on every preset tab (re-saving
-  would wipe the enabled list), and enabled presets silently skipped at
-  render time — the JA4 verdict map rendered empty and honeypot /
-  bypass-path preset patterns vanished from http.inc.  An unparseable
-  seen_version now means "runs tip" (= nothing is new) at all 10 gate
-  sites (`PresetIsNew`), and saves keep the previous seen_version unless
-  `v<version>` parses as a release number.
-- (2026-06-10) **Web Bot Auth actually works in native mode.**  Three fatal flaws in the signed-route -- a header gate that also fired in the verification subrequest, a phantom proxy endpoint, and a filesystem `try_files` on proxied vhosts -- meant the daemon was never consulted (the dlvr.it incident).  Redesigned around `@unmask_signed_continue`; a daemon outage degrades to the normal challenge.  New `web_bot_auth.allow_private_networks`.
-
 ## [0.1.0] — 2026-05-25
 
 ### Added
@@ -1206,111 +1213,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   of phase pills), so the overview Recent Detections card matches the
   hunt log row-for-row with no separate maintenance path.
 
-### Changed
-- (2026-06-06) **Global CSRF double-submit shim in the admin header
-  tooling**.  A single `init_csrf` injector adds the hidden `_csrf` field
-  on every form submit and the `X-CSRF-Token` header on every `fetch`, so
-  new forms and fetches are covered with no per-form edits.  Replaces the
-  static per-form injection that had silently missed 19 settings forms.
-
-- (2026-06-06) **All admin timestamps render in the operator's cookie
-  timezone**.  Server-side fallbacks and the JS formatter both resolve
-  against the `unmask_tz` cookie, which is now auto-synced from the
-  browser on first hit.  Aggregation stays UTC-at-rest; only the display
-  localizes.
-
-- (2026-05-25) **`bypass_ips` switched to the `enabled_presets` opt-in
-  schema** that `bypass_paths` and `protected_paths` already use.  The
-  yaml field renames from `bypass_ip_disabled_presets` to
-  `bypass_ip_enabled_presets`, and the in-memory `BypassIPEnabledPresets`
-  is a list of IDs to turn ON.  Defaults() ships every shipped group ID
-  in that list so the "search bot rescue" safety net is preserved; new
-  presets in a later release stay OFF until the operator opts in via
-  the existing SeenVersion / IsNew gate.  Existing config.yml files with
-  the old `bypass_ip_disabled_presets` field have it dropped silently on
-  load (= no compat code; the single operator re-toggles whatever they
-  intentionally disabled).
-
-- (2026-05-25) **Light-theme `info-popup` family across every admin
-  page**.  The legacy slate-800 hover popup on hunt / dashboard /
-  overview / settings is now a white card with a slate-300 border,
-  matching the `[data-popover]` chip popovers already used in settings
-  tabs.  Behaviour (hover / click-to-pin / drag / collapse / copy /
-  ESC LIFO) is unchanged; 49 popovers across the admin app become a
-  single visual component.
-
-- (2026-05-25) **Pinned popup is portal'd out of the events table's
-  scroll container** so the phase-help popup on the recent-events panel
-  no longer clips against `.events-scroll`.  The same portal handles
-  the `max-height: <viewport>-2rem` cap when the help body is long.
-
-### Fixed
-- (2026-06-06) **nginx / Apache integration fixes surfaced by the first real
-  multi-mode install-matrix fire** (the matrix's fire-check had silently been
-  install-only since the binary rename, masking these on fresh installs):
-  - **native nginx**: the `unmask-web-nginx` postinstall symlinked the http.inc
-    auto-load at the retired `/etc/unmask/native/http.inc` placeholder instead
-    of the flat `/etc/unmask/http.inc` render path, so the JA4 maps / log_format
-    never loaded and `nginx -t` aborted with `unknown log format`.
-  - **forward-auth nginx**: `forward-auth/server.inc` did `proxy_pass
-    http://unmask_admin` with no upstream defined (the render that once emitted
-    it was retired); the postinstall now writes a default-port `upstream
-    unmask_admin`.  Its `X-Client-JA4` / `X-JA4-*` headers (native-only vars)
-    are commented out so pure forward-auth `nginx -t` passes.
-  - **forward-auth Apache packaging**: `unmask-web-apache` depended on
-    `libapache2-mod-lua` (deb) / `apache2-mod-lua` (apk), neither of which
-    exists; now `apache2` + `lua-socket` (deb) and `apache2-lua` + `lua5.1-socket`
-    (apk, matching Alpine's Lua 5.1 mod_lua).
-  - **http.inc** no longer sets `map_hash_bucket_size`; it conflicted with a
-    host nginx.conf that declares a `map{}` first (e.g. Alpine's stock
-    `map $http_upgrade`), and the default bucket already fits the widest key.
-  Verified end-to-end (install → bot traffic → unmask_event count climbs) for
-  native nginx + forward-auth nginx + forward-auth Apache on AlmaLinux 9,
-  Ubuntu 24.04, and Alpine.
-
-- (2026-06-06) **`known_browser_action` now defaults to `pass`**.  It was unset,
-  which `uaDecide` treats as a PoW challenge, so a fresh install challenged
-  every real-browser visitor on the first hit -- the opposite of the JA4 design
-  (a TLS-confirmed browser should sail through; only a spoofed UA whose JA4
-  mismatches is challenged).  Unknown UAs keep the implicit PoW challenge.
-
-- (2026-06-06) **Stuck hover popovers are dismissed by a hover-reconcile
-  watchdog**.  A fast pointer pass could leave a popover pinned after the
-  cursor had already left its trigger; an rAF-throttled `:hover`
-  ground-truth check now tears the orphaned popover down.
-
-- (2026-06-06) **`/admin/login` carries a rate-limit preset** (5 req/min,
-  captcha_only) so the admin login path is covered by the same preset
-  machinery as the other protected paths, backfilled in-memory without
-  rewriting a sparse `admin.yml`.
-
-- (2026-05-25) **`unmask-plugin-nginx` now declares nginx as a hard
-  install dependency** in the rpm / deb / apk metadata.  Without this,
-  the documented install order (= unmask -> plugin -> web-nginx) ran the
-  plugin's postinstall before nginx existed; postinstall would fall back
-  to `nginx not installed, skipped placing the module` and never lay
-  down `/usr/lib/nginx/modules/ngx_http_unmask_module.so`.  Subsequent
-  steps installed nginx via `unmask-web-nginx` but did not re-trigger
-  the plugin's placement, so `nginx -t` passed but the challenge
-  silently never fired.  Adding `nginx` to Depends/Requires lets the
-  package manager pull nginx in before the plugin postinstall runs, so
-  the matching .so lands on the first install attempt regardless of
-  package order.  Surfaced while adding Ubuntu 22.04 to the CI matrix:
-  the existing distro test VMs all had nginx pre-installed at snapshot
-  time, masking the order issue on fresh boxes.
-
-- (2026-05-25) **Overview help tips no longer get shadowed by local
-  CSS**.  `overview.html` carried a copy of the original dark
-  `.info-popup` rule that won the cascade against the shared
-  `popover-pin.css`, so help tips on the overview page stayed dark even
-  after the global migration.  Removed the duplicate.
-
-<!-- ============================================================
-     Entries from 2026-05-24 and earlier follow.  All part of the
-     same 0.1.0 release; date prefixes provide the timeline.
-     ============================================================ -->
-
-### Added
 - (2026-05-24) **Alpine first-class native-mode support.**  `unmask-plugin-nginx` depends on `gcompat`, so Alpine's musl-linked nginx can dlopen the glibc-built .so; the postinstall detects `http.d/` vs `conf.d/`.  JA4 fingerprinting works on Alpine.
 
 - (2026-05-24) **build-repo.sh apk latest alias**: the apk stage now writes
@@ -1331,44 +1233,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   on captcha appearance, with `prefers-reduced-motion` disabling the
   animation entirely.
 
-### Fixed
-- (2026-05-24) **SELinux blocked the auth_request subrequest on the RHEL family.**  The postinstall now applies `setsebool -P httpd_can_network_connect 1` when Enforcing (opt out with `UNMASK_SKIP_SETSEBOOL=1`).  Fixes "challenge silently does not fire" on alma8 / alma9 / alma10 / centos7.
-
-- (2026-05-24) **postinstall-web-nginx on Alpine**: `mkdir -p
-  /etc/nginx/conf.d` so Alpine (= ships only http.d/ by default but
-  still includes conf.d/*.conf in nginx.conf) accepts the existing
-  conf.d/00-unmask*.conf symlinks without forking the install path.
-
-- (2026-05-24) **install-test-official.sh centos6 quoting**: centos6 has
-  been dropped from the default keys list -- the docker-bullseye legacy
-  SSH proxy mangles `"`-literals in cleanup_rpm / fire_check bodies
-  (`bash: +en: command not found`, `sh: 12: Syntax error: "then"
-  unexpected`).  centos6 stays a manual-verify target per the
-  centos6-support memory; pass `centos6` explicitly to opt in.
-
-### Changed
-- (2026-05-23) **Apache forward-auth is now explicit per-VirtualHost
-  opt-in**: snippets/apache-forward-auth.conf ships with
-  `LuaHookAccessChecker` commented out, matching nginx mode's per-server
-  `include protect.inc;` mental model.  Installing the package no longer
-  silently turns on auth on every VirtualHost; operators add the single
-  LuaHook line inside the `<VirtualHost>` they want to protect.  The
-  global `/unmask/*` ProxyPass stays in conf.d so the admin UI / challenge
-  HTML / static assets remain reachable from every VirtualHost.
-
-- (2026-05-23) **Install-page nginx config examples reorganised** so the three shared elements are fixed across scopes and only the `protect.inc` placement varies.
-
-- (2026-05-24) **CI workflow** (= .github/workflows/ci.yml): Go 1.22 →
-  1.25 to match go.mod and release.yml; push / pull_request triggers
-  now include the multi-site branch (= the current v0.1 dev branch).
-
-- (2026-05-23) **README + LP product tone sweep**: dropped "handled when
-  time permits" hedge in README status; LP TOP use case 03 rewritten to
-  "SaaS-non-outsourced"; competitor product names removed across LP / docs;
-  "nginx" generalised to "httpd" where the message applies to multiple
-  HTTP servers.
-
-### Added
 - (2026-05-19) **IP-geo (ipgeo) UX overhaul**: per-country geo rules, one-click DB-IP Lite install (`unmask install-ipgeo`), a network-tab radio (DB-IP / custom / none), and vendor detection badges.  Renamed from `geoip` to `ipgeo` for trademark distance; DB-IP Lite is downloaded on demand under CC BY 4.0.
 
 - (2026-05-19) **Per-country Geo rule axis** (`settings.geo`): rule list
@@ -1412,91 +1276,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   geo-deny path.  `e2e/scenarios/11-bv-cookie-shadow.sh` guards against
   the duplicate `_bv` cookie regression.
 
-### Fixed
-- (2026-05-19) **`_bv` cookie iteration bug**: nginx C plugin and Go
-  admin both returned the first `_bv` cookie only.  A stale invalid
-  cookie shadowing the freshly-set one would loop visitors through
-  challenge forever.  Both sides now iterate every `_bv` and accept
-  the first that verifies.  challenge.js additionally evicts stale
-  copies at every ancestor path before setting the new one.
-
-- (2026-05-19) **Native-mode `@unmask_rate_challenge` undefined** in
-  server.inc.tmpl: rate-limit 429 fell through to nginx's default 500
-  page.  Added the named location matching the auth_request mode.
-
-- (2026-05-19) **Audit page rendered only 1 row** due to template loop
-  referencing `.Lang` instead of `$.Lang` (template-context shadowing).
-
-- (2026-05-19) **`index out of range` panic** in protected / honeypot /
-  ja4-verdicts settings tabs when `Extra*Action` parallel arrays were
-  shorter than the canonical rule list.  Pad in handler before render.
-
-- (2026-05-07) **Eliminated all `bot_*` / `suspect_*` prefix hardcoding from
-  JA4 bot judgement**. Verdict names are user-defined (= the action enum is the
-  source of truth), but the dashboard SQL and `classify.IsBot` still used
-  <code>LIKE 'bot_%'</code> / <code>HasPrefix("bot_")</code>. When a user
-  registered an extra rule like <code>verdict="my_internal_tool", action="bot"</code>
-  in settings, **stealth counts / StealthRow / classify analytics dropped it**.<br>
-  Fix:<br>
-  - Added <code>dashboard.BotVerdictNames(settings.Nginx)</code> helper (collects
-    verdict names with action=bot/suspect from all presets + extra rules).<br>
-  - Changed <code>Funnel</code> / <code>StealthPassed</code> /
-    <code>DailyServeByKind</code> / <code>rateLimitFunnelRow</code> SQL to
-    <code>IN (?, ?, ...)</code>, with the handler passing the bot-verdict list.<br>
-  - Changed <code>classify.IsBot</code> signature to
-    <code>(ua, ja4Action string)</code> (prefix check removed, direct comparison
-    against the action enum's <code>"bot"</code> / <code>"suspect"</code>).
-    Callers (auth_check / playground / queries) updated accordingly.<br>
-  - Replaced the hardcoded <code>fixedVerdicts</code> array with dynamic
-    generation from <code>nginxconf.JA4VerdictGroups</code>. Preset additions
-    are picked up automatically.<br>
-  - New shared helper <code>nginxconf.IsBotAction</code> (action-enum check).<br>
-  Comments and docstrings that mentioned "judged as bot_*" were also corrected.
-
-- (2026-05-07) **Fixed `admin_allow_from` having no effect on existing-site deploys** that include only `unmask-locations.inc`.  An equivalent check now runs at the handler layer (`AdminIPAllowMiddleware`), matching `X-Real-IP` / `X-Forwarded-For` against exact and CIDR entries.  The default changed from loopback-only to empty (= allow all) to avoid lockouts.
-
-- (2026-05-07) **Fixed JA4 / verdict always NULL in check-phase events.**  The values were extracted but not passed to the insert.  Requests where the LB provides no `X-Client-JA4` remain empty.
-
-- (2026-05-07) **Fixed UTC appearing under the TZ picker's "browser auto".**  Rows now carry unix seconds (`data-ts`) and are formatted client-side in the picker timezone.
-
-### Changed
-- (2026-05-07) Show `check` phase entries on hunt / overview / live-tail
-  as **`check(pass)` / `check(block)`**. The <code>action</code> value inside
-  payload_json is extracted server-side (simple string search; JSON parse would
-  be overkill) into Row.Action. Pill colors are
-  <code>ph-check-pass</code> (green) / <code>ph-check-block</code> (red) for
-  visibility. When you see just "check", you can now immediately tell whether
-  the request was passed or blocked.
-
-- (2026-05-07) Switched settings error messages to **flash cookies**.
-  Long error text used to ride on the URL via <code>?err=...</code>, which
-  looked ugly. Now it's written to a short-lived cookie (60s) on redirect, and
-  the next GET's readFlash consumes and displays it. Applied to: settings /
-  bans / users / hunt / profile.<br>
-  Also **removed required validation** for <code>admin_allow_from</code> /
-  <code>metrics_allow_from</code> (empty = allow all is already handled at the
-  middleware). A missing setting no longer fails save outright; it falls
-  through as "allow all, restrict later".
-
-- (2026-05-07) Improved the dashboard 30-day stacked bar chart:<br>
-  - Removed the hard cap (60px) on bar width; bars are now a constant
-    <code>colW × 0.7</code> ratio. With few observed days (2 days / a few),
-    bars expand to fill the column. Matches the feel of an internal reference
-    dashboard.<br>
-  - Legend chips are now **click-to-toggle kind visibility**. Hidden items get
-    a strikethrough and gray swatch. State persists in <code>localStorage</code>
-    per canvas (reload preserves which kind is hidden). Hidden kinds are
-    excluded from the y-axis max calculation and the popover, so the scale
-    adjusts cleanly.
-
-### Performance
-- (2026-05-07) **Resolved frequent "(connection error)" on SSE.**  Heartbeat 30s -> 20s (GCP HTTPS LB cuts idle backends at 30s), and an auto-retrying `EventSource` now reads "(reconnecting)" instead of an error.
-
-- (2026-05-07) **Live-tail lightening, round 2.**  SSE poll 1s -> 2s, the tail pauses when scrolled off-screen or after 5 minutes idle, and the scroll listener is passive.
-
-- (2026-05-07) **Lightened live tail under high traffic.**  rAF-batched inserts (reflow capped at 60/s), disconnect while the tab is hidden, and a scroll-aware pause that buffers new events while reading older ones.
-
-### Added
 - (2026-05-07) Install guide's **mode comparison cards are now clickable**.
   Cards carry a <code>data-pick</code> attribute and click handler that
   updates the mode dropdown and toggles the related section. The selected
@@ -1559,30 +1338,108 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `reset_password` op on `/admin/users/` (confirmation step + audit log
   `user_change_own_password`).
 
-### Fixed
-- (2026-05-07) Fixed broken header layout on the playground (right
-  side: language / TZ picker + user_menu). The inline `<style>` was missing
-  the CSS (`.picker` / `.user-menu`) for the `lang_tz_picker` / `user_menu`
-  partial templates.
-- (2026-05-07) Fixed **right-aligned numbers not taking effect** in
-  dashboard / stats tables. `.bcd-table th, .bcd-table td { text-align:left }`
-  specificity (0,1,1) was overriding `.bcd-num` (0,1,0), so even cells with
-  `bcd-num` rendered left-aligned. Changed the selector to
-  `.bcd-table th.bcd-num, .bcd-table td.bcd-num` for specificity (0,2,1)
-  that wins.
-
 ### Changed
+- (2026-06-06) **Global CSRF double-submit shim in the admin header
+  tooling**.  A single `init_csrf` injector adds the hidden `_csrf` field
+  on every form submit and the `X-CSRF-Token` header on every `fetch`, so
+  new forms and fetches are covered with no per-form edits.  Replaces the
+  static per-form injection that had silently missed 19 settings forms.
+
+- (2026-06-06) **All admin timestamps render in the operator's cookie
+  timezone**.  Server-side fallbacks and the JS formatter both resolve
+  against the `unmask_tz` cookie, which is now auto-synced from the
+  browser on first hit.  Aggregation stays UTC-at-rest; only the display
+  localizes.
+
+- (2026-05-25) **`bypass_ips` switched to the `enabled_presets` opt-in
+  schema** that `bypass_paths` and `protected_paths` already use.  The
+  yaml field renames from `bypass_ip_disabled_presets` to
+  `bypass_ip_enabled_presets`, and the in-memory `BypassIPEnabledPresets`
+  is a list of IDs to turn ON.  Defaults() ships every shipped group ID
+  in that list so the "search bot rescue" safety net is preserved; new
+  presets in a later release stay OFF until the operator opts in via
+  the existing SeenVersion / IsNew gate.  Existing config.yml files with
+  the old `bypass_ip_disabled_presets` field have it dropped silently on
+  load (= no compat code; the single operator re-toggles whatever they
+  intentionally disabled).
+
+- (2026-05-25) **Light-theme `info-popup` family across every admin
+  page**.  The legacy slate-800 hover popup on hunt / dashboard /
+  overview / settings is now a white card with a slate-300 border,
+  matching the `[data-popover]` chip popovers already used in settings
+  tabs.  Behaviour (hover / click-to-pin / drag / collapse / copy /
+  ESC LIFO) is unchanged; 49 popovers across the admin app become a
+  single visual component.
+
+- (2026-05-25) **Pinned popup is portal'd out of the events table's
+  scroll container** so the phase-help popup on the recent-events panel
+  no longer clips against `.events-scroll`.  The same portal handles
+  the `max-height: <viewport>-2rem` cap when the help body is long.
+
+- (2026-05-23) **Apache forward-auth is now explicit per-VirtualHost
+  opt-in**: snippets/apache-forward-auth.conf ships with
+  `LuaHookAccessChecker` commented out, matching nginx mode's per-server
+  `include protect.inc;` mental model.  Installing the package no longer
+  silently turns on auth on every VirtualHost; operators add the single
+  LuaHook line inside the `<VirtualHost>` they want to protect.  The
+  global `/unmask/*` ProxyPass stays in conf.d so the admin UI / challenge
+  HTML / static assets remain reachable from every VirtualHost.
+
+- (2026-05-23) **Install-page nginx config examples reorganised** so the three shared elements are fixed across scopes and only the `protect.inc` placement varies.
+
+- (2026-05-24) **CI workflow** (= .github/workflows/ci.yml): Go 1.22 →
+  1.25 to match go.mod and release.yml; push / pull_request triggers
+  now include the multi-site branch (= the current v0.1 dev branch).
+
+- (2026-05-23) **README + LP product tone sweep**: dropped "handled when
+  time permits" hedge in README status; LP TOP use case 03 rewritten to
+  "SaaS-non-outsourced"; competitor product names removed across LP / docs;
+  "nginx" generalised to "httpd" where the message applies to multiple
+  HTTP servers.
+
+- (2026-05-07) Show `check` phase entries on hunt / overview / live-tail
+  as **`check(pass)` / `check(block)`**. The <code>action</code> value inside
+  payload_json is extracted server-side (simple string search; JSON parse would
+  be overkill) into Row.Action. Pill colors are
+  <code>ph-check-pass</code> (green) / <code>ph-check-block</code> (red) for
+  visibility. When you see just "check", you can now immediately tell whether
+  the request was passed or blocked.
+
+- (2026-05-07) Switched settings error messages to **flash cookies**.
+  Long error text used to ride on the URL via <code>?err=...</code>, which
+  looked ugly. Now it's written to a short-lived cookie (60s) on redirect, and
+  the next GET's readFlash consumes and displays it. Applied to: settings /
+  bans / users / hunt / profile.<br>
+  Also **removed required validation** for <code>admin_allow_from</code> /
+  <code>metrics_allow_from</code> (empty = allow all is already handled at the
+  middleware). A missing setting no longer fails save outright; it falls
+  through as "allow all, restrict later".
+
+- (2026-05-07) Improved the dashboard 30-day stacked bar chart:<br>
+  - Removed the hard cap (60px) on bar width; bars are now a constant
+    <code>colW × 0.7</code> ratio. With few observed days (2 days / a few),
+    bars expand to fill the column. Matches the feel of an internal reference
+    dashboard.<br>
+  - Legend chips are now **click-to-toggle kind visibility**. Hidden items get
+    a strikethrough and gray swatch. State persists in <code>localStorage</code>
+    per canvas (reload preserves which kind is hidden). Hidden kinds are
+    excluded from the y-axis max calculation and the popover, so the scale
+    adjusts cleanly.
+
 - (2026-05-07) **Right-aligned values** in overview KPI cards. Numbers
   line up cleanly even as digit counts grow.
+
 - (2026-05-07) Added **thousands separators** to overview hero / KPI
   values (via the `comma` template func). Improves readability past 4
   digits.
+
 - (2026-05-07) Cleaned up faint-cell styling in dashboard funnel
   tables. Removed <code>n-zero</code> (extra-faint gray for 0) on rl,
   <code>n-muted</code> on uniq IP, and <code>n-faint</code> on silent in
   favor of normal coloring. Alert highlighting remains:
   <code>n-warn</code> orange for rl > 0, <code>n-stealth</code> red bold for
   stealth > 0.
+
 - (2026-05-07) Reordered dashboard funnel-table columns to prioritize
   the main flow. New order:
   `verdict / serve / load / pow / captcha / verify_ok / verify_ng / cookie_err /
@@ -1590,23 +1447,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   rl / uniq IP / silent / stealth are auxiliary observation metrics and
   moved to the end.
 
-### Fixed
-- (2026-05-07) Fixed **`action=bot` JA4 verdicts going through the PoW
-  path**. Cause: `ServeChallenge` required the `X-JA4-Action` header, but
-  deploys whose nginx snippet only forwards the verdict ended up with
-  `ja4_hit_flag=0`. Added a fallback so that when X-JA4-Action is absent, the
-  action is resolved from X-Client-JA4 via settings (preset / extra rule).
-  Verdict labels are free-form strings; the Action enum (bot / suspect / ok)
-  should be the source of truth instead of prefix checks.<br>
-  Verified on production: after deploy, bot-classified JA4 traffic proceeds
-  `serve.hit=1` → load → captcha, with zero pow events.
-
-### Changed
 - (2026-05-07) **Install wizard DB step keeps form values on connection
   failure**. The failure redirect's query string now embeds
   <code>driver / sqlite_path / mariadb_host / mariadb_port /
   mariadb_database / mariadb_user</code>, which <code>AdminSetupIndex</code>
   overlays. Only the password is wiped (re-entered each time).
+
 - (2026-05-07) **Removed bootstrap admin auto-seed; introduced setup
   wizard token auth**. Post-rpm/deb/apk install behavior now follows the
   cacti / zabbix / nextcloud convention:<br>
@@ -1624,6 +1470,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   &lt;pw&gt;</code>.<br>
   `postinstall.sh`'s automatic <code>migrate</code> invocation was also
   removed (migration runs at the wizard's DB step after driver selection).
+
 - (2026-05-07) Rewrote the README "Operating modes" section.
   - Documented that with an LB (GCP / Cloudflare etc.) that supplies the
     <code>X-Client-JA4</code> header, auth_request mode also gets full
@@ -1634,6 +1481,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   - Added a recommended-mode matrix: "nginx-heavy + high traffic = native /
     Apache etc. + LB JA4 = auth_request + LB JA4 / Docker / trial =
     auth_request".
+
 - (2026-05-07) Extended the **IP / UA / JA4 rankings** on the bot-hunt
   tab to show a badge in place of a button for already-registered items.<br>
   - IP: "BAN'd" if in <code>unmask_ban</code>, "bypass" if in
@@ -1644,6 +1492,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   Implementation: added <code>lookupUAListed</code> in
   <code>auth_check.go</code>; the hunt handler now resolves IP / UA already-
   registered status too.
+
 - (2026-05-07) On the bot-hunt tab's JA4 ranking, JA4s already in
   preset / extra now show a **verdict badge + source tooltip**
   ("preset:rotating_proxy" etc.) in place of the "Register JA4 as bot"
@@ -1652,20 +1501,153 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   <code>matchJA4</code> with <code>lookupJA4Verdict</code> (with source
   info), shared by the hunt handler.
 
-### Performance
-- (2026-05-07) Improved `/admin/stats/` dashboard response time from
-  **8s → 0.6s** (13x). Cause: <code>DailyServeByKind</code>'s 30-day ×
-  distinct UA × verdict aggregation ran <code>classify.IsBot</code>'s
-  647-alternation big regex once per row, millions of evaluations per page.<br>
-  Mitigations:<br>
-  1. Added a memoize cache on the <code>(ua, verdict)</code> tuple.<br>
-  2. Expanded SQLite connection pool <code>SetMaxOpenConns(1) → 8</code>
-     (WAL mode allows parallel readers) + <code>cache_size 20MB</code> +
-     <code>mmap_size 256MB</code> + <code>busy_timeout 5s</code>.<br>
-  3. The stats handler now uses per-query timeouts in independent contexts,
-     so heavy queries don't drag down the others.
-
 ### Fixed
+- (2026-06-06) **nginx / Apache integration fixes surfaced by the first real
+  multi-mode install-matrix fire** (the matrix's fire-check had silently been
+  install-only since the binary rename, masking these on fresh installs):
+  - **native nginx**: the `unmask-web-nginx` postinstall symlinked the http.inc
+    auto-load at the retired `/etc/unmask/native/http.inc` placeholder instead
+    of the flat `/etc/unmask/http.inc` render path, so the JA4 maps / log_format
+    never loaded and `nginx -t` aborted with `unknown log format`.
+  - **forward-auth nginx**: `forward-auth/server.inc` did `proxy_pass
+    http://unmask_admin` with no upstream defined (the render that once emitted
+    it was retired); the postinstall now writes a default-port `upstream
+    unmask_admin`.  Its `X-Client-JA4` / `X-JA4-*` headers (native-only vars)
+    are commented out so pure forward-auth `nginx -t` passes.
+  - **forward-auth Apache packaging**: `unmask-web-apache` depended on
+    `libapache2-mod-lua` (deb) / `apache2-mod-lua` (apk), neither of which
+    exists; now `apache2` + `lua-socket` (deb) and `apache2-lua` + `lua5.1-socket`
+    (apk, matching Alpine's Lua 5.1 mod_lua).
+  - **http.inc** no longer sets `map_hash_bucket_size`; it conflicted with a
+    host nginx.conf that declares a `map{}` first (e.g. Alpine's stock
+    `map $http_upgrade`), and the default bucket already fits the widest key.
+  Verified end-to-end (install → bot traffic → unmask_event count climbs) for
+  native nginx + forward-auth nginx + forward-auth Apache on AlmaLinux 9,
+  Ubuntu 24.04, and Alpine.
+
+- (2026-06-06) **`known_browser_action` now defaults to `pass`**.  It was unset,
+  which `uaDecide` treats as a PoW challenge, so a fresh install challenged
+  every real-browser visitor on the first hit -- the opposite of the JA4 design
+  (a TLS-confirmed browser should sail through; only a spoofed UA whose JA4
+  mismatches is challenged).  Unknown UAs keep the implicit PoW challenge.
+
+- (2026-06-06) **Stuck hover popovers are dismissed by a hover-reconcile
+  watchdog**.  A fast pointer pass could leave a popover pinned after the
+  cursor had already left its trigger; an rAF-throttled `:hover`
+  ground-truth check now tears the orphaned popover down.
+
+- (2026-06-06) **`/admin/login` carries a rate-limit preset** (5 req/min,
+  captcha_only) so the admin login path is covered by the same preset
+  machinery as the other protected paths, backfilled in-memory without
+  rewriting a sparse `admin.yml`.
+
+- (2026-05-25) **`unmask-plugin-nginx` now declares nginx as a hard
+  install dependency** in the rpm / deb / apk metadata.  Without this,
+  the documented install order (= unmask -> plugin -> web-nginx) ran the
+  plugin's postinstall before nginx existed; postinstall would fall back
+  to `nginx not installed, skipped placing the module` and never lay
+  down `/usr/lib/nginx/modules/ngx_http_unmask_module.so`.  Subsequent
+  steps installed nginx via `unmask-web-nginx` but did not re-trigger
+  the plugin's placement, so `nginx -t` passed but the challenge
+  silently never fired.  Adding `nginx` to Depends/Requires lets the
+  package manager pull nginx in before the plugin postinstall runs, so
+  the matching .so lands on the first install attempt regardless of
+  package order.  Surfaced while adding Ubuntu 22.04 to the CI matrix:
+  the existing distro test VMs all had nginx pre-installed at snapshot
+  time, masking the order issue on fresh boxes.
+
+- (2026-05-25) **Overview help tips no longer get shadowed by local
+  CSS**.  `overview.html` carried a copy of the original dark
+  `.info-popup` rule that won the cascade against the shared
+  `popover-pin.css`, so help tips on the overview page stayed dark even
+  after the global migration.  Removed the duplicate.
+<!-- ============================================================
+     Entries from 2026-05-24 and earlier follow.  All part of the
+     same 0.1.0 release; date prefixes provide the timeline.
+     ============================================================ -->
+
+- (2026-05-24) **SELinux blocked the auth_request subrequest on the RHEL family.**  The postinstall now applies `setsebool -P httpd_can_network_connect 1` when Enforcing (opt out with `UNMASK_SKIP_SETSEBOOL=1`).  Fixes "challenge silently does not fire" on alma8 / alma9 / alma10 / centos7.
+
+- (2026-05-24) **postinstall-web-nginx on Alpine**: `mkdir -p
+  /etc/nginx/conf.d` so Alpine (= ships only http.d/ by default but
+  still includes conf.d/*.conf in nginx.conf) accepts the existing
+  conf.d/00-unmask*.conf symlinks without forking the install path.
+
+- (2026-05-24) **install-test-official.sh centos6 quoting**: centos6 has
+  been dropped from the default keys list -- the docker-bullseye legacy
+  SSH proxy mangles `"`-literals in cleanup_rpm / fire_check bodies
+  (`bash: +en: command not found`, `sh: 12: Syntax error: "then"
+  unexpected`).  centos6 stays a manual-verify target per the
+  centos6-support memory; pass `centos6` explicitly to opt in.
+
+- (2026-05-19) **`_bv` cookie iteration bug**: nginx C plugin and Go
+  admin both returned the first `_bv` cookie only.  A stale invalid
+  cookie shadowing the freshly-set one would loop visitors through
+  challenge forever.  Both sides now iterate every `_bv` and accept
+  the first that verifies.  challenge.js additionally evicts stale
+  copies at every ancestor path before setting the new one.
+
+- (2026-05-19) **Native-mode `@unmask_rate_challenge` undefined** in
+  server.inc.tmpl: rate-limit 429 fell through to nginx's default 500
+  page.  Added the named location matching the auth_request mode.
+
+- (2026-05-19) **Audit page rendered only 1 row** due to template loop
+  referencing `.Lang` instead of `$.Lang` (template-context shadowing).
+
+- (2026-05-19) **`index out of range` panic** in protected / honeypot /
+  ja4-verdicts settings tabs when `Extra*Action` parallel arrays were
+  shorter than the canonical rule list.  Pad in handler before render.
+
+- (2026-05-07) **Eliminated all `bot_*` / `suspect_*` prefix hardcoding from
+  JA4 bot judgement**. Verdict names are user-defined (= the action enum is the
+  source of truth), but the dashboard SQL and `classify.IsBot` still used
+  <code>LIKE 'bot_%'</code> / <code>HasPrefix("bot_")</code>. When a user
+  registered an extra rule like <code>verdict="my_internal_tool", action="bot"</code>
+  in settings, **stealth counts / StealthRow / classify analytics dropped it**.<br>
+  Fix:<br>
+  - Added <code>dashboard.BotVerdictNames(settings.Nginx)</code> helper (collects
+    verdict names with action=bot/suspect from all presets + extra rules).<br>
+  - Changed <code>Funnel</code> / <code>StealthPassed</code> /
+    <code>DailyServeByKind</code> / <code>rateLimitFunnelRow</code> SQL to
+    <code>IN (?, ?, ...)</code>, with the handler passing the bot-verdict list.<br>
+  - Changed <code>classify.IsBot</code> signature to
+    <code>(ua, ja4Action string)</code> (prefix check removed, direct comparison
+    against the action enum's <code>"bot"</code> / <code>"suspect"</code>).
+    Callers (auth_check / playground / queries) updated accordingly.<br>
+  - Replaced the hardcoded <code>fixedVerdicts</code> array with dynamic
+    generation from <code>nginxconf.JA4VerdictGroups</code>. Preset additions
+    are picked up automatically.<br>
+  - New shared helper <code>nginxconf.IsBotAction</code> (action-enum check).<br>
+  Comments and docstrings that mentioned "judged as bot_*" were also corrected.
+
+- (2026-05-07) **Fixed `admin_allow_from` having no effect on existing-site deploys** that include only `unmask-locations.inc`.  An equivalent check now runs at the handler layer (`AdminIPAllowMiddleware`), matching `X-Real-IP` / `X-Forwarded-For` against exact and CIDR entries.  The default changed from loopback-only to empty (= allow all) to avoid lockouts.
+
+- (2026-05-07) **Fixed JA4 / verdict always NULL in check-phase events.**  The values were extracted but not passed to the insert.  Requests where the LB provides no `X-Client-JA4` remain empty.
+
+- (2026-05-07) **Fixed UTC appearing under the TZ picker's "browser auto".**  Rows now carry unix seconds (`data-ts`) and are formatted client-side in the picker timezone.
+
+- (2026-05-07) Fixed broken header layout on the playground (right
+  side: language / TZ picker + user_menu). The inline `<style>` was missing
+  the CSS (`.picker` / `.user-menu`) for the `lang_tz_picker` / `user_menu`
+  partial templates.
+
+- (2026-05-07) Fixed **right-aligned numbers not taking effect** in
+  dashboard / stats tables. `.bcd-table th, .bcd-table td { text-align:left }`
+  specificity (0,1,1) was overriding `.bcd-num` (0,1,0), so even cells with
+  `bcd-num` rendered left-aligned. Changed the selector to
+  `.bcd-table th.bcd-num, .bcd-table td.bcd-num` for specificity (0,2,1)
+  that wins.
+
+- (2026-05-07) Fixed **`action=bot` JA4 verdicts going through the PoW
+  path**. Cause: `ServeChallenge` required the `X-JA4-Action` header, but
+  deploys whose nginx snippet only forwards the verdict ended up with
+  `ja4_hit_flag=0`. Added a fallback so that when X-JA4-Action is absent, the
+  action is resolved from X-Client-JA4 via settings (preset / extra rule).
+  Verdict labels are free-form strings; the Action enum (bot / suspect / ok)
+  should be the source of truth instead of prefix checks.<br>
+  Verified on production: after deploy, bot-classified JA4 traffic proceeds
+  `serve.hit=1` → load → captcha, with zero pow events.
+
 - (2026-05-07) Fixed cookie-traffic card **mixing bv (CAPTCHA pass) and
   bp (PoW pass)**. The earlier (11:55) fix that made 4-segment PoW cookies
   valid caused everything to count under bv. Fix: split cookie format into
@@ -1673,6 +1655,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   (<code>bv-captcha</code> / <code>bv-pow</code>), so Bump routes to the
   correct column. The funnel-captcha 0 vs cookie-bv 11 discrepancy is
   resolved.
+
 - (2026-05-07) Fixed auth_request mode **unable to verify the `_bv`
   cookie for the PoW path**. challenge.js sets <code>_bv</code> in
   <code>day.djb2hash.target.flags</code> (4-segment / djb2 hash) on PoW
@@ -1684,15 +1667,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   and validating on match. PoW-passing users now have a valid
   <code>_bv</code>, and the cookie-traffic card's bv column carries a
   value.
+
 - (2026-05-07) Fixed auth_request mode's <code>NginxLog.Bump</code>
   always passing **`bp` (= _br cookie present) as false**. Now classifies
   based on the actual presence of <code>_br</code>.
+
 - (2026-05-07) Fixed auth_request mode ignoring settings'
   **ChallengeTargetGroups** (= UA filter / target UA preset). With
   <code>known_browser</code> ON by default, Chrome UAs passed through (zero
   load/PoW events on verdict=ok). The final branch of human classify now
   calls <code>lookupUAListed</code> and routes to challenge if listed +
   category=challenge.
+
 - (2026-05-07) Fixed the challenge HTML's
   `<script src="../static/challenge.js">` **relative path** that worked
   only under narrow conditions. In auth_request mode, when challenge HTML
@@ -1701,24 +1687,47 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   `/unmask/static/...` → flows to the backend, 404 / wrong file → JS does
   not run → no load / PoW events. Switched to absolute path
   `/unmask/static/challenge.js`.
+
 - (2026-05-07) Bot-hunt / SSE / dashboard event datetime: the SQLite
   driver sometimes returns ISO 8601 `2026-05-06T19:55:14Z`. Normalized
   at `events.Row.Date` construction to a unified `2026-05-06 19:55:14`
   format (space separator, no TZ, truncate ms).
+
 - (2026-05-07) Auth_request mode event duplication: one request
   produced two events, `check` (AuthCheck) and `serve` (ServeChallenge).
   Since ServeChallenge always records a serve event for challenge actions,
   AuthCheck now skips the check event on challenge actions (records only
   when action != "challenge"). Pass / block still record the check event
   (no serve follows). Bot-hunt tab now shows one row per request.
+
 - (2026-05-07) Dashboard popover (help text) not showing. Cause:
   the html/template `<script>` context was double-quoting the `safeHTML`
   string as a JS literal (state: `"{\"flags.flags\":\"..."`). Fix:
   wrapped `helpJSON`'s return in `template.JS` and removed `| safeHTML`
   from dashboard.html.
+
 - (2026-05-07) Added logic to read X-Client-JA4 / X-Original-JA4
   headers in auth_request mode and judge JA4 verdict. With GCP LB etc.,
   JA4 fingerprint-based bot judgement now works without nginx-module.
+
+### Performance
+- (2026-05-07) **Resolved frequent "(connection error)" on SSE.**  Heartbeat 30s -> 20s (GCP HTTPS LB cuts idle backends at 30s), and an auto-retrying `EventSource` now reads "(reconnecting)" instead of an error.
+
+- (2026-05-07) **Live-tail lightening, round 2.**  SSE poll 1s -> 2s, the tail pauses when scrolled off-screen or after 5 minutes idle, and the scroll listener is passive.
+
+- (2026-05-07) **Lightened live tail under high traffic.**  rAF-batched inserts (reflow capped at 60/s), disconnect while the tab is hidden, and a scroll-aware pause that buffers new events while reading older ones.
+
+- (2026-05-07) Improved `/admin/stats/` dashboard response time from
+  **8s → 0.6s** (13x). Cause: <code>DailyServeByKind</code>'s 30-day ×
+  distinct UA × verdict aggregation ran <code>classify.IsBot</code>'s
+  647-alternation big regex once per row, millions of evaluations per page.<br>
+  Mitigations:<br>
+  1. Added a memoize cache on the <code>(ua, verdict)</code> tuple.<br>
+  2. Expanded SQLite connection pool <code>SetMaxOpenConns(1) → 8</code>
+     (WAL mode allows parallel readers) + <code>cache_size 20MB</code> +
+     <code>mmap_size 256MB</code> + <code>busy_timeout 5s</code>.<br>
+  3. The stats handler now uses per-query timeouts in independent contexts,
+     so heavy queries don't drag down the others.
 
 ## [0.1.0-pre] — 2026-05-07
 
