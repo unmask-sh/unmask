@@ -221,10 +221,11 @@ table.events{table-layout:fixed;width:100%}
    machine-generated text in a content-sized column: one such row widened the
    JA4 card to 623px and left the UA card 31px.  Clip it -- the JA4 it was
    generated from is on the same row, so nothing is lost by not spelling it. */
-/* .cellpop: when the pill is clipped (a long verdict name, a chain like
-   pow_then_captcha), hovering it shows the full value in the popover the
-   event table's cells use; an unclipped pill stays quiet (user). */
-.rank-registered{display:inline-block;max-width:6.5rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+/* Clipped at about a button's width so the pill never widens the action
+   column; the full value (a verdict name, a chain like pow_then_captcha)
+   is in the popover -- .cellpop shows it on hover when the pill is clipped
+   and stays quiet when it is not (user). */
+.rank-registered{display:inline-block;max-width:4.5rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 .asn-filter-chip{display:inline-block;padding:.15rem .45rem;border:1px solid #cbd5e1;border-radius:.25rem;font-size:.78rem;font-family:ui-monospace,Menlo,monospace;background:#f8fafc}
 /* UA card only: single line + clipped at the right edge.  Consume the full rank-grid 1fr without wrapping.
  * grid items need min-width:0 before they can shrink below min-content (= default is min-content).
