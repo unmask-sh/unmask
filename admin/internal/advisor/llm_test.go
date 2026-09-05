@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -154,6 +155,58 @@ func TestReviewCandidatesRefusalAndHTTPError(t *testing.T) {
 	_, err := ReviewCandidates(context.Background(), cfg, sampleCandidates())
 	if err == nil || !strings.Contains(err.Error(), "invalid x-api-key") {
 		t.Errorf("provider error should reach the operator, got %v", err)
+	}
+}
+
+// A transient provider failure is retried once and only once: 503 then a
+// good answer succeeds in two calls, the attempt's own timeout is retried
+// the same way, and a permanent failure (401) is not retried.
+func TestReviewRetriesTransientFailuresOnce(t *testing.T) {
+	origBackoff, origTimeout := retryBackoff, providerTimeout
+	retryBackoff, providerTimeout = 0, 300*time.Millisecond
+	t.Cleanup(func() { retryBackoff, providerTimeout = origBackoff, origTimeout })
+	good := `{"stop_reason":"end_turn","content":[{"type":"text","text":"{\"reviews\":[{\"target\":\"203.0.113.10\",\"priority\":\"high\",\"reasoning\":\"scanner\"}]}"}]}`
+
+	var calls int32
+	flaky := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			http.Error(w, `{"error":{"type":"overloaded_error"}}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(good))
+	}))
+	defer flaky.Close()
+	cfg := settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k", Endpoint: flaky.URL}
+	got, err := ReviewCandidates(context.Background(), cfg, sampleCandidates())
+	if err != nil || got["203.0.113.10"].Reasoning != "scanner" || atomic.LoadInt32(&calls) != 2 {
+		t.Fatalf("503 then 200: err=%v calls=%d got=%+v", err, atomic.LoadInt32(&calls), got)
+	}
+
+	atomic.StoreInt32(&calls, 0)
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if atomic.AddInt32(&calls, 1) == 1 {
+			time.Sleep(800 * time.Millisecond) // past providerTimeout: the first attempt times out
+			return
+		}
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(good))
+	}))
+	defer slow.Close()
+	cfg.Endpoint = slow.URL
+	if got, err := ReviewCandidates(context.Background(), cfg, sampleCandidates()); err != nil || got["203.0.113.10"].Reasoning != "scanner" || atomic.LoadInt32(&calls) != 2 {
+		t.Fatalf("timeout then 200: err=%v calls=%d", err, atomic.LoadInt32(&calls))
+	}
+
+	atomic.StoreInt32(&calls, 0)
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		http.Error(w, `{"error":{"message":"invalid x-api-key"}}`, http.StatusUnauthorized)
+	}))
+	defer bad.Close()
+	cfg.Endpoint = bad.URL
+	if _, err := ReviewCandidates(context.Background(), cfg, sampleCandidates()); err == nil || atomic.LoadInt32(&calls) != 1 {
+		t.Fatalf("401 must not be retried: err=%v calls=%d", err, atomic.LoadInt32(&calls))
 	}
 }
 
