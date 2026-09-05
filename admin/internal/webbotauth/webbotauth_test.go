@@ -405,6 +405,27 @@ func TestVerify_WrongTag(t *testing.T) {
 	}
 }
 
+// TestVerify_AuthorityMustBeCovered: a signature whose covered components
+// leave out @authority does not bind the host it was sent to, so a capture
+// from one site would verify on every other; it is rejected before the
+// signature is even checked, with a reason that names the component.
+func TestVerify_AuthorityMustBeCovered(t *testing.T) {
+	fx := newFixtureKey(t)
+	v, fx2 := newVerifier(t, fx, fx.directory, nil)
+	req := signedRequest(t, fx2, 1735689000, 1735690000)
+
+	inp := req.Header.Get("Signature-Input")
+	if !strings.Contains(inp, `("@authority" `) {
+		t.Fatalf("fixture does not cover @authority: %s", inp)
+	}
+	req.Header.Set("Signature-Input", strings.Replace(inp, `("@authority" `, `(`, 1))
+
+	res := v.Verify(context.Background(), req)
+	if res.OK || !strings.Contains(res.Reason, "@authority") {
+		t.Errorf("expected @authority rejection, got OK=%v reason=%q", res.OK, res.Reason)
+	}
+}
+
 // TestVerify_UnsupportedAlg: an algorithm we don't ship (= ecdsa-p256 or
 // similar) must be rejected up front so we never wait on a directory
 // fetch we couldn't act on anyway.
