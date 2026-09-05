@@ -58,10 +58,13 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
    value in the row and the one the operator reads, while the UA card's values
    are truncated anyway.  Content-sized (flex 0) it stayed narrow no matter how
    wide the page was, and the UA card took everything. */
-.rank-card-asn{flex:2 1 18rem}
+.rank-card-asn{flex:2 1 24rem;min-width:24rem}
 /* The UA card is the one with no natural width -- a raw UA is 150 characters
    -- so it takes what the others leave rather than competing for it. */
-.rank-card-ua{flex:1 1 11rem;max-width:none}
+/* ...but the UA card keeps a floor: below ~22rem its summary ("Windows 10+ ·
+   Chrome 151") is cut to a few characters.  When the row cannot hold both
+   floors the UA card wraps to a line of its own rather than starving. */
+.rank-card-ua{flex:1 1 22rem;max-width:none}
 /* A folded card gives up its share of the row.  Spelled out for the two cards
    that carry a flex-grow of their own -- same specificity as those rules, so
    without naming them the fold would lose and the strip would stay full width. */
@@ -221,7 +224,7 @@ table.events{table-layout:fixed;width:100%}
  * grid items need min-width:0 before they can shrink below min-content (= default is min-content).
  * Hack on td: max-width:0 + width:100% means "shrink table cell as much as possible + use all remaining width"
  * (= same purpose as flex min-width:0).  Content uses white-space:nowrap for one line + text-overflow:ellipsis. */
-.rank-card-ua{min-width:0;overflow:hidden}
+.rank-card-ua{min-width:22rem;overflow:hidden}
 .rank-card-ua table.rank td.key{font-size:.74rem}
 /* country flag PNG (= left of the IP cell).  16x12 png rendered subtly at 14px wide.
  * Served from the existing /static/flags/<cc>.png handler (= same pattern as the dashboard country chart). */
