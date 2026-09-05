@@ -71,38 +71,52 @@ rps() { # <host:port> -> requests/sec
 # and the last look slow, and "last" here is the one under test.  Measured with
 # the sequential form: the module-only leg, which does no extra work at all,
 # came out at 1.34x.
+# Best-of rather than mean, applied to the RATIO of a round, not to each leg
+# on its own: the legs of one round are seconds apart and share whatever the
+# box was doing, so a round's stock/unmask is one comparison; the least
+# disturbed round is the smallest ratio, and noise here only ever raises it.
+# Taking each leg's fastest round separately compared a quiet stock round
+# against a busy unmask round and failed twice in one day (3.03x, 3.04x)
+# with nothing changed, while every single round read 1.5-2.3x.  A real
+# regression raises every round, so the minimum still catches it.
 declare -A best=()
+tot_ratio=""; mod_ratio=""; dec_ratio=""
 for ((r = 1; r <= ROUNDS; r++)); do
+    declare -A rv=()
     line="round $r:"
     for t in "stock:stock-nginx:8446" "bare:nginx:8445" "unmask:nginx:8443"; do
         name=${t%%:*}
         target=${t#*:}
         v=$(rps "$target") || { log_fail "could not measure $name ($target)"; exit 1; }
+        # A measurement that did not happen must not be able to pass.  An
+        # earlier version of this scenario compared two sentinels, got a ratio
+        # of 1.00 and reported the healthiest-looking result there is.
         awk -v x="$v" 'BEGIN{exit !(x > 0)}' \
             || { log_fail "$name measured $v req/s; the measurement itself is broken"; exit 1; }
-        # Best-of rather than mean: the fastest round is the one least disturbed
-        # by something else on the box, and noise here only ever costs time.
+        rv[$name]=$v
         cur=${best[$name]:-0}
         awk -v a="$v" -v b="$cur" 'BEGIN{exit !(a > b)}' && best[$name]=$v
         line="$line $name=$v"
     done
-    log "$line"
+    r_tot=$(awk -v s="${rv[stock]}" -v u="${rv[unmask]}" 'BEGIN{printf "%.2f", s/u}')
+    r_mod=$(awk -v s="${rv[stock]}" -v b="${rv[bare]}" 'BEGIN{printf "%.2f", s/b}')
+    r_dec=$(awk -v b="${rv[bare]}" -v u="${rv[unmask]}" 'BEGIN{printf "%.2f", b/u}')
+    log "$line  (unmask vs stock ${r_tot}x)"
+    if [ -z "$tot_ratio" ] || awk -v a="$r_tot" -v b="$tot_ratio" 'BEGIN{exit !(a < b)}'; then tot_ratio=$r_tot; fi
+    if [ -z "$mod_ratio" ] || awk -v a="$r_mod" -v b="$mod_ratio" 'BEGIN{exit !(a < b)}'; then mod_ratio=$r_mod; fi
+    if [ -z "$dec_ratio" ] || awk -v a="$r_dec" -v b="$dec_ratio" 'BEGIN{exit !(a < b)}'; then dec_ratio=$r_dec; fi
+    unset rv
 done
 
+# The fastest round of each leg, for the report only (the verdict is the
+# best round's ratio, above).
 stock=${best[stock]:-0}
 bare=${best[bare]:-0}
 unmask=${best[unmask]:-0}
-# A measurement that did not happen must not be able to pass.  An earlier
-# version of this scenario compared two sentinels, got a ratio of 1.00 and
-# reported the healthiest-looking result there is.
-for v in "$stock" "$bare" "$unmask"; do
+for v in "$stock" "$bare" "$unmask" "$tot_ratio" "$mod_ratio" "$dec_ratio"; do
     awk -v x="$v" 'BEGIN{exit !(x > 0)}' \
         || { log_fail "a target measured 0 req/s; the measurement itself is broken"; exit 1; }
 done
-
-mod_ratio=$(awk -v s="$stock" -v b="$bare" 'BEGIN{printf "%.2f", s/b}')
-dec_ratio=$(awk -v b="$bare" -v u="$unmask" 'BEGIN{printf "%.2f", b/u}')
-tot_ratio=$(awk -v s="$stock" -v u="$unmask" 'BEGIN{printf "%.2f", s/u}')
 
 # log_note rather than log: these three are the point of the scenario, and a
 # suite of 55 scrolls them off the screen long before it finishes.  run.sh
@@ -110,7 +124,7 @@ tot_ratio=$(awk -v s="$stock" -v u="$unmask" 'BEGIN{printf "%.2f", s/u}')
 log_note "$(printf 'stock nginx    %10s req/s          (module not loaded)' "$stock")"
 log_note "$(printf '  + module     %10s req/s  %5sx  (module loaded, no server.inc)' "$bare" "$mod_ratio")"
 log_note "$(printf '  + server.inc %10s req/s  %5sx  (full decision path)' "$unmask" "$dec_ratio")"
-log_note "$(printf '  = unmask vs stock nginx: %sx   (limit %sx, %s req x %s rounds, c=%s)' \
+log_note "$(printf '  = unmask vs stock nginx: %sx   (best round; limit %sx, %s req x %s rounds, c=%s)' \
     "$tot_ratio" "$MAX_RATIO" "$REQS" "$ROUNDS" "$CONC")"
 
 if awk -v r="$tot_ratio" -v m="$MAX_RATIO" 'BEGIN{exit !(r > m)}'; then
