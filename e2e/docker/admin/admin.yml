@@ -111,6 +111,9 @@ nginx_log:
 # render-nginx output dir (= /etc/unmask is shared with the nginx container).
 nginx:
   output_dir: /etc/unmask
+  # scenario 61: the HTTP->HTTPS redirect and its health-check exemption,
+  # exercised over the plain :8480 listener of the 8443 vhost.
+  https_redirect: true
   # scenario 52: a trusted bypass IP (a monitoring probe) must pass even when it
   # sends a stale-version UA — the bypass veto is evaluated before the
   # stale-browser tier, so a probe on an old browser is never challenged.
