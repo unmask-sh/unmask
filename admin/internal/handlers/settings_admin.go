@@ -1745,6 +1745,13 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	case "sites":
 		// The Sites / Hosts tab is one form: site acceptance + this host's id.
 		applySitesForm(&cur.Sites, r)
+		// Two hosts that fold to one nginx variable name would render two
+		// map blocks for one variable and nginx would refuse the whole
+		// config; refuse the form instead, naming both.
+		if a, b, seg, clash := nginxconf.SiteVarNameClash(cur.Sites.Defined); clash {
+			redirBack(fmt.Sprintf("sites %s and %s would share the nginx variable name %s -- rename one of them", a, b, seg))
+			return
+		}
 		// host id: "hostname" mode clears it so the OS hostname fallback
 		// applies; "custom" stores the charset-guarded value.  Takes effect on
 		// the next admin restart (h.HostID is resolved at startup).

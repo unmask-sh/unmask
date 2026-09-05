@@ -14,12 +14,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+- (2026-09-06) **Web Bot Auth: a signature must cover `@authority`.**  A signed request whose covered components leave out the host it was sent to would verify on every other site for as long as it stayed fresh -- the bot's identity, replayed.  The verifier now rejects such a signature up front; every issuer seen so far covers `@authority`, as the architecture draft requires.
+
+- (2026-09-06) **Admin: the pages before login carry the same protective headers as the pages after it.**  Login, setup and password reset now send `X-Frame-Options: DENY`, a Content-Security-Policy that forbids framing, `<base>` retargeting, plugins and cross-origin form targets, `nosniff` and `Referrer-Policy: same-origin`; the authenticated pages gain the same policy additions.
+
 ### Added
 - (2026-09-05) **AI advisor: one automatic retry on a transient provider failure.**  A timeout, a 429 or a 5xx from the model endpoint is retried once after a short pause, inside the same run; a bad key, an unknown model or a refusal is not.  Nothing changes on the page except that fewer clicks end in a failure line.
 
 - (2026-09-05) **`unmask doctor` reads nginx's error log.**  The tail of the log is scanned for a variable read before it is set -- the warning behind the health-check noise 0.1.39 shipped with -- and for [emerg] / [crit] / [alert] lines.  When the log is not readable by the daemon user, the check says which command to run instead of staying quiet.
 
 ### Fixed
+- (2026-09-06) **Settings > Sites refuses two hostnames that would share one nginx variable.**  The rendered config folds `.`, `-` and `:` into `_`, so `shop.example.com` and `shop-example.com` would define the same variable twice and nginx would refuse the whole configuration.  The form now names both hosts and asks for a rename instead.
+
 - (2026-09-05) **AI advisor: a failed request no longer wipes the last answer, and is reported once.**  When the model call failed (a timeout, an overloaded endpoint) the failure replaced the stored answer: every review vanished from the rows and an error banner greeted each reload, next to the same message in the bar.  The answer now stays, the failure is one dated line in the bar with the reason, the next success clears it, and the model call may take up to five minutes instead of ninety seconds.
 
 - (2026-09-05) **Native / gateway: no more `using uninitialized "unmask_failopen"` warning on every health check.**  The fail-open variables were initialised after the HTTPS-redirect exemptions, and an exemption is a rewrite-phase `break` that stops the rest of the server's rewrite directives.  A load-balancer probe that went on to a protected location then read them uninitialised and nginx logged a warning per probe.  The initialisation now comes first.  Behaviour is unchanged; nginx reload after re-render.
