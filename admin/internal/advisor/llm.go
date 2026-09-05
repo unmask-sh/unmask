@@ -22,6 +22,7 @@ package advisor
 import (
 	"crypto/sha1"
 	"encoding/hex"
+	"errors"
 	"log"
 
 	"bytes"
@@ -257,20 +258,35 @@ func ReviewWithPool(ctx context.Context, cfg settings.AIAdvisorConfig, cands []C
 		userMsg += "\n\nWrite every reasoning field in Japanese (日本語で書いてください)."
 	}
 
-	ctx, cancel := context.WithTimeout(ctx, providerTimeout)
-	defer cancel()
-
-	var raw string
-	var usage Usage
-	switch cfg.ResolvedProvider() {
-	case "anthropic":
-		raw, usage, err = callAnthropic(ctx, cfg, userMsg)
-	case "openai":
-		raw, usage, err = callOpenAICompatible(ctx, cfg, userMsg)
-	case "ollama":
-		raw, usage, err = callOllama(ctx, cfg, userMsg)
-	default:
+	provider := cfg.ResolvedProvider()
+	if provider != "anthropic" && provider != "openai" && provider != "ollama" {
 		return res, fmt.Errorf("unknown provider %q", cfg.Provider)
+	}
+	// One attempt, bounded by providerTimeout; a transient failure (the
+	// attempt's own timeout, 429, 5xx) is retried once after a short pause,
+	// as long as the run itself is still alive.  Seen live: a single timeout
+	// cost the operator the whole answer.
+	attempt := func() (string, Usage, error) {
+		actx, cancel := context.WithTimeout(ctx, providerTimeout)
+		defer cancel()
+		switch provider {
+		case "anthropic":
+			return callAnthropic(actx, cfg, userMsg)
+		case "openai":
+			return callOpenAICompatible(actx, cfg, userMsg)
+		default:
+			return callOllama(actx, cfg, userMsg)
+		}
+	}
+	raw, usage, err := attempt()
+	if err != nil && retryable(err) && ctx.Err() == nil {
+		log.Printf("advisor: %v -- retrying once in %s", err, retryBackoff)
+		select {
+		case <-time.After(retryBackoff):
+			raw, usage, err = attempt()
+		case <-ctx.Done():
+			err = ctx.Err()
+		}
 	}
 	if err != nil {
 		return res, err
@@ -358,11 +374,30 @@ func normPriority(p string) string {
 // Nominated rows are stored with the evidence they had at the time, so
 // showing them again needs no second pool build.
 
-// providerTimeout bounds the model call itself.  The run is detached from
-// the click (runs.go), so this is a ceiling against a hung endpoint, not a
-// budget the operator waits out: a large model writing the reasoning for a
-// long list in Japanese has taken well over the 90 seconds this used to be.
-const providerTimeout = 5 * time.Minute
+// providerTimeout bounds one attempt at the model call.  The run is detached
+// from the click (runs.go), so this is a ceiling against a hung endpoint,
+// not a budget the operator waits out: a large model writing the reasoning
+// for a long list in Japanese has taken well over the 90 seconds this used
+// to be.  retryBackoff is the pause before the one retry of a transient
+// failure.  Both are variables so tests can shorten them.
+var (
+	providerTimeout = 5 * time.Minute
+	retryBackoff    = 5 * time.Second
+)
+
+// retryable: the attempt's own timeout, a rate limit or a server-side error
+// -- the failures a second attempt has a fair chance of getting past.  A
+// bad key, an unknown model or a refusal will not change on retry.
+func retryable(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var he *providerHTTPError
+	if errors.As(err, &he) {
+		return he.Status == http.StatusTooManyRequests || he.Status >= 500
+	}
+	return false
+}
 
 // Stored is the last known state of one window key: the last answer
 // (At, Model, Reviews, ...) and, when the most recent attempt failed, that
@@ -590,9 +625,21 @@ func postJSON(ctx context.Context, url string, headers map[string]string, body a
 		if len(msg) > 300 {
 			msg = msg[:300]
 		}
-		return nil, fmt.Errorf("provider returned %s: %s", resp.Status, msg)
+		return nil, &providerHTTPError{Status: resp.StatusCode, StatusText: resp.Status, Msg: msg}
 	}
 	return out, nil
+}
+
+// providerHTTPError is a non-200 answer from the provider, typed so the
+// caller can tell transient (retryable) from permanent.
+type providerHTTPError struct {
+	Status     int
+	StatusText string
+	Msg        string
+}
+
+func (e *providerHTTPError) Error() string {
+	return fmt.Sprintf("provider returned %s: %s", e.StatusText, e.Msg)
 }
 
 // --- providers ---------------------------------------------------------------
