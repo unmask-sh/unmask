@@ -406,8 +406,8 @@ func TestAdvisorAIRunStoresAndShows(t *testing.T) {
 }
 
 // A failed run is reported as a failure, not as "the model has not been
-// asked yet": the bar names it, the banner carries the error, ai-status
-// reports it, and the button offers a retry.
+// asked yet": the bar names it once, with the reason, ai-status reports it,
+// and the button offers a retry.  No banner -- one place, not two.
 func TestAdvisorAIRunFailureIsShown(t *testing.T) {
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":{"type":"overloaded_error","message":"Overloaded"}}`, http.StatusServiceUnavailable)
@@ -458,8 +458,82 @@ func TestAdvisorAIRunFailureIsShown(t *testing.T) {
 	prr := httptest.NewRecorder()
 	h.AdminAdvisorIndex(prr, preq)
 	body := prr.Body.String()
-	if !strings.Contains(body, `data-state="failed"`) || !strings.Contains(body, `class="banner bad"`) || !strings.Contains(body, `class="ai-failed"`) {
-		t.Fatal("a failed run must show as failed in the bar, with the error banner")
+	if !strings.Contains(body, `data-state="failed"`) || !strings.Contains(body, `data-failed="1"`) || strings.Count(body, `class="ai-failed"`) != 1 {
+		t.Fatal("a failed run must show as failed in the bar, once")
+	}
+	if strings.Contains(body, `class="banner bad"`) {
+		t.Fatal("the failure is said in the bar, not in a banner as well")
+	}
+}
+
+// A failed attempt does not erase the last answer: the rows keep their
+// reviews, the bar still dates the answer, and the failure is noted once
+// beside it with its own time.  (Seen live: a 90-second provider timeout
+// wiped the reviews and the error banner then greeted every reload.)
+func TestAdvisorAIFailureKeepsLastAnswer(t *testing.T) {
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"error":{"type":"overloaded_error","message":"Overloaded"}}`, http.StatusServiceUnavailable)
+	}))
+	defer stub.Close()
+	orig := advisor.LookupPTR
+	advisor.LookupPTR = func(ctx context.Context, ip string) []string { return nil }
+	t.Cleanup(func() { advisor.LookupPTR = orig })
+
+	h := newTestHandler(t)
+	cur := h.snapshotSettings()
+	cur.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k", Endpoint: stub.URL}
+	h.settingsPtr.Store(&cur)
+	for i := 0; i < 35; i++ {
+		if _, err := h.DB.Exec(`INSERT INTO unmask_event
+			(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+			VALUES ('','','',0,?,'curl/8','t13d_x','',0,'serve',0,0,'','','{"path":"/.env"}',datetime('now'))`, events.PackIP("203.0.113.10")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lang := string(i18n.Resolve(httptest.NewRequest(http.MethodGet, "/", nil)))
+	key := advisor.ResultKey(cur.AIAdvisor, 24*60, lang)
+	answered := time.Now().Add(-2 * time.Hour).Truncate(time.Second)
+	advisor.StoreLast(h.DB, key, advisor.Stored{At: answered, Model: cur.AIAdvisor.ResolvedModel(), Reviewed: 1,
+		Reviews: map[string]advisor.Review{"203.0.113.10": {Target: "203.0.113.10", Priority: "high", Reasoning: "kept-after-failure"}}})
+
+	form := url.Values{"window": {"24"}}
+	req := httptest.NewRequest(http.MethodPost, "/unmask/admin/advisor/ai-run", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	rr := httptest.NewRecorder()
+	h.AdminAdvisorAIRun(rr, req)
+	if rr.Code != http.StatusAccepted {
+		t.Fatalf("ai-run: %d %s", rr.Code, rr.Body.String())
+	}
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		if _, running := advisor.Running(key); !running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the run did not finish")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	st, ok := advisor.LastResult(h.DB, key)
+	if !ok || st.Err == "" || !st.At.Equal(answered) || st.Reviews["203.0.113.10"].Reasoning != "kept-after-failure" || !st.ErrAt.After(answered) {
+		t.Fatalf("the failure must sit beside the kept answer: ok=%v %+v", ok, st)
+	}
+	sreq := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/ai-status?window=24", nil)
+	srr := httptest.NewRecorder()
+	h.AdminAdvisorAIStatus(srr, sreq)
+	if s := srr.Body.String(); !strings.Contains(s, `"have":true`) || !strings.Contains(s, `"error":`) {
+		t.Fatalf("status after a failed attempt over an answer: %s", s)
+	}
+	preq := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
+	prr := httptest.NewRecorder()
+	h.AdminAdvisorIndex(prr, preq)
+	body := prr.Body.String()
+	if !strings.Contains(body, "kept-after-failure") || !strings.Contains(body, `data-state="have"`) || !strings.Contains(body, `data-failed="1"`) {
+		t.Fatal("the page must keep showing the last answer and mark the failed attempt")
+	}
+	if strings.Count(body, `class="ai-failed"`) != 1 || strings.Contains(body, `class="banner bad"`) {
+		t.Fatal("the failure is said once, in the bar")
 	}
 }
 

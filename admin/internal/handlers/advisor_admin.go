@@ -63,7 +63,8 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 	// is, so the operator can decide whether to ask again.
 	var reviews map[string]advisor.Review
 	aiCfg := h.cfg().AIAdvisor
-	aiHave, aiFailed, aiAt, aiAge, aiModel, aiErr := false, false, "", "", "", ""
+	aiHave, aiFailed, aiAt, aiAge, aiModel, aiErr, aiErrAt := false, false, "", "", "", "", ""
+	var aiErrAtTs int64
 	aiReviewed, aiKept := 0, 0
 	aiIn, aiOut := 0, 0
 	var aiAtTs int64
@@ -77,18 +78,15 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 		}
 		if st, ok := advisor.LastResult(h.DB, advisor.ResultKey(aiCfg, windowH*60, lang)); ok {
 			aiModel = st.Model
-			// The page formats aiAtTs in the operator's timezone (compact);
-			// aiAt is the no-JS fallback.
-			aiAt = st.At.UTC().Format("2006-01-02 15:04 UTC")
-			aiAtTs = st.At.Unix()
-			aiAge = humanAge(time.Since(st.At))
-			if st.Err != "" {
-				// The last run failed: say so in the bar (not "never asked")
-				// and show the error above.
-				aiErr = st.Err
-				aiFailed = true
-			} else {
+			if st.HasResult() {
+				// The last answer.  Shown even when a later attempt failed:
+				// a failure never erases it (advisor.StoreLast).
 				aiHave = true
+				// The page formats aiAtTs in the operator's timezone (compact);
+				// aiAt is the no-JS fallback.
+				aiAt = st.At.UTC().Format("2006-01-02 15:04 UTC")
+				aiAtTs = st.At.Unix()
+				aiAge = humanAge(time.Since(st.At))
 				aiReviewed, aiKept = st.Reviewed, st.Kept
 				aiIn, aiOut = st.InTokens, st.OutTokens
 				reviews = st.Reviews
@@ -111,6 +109,13 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 					}
 					cands = append(cands, n)
 				}
+			}
+			if st.Err != "" {
+				// The latest attempt failed: the bar says so once, with its
+				// time and the reason, under the answer that still stands.
+				aiFailed, aiErr = true, st.Err
+				aiErrAt = st.ErrAt.UTC().Format("2006-01-02 15:04 UTC")
+				aiErrAtTs = st.ErrAt.Unix()
 			}
 		}
 	}
@@ -164,6 +169,8 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 		"AIOutTokens":    aiOut,
 		"AIAge":          aiAge,
 		"AIModel":        aiModel,
+		"AIErrAt":        aiErrAt,
+		"AIErrAtTs":      aiErrAtTs,
 		// A run in flight: the bar says so, the rows show they are being
 		// analysed, and the page's script polls until the answer lands.
 		"AIRunning":      aiRunning,
@@ -384,14 +391,16 @@ func (h *Handler) AdminAdvisorAIRun(w http.ResponseWriter, r *http.Request) {
 	}
 	prep, err := h.planAdvisorAI(r.Context(), aiCfg, windowH, lang)
 	if err != nil {
-		advisor.StoreLast(h.DB, key, advisor.Stored{At: time.Now(), Model: aiCfg.ResolvedModel(), Err: err.Error()})
+		advisor.StoreLast(h.DB, key, advisor.Stored{ErrAt: time.Now(), Model: aiCfg.ResolvedModel(), Err: err.Error()})
 		respond(http.StatusOK, map[string]any{"running": false, "error": err.Error()})
 		return
 	}
-	if len(prep.send) == 0 && prep.prev.Err == "" && prep.prev.Model != "" {
-		// Nothing changed since the last answer: keep it, say so, call no one.
+	if len(prep.send) == 0 && prep.prev.HasResult() {
+		// Nothing changed since the last answer: keep it, say so, call no one
+		// (and a failed attempt in between is moot -- cleared).
 		st := prep.prev
 		st.At, st.Model, st.Reviewed, st.Kept = time.Now(), aiCfg.ResolvedModel(), 0, len(prep.kept)
+		st.Err, st.ErrAt = "", time.Time{}
 		advisor.StoreLast(h.DB, key, st)
 		respond(http.StatusOK, map[string]any{"running": false, "nochange": true, "kept": len(prep.kept)})
 		return
@@ -427,7 +436,7 @@ func (h *Handler) AdminAdvisorAIStatus(w http.ResponseWriter, r *http.Request) {
 		out["kept"] = keys(info.Kept)
 	}
 	if st, ok := advisor.LastResult(h.DB, key); ok {
-		out["have"] = st.Err == ""
+		out["have"] = st.HasResult() // the answer stands even when the latest attempt failed
 		if st.Err != "" {
 			out["error"] = st.Err
 		}
@@ -519,8 +528,8 @@ func (h *Handler) finishAdvisorAI(ctx context.Context, aiCfg settings.AIAdvisorC
 	}
 	res, err := advisor.ReviewWithPool(ctx, aiCfg, prep.send, pool, lang)
 	if err != nil {
-		st.Err = err.Error()
-		return st
+		// StoreLast keeps the last answer and notes this failure beside it.
+		return advisor.Stored{Model: aiCfg.ResolvedModel(), Err: err.Error(), ErrAt: time.Now()}
 	}
 	merged := advisor.Merge(prep.prev, prep.send, res, pool, prep.kept, prep.current)
 	st.Reviews, st.Nominated, st.Reviewed, st.Kept = merged.Reviews, merged.Nominated, merged.Reviewed, merged.Kept

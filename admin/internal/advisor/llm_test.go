@@ -333,10 +333,27 @@ func TestStoreLastSurvivesRestart(t *testing.T) {
 	if _, ok := LastResult(d, "w60|anthropic|claude-opus-5||ja"); ok {
 		t.Error("an unknown key must not produce a result")
 	}
-	StoreLast(d, key, Stored{At: st.At, Model: st.Model, Err: "overloaded"})
+	// A failed attempt keeps the answer and notes the failure beside it,
+	// with its own time -- across a restart too.
+	failedAt := time.Unix(1_700_003_600, 0).UTC()
+	StoreLast(d, key, Stored{Model: st.Model, Err: "overloaded", ErrAt: failedAt})
 	ForgetInMemory()
-	if got, ok := LastResult(d, key); !ok || got.Err != "overloaded" || len(got.Reviews) != 0 {
-		t.Errorf("a failed run must overwrite the answer with its error: %+v ok=%v", got, ok)
+	got, ok = LastResult(d, key)
+	if !ok || got.Err != "overloaded" || !got.ErrAt.Equal(failedAt) || !got.At.Equal(st.At) || !got.HasResult() ||
+		got.Reviews["203.0.113.10"].Reasoning != "スキャナーです" || len(got.Nominated) != 1 {
+		t.Errorf("a failed attempt must keep the last answer and record the failure: %+v ok=%v", got, ok)
+	}
+	// ...and the next success clears it.
+	StoreLast(d, key, Stored{At: failedAt.Add(time.Hour), Model: st.Model, Reviews: st.Reviews})
+	if got, _ := LastResult(d, key); got.Err != "" || !got.ErrAt.IsZero() {
+		t.Errorf("a success must clear the failure: %+v", got)
+	}
+	// A failure before any answer: no answer, the failure noted.
+	first := "w60|anthropic|claude-opus-5||ja"
+	StoreLast(d, first, Stored{Model: "claude-opus-5", Err: "boom", ErrAt: failedAt})
+	ForgetInMemory()
+	if got, ok := LastResult(d, first); !ok || got.HasResult() || !got.At.IsZero() || got.Err != "boom" || !got.ErrAt.Equal(failedAt) || got.Model != "claude-opus-5" {
+		t.Errorf("a first failure must be stored as a failure without an answer: %+v ok=%v", got, ok)
 	}
 	// nil conn: memory only, still works.
 	StoreLast(nil, "mem", st)
@@ -367,9 +384,10 @@ func TestPlanAndMergeIncremental(t *testing.T) {
 	if len(kept) != 1 || kept[a.Target].Reasoning != "kept" {
 		t.Fatalf("kept = %v, want a", kept)
 	}
-	// A failed previous run keeps nothing.
-	if s2, k2 := Plan(Stored{Err: "boom", Reviews: prev.Reviews}, []Candidate{a}); len(s2) != 1 || len(k2) != 0 {
-		t.Errorf("after a failed run everything is sent: send=%d kept=%d", len(s2), len(k2))
+	// A failed attempt carries the last answer's reviews (StoreLast keeps
+	// them), so they are kept the same way: nothing is paid for twice.
+	if s2, k2 := Plan(Stored{Err: "boom", Reviews: prev.Reviews}, []Candidate{a}); len(s2) != 0 || len(k2) != 1 {
+		t.Errorf("after a failed attempt the carried reviews are kept: send=%d kept=%d", len(s2), len(k2))
 	}
 
 	pool := Pool{IPs: []PoolIP{{IP: "198.51.100.7"}, {IP: "198.51.100.9"}}}
