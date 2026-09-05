@@ -80,6 +80,32 @@ make publish ARGS=--dry-run
 Set `UNMASK_PUBLISH_SKIP_APK=1` for the legacy v0.1 behavior of preserving the
 remote `apk/` copy (e.g. emergency push when `make repo-apk` was not run).
 
+### A release, end to end (`release-run.sh`)
+
+```sh
+tools/release-run.sh 0.1.40 status                       # what is done
+tools/release-run.sh 0.1.40 all --notes-file NOTES.txt   # every stage, in order
+tools/release-run.sh 0.1.40 sign                         # one stage, again
+```
+
+Stages: `preflight` (clean + pushed main, CI green, embedded IP-range
+snapshot current, tag free) → `bump` (CHANGELOG master + Makefile + main.go +
+releases.json, commit, tag) → `push` (main and the tag, explicitly; waits for
+the release workflow's draft and the GHCR images) → `build` (clean worktree
+at the tag, 27 packages for amd64 and arm64 + 2 binaries) → `gate` (unsigned
+repo to hv1, `make distro-check`) → `sign` (sign-rpm, THEN checksums + .sig,
+THEN the signed repository) → `registry` → `publish` (with its own
+verification) → `github` (assets over the draft's, body, latest, verified by
+download) → `archive` (dist/ kept under `../unmask-dl-build/dist-archive/`).
+
+Each stage records itself under `../unmask-dl-build/release-state/<ver>/`
+(with its log) and the next refuses to run until the one before it
+finished.  The passphrase comes from `../.gpgpass` (one line, shredded once
+read) or `UNMASK_GPG_PASSPHRASE`; it is never on a command line.  What the
+script does not do -- the fleet, the site docs, the notes -- it prints at
+the end.  `--ref HEAD` builds from HEAD instead of the tag, for a rehearsal
+of the build stage.
+
 ## Stage filter
 
 `build-repo.sh` takes an optional second argument that limits which stages run:
