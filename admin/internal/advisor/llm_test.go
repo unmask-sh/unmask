@@ -3,6 +3,7 @@ package advisor
 import (
 	"context"
 	"encoding/json"
+	"github.com/unmask-sh/unmask/admin/internal/db"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -509,5 +510,32 @@ func TestFingerprint(t *testing.T) {
 		if d.Fingerprint() == c.Fingerprint() {
 			t.Errorf("a change in evidence must change the fingerprint: %+v", d)
 		}
+	}
+}
+
+// Every attempt that reached the model leaves a row in the run log -- a
+// success with its tokens, a failure with its error -- and a click that sent
+// nothing leaves none.  Totals sums a window and ignores what is older.
+func TestStoreLastRecordsRunsAndTotals(t *testing.T) {
+	d := newTestDB(t)
+	key := "w1440|anthropic|claude-opus-5||ja"
+	now := time.Now().UTC().Truncate(time.Second)
+	StoreLast(d, key, Stored{At: now.Add(-2 * time.Hour), Model: "claude-opus-5", Reviewed: 3, InTokens: 1200, OutTokens: 300,
+		Reviews: map[string]Review{"203.0.113.10": {Target: "203.0.113.10", Priority: "high", Reasoning: "x"}}})
+	StoreLast(d, key, Stored{Model: "claude-opus-5", Err: "overloaded", ErrAt: now.Add(-time.Hour)})
+	StoreLast(d, key, Stored{At: now, Model: "claude-opus-5", Kept: 3, Reviews: map[string]Review{"203.0.113.10": {Target: "203.0.113.10"}}}) // nothing sent: no row
+	old := db.AdvisorRun{RanAt: now.Add(-40 * 24 * time.Hour).Unix(), ResultKey: key, Model: "claude-opus-5", Reviewed: 1, InTokens: 999, OutTokens: 999}
+	if err := d.Gorm.Create(&old).Error; err != nil {
+		t.Fatal(err)
+	}
+	got := Totals(d, now.Add(-30*24*time.Hour))
+	if got.Runs != 2 || got.Failed != 1 || got.InTokens != 1200 || got.OutTokens != 300 {
+		t.Errorf("totals over 30 days = %+v, want 2 runs (1 failed), 1200 in, 300 out", got)
+	}
+	if all := Totals(d, now.Add(-100*24*time.Hour)); all.Runs != 3 || all.InTokens != 2199 {
+		t.Errorf("totals over 100 days = %+v, want the old row too", all)
+	}
+	if Totals(nil, now).Runs != 0 {
+		t.Error("no database, no totals")
 	}
 }
