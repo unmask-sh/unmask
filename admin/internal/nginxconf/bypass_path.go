@@ -206,6 +206,23 @@ func splitBypassPathsForRender(rules []BypassPathRule) (globals []string, perHos
 // "shop_example", "blog-edge.example" -> "blog_edge_example").  Mixed-case
 // is preserved because nginx variables are case-sensitive.  Empty input
 // maps to "default" so the rendered identifier is always non-empty.
+// SiteVarNameClash reports two distinct hosts that would render to the same
+// nginx variable segment (hostToNginxVarSegment folds '.', '-' and ':' into
+// '_', so "a-b.example" and "a.b.example" collide).  Two such sites produce
+// two `map` blocks defining one variable, and nginx refuses the whole config
+// -- so the settings form refuses the second site instead.
+func SiteVarNameClash(hosts []string) (a, b, segment string, clash bool) {
+	seen := map[string]string{}
+	for _, h := range hosts {
+		seg := hostToNginxVarSegment(h)
+		if prev, ok := seen[seg]; ok && prev != h {
+			return prev, h, seg, true
+		}
+		seen[seg] = h
+	}
+	return "", "", "", false
+}
+
 func hostToNginxVarSegment(host string) string {
 	if host == "" {
 		return "default"

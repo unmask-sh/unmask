@@ -171,3 +171,18 @@ func TestRenderedMapRegexNaturalForm(t *testing.T) {
 		}
 	}
 }
+
+// Two hosts that differ only in a character the variable segment folds
+// away are a clash; the same host twice, or hosts that stay distinct, are
+// not.
+func TestSiteVarNameClash(t *testing.T) {
+	if a, b, seg, clash := SiteVarNameClash([]string{"shop.example.com", "shop-example.com"}); !clash || a != "shop.example.com" || b != "shop-example.com" || seg != "shop_example_com" {
+		t.Errorf("expected a clash on shop_example_com, got %q %q %q %v", a, b, seg, clash)
+	}
+	if _, _, _, clash := SiteVarNameClash([]string{"shop.example.com", "shop.example.com", "blog.example.com"}); clash {
+		t.Error("a repeated host or distinct hosts must not clash")
+	}
+	if _, _, _, clash := SiteVarNameClash(nil); clash {
+		t.Error("no hosts, no clash")
+	}
+}
