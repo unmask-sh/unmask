@@ -17,7 +17,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Fixed
 - (2026-09-05) **AI advisor: a failed request no longer wipes the last answer, and is reported once.**  When the model call failed (a timeout, an overloaded endpoint) the failure replaced the stored answer: every review vanished from the rows and an error banner greeted each reload, next to the same message in the bar.  The answer now stays, the failure is one dated line in the bar with the reason, the next success clears it, and the model call may take up to five minutes instead of ninety seconds.
 
-### Fixed
 - (2026-09-05) **Native / gateway: no more `using uninitialized "unmask_failopen"` warning on every health check.**  The fail-open variables were initialised after the HTTPS-redirect exemptions, and an exemption is a rewrite-phase `break` that stops the rest of the server's rewrite directives.  A load-balancer probe that went on to a protected location then read them uninitialised and nginx logged a warning per probe.  The initialisation now comes first.  Behaviour is unchanged; nginx reload after re-render.
 
 ## [0.1.39] - 2026-09-04
