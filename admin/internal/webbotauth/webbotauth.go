@@ -301,6 +301,16 @@ func (v *Verifier) Verify(ctx context.Context, req *http.Request) Result {
 		return Result{Reason: "signature-input parse: " + err.Error()}
 	}
 
+	// @authority must be covered: it is what binds the signature to the host
+	// it was made for.  Without it a signed request captured on one site is a
+	// valid signed request on every other site for as long as it is fresh --
+	// the bot's identity, replayed.  The architecture draft requires it and
+	// every issuer seen so far covers it; a signature that does not is not a
+	// bot authenticating to us.
+	if !coversComponent(components, `"@authority"`) {
+		return Result{Reason: "@authority is not a covered component (the signature does not bind the host)"}
+	}
+
 	sigBytes, err := parseSignatureForLabel(sigHdr, label)
 	if err != nil {
 		return Result{Reason: "signature parse: " + err.Error()}
@@ -454,6 +464,17 @@ type inputMetadata struct {
 // Returns the label, the parsed metadata, and the raw component tokens
 // (each preserved as its quoted form so buildSignatureBase can render them
 // identically to what the signer signed over).
+// coversComponent reports whether the covered-component list names c (the
+// quoted identifier, e.g. `"@authority"`), ignoring any `;key=` parameter.
+func coversComponent(components []string, c string) bool {
+	for _, comp := range components {
+		if comp == c || strings.HasPrefix(comp, c+";") {
+			return true
+		}
+	}
+	return false
+}
+
 func parseSignatureInput(h string) (label string, meta inputMetadata, components []string, err error) {
 	// Find the first '=' to split label.
 	eq := strings.Index(h, "=")
