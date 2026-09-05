@@ -77,6 +77,21 @@ got=$(docker run --rm alpine:3.20 sh -c "
     apk info -v 2>/dev/null | grep -m1 '^unmask-0'" 2>/dev/null || echo "")
 [ -n "$got" ] && ok "apk    installs from the live repo ($got)" || bad "apk    could not install from the live repo"
 
+# deb had only its InRelease signature checked above -- the one format whose
+# repository was never actually installed from after a publish.  The apk index
+# incident says why that is not enough: a signed-looking repo can still be one
+# apt refuses.  debian:12 ships neither curl nor wget, hence the apt-get first.
+got=$(docker run --rm debian:12 sh -c "
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq curl ca-certificates >/dev/null 2>&1
+    curl -fsSL -o /tmp/r.deb $BASE/${SUB}deb/unmask-release-latest.deb 2>/dev/null ||
+      curl -fsSL -o /tmp/r.deb $BASE/deb/unmask-release-latest.deb 2>/dev/null
+    apt-get install -y -qq /tmp/r.deb >/dev/null 2>&1
+    apt-get update -qq >/dev/null 2>&1
+    apt-get install -y -qq unmask >/dev/null 2>&1
+    dpkg-query -W -f='\${Version}' unmask 2>/dev/null" 2>/dev/null || echo "")
+[ -n "$got" ] && ok "deb    installs from the live repo ($got)" || bad "deb    could not install from the live repo"
+
 fi
 
 # ---- the container images, served from the same host as static files ----
