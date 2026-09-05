@@ -54,7 +54,11 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 /* The two cards whose content is worth extra width.  ASN stops at its cap so
    the default row keeps the balance it was measured for; folding a sibling
    raises the cap (below) so the reclaimed width can reach it. */
-.rank-card-asn{flex:0 1 auto}
+/* The ASN card takes free width first: an organisation name is the widest
+   value in the row and the one the operator reads, while the UA card's values
+   are truncated anyway.  Content-sized (flex 0) it stayed narrow no matter how
+   wide the page was, and the UA card took everything. */
+.rank-card-asn{flex:2 1 18rem}
 /* The UA card is the one with no natural width -- a raw UA is 150 characters
    -- so it takes what the others leave rather than competing for it. */
 .rank-card-ua{flex:1 1 11rem;max-width:none}
@@ -70,8 +74,6 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
    cap the three open cards filled the row to the pixel -- leaving no room for
    the folded card's own 2.6rem strip, which then wrapped to a second line.
    Folding a card must never make the row taller. */
-.rank-grid:has(.rank-card.folded) .rank-card-asn{max-width:30rem}
-.rank-grid:has(.rank-card-ua.folded) .rank-card-asn{flex-grow:1}
 /* The IP and JA4 cards size to their data and used to stop there, so folding a
    sibling handed the freed width to ASN and UA and left these two exactly as
    they were.  Let them take a share of it too -- with a cap, since past their
@@ -197,7 +199,7 @@ table.events{table-layout:fixed;width:100%}
    max-content width to its unwrapped length -- which stretched the IP card
    sharing that track and crushed the 1fr UA card to 31px.  Cap the card so
    the note wraps inside it instead of sizing the grid. */
-.rank-card-asn{max-width:24rem}
+.rank-card-asn{max-width:none}
 /* The ASN card's explanation lives in a ? popover on its title (it used to
    be a paragraph under the table, which made that card taller than the
    other three).  Hidden with the title when the card is folded. */
