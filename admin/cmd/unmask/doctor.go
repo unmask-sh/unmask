@@ -16,12 +16,14 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	iofs "io/fs"
 	"net"
 	"net/http"
@@ -29,6 +31,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -545,6 +548,7 @@ func cmdDoctor(args []string) error {
 	checkNativeFailsafe(addWarn)
 	checkNginxConfTest(addOK, addWarn, addErr)
 	checkNginxStaleLibs(addWarn)
+	checkNginxErrorLog(addOK, addWarn)
 	checkNginxReloadLag(s, addOK, addWarn)
 	checkNginxProtectScope(addWarn)
 	checkHTTPSRedirectApplied(s, addOK, addWarn)
@@ -1009,6 +1013,131 @@ func checkNativeFailsafe(addWarn func(t, m string)) {
 	}
 	msg += " Fix the nginx config, run `unmask render-nginx`, then `nginx -t` (or reinstall unmask-plugin-nginx); the marker clears once nginx -t passes."
 	addWarn("native module disabled (fail-safe)", msg)
+}
+
+// nginxErrorLogFile overrides the discovered error-log path (tests).
+var nginxErrorLogFile = ""
+
+// nginxErrorLogReport is what checkNginxErrorLog found in the log's tail.
+type nginxErrorLogReport struct {
+	Uninit     map[string]int // variable name -> lines
+	UninitLast string         // the most recent such line
+	Fatal      int            // [emerg] / [crit] / [alert] lines
+	FatalLast  string
+	Lines      int
+}
+
+var uninitVarRe = regexp.MustCompile(`using uninitialized "([^"]+)" variable`)
+
+// scanNginxErrorLog picks out of nginx error-log lines the two things a
+// functional test cannot see: a variable read before it is set, and the
+// fatal-severity lines (a reload that failed, a module that did not load, a
+// worker that died).  [error] and below are nginx's ordinary chatter.
+func scanNginxErrorLog(r io.Reader) nginxErrorLogReport {
+	rep := nginxErrorLogReport{Uninit: map[string]int{}}
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	for sc.Scan() {
+		ln := sc.Text()
+		rep.Lines++
+		if m := uninitVarRe.FindStringSubmatch(ln); m != nil {
+			rep.Uninit[m[1]]++
+			rep.UninitLast = ln
+			continue
+		}
+		if strings.Contains(ln, "[emerg]") || strings.Contains(ln, "[crit]") || strings.Contains(ln, "[alert]") {
+			rep.Fatal++
+			rep.FatalLast = ln
+		}
+	}
+	return rep
+}
+
+// nginxErrorLogPath: the main-context error_log of the running nginx (from
+// `nginx -T`), else the packaged default.  "" when there is nothing to read
+// here -- no nginx on this host, or a log that goes to stderr / syslog.
+func nginxErrorLogPath() string {
+	if nginxErrorLogFile != "" {
+		return nginxErrorLogFile
+	}
+	nginxBin, err := exec.LookPath("nginx")
+	if err != nil {
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, _ := exec.CommandContext(ctx, nginxBin, "-T").Output() // needs root; empty when it fails
+	for _, ln := range strings.Split(string(out), "\n") {
+		f := strings.Fields(strings.TrimSpace(ln))
+		if len(f) >= 2 && f[0] == "error_log" {
+			if p := strings.TrimSuffix(f[1], ";"); strings.HasPrefix(p, "/") {
+				return p
+			}
+			return "" // stderr / syslog
+		}
+	}
+	return "/var/log/nginx/error.log"
+}
+
+// checkNginxErrorLog reads the tail of nginx's error log for what the
+// functional checks above cannot see.  "using uninitialized ... variable"
+// means a directive in the rendered config reads a variable before
+// server.inc sets it -- the gateway's health checks logged one per probe
+// for a week in 0.1.38 while every test passed.  [emerg] / [crit] / [alert]
+// is a reload that failed, a module that did not load, a worker that died.
+// Unreadable (a container, another host, not ours to read) is silent.
+func checkNginxErrorLog(addOK, addWarn func(t, m string)) {
+	path := nginxErrorLogPath()
+	if path == "" {
+		return
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsPermission(err) {
+			// The log is there but not ours to read (0640 nginx:adm is the
+			// packaged default on both families).  Say so with a command
+			// that works -- doctor runs as the daemon user on purpose, and
+			// `sudo unmask doctor` arrives here just the same.
+			who := droppedFromRoot
+			if who == "" {
+				if u, uerr := user.Current(); uerr == nil {
+					who = u.Username
+				}
+			}
+			addWarn("nginx error log", fmt.Sprintf("not read: %s is not readable by %s (unmask drops to the daemon user before running checks). Run `sudo grep -c 'using uninitialized' %s` directly (0 is good), or let the daemon user read the log (`usermod -aG adm %s`).", path, who, path, who))
+		}
+		return
+	}
+	defer f.Close()
+	const tail = 4 << 20 // the last 4 MB: a busy site's day, a quiet one's month
+	var r io.Reader = f
+	if st, err := f.Stat(); err == nil && st.Size() > tail {
+		if _, err := f.Seek(st.Size()-tail, io.SeekStart); err == nil {
+			br := bufio.NewReader(f)
+			_, _ = br.ReadString('\n') // drop the partial first line
+			r = br
+		}
+	}
+	rep := scanNginxErrorLog(r)
+	if len(rep.Uninit) == 0 && rep.Fatal == 0 {
+		addOK("nginx error log", fmt.Sprintf("no uninitialized-variable warning and no [emerg]/[crit]/[alert] line in the last %d line(s) of %s", rep.Lines, path))
+		return
+	}
+	if len(rep.Uninit) > 0 {
+		names := make([]string, 0, len(rep.Uninit))
+		for n := range rep.Uninit {
+			names = append(names, n)
+		}
+		sort.Strings(names)
+		parts := make([]string, 0, len(names))
+		for _, n := range names {
+			parts = append(parts, fmt.Sprintf("$%s x%d", n, rep.Uninit[n]))
+		}
+		addWarn("nginx error log", fmt.Sprintf("%s: a variable is read before it is set (%s) -- a directive in the rendered config runs ahead of server.inc's initialisation. After an upgrade, `unmask render-nginx` then reload nginx; if it persists on the current version, please report it with this line: %s", path, strings.Join(parts, ", "), truncLine(rep.UninitLast)))
+	}
+	if rep.Fatal > 0 {
+		addWarn("nginx error log", fmt.Sprintf("%s: %d [emerg]/[crit]/[alert] line(s) in its tail, the last: %s -- `nginx -t` and `systemctl status nginx` say whether it is current", path, rep.Fatal, truncLine(rep.FatalLast)))
+	}
 }
 
 // checkNginxStaleLibs warns when the running nginx still maps libraries that a
