@@ -218,6 +218,8 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       {{ if .AIReviewed }}<span class="kv ai-delta" data-reviewed="{{ .AIReviewed }}" data-kept="{{ .AIKept }}">{{ t .Lang "advisor.ai_last_run" }} {{ if .AIKept }}{{ tf .Lang "advisor.ai_delta" .AIReviewed .AIKept }}{{ else }}{{ tf .Lang "advisor.ai_reviewed" .AIReviewed }}{{ end }}{{ if or .AIInTokens .AIOutTokens }} · {{ tf .Lang "advisor.ai_tokens" (comma .AIInTokens) (comma .AIOutTokens) }}{{ end }}</span>
       {{ else if .AIKept }}<span class="kv ai-delta" data-reviewed="0" data-kept="{{ .AIKept }}">{{ t .Lang "advisor.ai_last_run" }} {{ tf .Lang "advisor.ai_nochange" .AIKept }}</span>{{ end }}
       {{ end }}
+      {{- /* the last 30 days, every window and model: the number to hold against the bill */ -}}
+      {{ if and .AIMonthRuns (not .AIRunning) }}<span class="kv ai-delta ai-month">{{ tf .Lang "advisor.ai_month" .AIMonthRuns (comma .AIMonthIn) (comma .AIMonthOut) }}{{ if .AIMonthFailed }} · {{ tf .Lang "advisor.ai_month_failed" .AIMonthFailed }}{{ end }}</span>{{ end }}
     </div>
     <template id="ai-wait-tpl"><span class="ai-wait"><span class="ai-spin"></span>{{ t .Lang "advisor.ai_row_wait" }}</span></template>
     <template id="ai-keep-tpl"><span class="ai-kept">{{ t .Lang "advisor.ai_row_kept" }}</span></template>
