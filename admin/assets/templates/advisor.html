@@ -102,6 +102,7 @@ table.cands tbody tr.dismissed td .sig,table.cands tbody tr.dismissed td .score{
 .ai-wait{display:inline-flex;align-items:center;color:#6d28d9;font-size:.8rem;margin-top:.3rem}
 .ai-slot:empty{display:none}
 .ai-failed{color:#b91c1c;font-weight:700}
+.ai-bar .ai-fail{overflow-wrap:anywhere}
 .hidden-note{margin:.4rem 0 0;font-size:.8rem;color:#64748b}
 .btn.ai{border-color:#c4b5fd;color:#5b21b6;background:#fff}
 .btn.ai:hover{background:#ede9fe}
@@ -164,7 +165,6 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   {{ if .Dismissed }}<div class="banner ok">{{ t .Lang "advisor.dismissed_ok" }}</div>{{ end }}
   {{ if .Undismissed }}<div class="banner ok">{{ t .Lang "advisor.undismissed_ok" }}</div>{{ end }}
   {{ if .EngineErr }}<div class="banner bad">{{ t .Lang "advisor.engine_err" }}: {{ .EngineErr }}</div>{{ end }}
-  <div id="llm-err">{{ if .LLMErr }}<div class="banner bad">{{ t .Lang "advisor.llm_err" }}: {{ .LLMErr }}</div>{{ end }}</div>
 
   <div class="bcd-card">
     <form method="get" action="{{.BasePath}}/admin/advisor/" class="windowbar">
@@ -194,13 +194,13 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
          it is being analysed, and the script polls ai-status, then swaps
          the bar, the rows and the error banner in from a fresh render.  A
          reload mid-run lands on the same state (AIRunning). */}}
-    <div class="ai-bar" id="ai-bar" data-base="{{ .BasePath }}" data-window="{{ .WindowH }}" data-min="{{ if .ShowAll }}all{{ end }}" data-dismissed="{{ if .ShowDismissed }}1{{ end }}" data-state="{{ if .AIRunning }}running{{ else if .AIHave }}have{{ else if .AIFailed }}failed{{ else }}none{{ end }}"
+    <div class="ai-bar" id="ai-bar" data-base="{{ .BasePath }}" data-window="{{ .WindowH }}" data-min="{{ if .ShowAll }}all{{ end }}" data-dismissed="{{ if .ShowDismissed }}1{{ end }}" data-state="{{ if .AIRunning }}running{{ else if .AIHave }}have{{ else if .AIFailed }}failed{{ else }}none{{ end }}"{{ if .AIFailed }} data-failed="1"{{ end }}
          data-running-text="{{ t .Lang "advisor.ai_running" }}" data-running-hint="{{ t .Lang "advisor.ai_running_hint" }}"{{ if .AIRunning }} data-running="1" data-since="{{ .AIRunningSince }}"{{ end }}>
       <span id="ai-bar-state">
         {{- if .AIRunning }}<span class="ai-spin"></span>{{ t .Lang "advisor.ai_running" }} <span class="kv" id="ai-elapsed"></span>
         {{- else if .AIHave }}{{ t .Lang "advisor.ai_asof" }} <strong>{{ .AIAge }}</strong> <span class="kv">(<time class="js-datetime js-datetime-short ai-at" data-ts="{{ .AIAtTs }}">{{ .AIAt }}</time> · {{ .AIModel }})</span>
 
-        {{- else if .AIFailed }}<span class="ai-failed">{{ t .Lang "advisor.ai_failed" }}</span> <strong>{{ .AIAge }}</strong> <span class="kv">(<time class="js-datetime js-datetime-short ai-at" data-ts="{{ .AIAtTs }}">{{ .AIAt }}</time> · {{ .AIModel }})</span>
+        {{- else if .AIFailed }}{{ t .Lang "advisor.ai_none_yet" }}
         {{- else }}{{ t .Lang "advisor.ai_none" }}{{ end -}}
       </span>
       <form method="post" action="{{ .BasePath }}/admin/advisor/ai-run" id="ai-run-form">
@@ -210,6 +210,9 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         <button type="submit" class="btn ai"{{ if .AIRunning }} disabled{{ end }}>{{ if .AIHave }}{{ t .Lang "advisor.ai_rerun" }}{{ else if .AIFailed }}{{ t .Lang "advisor.ai_retry" }}{{ else }}{{ t .Lang "advisor.ai_run" }}{{ end }}</button>
       </form>
       <span class="kv" id="ai-hint">{{ if .AIRunning }}{{ t .Lang "advisor.ai_running_hint" }}{{ else }}{{ t .Lang "advisor.ai_hint" }}{{ end }}</span>
+      {{- /* the latest attempt failed: said once, here, with its time and the
+           reason -- the answer above it (if any) stands; no banner */ -}}
+      {{ if and .AIFailed (not .AIRunning) }}<span class="kv ai-delta ai-fail"><span class="ai-failed">{{ t .Lang "advisor.ai_failed" }}</span> (<time class="js-datetime js-datetime-short ai-at" data-ts="{{ .AIErrAtTs }}">{{ .AIErrAt }}</time> · {{ .AIModel }}): {{ .LLMErr }}</span>{{ end }}
       {{- /* what the last click did, on its own line: sent N / kept M, or nothing sent */ -}}
       {{ if and .AIHave (not .AIRunning) }}
       {{ if .AIReviewed }}<span class="kv ai-delta" data-reviewed="{{ .AIReviewed }}" data-kept="{{ .AIKept }}">{{ t .Lang "advisor.ai_last_run" }} {{ if .AIKept }}{{ tf .Lang "advisor.ai_delta" .AIReviewed .AIKept }}{{ else }}{{ tf .Lang "advisor.ai_reviewed" .AIReviewed }}{{ end }}{{ if or .AIInTokens .AIOutTokens }} · {{ tf .Lang "advisor.ai_tokens" (comma .AIInTokens) (comma .AIOutTokens) }}{{ end }}</span>
@@ -406,8 +409,8 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 // Ask the model without leaving the page.  The click posts to ai-run and
 // gets a 202 back at once; the bar turns into a progress line, every eligible
 // row's AI slot shows "analysing", and ai-status is polled until the run is
-// done.  Then the bar, the rows and the error banner are swapped in from a
-// fresh render of this page, and the popover / dialog wiring is re-run on the
+// done.  Then the bar and the rows are swapped in from a fresh render of
+// this page, and the popover / dialog wiring is re-run on the
 // new rows (window.unmaskRewire).  If fetch is unavailable the form posts as
 // a plain form and the page comes back in the same running state.
 (function(){
@@ -439,8 +442,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     }
     var hint = document.getElementById('ai-hint');
     if (hint) hint.textContent = b.dataset.runningHint;
-    var delta = b.querySelector('.ai-delta');
-    if (delta) delta.style.display = 'none';   // the last run's tally does not describe this one
+    b.querySelectorAll('.ai-delta').forEach(function(d){ d.style.display = 'none'; });   // the last run's tally / failure do not describe this one
     var f = document.getElementById('ai-run-form');
     var btn = f && f.querySelector('button');
     if (btn) btn.disabled = true;
@@ -481,12 +483,11 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       .then(function(r){ return r.text(); })
       .then(function(html){
         var doc = new DOMParser().parseFromString(html, 'text/html');
-        var nb = doc.getElementById('cands-body'), nbar = doc.getElementById('ai-bar'), nerr = doc.getElementById('llm-err');
-        var ob = document.getElementById('cands-body'), obar = bar(), oerr = document.getElementById('llm-err');
+        var nb = doc.getElementById('cands-body'), nbar = doc.getElementById('ai-bar');
+        var ob = document.getElementById('cands-body'), obar = bar();
         if (!nb || !nbar || !ob || !obar) { location.reload(); return; }
         ob.parentNode.replaceChild(document.importNode(nb, true), ob);
         obar.parentNode.replaceChild(document.importNode(nbar, true), obar);
-        if (nerr && oerr) oerr.parentNode.replaceChild(document.importNode(nerr, true), oerr);
         (window.unmaskRewire || []).forEach(function(fn){ try { fn(document.getElementById('cands-body')); } catch (e) {} });
         if (window.unmaskFmtTimes) { try { window.unmaskFmtTimes(); } catch (e) {} }
         bind();
