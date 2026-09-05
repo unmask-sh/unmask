@@ -221,6 +221,9 @@ table.events{table-layout:fixed;width:100%}
    machine-generated text in a content-sized column: one such row widened the
    JA4 card to 623px and left the UA card 31px.  Clip it -- the JA4 it was
    generated from is on the same row, so nothing is lost by not spelling it. */
+/* .cellpop: when the pill is clipped (a long verdict name, a chain like
+   pow_then_captcha), hovering it shows the full value in the popover the
+   event table's cells use; an unclipped pill stays quiet (user). */
 .rank-registered{display:inline-block;max-width:6.5rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 .asn-filter-chip{display:inline-block;padding:.15rem .45rem;border:1px solid #cbd5e1;border-radius:.25rem;font-size:.78rem;font-family:ui-monospace,Menlo,monospace;background:#f8fafc}
 /* UA card only: single line + clipped at the right edge.  Consume the full rank-grid 1fr without wrapping.
@@ -392,11 +395,11 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
         <td class="num"><a class="req-search" href="?range={{ $.Range }}&ip={{ urlquery .Key }}" aria-label="{{ t $.Lang "hunt.filter.ip_search_title" }}">{{ .Count }}<span class="req-mag">🔍</span></a></td>
         <td class="actions">
           {{ if .BypassIP }}
-            <span class="rank-registered">
+            <span class="rank-registered cellpop">
               <span class="action-pill action-ok">bypass</span>
             </span>
           {{ else if .Banned }}
-            <span class="rank-registered">
+            <span class="rank-registered cellpop">
               <span class="action-pill action-bot">{{ t $.Lang "hunt.already_banned" }}</span>
             </span>
           {{ else }}
@@ -458,7 +461,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
         <td class="num">{{ if .ASN }}<a class="req-search" href="?range={{ $.Range }}&asn={{ .ASN }}" aria-label="{{ t $.Lang "hunt.filter.asn_search_title" }}">{{ .Count }}<span class="req-mag">🔍</span></a>{{ else }}{{ .Count }}{{ end }}</td>
         <td class="actions">
           {{ if .Rule }}
-            <span class="rank-registered"><span class="action-pill action-bot">{{ .Rule }}</span></span>
+            <span class="rank-registered cellpop"><span class="action-pill action-bot">{{ .Rule }}</span></span>
           {{ else if .ASN }}
             {{/* Registers from here rather than sending the operator to the ASN
                  tab: leaving takes the range, the filters and the fold state
@@ -514,7 +517,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
           {{ if and .Key (ne .Key "NOT_TRUSTED") }}
             {{ if .Verdict }}
             {{/* already registered = show the verdict name + source.  No action button. */}}
-            <span class="rank-registered">
+            <span class="rank-registered cellpop">
               <span class="action-pill action-{{ .Action }}">{{ .Verdict }}</span>
             </span>
             {{ else }}
@@ -564,7 +567,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
           {{ if .Key }}
             {{ if .Listed }}
             {{/* already registered = show the group / extra name. */}}
-            <span class="rank-registered">
+            <span class="rank-registered cellpop">
               {{ if eq .Category "search_ai" }}
                 <span class="action-pill action-ok">search_ai: {{ .Listed }}</span>
               {{ else }}
