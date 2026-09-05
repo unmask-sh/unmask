@@ -14,6 +14,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- (2026-09-05) **AI advisor: one automatic retry on a transient provider failure.**  A timeout, a 429 or a 5xx from the model endpoint is retried once after a short pause, inside the same run; a bad key, an unknown model or a refusal is not.  Nothing changes on the page except that fewer clicks end in a failure line.
+
+- (2026-09-05) **`unmask doctor` reads nginx's error log.**  The tail of the log is scanned for a variable read before it is set -- the warning behind the health-check noise 0.1.39 shipped with -- and for [emerg] / [crit] / [alert] lines.  When the log is not readable by the daemon user, the check says which command to run instead of staying quiet.
+
 ### Fixed
 - (2026-09-05) **AI advisor: a failed request no longer wipes the last answer, and is reported once.**  When the model call failed (a timeout, an overloaded endpoint) the failure replaced the stored answer: every review vanished from the rows and an error banner greeted each reload, next to the same message in the bar.  The answer now stays, the failure is one dated line in the bar with the reason, the next success clears it, and the model call may take up to five minutes instead of ninety seconds.
 
