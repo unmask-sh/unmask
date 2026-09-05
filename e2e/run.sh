@@ -96,6 +96,28 @@ for s in "$DIR"/scenarios/[0-9]*.sh; do
     echo
 done
 
+# After every scenario: nginx must not have logged an uninitialized-variable
+# warning.  server.inc initialises the fail-open variables in the server
+# rewrite phase; a directive that ends that phase early (an exemption
+# `break`, a `return`) placed before them leaves a request reading them
+# uninitialized, and nginx says so once per request -- which is what the
+# gateway's health checks did for a week while every functional test passed.
+# Docker stack only (the logs are the containers').
+if command -v docker >/dev/null 2>&1 && [ -n "$(docker compose -f "$DIR/docker/docker-compose.yml" ps -q nginx 2>/dev/null)" ]; then
+    echo "[nginx-error-log]"
+    warn=$(docker compose -f "$DIR/docker/docker-compose.yml" logs --no-color nginx 2>/dev/null | grep -c 'using uninitialized' || true)
+    if [ "${warn:-0}" = 0 ]; then
+        echo "  PASS  nginx logged no 'using uninitialized' variable warning across the suite"
+        passed=$((passed + 1))
+    else
+        echo "  FAIL  nginx logged $warn 'using uninitialized' variable warning(s) -- a server.inc directive runs before the variable scaffolding:"
+        docker compose -f "$DIR/docker/docker-compose.yml" logs --no-color nginx 2>/dev/null | grep 'using uninitialized' | head -3 | sed 's/^/        /'
+        failed=$((failed + 1))
+        failed_names+=("nginx-error-log")
+    fi
+    echo
+fi
+
 echo "----------------------------------------"
 if [ -s "$E2E_NOTES" ]; then
     echo "  measured:"

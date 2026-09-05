@@ -71,6 +71,7 @@ services:
       - ./wba:/etc/wba:ro
     ports:
       - "8443:8443"
+      - "8480:8480"   # scenario 61: plain http into the 8443 vhost (redirect + health-check exemption)
       - "8444:8444"   # scenario 48: server-scope protect.inc vhost
       - "8445:8445"   # scenario 55: bare control vhost (no server.inc) for the overhead ratio
     healthcheck:
