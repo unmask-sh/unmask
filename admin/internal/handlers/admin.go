@@ -537,10 +537,7 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// (A script-src CSP that would also block injected inline handlers needs
 		// the admin's inline <script>s moved to nonces first -- a follow-up; the
 		// round-3 stored XSS is already fixed at the escaping source.)
-		w.Header().Set("X-Frame-Options", "DENY")
-		w.Header().Set("Content-Security-Policy", "frame-ancestors 'none'")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Referrer-Policy", "same-origin")
+		setAdminSecurityHeaders(w)
 		// Admin pages are per-operator, data-driven, and redeployed often.  With
 		// no Cache-Control the browser applies heuristic caching and serves a
 		// stale dashboard after a redeploy (the inline <style>/markup that make
@@ -773,8 +770,29 @@ func readFlash(w http.ResponseWriter, r *http.Request, basePath, key string) str
 // Not applied during the install wizard (/admin/setup/) so the initial install
 // can't lock you out before any IP / Host is configured.  Applied to
 // /admin/login to prevent brute force from unauthorized IPs.
+// adminCSP is the admin surface's Content-Security-Policy.  It does not
+// restrict scripts (the templates carry inline JavaScript and styles); it
+// closes the holes that need no nonce: no framing by any origin, no <base>
+// retargeting, no plugins, and forms that submit only to this origin.  A
+// route that must be framed by the settings page relaxes frame-ancestors to
+// 'self' and keeps the rest (see the preview handlers).
+const adminCSP = "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'"
+
+// setAdminSecurityHeaders: the headers every admin response carries --
+// authenticated pages (AuthMiddleware) and the ones before a session exists
+// (login, setup, password reset: AdminIPAllowMiddleware).  The login page is
+// the one most worth framing or retargeting, and it used to carry none.
+func setAdminSecurityHeaders(w http.ResponseWriter) {
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Content-Security-Policy", adminCSP)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "same-origin")
+}
+
 func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		setAdminSecurityHeaders(w)
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 		// Bypass during the install wizard (setup token guards it separately).
 		if needed, _ := h.SetupNeeded(r); needed {
 			next(w, r)
