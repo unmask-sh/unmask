@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.39",
+  "latest": "0.1.40",
   "releases": [
+    {
+      "version": "0.1.40",
+      "date": "2026-09-08",
+      "notes": "AI advisor: a failed model call no longer wipes the last answer -- the answer stays, the failure is one dated line in the bar, a transient failure (timeout, 429, 5xx) is retried once, the call may take up to five minutes, and the bar adds up what the last 30 days cost in tokens. Bot hunt: the ranking cards show their top ten and reveal the rest on a click instead of scrolling, the ASN card takes the free width first, the UA card keeps a floor, action buttons sit on one edge, and a clipped \"registered\" pill shows its full value on hover. Security: a Web Bot Auth signature must cover @authority, and the login, setup and password-reset pages carry the same protective headers as the pages after login. unmask doctor reads nginx's error log for a variable read before it is set and for [emerg]/[crit]/[alert] lines. Settings > Sites refuses two hostnames that would fold to one nginx variable. Fixed: the per-probe \"using uninitialized unmask_failopen\" warning on health checks (native installs pick it up on the next render + reload)."
+    },
     {
       "version": "0.1.39",
       "date": "2026-09-04",

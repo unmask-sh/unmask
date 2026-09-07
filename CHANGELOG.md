@@ -14,6 +14,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.40] - 2026-09-08
+
 ### Security
 - (2026-09-06) **Web Bot Auth: a signature must cover `@authority`.**  A signed request whose covered components leave out the host it was sent to would verify on every other site for as long as it stayed fresh -- the bot's identity, replayed.  The verifier now rejects such a signature up front; every issuer seen so far covers `@authority`, as the architecture draft requires.
 
