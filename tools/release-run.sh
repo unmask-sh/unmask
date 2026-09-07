@@ -74,6 +74,19 @@ done_mark() { date '+%F %T' > "$STATE/$1.done"; }
 is_done()   { [ -f "$STATE/$1.done" ]; }
 need_done() { is_done "$1" || die "stage '$1' has not finished (run: $0 $VER $1)"; }
 
+# served_latest URL: does releases.json at URL say latest = $VER?  Reads the
+# body into a variable first -- `curl | grep -q` under pipefail turns a match
+# into curl's EPIPE exit -- and gives a freshly written file a few seconds.
+served_latest() {
+    local body
+    for _ in 1 2 3 4 5; do
+        body=$(curl -sf --max-time 15 "$1" 2>/dev/null || true)
+        printf '%s' "$body" | grep -q "\"latest\": *\"$VER\"" && return 0
+        sleep 3
+    done
+    return 1
+}
+
 # --- preflight ---------------------------------------------------------------
 stage_preflight() {
     say "preflight"
@@ -224,15 +237,10 @@ stage_gate() {
     UNMASK_DL_HOST="$HV1" UNMASK_DL_USER=root UNMASK_DL_PATH=/var/www/unmask-test/dl/ UNMASK_SSH_KEY="$SSH_KEY" \
         sudo -E -n bash tools/publish-repo.sh > "$STATE/gate.hv1-publish.log" 2>&1 || true   # the trailing registry rsync fails on the test host (no /v2); packages are there
     grep -q '==> rsync complete' "$STATE/gate.hv1-publish.log" || die "hv1 test publish did not complete (see $STATE/gate.hv1-publish.log)"
-    # The check right after the rsync raced the test host's http.server once
-    # (0.1.40: "does not serve" while the file was already there); give it a
-    # few seconds.
-    served=0
-    for _ in 1 2 3 4 5; do
-        curl -sf --max-time 10 "http://$HV1:8080/releases.json" | grep -q "\"latest\": *\"$VER\"" && { served=1; break; }
-        sleep 3
-    done
-    [ "$served" = 1 ] || die "hv1 does not serve $VER (see $STATE/gate.hv1-publish.log)"
+    # Not `curl | grep -q`: under pipefail grep's early exit hands curl an
+    # EPIPE (exit 23) and a match reads as a failure -- the first real run
+    # (0.1.40) died on "does not serve" with the file already there.
+    served_latest "http://$HV1:8080/releases.json" || die "hv1 does not serve $VER (see $STATE/gate.hv1-publish.log)"
     say "running make distro-check (5 stages, 30-60 min); log: $STATE/gate.distro-check.log"
     make distro-check > "$STATE/gate.distro-check.log" 2>&1 || die "the release gate FAILED (see $STATE/gate.distro-check.log; rerun one stage with make e2e-docker / e2e-docker-mariadb / distro-verify/e2e/install-test-official.sh, then re-run this stage)"
     grep -q 'release gate PASSED' "$STATE/gate.distro-check.log" || die "gate log has no PASSED line"
@@ -297,7 +305,7 @@ stage_publish() {
     cd "$WT"
     UNMASK_DL_USER=root UNMASK_SSH_KEY="$SSH_KEY" sudo -n -E ./tools/publish-repo.sh > "$STATE/publish.log" 2>&1 || die "publish failed or its verification did (see $STATE/publish.log)"
     grep -q '==> publish complete' "$STATE/publish.log" || die "publish did not report completion"
-    curl -sf --max-time 15 https://unmask.sh/dl/releases.json | grep -q "\"latest\": *\"$VER\"" || die "unmask.sh does not serve releases.json latest=$VER"
+    served_latest https://unmask.sh/dl/releases.json || die "unmask.sh does not serve releases.json latest=$VER"
     say "published"
     done_mark publish
 }
