@@ -224,7 +224,15 @@ stage_gate() {
     UNMASK_DL_HOST="$HV1" UNMASK_DL_USER=root UNMASK_DL_PATH=/var/www/unmask-test/dl/ UNMASK_SSH_KEY="$SSH_KEY" \
         sudo -E -n bash tools/publish-repo.sh > "$STATE/gate.hv1-publish.log" 2>&1 || true   # the trailing registry rsync fails on the test host (no /v2); packages are there
     grep -q '==> rsync complete' "$STATE/gate.hv1-publish.log" || die "hv1 test publish did not complete (see $STATE/gate.hv1-publish.log)"
-    curl -sf --max-time 10 "http://$HV1:8080/releases.json" | grep -q "\"latest\": *\"$VER\"" || die "hv1 does not serve $VER"
+    # The check right after the rsync raced the test host's http.server once
+    # (0.1.40: "does not serve" while the file was already there); give it a
+    # few seconds.
+    served=0
+    for _ in 1 2 3 4 5; do
+        curl -sf --max-time 10 "http://$HV1:8080/releases.json" | grep -q "\"latest\": *\"$VER\"" && { served=1; break; }
+        sleep 3
+    done
+    [ "$served" = 1 ] || die "hv1 does not serve $VER (see $STATE/gate.hv1-publish.log)"
     say "running make distro-check (5 stages, 30-60 min); log: $STATE/gate.distro-check.log"
     make distro-check > "$STATE/gate.distro-check.log" 2>&1 || die "the release gate FAILED (see $STATE/gate.distro-check.log; rerun one stage with make e2e-docker / e2e-docker-mariadb / distro-verify/e2e/install-test-official.sh, then re-run this stage)"
     grep -q 'release gate PASSED' "$STATE/gate.distro-check.log" || die "gate log has no PASSED line"
