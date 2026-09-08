@@ -62,11 +62,20 @@
     input.value = tok;
     // multipart: the body field is invisible to the server's ParseForm, so
     // also park the token in the action query where it reads parse-free.
-    if ((form.getAttribute('enctype') || '').toLowerCase() === 'multipart/form-data') {
-      var action = form.getAttribute('action') || (location.pathname + location.search);
-      action = action.replace(/([?&])_csrf=[^&]*/,'$1').replace(/[?&]$/,'');
-      action += (action.indexOf('?') >= 0 ? '&' : '?') + FIELD + '=' + encodeURIComponent(tok);
-      form.setAttribute('action', action);
+    // A submit button with its own formaction posts to THAT url, not the
+    // form's action, so the mirror rides on the button too (the per-site
+    // "reset to default" buttons on the branding tab are exactly that).
+    var withTok = function(url){
+      url = url.replace(/([?&])_csrf=[^&]*/,'$1').replace(/[?&]$/,'');
+      return url + (url.indexOf('?') >= 0 ? '&' : '?') + FIELD + '=' + encodeURIComponent(tok);
+    };
+    var sub = e.submitter;
+    var enc = ((sub && sub.getAttribute && sub.getAttribute('formenctype')) || form.getAttribute('enctype') || '').toLowerCase();
+    if (enc === 'multipart/form-data') {
+      form.setAttribute('action', withTok(form.getAttribute('action') || (location.pathname + location.search)));
+      if (sub && sub.getAttribute && sub.hasAttribute('formaction')) {
+        sub.setAttribute('formaction', withTok(sub.getAttribute('formaction')));
+      }
     }
   }, true);
 
