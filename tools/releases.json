@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.41",
+  "latest": "0.1.42",
   "releases": [
+    {
+      "version": "0.1.42",
+      "date": "2026-09-09",
+      "notes": "Advisor: a candidate the challenge already contains (no passes) now ranks under the ones that pass and stays out of the default view, the model's bundle and the digest until its volume alone is a cost (3,000 challenges served or 10,000 requests in the window); with no model configured, the page says where to switch one on. The CAPTCHA page's \"I'm not a robot\" box no longer comes back already ticked after a Back navigation, where a restored tick fired no change event and the page went nowhere. Deleting a site's theme or challenge settings returns to the Default scope, each tab deletes only its own record, and the scope picker says when a host is kept by the other tab."
+    },
     {
       "version": "0.1.41",
       "date": "2026-09-08",
