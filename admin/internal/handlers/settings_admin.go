@@ -6359,10 +6359,19 @@ func (h *Handler) AdminBrandingSiteSave(w http.ResponseWriter, r *http.Request) 
 // Drops cur.Branding.Sites[<site>] entirely, returning the site to Default
 // verbatim on the next request.
 func (h *Handler) AdminBrandingSiteDelete(w http.ResponseWriter, r *http.Request) {
-	h.adminScalarSiteSave(w, r, "theme", func(cur *settings.Settings, site string) error {
-		delete(cur.Branding.Sites, site)
-		return nil
-	})
+	h.adminScalarSiteApply(w, r, "theme", deleteSiteRecords, true)
+}
+
+// deleteSiteRecords drops both of a site's records.  The theme and the
+// challenge tab store their values separately, but the operator sees one
+// "site settings" record (turning the override off disables both), and the
+// scope picker lists a host while either record exists -- so a delete that
+// took only its own tab's record left the host in the list, with the other
+// record still in place (2026-09-08).
+func deleteSiteRecords(cur *settings.Settings, site string) error {
+	delete(cur.Branding.Sites, site)
+	delete(cur.Challenge.Sites, site)
+	return nil
 }
 
 // AdminChallengeSiteSave: POST {base}/admin/settings/challenge/site/save
@@ -6418,10 +6427,7 @@ func (h *Handler) AdminChallengeSiteSave(w http.ResponseWriter, r *http.Request)
 
 // AdminChallengeSiteDelete: POST {base}/admin/settings/challenge/site/delete
 func (h *Handler) AdminChallengeSiteDelete(w http.ResponseWriter, r *http.Request) {
-	h.adminScalarSiteSave(w, r, "challenge", func(cur *settings.Settings, site string) error {
-		delete(cur.Challenge.Sites, site)
-		return nil
-	})
+	h.adminScalarSiteApply(w, r, "challenge", deleteSiteRecords, true)
 }
 
 // adminScalarSiteSave is the shared body for all four per-site card endpoints.
@@ -6429,6 +6435,14 @@ func (h *Handler) AdminChallengeSiteDelete(w http.ResponseWriter, r *http.Reques
 // swaps the in-memory snapshot under settingsMu.  Errors are surfaced via the
 // same flash cookie + redirect contract as AdminSettingsSave.
 func (h *Handler) adminScalarSiteSave(w http.ResponseWriter, r *http.Request, tab string, mutate func(*settings.Settings, string) error) {
+	h.adminScalarSiteApply(w, r, tab, mutate, false)
+}
+
+// adminScalarSiteApply is adminScalarSiteSave with the redirect target as a
+// parameter: a save returns to the site just edited, a delete returns to the
+// Default scope -- the picker force-lists the scope being edited, so going
+// back to a deleted host showed it as the selected option.
+func (h *Handler) adminScalarSiteApply(w http.ResponseWriter, r *http.Request, tab string, mutate func(*settings.Settings, string) error, backToDefault bool) {
 	if h.ConfigPath == "" {
 		http.Error(w, "config path unknown", http.StatusBadRequest)
 		return
@@ -6498,6 +6512,11 @@ func (h *Handler) adminScalarSiteSave(w http.ResponseWriter, r *http.Request, ta
 	// banner shows "editing <that host>" + override toggle off.  Operators that
 	// truly want to leave the per-site view do so via the side menu (which
 	// drops scope intentionally) or by typing default into the scope picker.
+	// A delete is the exception: its host is gone, so the Default scope it is.
+	if backToDefault {
+		redirBack("", "")
+		return
+	}
 	redirBack("", site)
 }
 
