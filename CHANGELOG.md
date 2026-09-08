@@ -14,6 +14,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.42] - 2026-09-09
+### Changed
+- (2026-09-09) **Advisor: a client the challenge already contains ranks under the ones that pass, and needs thousands of requests to reach the default view.**  A contained candidate (no passes) scores 3 whatever its signals and 6 only past the cost floor (3,000 challenges served or 10,000 requests in the window), where the digest picks it up too.  With no model configured, the page says where to switch one on.
+
+### Fixed
+- (2026-09-09) **The CAPTCHA page's "I'm not a robot" box no longer greets a returning visitor already ticked.**  Press Back onto the challenge and the browser restores the tick, but a restored tick fires no change event -- the box sat there checked and the page did nothing until the visitor unticked and reticked it.  The box now opts out of form-state restoration and is cleared before the handler is wired.
+
+- (2026-09-08) **Deleting a site's settings on the theme or challenge tab returns to the Default scope, and the picker says where a remaining record lives.**  The delete used to return to the deleted host's own scope, which the picker lists, so the host looked stuck.  The theme and challenge records are independent: each tab deletes only its own, and a host kept by the other tab says so in the picker.
+
 ## [0.1.41] - 2026-09-08
 ### Added
 - (2026-09-08) **`unmask db-prune`: clear an events backlog at once.**  With the daemon stopped it removes every row past the retention window; `-mode rebuild` copies the rows to keep into a fresh table and drops the rest (minutes, not the hours of row-by-row deletes), and `-vacuum` / `-analyze` finish the job.  It refuses to run while the daemon answers on its socket; `-force` prunes online at the daemon's own pace.
