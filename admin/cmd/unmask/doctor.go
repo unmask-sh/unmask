@@ -365,6 +365,7 @@ func cmdDoctor(args []string) error {
 			addOK("DB planner stats", "index statistics present")
 		}
 		checkHostIDPinned(s, conn, addOK, addWarn)
+		checkEventsRetention(s, conn, addOK, addWarn)
 	}
 
 	// 4. IP-geo mmdb (= optional).  When set, check existence + freshness
@@ -691,6 +692,73 @@ func checkChallengeAssets(addOK, addWarn func(t, m string)) {
 // two readings -- this machine was renamed, or several nodes share the
 // database -- and this deliberately does not guess between them, because the
 // remedy is the same either way and the operator knows which it is.
+// checkEventsRetention: is the events prune keeping up?  Two signals, both
+// cheap: the oldest row (one indexed MIN) against the retention window, and
+// the prune's own last-run record.  An install whose prune stopped completing
+// showed it only in the daemon log for five days while the file grew to 36 GB
+// (2026-09-08); the file size alone cannot say (SQLite never shrinks it).
+func checkEventsRetention(s settings.Settings, conn *db.DB, addOK, addWarn func(t, m string)) {
+	retention := s.EventsRetentionDays
+	if retention <= 0 {
+		addOK("events retention", "unlimited (events_retention_days = 0): nothing is pruned")
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	oldestSQL := `SELECT COALESCE(CAST(strftime('%s', MIN(date_created)) AS INTEGER), 0) FROM unmask_event`
+	if conn.Driver != db.DriverSQLite {
+		oldestSQL = `SELECT COALESCE(UNIX_TIMESTAMP(MIN(date_created)), 0) FROM unmask_event`
+	}
+	var oldest int64
+	if err := conn.QueryRowContext(ctx, oldestSQL).Scan(&oldest); err != nil {
+		addWarn("events retention", fmt.Sprintf("could not read the oldest event (%v) — a locked or slow database; check the retention tab", err))
+		return
+	}
+	var rec db.PruneRecord
+	hasRec, _ := conn.LoadMaintState(ctx, db.MaintEventsPrune, &rec)
+	var problems []string
+	if oldest > 0 {
+		age := int(time.Since(time.Unix(oldest, 0)).Hours() / 24)
+		// Two days of slack: the prune runs hourly, the cutoff moves daily.
+		if age > retention+2 {
+			problems = append(problems, fmt.Sprintf("the oldest event is %d days old against a %d-day window (backlog: %d days not yet pruned)", age, retention, age-retention))
+		}
+	}
+	if hasRec {
+		switch {
+		case rec.CompletedAt == 0 && rec.Err != "":
+			problems = append(problems, fmt.Sprintf("the prune has not completed yet; last run ended with: %s", rec.Err))
+		case rec.CompletedAt > 0 && time.Since(time.Unix(rec.CompletedAt, 0)) > 48*time.Hour:
+			problems = append(problems, fmt.Sprintf("the prune last completed %s ago (last run: %s)", time.Since(time.Unix(rec.CompletedAt, 0)).Round(time.Hour), pruneRunSummary(rec)))
+		}
+	}
+	if len(problems) > 0 {
+		addWarn("events retention", strings.Join(problems, "; ")+" — the daemon prunes hourly and continues where it stopped; to clear a large backlog at once, stop the daemon and run `unmask db-prune -mode rebuild -vacuum`")
+		return
+	}
+	msg := fmt.Sprintf("%d-day window", retention)
+	if oldest > 0 {
+		msg += fmt.Sprintf(", oldest event %dd ago", int(time.Since(time.Unix(oldest, 0)).Hours()/24))
+	}
+	if hasRec && rec.CompletedAt > 0 {
+		msg += ", prune completed " + time.Since(time.Unix(rec.CompletedAt, 0)).Round(time.Minute).String() + " ago (" + pruneRunSummary(rec) + ")"
+	} else if hasRec {
+		msg += ", prune last ran " + time.Since(time.Unix(rec.StartedAt, 0)).Round(time.Minute).String() + " ago"
+	}
+	addOK("events retention", msg)
+}
+
+func pruneRunSummary(rec db.PruneRecord) string {
+	s := fmt.Sprintf("%d rows in %d chunks", rec.Deleted, rec.Chunks)
+	if rec.BusyRetries > 0 {
+		s += fmt.Sprintf(", %d busy retries", rec.BusyRetries)
+	}
+	if rec.Err != "" {
+		s += ", ended: " + rec.Err
+	}
+	return s
+}
+
 func checkHostIDPinned(s settings.Settings, conn *db.DB, addOK, addWarn func(t, m string)) {
 	resolved := resolveHostID(s.Server.HostID)
 	if strings.TrimSpace(s.Server.HostID) != "" {
