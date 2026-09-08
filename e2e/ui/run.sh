@@ -70,6 +70,11 @@ nginx_log:
   socket_path: $WORK/log.sock
 nginx:
   output_dir: $WORK/nginx-out
+# The challenge page's own entry points (/unmask/test/force-pow, force-captcha).
+# Off unless asked for; captcha-checkbox-restore.test.js drives the CAPTCHA one.
+challenge:
+  default:
+    public_test_pages: true
 EOF
 
 "$BIN" migrate -config "$WORK/config.yml" >/dev/null

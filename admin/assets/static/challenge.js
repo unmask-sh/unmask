@@ -486,6 +486,15 @@
     }
 
     var cb = document.getElementById('notRobot');
+    // Start from unchecked, whatever the browser handed us.  Form state is
+    // restored on a reload and on a Back navigation, and a restored tick fires
+    // no change event -- so the visitor met an already-ticked box that did
+    // nothing until they unticked and reticked it (reported from tool1-sg,
+    // 2026-09-09).  autocomplete="off" on the input asks the browser not to
+    // restore; this clears it if it did anyway.  disabled is cleared too: it is
+    // set while a verify is in flight, and a restored page must not start there.
+    cb.checked = false;
+    cb.disabled = false;
     cb.addEventListener('change', function(){
       if (!cb.checked) return;
       cb.disabled = true;
