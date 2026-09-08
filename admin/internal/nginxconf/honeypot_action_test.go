@@ -51,6 +51,24 @@ func TestResolveHoneypotAction(t *testing.T) {
 			wantMatched: false,
 		},
 		{
+			name: "custom URL with a contains: marker matches the literal anywhere",
+			n: base(func(n *settings.Nginx) {
+				n.Honeypot.URLs = []settings.HoneypotURL{{Path: "contains:/my-trap", Action: "deny"}}
+			}),
+			uri:         "/x/my-trap/y",
+			wantAction:  "deny",
+			wantMatched: true,
+		},
+		{
+			name: "custom URL with an exact: marker does not match a longer path",
+			n: base(func(n *settings.Nginx) {
+				n.Honeypot.URLs = []settings.HoneypotURL{{Path: "exact:/only-this", Action: "deny"}}
+			}),
+			uri:         "/only-this/x",
+			wantAction:  "",
+			wantMatched: false,
+		},
+		{
 			name: "custom URL with action override",
 			n: base(func(n *settings.Nginx) {
 				n.Honeypot.URLs = []settings.HoneypotURL{{Path: "/my-custom-trap", Action: "deny"}}

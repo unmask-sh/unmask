@@ -79,7 +79,9 @@ func ResolveHoneypotAction(uri, site string, n settings.Nginx) (action string, m
 		if p == "" {
 			continue
 		}
-		if re := hpCompile("(?i)" + p); re != nil && re.MatchString(uri) {
+		// A custom URL may carry the pattern-mode marker (contains: / exact:);
+		// resolve it the way the rendered map does (rx) so both wires agree.
+		if re := hpCompile("(?i)" + settings.PatternRegex(p)); re != nil && re.MatchString(uri) {
 			return strings.TrimSpace(u.Action), true
 		}
 	}

@@ -81,7 +81,7 @@ set $unmask_orig_args "";
 # certbot vhost may already define `location ^~ /.well-known/acme-challenge/`
 # and a second copy here would be a duplicate-location error.
 {{- range .HTTPSRedirectExempt }}
-{{ if eq .MatchType "ua" }}if ($http_user_agent ~* "{{ .Pattern }}") { break; }{{ else }}if ($request_uri ~ "{{ .Pattern }}") { break; }{{ end }}
+{{ if eq .MatchType "ua" }}if ($http_user_agent ~* "{{ rx .Pattern }}") { break; }{{ else }}if ($request_uri ~ "{{ rx .Pattern }}") { break; }{{ end }}
 {{- end }}
 if ($unmask_forwarded_proto = "http") {
     return 301 https://$host$request_uri;

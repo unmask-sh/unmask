@@ -12,6 +12,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -19,6 +20,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
+	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -71,6 +73,35 @@ func (h *Handler) ghostSites(ctx context.Context, hours int) []GhostSite {
 // applySitesForm applies the settings "sites" tab: the acceptance mode and the
 // defined-site list (a newline-separated textarea).  Each line is normalized
 // (lowercased, :port stripped) and de-duplicated; blank lines are dropped.
+// siteDefinedFormError refuses a defined-site row that is not a bare hostname
+// before normalizeSite gets to fold it.  normalizeSite strips a :port and keeps
+// the host, so "contains:shop.example.com" -- the pattern-mode marker the
+// value-list chip used to add to every new row (0.1.25..0.1.40) -- or
+// "https://shop.example.com" would quietly become the site "contains" /
+// "https".  A numeric port is what the strip is for (a Host header carries
+// one); anything else after a colon is a marker or a scheme, and the row is
+// named instead of folded.
+func siteDefinedFormError(r *http.Request, lang i18n.Lang) error {
+	for _, raw := range r.Form["site_defined"] {
+		v := strings.TrimSpace(raw)
+		if v == "" {
+			continue
+		}
+		bad := strings.Contains(v, "://")
+		if !bad {
+			if _, port, err := net.SplitHostPort(v); err == nil {
+				if _, perr := strconv.Atoi(port); perr != nil {
+					bad = true
+				}
+			}
+		}
+		if bad {
+			return &listFieldError{Field: "site_defined", Value: raw, Msg: i18n.Tf(lang, "err.site_bare_hostname", v)}
+		}
+	}
+	return nil
+}
+
 func applySitesForm(c *settings.SiteAcceptanceConfig, r *http.Request) {
 	if strings.TrimSpace(r.FormValue("site_mode")) == settings.SiteModeDefined {
 		c.Mode = settings.SiteModeDefined

@@ -2,7 +2,8 @@
 // subdomain / regex) instead of the generic exact/contains/regex, because a
 // substring "contains" on an allowlist admits sub.attacker.com.  This drives a
 // real browser to confirm the toggle on that field cycles the host modes and
-// never offers contains, while a normal field (bypass-ips) still does.
+// never offers contains, while a regex field (bypass-paths) still does and
+// an IP list (bypass-ips) has no chip at all.
 //
 // Driven by run.sh. Env: UI_E2E_BASE, UI_E2E_USER, UI_E2E_PASS, CHROME_BIN.
 const puppeteer = require('puppeteer-core');
@@ -58,27 +59,51 @@ const ok = (c, m) => { if (!c) fails.push(m); };
     ok(cycle.seen.includes('exact') && cycle.seen.includes('regex'), 'admin-host must keep exact+regex, saw: ' + cycle.seen.join(','));
   }
 
-  // A normal field (bypass-ips) still uses the generic set incl. contains.
-  await page.goto(BASE + '/admin/settings/bypass-ips/', { waitUntil: 'networkidle2' });
+  // A regex field (bypass-paths) uses the generic set incl. contains, and a
+  // confirmed row shows the chosen mode as a badge in the list.
+  await page.goto(BASE + '/admin/settings/bypass-paths/', { waitUntil: 'networkidle2' });
   const generic = await page.evaluate(async () => {
-    const add = document.querySelector('.rule-add-bottom[data-target-list="bypass_ip"]');
-    if (!add) return { err: 'no bypass add button' };
+    const add = document.querySelector('.rule-add-bottom[data-target-list="bp_path"]');
+    if (!add) return { err: 'no bypass-paths add button' };
     add.click();
     await new Promise(r => setTimeout(r, 60));
-    let btn = null;
-    document.querySelectorAll('.rule-row.editing .rule-pat-wrap input[name="bypass_ip"]').forEach(i => {
-      btn = i.parentElement.querySelector('.rule-pat-mode');
-    });
-    if (!btn) return { err: 'no bypass mode chip' };
+    let input = null;
+    document.querySelectorAll('.rule-row.editing .rule-pat-wrap input[name="bp_path"]').forEach(i => { input = i; });
+    if (!input) return { err: 'no bp_path input on the new row' };
+    const btn = input.parentElement.querySelector('.rule-pat-mode');
+    if (!btn) return { err: 'no bypass-paths mode chip' };
     const seen = [btn.dataset.mode];
     for (let i = 0; i < 3; i++) { btn.click(); seen.push(btn.dataset.mode); }
-    return { seen };
+    while (btn.dataset.mode !== 'contains') btn.click();
+    input.value = '/feed/';
+    const row = input.closest('.rule-row');
+    row.querySelector('.rule-save').click();
+    await new Promise(r => setTimeout(r, 60));
+    const badge = row.querySelector('.rule-view .pat .pat-lit');
+    return { seen, badgeMode: badge ? badge.dataset.mode : '', badgeText: badge ? badge.textContent : '', editing: row.classList.contains('editing') };
   });
-  ok(!generic.err, 'bypass cycle: ' + (generic.err || ''));
+  ok(!generic.err, 'bypass-paths cycle: ' + (generic.err || ''));
   if (generic.seen) {
-    ok(generic.seen.includes('contains'), 'bypass-ips must still offer contains, saw: ' + generic.seen.join(','));
-    ok(!generic.seen.includes('subdomain'), 'bypass-ips must NOT offer subdomain, saw: ' + generic.seen.join(','));
+    ok(generic.seen.includes('contains'), 'bypass-paths must offer contains, saw: ' + generic.seen.join(','));
+    ok(!generic.seen.includes('subdomain'), 'bypass-paths must NOT offer subdomain, saw: ' + generic.seen.join(','));
+    ok(generic.editing === false, 'the row confirms');
+    ok(generic.badgeMode === 'contains' && generic.badgeText.length > 0, 'the confirmed row shows the mode badge, got ' + JSON.stringify([generic.badgeMode, generic.badgeText]));
   }
+
+  // An IP list is not a pattern: no chip on a new bypass-IP row.
+  await page.goto(BASE + '/admin/settings/bypass-ips/', { waitUntil: 'networkidle2' });
+  const ipRow = await page.evaluate(async () => {
+    const add = document.querySelector('.rule-add-bottom[data-target-list="bypass_ip"]');
+    if (!add) return { err: 'no bypass-ips add button' };
+    add.click();
+    await new Promise(r => setTimeout(r, 60));
+    let input = null;
+    document.querySelectorAll('.rule-row.editing .rule-pat-wrap input[name="bypass_ip"]').forEach(i => { input = i; });
+    if (!input) return { err: 'no bypass_ip input on the new row' };
+    return { chip: !!input.parentElement.querySelector('.rule-pat-mode'), chips: document.querySelectorAll('.rule-list[data-rule-name="bypass_ip"] .rule-pat-mode').length };
+  });
+  ok(!ipRow.err, 'bypass-ips row: ' + (ipRow.err || ''));
+  ok(ipRow.chip === false && ipRow.chips === 0, 'an IP list carries no pattern-mode chip, got ' + JSON.stringify(ipRow));
 
   await browser.close();
   if (fails.length) { console.error('FAIL\n- ' + fails.join('\n- ')); process.exit(1); }

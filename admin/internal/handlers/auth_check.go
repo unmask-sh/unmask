@@ -1824,7 +1824,7 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 		if row.Disabled {
 			continue
 		}
-		if re := compileCachedRe(row.Path); re != nil {
+		if re := compileCachedRe(settings.PatternRegex(row.Path)); re != nil {
 			pm.bypass = append(pm.bypass, re)
 		}
 	}
@@ -1845,7 +1845,7 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 			if row.Disabled {
 				continue
 			}
-			if re := compileCachedRe(row.Path); re != nil {
+			if re := compileCachedRe(settings.PatternRegex(row.Path)); re != nil {
 				out = append(out, re)
 			}
 		}
@@ -1885,7 +1885,7 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 		if u.Disabled {
 			continue
 		}
-		if re := compileCachedRe("(?i)" + u.Path); re != nil {
+		if re := compileCachedRe("(?i)" + settings.PatternRegex(u.Path)); re != nil {
 			pm.honeypot = append(pm.honeypot, honeypotRule{re: re, action: strings.TrimSpace(u.Action)})
 		}
 	}
@@ -1906,7 +1906,7 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 		if row.Disabled {
 			continue
 		}
-		if re := compileCachedRe("(?i)" + row.Path); re != nil {
+		if re := compileCachedRe("(?i)" + settings.PatternRegex(row.Path)); re != nil {
 			pm.protected = append(pm.protected, re)
 		}
 	}
