@@ -131,18 +131,21 @@ func TestScopeDeleteActuallyRemoves(t *testing.T) {
 			t.Fatalf("%s: status %d", path, rr.Code)
 		}
 	}
-	// One delete, on either tab, clears the site's whole record: the theme
-	// and challenge values are stored apart but the operator sees one site
-	// (turning the override off disables both), and the picker lists a host
-	// while either record exists.
+	// Each tab deletes only its own record: the theme and the challenge
+	// record are independent settings, so a delete on the theme tab must not
+	// take a challenge policy set on the other tab.
 	post("/unmask/admin/settings/branding/site/delete")
-
 	got := *h.cfg()
 	if _, ok := got.Branding.Sites["shop.example.com"]; ok {
 		t.Error("the branding record survived its delete")
 	}
+	if _, ok := got.Challenge.Sites["shop.example.com"]; !ok {
+		t.Error("the branding-tab delete must leave the challenge record alone")
+	}
+	post("/unmask/admin/settings/challenge/site/delete")
+	got = *h.cfg()
 	if _, ok := got.Challenge.Sites["shop.example.com"]; ok {
-		t.Error("the challenge record survived the branding-tab delete (the site record is one)")
+		t.Error("the challenge record survived its delete")
 	}
 	// And the site is back to inheriting.
 	if got.Branding.Resolve("shop.example.com").SiteName != got.Branding.Default.SiteName {
@@ -150,9 +153,10 @@ func TestScopeDeleteActuallyRemoves(t *testing.T) {
 	}
 }
 
-// After a delete the browser lands on the Default scope, and the host is gone
-// from the picker.  Returning to ?scope=<host> re-listed the deleted host --
-// selected, even -- because the picker always includes the scope being edited.
+// After a delete the browser lands on the Default scope (returning to
+// ?scope=<host> re-listed the deleted host as the selected option).  While the
+// other tab still holds a record the host stays listed and the option says
+// where that record lives; once both are gone the host leaves the picker.
 func TestScopeDeleteRemovesHostFromPicker(t *testing.T) {
 	var s settings.Settings
 	s.Branding.Sites = map[string]settings.BrandingValues{"shop.example.com": {SiteName: "Shop"}}
@@ -161,16 +165,34 @@ func TestScopeDeleteRemovesHostFromPicker(t *testing.T) {
 	if !strings.Contains(renderSettings(t, h, "?tab=theme"), `<option value="shop.example.com"`) {
 		t.Fatal("precondition: the host is listed while its records exist")
 	}
-	form := url.Values{"site": {"shop.example.com"}, "use_site_override": {"1"}}
-	r := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/branding/site/delete?site=shop.example.com", strings.NewReader(form.Encode()))
-	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rr := httptest.NewRecorder()
-	h.AdminBrandingSiteDelete(rr, r)
-	loc := rr.Header().Get("Location")
-	if rr.Code != http.StatusFound || strings.Contains(loc, "scope=") {
-		t.Fatalf("a delete must return to the Default scope, got %d %q", rr.Code, loc)
+	del := func(tab string) string {
+		t.Helper()
+		form := url.Values{"site": {"shop.example.com"}, "use_site_override": {"1"}}
+		r := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/"+tab+"/site/delete?site=shop.example.com", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
+		if tab == "branding" {
+			h.AdminBrandingSiteDelete(rr, r)
+		} else {
+			h.AdminChallengeSiteDelete(rr, r)
+		}
+		if rr.Code != http.StatusFound {
+			t.Fatalf("%s delete: status %d", tab, rr.Code)
+		}
+		return rr.Header().Get("Location")
 	}
+	if loc := del("branding"); strings.Contains(loc, "scope=") {
+		t.Fatalf("a delete must return to the Default scope, got %q", loc)
+	}
+	theme := renderSettings(t, h, "?tab=theme")
+	if !strings.Contains(theme, `<option value="shop.example.com"`) {
+		t.Error("the host must stay listed while the challenge record exists")
+	}
+	if !strings.Contains(theme, `shop.example.com (default 継承 · challenge タブに設定あり)`) {
+		t.Error("the theme tab's option must say the remaining record lives on the challenge tab")
+	}
+	del("challenge")
 	if strings.Contains(renderSettings(t, h, "?tab=theme"), `<option value="shop.example.com"`) {
-		t.Error("the deleted host is still offered by the scope picker")
+		t.Error("with both records gone the host is still offered by the scope picker")
 	}
 }
