@@ -96,6 +96,11 @@ func TestBrandingSiteSaveOverrideOffDoesNotLie(t *testing.T) {
 		s.Branding.Sites = map[string]settings.BrandingValues{
 			"example.com": {SiteName: "kept"},
 		}
+		// A challenge record beside it: the other tab's setting, which the
+		// branding save must leave alone.
+		s.Challenge.Sites = map[string]settings.ChallengeValues{
+			"example.com": {PowDifficulty: 22},
+		}
 		if err := settings.Save(s, cfgPath); err != nil {
 			t.Fatal(err)
 		}
@@ -144,5 +149,9 @@ func TestBrandingSiteSaveOverrideOffDoesNotLie(t *testing.T) {
 	got2, _ := settings.Load(cfgPath2)
 	if !got2.Branding.Sites["example.com"].Disabled {
 		t.Error("dropping an override must set Disabled")
+	}
+	// The challenge record is the other tab's setting: untouched.
+	if cv, ok := got2.Challenge.Sites["example.com"]; ok && cv.Disabled {
+		t.Error("dropping the branding override must not disable the challenge record")
 	}
 }
