@@ -90,14 +90,35 @@ type Candidate struct {
 // AttentionScore is the score from which a candidate is shown by default and
 // sent to the model.  Below it sits one lone signal -- a three-hit scanner
 // probe, a thirty-serve hammerer -- real, rarely worth a ban, and hidden
-// behind the page's "show all" until its volume or a second signal lifts it.
+// behind the page's "show all" until its volume or a second signal lifts it;
+// and, whatever its signals, a contained client short of the cost floor
+// (settleScore).
 const AttentionScore = 5
 
 // Volume thresholds for the high_volume signal: from here the traffic itself
-// is a cost, whatever the client is.
+// is a cost, whatever the client is.  For a contained client -- one the
+// challenge already answers, for the price of a small page per request --
+// the signal fires ten times later, at the thousands of requests a window
+// where the handling alone is a cost.  Operator's calibration (2026-09-09):
+// "0 passes is effectively blocked; short of thousands of requests the load
+// is nothing to notice".
 const (
-	volumeServes   = 300
-	volumeRequests = 1000
+	VolumeServes            = 300
+	VolumeRequests          = 1000
+	ContainedVolumeServes   = VolumeServes * 10
+	ContainedVolumeRequests = VolumeRequests * 10
+)
+
+// candidateFloor is the score from which a shape is listed at all (under
+// "show all"): one weighty signal.  A hosting-network address that neither
+// hammers nor scans is just a server, not a candidate on its own.
+//
+// containedCostScore is what a contained client scores once its volume is
+// past the cost floor: two signals' worth -- the shape and the volume -- so
+// it clears the default view and the default digest floor alike.
+const (
+	candidateFloor     = 3
+	containedCostScore = 6
 )
 
 // Attention: shown by default and sent to the model -- scored at or above
@@ -127,6 +148,43 @@ func (c Candidate) Fingerprint() string {
 // the second gate is what stopped it.
 func (c Candidate) HeldAtCaptcha() bool {
 	return c.Passes == 0 && (c.PowPassed > 0 || c.CaptchaShown > 0)
+}
+
+// volumeIsCost: the traffic itself is worth acting on.  A passing client at
+// a few hundred challenges a window; a contained one at ten times that.
+func (c Candidate) volumeIsCost() bool {
+	serves, requests := VolumeServes, VolumeRequests
+	if c.Contained {
+		serves, requests = ContainedVolumeServes, ContainedVolumeRequests
+	}
+	return c.Serves >= serves || c.Requests >= requests
+}
+
+// settleScore turns the signals into the score.  A passing client scores the
+// sum of its evidence.  A contained one -- never passed, the challenge
+// already stopping it -- scores what a ban would buy instead: its shape
+// signals (hammering, scanner paths, a hosting network) keep it on the list
+// and go no further than candidateFloor however many there are, and only
+// volume past the cost floor lifts it, to containedCostScore.  So a contained
+// row scores 3 or 6 once listed, sorts under every passing row, and stays out
+// of the default view, the model's bundle and the digest until it is
+// thousands of requests a window.  Operator's ask (2026-09-09): "0 passes is
+// effectively blocked -- lower its priority".
+func (c *Candidate) settleScore() {
+	sum := 0
+	for _, s := range c.Signals {
+		sum += s.Weight
+	}
+	switch {
+	case !c.Contained:
+		c.Score = sum
+	case c.volumeIsCost():
+		c.Score = containedCostScore
+	case sum > candidateFloor:
+		c.Score = candidateFloor
+	default:
+		c.Score = sum
+	}
 }
 
 // Options tunes the extraction.  Zero values resolve to the defaults below —
@@ -244,11 +302,17 @@ func Candidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclus
 	out = append(out, ipCands...)
 	out = append(out, ja4Cands...)
 
+	// Passing before contained -- the one distinction that decides whether a
+	// ban buys protection or merely quiet -- then the score, then volume.
 	sort.SliceStable(out, func(i, j int) bool {
-		if out[i].Score != out[j].Score {
-			return out[i].Score > out[j].Score
+		a, b := out[i], out[j]
+		if a.Contained != b.Contained {
+			return !a.Contained
 		}
-		return out[i].Serves+out[i].Requests > out[j].Serves+out[j].Requests
+		if a.Score != b.Score {
+			return a.Score > b.Score
+		}
+		return a.Serves+a.Requests > b.Serves+b.Requests
 	})
 	if len(out) > opt.Limit {
 		out = out[:opt.Limit]
@@ -336,8 +400,9 @@ func ipCandidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Excl
 		}
 		// Volume: what separates the hammerer worth a ban from the one that
 		// is merely there.  A few dozen serves are not worth the operator's
-		// click; a few hundred are load on their own.
-		if c.Serves >= volumeServes || c.Requests >= volumeRequests {
+		// click; a few hundred are load on their own -- a few thousand, for
+		// a client the challenge already contains (volumeIsCost).
+		if c.volumeIsCost() {
 			c.Signals = append(c.Signals, Signal{
 				ID: "high_volume", Weight: 2, A: c.Requests, B: c.Serves,
 				Detail: fmt.Sprintf("%d requests, %d challenges served -- the volume itself is a cost", c.Requests, c.Serves),
@@ -368,12 +433,8 @@ func ipCandidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Excl
 				}
 			}
 		}
-		for _, s := range c.Signals {
-			c.Score += s.Weight
-		}
-		// A hosting-network address that neither hammers nor scans is just a
-		// server: not a candidate on its own.
-		if c.Score >= 3 {
+		c.settleScore()
+		if c.Score >= candidateFloor {
 			out = append(out, c)
 		}
 	}
@@ -428,14 +489,13 @@ func ja4Candidates(ctx context.Context, conn *db.DB, excl Exclusions, opt Option
 			ID: "ja4_herd", Weight: 3, A: c.DistinctIPs, B: c.Serves, C: c.Passes,
 			Detail: fmt.Sprintf("one fingerprint across %d addresses, %d serves, %d passes", c.DistinctIPs, c.Serves, c.Passes),
 		})
-		c.Score = 3
-		if c.Serves >= volumeServes || c.Requests >= volumeRequests {
+		if c.volumeIsCost() {
 			c.Signals = append(c.Signals, Signal{
 				ID: "high_volume", Weight: 2, A: c.Requests, B: c.Serves,
 				Detail: fmt.Sprintf("%d requests, %d challenges served -- the volume itself is a cost", c.Requests, c.Serves),
 			})
-			c.Score += 2
 		}
+		c.settleScore()
 		out = append(out, c)
 	}
 	return out, rows.Err()

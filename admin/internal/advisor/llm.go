@@ -114,7 +114,8 @@ pass cookie -- the only count that means it got through. A client with
 pow_passed but no challenges_passed was stopped at the CAPTCHA: the defence
 worked. A client with many challenges served and none passed is already
 contained: blocking it would only save the server some work, so rank it low
-unless its volume alone is a cost. What deserves attention is the opposite --
+unless its volume alone is a cost -- thousands of requests in the window, not
+hundreds. What deserves attention is the opposite --
 an actor that completes the challenge and still looks automated.
 
 A JA4 is a fingerprint of a device and browser stack, shared by every client

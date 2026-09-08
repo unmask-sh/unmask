@@ -128,7 +128,8 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 	// and whatever the model nominated.  A three-hit scanner probe or a
 	// thirty-serve hammerer is real but rarely worth a ban; it stays behind
 	// the "show all" filter until its volume (high_volume) or a second signal
-	// lifts it.
+	// lifts it -- and a contained client, whatever its signals, until its
+	// volume alone is a cost (advisor.Candidate.settleScore).
 	for i := range cands {
 		switch cands[i].Type {
 		case "ip":

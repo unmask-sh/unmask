@@ -147,6 +147,32 @@ func TestCandidatesExclusions(t *testing.T) {
 	}
 }
 
+// insertEvents writes n identical rows in one transaction: the cost floor for
+// a contained client is thousands of serves, which row-by-row autocommit
+// would make the slowest thing in the package.
+func insertEvents(t *testing.T, d *db.DB, ip, ja4, phase, ua, payload string, n int) {
+	t.Helper()
+	if payload == "" {
+		payload = "{}"
+	}
+	tx, err := d.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < n; i++ {
+		if _, err := tx.Exec(`INSERT INTO unmask_event
+			(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+			VALUES ('','','',0,?,?,?, '',0,?,0,0,'','',?,datetime('now'))`,
+			events.PackIP(ip), ua, ja4, phase, payload); err != nil {
+			_ = tx.Rollback()
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func hasSignal(c Candidate, id string) bool {
 	for _, s := range c.Signals {
 		if s.ID == id {
@@ -263,18 +289,22 @@ func TestCandidatesPassSemantics(t *testing.T) {
 	}
 }
 
-// Volume is a signal of its own: a hammerer at a few hundred serves is load
-// whatever it is, and the score lifts it above the attention floor; the same
-// shape at thirty serves stays a lone signal below it.
+// Volume is a signal of its own, and where it starts depends on whether the
+// challenge is already handling the client.  A passing client is load at a
+// few hundred serves, and the volume lifts its lone signal to attention; a
+// contained one -- answered for the price of a small page -- is load only at
+// thousands (the operator's calibration, 2026-09-09: short of that there is
+// nothing to notice), and until then stays at the candidate floor whatever
+// else it carries.  Thirty serves is not volume by any measure.
 func TestCandidatesHighVolume(t *testing.T) {
 	d := newTestDB(t)
 	opt := Options{MinServes: 5, Limit: 50}
-	for i := 0; i < volumeServes; i++ {
-		insertEvent(t, d, "203.0.113.80", "t13d_heavy", "serve", "curl/8", "")
-	}
-	for i := 0; i < 30; i++ {
-		insertEvent(t, d, "203.0.113.81", "t13d_light", "serve", "curl/8", "")
-	}
+	insertEvents(t, d, "203.0.113.80", "t13d_heavy", "serve", "curl/8", "", VolumeServes)
+	insertEvents(t, d, "203.0.113.82", "t13d_flood", "serve", "curl/8", "", ContainedVolumeServes)
+	insertEvents(t, d, "203.0.113.81", "t13d_light", "serve", "curl/8", "", 30)
+	// Passing (one pass), scanner paths, a few hundred serves.
+	insertEvents(t, d, "203.0.113.83", "t13d_through", "serve", "Mozilla/5.0", `{"path":"/.env"}`, VolumeServes)
+	insertEvent(t, d, "203.0.113.83", "t13d_through", "bv_pow_then_captcha", "Mozilla/5.0", "")
 	cands, err := Candidates(context.Background(), d, nil, Exclusions{}, opt)
 	if err != nil {
 		t.Fatal(err)
@@ -283,12 +313,86 @@ func TestCandidatesHighVolume(t *testing.T) {
 	for _, c := range cands {
 		by[c.Target] = c
 	}
-	heavy, light := by["203.0.113.80"], by["203.0.113.81"]
-	if !hasSignal(heavy, "high_volume") || heavy.Score < AttentionScore {
-		t.Errorf("the heavy hammerer must carry high_volume and clear the attention floor: %+v", heavy)
+	heavy, flood, light, through := by["203.0.113.80"], by["203.0.113.82"], by["203.0.113.81"], by["203.0.113.83"]
+	if hasSignal(heavy, "high_volume") || heavy.Score != candidateFloor || heavy.Attention() {
+		t.Errorf("a contained hammerer at %d serves is not volume: %+v", VolumeServes, heavy)
+	}
+	if !hasSignal(flood, "high_volume") || flood.Score != containedCostScore || !flood.Attention() {
+		t.Errorf("a contained hammerer at %d serves is the volume itself: %+v", ContainedVolumeServes, flood)
 	}
 	if hasSignal(light, "high_volume") || light.Score >= AttentionScore {
 		t.Errorf("thirty serves is not volume: %+v", light)
+	}
+	if through.Contained || !hasSignal(through, "high_volume") || !hasSignal(through, "scanner_paths") || through.Score != AttentionScore {
+		t.Errorf("a passing scanner at %d serves carries the volume and clears the floor: %+v", VolumeServes, through)
+	}
+}
+
+// A contained client's shape stops at the candidate floor however many
+// signals it carries, the volume past the cost floor is what lifts it, and
+// passing clients sort ahead of contained ones whatever the scores say --
+// the operator's "0 passes is effectively blocked: lower its priority"
+// (2026-09-09).
+func TestContainedRanksUnderPassing(t *testing.T) {
+	d := newTestDB(t)
+	opt := Options{MinServes: 5, Limit: 50}
+	// Hammering + scanner paths, 35 serves, never passed: two shapes, no volume.
+	insertEvents(t, d, "203.0.113.90", "t13d_shape", "serve", "curl/8", `{"path":"/.env"}`, 35)
+	// The same shapes past the cost floor.
+	insertEvents(t, d, "203.0.113.91", "t13d_flood", "serve", "curl/8", `{"path":"/.env"}`, ContainedVolumeServes)
+	// Passing: scanner paths at a few hundred serves and one pass -- a lower
+	// score than the flood, and still first.
+	insertEvents(t, d, "203.0.113.92", "t13d_through", "serve", "Mozilla/5.0", `{"path":"/.env"}`, VolumeServes)
+	insertEvent(t, d, "203.0.113.92", "t13d_through", "bv_pow_then_captcha", "Mozilla/5.0", "")
+	cands, err := Candidates(context.Background(), d, nil, Exclusions{}, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var order []string
+	by := map[string]Candidate{}
+	for _, c := range cands {
+		order = append(order, c.Target)
+		by[c.Target] = c
+	}
+	if want := []string{"203.0.113.92", "203.0.113.91", "203.0.113.90"}; strings.Join(order, ",") != strings.Join(want, ",") {
+		t.Errorf("order = %v, want passing first, then the flood, then the shape-only client", order)
+	}
+	shape := by["203.0.113.90"]
+	if !hasSignal(shape, "challenge_hammering") || !hasSignal(shape, "scanner_paths") || shape.Score != candidateFloor || shape.Attention() {
+		t.Errorf("two contained shapes without the volume stop at the candidate floor: %+v", shape)
+	}
+	flood := by["203.0.113.91"]
+	if !flood.Contained || flood.Score != containedCostScore || !flood.Attention() {
+		t.Errorf("the same shapes past the cost floor score %d: %+v", containedCostScore, flood)
+	}
+	if through := by["203.0.113.92"]; through.Contained || through.Score != AttentionScore {
+		t.Errorf("the passing scanner: %+v", through)
+	}
+}
+
+// A contained fingerprint herd follows the same rule: the herd is the shape,
+// and a few hundred serves across it is not the volume that lifts it.
+func TestContainedHerdNeedsTheVolume(t *testing.T) {
+	d := newTestDB(t)
+	opt := Options{MinServes: 5, Limit: 50}
+	for i := 1; i <= 12; i++ {
+		insertEvents(t, d, "198.51.100."+itoa(i), "t13d_herd", "serve", "curl/8", "", 30)
+	}
+	cands, err := Candidates(context.Background(), d, nil, Exclusions{}, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var herd *Candidate
+	for i := range cands {
+		if cands[i].Type == "ja4" && cands[i].Target == "t13d_herd" {
+			herd = &cands[i]
+		}
+	}
+	if herd == nil {
+		t.Fatalf("the herd is missing: %+v", cands)
+	}
+	if !herd.Contained || herd.Serves < VolumeServes || hasSignal(*herd, "high_volume") || herd.Score != candidateFloor || herd.Attention() {
+		t.Errorf("a contained herd at a few hundred serves stays at the candidate floor: %+v", *herd)
 	}
 }
 

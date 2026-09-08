@@ -12,7 +12,8 @@
 // and the reason row must be editable on the advisor page while staying a
 // sharing-only field on bot hunt.
 //
-// run.sh seeds 203.0.113.26 as a two-signal candidate for this.
+// run.sh seeds 203.0.113.26 as a two-signal candidate past the contained
+// cost floor for this.
 //
 // Env: UI_E2E_BASE, UI_E2E_USER, UI_E2E_PASS, CHROME_BIN.
 const puppeteer = require('puppeteer-core');
@@ -22,6 +23,7 @@ const USER = process.env.UI_E2E_USER || 'ui-e2e';
 const PASS = process.env.UI_E2E_PASS || '';
 const CHROME = process.env.CHROME_BIN || '/usr/bin/chromium-browser';
 const SEED_IP = '203.0.113.26';
+const SEED_SERVES = 3000; // run.sh: past the contained cost floor
 
 const fails = [];
 const ok = (cond, msg) => { if (!cond) fails.push(msg); };
@@ -126,7 +128,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       filter: !!document.querySelector('select[name="min"] option[value="all"]'),
       // Six columns: the origin (ASN / rDNS) lives under the address now.
       ths: document.querySelectorAll('table.cands thead th').length,
-      // The engine's score on the row (hammering 3 + scanner 3 for the seed).
+      // The engine's score on the row (the seed is contained past the cost
+      // floor: 6; a few hundred serves would leave it at 3, hidden).
       score: (row.querySelector('.score') || {}).textContent || '',
     };
   }, SEED_IP);
@@ -151,8 +154,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     ok(adv.ths === 6, `expected 6 columns (origin folded under the address), got ${adv.ths}`);
     ok(/\b6\b/.test(adv.score), `the seed row must show its score 6: ${JSON.stringify(adv.score)}`);
     const main = (adv.traffic.match(/\d+/g) || []).map(Number);
-    ok(main.length === 2 && main[0] === 35 && main[1] === 0,
-      `the traffic main line must read 35 served -> 0 passed: ${JSON.stringify(adv.traffic.trim().slice(0, 80))}`);
+    ok(main.length === 2 && main[0] === SEED_SERVES && main[1] === 0,
+      `the traffic main line must read ${SEED_SERVES} served -> 0 passed: ${JSON.stringify(adv.traffic.trim().slice(0, 80))}`);
     ok((adv.trafficSub.match(/\d+/g) || []).length === 3, `the middle stages line must carry three counts: ${JSON.stringify(adv.trafficSub.trim())}`);
     ok(adv.trafficWhen, 'the window must be a tz-aware compact time range');
     ok(adv.clippedPaths >= 1 && adv.plainPaths >= 1,

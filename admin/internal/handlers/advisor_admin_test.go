@@ -144,20 +144,16 @@ func TestAdvisorAIRunStoresAndShows(t *testing.T) {
 	cur := h.snapshotSettings()
 	cur.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k", Endpoint: stub.URL}
 	h.settingsPtr.Store(&cur)
-	seed := func(ip, phase, payload string, n int) {
-		for i := 0; i < n; i++ {
-			if _, err := h.DB.Exec(`INSERT INTO unmask_event
-				(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
-				VALUES ('','','',0,?,'Mozilla/5.0','t13d_x','',0,?,0,0,'','',?,datetime('now'))`,
-				events.PackIP(ip), phase, payload); err != nil {
-				t.Fatal(err)
-			}
-		}
-	}
-	seed("203.0.113.10", "serve", `{"path":"/.env"}`, 35) // engine candidate: hammering + scanner = 6
-	seed("203.0.113.11", "serve", `{"path":"/.env"}`, 35) // a second one; the stub reviews it too
-	seed("203.0.113.77", "serve", `{"path":"/.env"}`, 3)  // a lone three-hit probe: score 3, below the floor
-	seed("198.51.100.7", "serve", "{}", 8)                // pool only: passes, no rule flags it
+	seed := func(ip, phase, payload string, n int) { seedEvents(t, h, ip, "Mozilla/5.0", phase, payload, n) }
+	// Engine candidates: hammering + scanner paths, contained, past the cost
+	// floor (a contained client short of it stays at 3, hidden) = 6.
+	seed("203.0.113.10", "serve", `{"path":"/.env"}`, advisor.ContainedVolumeServes)
+	// A second one; the stub reviews it too.
+	seed("203.0.113.11", "serve", `{"path":"/.env"}`, advisor.ContainedVolumeServes)
+	// A lone three-hit probe: score 3, below the floor.
+	seed("203.0.113.77", "serve", `{"path":"/.env"}`, 3)
+	// Pool only: passes, no rule flags it.
+	seed("198.51.100.7", "serve", "{}", 8)
 	seed("198.51.100.7", "bv_pow_only", "{}", 6)
 
 	get := func(q string) string {
@@ -393,7 +389,7 @@ func TestAdvisorAIRunStoresAndShows(t *testing.T) {
 	}
 	// A candidate that appears after the last answer is marked new (and
 	// shows the not-reviewed note) until the next click covers it.
-	seed("203.0.113.12", "serve", `{"path":"/.env"}`, 35)
+	seed("203.0.113.12", "serve", `{"path":"/.env"}`, advisor.ContainedVolumeServes)
 	advisor.ResetCandidateCache()
 	body = get("")
 	i := strings.Index(body, `data-ip="203.0.113.12"`)
@@ -421,13 +417,7 @@ func TestAdvisorAIRunFailureIsShown(t *testing.T) {
 	cur := h.snapshotSettings()
 	cur.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k", Endpoint: stub.URL}
 	h.settingsPtr.Store(&cur)
-	for i := 0; i < 35; i++ {
-		if _, err := h.DB.Exec(`INSERT INTO unmask_event
-			(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
-			VALUES ('','','',0,?,'curl/8','t13d_x','',0,'serve',0,0,'','','{"path":"/.env"}',datetime('now'))`, events.PackIP("203.0.113.10")); err != nil {
-			t.Fatal(err)
-		}
-	}
+	seedEvents(t, h, "203.0.113.10", "curl/8", "serve", `{"path":"/.env"}`, advisor.ContainedVolumeServes)
 	form := url.Values{"window": {"24"}}
 	req := httptest.NewRequest(http.MethodPost, "/unmask/admin/advisor/ai-run", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -483,13 +473,7 @@ func TestAdvisorAIFailureKeepsLastAnswer(t *testing.T) {
 	cur := h.snapshotSettings()
 	cur.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k", Endpoint: stub.URL}
 	h.settingsPtr.Store(&cur)
-	for i := 0; i < 35; i++ {
-		if _, err := h.DB.Exec(`INSERT INTO unmask_event
-			(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
-			VALUES ('','','',0,?,'curl/8','t13d_x','',0,'serve',0,0,'','','{"path":"/.env"}',datetime('now'))`, events.PackIP("203.0.113.10")); err != nil {
-			t.Fatal(err)
-		}
-	}
+	seedEvents(t, h, "203.0.113.10", "curl/8", "serve", `{"path":"/.env"}`, advisor.ContainedVolumeServes)
 	lang := string(i18n.Resolve(httptest.NewRequest(http.MethodGet, "/", nil)))
 	key := advisor.ResultKey(cur.AIAdvisor, 24*60, lang)
 	answered := time.Now().Add(-2 * time.Hour).Truncate(time.Second)
@@ -542,13 +526,7 @@ func TestAdvisorAIFailureKeepsLastAnswer(t *testing.T) {
 // once un-dismissed.
 func TestAdvisorDismissedFilterAndUndismiss(t *testing.T) {
 	h := newTestHandler(t)
-	for i := 0; i < 35; i++ {
-		if _, err := h.DB.Exec(`INSERT INTO unmask_event
-			(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
-			VALUES ('','','',0,?,'curl/8','t13d_x','',0,'serve',0,0,'','','{"orig_path":"/.env"}',datetime('now'))`, events.PackIP("203.0.113.10")); err != nil {
-			t.Fatal(err)
-		}
-	}
+	seedEvents(t, h, "203.0.113.10", "curl/8", "serve", `{"orig_path":"/.env"}`, advisor.ContainedVolumeServes)
 	get := func(q string) string {
 		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24"+q, nil)
 		rr := httptest.NewRecorder()
@@ -596,13 +574,7 @@ func TestAdvisorMidRunShowsPlan(t *testing.T) {
 	cur.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k", Endpoint: "http://127.0.0.1:9"}
 	h.settingsPtr.Store(&cur)
 	for _, ip := range []string{"203.0.113.10", "203.0.113.11"} {
-		for i := 0; i < 35; i++ {
-			if _, err := h.DB.Exec(`INSERT INTO unmask_event
-				(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
-				VALUES ('','','',0,?,'curl/8','t13d_x','',0,'serve',0,0,'','','{"orig_path":"/.env"}',datetime('now'))`, events.PackIP(ip)); err != nil {
-				t.Fatal(err)
-			}
-		}
+		seedEvents(t, h, ip, "curl/8", "serve", `{"orig_path":"/.env"}`, advisor.ContainedVolumeServes)
 	}
 	key := advisor.ResultKey(cur.AIAdvisor, 24*60, string(i18n.Resolve(httptest.NewRequest(http.MethodGet, "/", nil))))
 	advisor.StoreLast(h.DB, key, advisor.Stored{At: time.Now(), Model: "m", Reviews: map[string]advisor.Review{
@@ -694,5 +666,71 @@ func TestAdvisorMonthTotalsShown(t *testing.T) {
 	if !strings.Contains(body, `class="kv ai-delta ai-month"`) || !strings.Contains(body, "直近 30 日: 1 回相談、tokens 入力 12,345 / 出力 678") {
 		i := strings.Index(body, `id="ai-bar"`)
 		t.Fatalf("monthly totals line missing (a run on another window still counts); bar: %s", body[i:min(len(body), i+1500)])
+	}
+}
+
+// seedEvents writes n rows for ip in one transaction.  The advisor's cost
+// floor for a contained client is thousands of serves (a few hundred no
+// longer reach the default view), so the candidates these tests need at
+// attention are seeded past it -- row-by-row autocommit would make that the
+// slowest thing in the package.
+func seedEvents(t *testing.T, h *Handler, ip, ua, phase, payload string, n int) {
+	t.Helper()
+	tx, err := h.DB.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < n; i++ {
+		if _, err := tx.Exec(`INSERT INTO unmask_event
+			(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+			VALUES ('','','',0,?,?,'t13d_x','',0,?,0,0,'','',?,datetime('now'))`,
+			events.PackIP(ip), ua, phase, payload); err != nil {
+			_ = tx.Rollback()
+			t.Fatal(err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// With no model configured the page says so where the answers would go --
+// once, with the link to switch it on -- and the hint gives way to the run
+// bar as soon as the advisor is active.  Operator's ask (2026-09-09): "AI を
+// 設定するとアドバイスを表示できるようになります的な表示があってもいい".
+func TestAdvisorAIOffShowsSetupHint(t *testing.T) {
+	advisor.ResetCandidateCache()
+	h := newTestHandler(t)
+	get := func() string {
+		rr := httptest.NewRecorder()
+		h.AdminAdvisorIndex(rr, httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil))
+		if rr.Code != http.StatusOK {
+			t.Fatalf("advisor page: %d", rr.Code)
+		}
+		return rr.Body.String()
+	}
+	body := get()
+	if !strings.Contains(body, `id="ai-off-bar"`) || !strings.Contains(body, `/admin/settings/ai-advisor/"`) {
+		t.Fatal("with no model configured the page must say, where the answers would go, how to switch one on")
+	}
+	if strings.Contains(body, `id="ai-bar"`) || strings.Contains(body, `/admin/advisor/ai-run`) {
+		t.Fatal("with no model configured there is no run bar and no button")
+	}
+	if strings.Count(body, `/admin/settings/ai-advisor/"`) != 1 {
+		t.Error("the hint is said once, not in the footer as well")
+	}
+	// Enabled without a key is not configured either.
+	cur := h.snapshotSettings()
+	cur.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic"}
+	h.settingsPtr.Store(&cur)
+	if body := get(); !strings.Contains(body, `id="ai-off-bar"`) {
+		t.Fatal("enabled without a key: still the hint")
+	}
+	on := h.snapshotSettings()
+	on.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k"}
+	h.settingsPtr.Store(&on)
+	body = get()
+	if strings.Contains(body, `id="ai-off-bar"`) || !strings.Contains(body, `id="ai-bar"`) || !strings.Contains(body, `/admin/advisor/ai-run`) {
+		t.Fatal("configured: the run bar and its button replace the hint")
 	}
 }
