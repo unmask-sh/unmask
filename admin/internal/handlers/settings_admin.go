@@ -1038,6 +1038,26 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			}
 			return out
 		}(),
+		// *RecordHosts: a record exists for the host on that tab (enabled or
+		// not).  The picker lists a host while either tab holds a record, so
+		// a tab whose own record is gone says where the remaining one lives
+		// -- otherwise a host just deleted on this tab looks stuck.
+		"BrandingRecordHosts": func() map[string]bool {
+			out := make(map[string]bool, len(scopeHosts))
+			for _, h := range scopeHosts {
+				_, ok := snap.Branding.Sites[h]
+				out[h] = ok
+			}
+			return out
+		}(),
+		"ChallengeRecordHosts": func() map[string]bool {
+			out := make(map[string]bool, len(scopeHosts))
+			for _, h := range scopeHosts {
+				_, ok := snap.Challenge.Sites[h]
+				out[h] = ok
+			}
+			return out
+		}(),
 		// Per-site override state.  HasEntry = "an entry exists" (= form is
 		// pre-filled with the saved values); HasOverride = "an entry exists
 		// AND is not Disabled" (= the toggle should ship checked + form
@@ -6306,16 +6326,14 @@ func (h *Handler) AdminBrandingSiteSave(w http.ResponseWriter, r *http.Request) 
 				return fmt.Errorf("nothing was saved: %q is off for this site. "+
 					"Tick it and save again to store these values, or clear the fields to turn the override off", "override settings for this host")
 			}
+			// Only the branding record.  It used to disable the challenge
+			// record as well, from the days theme + show_credit lived there;
+			// the two records are independent settings now, and the other
+			// tab's override is the other tab's business.
 			if cur.Branding.Sites != nil {
 				if v, ok := cur.Branding.Sites[site]; ok {
 					v.Disabled = true
 					cur.Branding.Sites[site] = v
-				}
-			}
-			if cur.Challenge.Sites != nil {
-				if v, ok := cur.Challenge.Sites[site]; ok {
-					v.Disabled = true
-					cur.Challenge.Sites[site] = v
 				}
 			}
 			return nil
@@ -6359,19 +6377,14 @@ func (h *Handler) AdminBrandingSiteSave(w http.ResponseWriter, r *http.Request) 
 // Drops cur.Branding.Sites[<site>] entirely, returning the site to Default
 // verbatim on the next request.
 func (h *Handler) AdminBrandingSiteDelete(w http.ResponseWriter, r *http.Request) {
-	h.adminScalarSiteApply(w, r, "theme", deleteSiteRecords, true)
-}
-
-// deleteSiteRecords drops both of a site's records.  The theme and the
-// challenge tab store their values separately, but the operator sees one
-// "site settings" record (turning the override off disables both), and the
-// scope picker lists a host while either record exists -- so a delete that
-// took only its own tab's record left the host in the list, with the other
-// record still in place (2026-09-08).
-func deleteSiteRecords(cur *settings.Settings, site string) error {
-	delete(cur.Branding.Sites, site)
-	delete(cur.Challenge.Sites, site)
-	return nil
+	// Only this tab's record: the theme and the challenge record are
+	// independent settings, and a delete here must not take a challenge
+	// policy the operator set on the other tab.  The scope picker keeps the
+	// host listed while the other record exists, and says so.
+	h.adminScalarSiteApply(w, r, "theme", func(cur *settings.Settings, site string) error {
+		delete(cur.Branding.Sites, site)
+		return nil
+	}, true)
 }
 
 // AdminChallengeSiteSave: POST {base}/admin/settings/challenge/site/save
@@ -6427,7 +6440,10 @@ func (h *Handler) AdminChallengeSiteSave(w http.ResponseWriter, r *http.Request)
 
 // AdminChallengeSiteDelete: POST {base}/admin/settings/challenge/site/delete
 func (h *Handler) AdminChallengeSiteDelete(w http.ResponseWriter, r *http.Request) {
-	h.adminScalarSiteApply(w, r, "challenge", deleteSiteRecords, true)
+	h.adminScalarSiteApply(w, r, "challenge", func(cur *settings.Settings, site string) error {
+		delete(cur.Challenge.Sites, site)
+		return nil
+	}, true)
 }
 
 // adminScalarSiteSave is the shared body for all four per-site card endpoints.
