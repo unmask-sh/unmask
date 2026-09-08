@@ -1744,6 +1744,11 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// honored at runtime for operators who set it manually.
 	case "sites":
 		// The Sites / Hosts tab is one form: site acceptance + this host's id.
+		// A row that is not a bare hostname is refused by name (kept in the
+		// form, highlighted) rather than folded by normalizeSite.
+		if sectionErr("sites", map[string][]string{"site_defined": cur.Sites.Defined}, siteDefinedFormError(r, lang)) {
+			return
+		}
 		applySitesForm(&cur.Sites, r)
 		// Two hosts that fold to one nginx variable name would render two
 		// map blocks for one variable and nginx would refuse the whole
@@ -2313,6 +2318,11 @@ var ruleListRegistry = map[string][]ruleListSpec{
 		}),
 		simpleFields("metrics_allow_from", func(c *settings.Settings, rows listRows) {
 			overlayStrList(rows, &c.Nginx.MetricsAllowFrom, &c.Nginx.MetricsAllowFromTitle, &c.Nginx.MetricsAllowFromDisabled, &c.Nginx.MetricsAllowFromCreatedAt, &c.Nginx.MetricsAllowFromUpdatedAt)
+		}),
+	},
+	"sites": {
+		simpleFields("site_defined", func(c *settings.Settings, rows listRows) {
+			overlayStrList(rows, &c.Sites.Defined, &c.Sites.DefinedTitle, &c.Sites.DefinedDisabled, &c.Sites.DefinedCreatedAt, &c.Sites.DefinedUpdatedAt)
 		}),
 	},
 	"bypass-ips": {
@@ -3625,7 +3635,7 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 		if p == "" {
 			continue
 		}
-		if _, err := regexp.Compile(p); err != nil {
+		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: "honeypot_url_path", Value: p, Msg: i18n.Tf(lang, "err.honeypot_regex", p, err)}
 		}
 		if ts <= 0 {
@@ -3745,7 +3755,7 @@ func pairExtras(field string, lang i18n.Lang, patterns, titles, enabled, created
 			if strings.ContainsAny(p, "\"\\\x00\r\n") {
 				return nil, nil, nil, nil, nil, nil, &listFieldError{Field: field, Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_char", p)}
 			}
-			if _, err := regexp.Compile(p); err != nil {
+			if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
 				return nil, nil, nil, nil, nil, nil, &listFieldError{Field: field, Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_regex", p, err)}
 			}
 		}
@@ -3873,7 +3883,7 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		if strings.ContainsAny(v, "\"\\\x00\r\n") {
 			return &listFieldError{Field: "ja4_extra_pat", Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_char", v)}
 		}
-		if _, err := regexp.Compile(p); err != nil {
+		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: "ja4_extra_pat", Value: p, Msg: i18n.Tf(lang, "err.verdict_regex", p, err)}
 		}
 		if !nginxconf.IsValidJA4Action(a) {
@@ -4027,7 +4037,7 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		if p == "" {
 			continue
 		}
-		if _, err := regexp.Compile(p); err != nil {
+		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: "protected_path", Value: p, Msg: i18n.Tf(lang, "err.protected_regex", p, err)}
 		}
 		if ts <= 0 {
@@ -4255,7 +4265,7 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		if p == "" {
 			continue
 		}
-		if _, err := regexp.Compile(p); err != nil {
+		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: "bp_path", Value: p, Msg: i18n.Tf(lang, "err.bypass_path_regex", p, err)}
 		}
 		if ts <= 0 {
@@ -4320,7 +4330,7 @@ func applyExemptPathsForm(dst *[]settings.BypassPath, prefix string, r *http.Req
 		if p == "" {
 			continue
 		}
-		if _, err := regexp.Compile(p); err != nil {
+		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: prefix + "_path", Value: p, Msg: i18n.Tf(lang, "err.bypass_path_regex", p, err)}
 		}
 		if ts <= 0 {
@@ -4402,7 +4412,7 @@ func applyRedirectExemptForm(n *settings.Nginx, r *http.Request, lang i18n.Lang)
 		if p == "" {
 			continue
 		}
-		if _, err := regexp.Compile(p); err != nil {
+		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.redirect_exempt_regex", p, err))
 		}
 		if ts <= 0 {
@@ -5627,7 +5637,22 @@ type retentionStatsView struct {
 	// banner on the events-prune card -- the operator reads "the prune stats
 	// are broken" while the prune stats sit right there, correct.
 	EventsTimedOut bool // events prune card (unmask_event count/oldest, DB size)
-	CookieTimedOut bool // nginx-log ingest card (unmask_cookie_minute count/oldest)
+	// The prune's last-run record (unmask_maint_state), so the card can say
+	// whether the prune is keeping up instead of leaving that to the daemon
+	// log.  PruneBacklogDays > 0 = the oldest row is that many days past the
+	// window; PruneStale = the last completed run is over two days old (or the
+	// prune never completed and the last run ended with PruneErr).
+	PruneHave        bool
+	PruneStartedTS   int64
+	PruneCompletedTS int64
+	PruneDeleted     int
+	PruneChunks      int
+	PruneBusyRetries int
+	PruneSeconds     int
+	PruneErr         string
+	PruneBacklogDays int
+	PruneStale       bool
+	CookieTimedOut   bool // nginx-log ingest card (unmask_cookie_minute count/oldest)
 	// Per-metric success flags: true = the value was read, false = its query
 	// errored/timed out and the value is unknown (rendered "??" rather than a
 	// misleading 0, so the operator sees WHICH metric could not be computed).
@@ -5773,6 +5798,22 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 	if v.EventsOldestTS > 0 {
 		v.EventsOldest = time.Unix(v.EventsOldestTS, 0).In(loc).Format("2006-01-02 15:04 MST")
 		v.EventsOldestDaysAgo = int(time.Since(time.Unix(v.EventsOldestTS, 0)).Hours() / 24)
+	}
+	// The prune's own record, and the backlog it implies (two days of slack:
+	// the prune runs hourly, the cutoff moves daily).
+	if retention := h.cfg().EventsRetentionDays; retention > 0 {
+		if v.EventsOldestOK && v.EventsOldestTS > 0 && v.EventsOldestDaysAgo > retention+2 {
+			v.PruneBacklogDays = v.EventsOldestDaysAgo - retention
+		}
+		var rec db.PruneRecord
+		if ok, err := h.DB.LoadMaintState(ctx, db.MaintEventsPrune, &rec); err == nil && ok {
+			v.PruneHave = true
+			v.PruneStartedTS, v.PruneCompletedTS = rec.StartedAt, rec.CompletedAt
+			v.PruneDeleted, v.PruneChunks, v.PruneBusyRetries = int(rec.Deleted), rec.Chunks, rec.BusyRetries
+			v.PruneSeconds, v.PruneErr = int(rec.Seconds), rec.Err
+			v.PruneStale = (rec.CompletedAt == 0 && rec.Err != "") ||
+				(rec.CompletedAt > 0 && time.Since(time.Unix(rec.CompletedAt, 0)) > 48*time.Hour)
+		}
 	}
 	// Row count estimate, NOT COUNT(*): the exact count scans the whole
 	// table, and a modest host with a 25-day window (millions of rows)

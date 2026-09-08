@@ -117,3 +117,29 @@ func TestEffectiveRedirectExemptPresets(t *testing.T) {
 		t.Errorf("acme should stay on: %+v", dis)
 	}
 }
+
+// A custom exemption stored with a mode marker renders as the resolved regex
+// (rx), the way every other pattern map does -- the marker itself would have
+// been written into the `if` verbatim and matched nothing.
+func TestRedirectExemptCustomRulesResolveMarkers(t *testing.T) {
+	got := renderServerInc(t, func(s *settings.Settings) {
+		s.Nginx.HTTPSRedirect = true
+		s.Nginx.HTTPSRedirectExempt.Rules = []settings.HTTPSRedirectExemptRule{
+			{Type: "path", Pattern: "contains:/.well-known/"},
+			{Type: "ua", Pattern: "exact:MyMonitor/1.0"},
+		}
+	})
+	for _, want := range []string{
+		`if ($request_uri ~ "/\.well-known/") { break; }`,
+		`if ($http_user_agent ~* "^MyMonitor/1\.0$") { break; }`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("want %s in:\n%s", want, got)
+		}
+	}
+	for _, marker := range []string{"contains:", "exact:"} {
+		if strings.Contains(got, marker) {
+			t.Errorf("marker %q leaked into server.inc", marker)
+		}
+	}
+}
