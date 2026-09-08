@@ -94,9 +94,12 @@ releases.json, commit, tag) → `push` (main and the tag, explicitly; waits for
 the release workflow's draft and the GHCR images) → `build` (clean worktree
 at the tag, 27 packages for amd64 and arm64 + 2 binaries) → `gate` (unsigned
 repo to hv1, `make distro-check`) → `sign` (sign-rpm, THEN checksums + .sig,
-THEN the signed repository) → `registry` → `publish` (with its own
-verification) → `github` (assets over the draft's, body, latest, verified by
-download) → `archive` (dist/ kept under `../unmask-dl-build/dist-archive/`).
+THEN the signed repository) → `archive` (dist/ kept as
+`../unmask-dl-build/releases/vX.Y.Z/`, the newest six versions) → `registry`
+→ `publish` (with its own verification; carries `releases/` up as
+[unmask.sh/dl/releases/](https://unmask.sh/dl/releases/), the only place on
+the site where an older version is still installable) → `github` (assets
+over the draft's, body, latest, verified by download).
 
 Each stage records itself under `../unmask-dl-build/release-state/<ver>/`
 (with its log) and the next refuses to run until the one before it

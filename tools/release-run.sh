@@ -25,11 +25,15 @@
 #   gate       unsigned repo -> hv1 test publish -> make distro-check (5 stages)
 #   sign       sign-rpm, then checksums + detached signature, then the signed
 #              repository (build-repo) -- in that order
+#   archive    dist/ (packages, binaries, checksums + .sig) kept as
+#              releases/vX.Y.Z in the dl-build tree, which publish carries to
+#              https://unmask.sh/dl/releases/ -- the repositories hold only
+#              the current version, this is where older ones stay (the
+#              newest 6; GitHub Releases has every version)
 #   registry   the static OCI tree from the GHCR images (latest -> version)
 #   publish    rsync to unmask.sh with its own post-publish verification
 #   github     upload the packages, binaries, checksums (+ .sig) over the
 #              draft's, set the body, publish as latest, verify by download
-#   archive    keep dist/ (packages, binaries, checksums) under dist-archive/
 #
 # Not here on purpose: the fleet deploy (per host, by hand), the site docs
 # rsync (which files is release-specific), the memory notes.  The script
@@ -300,13 +304,16 @@ stage_registry() {
 
 # --- publish -----------------------------------------------------------------
 stage_publish() {
-    need_done sign; need_done registry
-    say "publish to unmask.sh (/dl/ + /v2/) with post-publish verification"
+    need_done sign; need_done archive; need_done registry
+    say "publish to unmask.sh (/dl/ + /v2/ + /dl/releases/$TAG) with post-publish verification"
     cd "$WT"
     UNMASK_DL_USER=root UNMASK_SSH_KEY="$SSH_KEY" sudo -n -E ./tools/publish-repo.sh > "$STATE/publish.log" 2>&1 || die "publish failed or its verification did (see $STATE/publish.log)"
     grep -q '==> publish complete' "$STATE/publish.log" || die "publish did not report completion"
     served_latest https://unmask.sh/dl/releases.json || die "unmask.sh does not serve releases.json latest=$VER"
-    say "published"
+    curl -sf --max-time 30 -o "$STATE/publish.releases.checksums" "https://unmask.sh/dl/releases/$TAG/checksums.txt" \
+        && cmp -s "$STATE/publish.releases.checksums" "$WT/dist/checksums.txt" \
+        || die "unmask.sh does not serve /dl/releases/$TAG/checksums.txt as archived"
+    say "published (/dl/releases/$TAG is up)"
     done_mark publish
 }
 
@@ -330,19 +337,29 @@ stage_github() {
 }
 
 # --- archive -----------------------------------------------------------------
+# releases/vX.Y.Z/ in the dl-build tree is published as /dl/releases/ (the
+# publish stage runs after this one).  The rpm/deb/apk repositories carry only
+# the current version, so this is the one place on unmask.sh where an older
+# release can still be installed from; the newest ARCHIVE_KEEP versions stay,
+# older ones are pruned here (and, through rsync --delete, on the server) --
+# GitHub Releases keeps every version.
+ARCHIVE_KEEP="${UNMASK_ARCHIVE_KEEP:-6}"
 stage_archive() {
     need_done sign
-    say "archive dist/ under $DL_BUILD/dist-archive/$TAG"
-    local a="$DL_BUILD/dist-archive/$TAG"; mkdir -p "$a"
+    say "archive dist/ as $DL_BUILD/releases/$TAG (published as /dl/releases/; newest $ARCHIVE_KEEP versions kept)"
+    local a="$DL_BUILD/releases/$TAG"; mkdir -p "$a"
     ( cd "$WT/dist" && cp -a unmask-linux-amd64 unmask-linux-arm64 ./*.rpm ./*.deb ./*.apk checksums.txt checksums.txt.sig "$a"/ )
-    ( cd "$a" && LC_ALL=C sha256sum -c checksums.txt | grep -vq ': OK$' ) && die "archive does not verify"
+    ( cd "$a" && LC_ALL=C sha256sum -c --quiet checksums.txt ) || die "archive does not verify"
     say "archived $(ls "$a" | wc -l) files"
+    local old d
+    old=$(cd "$DL_BUILD/releases" && ls -d v[0-9]*.[0-9]*.[0-9]* 2>/dev/null | sort -V | head -n -"$ARCHIVE_KEEP")
+    for d in $old; do rm -rf "${DL_BUILD:?}/releases/$d"; say "pruned releases/$d (older than the newest $ARCHIVE_KEEP)"; done
     done_mark archive
 }
 
 stage_status() {
     say "status ($STATE)"
-    for s in preflight bump push build gate sign registry publish github archive; do
+    for s in preflight bump push build gate sign archive registry publish github; do
         if is_done "$s"; then printf '  done  %-9s %s\n' "$s" "$(cat "$STATE/$s.done")"; else printf '  --    %s\n' "$s"; fi
     done
 }
@@ -358,10 +375,10 @@ finish() {
 case "$STAGE" in
     preflight|bump|push|build|gate|sign|registry|publish|github|archive|status) "stage_$STAGE" ;;
     all)
-        for s in preflight bump push build gate sign registry publish github archive; do
+        for s in preflight bump push build gate sign archive registry publish github; do
             if is_done "$s"; then say "$s: already done ($(cat "$STATE/$s.done")), skipping"; continue; fi
             "stage_$s"
         done
         finish ;;
-    *) die "unknown stage '$STAGE' (preflight|bump|push|build|gate|sign|registry|publish|github|archive|all|status)" ;;
+    *) die "unknown stage '$STAGE' (preflight|bump|push|build|gate|sign|archive|registry|publish|github|all|status)" ;;
 esac

@@ -103,11 +103,16 @@ echo "==> rsync ($CHANNEL) $SRC_DIR/ -> $USER@$HOST:$DEST_DIR"
 # repo/ — feed/ is produced by the feed-server cron, ipgeo/ is the GeoIP
 # (DB-IP Lite) mirror that ipgeo/install.go fetches as its primary mmdb
 # source.  Exclude both so --delete-after does not nuke them.
+# release-state/ is the other way round: release-run.sh's local checkpoints
+# and logs, which have no business on the server.  releases/ (one directory
+# per version: packages, binaries, signed checksums) IS meant to be served,
+# as /dl/releases/ -- see the archive stage of release-run.sh.
 rsync -avhz $DRY \
     --delete-after \
     --exclude=feed/ \
     --exclude=ipgeo/ \
     --exclude=registry/ \
+    --exclude=release-state/ \
     $CHANNEL_EXCLUDE \
     $APK_EXCLUDE \
     --info=progress2 \
