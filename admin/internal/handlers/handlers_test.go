@@ -69,6 +69,11 @@ func newTestHandler(t *testing.T) *Handler {
             payload TEXT NOT NULL,
             err TEXT NOT NULL DEFAULT ''
         );
+        CREATE TABLE unmask_maint_state (
+            name TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
         CREATE TABLE unmask_advisor_run (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             ran_at INTEGER NOT NULL,

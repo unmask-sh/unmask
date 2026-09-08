@@ -157,7 +157,14 @@ func (h *Handler) SetupNeeded(r *http.Request) (needed bool, step string) {
 			err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_user`).Scan(&n)
 			cancel()
 			if err == nil && n > 0 {
+				h.adminSeen.Store(true)
 				removeSetupToken()
+				return false, ""
+			}
+			if err != nil && h.adminSeen.Load() {
+				// A stale token beside a database that is busy right now:
+				// the install is configured (an admin was seen), so it is
+				// not the wizard's turn.
 				return false, ""
 			}
 		}
@@ -184,28 +191,39 @@ func (h *Handler) SetupNeeded(r *http.Request) (needed bool, step string) {
 	var n int
 	row := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_user`)
 	if err := row.Scan(&n); err != nil {
+		if h.adminSeen.Load() {
+			return false, ""
+		}
 		return true, "db"
 	}
 	if n == 0 {
 		return true, "user"
 	}
+	h.adminSeen.Store(true)
 	return false, ""
 }
 
 // setupHasAdmin reports whether an admin account already exists (= setup has
-// been completed at least once).  A nil DB or a query error is treated as "no
-// admin" so a fresh / not-yet-migrated install still reaches the wizard.
-func (h *Handler) setupHasAdmin() bool {
+// been completed at least once).  A nil DB reads as "no admin" so a fresh /
+// not-yet-migrated install still reaches the wizard.  A query that fails is
+// returned as the error with the last known answer: once an admin has been
+// seen in this process the answer stays "yes" -- a locked database (a prune
+// chunk, a long aggregate) must not turn a live install into one that
+// redirects every page to the setup wizard.
+func (h *Handler) setupHasAdmin() (bool, error) {
 	if h.DB == nil {
-		return false
+		return false, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	var n int
 	if err := h.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_user`).Scan(&n); err != nil {
-		return false
+		return h.adminSeen.Load(), err
 	}
-	return n > 0
+	if n > 0 {
+		h.adminSeen.Store(true)
+	}
+	return n > 0, nil
 }
 
 // setupSuperadmin returns the session payload IFF the request is an
@@ -266,7 +284,7 @@ func (h *Handler) wizardStateKey(r *http.Request) string {
 	if pay := h.setupSuperadmin(r); pay != nil {
 		return "sess:" + strconv.FormatInt(pay.UserID, 10)
 	}
-	if !h.setupHasAdmin() {
+	if has, _ := h.setupHasAdmin(); !has {
 		if c, err := r.Cookie(SetupTokenCookieName); err == nil {
 			return c.Value
 		}
@@ -293,7 +311,17 @@ func (h *Handler) SetupGate(next http.HandlerFunc) http.HandlerFunc {
 		base := h.cfg().Server.BasePath
 		isSetupPath := strings.HasPrefix(r.URL.Path, base+"/admin/setup")
 
-		if !h.setupHasAdmin() {
+		has, err := h.setupHasAdmin()
+		if err != nil && !has {
+			// The user table could not be read and no admin has been seen
+			// since this process started.  That is a database that cannot
+			// answer right now, not a fresh install: say so and let the
+			// browser retry, instead of forcing the setup wizard.
+			w.Header().Set("Retry-After", "5")
+			http.Error(w, "the database did not answer ("+err.Error()+"); retry in a moment", http.StatusServiceUnavailable)
+			return
+		}
+		if !has {
 			// Bootstrap: the token gates the wizard; force everything else to it.
 			needed, _ := h.SetupNeeded(r)
 			if needed && !isSetupPath {

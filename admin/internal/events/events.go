@@ -220,83 +220,253 @@ func InsertAsync(d *db.DB, e *Event) {
 	}()
 }
 
-// Prune batch knobs.  Vars rather than consts so the multi-batch loop is
-// testable with small numbers; the values here are what ships.
+// Prune pacing knobs.  Vars rather than consts so the loop is testable with
+// small numbers; the values here are what ships.
+//
+// Why a paced, adaptive loop: the retention prune used to delete in fixed
+// 50,000-row transactions.  On a grown install (measured 2026-09-08: a 36 GB
+// SQLite file, eight indexes on unmask_event, page cache long outgrown) one
+// such transaction held the write lock for ~30 seconds -- six times the 5 s
+// busy timeout every other writer has -- so event inserts, the hourly
+// aggregate and the BAN prune all failed for as long as the prune ran; and
+// the first SQLITE_BUSY the prune itself met aborted the run until the next
+// day, so it deleted a few hundred thousand rows a day against an intake of
+// over a million.  The deletion could never catch up and the file grew.
 var (
-	// pruneBatchRows: rows deleted per transaction.  Small enough that one
-	// batch commits in a second or two on a grown install, so the write lock
-	// is only ever held that long.
-	pruneBatchRows = 50000
-	// pruneBatchPause: yield between batches so the hot path (event inserts,
-	// BAN lookups) acquires the lock promptly instead of queueing behind a
-	// back-to-back train of delete transactions.
-	pruneBatchPause = 50 * time.Millisecond
+	// pruneChunkStart / Min / Max: rows per delete transaction.  The chunk
+	// grows while deletes are quick and halves when one runs long, so the
+	// lock is held for a fraction of the busy timeout whatever the disk does.
+	pruneChunkStart = 2000
+	pruneChunkMin   = 500
+	pruneChunkMax   = 20000
+	// pruneChunkFast: a chunk that commits this quickly may grow.
+	pruneChunkFast = 400 * time.Millisecond
+	// pruneChunkSlow: a chunk that takes this long halves the next one.
+	pruneChunkSlow = 1500 * time.Millisecond
+	// pruneYieldMin: the floor of the pause between chunks.  The actual pause
+	// is the larger of this and the chunk's own duration, so the prune never
+	// holds the lock more than half the time -- inserts, the aggregate and
+	// BAN lookups take it in between.
+	pruneYieldMin = 200 * time.Millisecond
+	// pruneBusyRetries / Backoff: a chunk refused with SQLITE_BUSY (another
+	// writer got there first) is retried after a pause instead of ending the
+	// run.  The hourly aggregate holds the lock for seconds at a time.
+	pruneBusyRetries = 8
+	pruneBusyBackoff = 1500 * time.Millisecond
 	// pruneCheckpointRows: a mass delete writes every freed page into the WAL,
 	// and the WAL FILE never shrinks on its own -- auto-checkpoints recycle its
 	// pages but the size is a high-water mark (measured: 14 GB left behind by a
 	// 7.2M-row drain, on a 200 GB volume that was 91% full before anyone
-	// looked).  After deleting at least this many rows in one run, issue a
-	// TRUNCATE checkpoint to reset the file.
+	// looked).  A passive checkpoint every this many deleted rows keeps the
+	// auto-checkpoint from falling behind; a TRUNCATE checkpoint at the end of
+	// a run that deleted at least this many rows resets the file.
 	pruneCheckpointRows int64 = 100000
 )
 
+// pruneExec / pruneQuery are the statements the loop runs, as vars so a test
+// can inject a busy error without a second writer.
+var (
+	pruneExec = func(ctx context.Context, d *db.DB, q string, args ...any) (sql.Result, error) {
+		return d.ExecContext(ctx, q, args...)
+	}
+	pruneQuery = func(ctx context.Context, d *db.DB, q string, args ...any) (*sql.Rows, error) {
+		return d.QueryContext(ctx, q, args...)
+	}
+)
+
+// PruneResult is what one prune run did.
+type PruneResult struct {
+	Deleted     int64
+	Chunks      int
+	BusyRetries int
+	Elapsed     time.Duration
+	// Done: no row older than the cutoff remained when the run ended.  False
+	// when the run stopped on its deadline or on an error; the next run
+	// continues from where this one stopped (every chunk is its own commit).
+	Done bool
+}
+
+// PruneOptions tunes a run.  The zero value is the daemon's paced run.
+type PruneOptions struct {
+	// Offline: nobody else writes (the daemon is stopped, `unmask db-prune`),
+	// so the loop does not yield between chunks and starts at the largest
+	// chunk.  Not for a running daemon: the point of the pacing is the other
+	// writers.
+	Offline bool
+	// Progress, when set, is called after every chunk with the running totals.
+	Progress func(PruneResult)
+}
+
 // PruneOldEvents deletes rows from unmask_event where date_created < (now - retentionDays).
-// Aggregates (unmask_aggregate) are not touched.  No-op if retentionDays <= 0.
-// Intended to be called every 24h from a goroutine in main.go.
-//
-// The delete runs in bounded batches, not one statement.  A single DELETE over
-// millions of rows holds the write lock for its whole run and cannot finish
-// inside the caller's deadline -- measured when an operator dropped retention
-// 30d -> 7d on a 10M-row install: the 7.2M-row DELETE hit the deadline every
-// run, rolled back every run (so it never made progress), and while it ran the
-// lock starved the hot path -- BAN lookups timed out and failed open.  Each
-// batch here is its own transaction: a deadline mid-run keeps everything
-// already deleted, and the next daily run continues where this one stopped.
+// Aggregates (unmask_aggregate*) are not touched.  No-op if retentionDays <= 0.
+// The daemon calls it hourly; `unmask db-prune` calls it offline.
 func PruneOldEvents(ctx context.Context, d *db.DB, retentionDays int) (int64, error) {
+	res, err := PruneOldEventsOpts(ctx, d, retentionDays, PruneOptions{})
+	return res.Deleted, err
+}
+
+// isBusyErr: the write lock was held by someone else past the busy timeout
+// (SQLite), or InnoDB gave up waiting for a row lock (MariaDB).  Both mean
+// "try again in a moment", not "stop".
+func isBusyErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "database is locked") || strings.Contains(s, "SQLITE_BUSY") ||
+		strings.Contains(s, "Lock wait timeout") || strings.Contains(s, "Deadlock found")
+}
+
+// PruneOldEventsOpts is PruneOldEvents with options and a full result.
+//
+// The rows go in rowid order, oldest first, in chunks: a SELECT (no lock) picks
+// the next run of old ids from the primary key, then one DELETE over exactly
+// that id range commits them.  Walking the primary key rather than the date
+// index means each chunk frees table pages that sit next to each other, the
+// date index needs no statistics to be used correctly, and the run ends
+// without scanning the rows it keeps: the upper bound is the id of the newest
+// row older than the cutoff (one indexed lookup), so the walk stops there.
+// Rows are inserted in time order, so anything older that lands above that
+// bound (a batch flushed late) is a handful, and the next run's bound covers
+// it.
+func PruneOldEventsOpts(ctx context.Context, d *db.DB, retentionDays int, opt PruneOptions) (res PruneResult, err error) {
 	if retentionDays <= 0 || d == nil {
-		return 0, nil
+		res.Done = true
+		return res, nil
 	}
+	start := time.Now()
+	defer func() { res.Elapsed = time.Since(start) }()
 	// Compute the cutoff in Go so the SQL stays driver-agnostic (= no more
-	// datetime('now',…) vs DATE_SUB(NOW(),…) branch).  The original column
-	// is DATETIME; the mysql driver parses time.Time, the glebarez/modernc
-	// driver compares ISO8601-ish strings -- the comparison "<" works for
-	// both, so we pass a time.Time bind and let the driver format it.
-	// .UTC() because rows are stored UTC-at-rest and the sqlite driver
-	// formats the bind in the value's own zone -- a host-local cutoff would
-	// skew the retention boundary by the host TZ offset.
+	// datetime('now',…) vs DATE_SUB(NOW(),…) branch).  The column is
+	// DATETIME; the mysql driver parses time.Time, the glebarez/modernc
+	// driver compares ISO8601-ish strings -- "<" works for both.  .UTC()
+	// because rows are stored UTC-at-rest and the sqlite driver formats the
+	// bind in the value's own zone.
 	cutoff := time.Now().UTC().Add(-time.Duration(retentionDays) * 24 * time.Hour)
-	// Each driver gets the batched form it supports: SQLite cannot LIMIT a bare
-	// DELETE (not compiled in) but allows the limited subquery, and the hint
-	// pins the subquery to the date index so a missing sqlite_stat1 cannot turn
-	// every batch into a table scan; MariaDB is the opposite -- DELETE..LIMIT
-	// is native, while a subquery on the delete's own table is refused
-	// (ER_UPDATE_TABLE_USED).
-	stmt := `DELETE FROM unmask_event WHERE date_created < ? LIMIT ?`
-	if d.Driver == db.DriverSQLite {
-		stmt = `DELETE FROM unmask_event WHERE id IN
-	        (SELECT id FROM unmask_event` + d.EventDateIndexHint("date_created < ?") + ` WHERE date_created < ? LIMIT ?)`
+
+	// The newest row older than the cutoff: the run's upper bound.  The hint
+	// pins the lookup to the date index so a missing sqlite_stat1 cannot turn
+	// it into a table scan.
+	var hi int64
+	err = d.QueryRowContext(ctx, `SELECT id FROM unmask_event`+d.EventDateIndexHint("date_created < ?")+
+		` WHERE date_created < ? ORDER BY date_created DESC LIMIT 1`, cutoff).Scan(&hi)
+	if errors.Is(err, sql.ErrNoRows) {
+		res.Done = true
+		return res, nil
 	}
-	var total int64
+	if err != nil {
+		return res, err
+	}
+
+	chunk := pruneChunkStart
+	if opt.Offline {
+		chunk = pruneChunkMax
+	}
+	var lo int64
+	var sinceCheckpoint int64
+	busy := 0
 	for {
-		res, err := d.ExecContext(ctx, stmt, cutoff, pruneBatchRows)
+		// Next run of old ids above lo, in primary-key order.  No lock: a
+		// plain read.
+		ids, err := pruneChunkIDs(ctx, d, lo, hi, cutoff, chunk)
 		if err != nil {
-			return total, err // batches so far are committed
+			return res, err
 		}
-		n, _ := res.RowsAffected()
-		total += n
-		if n < int64(pruneBatchRows) {
+		if len(ids) == 0 {
+			res.Done = true
 			break
 		}
-		select {
-		case <-ctx.Done():
-			return total, ctx.Err()
-		case <-time.After(pruneBatchPause):
+		first, last := ids[0], ids[len(ids)-1]
+		t0 := time.Now()
+		r, err := pruneExec(ctx, d, `DELETE FROM unmask_event WHERE id >= ? AND id <= ? AND date_created < ?`, first, last, cutoff)
+		if err != nil {
+			if ctx.Err() != nil {
+				return res, ctx.Err()
+			}
+			if isBusyErr(err) && busy < pruneBusyRetries {
+				busy++
+				res.BusyRetries++
+				select {
+				case <-ctx.Done():
+					return res, ctx.Err()
+				case <-time.After(pruneBusyBackoff):
+				}
+				continue // same chunk again
+			}
+			return res, err // chunks so far are committed
+		}
+		busy = 0
+		took := time.Since(t0)
+		n, _ := r.RowsAffected()
+		res.Deleted += n
+		res.Chunks++
+		sinceCheckpoint += n
+		lo = last
+		if opt.Progress != nil {
+			opt.Progress(res)
+		}
+		// Adapt the chunk to the disk: grow while a chunk commits well inside
+		// the busy timeout, halve when one runs long.
+		if !opt.Offline {
+			switch {
+			case took < pruneChunkFast && chunk < pruneChunkMax:
+				chunk = chunk * 3 / 2
+				if chunk > pruneChunkMax {
+					chunk = pruneChunkMax
+				}
+			case took > pruneChunkSlow && chunk > pruneChunkMin:
+				chunk /= 2
+				if chunk < pruneChunkMin {
+					chunk = pruneChunkMin
+				}
+			}
+		}
+		if d.Driver == db.DriverSQLite && sinceCheckpoint >= pruneCheckpointRows {
+			sinceCheckpoint = 0
+			// Passive: never blocks, never waits; keeps the WAL's pages
+			// recycled while a long run is under way.
+			_, _ = pruneExec(ctx, d, `PRAGMA wal_checkpoint(PASSIVE)`)
+		}
+		if ctx.Err() != nil {
+			return res, ctx.Err()
+		}
+		if !opt.Offline {
+			// Yield: at least the floor, and at least as long as the chunk
+			// held the lock, so the prune is never more than half the writes.
+			pause := pruneYieldMin
+			if took > pause {
+				pause = took
+			}
+			select {
+			case <-ctx.Done():
+				return res, ctx.Err()
+			case <-time.After(pause):
+			}
 		}
 	}
-	if d.Driver == db.DriverSQLite && total >= pruneCheckpointRows {
-		pruneCheckpointWAL(ctx, d, total)
+	if d.Driver == db.DriverSQLite && res.Deleted >= pruneCheckpointRows {
+		pruneCheckpointWAL(ctx, d, res.Deleted)
 	}
-	return total, nil
+	return res, nil
+}
+
+// pruneChunkIDs returns up to limit ids of rows older than cutoff with
+// lo < id <= hi, ascending.
+func pruneChunkIDs(ctx context.Context, d *db.DB, lo, hi int64, cutoff time.Time, limit int) ([]int64, error) {
+	rows, err := pruneQuery(ctx, d, `SELECT id FROM unmask_event WHERE id > ? AND id <= ? AND date_created < ? ORDER BY id LIMIT ?`, lo, hi, cutoff, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := make([]int64, 0, limit)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // pruneCheckpointWAL resets the WAL file after a mass delete (see

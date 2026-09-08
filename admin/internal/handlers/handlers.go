@@ -164,6 +164,12 @@ type Handler struct {
 	// overBlockTripped is the over-block circuit breaker state, sampled and set
 	// by RunOverBlockMonitor (over_block.go) and read in ServeChallenge.
 	overBlockTripped atomic.Bool
+	// adminSeen: an admin account has been observed in this process.  Once
+	// set, a user-count query that fails (a locked or slow database) reads
+	// as "configured, database busy", never as "fresh install": the setup
+	// wizard must not appear on a live install because the prune held the
+	// lock (2026-09-08).
+	adminSeen atomic.Bool
 
 	// communityHits caches the "Community Bans impact" 30-day figures -- the
 	// query scans the whole 30-day serve window, far too slow per page load.
@@ -1107,7 +1113,7 @@ func protectedModeForOrig(n settings.Nginx, site, orig string) string {
 		if row.Disabled {
 			continue
 		}
-		if re := compileCachedRe("(?i)" + row.Path); re != nil && re.MatchString(orig) {
+		if re := compileCachedRe("(?i)" + settings.PatternRegex(row.Path)); re != nil && re.MatchString(orig) {
 			return modeOr(row.Mode)
 		}
 	}
@@ -3016,7 +3022,12 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 	var raw map[string]any
 	_ = json.Unmarshal(body, &raw)
 
-	_ = events.Insert(r.Context(), h.DB, &events.Event{
+	// Direct insert so the row is there when the challenge page's next
+	// request looks it up; when the write lock is taken past the busy
+	// timeout (a prune chunk, the hourly aggregate) the row goes to the
+	// batcher instead, which retains it and retries -- a lost beacon used to
+	// be the only trace that a visitor passed.
+	beacon := &events.Event{
 		Site:         site,
 		Host:         h.HostID,
 		Scheme:       schemeFromRequest(r),
@@ -3032,7 +3043,10 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 		CookieBV:     cookieBV,
 		CookieBR:     cookieBR,
 		Payload:      raw,
-	})
+	}
+	if err := events.Insert(r.Context(), h.DB, beacon); err != nil && r.Context().Err() == nil {
+		events.InsertAsync(h.DB, beacon)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 }
 
