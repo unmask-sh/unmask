@@ -78,7 +78,7 @@ const ok = (c, m) => { if (!c) fails.push(m); };
   });
   ok(!after.err || after.pats, 'after save: ' + (after.err || ''));
   if (after.pats) {
-    ok(after.pats.includes(HOST), 'saved site must read back as ' + HOST + ', rows: ' + after.pats.join(','));
+    ok(after.pats.some(p => p === HOST), 'saved site must read back as ' + HOST + ', rows: ' + after.pats.join(','));
     ok(!after.pats.includes('contains') && !after.vals.includes('contains'), 'no row may have become "contains", rows: ' + after.pats.join(','));
     ok(!after.vals.some(v => /^(contains|exact|regex):/.test(v)), 'no stored value may carry a mode marker: ' + after.vals.join(','));
   }
@@ -102,7 +102,7 @@ const ok = (c, m) => { if (!c) fails.push(m); };
   ]);
   const final = await page.evaluate(() =>
     Array.from(document.querySelectorAll('.rule-list[data-rule-name="site_defined"] input[name="site_defined"]')).map(i => i.value));
-  ok(!final.includes(HOST), 'cleanup: added site removed again, rows: ' + final.join(','));
+  ok(!final.some(v => v === HOST), 'cleanup: added site removed again, rows: ' + final.join(','));
 
   await browser.close();
   if (fails.length) {
