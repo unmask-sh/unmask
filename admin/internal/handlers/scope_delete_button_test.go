@@ -131,18 +131,46 @@ func TestScopeDeleteActuallyRemoves(t *testing.T) {
 			t.Fatalf("%s: status %d", path, rr.Code)
 		}
 	}
+	// One delete, on either tab, clears the site's whole record: the theme
+	// and challenge values are stored apart but the operator sees one site
+	// (turning the override off disables both), and the picker lists a host
+	// while either record exists.
 	post("/unmask/admin/settings/branding/site/delete")
-	post("/unmask/admin/settings/challenge/site/delete")
 
 	got := *h.cfg()
 	if _, ok := got.Branding.Sites["shop.example.com"]; ok {
 		t.Error("the branding record survived its delete")
 	}
 	if _, ok := got.Challenge.Sites["shop.example.com"]; ok {
-		t.Error("the challenge record survived its delete")
+		t.Error("the challenge record survived the branding-tab delete (the site record is one)")
 	}
 	// And the site is back to inheriting.
 	if got.Branding.Resolve("shop.example.com").SiteName != got.Branding.Default.SiteName {
 		t.Error("the site did not return to the Default branding record")
+	}
+}
+
+// After a delete the browser lands on the Default scope, and the host is gone
+// from the picker.  Returning to ?scope=<host> re-listed the deleted host --
+// selected, even -- because the picker always includes the scope being edited.
+func TestScopeDeleteRemovesHostFromPicker(t *testing.T) {
+	var s settings.Settings
+	s.Branding.Sites = map[string]settings.BrandingValues{"shop.example.com": {SiteName: "Shop"}}
+	s.Challenge.Sites = map[string]settings.ChallengeValues{"shop.example.com": {PowDifficulty: 22}}
+	h := deleteTestHandler(t, s)
+	if !strings.Contains(renderSettings(t, h, "?tab=theme"), `<option value="shop.example.com"`) {
+		t.Fatal("precondition: the host is listed while its records exist")
+	}
+	form := url.Values{"site": {"shop.example.com"}, "use_site_override": {"1"}}
+	r := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/branding/site/delete?site=shop.example.com", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	h.AdminBrandingSiteDelete(rr, r)
+	loc := rr.Header().Get("Location")
+	if rr.Code != http.StatusFound || strings.Contains(loc, "scope=") {
+		t.Fatalf("a delete must return to the Default scope, got %d %q", rr.Code, loc)
+	}
+	if strings.Contains(renderSettings(t, h, "?tab=theme"), `<option value="shop.example.com"`) {
+		t.Error("the deleted host is still offered by the scope picker")
 	}
 }
