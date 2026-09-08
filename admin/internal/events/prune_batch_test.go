@@ -64,10 +64,10 @@ func TestPruneOldEventsBatched(t *testing.T) {
 	seedEvents(t, d, 230, old)                       // 3 batches at 100/batch
 	seedEvents(t, d, 20, time.Now().Add(-time.Hour)) // must survive
 
-	origRows, origPause, origCkpt := pruneBatchRows, pruneBatchPause, pruneCheckpointRows
-	pruneBatchRows, pruneBatchPause, pruneCheckpointRows = 100, time.Millisecond, 1
+	origStart, origMax, origPause, origCkpt := pruneChunkStart, pruneChunkMax, pruneYieldMin, pruneCheckpointRows
+	pruneChunkStart, pruneChunkMax, pruneYieldMin, pruneCheckpointRows = 100, 100, time.Millisecond, 1
 	defer func() {
-		pruneBatchRows, pruneBatchPause, pruneCheckpointRows = origRows, origPause, origCkpt
+		pruneChunkStart, pruneChunkMax, pruneYieldMin, pruneCheckpointRows = origStart, origMax, origPause, origCkpt
 	}()
 
 	n, err := PruneOldEvents(context.Background(), d, 7)
@@ -93,9 +93,9 @@ func TestPruneOldEventsCancelKeepsProgress(t *testing.T) {
 	d := pruneTestDB(t)
 	seedEvents(t, d, 250, time.Now().Add(-10*24*time.Hour))
 
-	origRows, origPause := pruneBatchRows, pruneBatchPause
-	pruneBatchRows, pruneBatchPause = 100, 200*time.Millisecond
-	defer func() { pruneBatchRows, pruneBatchPause = origRows, origPause }()
+	origStart, origMax, origPause := pruneChunkStart, pruneChunkMax, pruneYieldMin
+	pruneChunkStart, pruneChunkMax, pruneYieldMin = 100, 100, 200*time.Millisecond
+	defer func() { pruneChunkStart, pruneChunkMax, pruneYieldMin = origStart, origMax, origPause }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() { time.Sleep(50 * time.Millisecond); cancel() }()

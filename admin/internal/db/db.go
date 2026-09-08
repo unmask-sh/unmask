@@ -353,7 +353,13 @@ func Open(s settings.DB) (*DB, error) {
 			// negative cache_size = KiB of page cache (positive would be a page count)
 			fmt.Sprintf("&_pragma=cache_size(-%d)", perConn/1024) +
 			"&_pragma=temp_store(MEMORY)" + // keep temp tables in memory
-			fmt.Sprintf("&_pragma=mmap_size(%d)", perConn)
+			fmt.Sprintf("&_pragma=mmap_size(%d)", perConn) +
+			// The WAL file is a high-water mark: a checkpoint recycles its
+			// pages but never shrinks the file, so one mass delete leaves
+			// gigabytes behind for good (10.7 GB measured on 2026-09-08).
+			// With a size limit, the checkpoint that resets the WAL also
+			// truncates the file to it.
+			"&_pragma=journal_size_limit(67108864)"
 		dialector = glsqlite.Open(dsn)
 		driver = DriverSQLite
 

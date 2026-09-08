@@ -97,7 +97,7 @@ func TestSetupSuperadmin_AcceptsSuperadmin(t *testing.T) {
 // nil -> "session expired".  Auth must win.
 func TestWizardKey_SuperadminOnEmptyDB(t *testing.T) {
 	h, _ := reconfHandler(t, false) // migrated, NO admin -> setupHasAdmin()==false
-	if h.setupHasAdmin() {
+	if has, _ := h.setupHasAdmin(); has {
 		t.Fatal("precondition: the DB must have no admin")
 	}
 	req := httptest.NewRequest("GET", "/admin/setup/", nil)

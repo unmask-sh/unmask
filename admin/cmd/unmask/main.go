@@ -120,6 +120,8 @@ func main() {
 		err = cmdStats(args)
 	case "db-analyze":
 		err = cmdDBAnalyze(args)
+	case "db-prune":
+		err = cmdDBPrune(args)
 	case "user":
 		err = cmdUser(args)
 	case "doctor":
@@ -164,6 +166,7 @@ usage:
   unmask analyze [-config PATH] [-days 30] [-threshold 100] [-limit 20] [-site SITE]
   unmask stats [-config PATH] [-kind traffic|phase|verdict|ip|ua|ja4|all] [-since 24h] [-site SITE] [-limit 20] [-tsv]
   unmask db-analyze [-config PATH] [-timeout 10m]
+  unmask db-prune [-config PATH] [-retention-days N] [-mode delete|rebuild] [-vacuum] [-analyze] [-force]
   unmask user list [-config PATH]
   unmask user create <username> [-role superadmin|admin|viewer] [-password PASS]
   unmask user reset-password <username> [-password PASS]
@@ -670,21 +673,27 @@ func cmdServe(args []string) error {
 
 	mux := buildRouter(s, h)
 
-	// Prune old rows from unmask_event every 24h (those exceeding
+	// Prune old rows from unmask_event every hour (those exceeding
 	// EventsRetentionDays).  Aggregates (unmask_aggregate) are kept
 	// permanently.  retention <= 0 -> no-op.  Run once at startup to sweep
 	// backlog from immediately after install / restart.  Snapshotting settings
 	// per run inside the goroutine hot-picks up web UI saves.
+	//
+	// Hourly, not daily: a run that stops on its budget (or on a busy lock)
+	// used to leave the remainder for the next day, and on a busy install a
+	// day's intake outran what one run deleted -- the file grew for weeks
+	// (2026-09-08: 36 GB against a 7-day window).  Small hourly runs keep
+	// the backlog near zero, and the prune paces itself against the other
+	// writers (see events.PruneOldEventsOpts).
 	if conn != nil {
 		go func() {
 			runPrune := func() {
 				defer safe.Recover("retention-prune") // a panic here must not kill the daemon
-				// 30 minutes, not the old 5: the events prune deletes in short
-				// per-batch transactions now, so a long budget no longer means a
-				// long lock -- and it lets a big retention drop (measured: 7.2M
-				// rows when 30d -> 7d) drain in one run instead of never (the
-				// old single DELETE hit the 5m deadline and rolled back whole).
-				ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+				// 45 minutes of the hour: the prune holds the write lock for
+				// a second at most at a time and yields at least as long in
+				// between, so a long budget is not a long lock -- it is how
+				// fast a backlog drains (a week of intake in a day or so).
+				ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
 				defer cancel()
 				// One consistent snapshot for this run (settingsPtr is unexported;
 				// SnapshotSettings hot-picks up web UI saves on the next tick).
@@ -709,18 +718,45 @@ func cmdServe(args []string) error {
 				// crawler trend.  events_retention_days now governs only raw events:
 				// the bot-hunt log, --ref lookups, rankings and analyze.)
 				if retention := cfg.EventsRetentionDays; retention > 0 {
-					if n, err := events.PruneOldEvents(ctx, conn, retention); err != nil {
-						// Committed batches survive the error; say how far it got
-						// so a deadline on a huge backlog reads as progress, not
-						// as a prune that does nothing.
-						log.Printf("events prune: %v (deleted %d row(s) first; the next run continues)", err, n)
-					} else if n > 0 {
-						log.Printf("events prune: deleted %d row(s) older than %d days", n, retention)
+					// The run's record (unmask_maint_state) is what doctor and the
+					// retention tab judge "keeping up" by; write it before and after
+					// so a run cut short still shows when it started.
+					rec := db.PruneRecord{StartedAt: time.Now().Unix(), Retention: retention}
+					var prev db.PruneRecord
+					if ok, _ := conn.LoadMaintState(ctx, db.MaintEventsPrune, &prev); ok {
+						rec.CompletedAt = prev.CompletedAt
 					}
+					_ = conn.SaveMaintState(ctx, db.MaintEventsPrune, rec)
+					res, err := events.PruneOldEventsOpts(ctx, conn, retention, events.PruneOptions{})
+					rec.EndedAt = time.Now().Unix()
+					rec.Deleted, rec.Chunks, rec.BusyRetries, rec.Seconds = res.Deleted, res.Chunks, res.BusyRetries, res.Elapsed.Seconds()
+					switch {
+					case err != nil && errors.Is(err, context.DeadlineExceeded):
+						// Committed chunks survive; say how far it got so a budget
+						// stop on a big backlog reads as progress, not as a prune
+						// that does nothing.
+						rec.Err = "budget reached"
+						log.Printf("events prune: budget reached after %d row(s) in %d chunk(s) (%d busy retries); the next hourly run continues", res.Deleted, res.Chunks, res.BusyRetries)
+					case err != nil:
+						rec.Err = err.Error()
+						log.Printf("events prune: %v (deleted %d row(s) first; the next hourly run continues)", err, res.Deleted)
+					default:
+						rec.CompletedAt = rec.EndedAt
+						if res.Deleted > 0 {
+							log.Printf("events prune: deleted %d row(s) older than %d days in %d chunk(s), %v (%d busy retries)", res.Deleted, retention, res.Chunks, res.Elapsed.Round(time.Second), res.BusyRetries)
+						}
+					}
+					// The record is written outside the run's budget: a deadline
+					// must not also lose the note that says the deadline hit.
+					rctx, rcancel := context.WithTimeout(context.Background(), 10*time.Second)
+					if err := conn.SaveMaintState(rctx, db.MaintEventsPrune, rec); err != nil {
+						log.Printf("events prune: record state: %v", err)
+					}
+					rcancel()
 				}
 			}
 			runPrune()
-			t := time.NewTicker(24 * time.Hour)
+			t := time.NewTicker(time.Hour)
 			defer t.Stop()
 			for range t.C {
 				runPrune()
