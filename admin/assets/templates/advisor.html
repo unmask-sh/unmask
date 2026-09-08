@@ -96,6 +96,9 @@ table.cands tbody tr.dismissed td .sig,table.cands tbody tr.dismissed td .score{
    The page never calls the model on its own. */
 .ai-bar{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin:-.4rem 0 1rem;padding:.5rem .8rem;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:.3rem;font-size:.82rem;color:#4c1d95}
 .ai-bar form{display:inline;margin:0}
+/* no model configured: the same place, quiet, with the way to switch one on */
+.ai-bar.ai-off{background:#f8fafc;border-color:#e2e8f0;color:#475569}
+.ai-bar.ai-off a{color:#1d4ed8}
 .ai-bar .ai-delta{flex-basis:100%;margin-top:.1rem}
 .ai-spin{display:inline-block;width:.85rem;height:.85rem;border:.15rem solid #c4b5fd;border-top-color:#6d28d9;border-radius:50%;animation:ai-spin .8s linear infinite;vertical-align:-.15rem;margin-right:.35rem}
 @keyframes ai-spin{to{transform:rotate(360deg)}}
@@ -223,6 +226,10 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     </div>
     <template id="ai-wait-tpl"><span class="ai-wait"><span class="ai-spin"></span>{{ t .Lang "advisor.ai_row_wait" }}</span></template>
     <template id="ai-keep-tpl"><span class="ai-kept">{{ t .Lang "advisor.ai_row_kept" }}</span></template>
+    {{ else }}
+    {{/* No model configured: say once, where the answers would go, that
+         there can be some -- and where to switch them on. */}}
+    <div class="ai-bar ai-off" id="ai-off-bar">{{ safeHTML (tf .Lang "advisor.note_ai_off" (printf "%s/admin/settings/ai-advisor/" .BasePath)) }}</div>
     {{ end }}
 
     {{ if not .Candidates }}
@@ -344,7 +351,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     </div>
     {{ end }}
     <p class="note">{{ t .Lang "advisor.note" }}
-      {{ if .AIActive }}{{ t .Lang "advisor.note_ai_on" }}{{ else }}{{ safeHTML (tf .Lang "advisor.note_ai_off" (printf "%s/admin/settings/ai-advisor/" .BasePath)) }}{{ end }}</p>
+      {{ if .AIActive }}{{ t .Lang "advisor.note_ai_on" }}{{ end }}</p>
   </div>
 </main>
 {{ template "ip_popover_el" . }}

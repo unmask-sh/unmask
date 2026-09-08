@@ -15,10 +15,8 @@ import (
 func scheduleHarness(t *testing.T) (*db.DB, *[]Digest, Deps) {
 	t.Helper()
 	d := newTestDB(t)
-	// 320 serves: contained clients only earn an alert past the cost floor.
-	for i := 0; i < 320; i++ {
-		insertEvent(t, d, "203.0.113.10", "t13d_bot", "serve", "curl/8", `{"path":"/.env"}`)
-	}
+	// Past the cost floor: a contained client only earns an alert there.
+	insertEvents(t, d, "203.0.113.10", "t13d_bot", "serve", "curl/8", `{"path":"/.env"}`, ContainedVolumeServes)
 	for i := 0; i < 40; i++ {
 		insertEvent(t, d, "203.0.113.20", "t13d_two", "serve", "curl/8", "")
 	}
@@ -85,17 +83,16 @@ func TestDigestReannouncesAfterTTL(t *testing.T) {
 }
 
 // The score floor keeps a single scanner-path hit out of an alert, and the
-// cost floor keeps a contained client out until its volume is the problem.
+// cost floor keeps a contained client out -- whatever the floor -- until its
+// volume alone is the problem; there it alerts at the default floor.
 func TestDigestScoreFloor(t *testing.T) {
 	d := newTestDB(t)
 	// One signal only (scanner paths), three serves: contained and cheap.
 	for _, p := range []string{"/.env", "/wp-config.php", "/.git/config"} {
 		insertEvent(t, d, "203.0.113.30", "t13d_scan", "serve", "curl/8", `{"path":"`+p+`"}`)
 	}
-	// One signal only (hammering), 320 serves: contained but a cost in itself.
-	for i := 0; i < 320; i++ {
-		insertEvent(t, d, "203.0.113.31", "t13d_loud", "serve", "curl/8", "")
-	}
+	// Hammering, a few hundred serves: contained, still cheap.
+	insertEvents(t, d, "203.0.113.31", "t13d_loud", "serve", "curl/8", "", 320)
 	var got []Digest
 	cfg := settings.AIAdvisorConfig{NotifyEnabled: true}
 	deps := Deps{
@@ -103,25 +100,33 @@ func TestDigestScoreFloor(t *testing.T) {
 		Cfg:    func() settings.AIAdvisorConfig { return cfg },
 		Notify: func(dg Digest) { got = append(got, dg) },
 	}
-	// Default floor (6): neither single-signal client alerts.
+	// Default floor (6): nothing alerts.
 	if err := RunDigestOnce(context.Background(), deps); err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 0 {
-		t.Fatalf("single-signal candidates must not alert at the default floor: %+v", got)
+		t.Fatalf("contained candidates below the cost floor must not alert at the default floor: %+v", got)
 	}
-	// Floor 3: the loud one alerts (contained, but past the cost floor); the
-	// three-serve scanner still does not -- the challenge already stops it
-	// and it costs nothing.
+	// Floor 3: still nothing -- both are contained below the cost floor, and
+	// the score floor is not what keeps them out.
 	cfg.NotifyMinScore = 3
 	if err := RunDigestOnce(context.Background(), deps); err != nil {
 		t.Fatal(err)
 	}
+	if len(got) != 0 {
+		t.Fatalf("a lowered score floor does not lift the cost floor: %+v", got)
+	}
+	// Past the cost floor a contained client alerts at the default floor.
+	cfg.NotifyMinScore = 0
+	insertEvents(t, d, "203.0.113.32", "t13d_flood", "serve", "curl/8", "", ContainedVolumeServes)
+	if err := RunDigestOnce(context.Background(), deps); err != nil {
+		t.Fatal(err)
+	}
 	if len(got) != 1 {
-		t.Fatalf("expected one digest at floor 3, got %d", len(got))
+		t.Fatalf("expected one digest for the flood, got %d", len(got))
 	}
 	for _, c := range got[0].New {
-		if c.Target != "203.0.113.31" {
+		if c.Target != "203.0.113.32" {
 			t.Errorf("unexpected target in the digest: %+v", c)
 		}
 	}
@@ -184,12 +189,11 @@ func TestResolvedScheduleDefaults(t *testing.T) {
 }
 
 // A contained client below the cost floor is not an alert, however many
-// signals it carries: the challenge already stops it.
+// signals it carries and past the old few-hundred-serves floor: the
+// challenge already stops it.
 func TestDigestSkipsContainedBelowCostFloor(t *testing.T) {
 	d := newTestDB(t)
-	for i := 0; i < 40; i++ {
-		insertEvent(t, d, "203.0.113.11", "t13d_quiet", "serve", "curl/8", `{"path":"/.env"}`)
-	}
+	insertEvents(t, d, "203.0.113.11", "t13d_quiet", "serve", "curl/8", `{"path":"/.env"}`, 320)
 	var got []Digest
 	deps := Deps{
 		DB:     d,
@@ -200,6 +204,6 @@ func TestDigestSkipsContainedBelowCostFloor(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(got) != 0 {
-		t.Fatalf("a contained client with 40 serves must not alert: %+v", got)
+		t.Fatalf("a contained client with 320 serves must not alert: %+v", got)
 	}
 }

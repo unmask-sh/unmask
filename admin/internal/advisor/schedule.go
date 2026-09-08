@@ -16,7 +16,8 @@
 //     can earn a fresh mention.
 //   - It only wakes someone for candidates carrying more than one signal
 //     (score >= NotifyMinScore, default 6).  A single scanner-path hit belongs
-//     on the page, not in an alert.
+//     on the page, not in an alert -- and so does a client the challenge
+//     already contains, until its volume alone is the cost.
 package advisor
 
 import (
@@ -38,10 +39,6 @@ import (
 // that an unresolved candidate is not re-announced nightly, short enough that
 // a returning scanner is news again.
 const notifiedTTL = 14 * 24 * time.Hour
-
-// containedAlertServes: a client the challenge already contains is only worth
-// an alert once serving it that many challenges in a day is a cost in itself.
-const containedAlertServes = 300
 
 // Digest is what one scheduled pass found worth announcing.
 type Digest struct {
@@ -133,8 +130,11 @@ func RunDigestOnce(ctx context.Context, deps Deps) error {
 			continue
 		}
 		// A contained client is not news: the challenge already stops it.
-		// It earns an alert only when its volume is itself the cost.
-		if c.Contained && c.Serves < containedAlertServes {
+		// It earns an alert only when its volume is itself the cost.  The
+		// engine scores it containedCostScore then and candidateFloor
+		// otherwise, so this check only matters under an operator-lowered
+		// floor -- and says the rule in one place.
+		if c.Contained && !c.volumeIsCost() {
 			continue
 		}
 		fresh = append(fresh, c)

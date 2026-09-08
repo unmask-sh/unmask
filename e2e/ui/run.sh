@@ -317,15 +317,17 @@ c.execute("""INSERT INTO unmask_event
 c.commit()
 # advisor seed: one public address hammering the challenge and raking scanner
 # paths, so /admin/advisor/ has a candidate row (the engine skips loopback and
-# private addresses, which every other seed uses).  35 serves with no JS-side
-# phase = challenge_hammering; three scanner paths = scanner_paths -> score 6.
+# private addresses, which every other seed uses).  Serves with no JS-side
+# phase = challenge_hammering; three scanner paths = scanner_paths; and enough
+# of them to pass the contained cost floor (thousands a window -- a contained
+# client short of it stays at score 3, hidden by default) -> score 6.
 # Declared site, no host -> no ghost badge, so the lone-popover predicate
 # (badge in the date cell) does not pick these rows up.  The payload carries
 # the requested path as orig_path, the way the module writes it; one path is
 # long enough to clip in the sample-paths column (the popover is for clipped
 # values only) and the newest three rows cover indexes 2, 1, 0.
 LONG = "/wp-content/plugins/wp-file-manager/lib/php/connector.minimal.php?cmd=upload&target=l1_Lw&ui-e2e-long-path-to-clip=1"
-for n in range(35):
+for n in range(3000):
     path = ["/.env", LONG, "/.git/config", "/wp-config.php.bak"][n % 4]
     c.execute("""INSERT INTO unmask_event
         (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
