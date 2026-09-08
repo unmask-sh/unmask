@@ -266,7 +266,10 @@ body.uc-on button:disabled{opacity:.5}
     <div id="extCaptcha" style="display:none;margin:1em 0"></div>
     <!-- stage 1: checkbox (= unmask built-in behavioral check) -->
     <label class="click-row" id="clickRow" style="display:flex;align-items:center;gap:.6em;justify-content:center;cursor:pointer;padding:.8em 1em;border:2px solid #ddd;border-radius:8px;user-select:none">
-      <input type="checkbox" id="notRobot" style="width:20px;height:20px;cursor:pointer">
+      <!-- autocomplete="off": a reload or a Back navigation otherwise restores
+           the tick, and a restored tick fires no change event -- the visitor
+           meets a box that is already checked and does nothing. -->
+      <input type="checkbox" id="notRobot" autocomplete="off" style="width:20px;height:20px;cursor:pointer">
       <span id="notRobotLabel">I'm not a robot</span>
     </label>
     <!-- post-click status: a spinner + "verifying" / "verified" so that even a
