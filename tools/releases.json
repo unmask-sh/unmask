@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.40",
+  "latest": "0.1.41",
   "releases": [
+    {
+      "version": "0.1.41",
+      "date": "2026-09-08",
+      "notes": "Events prune: it now runs hourly in small paced chunks that never hold the write lock past the busy timeout, retries a busy chunk instead of giving up, records its last run, and caps the WAL file at 64 MB; doctor and the retention tab warn when it is not keeping up, and `unmask db-prune -mode rebuild` clears a backlog at once with the daemon stopped. A locked database no longer sends a live install to the setup wizard, and a beacon whose insert met a busy lock is retained and retried. Settings: the pattern-mode chip is drawn only on pattern lists (a new site used to save as \"contains\", a bypass IP as \"exact:...\"), those lists show the mode as a badge in each row, and a contains:/exact: pattern now means the same thing on every wire (forward-auth, honeypot, protected paths, redirect exemptions). The per-site \"reset to default\" button on the branding tab no longer fails with a csrf mismatch. Older releases stay downloadable at unmask.sh/dl/releases/."
+    },
     {
       "version": "0.1.40",
       "date": "2026-09-08",

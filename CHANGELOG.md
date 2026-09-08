@@ -14,6 +14,28 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.41] - 2026-09-08
+### Added
+- (2026-09-08) **`unmask db-prune`: clear an events backlog at once.**  With the daemon stopped it removes every row past the retention window; `-mode rebuild` copies the rows to keep into a fresh table and drops the rest (minutes, not the hours of row-by-row deletes), and `-vacuum` / `-analyze` finish the job.  It refuses to run while the daemon answers on its socket; `-force` prunes online at the daemon's own pace.
+
+### Changed
+- (2026-09-08) **The events prune paces itself and runs hourly.**  Rows go oldest-first in chunks that grow while deletes commit quickly and halve when one runs long, with a pause between chunks at least as long as the lock was held, so inserts and the hourly aggregate get through.  A busy chunk is retried, a run that hits its budget continues an hour later, and the WAL file is capped at 64 MB.
+
+### Fixed
+- (2026-09-08) **A locked database no longer sends a live install to the setup wizard.**  Every admin page, the login page included, redirected to `/admin/setup/` while a prune chunk held the write lock, because a failed user-count query read as "no admin yet".  Once an admin has been seen the gate passes the request on; before that, a database that cannot answer is a 503 with Retry-After -- never the wizard.
+
+- (2026-09-08) **A beacon whose insert hit the busy timeout is no longer lost.**  The challenge page's beacon wrote its event directly so the next request could find it; when the write lock was taken for longer than the timeout the row was dropped with a log line.  It now goes to the batch writer instead, which retains and retries.
+
+- (2026-09-08) **doctor and the retention tab say when the prune is not keeping up.**  Both read the oldest event against the window and the prune's own last-run record: an oldest row more than two days past the window, or a prune that has not completed for two days or ended with an error, is a WARN that names the numbers and the way out (`unmask db-prune`).
+
+- (2026-09-08) **Branding / challenge tab: the per-site "reset to default" button no longer fails with a csrf mismatch.**  The branding form is multipart (it carries the logo), so the CSRF shim put the token in the form's action query -- but this button posts to its own `formaction`, which the shim left undecorated, so every click was refused.  The shim now decorates that url too, and the server reads a multipart body's token as a last resort.
+
+- (2026-09-08) **A pattern saved as "contains" or "exact" now means the same thing on every wire.**  The rendered nginx maps resolved the marker, but the forward-auth matchers, the serve-side protected-path lookup, the honeypot action resolver and the HTTPS-redirect exemptions compiled the stored text verbatim -- a `contains:/feed/` bypass path matched nothing in forward-auth mode.  Every wire resolves the marker first now, and the save-time checks accept a literal with a parenthesis.
+
+- (2026-09-08) **Settings: the IP, ASN, country and load-balancer lists no longer carry the pattern-mode chip, and every pattern list shows the mode in its rows.**  The chip belongs to regex fields; on lists of addresses and codes a new bypass-IP row saved as `exact:10.2.201.0/24` and was refused.  Where the mode is a real choice, the confirmed row now shows the badge the chip shows, so a list reads without opening each row.
+
+- (2026-09-08) **Settings > Sites: a new site no longer saves as `contains`.**  The pattern-mode chip was drawn on the plain value lists too, and a blank row starts in "contains" mode, so `contains:` rode into the hostname and the site normaliser, reading host:port, kept the word before the colon.  The chip now renders only where a mode set is named, and a site value with a marker or a scheme is refused by name.
+
 ## [0.1.40] - 2026-09-08
 
 ### Security
