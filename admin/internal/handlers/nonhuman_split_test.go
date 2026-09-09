@@ -721,10 +721,15 @@ func TestAbandonRateCountsOnlyUnruledPoW(t *testing.T) {
 	// CONTAINS "5 of 100 ...", so a substring check passes on the exact wrong
 	// value this test exists to catch.  It did -- the first version of this
 	// assertion went green against the old behaviour.
-	want := i18n.Tf(i18n.LangEN, "overview.kpi.abandon_sub", "5", "100")
-	got := regexp.MustCompile(`[0-9,]+ of [0-9,]+ did not finish[^<]*`).FindString(body)
+	want := i18n.Tf(i18n.LangEN, "overview.kpi.abandon_sub", "100", "5.0")
+	got := regexp.MustCompile(`[0-9,]+ challenge loads, [0-9.]+% of them[^<]*`).FindString(body)
 	if got != want {
 		t.Errorf("the abandon tile reads %q, want %q: it is still counting clients a rule targeted", got, want)
+	}
+	// ...and the headline is those five requests, not the farm's.
+	head := regexp.MustCompile(`(?s)<div class="label">Abandoned<span.*?<div class="value">([^<]*)</div>`).FindStringSubmatch(body)
+	if head == nil || strings.TrimSpace(head[1]) != "5" {
+		t.Errorf("abandoned requests = %v, want 5", head)
 	}
 	// ...and the rate is theirs, not the farm's.
 	if strings.Contains(body, ">80.0<") || strings.Contains(body, ">88.5<") {
