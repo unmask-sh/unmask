@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.42",
+  "latest": "0.1.43",
   "releases": [
+    {
+      "version": "0.1.43",
+      "date": "2026-09-09",
+      "notes": "The write-ahead log is now watched: it should stay at 64 MB, but long-running readers keep checkpoints from completing and it only grows, leaving a stop minutes of work no init system waits for. The daemon trims a large log every five minutes as far as readers allow, doctor and the retention tab report its size and warn while it stays large, and both the SysVinit script and the systemd unit give a stop more time. `unmask db-prune` no longer needs the size of the result in RAM: it keeps SQLite's temporary storage on disk beside the database, copies the kept rows without sorting, and refuses a rebuild or a VACUUM when the free space there looks short. On the overview, the KPI row is now the challenge's own funnel counted in requests throughout: the PoW and CAPTCHA tiles count the requests each gate admitted, with the solves and the cookie share below them, the abandonment tile leads with the requests that loaded a challenge and left, and the row says what it is a breakdown of."
+    },
     {
       "version": "0.1.42",
       "date": "2026-09-09",

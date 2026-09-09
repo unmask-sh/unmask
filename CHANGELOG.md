@@ -14,6 +14,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.43] - 2026-09-09
+### Changed
+- (2026-09-09) **Overview: the KPI row is the challenge's own funnel, counted in requests throughout.**  The abandonment tile leads with how many requests loaded a challenge and left, with the share and its denominator underneath, so no tile is a bare percentage.  The row also says what it is a breakdown of, since the card above splits all traffic by what it is.
+
+- (2026-09-09) **Overview: the PoW and CAPTCHA pass tiles count the requests the gate admitted.**  The headline is the solves plus the requests that returned on the cookie a solve minted, the same unit as "challenge fired" beside it, with both shares on the line below.  Without the access-log feed it is the solves alone, and the tile says so.
+
+### Added
+- (2026-09-09) **The write-ahead log is watched, trimmed and reported.**  A write-ahead log should stay at 64 MB, but long-running readers keep checkpoints from completing and it only grows, leaving a stop minutes of work no init system waits for.  The daemon now trims a large log every five minutes as far as readers allow, doctor and the retention tab warn while it stays large, and a stop gets more time.
+
+### Fixed
+- (2026-09-09) **`unmask db-prune` no longer needs the size of the result in RAM.**  The command kept SQLite's temporary storage in memory, as the daemon does, and a VACUUM or an index build over a large events table is a copy of its result there.  It now keeps that storage on disk beside the database, copies without sorting, and refuses a rebuild or VACUUM when the free space looks short.
+
 ## [0.1.42] - 2026-09-09
 ### Changed
 - (2026-09-09) **Advisor: a client the challenge already contains ranks under the ones that pass, and needs thousands of requests to reach the default view.**  A contained candidate (no passes) scores 3 whatever its signals and 6 only past the cost floor (3,000 challenges served or 10,000 requests in the window), where the digest picks it up too.  With no model configured, the page says where to switch one on.
