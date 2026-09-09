@@ -19,6 +19,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -45,8 +46,9 @@ const (
 
 type DB struct {
 	*sql.DB
-	Gorm   *gorm.DB
-	Driver Driver
+	Gorm       *gorm.DB
+	Driver     Driver
+	SQLitePath string // the database file (SQLite); the write-ahead log sits next to it
 }
 
 // SQLite memory sizing.
@@ -326,7 +328,23 @@ func SQLiteMemPlanFor(s settings.DB) SQLiteMemPlan {
 
 // Open returns a configured *DB. SQLite path's parent directory is created if
 // missing (so first-run "just works").
-func Open(s settings.DB) (*DB, error) {
+func Open(s settings.DB) (*DB, error) { return open(s, false) }
+
+// OpenMaintenance opens the configured database for an offline maintenance
+// command (`unmask db-prune`): one connection, and SQLite's temporary storage
+// on disk next to the database file instead of in memory.  The daemon keeps
+// temp_store=MEMORY -- its sorts are dashboard-sized -- but VACUUM builds its
+// whole copy of the database in the temp store, and a CREATE INDEX or an
+// ORDER BY over millions of rows sorts there too: in memory that is the size
+// of the result (measured 2026-09-09 with this driver: a 300 MB result peaked
+// at 760 MB RSS in memory, 267 MB on disk), which on a multi-gigabyte events
+// table is an out-of-memory kill.  The directory is the database's own, not
+// /tmp: it is the one place known to have room for a copy of the database,
+// and a small tmpfs /tmp would not.  A single connection so the per-connection
+// pragmas are the connection's for the whole run.
+func OpenMaintenance(s settings.DB) (*DB, error) { return open(s, true) }
+
+func open(s settings.DB, maintenance bool) (*DB, error) {
 	var (
 		dialector gorm.Dialector
 		driver    Driver
@@ -346,13 +364,22 @@ func Open(s settings.DB) (*DB, error) {
 		// sqlitePerConnBytes) rather than fixed per-connection constants that
 		// multiply into gigabytes on a busy dashboard.
 		perConn := sqlitePerConnBytesFor(s)
+		tempStore := "&_pragma=temp_store(MEMORY)" // keep temp tables in memory
+		if maintenance {
+			// The temp store on disk, in the database's directory (a quote
+			// in the path is doubled, SQL-string style; the driver runs the
+			// pragma as given after URL decoding).  See OpenMaintenance.
+			dir := strings.ReplaceAll(filepath.Dir(s.SQLitePath), "'", "''")
+			tempStore = "&_pragma=temp_store(FILE)" +
+				"&_pragma=" + url.QueryEscape("temp_store_directory('"+dir+"')")
+		}
 		dsn := s.SQLitePath +
 			"?_pragma=journal_mode(WAL)" +
 			"&_pragma=synchronous(NORMAL)" +
 			"&_pragma=busy_timeout(5000)" +
 			// negative cache_size = KiB of page cache (positive would be a page count)
 			fmt.Sprintf("&_pragma=cache_size(-%d)", perConn/1024) +
-			"&_pragma=temp_store(MEMORY)" + // keep temp tables in memory
+			tempStore +
 			fmt.Sprintf("&_pragma=mmap_size(%d)", perConn) +
 			// The WAL file is a high-water mark: a checkpoint recycles its
 			// pages but never shrinks the file, so one mass delete leaves
@@ -407,11 +434,20 @@ func Open(s settings.DB) (*DB, error) {
 	conn.SetMaxOpenConns(sqliteMaxOpenFor(s))
 	conn.SetMaxIdleConns(maxIdle)
 	conn.SetConnMaxLifetime(maxLife)
+	if maintenance {
+		conn.SetMaxOpenConns(1)
+		conn.SetMaxIdleConns(1)
+		conn.SetConnMaxLifetime(0)
+	}
 	if err := conn.PingContext(context.Background()); err != nil {
 		conn.Close()
 		return nil, err
 	}
-	return &DB{DB: conn, Gorm: gdb, Driver: driver}, nil
+	out := &DB{DB: conn, Gorm: gdb, Driver: driver}
+	if driver == DriverSQLite {
+		out.SQLitePath = s.SQLitePath
+	}
+	return out, nil
 }
 
 // NowMinusMinutes returns a SQL fragment representing "now - n minutes" for
@@ -512,4 +548,49 @@ func (d *DB) EventDateIndexHint(window string) string {
 		return " INDEXED BY idx_unmask_event_date"
 	}
 	return ""
+}
+
+// SQLiteSpace is what the database file holds: its size on disk, and the
+// bytes actually in use (pages not on the free list) -- the amount a VACUUM
+// writes out again, and the base for estimating what a rebuild copies.
+type SQLiteSpace struct {
+	FileBytes int64
+	LiveBytes int64
+	PageSize  int64
+}
+
+// Space reads the page accounting of a SQLite database.  MariaDB returns an
+// error: there is nothing to vacuum there.
+func (d *DB) Space(ctx context.Context) (SQLiteSpace, error) {
+	var sp SQLiteSpace
+	if d.Driver != DriverSQLite {
+		return sp, errors.New("space: SQLite only")
+	}
+	var pages, free int64
+	for _, q := range []struct {
+		sql string
+		dst *int64
+	}{
+		{`PRAGMA page_size`, &sp.PageSize},
+		{`PRAGMA page_count`, &pages},
+		{`PRAGMA freelist_count`, &free},
+	} {
+		if err := d.QueryRowContext(ctx, q.sql).Scan(q.dst); err != nil {
+			return sp, fmt.Errorf("space: %s: %w", q.sql, err)
+		}
+	}
+	sp.FileBytes = pages * sp.PageSize
+	sp.LiveBytes = (pages - free) * sp.PageSize
+	return sp, nil
+}
+
+// DirFree is the space available to this process on the filesystem holding
+// path -- where OpenMaintenance puts SQLite's temporary files, and where a
+// rebuild's new table and a VACUUM's copy land.
+func DirFree(path string) (int64, error) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(path, &st); err != nil {
+		return 0, err
+	}
+	return int64(st.Bavail) * int64(st.Bsize), nil
 }

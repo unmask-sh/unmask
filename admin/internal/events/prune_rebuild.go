@@ -93,7 +93,7 @@ func RebuildEvents(ctx context.Context, d *db.DB, retentionDays int, progress fu
 	}
 	say("copying rows newer than %s into the new table", cutoff.Format("2006-01-02 15:04:05"))
 	t0 := time.Now()
-	r, err := d.ExecContext(ctx, `INSERT INTO unmask_event_rebuild SELECT * FROM unmask_event WHERE date_created >= ? ORDER BY id`, cutoff)
+	r, err := d.ExecContext(ctx, rebuildCopySQL, cutoff)
 	if err != nil {
 		_, _ = d.ExecContext(context.Background(), `DROP TABLE IF EXISTS unmask_event_rebuild`)
 		return res, fmt.Errorf("rebuild: copy: %w", err)
@@ -141,6 +141,35 @@ func RebuildEvents(ctx context.Context, d *db.DB, retentionDays int, progress fu
 	}
 	pruneCheckpointWAL(ctx, d, res.Kept)
 	return res, nil
+}
+
+// rebuildCopySQL is the copy.  NOT INDEXED pins the plan to a walk of the
+// table in rowid order, which satisfies the ORDER BY as it goes: the
+// alternative -- the date index, then a sort -- puts every kept row through
+// SQLite's sorter, and the sorter's working set is the whole result.  A full
+// read of the old table is sequential I/O, once; sorting gigabytes is what
+// took the memory (see db.OpenMaintenance).  The kept rows land in the new
+// table in id order, so its b-tree is built by appends.
+const rebuildCopySQL = `INSERT INTO unmask_event_rebuild SELECT * FROM unmask_event NOT INDEXED WHERE date_created >= ? ORDER BY id`
+
+// RebuildEstimate sizes a rebuild before it starts: how many rows the window
+// keeps against how many the table holds, so the caller can put the kept
+// share of the live bytes against the free space -- the new table is written
+// before the old one is dropped.  The total is the id span: instant on the
+// rowid b-tree where COUNT(*) walks an index, and close, since the daemon's
+// own prune takes rows from the low end and leaves no holes worth counting.
+func RebuildEstimate(ctx context.Context, d *db.DB, retentionDays int) (kept, total int64, err error) {
+	cutoff := time.Now().UTC().Add(-time.Duration(retentionDays) * 24 * time.Hour)
+	if err = d.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_event WHERE date_created >= ?`, cutoff).Scan(&kept); err != nil {
+		return 0, 0, fmt.Errorf("rebuild estimate: %w", err)
+	}
+	if err = d.QueryRowContext(ctx, `SELECT COALESCE(MAX(id) - MIN(id) + 1, 0) FROM unmask_event`).Scan(&total); err != nil {
+		return 0, 0, fmt.Errorf("rebuild estimate: %w", err)
+	}
+	if total < kept {
+		total = kept
+	}
+	return kept, total, nil
 }
 
 // renameInCreate rewrites the table name in a stored CREATE TABLE statement.
