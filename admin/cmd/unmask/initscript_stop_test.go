@@ -36,8 +36,8 @@ func TestSysVStopWaitsForTheCheckpoint(t *testing.T) {
 	if p > d {
 		t.Errorf("-p must come before -d or RHEL 6 parses neither the pidfile nor the program: %s", line)
 	}
-	if !strings.Contains(line, "-d 30") {
-		t.Errorf("the stop delay should stay at 30s (a checkpoint on a large log): %s", line)
+	if !strings.Contains(line, "-d 120") {
+		t.Errorf("the stop delay should match the systemd unit (a checkpoint on a large log): %s", line)
 	}
 }
 

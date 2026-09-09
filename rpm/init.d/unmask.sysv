@@ -74,13 +74,16 @@ stop() {
     # Closing the database checkpoints its write-ahead log; that is instant
     # when the log is small (the daemon keeps it so) and seconds to minutes
     # when a large one was left behind.  killproc's default is a KILL about
-    # four seconds after the TERM -- give the checkpoint half a minute.
+    # four seconds after the TERM, which covers a gigabyte at best: measured
+    # 2026-09-09, closing a database with a 159 MB starved log checkpointed it
+    # in 0.41 s on NVMe, so a 10 GB log needs tens of seconds there and minutes
+    # on a slow disk.  Two minutes, the same grace the systemd unit gets.
     #
     # The flag ORDER is load-bearing: RHEL 6's killproc tests for -p, then -b,
     # then -d, each once and only at the front of what is left, so "-d 30 -p
     # FILE prog" leaves the pidfile unparsed and calls kill on a program named
     # "-p" with the path as the signal.  -p must come first.
-    killproc -p "$pidfile" -d 30 "$prog"
+    killproc -p "$pidfile" -d 120 "$prog"
     retval=$?
     echo
     [ $retval -eq 0 ] && rm -f "$lockfile"
