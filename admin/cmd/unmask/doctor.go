@@ -366,6 +366,7 @@ func cmdDoctor(args []string) error {
 		}
 		checkHostIDPinned(s, conn, addOK, addWarn)
 		checkEventsRetention(s, conn, addOK, addWarn)
+		checkWALSize(conn, addOK, addWarn)
 	}
 
 	// 4. IP-geo mmdb (= optional).  When set, check existence + freshness
@@ -746,6 +747,31 @@ func checkEventsRetention(s settings.Settings, conn *db.DB, addOK, addWarn func(
 		msg += ", prune last ran " + time.Since(time.Unix(rec.StartedAt, 0)).Round(time.Minute).String() + " ago"
 	}
 	addOK("events retention", msg)
+}
+
+// checkWALSize: the write-ahead log next to a SQLite database is meant to
+// stay small (64 MB after a checkpoint).  A large one means checkpoints are
+// not completing -- a reader holds an older snapshot -- and it is what makes
+// a stop slow and the next start slower (10.7 GB on 2026-09-08).
+func checkWALSize(conn *db.DB, addOK, addWarn func(t, m string)) {
+	if conn.Driver != db.DriverSQLite {
+		return
+	}
+	if warn, msg := walSizeVerdict(conn.WALPath(), conn.WALSize()); warn {
+		addWarn("DB write-ahead log", msg)
+	} else {
+		addOK("DB write-ahead log", msg)
+	}
+}
+
+func walSizeVerdict(path string, size int64) (warn bool, msg string) {
+	if size >= db.WALLargeBytes {
+		return true, fmt.Sprintf("%s is %s — checkpoints are not completing: a long-running reader (a dashboard query, a process holding a snapshot) keeps it from shrinking. The daemon trims it every 5 minutes when it can; a stop that is killed leaves it, and the next start replays it (minutes for every few GB, nginx serving fail-open meanwhile)", path, humanBytesCLI(size))
+	}
+	if size == 0 {
+		return false, "none (checkpointed and truncated)"
+	}
+	return false, fmt.Sprintf("%s (%s)", humanBytesCLI(size), path)
 }
 
 func pruneRunSummary(rec db.PruneRecord) string {

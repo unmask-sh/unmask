@@ -473,13 +473,15 @@ func pruneChunkIDs(ctx context.Context, d *db.DB, lo, hi int64, cutoff time.Time
 // pruneCheckpointRows).  Best-effort: a busy checkpoint is only logged -- the
 // WAL is correct either way, just not shrunk, and the next big prune retries.
 func pruneCheckpointWAL(ctx context.Context, d *db.DB, deleted int64) {
-	var busy, logPages, moved int
-	if err := d.QueryRowContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`).Scan(&busy, &logPages, &moved); err != nil {
+	// A short wait: a TRUNCATE holds new writers off while it waits for the
+	// readers, and the challenge's inserts are those writers.
+	cp, err := d.CheckpointWAL(ctx, "TRUNCATE", 250*time.Millisecond)
+	if err != nil {
 		log.Printf("events prune: wal_checkpoint after %d deleted rows: %v", deleted, err)
 		return
 	}
-	if busy != 0 {
-		log.Printf("events prune: wal_checkpoint busy after %d deleted rows (kept; retried on the next mass prune)", deleted)
+	if cp.Busy {
+		log.Printf("events prune: wal_checkpoint busy after %d deleted rows (kept; retried on the next mass prune, and by the WAL watch)", deleted)
 	}
 }
 
