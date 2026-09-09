@@ -62,21 +62,23 @@ func TestAbandonRateExcludesClientsThatNeverRanTheJS(t *testing.T) {
 	// Read the tile's own value rather than searching the page: a bare "7.1"
 	// matches SVG path coordinates, which is how the first version of this
 	// test failed for a reason that had nothing to do with the metric.
-	sub := regexp.MustCompile(`(?s)<div class="sub">([^<]*did not finish[^<]*)</div>`).FindStringSubmatch(body)
+	sub := regexp.MustCompile(`(?s)<div class="sub">([^<]*challenge loads[^<]*)</div>`).FindStringSubmatch(body)
 	if sub == nil {
 		t.Fatal("the abandon tile is missing from the overview")
 	}
 	// 1 of 4 loads did not finish.  Had the denominator been serves (14), the
-	// same data would read 1 of 14 and hide the problem.
-	if !strings.Contains(sub[1], "1") || !strings.Contains(sub[1], "4") {
-		t.Errorf("abandon tile reads %q, want 1 of 4 (loads), not a count against serves", sub[1])
+	// same data would read against 14 and hide the problem.
+	if !strings.Contains(sub[1], "4") || !strings.Contains(sub[1], "25.0") {
+		t.Errorf("abandon tile reads %q, want 4 loads at 25.0%%, not a share of serves", sub[1])
 	}
 	if strings.Contains(sub[1], "14") {
 		t.Errorf("the denominator is serves (14), so bots that never ran the JS are diluting it: %q", sub[1])
 	}
-	val := regexp.MustCompile(`(?s)<div class="value">([0-9.]+)<span[^>]*>%`).FindStringSubmatch(body)
-	if val == nil || val[1] != "25.0" {
-		t.Errorf("abandon rate = %v, want 25.0 (1 unfinished of 4 loads)", val)
+	// The headline is the count of abandoned requests, in the same unit as
+	// every tile beside it.
+	val := regexp.MustCompile(`(?s)<div class="label">Abandoned<span.*?<div class="value">([^<]*)</div>`).FindStringSubmatch(body)
+	if val == nil || strings.TrimSpace(val[1]) != "1" {
+		t.Errorf("abandoned requests = %v, want 1 (of 4 loads)", val)
 	}
 }
 
