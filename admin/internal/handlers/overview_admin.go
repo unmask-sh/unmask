@@ -434,17 +434,30 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		ovSites = append(ovSites, r.Site)
 	}
 	_, ovGhostSites := siteBadgeState(ovSites, h.snapshotSettings())
+	// The pass tiles' headline: every request the gate of that kind admitted
+	// -- the solves (a fresh cookie each) plus the requests that came back on
+	// such a cookie.  The same request unit as "challenge fired", so the two
+	// read side by side; the solves stay on the breakdown line as the
+	// visitor count and the abandon rate's base (2026-09-09: a headline of
+	// solves alone read as "2 million challenged, 20 thousand passed").
+	// Without the access-log feed the cookie share is unknown and the
+	// headline is the solves alone, said so on the tile.
+	kpiPoWTotal, kpiCaptchaTotal := kpiPoWPass, kpiCaptchaPass
+	if comp.OK {
+		kpiPoWTotal += comp.PowPass
+		kpiCaptchaTotal += comp.CaptchaPass
+	}
 	data := map[string]any{
-		"Lang":           i18n.Resolve(r),
-		"TZ":             resolveTZ(r),
-		"KPIServes":      kpiFired,
-		"KPIPoWPass":     kpiPoWPass,
-		"KPICaptchaPass": kpiCaptchaPass,
-		// The pass cards' quiet second line: requests admitted on a cookie of
-		// that kind.  The headline counts solves; one solve then admits every
-		// request its cookie covers, so the two figures answer different
-		// questions and the card names both to keep them apart.  From the same
-		// counters as the non-human card, so "no feed" renders the same dash.
+		"Lang":            i18n.Resolve(r),
+		"TZ":              resolveTZ(r),
+		"KPIServes":       kpiFired,
+		"KPIPoWTotal":     kpiPoWTotal,
+		"KPICaptchaTotal": kpiCaptchaTotal,
+		"KPIPoWPass":      kpiPoWPass,
+		"KPICaptchaPass":  kpiCaptchaPass,
+		// The breakdown's cookie share: requests admitted on a cookie of that
+		// kind, from the same counters as the non-human card, so "no feed"
+		// renders the same way there and here.
 		"KPIPoWCookie":     comp.PowPass,
 		"KPICaptchaCookie": comp.CaptchaPass,
 		"KPICookieKnown":   comp.OK,

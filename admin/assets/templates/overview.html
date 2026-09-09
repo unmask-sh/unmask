@@ -495,19 +495,20 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   </div>
   <div class="kpi k-pow">
     <div class="label"><span class="kdot" style="background:#0ea5e9"></span>{{ t .Lang "overview.kpi.pow_pass" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.pow_pass_help") }}</span></span></div>
-    <div class="value">{{ if .KPIKnown }}{{ comma .KPIPoWPass }}{{ else }}—{{ end }}</div>
+    <div class="value">{{ if .KPIKnown }}{{ comma .KPIPoWTotal }}{{ else }}—{{ end }}</div>
     <div class="sub">{{ t .Lang "overview.kpi.pow_pass_sub" }}</div>
-    {{/* Solves vs. the requests those solves then admit: the headline is the
-         former, so a returning visitor's traffic never inflates it -- but an
-         operator reading "PoW passed: 1,204" against an access log full of
-         cookie-holders needs the second figure named to see why they differ. */}}
-    <div class="sub sub-cookie">{{ t .Lang "overview.kpi.pass_cookie" }}: {{ if .KPICookieKnown }}{{ comma .KPIPoWCookie }}{{ else }}—{{ end }}</div>
+    {{/* The headline is requests -- the solves plus what their cookies then
+         admitted -- in the same unit as "challenge fired" beside it.  The
+         breakdown keeps the solves visible: they are the visitor count and
+         the abandon rate's base.  Without the access-log feed the cookie
+         share is unknown, and the tile says the headline is solves alone. */}}
+    <div class="sub sub-cookie">{{ if .KPICookieKnown }}{{ tf .Lang "overview.kpi.pass_breakdown" (comma .KPIPoWPass) (comma .KPIPoWCookie) }}{{ else }}{{ tf .Lang "overview.kpi.pass_solves_only" (comma .KPIPoWPass) }}{{ end }}</div>
   </div>
   <div class="kpi k-captcha">
     <div class="label"><span class="kdot" style="background:#16a34a"></span>{{ t .Lang "overview.kpi.captcha_pass" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.captcha_pass_help") }}</span></span></div>
-    <div class="value">{{ if .KPIKnown }}{{ comma .KPICaptchaPass }}{{ else }}—{{ end }}</div>
+    <div class="value">{{ if .KPIKnown }}{{ comma .KPICaptchaTotal }}{{ else }}—{{ end }}</div>
     <div class="sub">{{ t .Lang "overview.kpi.captcha_pass_sub" }}</div>
-    <div class="sub sub-cookie">{{ t .Lang "overview.kpi.pass_cookie" }}: {{ if .KPICookieKnown }}{{ comma .KPICaptchaCookie }}{{ else }}—{{ end }}</div>
+    <div class="sub sub-cookie">{{ if .KPICookieKnown }}{{ tf .Lang "overview.kpi.pass_breakdown" (comma .KPICaptchaPass) (comma .KPICaptchaCookie) }}{{ else }}{{ tf .Lang "overview.kpi.pass_solves_only" (comma .KPICaptchaPass) }}{{ end }}</div>
   </div>
   {{/* Abandon rate: the tile an operator reads before touching PoW difficulty.
        Denominator is challenge pages whose JS ran, so bots (which never do)
