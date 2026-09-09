@@ -71,7 +71,11 @@ start() {
 
 stop() {
     echo -n $"Stopping $prog: "
-    killproc -p "$pidfile" "$prog"
+    # Closing the database checkpoints its write-ahead log; that is instant
+    # when the log is small (the daemon keeps it so) and seconds to minutes
+    # when a large one was left behind.  killproc's default is a KILL about
+    # four seconds after the TERM -- give the checkpoint half a minute.
+    killproc -d 30 -p "$pidfile" "$prog"
     retval=$?
     echo
     [ $retval -eq 0 ] && rm -f "$lockfile"

@@ -5672,7 +5672,12 @@ type retentionStatsView struct {
 	PruneErr         string
 	PruneBacklogDays int
 	PruneStale       bool
-	CookieTimedOut   bool // nginx-log ingest card (unmask_cookie_minute count/oldest)
+	// The write-ahead log next to a SQLite database: its size, and whether
+	// it is past the point where checkpoints are evidently not completing.
+	WALSize        int64
+	WALSizeStr     string
+	WALLarge       bool
+	CookieTimedOut bool // nginx-log ingest card (unmask_cookie_minute count/oldest)
 	// Per-metric success flags: true = the value was read, false = its query
 	// errored/timed out and the value is unknown (rendered "??" rather than a
 	// misleading 0, so the operator sees WHICH metric could not be computed).
@@ -5894,6 +5899,11 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 				v.DBSize = st.Size()
 				v.DBSizeStr = humanBytes(v.DBSize)
 			}
+		}
+		// The write-ahead log: the connection knows the file it opened.
+		if v.WALSize = h.DB.WALSize(); v.WALSize > 0 {
+			v.WALSizeStr = humanBytes(v.WALSize)
+			v.WALLarge = v.WALSize >= retentionWALLarge
 		}
 	}
 
@@ -6697,3 +6707,7 @@ func applyAIAdvisorForm(c *settings.AIAdvisorConfig, r *http.Request) {
 		}
 	}
 }
+
+// retentionWALLarge is the write-ahead log size the retention tab warns
+// from (db.WALLargeBytes; a variable so a test can lower it).
+var retentionWALLarge int64 = db.WALLargeBytes
