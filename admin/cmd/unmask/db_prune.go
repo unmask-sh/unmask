@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -29,9 +30,10 @@ func cmdDBPrune(args []string) error {
 	configPath := fs.String("config", "", "path to config.yml")
 	retention := fs.Int("retention-days", 0, "keep this many days (default: events_retention_days from the config)")
 	mode := fs.String("mode", "delete", "delete: remove old rows in chunks | rebuild: copy the rows to keep into a new table and drop the rest (SQLite, offline only)")
-	vacuum := fs.Bool("vacuum", false, "VACUUM afterwards to give the freed space back to the filesystem (SQLite; needs free disk of about the resulting file size, and a while)")
+	vacuum := fs.Bool("vacuum", false, "VACUUM afterwards to give the freed space back to the filesystem (SQLite; writes a copy of the live data next to the database first, so needs that much free disk there, and a while)")
 	analyze := fs.Bool("analyze", false, "refresh the query-planner statistics afterwards (same as `unmask db-analyze`)")
 	force := fs.Bool("force", false, "run even though the daemon answers on its socket (delete mode only: it then paces itself like the daemon's own prune)")
+	skipSpace := fs.Bool("skip-space-check", false, "run rebuild / VACUUM even when the free space next to the database looks short")
 	timeout := fs.Duration("timeout", 12*time.Hour, "abort if the run takes longer than this")
 	_ = fs.Parse(args)
 
@@ -58,7 +60,10 @@ func cmdDBPrune(args []string) error {
 		return fmt.Errorf("db-prune: the daemon is running on %s -- %s", daemonAddr(s.Server), hint)
 	}
 
-	conn, err := db.Open(s.DB)
+	// Maintenance open: one connection, temporary storage on disk next to
+	// the database.  In memory (the daemon's setting) a VACUUM or an index
+	// build over a large table is a copy of the result in RAM.
+	conn, err := db.OpenMaintenance(s.DB)
 	if err != nil {
 		return err
 	}
@@ -73,10 +78,31 @@ func cmdDBPrune(args []string) error {
 	cutoff := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
 	say("keeping %d days (rows newer than %s UTC), mode %s, %s", days, cutoff.Format("2006-01-02 15:04"), *mode,
 		map[bool]string{true: "online (paced)", false: "offline"}[running])
+	// The room a rebuild or a VACUUM needs is next to the database: the new
+	// table is written before the old one is dropped, and VACUUM writes a copy
+	// of the live data there (OpenMaintenance points the temp store at that
+	// directory).  Said up front, and checked before each step.
+	var dbDir string
+	var free int64
+	haveFree := false
 	if conn.Driver == db.DriverSQLite && s.DB.SQLitePath != "" {
 		if st, err := os.Stat(s.DB.SQLitePath); err == nil {
 			say("file %s is %s before", s.DB.SQLitePath, humanBytesCLI(st.Size()))
 		}
+		dbDir = filepath.Dir(s.DB.SQLitePath)
+		if f, err := db.DirFree(dbDir); err == nil {
+			free, haveFree = f, true
+			say("temporary files and the rebuilt table go to %s (%s free)", dbDir, humanBytesCLI(free))
+		} else {
+			say("cannot read the free space of %s: %v", dbDir, err)
+		}
+	}
+	room := func(step string, need int64) error {
+		if !haveFree || *skipSpace || !spaceShort(need, free) {
+			return nil
+		}
+		return fmt.Errorf("db-prune: %s needs about %s free in %s and %s is available; free some space (or pass -skip-space-check to go ahead anyway)",
+			step, humanBytesCLI(spaceWithMargin(need)), dbDir, humanBytesCLI(free))
 	}
 
 	t0 := time.Now()
@@ -97,6 +123,24 @@ func cmdDBPrune(args []string) error {
 		}
 		say("deleted %d rows in %d chunks, %v", res.Deleted, res.Chunks, res.Elapsed.Round(time.Millisecond))
 	case "rebuild":
+		if haveFree {
+			kept, total, err := events.RebuildEstimate(ctx, conn, days)
+			if err != nil {
+				return fmt.Errorf("db-prune: %w", err)
+			}
+			sp, err := conn.Space(ctx)
+			if err != nil {
+				return fmt.Errorf("db-prune: %w", err)
+			}
+			need := int64(0)
+			if total > 0 {
+				need = int64(float64(sp.LiveBytes) * float64(kept) / float64(total))
+			}
+			say("rebuild keeps about %d of %d rows (%s of %s live): the new table needs about that much room", kept, total, humanBytesCLI(need), humanBytesCLI(sp.LiveBytes))
+			if err := room("rebuild", need); err != nil {
+				return err
+			}
+		}
 		res, err := events.RebuildEvents(ctx, conn, days, func(m string) { say("%s", m) })
 		if err != nil {
 			return fmt.Errorf("db-prune: %w", err)
@@ -104,6 +148,19 @@ func cmdDBPrune(args []string) error {
 		say("kept %d rows, %d indexes rebuilt, %v", res.Kept, res.Indexes, res.Elapsed.Round(time.Millisecond))
 	}
 	if *vacuum && conn.Driver == db.DriverSQLite {
+		if haveFree {
+			sp, err := conn.Space(ctx)
+			if err != nil {
+				return fmt.Errorf("db-prune: %w", err)
+			}
+			if f, err := db.DirFree(dbDir); err == nil {
+				free = f
+			}
+			say("VACUUM writes a copy of the live data (%s of the %s file) to %s (%s free)", humanBytesCLI(sp.LiveBytes), humanBytesCLI(sp.FileBytes), dbDir, humanBytesCLI(free))
+			if err := room("VACUUM", sp.LiveBytes); err != nil {
+				return err
+			}
+		}
 		say("VACUUM (rewrites the file; this takes a while on a large database)")
 		t1 := time.Now()
 		if _, err := conn.ExecContext(ctx, `VACUUM`); err != nil {
@@ -173,3 +230,13 @@ func humanBytesCLI(n int64) string {
 	}
 	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
+
+// spaceMargin is the headroom asked for over the bytes a step writes: a
+// rebuild's estimate is a share of the live bytes, a VACUUM's copy carries
+// its own page overhead, and a filesystem at zero is nobody's plan.
+const spaceMargin = 1.1
+
+func spaceWithMargin(need int64) int64 { return int64(float64(need) * spaceMargin) }
+
+// spaceShort: the free space is less than the step needs with its margin.
+func spaceShort(need, free int64) bool { return free < spaceWithMargin(need) }
