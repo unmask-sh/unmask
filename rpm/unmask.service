@@ -67,6 +67,11 @@ SystemCallErrorNumber=EPERM
 LimitNOFILE=65536
 Restart=on-failure
 RestartSec=5s
+# Stopping closes the database, and closing a SQLite database checkpoints
+# its write-ahead log: instant when the log is small (the daemon keeps it
+# so), minutes when a large one was left behind.  A little longer than the
+# 90 s default before the kill.
+TimeoutStopSec=120
 
 # 12-factor logging: admin writes to stderr; journald captures.
 # `journalctl -u unmask` shows all admin output; retention is managed by

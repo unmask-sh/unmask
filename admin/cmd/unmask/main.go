@@ -309,6 +309,15 @@ func cmdServe(args []string) error {
 	// in admin.yml, or DB server not running).  The setup wizard at
 	// /admin/setup/ accepts driver / connection info and hot-swaps it after
 	// completion.  When conn == nil, the setup gate redirects every other URL.
+	// A large write-ahead log left behind (a stop that was killed mid
+	// checkpoint) is replayed on open, which takes minutes for every few GB
+	// -- say so before the silence, so the operator waiting on healthz
+	// knows what it is.
+	if s.DB.Driver == "" || s.DB.Driver == string(db.DriverSQLite) {
+		if st, err := os.Stat(s.DB.SQLitePath + "-wal"); err == nil && st.Size() >= db.WALLargeBytes {
+			log.Printf("db: the write-ahead log %s-wal is %s; SQLite replays it on open, which takes minutes for every few GB (nginx serves fail-open meanwhile)", s.DB.SQLitePath, humanBytesCLI(st.Size()))
+		}
+	}
 	var conn *db.DB
 	if c, err := db.Open(s.DB); err != nil {
 		log.Printf("db: open failed (redirecting to setup wizard): %v", err)
@@ -760,6 +769,51 @@ func cmdServe(args []string) error {
 			defer t.Stop()
 			for range t.C {
 				runPrune()
+			}
+		}()
+	}
+
+	// The write-ahead log.  journal_size_limit truncates it to 64 MB after a
+	// checkpoint, but a checkpoint can only finish when no reader holds an
+	// older snapshot: on a large database with long dashboard queries the
+	// readers overlap and the file grows for as long as they do (10.7 GB on
+	// 2026-09-08), and the stop that follows has a checkpoint to do that no
+	// init system waits for.  Every five minutes, when the log is past
+	// db.WALLargeBytes, trim it as far as the readers allow (db.TrimWAL) and
+	// say what happened -- once an hour while it stays large, so the log
+	// names the condition without repeating it.
+	if conn != nil && conn.Driver == db.DriverSQLite {
+		go func() {
+			defer safe.Recover("wal-watch")
+			var lastSaid time.Time
+			t := time.NewTicker(5 * time.Minute)
+			defer t.Stop()
+			for range t.C {
+				sz := conn.WALSize()
+				if sz < db.WALLargeBytes {
+					continue
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				tr, err := conn.TrimWAL(ctx)
+				cancel()
+				if err != nil {
+					log.Printf("wal: %s, trim: %v", humanBytesCLI(sz), err)
+					continue
+				}
+				if tr.After < db.WALLargeBytes {
+					log.Printf("wal: trimmed from %s to %s", humanBytesCLI(tr.Before), humanBytesCLI(tr.After))
+					lastSaid = time.Time{}
+					continue
+				}
+				if time.Since(lastSaid) < time.Hour {
+					continue
+				}
+				lastSaid = time.Now()
+				held := "a reader holds an older snapshot"
+				if tr.Blocked {
+					held = "a reader is still on the log"
+				}
+				log.Printf("wal: %s and not shrinking (checkpoint copied %d of %d frames; %s) -- long-running queries keep it; a stop that is killed leaves it for the next start to replay", humanBytesCLI(tr.After), tr.Passive.Checkpointed, tr.Passive.LogFrames, held)
 			}
 		}()
 	}
