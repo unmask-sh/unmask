@@ -75,7 +75,12 @@ stop() {
     # when the log is small (the daemon keeps it so) and seconds to minutes
     # when a large one was left behind.  killproc's default is a KILL about
     # four seconds after the TERM -- give the checkpoint half a minute.
-    killproc -d 30 -p "$pidfile" "$prog"
+    #
+    # The flag ORDER is load-bearing: RHEL 6's killproc tests for -p, then -b,
+    # then -d, each once and only at the front of what is left, so "-d 30 -p
+    # FILE prog" leaves the pidfile unparsed and calls kill on a program named
+    # "-p" with the path as the signal.  -p must come first.
+    killproc -p "$pidfile" -d 30 "$prog"
     retval=$?
     echo
     [ $retval -eq 0 ] && rm -f "$lockfile"
