@@ -12,8 +12,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
-
 ## [0.1.43] - 2026-09-09
 ### Changed
 - (2026-09-09) **Overview: the KPI row is the challenge's own funnel, counted in requests throughout.**  The abandonment tile leads with how many requests loaded a challenge and left, with the share and its denominator underneath, so no tile is a bare percentage.  The row also says what it is a breakdown of, since the card above splits all traffic by what it is.
