@@ -1021,6 +1021,8 @@ var dict = map[Lang]map[string]string{
 		"toggle.hide_zero_n_cb":       "値が0件の %d 行を隠す",
 		"toggle.hide_zero_n":          "▲ 0 件 %d 行を隠す",
 		"chart.no_access_log":         "データなし (http.inc を <code>http {}</code> に include していない、または nginx_log socket 未設定の可能性)",
+		"chart.card_failed":           "読み込めませんでした — このカードのクエリがエラーになりました (上の警告と admin ログを参照)。データが無いのではなく、取得できていません",
+		"chart.card_aggregating":      "集計中 — 起動後の最初の毎時集計が終わるまで、この 30 日のグラフは出ません (大きな DB では数分〜数十分。`unmask doctor` の DB hourly aggregate 行で進み具合が分かります)",
 		"th.pass_rate":                "通過率",
 		"th.captcha_rate":             "CAPTCHA率",
 
@@ -3165,6 +3167,8 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		"toggle.hide_zero_n_cb":       "Hide %d zero-value rows",
 		"toggle.hide_zero_n":          "▲ Hide %d zero rows",
 		"chart.no_access_log":         "No data (the include for <code>http.inc</code> in <code>http {}</code> may be missing, or nginx_log socket not set)",
+		"chart.card_failed":           "Could not load — this card's query errored (see the warning above and the admin log). The data is not absent, it was not fetched",
+		"chart.card_aggregating":      "Aggregating — this 30-day chart appears once the first hourly aggregate pass after start completes (minutes to tens of minutes on a large database; `unmask doctor` shows the progress on its DB hourly aggregate line)",
 		"th.pass_rate":                "Pass rate",
 		"th.captcha_rate":             "CAPTCHA rate",
 

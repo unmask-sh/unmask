@@ -367,6 +367,8 @@ func cmdDoctor(args []string) error {
 		checkHostIDPinned(s, conn, addOK, addWarn)
 		checkEventsRetention(s, conn, addOK, addWarn)
 		checkWALSize(conn, addOK, addWarn)
+		checkAggregateStatus(conn, addOK, addWarn)
+		checkAggregateWindows(conn, addOK, addWarn)
 	}
 
 	// 4. IP-geo mmdb (= optional).  When set, check existence + freshness
@@ -762,6 +764,114 @@ func checkWALSize(conn *db.DB, addOK, addWarn func(t, m string)) {
 	} else {
 		addOK("DB write-ahead log", msg)
 	}
+}
+
+// checkAggregateStatus: where the hourly aggregate stands.  The stats page's
+// 30-day cards read the rollup once a pass has completed and fall back to
+// raw scans of unmask_event until then -- scans that cannot finish on a
+// large table (kanagawa: 25M rows, every card past its budget, 2026-09-10)
+// -- and nothing named that state anywhere.  doctor runs outside the daemon,
+// so it reads the cursor from the database instead of the in-process flag.
+func checkAggregateStatus(conn *db.DB, addOK, addWarn func(t, m string)) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	a, err := dashboard.ReadAggregateStatus(ctx, conn)
+	if err != nil {
+		addWarn("DB hourly aggregate", fmt.Sprintf("could not read the rollup cursor (%v)", err))
+		return
+	}
+	if warn, msg := aggregateStatusVerdict(a, time.Now()); warn {
+		addWarn("DB hourly aggregate", msg)
+	} else {
+		addOK("DB hourly aggregate", msg)
+	}
+}
+
+func aggregateStatusVerdict(a dashboard.AggregateStatus, now time.Time) (warn bool, msg string) {
+	if a.Events == 0 {
+		return false, "no events yet"
+	}
+	hopeless := a.Events > dashboard.RawScanCeiling
+	consequence := "the stats page's 30-day cards read raw events until it catches up"
+	if hopeless {
+		consequence = fmt.Sprintf("the stats page's 30-day cards show 'aggregating' until it catches up (%s events is past the %s a raw 30-day scan can finish)", humanCount(a.Events), humanCount(dashboard.RawScanCeiling))
+	}
+	if !a.HasCursor {
+		return true, "no pass has completed yet: " + consequence + " -- the daemon folds events every minute; a backlog this size takes a while, and a locked database stops it (see the retention line)"
+	}
+	if !a.CaughtUp() {
+		age := ""
+		if !a.UpdatedAt.IsZero() {
+			age = fmt.Sprintf(", cursor last advanced %s ago", humanAge(now.Sub(a.UpdatedAt)))
+		}
+		return true, fmt.Sprintf("%s events behind%s: %s", humanCount(a.Backlog), age, consequence)
+	}
+	msg = "caught up"
+	if !a.UpdatedAt.IsZero() {
+		msg += fmt.Sprintf(" (cursor advanced %s ago)", humanAge(now.Sub(a.UpdatedAt)))
+	}
+	return false, msg
+}
+
+// checkAggregateWindows: every aggregate table's oldest row against the
+// window the hourly prune enforces.  One table the prune did not cover grew
+// to 102 days before it was noticed as slowness (2026-09-10); the audit turns
+// that into a line.
+func checkAggregateWindows(conn *db.DB, addOK, addWarn func(t, m string)) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	ws, err := dashboard.AuditAggregateWindows(ctx, conn)
+	if err != nil {
+		addWarn("DB aggregate windows", fmt.Sprintf("could not measure (%v)", err))
+		return
+	}
+	if warn, msg := aggregateWindowsVerdict(ws); warn {
+		addWarn("DB aggregate windows", msg)
+	} else {
+		addOK("DB aggregate windows", msg)
+	}
+}
+
+func aggregateWindowsVerdict(ws []dashboard.AggregateWindow) (warn bool, msg string) {
+	var over []string
+	measured := 0
+	for _, w := range ws {
+		if w.Empty {
+			continue
+		}
+		measured++
+		if w.Over {
+			over = append(over, fmt.Sprintf("%s (oldest row %dd)", w.Table, int(w.OldestAge.Hours()/24)))
+		}
+	}
+	if len(over) > 0 {
+		return true, fmt.Sprintf("%s past the %d-day window -- the hourly prune is not trimming it; it grows without bound and slows the cards that read it", strings.Join(over, ", "), dashboard.AggregateKeepDays)
+	}
+	return false, fmt.Sprintf("%d table(s) within the %d-day window", measured, dashboard.AggregateKeepDays)
+}
+
+// humanAge: a duration as an operator reads it -- minutes up to two days,
+// days and hours past that (406h46m is 17 days).
+func humanAge(d time.Duration) string {
+	if d < 48*time.Hour {
+		return d.Round(time.Minute).String()
+	}
+	days := int(d.Hours() / 24)
+	hours := int(d.Hours()) - days*24
+	if hours == 0 {
+		return fmt.Sprintf("%dd", days)
+	}
+	return fmt.Sprintf("%dd %dh", days, hours)
+}
+
+func humanCount(n int64) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.0fk", float64(n)/1_000)
+	}
+	return fmt.Sprintf("%d", n)
 }
 
 func walSizeVerdict(path string, size int64) (warn bool, msg string) {
