@@ -102,7 +102,9 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 					}
 				}
 				for _, n := range st.Nominated {
-					if present[n.Target] {
+					if present[n.Target] || n.ContainedBelowCost() {
+						// An engine candidate now, or a row nominated before
+						// the cost rule (advisor.Merge drops it on the next run).
 						continue
 					}
 					if n.Type == "ip" && (excl.BannedIPs[n.Target] || excl.DismissedIP[n.Target]) {

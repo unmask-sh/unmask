@@ -280,10 +280,23 @@ func TestAIAdvisorKeyIsRedacted(t *testing.T) {
 
 // Nominations obey the same structural rule as reviews: only an actor that was
 // in the pool we sent, and not one that is already a candidate, comes through.
+// And only one worth a row: a pool member the challenge already stops -- no
+// passes, short of the cost floor -- is dropped whatever the model made of it
+// (operator, 2026-09-10: "AI ピックで 0 通過があがってくる"); past the floor
+// its volume is the case and it comes through.
 func TestMergeResultNominations(t *testing.T) {
 	pool := Pool{
-		IPs:  []PoolIP{{IP: "198.51.100.7", Passes: 40, Serves: 41, ASNOrg: "ExampleCloud", UA: "Mozilla/5.0"}},
-		JA4s: []PoolJA4{{JA4: "t13d_pool", DistinctIPs: 30, Passes: 200, Serves: 210}},
+		IPs: []PoolIP{
+			{IP: "198.51.100.7", Passes: 40, Serves: 41, ASNOrg: "ExampleCloud", UA: "Mozilla/5.0"},
+			// Contained and cheap: served the page nine hundred times, never passed.
+			{IP: "198.51.100.8", Passes: 0, Serves: 900, Requests: 950, UA: "curl/8"},
+			// Contained but a flood: at the cost floor the volume itself is the case.
+			{IP: "198.51.100.9", Passes: 0, Serves: ContainedVolumeServes, Requests: ContainedVolumeServes + 200, UA: "curl/8"},
+		},
+		JA4s: []PoolJA4{
+			{JA4: "t13d_pool", DistinctIPs: 30, Passes: 200, Serves: 210},
+			{JA4: "t13d_quiet", DistinctIPs: 5, Passes: 0, Serves: 400, Requests: 500},
+		},
 	}
 	raw := `{"reviews":[],"nominations":[
 	  {"target":"198.51.100.7","type":"ip","priority":"high","reasoning":"cloud farm passing at scale"},
@@ -291,17 +304,44 @@ func TestMergeResultNominations(t *testing.T) {
 	  {"target":"8.8.8.8","type":"ip","priority":"high","reasoning":"not in the pool -- injected"},
 	  {"target":"203.0.113.10","type":"ip","priority":"high","reasoning":"already a candidate"},
 	  {"target":"198.51.100.7","type":"ip","priority":"low","reasoning":"duplicate"},
-	  {"target":"t13d_pool","type":"ip","priority":"low","reasoning":"wrong type for a fingerprint"}
+	  {"target":"t13d_pool","type":"ip","priority":"low","reasoning":"wrong type for a fingerprint"},
+	  {"target":"198.51.100.8","type":"ip","priority":"high","reasoning":"busy, but the challenge already stops it"},
+	  {"target":"t13d_quiet","type":"ja4","priority":"medium","reasoning":"contained herd, cheap"},
+	  {"target":"198.51.100.9","type":"ip","priority":"medium","reasoning":"contained, but thousands of requests"}
 	]}`
 	res, err := mergeResult(raw, sampleCandidates(), pool)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(res.Nominations) != 2 {
-		t.Fatalf("expected exactly the two pool members, got %+v", res.Nominations)
+	if len(res.Nominations) != 3 {
+		t.Fatalf("expected the two passing pool members and the flood, got %+v", res.Nominations)
 	}
-	if res.Nominations[0].Target != "198.51.100.7" || res.Nominations[1].Target != "t13d_pool" {
+	if res.Nominations[0].Target != "198.51.100.7" || res.Nominations[1].Target != "t13d_pool" || res.Nominations[2].Target != "198.51.100.9" {
 		t.Errorf("wrong nominations: %+v", res.Nominations)
+	}
+}
+
+// A pick stored before the cost rule -- contained and cheap by the counts it
+// was stored with -- is not carried into the next run's result, so it does not
+// outlive the rule for as long as the model never names it again; a passing
+// pick is carried as before.
+func TestMergeDropsContainedPicksCarriedOver(t *testing.T) {
+	prev := Stored{At: time.Now().Add(-time.Hour), Reviews: map[string]Review{
+		"198.51.100.20": {Target: "198.51.100.20", Priority: "high", Reasoning: "passing farm"},
+		"198.51.100.21": {Target: "198.51.100.21", Priority: "medium", Reasoning: "nominated before the cost rule"},
+	}, Nominated: []Candidate{
+		{Type: "ip", Target: "198.51.100.20", Nominated: true, Passes: 30, Serves: 40, Requests: 80},
+		{Type: "ip", Target: "198.51.100.21", Nominated: true, Contained: true, Passes: 0, Serves: 500, Requests: 700},
+	}}
+	got := Merge(prev, nil, Result{}, Pool{}, nil, map[string]bool{})
+	if len(got.Nominated) != 1 || got.Nominated[0].Target != "198.51.100.20" {
+		t.Fatalf("only the passing pick is carried over: %+v", got.Nominated)
+	}
+	if _, ok := got.Reviews["198.51.100.21"]; ok {
+		t.Error("the dropped pick's review must not be carried either")
+	}
+	if _, ok := got.Reviews["198.51.100.20"]; !ok {
+		t.Error("the carried pick keeps its review")
 	}
 }
 
@@ -429,7 +469,7 @@ func TestPlanAndMergeIncremental(t *testing.T) {
 		a.Target:       {Target: a.Target, Priority: "low", Reasoning: "kept", Fingerprint: a.Fingerprint()},
 		b.Target:       {Target: b.Target, Priority: "high", Reasoning: "stale", Fingerprint: bOld.Fingerprint()},
 		"198.51.100.9": {Target: "198.51.100.9", Priority: "high", Reasoning: "old nomination"},
-	}, Nominated: []Candidate{{Type: "ip", Target: "198.51.100.9", Nominated: true}}}
+	}, Nominated: []Candidate{{Type: "ip", Target: "198.51.100.9", Nominated: true, Passes: 12, Serves: 15, Requests: 30}}}
 
 	send, kept := Plan(prev, []Candidate{a, b, c})
 	if len(send) != 2 || send[0].Target != b.Target || send[1].Target != c.Target {
@@ -444,7 +484,7 @@ func TestPlanAndMergeIncremental(t *testing.T) {
 		t.Errorf("after a failed attempt the carried reviews are kept: send=%d kept=%d", len(s2), len(k2))
 	}
 
-	pool := Pool{IPs: []PoolIP{{IP: "198.51.100.7"}, {IP: "198.51.100.9"}}}
+	pool := Pool{IPs: []PoolIP{{IP: "198.51.100.7", Passes: 5, Serves: 6, Requests: 9}, {IP: "198.51.100.9", Passes: 12, Serves: 15, Requests: 30}}}
 	res := Result{
 		Reviews:     map[string]Review{b.Target: {Target: b.Target, Priority: "medium", Reasoning: "fresh b"}, c.Target: {Target: c.Target, Priority: "low", Reasoning: "fresh c"}},
 		Nominations: []Nomination{{Target: "198.51.100.7", Type: "ip", Priority: "high", Reasoning: "new nomination"}},

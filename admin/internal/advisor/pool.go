@@ -68,23 +68,24 @@ type Pool struct {
 
 func (p Pool) Empty() bool { return len(p.IPs) == 0 && len(p.JA4s) == 0 && len(p.UAs) == 0 }
 
-// hasIP / hasJA4: the structural check a nomination must pass.
-func (p Pool) hasIP(ip string) bool {
+// ipRow / ja4Row: the structural check a nomination must pass -- the pool
+// row it names, with the counts the nomination is then judged against.
+func (p Pool) ipRow(ip string) (PoolIP, bool) {
 	for _, r := range p.IPs {
 		if r.IP == ip {
-			return true
+			return r, true
 		}
 	}
-	return false
+	return PoolIP{}, false
 }
 
-func (p Pool) hasJA4(ja4 string) bool {
+func (p Pool) ja4Row(ja4 string) (PoolJA4, bool) {
 	for _, r := range p.JA4s {
 		if r.JA4 == ja4 {
-			return true
+			return r, true
 		}
 	}
-	return false
+	return PoolJA4{}, false
 }
 
 // Pool sizes: enough to show the shape of the window, small enough that the

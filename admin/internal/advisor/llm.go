@@ -102,8 +102,13 @@ Besides the candidates you may receive a pool: the busiest addresses,
 fingerprints and user agents of the window, with the same evidence columns,
 origin network, country and reverse DNS. You may nominate actors from the pool
 that the candidate list missed -- for example a group of addresses on one
-hosting network sharing a user agent and completing challenges at scale. Only
-name targets that appear in the pool exactly as written; a few confident
+hosting network sharing a user agent and completing challenges at scale.
+Nominations are for actors that get through: challenges_passed above zero and
+still looking automated. A pool member with challenges_passed of zero is
+already contained -- the pool is ranked by volume, so such clients are exactly
+what stands out there -- and is not worth a nomination unless its volume alone
+is a cost: thousands of requests in the window, not hundreds. Only name
+targets that appear in the pool exactly as written; a few confident
 nominations are worth more than many weak ones, and none is a fine answer.
 
 Read the counts as stages of one challenge. challenges_served: challenge pages
@@ -314,7 +319,11 @@ func mergeReviews(raw string, cands []Candidate) (map[string]Review, error) {
 // sent: reviews of our candidates, nominations of pool members that are not
 // already candidates.  This is the structural half of the injection defence:
 // whatever the model was talked into saying, it can only annotate our rows
-// or point at actors we already observed.
+// or point at actors we already observed.  A nomination also has to be worth
+// the row it adds: a pool member the challenge already stops
+// (ContainedBelowCost) is dropped whatever the model made of it, so the rule
+// that keeps such actors out of the default view is not undone by a
+// nomination.  The prompt says the same; the prompt is advice, this is not.
 func mergeResult(raw string, cands []Candidate, pool Pool) (Result, error) {
 	var res Result
 	var reply reviewReply
@@ -341,11 +350,19 @@ func mergeResult(raw string, cands []Candidate, pool Pool) (Result, error) {
 		}
 		switch n.Type {
 		case "ip":
-			if !pool.hasIP(n.Target) {
+			row, ok := pool.ipRow(n.Target)
+			if !ok {
 				continue // not in the pool -- drop it
 			}
+			if ContainedBelowCost(row.Passes, row.Serves, row.Requests) {
+				continue // already contained, and cheap -- not worth a row
+			}
 		case "ja4":
-			if !pool.hasJA4(n.Target) {
+			row, ok := pool.ja4Row(n.Target)
+			if !ok {
+				continue
+			}
+			if ContainedBelowCost(row.Passes, row.Serves, row.Requests) {
 				continue
 			}
 		default:
@@ -619,10 +636,6 @@ func NominatedRows(res Result, pool Pool) ([]Candidate, map[string]Review) {
 	for k, v := range res.Reviews {
 		reviews[k] = v
 	}
-	ptr := make(map[string]PoolIP, len(pool.IPs))
-	for _, row := range pool.IPs {
-		ptr[row.IP] = row
-	}
 	rows := make([]Candidate, 0, len(res.Nominations))
 	for _, n := range res.Nominations {
 		c := Candidate{Type: n.Type, Target: n.Target, Nominated: true,
@@ -630,17 +643,15 @@ func NominatedRows(res Result, pool Pool) ([]Candidate, map[string]Review) {
 		switch n.Type {
 		case "ip":
 			c.Scope = "ip_only"
-			if row, ok := ptr[n.Target]; ok {
+			if row, ok := pool.ipRow(n.Target); ok {
 				c.Requests, c.Serves, c.Passes, c.ScannerHits = row.Requests, row.Serves, row.Passes, row.ScannerHits
 				c.JA4, c.UA, c.ASN, c.ASNOrg, c.Country, c.RDNS = row.JA4, row.UA, row.ASN, row.ASNOrg, row.Country, row.RDNS
 				c.FirstSeen, c.LastSeen = row.FirstSeen, row.LastSeen
 			}
 		case "ja4":
 			c.Scope = "ja4_only"
-			for _, row := range pool.JA4s {
-				if row.JA4 == n.Target {
-					c.Requests, c.Serves, c.Passes, c.DistinctIPs, c.UA = row.Requests, row.Serves, row.Passes, row.DistinctIPs, row.UA
-				}
+			if row, ok := pool.ja4Row(n.Target); ok {
+				c.Requests, c.Serves, c.Passes, c.DistinctIPs, c.UA = row.Requests, row.Serves, row.Passes, row.DistinctIPs, row.UA
 			}
 		}
 		c.Contained = c.Passes == 0
@@ -863,7 +874,10 @@ func Plan(prev Stored, cands []Candidate) (send []Candidate, kept map[string]Rev
 // Merge builds the stored result of an incremental run: the model's answer
 // for what was sent (fingerprinted), the kept reviews, and prev's nominated
 // rows that were neither re-nominated nor became engine candidates.  current
-// is the set of engine candidates of this run.
+// is the set of engine candidates of this run.  A carried row is held to the
+// cost rule too: one nominated before mergeResult applied it (contained, and
+// cheap, by the counts it was stored with) is dropped here rather than kept
+// for as long as the model never names it again.
 func Merge(prev Stored, sent []Candidate, res Result, pool Pool, kept map[string]Review, current map[string]bool) Stored {
 	nominated, reviews := NominatedRows(res, pool)
 	now := time.Now().Unix()
@@ -890,7 +904,7 @@ func Merge(prev Stored, sent []Candidate, res Result, pool Pool, kept map[string
 		nominatedNow[n.Target] = true
 	}
 	for _, n := range prev.Nominated {
-		if nominatedNow[n.Target] || current[n.Target] {
+		if nominatedNow[n.Target] || current[n.Target] || n.ContainedBelowCost() {
 			continue
 		}
 		nominated = append(nominated, n)

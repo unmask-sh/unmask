@@ -66,7 +66,7 @@ func TestBuildPool(t *testing.T) {
 	if busy.RDNS != "vm7.examplecloud.test." {
 		t.Errorf("reverse DNS not attached: %+v", *busy)
 	}
-	if !pool.hasJA4("t13d_pool") {
+	if _, ok := pool.ja4Row("t13d_pool"); !ok {
 		t.Errorf("fingerprint pool is missing the shared JA4: %+v", pool.JA4s)
 	}
 	for _, j := range pool.JA4s {
