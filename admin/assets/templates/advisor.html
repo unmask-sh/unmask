@@ -103,6 +103,9 @@ table.cands tbody tr.dismissed td .sig,table.cands tbody tr.dismissed td .score{
 .ai-spin{display:inline-block;width:.85rem;height:.85rem;border:.15rem solid #c4b5fd;border-top-color:#6d28d9;border-radius:50%;animation:ai-spin .8s linear infinite;vertical-align:-.15rem;margin-right:.35rem}
 @keyframes ai-spin{to{transform:rotate(360deg)}}
 .ai-wait{display:inline-flex;align-items:center;color:#6d28d9;font-size:.8rem;margin-top:.3rem}
+/* A row being re-sent keeps its last answer on screen, dimmed, under the
+   spinner: the operator loses nothing while the replacement is out. */
+.ai-box.ai-stale{opacity:.55}
 .ai-slot:empty{display:none}
 .ai-failed{color:#b91c1c;font-weight:700}
 .ai-bar .ai-fail{overflow-wrap:anywhere}
@@ -225,6 +228,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       {{ if and .AIMonthRuns (not .AIRunning) }}<span class="kv ai-delta ai-month">{{ tf .Lang "advisor.ai_month" .AIMonthRuns (comma .AIMonthIn) (comma .AIMonthOut) }}{{ if .AIMonthFailed }} · {{ tf .Lang "advisor.ai_month_failed" .AIMonthFailed }}{{ end }}</span>{{ end }}
     </div>
     <template id="ai-wait-tpl"><span class="ai-wait"><span class="ai-spin"></span>{{ t .Lang "advisor.ai_row_wait" }}</span></template>
+    <template id="ai-refresh-tpl"><span class="ai-wait"><span class="ai-spin"></span>{{ t .Lang "advisor.ai_row_refresh" }}</span></template>
     <template id="ai-keep-tpl"><span class="ai-kept">{{ t .Lang "advisor.ai_row_kept" }}</span></template>
     {{ else }}
     {{/* No model configured: say once, where the answers would go, that
@@ -283,10 +287,12 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
                  fills the same slot. */}}
             {{/* While a run is out the plan is known from the first moment:
                  rows sent to the model spin, rows whose evidence has not
-                 changed say "kept" and keep showing their review. */}}
+                 changed say "kept" and keep showing their review.  A sent row
+                 that already has an answer keeps it too, dimmed under the
+                 spinner -- the refresh replaces it, it does not blank it. */}}
             <div class="ai-slot"{{ if .Attention }} data-ai="1" data-target="{{ .Target }}"{{ end }}>
               {{- if and $.AIRunning .Attention (index $.AIKeptRows .Target) }}{{ if $rv }}<div class="ai-box"><span class="ai-tag">{{ t $.Lang "advisor.ai_tag" }}</span><span class="prio {{ $rv.Priority }}">{{ $rv.Priority }}</span>{{ if $rv.At }}<span class="ai-when">{{ ago $.Lang $rv.At }}</span>{{ end }}<span class="ai-kept">{{ t $.Lang "advisor.ai_row_kept" }}</span><div class="ai-reason">{{ $rv.Reasoning }}</div></div>{{ else }}<span class="ai-kept">{{ t $.Lang "advisor.ai_row_kept" }}</span>{{ end }}
-              {{- else if and $.AIRunning .Attention }}<span class="ai-wait"><span class="ai-spin"></span>{{ t $.Lang "advisor.ai_row_wait" }}</span>
+              {{- else if and $.AIRunning .Attention }}{{ if $rv }}<span class="ai-wait"><span class="ai-spin"></span>{{ t $.Lang "advisor.ai_row_refresh" }}</span><div class="ai-box ai-stale"><span class="ai-tag">{{ t $.Lang "advisor.ai_tag" }}</span><span class="prio {{ $rv.Priority }}">{{ $rv.Priority }}</span>{{ if $rv.At }}<span class="ai-when">{{ ago $.Lang $rv.At }}</span>{{ end }}<div class="ai-reason">{{ $rv.Reasoning }}</div></div>{{ else }}<span class="ai-wait"><span class="ai-spin"></span>{{ t $.Lang "advisor.ai_row_wait" }}</span>{{ end }}
               {{- else if $rv }}<div class="ai-box"><span class="ai-tag">{{ t $.Lang "advisor.ai_tag" }}</span><span class="prio {{ $rv.Priority }}">{{ $rv.Priority }}</span>{{ if $rv.At }}<span class="ai-when">{{ ago $.Lang $rv.At }}</span>{{ end }}<div class="ai-reason">{{ $rv.Reasoning }}</div></div>
               {{- else if and $.AIHave .Attention }}<div class="ai-missing"><span class="ai-tag">{{ t $.Lang "advisor.ai_tag" }}</span>{{ t $.Lang "advisor.ai_missing" }}</div>{{ end -}}
             </div>
@@ -432,6 +438,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   }
   function base(){ var b = bar(); return b ? b.dataset.base : ''; }
   function waitMarkup(){ var t = document.getElementById('ai-wait-tpl'); return t ? t.innerHTML : ''; }
+  function refreshMarkup(){ var t = document.getElementById('ai-refresh-tpl'); return t ? t.innerHTML : waitMarkup(); }
   function tick(){
     var el = document.getElementById('ai-elapsed');
     if (el) el.textContent = Math.max(0, Math.round((Date.now() - t0) / 1000)) + 's';
@@ -469,7 +476,14 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
           var reason = s.querySelector('.ai-box .ai-reason');
           if (reason) reason.insertAdjacentHTML('beforebegin', keep); else s.insertAdjacentHTML('afterbegin', keep);
         }
-        else if (sent[t]) { s.innerHTML = wait; }
+        else if (sent[t]) {
+          // A row with an answer keeps it, dimmed, under the spinner; a row
+          // without one just spins.
+          var box = s.querySelector('.ai-box');
+          s.querySelectorAll('.ai-wait, .ai-missing, .ai-kept').forEach(function(x){ x.remove(); });
+          if (box) { box.classList.add('ai-stale'); s.insertAdjacentHTML('afterbegin', refreshMarkup()); }
+          else { s.innerHTML = wait; }
+        }
       });
     }
     tick();
