@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -146,14 +147,18 @@ func AuditAggregateWindows(ctx context.Context, d *db.DB) ([]AggregateWindow, er
 		}
 		var t time.Time
 		switch p.unit {
-		case "min":
-			var v int64
-			fmt.Sscan(oldest.String, &v)
-			t = time.Unix(v*60, 0).UTC()
-		case "hour":
-			var v int64
-			fmt.Sscan(oldest.String, &v)
-			t = time.Unix(v*3600, 0).UTC()
+		case "min", "hour":
+			// An integer bucket read through NullString: the column is
+			// numeric, so anything else is a schema this code does not know.
+			v, err := strconv.ParseInt(strings.TrimSpace(oldest.String), 10, 64)
+			if err != nil {
+				return out, fmt.Errorf("aggregate window %s: oldest %s %q: %w", p.table, p.col, oldest.String, err)
+			}
+			if p.unit == "min" {
+				t = time.Unix(v*60, 0).UTC()
+			} else {
+				t = time.Unix(v*3600, 0).UTC()
+			}
 		default:
 			s := oldest.String
 			if len(s) >= 13 {
