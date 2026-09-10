@@ -577,8 +577,11 @@ func TestAdvisorMidRunShowsPlan(t *testing.T) {
 		seedEvents(t, h, ip, "curl/8", "serve", `{"orig_path":"/.env"}`, advisor.ContainedVolumeServes)
 	}
 	key := advisor.ResultKey(cur.AIAdvisor, 24*60, string(i18n.Resolve(httptest.NewRequest(http.MethodGet, "/", nil))))
+	// .10 keeps its review (evidence unchanged); .11 is re-sent and ALSO has
+	// a stored review from the last run -- the one the refresh must not blank.
 	advisor.StoreLast(h.DB, key, advisor.Stored{At: time.Now(), Model: "m", Reviews: map[string]advisor.Review{
 		"203.0.113.10": {Target: "203.0.113.10", Priority: "low", Reasoning: "kept review"},
+		"203.0.113.11": {Target: "203.0.113.11", Priority: "high", Reasoning: "previous answer for the re-sent row"},
 	}})
 	release := make(chan struct{})
 	defer close(release)
@@ -607,6 +610,18 @@ func TestAdvisorMidRunShowsPlan(t *testing.T) {
 	}
 	if !strings.Contains(segB, `class="ai-wait"`) || strings.Contains(segB, `class="ai-kept"`) {
 		t.Error("the sent row must spin")
+	}
+	// ...and, having an answer already, keep it on screen under the spinner,
+	// dimmed, rather than blank the slot until the replacement lands
+	// (operator, 2026-09-10: "再取得完了するまでは既存の AI 情報を表示していていいのでは").
+	if !strings.Contains(segB, `class="ai-box ai-stale"`) || !strings.Contains(segB, "previous answer for the re-sent row") {
+		t.Error("a re-sent row with a stored review must keep showing it, marked stale, under the spinner")
+	}
+	if strings.Index(segB, `class="ai-wait"`) > strings.Index(segB, `class="ai-box ai-stale"`) {
+		t.Error("the spinner sits above the stale answer, not below it")
+	}
+	if !strings.Contains(segB, "再解析中") {
+		t.Error("a refresh says it is a refresh, not a first analysis")
 	}
 	sreq := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/ai-status?window=24", nil)
 	srr := httptest.NewRecorder()
