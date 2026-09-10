@@ -160,6 +160,24 @@ func (c Candidate) volumeIsCost() bool {
 	return c.Serves >= serves || c.Requests >= requests
 }
 
+// ContainedBelowCost: never passed, and short of the volume at which the
+// handling alone is a cost.  The challenge already answers such a client;
+// the engine lists it at candidateFloor, under every passing row and out of
+// the default view (settleScore), and a nomination from the pool may not
+// lift it back in (mergeResult, Merge, the advisor page) -- the pool is
+// ranked by volume, so a herd that is served the page a thousand times and
+// never passes is exactly what stands out there.  Operator's ask
+// (2026-09-10): "AI picks keep surfacing zero-pass actors; few passes means
+// not important".
+func ContainedBelowCost(passes, serves, requests int) bool {
+	return passes == 0 && serves < ContainedVolumeServes && requests < ContainedVolumeRequests
+}
+
+// ContainedBelowCost on a row: the same test on the row's own counts.
+func (c Candidate) ContainedBelowCost() bool {
+	return ContainedBelowCost(c.Passes, c.Serves, c.Requests)
+}
+
 // settleScore turns the signals into the score.  A passing client scores the
 // sum of its evidence.  A contained one -- never passed, the challenge
 // already stopping it -- scores what a ban would buy instead: its shape
