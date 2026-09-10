@@ -233,6 +233,42 @@ func HourlyAggReady() bool { return hourlyReady.Load() }
 // hourlyReady directly; this is the same thing for everyone else.
 func ResetHourlyAggReadyForTest() { hourlyReady.Store(false) }
 
+// pruneChunkRows bounds one transaction of pruneRowsInChunks.  A
+// variable so a test can exercise the loop without writing tens of thousands
+// of rows.
+var pruneChunkRows = 20000
+
+// pruneRowsInChunks deletes a time-keyed table's rows whose col is below
+// cutoff a bounded number at a time, yielding between transactions so a
+// writer waiting behind the prune gets in before the next chunk.  Steady
+// state is a day of rows an hour -- one short pass; the case this exists for
+// is the first pass over a backlog (100 days of unmask_cookie_minute and of
+// unmask_traffic_country_hourly on tool1-jp), where a single DELETE would hold
+// the write lock for as long as the whole backlog takes.
+func pruneRowsInChunks(ctx context.Context, d *db.DB, table, col string, cutoff int64) error {
+	stmt := `DELETE FROM ` + table + ` WHERE ` + col + ` < ? LIMIT ?`
+	if d.Driver == db.DriverSQLite {
+		// SQLite has no DELETE ... LIMIT unless compiled for it; the rowid
+		// subquery is the portable spelling.
+		stmt = `DELETE FROM ` + table + ` WHERE rowid IN (SELECT rowid FROM ` + table + ` WHERE ` + col + ` < ? LIMIT ?)`
+	}
+	for {
+		res, err := d.ExecContext(ctx, stmt, cutoff, pruneChunkRows)
+		if err != nil {
+			return err
+		}
+		n, _ := res.RowsAffected()
+		if n < int64(pruneChunkRows) {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+}
+
 // PruneHourly drops buckets past the retention window. The aggregate tables
 // only need to serve the stats page's longest (30-day) range.
 func PruneHourly(ctx context.Context, d *db.DB) error {
@@ -259,6 +295,31 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 	// pruned at the SAME fixed window, just below — see PruneCrawlerDetailHourly.)
 	if _, err := d.ExecContext(ctx,
 		`DELETE FROM unmask_crawler_minute WHERE bucket_min < ?`, minCutoff); err != nil {
+		return err
+	}
+	// unmask_cookie_minute is the per-(minute, site, kind) request tally the
+	// nginx-log pipeline writes and the 30-day cards read -- DailyPassByDay's
+	// live tail, CookieStatus, the overview's composition.  It was the one
+	// minute-grained aggregate this prune never touched: on the busiest node
+	// it had reached 102 days and 1.09M rows (2026-09-10) against the 30-day
+	// range the page ever shows, and counting its 30-day window alone took
+	// two seconds -- the slowest thing on the stats page.  Same 32-day window
+	// as the tables beside it; the settled hours the all-sites path reads
+	// live in unmask_aggregate_hourly, which keeps the same window.  In
+	// chunks: the first pass on an install that let it grow deletes most of
+	// the table, and one transaction that size is the lock storm of
+	// 2026-09-08 in miniature.
+	if err := pruneRowsInChunks(ctx, d, "unmask_cookie_minute", "bucket_min", minCutoff); err != nil {
+		return err
+	}
+	// unmask_traffic_country_hourly is the per-(hour, site, country, kind)
+	// tally behind the 30-day country breakdown -- settled hours are folded
+	// into unmask_aggregate_hourly (ccph) and only the live tail is read from
+	// here -- and the other aggregate this prune never covered: 102 days on
+	// tool1-jp, found by the window audit on the day it was added (2026-09-10).
+	// bucket_hour is unix seconds / 3600.
+	if err := pruneRowsInChunks(ctx, d, "unmask_traffic_country_hourly", "bucket_hour",
+		time.Now().Unix()/3600-int64(hourlyKeep)*24); err != nil {
 		return err
 	}
 	// unmask_cookie_ip_minute is per-(minute, site, ip, kind) and only feeds the
