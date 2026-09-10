@@ -1528,6 +1528,15 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 			defer func() { <-sem }()
 			t0 := time.Now()
 			if err := fn(); err != nil {
+				// The client has gone -- a reload, a navigation, a closed tab
+				// -- so the response is discarded and a card cut off by that
+				// is the browser's doing, not the query's.  The five 30-day
+				// cards queue last and were what this used to flag (every
+				// stats-card failure on tool1-jp over three days was one of
+				// them, all "context canceled", 2026-09-10).
+				if r.Context().Err() != nil {
+					return
+				}
 				log.Printf("stats card %s failed: %v", name, err)
 				markFailed(name)
 			}
@@ -1686,21 +1695,37 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		dailyKind, dailyTotal, derr = dashboard.DailyPassByDay(dctx, h.DB, site, hosts, 30, loc)
 		return derr
 	})
+	// The two serve cards read the hourly rollup once a pass has completed
+	// and scan 30 days of unmask_event until then.  On a table past the raw
+	// scan's ceiling that scan cannot finish inside the card's budget -- it
+	// ran to the deadline and then said nothing (kanagawa, 2026-09-10) -- so
+	// past it the cards say "aggregating" at once and the scan is not
+	// attempted.  Only the default view: a site or host filter never had a
+	// rollup path, and its scan is what it always was.
+	aggregating := false
+	if site == "" && len(hosts) == 0 {
+		if hopeless, n := dashboard.RawScanHopeless(ctx, h.DB); hopeless {
+			aggregating = true
+			log.Printf("stats: hourly aggregate not ready and unmask_event holds ~%d rows (ceiling %d): the 30-day serve cards show 'aggregating' instead of a raw scan", n, dashboard.RawScanCeiling)
+		}
+	}
 	// 30-day trend chart 2 (legacy): phase='serve' stacked-bar by classify.IsBot.
 	// High cardinality (tens of thousands of distinct UA x verdict x IP).
 	// Separate ctx with a longer deadline.
-	run("DailyServeByKind", func() error {
-		dskCtx, dskCancel := queryCtx(15 * time.Second)
-		defer dskCancel()
-		var derr error
-		dailyServeKind, dailyServeTotal, derr = dashboard.DailyServeByKind(dskCtx, h.DB, site, hosts, 30, botVerdicts, loc)
-		return derr
-	})
-	run("CountriesByServe", func() error {
-		var e error
-		countries, e = dashboard.CountriesByServe(ctx, h.DB, h.IPGeo, site, hosts, 30, 15)
-		return e
-	})
+	if !aggregating {
+		run("DailyServeByKind", func() error {
+			dskCtx, dskCancel := queryCtx(15 * time.Second)
+			defer dskCancel()
+			var derr error
+			dailyServeKind, dailyServeTotal, derr = dashboard.DailyServeByKind(dskCtx, h.DB, site, hosts, 30, botVerdicts, loc)
+			return derr
+		})
+		run("CountriesByServe", func() error {
+			var e error
+			countries, e = dashboard.CountriesByServe(ctx, h.DB, h.IPGeo, site, hosts, 30, 15)
+			return e
+		})
+	}
 	// 30-day country breakdown of ALL requests (= same source as DailyPassByDay,
 	// rolled up with a country dimension).  Empty when nginxlog or ipgeo is off.
 	run("DailyPassByCountry", func() error {
@@ -1736,12 +1761,27 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	case <-ctx.Done():
 		log.Printf("dashboard: overall deadline reached, rendering partial (site=%s hosts=%v range=%s)", LogSafe(site), LogSafeAll(hosts), LogSafe(rng))
 	}
+	// Nobody to render for: the request was abandoned while the cards ran.
+	// One line, with how long the page had taken by then -- the number that
+	// says whether it was the operator's patience or the page.
+	if r.Context().Err() != nil {
+		log.Printf("stats page: the client went away after %v (site=%s hosts=%v range=%s); nothing rendered",
+			time.Since(qStart).Round(time.Millisecond), LogSafe(site), LogSafeAll(hosts), LogSafe(rng))
+		return
+	}
 	// Cards that errored (or panicked) -- surfaced as a "data incomplete" banner
 	// so an operator doesn't read a silently-empty card as a real zero.  Copied
 	// under the lock since a timed-out card's goroutine may still be appending.
 	cardMu.Lock()
 	failedCardList := append([]string(nil), failedCards...)
 	cardMu.Unlock()
+	// By name, for the cards that render a figure: a failed one shows a dash
+	// and says so in place, instead of a zero and an empty-state hint that
+	// sends the operator to check their nginx include.
+	failedSet := map[string]bool{}
+	for _, c := range failedCardList {
+		failedSet[c] = true
+	}
 	if qElapsed := time.Since(qStart); qElapsed > 800*time.Millisecond {
 		log.Printf("stats queries: %v elapsed (site=%s hosts=%v range=%s aggReady=%v)",
 			qElapsed, LogSafe(site), LogSafeAll(hosts), LogSafe(rng), dashboard.HourlyAggReady())
@@ -1998,6 +2038,14 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		"DataMinDate":        dataMinDate,
 		"DataMaxDate":        dataMaxDate,
 		"FailedCards":        failedCardList,
+		"DailyPassFailed":    failedSet["DailyPassByDay"],
+		"DailyServeFailed":   failedSet["DailyServeByKind"],
+		"CountriesFailed":    failedSet["CountriesByServe"],
+		// The serve cards were not run: the rollup is not ready and the raw
+		// scan would not finish.  Rendered as "aggregating", not as failed
+		// and not as empty.
+		"ServeAggregating":   aggregating,
+		"DailyCountryFailed": failedSet["DailyPassByCountry"],
 		"Funnel":             funnel,
 		"CookieRows":         cookieRows,
 		"RLSummary":          rlSummary,

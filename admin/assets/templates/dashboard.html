@@ -878,23 +878,26 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
   <div style="display:grid;grid-template-columns:repeat(5, 1fr);gap:.6rem;margin:0 0 .9rem">
     <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:.4rem;padding:.55rem .75rem">
       <div style="font-size:.7rem;color:#64748b;font-weight:600">{{ t .Lang "kpi.total" }}</div>
-      <div style="font-size:1.4rem;font-weight:700;color:#0f172a;font-variant-numeric:tabular-nums">{{ comma .PassSumTotal }}</div>
+      {{/* The five figures come from one card (DailyPassByDay).  When it
+           failed they are not zero -- they are unknown, and a dash says so;
+           the card's own note below names the failure. */}}
+      <div style="font-size:1.4rem;font-weight:700;color:#0f172a;font-variant-numeric:tabular-nums">{{ if .DailyPassFailed }}—{{ else }}{{ comma .PassSumTotal }}{{ end }}</div>
     </div>
     <div style="background:#f1f5f9;border:1px solid #cbd5e1;border-radius:.4rem;padding:.55rem .75rem">
       <div style="font-size:.7rem;color:#475569;font-weight:600">{{ t .Lang "kpi.white" }}</div>
-      <div style="font-size:1.4rem;font-weight:700;color:#334155;font-variant-numeric:tabular-nums">{{ comma .PassSumWhite }} <span style="font-size:.75rem;color:#64748b;font-weight:600;margin-left:.2rem">{{ rate .PassSumWhite .PassSumTotal }}</span></div>
+      <div style="font-size:1.4rem;font-weight:700;color:#334155;font-variant-numeric:tabular-nums">{{ if .DailyPassFailed }}—{{ else }}{{ comma .PassSumWhite }} <span style="font-size:.75rem;color:#64748b;font-weight:600;margin-left:.2rem">{{ rate .PassSumWhite .PassSumTotal }}</span>{{ end }}</div>
     </div>
     <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:.4rem;padding:.55rem .75rem">
       <div style="font-size:.7rem;color:#15803d;font-weight:600">{{ t .Lang "kpi.captcha" }}</div>
-      <div style="font-size:1.4rem;font-weight:700;color:#166534;font-variant-numeric:tabular-nums">{{ comma .PassSumCaptcha }} <span style="font-size:.75rem;color:#65a30d;font-weight:600;margin-left:.2rem">{{ rate .PassSumCaptcha .PassSumTotal }}</span></div>
+      <div style="font-size:1.4rem;font-weight:700;color:#166534;font-variant-numeric:tabular-nums">{{ if .DailyPassFailed }}—{{ else }}{{ comma .PassSumCaptcha }} <span style="font-size:.75rem;color:#65a30d;font-weight:600;margin-left:.2rem">{{ rate .PassSumCaptcha .PassSumTotal }}</span>{{ end }}</div>
     </div>
     <div style="background:#f0f9ff;border:1px solid #bae6fd;border-radius:.4rem;padding:.55rem .75rem">
       <div style="font-size:.7rem;color:#0369a1;font-weight:600">{{ t .Lang "kpi.pow" }}</div>
-      <div style="font-size:1.4rem;font-weight:700;color:#075985;font-variant-numeric:tabular-nums">{{ comma .PassSumPoW }} <span style="font-size:.75rem;color:#0284c7;font-weight:600;margin-left:.2rem">{{ rate .PassSumPoW .PassSumTotal }}</span></div>
+      <div style="font-size:1.4rem;font-weight:700;color:#075985;font-variant-numeric:tabular-nums">{{ if .DailyPassFailed }}—{{ else }}{{ comma .PassSumPoW }} <span style="font-size:.75rem;color:#0284c7;font-weight:600;margin-left:.2rem">{{ rate .PassSumPoW .PassSumTotal }}</span>{{ end }}</div>
     </div>
     <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:.4rem;padding:.55rem .75rem">
       <div style="font-size:.7rem;color:#b91c1c;font-weight:600">{{ t .Lang "kpi.reject" }}</div>
-      <div style="font-size:1.4rem;font-weight:700;color:#991b1b;font-variant-numeric:tabular-nums">{{ comma .PassSumNot }} <span style="font-size:.75rem;color:#dc2626;font-weight:600;margin-left:.2rem">{{ rate .PassSumNot .PassSumTotal }}</span></div>
+      <div style="font-size:1.4rem;font-weight:700;color:#991b1b;font-variant-numeric:tabular-nums">{{ if .DailyPassFailed }}—{{ else }}{{ comma .PassSumNot }} <span style="font-size:.75rem;color:#dc2626;font-weight:600;margin-left:.2rem">{{ rate .PassSumNot .PassSumTotal }}</span>{{ end }}</div>
     </div>
   </div>
 
@@ -908,7 +911,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
     <div>
       <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.country_all_heading" }}</h6>
       <div id="country-chart-all" class="country-chart"></div>
-      <p style="font-size:.75rem;color:#94a3b8;margin:.4rem 0 0">{{ tf .Lang "chart.country_count" (len .CountriesAll) }}</p>
+      <p style="font-size:.75rem;color:#94a3b8;margin:.4rem 0 0">{{ if .DailyCountryFailed }}{{ t .Lang "chart.card_failed" }}{{ else }}{{ tf .Lang "chart.country_count" (len .CountriesAll) }}{{ end }}</p>
     </div>
     {{end}}
     <div>
@@ -923,6 +926,8 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
           </tbody>
         </table>
       </div>
+      {{else if .DailyPassFailed}}
+      <p class="muted card-failed" style="font-size:.9rem">{{ t .Lang "chart.card_failed" }}</p>
       {{else}}
       <p class="muted" style="font-size:.9rem">{{ safeHTML (t .Lang "chart.no_access_log") }}</p>
       {{end}}
@@ -943,7 +948,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
     <div>
       <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.country_heading" }}</h6>
       <div id="country-chart" class="country-chart"></div>
-      <p style="font-size:.75rem;color:#94a3b8;margin:.4rem 0 0">{{ tf .Lang "chart.country_count" (len .Countries) }}</p>
+      <p style="font-size:.75rem;color:#94a3b8;margin:.4rem 0 0">{{ if .ServeAggregating }}{{ t .Lang "chart.card_aggregating" }}{{ else if .CountriesFailed }}{{ t .Lang "chart.card_failed" }}{{ else }}{{ tf .Lang "chart.country_count" (len .Countries) }}{{ end }}</p>
     </div>
     {{else}}
     <div style="display:flex;align-items:center;justify-content:center;color:#94a3b8;font-size:.85rem;text-align:center;background:#f8fafc;border-radius:.4rem;padding:1rem">
@@ -962,6 +967,10 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
           </tbody>
         </table>
       </div>
+      {{else if .ServeAggregating}}
+      <p class="muted card-aggregating" style="font-size:.9rem">{{ t .Lang "chart.card_aggregating" }}</p>
+      {{else if .DailyServeFailed}}
+      <p class="muted card-failed" style="font-size:.9rem">{{ t .Lang "chart.card_failed" }}</p>
       {{else}}
       <p class="muted" style="font-size:.9rem">{{ t .Lang "chart.no_data_30d_serve" }}</p>
       {{end}}
@@ -1340,7 +1349,7 @@ renderStackedBarChart({
   data: dailyKind,
   KIND_LABEL: {1:{{ t .Lang "chart.legend.white" }}, 2:{{ t .Lang "chart.legend.captcha" }}, 3:{{ t .Lang "chart.legend.pow" }}, 4:{{ t .Lang "chart.legend.not_pass" }}},
   KIND_COLOR: {1:'#94a3b8', 2:'#16a34a', 3:'#0ea5e9', 4:'#dc2626'},
-  noDataMsg: {{ t .Lang "chart.no_data_access_log" }},
+  noDataMsg: {{ if .DailyPassFailed }}{{ t .Lang "chart.card_failed" }}{{ else }}{{ t .Lang "chart.no_data_access_log" }}{{ end }},
 });
 
 // chart 2: phase=serve grouped by bot kind (legacy spec) — sourced from unmask_event
@@ -1350,7 +1359,7 @@ renderStackedBarChart({
   data: dailyServeKind,
   KIND_LABEL: {0:{{ t .Lang "chart.kind.human" }}, 1:{{ t .Lang "chart.kind.search" }}, 2:{{ t .Lang "chart.kind.ja4_bot" }}, 4:{{ t .Lang "chart.kind.old_ua" }}, 5:{{ t .Lang "chart.kind.service" }}, 6:{{ t .Lang "chart.kind.user_dev" }}, 99:{{ t .Lang "chart.kind.rate_limit" }}},
   KIND_COLOR: {0:'#16a34a', 1:'#3b82f6', 2:'#dc2626', 4:'#8b5cf6', 5:'#ec4899', 6:'#64748b', 99:'#fbbf24'},
-  noDataMsg: {{ t .Lang "chart.no_data_serve" }},
+  noDataMsg: {{ if .ServeAggregating }}{{ t .Lang "chart.card_aggregating" }}{{ else if .DailyServeFailed }}{{ t .Lang "chart.card_failed" }}{{ else }}{{ t .Lang "chart.no_data_serve" }}{{ end }},
 });
 
 // per-country horizontal bar (= HTML version.  Renders /static/flags/<cc>.png in an img tag).
