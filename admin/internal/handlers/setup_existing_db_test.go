@@ -234,3 +234,45 @@ func TestExistingIsRejectedWhenTheDatabaseIsGone(t *testing.T) {
 		t.Errorf("a vanished database was accepted; redirect = %s", loc)
 	}
 }
+
+// TestDetectExistingDBFigureIsTheIDSpan: the figure the wizard shows is the
+// id span (two index seeks), not a count of the table (a scan that took
+// minutes on a 25-million-row install and timed the page out, 2026-09-11).
+// The prune deletes from the low end, so after a prune the span still equals
+// the count; a gap in the middle is the one case where it overstates, and
+// that is accepted for a summary.
+func TestDetectExistingDBFigureIsTheIDSpan(t *testing.T) {
+	path := migratedSQLite(t, 5)
+	cfg := settings.DB{Driver: "sqlite", SQLitePath: path}
+	conn, err := db.Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if _, err := conn.Exec(`DELETE FROM unmask_event WHERE id IN (SELECT id FROM unmask_event ORDER BY id LIMIT 2)`); err != nil {
+		t.Fatal(err)
+	}
+	got := detectExistingDB(cfg)
+	if got == nil || got.EventsUnknown || got.Events != 3 {
+		t.Fatalf("after pruning the two oldest rows: %+v, want Events 3 (ids 3..5)", got)
+	}
+	if _, err := conn.Exec(`DELETE FROM unmask_event WHERE id = 4`); err != nil {
+		t.Fatal(err)
+	}
+	if got = detectExistingDB(cfg); got == nil || got.Events != 3 {
+		t.Fatalf("a gap in the middle: %+v, want the span 3 (ids 3..5), not the count 2", got)
+	}
+	h := &Handler{}
+	if u, e := h.targetDBStats(cfg); u != 0 || e != 3 {
+		t.Errorf("targetDBStats = (%d, %d), want (0 users, span 3)", u, e)
+	}
+	if isMissingTableErr(errString("SQL logic error: no such table: unmask_event (1)")) != true ||
+		isMissingTableErr(errString("Error 1146 (42S02): Table 'u.unmask_event' doesn't exist")) != true ||
+		isMissingTableErr(errString("database is locked")) {
+		t.Error("isMissingTableErr must tell a missing table from a database that did not answer")
+	}
+}
+
+type errString string
+
+func (e errString) Error() string { return string(e) }

@@ -118,7 +118,7 @@ p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
           <div class="existing-detail">
             <span class="badge">{{ .ExistingDB.Driver }}</span>
             <code>{{ .ExistingDB.Location }}</code>
-            <span class="rows">{{ t .Lang "setup.db.existing_rows" }}: {{ .ExistingDB.Events }}</span>
+            <span class="rows">{{ t .Lang "setup.db.existing_rows" }}: {{ if .ExistingDB.EventsUnknown }}&mdash;{{ else }}{{ .ExistingDB.Events }}{{ end }}</span>
           </div>
         </label>
       </div>

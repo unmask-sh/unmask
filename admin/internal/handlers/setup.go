@@ -342,25 +342,61 @@ func (h *Handler) SetupGate(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// targetDBStats returns the admin-user and event-record counts of the DB the
-// wizard is about to install against, for the reconfigure review summary.  A
-// table that doesn't exist yet (= a fresh DB) counts as 0.  The live handle is
-// reused when the target matches the current config; otherwise a throwaway
-// connection is opened and closed.
-func (h *Handler) targetDBStats(dbcfg settings.DB) (users, events int) {
-	var conn *db.DB
+// setupQueryBudget bounds every query the wizard runs against a database
+// while rendering: the page is the operator's way in, and a database that is
+// busy must cost it seconds, never minutes.
+const setupQueryBudget = 2 * time.Second
+
+// eventSpanSQL is the wizard's figure for "event records already here": the
+// id span, MAX-MIN+1, two index seeks.  Not COUNT(*), which walks the whole
+// table -- minutes on a 25-million-row install (the operator's company host,
+// 2026-09-11: opening the wizard timed out on that count).  The prune deletes
+// from the low end, so the span is the count to within the odd gap, which is
+// all the summary needs.  A missing table errors out like the count did.
+const eventSpanSQL = `SELECT COALESCE(MAX(id) - MIN(id) + 1, 0) FROM unmask_event`
+
+// targetDB returns a handle on the database the wizard is pointed at -- the
+// live one when the target is the current config, otherwise a throwaway
+// connection -- and the func that releases it.  nil when it cannot be opened.
+func (h *Handler) targetDB(dbcfg settings.DB) (*db.DB, func()) {
 	if h.DB != nil && dbcfg == h.cfg().DB {
-		conn = h.DB
-	} else {
-		c, err := db.Open(dbcfg)
-		if err != nil {
-			return 0, 0
-		}
-		defer c.Close()
-		conn = c
+		return h.DB, func() {}
 	}
-	_ = conn.QueryRow(`SELECT COUNT(*) FROM unmask_user`).Scan(&users)
-	_ = conn.QueryRow(`SELECT COUNT(*) FROM unmask_event`).Scan(&events)
+	c, err := db.Open(dbcfg)
+	if err != nil {
+		return nil, func() {}
+	}
+	return c, func() { c.Close() }
+}
+
+// targetDBUsers returns the admin-user count of the DB the wizard is about to
+// install against.  A table that doesn't exist yet (= a fresh DB), or a
+// database that does not answer within the budget, counts as 0.
+func (h *Handler) targetDBUsers(dbcfg settings.DB) (users int) {
+	conn, done := h.targetDB(dbcfg)
+	defer done()
+	if conn == nil {
+		return 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), setupQueryBudget)
+	defer cancel()
+	_ = conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_user`).Scan(&users)
+	return users
+}
+
+// targetDBStats returns the admin-user count and the event-record figure
+// (eventSpanSQL) of the DB the wizard is about to install against, for the
+// reconfigure review summary.  Same rules as targetDBUsers.
+func (h *Handler) targetDBStats(dbcfg settings.DB) (users, events int) {
+	conn, done := h.targetDB(dbcfg)
+	defer done()
+	if conn == nil {
+		return 0, 0
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), setupQueryBudget)
+	defer cancel()
+	_ = conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_user`).Scan(&users)
+	_ = conn.QueryRowContext(ctx, eventSpanSQL).Scan(&events)
 	return users, events
 }
 
@@ -393,8 +429,7 @@ func (h *Handler) reconfigureNoOp(s *wizardState) bool {
 	if s == nil || s.UserSet || s.DB != h.cfg().DB {
 		return false
 	}
-	u, _ := h.targetDBStats(s.DB)
-	return u > 0
+	return h.targetDBUsers(s.DB) > 0
 }
 
 // AdminSetupIndex: GET {base}/admin/setup/  — render the current step.
@@ -409,7 +444,12 @@ func (h *Handler) reconfigureNoOp(s *wizardState) bool {
 type existingDBInfo struct {
 	Driver   string // display label: "SQLite" / "MariaDB / MySQL"
 	Location string // file path, or user@host:port/database
-	Events   int64  // rows already recorded, so the operator can recognise it
+	Events   int64  // rows already recorded (the id span), so the operator can recognise it
+	// EventsUnknown: the database is there and migrated as far as anyone can
+	// tell, but did not answer the figure within the budget (busy).  Shown as
+	// a dash -- a database that cannot answer right now is still not a fresh
+	// one, and the wizard must not present it as one.
+	EventsUnknown bool
 }
 
 // detectExistingDB reports the configured database when it is reachable AND
@@ -452,14 +492,26 @@ func detectExistingDB(cfg settings.DB) *existingDBInfo {
 	defer conn.Close()
 
 	// One query answers both questions: a missing table errors out (= not
-	// migrated, so there is nothing to keep), and the count is the evidence
-	// shown to the operator.
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	// migrated, so there is nothing to keep), and the figure is the evidence
+	// shown to the operator.  Any other failure -- the database is busy, or
+	// slow past the budget -- is a database that could not answer, not one
+	// that is absent: it is reported as existing, figure unknown.
+	ctx, cancel := context.WithTimeout(context.Background(), setupQueryBudget)
 	defer cancel()
-	if err := conn.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_event`).Scan(&info.Events); err != nil {
-		return nil
+	if err := conn.QueryRowContext(ctx, eventSpanSQL).Scan(&info.Events); err != nil {
+		if isMissingTableErr(err) {
+			return nil
+		}
+		info.Events, info.EventsUnknown = 0, true
 	}
 	return info
+}
+
+// isMissingTableErr: the schema is not there (SQLite "no such table", MariaDB
+// error 1146) -- as opposed to a table that exists but did not answer.
+func isMissingTableErr(err error) bool {
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such table") || strings.Contains(msg, "error 1146") || strings.Contains(msg, "doesn't exist")
 }
 
 func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
@@ -597,7 +649,7 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 		// "skip user creation" valid -- skipping against an empty DB (e.g. a
 		// fresh MariaDB you just switched to) would leave no way to log in, so
 		// the button is hidden and an admin must be created.
-		u, _ := h.targetDBStats(wstate.DB)
+		u := h.targetDBUsers(wstate.DB)
 		data["TargetHasUser"] = u > 0
 		data["TargetUsers"] = u
 	}
