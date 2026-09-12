@@ -12,8 +12,13 @@ import (
 func TestBuildPool(t *testing.T) {
 	d := newTestDB(t)
 	// A busy public address that passes: the shape the engine cannot flag.
+	// Five of its challenges came from the rate limit, three from no rule.
 	for i := 0; i < 8; i++ {
-		insertEvent(t, d, "198.51.100.7", "t13d_pool", "serve", "Mozilla/5.0 (X11)", `{"path":"/"}`)
+		payload := `{"path":"/"}`
+		if i < 5 {
+			payload = `{"path":"/","force_reason":"rate_limit"}`
+		}
+		insertEvent(t, d, "198.51.100.7", "t13d_pool", "serve", "Mozilla/5.0 (X11)", payload)
 	}
 	for i := 0; i < 3; i++ {
 		insertEvent(t, d, "198.51.100.7", "t13d_pool", "bv_pow_only", "Mozilla/5.0 (X11)", "")
@@ -71,6 +76,9 @@ func TestBuildPool(t *testing.T) {
 	if busy.Serves != 8 || busy.Passes != 3 || busy.UA != "Mozilla/5.0 (X11)" {
 		t.Errorf("evidence columns wrong: %+v", *busy)
 	}
+	if len(busy.Reasons) != 2 || busy.Reasons[0] != (ReasonCount{Reason: "rate_limit", Serves: 5}) || busy.Reasons[1] != (ReasonCount{Reason: "", Serves: 3}) {
+		t.Errorf("escalation reasons wrong on the busy row: %+v", busy.Reasons)
+	}
 	if busy.ShownPow != 3 || busy.ShownCaptcha != 1 || busy.ShownBoth != 0 {
 		t.Errorf("chains shown wrong on the busy row: pow=%d captcha=%d both=%d, want 3/1/0", busy.ShownPow, busy.ShownCaptcha, busy.ShownBoth)
 	}
@@ -86,6 +94,9 @@ func TestBuildPool(t *testing.T) {
 	for _, j := range pool.JA4s {
 		if j.JA4 == "t13d_pool" && j.DistinctIPs != 3 {
 			t.Errorf("distinct addresses for the shared JA4 = %d, want 3", j.DistinctIPs)
+		}
+		if j.JA4 == "t13d_pool" && (len(j.Reasons) != 2 || j.Reasons[0] != (ReasonCount{Reason: "rate_limit", Serves: 5}) || j.Reasons[1] != (ReasonCount{Reason: "", Serves: 5})) {
+			t.Errorf("escalation reasons wrong on the shared fingerprint: %+v", j.Reasons)
 		}
 		if j.JA4 == "t13d_pool" && (j.JSLoaded != 4 || j.PowPassed != 3 || j.CaptchaShown != 1 || j.Passes != 3 || j.PassPow != 3 || j.ShownPow != 3 || j.ShownCaptcha != 1) {
 			t.Errorf("fingerprint stages / pass kinds wrong: %+v", j)

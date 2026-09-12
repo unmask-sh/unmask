@@ -37,3 +37,22 @@ func TestCandidateChainOutcomes(t *testing.T) {
 			d.JSNotRun(), d.PowOnlyHeld(), d.HasPowOnly(), d.HasChain(), d.HasCaptchaOnly())
 	}
 }
+
+// The escalation reasons: the rules by serves, the ordinary path last, and
+// no line for a client the ordinary path alone served.
+func TestReasonOrder(t *testing.T) {
+	rs := []ReasonCount{{Reason: "", Serves: 50}, {Reason: "geo", Serves: 3}, {Reason: "asn", Serves: 40}, {Reason: "rate_limit", Serves: 3}}
+	sortReasons(rs)
+	want := []ReasonCount{{Reason: "asn", Serves: 40}, {Reason: "geo", Serves: 3}, {Reason: "rate_limit", Serves: 3}, {Reason: "", Serves: 50}}
+	for i := range want {
+		if rs[i] != want[i] {
+			t.Fatalf("order: got %+v, want %+v", rs, want)
+		}
+	}
+	if !(Candidate{Reasons: rs}).Escalated() {
+		t.Error("a rule served some of the challenges: escalated")
+	}
+	if (Candidate{Reasons: []ReasonCount{{Reason: "", Serves: 9}}}).Escalated() || (Candidate{}).Escalated() {
+		t.Error("the ordinary path alone, or nothing recorded: not escalated")
+	}
+}

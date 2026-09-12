@@ -14,10 +14,16 @@ func TestJA4CandidateCarriesStagesAndPassKinds(t *testing.T) {
 	opt := Options{MinServes: 5, MinScanner: 3, HerdMinIPs: 3, Limit: 50}
 	// Six addresses, four serves each: 24 serves keep one pass under the
 	// "passes constantly" cut (passes*20 <= serves).
+	// Half the addresses were escalated by an ASN rule, the rest took the
+	// ordinary path.
 	for i := 0; i < 6; i++ {
 		ip := "198.51.100." + string(rune('1'+i))
+		payload := ""
+		if i < 3 {
+			payload = `{"force_reason":"asn"}`
+		}
 		for j := 0; j < 4; j++ {
-			insertEvent(t, d, ip, "t13d_stage", "serve", "Mozilla/5.0 (X11)", "")
+			insertEvent(t, d, ip, "t13d_stage", "serve", "Mozilla/5.0 (X11)", payload)
 		}
 	}
 	// One address ran the JavaScript twice (pow_then_captcha both times),
@@ -58,6 +64,10 @@ func TestJA4CandidateCarriesStagesAndPassKinds(t *testing.T) {
 	// twice, the others never.
 	if herd.ShownBoth != 2 || herd.ShownPow != 0 || herd.ShownCaptcha != 0 {
 		t.Errorf("chains shown on the fingerprint row: pow=%d captcha=%d both=%d, want 0/0/2", herd.ShownPow, herd.ShownCaptcha, herd.ShownBoth)
+	}
+	// The serves by escalation reason: the rule first, the ordinary path last.
+	if len(herd.Reasons) != 2 || herd.Reasons[0] != (ReasonCount{Reason: "asn", Serves: 12}) || herd.Reasons[1] != (ReasonCount{Reason: "", Serves: 12}) || !herd.Escalated() {
+		t.Errorf("escalation reasons on the fingerprint row: %+v", herd.Reasons)
 	}
 	// Its two gates: both proof-of-works cleared, one CAPTCHA of two completed.
 	if herd.ChainPowPassed() != 2 || herd.ChainPowHeld() != 0 || herd.ChainCaptchaHeld() != 1 || herd.JSNotRun() != 22 {

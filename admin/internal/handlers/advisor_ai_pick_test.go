@@ -32,9 +32,11 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	// proof-of-work was solved 33 times in all (28 pow_only passes + 5 in the
 	// chain), so 5 cleared the chain's first gate and 3 stopped there; of
 	// the 5 CAPTCHAs, 2 completed and 3 not.
+	// Served by two rules and, twice, by none.
 	withKinds := func(c advisor.Candidate) advisor.Candidate {
 		c.Loads, c.ShownPow, c.ShownBoth = 38, 30, 8
 		c.PassPow, c.PassBoth, c.PowPassed, c.CaptchaShown = c.Passes-2, 2, c.Passes+3, 5
+		c.Reasons = []advisor.ReasonCount{{Reason: "asn", Serves: 30}, {Reason: "rate_limit", Serves: 8}, {Reason: "", Serves: 2}}
 		return c
 	}
 	// One chain: pow_only shown 9 of 20 served, 7 passed.
@@ -46,6 +48,7 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	// the three CAPTCHAs completed.
 	chainOnly := func(c advisor.Candidate) advisor.Candidate {
 		c.Loads, c.ShownBoth, c.PassBoth, c.PowPassed, c.CaptchaShown = 3, 3, 1, 3, 3
+		c.Reasons = []advisor.ReasonCount{{Reason: "", Serves: 4}} // the ordinary path alone
 		return c
 	}
 	advisor.StoreLast(h.DB, key, advisor.Stored{At: time.Now(), Model: "m",
@@ -86,8 +89,17 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	if strings.Contains(body, `class="tf-kinds">(`) || strings.Contains(body, `tf-more">pow_only 28`) {
 		t.Error("the main line carries no pass-kind label or breakdown; the chain lines have them")
 	}
-	if !strings.Contains(body, `<strong>7</strong> 通過</div>`) || !strings.Contains(body, `<strong>30</strong> 通過</div>`) {
+	if !strings.Contains(body, `<strong>7</strong> 通過</div>`) {
 		t.Error("the main line ends at the pass count")
+	}
+	// The serves split by the rule that escalated the client, the ordinary
+	// path last; a client no rule escalated has no such line (operator,
+	// 2026-09-13: "昇格理由とその数も").
+	if !strings.Contains(body, `<strong>30</strong> 通過<span class="tf-kinds tf-more">昇格 asn 30 · rate_limit 8 · 通常 2</span></div>`) {
+		t.Error("the main line splits the serves by escalation reason")
+	}
+	if !strings.Contains(body, `<strong>1</strong> 通過</div>`) || strings.Contains(body, `昇格 通常`) {
+		t.Error("a client on the ordinary path alone carries no escalation line")
 	}
 	if !strings.Contains(body, `<span class="tf-stage">JS 9 · 未実行 11</span><span class="tf-stage">pow_only 9 提示</span><span class="tf-kinds tf-more">通過 7 · 不突破 2</span></div>`) {
 		t.Error("a pow_only row has the one chain line and nothing for the chains it never ran")
