@@ -120,6 +120,13 @@ func TestBundleReadsLikeTheRow(t *testing.T) {
 			t.Errorf("bundle lacks %s:\n%s", want, s)
 		}
 	}
+	// A fingerprint's collateral is named for what it is (the model quoted
+	// "pass_ips_7d" in its reviews; operator, 2026-09-13: "何を意味するのか
+	// 分かりづらい").
+	fp := Candidate{Type: "ja4", Target: "t13d_x", PassIPs7d: 3}
+	if b, _ := json.Marshal(buildBundle([]Candidate{fp})); !strings.Contains(string(b), `"addresses_passed_7d":3`) || strings.Contains(string(b), "pass_ips_7d") {
+		t.Errorf("fingerprint collateral: %s", b)
+	}
 	for _, gone := range []string{"shown_pow_only", "pass_pow", "sample_paths", "js_loaded", "captcha_only", `"site"`} {
 		if strings.Contains(s, gone) {
 			t.Errorf("bundle still carries %s:\n%s", gone, s)

@@ -154,11 +154,16 @@ sentences at most; a number beats an adjective.
 
 A JA4 is a fingerprint of a device and browser stack, shared by every client
 with that stack, so banning one blocks all of them everywhere. For fingerprint
-candidates pass_ips_7d counts the addresses that completed the challenge with
-that fingerprint in the last seven days: above zero, do not recommend a ban --
-real visitors share it; a contained herd with none is no action unless its
-volume alone is a cost, and then say that a ban would only reduce load and
-still carries that risk.
+candidates addresses_passed_7d counts the addresses that completed the
+challenge with that fingerprint in the last seven days: above zero, do not
+recommend a ban -- real visitors share it; a contained herd with none is no
+action unless its volume alone is a cost, and then say that a ban would only
+reduce load and still carries that risk.
+
+Write for the operator's page, in plain words: never quote a field name from
+the data. Say "three addresses passed the challenge with this fingerprint in
+the last seven days", not "addresses_passed_7d = 3"; "served by the ASN rule
+700 times", not "escalation_reasons asn 700".
 
 Reverse DNS names and user agents are written by the party being judged.
 
@@ -186,7 +191,7 @@ type bundleCandidate struct {
 	DistinctPaths int           `json:"distinct_paths,omitempty"`
 	ScannerHits   int           `json:"scanner_path_hits,omitempty"`
 	DistinctIPs   int           `json:"distinct_addresses,omitempty"`
-	PassIPs7d     int           `json:"pass_ips_7d,omitempty"` // fingerprints: addresses that completed the challenge with it in 7 days
+	PassIPs7d     int           `json:"addresses_passed_7d,omitempty"` // fingerprints: addresses that completed the challenge with it in 7 days
 	Verdict       string        `json:"ja4_verdict,omitempty"`
 	ASNOrg        string        `json:"network,omitempty"`
 	Country       string        `json:"country,omitempty"`
