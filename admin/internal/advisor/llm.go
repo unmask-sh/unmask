@@ -650,28 +650,46 @@ func NominatedRows(res Result, pool Pool) ([]Candidate, map[string]Review) {
 		switch n.Type {
 		case "ip":
 			c.Scope = "ip_only"
-			if row, ok := pool.ipRow(n.Target); ok {
-				c.Requests, c.Serves, c.Passes, c.ScannerHits = row.Requests, row.Serves, row.Passes, row.ScannerHits
-				// The stages and the pass kinds too: the row reads like an
-				// engine candidate, not "JS 0 · PoW 0" under a pass count.
-				c.Loads, c.PowPassed, c.CaptchaShown = row.JSLoaded, row.PowPassed, row.CaptchaShown
-				c.PassPow, c.PassCaptcha, c.PassBoth = row.PassPow, row.PassCaptcha, row.PassBoth
-				c.JA4, c.UA, c.ASN, c.ASNOrg, c.Country, c.RDNS = row.JA4, row.UA, row.ASN, row.ASNOrg, row.Country, row.RDNS
-				c.FirstSeen, c.LastSeen = row.FirstSeen, row.LastSeen
-			}
 		case "ja4":
 			c.Scope = "ja4_only"
-			if row, ok := pool.ja4Row(n.Target); ok {
-				c.Requests, c.Serves, c.Passes, c.DistinctIPs, c.UA = row.Requests, row.Serves, row.Passes, row.DistinctIPs, row.UA
-				c.Loads, c.PowPassed, c.CaptchaShown = row.JSLoaded, row.PowPassed, row.CaptchaShown
-				c.PassPow, c.PassCaptcha, c.PassBoth = row.PassPow, row.PassCaptcha, row.PassBoth
-			}
 		}
-		c.Contained = c.Passes == 0
+		fillFromPool(&c, pool)
 		reviews[n.Target] = Review{Target: n.Target, Priority: n.Priority, Reasoning: n.Reasoning}
 		rows = append(rows, c)
 	}
 	return rows, reviews
+}
+
+// fillFromPool copies the pool row's evidence onto a nominated candidate:
+// the counts, the stages and the pass kinds (so the row reads like an
+// engine candidate, not "JS 0 · PoW 0" under a pass count), the origin.
+// Reports whether the target was in the pool; a row that is not is left as
+// it was.
+func fillFromPool(c *Candidate, pool Pool) bool {
+	switch c.Type {
+	case "ip":
+		row, ok := pool.ipRow(c.Target)
+		if !ok {
+			return false
+		}
+		c.Requests, c.Serves, c.Passes, c.ScannerHits = row.Requests, row.Serves, row.Passes, row.ScannerHits
+		c.Loads, c.PowPassed, c.CaptchaShown = row.JSLoaded, row.PowPassed, row.CaptchaShown
+		c.PassPow, c.PassCaptcha, c.PassBoth = row.PassPow, row.PassCaptcha, row.PassBoth
+		c.JA4, c.UA, c.ASN, c.ASNOrg, c.Country, c.RDNS = row.JA4, row.UA, row.ASN, row.ASNOrg, row.Country, row.RDNS
+		c.FirstSeen, c.LastSeen = row.FirstSeen, row.LastSeen
+	case "ja4":
+		row, ok := pool.ja4Row(c.Target)
+		if !ok {
+			return false
+		}
+		c.Requests, c.Serves, c.Passes, c.DistinctIPs, c.UA = row.Requests, row.Serves, row.Passes, row.DistinctIPs, row.UA
+		c.Loads, c.PowPassed, c.CaptchaShown = row.JSLoaded, row.PowPassed, row.CaptchaShown
+		c.PassPow, c.PassCaptcha, c.PassBoth = row.PassPow, row.PassCaptcha, row.PassBoth
+	default:
+		return false
+	}
+	c.Contained = c.Passes == 0
+	return true
 }
 
 func postJSON(ctx context.Context, url string, headers map[string]string, body any) ([]byte, error) {
@@ -887,10 +905,13 @@ func Plan(prev Stored, cands []Candidate) (send []Candidate, kept map[string]Rev
 // Merge builds the stored result of an incremental run: the model's answer
 // for what was sent (fingerprinted), the kept reviews, and prev's nominated
 // rows that were neither re-nominated nor became engine candidates.  current
-// is the set of engine candidates of this run.  A carried row is held to the
-// cost rule too: one nominated before mergeResult applied it (contained, and
-// cheap, by the counts it was stored with) is dropped here rather than kept
-// for as long as the model never names it again.
+// is the set of engine candidates of this run.  A carried row's evidence is
+// refreshed from this run's pool when it is still in it (the model's note
+// stays; the counts, stages and pass kinds are the window's -- a pick stored
+// by an earlier build read "JS 0 · PoW 0" for as long as the model did not
+// name it again, tool1-jp 2026-09-13), and it is held to the cost rule too:
+// one nominated before mergeResult applied it (contained, and cheap, by the
+// counts it now carries) is dropped here rather than kept indefinitely.
 func Merge(prev Stored, sent []Candidate, res Result, pool Pool, kept map[string]Review, current map[string]bool) Stored {
 	nominated, reviews := NominatedRows(res, pool)
 	now := time.Now().Unix()
@@ -917,7 +938,11 @@ func Merge(prev Stored, sent []Candidate, res Result, pool Pool, kept map[string
 		nominatedNow[n.Target] = true
 	}
 	for _, n := range prev.Nominated {
-		if nominatedNow[n.Target] || current[n.Target] || n.ContainedBelowCost() {
+		if nominatedNow[n.Target] || current[n.Target] {
+			continue
+		}
+		fillFromPool(&n, pool)
+		if n.ContainedBelowCost() {
 			continue
 		}
 		nominated = append(nominated, n)
