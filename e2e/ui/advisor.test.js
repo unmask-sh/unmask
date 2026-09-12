@@ -97,7 +97,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     return {
       sigs,
       hasFlag: !!row.querySelector('.ipclick img.flag'),
-      hasUA: !!row.querySelector('td.ua .cellpop'),
+      hasUA: !!row.querySelector('td .ua-list .cellpop'),
       loglink: log ? log.getAttribute('href') : null,
       hasBanForm: !!row.querySelector('form.js-ban-form button'),
       dialog: !!document.getElementById('ban-dialog'),
@@ -158,7 +158,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     ok(adv.slotHidden, 'the empty AI sub-row must be hidden');
     ok(adv.rewire, 'the IP popover / BAN dialog partials did not register their re-wire hooks');
     ok(adv.filter, 'the attention filter select is missing');
-    ok(adv.ths === 6, `expected 6 columns (origin folded under the address), got ${adv.ths}`);
+    ok(adv.ths === 5, `expected 5 columns (origin and user agents folded under the address), got ${adv.ths}`);
     ok(/\b6\b/.test(adv.score), `the seed row must show its score 6: ${JSON.stringify(adv.score)}`);
     // Counts carry thousands separators ("3,000"); strip them before parsing.
     // The seed's serves all carry force_reason "header", so the main line
@@ -210,7 +210,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
     // UA popover: the cell shows the summary, the popover the full string.
     const uaText = await page.evaluate(async () => {
-      document.querySelector('td.ua .cellpop').dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+      document.querySelector('td .ua-list .cellpop').dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
       await new Promise(r => setTimeout(r, 500));
       return document.getElementById('cell-popover').textContent;
     });
