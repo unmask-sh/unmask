@@ -645,6 +645,10 @@ func NominatedRows(res Result, pool Pool) ([]Candidate, map[string]Review) {
 			c.Scope = "ip_only"
 			if row, ok := pool.ipRow(n.Target); ok {
 				c.Requests, c.Serves, c.Passes, c.ScannerHits = row.Requests, row.Serves, row.Passes, row.ScannerHits
+				// The stages and the pass kinds too: the row reads like an
+				// engine candidate, not "JS 0 · PoW 0" under a pass count.
+				c.Loads, c.PowPassed, c.CaptchaShown = row.JSLoaded, row.PowPassed, row.CaptchaShown
+				c.PassPow, c.PassCaptcha, c.PassBoth = row.PassPow, row.PassCaptcha, row.PassBoth
 				c.JA4, c.UA, c.ASN, c.ASNOrg, c.Country, c.RDNS = row.JA4, row.UA, row.ASN, row.ASNOrg, row.Country, row.RDNS
 				c.FirstSeen, c.LastSeen = row.FirstSeen, row.LastSeen
 			}
@@ -652,6 +656,8 @@ func NominatedRows(res Result, pool Pool) ([]Candidate, map[string]Review) {
 			c.Scope = "ja4_only"
 			if row, ok := pool.ja4Row(n.Target); ok {
 				c.Requests, c.Serves, c.Passes, c.DistinctIPs, c.UA = row.Requests, row.Serves, row.Passes, row.DistinctIPs, row.UA
+				c.Loads, c.PowPassed, c.CaptchaShown = row.JSLoaded, row.PowPassed, row.CaptchaShown
+				c.PassPow, c.PassCaptcha, c.PassBoth = row.PassPow, row.PassCaptcha, row.PassBoth
 			}
 		}
 		c.Contained = c.Passes == 0

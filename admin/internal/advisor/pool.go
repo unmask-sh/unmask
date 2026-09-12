@@ -29,6 +29,9 @@ type PoolIP struct {
 	PowPassed    int    `json:"pow_passed"`
 	CaptchaShown int    `json:"captcha_shown"`
 	Passes       int    `json:"challenges_passed"`
+	PassPow      int    `json:"pass_pow,omitempty"`     // ... by the proof-of-work alone (bv_pow_only)
+	PassCaptcha  int    `json:"pass_captcha,omitempty"` // ... by the CAPTCHA alone (bv_captcha_only)
+	PassBoth     int    `json:"pass_both,omitempty"`    // ... proof-of-work then CAPTCHA (bv_pow_then_captcha)
 	ScannerHits  int    `json:"scanner_path_hits,omitempty"`
 	JA4          string `json:"ja4,omitempty"`
 	UA           string `json:"user_agent,omitempty"`
@@ -42,13 +45,32 @@ type PoolIP struct {
 
 // PoolJA4 is one TLS fingerprint in the pool.
 type PoolJA4 struct {
-	JA4         string `json:"ja4"`
-	DistinctIPs int    `json:"distinct_addresses"`
-	Requests    int    `json:"requests"`
-	Serves      int    `json:"challenges_served"`
-	Passes      int    `json:"challenges_passed"`
-	UA          string `json:"user_agent,omitempty"`
+	JA4          string `json:"ja4"`
+	DistinctIPs  int    `json:"distinct_addresses"`
+	Requests     int    `json:"requests"`
+	Serves       int    `json:"challenges_served"`
+	JSLoaded     int    `json:"js_loaded"`
+	PowPassed    int    `json:"pow_passed"`
+	CaptchaShown int    `json:"captcha_shown"`
+	Passes       int    `json:"challenges_passed"`
+	PassPow      int    `json:"pass_pow,omitempty"`
+	PassCaptcha  int    `json:"pass_captcha,omitempty"`
+	PassBoth     int    `json:"pass_both,omitempty"`
+	UA           string `json:"user_agent,omitempty"`
 }
+
+// poolStageSums / poolPassKindSums: the challenge stages and the pass kinds
+// of a pool row, the same columns the engine's candidates carry -- a
+// nomination becomes a candidate row, and the row has to read the same.
+const (
+	poolStageSums = `SUM(CASE WHEN phase IN ` + loadPhaseList + ` THEN 1 ELSE 0 END) AS loads,
+	        SUM(CASE WHEN phase IN ` + powPhaseList + ` THEN 1 ELSE 0 END) AS pow_passed,
+	        SUM(CASE WHEN phase IN ` + captchaPhaseList + ` THEN 1 ELSE 0 END) AS captcha_shown,
+	        SUM(CASE WHEN phase IN ` + cookiePhaseList + ` THEN 1 ELSE 0 END) AS passes,`
+	poolPassKindSums = `SUM(CASE WHEN phase='bv_pow_only' THEN 1 ELSE 0 END) AS pass_pow,
+	        SUM(CASE WHEN phase='bv_captcha_only' THEN 1 ELSE 0 END) AS pass_captcha,
+	        SUM(CASE WHEN phase='bv_pow_then_captcha' THEN 1 ELSE 0 END) AS pass_both,`
+)
 
 // PoolUA is one user agent in the pool.
 type PoolUA struct {
@@ -106,10 +128,8 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 	q := `SELECT ip_address,
 	        COUNT(*) AS total,
 	        SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END) AS serves,
-	        SUM(CASE WHEN phase IN ` + loadPhaseList + ` THEN 1 ELSE 0 END) AS loads,
-	        SUM(CASE WHEN phase IN ` + powPhaseList + ` THEN 1 ELSE 0 END) AS pow_passed,
-	        SUM(CASE WHEN phase IN ` + captchaPhaseList + ` THEN 1 ELSE 0 END) AS captcha_shown,
-	        SUM(CASE WHEN phase IN ` + cookiePhaseList + ` THEN 1 ELSE 0 END) AS passes,
+	        ` + poolStageSums + `
+	        ` + poolPassKindSums + `
 	        SUM(CASE WHEN ` + scannerCond() + ` THEN 1 ELSE 0 END) AS scanner_hits,
 	        MIN(date_created), MAX(date_created),
 	        COALESCE(MAX(ja4), ''), COALESCE(MAX(user_agent), '')
@@ -125,7 +145,8 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 	for rows.Next() {
 		var r PoolIP
 		var ipBytes []byte
-		if err := rows.Scan(&ipBytes, &r.Requests, &r.Serves, &r.JSLoaded, &r.PowPassed, &r.CaptchaShown, &r.Passes, &r.ScannerHits,
+		if err := rows.Scan(&ipBytes, &r.Requests, &r.Serves, &r.JSLoaded, &r.PowPassed, &r.CaptchaShown, &r.Passes,
+			&r.PassPow, &r.PassCaptcha, &r.PassBoth, &r.ScannerHits,
 			&r.FirstSeen, &r.LastSeen, &r.JA4, &r.UA); err != nil {
 			rows.Close()
 			return pool, err
@@ -152,7 +173,8 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 	        COUNT(DISTINCT ip_address) AS ips,
 	        COUNT(*) AS total,
 	        SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END) AS serves,
-	        SUM(CASE WHEN phase IN ` + cookiePhaseList + ` THEN 1 ELSE 0 END) AS passes,
+	        ` + poolStageSums + `
+	        ` + poolPassKindSums + `
 	        COALESCE(MAX(user_agent), '')
 	      FROM unmask_event` + conn.EventDateIndexHint("w") + `
 	      WHERE date_created > ` + conn.NowMinusMinutes(opt.WindowMinutes) + `
@@ -166,7 +188,8 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 	}
 	for rows.Next() {
 		var r PoolJA4
-		if err := rows.Scan(&r.JA4, &r.DistinctIPs, &r.Requests, &r.Serves, &r.Passes, &r.UA); err != nil {
+		if err := rows.Scan(&r.JA4, &r.DistinctIPs, &r.Requests, &r.Serves, &r.JSLoaded, &r.PowPassed, &r.CaptchaShown, &r.Passes,
+			&r.PassPow, &r.PassCaptcha, &r.PassBoth, &r.UA); err != nil {
 			rows.Close()
 			return pool, err
 		}
