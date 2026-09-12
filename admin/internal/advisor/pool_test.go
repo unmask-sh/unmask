@@ -18,6 +18,12 @@ func TestBuildPool(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		insertEvent(t, d, "198.51.100.7", "t13d_pool", "bv_pow_only", "Mozilla/5.0 (X11)", "")
 	}
+	// The stages on the way: the JavaScript ran four times, the CAPTCHA was
+	// reached once -- a nomination from this row must carry them.
+	for i := 0; i < 4; i++ {
+		insertEvent(t, d, "198.51.100.7", "t13d_pool", "load", "Mozilla/5.0 (X11)", "")
+	}
+	insertEvent(t, d, "198.51.100.7", "t13d_pool", "captcha", "Mozilla/5.0 (X11)", "")
 	// Two more addresses on the same fingerprint.
 	insertEvent(t, d, "198.51.100.8", "t13d_pool", "serve", "Mozilla/5.0 (X11)", "")
 	insertEvent(t, d, "198.51.100.9", "t13d_pool", "serve", "Mozilla/5.0 (X11)", "")
@@ -63,6 +69,9 @@ func TestBuildPool(t *testing.T) {
 	if busy.Serves != 8 || busy.Passes != 3 || busy.UA != "Mozilla/5.0 (X11)" {
 		t.Errorf("evidence columns wrong: %+v", *busy)
 	}
+	if busy.JSLoaded != 4 || busy.PowPassed != 3 || busy.CaptchaShown != 1 || busy.PassPow != 3 || busy.PassCaptcha != 0 || busy.PassBoth != 0 {
+		t.Errorf("stages / pass kinds wrong: %+v", *busy)
+	}
 	if busy.RDNS != "vm7.examplecloud.test." {
 		t.Errorf("reverse DNS not attached: %+v", *busy)
 	}
@@ -72,6 +81,9 @@ func TestBuildPool(t *testing.T) {
 	for _, j := range pool.JA4s {
 		if j.JA4 == "t13d_pool" && j.DistinctIPs != 3 {
 			t.Errorf("distinct addresses for the shared JA4 = %d, want 3", j.DistinctIPs)
+		}
+		if j.JA4 == "t13d_pool" && (j.JSLoaded != 4 || j.PowPassed != 3 || j.CaptchaShown != 1 || j.Passes != 3 || j.PassPow != 3) {
+			t.Errorf("fingerprint stages / pass kinds wrong: %+v", j)
 		}
 	}
 	var uaFound bool

@@ -27,6 +27,7 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 			Passes: passes, Serves: serves, Requests: requests, UA: "Mozilla/5.0",
 			Signals: []advisor.Signal{{ID: "ai_pick", Detail: "proposed by the model from the wider ranking"}}}
 	}
+	withKinds := func(c advisor.Candidate) advisor.Candidate { c.PassPow = c.Passes; return c }
 	advisor.StoreLast(h.DB, key, advisor.Stored{At: time.Now(), Model: "m",
 		Reviews: map[string]advisor.Review{
 			"198.51.100.20": {Target: "198.51.100.20", Priority: "high", Reasoning: "passing farm"},
@@ -34,9 +35,12 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 			"198.51.100.22": {Target: "198.51.100.22", Priority: "medium", Reasoning: "contained, but a flood"},
 		},
 		Nominated: []advisor.Candidate{
-			pick("198.51.100.20", 30, 40, 80),
+			withKinds(pick("198.51.100.20", 30, 40, 80)),
 			pick("198.51.100.21", 0, 500, 700),
 			pick("198.51.100.22", 0, advisor.ContainedVolumeServes, advisor.ContainedVolumeServes+50),
+			// A pick stored before the pool carried pass kinds: passes, no
+			// breakdown.  The row must not render an empty "()" after them.
+			pick("198.51.100.24", 5, 9, 12),
 		}})
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
 	rr := httptest.NewRecorder()
@@ -45,10 +49,18 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	if !strings.Contains(body, `data-ip="198.51.100.20"`) {
 		t.Error("a pick that passes must be shown")
 	}
+	if !strings.Contains(body, "(PoW 30)") {
+		t.Error("a pick whose pass kinds are known shows them after the pass count")
+	}
 	if strings.Contains(body, `data-ip="198.51.100.21"`) || strings.Contains(body, "nominated before the rule") {
 		t.Error("a stored pick the challenge already stops must not be shown")
 	}
 	if !strings.Contains(body, `data-ip="198.51.100.22"`) {
 		t.Error("a contained pick past the cost floor is still shown: its volume is the case")
+	}
+	// Pass kinds: shown when known, and never an empty "()" when they are not
+	// (operator, tool1-jp, 2026-09-12: "2 通過 () とおかしな表示").
+	if strings.Contains(body, `class="tf-kinds">()`) {
+		t.Error("a pick with passes but no pass-kind breakdown must not render an empty ()")
 	}
 }

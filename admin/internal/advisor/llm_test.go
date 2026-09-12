@@ -579,3 +579,29 @@ func TestStoreLastRecordsRunsAndTotals(t *testing.T) {
 		t.Error("no database, no totals")
 	}
 }
+
+// A nomination becomes a candidate row, and the row has to read like one:
+// the stages (JS / PoW / CAPTCHA) and the pass kinds come across from the
+// pool row, not zeros under a pass count (operator, tool1-jp, 2026-09-12:
+// "JS 0 · PoW 0 · CAPTCHA 0 なのに 2 通過").
+func TestNominatedRowsCarryStagesAndPassKinds(t *testing.T) {
+	pool := Pool{
+		IPs:  []PoolIP{{IP: "198.51.100.30", Requests: 9, Serves: 6, JSLoaded: 4, PowPassed: 3, CaptchaShown: 1, Passes: 2, PassPow: 1, PassBoth: 1}},
+		JA4s: []PoolJA4{{JA4: "t13d_stage", DistinctIPs: 5, Requests: 40, Serves: 30, JSLoaded: 20, PowPassed: 12, CaptchaShown: 2, Passes: 11, PassPow: 10, PassCaptcha: 1}},
+	}
+	res := Result{Nominations: []Nomination{
+		{Target: "198.51.100.30", Type: "ip", Priority: "medium", Reasoning: "cluster"},
+		{Target: "t13d_stage", Type: "ja4", Priority: "low", Reasoning: "herd"},
+	}}
+	rows, _ := NominatedRows(res, pool)
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	ip, fp := rows[0], rows[1]
+	if ip.Loads != 4 || ip.PowPassed != 3 || ip.CaptchaShown != 1 || ip.Passes != 2 || ip.PassPow != 1 || ip.PassBoth != 1 || ip.PassCaptcha != 0 {
+		t.Errorf("ip row lost stages / pass kinds: %+v", ip)
+	}
+	if fp.Loads != 20 || fp.PowPassed != 12 || fp.CaptchaShown != 2 || fp.Passes != 11 || fp.PassPow != 10 || fp.PassCaptcha != 1 || fp.DistinctIPs != 5 {
+		t.Errorf("ja4 row lost stages / pass kinds: %+v", fp)
+	}
+}
