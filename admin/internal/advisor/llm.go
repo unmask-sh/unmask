@@ -122,7 +122,11 @@ pass_pow, pass_captcha and pass_both how often each was completed, so shown
 minus passed is that chain holding. In pow_then_captcha, pow_passed minus
 pass_pow is its proof-of-work step cleared, and that minus pass_both is how
 often its CAPTCHA was then not completed. A client with pow_passed but no
-challenges_passed was stopped at the CAPTCHA: the defence worked. A client with many challenges served and none passed is already
+challenges_passed was stopped at the CAPTCHA: the defence worked.
+escalation_reasons says which rule served the challenges (asn, geo,
+rate_limit, header, stale, honeypot, banned, protected, ja4_bot; a *_deny
+value is a refusal) and how many each; reason "" is the ordinary path with no
+rule. A client with many challenges served and none passed is already
 contained: blocking it would only save the server some work, so rank it low
 unless its volume alone is a cost -- thousands of requests in the window, not
 hundreds. What deserves attention is the opposite --
@@ -143,31 +147,32 @@ anything: a human reads your notes and chooses whether to block.`
 
 // bundleCandidate is the trimmed shape actually sent to the provider.
 type bundleCandidate struct {
-	Target       string   `json:"target"`
-	Type         string   `json:"type"`
-	Contained    bool     `json:"contained"`
-	Signals      []string `json:"signals"`
-	Serves       int      `json:"challenges_served"`
-	JSLoaded     int      `json:"js_loaded"`
-	PowPassed    int      `json:"pow_passed"`
-	CaptchaShown int      `json:"captcha_shown"`
-	Passes       int      `json:"challenges_passed"`
-	PassPow      int      `json:"pass_pow,omitempty"`               // ... by the proof-of-work alone
-	PassCaptcha  int      `json:"pass_captcha,omitempty"`           // ... by the CAPTCHA alone
-	PassBoth     int      `json:"pass_both,omitempty"`              // ... proof-of-work then CAPTCHA
-	ShownPow     int      `json:"shown_pow_only,omitempty"`         // the chain presented (the challenge JavaScript ran with it)
-	ShownCaptcha int      `json:"shown_captcha_only,omitempty"`     // ... captcha_only
-	ShownBoth    int      `json:"shown_pow_then_captcha,omitempty"` // ... pow_then_captcha
-	ScannerHits  int      `json:"scanner_path_hits,omitempty"`
-	DistinctIPs  int      `json:"distinct_addresses,omitempty"`
-	PassIPs7d    int      `json:"pass_ips_7d,omitempty"` // fingerprints: addresses that completed the challenge with it in 7 days
-	Verdict      string   `json:"ja4_verdict,omitempty"`
-	ASNOrg       string   `json:"network,omitempty"`
-	Country      string   `json:"country,omitempty"`
-	UA           string   `json:"user_agent,omitempty"`
-	SamplePaths  []string `json:"sample_paths,omitempty"`
-	FirstSeen    string   `json:"first_seen"`
-	LastSeen     string   `json:"last_seen"`
+	Target       string        `json:"target"`
+	Type         string        `json:"type"`
+	Contained    bool          `json:"contained"`
+	Signals      []string      `json:"signals"`
+	Serves       int           `json:"challenges_served"`
+	JSLoaded     int           `json:"js_loaded"`
+	PowPassed    int           `json:"pow_passed"`
+	CaptchaShown int           `json:"captcha_shown"`
+	Passes       int           `json:"challenges_passed"`
+	PassPow      int           `json:"pass_pow,omitempty"`               // ... by the proof-of-work alone
+	PassCaptcha  int           `json:"pass_captcha,omitempty"`           // ... by the CAPTCHA alone
+	PassBoth     int           `json:"pass_both,omitempty"`              // ... proof-of-work then CAPTCHA
+	ShownPow     int           `json:"shown_pow_only,omitempty"`         // the chain presented (the challenge JavaScript ran with it)
+	ShownCaptcha int           `json:"shown_captcha_only,omitempty"`     // ... captcha_only
+	ShownBoth    int           `json:"shown_pow_then_captcha,omitempty"` // ... pow_then_captcha
+	Reasons      []ReasonCount `json:"escalation_reasons,omitempty"`
+	ScannerHits  int           `json:"scanner_path_hits,omitempty"`
+	DistinctIPs  int           `json:"distinct_addresses,omitempty"`
+	PassIPs7d    int           `json:"pass_ips_7d,omitempty"` // fingerprints: addresses that completed the challenge with it in 7 days
+	Verdict      string        `json:"ja4_verdict,omitempty"`
+	ASNOrg       string        `json:"network,omitempty"`
+	Country      string        `json:"country,omitempty"`
+	UA           string        `json:"user_agent,omitempty"`
+	SamplePaths  []string      `json:"sample_paths,omitempty"`
+	FirstSeen    string        `json:"first_seen"`
+	LastSeen     string        `json:"last_seen"`
 }
 
 // maxUAForBundle keeps one absurd user agent from dominating the request.
@@ -188,7 +193,7 @@ func buildBundle(cands []Candidate) []bundleCandidate {
 			Target: c.Target, Type: c.Type, Contained: c.Contained, Signals: ids,
 			Serves: c.Serves, JSLoaded: c.Loads, PowPassed: c.PowPassed, CaptchaShown: c.CaptchaShown, Passes: c.Passes,
 			PassPow: c.PassPow, PassCaptcha: c.PassCaptcha, PassBoth: c.PassBoth,
-			ShownPow: c.ShownPow, ShownCaptcha: c.ShownCaptcha, ShownBoth: c.ShownBoth,
+			ShownPow: c.ShownPow, ShownCaptcha: c.ShownCaptcha, ShownBoth: c.ShownBoth, Reasons: c.Reasons,
 			ScannerHits: c.ScannerHits, PassIPs7d: c.PassIPs7d, Verdict: c.Verdict,
 			DistinctIPs: c.DistinctIPs, ASNOrg: c.ASNOrg, Country: c.Country,
 			UA: ua, SamplePaths: c.SamplePaths,
@@ -720,7 +725,7 @@ func fillFromPool(c *Candidate, pool Pool) bool {
 		c.Requests, c.Serves, c.Passes, c.ScannerHits = row.Requests, row.Serves, row.Passes, row.ScannerHits
 		c.Loads, c.PowPassed, c.CaptchaShown = row.JSLoaded, row.PowPassed, row.CaptchaShown
 		c.PassPow, c.PassCaptcha, c.PassBoth = row.PassPow, row.PassCaptcha, row.PassBoth
-		c.ShownPow, c.ShownCaptcha, c.ShownBoth = row.ShownPow, row.ShownCaptcha, row.ShownBoth
+		c.ShownPow, c.ShownCaptcha, c.ShownBoth, c.Reasons = row.ShownPow, row.ShownCaptcha, row.ShownBoth, row.Reasons
 		c.JA4, c.UA, c.ASN, c.ASNOrg, c.Country, c.RDNS = row.JA4, row.UA, row.ASN, row.ASNOrg, row.Country, row.RDNS
 		// Through dbTime like an engine row: the compact, tz-aware range on
 		// the page needs the unix time, and the raw column text read as
@@ -735,7 +740,7 @@ func fillFromPool(c *Candidate, pool Pool) bool {
 		c.Requests, c.Serves, c.Passes, c.DistinctIPs, c.UA = row.Requests, row.Serves, row.Passes, row.DistinctIPs, row.UA
 		c.Loads, c.PowPassed, c.CaptchaShown = row.JSLoaded, row.PowPassed, row.CaptchaShown
 		c.PassPow, c.PassCaptcha, c.PassBoth = row.PassPow, row.PassCaptcha, row.PassBoth
-		c.ShownPow, c.ShownCaptcha, c.ShownBoth = row.ShownPow, row.ShownCaptcha, row.ShownBoth
+		c.ShownPow, c.ShownCaptcha, c.ShownBoth, c.Reasons = row.ShownPow, row.ShownCaptcha, row.ShownBoth, row.Reasons
 	default:
 		return false
 	}

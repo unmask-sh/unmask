@@ -22,47 +22,49 @@ import (
 
 // PoolIP is one address in the pool.  JSON names are what the model reads.
 type PoolIP struct {
-	IP           string `json:"ip"`
-	Requests     int    `json:"requests"`
-	Serves       int    `json:"challenges_served"`
-	JSLoaded     int    `json:"js_loaded"`
-	PowPassed    int    `json:"pow_passed"`
-	CaptchaShown int    `json:"captcha_shown"`
-	Passes       int    `json:"challenges_passed"`
-	PassPow      int    `json:"pass_pow,omitempty"`               // ... by the proof-of-work alone (bv_pow_only)
-	PassCaptcha  int    `json:"pass_captcha,omitempty"`           // ... by the CAPTCHA alone (bv_captcha_only)
-	PassBoth     int    `json:"pass_both,omitempty"`              // ... proof-of-work then CAPTCHA (bv_pow_then_captcha)
-	ShownPow     int    `json:"shown_pow_only,omitempty"`         // the chain presented (the challenge JavaScript ran with it): pow_only
-	ShownCaptcha int    `json:"shown_captcha_only,omitempty"`     // ... captcha_only
-	ShownBoth    int    `json:"shown_pow_then_captcha,omitempty"` // ... pow_then_captcha
-	ScannerHits  int    `json:"scanner_path_hits,omitempty"`
-	JA4          string `json:"ja4,omitempty"`
-	UA           string `json:"user_agent,omitempty"`
-	ASN          uint   `json:"asn,omitempty"`
-	ASNOrg       string `json:"network,omitempty"`
-	Country      string `json:"country,omitempty"`
-	RDNS         string `json:"reverse_dns,omitempty"`
-	FirstSeen    string `json:"first_seen"`
-	LastSeen     string `json:"last_seen"`
+	IP           string        `json:"ip"`
+	Requests     int           `json:"requests"`
+	Serves       int           `json:"challenges_served"`
+	JSLoaded     int           `json:"js_loaded"`
+	PowPassed    int           `json:"pow_passed"`
+	CaptchaShown int           `json:"captcha_shown"`
+	Passes       int           `json:"challenges_passed"`
+	PassPow      int           `json:"pass_pow,omitempty"`               // ... by the proof-of-work alone (bv_pow_only)
+	PassCaptcha  int           `json:"pass_captcha,omitempty"`           // ... by the CAPTCHA alone (bv_captcha_only)
+	PassBoth     int           `json:"pass_both,omitempty"`              // ... proof-of-work then CAPTCHA (bv_pow_then_captcha)
+	ShownPow     int           `json:"shown_pow_only,omitempty"`         // the chain presented (the challenge JavaScript ran with it): pow_only
+	ShownCaptcha int           `json:"shown_captcha_only,omitempty"`     // ... captcha_only
+	ShownBoth    int           `json:"shown_pow_then_captcha,omitempty"` // ... pow_then_captcha
+	Reasons      []ReasonCount `json:"escalation_reasons,omitempty"`     // serves by the rule that escalated the client
+	ScannerHits  int           `json:"scanner_path_hits,omitempty"`
+	JA4          string        `json:"ja4,omitempty"`
+	UA           string        `json:"user_agent,omitempty"`
+	ASN          uint          `json:"asn,omitempty"`
+	ASNOrg       string        `json:"network,omitempty"`
+	Country      string        `json:"country,omitempty"`
+	RDNS         string        `json:"reverse_dns,omitempty"`
+	FirstSeen    string        `json:"first_seen"`
+	LastSeen     string        `json:"last_seen"`
 }
 
 // PoolJA4 is one TLS fingerprint in the pool.
 type PoolJA4 struct {
-	JA4          string `json:"ja4"`
-	DistinctIPs  int    `json:"distinct_addresses"`
-	Requests     int    `json:"requests"`
-	Serves       int    `json:"challenges_served"`
-	JSLoaded     int    `json:"js_loaded"`
-	PowPassed    int    `json:"pow_passed"`
-	CaptchaShown int    `json:"captcha_shown"`
-	Passes       int    `json:"challenges_passed"`
-	PassPow      int    `json:"pass_pow,omitempty"`
-	PassCaptcha  int    `json:"pass_captcha,omitempty"`
-	PassBoth     int    `json:"pass_both,omitempty"`
-	ShownPow     int    `json:"shown_pow_only,omitempty"`
-	ShownCaptcha int    `json:"shown_captcha_only,omitempty"`
-	ShownBoth    int    `json:"shown_pow_then_captcha,omitempty"`
-	UA           string `json:"user_agent,omitempty"`
+	JA4          string        `json:"ja4"`
+	DistinctIPs  int           `json:"distinct_addresses"`
+	Requests     int           `json:"requests"`
+	Serves       int           `json:"challenges_served"`
+	JSLoaded     int           `json:"js_loaded"`
+	PowPassed    int           `json:"pow_passed"`
+	CaptchaShown int           `json:"captcha_shown"`
+	Passes       int           `json:"challenges_passed"`
+	PassPow      int           `json:"pass_pow,omitempty"`
+	PassCaptcha  int           `json:"pass_captcha,omitempty"`
+	PassBoth     int           `json:"pass_both,omitempty"`
+	ShownPow     int           `json:"shown_pow_only,omitempty"`
+	ShownCaptcha int           `json:"shown_captcha_only,omitempty"`
+	ShownBoth    int           `json:"shown_pow_then_captcha,omitempty"`
+	Reasons      []ReasonCount `json:"escalation_reasons,omitempty"`
+	UA           string        `json:"user_agent,omitempty"`
 }
 
 // poolStageSums / poolPassKindSums: the challenge stages and the pass kinds
@@ -227,6 +229,11 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
+		return pool, err
+	}
+
+	// The rule that served each row's challenges, for the row and the model.
+	if err := fillPoolReasons(ctx, conn, &pool, opt.WindowMinutes); err != nil {
 		return pool, err
 	}
 

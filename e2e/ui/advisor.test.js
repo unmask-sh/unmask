@@ -155,9 +155,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     ok(adv.ths === 6, `expected 6 columns (origin folded under the address), got ${adv.ths}`);
     ok(/\b6\b/.test(adv.score), `the seed row must show its score 6: ${JSON.stringify(adv.score)}`);
     // Counts carry thousands separators ("3,000"); strip them before parsing.
+    // The seed's serves all carry force_reason "header", so the main line
+    // is followed by the escalation line: "header <serves>".
     const main = (adv.traffic.replace(/,/g, '').match(/\d+/g) || []).map(Number);
-    ok(main.length === 2 && main[0] === SEED_SERVES && main[1] === 0,
-      `the traffic main line must read ${SEED_SERVES} served -> 0 passed: ${JSON.stringify(adv.traffic.trim().slice(0, 80))}`);
+    ok(main.length === 3 && main[0] === SEED_SERVES && main[1] === 0 && main[2] === SEED_SERVES && /header/.test(adv.traffic),
+      `the traffic main line must read ${SEED_SERVES} served -> 0 passed, escalated by header ${SEED_SERVES}: ${JSON.stringify(adv.traffic.trim().slice(0, 100))}`);
     // The seed never ran the JavaScript: the JS line reads 0 ran and every
     // serve not run, and no chain line follows it.
     const sub = (adv.trafficSub.replace(/,/g, '').match(/\d+/g) || []).map(Number);

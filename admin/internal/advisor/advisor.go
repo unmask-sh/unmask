@@ -16,6 +16,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net"
 	"sort"
 	"strings"
@@ -65,20 +66,22 @@ type Candidate struct {
 	// chain the challenge JavaScript ran with.  A pass is a chain completed
 	// (PassPow / PassCaptcha / PassBoth); presented minus passed is the
 	// chain holding.
-	ShownPow     int      `json:"shown_pow_only,omitempty"`
-	ShownCaptcha int      `json:"shown_captcha_only,omitempty"`
-	ShownBoth    int      `json:"shown_pow_then_captcha,omitempty"`
-	ScannerHits  int      `json:"scanner_hits,omitempty"`
-	DistinctIPs  int      `json:"distinct_ips,omitempty"`
-	FirstSeen    string   `json:"first_seen"` // "2006-01-02 15:04" UTC (trimmed for the model and as the no-JS fallback)
-	LastSeen     string   `json:"last_seen"`
-	FirstTs      int64    `json:"first_ts,omitempty"` // unix seconds; the page formats them in the operator's tz
-	LastTs       int64    `json:"last_ts,omitempty"`
-	ASN          uint     `json:"asn,omitempty"`
-	ASNOrg       string   `json:"asn_org,omitempty"`
-	Country      string   `json:"country,omitempty"`
-	RDNS         string   `json:"rdns,omitempty"`
-	SamplePaths  []string `json:"sample_paths,omitempty"`
+	ShownPow     int `json:"shown_pow_only,omitempty"`
+	ShownCaptcha int `json:"shown_captcha_only,omitempty"`
+	ShownBoth    int `json:"shown_pow_then_captcha,omitempty"`
+	// The serves by the rule that escalated the client (ReasonCount).
+	Reasons     []ReasonCount `json:"escalation_reasons,omitempty"`
+	ScannerHits int           `json:"scanner_hits,omitempty"`
+	DistinctIPs int           `json:"distinct_ips,omitempty"`
+	FirstSeen   string        `json:"first_seen"` // "2006-01-02 15:04" UTC (trimmed for the model and as the no-JS fallback)
+	LastSeen    string        `json:"last_seen"`
+	FirstTs     int64         `json:"first_ts,omitempty"` // unix seconds; the page formats them in the operator's tz
+	LastTs      int64         `json:"last_ts,omitempty"`
+	ASN         uint          `json:"asn,omitempty"`
+	ASNOrg      string        `json:"asn_org,omitempty"`
+	Country     string        `json:"country,omitempty"`
+	RDNS        string        `json:"rdns,omitempty"`
+	SamplePaths []string      `json:"sample_paths,omitempty"`
 	// Contained: the client never completed a challenge.  The challenge is
 	// already doing its job; a ban buys the daemon fewer round trips and the
 	// log less noise, not more protection.  What deserves attention is the
@@ -404,6 +407,10 @@ func Candidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclus
 	if err := fillSamplePaths(ctx, conn, out, opt); err != nil {
 		// Samples are garnish; the candidates stand without them.
 		return out, nil
+	}
+	if err := fillReasons(ctx, conn, out, opt); err != nil {
+		// The reasons line too: say so in the log, the row stands without it.
+		log.Printf("advisor: escalation reasons: %v", err)
 	}
 	return out, nil
 }

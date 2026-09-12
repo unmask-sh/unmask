@@ -24,7 +24,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-09-10) **Advisor: a candidate being re-analysed keeps its last answer on screen.**  When a click sends a candidate back to the model because its counts or window changed, the row used to drop its previous priority and reasoning and show only the spinner until the new answer arrived.  It now shows the spinner above the previous answer, dimmed, and swaps in the replacement when it lands.
 
 ### Fixed
-- (2026-09-13) **Advisor: the traffic cell reads the challenge by chain -- shown → passed · not completed.**  A JA4 herd row read "JS 0 · PoW 0 · CAPTCHA 0" because its query counted only serves and passes; fingerprint candidates now carry their stages.  Each chain (pow_only / captcha_only / pow_then_captcha) shows presented, passed and not completed, pow_then_captcha per gate, and JS how many left without running it.
+- (2026-09-13) **Advisor: the traffic cell reads the challenge by chain and by the rule that escalated the client.**  A JA4 herd row read "JS 0 · PoW 0 · CAPTCHA 0" because its query counted only serves and passes; fingerprint candidates carry their stages.  Each chain shows presented, passed and not completed (pow_then_captcha per gate), the serves split by escalation reason, and JS how many left without running it.
 
 - (2026-09-12) **Stats: the 30-day serve cards read settled hours from the hourly rollup and scan only the rest.**  After a restart the cards ignored the rollup until a full pass had completed, scanning 30 days of raw events and timing out on a large install.  The fold sizes its chunks to the host and stops when its budget is up, and each rollup runs under its own budget.
 
