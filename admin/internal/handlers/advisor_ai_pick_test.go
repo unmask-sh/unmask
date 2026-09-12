@@ -33,6 +33,7 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 		c.PassPow, c.PassBoth, c.CaptchaShown = c.Passes-2, 2, 5
 		return c
 	}
+	onlyPow := func(c advisor.Candidate) advisor.Candidate { c.PassPow = c.Passes; return c }
 	advisor.StoreLast(h.DB, key, advisor.Stored{At: time.Now(), Model: "m",
 		Reviews: map[string]advisor.Review{
 			"198.51.100.20": {Target: "198.51.100.20", Priority: "high", Reasoning: "passing farm"},
@@ -46,6 +47,9 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 			// A pick stored before the pool carried pass kinds: passes, no
 			// breakdown.  The row must not render an empty "()" after them.
 			pick("198.51.100.24", 5, 9, 12),
+			// Every pass by the proof-of-work alone: the kind reads inline,
+			// a breakdown line would only restate the count.
+			onlyPow(pick("198.51.100.25", 7, 20, 30)),
 		}})
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
 	rr := httptest.NewRecorder()
@@ -56,12 +60,16 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	}
 	// Each breakdown is its own line under the figure it splits (operator,
 	// 2026-09-13: the cell had grown too wide as one run of counts).
-	if !strings.Contains(body, `<span class="tf-kinds tf-more">PoW 28 · PoW+CAPTCHA 2</span>`) {
-		t.Error("a pick whose pass kinds are known shows them after the pass count")
+	// (html/template writes the "+" of the label as &#43;.)
+	if !strings.Contains(body, `<span class="tf-kinds tf-more">PoW のみ 28 · PoW&#43;CAPTCHA 2</span>`) {
+		t.Error("mixed pass kinds show as a labelled breakdown line under the pass count")
 	}
-	// The stage line reconciles with the breakdown: of 5 CAPTCHAs shown, 2
-	// passed and 3 were not completed (operator, 2026-09-13).
-	if !strings.Contains(body, `CAPTCHA 5<span class="tf-kinds tf-more">通過 2 · 不突破 3</span>`) {
+	if !strings.Contains(body, `7</strong> 通過 <span class="tf-kinds">(PoW のみ)</span>`) || strings.Contains(body, `tf-more">PoW のみ 7`) {
+		t.Error("one pass kind reads inline beside the count, not as a line restating it")
+	}
+	// Each stage on its own line; the CAPTCHA outcome under the CAPTCHA
+	// figure: of 5 reached, 2 completed and 3 not (operator, 2026-09-13).
+	if !strings.Contains(body, `<span class="tf-stage">CAPTCHA 5</span><span class="tf-kinds tf-more">通過 2 · 不突破 3</span>`) {
 		t.Error("the CAPTCHA stage names how many completed it and how many did not")
 	}
 	if strings.Contains(body, `data-ip="198.51.100.21"`) || strings.Contains(body, "nominated before the rule") {
