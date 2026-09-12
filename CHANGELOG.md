@@ -28,7 +28,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-09-13) **Advisor: the model reads the row's evidence in the row's own terms.**  The bundle now carries the challenge by chain with every difference taken, the escalation reasons, the user agents and paths with their counts, and the reverse DNS -- for the pool rows too -- and the prompt asks for reasoning that names the deciding numbers and the kind of rule that would target the client.
 
-- (2026-09-13) **Advisor: a row the model proposed is marked as a row, and each signal reads on one line.**  The ai_pick badge among the signals was easy to miss: the pick's row now carries a purple edge and tint and a filled badge.  A signal's reading sits beside its badge instead of on a second line.
+- (2026-09-13) **Advisor: the model's pick wears a filled badge, and each signal reads on one line.**  The ai_pick badge among the signals was easy to miss in the same pale style as the rest: it is filled purple now.  A signal's reading sits beside its badge instead of on a second line.
 
 - (2026-09-13) **Advisor: user agents and paths open the same popover as the hunt log, and paths carry their hits.**  A user agent's popover now heads with its summary and pins under it; a path lists its hits, opens its full address with the hits in the heading and offers the hunt log's Open / Copy buttons.  The column lists the three most requested paths and how many more there were.
 

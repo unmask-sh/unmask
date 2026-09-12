@@ -58,11 +58,11 @@ table.cands .ua-list{color:#64748b;font-size:.78rem;white-space:nowrap;max-width
    sideways (operator, 2026-09-13: "横スクロールが発生するようになった"). */
 .sig-detail{color:#64748b;font-size:.78rem;min-width:0}
 .sigline{display:flex;align-items:baseline;gap:.35rem;margin-bottom:.15rem;max-width:26rem}
-/* The model's pick: a filled purple badge, and the row itself carries a
-   purple edge and tint so it stands out from the engine's rows at a glance. */
+/* The model's pick: a filled purple badge on its one-line signal.  The row
+   itself stays uncoloured -- a tinted row blurred the row boundaries
+   (operator, 2026-09-13: "行の区切りが分かりにくくなった ai_pick は一行化だけ
+   で十分"); tr.ai-pick remains as a hook. */
 .sig.ai{background:#6d28d9;color:#fff;border-color:#6d28d9;font-weight:700}
-table.cands tbody tr.ai-pick td{background:#faf5ff}
-table.cands tbody tr.ai-pick td:first-child{box-shadow:inset .25rem 0 0 #7c3aed}
 /* contained vs passing: the one distinction that decides whether a ban buys
    protection or merely quiet. */
 .score{display:inline-block;background:#f8fafc;color:#334155;border:1px solid #cbd5e1;border-radius:.25rem;padding:.05rem .45rem;font-size:.72rem;font-weight:700;font-family:ui-monospace,Menlo,monospace;margin-bottom:.25rem}
