@@ -171,7 +171,7 @@ func (c Candidate) HeldAtCaptcha() bool {
 // SinglePassKind names the one way this actor's passes ended -- "pow",
 // "captcha" or "both" -- when every pass ended the same way, and "" when
 // the kinds are unknown or mixed.  One kind reads inline beside the pass
-// count ("16 通過 (PoW のみ)"); a breakdown line for it would only restate
+// count ("16 通過 (pow_only)"); a breakdown line for it would only restate
 // the count (operator, 2026-09-13: "↳ PoW 16 は冗長").
 func (c Candidate) SinglePassKind() string {
 	kinds := 0
@@ -192,6 +192,19 @@ func (c Candidate) SinglePassKind() string {
 		return ""
 	}
 	return name
+}
+
+// PowToCaptcha: proof-of-work solves that went on to the CAPTCHA -- the
+// pow_then_captcha chain's first step (pow_pass), as opposed to the solves
+// that were the pass (bv_pow_only, PassPow).  PowPassed counts both, so
+// the row names this share: "PoW 3" reads "pow_only 1 · pow_then_captcha 2",
+// or "PoW 3 (pow_then_captcha)" when every solve went on (operator,
+// 2026-09-13: "pow_then_captcha が表示されていない").
+func (c Candidate) PowToCaptcha() int {
+	if n := c.PowPassed - c.PassPow; n > 0 {
+		return n
+	}
+	return 0
 }
 
 // CaptchaPasses: passes that ended at the CAPTCHA (the captcha_only and
