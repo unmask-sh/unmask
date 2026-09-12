@@ -120,6 +120,11 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 				// A pick carries a score now: let it sit where the score puts
 				// it, not at the end of the list.
 				advisor.SortByAttention(cands)
+				// A pick has no sample paths of its own (the pool carries
+				// none): read them the way an engine row's are.
+				if err := advisor.FillSamplePaths(r.Context(), h.DB, cands, advisor.Options{WindowMinutes: windowH * 60}); err != nil {
+					log.Printf("advisor: sample paths: %v", err)
+				}
 			}
 			if st.Err != "" {
 				// The latest attempt failed: the bar says so once, with its

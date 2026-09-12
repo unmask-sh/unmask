@@ -408,8 +408,9 @@ func Candidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclus
 	if len(out) > opt.Limit {
 		out = out[:opt.Limit]
 	}
-	if err := fillSamplePaths(ctx, conn, out, opt); err != nil {
+	if err := FillSamplePaths(ctx, conn, out, opt); err != nil {
 		// Samples are garnish; the candidates stand without them.
+		log.Printf("advisor: sample paths: %v", err)
 		return out, nil
 	}
 	if err := fillFacets(ctx, conn, out, opt); err != nil {
@@ -620,46 +621,71 @@ func ja4Candidates(ctx context.Context, conn *db.DB, excl Exclusions, opt Option
 	return out, rows.Err()
 }
 
-// fillSamplePaths decorates the top candidates with a few concrete request
-// paths pulled out of payload_json — the reviewer's "what were they after".
-func fillSamplePaths(ctx context.Context, conn *db.DB, cands []Candidate, opt Options) error {
-	var ips []string
-	for _, c := range cands {
-		if c.Type == "ip" {
-			ips = append(ips, c.Target)
-		}
-	}
-	if len(ips) == 0 {
-		return nil
-	}
-	var args []any
-	for _, ip := range ips {
-		if p := events.PackIP(ip); p != nil {
-			args = append(args, p)
-		}
-	}
-	if len(args) == 0 {
-		return nil
-	}
-	ph := strings.TrimRight(strings.Repeat("?,", len(args)), ",")
-	q := `SELECT ip_address, COALESCE(payload_json, '') FROM unmask_event` + conn.EventDateIndexHint("w") + `
-	      WHERE date_created > ` + conn.NowMinusMinutes(opt.WindowMinutes) + `
-	        AND ip_address IN (` + ph + `)
-	      ORDER BY id DESC LIMIT 400`
-	rows, err := conn.QueryContext(ctx, q, args...)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
+// sampleRows: how many of a row's newest events are read for its paths;
+// samplePaths: how many distinct paths a row keeps.
+const (
+	sampleRows  = 40
+	samplePaths = 3
+)
 
-	paths := map[string][]string{}
-	for rows.Next() {
-		var ipBytes []byte
-		var payload string
-		if err := rows.Scan(&ipBytes, &payload); err != nil {
+// FillSamplePaths decorates the candidates that have none with a few
+// concrete request paths pulled out of payload_json -- the reviewer's
+// "what were they after".  Per row, from its own newest events: an address
+// through its index, a fingerprint through the date index newest first.
+// One shared newest-400 sample over every candidate at once went to the
+// busiest few and left the other rows empty, and fingerprint rows and the
+// model's picks were never read at all (operator, 2026-09-13: "要求パス例が
+// 空欄のものが多いのはなぜ？").  A row that has its paths is left alone.
+func FillSamplePaths(ctx context.Context, conn *db.DB, cands []Candidate, opt Options) error {
+	opt = opt.resolved()
+	for i := range cands {
+		c := &cands[i]
+		if len(c.SamplePaths) > 0 {
+			continue
+		}
+		var q string
+		var key any
+		switch c.Type {
+		case "ip":
+			p := events.PackIP(c.Target)
+			if p == nil {
+				continue
+			}
+			key = p
+			q = `SELECT COALESCE(payload_json, '') FROM unmask_event` + conn.EventIPIndexHint() + `
+			      WHERE ip_address = ? AND date_created > ` + conn.NowMinusMinutes(opt.WindowMinutes) + `
+			      ORDER BY date_created DESC LIMIT ?`
+		case "ja4":
+			key = c.Target
+			q = `SELECT COALESCE(payload_json, '') FROM unmask_event` + conn.EventDateIndexHint("w") + `
+			      WHERE date_created > ` + conn.NowMinusMinutes(opt.WindowMinutes) + ` AND ja4 = ?
+			      ORDER BY date_created DESC LIMIT ?`
+		default:
+			continue
+		}
+		paths, err := readSamplePaths(ctx, conn, q, key)
+		if err != nil {
 			return err
 		}
-		ip := unpackIP(ipBytes)
+		c.SamplePaths = paths
+	}
+	return nil
+}
+
+// readSamplePaths runs one row's sample query and keeps the first distinct
+// paths it yields.
+func readSamplePaths(ctx context.Context, conn *db.DB, q string, key any) ([]string, error) {
+	rows, err := conn.QueryContext(ctx, q, key, sampleRows)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []string
+	for rows.Next() {
+		var payload string
+		if err := rows.Scan(&payload); err != nil {
+			return nil, err
+		}
 		var p struct {
 			// The module writes the requested path as orig_path (the serve
 			// payload's "what was asked for"); path is the older / test shape.
@@ -672,20 +698,15 @@ func fillSamplePaths(ctx context.Context, conn *db.DB, cands []Candidate, opt Op
 		if p.Path == "" {
 			p.Path = p.OrigPath
 		}
-		if p.Path == "" {
+		if p.Path == "" || contains(out, p.Path) {
 			continue
 		}
-		if len(paths[ip]) >= 3 || contains(paths[ip], p.Path) {
-			continue
-		}
-		paths[ip] = append(paths[ip], p.Path)
-	}
-	for i := range cands {
-		if cands[i].Type == "ip" {
-			cands[i].SamplePaths = paths[cands[i].Target]
+		out = append(out, p.Path)
+		if len(out) >= samplePaths {
+			break
 		}
 	}
-	return rows.Err()
+	return out, rows.Err()
 }
 
 func skipIP(ip string, excl Exclusions) bool {

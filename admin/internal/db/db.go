@@ -459,6 +459,16 @@ func (d *DB) NowMinusMinutes(n int) string {
 	return fmt.Sprintf("DATE_SUB(NOW(), INTERVAL %d MINUTE)", n)
 }
 
+// EventIPIndexHint pins the address index for a one-address read of
+// unmask_event (ip_address = ? AND date_created > ?): without planner
+// statistics SQLite may walk the date index instead.
+func (d *DB) EventIPIndexHint() string {
+	if d.Driver == DriverSQLite {
+		return " INDEXED BY idx_unmask_event_ip_date"
+	}
+	return ""
+}
+
 // JSONExtract returns a SQL fragment reading one path of a JSON column as
 // text for the active driver: SQLite's json_extract yields the bare value,
 // MariaDB's JSON_EXTRACT a quoted one that JSON_UNQUOTE strips.  col and

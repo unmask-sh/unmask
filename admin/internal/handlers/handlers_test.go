@@ -28,8 +28,9 @@ func newTestHandler(t *testing.T) *Handler {
 		t.Fatalf("db open: %v", err)
 	}
 	t.Cleanup(func() { conn.Close() })
-	// idx_unmask_event_date mirrors the migrations: the advisor engine names it
-	// in an INDEXED BY hint, so a schema without it fails those queries.
+	// idx_unmask_event_date and idx_unmask_event_ip_date mirror the
+	// migrations: the advisor engine names them in INDEXED BY hints, so a
+	// schema without them fails those queries.
 	const schema = `
         CREATE TABLE unmask_event (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -51,6 +52,7 @@ func newTestHandler(t *testing.T) *Handler {
             port INTEGER NOT NULL DEFAULT 0,
             date_created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
         CREATE INDEX idx_e_phase ON unmask_event(phase, date_created);
+        CREATE INDEX idx_unmask_event_ip_date ON unmask_event(ip_address, date_created);
         CREATE INDEX idx_e_site ON unmask_event(site, date_created);
         CREATE INDEX idx_unmask_event_date ON unmask_event(date_created);
         CREATE TABLE unmask_advisor_dismiss (
