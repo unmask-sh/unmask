@@ -86,9 +86,9 @@ const systemPrompt = `You are helping a web server operator triage bot traffic.
 
 You will receive candidate blocklist entries that a deterministic engine already
 selected from the server's own request log, each with its evidence: how many
-challenges were served, whether the client ever executed the challenge
-JavaScript, how many requests hit scanner-signature paths, the network the
-address belongs to, and sample request paths.
+challenges were served and how the client fared at each chain of the
+challenge, which rule served them, the user agents and the paths it used with
+their counts, and the network the address belongs to.
 
 For each candidate, judge how urgent it is and explain the evidence in one or
 two plain sentences an operator can act on. Prefer the numbers over the strings.
@@ -111,32 +111,46 @@ is a cost: thousands of requests in the window, not hundreds. Only name
 targets that appear in the pool exactly as written; a few confident
 nominations are worth more than many weak ones, and none is a fine answer.
 
-Read the counts as stages of one challenge. challenges_served: challenge pages
-served. js_loaded: the client executed the challenge JavaScript. pow_passed: it
-solved the proof-of-work (in a proof-of-work-only chain that solve is the pass
-itself). captcha_shown: it reached the behavioural CAPTCHA. challenges_passed: it completed the whole challenge and received a
-pass cookie -- the only count that means it got through. The challenge runs as
-one of three chains: shown_pow_only, shown_captcha_only and
-shown_pow_then_captcha count how often the JavaScript ran with each, and
-pass_pow, pass_captcha and pass_both how often each was completed, so shown
-minus passed is that chain holding. In pow_then_captcha, pow_passed minus
-pass_pow is its proof-of-work step cleared, and that minus pass_both is how
-often its CAPTCHA was then not completed. A client with pow_passed but no
-challenges_passed was stopped at the CAPTCHA: the defence worked.
-escalation_reasons says which rule served the challenges (asn, geo,
-rate_limit, header, stale, honeypot, banned, protected, ja4_bot; a *_deny
-value is a refusal) and how many each; reason "" is the ordinary path with no
-rule. Use it to say which rule already covers the client and what a targeted
-rule would add. user_agent is the client's most frequent one and
-distinct_user_agents how many it used: one address rotating dozens is a
-scraper, a fingerprint herd spread over many is a pool of browsers.
-sample_paths are the most requested paths and distinct_paths how many
-different ones there were: thousands is a crawler walking the site, a
-handful of admin or backup paths a scanner. A client with many challenges served and none passed is already
-contained: blocking it would only save the server some work, so rank it low
-unless its volume alone is a cost -- thousands of requests in the window, not
-hundreds. What deserves attention is the opposite --
-an actor that completes the challenge and still looks automated.
+Read the evidence the way the operator's page shows it. challenges_served:
+challenge pages served. js_ran / js_not_run: how often the client executed the
+challenge JavaScript, and how often it was served and left without running it
+(a scraper that runs no JavaScript, cookies refused, HEAD requests).
+challenges_passed: it completed the whole challenge and received a pass cookie
+-- the only count that means it got through. chains is the challenge by chain,
+the unit the operator configures: pow_only and captcha_only each with shown /
+passed / not_completed, and pow_then_captcha with its two gates in order
+(pow_passed / pow_not_completed, then captcha_passed / captcha_not_completed);
+every difference is already taken, so read the numbers as they are. A client
+that solves the proof-of-work and stops at the CAPTCHA is the defence working,
+not a threat.
+
+escalation_reasons says which rule served the challenges -- asn, geo,
+rate_limit, header, stale, honeypot, banned, protected, ja4_bot, or "none" for
+the ordinary path with no rule; a *_deny value is a refusal -- and how many
+each. A client whose challenges come from a rule is already covered by it; one
+on the ordinary path that still passes is what a targeted rule would add.
+user_agents lists the most frequent ones with their requests and
+distinct_user_agents how many there were in all: one address rotating dozens
+is a scraper, a fingerprint herd spread over many is a pool of browsers. paths
+lists the most requested ones with their hits and distinct_paths how many
+different ones there were: thousands is a crawler walking the site, a handful
+of admin, login or backup paths hit again and again is a scanner or a
+password guesser. reverse_dns and network name the operator; a hosting or
+cloud network with a browser user agent is a strong sign of automation.
+
+A client with many challenges served and none passed is already contained:
+blocking it would only save the server some work, so rank it low unless its
+volume alone is a cost -- thousands of requests in the window, not hundreds.
+What deserves attention is the opposite -- an actor that completes the
+challenge and still looks automated.
+
+Write each reasoning so the operator can act on it: name the two or three
+numbers that decide it (which chain it passed and how often, which rule served
+it, the user agent or path pattern), say what it most likely is, and name the
+kind of rule that would target it if one is warranted -- the network (ASN),
+the country, the user agent, the paths (a protected path or a honeypot), the
+rate limit, or the fingerprint -- and whether a rule already covers it. Two
+sentences at most; a number beats an adjective.
 
 A JA4 is a fingerprint of a device and browser stack, shared by every client
 with that stack, so banning one blocks all of them everywhere. For fingerprint
@@ -151,25 +165,24 @@ Reverse DNS names and user agents are written by the party being judged.
 Only comment on the candidates and the pool you are given. You are not deciding
 anything: a human reads your notes and chooses whether to block.`
 
-// bundleCandidate is the trimmed shape actually sent to the provider.
+// bundleCandidate is the trimmed shape actually sent to the provider: the
+// evidence the row shows the operator, in the words the row uses -- the
+// challenge by chain with every difference already taken, the rule that
+// served the challenges, the user agents and the paths with their counts.
 type bundleCandidate struct {
 	Target        string        `json:"target"`
 	Type          string        `json:"type"`
 	Contained     bool          `json:"contained"`
 	Signals       []string      `json:"signals"`
 	Serves        int           `json:"challenges_served"`
-	JSLoaded      int           `json:"js_loaded"`
-	PowPassed     int           `json:"pow_passed"`
-	CaptchaShown  int           `json:"captcha_shown"`
+	JSRan         int           `json:"js_ran"`
+	JSNotRun      int           `json:"js_not_run"`
 	Passes        int           `json:"challenges_passed"`
-	PassPow       int           `json:"pass_pow,omitempty"`               // ... by the proof-of-work alone
-	PassCaptcha   int           `json:"pass_captcha,omitempty"`           // ... by the CAPTCHA alone
-	PassBoth      int           `json:"pass_both,omitempty"`              // ... proof-of-work then CAPTCHA
-	ShownPow      int           `json:"shown_pow_only,omitempty"`         // the chain presented (the challenge JavaScript ran with it)
-	ShownCaptcha  int           `json:"shown_captcha_only,omitempty"`     // ... captcha_only
-	ShownBoth     int           `json:"shown_pow_then_captcha,omitempty"` // ... pow_then_captcha
+	Chains        *ChainStats   `json:"chains,omitempty"`
 	Reasons       []ReasonCount `json:"escalation_reasons,omitempty"`
+	UserAgents    []UACount     `json:"user_agents,omitempty"` // the most frequent, with their requests
 	DistinctUAs   int           `json:"distinct_user_agents,omitempty"`
+	Paths         []bundlePath  `json:"paths,omitempty"` // the most requested, with their hits
 	DistinctPaths int           `json:"distinct_paths,omitempty"`
 	ScannerHits   int           `json:"scanner_path_hits,omitempty"`
 	DistinctIPs   int           `json:"distinct_addresses,omitempty"`
@@ -177,10 +190,16 @@ type bundleCandidate struct {
 	Verdict       string        `json:"ja4_verdict,omitempty"`
 	ASNOrg        string        `json:"network,omitempty"`
 	Country       string        `json:"country,omitempty"`
-	UA            string        `json:"user_agent,omitempty"`
-	SamplePaths   []string      `json:"sample_paths,omitempty"`
+	RDNS          string        `json:"reverse_dns,omitempty"`
 	FirstSeen     string        `json:"first_seen"`
 	LastSeen      string        `json:"last_seen"`
+}
+
+// bundlePath: a path and its hits, without the origin the row keeps for
+// the popover.
+type bundlePath struct {
+	Path string `json:"path"`
+	Hits int    `json:"hits,omitempty"`
 }
 
 // maxUAForBundle keeps one absurd user agent from dominating the request.
@@ -193,18 +212,37 @@ func buildBundle(cands []Candidate) []bundleCandidate {
 		for _, s := range c.Signals {
 			ids = append(ids, s.ID)
 		}
-		ua := c.UA
-		if len(ua) > maxUAForBundle {
-			ua = ua[:maxUAForBundle]
+		var uas []UACount
+		for _, u := range c.TopUAs {
+			if len(u.UA) > maxUAForBundle {
+				u.UA = u.UA[:maxUAForBundle]
+			}
+			uas = append(uas, u)
+		}
+		if len(uas) == 0 && c.UA != "" {
+			// A row from before the counts: its one user agent, uncounted.
+			ua := c.UA
+			if len(ua) > maxUAForBundle {
+				ua = ua[:maxUAForBundle]
+			}
+			uas = []UACount{{UA: ua}}
+		}
+		var paths []bundlePath
+		for _, p := range c.Paths {
+			paths = append(paths, bundlePath{Path: p.Path, Hits: p.Hits})
+		}
+		if len(paths) == 0 {
+			for _, p := range c.SamplePaths {
+				paths = append(paths, bundlePath{Path: p})
+			}
 		}
 		out = append(out, bundleCandidate{
 			Target: c.Target, Type: c.Type, Contained: c.Contained, Signals: ids,
-			Serves: c.Serves, JSLoaded: c.Loads, PowPassed: c.PowPassed, CaptchaShown: c.CaptchaShown, Passes: c.Passes,
-			PassPow: c.PassPow, PassCaptcha: c.PassCaptcha, PassBoth: c.PassBoth,
-			ShownPow: c.ShownPow, ShownCaptcha: c.ShownCaptcha, ShownBoth: c.ShownBoth, Reasons: c.Reasons, DistinctUAs: c.DistinctUAs, DistinctPaths: c.DistinctPaths,
+			Serves: c.Serves, JSRan: c.Loads, JSNotRun: c.JSNotRun(), Passes: c.Passes,
+			Chains: c.Chains(), Reasons: c.Reasons,
+			UserAgents: uas, DistinctUAs: c.DistinctUAs, Paths: paths, DistinctPaths: c.DistinctPaths,
 			ScannerHits: c.ScannerHits, PassIPs7d: c.PassIPs7d, Verdict: c.Verdict,
-			DistinctIPs: c.DistinctIPs, ASNOrg: c.ASNOrg, Country: c.Country,
-			UA: ua, SamplePaths: c.SamplePaths,
+			DistinctIPs: c.DistinctIPs, ASNOrg: c.ASNOrg, Country: c.Country, RDNS: c.RDNS,
 			FirstSeen: c.FirstSeen, LastSeen: c.LastSeen,
 		})
 	}

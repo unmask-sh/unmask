@@ -20,27 +20,35 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 )
 
-// PoolIP is one address in the pool.  JSON names are what the model reads.
+// PoolIP is one address in the pool.  JSON names are what the model reads:
+// the same shape as a candidate's bundle row -- the challenge by chain
+// (Chains, folded from the raw counts), the escalation reasons, the user
+// agents with their requests -- so a row reads the same wherever the model
+// meets it.  UA (the most frequent one) rides in user_agents.
 type PoolIP struct {
-	IP           string        `json:"ip"`
-	Requests     int           `json:"requests"`
-	Serves       int           `json:"challenges_served"`
-	JSLoaded     int           `json:"js_loaded"`
-	PowPassed    int           `json:"pow_passed"`
-	CaptchaShown int           `json:"captcha_shown"`
-	Passes       int           `json:"challenges_passed"`
-	PassPow      int           `json:"pass_pow,omitempty"`               // ... by the proof-of-work alone (bv_pow_only)
-	PassCaptcha  int           `json:"pass_captcha,omitempty"`           // ... by the CAPTCHA alone (bv_captcha_only)
-	PassBoth     int           `json:"pass_both,omitempty"`              // ... proof-of-work then CAPTCHA (bv_pow_then_captcha)
-	ShownPow     int           `json:"shown_pow_only,omitempty"`         // the chain presented (the challenge JavaScript ran with it): pow_only
-	ShownCaptcha int           `json:"shown_captcha_only,omitempty"`     // ... captcha_only
-	ShownBoth    int           `json:"shown_pow_then_captcha,omitempty"` // ... pow_then_captcha
-	Reasons      []ReasonCount `json:"escalation_reasons,omitempty"`     // serves by the rule that escalated the client
-	TopUAs       []UACount     `json:"top_user_agents,omitempty"`        // the most frequent user agents; UA is the first
+	IP       string      `json:"ip"`
+	Requests int         `json:"requests"`
+	Serves   int         `json:"challenges_served"`
+	JSLoaded int         `json:"js_ran"`
+	JSNotRun int         `json:"js_not_run"`
+	Passes   int         `json:"challenges_passed"`
+	Chains   *ChainStats `json:"chains,omitempty"` // the challenge by chain, folded from the raw counts below (BuildPool)
+	// The raw counts behind Chains: carried for the row (fillFromPool), not
+	// sent.
+	PowPassed    int           `json:"-"`
+	CaptchaShown int           `json:"-"`
+	PassPow      int           `json:"-"`                            // ... by the proof-of-work alone (bv_pow_only)
+	PassCaptcha  int           `json:"-"`                            // ... by the CAPTCHA alone (bv_captcha_only)
+	PassBoth     int           `json:"-"`                            // ... proof-of-work then CAPTCHA (bv_pow_then_captcha)
+	ShownPow     int           `json:"-"`                            // the chain presented (the challenge JavaScript ran with it): pow_only
+	ShownCaptcha int           `json:"-"`                            // ... captcha_only
+	ShownBoth    int           `json:"-"`                            // ... pow_then_captcha
+	Reasons      []ReasonCount `json:"escalation_reasons,omitempty"` // serves by the rule that escalated the client
+	TopUAs       []UACount     `json:"user_agents,omitempty"`        // the most frequent user agents with their requests; UA is the first
 	DistinctUAs  int           `json:"distinct_user_agents,omitempty"`
 	ScannerHits  int           `json:"scanner_path_hits,omitempty"`
 	JA4          string        `json:"ja4,omitempty"`
-	UA           string        `json:"user_agent,omitempty"`
+	UA           string        `json:"-"`
 	ASN          uint          `json:"asn,omitempty"`
 	ASNOrg       string        `json:"network,omitempty"`
 	Country      string        `json:"country,omitempty"`
@@ -55,20 +63,22 @@ type PoolJA4 struct {
 	DistinctIPs  int           `json:"distinct_addresses"`
 	Requests     int           `json:"requests"`
 	Serves       int           `json:"challenges_served"`
-	JSLoaded     int           `json:"js_loaded"`
-	PowPassed    int           `json:"pow_passed"`
-	CaptchaShown int           `json:"captcha_shown"`
+	JSLoaded     int           `json:"js_ran"`
+	JSNotRun     int           `json:"js_not_run"`
 	Passes       int           `json:"challenges_passed"`
-	PassPow      int           `json:"pass_pow,omitempty"`
-	PassCaptcha  int           `json:"pass_captcha,omitempty"`
-	PassBoth     int           `json:"pass_both,omitempty"`
-	ShownPow     int           `json:"shown_pow_only,omitempty"`
-	ShownCaptcha int           `json:"shown_captcha_only,omitempty"`
-	ShownBoth    int           `json:"shown_pow_then_captcha,omitempty"`
+	Chains       *ChainStats   `json:"chains,omitempty"`
+	PowPassed    int           `json:"-"`
+	CaptchaShown int           `json:"-"`
+	PassPow      int           `json:"-"`
+	PassCaptcha  int           `json:"-"`
+	PassBoth     int           `json:"-"`
+	ShownPow     int           `json:"-"`
+	ShownCaptcha int           `json:"-"`
+	ShownBoth    int           `json:"-"`
 	Reasons      []ReasonCount `json:"escalation_reasons,omitempty"`
-	TopUAs       []UACount     `json:"top_user_agents,omitempty"`
+	TopUAs       []UACount     `json:"user_agents,omitempty"`
 	DistinctUAs  int           `json:"distinct_user_agents,omitempty"`
-	UA           string        `json:"user_agent,omitempty"`
+	UA           string        `json:"-"`
 }
 
 // poolStageSums / poolPassKindSums: the challenge stages and the pass kinds
@@ -240,6 +250,18 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 	// used, for the row and the model.
 	if err := fillPoolFacets(ctx, conn, &pool, opt.WindowMinutes); err != nil {
 		return pool, err
+	}
+	// The challenge by chain and the serves that never ran the JavaScript,
+	// folded for the model the way the bundle folds them.
+	for i := range pool.IPs {
+		r := &pool.IPs[i]
+		r.Chains = chainStats(r.ShownPow, r.ShownCaptcha, r.ShownBoth, r.PowPassed, r.PassPow, r.PassCaptcha, r.PassBoth)
+		r.JSNotRun = floor0(r.Serves - r.JSLoaded)
+	}
+	for i := range pool.JA4s {
+		r := &pool.JA4s[i]
+		r.Chains = chainStats(r.ShownPow, r.ShownCaptcha, r.ShownBoth, r.PowPassed, r.PassPow, r.PassCaptcha, r.PassBoth)
+		r.JSNotRun = floor0(r.Serves - r.JSLoaded)
 	}
 
 	q = `SELECT COALESCE(user_agent, ''),
