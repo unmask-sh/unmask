@@ -12,6 +12,24 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+### Added
+- (2026-09-10) **doctor reports the hourly aggregate and the aggregate tables' windows; the stats page says "aggregating" instead of running a 30-day scan it cannot finish.**  The window check found a second unpruned table, the country tally, now trimmed too.  On a large database with no completed aggregate pass, the 30-day serve cards show "aggregating" at once rather than timing out.
+
+### Changed
+- (2026-09-10) **Advisor: the model no longer nominates actors the challenge already stops.**  The pool the model sees is ranked by volume, so contained herds with zero passes kept being picked.  The prompt now says a nomination is for an actor that gets through, and the engine drops a nomination whose pool row has no passes and sits under the cost floor; stored picks are held to it too.
+
+- (2026-09-10) **Advisor: a candidate being re-analysed keeps its last answer on screen.**  When a click sends a candidate back to the model because its counts or window changed, the row used to drop its previous priority and reasoning and show only the spinner until the new answer arrived.  It now shows the spinner above the previous answer, dimmed, and swaps in the replacement when it lands.
+
+### Fixed
+- (2026-09-12) **Stats: the 30-day serve cards read settled hours from the hourly rollup and scan only the rest.**  After a restart the cards ignored the rollup until a full pass had completed, scanning 30 days of raw events and timing out on a large install.  The fold sizes its chunks to the host and stops when its budget is up, and each rollup runs under its own budget.
+
+- (2026-09-12) **Advisor: an AI pick row shows its challenge stages and pass kinds.**  A row the model nominated from the pool showed "JS 0 · PoW 0 · CAPTCHA 0" under a real pass count, and an empty "()" after it: the pool row's stage counts were not copied and it carried no pass-kind breakdown.  Both are carried now, and the breakdown is rendered only when there is one.
+
+- (2026-09-11) **Setup wizard: opening it on a large database no longer counts every event row.**  The reconfigure summary counted the whole event table with no time limit, which took minutes on a 25-million-row install and timed the page out.  The figure is now the id span, every wizard query has a two-second budget, and a database that does not answer is shown as existing with the figure unknown.
+
+- (2026-09-10) **Stats: a failed 30-day card shows dashes and says so, instead of zeros and a "check your nginx include" hint; a browser that left mid-page is no longer reported as failed cards.**  The per-minute request tally behind those cards is now pruned to the same 32-day window as every other aggregate; it had been growing without bound.
+
 ## [0.1.43] - 2026-09-09
 ### Changed
 - (2026-09-09) **Overview: the KPI row is the challenge's own funnel, counted in requests throughout.**  The abandonment tile leads with how many requests loaded a challenge and left, with the share and its denominator underneath, so no tile is a bare percentage.  The row also says what it is a breakdown of, since the card above splits all traffic by what it is.
