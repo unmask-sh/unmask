@@ -80,18 +80,19 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	if !strings.Contains(body, `<span class="tf-stage">JS 38 · 未実行 2</span><span class="tf-stage">pow_only 30 提示</span><span class="tf-kinds tf-more">通過 28 · 不突破 2</span><span class="tf-stage">pow_then_captcha 8 提示</span><span class="tf-kinds tf-more">PoW 通過 5 · 不突破 3</span><span class="tf-kinds tf-more">CAPTCHA 通過 2 · 不突破 3</span></div>`) {
 		t.Error("a two-chain row reads JS, then each chain shown with its outcome, the chain's two gates each")
 	}
-	// Mixed kinds: the main line carries no kind and no breakdown -- the
-	// chain lines have it.
-	if strings.Contains(body, `30</strong> 通過 <span class="tf-kinds">`) || strings.Contains(body, `tf-more">pow_only 28`) {
-		t.Error("with two kinds of pass the main line names none; the chain lines split them")
+	// The main line is only "served → passed": the chain lines name the
+	// kinds, one or several, so a label that came and went with their number
+	// only raised the question (operator, 2026-09-13: "紛らわしいから常に付けない").
+	if strings.Contains(body, `class="tf-kinds">(`) || strings.Contains(body, `tf-more">pow_only 28`) {
+		t.Error("the main line carries no pass-kind label or breakdown; the chain lines have them")
 	}
-	if !strings.Contains(body, `7</strong> 通過 <span class="tf-kinds">(pow_only)</span>`) {
-		t.Error("one pass kind reads inline beside the count")
+	if !strings.Contains(body, `<strong>7</strong> 通過</div>`) || !strings.Contains(body, `<strong>30</strong> 通過</div>`) {
+		t.Error("the main line ends at the pass count")
 	}
 	if !strings.Contains(body, `<span class="tf-stage">JS 9 · 未実行 11</span><span class="tf-stage">pow_only 9 提示</span><span class="tf-kinds tf-more">通過 7 · 不突破 2</span></div>`) {
 		t.Error("a pow_only row has the one chain line and nothing for the chains it never ran")
 	}
-	if !strings.Contains(body, `1</strong> 通過 <span class="tf-kinds">(pow_then_captcha)</span>`) ||
+	if !strings.Contains(body, `<strong>1</strong> 通過</div>`) ||
 		!strings.Contains(body, `<span class="tf-stage">JS 3 · 未実行 1</span><span class="tf-stage">pow_then_captcha 3 提示</span><span class="tf-kinds tf-more">PoW 通過 3 · 不突破 0</span><span class="tf-kinds tf-more">CAPTCHA 通過 1 · 不突破 2</span></div>`) {
 		t.Error("a pow_then_captcha row reads its two gates: every proof-of-work solved, one CAPTCHA of three completed")
 	}

@@ -176,32 +176,6 @@ func (c Candidate) HeldAtCaptcha() bool {
 	return c.Passes == 0 && (c.PowPassed > 0 || c.CaptchaShown > 0)
 }
 
-// SinglePassKind names the one way this actor's passes ended -- "pow",
-// "captcha" or "both" -- when every pass ended the same way, and "" when
-// the kinds are unknown or mixed.  One kind reads inline beside the pass
-// count ("16 通過 (pow_only)"); a breakdown line for it would only restate
-// the count (operator, 2026-09-13: "↳ PoW 16 は冗長").
-func (c Candidate) SinglePassKind() string {
-	kinds := 0
-	name := ""
-	if c.PassPow > 0 {
-		kinds++
-		name = "pow"
-	}
-	if c.PassCaptcha > 0 {
-		kinds++
-		name = "captcha"
-	}
-	if c.PassBoth > 0 {
-		kinds++
-		name = "both"
-	}
-	if kinds != 1 {
-		return ""
-	}
-	return name
-}
-
 // The traffic cell reads the challenge by chain -- the unit the operator
 // configures -- each as presented → passed · not completed, so every line
 // closes (presented = passed + not completed) and the chains' passes add up
