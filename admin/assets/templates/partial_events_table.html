@@ -1425,13 +1425,23 @@ document.addEventListener('DOMContentLoaded', function(){
   // <svg> browser mark, and flattening it to text drops both.  A clone of the
   // element that is already on screen needs no parsing, so the title cannot
   // become a markup sink fed by a UA-derived value.
-  function popTitle(el, val){
+  // hits: an element may say how often its value was seen (data-hits, as
+  // the advisor rows do for a user agent or a path); it rides the heading
+  // and the pin title after the summary, or after the value itself when the
+  // cell shows the value verbatim.
+  function popTitle(el, val, hits){
     var txt = (el.textContent || '').trim();
-    if (!txt || txt === val) return '';
     var frag = document.createDocumentFragment();
-    for (var i = 0; i < el.childNodes.length; i++) {
-      frag.appendChild(el.childNodes[i].cloneNode(true));
+    if (txt && txt !== val) {
+      for (var i = 0; i < el.childNodes.length; i++) {
+        frag.appendChild(el.childNodes[i].cloneNode(true));
+      }
+    } else if (hits) {
+      frag.appendChild(document.createTextNode(val));
+    } else {
+      return '';
     }
+    if (hits) frag.appendChild(document.createTextNode(' ' + hits));
     return frag;
   }
   // summaryHTML: the cell's rendered markup, reused verbatim for the hover
@@ -1441,6 +1451,13 @@ document.addEventListener('DOMContentLoaded', function(){
   function summaryHTML(el, val){
     var txt = (el.textContent || '').trim();
     return (txt && txt !== val) ? el.innerHTML : '';
+  }
+  // headingHTML: the hover heading -- the summary, and the hits after it (or
+  // after the value when there is no summary to put them after).
+  function headingHTML(el, val, hits){
+    var s = summaryHTML(el, val);
+    if (!hits) return s;
+    return (s || esc(val)) + ' <span class="cellpop-hits">' + esc(hits) + '</span>';
   }
   function popHtml(val, url, summary, note){
     // For URL cells the full address (= scheme://site[:port]path) is the more
@@ -1539,7 +1556,8 @@ document.addEventListener('DOMContentLoaded', function(){
       // body verbatim -- so the body must stay exactly the raw value there.
       // The hover popover has no tools, so a heading costs nothing.
       var note = el.getAttribute('data-note') || '';
-      timer = setTimeout(function(){ pin.showHover(popHtml(val, url, summaryHTML(el, val), note), x, y, el); }, 200);
+      var hits = el.getAttribute('data-hits') || '';
+      timer = setTimeout(function(){ pin.showHover(popHtml(val, url, headingHTML(el, val, hits), note), x, y, el); }, 200);
     });
     el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
     el.addEventListener('click', function(e){
@@ -1553,7 +1571,7 @@ document.addEventListener('DOMContentLoaded', function(){
       // reading produced it.  It goes in the title bar rather than the body
       // because the copy button takes the body's text verbatim -- putting the
       // summary there would paste it along with the UA every time.
-      pin.handleClick(popHtml(val, url, '', el.getAttribute('data-note') || ''), e.pageX, e.pageY, el, popTitle(el, val));
+      pin.handleClick(popHtml(val, url, '', el.getAttribute('data-note') || ''), e.pageX, e.pageY, el, popTitle(el, val, el.getAttribute('data-hits') || ''));
     });
   });
   }

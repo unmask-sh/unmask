@@ -75,12 +75,15 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	// The pick's own recent requests: its sample paths come from them (the
 	// pool carries none).
 	seedEvents(t, h, "198.51.100.20", "Mozilla/5.0", "serve", `{"orig_path":"/wp-login.php"}`, 2)
+	// A pick stored before the counts, with requests in the window: the
+	// page reads its user agents and reasons the way an engine row's are.
+	seedEvents(t, h, "198.51.100.24", "Mozilla/5.0", "serve", `{"force_reason":"geo"}`, 3)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
 	rr := httptest.NewRecorder()
 	h.AdminAdvisorIndex(rr, req)
 	body := rr.Body.String()
 	// The pick's paths, with hits, as a URL cellpop like the hunt log's.
-	if !strings.Contains(body, `<span class="clamp-v cellpop url" data-full-value="/wp-login.php">/wp-login.php</span> <span class="ua-n">×2</span>`) {
+	if !strings.Contains(body, `<span class="pline"><span class="clamp-v cellpop url" data-full-value="/wp-login.php" data-hits="×2">/wp-login.php</span><span class="ua-n">×2</span></span>`) {
 		t.Error("a stored pick shows its most requested paths, with hits, read from its own events")
 	}
 	if !strings.Contains(body, `data-ip="198.51.100.20"`) {
@@ -116,13 +119,20 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	// 2026-09-13: "UA 一個だけ ... TOP5 を出す").
 	// Each user agent is a cellpop like the hunt log's UA cell: the summary
 	// in the cell, the full string as data-full-value for the popover.
-	if !strings.Contains(body, `<span class="cellpop" data-full-value="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36">`) ||
-		!strings.Contains(body, `<span class="ua-n">×60</span><br><span class="cellpop" data-full-value="curl/8.5.0">`) ||
-		!strings.Contains(body, `<span class="ua-n">×12</span><br><span class="muted ua-n">他 5 種</span>`) {
-		t.Error("the UA cell lists the most frequent user agents with counts and how many more")
+	if !strings.Contains(body, `<span class="uline"><span class="cellpop" data-full-value="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" data-hits="×60">`) ||
+		!strings.Contains(body, `<span class="ua-n">×60</span></span><span class="uline"><span class="cellpop" data-full-value="curl/8.5.0" data-hits="×12">`) ||
+		!strings.Contains(body, `<span class="ua-n">×12</span></span><span class="uline muted ua-n">他 5 種</span>`) {
+		t.Error("the UA cell lists the most frequent user agents with counts and how many more, one line each")
 	}
-	// A pick without the counts keeps its one user agent, without a count.
-	if !strings.Contains(body, `<span class="cellpop" data-full-value="Mozilla/5.0">`) || strings.Contains(body, `他 0 種`) {
+	// A pick stored before the counts gets them on the page from its own
+	// requests: one user agent, and still its count.
+	if !strings.Contains(body, `<span class="cellpop" data-full-value="Mozilla/5.0" data-hits="×3">`) || !strings.Contains(body, `<span class="ua-n">×3</span></span>`) ||
+		!strings.Contains(body, `<strong>5</strong> 通過<span class="tf-kinds tf-more">昇格 geo 3</span></div>`) {
+		t.Error("a stored pick with requests in the window shows its user agent with its count and its escalation reasons")
+	}
+	// One without requests in the window keeps its one user agent, without
+	// a count, and never a remainder of zero.
+	if !strings.Contains(body, `<span class="uline"><span class="cellpop" data-full-value="Mozilla/5.0">`) || strings.Contains(body, `他 0 種`) {
 		t.Error("a row without user-agent counts shows its one user agent and no remainder")
 	}
 	// The page carries the shared cell popover, not one of its own.

@@ -74,14 +74,16 @@ func TestUAPopoverTitleCarriesTheSummary(t *testing.T) {
 	if !strings.Contains(body, "function popTitle(") {
 		t.Fatal("the pin title helper is gone; the summary would be lost on a dragged popover")
 	}
-	// Passed as handleClick's title argument, NOT built into popHtml.
-	if !strings.Contains(body, "popTitle(el, val)") {
+	// Passed as handleClick's title argument, NOT built into popHtml (with
+	// the element's hits, when it reports them, after the summary).
+	if !strings.Contains(body, "popTitle(el, val, el.getAttribute('data-hits') || '')") {
 		t.Error("the pin does not receive the cell's summary as its title")
 	}
 	// Hover carries the summary as a heading INSIDE the popover, because the
 	// hover popover has no tools -- only the pinned clone has the copy
-	// button, and that one keeps its body verbatim.
-	if !strings.Contains(body, "pin.showHover(popHtml(val, url, summaryHTML(el, val), note)") {
+	// button, and that one keeps its body verbatim.  headingHTML is the
+	// summary (summaryHTML) with the hits after it.
+	if !strings.Contains(body, "pin.showHover(popHtml(val, url, headingHTML(el, val, hits), note)") || !strings.Contains(body, "var s = summaryHTML(el, val);") {
 		t.Error("hover no longer shows the summary; it would only appear after pinning")
 	}
 	// Hover reuses the cell's rendered markup so the icons survive; flattening
