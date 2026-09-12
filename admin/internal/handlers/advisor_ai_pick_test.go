@@ -71,6 +71,9 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 			// a breakdown line would only restate the count.
 			onlyPow(pick("198.51.100.25", 7, 20, 30)),
 			chainOnly(pick("198.51.100.26", 1, 4, 6)),
+			// A fingerprint pick: its kind reads before the value.
+			{Type: "ja4", Target: "t13d_pick", Scope: "ja4_only", Nominated: true, Passes: 2, Serves: 30, Requests: 40, DistinctIPs: 4, UA: "Mozilla/5.0",
+				Signals: []advisor.Signal{{ID: "ai_pick", Detail: "proposed by the model from the wider ranking"}}},
 		}})
 	// The pick's own recent requests: its sample paths come from them (the
 	// pool carries none).
@@ -139,6 +142,11 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	// line: the badge with its reading beside it.
 	if !strings.Contains(body, `<tr class="ai-pick">`) || !strings.Contains(body, `<span class="sigline"><span class="sig ai">ai_pick</span><span class="sig-detail">モデルが上位ランキングから提案</span></span>`) {
 		t.Error("a pick row is marked and its ai_pick signal reads on one line")
+	}
+	// The target's kind reads before its value: IP or JA4 (operator,
+	// 2026-09-13: "対象が JA4 なのか IP なのかもっと明確に").
+	if !strings.Contains(body, `<span class="ttype ttype-ip">IP</span><span class="ipclick" data-ip="198.51.100.20">`) || !strings.Contains(body, `<span class="ttype ttype-ja4">JA4</span>t13d_pick<a class="loglink"`) {
+		t.Error("each row names its kind (IP / JA4) in front of the target")
 	}
 	// The user agents sit under the origin in the target cell; there is no
 	// UA column (operator, 2026-09-13: "UA を ASN の下に改行入れた後に表示").
