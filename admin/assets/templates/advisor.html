@@ -301,7 +301,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
             {{/* served -> passed on the main line, the middle stages under it,
                  then the window as a compact range in the operator's tz. */}}
             <div class="tf-main"><strong>{{ .Serves }}</strong> {{ t $.Lang "advisor.serves" }} <span class="tf-arrow">→</span> <strong>{{ .Passes }}</strong> {{ t $.Lang "advisor.passes" }}{{ if or .PassPow .PassCaptcha .PassBoth }} <span class="tf-kinds">({{ if .PassPow }}PoW {{ .PassPow }}{{ end }}{{ if .PassCaptcha }}{{ if .PassPow }} · {{ end }}CAPTCHA {{ .PassCaptcha }}{{ end }}{{ if .PassBoth }}{{ if or .PassPow .PassCaptcha }} · {{ end }}PoW+CAPTCHA {{ .PassBoth }}{{ end }})</span>{{ end }}</div>
-            <div class="tf-sub">{{ t $.Lang "advisor.loads" }} {{ .Loads }} · {{ t $.Lang "advisor.pow" }} {{ .PowPassed }} · {{ t $.Lang "advisor.captcha" }} {{ .CaptchaShown }}</div>
+            <div class="tf-sub">{{ t $.Lang "advisor.loads" }} {{ .Loads }} · {{ t $.Lang "advisor.pow" }} {{ .PowPassed }} · {{ t $.Lang "advisor.captcha" }} {{ .CaptchaShown }}{{ if .CaptchaShown }} <span class="tf-kinds">({{ t $.Lang "advisor.captcha_passed" }} {{ .CaptchaPasses }} · {{ t $.Lang "advisor.captcha_held" }} {{ .CaptchaHeld }})</span>{{ end }}</div>
             <div class="tf-sub tf-when">{{ if .FirstTs }}<time class="js-datetime js-datetime-short" data-ts="{{ .FirstTs }}">{{ .FirstSeen }}</time>{{ else }}{{ .FirstSeen }}{{ end }} – {{ if .LastTs }}<time class="js-datetime js-datetime-short" data-ts="{{ .LastTs }}">{{ .LastSeen }}</time>{{ else }}{{ .LastSeen }}{{ end }}</div>
           </td>
           <td class="ua">
