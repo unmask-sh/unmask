@@ -120,10 +120,15 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 				// A pick carries a score now: let it sit where the score puts
 				// it, not at the end of the list.
 				advisor.SortByAttention(cands)
-				// A pick has no paths of its own (the pool carries none):
+				// A pick has no paths of its own (the pool carries none), and
+				// one stored before the counts has no user agents or reasons:
 				// read them the way an engine row's are.
-				if err := advisor.FillPaths(r.Context(), h.DB, cands, advisor.Options{WindowMinutes: windowH * 60}); err != nil {
+				pickOpt := advisor.Options{WindowMinutes: windowH * 60}
+				if err := advisor.FillPaths(r.Context(), h.DB, cands, pickOpt); err != nil {
 					log.Printf("advisor: paths: %v", err)
+				}
+				if err := advisor.FillFacets(r.Context(), h.DB, cands, pickOpt); err != nil {
+					log.Printf("advisor: row facets: %v", err)
 				}
 			}
 			if st.Err != "" {

@@ -324,11 +324,18 @@ func applyFacets(f facets, reasons *[]ReasonCount, top *[]UACount, distinct *int
 	}
 }
 
-// fillFacets puts the escalation reasons and the user agents on the
-// candidates.
-func fillFacets(ctx context.Context, conn *db.DB, cands []Candidate, opt Options) error {
+// FillFacets puts the escalation reasons and the user agents on the
+// candidates that have neither -- the engine's rows when they are built,
+// and on the page the model's picks, whose stored copy predates the counts
+// or the run that would carry them (operator, 2026-09-13: "UA 一種しかなくて
+// も明示的に ×100 とか出してね").
+func FillFacets(ctx context.Context, conn *db.DB, cands []Candidate, opt Options) error {
+	opt = opt.resolved()
 	var ips, ja4s []string
 	for _, c := range cands {
+		if len(c.TopUAs) > 0 || len(c.Reasons) > 0 {
+			continue
+		}
 		switch c.Type {
 		case "ip":
 			ips = append(ips, c.Target)
@@ -346,6 +353,9 @@ func fillFacets(ctx context.Context, conn *db.DB, cands []Candidate, opt Options
 	}
 	for i := range cands {
 		c := &cands[i]
+		if len(c.TopUAs) > 0 || len(c.Reasons) > 0 {
+			continue
+		}
 		switch c.Type {
 		case "ip":
 			applyFacets(byIP[c.Target], &c.Reasons, &c.TopUAs, &c.DistinctUAs, &c.UA)

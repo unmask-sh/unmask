@@ -35,7 +35,19 @@ table.cands tbody tr:nth-child(even) td{background:#f8fafc}
 table.cands tbody tr:hover td{background:#eef2f7}
 table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569;white-space:nowrap}
 /* The UA cell clips like the bot-hunt log's; the full string is a popover away. */
-table.cands td.ua .ua-n{color:#94a3b8;font-size:.7rem}
+/* The count after a user agent or a path, and the "N more" line: one look
+   in every cell (the paths cell had none of it, so its ×N and "他 N 本" came
+   out in the cell's own font -- operator, 2026-09-13). */
+table.cands td .ua-n{color:#94a3b8;font-size:.7rem;font-family:system-ui,sans-serif;font-variant-numeric:tabular-nums}
+/* One line per user agent / path: the value shrinks to an ellipsis and the
+   count keeps its place on the line, instead of the count wrapping under a
+   long value (operator, 2026-09-13: "改行されてしまっている ×6 も考慮して
+   省略表示して"). */
+table.cands .uline,table.cands .pline{display:flex;align-items:baseline;gap:.3rem;max-width:16rem}
+table.cands td.ua .uline{max-width:13rem}
+table.cands .uline .cellpop{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.cands .pline .clamp-v{flex:1 1 auto;min-width:0;max-width:none}
+table.cands .uline .ua-n,table.cands .pline .ua-n{flex:0 0 auto}
 table.cands td.ua{color:#64748b;font-size:.78rem;white-space:nowrap;max-width:13rem;overflow:hidden;text-overflow:ellipsis}
 .cands-scroll{overflow-x:auto;max-width:100%}
 .sig{display:inline-block;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:.25rem;padding:.05rem .4rem;font-size:.72rem;font-family:ui-monospace,Menlo,monospace;margin:0 .25rem .2rem 0;white-space:nowrap}
@@ -316,18 +328,20 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
             {{/* The most frequent user agents with their request counts, and
                  how many more the client used.  Each is a cellpop like the
                  hunt log's UA cell: the summary in the cell, the full string
-                 in the popover under the summary as its heading.  A row from
+                 in the popover under the summary and its hits as the heading
+                 (data-hits; the pin title carries them too).  A row from
                  before the counts (a stored pick) still has its one user
                  agent. */}}
-            {{ if .TopUAs }}{{ range $i, $u := .TopUAs }}{{ if $i }}<br>{{ end }}<span class="cellpop" data-full-value="{{ $u.UA }}">{{ template "ua_cell" $u.UA }}</span> <span class="ua-n">×{{ comma $u.Requests }}</span>{{ end }}{{ with .MoreUAs }}<br><span class="muted ua-n">{{ printf (t $.Lang "advisor.ua_more") (comma .) }}</span>{{ end }}{{ else if .UA }}<span class="cellpop" data-full-value="{{ .UA }}">{{ template "ua_cell" .UA }}</span>{{ else }}<span class="muted">-</span>{{ end }}
+            {{ if .TopUAs }}{{ range .TopUAs }}<span class="uline"><span class="cellpop" data-full-value="{{ .UA }}" data-hits="×{{ comma .Requests }}">{{ template "ua_cell" .UA }}</span><span class="ua-n">×{{ comma .Requests }}</span></span>{{ end }}{{ with .MoreUAs }}<span class="uline muted ua-n">{{ printf (t $.Lang "advisor.ua_more") (comma .) }}</span>{{ end }}{{ else if .UA }}<span class="uline"><span class="cellpop" data-full-value="{{ .UA }}">{{ template "ua_cell" .UA }}</span></span>{{ else }}<span class="muted">-</span>{{ end }}
           </td>
           <td>
             {{/* The most requested paths with their hits and how many more
                  there were.  Each is a URL cellpop like the hunt log's: the
-                 popover shows the full address and offers Open / Copy; the
-                 origin rides the element (data-site / scheme / port) since
-                 there is no events row to read it from. */}}
-            {{ range .Paths }}<span class="clamp-v cellpop url" data-full-value="{{ .Path }}"{{ if .Site }} data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}"{{ end }}>{{ .Path }}</span> <span class="ua-n">×{{ comma .Hits }}</span><br>{{ end }}{{ with .MorePaths }}<span class="muted ua-n">{{ printf (t $.Lang "advisor.paths_more") (comma .) }}</span>{{ end }}
+                 popover shows the full address and offers Open / Copy, with
+                 the hits in its heading (data-hits); the origin rides the
+                 element (data-site / scheme / port) since there is no events
+                 row to read it from. */}}
+            {{ range .Paths }}<span class="pline"><span class="clamp-v cellpop url" data-full-value="{{ .Path }}" data-hits="×{{ comma .Hits }}"{{ if .Site }} data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}"{{ end }}>{{ .Path }}</span><span class="ua-n">×{{ comma .Hits }}</span></span>{{ end }}{{ with .MorePaths }}<span class="pline muted ua-n">{{ printf (t $.Lang "advisor.paths_more") (comma .) }}</span>{{ end }}
           </td>
           <td class="actions">
             {{/* The BAN goes through bot hunt's handler and its dialog (reason,

@@ -193,7 +193,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       const text = pop.textContent;
       const open = pop.querySelector('a.cellpop-btn[target="_blank"]');
       const copy = pop.querySelector('button.cellpop-copy');
-      const out = { shown: visible(), url: 'https://ui-e2e.example' + el.dataset.fullValue, text, open: open ? open.getAttribute('href') : null, copy: !!copy, marked: el.classList.contains('cellpop-active') };
+      const out = { shown: visible(), url: 'https://ui-e2e.example' + el.dataset.fullValue, text, open: open ? open.getAttribute('href') : null, copy: !!copy, marked: el.classList.contains('cellpop-active'), hits: el.dataset.hits };
       el.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
       return out;
     });
@@ -201,6 +201,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     ok(!pathPop.missing && pathPop.shown && pathPop.text.indexOf(pathPop.url) >= 0, `the path popover must show the full address ${pathPop.url}: ${JSON.stringify((pathPop.text || '').slice(0, 100))}`);
     ok(!pathPop.missing && pathPop.open === pathPop.url && pathPop.copy, `the path popover must carry the hunt log's Open / Copy buttons: open=${pathPop.open} copy=${pathPop.copy}`);
     ok(!pathPop.missing && pathPop.marked, 'a path advertises its popover with the shared cellpop marker');
+    // The hits ride the popover's heading (operator, 2026-09-13: "パスにヒット回数も表示して ポップオーバーに").
+    ok(!pathPop.missing && /^×\d/.test(pathPop.hits || '') && pathPop.text.indexOf(pathPop.hits) >= 0, `the path popover must carry the hits ${pathPop.hits}: ${JSON.stringify((pathPop.text || '').slice(0, 100))}`);
 
     // UA popover: the cell shows the summary, the popover the full string.
     const uaText = await page.evaluate(async () => {
@@ -209,6 +211,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       return document.getElementById('cell-popover').textContent;
     });
     ok(uaText.indexOf('UI-E2E-hammer') >= 0, `the UA popover did not show the full user agent: ${JSON.stringify(uaText.slice(0, 80))}`);
+    ok(/×3,?000/.test(uaText), `the UA popover heading must carry the hits: ${JSON.stringify(uaText.slice(0, 80))}`);
 
     // BAN dialog: opens from the row, reason editable and prefilled, cancel
     // closes it without leaving the page.

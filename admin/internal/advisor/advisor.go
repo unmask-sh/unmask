@@ -416,7 +416,7 @@ func Candidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclus
 		log.Printf("advisor: paths: %v", err)
 		return out, nil
 	}
-	if err := fillFacets(ctx, conn, out, opt); err != nil {
+	if err := FillFacets(ctx, conn, out, opt); err != nil {
 		// The reasons line and the user agents too: say so in the log, the
 		// row stands without them.
 		log.Printf("advisor: row facets: %v", err)
