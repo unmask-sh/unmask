@@ -109,6 +109,24 @@ const (
 	ContainedVolumeRequests = VolumeRequests * 10
 )
 
+// SortByAttention orders rows the way the page reads them: passing before
+// contained -- the one distinction that decides whether a ban buys
+// protection or merely quiet -- then the score, then volume.  The page
+// applies it again after merging the model's picks in, so a pick sits where
+// its score puts it rather than at the end.
+func SortByAttention(out []Candidate) {
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Contained != b.Contained {
+			return !a.Contained
+		}
+		if a.Score != b.Score {
+			return a.Score > b.Score
+		}
+		return a.Serves+a.Requests > b.Serves+b.Requests
+	})
+}
+
 // candidateFloor is the score from which a shape is listed at all (under
 // "show all"): one weighty signal.  A hosting-network address that neither
 // hammers nor scans is just a server, not a candidate on its own.
@@ -363,18 +381,7 @@ func Candidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclus
 	out = append(out, ipCands...)
 	out = append(out, ja4Cands...)
 
-	// Passing before contained -- the one distinction that decides whether a
-	// ban buys protection or merely quiet -- then the score, then volume.
-	sort.SliceStable(out, func(i, j int) bool {
-		a, b := out[i], out[j]
-		if a.Contained != b.Contained {
-			return !a.Contained
-		}
-		if a.Score != b.Score {
-			return a.Score > b.Score
-		}
-		return a.Serves+a.Requests > b.Serves+b.Requests
-	})
+	SortByAttention(out)
 	if len(out) > opt.Limit {
 		out = out[:opt.Limit]
 	}
@@ -436,70 +443,94 @@ func ipCandidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Excl
 		c.FirstSeen, c.FirstTs = dbTime(first)
 		c.LastSeen, c.LastTs = dbTime(last)
 		c.Contained = c.Passes == 0
-
-		if c.Serves >= opt.MinServes && c.Loads+c.PowPassed+c.CaptchaShown+c.Passes == 0 {
-			c.Signals = append(c.Signals, Signal{
-				ID: "challenge_hammering", Weight: 3, A: c.Serves,
-				Detail: fmt.Sprintf("%d challenges served, JS never executed", c.Serves),
-			})
-		}
-		// Got past the proof-of-work (or straight to the CAPTCHA) and never
-		// completed it: automation good enough for the first gate, stopped at
-		// the second.  Informational (weight 1) -- the defence is working, and
-		// the row says so.
-		if c.HeldAtCaptcha() {
-			c.Signals = append(c.Signals, Signal{
-				ID: "captcha_held", Weight: 1, A: c.PowPassed, B: c.CaptchaShown,
-				Detail: fmt.Sprintf("solved the proof-of-work %d times and reached the CAPTCHA %d times, never completed it", c.PowPassed, c.CaptchaShown),
-			})
-		}
-		if c.ScannerHits >= opt.MinScanner {
-			c.Signals = append(c.Signals, Signal{
-				ID: "scanner_paths", Weight: 3, A: c.ScannerHits,
-				Detail: fmt.Sprintf("%d requests for scanner-signature paths", c.ScannerHits),
-			})
-		}
-		// Volume: what separates the hammerer worth a ban from the one that
-		// is merely there.  A few dozen serves are not worth the operator's
-		// click; a few hundred are load on their own -- a few thousand, for
-		// a client the challenge already contains (volumeIsCost).
-		if c.volumeIsCost() {
-			c.Signals = append(c.Signals, Signal{
-				ID: "high_volume", Weight: 2, A: c.Requests, B: c.Serves,
-				Detail: fmt.Sprintf("%d requests, %d challenges served -- the volume itself is a cost", c.Requests, c.Serves),
-			})
-		}
 		if gip != nil {
 			info := gip.LookupInfo(ip)
 			c.ASN, c.ASNOrg, c.Country = info.ASN, info.ASNOrg, info.Country
-			if hp := hostingMatch(info.ASNOrg); hp != "" {
-				w := 1
-				detail := "address in a hosting network (" + hp + ")"
-				id := "hosting_network"
-				if strings.HasPrefix(ua, "Mozilla/") {
-					w = 2
-					detail += " wearing a browser User-Agent"
-					id = "hosting_network_browser"
-				}
-				c.Signals = append(c.Signals, Signal{ID: id, Weight: w, S: hp, Detail: detail})
-				// The shape that gets THROUGH: a server farm running a real
-				// browser engine completes the challenge like a person would.
-				// This is the one signal about an actor the challenge is not
-				// stopping, so it outweighs every "contained" signal.
-				if c.Passes >= opt.MinPasses && strings.HasPrefix(ua, "Mozilla/") {
-					c.Signals = append(c.Signals, Signal{
-						ID: "passing_hosting", Weight: 4, A: c.Passes, S: hp,
-						Detail: fmt.Sprintf("%d challenges passed from a hosting network (%s) with a browser User-Agent", c.Passes, hp),
-					})
-				}
-			}
 		}
+		c.addressSignals(opt)
 		c.settleScore()
 		if c.Score >= candidateFloor {
 			out = append(out, c)
 		}
 	}
 	return out, rows.Err()
+}
+
+// addressSignals appends the engine's signals for an address to what the row
+// carries.  The same rules score an engine candidate and a model nomination
+// (buildPick), so a pick's score means what a candidate's does.
+func (c *Candidate) addressSignals(opt Options) {
+	if c.Serves >= opt.MinServes && c.Loads+c.PowPassed+c.CaptchaShown+c.Passes == 0 {
+		c.Signals = append(c.Signals, Signal{
+			ID: "challenge_hammering", Weight: 3, A: c.Serves,
+			Detail: fmt.Sprintf("%d challenges served, JS never executed", c.Serves),
+		})
+	}
+	// Got past the proof-of-work (or straight to the CAPTCHA) and never
+	// completed it: automation good enough for the first gate, stopped at
+	// the second.  Informational (weight 1) -- the defence is working, and
+	// the row says so.
+	if c.HeldAtCaptcha() {
+		c.Signals = append(c.Signals, Signal{
+			ID: "captcha_held", Weight: 1, A: c.PowPassed, B: c.CaptchaShown,
+			Detail: fmt.Sprintf("solved the proof-of-work %d times and reached the CAPTCHA %d times, never completed it", c.PowPassed, c.CaptchaShown),
+		})
+	}
+	if c.ScannerHits >= opt.MinScanner {
+		c.Signals = append(c.Signals, Signal{
+			ID: "scanner_paths", Weight: 3, A: c.ScannerHits,
+			Detail: fmt.Sprintf("%d requests for scanner-signature paths", c.ScannerHits),
+		})
+	}
+	// Volume: what separates the hammerer worth a ban from the one that
+	// is merely there.  A few dozen serves are not worth the operator's
+	// click; a few hundred are load on their own -- a few thousand, for
+	// a client the challenge already contains (volumeIsCost).
+	if c.volumeIsCost() {
+		c.Signals = append(c.Signals, Signal{
+			ID: "high_volume", Weight: 2, A: c.Requests, B: c.Serves,
+			Detail: fmt.Sprintf("%d requests, %d challenges served -- the volume itself is a cost", c.Requests, c.Serves),
+		})
+	}
+	if hp := hostingMatch(c.ASNOrg); hp != "" {
+		w := 1
+		detail := "address in a hosting network (" + hp + ")"
+		id := "hosting_network"
+		if strings.HasPrefix(c.UA, "Mozilla/") {
+			w = 2
+			detail += " wearing a browser User-Agent"
+			id = "hosting_network_browser"
+		}
+		c.Signals = append(c.Signals, Signal{ID: id, Weight: w, S: hp, Detail: detail})
+		// The shape that gets THROUGH: a server farm running a real
+		// browser engine completes the challenge like a person would.
+		// This is the one signal about an actor the challenge is not
+		// stopping, so it outweighs every "contained" signal.
+		if c.Passes >= opt.MinPasses && strings.HasPrefix(c.UA, "Mozilla/") {
+			c.Signals = append(c.Signals, Signal{
+				ID: "passing_hosting", Weight: 4, A: c.Passes, S: hp,
+				Detail: fmt.Sprintf("%d challenges passed from a hosting network (%s) with a browser User-Agent", c.Passes, hp),
+			})
+		}
+	}
+}
+
+// fingerprintSignals appends the engine's signals for a fingerprint: the
+// herd (one fingerprint across many addresses that essentially never
+// passes) and the volume.  Same rules for a candidate and a nomination.
+func (c *Candidate) fingerprintSignals(opt Options) {
+	if c.DistinctIPs >= opt.HerdMinIPs && c.Serves >= opt.MinServes && c.Passes*20 <= c.Serves {
+		c.Signals = append(c.Signals, Signal{
+			ID: "ja4_herd", Weight: 3, A: c.DistinctIPs, B: c.Serves, C: c.Passes,
+			Detail: fmt.Sprintf("one fingerprint across %d addresses, %d serves, %d passes", c.DistinctIPs, c.Serves, c.Passes),
+		})
+	}
+	if c.volumeIsCost() {
+		c.Signals = append(c.Signals, Signal{
+			ID: "high_volume", Weight: 2, A: c.Requests, B: c.Serves,
+			Detail: fmt.Sprintf("%d requests, %d challenges served -- the volume itself is a cost", c.Requests, c.Serves),
+		})
+	}
 }
 
 func ja4Candidates(ctx context.Context, conn *db.DB, excl Exclusions, opt Options) ([]Candidate, error) {
@@ -551,16 +582,7 @@ func ja4Candidates(ctx context.Context, conn *db.DB, excl Exclusions, opt Option
 		c.FirstSeen, c.FirstTs = dbTime(first)
 		c.LastSeen, c.LastTs = dbTime(last)
 		c.Contained = c.Passes == 0
-		c.Signals = append(c.Signals, Signal{
-			ID: "ja4_herd", Weight: 3, A: c.DistinctIPs, B: c.Serves, C: c.Passes,
-			Detail: fmt.Sprintf("one fingerprint across %d addresses, %d serves, %d passes", c.DistinctIPs, c.Serves, c.Passes),
-		})
-		if c.volumeIsCost() {
-			c.Signals = append(c.Signals, Signal{
-				ID: "high_volume", Weight: 2, A: c.Requests, B: c.Serves,
-				Detail: fmt.Sprintf("%d requests, %d challenges served -- the volume itself is a cost", c.Requests, c.Serves),
-			})
-		}
+		c.fingerprintSignals(opt)
 		c.settleScore()
 		out = append(out, c)
 	}

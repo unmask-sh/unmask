@@ -117,6 +117,9 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 					}
 					cands = append(cands, n)
 				}
+				// A pick carries a score now: let it sit where the score puts
+				// it, not at the end of the list.
+				advisor.SortByAttention(cands)
 			}
 			if st.Err != "" {
 				// The latest attempt failed: the bar says so once, with its

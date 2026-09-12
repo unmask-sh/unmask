@@ -608,6 +608,11 @@ func TestNominatedRowsCarryStagesAndPassKinds(t *testing.T) {
 	if fp.Loads != 20 || fp.PowPassed != 12 || fp.CaptchaShown != 2 || fp.Passes != 11 || fp.PassPow != 10 || fp.PassCaptcha != 1 || fp.DistinctIPs != 5 {
 		t.Errorf("ja4 row lost stages / pass kinds: %+v", fp)
 	}
+	// ... and they score: the model's medium (2) for the address, low (1)
+	// for the fingerprint, nothing else on this evidence.
+	if ip.Score != 2 || fp.Score != 1 {
+		t.Errorf("pick scores: ip=%d ja4=%d, want 2 and 1", ip.Score, fp.Score)
+	}
 }
 
 // A carried pick's evidence is this run's, not the run's that stored it: a
@@ -634,6 +639,9 @@ func TestMergeRefreshesCarriedPicksFromPool(t *testing.T) {
 	if n.Serves != 540 || n.Passes != 100 || n.Loads != 106 || n.PowPassed != 100 || n.PassPow != 100 || n.ASNOrg != "ExampleNet" {
 		t.Errorf("the carried pick carries the pool's evidence: %+v", n)
 	}
+	if n.Score != 5 || !hasSignal(n, "high_volume") || !hasSignal(n, "ai_pick") {
+		t.Errorf("the carried pick is re-scored from the refreshed evidence: score=%d signals=%+v (want 5: high_volume 2 + high 3)", n.Score, n.Signals)
+	}
 	if n.FirstTs == 0 || n.LastTs == 0 || n.FirstSeen != "2026-09-12 01:44" {
 		t.Errorf("the carried pick's range goes through dbTime (compact text + unix time): %q %d %q %d", n.FirstSeen, n.FirstTs, n.LastSeen, n.LastTs)
 	}
@@ -642,5 +650,45 @@ func TestMergeRefreshesCarriedPicksFromPool(t *testing.T) {
 	}
 	if _, ok := got.Reviews["198.51.100.41"]; ok {
 		t.Error("the dropped pick's note is not carried either")
+	}
+}
+
+// A pick scores like a candidate: the engine's rules on the pool's evidence
+// plus the model's priority (high 3 / medium 2 / low 1) as the ai_pick
+// signal -- so a pick sits in the list where its score puts it (operator,
+// 2026-09-13: "ai pickup にも score をつけられる？").
+func TestPickScoreCombinesEngineRulesAndPriority(t *testing.T) {
+	pool := Pool{IPs: []PoolIP{
+		// A hosting farm running a browser and passing at volume: the
+		// engine's passing_hosting (4) + hosting_network_browser (2) +
+		// high_volume (2), and the model's high (3).
+		{IP: "198.51.100.50", Requests: 700, Serves: 540, JSLoaded: 106, PowPassed: 100, Passes: 100, PassPow: 100, UA: "Mozilla/5.0 (X11)", ASNOrg: "Amazon.com, Inc."},
+		// Nothing the engine flags: the model's low alone (1).
+		{IP: "198.51.100.51", Requests: 9, Serves: 6, Passes: 2, PassPow: 2, UA: "Mozilla/5.0"},
+	}}
+	res := Result{Nominations: []Nomination{
+		{Target: "198.51.100.50", Type: "ip", Priority: "high", Reasoning: "farm"},
+		{Target: "198.51.100.51", Type: "ip", Priority: "low", Reasoning: "meh"},
+	}}
+	rows, _ := NominatedRows(res, pool)
+	if len(rows) != 2 {
+		t.Fatalf("rows = %+v", rows)
+	}
+	farm, meh := rows[0], rows[1]
+	if farm.Score != 11 || !hasSignal(farm, "passing_hosting") || !hasSignal(farm, "high_volume") || !hasSignal(farm, "ai_pick") {
+		t.Errorf("farm: score=%d signals=%+v, want 11 with passing_hosting / high_volume / ai_pick", farm.Score, farm.Signals)
+	}
+	if meh.Score != 1 || len(meh.Signals) != 1 || meh.Signals[0].ID != "ai_pick" || meh.Signals[0].Weight != 1 {
+		t.Errorf("meh: score=%d signals=%+v, want 1 from ai_pick alone", meh.Score, meh.Signals)
+	}
+	if farm.Attention() != true || meh.Attention() != true {
+		t.Error("a pick is always shown, whatever its score")
+	}
+	// The page's ordering puts the farm above an engine row of score 6 and
+	// the low pick below it.
+	rows = append(rows, Candidate{Type: "ip", Target: "203.0.113.9", Score: 6, Serves: 3000})
+	SortByAttention(rows)
+	if rows[0].Target != "198.51.100.50" || rows[1].Target != "203.0.113.9" || rows[2].Target != "198.51.100.51" {
+		t.Errorf("order by score: %s %s %s", rows[0].Target, rows[1].Target, rows[2].Target)
 	}
 }

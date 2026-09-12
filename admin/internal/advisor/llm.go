@@ -645,19 +645,57 @@ func NominatedRows(res Result, pool Pool) ([]Candidate, map[string]Review) {
 	}
 	rows := make([]Candidate, 0, len(res.Nominations))
 	for _, n := range res.Nominations {
-		c := Candidate{Type: n.Type, Target: n.Target, Nominated: true,
-			Signals: []Signal{{ID: "ai_pick", Detail: "proposed by the model from the wider ranking"}}}
+		c := Candidate{Type: n.Type, Target: n.Target, Nominated: true}
 		switch n.Type {
 		case "ip":
 			c.Scope = "ip_only"
 		case "ja4":
 			c.Scope = "ja4_only"
 		}
-		fillFromPool(&c, pool)
+		buildPick(&c, pool, n.Priority)
 		reviews[n.Target] = Review{Target: n.Target, Priority: n.Priority, Reasoning: n.Reasoning}
 		rows = append(rows, c)
 	}
 	return rows, reviews
+}
+
+// aiPickWeight is what the model's priority adds to a pick's score: the
+// model is the one thing flagging the actor, so its confidence is the
+// row's third signal weight -- a high pick with nothing else scores 3, the
+// listing floor; one from a hosting network with volume, 7 and up.
+func aiPickWeight(priority string) int {
+	switch priority {
+	case "high":
+		return 3
+	case "medium":
+		return 2
+	}
+	return 1
+}
+
+// buildPick makes a nominated row read and score like an engine candidate:
+// the pool's evidence (fillFromPool), the engine's own rules on that
+// evidence (addressSignals / fingerprintSignals), and the model's priority
+// as the ai_pick signal -- then settleScore.  Reports whether the target was
+// in the pool; a row that is not keeps what it had, scored the same way
+// (operator, 2026-09-13: "ai pickup にも score をつけられる？").
+func buildPick(c *Candidate, pool Pool, priority string) bool {
+	inPool := fillFromPool(c, pool)
+	opt := Options{}.resolved()
+	c.Signals = nil
+	switch c.Type {
+	case "ip":
+		c.addressSignals(opt)
+	case "ja4":
+		c.fingerprintSignals(opt)
+	}
+	priority = normPriority(priority)
+	c.Signals = append(c.Signals, Signal{
+		ID: "ai_pick", Weight: aiPickWeight(priority), S: priority,
+		Detail: "proposed by the model from the wider ranking (priority " + priority + ")",
+	})
+	c.settleScore()
+	return inPool
 }
 
 // fillFromPool copies the pool row's evidence onto a nominated candidate:
@@ -947,7 +985,7 @@ func Merge(prev Stored, sent []Candidate, res Result, pool Pool, kept map[string
 		if nominatedNow[n.Target] || current[n.Target] {
 			continue
 		}
-		if !fillFromPool(&n, pool) || n.ContainedBelowCost() {
+		if !buildPick(&n, pool, prev.Reviews[n.Target].Priority) || n.ContainedBelowCost() {
 			continue
 		}
 		nominated = append(nominated, n)
