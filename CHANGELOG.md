@@ -32,7 +32,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-09-13) **Advisor: user agents and paths open the same popover as the hunt log, and paths carry their hits.**  A user agent's popover now heads with its summary and pins under it; a path lists its hits, opens its full address with the hits in the heading and offers the hunt log's Open / Copy buttons.  The column lists the three most requested paths and how many more there were.
 
-- (2026-09-13) **Advisor: the user agent column lists a client's five most frequent user agents with their counts, and how many more it used.**  A row showed one arbitrary user agent -- the alphabetical maximum of the window -- which hid an address rotating them and a fingerprint herd's spread of browsers.  The most frequent one is also what the model reads, with the count of distinct ones.
+- (2026-09-13) **Advisor: a row lists the client's five most frequent user agents with their counts, under its network.**  A row showed one arbitrary user agent -- the alphabetical maximum of the window -- which hid an address rotating them and a fingerprint herd's spread of browsers.  They now sit under the origin in the target cell, with how many more there were; the model reads the same list.
 
 - (2026-09-13) **Advisor: the traffic cell reads the challenge by chain and by the rule that escalated the client.**  A JA4 herd row read "JS 0 · PoW 0 · CAPTCHA 0" because its query counted only serves and passes; fingerprint candidates carry their stages.  Each chain shows presented, passed and not completed (pow_then_captcha per gate), the serves split by escalation reason, and JS how many left without running it.
 

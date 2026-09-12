@@ -44,11 +44,12 @@ table.cands td .ua-n{color:#94a3b8;font-size:.7rem;font-family:system-ui,sans-se
    long value (operator, 2026-09-13: "改行されてしまっている ×6 も考慮して
    省略表示して"). */
 table.cands .uline,table.cands .pline{display:flex;align-items:baseline;gap:.3rem;max-width:16rem}
-table.cands td.ua .uline{max-width:13rem}
+table.cands .ua-list .uline{max-width:14rem}
 table.cands .uline .cellpop{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 table.cands .pline .clamp-v{flex:1 1 auto;min-width:0;max-width:none}
 table.cands .uline .ua-n,table.cands .pline .ua-n{flex:0 0 auto}
-table.cands td.ua{color:#64748b;font-size:.78rem;white-space:nowrap;max-width:13rem;overflow:hidden;text-overflow:ellipsis}
+/* The user agents under the origin, in the target cell. */
+table.cands .ua-list{color:#64748b;font-size:.78rem;white-space:nowrap;max-width:14rem;overflow:hidden;text-overflow:ellipsis;margin-top:.2rem;font-family:system-ui,sans-serif}
 .cands-scroll{overflow-x:auto;max-width:100%}
 .sig{display:inline-block;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:.25rem;padding:.05rem .4rem;font-size:.72rem;font-family:ui-monospace,Menlo,monospace;margin:0 .25rem .2rem 0;white-space:nowrap}
 /* One line per signal: the badge keeps its width, the reading beside it
@@ -280,7 +281,6 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
           <th>{{ t .Lang "advisor.col.target" }}</th>
           <th>{{ t .Lang "advisor.col.signals" }}</th>
           <th>{{ t .Lang "advisor.col.traffic" }}<span class="info-tip" tabindex="0" aria-label="help" style="font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "advisor.col.traffic_help") }}</span></span></th>
-          <th>UA</th>
           <th>{{ t .Lang "advisor.col.paths" }}</th>
           <th>{{ t .Lang "advisor.col.actions" }}</th>
         </tr>
@@ -304,6 +304,16 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
                  clipped with the full value in the popover. */}}
             {{ if .ASNOrg }}<br><span class="clamp-v origin cellpop">{{ .ASNOrg }}{{ if .Country }} ({{ .Country }}){{ end }}</span>{{ end }}
             {{ if .RDNS }}<br><span class="clamp-v origin cellpop">{{ .RDNS }}</span>{{ end }}
+            <div class="ua-list">
+            {{/* The user agents, under the origin -- who the client is, in one
+                 cell (operator, 2026-09-13: "UA を ASN の下に改行入れた後に表示").
+                 The most frequent ones with their request counts and how
+                 many more the client used, each a cellpop like the hunt log's
+                 UA cell: the summary here, the full string in the popover
+                 under the summary and its hits.  A row from before the counts
+                 (a stored pick) still has its one user agent. */}}
+            {{ if .TopUAs }}{{ range .TopUAs }}<span class="uline"><span class="cellpop" data-full-value="{{ .UA }}" data-hits="×{{ comma .Requests }}">{{ template "ua_cell" .UA }}</span><span class="ua-n">×{{ comma .Requests }}</span></span>{{ end }}{{ with .MoreUAs }}<span class="uline muted ua-n">{{ printf (t $.Lang "advisor.ua_more") (comma .) }}</span>{{ end }}{{ else if .UA }}<span class="uline"><span class="cellpop" data-full-value="{{ .UA }}">{{ template "ua_cell" .UA }}</span></span>{{ else }}<span class="muted">-</span>{{ end }}
+            </div>
           </td>
           <td>
             {{/* The engine's score (signal weights added up): what the default
@@ -343,16 +353,6 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
             <div class="tf-main"><strong>{{ comma .Serves }}</strong> {{ t $.Lang "advisor.serves" }} <span class="tf-arrow">→</span> <strong>{{ comma .Passes }}</strong> {{ t $.Lang "advisor.passes" }}{{ if .Escalated }}<span class="tf-kinds tf-more">{{ t $.Lang "advisor.escalated" }} {{ range $i, $r := .Reasons }}{{ if $i }} · {{ end }}{{ if $r.None }}{{ t $.Lang "advisor.reason_none" }}{{ else }}{{ $r.Reason }}{{ end }} {{ comma $r.Serves }}{{ end }}</span>{{ end }}</div>
             <div class="tf-sub"><span class="tf-stage">{{ t $.Lang "advisor.loads" }} {{ comma .Loads }} · {{ t $.Lang "advisor.js_not_run" }} {{ comma .JSNotRun }}</span>{{ if .HasPowOnly }}<span class="tf-stage">{{ t $.Lang "advisor.kind_pow" }} {{ comma .ShownPow }} {{ t $.Lang "advisor.shown" }}</span><span class="tf-kinds tf-more">{{ t $.Lang "advisor.gate_passed" }} {{ comma .PassPow }} · {{ t $.Lang "advisor.gate_held" }} {{ comma .PowOnlyHeld }}</span>{{ end }}{{ if .HasCaptchaOnly }}<span class="tf-stage">{{ t $.Lang "advisor.kind_captcha" }} {{ comma .ShownCaptcha }} {{ t $.Lang "advisor.shown" }}</span><span class="tf-kinds tf-more">{{ t $.Lang "advisor.gate_passed" }} {{ comma .PassCaptcha }} · {{ t $.Lang "advisor.gate_held" }} {{ comma .CaptchaOnlyHeld }}</span>{{ end }}{{ if .HasChain }}<span class="tf-stage">{{ t $.Lang "advisor.kind_both" }} {{ comma .ShownBoth }} {{ t $.Lang "advisor.shown" }}</span><span class="tf-kinds tf-more">{{ t $.Lang "advisor.pow" }} {{ t $.Lang "advisor.gate_passed" }} {{ comma .ChainPowPassed }} · {{ t $.Lang "advisor.gate_held" }} {{ comma .ChainPowHeld }}</span><span class="tf-kinds tf-more">{{ t $.Lang "advisor.captcha" }} {{ t $.Lang "advisor.gate_passed" }} {{ comma .PassBoth }} · {{ t $.Lang "advisor.gate_held" }} {{ comma .ChainCaptchaHeld }}</span>{{ end }}</div>
             <div class="tf-sub tf-when">{{ if .FirstTs }}<time class="js-datetime js-datetime-short" data-ts="{{ .FirstTs }}">{{ .FirstSeen }}</time>{{ else }}{{ .FirstSeen }}{{ end }} – {{ if .LastTs }}<time class="js-datetime js-datetime-short" data-ts="{{ .LastTs }}">{{ .LastSeen }}</time>{{ else }}{{ .LastSeen }}{{ end }}</div>
-          </td>
-          <td class="ua">
-            {{/* The most frequent user agents with their request counts, and
-                 how many more the client used.  Each is a cellpop like the
-                 hunt log's UA cell: the summary in the cell, the full string
-                 in the popover under the summary and its hits as the heading
-                 (data-hits; the pin title carries them too).  A row from
-                 before the counts (a stored pick) still has its one user
-                 agent. */}}
-            {{ if .TopUAs }}{{ range .TopUAs }}<span class="uline"><span class="cellpop" data-full-value="{{ .UA }}" data-hits="×{{ comma .Requests }}">{{ template "ua_cell" .UA }}</span><span class="ua-n">×{{ comma .Requests }}</span></span>{{ end }}{{ with .MoreUAs }}<span class="uline muted ua-n">{{ printf (t $.Lang "advisor.ua_more") (comma .) }}</span>{{ end }}{{ else if .UA }}<span class="uline"><span class="cellpop" data-full-value="{{ .UA }}">{{ template "ua_cell" .UA }}</span></span>{{ else }}<span class="muted">-</span>{{ end }}
           </td>
           <td>
             {{/* The most requested paths with their hits and how many more

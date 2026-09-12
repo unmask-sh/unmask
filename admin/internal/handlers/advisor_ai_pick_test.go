@@ -140,6 +140,11 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	if !strings.Contains(body, `<tr class="ai-pick">`) || !strings.Contains(body, `<span class="sigline"><span class="sig ai">ai_pick</span><span class="sig-detail">モデルが上位ランキングから提案</span></span>`) {
 		t.Error("a pick row is marked and its ai_pick signal reads on one line")
 	}
+	// The user agents sit under the origin in the target cell; there is no
+	// UA column (operator, 2026-09-13: "UA を ASN の下に改行入れた後に表示").
+	if strings.Contains(body, `<td class="ua">`) || strings.Contains(body, `<th>UA</th>`) || !strings.Contains(body, `<div class="ua-list">`) {
+		t.Error("the user agents belong under the origin in the target cell, not in a column")
+	}
 	// The page carries the shared cell popover, not one of its own.
 	if !strings.Contains(body, `id="cell-popover"`) || strings.Contains(body, `ua-popover`) || strings.Contains(body, `uaclick`) {
 		t.Error("the advisor page uses the shared cell popover (cellpop) for user agents, paths and origin")
