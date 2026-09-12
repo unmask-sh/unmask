@@ -143,6 +143,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       `expected both signals on the seed row, got ${JSON.stringify(adv.sigs)}`);
     ok(adv.hasFlag, 'the IP cell has no country flag');
     ok(adv.hasUA, 'the UA cell has no popover trigger');
+    // Nothing on the page may widen it past the viewport: a nowrap signal
+    // reading did, once (operator, 2026-09-13: "横スクロールが発生するようになった").
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    ok(overflow <= 0, `the page must not scroll sideways at 1500px: overflow ${overflow}px`);
     ok(adv.loglink && adv.loglink.indexOf('/admin/hunt/?ip=' + SEED_IP) >= 0,
       `the magnifier does not open the raw events for the target: ${adv.loglink}`);
     ok(adv.hasBanForm, 'the row has no BAN button');

@@ -51,8 +51,12 @@ table.cands .uline .ua-n,table.cands .pline .ua-n{flex:0 0 auto}
 table.cands td.ua{color:#64748b;font-size:.78rem;white-space:nowrap;max-width:13rem;overflow:hidden;text-overflow:ellipsis}
 .cands-scroll{overflow-x:auto;max-width:100%}
 .sig{display:inline-block;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:.25rem;padding:.05rem .4rem;font-size:.72rem;font-family:ui-monospace,Menlo,monospace;margin:0 .25rem .2rem 0;white-space:nowrap}
-.sig-detail{color:#64748b;font-size:.78rem;margin-left:.3rem}
-.sigline{display:block;margin-bottom:.15rem;white-space:nowrap}
+/* One line per signal: the badge keeps its width, the reading beside it
+   wraps within the cell's width when it is long -- never nowrap, which made
+   the signals column as wide as its longest sentence and the page scroll
+   sideways (operator, 2026-09-13: "横スクロールが発生するようになった"). */
+.sig-detail{color:#64748b;font-size:.78rem;min-width:0}
+.sigline{display:flex;align-items:baseline;gap:.35rem;margin-bottom:.15rem;max-width:26rem}
 /* The model's pick: a filled purple badge, and the row itself carries a
    purple edge and tint so it stands out from the engine's rows at a glance. */
 .sig.ai{background:#6d28d9;color:#fff;border-color:#6d28d9;font-weight:700}
