@@ -333,7 +333,11 @@ func TestMergeDropsContainedPicksCarriedOver(t *testing.T) {
 		{Type: "ip", Target: "198.51.100.20", Nominated: true, Passes: 30, Serves: 40, Requests: 80},
 		{Type: "ip", Target: "198.51.100.21", Nominated: true, Contained: true, Passes: 0, Serves: 500, Requests: 700},
 	}}
-	got := Merge(prev, nil, Result{}, Pool{}, nil, map[string]bool{})
+	pool := Pool{IPs: []PoolIP{
+		{IP: "198.51.100.20", Passes: 30, Serves: 40, Requests: 80},
+		{IP: "198.51.100.21", Passes: 0, Serves: 500, Requests: 700},
+	}}
+	got := Merge(prev, nil, Result{}, pool, nil, map[string]bool{})
 	if len(got.Nominated) != 1 || got.Nominated[0].Target != "198.51.100.20" {
 		t.Fatalf("only the passing pick is carried over: %+v", got.Nominated)
 	}
@@ -608,9 +612,10 @@ func TestNominatedRowsCarryStagesAndPassKinds(t *testing.T) {
 
 // A carried pick's evidence is this run's, not the run's that stored it: a
 // pick stored with zero stages (an earlier build) reads the pool's counts
-// after the next merge, while a pick that has left the pool keeps what it
-// had (tool1-jp, 2026-09-13: seven stored picks read "JS 0 · PoW 0" though
-// the events were there).
+// after the next merge, and a pick that has left the pool -- the window's
+// busiest actors -- is dropped rather than shown with a stale range
+// (tool1-jp, 2026-09-13: seven stored picks read "JS 0 · PoW 0" though the
+// events were there, one of them from a window two days gone).
 func TestMergeRefreshesCarriedPicksFromPool(t *testing.T) {
 	prev := Stored{At: time.Now().Add(-time.Hour), Reviews: map[string]Review{
 		"198.51.100.40": {Target: "198.51.100.40", Priority: "high", Reasoning: "kept note"},
@@ -619,24 +624,23 @@ func TestMergeRefreshesCarriedPicksFromPool(t *testing.T) {
 		{Type: "ip", Target: "198.51.100.40", Scope: "ip_only", Nominated: true, Serves: 132, Passes: 27},
 		{Type: "ip", Target: "198.51.100.41", Scope: "ip_only", Nominated: true, Serves: 40, Passes: 9, Loads: 5},
 	}}
-	pool := Pool{IPs: []PoolIP{{IP: "198.51.100.40", Requests: 700, Serves: 540, JSLoaded: 106, PowPassed: 100, Passes: 100, PassPow: 100, ASNOrg: "ExampleNet"}}}
+	pool := Pool{IPs: []PoolIP{{IP: "198.51.100.40", Requests: 700, Serves: 540, JSLoaded: 106, PowPassed: 100, Passes: 100, PassPow: 100, ASNOrg: "ExampleNet",
+		FirstSeen: "2026-09-12 01:44:00.000", LastSeen: "2026-09-13 01:44:00.000"}}}
 	got := Merge(prev, nil, Result{}, pool, nil, map[string]bool{})
-	if len(got.Nominated) != 2 {
-		t.Fatalf("both picks are carried: %+v", got.Nominated)
+	if len(got.Nominated) != 1 || got.Nominated[0].Target != "198.51.100.40" {
+		t.Fatalf("only the pick still in the pool is carried: %+v", got.Nominated)
 	}
-	for _, n := range got.Nominated {
-		switch n.Target {
-		case "198.51.100.40":
-			if n.Serves != 540 || n.Passes != 100 || n.Loads != 106 || n.PowPassed != 100 || n.PassPow != 100 || n.ASNOrg != "ExampleNet" {
-				t.Errorf("the pick still in the pool carries the pool's evidence: %+v", n)
-			}
-		case "198.51.100.41":
-			if n.Serves != 40 || n.Passes != 9 || n.Loads != 5 {
-				t.Errorf("a pick that left the pool keeps its stored evidence: %+v", n)
-			}
-		}
+	n := got.Nominated[0]
+	if n.Serves != 540 || n.Passes != 100 || n.Loads != 106 || n.PowPassed != 100 || n.PassPow != 100 || n.ASNOrg != "ExampleNet" {
+		t.Errorf("the carried pick carries the pool's evidence: %+v", n)
+	}
+	if n.FirstTs == 0 || n.LastTs == 0 || n.FirstSeen != "2026-09-12 01:44" {
+		t.Errorf("the carried pick's range goes through dbTime (compact text + unix time): %q %d %q %d", n.FirstSeen, n.FirstTs, n.LastSeen, n.LastTs)
 	}
 	if got.Reviews["198.51.100.40"].Reasoning != "kept note" {
 		t.Error("the model's note is kept while the evidence is refreshed")
+	}
+	if _, ok := got.Reviews["198.51.100.41"]; ok {
+		t.Error("the dropped pick's note is not carried either")
 	}
 }
