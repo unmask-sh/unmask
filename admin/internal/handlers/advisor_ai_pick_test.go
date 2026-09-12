@@ -72,10 +72,16 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 			onlyPow(pick("198.51.100.25", 7, 20, 30)),
 			chainOnly(pick("198.51.100.26", 1, 4, 6)),
 		}})
+	// The pick's own recent requests: its sample paths come from them (the
+	// pool carries none).
+	seedEvents(t, h, "198.51.100.20", "Mozilla/5.0", "serve", `{"orig_path":"/wp-login.php"}`, 2)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
 	rr := httptest.NewRecorder()
 	h.AdminAdvisorIndex(rr, req)
 	body := rr.Body.String()
+	if !strings.Contains(body, `<span class="clamp-v uaclick" data-ua="/wp-login.php">/wp-login.php</span>`) {
+		t.Error("a stored pick shows sample paths read from its own events")
+	}
 	if !strings.Contains(body, `data-ip="198.51.100.20"`) {
 		t.Error("a pick that passes must be shown")
 	}
