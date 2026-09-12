@@ -850,39 +850,52 @@ func cmdServe(args []string) error {
 			return h.SnapshotSettings().Sites.DefinedSet()
 		}
 		go func() {
+			// Each rollup runs under its own budget.  They used to share one
+			// five-minute context: on a host with a long event backlog the
+			// hourly fold spent all of it every tick, and the rollups behind
+			// it -- the install-wide one DailyPassByDay reads -- got a context
+			// that had already expired, so their cursors never moved and the
+			// card scanned 30 days of per-minute rows instead (the company
+			// host, 2026-09-12).  The fold's own budget is the longest: it
+			// stops between chunks and continues next tick (AggregateHourly).
+			stage := func(name string, budget time.Duration, fn func(context.Context) error) {
+				ctx, cancel := context.WithTimeout(context.Background(), budget)
+				defer cancel()
+				if err := fn(ctx); err != nil {
+					log.Printf("%s: %v", name, err)
+				}
+			}
 			runAgg := func() {
 				defer safe.Recover("hourly-aggregate") // panic must not kill the daemon
-				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-				defer cancel()
-				if err := dashboard.AggregateHourly(ctx, conn, gip); err != nil {
-					log.Printf("hourly aggregate: %v", err)
-				}
+				stage("hourly aggregate", 3*time.Minute, func(ctx context.Context) error {
+					return dashboard.AggregateHourly(ctx, conn, gip)
+				})
 				// Fold per-minute traffic sketches into hourly rollups so the
 				// DailyUniqueIPs card merges ~720 sketches, not ~65k rows.
-				if err := dashboard.RollupTrafficHLL(ctx, conn); err != nil {
-					log.Printf("traffic-hll rollup: %v", err)
-				}
+				stage("traffic-hll rollup", 2*time.Minute, func(ctx context.Context) error {
+					return dashboard.RollupTrafficHLL(ctx, conn)
+				})
 				// Fold the per-minute nginx-log tables into install-wide hourly
 				// aggregates so the default (unfiltered) DailyUniqueIPs /
 				// DailyPassByDay cards skip the ~300-site read fan-out.
-				if err := dashboard.RollupInstallWideHourly(ctx, conn); err != nil {
-					log.Printf("install-wide rollup: %v", err)
-				}
+				stage("install-wide rollup", 2*time.Minute, func(ctx context.Context) error {
+					return dashboard.RollupInstallWideHourly(ctx, conn)
+				})
 				// Same idea for the per-country pass chart (DailyPassByCountry):
 				// collapse the per-site country_hourly rows into install-wide ones.
-				if err := dashboard.RollupInstallWideCountry(ctx, conn); err != nil {
-					log.Printf("install-wide country rollup: %v", err)
-				}
+				stage("install-wide country rollup", 2*time.Minute, func(ctx context.Context) error {
+					return dashboard.RollupInstallWideCountry(ctx, conn)
+				})
 				// Pre-aggregate the Funnel card's rate_limit row per hour so it
 				// stops running a per-IP self-join over unmask_event on each load.
-				if err := dashboard.RollupRateLimitFunnel(ctx, conn); err != nil {
-					log.Printf("rate-limit funnel rollup: %v", err)
-				}
+				stage("rate-limit funnel rollup", 2*time.Minute, func(ctx context.Context) error {
+					return dashboard.RollupRateLimitFunnel(ctx, conn)
+				})
 				// Install-wide 'ipc'/'ipp' sketches so the overview's non-human-%
 				// card skips the per-site traffic_hll fan-out.
-				if err := dashboard.RollupInstallWideBlocked(ctx, conn); err != nil {
-					log.Printf("install-wide blocked rollup: %v", err)
-				}
+				stage("install-wide blocked rollup", 2*time.Minute, func(ctx context.Context) error {
+					return dashboard.RollupInstallWideBlocked(ctx, conn)
+				})
 			}
 			runPrune := func() {
 				defer safe.Recover("hourly-prune")

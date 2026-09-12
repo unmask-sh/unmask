@@ -44,7 +44,9 @@ func ReadAggregateStatus(ctx context.Context, d *db.DB) (AggregateStatus, error)
 	err := d.QueryRowContext(ctx,
 		`SELECT last_id, updated_at FROM unmask_aggregate_state WHERE name = ?`, hourlyState).Scan(&a.Cursor, &updated)
 	switch {
-	case err == sql.ErrNoRows:
+	case err == sql.ErrNoRows, isMissingTable(err):
+		// No cursor recorded -- or no state table at all (a schema from
+		// before the rollup): nothing is folded, the whole table is behind.
 	case err != nil:
 		return a, err
 	default:
@@ -74,6 +76,16 @@ func ReadAggregateStatus(ctx context.Context, d *db.DB) (AggregateStatus, error)
 	return a, nil
 }
 
+// isMissingTable: the schema lacks the table (SQLite "no such table",
+// MariaDB error 1146) -- as opposed to a table that failed to answer.
+func isMissingTable(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such table") || strings.Contains(msg, "error 1146") || strings.Contains(msg, "doesn't exist")
+}
+
 // RawScanCeiling is the event-table size past which the 30-day serve cards
 // do not attempt their raw fallback while the hourly aggregate is not ready.
 // The fallback reads 30 days of unmask_event; measured 2026-09-10 it took
@@ -86,14 +98,20 @@ func ReadAggregateStatus(ctx context.Context, d *db.DB) (AggregateStatus, error)
 var RawScanCeiling int64 = 2_000_000
 
 // RawScanHopeless: the hourly aggregate has not completed a pass in this
-// process, and the event table is past the size at which a raw 30-day scan
-// finishes inside a card's budget.  Two rowid seeks; safe to ask per request.
+// process, and what it has not folded yet -- the rows the 30-day serve cards
+// would have to scan raw, since they read every settled hour from the rollup
+// (hourlySettledBoundary) -- is past the size at which that scan finishes
+// inside a card's budget.  Before any pass has recorded a cursor the
+// remainder is the whole table.  Two rowid seeks; safe to ask per request.
 func RawScanHopeless(ctx context.Context, d *db.DB) (bool, int64) {
 	if HourlyAggReady() {
 		return false, 0
 	}
-	n := int64(tableRowEstimate(ctx, d))
-	return n > RawScanCeiling, n
+	a, err := ReadAggregateStatus(ctx, d)
+	if err != nil {
+		return false, 0
+	}
+	return a.Backlog > RawScanCeiling, a.Backlog
 }
 
 // AggregateWindow is one aggregate table against the retention window
