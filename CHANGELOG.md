@@ -22,6 +22,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-09-10) **Advisor: a candidate being re-analysed keeps its last answer on screen.**  When a click sends a candidate back to the model because its counts or window changed, the row used to drop its previous priority and reasoning and show only the spinner until the new answer arrived.  It now shows the spinner above the previous answer, dimmed, and swaps in the replacement when it lands.
 
 ### Fixed
+- (2026-09-13) **Advisor: fingerprint candidates carry their challenge stages and pass kinds; the CAPTCHA figure says how many completed it.**  A JA4 herd row read "JS 0 · PoW 0 · CAPTCHA 0" because the fingerprint query counted only serves and passes.  The CAPTCHA stage now reads "5 (passed 2 · not completed 3)": a solve that stopped at the CAPTCHA is a number, not a gap.
+
 - (2026-09-12) **Stats: the 30-day serve cards read settled hours from the hourly rollup and scan only the rest.**  After a restart the cards ignored the rollup until a full pass had completed, scanning 30 days of raw events and timing out on a large install.  The fold sizes its chunks to the host and stops when its budget is up, and each rollup runs under its own budget.
 
 - (2026-09-12) **Advisor: an AI pick row shows its challenge stages and pass kinds.**  A row the model nominated from the pool showed "JS 0 · PoW 0 · CAPTCHA 0" under a real pass count, and an empty "()" after it: the pool row's stage counts were not copied and it carried no pass-kind breakdown.  Both are carried now, and the breakdown is rendered only when there is one.

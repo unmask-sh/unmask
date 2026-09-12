@@ -115,9 +115,12 @@ Read the counts as stages of one challenge. challenges_served: challenge pages
 served. js_loaded: the client executed the challenge JavaScript. pow_passed: it
 solved the proof-of-work (in a proof-of-work-only chain that solve is the pass
 itself). captcha_shown: it reached the behavioural CAPTCHA. challenges_passed: it completed the whole challenge and received a
-pass cookie -- the only count that means it got through. A client with
-pow_passed but no challenges_passed was stopped at the CAPTCHA: the defence
-worked. A client with many challenges served and none passed is already
+pass cookie -- the only count that means it got through. pass_pow, pass_captcha
+and pass_both split challenges_passed by how the chain ended (proof-of-work
+alone, CAPTCHA alone, proof-of-work then CAPTCHA); captcha_shown minus
+pass_captcha minus pass_both is how often the CAPTCHA was reached and not
+completed. A client with pow_passed but no challenges_passed was stopped at
+the CAPTCHA: the defence worked. A client with many challenges served and none passed is already
 contained: blocking it would only save the server some work, so rank it low
 unless its volume alone is a cost -- thousands of requests in the window, not
 hundreds. What deserves attention is the opposite --
@@ -147,6 +150,9 @@ type bundleCandidate struct {
 	PowPassed    int      `json:"pow_passed"`
 	CaptchaShown int      `json:"captcha_shown"`
 	Passes       int      `json:"challenges_passed"`
+	PassPow      int      `json:"pass_pow,omitempty"`     // ... by the proof-of-work alone
+	PassCaptcha  int      `json:"pass_captcha,omitempty"` // ... by the CAPTCHA alone
+	PassBoth     int      `json:"pass_both,omitempty"`    // ... proof-of-work then CAPTCHA
 	ScannerHits  int      `json:"scanner_path_hits,omitempty"`
 	DistinctIPs  int      `json:"distinct_addresses,omitempty"`
 	PassIPs7d    int      `json:"pass_ips_7d,omitempty"` // fingerprints: addresses that completed the challenge with it in 7 days
@@ -175,7 +181,8 @@ func buildBundle(cands []Candidate) []bundleCandidate {
 		}
 		out = append(out, bundleCandidate{
 			Target: c.Target, Type: c.Type, Contained: c.Contained, Signals: ids,
-			Serves: c.Serves, JSLoaded: c.Loads, PowPassed: c.PowPassed, CaptchaShown: c.CaptchaShown, Passes: c.Passes, ScannerHits: c.ScannerHits, PassIPs7d: c.PassIPs7d, Verdict: c.Verdict,
+			Serves: c.Serves, JSLoaded: c.Loads, PowPassed: c.PowPassed, CaptchaShown: c.CaptchaShown, Passes: c.Passes,
+			PassPow: c.PassPow, PassCaptcha: c.PassCaptcha, PassBoth: c.PassBoth, ScannerHits: c.ScannerHits, PassIPs7d: c.PassIPs7d, Verdict: c.Verdict,
 			DistinctIPs: c.DistinctIPs, ASNOrg: c.ASNOrg, Country: c.Country,
 			UA: ua, SamplePaths: c.SamplePaths,
 			FirstSeen: c.FirstSeen, LastSeen: c.LastSeen,
