@@ -605,3 +605,38 @@ func TestNominatedRowsCarryStagesAndPassKinds(t *testing.T) {
 		t.Errorf("ja4 row lost stages / pass kinds: %+v", fp)
 	}
 }
+
+// A carried pick's evidence is this run's, not the run's that stored it: a
+// pick stored with zero stages (an earlier build) reads the pool's counts
+// after the next merge, while a pick that has left the pool keeps what it
+// had (tool1-jp, 2026-09-13: seven stored picks read "JS 0 · PoW 0" though
+// the events were there).
+func TestMergeRefreshesCarriedPicksFromPool(t *testing.T) {
+	prev := Stored{At: time.Now().Add(-time.Hour), Reviews: map[string]Review{
+		"198.51.100.40": {Target: "198.51.100.40", Priority: "high", Reasoning: "kept note"},
+		"198.51.100.41": {Target: "198.51.100.41", Priority: "low", Reasoning: "left the pool"},
+	}, Nominated: []Candidate{
+		{Type: "ip", Target: "198.51.100.40", Scope: "ip_only", Nominated: true, Serves: 132, Passes: 27},
+		{Type: "ip", Target: "198.51.100.41", Scope: "ip_only", Nominated: true, Serves: 40, Passes: 9, Loads: 5},
+	}}
+	pool := Pool{IPs: []PoolIP{{IP: "198.51.100.40", Requests: 700, Serves: 540, JSLoaded: 106, PowPassed: 100, Passes: 100, PassPow: 100, ASNOrg: "ExampleNet"}}}
+	got := Merge(prev, nil, Result{}, pool, nil, map[string]bool{})
+	if len(got.Nominated) != 2 {
+		t.Fatalf("both picks are carried: %+v", got.Nominated)
+	}
+	for _, n := range got.Nominated {
+		switch n.Target {
+		case "198.51.100.40":
+			if n.Serves != 540 || n.Passes != 100 || n.Loads != 106 || n.PowPassed != 100 || n.PassPow != 100 || n.ASNOrg != "ExampleNet" {
+				t.Errorf("the pick still in the pool carries the pool's evidence: %+v", n)
+			}
+		case "198.51.100.41":
+			if n.Serves != 40 || n.Passes != 9 || n.Loads != 5 {
+				t.Errorf("a pick that left the pool keeps its stored evidence: %+v", n)
+			}
+		}
+	}
+	if got.Reviews["198.51.100.40"].Reasoning != "kept note" {
+		t.Error("the model's note is kept while the evidence is refreshed")
+	}
+}
