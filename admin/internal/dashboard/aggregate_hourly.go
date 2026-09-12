@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -206,17 +207,124 @@ func AggregateHourly(ctx context.Context, d *db.DB, gip *ipgeo.Reader) error {
 	if err != nil {
 		return err
 	}
+	start := last
+	t0 := time.Now()
+	var folded int
 	for {
+		c0 := time.Now()
 		n, maxID, err := aggregateHourlyChunk(ctx, d, gip, last)
 		if err != nil {
+			if ctx.Err() != nil {
+				// The pass budget ran out inside a chunk: that chunk is rolled
+				// back, the cursor stands where the last one left it, and the
+				// next tick continues from there with a smaller chunk -- so a
+				// host on which one chunk outlasts the budget still advances.
+				adaptHourlyChunk(hourlyChunkSlow + time.Second)
+				logHourlyProgress(d, start, last, folded, time.Since(t0), "the pass budget ran out mid-chunk")
+				return nil
+			}
 			return err
 		}
 		if n == 0 {
-			hourlyReady.Store(true) // a full pass is done: the agg paths may read now
+			if !hourlyReady.Swap(true) && folded > 0 {
+				log.Printf("hourly aggregate: caught up: folded %d rows in %v (cursor id %d)", folded, time.Since(t0).Round(time.Millisecond), last)
+			}
 			return nil
 		}
+		folded += n
 		last = maxID
+		adaptHourlyChunk(time.Since(c0))
 	}
+}
+
+// hourlyChunkRows is the current fold chunk, adapted to the host: a chunk
+// that takes long is halved for the next, one that is quick grows back toward
+// hourlyBatch.  On the operator's company host (slow disk, 2026-09-12) a
+// 20,000-row chunk could outlast the whole pass budget, and a chunk that
+// never completes never advances the cursor.  Zero means hourlyBatch.
+var hourlyChunkRows atomic.Int64
+
+const (
+	hourlyChunkMin  = 500              // never shrink below this
+	hourlyChunkSlow = 30 * time.Second // a chunk this slow halves the next
+	hourlyChunkFast = 5 * time.Second  // a chunk this quick doubles the next
+)
+
+func currentHourlyChunk() int {
+	if n := hourlyChunkRows.Load(); n > 0 {
+		return int(n)
+	}
+	return hourlyBatch
+}
+
+// adaptHourlyChunk sizes the next chunk from how long the last one took.
+func adaptHourlyChunk(took time.Duration) {
+	n := int64(currentHourlyChunk())
+	switch {
+	case took > hourlyChunkSlow && n > hourlyChunkMin:
+		n /= 2
+		if n < hourlyChunkMin {
+			n = hourlyChunkMin
+		}
+	case took < hourlyChunkFast && n < hourlyBatch:
+		n *= 2
+		if n > hourlyBatch {
+			n = hourlyBatch
+		}
+	default:
+		return
+	}
+	hourlyChunkRows.Store(n)
+}
+
+// logHourlyProgress is the one line a pass that did not catch up leaves
+// behind: what it folded, where the cursor stands, and how far behind it
+// still is -- what an operator with no doctor at hand (the company host)
+// needs in order to see the rollup moving.
+func logHourlyProgress(d *db.DB, from, to int64, folded int, took time.Duration, why string) {
+	var maxID sql.NullInt64
+	_ = d.QueryRow(`SELECT MAX(id) FROM unmask_event`).Scan(&maxID)
+	behind := int64(0)
+	if maxID.Valid && maxID.Int64 > to {
+		behind = maxID.Int64 - to
+	}
+	log.Printf("hourly aggregate: %s: folded %d rows in %v (cursor id %d -> %d), ~%d rows behind; continues next tick with %d-row chunks",
+		why, folded, took.Round(time.Millisecond), from, to, behind, currentHourlyChunk())
+}
+
+// hourlySettledBoundary reports how far the hourly aggregate is complete: the
+// cursor (highest folded id) and the first hour it does NOT fully cover --
+// the hour of the first unfolded event, or the hour after now when nothing
+// is pending.  Every bucket before that hour holds every event of its hour:
+// ids and times advance together, and the odd straggler with an older time
+// and a newer id is caught by a reader's `id > cursor` term.  ok is false
+// when no pass has ever recorded a cursor: nothing is settled.
+//
+// This is what lets the 30-day cards read settled hours from the rollup
+// while a pass is still running -- the values of a finished hour never
+// change, so a restart must not throw them away (operator, 2026-09-12:
+// "daily で値が確定するので毎回計算する必要無いのでは").
+func hourlySettledBoundary(ctx context.Context, d *db.DB) (cursor int64, boundary time.Time, ok bool, err error) {
+	err = d.QueryRowContext(ctx, `SELECT last_id FROM unmask_aggregate_state WHERE name = ?`, hourlyState).Scan(&cursor)
+	if err == sql.ErrNoRows || isMissingTable(err) {
+		return 0, time.Time{}, false, nil
+	}
+	if err != nil {
+		return 0, time.Time{}, false, err
+	}
+	var ts any
+	err = d.QueryRowContext(ctx, `SELECT date_created FROM unmask_event WHERE id > ? ORDER BY id LIMIT 1`, cursor).Scan(&ts)
+	if err == sql.ErrNoRows {
+		return cursor, time.Now().UTC().Truncate(time.Hour).Add(time.Hour), true, nil
+	}
+	if err != nil {
+		return 0, time.Time{}, false, err
+	}
+	t, tok := normalizeEventTime(ts)
+	if !tok {
+		return 0, time.Time{}, false, nil
+	}
+	return cursor, t.UTC().Truncate(time.Hour), true, nil
 }
 
 // HourlyAggReady reports whether the hourly aggregate is safe to read — i.e.
@@ -399,7 +507,7 @@ func hourlyLastID(ctx context.Context, d *db.DB) (int64, error) {
 func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afterID int64) (int, int64, error) {
 	rows, err := d.QueryContext(ctx, `
         SELECT id, `+hourColExpr(d, "date_created")+`, site, ja4_verdict, ja4_verdict_id, phase, flags, payload_json, user_agent, ip_address
-        FROM unmask_event WHERE id > ? ORDER BY id LIMIT ?`, afterID, hourlyBatch)
+        FROM unmask_event WHERE id > ? ORDER BY id LIMIT ?`, afterID, currentHourlyChunk())
 	if err != nil {
 		return 0, 0, err
 	}
