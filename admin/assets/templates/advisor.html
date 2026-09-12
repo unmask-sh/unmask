@@ -72,6 +72,11 @@ td.traffic{white-space:nowrap}
    of counts. */
 .tf-stage{display:block}
 .tf-more{display:block;padding-left:.9rem;text-indent:-.9rem}
+/* The escalation line names every rule that served the client, so it is the
+   one line that grows with the rules: it wraps within the cell's width, the
+   continuation lines hanging under "昇格" (operator, 2026-09-13: "増えてくると
+   幅とりすぎてしまうので対処して"). */
+.tf-main .tf-more{white-space:normal;max-width:15rem}
 .tf-more::before{content:"↳ ";color:#94a3b8}
 .windowbar .chk{display:inline-flex;align-items:center;gap:.3rem;margin-left:.4rem;cursor:pointer}
 .windowbar .cand-age{margin-left:auto}
