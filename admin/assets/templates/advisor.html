@@ -68,9 +68,10 @@ table.cands tbody tr.dismissed td{color:#94a3b8}
 table.cands tbody tr.dismissed td .sig,table.cands tbody tr.dismissed td .score{opacity:.6}
 .tf-sub{color:#64748b;font-size:.72rem;margin-top:.15rem}
 .tf-when time{cursor:default}
-/* A clipped value (paths, network, reverse DNS) is what the popover is for;
-   one that fits is left alone -- no underline, no popover. */
-.clamp-v.uaclick:not(.clipped){cursor:default;text-decoration:none}
+/* A clipped value (network, reverse DNS) carries the cell popover (the
+   shared cellpop: .cellpop-active marks it); one that fits is left alone.
+   A user agent always does (the cell shows a summary), a path always does
+   (the popover carries Open / Copy, as on the hunt log). */
 .clamp-v{display:inline-block;max-width:16rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;font-family:ui-monospace,Menlo,monospace;font-size:.78rem;color:#475569}
 .btn{display:inline-block;border:1px solid #cbd5e1;background:#fff;border-radius:.3rem;padding:.25rem .7rem;font-size:.8rem;cursor:pointer;color:#0f172a}
 .btn:hover{background:#f1f5f9}
@@ -125,8 +126,6 @@ table.cands tbody tr.dismissed td .sig,table.cands tbody tr.dismissed td .score{
    behind the summary numbers, one click away. */
 .loglink{display:inline-block;margin-left:.35rem;font-size:.85rem;text-decoration:none;vertical-align:middle;opacity:.7}
 .loglink:hover{opacity:1}
-/* Same dotted-underline marker as .ipclick: a value that carries a popover. */
-.uaclick{cursor:help;text-decoration:underline dotted;text-decoration-color:#cbd5e1;text-underline-offset:.2em}
 img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
 .muted{color:#94a3b8}
 /* The dialog's buttons come from the bot-hunt page (.rank-act). */
@@ -274,8 +273,8 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
             {{ else if .JA4 }}<span class="kv"><br>{{ .JA4 }}</span>{{ end }}
             {{/* Origin under the address: network (country) and reverse DNS,
                  clipped with the full value in the popover. */}}
-            {{ if .ASNOrg }}<br><span class="clamp-v origin uaclick" data-ua="{{ .ASNOrg }}{{ if .Country }} ({{ .Country }}){{ end }}">{{ .ASNOrg }}{{ if .Country }} ({{ .Country }}){{ end }}</span>{{ end }}
-            {{ if .RDNS }}<br><span class="clamp-v origin uaclick" data-ua="{{ .RDNS }}">{{ .RDNS }}</span>{{ end }}
+            {{ if .ASNOrg }}<br><span class="clamp-v origin cellpop">{{ .ASNOrg }}{{ if .Country }} ({{ .Country }}){{ end }}</span>{{ end }}
+            {{ if .RDNS }}<br><span class="clamp-v origin cellpop">{{ .RDNS }}</span>{{ end }}
           </td>
           <td>
             {{/* The engine's score (signal weights added up): what the default
@@ -315,13 +314,20 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
           </td>
           <td class="ua">
             {{/* The most frequent user agents with their request counts, and
-                 how many more the client used; each opens its full string in
-                 the popover.  A row from before the counts (a stored pick)
-                 still has its one user agent. */}}
-            {{ if .TopUAs }}{{ range $i, $u := .TopUAs }}{{ if $i }}<br>{{ end }}<span class="uaclick" data-ua="{{ $u.UA }}">{{ template "ua_cell" $u.UA }}</span> <span class="ua-n">×{{ comma $u.Requests }}</span>{{ end }}{{ with .MoreUAs }}<br><span class="muted ua-n">{{ printf (t $.Lang "advisor.ua_more") (comma .) }}</span>{{ end }}{{ else if .UA }}<span class="uaclick" data-ua="{{ .UA }}">{{ template "ua_cell" .UA }}</span>{{ else }}<span class="muted">-</span>{{ end }}
+                 how many more the client used.  Each is a cellpop like the
+                 hunt log's UA cell: the summary in the cell, the full string
+                 in the popover under the summary as its heading.  A row from
+                 before the counts (a stored pick) still has its one user
+                 agent. */}}
+            {{ if .TopUAs }}{{ range $i, $u := .TopUAs }}{{ if $i }}<br>{{ end }}<span class="cellpop" data-full-value="{{ $u.UA }}">{{ template "ua_cell" $u.UA }}</span> <span class="ua-n">×{{ comma $u.Requests }}</span>{{ end }}{{ with .MoreUAs }}<br><span class="muted ua-n">{{ printf (t $.Lang "advisor.ua_more") (comma .) }}</span>{{ end }}{{ else if .UA }}<span class="cellpop" data-full-value="{{ .UA }}">{{ template "ua_cell" .UA }}</span>{{ else }}<span class="muted">-</span>{{ end }}
           </td>
           <td>
-            {{ range .SamplePaths }}<span class="clamp-v uaclick" data-ua="{{ . }}">{{ . }}</span><br>{{ end }}
+            {{/* The most requested paths with their hits and how many more
+                 there were.  Each is a URL cellpop like the hunt log's: the
+                 popover shows the full address and offers Open / Copy; the
+                 origin rides the element (data-site / scheme / port) since
+                 there is no events row to read it from. */}}
+            {{ range .Paths }}<span class="clamp-v cellpop url" data-full-value="{{ .Path }}"{{ if .Site }} data-site="{{ .Site }}" data-scheme="{{ .Scheme }}" data-port="{{ .Port }}"{{ end }}>{{ .Path }}</span> <span class="ua-n">×{{ comma .Hits }}</span><br>{{ end }}{{ with .MorePaths }}<span class="muted ua-n">{{ printf (t $.Lang "advisor.paths_more") (comma .) }}</span>{{ end }}
           </td>
           <td class="actions">
             {{/* The BAN goes through bot hunt's handler and its dialog (reason,
@@ -374,65 +380,17 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   </div>
 </main>
 {{ template "ip_popover_el" . }}
-<div id="ua-popover" data-popover="ua"></div>
+<div id="cell-popover" data-popover="cell"></div>
 {{ template "ban_dialog" . }}
 <script>
 {{ template "ip_popover_js" . }}
 
 {{ template "ban_dialog_js" . }}
 
-// UA / path popover: the cell clips the value; hover shows the whole string and
-// a click pins it so it can be selected and copied.  Same popoverPin the IP
-// popover uses, no lookup involved.
-(function(){
-  var pop = document.getElementById('ua-popover');
-  if (!pop || !window.popoverPin) return;
-  var pin = window.popoverPin.install(pop);
-  var timer = null;
-  function esc(s){
-    return String(s).replace(/[&<>"']/g, function(c){ return ({
-      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-    })[c]; });
-  }
-  function html(v){
-    return '<code style="display:block;white-space:pre-wrap;word-break:break-all;font-size:.78rem;line-height:1.5">' + esc(v) + '</code>';
-  }
-  // A clipped cell (.clamp-v: paths, network, reverse DNS) gets the popover;
-  // one whose value fits does not.  The UA cell shows a summary, so its
-  // popover (the full string) is always wanted.
-  function isClamp(el){ return el.classList.contains('clamp-v'); }
-  function clipped(el){ return !isClamp(el) || el.scrollWidth > el.clientWidth + 1; }
-  function measure(root){
-    root.querySelectorAll('.clamp-v.uaclick').forEach(function(el){
-      el.classList.toggle('clipped', el.scrollWidth > el.clientWidth + 1);
-    });
-  }
-  function wire(root){
-  root.querySelectorAll('.uaclick').forEach(function(el){
-    var v = el.dataset.ua;
-    if (!v || el.dataset.uaWired) return;
-    el.dataset.uaWired = '1';
-    el.addEventListener('mouseenter', function(e){
-      clearTimeout(timer);
-      if (pin.hasPinFor(el) || !clipped(el)) return;
-      var x = e.pageX, y = e.pageY;
-      timer = setTimeout(function(){ pin.showHover(html(v), x, y, el); }, 200);
-    });
-    el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
-    el.addEventListener('click', function(e){
-      if (!clipped(el)) return;
-      e.preventDefault();
-      clearTimeout(timer);
-      pin.handleClick(html(v), e.pageX, e.pageY, el, 'UA');
-    });
-  });
-  measure(root);
-  }
-  wire(document);
-  var resizeTimer = null;
-  window.addEventListener('resize', function(){ clearTimeout(resizeTimer); resizeTimer = setTimeout(function(){ measure(document); }, 150); });
-  (window.unmaskRewire = window.unmaskRewire || []).push(wire);
-})();
+// The cell popover shared with the hunt log (partial_events_table.html):
+// a user agent's summary in the cell and its full string in the popover, a
+// path's full address with Open / Copy, a clipped network / reverse DNS.
+{{ template "cellpop_js" . }}
 
 // Ask the model without leaving the page.  The click posts to ai-run and
 // gets a 202 back at once; the bar turns into a progress line, every eligible
