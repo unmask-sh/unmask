@@ -590,7 +590,7 @@ func TestStoreLastRecordsRunsAndTotals(t *testing.T) {
 // "JS 0 · PoW 0 · CAPTCHA 0 なのに 2 通過").
 func TestNominatedRowsCarryStagesAndPassKinds(t *testing.T) {
 	pool := Pool{
-		IPs:  []PoolIP{{IP: "198.51.100.30", Requests: 9, Serves: 6, JSLoaded: 4, PowPassed: 3, CaptchaShown: 1, Passes: 2, PassPow: 1, PassBoth: 1, ShownPow: 2, ShownBoth: 2, Reasons: []ReasonCount{{Reason: "geo", Serves: 6}}}},
+		IPs:  []PoolIP{{IP: "198.51.100.30", Requests: 9, Serves: 6, JSLoaded: 4, PowPassed: 3, CaptchaShown: 1, Passes: 2, PassPow: 1, PassBoth: 1, ShownPow: 2, ShownBoth: 2, Reasons: []ReasonCount{{Reason: "geo", Serves: 6}}, TopUAs: []UACount{{UA: "Mozilla/5.0 (X11)", Requests: 9}}, DistinctUAs: 3}},
 		JA4s: []PoolJA4{{JA4: "t13d_stage", DistinctIPs: 5, Requests: 40, Serves: 30, JSLoaded: 20, PowPassed: 12, CaptchaShown: 2, Passes: 11, PassPow: 10, PassCaptcha: 1, ShownPow: 18, ShownCaptcha: 2}},
 	}
 	res := Result{Nominations: []Nomination{
@@ -604,6 +604,9 @@ func TestNominatedRowsCarryStagesAndPassKinds(t *testing.T) {
 	ip, fp := rows[0], rows[1]
 	if len(ip.Reasons) != 1 || ip.Reasons[0] != (ReasonCount{Reason: "geo", Serves: 6}) {
 		t.Errorf("escalation reasons not carried: %+v", ip.Reasons)
+	}
+	if len(ip.TopUAs) != 1 || ip.TopUAs[0] != (UACount{UA: "Mozilla/5.0 (X11)", Requests: 9}) || ip.DistinctUAs != 3 || ip.MoreUAs() != 2 {
+		t.Errorf("user agents not carried: %+v distinct=%d", ip.TopUAs, ip.DistinctUAs)
 	}
 	if ip.ShownPow != 2 || ip.ShownBoth != 2 || ip.ShownCaptcha != 0 || fp.ShownPow != 18 || fp.ShownCaptcha != 2 || fp.ShownBoth != 0 {
 		t.Errorf("chains shown not carried: ip %d/%d/%d, fingerprint %d/%d/%d", ip.ShownPow, ip.ShownCaptcha, ip.ShownBoth, fp.ShownPow, fp.ShownCaptcha, fp.ShownBoth)

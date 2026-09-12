@@ -37,6 +37,9 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 		c.Loads, c.ShownPow, c.ShownBoth = 38, 30, 8
 		c.PassPow, c.PassBoth, c.PowPassed, c.CaptchaShown = c.Passes-2, 2, c.Passes+3, 5
 		c.Reasons = []advisor.ReasonCount{{Reason: "asn", Serves: 30}, {Reason: "rate_limit", Serves: 8}, {Reason: "", Serves: 2}}
+		// Seven user agents, the two most frequent listed.
+		c.TopUAs = []advisor.UACount{{UA: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36", Requests: 60}, {UA: "curl/8.5.0", Requests: 12}}
+		c.DistinctUAs = 7
 		return c
 	}
 	// One chain: pow_only shown 9 of 20 served, 7 passed.
@@ -100,6 +103,18 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	}
 	if !strings.Contains(body, `<strong>1</strong> 通過</div>`) || strings.Contains(body, `昇格 通常`) {
 		t.Error("a client on the ordinary path alone carries no escalation line")
+	}
+	// The user agents: the most frequent ones with their counts, each with
+	// its full string for the popover, then how many more (operator,
+	// 2026-09-13: "UA 一個だけ ... TOP5 を出す").
+	if !strings.Contains(body, `data-ua="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"`) ||
+		!strings.Contains(body, `<span class="ua-n">×60</span><br><span class="uaclick" data-ua="curl/8.5.0">`) ||
+		!strings.Contains(body, `<span class="ua-n">×12</span><br><span class="muted ua-n">他 5 種</span>`) {
+		t.Error("the UA cell lists the most frequent user agents with counts and how many more")
+	}
+	// A pick without the counts keeps its one user agent, without a count.
+	if !strings.Contains(body, `<span class="uaclick" data-ua="Mozilla/5.0">`) || strings.Contains(body, `他 0 種`) {
+		t.Error("a row without user-agent counts shows its one user agent and no remainder")
 	}
 	if !strings.Contains(body, `<span class="tf-stage">JS 9 · 未実行 11</span><span class="tf-stage">pow_only 9 提示</span><span class="tf-kinds tf-more">通過 7 · 不突破 2</span></div>`) {
 		t.Error("a pow_only row has the one chain line and nothing for the chains it never ran")
