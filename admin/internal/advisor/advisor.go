@@ -150,6 +150,23 @@ func (c Candidate) HeldAtCaptcha() bool {
 	return c.Passes == 0 && (c.PowPassed > 0 || c.CaptchaShown > 0)
 }
 
+// CaptchaPasses: passes that ended at the CAPTCHA (the captcha_only and
+// pow_then_captcha chains) -- what the CAPTCHA let through.
+func (c Candidate) CaptchaPasses() int { return c.PassCaptcha + c.PassBoth }
+
+// CaptchaHeld: CAPTCHA reached and not completed.  Shown beside the stage
+// counts so the proof-of-work figure (every solve, whichever chain) and the
+// pass breakdown reconcile on the row: a client that solved the
+// proof-of-work and stopped at the CAPTCHA is counted here, not as a pass
+// (operator, 2026-09-13: "pow_then_captcha 数も出さないと数に矛盾が生じる").
+// Event counts, like every figure on the row.
+func (c Candidate) CaptchaHeld() int {
+	if n := c.CaptchaShown - c.CaptchaPasses(); n > 0 {
+		return n
+	}
+	return 0
+}
+
 // volumeIsCost: the traffic itself is worth acting on.  A passing client at
 // a few hundred challenges a window; a contained one at ten times that.
 func (c Candidate) volumeIsCost() bool {
@@ -460,11 +477,15 @@ func ipCandidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Excl
 }
 
 func ja4Candidates(ctx context.Context, conn *db.DB, excl Exclusions, opt Options) ([]Candidate, error) {
+	// The stages and the pass kinds too (poolStageSums / poolPassKindSums):
+	// a fingerprint row read "JS 0 · PoW 0 · CAPTCHA 0" under a real pass
+	// count until 2026-09-13, because only the address query carried them.
 	q := `SELECT ja4,
 	        COUNT(DISTINCT ip_address) AS ips,
 	        COUNT(*) AS total,
 	        SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END) AS serves,
-	        SUM(CASE WHEN phase IN ` + cookiePhaseList + ` THEN 1 ELSE 0 END) AS passes,
+	        ` + poolStageSums + `
+	        ` + poolPassKindSums + `
 	        MIN(date_created), MAX(date_created), COALESCE(MAX(user_agent), '')
 	      FROM unmask_event` + conn.EventDateIndexHint("w") + `
 	      WHERE date_created > ` + conn.NowMinusMinutes(opt.WindowMinutes) + `
@@ -483,7 +504,8 @@ func ja4Candidates(ctx context.Context, conn *db.DB, excl Exclusions, opt Option
 	for rows.Next() {
 		var c Candidate
 		var ja4, first, last, ua string
-		if err := rows.Scan(&ja4, &c.DistinctIPs, &c.Requests, &c.Serves, &c.Passes, &first, &last, &ua); err != nil {
+		if err := rows.Scan(&ja4, &c.DistinctIPs, &c.Requests, &c.Serves, &c.Loads, &c.PowPassed, &c.CaptchaShown, &c.Passes,
+			&c.PassPow, &c.PassCaptcha, &c.PassBoth, &first, &last, &ua); err != nil {
 			return nil, err
 		}
 		if excl.BannedJA4s[ja4] || excl.DismissedJA4[ja4] {

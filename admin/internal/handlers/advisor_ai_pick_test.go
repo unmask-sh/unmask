@@ -27,7 +27,12 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 			Passes: passes, Serves: serves, Requests: requests, UA: "Mozilla/5.0",
 			Signals: []advisor.Signal{{ID: "ai_pick", Detail: "proposed by the model from the wider ranking"}}}
 	}
-	withKinds := func(c advisor.Candidate) advisor.Candidate { c.PassPow = c.Passes; return c }
+	// 28 passed by proof-of-work alone, 2 by proof-of-work then CAPTCHA; the
+	// CAPTCHA was reached 5 times, so 3 of those reached it and stopped.
+	withKinds := func(c advisor.Candidate) advisor.Candidate {
+		c.PassPow, c.PassBoth, c.CaptchaShown = c.Passes-2, 2, 5
+		return c
+	}
 	advisor.StoreLast(h.DB, key, advisor.Stored{At: time.Now(), Model: "m",
 		Reviews: map[string]advisor.Review{
 			"198.51.100.20": {Target: "198.51.100.20", Priority: "high", Reasoning: "passing farm"},
@@ -49,8 +54,13 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	if !strings.Contains(body, `data-ip="198.51.100.20"`) {
 		t.Error("a pick that passes must be shown")
 	}
-	if !strings.Contains(body, "(PoW 30)") {
+	if !strings.Contains(body, "(PoW 28 · PoW+CAPTCHA 2)") {
 		t.Error("a pick whose pass kinds are known shows them after the pass count")
+	}
+	// The stage line reconciles with the breakdown: of 5 CAPTCHAs shown, 2
+	// passed and 3 were not completed (operator, 2026-09-13).
+	if !strings.Contains(body, `CAPTCHA 5 <span class="tf-kinds">(通過 2 · 不突破 3)</span>`) {
+		t.Error("the CAPTCHA stage names how many completed it and how many did not")
 	}
 	if strings.Contains(body, `data-ip="198.51.100.21"`) || strings.Contains(body, "nominated before the rule") {
 		t.Error("a stored pick the challenge already stops must not be shown")
