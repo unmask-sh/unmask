@@ -24,6 +24,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-09-10) **Advisor: a candidate being re-analysed keeps its last answer on screen.**  When a click sends a candidate back to the model because its counts or window changed, the row used to drop its previous priority and reasoning and show only the spinner until the new answer arrived.  It now shows the spinner above the previous answer, dimmed, and swaps in the replacement when it lands.
 
 ### Fixed
+- (2026-09-13) **Advisor: every row shows its sample paths.**  Most rows' "要求パス例" were empty: one shared sample of the newest 400 events over every candidate went to the busiest few, and fingerprint rows and the model's picks were never read at all.  Each row now samples its own newest events -- an address through its index, a fingerprint newest first -- and a pick gets its paths on the page.
+
 - (2026-09-13) **Advisor: the user agent column lists a client's five most frequent user agents with their counts, and how many more it used.**  A row showed one arbitrary user agent -- the alphabetical maximum of the window -- which hid an address rotating them and a fingerprint herd's spread of browsers.  The most frequent one is also what the model reads, with the count of distinct ones.
 
 - (2026-09-13) **Advisor: the traffic cell reads the challenge by chain and by the rule that escalated the client.**  A JA4 herd row read "JS 0 · PoW 0 · CAPTCHA 0" because its query counted only serves and passes; fingerprint candidates carry their stages.  Each chain shows presented, passed and not completed (pow_then_captcha per gate), the serves split by escalation reason, and JS how many left without running it.
