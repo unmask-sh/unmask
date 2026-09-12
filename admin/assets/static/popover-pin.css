@@ -317,6 +317,9 @@
 .cellpop-active{cursor:pointer;text-decoration:underline dotted #94a3b8;text-underline-offset:2px}
 .host-badge.cellpop-active,.site-badge.cellpop-active{text-decoration:none}
 .cellpop-pop{display:block}
+/* The hits an element reports for its value (data-hits), after the summary in
+   the hover heading. */
+.cellpop-hits{color:#64748b;font-weight:500;white-space:nowrap}
 .cellpop-val{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;user-select:all;-webkit-user-select:all;word-break:break-all;max-width:32rem;display:block}
 /* Action chips (Open in new tab / Copy URL) inside a cellpop popover. */
 .cellpop-actions{display:flex;gap:.4rem;margin-top:.5rem;font-family:system-ui,sans-serif}
