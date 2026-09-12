@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -113,6 +114,18 @@ func TestFilterValuesCannotReachSQL(t *testing.T) {
 			}},
 			{"ObserveOnlyWouldBlock", func(s string, h []string) error {
 				_, err := ObserveOnlyWouldBlock(ctx, d, s, h, 24)
+				return err
+			}},
+			// The 30-day serve cards: a site or host filter takes the raw
+			// scan, whose WHERE the extracted row helpers (serveKindScanRows,
+			// countriesScanRows) receive ready-made from siteCond / hostCond.
+			{"DailyServeByKind", func(s string, h []string) error {
+				_, _, err := DailyServeByKind(ctx, d, s, h, 30, nil, nil)
+				return err
+			}},
+			{"countriesScan", func(s string, h []string) error {
+				// An unloaded reader: the query runs; there are no rows to look up.
+				_, err := countriesScan(ctx, d, ipgeo.Open("", ""), s, h, 30, 15)
 				return err
 			}},
 		}
