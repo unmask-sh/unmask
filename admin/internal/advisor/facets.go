@@ -2,6 +2,7 @@ package advisor
 
 import (
 	"context"
+	"encoding/json"
 	"sort"
 	"strings"
 
@@ -22,6 +23,87 @@ type ReasonCount struct {
 
 // None: the ordinary path, no rule.
 func (r ReasonCount) None() bool { return r.Reason == "" }
+
+// On the wire the ordinary path is "none", the word the serve event uses,
+// so the model (and anyone reading a stored review) is not left to guess
+// what an empty reason means.  In memory it stays "" (None).
+func (r ReasonCount) MarshalJSON() ([]byte, error) {
+	reason := r.Reason
+	if reason == "" {
+		reason = "none"
+	}
+	return json.Marshal(struct {
+		Reason string `json:"reason"`
+		Serves int    `json:"serves"`
+	}{reason, r.Serves})
+}
+
+func (r *ReasonCount) UnmarshalJSON(b []byte) error {
+	var raw struct {
+		Reason string `json:"reason"`
+		Serves int    `json:"serves"`
+	}
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return err
+	}
+	if raw.Reason == "none" {
+		raw.Reason = ""
+	}
+	r.Reason, r.Serves = raw.Reason, raw.Serves
+	return nil
+}
+
+// GateStats: one gate of a chain as the model reads it -- how often it was
+// presented, completed and not completed.  Every difference is done here
+// so the model reads results, not arithmetic.
+type GateStats struct {
+	Shown        int `json:"shown"`
+	Passed       int `json:"passed"`
+	NotCompleted int `json:"not_completed"`
+}
+
+// TwoGateStats: pow_then_captcha, its two gates in order.
+type TwoGateStats struct {
+	Shown               int `json:"shown"`
+	PowPassed           int `json:"pow_passed"`
+	PowNotCompleted     int `json:"pow_not_completed"`
+	CaptchaPassed       int `json:"captcha_passed"`
+	CaptchaNotCompleted int `json:"captcha_not_completed"`
+}
+
+// ChainStats: the challenge by chain, only the chains that were presented
+// or completed -- what the traffic cell shows, for the model.
+type ChainStats struct {
+	PowOnly        *GateStats    `json:"pow_only,omitempty"`
+	CaptchaOnly    *GateStats    `json:"captcha_only,omitempty"`
+	PowThenCaptcha *TwoGateStats `json:"pow_then_captcha,omitempty"`
+}
+
+// chainStats folds the raw counts into ChainStats; nil when no chain was
+// presented or completed.
+func chainStats(shownPow, shownCaptcha, shownBoth, powPassed, passPow, passCaptcha, passBoth int) *ChainStats {
+	var cs ChainStats
+	if shownPow > 0 || passPow > 0 {
+		cs.PowOnly = &GateStats{Shown: shownPow, Passed: passPow, NotCompleted: floor0(shownPow - passPow)}
+	}
+	if shownCaptcha > 0 || passCaptcha > 0 {
+		cs.CaptchaOnly = &GateStats{Shown: shownCaptcha, Passed: passCaptcha, NotCompleted: floor0(shownCaptcha - passCaptcha)}
+	}
+	chainPow := floor0(powPassed - passPow)
+	if shownBoth > 0 || passBoth > 0 || chainPow > 0 {
+		cs.PowThenCaptcha = &TwoGateStats{Shown: shownBoth, PowPassed: chainPow, PowNotCompleted: floor0(shownBoth - chainPow),
+			CaptchaPassed: passBoth, CaptchaNotCompleted: floor0(chainPow - passBoth)}
+	}
+	if cs.PowOnly == nil && cs.CaptchaOnly == nil && cs.PowThenCaptcha == nil {
+		return nil
+	}
+	return &cs
+}
+
+// Chains: the candidate's challenge by chain (ChainStats).
+func (c Candidate) Chains() *ChainStats {
+	return chainStats(c.ShownPow, c.ShownCaptcha, c.ShownBoth, c.PowPassed, c.PassPow, c.PassCaptcha, c.PassBoth)
+}
 
 // sortReasons: the rules by serves, the ordinary path last.
 func sortReasons(rs []ReasonCount) {
