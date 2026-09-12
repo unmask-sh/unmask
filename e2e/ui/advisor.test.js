@@ -97,12 +97,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     return {
       sigs,
       hasFlag: !!row.querySelector('.ipclick img.flag'),
-      hasUA: !!row.querySelector('td.ua .uaclick'),
+      hasUA: !!row.querySelector('td.ua .cellpop'),
       loglink: log ? log.getAttribute('href') : null,
       hasBanForm: !!row.querySelector('form.js-ban-form button'),
       dialog: !!document.getElementById('ban-dialog'),
       ipPop: !!document.getElementById('ip-popover'),
-      uaPop: !!document.getElementById('ua-popover'),
+      uaPop: !!document.getElementById('cell-popover'),
       navAdvisor: !document.querySelector('header .nav a[href$="/admin/advisor/"]') &&
         !!document.querySelector('.ban-tabs a.active[href$="/admin/advisor/"]'),
       // The harness has no key: the page must not offer (or run) the model.
@@ -116,9 +116,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       traffic: (row.querySelector('.tf-main') || {}).textContent || '',
       trafficSub: (row.querySelector('.tf-sub') || {}).textContent || '',
       trafficWhen: !!row.querySelector('.tf-when time.js-datetime-short[data-ts]'),
-      // Sample paths: the long one is clipped (popover), the short ones are not.
-      clippedPaths: Array.from(row.querySelectorAll('td .clamp-v.uaclick')).filter(e => e.classList.contains('clipped')).length,
-      plainPaths: Array.from(row.querySelectorAll('td .clamp-v.uaclick')).filter(e => !e.classList.contains('clipped')).length,
+      // Requested paths: URL cellpops like the hunt log's, each with its hit
+      // count and the site the popover builds the full address from.
+      paths: Array.from(row.querySelectorAll('td .clamp-v.cellpop.url')).map(e => ({
+        path: e.dataset.fullValue, site: e.dataset.site, hits: (e.nextElementSibling || {}).textContent || '',
+      })),
       // The rows carry the slot the model's answer is filled into in place.
       hasSlot: !!row.querySelector('.ai-slot[data-ai="1"]') && !!document.getElementById('cands-body'),
       // ... and it takes no room while it has nothing to say.
@@ -166,8 +168,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     ok(sub.length === 2 && sub[0] === 0 && sub[1] === SEED_SERVES,
       `the JS line must read 0 ran · ${SEED_SERVES} not run and nothing else: ${JSON.stringify(adv.trafficSub.trim())}`);
     ok(adv.trafficWhen, 'the window must be a tz-aware compact time range');
-    ok(adv.clippedPaths >= 1 && adv.plainPaths >= 1,
-      `expected both a clipped and an unclipped sample path, got clipped=${adv.clippedPaths} plain=${adv.plainPaths}`);
+    ok(adv.paths.length === 3 && adv.paths.every(p => p.path && p.path[0] === '/' && p.site === 'ui-e2e.example' && /×\d/.test(p.hits)),
+      `expected three requested paths with hits and their site, got ${JSON.stringify(adv.paths)}`);
 
     // IP popover: hover fetches the lookup and shows the address.
     const popText = await page.evaluate(async (ip) => {
@@ -178,34 +180,33 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     }, SEED_IP);
     ok(popText.indexOf(SEED_IP) >= 0, `the IP popover did not show the address: ${JSON.stringify(popText.slice(0, 80))}`);
 
-    // Sample paths: hovering a value that fits opens nothing; hovering the
-    // clipped one opens the full path.
+    // Requested paths: every one opens the hunt log's URL popover -- the
+    // full address built from the site the path rides, and the Open /
+    // Copy buttons (the "遷移ボタン", the same as on the hunt log).
     const pathPop = await page.evaluate(async () => {
-      const pop = document.getElementById('ua-popover');
+      const pop = document.getElementById('cell-popover');
       const visible = () => !!(pop.offsetWidth || pop.offsetHeight);
-      const plain = Array.from(document.querySelectorAll('table.cands td .clamp-v.uaclick')).find(e => !e.classList.contains('clipped'));
-      const clip = Array.from(document.querySelectorAll('table.cands td .clamp-v.uaclick')).find(e => e.classList.contains('clipped'));
-      if (!plain || !clip) return { missing: true };
-      plain.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: 300, clientY: 400 }));
+      const el = document.querySelector('table.cands td .clamp-v.cellpop.url');
+      if (!el) return { missing: true };
+      el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: 300, clientY: 400 }));
       await new Promise(r => setTimeout(r, 500));
-      const plainShown = visible() && pop.textContent.indexOf(plain.dataset.ua) >= 0;
-      plain.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
-      clip.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: 300, clientY: 400 }));
-      await new Promise(r => setTimeout(r, 500));
-      const clipShown = visible() && pop.textContent.indexOf('ui-e2e-long-path-to-clip') >= 0;
-      clip.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
-      return { plainShown, clipShown, plainCursor: getComputedStyle(plain).cursor };
+      const text = pop.textContent;
+      const open = pop.querySelector('a.cellpop-btn[target="_blank"]');
+      const copy = pop.querySelector('button.cellpop-copy');
+      const out = { shown: visible(), url: 'https://ui-e2e.example' + el.dataset.fullValue, text, open: open ? open.getAttribute('href') : null, copy: !!copy, marked: el.classList.contains('cellpop-active') };
+      el.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+      return out;
     });
-    ok(!pathPop.missing, 'no clipped / unclipped sample path pair to test the popover rule with');
-    ok(!pathPop.missing && !pathPop.plainShown, 'a sample path that fits must not open a popover');
-    ok(!pathPop.missing && pathPop.clipShown, 'the clipped sample path must open the full value');
-    ok(!pathPop.missing && pathPop.plainCursor !== 'help', `an unclipped value must not advertise a popover (cursor ${pathPop.plainCursor})`);
+    ok(!pathPop.missing, 'no requested path to test the popover with');
+    ok(!pathPop.missing && pathPop.shown && pathPop.text.indexOf(pathPop.url) >= 0, `the path popover must show the full address ${pathPop.url}: ${JSON.stringify((pathPop.text || '').slice(0, 100))}`);
+    ok(!pathPop.missing && pathPop.open === pathPop.url && pathPop.copy, `the path popover must carry the hunt log's Open / Copy buttons: open=${pathPop.open} copy=${pathPop.copy}`);
+    ok(!pathPop.missing && pathPop.marked, 'a path advertises its popover with the shared cellpop marker');
 
-    // UA popover: the clipped cell opens the full string.
+    // UA popover: the cell shows the summary, the popover the full string.
     const uaText = await page.evaluate(async () => {
-      document.querySelector('td.ua .uaclick').dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+      document.querySelector('td.ua .cellpop').dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
       await new Promise(r => setTimeout(r, 500));
-      return document.getElementById('ua-popover').textContent;
+      return document.getElementById('cell-popover').textContent;
     });
     ok(uaText.indexOf('UI-E2E-hammer') >= 0, `the UA popover did not show the full user agent: ${JSON.stringify(uaText.slice(0, 80))}`);
 

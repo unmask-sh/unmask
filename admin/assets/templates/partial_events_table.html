@@ -1278,6 +1278,96 @@ document.addEventListener('DOMContentLoaded', function(){
   }
 })();
 
+{{ template "cellpop_js" . }}
+
+// Portal the phase '?' info-popup out of the .events-scroll wrapper on hover.
+// .events-scroll has overflow:hidden auto (= the horizontal-scroll fallback for
+// the table) which clips the popup at the wrapper's bottom edge -- the popup
+// is ~870px tall but only ~50px shows through, so the user sees a sliver and
+// has to click-pin to read the rest.  On hover we move the popup to <body>
+// with position:fixed, anchored just below the tip, and restore it on
+// mouseleave so the click-to-pin flow (= popover-pin.js clones the original
+// popup) keeps working.
+(function(){
+  var tips = document.querySelectorAll('table.events thead .info-tip');
+  tips.forEach(function(tip){
+    var popup = tip.querySelector('.info-popup');
+    if (!popup) return;
+    var originalParent = popup.parentNode;
+    var nextSibling = popup.nextSibling;
+    var portalOn = false;
+    function portal(){
+      if (portalOn || tip.classList.contains('pinned')) return;
+      portalOn = true;
+      // popover-pin.js's edge-flip runs on mouseenter capture and adds
+      // .info-popup-flip-y when it thinks the popup would overflow the
+      // viewport.  flip-y sets bottom:130% via popover-pin.css, which once we
+      // re-anchor with top:Xpx ends up shrinking the popup's box to ~24px
+      // (= top + bottom constrains height) and letting the 800px of content
+      // overflow visible into 'transparent' space below.  Since we anchor
+      // the portaled popup ourselves, the flip is no longer needed -- strip
+      // both flip classes so the popup falls back to height:auto.
+      popup.classList.remove('info-popup-flip-x', 'info-popup-flip-y');
+      var r = tip.getBoundingClientRect();
+      // The phase help block is ~870px tall when populated with every
+      // help.phase.* entry; on a 900px laptop viewport it will not fit
+      // regardless of which side of the tip we anchor on.  Anchor under
+      // the tip when there's at least half a viewport of room below, else
+      // anchor above, and cap the popup with a viewport-bound max-height
+      // + overflow:auto so the user can scroll the rest into view.
+      var below = r.bottom + 6;
+      var above = r.top - 6;
+      var anchorBelow = (window.innerHeight - below) >= 240;
+      var top = anchorBelow ? below : Math.max(8, above - Math.min(above - 16, 600));
+      var maxH = anchorBelow ? (window.innerHeight - top - 8) : (above - 8);
+      popup.style.position = 'fixed';
+      popup.style.top = top + 'px';
+      popup.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 460)) + 'px';
+      popup.style.bottom = 'auto';
+      popup.style.right = 'auto';
+      popup.style.maxHeight = maxH + 'px';
+      popup.style.overflowY = 'auto';
+      popup.style.display = 'block';
+      popup.style.zIndex = '600';
+      document.body.appendChild(popup);
+    }
+    function unportal(){
+      if (!portalOn) return;
+      portalOn = false;
+      popup.style.position = '';
+      popup.style.top = '';
+      popup.style.left = '';
+      popup.style.bottom = '';
+      popup.style.right = '';
+      popup.style.maxHeight = '';
+      popup.style.overflowY = '';
+      popup.style.display = '';
+      popup.style.zIndex = '';
+      if (nextSibling && nextSibling.parentNode === originalParent){
+        originalParent.insertBefore(popup, nextSibling);
+      } else {
+        originalParent.appendChild(popup);
+      }
+    }
+    tip.addEventListener('mouseenter', portal);
+    tip.addEventListener('mouseleave', unportal);
+    tip.addEventListener('focus', portal);
+    tip.addEventListener('blur', unportal);
+    // popover-pin.js click handler reads the popup contents to build a clone;
+    // restore the popup to its original spot first so the clone source is intact.
+    tip.addEventListener('click', unportal, true /* capture */);
+  });
+})();
+}); // DOMContentLoaded
+</script>
+{{ end }}
+
+{{/* cellpop_js: the cell popover -- the full value behind a clipped cell,
+     the cell's summary as the hover heading and the pin title, Open + Copy
+     for a URL cell.  Part of events_table_block, and included on its own by
+     a page that shows the same values outside an events table (the advisor
+     page).  Needs #cell-popover and the popover-pin assets on the page. */}}
+{{ define "cellpop_js" }}
 // JA4 / UA / URL / verdict / site-badge cellpop.  A truncated
 // cell opens a pinnable popover holding the full value (= selectable text +
 // the title-bar copy button on popoverPin).  Untruncated cells stay quiet.
@@ -1308,13 +1398,15 @@ document.addEventListener('DOMContentLoaded', function(){
     // have empty values; we fall back to https / no port so the URL still
     // works for the common case.
     if (!val || val[0] !== '/') return '';
-    var tr = el.closest('tr');
-    if (!tr) return '';
-    var site = tr.getAttribute('data-site');
+    // The element itself may carry the origin (a path listed outside an
+    // events row, as on the advisor page); otherwise its row does.
+    var src = el.hasAttribute('data-site') ? el : el.closest('tr');
+    if (!src) return '';
+    var site = src.getAttribute('data-site');
     if (!site) return '';
-    var scheme = (tr.getAttribute('data-scheme') || '').toLowerCase();
+    var scheme = (src.getAttribute('data-scheme') || '').toLowerCase();
     if (scheme !== 'http' && scheme !== 'https') scheme = 'https';
-    var port = parseInt(tr.getAttribute('data-port') || '0', 10);
+    var port = parseInt(src.getAttribute('data-port') || '0', 10);
     var portStr = '';
     // Treat both 80 and 443 as default for either scheme.  In an LB-fronted
     // setup the backend's $server_port is 80 (the LB terminated TLS) yet the
@@ -1401,7 +1493,13 @@ document.addEventListener('DOMContentLoaded', function(){
       });
     }
   });
-  document.querySelectorAll('.cellpop').forEach(function(el){
+  // wire(root): every .cellpop under root, once.  Exposed for pages that
+  // swap rows in after load (the advisor page re-renders its candidates
+  // after a model run and calls every window.unmaskRewire hook on them).
+  function wire(root){
+  root.querySelectorAll('.cellpop').forEach(function(el){
+    if (el.dataset.cellpopWired) return;
+    el.dataset.cellpopWired = '1';
     var full = el.getAttribute('data-full-value');
     var val = (full && full.length) ? full : el.textContent.trim();
     if (!val) return;
@@ -1458,6 +1556,9 @@ document.addEventListener('DOMContentLoaded', function(){
       pin.handleClick(popHtml(val, url, '', el.getAttribute('data-note') || ''), e.pageX, e.pageY, el, popTitle(el, val));
     });
   });
+  }
+  wire(document);
+  (window.unmaskRewire = window.unmaskRewire || []).push(wire);
 
   // Datetime popover.  The 'at' column shows a compact date to save width, but
   // a support correlation needs the exact moment + the Ref ID the visitor
@@ -1595,85 +1696,4 @@ document.addEventListener('DOMContentLoaded', function(){
     });
   });
 })();
-
-// Portal the phase '?' info-popup out of the .events-scroll wrapper on hover.
-// .events-scroll has overflow:hidden auto (= the horizontal-scroll fallback for
-// the table) which clips the popup at the wrapper's bottom edge -- the popup
-// is ~870px tall but only ~50px shows through, so the user sees a sliver and
-// has to click-pin to read the rest.  On hover we move the popup to <body>
-// with position:fixed, anchored just below the tip, and restore it on
-// mouseleave so the click-to-pin flow (= popover-pin.js clones the original
-// popup) keeps working.
-(function(){
-  var tips = document.querySelectorAll('table.events thead .info-tip');
-  tips.forEach(function(tip){
-    var popup = tip.querySelector('.info-popup');
-    if (!popup) return;
-    var originalParent = popup.parentNode;
-    var nextSibling = popup.nextSibling;
-    var portalOn = false;
-    function portal(){
-      if (portalOn || tip.classList.contains('pinned')) return;
-      portalOn = true;
-      // popover-pin.js's edge-flip runs on mouseenter capture and adds
-      // .info-popup-flip-y when it thinks the popup would overflow the
-      // viewport.  flip-y sets bottom:130% via popover-pin.css, which once we
-      // re-anchor with top:Xpx ends up shrinking the popup's box to ~24px
-      // (= top + bottom constrains height) and letting the 800px of content
-      // overflow visible into 'transparent' space below.  Since we anchor
-      // the portaled popup ourselves, the flip is no longer needed -- strip
-      // both flip classes so the popup falls back to height:auto.
-      popup.classList.remove('info-popup-flip-x', 'info-popup-flip-y');
-      var r = tip.getBoundingClientRect();
-      // The phase help block is ~870px tall when populated with every
-      // help.phase.* entry; on a 900px laptop viewport it will not fit
-      // regardless of which side of the tip we anchor on.  Anchor under
-      // the tip when there's at least half a viewport of room below, else
-      // anchor above, and cap the popup with a viewport-bound max-height
-      // + overflow:auto so the user can scroll the rest into view.
-      var below = r.bottom + 6;
-      var above = r.top - 6;
-      var anchorBelow = (window.innerHeight - below) >= 240;
-      var top = anchorBelow ? below : Math.max(8, above - Math.min(above - 16, 600));
-      var maxH = anchorBelow ? (window.innerHeight - top - 8) : (above - 8);
-      popup.style.position = 'fixed';
-      popup.style.top = top + 'px';
-      popup.style.left = Math.max(8, Math.min(r.left, window.innerWidth - 460)) + 'px';
-      popup.style.bottom = 'auto';
-      popup.style.right = 'auto';
-      popup.style.maxHeight = maxH + 'px';
-      popup.style.overflowY = 'auto';
-      popup.style.display = 'block';
-      popup.style.zIndex = '600';
-      document.body.appendChild(popup);
-    }
-    function unportal(){
-      if (!portalOn) return;
-      portalOn = false;
-      popup.style.position = '';
-      popup.style.top = '';
-      popup.style.left = '';
-      popup.style.bottom = '';
-      popup.style.right = '';
-      popup.style.maxHeight = '';
-      popup.style.overflowY = '';
-      popup.style.display = '';
-      popup.style.zIndex = '';
-      if (nextSibling && nextSibling.parentNode === originalParent){
-        originalParent.insertBefore(popup, nextSibling);
-      } else {
-        originalParent.appendChild(popup);
-      }
-    }
-    tip.addEventListener('mouseenter', portal);
-    tip.addEventListener('mouseleave', unportal);
-    tip.addEventListener('focus', portal);
-    tip.addEventListener('blur', unportal);
-    // popover-pin.js click handler reads the popup contents to build a clone;
-    // restore the popup to its original spot first so the clone source is intact.
-    tip.addEventListener('click', unportal, true /* capture */);
-  });
-})();
-}); // DOMContentLoaded
-</script>
 {{ end }}

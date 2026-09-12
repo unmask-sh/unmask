@@ -129,7 +129,10 @@ value is a refusal) and how many each; reason "" is the ordinary path with no
 rule. Use it to say which rule already covers the client and what a targeted
 rule would add. user_agent is the client's most frequent one and
 distinct_user_agents how many it used: one address rotating dozens is a
-scraper, a fingerprint herd spread over many is a pool of browsers. A client with many challenges served and none passed is already
+scraper, a fingerprint herd spread over many is a pool of browsers.
+sample_paths are the most requested paths and distinct_paths how many
+different ones there were: thousands is a crawler walking the site, a
+handful of admin or backup paths a scanner. A client with many challenges served and none passed is already
 contained: blocking it would only save the server some work, so rank it low
 unless its volume alone is a cost -- thousands of requests in the window, not
 hundreds. What deserves attention is the opposite --
@@ -150,33 +153,34 @@ anything: a human reads your notes and chooses whether to block.`
 
 // bundleCandidate is the trimmed shape actually sent to the provider.
 type bundleCandidate struct {
-	Target       string        `json:"target"`
-	Type         string        `json:"type"`
-	Contained    bool          `json:"contained"`
-	Signals      []string      `json:"signals"`
-	Serves       int           `json:"challenges_served"`
-	JSLoaded     int           `json:"js_loaded"`
-	PowPassed    int           `json:"pow_passed"`
-	CaptchaShown int           `json:"captcha_shown"`
-	Passes       int           `json:"challenges_passed"`
-	PassPow      int           `json:"pass_pow,omitempty"`               // ... by the proof-of-work alone
-	PassCaptcha  int           `json:"pass_captcha,omitempty"`           // ... by the CAPTCHA alone
-	PassBoth     int           `json:"pass_both,omitempty"`              // ... proof-of-work then CAPTCHA
-	ShownPow     int           `json:"shown_pow_only,omitempty"`         // the chain presented (the challenge JavaScript ran with it)
-	ShownCaptcha int           `json:"shown_captcha_only,omitempty"`     // ... captcha_only
-	ShownBoth    int           `json:"shown_pow_then_captcha,omitempty"` // ... pow_then_captcha
-	Reasons      []ReasonCount `json:"escalation_reasons,omitempty"`
-	DistinctUAs  int           `json:"distinct_user_agents,omitempty"`
-	ScannerHits  int           `json:"scanner_path_hits,omitempty"`
-	DistinctIPs  int           `json:"distinct_addresses,omitempty"`
-	PassIPs7d    int           `json:"pass_ips_7d,omitempty"` // fingerprints: addresses that completed the challenge with it in 7 days
-	Verdict      string        `json:"ja4_verdict,omitempty"`
-	ASNOrg       string        `json:"network,omitempty"`
-	Country      string        `json:"country,omitempty"`
-	UA           string        `json:"user_agent,omitempty"`
-	SamplePaths  []string      `json:"sample_paths,omitempty"`
-	FirstSeen    string        `json:"first_seen"`
-	LastSeen     string        `json:"last_seen"`
+	Target        string        `json:"target"`
+	Type          string        `json:"type"`
+	Contained     bool          `json:"contained"`
+	Signals       []string      `json:"signals"`
+	Serves        int           `json:"challenges_served"`
+	JSLoaded      int           `json:"js_loaded"`
+	PowPassed     int           `json:"pow_passed"`
+	CaptchaShown  int           `json:"captcha_shown"`
+	Passes        int           `json:"challenges_passed"`
+	PassPow       int           `json:"pass_pow,omitempty"`               // ... by the proof-of-work alone
+	PassCaptcha   int           `json:"pass_captcha,omitempty"`           // ... by the CAPTCHA alone
+	PassBoth      int           `json:"pass_both,omitempty"`              // ... proof-of-work then CAPTCHA
+	ShownPow      int           `json:"shown_pow_only,omitempty"`         // the chain presented (the challenge JavaScript ran with it)
+	ShownCaptcha  int           `json:"shown_captcha_only,omitempty"`     // ... captcha_only
+	ShownBoth     int           `json:"shown_pow_then_captcha,omitempty"` // ... pow_then_captcha
+	Reasons       []ReasonCount `json:"escalation_reasons,omitempty"`
+	DistinctUAs   int           `json:"distinct_user_agents,omitempty"`
+	DistinctPaths int           `json:"distinct_paths,omitempty"`
+	ScannerHits   int           `json:"scanner_path_hits,omitempty"`
+	DistinctIPs   int           `json:"distinct_addresses,omitempty"`
+	PassIPs7d     int           `json:"pass_ips_7d,omitempty"` // fingerprints: addresses that completed the challenge with it in 7 days
+	Verdict       string        `json:"ja4_verdict,omitempty"`
+	ASNOrg        string        `json:"network,omitempty"`
+	Country       string        `json:"country,omitempty"`
+	UA            string        `json:"user_agent,omitempty"`
+	SamplePaths   []string      `json:"sample_paths,omitempty"`
+	FirstSeen     string        `json:"first_seen"`
+	LastSeen      string        `json:"last_seen"`
 }
 
 // maxUAForBundle keeps one absurd user agent from dominating the request.
@@ -197,7 +201,7 @@ func buildBundle(cands []Candidate) []bundleCandidate {
 			Target: c.Target, Type: c.Type, Contained: c.Contained, Signals: ids,
 			Serves: c.Serves, JSLoaded: c.Loads, PowPassed: c.PowPassed, CaptchaShown: c.CaptchaShown, Passes: c.Passes,
 			PassPow: c.PassPow, PassCaptcha: c.PassCaptcha, PassBoth: c.PassBoth,
-			ShownPow: c.ShownPow, ShownCaptcha: c.ShownCaptcha, ShownBoth: c.ShownBoth, Reasons: c.Reasons, DistinctUAs: c.DistinctUAs,
+			ShownPow: c.ShownPow, ShownCaptcha: c.ShownCaptcha, ShownBoth: c.ShownBoth, Reasons: c.Reasons, DistinctUAs: c.DistinctUAs, DistinctPaths: c.DistinctPaths,
 			ScannerHits: c.ScannerHits, PassIPs7d: c.PassIPs7d, Verdict: c.Verdict,
 			DistinctIPs: c.DistinctIPs, ASNOrg: c.ASNOrg, Country: c.Country,
 			UA: ua, SamplePaths: c.SamplePaths,

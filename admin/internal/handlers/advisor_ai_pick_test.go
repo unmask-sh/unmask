@@ -79,8 +79,9 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.AdminAdvisorIndex(rr, req)
 	body := rr.Body.String()
-	if !strings.Contains(body, `<span class="clamp-v uaclick" data-ua="/wp-login.php">/wp-login.php</span>`) {
-		t.Error("a stored pick shows sample paths read from its own events")
+	// The pick's paths, with hits, as a URL cellpop like the hunt log's.
+	if !strings.Contains(body, `<span class="clamp-v cellpop url" data-full-value="/wp-login.php">/wp-login.php</span> <span class="ua-n">×2</span>`) {
+		t.Error("a stored pick shows its most requested paths, with hits, read from its own events")
 	}
 	if !strings.Contains(body, `data-ip="198.51.100.20"`) {
 		t.Error("a pick that passes must be shown")
@@ -113,14 +114,20 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	// The user agents: the most frequent ones with their counts, each with
 	// its full string for the popover, then how many more (operator,
 	// 2026-09-13: "UA 一個だけ ... TOP5 を出す").
-	if !strings.Contains(body, `data-ua="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"`) ||
-		!strings.Contains(body, `<span class="ua-n">×60</span><br><span class="uaclick" data-ua="curl/8.5.0">`) ||
+	// Each user agent is a cellpop like the hunt log's UA cell: the summary
+	// in the cell, the full string as data-full-value for the popover.
+	if !strings.Contains(body, `<span class="cellpop" data-full-value="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36">`) ||
+		!strings.Contains(body, `<span class="ua-n">×60</span><br><span class="cellpop" data-full-value="curl/8.5.0">`) ||
 		!strings.Contains(body, `<span class="ua-n">×12</span><br><span class="muted ua-n">他 5 種</span>`) {
 		t.Error("the UA cell lists the most frequent user agents with counts and how many more")
 	}
 	// A pick without the counts keeps its one user agent, without a count.
-	if !strings.Contains(body, `<span class="uaclick" data-ua="Mozilla/5.0">`) || strings.Contains(body, `他 0 種`) {
+	if !strings.Contains(body, `<span class="cellpop" data-full-value="Mozilla/5.0">`) || strings.Contains(body, `他 0 種`) {
 		t.Error("a row without user-agent counts shows its one user agent and no remainder")
+	}
+	// The page carries the shared cell popover, not one of its own.
+	if !strings.Contains(body, `id="cell-popover"`) || strings.Contains(body, `ua-popover`) || strings.Contains(body, `uaclick`) {
+		t.Error("the advisor page uses the shared cell popover (cellpop) for user agents, paths and origin")
 	}
 	if !strings.Contains(body, `<span class="tf-stage">JS 9 · 未実行 11</span><span class="tf-stage">pow_only 9 提示</span><span class="tf-kinds tf-more">通過 7 · 不突破 2</span></div>`) {
 		t.Error("a pow_only row has the one chain line and nothing for the chains it never ran")
