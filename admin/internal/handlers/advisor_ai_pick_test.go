@@ -54,12 +54,14 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	if !strings.Contains(body, `data-ip="198.51.100.20"`) {
 		t.Error("a pick that passes must be shown")
 	}
-	if !strings.Contains(body, "(PoW 28 · PoW+CAPTCHA 2)") {
+	// Each breakdown is its own line under the figure it splits (operator,
+	// 2026-09-13: the cell had grown too wide as one run of counts).
+	if !strings.Contains(body, `<span class="tf-kinds tf-more">PoW 28 · PoW+CAPTCHA 2</span>`) {
 		t.Error("a pick whose pass kinds are known shows them after the pass count")
 	}
 	// The stage line reconciles with the breakdown: of 5 CAPTCHAs shown, 2
 	// passed and 3 were not completed (operator, 2026-09-13).
-	if !strings.Contains(body, `CAPTCHA 5 <span class="tf-kinds">(通過 2 · 不突破 3)</span>`) {
+	if !strings.Contains(body, `CAPTCHA 5<span class="tf-kinds tf-more">通過 2 · 不突破 3</span>`) {
 		t.Error("the CAPTCHA stage names how many completed it and how many did not")
 	}
 	if strings.Contains(body, `data-ip="198.51.100.21"`) || strings.Contains(body, "nominated before the rule") {
@@ -70,7 +72,7 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	}
 	// Pass kinds: shown when known, and never an empty "()" when they are not
 	// (operator, tool1-jp, 2026-09-12: "2 通過 () とおかしな表示").
-	if strings.Contains(body, `class="tf-kinds">()`) {
+	if strings.Contains(body, `class="tf-kinds">()`) || strings.Contains(body, `tf-more"></span>`) {
 		t.Error("a pick with passes but no pass-kind breakdown must not render an empty ()")
 	}
 }

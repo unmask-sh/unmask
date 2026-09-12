@@ -26,7 +26,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-09-12) **Stats: the 30-day serve cards read settled hours from the hourly rollup and scan only the rest.**  After a restart the cards ignored the rollup until a full pass had completed, scanning 30 days of raw events and timing out on a large install.  The fold sizes its chunks to the host and stops when its budget is up, and each rollup runs under its own budget.
 
-- (2026-09-12) **Advisor: an AI pick row shows its challenge stages and pass kinds, and keeps them current.**  A nominated row showed "JS 0 · PoW 0 · CAPTCHA 0" and an empty "()": the pool row's stage counts were not copied and it had no pass-kind breakdown.  Both are carried now, refreshed from the pool on every run, and the breakdown is rendered only when there is one.
+- (2026-09-12) **Advisor: an AI pick row shows its stages and pass kinds, and keeps them current.**  A nominated row read "JS 0 · PoW 0 · CAPTCHA 0" with an empty "()": the pool row's stages were not copied and it had no pass-kind breakdown.  Both are carried now and refreshed each run, a pick that left the pool is dropped, and each breakdown has its own line.
 
 - (2026-09-11) **Setup wizard: opening it on a large database no longer counts every event row.**  The reconfigure summary counted the whole event table with no time limit, which took minutes on a 25-million-row install and timed the page out.  The figure is now the id span, every wizard query has a two-second budget, and a database that does not answer is shown as existing with the figure unknown.
 

@@ -676,7 +676,11 @@ func fillFromPool(c *Candidate, pool Pool) bool {
 		c.Loads, c.PowPassed, c.CaptchaShown = row.JSLoaded, row.PowPassed, row.CaptchaShown
 		c.PassPow, c.PassCaptcha, c.PassBoth = row.PassPow, row.PassCaptcha, row.PassBoth
 		c.JA4, c.UA, c.ASN, c.ASNOrg, c.Country, c.RDNS = row.JA4, row.UA, row.ASN, row.ASNOrg, row.Country, row.RDNS
-		c.FirstSeen, c.LastSeen = row.FirstSeen, row.LastSeen
+		// Through dbTime like an engine row: the compact, tz-aware range on
+		// the page needs the unix time, and the raw column text read as
+		// "2026-09-11 04:38:39.371" (operator, 2026-09-13).
+		c.FirstSeen, c.FirstTs = dbTime(row.FirstSeen)
+		c.LastSeen, c.LastTs = dbTime(row.LastSeen)
 	case "ja4":
 		row, ok := pool.ja4Row(c.Target)
 		if !ok {
@@ -906,12 +910,14 @@ func Plan(prev Stored, cands []Candidate) (send []Candidate, kept map[string]Rev
 // for what was sent (fingerprinted), the kept reviews, and prev's nominated
 // rows that were neither re-nominated nor became engine candidates.  current
 // is the set of engine candidates of this run.  A carried row's evidence is
-// refreshed from this run's pool when it is still in it (the model's note
-// stays; the counts, stages and pass kinds are the window's -- a pick stored
-// by an earlier build read "JS 0 · PoW 0" for as long as the model did not
-// name it again, tool1-jp 2026-09-13), and it is held to the cost rule too:
-// one nominated before mergeResult applied it (contained, and cheap, by the
-// counts it now carries) is dropped here rather than kept indefinitely.
+// refreshed from this run's pool (the model's note stays; the counts, stages
+// and pass kinds are the window's -- a pick stored by an earlier build read
+// "JS 0 · PoW 0" for as long as the model did not name it again, tool1-jp
+// 2026-09-13), and a row that is no longer in the pool is dropped: the pool
+// is the window's busiest actors, and a pick whose activity has left the
+// window cannot be refreshed and would show a range outside it.  The cost
+// rule is applied to the refreshed counts: a contained, cheap pick is
+// dropped rather than kept indefinitely.
 func Merge(prev Stored, sent []Candidate, res Result, pool Pool, kept map[string]Review, current map[string]bool) Stored {
 	nominated, reviews := NominatedRows(res, pool)
 	now := time.Now().Unix()
@@ -941,8 +947,7 @@ func Merge(prev Stored, sent []Candidate, res Result, pool Pool, kept map[string
 		if nominatedNow[n.Target] || current[n.Target] {
 			continue
 		}
-		fillFromPool(&n, pool)
-		if n.ContainedBelowCost() {
+		if !fillFromPool(&n, pool) || n.ContainedBelowCost() {
 			continue
 		}
 		nominated = append(nominated, n)

@@ -153,10 +153,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     ok(adv.filter, 'the attention filter select is missing');
     ok(adv.ths === 6, `expected 6 columns (origin folded under the address), got ${adv.ths}`);
     ok(/\b6\b/.test(adv.score), `the seed row must show its score 6: ${JSON.stringify(adv.score)}`);
-    const main = (adv.traffic.match(/\d+/g) || []).map(Number);
+    // Counts carry thousands separators ("3,000"); strip them before parsing.
+    const main = (adv.traffic.replace(/,/g, '').match(/\d+/g) || []).map(Number);
     ok(main.length === 2 && main[0] === SEED_SERVES && main[1] === 0,
       `the traffic main line must read ${SEED_SERVES} served -> 0 passed: ${JSON.stringify(adv.traffic.trim().slice(0, 80))}`);
-    ok((adv.trafficSub.match(/\d+/g) || []).length === 3, `the middle stages line must carry three counts: ${JSON.stringify(adv.trafficSub.trim())}`);
+    ok((adv.trafficSub.replace(/,/g, '').match(/\d+/g) || []).length === 3, `the middle stages line must carry three counts: ${JSON.stringify(adv.trafficSub.trim())}`);
     ok(adv.trafficWhen, 'the window must be a tz-aware compact time range');
     ok(adv.clippedPaths >= 1 && adv.plainPaths >= 1,
       `expected both a clipped and an unclipped sample path, got clipped=${adv.clippedPaths} plain=${adv.plainPaths}`);
