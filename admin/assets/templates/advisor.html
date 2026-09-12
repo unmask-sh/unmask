@@ -51,8 +51,13 @@ table.cands .uline .ua-n,table.cands .pline .ua-n{flex:0 0 auto}
 table.cands td.ua{color:#64748b;font-size:.78rem;white-space:nowrap;max-width:13rem;overflow:hidden;text-overflow:ellipsis}
 .cands-scroll{overflow-x:auto;max-width:100%}
 .sig{display:inline-block;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:.25rem;padding:.05rem .4rem;font-size:.72rem;font-family:ui-monospace,Menlo,monospace;margin:0 .25rem .2rem 0;white-space:nowrap}
-.sig-detail{color:#64748b;font-size:.78rem;display:block;margin-top:.15rem}
-.sig.ai{background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe}
+.sig-detail{color:#64748b;font-size:.78rem;margin-left:.3rem}
+.sigline{display:block;margin-bottom:.15rem;white-space:nowrap}
+/* The model's pick: a filled purple badge, and the row itself carries a
+   purple edge and tint so it stands out from the engine's rows at a glance. */
+.sig.ai{background:#6d28d9;color:#fff;border-color:#6d28d9;font-weight:700}
+table.cands tbody tr.ai-pick td{background:#faf5ff}
+table.cands tbody tr.ai-pick td:first-child{box-shadow:inset .25rem 0 0 #7c3aed}
 /* contained vs passing: the one distinction that decides whether a ban buys
    protection or merely quiet. */
 .score{display:inline-block;background:#f8fafc;color:#334155;border:1px solid #cbd5e1;border-radius:.25rem;padding:.05rem .45rem;font-size:.72rem;font-weight:700;font-family:ui-monospace,Menlo,monospace;margin-bottom:.25rem}
@@ -283,7 +288,10 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
              to {{ if }} -- so test the target, or a row that appeared after the
              run gets an empty card. */}}
         {{ $rv := "" }}{{ if $.Reviews }}{{ with index $.Reviews .Target }}{{ if .Target }}{{ $rv = . }}{{ end }}{{ end }}{{ end }}
-        <tr{{ if .Dismissed }} class="dismissed"{{ end }}>
+        {{- /* A row the model proposed (ai_pick) is marked as a row, not
+             only by a badge among the signals (operator, 2026-09-13: "ai で
+             ピックされたものがわかりづらい"). */ -}}
+        <tr{{ if or .Dismissed .Nominated }} class="{{ if .Dismissed }}dismissed{{ end }}{{ if and .Dismissed .Nominated }} {{ end }}{{ if .Nominated }}ai-pick{{ end }}"{{ end }}>
           <td class="mono">
             {{ if eq .Type "ip" }}<span class="ipclick" data-ip="{{ .Target }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .Country }}.png" alt="{{ ccLabel .Country }}" loading="lazy">{{ .Target }}</span>{{ else }}{{ .Target }}{{ end }}<a class="loglink" href="{{ $.BasePath }}/admin/hunt/?{{ if eq .Type "ip" }}ip{{ else }}ja4{{ end }}={{ urlquery .Target }}" aria-label="{{ t $.Lang "advisor.log_aria" }}">🔍</a>
             {{ if eq .Type "ja4" }}<span class="kv"><br>{{ .DistinctIPs }} {{ t $.Lang "advisor.ips" }}</span>
@@ -302,8 +310,11 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
             {{ if and .Attention (not $rv) (or $.AIHave $.AIRunning) }}<span class="badge-new">{{ t $.Lang "advisor.badge_new" }}</span>{{ end }}
             {{ if .Dismissed }}<span class="state dismissed">{{ t $.Lang "advisor.state.dismissed" }}</span>{{ end }}
             {{ if .Contained }}<span class="state contained">{{ if .HeldAtCaptcha }}{{ t $.Lang "advisor.state.captcha_held" }}{{ else }}{{ t $.Lang "advisor.state.contained" }}{{ end }}</span>{{ else }}<span class="state passing">{{ t $.Lang "advisor.state.passing" }}</span>{{ end }}
+            {{- /* One line per signal: the badge and its reading beside it
+                 (operator, 2026-09-13: "2 行使う必要無いのでは？ バッジの隣に
+                 説明表示しても良い"). */ -}}
             {{ range .Signals }}
-              <span class="sig{{ if eq .ID "ai_pick" }} ai{{ end }}">{{ .ID }}</span><span class="sig-detail">{{ template "advisor_sig_detail" (dict "Lang" $.Lang "Sig" .) }}</span>
+              <span class="sigline"><span class="sig{{ if eq .ID "ai_pick" }} ai{{ end }}">{{ .ID }}</span><span class="sig-detail">{{ template "advisor_sig_detail" (dict "Lang" $.Lang "Sig" .) }}</span></span>
             {{ end }}
             {{/* The model's take, under the engine's evidence: a small label,
                  the priority, the reasoning as one indented line -- or
