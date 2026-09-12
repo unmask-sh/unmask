@@ -666,15 +666,6 @@ func unpackIP(b []byte) string {
 	return ""
 }
 
-func contains(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
-}
-
 // dbTime turns a date_created value as the driver hands it back (SQLite text
 // with or without fractional seconds, MariaDB DATETIME as text) into the
 // trimmed "2006-01-02 15:04" UTC string the page falls back to and the unix
