@@ -82,6 +82,15 @@ func TestRawScanHopeless(t *testing.T) {
 	if h, _ := RawScanHopeless(ctx, d); h {
 		t.Error("a ready aggregate is never hopeless: the cards read the rollup, not the raw table")
 	}
+	// A cursor at the newest row and no pass in this process (a restart):
+	// the cards read the rollup up to the cursor and scan nothing raw.
+	hourlyReady.Store(false)
+	if _, err := d.Exec(`INSERT INTO unmask_aggregate_state (name, last_id, updated_at) VALUES (?, (SELECT MAX(id) FROM unmask_event), CURRENT_TIMESTAMP)`, hourlyState); err != nil {
+		t.Fatal(err)
+	}
+	if h, n := RawScanHopeless(ctx, d); h || n != 0 {
+		t.Errorf("nothing left to fold is never hopeless: hopeless=%v remainder=%d", h, n)
+	}
 }
 
 // Every aggregate table's oldest row is measured against the shared window;

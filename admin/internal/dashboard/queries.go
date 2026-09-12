@@ -3146,17 +3146,233 @@ func DailyServeByKind(ctx context.Context, d *db.DB, site string, hosts []string
 	// the operator's cookie TZ -- the constraint that made the old DATE-column
 	// fast path impossible.  Site / host filters and the brief post-restart
 	// window still drop to the raw scan.
-	if HourlyAggReady() && site == "" && len(hosts) == 0 {
-		return dailyServeByKindAgg(ctx, d, days, botVerdicts, tz)
+	if site == "" && len(hosts) == 0 {
+		if HourlyAggReady() {
+			return dailyServeByKindAgg(ctx, d, days, botVerdicts, tz)
+		}
+		// No full pass in this process yet: read every hour the rollup has
+		// settled from the rollup and scan only what it has not reached.
+		return dailyServeByKindSettled(ctx, d, days, botVerdicts, tz)
 	}
 	return dailyServeByKindScan(ctx, d, site, hosts, days, botVerdicts, tz)
 }
 
-// dailyServeByKindAgg reads hkServeKind / hkServeIP from
-// unmask_aggregate_hourly + _hll and folds the hour buckets into the
-// operator's cookie TZ on the way out.  ja4Action="" was used at rollup time,
-// so the read side promotes ua_class=Human + verdict ∈ botVerdicts to JA4Bot
-// here -- the only piece classify needs that the rollup couldn't preserve.
+// serveDKKey / serveKindAcc: per-day serve counts by kind, request totals
+// and a distinct-IP sketch per day, accumulated from rollup buckets and raw
+// rows alike.  The settled read (dailyServeByKindSettled) feeds both kinds
+// of source into one accumulator; the pure paths use it too.
+type serveDKKey struct {
+	date string
+	kind int
+}
+
+type serveKindAcc struct {
+	byDateKind map[serveDKKey]int
+	byTotal    map[string]int
+	sketch     map[string]*hll
+}
+
+func newServeKindAcc() *serveKindAcc {
+	return &serveKindAcc{byDateKind: map[serveDKKey]int{}, byTotal: map[string]int{}, sketch: map[string]*hll{}}
+}
+
+func (a *serveKindAcc) addKind(date string, kind, cnt int) {
+	a.byDateKind[serveDKKey{date, kind}] += cnt
+	a.byTotal[date] += cnt
+}
+
+func (a *serveKindAcc) daySketch(date string) *hll {
+	h := a.sketch[date]
+	if h == nil {
+		h = &hll{}
+		a.sketch[date] = h
+	}
+	return h
+}
+
+func (a *serveKindAcc) finish() ([]DailyKindBucket, []DailyTotal) {
+	keys := make([]serveDKKey, 0, len(a.byDateKind))
+	for k := range a.byDateKind {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if keys[i].date != keys[j].date {
+			return keys[i].date < keys[j].date
+		}
+		return keys[i].kind < keys[j].kind
+	})
+	daily := make([]DailyKindBucket, 0, len(keys))
+	for _, k := range keys {
+		daily = append(daily, DailyKindBucket{Date: k.date, Kind: k.kind, Req: a.byDateKind[k]})
+	}
+	totals := make([]DailyTotal, 0, len(a.byTotal))
+	for date, req := range a.byTotal {
+		uniq := 0
+		if h := a.sketch[date]; h != nil {
+			uniq = h.estimate()
+		}
+		totals = append(totals, DailyTotal{Date: date, Req: req, UniqIPs: uniq})
+	}
+	sort.Slice(totals, func(i, j int) bool { return totals[i].Date < totals[j].Date })
+	return daily, totals
+}
+
+// serveKindFromAggKey turns a hkServeKind bucket key ('<ua_class>|<verdict>')
+// into the kind the card shows.  ja4Action="" was used at rollup time, so the
+// read side promotes any non-search category to JA4Bot when the verdict is
+// currently flagged a bot verdict -- the one piece classify needs that the
+// rollup could not preserve, and the same precedence classify.IsBot applies
+// on the scan path (promoting only Human here once made the default view
+// under-report ja4_bot against the filtered one).
+func serveKindFromAggKey(key string, botSet map[string]bool) (int, bool) {
+	sep := strings.IndexByte(key, '|')
+	if sep < 0 {
+		return 0, false
+	}
+	uaClassN, err := strconv.Atoi(key[:sep])
+	if err != nil {
+		return 0, false
+	}
+	verdict := key[sep+1:]
+	kind := classify.Category(uaClassN)
+	if kind != classify.SearchAI && verdict != "(none)" && botSet[verdict] {
+		kind = classify.JA4Bot
+	}
+	return int(kind), true
+}
+
+// serveKindClassifier memoizes classify.IsBot per (ua, isBot) for the raw
+// paths -- the regex has 600 alternations, and a 30-day scan repeats a few
+// hundred user agents tens of thousands of times.
+func serveKindClassifier(botVerdicts []string) func(ua, verdict string) int {
+	botSet := map[string]bool{}
+	for _, v := range botVerdicts {
+		botSet[v] = true
+	}
+	type key struct {
+		ua    string
+		isBot bool
+	}
+	cache := make(map[key]int, 256)
+	return func(ua, verdict string) int {
+		k := key{ua, botSet[verdict]}
+		if kind, ok := cache[k]; ok {
+			return kind
+		}
+		action := ""
+		if k.isBot {
+			action = "bot"
+		}
+		kind := int(classify.IsBot(ua, action))
+		cache[k] = kind
+		return kind
+	}
+}
+
+// serveKindAggRows streams the hkServeKind counts and the hkServeIP sketches
+// of the window, hour by hour.  upTo ('YYYY-MM-DD HH', UTC) excludes that
+// hour and everything after it -- the settled read stops where the rollup
+// stops; "" reads the whole window.
+func serveKindAggRows(ctx context.Context, d *db.DB, days int, upTo string,
+	onCount func(hour time.Time, key string, cnt int), onSketch func(hour time.Time, blob []byte)) error {
+	hours := days * 24
+	bound := func(col string) string {
+		if upTo == "" {
+			return ""
+		}
+		return fmt.Sprintf(" AND %s < '%s'", col, upTo)
+	}
+	rows, err := d.QueryContext(ctx, fmt.Sprintf(`
+        SELECT bucket_hour, bucket_key, cnt
+        FROM unmask_aggregate_hourly
+        WHERE bucket_kind = '%s'
+          AND %s%s`, hkServeKind, hourWindow(ctx, hours, "bucket_hour"), bound("bucket_hour")))
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var bucketHour, key string
+		var cnt int
+		if err := rows.Scan(&bucketHour, &key, &cnt); err != nil {
+			rows.Close()
+			return err
+		}
+		// bucket_hour is 'YYYY-MM-DD HH' (UTC); the caller shifts it into
+		// the operator's TZ before a date label is assigned.
+		hourT, perr := time.ParseInLocation("2006-01-02 15", bucketHour, time.UTC)
+		if perr != nil {
+			continue
+		}
+		onCount(hourT, key, cnt)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+
+	hRows, err := d.QueryContext(ctx, fmt.Sprintf(`
+        SELECT bucket, sketch
+        FROM unmask_aggregate_hll
+        WHERE bucket_kind = '%s'
+          AND %s%s`, hkServeIP, hourWindow(ctx, hours, "bucket"), bound("bucket")))
+	if err != nil {
+		return err
+	}
+	defer hRows.Close()
+	for hRows.Next() {
+		var bucketHour string
+		var blob []byte
+		if err := hRows.Scan(&bucketHour, &blob); err != nil {
+			return err
+		}
+		hourT, perr := time.ParseInLocation("2006-01-02 15", bucketHour, time.UTC)
+		if perr != nil {
+			continue
+		}
+		onSketch(hourT, blob)
+	}
+	return hRows.Err()
+}
+
+// serveKindScanRows streams the raw serve rows that satisfy where -- the
+// timestamp, the verdict, the 80-char user-agent prefix and the packed
+// address -- bucketing is the caller's, in Go, so day boundaries follow the
+// operator's cookie TZ (GROUP BY in SQL would force a server-side DATE()).
+// rate_limit serve hits are excluded here: they have their own card.
+func serveKindScanRows(ctx context.Context, d *db.DB, where string, fn func(t time.Time, verdict, ua string, ip []byte)) error {
+	jsonRL := jsonExtract(d, "payload_json", "$.rl")
+	notRL := fmt.Sprintf("COALESCE(%s, '') NOT IN ('1', 1)", jsonRL)
+	rows, err := d.QueryContext(ctx, fmt.Sprintf(`
+        SELECT date_created,
+               COALESCE(ja4_verdict, '') AS verdict,
+               COALESCE(SUBSTR(user_agent, 1, 80), '') AS ua,
+               ip_address
+        FROM unmask_event
+        WHERE phase='serve' AND %s AND %s`, where, notRL))
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var ts any
+		var verdict, ua string
+		var ip []byte
+		if err := rows.Scan(&ts, &verdict, &ua, &ip); err != nil {
+			return err
+		}
+		t, ok := normalizeEventTime(ts)
+		if !ok {
+			continue
+		}
+		fn(t, verdict, ua, ip)
+	}
+	return rows.Err()
+}
+
+// dailyServeByKindAgg reads the whole window from the rollup: hkServeKind
+// counts and hkServeIP sketches folded into the operator's cookie TZ on the
+// way out.  Only for a rollup that has completed a pass in this process.
 func dailyServeByKindAgg(ctx context.Context, d *db.DB, days int, botVerdicts []string, tz *time.Location) ([]DailyKindBucket, []DailyTotal, error) {
 	if tz == nil {
 		tz = time.UTC
@@ -3165,238 +3381,133 @@ func dailyServeByKindAgg(ctx context.Context, d *db.DB, days int, botVerdicts []
 	for _, v := range botVerdicts {
 		botSet[v] = true
 	}
-
-	hours := days * 24
-	cntStmt := fmt.Sprintf(`
-        SELECT bucket_hour, bucket_key, cnt
-        FROM unmask_aggregate_hourly
-        WHERE bucket_kind = '%s'
-          AND %s`, hkServeKind, hourWindow(ctx, hours, "bucket_hour"))
-	rows, err := d.QueryContext(ctx, cntStmt)
+	acc := newServeKindAcc()
+	err := serveKindAggRows(ctx, d, days, "",
+		func(hour time.Time, key string, cnt int) {
+			if kind, ok := serveKindFromAggKey(key, botSet); ok {
+				acc.addKind(hour.In(tz).Format("2006-01-02"), kind, cnt)
+			}
+		},
+		func(hour time.Time, blob []byte) {
+			acc.daySketch(hour.In(tz).Format("2006-01-02")).merge(loadHLL(blob))
+		})
 	if err != nil {
 		return nil, nil, err
 	}
-	defer rows.Close()
-
-	type dkKey struct {
-		date string
-		kind int
-	}
-	byDateKind := map[dkKey]int{}
-	type totAcc struct {
-		req int
-	}
-	byTotal := map[string]*totAcc{}
-
-	for rows.Next() {
-		var bucketHour, key string
-		var cnt int
-		if err := rows.Scan(&bucketHour, &key, &cnt); err != nil {
-			return nil, nil, err
-		}
-		// bucket_hour is 'YYYY-MM-DD HH' (UTC).  Parse and shift to the
-		// operator's TZ before the date label is assigned.
-		hourT, err := time.ParseInLocation("2006-01-02 15", bucketHour, time.UTC)
-		if err != nil {
-			continue
-		}
-		date := hourT.In(tz).Format("2006-01-02")
-		// key = '<ua_class>|<verdict>'.  Split + promote ua_class=Human to
-		// JA4Bot when the verdict is currently flagged a bot verdict.
-		sep := strings.IndexByte(key, '|')
-		if sep < 0 {
-			continue
-		}
-		uaClassN, perr := strconv.Atoi(key[:sep])
-		if perr != nil {
-			continue
-		}
-		verdict := key[sep+1:]
-		kind := classify.Category(uaClassN)
-		// Mirror classify.IsBot precedence: a bot JA4 verdict promotes ANY
-		// non-search category (Human/OldUA/Service/UserDev) to JA4Bot.  The scan
-		// path (IsBot(ua,"bot")) already does this, so promoting only Human here
-		// made the default agg view under-report ja4_bot vs the filtered view.
-		if kind != classify.SearchAI && verdict != "(none)" && botSet[verdict] {
-			kind = classify.JA4Bot
-		}
-		byDateKind[dkKey{date, int(kind)}] += cnt
-		tot := byTotal[date]
-		if tot == nil {
-			tot = &totAcc{}
-			byTotal[date] = tot
-		}
-		tot.req += cnt
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, err
-	}
-
-	// distinct IP per (operator-TZ day) via per-hour HLL merge.
-	hllStmt := fmt.Sprintf(`
-        SELECT bucket, sketch
-        FROM unmask_aggregate_hll
-        WHERE bucket_kind = '%s'
-          AND %s`, hkServeIP, hourWindow(ctx, hours, "bucket"))
-	hRows, err := d.QueryContext(ctx, hllStmt)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer hRows.Close()
-	sketchByDay := map[string]*hll{}
-	for hRows.Next() {
-		var bucketHour string
-		var blob []byte
-		if err := hRows.Scan(&bucketHour, &blob); err != nil {
-			return nil, nil, err
-		}
-		hourT, err := time.ParseInLocation("2006-01-02 15", bucketHour, time.UTC)
-		if err != nil {
-			continue
-		}
-		date := hourT.In(tz).Format("2006-01-02")
-		h := loadHLL(blob)
-		if existing, ok := sketchByDay[date]; ok {
-			existing.merge(h)
-		} else {
-			sketchByDay[date] = h
-		}
-	}
-	if err := hRows.Err(); err != nil {
-		return nil, nil, err
-	}
-
-	dailyKeys := make([]dkKey, 0, len(byDateKind))
-	for k := range byDateKind {
-		dailyKeys = append(dailyKeys, k)
-	}
-	sort.Slice(dailyKeys, func(i, j int) bool {
-		if dailyKeys[i].date != dailyKeys[j].date {
-			return dailyKeys[i].date < dailyKeys[j].date
-		}
-		return dailyKeys[i].kind < dailyKeys[j].kind
-	})
-	daily := make([]DailyKindBucket, 0, len(dailyKeys))
-	for _, k := range dailyKeys {
-		daily = append(daily, DailyKindBucket{Date: k.date, Kind: k.kind, Req: byDateKind[k]})
-	}
-
-	totals := make([]DailyTotal, 0, len(byTotal))
-	for date, tot := range byTotal {
-		uniq := 0
-		if h := sketchByDay[date]; h != nil {
-			uniq = int(h.estimate())
-		}
-		totals = append(totals, DailyTotal{Date: date, Req: tot.req, UniqIPs: uniq})
-	}
-	sort.Slice(totals, func(i, j int) bool { return totals[i].Date < totals[j].Date })
-
+	daily, totals := acc.finish()
 	return daily, totals, nil
 }
 
-// dailyServeByKindScan is the only serve-kind read path.  The previous
-// "aggregate fast path" (dailyServeByKindAgg + AggregateServeKind) wrote
-// per-day rows into unmask_aggregate using a DATE column, which cannot honour
-// a per-operator cookie TZ.  Both were retired in favour of this raw scan,
-// which is still cheap (~100 ms at 100k events / 30 days).  Two scans, each producing a
-// small result set: query A groups by (date, verdict, ua-prefix) — deliberately
-// NOT by ip_address (including ip yields ~200k rows on a busy 30-day window) —
-// and query B groups by date only for COUNT(*) + COUNT(DISTINCT ip_address).
-func dailyServeByKindScan(ctx context.Context, d *db.DB, site string, hosts []string, days int, botVerdicts []string, tz *time.Location) ([]DailyKindBucket, []DailyTotal, error) {
+// dailyServeByKindSettled is the read while the rollup has not completed a
+// pass in this process: every hour before the rollup's settled boundary
+// comes from the rollup (those buckets are final -- a finished hour never
+// changes, and a restart must not throw it away), and only the remainder is
+// scanned raw: the rows from the boundary on, plus the odd straggler the
+// cursor has not reached with an older timestamp.  Distinct addresses go
+// into the same per-day sketch from both sources, which a sketch absorbs
+// even where the two overlap.  With no cursor recorded yet the whole window
+// is scanned, as before.
+func dailyServeByKindSettled(ctx context.Context, d *db.DB, days int, botVerdicts []string, tz *time.Location) ([]DailyKindBucket, []DailyTotal, error) {
+	cursor, boundary, ok, err := hourlySettledBoundary(ctx, d)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !ok {
+		return dailyServeByKindScan(ctx, d, "", nil, days, botVerdicts, tz)
+	}
 	if tz == nil {
 		tz = time.UTC
 	}
-	jsonRL := jsonExtract(d, "payload_json", "$.rl")
-	cond := siteCond(site) + hostCond(hosts)
-	// rate_limit serve hits are orthogonal to the bot-type breakdown and are
-	// excluded (they have a dedicated rate_limit card).  Filtering them in
-	// WHERE keeps is_rl out of the GROUP BY.  COALESCE guards a NULL
-	// payload_json (no rl key) → '' → kept.
-	notRL := fmt.Sprintf("COALESCE(%s, '') NOT IN ('1', 1)", jsonRL)
-
-	type dkKey struct {
-		date string
-		kind int
-	}
-	byDateKind := map[dkKey]int{}
-
-	// classify cache (= same (ua, isJA4Bot) tuple always maps to the same kind).
-	// Memoize because IsBot runs a regex with 600 alternations per call.
 	botSet := map[string]bool{}
 	for _, v := range botVerdicts {
 		botSet[v] = true
 	}
-	type classifyKey struct {
-		ua    string
-		isBot bool
-	}
-	classifyCache := make(map[classifyKey]int, 256)
-
-	// Read the raw serve rows and bucket them per (TZ-shifted date, ua-prefix,
-	// verdict) in Go.  GROUP BY in SQL would force a server-side DATE() that
-	// can't honour the operator's cookie TZ; doing it here keeps the day
-	// boundaries correct under any TZ.  We project the timestamp + 80-char
-	// ua prefix only, so even at ~100k events / 30d the row payload is small.
-	stmt := fmt.Sprintf(`
-        SELECT date_created,
-               COALESCE(ja4_verdict, '') AS verdict,
-               COALESCE(SUBSTR(user_agent, 1, 80), '') AS ua,
-               ip_address
-        FROM unmask_event
-        WHERE phase='serve' AND %s AND %s%s`,
-		tsWindow(ctx, days*24, "date_created"), notRL, cond)
-	rows, err := d.QueryContext(ctx, stmt)
+	acc := newServeKindAcc()
+	err = serveKindAggRows(ctx, d, days, boundary.UTC().Format("2006-01-02 15"),
+		func(hour time.Time, key string, cnt int) {
+			if kind, ok := serveKindFromAggKey(key, botSet); ok {
+				acc.addKind(hour.In(tz).Format("2006-01-02"), kind, cnt)
+			}
+		},
+		func(hour time.Time, blob []byte) {
+			acc.daySketch(hour.In(tz).Format("2006-01-02")).merge(loadHLL(blob))
+		})
 	if err != nil {
 		return nil, nil, err
 	}
-	defer rows.Close()
+	classifyKind := serveKindClassifier(botVerdicts)
+	add := func(t time.Time, verdict, ua string, ip []byte) {
+		date := t.In(tz).Format("2006-01-02")
+		acc.addKind(date, classifyKind(ua, verdict), 1)
+		if len(ip) > 0 {
+			acc.daySketch(date).add(ip)
+		}
+	}
+	for _, where := range settledRemainderClauses(windowOr(ctx, days*24), cursor, boundary) {
+		if err := serveKindScanRows(ctx, d, where, add); err != nil {
+			return nil, nil, err
+		}
+	}
+	daily, totals := acc.finish()
+	return daily, totals, nil
+}
 
+// settledRemainderClauses are the raw-row predicates that complement a
+// rollup read up to boundary: everything from the boundary hour to the end
+// of the window (folded or not -- the boundary hour's bucket is partial and
+// is not read), plus the rows before it the cursor has not folded.  Each
+// clause is indexable on its own (the date index, the primary key), which is
+// why they are two queries and not one OR.
+func settledRemainderClauses(w Window, cursor int64, boundary time.Time) []string {
+	lo := time.Unix(w.Start, 0).UTC()
+	hi := time.Unix(w.End, 0).UTC()
+	const layout = "2006-01-02 15:04:05"
+	if !boundary.After(lo) {
+		// Nothing settled inside the window: scan all of it.
+		return []string{fmt.Sprintf("date_created >= '%s' AND date_created <= '%s'", lo.Format(layout), hi.Format(layout))}
+	}
+	out := []string{}
+	if !boundary.After(hi) {
+		out = append(out, fmt.Sprintf("date_created >= '%s' AND date_created <= '%s'", boundary.Format(layout), hi.Format(layout)))
+	}
+	out = append(out, fmt.Sprintf("id > %d AND date_created >= '%s' AND date_created < '%s'", cursor, lo.Format(layout), boundary.Format(layout)))
+	return out
+}
+
+// dailyServeByKindScan reads the window raw: the site- and host-filtered
+// views, and the default view before any rollup pass has recorded a cursor.
+// Distinct addresses are exact here (a set per day), not a sketch.
+func dailyServeByKindScan(ctx context.Context, d *db.DB, site string, hosts []string, days int, botVerdicts []string, tz *time.Location) ([]DailyKindBucket, []DailyTotal, error) {
+	if tz == nil {
+		tz = time.UTC
+	}
+	classifyKind := serveKindClassifier(botVerdicts)
+	byDateKind := map[serveDKKey]int{}
 	type totAcc struct {
 		req  int
 		seen map[string]struct{}
 	}
 	byTotal := map[string]*totAcc{}
-
-	for rows.Next() {
-		var ts any
-		var verdict, ua, ip string
-		if err := rows.Scan(&ts, &verdict, &ua, &ip); err != nil {
-			return nil, nil, err
-		}
-		t, ok := normalizeEventTime(ts)
-		if !ok {
-			continue
-		}
+	where := tsWindow(ctx, days*24, "date_created") + siteCond(site) + hostCond(hosts)
+	err := serveKindScanRows(ctx, d, where, func(t time.Time, verdict, ua string, ip []byte) {
 		date := t.In(tz).Format("2006-01-02")
-		isBot := botSet[verdict]
-		ck := classifyKey{ua, isBot}
-		kind, ok := classifyCache[ck]
-		if !ok {
-			action := ""
-			if isBot {
-				action = "bot"
-			}
-			kind = int(classify.IsBot(ua, action))
-			classifyCache[ck] = kind
-		}
-		byDateKind[dkKey{date, kind}]++
-
+		byDateKind[serveDKKey{date, classifyKind(ua, verdict)}]++
 		tot := byTotal[date]
 		if tot == nil {
 			tot = &totAcc{seen: make(map[string]struct{})}
 			byTotal[date] = tot
 		}
 		tot.req++
-		if ip != "" {
-			tot.seen[ip] = struct{}{}
+		if len(ip) > 0 {
+			tot.seen[string(ip)] = struct{}{}
 		}
-	}
-	if err := rows.Err(); err != nil {
+	})
+	if err != nil {
 		return nil, nil, err
 	}
 
 	// daily: sort by date asc, kind asc
-	dailyKeys := make([]dkKey, 0, len(byDateKind))
+	dailyKeys := make([]serveDKKey, 0, len(byDateKind))
 	for k := range byDateKind {
 		dailyKeys = append(dailyKeys, k)
 	}
@@ -3908,39 +4019,73 @@ func CountriesByServe(ctx context.Context, d *db.DB, gip *ipgeo.Reader, site str
 	if gip == nil || !gip.Loaded() {
 		return nil, nil
 	}
-	if site == "" && len(hosts) == 0 && HourlyAggReady() {
-		return countriesAgg(ctx, d, days, limit)
+	if site == "" && len(hosts) == 0 {
+		if HourlyAggReady() {
+			return countriesAgg(ctx, d, days, limit)
+		}
+		// No full pass in this process yet: settled hours from the rollup,
+		// the remainder raw (see dailyServeByKindSettled).
+		return countriesSettled(ctx, d, gip, days, limit)
 	}
 	return countriesScan(ctx, d, gip, site, hosts, days, limit)
 }
 
-func countriesScan(ctx context.Context, d *db.DB, gip *ipgeo.Reader, site string, hosts []string, days, limit int) ([]CountryRow, error) {
-	stmt := fmt.Sprintf(`
+// countryAcc: per-country serve count and distinct-address sketch.
+type countryAcc struct {
+	req    int
+	sketch *hll
+}
+
+func countryRows(byCC map[string]*countryAcc, limit int) []CountryRow {
+	out := make([]CountryRow, 0, len(byCC))
+	for cc, a := range byCC {
+		uniq := 0
+		if a.sketch != nil {
+			uniq = a.sketch.estimate()
+		}
+		out = append(out, CountryRow{CountryCode: cc, Req: a.req, UniqIPs: uniq})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Req > out[j].Req })
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+// countriesScanRows streams the raw serve rows of the window grouped by
+// address -- the address, its serve count, and its country -- for the
+// caller to fold; rows with no country are skipped.
+func countriesScanRows(ctx context.Context, d *db.DB, gip *ipgeo.Reader, where string, fn func(cc string, ip []byte, n int)) error {
+	rows, err := d.QueryContext(ctx, fmt.Sprintf(`
         SELECT ip_address, COUNT(*) AS n
         FROM unmask_event
-        WHERE %s%s AND phase='serve'
-        GROUP BY ip_address`, tsWindow(ctx, days*24, "date_created"), siteCond(site)+hostCond(hosts))
-	rows, err := d.QueryContext(ctx, stmt)
+        WHERE %s AND phase='serve'
+        GROUP BY ip_address`, where))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
+	for rows.Next() {
+		var raw []byte
+		var n int
+		if err := rows.Scan(&raw, &n); err != nil {
+			return err
+		}
+		if cc := gip.LookupBytes(raw); cc != "" {
+			fn(cc, raw, n)
+		}
+	}
+	return rows.Err()
+}
 
+func countriesScan(ctx context.Context, d *db.DB, gip *ipgeo.Reader, site string, hosts []string, days, limit int) ([]CountryRow, error) {
 	type acc struct {
 		req     int
 		uniqIPs int
 	}
 	byCC := map[string]*acc{}
-	for rows.Next() {
-		var raw []byte
-		var n int
-		if err := rows.Scan(&raw, &n); err != nil {
-			return nil, err
-		}
-		cc := gip.LookupBytes(raw)
-		if cc == "" {
-			continue
-		}
+	where := tsWindow(ctx, days*24, "date_created") + siteCond(site) + hostCond(hosts)
+	err := countriesScanRows(ctx, d, gip, where, func(cc string, _ []byte, n int) {
 		a, ok := byCC[cc]
 		if !ok {
 			a = &acc{}
@@ -3948,8 +4093,8 @@ func countriesScan(ctx context.Context, d *db.DB, gip *ipgeo.Reader, site string
 		}
 		a.req += n
 		a.uniqIPs++
-	}
-	if err := rows.Err(); err != nil {
+	})
+	if err != nil {
 		return nil, err
 	}
 	out := make([]CountryRow, 0, len(byCC))
@@ -3963,79 +4108,115 @@ func countriesScan(ctx context.Context, d *db.DB, gip *ipgeo.Reader, site string
 	return out, nil
 }
 
-// countriesAgg builds the country ranking from the aggregate: per-country
-// serve counts summed from the hourly 'cc' buckets, distinct-IP estimated by
-// merging the daily 'ccip' HLL sketches.
-func countriesAgg(ctx context.Context, d *db.DB, days, limit int) ([]CountryRow, error) {
-	type acc struct{ req, uniq int }
-	byCC := map[string]*acc{}
-
+// countriesAggRows streams the rollup's per-country serve counts (hourly
+// 'cc' buckets, summed) and the daily 'ccip' sketches of the window.  upTo
+// ('YYYY-MM-DD HH', UTC) stops the counts before that hour -- the settled
+// read stops where the rollup stops; the daily sketches are read whole,
+// since a sketch absorbs the overlap with the raw remainder.
+func countriesAggRows(ctx context.Context, d *db.DB, days int, upTo string,
+	onCount func(cc string, req int), onSketch func(cc string, blob []byte)) error {
+	bound := ""
+	if upTo != "" {
+		bound = fmt.Sprintf(" AND bucket_hour < '%s'", upTo)
+	}
 	crows, err := d.QueryContext(ctx, `
         SELECT bucket_key, SUM(cnt) FROM unmask_aggregate_hourly
-        WHERE `+hourWindow(ctx, days*24, "bucket_hour")+` AND bucket_kind = 'cc'
+        WHERE `+hourWindow(ctx, days*24, "bucket_hour")+bound+` AND bucket_kind = 'cc'
         GROUP BY bucket_key`)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	for crows.Next() {
 		var cc string
 		var req int
 		if err := crows.Scan(&cc, &req); err != nil {
 			crows.Close()
-			return nil, err
+			return err
 		}
-		byCC[cc] = &acc{req: req}
+		onCount(cc, req)
 	}
 	if err := crows.Err(); err != nil {
 		crows.Close()
-		return nil, err
+		return err
 	}
 	crows.Close()
 
-	sketches := map[string]*hll{}
 	hrows, err := d.QueryContext(ctx, `
         SELECT bucket_key, sketch FROM unmask_aggregate_hll
         WHERE `+dateWindow(ctx, days*24, "bucket")+` AND bucket_kind = 'ccip'`)
 	if err != nil {
-		return nil, err
+		return err
 	}
+	defer hrows.Close()
 	for hrows.Next() {
 		var cc string
 		var blob []byte
 		if err := hrows.Scan(&cc, &blob); err != nil {
-			hrows.Close()
-			return nil, err
+			return err
 		}
-		s := sketches[cc]
-		if s == nil {
-			s = &hll{}
-			sketches[cc] = s
-		}
-		s.merge(loadHLL(blob))
+		onSketch(cc, blob)
 	}
-	if err := hrows.Err(); err != nil {
-		hrows.Close()
-		return nil, err
-	}
-	hrows.Close()
-	for cc, s := range sketches {
+	return hrows.Err()
+}
+
+// countriesAgg builds the country ranking from the rollup alone: per-country
+// serve counts summed from the hourly 'cc' buckets, distinct addresses
+// estimated by merging the daily 'ccip' sketches.
+func countriesAgg(ctx context.Context, d *db.DB, days, limit int) ([]CountryRow, error) {
+	byCC := map[string]*countryAcc{}
+	get := func(cc string) *countryAcc {
 		a := byCC[cc]
 		if a == nil {
-			a = &acc{}
+			a = &countryAcc{sketch: &hll{}}
 			byCC[cc] = a
 		}
-		a.uniq = s.estimate()
+		return a
 	}
+	err := countriesAggRows(ctx, d, days, "",
+		func(cc string, req int) { get(cc).req += req },
+		func(cc string, blob []byte) { get(cc).sketch.merge(loadHLL(blob)) })
+	if err != nil {
+		return nil, err
+	}
+	return countryRows(byCC, limit), nil
+}
 
-	out := make([]CountryRow, 0, len(byCC))
-	for cc, a := range byCC {
-		out = append(out, CountryRow{CountryCode: cc, Req: a.req, UniqIPs: a.uniq})
+// countriesSettled: the rollup for every hour before its settled boundary,
+// the raw rows for the remainder, one sketch per country for both.
+func countriesSettled(ctx context.Context, d *db.DB, gip *ipgeo.Reader, days, limit int) ([]CountryRow, error) {
+	cursor, boundary, ok, err := hourlySettledBoundary(ctx, d)
+	if err != nil {
+		return nil, err
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Req > out[j].Req })
-	if len(out) > limit {
-		out = out[:limit]
+	if !ok {
+		return countriesScan(ctx, d, gip, "", nil, days, limit)
 	}
-	return out, nil
+	byCC := map[string]*countryAcc{}
+	get := func(cc string) *countryAcc {
+		a := byCC[cc]
+		if a == nil {
+			a = &countryAcc{sketch: &hll{}}
+			byCC[cc] = a
+		}
+		return a
+	}
+	err = countriesAggRows(ctx, d, days, boundary.UTC().Format("2006-01-02 15"),
+		func(cc string, req int) { get(cc).req += req },
+		func(cc string, blob []byte) { get(cc).sketch.merge(loadHLL(blob)) })
+	if err != nil {
+		return nil, err
+	}
+	for _, where := range settledRemainderClauses(windowOr(ctx, days*24), cursor, boundary) {
+		err := countriesScanRows(ctx, d, gip, where, func(cc string, ip []byte, n int) {
+			a := get(cc)
+			a.req += n
+			a.sketch.add(ip)
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	return countryRows(byCC, limit), nil
 }
 
 // ---- legacy: per-phase daily series (= for the existing chart; deprecated) ----
