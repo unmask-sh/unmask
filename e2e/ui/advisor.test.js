@@ -110,8 +110,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       // The heading and the traffic column each carry a ? help popover.
       helpH1: !!document.querySelector('main h1 .info-tip .info-popup'),
       helpTraffic: !!document.querySelector('table.cands thead th .info-tip .info-popup'),
-      // The traffic cell: served -> passed on the main line, the middle
-      // stages under it, the window as a compact range.
+      // The traffic cell: served -> passed on the main line, the JS line
+      // (ran · not run) and the chain lines under it, the window as a
+      // compact range.
       traffic: (row.querySelector('.tf-main') || {}).textContent || '',
       trafficSub: (row.querySelector('.tf-sub') || {}).textContent || '',
       trafficWhen: !!row.querySelector('.tf-when time.js-datetime-short[data-ts]'),
@@ -157,7 +158,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const main = (adv.traffic.replace(/,/g, '').match(/\d+/g) || []).map(Number);
     ok(main.length === 2 && main[0] === SEED_SERVES && main[1] === 0,
       `the traffic main line must read ${SEED_SERVES} served -> 0 passed: ${JSON.stringify(adv.traffic.trim().slice(0, 80))}`);
-    ok((adv.trafficSub.replace(/,/g, '').match(/\d+/g) || []).length === 3, `the middle stages line must carry three counts: ${JSON.stringify(adv.trafficSub.trim())}`);
+    // The seed never ran the JavaScript: the JS line reads 0 ran and every
+    // serve not run, and no chain line follows it.
+    const sub = (adv.trafficSub.replace(/,/g, '').match(/\d+/g) || []).map(Number);
+    ok(sub.length === 2 && sub[0] === 0 && sub[1] === SEED_SERVES,
+      `the JS line must read 0 ran · ${SEED_SERVES} not run and nothing else: ${JSON.stringify(adv.trafficSub.trim())}`);
     ok(adv.trafficWhen, 'the window must be a tz-aware compact time range');
     ok(adv.clippedPaths >= 1 && adv.plainPaths >= 1,
       `expected both a clipped and an unclipped sample path, got clipped=${adv.clippedPaths} plain=${adv.plainPaths}`);

@@ -52,9 +52,11 @@ td.traffic{white-space:nowrap}
 .tf-main strong{color:#0f172a;font-size:.92rem}
 .tf-arrow{color:#94a3b8;margin:0 .15rem}
 .tf-kinds{color:#64748b;font-size:.72rem}
-/* A breakdown is its own line under the figure it splits (the pass kinds,
-   the CAPTCHA outcome), so the cell stays as narrow as its widest stage
-   line instead of one long run of counts. */
+/* The cell reads the challenge by chain: "JS ran · not run", then one
+   line per chain presented, and under it the chain's outcome (passed ·
+   not completed; the two gates of pow_then_captcha each) as its own ↳ line,
+   so the cell stays as narrow as its widest line instead of one long run
+   of counts. */
 .tf-stage{display:block}
 .tf-more{display:block;padding-left:.9rem;text-indent:-.9rem}
 .tf-more::before{content:"↳ ";color:#94a3b8}
@@ -306,8 +308,8 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
           <td class="kv traffic">
             {{/* served -> passed on the main line, the middle stages under it,
                  then the window as a compact range in the operator's tz. */}}
-            <div class="tf-main"><strong>{{ comma .Serves }}</strong> {{ t $.Lang "advisor.serves" }} <span class="tf-arrow">→</span> <strong>{{ comma .Passes }}</strong> {{ t $.Lang "advisor.passes" }}{{ with .SinglePassKind }} <span class="tf-kinds">({{ t $.Lang (printf "advisor.kind_%s" .) }})</span>{{ else }}{{ if or .PassPow .PassCaptcha .PassBoth }}<span class="tf-kinds tf-more">{{ if .PassPow }}{{ t $.Lang "advisor.kind_pow" }} {{ comma .PassPow }}{{ end }}{{ if .PassCaptcha }}{{ if .PassPow }} · {{ end }}{{ t $.Lang "advisor.kind_captcha" }} {{ comma .PassCaptcha }}{{ end }}{{ if .PassBoth }}{{ if or .PassPow .PassCaptcha }} · {{ end }}{{ t $.Lang "advisor.kind_both" }} {{ comma .PassBoth }}{{ end }}</span>{{ end }}{{ end }}</div>
-            <div class="tf-sub"><span class="tf-stage">{{ t $.Lang "advisor.loads" }} {{ comma .Loads }}</span><span class="tf-stage">{{ t $.Lang "advisor.pow" }} {{ comma .PowPassed }}{{ if and .PowToCaptcha (not .PassPow) }} <span class="tf-kinds">({{ t $.Lang "advisor.kind_both" }})</span>{{ end }}</span>{{ if and .PowToCaptcha .PassPow }}<span class="tf-kinds tf-more">{{ t $.Lang "advisor.kind_pow" }} {{ comma .PassPow }} · {{ t $.Lang "advisor.kind_both" }} {{ comma .PowToCaptcha }}</span>{{ end }}<span class="tf-stage">{{ t $.Lang "advisor.captcha" }} {{ comma .CaptchaShown }}</span>{{ if .CaptchaShown }}<span class="tf-kinds tf-more">{{ t $.Lang "advisor.captcha_passed" }} {{ comma .CaptchaPasses }} · {{ t $.Lang "advisor.captcha_held" }} {{ comma .CaptchaHeld }}</span>{{ end }}</div>
+            <div class="tf-main"><strong>{{ comma .Serves }}</strong> {{ t $.Lang "advisor.serves" }} <span class="tf-arrow">→</span> <strong>{{ comma .Passes }}</strong> {{ t $.Lang "advisor.passes" }}{{ with .SinglePassKind }} <span class="tf-kinds">({{ t $.Lang (printf "advisor.kind_%s" .) }})</span>{{ end }}</div>
+            <div class="tf-sub"><span class="tf-stage">{{ t $.Lang "advisor.loads" }} {{ comma .Loads }} · {{ t $.Lang "advisor.js_not_run" }} {{ comma .JSNotRun }}</span>{{ if .HasPowOnly }}<span class="tf-stage">{{ t $.Lang "advisor.kind_pow" }} {{ comma .ShownPow }} {{ t $.Lang "advisor.shown" }}</span><span class="tf-kinds tf-more">{{ t $.Lang "advisor.gate_passed" }} {{ comma .PassPow }} · {{ t $.Lang "advisor.gate_held" }} {{ comma .PowOnlyHeld }}</span>{{ end }}{{ if .HasCaptchaOnly }}<span class="tf-stage">{{ t $.Lang "advisor.kind_captcha" }} {{ comma .ShownCaptcha }} {{ t $.Lang "advisor.shown" }}</span><span class="tf-kinds tf-more">{{ t $.Lang "advisor.gate_passed" }} {{ comma .PassCaptcha }} · {{ t $.Lang "advisor.gate_held" }} {{ comma .CaptchaOnlyHeld }}</span>{{ end }}{{ if .HasChain }}<span class="tf-stage">{{ t $.Lang "advisor.kind_both" }} {{ comma .ShownBoth }} {{ t $.Lang "advisor.shown" }}</span><span class="tf-kinds tf-more">{{ t $.Lang "advisor.pow" }} {{ t $.Lang "advisor.gate_passed" }} {{ comma .ChainPowPassed }} · {{ t $.Lang "advisor.gate_held" }} {{ comma .ChainPowHeld }}</span><span class="tf-kinds tf-more">{{ t $.Lang "advisor.captcha" }} {{ t $.Lang "advisor.gate_passed" }} {{ comma .PassBoth }} · {{ t $.Lang "advisor.gate_held" }} {{ comma .ChainCaptchaHeld }}</span>{{ end }}</div>
             <div class="tf-sub tf-when">{{ if .FirstTs }}<time class="js-datetime js-datetime-short" data-ts="{{ .FirstTs }}">{{ .FirstSeen }}</time>{{ else }}{{ .FirstSeen }}{{ end }} – {{ if .LastTs }}<time class="js-datetime js-datetime-short" data-ts="{{ .LastTs }}">{{ .LastSeen }}</time>{{ else }}{{ .LastSeen }}{{ end }}</div>
           </td>
           <td class="ua">

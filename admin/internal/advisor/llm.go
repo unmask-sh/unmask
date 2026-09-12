@@ -115,12 +115,14 @@ Read the counts as stages of one challenge. challenges_served: challenge pages
 served. js_loaded: the client executed the challenge JavaScript. pow_passed: it
 solved the proof-of-work (in a proof-of-work-only chain that solve is the pass
 itself). captcha_shown: it reached the behavioural CAPTCHA. challenges_passed: it completed the whole challenge and received a
-pass cookie -- the only count that means it got through. pass_pow, pass_captcha
-and pass_both split challenges_passed by how the chain ended (proof-of-work
-alone, CAPTCHA alone, proof-of-work then CAPTCHA); captcha_shown minus
-pass_captcha minus pass_both is how often the CAPTCHA was reached and not
-completed. A client with pow_passed but no challenges_passed was stopped at
-the CAPTCHA: the defence worked. A client with many challenges served and none passed is already
+pass cookie -- the only count that means it got through. The challenge runs as
+one of three chains: shown_pow_only, shown_captcha_only and
+shown_pow_then_captcha count how often the JavaScript ran with each, and
+pass_pow, pass_captcha and pass_both how often each was completed, so shown
+minus passed is that chain holding. In pow_then_captcha, pow_passed minus
+pass_pow is its proof-of-work step cleared, and that minus pass_both is how
+often its CAPTCHA was then not completed. A client with pow_passed but no
+challenges_passed was stopped at the CAPTCHA: the defence worked. A client with many challenges served and none passed is already
 contained: blocking it would only save the server some work, so rank it low
 unless its volume alone is a cost -- thousands of requests in the window, not
 hundreds. What deserves attention is the opposite --
@@ -150,9 +152,12 @@ type bundleCandidate struct {
 	PowPassed    int      `json:"pow_passed"`
 	CaptchaShown int      `json:"captcha_shown"`
 	Passes       int      `json:"challenges_passed"`
-	PassPow      int      `json:"pass_pow,omitempty"`     // ... by the proof-of-work alone
-	PassCaptcha  int      `json:"pass_captcha,omitempty"` // ... by the CAPTCHA alone
-	PassBoth     int      `json:"pass_both,omitempty"`    // ... proof-of-work then CAPTCHA
+	PassPow      int      `json:"pass_pow,omitempty"`               // ... by the proof-of-work alone
+	PassCaptcha  int      `json:"pass_captcha,omitempty"`           // ... by the CAPTCHA alone
+	PassBoth     int      `json:"pass_both,omitempty"`              // ... proof-of-work then CAPTCHA
+	ShownPow     int      `json:"shown_pow_only,omitempty"`         // the chain presented (the challenge JavaScript ran with it)
+	ShownCaptcha int      `json:"shown_captcha_only,omitempty"`     // ... captcha_only
+	ShownBoth    int      `json:"shown_pow_then_captcha,omitempty"` // ... pow_then_captcha
 	ScannerHits  int      `json:"scanner_path_hits,omitempty"`
 	DistinctIPs  int      `json:"distinct_addresses,omitempty"`
 	PassIPs7d    int      `json:"pass_ips_7d,omitempty"` // fingerprints: addresses that completed the challenge with it in 7 days
@@ -182,7 +187,9 @@ func buildBundle(cands []Candidate) []bundleCandidate {
 		out = append(out, bundleCandidate{
 			Target: c.Target, Type: c.Type, Contained: c.Contained, Signals: ids,
 			Serves: c.Serves, JSLoaded: c.Loads, PowPassed: c.PowPassed, CaptchaShown: c.CaptchaShown, Passes: c.Passes,
-			PassPow: c.PassPow, PassCaptcha: c.PassCaptcha, PassBoth: c.PassBoth, ScannerHits: c.ScannerHits, PassIPs7d: c.PassIPs7d, Verdict: c.Verdict,
+			PassPow: c.PassPow, PassCaptcha: c.PassCaptcha, PassBoth: c.PassBoth,
+			ShownPow: c.ShownPow, ShownCaptcha: c.ShownCaptcha, ShownBoth: c.ShownBoth,
+			ScannerHits: c.ScannerHits, PassIPs7d: c.PassIPs7d, Verdict: c.Verdict,
 			DistinctIPs: c.DistinctIPs, ASNOrg: c.ASNOrg, Country: c.Country,
 			UA: ua, SamplePaths: c.SamplePaths,
 			FirstSeen: c.FirstSeen, LastSeen: c.LastSeen,
@@ -713,6 +720,7 @@ func fillFromPool(c *Candidate, pool Pool) bool {
 		c.Requests, c.Serves, c.Passes, c.ScannerHits = row.Requests, row.Serves, row.Passes, row.ScannerHits
 		c.Loads, c.PowPassed, c.CaptchaShown = row.JSLoaded, row.PowPassed, row.CaptchaShown
 		c.PassPow, c.PassCaptcha, c.PassBoth = row.PassPow, row.PassCaptcha, row.PassBoth
+		c.ShownPow, c.ShownCaptcha, c.ShownBoth = row.ShownPow, row.ShownCaptcha, row.ShownBoth
 		c.JA4, c.UA, c.ASN, c.ASNOrg, c.Country, c.RDNS = row.JA4, row.UA, row.ASN, row.ASNOrg, row.Country, row.RDNS
 		// Through dbTime like an engine row: the compact, tz-aware range on
 		// the page needs the unix time, and the raw column text read as
@@ -727,6 +735,7 @@ func fillFromPool(c *Candidate, pool Pool) bool {
 		c.Requests, c.Serves, c.Passes, c.DistinctIPs, c.UA = row.Requests, row.Serves, row.Passes, row.DistinctIPs, row.UA
 		c.Loads, c.PowPassed, c.CaptchaShown = row.JSLoaded, row.PowPassed, row.CaptchaShown
 		c.PassPow, c.PassCaptcha, c.PassBoth = row.PassPow, row.PassCaptcha, row.PassBoth
+		c.ShownPow, c.ShownCaptcha, c.ShownBoth = row.ShownPow, row.ShownCaptcha, row.ShownBoth
 	default:
 		return false
 	}
