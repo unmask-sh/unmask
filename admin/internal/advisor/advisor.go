@@ -150,6 +150,32 @@ func (c Candidate) HeldAtCaptcha() bool {
 	return c.Passes == 0 && (c.PowPassed > 0 || c.CaptchaShown > 0)
 }
 
+// SinglePassKind names the one way this actor's passes ended -- "pow",
+// "captcha" or "both" -- when every pass ended the same way, and "" when
+// the kinds are unknown or mixed.  One kind reads inline beside the pass
+// count ("16 通過 (PoW のみ)"); a breakdown line for it would only restate
+// the count (operator, 2026-09-13: "↳ PoW 16 は冗長").
+func (c Candidate) SinglePassKind() string {
+	kinds := 0
+	name := ""
+	if c.PassPow > 0 {
+		kinds++
+		name = "pow"
+	}
+	if c.PassCaptcha > 0 {
+		kinds++
+		name = "captcha"
+	}
+	if c.PassBoth > 0 {
+		kinds++
+		name = "both"
+	}
+	if kinds != 1 {
+		return ""
+	}
+	return name
+}
+
 // CaptchaPasses: passes that ended at the CAPTCHA (the captcha_only and
 // pow_then_captcha chains) -- what the CAPTCHA let through.
 func (c Candidate) CaptchaPasses() int { return c.PassCaptcha + c.PassBoth }
