@@ -135,6 +135,11 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	if !strings.Contains(body, `<span class="uline"><span class="cellpop" data-full-value="Mozilla/5.0">`) || strings.Contains(body, `他 0 種`) {
 		t.Error("a row without user-agent counts shows its one user agent and no remainder")
 	}
+	// A pick is marked as a row (class ai-pick), and each signal is one
+	// line: the badge with its reading beside it.
+	if !strings.Contains(body, `<tr class="ai-pick">`) || !strings.Contains(body, `<span class="sigline"><span class="sig ai">ai_pick</span><span class="sig-detail">モデルが上位ランキングから提案</span></span>`) {
+		t.Error("a pick row is marked and its ai_pick signal reads on one line")
+	}
 	// The page carries the shared cell popover, not one of its own.
 	if !strings.Contains(body, `id="cell-popover"`) || strings.Contains(body, `ua-popover`) || strings.Contains(body, `uaclick`) {
 		t.Error("the advisor page uses the shared cell popover (cellpop) for user agents, paths and origin")
