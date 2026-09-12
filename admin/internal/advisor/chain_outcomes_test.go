@@ -1,6 +1,9 @@
 package advisor
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // The traffic cell's chain arithmetic (operator's design, 2026-09-13): each
 // chain reads shown → passed · not completed, pow_then_captcha its two gates
@@ -54,5 +57,34 @@ func TestReasonOrder(t *testing.T) {
 	}
 	if (Candidate{Reasons: []ReasonCount{{Reason: "", Serves: 9}}}).Escalated() || (Candidate{}).Escalated() {
 		t.Error("the ordinary path alone, or nothing recorded: not escalated")
+	}
+}
+
+// The user agents a row lists: the most frequent first, at most topUAs of
+// them, and the remainder counted.
+func TestTopUAsAreTheMostFrequent(t *testing.T) {
+	d := newTestDB(t)
+	for i := 0; i < 8; i++ {
+		ua := "ua-" + string(rune('a'+i))
+		for j := 0; j <= i; j++ { // ua-a once ... ua-h eight times
+			insertEvent(t, d, "198.51.100.60", "t13d_ua", "serve", ua, "")
+		}
+	}
+	insertEvent(t, d, "198.51.100.60", "t13d_ua", "serve", "", "") // no user agent: not one
+	f, err := keyFacets(context.Background(), d, "ip_address", packedIPs([]string{"198.51.100.60"}), 60)
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := f["198.51.100.60"]
+	if row.DistinctUAs != 8 || len(row.TopUAs) != topUAs || row.TopUAs[0] != (UACount{UA: "ua-h", Requests: 8}) || row.TopUAs[4] != (UACount{UA: "ua-d", Requests: 4}) {
+		t.Errorf("top user agents: %+v distinct=%d", row.TopUAs, row.DistinctUAs)
+	}
+	c := Candidate{TopUAs: row.TopUAs, DistinctUAs: row.DistinctUAs}
+	if c.MoreUAs() != 3 {
+		t.Errorf("more = %d, want 3", c.MoreUAs())
+	}
+	// All serves on the ordinary path: one reason, "", and not escalated.
+	if len(row.Reasons) != 1 || !row.Reasons[0].None() || row.Reasons[0].Serves != 37 || (Candidate{Reasons: row.Reasons}).Escalated() {
+		t.Errorf("reasons: %+v", row.Reasons)
 	}
 }

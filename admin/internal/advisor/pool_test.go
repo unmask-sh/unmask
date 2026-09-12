@@ -31,6 +31,10 @@ func TestBuildPool(t *testing.T) {
 	}
 	insertEvent(t, d, "198.51.100.7", "t13d_pool", "load", "Mozilla/5.0 (X11)", `{"chmode":"captcha_only"}`)
 	insertEvent(t, d, "198.51.100.7", "t13d_pool", "captcha", "Mozilla/5.0 (X11)", "")
+	// Two more requests with a second user agent: the row lists both, the
+	// frequent one first and as its user agent.
+	insertEvent(t, d, "198.51.100.7", "t13d_pool", "error", "curl/8", "")
+	insertEvent(t, d, "198.51.100.7", "t13d_pool", "error", "curl/8", "")
 	// Two more addresses on the same fingerprint.
 	insertEvent(t, d, "198.51.100.8", "t13d_pool", "serve", "Mozilla/5.0 (X11)", "")
 	insertEvent(t, d, "198.51.100.9", "t13d_pool", "serve", "Mozilla/5.0 (X11)", "")
@@ -75,6 +79,9 @@ func TestBuildPool(t *testing.T) {
 	}
 	if busy.Serves != 8 || busy.Passes != 3 || busy.UA != "Mozilla/5.0 (X11)" {
 		t.Errorf("evidence columns wrong: %+v", *busy)
+	}
+	if len(busy.TopUAs) != 2 || busy.TopUAs[0] != (UACount{UA: "Mozilla/5.0 (X11)", Requests: 16}) || busy.TopUAs[1] != (UACount{UA: "curl/8", Requests: 2}) || busy.DistinctUAs != 2 {
+		t.Errorf("user agents wrong on the busy row: %+v distinct=%d", busy.TopUAs, busy.DistinctUAs)
 	}
 	if len(busy.Reasons) != 2 || busy.Reasons[0] != (ReasonCount{Reason: "rate_limit", Serves: 5}) || busy.Reasons[1] != (ReasonCount{Reason: "", Serves: 3}) {
 		t.Errorf("escalation reasons wrong on the busy row: %+v", busy.Reasons)

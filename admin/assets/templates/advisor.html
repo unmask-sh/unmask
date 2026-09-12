@@ -35,6 +35,7 @@ table.cands tbody tr:nth-child(even) td{background:#f8fafc}
 table.cands tbody tr:hover td{background:#eef2f7}
 table.cands td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569;white-space:nowrap}
 /* The UA cell clips like the bot-hunt log's; the full string is a popover away. */
+table.cands td.ua .ua-n{color:#94a3b8;font-size:.7rem}
 table.cands td.ua{color:#64748b;font-size:.78rem;white-space:nowrap;max-width:13rem;overflow:hidden;text-overflow:ellipsis}
 .cands-scroll{overflow-x:auto;max-width:100%}
 .sig{display:inline-block;background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;border-radius:.25rem;padding:.05rem .4rem;font-size:.72rem;font-family:ui-monospace,Menlo,monospace;margin:0 .25rem .2rem 0;white-space:nowrap}
@@ -313,7 +314,11 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
             <div class="tf-sub tf-when">{{ if .FirstTs }}<time class="js-datetime js-datetime-short" data-ts="{{ .FirstTs }}">{{ .FirstSeen }}</time>{{ else }}{{ .FirstSeen }}{{ end }} – {{ if .LastTs }}<time class="js-datetime js-datetime-short" data-ts="{{ .LastTs }}">{{ .LastSeen }}</time>{{ else }}{{ .LastSeen }}{{ end }}</div>
           </td>
           <td class="ua">
-            {{ if .UA }}<span class="uaclick" data-ua="{{ .UA }}">{{ template "ua_cell" .UA }}</span>{{ else }}<span class="muted">-</span>{{ end }}
+            {{/* The most frequent user agents with their request counts, and
+                 how many more the client used; each opens its full string in
+                 the popover.  A row from before the counts (a stored pick)
+                 still has its one user agent. */}}
+            {{ if .TopUAs }}{{ range $i, $u := .TopUAs }}{{ if $i }}<br>{{ end }}<span class="uaclick" data-ua="{{ $u.UA }}">{{ template "ua_cell" $u.UA }}</span> <span class="ua-n">×{{ comma $u.Requests }}</span>{{ end }}{{ with .MoreUAs }}<br><span class="muted ua-n">{{ printf (t $.Lang "advisor.ua_more") (comma .) }}</span>{{ end }}{{ else if .UA }}<span class="uaclick" data-ua="{{ .UA }}">{{ template "ua_cell" .UA }}</span>{{ else }}<span class="muted">-</span>{{ end }}
           </td>
           <td>
             {{ range .SamplePaths }}<span class="clamp-v uaclick" data-ua="{{ . }}">{{ . }}</span><br>{{ end }}

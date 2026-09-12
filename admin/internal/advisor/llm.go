@@ -126,7 +126,10 @@ challenges_passed was stopped at the CAPTCHA: the defence worked.
 escalation_reasons says which rule served the challenges (asn, geo,
 rate_limit, header, stale, honeypot, banned, protected, ja4_bot; a *_deny
 value is a refusal) and how many each; reason "" is the ordinary path with no
-rule. A client with many challenges served and none passed is already
+rule. Use it to say which rule already covers the client and what a targeted
+rule would add. user_agent is the client's most frequent one and
+distinct_user_agents how many it used: one address rotating dozens is a
+scraper, a fingerprint herd spread over many is a pool of browsers. A client with many challenges served and none passed is already
 contained: blocking it would only save the server some work, so rank it low
 unless its volume alone is a cost -- thousands of requests in the window, not
 hundreds. What deserves attention is the opposite --
@@ -163,6 +166,7 @@ type bundleCandidate struct {
 	ShownCaptcha int           `json:"shown_captcha_only,omitempty"`     // ... captcha_only
 	ShownBoth    int           `json:"shown_pow_then_captcha,omitempty"` // ... pow_then_captcha
 	Reasons      []ReasonCount `json:"escalation_reasons,omitempty"`
+	DistinctUAs  int           `json:"distinct_user_agents,omitempty"`
 	ScannerHits  int           `json:"scanner_path_hits,omitempty"`
 	DistinctIPs  int           `json:"distinct_addresses,omitempty"`
 	PassIPs7d    int           `json:"pass_ips_7d,omitempty"` // fingerprints: addresses that completed the challenge with it in 7 days
@@ -193,7 +197,7 @@ func buildBundle(cands []Candidate) []bundleCandidate {
 			Target: c.Target, Type: c.Type, Contained: c.Contained, Signals: ids,
 			Serves: c.Serves, JSLoaded: c.Loads, PowPassed: c.PowPassed, CaptchaShown: c.CaptchaShown, Passes: c.Passes,
 			PassPow: c.PassPow, PassCaptcha: c.PassCaptcha, PassBoth: c.PassBoth,
-			ShownPow: c.ShownPow, ShownCaptcha: c.ShownCaptcha, ShownBoth: c.ShownBoth, Reasons: c.Reasons,
+			ShownPow: c.ShownPow, ShownCaptcha: c.ShownCaptcha, ShownBoth: c.ShownBoth, Reasons: c.Reasons, DistinctUAs: c.DistinctUAs,
 			ScannerHits: c.ScannerHits, PassIPs7d: c.PassIPs7d, Verdict: c.Verdict,
 			DistinctIPs: c.DistinctIPs, ASNOrg: c.ASNOrg, Country: c.Country,
 			UA: ua, SamplePaths: c.SamplePaths,
@@ -726,6 +730,7 @@ func fillFromPool(c *Candidate, pool Pool) bool {
 		c.Loads, c.PowPassed, c.CaptchaShown = row.JSLoaded, row.PowPassed, row.CaptchaShown
 		c.PassPow, c.PassCaptcha, c.PassBoth = row.PassPow, row.PassCaptcha, row.PassBoth
 		c.ShownPow, c.ShownCaptcha, c.ShownBoth, c.Reasons = row.ShownPow, row.ShownCaptcha, row.ShownBoth, row.Reasons
+		c.TopUAs, c.DistinctUAs = row.TopUAs, row.DistinctUAs
 		c.JA4, c.UA, c.ASN, c.ASNOrg, c.Country, c.RDNS = row.JA4, row.UA, row.ASN, row.ASNOrg, row.Country, row.RDNS
 		// Through dbTime like an engine row: the compact, tz-aware range on
 		// the page needs the unix time, and the raw column text read as
@@ -741,6 +746,7 @@ func fillFromPool(c *Candidate, pool Pool) bool {
 		c.Loads, c.PowPassed, c.CaptchaShown = row.JSLoaded, row.PowPassed, row.CaptchaShown
 		c.PassPow, c.PassCaptcha, c.PassBoth = row.PassPow, row.PassCaptcha, row.PassBoth
 		c.ShownPow, c.ShownCaptcha, c.ShownBoth, c.Reasons = row.ShownPow, row.ShownCaptcha, row.ShownBoth, row.Reasons
+		c.TopUAs, c.DistinctUAs = row.TopUAs, row.DistinctUAs
 	default:
 		return false
 	}
