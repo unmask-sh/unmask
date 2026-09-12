@@ -65,6 +65,10 @@ func TestJA4CandidateCarriesStagesAndPassKinds(t *testing.T) {
 	if herd.ShownBoth != 2 || herd.ShownPow != 0 || herd.ShownCaptcha != 0 {
 		t.Errorf("chains shown on the fingerprint row: pow=%d captcha=%d both=%d, want 0/0/2", herd.ShownPow, herd.ShownCaptcha, herd.ShownBoth)
 	}
+	// The user agents: one, on every event (31 of them), and no more.
+	if len(herd.TopUAs) != 1 || herd.TopUAs[0] != (UACount{UA: "Mozilla/5.0 (X11)", Requests: 31}) || herd.DistinctUAs != 1 || herd.MoreUAs() != 0 || herd.UA != "Mozilla/5.0 (X11)" {
+		t.Errorf("user agents on the fingerprint row: %+v distinct=%d ua=%q", herd.TopUAs, herd.DistinctUAs, herd.UA)
+	}
 	// The serves by escalation reason: the rule first, the ordinary path last.
 	if len(herd.Reasons) != 2 || herd.Reasons[0] != (ReasonCount{Reason: "asn", Serves: 12}) || herd.Reasons[1] != (ReasonCount{Reason: "", Serves: 12}) || !herd.Escalated() {
 		t.Errorf("escalation reasons on the fingerprint row: %+v", herd.Reasons)

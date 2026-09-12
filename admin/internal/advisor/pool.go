@@ -36,6 +36,8 @@ type PoolIP struct {
 	ShownCaptcha int           `json:"shown_captcha_only,omitempty"`     // ... captcha_only
 	ShownBoth    int           `json:"shown_pow_then_captcha,omitempty"` // ... pow_then_captcha
 	Reasons      []ReasonCount `json:"escalation_reasons,omitempty"`     // serves by the rule that escalated the client
+	TopUAs       []UACount     `json:"top_user_agents,omitempty"`        // the most frequent user agents; UA is the first
+	DistinctUAs  int           `json:"distinct_user_agents,omitempty"`
 	ScannerHits  int           `json:"scanner_path_hits,omitempty"`
 	JA4          string        `json:"ja4,omitempty"`
 	UA           string        `json:"user_agent,omitempty"`
@@ -64,6 +66,8 @@ type PoolJA4 struct {
 	ShownCaptcha int           `json:"shown_captcha_only,omitempty"`
 	ShownBoth    int           `json:"shown_pow_then_captcha,omitempty"`
 	Reasons      []ReasonCount `json:"escalation_reasons,omitempty"`
+	TopUAs       []UACount     `json:"top_user_agents,omitempty"`
+	DistinctUAs  int           `json:"distinct_user_agents,omitempty"`
 	UA           string        `json:"user_agent,omitempty"`
 }
 
@@ -232,8 +236,9 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 		return pool, err
 	}
 
-	// The rule that served each row's challenges, for the row and the model.
-	if err := fillPoolReasons(ctx, conn, &pool, opt.WindowMinutes); err != nil {
+	// The rule that served each row's challenges and the user agents it
+	// used, for the row and the model.
+	if err := fillPoolFacets(ctx, conn, &pool, opt.WindowMinutes); err != nil {
 		return pool, err
 	}
 
