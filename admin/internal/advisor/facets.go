@@ -86,7 +86,7 @@ func keyFacets(ctx context.Context, conn *db.DB, col string, keys []any, windowM
 	}
 	ph := strings.TrimRight(strings.Repeat("?,", len(keys)), ",")
 	reason := "CASE WHEN phase='serve' THEN COALESCE(" + conn.JSONExtract("payload_json", "$.force_reason") + ", '') ELSE '-' END"
-	q := `SELECT ` + col + `, COALESCE(user_agent, ''), ` + reason + `, COUNT(*) FROM unmask_event` + conn.EventDateIndexHint("w") + `
+	q := `SELECT ` + col + `, COALESCE(user_agent, ''), ` + reason + `, COUNT(*) FROM unmask_event` + keyIndexHint(conn, col) + `
 	      WHERE date_created > ` + conn.NowMinusMinutes(windowMinutes) + `
 	        AND ` + col + ` IN (` + ph + `)
 	      GROUP BY 1, 2, 3`
@@ -154,6 +154,145 @@ func keyFacets(ctx context.Context, conn *db.DB, col string, keys []any, windowM
 		out[k] = f
 	}
 	return out, nil
+}
+
+// keyIndexHint: the address index for an address IN list (a few seeks), the
+// date index for fingerprints (no index of their own).
+func keyIndexHint(conn *db.DB, col string) string {
+	if col == "ip_address" {
+		return conn.EventIPIndexHint()
+	}
+	return conn.EventDateIndexHint("w")
+}
+
+// PathCount: one path a client requested, how many times, and where -- the
+// site, scheme and port the module recorded on the serve, so the row can
+// offer the full address (Open / Copy) the way the hunt log does.
+// Operator (2026-09-13): "パスもヒット数があるといいかも".
+type PathCount struct {
+	Path   string `json:"path"`
+	Hits   int    `json:"hits"`
+	Site   string `json:"site,omitempty"`
+	Scheme string `json:"scheme,omitempty"`
+	Port   int    `json:"port,omitempty"`
+}
+
+// topPaths: how many paths a row lists.
+const topPaths = 3
+
+// MorePaths: the paths the row does not list.
+func (c Candidate) MorePaths() int { return floor0(c.DistinctPaths - len(c.Paths)) }
+
+type pathFacet struct {
+	Top      []PathCount
+	Distinct int
+}
+
+// keyPaths tallies the serve events of the given keys by the path served
+// (the module's orig_path; path is the older / test shape), keeping each
+// key's most requested topPaths with the origin of the latest-sorting serve
+// and how many different paths there were.
+func keyPaths(ctx context.Context, conn *db.DB, col string, keys []any, windowMinutes int) (map[string]pathFacet, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	ph := strings.TrimRight(strings.Repeat("?,", len(keys)), ",")
+	path := "COALESCE(NULLIF(" + conn.JSONExtract("payload_json", "$.orig_path") + ", ''), " + conn.JSONExtract("payload_json", "$.path") + ", '')"
+	q := `SELECT ` + col + `, ` + path + `, COUNT(*), MAX(COALESCE(site, '')), MAX(COALESCE(scheme, '')), MAX(COALESCE(port, 0))
+	      FROM unmask_event` + keyIndexHint(conn, col) + `
+	      WHERE date_created > ` + conn.NowMinusMinutes(windowMinutes) + `
+	        AND phase='serve' AND ` + col + ` IN (` + ph + `)
+	      GROUP BY 1, 2`
+	rows, err := conn.QueryContext(ctx, q, keys...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	all := map[string][]PathCount{}
+	for rows.Next() {
+		var key []byte
+		var p PathCount
+		if err := rows.Scan(&key, &p.Path, &p.Hits, &p.Site, &p.Scheme, &p.Port); err != nil {
+			return nil, err
+		}
+		if p.Path == "" {
+			continue
+		}
+		k := string(key)
+		if col == "ip_address" {
+			k = unpackIP(key)
+		}
+		all[k] = append(all[k], p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := map[string]pathFacet{}
+	for k, ps := range all {
+		sort.SliceStable(ps, func(i, j int) bool {
+			if ps[i].Hits != ps[j].Hits {
+				return ps[i].Hits > ps[j].Hits
+			}
+			return ps[i].Path < ps[j].Path
+		})
+		f := pathFacet{Distinct: len(ps), Top: ps}
+		if len(f.Top) > topPaths {
+			f.Top = f.Top[:topPaths]
+		}
+		out[k] = f
+	}
+	return out, nil
+}
+
+// FillPaths puts the most requested paths on the candidates that have none
+// -- the reviewer's "what were they after".  Per key: an address through
+// its index, a fingerprint through the date index.  One shared sample of
+// the newest 400 events over every candidate at once went to the busiest
+// few and left the other rows empty, and fingerprint rows and the model's
+// picks were never read at all (operator, 2026-09-13: "要求パス例が空欄の
+// ものが多いのはなぜ？").  The engine calls it on its candidates, the page
+// on the picks it appends.
+func FillPaths(ctx context.Context, conn *db.DB, cands []Candidate, opt Options) error {
+	opt = opt.resolved()
+	var ips, ja4s []string
+	for _, c := range cands {
+		if len(c.Paths) > 0 {
+			continue
+		}
+		switch c.Type {
+		case "ip":
+			ips = append(ips, c.Target)
+		case "ja4":
+			ja4s = append(ja4s, c.Target)
+		}
+	}
+	byIP, err := keyPaths(ctx, conn, "ip_address", packedIPs(ips), opt.WindowMinutes)
+	if err != nil {
+		return err
+	}
+	byJA4, err := keyPaths(ctx, conn, "ja4", ja4Keys(ja4s), opt.WindowMinutes)
+	if err != nil {
+		return err
+	}
+	for i := range cands {
+		c := &cands[i]
+		if len(c.Paths) > 0 {
+			continue
+		}
+		var f pathFacet
+		switch c.Type {
+		case "ip":
+			f = byIP[c.Target]
+		case "ja4":
+			f = byJA4[c.Target]
+		}
+		c.Paths, c.DistinctPaths = f.Top, f.Distinct
+		c.SamplePaths = c.SamplePaths[:0]
+		for _, p := range f.Top {
+			c.SamplePaths = append(c.SamplePaths, p.Path)
+		}
+	}
+	return nil
 }
 
 // packedIPs: the addresses as the table stores them, for an IN list.

@@ -14,7 +14,6 @@ package advisor
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -24,7 +23,6 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
-	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -75,17 +73,22 @@ type Candidate struct {
 	// client used in all; UA is the most frequent one.
 	TopUAs      []UACount `json:"top_user_agents,omitempty"`
 	DistinctUAs int       `json:"distinct_user_agents,omitempty"`
-	ScannerHits int       `json:"scanner_hits,omitempty"`
-	DistinctIPs int       `json:"distinct_ips,omitempty"`
-	FirstSeen   string    `json:"first_seen"` // "2006-01-02 15:04" UTC (trimmed for the model and as the no-JS fallback)
-	LastSeen    string    `json:"last_seen"`
-	FirstTs     int64     `json:"first_ts,omitempty"` // unix seconds; the page formats them in the operator's tz
-	LastTs      int64     `json:"last_ts,omitempty"`
-	ASN         uint      `json:"asn,omitempty"`
-	ASNOrg      string    `json:"asn_org,omitempty"`
-	Country     string    `json:"country,omitempty"`
-	RDNS        string    `json:"rdns,omitempty"`
-	SamplePaths []string  `json:"sample_paths,omitempty"`
+	// The most requested paths (topPaths of them) with their hits, and how
+	// many different ones there were; SamplePaths is their paths alone, for
+	// the model.
+	Paths         []PathCount `json:"top_paths,omitempty"`
+	DistinctPaths int         `json:"distinct_paths,omitempty"`
+	ScannerHits   int         `json:"scanner_hits,omitempty"`
+	DistinctIPs   int         `json:"distinct_ips,omitempty"`
+	FirstSeen     string      `json:"first_seen"` // "2006-01-02 15:04" UTC (trimmed for the model and as the no-JS fallback)
+	LastSeen      string      `json:"last_seen"`
+	FirstTs       int64       `json:"first_ts,omitempty"` // unix seconds; the page formats them in the operator's tz
+	LastTs        int64       `json:"last_ts,omitempty"`
+	ASN           uint        `json:"asn,omitempty"`
+	ASNOrg        string      `json:"asn_org,omitempty"`
+	Country       string      `json:"country,omitempty"`
+	RDNS          string      `json:"rdns,omitempty"`
+	SamplePaths   []string    `json:"sample_paths,omitempty"`
 	// Contained: the client never completed a challenge.  The challenge is
 	// already doing its job; a ban buys the daemon fewer round trips and the
 	// log less noise, not more protection.  What deserves attention is the
@@ -408,9 +411,9 @@ func Candidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclus
 	if len(out) > opt.Limit {
 		out = out[:opt.Limit]
 	}
-	if err := FillSamplePaths(ctx, conn, out, opt); err != nil {
-		// Samples are garnish; the candidates stand without them.
-		log.Printf("advisor: sample paths: %v", err)
+	if err := FillPaths(ctx, conn, out, opt); err != nil {
+		// The paths are garnish; the candidates stand without them.
+		log.Printf("advisor: paths: %v", err)
 		return out, nil
 	}
 	if err := fillFacets(ctx, conn, out, opt); err != nil {
@@ -617,94 +620,6 @@ func ja4Candidates(ctx context.Context, conn *db.DB, excl Exclusions, opt Option
 		c.fingerprintSignals(opt)
 		c.settleScore()
 		out = append(out, c)
-	}
-	return out, rows.Err()
-}
-
-// sampleRows: how many of a row's newest events are read for its paths;
-// samplePaths: how many distinct paths a row keeps.
-const (
-	sampleRows  = 40
-	samplePaths = 3
-)
-
-// FillSamplePaths decorates the candidates that have none with a few
-// concrete request paths pulled out of payload_json -- the reviewer's
-// "what were they after".  Per row, from its own newest events: an address
-// through its index, a fingerprint through the date index newest first.
-// One shared newest-400 sample over every candidate at once went to the
-// busiest few and left the other rows empty, and fingerprint rows and the
-// model's picks were never read at all (operator, 2026-09-13: "要求パス例が
-// 空欄のものが多いのはなぜ？").  A row that has its paths is left alone.
-func FillSamplePaths(ctx context.Context, conn *db.DB, cands []Candidate, opt Options) error {
-	opt = opt.resolved()
-	for i := range cands {
-		c := &cands[i]
-		if len(c.SamplePaths) > 0 {
-			continue
-		}
-		var q string
-		var key any
-		switch c.Type {
-		case "ip":
-			p := events.PackIP(c.Target)
-			if p == nil {
-				continue
-			}
-			key = p
-			q = `SELECT COALESCE(payload_json, '') FROM unmask_event` + conn.EventIPIndexHint() + `
-			      WHERE ip_address = ? AND date_created > ` + conn.NowMinusMinutes(opt.WindowMinutes) + `
-			      ORDER BY date_created DESC LIMIT ?`
-		case "ja4":
-			key = c.Target
-			q = `SELECT COALESCE(payload_json, '') FROM unmask_event` + conn.EventDateIndexHint("w") + `
-			      WHERE date_created > ` + conn.NowMinusMinutes(opt.WindowMinutes) + ` AND ja4 = ?
-			      ORDER BY date_created DESC LIMIT ?`
-		default:
-			continue
-		}
-		paths, err := readSamplePaths(ctx, conn, q, key)
-		if err != nil {
-			return err
-		}
-		c.SamplePaths = paths
-	}
-	return nil
-}
-
-// readSamplePaths runs one row's sample query and keeps the first distinct
-// paths it yields.
-func readSamplePaths(ctx context.Context, conn *db.DB, q string, key any) ([]string, error) {
-	rows, err := conn.QueryContext(ctx, q, key, sampleRows)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []string
-	for rows.Next() {
-		var payload string
-		if err := rows.Scan(&payload); err != nil {
-			return nil, err
-		}
-		var p struct {
-			// The module writes the requested path as orig_path (the serve
-			// payload's "what was asked for"); path is the older / test shape.
-			OrigPath string `json:"orig_path"`
-			Path     string `json:"path"`
-		}
-		if json.Unmarshal([]byte(payload), &p) != nil {
-			continue
-		}
-		if p.Path == "" {
-			p.Path = p.OrigPath
-		}
-		if p.Path == "" || contains(out, p.Path) {
-			continue
-		}
-		out = append(out, p.Path)
-		if len(out) >= samplePaths {
-			break
-		}
 	}
 	return out, rows.Err()
 }
