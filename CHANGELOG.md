@@ -17,6 +17,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-09-10) **doctor reports the hourly aggregate and the aggregate tables' windows; the stats page says "aggregating" instead of running a 30-day scan it cannot finish.**  The window check found a second unpruned table, the country tally, now trimmed too.  On a large database with no completed aggregate pass, the 30-day serve cards show "aggregating" at once rather than timing out.
 
 ### Changed
+- (2026-09-13) **Advisor: an AI pick carries a score and sits where it puts it.**  A nominated row had no score and always sat at the end.  It is now scored like a candidate: the engine's rules on its evidence (volume, hosting network, scanner paths, a herd) plus the model's priority as a signal weight (high 3, medium 2, low 1), and the list is ordered by that score.
+
 - (2026-09-10) **Advisor: the model no longer nominates actors the challenge already stops.**  The pool the model sees is ranked by volume, so contained herds with zero passes kept being picked.  The prompt now says a nomination is for an actor that gets through, and the engine drops a nomination whose pool row has no passes and sits under the cost floor; stored picks are held to it too.
 
 - (2026-09-10) **Advisor: a candidate being re-analysed keeps its last answer on screen.**  When a click sends a candidate back to the model because its counts or window changed, the row used to drop its previous priority and reasoning and show only the spinner until the new answer arrived.  It now shows the spinner above the previous answer, dimmed, and swaps in the replacement when it lands.
