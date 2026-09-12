@@ -58,6 +58,11 @@ table.cands .ua-list{color:#64748b;font-size:.78rem;white-space:nowrap;max-width
    sideways (operator, 2026-09-13: "横スクロールが発生するようになった"). */
 .sig-detail{color:#64748b;font-size:.78rem;min-width:0}
 .sigline{display:flex;align-items:baseline;gap:.35rem;margin-bottom:.15rem;max-width:26rem}
+/* The target's kind, in front of the value: an address (blue) or a
+   fingerprint (amber), so a row's kind reads without parsing its value. */
+.ttype{display:inline-block;font-size:.62rem;font-weight:700;letter-spacing:.04em;padding:.05rem .35rem;border-radius:.25rem;margin-right:.4rem;vertical-align:middle;font-family:system-ui,sans-serif;line-height:1.2}
+.ttype-ip{background:#e0f2fe;color:#075985;border:1px solid #bae6fd}
+.ttype-ja4{background:#fef3c7;color:#92400e;border:1px solid #fcd34d}
 /* The model's pick: a filled purple badge on its one-line signal.  The row
    itself stays uncoloured -- a tinted row blurred the row boundaries
    (operator, 2026-09-13: "行の区切りが分かりにくくなった ai_pick は一行化だけ
@@ -297,7 +302,11 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
              ピックされたものがわかりづらい"). */ -}}
         <tr{{ if or .Dismissed .Nominated }} class="{{ if .Dismissed }}dismissed{{ end }}{{ if and .Dismissed .Nominated }} {{ end }}{{ if .Nominated }}ai-pick{{ end }}"{{ end }}>
           <td class="mono">
-            {{ if eq .Type "ip" }}<span class="ipclick" data-ip="{{ .Target }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .Country }}.png" alt="{{ ccLabel .Country }}" loading="lazy">{{ .Target }}</span>{{ else }}{{ .Target }}{{ end }}<a class="loglink" href="{{ $.BasePath }}/admin/hunt/?{{ if eq .Type "ip" }}ip{{ else }}ja4{{ end }}={{ urlquery .Target }}" aria-label="{{ t $.Lang "advisor.log_aria" }}">🔍</a>
+            {{- /* What the target is, before the value: an address or a
+                 fingerprint reads differently, and a ban on either means a
+                 different thing (operator, 2026-09-13: "対象が JA4 なのか IP
+                 なのかもっと明確に"). */ -}}
+            {{ if eq .Type "ip" }}<span class="ttype ttype-ip">IP</span><span class="ipclick" data-ip="{{ .Target }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .Country }}.png" alt="{{ ccLabel .Country }}" loading="lazy">{{ .Target }}</span>{{ else }}<span class="ttype ttype-ja4">JA4</span>{{ .Target }}{{ end }}<a class="loglink" href="{{ $.BasePath }}/admin/hunt/?{{ if eq .Type "ip" }}ip{{ else }}ja4{{ end }}={{ urlquery .Target }}" aria-label="{{ t $.Lang "advisor.log_aria" }}">🔍</a>
             {{ if eq .Type "ja4" }}<span class="kv"><br>{{ .DistinctIPs }} {{ t $.Lang "advisor.ips" }}</span>
             {{ else if .JA4 }}<span class="kv"><br>{{ .JA4 }}</span>{{ end }}
             {{/* Origin under the address: network (country) and reverse DNS,

@@ -97,6 +97,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     return {
       sigs,
       hasFlag: !!row.querySelector('.ipclick img.flag'),
+      kind: (row.querySelector('td .ttype') || {}).textContent || '',
       hasUA: !!row.querySelector('td .ua-list .cellpop'),
       loglink: log ? log.getAttribute('href') : null,
       hasBanForm: !!row.querySelector('form.js-ban-form button'),
@@ -143,6 +144,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       `expected both signals on the seed row, got ${JSON.stringify(adv.sigs)}`);
     ok(adv.hasFlag, 'the IP cell has no country flag');
     ok(adv.hasUA, 'the UA cell has no popover trigger');
+    ok(adv.kind === 'IP', `the row must name its kind in front of the target: ${JSON.stringify(adv.kind)}`);
     // Nothing on the page may widen it past the viewport: a nowrap signal
     // reading did, once (operator, 2026-09-13: "横スクロールが発生するようになった").
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
