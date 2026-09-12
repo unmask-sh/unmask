@@ -61,6 +61,13 @@ type Candidate struct {
 	PassPow      int      `json:"pass_pow,omitempty"`     // ... by solving the proof-of-work alone (bv_pow_only)
 	PassCaptcha  int      `json:"pass_captcha,omitempty"` // ... by the CAPTCHA alone (bv_captcha_only)
 	PassBoth     int      `json:"pass_both,omitempty"`    // ... proof-of-work then CAPTCHA (bv_pow_then_captcha)
+	// How often each chain was presented -- the load beacon's chmode, the
+	// chain the challenge JavaScript ran with.  A pass is a chain completed
+	// (PassPow / PassCaptcha / PassBoth); presented minus passed is the
+	// chain holding.
+	ShownPow     int      `json:"shown_pow_only,omitempty"`
+	ShownCaptcha int      `json:"shown_captcha_only,omitempty"`
+	ShownBoth    int      `json:"shown_pow_then_captcha,omitempty"`
 	ScannerHits  int      `json:"scanner_hits,omitempty"`
 	DistinctIPs  int      `json:"distinct_ips,omitempty"`
 	FirstSeen    string   `json:"first_seen"` // "2006-01-02 15:04" UTC (trimmed for the model and as the no-JS fallback)
@@ -155,9 +162,10 @@ func (c Candidate) Fingerprint() string {
 	for _, s := range c.Signals {
 		ids = append(ids, s.ID)
 	}
-	return fmt.Sprintf("%s|%s|s%d|%s|%d/%d/%d/%d/%d/%d|%d|%s..%s",
+	return fmt.Sprintf("%s|%s|s%d|%s|%d/%d/%d/%d/%d/%d|%d/%d/%d|%d|%s..%s",
 		c.Type, c.Target, c.Score, strings.Join(ids, ","),
-		c.Requests, c.Serves, c.Loads, c.PowPassed, c.CaptchaShown, c.Passes, c.ScannerHits,
+		c.Requests, c.Serves, c.Loads, c.PowPassed, c.CaptchaShown, c.Passes,
+		c.ShownPow, c.ShownCaptcha, c.ShownBoth, c.ScannerHits,
 		c.FirstSeen, c.LastSeen)
 }
 
@@ -194,31 +202,52 @@ func (c Candidate) SinglePassKind() string {
 	return name
 }
 
-// PowToCaptcha: proof-of-work solves that went on to the CAPTCHA -- the
-// pow_then_captcha chain's first step (pow_pass), as opposed to the solves
-// that were the pass (bv_pow_only, PassPow).  PowPassed counts both, so
-// the row names this share: "PoW 3" reads "pow_only 1 · pow_then_captcha 2",
-// or "PoW 3 (pow_then_captcha)" when every solve went on (operator,
-// 2026-09-13: "pow_then_captcha が表示されていない").
-func (c Candidate) PowToCaptcha() int {
-	if n := c.PowPassed - c.PassPow; n > 0 {
-		return n
-	}
-	return 0
+// The traffic cell reads the challenge by chain -- the unit the operator
+// configures -- each as presented → passed · not completed, so every line
+// closes (presented = passed + not completed) and the chains' passes add up
+// to the row's pass count (operator's design, 2026-09-13: "pow or captcha
+// 提示数と通過、不突破を表示", per chain, the two gates of pow_then_captcha
+// each).  Presented is the load beacon's chmode: how often the challenge
+// JavaScript ran with that chain.  A client that never ran the JavaScript
+// is in JSNotRun only.  Every figure is an event count, and every
+// difference is floored at zero: on a load-balanced fleet the page and its
+// beacons can land on different nodes.
+
+// JSNotRun: challenge pages served whose JavaScript never ran -- a client
+// that fetched the page and left (no JS, cookies refused, HEAD, a scraper).
+// Operator (2026-09-13): "JS は何も実行出来ず去った人が算出出来る".
+func (c Candidate) JSNotRun() int { return floor0(c.Serves - c.Loads) }
+
+// PowOnlyHeld: pow_only presented and not completed.
+func (c Candidate) PowOnlyHeld() int { return floor0(c.ShownPow - c.PassPow) }
+
+// CaptchaOnlyHeld: captcha_only presented and not completed.
+func (c Candidate) CaptchaOnlyHeld() int { return floor0(c.ShownCaptcha - c.PassCaptcha) }
+
+// ChainPowPassed: the pow_then_captcha chain's first gate cleared -- its
+// pow_pass events.  PowPassed counts every solve (pow_pass + bv_pow_only)
+// and PassPow the pow_only passes, so the difference is the chain's own.
+func (c Candidate) ChainPowPassed() int { return floor0(c.PowPassed - c.PassPow) }
+
+// ChainPowHeld: pow_then_captcha presented and stopped at the proof-of-work.
+func (c Candidate) ChainPowHeld() int { return floor0(c.ShownBoth - c.ChainPowPassed()) }
+
+// ChainCaptchaHeld: got past the chain's proof-of-work and stopped at its
+// CAPTCHA -- each pow_pass shows the CAPTCHA, PassBoth completed it.
+func (c Candidate) ChainCaptchaHeld() int { return floor0(c.ChainPowPassed() - c.PassBoth) }
+
+// HasPowOnly / HasCaptchaOnly / HasChain: the chain was presented or
+// completed in the window, so its line is on the row.  (Completed without
+// a presentation is the load-balanced fleet: another node served the
+// page.)
+func (c Candidate) HasPowOnly() bool     { return c.ShownPow > 0 || c.PassPow > 0 }
+func (c Candidate) HasCaptchaOnly() bool { return c.ShownCaptcha > 0 || c.PassCaptcha > 0 }
+func (c Candidate) HasChain() bool {
+	return c.ShownBoth > 0 || c.PassBoth > 0 || c.ChainPowPassed() > 0
 }
 
-// CaptchaPasses: passes that ended at the CAPTCHA (the captcha_only and
-// pow_then_captcha chains) -- what the CAPTCHA let through.
-func (c Candidate) CaptchaPasses() int { return c.PassCaptcha + c.PassBoth }
-
-// CaptchaHeld: CAPTCHA reached and not completed.  Shown beside the stage
-// counts so the proof-of-work figure (every solve, whichever chain) and the
-// pass breakdown reconcile on the row: a client that solved the
-// proof-of-work and stopped at the CAPTCHA is counted here, not as a pass
-// (operator, 2026-09-13: "pow_then_captcha 数も出さないと数に矛盾が生じる").
-// Event counts, like every figure on the row.
-func (c Candidate) CaptchaHeld() int {
-	if n := c.CaptchaShown - c.CaptchaPasses(); n > 0 {
+func floor0(n int) int {
+	if n > 0 {
 		return n
 	}
 	return 0
@@ -422,6 +451,7 @@ func ipCandidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Excl
 	        SUM(CASE WHEN phase='bv_pow_only' THEN 1 ELSE 0 END) AS pass_pow,
 	        SUM(CASE WHEN phase='bv_captcha_only' THEN 1 ELSE 0 END) AS pass_captcha,
 	        SUM(CASE WHEN phase='bv_pow_then_captcha' THEN 1 ELSE 0 END) AS pass_both,
+	        ` + poolChainShownSums(conn) + `
 	        SUM(CASE WHEN ` + scannerCond() + ` THEN 1 ELSE 0 END) AS scanner_hits,
 	        MIN(date_created), MAX(date_created),
 	        COALESCE(MAX(ja4), ''), COALESCE(MAX(user_agent), '')
@@ -444,7 +474,8 @@ func ipCandidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Excl
 		var c Candidate
 		var ipBytes []byte
 		var first, last, ja4, ua string
-		if err := rows.Scan(&ipBytes, &c.Requests, &c.Serves, &c.Loads, &c.PowPassed, &c.CaptchaShown, &c.Passes, &c.PassPow, &c.PassCaptcha, &c.PassBoth, &c.ScannerHits, &first, &last, &ja4, &ua); err != nil {
+		if err := rows.Scan(&ipBytes, &c.Requests, &c.Serves, &c.Loads, &c.PowPassed, &c.CaptchaShown, &c.Passes, &c.PassPow, &c.PassCaptcha, &c.PassBoth,
+			&c.ShownPow, &c.ShownCaptcha, &c.ShownBoth, &c.ScannerHits, &first, &last, &ja4, &ua); err != nil {
 			return nil, err
 		}
 		ip := unpackIP(ipBytes)
@@ -556,6 +587,7 @@ func ja4Candidates(ctx context.Context, conn *db.DB, excl Exclusions, opt Option
 	        SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END) AS serves,
 	        ` + poolStageSums + `
 	        ` + poolPassKindSums + `
+	        ` + poolChainShownSums(conn) + `
 	        MIN(date_created), MAX(date_created), COALESCE(MAX(user_agent), '')
 	      FROM unmask_event` + conn.EventDateIndexHint("w") + `
 	      WHERE date_created > ` + conn.NowMinusMinutes(opt.WindowMinutes) + `
@@ -575,7 +607,7 @@ func ja4Candidates(ctx context.Context, conn *db.DB, excl Exclusions, opt Option
 		var c Candidate
 		var ja4, first, last, ua string
 		if err := rows.Scan(&ja4, &c.DistinctIPs, &c.Requests, &c.Serves, &c.Loads, &c.PowPassed, &c.CaptchaShown, &c.Passes,
-			&c.PassPow, &c.PassCaptcha, &c.PassBoth, &first, &last, &ua); err != nil {
+			&c.PassPow, &c.PassCaptcha, &c.PassBoth, &c.ShownPow, &c.ShownCaptcha, &c.ShownBoth, &first, &last, &ua); err != nil {
 			return nil, err
 		}
 		if excl.BannedJA4s[ja4] || excl.DismissedJA4[ja4] {

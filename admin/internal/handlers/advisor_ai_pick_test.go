@@ -27,18 +27,25 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 			Passes: passes, Serves: serves, Requests: requests, UA: "Mozilla/5.0",
 			Signals: []advisor.Signal{{ID: "ai_pick", Detail: "proposed by the model from the wider ranking"}}}
 	}
-	// 28 passed by proof-of-work alone, 2 by proof-of-work then CAPTCHA; the
-	// proof-of-work was solved 33 times (28 pow_only passes + 5 that went on
-	// to the CAPTCHA), the CAPTCHA reached 5 times, so 3 of those stopped there.
+	// Two chains on one row.  The JavaScript ran 38 times of 40 served.
+	// pow_only shown 30: 28 passed, 2 not.  pow_then_captcha shown 8: the
+	// proof-of-work was solved 33 times in all (28 pow_only passes + 5 in the
+	// chain), so 5 cleared the chain's first gate and 3 stopped there; of
+	// the 5 CAPTCHAs, 2 completed and 3 not.
 	withKinds := func(c advisor.Candidate) advisor.Candidate {
+		c.Loads, c.ShownPow, c.ShownBoth = 38, 30, 8
 		c.PassPow, c.PassBoth, c.PowPassed, c.CaptchaShown = c.Passes-2, 2, c.Passes+3, 5
 		return c
 	}
-	onlyPow := func(c advisor.Candidate) advisor.Candidate { c.PassPow = c.Passes; return c }
-	// Every solve went on to the CAPTCHA (a pow_then_captcha chain): one of
-	// three completed it.
+	// One chain: pow_only shown 9 of 20 served, 7 passed.
+	onlyPow := func(c advisor.Candidate) advisor.Candidate {
+		c.Loads, c.ShownPow, c.PassPow = 9, 9, c.Passes
+		return c
+	}
+	// pow_then_captcha alone, shown 3: every proof-of-work solved, one of
+	// the three CAPTCHAs completed.
 	chainOnly := func(c advisor.Candidate) advisor.Candidate {
-		c.PassBoth, c.PowPassed, c.CaptchaShown, c.Loads = 1, 3, 3, 3
+		c.Loads, c.ShownBoth, c.PassBoth, c.PowPassed, c.CaptchaShown = 3, 3, 1, 3, 3
 		return c
 	}
 	advisor.StoreLast(h.DB, key, advisor.Stored{At: time.Now(), Model: "m",
@@ -66,33 +73,35 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	if !strings.Contains(body, `data-ip="198.51.100.20"`) {
 		t.Error("a pick that passes must be shown")
 	}
-	// Each breakdown is its own line under the figure it splits (operator,
-	// 2026-09-13: the cell had grown too wide as one run of counts).
-	// (html/template writes the "+" of the label as &#43;.)
-	// The kinds are the chain names the settings use (operator, 2026-09-13:
-	// "pow_then_captcha が表示されていない").
-	if !strings.Contains(body, `<span class="tf-kinds tf-more">pow_only 28 · pow_then_captcha 2</span>`) {
-		t.Error("mixed pass kinds show as a labelled breakdown line under the pass count")
+	// The cell reads the challenge by chain, each as shown → passed · not
+	// completed on its own ↳ line, the two gates of pow_then_captcha each,
+	// and JS says how many were served and left without running it
+	// (operator's design, 2026-09-13).  The chain names are the settings'.
+	if !strings.Contains(body, `<span class="tf-stage">JS 38 · 未実行 2</span><span class="tf-stage">pow_only 30 提示</span><span class="tf-kinds tf-more">通過 28 · 不突破 2</span><span class="tf-stage">pow_then_captcha 8 提示</span><span class="tf-kinds tf-more">PoW 通過 5 · 不突破 3</span><span class="tf-kinds tf-more">CAPTCHA 通過 2 · 不突破 3</span></div>`) {
+		t.Error("a two-chain row reads JS, then each chain shown with its outcome, the chain's two gates each")
 	}
-	if !strings.Contains(body, `7</strong> 通過 <span class="tf-kinds">(pow_only)</span>`) || strings.Contains(body, `tf-more">pow_only 7`) {
-		t.Error("one pass kind reads inline beside the count, not as a line restating it")
+	// Mixed kinds: the main line carries no kind and no breakdown -- the
+	// chain lines have it.
+	if strings.Contains(body, `30</strong> 通過 <span class="tf-kinds">`) || strings.Contains(body, `tf-more">pow_only 28`) {
+		t.Error("with two kinds of pass the main line names none; the chain lines split them")
 	}
-	// The PoW figure names the solves that went on to the CAPTCHA: split by
-	// chain on its own line when some were pow_only passes, inline when all
-	// of them went on.
-	if !strings.Contains(body, `<span class="tf-stage">PoW 33</span><span class="tf-kinds tf-more">pow_only 28 · pow_then_captcha 5</span>`) {
-		t.Error("the PoW stage splits its solves by chain when some went on to the CAPTCHA")
+	if !strings.Contains(body, `7</strong> 通過 <span class="tf-kinds">(pow_only)</span>`) {
+		t.Error("one pass kind reads inline beside the count")
 	}
-	if !strings.Contains(body, `<span class="tf-stage">PoW 3 <span class="tf-kinds">(pow_then_captcha)</span></span><span class="tf-stage">CAPTCHA 3</span><span class="tf-kinds tf-more">通過 1 · 不突破 2</span>`) {
-		t.Error("when every solve went on to the CAPTCHA the PoW stage says so inline")
+	if !strings.Contains(body, `<span class="tf-stage">JS 9 · 未実行 11</span><span class="tf-stage">pow_only 9 提示</span><span class="tf-kinds tf-more">通過 7 · 不突破 2</span></div>`) {
+		t.Error("a pow_only row has the one chain line and nothing for the chains it never ran")
 	}
-	if strings.Contains(body, `<span class="tf-stage">PoW 0 <span`) || strings.Contains(body, `<span class="tf-stage">PoW 0</span><span class="tf-kinds tf-more">`) {
-		t.Error("a row without solves that went on to the CAPTCHA carries no chain line under PoW")
+	if !strings.Contains(body, `1</strong> 通過 <span class="tf-kinds">(pow_then_captcha)</span>`) ||
+		!strings.Contains(body, `<span class="tf-stage">JS 3 · 未実行 1</span><span class="tf-stage">pow_then_captcha 3 提示</span><span class="tf-kinds tf-more">PoW 通過 3 · 不突破 0</span><span class="tf-kinds tf-more">CAPTCHA 通過 1 · 不突破 2</span></div>`) {
+		t.Error("a pow_then_captcha row reads its two gates: every proof-of-work solved, one CAPTCHA of three completed")
 	}
-	// Each stage on its own line; the CAPTCHA outcome under the CAPTCHA
-	// figure: of 5 reached, 2 completed and 3 not (operator, 2026-09-13).
-	if !strings.Contains(body, `<span class="tf-stage">CAPTCHA 5</span><span class="tf-kinds tf-more">通過 2 · 不突破 3</span>`) {
-		t.Error("the CAPTCHA stage names how many completed it and how many did not")
+	if strings.Contains(body, `captcha_only 0 提示`) || strings.Contains(body, `pow_then_captcha 0 提示`) || strings.Contains(body, `pow_only 0 提示`) {
+		t.Error("a chain that was neither shown nor passed has no line")
+	}
+	// A pick stored before the chains were counted: JS and the not-run count
+	// only (9 served, none ran), no chain line, no empty "()".
+	if !strings.Contains(body, `<span class="tf-stage">JS 0 · 未実行 9</span></div>`) {
+		t.Error("a pick without chain counts reads JS 0 · not run 9 and nothing else")
 	}
 	if strings.Contains(body, `data-ip="198.51.100.21"`) || strings.Contains(body, "nominated before the rule") {
 		t.Error("a stored pick the challenge already stops must not be shown")

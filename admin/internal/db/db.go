@@ -459,6 +459,18 @@ func (d *DB) NowMinusMinutes(n int) string {
 	return fmt.Sprintf("DATE_SUB(NOW(), INTERVAL %d MINUTE)", n)
 }
 
+// JSONExtract returns a SQL fragment reading one path of a JSON column as
+// text for the active driver: SQLite's json_extract yields the bare value,
+// MariaDB's JSON_EXTRACT a quoted one that JSON_UNQUOTE strips.  col and
+// path are literals from the calling code (such as "$.chmode"), never
+// operator input.
+func (d *DB) JSONExtract(col, path string) string {
+	if d.Driver == DriverSQLite {
+		return fmt.Sprintf("json_extract(%s, '%s')", col, path)
+	}
+	return fmt.Sprintf("JSON_UNQUOTE(JSON_EXTRACT(%s, '%s'))", col, path)
+}
+
 // RefreshPlannerStats rebuilds the query planner's index statistics.
 //
 // SQLite ships NO statistics until ANALYZE runs, and a fresh unmask database
