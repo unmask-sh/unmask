@@ -29,9 +29,12 @@ type PoolIP struct {
 	PowPassed    int    `json:"pow_passed"`
 	CaptchaShown int    `json:"captcha_shown"`
 	Passes       int    `json:"challenges_passed"`
-	PassPow      int    `json:"pass_pow,omitempty"`     // ... by the proof-of-work alone (bv_pow_only)
-	PassCaptcha  int    `json:"pass_captcha,omitempty"` // ... by the CAPTCHA alone (bv_captcha_only)
-	PassBoth     int    `json:"pass_both,omitempty"`    // ... proof-of-work then CAPTCHA (bv_pow_then_captcha)
+	PassPow      int    `json:"pass_pow,omitempty"`               // ... by the proof-of-work alone (bv_pow_only)
+	PassCaptcha  int    `json:"pass_captcha,omitempty"`           // ... by the CAPTCHA alone (bv_captcha_only)
+	PassBoth     int    `json:"pass_both,omitempty"`              // ... proof-of-work then CAPTCHA (bv_pow_then_captcha)
+	ShownPow     int    `json:"shown_pow_only,omitempty"`         // the chain presented (the challenge JavaScript ran with it): pow_only
+	ShownCaptcha int    `json:"shown_captcha_only,omitempty"`     // ... captcha_only
+	ShownBoth    int    `json:"shown_pow_then_captcha,omitempty"` // ... pow_then_captcha
 	ScannerHits  int    `json:"scanner_path_hits,omitempty"`
 	JA4          string `json:"ja4,omitempty"`
 	UA           string `json:"user_agent,omitempty"`
@@ -56,6 +59,9 @@ type PoolJA4 struct {
 	PassPow      int    `json:"pass_pow,omitempty"`
 	PassCaptcha  int    `json:"pass_captcha,omitempty"`
 	PassBoth     int    `json:"pass_both,omitempty"`
+	ShownPow     int    `json:"shown_pow_only,omitempty"`
+	ShownCaptcha int    `json:"shown_captcha_only,omitempty"`
+	ShownBoth    int    `json:"shown_pow_then_captcha,omitempty"`
 	UA           string `json:"user_agent,omitempty"`
 }
 
@@ -71,6 +77,22 @@ const (
 	        SUM(CASE WHEN phase='bv_captcha_only' THEN 1 ELSE 0 END) AS pass_captcha,
 	        SUM(CASE WHEN phase='bv_pow_then_captcha' THEN 1 ELSE 0 END) AS pass_both,`
 )
+
+// poolChainShownSums: how often each chain was presented.  The load beacon
+// carries the chmode the challenge JavaScript ran with (pow_only /
+// captcha_only / pow_then_captcha); a pass is that chain completed
+// (poolPassKindSums), so presented minus passed is the chain holding, and
+// the traffic cell reads each chain as presented → passed · not completed
+// (operator's design, 2026-09-13).  The chmode sits in the payload JSON;
+// the extraction runs on load rows only.  Dialect-dependent, so a function
+// rather than a constant.
+func poolChainShownSums(conn *db.DB) string {
+	mode := conn.JSONExtract("payload_json", "$.chmode")
+	line := func(chain, alias string) string {
+		return `SUM(CASE WHEN phase='load' THEN CASE WHEN ` + mode + `='` + chain + `' THEN 1 ELSE 0 END ELSE 0 END) AS ` + alias + `,`
+	}
+	return line("pow_only", "shown_pow") + "\n\t        " + line("captcha_only", "shown_captcha") + "\n\t        " + line("pow_then_captcha", "shown_both")
+}
 
 // PoolUA is one user agent in the pool.
 type PoolUA struct {
@@ -130,6 +152,7 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 	        SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END) AS serves,
 	        ` + poolStageSums + `
 	        ` + poolPassKindSums + `
+	        ` + poolChainShownSums(conn) + `
 	        SUM(CASE WHEN ` + scannerCond() + ` THEN 1 ELSE 0 END) AS scanner_hits,
 	        MIN(date_created), MAX(date_created),
 	        COALESCE(MAX(ja4), ''), COALESCE(MAX(user_agent), '')
@@ -146,7 +169,7 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 		var r PoolIP
 		var ipBytes []byte
 		if err := rows.Scan(&ipBytes, &r.Requests, &r.Serves, &r.JSLoaded, &r.PowPassed, &r.CaptchaShown, &r.Passes,
-			&r.PassPow, &r.PassCaptcha, &r.PassBoth, &r.ScannerHits,
+			&r.PassPow, &r.PassCaptcha, &r.PassBoth, &r.ShownPow, &r.ShownCaptcha, &r.ShownBoth, &r.ScannerHits,
 			&r.FirstSeen, &r.LastSeen, &r.JA4, &r.UA); err != nil {
 			rows.Close()
 			return pool, err
@@ -175,6 +198,7 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 	        SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END) AS serves,
 	        ` + poolStageSums + `
 	        ` + poolPassKindSums + `
+	        ` + poolChainShownSums(conn) + `
 	        COALESCE(MAX(user_agent), '')
 	      FROM unmask_event` + conn.EventDateIndexHint("w") + `
 	      WHERE date_created > ` + conn.NowMinusMinutes(opt.WindowMinutes) + `
@@ -189,7 +213,7 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 	for rows.Next() {
 		var r PoolJA4
 		if err := rows.Scan(&r.JA4, &r.DistinctIPs, &r.Requests, &r.Serves, &r.JSLoaded, &r.PowPassed, &r.CaptchaShown, &r.Passes,
-			&r.PassPow, &r.PassCaptcha, &r.PassBoth, &r.UA); err != nil {
+			&r.PassPow, &r.PassCaptcha, &r.PassBoth, &r.ShownPow, &r.ShownCaptcha, &r.ShownBoth, &r.UA); err != nil {
 			rows.Close()
 			return pool, err
 		}
