@@ -24,6 +24,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-09-10) **Advisor: a candidate being re-analysed keeps its last answer on screen.**  When a click sends a candidate back to the model because its counts or window changed, the row used to drop its previous priority and reasoning and show only the spinner until the new answer arrived.  It now shows the spinner above the previous answer, dimmed, and swaps in the replacement when it lands.
 
 ### Fixed
+- (2026-09-13) **A banned client arriving during a daemon restart got a 503 instead of the block.**  The ban page's location was meant to fail closed with a bare 403 while the daemon is down, but nginx keeps the first error_page written for a code, and the proxy template's fail-open hook preceded it, so the request fell through to a 503.  The hook now sits only in the locations that fail open.
+
 - (2026-09-13) **Advisor: every row shows its sample paths.**  Most rows' "要求パス例" were empty: one shared sample of the newest 400 events over every candidate went to the busiest few, and fingerprint rows and the model's picks were never read at all.  Each row now samples its own newest events -- an address through its index, a fingerprint newest first -- and a pick gets its paths on the page.
 
 - (2026-09-13) **Advisor: the model reads the row's evidence in the row's own terms.**  The bundle now carries the challenge by chain with every difference taken, the escalation reasons, the user agents and paths with their counts, and the reverse DNS -- for the pool rows too -- and the prompt asks for reasoning that names the deciding numbers and the kind of rule that would target the client.

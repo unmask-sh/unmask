@@ -367,6 +367,15 @@ location @unmask_rate_challenge {
     # location; the daemon-down and challenge paths keep the vhost's.
     proxy_read_timeout 3600s;
     proxy_send_timeout 3600s;
+{{ end }}
+
+# What a daemon proxy location does when the daemon cannot answer.  Kept OUT
+# of unmask_daemon_proxy on purpose: nginx takes the FIRST error_page written
+# for a status code, so a location that wants a different answer (the ban
+# page, which must fail closed) cannot override a hook the proxy template
+# already emitted -- it has to be the only one in its block.  Every other
+# daemon location includes this right after the proxy template.
+{{ define "unmask_daemon_failopen" }}
     # Daemon unreachable -> fail open via @unmask_daemon_down (replays orig).
     proxy_intercept_errors on;
     error_page 502 503 504 = @unmask_daemon_down;
@@ -382,15 +391,21 @@ location @unmask_rate_challenge {
 location ^~ /unmask/admin/ {
     include {{ .OutputDir }}/protect.inc;
     {{ template "unmask_daemon_proxy" . }}
+    {{ template "unmask_daemon_failopen" . }}
 }
 
 # /unmask/_ban — the ban "blocked" page (rewrite target of the deny-action ban
-# above).  More specific than the /unmask/ catch-all so it can fail CLOSED: the
-# proxy template's error_page would fail open to @unmask_daemon_down's 503, but
-# a ban must hold during a daemon outage, so override it to a bare 403 (the same
-# response the branch returned before it routed through the admin for branding).
+# above).  More specific than the /unmask/ catch-all so it can fail CLOSED: a
+# ban must hold during a daemon outage, so this location answers a bare 403
+# (the same response the branch returned before it routed through the admin
+# for branding) instead of failing open.  It carries its OWN error_page and
+# none of unmask_daemon_failopen's: nginx keeps the first error_page written
+# for a code, and until 0.1.44 the proxy template's fail-open hook came first
+# here, so a banned client during a daemon restart got @unmask_daemon_down's
+# 503 (no original to replay) rather than this 403.
 location ^~ /unmask/_ban {
     {{ template "unmask_daemon_proxy" . }}
+    proxy_intercept_errors on;
     error_page 502 503 504 = @unmask_ban_deny_down;
 }
 location @unmask_ban_deny_down {
@@ -411,6 +426,7 @@ location = /unmask/api/check { return 404; }
 # served from here, so protecting it would loop.
 location ^~ /unmask/ {
     {{ template "unmask_daemon_proxy" . }}
+    {{ template "unmask_daemon_failopen" . }}
 }
 
 # Daemon-down fail-open.  Reached via error_page from the /unmask/* proxy

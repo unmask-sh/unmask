@@ -59,9 +59,23 @@ wait_healthz_eq() {
 # Always bring the admin back, then re-apply assert.sh's exit-guard semantics
 # (a bare `trap ... EXIT` here would overwrite the guard installed by
 # assert.sh, silently swallowing mid-scenario assertion failures).
+# A deny-banned address, to prove the ban holds while the daemon is down (a
+# bare 403, never the fail-open handler's 503).  The ban file is driven
+# directly, as 40-ban-deny does; the plugin re-reads it on mtime change.
+BAN_IP=203.0.113.235
+BAN_FILE_C=/var/lib/unmask/nginx/banned.txt
+ban_write() {
+    docker compose -f "$COMPOSE" exec -T --user root nginx sh -c \
+        "mkdir -p /var/lib/unmask/nginx && printf '%s\n' '${BAN_IP}||manual|deny' >> '$BAN_FILE_C'" >/dev/null 2>&1
+}
+ban_clear() {
+    docker compose -f "$COMPOSE" exec -T --user root nginx sh -c \
+        "[ -f '$BAN_FILE_C' ] && grep -v '^${BAN_IP}|' '$BAN_FILE_C' > '${BAN_FILE_C}.t' 2>/dev/null && mv '${BAN_FILE_C}.t' '$BAN_FILE_C'" >/dev/null 2>&1 || true
+}
 ADMIN_STOPPED=0
 cleanup() {
     local rc=$?
+    ban_clear
     if [ "$ADMIN_STOPPED" = "1" ]; then
         docker compose -f "$COMPOSE" start admin >/dev/null 2>&1 || true
         if wait_healthz_eq 200 30; then
@@ -83,6 +97,16 @@ trap cleanup EXIT
 c0=$(http_get / -A "$UA_CURL" -H "X-Forwarded-For: $IP_BASE")
 assert_eq 403 "$c0" "baseline (admin up): curl UA is challenged on / (403)" || exit 1
 
+# 1b. a deny ban on BAN_IP, seen by the plugin before the daemon goes down.
+bcode=000
+for _ in $(seq 1 12); do
+    ban_write
+    bcode=$(http_get / -A "$UA_CURL" -H "X-Forwarded-For: $BAN_IP")
+    [ "$bcode" = 403 ] && break
+    sleep 0.5
+done
+assert_eq 403 "$bcode" "baseline (admin up): the deny-banned address is refused (403)" || exit 1
+
 # 2. stop the admin daemon.
 docker compose -f "$COMPOSE" stop admin >/dev/null 2>&1
 ADMIN_STOPPED=1
@@ -99,6 +123,14 @@ body=$(curl -sk -A "$UA_CURL" -H "X-Forwarded-For: $IP_BASE" "${BASE_URL}/")
 code=$(http_get / -A "$UA_CURL" -H "X-Forwarded-For: $IP_BASE")
 assert_eq 200 "$code" "daemon down: curl UA gets the original page on / (200, no challenge)"
 assert_in "[unmask e2e]" "$body" "daemon down: response body is the real backend content"
+
+# 3b. the ban holds while the daemon is down: a bare 403 from the ban
+#     location's own fail-closed hook -- not the fail-open handler's 503,
+#     which is what a banned client got until 0.1.44 (the shared proxy
+#     template's fail-open error_page was written first and nginx keeps the
+#     first one for a code; found by 62-restart-race in the 0.1.44 gate).
+code=$(http_get / -A "$UA_CURL" -H "X-Forwarded-For: $BAN_IP")
+assert_eq 403 "$code" "daemon down: a deny-banned client still gets 403 (fails closed, not 503)"
 
 # 4. the query string survives the save/replay round-trip.
 code=$(http_get "/?q=1&x=y" -A "$UA_CURL" -H "X-Forwarded-For: $IP_QUERY")
