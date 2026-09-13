@@ -12,7 +12,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.44] - 2026-09-13
 ### Added
 - (2026-09-10) **doctor reports the hourly aggregate and the aggregate tables' windows; the stats page says "aggregating" instead of running a 30-day scan it cannot finish.**  The window check found a second unpruned table, the country tally, now trimmed too.  On a large database with no completed aggregate pass, the 30-day serve cards show "aggregating" at once rather than timing out.
 
