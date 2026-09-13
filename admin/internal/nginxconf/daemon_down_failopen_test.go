@@ -29,11 +29,39 @@ func TestDaemonDownFailOpenRendered(t *testing.T) {
 	})
 
 	t.Run("daemon_proxy_hooks", func(t *testing.T) {
-		if got := strings.Count(server, "error_page 502 503 504 = @unmask_daemon_down;"); got < 1 {
-			t.Errorf("the /unmask/ proxy must hook 502/503/504 into @unmask_daemon_down, found %d", got)
+		// The admin location and the machinery catch-all: both fail open.
+		if got := strings.Count(server, "error_page 502 503 504 = @unmask_daemon_down;"); got != 2 {
+			t.Errorf("the admin and /unmask/ proxies must hook 502/503/504 into @unmask_daemon_down, found %d", got)
 		}
 		if !strings.Contains(server, "proxy_intercept_errors on;") {
 			t.Error("daemon proxy locations must set proxy_intercept_errors on")
+		}
+	})
+
+	t.Run("ban_location_fails_closed", func(t *testing.T) {
+		// nginx keeps the FIRST error_page written for a status code, so the
+		// ban page's fail-closed hook only works if no fail-open hook precedes
+		// it in the same block.  Until 0.1.44 the proxy template emitted the
+		// fail-open hook first, and a banned client that arrived during a
+		// daemon restart got @unmask_daemon_down's 503 (nothing to replay)
+		// instead of the 403 -- the one 5xx the restart-race e2e kept finding.
+		start := strings.Index(server, "location ^~ /unmask/_ban {")
+		if start < 0 {
+			t.Fatal("server.inc has no /unmask/_ban location")
+		}
+		end := strings.Index(server[start:], "\n}")
+		if end < 0 {
+			t.Fatal("/unmask/_ban location does not close")
+		}
+		block := server[start : start+end]
+		if !strings.Contains(block, "error_page 502 503 504 = @unmask_ban_deny_down;") || !strings.Contains(block, "proxy_intercept_errors on;") {
+			t.Error("/unmask/_ban must intercept 502/503/504 into @unmask_ban_deny_down")
+		}
+		if strings.Contains(block, "= @unmask_daemon_down;") {
+			t.Error("/unmask/_ban must not carry the fail-open hook: written first, it would shadow the fail-closed one")
+		}
+		if !strings.Contains(server, "location @unmask_ban_deny_down {\n    return 403;") {
+			t.Error("@unmask_ban_deny_down must answer a bare 403")
 		}
 	})
 

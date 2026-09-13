@@ -47,9 +47,26 @@ wait_healthz_eq() {
     return 1
 }
 
+# One of the hammer's addresses is deny-banned: a banned client that lands
+# in the window must get the ban's 403, never a 5xx -- the shape the 0.1.44
+# release gate caught (the ban location's fail-closed error_page was
+# shadowed by the proxy template's fail-open one, and the fail-open handler
+# had nothing to replay: 503).  Driven through the ban file as 40-ban-deny
+# does, so this scenario does not depend on 40 having run before it.
+BAN_IP=203.0.113.236
+BAN_FILE_C=/var/lib/unmask/nginx/banned.txt
+ban_write() {
+    docker compose -f "$COMPOSE" exec -T --user root nginx sh -c \
+        "mkdir -p /var/lib/unmask/nginx && printf '%s\n' '${BAN_IP}||manual|deny' >> '$BAN_FILE_C'" >/dev/null 2>&1
+}
+ban_clear() {
+    docker compose -f "$COMPOSE" exec -T --user root nginx sh -c \
+        "[ -f '$BAN_FILE_C' ] && grep -v '^${BAN_IP}|' '$BAN_FILE_C' > '${BAN_FILE_C}.t' 2>/dev/null && mv '${BAN_FILE_C}.t' '$BAN_FILE_C'" >/dev/null 2>&1 || true
+}
 # Restart failures leave the admin down; bring it back before the verdict.
 cleanup() {
     local rc=$?
+    ban_clear
     if ! wait_healthz_eq 200 3; then
         docker compose -f "$COMPOSE" start admin >/dev/null 2>&1 || true
         wait_healthz_eq 200 30 || { log_fail "cleanup: admin did not come back healthy"; rc=1; }
@@ -65,14 +82,26 @@ trap cleanup EXIT
 # 1. baseline
 c0=$(http_get / -A "$UA_CURL" -H "X-Forwarded-For: 203.0.113.9")
 assert_eq 403 "$c0" "baseline (admin up): curl UA is challenged on / (403)" || exit 1
+bcode=000
+for _ in $(seq 1 12); do
+    ban_write
+    bcode=$(http_get / -A "$UA_CURL" -H "X-Forwarded-For: $BAN_IP")
+    [ "$bcode" = 403 ] && break
+    sleep 0.5
+done
+assert_eq 403 "$bcode" "baseline (admin up): the deny-banned address is refused (403)" || exit 1
 
 # 2. hammer + restart.  ~10 req/s for the whole restart; each request its
-#    own address in 203.0.113.0/24 so no rate zone or ban state builds up.
+#    own address in 203.0.113.0/24 so no rate zone or ban state builds up --
+#    every tenth one the banned address, so the window holds banned clients
+#    too.
 OUT=$(mktemp)
 (
     for i in $(seq 1 200); do
+        xff="203.0.113.$((10 + i % 200))"
+        [ $((i % 10)) -eq 0 ] && xff="$BAN_IP"
         curl -sk -o /dev/null -w '%{http_code}\n' --max-time 6 \
-            -A "$UA_CURL" -H "X-Forwarded-For: 203.0.113.$((10 + i % 200))" "${BASE_URL}/" >> "$OUT" 2>&1
+            -A "$UA_CURL" -H "X-Forwarded-For: $xff" "${BASE_URL}/" >> "$OUT" 2>&1
         sleep 0.04
     done
 ) &
