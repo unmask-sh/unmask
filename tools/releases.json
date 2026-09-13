@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.43",
+  "latest": "0.1.44",
   "releases": [
+    {
+      "version": "0.1.44",
+      "date": "2026-09-13",
+      "notes": "The advisor's candidate rows read the way the operator thinks: the traffic cell shows the challenge by chain (pow_only, captcha_only, pow_then_captcha, each as shown, passed and not completed, the two-gate chain per gate), how many were served and left without running the JavaScript, and which rule served the challenges (asn, geo, rate_limit, protected ...) with its share; a row names its kind (IP or JA4) in front of the target, lists the client's five most frequent user agents with counts under its network, and its most requested paths with hits, every one opening the hunt log's popover with the full value and, for a path, the Open / Copy buttons; the paths were empty on most rows before. The model gets the same evidence in the same terms, is asked to write in plain words and name the kind of rule that would target the client, no longer nominates actors the challenge already stops, and its picks carry a score and sit where it puts them; a row being re-analysed keeps its last answer on screen. On large databases the 30-day stats cards read settled hours from the hourly rollup and scan only the remainder, a failed card shows dashes and says so, the hourly fold paces itself, the setup wizard no longer counts every event row when opened, and doctor reports the aggregate's windows."
+    },
     {
       "version": "0.1.43",
       "date": "2026-09-09",
