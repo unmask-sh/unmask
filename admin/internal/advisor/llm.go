@@ -154,6 +154,13 @@ rate limit, or the fingerprint -- and whether a rule already covers it. Two
 sentences at most and no more than about forty words (in Japanese, about a
 hundred and twenty characters); a number beats an adjective.
 
+contained means the client never completed a challenge; nearly_contained means
+it completed a token few -- under one percent of the pages it was served.
+Treat the two alike: the challenge is holding the client, and a ban buys fewer
+round trips rather than more protection. Say which of the two it is in plain
+words, and do not call a client with a handful of completions out of thousands
+"getting through".
+
 A JA4 is a fingerprint of a device and browser stack, shared by every client
 with that stack, so banning one blocks all of them everywhere. For fingerprint
 candidates addresses_passed_7d counts the addresses that completed the
@@ -180,6 +187,7 @@ type bundleCandidate struct {
 	Target        string        `json:"target"`
 	Type          string        `json:"type"`
 	Contained     bool          `json:"contained"`
+	NearlyHeld    bool          `json:"nearly_contained,omitempty"`
 	Signals       []string      `json:"signals"`
 	Serves        int           `json:"challenges_served"`
 	JSRan         int           `json:"js_ran"`
@@ -262,7 +270,7 @@ func buildBundle(cands []Candidate) []bundleCandidate {
 			}
 		}
 		out = append(out, bundleCandidate{
-			Target: c.Target, Type: c.Type, Contained: c.Contained, Signals: ids,
+			Target: c.Target, Type: c.Type, Contained: c.Contained, NearlyHeld: c.NearlyContained(), Signals: ids,
 			Serves: c.Serves, JSRan: c.Loads, JSNotRun: c.JSNotRun(), Passes: c.Passes,
 			Chains: c.Chains(), Reasons: c.Reasons,
 			UserAgents: uas, DistinctUAs: c.DistinctUAs, Paths: paths, DistinctPaths: c.DistinctPaths,
@@ -503,7 +511,7 @@ func mergeReviews(raw string, cands []Candidate) (map[string]Review, error) {
 // whatever the model was talked into saying, it can only annotate our rows
 // or point at actors we already observed.  A nomination also has to be worth
 // the row it adds: a pool member the challenge already stops
-// (ContainedBelowCost) is dropped whatever the model made of it, so the rule
+// (HeldBelowCost, contained or nearly so) is dropped whatever the model made of it, so the rule
 // that keeps such actors out of the default view is not undone by a
 // nomination.  The prompt says the same; the prompt is advice, this is not.
 func mergeResult(raw string, cands []Candidate, pool Pool) (Result, error) {
@@ -536,7 +544,7 @@ func mergeResult(raw string, cands []Candidate, pool Pool) (Result, error) {
 			if !ok {
 				continue // not in the pool -- drop it
 			}
-			if ContainedBelowCost(row.Passes, row.Serves, row.Requests) {
+			if HeldBelowCost(row.Passes, row.Serves, row.Requests) {
 				continue // already contained, and cheap -- not worth a row
 			}
 		case "ja4":
@@ -544,7 +552,7 @@ func mergeResult(raw string, cands []Candidate, pool Pool) (Result, error) {
 			if !ok {
 				continue
 			}
-			if ContainedBelowCost(row.Passes, row.Serves, row.Requests) {
+			if HeldBelowCost(row.Passes, row.Serves, row.Requests) {
 				continue
 			}
 		default:
@@ -1164,7 +1172,7 @@ func Merge(prev Stored, sent []Candidate, res Result, pool Pool, kept map[string
 		if nominatedNow[n.Target] || current[n.Target] {
 			continue
 		}
-		if !buildPick(&n, pool, prev.Reviews[n.Target].Priority) || n.ContainedBelowCost() {
+		if !buildPick(&n, pool, prev.Reviews[n.Target].Priority) || n.HeldBelowCost() {
 			continue
 		}
 		nominated = append(nominated, n)

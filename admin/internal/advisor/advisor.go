@@ -127,16 +127,31 @@ const (
 	ContainedVolumeRequests = VolumeRequests * 10
 )
 
-// SortByAttention orders rows the way the page reads them: passing before
-// contained -- the one distinction that decides whether a ban buys
-// protection or merely quiet -- then the score, then volume.  The page
+// containmentRank answers "does the challenge hold this client" in the three
+// steps the page reads: it gets through, it gets through a token few times,
+// it never does.
+func containmentRank(c Candidate) int {
+	switch {
+	case !c.ChallengeHolds():
+		return 0
+	case !c.Contained:
+		return 1
+	default:
+		return 2
+	}
+}
+
+// SortByAttention orders rows the way the page reads them: passing first,
+// then the ones the challenge nearly holds, then the contained -- the
+// distinction that decides whether a ban buys protection or merely quiet --
+// then the score, then volume.  The page
 // applies it again after merging the model's picks in, so a pick sits where
 // its score puts it rather than at the end.
 func SortByAttention(out []Candidate) {
 	sort.SliceStable(out, func(i, j int) bool {
 		a, b := out[i], out[j]
-		if a.Contained != b.Contained {
-			return !a.Contained
+		if ra, rb := containmentRank(a), containmentRank(b); ra != rb {
+			return ra < rb
 		}
 		if a.Score != b.Score {
 			return a.Score > b.Score
@@ -291,13 +306,46 @@ func floor0(n int) int {
 // a few hundred challenges a window; a contained one at ten times that.
 func (c Candidate) volumeIsCost() bool {
 	serves, requests := VolumeServes, VolumeRequests
-	if c.Contained {
+	if c.ChallengeHolds() {
 		serves, requests = ContainedVolumeServes, ContainedVolumeRequests
 	}
 	return c.Serves >= serves || c.Requests >= requests
 }
 
-// ContainedBelowCost: never passed, and short of the volume at which the
+// NearPassMax bounds the absolute side of "barely gets through": however
+// small the rate, a client that completed the challenge more than this many
+// times in the window has a real number of sessions behind it, and the
+// challenge is not holding it.
+const NearPassMax = 100
+
+// nearlyContained: the challenge is holding this client bar a token number
+// of completions -- under one percent of the pages it was served, and no
+// more than NearPassMax of them.  Before this the test was Passes == 0, a
+// cliff: on tool1-us (2026-09-14) a fingerprint served 18,316 challenges and
+// passed 9 counted as "getting through" and outranked a herd of 2,846 that
+// never passed at all.  One stray completion -- a real visitor on a shared
+// TLS stack, a beacon that landed on another node of the fleet -- should not
+// move a row into the group a ban is meant for.  Operator's calibration
+// (2026-09-14): "通過率が1%未満かつ100以下の場合はもっとスコア下げた方がいい
+// かも 通過0は特に下げる".  Serves of zero (a pass whose challenge was
+// recorded on another node) fails the test: an unseen denominator is not
+// evidence of containment.
+func nearlyContained(passes, serves int) bool {
+	return passes > 0 && passes <= NearPassMax && passes*100 < serves
+}
+
+// NearlyContained on a row.
+func (c Candidate) NearlyContained() bool { return nearlyContained(c.Passes, c.Serves) }
+
+// ChallengeHolds: the challenge answers this client, whether it never
+// completed one (Contained) or completed a token few (NearlyContained).
+// What a ban would buy is the same either way -- fewer round trips, not more
+// protection -- so the score and the ordering treat them alike, and only the
+// ordering separates the two (SortByAttention: passing, then the token few,
+// then never).
+func (c Candidate) ChallengeHolds() bool { return c.Contained || c.NearlyContained() }
+
+// HeldBelowCost: never passed, and short of the volume at which the
 // handling alone is a cost.  The challenge already answers such a client;
 // the engine lists it at candidateFloor, under every passing row and out of
 // the default view (settleScore), and a nomination from the pool may not
@@ -306,13 +354,14 @@ func (c Candidate) volumeIsCost() bool {
 // never passes is exactly what stands out there.  Operator's ask
 // (2026-09-10): "AI picks keep surfacing zero-pass actors; few passes means
 // not important".
-func ContainedBelowCost(passes, serves, requests int) bool {
-	return passes == 0 && serves < ContainedVolumeServes && requests < ContainedVolumeRequests
+func HeldBelowCost(passes, serves, requests int) bool {
+	held := passes == 0 || nearlyContained(passes, serves)
+	return held && serves < ContainedVolumeServes && requests < ContainedVolumeRequests
 }
 
-// ContainedBelowCost on a row: the same test on the row's own counts.
-func (c Candidate) ContainedBelowCost() bool {
-	return ContainedBelowCost(c.Passes, c.Serves, c.Requests)
+// HeldBelowCost on a row: the same test on the row's own counts.
+func (c Candidate) HeldBelowCost() bool {
+	return HeldBelowCost(c.Passes, c.Serves, c.Requests)
 }
 
 // settleScore turns the signals into the score.  A passing client scores the
@@ -331,7 +380,7 @@ func (c *Candidate) settleScore() {
 		sum += s.Weight
 	}
 	switch {
-	case !c.Contained:
+	case !c.ChallengeHolds():
 		c.Score = sum
 	case c.volumeIsCost():
 		c.Score = containedCostScore

@@ -161,3 +161,89 @@ func TestBundleReadsLikeTheRow(t *testing.T) {
 		t.Error("no chain presented or completed: no chains object")
 	}
 }
+
+// The challenge holds a client that completes a token few of its challenges
+// as surely as one that completes none: the row scores like a contained one
+// and sorts under every row that really gets through.  Operator's
+// calibration (2026-09-14): "通過率が1%未満かつ100以下の場合はもっとスコアを
+// 下げた方がいいかも 通過0は特に下げる".
+func TestNearlyContainedIsHeldLikeContained(t *testing.T) {
+	cases := []struct {
+		name           string
+		passes, serves int
+		nearly         bool
+	}{
+		{"a herd that passed nine times in eighteen thousand", 9, 18316, true},
+		{"seventy-nine passes in fourteen thousand", 79, 13897, true},
+		{"one pass in a thousand", 1, 1332, true},
+		{"exactly one percent is not under it", 20, 2000, false},
+		{"just under one percent", 20, 2001, true},
+		{"the absolute cap: a hundred passes still held", 100, 10001, true},
+		{"over the cap, however small the rate", 101, 1000000, false},
+		{"a real visitor", 10, 11, false},
+		{"never passed is contained, not nearly", 0, 500, false},
+		{"a pass whose challenge landed on another node", 3, 0, false},
+	}
+	for _, tc := range cases {
+		c := Candidate{Passes: tc.passes, Serves: tc.serves, Requests: tc.serves}
+		c.Contained = tc.passes == 0
+		if got := c.NearlyContained(); got != tc.nearly {
+			t.Errorf("%s: NearlyContained = %v, want %v", tc.name, got, tc.nearly)
+		}
+		if got, want := c.ChallengeHolds(), tc.nearly || tc.passes == 0; got != want {
+			t.Errorf("%s: ChallengeHolds = %v, want %v", tc.name, got, want)
+		}
+	}
+	// A hundred passes is the cap, so 100 in 10,001 is over it by one: the
+	// rate is under a percent but the sessions are real.
+	if !nearlyContained(100, 10100) {
+		t.Error("a hundred passes at under a percent is still held")
+	}
+	if nearlyContained(100, 10000) {
+		t.Error("exactly one percent is not under one percent")
+	}
+}
+
+// The score: a held row is capped at the candidate floor, or lifted to the
+// contained cost score once its volume is a cost on its own -- the same two
+// numbers a never-passing row gets, so a stray completion no longer buys a
+// row the full weight of its signals.
+func TestNearlyContainedScoresLikeContained(t *testing.T) {
+	// Signals worth five: a fingerprint herd at volume.
+	mk := func(passes, serves, requests int) Candidate {
+		c := Candidate{Type: "ja4", Target: "t13d_x", Passes: passes, Serves: serves, Requests: requests, DistinctIPs: 3000}
+		c.Contained = passes == 0
+		c.fingerprintSignals(Options{}.resolved())
+		c.settleScore()
+		return c
+	}
+	big := mk(9, 18316, 20551) // past the contained cost floor
+	if !big.NearlyContained() || big.Score != containedCostScore {
+		t.Errorf("a held herd at volume: nearly=%v score=%d want %d", big.NearlyContained(), big.Score, containedCostScore)
+	}
+	small := mk(2, 2298, 2300) // short of it
+	if small.Score != candidateFloor || small.Attention() {
+		t.Errorf("a held herd short of the cost floor: score=%d attention=%v", small.Score, small.Attention())
+	}
+	passing := mk(20, 1792, 1835) // 1.12%: over the line, scored on its evidence
+	if passing.NearlyContained() || passing.Score < AttentionScore {
+		t.Errorf("a herd that really passes: nearly=%v score=%d", passing.NearlyContained(), passing.Score)
+	}
+	// And the order: passing, then nearly, then never.
+	none := mk(0, 18316, 20551)
+	rows := []Candidate{none, big, passing}
+	SortByAttention(rows)
+	if rows[0].Passes != 20 || rows[1].Passes != 9 || rows[2].Passes != 0 {
+		t.Errorf("order: %d %d %d, want 20 9 0", rows[0].Passes, rows[1].Passes, rows[2].Passes)
+	}
+	// The nomination gate follows the same rule.
+	if !HeldBelowCost(2, 2298, 2300) {
+		t.Error("a nearly contained pool row short of the cost floor must not be nominated")
+	}
+	if HeldBelowCost(9, 18316, 20551) {
+		t.Error("past the cost floor the volume itself is the reason to list it")
+	}
+	if HeldBelowCost(20, 1792, 1835) {
+		t.Error("a row that really passes is not held")
+	}
+}

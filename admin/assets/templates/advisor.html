@@ -73,6 +73,7 @@ table.cands .ua-list{color:#64748b;font-size:.78rem;white-space:nowrap;max-width
 .score{display:inline-block;background:#f8fafc;color:#334155;border:1px solid #cbd5e1;border-radius:.25rem;padding:.05rem .45rem;font-size:.72rem;font-weight:700;font-family:ui-monospace,Menlo,monospace;margin-bottom:.25rem}
 .state{display:block;font-size:.74rem;margin-bottom:.25rem}
 .state.contained{color:#64748b}
+.state.nearly{color:#a16207}
 .state.passing{color:#b91c1c;font-weight:700}
 .kv{color:#64748b;font-size:.78rem}
 td.traffic{white-space:nowrap}
@@ -332,7 +333,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
             {{- /* new since the last answer: no review for it yet */ -}}
             {{ if and .Attention (not $rv) (or $.AIHave $.AIRunning) }}<span class="badge-new">{{ t $.Lang "advisor.badge_new" }}</span>{{ end }}
             {{ if .Dismissed }}<span class="state dismissed">{{ t $.Lang "advisor.state.dismissed" }}</span>{{ end }}
-            {{ if .Contained }}<span class="state contained">{{ if .HeldAtCaptcha }}{{ t $.Lang "advisor.state.captcha_held" }}{{ else }}{{ t $.Lang "advisor.state.contained" }}{{ end }}</span>{{ else }}<span class="state passing">{{ t $.Lang "advisor.state.passing" }}</span>{{ end }}
+            {{ if .Contained }}<span class="state contained">{{ if .HeldAtCaptcha }}{{ t $.Lang "advisor.state.captcha_held" }}{{ else }}{{ t $.Lang "advisor.state.contained" }}{{ end }}</span>{{ else if .NearlyContained }}<span class="state nearly">{{ t $.Lang "advisor.state.nearly_contained" }}</span>{{ else }}<span class="state passing">{{ t $.Lang "advisor.state.passing" }}</span>{{ end }}
             {{- /* One line per signal: the badge and its reading beside it
                  (operator, 2026-09-13: "2 行使う必要無いのでは？ バッジの隣に
                  説明表示しても良い"). */ -}}

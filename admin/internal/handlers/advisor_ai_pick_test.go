@@ -184,3 +184,49 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 		t.Error("a pick with passes but no pass-kind breakdown must not render an empty ()")
 	}
 }
+
+// A client the challenge nearly holds -- a token few completions, under one
+// percent of the pages it was served -- says so on the page and sits under
+// every row that really gets through, above the ones that never passed.
+// Operator (2026-09-14): "通過率が1%未満かつ100以下の場合はもっとスコア下げた
+// 方がいいかも 通過0は特に下げる".
+func TestAdvisorNearlyContainedRowSaysSo(t *testing.T) {
+	h := newTestHandler(t)
+	cur := h.snapshotSettings()
+	cur.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k", Endpoint: "http://127.0.0.1:9"}
+	h.settingsPtr.Store(&cur)
+	key := advisor.ResultKey(cur.AIAdvisor, 24*60, string(i18n.Resolve(httptest.NewRequest(http.MethodGet, "/", nil))))
+	row := func(ip string, passes, serves, requests int) advisor.Candidate {
+		return advisor.Candidate{Type: "ip", Target: ip, Scope: "ip_only", Nominated: true, Contained: passes == 0,
+			Passes: passes, Serves: serves, Requests: requests, UA: "curl/8",
+			Signals: []advisor.Signal{{ID: "ai_pick", Detail: "proposed by the model from the wider ranking"}}}
+	}
+	advisor.StoreLast(h.DB, key, advisor.Stored{At: time.Now(), Model: "m",
+		Reviews: map[string]advisor.Review{
+			"198.51.100.30": {Target: "198.51.100.30", Priority: "medium", Reasoning: "nine completions in eighteen thousand"},
+			"198.51.100.31": {Target: "198.51.100.31", Priority: "medium", Reasoning: "never completed one"},
+			"198.51.100.32": {Target: "198.51.100.32", Priority: "high", Reasoning: "gets through"},
+		},
+		Nominated: []advisor.Candidate{
+			row("198.51.100.31", 0, 18316, 20551),
+			row("198.51.100.30", 9, 18316, 20551),
+			row("198.51.100.32", 4000, 18316, 20551),
+		}})
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
+	rr := httptest.NewRecorder()
+	h.AdminAdvisorIndex(rr, req)
+	body := rr.Body.String()
+	if !strings.Contains(body, `<span class="state nearly">challenge がほぼ排除`) {
+		t.Error("a row the challenge nearly holds carries its own state, not the passing one")
+	}
+	if !strings.Contains(body, `<span class="state contained">`) || !strings.Contains(body, `<span class="state passing">`) {
+		t.Error("the other two states still render")
+	}
+	nearly, contained, passing := strings.Index(body, `data-ip="198.51.100.30"`), strings.Index(body, `data-ip="198.51.100.31"`), strings.Index(body, `data-ip="198.51.100.32"`)
+	if nearly < 0 || contained < 0 || passing < 0 {
+		t.Fatalf("all three rows must be shown: passing=%d nearly=%d contained=%d", passing, nearly, contained)
+	}
+	if !(passing < nearly && nearly < contained) {
+		t.Errorf("order: passing=%d nearly=%d contained=%d, want passing first, then nearly, then contained", passing, nearly, contained)
+	}
+}
