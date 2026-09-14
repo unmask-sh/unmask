@@ -3,11 +3,14 @@ package advisor
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -468,7 +471,7 @@ func TestPlanAndMergeIncremental(t *testing.T) {
 	b := Candidate{Type: "ip", Target: "203.0.113.2", Score: 6, Serves: 50, Signals: []Signal{{ID: "scanner_paths"}}, LastSeen: "2026-09-04 02:00"}
 	c := Candidate{Type: "ip", Target: "203.0.113.3", Score: 5, Serves: 300}
 	bOld := b
-	bOld.Serves = 45 // evidence moved on since it was reviewed
+	bOld.Serves = 25 // evidence doubled since it was reviewed (a step, not drift)
 	prev := Stored{Model: "m", Reviews: map[string]Review{
 		a.Target:       {Target: a.Target, Priority: "low", Reasoning: "kept", Fingerprint: a.Fingerprint()},
 		b.Target:       {Target: b.Target, Priority: "high", Reasoning: "stale", Fingerprint: bOld.Fingerprint()},
@@ -534,26 +537,43 @@ func TestPlanAndMergeIncremental(t *testing.T) {
 }
 
 // The fingerprint moves with the evidence and with nothing else.
+// A review is asked again only when the evidence stepped, not when a live
+// window's counts drifted: re-sending a row for drift made every "ask again"
+// a full run (operator, 2026-09-14: a consultation took minutes).
 func TestFingerprint(t *testing.T) {
-	c := Candidate{Type: "ip", Target: "203.0.113.1", Score: 6, Serves: 40, Passes: 0, Signals: []Signal{{ID: "challenge_hammering", Detail: "x"}}, LastSeen: "2026-09-04 02:00"}
-	same := c
-	same.Signals = []Signal{{ID: "challenge_hammering", Detail: "different wording"}}
-	same.UA = "another UA"
-	if c.Fingerprint() != same.Fingerprint() {
-		t.Error("wording and UA are not evidence")
-	}
-	for _, mod := range []func(*Candidate){
-		func(x *Candidate) { x.Serves++ },
-		func(x *Candidate) { x.LastSeen = "2026-09-04 03:00" },
-		func(x *Candidate) { x.Score = 8 },
-		func(x *Candidate) { x.Signals = append(x.Signals, Signal{ID: "high_volume"}) },
+	c := Candidate{Type: "ip", Target: "203.0.113.1", Score: 6, Serves: 40, Requests: 3, Signals: []Signal{{ID: "challenge_hammering", Detail: "x"}}, LastSeen: "2026-09-04 02:00"}
+	for name, mod := range map[string]func(*Candidate){
+		"wording and UA":      func(x *Candidate) { x.Signals[0].Detail = "different wording"; x.UA = "another UA" },
+		"a few more serves":   func(x *Candidate) { x.Serves = 46 },
+		"one more request":    func(x *Candidate) { x.Requests = 4 },
+		"the window moved on": func(x *Candidate) { x.LastSeen = "2026-09-04 03:00"; x.FirstSeen = "2026-09-04 00:30" },
+		"a few fewer serves":  func(x *Candidate) { x.Serves = 34 },
 	} {
 		d := c
 		d.Signals = append([]Signal(nil), c.Signals...)
 		mod(&d)
-		if d.Fingerprint() == c.Fingerprint() {
-			t.Errorf("a change in evidence must change the fingerprint: %+v", d)
+		if evidenceChanged(c.Fingerprint(), d.Fingerprint()) {
+			t.Errorf("%s is not a change in evidence: %s vs %s", name, c.Fingerprint(), d.Fingerprint())
 		}
+	}
+	for name, mod := range map[string]func(*Candidate){
+		"serves grew by half": func(x *Candidate) { x.Serves = 60 },
+		"serves fell by half": func(x *Candidate) { x.Serves = 20 },
+		"a first pass":        func(x *Candidate) { x.Passes = 1 },
+		"the score":           func(x *Candidate) { x.Score = 8 },
+		"a new signal":        func(x *Candidate) { x.Signals = append(x.Signals, Signal{ID: "high_volume"}) },
+		"a first scanner hit": func(x *Candidate) { x.ScannerHits = 1 },
+	} {
+		d := c
+		d.Signals = append([]Signal(nil), c.Signals...)
+		mod(&d)
+		if !evidenceChanged(c.Fingerprint(), d.Fingerprint()) {
+			t.Errorf("%s must count as a change: %s vs %s", name, c.Fingerprint(), d.Fingerprint())
+		}
+	}
+	// A review from before this format is asked again once.
+	if !evidenceChanged("ip|203.0.113.1|s6|challenge_hammering|3/40/0/0/0/0|0|2026-09-04 01:00..2026-09-04 02:00", c.Fingerprint()) {
+		t.Error("an older fingerprint is a change")
 	}
 }
 
@@ -699,5 +719,77 @@ func TestPickScoreCombinesEngineRulesAndPriority(t *testing.T) {
 	SortByAttention(rows)
 	if rows[0].Target != "198.51.100.50" || rows[1].Target != "203.0.113.9" || rows[2].Target != "198.51.100.51" {
 		t.Errorf("order by score: %s %s %s", rows[0].Target, rows[1].Target, rows[2].Target)
+	}
+}
+
+// The candidates go to the provider in batches, in parallel: fourteen rows
+// are three requests that overlap in time, every row gets its review, the
+// pool rides with one request only, and a nomination that names a row of
+// another batch is dropped (that row has its own review).
+func TestReviewBatchesRunInParallel(t *testing.T) {
+	var calls, withPool int32
+	var mu sync.Mutex
+	var starts []time.Time
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		mu.Lock()
+		starts = append(starts, time.Now())
+		mu.Unlock()
+		raw, _ := io.ReadAll(r.Body)
+		var body map[string]any
+		_ = json.Unmarshal(raw, &body)
+		msgs, _ := body["messages"].([]any)
+		text, _ := msgs[0].(map[string]any)["content"].(string)
+		bundle := text[strings.Index(text, "{"):]
+		bundle = bundle[:strings.LastIndex(bundle, "}")+1]
+		var sent struct {
+			Candidates []struct{ Target string } `json:"candidates"`
+			Pool       json.RawMessage           `json:"pool"`
+		}
+		_ = json.Unmarshal([]byte(bundle), &sent)
+		if len(sent.Pool) > 0 {
+			atomic.AddInt32(&withPool, 1)
+		}
+		time.Sleep(250 * time.Millisecond)
+		var reviews []string
+		for _, c := range sent.Candidates {
+			reviews = append(reviews, `{"target":"`+c.Target+`","priority":"low","reasoning":"batch"}`)
+		}
+		// Every batch tries to nominate the first candidate of the run (a
+		// row of batch one) and a pool row; only the pool batch's pool row
+		// survives.
+		reply := `{"reviews":[` + strings.Join(reviews, ",") + `],"nominations":[{"target":"203.0.113.101","type":"ip","priority":"high","reasoning":"dup"},{"target":"198.51.100.7","type":"ip","priority":"medium","reasoning":"from the pool"}]}`
+		w.Header().Set("content-type", "application/json")
+		_, _ = w.Write([]byte(`{"stop_reason":"end_turn","usage":{"input_tokens":100,"output_tokens":10},"content":[{"type":"text","text":` + strconv.Quote(reply) + `}]}`))
+	}))
+	defer srv.Close()
+	var cands []Candidate
+	for i := 0; i < 14; i++ {
+		cands = append(cands, Candidate{Type: "ip", Target: fmt.Sprintf("203.0.113.%d", 101+i), Score: 6, Serves: 40, Signals: []Signal{{ID: "challenge_hammering"}}})
+	}
+	pool := Pool{IPs: []PoolIP{{IP: "198.51.100.7", Requests: 900, Serves: 800, Passes: 20, PassPow: 20}}}
+	cfg := settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k", Endpoint: srv.URL}
+	t0 := time.Now()
+	res, err := ReviewWithPool(context.Background(), cfg, cands, pool, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 3 || res.Batches != 3 {
+		t.Errorf("14 candidates in batches of 6 = 3 requests, got %d (Batches=%d)", got, res.Batches)
+	}
+	if time.Since(t0) > 600*time.Millisecond {
+		t.Errorf("three 250ms requests must overlap: took %s", time.Since(t0))
+	}
+	if len(res.Reviews) != 14 {
+		t.Errorf("every candidate reviewed once: %d", len(res.Reviews))
+	}
+	if atomic.LoadInt32(&withPool) != 1 {
+		t.Errorf("the pool rides with exactly one request, got %d", withPool)
+	}
+	if len(res.Nominations) != 1 || res.Nominations[0].Target != "198.51.100.7" {
+		t.Errorf("only the pool row is nominated (the candidate has its own review): %+v", res.Nominations)
+	}
+	if res.Usage.Input != 300 || res.Usage.Output != 30 {
+		t.Errorf("usage summed over the batches: %+v", res.Usage)
 	}
 }
