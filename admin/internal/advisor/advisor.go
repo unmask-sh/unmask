@@ -72,8 +72,9 @@ type Candidate struct {
 	Reasons []ReasonCount `json:"escalation_reasons,omitempty"`
 	// The most frequent user agents (topUAs of them) and how many the
 	// client used in all; UA is the most frequent one.
-	TopUAs      []UACount `json:"top_user_agents,omitempty"`
-	DistinctUAs int       `json:"distinct_user_agents,omitempty"`
+	TopUAs       []UACount `json:"top_user_agents,omitempty"`
+	DistinctUAs  int       `json:"distinct_user_agents,omitempty"`
+	DistinctJA4s int       `json:"distinct_fingerprints,omitempty"` // addresses: how many TLS stacks answered from it
 	// The most requested paths (topPaths of them) with their hits, and how
 	// many different ones there were; SamplePaths is their paths alone, for
 	// the model.
@@ -542,6 +543,7 @@ func ipCandidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Excl
 	        SUM(CASE WHEN phase='bv_pow_then_captcha' THEN 1 ELSE 0 END) AS pass_both,
 	        ` + poolChainShownSums(conn) + `
 	        SUM(CASE WHEN ` + scannerCond() + ` THEN 1 ELSE 0 END) AS scanner_hits,
+	        COUNT(DISTINCT NULLIF(user_agent, '')), COUNT(DISTINCT NULLIF(ja4, '')),
 	        MIN(date_created), MAX(date_created),
 	        COALESCE(MAX(ja4), ''), COALESCE(MAX(user_agent), '')
 	      FROM unmask_event` + conn.EventDateIndexHint("w") + `
@@ -564,7 +566,7 @@ func ipCandidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Excl
 		var ipBytes []byte
 		var first, last, ja4, ua string
 		if err := rows.Scan(&ipBytes, &c.Requests, &c.Serves, &c.Loads, &c.PowPassed, &c.CaptchaShown, &c.Passes, &c.PassPow, &c.PassCaptcha, &c.PassBoth,
-			&c.ShownPow, &c.ShownCaptcha, &c.ShownBoth, &c.ScannerHits, &first, &last, &ja4, &ua); err != nil {
+			&c.ShownPow, &c.ShownCaptcha, &c.ShownBoth, &c.ScannerHits, &c.DistinctUAs, &c.DistinctJA4s, &first, &last, &ja4, &ua); err != nil {
 			return nil, err
 		}
 		ip := unpackIP(ipBytes)
@@ -640,10 +642,19 @@ func (c *Candidate) addressSignals(opt Options) {
 		// This is the one signal about an actor the challenge is not
 		// stopping, so it outweighs every "contained" signal.
 		if c.Passes >= opt.MinPasses && strings.HasPrefix(c.UA, "Mozilla/") {
-			c.Signals = append(c.Signals, Signal{
-				ID: "passing_hosting", Weight: 4, A: c.Passes, S: hp,
-				Detail: fmt.Sprintf("%d challenges passed from a hosting network (%s) with a browser User-Agent", c.Passes, hp),
-			})
+			if c.SharedEgress() {
+				// The passes are people behind a proxy, not a farm: say so,
+				// and weigh it as the other "the defence is fine" signals are.
+				c.Signals = append(c.Signals, Signal{
+					ID: "shared_egress", Weight: 1, A: c.DistinctUAs, B: c.DistinctJA4s, S: hp,
+					Detail: fmt.Sprintf("%d user agents and %d fingerprints answered from this address in a hosting network (%s): a proxy with several clients behind it", c.DistinctUAs, c.DistinctJA4s, hp),
+				})
+			} else {
+				c.Signals = append(c.Signals, Signal{
+					ID: "passing_hosting", Weight: 4, A: c.Passes, S: hp,
+					Detail: fmt.Sprintf("%d challenges passed from a hosting network (%s) with a browser User-Agent", c.Passes, hp),
+				})
+			}
 		}
 	}
 }
@@ -732,6 +743,27 @@ func skipIP(ip string, excl Exclusions) bool {
 		return true
 	}
 	return parsed.IsPrivate() || parsed.IsLoopback() || parsed.IsLinkLocalUnicast()
+}
+
+// sharedEgressUAs / sharedEgressJA4s: what several different clients behind
+// one address look like.  A company gateway or a VPN exit answers with the
+// browsers of the people behind it -- a spread of user agents AND a spread of
+// TLS stacks.  One of each is one client, however many requests it makes.
+const (
+	sharedEgressUAs  = 3
+	sharedEgressJA4s = 2
+)
+
+// SharedEgress: the address reads as a proxy with several clients behind it
+// rather than one.  Operator's question (2026-09-15): a cloud address can be a
+// company's security gateway or a VPN exit carrying real people, so passing
+// from one is not automation by itself.  Volume does not tell the two apart --
+// a crawler on a cloud instance can be quieter than a gateway serving a floor
+// of employees -- but the number of clients behind the address does.  Both
+// counts matter: a crawler that rotates user agents shows a spread of them
+// over a single TLS stack, which is not this shape.
+func (c Candidate) SharedEgress() bool {
+	return c.Type == "ip" && c.DistinctUAs >= sharedEgressUAs && c.DistinctJA4s >= sharedEgressJA4s
 }
 
 // hostingMatch returns the catalog label when the ASN organisation belongs to

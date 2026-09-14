@@ -15,6 +15,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- (2026-09-15) **Advisor: an address in a cloud network that carries several clients is read as a proxy, not a farm.**  Passing the challenge from a hosting network scored as automation whatever was behind the address.  When several user agents and several fingerprints answer from one address, it is a gateway or a VPN exit with people behind it, and the row is informational instead.
 - (2026-09-14) **Advisor: a client the challenge nearly holds is ranked with the ones it holds.**  One completion in a thousand no longer counts as getting through.  Under one percent of the challenges served, and no more than a hundred, and the row scores and sorts like a contained one instead of above every contained row.  The list names which of the three it is.
 - (2026-09-14) **Advisor: a consultation takes a fraction of the time.**  The candidates go to the model in batches of six, three at a time, and "ask again" re-sends only rows whose evidence stepped -- a first pass, a new signal, a count moved by more than a quarter -- instead of every row whose counts drifted.  The bundle carries three user agents per row and asks for shorter reasoning, and the fingerprint candidates' collateral is read in one grouped pass instead of one fingerprint at a time.
 
