@@ -46,6 +46,7 @@ type PoolIP struct {
 	Reasons      []ReasonCount `json:"escalation_reasons,omitempty"` // serves by the rule that escalated the client
 	TopUAs       []UACount     `json:"user_agents,omitempty"`        // the most frequent user agents with their requests; UA is the first
 	DistinctUAs  int           `json:"distinct_user_agents,omitempty"`
+	DistinctJA4s int           `json:"distinct_fingerprints,omitempty"` // how many TLS stacks answered from this address
 	ScannerHits  int           `json:"scanner_path_hits,omitempty"`
 	JA4          string        `json:"ja4,omitempty"`
 	UA           string        `json:"-"`
@@ -170,6 +171,7 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 	        ` + poolPassKindSums + `
 	        ` + poolChainShownSums(conn) + `
 	        SUM(CASE WHEN ` + scannerCond() + ` THEN 1 ELSE 0 END) AS scanner_hits,
+	        COUNT(DISTINCT NULLIF(user_agent, '')), COUNT(DISTINCT NULLIF(ja4, '')),
 	        MIN(date_created), MAX(date_created),
 	        COALESCE(MAX(ja4), ''), COALESCE(MAX(user_agent), '')
 	      FROM unmask_event` + conn.EventDateIndexHint("w") + `
@@ -186,7 +188,7 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 		var ipBytes []byte
 		if err := rows.Scan(&ipBytes, &r.Requests, &r.Serves, &r.JSLoaded, &r.PowPassed, &r.CaptchaShown, &r.Passes,
 			&r.PassPow, &r.PassCaptcha, &r.PassBoth, &r.ShownPow, &r.ShownCaptcha, &r.ShownBoth, &r.ScannerHits,
-			&r.FirstSeen, &r.LastSeen, &r.JA4, &r.UA); err != nil {
+			&r.DistinctUAs, &r.DistinctJA4s, &r.FirstSeen, &r.LastSeen, &r.JA4, &r.UA); err != nil {
 			rows.Close()
 			return pool, err
 		}
