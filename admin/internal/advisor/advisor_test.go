@@ -302,9 +302,15 @@ func TestCandidatesHighVolume(t *testing.T) {
 	insertEvents(t, d, "203.0.113.80", "t13d_heavy", "serve", "curl/8", "", VolumeServes)
 	insertEvents(t, d, "203.0.113.82", "t13d_flood", "serve", "curl/8", "", ContainedVolumeServes)
 	insertEvents(t, d, "203.0.113.81", "t13d_light", "serve", "curl/8", "", 30)
-	// Passing (one pass), scanner paths, a few hundred serves.
+	// Passing, scanner paths, a few hundred serves.  Five passes in three
+	// hundred is well over the one percent under which the challenge counts
+	// as holding the client (nearlyContained).
 	insertEvents(t, d, "203.0.113.83", "t13d_through", "serve", "Mozilla/5.0", `{"path":"/.env"}`, VolumeServes)
-	insertEvent(t, d, "203.0.113.83", "t13d_through", "bv_pow_then_captcha", "Mozilla/5.0", "")
+	insertEvents(t, d, "203.0.113.83", "t13d_through", "bv_pow_then_captcha", "Mozilla/5.0", "", 5)
+	// The same shape with a single pass: under one percent, so the challenge
+	// holds it and it scores like a contained row.
+	insertEvents(t, d, "203.0.113.84", "t13d_token", "serve", "Mozilla/5.0", `{"path":"/.env"}`, VolumeServes)
+	insertEvent(t, d, "203.0.113.84", "t13d_token", "bv_pow_then_captcha", "Mozilla/5.0", "")
 	cands, err := Candidates(context.Background(), d, nil, Exclusions{}, opt)
 	if err != nil {
 		t.Fatal(err)
@@ -323,8 +329,12 @@ func TestCandidatesHighVolume(t *testing.T) {
 	if hasSignal(light, "high_volume") || light.Score >= AttentionScore {
 		t.Errorf("thirty serves is not volume: %+v", light)
 	}
-	if through.Contained || !hasSignal(through, "high_volume") || !hasSignal(through, "scanner_paths") || through.Score != AttentionScore {
+	if through.Contained || through.NearlyContained() || !hasSignal(through, "high_volume") || !hasSignal(through, "scanner_paths") || through.Score != AttentionScore {
 		t.Errorf("a passing scanner at %d serves carries the volume and clears the floor: %+v", VolumeServes, through)
+	}
+	token := by["203.0.113.84"]
+	if token.Contained || !token.NearlyContained() || hasSignal(token, "high_volume") || token.Score != candidateFloor || token.Attention() {
+		t.Errorf("one pass in %d is held: %+v", VolumeServes, token)
 	}
 }
 
@@ -340,10 +350,10 @@ func TestContainedRanksUnderPassing(t *testing.T) {
 	insertEvents(t, d, "203.0.113.90", "t13d_shape", "serve", "curl/8", `{"path":"/.env"}`, 35)
 	// The same shapes past the cost floor.
 	insertEvents(t, d, "203.0.113.91", "t13d_flood", "serve", "curl/8", `{"path":"/.env"}`, ContainedVolumeServes)
-	// Passing: scanner paths at a few hundred serves and one pass -- a lower
-	// score than the flood, and still first.
+	// Passing: scanner paths at a few hundred serves and five passes -- a
+	// lower score than the flood, and still first.
 	insertEvents(t, d, "203.0.113.92", "t13d_through", "serve", "Mozilla/5.0", `{"path":"/.env"}`, VolumeServes)
-	insertEvent(t, d, "203.0.113.92", "t13d_through", "bv_pow_then_captcha", "Mozilla/5.0", "")
+	insertEvents(t, d, "203.0.113.92", "t13d_through", "bv_pow_then_captcha", "Mozilla/5.0", "", 5)
 	cands, err := Candidates(context.Background(), d, nil, Exclusions{}, opt)
 	if err != nil {
 		t.Fatal(err)
