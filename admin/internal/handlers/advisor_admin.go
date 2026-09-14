@@ -536,27 +536,44 @@ func (h *Handler) planAdvisorAI(ctx context.Context, aiCfg settings.AIAdvisorCon
 // the click's -- see StartRun.
 func (h *Handler) finishAdvisorAI(ctx context.Context, aiCfg settings.AIAdvisorConfig, lang string, prep *advisorPrep) advisor.Stored {
 	st := advisor.Stored{At: time.Now(), Model: aiCfg.ResolvedModel()}
+	t0 := time.Now()
 	pool, err := advisor.BuildPool(ctx, h.DB, h.IPGeo, prep.excl, prep.opt)
 	if err != nil {
 		log.Printf("advisor pool: %v", err)
 		pool = advisor.Pool{}
 	}
-	// The model must know what a fingerprint ban would hit.
-	for i := range prep.send {
-		if prep.send[i].Type != "ja4" {
-			continue
-		}
-		if col, err := advisor.JA4Collateral(ctx, h.DB, prep.send[i].Target); err == nil {
-			prep.send[i].PassIPs7d, prep.send[i].Verdict = col.PassIPs, col.Verdict
-		} else {
-			log.Printf("advisor collateral: %v", err)
+	tPool := time.Since(t0)
+	// The model must know what a fingerprint ban would hit: all the
+	// fingerprint candidates in one grouped read (a dozen one-at-a-time
+	// reads of the week were most of a consultation's minutes).
+	t1 := time.Now()
+	var ja4s []string
+	for _, c := range prep.send {
+		if c.Type == "ja4" {
+			ja4s = append(ja4s, c.Target)
 		}
 	}
+	if cols, err := advisor.JA4CollateralMany(ctx, h.DB, ja4s); err == nil {
+		for i := range prep.send {
+			if col, ok := cols[prep.send[i].Target]; ok && prep.send[i].Type == "ja4" {
+				prep.send[i].PassIPs7d, prep.send[i].Verdict = col.PassIPs, col.Verdict
+			}
+		}
+	} else {
+		log.Printf("advisor collateral: %v", err)
+	}
+	tCollateral := time.Since(t1)
+	t2 := time.Now()
 	res, err := advisor.ReviewWithPool(ctx, aiCfg, prep.send, pool, lang)
 	if err != nil {
 		// StoreLast keeps the last answer and notes this failure beside it.
 		return advisor.Stored{Model: aiCfg.ResolvedModel(), Err: err.Error(), ErrAt: time.Now()}
 	}
+	// Where a consultation's time goes, for the operator asking why it took
+	// minutes: the pool's queries, the collateral lookups, the model.
+	log.Printf("advisor run: sent %d kept %d, pool %d addresses / %d fingerprints / %d user agents; pool %s, collateral %s, model %s in %d request(s), tokens in %d out %d",
+		len(prep.send), len(prep.kept), len(pool.IPs), len(pool.JA4s), len(pool.UAs),
+		tPool.Round(time.Millisecond), tCollateral.Round(time.Millisecond), time.Since(t2).Round(time.Millisecond), res.Batches, res.Usage.Input, res.Usage.Output)
 	merged := advisor.Merge(prep.prev, prep.send, res, pool, prep.kept, prep.current)
 	st.Reviews, st.Nominated, st.Reviewed, st.Kept = merged.Reviews, merged.Nominated, merged.Reviewed, merged.Kept
 	st.InTokens, st.OutTokens = merged.InTokens, merged.OutTokens

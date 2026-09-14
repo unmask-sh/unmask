@@ -76,6 +76,7 @@ type Result struct {
 	Reviews     map[string]Review
 	Nominations []Nomination
 	Usage       Usage
+	Batches     int // provider requests the answer took (the candidates go in batches, in parallel)
 }
 
 // systemPrompt frames the job and the trust boundary.  It says plainly that
@@ -150,7 +151,8 @@ it, the user agent or path pattern), say what it most likely is, and name the
 kind of rule that would target it if one is warranted -- the network (ASN),
 the country, the user agent, the paths (a protected path or a honeypot), the
 rate limit, or the fingerprint -- and whether a rule already covers it. Two
-sentences at most; a number beats an adjective.
+sentences at most and no more than about forty words (in Japanese, about a
+hundred and twenty characters); a number beats an adjective.
 
 A JA4 is a fingerprint of a device and browser stack, shared by every client
 with that stack, so banning one blocks all of them everywhere. For fingerprint
@@ -207,8 +209,23 @@ type bundlePath struct {
 	Hits int    `json:"hits,omitempty"`
 }
 
-// maxUAForBundle keeps one absurd user agent from dominating the request.
-const maxUAForBundle = 200
+// maxUAForBundle keeps one absurd user agent from dominating the request;
+// bundleUAs is how many of a row's user agents go to the model (the page
+// lists five; the third and beyond rarely change the reading, and every
+// one costs tokens on every row of the pool).
+const (
+	maxUAForBundle = 200
+	bundleUAs      = 3
+)
+
+// The candidates go to the provider in batches, in parallel: one answer
+// for sixteen rows took minutes (the model writes each reasoning in turn),
+// three answers for five or six rows each take a third of that.  The pool
+// rides with the first batch only -- nominations are one answer's job.
+const (
+	reviewBatchSize = 6
+	reviewParallel  = 3
+)
 
 func buildBundle(cands []Candidate) []bundleCandidate {
 	out := make([]bundleCandidate, 0, len(cands))
@@ -218,7 +235,10 @@ func buildBundle(cands []Candidate) []bundleCandidate {
 			ids = append(ids, s.ID)
 		}
 		var uas []UACount
-		for _, u := range c.TopUAs {
+		for i, u := range c.TopUAs {
+			if i >= bundleUAs {
+				break
+			}
 			if len(u.UA) > maxUAForBundle {
 				u.UA = u.UA[:maxUAForBundle]
 			}
@@ -312,12 +332,109 @@ func ReviewCandidates(ctx context.Context, cfg settings.AIAdvisorConfig, cands [
 
 // ReviewWithPool is ReviewCandidates plus the pool: the model may also
 // nominate actors from it.  Nominations that name anything outside the pool,
-// or an existing candidate, are dropped.
+// or an existing candidate, are dropped.  The candidates go in batches of
+// reviewBatchSize, reviewParallel at a time; the pool rides with the first
+// batch.  One failed batch fails the run (StoreLast keeps the last answer).
 func ReviewWithPool(ctx context.Context, cfg settings.AIAdvisorConfig, cands []Candidate, pool Pool, lang string) (Result, error) {
 	var res Result
 	if !cfg.Active() || (len(cands) == 0 && pool.Empty()) {
 		return res, nil
 	}
+	provider := cfg.ResolvedProvider()
+	if provider != "anthropic" && provider != "openai" && provider != "ollama" {
+		return res, fmt.Errorf("unknown provider %q", cfg.Provider)
+	}
+	batches := batchCandidates(cands, reviewBatchSize)
+	type outcome struct {
+		res Result
+		err error
+	}
+	outs := make([]outcome, len(batches))
+	sem := make(chan struct{}, reviewParallel)
+	var wg sync.WaitGroup
+	for i := range batches {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			p := Pool{}
+			if i == 0 {
+				p = pool.forWire()
+			}
+			outs[i].res, outs[i].err = reviewBatch(ctx, cfg, provider, batches[i], p, lang)
+		}(i)
+	}
+	wg.Wait()
+	for i := range outs {
+		if outs[i].err != nil {
+			return res, outs[i].err
+		}
+	}
+	sent := map[string]bool{}
+	for _, c := range cands {
+		sent[c.Target] = true
+	}
+	res.Reviews = map[string]Review{}
+	for i := range outs {
+		for t, r := range outs[i].res.Reviews {
+			res.Reviews[t] = r
+		}
+		for _, n := range outs[i].res.Nominations {
+			// A nomination naming a candidate of another batch: that batch's
+			// review stands, the nomination is noise.
+			if !sent[n.Target] {
+				res.Nominations = append(res.Nominations, n)
+			}
+		}
+		res.Usage.Input += outs[i].res.Usage.Input
+		res.Usage.Output += outs[i].res.Usage.Output
+	}
+	res.Batches = len(batches)
+	return res, nil
+}
+
+// batchCandidates splits the candidates into batches of at most size; no
+// candidates (a pool-only call) is one empty batch.
+func batchCandidates(cands []Candidate, size int) [][]Candidate {
+	if len(cands) == 0 {
+		return [][]Candidate{nil}
+	}
+	var out [][]Candidate
+	for i := 0; i < len(cands); i += size {
+		j := i + size
+		if j > len(cands) {
+			j = len(cands)
+		}
+		out = append(out, cands[i:j])
+	}
+	return out
+}
+
+// forWire: the pool as the model reads it -- each row's user agents cut to
+// bundleUAs.  A copy: the page keeps the full lists.
+func (p Pool) forWire() Pool {
+	out := Pool{JA4s: make([]PoolJA4, len(p.JA4s)), IPs: make([]PoolIP, len(p.IPs)), UAs: p.UAs}
+	for i, r := range p.IPs {
+		if len(r.TopUAs) > bundleUAs {
+			r.TopUAs = append([]UACount(nil), r.TopUAs[:bundleUAs]...)
+		}
+		out.IPs[i] = r
+	}
+	for i, r := range p.JA4s {
+		if len(r.TopUAs) > bundleUAs {
+			r.TopUAs = append([]UACount(nil), r.TopUAs[:bundleUAs]...)
+		}
+		out.JA4s[i] = r
+	}
+	return out
+}
+
+// reviewBatch is one provider request: the candidates (and the pool, when
+// this batch carries it), one retry for a transient failure, the answer
+// matched against what was sent.
+func reviewBatch(ctx context.Context, cfg settings.AIAdvisorConfig, provider string, cands []Candidate, pool Pool, lang string) (Result, error) {
+	var res Result
 	body := map[string]any{"candidates": buildBundle(cands)}
 	if !pool.Empty() {
 		body["pool"] = pool
@@ -332,11 +449,6 @@ func ReviewWithPool(ctx context.Context, cfg settings.AIAdvisorConfig, cands []C
 	// languages (a stable prefix caches).
 	if lang == "ja" {
 		userMsg += "\n\nWrite every reasoning field in Japanese (日本語で書いてください)."
-	}
-
-	provider := cfg.ResolvedProvider()
-	if provider != "anthropic" && provider != "openai" && provider != "ollama" {
-		return res, fmt.Errorf("unknown provider %q", cfg.Provider)
 	}
 	// One attempt, bounded by providerTimeout; a transient failure (the
 	// attempt's own timeout, 429, 5xx) is retried once after a short pause,
@@ -371,7 +483,7 @@ func ReviewWithPool(ctx context.Context, cfg settings.AIAdvisorConfig, cands []C
 	if err != nil {
 		return res, err
 	}
-	res.Usage = usage // what the call cost, for the page's last-run line
+	res.Usage = usage
 	return res, nil
 }
 
@@ -1002,7 +1114,7 @@ func callOllama(ctx context.Context, cfg settings.AIAdvisorConfig, userMsg strin
 func Plan(prev Stored, cands []Candidate) (send []Candidate, kept map[string]Review) {
 	kept = map[string]Review{}
 	for _, c := range cands {
-		if r, ok := prev.Reviews[c.Target]; ok && r.Fingerprint != "" && r.Fingerprint == c.Fingerprint() {
+		if r, ok := prev.Reviews[c.Target]; ok && r.Fingerprint != "" && !evidenceChanged(r.Fingerprint, c.Fingerprint()) {
 			kept[c.Target] = r
 			continue
 		}
