@@ -354,9 +354,10 @@ func TestAdvisorAIRunStoresAndShows(t *testing.T) {
 	if !strings.Contains(body, `data-reviewed="0" data-kept="2"`) || !strings.Contains(body, "contained scanner, cost only") || !strings.Contains(body, "second scanner") {
 		t.Fatal("an unchanged rerun keeps both reviews and says nothing was sent")
 	}
-	// One candidate's evidence moves on: only that one is sent, the other
-	// review is carried over.
-	seed("203.0.113.11", "serve", `{"path":"/.env"}`, 1)
+	// One candidate's evidence steps (its volume doubles -- a single extra
+	// serve is drift, which keeps the review): only that one is sent, the
+	// other review is carried over.
+	seed("203.0.113.11", "serve", `{"path":"/.env"}`, advisor.ContainedVolumeServes)
 	advisor.ResetCandidateCache() // the list is cached for a minute; the seed must be seen
 	rr = post(true)
 	if rr.Code != http.StatusAccepted || !strings.Contains(rr.Body.String(), `"sent":["203.0.113.11"]`) || !strings.Contains(rr.Body.String(), `"kept":["203.0.113.10"]`) {

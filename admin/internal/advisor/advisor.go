@@ -18,6 +18,7 @@ import (
 	"log"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -162,21 +163,70 @@ func (c Candidate) Attention() bool {
 	return c.Nominated || c.Score >= AttentionScore
 }
 
-// Fingerprint names the evidence a review is written for: the window's
-// counts, the signals, the score, the first / last seen.  While it holds, a
-// stored review is still about what the operator is looking at and a rerun
-// keeps it; any change (new events, an aged-out window, a signal gained or
-// lost) sends the candidate again.
+// Fingerprint names the evidence a review was written for: the score, the
+// signals, and the counts.  Plan compares two fingerprints with
+// evidenceChanged, which is exact on the score and the signals and
+// tolerant on the counts: a live window's counts drift every minute, and
+// re-sending a row for that made every "ask again" a full run (tool1-us,
+// 2026-09-13: 0-4 of 14-16 kept) and a consultation took minutes
+// (operator, 2026-09-14: "モデルに問い合わせが数分かかる").  The window's
+// timestamps are not evidence.
 func (c Candidate) Fingerprint() string {
 	ids := make([]string, 0, len(c.Signals))
 	for _, s := range c.Signals {
 		ids = append(ids, s.ID)
 	}
-	return fmt.Sprintf("%s|%s|s%d|%s|%d/%d/%d/%d/%d/%d|%d/%d/%d|%d|%s..%s",
+	return fmt.Sprintf("%s|%s|s%d|%s|c%d/%d/%d/%d/%d/%d/%d/%d/%d/%d",
 		c.Type, c.Target, c.Score, strings.Join(ids, ","),
 		c.Requests, c.Serves, c.Loads, c.PowPassed, c.CaptchaShown, c.Passes,
-		c.ShownPow, c.ShownCaptcha, c.ShownBoth, c.ScannerHits,
-		c.FirstSeen, c.LastSeen)
+		c.ShownPow, c.ShownCaptcha, c.ShownBoth, c.ScannerHits)
+}
+
+// evidenceChanged: whether a row's evidence (cur) has moved from what its
+// review was written for (prev) enough to ask again.  The score and the
+// signals must match exactly; each count may drift by a quarter -- a step
+// re-sends: a count that went from zero (a first pass, a first scanner
+// hit), or one that grew or fell by more than 25% and by at least five.
+// A fingerprint in an older format is a change (re-sent once).
+func evidenceChanged(prev, cur string) bool {
+	if prev == cur {
+		return false
+	}
+	pp, cc := strings.Split(prev, "|"), strings.Split(cur, "|")
+	if len(pp) != 5 || len(cc) != 5 || pp[0] != cc[0] || pp[1] != cc[1] || pp[2] != cc[2] || pp[3] != cc[3] {
+		return true
+	}
+	if !strings.HasPrefix(pp[4], "c") || !strings.HasPrefix(cc[4], "c") {
+		return true
+	}
+	a, b := strings.Split(pp[4][1:], "/"), strings.Split(cc[4][1:], "/")
+	if len(a) != len(b) {
+		return true
+	}
+	for i := range a {
+		x, errX := strconv.Atoi(a[i])
+		y, errY := strconv.Atoi(b[i])
+		if errX != nil || errY != nil || countStepped(x, y) {
+			return true
+		}
+	}
+	return false
+}
+
+// countStepped: zero to non-zero (or back) is always a step; otherwise a
+// change of at least five that is more than a quarter of the smaller value.
+func countStepped(x, y int) bool {
+	if (x == 0) != (y == 0) {
+		return true
+	}
+	lo, hi := x, y
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	if hi-lo < 5 {
+		return false
+	}
+	return float64(hi) > float64(lo)*1.25
 }
 
 // HeldAtCaptcha: the client got past the proof-of-work (or reached the

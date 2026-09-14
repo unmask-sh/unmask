@@ -99,7 +99,7 @@ func TestBundleReadsLikeTheRow(t *testing.T) {
 	c := Candidate{Type: "ip", Target: "203.0.113.9", Serves: 40, Loads: 38, Passes: 30,
 		ShownPow: 30, ShownBoth: 8, PowPassed: 33, CaptchaShown: 5, PassPow: 28, PassBoth: 2,
 		Reasons: []ReasonCount{{Reason: "asn", Serves: 30}, {Reason: "", Serves: 10}},
-		TopUAs:  []UACount{{UA: "curl/8", Requests: 30}, {UA: "Mozilla/5.0", Requests: 8}}, DistinctUAs: 3,
+		TopUAs:  []UACount{{UA: "curl/8", Requests: 30}, {UA: "Mozilla/5.0", Requests: 8}, {UA: "python-requests/2", Requests: 4}, {UA: "wget/1", Requests: 2}, {UA: "Go-http-client/1.1", Requests: 1}}, DistinctUAs: 7,
 		Paths: []PathCount{{Path: "/wp-login.php", Hits: 25, Site: "example.test", Scheme: "https", Port: 443}}, DistinctPaths: 12,
 		RDNS: "vm9.examplecloud.test.", ASNOrg: "ExampleCloud", Country: "US",
 		Signals: []Signal{{ID: "scanner_paths"}}}
@@ -112,7 +112,7 @@ func TestBundleReadsLikeTheRow(t *testing.T) {
 		`"js_ran":38`, `"js_not_run":2`,
 		`"chains":{"pow_only":{"shown":30,"passed":28,"not_completed":2},"pow_then_captcha":{"shown":8,"pow_passed":5,"pow_not_completed":3,"captcha_passed":2,"captcha_not_completed":3}}`,
 		`"escalation_reasons":[{"reason":"asn","serves":30},{"reason":"none","serves":10}]`,
-		`"user_agents":[{"ua":"curl/8","requests":30},{"ua":"Mozilla/5.0","requests":8}]`, `"distinct_user_agents":3`,
+		`"user_agents":[{"ua":"curl/8","requests":30},{"ua":"Mozilla/5.0","requests":8},{"ua":"python-requests/2","requests":4}]`, `"distinct_user_agents":7`,
 		`"paths":[{"path":"/wp-login.php","hits":25}]`, `"distinct_paths":12`,
 		`"reverse_dns":"vm9.examplecloud.test."`,
 	} {
@@ -126,6 +126,11 @@ func TestBundleReadsLikeTheRow(t *testing.T) {
 	fp := Candidate{Type: "ja4", Target: "t13d_x", PassIPs7d: 3}
 	if b, _ := json.Marshal(buildBundle([]Candidate{fp})); !strings.Contains(string(b), `"addresses_passed_7d":3`) || strings.Contains(string(b), "pass_ips_7d") {
 		t.Errorf("fingerprint collateral: %s", b)
+	}
+	// The bundle carries the three most frequent user agents, not the five
+	// the page lists (tokens on every row of the pool).
+	if strings.Contains(s, "wget/1") {
+		t.Error("the bundle carries at most three user agents per row")
 	}
 	for _, gone := range []string{"shown_pow_only", "pass_pow", "sample_paths", "js_loaded", "captcha_only", `"site"`} {
 		if strings.Contains(s, gone) {
