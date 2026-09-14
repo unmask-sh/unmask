@@ -321,9 +321,9 @@ const NearPassMax = 100
 // nearlyContained: the challenge is holding this client bar a token number
 // of completions -- under one percent of the pages it was served, and no
 // more than NearPassMax of them.  Before this the test was Passes == 0, a
-// cliff: on tool1-us (2026-09-14) a fingerprint served 18,316 challenges and
-// passed 9 counted as "getting through" and outranked a herd of 2,846 that
-// never passed at all.  One stray completion -- a real visitor on a shared
+// cliff: a fingerprint served thousands of challenges and completing a
+// handful of them counted as "getting through", and outranked a herd that
+// never completed one at all.  One stray completion -- a real visitor on a shared
 // TLS stack, a beacon that landed on another node of the fleet -- should not
 // move a row into the group a ban is meant for.  Operator's calibration
 // (2026-09-14): "通過率が1%未満かつ100以下の場合はもっとスコア下げた方がいい
