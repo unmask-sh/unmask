@@ -103,7 +103,7 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 				}
 				windowStart := time.Now().Add(-time.Duration(windowH) * time.Hour).Unix()
 				for _, n := range st.Nominated {
-					if present[n.Target] || n.ContainedBelowCost() || (n.LastTs > 0 && n.LastTs < windowStart) {
+					if present[n.Target] || n.HeldBelowCost() || (n.LastTs > 0 && n.LastTs < windowStart) {
 						// An engine candidate now, a row nominated before the
 						// cost rule, or one whose activity ended before this
 						// window (advisor.Merge drops both on the next run).
