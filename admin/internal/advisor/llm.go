@@ -161,6 +161,13 @@ round trips rather than more protection. Say which of the two it is in plain
 words, and do not call a client with a handful of completions out of thousands
 "getting through".
 
+An address that answered with several different user agents AND several
+different fingerprints is a proxy with several clients behind it -- a company
+gateway, a VPN exit, a cloud browser service -- so the challenges completed
+from it are people, not one automated client, even when the address sits in a
+cloud network. Say that rather than proposing a rule against the address. One
+user agent over one fingerprint is one client, however few requests it made.
+
 A JA4 is a fingerprint of a device and browser stack, shared by every client
 with that stack, so banning one blocks all of them everywhere. For fingerprint
 candidates addresses_passed_7d counts the addresses that completed the
@@ -197,6 +204,7 @@ type bundleCandidate struct {
 	Reasons       []ReasonCount `json:"escalation_reasons,omitempty"`
 	UserAgents    []UACount     `json:"user_agents,omitempty"` // the most frequent, with their requests
 	DistinctUAs   int           `json:"distinct_user_agents,omitempty"`
+	DistinctJA4s  int           `json:"distinct_fingerprints,omitempty"`
 	Paths         []bundlePath  `json:"paths,omitempty"` // the most requested, with their hits
 	DistinctPaths int           `json:"distinct_paths,omitempty"`
 	ScannerHits   int           `json:"scanner_path_hits,omitempty"`
@@ -273,7 +281,7 @@ func buildBundle(cands []Candidate) []bundleCandidate {
 			Target: c.Target, Type: c.Type, Contained: c.Contained, NearlyHeld: c.NearlyContained(), Signals: ids,
 			Serves: c.Serves, JSRan: c.Loads, JSNotRun: c.JSNotRun(), Passes: c.Passes,
 			Chains: c.Chains(), Reasons: c.Reasons,
-			UserAgents: uas, DistinctUAs: c.DistinctUAs, Paths: paths, DistinctPaths: c.DistinctPaths,
+			UserAgents: uas, DistinctUAs: c.DistinctUAs, DistinctJA4s: c.DistinctJA4s, Paths: paths, DistinctPaths: c.DistinctPaths,
 			ScannerHits: c.ScannerHits, PassIPs7d: c.PassIPs7d, Verdict: c.Verdict,
 			DistinctIPs: c.DistinctIPs, ASNOrg: c.ASNOrg, Country: c.Country, RDNS: c.RDNS,
 			FirstSeen: c.FirstSeen, LastSeen: c.LastSeen,

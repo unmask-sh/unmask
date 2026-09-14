@@ -570,6 +570,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 {{- else if eq $s.ID "hosting_network" }}{{ tf .Lang "advisor.sig.hosting_network" $s.S }}
 {{- else if eq $s.ID "hosting_network_browser" }}{{ tf .Lang "advisor.sig.hosting_network_browser" $s.S }}
 {{- else if eq $s.ID "passing_hosting" }}{{ tf .Lang "advisor.sig.passing_hosting" $s.A $s.S }}
+{{- else if eq $s.ID "shared_egress" }}{{ tf .Lang "advisor.sig.shared_egress" $s.A $s.B $s.S }}
 {{- else if eq $s.ID "ja4_herd" }}{{ tf .Lang "advisor.sig.ja4_herd" $s.A $s.B $s.C }}
 {{- else if eq $s.ID "high_volume" }}{{ tf .Lang "advisor.sig.high_volume" $s.A $s.B }}
 {{- else if eq $s.ID "ai_pick" }}{{ t .Lang "advisor.sig.ai_pick" }}

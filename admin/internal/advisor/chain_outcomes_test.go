@@ -247,3 +247,57 @@ func TestNearlyContainedScoresLikeContained(t *testing.T) {
 		t.Error("a row that really passes is not held")
 	}
 }
+
+// A cloud address that completes the challenge is a server farm only when one
+// client is behind it.  Several user agents over several fingerprints is a
+// proxy -- a company gateway, a VPN exit -- and the people behind it are not
+// what a rule against the address would stop.  Operator's question
+// (2026-09-15): a cloud address can be the proxy of a legitimate visitor.
+func TestPassingHostingYieldsToASharedEgress(t *testing.T) {
+	mk := func(uas, ja4s int) Candidate {
+		c := Candidate{Type: "ip", Target: "203.0.113.5", ASNOrg: "Amazon Technologies Inc.",
+			UA: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", Passes: 10, Serves: 12, Requests: 40,
+			DistinctUAs: uas, DistinctJA4s: ja4s}
+		c.addressSignals(Options{}.resolved())
+		c.settleScore()
+		return c
+	}
+	one := mk(1, 1) // one browser, one TLS stack: the farm shape
+	if !hasSig(one, "passing_hosting") || hasSig(one, "shared_egress") || one.SharedEgress() {
+		t.Errorf("one client behind the address is still a passing hosting farm: %+v", one.Signals)
+	}
+	if !one.Attention() || one.Score != 6 {
+		t.Errorf("the farm keeps its weight: score %d", one.Score)
+	}
+	gateway := mk(13, 3) // a floor of employees behind a security gateway
+	if !gateway.SharedEgress() || hasSig(gateway, "passing_hosting") || !hasSig(gateway, "shared_egress") {
+		t.Errorf("a gateway with people behind it is not a passing farm: %+v", gateway.Signals)
+	}
+	if gateway.Attention() || gateway.Score != 3 {
+		t.Errorf("the gateway drops out of the default view: score %d", gateway.Score)
+	}
+	// A crawler that rotates user agents keeps one TLS stack: not this shape.
+	if rotating := mk(13, 1); rotating.SharedEgress() || !hasSig(rotating, "passing_hosting") {
+		t.Errorf("user agents over a single fingerprint is one client rotating names: %+v", rotating.Signals)
+	}
+	// Two user agents is a phone and a laptop, not a floor of them.
+	if pair := mk(2, 2); pair.SharedEgress() || !hasSig(pair, "passing_hosting") {
+		t.Errorf("two user agents is not yet a proxy: %+v", pair.Signals)
+	}
+	// Outside a hosting network neither signal applies.
+	home := Candidate{Type: "ip", Target: "203.0.113.6", ASNOrg: "Some Telecom", UA: "Mozilla/5.0 (Windows NT 10.0)",
+		Passes: 10, Serves: 12, Requests: 40, DistinctUAs: 13, DistinctJA4s: 3}
+	home.addressSignals(Options{}.resolved())
+	if hasSig(home, "shared_egress") || hasSig(home, "passing_hosting") || hasSig(home, "hosting_network") {
+		t.Errorf("an ordinary network carries none of these: %+v", home.Signals)
+	}
+}
+
+func hasSig(c Candidate, id string) bool {
+	for _, s := range c.Signals {
+		if s.ID == id {
+			return true
+		}
+	}
+	return false
+}
