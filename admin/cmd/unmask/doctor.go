@@ -42,6 +42,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/handlers"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -168,6 +169,9 @@ func cmdDoctor(args []string) error {
 	} else if s.CommunityBans.ApplyActive() {
 		addOK("nginx map_hash", "community-bans maps sized (host or http.inc)")
 	}
+
+	// 2b'. a container gateway still on the published sample's defaults.
+	checkGatewaySample(addOK, addWarn)
 
 	// 2c. crawler IP-range freshness.  Range-verified crawler UAs (uarange.go)
 	// are rescued by their vendor's published IP ranges instead of the UA
@@ -369,6 +373,7 @@ func cmdDoctor(args []string) error {
 		checkWALSize(conn, addOK, addWarn)
 		checkAggregateStatus(conn, addOK, addWarn)
 		checkAggregateWindows(conn, addOK, addWarn)
+		checkDBAgainstMemory(s, conn, addOK, addWarn)
 	}
 
 	// 4. IP-geo mmdb (= optional).  When set, check existence + freshness
@@ -1819,4 +1824,125 @@ func checkGeoRules(s settings.Settings,
 		return
 	}
 	addOK("Geo rules", fmt.Sprintf("%d rule(s), all country codes valid", len(rules)))
+}
+
+// checkDBAgainstMemory: the database's live bytes against the memory this
+// process may use.  Reads that walk the whole table -- the seven-day
+// collateral of a fingerprint ban, a raw stats scan, the prune's own passes
+// -- pull the table through the page cache.  While the live database fits in
+// memory that is a one-off cost; past it every such read goes to disk and
+// evicts whatever else the box was keeping there.  Two incidents came out of
+// this shape: a 35 GB file whose prune transactions locked every writer
+// (2026-09-08), and a node that died of memory and swap exhaustion while a
+// seven-day scan was running (2026-09-15).  Neither database was doing
+// anything wrong; both were large for their box and nothing said so.
+func checkDBAgainstMemory(s settings.Settings, conn *db.DB, addOK, addWarn func(t, m string)) {
+	if conn.Driver != db.DriverSQLite {
+		return // a server database has its own memory, and its own tuning
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	sp, err := conn.Space(ctx)
+	if err != nil {
+		addWarn("DB size against memory", fmt.Sprintf("could not measure the database (%v)", err))
+		return
+	}
+	mem := db.SQLiteMemPlanFor(s.DB).MemLimit
+	warn, msg := dbMemoryVerdict(sp.LiveBytes, sp.FileBytes, mem)
+	if warn {
+		addWarn("DB size against memory", msg)
+	} else {
+		addOK("DB size against memory", msg)
+	}
+}
+
+// dbMemoryShare is the fraction of the box's memory past which a whole-table
+// read can no longer be served from cache.  Half is deliberately early: at
+// that point a scan still completes, it just starts costing disk and taking
+// the cache with it, which is when retention is worth shortening rather than
+// after the box is in trouble.
+const dbMemoryShare = 2
+
+func dbMemoryVerdict(live, file, mem int64) (warn bool, msg string) {
+	if mem <= 0 {
+		return false, fmt.Sprintf("%s in use (memory limit unknown)", humanBytesCLI(live))
+	}
+	pct := float64(live) * 100 / float64(mem)
+	size := fmt.Sprintf("%s in use of %s on disk, against %s of memory (%.0f%%)",
+		humanBytesCLI(live), humanBytesCLI(file), humanBytesCLI(mem), pct)
+	if live*int64(dbMemoryShare) <= mem {
+		return false, size
+	}
+	return true, size + " — a read that walks the whole table (a seven-day scan, a 30-day stats card) " +
+		"cannot be served from cache here: it goes to disk and evicts what else the box was caching. " +
+		"Shorten events_retention_days on the retention tab, or give the host more memory"
+}
+
+// checkGatewaySample: a container gateway still carrying the published
+// sample's defaults.  The compose file on the download page is a
+// demonstration -- it proxies to a bundled example app and answers for
+// localhost -- and an override file is what makes it a deployment.  Bring
+// the stack up without that override and the gateway runs, answers its
+// health check and serves the challenge page, so nothing looks wrong; only
+// the site is missing (2026-09-13, fifteen hours).  The nginx container
+// writes what its environment carries into the shared run directory, which
+// is what this reads.
+func checkGatewaySample(addOK, addWarn func(t, m string)) {
+	st := handlers.GatewayNginxStatus()
+	if len(st) == 0 {
+		return // not a container gateway (or no shared run directory)
+	}
+	warn, msg := gatewaySampleVerdict(st)
+	if warn {
+		addWarn("gateway container config", msg)
+	} else {
+		addOK("gateway container config", msg)
+	}
+}
+
+// sampleUpstreamHost is the service name the published compose file gives its
+// demonstration backend.  A deployment points the gateway at its own origin.
+const sampleUpstreamHost = "app"
+
+func gatewaySampleVerdict(st map[string]string) (warn bool, msg string) {
+	up := strings.TrimSpace(st["upstream_env"])
+	name := strings.TrimSpace(st["server_name_env"])
+	var bad []string
+	if h := upstreamHost(up); h == sampleUpstreamHost {
+		bad = append(bad, "the upstream is the sample's bundled example app ("+up+")")
+	}
+	if name == "localhost" {
+		bad = append(bad, "it answers for localhost only, so every other name is refused at the TLS handshake")
+	}
+	if len(bad) == 0 {
+		detail := "upstream " + up
+		if up == "" {
+			detail = "upstream from the Gateway tab"
+		}
+		if name != "" {
+			detail += ", answering for " + name
+		}
+		return false, detail
+	}
+	return true, strings.Join(bad, "; ") +
+		" — this is the published compose sample's configuration. Bring the stack up with your override file as well " +
+		"(docker compose -f docker-compose.yml -f <your override>.yml up -d), or set the upstream and hostname on the Gateway tab"
+}
+
+// upstreamHost pulls the host out of an upstream value (scheme optional,
+// port optional) without importing a URL parser for a value that may not be
+// a URL at all.
+func upstreamHost(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
+	}
+	if _, rest, ok := strings.Cut(v, "://"); ok {
+		v = rest
+	}
+	v, _, _ = strings.Cut(v, "/")
+	if h, _, ok := strings.Cut(v, ":"); ok {
+		return h
+	}
+	return v
 }

@@ -644,7 +644,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			if tab != "gateway" {
 				return nil
 			}
-			return gatewayNginxStatus()
+			return GatewayNginxStatus()
 		}(),
 		"GatewayACMEChoice": func() string {
 			switch h.cfg().Gateway.ACMEDirectoryResolved() {

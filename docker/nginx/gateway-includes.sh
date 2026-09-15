@@ -107,6 +107,7 @@ LOCATION
         {
             printf 'location_source=%s\n' "$loc_src"
             printf 'upstream_env=%s\n' "${UNMASK_UPSTREAM:-}"
+            printf 'server_name_env=%s\n' "${UNMASK_SERVER_NAME:-}"
             printf 'trusted_proxies_env=%s\n' "${UNMASK_TRUSTED_PROXIES:-}"
             printf 'nginx_version=%s\n' "$(nginx -v 2>&1 | sed 's,.*nginx/,,')"
         } > /run/unmask/gateway-nginx.status.tmp 2>/dev/null && mv -f /run/unmask/gateway-nginx.status.tmp /run/unmask/gateway-nginx.status 2>/dev/null
