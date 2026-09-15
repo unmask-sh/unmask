@@ -350,11 +350,11 @@ func uploadedCertInfo(outDir, id string) (subject, issuer, notAfter string, ok b
 	return dnLabel(c.Subject), dnLabel(c.Issuer), c.NotAfter.UTC().Format("2006-01-02"), true
 }
 
-// gatewayNginxStatus reads what the nginx container reported about itself
+// GatewayNginxStatus reads what the nginx container reported about itself
 // (its 10-unmask-gateway.envsh writes key=value lines into the shared
 // /run/unmask): which upstream / trusted proxies its environment carries,
 // so the tab can say what an empty field falls back to.
-func gatewayNginxStatus() map[string]string {
+func GatewayNginxStatus() map[string]string {
 	path := strings.TrimSpace(os.Getenv("UNMASK_GATEWAY_STATUS"))
 	if path == "" {
 		path = "/run/unmask/gateway-nginx.status"
