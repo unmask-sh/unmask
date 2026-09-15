@@ -42,7 +42,7 @@ type Collateral struct {
 func JA4Collateral(ctx context.Context, conn *db.DB, ja4 string) (Collateral, error) {
 	c := Collateral{JA4: ja4, Days: collateralDays, PassUAs: []string{}}
 	since := conn.NowMinusMinutes(collateralDays * 24 * 60)
-	hint := conn.EventDateIndexHint("w")
+	hint := conn.EventJA4IndexHint()
 	row := conn.QueryRowContext(ctx, `SELECT COUNT(DISTINCT ip_address),
 	        COALESCE(SUM(CASE WHEN phase IN `+cookiePhaseList+` THEN 1 ELSE 0 END), 0),
 	        COUNT(DISTINCT CASE WHEN phase IN `+cookiePhaseList+` THEN ip_address END)
@@ -128,7 +128,7 @@ func JA4CollateralMany(ctx context.Context, conn *db.DB, ja4s []string) (map[str
 	}
 	ph := strings.TrimRight(strings.Repeat("?,", len(keys)), ",")
 	since := conn.NowMinusMinutes(collateralDays * 24 * 60)
-	hint := conn.EventDateIndexHint("w")
+	hint := conn.EventJA4IndexHint()
 	rows, err := conn.QueryContext(ctx, `SELECT ja4, COUNT(DISTINCT ip_address),
 	        COALESCE(SUM(CASE WHEN phase IN `+cookiePhaseList+` THEN 1 ELSE 0 END), 0),
 	        COUNT(DISTINCT CASE WHEN phase IN `+cookiePhaseList+` THEN ip_address END)
