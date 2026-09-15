@@ -1,0 +1,17 @@
+-- 0032 fingerprint index on the event table.
+--
+-- What a fingerprint ban would hit -- how many addresses completed the
+-- challenge with that JA4 in the last seven days -- is asked for every
+-- fingerprint candidate the advisor sends to the model, and again by the ban
+-- dialog before a human decides.  There was no index on ja4, so each of
+-- those questions walked the date index across the whole window; with the
+-- default seven-day retention that window IS the whole table, and the walk
+-- was disk-bound from the first row.  A consultation spent most of a minute
+-- there, whatever the number of fingerprints, and on a node whose database
+-- is a good share of its memory the page cache it displaces is felt by
+-- everything else on the box.
+--
+-- (ja4, date_created) turns each question into one range seek.  The column
+-- order matters: ja4 first so a fingerprint is found without scanning, then
+-- the date so the window is a range within it.
+CREATE INDEX IF NOT EXISTS idx_unmask_event_ja4_date ON unmask_event(ja4, date_created);
