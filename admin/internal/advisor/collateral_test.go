@@ -2,6 +2,7 @@ package advisor
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/unmask-sh/unmask/admin/internal/events"
@@ -112,5 +113,54 @@ func TestJA4CollateralManyMatchesSingle(t *testing.T) {
 	}
 	if empty, err := JA4CollateralMany(context.Background(), d, nil); err != nil || len(empty) != 0 {
 		t.Errorf("no fingerprints: %v %v", empty, err)
+	}
+}
+
+// The collateral reads are pinned to the fingerprint index (migration 0032).
+// INDEXED BY is a requirement, not a hint: if the index is ever dropped from
+// the schema the query fails outright rather than quietly walking the date
+// index across the whole retention window, which is what this read cost
+// before the index existed.
+func TestCollateralUsesTheFingerprintIndex(t *testing.T) {
+	d := newTestDB(t)
+	var name string
+	if err := d.QueryRow(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_unmask_event_ja4_date'`).Scan(&name); err != nil {
+		t.Fatalf("migration 0032 must create the fingerprint index: %v", err)
+	}
+	insertEvent(t, d, "203.0.113.7", "t13d_idx", "serve", "curl/8", "")
+	insertEvent(t, d, "203.0.113.7", "t13d_idx", "bv_pow_only", "curl/8", "")
+	// Both readers must run against it -- the dialog's single read and the
+	// consultation's grouped one.
+	one, err := JA4Collateral(context.Background(), d, "t13d_idx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	many, err := JA4CollateralMany(context.Background(), d, []string{"t13d_idx"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if one.PassIPs != 1 || many["t13d_idx"].PassIPs != 1 || one.IPs != many["t13d_idx"].IPs {
+		t.Errorf("single %+v grouped %+v", one, many["t13d_idx"])
+	}
+	// The planner actually picks it: EXPLAIN QUERY PLAN names the index.
+	var id, parent, notused int
+	var detail string
+	rows, err := d.Query(`EXPLAIN QUERY PLAN SELECT COUNT(*) FROM unmask_event INDEXED BY idx_unmask_event_ja4_date
+	    WHERE date_created > datetime('now','-7 days') AND ja4 = 't13d_idx'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	seen := false
+	for rows.Next() {
+		if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(detail, "idx_unmask_event_ja4_date") {
+			seen = true
+		}
+	}
+	if !seen {
+		t.Error("the plan does not use the fingerprint index")
 	}
 }
