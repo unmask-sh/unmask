@@ -301,3 +301,49 @@ func hasSig(c Candidate, id string) bool {
 	}
 	return false
 }
+
+// The fingerprint's verdict reaches the row from the candidate pass itself.
+// It used to come from a separate read of the whole week, which on a busy
+// node meant grouping most of the table by verdict to learn one word.  A
+// fingerprint's verdict is a function of the fingerprint, so the group's
+// maximum is that word exactly.
+func TestFingerprintRowCarriesItsVerdict(t *testing.T) {
+	d := newTestDB(t)
+	opt := Options{MinServes: 5, Limit: 50}
+	for i := 1; i <= 12; i++ {
+		insertEvents(t, d, "198.51.100."+itoa(i), "t13d_verdicted", "serve", "curl/8", "", 3)
+	}
+	if _, err := d.Exec(`UPDATE unmask_event SET ja4_verdict = 'bot_curl' WHERE ja4 = 't13d_verdicted'`); err != nil {
+		t.Fatal(err)
+	}
+	// A fingerprint whose serves carry no verdict must read as none, not as
+	// the neighbouring row's.
+	for i := 1; i <= 12; i++ {
+		insertEvents(t, d, "203.0.113."+itoa(i), "t13d_plain", "serve", "curl/8", "", 3)
+	}
+	cands, err := Candidates(context.Background(), d, nil, Exclusions{}, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]Candidate{}
+	for _, c := range cands {
+		by[c.Target] = c
+	}
+	if got := by["t13d_verdicted"].Verdict; got != "bot_curl" {
+		t.Errorf("verdict = %q, want bot_curl", got)
+	}
+	if got := by["t13d_plain"].Verdict; got != "" {
+		t.Errorf("a fingerprint with no verdict reads as %q", got)
+	}
+	// An address row has no fingerprint verdict of its own.
+	insertEvents(t, d, "203.0.113.200", "t13d_verdicted", "serve", "curl/8", "", 40)
+	cands, err = Candidates(context.Background(), d, nil, Exclusions{}, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cands {
+		if c.Type == "ip" && c.Verdict != "" {
+			t.Errorf("address %s carries a fingerprint verdict %q", c.Target, c.Verdict)
+		}
+	}
+}

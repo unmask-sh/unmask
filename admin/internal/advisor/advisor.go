@@ -688,6 +688,7 @@ func ja4Candidates(ctx context.Context, conn *db.DB, excl Exclusions, opt Option
 	        ` + poolStageSums + `
 	        ` + poolPassKindSums + `
 	        ` + poolChainShownSums(conn) + `
+	        COALESCE(MAX(CASE WHEN phase = 'serve' THEN ja4_verdict END), ''),
 	        MIN(date_created), MAX(date_created), COALESCE(MAX(user_agent), '')
 	      FROM unmask_event` + conn.EventDateIndexHint("w") + `
 	      WHERE date_created > ` + conn.NowMinusMinutes(opt.WindowMinutes) + `
@@ -706,8 +707,14 @@ func ja4Candidates(ctx context.Context, conn *db.DB, excl Exclusions, opt Option
 	for rows.Next() {
 		var c Candidate
 		var ja4, first, last, ua string
+		// The verdict comes from this pass rather than a separate read of the
+		// week: a fingerprint's verdict is a function of the fingerprint, so
+		// every serve of one carries the same value (checked against a live
+		// database: no fingerprint held a second verdict over a whole
+		// window), and MAX over the group is that value rather than an
+		// approximation of it.
 		if err := rows.Scan(&ja4, &c.DistinctIPs, &c.Requests, &c.Serves, &c.Loads, &c.PowPassed, &c.CaptchaShown, &c.Passes,
-			&c.PassPow, &c.PassCaptcha, &c.PassBoth, &c.ShownPow, &c.ShownCaptcha, &c.ShownBoth, &first, &last, &ua); err != nil {
+			&c.PassPow, &c.PassCaptcha, &c.PassBoth, &c.ShownPow, &c.ShownCaptcha, &c.ShownBoth, &c.Verdict, &first, &last, &ua); err != nil {
 			return nil, err
 		}
 		if excl.BannedJA4s[ja4] || excl.DismissedJA4[ja4] {

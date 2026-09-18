@@ -4,8 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-
-	"github.com/unmask-sh/unmask/admin/internal/events"
 )
 
 // The collateral of a fingerprint ban: how many addresses got through the
@@ -60,10 +58,10 @@ func itoa(i int) string {
 	return itoa(i/10) + string(rune('0'+i%10))
 }
 
-// The consultation reads every fingerprint candidate's collateral in one
-// grouped pass; it must say what the one-at-a-time read says, fingerprint by
-// fingerprint, and carry each one's most common serve verdict.
-func TestJA4CollateralManyMatchesSingle(t *testing.T) {
+// The consultation asks one thing of every fingerprint candidate: how many
+// addresses completed the challenge with it.  It must agree with the single
+// read the ban dialog makes, fingerprint by fingerprint.
+func TestJA4PassersManyMatchesSingle(t *testing.T) {
 	d := newTestDB(t)
 	for _, ip := range []string{"203.0.113.1", "203.0.113.2", "203.0.113.3"} {
 		insertEvent(t, d, ip, "t13d_herd", "serve", "curl/8", "")
@@ -74,44 +72,29 @@ func TestJA4CollateralManyMatchesSingle(t *testing.T) {
 			insertEvent(t, d, ip, "t13d_browser", "bv_pow_only", "Mozilla/5.0 (iPhone)", "")
 		}
 	}
-	for i := 10; i < 10+collateralAckMax; i++ {
-		insertEvent(t, d, "198.51.100."+itoa(i), "t13d_common", "bv_captcha_only", "Mozilla/5.0", "")
-	}
-	// Two of the herd's serves carry a verdict, one does not: the majority wins.
-	if _, err := d.Exec(`UPDATE unmask_event SET ja4_verdict = 'bot_curl' WHERE ja4 = 't13d_herd' AND ip_address <> ?`, events.PackIP("203.0.113.3")); err != nil {
-		t.Fatal(err)
-	}
-	ja4s := []string{"t13d_herd", "t13d_browser", "t13d_common", "t13d_nobody", "t13d_herd", ""}
-	many, err := JA4CollateralMany(context.Background(), d, ja4s)
+	// The same address passing twice is one address.
+	insertEvent(t, d, "198.51.100.1", "t13d_browser", "bv_captcha_only", "Mozilla/5.0 (iPhone)", "")
+	ja4s := []string{"t13d_herd", "t13d_browser", "t13d_nobody", "t13d_herd", ""}
+	many, err := JA4PassersMany(context.Background(), d, ja4s)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(many) != 4 {
-		t.Fatalf("want 4 fingerprints (duplicates and blanks dropped), got %d: %v", len(many), many)
+	if len(many) != 3 {
+		t.Fatalf("want 3 fingerprints (duplicates and blanks dropped), got %d: %v", len(many), many)
 	}
-	for _, j := range []string{"t13d_herd", "t13d_browser", "t13d_common", "t13d_nobody"} {
+	for _, j := range []string{"t13d_herd", "t13d_browser", "t13d_nobody"} {
 		one, err := JA4Collateral(context.Background(), d, j)
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, ok := many[j]
-		if !ok {
-			t.Fatalf("%s missing from the grouped read", j)
-		}
-		if got.IPs != one.IPs || got.Passes != one.Passes || got.PassIPs != one.PassIPs || got.Level != one.Level || got.Verdict != one.Verdict {
-			t.Errorf("%s: grouped %+v, single %+v", j, got, one)
-		}
-		if got.JA4 != j || got.Days != collateralDays {
-			t.Errorf("%s: identity %+v", j, got)
+		if many[j] != one.PassIPs {
+			t.Errorf("%s: passers %d, the dialog says %d", j, many[j], one.PassIPs)
 		}
 	}
-	if many["t13d_herd"].Verdict != "bot_curl" || many["t13d_browser"].Verdict != "" {
-		t.Errorf("verdicts: herd %q browser %q", many["t13d_herd"].Verdict, many["t13d_browser"].Verdict)
+	if many["t13d_browser"] != 2 || many["t13d_herd"] != 0 || many["t13d_nobody"] != 0 {
+		t.Errorf("passers: %v", many)
 	}
-	if many["t13d_common"].Level != "block" || many["t13d_nobody"].Level != "none" || many["t13d_browser"].Level != "some" {
-		t.Errorf("levels: %v", many)
-	}
-	if empty, err := JA4CollateralMany(context.Background(), d, nil); err != nil || len(empty) != 0 {
+	if empty, err := JA4PassersMany(context.Background(), d, nil); err != nil || len(empty) != 0 {
 		t.Errorf("no fingerprints: %v %v", empty, err)
 	}
 }
@@ -124,7 +107,7 @@ func TestJA4CollateralManyMatchesSingle(t *testing.T) {
 func TestCollateralUsesTheFingerprintIndex(t *testing.T) {
 	d := newTestDB(t)
 	var name string
-	if err := d.QueryRow(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_unmask_event_ja4_date'`).Scan(&name); err != nil {
+	if err := d.QueryRow(`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_unmask_event_ja4_phase'`).Scan(&name); err != nil {
 		t.Fatalf("migration 0032 must create the fingerprint index: %v", err)
 	}
 	insertEvent(t, d, "203.0.113.7", "t13d_idx", "serve", "curl/8", "")
@@ -135,18 +118,18 @@ func TestCollateralUsesTheFingerprintIndex(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	many, err := JA4CollateralMany(context.Background(), d, []string{"t13d_idx"})
+	many, err := JA4PassersMany(context.Background(), d, []string{"t13d_idx"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if one.PassIPs != 1 || many["t13d_idx"].PassIPs != 1 || one.IPs != many["t13d_idx"].IPs {
-		t.Errorf("single %+v grouped %+v", one, many["t13d_idx"])
+	if one.PassIPs != 1 || many["t13d_idx"] != 1 {
+		t.Errorf("single %+v grouped %v", one, many)
 	}
 	// The planner actually picks it: EXPLAIN QUERY PLAN names the index.
 	var id, parent, notused int
 	var detail string
-	rows, err := d.Query(`EXPLAIN QUERY PLAN SELECT COUNT(*) FROM unmask_event INDEXED BY idx_unmask_event_ja4_date
-	    WHERE date_created > datetime('now','-7 days') AND ja4 = 't13d_idx'`)
+	rows, err := d.Query(`EXPLAIN QUERY PLAN SELECT COUNT(DISTINCT ip_address) FROM unmask_event INDEXED BY idx_unmask_event_ja4_phase
+	    WHERE date_created > datetime('now','-7 days') AND ja4 = 't13d_idx' AND phase IN ('bv_pow_only')`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +139,7 @@ func TestCollateralUsesTheFingerprintIndex(t *testing.T) {
 		if err := rows.Scan(&id, &parent, &notused, &detail); err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(detail, "idx_unmask_event_ja4_date") {
+		if strings.Contains(detail, "idx_unmask_event_ja4_phase") {
 			seen = true
 		}
 	}

@@ -101,17 +101,23 @@ func collateralLevel(passIPs int) string {
 	}
 }
 
-// JA4CollateralMany measures the same seven days for a set of fingerprints
-// at once -- the consultation's case, where a dozen fingerprint candidates
-// each need their passers and verdict.  One fingerprint at a time cost
-// three walks of the week per fingerprint (the event table has no
-// fingerprint index; the date index is walked and filtered), which on a
-// busy node was over a minute per consultation (tool1-us, 2026-09-14:
-// 12 fingerprints, 73 s).  Grouped, the week is walked twice in all: the
-// counts, then the verdicts.  The passers' user agents are not read here;
-// they belong to the dialog, which asks for one fingerprint.
-func JA4CollateralMany(ctx context.Context, conn *db.DB, ja4s []string) (map[string]Collateral, error) {
-	out := map[string]Collateral{}
+// JA4PassersMany answers the one collateral question a consultation asks of
+// every fingerprint candidate: how many addresses completed the challenge
+// with it in the last seven days.  That is what the model is given and what
+// decides whether a ban would hit real visitors.
+//
+// It is deliberately narrower than JA4Collateral, which the ban dialog uses.
+// The dialog asks about one fingerprint while a human waits, and shows the
+// total addresses and the passers' user agents besides.  A consultation asks
+// about all of the candidates at once, and the candidates are the busiest
+// fingerprints on the node -- narrowing to them still leaves most of the
+// table, so counting their distinct addresses read nearly everything, twice.
+// The completions among those rows are a small fraction of them.  Filtering
+// on the phase in the query, with the phase in the index, is the whole
+// difference: the read goes to the rows that answer the question instead of
+// to everything those fingerprints did.
+func JA4PassersMany(ctx context.Context, conn *db.DB, ja4s []string) (map[string]int, error) {
+	out := map[string]int{}
 	keys := make([]any, 0, len(ja4s))
 	for _, j := range ja4s {
 		if j == "" {
@@ -120,68 +126,32 @@ func JA4CollateralMany(ctx context.Context, conn *db.DB, ja4s []string) (map[str
 		if _, dup := out[j]; dup {
 			continue
 		}
-		out[j] = Collateral{JA4: j, Days: collateralDays, PassUAs: []string{}, Level: "none"}
+		out[j] = 0
 		keys = append(keys, j)
 	}
 	if len(keys) == 0 {
 		return out, nil
 	}
 	ph := strings.TrimRight(strings.Repeat("?,", len(keys)), ",")
-	since := conn.NowMinusMinutes(collateralDays * 24 * 60)
-	hint := conn.EventJA4IndexHint()
-	rows, err := conn.QueryContext(ctx, `SELECT ja4, COUNT(DISTINCT ip_address),
-	        COALESCE(SUM(CASE WHEN phase IN `+cookiePhaseList+` THEN 1 ELSE 0 END), 0),
-	        COUNT(DISTINCT CASE WHEN phase IN `+cookiePhaseList+` THEN ip_address END)
-	      FROM unmask_event`+hint+`
-	      WHERE date_created > `+since+` AND ja4 IN (`+ph+`)
+	rows, err := conn.QueryContext(ctx, `SELECT ja4, COUNT(DISTINCT ip_address)
+	      FROM unmask_event`+conn.EventJA4IndexHint()+`
+	      WHERE date_created > `+conn.NowMinusMinutes(collateralDays*24*60)+`
+	        AND ja4 IN (`+ph+`) AND phase IN `+cookiePhaseList+`
 	      GROUP BY ja4`, keys...)
 	if err != nil {
-		return nil, fmt.Errorf("collateral: %w", err)
+		return nil, fmt.Errorf("collateral passers: %w", err)
 	}
+	defer rows.Close()
 	for rows.Next() {
 		var j string
-		var ips, passes, passIPs int
-		if err := rows.Scan(&j, &ips, &passes, &passIPs); err != nil {
-			rows.Close()
-			return nil, fmt.Errorf("collateral: %w", err)
+		var passIPs int
+		if err := rows.Scan(&j, &passIPs); err != nil {
+			return nil, fmt.Errorf("collateral passers: %w", err)
 		}
-		c := out[j]
-		c.IPs, c.Passes, c.PassIPs = ips, passes, passIPs
-		c.Level = collateralLevel(passIPs)
-		out[j] = c
+		out[j] = passIPs
 	}
-	rows.Close()
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("collateral: %w", err)
-	}
-	// The most common verdict on each fingerprint's serves: grouped by
-	// fingerprint and verdict, the first (largest) row per fingerprint wins.
-	rows, err = conn.QueryContext(ctx, `SELECT ja4, COALESCE(ja4_verdict, ''), COUNT(*) AS n
-	      FROM unmask_event`+hint+`
-	      WHERE date_created > `+since+` AND ja4 IN (`+ph+`) AND phase = 'serve'
-	      GROUP BY ja4, ja4_verdict ORDER BY ja4, n DESC`, keys...)
-	if err != nil {
-		return nil, fmt.Errorf("collateral verdicts: %w", err)
-	}
-	seen := map[string]bool{}
-	for rows.Next() {
-		var j, verdict string
-		var n int
-		if err := rows.Scan(&j, &verdict, &n); err != nil {
-			rows.Close()
-			return nil, fmt.Errorf("collateral verdicts: %w", err)
-		}
-		if seen[j] {
-			continue
-		}
-		seen[j] = true
-		c := out[j]
-		c.Verdict = verdict
-		out[j] = c
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("collateral verdicts: %w", err)
+		return nil, fmt.Errorf("collateral passers: %w", err)
 	}
 	return out, nil
 }
