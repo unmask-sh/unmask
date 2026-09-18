@@ -459,13 +459,14 @@ func (d *DB) NowMinusMinutes(n int) string {
 	return fmt.Sprintf("DATE_SUB(NOW(), INTERVAL %d MINUTE)", n)
 }
 
-// EventJA4IndexHint pins the fingerprint index for a read keyed on ja4 over a
-// date window (the collateral of a fingerprint ban).  Without it SQLite has
-// no statistics to prefer it over the date index, and the date index means
-// walking the whole retention window -- migration 0032 exists for this read.
+// EventJA4IndexHint pins the fingerprint index for a read keyed on ja4 and a
+// phase over a date window (who completed the challenge with this
+// fingerprint).  Without it SQLite has no statistics to prefer it over the
+// date index, and the date index means walking the whole retention window --
+// migration 0032 exists for this read.
 func (d *DB) EventJA4IndexHint() string {
 	if d.Driver == DriverSQLite {
-		return " INDEXED BY idx_unmask_event_ja4_date"
+		return " INDEXED BY idx_unmask_event_ja4_phase"
 	}
 	return ""
 }
