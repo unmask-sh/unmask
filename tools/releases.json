@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.44",
+  "latest": "0.1.45",
   "releases": [
+    {
+      "version": "0.1.45",
+      "date": "2026-09-19",
+      "notes": "Asking the AI advisor is faster and reads better. A consultation sends its candidates to the model in batches, several at a time, and asking again re-sends only the rows whose evidence actually moved rather than every row whose counts drifted; what a fingerprint ban would hit is answered from the completions alone, through a new index on the fingerprint and the phase, instead of walking the retention window once per fingerprint. The ranking learned two distinctions: a client that completes a token few challenges -- under one percent of the pages it was served -- is ranked with the ones the challenge holds rather than with those getting through, and an address in a cloud network that answers with several user agents and several fingerprints is read as a proxy carrying real people, not a server farm. A click that finds nothing to re-send now says so instead of looking like a dead button. doctor gained two checks for states that look fine until they are not: a database that has outgrown its host's memory, and a container gateway still running the published compose sample rather than the operator's own configuration. Upgrading builds the new index once, which takes a write lock for the length of the build."
+    },
     {
       "version": "0.1.44",
       "date": "2026-09-13",
