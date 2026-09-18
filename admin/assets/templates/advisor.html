@@ -143,6 +143,7 @@ table.cands tbody tr.dismissed td .sig,table.cands tbody tr.dismissed td .score{
 .ai-bar.ai-off{background:#f8fafc;border-color:#e2e8f0;color:#475569}
 .ai-bar.ai-off a{color:#1d4ed8}
 .ai-bar .ai-delta{flex-basis:100%;margin-top:.1rem}
+.ai-bar .ai-uptodate{flex-basis:100%;margin-top:.1rem;color:#166534;font-weight:700;font-size:.78rem}
 .ai-spin{display:inline-block;width:.85rem;height:.85rem;border:.15rem solid #c4b5fd;border-top-color:#6d28d9;border-radius:50%;animation:ai-spin .8s linear infinite;vertical-align:-.15rem;margin-right:.35rem}
 @keyframes ai-spin{to{transform:rotate(360deg)}}
 .ai-wait{display:inline-flex;align-items:center;color:#6d28d9;font-size:.8rem;margin-top:.3rem}
@@ -242,7 +243,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
          the bar, the rows and the error banner in from a fresh render.  A
          reload mid-run lands on the same state (AIRunning). */}}
     <div class="ai-bar" id="ai-bar" data-base="{{ .BasePath }}" data-window="{{ .WindowH }}" data-min="{{ if .ShowAll }}all{{ end }}" data-dismissed="{{ if .ShowDismissed }}1{{ end }}" data-state="{{ if .AIRunning }}running{{ else if .AIHave }}have{{ else if .AIFailed }}failed{{ else }}none{{ end }}"{{ if .AIFailed }} data-failed="1"{{ end }}
-         data-running-text="{{ t .Lang "advisor.ai_running" }}" data-running-hint="{{ t .Lang "advisor.ai_running_hint" }}"{{ if .AIRunning }} data-running="1" data-since="{{ .AIRunningSince }}"{{ end }}>
+         data-running-text="{{ t .Lang "advisor.ai_running" }}" data-running-hint="{{ t .Lang "advisor.ai_running_hint" }}" data-uptodate-text="{{ t .Lang "advisor.ai_uptodate" }}" data-checking-text="{{ t .Lang "advisor.ai_checking" }}"{{ if .AIRunning }} data-running="1" data-since="{{ .AIRunningSince }}"{{ end }}>
       <span id="ai-bar-state">
         {{- if .AIRunning }}<span class="ai-spin"></span>{{ t .Lang "advisor.ai_running" }} <span class="kv" id="ai-elapsed"></span>
         {{- else if .AIHave }}{{ t .Lang "advisor.ai_asof" }} <strong>{{ .AIAge }}</strong> <span class="kv">(<time class="js-datetime js-datetime-short ai-at" data-ts="{{ .AIAtTs }}">{{ .AIAt }}</time> · {{ .AIModel }})</span>
@@ -515,7 +516,43 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       })
       .catch(function(){ timer = setTimeout(poll, 4000); });
   }
-  function finish(){
+  // The click answers before the server does.  Deciding what to send runs the
+  // candidate queries, which take a moment on a busy node, and until they
+  // come back the only visible effect was a button going grey -- so a click
+  // that turned out to have nothing to send read as a click that did nothing
+  // (operator, 2026-09-18: "無反応と勘違いするので一瞬スピナー出した方が良い").
+  // Whatever the answer turns out to be replaces this: the running state, or
+  // the refreshed bar with the up-to-date line.
+  function showPending(){
+    var b = bar();
+    if (!b) return;
+    var st = document.getElementById('ai-bar-state');
+    if (st) {
+      st.textContent = '';
+      var sp = document.createElement('span'); sp.className = 'ai-spin';
+      st.appendChild(sp);
+      st.appendChild(document.createTextNode(' ' + (b.dataset.checkingText || '')));
+    }
+    var hint = document.getElementById('ai-hint');
+    if (hint) hint.textContent = '';
+    // The last run's tally does not describe this click.
+    b.querySelectorAll('.ai-delta, .ai-uptodate').forEach(function(d){ d.style.display = 'none'; });
+  }
+
+  // A click that sends nothing still has to answer the operator.  The bar is
+  // replaced wholesale by finish(), so the note goes in after the swap and
+  // lives until the next click replaces the bar again (operator, 2026-09-18:
+  // "更新対象が一つも無いとボタン押しても何も反応無い").
+  function showUpToDate(){
+    var b = bar();
+    if (!b || !b.dataset.uptodateText) return;
+    var el = document.createElement('span');
+    el.className = 'ai-uptodate';
+    el.id = 'ai-uptodate';
+    el.textContent = b.dataset.uptodateText;
+    b.appendChild(el);
+  }
+  function finish(note){
     clearInterval(ticker);
     fetch(base() + '/admin/advisor/' + pageQuery(), { credentials: 'same-origin' })
       .then(function(r){ return r.text(); })
@@ -528,6 +565,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         obar.parentNode.replaceChild(document.importNode(nbar, true), obar);
         (window.unmaskRewire || []).forEach(function(fn){ try { fn(document.getElementById('cands-body')); } catch (e) {} });
         if (window.unmaskFmtTimes) { try { window.unmaskFmtTimes(); } catch (e) {} }
+        if (note === 'uptodate') showUpToDate();
         bind();
       })
       .catch(function(){ location.reload(); });
@@ -540,12 +578,16 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       ev.preventDefault();
       var btn = f.querySelector('button');
       if (btn) btn.disabled = true;
+      showPending();
       fetch(f.action, { method: 'POST', credentials: 'same-origin',
                         headers: { 'Accept': 'application/json' },
                         body: new URLSearchParams(new FormData(f)) })
         .then(function(r){ if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
         .then(function(d){
-          if (!d.running) { finish(); return; }       // nothing to send, or an engine error: the page says so
+          // Nothing to send, or an engine error: the page says so.  When the
+          // reason is that nothing changed, say that in as many words -- the
+          // refreshed bar alone reads like nothing happened.
+          if (!d.running) { finish(d.nochange ? 'uptodate' : null); return; }
           showRunning(d.since || 0, { sent: d.sent || [], kept: d.kept || [] });
           poll();
         })

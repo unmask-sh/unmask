@@ -15,6 +15,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- (2026-09-18) **The advisor says so when a consultation has nothing to re-send.**  Asking again when no candidate's evidence has moved calls no model and changed almost nothing on screen, which read as a dead button.  The bar now answers in as many words.
 - (2026-09-17) **A consultation no longer reads the week for every fingerprint it asks about.**  What a fingerprint ban would hit is one number -- the addresses that completed the challenge with it -- and it is now read from the completions alone, through an index on the fingerprint and the phase.  The fingerprint's verdict rides along on the candidate instead of costing a second pass.
 - (2026-09-16) **doctor warns when the database has outgrown its box, and when a container gateway is still on the published sample's defaults.**  A database past half the host's memory can no longer serve a whole-table read from cache.  A gateway brought up without an override file proxies to the bundled example app and answers only for localhost, while still passing its health check.
 - (2026-09-15) **Advisor: an address in a cloud network that carries several clients is read as a proxy, not a farm.**  Passing the challenge from a hosting network scored as automation whatever was behind the address.  When several user agents and several fingerprints answer from one address, it is a gateway or a VPN exit with people behind it, and the row is informational instead.
