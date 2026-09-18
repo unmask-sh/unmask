@@ -230,3 +230,33 @@ func TestAdvisorNearlyContainedRowSaysSo(t *testing.T) {
 		t.Errorf("order: passing=%d nearly=%d contained=%d, want passing first, then nearly, then contained", passing, nearly, contained)
 	}
 }
+
+// A click that finds nothing to re-send has to say so.  The page script reads
+// the wording off the bar, so the bar must carry it; without it the click
+// refreshes a bar that looks exactly as it did and reads as a dead button
+// (operator, 2026-09-18: "更新対象が一つも無いとボタン押しても何も反応無い").
+func TestAdvisorBarCarriesTheUpToDateWording(t *testing.T) {
+	h := newTestHandler(t)
+	cur := h.snapshotSettings()
+	cur.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k", Endpoint: "http://127.0.0.1:9"}
+	h.settingsPtr.Store(&cur)
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
+	rr := httptest.NewRecorder()
+	h.AdminAdvisorIndex(rr, req)
+	body := rr.Body.String()
+	if !strings.Contains(body, `data-uptodate-text="すべて最新です`) {
+		t.Error("the bar must carry the up-to-date wording for the script")
+	}
+	// The script must use it on the no-change answer and nowhere else.
+	if !strings.Contains(body, "d.nochange ? 'uptodate' : null") || !strings.Contains(body, "function showUpToDate()") {
+		t.Error("the click's no-change branch must show the notice")
+	}
+	// And the click must show something at once: deciding what to send runs
+	// the candidate queries, and a grey button is not an answer.
+	if !strings.Contains(body, `data-checking-text="送る候補を確認中`) {
+		t.Error("the bar must carry the checking wording")
+	}
+	if !strings.Contains(body, "function showPending()") || !strings.Contains(body, "showPending();\n      fetch(f.action") {
+		t.Error("the submit handler must show the spinner before the request")
+	}
+}
