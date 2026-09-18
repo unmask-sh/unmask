@@ -29,7 +29,7 @@ func newTestHandler(t *testing.T) *Handler {
 	}
 	t.Cleanup(func() { conn.Close() })
 	// idx_unmask_event_date, idx_unmask_event_ip_date and
-	// idx_unmask_event_ja4_date mirror the
+	// idx_unmask_event_ja4_phase mirror the
 	// migrations: the advisor engine names them in INDEXED BY hints, so a
 	// schema without them fails those queries.
 	const schema = `
@@ -54,7 +54,7 @@ func newTestHandler(t *testing.T) *Handler {
             date_created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP);
         CREATE INDEX idx_e_phase ON unmask_event(phase, date_created);
         CREATE INDEX idx_unmask_event_ip_date ON unmask_event(ip_address, date_created);
-        CREATE INDEX idx_unmask_event_ja4_date ON unmask_event(ja4, date_created);
+        CREATE INDEX idx_unmask_event_ja4_phase ON unmask_event(ja4, phase, date_created);
         CREATE INDEX idx_e_site ON unmask_event(site, date_created);
         CREATE INDEX idx_unmask_event_date ON unmask_event(date_created);
         CREATE TABLE unmask_advisor_dismiss (

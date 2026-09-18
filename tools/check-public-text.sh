@@ -16,6 +16,7 @@
 #   admin/assets/static/*    served to every visitor of every install
 #   nginxconf/templates/*    rendered onto every install's disk
 #   admin/**/*.go, *.html    public repo, and help text an operator reads
+#   db/migrations/*.sql      public repo, and the comment an upgrader reads
 #   CHANGELOG.md             public repo + the GitHub release page
 #
 #   usage: ./tools/check-public-text.sh [path ...]     (default: the repo root)
@@ -80,7 +81,7 @@ scan() { # scan <label> <regex>
     out=$(grep -rEn --binary-files=without-match \
         --include='*.go' --include='*.js' --include='*.html' --include='*.tmpl' \
         --include='*.json' --include='*.md' --include='*.yml' --include='*.conf' \
-        --include='*.sh' --include='*.py' \
+        --include='*.sh' --include='*.py' --include='*.sql' \
         --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=vendor \
         --exclude='check-public-text.sh' \
         -- "$2" "${TARGETS[@]}" 2>/dev/null)

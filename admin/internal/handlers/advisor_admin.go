@@ -543,9 +543,11 @@ func (h *Handler) finishAdvisorAI(ctx context.Context, aiCfg settings.AIAdvisorC
 		pool = advisor.Pool{}
 	}
 	tPool := time.Since(t0)
-	// The model must know what a fingerprint ban would hit: all the
-	// fingerprint candidates in one grouped read (a dozen one-at-a-time
-	// reads of the week were most of a consultation's minutes).
+	// The model must know what a fingerprint ban would hit: the addresses
+	// that completed the challenge with it in the last week, for every
+	// fingerprint candidate, in one read.  The verdict rides along on the
+	// candidate itself (ja4Candidates), so the week is read for the passers
+	// and nothing else.
 	t1 := time.Now()
 	var ja4s []string
 	for _, c := range prep.send {
@@ -553,10 +555,10 @@ func (h *Handler) finishAdvisorAI(ctx context.Context, aiCfg settings.AIAdvisorC
 			ja4s = append(ja4s, c.Target)
 		}
 	}
-	if cols, err := advisor.JA4CollateralMany(ctx, h.DB, ja4s); err == nil {
+	if passers, err := advisor.JA4PassersMany(ctx, h.DB, ja4s); err == nil {
 		for i := range prep.send {
-			if col, ok := cols[prep.send[i].Target]; ok && prep.send[i].Type == "ja4" {
-				prep.send[i].PassIPs7d, prep.send[i].Verdict = col.PassIPs, col.Verdict
+			if n, ok := passers[prep.send[i].Target]; ok && prep.send[i].Type == "ja4" {
+				prep.send[i].PassIPs7d = n
 			}
 		}
 	} else {

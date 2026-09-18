@@ -1,17 +1,16 @@
 -- 0032 fingerprint index on the event table.
 --
--- What a fingerprint ban would hit -- how many addresses completed the
--- challenge with that JA4 in the last seven days -- is asked for every
--- fingerprint candidate the advisor sends to the model, and again by the ban
--- dialog before a human decides.  There was no index on ja4, so each of
--- those questions walked the date index across the whole window; with the
--- default seven-day retention that window IS the whole table, and the walk
--- was disk-bound from the first row.  A consultation spent most of a minute
--- there, whatever the number of fingerprints, and on a node whose database
--- is a good share of its memory the page cache it displaces is felt by
--- everything else on the box.
+-- What a fingerprint ban would hit -- which addresses completed the challenge
+-- with that JA4 in the last seven days -- is asked for every fingerprint
+-- candidate the advisor sends to the model, and again by the ban dialog
+-- before a human decides.  unmask_event had no index on ja4, so those reads
+-- were pinned to the date index and walked the whole retention window; with
+-- the default seven-day retention that window is every row in the table.
 --
--- (ja4, date_created) turns each question into one range seek.  The column
--- order matters: ja4 first so a fingerprint is found without scanning, then
--- the date so the window is a range within it.
-CREATE INDEX IF NOT EXISTS idx_unmask_event_ja4_date ON unmask_event(ja4, date_created);
+-- The column order is what makes it work.  Indexing (ja4, date_created) alone
+-- does not help a consultation: the fingerprints worth asking about are the
+-- busiest ones on the node, so narrowing to them still leaves most of the
+-- table.  What separates the answer from the rest is the phase -- completions
+-- are a small fraction of what a busy fingerprint does -- so phase comes
+-- second, and the read seeks straight to the rows that answer the question.
+CREATE INDEX IF NOT EXISTS idx_unmask_event_ja4_phase ON unmask_event(ja4, phase, date_created);
