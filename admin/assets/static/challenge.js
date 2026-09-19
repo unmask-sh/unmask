@@ -829,7 +829,7 @@
     fr: { title:'Activez les cookies', desc:'Ce site a besoin des cookies pour se charger. Activez les cookies dans les paramètres de votre navigateur et rechargez la page.' },
     de: { title:'Bitte Cookies aktivieren', desc:'Diese Website benötigt Cookies zum Laden. Aktivieren Sie Cookies in Ihren Browser-Einstellungen und laden Sie die Seite neu.' }
   };
-  function showCookieError(){
+  function showCookieError(detail){
     revealNow(); // same contract as showError: never withhold an error screen
     var c=COOKIE_ERR_I18N[lang]||COOKIE_ERR_I18N.en;
     document.getElementById('spinner').style.display='none';
@@ -838,7 +838,7 @@
     document.getElementById('cookieErrTitle').textContent=c.title;
     document.getElementById('cookieErrDesc').textContent=c.desc;
     document.getElementById('cookieErr').style.display='block';
-    _bcDebug('cookie_err');
+    _bcDebug('cookie_err', detail || undefined);
   }
 
   // --- headless browser detection ---
@@ -1309,9 +1309,32 @@
     try { fetch(API_BASE + '/bvj', { method:'POST', keepalive:true }).catch(function(){}); } catch (_) {}
   }
 
-  // If the cookie can't be written, reloading won't help, so show an error and give up
+  // If the cookie can't be written, reloading won't help, so show an error and give up.
+  //
+  // Before giving up, measure WHY, because the answer is not "cookies are
+  // blocked": this page wrote _br a couple of seconds ago and read it back,
+  // or it would have stopped there.  Something about THIS write fails, and
+  // the three candidates differ in what the beacon can see -- the Secure
+  // attribute, the value length, and a cookie jar with no room left.  So
+  // write a minimal control cookie (no Secure, a few bytes) and report it
+  // with the two lengths; a week of failures then says which it is rather
+  // than leaving it to a guess.  Measured before this went in: a small
+  // fraction of a percent of the clients that ran the JavaScript, real
+  // browsers, every one of them past the _br write.
   if (!_bv_set_ok) {
-    showCookieError();
+    var _ctlOK = null, _jarLen = null;
+    try {
+      document.cookie = '_bvt=1;path=/;SameSite=Lax';
+      _ctlOK = /(?:^|;\s*)_bvt=/.test(document.cookie);
+      document.cookie = '_bvt=;path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT;SameSite=Lax';
+    } catch (_) { _ctlOK = false; }
+    try { _jarLen = document.cookie.length; } catch (_) {}
+    showCookieError({
+      control_cookie_ok: _ctlOK,      // a tiny non-Secure cookie, written just now
+      bv_value_len: _bvList.length,   // what we tried to store
+      bv_secure: _bvSecure !== '',    // whether Secure was on the write
+      cookie_jar_len: _jarLen         // how full the jar is for this host
+    });
     return;
   }
   // Redirect as soon as the cookie is written.  There used to be a floor of
