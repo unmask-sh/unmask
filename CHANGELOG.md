@@ -12,6 +12,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+- (2026-09-20) **The cookie error records why the write failed.**  A visitor whose browser will not store the pass cookie sees the same screen as before, but the event now carries a control cookie written at that moment, the value length and how full the jar is.  The failures are real browsers that wrote a cookie seconds earlier, so the cause is worth knowing.
+
 ## [0.1.45] - 2026-09-19
 
 ### Changed
