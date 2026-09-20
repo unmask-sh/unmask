@@ -91,6 +91,23 @@ served_latest() {
     return 1
 }
 
+# check_site_version: the landing pages' advertised version against the one
+# this checkout currently ships.  Both languages, because they drift apart as
+# easily as they drift behind.
+check_site_version() {
+    local site="$PARENT/site" cur f v
+    [ -f "$site/index.html" ] || return 0        # no site tree here
+    cur=$(sed -n 's/^UNMASK_VERSION *?*= *//p' "$ROOT/Makefile" | head -1)
+    [ -n "$cur" ] || return 0
+    for f in "$site/index.html" "$site/ja/index.html"; do
+        [ -f "$f" ] || continue
+        v=$(grep -oE '"softwareVersion" *: *"[0-9][0-9.]*"' "$f" | head -1 | grep -oE '[0-9][0-9.]*')
+        [ -n "$v" ] || continue
+        [ "$v" = "$cur" ] || die "$f says softwareVersion $v but this checkout ships $cur -- the site was not updated with the last release. Fix both landing pages and rsync them, then run preflight again (see the release-flow notes)"
+    done
+    say "site softwareVersion: $cur (both landing pages)"
+}
+
 # --- preflight ---------------------------------------------------------------
 stage_preflight() {
     say "preflight"
@@ -111,6 +128,15 @@ stage_preflight() {
         git status --short admin/assets/iprange
         die "the embedded IP-range snapshot changed -- review and commit it (iprange embed: refresh the snapshot before $VER), push, then run preflight again"
     fi
+    # The landing pages carry a schema.org softwareVersion that no stage of
+    # this script writes, so nothing ever noticed it falling behind: it sat at
+    # one version while twelve releases went out, and search engines read it.
+    # Check it here against the version being released FROM -- at preflight the
+    # bump has not happened, so the site should still match the current
+    # Makefile.  Drift means the previous release never updated it, and the
+    # release after that would bury the gap deeper.  Skipped where there is no
+    # site tree, which is every checkout but this one.
+    check_site_version
     [ -f "$MASTER" ] || die "CHANGELOG master not found: $MASTER"
     [ -x "$PUBLISH_CL" ] || die "changelog publisher not found: $PUBLISH_CL"
     local unreleased; unreleased=$(awk '/^## \[Unreleased\]/{p=1;next} /^## \[/{if(p)exit} p' "$MASTER" | grep -c '^- (' || true)
@@ -367,6 +393,8 @@ stage_status() {
 finish() {
     say "release $TAG done. Left to do by hand:"
     echo "  - fleet: binary swap on the native nodes from $WT/dist/unmask-linux-amd64 (sha $(sha256sum "$WT/dist/unmask-linux-amd64" | cut -c1-8)); tool1-sg: docker compose pull + up -d --force-recreate"
+    echo "  - site: bump \"softwareVersion\" to $VER in $PARENT/site/index.html AND $PARENT/site/ja/index.html,"
+    echo "          then rsync both (one file to one path each, never --delete) -- the next preflight checks this"
     echo "  - site docs that belong to this release (rsync per file/dir, never --delete)"
     echo "  - worktree: git -C $ROOT worktree remove --force $WT (after the fleet)"
     echo "  - memory / ROADMAP notes"

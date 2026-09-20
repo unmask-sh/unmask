@@ -15,6 +15,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- (2026-09-20) **The release script checks the version the landing pages advertise.**  Nothing wrote that value, so nothing noticed it standing still while releases went out, and a search engine reads it.  Preflight now refuses to start when either landing page disagrees with the version the checkout ships.
 - (2026-09-20) **The cookie error records why the write failed.**  A visitor whose browser will not store the pass cookie sees the same screen as before, but the event now carries a control cookie written at that moment, the value length and how full the jar is.  The failures are real browsers that wrote a cookie seconds earlier, so the cause is worth knowing.
 
 ## [0.1.45] - 2026-09-19
