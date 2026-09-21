@@ -819,15 +819,24 @@
   // the visitor understands cookies are a normal site requirement, not a
   // security investigation.
   var COOKIE_ERR_I18N = {
-    en: { title:'Please enable cookies', desc:'This site needs cookies to load. Please enable cookies in your browser settings and reload this page.' },
-    ja: { title:'Cookie を有効にしてください', desc:'このサイトを表示するには cookie が必要です。ブラウザの設定で cookie を有効にして、ページを再読み込みしてください。' },
-    zh: { title:'请启用 Cookie', desc:'本站需要 Cookie 才能正常加载。请在浏览器设置中启用 Cookie 后重新加载页面。' },
-    zht:{ title:'請啟用 Cookie', desc:'本站需要 Cookie 才能正常載入。請在瀏覽器設定中啟用 Cookie 後重新載入頁面。' },
-    ko: { title:'쿠키를 활성화해 주세요', desc:'이 사이트를 표시하려면 쿠키가 필요합니다. 브라우저 설정에서 쿠키를 활성화한 후 페이지를 다시 로드해 주세요.' },
-    es: { title:'Habilite las cookies', desc:'Este sitio necesita cookies para cargar. Habilite las cookies en la configuración de su navegador y recargue la página.' },
-    pt: { title:'Habilite os cookies', desc:'Este site precisa de cookies para carregar. Habilite os cookies nas configurações do seu navegador e recarregue a página.' },
-    fr: { title:'Activez les cookies', desc:'Ce site a besoin des cookies pour se charger. Activez les cookies dans les paramètres de votre navigateur et rechargez la page.' },
-    de: { title:'Bitte Cookies aktivieren', desc:'Diese Website benötigt Cookies zum Laden. Aktivieren Sie Cookies in Ihren Browser-Einstellungen und laden Sie die Seite neu.' }
+    en: { title:'Please enable cookies', desc:'This site needs cookies to load. Please enable cookies in your browser settings and reload this page.', hint:'If you opened this page from inside an app, that app\u2019s built-in browser may be blocking cookies. Open the address below in your usual browser.', copy:'Copy address', copied:'Copied' },
+    ja: { title:'Cookie \u3092\u6709\u52b9\u306b\u3057\u3066\u304f\u3060\u3055\u3044', desc:'\u3053\u306e\u30b5\u30a4\u30c8\u3092\u8868\u793a\u3059\u308b\u306b\u306f cookie \u304c\u5fc5\u8981\u3067\u3059\u3002\u30d6\u30e9\u30a6\u30b6\u306e\u8a2d\u5b9a\u3067 cookie \u3092\u6709\u52b9\u306b\u3057\u3066\u3001\u30da\u30fc\u30b8\u3092\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u304f\u3060\u3055\u3044\u3002', hint:'\u30a2\u30d7\u30ea\u306e\u4e2d\u304b\u3089\u3053\u306e\u30da\u30fc\u30b8\u3092\u958b\u3044\u305f\u5834\u5408\u3001\u305d\u306e\u30a2\u30d7\u30ea\u5185\u30d6\u30e9\u30a6\u30b6\u304c cookie \u3092\u30d6\u30ed\u30c3\u30af\u3057\u3066\u3044\u308b\u3053\u3068\u304c\u3042\u308a\u307e\u3059\u3002\u4e0b\u306e\u30a2\u30c9\u30ec\u30b9\u3092\u666e\u6bb5\u4f7f\u3063\u3066\u3044\u308b\u30d6\u30e9\u30a6\u30b6\u3067\u958b\u3044\u3066\u304f\u3060\u3055\u3044\u3002', copy:'\u30a2\u30c9\u30ec\u30b9\u3092\u30b3\u30d4\u30fc', copied:'\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f' },
+    zh: { title:'\u8bf7\u542f\u7528 Cookie', desc:'\u672c\u7ad9\u9700\u8981 Cookie \u624d\u80fd\u6b63\u5e38\u52a0\u8f7d\u3002\u8bf7\u5728\u6d4f\u89c8\u5668\u8bbe\u7f6e\u4e2d\u542f\u7528 Cookie \u540e\u91cd\u65b0\u52a0\u8f7d\u9875\u9762\u3002', hint:'\u5982\u679c\u60a8\u662f\u4ece\u67d0\u4e2a\u5e94\u7528\u5185\u6253\u5f00\u672c\u9875\u9762\uff0c\u8be5\u5e94\u7528\u7684\u5185\u7f6e\u6d4f\u89c8\u5668\u53ef\u80fd\u7981\u7528\u4e86 Cookie\u3002\u8bf7\u5728\u60a8\u5e38\u7528\u7684\u6d4f\u89c8\u5668\u4e2d\u6253\u5f00\u4e0b\u9762\u7684\u7f51\u5740\u3002', copy:'\u590d\u5236\u7f51\u5740', copied:'\u5df2\u590d\u5236' },
+    zht:{ title:'\u8acb\u555f\u7528 Cookie', desc:'\u672c\u7ad9\u9700\u8981 Cookie \u624d\u80fd\u6b63\u5e38\u8f09\u5165\u3002\u8acb\u5728\u700f\u89bd\u5668\u8a2d\u5b9a\u4e2d\u555f\u7528 Cookie \u5f8c\u91cd\u65b0\u8f09\u5165\u9801\u9762\u3002', hint:'\u5982\u679c\u60a8\u662f\u5f9e\u67d0\u500b\u61c9\u7528\u7a0b\u5f0f\u5167\u958b\u555f\u672c\u9801\u9762\uff0c\u8a72\u61c9\u7528\u7a0b\u5f0f\u7684\u5167\u5efa\u700f\u89bd\u5668\u53ef\u80fd\u505c\u7528\u4e86 Cookie\u3002\u8acb\u5728\u60a8\u5e38\u7528\u7684\u700f\u89bd\u5668\u4e2d\u958b\u555f\u4e0b\u9762\u7684\u7db2\u5740\u3002', copy:'\u8907\u88fd\u7db2\u5740', copied:'\u5df2\u8907\u88fd' },
+    ko: { title:'\ucfe0\ud0a4\ub97c \ud65c\uc131\ud654\ud574 \uc8fc\uc138\uc694', desc:'\uc774 \uc0ac\uc774\ud2b8\ub97c \ud45c\uc2dc\ud558\ub824\uba74 \ucfe0\ud0a4\uac00 \ud544\uc694\ud569\ub2c8\ub2e4. \ube0c\ub77c\uc6b0\uc800 \uc124\uc815\uc5d0\uc11c \ucfe0\ud0a4\ub97c \ud65c\uc131\ud654\ud55c \ud6c4 \ud398\uc774\uc9c0\ub97c \ub2e4\uc2dc \ub85c\ub4dc\ud574 \uc8fc\uc138\uc694.', hint:'\uc571 \uc548\uc5d0\uc11c \uc774 \ud398\uc774\uc9c0\ub97c \uc5f4\uc5c8\ub2e4\uba74 \ud574\ub2f9 \uc571\uc758 \ub0b4\uc7a5 \ube0c\ub77c\uc6b0\uc800\uac00 \ucfe0\ud0a4\ub97c \ucc28\ub2e8\ud558\uace0 \uc788\uc744 \uc218 \uc788\uc2b5\ub2c8\ub2e4. \uc544\ub798 \uc8fc\uc18c\ub97c \ud3c9\uc18c \uc0ac\uc6a9\ud558\ub294 \ube0c\ub77c\uc6b0\uc800\uc5d0\uc11c \uc5f4\uc5b4 \uc8fc\uc138\uc694.', copy:'\uc8fc\uc18c \ubcf5\uc0ac', copied:'\ubcf5\uc0ac\ub428' },
+    es: { title:'Habilite las cookies', desc:'Este sitio necesita cookies para cargar. Habilite las cookies en la configuraci\u00f3n de su navegador y recargue la p\u00e1gina.', hint:'Si abri\u00f3 esta p\u00e1gina desde dentro de una aplicaci\u00f3n, el navegador integrado de esa aplicaci\u00f3n puede estar bloqueando las cookies. Abra la direcci\u00f3n de abajo en su navegador habitual.', copy:'Copiar direcci\u00f3n', copied:'Copiado' },
+    pt: { title:'Habilite os cookies', desc:'Este site precisa de cookies para carregar. Habilite os cookies nas configura\u00e7\u00f5es do seu navegador e recarregue a p\u00e1gina.', hint:'Se voc\u00ea abriu esta p\u00e1gina de dentro de um aplicativo, o navegador integrado desse aplicativo pode estar bloqueando os cookies. Abra o endere\u00e7o abaixo no seu navegador habitual.', copy:'Copiar endere\u00e7o', copied:'Copiado' },
+    fr: { title:'Activez les cookies', desc:'Ce site a besoin des cookies pour se charger. Activez les cookies dans les param\u00e8tres de votre navigateur et rechargez la page.', hint:'Si vous avez ouvert cette page depuis une application, le navigateur int\u00e9gr\u00e9 de cette application bloque peut-\u00eatre les cookies. Ouvrez l\u2019adresse ci-dessous dans votre navigateur habituel.', copy:'Copier l\u2019adresse', copied:'Copi\u00e9' },
+    de: { title:'Bitte Cookies aktivieren', desc:'Diese Website ben\u00f6tigt Cookies zum Laden. Aktivieren Sie Cookies in Ihren Browser-Einstellungen und laden Sie die Seite neu.', hint:'Wenn Sie diese Seite aus einer App heraus ge\u00f6ffnet haben, blockiert der integrierte Browser dieser App m\u00f6glicherweise Cookies. \u00d6ffnen Sie die untenstehende Adresse in Ihrem gewohnten Browser.', copy:'Adresse kopieren', copied:'Kopiert' },
+    ru: { title:'\u0412\u043a\u043b\u044e\u0447\u0438\u0442\u0435 \u0444\u0430\u0439\u043b\u044b cookie', desc:'\u0414\u043b\u044f \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0438 \u044d\u0442\u043e\u0433\u043e \u0441\u0430\u0439\u0442\u0430 \u043d\u0443\u0436\u043d\u044b \u0444\u0430\u0439\u043b\u044b cookie. \u0412\u043a\u043b\u044e\u0447\u0438\u0442\u0435 \u0438\u0445 \u0432 \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0430\u0445 \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0430 \u0438 \u043f\u0435\u0440\u0435\u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u0435 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443.', hint:'\u0415\u0441\u043b\u0438 \u0432\u044b \u043e\u0442\u043a\u0440\u044b\u043b\u0438 \u044d\u0442\u0443 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443 \u0432\u043d\u0443\u0442\u0440\u0438 \u043f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u044f, \u0432\u0441\u0442\u0440\u043e\u0435\u043d\u043d\u044b\u0439 \u0431\u0440\u0430\u0443\u0437\u0435\u0440 \u044d\u0442\u043e\u0433\u043e \u043f\u0440\u0438\u043b\u043e\u0436\u0435\u043d\u0438\u044f \u043c\u043e\u0436\u0435\u0442 \u0431\u043b\u043e\u043a\u0438\u0440\u043e\u0432\u0430\u0442\u044c cookie. \u041e\u0442\u043a\u0440\u043e\u0439\u0442\u0435 \u0430\u0434\u0440\u0435\u0441 \u043d\u0438\u0436\u0435 \u0432 \u0441\u0432\u043e\u0451\u043c \u043e\u0431\u044b\u0447\u043d\u043e\u043c \u0431\u0440\u0430\u0443\u0437\u0435\u0440\u0435.', copy:'\u0421\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u0442\u044c \u0430\u0434\u0440\u0435\u0441', copied:'\u0421\u043a\u043e\u043f\u0438\u0440\u043e\u0432\u0430\u043d\u043e' },
+    it: { title:'Abilita i cookie', desc:'Questo sito ha bisogno dei cookie per caricarsi. Abilita i cookie nelle impostazioni del browser e ricarica la pagina.', hint:'Se hai aperto questa pagina dall\u2019interno di un\u2019app, il browser integrato di quell\u2019app potrebbe bloccare i cookie. Apri l\u2019indirizzo qui sotto nel browser che usi di solito.', copy:'Copia indirizzo', copied:'Copiato' },
+    tr: { title:'L\u00fctfen \u00e7erezleri etkinle\u015ftirin', desc:'Bu sitenin y\u00fcklenmesi i\u00e7in \u00e7erezler gerekir. Taray\u0131c\u0131 ayarlar\u0131n\u0131zdan \u00e7erezleri etkinle\u015ftirin ve sayfay\u0131 yeniden y\u00fckleyin.', hint:'Bu sayfay\u0131 bir uygulaman\u0131n i\u00e7inden a\u00e7t\u0131ysan\u0131z, o uygulaman\u0131n yerle\u015fik taray\u0131c\u0131s\u0131 \u00e7erezleri engelliyor olabilir. A\u015fa\u011f\u0131daki adresi her zaman kulland\u0131\u011f\u0131n\u0131z taray\u0131c\u0131da a\u00e7\u0131n.', copy:'Adresi kopyala', copied:'Kopyaland\u0131' },
+    pl: { title:'W\u0142\u0105cz pliki cookie', desc:'Ta strona potrzebuje plik\u00f3w cookie, aby si\u0119 za\u0142adowa\u0107. W\u0142\u0105cz je w ustawieniach przegl\u0105darki i od\u015bwie\u017c stron\u0119.', hint:'Je\u015bli ta strona zosta\u0142a otwarta wewn\u0105trz aplikacji, wbudowana przegl\u0105darka tej aplikacji mo\u017ce blokowa\u0107 pliki cookie. Otw\u00f3rz poni\u017cszy adres w swojej zwyk\u0142ej przegl\u0105darce.', copy:'Kopiuj adres', copied:'Skopiowano' },
+    vi: { title:'Vui l\u00f2ng b\u1eadt cookie', desc:'Trang n\u00e0y c\u1ea7n cookie \u0111\u1ec3 t\u1ea3i. Vui l\u00f2ng b\u1eadt cookie trong c\u00e0i \u0111\u1eb7t tr\u00ecnh duy\u1ec7t v\u00e0 t\u1ea3i l\u1ea1i trang.', hint:'N\u1ebfu b\u1ea1n m\u1edf trang n\u00e0y t\u1eeb b\u00ean trong m\u1ed9t \u1ee9ng d\u1ee5ng, tr\u00ecnh duy\u1ec7t t\u00edch h\u1ee3p c\u1ee7a \u1ee9ng d\u1ee5ng \u0111\u00f3 c\u00f3 th\u1ec3 \u0111ang ch\u1eb7n cookie. H\u00e3y m\u1edf \u0111\u1ecba ch\u1ec9 b\u00ean d\u01b0\u1edbi b\u1eb1ng tr\u00ecnh duy\u1ec7t b\u1ea1n th\u01b0\u1eddng d\u00f9ng.', copy:'Sao ch\u00e9p \u0111\u1ecba ch\u1ec9', copied:'\u0110\u00e3 sao ch\u00e9p' },
+    th: { title:'\u0e42\u0e1b\u0e23\u0e14\u0e40\u0e1b\u0e34\u0e14\u0e43\u0e0a\u0e49\u0e07\u0e32\u0e19\u0e04\u0e38\u0e01\u0e01\u0e35\u0e49', desc:'\u0e40\u0e27\u0e47\u0e1a\u0e44\u0e0b\u0e15\u0e4c\u0e19\u0e35\u0e49\u0e15\u0e49\u0e2d\u0e07\u0e43\u0e0a\u0e49\u0e04\u0e38\u0e01\u0e01\u0e35\u0e49\u0e40\u0e1e\u0e37\u0e48\u0e2d\u0e42\u0e2b\u0e25\u0e14 \u0e42\u0e1b\u0e23\u0e14\u0e40\u0e1b\u0e34\u0e14\u0e43\u0e0a\u0e49\u0e07\u0e32\u0e19\u0e04\u0e38\u0e01\u0e01\u0e35\u0e49\u0e43\u0e19\u0e01\u0e32\u0e23\u0e15\u0e31\u0e49\u0e07\u0e04\u0e48\u0e32\u0e40\u0e1a\u0e23\u0e32\u0e27\u0e4c\u0e40\u0e0b\u0e2d\u0e23\u0e4c\u0e41\u0e25\u0e49\u0e27\u0e42\u0e2b\u0e25\u0e14\u0e2b\u0e19\u0e49\u0e32\u0e19\u0e35\u0e49\u0e43\u0e2b\u0e21\u0e48', hint:'\u0e2b\u0e32\u0e01\u0e04\u0e38\u0e13\u0e40\u0e1b\u0e34\u0e14\u0e2b\u0e19\u0e49\u0e32\u0e19\u0e35\u0e49\u0e08\u0e32\u0e01\u0e20\u0e32\u0e22\u0e43\u0e19\u0e41\u0e2d\u0e1b \u0e40\u0e1a\u0e23\u0e32\u0e27\u0e4c\u0e40\u0e0b\u0e2d\u0e23\u0e4c\u0e43\u0e19\u0e15\u0e31\u0e27\u0e02\u0e2d\u0e07\u0e41\u0e2d\u0e1b\u0e19\u0e31\u0e49\u0e19\u0e2d\u0e32\u0e08\u0e1a\u0e25\u0e47\u0e2d\u0e01\u0e04\u0e38\u0e01\u0e01\u0e35\u0e49 \u0e42\u0e1b\u0e23\u0e14\u0e40\u0e1b\u0e34\u0e14\u0e17\u0e35\u0e48\u0e2d\u0e22\u0e39\u0e48\u0e14\u0e49\u0e32\u0e19\u0e25\u0e48\u0e32\u0e07\u0e43\u0e19\u0e40\u0e1a\u0e23\u0e32\u0e27\u0e4c\u0e40\u0e0b\u0e2d\u0e23\u0e4c\u0e17\u0e35\u0e48\u0e04\u0e38\u0e13\u0e43\u0e0a\u0e49\u0e15\u0e32\u0e21\u0e1b\u0e01\u0e15\u0e34', copy:'\u0e04\u0e31\u0e14\u0e25\u0e2d\u0e01\u0e17\u0e35\u0e48\u0e2d\u0e22\u0e39\u0e48', copied:'\u0e04\u0e31\u0e14\u0e25\u0e2d\u0e01\u0e41\u0e25\u0e49\u0e27' },
+    id: { title:'Harap aktifkan cookie', desc:'Situs ini memerlukan cookie untuk dimuat. Aktifkan cookie di pengaturan peramban Anda lalu muat ulang halaman ini.', hint:'Jika Anda membuka halaman ini dari dalam sebuah aplikasi, peramban bawaan aplikasi tersebut mungkin memblokir cookie. Buka alamat di bawah ini dengan peramban yang biasa Anda gunakan.', copy:'Salin alamat', copied:'Tersalin' },
+    ar: { title:'\u064a\u0631\u062c\u0649 \u062a\u0641\u0639\u064a\u0644 \u0645\u0644\u0641\u0627\u062a \u062a\u0639\u0631\u064a\u0641 \u0627\u0644\u0627\u0631\u062a\u0628\u0627\u0637', desc:'\u064a\u062d\u062a\u0627\u062c \u0647\u0630\u0627 \u0627\u0644\u0645\u0648\u0642\u0639 \u0625\u0644\u0649 \u0645\u0644\u0641\u0627\u062a \u062a\u0639\u0631\u064a\u0641 \u0627\u0644\u0627\u0631\u062a\u0628\u0627\u0637 \u0644\u0643\u064a \u064a\u064f\u062d\u0645\u0651\u0644. \u064a\u0631\u062c\u0649 \u062a\u0641\u0639\u064a\u0644\u0647\u0627 \u0641\u064a \u0625\u0639\u062f\u0627\u062f\u0627\u062a \u0627\u0644\u0645\u062a\u0635\u0641\u062d \u062b\u0645 \u0625\u0639\u0627\u062f\u0629 \u062a\u062d\u0645\u064a\u0644 \u0627\u0644\u0635\u0641\u062d\u0629.', hint:'\u0625\u0630\u0627 \u0641\u062a\u062d\u062a \u0647\u0630\u0647 \u0627\u0644\u0635\u0641\u062d\u0629 \u0645\u0646 \u062f\u0627\u062e\u0644 \u0623\u062d\u062f \u0627\u0644\u062a\u0637\u0628\u064a\u0642\u0627\u062a\u060c \u0641\u0642\u062f \u064a\u062d\u062c\u0628 \u0627\u0644\u0645\u062a\u0635\u0641\u062d \u0627\u0644\u0645\u062f\u0645\u062c \u0641\u064a \u0630\u0644\u0643 \u0627\u0644\u062a\u0637\u0628\u064a\u0642 \u0645\u0644\u0641\u0627\u062a \u062a\u0639\u0631\u064a\u0641 \u0627\u0644\u0627\u0631\u062a\u0628\u0627\u0637. \u0627\u0641\u062a\u062d \u0627\u0644\u0639\u0646\u0648\u0627\u0646 \u0623\u062f\u0646\u0627\u0647 \u0641\u064a \u0645\u062a\u0635\u0641\u062d\u0643 \u0627\u0644\u0645\u0639\u062a\u0627\u062f.', copy:'\u0646\u0633\u062e \u0627\u0644\u0639\u0646\u0648\u0627\u0646', copied:'\u062a\u0645 \u0627\u0644\u0646\u0633\u062e' },
+    hi: { title:'\u0915\u0943\u092a\u092f\u093e \u0915\u0941\u0915\u0940\u095b \u0938\u0915\u094d\u0937\u092e \u0915\u0930\u0947\u0902', desc:'\u0907\u0938 \u0938\u093e\u0907\u091f \u0915\u094b \u0932\u094b\u0921 \u0939\u094b\u0928\u0947 \u0915\u0947 \u0932\u093f\u090f \u0915\u0941\u0915\u0940\u095b \u091a\u093e\u0939\u093f\u090f\u0964 \u0915\u0943\u092a\u092f\u093e \u0905\u092a\u0928\u0947 \u092c\u094d\u0930\u093e\u0909\u095b\u0930 \u0915\u0940 \u0938\u0947\u091f\u093f\u0902\u0917 \u092e\u0947\u0902 \u0915\u0941\u0915\u0940\u095b \u0938\u0915\u094d\u0937\u092e \u0915\u0930\u0947\u0902 \u0914\u0930 \u092a\u0947\u091c \u092b\u093f\u0930 \u0938\u0947 \u0932\u094b\u0921 \u0915\u0930\u0947\u0902\u0964', hint:'\u092f\u0926\u093f \u0906\u092a\u0928\u0947 \u092f\u0939 \u092a\u0947\u091c \u0915\u093f\u0938\u0940 \u0910\u092a \u0915\u0947 \u092d\u0940\u0924\u0930 \u0938\u0947 \u0916\u094b\u0932\u093e \u0939\u0948, \u0924\u094b \u0909\u0938 \u0910\u092a \u0915\u093e \u0905\u0902\u0924\u0930\u094d\u0928\u093f\u0939\u093f\u0924 \u092c\u094d\u0930\u093e\u0909\u095b\u0930 \u0915\u0941\u0915\u0940\u095b \u0930\u094b\u0915 \u0930\u0939\u093e \u0939\u094b \u0938\u0915\u0924\u093e \u0939\u0948\u0964 \u0928\u0940\u091a\u0947 \u0926\u093f\u092f\u093e \u0917\u092f\u093e \u092a\u0924\u093e \u0905\u092a\u0928\u0947 \u0938\u093e\u092e\u093e\u0928\u094d\u092f \u092c\u094d\u0930\u093e\u0909\u095b\u0930 \u092e\u0947\u0902 \u0916\u094b\u0932\u0947\u0902\u0964', copy:'\u092a\u0924\u093e \u0915\u0949\u092a\u0940 \u0915\u0930\u0947\u0902', copied:'\u0915\u0949\u092a\u0940 \u0939\u094b \u0917\u092f\u093e' }
   };
   function showCookieError(detail){
     revealNow(); // same contract as showError: never withhold an error screen
@@ -837,6 +846,47 @@
     document.getElementById('captcha').style.display='none';
     document.getElementById('cookieErrTitle').textContent=c.title;
     document.getElementById('cookieErrDesc').textContent=c.desc;
+    // "Enable cookies in your settings" is not an instruction an in-app
+    // browser can follow -- the app turned cookies off and the visitor has no
+    // setting to reach.  In-app WebViews are most of what lands here, with
+    // old mobile Safari and hardened desktop browsers behind them.  So name
+    // the case, and offer the one move that works: open the address somewhere
+    // else.  Show the address too, because an in-app browser usually has no
+    // address bar to copy from.
+    //
+    // Guarded on each element: an operator's overlay copy of challenge.html
+    // (= /usr/share/unmask/challenge/, which wins over the embedded asset)
+    // may predate these nodes, and a missing one must not take the error
+    // screen down with it.
+    var _hint=document.getElementById('cookieErrHint');
+    var _url=document.getElementById('cookieErrUrl');
+    var _copy=document.getElementById('cookieErrCopy');
+    if(_hint) _hint.textContent=c.hint;
+    if(_url&&_copy){
+      var _href='';
+      try { _href=location.href; } catch(_) {}
+      _url.textContent=_href;
+      _copy.textContent=c.copy;
+      // Selecting the text is the fallback, not an error path: clipboard
+      // writes are commonly denied in exactly the browsers that land here,
+      // and a visitor can finish a selection by hand -- a dead button leaves
+      // them nothing.
+      var _select=function(){
+        try {
+          var r=document.createRange(); r.selectNodeContents(_url);
+          var sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+        } catch(_) {}
+      };
+      _copy.onclick=function(){
+        try {
+          if(navigator.clipboard&&navigator.clipboard.writeText){
+            navigator.clipboard.writeText(_href).then(function(){_copy.textContent=c.copied;},_select);
+            return;
+          }
+        } catch(_) {}
+        _select();
+      };
+    }
     document.getElementById('cookieErr').style.display='block';
     _bcDebug('cookie_err', detail || undefined);
   }
@@ -879,6 +929,41 @@
   }
 
   _bcDebug('load', { force_reason: forceReason, chmode: chMode });
+
+  // Can this document write a cookie at all?  Ask now, before asking the
+  // visitor for anything.
+  //
+  // Every way out of this page ends in a _bv write -- PoW, CAPTCHA, the
+  // flags>=3 branch -- so a document with no usable cookie jar cannot pass by
+  // any route, and the only honest thing to do is say so.  That used to be
+  // discovered after the proof-of-work had been solved: the visitor spent the
+  // CPU and was then told it was for nothing.
+  //
+  // Every failure measured before this went in had the same shape: a
+  // one-byte cookie with no attributes failed alongside the pass cookie.  So
+  // the jar is unavailable to the document rather than too full or refusing
+  // that particular value, which is why a throwaway probe finds it at load
+  // just as well as the real write does later.  navigator.cookieEnabled read
+  // true throughout, and is deliberately not consulted here.
+  //
+  // Named apart from the _jarLen of the post-PoW check below: `var` is
+  // function-scoped, so sharing the name would make one read as the other.
+  var _jarProbeOK=false, _jarProbeLen=null;
+  try {
+    document.cookie='_bvt=1;path=/;SameSite=Lax';
+    _jarProbeOK=/(?:^|;\s*)_bvt=/.test(document.cookie);
+    document.cookie='_bvt=;path=/;expires=Thu, 01 Jan 1970 00:00:00 GMT;SameSite=Lax';
+  } catch(_) { _jarProbeOK=false; }
+  try { _jarProbeLen=document.cookie.length; } catch(_) {}
+  if(!_jarProbeOK){
+    showCookieError({
+      probe_at: 'load',               // vs 'pass' = the write after the PoW
+      control_cookie_ok: false,
+      bv_secure: location.protocol === 'https:',
+      cookie_jar_len: _jarProbeLen
+    });
+    return;
+  }
 
   // ============================================================
   // Abandonment tracking.
@@ -1311,16 +1396,19 @@
 
   // If the cookie can't be written, reloading won't help, so show an error and give up.
   //
-  // Before giving up, measure WHY, because the answer is not "cookies are
-  // blocked": this page wrote _br a couple of seconds ago and read it back,
-  // or it would have stopped there.  Something about THIS write fails, and
-  // the three candidates differ in what the beacon can see -- the Secure
-  // attribute, the value length, and a cookie jar with no room left.  So
-  // write a minimal control cookie (no Secure, a few bytes) and report it
-  // with the two lengths; a week of failures then says which it is rather
-  // than leaving it to a guess.  Measured before this went in: a small
-  // fraction of a percent of the clients that ran the JavaScript, real
-  // browsers, every one of them past the _br write.
+  // Reaching here means something narrower than "cookies are blocked": the
+  // probe at load wrote a throwaway cookie and read it back, so the jar works
+  // and it is THIS write that failed.  Three candidates remain, and they
+  // differ only in what the beacon can see -- the Secure attribute, the value
+  // length, and a jar with no room left.  So write a minimal control cookie
+  // (no Secure, a few bytes) and report it with the two lengths.
+  //
+  // An earlier version of this comment claimed the page had already written
+  // _br and read it back.  That only holds on the flags>=3 branch; for an
+  // ordinary visitor _bv is the session's first cookie write, so there was no
+  // such evidence, and every failure measured under it turned out to be a jar
+  // that had never worked.  The load probe now covers that case, which is
+  // what makes the question here a genuinely narrow one.
   if (!_bv_set_ok) {
     var _ctlOK = null, _jarLen = null;
     try {
@@ -1330,6 +1418,7 @@
     } catch (_) { _ctlOK = false; }
     try { _jarLen = document.cookie.length; } catch (_) {}
     showCookieError({
+      probe_at: 'pass',               // vs 'load' = the probe before the PoW
       control_cookie_ok: _ctlOK,      // a tiny non-Secure cookie, written just now
       bv_value_len: _bvList.length,   // what we tried to store
       bv_secure: _bvSecure !== '',    // whether Secure was on the write
