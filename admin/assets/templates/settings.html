@@ -6998,6 +6998,15 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         </span>
       </label>
     </div>
+    <div class="field">
+      <label style="display:flex;align-items:flex-start;gap:.5rem">
+        <input type="checkbox" name="publish_liveness" value="1" {{ if .CommunityBans.PublishLiveness }}checked{{ end }} style="margin-top:.25rem">
+        <span>
+          <strong>{{ t .Lang "settings.community_bans.liveness_label" }}</strong><br>
+          <span class="note">{{ safeHTML (t .Lang "settings.community_bans.liveness_desc") }}</span>
+        </span>
+      </label>
+    </div>
 
     <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.community_bans.identity_h" }}</h3>
     <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.community_bans.identity_desc") }}</div>
