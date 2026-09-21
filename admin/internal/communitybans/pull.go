@@ -45,6 +45,19 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 		return FeedDocument{}, fmt.Errorf("new request: %w", err)
 	}
 	req.Header.Set("User-Agent", c.UserAgent)
+	// Identify the install to the hub, so it can count deployments that are
+	// actually running.  The feed itself stays public -- the hub serves the
+	// same document with or without this header; all it does is move this
+	// token's last_seen_at.  Without it the hub has no liveness signal at all:
+	// last_seen_at is written at register and then only by a submit, so a
+	// subscriber of many months reads identically to a registration that was
+	// thrown away immediately.
+	//
+	// Off by operator choice (publish_liveness), and absent before a token
+	// exists, in which case the pull is anonymous exactly as it was.
+	if tok := strings.TrimSpace(cur.CommunityBans.Token); tok != "" && cur.CommunityBans.PublishLiveness {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
 
 	resp, err := c.httpClient().Do(req)
 	if err != nil {

@@ -15,6 +15,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- (2026-09-22) **The hub can tell how many installs are running.**  Subscribing installs now identify themselves on the hourly feed pull, so the hub records when each one last checked in.  Before this it could only see registrations and reports, and a deployment that had quietly consumed the feed for a year looked like one abandoned at once.  Optional, and covered by privacy v1.1.
+
 - (2026-09-21) **The challenge page checks for a usable cookie jar before asking for a proof of work.**  A browser that cannot store the pass cookie used to solve the puzzle first and be told only afterwards.  It now stops at load, and the screen names the in-app-browser case and shows the address to open elsewhere.  The cookie-error text now covers all eighteen languages.
 
 - (2026-09-20) **The release script checks the version the landing pages advertise.**  Nothing wrote that value, so nothing noticed it standing still while releases went out, and a search engine reads it.  Preflight now refuses to start when either landing page disagrees with the version the checkout ships.
