@@ -15,8 +15,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- (2026-09-21) **The challenge page checks for a usable cookie jar before asking for a proof of work.**  A browser that cannot store the pass cookie used to solve the puzzle first and be told only afterwards.  It now stops at load, and the screen names the in-app-browser case and shows the address to open elsewhere.  The cookie-error text now covers all eighteen languages.
+
 - (2026-09-20) **The release script checks the version the landing pages advertise.**  Nothing wrote that value, so nothing noticed it standing still while releases went out, and a search engine reads it.  Preflight now refuses to start when either landing page disagrees with the version the checkout ships.
-- (2026-09-20) **The cookie error records why the write failed.**  A visitor whose browser will not store the pass cookie sees the same screen as before, but the event now carries a control cookie written at that moment, the value length and how full the jar is.  The failures are real browsers that wrote a cookie seconds earlier, so the cause is worth knowing.
 
 ## [0.1.45] - 2026-09-19
 
