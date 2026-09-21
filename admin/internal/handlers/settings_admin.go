@@ -5471,6 +5471,11 @@ func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
 	// Flipping to OFF stops emitting the flag on new requests; old rows
 	// keep whatever they recorded until they age out.
 	c.PublishCountry = r.FormValue("publish_country") == "1"
+	// PublishLiveness: same shape -- install-wide, default ON from Default().
+	// When ON the hourly feed pull carries this install's token so the hub can
+	// count running deployments; OFF returns the pull to being anonymous and
+	// changes nothing else about subscribing.
+	c.PublishLiveness = r.FormValue("publish_liveness") == "1"
 	// HN override: trim + lowercase + clamp.  Strict validation lives on the
 	// hub side -- here we just normalize so the saved value matches what the
 	// hub will accept (= avoids "looks accepted in admin, rejected on hub").

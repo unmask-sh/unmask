@@ -2989,7 +2989,21 @@ type CommunityBans struct {
 	// No omitempty: defaults to true, so an operator who opts out (false) would
 	// otherwise have it dropped on Save and reverted to true on Load --
 	// re-publishing the reporter country against their privacy choice.
-	PublishCountry       bool   `yaml:"publish_country"`
+	PublishCountry bool `yaml:"publish_country"`
+	// PublishLiveness: send this install's token with the hourly feed pull, so
+	// the hub can count how many installs are actually running.  Without it a
+	// pull is anonymous and the hub cannot tell a deployment that has
+	// subscribed for months from a registration abandoned a second later --
+	// the token row's last_seen_at only moves at register and at submit.
+	//
+	// What the hub learns is one timestamp per install, against a pseudonymous
+	// token it already issued.  Disclosed in the feed privacy document from
+	// v1.1; opting out here returns the pull to being anonymous and costs the
+	// operator nothing else.
+	//
+	// No omitempty, for the same reason as PublishCountry above: an opt-out of
+	// false would be dropped on Save and read back as the default true.
+	PublishLiveness      bool   `yaml:"publish_liveness"`
 	RegisterURL          string `yaml:"register_url,omitempty"`
 	SubmitURL            string `yaml:"submit_url,omitempty"`
 	FeedURL              string `yaml:"feed_url,omitempty"`
@@ -3171,11 +3185,13 @@ func (s CommunityBans) ResolvedAggregateURL() string {
 // or terms wording changes materially.  Operators whose TermsAcceptedVersion
 // is below this value need to re-accept before SubmitActive() returns true.
 //
-// The initial public release ships at 1.  The gate machinery (= TermsStale /
-// SubmitActive below) is live but un-armed -- when a future release reworks
-// the wording, bump this constant in the same commit that lands the new docs
-// and existing acceptors will be funnelled through a re-acceptance banner.
-const CurrentCommunityBansTermsVersion = 1
+// The initial public release shipped at 1.  Raised to 2 on 2026-09-22 with
+// privacy v1.1, which documents what a subscribing install now sends: the
+// hourly feed pull carries the install's own token so the hub can count
+// running deployments (PublishLiveness above, opt-out in the same tab).
+// Everything an acceptor agreed to at v1 still holds; v1.1 adds a section
+// rather than changing one.
+const CurrentCommunityBansTermsVersion = 2
 
 // SubmitActive: submission is allowed only when submit_enabled && terms
 // accepted at the current version.  Operators on a stale version see a
@@ -3971,12 +3987,13 @@ func defaults() Settings {
 			// classic "blocked a search bot" failure can't happen here.
 			// Submitting (sharing this install's own bans) stays opt-in behind
 			// the terms acceptance; only the consume side defaults on.
-			SubscribeMode:  SubscribeFetchApply,
-			PublishCountry: true, // reporter-side country code on by default so the feed shows a global picture; opt-out remains available in the settings UI
-			RegisterURL:    DefaultCommunityBansRegisterURL,
-			SubmitURL:      DefaultCommunityBansSubmitURL,
-			FeedURL:        DefaultCommunityBansFeedURL,
-			AggregateURL:   DefaultCommunityBansAggregateURL,
+			SubscribeMode:   SubscribeFetchApply,
+			PublishCountry:  true, // reporter-side country code on by default so the feed shows a global picture; opt-out remains available in the settings UI
+			PublishLiveness: true, // ditto for the pull's token: on by default so the hub can count running installs at all, opt-out in the same tab
+			RegisterURL:     DefaultCommunityBansRegisterURL,
+			SubmitURL:       DefaultCommunityBansSubmitURL,
+			FeedURL:         DefaultCommunityBansFeedURL,
+			AggregateURL:    DefaultCommunityBansAggregateURL,
 		},
 		Nginx: Nginx{
 			// /var/lib/ rather than /etc/ because everything below this point

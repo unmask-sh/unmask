@@ -20,10 +20,12 @@ import (
 type feedRoundTripper struct {
 	body string
 	hits int32
+	auth atomic.Value // string: the Authorization header of the most recent request
 }
 
-func (f *feedRoundTripper) RoundTrip(*http.Request) (*http.Response, error) {
+func (f *feedRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) {
 	atomic.AddInt32(&f.hits, 1)
+	f.auth.Store(r.Header.Get("Authorization"))
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Body:       io.NopCloser(strings.NewReader(f.body)),
@@ -48,9 +50,9 @@ func newCommunityBansSaveHarness(t *testing.T) (*Handler, *feedRoundTripper) {
 	s.CommunityBans.SubscribeMode = settings.SubscribeOff
 	// Seed a token so the independent post-save register goroutine (which
 	// fires when subscribe goes active with an empty token) does not also hit
-	// the stub hub and inflate the feed-fetch count.  The pull does not use
-	// the token (the feed list is a public GET), so this isolates the pull
-	// trigger without changing what we are testing.
+	// the stub hub and inflate the feed-fetch count.  The feed itself is still
+	// a public GET; the token only rides along so the hub can count running
+	// installs, which is what TestCommunityBansPullCarriesTheToken covers.
 	s.CommunityBans.Token = "seeded-token"
 	if err := settings.Save(s, cfgPath); err != nil {
 		t.Fatalf("seed config: %v", err)
@@ -147,5 +149,49 @@ func TestCommunityBansSubscribeStaysOffNoPull(t *testing.T) {
 	}
 	if d := h.CommunityBans.GetCachedDoc(); len(d.Entries) != 0 {
 		t.Fatalf("off->off save must not populate the browse doc, got %d entries", len(d.Entries))
+	}
+}
+
+// lastAuth: the Authorization header the stub hub saw, "" when there was none.
+func (f *feedRoundTripper) lastAuth() string {
+	v, _ := f.auth.Load().(string)
+	return v
+}
+
+// The pull identifies the install so the hub can count deployments that are
+// actually running -- without it last_seen_at only moves at register and at
+// submit, and a subscriber of many months is indistinguishable from a
+// registration thrown away at once.  It is the operator's call, so the two
+// states both need locking down: sending it when asked, and sending nothing
+// at all when not.  The feed comes back the same either way.
+func TestCommunityBansPullCarriesTheToken(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		liveness bool
+		token    string
+		want     string
+	}{
+		{"opted in", true, "seeded-token", "Bearer seeded-token"},
+		{"opted out", false, "seeded-token", ""},
+		{"no token yet", true, "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, rt := newCommunityBansSaveHarness(t)
+			h.updateSettingsInMemory(func(s *settings.Settings) {
+				s.CommunityBans.PublishLiveness = tc.liveness
+				s.CommunityBans.Token = tc.token
+				s.CommunityBans.SubscribeMode = settings.SubscribeFetch
+			})
+			if _, err := h.CommunityBans.Pull(t.Context()); err != nil {
+				t.Fatalf("pull: %v", err)
+			}
+			if got := rt.lastAuth(); got != tc.want {
+				t.Errorf("Authorization header %q, want %q", got, tc.want)
+			}
+			// Whatever the choice, the feed still arrives.
+			if d := h.CommunityBans.GetCachedDoc(); len(d.Entries) != 1 {
+				t.Errorf("feed not applied: %d entries, want 1", len(d.Entries))
+			}
+		})
 	}
 }
