@@ -1,0 +1,21 @@
+# Keep a CI run from reaching the production hub.
+#
+# docker-compose.example.yml boots the admin with the shipped defaults, and
+# the community feed's consume side is one of them: on its first start the
+# daemon registers with the hub and pulls the feed.  A CI run is not an
+# install, but the hub cannot tell one from the other, so every run left a
+# node behind in a registry meant for counting real ones -- and by the time
+# this was noticed, almost nothing in that registry was real.
+#
+# Resolving the hub's name to the container itself is the whole fix: nothing
+# listens there, so the register and the pull fail at once and no request
+# leaves the runner.  A name mapping rather than a config override because it
+# covers every call home to that host, and because this stack has no config
+# file to override -- the entrypoint generates one on the first boot.
+#
+# The docker suite's own admin.yml does the same job with dead hub URLs; this
+# file is for the example stack, which is deliberately unconfigured.
+services:
+  admin:
+    extra_hosts:
+      - "unmask.sh:127.0.0.1"

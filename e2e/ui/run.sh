@@ -70,6 +70,16 @@ nginx_log:
   socket_path: $WORK/log.sock
 nginx:
   output_dir: $WORK/nginx-out
+# Every hub URL points at a dead local port, the same as the docker suite's
+# admin.yml.  Anything this file leaves out takes the shipped default, and
+# subscribe is ON by default -- so without this the throwaway daemon registers
+# with the production hub at unmask.sh on every run, and the hub's registry
+# fills with nodes that existed for the length of a CI job.
+community_bans:
+  register_url: "http://127.0.0.1:9/register"
+  submit_url: "http://127.0.0.1:9/submit"
+  feed_url: "http://127.0.0.1:9/list.json"
+  aggregate_url: "http://127.0.0.1:9/aggregate"
 # The challenge page's own entry points (/unmask/test/force-pow, force-captcha).
 # Off unless asked for; captcha-checkbox-restore.test.js drives the CAPTCHA one.
 challenge:
