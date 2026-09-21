@@ -250,7 +250,7 @@ jobs:
           docker tag unmask-ci/nginx:test unmask.sh/nginx:1.28
           # No certificate prepared: the first start serves a self-signed one
           # the admin generated (Settings > Gateway > self-signed).
-          docker compose -f docker-compose.example.yml -f e2e/docker/admin-port-override.yml up -d --no-build
+          docker compose -f docker-compose.example.yml -f e2e/docker/no-phone-home.yml -f e2e/docker/admin-port-override.yml up -d --no-build
           for i in $(seq 1 40); do
             [ "$(docker inspect -f '{{.State.Status}}' unmask-nginx 2>/dev/null)" = running ] && break
             sleep 3
@@ -309,7 +309,7 @@ jobs:
       - name: gateway obtains its certificate over ACME
         run: |
           docker compose -f docker-compose.example.yml down -v
-          docker compose -f docker-compose.example.yml -f e2e/docker/acme-override.yml up -d --no-build
+          docker compose -f docker-compose.example.yml -f e2e/docker/no-phone-home.yml -f e2e/docker/acme-override.yml up -d --no-build
           for i in $(seq 1 40); do
             [ "$(docker inspect -f '{{.State.Status}}' unmask-nginx 2>/dev/null)" = running ] && break
             sleep 3
@@ -332,7 +332,7 @@ jobs:
       - name: gateway serves :80 only when TLS ends at a load balancer
         run: |
           docker compose -f docker-compose.example.yml down -v
-          docker compose -f docker-compose.example.yml -f e2e/docker/admin-port-override.yml -f e2e/docker/tls-none-override.yml up -d --no-build
+          docker compose -f docker-compose.example.yml -f e2e/docker/no-phone-home.yml -f e2e/docker/admin-port-override.yml -f e2e/docker/tls-none-override.yml up -d --no-build
           for i in $(seq 1 40); do
             [ "$(docker inspect -f '{{.State.Status}}' unmask-nginx 2>/dev/null)" = running ] && break
             sleep 3
