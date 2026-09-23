@@ -85,6 +85,38 @@ fi
 got=$(install_so "$T/src.so" "$T/newdir/modules" "$T/fallback")
 check "install_so mkdirs a missing primary" "$T/newdir/modules/$SO_NAME" "$got"
 
+# --- case 6: so_in_place -- an identical module is left alone ---
+# The point is the inode: replacing even an identical file gives the path a new
+# one, and nginx loads a module only at startup, so the host would need an nginx
+# restart for an upgrade that did not change the module.
+mkdir -p "$T/live" "$T/live_fb"
+printf 'SOBYTES' > "$T/live/$SO_NAME"
+ino_before=$(stat -c %i "$T/live/$SO_NAME")
+got=$(so_in_place "$T/src.so" "$T/live" "$T/live_fb"); rc=$?
+check "so_in_place finds the identical module" "0 $T/live/$SO_NAME" "$rc $got"
+check "so_in_place leaves the file's inode alone" "$ino_before" "$(stat -c %i "$T/live/$SO_NAME")"
+
+# Same bytes but only in the fallback location (immutable-/usr host) counts too.
+rm -f "$T/live/$SO_NAME"
+printf 'SOBYTES' > "$T/live_fb/$SO_NAME"
+got=$(so_in_place "$T/src.so" "$T/live" "$T/live_fb"); rc=$?
+check "so_in_place finds it in the fallback" "0 $T/live_fb/$SO_NAME" "$rc $got"
+
+# Different bytes: not in place, so the caller replaces it -- and the
+# replacement really is a new file.
+printf 'OLDBYTES' > "$T/live/$SO_NAME"
+ino_before=$(stat -c %i "$T/live/$SO_NAME")
+so_in_place "$T/src.so" "$T/live" "$T/nowhere" >/dev/null; rc=$?
+check "so_in_place reports a changed module" "1" "$rc"
+got=$(install_so "$T/src.so" "$T/live" "$T/live_fb")
+check "a changed module is replaced" "SOBYTES" "$(cat "$T/live/$SO_NAME")"
+[ "$(stat -c %i "$T/live/$SO_NAME")" != "$ino_before" ] && r=new || r=same
+check "the replacement is a new inode (nginx restart territory)" "new" "$r"
+
+# Nothing there at all: not in place.
+so_in_place "$T/src.so" "$T/empty1" "$T/empty2" >/dev/null; rc=$?
+check "so_in_place with no module installed" "1" "$rc"
+
 echo "----"
 [ "$fails" -eq 0 ] && echo "ALL PASS" || echo "$fails FAILED"
 exit "$fails"
