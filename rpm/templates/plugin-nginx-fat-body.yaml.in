@@ -56,7 +56,7 @@ overrides:
       scripts:
         postupgrade: ./scripts/postinstall-plugin-nginx-fat.sh
     depends:
-      - "unmask=${UNMASK_VERSION}-r${UNMASK_RELEASE}"
+      - "unmask=${UNMASK_APK_PKGVER}"
       - nginx
       - gcompat
 

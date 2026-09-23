@@ -15,6 +15,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- (2026-09-23) **Pre-release builds on the testing channel sort before the release they precede.**  An rc is packaged as `0.1.46-0.1.rc1` (apk `0.1.46_rc1-r0`), so `dnf --enablerepo=unmask-testing` installs it, a plain update never takes it back to the previous release, and the final `0.1.46-1` replaces it on its own.
+
 - (2026-09-22) **The hub can tell how many installs are running.**  Subscribing installs now identify themselves on the hourly feed pull, so the hub records when each one last checked in.  Before this it could only see registrations and reports, and a deployment that had quietly consumed the feed for a year looked like one abandoned at once.  Optional, and covered by privacy v1.1.
 
 - (2026-09-21) **The challenge page checks for a usable cookie jar before asking for a proof of work.**  A browser that cannot store the pass cookie used to solve the puzzle first and be told only afterwards.  It now stops at load, and the screen names the in-app-browser case and shows the address to open elsewhere.  The cookie-error text now covers all eighteen languages.
