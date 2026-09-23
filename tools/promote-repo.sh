@@ -50,6 +50,18 @@ else
     echo "==> promoting $WANT"
 fi
 
+# A pre-release is never promoted.  Its Release sits below 1 (0.N.rcN) so that
+# the final can be <version>-1, and that final is built by the release run: the
+# rc's own file would otherwise ship to stable under a pre-release name.  See
+# UNMASK_PRERELEASE in the Makefile.  (Builds published to testing before the
+# rc scheme carry a Release of 1 or more and still promote as before.)
+case "${WANT#*-}" in
+    0|0.*)
+        echo "ERR: $WANT is a pre-release (Release below 1) and is not promoted." >&2
+        echo "     The final is built by the release run as ${WANT%%-*}-1." >&2
+        exit 1 ;;
+esac
+
 copied=0
 skipped=0
 conflicts=0

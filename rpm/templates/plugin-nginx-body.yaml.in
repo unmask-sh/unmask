@@ -59,7 +59,7 @@ overrides:
   # script runs otherwise) so the new .so is re-placed.
   apk:
     depends:
-      - "unmask=${UNMASK_VERSION}-r${UNMASK_RELEASE}"
+      - "unmask=${UNMASK_APK_PKGVER}"
       - nginx
     apk:
       scripts:

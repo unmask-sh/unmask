@@ -28,11 +28,39 @@
 #
 
 UNMASK_VERSION ?= 0.1.45
-# Package release / revision.  1 for a normal build.  A build published to the
-# testing channel bumps it for every attempt (2, 3, ...), because promotion
-# copies the file rather than renaming it -- reusing a number would put two
-# different artifacts under one NVR.
+# Pre-release label for a build published to the testing channel: rc1, rc2, ...
+# Empty for a release.  A pre-release of UNMASK_VERSION has to sort BEFORE that
+# version's final package in every format, and the final has to stay `-1`:
+#
+#   rpm, deb   0.1.46-0.1.rc1  <  0.1.46-0.2.rc2  <  0.1.46-1
+#              Release below 1 -- the Fedora "traditional" pre-release form.
+#              No tilde, and dpkg orders it the same way.
+#   apk        0.1.46_rc1-r0   <  0.1.46-r1
+#              apk's release is an integer, so the label rides in the version.
+#
+# One input, UNMASK_PRERELEASE=rcN, derives the rest.  The binary reports
+# 0.1.46-rcN, which the admin's own version parsing reads as 0.1.46 (it stops
+# at the first '-'); a '~' there would make it read 0.1.0.
+#
+# A pre-release is never promoted into stable: the final is built by the
+# release run as 0.1.46-1, a name no testing build can take.
+UNMASK_PRERELEASE ?=
+ifneq ($(UNMASK_PRERELEASE),)
+ifeq ($(shell echo '$(UNMASK_PRERELEASE)' | grep -Ex 'rc[1-9][0-9]*'),)
+$(error UNMASK_PRERELEASE must be rc<N> (rc1, rc2, ...), got '$(UNMASK_PRERELEASE)')
+endif
+UNMASK_RELEASE ?= 0.$(patsubst rc%,%,$(UNMASK_PRERELEASE)).$(UNMASK_PRERELEASE)
+endif
+# Package release / revision: 1 for a release, derived above for a pre-release.
 UNMASK_RELEASE ?= 1
+UNMASK_BIN_VERSION ?= $(UNMASK_VERSION)$(if $(UNMASK_PRERELEASE),-$(UNMASK_PRERELEASE))
+UNMASK_APK_RELEASE = $(if $(UNMASK_PRERELEASE),0,$(UNMASK_RELEASE))
+UNMASK_APK_VER     = $(UNMASK_VERSION)$(if $(UNMASK_PRERELEASE),_$(UNMASK_PRERELEASE))
+UNMASK_APK_PKGVER  = $(UNMASK_APK_VER)-r$(UNMASK_APK_RELEASE)
+# nfpm expands ${NFPM_RELEASE} / ${NFPM_PRERELEASE} in the manifest itself at
+# pkg time, which is what lets one manifest serve all three formats while apk
+# spells the pre-release its own way.  Prefix every `nfpm pkg` with this.
+_nfpm_env = NFPM_RELEASE='$(if $(filter apk,$(1)),$(UNMASK_APK_RELEASE),$(UNMASK_RELEASE))' NFPM_PRERELEASE='$(if $(filter apk,$(1)),$(UNMASK_PRERELEASE))'
 GOOS           ?= linux
 # Default from `go env`; on hosts without Go (e.g. the arm64 qemu builder
 # container running build-module-multi) fall back to uname -m, NOT a hardcoded
@@ -72,7 +100,7 @@ MODULE_SO       = $(DIST)/ngx_http_unmask_module-$(GOOS)-$(GOARCH).so
 # reproducibility and would also mark the build dirty); resolved here so a build
 # from a tarball with no git simply leaves it empty.
 UNMASK_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null)
-GOFLAGS = -trimpath -buildvcs=false -ldflags="-s -w -X main.Version=$(UNMASK_VERSION) -X main.Commit=$(UNMASK_COMMIT)"
+GOFLAGS = -trimpath -buildvcs=false -ldflags="-s -w -X main.Version=$(UNMASK_BIN_VERSION) -X main.Commit=$(UNMASK_COMMIT)"
 
 # SOURCE_DATE_EPOCH: pin file mtime + Go's "build info" timestamp.  Default to
 # the commit timestamp so reproducible builds work without an explicit override.
@@ -388,9 +416,9 @@ package-release:
 	mkdir -p build/release
 	gpg --dearmor --yes -o build/release/unmask.gpg < rpm/release/RPM-GPG-KEY-unmask
 	$(call _nfpm_yaml,release,unmask-release,all,unmask project,https://unmask.sh/,$(DIST)/.tmp-pkg/nfpm-release.yaml)
-	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-release.yaml --packager rpm --target ../$(DIST)
-	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-release.yaml --packager deb --target ../$(DIST)
-	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-release.yaml --packager apk --target ../$(DIST)
+	cd rpm && $(call _nfpm_env,rpm) $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-release.yaml --packager rpm --target ../$(DIST)
+	cd rpm && $(call _nfpm_env,deb) $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-release.yaml --packager deb --target ../$(DIST)
+	cd rpm && $(call _nfpm_env,apk) $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-release.yaml --packager apk --target ../$(DIST)
 	rm -f $(DIST)/.tmp-pkg/nfpm-release.yaml
 
 ## repo - assemble a distribution layout including metadata into repo/ from
@@ -505,8 +533,8 @@ define _nfpm_yaml
 			envsubst '$$PACKAGE_HOMEPAGE $$NFPM_RPM_KEY_FILE $$NFPM_APK_KEY_FILE $$NFPM_APK_KEY_NAME' \
 			< $(NFPM_TPL)/signing.yaml.in >> $(6) ; \
 	fi
-	UNMASK_VERSION='$(UNMASK_VERSION)' UNMASK_RELEASE='$(UNMASK_RELEASE)' UNMASK_ARCH='$(GOARCH)' \
-		envsubst '$$UNMASK_ARCH $$UNMASK_VERSION $$UNMASK_RELEASE $$NFPM_APK_KEY_FILE $$NFPM_APK_KEY_NAME' \
+	UNMASK_VERSION='$(UNMASK_VERSION)' UNMASK_RELEASE='$(UNMASK_RELEASE)' UNMASK_ARCH='$(GOARCH)' UNMASK_APK_PKGVER='$(UNMASK_APK_PKGVER)' \
+		envsubst '$$UNMASK_ARCH $$UNMASK_VERSION $$UNMASK_RELEASE $$UNMASK_APK_PKGVER $$NFPM_APK_KEY_FILE $$NFPM_APK_KEY_NAME' \
 		< $(NFPM_TPL)/$(1)-body.yaml.in >> $(6)
 endef
 
@@ -515,7 +543,7 @@ endef
 # relative to rpm/ (= same convention every nfpm target shares).
 define _nfpm_main
 	$(call _nfpm_yaml,main,unmask,$(GOARCH),unmask,https://github.com/unmask-sh/unmask,$(DIST)/.tmp-pkg/nfpm-main.$(GOARCH).yaml)
-	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-main.$(GOARCH).yaml --packager $(1) --target ../$(DIST)
+	cd rpm && $(call _nfpm_env,$(1)) $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-main.$(GOARCH).yaml --packager $(1) --target ../$(DIST)
 	rm -f $(DIST)/.tmp-pkg/nfpm-main.$(GOARCH).yaml
 endef
 
@@ -600,16 +628,16 @@ package-plugin-nginx-fat:
 		echo "  -> bundling nginx $$v (CentOS 6 / glibc 2.12)"; \
 	done
 	# 3. Build all 3 formats.
-	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml --packager rpm --target ../$(DIST)
-	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml --packager deb --target ../$(DIST)
-	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml --packager apk --target ../$(DIST)
+	cd rpm && $(call _nfpm_env,rpm) $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml --packager rpm --target ../$(DIST)
+	cd rpm && $(call _nfpm_env,deb) $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml --packager deb --target ../$(DIST)
+	cd rpm && $(call _nfpm_env,apk) $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml --packager apk --target ../$(DIST)
 	rm -f $(DIST)/.tmp-pkg/nfpm-plugin-nginx-fat.$(GOARCH).yaml
 	rm -rf $(DIST)/.tmp-pkg
 	@echo ""
 	@echo ">>> fat plugin output:"
 	@ls -lah $(DIST)/unmask-plugin-nginx-$(UNMASK_VERSION)-$(UNMASK_RELEASE).*.rpm \
 	         $(DIST)/unmask-plugin-nginx_$(UNMASK_VERSION)-$(UNMASK_RELEASE)_*.deb \
-	         $(DIST)/unmask-plugin-nginx_$(UNMASK_VERSION)-r$(UNMASK_RELEASE)_*.apk 2>/dev/null
+	         $(DIST)/unmask-plugin-nginx_$(UNMASK_APK_PKGVER)_*.apk 2>/dev/null
 
 ## package-plugin-nginx - optional plugin for the nginx native module (rpm/deb/apk set).
 # Prereq: run `build-module NGINX_VERSION=<host nginx version>` once.
@@ -629,7 +657,7 @@ define _nfpm_plugin
 	chmod +x $(DIST)/.tmp-pkg/preinstall-plugin-nginx.sh
 	$(call _nfpm_yaml,plugin-nginx,unmask-plugin-nginx,$(GOARCH),unmask,https://github.com/unmask-sh/unmask,$(DIST)/.tmp-pkg/nfpm-plugin-nginx.$(GOARCH).yaml)
 	sed -i "s|./scripts/preinstall-plugin-nginx.sh|../$(DIST)/.tmp-pkg/preinstall-plugin-nginx.sh|" $(DIST)/.tmp-pkg/nfpm-plugin-nginx.$(GOARCH).yaml
-	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-plugin-nginx.$(GOARCH).yaml --packager $(1) --target ../$(DIST)
+	cd rpm && $(call _nfpm_env,$(1)) $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-plugin-nginx.$(GOARCH).yaml --packager $(1) --target ../$(DIST)
 	rm -f $(DIST)/.tmp-pkg/nfpm-plugin-nginx.$(GOARCH).yaml
 	rm -rf $(DIST)/.tmp-pkg
 endef
@@ -660,9 +688,9 @@ package-plugin-nginx-apk: build-module
 	$(call _nfpm_plugin,apk)
 	# apk: original name unmask-plugin-nginx_X.Y.Z_<arch>.apk
 	#    -> new name unmask-plugin-nginx_X.Y.Z-nginx_A.B.C_<arch>.apk
-	@for f in $(DIST)/unmask-plugin-nginx_$(UNMASK_VERSION)-r$(UNMASK_RELEASE)_*.apk; do \
+	@for f in $(DIST)/unmask-plugin-nginx_$(UNMASK_APK_PKGVER)_*.apk; do \
 		test -f "$$f" || continue; \
-		new=$$(echo "$$f" | sed "s|_$(UNMASK_VERSION)-r$(UNMASK_RELEASE)_|_$(UNMASK_VERSION)-nginx_$(NGINX_VERSION)-r$(UNMASK_RELEASE)_|"); \
+		new=$$(echo "$$f" | sed "s|_$(UNMASK_APK_VER)-r$(UNMASK_APK_RELEASE)_|_$(UNMASK_APK_VER)-nginx_$(NGINX_VERSION)-r$(UNMASK_APK_RELEASE)_|"); \
 		mv "$$f" "$$new"; \
 		echo ">>> plugin apk: $$new"; \
 	done
@@ -679,7 +707,7 @@ package-plugin-nginx-apk: build-module
 #   $(2) packager    (rpm / deb / apk)
 define _nfpm_web
 	$(call _nfpm_yaml,web-$(1),unmask-web-$(1),$(GOARCH),unmask,https://github.com/unmask-sh/unmask,$(DIST)/.tmp-pkg/nfpm-web-$(1).$(GOARCH).yaml)
-	cd rpm && $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-web-$(1).$(GOARCH).yaml --packager $(2) --target ../$(DIST)
+	cd rpm && $(call _nfpm_env,$(2)) $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-web-$(1).$(GOARCH).yaml --packager $(2) --target ../$(DIST)
 	rm -f $(DIST)/.tmp-pkg/nfpm-web-$(1).$(GOARCH).yaml
 endef
 

@@ -61,7 +61,7 @@ overrides:
   # script runs otherwise) so symlinks/maphash are re-applied.
   apk:
     depends:
-      - "unmask=${UNMASK_VERSION}-r${UNMASK_RELEASE}"
+      - "unmask=${UNMASK_APK_PKGVER}"
       - nginx
     apk:
       scripts:
