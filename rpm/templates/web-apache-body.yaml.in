@@ -41,7 +41,7 @@ overrides:
       scripts:
         postupgrade: ./scripts/postinstall-web-apache.sh
     depends:
-      - "unmask=${UNMASK_VERSION}-r${UNMASK_RELEASE}"
+      - "unmask=${UNMASK_APK_PKGVER}"
       - apache2
       - apache2-lua
       - apache2-proxy
