@@ -162,7 +162,9 @@ For the reporter, or a fleet node:
     sudo dnf --enablerepo=unmask-testing update 'unmask*'
     (apt: sudo apt install unmask=$VER-$REL    apk: unmask=$APKVER from $TESTING_URL/apk/main)
 
-The plugin's .so is re-placed on upgrade: restart nginx afterwards, not reload.
+nginx needs a restart only when the upgrade changed the module: the plugin
+leaves an identical one in place and says which case applied.  (A reload
+never loads a new module; restart when it did change.)
 EOF
 }
 
