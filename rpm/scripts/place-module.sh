@@ -421,7 +421,7 @@ if command -v restorecon >/dev/null 2>&1; then
     restorecon -F "$DEST" 2>/dev/null || true
 fi
 
-echo "  installed: $DEST"
+[ "$MODULE_UNCHANGED" = 1 ] || echo "  installed: $DEST"
 
 # ---- 7. auto-place load_module ----
 # Drop into the distro-conventional main-scope include dir (=
