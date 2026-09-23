@@ -233,6 +233,24 @@ install_so() {
     done
     return 1
 }
+# so_in_place <src> <primary-dir> <fallback-dir>: when the module already
+# sitting at either location has exactly these bytes, print that path and
+# return 0; install_so is then skipped.
+#
+# install_so's rename is atomic, but it still gives the path a new inode, and
+# nginx loads a module only at startup -- so replacing even an identical file
+# left the host needing an nginx restart before it was back in a known state.
+# Most upgrades do not change the module at all (it is rebuilt far less often
+# than the admin), and those should not touch nginx.
+so_in_place() {
+    for _sp_dir in "$2" "$3"; do
+        if [ -f "$_sp_dir/$SO_NAME" ] && cmp -s "$1" "$_sp_dir/$SO_NAME"; then
+            echo "$_sp_dir/$SO_NAME"
+            return 0
+        fi
+    done
+    return 1
+}
 resolve_libcrypto() {
     local so ver
     so=$(_rl_ldd_soname)
@@ -378,10 +396,16 @@ fi
 
 # ---- 4. install (with an immutable-/usr fallback) ----
 SRC="$PLUGIN_DIR/${SO_NAME%.so}-${PICKED}.so"
-DEST=$(install_so "$SRC" "$MODULES_PATH" "$FALLBACK_SO_DIR") || {
-    echo "ERROR: could not write the module to $MODULES_PATH nor $FALLBACK_SO_DIR. Skipping placement." >&2
-    exit 0
-}
+MODULE_UNCHANGED=0
+if DEST=$(so_in_place "$SRC" "$MODULES_PATH" "$FALLBACK_SO_DIR"); then
+    MODULE_UNCHANGED=1
+    echo "  module unchanged ($DEST) -- left in place; nginx does not need a restart for it"
+else
+    DEST=$(install_so "$SRC" "$MODULES_PATH" "$FALLBACK_SO_DIR") || {
+        echo "ERROR: could not write the module to $MODULES_PATH nor $FALLBACK_SO_DIR. Skipping placement." >&2
+        exit 0
+    }
+fi
 if [ "$DEST" = "$FALLBACK_SO_DIR/$SO_NAME" ]; then
     echo "  modules-path $MODULES_PATH is not writable (immutable /usr?) -> placed under $FALLBACK_SO_DIR"
     echo "  note: SELinux-enforcing hosts may need a local label before nginx can load from there:"
@@ -543,6 +567,12 @@ verify_or_disable
 echo ""
 echo "next steps (= on the nginx side):"
 echo "  1. (web-nginx package handles 'include /var/lib/unmask/nginx/http.inc' via a symlink)"
-echo "  2. Confirm 'nginx -t' passes, then reload."
+if [ "$MODULE_UNCHANGED" = 1 ]; then
+    echo "  2. The module did not change, so nginx needs nothing for it; a reload applies config changes as usual."
+else
+    # nginx loads a module only at startup: a reload keeps running the old one.
+    echo "  2. The module file changed: restart nginx (a reload keeps the old module) --"
+    echo "       nginx -t && systemctl restart nginx"
+fi
 
 exit 0
