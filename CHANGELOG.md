@@ -12,7 +12,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.46] - 2026-09-24
 
 ### Changed
 - (2026-09-24) **Trying a pre-release on Alpine works on an existing install.**  The note the release package writes and its README said `apk add --repository …`, which leaves an installed unmask exactly as it was.  Both now say `apk upgrade --repository https://unmask.sh/dl/testing/apk/main`, which moves the companion packages too; upgrading the release package replaces the old note.
