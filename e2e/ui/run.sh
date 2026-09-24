@@ -70,6 +70,11 @@ nginx_log:
   socket_path: $WORK/log.sock
 nginx:
   output_dir: $WORK/nginx-out
+  # The other two feeds the daemon pulls on its own, pointed away from
+  # production like the hub URLs below: left unset, every CI run fetched the
+  # bypass-IP document and the browser baselines from unmask.sh.
+  sync_hub_url: "http://127.0.0.1:9/bypass-iprange-all.json"
+  browser_majors_hub_url: "http://127.0.0.1:9/browser-majors.json"
 # Every hub URL points at a dead local port, the same as the docker suite's
 # admin.yml.  Anything this file leaves out takes the shipped default, and
 # subscribe is ON by default -- so without this the throwaway daemon registers
