@@ -61,36 +61,62 @@ if ! command -v docker >/dev/null 2>&1; then
     say "docker absent: the install checks did not run -- the signatures above are all this saw"
 else
 
+# --pull=always, and rockylinux/rockylinux rather than the library rockylinux:
+# the library image stopped being updated at Rocky 9.3 (2023), so pulling it
+# changes nothing -- these checks were installing into a two-year-old distro.
+# The point of an install check is the distro a user installs on today.
 REPO_URL="$BASE/${SUB}rpm/\$basearch"
-got=$(docker run --rm rockylinux:9 sh -c "
+got=$(docker run --rm --pull=always rockylinux/rockylinux:9 sh -c "
     curl -fsSL -o /tmp/k $BASE/keys/RPM-GPG-KEY-unmask 2>/dev/null && rpm --import /tmp/k
     printf '[t]\nname=t\nbaseurl=$REPO_URL\nenabled=1\ngpgcheck=1\nrepo_gpgcheck=1\ngpgkey=$BASE/keys/RPM-GPG-KEY-unmask\n' > /etc/yum.repos.d/t.repo
     dnf install -y -q unmask >/dev/null 2>&1
     rpm -q --qf '%{VERSION}-%{RELEASE}' unmask 2>/dev/null" 2>/dev/null || echo "")
 [ -n "$got" ] && ok "rpm    installs from the live repo ($got)" || bad "rpm    could not install from the live repo"
 
-got=$(docker run --rm alpine:3.20 sh -c "
+# What deb and apk must install is what rpm just did, spelled their way.  The
+# rpm check reads only this channel's repository, so its version is the
+# channel's truth; the other two can see the stable repository too (the release
+# package configures it), and a check that accepts "some unmask installed" is
+# satisfied by the stable build -- which is exactly what happened on the
+# testing channel: rc1 and rc2 reported ok for deb and apk while installing
+# 0.1.45, and the apk index had not carried a testing build since 0.1.24.
+#   rpm 0.1.46-0.2.rc2 -> deb 0.1.46-0.2.rc2, apk 0.1.46_rc2-r0   (pre-release)
+#   rpm 0.1.45-1       -> deb 0.1.45-1,       apk 0.1.45-r1        (release)
+want_deb=""; want_apk=""
+if [ -n "$got" ]; then
+    want_deb="$got"
+    case "${got#*-}" in
+        0.*) want_apk="${got%%-*}_$(printf '%s' "$got" | sed -E 's/^[^-]*-0\.[0-9]+\.//')-r0" ;;
+        *)   want_apk="${got%%-*}-r${got#*-}" ;;
+    esac
+fi
+
+got=$(docker run --rm --pull=always alpine:3 sh -c "
     wget -qO /tmp/r.apk $BASE/${SUB}apk/unmask-release-latest.apk 2>/dev/null ||
       wget -qO /tmp/r.apk $BASE/apk/unmask-release-latest.apk 2>/dev/null
     apk add --allow-untrusted -q /tmp/r.apk >/dev/null 2>&1
     apk add -q --repository $BASE/${SUB}apk/main unmask >/dev/null 2>&1
     apk info -v 2>/dev/null | grep -m1 '^unmask-0'" 2>/dev/null || echo "")
-[ -n "$got" ] && ok "apk    installs from the live repo ($got)" || bad "apk    could not install from the live repo"
+if [ -z "$got" ]; then bad "apk    could not install from the live repo"
+elif [ -n "$want_apk" ] && [ "$got" != "unmask-$want_apk" ]; then bad "apk    installed $got, but this channel publishes unmask-$want_apk"
+else ok "apk    installs from the live repo ($got)"; fi
 
 # deb had only its InRelease signature checked above -- the one format whose
 # repository was never actually installed from after a publish.  The apk index
 # incident says why that is not enough: a signed-looking repo can still be one
 # apt refuses.  debian:12 ships neither curl nor wget, hence the apt-get first.
-got=$(docker run --rm debian:12 sh -c "
+got=$(docker run --rm --pull=always debian:12 sh -c "
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq >/dev/null 2>&1 && apt-get install -y -qq curl ca-certificates >/dev/null 2>&1
     curl -fsSL -o /tmp/r.deb $BASE/${SUB}deb/unmask-release-latest.deb 2>/dev/null ||
       curl -fsSL -o /tmp/r.deb $BASE/deb/unmask-release-latest.deb 2>/dev/null
     apt-get install -y -qq /tmp/r.deb >/dev/null 2>&1
     apt-get update -qq >/dev/null 2>&1
-    apt-get install -y -qq unmask >/dev/null 2>&1
+    apt-get install -y -qq unmask${want_deb:+=$want_deb} >/dev/null 2>&1
     dpkg-query -W -f='\${Version}' unmask 2>/dev/null" 2>/dev/null || echo "")
-[ -n "$got" ] && ok "deb    installs from the live repo ($got)" || bad "deb    could not install from the live repo"
+if [ -z "$got" ]; then bad "deb    could not install ${want_deb:+unmask=$want_deb }from the live repo"
+elif [ -n "$want_deb" ] && [ "$got" != "$want_deb" ]; then bad "deb    installed $got, but this channel publishes $want_deb"
+else ok "deb    installs from the live repo ($got)"; fi
 
 fi
 
