@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.45",
+  "latest": "0.1.46",
   "releases": [
+    {
+      "version": "0.1.46",
+      "date": "2026-09-24",
+      "notes": "A browser that cannot keep the pass cookie, most often an app's built-in browser, is now told so before it is asked for a proof of work rather than after solving it: the screen names the in-app-browser case and shows the address to open in a regular browser, and the cookie-error text covers all eighteen languages. Subscribing installs identify themselves on the hourly feed pull, so the hub can count the installs that are running and not only the ones that registered; it keeps just the time of the last pull, the feed is the same either way, and \"Count this install as running\" under Settings > Community Bans turns it off (privacy v1.1; an install that shares bans re-accepts the terms once, and sharing pauses until it does). Upgrading asks for an nginx restart only when the module actually changed: the plugin package leaves an identical module in place and says which case applied. Fixes can be tried before a release from the testing channel, whose pre-releases sort before the release they lead up to (0.1.46-0.2.rc2, then 0.1.46-1), so an ordinary update never goes back and moves on to the release by itself; on Alpine the command is apk upgrade --repository. The bypass-IP and browser-baseline feeds can be pulled from a mirror of your own (nginx.sync_hub_url, nginx.browser_majors_hub_url), and the embedded crawler IP ranges are refreshed."
+    },
     {
       "version": "0.1.45",
       "date": "2026-09-19",

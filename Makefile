@@ -27,7 +27,7 @@
 #   - aarch64-linux-gnu-gcc (cross compile of arm64 nginx module; optional)
 #
 
-UNMASK_VERSION ?= 0.1.45
+UNMASK_VERSION ?= 0.1.46
 # Pre-release label for a build published to the testing channel: rc1, rc2, ...
 # Empty for a release.  A pre-release of UNMASK_VERSION has to sort BEFORE that
 # version's final package in every format, and the final has to stay `-1`:
