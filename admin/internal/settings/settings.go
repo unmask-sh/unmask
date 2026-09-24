@@ -811,6 +811,14 @@ type Nginx struct {
 	// SyncRequireSignature: refuse an unsigned feed document even over
 	// verified TLS.  Implied by SyncInsecureTLS.
 	SyncRequireSignature bool `yaml:"sync_require_signature,omitempty"`
+	// SyncHubURL / BrowserMajorsHubURL: where the two hub feeds are pulled
+	// from -- the aggregated bypass-IP document and the browser-majors
+	// baselines.  Empty = the published documents on unmask.sh, which is
+	// what an install wants.  They exist for a self-hosted mirror of the
+	// feeds, and for test harnesses: a daemon booted from the defaults
+	// otherwise fetches both documents from production on every CI run.
+	SyncHubURL          string `yaml:"sync_hub_url,omitempty"`
+	BrowserMajorsHubURL string `yaml:"browser_majors_hub_url,omitempty"`
 	// BypassIPAutoExcluded: preset IDs the operator explicitly opted OUT of
 	// the auto-from-UA derivation (= unchecked an auto-enabled row in the
 	// UI).  An excluded preset behaves exactly as before the feature: off
