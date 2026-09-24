@@ -659,6 +659,7 @@ func cmdServe(args []string) error {
 	// is the honest cost).
 	ipSync.InsecureTLS = s.Nginx.SyncInsecureTLS
 	ipSync.RequireSignature = s.Nginx.SyncRequireSignature
+	ipSync.HubURL = strings.TrimSpace(s.Nginx.SyncHubURL) // empty = the published document
 	ipSync.RenderFunc = func() error {
 		cur := h.SnapshotSettings()
 		out := strings.TrimSpace(cur.Nginx.OutputDir)
@@ -677,6 +678,7 @@ func cmdServe(args []string) error {
 	// so failures are non-fatal in both directions.
 	bmSync := browsermajors.NewSync()
 	bmSync.UserAgent = "unmask/" + Version
+	bmSync.HubURL = strings.TrimSpace(s.Nginx.BrowserMajorsHubURL) // empty = the published document
 	h.BrowserSync = bmSync
 	go bmSync.Start(context.Background())
 

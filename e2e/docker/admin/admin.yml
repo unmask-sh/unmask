@@ -111,6 +111,12 @@ nginx_log:
 # render-nginx output dir (= /etc/unmask is shared with the nginx container).
 nginx:
   output_dir: /etc/unmask
+  # The bypass-IP and browser-baseline feeds, away from production like the
+  # community_bans URLs at the end of this file.  Scenario 51 writes the iprange
+  # override itself (standing in for a hub pull), so a live pull could only
+  # race it.
+  sync_hub_url: "http://127.0.0.1:9/bypass-iprange-all.json"
+  browser_majors_hub_url: "http://127.0.0.1:9/browser-majors.json"
   # scenario 61: the HTTP->HTTPS redirect and its health-check exemption,
   # exercised over the plain :8480 listener of the 8443 vhost.
   https_redirect: true
