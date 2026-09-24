@@ -125,48 +125,44 @@ Stages that are not active leave their existing output untouched (= no
 
 ## The testing channel
 
-A channel for handing a fix to whoever reported it, confirming it, and then
-shipping the same build.  `UNMASK_CHANNEL=testing` indexes and publishes into
+A channel for handing a fix to whoever reported it -- and our own fleet --
+before a release.  `UNMASK_CHANNEL=testing` indexes and publishes into
 `/dl/testing/`; unset, everything behaves exactly as it did before.
 
-### Publishing a build for confirmation
+### Publishing a pre-release
 
 ```sh
-# Release 1 for the first attempt.  Bump it for every further attempt -- the
-# reporter's update only moves if the version does, and republishing the same
-# one leaves them on the broken build believing they tested the fix.
-make package UNMASK_VERSION=0.1.21 UNMASK_RELEASE=1
-UNMASK_CHANNEL=testing tools/build-repo.sh
-UNMASK_CHANNEL=testing tools/publish-repo.sh
+tools/testing-run.sh 0.1.46 rc1      # build -> sign -> publish -> read back
 ```
+
+A pre-release of 0.1.46 is packaged as `0.1.46-0.1.rc1` (rpm, deb) and
+`0.1.46_rc1-r0` (apk), so it sorts above every earlier release and below
+`0.1.46-1`: an ordinary update never takes a node back to the previous release,
+and the final replaces it on its own.  The next attempt is `rc2`, never a
+rebuild of `rc1` -- a reporter's update only moves if the version does, and two
+files under one NVR cannot be fixed.  `testing-run.sh` refuses a number already
+used, and an rc of a version stable already reached.  `UNMASK_PRERELEASE` in the
+Makefile has how each format spells it.
 
 Then give the reporter one line:
 
 ```sh
-sudo dnf --enablerepo=unmask-testing update unmask                        # RHEL family
-sudo apt update && sudo apt install unmask=0.1.21-1                       # Debian family
-sudo apk add --repository https://unmask.sh/dl/testing/apk/main unmask    # Alpine
+sudo dnf --enablerepo=unmask-testing update unmask                   # RHEL family
+sudo apt update && sudo apt install unmask=0.1.46-0.1.rc1            # Debian family, + each unmask-* package they have
+sudo apk upgrade --repository https://unmask.sh/dl/testing/apk/main  # Alpine
 ```
 
 Nothing else to set up: `unmask-release` already configured the channel and
 left it inactive, and both channels share one signing key.
 
-### Promoting a confirmed build
+### The release after it
 
-```sh
-tools/promote-repo.sh --dry-run     # read it first
-tools/promote-repo.sh               # copies the SAME files into the stable tree
-tools/build-repo.sh                 # reindex stable
-tools/publish-repo.sh               # push stable (testing is left untouched)
-```
-
-The build is copied, never rebuilt.  That is the whole point: a rebuild
-produces different bytes even from identical source, because the version is
-compiled into the binary, so "what you confirmed is what shipped" would stop
-being literally true.  `promote-repo.sh` reads each file back after copying and
-refuses outright if a name already exists in stable with different content --
-two artifacts under one NVR cannot be fixed by overwriting, only by publishing
-a new release number.
+A pre-release is never promoted.  The final is built, gated and signed by
+`tools/release-run.sh` as `<version>-1`, a name no testing build can take, and
+`promote-repo.sh` refuses anything whose Release is below 1.  (It still copies a
+confirmed *release-numbered* testing build into stable byte for byte -- the way
+this channel worked before pre-releases -- and everything below about promotion
+applies to that case.)
 
 ### Before publishing anything
 
@@ -209,6 +205,17 @@ and check what the tools say.
   and ordinary upgrades stop; `a=testing` alone catches Debian's own testing
   suite.  Written by the `unmask-release` postinstall, verified against a real
   two-suite repo.
+- **The apk index is built in a container.**  This host has no apk-tools or
+  abuild, and `build-repo.sh` here skips the apk stage while keeping whatever
+  index was there -- so through rc1 and rc2 the testing apk index still listed
+  0.1.24, and the post-publish check passed because it accepted any unmask it
+  could install.  `testing-run.sh` runs `make repo-apk` (as the release run does
+  in its gate), and `verify-published.sh` now requires deb and apk to install
+  the very version the rpm check did.
+- **`apk add` changes nothing about a package that is already installed.**  A
+  reporter already has unmask, so `apk add --repository …` left them on the
+  release they had; `apk upgrade --repository …` moves them, and the companion
+  packages with their exact pins.
 - **deb and apk pin the companion packages with the release, rpm without it.**
   rpm's `=` matches any release; dpkg and apk compare the whole string.  Get it
   wrong and the packages build cleanly and cannot be installed.

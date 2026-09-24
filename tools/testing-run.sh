@@ -132,6 +132,16 @@ stage_sign() {
     local f bad=0
     for f in dist/*.rpm; do rpm -K "$f" | grep -q 'signatures OK' || { echo "  NOT signed: $f"; bad=1; }; done
     [ "$bad" = 0 ] || die "unsigned rpm(s) after sign-rpm"
+    # The apk index is built inside an Alpine container: this host has no
+    # apk-tools / abuild, and build-repo.sh on it SKIPS the apk stage and keeps
+    # whatever index was there.  For rc1 and rc2 that meant the testing apk
+    # index still listed 0.1.24 -- the rcs never reached Alpine, and the
+    # post-publish check passed because it accepted any unmask it could install.
+    # The release run does this in its gate stage; the testing run has to as well.
+    UNMASK_CHANNEL=testing make repo-apk > "$STATE/sign.repo-apk.log" 2>&1 \
+        || die "repo-apk (testing) failed (see $STATE/sign.repo-apk.log)"
+    tar -xzOf "$DL_BUILD/testing/apk/main/x86_64/APKINDEX.tar.gz" APKINDEX 2>/dev/null | grep -qx "V:$APKVER" \
+        || die "the testing apk index does not list unmask $APKVER after repo-apk"
     UNMASK_CHANNEL=testing ./tools/build-repo.sh "$DL_BUILD" all > "$STATE/sign.build-repo.log" 2>&1 \
         || die "build-repo (testing) failed (see $STATE/sign.build-repo.log)"
     grep -q 'NOT signed' "$STATE/sign.build-repo.log" && die "build-repo ran unsigned (UNMASK_GPG_KEY_ID not seen)"

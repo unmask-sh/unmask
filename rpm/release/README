@@ -41,14 +41,17 @@ ordinary update cannot reach it, and nothing has to be undone afterwards.
 
   Debian / Ubuntu
       sudo apt update
-      sudo apt install unmask=<version>      # the version you were given
+      sudo apt install unmask=<version>      # the version you were given,
+                                             # for each unmask-* package you have
 
   Alpine
-      sudo apk add --repository https://unmask.sh/dl/testing/apk/main unmask
+      sudo apk upgrade --repository https://unmask.sh/dl/testing/apk/main
 
 The signing key is the same one this package installed, so there is nothing
 else to set up.
 
-Once the fix is confirmed, the identical file is copied into the stable
-channel -- not rebuilt -- so the build you confirmed is the build that ships.
-Your next ordinary update moves you back onto stable by itself.
+Pre-releases are numbered to sort before the release they lead up to --
+0.1.46-0.1.rc1, 0.1.46-0.2.rc2, then the release itself as 0.1.46-1 (on
+Alpine, 0.1.46_rc2-r0 before 0.1.46-r1).  So an ordinary update never takes
+you back to the previous release, and moves you onto the final one by itself
+once it is out.
