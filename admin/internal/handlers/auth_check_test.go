@@ -113,8 +113,8 @@ func TestGeoDecideForCountry(t *testing.T) {
 		{Country: "CN", Action: settings.RateChallengeDeny, Enabled: true},
 		{Country: "DE", Action: settings.GeoActionSkip, Enabled: true},
 		{Country: "RU", Action: settings.RateChallengeCaptchaOnly, Enabled: false}, // disabled -> no opinion
-		{Country: "FR", Action: ""},                // disabled (Enabled unset) -> no opinion, falls to default
-		{Country: "IT", Action: "", Enabled: true}, // ENABLED registered rule, blank action -> inherits DefaultRuleAction
+		{Country: "FR", Action: ""},                                                // disabled (Enabled unset) -> no opinion, falls to default
+		{Country: "IT", Action: "", Enabled: true},                                 // ENABLED registered rule, blank action -> inherits DefaultRuleAction
 	}
 	geoSkipDefault := settings.GeoConfig{DefaultAction: settings.GeoActionSkip, Rules: rules}
 	geoDenyDefault := settings.GeoConfig{DefaultAction: settings.RateChallengeDeny, Rules: rules}
