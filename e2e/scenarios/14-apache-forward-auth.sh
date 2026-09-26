@@ -90,7 +90,7 @@ assert_eq "200" "$code" "skip: /unmask/healthz proxied to admin → 200" || fail
 # request WITHOUT a JA4 passes -- the difference proves the JA4 was captured
 # end-to-end through Apache (this is the Apache answer to "can an LB forward JA4").
 # Scenario 43 isolates the inverse: a spoofed PUBLIC conn-peer -> JA4 dropped.
-JA4_BOT="t13e2e0bot01_xxx_yyy"   # admin.yml ja4_verdicts.extra -> action=bot
+JA4_BOT="t13e2e0bot01_xxx_yyy"   # config.yml ja4_verdicts.extra -> action=bot
 code=$(curl -s -o /dev/null -w '%{http_code}' \
     -A "$UA_BROWSER" -H 'X-Forwarded-For: 203.0.113.20' "${APACHE_URL}/")
 assert_eq "200" "$code" "ja4: browser UA, no forwarded JA4 → pass (200)" || fails=$((fails+1))

@@ -13,7 +13,7 @@
 # and confirms the chained $is_bypass_path / $serve_bot_challenge variables
 # only react on the configured site.
 #
-# Fixture (e2e/docker/admin/admin.yml):
+# Fixture (e2e/docker/unmask/config.yml):
 #   bypass_paths.paths:
 #     - path: "^/e2e-shop-bypass/", site: "shop.example.com"
 #   honeypot.urls:

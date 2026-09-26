@@ -2,7 +2,7 @@
 //
 // Fetches the current month's DB-IP Country Lite mmdb (= CC BY 4.0)
 // and atomically installs it to /var/lib/unmask/mmdb/dbip-country.mmdb
-// (or the path passed via -path / configured in admin.yml).
+// (or the path passed via -path / configured in config.yml).
 //
 // The action is named "install-ipgeo" rather than "install-mmdb" because
 // mmdb is a generic file format that could in principle carry any IP-keyed
@@ -27,7 +27,7 @@ import (
 
 func cmdInstallIPGeo(args []string) error {
 	fs := flag.NewFlagSet("install-ipgeo", flag.ExitOnError)
-	configPath := fs.String("config", os.Getenv("UNMASK_CONFIG"), "path to admin.yml")
+	configPath := fs.String("config", os.Getenv("UNMASK_CONFIG"), "path to config.yml")
 	pathOverride := fs.String("path", "", "destination path (= overrides config / default)")
 	kindFlag := fs.String("kind", "country", "which DB to fetch (= country / asn)")
 	urlTemplate := fs.String("url", "", "override URL template (= must contain %s for YYYY-MM; testing only)")

@@ -14,7 +14,7 @@ import sys
 from playwright.sync_api import sync_playwright
 
 BASE = os.environ.get("BASE_URL", "https://localhost:8443")
-PROT = "/pow-gate/"  # a PoW-only protected path (see e2e admin.yml) a browser can auto-clear
+PROT = "/pow-gate/"  # a PoW-only protected path (see e2e config.yml) a browser can auto-clear
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/120.0 Safari/537.36")
 STEALTH = (

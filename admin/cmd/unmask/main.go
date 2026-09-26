@@ -306,7 +306,7 @@ func cmdServe(args []string) error {
 	// handles routing + retention.  No app-side file rotation; see
 	// https://12factor.net/logs.
 	// Serve still starts even when DB connection fails (incomplete db: section
-	// in admin.yml, or DB server not running).  The setup wizard at
+	// in config.yml, or DB server not running).  The setup wizard at
 	// /admin/setup/ accepts driver / connection info and hot-swaps it after
 	// completion.  When conn == nil, the setup gate redirects every other URL.
 	// A large write-ahead log left behind (a stop that was killed mid

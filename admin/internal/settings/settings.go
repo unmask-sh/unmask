@@ -583,7 +583,7 @@ func (b BrandingValues) ResolvedDenyBanCopyPreset() string {
 // siteverify service, so they carry site_key (= shown in HTML) and secret_key
 // (= used for server verification).
 //
-// secret_key is written in plain text to admin.yml (= unmask does not provide
+// secret_key is written in plain text to config.yml (= unmask does not provide
 // env-var indirection; protect via file permissions). Even if leaked, impact
 // on the site is limited (= the attacker can use the key on their own site,
 // but cannot bypass unmask's protection).
@@ -3930,7 +3930,7 @@ func defaults() Settings {
 			},
 			// Preset zones are seeded via BackfillRateLimitPresets on the first
 			// admin start (= idempotent, stamp guarded).  Keeping defaults()
-			// zone list empty lets e2e admin.yml load without the preset
+			// zone list empty lets e2e config.yml load without the preset
 			// triggering Save() side-effects in fresh-install code paths.
 		},
 		Global: GlobalConfig{
@@ -4012,7 +4012,7 @@ func defaults() Settings {
 			// UpstreamAddr stays empty so buildUpstreamServer derives the
 			// upstream from server.bind (TCP or unix:).  An operator deploys
 			// admin and nginx in separate network namespaces (= docker
-			// compose, k8s) can set it explicitly to e.g. "admin:9477".
+			// compose, k8s) can set it explicitly to e.g. "unmask:9477".
 			SeenVersion: "v0.1", // baseline for new-preset NEW-badge gating
 			// AdminAllowedIPs defaults to empty = NO IP restriction on the
 			// admin UI (login + CSRF + login rate-limit still apply).  The
@@ -4180,7 +4180,7 @@ func Load(path string) (Settings, error) {
 	// Rate-limit preset backfill, stamp persisted to a sibling file so
 	// the "do not reappear after operator delete" guarantee survives a
 	// restart.  yaml.Marshal-backed Save() can't be used (= clobbers
-	// intentionally-sparse admin.yml overrides like the honeypot URL
+	// intentionally-sparse config.yml overrides like the honeypot URL
 	// preset list -- see feedback_settings_load_no_save), so the stamp
 	// is its own one-line file under the runtime state dir.
 	rateLimitPresetBackfill(&s.RateLimit, time.Now().Unix())

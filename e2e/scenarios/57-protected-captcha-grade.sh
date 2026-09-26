@@ -11,7 +11,7 @@
 # What must NOT break: a pow-only protected path still accepts a PoW cookie, and
 # the same PoW cookie still passes on ordinary (unprotected) paths.
 #
-# admin.yml protected_paths: /login/ = captcha, /pow-gate/ = pow.  Distinct
+# config.yml protected_paths: /login/ = captcha, /pow-gate/ = pow.  Distinct
 # X-Forwarded-For IPs (RFC 5737 TEST-NET-3) isolate from ban/honeypot state.
 set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"

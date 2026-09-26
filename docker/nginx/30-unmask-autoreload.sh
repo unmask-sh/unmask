@@ -1,7 +1,7 @@
 #!/bin/sh
 # Auto-reload for the unmask nginx image.
 #
-# The admin container renders the nginx includes into the shared /etc/unmask
+# The unmask container renders the nginx includes into the shared /etc/unmask
 # volume whenever settings change; on a host the operator then reloads
 # nginx, but a container cannot be signalled from another container.  So
 # this watches the rendered files and reloads nginx itself when their

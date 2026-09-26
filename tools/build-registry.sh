@@ -8,7 +8,7 @@
 # usage:
 #   tools/build-registry.sh <version>            e.g. 0.1.37
 #   tools/build-registry.sh <version> --from-layouts <dir>
-#       use OCI layouts already on disk (<dir>/admin, <dir>/nginx, each with
+#       use OCI layouts already on disk (<dir>/unmask, <dir>/nginx, each with
 #       index.json + blobs/, as `docker buildx build --output type=oci`
 #       writes after untarring) instead of pulling from GHCR -- for a build
 #       host that cannot reach the registry, or images built locally.
@@ -64,16 +64,16 @@ lay() {   # <name> <source tag> <tag>...
 }
 
 mkdir -p "$OUT/registry" "$OUT/docker"
-lay admin "$VER"       "$VER" latest
+lay unmask "$VER"       "$VER" latest
 lay nginx "$VER-$NGX"  "$VER-$NGX" "$NGX" "$NGX_MINOR" latest
 
 # The compose file people fetch, pinned per version and as the moving copy.
 cp "$ROOT/docker-compose.example.yml" "$OUT/docker/docker-compose-$VER.yml"
 cp "$ROOT/docker-compose.example.yml" "$OUT/docker/docker-compose.yml"
 
-# Digests, for anyone who pins images (docker pull unmask.sh/admin@sha256:...).
+# Digests, for anyone who pins images (docker pull unmask.sh/unmask@sha256:...).
 {
-    for name in admin nginx; do
+    for name in unmask nginx; do
         for f in "$OUT/registry/v2/$name/manifests/"*.idx "$OUT/registry/v2/$name/manifests/"*.man; do
             [ -f "$f" ] || continue
             ref="$(basename "$f")"; ref="${ref%.*}"
