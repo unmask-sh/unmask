@@ -9,7 +9,7 @@
 # the global default.  Until now the override was a stored-but-ignored field; this
 # pins it through the live decision.
 #
-# admin.yml fixture: a custom honeypot URL "^/pp-captcha-trap/" with
+# config.yml fixture: a custom honeypot URL "^/pp-captcha-trap/" with
 # action: captcha_only.  Its resolved action MUST differ from a default-chain
 # honeypot (/wp-login.php, no override -> inherits pow_then_captcha), which proves
 # case 1's captcha_only came from the per-rule override and not a global knob.

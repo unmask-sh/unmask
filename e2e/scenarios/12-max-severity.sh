@@ -6,7 +6,7 @@
 # directly (= bypasses nginx so we control X-Original-IP and X-Client-JA4
 # exactly).
 #
-# Admin.yml fixture (e2e/docker/admin/admin.yml):
+# Admin.yml fixture (e2e/docker/unmask/config.yml):
 #   nginx.geo.rules = [JP: pow_only, CN: deny]
 #   nginx.ja4_verdicts.extra = [t13e2e0bot01_xxx_yyy → action=bot]
 #   nginx.trusted_lb_extra.cidrs = [0.0.0.0/0]  (= honor X-Client-JA4 from anywhere)
@@ -28,7 +28,7 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 ADMIN_URL=${ADMIN_URL:-http://127.0.0.1:19477}
 
 JA4_OK="t13ok000000000_xxx_yyy"        # not in any rule -> verdict=ok
-JA4_BOT="t13e2e0bot01_xxx_yyy"          # matches admin.yml extra rule -> action=bot
+JA4_BOT="t13e2e0bot01_xxx_yyy"          # matches config.yml extra rule -> action=bot
 
 # check sends /unmask/api/check with the given IP/JA4 and prints status|action|chmode|reason
 check() {

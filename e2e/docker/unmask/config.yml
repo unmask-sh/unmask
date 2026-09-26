@@ -125,7 +125,7 @@ nginx:
   # stale-browser tier, so a probe on an old browser is never challenged.
   bypass_ips:
     - "203.0.113.222"
-  # Force the compose flow.  The admin container has no local nginx, so "auto"
+  # Force the compose flow.  The unmask container has no local nginx, so "auto"
   # (the default) can't probe the version and would fall back to classic --
   # losing coverage of compose, which is the flow every nginx-1.17.6+ install
   # renders (the nginx container here is 1.26).  Pinning "always" exercises the
@@ -138,8 +138,8 @@ nginx:
   rate_compose_mode: always
   # docker compose resolves the service name "admin".  This value is overridden on the
   # nginx side and so isn't actually used, but it's spelled out to keep render consistent.
-  upstream_addr: admin:9477
-  # The suite curls admin:9477 directly with X-Unmask-Site set, so opt into
+  upstream_addr: unmask:9477
+  # The suite curls unmask:9477 directly with X-Unmask-Site set, so opt into
   # trusting it (default-off since a client could otherwise spoof it through the
   # default proxy_pass_request_headers).  The forwarded X-Client-JA4 has no
   # toggle -- it is trusted via trusted_lb_extra below (RFC1918 = docker peers).

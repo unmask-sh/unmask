@@ -14,7 +14,7 @@ services:
     environment:
       PEBBLE_VA_ALWAYS_VALID: "1"
       PEBBLE_VA_NOSLEEP: "1"
-  admin:
+  unmask:
     environment:
       # Seeds settings > Gateway on the first boot; the admin renders the
       # gateway-*.inc the nginx container includes.

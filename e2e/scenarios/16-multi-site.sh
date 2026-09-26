@@ -18,7 +18,7 @@
 # does not set, so it is not exercised here.
 #
 # Verification reads the events back via `unmask events`, which needs
-# `docker compose exec` into the admin container.  When that is unavailable
+# `docker compose exec` into the unmask container.  When that is unavailable
 # (= the suite is pointed at a remote BASE_URL) the scenario skips cleanly.
 
 set -u
@@ -35,7 +35,7 @@ COMPOSE="$DIR/docker/docker-compose.yml"
 # container to exec the events CLI into).
 if ! command -v docker >/dev/null 2>&1 || \
    [ -z "$(docker compose -f "$COMPOSE" ps -q admin 2>/dev/null)" ]; then
-    log_skip "16-multi-site needs the docker e2e stack (admin container) — skipped"
+    log_skip "16-multi-site needs the docker e2e stack (unmask container) — skipped"
     exit 0
 fi
 
@@ -73,7 +73,7 @@ dump=""
 deadline=$(( $(date +%s) + 30 ))
 while :; do
     dump=$(timeout 8 docker compose -f "$COMPOSE" exec -T admin \
-        unmask events -config /etc/unmask/admin.yml --since 0 --poll-ms 100 \
+        unmask events -config /etc/unmask/config.yml --since 0 --poll-ms 100 \
         2>/dev/null || true)
     miss=0
     for s in $want_sites; do

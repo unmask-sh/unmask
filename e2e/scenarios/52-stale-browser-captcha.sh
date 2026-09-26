@@ -9,7 +9,7 @@
 # the frozen version and forces the CAPTCHA a headless PoW-solver cannot cheaply
 # clear.
 #
-# admin.yml (e2e): stale_browser_challenge on, current 150 / lag 35 -> threshold
+# config.yml (e2e): stale_browser_challenge on, current 150 / lag 35 -> threshold
 # 115, and header_integrity OFF -- a Chromium UA with no Sec-CH-UA is what that
 # axis fires on too, so leaving it on would let it out-rank the stale tier's own
 # action and this scenario would be watching the wrong axis.  So Chrome/120 (every other scenario's UA) stays fresh and passes, while
@@ -30,7 +30,7 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/assert.sh"
 
 UA_STALE='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36'
-# A monitoring probe's IP (admin.yml nginx.bypass_ips).
+# A monitoring probe's IP (config.yml nginx.bypass_ips).
 BYPASS_IP=203.0.113.222
 
 fails=0

@@ -12,6 +12,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+- (2026-09-26) **The container image is `unmask.sh/unmask`, its compose service `unmask`, and its config file `config.yml`.**  The image was named `admin`, which reads as an optional management UI; it is the whole daemon, what the `unmask` package installs on a host.  To move an existing container install: fetch the new compose file, rename `admin.yml` to `config.yml` in the config volume, and set `nginx.upstream_addr` there to `unmask:9477`.
+
 ## [0.1.46] - 2026-09-24
 
 ### Changed

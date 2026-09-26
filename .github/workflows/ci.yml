@@ -1,4 +1,4 @@
-# CI: lint + test + admin binary build (multi-arch) + nginx module build (matrix)
+# CI: lint + test + unmask binary build (multi-arch) + nginx module build (matrix)
 #
 # release: pushing a tag triggers nfpm to build rpm/deb/apk and attach them to
 # the release (= release.yml is a separate file).
@@ -97,7 +97,7 @@ jobs:
           args: --timeout=5m
 
   # --------------------------------------------------------------------
-  # admin binary (= cross compile linux/{amd64,arm64})
+  # unmask binary (= cross compile linux/{amd64,arm64})
   # --------------------------------------------------------------------
   build-admin:
     runs-on: ubuntu-latest
@@ -181,7 +181,7 @@ jobs:
           retention-days: 14
 
   # --------------------------------------------------------------------
-  # e2e: spin up nginx + admin via docker-compose and run 4 scenarios
+  # e2e: spin up nginx + unmask via docker-compose and run 4 scenarios
   # --------------------------------------------------------------------
   # Both container images must at least build: the nginx one compiles the
   # module against the pinned official nginx version, so an nginx bump or a
@@ -192,13 +192,13 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
-      - name: build admin image
+      - name: build unmask image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           push: false
           load: true
-          tags: unmask-ci/admin:test
+          tags: unmask-ci/unmask:test
       - name: build nginx image
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -212,15 +212,15 @@ jobs:
           docker run --rm unmask-ci/nginx:test nginx -t
           docker run --rm unmask-ci/nginx:test nginx -V 2>&1 | grep -q -- '--with-compat'
       # unmask.sh serves the images as static files (docker/registry/).  Lay
-      # the admin image out the way tools/build-registry.sh does at release
+      # the unmask image out the way tools/build-registry.sh does at release
       # time, serve the tree with stock nginx and the include, and pull it
       # with docker: the media types, headers and file names the client
       # expects are all in that include, and nothing else exercises them.
       - name: static registry layout pulls with docker
         run: |
-          docker buildx build --output type=oci,dest=/tmp/admin.oci.tar --build-arg UNMASK_VERSION=ci .
-          mkdir -p /tmp/admin-layout && tar -xf /tmp/admin.oci.tar -C /tmp/admin-layout
-          python3 tools/oci-static-registry.py --layout /tmp/admin-layout --name admin --tag ci --tag latest --out /tmp/registry
+          docker buildx build --output type=oci,dest=/tmp/unmask.oci.tar --build-arg UNMASK_VERSION=ci .
+          mkdir -p /tmp/unmask-layout && tar -xf /tmp/unmask.oci.tar -C /tmp/unmask-layout
+          python3 tools/oci-static-registry.py --layout /tmp/unmask-layout --name unmask --tag ci --tag latest --out /tmp/registry
           docker run -d --name oci-static -p 127.0.0.1:5999:80 \
             -v /tmp/registry/v2:/var/www/unmask.sh/v2:ro \
             -v $PWD/docker/registry/oci-static.inc:/etc/nginx/unmask-registry/oci-static.inc:ro \
@@ -230,15 +230,15 @@ jobs:
           sleep 2
           docker exec oci-static nginx -t
           curl -sI http://127.0.0.1:5999/v2/ | grep -q 'Docker-Distribution-API-Version: registry/2.0'
-          docker pull 127.0.0.1:5999/admin:ci
-          docker run --rm 127.0.0.1:5999/admin:ci version
+          docker pull 127.0.0.1:5999/unmask:ci
+          docker run --rm 127.0.0.1:5999/unmask:ci version
           # by digest, and the moving tag
-          dgst=$(sha256sum /tmp/registry/v2/admin/manifests/ci.man | cut -d' ' -f1)
-          docker pull 127.0.0.1:5999/admin@sha256:$dgst
-          docker pull 127.0.0.1:5999/admin:latest
+          dgst=$(sha256sum /tmp/registry/v2/unmask/manifests/ci.man | cut -d' ' -f1)
+          docker pull 127.0.0.1:5999/unmask@sha256:$dgst
+          docker pull 127.0.0.1:5999/unmask:latest
           docker rm -f oci-static
       # The compose example, end to end, on the images just built: first boot
-      # of the admin container (skeleton config, migrate, render), the nginx
+      # of the unmask container (skeleton config, migrate, render), the nginx
       # sidecar picking up the rendered includes, and the gateway answering --
       # the redirect on :80, the challenge for a curl fingerprint on /, and
       # the daemon reached through the gateway on /unmask/healthz.  Nothing
@@ -246,36 +246,36 @@ jobs:
       # nginx.conf.
       - name: compose example boots and the gateway answers
         run: |
-          docker tag unmask-ci/admin:test unmask.sh/admin:latest
+          docker tag unmask-ci/unmask:test unmask.sh/unmask:latest
           docker tag unmask-ci/nginx:test unmask.sh/nginx:1.28
           # No certificate prepared: the first start serves a self-signed one
           # the admin generated (Settings > Gateway > self-signed).
-          docker compose -f docker-compose.example.yml -f e2e/docker/no-phone-home.yml -f e2e/docker/admin-port-override.yml up -d --no-build
+          docker compose -f docker-compose.example.yml -f e2e/docker/no-phone-home.yml -f e2e/docker/unmask-port-override.yml up -d --no-build
           for i in $(seq 1 40); do
             [ "$(docker inspect -f '{{.State.Status}}' unmask-nginx 2>/dev/null)" = running ] && break
             sleep 3
           done
           sleep 5
           docker compose -f docker-compose.example.yml ps
-          test "$(docker inspect -f '{{.RestartCount}}' unmask-admin)" = 0
+          test "$(docker inspect -f '{{.RestartCount}}' unmask)" = 0
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1/)" = 301
           # The example seeds no hostname: :443 answers for any, with the
-          # self-signed pair the admin generated (O = unmask gateway).
+          # self-signed pair the daemon generated (O = unmask gateway).
           curl -sk --resolve localhost:443:127.0.0.1 https://localhost/ | grep -q '<title>Security check</title>'
           test "$(curl -sk --resolve localhost:443:127.0.0.1 -o /dev/null -w '%{http_code}' https://localhost/unmask/healthz)" = 200
           test "$(curl -sk --max-time 5 -o /dev/null -w '%{http_code}' https://127.0.0.1/unmask/healthz)" = 200
           echo | openssl s_client -connect 127.0.0.1:443 -servername localhost 2>/dev/null | openssl x509 -noout -subject | grep -q 'unmask gateway (self-signed)'
-          # The upstream is the admin's (seeded from UNMASK_UPSTREAM on the
-          # admin service); the nginx side says so.
+          # The upstream is the daemon's (seeded from UNMASK_UPSTREAM on the
+          # unmask service); the nginx side says so.
           docker logs unmask-nginx 2>&1 | grep -q -- '-> http://app:80 (settings > Gateway)'
-          docker exec unmask-admin grep -q 'proxy_pass http://app:80;' /etc/unmask/gateway-location.inc
+          docker exec unmask grep -q 'proxy_pass http://app:80;' /etc/unmask/gateway-location.inc
           docker exec unmask-nginx nginx -t
           # The reload watcher is up, and acts: touching the rendered includes
-          # through the admin (a re-render with a changed setting) must make
+          # through the daemon (a re-render with a changed setting) must make
           # nginx reload on its own.
           docker logs unmask-nginx 2>&1 | grep -q 'unmask-autoreload: watching'
-          docker exec unmask-admin sh -c 'sed -i "s|^nginx:$|nginx:\n    bypass_ips:\n        - 203.0.113.9|" /etc/unmask/admin.yml'
-          docker exec unmask-admin /usr/local/bin/unmask render-nginx -config /etc/unmask/admin.yml
+          docker exec unmask sh -c 'sed -i "s|^nginx:$|nginx:\n    bypass_ips:\n        - 203.0.113.9|" /etc/unmask/config.yml'
+          docker exec unmask /usr/local/bin/unmask render-nginx -config /etc/unmask/config.yml
           for i in $(seq 1 20); do
             docker logs unmask-nginx 2>&1 | grep -q 'nginx reloaded' && break
             sleep 1
@@ -286,8 +286,8 @@ jobs:
           # upstream; forwarded https traffic (X-Forwarded-Proto) is served
           # on :80 like :443 -- it gets the challenge, not a redirect; plain
           # http still redirects.
-          docker exec unmask-admin sh -c 'sed -i "s|^nginx:$|nginx:\n    bypass_paths:\n        paths:\n            - path: \"^/lb-probe/\"|" /etc/unmask/admin.yml'
-          docker exec unmask-admin /usr/local/bin/unmask render-nginx -config /etc/unmask/admin.yml
+          docker exec unmask sh -c 'sed -i "s|^nginx:$|nginx:\n    bypass_paths:\n        paths:\n            - path: \"^/lb-probe/\"|" /etc/unmask/config.yml'
+          docker exec unmask /usr/local/bin/unmask render-nginx -config /etc/unmask/config.yml
           for i in $(seq 1 20); do
             [ "$(curl -s -o /dev/null -w '%{http_code}' -A 'GoogleHC/1.0' http://127.0.0.1/lb-probe/x)" = 200 ] && break
             sleep 1
@@ -332,7 +332,7 @@ jobs:
       - name: gateway serves :80 only when TLS ends at a load balancer
         run: |
           docker compose -f docker-compose.example.yml down -v
-          docker compose -f docker-compose.example.yml -f e2e/docker/no-phone-home.yml -f e2e/docker/admin-port-override.yml -f e2e/docker/tls-none-override.yml up -d --no-build
+          docker compose -f docker-compose.example.yml -f e2e/docker/no-phone-home.yml -f e2e/docker/unmask-port-override.yml -f e2e/docker/tls-none-override.yml up -d --no-build
           for i in $(seq 1 40); do
             [ "$(docker inspect -f '{{.State.Status}}' unmask-nginx 2>/dev/null)" = running ] && break
             sleep 3

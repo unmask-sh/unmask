@@ -1,7 +1,7 @@
-# unmask with Docker Compose -- the admin daemon plus nginx with the module.
+# unmask with Docker Compose -- the unmask daemon plus nginx with the module.
 #
 #   1. docker compose -f docker-compose.example.yml up -d
-#   2. docker compose -f docker-compose.example.yml logs admin | grep "setup token"
+#   2. docker compose -f docker-compose.example.yml logs unmask | grep "setup token"
 #   3. open https://localhost/unmask/admin/  -> install wizard (paste the token).
 #      The first start serves a self-signed certificate (your browser warns
 #      once); Settings > Gateway is where the upstream, the hostnames and the
@@ -9,8 +9,8 @@
 #
 # Two containers, same shape as a host install:
 #
-#   admin   the daemon: admin UI, challenge verification, ban list, stats.
-#           On first start it writes a minimal admin.yml, migrates the DB,
+#   unmask  the daemon: admin UI, challenge verification, ban list, stats.
+#           On first start it writes a minimal config.yml, migrates the DB,
 #           renders the nginx includes into /etc/unmask, then serves.
 #   nginx   the official nginx image + the unmask module.  Terminates TLS
 #           (that is where JA4 comes from), classifies, and either serves the
@@ -19,7 +19,7 @@
 #           conf.d applies.
 #
 # The volumes are not optional: /etc/unmask carries the rendered includes
-# (nginx reads what admin wrote) and the secrets; drop it and every restart
+# (nginx reads what unmask wrote) and the secrets; drop it and every restart
 # mints new secrets, which logs every visitor out and re-challenges them.
 #
 # Settings changed in the admin UI are rendered into the shared volume and the
@@ -27,16 +27,16 @@
 # that does not parse is logged and skipped).  UNMASK_AUTORELOAD=0 disables that.
 
 services:
-  admin:
-    image: unmask.sh/admin:latest      # mirrored at ghcr.io/unmask-sh/admin
+  unmask:
+    image: unmask.sh/unmask:latest      # mirrored at ghcr.io/unmask-sh/unmask
     build: .                       # or build from this checkout
-    container_name: unmask-admin
+    container_name: unmask
     restart: unless-stopped
     environment:
       TZ: Asia/Tokyo
-      # The rendered nginx config proxies /unmask/ here; "admin" is this
+      # The rendered nginx config proxies /unmask/ here; "unmask" is this
       # service's name on the compose network.
-      UNMASK_DAEMON_ADDR: admin:9477
+      UNMASK_DAEMON_ADDR: unmask:9477
       # Gateway mode.  Everything about the gateway lives in the admin UI,
       # Settings > Gateway: the upstream, the hostnames it answers for, and
       # the certificates.  The variables below only seed that tab on the
@@ -59,14 +59,14 @@ services:
       # UNMASK_TLS_MODE: none   # a load balancer in front terminates TLS and forwards on :80
       # UNMASK_TRUSTED_PROXIES: "130.211.0.0/22 35.191.0.0/16"  # that balancer's ranges, as a custom row of
       #                                                        # Settings > Network > trusted LB / CDN (presets there too)
-      # Where the admin reaches the gateway to show the served certificate.
+      # Where the daemon reaches the gateway to show the served certificate.
       UNMASK_GATEWAY_ADDR: nginx:443
     volumes:
       - unmask-config:/etc/unmask
       - unmask-data:/var/lib/unmask
-      - unmask-run:/run/unmask      # access-log socket, nginx -> admin
+      - unmask-run:/run/unmask      # access-log socket, nginx -> unmask
       # Your own certificate files, if any (Settings > Gateway > files), the
-      # same directory as on the nginx service, read-only: the admin reads
+      # same directory as on the nginx service, read-only: the daemon reads
       # a mounted certificate's names (SANs) and never touches the key.
       - ./tls:/etc/unmask/tls:ro
     healthcheck:
@@ -83,13 +83,13 @@ services:
     container_name: unmask-nginx
     restart: unless-stopped
     depends_on:
-      admin:
+      unmask:
         condition: service_healthy
     environment:
       TZ: Asia/Tokyo
       # Gateway mode: terminate TLS on :443, challenge what needs it, proxy
       # the rest to the upstream from Settings > Gateway (rendered by the
-      # admin into the shared volume).  Remove this variable to run
+      # daemon into the shared volume).  Remove this variable to run
       # module-only with your own conf.d mounted at /etc/nginx/conf.d.
       UNMASK_GATEWAY: "1"
       # Fallbacks while the tab leaves them empty (the 0.1.37 variables):

@@ -3,12 +3,12 @@
 # This container exercises the *real* shipped Apache integration —
 #   snippets/apache-forward-auth.conf + snippets/apache-unmask.lua
 # — on a real Apache httpd.  Every request goes through the mod_lua handler,
-# which does an internal /_unmask/check subrequest to the admin container and
+# which does an internal /_unmask/check subrequest to the unmask container and
 # branches pass / challenge / block.  A tiny DocumentRoot is served on "pass".
 #
 # The snippet ships pointing at 127.0.0.1:9477 (= same-host loopback, the
 # production layout).  In compose the admin is a separate service, so the
-# admin host:port is rewritten to admin:9477 at build time — exactly the
+# admin host:port is rewritten to unmask:9477 at build time — exactly the
 # documented "Change 127.0.0.1:9477 if needed" install step.
 
 FROM debian:12-slim
@@ -27,7 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # IP per case (= the same isolation scenarios 05/12/13 get by injecting
 # X-Original-IP).  mod_remoteip rewrites r.useragent_ip, which the snippet's
 # lua already reads — the shipped snippet is exercised unchanged.  Not part of
-# the production snippet; this is the e2e equivalent of admin.yml's test knobs.
+# the production snippet; this is the e2e equivalent of config.yml's test knobs.
 RUN printf 'RemoteIPHeader X-Forwarded-For\nRemoteIPTrustedProxy 172.16.0.0/12 10.0.0.0/8 192.168.0.0/16\n' \
         > /etc/apache2/conf-available/remoteip-e2e.conf \
     && a2enconf remoteip-e2e
@@ -50,7 +50,7 @@ RUN echo '[unmask e2e apache backend]' > /var/www/html/index.html \
 # use the Debian lua path (the snippet's own note covers both).
 COPY snippets/apache-forward-auth.conf /etc/apache2/conf-available/unmask.conf
 COPY snippets/apache-unmask.lua        /etc/apache2/unmask.lua
-RUN sed -i 's#127\.0\.0\.1:9477#admin:9477#g' \
+RUN sed -i 's#127\.0\.0\.1:9477#unmask:9477#g' \
         /etc/apache2/conf-available/unmask.conf /etc/apache2/unmask.lua \
     && sed -i 's#/etc/httpd/unmask.lua#/etc/apache2/unmask.lua#' \
         /etc/apache2/conf-available/unmask.conf \

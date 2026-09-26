@@ -222,7 +222,7 @@ stage_push() {
     local assets; assets=$(gh release view -R "$REPO_SLUG" "$TAG" --json isDraft,assets --jq '"\(.isDraft) \(.assets|length)"')
     [ "${assets%% *}" = "true" ] || die "expected a draft release for $TAG, got: $assets"
     say "draft release exists with ${assets#* } asset(s)"
-    for img in "ghcr.io/${REPO_SLUG%%/*}/admin:$VER" "ghcr.io/${REPO_SLUG%%/*}/nginx:$VER-1.28.3"; do
+    for img in "ghcr.io/${REPO_SLUG%%/*}/unmask:$VER" "ghcr.io/${REPO_SLUG%%/*}/nginx:$VER-1.28.3"; do
         docker manifest inspect "$img" >/dev/null 2>&1 || die "GHCR image missing: $img"
     done
     say "GHCR images present"
@@ -321,8 +321,8 @@ stage_registry() {
     cd "$WT"
     tools/build-registry.sh "$VER" > "$STATE/registry.log" 2>&1 || true   # exit 1 = the skopeo container's root-owned temp; the tree is complete
     sudo -n rm -rf /tmp/unmask-registry.* 2>/dev/null || true
-    grep -q "\"$VER\"" "$DL_BUILD/registry/v2/admin/tags/list" || die "admin tag $VER missing from the registry tree (see $STATE/registry.log)"
-    cmp "$DL_BUILD/registry/v2/admin/manifests/latest.idx" "$DL_BUILD/registry/v2/admin/manifests/$VER.idx" || die "admin:latest is not $VER"
+    grep -q "\"$VER\"" "$DL_BUILD/registry/v2/unmask/tags/list" || die "unmask tag $VER missing from the registry tree (see $STATE/registry.log)"
+    cmp "$DL_BUILD/registry/v2/unmask/manifests/latest.idx" "$DL_BUILD/registry/v2/unmask/manifests/$VER.idx" || die "unmask:latest is not $VER"
     cmp "$DL_BUILD/registry/v2/nginx/manifests/1.28.idx" "$DL_BUILD/registry/v2/nginx/manifests/$VER-1.28.3.idx" || die "nginx:1.28 is not $VER"
     say "registry OK"
     done_mark registry

@@ -2,7 +2,7 @@
 # 52: ASN deny axis triggers 403 in isolation, and does NOT catch an ASN
 # without a rule.  The by-network sibling of scenario 13 (geo deny).
 #
-# Fixture (admin.yml + UNMASK_TEST_GEO_OVERRIDE):
+# Fixture (config.yml + UNMASK_TEST_GEO_OVERRIDE):
 #   192.0.2.90 -> country US (default skip), ASN 16509 (rule: deny)
 #   192.0.2.91 -> country US (default skip), ASN 64512 (no rule)
 # So 192.0.2.90 must 403 on the ASN axis alone, while 192.0.2.91 passes

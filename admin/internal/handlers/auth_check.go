@@ -55,7 +55,7 @@ import (
 // wbaVerifyRequest reconstructs the CLIENT's request for signature
 // verification.  /_unmask/check is reached via a subrequest / forward-auth
 // hop, so the inbound r describes the hop, not what the bot signed: r.Host is
-// the admin upstream ("unmask" / "admin:9477") and r.URL is /_unmask/check.
+// the admin upstream ("unmask" / "unmask:9477") and r.URL is /_unmask/check.
 // A bot signs derived components of ITS request — "@authority" = the target
 // site's host, "@path" = the fetched path — so verifying against the raw r
 // can never match (= every signature would fail with "signature mismatch").

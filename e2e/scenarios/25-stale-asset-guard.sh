@@ -5,7 +5,7 @@
 # This is the production root cause as an end-to-end guard.  A 2026-05-25 djb2
 # challenge.js left at /usr/share/unmask/challenge/ across a plugin upgrade
 # looped every visitor; loadChallengeJS now skips an override that lacks the
-# pow_seed marker.  Writes into the admin container, so it skips against a
+# pow_seed marker.  Writes into the unmask container, so it skips against a
 # remote BASE_URL (the same guard is also unit-tested).
 set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,7 +16,7 @@ COMPOSE="$DIR/docker/docker-compose.yml"
 dc() { docker compose -f "$COMPOSE" exec -T admin sh -c "$1"; }
 
 if ! command -v docker >/dev/null 2>&1 || [ -z "$(docker compose -f "$COMPOSE" ps -q admin 2>/dev/null)" ]; then
-    log "SKIP: admin container not running locally (remote BASE_URL?) -- guard is also unit-tested"
+    log "SKIP: unmask container not running locally (remote BASE_URL?) -- guard is also unit-tested"
     exit 0
 fi
 

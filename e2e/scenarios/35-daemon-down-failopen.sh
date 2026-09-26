@@ -1,5 +1,5 @@
 #!/bin/bash
-# 35: daemon-down fail-open (native mode) -- when the admin daemon is
+# 35: daemon-down fail-open (native mode) -- when the unmask daemon is
 # unreachable, the site must behave as if unmask was not installed.
 #
 # Rendered-config contract under test (server.inc / protect.inc):
@@ -13,15 +13,15 @@
 #
 # Flow:
 #   1. baseline (admin up): curl UA is challenged (403).
-#   2. docker compose stop admin.
+#   2. docker compose stop unmask.
 #   3. curl UA GET /            -> 200 + the @echo marker (= original content,
 #                                  no PoW / CAPTCHA, not a raw 502).
 #   4. curl UA GET /?q=1        -> 200 (query string survives the replay).
 #   5. GET /unmask/admin/       -> 503 with Retry-After (no replay target).
-#   6. docker compose start admin, wait for healthz.
+#   6. docker compose start unmask, wait for healthz.
 #   7. curl UA GET /            -> 403 again (= protection resumed).
 #
-# Needs the docker e2e stack (it stops/starts the admin container); skips
+# Needs the docker e2e stack (it stops/starts the unmask container); skips
 # cleanly when the suite targets a remote BASE_URL.
 
 set -u
@@ -32,7 +32,7 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 COMPOSE="${COMPOSE:-$DIR/docker/docker-compose.yml}"
 if ! command -v docker >/dev/null 2>&1 || \
    [ -z "$(docker compose -f "$COMPOSE" ps -q admin 2>/dev/null)" ]; then
-    log_skip "35-daemon-down-failopen needs the docker e2e stack (admin container) — skipped"
+    log_skip "35-daemon-down-failopen needs the docker e2e stack (unmask container) — skipped"
     exit 0
 fi
 
@@ -77,11 +77,11 @@ cleanup() {
     local rc=$?
     ban_clear
     if [ "$ADMIN_STOPPED" = "1" ]; then
-        docker compose -f "$COMPOSE" start admin >/dev/null 2>&1 || true
+        docker compose -f "$COMPOSE" start unmask >/dev/null 2>&1 || true
         if wait_healthz_eq 200 30; then
-            log "cleanup: admin container restarted (healthz 200)"
+            log "cleanup: unmask container restarted (healthz 200)"
         else
-            log_fail "cleanup: admin container did not come back healthy"
+            log_fail "cleanup: unmask container did not come back healthy"
             rc=1
         fi
     fi
@@ -107,14 +107,14 @@ for _ in $(seq 1 12); do
 done
 assert_eq 403 "$bcode" "baseline (admin up): the deny-banned address is refused (403)" || exit 1
 
-# 2. stop the admin daemon.
-docker compose -f "$COMPOSE" stop admin >/dev/null 2>&1
+# 2. stop the unmask daemon.
+docker compose -f "$COMPOSE" stop unmask >/dev/null 2>&1
 ADMIN_STOPPED=1
 if ! wait_healthz_eq 503 15; then
     log_fail "admin did not go down (healthz still $(healthz))"
     exit 1
 fi
-log "admin container stopped (healthz now $(healthz))"
+log "unmask container stopped (healthz now $(healthz))"
 
 # 3. fail-open: the same not-yet-passed visitor now gets the ORIGINAL page --
 #    no PoW / CAPTCHA, no raw 502.  The @echo marker proves the request was
@@ -148,7 +148,7 @@ assert_in "Retry-After" "$hdrs" "daemon down: the 503 carries Retry-After"
 #     auth_request /_unmask/check 502 -> @unmask_fail_open (return 204) -> the
 #     request proceeds to the backend.  apache: apache-unmask.lua's daemon call
 #     fails -> DECLINED -> apache serves its DocumentRoot.  The fronts themselves
-#     are still up (only the admin container was stopped); skip a front cleanly
+#     are still up (only the unmask container was stopped); skip a front cleanly
 #     if it is not part of this stack (curl -> 000).
 fa_code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 6 \
     -A "$UA_CURL" -H "X-Forwarded-For: 203.0.113.74" "${FA_NGINX_URL}/")
@@ -171,13 +171,13 @@ else
 fi
 
 # 6. bring the admin back.
-docker compose -f "$COMPOSE" start admin >/dev/null 2>&1
+docker compose -f "$COMPOSE" start unmask >/dev/null 2>&1
 if ! wait_healthz_eq 200 30; then
     log_fail "admin did not come back up (healthz $(healthz))"
     exit 1
 fi
 ADMIN_STOPPED=0
-log "admin container restarted (healthz 200)"
+log "unmask container restarted (healthz 200)"
 
 # 7. protection resumes automatically: the next unpassed visitor is challenged.
 c1=$(http_get / -A "$UA_CURL" -H "X-Forwarded-For: $IP_AFTER")

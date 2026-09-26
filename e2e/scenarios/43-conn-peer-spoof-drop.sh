@@ -11,7 +11,7 @@
 # Apache always sets conn-peer to its own real peer.
 #
 # Hits /unmask/api/check directly (like 12/13) so the conn-peer header is set
-# exactly.  admin.yml: trusted_lb_extra=RFC1918, so the docker connection peer
+# exactly.  config.yml: trusted_lb_extra=RFC1918, so the docker connection peer
 # passes the proxy-peer gate while a 203.0.113.x (RFC 5737 TEST-NET-3) conn-peer
 # is untrusted; ja4_verdicts.extra t13e2e0bot01_xxx_yyy -> action=bot.
 
@@ -22,7 +22,7 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 ADMIN_URL=${ADMIN_URL:-http://127.0.0.1:19477}
 
-JA4_BOT="t13e2e0bot01_xxx_yyy"   # admin.yml ja4_verdicts.extra -> action=bot
+JA4_BOT="t13e2e0bot01_xxx_yyy"   # config.yml ja4_verdicts.extra -> action=bot
 
 # check sends /api/check with a forwarded bot JA4 + the given conn-peer and
 # prints status|action|reason.  An empty conn-peer omits the header entirely.

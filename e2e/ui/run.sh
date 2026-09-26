@@ -76,7 +76,7 @@ nginx:
   sync_hub_url: "http://127.0.0.1:9/bypass-iprange-all.json"
   browser_majors_hub_url: "http://127.0.0.1:9/browser-majors.json"
 # Every hub URL points at a dead local port, the same as the docker suite's
-# admin.yml.  Anything this file leaves out takes the shipped default, and
+# config.yml.  Anything this file leaves out takes the shipped default, and
 # subscribe is ON by default -- so without this the throwaway daemon registers
 # with the production hub at unmask.sh on every run, and the hub's registry
 # fills with nodes that existed for the length of a CI job.

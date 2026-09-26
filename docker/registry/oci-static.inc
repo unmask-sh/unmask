@@ -3,7 +3,7 @@
 # The tree under $document_root/v2/ is written by tools/oci-static-registry.py
 # (manifests as <ref>.idx / <ref>.man, blobs by digest) and published with
 # tools/publish-repo.sh.  These locations give the files the media types and
-# headers of the Distribution API, so `docker pull unmask.sh/admin` is a
+# headers of the Distribution API, so `docker pull unmask.sh/unmask` is a
 # handful of static GETs.  Like /dl/, none of this goes through the
 # challenge: a container runtime is not a browser.  Needs
 # oci-static-map.conf in the http scope (loaded after the unmask include).

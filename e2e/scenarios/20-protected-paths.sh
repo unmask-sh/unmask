@@ -2,7 +2,7 @@
 # 16: protected paths — a CAPTCHA gate on a configured path, verified on both
 # the native nginx module and the Apache forward-auth path.
 #
-# unmask is configured (admin.yml protected_paths) with a custom /login/
+# unmask is configured (config.yml protected_paths) with a custom /login/
 # protected path in CAPTCHA mode.  Every visitor reaching /login/ — an
 # ordinary browser UA included — must be challenged, while ordinary paths
 # still pass.  This is the credential-stuffing use case: a transparent

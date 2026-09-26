@@ -17,7 +17,7 @@
 # cookie.  A scenario that denied a cookie-less client would pass against the
 # broken build too.
 #
-# Fixture (admin.yml): challenge_targets.extra "contains:UnmaskDenyProbe"
+# Fixture (config.yml): challenge_targets.extra "contains:UnmaskDenyProbe"
 # with extra_action deny.
 
 set -u

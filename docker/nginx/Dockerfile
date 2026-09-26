@@ -54,7 +54,7 @@ COPY admin/assets/static/challenge.html admin/assets/static/challenge.js /usr/sh
 # load_module has to sit in main context; prepend it to the stock nginx.conf
 # rather than replacing the file, so upstream changes to that file keep
 # flowing through.  The rendered includes land in /etc/unmask (shared volume
-# with the admin container); /run/unmask carries the access-log socket.
+# with the unmask container); /run/unmask carries the access-log socket.
 # The official image ships nginx's own ACME module (ngx_http_acme_module,
 # nginx-module-acme); loading it costs nothing when unused and lets the
 # gateway do automatic HTTPS with one variable (UNMASK_ACME_EMAIL).  Its
@@ -72,7 +72,7 @@ COPY docker/nginx/gateway.conf.template /usr/share/unmask/gateway.conf.template
 COPY docker/nginx/gateway-includes.sh /usr/share/unmask/gateway-includes.sh
 COPY docker/nginx/gateway-http.conf.template /usr/share/unmask/gateway-http.conf.template
 COPY docker/nginx/gateway-https.conf.template /usr/share/unmask/gateway-https.conf.template
-# Reloads nginx when the admin container re-renders the includes, so a
+# Reloads nginx when the unmask container re-renders the includes, so a
 # settings change applies without anyone running `nginx -s reload`.
 COPY --chmod=0755 docker/nginx/30-unmask-autoreload.sh /docker-entrypoint.d/30-unmask-autoreload.sh
 # The entrypoint skips a non-executable file even when it would only source it.

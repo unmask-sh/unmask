@@ -27,7 +27,7 @@ BASE = os.environ.get("BASE_URL", "https://localhost:8443")
 # branch under test (/^\/unmask\/(admin\/)?test(\/|$)/), which a protected
 # path like /pow-gate/ does not -- a challenge served AT the protected path
 # takes the other branch and never reads _test_redirect at all.  That is why
-# the first draft of this test proved nothing.  e2e admin.yml sets
+# the first draft of this test proved nothing.  e2e config.yml sets
 # public_test_pages: true, as scenarios 28 and 31 already rely on.
 CHALLENGE = "/unmask/test/force-pow"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "

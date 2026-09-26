@@ -31,7 +31,7 @@ fails=0
 # before the UA / range logic has a chance to run.
 CLIENT_IP=198.51.100.150
 
-# /login/ is a captcha-protected path in the e2e admin.yml: a client that is
+# /login/ is a captcha-protected path in the e2e config.yml: a client that is
 # neither UA-rescued nor IP-rescued gets the challenge page there (no origin
 # echo), which is what distinguishes "rescued" from "merely not challenged".
 PROTECTED_PATH=/login/

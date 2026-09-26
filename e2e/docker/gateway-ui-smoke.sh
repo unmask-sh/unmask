@@ -1,15 +1,15 @@
 #!/bin/bash
 # Gateway UI smoke against a running compose stack: complete the setup
 # wizard, log in, paste a certificate into settings > Gateway, and check that
-# :443 serves it within the autoreload interval.  Needs the admin daemon on
-# ADMIN_URL (see admin-port-override.yml) and the gateway on GATEWAY.
+# :443 serves it within the autoreload interval.  Needs the unmask daemon on
+# ADMIN_URL (see unmask-port-override.yml) and the gateway on GATEWAY.
 #
 #   ADMIN_URL=http://127.0.0.1:19477/unmask GATEWAY=127.0.0.1:443 e2e/docker/gateway-ui-smoke.sh
 set -u
 ADMIN_URL=${ADMIN_URL:-http://127.0.0.1:19477/unmask}
 GATEWAY=${GATEWAY:-127.0.0.1:443}
 SERVER_NAME=${SERVER_NAME:-localhost}
-ADMIN_CONTAINER=${ADMIN_CONTAINER:-unmask-admin}
+ADMIN_CONTAINER=${ADMIN_CONTAINER:-unmask}
 W=$(mktemp -d)
 trap 'rm -rf "$W"' EXIT
 J=$W/jar
@@ -24,7 +24,7 @@ h2() { $C "$ADMIN_URL/admin/setup/" | grep -oE '<h2[^>]*>[^<]*' | head -1 | sed 
 # 1. The wizard: token (minted by the entrypoint, printed to the logs), DB
 #    (the skeleton config's sqlite), admin user, install.
 TOK=$(docker exec "$ADMIN_CONTAINER" sh -c 'cat /var/lib/unmask/.setup-token 2>/dev/null || cat /etc/unmask/.setup-token')
-[ -n "$TOK" ] && pass "setup token minted" || fail "no setup token in the admin container"
+[ -n "$TOK" ] && pass "setup token minted" || fail "no setup token in the unmask container"
 loc=$($C -o /dev/null -w '%{redirect_url}' --data-urlencode "token=$TOK" "$ADMIN_URL/admin/setup/token")
 case "$loc" in *err=*) fail "token step: $loc" ;; *) pass "token step accepted" ;; esac
 loc=$($C -o /dev/null -w '%{redirect_url}' --data-urlencode "driver=sqlite" --data-urlencode "sqlite_path=/var/lib/unmask/unmask.sqlite" "$ADMIN_URL/admin/setup/db")

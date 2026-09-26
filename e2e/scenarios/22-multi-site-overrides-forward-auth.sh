@@ -3,7 +3,7 @@
 #
 # Mirror of scenario 21 (= native nginx multi-site) but driven through the
 # Apache mod_lua forward-auth integration.  The fixture lives in
-# e2e/docker/admin/admin.yml (= shared with 21):
+# e2e/docker/unmask/config.yml (= shared with 21):
 #
 #   bypass_paths.paths:
 #     - "^/e2e-shop-bypass/"  site=shop.example.com
