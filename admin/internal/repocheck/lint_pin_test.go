@@ -9,14 +9,15 @@ import (
 	"testing"
 )
 
-// TestLintPinsMatchCI: `make lint` pins the Go toolchain and the golangci-lint
-// version so a developer box reproduces CI.  The pin is only useful while it
-// agrees with the workflow -- and the failure when it drifts is not a lint
-// difference but a crash, because golangci-lint embeds a go/types built against
-// the Go it shipped with and cannot type-check standard-library sources from a
-// newer one ("file requires newer Go version go1.NN"), which reads like a
-// broken tool rather than a version mismatch.  Bumping one side without the
-// other should fail here, not on someone's afternoon.
+// TestLintPinsMatchCI: `make lint` runs golangci-lint under the Go version
+// CI uses, so a developer box reproduces CI.  Both sides read that version
+// from admin/go.mod (the workflows through go-version-file, the Makefile by
+// reading the file); the linter version is pinned in both and must agree.
+// The failure when they drift is not a lint difference but a crash, because
+// golangci-lint embeds a go/types built against the Go it shipped with and
+// cannot type-check standard-library sources from a newer one ("file requires
+// newer Go version go1.NN"), which reads like a broken tool rather than a
+// version mismatch.  Bumping one side without the other should fail here.
 func TestLintPinsMatchCI(t *testing.T) {
 	ci, err := os.ReadFile("../../../.github/workflows/ci.yml")
 	if err != nil {
@@ -35,13 +36,11 @@ func TestLintPinsMatchCI(t *testing.T) {
 		return string(m[1])
 	}
 
-	ciGo := first(ci, `go-version:\s*"([0-9.]+)"`)
-	mkGo := first(mk, `(?m)^LINT_GO\s+\?=\s*([0-9.]+)`)
-	if ciGo == "" || mkGo == "" {
-		t.Fatalf("could not read both Go pins (ci=%q make=%q)", ciGo, mkGo)
+	if lit := first(ci, `go-version:\s*"([0-9.]+)"`); lit != "" {
+		t.Errorf("ci.yml pins Go %s by hand; the version lives in admin/go.mod (go-version-file)", lit)
 	}
-	if ciGo != mkGo {
-		t.Errorf("Go pin drift: ci.yml uses %s, `make lint` uses %s — the local run will not reproduce CI", ciGo, mkGo)
+	if !regexp.MustCompile(`(?m)^LINT_GO\s+\?=.*admin/go\.mod`).Match(mk) {
+		t.Error("Makefile LINT_GO does not read admin/go.mod; `make lint` would not reproduce CI after a Go bump")
 	}
 
 	ciLint := first(ci, `version:\s*(v[0-9.]+)`)
@@ -54,24 +53,29 @@ func TestLintPinsMatchCI(t *testing.T) {
 	}
 }
 
-// TestGoModMatchesCIGo: go.mod's version is what every other build path
-// resolves, so if it disagrees with the workflow the linter pin is aligned with
-// the wrong thing.
+// TestGoModMatchesCIGo: every setup-go step in the workflows must take its
+// version from admin/go.mod, so go.mod is the one place the Go version is
+// set -- for the build, the release, CodeQL and the lint alike.
 func TestGoModMatchesCIGo(t *testing.T) {
-	ci, err := os.ReadFile("../../../.github/workflows/ci.yml")
-	if err != nil {
-		t.Skipf("workflow not readable: %v", err)
+	for _, wf := range []string{"ci.yml", "release.yml", "codeql.yml"} {
+		src, err := os.ReadFile("../../../.github/workflows/" + wf)
+		if err != nil {
+			t.Skipf("workflow not readable: %v", err)
+		}
+		uses := len(regexp.MustCompile(`actions/setup-go@`).FindAll(src, -1))
+		fromMod := len(regexp.MustCompile(`go-version-file:\s*admin/go\.mod`).FindAll(src, -1))
+		if uses == 0 {
+			continue
+		}
+		if fromMod != uses {
+			t.Errorf("%s: %d setup-go steps, %d read admin/go.mod", wf, uses, fromMod)
+		}
 	}
 	mod, err := os.ReadFile("../../go.mod")
 	if err != nil {
 		t.Skipf("go.mod not readable: %v", err)
 	}
-	ciGo := regexp.MustCompile(`go-version:\s*"([0-9.]+)"`).FindSubmatch(ci)
-	modGo := regexp.MustCompile(`(?m)^go\s+([0-9.]+)`).FindSubmatch(mod)
-	if ciGo == nil || modGo == nil {
-		t.Fatal("could not read both versions")
-	}
-	if string(ciGo[1]) != string(modGo[1]) {
-		t.Errorf("go.mod says go %s but CI builds with %s", modGo[1], ciGo[1])
+	if !regexp.MustCompile(`(?m)^go\s+[0-9]+\.[0-9]+\.[0-9]+$`).Match(mod) {
+		t.Error("go.mod's go directive is not a full x.y.z version; go-version-file would resolve a moving target")
 	}
 }
