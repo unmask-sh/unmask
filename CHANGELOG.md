@@ -15,7 +15,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
-- (2026-09-26) **Built with Go 1.27.**  The 0.1.46 packages and images were built with a Go 1.25 release that has since left support, so its standard library (TLS, HTTP) no longer receives fixes.  The next release carries the current one; nothing changes in how unmask is installed or configured.
+- (2026-09-26) **Built with Go 1.27, fixed in one place.**  The Go version now lives in go.mod alone, and the packages, the container images, CI and the release all read it.  Before, the images were built on a Go 1.25 base, which has since left support, and the packages with whatever Go the build host had.  Nothing changes in how unmask is installed or configured.
 
 - (2026-09-26) **The challenge page's logo can be given a height.**  Settings > Page design gains "Logo height (px)", also per site.  The page showed a logo at the image's own pixel size, so one exported at 2x for sharp screens came out twice as large as meant, and nothing could shrink it.  Blank keeps the old behaviour; the deny pages and the live preview follow the same value.
 
