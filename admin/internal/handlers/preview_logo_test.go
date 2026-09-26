@@ -104,6 +104,32 @@ func TestBrandingInjectJSONLogoOverride(t *testing.T) {
 	}
 }
 
+// The challenge payload carries the configured logo height, and only then:
+// challenge.js pins the <img> height from it, so an unset value must not
+// appear (0 would collapse the image).
+func TestBrandingInjectJSONLogoHeight(t *testing.T) {
+	br := settings.BrandingValues{LogoPath: "/nonexistent/logo.png", LogoHeight: 48}
+	if got := brandingInjectJSON(br, "/unmask", "", false, ""); !strings.Contains(got, `"logo_height":48`) {
+		t.Fatalf("logo_height missing from brand JSON: %s", got)
+	}
+	br.LogoHeight = 0
+	if got := brandingInjectJSON(br, "/unmask", "", false, ""); strings.Contains(got, "logo_height") {
+		t.Fatalf("unset logo height emitted: %s", got)
+	}
+}
+
+// The deny pages pin the logo the same way, from the same record.
+func TestDenyLogoHeight(t *testing.T) {
+	with := string(renderRateDenyC(settings.BrandingValues{LogoPath: "/x/logo.png", LogoHeight: 48}, "friendly", "auto", "en", "/unmask", "ref", denyColors{}))
+	if !strings.Contains(with, `style="height:48px;width:auto"`) {
+		t.Fatalf("deny page did not pin the logo height: %s", with)
+	}
+	without := string(renderRateDenyC(settings.BrandingValues{LogoPath: "/x/logo.png"}, "friendly", "auto", "en", "/unmask", "ref", denyColors{}))
+	if strings.Contains(without, `class="logo" src="/unmask/branding/logo" alt="" style=`) {
+		t.Fatalf("deny page styled the logo with no height set: %s", without)
+	}
+}
+
 // the deny page renders the live-preview logo override when set, and falls back
 // to the saved branding logo route (or no <img>) otherwise.
 func TestDenyLogoOverride(t *testing.T) {

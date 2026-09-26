@@ -6181,7 +6181,7 @@ func brandingFormHasEdits(r *http.Request) bool {
 	if r.MultipartForm != nil && len(r.MultipartForm.File["branding_logo_file"]) > 0 {
 		return true
 	}
-	for _, k := range []string{"branding_site_name", "branding_footer_text"} {
+	for _, k := range []string{"branding_site_name", "branding_footer_text", "branding_logo_height"} {
 		if strings.TrimSpace(r.FormValue(k)) != "" {
 			return true
 		}
@@ -6192,6 +6192,17 @@ func brandingFormHasEdits(r *http.Request) bool {
 func applyBrandingForm(cur *settings.BrandingValues, scope string, r *http.Request) error {
 	cur.SiteName = strings.TrimSpace(r.FormValue("branding_site_name"))
 	cur.FooterText = strings.TrimSpace(r.FormValue("branding_footer_text"))
+	// Logo height: blank = the image's own size.  Out-of-range values are
+	// clamped rather than refused, like the text lengths below: the preview
+	// shows what was kept.
+	cur.LogoHeight = 0
+	if v := strings.TrimSpace(r.FormValue("branding_logo_height")); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("logo height: %q is not a whole number of pixels", v)
+		}
+		cur.LogoHeight = min(max(n, settings.LogoHeightMin), settings.LogoHeightMax)
+	}
 	if p := strings.TrimSpace(r.FormValue("branding_copy_preset")); settings.IsValidBrandingPreset(p) {
 		cur.CopyPreset = p
 	} else {

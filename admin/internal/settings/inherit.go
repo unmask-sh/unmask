@@ -104,6 +104,9 @@ func mergeBranding(base, over BrandingValues) BrandingValues {
 	if over.LogoPath != "" {
 		out.LogoPath = over.LogoPath
 	}
+	if over.LogoHeight != 0 {
+		out.LogoHeight = over.LogoHeight
+	}
 	if over.SiteName != "" {
 		out.SiteName = over.SiteName
 	}
@@ -202,6 +205,9 @@ func SparsifyBranding(v, def BrandingValues) BrandingValues {
 	if v.LogoPath == def.LogoPath {
 		v.LogoPath = ""
 	}
+	if v.LogoHeight == def.LogoHeight {
+		v.LogoHeight = 0
+	}
 	if v.SiteName == def.SiteName {
 		v.SiteName = ""
 	}
@@ -294,6 +300,7 @@ func BrandingOverridesFor(b Branding, site string) map[string]bool {
 	}
 	return map[string]bool{
 		"logo_path":             v.LogoPath != "",
+		"logo_height":           v.LogoHeight != 0,
 		"site_name":             v.SiteName != "",
 		"footer_text":           v.FooterText != "",
 		"copy_preset":           v.CopyPreset != "",

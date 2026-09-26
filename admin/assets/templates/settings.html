@@ -4795,6 +4795,14 @@ function secToHuman(s){
         <input type="checkbox" name="branding_logo_clear" id="branding-logo-clear" value="1" hidden>
         <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ safeHTML (t .Lang "settings.branding.logo_desc") }}</p>
       </div>
+
+      <div class="field">
+        <label for="branding-logo-height">{{ t .Lang "settings.branding.logo_height_label" }}</label>
+        <input type="number" id="branding-logo-height" name="branding_logo_height" min="16" max="320" step="1" inputmode="numeric"
+               value="{{ if .BrandingValues.LogoHeight }}{{ .BrandingValues.LogoHeight }}{{ end }}"
+               placeholder="{{ t .Lang "settings.branding.logo_height_placeholder" }}" style="width:7rem">
+        <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.branding.logo_height_desc" }}</p>
+      </div>
       {{/* Live logo preview + remove/cancel/undo.  A picked file shows inline at
            once AND uploads to the ephemeral preview store; its token is broadcast
            so the challenge / deny iframes show the not-yet-saved image.  Remove
@@ -5390,6 +5398,10 @@ function secToHuman(s){
     var el = document.getElementById('branding-footer-text');
     return el ? el.value.trim() : '';
   }
+  function currentLogoHeight(){
+    var el = document.getElementById('branding-logo-height');
+    return el ? el.value.trim() : '';
+  }
   function currentShowCredit(){
     var el = document.getElementById('branding-show-credit');
     return el && el.checked ? '1' : '0';
@@ -5449,6 +5461,7 @@ function secToHuman(s){
         '&theme=' + encodeURIComponent(theme) +
         '&_preview_site_name=' + encodeURIComponent(currentSiteName()) +
         '&_preview_footer_text=' + encodeURIComponent(currentFooterText()) +
+        '&_preview_logo_height=' + encodeURIComponent(currentLogoHeight()) +
         '&_preview_show_credit=' + currentShowCredit() +
         customColorQS(theme) + logoPreviewQS() + previewLangQS();
       if (powDisplay !== '') {
@@ -5540,6 +5553,8 @@ function secToHuman(s){
   if (siteName) siteName.addEventListener('input', onBrandInput);
   var footerText = document.getElementById('branding-footer-text');
   if (footerText) footerText.addEventListener('input', onBrandInput);
+  var logoHeight = document.getElementById('branding-logo-height');
+  if (logoHeight) logoHeight.addEventListener('input', onBrandInput);
   // Credit toggle: checkbox change fires immediately (= no debounce needed,
   // operator clicks once per toggle).  Use the same updateAll path so the
   // iframe reloads with the new credit visibility.
