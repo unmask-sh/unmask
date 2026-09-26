@@ -129,17 +129,17 @@ if [ "$CHANNEL" = stable ]; then
     reg_host="${reg#*://}"
     hdr=$(curl -sI --max-time 20 "$reg/v2/" 2>/dev/null | tr -d '\r' | grep -i '^Docker-Distribution-API-Version:' || echo "")
     [ -n "$hdr" ] && ok "/v2/ answers as a registry" || bad "/v2/ does not answer as a registry (nginx include missing?)"
-    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$reg/v2/admin/tags/list" || echo 000)
+    code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$reg/v2/unmask/tags/list" || echo 000)
     if [ "$code" != "200" ]; then
-        say "  ----  /v2/admin/tags/list -> HTTP $code: no images published (yet)"
+        say "  ----  /v2/unmask/tags/list -> HTTP $code: no images published (yet)"
     elif command -v docker >/dev/null 2>&1; then
-        if got=$(docker manifest inspect "$reg_host/admin:latest" 2>/dev/null | grep -c '"digest"'); then
-            ok "docker resolves $reg_host/admin:latest ($got manifest digests)"
+        if got=$(docker manifest inspect "$reg_host/unmask:latest" 2>/dev/null | grep -c '"digest"'); then
+            ok "docker resolves $reg_host/unmask:latest ($got manifest digests)"
         else
-            bad "docker cannot resolve $reg_host/admin:latest (media types / headers in the include?)"
+            bad "docker cannot resolve $reg_host/unmask:latest (media types / headers in the include?)"
         fi
     else
-        ok "/v2/admin/tags/list is served (docker absent: not pulled)"
+        ok "/v2/unmask/tags/list is served (docker absent: not pulled)"
     fi
 fi
 

@@ -11,7 +11,7 @@
 # anchor stripping.  This scenario proves the fixed rendering works end to
 # end.
 #
-# Fixture (= e2e admin.yml):
+# Fixture (= e2e config.yml):
 #   bypass_paths.extra: [ "^/e2e-bypass-only/" ]   (= scope to this scenario)
 #   bypass_paths.disabled_presets: [ all preset IDs ]  (= deterministic)
 #

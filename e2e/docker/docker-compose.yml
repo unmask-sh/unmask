@@ -4,7 +4,7 @@
 #   make e2e-docker
 #
 # What happens:
-#   1. Build admin image (= multi-stage golang → alpine)
+#   1. Build unmask image (= multi-stage golang → alpine)
 #   2. Build nginx image (= debian build + nginx 1.26 + unmask module)
 #   3. Share tmpfs `/run/unmask` between the 2 containers
 #   4. Publish nginx :8443 to localhost:8443
@@ -13,23 +13,23 @@
 name: unmask-e2e
 
 services:
-  admin:
+  unmask:
     build:
       context: ../..
-      dockerfile: e2e/docker/admin/Dockerfile
+      dockerfile: e2e/docker/unmask/Dockerfile
     volumes:
       - unmask-run:/run/unmask
       - unmask-data:/var/lib/unmask
       - unmask-conf:/etc/unmask
-    # admin runs in order: migrate → render-nginx → serve.
+    # unmask runs in order: migrate → render-nginx → serve.
     # render-nginx writes /etc/unmask/nginx-rendered*.conf; the nginx container reads them.
     # entrypoint cleared so the sh -c chain works (the image's ENTRYPOINT is
     # /usr/local/bin/unmask, which would otherwise eat "sh" as a subcommand).
     entrypoint: []
     command: >
-      sh -c "/usr/local/bin/unmask migrate     -config /etc/unmask/admin.yml &&
-             /usr/local/bin/unmask render-nginx -config /etc/unmask/admin.yml &&
-             /usr/local/bin/unmask serve       -config /etc/unmask/admin.yml"
+      sh -c "/usr/local/bin/unmask migrate     -config /etc/unmask/config.yml &&
+             /usr/local/bin/unmask render-nginx -config /etc/unmask/config.yml &&
+             /usr/local/bin/unmask serve       -config /etc/unmask/config.yml"
     environment:
       # Test-only mmdb stand-in: seed the country (and optionally ASN) lookup
       # with fixture pairs so scenarios can exercise the geo axis AND the roaming
@@ -49,7 +49,7 @@ services:
       interval: 2s
       timeout: 1s
       retries: 30
-    # Expose admin's port to the host so the e2e suite can hit it directly,
+    # Expose the daemon's port to the host so the e2e suite can hit it directly,
     # bypassing nginx's X-Real-IP rewrite (= scenario 10 needs the same IP
     # source for /verify and /api/check so the _bv HMAC matches).
     # Host-side 19477 to avoid colliding with a dev unmask on 9477.
@@ -61,7 +61,7 @@ services:
       context: ../..
       dockerfile: e2e/docker/nginx/Dockerfile
     depends_on:
-      admin:
+      unmask:
         condition: service_healthy
     volumes:
       - unmask-run:/run/unmask
@@ -82,7 +82,7 @@ services:
 
   # Apache httpd running the forward-auth snippet (= auth_request mode for
   # environments where the nginx module is not an option).  Independent of
-  # the nginx container; talks HTTP to admin, so no shared volume is needed.
+  # the nginx container; talks HTTP to unmask, so no shared volume is needed.
   # Exercised by scenario 14.
 
   # Stock nginx for scenario 55: the SAME image and therefore the same binary,
@@ -118,7 +118,7 @@ services:
       context: ../..
       dockerfile: e2e/docker/apache/Dockerfile
     depends_on:
-      admin:
+      unmask:
         condition: service_healthy
     ports:
       - "8081:8081"
@@ -131,13 +131,13 @@ services:
   # Stock nginx (NO unmask plugin) running the forward-auth snippet -- exercises
   # the nginx forward-auth JA4 gate (forward-auth-lbtrust.conf + server.inc),
   # which the plugin-loaded nginx container above does not cover.  Reads the
-  # admin-rendered gate / upstream from the shared /etc/unmask volume; the shipped
+  # daemon-rendered gate / upstream from the shared /etc/unmask volume; the shipped
   # forward-auth snippets are bind-mounted at /etc/unmask-fa.  Exercised by
   # scenario 42.
   fa-nginx:
     image: nginx:alpine
     depends_on:
-      admin:
+      unmask:
         condition: service_healthy
     volumes:
       - unmask-conf:/etc/unmask:ro

@@ -14,11 +14,11 @@
 # Flow:
 #   1. baseline (admin up): curl UA is challenged (403).
 #   2. hammer GET / (curl UA, rotating XFF so no rate zone fills) for ~8 s
-#      while `docker compose restart admin` runs in the middle.
+#      while `docker compose restart unmask` runs in the middle.
 #   3. assert: no 5xx at all; every answer is 403 or 200.
 #   4. healthz back to 200; curl UA challenged again.
 #
-# Needs the docker e2e stack (it restarts the admin container); skips
+# Needs the docker e2e stack (it restarts the unmask container); skips
 # cleanly when the suite targets a remote BASE_URL.
 
 set -u
@@ -29,7 +29,7 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 COMPOSE="${COMPOSE:-$DIR/docker/docker-compose.yml}"
 if ! command -v docker >/dev/null 2>&1 || \
    [ -z "$(docker compose -f "$COMPOSE" ps -q admin 2>/dev/null)" ]; then
-    log_skip "62-restart-race needs the docker e2e stack (admin container) — skipped"
+    log_skip "62-restart-race needs the docker e2e stack (unmask container) — skipped"
     exit 0
 fi
 
@@ -68,7 +68,7 @@ cleanup() {
     local rc=$?
     ban_clear
     if ! wait_healthz_eq 200 3; then
-        docker compose -f "$COMPOSE" start admin >/dev/null 2>&1 || true
+        docker compose -f "$COMPOSE" start unmask >/dev/null 2>&1 || true
         wait_healthz_eq 200 30 || { log_fail "cleanup: admin did not come back healthy"; rc=1; }
     fi
     if [ "$rc" -eq 0 ] && [ "${_E2E_FAILS:-0}" -gt 0 ]; then
@@ -107,7 +107,7 @@ OUT=$(mktemp)
 ) &
 HAMMER=$!
 sleep 2
-docker compose -f "$COMPOSE" restart admin >/dev/null 2>&1
+docker compose -f "$COMPOSE" restart unmask >/dev/null 2>&1
 wait "$HAMMER"
 
 # 3. verdict: nothing but the challenge or the replayed page.

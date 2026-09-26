@@ -31,7 +31,7 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/assert.sh"
 
 JA4_OK="t13ok000000000_xxx_yyy"   # no verdict -> no grade demand
-JA4_BOT="t13e2e0bot01_xxx_yyy"    # admin.yml extra rule -> action=bot
+JA4_BOT="t13e2e0bot01_xxx_yyy"    # config.yml extra rule -> action=bot
 IP_A=203.0.113.70
 
 # A real proof-of-work cookie, solved the way challenge.js solves it (same

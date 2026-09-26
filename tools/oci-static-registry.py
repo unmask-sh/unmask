@@ -26,7 +26,7 @@ laid out the same way with .man for the tag.  nginx tries .idx first and
 falls back to .man, each with its own Content-Type.
 
 Usage:
-  oci-static-registry.py --layout DIR --name admin --tag 0.1.37 --tag latest --out ../unmask-dl-build/registry
+  oci-static-registry.py --layout DIR --name unmask --tag 0.1.37 --tag latest --out ../unmask-dl-build/registry
 """
 import argparse
 import hashlib
@@ -85,7 +85,7 @@ def copy_blob(layout, digest, out_blobs):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--layout", required=True, help="OCI image layout directory")
-    ap.add_argument("--name", required=True, help="repository name under /v2/ (e.g. admin)")
+    ap.add_argument("--name", required=True, help="repository name under /v2/ (e.g. unmask)")
     ap.add_argument("--tag", action="append", default=[], help="tag to point at the image (repeatable)")
     ap.add_argument("--ref", help="index.json entry to use, by org.opencontainers.image.ref.name annotation (when the layout holds several)")
     ap.add_argument("--out", required=True, help="registry tree root; files go under OUT/v2/NAME/")

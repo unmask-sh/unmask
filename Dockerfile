@@ -1,17 +1,17 @@
-# unmask admin image (= multi-stage Go build → minimal runtime).
-# Published per release as ghcr.io/unmask-sh/admin:<version>.
+# unmask image: the daemon (= multi-stage Go build → minimal runtime).
+# Published per release as ghcr.io/unmask-sh/unmask:<version>.
 #
 # Use:
-#   docker build -t ghcr.io/unmask-sh/admin:latest .
+#   docker build -t ghcr.io/unmask-sh/unmask:latest .
 #   docker run -p 9477:9477 -v unmask-data:/var/lib/unmask -v unmask-config:/etc/unmask \
-#       ghcr.io/unmask-sh/admin:latest
+#       ghcr.io/unmask-sh/unmask:latest
 #   → http://localhost:9477/unmask/admin/  for the install wizard (the setup
 #     token is printed in the container log).
 #
 # multi-arch:
-#   docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/unmask-sh/admin:latest .
+#   docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/unmask-sh/unmask:latest .
 #
-# This image is the admin daemon only.  The nginx side is a second image --
+# This image is the unmask daemon only.  The nginx side is a second image --
 # the official nginx image with the unmask module (docker/nginx/Dockerfile,
 # published as ghcr.io/unmask-sh/nginx:<nginx version>) -- or a host nginx
 # from rpm/deb.  docker-compose.example.yml wires the two containers.
@@ -51,14 +51,14 @@ RUN apk add --no-cache ca-certificates tzdata && \
 
 COPY --from=build /out/unmask /usr/local/bin/unmask
 
-# If admin.yml is missing at startup, generate a minimal one (= install wizard
+# If config.yml is missing at startup, generate a minimal one (= install wizard
 # captures the DB etc.).  No-op if it already exists.
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 RUN chmod 0755 /usr/local/bin/entrypoint.sh
 
 # No USER here on purpose.  A named volume takes its ownership from whichever
 # container first populates it; when that is the nginx sidecar, /etc/unmask
-# arrives root-owned and a non-root entrypoint cannot write admin.yml (seen on
+# arrives root-owned and a non-root entrypoint cannot write config.yml (seen on
 # the first compose bring-up).  The entrypoint starts as root, fixes the
 # ownership of the three volumes, and hands over to the binary, which drops to
 # the `unmask` user itself before doing anything else -- the same path a
@@ -67,4 +67,4 @@ EXPOSE 9477
 VOLUME ["/var/lib/unmask", "/etc/unmask", "/run/unmask"]
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["serve", "-config", "/etc/unmask/admin.yml"]
+CMD ["serve", "-config", "/etc/unmask/config.yml"]

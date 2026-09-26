@@ -20,12 +20,12 @@
 #      a REAL honeypot ban whose action column is empty (the wordpress preset
 #      carries no per-rule override).
 #   2. read the ban file the daemon wrote: the row must carry the INHERITED action
-#      (pow_then_captcha, since honeypot.default_action is unset in admin.yml).
-#   3. restart the admin container.
+#      (pow_then_captcha, since honeypot.default_action is unset in config.yml).
+#   3. restart the unmask container.
 #   4. read the ban file again: the row must STILL carry pow_then_captcha.
 #      Before the fix it came back as "deny" here.
 #
-# Needs the docker e2e stack (it restarts the admin container and reads the file
+# Needs the docker e2e stack (it restarts the unmask container and reads the file
 # from inside it); skips cleanly when the suite targets a remote BASE_URL.
 set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -35,7 +35,7 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 COMPOSE="${COMPOSE:-$DIR/docker/docker-compose.yml}"
 if ! command -v docker >/dev/null 2>&1 || \
    [ -z "$(docker compose -f "$COMPOSE" ps -q admin 2>/dev/null)" ]; then
-    log_skip "49-ban-file-action-restart needs the docker e2e stack (admin container) — skipped"
+    log_skip "49-ban-file-action-restart needs the docker e2e stack (unmask container) — skipped"
     exit 0
 fi
 
@@ -45,7 +45,7 @@ BAN_IP=203.0.113.49
 # the ADMIN container's copy (nginx has its own; scenario 40 hand-writes that
 # one), so the two scenarios never race.
 BAN_FILE=/var/lib/unmask/nginx/banned.txt
-# honeypot.default_action is unset in admin.yml, so an inherit-action honeypot ban
+# honeypot.default_action is unset in config.yml, so an inherit-action honeypot ban
 # resolves to the chain default.
 WANT_ACTION=pow_then_captcha
 
@@ -111,7 +111,7 @@ for _ in $(seq 1 10); do
     sleep 1
 done
 if [ -z "$line" ]; then
-    log_fail "honeypot trip did not produce a ban file row for $BAN_IP (is honeypot.ban_file_path set in admin.yml?)"
+    log_fail "honeypot trip did not produce a ban file row for $BAN_IP (is honeypot.ban_file_path set in config.yml?)"
     exit 1
 fi
 
@@ -119,7 +119,7 @@ fi
 assert_in "|honeypot|${WANT_ACTION}" "$line" \
     "fresh honeypot ban resolves to the inherited action (${WANT_ACTION})" || exit 1
 
-# 3. Restart the admin daemon -- this is the initial-flush path that used to
+# 3. Restart the unmask daemon -- this is the initial-flush path that used to
 #    rewrite the row.
 docker compose -f "$COMPOSE" stop admin >/dev/null 2>&1
 ADMIN_STOPPED=1

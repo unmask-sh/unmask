@@ -70,7 +70,7 @@ func (c doctorCheck) String() string {
 
 func cmdDoctor(args []string) error {
 	fs := flag.NewFlagSet("doctor", flag.ExitOnError)
-	configPath := fs.String("config", os.Getenv("UNMASK_CONFIG"), "path to admin.yml")
+	configPath := fs.String("config", os.Getenv("UNMASK_CONFIG"), "path to config.yml")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}

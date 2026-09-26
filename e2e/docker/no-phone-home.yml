@@ -1,6 +1,6 @@
 # Keep a CI run from reaching the production hub.
 #
-# docker-compose.example.yml boots the admin with the shipped defaults, and
+# docker-compose.example.yml boots unmask with the shipped defaults, and
 # the community feed's consume side is one of them: on its first start the
 # daemon registers with the hub and pulls the feed.  A CI run is not an
 # install, but the hub cannot tell one from the other, so every run left a
@@ -13,9 +13,9 @@
 # covers every call home to that host, and because this stack has no config
 # file to override -- the entrypoint generates one on the first boot.
 #
-# The docker suite's own admin.yml does the same job with dead hub URLs; this
+# The docker suite's own config.yml does the same job with dead hub URLs; this
 # file is for the example stack, which is deliberately unconfigured.
 services:
-  admin:
+  unmask:
     extra_hosts:
       - "unmask.sh:127.0.0.1"

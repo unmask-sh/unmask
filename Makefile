@@ -743,12 +743,12 @@ package-all:
 		echo "!! skipping arm64 package.  install gcc-aarch64-linux-gnu or build artifacts on arm64 host."; \
 	fi
 
-## docker        - admin image (host arch). tag: unmask.sh/admin:$(UNMASK_VERSION)
-DOCKER_IMAGE_ADMIN ?= unmask.sh/admin
+## docker        - the unmask image, the daemon (host arch). tag: unmask.sh/unmask:$(UNMASK_VERSION)
+DOCKER_IMAGE_UNMASK ?= unmask.sh/unmask
 DOCKER_IMAGE_NGINX ?= unmask.sh/nginx
 DOCKER_NGINX_VERSION ?= 1.28.3
 docker:
-	docker build -t $(DOCKER_IMAGE_ADMIN):$(UNMASK_VERSION) -t $(DOCKER_IMAGE_ADMIN):latest \
+	docker build -t $(DOCKER_IMAGE_UNMASK):$(UNMASK_VERSION) -t $(DOCKER_IMAGE_UNMASK):latest \
 		--build-arg UNMASK_VERSION=$(UNMASK_VERSION) .
 
 ## docker-nginx  - official nginx image + the unmask module, built against
@@ -758,7 +758,7 @@ docker-nginx:
 		--build-arg NGINX_VERSION=$(DOCKER_NGINX_VERSION) \
 		-t $(DOCKER_IMAGE_NGINX):$(DOCKER_NGINX_VERSION) -t $(DOCKER_IMAGE_NGINX):latest .
 
-## docker-buildx - multi-arch admin image (amd64 + arm64).  Set DOCKER_REGISTRY
+## docker-buildx - multi-arch unmask image (amd64 + arm64).  Set DOCKER_REGISTRY
 # to a prefix ending in "/" to push there; unset = local image only.  Releases
 # build both images in the release workflow (GHCR, the build source) and
 # tools/build-registry.sh lays them out for unmask.sh, so this is for one-offs.
@@ -767,13 +767,13 @@ docker-buildx:
 	docker buildx build \
 		--platform linux/amd64,linux/arm64 \
 		--build-arg UNMASK_VERSION=$(UNMASK_VERSION) \
-		-t $(DOCKER_REGISTRY)$(DOCKER_IMAGE_ADMIN):$(UNMASK_VERSION) \
-		-t $(DOCKER_REGISTRY)$(DOCKER_IMAGE_ADMIN):latest \
+		-t $(DOCKER_REGISTRY)$(DOCKER_IMAGE_UNMASK):$(UNMASK_VERSION) \
+		-t $(DOCKER_REGISTRY)$(DOCKER_IMAGE_UNMASK):latest \
 		$(if $(DOCKER_REGISTRY),--push,--load) \
 		.
 
 ## release       - batch-build main unmask + per-nginx-version plugin -> checksums.
-# Main package (admin only): amd64 + arm64 (if cross toolchain is available).
+# Main package (the daemon only): amd64 + arm64 (if cross toolchain is available).
 # Plugin (nginx native module): one per version in NGINX_VERSIONS.
 # Default is latest stable + the highly-compatible 1.18 / 1.20.  To extend, pass via env.
 NGINX_VERSIONS ?= 1.20.2 1.18.0

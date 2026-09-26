@@ -49,7 +49,7 @@ unmask_gateway_includes() {
     loc_src=none
     if [ -f "$adm_loc" ] && ! grep -q '^# unmask-gateway-upstream: none' "$adm_loc"; then
         loc_src=admin
-        printf '# written by gateway-includes.sh: the admin-rendered location\ninclude %s;\n' "$adm_loc" > /etc/nginx/unmask-gateway-location.inc
+        printf '# written by gateway-includes.sh: the daemon-rendered location\ninclude %s;\n' "$adm_loc" > /etc/nginx/unmask-gateway-location.inc
     elif [ -n "${UNMASK_UPSTREAM:-}" ]; then
         loc_src=env
         cat > /etc/nginx/unmask-gateway-location.inc <<LOCATION

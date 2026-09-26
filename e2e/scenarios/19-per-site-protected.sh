@@ -4,7 +4,7 @@
 # the site value is *recorded* in unmask_event; 19 verifies the *nginx
 # render* (= the http.conf.tmpl host dispatcher) actually branches on it.
 #
-# Fixture (e2e/docker/admin/admin.yml):
+# Fixture (e2e/docker/unmask/config.yml):
 #   nginx.protected_paths.paths:
 #     - path: "^/admin-shop/"
 #       mode: "captcha"

@@ -4,7 +4,7 @@
 # Native mode rate-limits in nginx (limit_req zones rendered into http.inc).
 # Forward-auth (stock nginx + apache) has NO limit_req, so AuthCheck's in-daemon
 # sliding-window limiter (h.RateLimiter.Hit) is what enforces the zones -- and it
-# was e2e-dark.  admin.yml defines a DENY zone on /deny-test/ (5 r/min, burst 2);
+# was e2e-dark.  config.yml defines a DENY zone on /deny-test/ (5 r/min, burst 2);
 # bursting the same IP through a forward-auth front must drive the over-cap
 # requests to a hard DENY (403) -- proving the daemon limiter trips on the
 # forward-auth path (fa-nginx auth_request -> 403 -> branded /unmask/_ban;

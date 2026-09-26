@@ -18,7 +18,7 @@
 #   fixed -> both are answered, request 2 reuses the connection
 #   leaky -> request 1 answers, request 2 gets no response, curl exits 28
 #
-# /login/ is the captcha-mode protected path (= admin.yml, scenario 20), so a
+# /login/ is the captcha-mode protected path (= config.yml, scenario 20), so a
 # browser UA is challenged deterministically; in compose mode that challenge
 # IS the ACCESS-phase internal redirect that leaked.  The rate-limit redirect
 # (= /unmask/_rl) goes through the same helper (ngx_unmask_access_redirect),

@@ -6,7 +6,7 @@
 //
 // Steps:
 //  1. welcome
-//  2. choose DB driver (sqlite / mariadb) + connection test + save admin.yml + migration
+//  2. choose DB driver (sqlite / mariadb) + connection test + save config.yml + migration
 //  3. create administrator account (= the first row in unmask_user)
 //  4. done -> on to login
 //
@@ -1083,7 +1083,7 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 			if conn != h.DB {
 				_ = conn.Close()
 			}
-			redirErr("read admin.yml (exists but won't load): " + err.Error())
+			redirErr("read config.yml (exists but won't load): " + err.Error())
 			return
 		}
 	}
@@ -1110,7 +1110,7 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 		if conn != h.DB {
 			_ = conn.Close()
 		}
-		redirErr("save admin.yml: " + err.Error())
+		redirErr("save config.yml: " + err.Error())
 		return
 	}
 	// 4. hot-swap runtime state

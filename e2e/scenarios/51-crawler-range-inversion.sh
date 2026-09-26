@@ -23,7 +23,7 @@
 #   E. policy off + the same opt-in: search_bots.upstream_ua_enabled keeps the UA line
 #      although every preset is live (the OR state — either axis passes).
 #
-# Needs the docker e2e stack (it writes files inside the admin container and
+# Needs the docker e2e stack (it writes files inside the unmask container and
 # restarts it); skips cleanly when the suite targets a remote BASE_URL.
 
 set -u
@@ -36,13 +36,13 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 COMPOSE="${COMPOSE:-$DIR/docker/docker-compose.yml}"
 if ! command -v docker >/dev/null 2>&1 || \
    [ -z "$(docker compose -f "$COMPOSE" ps -q admin 2>/dev/null)" ]; then
-    log_skip "51-crawler-range-inversion needs the docker e2e stack (admin container) — skipped"
+    log_skip "51-crawler-range-inversion needs the docker e2e stack (unmask container) — skipped"
     exit 0
 fi
 
 ADMIN_URL=${ADMIN_URL:-http://127.0.0.1:19477}
 OVERRIDE=/var/lib/unmask/iprange/googlebot.json
-CONF=/etc/unmask/admin.yml
+CONF=/etc/unmask/config.yml
 # RFC 5737-adjacent fixture IPs, distinct from other scenarios' ban state.
 IP_IN_RANGE=7.7.7.7
 IP_OUT_RANGE=7.7.8.7
