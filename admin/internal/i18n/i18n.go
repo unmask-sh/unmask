@@ -1524,6 +1524,9 @@ var dict = map[Lang]map[string]string{
 		"settings.branding.logo_cancel":                  "取り消し",
 		"settings.branding.logo_will_remove":             "保存するとロゴを削除します",
 		"settings.branding.logo_undo":                    "元に戻す",
+		"settings.branding.logo_height_label":            "ロゴの高さ (px)",
+		"settings.branding.logo_height_placeholder":      "画像のまま",
+		"settings.branding.logo_height_desc":             "challenge / deny ページでの表示の高さ (幅はそれに合わせます)。空欄 = 画像の大きさそのまま。高解像度向けに 2 倍で書き出した画像は 2 倍に出るので、そのときはここで指定します。16〜320。",
 		"settings.branding.logo_desc":                    "推奨サイズは 横 240px × 高 60px 程度。SVG は upload 時に <code>&lt;script&gt;</code> / event handler / 外部 href を取り除きます。ファイル上限は ~4 MB。",
 		// Scope picker (= multi-site v2 step c).  Shared by theme + challenge
 		// tabs.  Toggles which BrandingValues / ChallengeValues record the
@@ -3684,6 +3687,9 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		"settings.branding.logo_cancel":                  "Cancel",
 		"settings.branding.logo_will_remove":             "Logo will be removed when you save",
 		"settings.branding.logo_undo":                    "Undo",
+		"settings.branding.logo_height_label":            "Logo height (px)",
+		"settings.branding.logo_height_placeholder":      "image size",
+		"settings.branding.logo_height_desc":             "Height on the challenge and deny pages; the width follows. Blank = the image's own size. An image exported at 2x for sharp screens shows twice as large, which this pins down. 16-320.",
 		"settings.branding.logo_desc":                    "Recommended size: ~240 × 60 px. SVGs are sanitised on upload (<code>&lt;script&gt;</code>, event handlers, external href stripped). Upload size limit ~4 MB.",
 		// Scope picker (= multi-site v2 step c).  Shared by theme + challenge
 		// tabs.  Toggles which BrandingValues / ChallengeValues record the

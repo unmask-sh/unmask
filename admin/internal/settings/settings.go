@@ -438,6 +438,12 @@ type BrandingValues struct {
 	// from the file extension. SVGs are sanitized at upload time (= <script>
 	// / on*= / <foreignObject> / external href stripped).
 	LogoPath string `yaml:"logo_path,omitempty"`
+	// LogoHeight: the height the logo is shown at on the challenge and deny
+	// pages, in CSS pixels; the width follows.  0 = the image's own pixel
+	// size (within the page's max-width / max-height caps), which is how the
+	// logo was always shown -- and why one exported at 2x for sharp screens
+	// came out twice as large as meant.  Clamped to LogoHeightMin..Max.
+	LogoHeight int `yaml:"logo_height,omitempty"`
 	// SiteName: short brand string substituted into {site_name} placeholders
 	// in the preset copy. Plain text; HTML-escaped at render time.
 	SiteName string `yaml:"site_name,omitempty"`
@@ -492,6 +498,12 @@ type BrandingValues struct {
 	// (= override enabled) keeps pre-existing per-site entries effective.
 	Disabled bool `yaml:"disabled,omitempty"`
 }
+
+// LogoHeightMin / LogoHeightMax bound BrandingValues.LogoHeight (pixels).
+const (
+	LogoHeightMin = 16
+	LogoHeightMax = 320
+)
 
 // CopyPreset values (= the allowlist).
 const (

@@ -85,21 +85,35 @@ func TestBrandingSparsifyAndMerge(t *testing.T) {
 		Theme:      "auto",
 		ShowCredit: BoolPtr(true),
 	}
+	def.LogoHeight = 48
 	submitted := def
 	submitted.LogoPath = "/etc/unmask/shop.svg"
+	submitted.LogoHeight = 64
 
 	got := SparsifyBranding(submitted, def)
-	if got.LogoPath != "/etc/unmask/shop.svg" {
-		t.Errorf("the changed field was stripped: %q", got.LogoPath)
+	if got.LogoPath != "/etc/unmask/shop.svg" || got.LogoHeight != 64 {
+		t.Errorf("the changed fields were stripped: %+v", got)
 	}
 	if got.SiteName != "" || got.CopyPreset != "" || got.Theme != "" || got.ShowCredit != nil {
 		t.Errorf("fields matching Default were stored: %+v", got)
 	}
+	same := def
+	if s := SparsifyBranding(same, def); s.LogoHeight != 0 {
+		t.Errorf("a logo height equal to Default was stored: %d", s.LogoHeight)
+	}
 
 	b := Branding{Default: def, Sites: map[string]BrandingValues{"s": got}}
 	res := b.Resolve("s")
-	if res.LogoPath != "/etc/unmask/shop.svg" || res.SiteName != "MyCo" || !res.IsShowCredit() {
+	if res.LogoPath != "/etc/unmask/shop.svg" || res.LogoHeight != 64 || res.SiteName != "MyCo" || !res.IsShowCredit() {
 		t.Errorf("resolve after sparsify: %+v", res)
+	}
+	if ov := BrandingOverridesFor(b, "s"); !ov["logo_height"] || ov["site_name"] {
+		t.Errorf("overrides map: %v", ov)
+	}
+	// A site that leaves the height unset inherits Default's.
+	b.Sites["t"] = BrandingValues{SiteName: "Other"}
+	if h := b.Resolve("t").LogoHeight; h != 48 {
+		t.Errorf("unset site height did not inherit Default: %d", h)
 	}
 	// Moving the global reaches the site, which is the whole point.
 	b.Default.CopyPreset = BrandingPresetMinimal

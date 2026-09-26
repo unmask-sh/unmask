@@ -137,3 +137,55 @@ func TestBrandingLogoNameSanitize(t *testing.T) {
 		}
 	}
 }
+
+// brandingFieldsReq: a branding POST with only text fields (no logo file).
+func brandingFieldsReq(t *testing.T, fields map[string]string) *http.Request {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	for k, v := range fields {
+		if err := mw.WriteField(k, v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/?section=appearance", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	return req
+}
+
+// The logo height field: blank means the image's own size, a value in range
+// is kept, one out of range is clamped to the bound it crossed, and a
+// non-number is refused with an error the operator can act on.
+func TestBrandingLogoHeightField(t *testing.T) {
+	cases := []struct {
+		in   string
+		want int
+		err  bool
+	}{
+		{"", 0, false}, {"48", 48, false}, {"16", 16, false}, {"320", 320, false},
+		{"4000", settings.LogoHeightMax, false}, {"3", settings.LogoHeightMin, false},
+		{"tall", 0, true},
+	}
+	for _, c := range cases {
+		cur := settings.BrandingValues{LogoHeight: 99}
+		err := applyBrandingForm(&cur, "", brandingFieldsReq(t, map[string]string{"branding_site_name": "Test", "branding_logo_height": c.in}))
+		if c.err {
+			if err == nil {
+				t.Errorf("%q: expected an error", c.in)
+			}
+			continue
+		}
+		if err != nil {
+			t.Fatalf("%q: %v", c.in, err)
+		}
+		if cur.LogoHeight != c.want {
+			t.Errorf("%q: got %d, want %d", c.in, cur.LogoHeight, c.want)
+		}
+	}
+	if !brandingFormHasEdits(brandingFieldsReq(t, map[string]string{"branding_logo_height": "40"})) {
+		t.Error("a typed logo height does not count as an edit")
+	}
+}
