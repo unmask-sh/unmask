@@ -240,6 +240,8 @@ func banDenyMsgForPreset(preset, lang string) denyMsg {
 
 type rateDenyData struct {
 	Lang, Dir, Title, Body, SiteName, Footer, LogoURL string
+	// LogoHeight: BrandingValues.LogoHeight; 0 leaves the image at its own size.
+	LogoHeight int
 	// Ref is the short support correlation id printed at the foot of the page so
 	// a blocked visitor can quote it; the operator resolves it via
 	// `unmask events --ref`.  Auto-escaped by html/template (it is bare hex
@@ -342,7 +344,7 @@ var rateDenyTmpl = template.Must(template.New("ratedeny").Parse(`<!doctype html>
 </style>
 </head>
 <body>
-{{if .LogoURL}}<img class="logo" src="{{.LogoURL}}" alt="{{.SiteName}}">{{end}}
+{{if .LogoURL}}<img class="logo" src="{{.LogoURL}}" alt="{{.SiteName}}"{{if .LogoHeight}} style="height:{{.LogoHeight}}px;width:auto"{{end}}>{{end}}
 <main>
 {{if .SiteName}}<div class="site">{{.SiteName}}</div>{{end}}
 <h1>{{.Title}}</h1>
@@ -441,6 +443,7 @@ func renderDenyPage(br settings.BrandingValues, m denyMsg, marker, theme, lang, 
 		SiteName:        br.SiteName,
 		Footer:          br.FooterText,
 		LogoURL:         logoURL,
+		LogoHeight:      br.LogoHeight,
 		Ref:             ref,
 		RefLabel:        refLabelText,
 		Theme:           theme,

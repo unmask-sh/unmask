@@ -299,11 +299,13 @@ var buildVersionStamp = time.Now().Unix()
 func brandingInjectJSON(b settings.BrandingValues, basePath, logoURLOverride string, suppressLogo bool, logoSite string) string {
 	type out struct {
 		LogoURL    string `json:"logo_url,omitempty"`
+		LogoHeight int    `json:"logo_height,omitempty"`
 		SiteName   string `json:"site_name,omitempty"`
 		FooterText string `json:"footer_text,omitempty"`
 		CopyPreset string `json:"copy_preset"`
 	}
 	o := out{
+		LogoHeight: b.LogoHeight,
 		SiteName:   strings.TrimSpace(b.SiteName),
 		FooterText: strings.TrimSpace(b.FooterText),
 		CopyPreset: b.ResolvedCopyPreset(),

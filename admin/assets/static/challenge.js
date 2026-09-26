@@ -304,11 +304,13 @@
       var qp  = qs.get('_preview_preset');
       var qs2 = qs.get('_preview_site_name');
       var qs3 = qs.get('_preview_footer_text');
-      if ((qp && P[qp]) || qs2 != null || qs3 != null) {
+      var qs4 = qs.get('_preview_logo_height');
+      if ((qp && P[qp]) || qs2 != null || qs3 != null || qs4 != null) {
         if (!brand) brand = {};
         if (qp && P[qp]) brand.copy_preset = qp;
         if (qs2 != null) brand.site_name = qs2;
         if (qs3 != null) brand.footer_text = qs3;
+        if (qs4 != null) brand.logo_height = parseInt(qs4, 10) || 0;
       }
     }
   } catch (_) {}
@@ -341,6 +343,9 @@
     if(brand.logo_url&&blogo){
       blogo.src=brand.logo_url;
       blogo.alt=brand.site_name||'';
+      // A set height pins the rendered size (width follows); unset leaves
+      // the image at its own pixel size within the page's caps.
+      if(brand.logo_height>0){blogo.style.height=brand.logo_height+'px';blogo.style.width='auto';}
       blogo.style.display='';
       if(bhead) bhead.style.display='';
     }
