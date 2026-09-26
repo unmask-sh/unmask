@@ -4800,7 +4800,7 @@ function secToHuman(s){
         <label for="branding-logo-height">{{ t .Lang "settings.branding.logo_height_label" }}</label>
         <input type="number" id="branding-logo-height" name="branding_logo_height" min="16" max="320" step="1" inputmode="numeric"
                value="{{ if .BrandingValues.LogoHeight }}{{ .BrandingValues.LogoHeight }}{{ end }}"
-               placeholder="{{ t .Lang "settings.branding.logo_height_placeholder" }}" style="width:7rem">
+               placeholder="{{ t .Lang "settings.branding.logo_height_placeholder" }}" style="width:9rem">
         <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.branding.logo_height_desc" }}</p>
       </div>
       {{/* Live logo preview + remove/cancel/undo.  A picked file shows inline at
