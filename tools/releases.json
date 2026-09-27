@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.47",
+  "latest": "0.1.48",
   "releases": [
+    {
+      "version": "0.1.48",
+      "date": "2026-09-27",
+      "notes": "The gateway is one container: the unmask image now holds nginx (the official image with the unmask module, built against that exact nginx version) and the unmask daemon together, kept up by one entrypoint, so a docker run or a single compose service puts it in front of any HTTP server. The daemon starts first and nginx follows once it answers; if the daemon exits it is restarted after a short pause while nginx keeps serving (requests pass without a challenge meanwhile, never refused), and if nginx exits the container exits so the restart policy brings the whole thing back. The separate unmask.sh/nginx image and the run volume are gone. An existing container install moves by taking the new compose file and setting nginx.upstream_addr in its config.yml to 127.0.0.1:9477; the config and data volumes carry over. Package installs are unchanged."
+    },
     {
       "version": "0.1.47",
       "date": "2026-09-27",
