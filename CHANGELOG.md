@@ -12,7 +12,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.47] - 2026-09-27
 
 ### Changed
 - (2026-09-26) **Built with Go 1.27, fixed in one place.**  The Go version now lives in go.mod alone, and the packages, the container images, CI and the release all read it.  Before, the images were built on a Go 1.25 base, which has since left support, and the packages with whatever Go the build host had.  Nothing changes in how unmask is installed or configured.
