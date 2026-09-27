@@ -8,7 +8,7 @@
 # usage:
 #   tools/build-registry.sh <version>            e.g. 0.1.37
 #   tools/build-registry.sh <version> --from-layouts <dir>
-#       use OCI layouts already on disk (<dir>/unmask, <dir>/nginx, each with
+#       use an OCI layout already on disk (<dir>/unmask, with
 #       index.json + blobs/, as `docker buildx build --output type=oci`
 #       writes after untarring) instead of pulling from GHCR -- for a build
 #       host that cannot reach the registry, or images built locally.
@@ -16,7 +16,6 @@
 # Environment:
 #   UNMASK_DL_BUILD_DIR   default ../unmask-dl-build (publish-repo.sh reads it)
 #   UNMASK_IMAGE_SOURCE   default ghcr.io/unmask-sh  (where the release pushed)
-#   UNMASK_NGINX_VERSION  default 1.28.3             (the nginx image's tag suffix)
 #   SKOPEO                default: skopeo if installed, else quay.io/skopeo/stable in docker
 #
 # Then: tools/publish-repo.sh (rsyncs registry/ -> /v2/ and docker/ -> /dl/docker/).
@@ -27,8 +26,6 @@ if [ "${2:-}" = "--from-layouts" ]; then LAYOUTS="${3:?--from-layouts needs a di
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${UNMASK_DL_BUILD_DIR:-$ROOT/../unmask-dl-build}"
 SRC="${UNMASK_IMAGE_SOURCE:-ghcr.io/unmask-sh}"
-NGX="${UNMASK_NGINX_VERSION:-1.28.3}"
-NGX_MINOR="${NGX%.*}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/unmask-registry.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 
@@ -65,7 +62,6 @@ lay() {   # <name> <source tag> <tag>...
 
 mkdir -p "$OUT/registry" "$OUT/docker"
 lay unmask "$VER"       "$VER" latest
-lay nginx "$VER-$NGX"  "$VER-$NGX" "$NGX" "$NGX_MINOR" latest
 
 # The compose file people fetch, pinned per version and as the moving copy.
 cp "$ROOT/docker-compose.example.yml" "$OUT/docker/docker-compose-$VER.yml"
@@ -73,7 +69,7 @@ cp "$ROOT/docker-compose.example.yml" "$OUT/docker/docker-compose.yml"
 
 # Digests, for anyone who pins images (docker pull unmask.sh/unmask@sha256:...).
 {
-    for name in unmask nginx; do
+    for name in unmask; do
         for f in "$OUT/registry/v2/$name/manifests/"*.idx "$OUT/registry/v2/$name/manifests/"*.man; do
             [ -f "$f" ] || continue
             ref="$(basename "$f")"; ref="${ref%.*}"

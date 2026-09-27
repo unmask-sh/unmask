@@ -1,4 +1,4 @@
-# unmask with Docker Compose -- the unmask daemon plus nginx with the module.
+# unmask with Docker Compose -- one container: the gateway.
 #
 #   1. docker compose -f docker-compose.example.yml up -d
 #   2. docker compose -f docker-compose.example.yml logs unmask | grep "setup token"
@@ -7,42 +7,36 @@
 #      once); Settings > Gateway is where the upstream, the hostnames and the
 #      real certificate (Let's Encrypt, pasted, or mounted files) are set.
 #
-# Two containers, same shape as a host install:
+# The unmask image holds both halves of a host install: nginx (the official
+# image with the unmask module) terminates TLS -- that is where JA4 comes
+# from -- classifies, and either serves the challenge or proxies to the
+# upstream; the unmask daemon (admin UI, challenge verification, ban list,
+# stats) renders nginx's includes and answers on the loopback.  One
+# entrypoint keeps both up: a daemon restart costs no outage (nginx lets
+# traffic through while it is away), an nginx exit restarts the container.
 #
-#   unmask  the daemon: admin UI, challenge verification, ban list, stats.
-#           On first start it writes a minimal config.yml, migrates the DB,
-#           renders the nginx includes into /etc/unmask, then serves.
-#   nginx   the official nginx image + the unmask module.  Terminates TLS
-#           (that is where JA4 comes from), classifies, and either serves the
-#           challenge or proxies to the upstream (Settings > Gateway).  With
-#           UNMASK_GATEWAY unset it is a plain nginx-with-module and your own
-#           conf.d applies.
+# The volumes are not optional: /etc/unmask carries the rendered includes and
+# the secrets; drop it and every restart mints new secrets, which logs every
+# visitor out and re-challenges them.
 #
-# The volumes are not optional: /etc/unmask carries the rendered includes
-# (nginx reads what unmask wrote) and the secrets; drop it and every restart
-# mints new secrets, which logs every visitor out and re-challenges them.
-#
-# Settings changed in the admin UI are rendered into the shared volume and the
-# nginx container reloads itself within a few seconds (after nginx -t; a render
-# that does not parse is logged and skipped).  UNMASK_AUTORELOAD=0 disables that.
+# Settings changed in the admin UI are rendered into /etc/unmask and nginx
+# reloads itself within a few seconds (after nginx -t; a render that does
+# not parse is logged and skipped).  UNMASK_AUTORELOAD=0 disables that.
 
 services:
   unmask:
     image: unmask.sh/unmask:latest      # mirrored at ghcr.io/unmask-sh/unmask
-    build: .                       # or build from this checkout
+    build: .                            # or build from this checkout
     container_name: unmask
     restart: unless-stopped
     environment:
       TZ: Asia/Tokyo
-      # The rendered nginx config proxies /unmask/ here; "unmask" is this
-      # service's name on the compose network.
-      UNMASK_DAEMON_ADDR: unmask:9477
-      # Gateway mode.  Everything about the gateway lives in the admin UI,
-      # Settings > Gateway: the upstream, the hostnames it answers for, and
-      # the certificates.  The variables below only seed that tab on the
-      # first boot; leave them out and the tab starts with any hostname, a
+      # Everything about the gateway lives in the admin UI, Settings >
+      # Gateway: the upstream, the hostnames it answers for, and the
+      # certificates.  The variables below only seed that tab on the first
+      # boot; leave them out and the tab starts with any hostname, a
       # self-signed certificate, and the upstream below.
-      UNMASK_GATEWAY: "1"
+      #
       # Where passing requests go (seed; change it in the tab later).  Any
       # HTTP server works, nothing is installed on it: a container in this
       # compose (http://app:80), another host (http://10.0.0.5:8080), or a
@@ -59,52 +53,19 @@ services:
       # UNMASK_TLS_MODE: none   # a load balancer in front terminates TLS and forwards on :80
       # UNMASK_TRUSTED_PROXIES: "130.211.0.0/22 35.191.0.0/16"  # that balancer's ranges, as a custom row of
       #                                                        # Settings > Network > trusted LB / CDN (presets there too)
-      # Where the daemon reaches the gateway to show the served certificate.
-      UNMASK_GATEWAY_ADDR: nginx:443
-    volumes:
-      - unmask-config:/etc/unmask
-      - unmask-data:/var/lib/unmask
-      - unmask-run:/run/unmask      # access-log socket, nginx -> unmask
-      # Your own certificate files, if any (Settings > Gateway > files), the
-      # same directory as on the nginx service, read-only: the daemon reads
-      # a mounted certificate's names (SANs) and never touches the key.
-      - ./tls:/etc/unmask/tls:ro
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9477/unmask/healthz"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
-
-  nginx:
-    image: unmask.sh/nginx:1.28        # mirrored at ghcr.io/unmask-sh/nginx
-    build:
-      context: .
-      dockerfile: docker/nginx/Dockerfile
-    container_name: unmask-nginx
-    restart: unless-stopped
-    depends_on:
-      unmask:
-        condition: service_healthy
-    environment:
-      TZ: Asia/Tokyo
-      # Gateway mode: terminate TLS on :443, challenge what needs it, proxy
-      # the rest to the upstream from Settings > Gateway (rendered by the
-      # daemon into the shared volume).  Remove this variable to run
-      # module-only with your own conf.d mounted at /etc/nginx/conf.d.
-      UNMASK_GATEWAY: "1"
-      # Fallbacks while the tab leaves them empty (the 0.1.37 variables):
-      # UNMASK_UPSTREAM: http://app:80
-      # UNMASK_TRUSTED_PROXIES: "130.211.0.0/22 35.191.0.0/16"
     # Lets the container reach a server on the Docker host itself
     # (upstream http://host.docker.internal:8080 -- a server you moved to
     # port 8080, bound to an address the container can reach, not
     # 127.0.0.1).  Harmless otherwise.
     extra_hosts: ["host.docker.internal:host-gateway"]
     volumes:
-      - unmask-config:/etc/unmask:ro
-      - unmask-run:/run/unmask
-      - ./tls:/etc/unmask/tls:ro
+      - unmask-config:/etc/unmask            # config.yml, secrets, the rendered includes
+      - unmask-data:/var/lib/unmask          # the database
       - unmask-acme:/var/cache/nginx/unmask-acme   # ACME account + certificate; keep it
+      # Your own certificate files, if any (Settings > Gateway > files),
+      # read-only: the daemon reads a mounted certificate's names (SANs) and
+      # never touches the key.
+      - ./tls:/etc/unmask/tls:ro
     ports:
       - "80:80"
       - "443:443"
@@ -120,5 +81,4 @@ services:
 volumes:
   unmask-config:
   unmask-data:
-  unmask-run:
   unmask-acme:

@@ -1,23 +1,31 @@
-# unmask image: the daemon (= multi-stage Go build → minimal runtime).
-# Published per release as ghcr.io/unmask-sh/unmask:<version>.
+# unmask image: the gateway in one container -- the official nginx image with
+# the unmask module, plus the unmask daemon, supervised by one entrypoint.
+# Published per release as ghcr.io/unmask-sh/unmask:<version> and mirrored at
+# unmask.sh/unmask.
 #
-# Use:
-#   docker build -t ghcr.io/unmask-sh/unmask:latest .
-#   docker run -p 9477:9477 -v unmask-data:/var/lib/unmask -v unmask-config:/etc/unmask \
-#       ghcr.io/unmask-sh/unmask:latest
-#   → http://localhost:9477/unmask/admin/  for the install wizard (the setup
-#     token is printed in the container log).
+#   docker run -d --name unmask -p 80:80 -p 443:443 \
+#       -e UNMASK_UPSTREAM=http://app:80 \
+#       -v unmask-config:/etc/unmask -v unmask-data:/var/lib/unmask \
+#       -v unmask-acme:/var/cache/nginx/unmask-acme \
+#       unmask.sh/unmask:latest
+#   docker logs unmask | grep "setup token"
+#   -> https://<host>/unmask/admin/  (the install wizard; paste the token)
 #
-# multi-arch:
-#   docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/unmask-sh/unmask:latest .
+# Inside: the daemon (admin UI, challenge verification, ban list, stats)
+# renders the nginx includes into /etc/unmask and listens on 127.0.0.1:9477;
+# nginx terminates TLS (that is where JA4 comes from), classifies, and either
+# serves the challenge or proxies to the upstream (Settings > Gateway).
+# docker/gateway-entrypoint.sh starts the daemon, waits for it, starts nginx
+# through the stock entrypoint, and keeps both up.
 #
-# This image is the unmask daemon only.  The nginx side is a second image --
-# the official nginx image with the unmask module (docker/nginx/Dockerfile,
-# published as ghcr.io/unmask-sh/nginx:<nginx version>) -- or a host nginx
-# from rpm/deb.  docker-compose.example.yml wires the two containers.
+# The module is built from source against the exact nginx version of the
+# runtime image, with --with-compat, so the signature matches the official
+# binary.  NGINX_VERSION must be a tag that exists at nginx.org AND on Docker
+# Hub.  Multi-arch: docker buildx build --platform linux/amd64,linux/arm64 .
+ARG NGINX_VERSION=1.28.3
 
 # -------------------------------------------------------------------------
-# build stage: Go static binary
+# build stage: the Go static binary
 # -------------------------------------------------------------------------
 FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS build
 ARG TARGETOS=linux
@@ -39,32 +47,81 @@ RUN cd admin && \
     -o /out/unmask ./cmd/unmask
 
 # -------------------------------------------------------------------------
-# runtime stage: scratch + ca-certs + tzdata only.  Pure-Go binary, so no
-# shell needed.  Alpine base allows `docker exec` for debugging.
+# module stage: compile only the module, against this nginx version
 # -------------------------------------------------------------------------
-FROM alpine:3.21 AS runtime
-RUN apk add --no-cache ca-certificates tzdata && \
-    addgroup -S unmask && \
-    adduser  -S -G unmask -H -h /var/lib/unmask -s /sbin/nologin unmask && \
-    mkdir -p /var/lib/unmask /var/log/unmask /etc/unmask /run/unmask && \
-    chown -R unmask:unmask /var/lib/unmask /var/log/unmask /etc/unmask /run/unmask
+FROM debian:bookworm-slim AS modbuild
+ARG NGINX_VERSION
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        build-essential libssl-dev libpcre2-dev zlib1g-dev curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+RUN curl -fsSL "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz" | tar -xz
+COPY nginx-module/ /src/nginx-module/
+RUN cd "nginx-${NGINX_VERSION}" \
+    && ./configure --with-compat \
+                   --with-http_ssl_module \
+                   --with-http_realip_module \
+                   --with-http_auth_request_module \
+                   --add-dynamic-module=/src/nginx-module \
+    && make -j"$(nproc)" modules
 
+# -------------------------------------------------------------------------
+# runtime: the official nginx image + the module + the daemon
+# -------------------------------------------------------------------------
+FROM nginx:${NGINX_VERSION}
+ARG NGINX_VERSION
+LABEL org.opencontainers.image.source="https://github.com/unmask-sh/unmask" \
+      org.opencontainers.image.description="unmask: the bot-challenge gateway (nginx ${NGINX_VERSION} with the JA4 module, plus the unmask daemon)" \
+      org.opencontainers.image.licenses="Apache-2.0"
+
+COPY --from=modbuild /src/nginx-${NGINX_VERSION}/objs/ngx_http_unmask_module.so \
+                     /etc/nginx/modules/ngx_http_unmask_module.so
+# The challenge page is served by nginx itself (the module rewrites to it),
+# same path as the host packages use.
+COPY admin/assets/static/challenge.html admin/assets/static/challenge.js /usr/share/unmask/challenge/
+# load_module has to sit in main context; prepend it to the stock nginx.conf
+# rather than replacing the file, so upstream changes to that file keep
+# flowing through.  The official image ships nginx's own ACME module; loading
+# it costs nothing when unused and lets the gateway do automatic HTTPS with
+# one variable (UNMASK_ACME_EMAIL).  Its state directory must be writable by
+# the worker user and should persist (a volume).
+RUN sed -i '1i load_module modules/ngx_http_unmask_module.so;\nload_module modules/ngx_http_acme_module.so;' /etc/nginx/nginx.conf \
+    && mkdir -p /etc/unmask /run/unmask /etc/unmask/tls /var/cache/nginx/unmask-acme \
+    && chown nginx:nginx /var/cache/nginx/unmask-acme \
+    && nginx -t
+# .envsh: the stock entrypoint sources it, so the defaults it exports reach
+# the envsubst step that renders the gateway template.
+COPY --chmod=0755 docker/nginx/10-unmask-gateway.envsh /docker-entrypoint.d/10-unmask-gateway.envsh
+COPY docker/nginx/gateway.conf.template /usr/share/unmask/gateway.conf.template
+COPY docker/nginx/gateway-includes.sh /usr/share/unmask/gateway-includes.sh
+COPY docker/nginx/gateway-http.conf.template /usr/share/unmask/gateway-http.conf.template
+COPY docker/nginx/gateway-https.conf.template /usr/share/unmask/gateway-https.conf.template
+# Reloads nginx when the daemon re-renders the includes, so a settings change
+# applies without anyone running `nginx -s reload`.
+COPY --chmod=0755 docker/nginx/30-unmask-autoreload.sh /docker-entrypoint.d/30-unmask-autoreload.sh
+RUN test -x /docker-entrypoint.d/10-unmask-gateway.envsh && test -x /docker-entrypoint.d/30-unmask-autoreload.sh
+
+# The daemon: a pure-Go static binary, its own user (the binary drops to it
+# right after start, as under systemd), and the directories it owns.
+RUN useradd --system --user-group --home-dir /var/lib/unmask --shell /usr/sbin/nologin unmask \
+    && mkdir -p /var/lib/unmask /var/log/unmask \
+    && chown -R unmask:unmask /var/lib/unmask /var/log/unmask /etc/unmask /run/unmask
 COPY --from=build /out/unmask /usr/local/bin/unmask
+# First boot: a minimal config.yml (the wizard fills in the rest), migrate,
+# render; then the daemon.  The same script the daemon-only image used.
+COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/unmask-daemon.sh
+# Both processes, one PID 1: see the script for what it does when one dies.
+COPY --chmod=0755 docker/gateway-entrypoint.sh /usr/local/bin/gateway-entrypoint.sh
 
-# If config.yml is missing at startup, generate a minimal one (= install wizard
-# captures the DB etc.).  No-op if it already exists.
-COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod 0755 /usr/local/bin/entrypoint.sh
-
-# No USER here on purpose.  A named volume takes its ownership from whichever
-# container first populates it; when that is the nginx sidecar, /etc/unmask
-# arrives root-owned and a non-root entrypoint cannot write config.yml (seen on
-# the first compose bring-up).  The entrypoint starts as root, fixes the
-# ownership of the three volumes, and hands over to the binary, which drops to
-# the `unmask` user itself before doing anything else -- the same path a
-# host install takes under systemd.
-EXPOSE 9477
-VOLUME ["/var/lib/unmask", "/etc/unmask", "/run/unmask"]
-
-ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["serve", "-config", "/etc/unmask/config.yml"]
+# This image IS the gateway: on by default (UNMASK_GATEWAY=0 turns the
+# container into nginx-with-module plus the daemon, your own conf.d applies).
+# The daemon and nginx share the container, so the addresses are loopback.
+ENV UNMASK_GATEWAY=1 \
+    UNMASK_DAEMON_ADDR=127.0.0.1:9477 \
+    UNMASK_GATEWAY_ADDR=127.0.0.1:443
+EXPOSE 80 443
+VOLUME ["/etc/unmask", "/var/lib/unmask", "/var/cache/nginx/unmask-acme"]
+HEALTHCHECK --interval=10s --timeout=3s --start-period=30s --retries=6 \
+    CMD curl -fsS -o /dev/null http://127.0.0.1:9477/unmask/healthz && test -f /run/nginx.pid
+STOPSIGNAL SIGTERM
+ENTRYPOINT ["/usr/local/bin/gateway-entrypoint.sh"]

@@ -743,30 +743,24 @@ package-all:
 		echo "!! skipping arm64 package.  install gcc-aarch64-linux-gnu or build artifacts on arm64 host."; \
 	fi
 
-## docker        - the unmask image, the daemon (host arch). tag: unmask.sh/unmask:$(UNMASK_VERSION)
+## docker        - the unmask image: the gateway, nginx (official image + the
+#                 module, built against DOCKER_NGINX_VERSION) plus the daemon.
+#                 tag: unmask.sh/unmask:$(UNMASK_VERSION)
 DOCKER_IMAGE_UNMASK ?= unmask.sh/unmask
-DOCKER_IMAGE_NGINX ?= unmask.sh/nginx
 DOCKER_NGINX_VERSION ?= 1.28.3
 docker:
 	docker build -t $(DOCKER_IMAGE_UNMASK):$(UNMASK_VERSION) -t $(DOCKER_IMAGE_UNMASK):latest \
-		--build-arg UNMASK_VERSION=$(UNMASK_VERSION) .
-
-## docker-nginx  - official nginx image + the unmask module, built against
-#                 DOCKER_NGINX_VERSION (must exist on nginx.org and Docker Hub).
-docker-nginx:
-	docker build -f docker/nginx/Dockerfile \
-		--build-arg NGINX_VERSION=$(DOCKER_NGINX_VERSION) \
-		-t $(DOCKER_IMAGE_NGINX):$(DOCKER_NGINX_VERSION) -t $(DOCKER_IMAGE_NGINX):latest .
+		--build-arg UNMASK_VERSION=$(UNMASK_VERSION) --build-arg NGINX_VERSION=$(DOCKER_NGINX_VERSION) .
 
 ## docker-buildx - multi-arch unmask image (amd64 + arm64).  Set DOCKER_REGISTRY
 # to a prefix ending in "/" to push there; unset = local image only.  Releases
-# build both images in the release workflow (GHCR, the build source) and
-# tools/build-registry.sh lays them out for unmask.sh, so this is for one-offs.
+# build the image in the release workflow (GHCR, the build source) and
+# tools/build-registry.sh lays it out for unmask.sh, so this is for one-offs.
 DOCKER_REGISTRY ?=
 docker-buildx:
 	docker buildx build \
 		--platform linux/amd64,linux/arm64 \
-		--build-arg UNMASK_VERSION=$(UNMASK_VERSION) \
+		--build-arg UNMASK_VERSION=$(UNMASK_VERSION) --build-arg NGINX_VERSION=$(DOCKER_NGINX_VERSION) \
 		-t $(DOCKER_REGISTRY)$(DOCKER_IMAGE_UNMASK):$(UNMASK_VERSION) \
 		-t $(DOCKER_REGISTRY)$(DOCKER_IMAGE_UNMASK):latest \
 		$(if $(DOCKER_REGISTRY),--push,--load) \
