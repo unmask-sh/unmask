@@ -76,10 +76,10 @@ jobs:
           name: admin-${{ matrix.goarch }}
           path: dist/
 
-  # Container images -> GHCR (ghcr.io/unmask-sh/*).  The workflow token is
-  # enough: no registry account, no long-lived secret.  Two images per
-  # release: the unmask daemon, and the official nginx image with the unmask
-  # module built against that exact nginx version (see docker/nginx/).
+  # Container image -> GHCR (ghcr.io/unmask-sh/unmask).  The workflow token is
+  # enough: no registry account, no long-lived secret.  One image per
+  # release: the gateway -- the official nginx image with the unmask module
+  # built against that exact nginx version, plus the daemon (Dockerfile).
   docker:
     runs-on: ubuntu-latest
     permissions:
@@ -90,18 +90,10 @@ jobs:
         include:
           - name: unmask
             dockerfile: Dockerfile
-            build-args: ""
+            build-args: NGINX_VERSION=1.28.3
             tags: |
               ghcr.io/unmask-sh/unmask:VERSION
               ghcr.io/unmask-sh/unmask:latest
-          - name: nginx-1.28
-            dockerfile: docker/nginx/Dockerfile
-            build-args: NGINX_VERSION=1.28.3
-            tags: |
-              ghcr.io/unmask-sh/nginx:VERSION-1.28.3
-              ghcr.io/unmask-sh/nginx:1.28.3
-              ghcr.io/unmask-sh/nginx:1.28
-              ghcr.io/unmask-sh/nginx:latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0

@@ -12,6 +12,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+- (2026-09-27) **The gateway is one container.**  The unmask image now holds nginx (the official image with the unmask module) and the daemon together, supervised by one entrypoint: a `docker run` or a single compose service puts it in front of any HTTP server.  The separate `unmask.sh/nginx` image and the `/run/unmask` volume are gone; an existing container install moves by taking the new compose file (config and data volumes carry over).  A daemon restart costs no outage -- nginx lets traffic through while it is away -- and an nginx exit restarts the container.
+
 ## [0.1.47] - 2026-09-27
 
 ### Changed
