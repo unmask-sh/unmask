@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.46",
+  "latest": "0.1.47",
   "releases": [
+    {
+      "version": "0.1.47",
+      "date": "2026-09-27",
+      "notes": "The container image is now unmask.sh/unmask, its compose service unmask, and its config file config.yml: the image had been named admin, which reads as an optional management UI, while it is the whole daemon that the unmask package installs on a host. An existing container install moves in three steps: fetch the new compose file, rename admin.yml to config.yml in the config volume, and set nginx.upstream_addr there to unmask:9477; nothing changes for package installs. The challenge page's logo can be given a height (Settings > Page design, also per site): the page showed a logo at the image's own pixel size, so one exported at 2x for sharp screens came out twice as large as meant, and the deny pages and the live preview follow the same value. The builds are made with Go 1.27, read from go.mod alone by the packages, the container images, CI and the release; the images had been on a Go 1.25 base, which has left support. The embedded crawler IP ranges are refreshed."
+    },
     {
       "version": "0.1.46",
       "date": "2026-09-24",
