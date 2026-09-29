@@ -32,6 +32,7 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/env.sh"
 # shellcheck source=../lib/assert.sh
 . "$DIR/lib/assert.sh"
+. "$DIR/lib/stack.sh"
 
 COMPOSE="${COMPOSE:-$DIR/docker/docker-compose.yml}"
 if ! command -v docker >/dev/null 2>&1 || \
@@ -66,8 +67,7 @@ wait_healthz_200() {
     return 1
 }
 restart_admin() {
-    docker compose -f "$COMPOSE" stop unmask >/dev/null 2>&1
-    docker compose -f "$COMPOSE" start unmask >/dev/null 2>&1
+    stack_restart "$COMPOSE"
     wait_healthz_200
 }
 # X-Unmask-Reason for a Googlebot UA from $1 (same header protocol as 05).

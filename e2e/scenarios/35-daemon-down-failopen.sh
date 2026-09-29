@@ -28,6 +28,7 @@ set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/env.sh"
 . "$DIR/lib/assert.sh"
+. "$DIR/lib/stack.sh"
 
 COMPOSE="${COMPOSE:-$DIR/docker/docker-compose.yml}"
 if ! command -v docker >/dev/null 2>&1 || \
@@ -77,7 +78,7 @@ cleanup() {
     local rc=$?
     ban_clear
     if [ "$ADMIN_STOPPED" = "1" ]; then
-        docker compose -f "$COMPOSE" start unmask >/dev/null 2>&1 || true
+        stack_start "$COMPOSE" || true
         if wait_healthz_eq 200 30; then
             log "cleanup: unmask container restarted (healthz 200)"
         else
@@ -108,7 +109,7 @@ done
 assert_eq 403 "$bcode" "baseline (admin up): the deny-banned address is refused (403)" || exit 1
 
 # 2. stop the unmask daemon.
-docker compose -f "$COMPOSE" stop unmask >/dev/null 2>&1
+stack_stop "$COMPOSE"
 ADMIN_STOPPED=1
 if ! wait_healthz_eq 503 15; then
     log_fail "admin did not go down (healthz still $(healthz))"
@@ -171,7 +172,7 @@ else
 fi
 
 # 6. bring the admin back.
-docker compose -f "$COMPOSE" start unmask >/dev/null 2>&1
+stack_start "$COMPOSE"
 if ! wait_healthz_eq 200 30; then
     log_fail "admin did not come back up (healthz $(healthz))"
     exit 1

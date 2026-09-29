@@ -31,6 +31,7 @@ set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/env.sh"
 . "$DIR/lib/assert.sh"
+. "$DIR/lib/stack.sh"
 
 COMPOSE="${COMPOSE:-$DIR/docker/docker-compose.yml}"
 if ! command -v docker >/dev/null 2>&1 || \
@@ -69,7 +70,7 @@ cleanup() {
     local rc=$?
     [ -n "$HAMMER" ] && kill "$HAMMER" 2>/dev/null
     if [ "$(healthz)" != 200 ]; then
-        dc start unmask >/dev/null 2>&1 || true
+        stack_start "$COMPOSE" || true
         wait_healthz 60 || { log_fail "cleanup: the daemon did not come back healthy"; rc=1; }
     fi
     if ! status | grep -q 'up to date'; then
@@ -88,7 +89,7 @@ trap cleanup EXIT
 assert_in "up to date" "$(status)" "before: nothing is pending" || exit 1
 
 # 1. the database of an install that has just been upgraded across the index
-dc stop unmask >/dev/null 2>&1
+stack_stop "$COMPOSE"
 dc run --rm --no-deps -T unmask sh -c "cd $DBDIR && tar -cf - unmask.sqlite*" > "$WORK/db.tar" 2>/dev/null
 tar -C "$WORK" -xf "$WORK/db.tar" || { log_fail "could not copy the database out of the container"; exit 1; }
 t0=$(date +%s)
@@ -130,7 +131,7 @@ rm -f "$WORK"/unmask.sqlite* "$WORK/db.tar"
 
 # 2. the daemon starts without building it
 t0=$(date +%s)
-dc start unmask >/dev/null 2>&1
+stack_start "$COMPOSE"
 wait_healthz 60 || { log_fail "the daemon did not come up within 60s of the start"; exit 1; }
 up=$(( $(date +%s) - t0 ))
 log_pass "the daemon answers ${up}s after the start, the index build not among what it did first"

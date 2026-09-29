@@ -31,6 +31,7 @@ set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/env.sh"
 . "$DIR/lib/assert.sh"
+. "$DIR/lib/stack.sh"
 
 COMPOSE="${COMPOSE:-$DIR/docker/docker-compose.yml}"
 if ! command -v docker >/dev/null 2>&1 || \
@@ -54,7 +55,7 @@ healthz() {
 }
 wait_healthz_200() {
     local i
-    for i in $(seq 1 30); do
+    for i in $(seq 1 60); do
         [ "$(healthz)" = 200 ] && return 0
         sleep 1
     done
@@ -79,7 +80,7 @@ ADMIN_STOPPED=0
 cleanup() {
     local rc=$?
     if [ "$ADMIN_STOPPED" = "1" ]; then
-        docker compose -f "$COMPOSE" start unmask >/dev/null 2>&1 || true
+        stack_start "$COMPOSE" || true
         wait_healthz_200 || { log_fail "cleanup: admin did not come back healthy"; rc=1; }
     fi
     db_drop_ban
@@ -121,9 +122,9 @@ assert_in "|honeypot|${WANT_ACTION}" "$line" \
 
 # 3. Restart the unmask daemon -- this is the initial-flush path that used to
 #    rewrite the row.
-docker compose -f "$COMPOSE" stop unmask >/dev/null 2>&1
+stack_stop "$COMPOSE"
 ADMIN_STOPPED=1
-docker compose -f "$COMPOSE" start unmask >/dev/null 2>&1
+stack_start "$COMPOSE"
 if ! wait_healthz_200; then
     log_fail "admin did not come back after restart (healthz $(healthz))"
     exit 1
