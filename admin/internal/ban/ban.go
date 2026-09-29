@@ -148,6 +148,12 @@ type Manager struct {
 	// reached heldBansMax and that has been logged.  Both under mu.
 	held     []heldBan
 	heldFull bool
+
+	// flushMu makes one flush at a time.  A flush follows every addition,
+	// and runs on the loop's tick too: an addition from the access log's
+	// receive loop and a tick at the same moment would both write the one
+	// temporary file, and the list nginx loads could be a mix of the two.
+	flushMu sync.Mutex
 }
 
 // SetActionResolver installs the per-source action picker.  Safe to call
@@ -743,6 +749,8 @@ func (m *Manager) flush() error {
 	if m.filePath == "" {
 		return nil
 	}
+	m.flushMu.Lock()
+	defer m.flushMu.Unlock()
 	m.mu.Lock()
 	resolver := m.actionResolver
 	m.mu.Unlock()

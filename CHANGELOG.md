@@ -26,6 +26,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-09-29) **Mattermost link previews pass out of the box.**  Mattermost fetches a pasted link's preview from its own server as `Mattermost-Bot`, which the crawler list did not carry, so the fetch was challenged and the link rendered bare.  It joins the supplement next to Chatwork, Webex and Notion, and can be switched off per pattern like any other.
 
 ### Fixed
+- (2026-09-30) **The ban list is written by one writer at a time.**  A ban added from the access log and the manager's periodic refresh could write the list's temporary file at the same moment, so nginx could load a list mixing the two.  Writes of the list now take turns.
+
 - (2026-09-29) **A package upgrade restarts the daemon once.**  The install script started the daemon and then restarted it as a guarantee.  The daemon applies pending schema updates as it starts, so on an upgrade with a slow one the second start killed the first part way and the update began again.  One restart, falling back to a start, now covers every case on systemd, OpenRC and SysVinit.
 
 - (2026-09-29) **The hourly prune no longer stops at the first table that fails.**  The aggregate tables are pruned one after another, and an error on one ended the run: the tables listed after it were not trimmed that hour, and not at all if the error kept returning.  Every table now gets its turn, the failures are reported together, and the run is recorded for `unmask doctor` to read.
