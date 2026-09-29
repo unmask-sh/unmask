@@ -115,8 +115,28 @@ chmod 0644 "$RENDER_DIR"/*.inc 2>/dev/null || true
 # as root, so 0640 unmask:unmask is sufficient.
 chmod 0640 "$RENDER_DIR"/http.inc 2>/dev/null || true
 
-# init system detection: systemd > OpenRC.  SysVinit (= CentOS 6 etc.) was
-# retired since every supported distro is one of these two.
+# A schema update the new daemon will leave for the operator (= an index
+# build over a large events table, which it does not run at startup because
+# it would be gone for that long; see internal/db/migrator.go).  Worked out
+# here, before the restart, so that it does not compete with the starting
+# daemon for the database, and printed at the very end, where whoever is
+# upgrading is looking.  Empty on a new install and on every upgrade of an
+# install whose tables are small: nothing is printed then.
+SCHEMA_NOTICE=$(/usr/sbin/unmask migrate -notice -config "$CONFIG" 2>/dev/null || true)
+
+# The daemon is (re)started ONCE below, whatever the init system.
+#
+# It used to be started twice in a row -- the branch for this kind of install
+# (enable --now / try-restart / condrestart), then a "final guarantee" restart
+# for the states the first one does not cover.  The daemon applies pending
+# migrations when it starts, so on an upgrade with a slow one the first start
+# began it, the second killed it part way and began it again.  `restart`
+# falling back to `start` covers every state by itself: it replaces a running
+# daemon, starts a stopped one, and starts one a prior remove left in an odd
+# state (= the admin loop on a reinstall, 2026-07-02, which the final
+# guarantee was added for).
+#
+# init system detection: systemd > OpenRC > SysVinit.
 # init.d/unmask is symlinked from /usr/share/unmask/init/unmask.openrc on
 # apk hosts.
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
@@ -147,30 +167,14 @@ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     } > "$DROP_IN/10-group.conf"
 
     systemctl daemon-reload || true
-    if [ "${1:-}" = "1" ] || { [ "${1:-}" = "configure" ] && [ -z "${2:-}" ]; }; then
-        # Fresh install only: rpm $1=1, or deb "configure" with an empty $2.
-        # deb "configure" ALSO fires on upgrades, where enable --now is a no-op
-        # on the already-running unit so the NEW binary never loads -- gate on
-        # an empty $2 so those fall through to try-restart below instead.
-        systemctl enable --now unmask.service || true
-    elif [ -d /lib/apk ]; then
-        # apk passes the package version as $1 (not "1"/"configure"), so a fresh
-        # Alpine install would otherwise fall through to `try-restart` and never
-        # get enabled or started.  Enable for boot, then restart -- restart
-        # starts a stopped service and reloads a running one, so this is correct
-        # for both fresh-install and upgrade on the (rare) systemd-on-Alpine host.
+    if [ "${1:-}" = "1" ] || { [ "${1:-}" = "configure" ] && [ -z "${2:-}" ]; } || [ -d /lib/apk ]; then
+        # Enable for boot on a fresh install: rpm $1=1, or deb "configure" with
+        # an empty $2 (deb "configure" ALSO fires on upgrades, which carry the
+        # previous version in $2).  apk passes the package version as $1, never
+        # "1"/"configure", so it cannot tell the two apart: enable every time
+        # there, which is idempotent.
         systemctl enable unmask.service || true
-        systemctl restart unmask.service || true
-    else
-        systemctl try-restart unmask.service || true
     fi
-    # Final guarantee (= v0.1.1): whichever branch ran above, converge on
-    # "the NEW binary is actually running".  try-restart is a no-op when the
-    # unit is inactive, and enable --now cannot always start a unit left in an
-    # odd state by a prior remove; a remove->install (rpm $1=1 but a stale
-    # daemon lingering) or reinstall could otherwise keep the OLD binary live
-    # -> the admin loop we hit on unmask.sh 2026-07-02.  restart reloads a
-    # running unit and starts a stopped one, so this is safe for every path.
     systemctl restart unmask.service 2>/dev/null || systemctl start unmask.service 2>/dev/null || true
     INIT_KIND=systemd
 elif command -v rc-service >/dev/null 2>&1 || [ -x /sbin/openrc-run ]; then
@@ -179,18 +183,10 @@ elif command -v rc-service >/dev/null 2>&1 || [ -x /sbin/openrc-run ]; then
     # rc-update add is unconditional, so boot-enable happens on every packager
     # including apk (= which passes the version string as $1, never "1").
     rc-update add unmask default 2>/dev/null || true
-    if [ "${1:-}" = "1" ]; then
-        rc-service unmask start || true
-    else
-        # Covers apk (= version-string $1) and any upgrade: `restart` starts a
-        # stopped service (= fresh Alpine install) and reloads a running one
-        # (= upgrade).  Do NOT narrow this to `start` for apk -- `start` on an
-        # already-running service is a no-op, so an apk upgrade would keep the
-        # old binary loaded.
-        rc-service unmask restart || true
-    fi
-    # Final guarantee (= v0.1.1): converge on the new binary running (restart
-    # starts a stopped service and reloads a running one).
+    # `restart` starts a stopped service (= fresh install) and replaces a
+    # running one (= upgrade).  Do NOT narrow this to `start`: on an
+    # already-running service that is a no-op, and an upgrade would keep the
+    # old binary loaded.
     rc-service unmask restart 2>/dev/null || rc-service unmask start 2>/dev/null || true
     INIT_KIND=openrc
 elif command -v chkconfig >/dev/null 2>&1 && [ -d /etc/rc.d/init.d ]; then
@@ -202,15 +198,8 @@ elif command -v chkconfig >/dev/null 2>&1 && [ -d /etc/rc.d/init.d ]; then
     chmod 0755 /etc/rc.d/init.d/unmask
     chkconfig --add unmask 2>/dev/null || true
     chkconfig unmask on 2>/dev/null || true
-    if [ "${1:-}" = "1" ]; then
-        # Fresh rpm install ($1=1): start it now.
-        service unmask start 2>/dev/null || /etc/rc.d/init.d/unmask start || true
-    else
-        # Upgrade: restart only if it was running, so the new binary loads.
-        service unmask condrestart 2>/dev/null || /etc/rc.d/init.d/unmask condrestart || true
-    fi
-    # Final guarantee (= v0.1.1): converge on the new binary running.  restart
-    # (not condrestart) so a stopped-by-prior-remove daemon still comes up.
+    # restart (not condrestart) so a stopped-by-prior-remove daemon still
+    # comes up.
     { service unmask restart 2>/dev/null || /etc/rc.d/init.d/unmask restart 2>/dev/null; } || \
     { service unmask start   2>/dev/null || /etc/rc.d/init.d/unmask start   2>/dev/null; } || true
     INIT_KIND=sysvinit
@@ -257,4 +246,9 @@ if [ "$INIT_KIND" = "systemd" ]; then
     echo "  after saving, run  systemctl reload nginx  to apply (= unmask itself does not need a restart)."
 elif [ "$INIT_KIND" = "sysvinit" ]; then
     echo "  after saving, run  service nginx reload  to apply (= unmask itself does not need a restart)."
+fi
+
+# Last, so that it is what is on the screen when the upgrade returns.
+if [ -n "$SCHEMA_NOTICE" ]; then
+    printf '%s\n' "$SCHEMA_NOTICE"
 fi
