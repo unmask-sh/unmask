@@ -346,6 +346,13 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site, bt str
 			// attributable to the same request.
 			"bt": bt,
 		}
+		// referer: a serve records where the visitor came from, and this row
+		// stands where the serve would have been -- the request was let through
+		// instead of challenged.  Being a session of one, it is also the only
+		// row that can ever say it.  Display-only; often empty.
+		if refr := refererForEvent(r); refr != "" {
+			payload["referer"] = refr
+		}
 		events.InsertAsync(h.DB, &events.Event{
 			Site:         site,
 			Host:         h.HostID,

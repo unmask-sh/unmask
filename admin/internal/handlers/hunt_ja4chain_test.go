@@ -88,3 +88,58 @@ func TestJA4ChainPopoverWiring(t *testing.T) {
 		}
 	}
 }
+
+// The serve row's referer rides the same response, under "r", and a row that
+// recorded none has no such key -- the client tells "this session sent no
+// referer" from "this session's serve is not in the chain" by looking for a
+// serve, not for an empty string.
+func TestHuntJA4ChainReferer(t *testing.T) {
+	conn, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: filepath.Join(t.TempDir(), "h.sqlite")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { conn.Close() })
+	if err := db.Migrate(conn); err != nil {
+		t.Fatal(err)
+	}
+	const bt = "dlredzas37ho.2m96go7sr073g.01edbd1db622214b"
+	for _, row := range []struct{ phase, payload, ago string }{
+		{"serve", `{"bt":"` + bt + `","referer":"https://github.com/unmask-sh/unmask"}`, "-3 minutes"},
+		{"load", `{"bt":"` + bt + `"}`, "-2 minutes"},
+		{"bv_pow_only", `{"bt":"` + bt + `"}`, "-1 minutes"},
+	} {
+		if _, err := conn.Exec(`INSERT INTO unmask_event
+			(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
+			 phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+			VALUES ('s','h','https',443,x'7f000001','ua','t13x','',0,?,0,0,'','',?,datetime('now',?))`,
+			row.phase, row.payload, row.ago); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := &Handler{DB: conn, UserRepo: &user.Repository{DB: conn}}
+	h.SetSettings(settings.Settings{})
+
+	r := httptest.NewRequest(http.MethodGet, "/unmask/admin/hunt/ja4chain?bt="+bt, nil)
+	w := httptest.NewRecorder()
+	h.AdminHuntJA4Chain(w, r)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d", w.Code)
+	}
+	var body struct {
+		Rows []map[string]any `json:"rows"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if len(body.Rows) != 3 {
+		t.Fatalf("rows = %d, want 3: %s", len(body.Rows), w.Body.String())
+	}
+	if got := body.Rows[0]["r"]; got != "https://github.com/unmask-sh/unmask" {
+		t.Errorf(`serve row "r" = %v, want the recorded referer`, got)
+	}
+	for _, row := range body.Rows[1:] {
+		if _, has := row["r"]; has {
+			t.Errorf(`%v carries "r"; a row with no referer must not have the key`, row["p"])
+		}
+	}
+}
