@@ -491,9 +491,9 @@
 //
 // The Referer belongs to the request that was challenged, so it is recorded on
 // the serve (and on the forward-auth check folded in front of it) and on no
-// beacon.  A view filtered to the passes holds none of those rows, and used to
-// answer "-" for every session in it -- the mark for "the visitor sent no
-// referer", on rows where the truth was "that row is not on this page".
+// beacon.  A view filtered to the passes holds none of those rows: a row there
+// shows its own value -- a pass carries none, so "-" -- and a click on its
+// phase reads the recorded session and shows where it came from.
 //
 // A silent rebind is the one pass that is its own first request: nothing was
 // served, so the row records the referer itself and has nothing to look up.
@@ -508,12 +508,13 @@
 //                    absent    nobody has looked
 window.unmaskHuntReferer = (function(){
   var LABEL = {{ t .Lang "hunt.referer_label" }};
-  var NOT_LOADED = {{ t .Lang "hunt.referer_not_loaded" }};
   var NO_HEAD = {{ t .Lang "hunt.referer_no_head" }};
   // 'url'      a referer is known
   // 'sent'     the challenged request is known and it carried none
   // 'nohead'   looked for, and the challenged request is not on record here
-  // 'unloaded' the challenged request is not on this page and nobody has looked
+  // 'unloaded' the challenged request is not on this page and nobody has
+  //            looked: the row's own value is shown, and a click on the phase
+  //            looks
   function first(ph){ return ph === 'serve' || ph === 'check' || ph === 'bv_rebind'; }
   function state(tr){
     if ((tr.getAttribute('data-referer') || '').trim()) return 'url';
@@ -528,8 +529,7 @@ window.unmaskHuntReferer = (function(){
   function text(tr){
     var st = state(tr);
     if (st === 'url') return tr.getAttribute('data-referer').trim();
-    if (st === 'sent') return '-';
-    return st === 'nohead' ? NO_HEAD : NOT_LOADED;
+    return st === 'nohead' ? NO_HEAD : '-';
   }
   return { label: LABEL, state: state, text: text, first: first };
 })();
@@ -1801,18 +1801,18 @@ document.addEventListener('DOMContentLoaded', function(){
     // not record it", and the empty case is itself the answer most of the time
     // (bots rarely send one, and browsers strip it cross-origin).
     //
-    // "-" is a claim about the visitor, so it is only made when the challenged
-    // request is known.  On a row whose session starts off this page it is not,
-    // and the row says so -- and says what loads it -- instead.  The state is
-    // the one the session popovers read (unmaskHuntReferer), so a referer the
-    // phase cell's click found is the one shown here.
+    // A row whose session starts off this page shows its own value, as every
+    // row does; a click on its phase reads the session and fills in where it
+    // came from.  The state is the one the session popovers read
+    // (unmaskHuntReferer), so a referer the phase cell's click found is the one
+    // shown here.
     var RS = window.unmaskHuntReferer;
     var refr = (tr.getAttribute('data-referer') || '').trim();
     var rstate = RS ? RS.state(tr) : (refr ? 'url' : 'sent');
     var rtext = RS ? RS.text(tr) : (refr || '-');
     body += '<div class="dtpop-row" data-referer-state="' + rstate + '"><span class="dtpop-k">' + esc(REFERER_LABEL) + '</span>' +
       (rstate === 'url' ? '<span class="dtpop-v dtpop-referer">' + esc(rtext) + '</span>'
-        : '<span class="dtpop-v dtpop-none' + (rstate === 'sent' ? '' : ' dtpop-note') + '">' + esc(rtext) + '</span>') +
+        : '<span class="dtpop-v dtpop-none' + (rstate === 'nohead' ? ' dtpop-note' : '') + '">' + esc(rtext) + '</span>') +
       '</div>';
     // The tz abbreviation (JST / UTC) is baked into each line, so the time rows
     // are self-labelling -- no locale-specific "Local" / "Time" caption needed.

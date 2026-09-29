@@ -139,13 +139,14 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
       `precondition: the pass row already carries a referer state (${JSON.stringify(before)}) -- ` +
       'the filter stopped excluding the serve, and this test no longer covers the filtered shape');
 
-    // Before anybody looked: neither popover may claim the visitor sent none.
+    // Before anybody looked: both popovers show the row's own value -- a pass
+    // carries none, so "-" -- and only a click looks further.
     const d0 = await hover(SERVED, DATE);
-    ok(d0 && d0.state === 'unloaded',
-      `date popover before the click: state ${JSON.stringify(d0)}, want "unloaded" (it must not say "-")`);
+    ok(d0 && d0.state === 'unloaded' && /-$/.test(d0.text),
+      `date popover before the click: ${JSON.stringify(d0)}, want state "unloaded" showing the row's own "-"`);
     const p0 = await hover(SERVED, PILL);
-    ok(p0 && p0.state === 'unloaded',
-      `phase popover on hover: state ${JSON.stringify(p0)}, want "unloaded"`);
+    ok(p0 && p0.state === 'unloaded' && /-$/.test(p0.text),
+      `phase popover on hover: ${JSON.stringify(p0)}, want state "unloaded" showing the row's own "-"`);
     ok(lookups.length === 0, `hovering fetched ${lookups.length} time(s); only a click may`);
 
     // The click: the recorded session, and where it came from.
@@ -186,11 +187,12 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
   }
 
   // A pass whose serve is not on record here (on a fleet: it landed on another
-  // node).  Looked for and not found is its own answer: not "-", and not "not
-  // loaded" either.
+  // node).  Before a click it shows its own "-" like any pass; looked for and
+  // not found is then its own answer, not "-".
   if (await rowAttrs(NOHEAD)) {
     const d0 = await hover(NOHEAD, DATE);
-    ok(d0 && d0.state === 'unloaded', `serve-less pass before the click: ${JSON.stringify(d0)}, want "unloaded"`);
+    ok(d0 && d0.state === 'unloaded' && /-$/.test(d0.text),
+      `serve-less pass before the click: ${JSON.stringify(d0)}, want "unloaded" showing "-"`);
     const p = await click(NOHEAD, PILL);
     ok(p && p.state === 'nohead', `serve-less pass after the click: ${JSON.stringify(p)}, want "nohead"`);
     ok(p && p.value !== '-' && p.value.length > 3,
