@@ -95,6 +95,18 @@ const heldMax = 50000
 // no one transaction has to beat the flush's own deadline on a slow disk.
 const flushChunk = 500
 
+// maxRetain bounds what is kept for a retry when writing fails (the database
+// is down, full, read-only): a transient failure loses nothing, a persistent
+// one cannot grow the buffer without limit.  Events kept through a schema
+// update's hold are bounded by heldMax instead -- a failure on the first
+// write after the hold must not throw away what the hold kept.
+const maxRetain = 5000
+
+// finalFlushWithin bounds the last write at shutdown: long enough to wait
+// out a lock that is about to be released, short of the service manager's
+// stop timeout.
+const finalFlushWithin = 20 * time.Second
+
 // maxBatchSize bounds the hot-reloadable batch size.  Events are flushed in one
 // transaction, so a batch this large is already far past useful; the point of
 // the ceiling is that the value is narrowed to int32 below.
@@ -159,20 +171,52 @@ func (f *Flusher) run() {
 	defer t.Stop()
 	lastFlush := time.Now()
 	holding := false
+	// kept: buf holds events kept through a hold, not yet all written.
+	kept := false
+	heldDropped := 0
 
-	flush := func() {
+	// retain trims buf to max events, dropping the oldest and counting them.
+	// It drops a tenth more than it has to, so that a flood arriving past
+	// the limit is trimmed now and then rather than copied at every event.
+	retain := func(max int) int {
+		if len(buf) <= max {
+			return 0
+		}
+		over := len(buf) - max + max/10
+		if over > len(buf) {
+			over = len(buf)
+		}
+		f.droppedOnError.Add(uint64(over))
+		buf = append(buf[:0], buf[over:]...)
+		return over
+	}
+	// write writes buf out a chunk at a time and reports the first failure;
+	// what failed stays in buf.
+	write := func(within time.Duration) error {
+		deadline := time.Now().Add(within)
+		for len(buf) > 0 {
+			n := min(len(buf), flushChunk)
+			ctx, cancel := context.WithDeadline(context.Background(), deadline)
+			err := insertBulk(ctx, f.d, buf[:n])
+			cancel()
+			if err != nil {
+				return err
+			}
+			buf = append(buf[:0], buf[n:]...)
+		}
+		return nil
+	}
+
+	flush := func(final bool) {
 		if len(buf) == 0 {
 			return
 		}
-		if f.d.WritesHeld() {
+		if f.d.WritesHeld() && !final {
 			// A write now would wait out the busy timeout and fail, over
 			// and over for as long as the build runs.  Keep the events.
-			if over := len(buf) - heldMax; over > 0 {
-				f.droppedOnError.Add(uint64(over))
-				buf = append(buf[:0], buf[over:]...)
-			}
+			heldDropped += retain(heldMax)
 			if !holding {
-				holding = true
+				holding, kept = true, true
 				log.Printf("events flusher: a schema update holds the write lock; events are kept in memory (up to %d) and written when it has finished", heldMax)
 			}
 			lastFlush = time.Now()
@@ -180,39 +224,44 @@ func (f *Flusher) run() {
 		}
 		if holding {
 			holding = false
-			log.Printf("events flusher: the write lock is free again; writing the %d event(s) kept meanwhile", len(buf))
+			if heldDropped > 0 {
+				log.Printf("events flusher: the write lock is free again; writing the %d event(s) kept meanwhile (%d older ones over the limit were dropped)", len(buf), heldDropped)
+			} else {
+				log.Printf("events flusher: the write lock is free again; writing the %d event(s) kept meanwhile", len(buf))
+			}
+			heldDropped = 0
 		}
-		for len(buf) > flushChunk {
-			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			err := insertBulk(ctx, f.d, buf[:flushChunk])
-			cancel()
-			if err != nil {
-				log.Printf("events batch flush (n=%d of %d): %v -- retained for retry", flushChunk, len(buf), err)
-				lastFlush = time.Now()
+		within := 10 * time.Second
+		if kept {
+			within = time.Minute // the backlog of a whole hold
+		}
+		if final {
+			within = finalFlushWithin
+		}
+		if err := write(within); err != nil {
+			if final {
+				f.droppedOnError.Add(uint64(len(buf)))
+				log.Printf("events flusher: %d event(s) could not be written before shutdown: %v", len(buf), err)
+				buf = buf[:0]
 				return
 			}
-			buf = append(buf[:0], buf[flushChunk:]...)
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := insertBulk(ctx, f.d, buf); err != nil {
-			// Retain the batch and retry on the next tick (mirrors
-			// nginxlog.flushOnce) instead of dropping it, so a transient DB
-			// error — SQLite busy past the timeout, a brief MariaDB blip —
-			// doesn't permanently lose the batch.  Bound the retained buffer
-			// so a persistent outage can't grow it without limit: overflow
-			// drops the OLDEST events and counts them separately from the
-			// queue-full drop metric.
-			const maxRetain = 5000
-			if over := len(buf) - maxRetain; over > 0 {
-				f.droppedOnError.Add(uint64(over))
-				buf = append(buf[:0], buf[over:]...) // keep newest maxRetain, compact
+			// Retain and retry on the next tick (mirrors nginxlog.flushOnce):
+			// a transient error -- SQLite busy past the timeout, a brief
+			// MariaDB blip -- loses nothing; a persistent one is bounded,
+			// dropping the oldest.
+			limit := maxRetain
+			if kept {
+				limit = heldMax
 			}
-			log.Printf("events batch flush (n=%d): %v -- retained for retry", len(buf), err)
+			if n := retain(limit); n > 0 {
+				log.Printf("events batch flush: %v -- %d retained for retry, %d oldest dropped", err, len(buf), n)
+			} else {
+				log.Printf("events batch flush: %v -- %d retained for retry", err, len(buf))
+			}
 			lastFlush = time.Now() // back off one interval before retrying
 			return
 		}
-		buf = buf[:0]
+		kept = false
 		lastFlush = time.Now()
 	}
 
@@ -220,22 +269,25 @@ func (f *Flusher) run() {
 		select {
 		case e := <-f.ch:
 			buf = append(buf, e)
-			if len(buf) >= int(f.batchSize.Load()) {
-				flush()
+			// While holding, the batch size is no reason to try: the tick
+			// trims and waits.
+			if !holding && len(buf) >= int(f.batchSize.Load()) {
+				flush(false)
 			}
 		case <-t.C:
 			interval := time.Duration(f.flushInterval.Load())
-			if time.Since(lastFlush) >= interval {
-				flush()
+			if time.Since(lastFlush) >= interval || (holding && len(buf) > heldMax) {
+				flush(false)
 			}
 		case <-f.done:
-			// drain remaining and final flush
+			// Drain what is queued and write it all, the hold or not: this
+			// is the last chance.
 			for {
 				select {
 				case e := <-f.ch:
 					buf = append(buf, e)
 				default:
-					flush()
+					flush(true)
 					return
 				}
 			}

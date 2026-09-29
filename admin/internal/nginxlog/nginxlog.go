@@ -867,6 +867,13 @@ func (r *Reader) bumpCookieIP(site, ip, ja4, ua, kind string) {
 	r.mu.Lock()
 	b, ok := r.cookieIPBuckets[key]
 	if !ok {
+		if len(r.cookieIPBuckets) >= cookieIPBucketsMax {
+			// Only while nothing drains them -- a schema update's hold, a
+			// database that refuses writes: a new address is not counted
+			// rather than let the map grow for as long as that lasts.
+			r.mu.Unlock()
+			return
+		}
 		b = &cookieIPBucket{}
 		r.cookieIPBuckets[key] = b
 	}
@@ -876,6 +883,13 @@ func (r *Reader) bumpCookieIP(site, ip, ja4, ua, kind string) {
 	b.lastSeen = now
 	r.mu.Unlock()
 }
+
+// cookieIPBucketsMax bounds the per-(minute, site, address) buckets kept
+// between flushes.  A flush drains them every minute; the bound is reached
+// only when flushes cannot write -- through a schema update's hold, which
+// keeps them for as long as an index build takes -- and a flood of addresses
+// must not grow them without limit meanwhile.
+const cookieIPBucketsMax = 200000
 
 // BumpCookieIP: exported entry point for forward-auth mode (= /api/check sees
 // the reuse request but emits no access-log line of its own, so without this the
@@ -983,13 +997,24 @@ func (r *Reader) flushOnce(final bool) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Ten seconds for a minute's worth; more for the backlog of a hold, which
+	// is written in this one transaction and would otherwise miss the
+	// deadline at every try.
+	rows := len(ready)*4 + len(crawlerReady) + len(crawlerDetailReady) + len(countryReady)*2 + len(cookieIPReady)
+	within := 10*time.Second + time.Duration(rows)*time.Millisecond
+	if within > 2*time.Minute {
+		within = 2 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), within)
 	defer cancel()
 
-	tx, err := r.d.BeginTx(ctx, nil)
-	if err != nil {
-		log.Printf("nginxlog: flush BeginTx: %v", err)
-		// put back into memory (= retry on the next flush)
+	// restore puts what was taken back into memory, merged with what has
+	// been counted since, for the next flush to retry.  On every failure --
+	// the transaction is rolled back, so nothing is counted twice.  It used
+	// to happen only when the transaction could not begin: a statement or a
+	// commit that failed lost every bucket it carried, and after a schema
+	// update's hold that is everything counted during the build.
+	restore := func() {
 		r.mu.Lock()
 		for _, e := range ready {
 			b, ok := r.buckets[e.key]
@@ -1060,6 +1085,12 @@ func (r *Reader) flushOnce(final bool) {
 			}
 		}
 		r.mu.Unlock()
+	}
+
+	tx, err := r.d.BeginTx(ctx, nil)
+	if err != nil {
+		log.Printf("nginxlog: flush BeginTx: %v", err)
+		restore() // retry on the next flush
 		return
 	}
 
@@ -1067,6 +1098,7 @@ func (r *Reader) flushOnce(final bool) {
 	defer func() {
 		if !committed {
 			_ = tx.Rollback()
+			restore()
 		}
 	}()
 

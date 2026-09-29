@@ -991,16 +991,16 @@ func cmdServe(args []string) error {
 	// init system handles routing).
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	shutdownDone := make(chan struct{})
 	go func() {
-		for sig := range sigCh {
-			log.Printf("shutdown signal received: %s", sig)
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			_ = srv.Shutdown(ctx)
-			cancel()
-			// Drain the event flusher queue + perform a final flush.
-			events.StopFlusher()
-			return
-		}
+		defer close(shutdownDone)
+		sig := <-sigCh
+		log.Printf("shutdown signal received: %s", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		_ = srv.Shutdown(ctx)
+		cancel()
+		// Drain the event flusher queue + perform a final flush.
+		events.StopFlusher()
 	}()
 
 	// conn is intentionally nil when the DB is unreachable at boot so the setup
@@ -1014,6 +1014,15 @@ func cmdServe(args []string) error {
 		Version, listenDesc, s.Server.BasePath, driver)
 	if err := srv.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err
+	}
+	// Serve returns the moment Shutdown begins.  What the shutdown does after
+	// that -- the event flusher's last flush above all -- has to be waited
+	// for: returning here ended the process under it, and the last flush was
+	// lost to the race.
+	select {
+	case <-shutdownDone:
+	case <-time.After(100 * time.Second):
+		log.Printf("shutdown: did not finish in 100s; exiting")
 	}
 	return nil
 }
