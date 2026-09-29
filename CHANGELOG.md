@@ -28,6 +28,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Fixed
 - (2026-09-30) **The ban list is written by one writer at a time.**  A ban added from the access log and the manager's periodic refresh could write the list's temporary file at the same moment, so nginx could load a list mixing the two.  Writes of the list now take turns.
 
+- (2026-09-29) **Events and access-log counts are no longer lost at a stop or a failed write.**  The daemon ended as soon as it began to shut down, before the last flush of queued events had run.  A flush of the access-log counts whose statement or commit failed dropped everything it carried; they are now kept for the next try.
+
 - (2026-09-29) **unmask-web-nginx prints its setup banner only while setup is pending.**  The first-time setup banner came on every upgrade, forty lines after everything the unmask package had printed, and it read the setup token from a path the package stopped writing in 0.1.9, so a new install never saw its token.
 
 - (2026-09-29) **Native mode keeps its events after an upgrade on SELinux hosts without semanage.**  Upgrading unmask-web-nginx deleted the drop-in that relabels `/run/unmask` for nginx, so from the daemon's next restart nginx could not write the log socket and the dashboard counted nothing.  The drop-in now stays until the package is removed.  An upgrade from 0.1.48 or earlier still runs the old removal step once: reinstall unmask-web-nginx afterwards.
