@@ -30,13 +30,15 @@ stack_start() {
             return 0
         fi
         log "docker compose start unmask failed (attempt $i of 3): $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-300)"
-        sleep 2
+        [ "$i" -lt 3 ] && sleep 2
     done
     return 1
 }
 
-# stack_restart <compose file>: stop, then start.
+# stack_restart <compose file>: stop, then start.  A stop that failed is not
+# followed by a start: what a caller checks after a restart would then be
+# checked against the daemon that was never stopped.
 stack_restart() {
-    stack_stop "$1"
+    stack_stop "$1" || return 1
     stack_start "$1"
 }

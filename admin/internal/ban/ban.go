@@ -154,6 +154,11 @@ type Manager struct {
 	// receive loop and a tick at the same moment would both write the one
 	// temporary file, and the list nginx loads could be a mix of the two.
 	flushMu sync.Mutex
+	// writeHeldMu makes one writeHeld at a time: the loop's tick and the
+	// daemon's shutdown (FlushHeld) can meet, and the kept bans stay listed
+	// until they are written -- two at once would write and announce each
+	// of them twice.
+	writeHeldMu sync.Mutex
 }
 
 // SetActionResolver installs the per-source action picker.  Safe to call
@@ -309,9 +314,15 @@ func (m *Manager) AddWithSourceAction(ctx context.Context, ip, ja4, source, reas
 		// log's receive loop (a honeypot hit), which must not stand still
 		// for the busy timeout at every hit; and a ban that fails to write
 		// is a ban that never happens.  Keep it, and write it when the lock
-		// is free (loop).
+		// is free (loop).  It is enforced meanwhile: the ban file is
+		// written from the database and the kept bans (reading goes on
+		// under the hold), and the checks look at both.
 		m.hold(heldBan{ip: ip, ja4: ja4, source: source, reason: reason, bannedBy: bannedBy,
 			action: strings.TrimSpace(action), bannedAt: now, expiresAt: expires})
+		m.markDirty()
+		if m.filePath != "" {
+			_ = m.flush()
+		}
 		return
 	}
 	if err := m.upsert(ctx, ip, ja4, source, reason, now, expires, bannedBy, strings.TrimSpace(action), DeriveScope(ip, ja4)); err != nil {
@@ -507,6 +518,15 @@ const heldBansMax = 10000
 func (m *Manager) hold(b heldBan) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	// One entry per ban, as in the table (the upsert's key): a scanner that
+	// trips the honeypot again and again refreshes its entry instead of
+	// filling the list.
+	for i := range m.held {
+		if h := &m.held[i]; h.ip == b.ip && h.ja4 == b.ja4 && DeriveScope(h.ip, h.ja4) == DeriveScope(b.ip, b.ja4) {
+			*h = b
+			return
+		}
+	}
 	if len(m.held) >= heldBansMax {
 		if !m.heldFull {
 			m.heldFull = true
@@ -517,12 +537,41 @@ func (m *Manager) hold(b heldBan) {
 	m.held = append(m.held, b)
 }
 
+// FlushHeld writes the bans kept while writes were held, if the database
+// takes writes now.  For the daemon's shutdown, after it has stopped the
+// schema update it started: the list is in memory only.
+func (m *Manager) FlushHeld() {
+	if m == nil || m.DB.WritesHeld() {
+		return
+	}
+	m.writeHeld()
+}
+
+// heldMatch reports a kept ban that matches (ip, ja4) the way the table's
+// lookups do: ja4 == "" matches on the address alone.
+func (m *Manager) heldMatch(ip, ja4 string) (action, source string, ok bool) {
+	now := time.Now().Unix()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, h := range m.held {
+		if h.ip != ip || (ja4 != "" && h.ja4 != ja4) {
+			continue
+		}
+		if h.expiresAt != 0 && h.expiresAt <= now {
+			continue
+		}
+		return h.action, h.source, true
+	}
+	return "", "", false
+}
+
 // writeHeld writes the bans kept while writes were held.  Called from loop
 // once the lock is free.
 func (m *Manager) writeHeld() {
+	m.writeHeldMu.Lock()
+	defer m.writeHeldMu.Unlock()
 	m.mu.Lock()
-	held := m.held
-	m.held, m.heldFull = nil, false
+	held := append([]heldBan(nil), m.held...)
 	m.mu.Unlock()
 	if len(held) == 0 {
 		return
@@ -538,6 +587,23 @@ func (m *Manager) writeHeld() {
 			m.OnCreated(b.ip, b.ja4, b.source, b.reason, b.bannedBy)
 		}
 	}
+	// Off the list only now that the rows are written: until then the file
+	// has them from here, and a flush in the meantime -- an addition's --
+	// must not write it without them.  One kept or refreshed since the copy
+	// (a hold begun again) stays for the next time.
+	done := make(map[heldBan]bool, len(held))
+	for _, b := range held {
+		done[b] = true
+	}
+	m.mu.Lock()
+	rest := m.held[:0]
+	for _, b := range m.held {
+		if !done[b] {
+			rest = append(rest, b)
+		}
+	}
+	m.held, m.heldFull = rest, false
+	m.mu.Unlock()
 	log.Printf("ban: wrote %d automatic ban(s) kept during the schema update", n)
 	if n > 0 {
 		m.markDirty()
@@ -579,6 +645,9 @@ func (m *Manager) upsert(ctx context.Context, ip, ja4, source, reason string, ba
 func (m *Manager) IsBanned(ctx context.Context, ip, ja4 string) bool {
 	if m == nil || ip == "" {
 		return false
+	}
+	if _, _, ok := m.heldMatch(ip, ja4); ok {
+		return true
 	}
 	now := time.Now().Unix()
 	var n int
@@ -622,6 +691,9 @@ func (m *Manager) IsBanned(ctx context.Context, ip, ja4 string) bool {
 func (m *Manager) IsBannedActionSource(ctx context.Context, ip, ja4 string) (action, source string, banned bool) {
 	if m == nil || ip == "" {
 		return "", "", false
+	}
+	if action, source, ok := m.heldMatch(ip, ja4); ok {
+		return action, source, true
 	}
 	now := time.Now().Unix()
 	if ja4 != "" {
@@ -710,13 +782,13 @@ func (m *Manager) loop() {
 		case <-m.stopCh:
 			return
 		case <-tick.C:
-			if m.DB.WritesHeld() {
-				// Nothing here can write now; the next tick tries again.
-				continue
-			}
-			m.writeHeld()
-			if pruned := m.prune(); pruned > 0 {
-				m.markDirty()
+			// Under a hold the table cannot be written, but it can be read:
+			// the file (the table and the kept bans) is still kept current.
+			if !m.DB.WritesHeld() {
+				m.writeHeld()
+				if pruned := m.prune(); pruned > 0 {
+					m.markDirty()
+				}
 			}
 			if m.shouldFlush() && m.filePath != "" {
 				_ = m.flush()
@@ -789,6 +861,30 @@ func (m *Manager) flush() error {
 		keys = append(keys, e)
 	}
 	rows.Close()
+	// The bans kept while a schema update holds the writes: enforced now,
+	// written to the table when the lock is free.  Ahead of the table's
+	// rows, so that a kept ban -- the newer -- wins over the row it will
+	// replace (the file keeps the first line of a key).
+	var kept []k
+	m.mu.Lock()
+	for _, h := range m.held {
+		if h.expiresAt != 0 && h.expiresAt <= now {
+			continue
+		}
+		e := k{ip: h.ip, ja4: h.ja4, source: h.source, action: h.action, scope: DeriveScope(h.ip, h.ja4)}
+		if strings.TrimSpace(e.action) == "" && resolver != nil {
+			e.action = resolver(e.source)
+		}
+		if strings.TrimSpace(e.action) == "" {
+			e.action = "deny"
+		}
+		if strings.TrimSpace(e.source) == "" {
+			e.source = "manual"
+		}
+		kept = append(kept, e)
+	}
+	m.mu.Unlock()
+	keys = append(kept, keys...)
 
 	// File-line shape per scope.  DB always carries both ip + ja4 so the
 	// operator never loses the captured context; the file only carries
@@ -799,6 +895,7 @@ func (m *Manager) flush() error {
 	//   ip_only  -> "<ip>||src|act"        (= JA4 omitted; plugin pass 3 hits)
 	type line struct{ key, action, source string }
 	lines := make([]line, 0, len(keys))
+	seen := make(map[string]bool, len(keys))
 	for _, e := range keys {
 		var key string
 		switch e.scope {
@@ -809,6 +906,10 @@ func (m *Manager) flush() error {
 		default: // ScopeIPJA4
 			key = e.ip + "|" + e.ja4
 		}
+		if seen[key] {
+			continue // a kept ban the table already has
+		}
+		seen[key] = true
 		lines = append(lines, line{key: key, action: e.action, source: e.source})
 	}
 

@@ -108,7 +108,7 @@ OUT=$(mktemp)
 ) &
 HAMMER=$!
 sleep 2
-docker compose -f "$COMPOSE" restart unmask >/dev/null 2>&1
+out=$(docker compose -f "$COMPOSE" restart unmask 2>&1) || log "docker compose restart unmask failed: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-300)"
 wait "$HAMMER"
 
 # 3. verdict: nothing but the challenge or the replayed page.

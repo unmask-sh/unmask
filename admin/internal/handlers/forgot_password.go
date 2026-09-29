@@ -61,6 +61,13 @@ func (h *Handler) AdminForgotPasswordPost(w http.ResponseWriter, r *http.Request
 		http.Error(w, "mail not configured", http.StatusServiceUnavailable)
 		return
 	}
+	// The reset token is written to the database, which a schema update
+	// holds.  Said so, rather than the usual "sent" page for a mail that
+	// never goes out.
+	if h.DB.WritesHeld() {
+		h.respondWritesHeld(w, r)
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
 		return
@@ -159,6 +166,13 @@ func (h *Handler) AdminResetPasswordPost(w http.ResponseWriter, r *http.Request)
 	base := h.cfg().Server.BasePath
 	if h.UserRepo == nil {
 		http.Error(w, "user repo not configured", http.StatusInternalServerError)
+		return
+	}
+	// The new password and the spent token are written to the database,
+	// which a schema update holds: "invalid token" would be untrue, and the
+	// token stays good for when the update has finished.
+	if h.DB.WritesHeld() {
+		h.respondWritesHeld(w, r)
 		return
 	}
 	if err := r.ParseForm(); err != nil {

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"io"
+	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +15,7 @@ import (
 	_ "github.com/glebarez/sqlite"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
 // captureStdout runs fn and returns what it printed.
@@ -99,6 +103,11 @@ func TestMigrateCommand(t *testing.T) {
 	}
 	if out, err := captureStdout(t, func() error { return cmdMigrate([]string{"-config", config, "-notice"}) }); err != nil || out != "" {
 		t.Fatalf("notice on a new database = %q, %v; a new install has nothing to be told", out, err)
+	}
+	// Neither of those creates the database: they only report, and the
+	// notice runs in a package script before the wizard has chosen one.
+	if _, err := os.Stat(database); !os.IsNotExist(err) {
+		t.Fatalf("-status / -notice created the database (%v)", err)
 	}
 
 	out, err = captureStdout(t, func() error { return cmdMigrate([]string{"-config", config}) })
@@ -259,10 +268,10 @@ func TestSchemaNoticeFollowsTheDatabase(t *testing.T) {
 		Rows: 5000000, Indexes: []string{"idx_unmask_event_ja4_phase"},
 		EstLow: 5 * time.Minute, EstHigh: 15 * time.Minute, Deferred: true,
 	}}
-	held := schemaNotice(left, true)
-	online := schemaNotice(left, false)
+	held := schemaNotice(left, true, "sudo unmask migrate")
+	online := schemaNotice(left, false, "sudo unmask migrate")
 	for name, out := range map[string]string{"held": held, "online": online} {
-		for _, want := range []string{"NOT applied automatically", "0032_event_ja4_index", "unmask migrate", "The challenge is served while it runs"} {
+		for _, want := range []string{"NOT applied automatically", "0032_event_ja4_index", "sudo unmask migrate", "The challenge is served while it runs"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("%s: the notice lacks %q:\n%s", name, want, out)
 			}
@@ -273,5 +282,120 @@ func TestSchemaNoticeFollowsTheDatabase(t *testing.T) {
 	}
 	if strings.Contains(online, "written afterwards") {
 		t.Errorf("online: nothing waits on a database that builds online, and the notice says it does:\n%s", online)
+	}
+}
+
+// TestMigrateNoticeGivesUpOnAnUnansweringServer: -notice runs in a package
+// script, and the package manager waits for it.  A MariaDB that accepts the
+// connection and never answers used to stand the upgrade still, silently, for
+// as long as it did not answer.
+func TestMigrateNoticeGivesUpOnAnUnansweringServer(t *testing.T) {
+	t.Setenv("UNMASK_NO_PRIVDROP", "1")
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer c.Close() // held open, never a byte
+		}
+	}()
+	port := ln.Addr().(*net.TCPAddr).Port
+	config := filepath.Join(t.TempDir(), "config.yml")
+	body := "db:\n  driver: mariadb\n  mariadb:\n    host: 127.0.0.1\n    port: " + strconv.Itoa(port) +
+		"\n    user: u\n    password: p\n    database: d\nsecret:\n  bv_secret: 0123456789abcdef0123456789abcdef\n"
+	if err := os.WriteFile(config, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prev := noticeTimeout
+	noticeTimeout = 500 * time.Millisecond
+	defer func() { noticeTimeout = prev }()
+	t0 := time.Now()
+	out, err := captureStdout(t, func() error { return cmdMigrate([]string{"-config", config, "-notice"}) })
+	if took := time.Since(t0); took > 5*time.Second {
+		t.Fatalf("-notice took %v against a server that does not answer", took)
+	}
+	if err != nil || out != "" {
+		t.Errorf("-notice = %q, %v; want nothing, and no failure", out, err)
+	}
+}
+
+// TestMigrateNoticeTellsOfARunningUpdate: an update running while the package
+// is upgraded is said: one started from the admin UI is the daemon's child,
+// which the restart for the upgrade stops; one from a shell goes on.
+func TestMigrateNoticeTellsOfARunningUpdate(t *testing.T) {
+	t.Setenv("UNMASK_NO_PRIVDROP", "1")
+	config, database := migrateConfig(t, "0.001")
+	if _, err := captureStdout(t, func() error { return cmdMigrate([]string{"-config", config}) }); err != nil {
+		t.Fatal(err)
+	}
+	asBeforeTheIndex(t, database, 500)
+	conn, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: database})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	ctx := context.Background()
+	lock, err := conn.LockSchemaRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	for _, c := range []struct {
+		by   string
+		want []string
+	}{
+		{"alice", []string{"started from the admin UI (by alice", "stops it", "sudo unmask migrate"}},
+		{db.SchemaUpdateByCLI, []string{"is running (`unmask migrate`", "goes on while the daemon restarts"}},
+	} {
+		if err := conn.SaveMaintState(ctx, db.MaintSchemaUpdate, db.SchemaUpdateRecord{
+			State: db.SchemaUpdateRunning, Host: "h", PID: os.Getpid(), By: c.by, StartedAt: time.Now().Unix(),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		out, err := captureStdout(t, func() error { return cmdMigrate([]string{"-config", config, "-notice"}) })
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range c.want {
+			if !strings.Contains(out, w) {
+				t.Errorf("by %s: the notice lacks %q:\n%s", c.by, w, out)
+			}
+		}
+		if strings.Contains(out, "NOT applied automatically") {
+			t.Errorf("by %s: a running update is announced as one waiting:\n%s", c.by, out)
+		}
+	}
+}
+
+// TestMigrateStartupGoesOnWhenTheFinishCannot: what follows the migrations in
+// -startup (the verdict-id backfill) is not the daemon's own start's to do,
+// so it failing -- here on a write lock another process holds, as a schema
+// update the daemon started before its restart does -- does not keep the
+// daemon from starting: the container runs -startup under `set -e`.
+func TestMigrateStartupGoesOnWhenTheFinishCannot(t *testing.T) {
+	t.Setenv("UNMASK_NO_PRIVDROP", "1")
+	config, database := migrateConfig(t, "")
+	if _, err := captureStdout(t, func() error { return cmdMigrate([]string{"-config", config}) }); err != nil {
+		t.Fatal(err)
+	}
+	c, err := sql.Open("sqlite", database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.SetMaxOpenConns(1)
+	if _, err := c.Exec("BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _, _ = c.Exec("ROLLBACK") }()
+	out, err := captureStdout(t, func() error { return cmdMigrate([]string{"-config", config, "-startup"}) })
+	if err != nil || !strings.Contains(out, "schema applied") {
+		t.Fatalf("-startup with the write lock taken = %q, %v; want it to go on", out, err)
 	}
 }

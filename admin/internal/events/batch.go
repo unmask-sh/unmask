@@ -281,7 +281,8 @@ func (f *Flusher) run() {
 			}
 		case <-f.done:
 			// Drain what is queued and write it all, the hold or not: this
-			// is the last chance.
+			// is the last chance, and a run that held the lock has been
+			// stopped by now (the daemon's shutdown stops its own).
 			for {
 				select {
 				case e := <-f.ch:

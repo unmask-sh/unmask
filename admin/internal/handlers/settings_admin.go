@@ -5711,6 +5711,7 @@ type retentionStatsView struct {
 	// `unmask migrate` as root, which leaves unmask.sqlite owned root:root.
 	WriteChecked bool   // probe ran (false only when the DB handle is absent)
 	WriteOK      bool   // the daemon can write
+	WriteHeld    bool   // not probed: a schema update holds the write lock
 	WriteErr     string // short driver error when NG (e.g. "readonly database")
 	DaemonUser   string // user this daemon process runs as
 	DBFileOwner  string // sqlite only: "user:group" owner of the DB file
@@ -6017,10 +6018,19 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 	pctx, pcancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer pcancel()
 	v.WriteChecked = true
-	if _, err := h.DB.ExecContext(pctx, `DELETE FROM unmask_event WHERE id = -1`); err != nil {
-		v.WriteErr = truncateAt(err.Error(), 200)
-	} else {
-		v.WriteOK = true
+	switch {
+	case h.DB.WritesHeld():
+		// A schema update holds the write lock (schema_update.go).  The
+		// probe would wait out the busy timeout and then call the database
+		// unwritable -- with a chown and a restart as the fix, and the
+		// restart stops the update.
+		v.WriteHeld = true
+	default:
+		if _, err := h.DB.ExecContext(pctx, `DELETE FROM unmask_event WHERE id = -1`); err != nil {
+			v.WriteErr = truncateAt(err.Error(), 200)
+		} else {
+			v.WriteOK = true
+		}
 	}
 	if u, err := user.Current(); err == nil && u.Username != "" {
 		v.DaemonUser = u.Username
@@ -6031,7 +6041,7 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 				v.DBFileOwner = ownerNames(sys.Uid, sys.Gid)
 			}
 		}
-		if !v.WriteOK {
+		if !v.WriteOK && !v.WriteHeld {
 			du := v.DaemonUser
 			if du == "" {
 				du = "unmask"

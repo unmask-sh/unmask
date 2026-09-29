@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 	"syscall"
@@ -39,28 +40,49 @@ import (
 // schemaUpdater is the daemon's knowledge of the schema updates: what is
 // waiting, and the run in progress.  The zero value is ready to use.
 type schemaUpdater struct {
+	// refreshMu makes one refresh at a time: the watch, the status poll of
+	// every open page and the end of a child all refresh, and a slower one
+	// finishing last would put back what it read before the others.
+	refreshMu sync.Mutex
+
 	mu sync.Mutex
-	// waiting: the migrations a start of this daemon leaves for the operator.
+	// waiting: the deferrable migrations not applied -- the ones the daemon
+	// left for the operator at startup.  Not estimated afresh against the
+	// threshold: an estimate that has since dropped under it (a smaller
+	// table, a host rate recorded) does not apply anything either.
 	waiting []db.PendingMigration
 	// rec: the last run's record as last read; hasRec false when there is none.
 	rec    db.SchemaUpdateRecord
 	hasRec bool
-	// running: the record describes a run that is going (rec.Alive at the
-	// last look).
+	// running: the record describes a run that is going (db.SchemaUpdateAlive
+	// at the last look).
 	running bool
-	// child: the run this daemon started, from the moment it is started until
-	// its process has been reaped; childStarted is when.  A run is going
-	// when either this or running says so: the child is there before its
-	// record is, and for a moment after the record says it ended.
+	// starting: a run is being started (the button's request is between its
+	// checks and the child's start).  child: the run this daemon started, from
+	// the moment it is started until its process has been reaped; childPID
+	// and childStarted are its id and when.  A run is going when any of
+	// these or running says so: the child is there before its record is,
+	// and for a moment after the record says it ended.
+	starting     bool
 	child        *exec.Cmd
+	childPID     int
 	childStarted time.Time
+	// startFailure: this daemon's last child ended in error without writing
+	// a record of its own -- it could not open the database, found another
+	// run, could not even start.  Shown until a record says otherwise.
+	startFailure   string
+	startFailureAt time.Time
 	// wasGoing: a run was in progress at the last refresh.  The refresh that
-	// finds it over is the one that re-reads the index list.
-	wasGoing bool
+	// finds it over is the one that re-reads the index list and writes what
+	// was kept while writes were held.  lastEnded: the end of the last run
+	// seen, for a run over before any refresh saw it going -- one from a
+	// shell that builds in less than the watch's two seconds.
+	wasGoing  bool
+	lastEnded int64
 }
 
 // going reports whether a run is in progress.  Call with mu held.
-func (u *schemaUpdater) going() bool { return u.running || u.child != nil }
+func (u *schemaUpdater) going() bool { return u.running || u.child != nil || u.starting }
 
 // SchemaUpdateView is what the admin UI shows about the schema updates.  The
 // notice template renders it, and GET /admin/api/schema-update returns it.
@@ -104,59 +126,91 @@ const doneShownFor = 24 * time.Hour
 
 // SchemaRefresh re-reads what is waiting and the last run's record, and sets
 // the database's write hold to match.  Cheap: the list of applied versions,
-// two seeks for the table's size and one row by key.
+// two seeks for the table's size, one row by key and a look at the run lock.
 func (h *Handler) SchemaRefresh(ctx context.Context) {
 	if h == nil || h.DB == nil {
 		return
 	}
+	u := &h.schema
+	u.refreshMu.Lock()
+	defer u.refreshMu.Unlock()
 	pending, err := db.PendingMigrations(h.DB)
 	if err != nil {
 		// A database that cannot be read now (locked, restarting) says
 		// nothing about what is waiting: keep the last answer.
 		return
 	}
-	waiting := db.LeftForTheOperator(pending, h.cfg().DB.SchemaUpdateDeferOver())
+	var waiting []db.PendingMigration
+	for _, m := range pending {
+		if m.Deferrable {
+			waiting = append(waiting, m)
+		}
+	}
 	rec, ok, err := h.DB.LoadSchemaUpdate(ctx)
 	if err != nil {
 		return
 	}
-	running := ok && rec.Alive(h.HostID, time.Now())
+	running := ok && h.DB.SchemaUpdateAlive(ctx, rec, time.Now())
 
-	u := &h.schema
 	u.mu.Lock()
 	u.waiting, u.rec, u.hasRec, u.running = waiting, rec, ok, running
+	if ok && rec.EndedAt > 0 && !u.startFailureAt.IsZero() && time.Unix(rec.EndedAt, 0).After(u.startFailureAt) {
+		u.startFailure, u.startFailureAt = "", time.Time{} // a run since has its own record
+	}
 	going := u.going()
 	wasGoing := u.wasGoing
 	u.wasGoing = going
+	ended := ok && rec.EndedAt > 0 && rec.EndedAt != u.lastEnded
+	if ok {
+		u.lastEnded = rec.EndedAt
+	}
+	// Under mu, with the state it follows: a refresh that read the state
+	// before a child was started must not lift the hold schemaStart has
+	// just set.
+	h.DB.HoldWrites(going && h.DB.SchemaUpdateHoldsWrites())
 	u.mu.Unlock()
 
-	h.DB.HoldWrites(going && h.DB.SchemaUpdateHoldsWrites())
-	if wasGoing && !going {
+	if !going && (wasGoing || ended) {
 		// The run ended (here or in a shell): the index it built is there
-		// now, and the hints that name it can come back.
+		// now, and the hints that name it can come back; what was kept
+		// while writes were held can be written.
 		if err := h.DB.RefreshIndexes(ctx); err != nil {
 			log.Printf("schema update: re-reading the index list: %v", err)
+		}
+		h.heldBeacons.reset()
+		if h.UserRepo != nil {
+			h.UserRepo.FlushHeld(ctx)
 		}
 	}
 }
 
-// RunSchemaWatch keeps SchemaRefresh current: every two seconds while an
-// update waits or runs -- a run started from a shell has to be noticed, and
-// the page shows its progress -- and rarely otherwise.
+// RunSchemaWatch keeps SchemaRefresh current.  Every two seconds while an
+// update waits or runs on SQLite: a run started from a shell takes the write
+// lock the moment it starts building, and the daemon's writers should stand
+// back as soon as they can.  On MariaDB nothing is held, so a run is followed
+// every few seconds and a waiting update barely at all; with nothing waiting,
+// rarely.
 func (h *Handler) RunSchemaWatch(ctx context.Context) {
-	defer safe.Recover("schema-watch")
 	for {
-		rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-		h.SchemaRefresh(rctx)
-		cancel()
+		func() {
+			// Per turn: a panic in one refresh must not end the watch.
+			defer safe.Recover("schema-watch")
+			rctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+			defer cancel()
+			h.SchemaRefresh(rctx)
+		}()
 		wait := 5 * time.Minute
 		h.schema.mu.Lock()
-		if len(h.schema.waiting) > 0 || h.schema.going() {
-			// Short: until a run started from a shell is noticed, the
-			// daemon's writes go against its lock.
-			wait = 2 * time.Second
-		}
+		waiting, going := len(h.schema.waiting) > 0, h.schema.going()
 		h.schema.mu.Unlock()
+		switch {
+		case h.DB != nil && h.DB.SchemaUpdateHoldsWrites() && (waiting || going):
+			wait = 2 * time.Second
+		case going:
+			wait = 5 * time.Second
+		case waiting:
+			wait = 30 * time.Second
+		}
 		select {
 		case <-ctx.Done():
 			return
@@ -183,8 +237,9 @@ func (h *Handler) schemaView(role string, lang i18n.Lang) *SchemaUpdateView {
 	u.mu.Lock()
 	waiting := append([]db.PendingMigration(nil), u.waiting...)
 	rec, hasRec, running := u.rec, u.hasRec, u.running
-	ours := u.child != nil
-	startedAt := u.childStarted
+	ours := u.child != nil || u.starting
+	childPID, startedAt := u.childPID, u.childStarted
+	failure, failureAt := u.startFailure, u.startFailureAt
 	u.mu.Unlock()
 
 	super := roleAtLeast(role, user.RoleSuperadmin)
@@ -195,32 +250,47 @@ func (h *Handler) schemaView(role string, lang i18n.Lang) *SchemaUpdateView {
 		low, high = low+m.EstLow, high+m.EstHigh
 	}
 	v.Est = estimateText(lang, low, high)
+	fromRecord := func() {
+		v.StartedAt, v.By, v.Host = rec.StartedAt, rec.By, rec.Host
+		v.Count = len(rec.Items)
+		v.Est = estimateText(lang, time.Duration(rec.EstLowSec)*time.Second, time.Duration(rec.EstHighSec)*time.Second)
+	}
 
 	switch {
 	case running:
 		v.State = "running"
-		v.StartedAt, v.By, v.Host = rec.StartedAt, rec.By, rec.Host
-		v.Count = len(rec.Items)
-		v.Est = estimateText(lang, time.Duration(rec.EstLowSec)*time.Second, time.Duration(rec.EstHighSec)*time.Second)
-		v.CanCancel = super && ours
+		fromRecord()
+		v.CanCancel = super && childPID != 0 && rec.PID == childPID
 	case ours:
-		// This daemon's run, and no record of it being under way: it was
-		// started a moment ago, or is about to be reaped.
+		// This daemon's run with no record of it under way: it is being
+		// started, or its record already says how it ended and the process
+		// is finishing.
 		v.State = "running"
-		v.StartedAt = startedAt.Unix()
-		v.CanCancel = super
+		if hasRec && childPID != 0 && rec.PID == childPID {
+			fromRecord()
+		} else if !startedAt.IsZero() {
+			v.StartedAt = startedAt.Unix()
+		} else {
+			v.StartedAt = now.Unix()
+		}
+		v.CanCancel = super && childPID != 0
 	case len(waiting) > 0:
 		v.State = "pending"
 		v.CanRun = super
-		if hasRec && rec.EndedAt > 0 && now.Sub(time.Unix(rec.EndedAt, 0)) < doneShownFor {
+		switch {
+		case failure != "" && now.Sub(failureAt) < doneShownFor:
+			// The last run this daemon started ended before it could keep
+			// a record: its own words are all there is.
+			v.State, v.Err, v.EndedAt = "failed", failure, failureAt.Unix()
+		case hasRec && rec.EndedAt > 0 && now.Sub(time.Unix(rec.EndedAt, 0)) < doneShownFor:
 			switch rec.State {
 			case db.SchemaUpdateFailed:
 				v.State, v.Err, v.EndedAt = "failed", rec.Err, rec.EndedAt
 			case db.SchemaUpdateCancelled:
 				v.Cancelled = true
 			}
-		} else if hasRec && rec.State == db.SchemaUpdateRunning {
-			// Marked running and its process is gone: it was killed.
+		case hasRec && rec.State == db.SchemaUpdateRunning:
+			// Marked running and its lock is free: it was killed.
 			v.State, v.Err, v.EndedAt = "failed", i18n.T(lang, "schema_update.err_interrupted"), rec.StartedAt
 		}
 	case hasRec && rec.State == db.SchemaUpdateDone && now.Sub(time.Unix(rec.EndedAt, 0)) < doneShownFor &&
@@ -311,25 +381,30 @@ func (h *Handler) AdminSchemaUpdateRun(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	h.SchemaRefresh(ctx)
-	if waiting, running := h.SchemaWaiting(); waiting == 0 || running {
-		err := errSchemaNothing
-		if running {
-			err = db.ErrSchemaUpdateRunning
-		}
+	// Reserved first, so that of two presses at once one starts the run and
+	// the other is told it is running -- and only one is written down.
+	if err := h.schemaReserve(); err != nil {
 		writeJSON(w, http.StatusConflict, map[string]any{"ok": 0, "error": err.Error()})
 		return
 	}
-	// The audit row first: it is a write, and from the moment the run is
-	// started the write lock may be its own.
+	// A claim that never reaches the start (a panic on the way) must not
+	// stay: it counts as a run going, and holds the writes.
+	started := false
+	defer func() {
+		if !started {
+			h.schema.mu.Lock()
+			h.schema.starting = false
+			h.schema.mu.Unlock()
+		}
+	}()
+	// The audit row before the start: it is a write, and from the moment the
+	// run is started the write lock may be its own.
 	if h.UserRepo != nil && pay != nil {
 		h.UserRepo.Record(r.Context(), pay.UserID, by, "schema_update.run", "", "")
 	}
+	started = true // schemaStart takes the claim over, whatever it returns
 	if err := h.schemaStart(by); err != nil {
-		code := http.StatusInternalServerError
-		if errors.Is(err, errSchemaNothing) || errors.Is(err, db.ErrSchemaUpdateRunning) {
-			code = http.StatusConflict
-		}
-		writeJSON(w, code, map[string]any{"ok": 0, "error": err.Error()})
+		writeJSON(w, http.StatusInternalServerError, map[string]any{"ok": 0, "error": err.Error()})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
@@ -349,8 +424,10 @@ var (
 	errSchemaNotOurs = errors.New("the running schema update was not started by this daemon; stop it where it was started")
 )
 
-// schemaStart starts the update as a child process.
-func (h *Handler) schemaStart(by string) error {
+// schemaReserve claims the start of a run: nothing may be going, something
+// must be waiting.  schemaStart takes the claim over; a failed start gives it
+// back.
+func (h *Handler) schemaReserve() error {
 	u := &h.schema
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -360,10 +437,21 @@ func (h *Handler) schemaStart(by string) error {
 	if len(u.waiting) == 0 {
 		return errSchemaNothing
 	}
+	u.starting = true
+	return nil
+}
+
+// schemaStart starts the reserved run as a child process.
+func (h *Handler) schemaStart(by string) error {
+	u := &h.schema
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	u.starting = false
 	cmd, err := h.schemaCommand(by)
 	if err != nil {
 		return err
 	}
+	out, _ := cmd.Stdout.(*logLines)
 	// From here the run may take the write lock at any moment: hold the
 	// daemon's writers before it does, not when the record is first seen.
 	if h.DB.SchemaUpdateHoldsWrites() {
@@ -373,13 +461,15 @@ func (h *Handler) schemaStart(by string) error {
 		h.DB.HoldWrites(false)
 		return fmt.Errorf("start the schema update: %w", err)
 	}
-	u.child, u.childStarted = cmd, time.Now()
-	log.Printf("schema update: started by %s (pid %d)", LogSafe(by), cmd.Process.Pid)
+	pid := cmd.Process.Pid
+	u.child, u.childPID, u.childStarted = cmd, pid, time.Now()
+	u.startFailure, u.startFailureAt = "", time.Time{}
+	log.Printf("schema update: started by %s (pid %d)", LogSafe(by), pid)
 	go func() {
 		defer safe.Recover("schema-update-wait")
 		err := cmd.Wait()
 		u.mu.Lock()
-		u.child, u.childStarted = nil, time.Time{}
+		u.child = nil
 		u.mu.Unlock()
 		if err != nil {
 			log.Printf("schema update: ended with %v", err)
@@ -389,6 +479,21 @@ func (h *Handler) schemaStart(by string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		h.SchemaRefresh(ctx)
+		u.mu.Lock()
+		if err != nil && !(u.hasRec && u.rec.PID == pid) {
+			// It ended in error and never recorded itself: say why here,
+			// in its own last words, or the notice would return to
+			// "waiting" as if the button had not been pressed.
+			msg := err.Error()
+			if out != nil {
+				if tail := out.tail(); tail != "" {
+					msg = tail
+				}
+			}
+			u.startFailure, u.startFailureAt = msg, time.Now()
+		}
+		u.childPID, u.childStarted = 0, time.Time{}
+		u.mu.Unlock()
 	}()
 	return nil
 }
@@ -406,6 +511,40 @@ func (h *Handler) schemaCancel() error {
 	}
 	log.Printf("schema update: cancel requested (pid %d)", u.child.Process.Pid)
 	return u.child.Process.Signal(syscall.SIGTERM)
+}
+
+// StopSchemaRun stops the run this daemon started, if one is going, and waits
+// for it to end, until ctx is done.  For the daemon's shutdown: a run left
+// behind would lose its output pipe and die on its next line without saying
+// how it ended, and it holds the write lock the last flush of the kept events
+// needs.  A stopped run records itself as cancelled; the update waits again.
+func (h *Handler) StopSchemaRun(ctx context.Context) {
+	if h == nil {
+		return
+	}
+	u := &h.schema
+	u.mu.Lock()
+	child := u.child
+	u.mu.Unlock()
+	if child == nil || child.Process == nil {
+		return
+	}
+	log.Printf("schema update: stopping the run this daemon started (pid %d) before shutting down", child.Process.Pid)
+	_ = child.Process.Signal(syscall.SIGTERM)
+	for {
+		u.mu.Lock()
+		gone := u.child == nil
+		u.mu.Unlock()
+		if gone {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			log.Printf("schema update: the run did not stop in time; leaving it")
+			return
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 // schemaCommand builds the child: this binary, `migrate`.
@@ -428,11 +567,13 @@ func (h *Handler) schemaCommand(by string) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
-// logLines writes what it is given to the log, a line at a time.
+// logLines writes what it is given to the log, a line at a time, and keeps
+// the last line for when the run ends without a record of its own.
 type logLines struct {
 	prefix string
 	mu     sync.Mutex
 	buf    []byte
+	last   string
 }
 
 func (l *logLines) Write(p []byte) (int, error) {
@@ -446,18 +587,70 @@ func (l *logLines) Write(p []byte) (int, error) {
 		}
 		if line := strings.TrimSpace(string(l.buf[:i])); line != "" {
 			log.Print(l.prefix + line)
+			l.last = line
 		}
 		l.buf = l.buf[i+1:]
 	}
 	return len(p), nil
 }
 
-// schemaWriteExempt: the requests that go through while the database's
-// writes are held -- the ones that do not write to it, and the one that ends
-// the hold.
+// logStampRE is the date and time the standard logger puts before a line
+// (the run's last words, when it ends in error, are written that way).
+var logStampRE = regexp.MustCompile(`^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} `)
+
+// tail is the last line the run wrote, with the logger's date and the
+// "unmask: " and "migrate: " taken off.
+func (l *logLines) tail() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	line := l.last
+	if rest := strings.TrimSpace(string(l.buf)); rest != "" {
+		line = rest
+	}
+	line = logStampRE.ReplaceAllString(line, "")
+	for _, p := range []string{"unmask: ", "migrate: "} {
+		line = strings.TrimPrefix(line, p)
+	}
+	return line
+}
+
+// schemaWriteExempt: the changes that go through while the database's writes
+// are held.
+//
+// The ones that end the hold, and the ones whose only writes to the database
+// are an audit row, which waits in memory until the lock is free (user.
+// Repository): the settings pages -- config.yml and the rendered nginx files
+// -- above all, which is where an attack is answered; the tests that send a
+// mail or a notification; the feeds and the database downloads; the shared
+// ban list's votes and comments, which go to the hub.  What writes to the
+// database itself -- users, bans, hosts, the advisor, the profile -- is
+// refused with the reason until the update has finished.
 func (h *Handler) schemaWriteExempt(r *http.Request) bool {
-	p := strings.TrimPrefix(r.URL.Path, h.cfg().Server.BasePath)
-	return strings.HasPrefix(p, "/admin/api/schema-update") || p == "/admin/logout"
+	p := strings.TrimPrefix(r.URL.Path, h.basePath())
+	if strings.HasPrefix(p, "/admin/api/schema-update/") {
+		return true
+	}
+	for _, prefix := range []string{
+		"/admin/settings/", // save, branding and challenge per site, snapshot
+		"/admin/upgrade-review/apply",
+		"/admin/audit/restore",
+		"/admin/api/sites/promote",
+		"/admin/community-bans/mute-toggle",
+		"/admin/api/community-bans/vote",
+		"/admin/api/community-bans/comment",
+		"/admin/api/community-bans/submission/",
+		"/admin/api/notify/test",
+		"/admin/api/smtp/test",
+		"/admin/api/iprange/sync",
+		"/admin/api/ipgeo/install",
+		"/admin/api/playground/eval",
+		"/admin/test/preview-logo",
+	} {
+		if strings.HasPrefix(p, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // respondWritesHeld answers a change that cannot be made now, because a schema
@@ -468,15 +661,15 @@ func (h *Handler) respondWritesHeld(w http.ResponseWriter, r *http.Request) {
 	lang := i18n.Resolve(r)
 	msg := i18n.T(lang, "schema_update.writes_held")
 	w.Header().Set("Retry-After", "60")
-	if strings.HasPrefix(r.URL.Path, h.cfg().Server.BasePath+"/admin/api/") {
+	if strings.HasPrefix(r.URL.Path, h.basePath()+"/admin/api/") {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": 0, "error": "schema_update_running", "message": msg})
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusServiceUnavailable)
 	// Back to the page the change was made from, when that is one of ours.
-	back := h.cfg().Server.BasePath + "/admin/"
-	if ref, err := url.Parse(r.Referer()); err == nil && ref.Host == r.Host && strings.HasPrefix(ref.Path, h.cfg().Server.BasePath+"/admin/") {
+	back := h.basePath() + "/admin/"
+	if ref, err := url.Parse(r.Referer()); err == nil && ref.Host == r.Host && strings.HasPrefix(ref.Path, h.basePath()+"/admin/") {
 		back = ref.RequestURI()
 	}
 	fmt.Fprintf(w, `<!DOCTYPE html><html lang="%s"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex, nofollow"><title>unmask</title></head>`+
@@ -484,4 +677,53 @@ func (h *Handler) respondWritesHeld(w http.ResponseWriter, r *http.Request) {
 		`<div style="max-width:36rem;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:1.25rem 1.5rem;line-height:1.6">`+
 		`<p style="margin:0 0 1rem">%s</p><p style="margin:0"><a href="%s">%s</a></p></div></body></html>`,
 		html.EscapeString(string(lang)), html.EscapeString(msg), html.EscapeString(back), html.EscapeString(i18n.T(lang, "schema_update.back")))
+}
+
+// heldBeaconCounts counts the beacons each address sent while the database's
+// writes were held.  The beacon's per-address limit counts the rows already
+// written, and a beacon accepted during a hold is not written until it ends:
+// without these counts one token could send without limit, and push the
+// visitors' own events out of the kept list, which is bounded.
+type heldBeaconCounts struct {
+	mu    sync.Mutex
+	since time.Time
+	n     map[string]int
+}
+
+// heldBeaconWindow matches the beacon limit's window (five minutes).
+const heldBeaconWindow = 5 * time.Minute
+
+// heldBeaconAddrsMax bounds the addresses counted; past it the counts start
+// over, which errs on the side of letting a beacon through.
+const heldBeaconAddrsMax = 100000
+
+// add counts one beacon from key and returns how many it has sent in the
+// window, this one included.
+func (c *heldBeaconCounts) add(key string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	now := time.Now()
+	if c.n == nil || now.Sub(c.since) > heldBeaconWindow || len(c.n) >= heldBeaconAddrsMax {
+		c.n, c.since = map[string]int{}, now
+	}
+	c.n[key]++
+	return c.n[key]
+}
+
+// count is how many beacons key has sent in the window.
+func (c *heldBeaconCounts) count(key string) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.n == nil || time.Since(c.since) > heldBeaconWindow {
+		return 0
+	}
+	return c.n[key]
+}
+
+// reset forgets the counts: the kept beacons are written now, and the rows
+// count them.
+func (c *heldBeaconCounts) reset() {
+	c.mu.Lock()
+	c.n = nil
+	c.mu.Unlock()
 }

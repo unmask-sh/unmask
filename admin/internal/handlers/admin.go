@@ -1175,7 +1175,9 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 	// Transparently upgrade the stored hash if the argon2 cost parameters have
 	// been raised since it was written (AUTH-6).  Best-effort: a failure here
 	// must not block an otherwise-valid login.
-	if user.NeedsRehash(u.PasswordHash) {
+	// Not while a schema update holds the writes: the write would wait out
+	// the busy timeout on the way in, and the next sign-in does it anyway.
+	if user.NeedsRehash(u.PasswordHash) && !h.DB.WritesHeld() {
 		if err := h.UserRepo.SetPassword(r.Context(), u.ID, password); err != nil {
 			log.Printf("password rehash on login (user %d): %v", u.ID, err)
 		}

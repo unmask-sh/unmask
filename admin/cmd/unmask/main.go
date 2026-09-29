@@ -155,7 +155,7 @@ func usage() {
 
 usage:
   unmask serve [-config PATH]
-  unmask migrate [-config PATH] [-status] [-startup] [-skip-space-check]
+  unmask migrate [-config PATH] [-status] [-notice] [-startup] [-by NAME] [-skip-space-check]
   unmask config-init [-out PATH]
   unmask update-crawler-list [-out PATH]
   unmask review-crawler-list [-url URL]
@@ -999,6 +999,22 @@ func cmdServe(args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_ = srv.Shutdown(ctx)
 		cancel()
+		// A schema update this daemon started is stopped before the last
+		// writes: it holds the write lock they need, and left running it
+		// would lose its output pipe and die halfway without a word.
+		// Stopped, it records itself as cancelled and the update waits
+		// again.  Well inside the unit's stop timeout.
+		sctx, scancel := context.WithTimeout(context.Background(), 45*time.Second)
+		h.StopSchemaRun(sctx)
+		scancel()
+		if conn != nil {
+			// What was kept while writes were held -- the run is over (or
+			// not ours, and then these give up at once).
+			rctx, rcancel := context.WithTimeout(context.Background(), 20*time.Second)
+			h.SchemaRefresh(rctx)
+			rcancel()
+			banMgr.FlushHeld()
+		}
 		// Drain the event flusher queue + perform a final flush.
 		events.StopFlusher()
 	}()
@@ -1016,9 +1032,10 @@ func cmdServe(args []string) error {
 		return err
 	}
 	// Serve returns the moment Shutdown begins.  What the shutdown does after
-	// that -- the event flusher's last flush above all -- has to be waited
-	// for: returning here ended the process under it, and the last flush was
-	// lost to the race.
+	// that -- stop a schema update this daemon started, write what was kept
+	// while writes were held, the event flusher's last flush -- has to be
+	// waited for: returning here ended the process under it, and the last
+	// flush was lost to the race.
 	select {
 	case <-shutdownDone:
 	case <-time.After(100 * time.Second):

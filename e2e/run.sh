@@ -85,11 +85,17 @@ trap 'rm -f "$E2E_NOTES" "$SCENARIO_OUT"' EXIT
 # seven scenarios went on looking for the old name, skipped, and the suite
 # stayed green without them for two releases.  So with the stack up, a
 # scenario that says it could not find the stack has failed.
+# Only when BASE_URL is that stack: against another host, a stack that happens
+# to be up locally says nothing about the run.
 STACK_UP=""
-if command -v docker >/dev/null 2>&1 && [ -n "$(docker compose -f "$DIR/docker/docker-compose.yml" ps -q nginx 2>/dev/null)" ]; then
-    STACK_UP=1
-fi
-NO_STACK_RE='needs the docker e2e stack|compose not reachable|container not running locally'
+case "$BASE_URL" in
+    *://localhost:*|*://localhost/*|*://localhost|*://127.0.0.1:*|*://127.0.0.1/*|*://127.0.0.1)
+        if command -v docker >/dev/null 2>&1 && [ -n "$(docker compose -f "$DIR/docker/docker-compose.yml" ps -q nginx 2>/dev/null)" ]; then
+            STACK_UP=1
+        fi
+        ;;
+esac
+NO_STACK_RE='needs the docker e2e stack|compose not reachable|container not running locally|needs python3 with sqlite3'
 
 # stack_report <since>: what the containers did while a scenario that failed
 # was running.  Printed here because nothing later can: the target that runs

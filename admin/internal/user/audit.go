@@ -50,6 +50,11 @@ func (r *Repository) Record(ctx context.Context, userID int64, username, action,
 	if ip := ClientIPFromContext(ctx); ip != "" {
 		row.IP = &ip
 	}
+	// While a schema update holds the write lock the row waits in memory,
+	// with its time, and is written when the lock is free (held.go).
+	if r.holdAudit(row) {
+		return
+	}
 	// Omit At from the insert so the DB's CURRENT_TIMESTAMP default fires --
 	// but we still set it above for safety; either way is fine.
 	if err := r.DB.Gorm.WithContext(ctx).Create(&row).Error; err != nil {

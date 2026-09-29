@@ -105,7 +105,9 @@ func (d DB) SchemaUpdateDeferOver() time.Duration {
 	case d.SchemaUpdateDeferSeconds == 0:
 		return 0
 	}
-	return time.Duration(d.SchemaUpdateDeferSeconds * float64(time.Second))
+	// At least a nanosecond: a value too small to convert must not come out
+	// as 0, which means "the default".
+	return max(time.Duration(d.SchemaUpdateDeferSeconds*float64(time.Second)), 1)
 }
 
 // PerfProfile values.

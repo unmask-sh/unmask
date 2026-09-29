@@ -113,14 +113,14 @@ func TestAggregateWindowsVerdictTellsNotYetFromNotWorking(t *testing.T) {
 // being applied, and migrations the daemon's start failed to apply.
 func TestSchemaVerdict(t *testing.T) {
 	now := time.Date(2026, 9, 29, 12, 0, 0, 0, time.UTC)
-	if warn, msg := schemaVerdict(nil, nil, db.SchemaUpdateRecord{}, false, "h", now, true); warn || msg != "up to date" {
+	if warn, msg := schemaVerdict(nil, nil, db.SchemaUpdateRecord{}, false, now, true); warn || msg != "up to date" {
 		t.Errorf("nothing pending: warn=%v msg=%q", warn, msg)
 	}
 	index := db.PendingMigration{Version: 32, Name: "0032_event_ja4_index", Deferrable: true, Table: "unmask_event",
 		Rows: 3000000, Indexes: []string{"idx_unmask_event_ja4_phase"}, EstLow: 3 * time.Minute, EstHigh: 9 * time.Minute}
 	order := db.PendingMigration{Version: 33, Name: "0033_event_ja4_index_order", Deferrable: true, Table: "unmask_event"}
 	waiting := []db.PendingMigration{index, order}
-	warn, msg := schemaVerdict(waiting, waiting, db.SchemaUpdateRecord{}, false, "h", now, true)
+	warn, msg := schemaVerdict(waiting, waiting, db.SchemaUpdateRecord{}, false, now, true)
 	if !warn || !strings.Contains(msg, "2 update(s) wait for you") || !strings.Contains(msg, "0032_event_ja4_index") ||
 		!strings.Contains(msg, "estimated 3-9 min") || !strings.Contains(msg, "unmask migrate") {
 		t.Errorf("waiting: warn=%v msg=%q", warn, msg)
@@ -129,26 +129,32 @@ func TestSchemaVerdict(t *testing.T) {
 		t.Errorf("0033 builds nothing (0032 builds its index) and should not be named: %q", msg)
 	}
 	failed := db.SchemaUpdateRecord{State: db.SchemaUpdateFailed, Err: "disk full", EndedAt: now.Add(-time.Hour).Unix()}
-	if _, msg := schemaVerdict(waiting, waiting, failed, true, "h", now, true); !strings.Contains(msg, "the last attempt failed: disk full") {
+	if _, msg := schemaVerdict(waiting, waiting, failed, false, now, true); !strings.Contains(msg, "the last attempt failed: disk full") {
 		t.Errorf("after a failed attempt: msg=%q", msg)
 	}
-	// From another host, a run that started a minute ago is taken to be going.
+	// A run that is going (db.SchemaUpdateAlive says so), here on another host.
 	running := db.SchemaUpdateRecord{State: db.SchemaUpdateRunning, Host: "other", By: "alice",
 		StartedAt: now.Add(-time.Minute).Unix(), EstLowSec: 180, EstHighSec: 540}
-	if warn, msg := schemaVerdict(waiting, waiting, running, true, "h", now, true); warn || !strings.Contains(msg, "being applied") ||
-		!strings.Contains(msg, "by alice on other") || !strings.Contains(msg, "3-9 min") || !strings.Contains(msg, "changes in the admin UI wait") {
+	if warn, msg := schemaVerdict(waiting, waiting, running, true, now, true); warn || !strings.Contains(msg, "being applied") ||
+		!strings.Contains(msg, "by alice on other") || !strings.Contains(msg, "3-9 min") || !strings.Contains(msg, "changes to users and manual bans wait") {
 		t.Errorf("running: warn=%v msg=%q", warn, msg)
 	}
 	// Where the index is built online nothing waits, and the line does not
 	// say that anything does.
-	if _, msg := schemaVerdict(waiting, waiting, running, true, "h", now, false); !strings.Contains(msg, "the challenge is served meanwhile") ||
+	if _, msg := schemaVerdict(waiting, waiting, running, true, now, false); !strings.Contains(msg, "the challenge is served meanwhile") ||
 		strings.Contains(msg, "wait") {
 		t.Errorf("running, built online: msg=%q", msg)
 	}
 	// A pending migration that is not one of those: the start failed on it.
 	plain := db.PendingMigration{Version: 40, Name: "0040_new_column"}
-	if warn, msg := schemaVerdict([]db.PendingMigration{plain}, nil, db.SchemaUpdateRecord{}, false, "h", now, true); !warn ||
+	if warn, msg := schemaVerdict([]db.PendingMigration{plain}, nil, db.SchemaUpdateRecord{}, false, now, true); !warn ||
 		!strings.Contains(msg, "1 migration(s) not applied") || !strings.Contains(msg, "migrate failed at startup") {
 		t.Errorf("not applied at startup: warn=%v msg=%q", warn, msg)
+	}
+	// A record that still says "running" of a run that is gone: the update
+	// waits again, and the line says so rather than "being applied".
+	if warn, msg := schemaVerdict(waiting, waiting, running, false, now, true); !warn || strings.Contains(msg, "being applied") ||
+		!strings.Contains(msg, "wait for you") {
+		t.Errorf("a dead run's record: warn=%v msg=%q", warn, msg)
 	}
 }

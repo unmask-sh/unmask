@@ -4,9 +4,11 @@
 #
 # This is the production root cause as an end-to-end guard.  A 2026-05-25 djb2
 # challenge.js left at /usr/share/unmask/challenge/ across a plugin upgrade
-# looped every visitor; loadChallengeJS now skips an override that lacks the
-# pow_seed marker.  Writes into the unmask container, so it skips against a
-# remote BASE_URL (the same guard is also unit-tested).
+# looped every visitor.  The daemon has since stopped reading that directory
+# at all (loadChallengeJS: challenge_js_path or the embedded copy), so this
+# guards that no later change starts serving from it again.  Writes into the
+# unmask container, so it skips against a remote BASE_URL (the same guard is
+# also unit-tested).
 set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/env.sh"

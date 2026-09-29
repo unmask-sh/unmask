@@ -6501,11 +6501,12 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       {{ if .Retention.WriteChecked }}
       <div style="margin-top:.2rem">{{ t .Lang "settings.retention.write_label" }}:
         {{ if .Retention.WriteOK }}<strong style="color:#15803d">✓ {{ t .Lang "settings.retention.write_ok" }}</strong>
+        {{ else if .Retention.WriteHeld }}<strong style="color:#b45309">{{ t .Lang "settings.retention.write_held" }}</strong>
         {{ else }}<strong style="color:#b91c1c">✗ {{ t .Lang "settings.retention.write_ng" }}</strong>{{ end }}
         {{ if .Retention.DaemonUser }}<span style="color:#94a3b8;font-size:.75rem"> · {{ t .Lang "settings.retention.write_daemon_user" }} <code>{{ .Retention.DaemonUser }}</code></span>{{ end }}
         {{ if .Retention.DBFileOwner }}<span style="color:#94a3b8;font-size:.75rem"> · {{ t .Lang "settings.retention.write_file_owner" }} <code>{{ .Retention.DBFileOwner }}</code></span>{{ end }}
       </div>
-      {{ if not .Retention.WriteOK }}
+      {{ if and (not .Retention.WriteOK) (not .Retention.WriteHeld) }}
       <div class="banner bad" style="margin-top:.5rem">
         {{ t .Lang "settings.retention.write_ng_detail" }}
         {{ if .Retention.WriteErr }}<div style="margin-top:.3rem;font-size:.75rem"><code>{{ .Retention.WriteErr }}</code></div>{{ end }}

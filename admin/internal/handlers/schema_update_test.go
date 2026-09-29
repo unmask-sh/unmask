@@ -194,7 +194,14 @@ func TestSchemaUpdateHelper(t *testing.T) {
 	opt := db.SchemaUpdateOptions{Host: os.Getenv("UNMASK_TEST_SCHEMA_HOST"), By: os.Getenv("UNMASK_TEST_SCHEMA_BY"),
 		Logf: func(f string, a ...any) { fmt.Printf(f+"\n", a...) }}
 	if hold > 0 {
-		// The run's record, then the write lock, held.
+		// The run's lock, its record, then the write lock, held -- what a
+		// build over a large table looks like from outside.
+		lock, err := conn.LockSchemaRun(ctx)
+		if err != nil {
+			fmt.Println("helper: run lock:", err)
+			os.Exit(3)
+		}
+		defer lock.Release()
 		rec := db.SchemaUpdateRecord{State: db.SchemaUpdateRunning, Host: opt.Host, By: opt.By, PID: os.Getpid(),
 			Items: []string{"0032_event_ja4_index"}, StartedAt: time.Now().Unix(), EstLowSec: 60, EstHighSec: 180}
 		if err := conn.SaveMaintState(ctx, db.MaintSchemaUpdate, rec); err != nil {
@@ -219,8 +226,10 @@ func TestSchemaUpdateHelper(t *testing.T) {
 			rec.State, rec.Err, rec.EndedAt = db.SchemaUpdateCancelled, "cancelled", time.Now().Unix()
 			_ = conn.SaveMaintState(context.Background(), db.MaintSchemaUpdate, rec)
 			fmt.Println("helper: cancelled")
+			lock.Release()
 			os.Exit(1)
 		}
+		lock.Release() // ApplySchemaUpdate takes it again
 	}
 	if _, err := db.ApplySchemaUpdate(ctx, conn, opt); err != nil {
 		fmt.Println("helper:", err)
@@ -230,11 +239,15 @@ func TestSchemaUpdateHelper(t *testing.T) {
 	os.Exit(0)
 }
 
+// helperRunFlag is the argument that starts this test binary as
+// TestSchemaUpdateHelper; TestMain has the liveness check recognise it.
+const helperRunFlag = "-test.run=^TestSchemaUpdateHelper$"
+
 // helperCommand makes h start TestSchemaUpdateHelper where it would start
 // `unmask migrate`.
 func helperCommand(h *Handler, hold time.Duration) {
 	h.SchemaCommand = func(by string) (*exec.Cmd, error) {
-		cmd := exec.Command(os.Args[0], "-test.run=^TestSchemaUpdateHelper$")
+		cmd := exec.Command(os.Args[0], helperRunFlag)
 		cmd.Env = append(os.Environ(),
 			"UNMASK_TEST_SCHEMA_DB="+h.cfg().DB.SQLitePath,
 			"UNMASK_TEST_SCHEMA_HOLD="+hold.String(),
@@ -252,7 +265,7 @@ func waitForRecord(t *testing.T, h *Handler) {
 	waitFor(t, "the run's record", 20*time.Second, func() bool {
 		h.SchemaRefresh(context.Background())
 		rec, ok, err := h.DB.LoadSchemaUpdate(context.Background())
-		return err == nil && ok && rec.State == db.SchemaUpdateRunning && rec.Alive(h.HostID, time.Now())
+		return err == nil && ok && rec.State == db.SchemaUpdateRunning && h.DB.SchemaUpdateAlive(context.Background(), rec, time.Now())
 	})
 }
 
@@ -423,10 +436,14 @@ func TestSchemaRunStartedElsewhere(t *testing.T) {
 	if code, _ := postJSON(t, h.AdminSchemaUpdateRun, "/unmask/admin/api/schema-update/run", user.RoleSuperadmin); code != http.StatusConflict {
 		t.Errorf("run while one is going: %d, want 409", code)
 	}
+	// Until its record says done: the stand-in lets its lock go between
+	// holding the write lock and applying the update (a real run holds it
+	// throughout), and in that moment nothing is running.
 	waitFor(t, "the run to end", 15*time.Second, func() bool {
 		h.SchemaRefresh(context.Background())
+		rec, ok, _ := h.DB.LoadSchemaUpdate(context.Background())
 		_, running := h.SchemaWaiting()
-		return !running && !h.DB.WritesHeld()
+		return ok && rec.State == db.SchemaUpdateDone && !running && !h.DB.WritesHeld()
 	})
 	if !indexThere(t, h) || h.DB.EventJA4IndexHint() == "" {
 		t.Error("index or hint missing after a run started elsewhere")
@@ -590,9 +607,15 @@ func TestNoNoticeOnAnOrdinaryInstall(t *testing.T) {
 // JSON for the API, a page for a form.  Reading is not affected, and the
 // request that stops the update goes through.
 func TestChangesWaitWhileWritesAreHeld(t *testing.T) {
+	for _, base := range []string{"/unmask", "/unmask/"} {
+		t.Run("base "+base, func(t *testing.T) { changesWaitWhileWritesAreHeld(t, base) })
+	}
+}
+
+func changesWaitWhileWritesAreHeld(t *testing.T, basePath string) {
 	h := installedHandler(t)
 	s := *h.cfg()
-	s.Server.BasePath = "/unmask"
+	s.Server.BasePath = basePath
 	h.SetSettings(s)
 	reached := 0
 	next := func(w http.ResponseWriter, r *http.Request) { reached++; w.WriteHeader(http.StatusNoContent) }
@@ -610,7 +633,7 @@ func TestChangesWaitWhileWritesAreHeld(t *testing.T) {
 	}
 
 	// Not held: everything goes through.
-	if rr := do(http.MethodPost, "/unmask/admin/settings/save"); rr.Code != http.StatusNoContent {
+	if rr := do(http.MethodPost, "/unmask/admin/users/save"); rr.Code != http.StatusNoContent {
 		t.Fatalf("writes not held: POST answered %d", rr.Code)
 	}
 
@@ -618,9 +641,10 @@ func TestChangesWaitWhileWritesAreHeld(t *testing.T) {
 	defer h.DB.HoldWrites(false)
 	reached = 0
 
-	rr := do(http.MethodPost, "/unmask/admin/settings/save")
+	// What writes to the database itself waits, and says why.
+	rr := do(http.MethodPost, "/unmask/admin/users/save")
 	if rr.Code != http.StatusServiceUnavailable || reached != 0 {
-		t.Fatalf("a form post while writes are held: %d (handler reached %d times), want 503 and the handler untouched", rr.Code, reached)
+		t.Fatalf("a user save while writes are held: %d (handler reached %d times), want 503 and the handler untouched", rr.Code, reached)
 	}
 	if !strings.Contains(rr.Body.String(), "The database is being updated") || !strings.Contains(rr.Body.String(), `href="/unmask/admin/"`) {
 		t.Errorf("the page does not say what is going on or offer a way back: %s", rr.Body.String())
@@ -628,8 +652,13 @@ func TestChangesWaitWhileWritesAreHeld(t *testing.T) {
 	if rr.Header().Get("Retry-After") == "" {
 		t.Error("no Retry-After")
 	}
-
-	rr = do(http.MethodPost, "/unmask/admin/api/notify/test")
+	for _, p := range []string{"/unmask/admin/bans/save", "/unmask/admin/profile/save", "/unmask/admin/advisor/dismiss", "/unmask/admin/hunt/action"} {
+		reached = 0
+		if rr := do(http.MethodPost, p); rr.Code != http.StatusServiceUnavailable || reached != 0 {
+			t.Errorf("POST %s while writes are held: %d (reached %d), want 503", p, rr.Code, reached)
+		}
+	}
+	rr = do(http.MethodPost, "/unmask/admin/api/hosts/toggle")
 	if rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Header().Get("Content-Type"), "application/json") {
 		t.Fatalf("an API post while writes are held: %d %s", rr.Code, rr.Header().Get("Content-Type"))
 	}
@@ -638,11 +667,21 @@ func TestChangesWaitWhileWritesAreHeld(t *testing.T) {
 		t.Errorf("API body = %s", rr.Body.String())
 	}
 
+	// What writes only an audit row -- kept until the lock is free -- goes
+	// through: the settings above all, where an attack is answered.
 	for _, c := range []struct{ method, path string }{
 		{http.MethodGet, "/unmask/admin/"},
 		{http.MethodGet, "/unmask/admin/api/schema-update"},
 		{http.MethodPost, "/unmask/admin/api/schema-update/cancel"},
-		{http.MethodPost, "/unmask/admin/logout"},
+		{http.MethodPost, "/unmask/admin/settings/save"},
+		{http.MethodPost, "/unmask/admin/settings/branding/site/save"},
+		{http.MethodPost, "/unmask/admin/settings/snapshot"},
+		{http.MethodPost, "/unmask/admin/upgrade-review/apply"},
+		{http.MethodPost, "/unmask/admin/audit/restore"},
+		{http.MethodPost, "/unmask/admin/api/notify/test"},
+		{http.MethodPost, "/unmask/admin/api/iprange/sync"},
+		{http.MethodPost, "/unmask/admin/api/community-bans/vote"},
+		{http.MethodDelete, "/unmask/admin/api/community-bans/vote/7"},
 	} {
 		reached = 0
 		if rr := do(c.method, c.path); rr.Code != http.StatusNoContent || reached != 1 {
@@ -893,11 +932,11 @@ func TestSchemaNoticeWordsFollowTheDatabase(t *testing.T) {
 		t.Fatal("SQLite: the run holds the write lock, and the view must say so")
 	}
 	onSQLite := renderAs(t, h.AdminTopOverview, "/unmask/admin/", user.RoleSuperadmin, "en")
-	if !strings.Contains(onSQLite, "saving settings wait until it has finished") {
-		t.Error("SQLite: the notice must say that changes wait")
+	if !strings.Contains(onSQLite, "Settings can be saved as usual") || !strings.Contains(onSQLite, "users and manual bans, wait until it has finished") {
+		t.Error("SQLite: the notice must say what waits (the database's own changes) and what does not (settings)")
 	}
-	if !strings.Contains(onSQLite, "not possible while it runs") {
-		t.Error("SQLite: the confirmation must say that changes are not possible during the run")
+	if !strings.Contains(onSQLite, "users and manual bans cannot be changed (settings can)") {
+		t.Error("SQLite: the confirmation must say what cannot be changed during the run")
 	}
 
 	tmpl, err := loadDashboardTemplate()
@@ -922,16 +961,16 @@ func TestSchemaNoticeWordsFollowTheDatabase(t *testing.T) {
 	}{
 		{i18n.LangEN, "pending",
 			[]string{"A database update is waiting", "and so do changes such as saving settings", `data-l-confirm="Start the database update?"`},
-			[]string{"wait until", "recorded afterwards", "not possible while it runs"}},
+			[]string{"wait until", "recorded afterwards", "cannot be changed"}},
 		{i18n.LangEN, "running",
 			[]string{"Updating the database", "go through as usual"},
 			[]string{"wait until"}},
 		{i18n.LangJA, "pending",
 			[]string{"データベースの更新があります", "そのまま行えます", `data-l-confirm="データベースの更新を始めます。よろしいですか?"`},
-			[]string{"完了するまで", "完了後に記録", "変更ができません"}},
+			[]string{"完了まで待ちます", "完了後に記録", "編集ができません"}},
 		{i18n.LangJA, "running",
 			[]string{"データベースを更新しています", "そのまま行えます"},
-			[]string{"完了するまで"}},
+			[]string{"完了までお待ちください"}},
 	} {
 		online := *v
 		online.HoldsWrites = false
@@ -1003,5 +1042,95 @@ func TestQuickRunFromTheButtonIsAnswered(t *testing.T) {
 	h.SchemaRefresh(ctx)
 	if v := h.schemaView(user.RoleSuperadmin, i18n.LangEN); v != nil {
 		t.Errorf("view = %+v, want nothing for a quick run from a shell", v)
+	}
+}
+
+// TestRunRecordedUnderAnEarlierHostID: a container's host id is its
+// container's, new on every re-create, so a run cut short by `docker compose
+// up` leaves a record that says "running" under an id this node no longer
+// has.  Judged by its age, as it once was, that record held the new daemon's
+// writes for an hour and refused every run.  What decides is the run's lock:
+// free, the record is stale; held (a run in a sibling container on the same
+// files), a run is going.
+func TestRunRecordedUnderAnEarlierHostID(t *testing.T) {
+	h := schemaHandler(t, 300, 0.001)
+	if _, err := db.MigrateWith(h.DB, db.MigrateOptions{Defer: true, DeferOver: h.cfg().DB.SchemaUpdateDeferOver()}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	stale := db.SchemaUpdateRecord{
+		State: db.SchemaUpdateRunning, Host: "0123456789ab", PID: 57, By: "alice",
+		Items:     []string{"0032_event_ja4_index", "0033_event_ja4_index_order"},
+		StartedAt: time.Now().Add(-3 * time.Minute).Unix(), EstLowSec: 60, EstHighSec: 180,
+	}
+	if err := h.DB.SaveMaintState(ctx, db.MaintSchemaUpdate, stale); err != nil {
+		t.Fatal(err)
+	}
+
+	h.SchemaRefresh(ctx)
+	if h.DB.WritesHeld() {
+		t.Fatal("writes are held for a run that no process is running")
+	}
+	v := h.schemaView(user.RoleSuperadmin, i18n.LangEN)
+	if v == nil || v.State != "failed" || !v.CanRun || !strings.Contains(v.Err, "interrupted") {
+		t.Fatalf("view = %+v, want the update offered again, the last attempt interrupted", v)
+	}
+
+	// A run in a sibling container, on the same database: it holds the lock.
+	lock, err := h.DB.LockSchemaRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.SchemaRefresh(ctx)
+	if !h.DB.WritesHeld() {
+		t.Error("a run holding its lock under another host id: writes are not held")
+	}
+	if v := h.schemaView(user.RoleSuperadmin, i18n.LangEN); v == nil || v.State != "running" || v.CanCancel {
+		t.Errorf("view while the lock is held = %+v, want running, not ours to cancel", v)
+	}
+	lock.Release()
+	h.SchemaRefresh(ctx)
+	if h.DB.WritesHeld() {
+		t.Error("the lock is free again and writes are still held")
+	}
+
+	// And the update can be run: the stale record does not refuse it.
+	if _, err := db.ApplySchemaUpdate(ctx, h.DB, db.SchemaUpdateOptions{Host: h.HostID, By: "cli"}); err != nil {
+		t.Fatalf("a run after the stale record: %v", err)
+	}
+	if !indexThere(t, h) {
+		t.Error("index not built")
+	}
+}
+
+// TestQuickRunFromAShellBringsTheHintsBack: a run from a shell that is over
+// before the daemon's watch sees it going (a small table builds in less than
+// its two seconds) still has the daemon re-read its index list -- the hints
+// that name the new index were otherwise off until the next restart.
+func TestQuickRunFromAShellBringsTheHintsBack(t *testing.T) {
+	h := schemaHandler(t, 300, 0.001)
+	if _, err := db.MigrateWith(h.DB, db.MigrateOptions{Defer: true, DeferOver: h.cfg().DB.SchemaUpdateDeferOver()}); err != nil {
+		t.Fatal(err)
+	}
+	h.SchemaRefresh(context.Background())
+	if h.DB.EventJA4IndexHint() != "" {
+		t.Fatal("a hint for an index that is not there")
+	}
+	// The run, in full, between two looks of the daemon -- in a process of
+	// its own, as `unmask migrate` is: its own handle on the database file.
+	other, err := db.Open(h.cfg().DB)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	if _, err := db.ApplySchemaUpdate(context.Background(), other, db.SchemaUpdateOptions{Host: h.HostID, By: "cli"}); err != nil {
+		t.Fatal(err)
+	}
+	if !indexThere(t, h) {
+		t.Fatal("the run did not build the index")
+	}
+	h.SchemaRefresh(context.Background())
+	if h.DB.EventJA4IndexHint() == "" {
+		t.Error("the daemon did not take the new index into its hints after a run it never saw going")
 	}
 }
