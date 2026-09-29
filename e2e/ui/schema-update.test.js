@@ -123,6 +123,16 @@ c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     if (browser) await browser.close().catch(() => {});
     daemon.kill('SIGTERM');
     await sleep(300);
+    if (code !== 0) {
+      // What the daemon and the run said, where a failing CI job shows it:
+      // the artifacts of a run on someone else's machine cannot be opened.
+      try {
+        const tail = fs.readFileSync(path.join(work, 'serve.log'), 'utf8').split('\n')
+          .filter(l => /schema|migrate|db:|panic|fatal/i.test(l)).slice(-30);
+        console.error('--- the daemon\'s log (schema update lines) ---\n' + tail.join('\n'));
+        console.error('--- unmask migrate -status ---\n' + cli('migrate', '-status'));
+      } catch (e) { /* best effort */ }
+    }
     if (code !== 0 && process.env.UI_E2E_OUT) {
       // Kept where run.sh collects the artifacts of a failing test.
       try { fs.copyFileSync(path.join(work, 'serve.log'), path.join(process.env.UI_E2E_OUT, 'schema-update-serve.log')); } catch (e) { /* best effort */ }
@@ -205,7 +215,8 @@ c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     ]);
     ok(/Start the database update\?/.test(asked), `the click asked ${JSON.stringify(asked)}; it must confirm first`);
     let n = await notice(su);
-    ok(n && (n.state === 'running' || n.state === 'done'), `after the click the notice says ${n && n.state}`);
+    ok(n && (n.state === 'running' || n.state === 'done'),
+      `after the click the notice says ${n ? n.state + ': ' + n.text : 'nothing (it is not on the page)'}`);
     const sawRunning = !!(n && n.state === 'running');
     if (sawRunning) {
       ok(n.buttons.join() === 'schup-cancel', `running: buttons ${JSON.stringify(n.buttons)}, want cancel alone`);
@@ -234,10 +245,18 @@ c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     }
 
     // ---- finished: the page says so by itself ------------------------------
-    await su.waitForFunction(() => {
-      const e = document.getElementById('schup');
-      return e && e.getAttribute('data-state') === 'done';
-    }, { timeout: 180000, polling: 500 });
+    // Not a bare wait for "done": a run that failed, or a notice that went
+    // away without a word, would sit out the whole timeout and say nothing
+    // of what the page showed instead.
+    let gone = 0;
+    await waitFor('the notice to say the update finished', 180000, async () => {
+      const cur = await notice(su).catch(() => undefined);   // undefined: the page is reloading
+      if (cur === undefined) return false;
+      if (cur && cur.state === 'done') return true;
+      if (cur && cur.state === 'failed') throw new Error('the update failed: ' + cur.text);
+      if (cur === null && ++gone > 20) throw new Error('the notice went away without saying that the update finished');
+      return false;
+    });
     n = await notice(su);
     ok(n && /The database update finished \(.+\)\./.test(n.text), `done: ${n && n.text}`);
     ok(n && n.buttons.join() === 'schup-dismiss', `done: buttons ${JSON.stringify(n && n.buttons)}`);
@@ -258,6 +277,7 @@ c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     await finish(0);
   } catch (e) {
     console.error('ERROR', e.message);
+    if (fails.length) console.error('before that:\n- ' + fails.join('\n- '));
     await finish(1);
   }
 })().catch(e => { console.error('ERROR', e.message); process.exit(1); });
