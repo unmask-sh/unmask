@@ -12,6 +12,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+- (2026-09-29) **Mattermost link previews pass out of the box.**  Mattermost fetches a pasted link's preview from its own server as `Mattermost-Bot`, which the crawler list did not carry, so the fetch was challenged and the link rendered bare.  It joins the supplement next to Chatwork, Webex and Notion, and can be switched off per pattern like any other.
+
 ## [0.1.48] - 2026-09-27
 
 ### Changed

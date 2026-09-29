@@ -27,6 +27,15 @@
     "addition_date": "2026/07/28"
   },
   {
+    "pattern": "Mattermost-Bot",
+    "tags": ["social-preview"],
+    "url": "https://mattermost.com/",
+    "instances": [
+      "Mattermost-Bot/1.1"
+    ],
+    "addition_date": "2026/09/29"
+  },
+  {
     "pattern": "Notification(Service)?Extension/.*CFNetwork",
     "tags": ["notification-preview"],
     "url": "https://developer.apple.com/documentation/usernotifications/unnotificationserviceextension",

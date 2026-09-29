@@ -25,6 +25,9 @@ func decodeCrawlers(t *testing.T, raw []byte) []crawlerEntry {
 // Chatwork above all -- so a site using the defaults quietly challenged the
 // preview fetcher and links posted in chat rendered bare.  Whitelisting one
 // class of unfurler and not another is the inconsistency this closes.
+// Mattermost-Bot is the same case from self-hosted chat: every Mattermost
+// server fetches its own previews, so there is no vendor range to verify by,
+// and its UA stands on the same footing as upstream's Mastodon entry.
 func TestCrawlerSupplementMerged(t *testing.T) {
 	merged := decodeCrawlers(t, CrawlerUserAgentsJSON)
 	upstream := decodeCrawlers(t, upstreamCrawlerUAJSON)
@@ -39,7 +42,7 @@ func TestCrawlerSupplementMerged(t *testing.T) {
 		have[e.Pattern] = e.Tags
 	}
 	// The supplement must reach the merged list...
-	for _, want := range []string{"ChatWork LinkPreview", "WebexTeams", "NotionEmbedder"} {
+	for _, want := range []string{"ChatWork LinkPreview", "WebexTeams", "NotionEmbedder", "Mattermost-Bot"} {
 		tags, ok := have[want]
 		if !ok {
 			t.Errorf("%q missing from the shipped crawler list", want)
