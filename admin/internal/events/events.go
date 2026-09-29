@@ -788,7 +788,7 @@ func extractReason(payload string) string {
 // challenge-flow phase and is absent on phase=check.
 func decorateRowFromPayload(row *Row, payload string) {
 	row.Path = extractPath(payload)
-	row.Referer = extractStringField(payload, "referer", 300)
+	row.Referer = unescapeJSONText(extractStringField(payload, "referer", 300))
 	row.LocalPort = extractIntField(payload, "local_port")
 	row.BeaconToken = extractBeaconToken(payload)
 	row.Ref = extractRef(payload)
@@ -881,17 +881,39 @@ func extractForceReason(payload string) string {
 // Used by the URL column in the raw hunt log table.
 func extractPath(payload string) string {
 	if p := extractStringField(payload, "orig_path", 1024); p != "" {
-		return p
+		return unescapeJSONText(p)
 	}
 	if p := extractStringField(payload, "uri", 1024); p != "" {
-		return p
+		return unescapeJSONText(p)
 	}
 	// "url" field (location.href sent by challenge.js).  If full URL, strip
 	// the host and return path + query only.
 	if u := extractStringField(payload, "url", 1024); u != "" {
-		return urlToPath(u)
+		return urlToPath(unescapeJSONText(u))
 	}
 	return ""
+}
+
+// unescapeJSONText turns a value as it sits inside payload_json back into the
+// text it encodes.  extractStringField hands back the stored bytes, and the
+// writer's serializer stores "&", "<" and ">" as \u0026 / \u003c / \u003e --
+// so a URL with two query parameters, or a referer from a search engine, used
+// to reach the operator with the escapes in it.  The enum-like fields (phase
+// names, reasons, tokens) never hold such a character and skip this; it is
+// for the two free-text fields an operator reads, the path and the referer.
+//
+// A value without a backslash is returned as is, which is nearly all of them.
+// One that does not decode (cut at the extractor's cap, mid-escape) is also
+// returned as is: a slightly raw string is worth more than an empty cell.
+func unescapeJSONText(v string) string {
+	if !strings.Contains(v, `\`) {
+		return v
+	}
+	var out string
+	if err := json.Unmarshal([]byte(`"`+v+`"`), &out); err != nil {
+		return v
+	}
+	return out
 }
 
 // urlToPath: "https://example.com/foo?bar=1" -> "/foo?bar=1".

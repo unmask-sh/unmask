@@ -17,6 +17,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Added
 - (2026-09-29) **Mattermost link previews pass out of the box.**  Mattermost fetches a pasted link's preview from its own server as `Mattermost-Bot`, which the crawler list did not carry, so the fetch was challenged and the link rendered bare.  It joins the supplement next to Chatwork, Webex and Notion, and can be switched off per pattern like any other.
 
+### Fixed
+- (2026-09-29) **URLs and referers in bot hunt show `&` as written.**  The log stored the character in its escaped form and displayed that form unchanged, so a URL with two query parameters, or a referer from a search engine, read `\u0026` where the `&` belonged.  Paths and referers are now decoded before display, and the URL popover's open and copy actions act on the real address.
+
 ## [0.1.48] - 2026-09-27
 
 ### Changed
