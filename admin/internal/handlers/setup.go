@@ -355,11 +355,20 @@ const setupQueryBudget = 2 * time.Second
 // all the summary needs.  A missing table errors out like the count did.
 const eventSpanSQL = `SELECT COALESCE(MAX(id) - MIN(id) + 1, 0) FROM unmask_event`
 
+// isLiveDB reports whether the wizard's choice is the database the daemon
+// runs on.  The wizard asks for the connection only, so only the connection
+// is compared: the whole section, tuning and all, took a tuned install's own
+// database for a switch -- a second handle, the boot one closed under the
+// background workers, and a re-exec of the daemon.
+func (h *Handler) isLiveDB(dbcfg settings.DB) bool {
+	return dbcfg.Connection() == h.cfg().DB.Connection()
+}
+
 // targetDB returns a handle on the database the wizard is pointed at -- the
 // live one when the target is the current config, otherwise a throwaway
 // connection -- and the func that releases it.  nil when it cannot be opened.
 func (h *Handler) targetDB(dbcfg settings.DB) (*db.DB, func()) {
-	if h.DB != nil && dbcfg == h.cfg().DB {
+	if h.DB != nil && h.isLiveDB(dbcfg) {
 		return h.DB, func() {}
 	}
 	c, err := db.Open(dbcfg)
@@ -406,7 +415,7 @@ func (h *Handler) targetDBStats(dbcfg settings.DB) (users, events int) {
 // the backstop).
 func (h *Handler) targetDBHasUsername(dbcfg settings.DB, username string) bool {
 	var conn *db.DB
-	if h.DB != nil && dbcfg == h.cfg().DB {
+	if h.DB != nil && h.isLiveDB(dbcfg) {
 		conn = h.DB
 	} else {
 		c, err := db.Open(dbcfg)
@@ -426,7 +435,7 @@ func (h *Handler) targetDBHasUsername(dbcfg settings.DB, username string) bool {
 // has one that install would adopt).  The review step hides the install button
 // for this case and a direct install POST short-circuits back to the dashboard.
 func (h *Handler) reconfigureNoOp(s *wizardState) bool {
-	if s == nil || s.UserSet || s.DB != h.cfg().DB {
+	if s == nil || s.UserSet || !h.isLiveDB(s.DB) {
 		return false
 	}
 	return h.targetDBUsers(s.DB) > 0
@@ -1013,7 +1022,7 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	// until a restart.  A different DB (e.g. switching to MariaDB) still needs a
 	// fresh handle -- and a daemon restart, which the done page now demands.
 	var conn *db.DB
-	if h.DB != nil && s.DB == h.cfg().DB {
+	if h.DB != nil && h.isLiveDB(s.DB) {
 		conn = h.DB
 	} else {
 		c, oerr := db.Open(s.DB)

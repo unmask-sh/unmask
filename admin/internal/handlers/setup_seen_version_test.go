@@ -104,7 +104,8 @@ func TestWizardDevBuildDoesNotStamp(t *testing.T) {
 // only.  What config.yml has beside it -- the memory profile, the cache, the
 // pool, the schema update threshold -- is kept when the install step saves;
 // the section used to be replaced whole, and those went back to their
-// defaults.
+// defaults.  And the database the daemon runs on is still that database with
+// them set: it was taken for a switch, and the daemon re-executed itself.
 func TestWizardKeepsTheTunedDatabaseFields(t *testing.T) {
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "unmask.sqlite")
@@ -123,6 +124,12 @@ func TestWizardKeepsTheTunedDatabaseFields(t *testing.T) {
 	t.Cleanup(func() { _ = conn.Close() })
 	h := &Handler{DB: conn, ConfigPath: cfgPath, Version: "0.9.9"}
 	h.SetSettings(settings.Settings{DB: tuned})
+	// Never the real re-exec: 3 s later it would start this test binary over
+	// in place, and the suite with it.
+	reexecs := 0
+	prev := scheduleReexecFn
+	scheduleReexecFn = func() { reexecs++ }
+	t.Cleanup(func() { scheduleReexecFn = prev })
 
 	token := "tok-wizard-tuned"
 	oldPath := SetupTokenPath
@@ -142,9 +149,8 @@ func TestWizardKeepsTheTunedDatabaseFields(t *testing.T) {
 			t.Fatalf("step %T: want 302, got %d: %s", fn, w.Code, w.Body.String())
 		}
 	}
-	// The same file under another path spelling: a switch of database as far
-	// as the form is concerned, which only carries the connection.
-	post(h.AdminSetupSaveDB, url.Values{"driver": {"sqlite"}, "sqlite_path": {filepath.Join(dir, ".", "unmask.sqlite")}})
+	// The database the daemon runs on; the form carries the connection only.
+	post(h.AdminSetupSaveDB, url.Values{"driver": {"sqlite"}, "sqlite_path": {dbPath}})
 	post(h.AdminSetupSaveUser, url.Values{
 		"username": {"admin"}, "password": {"correct-horse-battery"}, "password_confirm": {"correct-horse-battery"},
 	})
@@ -153,6 +159,9 @@ func TestWizardKeepsTheTunedDatabaseFields(t *testing.T) {
 	s, err := settings.Load(cfgPath)
 	if err != nil {
 		t.Fatalf("re-read config: %v", err)
+	}
+	if reexecs != 0 {
+		t.Errorf("the daemon's own database was taken for a switch (%d re-exec)", reexecs)
 	}
 	if s.DB.PerfProfile != tuned.PerfProfile || s.DB.SQLiteCacheMB != tuned.SQLiteCacheMB ||
 		s.DB.MaxConns != tuned.MaxConns || s.DB.SchemaUpdateDeferSeconds != tuned.SchemaUpdateDeferSeconds {

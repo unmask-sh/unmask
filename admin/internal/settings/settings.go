@@ -96,6 +96,13 @@ type DB struct {
 	SchemaUpdateDeferSeconds float64 `yaml:"schema_update_defer_seconds,omitempty"`
 }
 
+// Connection is the part of the section that says which database: the
+// driver and where it is.  The rest is tuning.  Two sections name the same
+// database when their Connection is equal.
+func (d DB) Connection() DB {
+	return DB{Driver: d.Driver, SQLitePath: d.SQLitePath, MariaDB: d.MariaDB}
+}
+
 // SchemaUpdateDeferOver is SchemaUpdateDeferSeconds as the threshold the
 // migration pass takes: 0 for "the default", negative for "defer nothing".
 func (d DB) SchemaUpdateDeferOver() time.Duration {

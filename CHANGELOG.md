@@ -30,7 +30,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-09-29) **Events and access-log counts are no longer lost at a stop or a failed write.**  The daemon ended as soon as it began to shut down, before the last flush of queued events had run.  A flush of the access-log counts whose statement or commit failed dropped everything it carried; they are now kept for the next try.
 
-- (2026-09-29) **Switching the database in the setup wizard keeps the performance settings.**  The wizard asks for the connection only, but it replaced the whole database section of `config.yml`, so the memory profile, the cache size and the connection pool set beside it went back to their defaults.
+- (2026-09-29) **Switching the database in the setup wizard keeps the performance settings.**  The wizard asks for the connection only, but it replaced the whole database section of `config.yml`, so the memory profile, the cache size and the connection pool set beside it went back to their defaults.  Run again on the database already in use, with those set, it no longer takes it for a switch and restarts the daemon.
 
 - (2026-09-29) **unmask-web-nginx prints its setup banner only while setup is pending.**  The first-time setup banner came on every upgrade, forty lines after everything the unmask package had printed, and it read the setup token from a path the package stopped writing in 0.1.9, so a new install never saw its token.
 
