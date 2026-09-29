@@ -45,6 +45,23 @@ type PruneRecord struct {
 	Err string `json:"err,omitempty"`
 }
 
+// MaintAggregatePrune is the task name the hourly prune of the aggregate
+// tables records under.
+const MaintAggregatePrune = "aggregate_prune"
+
+// AggregatePruneRecord is the aggregate prune's last-run record.  doctor reads
+// it to tell a table that is past its window because no prune has completed
+// yet (an upgrade from a version that did not prune it, minutes ago) from one
+// the prune runs over and does not trim.
+type AggregatePruneRecord struct {
+	// StartedAt / CompletedAt: unix seconds of the last run, and of the last
+	// run in which every table was trimmed.
+	StartedAt   int64 `json:"started_at"`
+	CompletedAt int64 `json:"completed_at,omitempty"`
+	// Failed: the tables whose prune failed in the last run, with why.
+	Failed map[string]string `json:"failed,omitempty"`
+}
+
 // SaveMaintState upserts a task's record.
 func (d *DB) SaveMaintState(ctx context.Context, name string, v any) error {
 	b, err := json.Marshal(v)

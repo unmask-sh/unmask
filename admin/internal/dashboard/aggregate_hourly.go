@@ -379,32 +379,65 @@ func pruneRowsInChunks(ctx context.Context, d *db.DB, table, col string, cutoff 
 
 // PruneHourly drops buckets past the retention window. The aggregate tables
 // only need to serve the stats page's longest (30-day) range.
+//
+// Every table gets its turn: one that fails is noted and the rest are still
+// pruned.  Stopping at the first failure meant that a single table in trouble
+// -- a lock it kept losing, a statement a schema drift broke -- quietly ended
+// the pruning of every table listed after it, and those then grew without
+// bound.  The run is recorded (db.MaintAggregatePrune) so that doctor can tell
+// a table that is past its window because no prune has completed yet from one
+// the prune runs over and does not trim.
 func PruneHourly(ctx context.Context, d *db.DB) error {
-	if _, err := d.ExecContext(ctx,
-		`DELETE FROM unmask_aggregate_hourly WHERE bucket_hour < `+dayAgoExpr(d, hourlyKeep)); err != nil {
-		return err
+	rec := db.AggregatePruneRecord{StartedAt: time.Now().Unix()}
+	var prev db.AggregatePruneRecord
+	if ok, _ := d.LoadMaintState(ctx, db.MaintAggregatePrune, &prev); ok {
+		rec.CompletedAt = prev.CompletedAt
 	}
-	if _, err := d.ExecContext(ctx,
-		`DELETE FROM unmask_aggregate_hll WHERE bucket < `+dayAgoExpr(d, hourlyKeep)); err != nil {
-		return err
+	var failed []string
+	step := func(table string, err error) {
+		if err == nil {
+			return
+		}
+		if rec.Failed == nil {
+			rec.Failed = map[string]string{}
+		}
+		rec.Failed[table] = err.Error()
+		failed = append(failed, table+": "+err.Error())
 	}
+	exec := func(table, query string, args ...any) {
+		_, err := d.ExecContext(ctx, query, args...)
+		step(table, err)
+	}
+	defer func() {
+		if len(failed) == 0 {
+			rec.CompletedAt = time.Now().Unix()
+		}
+		// Outside the run's context: a run that hit its deadline still has
+		// to leave the note that says so.
+		rctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := d.SaveMaintState(rctx, db.MaintAggregatePrune, rec); err != nil {
+			log.Printf("hourly aggregate prune: record state: %v", err)
+		}
+	}()
+
+	exec("unmask_aggregate_hourly",
+		`DELETE FROM unmask_aggregate_hourly WHERE bucket_hour < `+dayAgoExpr(d, hourlyKeep))
+	exec("unmask_aggregate_hll",
+		`DELETE FROM unmask_aggregate_hll WHERE bucket < `+dayAgoExpr(d, hourlyKeep))
 	// unmask_traffic_hll keys on a unix-minute integer (written by the
 	// nginx-log pipeline), not a bucket-hour string, so it can't share
 	// dayAgoExpr — compute the cutoff minute directly.
 	minCutoff := time.Now().Unix()/60 - int64(hourlyKeep)*1440
-	if _, err := d.ExecContext(ctx,
-		`DELETE FROM unmask_traffic_hll WHERE bucket_min < ?`, minCutoff); err != nil {
-		return err
-	}
+	exec("unmask_traffic_hll",
+		`DELETE FROM unmask_traffic_hll WHERE bucket_min < ?`, minCutoff)
 	// unmask_crawler_minute is per-minute (keyed on bucket_min) and only feeds
 	// the AI/crawler card's "all" tab, whose window never exceeds the stats
 	// page's 30-day range — so cap it at the same 32-day window as the other
 	// minute/hour aggregates.  (The per-hour, per-crawler drill-down table is
 	// pruned at the SAME fixed window, just below — see PruneCrawlerDetailHourly.)
-	if _, err := d.ExecContext(ctx,
-		`DELETE FROM unmask_crawler_minute WHERE bucket_min < ?`, minCutoff); err != nil {
-		return err
-	}
+	exec("unmask_crawler_minute",
+		`DELETE FROM unmask_crawler_minute WHERE bucket_min < ?`, minCutoff)
 	// unmask_cookie_minute is the per-(minute, site, kind) request tally the
 	// nginx-log pipeline writes and the 30-day cards read -- DailyPassByDay's
 	// live tail, CookieStatus, the overview's composition.  It was the one
@@ -417,27 +450,21 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 	// chunks: the first pass on an install that let it grow deletes most of
 	// the table, and one transaction that size is the lock storm of
 	// 2026-09-08 in miniature.
-	if err := pruneRowsInChunks(ctx, d, "unmask_cookie_minute", "bucket_min", minCutoff); err != nil {
-		return err
-	}
+	step("unmask_cookie_minute", pruneRowsInChunks(ctx, d, "unmask_cookie_minute", "bucket_min", minCutoff))
 	// unmask_traffic_country_hourly is the per-(hour, site, country, kind)
 	// tally behind the 30-day country breakdown -- settled hours are folded
 	// into unmask_aggregate_hourly (ccph) and only the live tail is read from
 	// here -- and the other aggregate this prune never covered: 102 days on
 	// tool1-jp, found by the window audit on the day it was added (2026-09-10).
 	// bucket_hour is unix seconds / 3600.
-	if err := pruneRowsInChunks(ctx, d, "unmask_traffic_country_hourly", "bucket_hour",
-		time.Now().Unix()/3600-int64(hourlyKeep)*24); err != nil {
-		return err
-	}
+	step("unmask_traffic_country_hourly", pruneRowsInChunks(ctx, d, "unmask_traffic_country_hourly", "bucket_hour",
+		time.Now().Unix()/3600-int64(hourlyKeep)*24))
 	// unmask_cookie_ip_minute is per-(minute, site, ip, kind) and only feeds the
 	// cookie-reuse card, whose window never exceeds the stats page's 30-day
 	// range — cap it at the same 32-day window.  Per-IP cardinality makes
 	// pruning matter more here than for the per-kind cookie/crawler tables.
-	if _, err := d.ExecContext(ctx,
-		`DELETE FROM unmask_cookie_ip_minute WHERE bucket_min < ?`, minCutoff); err != nil {
-		return err
-	}
+	exec("unmask_cookie_ip_minute",
+		`DELETE FROM unmask_cookie_ip_minute WHERE bucket_min < ?`, minCutoff)
 	// PoW rows go earlier than the shared window, for two reasons that point the
 	// same way.  Correctness: a PoW _bv lives 7 days by default, so past two
 	// lifetimes "how much was one cookie reused" stops being one cookie — a
@@ -446,19 +473,16 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 	// Cost: PoW reuse runs several times the CAPTCHA volume, so the shared
 	// 32-day window would grow this table by nearly an order of magnitude;
 	// 15 days keeps it moderate while covering two full cookie lifetimes.
-	if _, err := d.ExecContext(ctx,
+	exec("unmask_cookie_ip_minute (pow)",
 		`DELETE FROM unmask_cookie_ip_minute WHERE kind = 'pow' AND bucket_min < ?`,
-		time.Now().Unix()/60-cookieIPPowKeepDays*1440); err != nil {
-		return err
-	}
+		time.Now().Unix()/60-cookieIPPowKeepDays*1440)
 	// Per-hour, per-crawler drill-down that backs the AI-card trend sparkline.
 	// Kept on the SAME fixed 32-day window as the other dashboard aggregates,
 	// decoupled from events_retention_days: a high-volume node can lower raw-
 	// event retention (for disk) without shortening the crawler trend, which now
 	// tracks the dashboard's 30-day range like every other aggregate.
-	if _, err := PruneCrawlerDetailHourly(ctx, d, hourlyKeep); err != nil {
-		return err
-	}
+	_, err := PruneCrawlerDetailHourly(ctx, d, hourlyKeep)
+	step("unmask_crawler_detail_hourly", err)
 	// Rebind lineages: drop rows idle past the longest plausible _bvj window.
 	// The cookie windows are operator-tunable; 15 days exceeds both defaults
 	// (PoW 7, CAPTCHA 14 — the old 8-day cutoff predated those and could drop
@@ -466,10 +490,13 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 	// caps on the next rebind), and an expired _bvj never consults its row
 	// again, so a generous fixed cutoff beats threading per-site settings in
 	// here.
-	_, err := d.ExecContext(ctx,
+	exec("unmask_rebind_lineage",
 		`DELETE FROM unmask_rebind_lineage WHERE updated_at < ?`,
 		time.Now().Add(-15*24*time.Hour).Unix())
-	return err
+	if len(failed) > 0 {
+		return fmt.Errorf("%d table(s) not pruned -- %s", len(failed), strings.Join(failed, "; "))
+	}
+	return nil
 }
 
 // PruneCrawlerDetailHourly drops per-hour, per-crawler rows older than keepDays.
