@@ -85,6 +85,27 @@ if command -v docker >/dev/null 2>&1 && [ -n "$(docker compose -f "$DIR/docker/d
 fi
 NO_STACK_RE='needs the docker e2e stack|compose not reachable|container not running locally'
 
+# stack_report <since>: what the containers did while a scenario that failed
+# was running.  Printed here because nothing later can: the target that runs
+# this suite takes the stack down on its way out, before the CI job's own
+# "dump the logs" step gets to look, and a scenario that restarts the daemon
+# and does not get it back says only that -- not whether the daemon was slow,
+# refused its config, or never started.
+stack_report() {
+    [ -n "$STACK_UP" ] || return 0
+    local c="$DIR/docker/docker-compose.yml" svc
+    echo "  ---- the stack while this scenario ran (since $1) ----"
+    docker compose -f "$c" ps -a --format '{{.Service}}: {{.State}} ({{.Status}})' 2>&1 | sed 's/^/  /'
+    for svc in unmask nginx; do
+        echo "  ---- $svc ----"
+        docker compose -f "$c" logs --no-color --no-log-prefix --timestamps --since "$1" "$svc" 2>&1 \
+            | grep -vE '"?(GET|POST|HEAD) [^ ]+ ?(HTTP/[0-9.]+"?)? [0-9]{3} ' \
+            | grep -vE 'field [a-z0-9_]+ not found in type|unrecognized or misplaced keys' \
+            | tail -n 60 | cut -c1-260 | sed 's/^/  /'
+    done
+    echo "  ----"
+}
+
 for s in "$DIR"/scenarios/[0-9]*.sh; do
     name=$(basename "$s" .sh)
     num="${name%%-*}"
@@ -101,6 +122,7 @@ for s in "$DIR"/scenarios/[0-9]*.sh; do
     echo "[$name]"
     # Clear ban state before each scenario (= flake prevention).
     clear_ban_state
+    started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     bash "$s" 2>&1 | tee "$SCENARIO_OUT"
     rc=${PIPESTATUS[0]}
     if [ "$rc" -eq 0 ] && [ -n "$STACK_UP" ] && grep -qE "$NO_STACK_RE" "$SCENARIO_OUT"; then
@@ -112,6 +134,7 @@ for s in "$DIR"/scenarios/[0-9]*.sh; do
     else
         failed=$((failed + 1))
         failed_names+=("$name")
+        stack_report "$started"
     fi
     echo
 done

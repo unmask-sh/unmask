@@ -13,7 +13,8 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/assert.sh"
 
 COMPOSE="$DIR/docker/docker-compose.yml"
-dc() { docker compose -f "$COMPOSE" exec -T unmask sh -c "$1"; }
+# As root: the directory is the package's, and the image does not carry it.
+dc() { docker compose -f "$COMPOSE" exec -T --user root unmask sh -c "$1"; }
 
 if ! command -v docker >/dev/null 2>&1 || [ -z "$(docker compose -f "$COMPOSE" ps -q unmask 2>/dev/null)" ]; then
     log "SKIP: unmask container not running locally (remote BASE_URL?) -- guard is also unit-tested"
@@ -24,9 +25,15 @@ OVR=/usr/share/unmask/challenge/challenge.js
 BAK=/tmp/challenge.js.e2e-bak
 
 # Stash the real override and drop a stale djb2 build with no pow_seed marker.
-dc "cp $OVR $BAK 2>/dev/null; printf 'function djb2(s){var h=5381;return h;} // stale, no seed\n' > $OVR"
+# The directory first: without it the write failed, nothing stale was there,
+# and the checks below passed without having tested anything.
+dc "mkdir -p $(dirname "$OVR"); cp $OVR $BAK 2>/dev/null; printf 'function djb2(s){var h=5381;return h;} // stale, no seed\n' > $OVR"
 restore() { dc "[ -f $BAK ] && mv $BAK $OVR || rm -f $OVR" >/dev/null 2>&1; }
 trap restore EXIT
+if [ "$(dc "grep -c djb2 $OVR 2>/dev/null" | tr -d '\r')" != 1 ]; then
+    log_fail "could not place the stale challenge.js at $OVR: the scenario would test nothing"
+    exit 1
+fi
 
 # The guard must skip the seedless override and serve the embedded copy.
 js=$(curl -sk -A "$UA_BROWSER" "${BASE_URL}/unmask/static/challenge.js")

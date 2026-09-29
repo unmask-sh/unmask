@@ -25,6 +25,7 @@ set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/env.sh"
 . "$DIR/lib/assert.sh"
+. "$DIR/lib/stack.sh"
 
 COMPOSE="${COMPOSE:-$DIR/docker/docker-compose.yml}"
 if ! command -v docker >/dev/null 2>&1 || \
@@ -68,7 +69,7 @@ cleanup() {
     local rc=$?
     ban_clear
     if ! wait_healthz_eq 200 3; then
-        docker compose -f "$COMPOSE" start unmask >/dev/null 2>&1 || true
+        stack_start "$COMPOSE" || true
         wait_healthz_eq 200 30 || { log_fail "cleanup: admin did not come back healthy"; rc=1; }
     fi
     if [ "$rc" -eq 0 ] && [ "${_E2E_FAILS:-0}" -gt 0 ]; then
