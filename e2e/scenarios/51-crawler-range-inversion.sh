@@ -35,7 +35,7 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 COMPOSE="${COMPOSE:-$DIR/docker/docker-compose.yml}"
 if ! command -v docker >/dev/null 2>&1 || \
-   [ -z "$(docker compose -f "$COMPOSE" ps -q admin 2>/dev/null)" ]; then
+   [ -z "$(docker compose -f "$COMPOSE" ps -q unmask 2>/dev/null)" ]; then
     log_skip "51-crawler-range-inversion needs the docker e2e stack (unmask container) — skipped"
     exit 0
 fi
@@ -48,7 +48,7 @@ IP_IN_RANGE=7.7.7.7
 IP_OUT_RANGE=7.7.8.7
 
 admin_exec() {
-    docker compose -f "$COMPOSE" exec -T --user root admin sh -c "$1"
+    docker compose -f "$COMPOSE" exec -T --user root unmask sh -c "$1"
 }
 healthz() {
     curl -s -o /dev/null -w '%{http_code}' --max-time 3 "${ADMIN_URL}/unmask/healthz"
@@ -66,8 +66,8 @@ wait_healthz_200() {
     return 1
 }
 restart_admin() {
-    docker compose -f "$COMPOSE" stop admin >/dev/null 2>&1
-    docker compose -f "$COMPOSE" start admin >/dev/null 2>&1
+    docker compose -f "$COMPOSE" stop unmask >/dev/null 2>&1
+    docker compose -f "$COMPOSE" start unmask >/dev/null 2>&1
     wait_healthz_200
 }
 # X-Unmask-Reason for a Googlebot UA from $1 (same header protocol as 05).
