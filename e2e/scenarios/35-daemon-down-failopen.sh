@@ -31,7 +31,7 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 COMPOSE="${COMPOSE:-$DIR/docker/docker-compose.yml}"
 if ! command -v docker >/dev/null 2>&1 || \
-   [ -z "$(docker compose -f "$COMPOSE" ps -q admin 2>/dev/null)" ]; then
+   [ -z "$(docker compose -f "$COMPOSE" ps -q unmask 2>/dev/null)" ]; then
     log_skip "35-daemon-down-failopen needs the docker e2e stack (unmask container) — skipped"
     exit 0
 fi

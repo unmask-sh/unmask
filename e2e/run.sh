@@ -69,7 +69,21 @@ clear_ban_state() {
 
 # Measurements scenarios want surfaced after the run (see log_note).
 E2E_NOTES=$(mktemp); export E2E_NOTES
-trap 'rm -f "$E2E_NOTES"' EXIT
+SCENARIO_OUT=$(mktemp)
+trap 'rm -f "$E2E_NOTES" "$SCENARIO_OUT"' EXIT
+
+# Is this run against the docker stack of this checkout?  Several scenarios
+# need it (they restart the daemon, read its files) and skip themselves when
+# they cannot find it, which is right against a remote BASE_URL.  Against the
+# stack itself such a skip is a defect: when the compose service was renamed,
+# seven scenarios went on looking for the old name, skipped, and the suite
+# stayed green without them for two releases.  So with the stack up, a
+# scenario that says it could not find the stack has failed.
+STACK_UP=""
+if command -v docker >/dev/null 2>&1 && [ -n "$(docker compose -f "$DIR/docker/docker-compose.yml" ps -q nginx 2>/dev/null)" ]; then
+    STACK_UP=1
+fi
+NO_STACK_RE='needs the docker e2e stack|compose not reachable|container not running locally'
 
 for s in "$DIR"/scenarios/[0-9]*.sh; do
     name=$(basename "$s" .sh)
@@ -87,7 +101,13 @@ for s in "$DIR"/scenarios/[0-9]*.sh; do
     echo "[$name]"
     # Clear ban state before each scenario (= flake prevention).
     clear_ban_state
-    if bash "$s"; then
+    bash "$s" 2>&1 | tee "$SCENARIO_OUT"
+    rc=${PIPESTATUS[0]}
+    if [ "$rc" -eq 0 ] && [ -n "$STACK_UP" ] && grep -qE "$NO_STACK_RE" "$SCENARIO_OUT"; then
+        echo "  FAIL  the docker stack is up and this scenario skipped for want of it -- it is looking for a service or a path that is not there"
+        rc=1
+    fi
+    if [ "$rc" -eq 0 ]; then
         passed=$((passed + 1))
     else
         failed=$((failed + 1))

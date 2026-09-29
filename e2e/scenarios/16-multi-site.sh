@@ -34,7 +34,7 @@ COMPOSE="$DIR/docker/docker-compose.yml"
 # Skip gracefully when the docker e2e stack is not the target (= no admin
 # container to exec the events CLI into).
 if ! command -v docker >/dev/null 2>&1 || \
-   [ -z "$(docker compose -f "$COMPOSE" ps -q admin 2>/dev/null)" ]; then
+   [ -z "$(docker compose -f "$COMPOSE" ps -q unmask 2>/dev/null)" ]; then
     log_skip "16-multi-site needs the docker e2e stack (unmask container) — skipped"
     exit 0
 fi
@@ -72,7 +72,7 @@ want_sites="shop.example.com blog.example.com api.example.com customsite"
 dump=""
 deadline=$(( $(date +%s) + 30 ))
 while :; do
-    dump=$(timeout 8 docker compose -f "$COMPOSE" exec -T admin \
+    dump=$(timeout 8 docker compose -f "$COMPOSE" exec -T unmask \
         unmask events -config /etc/unmask/config.yml --since 0 --poll-ms 100 \
         2>/dev/null || true)
     miss=0

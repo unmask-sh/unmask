@@ -13,9 +13,9 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/assert.sh"
 
 COMPOSE="$DIR/docker/docker-compose.yml"
-dc() { docker compose -f "$COMPOSE" exec -T admin sh -c "$1"; }
+dc() { docker compose -f "$COMPOSE" exec -T unmask sh -c "$1"; }
 
-if ! command -v docker >/dev/null 2>&1 || [ -z "$(docker compose -f "$COMPOSE" ps -q admin 2>/dev/null)" ]; then
+if ! command -v docker >/dev/null 2>&1 || [ -z "$(docker compose -f "$COMPOSE" ps -q unmask 2>/dev/null)" ]; then
     log "SKIP: unmask container not running locally (remote BASE_URL?) -- guard is also unit-tested"
     exit 0
 fi

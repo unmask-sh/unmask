@@ -143,8 +143,8 @@ fi
 # rendered file is not reachable from the harness (= the test ran against a
 # remote BASE_URL or compose isn't running locally).
 COMPOSE="${COMPOSE:-$DIR/docker/docker-compose.yml}"
-if [ -f "$COMPOSE" ] && docker compose -f "$COMPOSE" ps admin >/dev/null 2>&1; then
-    rendered=$(docker compose -f "$COMPOSE" exec -T admin cat /etc/unmask/http.inc 2>/dev/null || true)
+if [ -f "$COMPOSE" ] && docker compose -f "$COMPOSE" ps unmask >/dev/null 2>&1; then
+    rendered=$(docker compose -f "$COMPOSE" exec -T unmask cat /etc/unmask/http.inc 2>/dev/null || true)
     # Both the per-host bypass map (= unmask_bp_host_shop_example_com on
     # /e2e-shop-bypass/) and the per-host honeypot map (= unmask_hp_host_*
     # on /shop-trap/) must be present in the rendered http.inc.  Each map

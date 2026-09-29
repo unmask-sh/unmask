@@ -34,7 +34,7 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 COMPOSE="${COMPOSE:-$DIR/docker/docker-compose.yml}"
 if ! command -v docker >/dev/null 2>&1 || \
-   [ -z "$(docker compose -f "$COMPOSE" ps -q admin 2>/dev/null)" ]; then
+   [ -z "$(docker compose -f "$COMPOSE" ps -q unmask 2>/dev/null)" ]; then
     log_skip "49-ban-file-action-restart needs the docker e2e stack (unmask container) — skipped"
     exit 0
 fi
@@ -63,11 +63,11 @@ wait_healthz_200() {
 ban_line() {
     # The ban file line for our IP, or "" when absent.  Forward-auth honeypot bans
     # carry no JA4, so the key is "<ip>|".
-    docker compose -f "$COMPOSE" exec -T --user root admin \
+    docker compose -f "$COMPOSE" exec -T --user root unmask \
         sh -c "grep '^${BAN_IP}|' '$BAN_FILE' 2>/dev/null | head -1" 2>/dev/null | tr -d '\r'
 }
 db_drop_ban() {
-    docker compose -f "$COMPOSE" exec -T --user root admin \
+    docker compose -f "$COMPOSE" exec -T --user root unmask \
         sh -c "command -v sqlite3 >/dev/null 2>&1 && sqlite3 /var/lib/unmask/unmask.sqlite \
                \"DELETE FROM unmask_ban WHERE ip='${BAN_IP}';\"" >/dev/null 2>&1 || true
 }
@@ -79,7 +79,7 @@ ADMIN_STOPPED=0
 cleanup() {
     local rc=$?
     if [ "$ADMIN_STOPPED" = "1" ]; then
-        docker compose -f "$COMPOSE" start admin >/dev/null 2>&1 || true
+        docker compose -f "$COMPOSE" start unmask >/dev/null 2>&1 || true
         wait_healthz_200 || { log_fail "cleanup: admin did not come back healthy"; rc=1; }
     fi
     db_drop_ban
@@ -121,9 +121,9 @@ assert_in "|honeypot|${WANT_ACTION}" "$line" \
 
 # 3. Restart the unmask daemon -- this is the initial-flush path that used to
 #    rewrite the row.
-docker compose -f "$COMPOSE" stop admin >/dev/null 2>&1
+docker compose -f "$COMPOSE" stop unmask >/dev/null 2>&1
 ADMIN_STOPPED=1
-docker compose -f "$COMPOSE" start admin >/dev/null 2>&1
+docker compose -f "$COMPOSE" start unmask >/dev/null 2>&1
 if ! wait_healthz_200; then
     log_fail "admin did not come back after restart (healthz $(healthz))"
     exit 1
