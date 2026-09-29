@@ -8,6 +8,7 @@ import (
 
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/unmask-sh/unmask/admin/internal/advisor"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
@@ -122,6 +123,11 @@ func TestAdvisorAIRunStoresAndShows(t *testing.T) {
 	var mu sync.Mutex
 	var bundles []string
 	release := make(chan struct{})
+	// The stub holds its answer until the test releases it, or the test is
+	// over -- never on a timer of its own.  It used to give up after ten
+	// seconds, and on a loaded machine the run then finished while the test
+	// was still looking at the page it renders mid-run.
+	testOver := make(chan struct{})
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		atomic.AddInt32(&calls, 1)
 		raw, _ := io.ReadAll(r.Body)
@@ -130,12 +136,13 @@ func TestAdvisorAIRunStoresAndShows(t *testing.T) {
 		mu.Unlock()
 		select {
 		case <-release:
-		case <-time.After(10 * time.Second):
+		case <-testOver:
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"stop_reason":"end_turn","content":[{"type":"text","text":"{\"reviews\":[{\"target\":\"203.0.113.10\",\"priority\":\"low\",\"reasoning\":\"contained scanner, cost only\"},{\"target\":\"203.0.113.11\",\"priority\":\"low\",\"reasoning\":\"second scanner\"}],\"nominations\":[{\"target\":\"198.51.100.7\",\"type\":\"ip\",\"priority\":\"high\",\"reasoning\":\"passes at scale from a farm\"}]}"}],"usage":{"input_tokens":4321,"output_tokens":210}}`))
 	}))
 	defer stub.Close()
+	defer close(testOver) // before the Close above, which waits for the stub's requests
 	orig := advisor.LookupPTR
 	advisor.LookupPTR = func(ctx context.Context, ip string) []string { return nil }
 	t.Cleanup(func() { advisor.LookupPTR = orig })
@@ -186,26 +193,9 @@ func TestAdvisorAIRunStoresAndShows(t *testing.T) {
 		return rr
 	}
 	key := advisor.ResultKey(cur.AIAdvisor, 24*60, string(i18n.Resolve(httptest.NewRequest(http.MethodGet, "/", nil))))
-	waitDone := func() {
-		deadline := time.Now().Add(8 * time.Second)
-		for {
-			if _, running := advisor.Running(key); !running {
-				return
-			}
-			if time.Now().After(deadline) {
-				t.Fatal("the run did not finish")
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
-	}
+	waitDone := func() { waitAdvisorRun(t, key) }
 	waitCalls := func(n int32) {
-		deadline := time.Now().Add(8 * time.Second)
-		for atomic.LoadInt32(&calls) < n {
-			if time.Now().After(deadline) {
-				t.Fatalf("provider calls = %d, want %d", atomic.LoadInt32(&calls), n)
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
+		waitAdvisor(t, fmt.Sprintf("the provider to be called %d time(s)", n), func() bool { return atomic.LoadInt32(&calls) >= n })
 	}
 
 	body := get("")
@@ -429,16 +419,7 @@ func TestAdvisorAIRunFailureIsShown(t *testing.T) {
 		t.Fatalf("ai-run: %d", rr.Code)
 	}
 	key := advisor.ResultKey(cur.AIAdvisor, 24*60, string(i18n.Resolve(httptest.NewRequest(http.MethodGet, "/", nil))))
-	deadline := time.Now().Add(8 * time.Second)
-	for {
-		if _, running := advisor.Running(key); !running {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the run did not finish")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	waitAdvisorRun(t, key)
 	sreq := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/ai-status?window=24", nil)
 	srr := httptest.NewRecorder()
 	h.AdminAdvisorAIStatus(srr, sreq)
@@ -490,16 +471,7 @@ func TestAdvisorAIFailureKeepsLastAnswer(t *testing.T) {
 	if rr.Code != http.StatusAccepted {
 		t.Fatalf("ai-run: %d %s", rr.Code, rr.Body.String())
 	}
-	deadline := time.Now().Add(8 * time.Second)
-	for {
-		if _, running := advisor.Running(key); !running {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the run did not finish")
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	waitAdvisorRun(t, key)
 	st, ok := advisor.LastResult(h.DB, key)
 	if !ok || st.Err == "" || !st.At.Equal(answered) || st.Reviews["203.0.113.10"].Reasoning != "kept-after-failure" || !st.ErrAt.After(answered) {
 		t.Fatalf("the failure must sit beside the kept answer: ok=%v %+v", ok, st)
@@ -585,7 +557,13 @@ func TestAdvisorMidRunShowsPlan(t *testing.T) {
 		"203.0.113.11": {Target: "203.0.113.11", Priority: "high", Reasoning: "previous answer for the re-sent row"},
 	}})
 	release := make(chan struct{})
-	defer close(release)
+	// The run stores what it returns in this test's database: it has to have
+	// finished before the database is closed and its directory removed (the
+	// cleanups registered before this one), or it writes into both as they go.
+	t.Cleanup(func() {
+		close(release)
+		waitAdvisorRun(t, key)
+	})
 	advisor.StartRun(h.DB, key, advisor.RunInfo{Sent: map[string]bool{"203.0.113.11": true}, Kept: map[string]bool{"203.0.113.10": true}}, func(ctx context.Context) advisor.Stored {
 		<-release
 		return advisor.Stored{At: time.Now(), Model: "m"}
@@ -692,22 +670,49 @@ func TestAdvisorMonthTotalsShown(t *testing.T) {
 // slowest thing in the package.
 func seedEvents(t *testing.T, h *Handler, ip, ua, phase, payload string, n int) {
 	t.Helper()
-	tx, err := h.DB.Begin()
-	if err != nil {
+	if n <= 0 {
+		return
+	}
+	// One statement for all n rows.  Row by row, the few thousand an advisor
+	// candidate needs were a quarter of the advisor tests' time under the
+	// race detector (13 s of one test's 46).
+	if _, err := h.DB.Exec(`WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ?)
+		INSERT INTO unmask_event
+		(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+		SELECT '','','',0,?,?,'t13d_x','',0,?,0,0,'','',?,datetime('now') FROM n`,
+		n, events.PackIP(ip), ua, phase, payload); err != nil {
 		t.Fatal(err)
 	}
-	for i := 0; i < n; i++ {
-		if _, err := tx.Exec(`INSERT INTO unmask_event
-			(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
-			VALUES ('','','',0,?,?,'t13d_x','',0,?,0,0,'','',?,datetime('now'))`,
-			events.PackIP(ip), ua, phase, payload); err != nil {
-			_ = tx.Rollback()
-			t.Fatal(err)
+}
+
+// advisorRunWait is how long a test waits for a background advisor run.
+// Before it calls the provider the run works out its candidates and their
+// evidence over the seeded events: seconds under the race detector alone
+// (4 s measured), and past the 8 seconds these waits used to allow when the
+// other packages' tests run at the same time -- which is what "provider
+// calls = 0" and "the run did not finish" were.  A wait returns the moment
+// its condition holds, so the allowance costs nothing when things work.
+const advisorRunWait = 90 * time.Second
+
+// waitAdvisor waits until cond holds, or fails the test saying what for.
+func waitAdvisor(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(advisorRunWait)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatalf("waited %s for %s", advisorRunWait, what)
 		}
+		time.Sleep(20 * time.Millisecond)
 	}
-	if err := tx.Commit(); err != nil {
-		t.Fatal(err)
-	}
+}
+
+// waitAdvisorRun waits for the run for key to have finished, its result stored.
+func waitAdvisorRun(t *testing.T, key string) {
+	t.Helper()
+	waitAdvisor(t, "the run to finish", func() bool {
+		_, running := advisor.Running(key)
+		return !running
+	})
 }
 
 // With no model configured the page says so where the answers would go --
