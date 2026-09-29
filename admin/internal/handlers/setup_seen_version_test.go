@@ -99,3 +99,64 @@ func TestWizardDevBuildDoesNotStamp(t *testing.T) {
 		t.Fatal("a dev build stamped an unparseable seen_version, disabling the NEW gate forever")
 	}
 }
+
+// TestWizardKeepsTheTunedDatabaseFields: the wizard asks for the connection
+// only.  What config.yml has beside it -- the memory profile, the cache, the
+// pool, the schema update threshold -- is kept when the install step saves;
+// the section used to be replaced whole, and those went back to their
+// defaults.
+func TestWizardKeepsTheTunedDatabaseFields(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "unmask.sqlite")
+	cfgPath := filepath.Join(dir, "config.yml")
+	tuned := settings.DB{
+		Driver: "sqlite", SQLitePath: dbPath,
+		PerfProfile: settings.PerfProfileCustom, SQLiteCacheMB: 48, MaxConns: 3, SchemaUpdateDeferSeconds: 45,
+	}
+	if err := settings.Save(settings.Settings{DB: tuned, Secret: settings.Secret{BVSecret: "wizard-tuned"}}, cfgPath); err != nil {
+		t.Fatal(err)
+	}
+	conn, err := db.Open(tuned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	h := &Handler{DB: conn, ConfigPath: cfgPath, Version: "0.9.9"}
+	h.SetSettings(settings.Settings{DB: tuned})
+
+	token := "tok-wizard-tuned"
+	oldPath := SetupTokenPath
+	SetupTokenPath = filepath.Join(dir, ".setup-token")
+	t.Cleanup(func() { SetupTokenPath = oldPath; dropWizardState(token) })
+	if err := os.WriteFile(SetupTokenPath, []byte(token), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	post := func(fn http.HandlerFunc, form url.Values) {
+		t.Helper()
+		r := httptest.NewRequest(http.MethodPost, "/unmask/admin/setup/x", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.AddCookie(setupTokenCookie(token))
+		w := httptest.NewRecorder()
+		fn(w, r)
+		if w.Code != http.StatusFound {
+			t.Fatalf("step %T: want 302, got %d: %s", fn, w.Code, w.Body.String())
+		}
+	}
+	// The same file under another path spelling: a switch of database as far
+	// as the form is concerned, which only carries the connection.
+	post(h.AdminSetupSaveDB, url.Values{"driver": {"sqlite"}, "sqlite_path": {filepath.Join(dir, ".", "unmask.sqlite")}})
+	post(h.AdminSetupSaveUser, url.Values{
+		"username": {"admin"}, "password": {"correct-horse-battery"}, "password_confirm": {"correct-horse-battery"},
+	})
+	post(h.AdminSetupInstall, nil)
+
+	s, err := settings.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("re-read config: %v", err)
+	}
+	if s.DB.PerfProfile != tuned.PerfProfile || s.DB.SQLiteCacheMB != tuned.SQLiteCacheMB ||
+		s.DB.MaxConns != tuned.MaxConns || s.DB.SchemaUpdateDeferSeconds != tuned.SchemaUpdateDeferSeconds {
+		t.Errorf("the tuned fields after the wizard: profile=%q cache=%d conns=%d defer=%v; want %q 48 3 45",
+			s.DB.PerfProfile, s.DB.SQLiteCacheMB, s.DB.MaxConns, s.DB.SchemaUpdateDeferSeconds, tuned.PerfProfile)
+	}
+}

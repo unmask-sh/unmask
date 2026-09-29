@@ -1025,8 +1025,10 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	}
 	// Like the daemon's start, all but a long index build: the wizard can be
 	// pointed at an existing database, and this runs inside a request.
+	// The threshold is the running config's: the wizard asks for the
+	// connection only.
 	if _, err := db.MigrateWith(conn, db.MigrateOptions{
-		Defer: true, DeferOver: s.DB.SchemaUpdateDeferOver(), Logf: log.Printf,
+		Defer: true, DeferOver: h.cfg().DB.SchemaUpdateDeferOver(), Logf: log.Printf,
 	}); err != nil {
 		if conn != h.DB {
 			_ = conn.Close()
@@ -1091,7 +1093,14 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// The wizard asks for the connection only.  What the operator tuned
+	// beside it -- the memory profile, the pool, the schema update
+	// threshold -- stays; replacing the whole section used to reset them
+	// all on a switch of database.
+	tuned := cur.DB
 	cur.DB = s.DB
+	cur.DB.PerfProfile, cur.DB.SQLiteCacheMB, cur.DB.MaxConns = tuned.PerfProfile, tuned.SQLiteCacheMB, tuned.MaxConns
+	cur.DB.SchemaUpdateDeferSeconds = tuned.SchemaUpdateDeferSeconds
 	// Completing the wizard means the operator is looking at THIS release, so
 	// stamp it as seen: this baselines the settings UI's "NEW since your last
 	// save" badge to this version, so only what later releases add is badged.
