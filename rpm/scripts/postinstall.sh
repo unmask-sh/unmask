@@ -2,9 +2,10 @@
 # Runs after the first install / upgrade.
 #   - Fix permissions on /etc/unmask/ (= so the unmask user can write from the web)
 #   - Generate /etc/unmask/config.yml via `unmask config-init`
-#   - Apply the schema
 #   - Generate the nginx snippets in /var/lib/unmask/nginx/ (= render-nginx)
-#   - systemd reload + enable
+#   - Work out whether the new daemon will leave a schema update for the
+#     operator (read-only; the daemon applies the schema when it starts)
+#   - systemd reload + enable, and (re)start the daemon once
 #
 # Note: do NOT `set -eu` here.  This postinstall has no abort requirement
 # (= even when one step fails we want to reach "next init system detection
@@ -91,9 +92,11 @@ if [ "${1:-}" = "1" ] || { [ "${1:-}" = "configure" ] && [ -z "${2:-}" ]; } || [
 fi
 
 # Note: schema migration is unified to run as the **DB step of the install
-# wizard**.  Don't migrate from this postinstall (= driver / connection
-# info are not yet known until the wizard).  CLI users running migration
-# manually after rpm install should do:
+# wizard** on a new install, and as the daemon's own pass when it starts on
+# an upgrade.  Don't migrate from this postinstall (= driver / connection
+# info are not yet known until the wizard).  The one database access below
+# (`migrate -notice`) only reads, and gives up after a few seconds.  CLI
+# users running migration manually after rpm install should do:
 #   sudo /usr/sbin/unmask migrate -config $CONFIG
 # before moving on to the user-create commands.
 

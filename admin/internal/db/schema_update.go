@@ -1,14 +1,11 @@
 package db
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
-	"syscall"
 	"time"
 )
 
@@ -35,12 +32,22 @@ type SchemaUpdateOptions struct {
 	// SkipSpaceCheck runs even when the free space next to the database looks
 	// short for the indexes to build.
 	SkipSpaceCheck bool
+	// Finish runs once every migration has been applied, before the run is
+	// recorded as done: the work that follows a schema update and writes to
+	// the database (`unmask migrate` backfills verdict ids and gathers the
+	// planner's statistics).  Until the record says done the daemon holds its
+	// writers back, so they do not meet it on the lock.  Its error is
+	// reported (FinishErr) without making the update a failure: the schema
+	// is applied.
+	Finish func(ctx context.Context) error
 }
 
 // SchemaUpdateResult is what a run did.
 type SchemaUpdateResult struct {
 	Applied []AppliedMigration
 	Elapsed time.Duration
+	// FinishErr is what SchemaUpdateOptions.Finish returned.
+	FinishErr error
 }
 
 // SchemaUpdateHoldsWrites reports whether a schema update on this database
@@ -65,47 +72,6 @@ const indexBytesPerRow = 120
 // rateMinRows: a build over fewer rows than this measures the fixed costs, not
 // the rate, and is not recorded as this host's.
 const rateMinRows = 100000
-
-// Alive reports whether the run the record describes is still going, as far
-// as can be told from here.  On the host that started it that is whether the
-// process exists; from another host (a shared database) it is whether the run
-// is young enough to believe.
-func (r SchemaUpdateRecord) Alive(host string, now time.Time) bool {
-	if r.State != SchemaUpdateRunning {
-		return false
-	}
-	if r.Host == host {
-		return processAlive(r.PID)
-	}
-	limit := 3 * time.Duration(r.EstHighSec) * time.Second
-	if limit < time.Hour {
-		limit = time.Hour
-	}
-	return now.Sub(time.Unix(r.StartedAt, 0)) < limit
-}
-
-// processAlive: a process with this id exists and is an unmask.  The name is
-// checked because a process id is reused: long after a run was killed its
-// number may belong to something else.
-func processAlive(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	if err := syscall.Kill(pid, 0); err != nil && !errors.Is(err, syscall.EPERM) {
-		return false
-	}
-	cmdline, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
-	if err != nil {
-		// No /proc to look in: the signal said it exists, believe that.
-		return true
-	}
-	for _, name := range runnerNames {
-		if bytes.Contains(cmdline, []byte(name)) {
-			return true
-		}
-	}
-	return false
-}
 
 // checkpointAfterBuild moves a newly built index out of the write-ahead log.
 //
@@ -143,15 +109,8 @@ func checkpointAfterBuild(conn *DB, logf func(string, ...any)) {
 // is applied.  Tests use it to act at that moment; nil otherwise.
 var beforeApply func(name string)
 
-// runnerNames is what the command line of a process running a schema update
-// contains.  A variable so a test, whose process is named after the test
-// binary, can add its own.
-var runnerNames = []string{"unmask"}
-
-// AddRunnerNameForTest makes Alive accept a process whose command line
-// contains name.  For the tests of other packages, whose stand-in for
-// `unmask migrate` is the test binary itself.
-func AddRunnerNameForTest(name string) { runnerNames = append(runnerNames, name) }
+// dirFree is DirFree, for the space check; tests put a full disk in its place.
+var dirFree = DirFree
 
 // LoadSchemaUpdate reads the last run's record.  ok is false when there has
 // never been one (or the table that holds it does not exist yet).
@@ -166,9 +125,13 @@ func (d *DB) LoadSchemaUpdate(ctx context.Context) (rec SchemaUpdateRecord, ok b
 
 // ApplySchemaUpdate applies every pending migration and keeps the record.
 //
+// It holds the run lock (LockSchemaRun) from before the record is written
+// until the record says how the run ended: that is what tells the daemon, and
+// any other run, that this one is going.
+//
 // ctx cancels it: a cancelled index build is rolled back by SQLite (DDL is
-// transactional there), the migration stays pending and the record reads
-// "cancelled".
+// transactional there) and killed on the server by MariaDB, the migration
+// stays pending and the record reads "cancelled".
 func ApplySchemaUpdate(ctx context.Context, conn *DB, opt SchemaUpdateOptions) (SchemaUpdateResult, error) {
 	var res SchemaUpdateResult
 	logf := func(format string, args ...any) {
@@ -176,20 +139,45 @@ func ApplySchemaUpdate(ctx context.Context, conn *DB, opt SchemaUpdateOptions) (
 			opt.Logf(format, args...)
 		}
 	}
+	finish := func() {
+		if opt.Finish == nil {
+			return
+		}
+		if err := opt.Finish(ctx); err != nil {
+			res.FinishErr = err
+			logf("after the update: %v", err)
+		}
+	}
 	// The base schema first: the record lives in a table it creates.
 	if err := migrateBase(conn); err != nil {
 		return res, err
 	}
-	pending, err := pendingMigrations(conn)
+	pending, err := pendingMigrations(conn, false)
 	if err != nil {
 		return res, err
 	}
 	if len(pending) == 0 {
+		finish()
 		return res, nil
 	}
-	if prev, ok, err := conn.LoadSchemaUpdate(ctx); err == nil && ok && prev.Alive(opt.Host, time.Now()) && prev.PID != os.Getpid() {
-		return res, fmt.Errorf("%w (started %s by %s on %s, pid %d)", ErrSchemaUpdateRunning,
-			time.Unix(prev.StartedAt, 0).UTC().Format("2006-01-02 15:04 UTC"), prev.By, prev.Host, prev.PID)
+	lock, err := conn.LockSchemaRun(ctx)
+	if err != nil {
+		if errors.Is(err, ErrSchemaUpdateRunning) {
+			if prev, ok, lerr := conn.LoadSchemaUpdate(ctx); lerr == nil && ok && prev.State == SchemaUpdateRunning {
+				return res, fmt.Errorf("%w (started %s by %s on %s, pid %d)", ErrSchemaUpdateRunning,
+					time.Unix(prev.StartedAt, 0).UTC().Format("2006-01-02 15:04 UTC"), prev.By, prev.Host, prev.PID)
+			}
+		}
+		return res, err
+	}
+	defer lock.Release()
+	// Another run may have applied them while this one waited for the lock.
+	if pending, err = pendingMigrations(conn, false); err != nil {
+		return res, err
+	}
+	if len(pending) == 0 {
+		finish()
+		return res, nil
 	}
 
 	rec := SchemaUpdateRecord{
@@ -210,17 +198,6 @@ func ApplySchemaUpdate(ctx context.Context, conn *DB, opt SchemaUpdateOptions) (
 	}
 	rec.EstLowSec, rec.EstHighSec = int(low.Seconds()), int(high.Seconds())
 
-	if buildRows > 0 && conn.Driver == DriverSQLite && conn.SQLitePath != "" && !opt.SkipSpaceCheck {
-		// The index, the same again in the write-ahead log until it is
-		// checkpointed, and the sort's temporary files: all next to the
-		// database.
-		need := buildRows * indexBytesPerRow * 3
-		dir := filepath.Dir(conn.SQLitePath)
-		if free, err := DirFree(dir); err == nil && free < need {
-			return res, fmt.Errorf("the index build needs about %d MB free in %s and %d MB is available; free some space, or pass -skip-space-check to go ahead anyway",
-				need>>20, dir, free>>20)
-		}
-	}
 	// The record lives in a table that a migration creates (0031).  A
 	// database from before it -- a new one above all -- has nowhere to keep
 	// the record until that migration has run, so the run starts without one
@@ -244,7 +221,23 @@ func ApplySchemaUpdate(ctx context.Context, conn *DB, opt SchemaUpdateOptions) (
 	t0 := time.Now()
 	var buildTime time.Duration
 	var runErr error
+	if buildRows > 0 && conn.Driver == DriverSQLite && conn.SQLitePath != "" && !opt.SkipSpaceCheck {
+		// The index, the same again in the write-ahead log until it is
+		// checkpointed, and the sort's temporary files: all next to the
+		// database.  Checked once the run is on record, so that a refusal
+		// is on record too: a run started from the admin UI has nobody
+		// reading its terminal.
+		need := buildRows * indexBytesPerRow * 3
+		dir := filepath.Dir(conn.SQLitePath)
+		if free, err := dirFree(dir); err == nil && free < need {
+			runErr = fmt.Errorf("the index build needs about %d MB free in %s and %d MB is available; free some space, or run `unmask migrate -skip-space-check` to go ahead anyway",
+				need>>20, dir, free>>20)
+		}
+	}
 	for _, m := range pending {
+		if runErr != nil {
+			break
+		}
 		if !recorded {
 			if err := record(ctx); err != nil {
 				runErr = fmt.Errorf("record the run: %w", err)
@@ -266,21 +259,13 @@ func ApplySchemaUpdate(ctx context.Context, conn *DB, opt SchemaUpdateOptions) (
 	}
 	res.Elapsed = time.Since(t0)
 
-	rec.EndedAt, rec.Seconds = time.Now().Unix(), res.Elapsed.Seconds()
-	switch {
-	case runErr == nil:
-		rec.State = SchemaUpdateDone
-	case ctx.Err() != nil:
-		rec.State, rec.Err = SchemaUpdateCancelled, "cancelled"
-	default:
-		rec.State, rec.Err = SchemaUpdateFailed, runErr.Error()
-	}
-	// The record outlives the run's context: a cancelled run still has to say
-	// it was cancelled.
+	// What follows the builds writes too, so it comes before the record
+	// says done (see SchemaUpdateOptions.Finish).  It runs outside the run's
+	// context where it must happen even after a cancel.
 	wctx, wcancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer wcancel()
-	if err := record(wctx); err != nil {
-		logf("could not record how the run ended: %v", err)
+	if runErr == nil {
+		finish()
 	}
 	if runErr == nil && buildRows >= rateMinRows && buildTime > 0 {
 		rate := SchemaRateRecord{
@@ -293,6 +278,21 @@ func ApplySchemaUpdate(ctx context.Context, conn *DB, opt SchemaUpdateOptions) (
 	}
 	if conn.Driver == DriverSQLite && buildRows > 0 && len(res.Applied) > 0 {
 		checkpointAfterBuild(conn, logf)
+	}
+
+	rec.EndedAt, rec.Seconds = time.Now().Unix(), time.Since(t0).Seconds()
+	switch {
+	case runErr == nil:
+		rec.State = SchemaUpdateDone
+	case ctx.Err() != nil:
+		rec.State, rec.Err = SchemaUpdateCancelled, "cancelled"
+	default:
+		rec.State, rec.Err = SchemaUpdateFailed, runErr.Error()
+	}
+	// The record outlives the run's context: a cancelled run still has to say
+	// it was cancelled.
+	if err := record(wctx); err != nil {
+		logf("could not record how the run ended: %v", err)
 	}
 	ictx, icancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer icancel()

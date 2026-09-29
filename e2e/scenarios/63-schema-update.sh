@@ -65,11 +65,23 @@ wait_healthz() {
     return 1
 }
 status() { dc exec -T unmask /usr/local/bin/unmask migrate -status -config "$CFG" 2>&1; }
-# The daemon back up and the schema whole, whatever happened above.
+# The stack as it was, whatever happened above: its own database back (the
+# million rows made here would otherwise stay for every scenario after this
+# one, and grow with every re-run on a stack left up), the daemon answering.
+DB_REPLACED=""
 cleanup() {
     local rc=$?
-    [ -n "$HAMMER" ] && kill "$HAMMER" 2>/dev/null
-    if [ "$(healthz)" != 200 ]; then
+    [ -n "$HAMMER" ] && { touch "$WORK/stop"; kill "$HAMMER" 2>/dev/null; }
+    if [ -n "$DB_REPLACED" ] && [ -f "$WORK/orig.tar" ]; then
+        if stack_stop "$COMPOSE" && [ -z "$(dc ps -q unmask 2>/dev/null)" ]; then
+            dc run --rm --no-deps -T unmask sh -c "cd $DBDIR && rm -f unmask.sqlite unmask.sqlite-wal unmask.sqlite-shm && tar -xf - && sync" \
+                < "$WORK/orig.tar" >/dev/null 2>&1 || { log_fail "cleanup: could not put the stack's database back"; rc=1; }
+        else
+            log_fail "cleanup: could not stop the unmask container to put its database back"; rc=1
+        fi
+        stack_start "$COMPOSE" || true
+        wait_healthz 60 || { log_fail "cleanup: the daemon did not come back healthy"; rc=1; }
+    elif [ "$(healthz)" != 200 ]; then
         stack_start "$COMPOSE" || true
         wait_healthz 60 || { log_fail "cleanup: the daemon did not come back healthy"; rc=1; }
     fi
@@ -89,8 +101,14 @@ trap cleanup EXIT
 assert_in "up to date" "$(status)" "before: nothing is pending" || exit 1
 
 # 1. the database of an install that has just been upgraded across the index
-stack_stop "$COMPOSE"
+# Its files are rewritten below, which the daemon must not have open.
+stack_stop "$COMPOSE" || { log_fail "could not stop the unmask container; its database is left alone"; exit 1; }
+if [ -n "$(dc ps -q unmask 2>/dev/null)" ]; then
+    log_fail "the unmask container is still running; its database is left alone"
+    exit 1
+fi
 dc run --rm --no-deps -T unmask sh -c "cd $DBDIR && tar -cf - unmask.sqlite*" > "$WORK/db.tar" 2>/dev/null
+cp "$WORK/db.tar" "$WORK/orig.tar"
 tar -C "$WORK" -xf "$WORK/db.tar" || { log_fail "could not copy the database out of the container"; exit 1; }
 t0=$(date +%s)
 python3 - "$WORK/unmask.sqlite" "$ROWS" <<'PY' || { log_fail "could not prepare the database"; exit 1; }
@@ -125,13 +143,14 @@ log "prepared a table of $ROWS events in $(( $(date +%s) - t0 ))s ($(du -h "$WOR
 # sync: the copy leaves its size in dirty pages, and the start that follows
 # (render-nginx writes its files with fsync) would wait behind their writeback
 # -- a wait that belongs to this preparation, not to the start being measured.
+DB_REPLACED=1
 dc run --rm --no-deps -T unmask sh -c "cd $DBDIR && rm -f unmask.sqlite-wal unmask.sqlite-shm && cat > unmask.sqlite && sync" < "$WORK/unmask.sqlite" \
     || { log_fail "could not copy the database back into the container"; exit 1; }
-rm -f "$WORK"/unmask.sqlite* "$WORK/db.tar"
+rm -f "$WORK"/unmask.sqlite* "$WORK/db.tar" # orig.tar stays, for the cleanup
 
 # 2. the daemon starts without building it
 t0=$(date +%s)
-stack_start "$COMPOSE"
+stack_start "$COMPOSE" || { log_fail "docker could not start the unmask container"; exit 1; }
 wait_healthz 60 || { log_fail "the daemon did not come up within 60s of the start"; exit 1; }
 up=$(( $(date +%s) - t0 ))
 log_pass "the daemon answers ${up}s after the start, the index build not among what it did first"
@@ -156,9 +175,12 @@ log "before the update: $(awk '{ print $2 }' "$BASE" | sort -n | awk '{ a[NR] = 
 
 # 3. apply it, with visitors arriving throughout
 OUT="$WORK/codes"; : > "$OUT"
+# Stopped by a flag, not a signal: a killed loop leaves its last curl running,
+# and that curl's line lands in the file while it is being counted.
+rm -f "$WORK/stop"
 (
     i=0
-    while :; do
+    while [ ! -e "$WORK/stop" ]; do
         i=$((i + 1))
         curl -sk -o /dev/null -w '%{http_code} %{time_total}\n' --max-time 8 \
             -A "$UA_CURL" -H "X-Forwarded-For: 203.0.113.$((10 + i % 200))" "${BASE_URL}/" >> "$OUT" 2>&1
@@ -186,7 +208,7 @@ during="no"; kill -0 "$MIG" 2>/dev/null && during="yes"
 wait "$MIG"; mig_rc=$?
 took=$(python3 -c "import time,sys; print('%.1f' % (time.time() - float(sys.argv[1])))" "$t0")
 sleep 1
-kill "$HAMMER" 2>/dev/null; wait "$HAMMER" 2>/dev/null; HAMMER=""
+touch "$WORK/stop"; wait "$HAMMER" 2>/dev/null; HAMMER=""
 
 assert_eq 0 "$mig_rc" "\`unmask migrate\` ended well" || cat "$WORK/migrate.out"
 mig_out=$(cat "$WORK/migrate.out")

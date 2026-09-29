@@ -114,6 +114,13 @@ type MigrateOptions struct {
 	// Logf receives one line per migration applied, a line when a slow one
 	// starts and one every 30 seconds while it runs.  nil discards them.
 	Logf func(format string, args ...any)
+	// ColdCache estimates builds as reads from disk (the slow band), whatever
+	// the size of the database and this host's measured rate: for a start
+	// that may follow a reboot, when nothing is cached yet.  The container
+	// runs its startup pass this way -- its supervisor restarts a daemon that
+	// has not come up within 90 seconds, and a build underestimated past that
+	// would be killed and begun again at every start.
+	ColdCache bool
 
 	// ctx cancels the statements of a schema update (ApplySchemaUpdate); the
 	// passes that run at startup are not cancellable and leave it nil.
@@ -190,9 +197,16 @@ func RunMigrations(conn *DB) error {
 // RunMigrationsOpts is RunMigrations with options and a report of what it did.
 func RunMigrationsOpts(conn *DB, opt MigrateOptions) (MigrateResult, error) {
 	var res MigrateResult
-	pending, err := pendingMigrations(conn)
+	pending, err := pendingMigrations(conn, opt.ColdCache)
 	if err != nil {
 		return res, err
+	}
+	for _, m := range pending {
+		if m.estimateErr != nil {
+			// An estimate that cannot be made must not stop an upgrade:
+			// the migration is then applied where it always was.
+			opt.logf("db: %s: cannot estimate the index build (%v); applying it now", m.Name, m.estimateErr)
+		}
 	}
 	plain := make([]PendingMigration, 0, len(pending))
 	for _, m := range pending {
@@ -247,11 +261,20 @@ func LeftForTheOperator(pending []PendingMigration, deferOver time.Duration) []P
 func HasSchema(conn *DB) (bool, error) { return hasTable(conn, "unmask_event") }
 
 // PendingMigrations lists what this binary would apply to the database, with
-// the estimates for the deferrable ones, and changes nothing but the two
-// things any pass needs first: the schema_migrations table and its baseline
-// row.  A database that does not have the base schema yet reports everything.
+// the estimates for the deferrable ones, and changes nothing.  A database that
+// does not have the base schema yet reports everything.
+//
+// Read-only on purpose: the daemon asks every few seconds while an update
+// waits, and `unmask migrate -status` / `-notice` and doctor promise to change
+// nothing.  It used to create the version table and its baseline row first,
+// the way a pass that applies does -- a DDL statement every two seconds on
+// MariaDB, for as long as the update waited.
 func PendingMigrations(conn *DB) ([]PendingMigration, error) {
-	pending, err := pendingMigrations(conn)
+	applied, err := appliedVersionsReadOnly(conn)
+	if err != nil {
+		return nil, err
+	}
+	pending, err := pendingFrom(conn, applied, false)
 	if err != nil {
 		return nil, err
 	}
@@ -267,6 +290,9 @@ func PendingMigrations(conn *DB) ([]PendingMigration, error) {
 type pendingEntry struct {
 	PendingMigration
 	path string
+	// estimateErr: the build could not be estimated, so the migration is
+	// not treated as deferrable (see pendingFrom).
+	estimateErr error
 }
 
 // describe says what applying the migration involves, for a log line or a
@@ -316,7 +342,7 @@ func roundUp(d, unit time.Duration) time.Duration {
 }
 
 // pendingMigrations reads the applied set and returns what is left, estimated.
-func pendingMigrations(conn *DB) ([]pendingEntry, error) {
+func pendingMigrations(conn *DB, cold bool) ([]pendingEntry, error) {
 	if err := ensureSchemaMigrationsTable(conn); err != nil {
 		return nil, fmt.Errorf("ensure schema_migrations: %w", err)
 	}
@@ -327,6 +353,38 @@ func pendingMigrations(conn *DB) ([]pendingEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read applied versions: %w", err)
 	}
+	return pendingFrom(conn, applied, cold)
+}
+
+// appliedVersionsReadOnly is appliedMigrationVersions for a reader that must
+// not write: what a pass would find after creating the version table and its
+// baseline row (see markBaselineIfNeeded), worked out without doing either.
+func appliedVersionsReadOnly(conn *DB) (map[int]bool, error) {
+	has, err := hasTable(conn, "schema_migrations")
+	if err != nil {
+		return nil, fmt.Errorf("read applied versions: %w", err)
+	}
+	applied := map[int]bool{}
+	if has {
+		if applied, err = appliedMigrationVersions(conn); err != nil {
+			return nil, fmt.Errorf("read applied versions: %w", err)
+		}
+	}
+	if len(applied) == 0 {
+		base, err := hasTable(conn, "unmask_event")
+		if err != nil {
+			return nil, fmt.Errorf("read applied versions: %w", err)
+		}
+		if base {
+			applied[1] = true // the baseline a pass would record
+		}
+	}
+	return applied, nil
+}
+
+// pendingFrom lists the migrations not in applied, with their estimates
+// (cold: see MigrateOptions.ColdCache).
+func pendingFrom(conn *DB, applied map[int]bool, cold bool) ([]pendingEntry, error) {
 	all, err := listMigrations(string(conn.Driver))
 	if err != nil {
 		return nil, fmt.Errorf("list migrations: %w", err)
@@ -335,9 +393,14 @@ func pendingMigrations(conn *DB) ([]pendingEntry, error) {
 	// An index an earlier pending migration builds is not built again by a
 	// later one naming it (0033 repeats 0032's CREATE INDEX IF NOT EXISTS).
 	planned := map[string]bool{}
-	rates := buildRates{host: hostIndexRate(conn)}
-	if rates.host == 0 {
-		rates.fast, rates.slow = indexBuildRates(conn)
+	var rates buildRates
+	switch {
+	case cold:
+		rates.fast, rates.slow = indexBuildDiskFast, indexBuildDiskSlow
+	default:
+		if rates.host = hostIndexRate(conn); rates.host == 0 {
+			rates.fast, rates.slow = indexBuildRates(conn)
+		}
 	}
 	for _, m := range all {
 		if applied[m.version] {
@@ -348,10 +411,7 @@ func pendingMigrations(conn *DB) ([]pendingEntry, error) {
 		}}
 		if m.deferrable {
 			if err := estimateIndexMigration(conn, m, &p.PendingMigration, planned, rates); err != nil {
-				// An estimate that cannot be made must not stop an upgrade:
-				// the migration is then applied where it always was.
-				log.Printf("db: %s: cannot estimate the index build (%v); applying it in place", m.name, err)
-				p.Deferrable = false
+				p.Deferrable, p.estimateErr = false, err
 			}
 		}
 		out = append(out, p)

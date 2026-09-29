@@ -25,9 +25,11 @@ const path = require('path');
 const CHROME = process.env.CHROME_BIN || '/usr/bin/chromium-browser';
 const BIN = process.env.UNMASK_BIN || path.join(process.env.UI_E2E_OUT || '', '..', 'unmask');
 // Rows in the events table.  Enough that the build is still running when the
-// page reloads after the click on most machines; where it is not, the checks
-// of the running state are skipped and the rest still holds.
-const ROWS = parseInt(process.env.UI_E2E_SCHEMA_ROWS || '400000', 10);
+// page reloads after the click, on CI's machines too (400,000 built there in
+// under the two seconds the reload takes, and the running state went
+// unchecked); where it is not, the checks of the running state are skipped and
+// the rest still holds.
+const ROWS = parseInt(process.env.UI_E2E_SCHEMA_ROWS || '1500000', 10);
 const PASS = 'Schema-ui-e2e-' + Math.random().toString(36).slice(2, 10) + 'Aa1';
 
 const fails = [];
@@ -55,6 +57,14 @@ async function waitFor(what, ms, fn) {
 (async () => {
   if (!fs.existsSync(BIN)) throw new Error(`no unmask binary at ${BIN} (set UNMASK_BIN)`);
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'unmask-ui-schema-'));
+  // Whatever way this ends, the temporary directory goes, and so does the
+  // daemon with every process it started (its process group: the run of
+  // `unmask migrate` the button starts is its child).
+  let daemonPgid = 0;
+  process.on('exit', () => {
+    if (daemonPgid) { try { process.kill(-daemonPgid, 'SIGKILL'); } catch (e) { /* gone */ } }
+    try { fs.rmSync(work, { recursive: true, force: true }); } catch (e) { /* best effort */ }
+  });
   const port = await freePort();
   const BASE = `http://127.0.0.1:${port}/unmask`;
   const cfg = path.join(work, 'config.yml');
@@ -93,7 +103,11 @@ community_bans:
   execFileSync(BIN, ['user', 'create', 'schema-viewer', '-role', 'viewer', '-password', PASS, '-config', cfg], { env });
   // The database of an install upgraded across the index migration: the index
   // gone, its migrations unrecorded.  The table is filled with its indexes off
-  // and they are put back afterwards, which is what keeps this quick.
+  // and they are put back afterwards, which is what keeps this quick.  The rows
+  // are one to five days old: inside the retention window, so no prune runs
+  // over them, and outside the pages' default 24 hours, whose cards would
+  // otherwise read them raw -- the aggregate has not seen rows put in behind
+  // its back, and the stats page answers 500 when its funnel card times out.
   execFileSync('python3', ['-c', `
 import sqlite3, sys
 c = sqlite3.connect(sys.argv[1], isolation_level=None)
@@ -106,7 +120,7 @@ SELECT 'ui-e2e.example', '', 'https', 443, x'c6336407', 'UI-E2E-schema/1.0',
        't13d' || printf('%04d', i % 977) || 'h2_uie2e0000000_uie2e0000000', 'ok',
        CASE i % 10 WHEN 0 THEN 'load' WHEN 1 THEN 'bv_pow_only' ELSE 'serve' END,
        '{"bt":"uischema' || i || '","orig_path":"/articles/' || i || '/","pad":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}',
-       strftime('%Y-%m-%d %H:%M:%f', 'now', '-' || (i % 400000) || ' seconds') FROM n""", (int(sys.argv[2]),))
+       strftime('%Y-%m-%d %H:%M:%f', 'now', '-1 day', '-' || (i % 345600) || ' seconds') FROM n""", (int(sys.argv[2]),))
 for name, sql in idx:
     if name != 'idx_unmask_event_ja4_phase':
         c.execute(sql)
@@ -117,12 +131,15 @@ c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
   ok(/waits for you/.test(cli('migrate', '-status')), 'the seeded database does not have an update waiting');
 
   const log = fs.openSync(path.join(work, 'serve.log'), 'w');
-  const daemon = spawn(BIN, ['serve', '-config', cfg], { env, stdio: ['ignore', log, log] });
+  const daemon = spawn(BIN, ['serve', '-config', cfg], { env, stdio: ['ignore', log, log], detached: true });
+  daemonPgid = daemon.pid;
   let browser;
   const finish = async (code) => {
     if (browser) await browser.close().catch(() => {});
-    daemon.kill('SIGTERM');
-    await sleep(300);
+    // The daemon stops a run it started before it exits; the group is
+    // signalled all the same, for a run it could not stop.
+    try { process.kill(-daemon.pid, 'SIGTERM'); } catch (e) { daemon.kill('SIGTERM'); }
+    await sleep(500);
     if (code !== 0) {
       // What the daemon and the run said, where a failing CI job shows it:
       // the artifacts of a run on someone else's machine cannot be opened.

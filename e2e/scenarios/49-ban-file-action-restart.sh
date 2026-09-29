@@ -122,7 +122,7 @@ assert_in "|honeypot|${WANT_ACTION}" "$line" \
 
 # 3. Restart the unmask daemon -- this is the initial-flush path that used to
 #    rewrite the row.
-stack_stop "$COMPOSE"
+stack_stop "$COMPOSE" || { log_fail "could not stop the unmask container: the restart this checks did not happen"; exit 1; }
 ADMIN_STOPPED=1
 stack_start "$COMPOSE"
 if ! wait_healthz_200; then

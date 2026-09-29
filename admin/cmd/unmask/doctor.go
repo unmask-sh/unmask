@@ -834,22 +834,33 @@ func checkSchema(s settings.Settings, conn *db.DB, addOK, addWarn func(t, m stri
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	rec, hasRec, _ := conn.LoadSchemaUpdate(ctx)
-	host := resolveHostID(s.Server.HostID)
-	if warn, msg := schemaVerdict(pending, db.LeftForTheOperator(pending, s.DB.SchemaUpdateDeferOver()), rec, hasRec, host, time.Now(), conn.SchemaUpdateHoldsWrites()); warn {
+	now := time.Now()
+	alive := hasRec && conn.SchemaUpdateAlive(ctx, rec, now)
+	// What waits is what the daemon left at its start: every deferrable
+	// migration still pending.  Not estimated afresh against the threshold:
+	// one whose estimate has since dropped under it still waits for a run.
+	var left []db.PendingMigration
+	for _, m := range pending {
+		if m.Deferrable {
+			left = append(left, m)
+		}
+	}
+	if warn, msg := schemaVerdict(pending, left, rec, alive, now, conn.SchemaUpdateHoldsWrites()); warn {
 		addWarn("DB schema", msg)
 	} else {
 		addOK("DB schema", msg)
 	}
 }
 
+// alive: the record's run is still going (db.SchemaUpdateAlive).
 // holdsWrites: the run keeps the daemon's writes out while it builds
 // (db.SchemaUpdateHoldsWrites), which a reader who is about to change a
 // setting wants to know.
-func schemaVerdict(pending, left []db.PendingMigration, rec db.SchemaUpdateRecord, hasRec bool, host string, now time.Time, holdsWrites bool) (warn bool, msg string) {
-	if hasRec && rec.Alive(host, now) {
+func schemaVerdict(pending, left []db.PendingMigration, rec db.SchemaUpdateRecord, alive bool, now time.Time, holdsWrites bool) (warn bool, msg string) {
+	if alive {
 		meanwhile := "the challenge is served meanwhile"
 		if holdsWrites {
-			meanwhile += ", changes in the admin UI wait"
+			meanwhile += "; in the admin UI, changes to users and manual bans wait (settings can be saved)"
 		}
 		return false, fmt.Sprintf("an update is being applied (started %s ago by %s on %s; expected to take %s) -- %s",
 			humanAge(now.Sub(time.Unix(rec.StartedAt, 0))), rec.By, rec.Host,
@@ -867,14 +878,18 @@ func schemaVerdict(pending, left []db.PendingMigration, rec db.SchemaUpdateRecor
 		}
 	}
 	last := ""
-	if hasRec && rec.State == db.SchemaUpdateFailed {
+	if rec.State == db.SchemaUpdateFailed {
 		last = fmt.Sprintf("; the last attempt failed: %s", rec.Err)
 	}
 	if len(left) == len(pending) {
-		return true, fmt.Sprintf("%d update(s) wait for you (%s: estimated %s) -- the daemon runs without them and does not apply them by itself; apply from the admin UI (the notice at the top of every page) or with `unmask migrate`%s",
-			len(left), strings.Join(names, ", "), db.EstimateRange(low, high), last)
+		what := "estimated " + db.EstimateRange(low, high)
+		if len(names) > 0 {
+			what = strings.Join(names, ", ") + ": " + what
+		}
+		return true, fmt.Sprintf("%d update(s) wait for you (%s) -- the daemon runs without them and did not apply them at its start; apply from the admin UI (the notice at the top of every page) or with `sudo unmask migrate`%s",
+			len(left), what, last)
 	}
-	return true, fmt.Sprintf("%d migration(s) not applied, which the daemon applies when it starts -- its log says why that failed (\"db: migrate failed at startup\"); `unmask migrate` applies them", len(pending)-len(left))
+	return true, fmt.Sprintf("%d migration(s) not applied, which the daemon applies when it starts -- its log says why that failed (\"db: migrate failed at startup\"); `sudo unmask migrate` applies them", len(pending)-len(left))
 }
 
 // checkAggregateWindows: every aggregate table's oldest row against the

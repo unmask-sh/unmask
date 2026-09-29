@@ -179,8 +179,16 @@ fi
 # of every admin page).  The supervisor gives the daemon 90 seconds to come
 # up; a build that takes longer, run here, would get the container restarted
 # and begin again on every restart.
+#
+# A failed migrate does not stop the daemon from starting, as it does not on
+# a host: the daemon runs on the schema it has, says what failed, and tries
+# again at its next start.  Under `set -e` it used to end this script -- no
+# daemon, and on the gateway's first start no nginx either -- for as long as
+# the cause lasted: a database not up yet, or a schema update the daemon
+# started before it was restarted, still holding the write lock.
 if [ "${1:-}" = "serve" ]; then
-    /usr/local/bin/unmask migrate -startup -config "$CFG"
+    /usr/local/bin/unmask migrate -startup -config "$CFG" \
+        || echo "entrypoint: migrate did not complete (above); the daemon starts on the schema it has" >&2
     /usr/local/bin/unmask render-nginx -config "$CFG"
 fi
 exec /usr/local/bin/unmask "$@"

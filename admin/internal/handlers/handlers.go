@@ -186,6 +186,9 @@ type Handler struct {
 	// schema is what the daemon knows about the schema updates left for the
 	// operator and the run that applies them.  See schema_update.go.
 	schema schemaUpdater
+	// heldBeacons counts the beacons accepted while the database's writes
+	// were held, for the beacon's per-address limit (schema_update.go).
+	heldBeacons heldBeaconCounts
 	// SchemaCommand builds the process that applies a schema update; nil
 	// means this binary's `migrate`.  Tests put their own in.
 	SchemaCommand func(by string) (*exec.Cmd, error)
@@ -3016,11 +3019,20 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// per-IP rate limit (default 20 entries per 5 minutes).
+	// per-IP rate limit (default 20 entries per 5 minutes).  The rows count
+	// what has been written; while a schema update holds the writes, what
+	// was accepted meanwhile is counted in memory too.
 	cnt, err := events.CountRecentByIP(r.Context(), h.DB, pkt, 5)
+	held := h.DB.WritesHeld()
+	if held {
+		cnt += h.heldBeacons.count(string(pkt))
+	}
 	if err == nil && cnt >= h.cfg().Challenge.Resolve(site).DebugRateLimitPer5Min {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"ok": 0, "error": "rate_limit"})
 		return
+	}
+	if held {
+		h.heldBeacons.add(string(pkt))
 	}
 
 	cookieBV := readCookieMax(r, "_bv", 1024) // wide enough for a full 16-entry "~"-list

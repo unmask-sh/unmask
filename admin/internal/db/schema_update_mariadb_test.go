@@ -166,3 +166,84 @@ func TestMariaDB_CancelStopsTheBuildOnTheServer(t *testing.T) {
 		t.Errorf("pending after the run = %v (err %v), want none", pending, err)
 	}
 }
+
+// TestMariaDB_RunLock: on a shared MariaDB a run holds a named lock on its
+// own connection.  Every node sees it, whatever the record's host id says;
+// it goes when the run's connection goes -- the node died, the process was
+// killed -- so a record left saying "running" does not keep the other nodes
+// from running the update.
+func TestMariaDB_RunLock(t *testing.T) {
+	cfg := mariadbSettingsFromEnv(t)
+	nodeA, err := Open(cfg)
+	if err != nil {
+		t.Fatalf("open mariadb: %v", err)
+	}
+	t.Cleanup(func() { nodeA.Close() })
+	if err := Migrate(nodeA); err != nil {
+		t.Fatal(err)
+	}
+	nodeB, err := Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { nodeB.Close() })
+	ctx := context.Background()
+	now := time.Now()
+	running := SchemaUpdateRecord{State: SchemaUpdateRunning, Host: "node-a", PID: 4242, By: "alice", StartedAt: now.Add(-10 * time.Minute).Unix()}
+
+	if nodeB.SchemaUpdateAlive(ctx, running, now) {
+		t.Error("no run holds the lock: a record that says running counted as going")
+	}
+	lock, err := nodeA.LockSchemaRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !nodeB.SchemaUpdateAlive(ctx, running, now) {
+		t.Error("node A's run holds the lock: node B does not see it going")
+	}
+	if _, err := nodeB.LockSchemaRun(ctx); !errors.Is(err, ErrSchemaUpdateRunning) {
+		t.Errorf("a second run on node B while A's holds the lock: %v, want ErrSchemaUpdateRunning", err)
+	}
+	lock.Release()
+	if nodeB.SchemaUpdateAlive(ctx, running, now) {
+		t.Error("the lock was released: still counted as going")
+	}
+
+	// A node that dies with the lock: its connection goes, and the lock with
+	// it.  What the server sees of a killed process -- its connection gone --
+	// is made here by killing that connection from another.
+	nodeC, err := Open(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { nodeC.Close() })
+	if _, err := nodeC.LockSchemaRun(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if !nodeB.SchemaUpdateAlive(ctx, running, now) {
+		t.Error("node C holds the lock: not seen")
+	}
+	var holder int64
+	if err := nodeB.QueryRowContext(ctx, "SELECT IS_USED_LOCK("+schemaRunLockNameSQL+")").Scan(&holder); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := nodeB.ExecContext(ctx, "KILL "+strconv.FormatInt(holder, 10)); err != nil {
+		t.Fatal(err)
+	}
+	gone := false
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if !nodeB.SchemaUpdateAlive(ctx, running, now) {
+			gone = true
+			break
+		}
+	}
+	if !gone {
+		t.Error("the node holding the lock went away and the lock did not")
+	}
+	// And a lock taken and released is gone for the next run too.
+	again, err := nodeB.LockSchemaRun(ctx)
+	if err != nil {
+		t.Fatalf("a run after the dead node's: %v", err)
+	}
+	again.Release()
+}

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -400,32 +399,29 @@ func TestApplySchemaUpdateRefusesASecondRun(t *testing.T) {
 	asBeforeTheIndex(t, d, 400)
 	ctx := context.Background()
 
-	other := exec.Command("sleep", "60")
-	if err := other.Start(); err != nil {
-		t.Skipf("cannot start a stand-in process: %v", err)
+	// Another run: its record, and the lock it holds while it runs.
+	other, err := d.LockSchemaRun(ctx)
+	if err != nil {
+		t.Fatal(err)
 	}
-	defer func() { _ = other.Process.Kill(); _, _ = other.Process.Wait() }()
-	prev := runnerNames
-	runnerNames = append([]string{"sleep"}, prev...)
-	defer func() { runnerNames = prev }()
-
 	if err := d.SaveMaintState(ctx, MaintSchemaUpdate, SchemaUpdateRecord{
-		State: SchemaUpdateRunning, Host: "host-a", PID: other.Process.Pid, By: "alice", StartedAt: time.Now().Unix(),
+		State: SchemaUpdateRunning, Host: "host-a", PID: 4242, By: "alice", StartedAt: time.Now().Unix(),
 	}); err != nil {
 		t.Fatal(err)
 	}
-	_, err := ApplySchemaUpdate(ctx, d, SchemaUpdateOptions{Host: "host-a", By: "bob"})
-	if !errors.Is(err, ErrSchemaUpdateRunning) {
-		t.Fatalf("err = %v, want ErrSchemaUpdateRunning", err)
+	_, err = ApplySchemaUpdate(ctx, d, SchemaUpdateOptions{Host: "host-a", By: "bob"})
+	if !errors.Is(err, ErrSchemaUpdateRunning) || !strings.Contains(err.Error(), "by alice") {
+		t.Fatalf("err = %v, want ErrSchemaUpdateRunning naming the other run", err)
 	}
 	if hasIndexNow(t, d, "idx_unmask_event_ja4_phase") {
 		t.Fatal("the refused run built the index")
 	}
 
-	_ = other.Process.Kill()
-	_, _ = other.Process.Wait()
+	// Its process is gone, and the lock with it: the next run goes ahead,
+	// whatever the record still says.
+	other.Release()
 	if _, err := ApplySchemaUpdate(ctx, d, SchemaUpdateOptions{Host: "host-a", By: "bob"}); err != nil {
-		t.Fatalf("the earlier run's process is gone; the next must go ahead: %v", err)
+		t.Fatalf("the earlier run's lock is free; the next must go ahead: %v", err)
 	}
 	if !hasIndexNow(t, d, "idx_unmask_event_ja4_phase") {
 		t.Fatal("index not built")
@@ -459,7 +455,7 @@ func TestApplySchemaUpdateCancelled(t *testing.T) {
 	if err != nil || !ok || rec.State != SchemaUpdateCancelled {
 		t.Fatalf("record = (%+v, %v, %v), want cancelled", rec, ok, err)
 	}
-	if rec.Alive("h", time.Now()) {
+	if d.SchemaUpdateAlive(context.Background(), rec, time.Now()) {
 		t.Error("a cancelled run reads as still running")
 	}
 	// And it can simply be run again.
@@ -525,30 +521,215 @@ func TestCancelInterruptsARunningBuild(t *testing.T) {
 	t.Logf("interrupted after %v", took)
 }
 
-// TestSchemaUpdateRecordAlive: who counts as still running.
-func TestSchemaUpdateRecordAlive(t *testing.T) {
+// TestSchemaUpdateAlive: a run is going when its record says so and its lock
+// is held -- nothing about its process, its host id or its age counts.  Every
+// one of those misled once: a daemon restarted into the id of the run it
+// outlived counted as that run, a process the daemon's unit cannot look at
+// counted as alive, and a run cut short by a container re-create (a new host
+// id) held the new daemon's writes for an hour.
+func TestSchemaUpdateAlive(t *testing.T) {
+	d := migratedDB(t)
+	ctx := context.Background()
 	now := time.Now()
-	prev := runnerNames
-	runnerNames = append([]string{".test"}, prev...) // this process
-	defer func() { runnerNames = prev }()
+	running := SchemaUpdateRecord{State: SchemaUpdateRunning, Host: "a", PID: os.Getpid(), StartedAt: now.Unix()}
 
-	for _, c := range []struct {
-		name string
-		rec  SchemaUpdateRecord
-		host string
-		want bool
-	}{
-		{"ended", SchemaUpdateRecord{State: SchemaUpdateDone, Host: "a", PID: os.Getpid()}, "a", false},
-		{"same host, live process", SchemaUpdateRecord{State: SchemaUpdateRunning, Host: "a", PID: os.Getpid()}, "a", true},
-		{"same host, no such process", SchemaUpdateRecord{State: SchemaUpdateRunning, Host: "a", PID: 1 << 30}, "a", false},
-		{"same host, no pid", SchemaUpdateRecord{State: SchemaUpdateRunning, Host: "a"}, "a", false},
-		{"other host, just started", SchemaUpdateRecord{State: SchemaUpdateRunning, Host: "b", StartedAt: now.Add(-time.Minute).Unix()}, "a", true},
-		{"other host, hours ago", SchemaUpdateRecord{State: SchemaUpdateRunning, Host: "b", StartedAt: now.Add(-5 * time.Hour).Unix()}, "a", false},
-		{"other host, long estimate", SchemaUpdateRecord{State: SchemaUpdateRunning, Host: "b", EstHighSec: 7200, StartedAt: now.Add(-5 * time.Hour).Unix()}, "a", true},
+	if d.SchemaUpdateAlive(ctx, running, now) {
+		t.Error("record says running, no run has ever locked: counted as going")
+	}
+	lock, err := d.LockSchemaRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !d.SchemaUpdateAlive(ctx, running, now) {
+		t.Error("record says running, lock held: not counted as going")
+	}
+	for name, rec := range map[string]SchemaUpdateRecord{
+		"another host id":            {State: SchemaUpdateRunning, Host: "0123456789ab", PID: 57, StartedAt: now.Add(-3 * time.Minute).Unix()},
+		"a process id not seen here": {State: SchemaUpdateRunning, Host: "a", PID: 1 << 30, StartedAt: now.Unix()},
 	} {
-		if got := c.rec.Alive(c.host, now); got != c.want {
-			t.Errorf("%s: Alive = %v, want %v", c.name, got, c.want)
+		if !d.SchemaUpdateAlive(ctx, rec, now) {
+			t.Errorf("%s, lock held: not counted as going", name)
 		}
+	}
+	if d.SchemaUpdateAlive(ctx, SchemaUpdateRecord{State: SchemaUpdateDone, Host: "a"}, now) {
+		t.Error("a record that says done, lock held: counted as going")
+	}
+	lock.Release()
+	lock.Release() // twice is harmless
+	for name, rec := range map[string]SchemaUpdateRecord{
+		"this host, this process's id":  running,
+		"another host id, a minute old": {State: SchemaUpdateRunning, Host: "0123456789ab", PID: 57, StartedAt: now.Add(-time.Minute).Unix()},
+	} {
+		if d.SchemaUpdateAlive(ctx, rec, now) {
+			t.Errorf("%s, lock free: counted as going", name)
+		}
+	}
+}
+
+// TestSchemaRunLockKeepsRunsApart: one run at a time, however they are
+// started; a look at the lock (the daemon's, every few seconds) takes it for
+// an instant and must not turn a run away; and it goes with its holder.
+func TestSchemaRunLockKeepsRunsApart(t *testing.T) {
+	d := migratedDB(t)
+	ctx := context.Background()
+	first, err := d.LockSchemaRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.LockSchemaRun(ctx); !errors.Is(err, ErrSchemaUpdateRunning) {
+		t.Fatalf("a second run while the first holds the lock: %v, want ErrSchemaUpdateRunning", err)
+	}
+	if held, known := d.SchemaRunLockHeld(ctx); !held || !known {
+		t.Errorf("held = %v, known = %v; want the lock seen as held", held, known)
+	}
+	first.Release()
+	if held, known := d.SchemaRunLockHeld(ctx); held || !known {
+		t.Errorf("after release: held = %v, known = %v", held, known)
+	}
+
+	// Looks at the lock all the time, while a run starts: it must get it.
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+				d.SchemaRunLockHeld(ctx)
+			}
+		}
+	}()
+	for i := 0; i < 50; i++ {
+		l, err := d.LockSchemaRun(ctx)
+		if err != nil {
+			close(stop)
+			<-done
+			t.Fatalf("a run starting while the lock is looked at: %v", err)
+		}
+		l.Release()
+	}
+	close(stop)
+	<-done
+}
+
+// TestSchemaRunLockOnAFileItCannotWrite: a lock file left by another user --
+// `unmask migrate` run as root with its privileges kept -- does not turn the
+// daemon's runs away: the lock is taken on it read-only, and still keeps two
+// runs apart.
+func TestSchemaRunLockOnAFileItCannotWrite(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can write any file")
+	}
+	d := migratedDB(t)
+	ctx := context.Background()
+	if err := os.WriteFile(d.schemaRunLockPath(), nil, 0o444); err != nil {
+		t.Fatal(err)
+	}
+	first, err := d.LockSchemaRun(ctx)
+	if err != nil {
+		t.Fatalf("a run with a lock file it cannot write: %v", err)
+	}
+	defer first.Release()
+	if _, err := d.LockSchemaRun(ctx); !errors.Is(err, ErrSchemaUpdateRunning) {
+		t.Errorf("a second run: %v, want ErrSchemaUpdateRunning", err)
+	}
+	if held, known := d.SchemaRunLockHeld(ctx); !held || !known {
+		t.Errorf("held = %v, known = %v; want the lock seen as held", held, known)
+	}
+}
+
+// TestSchemaRunLockFileNotCreatedByALook: looking does not create the lock
+// file (a new install's doctor, the daemon's watch).
+func TestSchemaRunLockFileNotCreatedByALook(t *testing.T) {
+	d := migratedDB(t)
+	if held, known := d.SchemaRunLockHeld(context.Background()); held || !known {
+		t.Fatalf("held = %v, known = %v on a database no run has touched", held, known)
+	}
+	if _, err := os.Stat(d.SQLitePath + ".schema-update.lock"); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("a look created the lock file (%v)", err)
+	}
+}
+
+// TestApplySchemaUpdateRecordsARefusal: a run that stops before it builds --
+// short of space -- says so in its record, where the admin UI reads it; a run
+// started from the button has nobody reading its terminal.
+func TestApplySchemaUpdateRecordsARefusal(t *testing.T) {
+	d := migratedDB(t)
+	asBeforeTheIndex(t, d, 400)
+	prev := dirFree
+	dirFree = func(string) (int64, error) { return 1 << 10, nil }
+	defer func() { dirFree = prev }()
+	_, err := ApplySchemaUpdate(context.Background(), d, SchemaUpdateOptions{Host: "h", By: "alice"})
+	if err == nil || !strings.Contains(err.Error(), "free") {
+		t.Fatalf("err = %v, want the space refusal", err)
+	}
+	rec, ok, err := d.LoadSchemaUpdate(context.Background())
+	if err != nil || !ok || rec.State != SchemaUpdateFailed || !strings.Contains(rec.Err, "skip-space-check") || rec.By != "alice" {
+		t.Fatalf("record = %+v (ok %v, err %v), want failed with the reason", rec, ok, err)
+	}
+	if hasIndexNow(t, d, "idx_unmask_event_ja4_phase") {
+		t.Error("the refused run built the index")
+	}
+	if held, _ := d.SchemaRunLockHeld(context.Background()); held {
+		t.Error("the refused run left its lock held")
+	}
+}
+
+// TestApplySchemaUpdateFinishesBeforeDone: what follows the builds writes to
+// the database (the verdict-id backfill), so it runs while the record still
+// says running and the lock is still held -- the daemon holds its writers back
+// until then.  Its failure is reported, the update is still done.
+func TestApplySchemaUpdateFinishesBeforeDone(t *testing.T) {
+	d := migratedDB(t)
+	asBeforeTheIndex(t, d, 400)
+	ctx := context.Background()
+	var during SchemaUpdateRecord
+	var heldDuring bool
+	res, err := ApplySchemaUpdate(ctx, d, SchemaUpdateOptions{Host: "h", By: "cli", Finish: func(context.Context) error {
+		during, _, _ = d.LoadSchemaUpdate(ctx)
+		heldDuring, _ = d.SchemaRunLockHeld(ctx)
+		return errors.New("backfill: no such thing")
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if during.State != SchemaUpdateRunning || !heldDuring {
+		t.Errorf("during Finish: record %q, lock held %v; want running and held", during.State, heldDuring)
+	}
+	if res.FinishErr == nil || !strings.Contains(res.FinishErr.Error(), "backfill") {
+		t.Errorf("FinishErr = %v", res.FinishErr)
+	}
+	rec, _, _ := d.LoadSchemaUpdate(ctx)
+	if rec.State != SchemaUpdateDone {
+		t.Errorf("record after = %q, want done (the schema is applied)", rec.State)
+	}
+}
+
+// TestPendingMigrationsChangesNothing: the daemon asks every few seconds while
+// an update waits, and -status, -notice and doctor promise to change nothing.
+// It used to create the version table and its baseline row first.
+func TestPendingMigrationsChangesNothing(t *testing.T) {
+	d := migratedDB(t)
+	if _, err := d.Exec(`DROP TABLE schema_migrations`); err != nil {
+		t.Fatal(err)
+	}
+	pending, err := PendingMigrations(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if has, _ := hasTable(d, "schema_migrations"); has {
+		t.Error("reading what is pending created the version table")
+	}
+	// What a pass would see: the baseline counted, everything after pending.
+	for _, m := range pending {
+		if m.Version == 1 {
+			t.Error("the baseline is reported pending; a pass records it without applying anything")
+		}
+	}
+	if len(pending) == 0 {
+		t.Error("nothing pending on a database with no versions recorded")
 	}
 }
 

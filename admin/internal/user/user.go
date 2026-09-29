@@ -213,7 +213,12 @@ var dummyHash, _ = HashPassword("unmask-login-timing-equalizer")
 func DummyCheckPassword(plain string) { _ = CheckPassword(dummyHash, plain) }
 
 // Repository: thin CRUD wrapper for the unmask_user table.
-type Repository struct{ DB *db.DB }
+type Repository struct {
+	DB *db.DB
+	// held: audit rows and sign-in times kept while a schema update holds
+	// the database's write lock (held.go).
+	held heldWrites
+}
 
 func New(d *db.DB) *Repository { return &Repository{DB: d} }
 
@@ -404,6 +409,9 @@ func (r *Repository) Delete(ctx context.Context, userID int64) error {
 // TouchLastLogin: update last_login on successful authentication.
 // best-effort (= login itself succeeds even if this fails).
 func (r *Repository) TouchLastLogin(ctx context.Context, userID int64) {
+	if r.holdLogin(userID, time.Now()) {
+		return
+	}
 	_ = r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
 		Update("last_login", time.Now()).Error
 }
