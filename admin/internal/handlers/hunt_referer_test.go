@@ -103,12 +103,18 @@ func TestHuntRefererSurvivesPhaseFilter(t *testing.T) {
 		`tr.setAttribute('data-head',`,            // ...and settles the row
 		`if (REF.state(rep) === 'unloaded') { loadChain(rep).then(open, open); return; }`, // a chain whose serve is off the page asks too
 		`var RS = window.unmaskHuntReferer;`,                                              // the date popover reads the same state
-		`未取得。phase をクリックすると読み込みます。`,                                                       // not loaded (the default locale of the test handler)
+		`return st === 'nohead' ? NO_HEAD : '-';`,                                         // before a click: the row's own value
 		`不明。このセッションの serve が、このノードの記録にありません。`,                                             // looked for, not on record
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("hunt page lost %q", want)
 		}
+	}
+	// Before a click the row shows its own value -- a pass carries none -- as
+	// it did before the lookup existed: a "not loaded, click to load" line in
+	// its place read worse than the "-".
+	if strings.Contains(body, `未取得。phase をクリックすると読み込みます。`) {
+		t.Error("the hunt page still says the referer is not loaded")
 	}
 }
 

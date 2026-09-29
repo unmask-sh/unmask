@@ -21,7 +21,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-09-29) **A waiting schema update is announced everywhere an operator looks.**  `unmask migrate -status` lists what is pending with an estimate, `unmask doctor` gains a schema line, and `/metrics` carries `unmask_schema_update_pending` and `unmask_schema_update_running`.  A package upgrade that leaves an update waiting says so as the last thing it prints, with the command to run.  The container applies what is quick at start and leaves the rest the same way.
 
-- (2026-09-29) **Bot hunt shows where a session came from even when the view is filtered.**  The referer is recorded on the serve, so a log filtered to the passes showed "-" for every session.  Clicking the phase now loads it, and the date popover shows the same value.  Until then the row says it is not loaded rather than claiming the visitor sent none.  Silent rebinds record their own referer.
+- (2026-09-29) **Bot hunt shows where a session came from even when the view is filtered.**  The referer is recorded on the serve, so a log filtered to the passes showed "-" for every session.  Clicking the phase now loads the session's referer, and the date popover then shows the same value; until then a row shows its own, as before.  Silent rebinds record their own referer.
 
 - (2026-09-29) **Mattermost link previews pass out of the box.**  Mattermost fetches a pasted link's preview from its own server as `Mattermost-Bot`, which the crawler list did not carry, so the fetch was challenged and the link rendered bare.  It joins the supplement next to Chatwork, Webex and Notion, and can be switched off per pattern like any other.
 
