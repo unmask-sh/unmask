@@ -145,6 +145,19 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "# TYPE unmask_captcha_math_no_input_total counter")
 	fmt.Fprintf(w, "unmask_captcha_math_no_input_total %d\n", atomic.LoadUint64(&Metrics.mathNoInput))
 
+	// Schema updates left for the operator.
+	waiting, running := h.SchemaWaiting()
+	fmt.Fprintln(w, "# HELP unmask_schema_update_pending Schema updates waiting for the operator (applied from the admin UI or with `unmask migrate`)")
+	fmt.Fprintln(w, "# TYPE unmask_schema_update_pending gauge")
+	fmt.Fprintf(w, "unmask_schema_update_pending %d\n", waiting)
+	fmt.Fprintln(w, "# HELP unmask_schema_update_running 1 while a schema update is being applied")
+	fmt.Fprintln(w, "# TYPE unmask_schema_update_running gauge")
+	if running {
+		fmt.Fprintln(w, "unmask_schema_update_running 1")
+	} else {
+		fmt.Fprintln(w, "unmask_schema_update_running 0")
+	}
+
 	// DB latency
 	fmt.Fprintln(w, "# HELP unmask_db_query_seconds DB query latency (sum & count, per op)")
 	fmt.Fprintln(w, "# TYPE unmask_db_query_seconds counter")

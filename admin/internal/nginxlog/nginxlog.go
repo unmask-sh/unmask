@@ -895,6 +895,11 @@ func (r *Reader) flushOnce(final bool) {
 	if r == nil || r.d == nil {
 		return
 	}
+	// A schema update holds the write lock: the buckets stay in memory,
+	// keep counting, and go out with the first flush after it.
+	if r.d.WritesHeld() {
+		return
+	}
 	nowMin := time.Now().Unix() / 60
 
 	type entry struct {

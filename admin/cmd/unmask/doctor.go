@@ -368,6 +368,7 @@ func cmdDoctor(args []string) error {
 		default:
 			addOK("DB planner stats", "index statistics present")
 		}
+		checkSchema(s, conn, addOK, addWarn)
 		checkHostIDPinned(s, conn, addOK, addWarn)
 		checkEventsRetention(s, conn, addOK, addWarn)
 		checkWALSize(conn, addOK, addWarn)
@@ -816,6 +817,64 @@ func aggregateStatusVerdict(a dashboard.AggregateStatus, now time.Time) (warn bo
 		msg += fmt.Sprintf(" (cursor advanced %s ago)", humanAge(now.Sub(a.UpdatedAt)))
 	}
 	return false, msg
+}
+
+// checkSchema: what this binary's migrations make of the database.  Up to
+// date on nearly every install; a schema update left for the operator (an
+// index build over a large table, which the daemon does not run at startup)
+// is a warning with the command that applies it; one that is running is said
+// to be; and a migration that is pending for any other reason means the
+// daemon's start failed to apply it, which its log explains.
+func checkSchema(s settings.Settings, conn *db.DB, addOK, addWarn func(t, m string)) {
+	pending, err := db.PendingMigrations(conn)
+	if err != nil {
+		addWarn("DB schema", fmt.Sprintf("could not read the migration state (%v)", err))
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	rec, hasRec, _ := conn.LoadSchemaUpdate(ctx)
+	host := resolveHostID(s.Server.HostID)
+	if warn, msg := schemaVerdict(pending, db.LeftForTheOperator(pending, s.DB.SchemaUpdateDeferOver()), rec, hasRec, host, time.Now(), conn.SchemaUpdateHoldsWrites()); warn {
+		addWarn("DB schema", msg)
+	} else {
+		addOK("DB schema", msg)
+	}
+}
+
+// holdsWrites: the run keeps the daemon's writes out while it builds
+// (db.SchemaUpdateHoldsWrites), which a reader who is about to change a
+// setting wants to know.
+func schemaVerdict(pending, left []db.PendingMigration, rec db.SchemaUpdateRecord, hasRec bool, host string, now time.Time, holdsWrites bool) (warn bool, msg string) {
+	if hasRec && rec.Alive(host, now) {
+		meanwhile := "the challenge is served meanwhile"
+		if holdsWrites {
+			meanwhile += ", changes in the admin UI wait"
+		}
+		return false, fmt.Sprintf("an update is being applied (started %s ago by %s on %s; expected to take %s) -- %s",
+			humanAge(now.Sub(time.Unix(rec.StartedAt, 0))), rec.By, rec.Host,
+			db.EstimateRange(time.Duration(rec.EstLowSec)*time.Second, time.Duration(rec.EstHighSec)*time.Second), meanwhile)
+	}
+	if len(pending) == 0 {
+		return false, "up to date"
+	}
+	var low, high time.Duration
+	var names []string
+	for _, m := range left {
+		low, high = low+m.EstLow, high+m.EstHigh
+		if len(m.Indexes) > 0 {
+			names = append(names, m.Name)
+		}
+	}
+	last := ""
+	if hasRec && rec.State == db.SchemaUpdateFailed {
+		last = fmt.Sprintf("; the last attempt failed: %s", rec.Err)
+	}
+	if len(left) == len(pending) {
+		return true, fmt.Sprintf("%d update(s) wait for you (%s: estimated %s) -- the daemon runs without them and does not apply them by itself; apply from the admin UI (the notice at the top of every page) or with `unmask migrate`%s",
+			len(left), strings.Join(names, ", "), db.EstimateRange(low, high), last)
+	}
+	return true, fmt.Sprintf("%d migration(s) not applied, which the daemon applies when it starts -- its log says why that failed (\"db: migrate failed at startup\"); `unmask migrate` applies them", len(pending)-len(left))
 }
 
 // checkAggregateWindows: every aggregate table's oldest row against the

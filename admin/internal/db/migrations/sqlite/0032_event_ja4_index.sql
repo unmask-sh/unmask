@@ -1,3 +1,8 @@
+-- unmask:deferrable table=unmask_event
+--
+-- Index-only, so the daemon may leave it for the operator when the table is
+-- large (see the package doc of internal/db/migrator.go).
+--
 -- 0032 fingerprint index on the event table.
 --
 -- What a fingerprint ban would hit -- which addresses completed the challenge

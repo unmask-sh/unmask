@@ -1,3 +1,8 @@
+-- unmask:deferrable table=unmask_event
+--
+-- Index-only, so the daemon may leave it for the operator when the table is
+-- large (see the package doc of internal/db/migrator.go).
+--
 -- 0033 replace the first shape of the fingerprint index.
 --
 -- 0032 first shipped as (ja4, date_created) and was measured not to help the

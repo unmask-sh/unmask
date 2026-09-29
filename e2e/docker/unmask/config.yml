@@ -4,6 +4,11 @@
 db:
   driver: sqlite
   sqlite_path: /var/lib/unmask/unmask.sqlite
+  # The daemon leaves an index build for the operator when it is expected to
+  # take longer than this.  The shipped default is 20 seconds, which takes a
+  # table of millions of rows to reach; one second lets scenario 63 get there
+  # with a table it can build in the time a test has.
+  schema_update_defer_seconds: 1
 
 secret:
   bv_secret: "e2e-docker-bv-secret-do-not-use-in-prod"

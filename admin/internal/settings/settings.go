@@ -87,6 +87,25 @@ type DB struct {
 	// than CPUs add no parallelism while thinning each one's share of the memory
 	// budget.  Consulted only under the "custom" profile.
 	MaxConns int `yaml:"max_conns,omitempty"`
+	// SchemaUpdateDeferSeconds is how long building an index may be expected
+	// to take before the daemon leaves that migration for the operator
+	// (applied from the admin UI or with `unmask migrate`) instead of running
+	// it at startup, where it is that long with no daemon.  0 (the default)
+	// means 20 seconds; a negative value applies everything at startup, as
+	// every version before this setting did.
+	SchemaUpdateDeferSeconds float64 `yaml:"schema_update_defer_seconds,omitempty"`
+}
+
+// SchemaUpdateDeferOver is SchemaUpdateDeferSeconds as the threshold the
+// migration pass takes: 0 for "the default", negative for "defer nothing".
+func (d DB) SchemaUpdateDeferOver() time.Duration {
+	switch {
+	case d.SchemaUpdateDeferSeconds < 0:
+		return -1
+	case d.SchemaUpdateDeferSeconds == 0:
+		return 0
+	}
+	return time.Duration(d.SchemaUpdateDeferSeconds * float64(time.Second))
 }
 
 // PerfProfile values.

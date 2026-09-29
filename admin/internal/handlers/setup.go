@@ -1023,7 +1023,11 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 		}
 		conn = c
 	}
-	if err := db.Migrate(conn); err != nil {
+	// Like the daemon's start, all but a long index build: the wizard can be
+	// pointed at an existing database, and this runs inside a request.
+	if _, err := db.MigrateWith(conn, db.MigrateOptions{
+		Defer: true, DeferOver: s.DB.SchemaUpdateDeferOver(), Logf: log.Printf,
+	}); err != nil {
 		if conn != h.DB {
 			_ = conn.Close()
 		}

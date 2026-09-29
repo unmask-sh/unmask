@@ -26,7 +26,7 @@ services:
         sed -i '/^  upstream_addr: unmask:9477/d' /etc/unmask/config.yml
         grep -q '^  socket_mode:' /etc/unmask/config.yml || \
           sed -i '/^  base_path: \/unmask/a\  socket_mode: "0666"' /etc/unmask/config.yml
-        /usr/local/bin/unmask migrate      -config /etc/unmask/config.yml
+        /usr/local/bin/unmask migrate -startup -config /etc/unmask/config.yml
         /usr/local/bin/unmask render-nginx -config /etc/unmask/config.yml
         exec /usr/local/bin/unmask serve   -config /etc/unmask/config.yml
     healthcheck:

@@ -62,6 +62,53 @@ type AggregatePruneRecord struct {
 	Failed map[string]string `json:"failed,omitempty"`
 }
 
+// MaintSchemaUpdate is the task name a schema update (the migrations the
+// daemon left for the operator, applied by `unmask migrate`) records under.
+const MaintSchemaUpdate = "schema_update"
+
+// Schema update states.
+const (
+	SchemaUpdateRunning   = "running"
+	SchemaUpdateDone      = "done"
+	SchemaUpdateFailed    = "failed"
+	SchemaUpdateCancelled = "cancelled"
+)
+
+// SchemaUpdateRecord is the last schema update: written before the first
+// statement runs (the update holds the write lock while it builds, so there is
+// no writing progress during it) and again when it ends.
+type SchemaUpdateRecord struct {
+	State string   `json:"state"`
+	Items []string `json:"items"` // the migrations this run applies
+	// Host / PID: where it runs, so a reader can tell a run that is still
+	// going from one whose process is gone.
+	Host string `json:"host,omitempty"`
+	PID  int    `json:"pid,omitempty"`
+	// By: who started it -- an admin's username, or "cli".
+	By        string `json:"by,omitempty"`
+	StartedAt int64  `json:"started_at"`
+	EndedAt   int64  `json:"ended_at,omitempty"`
+	// EstLowSec / EstHighSec: the estimate shown when it started.
+	EstLowSec  int `json:"est_low_s,omitempty"`
+	EstHighSec int `json:"est_high_s,omitempty"`
+	// Seconds: how long it took (ended runs).
+	Seconds float64 `json:"seconds,omitempty"`
+	Err     string  `json:"err,omitempty"`
+}
+
+// MaintSchemaRate is the task name this host's measured index build rate is
+// kept under.
+const MaintSchemaRate = "schema_rate"
+
+// SchemaRateRecord is how fast this host built an index the last time it built
+// one over a table large enough to measure by.  Estimates use it in place of
+// the built-in range, which has to cover every disk there is.
+type SchemaRateRecord struct {
+	MicrosPerRow float64 `json:"us_per_row"`
+	Rows         int64   `json:"rows"`
+	MeasuredAt   int64   `json:"measured_at"`
+}
+
 // SaveMaintState upserts a task's record.
 func (d *DB) SaveMaintState(ctx context.Context, name string, v any) error {
 	b, err := json.Marshal(v)

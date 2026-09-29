@@ -3,7 +3,7 @@
 // usage:
 //
 //	unmask serve          # start the HTTP server (FastAPI-style)
-//	unmask migrate        # create the schema
+//	unmask migrate        # create the schema / apply pending schema updates
 //	unmask config-init    # emit a config.yml with a random secret
 //	unmask version
 //
@@ -155,7 +155,7 @@ func usage() {
 
 usage:
   unmask serve [-config PATH]
-  unmask migrate [-config PATH]
+  unmask migrate [-config PATH] [-status] [-startup] [-skip-space-check]
   unmask config-init [-out PATH]
   unmask update-crawler-list [-out PATH]
   unmask review-crawler-list [-url URL]
@@ -328,8 +328,19 @@ func cmdServe(args []string) error {
 		// requires a new column (old schema + new binary), event insert won't
 		// break.  Serve continues on failure (don't disrupt existing
 		// operations; a UI warning surfaces it even when setup is unfinished).
-		if err := db.Migrate(conn); err != nil {
+		//
+		// All but the long ones: the daemon does not listen until this
+		// returns, so an index build over a large events table is left for
+		// the operator (db.MigrateOptions.Defer) and announced -- here, by
+		// doctor, and at the top of every admin page.
+		res, err := db.MigrateWith(conn, db.MigrateOptions{
+			Defer: true, DeferOver: s.DB.SchemaUpdateDeferOver(), Logf: log.Printf,
+		})
+		if err != nil {
 			log.Printf("db: migrate failed at startup (continuing with old schema; recommend running `unmask migrate` manually): %v", err)
+		}
+		if n := len(res.Deferred); n > 0 {
+			log.Printf("db: %d schema update(s) wait for the operator; the daemon runs without them.  Apply from the admin UI (the notice at the top of every page) or with `unmask migrate`", n)
 		}
 	}
 
@@ -770,6 +781,11 @@ func cmdServe(args []string) error {
 			t := time.NewTicker(time.Hour)
 			defer t.Stop()
 			for range t.C {
+				// Not against a schema update's write lock: the next hour's
+				// run takes what this one leaves.
+				if conn.WritesHeld() {
+					continue
+				}
 				runPrune()
 			}
 		}()
@@ -793,6 +809,12 @@ func cmdServe(args []string) error {
 			for range t.C {
 				sz := conn.WALSize()
 				if sz < db.WALLargeBytes {
+					continue
+				}
+				// A schema update writes its index into the log and holds
+				// the lock until it is done: large, not shrinking, and as
+				// intended.  It checkpoints the log itself when it ends.
+				if conn.WritesHeld() {
 					continue
 				}
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -827,6 +849,12 @@ func cmdServe(args []string) error {
 	// enabled.  Reads h.Settings live so web UI saves take effect.
 	if conn != nil {
 		go h.RunOverBlockMonitor(context.Background())
+	}
+
+	// Schema updates left for the operator: what waits, and the run that
+	// applies them (handlers/schema_update.go).
+	if conn != nil {
+		go h.RunSchemaWatch(context.Background())
 	}
 
 	// Scheduled advisor digest: run the deterministic candidate engine on a
@@ -909,10 +937,22 @@ func cmdServe(args []string) error {
 			runPrune()
 			t := time.NewTicker(60 * time.Second)
 			defer t.Stop()
+			pruneDue := false
 			for tick := 0; ; tick++ {
 				<-t.C
-				runAgg()
 				if tick%60 == 0 {
+					pruneDue = true
+				}
+				// A schema update holds the write lock: every statement
+				// here would wait out the busy timeout and fail.  The
+				// rollups continue from their cursors and the prune from
+				// its cutoff, so a skipped turn costs nothing but time.
+				if conn.WritesHeld() {
+					continue
+				}
+				runAgg()
+				if pruneDue {
+					pruneDue = false
 					runPrune()
 				}
 			}
@@ -1313,6 +1353,15 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSMTPTest)))
 	mux.HandleFunc("POST "+base+"/admin/api/iprange/sync",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminIPRangeSync)))
+	// Schema updates left for the operator (an index build over a large
+	// table): the notice on every page reads the first, its buttons post the
+	// other two.  Seeing it takes a session; acting on it a superadmin.
+	mux.HandleFunc("GET "+base+"/admin/api/schema-update",
+		h.AuthMiddleware(h.AdminSchemaUpdateStatus))
+	mux.HandleFunc("POST "+base+"/admin/api/schema-update/run",
+		h.AuthMiddleware(h.RequireRole(user.RoleSuperadmin, h.AdminSchemaUpdateRun)))
+	mux.HandleFunc("POST "+base+"/admin/api/schema-update/cancel",
+		h.AuthMiddleware(h.RequireRole(user.RoleSuperadmin, h.AdminSchemaUpdateCancel)))
 	// 1-click DB-IP Lite install / refresh.  Calls the same library as
 	// `unmask install-ipgeo` and reloads the in-process ipgeo Reader.
 	// Accepts ?kind=country (default) or ?kind=asn.
@@ -1447,45 +1496,8 @@ func (s *statusRecorder) Flush() {
 }
 
 // ----------------------------------------------------------------
-// migrate
+// migrate: see migrate.go
 // ----------------------------------------------------------------
-
-func cmdMigrate(args []string) error {
-	fs := flag.NewFlagSet("migrate", flag.ExitOnError)
-	configPath := fs.String("config", "", "path to config.yml")
-	_ = fs.Parse(args)
-
-	s, err := loadSettings(*configPath)
-	if err != nil {
-		return err
-	}
-	conn, err := db.Open(s.DB)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	if err := db.Migrate(conn); err != nil {
-		return err
-	}
-	fmt.Println("schema applied")
-	// ID-based linking: backfill ja4_verdict_id for existing rows via name lookup.
-	// Build the preset registry from built-in + settings.Extra.
-	extras := make([]nginxconf.ExtraVerdict, 0, len(s.Nginx.JA4Verdicts.Extra))
-	for _, e := range s.Nginx.JA4Verdicts.Extra {
-		extras = append(extras, nginxconf.ExtraVerdict{
-			ID: e.ID, Verdict: e.Verdict, Action: e.Action, Pattern: e.Pattern,
-		})
-	}
-	reg := nginxconf.BuildVerdictRegistry(extras)
-	nameToID := reg.AllNameToID()
-	if n, err := db.BackfillVerdictIDs(conn, nameToID); err != nil {
-		return fmt.Errorf("backfill verdict id: %w", err)
-	} else if n > 0 {
-		fmt.Printf("backfilled ja4_verdict_id for %d row(s)\n", n)
-	}
-	seedPlannerStats(conn, s.DB)
-	return nil
-}
 
 // plannerStatsAutoLimit: the largest SQLite file we will ANALYZE automatically at
 // migrate time.  ANALYZE reads every index end to end and holds a write lock for

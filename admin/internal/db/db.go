@@ -25,6 +25,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -49,6 +50,13 @@ type DB struct {
 	Gorm       *gorm.DB
 	Driver     Driver
 	SQLitePath string // the database file (SQLite); the write-ahead log sits next to it
+
+	// indexes is the set of index names the database had when it was last
+	// looked at (RefreshIndexes); nil until then.  See HasIndex.
+	indexes atomic.Pointer[map[string]bool]
+	// writesHeld: another process holds SQLite's write lock for a long run (a
+	// schema update building an index).  See HoldWrites.
+	writesHeld atomic.Bool
 }
 
 // SQLite memory sizing.
@@ -447,6 +455,11 @@ func open(s settings.DB, maintenance bool) (*DB, error) {
 	if driver == DriverSQLite {
 		out.SQLitePath = s.SQLitePath
 	}
+	// Which indexes exist, for the hints (HasIndex).  Best effort: a failure
+	// leaves the set unread, and HasIndex looks again on first use.
+	ictx, icancel := context.WithTimeout(context.Background(), 3*time.Second)
+	_ = out.RefreshIndexes(ictx)
+	icancel()
 	return out, nil
 }
 
@@ -459,27 +472,111 @@ func (d *DB) NowMinusMinutes(n int) string {
 	return fmt.Sprintf("DATE_SUB(NOW(), INTERVAL %d MINUTE)", n)
 }
 
+// RefreshIndexes re-reads which indexes the database has.  Called when the
+// database is opened, after every migration pass, and by the daemon when a
+// schema update it did not run itself (`unmask migrate` from a shell) ends.
+func (d *DB) RefreshIndexes(ctx context.Context) error {
+	if d == nil || d.DB == nil {
+		return errors.New("refresh indexes: no connection")
+	}
+	q := `SELECT name FROM sqlite_master WHERE type = 'index'`
+	if d.Driver == DriverMariaDB {
+		q = `SELECT DISTINCT INDEX_NAME FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE()`
+	}
+	rows, err := d.QueryContext(ctx, q)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	set := map[string]bool{}
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return err
+		}
+		set[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	d.indexes.Store(&set)
+	return nil
+}
+
+// HasIndex reports whether the database had the named index when it was last
+// looked at.
+//
+// It exists for INDEXED BY.  SQLite refuses a statement that names an index
+// which is not there, so a hint written unconditionally turns "this read is
+// slower without the index" into "this read fails" -- and an index can be
+// legitimately absent: a deferrable migration the operator has not applied
+// yet (see migrator.go).  Every hint below asks first; a read without its hint
+// is planned from whatever indexes exist, slower and just as correct.
+//
+// Unknown (never looked at, or the look failed) reads as absent: the safe
+// direction is the unhinted query.
+func (d *DB) HasIndex(name string) bool {
+	if d == nil {
+		return false
+	}
+	set := d.indexes.Load()
+	if set == nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if err := d.RefreshIndexes(ctx); err != nil {
+			return false
+		}
+		set = d.indexes.Load()
+	}
+	return set != nil && (*set)[name]
+}
+
+// indexHint is the INDEXED BY clause for an index, or "" on a driver that
+// takes none or a database that does not have the index.
+func (d *DB) indexHint(name string) string {
+	if d.Driver != DriverSQLite || !d.HasIndex(name) {
+		return ""
+	}
+	return " INDEXED BY " + name
+}
+
+// HoldWrites marks the database as write-locked by another process for a
+// long run (true), or releases the mark (false).
+//
+// SQLite has one writer.  While a schema update builds an index it holds the
+// write lock for the whole build -- minutes on a large table -- and every
+// other write waits out the busy timeout and then fails.  Readers are not
+// affected.  The daemon sets this while such a run is going so that its
+// writers can do better than wait and fail: the event and access-log flushers
+// keep what they have and write it afterwards, the periodic jobs skip their
+// turn, and the admin UI says why a save cannot happen now.
+//
+// MariaDB builds indexes online and never sets it.
+func (d *DB) HoldWrites(held bool) {
+	if d != nil {
+		d.writesHeld.Store(held)
+	}
+}
+
+// WritesHeld reports whether HoldWrites is in effect.
+func (d *DB) WritesHeld() bool { return d != nil && d.writesHeld.Load() }
+
+// ErrWritesHeld is what a write that checks WritesHeld returns instead of
+// waiting for the lock.
+var ErrWritesHeld = errors.New("the database is being updated (a schema update holds the write lock); try again when it has finished")
+
 // EventJA4IndexHint pins the fingerprint index for a read keyed on ja4 and a
 // phase over a date window (who completed the challenge with this
 // fingerprint).  Without it SQLite has no statistics to prefer it over the
 // date index, and the date index means walking the whole retention window --
-// migration 0032 exists for this read.
-func (d *DB) EventJA4IndexHint() string {
-	if d.Driver == DriverSQLite {
-		return " INDEXED BY idx_unmask_event_ja4_phase"
-	}
-	return ""
-}
+// migration 0032 exists for this read.  "" while that migration is waiting
+// for the operator: the read then walks the date index, as it did before.
+func (d *DB) EventJA4IndexHint() string { return d.indexHint("idx_unmask_event_ja4_phase") }
 
 // EventIPIndexHint pins the address index for a one-address read of
 // unmask_event (ip_address = ? AND date_created > ?): without planner
 // statistics SQLite may walk the date index instead.
-func (d *DB) EventIPIndexHint() string {
-	if d.Driver == DriverSQLite {
-		return " INDEXED BY idx_unmask_event_ip_date"
-	}
-	return ""
-}
+func (d *DB) EventIPIndexHint() string { return d.indexHint("idx_unmask_event_ip_date") }
 
 // JSONExtract returns a SQL fragment reading one path of a JSON column as
 // text for the active driver: SQLite's json_extract yields the bare value,
@@ -578,10 +675,7 @@ func (d *DB) EventDateIndexHint(window string) string {
 	if window == "" {
 		return ""
 	}
-	if d.Driver == DriverSQLite {
-		return " INDEXED BY idx_unmask_event_date"
-	}
-	return ""
+	return d.indexHint("idx_unmask_event_date")
 }
 
 // SQLiteSpace is what the database file holds: its size on disk, and the

@@ -109,7 +109,16 @@ func TestRankByIPPinsDateIndex(t *testing.T) {
 // that cannot use the named index, so the hint must be omitted when the query
 // carries no date_created constraint.
 func TestEventDateHintSkippedWithoutWindow(t *testing.T) {
-	d := &db.DB{Driver: db.DriverSQLite}
+	// A migrated database: the hint is only written for an index that is
+	// there (db.HasIndex), so a handle with no database behind it has none.
+	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if err := db.Migrate(d); err != nil {
+		t.Fatal(err)
+	}
 	if got := d.EventDateIndexHint(""); got != "" {
 		t.Errorf("no window must yield no hint, got %q", got)
 	}

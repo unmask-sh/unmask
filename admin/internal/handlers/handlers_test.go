@@ -99,6 +99,11 @@ func newTestHandler(t *testing.T) *Handler {
 			t.Fatalf("schema: %v\n%s", err, stmt)
 		}
 	}
+	// The handle read the index list when it was opened, before this schema
+	// existed; the hints are only written for indexes it knows to be there.
+	if err := conn.RefreshIndexes(context.Background()); err != nil {
+		t.Fatalf("index list: %v", err)
+	}
 	s := settings.Settings{
 		Secret: settings.Secret{
 			BVSecret:          "test-secret",
