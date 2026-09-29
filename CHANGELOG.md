@@ -20,6 +20,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-09-29) **Mattermost link previews pass out of the box.**  Mattermost fetches a pasted link's preview from its own server as `Mattermost-Bot`, which the crawler list did not carry, so the fetch was challenged and the link rendered bare.  It joins the supplement next to Chatwork, Webex and Notion, and can be switched off per pattern like any other.
 
 ### Fixed
+- (2026-09-29) **The hourly prune no longer stops at the first table that fails.**  The aggregate tables are pruned one after another, and an error on one ended the run: the tables listed after it were not trimmed that hour, and not at all if the error kept returning.  Every table now gets its turn, the failures are reported together, and the run is recorded for `unmask doctor` to read.
+
+- (2026-09-29) **doctor no longer reports a prune problem right after an upgrade.**  `DB aggregate windows` warned that the hourly prune was not trimming a table whenever one held more than its window, which is also how the first hour looks after upgrading from a version that did not prune that table.  It now reads the prune's own record and tells a run still to come from a failed one.
+
 - (2026-09-29) **URLs and referers in bot hunt show `&` as written.**  The log stored the character in its escaped form and displayed that form unchanged, so a URL with two query parameters, or a referer from a search engine, read `\u0026` where the `&` belonged.  Paths and referers are now decoded before display, and the URL popover's open and copy actions act on the real address.
 
 ## [0.1.48] - 2026-09-27

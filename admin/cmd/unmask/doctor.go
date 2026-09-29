@@ -830,14 +830,33 @@ func checkAggregateWindows(conn *db.DB, addOK, addWarn func(t, m string)) {
 		addWarn("DB aggregate windows", fmt.Sprintf("could not measure (%v)", err))
 		return
 	}
-	if warn, msg := aggregateWindowsVerdict(ws); warn {
+	var rec db.AggregatePruneRecord
+	hasRec, _ := conn.LoadMaintState(ctx, db.MaintAggregatePrune, &rec)
+	if warn, msg := aggregateWindowsVerdict(ws, rec, hasRec, time.Now()); warn {
 		addWarn("DB aggregate windows", msg)
 	} else {
 		addOK("DB aggregate windows", msg)
 	}
 }
 
-func aggregateWindowsVerdict(ws []dashboard.AggregateWindow) (warn bool, msg string) {
+// pruneFresh is how recent the last completed prune has to be for a table
+// that is still past its window to be the prune's fault: the prune runs
+// hourly, so one that completed within this long has been over the table.
+const pruneFresh = 90 * time.Minute
+
+// aggregateWindowsVerdict words the audit.  A table past its window means one
+// of three things, and they call for different words:
+//
+//   - the prune completed a moment ago and the table is still over: the prune
+//     is not trimming it.  That is the finding the audit exists for.
+//   - the prune failed on it: say which table and why.
+//   - no prune has completed lately: there is nothing to blame on the prune
+//     yet.  This is every install shortly after an upgrade from a version
+//     that did not prune the table -- the rows piled up under the old version,
+//     and the new one trims them on its first run, minutes after the daemon
+//     starts.  Read as "the prune is not trimming it", that state sent an
+//     operator to report a defect that was about to fix itself.
+func aggregateWindowsVerdict(ws []dashboard.AggregateWindow, rec db.AggregatePruneRecord, hasRec bool, now time.Time) (warn bool, msg string) {
 	var over []string
 	measured := 0
 	for _, w := range ws {
@@ -849,10 +868,27 @@ func aggregateWindowsVerdict(ws []dashboard.AggregateWindow) (warn bool, msg str
 			over = append(over, fmt.Sprintf("%s (oldest row %dd)", w.Table, int(w.OldestAge.Hours()/24)))
 		}
 	}
-	if len(over) > 0 {
-		return true, fmt.Sprintf("%s past the %d-day window -- the hourly prune is not trimming it; it grows without bound and slows the cards that read it", strings.Join(over, ", "), dashboard.AggregateKeepDays)
+	if len(over) == 0 {
+		return false, fmt.Sprintf("%d table(s) within the %d-day window", measured, dashboard.AggregateKeepDays)
 	}
-	return false, fmt.Sprintf("%d table(s) within the %d-day window", measured, dashboard.AggregateKeepDays)
+	what := fmt.Sprintf("%s past the %d-day window", strings.Join(over, ", "), dashboard.AggregateKeepDays)
+	if hasRec && len(rec.Failed) > 0 {
+		var why []string
+		for table, e := range rec.Failed {
+			why = append(why, table+": "+e)
+		}
+		sort.Strings(why)
+		return true, fmt.Sprintf("%s -- the last hourly prune (%s ago) failed on %s; the other tables were pruned, and it tries again every hour",
+			what, humanAge(now.Sub(time.Unix(rec.StartedAt, 0))), strings.Join(why, "; "))
+	}
+	if !hasRec || rec.CompletedAt == 0 {
+		return false, what + " -- no prune has completed under this version yet.  The daemon prunes these tables a few minutes after it starts and every hour after that: look again in an hour (nothing to do if the daemon is running)"
+	}
+	age := now.Sub(time.Unix(rec.CompletedAt, 0))
+	if age < pruneFresh {
+		return true, fmt.Sprintf("%s -- the hourly prune completed %s ago and is not trimming it; it grows without bound and slows the cards that read it", what, humanAge(age))
+	}
+	return true, fmt.Sprintf("%s -- the hourly prune last completed %s ago; it runs while the daemon does, so check that the daemon is running and what its log says about \"hourly aggregate prune\"", what, humanAge(age))
 }
 
 // humanAge: a duration as an operator reads it -- minutes up to two days,
