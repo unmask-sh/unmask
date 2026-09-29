@@ -1,0 +1,130 @@
+{{- /*
+  schema_update_notice: the notice about a database update that the daemon did
+  not apply by itself (an index build over a large table; see
+  internal/db/migrator.go and internal/handlers/schema_update.go).
+
+  Part of header_tools, so it is on every signed-in page without any page
+  listing it.  header_tools sits inside the page's <header>; the notice belongs
+  under it, across the page, so the script moves it there.  .SchemaUpdate is
+  set by addMeToData and is nil -- nothing is rendered -- on an install with
+  nothing waiting, which is nearly all of them.
+
+  The styles are here rather than in each page's <style>: the markup is
+  injected by this partial, and a page that did not know about it would
+  otherwise show it unstyled.
+*/ -}}
+{{ define "schema_update_notice" }}{{ with .SchemaUpdate }}
+<style>
+.schup{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;padding:.6rem 1.5rem;font-size:.875rem;line-height:1.5;border-bottom:1px solid}
+.schup[hidden]{display:none}
+.schup-pending{background:#fffbeb;border-color:#fcd34d;color:#78350f}
+.schup-running{background:#eff6ff;border-color:#93c5fd;color:#1e3a8a}
+.schup-done{background:#f0fdf4;border-color:#86efac;color:#166534}
+.schup-failed{background:#fef2f2;border-color:#fca5a5;color:#991b1b}
+.schup-msg{flex:1;min-width:16rem}
+.schup-sub{display:block;font-size:.8125rem;opacity:.85}
+.schup button{font:inherit;font-size:.8125rem;font-weight:600;padding:.3rem .8rem;border-radius:.3rem;border:1px solid currentColor;background:#fff;color:inherit;cursor:pointer}
+.schup button:hover{background:rgba(255,255,255,.6)}
+.schup button[disabled]{opacity:.5;cursor:default}
+.schup-err{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8125rem;word-break:break-word}
+</style>
+<div id="schup" class="schup schup-{{ .State }}" role="status" hidden
+     data-state="{{ .State }}" data-started="{{ .StartedAt }}" data-ended="{{ .EndedAt }}" data-now="{{ .Now }}"
+     data-api="{{ $.BasePath }}/admin/api/schema-update"
+     data-l-elapsed="{{ t $.Lang "schema_update.elapsed" }}"
+     data-l-starting="{{ t $.Lang "schema_update.starting" }}"
+     data-l-stopping="{{ t $.Lang "schema_update.stopping" }}"
+     data-l-confirm="{{ if .HoldsWrites }}{{ t $.Lang "schema_update.confirm" }}{{ else }}{{ t $.Lang "schema_update.confirm_online" }}{{ end }}"
+     data-l-request-failed="{{ t $.Lang "schema_update.request_failed" }}">
+  <span class="schup-msg">
+    {{- if eq .State "pending" -}}
+      {{ if .Cancelled }}{{ t $.Lang "schema_update.cancelled" }} {{ end }}{{ tf $.Lang "schema_update.pending" .Est }}
+      <span class="schup-sub">{{ if .HoldsWrites }}{{ t $.Lang "schema_update.pending_sub" }}{{ else }}{{ t $.Lang "schema_update.pending_sub_online" }}{{ end }}{{ if not .CanRun }} {{ t $.Lang "schema_update.needs_superadmin" }}{{ end }}</span>
+    {{- else if eq .State "running" -}}
+      {{ t $.Lang "schema_update.running" }} <span id="schup-elapsed"></span>{{ if .Est }} {{ tf $.Lang "schema_update.expected" .Est }}{{ end }}
+      <span class="schup-sub">{{ if .HoldsWrites }}{{ t $.Lang "schema_update.running_sub" }}{{ else }}{{ t $.Lang "schema_update.running_sub_online" }}{{ end }}{{ if and .By (not .CanCancel) }} {{ tf $.Lang "schema_update.started_by" .By .Host }}{{ end }}</span>
+    {{- else if eq .State "done" -}}
+      {{ tf $.Lang "schema_update.done" .Took }}
+    {{- else if eq .State "failed" -}}
+      {{ t $.Lang "schema_update.failed" }} <span class="schup-err">{{ .Err }}</span>
+      <span class="schup-sub">{{ tf $.Lang "schema_update.pending" .Est }}{{ if not .CanRun }} {{ t $.Lang "schema_update.needs_superadmin" }}{{ end }}</span>
+    {{- end -}}
+  </span>
+  {{ if and .CanRun (or (eq .State "pending") (eq .State "failed")) }}<button type="button" id="schup-run">{{ if eq .State "failed" }}{{ t $.Lang "schema_update.retry" }}{{ else }}{{ t $.Lang "schema_update.run" }}{{ end }}</button>{{ end }}
+  {{ if and .CanCancel (eq .State "running") }}<button type="button" id="schup-cancel">{{ t $.Lang "schema_update.cancel" }}</button>{{ end }}
+  {{ if eq .State "done" }}<button type="button" id="schup-dismiss">{{ t $.Lang "schema_update.dismiss" }}</button>{{ end }}
+</div>
+<script>
+(function(){
+  var el = document.getElementById('schup');
+  if (!el) return;
+  var L = function(k){ return el.getAttribute('data-l-' + k) || ''; };
+  var state = el.getAttribute('data-state');
+  var api = el.getAttribute('data-api');
+
+  // A finished run is news once: dismissed, it stays away on every page.
+  var DONE_KEY = 'unmask:schema-update-seen';
+  var ended = el.getAttribute('data-ended') || '';
+  function lsGet(k){ try { return localStorage.getItem(k) || ''; } catch(e){ return ''; } }
+  function lsSet(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
+  if (state === 'done' && lsGet(DONE_KEY) === ended) return;
+
+  // Under the header, across the page.
+  var hdr = document.querySelector('header.unmask-header') || document.querySelector('header');
+  if (hdr && hdr.parentNode) hdr.parentNode.insertBefore(el, hdr.nextSibling);
+  el.hidden = false;
+
+  function mmss(sec){
+    sec = Math.max(0, Math.floor(sec));
+    var m = Math.floor(sec / 60), s = sec % 60;
+    return m + ':' + (s < 10 ? '0' : '') + s;
+  }
+  // Elapsed time runs on the server's clock: the page knows the server's
+  // "now" at render and counts forward from its own arrival.
+  var started = parseInt(el.getAttribute('data-started'), 10) || 0;
+  var serverNow = parseInt(el.getAttribute('data-now'), 10) || 0;
+  var arrived = Date.now();
+  function tick(){
+    var out = document.getElementById('schup-elapsed');
+    if (!out || !started) return;
+    var now = serverNow + (Date.now() - arrived) / 1000;
+    out.textContent = L('elapsed').replace('%s', mmss(now - started));
+  }
+  function post(path, btn, busyLabel){
+    btn.disabled = true;
+    var was = btn.textContent;
+    btn.textContent = busyLabel;
+    fetch(api + path, {method: 'POST', credentials: 'same-origin'}).then(function(r){
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      // The page re-renders from the server's state; a moment for the run
+      // to have written its record.
+      setTimeout(function(){ location.reload(); }, 1200);
+    }).catch(function(){
+      btn.disabled = false;
+      btn.textContent = was;
+      alert(L('request-failed'));
+    });
+  }
+  var run = document.getElementById('schup-run');
+  if (run) run.addEventListener('click', function(){
+    if (!confirm(L('confirm'))) return;
+    post('/run', run, L('starting'));
+  });
+  var cancel = document.getElementById('schup-cancel');
+  if (cancel) cancel.addEventListener('click', function(){ post('/cancel', cancel, L('stopping')); });
+  var dismiss = document.getElementById('schup-dismiss');
+  if (dismiss) dismiss.addEventListener('click', function(){ lsSet(DONE_KEY, ended); el.hidden = true; });
+
+  if (state === 'running') {
+    tick();
+    setInterval(tick, 1000);
+    // When the run ends the page says so by itself.
+    var poll = setInterval(function(){
+      fetch(api, {credentials: 'same-origin'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(v){
+        if (v && v.state !== 'running') { clearInterval(poll); location.reload(); }
+      }).catch(function(){});
+    }, 5000);
+  }
+})();
+</script>
+{{ end }}{{ end }}

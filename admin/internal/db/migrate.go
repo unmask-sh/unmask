@@ -5,11 +5,13 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"log"
 	"os"
 	"strings"
+	"time"
 )
 
 // Migrate: apply the schema to a connected DB.  Idempotent.
@@ -27,6 +29,40 @@ import (
 // Any returned error means at least one step failed.  Callers can return
 // it directly without wrapping.
 func Migrate(conn *DB) error {
+	_, err := MigrateWith(conn, MigrateOptions{})
+	return err
+}
+
+// MigrateWith is Migrate with options for the numbered migrations -- the
+// daemon uses them to leave a long index build for the operator -- and a
+// report of what that pass applied and what it left.
+func MigrateWith(conn *DB, opt MigrateOptions) (MigrateResult, error) {
+	res, err := migrate(conn, opt)
+	// Whatever happened, the set of indexes may have changed.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if rerr := conn.RefreshIndexes(ctx); rerr != nil && err == nil {
+		log.Printf("db: could not re-read the index list after migrating (%v); index hints stay off until the next look", rerr)
+	}
+	return res, err
+}
+
+func migrate(conn *DB, opt MigrateOptions) (MigrateResult, error) {
+	var none MigrateResult
+	if err := migrateBase(conn); err != nil {
+		return none, err
+	}
+	// numbered migration framework.  Apply the baseline marker + future deltas.
+	res, err := RunMigrationsOpts(conn, opt)
+	if err != nil {
+		return res, fmt.Errorf("run numbered migrations: %w", err)
+	}
+	return res, nil
+}
+
+// migrateBase is everything Migrate does before the numbered migrations: the
+// legacy normalisation and the base schema.
+func migrateBase(conn *DB) error {
 	if err := ensureSiteColumn(conn); err != nil {
 		return err
 	}
@@ -84,10 +120,6 @@ func Migrate(conn *DB) error {
 	}
 	if err := ensureUserDisabledColumn(conn); err != nil {
 		return fmt.Errorf("ensure user disabled column: %w", err)
-	}
-	// numbered migration framework.  Apply the baseline marker + future deltas.
-	if err := RunMigrations(conn); err != nil {
-		return fmt.Errorf("run numbered migrations: %w", err)
 	}
 	return nil
 }

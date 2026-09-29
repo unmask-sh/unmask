@@ -142,6 +142,12 @@ type Manager struct {
 	// notifier can stay decoupled).  Nil is fine.  Assigned by the caller
 	// (= so the ban package does not depend on notifier).
 	OnCreated func(ip, ja4, source, reason, bannedBy string)
+
+	// held: automatic bans that arrived while the database's writes were held
+	// by a schema update, written once the lock is free.  heldFull: the list
+	// reached heldBansMax and that has been logged.  Both under mu.
+	held     []heldBan
+	heldFull bool
 }
 
 // SetActionResolver installs the per-source action picker.  Safe to call
@@ -291,6 +297,16 @@ func (m *Manager) AddWithSourceAction(ctx context.Context, ip, ja4, source, reas
 	// use AddPermanent (provided separately).
 	if m.duration > 0 {
 		expires = now + int64(m.duration.Seconds())
+	}
+	if m.DB.WritesHeld() {
+		// A schema update holds the write lock.  This runs on the access
+		// log's receive loop (a honeypot hit), which must not stand still
+		// for the busy timeout at every hit; and a ban that fails to write
+		// is a ban that never happens.  Keep it, and write it when the lock
+		// is free (loop).
+		m.hold(heldBan{ip: ip, ja4: ja4, source: source, reason: reason, bannedBy: bannedBy,
+			action: strings.TrimSpace(action), bannedAt: now, expiresAt: expires})
+		return
 	}
 	if err := m.upsert(ctx, ip, ja4, source, reason, now, expires, bannedBy, strings.TrimSpace(action), DeriveScope(ip, ja4)); err != nil {
 		log.Printf("ban upsert: %v", err)
@@ -470,6 +486,58 @@ func (m *Manager) Remove(ctx context.Context, id int64) error {
 	return nil
 }
 
+// heldBan is an automatic ban that could not be written while the database's
+// writes were held.
+type heldBan struct {
+	ip, ja4, source, reason, bannedBy, action string
+	bannedAt, expiresAt                       int64
+}
+
+// heldBansMax bounds the bans kept while writes are held.  One per offending
+// client, over the minutes an index build takes: far below this unless under
+// attack, and an attack must not grow the list without limit.
+const heldBansMax = 10000
+
+func (m *Manager) hold(b heldBan) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.held) >= heldBansMax {
+		if !m.heldFull {
+			m.heldFull = true
+			log.Printf("ban: %d automatic bans are waiting for the schema update to finish; further ones are not kept", heldBansMax)
+		}
+		return
+	}
+	m.held = append(m.held, b)
+}
+
+// writeHeld writes the bans kept while writes were held.  Called from loop
+// once the lock is free.
+func (m *Manager) writeHeld() {
+	m.mu.Lock()
+	held := m.held
+	m.held, m.heldFull = nil, false
+	m.mu.Unlock()
+	if len(held) == 0 {
+		return
+	}
+	n := 0
+	for _, b := range held {
+		if err := m.upsert(context.Background(), b.ip, b.ja4, b.source, b.reason, b.bannedAt, b.expiresAt, b.bannedBy, b.action, DeriveScope(b.ip, b.ja4)); err != nil {
+			log.Printf("ban upsert (kept during the schema update): %v", err)
+			continue
+		}
+		n++
+		if m.OnCreated != nil {
+			m.OnCreated(b.ip, b.ja4, b.source, b.reason, b.bannedBy)
+		}
+	}
+	log.Printf("ban: wrote %d automatic ban(s) kept during the schema update", n)
+	if n > 0 {
+		m.markDirty()
+	}
+}
+
 func (m *Manager) markDirty() {
 	m.mu.Lock()
 	m.dirty = true
@@ -636,6 +704,11 @@ func (m *Manager) loop() {
 		case <-m.stopCh:
 			return
 		case <-tick.C:
+			if m.DB.WritesHeld() {
+				// Nothing here can write now; the next tick tries again.
+				continue
+			}
+			m.writeHeld()
 			if pruned := m.prune(); pruned > 0 {
 				m.markDirty()
 			}

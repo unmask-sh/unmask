@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -181,6 +182,13 @@ type Handler struct {
 	// PreviewLogoServe, age/count-evicted; lazily created via
 	// previewLogoStoreOf.  Nil until the first preview upload.
 	previewLogos atomic.Pointer[previewLogoStore]
+
+	// schema is what the daemon knows about the schema updates left for the
+	// operator and the run that applies them.  See schema_update.go.
+	schema schemaUpdater
+	// SchemaCommand builds the process that applies a schema update; nil
+	// means this binary's `migrate`.  Tests put their own in.
+	SchemaCommand func(by string) (*exec.Cmd, error)
 }
 
 // cfg returns the live settings snapshot.  The returned pointer is shared and
@@ -3046,7 +3054,13 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 		CookieBR:     cookieBR,
 		Payload:      raw,
 	}
-	if err := events.Insert(r.Context(), h.DB, beacon); err != nil && r.Context().Err() == nil {
+	// While a schema update holds the write lock the direct insert is not
+	// tried at all: it would keep the visitor's browser waiting for the whole
+	// busy timeout before falling back, on every beacon, for as long as the
+	// index build runs.  The batcher keeps the row until the lock is free.
+	if h.DB.WritesHeld() {
+		events.InsertAsync(h.DB, beacon)
+	} else if err := events.Insert(r.Context(), h.DB, beacon); err != nil && r.Context().Err() == nil {
 		events.InsertAsync(h.DB, beacon)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1})

@@ -168,12 +168,19 @@ if [ "$(id -u)" = "0" ]; then
     done
 fi
 
-# `serve` does not migrate or render on its own (on a host those are
-# postinstall / wizard steps).  A container has neither, so do both here:
-# the schema must exist before the wizard, and the nginx sidecar refuses to
-# start until the includes it references exist in the shared volume.
+# On a host the schema and the rendered includes are there before the daemon
+# first starts (postinstall / the wizard).  A container has neither step, so
+# both happen here: the schema must exist before the wizard, and nginx refuses
+# to start until the includes it references exist.
+#
+# `migrate -startup` is the pass the daemon itself makes when it starts: it
+# applies everything but an index build over a large table, which it leaves
+# for the operator and announces (here in the container's log, and at the top
+# of every admin page).  The supervisor gives the daemon 90 seconds to come
+# up; a build that takes longer, run here, would get the container restarted
+# and begin again on every restart.
 if [ "${1:-}" = "serve" ]; then
-    /usr/local/bin/unmask migrate      -config "$CFG"
+    /usr/local/bin/unmask migrate -startup -config "$CFG"
     /usr/local/bin/unmask render-nginx -config "$CFG"
 fi
 exec /usr/local/bin/unmask "$@"

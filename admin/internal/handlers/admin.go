@@ -647,6 +647,13 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 						http.Error(w, "csrf token mismatch (= reload the page and retry)", http.StatusForbidden)
 						return
 					}
+					// A schema update holds the database's write lock: a
+					// change made now would wait out the busy timeout and
+					// fail.  Say so instead (schema_update.go).
+					if h.DB.WritesHeld() && !h.schemaWriteExempt(r) {
+						h.respondWritesHeld(w, r)
+						return
+					}
 				}
 				ctx := context.WithValue(r.Context(), sessionCtxKey{}, pay)
 				next(w, r.WithContext(ctx))
@@ -974,6 +981,11 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 			if u, err := h.UserRepo.GetByID(r.Context(), pay.UserID); err == nil {
 				data["MeName"] = u.Username
 			}
+		}
+		// The schema update notice (partial_schema_update.html, part of
+		// header_tools): nil, and nothing rendered, when no update waits.
+		if _, ok := data["SchemaUpdate"]; !ok {
+			data["SchemaUpdate"] = h.schemaView(pay.Role, i18n.Resolve(r))
 		}
 	}
 	// "共有 BAN" tab badge: count of source=community_bans rows in BanMgr so

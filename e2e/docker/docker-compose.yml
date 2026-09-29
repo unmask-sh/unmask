@@ -21,13 +21,16 @@ services:
       - unmask-run:/run/unmask
       - unmask-data:/var/lib/unmask
       - unmask-conf:/etc/unmask
-    # unmask runs in order: migrate → render-nginx → serve.
+    # unmask runs in order: migrate → render-nginx → serve, the order of the
+    # shipped image's entrypoint (docker/entrypoint.sh), and like it with
+    # `migrate -startup`: the daemon's own pass, which leaves a long index
+    # build for the operator (scenario 63).
     # render-nginx writes /etc/unmask/nginx-rendered*.conf; the nginx container reads them.
     # entrypoint cleared so the sh -c chain works (the image's ENTRYPOINT is
     # /usr/local/bin/unmask, which would otherwise eat "sh" as a subcommand).
     entrypoint: []
     command: >
-      sh -c "/usr/local/bin/unmask migrate     -config /etc/unmask/config.yml &&
+      sh -c "/usr/local/bin/unmask migrate -startup -config /etc/unmask/config.yml &&
              /usr/local/bin/unmask render-nginx -config /etc/unmask/config.yml &&
              /usr/local/bin/unmask serve       -config /etc/unmask/config.yml"
     environment:

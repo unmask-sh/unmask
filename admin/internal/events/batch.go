@@ -8,6 +8,9 @@
 //     3) Stop() (= shutdown signal) → drain + final flush + exit
 //   - Flush inserts every row inside a single transaction (= 10-50x faster on SQLite WAL)
 //   - On a full queue, drop + warn log (= prevent OOM from a bot flood)
+//   - While a schema update holds the database's write lock (db.WritesHeld)
+//     nothing is written: the events are kept, up to heldMax, and written
+//     when the lock is released
 //
 // Hot reload: batchSize / flushInterval can be updated atomically (= the web
 // UI's settings save swaps them in and the next cycle picks them up).
@@ -81,6 +84,17 @@ func (f *Flusher) Submit(e *Event) {
 	}
 }
 
+// heldMax is how many events are kept while the database's writes are held.
+// An index build over a large table holds the write lock for minutes; the
+// challenge goes on during it and its events are worth having afterwards.
+// Past this many the oldest go, counted with the DB-error drops.
+const heldMax = 50000
+
+// flushChunk bounds one transaction when a backlog is written: the lock is
+// released between chunks, so whatever else is waiting to write gets in, and
+// no one transaction has to beat the flush's own deadline on a slow disk.
+const flushChunk = 500
+
 // maxBatchSize bounds the hot-reloadable batch size.  Events are flushed in one
 // transaction, so a batch this large is already far past useful; the point of
 // the ceiling is that the value is narrowed to int32 below.
@@ -144,10 +158,40 @@ func (f *Flusher) run() {
 	t := time.NewTicker(100 * time.Millisecond)
 	defer t.Stop()
 	lastFlush := time.Now()
+	holding := false
 
 	flush := func() {
 		if len(buf) == 0 {
 			return
+		}
+		if f.d.WritesHeld() {
+			// A write now would wait out the busy timeout and fail, over
+			// and over for as long as the build runs.  Keep the events.
+			if over := len(buf) - heldMax; over > 0 {
+				f.droppedOnError.Add(uint64(over))
+				buf = append(buf[:0], buf[over:]...)
+			}
+			if !holding {
+				holding = true
+				log.Printf("events flusher: a schema update holds the write lock; events are kept in memory (up to %d) and written when it has finished", heldMax)
+			}
+			lastFlush = time.Now()
+			return
+		}
+		if holding {
+			holding = false
+			log.Printf("events flusher: the write lock is free again; writing the %d event(s) kept meanwhile", len(buf))
+		}
+		for len(buf) > flushChunk {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			err := insertBulk(ctx, f.d, buf[:flushChunk])
+			cancel()
+			if err != nil {
+				log.Printf("events batch flush (n=%d of %d): %v -- retained for retry", flushChunk, len(buf), err)
+				lastFlush = time.Now()
+				return
+			}
+			buf = append(buf[:0], buf[flushChunk:]...)
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()

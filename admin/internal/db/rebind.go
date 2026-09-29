@@ -17,6 +17,13 @@ func RebindAllow(ctx context.Context, conn *DB, lineage, host string, maxLifetim
 	if lineage == "" {
 		return false, nil
 	}
+	// A schema update holds the write lock, and consuming a rebind is a
+	// write.  Refuse now rather than after the busy timeout: the visitor is
+	// waiting on this request, and what a refused rebind costs them is the
+	// challenge they would have met without it.
+	if conn.WritesHeld() {
+		return false, ErrWritesHeld
+	}
 	// Ensure the row exists (first rebind for this lineage).
 	var ins string
 	if conn.Driver == DriverMariaDB {

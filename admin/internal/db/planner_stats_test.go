@@ -13,7 +13,15 @@ import (
 // live InnoDB statistics, so it must stay unhinted.
 func TestEventDateIndexHint(t *testing.T) {
 	const win = "date_created > 'x'"
-	if got := (&DB{Driver: DriverSQLite}).EventDateIndexHint(win); got != " INDEXED BY idx_unmask_event_date" {
+	lite, err := Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lite.Close()
+	if err := Migrate(lite); err != nil {
+		t.Fatal(err)
+	}
+	if got := lite.EventDateIndexHint(win); got != " INDEXED BY idx_unmask_event_date" {
 		t.Errorf("sqlite hint = %q", got)
 	}
 	if got := (&DB{Driver: DriverMariaDB}).EventDateIndexHint(win); got != "" {
@@ -22,10 +30,65 @@ func TestEventDateIndexHint(t *testing.T) {
 	// No window, no hint: INDEXED BY on a query that cannot use the index is a
 	// hard SQLite error, so this guard is the reason the window is a parameter
 	// rather than something every caller has to remember.
-	for _, d := range []*DB{{Driver: DriverSQLite}, {Driver: DriverMariaDB}} {
+	for _, d := range []*DB{lite, {Driver: DriverMariaDB}} {
 		if got := d.EventDateIndexHint(""); got != "" {
 			t.Errorf("%s: an unwindowed query must not be pinned, got %q", d.Driver, got)
 		}
+	}
+}
+
+// TestIndexHintsFollowTheIndexes: INDEXED BY names an index, and SQLite
+// refuses a statement naming one that is not there.  An index can be absent
+// on a healthy install -- a deferrable migration the operator has not applied
+// yet -- so a hint is only written for an index the database has, and comes
+// back by itself once the index is built.
+func TestIndexHintsFollowTheIndexes(t *testing.T) {
+	d, err := Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	// Before the schema exists there is nothing to pin to.
+	if got := d.EventJA4IndexHint(); got != "" {
+		t.Errorf("no schema yet: hint = %q, want none", got)
+	}
+	if err := Migrate(d); err != nil {
+		t.Fatal(err)
+	}
+	const want = " INDEXED BY idx_unmask_event_ja4_phase"
+	if got := d.EventJA4IndexHint(); got != want {
+		t.Fatalf("after migrate: hint = %q, want %q", got, want)
+	}
+
+	ctx := context.Background()
+	if _, err := d.ExecContext(ctx, `DROP INDEX idx_unmask_event_ja4_phase`); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.RefreshIndexes(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.EventJA4IndexHint(); got != "" {
+		t.Fatalf("index gone: hint = %q, want none", got)
+	}
+	// The read the hint is for still answers without it.
+	q := `SELECT COUNT(*) FROM unmask_event` + d.EventJA4IndexHint() + ` WHERE ja4 = 'x' AND phase = 'serve' AND date_created > '2000-01-01'`
+	var n int
+	if err := d.QueryRowContext(ctx, q).Scan(&n); err != nil {
+		t.Fatalf("the unhinted read must work while the index is absent: %v", err)
+	}
+
+	if _, err := d.ExecContext(ctx, `CREATE INDEX idx_unmask_event_ja4_phase ON unmask_event(ja4, phase, date_created)`); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.RefreshIndexes(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := d.EventJA4IndexHint(); got != want {
+		t.Fatalf("index back: hint = %q, want %q", got, want)
+	}
+	// A handle with no connection knows nothing, and unknown reads as absent.
+	if got := (&DB{Driver: DriverSQLite}).EventJA4IndexHint(); got != "" {
+		t.Errorf("no connection: hint = %q, want none", got)
 	}
 }
 
