@@ -55,6 +55,63 @@ func TestHuntRefererInDatetimePopover(t *testing.T) {
 	}
 }
 
+// A view filtered to the passes holds no serve, so the pass rows arrive with no
+// referer of their own -- and must not be read as "the visitor sent none".
+// Three things make that hold, and the page has to ship all of them: the state
+// both popovers read, the click that loads the session as recorded, and the
+// two sentences that stand in for a value until (or unless) one is found.
+// The behaviour itself is exercised in a browser by e2e/ui/referer-on-click.
+func TestHuntRefererSurvivesPhaseFilter(t *testing.T) {
+	h := newTestHandler(t)
+	for _, s := range []struct{ phase, payload string }{
+		{"serve", `{"bt":"sessf.0001.aaaa","referer":"https://news.example.com/thread/42"}`},
+		{"load", `{"bt":"sessf.0001.aaaa"}`},
+		{"bv_pow_only", `{"bt":"sessf.0001.aaaa"}`},
+		// A silent rebind is its own first request and records the referer itself.
+		{"bv_rebind", `{"bt":"sessf.0002.bbbb","reason":"match","referer":"https://github.com/unmask-sh/unmask"}`},
+	} {
+		if _, err := h.DB.Exec(`INSERT INTO unmask_event
+			(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+			VALUES ('s','','https',443,?,'UA','t13d','ok',0,?,0,0,'','',?,datetime('now'))`,
+			[]byte{192, 0, 2, 11}, s.phase, s.payload); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet,
+		"/unmask/admin/hunt/?range=1h&phase=bv_pow_only%2Cbv_captcha_only%2Cbv_pow_then_captcha%2Cbv_rebind", nil)
+	rr := httptest.NewRecorder()
+	h.AdminHuntIndex(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("hunt: %d", rr.Code)
+	}
+	body := rr.Body.String()
+
+	// The shape under test: the pass is on the page, its serve is not.
+	if !strings.Contains(body, `data-bt="sessf.0001.aaaa" data-phase="bv_pow_only"`) {
+		t.Fatal("the pass row is not in the filtered view")
+	}
+	if strings.Contains(body, `data-referer="https://news.example.com/thread/42"`) {
+		t.Fatal("the serve's referer is on the page: the filter no longer excludes the serve, and this test no longer covers the filtered shape")
+	}
+	// The rebind row carries its own.
+	if !strings.Contains(body, `data-referer="https://github.com/unmask-sh/unmask"`) {
+		t.Error("the rebind row must carry the referer it recorded")
+	}
+	for _, want := range []string{
+		`window.unmaskHuntReferer = (function(){`, // one state for both popovers
+		`function loadChain(tr){`,                 // the click that reads the recorded session
+		`tr.setAttribute('data-head',`,            // ...and settles the row
+		`if (REF.state(rep) === 'unloaded') { loadChain(rep).then(open, open); return; }`, // a chain whose serve is off the page asks too
+		`var RS = window.unmaskHuntReferer;`,                                              // the date popover reads the same state
+		`未取得。phase をクリックすると読み込みます。`,                                                       // not loaded (the default locale of the test handler)
+		`不明。このセッションの serve が、このノードの記録にありません。`,                                             // looked for, not on record
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("hunt page lost %q", want)
+		}
+	}
+}
+
 // Not a test: dump the hunt page (with a referer-carrying session) for browser
 // measurement.  Enabled only when UNMASK_DUMP_HUNT_REF points at a file.
 func TestDumpHuntRefererHTML(t *testing.T) {

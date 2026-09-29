@@ -363,6 +363,53 @@ for n in range(12):
                 'serve',0,0,'','','{"bt":"uiRank","ch_mode":"pow_then_captcha"}', datetime('now', '-2 hours', '-' || ? || ' seconds'))""",
         (bytes([203, 0, 113, 101 + n]), n))
 c.commit()
+
+# Four sessions for the referer lookup (referer-on-click.test.js).  Where a
+# visitor came from is recorded on the serve and on nothing after it, so a view
+# filtered to the passes shows these sessions as one bare row each -- the shape
+# in which the referer used to read "-" for everybody.
+#   served  the serve recorded a referer, with an "&" in it: the writer stores
+#           that as \u0026, and it has to come back as the character
+#   direct  the serve is there and recorded none ("-" is then the truth)
+#   nohead  a pass whose serve is not in this database -- what a fleet behind
+#           a load balancer records when the serve landed on another node
+#   rebind  a silent rebind: a session of one row, which records the referer
+#           itself because there is no serve to carry it
+# The tokens are in the beacon token's own alphabet (lowercase base36 and
+# dots); the lookup endpoint refuses anything else, which is why the camelCase
+# tokens above never reach it.  Ten minutes back and on their own addresses, so
+# no other test's row selection moves.
+_ref_base = _dt.datetime.utcnow() - _dt.timedelta(minutes=10)
+def _ref_at(offset_ms):
+    t = _ref_base + _dt.timedelta(milliseconds=offset_ms)
+    return t.strftime("%Y-%m-%d %H:%M:%S.") + "%03d" % (t.microsecond // 1000)
+for ipb, bt, chain in [
+        (bytes([127, 0, 0, 21]), "uiref.served.0001aaaa", [
+            ("serve",       0,    {"force_reason": "none", "ch_mode": "pow_only",
+                                   "referer": "https://www.example.com/search?q=unmask&hl=ja"}),
+            ("load",        510,  {"seq": 0, "elapsed_ms": 500}),
+            ("bv_pow_only", 1210, {"seq": 1, "elapsed_ms": 1200})]),
+        (bytes([127, 0, 0, 22]), "uiref.direct.0002bbbb", [
+            ("serve",       0,    {"force_reason": "none", "ch_mode": "pow_only"}),
+            ("load",        510,  {"seq": 0, "elapsed_ms": 500}),
+            ("bv_pow_only", 1210, {"seq": 1, "elapsed_ms": 1200})]),
+        (bytes([127, 0, 0, 23]), "uiref.nohead.0003cccc", [
+            ("bv_pow_only", 1210, {"seq": 1, "elapsed_ms": 1200})]),
+        (bytes([127, 0, 0, 24]), "uiref.rebind.0004dddd", [
+            ("bv_rebind",   0,    {"reason": "match",
+                                   "referer": "https://github.com/unmask-sh/unmask"})])]:
+    for phase, off, extra in chain:
+        pl = {"bt": bt}
+        pl.update(extra)
+        # The replace reproduces what the daemon's serializer writes for "&";
+        # Python's leaves the character as it is.
+        body = json.dumps(pl, separators=(',', ':')).replace("&", "\\u0026")
+        c.execute("""INSERT INTO unmask_event
+            (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
+             phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+            VALUES ('','','https',443,?,'UI-E2E-referer','t13d_ref','',0,?,0,0,'','',?,?)""",
+            (ipb, phase, body, _ref_at(off)))
+c.commit()
 PY
 
 "$BIN" serve -config "$WORK/config.yml" > "$WORK/serve.log" 2>&1 &

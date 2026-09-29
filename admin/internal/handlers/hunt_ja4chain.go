@@ -21,6 +21,10 @@ var btTokenRE = regexp.MustCompile(`^[a-z0-9.]{8,64}$`)
 // On-demand because the sibling rows are exactly what a filtered hunt view
 // (phase=abandon) does not have on screen, and joining at page render would
 // LIKE-scan per row.
+//
+// A row that recorded where the visitor came from carries it as "r".  That is
+// the serve, which a view filtered to the passes leaves out -- so this read is
+// also how such a view learns the referer of the sessions it lists.
 func (h *Handler) AdminHuntJA4Chain(w http.ResponseWriter, r *http.Request) {
 	bt := r.URL.Query().Get("bt")
 	if !btTokenRE.MatchString(bt) {
@@ -38,7 +42,11 @@ func (h *Handler) AdminHuntJA4Chain(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]map[string]any, 0, len(rows))
 	for _, c := range rows {
-		out = append(out, map[string]any{"t": c.AtMs, "p": c.Phase, "j": c.JA4, "v": c.Verdict})
+		row := map[string]any{"t": c.AtMs, "p": c.Phase, "j": c.JA4, "v": c.Verdict}
+		if c.Referer != "" {
+			row["r"] = c.Referer
+		}
+		out = append(out, row)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"rows": out, "truncated": truncated})
 }

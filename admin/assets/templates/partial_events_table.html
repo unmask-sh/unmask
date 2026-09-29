@@ -288,6 +288,12 @@
 /* Session total: separated from the per-phase lines by a rule, since it is a
    summary of them rather than another step in the sequence. */
 .session-lead{margin-bottom:.4rem;padding-bottom:.35rem;border-bottom:1px solid #e2e8f0;font-size:.72rem;color:#475569}
+/* Where the session came from, as a line of the lead.  A URL has no spaces to
+   wrap at, so it breaks anywhere rather than widening the popover past the
+   lead's cap.  The three states that are not a URL ("-", not loaded, no serve
+   on record) are muted and upright, so a recorded referer reads first. */
+.session-referer-v{color:#0f172a;word-break:break-all;overflow-wrap:anywhere}
+.session-referer-none{color:#94a3b8;font-weight:400}
 .session-total{margin-top:.4rem;padding-top:.35rem;border-top:1px solid #e2e8f0;
   font-size:.75rem;color:#334155;white-space:nowrap}
 .session-total strong{font-family:ui-monospace,Menlo,monospace;font-size:.8rem;color:#0f172a}
@@ -466,6 +472,9 @@
    first when scanning several open popovers. */
 .dtpop-referer{font-size:.78rem;color:#0f172a;word-break:break-all}
 .dtpop-none{color:#94a3b8}
+/* The two states that are a sentence rather than a value -- "not loaded" and
+   "no serve on record" -- read as prose, not as monospace data. */
+.dtpop-note{font-family:system-ui,sans-serif;font-size:.74rem}
 .events td.at time.js-datetime.dtpop-trigger{cursor:help}
 .events td.at time.js-datetime.dtpop-trigger:hover{text-decoration:underline dotted rgba(100,116,139,.6);text-underline-offset:2px}
 /* Ban-reason popover (= WHY an "already BANned" IP is on the list). */
@@ -478,6 +487,52 @@
 .banpop-v{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.82rem;color:#0f172a;word-break:break-word}
 </style>
 <script>
+// Where a session came from, as this page knows it.
+//
+// The Referer belongs to the request that was challenged, so it is recorded on
+// the serve (and on the forward-auth check folded in front of it) and on no
+// beacon.  A view filtered to the passes holds none of those rows, and used to
+// answer "-" for every session in it -- the mark for "the visitor sent no
+// referer", on rows where the truth was "that row is not on this page".
+//
+// A silent rebind is the one pass that is its own first request: nothing was
+// served, so the row records the referer itself and has nothing to look up.
+//
+// Two attributes on the row carry the answer, so the session popovers and the
+// date popover -- separate scripts -- read one state and cannot disagree:
+//   data-referer   the value, when known
+//   data-head      what is known about the challenged request:
+//                    'page'    it is on this page, in the row's session
+//                    'loaded'  a click fetched the recorded session and found it
+//                    'none'    the fetch found no such row
+//                    absent    nobody has looked
+window.unmaskHuntReferer = (function(){
+  var LABEL = {{ t .Lang "hunt.referer_label" }};
+  var NOT_LOADED = {{ t .Lang "hunt.referer_not_loaded" }};
+  var NO_HEAD = {{ t .Lang "hunt.referer_no_head" }};
+  // 'url'      a referer is known
+  // 'sent'     the challenged request is known and it carried none
+  // 'nohead'   looked for, and the challenged request is not on record here
+  // 'unloaded' the challenged request is not on this page and nobody has looked
+  function first(ph){ return ph === 'serve' || ph === 'check' || ph === 'bv_rebind'; }
+  function state(tr){
+    if ((tr.getAttribute('data-referer') || '').trim()) return 'url';
+    var head = tr.getAttribute('data-head') || '';
+    if (head === 'none') return 'nohead';
+    if (head === 'page' || head === 'loaded') return 'sent';
+    // A row that IS the first request has said all there is to say, and so
+    // has a row with no session to look up.
+    if (first(tr.getAttribute('data-phase') || '') || !tr.getAttribute('data-bt')) return 'sent';
+    return 'unloaded';
+  }
+  function text(tr){
+    var st = state(tr);
+    if (st === 'url') return tr.getAttribute('data-referer').trim();
+    if (st === 'sent') return '-';
+    return st === 'nohead' ? NO_HEAD : NOT_LOADED;
+  }
+  return { label: LABEL, state: state, text: text, first: first };
+})();
 document.addEventListener('DOMContentLoaded', function(){
 // Session view: one challenge fire (= serve -> load -> pow -> bv_*) generates
 // 3-5 rows that share the same beacon_token.  Collapse them into the latest
@@ -593,6 +648,53 @@ document.addEventListener('DOMContentLoaded', function(){
   }
   function rowSeq(tr){ return attrNum(tr, 'data-seq'); }
   function rowElapsed(tr){ return attrNum(tr, 'data-elapsed-ms'); }
+  var REF = window.unmaskHuntReferer;
+  function refEsc(v){ var d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; }
+  // The referer line of a session popover's lead.  Always there, like the row
+  // in the date popover: a popover that drops the line when there is nothing to
+  // show reads as one that does not record it.
+  function refererLine(tr){
+    var st = REF.state(tr);
+    return '<div class="session-referer" data-referer-state="' + st + '">' + refEsc(REF.label) + ' ' +
+           (st === 'url' ? '<strong class="session-referer-v">' + refEsc(REF.text(tr)) + '</strong>'
+                         : '<span class="session-referer-none">' + refEsc(REF.text(tr)) + '</span>') +
+           '</div>';
+  }
+  // The session as the server recorded it, fetched once per session: what was
+  // recorded does not change while the operator reads the page, and a second
+  // click on the same row should not cost a second scan.  A failed fetch is
+  // forgotten, so the next click asks again.
+  //
+  // Resolving also settles the row's referer state (see unmaskHuntReferer), so
+  // every popover that opens afterwards -- this one, or the date's -- agrees.
+  var chainFetches = {};
+  function loadChain(tr){
+    var btv = tr.getAttribute('data-bt') || '';
+    if (!btv) return Promise.reject(new Error('no session token'));
+    if (chainFetches[btv]) return chainFetches[btv];
+    var tsSec = Math.floor(Number(tr.getAttribute('data-ts-ms') || '0') / 1000);
+    var base = location.pathname.split('/admin/')[0];
+    var p = fetch(base + '/admin/hunt/ja4chain?bt=' + encodeURIComponent(btv) + '&ts=' + tsSec, { credentials: 'same-origin' })
+      .then(function(r){ if (!r.ok) throw new Error('status ' + r.status); return r.json(); })
+      .then(function(d){
+        var rowsD = (d && d.rows) || [];
+        if (!rowsD.length) throw new Error('empty chain');
+        // The first referer in record order is the one the visitor arrived
+        // with.  A serve with none still counts as found: "sent no referer"
+        // is an answer, and a different one from "no serve on record".
+        var found = '', head = false;
+        rowsD.forEach(function(rw){
+          if (REF.first(rw.p)) head = true;
+          if (!found && rw.r) found = String(rw.r);
+        });
+        if (found) tr.setAttribute('data-referer', found);
+        tr.setAttribute('data-head', (found || head) ? 'loaded' : 'none');
+        return d;
+      });
+    chainFetches[btv] = p;
+    p.catch(function(){ delete chainFetches[btv]; });
+    return p;
+  }
   // Forward-auth: fold the standalone auth_request 'check' row into the
   // challenge session it triggered.  A 'check' has no beacon_token (it fires
   // during the auth subrequest, BEFORE the challenge page -- and thus its
@@ -797,6 +899,12 @@ document.addEventListener('DOMContentLoaded', function(){
           var fv = grp[fi].getAttribute('data-referer');
           if (fv){ rep.setAttribute('data-referer', fv); break; }
         }
+      }
+      // ...and say whether the row that would carry it is here at all.  With
+      // it on the page, an empty referer means the visitor sent none; without
+      // it, an empty referer means nothing yet (see unmaskHuntReferer).
+      if (grp.some(function(tr){ return REF.first(tr.getAttribute('data-phase') || ''); })) {
+        rep.setAttribute('data-head', 'page');
       }
       // Same for the accepted port: it rides the serve / check row, not the
       // beacons the rep row is drawn from.
@@ -1037,8 +1145,11 @@ document.addEventListener('DOMContentLoaded', function(){
         if (escalated) {
           lead += ' &rarr; ' + {{ t .Lang "th.ch_mode_actual" }} + ' <strong>captcha</strong>';
         }
+        lead = '<div>' + lead + '</div>';
       }
-      var out = (lead ? '<div class="session-lead">' + lead + '</div>' : '') +
+      // Where the session came from, read off the rep row: the collapse
+      // promoted it there from whichever row recorded it.
+      var out = '<div class="session-lead">' + lead + refererLine(rep) + '</div>' +
                 '<div class="session-timeline tl-grid">' + lines.join('') + '</div>';
       // Say what the mark means, but only where one appears.  A session with no
       // derived line has nothing to explain, and a legend printed under every
@@ -1090,7 +1201,16 @@ document.addEventListener('DOMContentLoaded', function(){
     chain.addEventListener('click', function(e){
       e.preventDefault(); e.stopPropagation();
       clearTimeout(timer);
-      pin.handleClick(timelineHtml(), e.pageX, e.pageY, chain, 'session (' + grp.length + ' phases)');
+      var x = e.pageX, y = e.pageY;
+      var open = function(){ pin.handleClick(timelineHtml(), x, y, chain, 'session (' + grp.length + ' phases)'); };
+      // A chain whose serve is not on this page cannot say where the session
+      // came from.  The click is the operator asking, so go and find out --
+      // the timeline itself stays the one built from this page's rows, which
+      // carry detail the recorded chain does not (the browser's own clock, the
+      // per-row notes).  Opens either way: a failed lookup costs the referer,
+      // not the popover.
+      if (REF.state(rep) === 'unloaded') { loadChain(rep).then(open, open); return; }
+      open();
     });
   });
   // Page-boundary session fragment marker.  Hunt paginates via
@@ -1159,6 +1279,15 @@ document.addEventListener('DOMContentLoaded', function(){
     if (!pill || pill.dataset.popWired === '1') return;
     pill.dataset.popWired = '1';
     var esc = function(v){ var d = document.createElement('div'); d.textContent = v; return d.innerHTML; };
+    // The lead is read at the moment the popover opens, not when the row was
+    // wired: a click settles the referer state, and the hover that follows has
+    // to show what the click found.
+    var leadHtml = function(){
+      var chmL = (tr.getAttribute('data-ch-mode') || '').replace(/[^a-z0-9_]/g, '');
+      return '<div class="session-lead">' +
+             (chmL ? '<div>' + {{ t .Lang "th.ch_mode" }} + ' <strong>' + chmL + '</strong></div>' : '') +
+             refererLine(tr) + '</div>';
+    };
     var html = function(){
       var ph = tr.getAttribute('data-phase') || '';
       // The <time> element, not the whole cell: the date cell also carries the
@@ -1169,7 +1298,6 @@ document.addEventListener('DOMContentLoaded', function(){
       var whenEl = tr.querySelector('td:first-child time');
       var when = whenEl ? whenEl.textContent
                : ((tr.querySelector('td:first-child') || {}).textContent || '');
-      var chm = (tr.getAttribute('data-ch-mode') || '').replace(/[^a-z0-9_]/g, '');
       // Same three-cell grid shape as the session timelines, fingerprint
       // column included -- one popover language everywhere, whether the
       // session has one line or ten.  The mark slot fills when the serve-time
@@ -1178,7 +1306,7 @@ document.addEventListener('DOMContentLoaded', function(){
       var v = tr.getAttribute('data-verdict') || '';
       var sj = tr.getAttribute('data-serve-ja4') || '';
       var changed = j && sj && j !== sj;
-      return (chm ? '<div class="session-lead">' + {{ t .Lang "th.ch_mode" }} + ' <strong>' + chm + '</strong></div>' : '') +
+      return leadHtml() +
              '<div class="session-timeline tl-grid"><div class="session-line">' +
              '<span class="ts-cell"><span class="ts-src">&nbsp;</span><time class="ts-mono">' + esc(when.trim()) + '</time></span>' +
              '<span class="tl-ph"><span class="phase-pill ph-' + ph.replace(/[^a-z0-9_]/g, '') + '">' + esc(ph) + '</span></span>' +
@@ -1203,21 +1331,19 @@ document.addEventListener('DOMContentLoaded', function(){
     // when the session varied -- so where the detail opens from does not
     // change what the detail looks like.  Falls back to the one-line summary
     // when there is no beacon token or the fetch fails.
+    //
+    // The same read says where the session came from: that is recorded on the
+    // serve, which is exactly the row a view filtered to the passes left out.
     pill.addEventListener('click', function(e){
       e.preventDefault(); e.stopPropagation(); clearTimeout(t);
       var x = e.pageX, y = e.pageY;
       var fallback = function(){ pin.handleClick(html(), x, y, pill, tr.getAttribute('data-phase') || 'event'); };
-      var btv = tr.getAttribute('data-bt') || '';
-      if (!btv) { fallback(); return; }
-      var tsSec = Math.floor(Number(tr.getAttribute('data-ts-ms') || '0') / 1000);
-      var base = location.pathname.split('/admin/')[0];
-      fetch(base + '/admin/hunt/ja4chain?bt=' + encodeURIComponent(btv) + '&ts=' + tsSec, { credentials: 'same-origin' })
-        .then(function(r){ if (!r.ok) throw 0; return r.json(); })
+      if (!(tr.getAttribute('data-bt') || '')) { fallback(); return; }
+      loadChain(tr)
         .then(function(d){
-          var rowsD = (d && d.rows) || [];
-          if (!rowsD.length) { fallback(); return; }
+          var rowsD = d.rows;
           var prevJ = '';
-          var out = '<div class="session-timeline tl-grid">';
+          var out = leadHtml() + '<div class="session-timeline tl-grid">';
           rowsD.forEach(function(rw){
             var ph2 = String(rw.p || '').replace(/[^a-z0-9_]/g, '');
             var changed = rw.j && prevJ && rw.j !== prevJ;
@@ -1674,10 +1800,20 @@ document.addEventListener('DOMContentLoaded', function(){
     // no Referer: a row that simply omits the line reads as "this build does
     // not record it", and the empty case is itself the answer most of the time
     // (bots rarely send one, and browsers strip it cross-origin).
+    //
+    // "-" is a claim about the visitor, so it is only made when the challenged
+    // request is known.  On a row whose session starts off this page it is not,
+    // and the row says so -- and says what loads it -- instead.  The state is
+    // the one the session popovers read (unmaskHuntReferer), so a referer the
+    // phase cell's click found is the one shown here.
+    var RS = window.unmaskHuntReferer;
     var refr = (tr.getAttribute('data-referer') || '').trim();
-    body += '<div class="dtpop-row"><span class="dtpop-k">' + esc(REFERER_LABEL) + '</span>' +
-      (refr ? '<span class="dtpop-v dtpop-referer">' + esc(refr) + '</span>'
-            : '<span class="dtpop-v dtpop-none">-</span>') + '</div>';
+    var rstate = RS ? RS.state(tr) : (refr ? 'url' : 'sent');
+    var rtext = RS ? RS.text(tr) : (refr || '-');
+    body += '<div class="dtpop-row" data-referer-state="' + rstate + '"><span class="dtpop-k">' + esc(REFERER_LABEL) + '</span>' +
+      (rstate === 'url' ? '<span class="dtpop-v dtpop-referer">' + esc(rtext) + '</span>'
+        : '<span class="dtpop-v dtpop-none' + (rstate === 'sent' ? '' : ' dtpop-note') + '">' + esc(rtext) + '</span>') +
+      '</div>';
     // The tz abbreviation (JST / UTC) is baked into each line, so the time rows
     // are self-labelling -- no locale-specific "Local" / "Time" caption needed.
     if (local) body += '<div class="dtpop-time">' + esc(local) + '</div>';
