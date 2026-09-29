@@ -27,7 +27,8 @@ import (
 type SchemaUpdateOptions struct {
 	// Host identifies this machine in the record (the daemon's host id).
 	Host string
-	// By is who started the run: an administrator's username, or "cli".
+	// By is who started the run: an administrator's username, or
+	// SchemaUpdateByCLI.
 	By string
 	// Logf receives the plan and the progress lines.  nil discards them.
 	Logf func(format string, args ...any)
@@ -48,6 +49,10 @@ type SchemaUpdateResult struct {
 // and holds nothing.  What is said about a run -- the admin UI's notice, the
 // lines a package upgrade prints -- follows it.
 func (d *DB) SchemaUpdateHoldsWrites() bool { return d != nil && d.Driver == DriverSQLite }
+
+// SchemaUpdateByCLI is who a run started from a shell is recorded as (the
+// default of `unmask migrate -by`).
+const SchemaUpdateByCLI = "cli"
 
 // ErrSchemaUpdateRunning: another run is going.
 var ErrSchemaUpdateRunning = errors.New("a schema update is already running")

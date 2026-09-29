@@ -956,3 +956,52 @@ func TestSchemaNoticeWordsFollowTheDatabase(t *testing.T) {
 		}
 	}
 }
+
+// TestQuickRunFromTheButtonIsAnswered: an update started with the button is
+// answered with "finished" however quick it was.  A run under a second used to
+// be no news at all -- right for a new install's first migrate from a shell,
+// wrong for the administrator who pressed the button and saw the notice
+// vanish with nothing in its place (a fast machine builds a small table's
+// index in less than that).
+func TestQuickRunFromTheButtonIsAnswered(t *testing.T) {
+	h := schemaHandler(t, 50, 0)
+	if _, err := db.MigrateWith(h.DB, db.MigrateOptions{Defer: true, DeferOver: h.cfg().DB.SchemaUpdateDeferOver()}); err != nil {
+		t.Fatal(err)
+	}
+	quick := func(by string) db.SchemaUpdateRecord {
+		now := time.Now().Unix()
+		return db.SchemaUpdateRecord{
+			State: db.SchemaUpdateDone, Items: []string{"0032_event_ja4_index"}, Host: h.HostID, By: by,
+			StartedAt: now, EndedAt: now, Seconds: 0.3,
+		}
+	}
+	ctx := context.Background()
+
+	if err := h.DB.SaveMaintState(ctx, db.MaintSchemaUpdate, quick("alice")); err != nil {
+		t.Fatal(err)
+	}
+	h.SchemaRefresh(ctx)
+	v := h.schemaView(user.RoleSuperadmin, i18n.LangEN)
+	if v == nil || v.State != "done" {
+		t.Fatalf("view = %+v, want the finished notice for a run started with the button", v)
+	}
+	if v.Took != "under 1 s" {
+		t.Errorf("took = %q, want it worded (not \"0 s\")", v.Took)
+	}
+	if ja := h.schemaView(user.RoleSuperadmin, i18n.LangJA); ja == nil || ja.Took != "1 秒未満" {
+		t.Errorf("ja view = %+v", ja)
+	}
+	body := renderAs(t, h.AdminTopOverview, "/unmask/admin/", user.RoleSuperadmin, "en")
+	if !strings.Contains(body, "The database update finished (under 1 s).") || !strings.Contains(body, `id="schup-dismiss"`) {
+		t.Error("the page does not say that the update finished")
+	}
+
+	// From a shell, a run that took no time is a new install's first migrate.
+	if err := h.DB.SaveMaintState(ctx, db.MaintSchemaUpdate, quick(db.SchemaUpdateByCLI)); err != nil {
+		t.Fatal(err)
+	}
+	h.SchemaRefresh(ctx)
+	if v := h.schemaView(user.RoleSuperadmin, i18n.LangEN); v != nil {
+		t.Errorf("view = %+v, want nothing for a quick run from a shell", v)
+	}
+}

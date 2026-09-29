@@ -37,7 +37,7 @@ func cmdMigrate(args []string) error {
 	status := fs.Bool("status", false, "list the schema updates that are pending, with how long each is expected to take, and change nothing")
 	startup := fs.Bool("startup", false, "apply what a start of the daemon applies: everything but the index builds it leaves for the operator, which are announced instead (the container entrypoint runs this before the daemon)")
 	notice := fs.Bool("notice", false, "print the notice a package upgrade shows when a schema update was left for the operator (nothing when none was); used by the package scripts")
-	by := fs.String("by", "cli", "who started the run, for its record (the admin UI passes the administrator's name)")
+	by := fs.String("by", db.SchemaUpdateByCLI, "who started the run, for its record (the admin UI passes the administrator's name)")
 	skipSpace := fs.Bool("skip-space-check", false, "build indexes even when the free space next to the database looks short")
 	_ = fs.Parse(args)
 

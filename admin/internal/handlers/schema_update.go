@@ -223,9 +223,12 @@ func (h *Handler) schemaView(role string, lang i18n.Lang) *SchemaUpdateView {
 			// Marked running and its process is gone: it was killed.
 			v.State, v.Err, v.EndedAt = "failed", i18n.T(lang, "schema_update.err_interrupted"), rec.StartedAt
 		}
-	case hasRec && rec.State == db.SchemaUpdateDone && now.Sub(time.Unix(rec.EndedAt, 0)) < doneShownFor && rec.Seconds >= 1:
-		// A run that took no time at all (a new install's first migrate) is
-		// not news.
+	case hasRec && rec.State == db.SchemaUpdateDone && now.Sub(time.Unix(rec.EndedAt, 0)) < doneShownFor &&
+		(rec.Seconds >= 1 || rec.By != db.SchemaUpdateByCLI):
+		// A run from a shell that took no time at all is not news: that is
+		// a new install's first migrate.  One started with the button is
+		// always answered, however quick it was -- the notice the
+		// administrator pressed it on must not just vanish.
 		v.State = "done"
 		v.EndedAt, v.Seconds, v.By, v.Host = rec.EndedAt, int(rec.Seconds+0.5), rec.By, rec.Host
 		v.Took = durationText(lang, v.Seconds)
@@ -256,9 +259,15 @@ func estimateText(lang i18n.Lang, low, high time.Duration) string {
 	return r.Replace(en)
 }
 
-// durationText words a number of seconds: "52 s", "3 min 52 s".
+// durationText words a number of seconds: "under 1 s", "52 s", "3 min 52 s".
 func durationText(lang i18n.Lang, sec int) string {
 	m, s := sec/60, sec%60
+	if sec <= 0 {
+		if lang == i18n.LangJA {
+			return "1 秒未満"
+		}
+		return "under 1 s"
+	}
 	if lang == i18n.LangJA {
 		if m == 0 {
 			return fmt.Sprintf("%d 秒", s)
