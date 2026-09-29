@@ -177,15 +177,24 @@ fi
 # httpd_var_run_t so httpd_t may write the socket.
 #
 # semanage (policycoreutils-python-utils) is the right tool -- its fcontext rule
-# is permanent, so the label survives the reboot that recreates tmpfs /run -- but
-# it is NOT installed on a minimal RHEL / AlmaLinux 8.  This whole block used to
-# be gated on `command -v semanage`, so on exactly those hosts it skipped in
+# is permanent, so the label survives every recreation of /run/unmask -- but it
+# is NOT installed on a minimal RHEL / AlmaLinux 8.  This whole block used to be
+# gated on `command -v semanage`, so on exactly those hosts it skipped in
 # SILENCE: native mode then recorded zero events and the only clue was
 # "Permission denied while logging to syslog" in the nginx error_log.  chcon is
-# in coreutils and always present, so fall back to it, and keep the label across
-# reboots with a unmask.service drop-in (ExecStartPost=+ runs as root even though
-# the unit drops to User=unmask, which cannot relabel).  Never fail quietly:
-# with SELinux Enforcing and neither tool, say so.
+# in coreutils and always present, so fall back to it, and keep the label with a
+# unmask.service drop-in (ExecStartPost=+ runs as root even though the unit
+# drops to User=unmask, which cannot relabel).  Never fail quietly: with SELinux
+# Enforcing and neither tool, say so.
+#
+# /run/unmask is recreated with the default label on every START of the unit,
+# not only at boot: unmask.service has RuntimeDirectory=unmask, which systemd
+# removes on stop and creates afresh on start.  So the drop-in has to be in
+# place for every start, and the daemon is never restarted from here -- the
+# chcon below labels the directory the running daemon has now, and the drop-in
+# covers each start after it.  A restart here used to follow the unmask
+# package's own in the same transaction, killing that start (and any schema
+# update it was applying) part way.
 UNMASK_SELINUX_DROPIN=/etc/systemd/system/unmask.service.d/10-unmask-selinux-runtime.conf
 if [ -z "${UNMASK_SKIP_SETSEBOOL:-}" ] &&
    command -v getenforce >/dev/null 2>&1 &&
@@ -195,7 +204,13 @@ if [ -z "${UNMASK_SKIP_SETSEBOOL:-}" ] &&
        { semanage fcontext -a -t httpd_var_run_t '/run/unmask(/.*)?' 2>/dev/null ||
          semanage fcontext -m -t httpd_var_run_t '/run/unmask(/.*)?' 2>/dev/null; }; then
         [ -d /run/unmask ] && restorecon -RF /run/unmask 2>/dev/null || true
-        rm -f "$UNMASK_SELINUX_DROPIN" 2>/dev/null || true
+        # The rule makes the chcon drop-in of an earlier install redundant:
+        # systemd labels the runtime directory from the policy when it
+        # creates it.
+        if [ -f "$UNMASK_SELINUX_DROPIN" ]; then
+            rm -f "$UNMASK_SELINUX_DROPIN"
+            systemctl daemon-reload >/dev/null 2>&1 || true
+        fi
         echo "unmask-web-nginx: SELinux fcontext httpd_var_run_t set on /run/unmask (native log socket)"
 
     elif command -v chcon >/dev/null 2>&1; then
@@ -208,22 +223,28 @@ if [ -z "${UNMASK_SKIP_SETSEBOOL:-}" ] &&
         ''|*[!0-9]*) SYSTEMD_VER=0 ;;
         esac
         if [ "$SYSTEMD_VER" -ge 231 ] 2>/dev/null; then
-            mkdir -p "$(dirname "$UNMASK_SELINUX_DROPIN")"
-            cat > "$UNMASK_SELINUX_DROPIN" <<'DROPIN'
-# Installed by unmask-web-nginx when semanage is unavailable.  /run is tmpfs, so
-# the runtime dir comes back on every boot with the default var_run_t label that
-# nginx (httpd_t) may not write.  Re-apply the label once the daemon has created
-# the socket.  The leading + runs this as root; the unit itself is User=unmask.
+            DROPIN_BODY=$(cat <<'DROPIN'
+# Installed by unmask-web-nginx when semanage is unavailable.  systemd recreates
+# /run/unmask on every start of the unit (RuntimeDirectory=) with the default
+# var_run_t label, which nginx (httpd_t) may not write.  Re-apply the label once
+# the daemon has created the socket.  The leading + runs this as root; the unit
+# itself is User=unmask.
 [Service]
 ExecStartPost=+/bin/sh -c 'command -v chcon >/dev/null 2>&1 && chcon -R -t httpd_var_run_t /run/unmask 2>/dev/null || true'
 DROPIN
-            chmod 0644 "$UNMASK_SELINUX_DROPIN"
-            systemctl daemon-reload >/dev/null 2>&1 || true
-            systemctl try-restart unmask.service >/dev/null 2>&1 || true
-            echo "  (unmask.service drop-in re-applies it on boot.  For the permanent rule instead:"
+)
+            # Written, and systemd told, only when it is not already there as
+            # it should be: an upgrade finds it in place and leaves it alone.
+            if [ "$(cat "$UNMASK_SELINUX_DROPIN" 2>/dev/null)" != "$DROPIN_BODY" ]; then
+                mkdir -p "$(dirname "$UNMASK_SELINUX_DROPIN")"
+                printf '%s\n' "$DROPIN_BODY" > "$UNMASK_SELINUX_DROPIN"
+                chmod 0644 "$UNMASK_SELINUX_DROPIN"
+                systemctl daemon-reload >/dev/null 2>&1 || true
+            fi
+            echo "  (a unmask.service drop-in re-applies it on every start.  For the permanent rule instead:"
             echo "   sudo dnf install -y policycoreutils-python-utils && sudo dnf reinstall -y unmask-web-nginx)"
         else
-            echo "  WARNING -- systemd is too old for the boot-time drop-in, so the label is lost on reboot."
+            echo "  WARNING -- systemd is too old for the drop-in, so the label is lost when the daemon restarts or the host reboots."
             echo "  -> install semanage: sudo yum install -y policycoreutils-python && sudo yum reinstall -y unmask-web-nginx"
         fi
 
@@ -264,7 +285,18 @@ else
 fi
 
 # setup wizard URL + token hint (= the main package creates .setup-token on first install).
-TOKEN_FILE=/etc/unmask/.setup-token
+#
+# Only while the setup is still to be done -- the token is there until the
+# wizard has been completed.  The banner used to come on every upgrade, forty
+# lines printed after the unmask package's own output in the same
+# transaction, which is where that package puts what the upgrade has to say
+# (a schema update left for the operator); and it read the token from the
+# pre-0.1.9 path, so a new install never saw it.
+TOKEN_FILE=/var/lib/unmask/.setup-token
+[ -r "$TOKEN_FILE" ] || TOKEN_FILE=/etc/unmask/.setup-token
+if [ ! -r "$TOKEN_FILE" ]; then
+    exit 0
+fi
 host=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo localhost)
 echo ""
 echo "================================================================"
@@ -302,9 +334,6 @@ echo ""
 echo "  After setup, add protection to your location { } block:"
 echo "        include /etc/unmask/forward-auth/protect.inc;  # fires the bot challenge"
 echo ""
-if [ ! -r "$TOKEN_FILE" ]; then
-    echo "     The setup token is at /etc/unmask/.setup-token (= view with sudo cat)."
-fi
 echo "================================================================"
 echo ""
 

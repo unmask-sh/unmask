@@ -43,17 +43,23 @@ if [ "$do_cleanup" = 1 ]; then
             rm -f "$link"
         fi
     done
-fi
 
-# The SELinux runtime-label drop-in exists only to let nginx (httpd_t) write the
-# daemon's log socket, so it has no reason to outlive this package.  postinstall
-# writes it only where semanage is unavailable; removing it when it is absent is
-# a no-op.
-UNMASK_SELINUX_DROPIN=/etc/systemd/system/unmask.service.d/10-unmask-selinux-runtime.conf
-if [ -f "$UNMASK_SELINUX_DROPIN" ]; then
-    rm -f "$UNMASK_SELINUX_DROPIN"
-    rmdir /etc/systemd/system/unmask.service.d 2>/dev/null || true
-    systemctl daemon-reload >/dev/null 2>&1 || true
+    # The SELinux runtime-label drop-in exists only to let nginx (httpd_t)
+    # write the daemon's log socket, so it has no reason to outlive this
+    # package.  postinstall writes it only where semanage is unavailable;
+    # removing it when it is absent is a no-op.
+    #
+    # On an uninstall only, like the links above.  It used to sit outside this
+    # block, so every rpm upgrade deleted it: rpm runs the old package's
+    # postremove after the new one's postinstall has written it, and from the
+    # daemon's next start (or the next boot) nginx could no longer write the
+    # log socket -- native mode recorded zero events again.
+    UNMASK_SELINUX_DROPIN=/etc/systemd/system/unmask.service.d/10-unmask-selinux-runtime.conf
+    if [ -f "$UNMASK_SELINUX_DROPIN" ]; then
+        rm -f "$UNMASK_SELINUX_DROPIN"
+        rmdir /etc/systemd/system/unmask.service.d 2>/dev/null || true
+        systemctl daemon-reload >/dev/null 2>&1 || true
+    fi
 fi
 
 if command -v nginx >/dev/null 2>&1; then

@@ -28,7 +28,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Fixed
 - (2026-09-30) **The ban list is written by one writer at a time.**  A ban added from the access log and the manager's periodic refresh could write the list's temporary file at the same moment, so nginx could load a list mixing the two.  Writes of the list now take turns.
 
-- (2026-09-29) **A package upgrade restarts the daemon once.**  The install script started the daemon and then restarted it as a guarantee.  The daemon applies pending schema updates as it starts, so on an upgrade with a slow one the second start killed the first part way and the update began again.  One restart, falling back to a start, now covers every case on systemd, OpenRC and SysVinit.
+- (2026-09-29) **unmask-web-nginx prints its setup banner only while setup is pending.**  The first-time setup banner came on every upgrade, forty lines after everything the unmask package had printed, and it read the setup token from a path the package stopped writing in 0.1.9, so a new install never saw its token.
+
+- (2026-09-29) **Native mode keeps its events after an upgrade on SELinux hosts without semanage.**  Upgrading unmask-web-nginx deleted the drop-in that relabels `/run/unmask` for nginx, so from the daemon's next restart nginx could not write the log socket and the dashboard counted nothing.  The drop-in now stays until the package is removed.  An upgrade from 0.1.48 or earlier still runs the old removal step once: reinstall unmask-web-nginx afterwards.
+
+- (2026-09-29) **A package upgrade restarts the daemon once.**  The install script started the daemon and then restarted it as a guarantee, and unmask-web-nginx restarted it again on SELinux hosts.  The daemon applies pending schema updates as it starts, so a later restart killed a slow one part way.  One restart, falling back to a start, now covers every case on systemd, OpenRC and SysVinit.
 
 - (2026-09-29) **The hourly prune no longer stops at the first table that fails.**  The aggregate tables are pruned one after another, and an error on one ended the run: the tables listed after it were not trimmed that hour, and not at all if the error kept returning.  Every table now gets its turn, the failures are reported together, and the run is recorded for `unmask doctor` to read.
 
