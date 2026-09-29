@@ -56,6 +56,11 @@ jobs:
       - name: coverage report
         working-directory: admin
         run: go tool cover -func=coverage.out | tail -5
+      # The package scripts are shell that the package manager runs as root,
+      # out of reach of every Go test.  This one runs the postinstall for real
+      # against a throwaway root, once per init system and packager.
+      - name: package postinstall
+        run: bash rpm/scripts/postinstall_test.sh
 
   # --------------------------------------------------------------------
   # C parser unit test + fuzz.  The JA4 ClientHello parser (raw TLS bytes on
