@@ -38,6 +38,15 @@ jobs:
         run: |
           ./tools/check-public-text.sh --self-test
           ./tools/check-public-text.sh
+      # The package scripts are shell that the package manager runs as root,
+      # out of reach of every Go test.  These run them for real against a
+      # throwaway root: the daemon's (re)start per init system and packager,
+      # and unmask-web-nginx's SELinux drop-in across install, upgrade and
+      # removal, and its setup banner.
+      - name: package scripts
+        run: |
+          bash rpm/scripts/postinstall_test.sh
+          bash rpm/scripts/postinstall-web-nginx_test.sh
       - name: gofmt
         working-directory: admin
         run: |
@@ -56,11 +65,6 @@ jobs:
       - name: coverage report
         working-directory: admin
         run: go tool cover -func=coverage.out | tail -5
-      # The package scripts are shell that the package manager runs as root,
-      # out of reach of every Go test.  This one runs the postinstall for real
-      # against a throwaway root, once per init system and packager.
-      - name: package postinstall
-        run: bash rpm/scripts/postinstall_test.sh
 
   # --------------------------------------------------------------------
   # C parser unit test + fuzz.  The JA4 ClientHello parser (raw TLS bytes on
