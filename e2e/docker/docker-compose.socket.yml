@@ -43,3 +43,10 @@ services:
   # start it; scenario 14 (apache forward-auth) is skipped in run.sh to match.
   apache:
     profiles: ["tcp-only"]
+
+  # fa-nginx (the forward-auth nginx of scenarios 42/44/45/58/59) reaches
+  # unmask through the rendered upstream, which in socket mode names a socket
+  # in a volume it does not mount: it stayed unhealthy, and `up --wait` failed
+  # on it.  Parked the same way; run.sh skips those scenarios to match.
+  fa-nginx:
+    profiles: ["tcp-only"]

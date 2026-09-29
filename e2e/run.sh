@@ -39,10 +39,16 @@ filter="${*:-}"
 
 # Scenarios that can't run when admin listens on a unix socket -- skipped (not
 # failed) in socket mode (UNMASK_E2E_SOCKET=1):
-#   - 05/10/12/13/16 hit the admin TCP port directly (exact source IP / header)
+#   - 05/10/12/13/16/43/51/52-asn-deny talk to the admin TCP port directly
+#     (an exact source IP, a header, /api/check with the original address)
 #   - 14/20/22/29 exercise the Apache forward-auth path, and Apache talks plain
 #     TCP to admin (no shared socket volume), so it is parked in socket mode.
-SOCKET_INCOMPAT="05 10 12 13 14 16 20 22 29"
+#   - 42/44/45/58/59 go through fa-nginx, which cannot reach a socket in
+#     another container and is parked in socket mode too.
+# The list had not kept up with the scenarios after 29, and fa-nginx kept the
+# socket stack from coming up at all.  An entry is a number, or a whole name
+# where two scenarios share the number.
+SOCKET_INCOMPAT="05 10 12 13 14 16 20 22 29 42 43 44 45 51 52-asn-deny 58 59"
 
 passed=0
 failed=0
@@ -112,8 +118,8 @@ for s in "$DIR"/scenarios/[0-9]*.sh; do
     if [ -n "$filter" ] && ! echo " $filter " | grep -q " $num "; then
         continue
     fi
-    if [ "${UNMASK_E2E_SOCKET:-}" = "1" ] && echo " $SOCKET_INCOMPAT " | grep -q " $num "; then
-        echo "[$name] SKIP (admin TCP-direct; not applicable in socket mode)"
+    if [ "${UNMASK_E2E_SOCKET:-}" = "1" ] && echo " $SOCKET_INCOMPAT " | grep -qE " ($num|$name) "; then
+        echo "[$name] SKIP (not applicable in socket mode)"
         echo
         skipped=$((skipped + 1))
         skipped_names+=("$name")
