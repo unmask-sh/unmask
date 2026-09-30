@@ -85,10 +85,10 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	tab := r.PathValue("tab")
-	switch tab {
-	case "top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design", "geo", "asn", "theme", "notifications", "retention", "performance", "community-bans", "sites", "gateway", "ai-advisor", "about":
+	switch {
+	case settingsTabs[tab]:
 		// ok
-	case "search-bots", "challenge-targets":
+	case tab == "search-bots" || tab == "challenge-targets":
 		tab = "ua-filter"
 	default:
 		// no / unknown tab -> the overview landing page.
@@ -2013,17 +2013,27 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	redirBack("")
 }
 
+// settingsTabs: the tabs /admin/settings/<tab>/ renders.  Any other name
+// lands on the overview ("top").
+var settingsTabs = map[string]bool{
+	"top": true, "network": true, "global": true, "ua-filter": true, "ja4-verdicts": true,
+	"honeypot": true, "bypass-ips": true, "bypass-paths": true, "web-bot-auth": true,
+	"privacy-pass": true, "protected": true, "captcha": true, "challenge": true,
+	"rate-limit": true, "deny-design": true, "geo": true, "asn": true, "theme": true,
+	"notifications": true, "retention": true, "performance": true, "community-bans": true,
+	"sites": true, "gateway": true, "ai-advisor": true, "about": true,
+}
+
 // tabForSection maps a save form's ?section= value to the destination tab
 // for the post-save redirect.  Most sections share the name; the branding /
-// appearance forms live inside the theme tab, so they redirect there.
+// appearance forms live inside the theme tab, so they redirect there.  A
+// section named with an underscore (rate_limit, deny_design) is the tab with
+// a hyphen: redirected to as written, rate_limit landed on the overview.
 func tabForSection(s string) string {
 	if s == "branding" || s == "appearance" {
 		return "theme"
 	}
-	if s == "deny_design" {
-		return "deny-design"
-	}
-	return s
+	return strings.ReplaceAll(s, "_", "-")
 }
 
 func (h *Handler) snapshotSettings() settings.Settings {

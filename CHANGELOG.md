@@ -34,6 +34,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-09-29) **Mattermost link previews pass out of the box.**  Mattermost fetches a pasted link's preview from its own server as `Mattermost-Bot`, which the crawler list did not carry, so the fetch was challenged and the link rendered bare.  It joins the supplement next to Chatwork, Webex and Notion, and can be switched off per pattern like any other.
 
 ### Fixed
+- (2026-10-01) **Saving the rate-limit tab returns to the rate-limit tab.**  The save named the tab `rate_limit`, while its address is `rate-limit`, so the redirect after a save landed on the settings overview, away from the rows just edited.  Every settings form now comes back to its own tab, and a test checks each of them.
+
 - (2026-09-30) **`db-prune -vacuum` asks for the disk it really needs.**  It checked for room for one copy of the live data, but in WAL mode the copy is written a second time into the write-ahead log.  It now asks for 2.2 times the live data, and with the daemon running it refuses and points to `unmask db-vacuum`, which compacts without stopping it.
 
 - (2026-09-30) **Community Bans enforces only the entries the hub has promoted.**  The hub lists every report, promoted or not, and marked the feed as version 1, which the daemon read as "enforce every entry": a single unpromoted report reached every subscriber.  The hub now says version 2, and the daemon enforces the promoted entries whatever the version.
