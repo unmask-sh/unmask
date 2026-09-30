@@ -4,13 +4,15 @@
 // by each vendor.  UA alone can be spoofed (= fake Googlebot UA), so we need
 // a two-stage rescue that also bypasses by IP.
 //
-// Two-tier load:
+// Two sources, per vendor file:
 //  1. override dir (= /var/lib/unmask/iprange/<file>.json, populated by the
-//     hub-pulled subscribe goroutine).  When present and parseable, this
-//     takes precedence so the install tracks upstream changes without a
-//     release bump.
-//  2. embed snapshot (= compiled-in JSON, ships with the binary).  Fallback
-//     when the override file is missing or unparseable.
+//     hub-pulled subscribe goroutine), so the install tracks upstream
+//     changes without a release bump.
+//  2. embed snapshot (= compiled-in JSON, ships with the binary).
+//
+// Whichever copy the vendor dated later is loaded (readNewest): a pulled
+// copy while the pulls run, the snapshot of a newer release when they have
+// stopped.
 package nginxconf
 
 import (
@@ -248,9 +250,10 @@ func newestOverrideMtime(dir string) time.Time {
 	return newest
 }
 
-// SetOverrideDir registers a directory whose <file>.json contents take
-// precedence over the embed snapshot.  Subsequent loadAll() calls re-parse
-// from disk.  Call once at startup (= cmdServe) with /var/lib/unmask/iprange.
+// SetOverrideDir registers the directory of pulled <file>.json copies, each
+// loaded in place of the embed snapshot's when the vendor dated it later.
+// Subsequent loadAll() calls re-parse from disk.  Call once at startup
+// (= cmdServe) with /var/lib/unmask/iprange.
 func SetOverrideDir(dir string) {
 	iprangeMu.Lock()
 	defer iprangeMu.Unlock()
@@ -311,7 +314,7 @@ func loadAll() {
 		if g.AddedIn == "" {
 			g.AddedIn = "v0.1.0"
 		}
-		body := readPreferringOverride(overrideDir, g.File)
+		body := readNewest(overrideDir, g.File)
 		if body == nil {
 			continue
 		}
@@ -338,40 +341,72 @@ func loadAll() {
 			g.prefixes = append(g.prefixes, v)
 		}
 		sort.Strings(g.prefixes)
-		// JSON creationTime: format varies subtly per vendor.  Try in order.
-		//   - "2026-05-01T14:46:54.000000"          (Google.  Assumed UTC but no Z)
-		//   - "2025-02-07T16:56:00.000000"          (Perplexity.  Same shape)
-		//   - "2026-04-29T21:03:15.207621"          (chatgpt-user.  Same shape)
-		for _, layout := range []string{
-			"2006-01-02T15:04:05.000000",
-			"2006-01-02T15:04:05.000000Z",
-			time.RFC3339Nano,
-			time.RFC3339,
-		} {
-			if t, err := time.Parse(layout, p.CreationTime); err == nil {
-				g.creation = t.UTC()
-				break
-			}
-		}
+		g.creation = parseCreationTime(p.CreationTime)
 	}
 	iprangeDiskStamp = newestOverrideMtime(overrideDir)
 	iprangeCheckedAt = time.Now()
 	iprangeLoaded = true
 }
 
-// readPreferringOverride: try <overrideDir>/<basename(file)> first.  Returns
-// nil on miss in both override and embed (= caller skips the group).
-func readPreferringOverride(overrideDir, file string) []byte {
-	if overrideDir != "" {
-		if b, err := os.ReadFile(filepath.Join(overrideDir, filepath.Base(file))); err == nil {
-			return b
+// parseCreationTime: a vendor JSON's creationTime, whose format varies
+// subtly per vendor.  Tried in order:
+//   - "2026-05-01T14:46:54.000000"          (Google.  Assumed UTC but no Z)
+//   - "2025-02-07T16:56:00.000000"          (Perplexity.  Same shape)
+//   - "2026-04-29T21:03:15.207621"          (chatgpt-user.  Same shape)
+//
+// Zero when absent or unreadable.
+func parseCreationTime(s string) time.Time {
+	for _, layout := range []string{
+		"2006-01-02T15:04:05.000000",
+		"2006-01-02T15:04:05.000000Z",
+		time.RFC3339Nano,
+		time.RFC3339,
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.UTC()
 		}
 	}
-	b, err := assets.IPRange.ReadFile(file)
-	if err != nil {
-		return nil
+	return time.Time{}
+}
+
+// readNewest: the group's file from <overrideDir>/<basename(file)> or the
+// embed snapshot, whichever the vendor dated later.  The pulled copy used to
+// win outright, so an install whose pulls had stopped -- switched off, or cut
+// off -- kept its old copy through every upgrade and never used the snapshot
+// the new release carried.  A copy with no readable date only wins where it
+// is the only one, or where neither is dated (the pulled copy, as before).
+// nil when neither exists (= caller skips the group).
+func readNewest(overrideDir, file string) []byte {
+	var pulled []byte
+	if overrideDir != "" {
+		if b, err := os.ReadFile(filepath.Join(overrideDir, filepath.Base(file))); err == nil {
+			pulled = b
+		}
 	}
-	return b
+	shipped, err := assets.IPRange.ReadFile(file)
+	if err != nil {
+		shipped = nil
+	}
+	switch {
+	case pulled == nil:
+		return shipped
+	case shipped == nil:
+		return pulled
+	}
+	if payloadCreationTime(shipped).After(payloadCreationTime(pulled)) {
+		return shipped
+	}
+	return pulled
+}
+
+func payloadCreationTime(b []byte) time.Time {
+	var p struct {
+		CreationTime string `json:"creationTime"`
+	}
+	if json.Unmarshal(b, &p) != nil {
+		return time.Time{}
+	}
+	return parseCreationTime(p.CreationTime)
 }
 
 // CreationTime: the JSON's creationTime (= used to render "last update YYYY-MM-DD" in the UI).

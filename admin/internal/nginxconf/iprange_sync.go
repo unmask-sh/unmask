@@ -114,6 +114,12 @@ type Sync struct {
 	// content check unconditionally.
 	RequireSignature bool
 
+	// Disabled: asked before every scheduled pull; true skips it, with no
+	// request at all.  Read live, so switching the pulls off in the settings
+	// takes effect at the next tick.  Nil = never.  A manual PullOnce is not
+	// affected: that is the operator asking for one.
+	Disabled func() bool
+
 	// RenderFunc: called after a successful pull writes at least one file.
 	// Typically wired to a closure that calls nginxconf.Render(settings,
 	// outDir, version) so http.inc / server.inc pick up the new prefixes.
@@ -241,8 +247,9 @@ func (s *Sync) logf(format string, args ...any) {
 }
 
 // Start runs the sync loop until ctx is cancelled.  Registers the override
-// dir up front so even before the first successful pull, any files already
-// on disk (= left from a previous run) take precedence over the embed.
+// dir up front so even before the first successful pull, the files already
+// on disk (= left from a previous run) are loaded where they are newer than
+// the embed.
 func (s *Sync) Start(ctx context.Context) {
 	dir := s.dir()
 	SetOverrideDir(dir)
@@ -257,7 +264,7 @@ func (s *Sync) Start(ctx context.Context) {
 	}
 
 	for {
-		if err := s.PullOnce(ctx); err != nil {
+		if _, err := s.scheduledPull(ctx); err != nil {
 			s.recordError(err)
 			s.logf("iprange sync: pull failed: %v", err)
 		}
@@ -272,6 +279,15 @@ func (s *Sync) Start(ctx context.Context) {
 		case <-time.After(wait):
 		}
 	}
+}
+
+// scheduledPull: one tick of the loop -- nothing while the pulls are
+// switched off, PullOnce otherwise.  Reports whether it pulled.
+func (s *Sync) scheduledPull(ctx context.Context) (bool, error) {
+	if s.Disabled != nil && s.Disabled() {
+		return false, nil
+	}
+	return true, s.PullOnce(ctx)
 }
 
 // PullOnce performs one fetch + apply.  Exported so the settings handler can

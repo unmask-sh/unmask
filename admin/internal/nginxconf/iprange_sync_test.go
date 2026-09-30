@@ -21,7 +21,9 @@ func TestSyncPullOnce_HappyPath(t *testing.T) {
 		GeneratedAt:   "2026-06-03T00:00:00Z",
 		Sources: map[string]AggregatedSource{
 			"google-common": {
-				CreationTime: "2026-06-02T00:00:00.000000",
+				// Dated now: a copy just pulled is newer than the snapshot the
+				// binary carries, so it is the one the group loads.
+				CreationTime: time.Now().UTC().Format("2006-01-02T15:04:05.000000"),
 				Prefixes: []AggregatedPrefix{
 					{IPv4Prefix: "203.0.113.0/24"},
 					{IPv6Prefix: "2001:db8::/32"},
@@ -315,7 +317,7 @@ func TestExternalSyncPickup(t *testing.T) {
 	}
 
 	// Another process writes an override file...
-	payload := `{"creationTime":"2026-08-18T00:00:00.000000","prefixes":[{"ipv4Prefix":"198.51.100.0/24"}]}`
+	payload := `{"creationTime":"` + time.Now().UTC().Format("2006-01-02T15:04:05.000000") + `","prefixes":[{"ipv4Prefix":"198.51.100.0/24"}]}`
 	path := filepath.Join(dir, "googlebot.json")
 	if err := os.WriteFile(path, []byte(payload), 0o644); err != nil {
 		t.Fatal(err)
@@ -334,5 +336,68 @@ func TestExternalSyncPickup(t *testing.T) {
 	// And an unchanged dir does not thrash: the same read keeps the state.
 	if got := g.PrefixCount(); got != 1 {
 		t.Fatalf("second read changed the state: %d", got)
+	}
+}
+
+// The pulled copy and the shipped snapshot: whichever the vendor dated later
+// is loaded.  An install whose pulls stopped (switched off, or cut off) used
+// to keep its old copy through every upgrade.
+func TestNewestCopyOfARangeWins(t *testing.T) {
+	g := bypassIPGroupByID("google-common")
+	if g == nil {
+		t.Fatal("google-common group missing")
+	}
+	shipped := func() int {
+		SetOverrideDir("")
+		Reload()
+		return g.PrefixCount()
+	}()
+	if shipped < 2 {
+		t.Fatalf("embed snapshot too small to tell the copies apart: %d", shipped)
+	}
+	for _, c := range []struct {
+		name, body string
+		want       int
+	}{
+		{"an older pulled copy loses to the snapshot", `{"creationTime":"2020-01-01T00:00:00.000000","prefixes":[{"ipv4Prefix":"198.51.100.0/24"}]}`, shipped},
+		{"a newer pulled copy wins", `{"creationTime":"` + time.Now().UTC().Format("2006-01-02T15:04:05.000000") + `","prefixes":[{"ipv4Prefix":"198.51.100.0/24"}]}`, 1},
+		{"an unreadable pulled copy falls back to the snapshot", `{"creationTime":`, shipped},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "googlebot.json"), []byte(c.body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			SetOverrideDir(dir)
+			t.Cleanup(func() { SetOverrideDir("") })
+			if got := g.PrefixCount(); got != c.want {
+				t.Fatalf("PrefixCount = %d, want %d", got, c.want)
+			}
+		})
+	}
+}
+
+// Switched off, a scheduled tick sends no request at all; switched back on,
+// the next tick pulls.  Read live, so no restart sits between the two.
+func TestScheduledPullSkipsWhileSwitchedOff(t *testing.T) {
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		w.WriteHeader(http.StatusNotModified)
+	}))
+	defer srv.Close()
+
+	off := true
+	s := NewSync()
+	s.HubURL = srv.URL
+	s.Dir = t.TempDir()
+	s.Disabled = func() bool { return off }
+
+	if pulled, err := s.scheduledPull(context.Background()); pulled || err != nil || hits != 0 {
+		t.Fatalf("switched off: pulled=%v err=%v hits=%d, want no request", pulled, err, hits)
+	}
+	off = false
+	if pulled, err := s.scheduledPull(context.Background()); !pulled || err != nil || hits != 1 {
+		t.Fatalf("switched on: pulled=%v err=%v hits=%d, want one request", pulled, err, hits)
 	}
 }

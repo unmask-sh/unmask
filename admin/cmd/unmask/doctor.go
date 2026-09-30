@@ -206,6 +206,19 @@ func cmdDoctor(args []string) error {
 		sort.Strings(missing)
 		const staleAfter = 30 * 24 * time.Hour
 		switch {
+		case s.Nginx.SyncDisabled:
+			// Switched off on purpose, so nothing is failing and "check the
+			// sync" is not the advice: judge the data in use, which a newer
+			// release's snapshot refreshes (the loader takes the newer copy).
+			if at := nginxconf.SnapshotDataAt(); !at.IsZero() && time.Since(at) <= staleAfter {
+				addOK("crawler IP ranges", fmt.Sprintf(
+					"scheduled pulls are off (sync_disabled); the range data in use was assembled %d days ago",
+					int(time.Since(at).Hours()/24)))
+			} else {
+				addWarn("crawler IP ranges", fmt.Sprintf(
+					"scheduled pulls are off (sync_disabled) and the range data in use is more than %d days old — %d crawler UA pattern(s) rely on it. Import a copy with `unmask update-iprange -file`, upgrade to a newer release, or switch the pulls back on (About tab).",
+					int(staleAfter.Hours()/24), len(inverted)))
+			}
 		case len(missing) > 0:
 			addWarn("crawler IP ranges", fmt.Sprintf(
 				"%d crawler UA pattern(s) rely on vendor IP ranges, but these presets have never been synced (serving the compiled-in snapshot): %s. Check the daemon log for 'iprange sync' errors; a stale snapshot can eventually challenge genuine crawlers from new vendor IPs.",

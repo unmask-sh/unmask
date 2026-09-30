@@ -586,6 +586,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Version":             h.Version,
 		"VersionStatus":       h.versionStatus(),
 		"VersionCheckEnabled": h.cfg().VersionCheckURLResolved() != "",
+		"FeedSyncEnabled":     !h.cfg().Nginx.SyncDisabled,
 		"ConfigPath":          h.ConfigPath,
 		// Self host id (= identifies which machine in a shared DB / aggregated dashboard).
 		// SelfHostID: resolved value (= config value → os.Hostname → "default", in priority order).
@@ -1794,6 +1795,11 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// version_check checkbox: present (= ticked) means enabled; an absent
 		// field (unticked) disables the update check entirely.
 		cur.VersionCheckDisabled = r.FormValue("version_check") == ""
+		// feed_sync: same shape -- unticked stops the scheduled pulls of the
+		// crawler IP ranges and the browser version baselines.  (The IP-geo
+		// downloads and Community Bans have their own switches, on the
+		// Network and Community Bans tabs.)
+		cur.Nginx.SyncDisabled = r.FormValue("feed_sync") == ""
 		// Advanced master reveal-gate, co-located with the version-check toggle
 		// (both install-level opt-ins).  Off hides the Web Bot Auth + Privacy
 		// Pass tabs and makes both inert (WebBotAuthActive/PrivacyPassActive AND

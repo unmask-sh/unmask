@@ -656,8 +656,9 @@ func cmdServe(args []string) error {
 
 	// IP range subscribe loop: pull aggregated bypass-IP prefixes from the
 	// unmask.sh hub daily (± jitter) and overlay them onto the embed
-	// snapshot.  Failure is non-fatal — embed remains the fallback.  Sync is
-	// always on; opt-out is via an unreachable HubURL or future settings.
+	// snapshot.  Failure is non-fatal — embed remains the fallback.  The
+	// operator can switch the scheduled pulls off (sync_disabled, on the
+	// About tab); that is read live, so it needs no restart.
 	//
 	// RenderFunc re-emits http.inc / server.inc so the new prefixes show up
 	// in $is_bypass_ip.  nginx -s reload is the operator's call (= predictable
@@ -671,6 +672,8 @@ func cmdServe(args []string) error {
 	ipSync.InsecureTLS = s.Nginx.SyncInsecureTLS
 	ipSync.RequireSignature = s.Nginx.SyncRequireSignature
 	ipSync.HubURL = strings.TrimSpace(s.Nginx.SyncHubURL) // empty = the published document
+	syncOff := func() bool { return h.SnapshotSettings().Nginx.SyncDisabled }
+	ipSync.Disabled = syncOff
 	ipSync.RenderFunc = func() error {
 		cur := h.SnapshotSettings()
 		out := strings.TrimSpace(cur.Nginx.OutputDir)
@@ -690,6 +693,7 @@ func cmdServe(args []string) error {
 	bmSync := browsermajors.NewSync()
 	bmSync.UserAgent = "unmask/" + Version
 	bmSync.HubURL = strings.TrimSpace(s.Nginx.BrowserMajorsHubURL) // empty = the published document
+	bmSync.Disabled = syncOff
 	h.BrowserSync = bmSync
 	go bmSync.Start(context.Background())
 
