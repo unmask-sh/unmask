@@ -25,6 +25,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-09-29) **Bot hunt shows where a session came from even when the view is filtered.**  The referer is recorded on the serve, so a log filtered to the passes showed "-" for every session.  Clicking the phase now loads the session's referer, and the date popover then shows the same value; until then a row shows its own, as before.  Silent rebinds record their own referer.
 
+- (2026-09-30) **Bluesky link cards pass out of the box.**  Bluesky builds a posted link's card with its own fetcher, Cardyb, which the crawler list did not carry, so the fetch got the challenge page and the post showed no card.  It joins the supplement next to Mattermost, Chatwork, Webex and Notion, and can be switched off per pattern like any other.
+
 - (2026-09-29) **Mattermost link previews pass out of the box.**  Mattermost fetches a pasted link's preview from its own server as `Mattermost-Bot`, which the crawler list did not carry, so the fetch was challenged and the link rendered bare.  It joins the supplement next to Chatwork, Webex and Notion, and can be switched off per pattern like any other.
 
 ### Fixed

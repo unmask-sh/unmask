@@ -11,7 +11,7 @@ import "testing"
 // kept challenging them.
 func TestSupplementPreviewBotsRenderIntoWhitelist(t *testing.T) {
 	conf := renderHTTPInc(t, nil)
-	for _, pat := range []string{`ChatWork LinkPreview`, `WebexTeams`, `NotionEmbedder`, `Mattermost-Bot`} {
+	for _, pat := range []string{`ChatWork LinkPreview`, `WebexTeams`, `NotionEmbedder`, `Mattermost-Bot`, `Cardyb`} {
 		if !containsPattern(conf, pat) {
 			t.Errorf("%s is not in the rendered whitelist: native mode would challenge its link previews", pat)
 		}

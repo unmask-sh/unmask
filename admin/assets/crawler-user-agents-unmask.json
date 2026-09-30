@@ -36,6 +36,15 @@
     "addition_date": "2026/09/29"
   },
   {
+    "pattern": "Cardyb",
+    "tags": ["social-preview"],
+    "url": "https://bsky.app/",
+    "instances": [
+      "Mozilla/5.0 (compatible; Bluesky Cardyb/1.1; +mailto:support@bsky.app)"
+    ],
+    "addition_date": "2026/09/30"
+  },
+  {
     "pattern": "Notification(Service)?Extension/.*CFNetwork",
     "tags": ["notification-preview"],
     "url": "https://developer.apple.com/documentation/usernotifications/unnotificationserviceextension",
