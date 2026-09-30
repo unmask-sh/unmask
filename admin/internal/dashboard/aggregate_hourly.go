@@ -879,7 +879,7 @@ func payloadForceReason(payload string) string {
 // captchaForceKinds slice.
 func normalizeForceReason(fr string) string {
 	switch fr {
-	case "none", "ja4_bot", "honeypot", "banned", "protected", "rate_limit", "test", "header", "asn", "geo", "stale":
+	case "none", "ja4_bot", "honeypot", "banned", "protected", "rate_limit", "reuse_limit", "test", "header", "asn", "geo", "stale":
 		return fr
 	}
 	return "unknown"

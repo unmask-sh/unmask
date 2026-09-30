@@ -885,28 +885,8 @@ func (h *Handler) asnDecide(ip string, cfg settings.Settings) (axisDecision, boo
 // specific network signal), matching the max-specificity intent -- but note
 // the caller only reaches here on an overage, so either rule firing is enough.
 func (h *Handler) netRateOverageAction(ip string, cfg settings.Settings) string {
-	if h.IPGeo == nil || ip == "" {
-		return ""
-	}
-	info := h.IPGeo.LookupInfo(ip)
-	// ASN first (more specific).
-	if h.IPGeo.ASNLoaded() {
-		for _, rr := range cfg.Nginx.Asn.RateRules() {
-			if (rr.ASN != 0 && info.ASN == rr.ASN) ||
-				(rr.ASN == 0 && rr.Org != "" && settings.OrgMatchesAny(info.ASNOrg, []string{rr.Org})) {
-				return rr.Action
-			}
-		}
-	}
-	if h.IPGeo.Loaded() {
-		cc := strings.ToUpper(strings.TrimSpace(info.Country))
-		for _, rr := range cfg.Nginx.Geo.RateRules() {
-			if rr.Country == cc {
-				return rr.Action
-			}
-		}
-	}
-	return ""
+	action, _ := h.netRateRule(ip, cfg) // reuse_cap.go
+	return action
 }
 
 func applyNetRate(d axisDecision, netKey string, rate int, rl *ratelimit.Limiter) (axisDecision, bool) {

@@ -3680,6 +3680,29 @@ function secToHuman(s){
     })();
     </script>
 
+    {{/* The pass-cookie reuse cap (settings.rate_limit.reuse): the rows above
+         count only requests WITHOUT a valid pass cookie, this one only those
+         WITH one.  On by default at volumes no person reaches; the seeds show
+         as placeholders. */}}
+    {{ $ru := .RateLimit.Reuse }}
+    <h3 style="font-size:1rem;margin:1.5rem 0 .4rem;display:flex;align-items:center;gap:.45rem">{{ t .Lang "settings.rate_limit.reuse_h" }}
+      <button type="button" class="ua-help-trigger" data-help-target="rl-reuse-help" aria-label="?">?</button>
+    </h3>
+    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.rate_limit.reuse_desc") }}</div>
+    <div id="rl-reuse" style="display:flex;flex-wrap:wrap;align-items:center;gap:.6rem 1.4rem">
+      <label style="display:flex;align-items:center;gap:.45rem;margin:0;cursor:pointer"><input type="checkbox" name="reuse_enabled" value="1" {{ if not $ru.Disabled }}checked{{ end }}> {{ t .Lang "settings.rate_limit.reuse_enabled" }}</label>
+      <label style="display:flex;align-items:center;gap:.45rem;margin:0">{{ t .Lang "settings.rate_limit.reuse_per_day" }}
+        <input type="number" name="reuse_per_day" min="1440" max="10000000" step="1" placeholder="{{ reuseSeedPerDay }}" value="{{ if gt $ru.PerDay 0 }}{{ $ru.PerDay }}{{ end }}" style="width:7rem"></label>
+      <label style="display:flex;align-items:center;gap:.45rem;margin:0">{{ t .Lang "settings.rate_limit.reuse_burst" }}
+        <input type="number" name="reuse_burst" min="1" max="1000000" step="1" placeholder="{{ reuseSeedBurst }}" value="{{ if gt $ru.Burst 0 }}{{ $ru.Burst }}{{ end }}" style="width:6rem"></label>
+      <label style="display:flex;align-items:center;gap:.45rem;margin:0">{{ t .Lang "settings.rate_limit.reuse_action" }}
+        <select name="reuse_action" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
+          <option value="captcha_only" {{ if eq $ru.ResolvedAction "captcha_only" }}selected{{ end }}>captcha_only</option>
+          <option value="deny"         {{ if eq $ru.ResolvedAction "deny" }}selected{{ end }}>deny</option>
+        </select></label>
+    </div>
+    <script type="text/html" id="rl-reuse-help">{{ safeHTML (t .Lang "settings.rate_limit.reuse_help") }}</script>
+
     <h3 style="font-size:1rem;margin:1.5rem 0 .4rem;display:flex;align-items:center;gap:.45rem">{{ t .Lang "settings.rate_limit.zones_h" }}
       <button type="button" class="ua-help-trigger" data-help-target="rl-zones-help" aria-label="?">?</button>
     </h3>

@@ -3362,6 +3362,13 @@ type RateLimitConfig struct {
 	IPLimit    AxisLimitConfig `yaml:"ip_limit,omitempty"`
 	JA4Limit   AxisLimitConfig `yaml:"ja4_limit,omitempty"`
 	IPJA4Limit AxisLimitConfig `yaml:"ipja4_limit,omitempty"`
+	// Reuse: the pass-cookie reuse cap.  Every limit above counts only
+	// requests WITHOUT a valid _bv (a deny zone aside), so a client that
+	// solved the challenge once is never counted again for as long as its
+	// cookie lives -- on every node that shares the secret.  This one counts
+	// only requests WITH a valid _bv, per client address, at volumes no
+	// person reaches.  On unless disabled.
+	Reuse ReuseLimitConfig `yaml:"reuse,omitempty"`
 	// Key: which fingerprint to count requests against.
 	//   "ip"     : $binary_remote_addr only (= default; behaves like classic limit_req)
 	//   "ja4"    : $effective_ja4 only (= one bucket per TLS fingerprint; catches
@@ -3496,6 +3503,86 @@ type AxisLimitConfig struct {
 
 // JA4LimitConfig: retained alias for the pre-axis-row name.
 type JA4LimitConfig = AxisLimitConfig
+
+// ReuseLimitConfig: the pass-cookie reuse cap (RateLimitConfig.Reuse).
+//
+// It renders as one more limit_req zone, keyed on the client address and
+// counting only requests that carry a valid _bv: a token bucket that holds
+// Burst requests and refills at PerDay a day (nginx takes the rate per
+// minute, so PerDay is rounded up to a whole number a minute).  Over it, the
+// request goes to the challenge route like any rate-limit hit, and the
+// daemon serves a CAPTCHA on every request while the client stays over
+// (captcha_only), or the deny page (deny).  A PoW pass gives no way past it,
+// and neither does a new one: the budget is the address's, not the cookie's.
+// The seeds sit far above what a person does in a day or an hour, and far
+// below what a scraper that keeps reusing one pass does.
+//
+// On by default -- a tightening added in ReuseAddedIn, so an install on the
+// "review" upgrade policy holds it until the upgrade is acknowledged
+// (nginxconf.ReuseCapActive).
+type ReuseLimitConfig struct {
+	Disabled bool   `yaml:"disabled,omitempty"`
+	PerDay   int    `yaml:"per_day,omitempty"` // 0 -> ReuseSeedPerDay
+	Burst    int    `yaml:"burst,omitempty"`   // 0 -> ReuseSeedBurst
+	Action   string `yaml:"action,omitempty"`  // captcha_only (default) | deny
+}
+
+// ReuseSeedPerDay / ReuseSeedBurst: the defaults, far above what a person does
+// (see ReuseLimitConfig).  ReuseMinPerDay: nginx's smallest rate, one request a
+// minute.  ReuseZoneName: the zone it renders as, reserved like the axis rows'
+// names.  ReuseAddedIn: the release that turned it on, for the upgrade review.
+const (
+	ReuseAddedIn    = "v0.1.49"
+	ReuseSeedPerDay = 10000
+	ReuseSeedBurst  = 2000
+	ReuseMinPerDay  = 1440
+	ReuseMaxPerDay  = 10000000
+	ReuseMaxBurst   = 1000000
+	ReuseZoneName   = "unmask_reuse"
+)
+
+// IsZero lets yaml.v3 honour omitempty: an install that never touched the
+// cap -- on, at the seeds, captcha_only -- writes no reuse key.
+func (c ReuseLimitConfig) IsZero() bool { return c == ReuseLimitConfig{} }
+
+// ResolvedPerDay / ResolvedBurst: the stored value, or the seed when unset.
+func (c ReuseLimitConfig) ResolvedPerDay() int {
+	if c.PerDay <= 0 {
+		return ReuseSeedPerDay
+	}
+	return c.PerDay
+}
+
+func (c ReuseLimitConfig) ResolvedBurst() int {
+	if c.Burst <= 0 {
+		return ReuseSeedBurst
+	}
+	return c.Burst
+}
+
+// ResolvedAction: deny when set so, else captcha_only -- the only two that
+// mean anything to a client that already holds a pass (a PoW would hand it a
+// new one).
+func (c ReuseLimitConfig) ResolvedAction() string {
+	if c.Action == RateChallengeDeny {
+		return RateChallengeDeny
+	}
+	return RateChallengeCaptchaOnly
+}
+
+// RatePerMin: PerDay as nginx's per-minute rate, rounded up, at least 1.
+func (c ReuseLimitConfig) RatePerMin() int {
+	n := (c.ResolvedPerDay() + 1439) / 1440
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+// IsValidReuseAction: the actions the reuse cap accepts.
+func IsValidReuseAction(a string) bool {
+	return a == RateChallengeCaptchaOnly || a == RateChallengeDeny
+}
 
 // IsZero lets yaml.v3 honour the field's omitempty: an untouched companion
 // (never enabled, never tuned) writes no ja4_limit key at all, so a no-op

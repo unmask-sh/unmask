@@ -15,6 +15,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- (2026-10-01) **A cap on reusing one pass.**  A visitor who passed the challenge was counted by no rate limit while its cookie lived, so a scraper running a real browser could solve one proof-of-work and fetch without limit on every node.  The cap counts only requests carrying a valid pass, per address: by default 10,000 a day, 2,000 at once.  Over it, every request needs a CAPTCHA, or is denied.
+
 - (2026-09-30) **A bypass preset for Git over HTTP.**  Behind unmask, `git clone`, fetch, push and Git LFS against a Git forge failed, because the git client cannot solve a challenge.  The new preset under Bypass paths, off by default, lets those requests through by their Git endpoints, while the forge's web pages stay behind the challenge.
 
 - (2026-09-30) **The crawler IP range and browser version downloads can be switched off.**  A checkbox on the About tab (`sync_disabled`) stops the two daily pulls from unmask.sh, so every call unmask makes on its own now has a switch.  The data the release ships stays in use, and a newer release's snapshot now replaces an older downloaded copy.
