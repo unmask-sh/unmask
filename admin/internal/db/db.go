@@ -54,9 +54,11 @@ type DB struct {
 	// indexes is the set of index names the database had when it was last
 	// looked at (RefreshIndexes); nil until then.  See HasIndex.
 	indexes atomic.Pointer[map[string]bool]
-	// writesHeld: another process holds SQLite's write lock for a long run (a
-	// schema update building an index).  See HoldWrites.
-	writesHeld atomic.Bool
+	// writesHeld: another process holds SQLite's write lock for a long run --
+	// a schema update building an index, a compaction -- one bit per kind of
+	// run, so that one ending does not lift the other's hold.  See
+	// HoldWrites.
+	writesHeld atomic.Uint32
 }
 
 // SQLite memory sizing.
@@ -552,18 +554,41 @@ func (d *DB) indexHint(name string) string {
 // turn, and the admin UI says why a save cannot happen now.
 //
 // MariaDB builds indexes online and never sets it.
-func (d *DB) HoldWrites(held bool) {
-	if d != nil {
-		d.writesHeld.Store(held)
+//
+// A compaction holds the write lock the same way (vacuum.go), and has its
+// own mark: HoldWritesForVacuum.
+func (d *DB) HoldWrites(held bool) { d.holdWritesBit(holdSchemaUpdate, held) }
+
+// HoldWritesForVacuum is HoldWrites for a compaction run.
+func (d *DB) HoldWritesForVacuum(held bool) { d.holdWritesBit(holdVacuum, held) }
+
+// The kinds of run that hold the writes.
+const (
+	holdSchemaUpdate uint32 = 1 << iota
+	holdVacuum
+)
+
+func (d *DB) holdWritesBit(bit uint32, held bool) {
+	if d == nil {
+		return
+	}
+	if held {
+		d.writesHeld.Or(bit)
+	} else {
+		d.writesHeld.And(^bit)
 	}
 }
 
-// WritesHeld reports whether HoldWrites is in effect.
-func (d *DB) WritesHeld() bool { return d != nil && d.writesHeld.Load() }
+// WritesHeld reports whether HoldWrites or HoldWritesForVacuum is in effect.
+func (d *DB) WritesHeld() bool { return d != nil && d.writesHeld.Load() != 0 }
+
+// WritesHeldForVacuum reports whether the hold is a compaction's -- for the
+// words a refused change is answered with.
+func (d *DB) WritesHeldForVacuum() bool { return d != nil && d.writesHeld.Load()&holdVacuum != 0 }
 
 // ErrWritesHeld is what a write that checks WritesHeld returns instead of
 // waiting for the lock.
-var ErrWritesHeld = errors.New("the database is being updated (a schema update holds the write lock); try again when it has finished")
+var ErrWritesHeld = errors.New("the database's writes are held (a schema update or a compaction holds the write lock); try again when it has finished")
 
 // EventJA4IndexHint pins the fingerprint index for a read keyed on ja4 and a
 // phase over a date window (who completed the challenge with this

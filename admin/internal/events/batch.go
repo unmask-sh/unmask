@@ -8,9 +8,9 @@
 //     3) Stop() (= shutdown signal) → drain + final flush + exit
 //   - Flush inserts every row inside a single transaction (= 10-50x faster on SQLite WAL)
 //   - On a full queue, drop + warn log (= prevent OOM from a bot flood)
-//   - While a schema update holds the database's write lock (db.WritesHeld)
-//     nothing is written: the events are kept, up to heldMax, and written
-//     when the lock is released
+//   - While a schema update or a compaction holds the database's write lock
+//     (db.WritesHeld) nothing is written: the events are kept, up to
+//     heldMax, and written when the lock is released
 //
 // Hot reload: batchSize / flushInterval can be updated atomically (= the web
 // UI's settings save swaps them in and the next cycle picks them up).
@@ -45,6 +45,9 @@ type Flusher struct {
 	// metrics (= dropped etc.  For future dashboard visualization).
 	dropped        atomic.Uint64 // queue-full drops (Submit on a full channel)
 	droppedOnError atomic.Uint64 // overflow drops after a DB-error retry backlog
+	// kept: the events held in memory while the database's writes are held,
+	// as of the last tick -- what the admin UI shows during a long run.
+	kept atomic.Int64
 }
 
 // NewFlusher: start one flusher and return it.  The worker goroutine starts.
@@ -85,10 +88,13 @@ func (f *Flusher) Submit(e *Event) {
 }
 
 // heldMax is how many events are kept while the database's writes are held.
-// An index build over a large table holds the write lock for minutes; the
-// challenge goes on during it and its events are worth having afterwards.
-// Past this many the oldest go, counted with the DB-error drops.
-const heldMax = 50000
+// An index build over a large table holds the write lock for minutes, and a
+// compaction of a large database for longer; the challenge goes on during
+// either and its events are worth having afterwards.  Past this many the
+// oldest go, counted with the DB-error drops.  At about 1 KB an event, 5% of
+// the memory the daemon may use, and never fewer than 50,000
+// (db.HeldEventsLimit, which the compaction's plan is checked against).
+var heldMax = db.HeldEventsLimit()
 
 // flushChunk bounds one transaction when a backlog is written: the lock is
 // released between chunks, so whatever else is waiting to write gets in, and
@@ -215,9 +221,10 @@ func (f *Flusher) run() {
 			// A write now would wait out the busy timeout and fail, over
 			// and over for as long as the build runs.  Keep the events.
 			heldDropped += retain(heldMax)
+			f.kept.Store(int64(len(buf)))
 			if !holding {
 				holding, kept = true, true
-				log.Printf("events flusher: a schema update holds the write lock; events are kept in memory (up to %d) and written when it has finished", heldMax)
+				log.Printf("events flusher: the database's writes are held (a schema update or a compaction); events are kept in memory (up to %d) and written when it has finished", heldMax)
 			}
 			lastFlush = time.Now()
 			return
@@ -262,6 +269,7 @@ func (f *Flusher) run() {
 			return
 		}
 		kept = false
+		f.kept.Store(0)
 		lastFlush = time.Now()
 	}
 
@@ -322,4 +330,13 @@ func insertBulk(ctx context.Context, d *db.DB, events []*Event) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// HeldEvents is how many events the flusher keeps in memory while the
+// database's writes are held (0 when they are not, or there is no flusher).
+func HeldEvents() int64 {
+	if f := globalFlusher.Load(); f != nil {
+		return f.kept.Load()
+	}
+	return 0
 }

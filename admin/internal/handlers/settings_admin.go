@@ -469,6 +469,18 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		retentionView = h.retentionStats(rctx, resolveLocation(r))
 		rcancel()
 	}
+	// Retention tab: the compaction card (vacuum.go) -- what a run would give
+	// back and need, and the last run.
+	var vacuumCard VacuumCard
+	if tab == "retention" {
+		role := ""
+		if pay := SessionFromContext(r); pay != nil {
+			role = pay.Role
+		}
+		vctx, vcancel := context.WithTimeout(r.Context(), 10*time.Second)
+		vacuumCard = h.vacuumCard(vctx, role, i18n.Resolve(r))
+		vcancel()
+	}
 
 	// Scope picker (= theme / challenge tabs): one form, one save button,
 	// scope=<host> selects which BrandingValues / ChallengeValues record the
@@ -619,6 +631,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"EventsDropped":         events.GlobalFlusherDropped(),
 		"NginxLogEnabled":       h.cfg().NginxLog.Enabled,
 		"Retention":             retentionView,
+		"VacuumCard":            vacuumCard,
 		// Container gateway (settings > Gateway).  The tab exists only while
 		// a gateway is configured; the certificate probe dials the gateway's
 		// :443 and is done only when that tab is open.

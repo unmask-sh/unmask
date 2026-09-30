@@ -17,7 +17,7 @@
   on every page, and this is the one thing every page includes.  It goes after
   init_csrf, whose fetch shim its buttons rely on.
 */ -}}
-{{ define "header_tools" }}{{ template "host_picker" . }}  {{ template "site_picker" . }}  {{ template "user_menu" . }}{{ template "init_tz_cookie" . }}{{ template "init_csrf" . }}{{ template "schema_update_notice" . }}{{ end }}
+{{ define "header_tools" }}{{ template "host_picker" . }}  {{ template "site_picker" . }}  {{ template "user_menu" . }}{{ template "init_tz_cookie" . }}{{ template "init_csrf" . }}{{ template "schema_update_notice" . }}{{ template "vacuum_notice" . }}{{ end }}
 
 {{/*
   init_csrf: double-submit CSRF shim, global so no individual form or fetch

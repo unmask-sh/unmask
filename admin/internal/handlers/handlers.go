@@ -192,6 +192,11 @@ type Handler struct {
 	// SchemaCommand builds the process that applies a schema update; nil
 	// means this binary's `migrate`.  Tests put their own in.
 	SchemaCommand func(by string) (*exec.Cmd, error)
+	// vacuum is what the daemon knows about the database compaction runs
+	// (vacuum.go); VacuumCommand builds the run's process, nil meaning this
+	// binary's `db-vacuum`.  Tests put their own in.
+	vacuum        vacuumRunner
+	VacuumCommand func(by string) (*exec.Cmd, error)
 }
 
 // cfg returns the live settings snapshot.  The returned pointer is shared and

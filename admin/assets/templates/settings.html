@@ -6523,6 +6523,63 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     <div style="margin-top:.7rem;font-size:.8rem"><a href="{{ .BasePath }}/admin/setup/">{{ t .Lang "settings.retention.db_reconfigure_link" }}</a></div>
   </div>
 
+  {{/* Compaction (handlers/vacuum.go): VACUUM with the daemon serving.  The
+       figures are the run's own plan (db.PlanVacuum): what it gives back, the
+       disk it needs meanwhile, how long, and the events the daemon holds in
+       memory while it runs.  The button is a POST from script, not a submit
+       of the form this card sits in. */}}
+  {{ with .VacuumCard }}{{ if .Show }}
+  <div class="bcd-card" id="vacuum-card">
+    <h2>{{ t $.Lang "vacuum.card_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t $.Lang "vacuum.card_desc") }}</span></span></h2>
+    <div class="note" style="margin-bottom:.8rem">{{ t $.Lang "vacuum.card_intro" }}</div>
+    {{ if .PlanErr }}
+    <div class="banner bad">{{ .PlanErr }}</div>
+    {{ else }}
+    <div style="font-size:.85rem;color:#334155;line-height:1.8">
+      <div data-vacuum="size">{{ t $.Lang "vacuum.size_label" }}: <strong>{{ tf $.Lang "vacuum.size_value" .File .Live }}</strong> · {{ t $.Lang "vacuum.reclaim_label" }}: <strong>{{ tf $.Lang "vacuum.reclaim_value" .Reclaim .ReclaimPct }}</strong></div>
+      <div data-vacuum="disk">{{ t $.Lang "vacuum.disk_label" }}: <strong>{{ .DiskNeed }}</strong>{{ if .DiskFree }} <span style="color:#64748b">({{ tf $.Lang "vacuum.disk_free" .DiskFree }})</span>{{ end }}</div>
+      <div data-vacuum="time">{{ t $.Lang "vacuum.time_label" }}: <strong>{{ .Est }}</strong> <span style="color:#94a3b8;font-size:.75rem">{{ t $.Lang (printf "vacuum.est_from_%s" .Plan.EstFrom) }}</span></div>
+      <div data-vacuum="held">{{ t $.Lang "vacuum.held_label" }}: <strong>{{ tf $.Lang "vacuum.held_value" .EventsPerHour .HeldEvents .HeldBytes }}</strong> <span style="color:#94a3b8;font-size:.75rem">{{ tf $.Lang "vacuum.held_limit" .HeldLimit .CountersBytes }}</span></div>
+    </div>
+    {{ end }}
+    <div style="margin-top:.8rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
+      <button type="button" class="btn secondary" id="vacuum-run"{{ if not .CanRun }} disabled style="opacity:.5;cursor:default"{{ end }}
+              data-api="{{ $.BasePath }}/admin/api/vacuum/run"
+              data-confirm="{{ tf $.Lang "vacuum.confirm" .Est }}"
+              data-starting="{{ t $.Lang "vacuum.starting" }}"
+              data-failed="{{ t $.Lang "vacuum.request_failed" }}">{{ t $.Lang "vacuum.run" }}</button>
+      {{ if .Blocked }}<span id="vacuum-blocked" style="font-size:.8rem;color:#64748b">{{ .Blocked }}</span>{{ end }}
+    </div>
+    {{ with .Last }}{{ if ne .State "running" }}
+    <div id="vacuum-last" style="margin-top:.6rem;font-size:.78rem;color:#64748b">
+      {{ t $.Lang "vacuum.last_label" }}: <time class="js-datetime" data-ts="{{ .EndedAt }}">{{ .EndedAt }}</time> ·
+      {{ if eq .State "done" }}{{ tf $.Lang "vacuum.last_done" .FileBefore .FileAfter .Took }}{{ else if eq .State "cancelled" }}{{ t $.Lang "vacuum.last_cancelled" }}{{ else }}{{ t $.Lang "vacuum.last_failed" }} <code>{{ .Err }}</code>{{ end }}
+    </div>
+    {{ end }}{{ end }}
+  </div>
+  <script>
+  (function(){
+    var b = document.getElementById('vacuum-run');
+    if (!b || b.disabled) return;
+    b.addEventListener('click', function(){
+      if (!confirm(b.getAttribute('data-confirm'))) return;
+      b.disabled = true;
+      var was = b.textContent;
+      b.textContent = b.getAttribute('data-starting');
+      fetch(b.getAttribute('data-api'), {method: 'POST', credentials: 'same-origin'}).then(function(r){
+        // 409: something is going meanwhile -- the page shows what.
+        if (!r.ok && r.status !== 409) throw new Error('HTTP ' + r.status);
+        setTimeout(function(){ location.reload(); }, 1200);
+      }).catch(function(){
+        b.disabled = false;
+        b.textContent = was;
+        alert(b.getAttribute('data-failed'));
+      });
+    });
+  })();
+  </script>
+  {{ end }}{{ end }}
+
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.retention.h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.retention.desc") }}</span></span></h2>
     <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.retention.intro") }}</div>
