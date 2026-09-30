@@ -57,6 +57,14 @@ func TestPresetPatternsMatchRealisticURIs(t *testing.T) {
 		{"api-paths", "/v2/items", true},
 		{"api-paths", "/graphql", true},
 		{"api-paths", "/foo/api/users", false}, // anchor blocks mid-URI hits
+		{"git-http", "/alice/tool.git/info/refs?service=git-upload-pack", true},
+		{"git-http", "/alice/tool/info/refs?service=git-receive-pack", true},
+		{"git-http", "/alice/tool.git/git-upload-pack", true},
+		{"git-http", "/alice/tool.git/git-receive-pack", true},
+		{"git-http", "/alice/tool.git/info/lfs/objects/batch", true},
+		{"git-http", "/alice/tool", false},                              // the repository's web page stays challenged
+		{"git-http", "/alice/tool/src/branch/main/info/refs.md", false}, // a file that merely mentions the name
+		{"git-http", "/search?q=/info/refs", false},                     // the name in a query string
 	}
 	for _, c := range cases {
 		hit := false
