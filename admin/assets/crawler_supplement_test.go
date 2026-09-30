@@ -28,6 +28,8 @@ func decodeCrawlers(t *testing.T, raw []byte) []crawlerEntry {
 // Mattermost-Bot is the same case from self-hosted chat: every Mattermost
 // server fetches its own previews, so there is no vendor range to verify by,
 // and its UA stands on the same footing as upstream's Mastodon entry.
+// Cardyb is Bluesky's link-card fetcher: a post linking a protected page got
+// the challenge page for its card.
 func TestCrawlerSupplementMerged(t *testing.T) {
 	merged := decodeCrawlers(t, CrawlerUserAgentsJSON)
 	upstream := decodeCrawlers(t, upstreamCrawlerUAJSON)
@@ -42,7 +44,7 @@ func TestCrawlerSupplementMerged(t *testing.T) {
 		have[e.Pattern] = e.Tags
 	}
 	// The supplement must reach the merged list...
-	for _, want := range []string{"ChatWork LinkPreview", "WebexTeams", "NotionEmbedder", "Mattermost-Bot"} {
+	for _, want := range []string{"ChatWork LinkPreview", "WebexTeams", "NotionEmbedder", "Mattermost-Bot", "Cardyb"} {
 		tags, ok := have[want]
 		if !ok {
 			t.Errorf("%q missing from the shipped crawler list", want)
