@@ -112,7 +112,11 @@ esac
 #    (exactly what the hub sync writes) and restart.  7.7.7.7 now counts as a
 #    published Google address, so the UA+range pair passes by IP.
 MUTATED=1
-admin_exec "cp '$CONF' '$CONF.bak51' && mkdir -p \"\$(dirname '$OVERRIDE')\" && printf '%s' '{\"creationTime\":\"2026-07-16T00:00:00.000000\",\"prefixes\":[{\"ipv4Prefix\":\"7.7.7.0/24\"}]}' > '$OVERRIDE'"
+# Dated now, like a copy just pulled: the loader takes whichever copy of a
+# vendor file the vendor dated later, so a fixed old date would lose to the
+# snapshot the binary carries.
+NOW=$(date -u +%Y-%m-%dT%H:%M:%S.000000)
+admin_exec "cp '$CONF' '$CONF.bak51' && mkdir -p \"\$(dirname '$OVERRIDE')\" && printf '%s' '{\"creationTime\":\"$NOW\",\"prefixes\":[{\"ipv4Prefix\":\"7.7.7.0/24\"}]}' > '$OVERRIDE'"
 if ! restart_admin; then
     log_fail "admin did not come back after the override restart (healthz $(healthz))"
     exit 1
