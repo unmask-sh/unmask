@@ -267,6 +267,11 @@ func waitForRecord(t *testing.T, h *Handler) {
 		rec, ok, err := h.DB.LoadSchemaUpdate(context.Background())
 		return err == nil && ok && rec.State == db.SchemaUpdateRunning && h.DB.SchemaUpdateAlive(context.Background(), rec, time.Now())
 	})
+	// The last try refreshed the daemon before it read the record: when the
+	// record appeared in between, the daemon's own view still lacks it (no
+	// starter, no record time -- a failure seen on a loaded CI runner).
+	// Refresh once more now that the record is known to be there.
+	h.SchemaRefresh(context.Background())
 }
 
 func waitFor(t *testing.T, what string, within time.Duration, ok func() bool) {
