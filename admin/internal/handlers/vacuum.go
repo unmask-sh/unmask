@@ -304,6 +304,12 @@ type VacuumCard struct {
 	ReclaimPct                                                        int
 	Est                                                               string
 	EventsPerHour, HeldEvents, HeldLimit                              string
+	// HeldUpTo: the high end of the estimate, which HeldEvents is the event
+	// rate over.  HoldMem: the memory the hold may take -- the events, and
+	// the access-log counters when the access-log integration is on
+	// (CountersOn); without it there are no counters to keep.
+	HeldUpTo, HoldMem string
+	CountersOn        bool
 	// CanRun: this session may start a run now (a superadmin, nothing going,
 	// and the plan says it is worth it and has room).
 	CanRun bool
@@ -341,6 +347,12 @@ func (h *Handler) vacuumCard(ctx context.Context, role string, lang i18n.Lang) V
 		}
 		c.Est = estimateText(lang, p.EstLow, p.EstHigh)
 		c.EventsPerHour, c.HeldEvents, c.HeldLimit = groupDigits(p.EventsPerHour), groupDigits(p.HeldEvents), groupDigits(p.HeldLimit)
+		c.HeldUpTo = upToText(lang, p.EstHigh)
+		mem := p.HeldBytes
+		if c.CountersOn = h.cfg().NginxLog.Enabled; c.CountersOn {
+			mem += p.CountersBytes
+		}
+		c.HoldMem = sizeText(mem)
 	}
 	c.Last = h.vacuumView(role, lang)
 	c.Running = c.Last != nil && c.Last.State == "running"
@@ -597,6 +609,28 @@ func groupDigits(n int64) string {
 		return "-" + b.String()
 	}
 	return b.String()
+}
+
+// upToText words the high end of an estimate the way its range does
+// (db.EstimateRange rounds up to 10 s below 90 s, and to the minute above),
+// without the "about": the card gives the events held as the event rate over
+// it.
+func upToText(lang i18n.Lang, d time.Duration) string {
+	if d < 90*time.Second {
+		s := int((d+10*time.Second-1)/(10*time.Second)) * 10
+		if s < 10 {
+			s = 10
+		}
+		if lang == i18n.LangJA {
+			return fmt.Sprintf("%d 秒", s)
+		}
+		return fmt.Sprintf("%d s", s)
+	}
+	m := int((d + time.Minute - 1) / time.Minute)
+	if lang == i18n.LangJA {
+		return fmt.Sprintf("%d 分", m)
+	}
+	return fmt.Sprintf("%d min", m)
 }
 
 // sizeText is humanBytes that says "0 B" for nothing rather than leaving a

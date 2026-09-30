@@ -65,7 +65,7 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   if (res.missing) {
     ok(false, 'no compaction card on the retention tab (SQLite install)');
   } else {
-    for (const k of ['size', 'disk', 'time', 'held']) {
+    for (const k of ['size', 'disk', 'time', 'held', 'mem']) {
       ok(res.rows[k] && /\d/.test(res.rows[k]), `the card's ${k} line carries no figure: ${JSON.stringify(res.rows[k])}`);
     }
     ok(!res.progress, 'the card shows a run in progress with none going');
@@ -73,6 +73,47 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     ok(res.btnDisabled === true, 'the button is live on a database with little to give back');
     ok(res.blocked.length > 10, `a disabled button with no reason next to it: ${JSON.stringify(res.blocked)}`);
     ok(res.overflow <= 1, `the card scrolls sideways by ${res.overflow}px at 1280px`);
+
+    // The button asks in a modal of the card's own, never the browser's
+    // confirm().  The database here has too little to give back, so the
+    // button is made live for the test: the modal opens with the focus on
+    // backing out, backing out (or Esc) closes it, and nothing is sent.
+    const posts = [];
+    page.on('request', r => { if (r.method() === 'POST' && r.url().includes('/admin/api/vacuum')) posts.push(r.url()); });
+    page.on('dialog', async d => { fails.push(`a browser ${d.type()} opened: ${d.message()}`); await d.dismiss(); });
+    await page.evaluate(() => { const b = document.getElementById('vacuum-run'); b.disabled = false; b.removeAttribute('style'); });
+    const modalState = () => page.evaluate(() => {
+      const d = document.getElementById('vacuum-dialog');
+      if (!d) return { missing: true };
+      const r = d.getBoundingClientRect();
+      const a = document.activeElement;
+      return {
+        open: d.open, modal: d.matches(':modal'), top: r.top, bottom: r.bottom, vh: innerHeight,
+        notes: d.querySelectorAll('li').length, overflow: d.scrollWidth - d.clientWidth,
+        backFocused: !!(a && a.hasAttribute('data-back') && d.contains(a)),
+        types: [...d.querySelectorAll('button')].map(b => b.getAttribute('type')),
+      };
+    });
+    await page.click('#vacuum-run');
+    let m = await modalState();
+    if (m.missing) {
+      ok(false, 'no start modal in the card');
+    } else {
+      ok(m.open && m.modal, 'the compaction button did not open its modal');
+      ok(m.notes === 4, `the modal lists ${m.notes} points about the run, want 4`);
+      ok(m.backFocused, 'the modal opened without the focus on backing out');
+      ok(m.top >= 0 && m.bottom <= m.vh, `the modal is off screen (${m.top}-${m.bottom} of ${m.vh})`);
+      ok(m.overflow <= 1, `the modal scrolls sideways by ${m.overflow}px`);
+      ok(m.types.every(t => t === 'button'), `a modal button would submit the retention form: ${m.types}`);
+      await page.click('#vacuum-dialog [data-back]');
+      m = await modalState();
+      ok(!m.open, 'backing out did not close the modal');
+      await page.click('#vacuum-run');
+      await page.keyboard.press('Escape');
+      m = await modalState();
+      ok(!m.open, 'Esc did not close the modal');
+      ok(posts.length === 0, `backing out sent ${posts.join(', ')}`);
+    }
   }
   ok(jsErrors.length === 0, 'page errors: ' + jsErrors.join(' | '));
 

@@ -236,15 +236,16 @@ func TestVacuumCancelFromTheUI(t *testing.T) {
 	// The card has the run where its button was, with the cancel button for
 	// the superadmin whose daemon started it.
 	body := renderTab(t, h, "retention", user.RoleSuperadmin, "en")
-	for _, w := range []string{`id="vacuum-progress"`, `id="vacuum-cancel"`, i18n.T(i18n.LangEN, "vacuum.running_sub")} {
+	for _, w := range []string{`id="vacuum-progress"`, `id="vacuum-cancel"`, `id="vacuum-stop-dialog"`, i18n.T(i18n.LangEN, "vacuum.running_sub")} {
 		if !strings.Contains(body, w) {
 			t.Errorf("the card of a running compaction lacks %q", w)
 		}
 	}
-	if strings.Contains(body, `id="vacuum-run"`) {
+	if strings.Contains(body, `id="vacuum-run"`) || strings.Contains(body, `id="vacuum-dialog"`) {
 		t.Error("the card offers to start a compaction while one runs")
 	}
-	if body := renderTab(t, h, "retention", user.RoleAdmin, "en"); !strings.Contains(body, `id="vacuum-progress"`) || strings.Contains(body, `id="vacuum-cancel"`) {
+	if body := renderTab(t, h, "retention", user.RoleAdmin, "en"); !strings.Contains(body, `id="vacuum-progress"`) ||
+		strings.Contains(body, `id="vacuum-cancel"`) || strings.Contains(body, `id="vacuum-stop-dialog"`) {
 		t.Error("an admin's card: the run's progress, and no cancel button")
 	}
 	if code, body := postJSON(t, h.AdminVacuumCancel, "/unmask/admin/api/vacuum/cancel", user.RoleSuperadmin); code != http.StatusOK {
@@ -358,7 +359,9 @@ func TestVacuumCardOnTheRetentionTab(t *testing.T) {
 		want       []string
 	}{
 		{user.RoleSuperadmin, "en", []string{`id="vacuum-card"`, `data-vacuum="size"`, `data-vacuum="disk"`, `data-vacuum="time"`, `data-vacuum="held"`,
-			"Database compaction", i18n.T(i18n.LangEN, "vacuum.blocked_little"), `id="vacuum-run" disabled`}},
+			`data-vacuum="mem"`, "Database compaction", i18n.T(i18n.LangEN, "vacuum.blocked_little"), `id="vacuum-run" disabled`,
+			// The button asks in a modal of the card's own, not with confirm().
+			`id="vacuum-dialog"`, i18n.T(i18n.LangEN, "vacuum.dialog_h"), i18n.T(i18n.LangEN, "vacuum.dialog_note_edits")}},
 		{user.RoleAdmin, "ja", []string{`id="vacuum-card"`, "データベースの圧縮", i18n.T(i18n.LangJA, "vacuum.needs_superadmin")}},
 	} {
 		body := renderTab(t, h, "retention", c.role, c.lang)
@@ -371,6 +374,18 @@ func TestVacuumCardOnTheRetentionTab(t *testing.T) {
 	// Not on another tab.
 	if body := renderTab(t, h, "network", user.RoleSuperadmin, "en"); strings.Contains(body, `id="vacuum-card"`) {
 		t.Error("the compaction card is on the network tab")
+	}
+	// The memory the hold takes counts the access-log counters only where
+	// the access-log integration keeps them.
+	counters := strings.SplitN(i18n.T(i18n.LangEN, "vacuum.mem_basis"), "%", 2)[0]
+	if body := renderTab(t, h, "retention", user.RoleSuperadmin, "en"); strings.Contains(body, counters) {
+		t.Error("access-log counters in the hold's memory with the access-log integration off")
+	}
+	st := h.SnapshotSettings()
+	st.NginxLog.Enabled = true
+	h.SetSettings(st)
+	if body := renderTab(t, h, "retention", user.RoleSuperadmin, "en"); !strings.Contains(body, counters) {
+		t.Error("no access-log counters in the hold's memory with the access-log integration on")
 	}
 	// After a run, the card says how the last one went.
 	if err := h.DB.SaveMaintState(context.Background(), db.MaintVacuum, db.VacuumRecord{State: db.VacuumDone, By: "alice",
@@ -445,5 +460,32 @@ func TestVacuumNoticeOnEveryPage(t *testing.T) {
 	h.respondWritesHeld(rr, req)
 	if rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Body.String(), "compacted") {
 		t.Errorf("refused change: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+// The events held are the rate over the high end of the estimate, which the
+// card words as the estimate's range rounds it.
+func TestUpToTextRoundsLikeTheEstimate(t *testing.T) {
+	for _, c := range []struct {
+		d      time.Duration
+		en, ja string
+	}{
+		{0, "10 s", "10 秒"},
+		{8 * time.Second, "10 s", "10 秒"},
+		{85 * time.Second, "90 s", "90 秒"},
+		{90 * time.Second, "2 min", "2 分"},
+		{264 * time.Second, "5 min", "5 分"},
+		{80 * time.Minute, "80 min", "80 分"},
+	} {
+		if got := upToText(i18n.LangEN, c.d); got != c.en {
+			t.Errorf("upToText(en, %v) = %q, want %q", c.d, got, c.en)
+		}
+		if got := upToText(i18n.LangJA, c.d); got != c.ja {
+			t.Errorf("upToText(ja, %v) = %q, want %q", c.d, got, c.ja)
+		}
+		// The estimate's own words for the same high end end in the same figure.
+		if r := db.EstimateRange(c.d, c.d); c.d >= 10*time.Second && !strings.HasSuffix(r, c.en) {
+			t.Errorf("EstimateRange(%v) = %q; the card's %q does not match it", c.d, r, c.en)
+		}
 	}
 }

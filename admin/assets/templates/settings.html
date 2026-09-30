@@ -6544,6 +6544,19 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
   .vacuum-bar>span{display:block;height:100%;background:#2563eb;transition:width .6s}
   .vacuum-sub{font-size:.8rem;opacity:.9}
   .vacuum-progress .btn{margin-top:.6rem}
+  .vacuum-dialog{border:1px solid #cbd5e1;border-radius:.4rem;padding:0;max-width:30rem;width:90%;background:#fff;color:#0f172a}
+  .vacuum-dialog::backdrop{background:rgba(15,23,42,.45)}
+  .vacuum-dialog-body{display:flex;flex-direction:column;gap:.75rem;padding:1.1rem 1.25rem}
+  .vacuum-dialog h3{margin:0;font-size:1.05rem}
+  .vacuum-dialog-facts{font-size:.85rem;color:#334155;line-height:1.7}
+  .vacuum-dialog-notes{margin:0;padding-left:1.1rem;font-size:.82rem;color:#475569;line-height:1.6}
+  .vacuum-dialog-text{margin:0;font-size:.85rem;color:#334155;line-height:1.6}
+  .vacuum-dialog-err{margin:0;padding:.45rem .6rem;border:1px solid #fca5a5;border-radius:.25rem;background:#fef2f2;color:#991b1b;font-size:.8rem}
+  .vacuum-dialog-err[hidden]{display:none}
+  .vacuum-dialog-actions{display:flex;gap:.5rem;justify-content:flex-end}
+  .vacuum-dialog .btn[disabled]{opacity:.6;cursor:default}
+  .vacuum-btn-danger{background:#b91c1c}
+  .vacuum-btn-danger:hover{background:#991b1b}
   </style>
   <div class="bcd-card" id="vacuum-card">
     <h2>{{ t $.Lang "vacuum.card_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t $.Lang "vacuum.card_desc") }}</span></span></h2>
@@ -6555,7 +6568,8 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       <div data-vacuum="size">{{ t $.Lang "vacuum.size_label" }}: <strong>{{ tf $.Lang "vacuum.size_value" .File .Live .Reclaim .ReclaimPct }}</strong></div>
       <div data-vacuum="disk">{{ t $.Lang "vacuum.disk_label" }}: <strong>{{ .DiskNeed }}</strong>{{ if .DiskFree }} <span style="color:#64748b">({{ tf $.Lang "vacuum.disk_free" .DiskFree }})</span>{{ end }}</div>
       <div data-vacuum="time">{{ t $.Lang "vacuum.time_label" }}: <strong>{{ .Est }}</strong> <span style="color:#94a3b8;font-size:.75rem">{{ t $.Lang (printf "vacuum.est_from_%s" .Plan.EstFrom) }}</span></div>
-      <div data-vacuum="held">{{ t $.Lang "vacuum.held_label" }}: <strong>{{ tf $.Lang "vacuum.held_value" .EventsPerHour .HeldEvents .HeldBytes }}</strong> <span style="color:#94a3b8;font-size:.75rem">{{ tf $.Lang "vacuum.held_limit" .HeldLimit .CountersBytes }}</span></div>
+      <div data-vacuum="held">{{ t $.Lang "vacuum.held_label" }}: <strong>{{ tf $.Lang "vacuum.held_value" .HeldEvents }}</strong> <span style="color:#94a3b8;font-size:.75rem">{{ tf $.Lang "vacuum.held_basis" .EventsPerHour .HeldUpTo .HeldLimit }}</span></div>
+      <div data-vacuum="mem">{{ t $.Lang "vacuum.mem_label" }}: <strong>{{ tf $.Lang "vacuum.mem_value" .HoldMem }}</strong>{{ if .CountersOn }} <span style="color:#94a3b8;font-size:.75rem">{{ tf $.Lang "vacuum.mem_basis" .HeldBytes .CountersBytes }}</span>{{ end }}</div>
     </div>
     {{ end }}
     {{ if .Running }}{{ with .Last }}
@@ -6567,8 +6581,6 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
          data-l-phase-write="{{ t $.Lang "vacuum.phase_write" }}"
          data-l-held="{{ t $.Lang "vacuum.held_now" }}"
          data-l-stopping="{{ t $.Lang "vacuum.stopping" }}"
-         data-l-confirm-cancel="{{ t $.Lang "vacuum.confirm_cancel" }}"
-         data-l-request-failed="{{ t $.Lang "vacuum.request_failed" }}"
          data-l-done="{{ t $.Lang "vacuum.done" }}"
          data-l-cancelled="{{ t $.Lang "vacuum.cancelled" }}"
          data-l-failed="{{ t $.Lang "vacuum.failed" }}">
@@ -6577,15 +6589,45 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       <div class="vacuum-sub">{{ t $.Lang "vacuum.running_sub" }} <span id="vacuum-held">{{ tf $.Lang "vacuum.held_now" (comma .Held) }}</span>{{ if and .By (not .CanCancel) }} {{ tf $.Lang "vacuum.started_by" .By .Host }}{{ end }}</div>
       {{ if .CanCancel }}<button type="button" class="btn secondary" id="vacuum-cancel">{{ t $.Lang "vacuum.cancel" }}</button>{{ end }}
     </div>
+    {{ if .CanCancel }}
+    <dialog id="vacuum-stop-dialog" class="vacuum-dialog" aria-labelledby="vacuum-stop-h">
+      <div class="vacuum-dialog-body">
+        <h3 id="vacuum-stop-h">{{ t $.Lang "vacuum.stop_h" }}</h3>
+        <p class="vacuum-dialog-text">{{ t $.Lang "vacuum.stop_body" }}</p>
+        <p class="vacuum-dialog-err" data-err role="alert" hidden>{{ t $.Lang "vacuum.request_failed" }}</p>
+        <div class="vacuum-dialog-actions">
+          <button type="button" class="btn secondary" data-back>{{ t $.Lang "vacuum.stop_keep" }}</button>
+          <button type="button" class="btn vacuum-btn-danger" data-ok data-busy="{{ t $.Lang "vacuum.stopping" }}">{{ t $.Lang "vacuum.stop_ok" }}</button>
+        </div>
+      </div>
+    </dialog>
+    {{ end }}
     {{ end }}{{ else }}
     <div style="margin-top:.8rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
       <button type="button" class="btn secondary" id="vacuum-run"{{ if not .CanRun }} disabled style="opacity:.5;cursor:default"{{ end }}
-              data-api="{{ $.BasePath }}/admin/api/vacuum/run"
-              data-confirm="{{ tf $.Lang "vacuum.confirm" .Est }}"
-              data-starting="{{ t $.Lang "vacuum.starting" }}"
-              data-failed="{{ t $.Lang "vacuum.request_failed" }}">{{ t $.Lang "vacuum.run" }}</button>
+              data-api="{{ $.BasePath }}/admin/api/vacuum/run">{{ t $.Lang "vacuum.run" }}</button>
       {{ if .Blocked }}<span id="vacuum-blocked" style="font-size:.8rem;color:#64748b">{{ .Blocked }}</span>{{ end }}
     </div>
+    <dialog id="vacuum-dialog" class="vacuum-dialog" aria-labelledby="vacuum-dialog-h">
+      <div class="vacuum-dialog-body">
+        <h3 id="vacuum-dialog-h">{{ t $.Lang "vacuum.dialog_h" }}</h3>
+        {{ if not .PlanErr }}<div class="vacuum-dialog-facts">
+          <div>{{ t $.Lang "vacuum.size_label" }}: <strong>{{ tf $.Lang "vacuum.size_value" .File .Live .Reclaim .ReclaimPct }}</strong></div>
+          <div>{{ t $.Lang "vacuum.time_label" }}: <strong>{{ .Est }}</strong></div>
+        </div>{{ end }}
+        <ul class="vacuum-dialog-notes">
+          <li>{{ t $.Lang "vacuum.dialog_note_serving" }}</li>
+          <li>{{ t $.Lang "vacuum.dialog_note_held" }}</li>
+          <li>{{ t $.Lang "vacuum.dialog_note_edits" }}</li>
+          <li>{{ t $.Lang "vacuum.dialog_note_cancel" }}</li>
+        </ul>
+        <p class="vacuum-dialog-err" data-err role="alert" hidden>{{ t $.Lang "vacuum.request_failed" }}</p>
+        <div class="vacuum-dialog-actions">
+          <button type="button" class="btn secondary" data-back>{{ t $.Lang "vacuum.dialog_back" }}</button>
+          <button type="button" class="btn" data-ok data-busy="{{ t $.Lang "vacuum.starting" }}">{{ t $.Lang "vacuum.dialog_start" }}</button>
+        </div>
+      </div>
+    </dialog>
     {{ with .Last }}
     <div id="vacuum-last" data-ended="{{ .EndedAt }}" style="margin-top:.6rem;font-size:.78rem;color:#64748b">
       {{ t $.Lang "vacuum.last_label" }}: <time class="js-datetime" data-ts="{{ .EndedAt }}">{{ .EndedAt }}</time> ·
@@ -6604,22 +6646,45 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     var last = document.getElementById('vacuum-last');
     if (last) lsSet(SEEN_KEY, last.getAttribute('data-ended') || '');
 
+    // Starting a run and stopping one each ask in a modal of their own, not
+    // the browser's confirm(): it says what the step does, and a request
+    // that fails is said in it.  modal() returns the function that opens it;
+    // onOK(done, fail) makes the request -- done() closes the modal, fail()
+    // says the request failed and lets the operator try again.
+    function modal(id, onOK){
+      var dlg = document.getElementById(id);
+      if (!dlg || typeof dlg.showModal !== 'function') return null;
+      var ok = dlg.querySelector('[data-ok]'), back = dlg.querySelector('[data-back]'), err = dlg.querySelector('[data-err]');
+      var label = ok.textContent, busy = false;
+      function idle(){ busy = false; ok.disabled = back.disabled = false; ok.textContent = label; }
+      function close(){ if (!busy) dlg.close(); }
+      back.addEventListener('click', close);
+      // A click outside the box lands on the dialog itself (its backdrop).
+      dlg.addEventListener('click', function(e){ if (e.target === dlg) close(); });
+      // Esc while the request is out would hide its answer.
+      dlg.addEventListener('cancel', function(e){ if (busy) e.preventDefault(); });
+      ok.addEventListener('click', function(){
+        busy = true;
+        ok.disabled = back.disabled = true;
+        err.hidden = true;
+        ok.textContent = ok.getAttribute('data-busy');
+        onOK(function(){ idle(); dlg.close(); }, function(){ idle(); err.hidden = false; });
+      });
+      return function(){ err.hidden = true; dlg.showModal(); back.focus(); };
+    }
+
+    // A disabled button fires no click: the modal opens only where a run
+    // may start.
     var b = document.getElementById('vacuum-run');
-    if (b && !b.disabled) b.addEventListener('click', function(){
-      if (!confirm(b.getAttribute('data-confirm'))) return;
-      b.disabled = true;
-      var was = b.textContent;
-      b.textContent = b.getAttribute('data-starting');
+    var openStart = b && modal('vacuum-dialog', function(done, fail){
       fetch(b.getAttribute('data-api'), {method: 'POST', credentials: 'same-origin'}).then(function(r){
         // 409: something is going meanwhile -- the page shows what.
         if (!r.ok && r.status !== 409) throw new Error('HTTP ' + r.status);
+        // The modal stays, saying it is starting, until the tab shows the run.
         setTimeout(function(){ location.reload(); }, 1200);
-      }).catch(function(){
-        b.disabled = false;
-        b.textContent = was;
-        alert(b.getAttribute('data-failed'));
-      });
+      }).catch(fail);
     });
+    if (openStart) b.addEventListener('click', openStart);
 
     // A run going: its progress every few seconds.  When it ends the tab is
     // loaded again for the new figures -- unless this tab's form was edited
@@ -6651,19 +6716,16 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     }
     function fmt(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
     var cancel = document.getElementById('vacuum-cancel');
-    if (cancel) cancel.addEventListener('click', function(){
-      if (!confirm(L('confirm-cancel'))) return;
-      var was = cancel.textContent;
-      cancel.disabled = true;
-      cancel.textContent = L('stopping');
+    var openStop = cancel && modal('vacuum-stop-dialog', function(done, fail){
       fetch(api + '/cancel', {method: 'POST', credentials: 'same-origin'}).then(function(r){
         if (!r.ok && r.status !== 409) throw new Error('HTTP ' + r.status);
-      }).catch(function(){
-        cancel.disabled = false;
-        cancel.textContent = was;
-        alert(L('request-failed'));
-      });
+        done();
+        // Stopping takes the run a moment; the poll shows how it ended.
+        cancel.disabled = true;
+        cancel.textContent = L('stopping');
+      }).catch(fail);
     });
+    if (openStop) cancel.addEventListener('click', openStop);
     tick();
     var clock = setInterval(tick, 1000);
     var poll = setInterval(function(){
