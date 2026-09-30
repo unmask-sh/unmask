@@ -1351,6 +1351,24 @@ map {{ .MatchVar }} {{ .KeyVar }} {
 {{- range .RateZones }}
 limit_req_zone {{ .KeyVar }} zone={{ .Name }}:10m rate={{ .RequestsPerMin }}r/m;
 {{- end }}
+{{- with .ReuseZone }}
+
+# Pass-cookie reuse cap (settings.rate_limit.reuse).  Every key above drops a
+# request that carries a valid _bv, so a client that solved the challenge once
+# is not counted again for as long as its cookie lives.  This key is the
+# reverse: the client address for such a request ONLY (trusted sources still
+# exempt), "" for everything else.  The bucket holds the burst and refills at
+# the per-day budget; over it, the request takes the rate route, and the daemon
+# serves a CAPTCHA or the deny page (settings.rate_limit.reuse.action).
+map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse {
+    default       "";
+    "~^.:1:"      "";
+    "~^.:.:1:"    "";
+    "~^.:.:.:1$"  "";
+    "~^1:"        {{ .KeyExpr }};
+}
+limit_req_zone $rate_limit_key_reuse zone={{ .Name }}:10m rate={{ .RequestsPerMin }}r/m;
+{{- end }}
 
 # ASN rate zones (auto-rendered from settings.nginx.asn rate rules): throttle a
 # datacenter/network to N req/min instead of denying it outright.  Each zone's

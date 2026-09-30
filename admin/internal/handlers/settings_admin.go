@@ -4876,7 +4876,8 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 		}
 		zoneNamesSeen[name] = true
 		if name == c.Default.Name || name == settings.JA4LimitZoneName ||
-			name == settings.IPLimitZoneName || name == settings.IPJA4LimitZoneName {
+			name == settings.IPLimitZoneName || name == settings.IPJA4LimitZoneName ||
+			name == settings.ReuseZoneName {
 			return fmt.Errorf("zone name %q is reserved", name)
 		}
 		// validation: alnum + "_" only.
@@ -4952,6 +4953,46 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 		})
 	}
 	c.Zones = zones
+	return applyReuseForm(&c.Reuse, r)
+}
+
+// applyReuseForm reads the pass-cookie reuse cap's fields.  A blank number
+// keeps the seed (stored as 0), captcha_only (the default action) is stored
+// as "", the cap being on is the default (stored as no Disabled), and a
+// switched-off cap keeps its tuning -- so an untouched card writes no reuse key
+// at all.  A form without the fields (a caller from before the cap) leaves it
+// as stored.
+func applyReuseForm(ru *settings.ReuseLimitConfig, r *http.Request) error {
+	if _, ok := r.Form["reuse_action"]; !ok {
+		return nil
+	}
+	next := settings.ReuseLimitConfig{Disabled: r.FormValue("reuse_enabled") == ""}
+	readInt := func(field string, minV, maxV int) (int, error) {
+		v := strings.TrimSpace(r.FormValue(field))
+		if v == "" {
+			return 0, nil
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil || n < minV || n > maxV {
+			return 0, fmt.Errorf("%s must be an integer in %d-%d (got %q)", field, minV, maxV, v)
+		}
+		return n, nil
+	}
+	var err error
+	if next.PerDay, err = readInt("reuse_per_day", settings.ReuseMinPerDay, settings.ReuseMaxPerDay); err != nil {
+		return err
+	}
+	if next.Burst, err = readInt("reuse_burst", 1, settings.ReuseMaxBurst); err != nil {
+		return err
+	}
+	switch a := strings.TrimSpace(r.FormValue("reuse_action")); a {
+	case "", settings.RateChallengeCaptchaOnly:
+	case settings.RateChallengeDeny:
+		next.Action = a
+	default:
+		return fmt.Errorf("reuse_action must be captcha_only or deny (got %q)", a)
+	}
+	*ru = next
 	return nil
 }
 

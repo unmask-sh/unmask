@@ -65,7 +65,7 @@ func TestHeldEnforcementPresets(t *testing.T) {
 	foundSynthetic := false
 	for _, h := range held {
 		switch h.Category {
-		case "ja4", "challenge-target", "honeypot":
+		case "ja4", "challenge-target", "honeypot", "rate-limit": // rate-limit: the reuse cap
 		default:
 			t.Errorf("held a non-tightening category %q (rescue presets must never be held)", h.Category)
 		}

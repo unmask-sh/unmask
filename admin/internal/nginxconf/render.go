@@ -723,6 +723,11 @@ type renderData struct {
 	// one wire and not the other.  Now both wires enforce.  Includes the
 	// built-in JA4 companion when enabled.
 	RatePlainZones []RatePlainZoneRender
+	// ReuseZone: the pass-cookie reuse cap (settings.rate_limit.reuse), nil
+	// while it is off or held by the upgrade review.  Its own block rather than a RateZones entry: every
+	// other key drops a request with a valid _bv, and this one keeps ONLY
+	// those.  See ReuseZoneRender.
+	ReuseZone *ReuseZoneRender
 
 	// GeoCIDRs: pre-rendered "  <cidr> <ISO>;\n" lines for every IP range
 	// resolving to one of the operator-registered Geo rule countries.
@@ -850,6 +855,20 @@ type RatePlainZoneRender struct {
 	ZoneName string
 	Burst    int
 	Label    string // comment label: "zone" for operator rows, "JA4 companion" for the built-in
+}
+
+// ReuseZoneRender: the pass-cookie reuse cap.  http.inc declares a zone keyed
+// on $rate_limit_key_reuse -- the client address for a request carrying a
+// valid _bv, "" otherwise (and for search bots / bypass IPs / bypass paths) --
+// at RequestsPerMin (the per-day budget, rounded up to a whole number a
+// minute); protect.inc applies it with Burst.  Over it, the request takes the
+// rate route like any zone, and the daemon tells this cap apart by the valid
+// _bv (ServeChallengeOrJSON).
+type ReuseZoneRender struct {
+	Name           string
+	RequestsPerMin int
+	Burst          int
+	KeyExpr        string
 }
 
 // RateKeyVariantRender: one $rate_limit_key_<suffix> map (per-zone key kinds).
@@ -1514,6 +1533,17 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			Burst:    row.Burst,
 			Label:    "default-axis",
 		})
+	}
+	if ru := s.RateLimit.Reuse; ReuseCapActive(s) {
+		// Per client address whatever the install-wide key: a pass is bound to
+		// the address it was issued on, and the cap is about how much one
+		// holder takes.
+		d.ReuseZone = &ReuseZoneRender{
+			Name:           settings.ReuseZoneName,
+			RequestsPerMin: ru.RatePerMin(),
+			Burst:          ru.ResolvedBurst(),
+			KeyExpr:        "$unmask_client_net",
+		}
 	}
 
 	// Geo (native mode): walk the mmdb once at render time to materialise a

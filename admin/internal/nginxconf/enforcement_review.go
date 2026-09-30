@@ -77,6 +77,12 @@ func HeldEnforcementPresets(s settings.Settings) []HeldPreset {
 		}
 	}
 
+	// The pass-cookie reuse cap: default-on since ReuseAddedIn.
+	if !s.RateLimit.Reuse.Disabled && EnforcementHeld(n, settings.ReuseAddedIn) {
+		out = append(out, HeldPreset{Category: "rate-limit", ID: "reuse_cap",
+			Label: "Pass-cookie reuse cap", AddedIn: settings.ReuseAddedIn})
+	}
+
 	// Honeypot: only the default-on (non-opt-in) groups.  An opt-in group is
 	// active only when the operator listed it -- that is consent, not a surprise.
 	disH := toSet(n.Honeypot.DisabledPresets)
@@ -89,4 +95,11 @@ func HeldEnforcementPresets(s settings.Settings) []HeldPreset {
 		}
 	}
 	return out
+}
+
+// ReuseCapActive: whether the pass-cookie reuse cap is in force -- on (the
+// default) and not held by the upgrade review.  The render and the daemon's
+// rate route both ask this, so the two wires cannot disagree.
+func ReuseCapActive(s settings.Settings) bool {
+	return !s.RateLimit.Reuse.Disabled && !EnforcementHeld(s.Nginx, settings.ReuseAddedIn)
 }

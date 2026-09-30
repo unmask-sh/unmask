@@ -1706,6 +1706,7 @@ func orderFlagsRows(by map[int]FlagsRow) []FlagsRow {
 //	"banned"     hit the persistent BAN list
 //	"protected"  protected path (captcha / strict mode)
 //	"rate_limit" rate-limit redirect (= /_rl/...)
+//	"reuse_limit" the pass-cookie reuse cap's redirect (a valid pass over its budget)
 //	"test"       debug path (_test_ja4 / _force=captcha)
 //	"unknown"    flag not recorded (= old challenge.html etc.; normally absent)
 type CaptchaForceRow struct {
@@ -1715,7 +1716,7 @@ type CaptchaForceRow struct {
 }
 
 // captchaForceKinds: display order = none / each forced reason / unknown.
-var captchaForceKinds = []string{"none", "ja4_bot", "honeypot", "banned", "protected", "rate_limit", "test", "stale", "header", "asn", "geo", "unknown"}
+var captchaForceKinds = []string{"none", "ja4_bot", "honeypot", "banned", "protected", "rate_limit", "reuse_limit", "test", "stale", "header", "asn", "geo", "unknown"}
 
 // AITrafficRow: one crawler-tag's traffic share over the window.
 //
@@ -1943,7 +1944,7 @@ func captchaForceBreakdownScan(ctx context.Context, d *db.DB, site string, hosts
 	stmt := fmt.Sprintf(`
         SELECT
           CASE
-            WHEN %s IN ('none','ja4_bot','honeypot','banned','protected','rate_limit','test','stale','header','asn','geo') THEN %s
+            WHEN %s IN ('none','ja4_bot','honeypot','banned','protected','rate_limit','reuse_limit','test','stale','header','asn','geo') THEN %s
             ELSE 'unknown'
           END AS kind,
           COUNT(*) AS n,

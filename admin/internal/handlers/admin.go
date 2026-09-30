@@ -360,6 +360,10 @@ func loadDashboardTemplate() (*template.Template, error) {
 			// rows (adopted verbatim when a row is enabled with blank fields).
 			"axisSeedRPM":   settings.AxisSeedRPM,
 			"axisSeedBurst": settings.AxisSeedBurst,
+			// reuseSeed*: the reuse cap's placeholders (adopted when it is
+			// enabled with blank fields).
+			"reuseSeedPerDay": func() int { return settings.ReuseSeedPerDay },
+			"reuseSeedBurst":  func() int { return settings.ReuseSeedBurst },
 			"uaSummaryBrowser": func(sum string) string {
 				_, b := classify.UASummaryParts(sum)
 				return b

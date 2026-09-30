@@ -598,7 +598,7 @@ func (h *Handler) ServeChallengeOrJSON(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if rlDeny {
-			h.serveRateDeny(w, r, site)
+			h.serveRateDeny(w, r, site, "rate_limit")
 			return
 		}
 		// An ASN/geo rate rule whose per-rule action is "deny" is also a hard
@@ -606,8 +606,18 @@ func (h *Handler) ServeChallengeOrJSON(w http.ResponseWriter, r *http.Request) {
 		// the deny page rather than a recoverable challenge (matching the
 		// path-zone deny above).
 		if h.netRateOverageAction(adminClientIP(r, *h.cfg()), *h.cfg()) == settings.RateChallengeDeny {
-			h.serveRateDeny(w, r, site)
+			h.serveRateDeny(w, r, site, "rate_limit")
 			return
+		}
+		// The pass-cookie reuse cap: a client that holds a valid pass and has
+		// used it past the budget gets the deny page, or a CAPTCHA on every
+		// request while it stays over.
+		if action, ok := h.reuseCapHit(r, site); ok {
+			if action == settings.RateChallengeDeny {
+				h.serveRateDeny(w, r, site, "reuse_limit")
+				return
+			}
+			r = withReuseCap(r)
 		}
 	}
 	if isHTMLNavigation(r) {
@@ -723,6 +733,9 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 	if rl == 1 {
 		reason = "rate_limit"
 	}
+	if reuseCapped(r) {
+		reason = "reuse_limit"
+	}
 
 	// challenge_url the client can redirect the user to.  Default-site form;
 	// per-site challenges still work because the visit reaches the same
@@ -793,7 +806,7 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 // sell more requests.  Browsers get the tiny self-contained page above; API
 // clients get a stable JSON body.  Both are 403.  A serve event is recorded
 // (payload.deny=1) so the dashboard funnel still counts the block.
-func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site string) {
+func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site, reason string) {
 	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
 	verdict := h.resolvedVerdictName(ja4) // unmask-derived (not the X-JA4-Verdict header)
 	// ref: support correlation id shown on the deny page + stored on the event,
@@ -812,7 +825,7 @@ func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site str
 			JA4VerdictID: h.VerdictNameToID(verdict),
 			Phase:        string(events.PhaseServe),
 			Payload: map[string]any{
-				"force_reason": "rate_limit",
+				"force_reason": reason,
 				"rl":           1,
 				"deny":         1,
 				"method":       r.Method,
@@ -829,7 +842,7 @@ func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site str
 		w.WriteHeader(http.StatusForbidden)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error":       "rate_limited",
-			"reason":      "rate_limit",
+			"reason":      reason,
 			"retry_after": 600,
 		})
 		return
@@ -1185,6 +1198,8 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	//	"banned"     : persistent BAN list hit
 	//	"protected"  : mode coming from protected path (captcha / strict)
 	//	"rate_limit" : rate-limit redirect (/_rl/...)
+	//	"reuse_limit": the pass-cookie reuse cap's redirect (/_rl/..., a valid
+	//	               pass over its budget; always a CAPTCHA)
 	//	"ua_target"  : the UA matched the black list (ua-filter tab).  Resolved
 	//	               here rather than forwarded: native nginx fires this
 	//	               challenge off $is_challenge_target and sends no header.
@@ -1268,6 +1283,11 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		if r.URL.RawQuery != "" {
 			rlOrigURI += "?" + r.URL.RawQuery
 		}
+	}
+	if reuseCapped(r) {
+		// The pass-cookie reuse cap (ServeChallengeOrJSON): the visitor holds
+		// a valid pass and is over its reuse budget.
+		forceReason = "reuse_limit"
 	}
 
 	test := "0"
@@ -1581,6 +1601,9 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			settings.IsValidRateChallengeMode(act) {
 			chMode = act
 		}
+	} else if forceReason == "reuse_limit" {
+		// Only a CAPTCHA: a PoW would hand the client one more pass to reuse.
+		chMode = settings.RateChallengeCaptchaOnly
 	} else if forceReason == "rate_limit" {
 		// Native rate zones carry only "you hit a zone", not which ASN/geo rule
 		// -- re-derive the client's network from the IP and, if it matches a
