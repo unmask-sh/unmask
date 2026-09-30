@@ -185,8 +185,9 @@ func (h *Handler) RunVacuumWatch(ctx context.Context) {
 	}
 }
 
-// VacuumView is what the admin UI shows about a compaction run: the notice on
-// every page while one goes and for a day after, and GET /admin/api/vacuum.
+// VacuumView is what the admin UI shows about a compaction run, while one goes
+// and for a day after: the retention tab's card in full, the top bar's small
+// sign of it on every other page, and GET /admin/api/vacuum.
 type VacuumView struct {
 	// State: "running", "done", "failed" or "cancelled".  There is no view
 	// (nil) when there is nothing to say.
@@ -310,7 +311,11 @@ type VacuumCard struct {
 	// superadmin cannot start one now ("" when they can).
 	Going   bool
 	Blocked string
+	// Last: the run going, or the last one when it ended in the last day.
+	// Running: it is going -- the card shows its progress where the button
+	// was.
 	Last    *VacuumView
+	Running bool
 }
 
 // vacuumCard builds the retention tab's card.
@@ -338,6 +343,7 @@ func (h *Handler) vacuumCard(ctx context.Context, role string, lang i18n.Lang) V
 		c.EventsPerHour, c.HeldEvents, c.HeldLimit = groupDigits(p.EventsPerHour), groupDigits(p.HeldEvents), groupDigits(p.HeldLimit)
 	}
 	c.Last = h.vacuumView(role, lang)
+	c.Running = c.Last != nil && c.Last.State == "running"
 	_, schemaGoing := h.SchemaWaiting()
 	c.Going = h.VacuumGoing() || schemaGoing
 	switch {

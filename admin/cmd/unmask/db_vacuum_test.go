@@ -66,7 +66,7 @@ func TestDBVacuumCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"gives back about", "needs about", "expected to take", "holds its writes"} {
+	for _, want := range []string{"after compaction", "needs about", "expected to take", "holds its writes"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("-plan output lacks %q:\n%s", want, out)
 		}

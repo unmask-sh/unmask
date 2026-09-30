@@ -130,7 +130,7 @@ wait_healthz 60 || { log_fail "the daemon did not come up within 60s of the star
 
 # 2. the plan
 plan=$(dc exec -T unmask /usr/local/bin/unmask db-vacuum -plan -config "$CFG" 2>&1)
-assert_in "gives back about" "$plan" "\`db-vacuum -plan\` says what a run gives back" || printf '%s\n' "$plan"
+assert_in "after compaction" "$plan" "\`db-vacuum -plan\` says what the file comes down to" || printf '%s\n' "$plan"
 assert_in "needs about" "$plan" "\`db-vacuum -plan\` says the disk a run needs"
 assert_in "expected to take" "$plan" "\`db-vacuum -plan\` says how long"
 assert_in "holds its writes" "$plan" "\`db-vacuum -plan\` says the daemon holds its writes meanwhile"

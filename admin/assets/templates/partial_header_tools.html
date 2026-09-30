@@ -15,9 +15,11 @@
   The notice about a database update waiting for the operator
   (partial_schema_update.html) rides along for the same reason: it has to be
   on every page, and this is the one thing every page includes.  It goes after
-  init_csrf, whose fetch shim its buttons rely on.
+  init_csrf, whose fetch shim its buttons rely on.  The sign of a database
+  compaction (partial_vacuum.html) goes first: it sits in the bar, left of
+  the pickers, and its script only reads.
 */ -}}
-{{ define "header_tools" }}{{ template "host_picker" . }}  {{ template "site_picker" . }}  {{ template "user_menu" . }}{{ template "init_tz_cookie" . }}{{ template "init_csrf" . }}{{ template "schema_update_notice" . }}{{ template "vacuum_notice" . }}{{ end }}
+{{ define "header_tools" }}{{ template "vacuum_notice" . }}{{ template "host_picker" . }}  {{ template "site_picker" . }}  {{ template "user_menu" . }}{{ template "init_tz_cookie" . }}{{ template "init_csrf" . }}{{ template "schema_update_notice" . }}{{ end }}
 
 {{/*
   init_csrf: double-submit CSRF shim, global so no individual form or fetch

@@ -6506,7 +6506,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       {{ if .Retention.WriteChecked }}
       <div style="margin-top:.2rem">{{ t .Lang "settings.retention.write_label" }}:
         {{ if .Retention.WriteOK }}<strong style="color:#15803d">✓ {{ t .Lang "settings.retention.write_ok" }}</strong>
-        {{ else if .Retention.WriteHeld }}<strong style="color:#b45309">{{ t .Lang "settings.retention.write_held" }}</strong>
+        {{ else if .Retention.WriteHeld }}<strong style="color:#b45309">{{ if .Retention.WriteHeldVacuum }}{{ t .Lang "settings.retention.write_held_vacuum" }}{{ else }}{{ t .Lang "settings.retention.write_held" }}{{ end }}</strong>
         {{ else }}<strong style="color:#b91c1c">✗ {{ t .Lang "settings.retention.write_ng" }}</strong>{{ end }}
         {{ if .Retention.DaemonUser }}<span style="color:#94a3b8;font-size:.75rem"> · {{ t .Lang "settings.retention.write_daemon_user" }} <code>{{ .Retention.DaemonUser }}</code></span>{{ end }}
         {{ if .Retention.DBFileOwner }}<span style="color:#94a3b8;font-size:.75rem"> · {{ t .Lang "settings.retention.write_file_owner" }} <code>{{ .Retention.DBFileOwner }}</code></span>{{ end }}
@@ -6527,8 +6527,24 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
        figures are the run's own plan (db.PlanVacuum): what it gives back, the
        disk it needs meanwhile, how long, and the events the daemon holds in
        memory while it runs.  The button is a POST from script, not a submit
-       of the form this card sits in. */}}
+       of the form this card sits in.
+
+       A run going is shown here in full, where the button was: its progress,
+       the time, the events held and the cancel button.  Every other page has
+       only the top bar's small sign of it (partial_vacuum.html), which links
+       here; this tab leaves that out. */}}
   {{ with .VacuumCard }}{{ if .Show }}
+  <style>
+  .vacuum-progress{margin:.8rem 0 0;padding:.75rem 1rem;border:1px solid #93c5fd;border-radius:.3rem;background:#eff6ff;color:#1e3a8a;font-size:.85rem;line-height:1.6}
+  .vacuum-progress[hidden]{display:none}
+  .vacuum-progress-done{border-color:#86efac;background:#f0fdf4;color:#166534}
+  .vacuum-progress-cancelled{border-color:#fcd34d;background:#fffbeb;color:#78350f}
+  .vacuum-progress-failed{border-color:#fca5a5;background:#fef2f2;color:#991b1b}
+  .vacuum-bar{height:.4rem;margin:.4rem 0 .45rem;background:rgba(30,58,138,.15);border-radius:.2rem;overflow:hidden}
+  .vacuum-bar>span{display:block;height:100%;background:#2563eb;transition:width .6s}
+  .vacuum-sub{font-size:.8rem;opacity:.9}
+  .vacuum-progress .btn{margin-top:.6rem}
+  </style>
   <div class="bcd-card" id="vacuum-card">
     <h2>{{ t $.Lang "vacuum.card_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t $.Lang "vacuum.card_desc") }}</span></span></h2>
     <div class="note" style="margin-bottom:.8rem">{{ t $.Lang "vacuum.card_intro" }}</div>
@@ -6536,12 +6552,32 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     <div class="banner bad">{{ .PlanErr }}</div>
     {{ else }}
     <div style="font-size:.85rem;color:#334155;line-height:1.8">
-      <div data-vacuum="size">{{ t $.Lang "vacuum.size_label" }}: <strong>{{ tf $.Lang "vacuum.size_value" .File .Live }}</strong> · {{ t $.Lang "vacuum.reclaim_label" }}: <strong>{{ tf $.Lang "vacuum.reclaim_value" .Reclaim .ReclaimPct }}</strong></div>
+      <div data-vacuum="size">{{ t $.Lang "vacuum.size_label" }}: <strong>{{ tf $.Lang "vacuum.size_value" .File .Live .Reclaim .ReclaimPct }}</strong></div>
       <div data-vacuum="disk">{{ t $.Lang "vacuum.disk_label" }}: <strong>{{ .DiskNeed }}</strong>{{ if .DiskFree }} <span style="color:#64748b">({{ tf $.Lang "vacuum.disk_free" .DiskFree }})</span>{{ end }}</div>
       <div data-vacuum="time">{{ t $.Lang "vacuum.time_label" }}: <strong>{{ .Est }}</strong> <span style="color:#94a3b8;font-size:.75rem">{{ t $.Lang (printf "vacuum.est_from_%s" .Plan.EstFrom) }}</span></div>
       <div data-vacuum="held">{{ t $.Lang "vacuum.held_label" }}: <strong>{{ tf $.Lang "vacuum.held_value" .EventsPerHour .HeldEvents .HeldBytes }}</strong> <span style="color:#94a3b8;font-size:.75rem">{{ tf $.Lang "vacuum.held_limit" .HeldLimit .CountersBytes }}</span></div>
     </div>
     {{ end }}
+    {{ if .Running }}{{ with .Last }}
+    <div id="vacuum-progress" class="vacuum-progress" role="status"
+         data-started="{{ .StartedAt }}" data-now="{{ .Now }}"
+         data-api="{{ $.BasePath }}/admin/api/vacuum"
+         data-l-elapsed="{{ t $.Lang "vacuum.elapsed" }}"
+         data-l-phase-copy="{{ t $.Lang "vacuum.phase_copy" }}"
+         data-l-phase-write="{{ t $.Lang "vacuum.phase_write" }}"
+         data-l-held="{{ t $.Lang "vacuum.held_now" }}"
+         data-l-stopping="{{ t $.Lang "vacuum.stopping" }}"
+         data-l-confirm-cancel="{{ t $.Lang "vacuum.confirm_cancel" }}"
+         data-l-request-failed="{{ t $.Lang "vacuum.request_failed" }}"
+         data-l-done="{{ t $.Lang "vacuum.done" }}"
+         data-l-cancelled="{{ t $.Lang "vacuum.cancelled" }}"
+         data-l-failed="{{ t $.Lang "vacuum.failed" }}">
+      <div><strong>{{ t $.Lang "vacuum.running" }}</strong> <span id="vacuum-phase">{{ if eq .Phase "write" }}{{ tf $.Lang "vacuum.phase_write" .Progress }}{{ else }}{{ tf $.Lang "vacuum.phase_copy" .Progress }}{{ end }}</span> · <span id="vacuum-elapsed"></span>{{ if .Est }} {{ tf $.Lang "vacuum.expected" .Est }}{{ end }}</div>
+      <div class="vacuum-bar" aria-hidden="true"><span id="vacuum-bar" style="width:{{ .Progress }}%"></span></div>
+      <div class="vacuum-sub">{{ t $.Lang "vacuum.running_sub" }} <span id="vacuum-held">{{ tf $.Lang "vacuum.held_now" (comma .Held) }}</span>{{ if and .By (not .CanCancel) }} {{ tf $.Lang "vacuum.started_by" .By .Host }}{{ end }}</div>
+      {{ if .CanCancel }}<button type="button" class="btn secondary" id="vacuum-cancel">{{ t $.Lang "vacuum.cancel" }}</button>{{ end }}
+    </div>
+    {{ end }}{{ else }}
     <div style="margin-top:.8rem;display:flex;gap:.75rem;align-items:center;flex-wrap:wrap">
       <button type="button" class="btn secondary" id="vacuum-run"{{ if not .CanRun }} disabled style="opacity:.5;cursor:default"{{ end }}
               data-api="{{ $.BasePath }}/admin/api/vacuum/run"
@@ -6550,8 +6586,8 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
               data-failed="{{ t $.Lang "vacuum.request_failed" }}">{{ t $.Lang "vacuum.run" }}</button>
       {{ if .Blocked }}<span id="vacuum-blocked" style="font-size:.8rem;color:#64748b">{{ .Blocked }}</span>{{ end }}
     </div>
-    {{ with .Last }}{{ if ne .State "running" }}
-    <div id="vacuum-last" style="margin-top:.6rem;font-size:.78rem;color:#64748b">
+    {{ with .Last }}
+    <div id="vacuum-last" data-ended="{{ .EndedAt }}" style="margin-top:.6rem;font-size:.78rem;color:#64748b">
       {{ t $.Lang "vacuum.last_label" }}: <time class="js-datetime" data-ts="{{ .EndedAt }}">{{ .EndedAt }}</time> ·
       {{ if eq .State "done" }}{{ tf $.Lang "vacuum.last_done" .FileBefore .FileAfter .Took }}{{ else if eq .State "cancelled" }}{{ t $.Lang "vacuum.last_cancelled" }}{{ else }}{{ t $.Lang "vacuum.last_failed" }} <code>{{ .Err }}</code>{{ end }}
     </div>
@@ -6559,9 +6595,17 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
   </div>
   <script>
   (function(){
+    var card = document.getElementById('vacuum-card');
+    if (!card) return;
+    // How the last run ended has been read here, so the top bar's sign of
+    // it (partial_vacuum.html) does not bring it up again on other pages.
+    var SEEN_KEY = 'unmask:vacuum-seen';
+    function lsSet(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
+    var last = document.getElementById('vacuum-last');
+    if (last) lsSet(SEEN_KEY, last.getAttribute('data-ended') || '');
+
     var b = document.getElementById('vacuum-run');
-    if (!b || b.disabled) return;
-    b.addEventListener('click', function(){
+    if (b && !b.disabled) b.addEventListener('click', function(){
       if (!confirm(b.getAttribute('data-confirm'))) return;
       b.disabled = true;
       var was = b.textContent;
@@ -6576,6 +6620,74 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         alert(b.getAttribute('data-failed'));
       });
     });
+
+    // A run going: its progress every few seconds.  When it ends the tab is
+    // loaded again for the new figures -- unless this tab's form was edited
+    // meanwhile, which a reload would throw away: then how it ended is said
+    // in place.
+    var el = document.getElementById('vacuum-progress');
+    if (!el) return;
+    var L = function(k){ return el.getAttribute('data-l-' + k) || ''; };
+    var api = el.getAttribute('data-api');
+    var edited = false, form = card.closest('form');
+    if (form) {
+      form.addEventListener('input', function(){ edited = true; });
+      form.addEventListener('change', function(){ edited = true; });
+    }
+    function mmss(sec){
+      sec = Math.max(0, Math.floor(sec));
+      var h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+      return (h ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (s < 10 ? '0' : '') + s;
+    }
+    // Elapsed time on the server's clock: its "now" at render, counted
+    // forward from the page's arrival.
+    var started = parseInt(el.getAttribute('data-started'), 10) || 0;
+    var serverNow = parseInt(el.getAttribute('data-now'), 10) || 0;
+    var arrived = Date.now();
+    function tick(){
+      var out = document.getElementById('vacuum-elapsed');
+      if (!out || !started) return;
+      out.textContent = L('elapsed').replace('%s', mmss(serverNow + (Date.now() - arrived) / 1000 - started));
+    }
+    function fmt(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+    var cancel = document.getElementById('vacuum-cancel');
+    if (cancel) cancel.addEventListener('click', function(){
+      if (!confirm(L('confirm-cancel'))) return;
+      var was = cancel.textContent;
+      cancel.disabled = true;
+      cancel.textContent = L('stopping');
+      fetch(api + '/cancel', {method: 'POST', credentials: 'same-origin'}).then(function(r){
+        if (!r.ok && r.status !== 409) throw new Error('HTTP ' + r.status);
+      }).catch(function(){
+        cancel.disabled = false;
+        cancel.textContent = was;
+        alert(L('request-failed'));
+      });
+    });
+    tick();
+    var clock = setInterval(tick, 1000);
+    var poll = setInterval(function(){
+      fetch(api, {credentials: 'same-origin'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(v){
+        if (!v) return;
+        if (v.state === 'running') {
+          var p = v.progress || 0;
+          document.getElementById('vacuum-bar').style.width = p + '%';
+          document.getElementById('vacuum-phase').textContent = L(v.phase === 'write' ? 'phase-write' : 'phase-copy').replace('%d', p).replace('%%', '%');
+          document.getElementById('vacuum-held').textContent = L('held').replace('%s', fmt(v.held || 0));
+          return;
+        }
+        clearInterval(poll);
+        clearInterval(clock);
+        if (v.ended_at) lsSet(SEEN_KEY, String(v.ended_at));
+        if (!edited) { location.reload(); return; }
+        var msg = v.state === 'done' ? L('done').replace('%s', v.file_before || '').replace('%s', v.file_after || '').replace('%s', v.took || '')
+                : v.state === 'cancelled' ? L('cancelled')
+                : v.state === 'failed' ? L('failed') + ' ' + (v.err || '') : '';
+        if (!msg) { el.hidden = true; return; }
+        el.className = 'vacuum-progress vacuum-progress-' + v.state;
+        el.textContent = msg;
+      }).catch(function(){});
+    }, 5000);
   })();
   </script>
   {{ end }}{{ end }}

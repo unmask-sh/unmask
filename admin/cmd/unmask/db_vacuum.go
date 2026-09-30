@@ -128,7 +128,7 @@ func cmdDBVacuum(args []string) error {
 
 // printVacuumPlan says what a compaction gives back and needs.
 func printVacuumPlan(say func(string, ...any), p db.VacuumPlan) {
-	say("file %s, %s in use: gives back about %s", humanBytesCLI(p.FileBytes), humanBytesCLI(p.LiveBytes), humanBytesCLI(p.Reclaim))
+	say("file %s -> about %s after compaction (%s less)", humanBytesCLI(p.FileBytes), humanBytesCLI(p.LiveBytes), humanBytesCLI(p.Reclaim))
 	free := "unknown"
 	if p.DiskFree >= 0 {
 		free = humanBytesCLI(p.DiskFree)
