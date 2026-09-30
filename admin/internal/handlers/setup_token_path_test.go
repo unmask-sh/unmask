@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -75,5 +78,33 @@ func TestSetSetupTokenDir(t *testing.T) {
 	}
 	if legacySetupTokenPath != "" {
 		t.Error("custom dir must clear the legacy fallback")
+	}
+}
+
+// TestSetupTokenHintNamesTheFileInUse: the token step tells the operator where
+// to read the token, and names the file this daemon reads.  It named the
+// pre-0.1.9 path, which no install since writes, so the one line meant to
+// unblock a new operator sent them to a file that is not there.
+func TestSetupTokenHintNamesTheFileInUse(t *testing.T) {
+	dir := t.TempDir()
+	oldP, oldL := SetupTokenPath, legacySetupTokenPath
+	SetupTokenPath = filepath.Join(dir, "state", ".setup-token")
+	legacySetupTokenPath = ""
+	t.Cleanup(func() { SetupTokenPath, legacySetupTokenPath = oldP, oldL })
+	if err := os.MkdirAll(filepath.Dir(SetupTokenPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(SetupTokenPath, []byte("tok-hint\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	h := newTestHandler(t)
+	rr := httptest.NewRecorder()
+	h.AdminSetupIndex(rr, httptest.NewRequest(http.MethodGet, "/unmask/admin/setup/", nil))
+	body := rr.Body.String()
+	if !strings.Contains(body, "sudo cat "+SetupTokenPath) {
+		t.Errorf("the token step does not name %s (status %d)", SetupTokenPath, rr.Code)
+	}
+	if strings.Contains(body, "/etc/unmask/.setup-token") {
+		t.Error("the token step still names the pre-0.1.9 path")
 	}
 }

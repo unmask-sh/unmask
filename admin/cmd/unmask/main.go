@@ -1780,7 +1780,7 @@ nginx:
 
 # Authentication is the internal user DB.  Create the first admin through the
 # setup wizard (= open /unmask/admin/ after install; the one-time token printed
-# by the package install / found in /etc/unmask/.setup-token guards it), or
+# by the package install / found in /var/lib/unmask/.setup-token guards it), or
 # from the shell: unmask user create.
 # CLI management: unmask user create / reset-password / set-role / delete
 `, bv, cb, Version, Version)

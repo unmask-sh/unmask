@@ -94,7 +94,17 @@ else
 fi
 
 # setup wizard URL + token hint.
-TOKEN_FILE=/etc/unmask/.setup-token
+#
+# Only while the setup is still to be done -- the token is there until the
+# wizard has been completed.  As unmask-web-nginx's banner, which this one
+# mirrors: shown on every upgrade it pushed what the unmask package prints
+# about the upgrade out of sight, and it read the token from the pre-0.1.9
+# path, so a new install never saw it.
+TOKEN_FILE=/var/lib/unmask/.setup-token
+[ -r "$TOKEN_FILE" ] || TOKEN_FILE=/etc/unmask/.setup-token
+if [ ! -r "$TOKEN_FILE" ]; then
+    exit 0
+fi
 host=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo localhost)
 echo ""
 echo "================================================================"
@@ -102,18 +112,13 @@ echo "  unmask web (Apache) — initial setup"
 echo "  ================================================================"
 echo "  open in your browser:"
 echo "    https://${host}/unmask/admin/setup/"
-if [ -r "$TOKEN_FILE" ]; then
-    token=$(cat "$TOKEN_FILE" 2>/dev/null || true)
-    if [ -n "$token" ]; then
-        echo ""
-        echo "  setup token:"
-        echo "    $token"
-        echo ""
-        echo "  later:  sudo cat $TOKEN_FILE   (= reprint)"
-    fi
-else
+token=$(cat "$TOKEN_FILE" 2>/dev/null || true)
+if [ -n "$token" ]; then
     echo ""
-    echo "  The setup token is stored at /etc/unmask/.setup-token (= view with sudo cat)."
+    echo "  setup token:"
+    echo "    $token"
+    echo ""
+    echo "  later:  sudo cat $TOKEN_FILE   (= reprint)"
 fi
 echo "================================================================"
 echo ""

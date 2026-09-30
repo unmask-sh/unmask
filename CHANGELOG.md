@@ -34,6 +34,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Fixed
 - (2026-09-30) **Community Bans enforces only the entries the hub has promoted.**  The hub lists every report, promoted or not, and marked the feed as version 1, which the daemon read as "enforce every entry": a single unpromoted report reached every subscriber.  The hub now says version 2, and the daemon enforces the promoted entries whatever the version.
 
+- (2026-09-30) **The admin's help describes what unmask does.**  Several texts had fallen behind: the shared list's default action (pow_then_captcha, not captcha_only), what turning off the country code or the liveness count leaves behind, when the ban candidates are re-sent to the model, and that a JA4 block verdict alone challenges only under forward-auth.
+
+- (2026-09-30) **The setup token's location is shown correctly.**  The wizard's token step told operators to read `/etc/unmask/.setup-token`, a path no install has written since 0.1.9, and unmask-web-apache looked there too, so a new install printed no token.  The wizard now names the file the daemon actually reads, and the Apache banner uses `/var/lib/unmask/.setup-token` and appears only while setup is pending.
+
+- (2026-09-30) **The Gateway tab describes the one-container gateway.**  Its help still spoke of a separate nginx container and a shared volume, and said the upstream could not be changed there.  Since 0.1.48 one container holds nginx and the daemon, and the upstream, the hostnames and the certificates are all set on that tab.
+
 - (2026-09-30) **The ban list is written by one writer at a time.**  A ban added from the access log and the manager's periodic refresh could write the list's temporary file at the same moment, so nginx could load a list mixing the two.  Writes of the list now take turns.
 
 - (2026-09-29) **Events and access-log counts are no longer lost at a stop or a failed write.**  The daemon ended as soon as it began to shut down, before the last flush of queued events had run.  A flush of the access-log counts whose statement or commit failed dropped everything it carried; they are now kept for the next try.

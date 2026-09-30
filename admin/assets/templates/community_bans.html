@@ -666,8 +666,8 @@ document.addEventListener('click', function(e){
   }
   function fmt(text){
     // data-info may already contain emoji + dashes; safeHTML payloads (= the
-    // settings.community_bans below_threshold_title carries a <strong>) live
-    // in i18n strings and are intentionally passed verbatim into the popover.
+    // community_bans.reports_only_title carries a <strong>) live in i18n
+    // strings and are intentionally passed verbatim into the popover.
     return '<div style="max-width:32rem;font-size:.82rem;line-height:1.5;white-space:normal">' + text + '</div>';
   }
   function infoTarget(el){
