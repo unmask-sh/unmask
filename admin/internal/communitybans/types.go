@@ -64,18 +64,16 @@ type Comment struct {
 }
 
 // FeedEntry: one row of the feed JSON.  Judgement is decided on the server
-// side; the client only routes into the right map based on match.
-//
-// v2 hub additions (= Score / Promoted / Reasoning / vote and comment counts /
-// Reports / Installs) are surfaced read-only in the UI; v1 entries default
-// the new fields to their zero values and are rendered with "—" placeholders.
+// side: the hub marks the entries to enforce as Promoted, and the client
+// routes those into the right map by match.  The rest are listed for
+// browsing, with the score, the counts and the reasoning read-only in the UI.
 type FeedEntry struct {
 	Match        MatchKind `json:"match"`
 	IP           string    `json:"ip,omitempty"`
 	JA4          string    `json:"ja4,omitempty"`
 	Confidence   float64   `json:"confidence,omitempty"`
 	Score        int       `json:"score,omitempty"`    // 1-5 trust tier
-	Promoted     bool      `json:"promoted,omitempty"` // true = part of banlist propagation
+	Promoted     bool      `json:"promoted,omitempty"` // true = enforced; false = listed for browsing only
 	Reasoning    string    `json:"reasoning,omitempty"`
 	LikeCount    int       `json:"like_count,omitempty"`
 	BadCount     int       `json:"bad_count,omitempty"`

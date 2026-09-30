@@ -26,6 +26,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-09-29) **Mattermost link previews pass out of the box.**  Mattermost fetches a pasted link's preview from its own server as `Mattermost-Bot`, which the crawler list did not carry, so the fetch was challenged and the link rendered bare.  It joins the supplement next to Chatwork, Webex and Notion, and can be switched off per pattern like any other.
 
 ### Fixed
+- (2026-09-30) **Community Bans enforces only the entries the hub has promoted.**  The hub lists every report, promoted or not, and marked the feed as version 1, which the daemon read as "enforce every entry": a single unpromoted report reached every subscriber.  The hub now says version 2, and the daemon enforces the promoted entries whatever the version.
+
 - (2026-09-30) **The ban list is written by one writer at a time.**  A ban added from the access log and the manager's periodic refresh could write the list's temporary file at the same moment, so nginx could load a list mixing the two.  Writes of the list now take turns.
 
 - (2026-09-29) **Events and access-log counts are no longer lost at a stop or a failed write.**  The daemon ended as soon as it began to shut down, before the last flush of queued events had run.  A flush of the access-log counts whose statement or commit failed dropped everything it carried; they are now kept for the next try.

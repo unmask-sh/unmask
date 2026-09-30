@@ -25,7 +25,7 @@ func ensureMapPlaceholders(dir string) {
 		return
 	}
 	if _, err := os.Stat(filepath.Join(dir, MapFileIPJA4)); os.IsNotExist(err) {
-		_ = WriteMapFiles(FeedDocument{GeneratedAt: time.Now().Unix(), Version: 2}, dir)
+		_ = WriteMapFiles(FeedDocument{GeneratedAt: time.Now().Unix()}, dir)
 	}
 }
 
@@ -38,7 +38,11 @@ func ensureMapPlaceholders(dir string) {
 //	community-bans-ip.map     ← match=ip_only : `"<ip>"       1;`
 //
 // nginx includes them via map ${key} ${var} { default 0; include ...; } to
-// drive the hit check.
+// drive the hit check, and the forward-auth matcher loads the same files.
+//
+// Only promoted entries go in: the hub decides what is enforced, and the rest
+// of the feed is listed for browsing.  An entry without the flag -- whatever
+// the document's version -- is never enforced.
 //
 // Always generates all 3 files even on empty feed (= avoids nginx startup
 // failure on missing include).
@@ -53,15 +57,11 @@ func WriteMapFiles(doc FeedDocument, dir string) error {
 	now := time.Now().Unix()
 
 	var ipja4, ja4, ip []string
-	v2 := doc.Version >= 2
 	for _, e := range doc.Entries {
 		if e.ExpiresAt > 0 && e.ExpiresAt < now {
 			continue
 		}
-		// v2 feed carries Promoted: skip non-promoted entries (= score 1-2,
-		// browse-only) from the nginx map files.  v1 feeds (= no Promoted
-		// field) treat every entry as enforceable.
-		if v2 && !e.Promoted {
+		if !e.Promoted {
 			continue
 		}
 		ipv := strings.TrimSpace(e.IP)
