@@ -788,8 +788,8 @@ func checkWALSize(conn *db.DB, addOK, addWarn func(t, m string)) {
 // checkAggregateStatus: where the hourly aggregate stands.  The stats page's
 // 30-day cards read the rollup once a pass has completed and fall back to
 // raw scans of unmask_event until then -- scans that cannot finish on a
-// large table (kanagawa: 25M rows, every card past its budget, 2026-09-10)
-// -- and nothing named that state anywhere.  doctor runs outside the daemon,
+// large table (every card past its budget) -- and nothing named that state
+// anywhere.  doctor runs outside the daemon,
 // so it reads the cursor from the database instead of the in-process flag.
 func checkAggregateStatus(conn *db.DB, addOK, addWarn func(t, m string)) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

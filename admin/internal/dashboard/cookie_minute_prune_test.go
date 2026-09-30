@@ -100,8 +100,8 @@ func TestPruneCookieMinuteBacklogGoesInChunks(t *testing.T) {
 }
 
 // unmask_traffic_country_hourly was the other aggregate the prune never
-// covered (102 days on tool1-jp, found by the window audit the day it was
-// added).  Same 32-day window; its key is the unix hour.
+// covered (months deep on a production install, found by the window audit
+// the day it was added).  Same 32-day window; its key is the unix hour.
 func TestPruneHourlyPrunesCountryHourlyAtFixedWindow(t *testing.T) {
 	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/h.sqlite"})
 	if err != nil {

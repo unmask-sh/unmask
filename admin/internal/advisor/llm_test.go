@@ -606,8 +606,8 @@ func TestStoreLastRecordsRunsAndTotals(t *testing.T) {
 
 // A nomination becomes a candidate row, and the row has to read like one:
 // the stages (JS / PoW / CAPTCHA) and the pass kinds come across from the
-// pool row, not zeros under a pass count (operator, tool1-jp, 2026-09-12:
-// "JS 0 · PoW 0 · CAPTCHA 0 なのに 2 通過").
+// pool row, not zeros under a pass count (reported by an operator,
+// 2026-09-12: "JS 0 · PoW 0 · CAPTCHA 0" beside two passes).
 func TestNominatedRowsCarryStagesAndPassKinds(t *testing.T) {
 	pool := Pool{
 		IPs:  []PoolIP{{IP: "198.51.100.30", Requests: 9, Serves: 6, JSLoaded: 4, PowPassed: 3, CaptchaShown: 1, Passes: 2, PassPow: 1, PassBoth: 1, ShownPow: 2, ShownBoth: 2, Reasons: []ReasonCount{{Reason: "geo", Serves: 6}}, TopUAs: []UACount{{UA: "Mozilla/5.0 (X11)", Requests: 9}}, DistinctUAs: 3}},
@@ -648,8 +648,8 @@ func TestNominatedRowsCarryStagesAndPassKinds(t *testing.T) {
 // pick stored with zero stages (an earlier build) reads the pool's counts
 // after the next merge, and a pick that has left the pool -- the window's
 // busiest actors -- is dropped rather than shown with a stale range
-// (tool1-jp, 2026-09-13: seven stored picks read "JS 0 · PoW 0" though the
-// events were there, one of them from a window two days gone).
+// (2026-09-13: stored picks read "JS 0 · PoW 0" though the events were
+// there, one of them from a window two days gone).
 func TestMergeRefreshesCarriedPicksFromPool(t *testing.T) {
 	prev := Stored{At: time.Now().Add(-time.Hour), Reviews: map[string]Review{
 		"198.51.100.40": {Target: "198.51.100.40", Priority: "high", Reasoning: "kept note"},

@@ -183,9 +183,8 @@ func (c Candidate) Attention() bool {
 // signals, and the counts.  Plan compares two fingerprints with
 // evidenceChanged, which is exact on the score and the signals and
 // tolerant on the counts: a live window's counts drift every minute, and
-// re-sending a row for that made every "ask again" a full run (tool1-us,
-// 2026-09-13: 0-4 of 14-16 kept) and a consultation took minutes
-// (operator, 2026-09-14: "モデルに問い合わせが数分かかる").  The window's
+// re-sending a row for that made nearly every "ask again" a full run and a
+// consultation took minutes (reported by an operator, 2026-09-14).  The window's
 // timestamps are not evidence.
 func (c Candidate) Fingerprint() string {
 	ids := make([]string, 0, len(c.Signals))

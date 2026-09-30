@@ -11,7 +11,7 @@ import (
 // whatever the browser remembers.  Form state is restored on a reload and on a
 // Back navigation, and a restored tick fires no change event -- so the page sat
 // there with the box already checked and did nothing until the visitor
-// unticked and reticked it (reported from tool1-sg, 2026-09-09).  Two things
+// unticked and reticked it (reported from a production install, 2026-09-09).  Two things
 // keep that from happening, and a page that lost either is the bug again:
 // autocomplete="off" on the input, and a reset before the handler is wired.
 func TestCaptchaCheckboxIsNeverPreTicked(t *testing.T) {
