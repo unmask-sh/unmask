@@ -183,6 +183,8 @@ func TestVacuumRunFromTheUI(t *testing.T) {
 		rec, ok, err := h.DB.LoadVacuum(context.Background())
 		return err == nil && ok && rec.State == db.VacuumRunning && h.DB.VacuumAlive(rec, time.Now())
 	})
+	// The last try refreshed before it read the record (see waitForRecord).
+	h.VacuumRefresh(context.Background())
 	v := h.vacuumView(user.RoleSuperadmin, i18n.LangEN)
 	if v == nil || v.State != "running" || !v.CanCancel || v.StartedAt == 0 || v.By == "" {
 		t.Fatalf("view while running = %+v", v)
@@ -233,6 +235,7 @@ func TestVacuumCancelFromTheUI(t *testing.T) {
 		rec, ok, _ := h.DB.LoadVacuum(context.Background())
 		return ok && rec.State == db.VacuumRunning && h.DB.VacuumAlive(rec, time.Now())
 	})
+	h.VacuumRefresh(context.Background()) // as above: the view must hold the record too
 	// The card has the run where its button was, with the cancel button for
 	// the superadmin whose daemon started it.
 	body := renderTab(t, h, "retention", user.RoleSuperadmin, "en")
