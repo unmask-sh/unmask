@@ -219,7 +219,7 @@ func TestVacuumRunFromTheUI(t *testing.T) {
 	}
 }
 
-// Cancelled from the notice: the run is stopped, SQLite rolls the VACUUM back,
+// Cancelled from the card: the run is stopped, SQLite rolls the VACUUM back,
 // the record says so and the writes are released.
 func TestVacuumCancelFromTheUI(t *testing.T) {
 	h := vacuumHandler(t, 2000)
@@ -233,6 +233,20 @@ func TestVacuumCancelFromTheUI(t *testing.T) {
 		rec, ok, _ := h.DB.LoadVacuum(context.Background())
 		return ok && rec.State == db.VacuumRunning && h.DB.VacuumAlive(rec, time.Now())
 	})
+	// The card has the run where its button was, with the cancel button for
+	// the superadmin whose daemon started it.
+	body := renderTab(t, h, "retention", user.RoleSuperadmin, "en")
+	for _, w := range []string{`id="vacuum-progress"`, `id="vacuum-cancel"`, i18n.T(i18n.LangEN, "vacuum.running_sub")} {
+		if !strings.Contains(body, w) {
+			t.Errorf("the card of a running compaction lacks %q", w)
+		}
+	}
+	if strings.Contains(body, `id="vacuum-run"`) {
+		t.Error("the card offers to start a compaction while one runs")
+	}
+	if body := renderTab(t, h, "retention", user.RoleAdmin, "en"); !strings.Contains(body, `id="vacuum-progress"`) || strings.Contains(body, `id="vacuum-cancel"`) {
+		t.Error("an admin's card: the run's progress, and no cancel button")
+	}
 	if code, body := postJSON(t, h.AdminVacuumCancel, "/unmask/admin/api/vacuum/cancel", user.RoleSuperadmin); code != http.StatusOK {
 		t.Fatalf("cancel: %d %v", code, body)
 	}
@@ -365,18 +379,19 @@ func TestVacuumCardOnTheRetentionTab(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := renderTab(t, h, "retention", user.RoleSuperadmin, "en")
-	if !strings.Contains(body, `id="vacuum-last"`) || !strings.Contains(body, "36.00 GB") || !strings.Contains(body, "16.00 GB") {
+	if !strings.Contains(body, `id="vacuum-last" data-ended="`) || !strings.Contains(body, "36.00 GB") || !strings.Contains(body, "16.00 GB") {
 		t.Error("the card does not show the last run")
 	}
 }
 
-// The notice is on every page while a run goes, and on none when there has
-// been no run.
+// The top bar's sign of a run is on every page while it goes, and on none
+// when there has been no run.  The run in full is on the retention tab's card
+// alone, which that tab has in place of the sign.
 func TestVacuumNoticeOnEveryPage(t *testing.T) {
 	h := vacuumHandler(t, 10)
 	for path, fn := range pagesWithTheHeader(h) {
-		if body := renderAs(t, fn, path, user.RoleSuperadmin, "en"); strings.Contains(body, `id="vacup"`) {
-			t.Errorf("%s: a compaction notice with no run", path)
+		if body := renderAs(t, fn, path, user.RoleSuperadmin, "en"); strings.Contains(body, `id="vacpill"`) {
+			t.Errorf("%s: a compaction sign with no run", path)
 		}
 	}
 	lock, err := h.DB.LockVacuumRun(context.Background())
@@ -393,13 +408,34 @@ func TestVacuumNoticeOnEveryPage(t *testing.T) {
 	for path, fn := range pagesWithTheHeader(h) {
 		for _, lang := range []string{"en", "ja"} {
 			body := renderAs(t, fn, path, user.RoleAdmin, lang)
-			if !strings.Contains(body, `id="vacup"`) || !strings.Contains(body, `data-state="running"`) {
-				t.Errorf("%s (%s): no running compaction notice", path, lang)
+			if !strings.Contains(body, `id="vacpill"`) || !strings.Contains(body, `data-state="running"`) {
+				t.Errorf("%s (%s): no sign of the running compaction in the top bar", path, lang)
 			}
-			if !strings.Contains(body, i18n.T(i18n.Lang(lang), "vacuum.running")) {
-				t.Errorf("%s (%s): the notice does not say a compaction is running", path, lang)
+			// "Compacting DB 12%": the words before the figure.
+			if w, _, _ := strings.Cut(i18n.T(i18n.Lang(lang), "vacuum.pill_running"), " %"); !strings.Contains(body, w) {
+				t.Errorf("%s (%s): the sign does not say a compaction is running", path, lang)
+			}
+			if !strings.Contains(body, "/admin/settings/retention/#vacuum-card") {
+				t.Errorf("%s (%s): the sign does not lead to the card", path, lang)
+			}
+			// No banner across the page: the details are the card's.
+			if strings.Contains(body, i18n.T(i18n.Lang(lang), "vacuum.running_sub")) {
+				t.Errorf("%s (%s): the run's details are on a page other than the card", path, lang)
 			}
 		}
+	}
+	// The retention tab: the run in the card -- who started it, as this
+	// daemon did not -- and no sign in the top bar repeating it.  The write
+	// check above the card names the compaction as what holds the writes.
+	body := renderTab(t, h, "retention", user.RoleSuperadmin, "en")
+	for _, w := range []string{`id="vacuum-progress"`, i18n.Tf(i18n.LangEN, "vacuum.started_by", "alice", "test-host"),
+		i18n.T(i18n.LangEN, "settings.retention.write_held_vacuum")} {
+		if !strings.Contains(body, w) {
+			t.Errorf("the retention tab lacks %q while a run goes", w)
+		}
+	}
+	if strings.Contains(body, `id="vacpill"`) || strings.Contains(body, `id="vacuum-cancel"`) {
+		t.Error("the retention tab: a sign in the top bar, or a cancel button for a run from a shell")
 	}
 	// A change that writes to the database is refused with a compaction's
 	// words, not a schema update's.

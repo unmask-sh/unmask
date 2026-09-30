@@ -7,8 +7,9 @@
 // the run is worth it and allowed; otherwise it says why not.  The throwaway
 // instance's database is small, so here that reason is "little to give back".
 //
-// The flow itself -- the run, the hold, the notice, the write-back -- is
-// exercised by the handler tests and the docker scenario 64.
+// The flow itself -- the run, the hold, its progress on this card and the
+// top bar's sign of it elsewhere, the write-back -- is exercised by the
+// handler tests and the docker scenario 64.
 //
 // Env: UI_E2E_BASE, UI_E2E_USER, UI_E2E_PASS, CHROME_BIN.
 const puppeteer = require('puppeteer-core');
@@ -51,6 +52,7 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     const r = card.getBoundingClientRect();
     return {
       rows,
+      progress: !!document.getElementById('vacuum-progress'),
       btnDisabled: btn ? btn.disabled : null,
       blocked: blocked ? blocked.textContent.trim() : '',
       overflow: card.scrollWidth - card.clientWidth,
@@ -66,6 +68,7 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     for (const k of ['size', 'disk', 'time', 'held']) {
       ok(res.rows[k] && /\d/.test(res.rows[k]), `the card's ${k} line carries no figure: ${JSON.stringify(res.rows[k])}`);
     }
+    ok(!res.progress, 'the card shows a run in progress with none going');
     ok(res.btnType === 'button', `the compaction button is a ${res.btnType}; it would submit the retention form`);
     ok(res.btnDisabled === true, 'the button is live on a database with little to give back');
     ok(res.blocked.length > 10, `a disabled button with no reason next to it: ${JSON.stringify(res.blocked)}`);
@@ -73,13 +76,13 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   }
   ok(jsErrors.length === 0, 'page errors: ' + jsErrors.join(' | '));
 
-  // No compaction has run: no notice anywhere.
+  // No compaction has run: no sign of one in the top bar.
   await page.goto(BASE + '/admin/', { waitUntil: 'networkidle2' });
   const notice = await page.evaluate(() => {
-    const el = document.getElementById('vacup');
+    const el = document.getElementById('vacpill');
     return el ? getComputedStyle(el).display : 'absent';
   });
-  ok(notice === 'absent' || notice === 'none', `a compaction notice with no run: ${notice}`);
+  ok(notice === 'absent' || notice === 'none', `a compaction sign with no run: ${notice}`);
 
   await browser.close();
   if (fails.length) {

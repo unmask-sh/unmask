@@ -104,6 +104,11 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := h.settingsViewData(w, r, tab)
+	// The retention tab's compaction card shows a run in full; the top bar's
+	// small sign of it (partial_vacuum.html) would only repeat it there.
+	if tab == "retention" {
+		data["VacuumNotice"] = (*VacuumView)(nil)
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
 	if err := tmpl.ExecuteTemplate(w, "settings.html", data); err != nil {
@@ -5728,13 +5733,14 @@ type retentionStatsView struct {
 	// the outside — challenges keep serving (config/HMAC only) while every
 	// event insert fails, so stats stay empty.  The classic cause is running
 	// `unmask migrate` as root, which leaves unmask.sqlite owned root:root.
-	WriteChecked bool   // probe ran (false only when the DB handle is absent)
-	WriteOK      bool   // the daemon can write
-	WriteHeld    bool   // not probed: a schema update holds the write lock
-	WriteErr     string // short driver error when NG (e.g. "readonly database")
-	DaemonUser   string // user this daemon process runs as
-	DBFileOwner  string // sqlite only: "user:group" owner of the DB file
-	FixCmd       string // NG + sqlite: suggested chown/restart one-liner
+	WriteChecked    bool   // probe ran (false only when the DB handle is absent)
+	WriteOK         bool   // the daemon can write
+	WriteHeld       bool   // not probed: a schema update or a compaction holds the write lock
+	WriteHeldVacuum bool   // ... a compaction (vacuum.go)
+	WriteErr        string // short driver error when NG (e.g. "readonly database")
+	DaemonUser      string // user this daemon process runs as
+	DBFileOwner     string // sqlite only: "user:group" owner of the DB file
+	FixCmd          string // NG + sqlite: suggested chown/restart one-liner
 	// Memory plan (sqlite only): the sizing this process resolved.  Shown
 	// because the numbers are derived per box (CPU count + memory limit), so an
 	// operator cannot judge "is this too much for my VPS" without seeing what
@@ -6039,11 +6045,12 @@ func (h *Handler) retentionStats(ctx context.Context, loc *time.Location) retent
 	v.WriteChecked = true
 	switch {
 	case h.DB.WritesHeld():
-		// A schema update holds the write lock (schema_update.go).  The
-		// probe would wait out the busy timeout and then call the database
-		// unwritable -- with a chown and a restart as the fix, and the
-		// restart stops the update.
+		// A schema update (schema_update.go) or a compaction (vacuum.go)
+		// holds the write lock.  The probe would wait out the busy timeout
+		// and then call the database unwritable -- with a chown and a
+		// restart as the fix, and the restart stops the update.
 		v.WriteHeld = true
+		v.WriteHeldVacuum = h.DB.WritesHeldForVacuum()
 	default:
 		if _, err := h.DB.ExecContext(pctx, `DELETE FROM unmask_event WHERE id = -1`); err != nil {
 			v.WriteErr = truncateAt(err.Error(), 200)
