@@ -136,3 +136,39 @@ func TestLoadMatcherSkipsMalformedLines(t *testing.T) {
 		t.Errorf("Len()=%d, want 2 (malformed lines dropped)", m.Len())
 	}
 }
+
+// The hub decides what is enforced, whatever the document says its version
+// is: the hub sent version 1 until 2026-09-30, and reading that as "enforce
+// every entry" put one unpromoted report on every subscriber's maps.
+func TestOnlyPromotedEntriesAreEnforcedAtAnyVersion(t *testing.T) {
+	for _, version := range []int{0, 1, 2} {
+		dir := t.TempDir()
+		doc := FeedDocument{
+			Version: version,
+			Entries: []FeedEntry{
+				{Match: MatchIPOnly, IP: "198.51.100.7", Score: 4, Promoted: true},
+				{Match: MatchIPJA4, IP: "203.0.113.9", JA4: "t13d1516h2_8daaf6152771_b0da82dd1658", Score: 2},
+				{Match: MatchJA4, JA4: "t13d0000h1_aaaaaaaaaaaa_bbbbbbbbbbbb", Score: 1},
+			},
+		}
+		if err := WriteMapFiles(doc, dir); err != nil {
+			t.Fatal(err)
+		}
+		m, err := LoadMatcher(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if m.Len() != 1 {
+			t.Errorf("version %d: %d entries enforced, want only the promoted one", version, m.Len())
+		}
+		if _, ok := m.Hit("203.0.113.9", "t13d1516h2_8daaf6152771_b0da82dd1658"); ok {
+			t.Errorf("version %d: an unpromoted ip_ja4 entry is enforced", version)
+		}
+		if _, ok := m.Hit("192.0.2.250", "t13d0000h1_aaaaaaaaaaaa_bbbbbbbbbbbb"); ok {
+			t.Errorf("version %d: an unpromoted ja4 entry is enforced", version)
+		}
+		if _, ok := m.Hit("198.51.100.7", ""); !ok {
+			t.Errorf("version %d: the promoted entry is not enforced", version)
+		}
+	}
+}
