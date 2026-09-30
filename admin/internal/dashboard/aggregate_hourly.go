@@ -350,8 +350,8 @@ var pruneChunkRows = 20000
 // cutoff a bounded number at a time, yielding between transactions so a
 // writer waiting behind the prune gets in before the next chunk.  Steady
 // state is a day of rows an hour -- one short pass; the case this exists for
-// is the first pass over a backlog (100 days of unmask_cookie_minute and of
-// unmask_traffic_country_hourly on tool1-jp), where a single DELETE would hold
+// is the first pass over a backlog (months of unmask_cookie_minute and of
+// unmask_traffic_country_hourly on a busy install), where a single DELETE would hold
 // the write lock for as long as the whole backlog takes.
 func pruneRowsInChunks(ctx context.Context, d *db.DB, table, col string, cutoff int64) error {
 	stmt := `DELETE FROM ` + table + ` WHERE ` + col + ` < ? LIMIT ?`
@@ -454,8 +454,8 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 	// unmask_traffic_country_hourly is the per-(hour, site, country, kind)
 	// tally behind the 30-day country breakdown -- settled hours are folded
 	// into unmask_aggregate_hourly (ccph) and only the live tail is read from
-	// here -- and the other aggregate this prune never covered: 102 days on
-	// tool1-jp, found by the window audit on the day it was added (2026-09-10).
+	// here -- and the other aggregate this prune never covered, months deep
+	// on a production install when the window audit was added (2026-09-10).
 	// bucket_hour is unix seconds / 3600.
 	step("unmask_traffic_country_hourly", pruneRowsInChunks(ctx, d, "unmask_traffic_country_hourly", "bucket_hour",
 		time.Now().Unix()/3600-int64(hourlyKeep)*24))

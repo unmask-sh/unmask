@@ -1145,7 +1145,7 @@ func Plan(prev Stored, cands []Candidate) (send []Candidate, kept map[string]Rev
 // is the set of engine candidates of this run.  A carried row's evidence is
 // refreshed from this run's pool (the model's note stays; the counts, stages
 // and pass kinds are the window's -- a pick stored by an earlier build read
-// "JS 0 · PoW 0" for as long as the model did not name it again, tool1-jp
+// "JS 0 · PoW 0" for as long as the model did not name it again,
 // 2026-09-13), and a row that is no longer in the pool is dropped: the pool
 // is the window's busiest actors, and a pick whose activity has left the
 // window cannot be refreshed and would show a range outside it.  The cost

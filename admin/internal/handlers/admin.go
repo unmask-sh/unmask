@@ -1546,8 +1546,8 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 				// -- so the response is discarded and a card cut off by that
 				// is the browser's doing, not the query's.  The five 30-day
 				// cards queue last and were what this used to flag (every
-				// stats-card failure on tool1-jp over three days was one of
-				// them, all "context canceled", 2026-09-10).
+				// stats-card failure seen on a production install over three
+				// days was one of them, all "context canceled", 2026-09-10).
 				if r.Context().Err() != nil {
 					return
 				}
@@ -1712,7 +1712,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	// The two serve cards read the hourly rollup once a pass has completed
 	// and scan 30 days of unmask_event until then.  On a table past the raw
 	// scan's ceiling that scan cannot finish inside the card's budget -- it
-	// ran to the deadline and then said nothing (kanagawa, 2026-09-10) -- so
+	// ran to the deadline and then said nothing (a large install, 2026-09-10) -- so
 	// past it the cards say "aggregating" at once and the scan is not
 	// attempted.  Only the default view: a site or host filter never had a
 	// rollup path, and its scan is what it always was.

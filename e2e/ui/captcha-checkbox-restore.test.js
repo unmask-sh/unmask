@@ -3,8 +3,8 @@
 // A browser restores form state on a history navigation: press Back onto the
 // challenge page and the box comes back ticked -- but a restored tick fires no
 // change event, so the page sits there, already checked, doing nothing.  The
-// visitor's only way out is to untick and retick it, which is what the operator
-// reported from tool1-sg on 2026-09-09.  Reproduced in this browser against
+// visitor's only way out is to untick and retick it, which is what an operator
+// reported from a production install on 2026-09-09.  Reproduced in this browser against
 // 0.1.41 (afterBack: checked=true) and fixed by autocomplete="off" on the input
 // plus a reset before the change handler is wired.
 //

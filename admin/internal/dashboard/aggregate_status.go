@@ -90,8 +90,8 @@ func isMissingTable(err error) bool {
 // do not attempt their raw fallback while the hourly aggregate is not ready.
 // The fallback reads 30 days of unmask_event; measured 2026-09-10 it took
 // about 1.3 s per 300k rows, which puts the card's 15 s budget at roughly
-// 3.5M rows -- and the install this exists for (kanagawa, 25M rows on a slow
-// disk) was several times past it.  Below the ceiling the scan finishes and
+// 3.5M rows -- and the large install this exists for was several times past
+// it.  Below the ceiling the scan finishes and
 // the page shows real numbers from the first second after a start; above it
 // the card says "aggregating" at once instead of timing out and saying
 // nothing.  A variable so a test can lower it.
@@ -126,8 +126,8 @@ type AggregateWindow struct {
 // AuditAggregateWindows measures the oldest row of every minute- and
 // hour-grained aggregate against the shared window (hourlyKeep days).  A
 // table past it is one the hourly prune is not trimming -- unmask_cookie_minute
-// sat at 102 days on tool1-jp before anyone looked (2026-09-10), and was the
-// slowest thing on the stats page.  Two days of slack: the prune runs hourly
+// sat months past its window on a production install before anyone looked
+// (2026-09-10), and was the slowest thing on the stats page.  Two days of slack: the prune runs hourly
 // and the cutoff moves daily.
 func AuditAggregateWindows(ctx context.Context, d *db.DB) ([]AggregateWindow, error) {
 	now := time.Now().UTC()

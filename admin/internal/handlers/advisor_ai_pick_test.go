@@ -179,7 +179,7 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 		t.Error("a contained pick past the cost floor is still shown: its volume is the case")
 	}
 	// Pass kinds: shown when known, and never an empty "()" when they are not
-	// (operator, tool1-jp, 2026-09-12: "2 通過 () とおかしな表示").
+	// (reported by an operator, 2026-09-12: "2 passes ()" read as broken).
 	if strings.Contains(body, `class="tf-kinds">()`) || strings.Contains(body, `tf-more"></span>`) {
 		t.Error("a pick with passes but no pass-kind breakdown must not render an empty ()")
 	}

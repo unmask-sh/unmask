@@ -7,7 +7,7 @@ import (
 
 // A fingerprint candidate carries the challenge stages and the pass kinds
 // like an address candidate does -- the herd row read "JS 0 · PoW 0 ·
-// CAPTCHA 0" under 16 passes on tool1-us (operator, 2026-09-13) because the
+// CAPTCHA 0" under its passes on a production install (2026-09-13) because the
 // fingerprint query counted only serves and passes.
 func TestJA4CandidateCarriesStagesAndPassKinds(t *testing.T) {
 	d := newTestDB(t)
