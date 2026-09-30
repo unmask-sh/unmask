@@ -859,6 +859,14 @@ type Nginx struct {
 	// otherwise fetches both documents from production on every CI run.
 	SyncHubURL          string `yaml:"sync_hub_url,omitempty"`
 	BrowserMajorsHubURL string `yaml:"browser_majors_hub_url,omitempty"`
+	// SyncDisabled: stop the two scheduled pulls above -- the crawler IP
+	// ranges and the browser version baselines -- on a host that should not
+	// call out.  What is already here stays in use: the snapshot and the
+	// baselines each release ships, or the copies pulled before.  A manual
+	// sync from the settings page and `unmask update-iprange -file` still
+	// work, and doctor warns as the range data ages (address verification
+	// stands down past its staleness ceiling).  Toggled from the About tab.
+	SyncDisabled bool `yaml:"sync_disabled,omitempty"`
 	// BypassIPAutoExcluded: preset IDs the operator explicitly opted OUT of
 	// the auto-from-UA derivation (= unchecked an auto-enabled row in the
 	// UI).  An excluded preset behaves exactly as before the feature: off

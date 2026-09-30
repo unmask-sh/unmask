@@ -150,6 +150,10 @@ type Sync struct {
 	HTTPClient *http.Client  // nil → 30s timeout
 	UserAgent  string
 	Logger     *log.Logger // nil → log default
+	// Disabled: asked before every scheduled pull; true skips it, with no
+	// request at all.  Read live; nil = never.  A manual PullOnce is not
+	// affected.
+	Disabled func() bool
 
 	stateMu      sync.Mutex
 	lastSyncedAt time.Time
@@ -221,7 +225,7 @@ func (s *Sync) Start(ctx context.Context) {
 	case <-time.After(InitialDelay):
 	}
 	for {
-		if err := s.PullOnce(ctx); err != nil {
+		if _, err := s.scheduledPull(ctx); err != nil {
 			s.logf("browsermajors sync: pull failed: %v", err)
 		}
 		wait := s.interval() + jitter(Jitter)
@@ -234,6 +238,15 @@ func (s *Sync) Start(ctx context.Context) {
 		case <-time.After(wait):
 		}
 	}
+}
+
+// scheduledPull: one tick of the loop -- nothing while the pulls are
+// switched off, PullOnce otherwise.  Reports whether it pulled.
+func (s *Sync) scheduledPull(ctx context.Context) (bool, error) {
+	if s.Disabled != nil && s.Disabled() {
+		return false, nil
+	}
+	return true, s.PullOnce(ctx)
 }
 
 // PullOnce performs one fetch + validate + apply + persist, recording its

@@ -17,6 +17,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Added
 - (2026-09-30) **A bypass preset for Git over HTTP.**  Behind unmask, `git clone`, fetch, push and Git LFS against a Git forge failed, because the git client cannot solve a challenge.  The new preset under Bypass paths, off by default, lets those requests through by their Git endpoints, while the forge's web pages stay behind the challenge.
 
+- (2026-09-30) **The crawler IP range and browser version downloads can be switched off.**  A checkbox on the About tab (`sync_disabled`) stops the two daily pulls from unmask.sh, so every call unmask makes on its own now has a switch.  The data the release ships stays in use, and a newer release's snapshot now replaces an older downloaded copy.
+
 - (2026-09-29) **A long index build no longer holds up the daemon's start.**  A schema update that builds an index over a large events table ran before the daemon listened, so an upgrade could leave it away for minutes unannounced.  The daemon now estimates the build and, past 20 seconds, starts without it; the admin pages carry a notice with the estimate and a button for a superadmin.  `db.schema_update_defer_seconds` moves the threshold.
 
 - (2026-09-29) **The challenge keeps working while a schema update runs.**  The update runs as a process of its own, from `unmask migrate` or the admin UI's button.  On SQLite, where the build holds the write lock, events and automatic bans are kept and written when it ends, the bans enforced meanwhile; settings can still be saved, while changes to users and manual bans wait.  A superadmin can cancel a run.

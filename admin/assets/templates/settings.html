@@ -821,6 +821,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
        the .about-check default uses. */}}
   <form method="post" action="{{ .BasePath }}/admin/settings/save?section=about" class="about-check" style="flex-direction:column;align-items:flex-start;gap:.8rem">
     <label><input type="checkbox" name="version_check" value="1" {{ if .VersionCheckEnabled }}checked{{ end }}> {{ t .Lang "settings.about.check_toggle" }}</label>
+    <div style="display:flex;align-items:center;gap:.4rem">
+      <label><input type="checkbox" name="feed_sync" value="1" {{ if .FeedSyncEnabled }}checked{{ end }}> {{ t .Lang "settings.about.feed_sync_toggle" }}</label>
+      <button type="button" class="ua-help-trigger" data-help-target="feed-sync-help" aria-label="?">?</button>
+      <script type="text/html" id="feed-sync-help">{{ safeHTML (t .Lang "settings.about.feed_sync_help") }}</script>
+    </div>
     {{/* Advanced attestation master switch (Web Bot Auth + Privacy Pass).  Kept
          here next to the version-check toggle rather than given its own tab: a
          rarely-touched, install-level opt-in at the same granularity.  Off by

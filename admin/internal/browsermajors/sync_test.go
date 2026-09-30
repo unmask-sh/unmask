@@ -151,3 +151,29 @@ func TestPullOnceRejectsGarbage(t *testing.T) {
 		t.Error("pull error must be observable for the UI")
 	}
 }
+
+// Switched off, a scheduled tick sends no request at all; switched back on,
+// the next tick pulls.
+func TestScheduledPullSkipsWhileSwitchedOff(t *testing.T) {
+	resetHub(t)
+	hits := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		_, _ = w.Write([]byte(goodDoc))
+	}))
+	defer srv.Close()
+
+	off := true
+	s := NewSync()
+	s.HubURL = srv.URL
+	s.StatePath = filepath.Join(t.TempDir(), "state.json")
+	s.Disabled = func() bool { return off }
+
+	if pulled, err := s.scheduledPull(context.Background()); pulled || err != nil || hits != 0 {
+		t.Fatalf("switched off: pulled=%v err=%v hits=%d, want no request", pulled, err, hits)
+	}
+	off = false
+	if pulled, err := s.scheduledPull(context.Background()); !pulled || err != nil || hits != 1 {
+		t.Fatalf("switched on: pulled=%v err=%v hits=%d, want one request", pulled, err, hits)
+	}
+}
