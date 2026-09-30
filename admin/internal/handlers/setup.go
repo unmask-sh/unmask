@@ -625,6 +625,9 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 		"Error":       q.Get("err"),
 		"DB":          cur,
 		"LangOptions": langOpts,
+		// Where the token is, for the token step's hint: the file this
+		// daemon reads, which a relocated install has moved.
+		"TokenPath": SetupTokenPath,
 		// Non-nil when the configured database is already migrated, which
 		// turns the driver choice from "build one" into "keep this or replace
 		// it".  Read from the on-disk config, not from `cur`: `cur` may carry
