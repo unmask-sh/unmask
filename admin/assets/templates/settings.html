@@ -3587,7 +3587,6 @@ function secToHuman(s){
         <th>{{ t .Lang "settings.rate_limit.col_axis" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.rate_limit.axis_tip") }}</span></span></th>
         <th style="text-align:right">{{ t .Lang "settings.rate_limit.requests_per_min" }} <button type="button" class="ua-help-trigger" data-help-target="rl-rpm-help" aria-label="?">?</button></th>
         <th style="text-align:right">{{ t .Lang "settings.rate_limit.burst" }} <button type="button" class="ua-help-trigger" data-help-target="rl-burst-help" aria-label="?">?</button></th>
-        <th style="text-align:right">{{ t .Lang "settings.rate_limit.window_sec" }} <button type="button" class="ua-help-trigger" data-help-target="rl-window-help" aria-label="?">?</button></th>
         <th>mode <button type="button" class="ua-help-trigger" data-help-target="rl-mode-help" aria-label="?">?</button></th>
       </tr></thead>
       <tbody>
@@ -3596,7 +3595,6 @@ function secToHuman(s){
           <td class="ax-name"><label><input type="checkbox" class="ax-on" name="axis_{{ .Field }}_on" value="1" {{ if .On }}checked{{ end }}> {{ .Label }}</label></td>
           <td style="text-align:right"><input type="number" name="axis_{{ .Field }}_rpm" min="1" max="100000" step="1" placeholder="{{ axisSeedRPM .Kind }}" value="{{ if gt .RequestsPerMin 0 }}{{ .RequestsPerMin }}{{ end }}" style="width:6rem"></td>
           <td style="text-align:right"><input type="number" name="axis_{{ .Field }}_burst" min="0" max="100000" step="1" placeholder="{{ axisSeedBurst .Kind }}" value="{{ if or (gt .Burst 0) .Primary }}{{ .Burst }}{{ end }}" style="width:6rem"></td>
-          <td style="text-align:right"><input type="number" name="axis_{{ .Field }}_window" min="1" max="3600" step="1" placeholder="60" value="{{ if gt .WindowSec 0 }}{{ .WindowSec }}{{ end }}" style="width:5rem"></td>
           <td>
             {{/* Always a concrete mode: with only three rows, "follow row X"
                  indirection costs more than it saves (an empty stored value
@@ -3616,7 +3614,6 @@ function secToHuman(s){
     <div id="rl-deny-warn" class="note" style="display:none;margin-top:.55rem;padding:.55rem .7rem;background:#fffbeb;border-left:.1875rem solid #f59e0b;border-radius:.25rem;line-height:1.6">{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</div>
     <script type="text/html" id="rl-rpm-help">{{ safeHTML (t .Lang "settings.rate_limit.requests_per_min_help") }}</script>
     <script type="text/html" id="rl-burst-help">{{ safeHTML (t .Lang "settings.rate_limit.burst_help") }}</script>
-    <script type="text/html" id="rl-window-help">{{ safeHTML (t .Lang "settings.rate_limit.window_sec_help") }}</script>
     <script type="text/html" id="rl-mode-help">
       <ul style="padding-left:1.2rem;margin:.3rem 0;line-height:1.55">
         <li><strong>pow_only</strong> — {{ t .Lang "settings.rate_limit.mode_pow_only_desc" }}</li>
@@ -3740,7 +3737,6 @@ function secToHuman(s){
           <th style="text-align:left;padding:.4rem .5rem">{{ t .Lang "settings.rate_limit.col_key" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.rate_limit.zone_key_tip") }}</span></span></th>
           <th style="text-align:right;padding:.4rem .5rem">r/min</th>
           <th style="text-align:right;padding:.4rem .5rem">burst</th>
-          <th style="text-align:right;padding:.4rem .5rem">window</th>
           <th style="text-align:left;padding:.4rem .5rem">mode</th>
           <th></th>
         </tr>
@@ -3771,7 +3767,6 @@ function secToHuman(s){
           </td>
           <td class="z-num"><span class="z-view z-mono zv-rpm">{{ $z.RequestsPerMin }}</span><input class="z-in" type="number" name="zone_{{ $i }}_rpm" min="1" max="100000" value="{{ $z.RequestsPerMin }}" style="width:2.2rem;text-align:right;font-size:.8rem"></td>
           <td class="z-num"><span class="z-view z-mono zv-burst">{{ $z.Burst }}</span><input class="z-in" type="number" name="zone_{{ $i }}_burst" min="0" max="100000" value="{{ $z.Burst }}" style="width:2.2rem;text-align:right;font-size:.8rem"></td>
-          <td class="z-num"><span class="z-view z-mono zv-window">{{ if gt $z.WindowSec 0 }}{{ $z.WindowSec }}{{ else }}60{{ end }}</span><input class="z-in" type="number" name="zone_{{ $i }}_window" min="1" max="3600" value="{{ if gt $z.WindowSec 0 }}{{ $z.WindowSec }}{{ else }}60{{ end }}" style="width:2.6rem;text-align:right;font-size:.8rem"></td>
           <td><span class="z-view z-mono zv-mode{{ if eq $z.ChallengeMode "" }} zv-muted{{ end }}">{{ if $z.ChallengeMode }}{{ $z.ChallengeMode }}{{ else }}{{ $inheritLabel }}{{ end }}</span>
             <select class="z-in" name="zone_{{ $i }}_chmode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
               <option value="" {{ if eq $z.ChallengeMode "" }}selected{{ end }} class="opt-inherit">{{ $inheritLabel }}</option>
@@ -3794,7 +3789,7 @@ function secToHuman(s){
             </span>
           </td>
         </tr>
-        <tr class="zone-warn-row"><td colspan="10"><div class="z-warn">{{ safeHTML (t $.Lang "settings.rate_limit.zone_deny_overlap_warn") }}</div></td></tr>
+        <tr class="zone-warn-row"><td colspan="9"><div class="z-warn">{{ safeHTML (t $.Lang "settings.rate_limit.zone_deny_overlap_warn") }}</div></td></tr>
         {{ end }}
       </tbody>
     </table>
@@ -3825,7 +3820,6 @@ function secToHuman(s){
           </td>
           <td class="z-num"><span class="z-view z-mono zv-rpm"></span><input class="z-in" type="number" name="zone_X_rpm" min="1" max="100000" value="30" style="width:2.2rem;text-align:right;font-size:.8rem"></td>
           <td class="z-num"><span class="z-view z-mono zv-burst"></span><input class="z-in" type="number" name="zone_X_burst" min="0" max="100000" value="10" style="width:2.2rem;text-align:right;font-size:.8rem"></td>
-          <td class="z-num"><span class="z-view z-mono zv-window"></span><input class="z-in" type="number" name="zone_X_window" min="1" max="3600" value="60" style="width:2.6rem;text-align:right;font-size:.8rem"></td>
           <td><span class="z-view z-mono zv-mode zv-muted"></span>
             <select class="z-in" name="zone_X_chmode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
               <option value="" selected class="opt-inherit">{{ $inheritLabel }}</option>
@@ -3848,7 +3842,7 @@ function secToHuman(s){
             </span>
           </td>
         </tr>
-        <tr class="zone-warn-row"><td colspan="10"><div class="z-warn">{{ safeHTML (t .Lang "settings.rate_limit.zone_deny_overlap_warn") }}</div></td></tr>
+        <tr class="zone-warn-row"><td colspan="9"><div class="z-warn">{{ safeHTML (t .Lang "settings.rate_limit.zone_deny_overlap_warn") }}</div></td></tr>
     </template>
     <button type="button" onclick="rlAddZone()" style="margin-top:.6rem;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:.3rem;padding:.4rem .8rem;cursor:pointer;font-size:.85rem;color:#475569">+ {{ t .Lang "settings.rate_limit.add_zone" }}</button>
   </div>
@@ -3922,7 +3916,6 @@ function secToHuman(s){
     sv.classList.toggle('zv-muted', !site);
     tr.querySelector('.zv-rpm').textContent = v('rpm');
     tr.querySelector('.zv-burst').textContent = v('burst');
-    tr.querySelector('.zv-window').textContent = v('window');
     var mode = v('chmode');
     var mv = tr.querySelector('.zv-mode');
     mv.textContent = mode || tb.dataset.inheritLabel;
@@ -6799,7 +6792,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
   </div>
 
   <div class="bcd-card">
-    <h2>{{ t .Lang "settings.retention.nginx_log_h" }} <span style="font-size:.65rem;padding:.1rem .4rem;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:.2rem;font-weight:600;vertical-align:middle">{{ t .Lang "settings.retention.nginx_log_badge" }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "settings.retention.nginx_log_desc") }}</span></span></h2>
+    <h2>{{ t .Lang "settings.retention.nginx_log_h" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "settings.retention.nginx_log_desc") }}</span></span></h2>
     <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.retention.nginx_log_intro") }}</div>
 
     <div class="field">

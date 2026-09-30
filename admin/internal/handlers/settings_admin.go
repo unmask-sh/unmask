@@ -4838,15 +4838,28 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 		row.RequestsPerMin = pick(p.rpm, settings.AxisSeedRPM(p.kind))
 		row.Burst = pick(p.bur, settings.AxisSeedBurst(p.kind))
 		row.WindowSec = pick(p.win, settings.AxisSeedWindowSec)
+		if p.win < 0 && st.WindowSec > 0 {
+			// The window is forward-auth's alone (the nginx module counts per
+			// minute) and the form no longer shows it: keep what is stored.
+			row.WindowSec = st.WindowSec
+		}
 		*st = row
 	}
 
 	// zones[]: zone_<i>_name / zone_<i>_paths (newline-sep) / zone_<i>_rpm /
-	// Read zone_<i>_burst / zone_<i>_window / zone_<i>_chmode in order.
+	// Read zone_<i>_burst / zone_<i>_chmode in order (zone_<i>_window too, when
+	// a caller still sends it).
 	// After delete, JS keeps indices contiguous, so loop 0..N-1. Skip empty name.
 	const maxZones = 100
 	zones := make([]settings.RateZone, 0, maxZones)
 	zoneNamesSeen := map[string]bool{}
+	// A zone's window is forward-auth's alone (the nginx module counts per
+	// minute), and the form no longer shows it: a zone keeps the window
+	// stored under its name, and a new one leaves it unset (60 s).
+	storedWindow := make(map[string]int, len(c.Zones))
+	for _, z := range c.Zones {
+		storedWindow[z.Name] = z.WindowSec
+	}
 	for i := 0; i < maxZones; i++ {
 		prefix := fmt.Sprintf("zone_%d_", i)
 		name := strings.TrimSpace(r.FormValue(prefix + "name"))
@@ -4878,9 +4891,9 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 		if err != nil || burst < 0 || burst > 100000 {
 			return fmt.Errorf("zone %s: burst must be in 0-100000 (got %q)", name, r.FormValue(prefix+"burst"))
 		}
-		window, err := strconv.Atoi(strings.TrimSpace(r.FormValue(prefix + "window")))
-		if err != nil || window < 1 || window > 3600 {
-			window = 60 // default fallback
+		window := storedWindow[name]
+		if n, err := strconv.Atoi(strings.TrimSpace(r.FormValue(prefix + "window"))); err == nil && n >= 1 && n <= 3600 {
+			window = n
 		}
 		chmode := strings.TrimSpace(r.FormValue(prefix + "chmode"))
 		if chmode != "" && !settings.IsValidRateChallengeMode(chmode) {

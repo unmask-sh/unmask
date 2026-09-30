@@ -33,8 +33,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-09-29) **Mattermost link previews pass out of the box.**  Mattermost fetches a pasted link's preview from its own server as `Mattermost-Bot`, which the crawler list did not carry, so the fetch was challenged and the link rendered bare.  It joins the supplement next to Chatwork, Webex and Notion, and can be switched off per pattern like any other.
 
+### Changed
+- (2026-10-01) **forward-auth mode is frozen.**  The docs and the admin now describe two ways to deploy: the nginx module, on your own nginx or inside the gateway container.  Installs that use forward-auth keep working and still get bug and security fixes, but new features are built for the nginx module only.  The FAQ says how to move over.
+
 ### Fixed
 - (2026-10-01) **Saving the rate-limit tab returns to the rate-limit tab.**  The save named the tab `rate_limit`, while its address is `rate-limit`, so the redirect after a save landed on the settings overview, away from the rows just edited.  Every settings form now comes back to its own tab, and a test checks each of them.
+
+- (2026-10-01) **Web Bot Auth and Privacy Pass are no longer described as forward-auth only.**  Their settings said the check ran only in forward-auth mode, but the nginx module sends a request that carries a signature or a token, and is about to be challenged, to the daemon for the check.  Both work with the module on your own nginx and in the gateway container.
 
 - (2026-09-30) **`db-prune -vacuum` asks for the disk it really needs.**  It checked for room for one copy of the live data, but in WAL mode the copy is written a second time into the write-ahead log.  It now asks for 2.2 times the live data, and with the daemon running it refuses and points to `unmask db-vacuum`, which compacts without stopping it.
 
