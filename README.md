@@ -1,7 +1,7 @@
 # unmask
 
 > **The bot challenge that respects search engines.**
-> JA4 TLS fingerprint + behavioral checks.
+> Proof-of-work first, a CAPTCHA only when it looks automated.
 
 Website: **https://unmask.sh/**
 
@@ -14,18 +14,22 @@ Website: **https://unmask.sh/**
 ![unmask in a minute: a first visit clears a short proof-of-work on a page carrying the site's own logo; a scraper gets the challenge instead of the page; Googlebot, Bingbot, GPTBot and ClaudeBot pass by their published IP ranges; one click denies AI training crawlers while AI search fetches still pass; the dashboard and the log show every challenged request and why](https://unmask.sh/static/demo/unmask-demo.gif)
 
 **unmask** is a self-hosted bot management gateway for nginx and Apache.
-It combines JA4 TLS fingerprinting with behavioral checks to distinguish
-legitimate search / AI crawlers from disguised scrapers, with search-bot
-preservation as the default posture.
+It layers signals (the TLS fingerprint (JA4), network (ASN), country,
+request rate, honeypot paths and a shared ban list) and answers with a
+challenge that grows with suspicion: a proof-of-work that runs by itself
+for ordinary visitors, its own behavioral CAPTCHA when a visit looks
+automated or matches a rule you set, and a block only where you choose one.
+Search and AI crawlers pass by default, verified by their published IP
+ranges wherever the vendor publishes them.
 
 ## Features
 
-- **Two-stage search-bot rescue** — UA list + official IP range double-check. Designed not to break Googlebot / GPTBot / ClaudeBot.
-- **JA4 fingerprint** — Computed from the TLS handshake. Exposes headless Chromium / Puppeteer / Playwright through their UA disguise.
-- **Behavioral CAPTCHA** — 5-axis score from mouseTrail / scroll / window-size. Harder to defeat than a plain checkbox or PoW.
-- **Community Bans** — Anonymous BAN feed shared across installs. 5-tier confidence score combines heuristic + AI judge. Pulling the shared list is ON by default (CAPTCHA-only enforcement, so a mismatched human still passes; flip `subscribe_mode` off to disconnect); submitting your own reports is opt-in (country is tagged by default — opt out in settings). GDPR by design (= per-day salted IP hashes, 30-day prune, raw IPs never stored).
-- **Built-in admin UI** — dashboard / hunt / abuse signals / settings. bcrypt + cookie session + CSRF + per-IP login rate-limit.
-- **Two deploy modes** — native nginx dynamic module (~0.05 ms post-cookie) or forward-auth fallback with a shipped example for Apache (the check endpoint speaks the standard forward-auth contract, so any HTTP server can wire it the same way).
+- **Challenges that grow with suspicion** — Ordinary visitors clear a proof-of-work in the background, with no click. A visit that looks automated, or matches a rule you set, goes on to a built-in behavioral CAPTCHA (a 5-axis score from mouse trail / scroll / keyboard / window size / click position; no third-party service, no site key). Blocking is opt-in. The challenge page carries your logo and speaks 18 languages.
+- **Two-stage search-bot rescue** — UA list + official IP range double-check. Designed not to break Googlebot / GPTBot / ClaudeBot. One click refuses AI training crawlers while AI search fetches still pass.
+- **Layered signals** — The JA4 TLS fingerprint (ban a tool, not just an address), network (ASN), country, request rate, honeypot paths and User-Agent rules.
+- **Community Bans** — Anonymous BAN feed shared across installs. 5-tier confidence score combines heuristic + AI judge. Pulling the shared list is ON by default and enforced as a challenge (proof-of-work, then CAPTCHA; a block only if you choose one), so a mismatched human still passes; set `subscribe_mode: off` to disconnect. Submitting your own reports is opt-in (country is tagged by default — opt out in settings). GDPR by design: the hub keeps reporting installs' addresses only as per-day salted hashes, scrubbed after 30 days.
+- **Built-in admin UI** — dashboard / hunt / abuse signals / settings. argon2id password hashes + cookie session + CSRF + per-IP login rate-limit.
+- **Three ways to deploy** — the native nginx dynamic module (~0.05 ms post-cookie); the gateway container, which puts nginx with the module in front of any HTTP server (Apache, Node, anything); or forward-auth, with a shipped example for Apache (the check endpoint speaks the standard forward-auth contract, so any HTTP server can wire it the same way).
 - **Web Bot Auth + Privacy Pass (opt-in)** — RFC 9421 HTTP Message Signatures (ed25519 / RSA-PSS) and Privacy Pass / Apple PAT (RFC 9577/9578). Signed AI agents (Anthropic / OpenAI / etc.) and attested clients pass through without a challenge. Off by default behind an Advanced switch, since the ecosystem is still small.
 
 ## Install
@@ -35,6 +39,18 @@ Official install guide: **https://unmask.sh/install/**
 rpm / deb / apk packages, per-HTTP-server snippets, and an install wizard — step by step.
 
 Container: `unmask.sh/unmask` — the gateway in one image (the official nginx image with the module, plus the daemon), served from unmask.sh like the packages and mirrored on GHCR; `docker run` it or add one service to your compose, and put it in front of any HTTP server.
+
+### Quick start (Docker)
+
+```sh
+docker run -d --name unmask --restart unless-stopped -p 80:80 -p 443:443 \
+  --add-host host.docker.internal:host-gateway \
+  -v unmask-config:/etc/unmask -v unmask-data:/var/lib/unmask -v unmask-acme:/var/cache/nginx/unmask-acme \
+  unmask.sh/unmask:latest
+docker logs unmask | grep "setup token"
+```
+
+Open `https://localhost/unmask/admin/`, pass the short security check, and paste the setup token into the install wizard. Then set the upstream (the server unmask protects), the hostnames and the certificate under **Settings → Gateway**. Clients that cannot run JavaScript — `git`, sync clients, mobile apps — need their paths let through under **Settings → Bypass paths**. The [container guide](https://unmask.sh/docs/docker/) covers compose, and the FAQ covers [where unmask goes if you already run a reverse proxy](https://unmask.sh/docs/faq/#existing-reverse-proxy).
 
 ### Package signing
 
@@ -51,7 +67,7 @@ for bootstrapping trust by hand (cross-check with https://unmask.sh/keys/):
 
 Official docs: **https://unmask.sh/docs/**
 
-Mode selection (native / forward-auth), JA4 via load balancer, per-server config examples, FAQ.
+Choosing a deployment (native module / gateway container / forward-auth), JA4 behind a load balancer, per-server config examples, FAQ.
 
 ## Contributing
 
@@ -59,9 +75,9 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Status
 
-**Released.** Signed rpm / deb / apk for x86_64 + arm64, an install wizard, and both
-deploy modes (native nginx module + forward-auth for Apache) are shipping. It runs in
-production on the author's own sites.
+**Released.** Signed rpm / deb / apk for x86_64 + arm64, the gateway container image,
+an install wizard, and all three ways to deploy (native nginx module, gateway container,
+forward-auth) are shipping. It runs in production on the author's own sites.
 
 Still 0.x: configuration may change between minor versions.
 

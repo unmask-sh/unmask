@@ -22,7 +22,7 @@ of the system, etc. -->
 
 <!-- Steps a reviewer can take to confirm the change works:
 
-  1. `make e2e-docker` (= all 16 scenarios pass)
+  1. `make e2e-docker` (= all scenarios pass)
   2. `docker run --rm alpine:latest sh -c 'apk add ...'` (= what / why)
   3. ...
 

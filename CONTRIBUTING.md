@@ -9,7 +9,7 @@ Open an issue with:
 
 - distro / version (`cat /etc/os-release`)
 - nginx version (`nginx -v`) or web server you use
-- relevant log lines (`/var/log/unmask/` and your web server's error log)
+- relevant log lines (`journalctl -u unmask` — `/var/log/unmask.log` on SysVinit, `docker logs unmask` for the container — and your web server's error log)
 - reproduction steps
 
 For suspected security issues, **please do not open a public issue** —
@@ -19,7 +19,7 @@ follow [SECURITY.md](SECURITY.md) (report privately to oss@unmask.sh).
 
 unmask is three components in one repo:
 
-- `admin/` — Go static binary (`unmask`). Requires Go 1.25+.
+- `admin/` — Go static binary (`unmask`). Requires the Go version in `admin/go.mod` (1.27+).
 - `nginx-module/` — C plugin (`ngx_http_unmask_module`). Built against
   matching nginx source.
 - `admin/assets/static/challenge.{html,js}` — plain JavaScript challenge

@@ -44,8 +44,8 @@ The following are not in scope for this project's security advisories:
   the public internet without authentication).
 - Issues that require running unmask on an end-of-life OS or with
   rate-limiting disabled.
-- Denial-of-service attacks at the network layer (use Cloudflare /
-  AWS Shield etc. upstream).
+- Denial-of-service attacks at the network layer (use your provider's
+  network-layer DDoS protection upstream).
 
 ## Recognition
 
