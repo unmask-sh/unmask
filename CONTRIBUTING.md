@@ -42,6 +42,11 @@ End-to-end tests live in `e2e/` and run against the dockerized stack.
   source style.
 - Update `CHANGELOG.md` under `[Unreleased]` with a brief entry.
 - Run `go test ./...` from `admin/` before submitting.
+- forward-auth mode is frozen: its decision path
+  (`admin/internal/handlers/auth_check.go`, reached through `auth_request` or
+  Apache `mod_lua`) takes bug and security fixes only.  Wire a new feature into
+  the nginx module path (the `nginxconf` templates and the module); it needs no
+  forward-auth counterpart.
 
 ## Commit messages
 

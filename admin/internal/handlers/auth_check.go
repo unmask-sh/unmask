@@ -1,5 +1,17 @@
 // Core of forward-auth mode.
 //
+// FROZEN (2026-10-01).  forward-auth is no longer a documented way to deploy
+// unmask; the nginx module is, on the host or in the gateway container.  The
+// decision path here keeps its behavior for the installs that use it (its e2e
+// scenarios stay green) and takes bug and security fixes, but new axes and
+// features are wired into the nginx module path only -- the nginxconf
+// templates, the module, ServeChallenge -- and are not mirrored here.
+//
+// Not frozen: the veto-pass verification in this handler (Web Bot Auth,
+// Privacy Pass).  The nginx module detours a request that carries such a
+// credential, and is about to be challenged, to this endpoint for the check
+// (server.inc.tmpl: /_unmask/_signed_route, /_unmask/_pat_route).
+//
 // Flow:
 //
 //	client -> HTTP server (= nginx / Apache / etc.)

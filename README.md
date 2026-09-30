@@ -29,7 +29,7 @@ ranges wherever the vendor publishes them.
 - **Layered signals** — The JA4 TLS fingerprint (ban a tool, not just an address), network (ASN), country, request rate, honeypot paths and User-Agent rules.
 - **Community Bans** — Anonymous BAN feed shared across installs. 5-tier confidence score combines heuristic + AI judge. Pulling the shared list is ON by default and enforced as a challenge (proof-of-work, then CAPTCHA; a block only if you choose one), so a mismatched human still passes; set `subscribe_mode: off` to disconnect. Submitting your own reports is opt-in (country is tagged by default — opt out in settings). GDPR by design: the hub keeps reporting installs' addresses only as per-day salted hashes, scrubbed after 30 days.
 - **Built-in admin UI** — dashboard / hunt / abuse signals / settings. argon2id password hashes + cookie session + CSRF + per-IP login rate-limit.
-- **Three ways to deploy** — the native nginx dynamic module (~0.05 ms post-cookie); the gateway container, which puts nginx with the module in front of any HTTP server (Apache, Node, anything); or forward-auth, with a shipped example for Apache (the check endpoint speaks the standard forward-auth contract, so any HTTP server can wire it the same way).
+- **Two ways to deploy** — the native nginx dynamic module (~0.05 ms post-cookie), or the gateway container, which puts nginx with the module in front of any HTTP server (Apache, Node, anything).
 - **Web Bot Auth + Privacy Pass (opt-in)** — RFC 9421 HTTP Message Signatures (ed25519 / RSA-PSS) and Privacy Pass / Apple PAT (RFC 9577/9578). Signed AI agents (Anthropic / OpenAI / etc.) and attested clients pass through without a challenge. Off by default behind an Advanced switch, since the ecosystem is still small.
 
 ## Install
@@ -67,7 +67,7 @@ for bootstrapping trust by hand (cross-check with https://unmask.sh/keys/):
 
 Official docs: **https://unmask.sh/docs/**
 
-Choosing a deployment (native module / gateway container / forward-auth), JA4 behind a load balancer, per-server config examples, FAQ.
+Choosing a deployment (native module or gateway container), JA4 behind a load balancer, per-server config examples, FAQ.
 
 ## Contributing
 
@@ -76,8 +76,8 @@ See [CONTRIBUTING.md](CONTRIBUTING.md).
 ## Status
 
 **Released.** Signed rpm / deb / apk for x86_64 + arm64, the gateway container image,
-an install wizard, and all three ways to deploy (native nginx module, gateway container,
-forward-auth) are shipping. It runs in production on the author's own sites.
+an install wizard, and both ways to deploy (the native nginx module and the gateway
+container) are shipping. It runs in production on the author's own sites.
 
 Still 0.x: configuration may change between minor versions.
 
