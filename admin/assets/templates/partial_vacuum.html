@@ -1,0 +1,130 @@
+{{- /*
+  vacuum_notice: the notice about a database compaction (internal/db/vacuum.go,
+  internal/handlers/vacuum.go) -- while one runs, and for a day after.
+
+  Part of header_tools, like the schema update notice next to it, so it is on
+  every signed-in page.  .VacuumNotice is set by addMeToData and is nil --
+  nothing is rendered -- when no run is going or has ended in the last day.
+
+  The styles are here rather than in each page's <style>: the markup is
+  injected by this partial, and a page that did not know about it would
+  otherwise show it unstyled.
+*/ -}}
+{{ define "vacuum_notice" }}{{ with .VacuumNotice }}
+<style>
+.vacup{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;padding:.6rem 1.5rem;font-size:.875rem;line-height:1.5;border-bottom:1px solid}
+.vacup[hidden]{display:none}
+.vacup-running{background:#eff6ff;border-color:#93c5fd;color:#1e3a8a}
+.vacup-done{background:#f0fdf4;border-color:#86efac;color:#166534}
+.vacup-failed,.vacup-cancelled{background:#fef2f2;border-color:#fca5a5;color:#991b1b}
+.vacup-cancelled{background:#fffbeb;border-color:#fcd34d;color:#78350f}
+.vacup-msg{flex:1;min-width:16rem}
+.vacup-sub{display:block;font-size:.8125rem;opacity:.85}
+.vacup-bar{display:block;height:.35rem;margin-top:.35rem;background:rgba(30,58,138,.15);border-radius:.2rem;overflow:hidden;max-width:28rem}
+.vacup-bar>span{display:block;height:100%;background:#2563eb;transition:width .6s}
+.vacup button{font:inherit;font-size:.8125rem;font-weight:600;padding:.3rem .8rem;border-radius:.3rem;border:1px solid currentColor;background:#fff;color:inherit;cursor:pointer}
+.vacup button:hover{background:rgba(255,255,255,.6)}
+.vacup button[disabled]{opacity:.5;cursor:default}
+.vacup-err{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8125rem;word-break:break-word}
+</style>
+<div id="vacup" class="vacup vacup-{{ .State }}" role="status" hidden
+     data-state="{{ .State }}" data-started="{{ .StartedAt }}" data-ended="{{ .EndedAt }}" data-now="{{ .Now }}"
+     data-api="{{ $.BasePath }}/admin/api/vacuum"
+     data-l-elapsed="{{ t $.Lang "vacuum.elapsed" }}"
+     data-l-phase-copy="{{ t $.Lang "vacuum.phase_copy" }}"
+     data-l-phase-write="{{ t $.Lang "vacuum.phase_write" }}"
+     data-l-held="{{ t $.Lang "vacuum.held_now" }}"
+     data-l-stopping="{{ t $.Lang "vacuum.stopping" }}"
+     data-l-confirm-cancel="{{ t $.Lang "vacuum.confirm_cancel" }}"
+     data-l-request-failed="{{ t $.Lang "vacuum.request_failed" }}">
+  <span class="vacup-msg">
+    {{- if eq .State "running" -}}
+      {{ t $.Lang "vacuum.running" }} <span id="vacup-phase">{{ if eq .Phase "write" }}{{ tf $.Lang "vacuum.phase_write" .Progress }}{{ else }}{{ tf $.Lang "vacuum.phase_copy" .Progress }}{{ end }}</span> · <span id="vacup-elapsed"></span>{{ if .Est }} {{ tf $.Lang "vacuum.expected" .Est }}{{ end }}
+      <span class="vacup-sub">{{ t $.Lang "vacuum.running_sub" }} <span id="vacup-held">{{ tf $.Lang "vacuum.held_now" (comma .Held) }}</span>{{ if and .By (not .CanCancel) }} {{ tf $.Lang "vacuum.started_by" .By .Host }}{{ end }}</span>
+      <span class="vacup-bar" aria-hidden="true"><span id="vacup-bar" style="width:{{ .Progress }}%"></span></span>
+    {{- else if eq .State "done" -}}
+      {{ tf $.Lang "vacuum.done" .FileBefore .FileAfter .Took }}
+    {{- else if eq .State "cancelled" -}}
+      {{ t $.Lang "vacuum.cancelled" }}
+    {{- else if eq .State "failed" -}}
+      {{ t $.Lang "vacuum.failed" }} <span class="vacup-err">{{ .Err }}</span>
+    {{- end -}}
+  </span>
+  {{ if and .CanCancel (eq .State "running") }}<button type="button" id="vacup-cancel">{{ t $.Lang "vacuum.cancel" }}</button>{{ end }}
+  {{ if ne .State "running" }}<button type="button" id="vacup-dismiss">{{ t $.Lang "vacuum.dismiss" }}</button>{{ end }}
+</div>
+<script>
+(function(){
+  var el = document.getElementById('vacup');
+  if (!el) return;
+  var L = function(k){ return el.getAttribute('data-l-' + k) || ''; };
+  var state = el.getAttribute('data-state');
+  var api = el.getAttribute('data-api');
+
+  // An ended run is news once: dismissed, it stays away on every page.
+  var SEEN_KEY = 'unmask:vacuum-seen';
+  var ended = el.getAttribute('data-ended') || '';
+  function lsGet(k){ try { return localStorage.getItem(k) || ''; } catch(e){ return ''; } }
+  function lsSet(k, v){ try { localStorage.setItem(k, v); } catch(e){} }
+  if (state !== 'running' && lsGet(SEEN_KEY) === ended) return;
+
+  // Under the header, across the page -- below the schema update notice
+  // when both are there.
+  var hdr = document.querySelector('header.unmask-header') || document.querySelector('header');
+  var after = document.getElementById('schup');
+  if (!(after && after.parentNode && !after.hidden)) after = hdr;
+  if (after && after.parentNode) after.parentNode.insertBefore(el, after.nextSibling);
+  el.hidden = false;
+
+  function mmss(sec){
+    sec = Math.max(0, Math.floor(sec));
+    var h = Math.floor(sec / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
+    return (h ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (s < 10 ? '0' : '') + s;
+  }
+  // Elapsed time on the server's clock: its "now" at render, counted
+  // forward from the page's arrival.
+  var started = parseInt(el.getAttribute('data-started'), 10) || 0;
+  var serverNow = parseInt(el.getAttribute('data-now'), 10) || 0;
+  var arrived = Date.now();
+  function tick(){
+    var out = document.getElementById('vacup-elapsed');
+    if (!out || !started) return;
+    out.textContent = L('elapsed').replace('%s', mmss(serverNow + (Date.now() - arrived) / 1000 - started));
+  }
+  function fmt(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+  var cancel = document.getElementById('vacup-cancel');
+  if (cancel) cancel.addEventListener('click', function(){
+    if (!confirm(L('confirm-cancel'))) return;
+    cancel.disabled = true;
+    cancel.textContent = L('stopping');
+    fetch(api + '/cancel', {method: 'POST', credentials: 'same-origin'}).then(function(r){
+      if (!r.ok && r.status !== 409) throw new Error('HTTP ' + r.status);
+    }).catch(function(){
+      cancel.disabled = false;
+      alert(L('request-failed'));
+    });
+  });
+  var dismiss = document.getElementById('vacup-dismiss');
+  if (dismiss) dismiss.addEventListener('click', function(){ lsSet(SEEN_KEY, ended); el.hidden = true; });
+
+  if (state === 'running') {
+    tick();
+    setInterval(tick, 1000);
+    // Progress from the run's files, every few seconds; the page shows how
+    // it ended by itself.
+    var poll = setInterval(function(){
+      fetch(api, {credentials: 'same-origin'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(v){
+        if (!v) return;
+        if (v.state !== 'running') { clearInterval(poll); location.reload(); return; }
+        var bar = document.getElementById('vacup-bar');
+        if (bar) bar.style.width = (v.progress || 0) + '%';
+        var ph = document.getElementById('vacup-phase');
+        if (ph) ph.textContent = L(v.phase === 'write' ? 'phase-write' : 'phase-copy').replace('%d', v.progress || 0).replace('%%', '%');
+        var held = document.getElementById('vacup-held');
+        if (held) held.textContent = L('held').replace('%s', fmt(v.held || 0));
+      }).catch(function(){});
+    }, 5000);
+  }
+})();
+</script>
+{{ end }}{{ end }}

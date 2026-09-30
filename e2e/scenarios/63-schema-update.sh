@@ -246,7 +246,7 @@ if python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) >= 6 else 1)" "$took
         printf '%s' "$logs" | grep -q "kept meanwhile" && break
         sleep 1
     done
-    assert_in "a schema update holds the write lock" "$logs" "the daemon noticed the run and kept its events back"
+    assert_in "the database's writes are held" "$logs" "the daemon noticed the run and kept its events back"
     assert_in "kept meanwhile" "$logs" "the daemon wrote the events it had kept once the lock was free"
 else
     log_skip "the build took ${took}s: too short for the daemon to have had to keep events back"

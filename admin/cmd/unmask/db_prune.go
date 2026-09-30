@@ -52,10 +52,13 @@ func cmdDBPrune(args []string) error {
 		return fmt.Errorf("db-prune: unknown -mode %q (delete|rebuild)", *mode)
 	}
 	running := daemonAnswers(s.Server)
-	if running && (!*force || *mode == "rebuild") {
+	if running && (!*force || *mode == "rebuild" || *vacuum) {
 		hint := "stop it first (systemctl stop unmask / service unmask stop; the site keeps serving, fail-open)"
-		if *mode == "delete" {
+		if *mode == "delete" && !*vacuum {
 			hint += ", or pass -force to prune online at the daemon's own pace"
+		}
+		if *vacuum {
+			hint += "; to compact with the daemon running, use `unmask db-vacuum`"
 		}
 		return fmt.Errorf("db-prune: the daemon is running on %s -- %s", daemonAddr(s.Server), hint)
 	}
@@ -156,8 +159,11 @@ func cmdDBPrune(args []string) error {
 			if f, err := db.DirFree(dbDir); err == nil {
 				free = f
 			}
-			say("VACUUM writes a copy of the live data (%s of the %s file) to %s (%s free)", humanBytesCLI(sp.LiveBytes), humanBytesCLI(sp.FileBytes), dbDir, humanBytesCLI(free))
-			if err := room("VACUUM", sp.LiveBytes); err != nil {
+			// The copy, and the same again in the write-ahead log while it
+			// is copied back (db.VacuumDiskNeed; measured 2.0-2.2 times).
+			say("VACUUM writes a copy of the live data (%s of the %s file) to %s and then the same again into the write-ahead log: about %s (%s free)",
+				humanBytesCLI(sp.LiveBytes), humanBytesCLI(sp.FileBytes), dbDir, humanBytesCLI(db.VacuumDiskNeed(sp.LiveBytes)), humanBytesCLI(free))
+			if err := room("VACUUM", db.VacuumDiskNeed(sp.LiveBytes)); err != nil {
 				return err
 			}
 		}

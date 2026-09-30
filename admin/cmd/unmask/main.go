@@ -120,6 +120,8 @@ func main() {
 		err = cmdStats(args)
 	case "db-analyze":
 		err = cmdDBAnalyze(args)
+	case "db-vacuum":
+		err = cmdDBVacuum(args)
 	case "db-prune":
 		err = cmdDBPrune(args)
 	case "user":
@@ -166,6 +168,7 @@ usage:
   unmask analyze [-config PATH] [-days 30] [-threshold 100] [-limit 20] [-site SITE]
   unmask stats [-config PATH] [-kind traffic|phase|verdict|ip|ua|ja4|all] [-since 24h] [-site SITE] [-limit 20] [-tsv]
   unmask db-analyze [-config PATH] [-timeout 10m]
+  unmask db-vacuum [-config PATH] [-plan] [-force] [-skip-space-check]
   unmask db-prune [-config PATH] [-retention-days N] [-mode delete|rebuild] [-vacuum] [-analyze] [-force]
   unmask user list [-config PATH]
   unmask user create <username> [-role superadmin|admin|viewer] [-password PASS]
@@ -859,6 +862,10 @@ func cmdServe(args []string) error {
 	// applies them (handlers/schema_update.go).
 	if conn != nil {
 		go h.RunSchemaWatch(context.Background())
+		// Database compactions (handlers/vacuum.go): the run lock is looked
+		// at every two seconds, so a run from a shell is handed over to at
+		// once.  SQLite only; it returns at once on MariaDB.
+		go h.RunVacuumWatch(context.Background())
 	}
 
 	// Scheduled advisor digest: run the deterministic candidate engine on a
@@ -1010,12 +1017,16 @@ func cmdServe(args []string) error {
 		// again.  Well inside the unit's stop timeout.
 		sctx, scancel := context.WithTimeout(context.Background(), 45*time.Second)
 		h.StopSchemaRun(sctx)
+		// The same for a compaction this daemon started: stopped, SQLite
+		// rolls it back and it records itself as cancelled.
+		h.StopVacuumRun(sctx)
 		scancel()
 		if conn != nil {
 			// What was kept while writes were held -- the run is over (or
 			// not ours, and then these give up at once).
 			rctx, rcancel := context.WithTimeout(context.Background(), 20*time.Second)
 			h.SchemaRefresh(rctx)
+			h.VacuumRefresh(rctx)
 			rcancel()
 			banMgr.FlushHeld()
 		}
@@ -1392,6 +1403,14 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.RequireRole(user.RoleSuperadmin, h.AdminSchemaUpdateRun)))
 	mux.HandleFunc("POST "+base+"/admin/api/schema-update/cancel",
 		h.AuthMiddleware(h.RequireRole(user.RoleSuperadmin, h.AdminSchemaUpdateCancel)))
+	// Database compaction (retention tab): the notice on every page reads the
+	// first, the card's button and the notice's post the other two.
+	mux.HandleFunc("GET "+base+"/admin/api/vacuum",
+		h.AuthMiddleware(h.AdminVacuumStatus))
+	mux.HandleFunc("POST "+base+"/admin/api/vacuum/run",
+		h.AuthMiddleware(h.RequireRole(user.RoleSuperadmin, h.AdminVacuumRun)))
+	mux.HandleFunc("POST "+base+"/admin/api/vacuum/cancel",
+		h.AuthMiddleware(h.RequireRole(user.RoleSuperadmin, h.AdminVacuumCancel)))
 	// 1-click DB-IP Lite install / refresh.  Calls the same library as
 	// `unmask install-ipgeo` and reloads the in-process ipgeo Reader.
 	// Accepts ?kind=country (default) or ?kind=asn.

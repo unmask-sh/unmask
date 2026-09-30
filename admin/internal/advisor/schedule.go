@@ -78,7 +78,12 @@ func RunSchedule(ctx context.Context, deps Deps) {
 
 	for {
 		cfg := deps.Cfg()
-		if cfg.NotifyActive() {
+		// A schema update or a compaction holds the write lock: the digest
+		// records what it announces, and would wait out the busy timeout and
+		// fail.  Its turn comes a few minutes after the hold ends instead of
+		// a whole interval later.
+		held := deps.DB.WritesHeld()
+		if cfg.NotifyActive() && !held {
 			if err := RunDigestOnce(ctx, deps); err != nil && ctx.Err() == nil {
 				log.Printf("advisor digest: %v", err)
 			}
@@ -88,6 +93,8 @@ func RunSchedule(ctx context.Context, deps Deps) {
 		wait := cfg.ResolvedNotifyInterval()
 		if !cfg.NotifyActive() {
 			wait = time.Hour
+		} else if held {
+			wait = 5 * time.Minute
 		}
 		select {
 		case <-ctx.Done():

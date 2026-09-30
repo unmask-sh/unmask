@@ -171,6 +171,11 @@ func ApplySchemaUpdate(ctx context.Context, conn *DB, opt SchemaUpdateOptions) (
 		return res, err
 	}
 	defer lock.Release()
+	// A compaction holds the same write lock for as long as it runs (vacuum.go);
+	// the two would only fail each other.  Its run looks for this one too.
+	if held, _ := conn.VacuumRunLockHeld(); held {
+		return res, ErrVacuumRunning
+	}
 	// Another run may have applied them while this one waited for the lock.
 	if pending, err = pendingMigrations(conn, false); err != nil {
 		return res, err

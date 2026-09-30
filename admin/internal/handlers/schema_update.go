@@ -428,6 +428,11 @@ var (
 // must be waiting.  schemaStart takes the claim over; a failed start gives it
 // back.
 func (h *Handler) schemaReserve() error {
+	// A compaction holds the same write lock (vacuum.go).  Read before
+	// taking this lock: the two runners' locks are never held together.
+	if h.VacuumGoing() {
+		return db.ErrVacuumRunning
+	}
 	u := &h.schema
 	u.mu.Lock()
 	defer u.mu.Unlock()
@@ -608,7 +613,7 @@ func (l *logLines) tail() string {
 		line = rest
 	}
 	line = logStampRE.ReplaceAllString(line, "")
-	for _, p := range []string{"unmask: ", "migrate: "} {
+	for _, p := range []string{"unmask: ", "migrate: ", "db-vacuum: "} {
 		line = strings.TrimPrefix(line, p)
 	}
 	return line
@@ -627,7 +632,7 @@ func (l *logLines) tail() string {
 // refused with the reason until the update has finished.
 func (h *Handler) schemaWriteExempt(r *http.Request) bool {
 	p := strings.TrimPrefix(r.URL.Path, h.basePath())
-	if strings.HasPrefix(p, "/admin/api/schema-update/") {
+	if strings.HasPrefix(p, "/admin/api/schema-update/") || strings.HasPrefix(p, "/admin/api/vacuum/") {
 		return true
 	}
 	for _, prefix := range []string{
@@ -660,6 +665,9 @@ func (h *Handler) schemaWriteExempt(r *http.Request) bool {
 func (h *Handler) respondWritesHeld(w http.ResponseWriter, r *http.Request) {
 	lang := i18n.Resolve(r)
 	msg := i18n.T(lang, "schema_update.writes_held")
+	if h.DB.WritesHeldForVacuum() {
+		msg = i18n.T(lang, "vacuum.writes_held")
+	}
 	w.Header().Set("Retry-After", "60")
 	if strings.HasPrefix(r.URL.Path, h.basePath()+"/admin/api/") {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": 0, "error": "schema_update_running", "message": msg})

@@ -87,37 +87,7 @@ const runLockRetry = time.Second
 func (d *DB) LockSchemaRun(ctx context.Context) (*SchemaRunLock, error) {
 	switch {
 	case d.schemaRunLockPath() != "":
-		f, err := os.OpenFile(d.schemaRunLockPath(), os.O_RDWR|os.O_CREATE, 0o644)
-		if errors.Is(err, os.ErrPermission) {
-			// A lock file another user left -- a run as root that kept its
-			// privileges (UNMASK_NO_PRIVDROP) -- is locked all the same
-			// read-only.  Read-write first: NFS emulates flock with byte-range
-			// locks, and an exclusive one there needs a file open for writing.
-			f, err = os.Open(d.schemaRunLockPath())
-		}
-		if err != nil {
-			return nil, err
-		}
-		deadline := time.Now().Add(runLockRetry)
-		for {
-			err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-			if err == nil {
-				return &SchemaRunLock{file: f}, nil
-			}
-			if !errors.Is(err, syscall.EWOULDBLOCK) || time.Now().After(deadline) {
-				_ = f.Close()
-				if errors.Is(err, syscall.EWOULDBLOCK) {
-					return nil, ErrSchemaUpdateRunning
-				}
-				return nil, err
-			}
-			select {
-			case <-ctx.Done():
-				_ = f.Close()
-				return nil, ctx.Err()
-			case <-time.After(50 * time.Millisecond):
-			}
-		}
+		return lockRunFile(ctx, d.schemaRunLockPath(), ErrSchemaUpdateRunning)
 	case d != nil && d.Driver == DriverMariaDB:
 		c, err := d.Conn(ctx)
 		if err != nil {
@@ -143,25 +113,7 @@ func (d *DB) LockSchemaRun(ctx context.Context) (*SchemaRunLock, error) {
 func (d *DB) SchemaRunLockHeld(ctx context.Context) (held, known bool) {
 	switch {
 	case d.schemaRunLockPath() != "":
-		f, err := os.Open(d.schemaRunLockPath())
-		if errors.Is(err, os.ErrNotExist) {
-			return false, true // no run has ever been here
-		}
-		if err != nil {
-			return false, false
-		}
-		defer f.Close()
-		// A shared lock, given straight back: it conflicts with a run's
-		// exclusive one, and with no other look like this one.
-		err = syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB)
-		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return true, true
-		}
-		if err != nil {
-			return false, false
-		}
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
-		return false, true
+		return runFileLockHeld(d.schemaRunLockPath())
 	case d != nil && d.Driver == DriverMariaDB:
 		var holder sql.NullInt64
 		if err := d.QueryRowContext(ctx, "SELECT IS_USED_LOCK("+schemaRunLockNameSQL+")").Scan(&holder); err != nil {
@@ -187,4 +139,66 @@ func (d *DB) SchemaUpdateAlive(ctx context.Context, rec SchemaUpdateRecord, now 
 		limit = time.Hour
 	}
 	return now.Sub(time.Unix(rec.StartedAt, 0)) < limit
+}
+
+// lockRunFile takes an exclusive flock on path, created if missing, and fails
+// with busy when another process holds it.  The file lock behind every run a
+// daemon watches: a schema update's and a compaction's (vacuum.go).
+func lockRunFile(ctx context.Context, path string, busy error) (*SchemaRunLock, error) {
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+	if errors.Is(err, os.ErrPermission) {
+		// A lock file another user left -- a run as root that kept its
+		// privileges (UNMASK_NO_PRIVDROP) -- is locked all the same
+		// read-only.  Read-write first: NFS emulates flock with byte-range
+		// locks, and an exclusive one there needs a file open for writing.
+		f, err = os.Open(path)
+	}
+	if err != nil {
+		return nil, err
+	}
+	deadline := time.Now().Add(runLockRetry)
+	for {
+		err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			return &SchemaRunLock{file: f}, nil
+		}
+		if !errors.Is(err, syscall.EWOULDBLOCK) || time.Now().After(deadline) {
+			_ = f.Close()
+			if errors.Is(err, syscall.EWOULDBLOCK) {
+				return nil, busy
+			}
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			_ = f.Close()
+			return nil, ctx.Err()
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+}
+
+// runFileLockHeld reports whether a run holds the flock on path.  known is
+// false when the file cannot be opened for another reason than not being
+// there.
+func runFileLockHeld(path string) (held, known bool) {
+	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, true // no run has ever been here
+	}
+	if err != nil {
+		return false, false
+	}
+	defer f.Close()
+	// A shared lock, given straight back: it conflicts with a run's
+	// exclusive one, and with no other look like this one.
+	err = syscall.Flock(int(f.Fd()), syscall.LOCK_SH|syscall.LOCK_NB)
+	if errors.Is(err, syscall.EWOULDBLOCK) {
+		return true, true
+	}
+	if err != nil {
+		return false, false
+	}
+	_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+	return false, true
 }

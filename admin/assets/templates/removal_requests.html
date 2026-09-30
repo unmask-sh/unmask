@@ -65,8 +65,9 @@ th{background:#f8fafc;font-weight:600;color:#475569;font-size:.78rem;text-transf
   <div class="spacer"></div>
   {{/* This page has no header_tools (its forms carry their own CSRF
        field); the schema update notice, which every other page gets from
-       there, is included on its own. */}}
+       there, is included on its own -- and the compaction notice with it. */}}
   {{ template "schema_update_notice" . }}
+  {{ template "vacuum_notice" . }}
 </header>
 
 <main class="unmask-main">

@@ -19,6 +19,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-09-30) **The crawler IP range and browser version downloads can be switched off.**  A checkbox on the About tab (`sync_disabled`) stops the two daily pulls from unmask.sh, so every call unmask makes on its own now has a switch.  The data the release ships stays in use, and a newer release's snapshot now replaces an older downloaded copy.
 
+- (2026-09-30) **The database can be compacted without stopping the daemon.**  `unmask db-vacuum`, or the button on the retention tab, runs SQLite's VACUUM while the challenge keeps working: the daemon holds its writes in memory and writes them afterwards.  It shows beforehand the space it gives back, the disk it needs, how long it takes and the events it holds.
+
 - (2026-09-29) **A long index build no longer holds up the daemon's start.**  A schema update that builds an index over a large events table ran before the daemon listened, so an upgrade could leave it away for minutes unannounced.  The daemon now estimates the build and, past 20 seconds, starts without it; the admin pages carry a notice with the estimate and a button for a superadmin.  `db.schema_update_defer_seconds` moves the threshold.
 
 - (2026-09-29) **The challenge keeps working while a schema update runs.**  The update runs as a process of its own, from `unmask migrate` or the admin UI's button.  On SQLite, where the build holds the write lock, events and automatic bans are kept and written when it ends, the bans enforced meanwhile; settings can still be saved, while changes to users and manual bans wait.  A superadmin can cancel a run.
@@ -32,6 +34,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-09-29) **Mattermost link previews pass out of the box.**  Mattermost fetches a pasted link's preview from its own server as `Mattermost-Bot`, which the crawler list did not carry, so the fetch was challenged and the link rendered bare.  It joins the supplement next to Chatwork, Webex and Notion, and can be switched off per pattern like any other.
 
 ### Fixed
+- (2026-09-30) **`db-prune -vacuum` asks for the disk it really needs.**  It checked for room for one copy of the live data, but in WAL mode the copy is written a second time into the write-ahead log.  It now asks for 2.2 times the live data, and with the daemon running it refuses and points to `unmask db-vacuum`, which compacts without stopping it.
+
 - (2026-09-30) **Community Bans enforces only the entries the hub has promoted.**  The hub lists every report, promoted or not, and marked the feed as version 1, which the daemon read as "enforce every entry": a single unpromoted report reached every subscriber.  The hub now says version 2, and the daemon enforces the promoted entries whatever the version.
 
 - (2026-09-30) **The admin's help describes what unmask does.**  Several texts had fallen behind: the shared list's default action (pow_then_captcha, not captcha_only), what turning off the country code or the liveness count leaves behind, when the ban candidates are re-sent to the model, and that a JA4 block verdict alone challenges only under forward-auth.

@@ -388,6 +388,7 @@ func cmdDoctor(args []string) error {
 		checkAggregateStatus(conn, addOK, addWarn)
 		checkAggregateWindows(conn, addOK, addWarn)
 		checkDBAgainstMemory(s, conn, addOK, addWarn)
+		checkVacuum(conn, addOK, addWarn)
 	}
 
 	// 4. IP-geo mmdb (= optional).  When set, check existence + freshness
