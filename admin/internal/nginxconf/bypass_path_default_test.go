@@ -12,7 +12,8 @@ import (
 )
 
 // The shipped defaults themselves: the four "machine access would silently
-// break" groups are ON, api-paths (a plausible protection target) is OFF.
+// break" groups are ON, api-paths (a plausible protection target) is OFF, and
+// so is git-http (only a Git forge needs it).
 func TestShippedPresetDefaults(t *testing.T) {
 	want := map[string]bool{
 		"static-assets":    true,
@@ -20,6 +21,7 @@ func TestShippedPresetDefaults(t *testing.T) {
 		"browser-metadata": true,
 		"health":           true,
 		"api-paths":        false,
+		"git-http":         false,
 	}
 	if len(BypassPathPresetGroups) != len(want) {
 		t.Fatalf("preset count = %d, want %d (update this test when adding presets)", len(BypassPathPresetGroups), len(want))

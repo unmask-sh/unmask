@@ -127,6 +127,23 @@ var BypassPathPresetGroups = []BypassPathGroup{
 			{Pattern: `^/rpc/`},
 		},
 	},
+	{
+		// DefaultOn stays false: only a Git forge needs it.  The git client
+		// cannot run a challenge, so behind unmask a clone over HTTPS fails
+		// until these pass; the forge's web pages -- what crawlers take --
+		// stay behind the challenge.  Patterns see $request_uri, query
+		// included (= /owner/repo.git/info/refs?service=git-upload-pack).
+		ID:    "git-http",
+		Label: "Git over HTTP (= git clone / fetch / push and Git LFS on a Git forge — the git client cannot solve a challenge)",
+		Rules: []BypassPathRule{
+			// Smart HTTP: the ref advertisement, then the pack exchange.
+			{Pattern: `^/[^?]+/info/refs(?:\?|$)`},
+			{Pattern: `^/[^?]+/git-(?:upload|receive)-pack(?:\?|$)`},
+			// Git LFS batch and transfer API.
+			{Pattern: `^/[^?]+/info/lfs/`},
+		},
+		AddedIn: "v0.1.49",
+	},
 }
 
 // EffectiveBypassPathPresets resolves which preset groups are active from the
