@@ -54,6 +54,7 @@ body:
       label: Operating mode
       options:
         - nginx native module
+        - gateway container (Docker)
         - forward-auth (nginx)
         - forward-auth (Apache)
         - forward-auth
@@ -79,7 +80,8 @@ body:
       label: Relevant log lines
       description: |
         Output of `nginx -t`, `systemctl status unmask`, `journalctl -u
-        unmask -n 100`, contents of `/var/log/unmask/admin.log`, etc.
+        unmask -n 100` (`/var/log/unmask.log` on SysVinit), or
+        `docker logs unmask` for the container, etc.
         Please redact tokens / secrets.
       render: shell
     validations:

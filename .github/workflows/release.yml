@@ -201,25 +201,31 @@ jobs:
           body: |
             ## Distribution
 
-            Primary install path: **https://unmask.sh/install/** (= rpm / deb / apk
-            repository with auto-update via dnf / apt / apk).
+            Primary install paths: **https://unmask.sh/install/** (= rpm / deb / apk
+            repositories with auto-update via dnf / apt / apk), or the container
+            image `unmask.sh/unmask` (mirrored at `ghcr.io/unmask-sh/unmask`).
 
             This Release page is an alternative for direct download / air-gapped
             install / reference.
 
             ## Artifacts
 
-            - `unmask-X.Y.Z.{rpm,deb,apk}` — main package (= the daemon binary + systemd unit + config skeleton)
-            - `unmask-plugin-nginx-fat-X.Y.Z.{rpm,deb,apk}` — nginx dynamic module bundle (14 nginx versions × OpenSSL 1.0 / 1.1+ / 3.x)
-            - `unmask-web-{nginx,apache}-X.Y.Z.{rpm,deb,apk}` — per-web-server config snippets (= forward-auth mode)
+            - `unmask` (rpm / deb / apk) — the daemon: binary + service unit + config skeleton
+            - `unmask-plugin-nginx` (rpm / deb / apk) — the nginx dynamic module bundle (14 nginx versions; OpenSSL 1.0 / 1.1 / 3 builds on x86_64, 1.1 / 3 on arm64)
+            - `unmask-web-nginx` / `unmask-web-apache` (rpm / deb / apk) — the web-server snippets (nginx: the upstream and includes for both modes; Apache: forward-auth)
+            - `unmask-release` (rpm / deb / apk) — the repository definition and public keys
             - `unmask-linux-{amd64,arm64}` — raw Go binary (= no system integration)
-            - `checksums.txt` — SHA-256 hashes for all artifacts above
-            - `checksums.txt.sig` — GPG detached signature (= verify with the unmask GPG public key)
+            - `unmask-X.Y.Z.cdx.{json,xml}` — SBOM (CycloneDX)
+            - `docker-compose.example.yml` — the gateway container, one service
+            - `checksums.txt` — SHA-256 of the packages and binaries above
+            - `checksums.txt.sig` — its detached GPG signature
 
             ## Verify
 
             ```sh
-            curl -O https://github.com/unmask-sh/unmask/releases/download/vX.Y.Z/checksums.txt{,.sig}
+            curl -fsSL https://unmask.sh/dl/keys/RPM-GPG-KEY-unmask | gpg --import
+            # fingerprint: C03D D45E 28C4 446F DDC4  8EFC 34A3 20B5 44B2 8158
+            curl -fL --remote-name-all https://github.com/unmask-sh/unmask/releases/download/${{ github.ref_name }}/checksums.txt{,.sig}
             gpg --verify checksums.txt.sig checksums.txt
-            sha256sum --check checksums.txt
+            sha256sum --ignore-missing --check checksums.txt
             ```

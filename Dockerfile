@@ -4,7 +4,7 @@
 # unmask.sh/unmask.
 #
 #   docker run -d --name unmask -p 80:80 -p 443:443 \
-#       -e UNMASK_UPSTREAM=http://app:80 \
+#       --add-host host.docker.internal:host-gateway \
 #       -v unmask-config:/etc/unmask -v unmask-data:/var/lib/unmask \
 #       -v unmask-acme:/var/cache/nginx/unmask-acme \
 #       unmask.sh/unmask:latest
