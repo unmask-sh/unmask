@@ -5,11 +5,16 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/assets"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
+	"github.com/unmask-sh/unmask/admin/internal/dashboard"
+	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -100,6 +105,52 @@ func TestUAOldNote(t *testing.T) {
 	}
 }
 
+// The note goes wherever the mark goes and nowhere else.  The stats page, the
+// hunt ranking and the advisor hand uaOldNote the raw UA without asking first
+// whether the cell renders as a bot (which shows the bot's name and no mark),
+// so the two have to agree on their own -- including for a crawler whose UA
+// is shaped like an old Chrome.
+func TestUAOldNoteFollowsTheMark(t *testing.T) {
+	pinBrowserBaselines(t)
+	tmpl, err := loadDashboardTemplate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	en := i18n.Lang("en")
+	marked := 0
+	for _, ua := range []string{
+		chromeUA("109"),
+		chromeUA("300"),
+		"Mozilla/5.0 (Windows NT 10.0; WOW64; Trident/7.0; rv:11.0) like Gecko",
+		"Mozilla/5.0 (Windows NT 6.1; rv:52.0) Gecko/20100101 Firefox/52.0",
+		// a listed crawler in a Chrome-shaped UA, and a bot that only names itself
+		"Mozilla/5.0 (Linux; Android 6.0.1; Nexus 5X Build/MMB29P) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Mobile Safari/537.36 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/50.0.2661.102 Safari/537.36 (compatible; ExampleSiteBot/1.0)",
+		// not on the crawler list: reads as the Chrome it is built from
+		"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/91.0.4472.124 Safari/537.36",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+		"curl/8.5.0",
+		"UI-E2E rawua padding padding",
+		"",
+	} {
+		var sb strings.Builder
+		if err := tmpl.ExecuteTemplate(&sb, "ua_cell", ua); err != nil {
+			t.Fatal(err)
+		}
+		mark := strings.Contains(sb.String(), `class="ua-old"`)
+		note := uaOldNote(en, ua) != ""
+		if mark != note {
+			t.Errorf("mark=%v note=%v for %.60q: the cell and its popover disagree (cell: %s)", mark, note, ua, sb.String())
+		}
+		if mark {
+			marked++
+		}
+	}
+	if marked != 4 {
+		t.Errorf("%d of the samples are marked, want 4 (the old Chrome, the old Firefox, Internet Explorer, the old headless Chrome)", marked)
+	}
+}
+
 // The hunt log marks the rows: an old browser has its name highlighted with
 // the count beside it and the sentence in the cell's popover; a current one
 // renders as it always did.  The ranking above the log and the stats page
@@ -148,6 +199,14 @@ func TestHuntMarksOldBrowsers(t *testing.T) {
 	if n := strings.Count(rows, ` data-note="`); n != 2 {
 		t.Errorf("%d cells carry a note, want 2 (the old browser and IE; the current one has nothing to say)", n)
 	}
+	// The ranking's cells explain the mark the same way: the page as a whole
+	// has the two notes twice, once in the log and once in the ranking.
+	if n := strings.Count(body, `data-note="191 releases behind`) + strings.Count(body, `data-note="現行の安定版より 191 版古い`); n != 2 {
+		t.Errorf("the old browser's note appears %d times on the page, want 2 (the log and the ranking)", n)
+	}
+	if n := strings.Count(body, ` data-note="`); n != 4 {
+		t.Errorf("%d cells on the page carry a note, want 4 (two browsers, in the log and in the ranking)", n)
+	}
 
 	// The stats page renders the same cell.
 	tmpl, err := loadDashboardTemplate()
@@ -185,5 +244,137 @@ func TestHuntMarksOldBrowsers(t *testing.T) {
 	}
 	if !strings.Contains(string(raw), `if (ev.ua_old && ev.ua_short) {`) || !strings.Contains(string(raw), `'<span class="ua-lag">' + escapeText(ev.ua_old) + '</span></span>'`) {
 		t.Error("the live tail no longer draws the old-browser mark")
+	}
+}
+
+// The stats page's UA columns wear the mark through the shared cell, and each
+// of those cells explains it: the sentence is on the cell for the popover,
+// and absent where there is no mark.  Several of the page's tables are fed
+// here -- a cookie-reuse ranking, the rate-limit ranking, the JS error lists,
+// the failed cookie writes -- because each has its own copy of the cell's
+// opening tag, and one whose note cannot be resolved stops the page mid-way
+// with a 200.
+func TestStatsMarksOldBrowsersAndExplainsThem(t *testing.T) {
+	pinBrowserBaselines(t)
+	// The stats page reads the aggregate tables, which only the real
+	// migrations create (newTestHandler's schema is the event table alone).
+	conn, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: filepath.Join(t.TempDir(), "t.sqlite")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	if err := db.Migrate(conn); err != nil {
+		t.Fatal(err)
+	}
+	h := &Handler{DB: conn}
+	h.SetSettings(settings.Settings{})
+	old, cur := chromeUA("109"), chromeUA("300")
+	min := time.Now().Unix() / 60
+	last := time.Now().UTC().Format("2006-01-02 15:04:05.000")
+	for i, ua := range []string{old, cur} {
+		if _, err := conn.Exec(`INSERT INTO unmask_cookie_ip_minute
+			(bucket_min, site, ip, kind, ja4, ua, cnt, last_seen)
+			VALUES (?, 'default', ?, 'pow', 't13d_uaold', ?, ?, ?)`,
+			min-1, events.PackIP(fmt.Sprintf("198.51.100.%d", 30+i)), ua, 4000-i, last); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// One event per table that is built from the event log, all from the old
+	// browser: a rate-limited serve, a JS error of the challenge's own and a
+	// foreign one, a cookie that could not be written, a failed CAPTCHA, a
+	// reload loop, and a CAPTCHA pass under a verdict the presets call a bot
+	// (the stealth table, and the CAPTCHA report's ranking and latest list).
+	// Two minutes old, so they sit inside the page's window whatever second
+	// the request lands in.
+	evAt := time.Now().Add(-2 * time.Minute).UTC().Format("2006-01-02 15:04:05.000")
+	botVerdict := dashboard.BotVerdictNames(settings.Settings{}.Nginx)[0]
+	for i, ev := range []struct {
+		phase, verdict, payload string
+		reloads                 int
+	}{
+		{"serve", "", `{"rl":1,"orig_path":"/search"}`, 0},
+		{"error", "", `{"msg":"boom","src":"challenge.js"}`, 0},
+		{"error", "", `{"kind":"js_foreign","msg":"boom"}`, 0},
+		{"bv_pow_only", "", `{"cookie_set_ok":false}`, 0},
+		{"verify_ng", "", `{"method":"captcha","score":0.1}`, 0},
+		{"load", "", `{}`, 3},
+		{"bv_captcha_only", botVerdict, `{}`, 0},
+	} {
+		if _, err := conn.Exec(`INSERT INTO unmask_event
+			(site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
+			 phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+			VALUES ('default','','https',443,?,?,'t13d_uaold',?,0,?,0,?,'','',?,?)`,
+			events.PackIP(fmt.Sprintf("198.51.100.%d", 40+i)), old, ev.verdict, ev.phase, ev.reloads, ev.payload, evAt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/stats/default/?range=24h", nil)
+	req.SetPathValue("site", "default")
+	rr := httptest.NewRecorder()
+	h.AdminStats(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("stats page status %d", rr.Code)
+	}
+	body := rr.Body.String()
+	if !strings.HasSuffix(strings.TrimSpace(body), "</html>") {
+		t.Fatalf("the stats page stopped before its end (%d bytes): a template error", len(body))
+	}
+	const mark = `<span class="ua-old">Chrome 109<span class="ua-lag">` + "\u2212" + `191</span></span>`
+	// Every UA cell that wears the mark carries the sentence; walk them all.
+	marked := 0
+	for rest := body; ; {
+		i := strings.Index(rest, mark)
+		if i < 0 {
+			break
+		}
+		td := rest[strings.LastIndex(rest[:i], "<td"):i]
+		if !strings.Contains(td, `class="bcd-ua`) {
+			t.Errorf("the mark sits outside a stats UA cell: %s", td)
+		}
+		if !strings.Contains(td, `data-note="191 releases behind`) && !strings.Contains(td, `data-note="現行の安定版より 191 版古い`) {
+			t.Errorf("a marked stats cell carries no note for its popover: %s", td)
+		}
+		marked++
+		rest = rest[i+len(mark):]
+	}
+	// One per copy of the cell in the template: the reuse ranking, the
+	// rate-limit ranking, both JS error lists, the failed cookie writes, the
+	// failed CAPTCHAs, the reload loops, the stealth table, and the CAPTCHA
+	// report's ranking and latest list.
+	raw, err := assets.Templates.ReadFile("templates/dashboard.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copies := strings.Count(string(raw), `{{ template "ua_cell" `); marked != copies {
+		t.Errorf("%d stats cells wear the mark, but the template has %d UA columns: a table is not fed by this test, or one lost the mark", marked, copies)
+	}
+	if n := strings.Count(body, ` data-note="`); n != marked {
+		t.Errorf("%d cells carry a note, %d wear the mark: a note goes with a mark and only with one", n, marked)
+	}
+	j := strings.Index(body, "Chrome 300")
+	if j < 0 {
+		t.Fatal("the current browser's row is missing")
+	}
+	if td := body[strings.LastIndex(body[:j], "<td"):j]; strings.Contains(td, "data-note") || strings.Contains(td, "ua-old") {
+		t.Errorf("a current browser's stats cell is marked or noted: %s", td)
+	}
+}
+
+// The hunt ranking and the advisor's UA lines keep their own copy of the
+// cell's opening tag; each hands the note to the popover the same way.  (What
+// they render is checked where the pages are: TestHuntMarksOldBrowsers and
+// TestAdvisorStoredContainedPickIsHidden.)
+func TestRankingAndAdvisorCellsCarryTheNote(t *testing.T) {
+	for file, want := range map[string]string{
+		"templates/advisor.html": `{{ with uaOldNote $.Lang .UA }} data-note="{{ . }}"{{ end }}>{{ template "ua_cell" .UA }}`,
+		"templates/hunt.html":    `{{ with uaOldNote $.Lang .Key }} data-note="{{ . }}"{{ end }}>{{ if .Key }}<span class="ua-sum">`,
+	} {
+		raw, err := assets.Templates.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("%s: the UA cell no longer carries the old-version note", file)
+		}
 	}
 }

@@ -17,6 +17,9 @@ import (
 // cost rule); a pick that passes, or a contained one past the floor, still
 // is.  Operator (2026-09-10): "AI ピックで 0 通過があがってくる".
 func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
+	// The UA lines below name a Chrome release; fixed baselines keep how old
+	// it reads -- and so the mark and its note -- from moving with the binary.
+	pinBrowserBaselines(t)
 	h := newTestHandler(t)
 	cur := h.snapshotSettings()
 	cur.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k", Endpoint: "http://127.0.0.1:9"}
@@ -121,8 +124,11 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	// its full string for the popover, then how many more (operator,
 	// 2026-09-13: "UA 一個だけ ... TOP5 を出す").
 	// Each user agent is a cellpop like the hunt log's UA cell: the summary
-	// in the cell, the full string as data-full-value for the popover.
-	if !strings.Contains(body, `<span class="uline"><span class="cellpop" data-full-value="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" data-hits="×60">`) ||
+	// in the cell, the full string as data-full-value for the popover -- and,
+	// for a browser far behind its current release, the sentence behind the
+	// old-version mark the cell wears (the curl line has neither).
+	if !strings.Contains(body, `<span class="uline"><span class="cellpop" data-full-value="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" data-hits="×60" data-note="現行の安定版より 180 版古い`) ||
+		!strings.Contains(body, `<span class="ua-old">Chrome 120<span class="ua-lag">`+"\u2212"+`180</span></span>`) ||
 		!strings.Contains(body, `<span class="ua-n">×60</span></span><span class="uline"><span class="cellpop" data-full-value="curl/8.5.0" data-hits="×12">`) ||
 		!strings.Contains(body, `<span class="ua-n">×12</span></span><span class="uline muted ua-n">他 5 種</span>`) {
 		t.Error("the UA cell lists the most frequent user agents with counts and how many more, one line each")

@@ -10,7 +10,8 @@
 // mark, and that a row arriving over the live tail is drawn like the rest.
 //
 // run.sh seeds three serves: Chrome 91, Internet Explorer 11, and a Chrome
-// numbered past any baseline (never old).
+// numbered past any baseline (never old); and the first and the last of them
+// again as two rows of the stats page's CAPTCHA cookie-reuse ranking.
 //
 // Env: UI_E2E_BASE, UI_E2E_USER, UI_E2E_PASS, CHROME_BIN.
 const puppeteer = require('puppeteer-core');
@@ -104,11 +105,35 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
       found: !!c91 && !!c999,
       old: c91 ? !!c91.querySelector('.ua-sum .ua-old .ua-lag') : null,
       cur: c999 ? !!c999.querySelector('.ua-old') : null,
+      oldNote: c91 ? (c91.getAttribute('data-note') || '') : null,
+      curNote: c999 ? (c999.getAttribute('data-note') || '') : null,
     };
   });
   ok(rank.found, 'the UA ranking lists the seeded browsers');
   ok(rank.old === true, 'the ranking marks the old browser');
   ok(rank.cur === false, 'the ranking leaves the current browser unmarked');
+  ok(rows.chrome && rank.oldNote === rows.chrome.note, `the ranking's cell carries the same sentence as the log's: ${JSON.stringify(rank.oldNote)}`);
+  ok(rank.curNote === '', `the ranking's current browser has no note: ${JSON.stringify(rank.curNote)}`);
+  const rcell = await page.evaluateHandle(() =>
+    Array.from(document.querySelectorAll('.rank-card-ua td.key')).find(c => /Chrome 91/.test(c.textContent)) || null);
+  if (rcell && rcell.asElement()) {
+    const rel = rcell.asElement();
+    // One request each puts the seeded browsers past the card's top ten:
+    // open the card before pointing at the row.
+    if (await rel.evaluate(c => c.offsetParent === null)) {
+      await page.click('.rank-card-ua .rank-expand');
+      await new Promise(r => setTimeout(r, 300));
+    }
+    await rel.evaluate(c => c.scrollIntoView({ block: 'center' }));
+    await rel.hover();
+    await new Promise(r => setTimeout(r, 600));
+    const rpop = await page.evaluate(() => {
+      const n = document.querySelector('.cellpop-pop .cellpop-note');
+      return n ? n.textContent : null;
+    });
+    ok(rpop && rpop === rank.oldNote, `the ranking's popover explains the mark: ${JSON.stringify(rpop)}`);
+    await page.mouse.move(5, 5);
+  }
 
   if (process.env.UI_E2E_SHOT) await page.screenshot({ path: process.env.UI_E2E_SHOT + '-hunt.png', fullPage: true });
 
@@ -139,6 +164,74 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   }
   if (process.env.UI_E2E_SHOT) await page.screenshot({ path: process.env.UI_E2E_SHOT + '-tail.png', clip: { x: 0, y: 0, width: 1500, height: 700 } });
 
+  // ---- the stats page -----------------------------------------------------
+  // Its UA columns wear the same mark, through its own copy of the popover
+  // code -- so the explanation has to be checked there separately: on hover,
+  // and in the pinned popover a click leaves behind.
+  const sresp = await page.goto(BASE + '/admin/stats/?range=24h', { waitUntil: 'networkidle2' });
+  ok(sresp.status() === 200, `/admin/stats/ status ${sresp.status()}`);
+  const stat = await page.evaluate(() => {
+    const cells = Array.from(document.querySelectorAll('td.bcd-ua'));
+    const read = c => c && {
+      old: (c.querySelector('.ua-old') || {}).textContent || null,
+      note: c.getAttribute('data-note') || '',
+      full: c.getAttribute('data-full-value') || '',
+      shown: c.offsetParent !== null,
+    };
+    return {
+      old: read(cells.find(c => /Chrome 91/.test(c.textContent))),
+      cur: read(cells.find(c => /Chrome 999/.test(c.textContent))),
+      // every marked cell on the page explains itself, whichever table it is in
+      marked: cells.filter(c => c.querySelector('.ua-old')).length,
+      explained: cells.filter(c => c.querySelector('.ua-old') && (c.getAttribute('data-note') || '').length > 20).length,
+      noted: cells.filter(c => c.hasAttribute('data-note')).length,
+    };
+  });
+  ok(stat.old && stat.cur, `the stats page lists the seeded browsers: ${JSON.stringify(stat)}`);
+  if (stat.old && stat.cur) {
+    ok(/^Chrome 91−\d+$/.test(stat.old.old || ''), `the stats page marks the old browser: ${JSON.stringify(stat.old)}`);
+    ok(stat.old.note.length > 20 && /\d/.test(stat.old.note), `the marked stats cell carries its sentence: ${JSON.stringify(stat.old.note)}`);
+    ok(stat.cur.old === null && stat.cur.note === '', `a current browser is neither marked nor explained there: ${JSON.stringify(stat.cur)}`);
+    ok(stat.marked > 0 && stat.explained === stat.marked && stat.noted === stat.marked,
+      `on the stats page ${stat.marked} cells are marked, ${stat.explained} of them explained, ${stat.noted} carry a note`);
+  }
+  const scell = await page.evaluateHandle(() =>
+    Array.from(document.querySelectorAll('td.bcd-ua')).find(c => /Chrome 91/.test(c.textContent)) || null);
+  if (scell && scell.asElement()) {
+    const el = scell.asElement();
+    await el.evaluate(c => c.scrollIntoView({ block: 'center' }));
+    await el.hover();
+    await new Promise(r => setTimeout(r, 600));
+    const hov = await page.evaluate(() => {
+      const p = document.querySelector('.cellpop-pop');
+      const n = p && p.querySelector('.cellpop-note');
+      const v = p && p.querySelector('.cellpop-val');
+      return { note: n ? n.textContent : null, val: v ? v.textContent : null };
+    });
+    ok(hov.note && hov.note === stat.old.note, `hovering the marked stats cell explains the mark: ${JSON.stringify(hov)}`);
+    ok(/Chrome\/91\./.test(hov.val || ''), `and still shows the raw UA: ${JSON.stringify(hov.val)}`);
+    // The popover's surroundings, for a look at the real thing.
+    const shot = async name => {
+      if (!process.env.UI_E2E_SHOT) return;
+      // clip is in page coordinates, the cell's box in the viewport's
+      const r = await el.evaluate(c => { const b = c.getBoundingClientRect(); return { x: b.left + window.scrollX, y: b.top + window.scrollY }; });
+      await page.screenshot({ path: process.env.UI_E2E_SHOT + name, clip: { x: Math.max(0, r.x - 300), y: Math.max(0, r.y - 150), width: 1150, height: 420 } });
+    };
+    await shot('-stats-hover.png');
+    // Pinned: the clone a click leaves behind carries the sentence too.
+    await el.click();
+    await new Promise(r => setTimeout(r, 400));
+    const pinned = await page.evaluate(() => {
+      const notes = Array.from(document.querySelectorAll('.cellpop-pop .cellpop-note')).filter(n => n.offsetParent !== null);
+      return notes.map(n => n.textContent);
+    });
+    ok(pinned.length > 0 && pinned.every(t => t === stat.old.note), `the pinned popover explains the mark: ${JSON.stringify(pinned)}`);
+    await shot('-stats-pin.png');
+    await page.keyboard.press('Escape');
+    await page.mouse.move(5, 5);
+  }
+  if (process.env.UI_E2E_SHOT) await page.screenshot({ path: process.env.UI_E2E_SHOT + '-stats.png', fullPage: true });
+
   ok(jsErrors.length === 0, `page errors: ${jsErrors.join(' | ')}`);
 
   await browser.close();
@@ -146,5 +239,5 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     console.error('FAIL ua-old:\n  - ' + fails.join('\n  - '));
     process.exit(1);
   }
-  console.log('PASS ua-old: an old browser is marked in the log, the ranking and the live tail; a current one is not');
+  console.log('PASS ua-old: an old browser is marked in the log, the ranking, the live tail and the stats page, and each mark is explained; a current one is not');
 })().catch(e => { console.error('FAIL ua-old: ' + (e && e.stack || e)); process.exit(1); });

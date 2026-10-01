@@ -323,7 +323,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
                  UA cell: the summary here, the full string in the popover
                  under the summary and its hits.  A row from before the counts
                  (a stored pick) still has its one user agent. */}}
-            {{ if .TopUAs }}{{ range .TopUAs }}<span class="uline"><span class="cellpop" data-full-value="{{ .UA }}" data-hits="×{{ comma .Requests }}">{{ template "ua_cell" .UA }}</span><span class="ua-n">×{{ comma .Requests }}</span></span>{{ end }}{{ with .MoreUAs }}<span class="uline muted ua-n">{{ printf (t $.Lang "advisor.ua_more") (comma .) }}</span>{{ end }}{{ else if .UA }}<span class="uline"><span class="cellpop" data-full-value="{{ .UA }}">{{ template "ua_cell" .UA }}</span></span>{{ else }}<span class="muted">-</span>{{ end }}
+            {{ if .TopUAs }}{{ range .TopUAs }}<span class="uline"><span class="cellpop" data-full-value="{{ .UA }}" data-hits="×{{ comma .Requests }}"{{ with uaOldNote $.Lang .UA }} data-note="{{ . }}"{{ end }}>{{ template "ua_cell" .UA }}</span><span class="ua-n">×{{ comma .Requests }}</span></span>{{ end }}{{ with .MoreUAs }}<span class="uline muted ua-n">{{ printf (t $.Lang "advisor.ua_more") (comma .) }}</span>{{ end }}{{ else if .UA }}<span class="uline"><span class="cellpop" data-full-value="{{ .UA }}">{{ template "ua_cell" .UA }}</span></span>{{ else }}<span class="muted">-</span>{{ end }}
             </div>
           </td>
           <td>

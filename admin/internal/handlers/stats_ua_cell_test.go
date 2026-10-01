@@ -36,6 +36,17 @@ func TestStatsUAColumnsShareTheHuntCell(t *testing.T) {
 		!strings.Contains(tpl, `data-full-value="{{ .UAFull }}"`) {
 		t.Error("no stats UA cell carries data-full-value; the full UA is unreachable")
 	}
+	// Every UA cell carries the old-version mark's sentence for its popover
+	// (uaOldNote: empty, and no attribute, when the cell has no mark), and
+	// the popover shows a cell's note -- so the mark is explained wherever it
+	// is drawn, not only in the hunt log.
+	if cells, notes := strings.Count(tpl, `{{ template "ua_cell" `), strings.Count(tpl, `{{ with uaOldNote $.Lang `); notes != cells {
+		t.Errorf("%d UA cells, %d of them carry the old-version note: every cell that can show the mark must explain it", cells, notes)
+	}
+	if !strings.Contains(tpl, `queryHTML(val) + noteHTML(el), full ? summaryHTML(el, val) : ''`) ||
+		!strings.Contains(tpl, `popHtml(val, fullURL(el, val), queryHTML(val) + noteHTML(el))`) {
+		t.Error("the stats popover no longer shows a cell's note (hover and pinned)")
+	}
 	// And the popover repeats the summarised reading, like hunt's: a heading
 	// on hover, the title bar when pinned.  Both gate on data-full-value so
 	// path / JA4 cells keep their plain behavior.
