@@ -166,9 +166,9 @@ nginx:
   # the blanket challenge off so is_challenge_target matches only UAs
   # explicitly in the blacklist (= curl / library / scrapers).
   challenge_targets:
-    # chmode for honeypot / protected-path / ja4 challenges.  pow_only (as on
-    # example.jp) so a real headless browser (scenario 27) can auto-clear it without
-    # a human CAPTCHA.
+    # chmode for honeypot / protected-path / ja4 challenges.  pow_only so a
+    # real headless browser (scenario 27) can auto-clear it without a human
+    # CAPTCHA.
     default_action: pow_only
     # Scenario 53 (= hard deny outranks the pass cookie).  One row pinned to
     # deny, so the scenario can prove the difference between "denied" and

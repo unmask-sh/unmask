@@ -2,6 +2,7 @@ package settings
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -70,5 +71,52 @@ func TestLiteralPatternMatchesTheTextItWasMadeFrom(t *testing.T) {
 	co := regexp.MustCompile(PatternRegex(MakePatternWithMode("Bytespider", ModeContains)))
 	if !co.MatchString("Mozilla/5.0 (compatible; Bytespider; x)") {
 		t.Error("contains does not match a value it appears in")
+	}
+}
+
+// A marker typed into the box on top of the one the form adds was stored
+// twice, and a doubled exact marker matches only the text with one marker
+// still on it -- an allowlist rule that rescued nothing.  Normalizing keeps
+// the first marker as the reading and drops every repeat; a regex passes
+// through untouched.
+func TestNormalizePatternKeepsOneMarker(t *testing.T) {
+	const text = "ExampleBot/1.0"
+	markers := []string{ContainsMarker, ExactMarker, SubdomainMarker}
+	for _, m := range markers {
+		for n := 1; n <= 3; n++ {
+			in := strings.Repeat(m, n) + text
+			if got := NormalizePattern(in); got != m+text {
+				t.Errorf("NormalizePattern(%q) = %q, want %q", in, got, m+text)
+			}
+		}
+		// A marker alone is no pattern, however many times it is repeated.
+		for n := 1; n <= 2; n++ {
+			if got := NormalizePattern(strings.Repeat(m, n)); got != "" {
+				t.Errorf("NormalizePattern(%q) = %q, want empty", strings.Repeat(m, n), got)
+			}
+		}
+		// A different marker after the first is a repeat too: the first one
+		// is the reading.
+		for _, other := range markers {
+			if other == m {
+				continue
+			}
+			in := m + other + text
+			if got := NormalizePattern(in); got != m+text {
+				t.Errorf("NormalizePattern(%q) = %q, want %q", in, got, m+text)
+			}
+		}
+	}
+	// A regex is left alone, including one written to start with the marker
+	// text (its first character in a class).
+	for _, rx := range []string{`^Mozilla/5\.0`, "[" + ExactMarker[:1] + "]" + ExactMarker[1:] + text, ""} {
+		if got := NormalizePattern(rx); got != rx {
+			t.Errorf("regex %q was rewritten to %q", rx, got)
+		}
+	}
+	// The point of it: the stored rule matches the UA it was written for.
+	re := regexp.MustCompile(PatternRegex(NormalizePattern(ExactMarker + ExactMarker + text)))
+	if !re.MatchString(text) {
+		t.Errorf("normalized pattern %q does not match %q", re, text)
 	}
 }

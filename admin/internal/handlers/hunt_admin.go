@@ -844,7 +844,8 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case "ua_blacklist":
-		pat := strings.TrimSpace(r.FormValue("pattern"))
+		// One marker at most, as the settings form stores it.
+		pat := settings.NormalizePattern(strings.TrimSpace(r.FormValue("pattern")))
 		title := strings.TrimSpace(r.FormValue("title"))
 		if pat == "" {
 			redir("pattern is required")

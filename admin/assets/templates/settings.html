@@ -8044,9 +8044,19 @@ document.querySelectorAll('form').forEach(function(f){
       var v = input.value.trim();
       if (v === '') return;
       var modes = modesFor(input);
-      for (var k = 1; k < modes.length; k++) {
-        if (modes[k].id === btn.dataset.mode) { input.value = modes[k].marker + v; return; }
+      var k = 0;
+      for (var j = 1; j < modes.length; j++) if (modes[j].id === btn.dataset.mode) k = j;
+      // The chip is the reading and its marker is added here, so a marker also
+      // typed into the box (natural after seeing "exact:Bot" in the config)
+      // has to come off first -- kept, it is stored twice, and
+      // "exact:exact:Bot" matches only the literal text "exact:Bot".  With the
+      // chip on regex a typed marker stays the reading, as it always was; only
+      // its repeats go.
+      for (var m = modeIndexOf(v, modes); m > 0; m = modeIndexOf(v, modes)) {
+        if (k === 0) k = m;
+        v = v.slice(modes[m].marker.length);
       }
+      input.value = v === '' ? '' : modes[k].marker + v;
     });
   });
 });

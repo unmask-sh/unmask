@@ -39,6 +39,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-10-01) **forward-auth mode is frozen.**  The docs and the admin now describe two ways to deploy: the nginx module, on your own nginx or inside the gateway container.  Installs that use forward-auth keep working and still get bug and security fixes, but new features are built for the nginx module only.  The FAQ says how to move over.
 
 ### Fixed
+- (2026-10-01) **A marker typed into a pattern box is no longer stored twice.**  The settings form adds the mode marker (`exact:`, `contains:`) when it saves, so one also typed into the box was kept twice and the rule then matched only text beginning with the marker: an allowlist row rescued nothing.  Saving now keeps one marker on every pattern list, and re-saving a tab repairs rows stored that way.
+
 - (2026-10-01) **Saving the rate-limit tab returns to the rate-limit tab.**  The save named the tab `rate_limit`, while its address is `rate-limit`, so the redirect after a save landed on the settings overview, away from the rows just edited.  Every settings form now comes back to its own tab, and a test checks each of them.
 
 - (2026-10-01) **Web Bot Auth and Privacy Pass are no longer described as forward-auth only.**  Their settings said the check ran only in forward-auth mode, but the nginx module sends a request that carries a signature or a token, and is about to be challenged, to the daemon for the check.  Both work with the module on your own nginx and in the gateway container.
