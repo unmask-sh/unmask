@@ -1400,6 +1400,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown section", http.StatusBadRequest)
 		return
 	}
+	normalizePatternFields(r.Form)
 	base := h.cfg().Server.BasePath
 	// nginxReloadNeeded: set true after the form apply when the rendered nginx
 	// conf actually changed (= RenderSignature before != after).  This is the
@@ -3741,6 +3742,31 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 		n.Honeypot.PresetAction = presetActions
 	}
 	return nil
+}
+
+// patternListFields: the settings-form fields that carry the pattern-mode
+// chip, one per pattern list.  The page's submit hook puts the chip's marker
+// back on each value; normalizePatternFields then keeps one, so a marker the
+// operator also typed into the box -- or a value a page from before the hook
+// stripped typed markers posts doubled -- is stored once, on every list alike.
+// TestPatternListFieldsAreTheChipLists holds this list to the rendered
+// settings page, so a list given the chip later cannot be left out.
+var patternListFields = []string{
+	"white_extra", "black_extra", "ja4_extra_pat", "honeypot_url_path",
+	"protected_path", "bp_path", "gx_path", "ax_path", "re_pattern",
+	"admin_allowed_hosts",
+}
+
+// normalizePatternFields: settings.NormalizePattern over every value of the
+// pattern lists, in place, before any section reads the form.  A value left
+// holding nothing but markers comes out empty, which each list reads as a
+// blank row.
+func normalizePatternFields(form url.Values) {
+	for _, name := range patternListFields {
+		for i, v := range form[name] {
+			form[name][i] = settings.NormalizePattern(strings.TrimSpace(v))
+		}
+	}
 }
 
 // pairExtras: zip the 4 parallel arrays from the row UI into

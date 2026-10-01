@@ -18,7 +18,6 @@ func countryMMDB(t *testing.T) string {
 	for _, p := range []string{
 		"/var/lib/unmask/ipgeo/dbip-country.mmdb",
 		"/usr/share/GeoIP/GeoLite2-Country.mmdb",
-		"/srv/data/runtime/geo/GeoLite2-Country.mmdb",
 	} {
 		if body, err := ipgeo.GeoCIDRsForCountries(p, []string{"BR"}); err == nil && strings.Contains(body, " BR;") {
 			return p

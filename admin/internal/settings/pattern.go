@@ -111,3 +111,28 @@ func MakePatternWithMode(text string, mode PatternMode) string {
 	}
 	return text
 }
+
+// NormalizePattern: at most one marker.  The settings form puts the marker
+// back at submit time, so an operator who also typed it into the box -- the
+// obvious thing after reading "exact:Bot" in config.yml -- stored it twice,
+// and "exact:exact:Bot" is an exact match for the literal text "exact:Bot".
+// Observed in production as an allowlist rule that rescued nothing while the
+// config read correctly at a glance.  The first marker is the reading; any
+// marker repeated after it is dropped.
+func NormalizePattern(p string) string {
+	mode := PatternModeOf(p)
+	if mode == ModeRegex {
+		return p
+	}
+	text := p
+	for PatternModeOf(text) != ModeRegex {
+		text = PatternText(text)
+	}
+	// A marker with nothing after it is no pattern.  Kept, "exact:" would be an
+	// exact match for the empty string -- on the allowlist, a row that rescues
+	// every request sent without a User-Agent.
+	if text == "" {
+		return ""
+	}
+	return MakePatternWithMode(text, mode)
+}
