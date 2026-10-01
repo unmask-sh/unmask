@@ -128,7 +128,7 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	// for a browser far behind its current release, the sentence behind the
 	// old-version mark the cell wears (the curl line has neither).
 	if !strings.Contains(body, `<span class="uline"><span class="cellpop" data-full-value="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" data-hits="×60" data-note="現行の安定版より 180 版古い`) ||
-		!strings.Contains(body, `<span class="ua-old">Chrome 120<span class="ua-lag">`+"\u2212"+`180</span></span>`) ||
+		!strings.Contains(body, `<span class="ua-old"><span class="ua-old-n">Chrome 120</span><span class="ua-lag">`+"\u2212"+`180</span></span>`) ||
 		!strings.Contains(body, `<span class="ua-n">×60</span></span><span class="uline"><span class="cellpop" data-full-value="curl/8.5.0" data-hits="×12">`) ||
 		!strings.Contains(body, `<span class="ua-n">×12</span></span><span class="uline muted ua-n">他 5 種</span>`) {
 		t.Error("the UA cell lists the most frequent user agents with counts and how many more, one line each")

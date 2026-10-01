@@ -22,7 +22,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- (2026-10-01) **Old browser versions stand out in the hunt log and the stats page.**  A UA cell shows the version a browser claims, but whether Chrome 109 is last month's release or one from years ago was left to the reader.  A Chrome, Edge or Firefox ten or more releases behind the current one now has its name highlighted with the count beside it, and Internet Explorer says EOL.  A reading aid: no decision uses it.
+- (2026-10-01) **Old browser versions stand out in the hunt log and the stats page.**  A UA cell shows the version a browser claims, but whether Chrome 109 is last month's release or one from years ago was left to the reader.  A Chrome, Edge or Firefox ten or more releases behind the current one now has its name highlighted, with the count in a small badge on its corner, and Internet Explorer says EOL.  A reading aid: no decision uses it.
 
 ### Fixed
 
