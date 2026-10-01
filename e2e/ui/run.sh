@@ -379,6 +379,18 @@ for bt, ua in [
         (ua, json.dumps({"bt": bt}, separators=(',', ':'))))
 c.commit()
 
+# The same pair on the stats page (ua-old.test.js): the CAPTCHA cookie-reuse
+# ranking, which nothing else seeds -- the PoW ranking's visible top ten is
+# what the popover tests lean on, and stays as it is.
+for ipb, ua, cnt in [
+        (bytes([10, 1, 2, 1]), "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36", 300),
+        (bytes([10, 1, 2, 2]), "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/999.0.0.0 Safari/537.36", 200)]:
+    c.execute("""INSERT OR REPLACE INTO unmask_cookie_ip_minute
+        (bucket_min, site, ip, kind, ja4, ua, cnt, last_seen)
+        VALUES (?, 'default', ?, 'captcha', 't13d_uaold', ?, ?, datetime('now'))""",
+        (_bm, ipb, ua, cnt))
+c.commit()
+
 # Four sessions for the referer lookup (referer-on-click.test.js).  Where a
 # visitor came from is recorded on the serve and on nothing after it, so a view
 # filtered to the passes shows these sessions as one bare row each -- the shape
