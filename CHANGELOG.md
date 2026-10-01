@@ -12,35 +12,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.49-rc7] - 2026-10-01 (testing build)
+
+### Since rc6
+
+- The old-version mark on a UA cell is now explained in that cell's popover wherever the mark is drawn: the stats page's UA columns, the UA ranking above the hunt log and the advisor's UA lines, as it already was in the hunt log.
+
+## [0.1.49-rc6] - 2026-10-01 (testing build)
 
 ### Added
+
 - (2026-10-01) **Old browser versions stand out in the hunt log and the stats page.**  A UA cell shows the version a browser claims, but whether Chrome 109 is last month's release or one from years ago was left to the reader.  A Chrome, Edge or Firefox ten or more releases behind the current one now has its name highlighted with the count beside it, and Internet Explorer says EOL.  A reading aid: no decision uses it.
 
-- (2026-10-01) **A cap on reusing one pass.**  A visitor who passed the challenge was counted by no rate limit while its cookie lived, so a scraper running a real browser could solve one proof-of-work and fetch without limit on every node.  The cap counts only requests carrying a valid pass, per address: by default 10,000 a day, 2,000 at once.  Over it, every request needs a CAPTCHA, or is denied.
-
-- (2026-09-30) **A bypass preset for Git over HTTP.**  Behind unmask, `git clone`, fetch, push and Git LFS against a Git forge failed, because the git client cannot solve a challenge.  The new preset under Bypass paths, off by default, lets those requests through by their Git endpoints, while the forge's web pages stay behind the challenge.
-
-- (2026-09-30) **The crawler IP range and browser version downloads can be switched off.**  A checkbox on the About tab (`sync_disabled`) stops the two daily pulls from unmask.sh, so every call unmask makes on its own now has a switch.  The data the release ships stays in use, and a newer release's snapshot now replaces an older downloaded copy.
-
-- (2026-09-30) **The database can be compacted without stopping the daemon.**  `unmask db-vacuum`, or the button on the retention tab, runs SQLite's VACUUM while the challenge keeps working: the daemon holds its writes in memory and writes them afterwards.  It shows beforehand the space it gives back, the disk it needs, how long it takes and the events it holds.
-
-- (2026-09-29) **A long index build no longer holds up the daemon's start.**  A schema update that builds an index over a large events table ran before the daemon listened, so an upgrade could leave it away for minutes unannounced.  The daemon now estimates the build and, past 20 seconds, starts without it; the admin pages carry a notice with the estimate and a button for a superadmin.  `db.schema_update_defer_seconds` moves the threshold.
-
-- (2026-09-29) **The challenge keeps working while a schema update runs.**  The update runs as a process of its own, from `unmask migrate` or the admin UI's button.  On SQLite, where the build holds the write lock, events and automatic bans are kept and written when it ends, the bans enforced meanwhile; settings can still be saved, while changes to users and manual bans wait.  A superadmin can cancel a run.
-
-- (2026-09-29) **A waiting schema update is announced everywhere an operator looks.**  `unmask migrate -status` lists what is pending with an estimate, `unmask doctor` gains a schema line, and `/metrics` carries `unmask_schema_update_pending` and `unmask_schema_update_running`.  A package upgrade that leaves an update waiting says so as the last thing it prints, with the command to run.  The container applies what is quick at start and leaves the rest the same way.
-
-- (2026-09-29) **Bot hunt shows where a session came from even when the view is filtered.**  The referer is recorded on the serve, so a log filtered to the passes showed "-" for every session.  Clicking the phase now loads the session's referer, and the date popover then shows the same value; until then a row shows its own, as before.  Silent rebinds record their own referer.
-
-- (2026-09-30) **Bluesky link cards pass out of the box.**  Bluesky builds a posted link's card with its own fetcher, Cardyb, which the crawler list did not carry, so the fetch got the challenge page and the post showed no card.  It joins the supplement next to Mattermost, Chatwork, Webex and Notion, and can be switched off per pattern like any other.
-
-- (2026-09-29) **Mattermost link previews pass out of the box.**  Mattermost fetches a pasted link's preview from its own server as `Mattermost-Bot`, which the crawler list did not carry, so the fetch was challenged and the link rendered bare.  It joins the supplement next to Chatwork, Webex and Notion, and can be switched off per pattern like any other.
-
-### Changed
-- (2026-10-01) **forward-auth mode is frozen.**  The docs and the admin now describe two ways to deploy: the nginx module, on your own nginx or inside the gateway container.  Installs that use forward-auth keep working and still get bug and security fixes, but new features are built for the nginx module only.  The FAQ says how to move over.
-
 ### Fixed
+
 - (2026-10-01) **A marker typed into a pattern box is no longer stored twice.**  The settings form adds the mode marker (`exact:`, `contains:`) when it saves, so one also typed into the box was kept twice and the rule then matched only text beginning with the marker: an allowlist row rescued nothing.  Saving now keeps one marker on every pattern list, and re-saving a tab repairs rows stored that way.
 
 - (2026-10-01) **The maintenance commands find a daemon that listens on a unix socket.**  With `bind: unix:/path` -- or a `socket_mode` left in the config after a switch back to TCP -- `unmask db-prune` took the running daemon for stopped and worked beside it, and `unmask db-vacuum` began compacting without waiting for the daemon to hold its writes.  Both now look where the daemon listens.
@@ -49,9 +34,51 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-01) **A restart of the daemon no longer cuts nginx's access-log connection.**  nginx's workers stay connected to the log socket, so a daemon that bound a new one on every start lost each worker's first line after a restart, and every line logged while it was down.  Where systemd is 236 or later the socket now outlives the restart: what nginx logs meanwhile waits in it, and the next start reads on.
 
+## [0.1.49-rc5] - 2026-10-01 (testing build)
+
+### Added
+
+- (2026-10-01) **A cap on reusing one pass.**  A visitor who passed the challenge was counted by no rate limit while its cookie lived, so a scraper running a real browser could solve one proof-of-work and fetch without limit on every node.  The cap counts only requests carrying a valid pass, per address: by default 10,000 a day, 2,000 at once.  Over it, every request needs a CAPTCHA, or is denied.
+
+### Changed
+
+- (2026-10-01) **forward-auth mode is frozen.**  The docs and the admin now describe two ways to deploy: the nginx module, on your own nginx or inside the gateway container.  Installs that use forward-auth keep working and still get bug and security fixes, but new features are built for the nginx module only.  The FAQ says how to move over.
+
+### Fixed
+
 - (2026-10-01) **Saving the rate-limit tab returns to the rate-limit tab.**  The save named the tab `rate_limit`, while its address is `rate-limit`, so the redirect after a save landed on the settings overview, away from the rows just edited.  Every settings form now comes back to its own tab, and a test checks each of them.
 
 - (2026-10-01) **Web Bot Auth and Privacy Pass are no longer described as forward-auth only.**  Their settings said the check ran only in forward-auth mode, but the nginx module sends a request that carries a signature or a token, and is about to be challenged, to the daemon for the check.  Both work with the module on your own nginx and in the gateway container.
+
+## [0.1.49-rc4] - 2026-10-01 (testing build)
+
+### Since rc3
+
+- Database compaction: starting or stopping a run asks in a dialog of the card's own, which also reports a failed request; the held-events line is split into two rows.
+
+## [0.1.49-rc3] - 2026-09-30 (testing build)
+
+### Since rc2
+
+- Database compaction: a running compaction shows in the retention tab's card, with a small sign in every other page's top bar, rather than a banner across every page; the size line says what the file comes down to.
+
+## [0.1.49-rc2] - 2026-09-30 (testing build)
+
+### Since rc1
+
+- Bot hunt: before its phase is clicked, a row in a filtered view shows its own referer again ("-" for a pass), rather than a note that it was not loaded.
+
+### Added
+
+- (2026-09-30) **A bypass preset for Git over HTTP.**  Behind unmask, `git clone`, fetch, push and Git LFS against a Git forge failed, because the git client cannot solve a challenge.  The new preset under Bypass paths, off by default, lets those requests through by their Git endpoints, while the forge's web pages stay behind the challenge.
+
+- (2026-09-30) **The crawler IP range and browser version downloads can be switched off.**  A checkbox on the About tab (`sync_disabled`) stops the two daily pulls from unmask.sh, so every call unmask makes on its own now has a switch.  The data the release ships stays in use, and a newer release's snapshot now replaces an older downloaded copy.
+
+- (2026-09-30) **The database can be compacted without stopping the daemon.**  `unmask db-vacuum`, or the button on the retention tab, runs SQLite's VACUUM while the challenge keeps working: the daemon holds its writes in memory and writes them afterwards.  It shows beforehand the space it gives back, the disk it needs, how long it takes and the events it holds.
+
+- (2026-09-30) **Bluesky link cards pass out of the box.**  Bluesky builds a posted link's card with its own fetcher, Cardyb, which the crawler list did not carry, so the fetch got the challenge page and the post showed no card.  It joins the supplement next to Mattermost, Chatwork, Webex and Notion, and can be switched off per pattern like any other.
+
+### Fixed
 
 - (2026-09-30) **`db-prune -vacuum` asks for the disk it really needs.**  It checked for room for one copy of the live data, but in WAL mode the copy is written a second time into the write-ahead log.  It now asks for 2.2 times the live data, and with the daemon running it refuses and points to `unmask db-vacuum`, which compacts without stopping it.
 
@@ -62,6 +89,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-09-30) **The setup token's location is shown correctly.**  The wizard's token step told operators to read `/etc/unmask/.setup-token`, a path no install has written since 0.1.9, and unmask-web-apache looked there too, so a new install printed no token.  The wizard now names the file the daemon actually reads, and the Apache banner uses `/var/lib/unmask/.setup-token` and appears only while setup is pending.
 
 - (2026-09-30) **The Gateway tab describes the one-container gateway.**  Its help still spoke of a separate nginx container and a shared volume, and said the upstream could not be changed there.  Since 0.1.48 one container holds nginx and the daemon, and the upstream, the hostnames and the certificates are all set on that tab.
+
+## [0.1.49-rc1] - 2026-09-30 (testing build)
+
+### Added
+
+- (2026-09-29) **A long index build no longer holds up the daemon's start.**  A schema update that builds an index over a large events table ran before the daemon listened, so an upgrade could leave it away for minutes unannounced.  The daemon now estimates the build and, past 20 seconds, starts without it; the admin pages carry a notice with the estimate and a button for a superadmin.  `db.schema_update_defer_seconds` moves the threshold.
+
+- (2026-09-29) **The challenge keeps working while a schema update runs.**  The update runs as a process of its own, from `unmask migrate` or the admin UI's button.  On SQLite, where the build holds the write lock, events and automatic bans are kept and written when it ends, the bans enforced meanwhile; settings can still be saved, while changes to users and manual bans wait.  A superadmin can cancel a run.
+
+- (2026-09-29) **A waiting schema update is announced everywhere an operator looks.**  `unmask migrate -status` lists what is pending with an estimate, `unmask doctor` gains a schema line, and `/metrics` carries `unmask_schema_update_pending` and `unmask_schema_update_running`.  A package upgrade that leaves an update waiting says so as the last thing it prints, with the command to run.  The container applies what is quick at start and leaves the rest the same way.
+
+- (2026-09-29) **Bot hunt shows where a session came from even when the view is filtered.**  The referer is recorded on the serve, so a log filtered to the passes showed "-" for every session.  Clicking the phase now loads the session's referer, and the date popover then shows the same value; until then a row shows its own, as before.  Silent rebinds record their own referer.
+
+- (2026-09-29) **Mattermost link previews pass out of the box.**  Mattermost fetches a pasted link's preview from its own server as `Mattermost-Bot`, which the crawler list did not carry, so the fetch was challenged and the link rendered bare.  It joins the supplement next to Chatwork, Webex and Notion, and can be switched off per pattern like any other.
+
+### Fixed
 
 - (2026-09-30) **The ban list is written by one writer at a time.**  A ban added from the access log and the manager's periodic refresh could write the list's temporary file at the same moment, so nginx could load a list mixing the two.  Writes of the list now take turns.
 
