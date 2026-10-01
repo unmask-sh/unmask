@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -46,8 +48,29 @@ func TestEventsTableUARendersSummaryWithFullValueForPopover(t *testing.T) {
 	// A browser far behind its current release has its name highlighted and
 	// says how far behind; every other browser renders as before (see
 	// ua_old_test.go for the reading itself).
-	if !strings.Contains(tpl, `{{ with uaOld $uaShort }}<span class="ua-old">{{ $br }}<span class="ua-lag">{{ . }}</span></span>{{ else }}{{ $br }}{{ end }}`) {
+	if !strings.Contains(tpl, `{{ with uaOld $uaShort }}<span class="ua-old"><span class="ua-old-n">{{ $br }}</span><span class="ua-lag">{{ . }}</span></span>{{ else }}{{ $br }}{{ end }}`) {
 		t.Error("the browser half no longer carries the old-version mark")
+	}
+	// The count is a small badge on the name's upper corner.  It is placed
+	// with vertical-align inside the line, never lifted out of it: the stats
+	// cells, the advisor's UA lines and the live tail clip their overflow,
+	// and a badge raised above the line is cut off there (the browser test
+	// measures the cells it can reach; this pins the rule for the rest).
+	if !strings.Contains(tpl, `.ua-old-n{background:`) || !strings.Contains(tpl, `.ua-old{white-space:nowrap}`) {
+		t.Error("the mark lost its highlighted name or its no-wrap unit")
+	}
+	lag := regexp.MustCompile(`\.ua-lag\{([^}]*)\}`).FindStringSubmatch(tpl)
+	if lag == nil {
+		t.Fatal("no .ua-lag rule in the cell's CSS")
+	}
+	if !strings.Contains(lag[1], "display:inline-block") || !strings.Contains(lag[1], "vertical-align:top") ||
+		strings.Contains(lag[1], "position:") || strings.Contains(lag[1], "top:-") {
+		t.Errorf("the badge must sit inside the line (inline-block, vertical-align:top, no offset): %s", lag[1])
+	}
+	if m := regexp.MustCompile(`font-size:(\.\d+)rem`).FindStringSubmatch(lag[1]); m == nil {
+		t.Errorf("the badge's type size must be set in rem, well under the cell's: %s", lag[1])
+	} else if size, _ := strconv.ParseFloat("0"+m[1], 64); size > 0.6 {
+		t.Errorf("the badge's type is %vrem; it is meant to be small (at most .6rem)", size)
 	}
 	// Each half of the summary carries its own marker, in front of its own
 	// text: the platform glyph before the platform, the browser mark before

@@ -177,14 +177,14 @@ func TestHuntMarksOldBrowsers(t *testing.T) {
 	body := rr.Body.String()
 	rows := rowsOnly(body)
 
-	const mark = `<span class="ua-old">Chrome 109<span class="ua-lag">` + "\u2212" + `191</span></span>`
+	const mark = `<span class="ua-old"><span class="ua-old-n">Chrome 109</span><span class="ua-lag">` + "\u2212" + `191</span></span>`
 	if !strings.Contains(rows, mark) {
 		t.Errorf("the old browser's row does not carry the mark %s", mark)
 	}
 	if !strings.Contains(rows, `<span class="ua-lag">EOL</span>`) {
 		t.Error("the Internet Explorer row is not marked EOL")
 	}
-	if strings.Contains(rows, `<span class="ua-old">Chrome 300`) || !strings.Contains(rows, "Chrome 300") {
+	if strings.Contains(rows, `<span class="ua-old-n">Chrome 300`) || !strings.Contains(rows, "Chrome 300") {
 		t.Error("the current browser's row must render unmarked")
 	}
 	// Once in the log, and once in the UA ranking above it.  (The column
@@ -242,7 +242,7 @@ func TestHuntMarksOldBrowsers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), `if (ev.ua_old && ev.ua_short) {`) || !strings.Contains(string(raw), `'<span class="ua-lag">' + escapeText(ev.ua_old) + '</span></span>'`) {
+	if !strings.Contains(string(raw), `if (ev.ua_old && ev.ua_short) {`) || !strings.Contains(string(raw), `'</span><span class="ua-lag">' + escapeText(ev.ua_old) + '</span></span>'`) {
 		t.Error("the live tail no longer draws the old-browser mark")
 	}
 }
@@ -319,7 +319,7 @@ func TestStatsMarksOldBrowsersAndExplainsThem(t *testing.T) {
 	if !strings.HasSuffix(strings.TrimSpace(body), "</html>") {
 		t.Fatalf("the stats page stopped before its end (%d bytes): a template error", len(body))
 	}
-	const mark = `<span class="ua-old">Chrome 109<span class="ua-lag">` + "\u2212" + `191</span></span>`
+	const mark = `<span class="ua-old"><span class="ua-old-n">Chrome 109</span><span class="ua-lag">` + "\u2212" + `191</span></span>`
 	// Every UA cell that wears the mark carries the sentence; walk them all.
 	marked := 0
 	for rest := body; ; {
