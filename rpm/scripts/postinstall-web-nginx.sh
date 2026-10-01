@@ -176,6 +176,12 @@ fi
 # 502s the opt-in unix:/run/unmask/http.sock).  Relabel the runtime dir
 # httpd_var_run_t so httpd_t may write the socket.
 #
+# That is the file's half.  The socket behind the file has a label of its own
+# (its creator's domain), which nginx must also be allowed to send to; the
+# daemon sees to that itself as it makes the socket, and labels the file in
+# the same step (admin/internal/selabel).  What is done here stays for the
+# directory, and for a daemon from before that.
+#
 # semanage (policycoreutils-python-utils) is the right tool -- its fcontext rule
 # is permanent, so the label survives every recreation of /run/unmask -- but it
 # is NOT installed on a minimal RHEL / AlmaLinux 8.  This whole block used to be

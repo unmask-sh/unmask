@@ -43,6 +43,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-01) **The maintenance commands find a daemon that listens on a unix socket.**  With `bind: unix:/path` -- or a `socket_mode` left in the config after a switch back to TCP -- `unmask db-prune` took the running daemon for stopped and worked beside it, and `unmask db-vacuum` began compacting without waiting for the daemon to hold its writes.  Both now look where the daemon listens.
 
+- (2026-10-01) **nginx reaches the daemon with SELinux enforcing.**  With SELinux enforcing on a RHEL-family host, nginx was refused every access-log line it sent to the daemon, whatever the label of the socket file: the dashboard's traffic, crawler and country figures stayed empty, honeypot bans from the access log never fired, and a unix-socket bind answered 502.  The daemon now labels its sockets for the web server; the policy is left alone.
+
 - (2026-10-01) **A restart of the daemon no longer cuts nginx's access-log connection.**  nginx's workers stay connected to the log socket, so a daemon that bound a new one on every start lost each worker's first line after a restart, and every line logged while it was down.  Where systemd is 236 or later the socket now outlives the restart: what nginx logs meanwhile waits in it, and the next start reads on.
 
 - (2026-10-01) **Saving the rate-limit tab returns to the rate-limit tab.**  The save named the tab `rate_limit`, while its address is `rate-limit`, so the redirect after a save landed on the settings overview, away from the rows just edited.  Every settings form now comes back to its own tab, and a test checks each of them.
@@ -67,7 +69,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-09-29) **unmask-web-nginx prints its setup banner only while setup is pending.**  The first-time setup banner came on every upgrade, forty lines after everything the unmask package had printed, and it read the setup token from a path the package stopped writing in 0.1.9, so a new install never saw its token.
 
-- (2026-09-29) **Native mode keeps its events after an upgrade on SELinux hosts without semanage.**  Upgrading unmask-web-nginx deleted the drop-in that relabels `/run/unmask` for nginx, so from the daemon's next restart nginx could not write the log socket and the dashboard counted nothing.  The drop-in now stays until the package is removed.  An upgrade from 0.1.48 or earlier still runs the old removal step once: reinstall unmask-web-nginx afterwards.
+- (2026-09-29) **Native mode keeps its events after an upgrade on SELinux hosts without semanage.**  Upgrading unmask-web-nginx deleted the drop-in that relabels `/run/unmask` for nginx, so from the daemon's next restart nginx could not write the log socket and the dashboard counted nothing.  The drop-in now stays until the package is removed.  An upgrade from 0.1.48 or earlier still runs the old removal step once; the daemon now labels its socket itself, so nothing needs doing.
 
 - (2026-09-29) **A package upgrade restarts the daemon once.**  The install script started the daemon and then restarted it as a guarantee, and unmask-web-nginx restarted it again on SELinux hosts.  The daemon applies pending schema updates as it starts, so a later restart killed a slow one part way.  One restart, falling back to a start, now covers every case on systemd, OpenRC and SysVinit.
 

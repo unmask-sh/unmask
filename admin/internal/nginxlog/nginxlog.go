@@ -66,6 +66,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/hll"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/safe"
+	"github.com/unmask-sh/unmask/admin/internal/selabel"
 )
 
 // Reader: body of the recv goroutine + flush goroutine.  Disabled
@@ -386,12 +387,18 @@ func Start(socketPath string, d *db.DB) *Reader {
 		_ = os.MkdirAll(dir, 0o755)
 		_ = os.Chmod(dir, 0o755)
 	}
-	// Delete any existing socket file (= residue from a prior admin.
-	// If it's still there, bind fails).
-	_ = os.Remove(socketPath)
-
 	addr := &net.UnixAddr{Name: socketPath, Net: "unixgram"}
-	conn, err := net.ListenUnixgram("unixgram", addr)
+	var conn *net.UnixConn
+	// Under SELinux the socket takes the web server's type: nginx may not
+	// send to a socket of the daemon's own (selabel, which may run this
+	// twice).
+	labelled, err := selabel.ForWebServer(func() (err error) {
+		// Delete any existing socket file (= residue from a prior admin.
+		// If it's still there, bind fails).
+		_ = os.Remove(socketPath)
+		conn, err = net.ListenUnixgram("unixgram", addr)
+		return err
+	})
 	if err != nil {
 		log.Printf("nginxlog: ListenUnixgram %s failed: %v (= aggregation disabled)", socketPath, err)
 		forget() // nothing bound to replace what the store may hold (handover.go)
@@ -406,6 +413,9 @@ func Start(socketPath string, d *db.DB) *Reader {
 	}
 	r.conn = conn
 	log.Printf("nginxlog: listening on unix:%s", socketPath)
+	if labelled {
+		log.Printf("nginxlog: the socket carries the web server's SELinux type (%s), so nginx may send to it", selabel.WebServerType)
+	}
 	if handoverOn() {
 		if err := store(conn); err != nil {
 			log.Printf("nginxlog: could not hand the socket to the service manager (%v); a restart will drop nginx's connections", err)
