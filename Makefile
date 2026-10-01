@@ -111,7 +111,7 @@ SOURCE_DATE_EPOCH := $(shell git log -1 --pretty=%ct 2>/dev/null || echo 0)
 endif
 export SOURCE_DATE_EPOCH
 
-.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down e2e-hv1 e2e-docker-socket e2e-docker-mariadb e2e-lifecycle distro-check vet fmt clean release-clean help repo repo-apk publish
+.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down e2e-docker-socket e2e-docker-mariadb e2e-lifecycle distro-check vet fmt clean release-clean help repo repo-apk
 
 help:
 	@printf "unmask Makefile targets:\n\n"
@@ -475,12 +475,6 @@ repo-apk:
 	@echo ""
 	@echo ">>> apk repo regenerated under $(DL_BUILD_DIR)"
 	@ls -la ../unmask-dl-build/apk/main/*/APKINDEX.tar.gz 2>/dev/null || true
-
-## publish - rsync repo/ to unmask.sh/dl/ (a GCE VM) via tools/publish-repo.sh.
-# UNMASK_DL_HOST / UNMASK_DL_USER / UNMASK_DL_PATH / UNMASK_SSH_KEY override
-# the connection.  For --dry-run, run `make publish ARGS=--dry-run`.
-publish:
-	./tools/publish-repo.sh $(ARGS)
 
 ## sign-rpm - GPG-sign dist/*.rpm (rpm --addsign).
 # Env: UNMASK_GPG_KEY_ID (required, e.g. C03DD45E28C4446FDDC48EFC34A320B544B28158).
@@ -942,16 +936,6 @@ e2e-docker:
 e2e-docker-down:
 	docker compose -f e2e/docker/docker-compose.yml down -v
 
-## e2e-hv1       - run the docker e2e suite on the hv1 self-hosted runner (VM 9200)
-# instead of locally.  Ships a CLEAN `git archive` of a committed tree (no
-# shared-tree WIP, the false-failure source) over the o-hv1 VPN to a dedicated
-# Debian 13 + docker-on-NVMe runner and runs there -- isolated + non-contending.
-# Self-contained: no GitHub / SaaS CI.  Usage:
-#   make e2e-hv1                 # HEAD, full suite
-#   make e2e-hv1 COMMIT=a93efce  # a specific commit
-#   make e2e-hv1 SCN="42 45"     # only the named scenarios
-e2e-hv1:
-	@tools/e2e-on-hv1.sh $(or $(COMMIT),HEAD) $(if $(strip $(SCN)),-- $(SCN))
 
 ## e2e-docker-socket - same as e2e-docker but admin listens on a UNIX SOCKET
 # (0666 so the separate nginx container's worker can connect); nginx reaches it

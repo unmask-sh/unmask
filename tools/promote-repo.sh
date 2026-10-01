@@ -6,7 +6,7 @@
 #           version   default: the newest version present in testing
 #
 # Then:   tools/build-repo.sh <OUT_DIR>          # reindex stable
-#         tools/publish-repo.sh                  # push it
+#         (then publish the tree)                # push it
 #
 # The whole reason this is a copy and not a rebuild: the strongest thing that
 # can be said after somebody confirms a fix is "what you confirmed is what
@@ -157,4 +157,4 @@ echo "promoted $copied file(s), $skipped already identical in stable"
 [ "$DRY" = 1 ] && echo "(dry run -- nothing written)"
 echo
 echo "Next:  tools/build-repo.sh $OUT        # reindex stable"
-echo "       tools/publish-repo.sh           # push stable (testing is left alone)"
+echo "       then publish stable             # testing is left alone"

@@ -14,11 +14,11 @@
 #       host that cannot reach the registry, or images built locally.
 #
 # Environment:
-#   UNMASK_DL_BUILD_DIR   default ../unmask-dl-build (publish-repo.sh reads it)
+#   UNMASK_DL_BUILD_DIR   default ../unmask-dl-build (the publish step reads it)
 #   UNMASK_IMAGE_SOURCE   default ghcr.io/unmask-sh  (where the release pushed)
 #   SKOPEO                default: skopeo if installed, else quay.io/skopeo/stable in docker
 #
-# Then: tools/publish-repo.sh (rsyncs registry/ -> /v2/ and docker/ -> /dl/docker/).
+# Then publish: registry/ goes to /v2/ and docker/ to /dl/docker/ on the download host.
 set -eu
 VER="${1:?usage: build-registry.sh <version> [--from-layouts <dir>]}"
 LAYOUTS=""

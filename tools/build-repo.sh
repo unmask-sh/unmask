@@ -8,7 +8,7 @@
 #
 #   OUT_DIR default: ../unmask-dl-build (= sibling of the working tree so the
 #   build output stays out of the git index).  Production publish is handled
-#   by a separate script (= tools/publish-repo.sh) that rsyncs to
+#   by a separate publish step that rsyncs to
 #   unmask.sh:/var/www/unmask.sh/dl/.
 #
 #   STAGE default: all (= run rpm + deb + apk stages back to back).
@@ -274,7 +274,7 @@ mkdir -p "$OUT/keys"
 
 # ---- /dl/ landing page (= the custom index served at unmask.sh/dl/) ----
 # Evergreen (links to dirs + /install/, no per-build data), so always refresh.
-# Must live in $OUT: publish-repo.sh rsyncs with --delete-after, which would
+# Must live in $OUT: the publish step rsyncs with --delete-after, which would
 # nuke a hand-placed dl/index.html that is not part of the build output.
 if [ -f "$ROOT/tools/dl-index.html" ]; then
     cp "$ROOT/tools/dl-index.html" "$OUT/index.html"
@@ -294,7 +294,7 @@ fi
 # Theme assets for the autoindex sub-directory listings (rpm/, deb/, ...).
 # Served from /dl/ (auth-free pre-GA, unlike /static) and injected into the
 # stock autoindex HTML via sub_filter; must live in $OUT to survive
-# publish-repo.sh's --delete-after.
+# the publish step's --delete-after.
 for asset in dlindex.css dlindex.js; do
     if [ -f "$ROOT/tools/$asset" ]; then
         cp "$ROOT/tools/$asset" "$OUT/$asset"
@@ -522,4 +522,4 @@ echo
 echo "==> repo built at: $OUT"
 du -sh "$OUT"/* 2>/dev/null || true
 echo
-echo "next: run tools/publish-repo.sh to rsync to unmask.sh:/var/www/unmask.sh/dl/."
+echo "next: publish the tree to the download host (rsync --delete-after)."
