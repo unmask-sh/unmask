@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
@@ -195,11 +196,7 @@ func cmdDBPrune(args []string) error {
 // daemonAnswers reports whether something accepts connections where the
 // daemon is configured to listen -- the daemon itself, in practice.
 func daemonAnswers(srv settings.Server) bool {
-	addr := daemonAddr(srv)
-	network := "tcp"
-	if srv.SocketMode != "" || (addr != "" && addr[0] == '/') {
-		network = "unix"
-	}
+	network, addr := daemonDial(srv)
 	c, err := net.DialTimeout(network, addr, 700*time.Millisecond)
 	if err != nil {
 		return false
@@ -208,20 +205,34 @@ func daemonAnswers(srv settings.Server) bool {
 	return true
 }
 
-// daemonAddr is the daemon's listen address as a dial target.
-func daemonAddr(srv settings.Server) string {
-	bind := srv.Bind
+// daemonDial is where the daemon listens, as a dial target: the socket file
+// for `bind: unix:/path` (the one form the daemon takes for a socket, see
+// openListener), host:port otherwise.  The bind alone decides: socket_mode
+// stays in the config of a daemon switched back to TCP.
+func daemonDial(srv settings.Server) (network, addr string) {
+	bind := strings.TrimSpace(srv.Bind)
+	if strings.HasPrefix(bind, "unix:") {
+		return "unix", strings.TrimSpace(strings.TrimPrefix(bind, "unix:"))
+	}
 	if bind == "" {
 		bind = "127.0.0.1"
-	}
-	if bind[0] == '/' {
-		return bind
 	}
 	port := srv.Port
 	if port == 0 {
 		port = 9477
 	}
-	return net.JoinHostPort(bind, strconv.Itoa(port))
+	// Joined as the daemon joins them (openListener), so an IPv6 bind, which
+	// it takes in brackets, is dialled as it is listened on.
+	return "tcp", bind + ":" + strconv.Itoa(port)
+}
+
+// daemonAddr is the daemon's listen address as a message names it.
+func daemonAddr(srv settings.Server) string {
+	network, addr := daemonDial(srv)
+	if network == "unix" {
+		return "unix:" + addr
+	}
+	return addr
 }
 
 func humanBytesCLI(n int64) string {
