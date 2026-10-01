@@ -262,6 +262,11 @@ func cmdServe(args []string) error {
 
 	s, err := loadSettings(*configPath)
 	if err != nil {
+		// No log receiver will come up.  The log socket systemd kept over
+		// the restart must not stay in its store (nginxlog/handover.go): it
+		// would be handed to every retry, and nginx would log into it
+		// unread for as long as they fail.
+		nginxlog.Release()
 		return err
 	}
 	// Point the setup-token file at the resolved config's directory, so a
@@ -405,6 +410,11 @@ func cmdServe(args []string) error {
 	// (no hot-spawn, for simplicity).
 	var nlog *nginxlog.Reader
 	var banMgr *ban.Manager
+	if conn == nil {
+		// No log receiver without a database: a log socket systemd kept
+		// over the restart would be one nginx logs into unread.
+		nginxlog.Release()
+	}
 	if conn != nil {
 		// Enabled=false skips socket bind / recv loop (zero overhead).  The
 		// flush loop still runs so buckets can be increased from inside via Bump.
@@ -583,8 +593,8 @@ func cmdServe(args []string) error {
 		// honeypotDecide path.  action="" = inherit Honeypot.DefaultAction.  Reads
 		// live settings (h.SnapshotSettings) so a UI action change applies without
 		// a restart.  Registered here (not beside the other nlog callbacks) so h
-		// exists; the startup window before this runs degrades to no callback,
-		// same as the pre-existing nlog.Start()-to-callback gap.
+		// exists; the reader takes no line before nlog.Receive() below, so
+		// none goes without it.
 		if nlog != nil {
 			// Suppress the honeypot auto-ban for a plaintext request nginx
 			// answered with a 301 (= a JA4-less access-log line while
@@ -607,6 +617,10 @@ func cmdServe(args []string) error {
 			nlog.SetCrawlerObserver(h.ObserveCrawlerForBan)
 		}
 	}
+	// Every callback is registered: the log receiver may read.  A socket kept
+	// over the restart holds the lines nginx logged meanwhile, and they get
+	// the classifier, the country lookup and the honeypot ban like the rest.
+	nlog.Receive()
 
 	// Community Bans client: pass SettingsGetter / SettingsUpdate through Handler.
 	// The Run() goroutine handles register + periodic pull only when submit or

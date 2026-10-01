@@ -46,6 +46,23 @@ run_case() {
         printf '#!/bin/sh\necho "%s $*" >> "%s/calls.log"\nexit 0\n' "$c" "$T" > "$T/stub/$c"
         chmod +x "$T/stub/$c"
     done
+    # systemctl also answers --version, as the systemd of STUB_SYSTEMD_VER.
+    if [ "$init" = systemd ]; then
+        cat > "$T/stub/systemctl" <<STUB
+#!/bin/sh
+echo "systemctl \$*" >> "$T/calls.log"
+if [ "\$1" = "--version" ] && [ -n "\${STUB_SYSTEMD_VER:-}" ]; then
+    printf 'systemd %s (%s-1.el9)\n+PAM +AUDIT +SELINUX\n' "\$STUB_SYSTEMD_VER" "\$STUB_SYSTEMD_VER"
+fi
+# What systemd would find when it re-reads the unit, and when it restarts it.
+case "\$1" in daemon-reload|restart)
+    if [ -f "$T/etc/systemd/system/unmask.service.d/20-log-handover.conf" ]; then echo "\$1 handover=yes" >> "$T/order.log"
+    else echo "\$1 handover=no" >> "$T/order.log"; fi ;;
+esac
+exit 0
+STUB
+        chmod +x "$T/stub/systemctl"
+    fi
     # The unmask binary: records the call, and answers `migrate -notice`.
     cat > "$T/bin/unmask" <<STUB
 #!/bin/sh
@@ -72,7 +89,12 @@ STUB
         -e "s|/lib/apk|$T/lib/apk|g" \
         -e "s|/sbin/openrc-run|$T/sbin/openrc-run|g" \
         "$DIR/postinstall.sh" > "$T/postinstall.sh"
-    PATH="$T/stub:$T/tools" STUB_NOTICE="$notice" /bin/sh "$T/postinstall.sh" "$@" > "$T/out" 2>&1
+    if [ -n "${PRE_DROPIN:-}" ]; then
+        mkdir -p "$T/etc/systemd/system/unmask.service.d"
+        printf '[Service]\nFileDescriptorStoreMax=1\n' > "$T/etc/systemd/system/unmask.service.d/20-log-handover.conf"
+    fi
+    PATH="$T/stub:$T/tools" STUB_NOTICE="$notice" STUB_SYSTEMD_VER="${STUB_SYSTEMD_VER:-}" \
+        /bin/sh "$T/postinstall.sh" "$@" > "$T/out" 2>&1
 }
 
 # How many calls start or restart the daemon.
@@ -125,6 +147,57 @@ run_case sysvinit 0 "" 2
 check "SysVinit, rpm upgrade: started once" 1 "$(starts)"
 check "SysVinit, rpm upgrade: a restart (brings up a daemon a prior remove stopped)" 1 "$(called '^service unmask restart$')"
 [ -f "$T/etc/rc.d/init.d/unmask" ] && pass "SysVinit: the init script is installed" || fail "SysVinit: the init script is installed"
+rm -rf "$T"
+
+# --- nginx's access-log socket over a restart (the handover drop-in) --------
+# The drop-in keeps the socket in systemd's store over a restart.  A systemd
+# older than 236 cannot drop a stale socket from the store (FDSTOREREMOVE), so
+# there it is not written -- and one left by an earlier run is taken away: a
+# stale socket would hold nginx's workers unread.  It must be in place before
+# systemd re-reads the unit and before the daemon is restarted, or the start
+# that follows the install would not have it.
+HO=etc/systemd/system/unmask.service.d/20-log-handover.conf
+order() { tr '\n' ' ' < "$T/order.log" 2>/dev/null | sed 's/ $//'; }
+
+STUB_SYSTEMD_VER=252 run_case systemd 0 "" 2
+check "systemd 252: the handover drop-in is written" yes "$([ -f "$T/$HO" ] && echo yes || echo no)"
+check "systemd 252: it lets the daemon store the socket" 2 "$(grep -cxE 'NotifyAccess=exec|FileDescriptorStoreMax=1' "$T/$HO" 2>/dev/null)"
+# Before every start: a binary without the daemon's marker is not handed the
+# kept socket.  The command must end in an `exec` of systemd-notify (so that
+# it is the unit's control process, the one NotifyAccess=exec listens to), be
+# allowed to fail (-), and name the socket as the daemon stores it.
+check "systemd 252: a binary without the handover is not handed the socket" 1 "$(grep -cxE "ExecStartPre=-/bin/sh -c 'grep -q UNMASK_LOG_HANDOVER [^ ]*/unmask \|\| exec systemd-notify FDSTOREREMOVE=1 FDNAME=nginxlog'" "$T/$HO" 2>/dev/null)"
+# (This run's root moves the binary; the script itself names the one the unit starts.)
+check "the check reads the binary the unit starts" 1 "$(grep -c "grep -q UNMASK_LOG_HANDOVER /usr/sbin/unmask || exec systemd-notify" "$DIR/postinstall.sh")"
+check "the unit starts that binary" 1 "$(grep -cx 'ExecStart=/usr/sbin/unmask serve' "$DIR/../unmask.service")"
+check "systemd 252: it keeps the directory the socket is bound in" 1 "$(grep -cx 'RuntimeDirectoryPreserve=restart' "$T/$HO" 2>/dev/null)"
+check "systemd 252: it tells the daemon so" 1 "$(grep -cx 'Environment=UNMASK_LOG_HANDOVER=1' "$T/$HO" 2>/dev/null)"
+check "systemd 252: in place when the unit is re-read, and when the daemon is restarted" "daemon-reload handover=yes restart handover=yes" "$(order)"
+check "systemd 252: still started once" 1 "$(starts)"
+rm -rf "$T"
+
+STUB_SYSTEMD_VER=236 run_case systemd 0 "" configure 0.1.48-1
+check "systemd 236 (the first with FDSTOREREMOVE), deb upgrade: the drop-in is written" yes "$([ -f "$T/$HO" ] && echo yes || echo no)"
+rm -rf "$T"
+
+STUB_SYSTEMD_VER=235 run_case systemd 0 "" 2
+check "systemd 235: one short of it, no drop-in" no "$([ -f "$T/$HO" ] && echo yes || echo no)"
+rm -rf "$T"
+
+STUB_SYSTEMD_VER=219 run_case systemd 0 "" 2
+check "systemd 219 (CentOS 7): no handover drop-in" no "$([ -f "$T/$HO" ] && echo yes || echo no)"
+check "systemd 219: the unit is re-read and the daemon restarted without it" "daemon-reload handover=no restart handover=no" "$(order)"
+rm -rf "$T"
+
+# A drop-in from an earlier run, on a systemd that turns out too old for it
+# (or whose version cannot be read): taken away before the unit is re-read.
+PRE_DROPIN=1 STUB_SYSTEMD_VER=219 run_case systemd 0 "" 2
+check "a drop-in left on a systemd too old for it is removed" no "$([ -f "$T/$HO" ] && echo yes || echo no)"
+check "... before the unit is re-read" "daemon-reload handover=no restart handover=no" "$(order)"
+rm -rf "$T"
+
+PRE_DROPIN=1 STUB_SYSTEMD_VER= run_case systemd 0 "" 2
+check "a systemd whose version cannot be read: no drop-in" no "$([ -f "$T/$HO" ] && echo yes || echo no)"
 rm -rf "$T"
 
 # --- the schema notice ------------------------------------------------------

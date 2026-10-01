@@ -37,9 +37,11 @@
 //   - No intermediate file (= /var/log/nginx/unmask-access.log is gone).
 //   - logrotate is irrelevant.
 //   - DB writes don't scale with req count (= sites x 1/min).
-//   - History survives admin restarts on the DB side (= a brief loss
-//     window exists when the worker silently drops because the socket
-//     is absent, but it's acceptable for aggregation).
+//   - History survives admin restarts on the DB side.  The socket itself
+//     survives them too where the unit allows it (handover.go): nginx's
+//     workers stay connected and what they log during the restart waits
+//     in the socket.  Elsewhere each worker loses its first line after a
+//     restart, and every line logged while the daemon is down.
 //
 // syslog protocol:
 //
@@ -72,6 +74,9 @@ type Reader struct {
 	socketPath string
 	d          *db.DB
 	conn       *net.UnixConn
+	// stored: the socket is in the service manager's store (handover.go)
+	// and outlives this process, so Close leaves its file in place.
+	stored bool
 
 	mu                   sync.Mutex
 	buckets              map[bucketKey]*bucket
@@ -136,9 +141,15 @@ type Reader struct {
 	// cheap for non-crawler UAs (matchClaim short-circuits before any DNS/lock).
 	crawlerObserve func(ip, ua string)
 
-	stop  chan struct{}
-	doneA chan struct{} // recv goroutine completion signal
-	doneB chan struct{} // flush goroutine completion signal
+	stop chan struct{}
+	// ready: closed by Receive, once every callback is registered.  The
+	// receive loop reads nothing before that -- a socket kept over a restart
+	// comes with the lines logged meanwhile, and they are to be classified,
+	// attributed and checked for honeypot hits like any other.
+	ready     chan struct{}
+	readyOnce sync.Once
+	doneA     chan struct{} // recv goroutine completion signal
+	doneB     chan struct{} // flush goroutine completion signal
 }
 
 // SetHoneypotCallback: register a callback invoked on hp=1 lines (ip, ja4, trip
@@ -330,6 +341,7 @@ func Start(socketPath string, d *db.DB) *Reader {
 		countryHourlyBuckets: map[countryHourKey]*countryHourBucket{},
 		cookieIPBuckets:      map[cookieIPKey]*cookieIPBucket{},
 		stop:                 make(chan struct{}),
+		ready:                make(chan struct{}),
 		doneA:                make(chan struct{}),
 		doneB:                make(chan struct{}),
 	}
@@ -342,7 +354,20 @@ func Start(socketPath string, d *db.DB) *Reader {
 	// the DB flush goroutine.  recvLoop is unnecessary (= buckets are
 	// incremented externally via Bump()).
 	if socketPath == "" {
+		// A socket the service manager kept over the restart (handover.go)
+		// is not wanted now: let it go, or nginx would log into it unread.
+		Release()
 		close(r.doneA) // no recv
+		go r.flushLoop()
+		return r
+	}
+
+	// The socket the service manager kept over a restart is the one
+	// nginx's workers are still connected to: read on from it.
+	if conn := adopt(socketPath); conn != nil {
+		r.conn, r.stored = conn, true
+		log.Printf("nginxlog: listening on unix:%s (kept over the restart)", socketPath)
+		go r.recvLoop()
 		go r.flushLoop()
 		return r
 	}
@@ -369,6 +394,7 @@ func Start(socketPath string, d *db.DB) *Reader {
 	conn, err := net.ListenUnixgram("unixgram", addr)
 	if err != nil {
 		log.Printf("nginxlog: ListenUnixgram %s failed: %v (= aggregation disabled)", socketPath, err)
+		forget() // nothing bound to replace what the store may hold (handover.go)
 		close(r.doneA)
 		close(r.doneB)
 		return r
@@ -380,14 +406,34 @@ func Start(socketPath string, d *db.DB) *Reader {
 	}
 	r.conn = conn
 	log.Printf("nginxlog: listening on unix:%s", socketPath)
+	if handoverOn() {
+		if err := store(conn); err != nil {
+			log.Printf("nginxlog: could not hand the socket to the service manager (%v); a restart will drop nginx's connections", err)
+		} else {
+			r.stored = true
+		}
+	}
 
 	go r.recvLoop()
 	go r.flushLoop()
 	return r
 }
 
+// Receive lets the reader take lines from the socket.  Start binds (or takes
+// back) the socket and reads nothing yet; the caller registers its callbacks
+// -- the classifier, the country lookup, the honeypot ban -- and then calls
+// this, so that no line is handled without them.  Lines that arrive in
+// between wait in the socket.
+func (r *Reader) Receive() {
+	if r == nil || r.ready == nil {
+		return
+	}
+	r.readyOnce.Do(func() { close(r.ready) })
+}
+
 // Close: stop the goroutines.  Final-flush remaining buckets and
-// delete the socket file.
+// delete the socket file -- unless the service manager keeps the socket for
+// the next start, which reads on from its path.
 func (r *Reader) Close() {
 	if r == nil {
 		return
@@ -406,9 +452,16 @@ func (r *Reader) Close() {
 	<-r.doneB
 	r.flushOnce(true)
 	if r.conn != nil {
+		// The socket stays with the service manager only for a successor
+		// that will read it (handover.go).
+		if r.stored && !successorTakesOver() {
+			log.Printf("nginxlog: the binary that starts next does not take the log socket over; not keeping it")
+			letGo(r.conn)
+			r.stored = false
+		}
 		_ = r.conn.Close()
 	}
-	if r.socketPath != "" {
+	if r.socketPath != "" && !r.stored {
 		_ = os.Remove(r.socketPath)
 	}
 }
@@ -1319,6 +1372,13 @@ func (r *Reader) flushLoop() {
 // 1 datagram = 1 line (= one line of access_log unmask_minimal).
 func (r *Reader) recvLoop() {
 	defer close(r.doneA)
+	// Nothing is read until the callbacks are in place (Receive); what
+	// arrives meanwhile waits in the socket.
+	select {
+	case <-r.ready:
+	case <-r.stop:
+		return
+	}
 	buf := make([]byte, 4*1024) // unmask_minimal is ~80 bytes; 4 KB with plenty of headroom
 	for {
 		select {
