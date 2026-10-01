@@ -1,14 +1,15 @@
 # tools/
 
-Release-side helpers for assembling and publishing the unmask download
-repository (= `https://unmask.sh/dl/`).
+Release-side helpers for assembling and checking the unmask download
+repository (= `https://unmask.sh/dl/`).  Publishing it, and running a release
+end to end, is done by the maintainers' release tooling, which is not part of
+this repository; the scripts here build and check the trees it publishes.
 
 ## Scripts
 
 | File                  | Purpose                                                                 |
 |-----------------------|-------------------------------------------------------------------------|
 | `build-repo.sh`       | Assemble `../unmask-dl-build/` from `../dist/*.rpm / *.deb / *.apk`.    |
-| `publish-repo.sh`     | `rsync` the assembled tree up to `unmask.sh:/var/www/unmask.sh/dl/`.    |
 | `promote-repo.sh`     | Copy a confirmed testing build into the stable tree (no rebuild).       |
 | `pkgdeps-test.sh`     | Install a companion package next to the core it pins, per format.       |
 | `repoconf-test.sh`    | Install `unmask-release` and let each package manager read what it wrote.|
@@ -69,46 +70,6 @@ Notes:
   `unmask-release` package (= `/etc/apk/keys/oss@unmask.sh-260509.rsa.pub`).
   It is not part of this repo.
 
-### Publish to `unmask.sh/dl/`
-
-```sh
-make publish              # full rsync
-make publish ARGS=--dry-run
-```
-
-`apk/` is now included by default (= since v0.2 with `make repo-apk` wired in).
-Set `UNMASK_PUBLISH_SKIP_APK=1` for the legacy v0.1 behavior of preserving the
-remote `apk/` copy (e.g. emergency push when `make repo-apk` was not run).
-
-### A release, end to end (`release-run.sh`)
-
-```sh
-tools/release-run.sh 0.1.40 status                       # what is done
-tools/release-run.sh 0.1.40 all --notes-file NOTES.txt   # every stage, in order
-tools/release-run.sh 0.1.40 sign                         # one stage, again
-```
-
-Stages: `preflight` (clean + pushed main, CI green, embedded IP-range
-snapshot current, tag free) → `bump` (CHANGELOG master + Makefile + main.go +
-releases.json, commit, tag) → `push` (main and the tag, explicitly; waits for
-the release workflow's draft and the GHCR images) → `build` (clean worktree
-at the tag, 27 packages for amd64 and arm64 + 2 binaries) → `gate` (unsigned
-repo to hv1, `make distro-check`) → `sign` (sign-rpm, THEN checksums + .sig,
-THEN the signed repository) → `archive` (dist/ kept as
-`../unmask-dl-build/releases/vX.Y.Z/`, the newest six versions) → `registry`
-→ `publish` (with its own verification; carries `releases/` up as
-[unmask.sh/dl/releases/](https://unmask.sh/dl/releases/), the only place on
-the site where an older version is still installable) → `github` (assets
-over the draft's, body, latest, verified by download).
-
-Each stage records itself under `../unmask-dl-build/release-state/<ver>/`
-(with its log) and the next refuses to run until the one before it
-finished.  The passphrase comes from `../.gpgpass` (one line, shredded once
-read) or `UNMASK_GPG_PASSPHRASE`; it is never on a command line.  What the
-script does not do -- the fleet, the site docs, the notes -- it prints at
-the end.  `--ref HEAD` builds from HEAD instead of the tag, for a rehearsal
-of the build stage.
-
 ## Stage filter
 
 `build-repo.sh` takes an optional second argument that limits which stages run:
@@ -131,16 +92,13 @@ before a release.  `UNMASK_CHANNEL=testing` indexes and publishes into
 
 ### Publishing a pre-release
 
-```sh
-tools/testing-run.sh 0.1.46 rc1      # build -> sign -> publish -> read back
-```
-
-A pre-release of 0.1.46 is packaged as `0.1.46-0.1.rc1` (rpm, deb) and
+The release tooling builds, signs and publishes a pre-release.  One of 0.1.46
+is packaged as `0.1.46-0.1.rc1` (rpm, deb) and
 `0.1.46_rc1-r0` (apk), so it sorts above every earlier release and below
 `0.1.46-1`: an ordinary update never takes a node back to the previous release,
 and the final replaces it on its own.  The next attempt is `rc2`, never a
 rebuild of `rc1` -- a reporter's update only moves if the version does, and two
-files under one NVR cannot be fixed.  `testing-run.sh` refuses a number already
+files under one NVR cannot be fixed.  The tooling refuses a number already
 used, and an rc of a version stable already reached.  `UNMASK_PRERELEASE` in the
 Makefile has how each format spells it.
 
@@ -158,7 +116,7 @@ left it inactive, and both channels share one signing key.
 ### The release after it
 
 A pre-release is never promoted.  The final is built, gated and signed by
-`tools/release-run.sh` as `<version>-1`, a name no testing build can take, and
+the release tooling as `<version>-1`, a name no testing build can take, and
 `promote-repo.sh` refuses anything whose Release is below 1.  (It still copies a
 confirmed *release-numbered* testing build into stable byte for byte -- the way
 this channel worked before pre-releases -- and everything below about promotion
@@ -197,10 +155,6 @@ and check what the tools say.
   for rpm (indexing re-signs them, so bytes never match twice), bytes for deb
   and apk -- and refuses on a mismatch.  Replacing a confirmed build on
   purpose requires saying so: `UNMASK_ALLOW_TESTING_MISMATCH=1`.
-- **`publish-repo.sh` runs `--delete-after`.**  Publishing stable excludes
-  `testing/` explicitly; without that it deletes the remote testing tree out
-  from under whoever is confirming a fix.  Each channel syncs only its own
-  subtree.
 - **The apt pin needs origin AND suite.**  `o=unmask` alone demotes stable too
   and ordinary upgrades stop; `a=testing` alone catches Debian's own testing
   suite.  Written by the `unmask-release` postinstall, verified against a real
@@ -209,7 +163,7 @@ and check what the tools say.
   abuild, and `build-repo.sh` here skips the apk stage while keeping whatever
   index was there -- so through rc1 and rc2 the testing apk index still listed
   0.1.24, and the post-publish check passed because it accepted any unmask it
-  could install.  `testing-run.sh` runs `make repo-apk` (as the release run does
+  could install.  A pre-release now runs `make repo-apk` (as the release does
   in its gate), and `verify-published.sh` now requires deb and apk to install
   the very version the rpm check did.
 - **`apk add` changes nothing about a package that is already installed.**  A
