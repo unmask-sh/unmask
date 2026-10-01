@@ -46,8 +46,8 @@ func TestReuseCapOnTheRateRoute(t *testing.T) {
 	}
 	jsonBody := func(t *testing.T, rr *httptest.ResponseRecorder) map[string]any {
 		t.Helper()
-		if rr.Code != http.StatusForbidden {
-			t.Fatalf("status %d, want 403", rr.Code)
+		if rr.Code != http.StatusTooManyRequests {
+			t.Fatalf("status %d, want 429 (every answer here comes off the rate path)", rr.Code)
 		}
 		var b map[string]any
 		if err := json.Unmarshal(rr.Body.Bytes(), &b); err != nil {
@@ -80,7 +80,7 @@ func TestReuseCapOnTheRateRoute(t *testing.T) {
 		if b := jsonBody(t, serve(h, bv, false)); b["error"] != "rate_limited" || b["reason"] != "reuse_limit" {
 			t.Errorf("deny over the cap: %v, want rate_limited / reuse_limit", b)
 		}
-		if page := serve(h, bv, true); page.Code != http.StatusForbidden || strings.Contains(page.Body.String(), "captcha_only") {
+		if page := serve(h, bv, true); page.Code != http.StatusTooManyRequests || strings.Contains(page.Body.String(), "captcha_only") {
 			t.Errorf("deny over the cap must serve the deny page, not a challenge (status %d)", page.Code)
 		}
 	})

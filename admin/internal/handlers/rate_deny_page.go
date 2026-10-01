@@ -8,7 +8,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// The deny-mode rate-limit page is the JS-free "hard cap" 403 a "deny" zone
+// The deny-mode rate-limit page is the JS-free "hard cap" 429 a "deny" zone
 // serves at /unmask/_rl... (see serveRateDeny).  Unlike the challenge page --
 // which localizes client-side via challenge.js's navigator.language -- this
 // page runs no JS, so it localizes SERVER-side from Accept-Language against the
@@ -453,7 +453,7 @@ func renderDenyPage(br settings.BrandingValues, m denyMsg, marker, theme, lang, 
 		CustomDarkText:  dc.DarkText,
 		Marker:          template.HTML(marker), //nolint:gosec // constant literal, no user input
 	}); err != nil {
-		return []byte(rateDenyFallback) // never expected; keep a 403 body regardless
+		return []byte(rateDenyFallback) // never expected; keep a deny body regardless
 	}
 	return buf.Bytes()
 }

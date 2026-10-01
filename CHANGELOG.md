@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-10-02) **A request stopped for its rate is answered 429 Too Many Requests.**  The CAPTCHA and the deny page of a rate-limit zone, the pass reuse cap and an ASN or country rate rule now carry 429 with Retry-After instead of 403, so monitoring that counted them as 403 sees 429.  Every other challenge stays 403: a page to pass, which clients do not retry on their own.
+
 ## [0.1.49-rc8] - 2026-10-02 (testing build)
 
 ### Since rc7
