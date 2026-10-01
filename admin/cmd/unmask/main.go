@@ -47,6 +47,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/privacypass"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
 	"github.com/unmask-sh/unmask/admin/internal/safe"
+	"github.com/unmask-sh/unmask/admin/internal/selabel"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 	"github.com/unmask-sh/unmask/admin/internal/webbotauth"
@@ -1092,19 +1093,28 @@ func openListener(s settings.Server) (net.Listener, string, error) {
 		if path == "" {
 			return nil, "", fmt.Errorf("unix socket path is empty (a path is required after `bind: unix:`)")
 		}
-		// stale socket cleanup.  If it's actually a socket file, unlink is safe.
-		if fi, err := os.Lstat(path); err == nil {
-			if fi.Mode()&os.ModeSocket != 0 {
-				if err := os.Remove(path); err != nil {
-					return nil, "", fmt.Errorf("remove stale socket %s: %w", path, err)
+		// Under SELinux the socket takes the web server's type: nginx may
+		// not connect to a socket of the daemon's own (selabel, which may
+		// run this twice).
+		var ln net.Listener
+		labelled, err := selabel.ForWebServer(func() (err error) {
+			// stale socket cleanup.  If it's actually a socket file, unlink is safe.
+			if fi, err := os.Lstat(path); err == nil {
+				if fi.Mode()&os.ModeSocket == 0 {
+					return fmt.Errorf("%s exists and is not a socket (refusing to overwrite another file; verify / remove manually)", path)
 				}
-			} else {
-				return nil, "", fmt.Errorf("%s exists and is not a socket (refusing to overwrite another file; verify / remove manually)", path)
+				if err := os.Remove(path); err != nil {
+					return fmt.Errorf("remove stale socket %s: %w", path, err)
+				}
 			}
-		}
-		ln, err := net.Listen("unix", path)
+			ln, err = net.Listen("unix", path)
+			return err
+		})
 		if err != nil {
 			return nil, "", err
+		}
+		if labelled {
+			log.Printf("listen: %s carries the web server's SELinux type (%s), so it may connect", path, selabel.WebServerType)
 		}
 		// Permissions.  Default 0660 (owner rw + group rw).  Include group rw
 		// so the nginx worker can read/write through group access.
