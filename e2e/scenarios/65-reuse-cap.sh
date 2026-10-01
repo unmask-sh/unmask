@@ -167,6 +167,11 @@ api=$(visit "$IP1" "$BV1" -H 'Sec-Fetch-Dest: empty' -H 'Sec-Fetch-Mode: cors')
 assert_in '"reason":"reuse_limit"' "$api" "an API client over the cap hears reuse_limit"
 # Solving the proof-of-work again gets a new pass, not a new budget: the cap
 # counts the address, so the fresh cookie is over it from its first request.
+# A challenge is keyed on the second it is issued in (the seed is), so one
+# asked for within the same second as the first IS the first, and solves to
+# the same cookie: on a fast runner the forty requests above fit in that
+# second.  Wait for the next one before asking again.
+while [ "$(date +%s)" -le "${BV1%%.*}" ]; do sleep 0.1; done
 BV1B=$(get_pass "$IP1")
 if [ -n "$BV1B" ] && [ "$BV1B" != "$BV1" ]; then
     fresh=$(visit "$IP1" "$BV1B" -H 'Sec-Fetch-Dest: empty' -H 'Sec-Fetch-Mode: cors')
