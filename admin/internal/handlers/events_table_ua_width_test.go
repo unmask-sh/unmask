@@ -40,8 +40,14 @@ func TestEventsTableUARendersSummaryWithFullValueForPopover(t *testing.T) {
 	// TestHuntMarksCrawlerRows.  (The cell innards live in the shared
 	// "ua_cell" define, whose dot is the raw UA string -- the stats page
 	// renders the same define, see TestStatsUAColumnsShareTheHuntCell.)
-	if !strings.Contains(tpl, `{{ $br }}{{ else }}{{ . }}{{ end }}`) {
+	if !strings.Contains(tpl, `{{ $br }}{{ end }}{{ else }}{{ . }}{{ end }}`) {
 		t.Error("a non-summarisable UA must fall back to the raw string in the cell")
+	}
+	// A browser far behind its current release has its name highlighted and
+	// says how far behind; every other browser renders as before (see
+	// ua_old_test.go for the reading itself).
+	if !strings.Contains(tpl, `{{ with uaOld $uaShort }}<span class="ua-old">{{ $br }}<span class="ua-lag">{{ . }}</span></span>{{ else }}{{ $br }}{{ end }}`) {
+		t.Error("the browser half no longer carries the old-version mark")
 	}
 	// Each half of the summary carries its own marker, in front of its own
 	// text: the platform glyph before the platform, the browser mark before

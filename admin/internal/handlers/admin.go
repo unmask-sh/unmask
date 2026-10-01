@@ -368,6 +368,12 @@ func loadDashboardTemplate() (*template.Template, error) {
 				_, b := classify.UASummaryParts(sum)
 				return b
 			},
+			// uaOld: the mark a UA cell puts on a browser that is far behind
+			// its current release ("−41"), or one that no longer ships
+			// ("EOL"); "" for the rest.  uaOldNote says the same in a
+			// sentence, for the cell's popover.  See uaOldBadge.
+			"uaOld":     uaOldBadge,
+			"uaOldNote": uaOldNote,
 			// uaBotKind: "" (not a bot) | "listed" | "self".
 			//
 			// The two are worth telling apart.  A LISTED crawler is one whose
@@ -2141,6 +2147,9 @@ type streamRow struct {
 	ASNOrg      string `json:"asn_org,omitempty"`
 	ASN         uint   `json:"asn,omitempty"`
 	UAShort     string `json:"ua_short,omitempty"`
+	// UAOld: the old-browser mark the static rows show (uaOldBadge), so a
+	// row that arrives over the tail is marked like the ones below it.
+	UAOld string `json:"ua_old,omitempty"`
 }
 
 func (h *Handler) AdminEventsStream(w http.ResponseWriter, r *http.Request) {
@@ -2230,6 +2239,7 @@ func (h *Handler) AdminEventsStream(w http.ResponseWriter, r *http.Request) {
 				// the reader caches internally.  An unloaded geo DB yields ""
 				// and the client draws the unknown flag, as the table does.
 				sr := streamRow{Row: row, UAShort: classify.UASummary(row.UA)}
+				sr.UAOld = uaOldBadge(sr.UAShort)
 				if h.IPGeo != nil && row.IP != "" {
 					info := h.IPGeo.LookupInfo(row.IP)
 					sr.CountryCode, sr.ASN, sr.ASNOrg = info.Country, info.ASN, info.ASNOrg

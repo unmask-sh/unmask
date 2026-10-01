@@ -1197,6 +1197,58 @@ func isVersionTail(s string) bool {
 	return digit
 }
 
+// UABrowserLag reads, off a UA summary, how far the browser it names trails
+// that browser's current stable release: lag in major versions, or ended for
+// a browser that no longer ships at all (Internet Explorer).  Zero and false
+// for everything else, a current browser included.
+//
+// The events table shows the version because unmask's decisions turn on it,
+// but a number alone asks the reader to know what today's release is.  This
+// is the other half: with it the table can mark the rows whose browser is far
+// behind, which is where a client that pins one old build -- a scraper with a
+// hard-coded UA -- stands out from visitors whose browsers update themselves.
+//
+// Only the browsers whose shown number IS the release counter are read:
+// Chrome and Edge against the Chromium baseline, Firefox against its own.
+// Samsung Internet, Opera and the in-app browsers number their releases
+// themselves and trail Chromium by design, so their figure says nothing about
+// age; Safari's is tied to the OS.  A Firefox ESR in support trails stable on
+// purpose and is not behind.  A version at or past the baseline is current as
+// far as anyone here can tell.
+//
+// It reads the SUMMARY, like the icon functions, so the mark can never
+// disagree with the text beside it.
+func UABrowserLag(summary string, curChrome, curFirefox int, ffESR []int) (lag int, ended bool) {
+	_, b := UASummaryParts(summary)
+	name := uaBrowserName(b)
+	major := 0
+	if len(b) > len(name) {
+		v := b[len(name)+1:]
+		if i := strings.IndexByte(v, '.'); i >= 0 {
+			v = v[:i]
+		}
+		major, _ = strconv.Atoi(v)
+	}
+	cur := 0
+	switch name {
+	case "IE", "Trident":
+		return 0, true
+	case "Chrome", "Edge":
+		cur = curChrome
+	case "Firefox":
+		for _, esr := range ffESR {
+			if esr > 0 && major == esr {
+				return 0, false
+			}
+		}
+		cur = curFirefox
+	}
+	if cur <= 0 || major <= 0 || major >= cur {
+		return 0, false
+	}
+	return cur - major, false
+}
+
 // UABrowserIcon returns the id of the sprite symbol drawn for a browser, or ""
 // when there is no drawn icon for it.  Only the browsers that actually carry
 // the traffic get one -- Chrome, Edge, Firefox and Safari are nearly all of

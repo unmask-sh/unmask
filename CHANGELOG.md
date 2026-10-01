@@ -15,6 +15,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- (2026-10-01) **Old browser versions stand out in the hunt log and the stats page.**  A UA cell shows the version a browser claims, but whether Chrome 109 is last month's release or one from years ago was left to the reader.  A Chrome, Edge or Firefox ten or more releases behind the current one now has its name highlighted with the count beside it, and Internet Explorer says EOL.  A reading aid: no decision uses it.
+
 - (2026-10-01) **A cap on reusing one pass.**  A visitor who passed the challenge was counted by no rate limit while its cookie lived, so a scraper running a real browser could solve one proof-of-work and fetch without limit on every node.  The cap counts only requests carrying a valid pass, per address: by default 10,000 a day, 2,000 at once.  Over it, every request needs a CAPTCHA, or is denied.
 
 - (2026-09-30) **A bypass preset for Git over HTTP.**  Behind unmask, `git clone`, fetch, push and Git LFS against a Git forge failed, because the git client cannot solve a challenge.  The new preset under Bypass paths, off by default, lets those requests through by their Git endpoints, while the forge's web pages stay behind the challenge.

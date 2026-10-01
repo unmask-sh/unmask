@@ -70,6 +70,14 @@
    the browser marks are brand-coloured because they identify a brand; this
    one only says "bot", which the badge already says in colour. */
 .ua-bi-bot{color:#92400e;margin-right:.2rem}
+/* A browser far behind its current release (uaOld): the name and version it
+   claims, highlighted, followed by how many releases behind ("−41") or
+   "EOL".  The highlight sits on the name itself rather than in a badge after
+   it: the UA column clips at its end, and a mark that can be clipped away is
+   no mark.  The warning colour of the listed-bot badge -- both say "look at
+   this row" -- on the browser half only, so the two do not read alike. */
+.ua-old{background:#fef3c7;color:#92400e;border-radius:.2rem;padding:0 .2rem}
+.ua-lag{margin-left:.3rem;font-size:.85em;font-weight:600;font-variant-numeric:tabular-nums}
 /* Summary heading shown on HOVER only (the pinned clone carries it in the
    title bar, where the copy button cannot reach it).  Rides ua_assets because
    the stats page's UA popovers carry the same heading. */
@@ -166,10 +174,11 @@
 {{ end }}
 {{/* ua_cell: one UA rendered as the hunt table shows it -- bot badge, or
      platform glyph + name + browser mark + name, or the raw string when
-     nothing summarises.  Takes the raw UA; the caller keeps the td (class,
-     data-full-value for the popover, notes).  Shared with the stats page
-     so every UA column speaks one language. */}}
-{{ define "ua_cell" }}{{ $uaShort := uaSummary . }}{{ $uaBot := uaBotKind . }}{{ if . }}{{ if $uaBot }}<span class="ua-bot ua-bot-{{ $uaBot }}"><svg class="ua-bi ua-bi-bot" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-bot"/></svg>{{ $uaShort }}</span>{{ else if $uaShort }}{{ $plat := uaSummaryPlat $uaShort }}{{ $br := uaSummaryBrowser $uaShort }}{{ with uaPlatformIcon $uaShort }}<span class="ua-os" aria-hidden="true">{{ . }}</span>{{ end }}{{ if $plat }}{{ $plat }} · {{ end }}{{ with uaBrowserIcon $uaShort }}<svg class="ua-bi" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-{{ . }}"/></svg>{{ else }}{{ with uaBrowserColor $uaShort }}<span class="ua-br" aria-hidden="true" style="background:{{ . }}"></span>{{ end }}{{ end }}{{ $br }}{{ else }}{{ . }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}{{ end }}
+     nothing summarises.  A browser far behind its current release has its
+     name highlighted, with how far behind (uaOld).  Takes the raw UA; the
+     caller keeps the td (class, data-full-value for the popover, notes).
+     Shared with the stats page so every UA column speaks one language. */}}
+{{ define "ua_cell" }}{{ $uaShort := uaSummary . }}{{ $uaBot := uaBotKind . }}{{ if . }}{{ if $uaBot }}<span class="ua-bot ua-bot-{{ $uaBot }}"><svg class="ua-bi ua-bi-bot" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-bot"/></svg>{{ $uaShort }}</span>{{ else if $uaShort }}{{ $plat := uaSummaryPlat $uaShort }}{{ $br := uaSummaryBrowser $uaShort }}{{ with uaPlatformIcon $uaShort }}<span class="ua-os" aria-hidden="true">{{ . }}</span>{{ end }}{{ if $plat }}{{ $plat }} · {{ end }}{{ with uaBrowserIcon $uaShort }}<svg class="ua-bi" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-{{ . }}"/></svg>{{ else }}{{ with uaBrowserColor $uaShort }}<span class="ua-br" aria-hidden="true" style="background:{{ . }}"></span>{{ end }}{{ end }}{{ with uaOld $uaShort }}<span class="ua-old">{{ $br }}<span class="ua-lag">{{ . }}</span></span>{{ else }}{{ $br }}{{ end }}{{ else }}{{ . }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}{{ end }}
 {{ define "events_table_block" }}
 {{/* lb-warn-badge: per-row warning emitted by the events partial itself.
      Inline so the partial doesn't depend on the host page (= overview /
@@ -406,6 +415,7 @@
         {{ if eq $kind "range" }}{{ $botNote = t $.Lang "hunt.ua.bot_range_failed" }}
         {{ else if eq $kind "challenged" }}{{ $botNote = t $.Lang "hunt.ua.bot_challenged" }}
         {{ else }}{{ $botNote = t $.Lang "hunt.ua.bot_listed" }}{{ end }}
+      {{ else }}{{/* not a bot: the old-browser mark's sentence, when the cell carries the mark */}}{{ $botNote = uaOldNote $.Lang .UA }}
       {{ end }}
       <td class="ua{{ if .UA }} cellpop{{ end }}"{{ if $uaShort }} data-full-value="{{ .UA }}"{{ end }}{{ with $botNote }} data-note="{{ . }}"{{ end }}>{{ template "ua_cell" .UA }}</td>
       {{ if not $.HideActions }}
