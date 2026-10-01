@@ -1,6 +1,6 @@
 #!/bin/bash
-# 17: non-GET requests routed to the challenge endpoint get a JSON 403, not
-# a 405 "Method Not Allowed".
+# 17: non-GET requests routed to the challenge endpoint get a JSON challenge
+# (403, or 429 off the rate path), not a 405 "Method Not Allowed".
 #
 # Regression for the pre-v0.1 405 leak: the `/unmask/_rl/` and
 # `/unmask/challenge/` routes were registered as `GET` only, so a POST
@@ -16,11 +16,12 @@
 #   - browser navigation (= Sec-Fetch-Dest: document / Accept: text/html)
 #     -> HTML challenge (= same as before for human visitors)
 #   - XHR / fetch (= Sec-Fetch-Dest: empty, Sec-Fetch-Mode: cors, etc.)
-#     -> JSON 403 with `{error, challenge_url, retry_after, reason}`
+#     -> JSON with `{error, challenge_url, retry_after, reason}`, 403 -- or
+#        429 Too Many Requests on the rate path (/unmask/_rl/...)
 #
 # Test plan:
-#   (a) POST directly to /unmask/_rl/api/foo as a fetch client -> 403 + JSON
-#   (b) Same path as a browser navigation -> 403 + text/html (= unchanged)
+#   (a) POST directly to /unmask/_rl/api/foo as a fetch client -> 429 + JSON
+#   (b) Same path as a browser navigation -> 429 + text/html
 #   (c) Status MUST NOT be 405 in either case (= guards against re-introducing
 #       the method gate)
 
@@ -47,8 +48,8 @@ if [ "$code_api" = "405" ]; then
     log_fail "API client POST returned 405 (= GET-only route regression)"
     exit 1
 fi
-if [ "$code_api" != "403" ]; then
-    log_fail "API client POST: expected 403, got $code_api"
+if [ "$code_api" != "429" ]; then
+    log_fail "API client POST on the rate path: expected 429, got $code_api"
     cat "$tmpdir/api.body" | head -c 200 >&2; echo >&2
     exit 1
 fi
@@ -75,7 +76,7 @@ if ! grep -q '_orig=%2Fapi%2Ffoo' "$tmpdir/api.body"; then
     head -c 400 "$tmpdir/api.body" >&2; echo >&2
     exit 1
 fi
-log_pass "(a) API fetch -> 403 JSON with challenge_required + challenge_url + orig"
+log_pass "(a) API fetch on the rate path -> 429 JSON with challenge_required + challenge_url + orig"
 
 # (b) Browser navigation (= Sec-Fetch-Dest: document) keeps HTML challenge.
 code_html=$(curl -sk -o "$tmpdir/html.body" -w '%{http_code}' \
@@ -90,8 +91,8 @@ if [ "$code_html" = "405" ]; then
     log_fail "Browser GET returned 405 (= regression)"
     exit 1
 fi
-if [ "$code_html" != "403" ]; then
-    log_fail "Browser GET: expected 403, got $code_html"
+if [ "$code_html" != "429" ]; then
+    log_fail "Browser GET on the rate path: expected 429, got $code_html"
     exit 1
 fi
 # HTML body shape — challenge.html embeds window.UNMASK.
@@ -100,7 +101,7 @@ if ! grep -qE 'window\.UNMASK|<!doctype html>' "$tmpdir/html.body"; then
     head -c 400 "$tmpdir/html.body" >&2; echo >&2
     exit 1
 fi
-log_pass "(b) Browser navigation -> 403 HTML challenge (unchanged path)"
+log_pass "(b) Browser navigation on the rate path -> 429 HTML challenge"
 
 # (c) Method gate guard: try a handful of methods on /unmask/challenge/.
 # All must avoid 405; the API ones must come back JSON, the HTML ones HTML.

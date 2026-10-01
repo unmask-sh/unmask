@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/captcha"
 	"github.com/unmask-sh/unmask/admin/internal/db"
@@ -500,10 +501,10 @@ func TestIsHTMLNavigation(t *testing.T) {
 	}
 }
 
-// TestServeChallengeOrJSON_NonHTMLClient verifies the JSON 403 path: API
+// TestServeChallengeOrJSON_NonHTMLClient verifies the JSON path: API
 // client gets application/json with a parseable body carrying challenge_url,
-// retry_after, and reason.  This is the regression guard against the
-// pre-v0.1 405 + "Method Not Allowed" leak.
+// retry_after, and reason -- here off the rate path, so with 429.  This is
+// the regression guard against the pre-v0.1 405 + "Method Not Allowed" leak.
 func TestServeChallengeOrJSON_NonHTMLClient(t *testing.T) {
 	h := newTestHandler(t)
 	req := httptest.NewRequest(http.MethodPost, "/unmask/_rl/api/foo", strings.NewReader(`{"any":"body"}`))
@@ -515,8 +516,8 @@ func TestServeChallengeOrJSON_NonHTMLClient(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.ServeChallengeOrJSON(rr, req)
 
-	if rr.Code != http.StatusForbidden {
-		t.Fatalf("status: got %d want 403", rr.Code)
+	if rr.Code != http.StatusTooManyRequests {
+		t.Fatalf("status: got %d want 429 (the request came off the rate path)", rr.Code)
 	}
 	if ct := rr.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
 		t.Errorf("Content-Type = %q, want application/json*", ct)
@@ -547,6 +548,51 @@ func TestServeChallengeOrJSON_NonHTMLClient(t *testing.T) {
 	}
 	if body["retry_after"].(float64) != 600 {
 		t.Errorf("retry_after = %v, want 600", body["retry_after"])
+	}
+}
+
+// TestChallengeStatusByPath pins which challenge answers 429: the one that
+// came off the rate path (/_rl/), in either form.  Every other challenge stays
+// 403 -- a page to pass, not a request to come back later, which curl --retry
+// and crawler frameworks would act on by themselves.
+func TestChallengeStatusByPath(t *testing.T) {
+	h := newTestHandler(t)
+	for _, tc := range []struct {
+		name, path string
+		page       bool
+		want       int
+	}{
+		{"page", "/unmask/challenge/?_orig=%2Fdocs%2F", true, http.StatusForbidden},
+		{"page off the rate path", "/unmask/_rl/docs/", true, http.StatusTooManyRequests},
+		{"api", "/unmask/challenge/?_orig=%2Fapi%2Ffoo", false, http.StatusForbidden},
+		{"api off the rate path", "/unmask/_rl/api/foo", false, http.StatusTooManyRequests},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+			if tc.page {
+				req.Header.Set("Sec-Fetch-Dest", "document")
+			} else {
+				req.Header.Set("Sec-Fetch-Dest", "empty")
+				req.Header.Set("Sec-Fetch-Mode", "cors")
+			}
+			req.Header.Set("X-Real-IP", "192.0.2.10")
+			rr := httptest.NewRecorder()
+			h.ServeChallengeOrJSON(rr, req)
+			if rr.Code != tc.want {
+				t.Errorf("status %d, want %d", rr.Code, tc.want)
+			}
+			if rr.Header().Get("Retry-After") == "" {
+				t.Error("no Retry-After")
+			}
+		})
+	}
+	// Each answer records its serve event from a goroutine of its own; wait
+	// for the four so none is still writing when the test's database goes.
+	deadline := time.Now().Add(5 * time.Second)
+	for n := 0; n < 4 && time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		if err := h.DB.QueryRow(`SELECT COUNT(*) FROM unmask_event WHERE phase = 'serve'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 

@@ -147,17 +147,17 @@ first_over=""
 for i in $(seq 1 40); do
     code=$(visit "$IP1" "$BV1" -o "$WORK/body.$i" -w '%{http_code}')
     echo "$code" >> "$WORK/codes"
-    if [ "$code" = 403 ] && [ -z "$first_over" ]; then first_over=$i; fi
+    if [ "$code" = 429 ] && [ -z "$first_over" ]; then first_over=$i; fi
 done
 n200=$(grep -c '^200$' "$WORK/codes")
-n403=$(grep -c '^403$' "$WORK/codes")
-log_note "65 reuse cap: one pass reused 40 times -> ${n200} passed, ${n403} challenged (budget: ${BUDGET_BURST} at once, one a minute)"
+n429=$(grep -c '^429$' "$WORK/codes")
+log_note "65 reuse cap: one pass reused 40 times -> ${n200} passed, ${n429} stopped with 429 (budget: ${BUDGET_BURST} at once, one a minute)"
 if [ "$n200" -ge "$BUDGET_BURST" ] && [ "$n200" -le $((BUDGET_BURST + 2)) ]; then
     log_pass "the pass carries its holder through the budget ($n200 x 200) and no further"
 else
     log_fail "expected about $((BUDGET_BURST + 1)) passes before the cap, got $n200 (codes: $(tr '\n' ' ' < "$WORK/codes"))"
 fi
-assert_eq $((40 - n200)) "$n403" "every request over the budget is stopped (403)"
+assert_eq $((40 - n200)) "$n429" "every request over the budget is stopped with 429 Too Many Requests"
 if [ -n "$first_over" ]; then
     over_body=$(cat "$WORK/body.$first_over")
     assert_in '"reuse_limit"' "$over_body" "the challenge over the cap is recorded as reuse_limit"
@@ -199,7 +199,7 @@ fi
 deny=""
 for i in 1 2 3 4 5; do
     r=$(visit "$IP1" "$BV1" -H 'Sec-Fetch-Dest: empty' -H 'Sec-Fetch-Mode: cors' -w '|%{http_code}')
-    if [ "${r##*|}" = 403 ]; then deny="${r%|*}"; break; fi
+    if [ "${r##*|}" = 429 ]; then deny="${r%|*}"; break; fi
 done
 assert_in '"error":"rate_limited"' "$deny" "with action deny, the address over the cap gets the deny response"
 assert_in '"reason":"reuse_limit"' "$deny" "recorded as reuse_limit"

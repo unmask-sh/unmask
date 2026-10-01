@@ -576,7 +576,7 @@ func stripOrKeepCredit(body []byte, show bool) []byte {
 // they can redirect the user to.
 func (h *Handler) ServeChallengeOrJSON(w http.ResponseWriter, r *http.Request) {
 	// A "deny"-mode rate-limit zone is a HARD CAP: over the limit it returns a
-	// 403 deny, NOT a challenge.  The native rate-limit hit arrives here as
+	// 429 deny, NOT a challenge.  The native rate-limit hit arrives here as
 	// /unmask/_rl<orig URI>; resolve the matched zone from that URI and
 	// short-circuit before any challenge render -- otherwise a flooding client
 	// (including a _bv holder, whom the deny zone counts via $rate_limit_key_deny)
@@ -664,9 +664,11 @@ func isHTMLNavigation(r *http.Request) bool {
 	}
 }
 
-// serveChallengeJSON returns a 403 + JSON body to an API client.  Records the
-// same event as ServeChallenge (= dashboard sees the challenge fire), so
-// operators can tell which paths are blocking real XHR / fetch traffic.
+// serveChallengeJSON returns a JSON body to an API client: 403, or 429 Too
+// Many Requests when the request came off the rate path (/_rl/), as the HTML
+// challenge does.  Records the same event as ServeChallenge (= dashboard sees
+// the challenge fire), so operators can tell which paths are blocking real
+// XHR / fetch traffic.
 //
 // The body shape is small and stable:
 //
@@ -785,11 +787,15 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 
 	// Same response headers as the HTML challenge so reverse-proxy logs /
 	// CDN policies treat both responses identically.
+	status := http.StatusForbidden
+	if rl == 1 {
+		status = http.StatusTooManyRequests
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	w.Header().Set("Retry-After", "600")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
-	w.WriteHeader(http.StatusForbidden)
+	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"error":         "challenge_required",
 		"challenge_url": chURL,
@@ -804,7 +810,8 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 // Unlike a challenge serve it offers NO escape hatch (no PoW / CAPTCHA): the
 // limit already counts _bv holders, so handing out a fresh challenge would just
 // sell more requests.  Browsers get the tiny self-contained page above; API
-// clients get a stable JSON body.  Both are 403.  A serve event is recorded
+// clients get a stable JSON body.  Both are 429 Too Many Requests: the cap is
+// a rate, and Retry-After says when to come back.  A serve event is recorded
 // (payload.deny=1) so the dashboard funnel still counts the block.
 func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site, reason string) {
 	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
@@ -839,7 +846,7 @@ func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site, re
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
 	if !isHTMLNavigation(r) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(http.StatusForbidden)
+		w.WriteHeader(http.StatusTooManyRequests)
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"error":       "rate_limited",
 			"reason":      reason,
@@ -851,7 +858,7 @@ func (h *Handler) serveRateDeny(w http.ResponseWriter, r *http.Request, site, re
 	br := cfg.Branding.Resolve(site)
 	preset := br.ResolvedDenyRateCopyPreset()
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusForbidden)
+	w.WriteHeader(http.StatusTooManyRequests)
 	_, _ = w.Write(renderRateDenyC(br, preset, br.ResolvedDenyRateTheme(), r.Header.Get("Accept-Language"), h.basePath(), ref, denyColorsRate(br)))
 }
 
@@ -1959,9 +1966,18 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// Challenge returns 403 by default (Cloudflare-compatible; 5xx would skew
-	// site-health metrics tied to uptime monitoring).
+	// The challenge answers 403: a page to pass, not a failure (5xx would skew
+	// site-health metrics tied to uptime monitoring), and not an invitation to
+	// retry -- curl --retry and crawler frameworks retry a 429 on their own,
+	// and a client that runs no JS never passes however often it returns.  A
+	// request that came off the rate path (/_rl/) answers 429 instead: it was
+	// stopped for its rate, and Retry-After says when to come back.  Privacy
+	// Pass, below, still answers 401 on either path, the status a PAT client
+	// acts on.
 	status := http.StatusForbidden
+	if rl == "1" {
+		status = http.StatusTooManyRequests
+	}
 	// Privacy Pass / PAT (RFC 9577): when enabled, advertise a PrivateToken
 	// challenge bound to this origin and switch the status to 401 -- PAT-capable
 	// clients (Safari / iOS) intercept the 401, mint a token, and retry (passing
