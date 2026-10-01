@@ -364,6 +364,21 @@ for n in range(12):
         (bytes([203, 0, 113, 101 + n]), n))
 c.commit()
 
+# The old-browser mark (ua-old.test.js): a Chrome release from 2021, an
+# Internet Explorer, and a Chrome numbered past any baseline the binary will
+# ever ship with -- so the three read the same whatever today's release is.
+for bt, ua in [
+        ("uiOldChrome", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"),
+        ("uiOldIE", "Mozilla/5.0 (Windows NT 10.0; WOW64; Trident/7.0; rv:11.0) like Gecko"),
+        ("uiNewChrome", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/999.0.0.0 Safari/537.36")]:
+    c.execute("""INSERT INTO unmask_event
+        (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
+         phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+        VALUES ('','','https',443,x'7f000001',?,'t13d_uaold','',0,
+                'serve',0,0,'','',?, datetime('now','-50 seconds'))""",
+        (ua, json.dumps({"bt": bt}, separators=(',', ':'))))
+c.commit()
+
 # Four sessions for the referer lookup (referer-on-click.test.js).  Where a
 # visitor came from is recorded on the serve and on nothing after it, so a view
 # filtered to the passes shows these sessions as one bare row each -- the shape
