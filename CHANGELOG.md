@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [0.1.49-rc8] - 2026-10-02 (testing build)
+
+### Since rc7
+
+- The old-version mark shows how far behind a browser is as a small badge on the upper right corner of its name, in place of a number beside it.
+
 ## [0.1.49-rc7] - 2026-10-01 (testing build)
 
 ### Since rc6
