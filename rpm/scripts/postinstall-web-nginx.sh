@@ -189,7 +189,8 @@ fi
 #
 # /run/unmask is recreated with the default label on every START of the unit,
 # not only at boot: unmask.service has RuntimeDirectory=unmask, which systemd
-# removes on stop and creates afresh on start.  So the drop-in has to be in
+# removes on stop and creates afresh on start (a restart keeps it where the
+# unmask package's log-socket drop-in is in place).  So the drop-in has to be in
 # place for every start, and the daemon is never restarted from here -- the
 # chcon below labels the directory the running daemon has now, and the drop-in
 # covers each start after it.  A restart here used to follow the unmask

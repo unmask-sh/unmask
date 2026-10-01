@@ -43,6 +43,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-01) **The maintenance commands find a daemon that listens on a unix socket.**  With `bind: unix:/path` -- or a `socket_mode` left in the config after a switch back to TCP -- `unmask db-prune` took the running daemon for stopped and worked beside it, and `unmask db-vacuum` began compacting without waiting for the daemon to hold its writes.  Both now look where the daemon listens.
 
+- (2026-10-01) **A restart of the daemon no longer cuts nginx's access-log connection.**  nginx's workers stay connected to the log socket, so a daemon that bound a new one on every start lost each worker's first line after a restart, and every line logged while it was down.  Where systemd is 236 or later the socket now outlives the restart: what nginx logs meanwhile waits in it, and the next start reads on.
+
 - (2026-10-01) **Saving the rate-limit tab returns to the rate-limit tab.**  The save named the tab `rate_limit`, while its address is `rate-limit`, so the redirect after a save landed on the settings overview, away from the rows just edited.  Every settings form now comes back to its own tab, and a test checks each of them.
 
 - (2026-10-01) **Web Bot Auth and Privacy Pass are no longer described as forward-auth only.**  Their settings said the check ran only in forward-auth mode, but the nginx module sends a request that carries a signature or a token, and is about to be challenged, to the daemon for the check.  Both work with the module on your own nginx and in the gateway container.

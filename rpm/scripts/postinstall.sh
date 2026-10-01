@@ -169,6 +169,39 @@ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
         fi
     } > "$DROP_IN/10-group.conf"
 
+    # nginx's access-log socket over a restart of the daemon
+    # (admin/internal/nginxlog/handover.go): the daemon hands it to systemd
+    # and takes it back on the next start, and the directory it is bound in is
+    # kept.  nginx's workers stay connected, and what they log during the
+    # restart waits in the socket instead of being refused.  From systemd 236
+    # only: its FDSTOREREMOVE lets a socket bound afresh replace the stored
+    # one.  Without it a stale socket would stay alive, with nginx's workers
+    # connected to it and nobody reading.
+    #
+    # The same must not happen with a binary from before the handover in this
+    # one's place (a downgrade, a copy by hand): it would be handed the kept
+    # socket and hold it unread.  So before every start the unit looks for the
+    # daemon's marker in the binary about to run and, when it is not there,
+    # takes the socket out of the store first (NotifyAccess=exec lets that
+    # command speak; `exec` makes it the unit's own control process).
+    SYSTEMD_VER=$(systemctl --version 2>/dev/null | sed -n '1s/^systemd \([0-9][0-9]*\).*/\1/p')
+    if [ "${SYSTEMD_VER:-0}" -ge 236 ] 2>/dev/null; then
+        {
+            echo "[Service]"
+            echo "# Written by the unmask package (systemd 236 or later): nginx's access-log"
+            echo "# socket outlives a restart of the daemon -- systemd keeps it and hands it"
+            echo "# back -- so nginx's workers stay connected and lose nothing meanwhile."
+            echo "NotifyAccess=exec"
+            echo "FileDescriptorStoreMax=1"
+            echo "RuntimeDirectoryPreserve=restart"
+            echo "Environment=UNMASK_LOG_HANDOVER=1"
+            echo "# A binary without the handover is not handed the kept socket."
+            echo "ExecStartPre=-/bin/sh -c 'grep -q UNMASK_LOG_HANDOVER /usr/sbin/unmask || exec systemd-notify FDSTOREREMOVE=1 FDNAME=nginxlog'"
+        } > "$DROP_IN/20-log-handover.conf"
+    else
+        rm -f "$DROP_IN/20-log-handover.conf"
+    fi
+
     systemctl daemon-reload || true
     if [ "${1:-}" = "1" ] || { [ "${1:-}" = "configure" ] && [ -z "${2:-}" ]; } || [ -d /lib/apk ]; then
         # Enable for boot on a fresh install: rpm $1=1, or deb "configure" with

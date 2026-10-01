@@ -41,11 +41,13 @@ jobs:
       # The package scripts are shell that the package manager runs as root,
       # out of reach of every Go test.  These run them for real against a
       # throwaway root: the daemon's (re)start per init system and packager,
-      # and unmask-web-nginx's SELinux drop-in across install, upgrade and
-      # removal, and its setup banner.
+      # the drop-in that keeps nginx's log socket over a restart (and its
+      # removal on a downgrade), and unmask-web-nginx's SELinux drop-in across
+      # install, upgrade and removal, and its setup banner.
       - name: package scripts
         run: |
           bash rpm/scripts/postinstall_test.sh
+          bash rpm/scripts/postremove_test.sh
           bash rpm/scripts/postinstall-web-nginx_test.sh
       - name: gofmt
         working-directory: admin

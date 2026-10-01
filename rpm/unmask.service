@@ -23,6 +23,10 @@ ExecStart=/usr/sbin/unmask serve
 # them at bind).  0750 left the unix-socket admin bind 502ing whenever
 # nginx_log was off, because nginxlog.Start was the only code path that
 # widened the directory.
+# Where systemd is 236 or later the package adds a drop-in
+# (unmask.service.d/20-log-handover.conf, rpm/scripts/postinstall.sh) that
+# keeps the directory and the log socket over a restart, so nginx's workers
+# stay connected through it; a stop still removes both.
 RuntimeDirectory=unmask
 RuntimeDirectoryMode=0755
 
