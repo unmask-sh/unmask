@@ -42,7 +42,9 @@ func TestAuditAndSignInWaitForTheLock(t *testing.T) {
 	t0 := time.Now()
 	r.Record(ctx, u.ID, "hana", "settings_save", "network", `{"diff":"x"}`)
 	r.TouchLastLogin(ctx, u.ID)
-	if took := time.Since(t0); took > 200*time.Millisecond {
+	// Waiting would mean the busy timeout, five seconds; a second leaves room
+	// for a loaded runner without letting that through.
+	if took := time.Since(t0); took > time.Second {
 		t.Errorf("recording took %v under the hold", took)
 	}
 	if n := rows(); n != 0 {

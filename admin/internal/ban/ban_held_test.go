@@ -45,7 +45,10 @@ func TestAutomaticBanWaitsForHeldWrites(t *testing.T) {
 	t0 := time.Now()
 	mgr.AddWithSourceAction(context.Background(), "203.0.113.30", "t13d_x", SourceHoneypot, "trap /wp-login.php", "", "deny")
 	mgr.AddWithSourceAction(context.Background(), "203.0.113.31", "", SourceHoneypot, "trap /.env", "", "")
-	if took := time.Since(t0); took > 200*time.Millisecond {
+	// A write that waited would sit out the busy timeout, five seconds.  The
+	// bound is a second and not a few hundred milliseconds: a loaded CI runner
+	// has stalled this for longer than that with nothing waiting at all.
+	if took := time.Since(t0); took > time.Second {
 		t.Errorf("two bans took %v while writes were held; they must not wait for the lock", took)
 	}
 	if n := rows(); n != 0 {

@@ -19,7 +19,9 @@ func TestRebindRefusedAtOnceWhileWritesAreHeld(t *testing.T) {
 	if ok || !errors.Is(err, ErrWritesHeld) {
 		t.Fatalf("RebindAllow = (%v, %v), want refused with ErrWritesHeld", ok, err)
 	}
-	if took := time.Since(t0); took > 200*time.Millisecond {
+	// Waiting would mean the busy timeout, five seconds; a second leaves room
+	// for a loaded runner without letting that through.
+	if took := time.Since(t0); took > time.Second {
 		t.Errorf("the refusal took %v; it must not wait for the lock", took)
 	}
 	var n int
