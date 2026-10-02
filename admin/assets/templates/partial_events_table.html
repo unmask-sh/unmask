@@ -80,13 +80,51 @@
    The badge stays inside the line (vertical-align: top, no offset above
    it): several of the cells that show it clip their overflow, and one that
    pokes out of the line is cut off there.  It overlaps the name's padding
-   by a hair, with a thin light ring, so the two read as one mark; .ua-old
-   keeps them on one line where the text around them wraps.
+   by a hair, with a thin light edge between them, so the two read as one
+   mark; .ua-old keeps them on one line where the text around them wraps.
    The warning colour of the listed-bot badge -- both say "look at this
    row" -- on the browser half only, so the two do not read alike. */
 .ua-old{white-space:nowrap}
 .ua-old-n{background:#fef3c7;color:#92400e;border-radius:.2rem;padding:0 .18rem}
-.ua-lag{display:inline-block;vertical-align:top;margin-left:-.16rem;padding:0 .16rem;border-radius:.45rem;background:#fde68a;color:#92400e;box-shadow:0 0 0 1px #fff;font-size:.55rem;line-height:.74rem;font-weight:700;font-variant-numeric:tabular-nums}
+.ua-lag{display:inline-block;vertical-align:top;margin-left:calc(-.16rem - 1px);padding:0 .13rem;border:1px solid transparent;border-left-color:#fff;border-radius:.5rem;background:#fde68a;background-clip:padding-box;color:#92400e;font-size:.55rem;line-height:.74rem;font-weight:700;font-variant-numeric:tabular-nums}
+/* In a cell that clips, the badge is the first thing to go.  Left in the
+   line it took the version with it: a cell wide enough for "Chrome 109" but
+   not for the badge was cut with an ellipsis, and an ellipsis needs room of
+   its own, so the cell read "Chrome 1..." -- the number the mark is about,
+   lost to the mark.
+   So a marked cell is a row of two boxes (.ua-fit): the platform half
+   (.ua-fit-h), and the browser half (.ua-old), which takes the width that
+   is left.  Inside the browser half the badge floats.  A float that does
+   not fit beside the text before it is placed under that line; the box is
+   one line tall and clips, so a badge that does not fit is not drawn at
+   all, and the name keeps the whole box.  (The float's negative margin
+   keeps it out of the box's height.  It is larger than the badge is tall:
+   sized exactly, rounding left a sixty-fourth of a pixel behind.)  The
+   name is cut, with its ellipsis (in the name's colour: it is the box's),
+   only once the name itself no longer fits, and the platform half only
+   after the browser half is gone.
+   The same goes for the highlight's own right-hand padding: it is part of
+   the line, and a box three pixels short of it cut the version to make
+   room for an ellipsis.  Here a negative margin of the same size takes it
+   back out of the line: the highlight still reaches past the text -- under
+   the badge, or as far as the box lets it -- and the version is cut exactly
+   when its text does not fit.
+   overflow: clip where it is known, so the box cannot be scrolled to the
+   badge it hides (a selection dragged past its edge would).  The badge is
+   positioned only to be painted over the name it overlaps: a float is
+   painted before the text of its box.
+   The light edge is the badge's left border, and the other three borders
+   are there but transparent, the top one on purpose: a line box and the
+   block around it can differ by a sixty-fourth of a pixel, and where that
+   straddles a device pixel the first row of a badge moved off the line is
+   painted inside the box.  That row is the top border -- nothing to see.
+   (With a white ring all the way round, it was a white arc under the name
+   on the live tail's dark ground, at most zoom levels.) */
+.ua-fit{display:flex;align-items:baseline}
+.ua-fit-h{flex:0 0 auto;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:pre}
+.ua-fit>.ua-old{flex:0 1 auto;min-width:0;overflow:hidden;overflow:clip;text-overflow:ellipsis;color:#92400e}
+.ua-fit .ua-old-n{margin-right:-.18rem}
+.ua-fit .ua-lag{float:right;position:relative;margin-left:calc(.02rem - 1px);margin-bottom:-1rem}
 /* Summary heading shown on HOVER only (the pinned clone carries it in the
    title bar, where the copy button cannot reach it).  Rides ua_assets because
    the stats page's UA popovers carry the same heading. */
@@ -187,7 +225,7 @@
      name highlighted, with how far behind (uaOld).  Takes the raw UA; the
      caller keeps the td (class, data-full-value for the popover, notes).
      Shared with the stats page so every UA column speaks one language. */}}
-{{ define "ua_cell" }}{{ $uaShort := uaSummary . }}{{ $uaBot := uaBotKind . }}{{ if . }}{{ if $uaBot }}<span class="ua-bot ua-bot-{{ $uaBot }}"><svg class="ua-bi ua-bi-bot" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-bot"/></svg>{{ $uaShort }}</span>{{ else if $uaShort }}{{ $plat := uaSummaryPlat $uaShort }}{{ $br := uaSummaryBrowser $uaShort }}{{ with uaPlatformIcon $uaShort }}<span class="ua-os" aria-hidden="true">{{ . }}</span>{{ end }}{{ if $plat }}{{ $plat }} · {{ end }}{{ with uaBrowserIcon $uaShort }}<svg class="ua-bi" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-{{ . }}"/></svg>{{ else }}{{ with uaBrowserColor $uaShort }}<span class="ua-br" aria-hidden="true" style="background:{{ . }}"></span>{{ end }}{{ end }}{{ with uaOld $uaShort }}<span class="ua-old"><span class="ua-old-n">{{ $br }}</span><span class="ua-lag">{{ . }}</span></span>{{ else }}{{ $br }}{{ end }}{{ else }}{{ . }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}{{ end }}
+{{ define "ua_cell" }}{{ $uaShort := uaSummary . }}{{ $uaBot := uaBotKind . }}{{ if . }}{{ if $uaBot }}<span class="ua-bot ua-bot-{{ $uaBot }}"><svg class="ua-bi ua-bi-bot" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-bot"/></svg>{{ $uaShort }}</span>{{ else if $uaShort }}{{ $plat := uaSummaryPlat $uaShort }}{{ $br := uaSummaryBrowser $uaShort }}{{ $old := uaOld $uaShort }}{{ if $old }}<span class="ua-fit"><span class="ua-fit-h">{{ end }}{{ with uaPlatformIcon $uaShort }}<span class="ua-os" aria-hidden="true">{{ . }}</span>{{ end }}{{ if $plat }}{{ $plat }} · {{ end }}{{ with uaBrowserIcon $uaShort }}<svg class="ua-bi" aria-hidden="true" viewBox="0 0 16 16"><use href="#bi-{{ . }}"/></svg>{{ else }}{{ with uaBrowserColor $uaShort }}<span class="ua-br" aria-hidden="true" style="background:{{ . }}"></span>{{ end }}{{ end }}{{ if $old }}</span><span class="ua-old"><span class="ua-old-n">{{ $br }}</span><span class="ua-lag">{{ $old }}</span></span></span>{{ else }}{{ $br }}{{ end }}{{ else }}{{ . }}{{ end }}{{ else }}<span class="muted">-</span>{{ end }}{{ end }}
 {{ define "events_table_block" }}
 {{/* lb-warn-badge: per-row warning emitted by the events partial itself.
      Inline so the partial doesn't depend on the host page (= overview /

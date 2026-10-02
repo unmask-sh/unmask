@@ -184,11 +184,17 @@ func TestHuntMarksOldBrowsers(t *testing.T) {
 	if !strings.Contains(rows, `<span class="ua-lag">EOL</span>`) {
 		t.Error("the Internet Explorer row is not marked EOL")
 	}
+	// Each marked cell is the row of two boxes that lets the badge give way
+	// before the version does; an unmarked one has no such row.
+	if fit, marks := strings.Count(rows, `<span class="ua-fit"><span class="ua-fit-h">`), strings.Count(rows, `class="ua-old"`); fit != 2 || marks != 2 {
+		t.Errorf("%d marked cells in the log, %d of them in the two-box row; want 2 and 2", marks, fit)
+	}
 	if strings.Contains(rows, `<span class="ua-old-n">Chrome 300`) || !strings.Contains(rows, "Chrome 300") {
 		t.Error("the current browser's row must render unmarked")
 	}
-	// Once in the log, and once in the UA ranking above it.  (The column
-	// help carries a sample of the mark, with a count of its own.)
+	// Once in the log, and once in the UA ranking above it, which draws the
+	// same cell.  (The column help carries a sample of the mark, with a
+	// count of its own.)
 	if n := strings.Count(body, mark); n != 2 {
 		t.Errorf("the old browser is marked %d times on the page, want 2 (the log and the ranking)", n)
 	}
@@ -242,8 +248,9 @@ func TestHuntMarksOldBrowsers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), `if (ev.ua_old && ev.ua_short) {`) || !strings.Contains(string(raw), `'</span><span class="ua-lag">' + escapeText(ev.ua_old) + '</span></span>'`) {
-		t.Error("the live tail no longer draws the old-browser mark")
+	if !strings.Contains(string(raw), `if (ev.ua_old && ev.ua_short) {`) || !strings.Contains(string(raw), `'</span><span class="ua-lag">' + escapeText(ev.ua_old) + '</span></span></span>'`) ||
+		!strings.Contains(string(raw), `'<span class="ua-fit"><span class="ua-fit-h">' + escapeText(uaHead) + '</span>'`) {
+		t.Error("the live tail no longer draws the old-browser mark, in the cell's two boxes")
 	}
 }
 

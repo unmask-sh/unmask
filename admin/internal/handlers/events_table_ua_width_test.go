@@ -47,9 +47,13 @@ func TestEventsTableUARendersSummaryWithFullValueForPopover(t *testing.T) {
 	}
 	// A browser far behind its current release has its name highlighted and
 	// says how far behind; every other browser renders as before (see
-	// ua_old_test.go for the reading itself).
-	if !strings.Contains(tpl, `{{ with uaOld $uaShort }}<span class="ua-old"><span class="ua-old-n">{{ $br }}</span><span class="ua-lag">{{ . }}</span></span>{{ else }}{{ $br }}{{ end }}`) {
-		t.Error("the browser half no longer carries the old-version mark")
+	// ua_old_test.go for the reading itself).  A marked cell is a row of two
+	// boxes -- the platform half, then the browser half with its badge -- so
+	// that a cell too narrow for the badge drops the badge and keeps the
+	// version (the CSS below; the browser test measures it).
+	if !strings.Contains(tpl, `{{ $old := uaOld $uaShort }}{{ if $old }}<span class="ua-fit"><span class="ua-fit-h">{{ end }}`) ||
+		!strings.Contains(tpl, `{{ if $old }}</span><span class="ua-old"><span class="ua-old-n">{{ $br }}</span><span class="ua-lag">{{ $old }}</span></span></span>{{ else }}{{ $br }}{{ end }}`) {
+		t.Error("the browser half no longer carries the old-version mark, or a marked cell lost its two boxes")
 	}
 	// The count is a small badge on the name's upper corner.  It is placed
 	// with vertical-align inside the line, never lifted out of it: the stats
@@ -72,6 +76,73 @@ func TestEventsTableUARendersSummaryWithFullValueForPopover(t *testing.T) {
 	} else if size, _ := strconv.ParseFloat("0"+m[1], 64); size > 0.6 {
 		t.Errorf("the badge's type is %vrem; it is meant to be small (at most .6rem)", size)
 	}
+	// In the row of two boxes the badge is the first thing to give way: the
+	// browser half shrinks, and its badge -- a float -- no longer fits beside
+	// the name, is placed under the line and clipped with the box, which the
+	// float's negative margin keeps one line tall.  The rules that carry
+	// that, each of which the browser test fails without:
+	for _, rule := range []string{
+		`.ua-fit{display:flex;align-items:baseline}`,
+		// the platform half keeps its width; cut only when the cell is narrower than it
+		`.ua-fit-h{flex:0 0 auto;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:pre}`,
+		// the browser half takes what is left, and cuts the name with an ellipsis
+		`.ua-fit>.ua-old{flex:0 1 auto;min-width:0;overflow:hidden;overflow:clip;text-overflow:ellipsis;`,
+		// the highlight's right padding is taken out of the line
+		`.ua-fit .ua-old-n{margin-right:-.18rem}`,
+		`.ua-fit .ua-lag{float:right;position:relative;`,
+	} {
+		if !strings.Contains(tpl, rule) {
+			t.Errorf("the cell's CSS lost %s", rule)
+		}
+	}
+	// The float's margin box must not reach below its own top, or a badge
+	// moved off the line makes its row taller: the negative bottom margin is
+	// at least the badge's height (its line-height and two 1px borders, an
+	// eighth of a rem at the usual root size), with room to spare -- sized
+	// exactly, rounding left the row a sixty-fourth of a pixel taller.
+	lh := regexp.MustCompile(`line-height:(\.\d+)rem`).FindStringSubmatch(lag[1])
+	mb := regexp.MustCompile(`\.ua-fit \.ua-lag\{[^}]*margin-bottom:-(\d*\.?\d+)rem\}`).FindStringSubmatch(tpl)
+	if lh == nil || mb == nil || !strings.Contains(lag[1], "border:1px solid transparent") {
+		t.Fatalf("the badge's line-height and the floated badge's negative bottom margin must both be set in rem, over 1px borders: %s", lag[1])
+	}
+	height, _ := strconv.ParseFloat("0"+lh[1], 64)
+	margin, _ := strconv.ParseFloat(mb[1], 64)
+	if margin < height+0.125+0.05 {
+		t.Errorf("the floated badge's negative margin (%vrem) must exceed its height (%vrem + 2px)", margin, height)
+	}
+	// Its top border is transparent on purpose (see the CSS comment): only
+	// the left one is drawn.
+	if !strings.Contains(lag[1], "border:1px solid transparent;border-left-color:#fff") || !strings.Contains(lag[1], "background-clip:padding-box") {
+		t.Errorf("the badge's edge must be its left border alone, over a transparent border: %s", lag[1])
+	}
+
+	// Functional: an old browser renders as the two boxes, a current one as
+	// plain text with no box around it.
+	pinBrowserBaselines(t)
+	tmpl, err := loadDashboardTemplate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sb strings.Builder
+	if err := tmpl.ExecuteTemplate(&sb, "ua_cell", chromeUA("109")); err != nil {
+		t.Fatal(err)
+	}
+	out := sb.String()
+	head, unit := `<span class="ua-fit"><span class="ua-fit-h">`, `</span><span class="ua-old"><span class="ua-old-n">Chrome 109</span><span class="ua-lag">`+"\u2212"+`191</span></span></span>`
+	if !strings.HasPrefix(out, head) || !strings.HasSuffix(out, unit) {
+		t.Errorf("an old browser's cell is not the two-box row: %s", out)
+	}
+	if mid := strings.TrimSuffix(strings.TrimPrefix(out, head), unit); !strings.Contains(mid, "Windows 10&#43; \u00b7 ") || strings.Contains(mid, "Chrome") {
+		t.Errorf("the platform half must hold the platform and the separator, and nothing of the browser's name: %q", mid)
+	}
+	sb.Reset()
+	if err := tmpl.ExecuteTemplate(&sb, "ua_cell", chromeUA("300")); err != nil {
+		t.Fatal(err)
+	}
+	if out := sb.String(); strings.Contains(out, "ua-fit") || strings.Contains(out, "ua-old") || !strings.HasSuffix(out, "Chrome 300") {
+		t.Errorf("a current browser's cell must stay plain inline text: %s", out)
+	}
+
 	// Each half of the summary carries its own marker, in front of its own
 	// text: the platform glyph before the platform, the browser mark before
 	// the browser.  Markers decorate, never replace.
