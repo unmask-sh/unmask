@@ -1085,7 +1085,8 @@ func checkDataOwnership(s settings.Settings, addOK, addWarn func(t, m string)) {
 func checkAdminBind(s settings.Settings, addOK, addWarn func(t, m string)) {
 	rawBind := strings.TrimSpace(s.Server.Bind)
 	isUnix := strings.HasPrefix(rawBind, "unix:") || strings.HasPrefix(rawBind, "/")
-	bindHost := rawBind
+	// The host alone: "[::1]" is the loopback address like "::1".
+	bindHost := s.Server.TCPHost()
 	if !isUnix {
 		if h, _, err := net.SplitHostPort(rawBind); err == nil {
 			bindHost = h
@@ -1701,14 +1702,14 @@ func sloTarget(server settings.Server) (string, func(ctx context.Context, networ
 		return "http://unmask.local" + base + "/healthz", dialer
 	}
 	// TCP form.  Empty bind means "0.0.0.0"; for the self-curl we hit 127.0.0.1.
-	host := bind
+	host := server.TCPHost()
 	if host == "" || host == "0.0.0.0" || host == "::" {
 		host = "127.0.0.1"
 	}
 	if port <= 0 {
 		port = 9477
 	}
-	return fmt.Sprintf("http://%s:%d%s/healthz", host, port, base), nil
+	return "http://" + net.JoinHostPort(host, strconv.Itoa(port)) + base + "/healthz", nil
 }
 
 // checkRenderFreshness compares the freshly re-rendered conf (in freshDir,

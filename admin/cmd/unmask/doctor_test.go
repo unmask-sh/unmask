@@ -85,6 +85,7 @@ func TestCheckAdminBind(t *testing.T) {
 		{"127.0.0.1:9477", "ok"},
 		{"127.0.0.1", "ok"},
 		{"::1", "ok"},
+		{"[::1]", "ok"}, // the same address, in brackets
 		{"localhost:9477", "ok"},
 		{"unix:/run/unmask/http.sock", "ok"},
 		{"/run/unmask/http.sock", "ok"},
@@ -92,6 +93,7 @@ func TestCheckAdminBind(t *testing.T) {
 		{"0.0.0.0:9477", "warn"},
 		{"0.0.0.0", "warn"},
 		{"::", "warn"},
+		{"[::]", "warn"},
 		{"10.0.0.5:9477", "warn"},
 		{"192.168.1.10", "warn"},
 	}
