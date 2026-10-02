@@ -189,6 +189,7 @@ rm -f "$WORK/stop"
 ) &
 HAMMER=$!
 t0=$(date +%s.%N)
+run_started=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 dc exec -T unmask /usr/local/bin/unmask migrate -config "$CFG" > "$WORK/migrate.out" 2>&1 &
 MIG=$!
 sleep 1
@@ -237,12 +238,19 @@ assert_eq 200 "$(healthz)" "after: the daemon answers"
 c1=$(http_get / -A "$UA_CURL" -H "X-Forwarded-For: 203.0.113.9")
 assert_eq 403 "$c1" "after: curl UA is challenged on / (403)"
 # The daemon watches for a run it did not start (every two seconds while an
-# update waits).  A build shorter than that may be over before it looks, and
-# then there is nothing in its log to find.
-if python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) >= 6 else 1)" "$took"; then
+# update waits), and what it leaves in its log is written by the flusher: one
+# line when a flush finds the writes held.  A flush that reaches the build's
+# lock before the daemon has looked waits for it instead (up to the busy
+# timeout, five seconds) and then succeeds, having seen no hold -- so a build
+# of six to nine seconds can pass with nothing in the log to find, and did,
+# about every other run on a fast machine.  From about ten seconds on, a flush
+# times out against the lock and meets the hold on its next try.
+# The log is read from this run's start: a line left by a run a few minutes
+# ago is not this one's.
+if python3 -c "import sys; sys.exit(0 if float(sys.argv[1]) >= 10 else 1)" "$took"; then
     logs=""
     for _ in $(seq 1 20); do
-        logs=$(dc logs --no-color --since 5m unmask 2>/dev/null | grep -E "events flusher|schema update" | tail -20)
+        logs=$(dc logs --no-color --since "$run_started" unmask 2>/dev/null | grep -E "events flusher|schema update" | tail -20)
         printf '%s' "$logs" | grep -q "kept meanwhile" && break
         sleep 1
     done
