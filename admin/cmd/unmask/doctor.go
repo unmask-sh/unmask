@@ -266,8 +266,10 @@ func cmdDoctor(args []string) error {
 				addOK("feed signature", fmt.Sprintf("last sync verified (key %s, doc %s)",
 					strings.TrimPrefix(meta.Signature, "verified:"), meta.GeneratedAt))
 			} else {
+				// Only a hub of the operator's own, or a file they imported: the
+				// published feed is refused without its signature.
 				addOK("feed signature", fmt.Sprintf(
-					"last sync was unsigned (%s) — transport trust only; the hub publishes signatures since 0.1.33", meta.GeneratedAt))
+					"last sync was unsigned (%s) — a document from your own hub or an imported file, taken on trust; the published feed is always verified", meta.GeneratedAt))
 			}
 		}
 	}

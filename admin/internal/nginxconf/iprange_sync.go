@@ -35,6 +35,10 @@ import (
 // SyncDefaultHubURL: the canonical hub-aggregated document.
 const SyncDefaultHubURL = "https://unmask.sh/dl/feed/iprange/bypass-iprange-all.json"
 
+// publishedHubURL is SyncDefaultHubURL -- a variable only so a test can stand
+// a local server in for the published feed.
+var publishedHubURL = SyncDefaultHubURL
+
 // SyncDefaultDir: the override dir.  Matches what SetOverrideDir consumes.
 const SyncDefaultDir = "/var/lib/unmask/iprange"
 
@@ -111,7 +115,9 @@ type Sync struct {
 	InsecureTLS bool
 	// RequireSignature: refuse an unsigned document even over verified TLS.
 	// Implied by InsecureTLS; settable on its own for operators who want the
-	// content check unconditionally.
+	// content check on a hub of their own, or on a file they import.  The
+	// published feed is held to its signature whatever this says
+	// (signatureRequired).
 	RequireSignature bool
 
 	// Disabled: asked before every scheduled pull; true skips it, with no
@@ -201,7 +207,7 @@ func (s *Sync) hubURL() string {
 	if s.HubURL != "" {
 		return s.HubURL
 	}
-	return SyncDefaultHubURL
+	return publishedHubURL
 }
 
 func (s *Sync) dir() string {
@@ -218,7 +224,26 @@ func (s *Sync) interval() time.Duration {
 	return SyncDefaultInterval
 }
 
-func (s *Sync) signatureRequired() bool { return s.InsecureTLS || s.RequireSignature }
+// signatureRequired: is a pull from the hub refused when its detached
+// signature is missing?  (A signature that is there and wrong is refused
+// whatever this says.)
+//
+// Always for the published feed.  It is signed on a host that is not the one
+// serving it, so that whoever takes over the serving host still cannot put
+// their own addresses on the pass-list -- and that only holds if the daemon
+// insists on the signature: while a missing one fell back to trusting the
+// transport, deleting one file on that host was all it took.  A hub of the
+// operator's own (sync_hub_url) may well not sign at all, so there it stays a
+// choice: sync_require_signature, or sync_insecure_tls, which implies it.
+func (s *Sync) signatureRequired() bool {
+	return s.InsecureTLS || s.RequireSignature || s.hubURL() == publishedHubURL
+}
+
+// fileSignatureRequired: the same question for a document handed over as a
+// file (PullFromFile).  The operator fetched that copy and vouches for it, and
+// the documented transfer is the document alone -- so the sidecar is required
+// only where they asked for it.  One that is there is still checked.
+func (s *Sync) fileSignatureRequired() bool { return s.InsecureTLS || s.RequireSignature }
 
 func (s *Sync) httpClient() *http.Client {
 	if s.HTTPClient == nil && s.InsecureTLS {
@@ -350,8 +375,9 @@ func (s *Sync) PullOnce(ctx context.Context) error {
 // verifyAgainstDetachedSig fetches <hub>.sig and checks it against body.
 // A present-and-valid signature always passes; a present-and-INVALID one
 // always fails (that is the tamper signal this exists for); an absent one
-// fails only when the policy requires it, and is logged otherwise so an
-// operator can see whether their hub signs at all.
+// fails when the policy requires it (signatureRequired: always for the
+// published feed), and is logged otherwise so an operator can see whether
+// their own hub signs at all.
 func (s *Sync) verifyAgainstDetachedSig(ctx context.Context, body []byte) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.hubURL()+FeedSigSuffix, nil)
 	if err != nil {
@@ -426,7 +452,7 @@ func (s *Sync) PullFromFile(path string) error {
 			return verr
 		}
 		sigState = "verified:" + keyID
-	} else if s.signatureRequired() {
+	} else if s.fileSignatureRequired() {
 		err := fmt.Errorf("feed signature required but %s%s is missing", path, FeedSigSuffix)
 		s.recordError(err)
 		return err
