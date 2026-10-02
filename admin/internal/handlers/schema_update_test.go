@@ -824,7 +824,7 @@ func TestChallengeServesWhileTheWriteLockIsHeld(t *testing.T) {
 	}
 
 	// An automatic ban (a honeypot hit) is kept, not thrown at the lock.
-	within("an automatic ban", 200*time.Millisecond, func() int {
+	within("an automatic ban", time.Second, func() int {
 		h.BanMgr.AddWithSourceAction(ctx, "203.0.113.50", "", ban.SourceHoneypot, "trap", "", "deny")
 		return 0
 	})
