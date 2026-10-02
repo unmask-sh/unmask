@@ -43,29 +43,69 @@ const badgeShape = cell => {
   const name = cell.querySelector('.ua-old-n'), lag = cell.querySelector('.ua-lag');
   if (!name || !lag) return null;
   const nb = name.getBoundingClientRect(), lb = lag.getBoundingClientRect();
+  const text = document.createRange();
+  text.selectNodeContents(lag);
   let clip = lag.parentElement;
   while (clip && !/hidden|clip|auto|scroll/.test(getComputedStyle(clip).overflowY)) clip = clip.parentElement;
   const cb = clip ? clip.getBoundingClientRect() : null;
   return {
     font: parseFloat(getComputedStyle(lag).fontSize), nameFont: parseFloat(getComputedStyle(name).fontSize),
-    width: lb.width, aboveTop: nb.top - lb.top, aboveBottom: nb.bottom - lb.bottom, gap: lb.left - nb.right,
+    width: lb.width, rim: lb.width - text.getBoundingClientRect().width, nameHeight: nb.height,
+    aboveTop: nb.top - lb.top, aboveBottom: nb.bottom - lb.bottom, gap: lb.left - nb.right,
     cutTop: cb ? cb.top - lb.top : 0,
     nameBg: getComputedStyle(name).backgroundColor,
   };
 };
 // The look that was asked for: small type, on the name's upper right corner,
-// attached to it, narrow, and whole.
+// attached to it, narrow, and whole.  Every bound is one the stylesheet sets,
+// not one the font does: how wide three letters are, and how far a name's box
+// reaches above and below its line, change with whatever font the machine
+// draws with -- and the runner's is not the developer's.
 const okBadge = (s, where) => {
   ok(s, `${where}: the mark has a highlighted name and a badge`);
   if (!s) return;
   const j = JSON.stringify(s);
   ok(s.nameBg && s.nameBg !== 'rgba(0, 0, 0, 0)' && s.nameBg !== 'transparent', `${where}: the name's highlight is painted: ${j}`);
   ok(s.font <= s.nameFont * 0.8, `${where}: the badge is set in smaller type than the name: ${j}`);
-  ok(s.aboveTop >= -1 && s.aboveBottom >= 2, `${where}: the badge sits on the name's upper corner, not along its baseline: ${j}`);
+  // Raised: its middle is above the name's middle, and its top is no lower
+  // than a little way into the name.  A count set on the name's baseline has
+  // its middle below the name's.
+  ok(s.aboveTop + s.aboveBottom >= 1 && s.aboveTop >= -s.nameHeight / 4,
+    `${where}: the badge sits on the name's upper corner, not along its baseline: ${j}`);
   ok(s.gap <= 0.5 && s.gap >= -6, `${where}: the badge is attached to the name's right edge: ${j}`);
-  ok(s.width <= s.nameFont * 2, `${where}: the badge is narrow: ${j}`);
+  // Narrow: its own text in that small type, and a thin rim around it.
+  ok(s.rim >= 0 && s.rim <= s.nameFont * 0.6, `${where}: the badge is narrow, its text and a thin rim: ${j}`);
   ok(s.cutTop <= 0.5, `${where}: the badge is not cut off at the top by the cell that clips it: ${j}`);
 };
+
+// nameDeltas runs in the page, on one screenshot of a sweep (below): how far
+// the picture inside each rectangle is from the picture inside the first one
+// -- the largest difference in any channel of any pixel.
+const nameDeltas = async (png, want, clips) => {
+  const bytes = Uint8Array.from(atob(png), c => c.charCodeAt(0));
+  const shot = await createImageBitmap(new Blob([bytes], { type: 'image/png' }));
+  const canvas = document.createElement('canvas');
+  canvas.width = shot.width;
+  canvas.height = shot.height;
+  const cx = canvas.getContext('2d', { willReadFrequently: true });
+  cx.drawImage(shot, 0, 0);
+  const read = c => cx.getImageData(c.x, c.y, c.width, c.height).data;
+  const ref = read(want);
+  return clips.map(c => {
+    const got = read(c);
+    let far = got.length === ref.length ? 0 : 255;
+    for (let i = 0; i < got.length && i < ref.length; i++) far = Math.max(far, Math.abs(got[i] - ref[i]));
+    return far;
+  });
+};
+// Two pictures of the same thing are not always the same bytes.  A copy that
+// lies across a seam of the raster tiles (every 256 pixels) can have the
+// rounded corners of its highlight come out a few levels off -- up to 7 of 255
+// where it has been seen, and whether it is seen at all depends on the font
+// the machine draws with.  What the comparison looks for is far coarser: an
+// ellipsis in place of a digit, or the badge's fill over the name's, moves
+// pixels by 56 levels and more.
+const SAME_PICTURE = 24;
 
 // fitSweep runs in the page.  It lays one marked cell out again and again in
 // copies of its real container, a pixel narrower each time -- from "all of it
@@ -155,8 +195,8 @@ const fitSweep = (makeSrc, html) => {
 
   // fit: the sweep above for one kind of cell, and the pictures.  The name as
   // painted in every copy that should show it whole must be the name as
-  // painted in the widest copy, pixel for pixel: an ellipsis that eats a digit
-  // moves no box, so only the picture shows it.
+  // painted in the widest copy: an ellipsis that eats a digit moves no box, so
+  // only the picture shows it.
   const fit = async (where, makeSrc, html) => {
     ok(html && /ua-fit/.test(html), `${where}: the marked cell's markup was found on the page`);
     if (!html) return;
@@ -182,17 +222,13 @@ const fitSweep = (makeSrc, html) => {
     const ref = rows.find(r => r.ref);
     ok(ref, `${where}: a copy with everything in it, to compare the others with`);
     if (ref) {
-      const picture = r => page.screenshot({ clip: r.clip, encoding: 'base64' });
-      const want = await picture(ref);
-      const cut = [];
-      for (const r of rows) {
-        if (r.regime === 'clip' || r === ref) continue;
-        if (await picture(r) !== want) cut.push(r);
-      }
-      ok(cut.length === 0, `${where}: the version is painted whole wherever its text fits -- cut or covered at ${say(cut)}`);
+      const png = await page.screenshot({ clip: { x: 0, y: 0, width: 1480, height: 880 }, encoding: 'base64' });
+      const far = await page.evaluate(nameDeltas, png, ref.clip, rows.map(r => r.clip));
+      const cut = rows.filter((r, i) => r.regime !== 'clip' && far[i] > SAME_PICTURE);
+      ok(cut.length === 0, `${where}: the version is painted whole wherever its text fits -- cut or covered at ${say(cut)} (off by ${cut.map(r => far[rows.indexOf(r)]).join(', ')} of 255)`);
       // And the comparison can tell: a copy too narrow for the name differs.
-      const narrow = rows.filter(r => r.regime === 'clip').pop();
-      if (narrow) ok(await picture(narrow) !== want, `${where}: a cell too narrow for the name is painted differently (the comparison sees an ellipsis)`);
+      const narrow = rows.map((r, i) => ({ r, far: far[i] })).filter(x => x.r.regime === 'clip').pop();
+      if (narrow) ok(narrow.far > SAME_PICTURE, `${where}: a cell too narrow for the name is painted differently (the comparison sees an ellipsis; off by ${narrow.far} of 255)`);
       // The badge's shape, where it is shown.
       const cell = await page.$('#fit-sweep [data-fit-ref]');
       okBadge(await page.evaluate(badgeShape, cell), where);
@@ -258,16 +294,33 @@ const fitSweep = (makeSrc, html) => {
   }
 
   // ---- the popover says why ----------------------------------------------
+  // shownNote: the sentence in the popover that is up now, once one is.  A
+  // popover takes a moment to open, and a closed one keeps its last text --
+  // so only one that is on screen counts.
+  const shownNote = async () => {
+    for (let i = 0; i < 20; i++) {
+      await new Promise(r => setTimeout(r, 150));
+      const text = await page.evaluate(() => {
+        const n = Array.from(document.querySelectorAll('.cellpop-pop .cellpop-note')).find(n => n.offsetParent !== null);
+        return n ? n.textContent : null;
+      });
+      if (text) return text;
+    }
+    return null;
+  };
+  // park: the pointer off every cell, and the hover popover closed behind it.
+  const park = async () => {
+    await page.mouse.move(5, 5);
+    await page.waitForFunction(
+      () => !Array.from(document.querySelectorAll('.cellpop-pop')).some(p => p.offsetParent !== null),
+      { timeout: 3000 }).catch(() => {});
+  };
   const cell = await page.$('table.events tbody tr[data-bt="uiOldChrome"] td.ua');
   if (cell) {
     await cell.hover();
-    await new Promise(r => setTimeout(r, 600));
-    const pop = await page.evaluate(() => {
-      const n = document.querySelector('.cellpop-pop .cellpop-note');
-      return n ? n.textContent : null;
-    });
+    const pop = await shownNote();
     ok(pop && /\d+/.test(pop), `the popover carries the note: ${JSON.stringify(pop)}`);
-    await page.mouse.move(5, 5);
+    await park();
   }
 
   // ---- the UA ranking above the log --------------------------------------
@@ -297,16 +350,16 @@ const fitSweep = (makeSrc, html) => {
     if (await rel.evaluate(c => c.offsetParent === null)) {
       await page.click('.rank-card-ua .rank-expand');
       await new Promise(r => setTimeout(r, 300));
+      // The click leaves the pointer on the card, over one of the rows it has
+      // just opened, and that row brings its own popover up: close it, or it
+      // lies between the pointer and the cell hovered next.
+      await park();
     }
     await rel.evaluate(c => c.scrollIntoView({ block: 'center' }));
     await rel.hover();
-    await new Promise(r => setTimeout(r, 600));
-    const rpop = await page.evaluate(() => {
-      const n = document.querySelector('.cellpop-pop .cellpop-note');
-      return n ? n.textContent : null;
-    });
+    const rpop = await shownNote();
     ok(rpop && rpop === rank.oldNote, `the ranking's popover explains the mark: ${JSON.stringify(rpop)}`);
-    await page.mouse.move(5, 5);
+    await park();
   }
 
   if (process.env.UI_E2E_SHOT) await page.screenshot({ path: process.env.UI_E2E_SHOT + '-hunt.png', fullPage: true });
