@@ -10,9 +10,20 @@
 #   ./run.sh                       # builds the binary from ../../admin
 #   UNMASK_BIN=/path/to/unmask ./run.sh
 #   CHROME_BIN=/usr/bin/google-chrome ./run.sh
+#   UI_E2E_FONTS=ci ./run.sh       # draw with the CI runner's fonts (see below)
 #
 # Requirements: go (unless UNMASK_BIN is set), node + node_modules (npm ci),
 # python3 (seeding), and a Chromium/Chrome binary.
+#
+# UI_E2E_FONTS=ci: the browser draws the pages with whatever fonts the machine
+# resolves the stylesheets' stacks to, and a developer's machine and the CI
+# runner do not resolve them alike.  A check that measures a box or compares
+# pictures can pass under one set and fail under the other: wider letters, a
+# shorter line box, a rounded corner that rasterises a shade off.  This mode
+# gives the browser the runner's answers -- sans-serif to Liberation Sans,
+# system-ui to DejaVu Sans, monospace to DejaVu Sans Mono, slight hinting, an
+# English locale -- so such a check can be tried here before it is pushed.
+# It needs those three families installed (fonts-liberation, fonts-dejavu).
 
 set -eu
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -43,6 +54,62 @@ if [ -z "$BIN" ]; then
     (cd "$REPO/admin" && CGO_ENABLED=0 go build -o "$WORK/unmask" ./cmd/unmask)
     BIN="$WORK/unmask"
 fi
+
+# ---- fonts ---------------------------------------------------------------
+# Only the browser gets these (through node, below): the daemon and the
+# seeding do not draw anything.
+NODE_ENV=()
+case "${UI_E2E_FONTS:-}" in
+"") ;;
+ci)
+    command -v fc-match >/dev/null 2>&1 || { echo "FAIL: UI_E2E_FONTS=ci needs fontconfig (fc-match)"; exit 99; }
+    mkdir -p "$WORK/fontconfig-cache"
+    cat > "$WORK/fonts.conf" <<EOF
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "urn:fontconfig:fonts.dtd">
+<fontconfig>
+  <dir>/usr/share/fonts</dir>
+  <dir>/usr/local/share/fonts</dir>
+  <cachedir>$WORK/fontconfig-cache</cachedir>
+  <!-- Chrome asks for Arial where a stack ends in sans-serif; the runner has
+       the metric-compatible Liberation family in its place. -->
+  <alias binding="same"><family>Arial</family><accept><family>Liberation Sans</family></accept></alias>
+  <alias binding="same"><family>Helvetica</family><accept><family>Liberation Sans</family></accept></alias>
+  <alias binding="same"><family>Times New Roman</family><accept><family>Liberation Serif</family></accept></alias>
+  <alias binding="same"><family>Courier New</family><accept><family>Liberation Mono</family></accept></alias>
+  <!-- Strong, so the machine's locale cannot outrank them with a font that
+       covers its language. -->
+  <alias binding="strong"><family>sans-serif</family><prefer><family>DejaVu Sans</family></prefer></alias>
+  <alias binding="strong"><family>sans</family><prefer><family>DejaVu Sans</family></prefer></alias>
+  <alias binding="strong"><family>monospace</family><prefer><family>DejaVu Sans Mono</family></prefer></alias>
+  <alias binding="strong"><family>serif</family><prefer><family>DejaVu Serif</family></prefer></alias>
+  <!-- A family that is not installed falls back, weakly, to sans-serif: the
+       browser sees the name does not match and goes on down the stack. -->
+  <match target="pattern">
+    <test qual="all" name="family" compare="not_eq"><string>sans-serif</string></test>
+    <test qual="all" name="family" compare="not_eq"><string>serif</string></test>
+    <test qual="all" name="family" compare="not_eq"><string>monospace</string></test>
+    <edit name="family" mode="append_last"><string>sans-serif</string></edit>
+  </match>
+  <!-- Slight hinting keeps glyph advances fractional, as on the runner; full
+       hinting rounds each to a whole pixel and every width comes out wider. -->
+  <match target="font">
+    <edit name="antialias" mode="assign"><bool>true</bool></edit>
+    <edit name="hinting" mode="assign"><bool>true</bool></edit>
+    <edit name="hintstyle" mode="assign"><const>hintslight</const></edit>
+    <edit name="rgba" mode="assign"><const>none</const></edit>
+  </match>
+</fontconfig>
+EOF
+    NODE_ENV=(FONTCONFIG_FILE="$WORK/fonts.conf" LC_ALL=C.UTF-8 LANG=C.UTF-8)
+    for want in "sans-serif=DejaVu Sans" "Arial=Liberation Sans" "monospace=DejaVu Sans Mono"; do
+        got="$(env "${NODE_ENV[@]}" fc-match -f '%{family}' "${want%%=*}" 2>/dev/null || true)"
+        [ "$got" = "${want#*=}" ] || { echo "FAIL: UI_E2E_FONTS=ci: ${want%%=*} resolves to '${got}', not '${want#*=}' -- is that family installed?"; exit 99; }
+    done
+    echo "== fonts: the CI runner's (Liberation Sans / DejaVu Sans / DejaVu Sans Mono)"
+    ;;
+*)  echo "FAIL: UI_E2E_FONTS='${UI_E2E_FONTS}' is not known (the only set is 'ci')"; exit 99 ;;
+esac
 
 # ---- throwaway instance --------------------------------------------------
 PORT="$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1]); s.close()')"
@@ -465,7 +532,7 @@ for t in "$DIR"/*.test.js; do
         case "$(basename "$t")" in *"$UI_E2E_ONLY"*) ;; *) continue ;; esac
     fi
     echo "== $(basename "$t")"
-    if ! node "$t"; then
+    if ! env ${NODE_ENV[@]+"${NODE_ENV[@]}"} node "$t"; then
         fail=$((fail + 1))
         # Keep the artifacts of a failing run out of the trap's rm.
         KEEP="$(mktemp -d /tmp/unmask-ui-e2e.XXXXXX)"
