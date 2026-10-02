@@ -11,6 +11,16 @@
 // the ranking above the log and the stats page wear the same mark, and that a
 // row arriving over the live tail is drawn like the rest.
 //
+// And what a cell does when it is too narrow for all of it.  Every one of
+// these cells clips, and the badge used to sit in the clipped line: a cell
+// wide enough for "Chrome 91" but not for the badge was cut with an ellipsis,
+// and the ellipsis took the version with it ("Chrome 9...", "Chrome ...").
+// The badge is now the first thing to give way: it is dropped whole, and the
+// version is cut only when the name's own text no longer fits.  Checked in
+// each kind of cell by laying it out a pixel narrower at a time, and by
+// comparing how the name is painted, since nothing in the DOM says where an
+// ellipsis ate a digit.
+//
 // run.sh seeds three serves: Chrome 91, Internet Explorer 11, and a Chrome
 // numbered past any baseline (never old); and the first and the last of them
 // again as two rows of the stats page's CAPTCHA cookie-reuse ranking.
@@ -57,6 +67,81 @@ const okBadge = (s, where) => {
   ok(s.cutTop <= 0.5, `${where}: the badge is not cut off at the top by the cell that clips it: ${j}`);
 };
 
+// fitSweep runs in the page.  It lays one marked cell out again and again in
+// copies of its real container, a pixel narrower each time -- from "all of it
+// fits" down to "not even the name does" -- and reports what each copy draws.
+// make(w, html) builds a copy whose container is w pixels wide and returns its
+// root and the element that holds the cell's markup.  What a copy should show
+// is decided by the width its row really gets (.ua-fit) against the natural
+// widths of the parts, measured in a copy with room to spare:
+//   all   the row is as wide as name + badge: both are drawn
+//   name  narrower than that, but the name's text fits: the text is whole,
+//         the badge is not painted anywhere
+//   clip  narrower than the text: the text runs past the box (an ellipsis)
+// The copies sit at whole-pixel positions, so their text is rasterised alike
+// and the caller can compare them as pictures.
+const fitSweep = (makeSrc, html) => {
+  const make = new Function('w', 'html', makeSrc);
+  const stale = document.getElementById('fit-sweep');
+  if (stale) stale.remove();
+  const host = document.createElement('div');
+  host.id = 'fit-sweep';
+  host.style.cssText = 'position:absolute;left:0;top:0;width:1480px;height:880px;z-index:2147483000;background:#fff;overflow:hidden';
+  document.body.appendChild(host);
+  window.scrollTo(0, 0);
+  const place = (i, root) => {
+    const slot = document.createElement('div');
+    slot.style.cssText = 'position:absolute;left:' + (16 + Math.floor(i / 19) * 360) + 'px;top:' + (16 + (i % 19) * 44) + 'px';
+    slot.appendChild(root);
+    host.appendChild(slot);
+    return slot;
+  };
+  const parts = cell => {
+    const fit = cell.querySelector('.ua-fit'), unit = cell.querySelector('.ua-fit > .ua-old');
+    const name = cell.querySelector('.ua-old-n'), lag = cell.querySelector('.ua-lag');
+    if (!fit || !unit || !name || !lag) return null;
+    const text = document.createRange();
+    text.selectNodeContents(name);
+    return { lag, fb: fit.getBoundingClientRect(), ub: unit.getBoundingClientRect(), nb: name.getBoundingClientRect(),
+             lb: lag.getBoundingClientRect(), tb: text.getBoundingClientRect() };
+  };
+  const probe = make(1000, html);
+  const probeSlot = place(0, probe.root);
+  const p0 = parts(probe.cell);
+  if (!p0) { host.remove(); return { error: 'the cell is not the two-box row (.ua-fit > .ua-fit-h + .ua-old > .ua-old-n + .ua-lag)' }; }
+  const toText = p0.tb.right - p0.fb.left, full = p0.lb.right - p0.fb.left, nameLeft = p0.nb.left - p0.fb.left;
+  const lineHeight = Math.round(p0.ub.height);
+  probeSlot.remove();
+  const rows = [];
+  const count = { all: 0, name: 0, clip: 0 };
+  for (let w = Math.ceil(full) + 90; w > 8 && count.clip < 10 && rows.length < 57; w--) {
+    const m = make(w, html);
+    const slot = place(rows.length, m.root);
+    const p = parts(m.cell);
+    const avail = p.fb.width;
+    // A tenth of a pixel either side of a threshold is left unjudged: layout
+    // works in sixty-fourths and allows itself one of slack.
+    const regime = avail >= full - 0.02 ? 'all' : (avail <= full - 0.1 && avail >= toText + 0.1) ? 'name' : avail <= toText - 0.1 ? 'clip' : '';
+    if (!regime || (regime === 'all' && (avail > full + 4 || count.all >= 6))) { slot.remove(); continue; }
+    count[regime]++;
+    const hit = document.elementFromPoint(p.lb.left + p.lb.width / 2, p.lb.top + p.lb.height / 2);
+    const painted = !!hit && (hit === p.lag || p.lag.contains(hit));
+    const onLine = p.lb.top < p.ub.top + p.ub.height / 2;
+    if (regime === 'all' && !rows.some(r => r.ref)) m.cell.setAttribute('data-fit-ref', '1');
+    rows.push({
+      regime, avail: +avail.toFixed(2), ref: m.cell.hasAttribute('data-fit-ref'),
+      badge: painted ? (onLine ? 'shown' : 'stray') : 'hidden',
+      whole: p.tb.right <= p.ub.right + 0.05,
+      h: +m.cell.getBoundingClientRect().height.toFixed(2),
+      // the name's text, short of its last two pixels (where the badge, when
+      // shown, begins); the same size in every copy, so the pictures compare
+      clip: { x: Math.floor(p.fb.left + nameLeft) - 1, y: Math.floor(p.ub.top),
+              width: Math.floor(toText - nameLeft) - 1, height: lineHeight },
+    });
+  }
+  return { toText: +toText.toFixed(2), full: +full.toFixed(2), count, rows };
+};
+
 (async () => {
   const browser = await puppeteer.launch({
     executablePath: CHROME,
@@ -67,6 +152,60 @@ const okBadge = (s, where) => {
   const page = await browser.newPage();
   const jsErrors = [];
   page.on('pageerror', e => jsErrors.push(String(e.message || e)));
+
+  // fit: the sweep above for one kind of cell, and the pictures.  The name as
+  // painted in every copy that should show it whole must be the name as
+  // painted in the widest copy, pixel for pixel: an ellipsis that eats a digit
+  // moves no box, so only the picture shows it.
+  const fit = async (where, makeSrc, html) => {
+    ok(html && /ua-fit/.test(html), `${where}: the marked cell's markup was found on the page`);
+    if (!html) return;
+    const info = await page.evaluate(fitSweep, makeSrc, html);
+    if (info.error) { ok(false, `${where}: ${info.error}`); return; }
+    const { rows, count } = info;
+    ok(count.all >= 1 && count.name >= 5 && count.clip >= 5,
+      `${where}: the sweep reached all three widths (${JSON.stringify(count)}, name text ${info.toText}px, with badge ${info.full}px)`);
+    const say = list => list.map(r => r.avail + 'px').join(', ');
+    const wrong = (regime, test) => rows.filter(r => r.regime === regime && test(r));
+    let bad = wrong('all', r => r.badge !== 'shown' || !r.whole);
+    ok(bad.length === 0, `${where}: with room for name and badge, both are drawn -- not at ${say(bad)}`);
+    bad = wrong('name', r => r.badge !== 'hidden');
+    ok(bad.length === 0, `${where}: a badge that does not fit is not painted at all -- but is at ${say(bad)} (${bad.map(r => r.badge).join(', ')})`);
+    bad = wrong('name', r => !r.whole);
+    ok(bad.length === 0, `${where}: while the name's text fits, the box holds all of it -- not at ${say(bad)}`);
+    bad = wrong('clip', r => r.whole || r.badge !== 'hidden');
+    ok(bad.length === 0, `${where}: narrower than the name's text, the text is cut and the badge is gone -- not at ${say(bad)}`);
+    const hs = rows.map(r => r.h);
+    ok(Math.max(...hs) - Math.min(...hs) <= 0.1, `${where}: the cell is the same height at every width (${Math.min(...hs)} to ${Math.max(...hs)}): a dropped badge adds no line`);
+    // The pictures.  Keep the pointer off the copies: a hovered row changes colour.
+    await page.mouse.move(1495, 895);
+    const ref = rows.find(r => r.ref);
+    ok(ref, `${where}: a copy with everything in it, to compare the others with`);
+    if (ref) {
+      const picture = r => page.screenshot({ clip: r.clip, encoding: 'base64' });
+      const want = await picture(ref);
+      const cut = [];
+      for (const r of rows) {
+        if (r.regime === 'clip' || r === ref) continue;
+        if (await picture(r) !== want) cut.push(r);
+      }
+      ok(cut.length === 0, `${where}: the version is painted whole wherever its text fits -- cut or covered at ${say(cut)}`);
+      // And the comparison can tell: a copy too narrow for the name differs.
+      const narrow = rows.filter(r => r.regime === 'clip').pop();
+      if (narrow) ok(await picture(narrow) !== want, `${where}: a cell too narrow for the name is painted differently (the comparison sees an ellipsis)`);
+      // The badge's shape, where it is shown.
+      const cell = await page.$('#fit-sweep [data-fit-ref]');
+      okBadge(await page.evaluate(badgeShape, cell), where);
+      const over = await page.evaluate(c => {
+        const lag = c.querySelector('.ua-lag'), b = lag.getBoundingClientRect();
+        const hit = document.elementFromPoint(b.left + 1.5, b.top + b.height / 2);
+        return !!hit && (hit === lag || lag.contains(hit));
+      }, cell);
+      ok(over, `${where}: the badge is painted over the name where the two overlap`);
+    }
+    if (process.env.UI_E2E_SHOT) await page.screenshot({ path: `${process.env.UI_E2E_SHOT}-fit-${where.replace(/\W+/g, '-')}.png`, clip: { x: 0, y: 0, width: 1480, height: 880 } });
+    await page.evaluate(() => { const h = document.getElementById('fit-sweep'); if (h) h.remove(); });
+  };
 
   await page.goto(BASE + '/admin/login', { waitUntil: 'networkidle2' });
   await page.type('input[name="username"]', USER);
@@ -116,11 +255,6 @@ const okBadge = (s, where) => {
     ok(rows.ie.note.length > 20, 'the Internet Explorer cell carries its sentence');
     ok(rows.cur.old === null && /Chrome 999/.test(rows.cur.text), `a current browser is not marked: ${JSON.stringify(rows.cur)}`);
     ok(rows.cur.note === '', `a current browser's cell has no note: ${JSON.stringify(rows.cur.note)}`);
-  }
-
-  for (const bt of ['uiOldChrome', 'uiOldIE']) {
-    const c = await page.$('table.events tbody tr[data-bt="' + bt + '"] td.ua');
-    okBadge(c ? await page.evaluate(badgeShape, c) : null, 'log row ' + bt);
   }
 
   // ---- the popover says why ----------------------------------------------
@@ -173,7 +307,6 @@ const okBadge = (s, where) => {
     });
     ok(rpop && rpop === rank.oldNote, `the ranking's popover explains the mark: ${JSON.stringify(rpop)}`);
     await page.mouse.move(5, 5);
-    okBadge(await page.evaluate(badgeShape, rel), 'UA ranking');
   }
 
   if (process.env.UI_E2E_SHOT) await page.screenshot({ path: process.env.UI_E2E_SHOT + '-hunt.png', fullPage: true });
@@ -202,10 +335,32 @@ const okBadge = (s, where) => {
   if (tail) {
     ok(/^Chrome 88−\d+$/.test(tail.old), `the tail highlights the browser half with its count: ${JSON.stringify(tail)}`);
     ok(/· Chrome 88/.test(tail.line), `the platform half stays outside the highlight: ${JSON.stringify(tail.line)}`);
-    const tcell = await page.evaluateHandle(() => { const o = document.querySelector('#live-tail .ua .ua-old'); return o ? o.closest('.ua') : null; });
-    okBadge(tcell.asElement() ? await page.evaluate(badgeShape, tcell.asElement()) : null, 'live tail');
   }
   if (process.env.UI_E2E_SHOT) await page.screenshot({ path: process.env.UI_E2E_SHOT + '-tail.png', clip: { x: 0, y: 0, width: 1500, height: 700 } });
+
+  // ---- too narrow for all of it: the badge goes first ---------------------
+  // The three kinds of cell on this page, each in a copy of its own container:
+  // the log's fixed-layout column, the ranking's fill-the-card column, the
+  // tail's capped inline box.  Both marks in the log: a count and "EOL".
+  const cellHTML = sel => page.evaluate(sel => { const c = document.querySelector(sel); return c ? c.innerHTML : ''; }, sel);
+  const logCell = `
+    const t = document.createElement('table'); t.className = 'events'; t.style.cssText = 'width:' + w + 'px;min-width:0;margin:0';
+    t.innerHTML = '<tbody><tr><td class="ua cellpop cellpop-active"></td></tr></tbody>';
+    const td = t.querySelector('td'); td.innerHTML = html; return { root: t, cell: td };`;
+  await fit('log cell (a count)', logCell, await cellHTML('table.events tbody tr[data-bt="uiOldChrome"] td.ua'));
+  await fit('log cell (EOL)', logCell, await cellHTML('table.events tbody tr[data-bt="uiOldIE"] td.ua'));
+  const rankHTML = await page.evaluate(() => {
+    const c = Array.from(document.querySelectorAll('.rank-card-ua td.key')).find(c => /Chrome 91/.test(c.textContent));
+    return c ? c.querySelector('.ua-sum').innerHTML : '';
+  });
+  await fit('UA ranking cell', `
+    const c = document.createElement('div'); c.className = 'rank-card rank-card-ua'; c.style.cssText = 'min-width:0;margin:0;padding:0;border:0;overflow:visible';
+    c.innerHTML = '<div style="width:' + w + 'px"><table class="rank"><tbody><tr><td class="key cellpop cellpop-active"><span class="ua-sum"></span><span class="ua-raw"></span></td></tr></tbody></table></div>';
+    c.querySelector('.ua-sum').innerHTML = html; return { root: c, cell: c.querySelector('td') };`, rankHTML);
+  await fit('live tail line', `
+    const c = document.createElement('div'); c.className = 'live-tail'; c.style.cssText = 'max-height:none;overflow:visible';
+    c.innerHTML = '<div class="ev"><span class="ts">00:00:00</span><span class="ua" style="max-width:' + w + 'px"></span><span class="path">/</span></div>';
+    const u = c.querySelector('.ua'); u.innerHTML = html; return { root: c, cell: u };`, await cellHTML('#live-tail .ua:has(.ua-old)'));
 
   // ---- the stats page -----------------------------------------------------
   // Its UA columns wear the same mark, through its own copy of the popover
@@ -253,7 +408,6 @@ const okBadge = (s, where) => {
     });
     ok(hov.note && hov.note === stat.old.note, `hovering the marked stats cell explains the mark: ${JSON.stringify(hov)}`);
     ok(/Chrome\/91\./.test(hov.val || ''), `and still shows the raw UA: ${JSON.stringify(hov.val)}`);
-    okBadge(await page.evaluate(badgeShape, el), 'stats cell');
     // The popover's surroundings, for a look at the real thing.
     const shot = async name => {
       if (!process.env.UI_E2E_SHOT) return;
@@ -276,6 +430,36 @@ const okBadge = (s, where) => {
   }
   if (process.env.UI_E2E_SHOT) await page.screenshot({ path: process.env.UI_E2E_SHOT + '-stats.png', fullPage: true });
 
+  // The stats page's cells give way the same way: a column that takes what
+  // the table leaves it.
+  const statHTML = await page.evaluate(() => {
+    const c = Array.from(document.querySelectorAll('td.bcd-ua')).find(c => /Chrome 91/.test(c.textContent));
+    return c ? c.innerHTML : '';
+  });
+  await fit('stats cell', `
+    const t = document.createElement('table'); t.className = 'bcd-table bcd-cliptable'; t.style.cssText = 'width:' + w + 'px;margin:0';
+    t.innerHTML = '<tbody><tr><td class="bcd-ua cellpop cellpop-active"></td></tr></tbody>';
+    const td = t.querySelector('td'); td.innerHTML = html; return { root: t, cell: td };`, statHTML);
+
+  // ---- the advisor's UA lines ----------------------------------------------
+  // The same cell again, this time a flex item beside its request count.  No
+  // seeded candidate uses an old browser, so the marked cell from the stats
+  // page goes into a copy of a real line: what is under test is the line's
+  // own layout around it.
+  const aresp = await page.goto(BASE + '/admin/advisor/', { waitUntil: 'networkidle2' });
+  ok(aresp.status() === 200, `/admin/advisor/ status ${aresp.status()}`);
+  const hasLine = await page.evaluate(() => !!document.querySelector('table.cands .ua-list .uline .cellpop'));
+  ok(hasLine, 'the advisor page lists a candidate with a UA line (run.sh seeds one)');
+  if (hasLine) {
+    await fit('advisor UA line', `
+      const u = document.querySelector('table.cands .ua-list .uline').cloneNode(true);
+      u.style.maxWidth = u.style.width = w + 'px';
+      const c = u.querySelector('.cellpop'); c.innerHTML = html;
+      const t = document.createElement('table'); t.className = 'cands'; t.style.cssText = 'width:auto;margin:0';
+      t.innerHTML = '<tbody><tr><td><div class="ua-list"></div></td></tr></tbody>';
+      t.querySelector('.ua-list').appendChild(u); return { root: t, cell: c };`, statHTML);
+  }
+
   ok(jsErrors.length === 0, `page errors: ${jsErrors.join(' | ')}`);
 
   await browser.close();
@@ -283,5 +467,5 @@ const okBadge = (s, where) => {
     console.error('FAIL ua-old:\n  - ' + fails.join('\n  - '));
     process.exit(1);
   }
-  console.log('PASS ua-old: an old browser is marked in the log, the ranking, the live tail and the stats page, and each mark is explained; a current one is not');
+  console.log('PASS ua-old: an old browser is marked in the log, the ranking, the live tail and the stats page, and each mark is explained; a cell too narrow for the badge drops it and keeps the version; a current browser is not marked');
 })().catch(e => { console.error('FAIL ua-old: ' + (e && e.stack || e)); process.exit(1); });
