@@ -101,8 +101,14 @@ func TestConfirmingARowKeepsItsPills(t *testing.T) {
 	}
 	tpl := string(b)
 
+	// The function is declared two spaces in, so it runs to the first closing
+	// brace on that level.
 	sync := tpl[strings.Index(tpl, "function syncPatValue("):]
-	sync = sync[:strings.Index(sync, "\n  function ")+len("\n  function ")]
+	end := strings.Index(sync, "\n  }\n")
+	if end < 0 {
+		t.Fatal("cannot find the end of syncPatValue")
+	}
+	sync = sync[:end]
 	if strings.Contains(sync, "patView.textContent =") {
 		t.Error("the summary is still rewritten wholesale; the mode / action / site pills are wiped on confirm")
 	}
