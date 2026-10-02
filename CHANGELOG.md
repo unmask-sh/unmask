@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-10-03) **The settings menu stays in view and scrolls on its own.**  The menu beside the settings pages is taller than most screens and moved with the page, so its upper entries were out of reach from the lower part of a long tab.  It now keeps its place with a scroll of its own, holds its position from tab to tab, and shows the current tab's entry on arrival.
+
 ## [0.1.49-rc10] - 2026-10-03 (testing build)
 
 ### Fixed

@@ -118,18 +118,22 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
 /* settings: left sidebar (= by category) + right content. */
 .settings-shell{display:grid;grid-template-columns:14rem 1fr;gap:1.5rem;align-items:start;margin-top:.5rem}
-/* Sticky anchored to the bottom edge.  The nav is taller than a typical
- * viewport, and top-sticky pinned the top items while permanently clipping
- * the last item (community-bans).  bottom:0 means the nav moves with the page
- * as the operator scrolls down, until the bottom item (= community-bans)
- * reaches the viewport bottom -- at that moment sticky engages and the nav
- * stops scrolling, keeping community-bans visible while the right pane continues. */
-.settings-nav{position:sticky;bottom:0;font-size:.875rem}
-/* The shared layout's <main> has bottom padding.  On a viewport shorter than
-   the nav that leaves the same slack below the sticky nav's grid area, so the
-   nav drifts one extra step the moment the content reaches the very bottom.
-   Drop it here (settings page only) and move the breathing room inside the
-   content, so the nav settles in a single position with no late shift. */
+/* The nav stays in view and scrolls on its own.  It is taller than a typical
+ * viewport, and while it moved with the page its upper entries were out of
+ * reach from the lower part of a long tab.  It sticks 1rem below the
+ * viewport's top and is as tall as the room below it: --nav-max, kept by the
+ * script after the nav, because until the nav sticks it starts below the
+ * header, where the viewport's own height would put its last entries under
+ * the fold.  A wheel that reaches the nav's end does not go on to move the
+ * page -- only while the nav has something to scroll (.scrolls): one that
+ * fits lets the wheel through to the page, as before. */
+.settings-nav{position:sticky;top:1rem;max-height:var(--nav-max,calc(100vh - 2rem));overflow-y:auto;scrollbar-width:thin;scrollbar-color:#cbd5e1 transparent;font-size:.875rem}
+.settings-nav.scrolls{overscroll-behavior:contain}
+/* The shared layout's <main> has bottom padding.  The nav's sticky range ends
+   with its grid area, so that padding would push a nav that fills the viewport
+   up by as much the moment the content reaches the very bottom.  Drop it here
+   (settings page only) and move the breathing room inside the content, so the
+   nav settles in a single position with no late shift. */
 .unmask-main{padding-bottom:0}
 .settings-nav h3{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:#94a3b8;margin:1rem 0 .3rem;font-weight:600}
 .settings-nav h3:first-child{margin-top:0}
@@ -137,6 +141,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .settings-nav li{margin:0}
 .settings-nav a{display:block;padding:.4rem .7rem;border-radius:.3rem;color:#475569;text-decoration:none;font-weight:500;border-left:2px solid transparent;line-height:1.4}
 .settings-nav a:hover{background:#f8fafc;color:#0f172a}
+.settings-nav a:focus-visible{outline-offset:-2px} /* the nav clips at its edges: keep the ring inside the link */
 .settings-nav a.active{background:#eff6ff;color:#1e40af;border-left-color:#3b82f6;font-weight:600}
 .settings-content{min-width:0;padding-bottom:1.5rem}
 .settings-tab-title{font-size:1.4rem;font-weight:700;color:#0f172a;margin:0 0 .6rem;display:flex;align-items:center;gap:.5rem;line-height:1}
@@ -147,7 +152,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
    the title text. */
 @media(max-width:48rem){
   .settings-shell{grid-template-columns:1fr}
-  .settings-nav{position:static;border-bottom:1px solid #e2e8f0;padding-bottom:.6rem;margin-bottom:1rem}
+  .settings-nav{position:static;max-height:none;overflow:visible;border-bottom:1px solid #e2e8f0;padding-bottom:.6rem;margin-bottom:1rem}
   .settings-nav ul{display:flex;flex-wrap:wrap;gap:.2rem .4rem;margin-bottom:.4rem}
   .settings-nav h3{margin:.6rem 0 .25rem;font-size:.65rem}
   .settings-nav a{padding:.25rem .55rem;border-left:none;border-bottom:2px solid transparent;border-radius:.2rem}
@@ -695,6 +700,50 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <li><a href="{{ .BasePath }}/admin/settings/about/" {{ if eq .Tab "about" }}class="active"{{ end }}>{{ t .Lang "settings.tab.about" }}{{ if .VersionStatus.UpdateAvailable }} <span class="nav-dot" aria-label="update available"></span>{{ end }}</a></li>
   </ul>
 </aside>
+<!-- The nav's height and scroll position (see the .settings-nav rule).  Runs
+     here, before the content is laid out, so the nav never shows in one
+     place and then jumps.
+       - --nav-max is the room from the nav's top edge to 1rem above the
+         viewport's bottom.  That edge is the shell's until the nav sticks, so
+         the shell's box gives it without reading the nav's own.
+       - Every tab is a page load, which would put the nav back at its top.
+         Its position is kept across loads (sessionStorage), and the active
+         entry is centred when it is still out of view: a first visit, a link
+         from another page. -->
+<script>
+(function(){
+  var nav = document.querySelector('.settings-shell > .settings-nav');
+  if (!nav) return;
+  var shell = nav.parentNode, KEY = 'unmask.settings.nav-scroll', last = '';
+  var REM = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16;
+  function fit(){
+    var top = Math.max(shell.getBoundingClientRect().top, REM);
+    var max = Math.max(window.innerHeight - top - REM, 6 * REM) + 'px';
+    if (max === last) return;
+    last = max;
+    nav.style.setProperty('--nav-max', max);
+    nav.classList.toggle('scrolls', nav.scrollHeight > nav.clientHeight + 1);
+  }
+  fit();
+  try {
+    var y = parseInt(sessionStorage.getItem(KEY), 10);
+    if (y > 0) nav.scrollTop = y;
+  } catch (e) {}
+  var a = nav.querySelector('a.active');
+  if (a) {
+    var nr = nav.getBoundingClientRect(), ar = a.getBoundingClientRect();
+    if (ar.top < nr.top || ar.bottom > nr.bottom) {
+      nav.scrollTop += (ar.top + ar.bottom) / 2 - (nr.top + nr.bottom) / 2;
+    }
+  }
+  window.addEventListener('scroll', fit, { passive: true });
+  window.addEventListener('resize', fit);
+  window.addEventListener('load', fit);
+  window.addEventListener('pagehide', function(){
+    try { sessionStorage.setItem(KEY, String(nav.scrollTop)); } catch (e) {}
+  });
+})();
+</script>
 <section class="settings-content">
 
 {{/* Common tab heading: shows the active tab label (= same string as the
@@ -7851,40 +7900,6 @@ document.addEventListener('DOMContentLoaded', function(){
       pin.handleClick(html, e.pageX, e.pageY, trigger);
     });
   });
-})();
-</script>
-
-<!-- Sticky-nav offset.  position:sticky;top:1rem leaves the bottom of a long
-     nav (= community-bans under "community") clipped below the viewport.  Set
-     top dynamically so the nav scrolls in flow until its last item reaches
-     the viewport bottom, at which point sticky engages and the nav locks
-     with community-bans at the bottom edge.  Falls back to top:1rem (the CSS
-     default) on viewports tall enough to hold the whole nav. -->
-<script>
-(function(){
-  var nav = document.querySelector('.settings-shell > .settings-nav');
-  if (!nav) return;
-  function update(){
-    // offsetHeight reflects the rendered nav height (= sum of links + section
-    // headers + any padding).  innerHeight is the visual viewport.
-    var navH = nav.offsetHeight;
-    var vh   = window.innerHeight;
-    if (navH > vh - 16) {
-      // Nav is taller than (viewport - 1rem).  Sticky kicks in once natural
-      // top would be above (vh - navH); at that moment the bottom edge of the
-      // nav (= community-bans) sits exactly at the viewport bottom.
-      nav.style.top = (vh - navH) + 'px';
-    } else {
-      // Nav fits — pin at the top with a 1rem inset (the original behavior).
-      nav.style.top = '1rem';
-    }
-  }
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', update);
-  } else {
-    update();
-  }
-  window.addEventListener('resize', update);
 })();
 </script>
 
