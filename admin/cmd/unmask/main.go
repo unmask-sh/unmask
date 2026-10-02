@@ -20,6 +20,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/signal"
 	osuser "os/user"
@@ -1157,8 +1158,15 @@ func openListener(s settings.Server) (net.Listener, string, error) {
 		return ln, "unix:" + path, nil
 	}
 
-	// TCP path.
-	addr := fmt.Sprintf("%s:%d", s.Bind, s.Port)
+	// TCP path.  The bind is an address alone -- an IPv6 one with or without
+	// its brackets -- and the port is server.port.  A bind that carries a port
+	// is refused here in words: what net.Listen says about "0.0.0.0:9477"
+	// joined to a port is "too many colons in address".
+	host := s.TCPHost()
+	if _, perr := netip.ParseAddr(host); perr != nil && strings.Contains(host, ":") {
+		return nil, "", fmt.Errorf("server.bind %q is not an address: write the IP alone (0.0.0.0, ::, 192.0.2.10) and the port under server.port", s.Bind)
+	}
+	addr := net.JoinHostPort(host, strconv.Itoa(s.Port))
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, "", err

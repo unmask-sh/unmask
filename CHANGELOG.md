@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-10-02) **A bind of `::` listens.**  The settings page took `::`, and the daemon joined it to the port as `:::9477` and failed at its next restart.  An IPv6 bind now works with or without brackets, in the listener, the rendered nginx upstream, the CLI and doctor.  The form takes IP addresses only, and the post-install note no longer suggests a bind that carries the port.
+
 ## [0.1.49-rc9] - 2026-10-02 (testing build)
 
 ### Since rc8

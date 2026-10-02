@@ -672,6 +672,23 @@ type Server struct {
 	HostID string `yaml:"host_id,omitempty"`
 }
 
+// TCPHost is the bind as the host of a TCP address: an IPv6 literal without
+// its brackets, whichever way it was written ("::1" and "[::1]" are one bind),
+// anything else as it stands.  Join it with net.JoinHostPort, which puts the
+// brackets where an address needs them; gluing ":port" on by hand did not, so
+// a bind of "::" -- the form the settings page takes -- never listened.
+// "" for a socket bind, and for an empty bind (every interface).
+func (s Server) TCPHost() string {
+	b := strings.TrimSpace(s.Bind)
+	if strings.HasPrefix(b, "unix:") {
+		return ""
+	}
+	if len(b) >= 2 && b[0] == '[' && b[len(b)-1] == ']' {
+		return b[1 : len(b)-1]
+	}
+	return b
+}
+
 // DefaultListenSocket is the default unix-socket path for the HTTP listener in
 // socket mode -- the value the settings UI pre-fills, so the field is never empty
 // (an empty `bind: unix:` is a hard error, not silently defaulted).  Named for

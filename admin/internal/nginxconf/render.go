@@ -216,7 +216,7 @@ func buildUpstreamServer(s settings.Settings) string {
 	if strings.HasPrefix(bind, "unix:") {
 		return bind
 	}
-	host := bind
+	host := s.Server.TCPHost()
 	if host == "" || host == "0.0.0.0" || host == "::" {
 		// Point upstream at localhost (= proxy to the same-host admin).
 		// Even if bind covers every interface, nginx can just talk to loopback.
@@ -226,7 +226,8 @@ func buildUpstreamServer(s settings.Settings) string {
 	if port == 0 {
 		port = 9477
 	}
-	return fmt.Sprintf("%s:%d", host, port)
+	// Brackets around an IPv6 host, as nginx's `server` wants it.
+	return net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 // StripRenderStamps drops the per-render header lines (generated_at,

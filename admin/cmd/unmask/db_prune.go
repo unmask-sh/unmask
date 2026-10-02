@@ -214,16 +214,17 @@ func daemonDial(srv settings.Server) (network, addr string) {
 	if strings.HasPrefix(bind, "unix:") {
 		return "unix", strings.TrimSpace(strings.TrimPrefix(bind, "unix:"))
 	}
-	if bind == "" {
-		bind = "127.0.0.1"
+	host := srv.TCPHost()
+	if host == "" {
+		host = "127.0.0.1"
 	}
 	port := srv.Port
 	if port == 0 {
 		port = 9477
 	}
-	// Joined as the daemon joins them (openListener), so an IPv6 bind, which
-	// it takes in brackets, is dialled as it is listened on.
-	return "tcp", bind + ":" + strconv.Itoa(port)
+	// Joined as the daemon joins them (openListener), so an IPv6 bind, with
+	// or without its brackets, is dialled as it is listened on.
+	return "tcp", net.JoinHostPort(host, strconv.Itoa(port))
 }
 
 // daemonAddr is the daemon's listen address as a message names it.

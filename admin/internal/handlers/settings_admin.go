@@ -2132,8 +2132,14 @@ func applyServerListenForm(s *settings.Server, r *http.Request, lang i18n.Lang) 
 		if bind == "" {
 			bind = "127.0.0.1"
 		}
-		// Only IP / "0.0.0.0" / "::" / hostname allowed. Reject dangerous chars.
-		if !ipOrCIDRRE.MatchString(bind) && bind != "::" {
+		// An IP address and nothing else: IPv4, or IPv6 with or without its
+		// brackets (the daemon listens on either).  The pattern this replaced
+		// passed anything made of hex digits, dots, colons and slashes --
+		// "10.0.0.0/8", "0.0.0.0:9477" -- and a daemon restarted on one of
+		// those does not come back.  net.ParseIP, not netip: it takes no zone
+		// ("fe80::1%eth0"), and a zone is free text that would reach nginx's
+		// `server ...;` unquoted, like the socket path below.
+		if net.ParseIP((settings.Server{Bind: bind}).TCPHost()) == nil {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.listen_bind_invalid", bind))
 		}
 		port, err := strconv.Atoi(strings.TrimSpace(r.FormValue("tcp_port")))
