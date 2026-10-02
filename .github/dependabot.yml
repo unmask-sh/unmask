@@ -1,20 +1,23 @@
-# Dependabot keeps direct dependencies fresh.
+# Dependabot reports which direct dependencies have moved.
 # - Go modules under admin/ (= the admin daemon source).
 # - GitHub Actions used by ci.yml / release.yml.
 #
-# These pull requests are a REPORT, not something to merge.  Dependabot has no
-# way to set the git author on its commits (dependabot-core#6586), and GitHub's
-# contributors list is built from commit authors -- so merging even one of them
-# puts a bot beside the humans on the repo page, permanently, with no way back
-# short of rewriting published history.  Apply the diff by hand instead
-# (`gh pr diff <n> | git apply`), commit it, and close the pull request.
+# Its pull requests are a REPORT.  None of them is merged and none of their
+# diffs is applied: each is read and closed.  A dependency moves in a commit of
+# our own, when there is a reason to move it.
 #
-# One group per ecosystem, monthly, so that stays a couple of minutes a month
-# rather than a standing chore.  Grouping also fixes a class of breakage on its
-# own: an action split across several steps (github/codeql-action's init and
-# analyze, pinned here to one SHA) used to arrive as separate pull requests,
-# and whichever landed first left the two on mismatched versions with the
-# analysis failing.  Grouped, they move together.
+# Why none is merged: Dependabot has no way to set the git author on its
+# commits (dependabot-core#6586), and GitHub's contributors list is built from
+# commit authors -- so merging even one of them puts a bot beside the humans on
+# the repo page, permanently, with no way back short of rewriting published
+# history.
+#
+# One group per ecosystem, monthly, so the report is two pull requests a month
+# and not a stream.  Grouping also keeps together what has to move together: an
+# action used in several steps (github/codeql-action's init and analyze, pinned
+# here to one SHA) used to be reported a step at a time, and a pin moved
+# without the other leaves the two on mismatched versions with the analysis
+# failing.
 #
 # Slowing the cadence costs nothing in security terms: Dependabot security
 # updates fire on advisory publication, not on this schedule.
