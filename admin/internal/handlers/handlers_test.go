@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ import (
 // Inlines CREATE TABLE so the schema lives in a single file.
 func newTestHandler(t *testing.T) *Handler {
 	t.Helper()
-	dir := t.TempDir()
+	dir := dbTempDir(t)
 	dbcfg := settings.DB{
 		Driver:     "sqlite",
 		SQLitePath: filepath.Join(dir, "test.sqlite"),
@@ -124,6 +125,39 @@ func newTestHandler(t *testing.T) *Handler {
 	h := &Handler{DB: conn}
 	h.SetSettings(s)
 	return h
+}
+
+// dbTempDir is t.TempDir for a directory that holds a database the test's
+// requests write to.  A request that records an event does it through
+// events.InsertAsync, which -- with no flusher running, as in a test --
+// writes from a goroutine nobody waits for.  One still writing when the test
+// ends can make SQLite put its -wal back while the directory is being
+// removed, and t.TempDir's own cleanup then fails the test on "directory not
+// empty" though every check in it passed (CI, TestReuseCapOnTheRateRoute,
+// 2026-10-01 and 2026-10-03).  This cleanup runs after the database is
+// closed (it is registered before it), gives such a write a moment, and
+// removes the directory again.  Once it is gone, a late write has nowhere
+// to create a file.
+func dbTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "unmask-handlers-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		for i := 0; ; i++ {
+			err := os.RemoveAll(dir)
+			if err == nil {
+				return
+			}
+			if i == 40 {
+				t.Logf("left %s behind: %v", dir, err)
+				return
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+	})
+	return dir
 }
 
 // VerifyJSON: high score → 200 ok=1 + Set-Cookie _bv.
