@@ -12,7 +12,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.49-rc9] - 2026-10-02 (testing build)
+
+### Since rc8
+
+- A UA cell too narrow for the old-version badge now drops the badge and shows the version whole; the badge used to push the version out behind an ellipsis.
 
 ### Changed
 
