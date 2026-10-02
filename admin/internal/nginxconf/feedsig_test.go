@@ -148,6 +148,93 @@ func TestSyncSignaturePolicy(t *testing.T) {
 	}
 }
 
+// The published feed is signed on a host that does not serve it, so that
+// taking over the serving host is not enough to put addresses on the
+// pass-list.  That holds only if the daemon insists on the signature: while a
+// missing one fell back to trusting the transport, deleting the .sig was all
+// an attacker there had to do.
+func TestPublishedFeedIsRefusedWithoutItsSignature(t *testing.T) {
+	priv, restore := testFeedKey(t)
+	defer restore()
+	body := feedDoc("2026-08-18T00:00:00Z")
+	published := func(srv *httptest.Server) func() {
+		prev := publishedHubURL
+		publishedHubURL = srv.URL + "/bypass-iprange-all.json"
+		return func() { publishedHubURL = prev; srv.Close() }
+	}
+	wrote := func(dir string) bool {
+		_, err := os.Stat(filepath.Join(dir, snapshotMetaBase))
+		return err == nil
+	}
+
+	// No signature beside the published document: refused, nothing ingested.
+	done := published(hubFor(t, body, ""))
+	s := NewSync() // HubURL empty = the published feed, as a daemon runs
+	s.Dir = t.TempDir()
+	err := s.PullOnce(t.Context())
+	if err == nil || !strings.Contains(err.Error(), "signature required") {
+		t.Fatalf("the published feed was taken without its signature: %v", err)
+	}
+	if wrote(s.Dir) {
+		t.Fatal("a refused pull left a snapshot behind")
+	}
+	// The same URL written out in the config is the same feed.
+	s2 := NewSync()
+	s2.Dir = t.TempDir()
+	s2.HubURL = publishedHubURL
+	if err := s2.PullOnce(t.Context()); err == nil {
+		t.Fatal("naming the published URL in sync_hub_url waived its signature")
+	}
+	done()
+
+	// With its signature it is taken, and the snapshot says it was verified.
+	done = published(hubFor(t, body, SignFeed(priv, body)))
+	s3 := NewSync()
+	s3.Dir = t.TempDir()
+	if err := s3.PullOnce(t.Context()); err != nil {
+		t.Fatalf("the signed published feed was refused: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(s3.Dir, snapshotMetaBase))
+	if !strings.Contains(string(raw), `"verified:`) {
+		t.Fatalf("the snapshot does not record the verification: %s", raw)
+	}
+	done()
+
+	// A hub of the operator's own is not held to it: it may not sign at all.
+	own := hubFor(t, body, "")
+	defer own.Close()
+	s4 := NewSync()
+	s4.Dir = t.TempDir()
+	s4.HubURL = own.URL + "/mirror/bypass-iprange-all.json"
+	if err := s4.PullOnce(t.Context()); err != nil {
+		t.Fatalf("an unsigned document from the operator's own hub was refused: %v", err)
+	}
+	raw, _ = os.ReadFile(filepath.Join(s4.Dir, snapshotMetaBase))
+	if !strings.Contains(string(raw), `"unsigned"`) {
+		t.Fatalf("the snapshot does not say the document was unsigned: %s", raw)
+	}
+}
+
+// The offline update is the document alone, carried over by hand
+// (`update-iprange -file`, with the hub left at its default): it is still
+// taken without a sidecar, as documented.
+func TestImportedFileNeedsNoSidecarUnlessAsked(t *testing.T) {
+	body := feedDoc("2026-08-18T00:00:00Z")
+	p := filepath.Join(t.TempDir(), "bypass-iprange-all.json")
+	if err := os.WriteFile(p, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := NewSync() // HubURL empty, as `update-iprange -file` leaves it
+	s.Dir = t.TempDir()
+	if err := s.PullFromFile(p); err != nil {
+		t.Fatalf("a file without a sidecar was refused: %v", err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(s.Dir, snapshotMetaBase))
+	if !strings.Contains(string(raw), `"unsigned"`) {
+		t.Fatalf("the snapshot does not say the file was unsigned: %s", raw)
+	}
+}
+
 func TestSyncRollbackRefused(t *testing.T) {
 	dir := t.TempDir()
 

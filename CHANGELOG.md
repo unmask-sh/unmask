@@ -18,6 +18,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-02) **A bind of `::` listens.**  The settings page took `::`, and the daemon joined it to the port as `:::9477` and failed at its next restart.  An IPv6 bind now works with or without brackets, in the listener, the rendered nginx upstream, the CLI and doctor.  The form takes IP addresses only, and the post-install note no longer suggests a bind that carries the port.
 
+### Security
+
+- (2026-10-02) **The published crawler IP feed is refused without its signature.**  The feed is signed on a host that does not serve it, yet a daemon that found no signature fell back to trusting TLS: whoever controlled the serving host could swap the pass-list by deleting one file.  Pulls of the published feed now fail without a valid signature; your own `sync_hub_url` and `update-iprange -file` are unchanged.
+
 ## [0.1.49-rc9] - 2026-10-02 (testing build)
 
 ### Since rc8

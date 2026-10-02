@@ -866,7 +866,9 @@ type Nginx struct {
 	// the trust store; this is the escape hatch when you cannot.
 	SyncInsecureTLS bool `yaml:"sync_insecure_tls,omitempty"`
 	// SyncRequireSignature: refuse an unsigned feed document even over
-	// verified TLS.  Implied by SyncInsecureTLS.
+	// verified TLS.  Implied by SyncInsecureTLS.  It decides for a hub of
+	// your own (sync_hub_url), which may not sign; the published feed is
+	// refused without its signature whether or not this is set.
 	SyncRequireSignature bool `yaml:"sync_require_signature,omitempty"`
 	// SyncHubURL / BrowserMajorsHubURL: where the two hub feeds are pulled
 	// from -- the aggregated bypass-IP document and the browser-majors

@@ -35,7 +35,7 @@ func cmdUpdateIPRange(args []string) error {
 	insecure := fs.Bool("insecure-tls", false,
 		"skip transport certificate verification; the feed's detached signature then becomes REQUIRED (unsigned documents are refused)")
 	requireSig := fs.Bool("require-signature", false,
-		"refuse an unsigned document even over verified TLS")
+		"refuse an unsigned document even over verified TLS (for -file, and for a hub of your own: the published feed, the default -url, is refused without its signature in any case)")
 	timeout := fs.Duration("timeout", 60*time.Second, "HTTP timeout")
 	_ = fs.Parse(args)
 
