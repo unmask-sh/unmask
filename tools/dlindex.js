@@ -18,6 +18,27 @@
 
   var DASH = "—"; // em dash
 
+  // The Japanese download page (/ja/dl/) links here with ?lang=ja: the labels
+  // are Japanese and the way back leads to /ja/dl/.  Directory links carry the
+  // parameter on, so the listing stays Japanese as one browses down; a file
+  // needs none.  Without it the page is as before.
+  var JA = /(?:^|[?&])lang=ja(?:&|$)/.test(location.search);
+  var Q = JA ? "?lang=ja" : "";
+  var HOME = JA ? "/ja/dl/" : "/dl/";
+  var T = JA ? {
+    filter: "絞り込み…", filterLabel: "ファイルを絞り込む",
+    name: "名前", size: "サイズ", date: "更新日時",
+    noMatch: function (v) { return "「" + v + "」に一致するものはありません"; },
+    empty: "このディレクトリは空です。",
+    count: function (n) { return n + " 件"; }
+  } : {
+    filter: "Filter…", filterLabel: "filter files",
+    name: "Name", size: "Size", date: "Modified",
+    noMatch: function (v) { return "No match for “" + v + "”"; },
+    empty: "Empty directory.",
+    count: function (n, one) { return n + (one ? " item" : " items"); }
+  };
+
   var pre = document.querySelector("pre");
   var h1 = document.querySelector("h1");
   if (!pre || !h1 || !/Index of/i.test(h1.textContent || "")) return;
@@ -118,7 +139,7 @@
       crumbs.appendChild(el("span", "cur", segs[s]));
     } else {
       var a = el("a", null, segs[s]);
-      a.href = acc;
+      a.href = s ? acc + Q : HOME; // the root crumb is the download page
       crumbs.appendChild(a);
     }
   }
@@ -127,7 +148,7 @@
 
   var head = el("div", "dlx-head");
   var brand = el("a", "dlx-brand", "unmask");
-  brand.href = "/dl/";
+  brand.href = HOME;
   head.appendChild(brand);
   head.appendChild(crumbs);
   head.appendChild(el("span", "dlx-spacer"));
@@ -139,8 +160,8 @@
   var tools = el("div", "dlx-tools");
   var filter = el("input", "dlx-filter");
   filter.type = "search";
-  filter.placeholder = "Filter…";
-  filter.setAttribute("aria-label", "filter files");
+  filter.placeholder = T.filter;
+  filter.setAttribute("aria-label", T.filterLabel);
   tools.appendChild(filter);
   root.appendChild(tools);
 
@@ -149,9 +170,9 @@
   var thead = el("thead");
   var htr = el("tr");
   var cols = [
-    { key: "name", label: "Name", cls: "col-name" },
-    { key: "size", label: "Size", cls: "col-size" },
-    { key: "date", label: "Modified", cls: "col-date" }
+    { key: "name", label: T.name, cls: "col-name" },
+    { key: "size", label: T.size, cls: "col-size" },
+    { key: "date", label: T.date, cls: "col-date" }
   ];
   var ths = {};
   cols.forEach(function (c) {
@@ -200,7 +221,8 @@
     if (hasParent) { // pinned ".." row, first and unfiltered
       var up = el("tr", "dlx-dir dlx-up");
       var utd = el("td");
-      utd.appendChild(nameLink("../", "up", "up", ".."));
+      // One level below /dl/, ".." is the download page (/ja/dl/ in Japanese).
+      utd.appendChild(nameLink(segs.length === 2 ? HOME : "../" + Q, "up", "up", ".."));
       up.appendChild(utd);
       up.appendChild(el("td", "dlx-size", DASH));
       up.appendChild(el("td", "dlx-date", ""));
@@ -213,7 +235,7 @@
       var k = classify(e);
       var tr = el("tr", e.isDir ? "dlx-dir" : null);
       var tdN = el("td");
-      tdN.appendChild(nameLink(e.href, k.cls, k.icon, e.name + (e.isDir ? "/" : "")));
+      tdN.appendChild(nameLink(e.isDir ? e.href + Q : e.href, k.cls, k.icon, e.name + (e.isDir ? "/" : "")));
       var tdS = el("td", "dlx-size", e.isDir ? DASH : fmtSize(e.size));
       var tdD = el("td", "dlx-date", e.date || "");
       tr.appendChild(tdN); tr.appendChild(tdS); tr.appendChild(tdD);
@@ -223,16 +245,17 @@
       var tr2 = el("tr");
       var td2 = el("td", "dlx-empty");
       td2.colSpan = 3;
-      td2.textContent = q ? "No match for “" + filter.value + "”" : "Empty directory.";
+      td2.textContent = q ? T.noMatch(filter.value) : T.empty;
       tr2.appendChild(td2);
       tbody.appendChild(tr2);
     }
-    count.textContent = (q ? shown + " / " + entries.length : String(entries.length)) +
-      (entries.length === 1 && !q ? " item" : " items");
+    count.textContent = T.count(q ? shown + " / " + entries.length : String(entries.length),
+      entries.length === 1 && !q);
   }
   filter.addEventListener("input", render);
 
   // ---- swap in ----
+  if (JA) document.documentElement.lang = "ja";
   document.title = "unmask /dl/ — " + segs.slice(1).join("/") + (segs.length > 1 ? "/" : "");
   document.body.textContent = "";
   document.body.appendChild(root);
