@@ -34,23 +34,12 @@ ranges wherever the vendor publishes them.
 
 ## Install
 
-Official install guide: **https://unmask.sh/install/**
+The install guide takes you through either way, step by step: **https://unmask.sh/install/**
 
-rpm / deb / apk packages, per-HTTP-server snippets, and an install wizard — step by step.
-
-Container: `unmask.sh/unmask` — the gateway in one image (the official nginx image with the module, plus the daemon), served from unmask.sh like the packages and mirrored on GHCR; `docker run` it or add one service to your compose, and put it in front of any HTTP server.
-
-### Quick start (Docker)
-
-```sh
-docker run -d --name unmask --restart unless-stopped -p 80:80 -p 443:443 \
-  --add-host host.docker.internal:host-gateway \
-  -v unmask-config:/etc/unmask -v unmask-data:/var/lib/unmask -v unmask-acme:/var/cache/nginx/unmask-acme \
-  unmask.sh/unmask:latest
-docker logs unmask | grep "setup token"
-```
-
-Open `https://localhost/unmask/admin/`, pass the short security check, and paste the setup token into the install wizard. Then set the upstream (the server unmask protects), the hostnames and the certificate under **Settings → Gateway**. Clients that cannot run JavaScript — `git`, sync clients, mobile apps — need their paths let through under **Settings → Bypass paths**. The [container guide](https://unmask.sh/docs/docker/) covers compose, and the FAQ covers [where unmask goes if you already run a reverse proxy](https://unmask.sh/docs/faq/#existing-reverse-proxy).
+- **Running nginx?** Use the native module — the recommended setup. Signed rpm / deb / apk packages for x86_64 and arm64 put it into the nginx you already run, and an install wizard does the rest.
+  → https://unmask.sh/install/
+- **Apache, Node or anything else — or you would rather run a container?** The gateway image, `unmask.sh/unmask`, is the official nginx image with the module plus the daemon in one container, placed in front of your server (served from unmask.sh, mirrored on GHCR).
+  → https://unmask.sh/install/#gateway
 
 ### Package signing
 
