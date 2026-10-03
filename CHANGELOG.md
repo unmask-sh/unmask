@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-10-03) **Japanese and Korean on the challenge page no longer break inside a word.**  Left to the browser's default, the first-visit message could wrap with a Japanese word cut in two across the lines.  Both languages now wrap only at spaces, after punctuation and at phrase marks placed in the longer Japanese sentences, on the proof-of-work page and the CAPTCHA card alike.
+
 ## [0.1.49-rc11] - 2026-10-03 (testing build)
 
 ### Changed

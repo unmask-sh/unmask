@@ -151,7 +151,7 @@
   // to avoid an accusatory tone.
   var L={
     en:{verify:'Loading {site_name}, just a moment...',title:'Quick check',desc:'Please confirm to continue.',note:'This check protects the site from malicious automated access.',notRobot:"I'm not a robot",wrong:"That didn't go through — please try once more.",error:'Something went wrong. Please try again in a moment.',checking:'Verifying...',verified:'Verified',connecting:'Connecting to {site_name}…'},
-    ja:{verify:'{site_name} を読み込んでいます。もう少々お待ちください…',title:'アクセス確認',desc:'続行するにはチェックを入れてください。',note:'ボットによる不正アクセスからサイトを守るための確認です。',notRobot:'私はロボットではありません',wrong:'もう一度確認させてください。',error:'うまくいきませんでした。少し時間をおいてからお試しください。',checking:'確認中…',verified:'確認できました',connecting:'{site_name} に接続しています…'},
+    ja:{verify:'{site_name} を読み込んでいます。もう少々お待ちください…',title:'アクセス確認',desc:'続行するには\u200bチェックを\u200b入れてください。',note:'ボットによる\u200b不正アクセスから\u200bサイトを\u200b守るための\u200b確認です。',notRobot:'私は\u200bロボットでは\u200bありません',wrong:'もう一度\u200b確認させてください。',error:'うまく\u200bいきませんでした。少し時間を\u200bおいてから\u200bお試しください。',checking:'確認中…',verified:'確認できました',connecting:'{site_name} に接続しています…'},
     zh:{verify:'正在加载 {site_name}，请稍候...',title:'快速验证',desc:'请勾选以继续。',note:'此验证用于保护网站免受恶意自动化访问。',notRobot:'我不是机器人',wrong:'请再试一次。',error:'出了点问题，请稍后再试。',checking:'正在验证…',verified:'验证通过',connecting:'正在连接到 {site_name}…'},
     zht:{verify:'正在載入 {site_name}，請稍候...',title:'快速驗證',desc:'請勾選以繼續。',note:'此驗證用於保護網站免受惡意自動化存取。',notRobot:'我不是機器人',wrong:'請再試一次。',error:'發生問題，請稍候再試。',checking:'正在驗證…',verified:'驗證通過',connecting:'正在連線至 {site_name}…'},
     ko:{verify:'{site_name} 로딩 중... 잠시만 기다려 주세요',title:'확인',desc:'계속하려면 체크해 주세요.',note:'봇의 악의적인 접근으로부터 사이트를 보호하기 위한 확인입니다.',notRobot:'저는 로봇이 아닙니다',wrong:'다시 한 번 시도해 주세요.',error:'문제가 발생했습니다. 잠시 후 다시 시도해 주세요.',checking:'확인 중…',verified:'확인되었습니다',connecting:'{site_name}에 연결하는 중…'},
@@ -218,7 +218,7 @@
   var P={
     friendly:{
       en:{verify:'Loading {site_name}, just a moment...',title:'Quick check',desc:'Please confirm to continue.',note:'This check protects the site from malicious automated access.'},
-      ja:{verify:'{site_name} を読み込んでいます。もう少々お待ちください…',title:'アクセス確認',desc:'続行するにはチェックを入れてください。',note:'ボットによる不正アクセスからサイトを守るための確認です。'},
+      ja:{verify:'{site_name} を読み込んでいます。もう少々お待ちください…',title:'アクセス確認',desc:'続行するには\u200bチェックを\u200b入れてください。',note:'ボットによる\u200b不正アクセスから\u200bサイトを\u200b守るための\u200b確認です。'},
       zh:{verify:'正在加载 {site_name},请稍候...',title:'快速验证',desc:'请勾选以继续。',note:'此验证用于保护网站免受恶意自动化访问。'},
       zht:{verify:'正在載入 {site_name},請稍候...',title:'快速驗證',desc:'請勾選以繼續。',note:'此驗證用於保護網站免受惡意自動化存取。'},
       ko:{verify:'{site_name} 로딩 중... 잠시만 기다려 주세요',title:'확인',desc:'계속하려면 체크해 주세요.',note:'봇의 악의적인 접근으로부터 사이트를 보호하기 위한 확인입니다.'},
@@ -238,7 +238,7 @@
     },
     neutral:{
       en:{verify:'Verifying your access to {site_name}, please wait...',title:'Security check',desc:'Please confirm to continue.',note:'This check protects against automated access.'},
-      ja:{verify:'{site_name} へのアクセスを確認しています。しばらくお待ちください…',title:'セキュリティ確認',desc:'続行するにはチェックを入れてください。',note:'自動アクセスを防ぐための確認です。'},
+      ja:{verify:'{site_name} へのアクセスを\u200b確認しています。しばらくお待ちください…',title:'セキュリティ確認',desc:'続行するには\u200bチェックを\u200b入れてください。',note:'自動アクセスを\u200b防ぐための\u200b確認です。'},
       zh:{verify:'正在验证您对 {site_name} 的访问,请稍候...',title:'安全验证',desc:'请勾选以继续。',note:'此验证可防止自动化访问。'},
       zht:{verify:'正在驗證您對 {site_name} 的存取,請稍候...',title:'安全驗證',desc:'請勾選以繼續。',note:'此驗證可防止自動化存取。'},
       ko:{verify:'{site_name}에 대한 액세스를 확인하고 있습니다. 잠시만 기다려 주세요...',title:'보안 확인',desc:'계속하려면 체크해 주세요.',note:'자동화된 접근을 막기 위한 확인입니다.'},
@@ -258,7 +258,7 @@
     },
     minimal:{
       en:{verify:'Connecting to {site_name}...',title:'Connecting',desc:'Please confirm to continue.',note:''},
-      ja:{verify:'{site_name} に接続中…',title:'接続中',desc:'続行するにはチェックを入れてください。',note:''},
+      ja:{verify:'{site_name} に接続中…',title:'接続中',desc:'続行するには\u200bチェックを\u200b入れてください。',note:''},
       zh:{verify:'正在连接到 {site_name}...',title:'正在连接',desc:'请勾选以继续。',note:''},
       zht:{verify:'正在連線至 {site_name}...',title:'正在連線',desc:'請勾選以繼續。',note:''},
       ko:{verify:'{site_name}에 연결 중...',title:'연결 중',desc:'계속하려면 체크해 주세요.',note:''},
@@ -825,7 +825,7 @@
   // security investigation.
   var COOKIE_ERR_I18N = {
     en: { title:'Please enable cookies', desc:'This site needs cookies to load. Please enable cookies in your browser settings and reload this page.', hint:'If you opened this page from inside an app, that app\u2019s built-in browser may be blocking cookies. Open the address below in your usual browser.', copy:'Copy address', copied:'Copied' },
-    ja: { title:'Cookie \u3092\u6709\u52b9\u306b\u3057\u3066\u304f\u3060\u3055\u3044', desc:'\u3053\u306e\u30b5\u30a4\u30c8\u3092\u8868\u793a\u3059\u308b\u306b\u306f cookie \u304c\u5fc5\u8981\u3067\u3059\u3002\u30d6\u30e9\u30a6\u30b6\u306e\u8a2d\u5b9a\u3067 cookie \u3092\u6709\u52b9\u306b\u3057\u3066\u3001\u30da\u30fc\u30b8\u3092\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u304f\u3060\u3055\u3044\u3002', hint:'\u30a2\u30d7\u30ea\u306e\u4e2d\u304b\u3089\u3053\u306e\u30da\u30fc\u30b8\u3092\u958b\u3044\u305f\u5834\u5408\u3001\u305d\u306e\u30a2\u30d7\u30ea\u5185\u30d6\u30e9\u30a6\u30b6\u304c cookie \u3092\u30d6\u30ed\u30c3\u30af\u3057\u3066\u3044\u308b\u3053\u3068\u304c\u3042\u308a\u307e\u3059\u3002\u4e0b\u306e\u30a2\u30c9\u30ec\u30b9\u3092\u666e\u6bb5\u4f7f\u3063\u3066\u3044\u308b\u30d6\u30e9\u30a6\u30b6\u3067\u958b\u3044\u3066\u304f\u3060\u3055\u3044\u3002', copy:'\u30a2\u30c9\u30ec\u30b9\u3092\u30b3\u30d4\u30fc', copied:'\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f' },
+    ja: { title:'Cookie \u3092\u6709\u52b9\u306b\u3057\u3066\u304f\u3060\u3055\u3044', desc:'\u3053\u306e\u30b5\u30a4\u30c8\u3092\u8868\u793a\u3059\u308b\u306b\u306f cookie \u304c\u5fc5\u8981\u3067\u3059\u3002\u30d6\u30e9\u30a6\u30b6\u306e\u8a2d\u5b9a\u3067 cookie \u3092\u6709\u52b9\u306b\u3057\u3066\u3001\u30da\u30fc\u30b8\u3092\u200b\u518d\u8aad\u307f\u8fbc\u307f\u3057\u3066\u304f\u3060\u3055\u3044\u3002', hint:'\u30a2\u30d7\u30ea\u306e\u4e2d\u304b\u3089\u200b\u3053\u306e\u30da\u30fc\u30b8\u3092\u200b\u958b\u3044\u305f\u5834\u5408\u3001\u305d\u306e\u30a2\u30d7\u30ea\u5185\u30d6\u30e9\u30a6\u30b6\u304c cookie \u3092\u200b\u30d6\u30ed\u30c3\u30af\u3057\u3066\u3044\u308b\u3053\u3068\u304c\u3042\u308a\u307e\u3059\u3002\u4e0b\u306e\u30a2\u30c9\u30ec\u30b9\u3092\u200b\u666e\u6bb5\u4f7f\u3063\u3066\u3044\u308b\u200b\u30d6\u30e9\u30a6\u30b6\u3067\u200b\u958b\u3044\u3066\u304f\u3060\u3055\u3044\u3002', copy:'\u30a2\u30c9\u30ec\u30b9\u3092\u30b3\u30d4\u30fc', copied:'\u30b3\u30d4\u30fc\u3057\u307e\u3057\u305f' },
     zh: { title:'\u8bf7\u542f\u7528 Cookie', desc:'\u672c\u7ad9\u9700\u8981 Cookie \u624d\u80fd\u6b63\u5e38\u52a0\u8f7d\u3002\u8bf7\u5728\u6d4f\u89c8\u5668\u8bbe\u7f6e\u4e2d\u542f\u7528 Cookie \u540e\u91cd\u65b0\u52a0\u8f7d\u9875\u9762\u3002', hint:'\u5982\u679c\u60a8\u662f\u4ece\u67d0\u4e2a\u5e94\u7528\u5185\u6253\u5f00\u672c\u9875\u9762\uff0c\u8be5\u5e94\u7528\u7684\u5185\u7f6e\u6d4f\u89c8\u5668\u53ef\u80fd\u7981\u7528\u4e86 Cookie\u3002\u8bf7\u5728\u60a8\u5e38\u7528\u7684\u6d4f\u89c8\u5668\u4e2d\u6253\u5f00\u4e0b\u9762\u7684\u7f51\u5740\u3002', copy:'\u590d\u5236\u7f51\u5740', copied:'\u5df2\u590d\u5236' },
     zht:{ title:'\u8acb\u555f\u7528 Cookie', desc:'\u672c\u7ad9\u9700\u8981 Cookie \u624d\u80fd\u6b63\u5e38\u8f09\u5165\u3002\u8acb\u5728\u700f\u89bd\u5668\u8a2d\u5b9a\u4e2d\u555f\u7528 Cookie \u5f8c\u91cd\u65b0\u8f09\u5165\u9801\u9762\u3002', hint:'\u5982\u679c\u60a8\u662f\u5f9e\u67d0\u500b\u61c9\u7528\u7a0b\u5f0f\u5167\u958b\u555f\u672c\u9801\u9762\uff0c\u8a72\u61c9\u7528\u7a0b\u5f0f\u7684\u5167\u5efa\u700f\u89bd\u5668\u53ef\u80fd\u505c\u7528\u4e86 Cookie\u3002\u8acb\u5728\u60a8\u5e38\u7528\u7684\u700f\u89bd\u5668\u4e2d\u958b\u555f\u4e0b\u9762\u7684\u7db2\u5740\u3002', copy:'\u8907\u88fd\u7db2\u5740', copied:'\u5df2\u8907\u88fd' },
     ko: { title:'\ucfe0\ud0a4\ub97c \ud65c\uc131\ud654\ud574 \uc8fc\uc138\uc694', desc:'\uc774 \uc0ac\uc774\ud2b8\ub97c \ud45c\uc2dc\ud558\ub824\uba74 \ucfe0\ud0a4\uac00 \ud544\uc694\ud569\ub2c8\ub2e4. \ube0c\ub77c\uc6b0\uc800 \uc124\uc815\uc5d0\uc11c \ucfe0\ud0a4\ub97c \ud65c\uc131\ud654\ud55c \ud6c4 \ud398\uc774\uc9c0\ub97c \ub2e4\uc2dc \ub85c\ub4dc\ud574 \uc8fc\uc138\uc694.', hint:'\uc571 \uc548\uc5d0\uc11c \uc774 \ud398\uc774\uc9c0\ub97c \uc5f4\uc5c8\ub2e4\uba74 \ud574\ub2f9 \uc571\uc758 \ub0b4\uc7a5 \ube0c\ub77c\uc6b0\uc800\uac00 \ucfe0\ud0a4\ub97c \ucc28\ub2e8\ud558\uace0 \uc788\uc744 \uc218 \uc788\uc2b5\ub2c8\ub2e4. \uc544\ub798 \uc8fc\uc18c\ub97c \ud3c9\uc18c \uc0ac\uc6a9\ud558\ub294 \ube0c\ub77c\uc6b0\uc800\uc5d0\uc11c \uc5f4\uc5b4 \uc8fc\uc138\uc694.', copy:'\uc8fc\uc18c \ubcf5\uc0ac', copied:'\ubcf5\uc0ac\ub428' },

@@ -52,6 +52,12 @@ button:hover{background:#3a7bc8}
 button:disabled{background:#aaa;cursor:default}
 .error{color:#d32f2f;font-size:.85em;margin-top:.8em;padding:.4em;background:#ffeaea;border-radius:6px;display:none}
 .note{font-size:.75em;color:#999;margin-top:1.2em;line-height:1.4}
+/* Japanese and Korean break between phrases, never inside a word (the default
+   broke "もう少々お|待ちください").  keep-all leaves the breaks at spaces (Korean
+   puts them between words), after 、。 and at the U+200B marks challenge.js
+   puts in its longer Japanese sentences; break-word still breaks a run wider
+   than the line instead of overflowing. */
+body:lang(ja),body:lang(ko){word-break:keep-all;overflow-wrap:break-word}
 
 /* mount point for theme decoration. Hidden when no theme class is set. */
 .theme-art{display:none}
