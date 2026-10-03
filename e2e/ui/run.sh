@@ -153,7 +153,8 @@ community_bans:
   feed_url: "http://127.0.0.1:9/list.json"
   aggregate_url: "http://127.0.0.1:9/aggregate"
 # The challenge page's own entry points (/unmask/test/force-pow, force-captcha).
-# Off unless asked for; captcha-checkbox-restore.test.js drives the CAPTCHA one.
+# Off unless asked for; captcha-checkbox-restore.test.js drives the CAPTCHA one,
+# challenge-linebreak.test.js both.
 challenge:
   default:
     public_test_pages: true
