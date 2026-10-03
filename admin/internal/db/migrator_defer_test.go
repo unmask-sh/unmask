@@ -110,8 +110,12 @@ func TestDeferrableMigrationsAreIndexOnly(t *testing.T) {
 				t.Errorf("%s/%s is marked deferrable and holds a statement that is not CREATE INDEX / DROP INDEX: "+
 					"a deferred migration may be absent for weeks, and only an index can be", driver, e.Name())
 			}
-			if table := string(dm[1]); table != "unmask_event" {
-				t.Errorf("%s/%s: deferrable on %q; the estimate sizes a table by its id span, which is known to hold for unmask_event only",
+			// The tables approxRows is known to size: unmask_event by its id
+			// span; unmask_aggregate_hourly, which has no id, by its rowid span
+			// on SQLite and the catalog's count on MariaDB
+			// (TestApproxRowsOfATableWithoutAnID).
+			if table := string(dm[1]); table != "unmask_event" && table != "unmask_aggregate_hourly" {
+				t.Errorf("%s/%s: deferrable on %q, a table the estimate is not known to size (see approxRows)",
 					driver, e.Name(), table)
 			}
 			m := migrationFileRE.FindStringSubmatch(e.Name())
