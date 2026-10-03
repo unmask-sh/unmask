@@ -505,16 +505,33 @@ func estimateIndexMigration(conn *DB, m migrationEntry, p *PendingMigration, pla
 // approxRows is the span of a table's ids: what AUTOINCREMENT leaves behind a
 // retention prune is a contiguous run, so the span is the row count to within
 // the gaps, and reading it is two seeks where COUNT(*) walks the table.
+//
+// A table keyed by something else (the rollups: hour, kind, key) has no id.
+// SQLite numbers its rows all the same, and a table filled forward and pruned
+// from its old end leaves the same kind of run in rowid.  MariaDB has no such
+// number; its own row count is approximate and costs one catalog read.
 func approxRows(conn *DB, table string) (int64, error) {
 	has, err := hasColumn(conn, table, "id")
 	if err != nil {
 		return 0, err
 	}
+	col := "id"
 	if !has {
-		return 0, fmt.Errorf("table %s has no id column to size it by", table)
+		if conn.Driver != DriverSQLite {
+			var n *int64
+			if err := conn.QueryRow(`SELECT TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES
+				WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, table).Scan(&n); err != nil {
+				return 0, err
+			}
+			if n == nil {
+				return 0, nil
+			}
+			return *n, nil
+		}
+		col = "rowid" // a WITHOUT ROWID table has none: the query fails and the caller applies the migration now
 	}
 	var lo, hi *int64
-	if err := conn.QueryRow("SELECT MIN(id), MAX(id) FROM "+table).Scan(&lo, &hi); err != nil {
+	if err := conn.QueryRow("SELECT MIN("+col+"), MAX("+col+") FROM "+table).Scan(&lo, &hi); err != nil {
 		return 0, err
 	}
 	if lo == nil || hi == nil {

@@ -1,0 +1,24 @@
+-- unmask:deferrable table=unmask_aggregate_hourly
+--
+-- Index-only, so the daemon may leave it for the operator when the table is
+-- large (see the package doc of internal/db/migrator.go).
+--
+-- 0034 aggregate_hourly kind index: let a rollup read reach its own kind.
+--
+-- Every card that reads this table asks for one kind over a window:
+-- WHERE bucket_kind = ? AND bucket_hour >= ? AND bucket_hour <= ?.  The PRIMARY
+-- KEY (bucket_hour, bucket_kind, bucket_key) leads with the hour, so the
+-- planner seeks to the window's first hour and then walks every kind's entry
+-- in it, keeping the few that match.  Over the 30-day cards' window that is
+-- the whole table, read once per card: on a test table of 650,000 rows,
+-- DailyPassByDay read 8,500 pages to return the 2,900 rows it wanted.  From a
+-- disk that holds those pages far apart -- a large database on a slow disk --
+-- three such cards ran past their 15 s each and the page said they could not
+-- be loaded (the 0022 story, one table over).
+--
+-- Leading with the kind confines the read to it, and carrying the key and the
+-- count makes the index all the read needs: the same read takes about 30
+-- pages, next to each other.  IF NOT EXISTS so a database that already has it
+-- passes through without work.
+CREATE INDEX IF NOT EXISTS idx_unmask_aggregate_hourly_kind
+    ON unmask_aggregate_hourly (bucket_kind, bucket_hour, bucket_key, cnt);
