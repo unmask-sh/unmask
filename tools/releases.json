@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.48",
+  "latest": "0.1.49",
   "releases": [
+    {
+      "version": "0.1.49",
+      "date": "2026-10-04",
+      "notes": "A schema update that would hold up the daemon's start -- an index build expected to take more than 20 seconds -- is now left for the operator: the admin, doctor and the package upgrade announce it, and it runs from the admin or with unmask migrate while the challenge keeps being served. This release brings one, an index behind the stats page's 30-day cards; a large install may see the notice after upgrading, and those cards stay as they were until it runs. A pass can no longer be reused without limit: past a daily budget per address the visitor gets the CAPTCHA (on by default). The database can be compacted without stopping the daemon (unmask db-vacuum, or the retention tab). Old browser versions stand out in the hunt log and the stats page. Bypass paths gain a Git over HTTP preset, and the daily crawler-range and browser-version downloads can be switched off on the About tab. The published crawler IP feed is refused without its signature, and a request stopped for its rate is answered 429. Fixes include a bind of :: and nginx reaching the daemon with SELinux enforcing."
+    },
     {
       "version": "0.1.48",
       "date": "2026-09-27",
