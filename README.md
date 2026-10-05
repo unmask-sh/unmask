@@ -11,7 +11,7 @@ Website: **https://unmask.sh/**
 [![Go](https://img.shields.io/badge/go-1.27-00ADD8.svg)](https://go.dev/)
 [![Distros](https://img.shields.io/badge/distros-RHEL%20%7C%20Debian%20%7C%20Ubuntu%20%7C%20Alpine-success.svg)](https://unmask.sh/install/)
 
-https://github.com/user-attachments/assets/f6cdd8a7-10e1-4f2b-91e2-61feb8fc9fc3
+https://github.com/user-attachments/assets/cec503ff-dcf3-4826-a577-cc1e280c8492
 
 <sub>unmask in a minute: a first visit clears a short proof-of-work on a page carrying the site's own logo; a scraper gets the challenge instead of the page; Googlebot, Bingbot, GPTBot and ClaudeBot pass by their published IP ranges; one click denies AI training crawlers while AI search fetches still pass; the dashboard and the log show every challenged request and why.</sub>
 
