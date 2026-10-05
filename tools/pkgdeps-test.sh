@@ -47,7 +47,7 @@ arch: amd64
 platform: linux
 version: "$V"
 release: "$R"
-maintainer: unmask maintainers <oss@unmask.sh>
+maintainer: unmask maintainers
 description: core (probe)
 EOF
 cat >"$WORK/comp.yaml" <<EOF
@@ -56,7 +56,7 @@ arch: amd64
 platform: linux
 version: "$V"
 release: "$R"
-maintainer: unmask maintainers <oss@unmask.sh>
+maintainer: unmask maintainers
 description: companion (probe)
 overrides:
   rpm:

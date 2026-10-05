@@ -71,6 +71,11 @@ GOARCH         ?= $(shell go env GOARCH 2>/dev/null || uname -m | sed 's/x86_64/
 NGINX_VERSION  ?= 1.26.2
 NGINX_SRC      ?= build/nginx-$(NGINX_VERSION)
 NFPM           ?= nfpm
+# The maintainer field of every package.  A build from this tree names the
+# project only; whoever publishes packages puts their own contact address
+# in at build time (PACKAGE_MAINTAINER='Name <address>'), so no address has
+# to live in the repository.
+PACKAGE_MAINTAINER ?= unmask maintainers
 
 # apk signing key.  Default points at the key store kept beside the repo
 # (../../keys/ relative to rpm/, where nfpm runs) -- private keys stay out of
@@ -519,8 +524,8 @@ NFPM_TPL = rpm/templates
 # because alpine refuses unsigned packages outright.
 define _nfpm_yaml
 	mkdir -p $$(dirname $(6))
-	PACKAGE_NAME='$(2)' PACKAGE_ARCH='$(3)' PACKAGE_VENDOR='$(4)' PACKAGE_HOMEPAGE='$(5)' UNMASK_VERSION='$(UNMASK_VERSION)' UNMASK_RELEASE='$(UNMASK_RELEASE)' \
-		envsubst '$$PACKAGE_NAME $$PACKAGE_ARCH $$PACKAGE_VENDOR $$PACKAGE_HOMEPAGE $$UNMASK_VERSION $$UNMASK_RELEASE' \
+	PACKAGE_NAME='$(2)' PACKAGE_ARCH='$(3)' PACKAGE_VENDOR='$(4)' PACKAGE_HOMEPAGE='$(5)' PACKAGE_MAINTAINER='$(PACKAGE_MAINTAINER)' UNMASK_VERSION='$(UNMASK_VERSION)' UNMASK_RELEASE='$(UNMASK_RELEASE)' \
+		envsubst '$$PACKAGE_NAME $$PACKAGE_ARCH $$PACKAGE_VENDOR $$PACKAGE_HOMEPAGE $$PACKAGE_MAINTAINER $$UNMASK_VERSION $$UNMASK_RELEASE' \
 		< $(NFPM_TPL)/common.yaml.in > $(6)
 	if [ "$(1)" != "release" ]; then \
 		PACKAGE_HOMEPAGE='$(5)' \

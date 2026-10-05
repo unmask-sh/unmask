@@ -13,7 +13,8 @@ Open an issue with:
 - reproduction steps
 
 For suspected security issues, **please do not open a public issue** —
-follow [SECURITY.md](SECURITY.md) (report privately to oss@unmask.sh).
+follow [SECURITY.md](SECURITY.md) (report privately through GitHub's
+vulnerability report form).
 
 ## Development setup
 

@@ -119,7 +119,7 @@ func newInviteTestHandler(t *testing.T) (*Handler, *inviteSMTPStub) {
 	// it at the same migrated DB so a populated repo reads as "setup done".
 	h.DB = conn
 	stub := startInviteSMTPStub(t)
-	h.Mailer = mail.New(mail.Config{Host: "127.0.0.1", Port: stub.port(), FromAddress: "notify@unmask.sh"})
+	h.Mailer = mail.New(mail.Config{Host: "127.0.0.1", Port: stub.port(), FromAddress: "notify@example.com"})
 	return h, stub
 }
 

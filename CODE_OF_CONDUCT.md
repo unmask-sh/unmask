@@ -36,8 +36,10 @@ project in public.
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may
-be reported by contacting the project team at **oss@unmask.sh**. All
-complaints will be reviewed and investigated promptly and fairly.
+be reported to the project team through the contact form at
+<https://unmask.sh/contact/> (topic "Code of conduct report"; a reply
+address is optional). All complaints will be reviewed and investigated
+promptly and fairly.
 
 Project maintainers who do not follow or enforce the Code of Conduct in
 good faith may face temporary or permanent repercussions as determined

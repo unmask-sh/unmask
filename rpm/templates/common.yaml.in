@@ -27,7 +27,7 @@ release: ${NFPM_RELEASE}
 prerelease: ${NFPM_PRERELEASE}
 section: net
 priority: optional
-maintainer: unmask maintainers <oss@unmask.sh>
+maintainer: ${PACKAGE_MAINTAINER}
 vendor: ${PACKAGE_VENDOR}
 homepage: ${PACKAGE_HOMEPAGE}
 license: Apache-2.0

@@ -15,7 +15,7 @@ Files installed:
     /etc/apt/sources.list.d/unmask.sources        apt repository (deb-822)
 
   Alpine:
-    /etc/apk/keys/unmask-release@unmask.sh.rsa.pub  RSA public signing key
+    /etc/apk/keys/oss@unmask.sh-260509.rsa.pub      RSA public signing key
     /etc/apk/repositories                           apk repository (one line appended)
 
 After installing this package you can install unmask with:

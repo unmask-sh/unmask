@@ -133,5 +133,5 @@ challenge time.  Those providers' terms apply to whatever data they collect.
 
 ## Reporting an attribution gap
 
-If you spot a missing attribution, please open an issue or email
-oss@unmask.sh — we will correct it in the next release.
+If you spot a missing attribution, please open an issue — we will
+correct it in the next release.

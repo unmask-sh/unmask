@@ -4,7 +4,11 @@
 
 **Please do not open a public issue for security vulnerabilities.**
 
-Report security issues privately to **oss@unmask.sh**.
+Report security issues privately through GitHub: on the repository's
+[Security tab](https://github.com/unmask-sh/unmask/security), choose
+**Report a vulnerability**
+([direct link](https://github.com/unmask-sh/unmask/security/advisories/new)).
+Only you and the maintainers can see the report.
 
 What we will do:
 
@@ -14,8 +18,7 @@ What we will do:
 
 If you do not hear back within 7 days, please escalate by opening a
 public issue **without disclosing the vulnerability** (just say "I have
-a security report awaiting acknowledgement"). PGP is not currently
-required.
+a security report awaiting acknowledgement").
 
 ## Coordinated Disclosure
 

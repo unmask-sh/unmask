@@ -99,7 +99,7 @@ func (s *smtpStub) waitDone(t *testing.T) {
 // exists for (observed on a production postfix relay, 2026-08-19).
 func TestPlaintextNeverUpgrades(t *testing.T) {
 	s := startSMTPStub(t)
-	m := New(Config{Host: "127.0.0.1", Port: s.port(), FromAddress: "notify@unmask.sh", FromName: "unmask test"})
+	m := New(Config{Host: "127.0.0.1", Port: s.port(), FromAddress: "notify@example.com", FromName: "unmask test"})
 	if err := m.Send("dest@example.com", "plain subject", "plain body"); err != nil {
 		t.Fatalf("Send over plaintext: %v", err)
 	}

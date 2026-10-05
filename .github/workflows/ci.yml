@@ -202,7 +202,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # provenance-add-gha=false: by default buildx copies the whole workflow
+      # event payload into the build provenance, and from there into this
+      # job's log and the uploaded build record.  The payload carries account
+      # details of whoever pushed, which a build record has no use for.
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        with:
+          driver-opts: provenance-add-gha=false
       - name: build the unmask image (nginx + module + daemon)
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:

@@ -1,10 +1,10 @@
 blank_issues_enabled: false
 contact_links:
   - name: Security vulnerability
-    url: mailto:oss@unmask.sh
+    url: https://github.com/unmask-sh/unmask/security/advisories/new
     about: |
-      Do NOT open a public issue for security vulnerabilities.  Email
-      oss@unmask.sh per SECURITY.md.  We coordinate disclosure with you.
+      Do NOT open a public issue for security vulnerabilities.  Report it
+      privately here, per SECURITY.md.  We coordinate disclosure with you.
   - name: Question / discussion
     url: https://github.com/unmask-sh/unmask/discussions
     about: |
