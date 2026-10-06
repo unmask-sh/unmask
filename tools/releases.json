@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.49",
+  "latest": "0.1.50",
   "releases": [
+    {
+      "version": "0.1.50",
+      "date": "2026-10-07",
+      "notes": "The SQL-injection honeypot preset is now on by default, and it catches probes as they really arrive: its patterns expected literal spaces, while a request carries them as %20 or +, so UNION SELECT and similar probes went through. A probe bans its sender's address and JA4 like any honeypot trip; a person who trips it by accident can still clear the challenge, an install that reviews new enforcement holds the preset until reviewed, and a site whose search echoes SQL can switch it off. A solved CAPTCHA no longer counts against the reuse cap, so an address over its budget, such as an office proxy or a carrier NAT, gets through once someone solves it. Schema updates show what they are doing and stop at the first Ctrl-C, unmask migrate ends when its indexes are built, and index build estimates allow for a fragmented database file. unmask db-vacuum builds the query statistics the stats and hunt pages rely on. doctor flags rule patterns saved with their marker twice, a rule added from the hunt page keeps its title, and the About tab shows a testing build as one."
+    },
     {
       "version": "0.1.49",
       "date": "2026-10-04",
