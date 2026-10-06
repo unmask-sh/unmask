@@ -25,6 +25,28 @@ func TestCleanAndCompareVersions(t *testing.T) {
 	if !versionLess(cleanVersion("v0.1.0-abc"), "0.1.1") {
 		t.Error("build suffix must be ignored when comparing")
 	}
+
+	// A testing build keeps its tag, and sorts above the release before it and
+	// below its own final release.
+	if got := cleanVersion("0.1.50-rc1"); got != "0.1.50-rc1" {
+		t.Errorf("cleanVersion = %q, want 0.1.50-rc1", got)
+	}
+	for _, c := range [][2]string{
+		{"0.1.49", "0.1.50-rc1"},
+		{"0.1.50-rc1", "0.1.50"},
+		{"0.1.50-rc1", "0.1.50-rc2"},
+		{"0.1.50-rc2", "0.1.51"},
+	} {
+		if !versionLess(c[0], c[1]) {
+			t.Errorf("want %s < %s", c[0], c[1])
+		}
+		if versionLess(c[1], c[0]) {
+			t.Errorf("did not want %s < %s", c[1], c[0])
+		}
+	}
+	if versionLess("0.1.50-rc1", "0.1.50-rc1") {
+		t.Error("an rc is not older than itself")
+	}
 }
 
 func TestDetectFamily(t *testing.T) {
@@ -89,6 +111,19 @@ func TestVersionStatus(t *testing.T) {
 	seed("0.1.0", []Release{{Version: "0.1.0"}}, true)
 	if st := h.versionStatus(); st.UpdateAvailable {
 		t.Error("0.1.0 vs 0.1.0 must not be an update")
+	}
+
+	// An install on a testing build shows the rc, is current while the rc is
+	// ahead of the latest release, and is told when that release ships.
+	rc := &Handler{Version: "0.1.50-rc1"}
+	rc.SetSettings(settings.Settings{})
+	seed("0.1.49", []Release{{Version: "0.1.49"}}, true)
+	if st := rc.versionStatus(); st.Current != "0.1.50-rc1" || st.UpdateAvailable {
+		t.Errorf("rc ahead of the latest release: got %+v", st)
+	}
+	seed("0.1.50", []Release{{Version: "0.1.50"}, {Version: "0.1.49"}}, true)
+	if st := rc.versionStatus(); !st.UpdateAvailable || len(st.History) != 1 || st.History[0].Version != "0.1.50" {
+		t.Errorf("rc1 once 0.1.50 ships: want an update to 0.1.50, got %+v", st)
 	}
 
 	h.SetSettings(settings.Settings{VersionCheckDisabled: true})

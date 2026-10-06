@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,7 +28,7 @@ type versionDoc struct {
 
 // VersionStatus is the resolved update state rendered on the settings overview.
 type VersionStatus struct {
-	Current         string    // running version, normalized (no v-prefix / build suffix)
+	Current         string    // running version, normalized (no v-prefix / build suffix; an rc tag stays)
 	Latest          string    // newest released version, or "" when unknown
 	UpdateAvailable bool      // Latest is strictly newer than Current
 	History         []Release // releases newer than Current, newest first
@@ -121,36 +122,63 @@ func (h *Handler) refreshVersion(url string) {
 	vcMu.Unlock()
 }
 
-// cleanVersion strips a leading "v" and any build / pre-release suffix so
-// "v0.1.0-83b53d4" compares as "0.1.0".
+// cleanVersion strips a leading "v" and a build suffix -- a commit hash
+// ("v0.1.0-83b53d4") or "+meta" -- so a dev build compares as its release.
+// A testing build's tag ("0.1.50-rc1") stays: the About tab shows it, and
+// versionLess sorts it below its final release.
 func cleanVersion(s string) string {
 	s = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "v"))
-	if i := strings.IndexAny(s, "-+ "); i >= 0 {
+	if i := strings.IndexAny(s, "+ "); i >= 0 {
+		s = s[:i]
+	}
+	if i := strings.IndexByte(s, '-'); i >= 0 && !preReleaseTag.MatchString(s[i+1:]) {
 		s = s[:i]
 	}
 	return s
 }
 
-// versionLess reports a < b as dotted numeric versions (major.minor.patch).
+// preReleaseTag is the testing channel's suffix (UNMASK_PRERELEASE in the
+// Makefile).
+var preReleaseTag = regexp.MustCompile(`^rc[0-9]+$`)
+
+// versionLess reports a < b: major.minor.patch numerically, then, at equal
+// numbers, a testing build below its final release (0.1.50-rc1 < 0.1.50) and
+// an earlier rc below a later one -- so an install on an rc is told about the
+// release it led up to.
 func versionLess(a, b string) bool {
-	pa, pb := parseVer(a), parseVer(b)
+	pa, ra := parseVer(a)
+	pb, rb := parseVer(b)
 	for i := 0; i < 3; i++ {
 		if pa[i] != pb[i] {
 			return pa[i] < pb[i]
 		}
 	}
-	return false
+	switch {
+	case ra == rb, ra == 0:
+		return false // the same build, or a is the final release
+	case rb == 0:
+		return true // a is an rc of release b
+	}
+	return ra < rb
 }
 
-func parseVer(s string) [3]int {
+// parseVer splits a version into its three numbers and its rc number (0 for
+// a release).
+func parseVer(s string) ([3]int, int) {
 	var out [3]int
-	for i, p := range strings.SplitN(cleanVersion(s), ".", 3) {
+	s = cleanVersion(s)
+	rc := 0
+	if i := strings.IndexByte(s, '-'); i >= 0 {
+		rc, _ = strconv.Atoi(strings.TrimPrefix(s[i+1:], "rc"))
+		s = s[:i]
+	}
+	for i, p := range strings.SplitN(s, ".", 3) {
 		if i > 2 {
 			break
 		}
 		out[i], _ = strconv.Atoi(strings.TrimSpace(p))
 	}
-	return out
+	return out, rc
 }
 
 var (

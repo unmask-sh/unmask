@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-10-07) **The About tab shows a testing build as one.**  An install on 0.1.50-rc1 showed 0.1.50, and the version check took the rc for its final release, so once 0.1.50 shipped it would have said up to date.  The rc tag now shows, and an rc sorts below its release.
+
 ## [0.1.50-rc1] - 2026-10-06 (testing build)
 
 ### Added
