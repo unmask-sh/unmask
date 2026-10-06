@@ -206,11 +206,22 @@ type HoneypotGroup struct {
 	// OptIn: when true, the group ships disabled and only renders when the
 	// operator explicitly names it in settings.Honeypot.EnabledPresets.
 	// Reserved for patterns whose false-positive surface area is wider than
-	// pure scanner paths (= sql-injection, where a site search can echo SQL
-	// keywords by accident).  Default false matches the historical opt-out
-	// shape that the on-by-default presets already use.
+	// pure scanner paths.  No group uses it now: sql-injection, the one it was
+	// made for, went on by default in v0.1.50.  Default false matches the
+	// historical opt-out shape that the on-by-default presets already use.
 	OptIn bool
 }
+
+// Pieces of the sql-injection patterns, each spelt as it may reach
+// $request_uri: as is or percent-encoded (see the group below).  sqlSp is one
+// space, + or tab-like byte, or an inline comment (/**/, %2f%2a...%2a%2f).
+const (
+	sqlSp = `(?:\s|\+|%20|%09|%0a|%0b|%0c|%0d|%a0|/\*.*?\*/|%2f%2a.*?%2a%2f)`
+	sqlQ  = `(?:'|%27)`
+	sqlEq = `(?:=|%3d)`
+	sqlLP = `(?:\(|%28)`
+	sqlRP = `(?:\)|%29)`
+)
 
 var HoneypotPresetGroups = []HoneypotGroup{
 	{
@@ -273,35 +284,46 @@ var HoneypotPresetGroups = []HoneypotGroup{
 	},
 	// SQL injection signatures: high-confidence query-string patterns that
 	// almost never appear in legitimate browser traffic.  Trip = persistent
-	// BAN like any other honeypot.  Default OFF -- site-search endpoints can
-	// legitimately echo SQL keywords ("?q=order by date") and the operator
-	// should grep their access_log for the patterns below first.  Patterns
+	// BAN like any other honeypot.  On by default since v0.1.50 (opt-in
+	// before): the patterns need SQL syntax, not SQL words, so a search such
+	// as "?q=order by date" and the other ordinary URLs in
+	// honeypot_sqli_test.go match nothing.  A site whose search echoes SQL
+	// itself ("?q=union select") turns the group off in disabled_presets.
+	// AddedIn is the version that turned it on, so an install that reviews
+	// new enforcement holds it until reviewed.  Patterns
 	// are evaluated against $request_uri so they cover both the path and the
 	// query string in one shot; the case-insensitive `~*` flag on the
 	// rendered map absorbs UNION / Union / union variations.
+	//
+	// $request_uri is not decoded, so a probe never carries a literal space:
+	// it arrives as %20 or +, and a quote or a bracket may arrive as %27 or
+	// %28.  The patterns used to spell \s, ' and ( only, and the UNION SELECT,
+	// ' OR '1'='1, WAITFOR DELAY and DROP TABLE probes all went through.  The
+	// sql* pieces below accept both spellings (\s stays for the Go wires
+	// that may see a decoded string); no lookaround, so nginx's PCRE and Go's
+	// RE2 read them alike.
 	{
 		ID:    "sql-injection",
-		Label: "SQL injection signatures (sqlmap / probes; OFF by default -- audit site search before enabling)",
-		OptIn: true,
+		Label: "SQL injection signatures (sqlmap / probes)",
 		Patterns: []string{
 			// Classic boolean-based: ' OR '1'='1 / ' OR 1=1
-			`'\s*or\s+'?1'?\s*=\s*'?1`,
-			// UNION SELECT (= URLs almost never need this verbatim)
-			`union\s+select`,
+			sqlQ + sqlSp + `*or` + sqlSp + `+` + sqlQ + `?1` + sqlQ + `?` + sqlSp + `*` + sqlEq + sqlSp + `*` + sqlQ + `?1`,
+			// UNION [ALL|DISTINCT] SELECT, UNION(SELECT (= URLs almost never need this verbatim)
+			`union(?:` + sqlSp + `|` + sqlLP + `)+(?:(?:all|distinct)(?:` + sqlSp + `|` + sqlLP + `)+)?select`,
 			// sqlmap reconnaissance
-			`information_schema\.(tables|columns)`,
-			`concat\(0x[0-9a-f]+`,
+			`information_schema(?:\.|%2e)(?:tables|columns|schemata)`,
+			`concat` + sqlSp + `*` + sqlLP + sqlSp + `*0x[0-9a-f]+`,
 			// MSSQL timing / RCE
-			`waitfor\s+delay`,
+			`waitfor` + sqlSp + `+delay`,
 			`xp_cmdshell`,
 			// MySQL timing / file access
-			`sleep\(\s*\d+\s*\)`,
-			`benchmark\(\s*\d+\s*,`,
-			`into\s+outfile`,
-			`load_file\(`,
+			`sleep` + sqlSp + `*` + sqlLP + sqlSp + `*\d+` + sqlSp + `*` + sqlRP,
+			`benchmark` + sqlSp + `*` + sqlLP + sqlSp + `*\d+` + sqlSp + `*(?:,|%2c)`,
+			`into` + sqlSp + `+(?:out|dump)file`,
+			`load_file` + sqlSp + `*` + sqlLP,
 			// Destructive
-			`;\s*drop\s+(table|database)`,
+			`(?:;|%3b)` + sqlSp + `*drop` + sqlSp + `+(?:table|database)`,
 		},
-		AddedIn: "v0.1.0",
+		AddedIn: "v0.1.50",
 	},
 }
