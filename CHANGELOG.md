@@ -12,12 +12,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.50-rc1] - 2026-10-06 (testing build)
 
 ### Added
+
 - (2026-10-06) **doctor flags rule patterns stored with their marker twice.**  A pattern saved as `contains:contains:Bot` -- the marker typed into the box as well as picked -- matches nothing it was written for while reading correctly at a glance.  The form has stored a single marker since 0.1.49, but a list not saved since keeps such rows.  doctor names them, and title columns whose length differs from their list's.
 
 ### Changed
+
 - (2026-10-06) **The schema update notice says what the run is doing.**  Besides the time taken, the admin notice names the migration being built and how far through the list the run is, or that the index is built and what follows; how many events the daemon holds in memory, against how many it can; and when the run has gone past its estimate.  The terminal prints the same stages.
 
 - (2026-10-06) **Index build estimates allow for a fragmented database file.**  Where a quarter of a SQLite file is free pages -- doctor's cue for a compaction -- its tables lie scattered and a build reads them a page at a time.  The built-in estimate now grows with the file's size over its live data, up to fourfold; `migrate -status` and the upgrade notice point to `unmask db-vacuum -plan`.
@@ -27,6 +29,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-10-06) **The SQL-injection honeypot preset is on by default.**  Its patterns need SQL syntax, not SQL words, so ordinary searches pass; a probe bans its sender's address and JA4 like any honeypot trip, and a person who trips it by accident can still clear the challenge.  An install that reviews new enforcement holds it until reviewed; a site whose search echoes SQL itself can switch it off.
 
 ### Fixed
+
 - (2026-10-06) **A solved CAPTCHA gets its holder past the reuse cap.**  The cap counted every pass, the one its own CAPTCHA gave included, so the next request from an address over the cap met the CAPTCHA again: behind an office proxy or a carrier NAT over the budget, nobody could get through.  A solved CAPTCHA is no longer counted; a proof-of-work reused past the budget is still stopped.
 
 - (2026-10-06) **The SQL-injection honeypot preset now catches encoded probes.**  nginx matches honeypot patterns against the request URI as sent, where a space arrives as %20 or + and a quote or a bracket often as %27 or %28; the patterns expected literal spaces, so UNION SELECT, ' OR '1'='1, WAITFOR DELAY and DROP TABLE probes went through.  The preset stays off unless enabled.
