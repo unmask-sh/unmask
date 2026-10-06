@@ -1592,8 +1592,8 @@ const plannerStatsAutoLimit = 256 << 20 // 256 MiB
 // indexes for their GROUP BY / DISTINCT, so those pages slow down as events
 // accumulate.  Never fatal: a missing ANALYZE only costs speed, and `unmask
 // doctor` flags it.
-func seedPlannerStats(conn *db.DB, cfg settings.DB) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+func seedPlannerStats(parent context.Context, conn *db.DB, cfg settings.DB) {
+	ctx, cancel := context.WithTimeout(parent, 5*time.Minute)
 	defer cancel()
 	ok, err := conn.HasPlannerStats(ctx)
 	if err != nil || ok {

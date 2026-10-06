@@ -39,7 +39,7 @@ func checkVacuum(conn *db.DB, addOK, addWarn func(t, m string)) {
 		return
 	}
 	free := fmt.Sprintf("%s of the %s file is free space", humanBytesCLI(p.Reclaim), humanBytesCLI(p.FileBytes))
-	if p.Reclaim < 1<<30 || p.Reclaim*4 < p.FileBytes {
+	if !(db.SQLiteSpace{FileBytes: p.FileBytes, LiveBytes: p.LiveBytes}).Scattered() {
 		addOK("DB compaction", free)
 		return
 	}

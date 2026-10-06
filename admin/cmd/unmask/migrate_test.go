@@ -268,8 +268,8 @@ func TestSchemaNoticeFollowsTheDatabase(t *testing.T) {
 		Rows: 5000000, Indexes: []string{"idx_unmask_event_ja4_phase"},
 		EstLow: 5 * time.Minute, EstHigh: 15 * time.Minute, Deferred: true,
 	}}
-	held := schemaNotice(left, true, "sudo unmask migrate")
-	online := schemaNotice(left, false, "sudo unmask migrate")
+	held := schemaNotice(left, true, "sudo unmask migrate", nil)
+	online := schemaNotice(left, false, "sudo unmask migrate", nil)
 	for name, out := range map[string]string{"held": held, "online": online} {
 		for _, want := range []string{"NOT applied automatically", "0032_event_ja4_index", "sudo unmask migrate", "The challenge is served while it runs"} {
 			if !strings.Contains(out, want) {
@@ -397,5 +397,48 @@ func TestMigrateStartupGoesOnWhenTheFinishCannot(t *testing.T) {
 	out, err := captureStdout(t, func() error { return cmdMigrate([]string{"-config", config, "-startup"}) })
 	if err != nil || !strings.Contains(out, "schema applied") {
 		t.Fatalf("-startup with the write lock taken = %q, %v; want it to go on", out, err)
+	}
+}
+
+// TestScatterNote: an operator about to build an index over a file that is
+// largely free pages hears that the build reads the tables a page at a time,
+// and where to see what compacting the file first would take -- doctor's cue
+// for a compaction, given where the build is planned.  Nothing is said for a
+// compact file, MariaDB (no page accounting), or a list with nothing to build.
+func TestScatterNote(t *testing.T) {
+	const gb = int64(1) << 30
+	builds := []db.PendingMigration{{
+		Version: 32, Name: "0032_event_ja4_index", Deferrable: true, Table: "unmask_event",
+		Rows: 5000000, Indexes: []string{"idx_unmask_event_ja4_phase"},
+		EstLow: 5 * time.Minute, EstHigh: 15 * time.Minute, Deferred: true,
+	}}
+	scattered := &db.SQLiteSpace{FileBytes: 36 * gb, LiveBytes: 16 * gb, PageSize: 4096}
+	compact := &db.SQLiteSpace{FileBytes: 36 * gb, LiveBytes: 35 * gb, PageSize: 4096}
+
+	note := scatterNote(builds, scattered, "      ")
+	for _, want := range []string{"20.0 GB of the 36.0 GB database file is free space", "a page at a time", "`unmask db-vacuum -plan`"} {
+		if !strings.Contains(note, want) {
+			t.Errorf("the note lacks %q:\n%s", want, note)
+		}
+	}
+	for _, l := range strings.Split(strings.TrimSuffix(note, "\n"), "\n")[1:] {
+		if !strings.HasPrefix(l, "      ") {
+			t.Errorf("a continuation line is not indented: %q", l)
+		}
+	}
+	for name, got := range map[string]string{
+		"compact":          scatterNote(builds, compact, ""),
+		"no accounting":    scatterNote(builds, nil, ""),
+		"nothing to build": scatterNote([]db.PendingMigration{{Version: 33, Name: "0033_x", Deferrable: true}}, scattered, ""),
+	} {
+		if got != "" {
+			t.Errorf("%s: a note where there is nothing to say:\n%s", name, got)
+		}
+	}
+	if out := schemaNotice(builds, true, "sudo unmask migrate", scattered); !strings.Contains(out, "`unmask db-vacuum -plan`") {
+		t.Errorf("the upgrade notice for a scattered file lacks the note:\n%s", out)
+	}
+	if out := schemaNotice(builds, true, "sudo unmask migrate", compact); strings.Contains(out, "db-vacuum") {
+		t.Errorf("the upgrade notice for a compact file mentions a compaction:\n%s", out)
 	}
 }

@@ -712,6 +712,15 @@ type SQLiteSpace struct {
 	PageSize  int64
 }
 
+// Scattered reports whether the file is largely free pages: a quarter of it,
+// and a gigabyte.  doctor advises a compaction from there; it is also where
+// what is left of a table lies scattered through the file and a read that
+// walks it seeks where it would have streamed.
+func (sp SQLiteSpace) Scattered() bool {
+	free := sp.FileBytes - sp.LiveBytes
+	return free >= 1<<30 && free*4 >= sp.FileBytes
+}
+
 // Space reads the page accounting of a SQLite database.  MariaDB returns an
 // error: there is nothing to vacuum there.
 func (d *DB) Space(ctx context.Context) (SQLiteSpace, error) {

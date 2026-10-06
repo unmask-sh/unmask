@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -1137,5 +1138,143 @@ func TestQuickRunFromAShellBringsTheHintsBack(t *testing.T) {
 	h.SchemaRefresh(context.Background())
 	if h.DB.EventJA4IndexHint() == "" {
 		t.Error("the daemon did not take the new index into its hints after a run it never saw going")
+	}
+}
+
+// TestSchemaNoticeSaysWhatTheRunIsDoing: the notice used to say only "updating
+// the database" and how long it had been at it -- over twenty minutes after an
+// index built in under half a minute, with nothing to tell a stuck run from
+// one at work (2026-10-06).  It says
+// now which migration is being built and how far through the list, what
+// follows the builds, how many events wait in memory against the limit, and
+// when the run has gone past its estimate.
+func TestSchemaNoticeSaysWhatTheRunIsDoing(t *testing.T) {
+	h := schemaHandler(t, 300, 0.001)
+	if _, err := db.MigrateWith(h.DB, db.MigrateOptions{Defer: true, DeferOver: h.cfg().DB.SchemaUpdateDeferOver()}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	lock, err := h.DB.LockSchemaRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	rec := db.SchemaUpdateRecord{
+		State: db.SchemaUpdateRunning, Host: "elsewhere", PID: 57, By: "cli",
+		Items:     []string{"0032_event_ja4_index", "0033_event_ja4_index_order"},
+		StartedAt: time.Now().Add(-time.Minute).Unix(), EstLowSec: 60, EstHighSec: 180,
+		Stage: db.SchemaStageIndex, Current: "0033_event_ja4_index_order", Done: 1, StageAt: time.Now().Unix(),
+	}
+	save := func() {
+		t.Helper()
+		if err := h.DB.SaveMaintState(ctx, db.MaintSchemaUpdate, rec); err != nil {
+			t.Fatal(err)
+		}
+		h.SchemaRefresh(ctx)
+	}
+	save()
+
+	v := h.schemaView(user.RoleViewer, i18n.LangEN)
+	if v == nil || v.State != "running" {
+		t.Fatalf("view = %+v, want running", v)
+	}
+	if v.Stage != "Building 0033_event_ja4_index_order (2 of 2)." || v.Over {
+		t.Errorf("stage %q over %v, want the second build and within the estimate", v.Stage, v.Over)
+	}
+	if v.HeldLimit != db.HeldEventsLimit() || v.HeldLimit == 0 {
+		t.Errorf("held limit = %d, want %d", v.HeldLimit, db.HeldEventsLimit())
+	}
+	page := renderAs(t, h.AdminTopOverview, "/unmask/admin/", user.RoleViewer, "ja")
+	for _, want := range []string{
+		"0033_event_ja4_index_order の index を作成しています (2 / 2)。",
+		`id="schup-held"`, "書き込みを保留しているイベント: 0 件 (保留できるのは " + commaInt(db.HeldEventsLimit()) + " 件まで)",
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the notice lacks %q", want)
+		}
+	}
+	if !strings.Contains(page, `id="schup-over" hidden`) {
+		t.Error("the over-estimate line shows within the estimate")
+	}
+
+	// Past the long end of the estimate, on what follows the builds.
+	rec.StartedAt = time.Now().Add(-4 * time.Minute).Unix()
+	rec.Stage, rec.Current, rec.Done = db.SchemaStageFinish, "", 2
+	save()
+	v = h.schemaView(user.RoleViewer, i18n.LangEN)
+	if v.Stage != "The index is built; finishing up." || !v.Over {
+		t.Errorf("stage %q over %v, want finishing and over the estimate", v.Stage, v.Over)
+	}
+	page = renderAs(t, h.AdminTopOverview, "/unmask/admin/", user.RoleViewer, "en")
+	if !strings.Contains(page, "It is taking longer than the estimate") || strings.Contains(page, `id="schup-over" hidden`) {
+		t.Error("the over-estimate line is not shown past the estimate")
+	}
+
+	// The status the page polls carries the same.
+	rr := httptest.NewRecorder()
+	h.AdminSchemaUpdateStatus(rr, asRole(httptest.NewRequest(http.MethodGet, "/unmask/admin/api/schema-update", nil), user.RoleViewer))
+	var got SchemaUpdateView
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil || got.Stage == "" || !got.Over || got.HeldLimit == 0 {
+		t.Errorf("status = %s (%v), want stage, over and the held limit", rr.Body.String(), err)
+	}
+
+	// A record from a version that kept no stage: the notice is as before.
+	rec.Stage = ""
+	save()
+	if v := h.schemaView(user.RoleViewer, i18n.LangEN); v.Stage != "" {
+		t.Errorf("stage from a record without one = %q", v.Stage)
+	}
+	page = renderAs(t, h.AdminTopOverview, "/unmask/admin/", user.RoleViewer, "en")
+	if !strings.Contains(page, `id="schup-stage" hidden`) {
+		t.Error("an empty stage line is shown")
+	}
+}
+
+func commaInt(n int) string {
+	s := strconv.Itoa(n)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
+}
+
+// TestRunThatFinishedWithoutItsEndIsNoNews: up to 0.1.49 a run whose work
+// after the builds outlasted the end record's deadline stayed on record as
+// running after it had finished (2026-10-06).  Its lock is free, so nothing
+// believes it is going; but once another update waited, the notice called it
+// interrupted -- for good, since only a run rewrites the record.  A run whose
+// migrations are all applied finished, and is no news; one whose migrations
+// still wait was killed, and is said so.
+func TestRunThatFinishedWithoutItsEndIsNoNews(t *testing.T) {
+	h := schemaHandler(t, 300, 0.001)
+	if _, err := db.MigrateWith(h.DB, db.MigrateOptions{Defer: true, DeferOver: h.cfg().DB.SchemaUpdateDeferOver()}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	stale := db.SchemaUpdateRecord{
+		State: db.SchemaUpdateRunning, Host: "test-host", PID: 140890, By: "cli",
+		Items:     []string{"0031_maint_state"}, // applied: the run finished
+		StartedAt: time.Now().Add(-48 * time.Hour).Unix(), EstLowSec: 37, EstHighSec: 113,
+	}
+	if err := h.DB.SaveMaintState(ctx, db.MaintSchemaUpdate, stale); err != nil {
+		t.Fatal(err)
+	}
+	h.SchemaRefresh(ctx)
+	v := h.schemaView(user.RoleSuperadmin, i18n.LangEN)
+	if v == nil || v.State != "pending" || v.Err != "" || !v.CanRun {
+		t.Fatalf("view = %+v, want the waiting update offered, with no word of the finished run", v)
+	}
+	if h.DB.WritesHeld() {
+		t.Error("writes are held for a run that ended")
+	}
+
+	// The same record naming a migration that still waits: that run died.
+	stale.Items = []string{"0032_event_ja4_index", "0033_event_ja4_index_order"}
+	if err := h.DB.SaveMaintState(ctx, db.MaintSchemaUpdate, stale); err != nil {
+		t.Fatal(err)
+	}
+	h.SchemaRefresh(ctx)
+	if v := h.schemaView(user.RoleSuperadmin, i18n.LangEN); v == nil || v.State != "failed" || !strings.Contains(v.Err, "interrupted") {
+		t.Errorf("view = %+v, want the last attempt reported interrupted", v)
 	}
 }

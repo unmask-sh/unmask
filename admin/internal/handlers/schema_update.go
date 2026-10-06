@@ -11,12 +11,14 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/safe"
 	"github.com/unmask-sh/unmask/admin/internal/user"
@@ -119,6 +121,18 @@ type SchemaUpdateView struct {
 	// Now is the server's clock, so the page counts elapsed time from
 	// StartedAt without trusting the browser's.
 	Now int64 `json:"now"`
+	// Stage: what a running update is doing now, in the reader's language --
+	// which migration it is building and how far through the list it is, or
+	// what follows the builds ("" for a run that keeps no stage).  Without
+	// it the notice said only how long the run had taken (2026-10-06).
+	Stage string `json:"stage,omitempty"`
+	// Held / HeldLimit: the events this daemon keeps in memory while the
+	// update holds the database's writes, and how many it can keep before
+	// the oldest go.  HeldLimit is 0 where nothing is held (MariaDB).
+	Held      int `json:"held"`
+	HeldLimit int `json:"held_limit,omitempty"`
+	// Over: the run has gone past the long end of its estimate.
+	Over bool `json:"over,omitempty"`
 }
 
 // doneShownFor is how long a finished run stays on the page.
@@ -254,18 +268,27 @@ func (h *Handler) schemaView(role string, lang i18n.Lang) *SchemaUpdateView {
 		v.StartedAt, v.By, v.Host = rec.StartedAt, rec.By, rec.Host
 		v.Count = len(rec.Items)
 		v.Est = estimateText(lang, time.Duration(rec.EstLowSec)*time.Second, time.Duration(rec.EstHighSec)*time.Second)
+		if rec.State == db.SchemaUpdateRunning {
+			v.Stage = stageText(lang, rec)
+			v.Over = rec.EstHighSec > 0 && now.Unix()-rec.StartedAt > int64(rec.EstHighSec)
+		}
 	}
 
+	if v.HoldsWrites {
+		v.HeldLimit = db.HeldEventsLimit()
+	}
 	switch {
 	case running:
 		v.State = "running"
 		fromRecord()
+		v.Held = int(events.HeldEvents())
 		v.CanCancel = super && childPID != 0 && rec.PID == childPID
 	case ours:
 		// This daemon's run with no record of it under way: it is being
 		// started, or its record already says how it ended and the process
 		// is finishing.
 		v.State = "running"
+		v.Held = int(events.HeldEvents())
 		if hasRec && childPID != 0 && rec.PID == childPID {
 			fromRecord()
 		} else if !startedAt.IsZero() {
@@ -289,8 +312,13 @@ func (h *Handler) schemaView(role string, lang i18n.Lang) *SchemaUpdateView {
 			case db.SchemaUpdateCancelled:
 				v.Cancelled = true
 			}
-		case hasRec && rec.State == db.SchemaUpdateRunning:
-			// Marked running and its lock is free: it was killed.
+		case hasRec && rec.State == db.SchemaUpdateRunning && stillWaiting(rec.Items, waiting):
+			// Marked running, its lock free, and what it was applying still
+			// waits: it was killed.  One whose migrations are all applied
+			// finished without recording its end -- up to 0.1.49 a run whose
+			// work after the builds outlasted the end record's deadline did
+			// (2026-10-06) -- and is no news: called interrupted, it would
+			// stand over the next update for good.
 			v.State, v.Err, v.EndedAt = "failed", i18n.T(lang, "schema_update.err_interrupted"), rec.StartedAt
 		}
 	case hasRec && rec.State == db.SchemaUpdateDone && now.Sub(time.Unix(rec.EndedAt, 0)) < doneShownFor &&
@@ -307,6 +335,35 @@ func (h *Handler) schemaView(role string, lang i18n.Lang) *SchemaUpdateView {
 		return nil
 	}
 	return v
+}
+
+// stillWaiting reports whether any of a run's migrations is among those that
+// wait.
+func stillWaiting(items []string, waiting []db.PendingMigration) bool {
+	for _, m := range waiting {
+		if slices.Contains(items, m.Name) {
+			return true
+		}
+	}
+	return false
+}
+
+// stageText words what a running update is doing now: the migration it is
+// building and where it is in the list, or what follows the builds.  "" for
+// a record that keeps no stage.
+func stageText(lang i18n.Lang, rec db.SchemaUpdateRecord) string {
+	switch rec.Stage {
+	case db.SchemaStageIndex:
+		if rec.Current == "" {
+			return ""
+		}
+		return i18n.Tf(lang, "schema_update.stage_index", rec.Current, rec.Done+1, len(rec.Items))
+	case db.SchemaStageCheckpoint:
+		return i18n.T(lang, "schema_update.stage_checkpoint")
+	case db.SchemaStageFinish:
+		return i18n.T(lang, "schema_update.stage_finish")
+	}
+	return ""
 }
 
 // estimateText words a build-time estimate in the reader's language; the

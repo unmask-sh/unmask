@@ -788,51 +788,6 @@ func ApplyBanUniqueScopeData(conn *DB) error {
 	return nil
 }
 
-// BackfillVerdictIDs: for the ID-based linking migration.  Bulk-UPDATE
-// rows where unmask_event.ja4_verdict_id IS NULL but ja4_verdict matches
-// a known name.  The caller (= main / setup) builds the name -> id map
-// from the nginxconf registry and passes it in.
-//
-// Idempotent.  Rows that already have an id are ignored.  Names not in
-// the preset (= ok / unknown etc.) are skipped (= not present in the
-// map).  Returns the total number of rows updated.
-func BackfillVerdictIDs(conn *DB, nameToID map[string]int) (int64, error) {
-	if conn == nil || len(nameToID) == 0 {
-		return 0, nil
-	}
-	hasTbl, err := hasTable(conn, "unmask_event")
-	if err != nil {
-		return 0, err
-	}
-	if !hasTbl {
-		return 0, nil
-	}
-	hasCol, err := hasColumn(conn, "unmask_event", "ja4_verdict_id")
-	if err != nil {
-		return 0, err
-	}
-	if !hasCol {
-		// Migration not yet run.  Migrate() is supposed to be called first, so no-op.
-		return 0, nil
-	}
-	var total int64
-	for name, id := range nameToID {
-		if id <= 0 || name == "" {
-			continue
-		}
-		res, err := conn.Exec(
-			`UPDATE unmask_event SET ja4_verdict_id = ?
-			 WHERE ja4_verdict_id IS NULL AND ja4_verdict = ?`, id, name)
-		if err != nil {
-			return total, fmt.Errorf("backfill %s->%d: %w", name, id, err)
-		}
-		if n, err := res.RowsAffected(); err == nil {
-			total += n
-		}
-	}
-	return total, nil
-}
-
 // hasTable: introspect via sqlite_master / INFORMATION_SCHEMA.
 func hasTable(conn *DB, table string) (bool, error) {
 	if conn.Driver == DriverSQLite {

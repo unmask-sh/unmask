@@ -241,6 +241,20 @@ c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
       await sleep(2200);
       const e2 = await su.$eval('#schup-elapsed', e => e.textContent).catch(() => null);
       ok(/^\d+:\d\d elapsed$/.test(e1), `running: elapsed reads ${JSON.stringify(e1)}`);
+      // What the run is doing and what waits meanwhile (2026-10-06: the
+      // notice said only "updating" for twenty minutes).  The stage may not be
+      // on record yet in the first moment; once it is, it names the build or
+      // what follows it.  The held events line is there from the start.
+      const lines = await su.evaluate(() => {
+        const t = id => { const e = document.getElementById(id); return e ? (e.hidden ? '' : e.textContent.trim()) : null; };
+        return { stage: t('schup-stage'), held: t('schup-held') };
+      }).catch(() => null);
+      if (lines) {
+        ok(lines.stage === '' || /^(Building \d{4}_[a-z0-9_]+ \(\d+ of \d+\)\.|The index is built)/.test(lines.stage),
+          `running: the stage line reads ${JSON.stringify(lines.stage)}`);
+        ok(lines.held === null || /^Events held until it ends: [\d,]+ \(room for [\d,]+\)$/.test(lines.held),
+          `running: the held events line reads ${JSON.stringify(lines.held)}`);
+      }
       // Gone means the page has reloaded into "done" meanwhile, which is fine.
       ok(e2 === null || e2 !== e1, `running: the elapsed time stands still at ${e1}`);
       // Anyone else sees it running too, without a button.

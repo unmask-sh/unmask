@@ -94,7 +94,26 @@ type SchemaUpdateRecord struct {
 	// Seconds: how long it took (ended runs).
 	Seconds float64 `json:"seconds,omitempty"`
 	Err     string  `json:"err,omitempty"`
+	// Stage: what a running run is doing now -- SchemaStageIndex while a
+	// migration is applied (Current names it, Done counts the ones before
+	// it), SchemaStageCheckpoint while the new index is copied out of the
+	// write-ahead log, SchemaStageFinish while what follows the migrations
+	// runs.  StageAt: when it began.  Without these the admin UI could say
+	// only how long the run had taken (a large install, 2026-10-06: over
+	// twenty minutes of "updating" after an index built in under half a
+	// minute, and no way to tell what was going on).
+	Stage   string `json:"stage,omitempty"`
+	Current string `json:"current,omitempty"`
+	Done    int    `json:"done,omitempty"`
+	StageAt int64  `json:"stage_at,omitempty"`
 }
+
+// The stages of a schema update run (SchemaUpdateRecord.Stage).
+const (
+	SchemaStageIndex      = "index"
+	SchemaStageCheckpoint = "checkpoint"
+	SchemaStageFinish     = "finish"
+)
 
 // MaintSchemaRate is the task name this host's measured index build rate is
 // kept under.

@@ -277,3 +277,66 @@ func TestDialogResolvesPatternsTheSameWayTheServerDoes(t *testing.T) {
 		t.Error("picking the token does not move the reading to contains, so the rule would match nothing")
 	}
 }
+
+// A rule added from the ranking takes its title, flag and chain on its own
+// row however the list's columns stood.  The columns were appended to as they
+// were, so one that stopped short (rows added in config.yml without titles)
+// or ran long (a row removed there without its title) put the new title on
+// another row, and showed the new row with someone else's.
+func TestHuntAddedRuleKeepsItsTitleOnItsRow(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		titles []string
+	}{
+		{"titles stop short", []string{"first"}},
+		{"titles run long", []string{"first", "second", "a row since removed"}},
+		{"no titles", nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := ruleTestHandler(t)
+			cur, err := settings.Load(h.ConfigPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cur.Nginx.ChallengeTargets.Extra = []string{"FirstBot", "SecondBot"}
+			cur.Nginx.ChallengeTargets.ExtraTitle = c.titles
+			cur.Nginx.ChallengeTargets.ExtraAction = []string{"", "captcha_only", "deny"}
+			cur.Nginx.JA4Verdicts.Extra = []settings.JA4VerdictExtraRule{{Pattern: "^t13d1516h2_aaaaaaaaaaaa_", Verdict: "first_ja4", Action: "bot"}, {Pattern: "^t13d1516h2_bbbbbbbbbbbb_", Verdict: "second_ja4", Action: "bot"}}
+			cur.Nginx.JA4Verdicts.ExtraTitle = c.titles
+			if err := settings.Save(cur, h.ConfigPath); err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/unmask/admin/hunt/action", nil)
+			if err := h.appendUABlacklist(req, "ThirdBot", "from the ranking", "captcha_only", "admin", 1); err != nil {
+				t.Fatal(err)
+			}
+			if err := h.appendJA4Bot(req, "^t13d1516h2_cccccccccccc_", "from the ranking", "admin", 1); err != nil {
+				t.Fatal(err)
+			}
+			got, err := settings.Load(h.ConfigPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ct := got.Nginx.ChallengeTargets
+			for name, n := range map[string]int{"titles": len(ct.ExtraTitle), "flags": len(ct.ExtraDisabled), "created": len(ct.ExtraCreatedAt),
+				"updated": len(ct.ExtraUpdatedAt), "actions": len(ct.ExtraAction)} {
+				if n != len(ct.Extra) {
+					t.Errorf("UA list: %d %s for %d rows", n, name, len(ct.Extra))
+				}
+			}
+			if t.Failed() {
+				return
+			}
+			if last := len(ct.Extra) - 1; ct.Extra[last] != "ThirdBot" || ct.ExtraTitle[last] != "from the ranking" || ct.ExtraAction[last] != "captcha_only" || ct.ExtraCreatedAt[last] == 0 {
+				t.Errorf("UA list: the new row reads %q %q %q created %d", ct.Extra[last], ct.ExtraTitle[last], ct.ExtraAction[last], ct.ExtraCreatedAt[last])
+			}
+			if len(c.titles) > 0 && ct.ExtraTitle[0] != "first" {
+				t.Errorf("UA list: the first row's title became %q", ct.ExtraTitle[0])
+			}
+			jv := got.Nginx.JA4Verdicts
+			if len(jv.ExtraTitle) != len(jv.Extra) || jv.ExtraTitle[len(jv.Extra)-1] != "from the ranking" {
+				t.Errorf("JA4 list: titles %q for %d rows", jv.ExtraTitle, len(jv.Extra))
+			}
+		})
+	}
+}

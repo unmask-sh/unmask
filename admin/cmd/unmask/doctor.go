@@ -414,6 +414,12 @@ func cmdDoctor(args []string) error {
 	// neutralizing a rule.
 	checkGeoRules(s, addOK, addWarn)
 
+	// 4.55. The rule lists as config.yml holds them: a pattern whose marker
+	// was stored twice matches nothing, and a title or chain column of
+	// another length than its list belongs to other rows
+	// (doctor_patterns.go).
+	checkPatternLists(s, addOK, addWarn)
+
 	// 4.6. Roaming rebind: surface how the silent-rebind gates resolve.  The
 	// feature still works without an ASN mmdb (the per-lineage cap alone
 	// bounds replay), but the operator should know the ASN veto is inactive

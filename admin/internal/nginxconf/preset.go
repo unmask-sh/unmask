@@ -165,22 +165,6 @@ func (r *VerdictRegistry) BotIDs() []int {
 	return out
 }
 
-// AllNameToID: return a copy of the name -> ID map from the registry.
-// For passing to db.BackfillVerdictIDs.  This is a read-only snapshot, so
-// the caller can use it freely.
-func (r *VerdictRegistry) AllNameToID() map[string]int {
-	if r == nil {
-		return nil
-	}
-	out := make(map[string]int, len(r.byName))
-	for n, p := range r.byName {
-		if p.ID > 0 && n != "" {
-			out[n] = p.ID
-		}
-	}
-	return out
-}
-
 // AssignExtraID: assign a new ID to an extra entry while avoiding collisions
 // with existing extras.
 //

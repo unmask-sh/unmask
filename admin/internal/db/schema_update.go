@@ -34,11 +34,12 @@ type SchemaUpdateOptions struct {
 	SkipSpaceCheck bool
 	// Finish runs once every migration has been applied, before the run is
 	// recorded as done: the work that follows a schema update and writes to
-	// the database (`unmask migrate` backfills verdict ids and gathers the
-	// planner's statistics).  Until the record says done the daemon holds its
-	// writers back, so they do not meet it on the lock.  Its error is
-	// reported (FinishErr) without making the update a failure: the schema
-	// is applied.
+	// the database (`unmask migrate` gathers the planner's statistics on a
+	// small database).  Until the record says done the daemon holds its
+	// writers back, so they do not meet it on the lock -- which is why it
+	// must stay short.  It gets the run's context: an interrupt stops it.
+	// Its error is reported (FinishErr) without making the update a failure:
+	// the schema is applied.
 	Finish func(ctx context.Context) error
 }
 
@@ -73,6 +74,11 @@ const indexBytesPerRow = 120
 // the rate, and is not recorded as this host's.
 const rateMinRows = 100000
 
+// schemaRecordTimeout bounds each write of the run's record after the work: a
+// fresh deadline for each, taken out when the write is made.  A variable for
+// the test that proves the end of a run is recorded after a long Finish.
+var schemaRecordTimeout = 30 * time.Second
+
 // checkpointAfterBuild moves a newly built index out of the write-ahead log.
 //
 // The index is written to the log and stays there until a checkpoint copies
@@ -87,8 +93,8 @@ const rateMinRows = 100000
 // shrunk only if that takes no waiting; otherwise it stays large until the
 // daemon's own trim (its write-ahead log watch) gets to it, which costs disk
 // space and nothing else.
-func checkpointAfterBuild(conn *DB, logf func(string, ...any)) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+func checkpointAfterBuild(parent context.Context, conn *DB, logf func(string, ...any)) {
+	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
 	defer cancel()
 	cp, err := conn.CheckpointWAL(ctx, "PASSIVE", 0)
 	if err != nil {
@@ -239,7 +245,24 @@ func ApplySchemaUpdate(ctx context.Context, conn *DB, opt SchemaUpdateOptions) (
 				need>>20, dir, free>>20)
 		}
 	}
-	for _, m := range pending {
+	// stage puts what the run is doing now on record, for the admin UI, and
+	// says it on the terminal.  The run goes on if it cannot be recorded:
+	// it is only the account of the run.
+	stage := func(name, current string, done int, line string, args ...any) {
+		rec.Stage, rec.Current, rec.Done, rec.StageAt = name, current, done, time.Now().Unix()
+		if recorded {
+			sctx, scancel := context.WithTimeout(context.Background(), 10*time.Second)
+			if err := record(sctx); err != nil {
+				logf("could not record the run's progress: %v", err)
+			}
+			scancel()
+		}
+		if line != "" {
+			logf(line, args...)
+		}
+	}
+	announced := false // a build the terminal was told about
+	for i, m := range pending {
 		if runErr != nil {
 			break
 		}
@@ -252,6 +275,15 @@ func ApplySchemaUpdate(ctx context.Context, conn *DB, opt SchemaUpdateOptions) (
 		if beforeApply != nil {
 			beforeApply(m.Name)
 		}
+		// The terminal hears about what takes time, as the plan above: a
+		// new install's index migrations are each over in a moment.
+		says := len(m.Indexes) > 0 && m.EstHigh >= time.Second
+		announced = announced || says
+		if says {
+			stage(SchemaStageIndex, m.Name, i, "%s: building (%d of %d)", m.Name, i+1, len(pending))
+		} else {
+			stage(SchemaStageIndex, m.Name, i, "")
+		}
 		elapsed, err := applyMigration(conn, m, MigrateOptions{Logf: opt.Logf, ctx: ctx})
 		if err != nil {
 			runErr = err
@@ -261,28 +293,41 @@ func ApplySchemaUpdate(ctx context.Context, conn *DB, opt SchemaUpdateOptions) (
 		if len(m.Indexes) > 0 {
 			buildTime += elapsed
 		}
+		if says {
+			logf("%s: built in %s", m.Name, elapsed.Round(time.Second))
+		}
 	}
 	res.Elapsed = time.Since(t0)
 
-	// What follows the builds writes too, so it comes before the record
-	// says done (see SchemaUpdateOptions.Finish).  It runs outside the run's
-	// context where it must happen even after a cancel.
-	wctx, wcancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer wcancel()
-	if runErr == nil {
-		finish()
-	}
 	if runErr == nil && buildRows >= rateMinRows && buildTime > 0 {
 		rate := SchemaRateRecord{
 			MicrosPerRow: float64(buildTime.Microseconds()) / float64(buildRows),
 			Rows:         buildRows, MeasuredAt: time.Now().Unix(),
 		}
-		if err := conn.SaveMaintState(wctx, MaintSchemaRate, rate); err != nil {
+		rctx, rcancel := context.WithTimeout(context.Background(), schemaRecordTimeout)
+		if err := conn.SaveMaintState(rctx, MaintSchemaRate, rate); err != nil {
 			logf("could not record this host's build rate: %v", err)
 		}
+		rcancel()
 	}
+	// The new index sits in the write-ahead log until a checkpoint copies it
+	// into the database file; done here, the copy does not land on a
+	// visitor's event.  An interrupt stops it as it stops the build: the log
+	// keeps what was not copied, for the daemon's own checkpoint.
 	if conn.Driver == DriverSQLite && buildRows > 0 && len(res.Applied) > 0 {
-		checkpointAfterBuild(conn, logf)
+		line := ""
+		if announced {
+			line = "moving the new index out of the write-ahead log"
+		}
+		stage(SchemaStageCheckpoint, "", len(res.Applied), line)
+		checkpointAfterBuild(ctx, conn, logf)
+	}
+	// What follows the builds writes too, so it comes before the record says
+	// done (see SchemaUpdateOptions.Finish), and it is stopped by the same
+	// interrupt as the build.
+	if runErr == nil && opt.Finish != nil {
+		stage(SchemaStageFinish, "", len(res.Applied), "")
+		finish()
 	}
 
 	rec.EndedAt, rec.Seconds = time.Now().Unix(), time.Since(t0).Seconds()
@@ -294,10 +339,26 @@ func ApplySchemaUpdate(ctx context.Context, conn *DB, opt SchemaUpdateOptions) (
 	default:
 		rec.State, rec.Err = SchemaUpdateFailed, runErr.Error()
 	}
-	// The record outlives the run's context: a cancelled run still has to say
-	// it was cancelled.
-	if err := record(wctx); err != nil {
-		logf("could not record how the run ended: %v", err)
+	// The record outlives the run's context: a cancelled run still has to
+	// say it was cancelled.  Its deadline starts now, not before the work
+	// above: one taken out before it once expired while that work ran, and
+	// left a finished run on record as running (2026-10-06).  The daemon may
+	// be writing out what it kept during the run, so a busy database gets a
+	// second and a third try.
+	var endErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Second)
+		}
+		ectx, ecancel := context.WithTimeout(context.Background(), schemaRecordTimeout)
+		endErr = record(ectx)
+		ecancel()
+		if endErr == nil {
+			break
+		}
+	}
+	if endErr != nil {
+		logf("could not record how the run ended: %v", endErr)
 	}
 	ictx, icancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer icancel()

@@ -86,21 +86,46 @@ const (
 	indexBuildDiskSlow   = 180 * time.Microsecond
 )
 
-// indexBuildRates picks the built-in range for this database.
-func indexBuildRates(conn *DB) (fast, slow time.Duration) {
-	if conn.Driver == DriverSQLite {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		// "Small" is a quarter of the memory this process may use: the
-		// table's pages stay cached with room for everything else.
-		if sp, err := conn.Space(ctx); err == nil && sp.LiveBytes > 0 {
-			if mem := memLimitBytes(); mem > 0 && sp.LiveBytes*4 <= mem {
-				return indexBuildCachedFast, indexBuildCachedSlow
-			}
-		}
+// indexBuildRates picks the built-in range for this database.  cold: estimate
+// as reads from disk whatever the database's size (MigrateOptions.ColdCache).
+func indexBuildRates(conn *DB, cold bool) (fast, slow time.Duration) {
+	fast, slow = indexBuildDiskFast, indexBuildDiskSlow
+	if conn.Driver != DriverSQLite {
+		return fast, slow
 	}
-	return indexBuildDiskFast, indexBuildDiskSlow
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	sp, err := conn.Space(ctx)
+	if err != nil || sp.LiveBytes <= 0 {
+		return fast, slow
+	}
+	// "Small" is a quarter of the memory this process may use: the table's
+	// pages stay cached with room for everything else.
+	if mem := memLimitBytes(); !cold && mem > 0 && sp.LiveBytes*4 <= mem {
+		return indexBuildCachedFast, indexBuildCachedSlow
+	}
+	f := scatterFactor(sp)
+	return time.Duration(float64(fast) * f), time.Duration(float64(slow) * f)
 }
+
+// scatterFactor is how much longer than the disk rates a build over a table in
+// a scattered file is expected to take.  The disk rates are for a table whose
+// pages follow each other in the file, read in long runs.  The retention prune
+// frees pages all through the file and new rows land wherever one is free, so
+// in a file that is largely free pages a table is read a page at a time --
+// on a large install (2026-09-29) a file more than half free built two and a
+// half times slower than estimated.  The factor is the file over its live
+// pages, about two there, from where doctor advises a compaction
+// (SQLiteSpace.Scattered), up to scatterFactorMax.  A host's own measured
+// rate is not scaled: it was measured on that file.
+func scatterFactor(sp SQLiteSpace) float64 {
+	if !sp.Scattered() || sp.LiveBytes <= 0 {
+		return 1
+	}
+	return min(float64(sp.FileBytes)/float64(sp.LiveBytes), scatterFactorMax)
+}
+
+const scatterFactorMax = 4
 
 // MigrateOptions tunes one pass of the numbered migrations.
 type MigrateOptions struct {
@@ -396,10 +421,10 @@ func pendingFrom(conn *DB, applied map[int]bool, cold bool) ([]pendingEntry, err
 	var rates buildRates
 	switch {
 	case cold:
-		rates.fast, rates.slow = indexBuildDiskFast, indexBuildDiskSlow
+		rates.fast, rates.slow = indexBuildRates(conn, true)
 	default:
 		if rates.host = hostIndexRate(conn); rates.host == 0 {
-			rates.fast, rates.slow = indexBuildRates(conn)
+			rates.fast, rates.slow = indexBuildRates(conn, false)
 		}
 	}
 	for _, m := range all {

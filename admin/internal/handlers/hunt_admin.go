@@ -1073,6 +1073,21 @@ func (h *Handler) appendASNRule(r *http.Request, asn uint, label, action, userna
 	return nil
 }
 
+// fitColumn makes a parallel column of a rule list n entries long: the zero
+// value -- no title, on, inherit -- where it stopped short, and cut where it
+// ran past the rows (entries no row shows).  Then the entry appended next is
+// the next row's.
+func fitColumn[T any](col []T, n int) []T {
+	if len(col) > n {
+		return col[:n]
+	}
+	for len(col) < n {
+		var zero T
+		col = append(col, zero)
+	}
+	return col
+}
+
 // appendUABlacklist: append a new entry to ChallengeTargets.Extra.  Load
 // the existing settings.yml -> append -> save -> render.
 func (h *Handler) appendUABlacklist(r *http.Request, pattern, title, action, username string, userID int64) error {
@@ -1094,20 +1109,22 @@ func (h *Handler) appendUABlacklist(r *http.Request, pattern, title, action, use
 		return err
 	}
 	t := strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/").Replace(title)
-	cur.Nginx.ChallengeTargets.Extra = append(cur.Nginx.ChallengeTargets.Extra, pattern)
-	cur.Nginx.ChallengeTargets.ExtraTitle = append(cur.Nginx.ChallengeTargets.ExtraTitle, t)
-	cur.Nginx.ChallengeTargets.ExtraDisabled = append(cur.Nginx.ChallengeTargets.ExtraDisabled, false)
+	// Every parallel column is fitted to the rows before this one takes its
+	// entry, or the entry lands on another row: the action column has to grow
+	// with the list even when this row inherits, and a title column that
+	// stopped short (rows added in config.yml) or ran long (a row removed
+	// there) put the new row's title on someone else's.
+	ct := &cur.Nginx.ChallengeTargets
+	rows := len(ct.Extra)
+	ct.Extra = append(ct.Extra, pattern)
+	ct.ExtraTitle = append(fitColumn(ct.ExtraTitle, rows), t)
+	ct.ExtraDisabled = append(fitColumn(ct.ExtraDisabled, rows), false)
 	// CreatedAt, not UpdatedAt: the row is new.  Stamping the edit date on a
 	// row that has never been edited reads as "changed, origin unknown" in
 	// the settings list, which is the opposite of what happened.
-	cur.Nginx.ChallengeTargets.ExtraCreatedAt = append(cur.Nginx.ChallengeTargets.ExtraCreatedAt, nowUnix())
-	cur.Nginx.ChallengeTargets.ExtraUpdatedAt = append(cur.Nginx.ChallengeTargets.ExtraUpdatedAt, 0)
-	// The parallel action column has to grow with the list even when this row
-	// inherits, or every later row's action belongs to the wrong pattern.
-	for len(cur.Nginx.ChallengeTargets.ExtraAction) < len(cur.Nginx.ChallengeTargets.Extra)-1 {
-		cur.Nginx.ChallengeTargets.ExtraAction = append(cur.Nginx.ChallengeTargets.ExtraAction, "")
-	}
-	cur.Nginx.ChallengeTargets.ExtraAction = append(cur.Nginx.ChallengeTargets.ExtraAction, action)
+	ct.ExtraCreatedAt = append(fitColumn(ct.ExtraCreatedAt, rows), nowUnix())
+	ct.ExtraUpdatedAt = append(fitColumn(ct.ExtraUpdatedAt, rows), 0)
+	ct.ExtraAction = append(fitColumn(ct.ExtraAction, rows), action)
 	cur.Nginx.SeenVersion = "v" + h.Version
 	if err := settings.Save(cur, h.ConfigPath); err != nil {
 		return err
@@ -1148,13 +1165,16 @@ func (h *Handler) appendJA4Bot(r *http.Request, pattern, title, username string,
 	if len(verdict) > 40 {
 		verdict = verdict[:40]
 	}
-	cur.Nginx.JA4Verdicts.Extra = append(cur.Nginx.JA4Verdicts.Extra,
+	// See appendUABlacklist: the columns are fitted to the rows first, and a
+	// new row carries its creation date, not an edit.
+	jv := &cur.Nginx.JA4Verdicts
+	rows := len(jv.Extra)
+	jv.Extra = append(jv.Extra,
 		settings.JA4VerdictExtraRule{Pattern: pattern, Verdict: verdict, Action: nginxconf.JA4ActionBot})
-	cur.Nginx.JA4Verdicts.ExtraTitle = append(cur.Nginx.JA4Verdicts.ExtraTitle, t)
-	cur.Nginx.JA4Verdicts.ExtraDisabled = append(cur.Nginx.JA4Verdicts.ExtraDisabled, false)
-	// See appendUABlacklist: a new row carries its creation date, not an edit.
-	cur.Nginx.JA4Verdicts.ExtraCreatedAt = append(cur.Nginx.JA4Verdicts.ExtraCreatedAt, nowUnix())
-	cur.Nginx.JA4Verdicts.ExtraUpdatedAt = append(cur.Nginx.JA4Verdicts.ExtraUpdatedAt, 0)
+	jv.ExtraTitle = append(fitColumn(jv.ExtraTitle, rows), t)
+	jv.ExtraDisabled = append(fitColumn(jv.ExtraDisabled, rows), false)
+	jv.ExtraCreatedAt = append(fitColumn(jv.ExtraCreatedAt, rows), nowUnix())
+	jv.ExtraUpdatedAt = append(fitColumn(jv.ExtraUpdatedAt, rows), 0)
 	settings.BackfillExtraVerdictIDs(&cur) // ID-0 entries were just appended, so assign them now.
 	cur.Nginx.SeenVersion = "v" + h.Version
 	if err := settings.Save(cur, h.ConfigPath); err != nil {

@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
-	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -91,7 +90,7 @@ func cmdMigrate(args []string) error {
 	res, err := db.ApplySchemaUpdate(ctx, conn, db.SchemaUpdateOptions{
 		Host: host, By: *by, SkipSpaceCheck: *skipSpace,
 		Logf:   func(f string, a ...any) { say("%s", strings.TrimPrefix(fmt.Sprintf(f, a...), "db: ")) },
-		Finish: func(context.Context) error { return migrateFinish(conn, s) },
+		Finish: func(c context.Context) error { return migrateFinish(c, conn, s) },
 	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -119,9 +118,10 @@ func cmdMigrate(args []string) error {
 // cached), and what is left is announced.
 //
 // What follows the migrations is not the daemon's to do at all (serve does
-// not backfill), so its failure is a warning here: a backfill that meets a
-// schema update's write lock -- a run the daemon started, still going after
-// the daemon itself was restarted -- must not keep the daemon from starting.
+// not gather the planner's statistics), so its failure is a warning here: one
+// that meets a schema update's write lock -- a run the daemon started, still
+// going after the daemon itself was restarted -- must not keep the daemon
+// from starting.
 func migrateStartup(conn *db.DB, s settings.Settings) error {
 	res, err := db.MigrateWith(conn, db.MigrateOptions{
 		Defer: true, DeferOver: s.DB.SchemaUpdateDeferOver(), ColdCache: true,
@@ -134,9 +134,9 @@ func migrateStartup(conn *db.DB, s settings.Settings) error {
 	}
 	fmt.Println("schema applied")
 	if len(res.Deferred) > 0 {
-		fmt.Print(schemaNotice(res.Deferred, conn.SchemaUpdateHoldsWrites(), "unmask migrate   (in the container)"))
+		fmt.Print(schemaNotice(res.Deferred, conn.SchemaUpdateHoldsWrites(), "unmask migrate   (in the container)", fileSpace(conn)))
 	}
-	if err := migrateFinish(conn, s); err != nil {
+	if err := migrateFinish(context.Background(), conn, s); err != nil {
 		fmt.Fprintf(os.Stderr, "migrate: warning: %v (done by the next `unmask migrate`)\n", err)
 	}
 	return nil
@@ -152,26 +152,23 @@ func noSQLiteFile(d settings.DB) bool {
 	return errors.Is(err, os.ErrNotExist)
 }
 
-// migrateFinish is what follows the schema in every run that applies one:
-// the verdict ids of rows written before they existed, and the planner's
-// statistics on a database small enough to gather them in a moment.
-func migrateFinish(conn *db.DB, s settings.Settings) error {
-	// ID-based linking: backfill ja4_verdict_id for existing rows via name lookup.
-	// Build the preset registry from built-in + settings.Extra.
-	extras := make([]nginxconf.ExtraVerdict, 0, len(s.Nginx.JA4Verdicts.Extra))
-	for _, e := range s.Nginx.JA4Verdicts.Extra {
-		extras = append(extras, nginxconf.ExtraVerdict{
-			ID: e.ID, Verdict: e.Verdict, Action: e.Action, Pattern: e.Pattern,
-		})
-	}
-	reg := nginxconf.BuildVerdictRegistry(extras)
-	nameToID := reg.AllNameToID()
-	if n, err := db.BackfillVerdictIDs(conn, nameToID); err != nil {
-		return fmt.Errorf("backfill verdict id: %w", err)
-	} else if n > 0 {
-		fmt.Printf("backfilled ja4_verdict_id for %d row(s)\n", n)
-	}
-	seedPlannerStats(conn, s.DB)
+// migrateFinish is what follows the schema in every run that applies one: the
+// planner's statistics, on a database small enough to gather them in a moment.
+//
+// It used to backfill ja4_verdict_id first, an UPDATE per verdict name that
+// walked every event of that verdict and read each row to find the ones
+// without an id.  The column dates from long ago and every event is written
+// with its id since (the daemon and nginx share one verdict registry, so a
+// name cannot reach an event before its id exists), so the walk found nothing
+// -- and on a large, fragmented database took over twenty minutes of random
+// reads after the index, with the daemon's writes held, saying nothing, and
+// deaf to an interrupt (a large install, 2026-10-06).  Gone.
+//
+// An interrupt stops the statistics too.  The schema is applied by then, so
+// that is no failure: seedPlannerStats says they were not built, and doctor
+// says so until `unmask db-analyze` builds them.
+func migrateFinish(ctx context.Context, conn *db.DB, s settings.Settings) error {
+	seedPlannerStats(ctx, conn, s.DB)
 	return nil
 }
 
@@ -230,7 +227,7 @@ func noticeText(s settings.Settings) string {
 	if len(left) == 0 {
 		return ""
 	}
-	return schemaNotice(left, conn.SchemaUpdateHoldsWrites(), "sudo unmask migrate")
+	return schemaNotice(left, conn.SchemaUpdateHoldsWrites(), "sudo unmask migrate", fileSpace(conn))
 }
 
 // runningNotice words a schema update that is running while the package is
@@ -292,15 +289,59 @@ func migrateStatus(conn *db.DB, s settings.Settings) error {
 		}
 		fmt.Printf("  %-32s %s  (%s)\n", m.Name, m.Describe(), who)
 	}
+	if note := scatterNote(pending, fileSpace(conn), "      "); note != "" {
+		fmt.Print("note: " + note)
+	}
 	fmt.Println("apply with:  sudo unmask migrate    (the daemon can keep running: the challenge is served throughout)")
 	return nil
+}
+
+// fileSpace is the page accounting of a SQLite database, nil for MariaDB or
+// when it cannot be read: what scatterNote decides on.
+func fileSpace(conn *db.DB) *db.SQLiteSpace {
+	if conn.Driver != db.DriverSQLite {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	sp, err := conn.Space(ctx)
+	if err != nil {
+		return nil
+	}
+	return &sp
+}
+
+// scatterNote tells an operator about to run index builds over a scattered
+// file (db.SQLiteSpace.Scattered, where doctor advises a compaction) that they
+// read the tables a page at a time, and where to see what compacting the file
+// first would take.  On a large install (2026-09-29) a build over a file more
+// than half free took two and a half times as long as estimated; the estimate
+// allows for it now, and the operator may rather compact first.  "" for
+// anything else: MariaDB, a compact file, nothing to build.  indent starts
+// every line but the first.
+func scatterNote(pending []db.PendingMigration, sp *db.SQLiteSpace, indent string) string {
+	if sp == nil || !sp.Scattered() {
+		return ""
+	}
+	builds := false
+	for _, m := range pending {
+		builds = builds || len(m.Indexes) > 0
+	}
+	if !builds {
+		return ""
+	}
+	return fmt.Sprintf("%s of the %s database file is free space, and the tables lie scattered through it:\n"+
+		"%sthe build reads them a page at a time, which takes longer.  Compacting the file first lays them\n"+
+		"%sout again: `unmask db-vacuum -plan` shows what that would take.\n",
+		humanBytesCLI(sp.FileBytes-sp.LiveBytes), humanBytesCLI(sp.FileBytes), indent, indent)
 }
 
 // schemaNotice words the updates a daemon start left out for whoever is
 // looking at the terminal of a package upgrade, or at a container's log.
 // holdsWrites: the run keeps the daemon's writes out (db.SchemaUpdateHoldsWrites),
-// which is worth a line.  shell: the command, as it is typed there.
-func schemaNotice(left []db.PendingMigration, holdsWrites bool, shell string) string {
+// which is worth a line.  shell: the command, as it is typed there.  sp: the
+// database file's page accounting (nil for MariaDB), for scatterNote.
+func schemaNotice(left []db.PendingMigration, holdsWrites bool, shell string, sp *db.SQLiteSpace) string {
 	var low, high time.Duration
 	var b strings.Builder
 	b.WriteString("\n")
@@ -319,6 +360,9 @@ func schemaNotice(left []db.PendingMigration, holdsWrites bool, shell string) st
 		b.WriteString("        The challenge is served while it runs; events recorded meanwhile are written afterwards.\n")
 	} else {
 		b.WriteString("        The challenge is served while it runs.\n")
+	}
+	if note := scatterNote(left, sp, "        "); note != "" {
+		b.WriteString("        " + note)
 	}
 	b.WriteString("\n")
 	return b.String()

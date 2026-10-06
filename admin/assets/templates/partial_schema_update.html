@@ -23,6 +23,7 @@
 .schup-failed{background:#fef2f2;border-color:#fca5a5;color:#991b1b}
 .schup-msg{flex:1;min-width:16rem}
 .schup-sub{display:block;font-size:.8125rem;opacity:.85}
+.schup-sub[hidden]{display:none}
 .schup button{font:inherit;font-size:.8125rem;font-weight:600;padding:.3rem .8rem;border-radius:.3rem;border:1px solid currentColor;background:#fff;color:inherit;cursor:pointer}
 .schup button:hover{background:rgba(255,255,255,.6)}
 .schup button[disabled]{opacity:.5;cursor:default}
@@ -32,6 +33,7 @@
      data-state="{{ .State }}" data-started="{{ .StartedAt }}" data-ended="{{ .EndedAt }}" data-now="{{ .Now }}"
      data-api="{{ $.BasePath }}/admin/api/schema-update"
      data-l-elapsed="{{ t $.Lang "schema_update.elapsed" }}"
+     data-l-held="{{ t $.Lang "schema_update.held" }}"
      data-l-starting="{{ t $.Lang "schema_update.starting" }}"
      data-l-stopping="{{ t $.Lang "schema_update.stopping" }}"
      data-l-confirm="{{ if .HoldsWrites }}{{ t $.Lang "schema_update.confirm" }}{{ else }}{{ t $.Lang "schema_update.confirm_online" }}{{ end }}"
@@ -43,6 +45,9 @@
       <span class="schup-sub">{{ if .HoldsWrites }}{{ t $.Lang "schema_update.pending_sub" }}{{ else }}{{ t $.Lang "schema_update.pending_sub_online" }}{{ end }}{{ if not .CanRun }} {{ t $.Lang "schema_update.needs_superadmin" }}{{ end }}</span>
     {{- else if eq .State "running" -}}
       {{ t $.Lang "schema_update.running" }} <span id="schup-elapsed"></span>{{ if .Est }} {{ tf $.Lang "schema_update.expected" .Est }}{{ end }}
+      <span class="schup-sub" id="schup-stage"{{ if not .Stage }} hidden{{ end }}>{{ .Stage }}</span>
+      <span class="schup-sub" id="schup-over"{{ if not .Over }} hidden{{ end }}>{{ t $.Lang "schema_update.over" }}</span>
+      {{ if .HeldLimit }}<span class="schup-sub" id="schup-held" data-limit="{{ .HeldLimit }}">{{ tf $.Lang "schema_update.held" (comma .Held) (comma .HeldLimit) }}</span>{{ end }}
       <span class="schup-sub">{{ if .HoldsWrites }}{{ t $.Lang "schema_update.running_sub" }}{{ else }}{{ t $.Lang "schema_update.running_sub_online" }}{{ end }}{{ if and .By (not .CanCancel) }} {{ tf $.Lang "schema_update.started_by" .By .Host }}{{ end }}</span>
     {{- else if eq .State "done" -}}
       {{ tf $.Lang "schema_update.done" .Took }}
@@ -75,6 +80,7 @@
   if (hdr && hdr.parentNode) hdr.parentNode.insertBefore(el, hdr.nextSibling);
   el.hidden = false;
 
+  function comma(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   function mmss(sec){
     sec = Math.max(0, Math.floor(sec));
     var m = Math.floor(sec / 60), s = sec % 60;
@@ -124,10 +130,21 @@
   if (state === 'running') {
     tick();
     setInterval(tick, 1000);
-    // When the run ends the page says so by itself.
+    // While it runs the poll brings what it is doing now and what waits;
+    // a poll that fails leaves the last answer up.  When the run ends the
+    // page says so by itself.
+    var stageEl = document.getElementById('schup-stage');
+    var overEl = document.getElementById('schup-over');
+    var heldEl = document.getElementById('schup-held');
     var poll = setInterval(function(){
       fetch(api, {credentials: 'same-origin'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(v){
-        if (v && v.state !== 'running') { clearInterval(poll); location.reload(); }
+        if (!v) return;
+        if (v.state !== 'running') { clearInterval(poll); location.reload(); return; }
+        if (stageEl && v.stage) { stageEl.textContent = v.stage; stageEl.hidden = false; }
+        if (overEl) overEl.hidden = !v.over;
+        if (heldEl && v.held_limit) {
+          heldEl.textContent = L('held').replace('%s', comma(v.held || 0)).replace('%s', comma(v.held_limit));
+        }
       }).catch(function(){});
     }, 5000);
   }
