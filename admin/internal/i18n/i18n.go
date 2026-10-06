@@ -72,14 +72,14 @@ var dict = map[Lang]map[string]string{
 		// The pass-cookie reuse cap (settings > rate-limit) and the reason its
 		// challenges are recorded under.
 		"captcha_force.kind.reuse_limit":      "cookie 使い回し上限",
-		"help.captcha_force.kind.reuse_limit": "<b>reuse_limit</b>: 通過 cookie を持ったまま、使い回しの上限を超えた訪問者。上限を超えている間は、リクエストのたびに CAPTCHA が出る (PoW では通れない)。上限は 設定 &gt; rate-limit で管理。",
+		"help.captcha_force.kind.reuse_limit": "<b>reuse_limit</b>: 通過 cookie を使い回して、上限を超えた IP の訪問者。PoW を解き直しても通れないが、CAPTCHA を解いた cookie は数えないので、解いた人はその cookie が有効な間は通れる。上限は 設定 &gt; rate-limit で管理。",
 		"settings.rate_limit.reuse_h":         "通過 cookie の使い回し上限",
-		"settings.rate_limit.reuse_desc":      "challenge を一度通った訪問者のリクエスト (有効な通過 cookie 付き) を、IP ごとに数えます。上の各行は cookie を持たないリクエストだけを数えるため、PoW を一度解いたクローラーは、cookie が有効な間ずっと数えられません。既定で有効で、上限は人間では起こらない量 (1 日 10,000 回・短時間 2,000 回) です。",
+		"settings.rate_limit.reuse_desc":      "challenge を一度通った訪問者のリクエスト (有効な通過 cookie 付き) を、IP ごとに数えます。上の各行は cookie を持たないリクエストだけを数えるため、PoW を一度解いたクローラーは、cookie が有効な間ずっと数えられません。CAPTCHA を解いた cookie は数えません。既定で有効で、上限は 1 人では届かない量 (1 日 10,000 回・短時間 2,000 回) です。",
 		"settings.rate_limit.reuse_enabled":   "有効にする",
 		"settings.rate_limit.reuse_per_day":   "1 日の上限 (回)",
 		"settings.rate_limit.reuse_burst":     "短時間の上限 (回)",
 		"settings.rate_limit.reuse_action":    "超えたときの動作",
-		"settings.rate_limit.reuse_help":      "<strong>数え方</strong>: 数える単位は IP です。PoW を解き直して cookie を取り直しても、同じ IP なら同じ枠のままです。IP ごとに「短時間の上限」回までまとめて使え、「1 日の上限」の速さで回復します (nginx の rate は 1 分単位なので、1 日の上限 ÷ 1,440 を切り上げた回数を 1 分ごとに回復)。<br><strong>対象</strong>: 有効な通過 cookie を持つリクエストだけ。検索 bot・ホワイトリスト IP・ホワイトパスは数えません。<br><strong>超えたとき</strong>: <code>captcha_only</code> は、上限を超えている間、リクエストのたびに CAPTCHA を出します (PoW では通れません)。<code>deny</code> は拒否ページを返します。<br><strong>ノードごとに数えます</strong>。ロードバランサーで複数台に振り分けている場合、全体ではその台数分まで通ります。<br>ASN / 国別のレート規則に当たる IP では、その規則の動作が優先されます。",
+		"settings.rate_limit.reuse_help":      "<strong>数え方</strong>: 数える単位は IP です。PoW を解き直して cookie を取り直しても、同じ IP なら同じ枠のままです。IP ごとに「短時間の上限」回までまとめて使え、「1 日の上限」の速さで回復します (nginx の rate は 1 分単位なので、1 日の上限 ÷ 1,440 を切り上げた回数を 1 分ごとに回復)。<br><strong>対象</strong>: PoW や再バインドなど、CAPTCHA を解いていない通過 cookie を持つリクエストだけ。CAPTCHA を解いた cookie、検索 bot・ホワイトリスト IP・ホワイトパスは数えません。<br><strong>超えたとき</strong>: <code>captcha_only</code> は、上限を超えた IP の訪問者に CAPTCHA を出します (PoW では通れません)。解いた cookie は数えないので、社内のプロキシなど 1 つの IP の後ろに大勢いても、1 人 1 回の CAPTCHA で済みます。<code>deny</code> は拒否ページを返します。<br><strong>ノードごとに数えます</strong>。ロードバランサーで複数台に振り分けている場合、全体ではその台数分まで通ります。<br>ASN / 国別のレート規則に当たる IP では、その規則の動作が優先されます。",
 
 		// nav (= header の menu)
 		"nav.dashboard":                               "ダッシュボード",
@@ -2343,14 +2343,14 @@ var dict = map[Lang]map[string]string{
 		// The pass-cookie reuse cap (settings > rate-limit) and the reason its
 		// challenges are recorded under.
 		"captcha_force.kind.reuse_limit":      "Pass reuse cap",
-		"help.captcha_force.kind.reuse_limit": "<b>reuse_limit</b>: the visitor holds a valid pass cookie and went over the reuse cap. While it stays over, every request gets a CAPTCHA (a PoW does not get through). Manage the cap under Settings &gt; Rate limit.",
+		"help.captcha_force.kind.reuse_limit": "<b>reuse_limit</b>: a visitor reusing a pass cookie from an IP over the reuse cap. Solving the PoW again does not get through; a solved CAPTCHA is not counted, so its holder gets through for as long as that cookie lives. Manage the cap under Settings &gt; Rate limit.",
 		"settings.rate_limit.reuse_h":         "Pass-cookie reuse cap",
-		"settings.rate_limit.reuse_desc":      "Counts, per IP, the requests of visitors who already passed the challenge (those carrying a valid pass cookie). The rows above count only requests without the cookie, so a crawler that solved a PoW once is not counted for as long as the cookie lives. On by default, at volumes no person reaches (10,000 a day, 2,000 at once).",
+		"settings.rate_limit.reuse_desc":      "Counts, per IP, the requests of visitors who already passed the challenge (those carrying a valid pass cookie). The rows above count only requests without the cookie, so a crawler that solved a PoW once is not counted for as long as the cookie lives. A solved CAPTCHA is not counted. On by default, at volumes no single person reaches (10,000 a day, 2,000 at once).",
 		"settings.rate_limit.reuse_enabled":   "Enable",
 		"settings.rate_limit.reuse_per_day":   "Per day",
 		"settings.rate_limit.reuse_burst":     "At once",
 		"settings.rate_limit.reuse_action":    "Over the cap",
-		"settings.rate_limit.reuse_help":      "<strong>How it counts</strong>: per IP address -- a new pass (the proof-of-work solved again) from the same address draws on the same budget.  Each IP can spend up to the \"at once\" amount in one go, and it refills at the per-day rate (nginx takes rates per minute, so it refills the per-day figure ÷ 1,440, rounded up, each minute).<br><strong>What counts</strong>: only requests carrying a valid pass cookie. Search bots, bypass IPs and bypass paths are not counted.<br><strong>Over the cap</strong>: <code>captcha_only</code> shows a CAPTCHA on every request while the IP stays over (a PoW does not get through); <code>deny</code> returns the deny page.<br><strong>Counted per node</strong>: behind a load balancer that spreads requests over several nodes, the total can reach that many times the cap.<br>For an IP under an ASN or country rate rule, that rule's action applies instead.",
+		"settings.rate_limit.reuse_help":      "<strong>How it counts</strong>: per IP address -- a new pass (the proof-of-work solved again) from the same address draws on the same budget.  Each IP can spend up to the \"at once\" amount in one go, and it refills at the per-day rate (nginx takes rates per minute, so it refills the per-day figure ÷ 1,440, rounded up, each minute).<br><strong>What counts</strong>: only requests carrying a pass nobody solved a CAPTCHA for (a PoW, a re-bound pass). A solved CAPTCHA, search bots, bypass IPs and bypass paths are not counted.<br><strong>Over the cap</strong>: <code>captcha_only</code> shows the visitors of an IP over the cap a CAPTCHA (a PoW does not get through). The solved pass is not counted, so even behind an office proxy or a carrier NAT it takes one CAPTCHA per person; <code>deny</code> returns the deny page.<br><strong>Counted per node</strong>: behind a load balancer that spreads requests over several nodes, the total can reach that many times the cap.<br>For an IP under an ASN or country rate rule, that rule's action applies instead.",
 
 		"nav.dashboard":                               "Dashboard",
 		"nav.stats":                                   "Stats",

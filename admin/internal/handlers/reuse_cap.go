@@ -18,6 +18,12 @@ import (
 // zone that counts only the requests WITH a valid _bv, per client address
 // (nginxconf.ReuseZoneRender).  Over it, nginx sends the request down the
 // rate route like any zone; this file tells the cap's hits from the others.
+//
+// A solved CAPTCHA is not counted, by the zone or here.  That CAPTCHA is how
+// a person behind a busy address (an office proxy, a carrier NAT) gets past
+// the cap; counted, the next request from the same address would be over it
+// again and they could never get through (2026-10-06: an office behind one
+// address went past the default budget every weekday).
 
 // reuseCapKey marks a rate-route request as the reuse cap's, for the
 // challenge renderers downstream of ServeChallengeOrJSON.
@@ -37,15 +43,16 @@ func reuseCapped(r *http.Request) bool {
 // The reuse zone is the one zone that counts a request carrying a valid _bv,
 // apart from a deny zone (the caller has already served those) and the ASN /
 // country rate rules, which count everyone in their network.  So the answer is
-// yes when the cap is in force, the request carries a valid _bv, and the client
-// falls under no ASN / country rate rule -- under one, the two cannot be told
-// apart, and that rule's own action is served as before.
+// yes when the cap is in force, the request carries a valid _bv the zone
+// counts -- anything but a solved CAPTCHA -- and the client falls under no
+// ASN / country rate rule: under one, the two cannot be told apart, and that
+// rule's own action is served as before.
 func (h *Handler) reuseCapHit(r *http.Request, site string) (string, bool) {
 	cfg := *h.cfg()
 	if !nginxconf.ReuseCapActive(cfg) {
 		return "", false
 	}
-	if bv, _ := pickValidBV(r, cfg, clientIP(r), site); bv == "" {
+	if bv, kind := pickValidBV(r, cfg, clientIP(r), site); bv == "" || kind == "captcha" {
 		return "", false
 	}
 	if _, matched := h.netRateRule(adminClientIP(r, cfg), cfg); matched {

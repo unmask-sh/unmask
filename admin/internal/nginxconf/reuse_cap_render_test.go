@@ -17,7 +17,10 @@ func TestReuseCapRender(t *testing.T) {
 		s.RateLimit.Reuse = settings.ReuseLimitConfig{} // untouched: on, at the seeds
 	})
 	for _, want := range []string{
-		`map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse {`,
+		// Every pass but a solved CAPTCHA is counted: that CAPTCHA is the
+		// cap's way out for a person behind a busy address.
+		`map $unmask_bv_kind $bv_reuse_counted { default 1;  ""  0;  "captcha" 0; }`,
+		`map "$bv_reuse_counted:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse {`,
 		`"~^1:"        $unmask_client_net;`,
 		// The seed, 10,000 a day, is 6.9 a minute: nginx counts whole
 		// requests a minute.
@@ -40,7 +43,8 @@ func TestReuseCapRender(t *testing.T) {
 	httpOff, protectOff := renderBothIncs(t, func(s *settings.Settings) {
 		s.RateLimit.Reuse = settings.ReuseLimitConfig{Disabled: true, PerDay: 20000, Burst: 3000} // tuned, off
 	})
-	if strings.Contains(httpOff, "unmask_reuse") || strings.Contains(protectOff, "unmask_reuse") {
+	if strings.Contains(httpOff, "unmask_reuse") || strings.Contains(protectOff, "unmask_reuse") ||
+		strings.Contains(httpOff, "$bv_reuse_counted") {
 		t.Error("a switched-off cap must render nothing")
 	}
 

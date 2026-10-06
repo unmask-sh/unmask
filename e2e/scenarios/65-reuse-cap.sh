@@ -14,6 +14,9 @@
 #      pass, the rest get a CAPTCHA-only challenge recorded as reuse_limit
 #      (an API client hears the same reason); solving the proof-of-work
 #      again gives a new pass but not a new budget -- it is still over
+#   2b. solving the CAPTCHA does get through: a solved CAPTCHA is not counted,
+#      so its holder passes while the address is still over (a person behind
+#      a busy office proxy), and the PoW pass alone stays over
 #   3. the same address without the cookie is not counted by the cap (the
 #      plain challenge, not reuse_limit); another address with its own pass
 #      is not affected
@@ -179,6 +182,45 @@ if [ -n "$BV1B" ] && [ "$BV1B" != "$BV1" ]; then
 else
     log_fail "could not get a second pass for $IP1"
 fi
+
+# --- 2b. the CAPTCHA the cap serves gets a person through -------------------
+# A busy address may be an office proxy or a carrier NAT, with people behind
+# it.  The pass a solved CAPTCHA gives is not counted by the cap (counted, the
+# next request from the same address would be over it again, and nobody
+# behind it could get through), so its holder passes while the address is
+# still over.  Solve it the way a browser over the cap does -- carrying the
+# PoW pass, which the solve's entry goes in front of -- through the math
+# CAPTCHA's API (scenario 04).
+new=$(curl -sk --max-time 8 -A "$UA_BROWSER" -H "X-Forwarded-For: $IP1" "${BASE_URL}/unmask/api/captcha/new")
+a=$(printf '%s' "$new" | grep -oE '"a":[0-9]+' | grep -oE '[0-9]+')
+b=$(printf '%s' "$new" | grep -oE '"b":[0-9]+' | grep -oE '[0-9]+')
+token=$(printf '%s' "$new" | grep -oE '"token":"[^"]+"' | sed -E 's/.*"token":"([^"]+)".*/\1/')
+ct=$(printf '%s' "$new" | grep -oE '"ct":"[^"]+"' | sed -E 's/.*"ct":"([^"]+)".*/\1/')
+BVC=""
+if [ -n "$a" ] && [ -n "$b" ] && [ -n "$token" ]; then
+    verify=$(curl -sk --max-time 8 -A "$UA_BROWSER" -H "X-Forwarded-For: $IP1" -H "Cookie: _bv=$BV1" \
+        -c "$WORK/jar" -H 'Content-Type: application/json' \
+        -d "{\"token\":\"$token\",\"answer\":\"$((a + b))\",\"ct\":\"$ct\"}" \
+        "${BASE_URL}/unmask/api/verify")
+    assert_in '"ok":1' "$verify" "the CAPTCHA is solved from the address over the cap"
+    BVC=$(awk '$6 == "_bv" {print $7}' "$WORK/jar")
+fi
+if [ -n "$BVC" ] && [ "$BVC" != "$BV1" ]; then
+    : > "$WORK/codes_c"
+    for i in 1 2 3 4 5; do visit "$IP1" "$BVC" -o /dev/null -w '%{http_code}\n' >> "$WORK/codes_c"; done
+    assert_eq 5 "$(grep -c '^200$' "$WORK/codes_c")" "with the solved pass, the address over the cap gets through (5 x 200)"
+else
+    log_fail "could not solve the CAPTCHA for $IP1 (captcha/new: $new)"
+fi
+# The PoW pass on its own is still over: the solve let its holder through,
+# it did not lift the cap.  The bucket refills one a minute, so allow a
+# request or two to slip through first.
+still=""
+for i in 1 2 3; do
+    r=$(visit "$IP1" "$BV1" -H 'Sec-Fetch-Dest: empty' -H 'Sec-Fetch-Mode: cors' -w '|%{http_code}')
+    if [ "${r##*|}" = 429 ]; then still="${r%|*}"; break; fi
+done
+assert_in '"reason":"reuse_limit"' "$still" "the PoW pass on its own is still over the cap"
 
 # --- 3. what the cap does not count ----------------------------------------
 plain=$(visit "$IP1" "")

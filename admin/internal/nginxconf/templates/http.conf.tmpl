@@ -1360,7 +1360,17 @@ limit_req_zone {{ .KeyVar }} zone={{ .Name }}:10m rate={{ .RequestsPerMin }}r/m;
 # exempt), "" for everything else.  The bucket holds the burst and refills at
 # the per-day budget; over it, the request takes the rate route, and the daemon
 # serves a CAPTCHA or the deny page (settings.rate_limit.reuse.action).
-map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse {
+#
+# A solved CAPTCHA is not counted: that CAPTCHA is the cap's own way out.
+# Counted, it would be served again on the next request from the same address,
+# and a person behind a busy one (an office proxy, a carrier NAT) could never
+# get through.  Every other pass is counted -- a PoW, a re-bound one, one handed
+# out while enforcement was suspended -- since nobody solved anything for it
+# here.  The plugin reports the kind of the entry that matched this address,
+# and a CAPTCHA solve puts its entry first, so the solver's next request reads
+# "captcha".
+map $unmask_bv_kind $bv_reuse_counted { default 1;  ""  0;  "captcha" 0; }
+map "$bv_reuse_counted:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse {
     default       "";
     "~^.:1:"      "";
     "~^.:.:1:"    "";

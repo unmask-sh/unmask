@@ -860,11 +860,11 @@ type RatePlainZoneRender struct {
 
 // ReuseZoneRender: the pass-cookie reuse cap.  http.inc declares a zone keyed
 // on $rate_limit_key_reuse -- the client address for a request carrying a
-// valid _bv, "" otherwise (and for search bots / bypass IPs / bypass paths) --
-// at RequestsPerMin (the per-day budget, rounded up to a whole number a
-// minute); protect.inc applies it with Burst.  Over it, the request takes the
-// rate route like any zone, and the daemon tells this cap apart by the valid
-// _bv (ServeChallengeOrJSON).
+// valid _bv other than a solved CAPTCHA, "" otherwise (and for search bots /
+// bypass IPs / bypass paths) -- at RequestsPerMin (the per-day budget, rounded
+// up to a whole number a minute); protect.inc applies it with Burst.  Over it,
+// the request takes the rate route like any zone, and the daemon tells this
+// cap apart by the valid _bv (ServeChallengeOrJSON).
 type ReuseZoneRender struct {
 	Name           string
 	RequestsPerMin int

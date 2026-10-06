@@ -75,6 +75,28 @@ func TestReuseCapOnTheRateRoute(t *testing.T) {
 			t.Errorf("foreign pass: reason %v, want rate_limit", b["reason"])
 		}
 	})
+	// The CAPTCHA the cap serves is the way out for a person behind a busy
+	// address: the pass it gives is not the cap's to count, so a request that
+	// reaches the rate route carrying one is a plain rate-limit hit.  A pass
+	// that lists the solve first and an older PoW entry after it (what the
+	// CAPTCHA issuer leaves in the browser) reads as the solve.
+	t.Run("a solved CAPTCHA", func(t *testing.T) {
+		h, powBV := newH(t, true, "deny")
+		secret := h.cfg().Secret.BVSecret
+		solved := cookies.IssueValue(secret, ip, host, "captcha")
+		for name, bv := range map[string]string{
+			"the solve alone":         solved,
+			"the solve over the pass": cookies.AppendEntry(powBV, solved, 16),
+		} {
+			if b := jsonBody(t, serve(h, bv, false)); b["reason"] != "rate_limit" || b["error"] != "challenge_required" {
+				t.Errorf("%s: %v, want the plain rate-limit challenge, not the cap", name, b)
+			}
+		}
+		// The PoW pass on its own is still the cap's.
+		if b := jsonBody(t, serve(h, powBV, false)); b["reason"] != "reuse_limit" {
+			t.Errorf("the PoW pass: reason %v, want reuse_limit", b["reason"])
+		}
+	})
 	t.Run("deny", func(t *testing.T) {
 		h, bv := newH(t, true, "deny")
 		if b := jsonBody(t, serve(h, bv, false)); b["error"] != "rate_limited" || b["reason"] != "reuse_limit" {

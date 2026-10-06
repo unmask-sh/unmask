@@ -18,6 +18,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-10-06) **The SQL-injection honeypot preset is on by default.**  Its patterns need SQL syntax, not SQL words, so ordinary searches pass; a probe bans its sender's address and JA4 like any honeypot trip, and a person who trips it by accident can still clear the challenge.  An install that reviews new enforcement holds it until reviewed; a site whose search echoes SQL itself can switch it off.
 
 ### Fixed
+- (2026-10-06) **A solved CAPTCHA gets its holder past the reuse cap.**  The cap counted every pass, the one its own CAPTCHA gave included, so the next request from an address over the cap met the CAPTCHA again: behind an office proxy or a carrier NAT over the budget, nobody could get through.  A solved CAPTCHA is no longer counted; a proof-of-work reused past the budget is still stopped.
+
 - (2026-10-06) **The SQL-injection honeypot preset now catches encoded probes.**  nginx matches honeypot patterns against the request URI as sent, where a space arrives as %20 or + and a quote or a bracket often as %27 or %28; the patterns expected literal spaces, so UNION SELECT, ' OR '1'='1, WAITFOR DELAY and DROP TABLE probes went through.  The preset stays off unless enabled.
 
 ## [0.1.49] - 2026-10-04

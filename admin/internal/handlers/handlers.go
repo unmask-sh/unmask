@@ -610,8 +610,8 @@ func (h *Handler) ServeChallengeOrJSON(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		// The pass-cookie reuse cap: a client that holds a valid pass and has
-		// used it past the budget gets the deny page, or a CAPTCHA on every
-		// request while it stays over.
+		// used it past the budget gets the deny page, or a CAPTCHA -- whose
+		// solved pass the cap no longer counts.
 		if action, ok := h.reuseCapHit(r, site); ok {
 			if action == settings.RateChallengeDeny {
 				h.serveRateDeny(w, r, site, "reuse_limit")
