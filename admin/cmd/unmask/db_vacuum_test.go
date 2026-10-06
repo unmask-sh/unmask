@@ -66,7 +66,10 @@ func TestDBVacuumCommand(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"after compaction", "needs about", "expected to take", "holds its writes"} {
+	// The database has no planner statistics (nothing has analysed it): the
+	// run builds them, and the plan says so.
+	for _, want := range []string{"after compaction", "needs about", "expected to take", "holds its writes",
+		"there are no query planner statistics yet"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("-plan output lacks %q:\n%s", want, out)
 		}
@@ -85,8 +88,12 @@ func TestDBVacuumCommand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("forced run: %v\n%s", err, out)
 	}
-	if !strings.Contains(out, "done: the file went from") {
+	if !strings.Contains(out, "done: the file went from") || !strings.Contains(out, "the query planner's statistics built in") {
 		t.Errorf("output lacks the result:\n%s", out)
+	}
+	out, err = captureStdout(t, func() error { return cmdDBVacuum([]string{"-config", config, "-plan"}) })
+	if err != nil || strings.Contains(out, "query planner statistics") {
+		t.Errorf("-plan after the run still offers the statistics (%v):\n%s", err, out)
 	}
 	if st, _ := os.Stat(database); st.Size() >= st0.Size() {
 		t.Errorf("file %d -> %d: nothing given back", st0.Size(), st.Size())

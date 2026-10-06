@@ -100,7 +100,10 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
       ok(false, 'no start modal in the card');
     } else {
       ok(m.open && m.modal, 'the compaction button did not open its modal');
-      ok(m.notes === 4, `the modal lists ${m.notes} points about the run, want 4`);
+      // A fifth where the database has no planner statistics: the run builds
+      // them after the compaction, and the card says so in a row of its own.
+      const wantNotes = res.rows && res.rows.stats ? 5 : 4;
+      ok(m.notes === wantNotes, `the modal lists ${m.notes} points about the run, want ${wantNotes}`);
       ok(m.backFocused, 'the modal opened without the focus on backing out');
       ok(m.top >= 0 && m.bottom <= m.vh, `the modal is off screen (${m.top}-${m.bottom} of ${m.vh})`);
       ok(m.overflow <= 1, `the modal scrolls sideways by ${m.overflow}px`);

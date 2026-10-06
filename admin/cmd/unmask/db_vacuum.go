@@ -122,7 +122,11 @@ func cmdDBVacuum(args []string) error {
 		}
 		return fmt.Errorf("db-vacuum: %w", err)
 	}
-	say("done: the file went from %s to %s in %s", humanBytesCLI(res.FileBefore), humanBytesCLI(res.FileAfter), res.Elapsed.Round(time.Second))
+	stats := ""
+	if res.StatsBuilt {
+		stats = fmt.Sprintf("; the query planner's statistics built in %s", res.StatsElapsed.Round(time.Second))
+	}
+	say("done: the file went from %s to %s in %s%s", humanBytesCLI(res.FileBefore), humanBytesCLI(res.FileAfter), res.Elapsed.Round(time.Second), stats)
 	return nil
 }
 
@@ -141,6 +145,9 @@ func printVacuumPlan(say func(string, ...any), p db.VacuumPlan) {
 		"default":  "the built-in range; the first run records this host's own",
 	}[p.EstFrom]
 	say("expected to take %s (from %s)", db.EstimateRange(p.EstLow, p.EstHigh), from)
+	if p.BuildsStats {
+		say("there are no query planner statistics yet: they are built after the compaction, while the daemon's writes are still held (counted in the estimate) -- the stats and hunt pages read whole indexes without them")
+	}
 	say("the daemon keeps serving meanwhile, and holds its writes: about %d events an hour here, up to %d over the run -- about %s of memory, and at most %s of access-log counters besides (it keeps up to %d events)",
 		p.EventsPerHour, p.HeldEvents, humanBytesCLI(p.HeldBytes), humanBytesCLI(p.CountersBytes), p.HeldLimit)
 }

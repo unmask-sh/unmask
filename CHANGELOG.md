@@ -22,6 +22,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-06) **Index build estimates allow for a fragmented database file.**  Where a quarter of a SQLite file is free pages -- doctor's cue for a compaction -- its tables lie scattered and a build reads them a page at a time.  The built-in estimate now grows with the file's size over its live data, up to fourfold; `migrate -status` and the upgrade notice point to `unmask db-vacuum -plan`.
 
+- (2026-10-06) **A compaction builds the query statistics a database lacks.**  On a large SQLite database nothing built them -- `unmask migrate` only does on a small one, and `db-analyze` holds the write lock while the daemon writes -- so the stats and hunt pages read whole indexes.  `unmask db-vacuum` now builds them after compacting, while the daemon's writes are still held; the plan and the estimate count them in.
+
 - (2026-10-06) **The SQL-injection honeypot preset is on by default.**  Its patterns need SQL syntax, not SQL words, so ordinary searches pass; a probe bans its sender's address and JA4 like any honeypot trip, and a person who trips it by accident can still clear the challenge.  An install that reviews new enforcement holds it until reviewed; a site whose search echoes SQL itself can switch it off.
 
 ### Fixed

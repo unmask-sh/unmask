@@ -90,10 +90,19 @@ type VacuumRecord struct {
 	// file that no directory listing shows.
 	DiskFreeAtStart int64 `json:"disk_free_at_start,omitempty"`
 	WALAtStart      int64 `json:"wal_at_start,omitempty"`
-	// Seconds: how long it took (ended runs).
+	// Seconds: how long it took (ended runs), the planner's statistics
+	// included.
 	Seconds float64 `json:"seconds,omitempty"`
 	Err     string  `json:"err,omitempty"`
+	// Stage: VacuumStageStats while the run builds the query planner's
+	// statistics after the compaction; "" otherwise.  The files say how far
+	// the compaction is (VacuumProgress); they say nothing of this.
+	Stage string `json:"stage,omitempty"`
 }
+
+// VacuumStageStats is the stage of a run that builds the query planner's
+// statistics after its compaction (RunVacuum).
+const VacuumStageStats = "stats"
 
 // VacuumRateRecord is how fast this host compacted its database the last time
 // it did, per GB of live data.  Estimates use it in place of the derived
@@ -273,6 +282,18 @@ const (
 	vacuumMeasuredHigh = 1.4
 )
 
+// The query planner's statistics, built by a run on a database that has none,
+// as a share of the compaction's own time.  Right after VACUUM the indexes lie
+// in order and mostly in the page cache: measured with this driver at 2% of
+// the compaction, and 3% with the file dropped from the cache first (a local
+// SSD, 2026-10-06).  ANALYZE reads each index at most once -- a fraction of
+// what VACUUM reads and writes three times over -- so the high end, for a slow
+// disk and every index read whole, is 15%.
+const (
+	vacuumStatsShareLow  = 0.02
+	vacuumStatsShareHigh = 0.15
+)
+
 // vacuumRateMinLive: a run over less live data than this measures the fixed
 // costs, not the rate, and is not recorded as this host's.  A variable so a
 // test can record one from a small database.
@@ -298,6 +319,10 @@ type VacuumPlan struct {
 	EstLow  time.Duration
 	EstHigh time.Duration
 	EstFrom string
+	// BuildsStats: the database has no query planner statistics, and the run
+	// builds them after the compaction, while the daemon's writes are still
+	// held.  EstLow / EstHigh count them in.
+	BuildsStats bool
 	// EventsPerHour: the recent rate of events -- what the daemon holds for
 	// every hour the run takes.  HeldEvents is that over EstHigh, HeldBytes
 	// its memory, and HeldLimit how many events the daemon keeps before it
@@ -376,6 +401,11 @@ func (d *DB) PlanVacuum(ctx context.Context) (VacuumPlan, error) {
 	}
 	p.EstLow = time.Duration(low * gbLive * float64(time.Second))
 	p.EstHigh = time.Duration(high * gbLive * float64(time.Second))
+	if has, err := d.HasPlannerStats(ctx); err == nil && !has {
+		p.BuildsStats = true
+		p.EstLow += time.Duration(float64(p.EstLow) * vacuumStatsShareLow)
+		p.EstHigh += time.Duration(float64(p.EstHigh) * vacuumStatsShareHigh)
+	}
 
 	p.EventsPerHour = d.recentEventsPerHour(ctx)
 	p.HeldEvents = int64(math.Ceil(float64(p.EventsPerHour) * p.EstHigh.Hours()))
@@ -411,8 +441,12 @@ func (d *DB) recentEventsPerHour(ctx context.Context) int64 {
 // first writes its copy into a temporary file in the database's directory --
 // a file no listing shows, whose size is read off the directory's free space
 // -- and then copies it back through the write-ahead log, whose growth is
-// plain.  frac runs 0..0.99 over the two halves; phase is "copy" or "write".
+// plain.  frac runs 0..0.99 over the two halves; phase is "copy" or "write",
+// and "stats" (VacuumStageStats) once the run builds the planner's statistics.
 func VacuumProgress(rec VacuumRecord, diskFreeNow, walNow int64) (frac float64, phase string) {
+	if rec.Stage == VacuumStageStats {
+		return 0.99, VacuumStageStats // compacted: the statistics are what is left
+	}
 	live := rec.LiveBefore
 	if live <= 0 {
 		return 0, "copy"
@@ -457,12 +491,18 @@ type VacuumOptions struct {
 	WaitHeld func(ctx context.Context) error
 }
 
-// VacuumResult is what a run did.
+// VacuumResult is what a run did.  Elapsed is the compaction's own time --
+// the rate the next estimate is made from -- and StatsElapsed the planner's
+// statistics built after it (StatsBuilt; StatsErr when that failed, which
+// leaves the compaction done).
 type VacuumResult struct {
-	FileBefore int64
-	LiveBefore int64
-	FileAfter  int64
-	Elapsed    time.Duration
+	FileBefore   int64
+	LiveBefore   int64
+	FileAfter    int64
+	Elapsed      time.Duration
+	StatsBuilt   bool
+	StatsElapsed time.Duration
+	StatsErr     error
 }
 
 // vacuumCacheKiB is the page cache the run's connection uses: measured at
@@ -567,10 +607,14 @@ func RunVacuum(ctx context.Context, conn *DB, opt VacuumOptions) (VacuumResult, 
 	if st, err := os.Stat(conn.SQLitePath); err == nil {
 		res.FileAfter = st.Size()
 	}
+	if runErr == nil && plan.BuildsStats {
+		res.StatsElapsed, res.StatsErr = statsAfterVacuum(ctx, conn, &rec, logf)
+		res.StatsBuilt = res.StatsErr == nil && res.StatsElapsed > 0
+	}
 
 	wctx, wcancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer wcancel()
-	rec.EndedAt, rec.Seconds = time.Now().Unix(), res.Elapsed.Seconds()
+	rec.EndedAt, rec.Seconds, rec.Stage = time.Now().Unix(), time.Since(t0).Seconds(), ""
 	switch {
 	case runErr == nil:
 		rec.State, rec.FileAfter = VacuumDone, res.FileAfter
@@ -597,6 +641,52 @@ func RunVacuum(ctx context.Context, conn *DB, opt VacuumOptions) (VacuumResult, 
 		return res, fmt.Errorf("cancelled: %w", ctx.Err())
 	}
 	return res, runErr
+}
+
+// statsAfterVacuum builds the query planner's statistics on a database that
+// has none, right after its compaction and inside the same run: the daemon's
+// writes are still held, so ANALYZE's write lock fails none of them, and the
+// indexes have just been laid out in order, so it reads them in long runs.
+// On a large database these statistics are not built otherwise -- `unmask
+// migrate` builds them only on a small one, and `unmask db-analyze`, which
+// holds the write lock with the daemon writing, is left to the operator --
+// and without them the stats and hunt pages read whole indexes (see
+// RefreshPlannerStats).
+//
+// A failure, or an interrupt, leaves the compaction done: it is committed by
+// then, and ANALYZE is rolled back on its own.  The duration is 0 when there
+// was nothing to do (statistics appeared meanwhile).
+func statsAfterVacuum(ctx context.Context, conn *DB, rec *VacuumRecord, logf func(string, ...any)) (time.Duration, error) {
+	if has, err := conn.HasPlannerStats(ctx); err == nil && has {
+		return 0, nil
+	}
+	rec.Stage = VacuumStageStats
+	sctx, scancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if err := conn.SaveMaintState(sctx, MaintVacuum, *rec); err != nil {
+		logf("could not record the run's progress: %v", err)
+	}
+	scancel()
+	logf("building the query planner's statistics (there are none yet)")
+	t0 := time.Now()
+	if err := conn.RefreshPlannerStats(ctx); err != nil {
+		el := time.Since(t0)
+		if ctx.Err() != nil {
+			logf("interrupted while building the query planner's statistics; the compaction stands, and `unmask db-analyze` builds them")
+		} else {
+			logf("could not build the query planner's statistics (%v); the compaction stands, and `unmask db-analyze` builds them", err)
+		}
+		return el, err
+	}
+	el := time.Since(t0)
+	// ANALYZE wrote its few pages into the write-ahead log: copied out now,
+	// as the compaction was, rather than in the daemon's first write.
+	cctx, ccancel := context.WithTimeout(context.Background(), time.Minute)
+	defer ccancel()
+	if _, err := conn.CheckpointWAL(cctx, "PASSIVE", 0); err != nil {
+		logf("write-ahead log checkpoint after the statistics: %v (the daemon's next checkpoint does it)", err)
+	}
+	logf("built the query planner's statistics in %s", el.Round(time.Millisecond))
+	return el, nil
 }
 
 // checkpointAfterVacuum moves the copied-back database out of the write-ahead

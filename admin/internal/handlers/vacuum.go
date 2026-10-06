@@ -204,8 +204,10 @@ type VacuumView struct {
 	By   string `json:"by,omitempty"`
 	Host string `json:"host,omitempty"`
 	Err  string `json:"err,omitempty"`
-	// Progress (percent) and Phase ("copy" / "write") of a running run, read
-	// from its files; Held the events the daemon keeps meanwhile.
+	// Progress (percent) and Phase ("copy" / "write", read from its files;
+	// "stats" while it builds the query planner's statistics after the
+	// compaction) of a running run; Held the events the daemon keeps
+	// meanwhile.
 	Progress int    `json:"progress"`
 	Phase    string `json:"phase,omitempty"`
 	Held     int    `json:"held"`

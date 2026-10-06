@@ -379,7 +379,9 @@ func cmdDoctor(args []string) error {
 		case !ok:
 			addWarn("DB planner stats", "no index statistics (sqlite_stat1) — the stats and bot-hunt pages "+
 				"scan whole indexes and get slower as events accumulate; run `unmask db-analyze` "+
-				"while traffic is low (it takes a write lock for up to a minute on a large DB)")
+				"while traffic is low (it holds the write lock while it reads the indexes: a minute or "+
+				"more on a large DB), or compact with `unmask db-vacuum`, which builds them with the "+
+				"daemon's writes held")
 		default:
 			addOK("DB planner stats", "index statistics present")
 		}

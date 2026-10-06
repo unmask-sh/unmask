@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -490,5 +491,52 @@ func TestUpToTextRoundsLikeTheEstimate(t *testing.T) {
 		if r := db.EstimateRange(c.d, c.d); c.d >= 10*time.Second && !strings.HasSuffix(r, c.en) {
 			t.Errorf("EstimateRange(%v) = %q; the card's %q does not match it", c.d, r, c.en)
 		}
+	}
+}
+
+// A database without the query planner's statistics: the card says the run
+// builds them after the compaction, and so does the modal; with them, neither
+// does.  While they are built the progress line says so -- the files the
+// percentage is read from say nothing of it.
+func TestVacuumCardSaysItBuildsTheStatistics(t *testing.T) {
+	h := vacuumHandler(t, 400)
+	ctx := context.Background()
+	note := i18n.T(i18n.LangEN, "vacuum.dialog_note_stats")
+	body := renderTab(t, h, "retention", user.RoleSuperadmin, "en")
+	if !strings.Contains(body, `data-vacuum="stats"`) || !strings.Contains(body, i18n.T(i18n.LangEN, "vacuum.stats_value")) || !strings.Contains(body, note) {
+		t.Error("no word on the card or in the modal that the run builds the missing statistics")
+	}
+	if err := h.DB.RefreshPlannerStats(ctx); err != nil {
+		t.Fatal(err)
+	}
+	body = renderTab(t, h, "retention", user.RoleSuperadmin, "ja")
+	if strings.Contains(body, `data-vacuum="stats"`) || strings.Contains(body, i18n.T(i18n.LangJA, "vacuum.dialog_note_stats")) {
+		t.Error("the card offers to build statistics that exist")
+	}
+
+	lock, err := h.DB.LockVacuumRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	rec := db.VacuumRecord{State: db.VacuumRunning, PID: os.Getpid(), By: "alice", Host: "elsewhere",
+		StartedAt: time.Now().Add(-time.Minute).Unix(), EstLowSec: 60, EstHighSec: 180, LiveBefore: 1 << 30, FileBefore: 2 << 30,
+		DiskFreeAtStart: 100 << 30, Stage: db.VacuumStageStats}
+	if err := h.DB.SaveMaintState(ctx, db.MaintVacuum, rec); err != nil {
+		t.Fatal(err)
+	}
+	h.VacuumRefresh(ctx)
+	body = renderTab(t, h, "retention", user.RoleAdmin, "ja")
+	if !strings.Contains(body, `<span id="vacuum-phase">`+i18n.T(i18n.LangJA, "vacuum.phase_stats")+`</span>`) {
+		t.Error("the progress line does not say the statistics are being built")
+	}
+	if !strings.Contains(body, `data-l-phase-stats="`+i18n.T(i18n.LangJA, "vacuum.phase_stats")+`"`) {
+		t.Error("the page's poll has no words for the statistics stage")
+	}
+	rr := httptest.NewRecorder()
+	h.AdminVacuumStatus(rr, asRole(httptest.NewRequest(http.MethodGet, "/unmask/admin/api/vacuum", nil), user.RoleAdmin))
+	var v VacuumView
+	if err := json.Unmarshal(rr.Body.Bytes(), &v); err != nil || v.State != "running" || v.Phase != "stats" || v.Progress != 99 {
+		t.Errorf("status at the statistics stage = %s (%v)", rr.Body.String(), err)
 	}
 }

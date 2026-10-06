@@ -6635,6 +6635,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       <div data-vacuum="time">{{ t $.Lang "vacuum.time_label" }}: <strong>{{ .Est }}</strong> <span style="color:#94a3b8;font-size:.75rem">{{ t $.Lang (printf "vacuum.est_from_%s" .Plan.EstFrom) }}</span></div>
       <div data-vacuum="held">{{ t $.Lang "vacuum.held_label" }}: <strong>{{ tf $.Lang "vacuum.held_value" .HeldEvents }}</strong> <span style="color:#94a3b8;font-size:.75rem">{{ tf $.Lang "vacuum.held_basis" .EventsPerHour .HeldUpTo .HeldLimit }}</span></div>
       <div data-vacuum="mem">{{ t $.Lang "vacuum.mem_label" }}: <strong>{{ tf $.Lang "vacuum.mem_value" .HoldMem }}</strong>{{ if .CountersOn }} <span style="color:#94a3b8;font-size:.75rem">{{ tf $.Lang "vacuum.mem_basis" .HeldBytes .CountersBytes }}</span>{{ end }}</div>
+      {{ if .Plan.BuildsStats }}<div data-vacuum="stats">{{ t $.Lang "vacuum.stats_label" }}: <strong>{{ t $.Lang "vacuum.stats_value" }}</strong> <span style="color:#94a3b8;font-size:.75rem">{{ t $.Lang "vacuum.stats_basis" }}</span></div>{{ end }}
     </div>
     {{ end }}
     {{ if .Running }}{{ with .Last }}
@@ -6644,12 +6645,13 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
          data-l-elapsed="{{ t $.Lang "vacuum.elapsed" }}"
          data-l-phase-copy="{{ t $.Lang "vacuum.phase_copy" }}"
          data-l-phase-write="{{ t $.Lang "vacuum.phase_write" }}"
+         data-l-phase-stats="{{ t $.Lang "vacuum.phase_stats" }}"
          data-l-held="{{ t $.Lang "vacuum.held_now" }}"
          data-l-stopping="{{ t $.Lang "vacuum.stopping" }}"
          data-l-done="{{ t $.Lang "vacuum.done" }}"
          data-l-cancelled="{{ t $.Lang "vacuum.cancelled" }}"
          data-l-failed="{{ t $.Lang "vacuum.failed" }}">
-      <div><strong>{{ t $.Lang "vacuum.running" }}</strong> <span id="vacuum-phase">{{ if eq .Phase "write" }}{{ tf $.Lang "vacuum.phase_write" .Progress }}{{ else }}{{ tf $.Lang "vacuum.phase_copy" .Progress }}{{ end }}</span> · <span id="vacuum-elapsed"></span>{{ if .Est }} {{ tf $.Lang "vacuum.expected" .Est }}{{ end }}</div>
+      <div><strong>{{ t $.Lang "vacuum.running" }}</strong> <span id="vacuum-phase">{{ if eq .Phase "write" }}{{ tf $.Lang "vacuum.phase_write" .Progress }}{{ else if eq .Phase "stats" }}{{ t $.Lang "vacuum.phase_stats" }}{{ else }}{{ tf $.Lang "vacuum.phase_copy" .Progress }}{{ end }}</span> · <span id="vacuum-elapsed"></span>{{ if .Est }} {{ tf $.Lang "vacuum.expected" .Est }}{{ end }}</div>
       <div class="vacuum-bar" aria-hidden="true"><span id="vacuum-bar" style="width:{{ .Progress }}%"></span></div>
       <div class="vacuum-sub">{{ t $.Lang "vacuum.running_sub" }} <span id="vacuum-held">{{ tf $.Lang "vacuum.held_now" (comma .Held) }}</span>{{ if and .By (not .CanCancel) }} {{ tf $.Lang "vacuum.started_by" .By .Host }}{{ end }}</div>
       {{ if .CanCancel }}<button type="button" class="btn secondary" id="vacuum-cancel">{{ t $.Lang "vacuum.cancel" }}</button>{{ end }}
@@ -6685,6 +6687,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
           <li>{{ t $.Lang "vacuum.dialog_note_held" }}</li>
           <li>{{ t $.Lang "vacuum.dialog_note_edits" }}</li>
           <li>{{ t $.Lang "vacuum.dialog_note_cancel" }}</li>
+          {{ if and (not .PlanErr) .Plan.BuildsStats }}<li>{{ t $.Lang "vacuum.dialog_note_stats" }}</li>{{ end }}
         </ul>
         <p class="vacuum-dialog-err" data-err role="alert" hidden>{{ t $.Lang "vacuum.request_failed" }}</p>
         <div class="vacuum-dialog-actions">
@@ -6799,7 +6802,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         if (v.state === 'running') {
           var p = v.progress || 0;
           document.getElementById('vacuum-bar').style.width = p + '%';
-          document.getElementById('vacuum-phase').textContent = L(v.phase === 'write' ? 'phase-write' : 'phase-copy').replace('%d', p).replace('%%', '%');
+          document.getElementById('vacuum-phase').textContent = L(v.phase === 'write' ? 'phase-write' : v.phase === 'stats' ? 'phase-stats' : 'phase-copy').replace('%d', p).replace('%%', '%');
           document.getElementById('vacuum-held').textContent = L('held').replace('%s', fmt(v.held || 0));
           return;
         }

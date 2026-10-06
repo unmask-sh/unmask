@@ -227,6 +227,11 @@ func TestVacuumAndSchemaUpdateExcludeEachOther(t *testing.T) {
 func TestPlanVacuumEstimate(t *testing.T) {
 	d := fragmentedDB(t, 2000)
 	ctx := context.Background()
+	// The compaction's own estimate first: with the planner's statistics in
+	// place, the run builds none (their share is checked at the end).
+	if err := d.RefreshPlannerStats(ctx); err != nil {
+		t.Fatal(err)
+	}
 	p, err := d.PlanVacuum(ctx)
 	if err != nil {
 		t.Fatal(err)
@@ -267,6 +272,24 @@ func TestPlanVacuumEstimate(t *testing.T) {
 	}
 	if p.HeldLimit < heldEventsFloor || p.HeldBytes != p.HeldEvents*HeldEventBytes || p.CountersBytes <= 0 {
 		t.Errorf("held: %+v", p)
+	}
+	if p.BuildsStats {
+		t.Error("BuildsStats with the statistics in place")
+	}
+
+	// Without them the run builds them after the compaction, and the
+	// estimate -- and the events held over it -- grows by their share.
+	if _, err := d.Exec(`DROP TABLE sqlite_stat1`); err != nil {
+		t.Fatal(err)
+	}
+	q, _ := d.PlanVacuum(ctx)
+	if !q.BuildsStats || !near(q.EstLow.Seconds(), p.EstLow.Seconds()*(1+vacuumStatsShareLow)) ||
+		!near(q.EstHigh.Seconds(), p.EstHigh.Seconds()*(1+vacuumStatsShareHigh)) {
+		t.Errorf("without statistics: %+v, want BuildsStats and the estimate %v-%v grown by %.0f%%-%.0f%%",
+			q, p.EstLow, p.EstHigh, vacuumStatsShareLow*100, vacuumStatsShareHigh*100)
+	}
+	if want := int64(math.Ceil(float64(q.EventsPerHour) * q.EstHigh.Hours())); q.HeldEvents != want {
+		t.Errorf("HeldEvents without statistics = %d, want %d (over the longer estimate)", q.HeldEvents, want)
 	}
 }
 
@@ -327,5 +350,123 @@ func TestVacuumHeldHandover(t *testing.T) {
 	}
 	if !d.VacuumHeldFor(123) || d.VacuumHeldFor(124) {
 		t.Error("the hand-over does not name its run")
+	}
+}
+
+// A database with no query planner statistics gets them from the run, after
+// the compaction and while the daemon's writes are still held: on a large
+// database nothing else builds them (`unmask migrate` only does on a small
+// one), and without them the stats and hunt pages read whole indexes.  The
+// compaction's own time stays the rate the next estimate is made from.
+func TestRunVacuumBuildsMissingStats(t *testing.T) {
+	d := fragmentedDB(t, 6000)
+	ctx := context.Background()
+	if has, _ := d.HasPlannerStats(ctx); has {
+		t.Fatal("the test database already has statistics")
+	}
+	if p, _ := d.PlanVacuum(ctx); !p.BuildsStats {
+		t.Fatal("the plan does not build the missing statistics")
+	}
+	prevMin := vacuumRateMinLive
+	vacuumRateMinLive = 0
+	defer func() { vacuumRateMinLive = prevMin }()
+
+	var during VacuumRecord
+	var heldDuring bool
+	m := maintOf(t, d)
+	res, err := RunVacuum(ctx, m, VacuumOptions{Host: "h1", By: "tester",
+		Logf: func(f string, a ...any) {
+			if strings.HasPrefix(fmt.Sprintf(f, a...), "building the query planner's statistics") {
+				during, _, _ = d.LoadVacuum(ctx)
+				heldDuring, _ = d.VacuumRunLockHeld()
+			}
+		}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.StatsBuilt || res.StatsElapsed <= 0 || res.StatsErr != nil {
+		t.Errorf("result = %+v, want the statistics built", res)
+	}
+	if has, _ := d.HasPlannerStats(ctx); !has {
+		t.Error("no statistics after the run")
+	}
+	if during.State != VacuumRunning || during.Stage != VacuumStageStats || !heldDuring {
+		t.Errorf("while the statistics were built: record %+v, run lock held %v; want running at the stats stage, lock held", during, heldDuring)
+	}
+	if frac, phase := VacuumProgress(during, 0, 0); phase != VacuumStageStats || frac < 0.99 {
+		t.Errorf("progress at the stats stage = %v %q", frac, phase)
+	}
+	rec, _, _ := d.LoadVacuum(ctx)
+	if rec.State != VacuumDone || rec.Stage != "" || rec.Seconds < res.Elapsed.Seconds() {
+		t.Errorf("record after = %+v, want done, no stage, the whole run's time", rec)
+	}
+	var rate VacuumRateRecord
+	if ok, err := d.LoadMaintState(ctx, MaintVacuumRate, &rate); err != nil || !ok {
+		t.Fatalf("rate record: ok=%v err=%v", ok, err)
+	}
+	if got := rate.SecondsPerGB * float64(res.LiveBefore) / (1 << 30); !near(got, res.Elapsed.Seconds()) {
+		t.Errorf("rate record = %v s for the live data, want the compaction's own %v", got, res.Elapsed.Seconds())
+	}
+}
+
+// Statistics already there are left as they are: rebuilding them would hold
+// the daemon's writes longer on every run.  db-analyze refreshes them.
+func TestRunVacuumLeavesExistingStats(t *testing.T) {
+	d := fragmentedDB(t, 4000)
+	ctx := context.Background()
+	if err := d.RefreshPlannerStats(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// ANALYZE rewrites the table's rows: a row of our own survives only if
+	// it did not run.
+	if _, err := d.Exec(`INSERT INTO sqlite_stat1 (tbl, idx, stat) VALUES ('unmask_event', 'zz_sentinel', '1 1')`); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := d.PlanVacuum(ctx); p.BuildsStats {
+		t.Error("the plan builds statistics that exist")
+	}
+	res, err := RunVacuum(ctx, maintOf(t, d), VacuumOptions{Host: "h1", By: "tester"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.StatsBuilt {
+		t.Error("the run rebuilt existing statistics")
+	}
+	var n int
+	if err := d.QueryRow(`SELECT COUNT(*) FROM sqlite_stat1 WHERE idx = 'zz_sentinel'`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("the statistics were rewritten (sentinel rows %d, %v)", n, err)
+	}
+}
+
+// An interrupt while the statistics are built leaves the compaction done --
+// it is committed by then -- and the statistics for db-analyze.
+func TestRunVacuumInterruptedInStatsKeepsTheCompaction(t *testing.T) {
+	d := fragmentedDB(t, 4000)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var lines []string
+	res, err := RunVacuum(ctx, maintOf(t, d), VacuumOptions{Host: "h1", By: "tester",
+		Logf: func(f string, a ...any) {
+			l := fmt.Sprintf(f, a...)
+			lines = append(lines, l)
+			if strings.HasPrefix(l, "building the query planner's statistics") {
+				cancel() // the operator's ^C, as ANALYZE starts
+			}
+		}})
+	if err != nil {
+		t.Fatalf("an interrupt in the statistics failed the run: %v", err)
+	}
+	if res.FileAfter >= res.FileBefore || res.StatsBuilt || res.StatsErr == nil {
+		t.Errorf("result = %+v, want compacted, the statistics not built", res)
+	}
+	rec, _, _ := d.LoadVacuum(context.Background())
+	if rec.State != VacuumDone || rec.Stage != "" {
+		t.Errorf("record = %+v, want done", rec)
+	}
+	if has, _ := d.HasPlannerStats(context.Background()); has {
+		t.Error("statistics after an interrupted ANALYZE")
+	}
+	if !strings.Contains(strings.Join(lines, "\n"), "`unmask db-analyze` builds them") {
+		t.Errorf("the run does not say how to build them later:\n%s", strings.Join(lines, "\n"))
 	}
 }
