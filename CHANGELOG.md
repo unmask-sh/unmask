@@ -25,6 +25,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-10-07) **A superadmin can stop a compaction started from a shell.**  The card offered to stop only a run its daemon had started.  It now stops an `unmask db-vacuum` typed into a shell too, after checking the process, and says what stopping costs: nothing while VACUUM runs, only the statistics at the last step.  The final write into the file cannot be stopped.
 
 ### Fixed
+- (2026-10-07) **The AI advisor's switch reads in the admin's language again.**  Its label and description sat in the other language's table, so the Japanese admin showed them in English and the English admin in Japanese.  The Web Bot Auth key-cache label is translated too, and a test now fails on any pair of texts swapped between the two languages.
+
 - (2026-10-07) **The upgrade review no longer holds a SQL-injection preset the operator had turned on.**  v0.1.50 turned the preset on by default and holds that change on installs that review upgrades, but it also held it on installs whose operator had enabled it while it was opt-in, switching their protection off until the review.  Their go-ahead now counts.
 
 - (2026-10-07) **A compaction whose final checkpoint ran long is no longer recorded as failed.**  After VACUUM, the run copies the database out of the write-ahead log for at most ten minutes; on a large file on a slow disk, the limit stopped the checkpoint and recorded the committed compaction as failed.  The limit now grows with the compaction's own time, and running out leaves the rest to the daemon.

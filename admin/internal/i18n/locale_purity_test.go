@@ -32,6 +32,19 @@ func TestEnglishCatalogHasNoJapaneseValues(t *testing.T) {
 	}
 }
 
+// The other shape of the same slip: each catalog holding the other one's
+// text, so neither value is a copy and the test above passes.  The advisor's
+// "Ask the model" setting sat like that for a month -- English on the
+// Japanese page, Japanese on the English one.
+func TestCatalogsNotSwapped(t *testing.T) {
+	en, ja := dict[LangEN], dict[LangJA]
+	for key, val := range en {
+		if hasJapaneseScript(val) && !hasJapaneseScript(ja[key]) {
+			t.Errorf("en[%q] is Japanese while ja[%q] is not -- the two look swapped:\n  en: %.100s\n  ja: %.100s", key, key, val, ja[key])
+		}
+	}
+}
+
 func hasJapaneseScript(s string) bool {
 	for _, r := range s {
 		if unicode.In(r, unicode.Hiragana, unicode.Katakana) {
