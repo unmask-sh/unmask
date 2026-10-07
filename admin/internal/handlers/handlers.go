@@ -165,6 +165,9 @@ type Handler struct {
 	// overBlockTripped is the over-block circuit breaker state, sampled and set
 	// by RunOverBlockMonitor (over_block.go) and read in ServeChallenge.
 	overBlockTripped atomic.Bool
+	// overBlockLong: the breaker's last reading of its long window (read
+	// every few minutes, see longWindowEvery).
+	overBlockLong atomic.Pointer[events.StuckReport]
 	// adminSeen: an admin account has been observed in this process.  Once
 	// set, a user-count query that fails (a locked or slow database) reads
 	// as "configured, database busy", never as "fresh install": the setup

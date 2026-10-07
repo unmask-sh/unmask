@@ -2322,21 +2322,25 @@ type OverBlockConfig struct {
 	// Disabled turns the breaker OFF.  Zero value = false = the breaker runs out
 	// of the box (on unless the operator explicitly opts out).
 	Disabled bool `yaml:"disabled,omitempty"`
-	// WindowMinutes: the sampling window for the serves-per-IP ratio. Default 10.
+	// WindowMinutes: the window the breaker reads.  Default 10.  An hour (or
+	// WindowMinutes, if longer) is read besides, for a site too quiet to show
+	// MinStuckIPs stuck visitors in ten minutes.
 	WindowMinutes int `yaml:"window_minutes,omitempty"`
-	// MinServes: don't evaluate the ratio below this serve volume in the window
-	// (= avoids tripping on a handful of requests). Default 50.
-	MinServes int `yaml:"min_serves,omitempty"`
-	// MaxServesPerIP: serves/distinct-IP at or above this trips the breaker
-	// (= the same IPs being re-challenged rather than passing). Default 4.
-	MaxServesPerIP int `yaml:"max_serves_per_ip,omitempty"`
+	// MinStuckIPs: the breaker trips once at least this many addresses are
+	// stuck at the challenge (events.StuckVisitors) ...  Default 3.
+	MinStuckIPs int `yaml:"min_stuck_ips,omitempty"`
+	// StuckPercent: ... and they make up at least this share of the addresses
+	// that ran the challenge.  Default 50.  A few percent are stuck on an
+	// ordinary day (a browser that drops cookies, a crawler without a cookie
+	// jar); a loop makes it nearly all of them.
+	StuckPercent int `yaml:"stuck_percent,omitempty"`
 	// AutoPassthrough: while tripped, also flip serveBotChallenge to passthrough
 	// (= issue a signed _bv, let visitors through).  Default false = alert only;
 	// the operator decides whether to drop protection automatically.
 	AutoPassthrough bool `yaml:"auto_passthrough,omitempty"`
 }
 
-// WindowMinutesResolved returns the sampling window, defaulting to 10.
+// WindowMinutesResolved returns the window, defaulting to 10.
 func (c OverBlockConfig) WindowMinutesResolved() int {
 	if c.WindowMinutes <= 0 {
 		return 10
@@ -2344,20 +2348,29 @@ func (c OverBlockConfig) WindowMinutesResolved() int {
 	return c.WindowMinutes
 }
 
-// MinServesResolved returns the minimum serve volume to evaluate, defaulting to 50.
-func (c OverBlockConfig) MinServesResolved() int {
-	if c.MinServes <= 0 {
-		return 50
-	}
-	return c.MinServes
+// LongWindowMinutesResolved returns the second window the breaker reads: an
+// hour, or the window itself when that is longer.
+func (c OverBlockConfig) LongWindowMinutesResolved() int {
+	return max(60, c.WindowMinutesResolved())
 }
 
-// MaxServesPerIPResolved returns the serves/IP trip threshold, defaulting to 4.
-func (c OverBlockConfig) MaxServesPerIPResolved() int {
-	if c.MaxServesPerIP <= 0 {
-		return 4
+// MinStuckIPsResolved returns the stuck-address floor, defaulting to 3.
+func (c OverBlockConfig) MinStuckIPsResolved() int {
+	if c.MinStuckIPs <= 0 {
+		return 3
 	}
-	return c.MaxServesPerIP
+	return c.MinStuckIPs
+}
+
+// StuckPercentResolved returns the stuck share in percent, defaulting to 50.
+func (c OverBlockConfig) StuckPercentResolved() int {
+	switch {
+	case c.StuckPercent <= 0:
+		return 50
+	case c.StuckPercent > 100:
+		return 100
+	}
+	return c.StuckPercent
 }
 
 // RebindConfig: the roaming silent-rebind policy.  When a client's _bv no

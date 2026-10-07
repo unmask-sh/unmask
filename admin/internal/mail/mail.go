@@ -16,15 +16,19 @@
 package mail
 
 import (
+	"crypto/rand"
 	"crypto/tls"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
+	"mime/quotedprintable"
 	"net/smtp"
 	"os"
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 )
 
 // Config: SMTP connection settings.  Empty Host means disabled.
@@ -99,6 +103,24 @@ func (m *Mailer) Send(to, subject, body string) error {
 
 // TestSend: for the settings UI "test send" button.  Send a confirmation mail to `to`.
 // When disabled, return an explicit error (= so the UI can render "SMTP not configured").
+// SendAlt sends one message with a plain-text part and an HTML part
+// (multipart/alternative): a client shows the HTML, and one that cannot -- or
+// a reader who prefers it -- the text.  The two say the same thing.
+func (m *Mailer) SendAlt(to, subject, text, html string) error {
+	if m == nil {
+		return nil
+	}
+	cfg := m.currentCfg()
+	if strings.TrimSpace(cfg.Host) == "" {
+		return nil
+	}
+	to = strings.TrimSpace(to)
+	if to == "" {
+		return errors.New("mail: empty recipient")
+	}
+	return m.deliver(cfg, to, buildAltMessage(cfg, to, subject, text, html))
+}
+
 func (m *Mailer) TestSend(to string) error {
 	cfg := m.currentCfg()
 	if strings.TrimSpace(cfg.Host) == "" {
@@ -120,12 +142,16 @@ func (m *Mailer) TestSend(to string) error {
 // (= STARTTLS) and port 465 (= full TLS).  Also supports plaintext (=
 // STARTTLS=false) as a fallback (= e.g. same-host relays).
 func (m *Mailer) sendOne(cfg Config, to, subject, body string) error {
+	return m.deliver(cfg, to, buildMessage(cfg, to, subject, body))
+}
+
+// deliver hands a built message to the SMTP server for one recipient.
+func (m *Mailer) deliver(cfg Config, to string, msg []byte) error {
 	addr := fmt.Sprintf("%s:%d", cfg.Host, port(cfg.Port))
 	from := cfg.FromAddress
 	if from == "" {
 		from = "unmask@" + cfg.Host
 	}
-	msg := buildMessage(cfg, to, subject, body)
 
 	var auth smtp.Auth
 	if cfg.Username != "" {
@@ -292,19 +318,8 @@ func headerValue(s string) string {
 // is just a line break, and Data()'s textproto.DotWriter does the dot-stuffing
 // that would otherwise let a lone "." end the message early.
 func buildMessage(cfg Config, to, subject, body string) []byte {
-	from := headerValue(cfg.FromAddress)
-	if from == "" {
-		from = "unmask@" + headerValue(cfg.Host)
-	}
-	if cfg.FromName != "" {
-		from = fmt.Sprintf("%s <%s>", encodeHeader(cfg.FromName), from)
-	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "From: %s\r\n", from)
-	fmt.Fprintf(&b, "To: %s\r\n", headerValue(to))
-	fmt.Fprintf(&b, "Subject: %s\r\n", encodeHeader(subject))
-	fmt.Fprintf(&b, "Date: %s\r\n", time.Now().Format(time.RFC1123Z))
-	fmt.Fprintf(&b, "MIME-Version: 1.0\r\n")
+	writeHeaders(&b, cfg, to, subject)
 	fmt.Fprintf(&b, "Content-Type: text/plain; charset=utf-8\r\n")
 	fmt.Fprintf(&b, "Content-Transfer-Encoding: 8bit\r\n")
 	fmt.Fprintf(&b, "\r\n")
@@ -312,6 +327,46 @@ func buildMessage(cfg Config, to, subject, body string) []byte {
 	if !strings.HasSuffix(body, "\n") {
 		b.WriteString("\r\n")
 	}
+	return []byte(b.String())
+}
+
+// writeHeaders writes the headers every message carries, up to MIME-Version.
+func writeHeaders(b *strings.Builder, cfg Config, to, subject string) {
+	from := headerValue(cfg.FromAddress)
+	if from == "" {
+		from = "unmask@" + headerValue(cfg.Host)
+	}
+	if cfg.FromName != "" {
+		from = fmt.Sprintf("%s <%s>", encodeHeader(cfg.FromName), from)
+	}
+	fmt.Fprintf(b, "From: %s\r\n", from)
+	fmt.Fprintf(b, "To: %s\r\n", headerValue(to))
+	fmt.Fprintf(b, "Subject: %s\r\n", encodeHeader(subject))
+	fmt.Fprintf(b, "Date: %s\r\n", time.Now().Format(time.RFC1123Z))
+	fmt.Fprintf(b, "MIME-Version: 1.0\r\n")
+}
+
+// buildAltMessage: the multipart/alternative form of buildMessage -- the
+// text part first, the HTML part last (the one a client prefers).  Both are
+// quoted-printable, which keeps every line within the 998 octets SMTP allows
+// whatever the HTML looks like.
+func buildAltMessage(cfg Config, to, subject, text, html string) []byte {
+	var raw [12]byte
+	_, _ = rand.Read(raw[:])
+	boundary := "unmask-" + hex.EncodeToString(raw[:])
+	var b strings.Builder
+	writeHeaders(&b, cfg, to, subject)
+	fmt.Fprintf(&b, "Content-Type: multipart/alternative; boundary=\"%s\"\r\n\r\n", boundary)
+	for _, part := range []struct{ typ, body string }{{"text/plain", text}, {"text/html", html}} {
+		fmt.Fprintf(&b, "--%s\r\n", boundary)
+		fmt.Fprintf(&b, "Content-Type: %s; charset=utf-8\r\n", part.typ)
+		fmt.Fprintf(&b, "Content-Transfer-Encoding: quoted-printable\r\n\r\n")
+		w := quotedprintable.NewWriter(&b)
+		_, _ = w.Write([]byte(part.body))
+		_ = w.Close()
+		b.WriteString("\r\n")
+	}
+	fmt.Fprintf(&b, "--%s--\r\n", boundary)
 	return []byte(b.String())
 }
 
@@ -336,10 +391,26 @@ func encodeHeader(s string) string {
 	return mimeQ(s)
 }
 
-// mimeQ: convert a UTF-8 string to a Base64 encoded-word (= simplified.  No multi-word splitting on newlines).
+// mimeQ: convert a UTF-8 string to Base64 encoded-words.  An encoded-word
+// may be at most 75 characters (RFC 2047), so the text is cut, on character
+// boundaries, into pieces of up to 45 bytes -- 60 characters of Base64 plus
+// the 12 of the wrapper -- joined by folding whitespace, which a reader drops
+// between adjacent encoded-words.  A Japanese subject runs past one.
 func mimeQ(s string) string {
-	enc := base64StdEncoding(s)
-	return "=?utf-8?B?" + enc + "?="
+	const maxBytes = 45
+	var words []string
+	for len(s) > 0 {
+		n := len(s)
+		if n > maxBytes {
+			n = maxBytes
+			for n > 0 && !utf8.RuneStart(s[n]) {
+				n--
+			}
+		}
+		words = append(words, "=?utf-8?B?"+base64StdEncoding(s[:n])+"?=")
+		s = s[n:]
+	}
+	return strings.Join(words, "\r\n ")
 }
 
 func base64StdEncoding(s string) string {

@@ -58,6 +58,8 @@ type Config struct {
 type MailSender interface {
 	Enabled() bool
 	Send(to, subject, body string) error
+	// SendAlt sends a text part and an HTML part saying the same thing.
+	SendAlt(to, subject, text, html string) error
 }
 
 // Notifier: external webhook client.  Every method is nil-safe.
@@ -202,53 +204,6 @@ func (n *Notifier) ChallengeServed() {
 	go n.sendMail(subject, text)
 }
 
-// OverBlock: the over-block circuit breaker changed state.  Called only on a
-// transition (trip or clear), so there is no flap to throttle.  When tripped,
-// the same visitors are being re-challenged instead of passing (serves/IP = the
-// ratio over the window); autoPass reports whether the breaker also dropped
-// protection to passthrough.
-func (n *Notifier) OverBlock(tripped bool, serves, ips int, ratio float64, autoPass bool) {
-	if n == nil {
-		return
-	}
-	cfg := n.currentCfg()
-	if cfg.Disabled {
-		return
-	}
-	state := "cleared"
-	var text string
-	if tripped {
-		state = "TRIPPED"
-		act := "alert only (protection unchanged)"
-		if autoPass {
-			act = "AUTO-PASSTHROUGH engaged (visitors let through until it clears)"
-		}
-		text = fmt.Sprintf("[CRITICAL] over-block %s: %d browser-grade challenge serves to %d IPs (= %.1f/IP) -- the same visitors are being re-challenged instead of passing. %s%s",
-			state, serves, ips, ratio, act, siteSuffix(cfg.Sites))
-	} else {
-		text = fmt.Sprintf("[OK] over-block %s: serves/IP back to %.1f -- the challenge funnel recovered%s",
-			state, ratio, siteSuffix(cfg.Sites))
-	}
-	fields := map[string]any{
-		"event":            EventOverBlock,
-		"tripped":          tripped,
-		"serves":           serves,
-		"ips":              ips,
-		"serves_per_ip":    ratio,
-		"auto_passthrough": autoPass,
-		"site":             cfg.Sites,
-		"ts":               time.Now().Unix(),
-	}
-	if cfg.URL != "" && !cfg.WebhookDisabled {
-		go n.send(cfg, EventOverBlock, fields, text)
-	}
-	subject := "[unmask] over-block " + state
-	if cfg.Sites != "" {
-		subject = "[unmask:" + cfg.Sites + "] over-block " + state
-	}
-	go n.sendMail(subject, text)
-}
-
 // sendMail: send the same mail to every alert recipient.  Recipients come
 // from cfg.MailTo when the operator set one explicitly; otherwise from the
 // mailGetTo resolver (the admin users' emails).  no-op if the mailer is
@@ -275,6 +230,32 @@ func (n *Notifier) sendMail(subject, body string) {
 			continue
 		}
 		if err := n.mailer.Send(t, subject, body); err != nil {
+			log.Printf("notifier mail to %s: %v", t, err)
+		}
+	}
+}
+
+// sendMailAlt: sendMail with a text part and an HTML part.
+func (n *Notifier) sendMailAlt(subject, text, html string) {
+	if n == nil || n.mailer == nil || !n.mailer.Enabled() {
+		return
+	}
+	cfg := n.currentCfg()
+	if cfg.MailDisabled {
+		return
+	}
+	to := cfg.MailTo
+	if len(to) == 0 {
+		if n.mailGetTo == nil {
+			return
+		}
+		to = n.mailGetTo()
+	}
+	for _, t := range to {
+		if t == "" {
+			continue
+		}
+		if err := n.mailer.SendAlt(t, subject, text, html); err != nil {
 			log.Printf("notifier mail to %s: %v", t, err)
 		}
 	}

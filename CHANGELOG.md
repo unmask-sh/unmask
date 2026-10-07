@@ -17,6 +17,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Changed
 - (2026-10-07) **The admin asks in its own dialog, and names what an action is about.**  Confirmations, prompts and error messages open in the admin's modal instead of the browser's box.  Deleting a site's settings names the site in the question and in the message after it; unbanning, user changes, audit restores and community deletes name their target too.
 
+- (2026-10-07) **The over-block alarm watches for visitors stuck at the challenge.**  It divided challenges by addresses, so one scanner using a browser's user-agent could set it off.  It now counts addresses challenged again on the same page right after passing, or failing verification: at least three, and half of those that ran the challenge, in ten minutes or an hour (`min_stuck_ips` and `stuck_percent`, replacing `min_serves` and `max_serves_per_ip`).
+
+- (2026-10-07) **The over-block alert mail says what is happening and where to look.**  It was one line of internal terms and a ratio.  It now states, in a text part and an HTML part, how many visitors could not get through and why, names the addresses, says that protection is unchanged, and lists what to check, with a link to the bot hunt when the admin's address is known.
+
 - (2026-10-07) **Presets say how their patterns match, and when a release changed them.**  Each preset's patterns now carry the same chip as a custom row (regex for every shipped preset), and an "updated" label joins "since" where a later release changed the preset.  The SQL-injection preset reads since v0.1.0, updated v0.1.50; the upgrade review still holds its new default from v0.1.50.
 
 - (2026-10-07) **The schema update notice says what a stop costs, and can stop a run from a shell.**  Like the compaction card, the notice shows the update's steps, the held events against their limit, and what stopping it loses: nothing during the index build, only the statistics at the end.  A superadmin can now stop an `unmask migrate` typed into a shell, and both buttons ask in a modal.

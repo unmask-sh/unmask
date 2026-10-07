@@ -16,6 +16,13 @@ func (m *chanMailer) Send(to, subject, body string) error {
 	m.sent <- subject
 	return nil
 }
+func (m *chanMailer) SendAlt(to, subject, text, html string) error {
+	m.sent <- subject
+	return nil
+}
+
+// tripReport is an over-block trip for the delivery tests.
+var tripReport = OverBlockReport{Tripped: true, Minutes: 10, Stuck: 5, Loaders: 6, StuckPct: 83, MinStuck: 3, MinPct: 50}
 
 // overBlockDelivery fires one OverBlock transition under cfg and reports
 // which channels it reached.  The webhook URL always points at a live stub;
@@ -31,7 +38,7 @@ func overBlockDelivery(t *testing.T, cfg Config) (webhook, mail bool) {
 
 	m := &chanMailer{sent: make(chan string, 4)}
 	n := New(cfg).WithMail(m, func() []string { return []string{"ops@example.com"} })
-	n.OverBlock(true, 100, 5, 20.0, false)
+	n.OverBlock(tripReport)
 
 	// Sends run in goroutines, but a paused channel never starts one -- so a
 	// short window is only needed for the positive cases to land.
@@ -62,7 +69,7 @@ func TestMailToOverridesResolver(t *testing.T) {
 			resolverCalled = true
 			return []string{"admin@example.com"}
 		})
-		n.OverBlock(true, 100, 5, 20.0, false)
+		n.OverBlock(tripReport)
 		for {
 			select {
 			case s := <-m.sent:

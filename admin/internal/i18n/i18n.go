@@ -81,6 +81,27 @@ var dict = map[Lang]map[string]string{
 		"settings.rate_limit.reuse_action":    "超えたときの動作",
 		"settings.rate_limit.reuse_help":      "<strong>数え方</strong>: 数える単位は IP です。PoW を解き直して cookie を取り直しても、同じ IP なら同じ枠のままです。IP ごとに「短時間の上限」回までまとめて使え、「1 日の上限」の速さで回復します (nginx の rate は 1 分単位なので、1 日の上限 ÷ 1,440 を切り上げた回数を 1 分ごとに回復)。<br><strong>対象</strong>: PoW や再バインドなど、CAPTCHA を解いていない通過 cookie を持つリクエストだけ。CAPTCHA を解いた cookie、検索 bot・ホワイトリスト IP・ホワイトパスは数えません。<br><strong>超えたとき</strong>: <code>captcha_only</code> は、上限を超えた IP の訪問者に CAPTCHA を出します (PoW では通れません)。解いた cookie は数えないので、社内のプロキシなど 1 つの IP の後ろに大勢いても、1 人 1 回の CAPTCHA で済みます。<code>deny</code> は拒否ページを返します。<br><strong>ノードごとに数えます</strong>。ロードバランサーで複数台に振り分けている場合、全体ではその台数分まで通ります。<br>ASN / 国別のレート規則に当たる IP では、その規則の動作が優先されます。",
 
+		// The over-block alert mail (notifier/overblock.go).
+		"mail.overblock.title_tripped":          "challenge を通れない訪問者がいる可能性があります",
+		"mail.overblock.title_cleared":          "challenge を通れるようになりました",
+		"mail.overblock.summary_tripped":        "直近 %[1]d 分で、challenge を実行した %[3]d アドレスのうち %[2]d アドレス (%[4]d%%) が通れていません。",
+		"mail.overblock.summary_cleared":        "直近 %[1]d 分で通れなかったのは、challenge を実行した %[3]d アドレスのうち %[2]d アドレス (%[4]d%%) で、知らせる基準 (%[5]d アドレス以上かつ %[6]d%% 以上) を下回りました。",
+		"mail.overblock.reason_rechallenged":    "%d アドレスは、通過したのに 30 秒以内に同じページでまた challenge が出ました (通過が受け付けられていません)。",
+		"mail.overblock.reason_verify":          "%d アドレスは、回答の検証に失敗しました。",
+		"mail.overblock.examples_h":             "通れていないアドレス",
+		"mail.overblock.mark_rechallenged":      "再表示 %d 回",
+		"mail.overblock.mark_verify":            "検証失敗 %d 回",
+		"mail.overblock.volume":                 "この間の challenge 全体: %[2]d アドレスに %[1]d 回表示、実行 %[3]d 回、通過したアドレス %[4]d。",
+		"mail.overblock.protection_unchanged":   "保護は変わっていません。この通知では誰も素通りさせていません (auto_passthrough は無効)。",
+		"mail.overblock.protection_passthrough": "自動の素通しが有効です。解除されるまで、訪問者は challenge なしで通ります (auto_passthrough)。",
+		"mail.overblock.why":                    "ほぼ全員が通れないときの多くは、更新のあとの食い違いです (nginx が古いモジュールのまま、daemon が古い鍵のまま、古い challenge のファイル)。ふだんも cookie を保存しないブラウザやクローラーなど数アドレスは通れないため、この通知は %d アドレス以上かつ %d%% 以上で送ります。",
+		"mail.overblock.checks_h":               "確認すること",
+		"mail.overblock.hunt_link":              "bot hunt (直近 1 時間)",
+		"mail.overblock.check_hunt":             "管理画面の bot hunt (直近 1 時間) で、どのアドレスがどのページで止まっているか。",
+		"mail.overblock.check_doctor":           "ホストで unmask doctor を実行 (nginx と daemon が共有する鍵と、challenge のファイルを確かめます)。",
+		"mail.overblock.check_restart":          "更新の直後なら、nginx を restart し (reload では古いモジュールのまま)、daemon も restart。",
+		"mail.overblock.footer":                 "このメールは、始まったときと終わったときに 1 通ずつ届きます。",
+
 		// nav (= header の menu)
 		"nav.dashboard":                               "ダッシュボード",
 		"nav.stats":                                   "統計",
@@ -873,7 +894,6 @@ var dict = map[Lang]map[string]string{
 		"kpi.reject":  "challenge 表示",
 
 		// dashboard 内 card 共通 (= h2 / src-badge / 0-row toggle / table header / etc).
-		"dashboard.overblock.banner":         "過剰ブロックを検知 — 同じ訪問者が challenge を通過できず繰り返し challenge されています",
 		"dashboard.overblock.autopass_on":    "自動全通過に切替えました (信号が戻るまで challenge を一時停止)",
 		"dashboard.card.funnel":              "challenge ファネル",
 		"dashboard.card.rate_limit":          "レート制限ヒット",
@@ -2409,6 +2429,27 @@ var dict = map[Lang]map[string]string{
 		"settings.rate_limit.reuse_action":    "Over the cap",
 		"settings.rate_limit.reuse_help":      "<strong>How it counts</strong>: per IP address -- a new pass (the proof-of-work solved again) from the same address draws on the same budget.  Each IP can spend up to the \"at once\" amount in one go, and it refills at the per-day rate (nginx takes rates per minute, so it refills the per-day figure ÷ 1,440, rounded up, each minute).<br><strong>What counts</strong>: only requests carrying a pass nobody solved a CAPTCHA for (a PoW, a re-bound pass). A solved CAPTCHA, search bots, bypass IPs and bypass paths are not counted.<br><strong>Over the cap</strong>: <code>captcha_only</code> shows the visitors of an IP over the cap a CAPTCHA (a PoW does not get through). The solved pass is not counted, so even behind an office proxy or a carrier NAT it takes one CAPTCHA per person; <code>deny</code> returns the deny page.<br><strong>Counted per node</strong>: behind a load balancer that spreads requests over several nodes, the total can reach that many times the cap.<br>For an IP under an ASN or country rate rule, that rule's action applies instead.",
 
+		// The over-block alert mail (notifier/overblock.go).
+		"mail.overblock.title_tripped":          "Visitors may be stuck at the challenge",
+		"mail.overblock.title_cleared":          "Visitors get past the challenge again",
+		"mail.overblock.summary_tripped":        "In the last %[1]d minutes, %[2]d of the %[3]d addresses that ran the challenge could not get through (%[4]d%%).",
+		"mail.overblock.summary_cleared":        "In the last %[1]d minutes, %[2]d of the %[3]d addresses that ran the challenge could not get through (%[4]d%%), below the alert's line of %[5]d addresses and %[6]d%%.",
+		"mail.overblock.reason_rechallenged":    "%d passed it and were shown it again on the same page within 30 seconds: their pass was not accepted.",
+		"mail.overblock.reason_verify":          "%d had their answer fail verification.",
+		"mail.overblock.examples_h":             "Addresses that could not get through",
+		"mail.overblock.mark_rechallenged":      "shown again %d times",
+		"mail.overblock.mark_verify":            "failed verification %d times",
+		"mail.overblock.volume":                 "All challenges in the window: %[1]d served to %[2]d addresses, run %[3]d times, %[4]d addresses passed.",
+		"mail.overblock.protection_unchanged":   "Protection is unchanged: this alert lets no one through (auto_passthrough is off).",
+		"mail.overblock.protection_passthrough": "Pass-through is on: visitors are let through without the challenge until this clears (auto_passthrough).",
+		"mail.overblock.why":                    "When nearly everyone is stuck, the usual cause is a mismatch after an update: nginx still running the old module, the daemon on an old key, or an old challenge file. On an ordinary day a few addresses are stuck too (browsers that drop cookies, crawlers without a cookie jar), so this alert waits for %d addresses and %d%%.",
+		"mail.overblock.checks_h":               "What to check",
+		"mail.overblock.hunt_link":              "Bot hunt, last hour",
+		"mail.overblock.check_hunt":             "The bot hunt in the admin, last hour: which addresses, on which pages.",
+		"mail.overblock.check_doctor":           "Run unmask doctor on the host: it checks the key nginx and the daemon share, and the challenge files.",
+		"mail.overblock.check_restart":          "Right after an update: restart nginx (a reload keeps the old module), and the daemon.",
+		"mail.overblock.footer":                 "One mail is sent when this starts, and one when it ends.",
+
 		"nav.dashboard":                               "Dashboard",
 		"nav.stats":                                   "Stats",
 		"nav.sites":                                   "Stats",
@@ -3196,7 +3237,6 @@ var dict = map[Lang]map[string]string{
 		"kpi.pow":     "PoW passed",
 		"kpi.reject":  "challenge shown",
 
-		"dashboard.overblock.banner":         "Over-block detected — the same visitors are being re-challenged instead of passing",
 		"dashboard.overblock.autopass_on":    "Switched to pass-through (challenges paused until the signal recovers)",
 		"dashboard.card.funnel":              "Challenge funnel",
 		"dashboard.card.rate_limit":          "Rate-limit hits",
