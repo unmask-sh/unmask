@@ -96,10 +96,20 @@ type SchemaUpdateView struct {
 	// expected to take, in the reader's language.
 	Count int    `json:"count"`
 	Est   string `json:"est,omitempty"`
-	// CanRun / CanCancel: this session may start / stop the run.  Starting
-	// takes a superadmin; stopping also takes the run to be this daemon's.
-	CanRun    bool `json:"can_run"`
-	CanCancel bool `json:"can_cancel"`
+	// CanRun: this session may start the run (a superadmin).  Cancellable:
+	// it may stop the run going -- a superadmin, and the run is this
+	// daemon's own or a `migrate` from a shell that this daemon may signal
+	// (runSignalable).  CanCancel: and the run's step allows it (not the
+	// checkpoint: the update is applied by then, and stopping the copy only
+	// leaves it to the daemon's next write).  CancelNote: what stopping it
+	// now does; StopHint: how else it is stopped, where this session cannot;
+	// StopNote: the two as the notice puts them.
+	CanRun      bool   `json:"can_run"`
+	Cancellable bool   `json:"cancellable"`
+	CanCancel   bool   `json:"can_cancel"`
+	CancelNote  string `json:"cancel_note,omitempty"`
+	StopHint    string `json:"stop_hint,omitempty"`
+	StopNote    string `json:"stop_note,omitempty"`
 	// HoldsWrites: the run keeps every other write out for as long as it
 	// takes (SQLite, which has one writer), so the notice has to say what
 	// waits.  False where the index is built online (MariaDB) and nothing
@@ -129,8 +139,19 @@ type SchemaUpdateView struct {
 	// Held / HeldLimit: the events this daemon keeps in memory while the
 	// update holds the database's writes, and how many it can keep before
 	// the oldest go.  HeldLimit is 0 where nothing is held (MariaDB).
-	Held      int `json:"held"`
-	HeldLimit int `json:"held_limit,omitempty"`
+	// HeldText says so with how long the rest lasts at the rate they come,
+	// as the compaction card does (heldText); HeldNear: close to the limit.
+	Held      int    `json:"held"`
+	HeldLimit int    `json:"held_limit,omitempty"`
+	HeldText  string `json:"held_text,omitempty"`
+	HeldNear  bool   `json:"held_near,omitempty"`
+	// Phase: the step a running update is on -- db.SchemaStageIndex (also
+	// before the run has recorded a stage), SchemaStageCheckpoint (SQLite)
+	// and SchemaStageFinish -- drawn as Bars.  No step has a figure: SQLite
+	// says nothing of an index build while it runs, so the notice keeps the
+	// estimate where the compaction card gives the time left.
+	Phase string    `json:"phase,omitempty"`
+	Bars  []StepBar `json:"-"`
 	// Over: the run has gone past the long end of its estimate.
 	Over bool `json:"over,omitempty"`
 }
@@ -270,6 +291,9 @@ func (h *Handler) schemaView(role string, lang i18n.Lang) *SchemaUpdateView {
 		v.Est = estimateText(lang, time.Duration(rec.EstLowSec)*time.Second, time.Duration(rec.EstHighSec)*time.Second)
 		if rec.State == db.SchemaUpdateRunning {
 			v.Stage = stageText(lang, rec)
+			if rec.Stage != "" {
+				v.Phase = rec.Stage
+			}
 			v.Over = rec.EstHighSec > 0 && now.Unix()-rec.StartedAt > int64(rec.EstHighSec)
 		}
 	}
@@ -279,15 +303,17 @@ func (h *Handler) schemaView(role string, lang i18n.Lang) *SchemaUpdateView {
 	}
 	switch {
 	case running:
-		v.State = "running"
+		v.State, v.Phase = "running", db.SchemaStageIndex
 		fromRecord()
 		v.Held = int(events.HeldEvents())
-		v.CanCancel = super && childPID != 0 && rec.PID == childPID
+		shell := childPID == 0 && super && runSignalable(rec.PID, "migrate")
+		v.Cancellable = super && (childPID != 0 && rec.PID == childPID || shell)
+		h.schemaRunningView(v, lang, super, rec.PID, now)
 	case ours:
 		// This daemon's run with no record of it under way: it is being
 		// started, or its record already says how it ended and the process
 		// is finishing.
-		v.State = "running"
+		v.State, v.Phase = "running", db.SchemaStageIndex
 		v.Held = int(events.HeldEvents())
 		if hasRec && childPID != 0 && rec.PID == childPID {
 			fromRecord()
@@ -296,7 +322,8 @@ func (h *Handler) schemaView(role string, lang i18n.Lang) *SchemaUpdateView {
 		} else {
 			v.StartedAt = now.Unix()
 		}
-		v.CanCancel = super && childPID != 0
+		v.Cancellable = super && childPID != 0
+		h.schemaRunningView(v, lang, super, 0, now)
 	case len(waiting) > 0:
 		v.State = "pending"
 		v.CanRun = super
@@ -335,6 +362,48 @@ func (h *Handler) schemaView(role string, lang i18n.Lang) *SchemaUpdateView {
 		return nil
 	}
 	return v
+}
+
+// schemaRunningView fills in what the notice of a running update says beyond
+// its record: the steps, the held events, and what stopping it does -- the
+// way the compaction card says them.  pid: the run's process, for the hint
+// to stop it where it runs (0 when unknown).
+func (h *Handler) schemaRunningView(v *SchemaUpdateView, lang i18n.Lang, super bool, pid int, now time.Time) {
+	phases := []string{db.SchemaStageIndex}
+	if v.HoldsWrites {
+		phases = append(phases, db.SchemaStageCheckpoint) // SQLite copies the new index out of its log
+	}
+	phases = append(phases, db.SchemaStageFinish)
+	v.Bars = stepBars(phases, v.Phase, -1)
+	if v.HoldsWrites {
+		v.HeldText, v.HeldNear = heldText(lang, v.Held, v.HeldLimit, now.Sub(time.Unix(v.StartedAt, 0)))
+	}
+	v.CanCancel = v.Cancellable && v.Phase != db.SchemaStageCheckpoint
+	switch {
+	case v.Phase == db.SchemaStageCheckpoint:
+		v.CancelNote = i18n.T(lang, "schema_update.cancel_note_ckpt")
+	case v.Phase == db.SchemaStageFinish:
+		v.CancelNote = i18n.T(lang, "schema_update.cancel_note_finish")
+	case v.HoldsWrites:
+		v.CancelNote = i18n.T(lang, "schema_update.cancel_note")
+	default:
+		v.CancelNote = i18n.T(lang, "schema_update.cancel_note_online")
+	}
+	switch {
+	case v.Cancellable || v.Phase == db.SchemaStageCheckpoint:
+	case !super:
+		v.StopHint = i18n.T(lang, "schema_update.stop_hint_role")
+	case pid > 0:
+		v.StopHint = i18n.Tf(lang, "schema_update.stop_hint_shell", pid)
+	}
+	v.StopNote = v.CancelNote
+	if v.StopHint != "" {
+		sep := " "
+		if lang == i18n.LangJA {
+			sep = "" // sentences run on after "。"
+		}
+		v.StopNote = v.StopHint + sep + v.CancelNote
+	}
 }
 
 // stillWaiting reports whether any of a run's migrations is among those that
@@ -469,16 +538,31 @@ func (h *Handler) AdminSchemaUpdateRun(w http.ResponseWriter, r *http.Request) {
 
 // AdminSchemaUpdateCancel: POST /admin/api/schema-update/cancel (superadmin).
 func (h *Handler) AdminSchemaUpdateCancel(w http.ResponseWriter, r *http.Request) {
-	if err := h.schemaCancel(); err != nil {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	h.SchemaRefresh(ctx)
+	by, err := h.schemaCancel()
+	if err != nil {
 		writeJSON(w, http.StatusConflict, map[string]any{"ok": 0, "error": err.Error()})
 		return
+	}
+	// Held with the other writes until the run has ended, on SQLite.  The
+	// target is who started the run: a superadmin may stop one typed into a
+	// shell.
+	if pay := SessionFromContext(r); pay != nil && h.UserRepo != nil {
+		name := "admin"
+		if u, err := h.UserRepo.GetByID(r.Context(), pay.UserID); err == nil && u != nil {
+			name = u.Username
+		}
+		h.UserRepo.Record(r.Context(), pay.UserID, name, "schema_update.cancel", by, "")
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 }
 
 var (
-	errSchemaNothing = errors.New("no schema update is waiting")
-	errSchemaNotOurs = errors.New("the running schema update was not started by this daemon; stop it where it was started")
+	errSchemaNothing   = errors.New("no schema update is waiting")
+	errSchemaNotOurs   = errors.New("the running schema update cannot be stopped from here (it runs as another user, or is not a migrate process of this host); stop it where it runs: Ctrl-C, or kill -INT with its process id")
+	errSchemaCommitted = errors.New("the update is applied and its index is being copied into the database file; that cannot be stopped")
 )
 
 // schemaReserve claims the start of a run: nothing may be going, something
@@ -560,19 +644,37 @@ func (h *Handler) schemaStart(by string) error {
 	return nil
 }
 
-// schemaCancel stops the run this daemon started.
-func (h *Handler) schemaCancel() error {
+// schemaCancel stops the run going -- the one this daemon started, or one
+// typed into a shell that it may signal (runSignalable) -- with SIGTERM,
+// which `unmask migrate` takes as Ctrl-C: the build is rolled back and the
+// update waits again.  After the builds, only what follows them is given up.
+// by: who started the run, as its record says.
+func (h *Handler) schemaCancel() (by string, err error) {
 	u := &h.schema
 	u.mu.Lock()
 	defer u.mu.Unlock()
-	if u.child == nil || u.child.Process == nil {
-		if u.running {
-			return errSchemaNotOurs
+	if u.hasRec && u.rec.State == db.SchemaUpdateRunning {
+		by = u.rec.By
+		if u.rec.Stage == db.SchemaStageCheckpoint {
+			return by, errSchemaCommitted
 		}
-		return errSchemaNothing
 	}
-	log.Printf("schema update: cancel requested (pid %d)", u.child.Process.Pid)
-	return u.child.Process.Signal(syscall.SIGTERM)
+	if u.child != nil && u.child.Process != nil {
+		log.Printf("schema update: cancel requested (pid %d)", u.child.Process.Pid)
+		return by, u.child.Process.Signal(syscall.SIGTERM)
+	}
+	if !u.running {
+		return "", errSchemaNothing
+	}
+	pid := 0
+	if u.hasRec && u.rec.State == db.SchemaUpdateRunning {
+		pid = u.rec.PID
+	}
+	if !runSignalable(pid, "migrate") {
+		return by, errSchemaNotOurs
+	}
+	log.Printf("schema update: cancel requested for the run started from a shell (pid %d)", pid)
+	return by, syscall.Kill(pid, syscall.SIGTERM)
 }
 
 // StopSchemaRun stops the run this daemon started, if one is going, and waits

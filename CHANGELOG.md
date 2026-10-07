@@ -16,6 +16,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- (2026-10-07) **The schema update notice says what a stop costs, and can stop a run from a shell.**  Like the compaction card, the notice shows the update's steps, the held events against their limit, and what stopping it loses: nothing during the index build, only the statistics at the end.  A superadmin can now stop an `unmask migrate` typed into a shell, and both buttons ask in a modal.
+
 - (2026-10-07) **The compaction card shows each step and the time it has left.**  One figure covered the copy and its write-back, so a half-done copy read as a quarter.  Each step now has its own percentage and the time left at its speed so far; the held events show their limit, and the plan says "about" rather than "up to", with how long the daemon can hold them.
 
 - (2026-10-07) **A superadmin can stop a compaction started from a shell.**  The card offered to stop only a run its daemon had started.  It now stops an `unmask db-vacuum` typed into a shell too, after checking the process, and says what stopping costs: nothing while VACUUM runs, only the statistics at the last step.  The final write into the file cannot be stopped.

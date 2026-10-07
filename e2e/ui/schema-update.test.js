@@ -223,14 +223,20 @@ c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
 
     // ---- the button --------------------------------------------------------
     await su.goto(BASE + '/admin/', { waitUntil: 'networkidle2' });
+    // The button asks in a modal of the notice's own, not with the
+    // browser's confirm().
     let asked = '';
-    su.once('dialog', d => { asked = d.message(); d.accept(); });
+    su.once('dialog', d => { asked = d.message(); d.dismiss(); });
+    await su.click('#schup-run');
+    await su.waitForSelector('#schup-run-dialog[open]', { timeout: 5000 });
+    const question = await su.$eval('#schup-run-h', e => e.textContent.trim());
+    ok(!asked, `the click opened the browser's own dialog: ${JSON.stringify(asked)}`);
+    ok(/Start the database update\?/.test(question), `the modal asks ${JSON.stringify(question)}; it must confirm first`);
     const clicked = Date.now();
     await Promise.all([
       su.waitForNavigation({ waitUntil: 'networkidle2', timeout: 60000 }),   // the script reloads the page
-      su.click('#schup-run'),
+      su.click('#schup-run-dialog [data-ok]'),
     ]);
-    ok(/Start the database update\?/.test(asked), `the click asked ${JSON.stringify(asked)}; it must confirm first`);
     let n = await notice(su);
     ok(n && (n.state === 'running' || n.state === 'done'),
       `after the click the notice says ${n ? n.state + ': ' + n.text : 'nothing (it is not on the page)'}`);
@@ -252,7 +258,7 @@ c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
       if (lines) {
         ok(lines.stage === '' || /^(Building \d{4}_[a-z0-9_]+ \(\d+ of \d+\)\.|The index is built)/.test(lines.stage),
           `running: the stage line reads ${JSON.stringify(lines.stage)}`);
-        ok(lines.held === null || /^Events held until it ends: [\d,]+ \(room for [\d,]+\)$/.test(lines.held),
+        ok(lines.held === null || /^[\d,]+ events held (\(the limit is [\d,]+(; .+ to go at this rate)?\)|, close to the limit of [\d,]+: .+)\.$/.test(lines.held),
           `running: the held events line reads ${JSON.stringify(lines.held)}`);
       }
       // Gone means the page has reloaded into "done" meanwhile, which is fine.

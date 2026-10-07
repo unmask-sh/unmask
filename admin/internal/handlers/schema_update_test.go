@@ -410,8 +410,9 @@ func TestSchemaUpdateCancel(t *testing.T) {
 
 // TestSchemaRunStartedElsewhere: `unmask migrate` typed into a shell.  The
 // daemon did not start it, and has to notice it all the same: hold its
-// writes, show the notice, and offer no cancel button for a process that is
-// not its own.
+// writes, show the notice, and offer no cancel button for a process it
+// cannot tell is a migrate run (the stand-in is this test binary; see
+// TestSchemaCancelARunFromAShell for one it can).
 func TestSchemaRunStartedElsewhere(t *testing.T) {
 	h := schemaHandler(t, 300, 0.001)
 	if _, err := db.MigrateWith(h.DB, db.MigrateOptions{Defer: true, DeferOver: h.cfg().DB.SchemaUpdateDeferOver()}); err != nil {
@@ -433,11 +434,11 @@ func TestSchemaRunStartedElsewhere(t *testing.T) {
 		t.Error("writes are not held for a run the daemon did not start")
 	}
 	v := h.schemaView(user.RoleSuperadmin, i18n.LangEN)
-	if v == nil || v.State != "running" || v.CanCancel || v.By != "cli" {
+	if v == nil || v.State != "running" || v.Cancellable || v.CanCancel || v.By != "cli" {
 		t.Fatalf("view = %+v, want running, started by cli, with no cancel button", v)
 	}
 	if code, _ := postJSON(t, h.AdminSchemaUpdateCancel, "/unmask/admin/api/schema-update/cancel", user.RoleSuperadmin); code != http.StatusConflict {
-		t.Errorf("cancel of someone else's run: %d, want 409", code)
+		t.Errorf("cancel of a process that is no migrate run: %d, want 409", code)
 	}
 	if code, _ := postJSON(t, h.AdminSchemaUpdateRun, "/unmask/admin/api/schema-update/run", user.RoleSuperadmin); code != http.StatusConflict {
 		t.Errorf("run while one is going: %d, want 409", code)
@@ -453,6 +454,123 @@ func TestSchemaRunStartedElsewhere(t *testing.T) {
 	})
 	if !indexThere(t, h) || h.DB.EventJA4IndexHint() == "" {
 		t.Error("index or hint missing after a run started elsewhere")
+	}
+}
+
+// TestSchemaCancelARunFromAShell: a `migrate` typed into a shell can be stopped
+// from the notice too, as a compaction can: the daemon makes sure the process
+// on record is a migrate run it may signal and sends it what Ctrl-C would.
+// The build is rolled back, the update waits again, and the stop is in the
+// audit log once the writes are let go.
+func TestSchemaCancelARunFromAShell(t *testing.T) {
+	h := schemaHandler(t, 300, 0.001)
+	if _, err := db.MigrateWith(h.DB, db.MigrateOptions{Defer: true, DeferOver: h.cfg().DB.SchemaUpdateDeferOver()}); err != nil {
+		t.Fatal(err)
+	}
+	helperCommand(h, time.Minute)
+	cmd, _ := h.SchemaCommand(db.SchemaUpdateByCLI)
+	// A trailing "migrate" makes the stand-in's command line read as a run's
+	// (the test binary takes it as a positional argument and ignores it).
+	cmd.Args = append(cmd.Args, "migrate")
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+
+	waitFor(t, "the run's record", 20*time.Second, func() bool {
+		h.SchemaRefresh(context.Background())
+		rec, ok, _ := h.DB.LoadSchemaUpdate(context.Background())
+		_, running := h.SchemaWaiting()
+		return ok && running && rec.State == db.SchemaUpdateRunning && rec.PID == cmd.Process.Pid
+	})
+	v := h.schemaView(user.RoleSuperadmin, i18n.LangEN)
+	if v == nil || !v.Cancellable || !v.CanCancel || v.StopHint != "" || v.CancelNote != i18n.T(i18n.LangEN, "schema_update.cancel_note") {
+		t.Fatalf("superadmin's view of a migrate from a shell = %+v, want it stoppable", v)
+	}
+	page := renderAs(t, h.AdminTopOverview, "/unmask/admin/", user.RoleSuperadmin, "en")
+	for _, w := range []string{`id="schup-cancel"`, `id="schup-stop-dialog"`, i18n.T(i18n.LangEN, "schema_update.cancel_note"), `data-step="index"`} {
+		if !strings.Contains(page, w) {
+			t.Errorf("the notice of a run from a shell lacks %q", w)
+		}
+	}
+	if a := h.schemaView(user.RoleAdmin, i18n.LangEN); a == nil || a.Cancellable || a.StopHint != i18n.T(i18n.LangEN, "schema_update.stop_hint_role") {
+		t.Errorf("admin's view = %+v", a)
+	}
+	if code, body := postJSON(t, h.AdminSchemaUpdateCancel, "/unmask/admin/api/schema-update/cancel", user.RoleSuperadmin); code != http.StatusOK {
+		t.Fatalf("cancel: %d %v", code, body)
+	}
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the run did not stop")
+	}
+	waitFor(t, "the writes to be let go", 20*time.Second, func() bool {
+		h.SchemaRefresh(context.Background())
+		_, running := h.SchemaWaiting()
+		return !running && !h.DB.WritesHeld()
+	})
+	if rec, ok, _ := h.DB.LoadSchemaUpdate(context.Background()); !ok || rec.State != db.SchemaUpdateCancelled {
+		t.Errorf("record = %+v, want cancelled", rec)
+	}
+	if indexThere(t, h) {
+		t.Error("a cancelled run built the index")
+	}
+	waitFor(t, "the stop in the audit log", 5*time.Second, func() bool {
+		var n int
+		err := h.DB.QueryRow(`SELECT COUNT(*) FROM unmask_user_audit WHERE action = 'schema_update.cancel' AND target = ?`, db.SchemaUpdateByCLI).Scan(&n)
+		return err == nil && n == 1
+	})
+}
+
+// TestSchemaNoticeStepsAndStops: the notice draws the run's steps and says
+// what a stop does at each -- nothing lost during the builds, only the
+// statistics at the end -- and offers no stop while the new index is copied
+// into the file, which a stop would only leave to the daemon's next write.
+func TestSchemaNoticeStepsAndStops(t *testing.T) {
+	h := schemaHandler(t, 300, 0.001)
+	if _, err := db.MigrateWith(h.DB, db.MigrateOptions{Defer: true, DeferOver: h.cfg().DB.SchemaUpdateDeferOver()}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	lock, err := h.DB.LockSchemaRun(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	// This test's own process: a run on record that is no migrate process.
+	rec := db.SchemaUpdateRecord{State: db.SchemaUpdateRunning, Host: "test-host", PID: os.Getpid(), By: "cli",
+		Items: []string{"0032_event_ja4_index"}, StartedAt: time.Now().Add(-time.Minute).Unix(), EstLowSec: 60, EstHighSec: 180,
+		Stage: db.SchemaStageCheckpoint, Done: 1, StageAt: time.Now().Unix()}
+	if err := h.DB.SaveMaintState(ctx, db.MaintSchemaUpdate, rec); err != nil {
+		t.Fatal(err)
+	}
+	h.SchemaRefresh(ctx)
+	v := h.schemaView(user.RoleSuperadmin, i18n.LangJA)
+	if v == nil || v.Phase != db.SchemaStageCheckpoint || v.CanCancel || v.StopHint != "" ||
+		v.CancelNote != i18n.T(i18n.LangJA, "schema_update.cancel_note_ckpt") {
+		t.Fatalf("view at the checkpoint = %+v", v)
+	}
+	want := []StepBar{{db.SchemaStageIndex, 100, false, false}, {db.SchemaStageCheckpoint, 100, true, true}, {db.SchemaStageFinish, 0, false, false}}
+	if fmt.Sprint(v.Bars) != fmt.Sprint(want) {
+		t.Errorf("bars = %+v, want %+v", v.Bars, want)
+	}
+	if _, err := h.schemaCancel(); err != errSchemaCommitted {
+		t.Errorf("cancel at the checkpoint: %v, want errSchemaCommitted", err)
+	}
+
+	// After it: only the statistics are given up.  A run this daemon cannot
+	// signal gets the way to stop it where it runs.
+	rec.Stage = db.SchemaStageFinish
+	if err := h.DB.SaveMaintState(ctx, db.MaintSchemaUpdate, rec); err != nil {
+		t.Fatal(err)
+	}
+	h.SchemaRefresh(ctx)
+	v = h.schemaView(user.RoleSuperadmin, i18n.LangJA)
+	if v == nil || v.Phase != db.SchemaStageFinish || v.Cancellable ||
+		v.StopNote != i18n.Tf(i18n.LangJA, "schema_update.stop_hint_shell", os.Getpid())+i18n.T(i18n.LangJA, "schema_update.cancel_note_finish") {
+		t.Errorf("view at the finish = %+v", v)
 	}
 }
 
@@ -861,7 +979,7 @@ func TestSchemaNoticeWhileRunning(t *testing.T) {
 	if code, body := postJSON(t, h.AdminSchemaUpdateRun, "/unmask/admin/api/schema-update/run", user.RoleSuperadmin); code != http.StatusOK {
 		t.Fatalf("run: %d %v", code, body)
 	}
-	defer func() { _ = h.schemaCancel() }()
+	defer func() { _, _ = h.schemaCancel() }()
 	waitForRecord(t, h)
 
 	super := renderAs(t, h.AdminTopOverview, "/unmask/admin/", user.RoleSuperadmin, "en")
@@ -941,7 +1059,7 @@ func TestSchemaNoticeWordsFollowTheDatabase(t *testing.T) {
 	if !strings.Contains(onSQLite, "Settings can be saved as usual") || !strings.Contains(onSQLite, "users and manual bans, wait until it has finished") {
 		t.Error("SQLite: the notice must say what waits (the database's own changes) and what does not (settings)")
 	}
-	if !strings.Contains(onSQLite, "users and manual bans cannot be changed (settings can)") {
+	if !strings.Contains(onSQLite, `id="schup-run-dialog"`) || !strings.Contains(onSQLite, "Changes to users and manual bans wait until it has finished (settings can be saved)") {
 		t.Error("SQLite: the confirmation must say what cannot be changed during the run")
 	}
 
@@ -966,13 +1084,13 @@ func TestSchemaNoticeWordsFollowTheDatabase(t *testing.T) {
 		absent []string
 	}{
 		{i18n.LangEN, "pending",
-			[]string{"A database update is waiting", "and so do changes such as saving settings", `data-l-confirm="Start the database update?"`},
+			[]string{"A database update is waiting", "and so do changes such as saving settings", `id="schup-run-dialog"`, "Start the database update?"},
 			[]string{"wait until", "recorded afterwards", "cannot be changed"}},
 		{i18n.LangEN, "running",
 			[]string{"Updating the database", "go through as usual"},
 			[]string{"wait until"}},
 		{i18n.LangJA, "pending",
-			[]string{"データベースの更新があります", "そのまま行えます", `data-l-confirm="データベースの更新を始めます。よろしいですか?"`},
+			[]string{"データベースの更新があります", "そのまま行えます", `id="schup-run-dialog"`, "データベースを更新しますか?"},
 			[]string{"完了まで待ちます", "完了後に記録", "編集ができません"}},
 		{i18n.LangJA, "running",
 			[]string{"データベースを更新しています", "そのまま行えます"},
@@ -1187,7 +1305,7 @@ func TestSchemaNoticeSaysWhatTheRunIsDoing(t *testing.T) {
 	page := renderAs(t, h.AdminTopOverview, "/unmask/admin/", user.RoleViewer, "ja")
 	for _, want := range []string{
 		"0033_event_ja4_index_order の index を作成しています (2 / 2)。",
-		`id="schup-held"`, "書き込みを保留しているイベント: 0 件 (保留できるのは " + commaInt(db.HeldEventsLimit()) + " 件まで)",
+		`id="schup-held"`, i18n.Tf(i18n.LangJA, "vacuum.held_now", "0", commaInt(db.HeldEventsLimit())),
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the notice lacks %q", want)

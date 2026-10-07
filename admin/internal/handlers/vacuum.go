@@ -329,16 +329,39 @@ type VacuumView struct {
 	StopNote    string `json:"stop_note,omitempty"`
 	// Bars: the steps as the card first draws them; the page redraws them
 	// from Phase and Progress.
-	Bars []VacuumStepBar `json:"-"`
+	Bars []StepBar `json:"-"`
 }
 
-// VacuumStepBar is one step of a running run on the card: its share filled,
-// whether it is the step going, and whether that step's progress is unknown
-// (the bar is drawn full and moving).
-type VacuumStepBar struct {
+// StepBar is one step of a running maintenance run as the page draws it (the
+// compaction card, the schema update notice): its share filled, whether it is
+// the step going, and whether that step's progress is unknown (the bar is
+// drawn full and moving).
+type StepBar struct {
 	Phase         string
 	Fill          int
 	Current, Busy bool
+}
+
+// stepBars draws the steps of a run on step phase: the ones before it done,
+// it filled to pct (-1: unknown), the ones after it empty.
+func stepBars(phases []string, phase string, pct int) []StepBar {
+	bars := make([]StepBar, 0, len(phases))
+	passed := false
+	for _, p := range phases {
+		b := StepBar{Phase: p}
+		switch {
+		case p == phase:
+			b.Current, passed = true, true
+			b.Fill = pct
+			if pct < 0 {
+				b.Fill, b.Busy = 100, true
+			}
+		case !passed:
+			b.Fill = 100
+		}
+		bars = append(bars, b)
+	}
+	return bars
 }
 
 // vacuumShownFor is how long an ended run stays on the page.
@@ -401,24 +424,10 @@ func (h *Handler) vacuumView(role string, lang i18n.Lang) *VacuumView {
 		if out.Steps == 4 {
 			phases = append(phases, db.VacuumStageStats)
 		}
-		passed := false
-		for _, p := range phases {
-			b := VacuumStepBar{Phase: p}
-			switch {
-			case p == out.Phase:
-				b.Current, passed = true, true
-				b.Fill = out.Progress
-				if out.Progress < 0 {
-					b.Fill, b.Busy = 100, true
-				}
-			case !passed:
-				b.Fill = 100
-			}
-			out.Bars = append(out.Bars, b)
-		}
+		out.Bars = stepBars(phases, out.Phase, out.Progress)
 		out.Held = int(events.HeldEvents())
 		out.HeldText, out.HeldNear = heldText(lang, out.Held, db.HeldEventsLimit(), now.Sub(time.Unix(out.StartedAt, 0)))
-		shell := childPID == 0 && onRecord && running && super && vacuumSignalable(rec.PID)
+		shell := childPID == 0 && onRecord && running && super && runSignalable(rec.PID, "db-vacuum")
 		out.Cancellable = super && (childPID != 0 || shell)
 		out.CanCancel = out.Cancellable && out.Phase != db.VacuumStageCheckpoint
 		switch out.Phase {
@@ -723,7 +732,7 @@ func (h *Handler) vacuumStart(by string) error {
 }
 
 // vacuumCancel stops the run going -- the one this daemon started, or one
-// typed into a shell that it may signal (vacuumSignalable) -- with SIGTERM,
+// typed into a shell that it may signal (runSignalable) -- with SIGTERM,
 // which `unmask db-vacuum` takes as Ctrl-C: SQLite rolls VACUUM back and the
 // run records itself as cancelled.  At the statistics, only they are given
 // up.  by: who started the run, as its record says.
@@ -748,18 +757,20 @@ func (h *Handler) vacuumCancel() (by string, err error) {
 	if v.hasRec && v.rec.State == db.VacuumRunning {
 		pid = v.rec.PID
 	}
-	if !vacuumSignalable(pid) {
+	if !runSignalable(pid, "db-vacuum") {
 		return by, errVacuumNotOurs
 	}
 	log.Printf("db vacuum: cancel requested for the run started from a shell (pid %d)", pid)
 	return by, syscall.Kill(pid, syscall.SIGTERM)
 }
 
-// vacuumSignalable reports whether pid is a compaction run this daemon may
-// stop: a process of this host running `db-vacuum` -- the record's process
-// id is checked, not trusted -- that a signal from the daemon's user
-// reaches, which one started as root is not.
-func vacuumSignalable(pid int) bool {
+// runSignalable reports whether pid is a maintenance run this daemon may
+// stop: a process of this host running the unmask subcommand sub
+// ("db-vacuum", "migrate") -- the record's process id is checked, not
+// trusted -- that a signal from the daemon's user reaches.  A run typed in
+// as root has dropped to the daemon's user (privdrop.go), so it does; one
+// run with UNMASK_NO_PRIVDROP does not.
+func runSignalable(pid int, sub string) bool {
 	if pid <= 0 || pid == os.Getpid() {
 		return false
 	}
@@ -768,7 +779,7 @@ func vacuumSignalable(pid int) bool {
 		return false
 	}
 	for _, arg := range strings.Split(string(b), "\x00") {
-		if arg == "db-vacuum" {
+		if arg == sub {
 			return syscall.Kill(pid, 0) == nil
 		}
 	}
@@ -841,7 +852,8 @@ func vacuumStepText(lang i18n.Lang, phase string, pct int) (step, pill string) {
 	return i18n.T(lang, "vacuum.phase_"+phase), i18n.Tf(lang, "vacuum.pill_running", name)
 }
 
-// heldText words the events the daemon keeps during a run: how many, the
+// heldText words the events the daemon keeps during a run -- a compaction or
+// a schema update -- how many, the
 // limit past which the oldest go, and -- once the run has gone a minute --
 // how long the rest lasts at the rate they have come.  near: within a tenth
 // of the limit, which the flusher trims back to when it is passed.

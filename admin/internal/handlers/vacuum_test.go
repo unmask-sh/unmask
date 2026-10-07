@@ -417,7 +417,7 @@ func TestVacuumNoCancelAtTheCheckpoint(t *testing.T) {
 	}
 	// Four steps with the statistics: the copy and the write-back done, the
 	// checkpoint going with no figure, the statistics to come.
-	want := []VacuumStepBar{{"copy", 100, false, false}, {"write", 100, false, false},
+	want := []StepBar{{"copy", 100, false, false}, {"write", 100, false, false},
 		{db.VacuumStageCheckpoint, 100, true, true}, {db.VacuumStageStats, 0, false, false}}
 	if fmt.Sprint(v.Bars) != fmt.Sprint(want) {
 		t.Errorf("bars = %+v, want %+v", v.Bars, want)

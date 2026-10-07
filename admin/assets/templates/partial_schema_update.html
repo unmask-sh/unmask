@@ -28,27 +28,46 @@
 .schup button:hover{background:rgba(255,255,255,.6)}
 .schup button[disabled]{opacity:.5;cursor:default}
 .schup-err{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8125rem;word-break:break-word}
+.schup-near{color:#b45309;font-weight:600;opacity:1}
+.schup-steps{display:flex;gap:.3rem;max-width:30rem;margin:.35rem 0 .3rem}
+.schup-step{flex:1;min-width:0}
+.schup-step-bar{display:block;height:.3rem;background:rgba(30,58,138,.15);border-radius:.15rem;overflow:hidden}
+.schup-step-bar>i{display:block;height:100%;background:#2563eb}
+.schup-step.is-busy .schup-step-bar>i{background:repeating-linear-gradient(-45deg,#2563eb 0 .35rem,#60a5fa .35rem .7rem);background-size:1rem 100%;animation:schup-busy 1s linear infinite}
+@keyframes schup-busy{to{background-position:1rem 0}}
+@media (prefers-reduced-motion:reduce){.schup-step.is-busy .schup-step-bar>i{animation:none}}
+.schup-step-name{display:block;margin-top:.15rem;font-size:.72rem;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.schup-step.is-current .schup-step-name{font-weight:600;opacity:1}
+.schup-dialog{border:1px solid #cbd5e1;border-radius:.4rem;padding:0;max-width:30rem;width:90%;background:#fff;color:#0f172a}
+.schup-dialog::backdrop{background:rgba(15,23,42,.45)}
+.schup-dialog-body{display:flex;flex-direction:column;gap:.75rem;padding:1.1rem 1.25rem}
+.schup-dialog h3{margin:0;font-size:1.05rem}
+.schup-dialog-text{margin:0;font-size:.85rem;color:#334155;line-height:1.6}
+.schup-dialog-err{margin:0;padding:.45rem .6rem;border:1px solid #fca5a5;border-radius:.25rem;background:#fef2f2;color:#991b1b;font-size:.8rem}
+.schup-dialog-err[hidden]{display:none}
+.schup-dialog-actions{display:flex;gap:.5rem;justify-content:flex-end}
+.schup-dialog button{font:inherit;font-size:.85rem;font-weight:600;padding:.4rem .9rem;border-radius:.3rem;border:1px solid #cbd5e1;background:#fff;color:#0f172a;cursor:pointer}
+.schup-dialog button[data-ok]{background:#2563eb;border-color:#2563eb;color:#fff}
+.schup-dialog button.schup-danger{background:#b91c1c;border-color:#b91c1c}
+.schup-dialog button[disabled]{opacity:.6;cursor:default}
 </style>
 <div id="schup" class="schup schup-{{ .State }}" role="status" hidden
      data-state="{{ .State }}" data-started="{{ .StartedAt }}" data-ended="{{ .EndedAt }}" data-now="{{ .Now }}"
      data-api="{{ $.BasePath }}/admin/api/schema-update"
      data-l-elapsed="{{ t $.Lang "schema_update.elapsed" }}"
-     data-l-held="{{ t $.Lang "schema_update.held" }}"
-     data-l-starting="{{ t $.Lang "schema_update.starting" }}"
-     data-l-stopping="{{ t $.Lang "schema_update.stopping" }}"
-     data-l-confirm="{{ if .HoldsWrites }}{{ t $.Lang "schema_update.confirm" }}{{ else }}{{ t $.Lang "schema_update.confirm_online" }}{{ end }}"
-     data-l-confirm-cancel="{{ t $.Lang "schema_update.confirm_cancel" }}"
-     data-l-request-failed="{{ t $.Lang "schema_update.request_failed" }}">
+     data-l-stopping="{{ t $.Lang "schema_update.stopping" }}">
   <span class="schup-msg">
     {{- if eq .State "pending" -}}
       {{ if .Cancelled }}{{ t $.Lang "schema_update.cancelled" }} {{ end }}{{ tf $.Lang "schema_update.pending" .Est }}
       <span class="schup-sub">{{ if .HoldsWrites }}{{ t $.Lang "schema_update.pending_sub" }}{{ else }}{{ t $.Lang "schema_update.pending_sub_online" }}{{ end }}{{ if not .CanRun }} {{ t $.Lang "schema_update.needs_superadmin" }}{{ end }}</span>
     {{- else if eq .State "running" -}}
       {{ t $.Lang "schema_update.running" }} <span id="schup-elapsed"></span>{{ if .Est }} {{ tf $.Lang "schema_update.expected" .Est }}{{ end }}
+      <span class="schup-steps" aria-hidden="true">{{ range .Bars }}<span class="schup-step{{ if .Current }} is-current{{ end }}{{ if .Busy }} is-busy{{ end }}" data-step="{{ .Phase }}"><span class="schup-step-bar"><i style="width:{{ .Fill }}%"></i></span><span class="schup-step-name">{{ t $.Lang (printf "schema_update.step_%s" .Phase) }}</span></span>{{ end }}</span>
       <span class="schup-sub" id="schup-stage"{{ if not .Stage }} hidden{{ end }}>{{ .Stage }}</span>
       <span class="schup-sub" id="schup-over"{{ if not .Over }} hidden{{ end }}>{{ t $.Lang "schema_update.over" }}</span>
-      {{ if .HeldLimit }}<span class="schup-sub" id="schup-held" data-limit="{{ .HeldLimit }}">{{ tf $.Lang "schema_update.held" (comma .Held) (comma .HeldLimit) }}</span>{{ end }}
-      <span class="schup-sub">{{ if .HoldsWrites }}{{ t $.Lang "schema_update.running_sub" }}{{ else }}{{ t $.Lang "schema_update.running_sub_online" }}{{ end }}{{ if and .By (not .CanCancel) }} {{ tf $.Lang "schema_update.started_by" .By .Host }}{{ end }}</span>
+      {{ if .HeldText }}<span class="schup-sub{{ if .HeldNear }} schup-near{{ end }}" id="schup-held">{{ .HeldText }}</span>{{ end }}
+      <span class="schup-sub">{{ if .HoldsWrites }}{{ t $.Lang "schema_update.running_sub" }}{{ else }}{{ t $.Lang "schema_update.running_sub_online" }}{{ end }}{{ if .By }} {{ tf $.Lang "schema_update.started_by" .By .Host }}{{ end }}</span>
+      <span class="schup-sub" id="schup-cancel-note">{{ .StopNote }}</span>
     {{- else if eq .State "done" -}}
       {{ tf $.Lang "schema_update.done" .Took }}
     {{- else if eq .State "failed" -}}
@@ -57,9 +76,40 @@
     {{- end -}}
   </span>
   {{ if and .CanRun (or (eq .State "pending") (eq .State "failed")) }}<button type="button" id="schup-run">{{ if eq .State "failed" }}{{ t $.Lang "schema_update.retry" }}{{ else }}{{ t $.Lang "schema_update.run" }}{{ end }}</button>{{ end }}
-  {{ if and .CanCancel (eq .State "running") }}<button type="button" id="schup-cancel">{{ t $.Lang "schema_update.cancel" }}</button>{{ end }}
+  {{ if and .Cancellable (eq .State "running") }}<button type="button" id="schup-cancel"{{ if not .CanCancel }} hidden{{ end }}>{{ t $.Lang "schema_update.cancel" }}</button>{{ end }}
   {{ if eq .State "done" }}<button type="button" id="schup-dismiss">{{ t $.Lang "schema_update.dismiss" }}</button>{{ end }}
 </div>
+{{/* Starting and stopping each ask in a modal of their own, as the
+     compaction card does, not with the browser's confirm(): it says what
+     the step does, and a request that fails is said in it.  Outside the
+     notice, which lists its buttons. */}}
+{{ if and .CanRun (or (eq .State "pending") (eq .State "failed")) }}
+<dialog id="schup-run-dialog" class="schup-dialog" aria-labelledby="schup-run-h">
+  <div class="schup-dialog-body">
+    <h3 id="schup-run-h">{{ t $.Lang "schema_update.dialog_h" }}</h3>
+    <p class="schup-dialog-text">{{ tf $.Lang "schema_update.pending" .Est }}</p>
+    <p class="schup-dialog-text">{{ if .HoldsWrites }}{{ t $.Lang "schema_update.dialog_body" }}{{ else }}{{ t $.Lang "schema_update.dialog_body_online" }}{{ end }}</p>
+    <p class="schup-dialog-err" data-err role="alert" hidden>{{ t $.Lang "schema_update.request_failed" }}</p>
+    <div class="schup-dialog-actions">
+      <button type="button" data-back>{{ t $.Lang "schema_update.dialog_back" }}</button>
+      <button type="button" data-ok data-busy="{{ t $.Lang "schema_update.starting" }}">{{ t $.Lang "schema_update.dialog_start" }}</button>
+    </div>
+  </div>
+</dialog>
+{{ end }}
+{{ if and .Cancellable (eq .State "running") }}
+<dialog id="schup-stop-dialog" class="schup-dialog" aria-labelledby="schup-stop-h">
+  <div class="schup-dialog-body">
+    <h3 id="schup-stop-h">{{ t $.Lang "schema_update.stop_h" }}</h3>
+    <p class="schup-dialog-text" id="schup-stop-body">{{ .CancelNote }}</p>
+    <p class="schup-dialog-err" data-err role="alert" hidden>{{ t $.Lang "schema_update.request_failed" }}</p>
+    <div class="schup-dialog-actions">
+      <button type="button" data-back>{{ t $.Lang "schema_update.stop_keep" }}</button>
+      <button type="button" class="schup-danger" data-ok data-busy="{{ t $.Lang "schema_update.stopping" }}">{{ t $.Lang "schema_update.stop_ok" }}</button>
+    </div>
+  </div>
+</dialog>
+{{ end }}
 <script>
 (function(){
   var el = document.getElementById('schup');
@@ -80,7 +130,6 @@
   if (hdr && hdr.parentNode) hdr.parentNode.insertBefore(el, hdr.nextSibling);
   el.hidden = false;
 
-  function comma(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
   function mmss(sec){
     sec = Math.max(0, Math.floor(sec));
     var m = Math.floor(sec / 60), s = sec % 60;
@@ -97,33 +146,59 @@
     var now = serverNow + (Date.now() - arrived) / 1000;
     out.textContent = L('elapsed').replace('%s', mmss(now - started));
   }
-  function post(path, btn, busyLabel){
-    btn.disabled = true;
-    var was = btn.textContent;
-    btn.textContent = busyLabel;
-    fetch(api + path, {method: 'POST', credentials: 'same-origin'}).then(function(r){
+  // modal(id, onOK) returns the function that opens the modal; onOK(done,
+  // fail) makes the request -- done() closes it, fail() says the request
+  // failed and lets the administrator try again.  The compaction card's
+  // (settings.html) in the notice's own markup.
+  function modal(id, onOK){
+    var dlg = document.getElementById(id);
+    if (!dlg || typeof dlg.showModal !== 'function') return null;
+    // Rendered inside the header's tools; a modal is the page's.
+    document.body.appendChild(dlg);
+    var ok = dlg.querySelector('[data-ok]'), back = dlg.querySelector('[data-back]'), err = dlg.querySelector('[data-err]');
+    var label = ok.textContent, busy = false;
+    function idle(){ busy = false; ok.disabled = back.disabled = false; ok.textContent = label; }
+    function close(){ if (!busy) dlg.close(); }
+    back.addEventListener('click', close);
+    // A click outside the box lands on the dialog itself (its backdrop).
+    dlg.addEventListener('click', function(e){ if (e.target === dlg) close(); });
+    // Esc while the request is out would hide its answer.
+    dlg.addEventListener('cancel', function(e){ if (busy) e.preventDefault(); });
+    ok.addEventListener('click', function(){
+      busy = true;
+      ok.disabled = back.disabled = true;
+      err.hidden = true;
+      ok.textContent = ok.getAttribute('data-busy');
+      onOK(function(){ idle(); dlg.close(); }, function(){ idle(); err.hidden = false; });
+    });
+    return function(){ err.hidden = true; dlg.showModal(); back.focus(); };
+  }
+  var run = document.getElementById('schup-run');
+  var openRun = run && modal('schup-run-dialog', function(done, fail){
+    fetch(api + '/run', {method: 'POST', credentials: 'same-origin'}).then(function(r){
       // 409: the state moved on meanwhile (a run from a shell, another
       // administrator's press) -- the page shows what it is now.
       if (!r.ok && r.status !== 409) throw new Error('HTTP ' + r.status);
-      // The page re-renders from the server's state; a moment for the run
-      // to have written its record.
+      // The modal stays, saying it is starting, until the page re-renders
+      // from the server's state: a moment for the run to write its record.
       setTimeout(function(){ location.reload(); }, 1200);
-    }).catch(function(){
-      btn.disabled = false;
-      btn.textContent = was;
-      alert(L('request-failed'));
-    });
-  }
-  var run = document.getElementById('schup-run');
-  if (run) run.addEventListener('click', function(){
-    if (!confirm(L('confirm'))) return;
-    post('/run', run, L('starting'));
+    }).catch(fail);
   });
+  if (openRun) run.addEventListener('click', openRun);
   var cancel = document.getElementById('schup-cancel');
-  if (cancel) cancel.addEventListener('click', function(){
-    if (!confirm(L('confirm-cancel'))) return;
-    post('/cancel', cancel, L('stopping'));
+  var openStop = cancel && modal('schup-stop-dialog', function(done, fail){
+    fetch(api + '/cancel', {method: 'POST', credentials: 'same-origin'}).then(function(r){
+      // 409: it ended meanwhile, or reached the step a stop no longer
+      // undoes -- the poll shows which.
+      if (r.status === 409) { done(); return; }
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      done();
+      // Stopping takes the run a moment; the poll shows how it ended.
+      cancel.disabled = true;
+      cancel.textContent = L('stopping');
+    }).catch(fail);
   });
+  if (openStop) cancel.addEventListener('click', openStop);
   var dismiss = document.getElementById('schup-dismiss');
   if (dismiss) dismiss.addEventListener('click', function(){ lsSet(DONE_KEY, ended); el.hidden = true; });
 
@@ -136,15 +211,36 @@
     var stageEl = document.getElementById('schup-stage');
     var overEl = document.getElementById('schup-over');
     var heldEl = document.getElementById('schup-held');
+    var noteEl = document.getElementById('schup-cancel-note');
+    var stopBody = document.getElementById('schup-stop-body');
+    var steps = el.querySelectorAll('.schup-step');
+    // The steps: those before the one going are done, the one going is
+    // drawn full and moving -- nothing measures an index build.
+    function paint(phase){
+      var passed = false;
+      for (var i = 0; i < steps.length; i++) {
+        var st = steps[i], cur = st.getAttribute('data-step') === phase;
+        st.classList.toggle('is-current', cur);
+        st.classList.toggle('is-busy', cur);
+        st.querySelector('i').style.width = (cur || !passed ? 100 : 0) + '%';
+        if (cur) passed = true;
+      }
+    }
     var poll = setInterval(function(){
       fetch(api, {credentials: 'same-origin'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(v){
         if (!v) return;
         if (v.state !== 'running') { clearInterval(poll); location.reload(); return; }
         if (stageEl && v.stage) { stageEl.textContent = v.stage; stageEl.hidden = false; }
         if (overEl) overEl.hidden = !v.over;
-        if (heldEl && v.held_limit) {
-          heldEl.textContent = L('held').replace('%s', comma(v.held || 0)).replace('%s', comma(v.held_limit));
+        if (heldEl && v.held_text) {
+          heldEl.textContent = v.held_text;
+          heldEl.classList.toggle('schup-near', !!v.held_near);
         }
+        if (v.phase) paint(v.phase);
+        // A stop already asked for keeps its button saying so.
+        if (cancel && !cancel.disabled) cancel.hidden = !v.can_cancel;
+        if (noteEl) noteEl.textContent = v.stop_note || '';
+        if (stopBody) stopBody.textContent = v.cancel_note || '';
       }).catch(function(){});
     }, 5000);
   }
