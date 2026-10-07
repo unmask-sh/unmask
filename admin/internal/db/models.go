@@ -114,6 +114,7 @@ type User struct {
 	ResetTokenExpiresAt *int64     `gorm:"column:reset_token_expires_at"`
 	CreatedAt           time.Time  `gorm:"column:created_at;not null;autoCreateTime:false"`
 	LastLogin           *time.Time `gorm:"column:last_login"`
+	UILang              string     `gorm:"column:ui_lang;not null;default:''"`
 }
 
 func (User) TableName() string { return "unmask_user" }

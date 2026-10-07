@@ -124,9 +124,9 @@ func TestCheckOverBlockLongWindow(t *testing.T) {
 		obEvent(t, h, ip, "verify_ng", "/a", "", at.Add(time.Second))
 	}
 	mail := make(chan string, 1)
-	h.Notifier = notifier.New(notifier.Config{}).WithMail(textMailer(mail), func() []string {
-		return []string{"ops@example.com"}
-	})
+	h.Notifier = notifier.New(notifier.Config{}).WithMail(textMailer(mail), func() []notifier.Recipient {
+		return []notifier.Recipient{{Email: "ops@example.com"}}
+	}, nil)
 	h.checkOverBlock(ctx, false) // the long window not read yet: read once all the same
 	if !h.overBlockTripped.Load() {
 		t.Fatal("breaker did not trip on three stuck visitors of three in the hour")

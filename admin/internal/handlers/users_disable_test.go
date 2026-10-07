@@ -76,7 +76,7 @@ func TestDisabledExcludedFromAlerts(t *testing.T) {
 		t.Fatal(err)
 	}
 	got, _ := h.UserRepo.AlertRecipients(ctx)
-	if len(got) != 1 || got[0] != a1.Email.String {
+	if len(got) != 1 || got[0].Email != a1.Email.String {
 		t.Fatalf("recipients after suspend = %v, want only a1", got)
 	}
 }

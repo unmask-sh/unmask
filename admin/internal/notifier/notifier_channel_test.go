@@ -37,7 +37,7 @@ func overBlockDelivery(t *testing.T, cfg Config) (webhook, mail bool) {
 	cfg.URL = srv.URL
 
 	m := &chanMailer{sent: make(chan string, 4)}
-	n := New(cfg).WithMail(m, func() []string { return []string{"ops@example.com"} })
+	n := New(cfg).WithMail(m, func() []Recipient { return []Recipient{{Email: "ops@example.com"}} }, nil)
 	n.OverBlock(tripReport)
 
 	// Sends run in goroutines, but a paused channel never starts one -- so a
@@ -65,10 +65,10 @@ func overBlockDelivery(t *testing.T, cfg Config) (webhook, mail bool) {
 func TestMailToOverridesResolver(t *testing.T) {
 	send := func(cfg Config) (subjects []string, resolverCalled bool) {
 		m := &chanMailer{sent: make(chan string, 8)}
-		n := New(cfg).WithMail(m, func() []string {
+		n := New(cfg).WithMail(m, func() []Recipient {
 			resolverCalled = true
-			return []string{"admin@example.com"}
-		})
+			return []Recipient{{Email: "admin@example.com"}}
+		}, nil)
 		n.OverBlock(tripReport)
 		for {
 			select {

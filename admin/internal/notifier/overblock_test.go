@@ -2,7 +2,9 @@ package notifier
 
 import (
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 )
@@ -76,5 +78,64 @@ func TestRenderOverBlockCleared(t *testing.T) {
 	_, ja, _ := renderOverBlock(r, i18n.LangJA, "web1", "")
 	if !strings.Contains(ja, "challenge を通れるようになりました") || !strings.Contains(ja, "下回りました") {
 		t.Errorf("cleared (ja):\n%s", ja)
+	}
+}
+
+// langMailer records who got which subject.
+type langMailer struct {
+	mu   sync.Mutex
+	sent map[string]string // address -> subject
+}
+
+func (m *langMailer) Enabled() bool                          { return true }
+func (m *langMailer) Send(to, subject, body string) error    { return m.record(to, subject) }
+func (m *langMailer) SendAlt(to, subject, _, _ string) error { return m.record(to, subject) }
+func (m *langMailer) record(to, subject string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sent[to] = subject
+	return nil
+}
+func (m *langMailer) wait(n int) map[string]string {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		m.mu.Lock()
+		if len(m.sent) >= n {
+			defer m.mu.Unlock()
+			return m.sent
+		}
+		m.mu.Unlock()
+		time.Sleep(10 * time.Millisecond)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.sent
+}
+
+// Each recipient gets the mail in its own language: an account's is the one
+// it last saw the admin in; an address the operator listed by hand gets its
+// account's if it has one, and the notifications' default otherwise.
+func TestOverBlockMailLanguagePerRecipient(t *testing.T) {
+	en, ja := i18n.T(i18n.LangEN, "mail.overblock.title_tripped"), i18n.T(i18n.LangJA, "mail.overblock.title_tripped")
+
+	m := &langMailer{sent: map[string]string{}}
+	New(Config{Lang: "ja"}).WithMail(m, func() []Recipient {
+		return []Recipient{{Email: "en@x", Lang: "en"}, {Email: "ja@x", Lang: "ja"}, {Email: "new@x"}}
+	}, nil).OverBlock(stuckReport)
+	got := m.wait(3)
+	if !strings.Contains(got["en@x"], en) || !strings.Contains(got["ja@x"], ja) || !strings.Contains(got["new@x"], ja) {
+		t.Errorf("accounts: %v (new@x has no language yet: the default, ja)", got)
+	}
+
+	m = &langMailer{sent: map[string]string{}}
+	New(Config{MailTo: []string{"ops@x", "alice@x"}}).WithMail(m, nil, func(email string) string {
+		if email == "alice@x" {
+			return "ja"
+		}
+		return ""
+	}).OverBlock(stuckReport)
+	got = m.wait(2)
+	if !strings.Contains(got["ops@x"], en) || !strings.Contains(got["alice@x"], ja) {
+		t.Errorf("mail_to: %v (ops@x is no account's: the default, en; alice@x is an account's: ja)", got)
 	}
 }

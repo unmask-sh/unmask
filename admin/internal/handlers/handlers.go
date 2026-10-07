@@ -168,6 +168,8 @@ type Handler struct {
 	// overBlockLong: the breaker's last reading of its long window (read
 	// every few minutes, see longWindowEvery).
 	overBlockLong atomic.Pointer[events.StuckReport]
+	// uiLangWritten: the language last written per account (ui_lang.go).
+	uiLangWritten uiLangWrites
 	// adminSeen: an admin account has been observed in this process.  Once
 	// set, a user-count query that fails (a locked or slow database) reads
 	// as "configured, database busy", never as "fresh install": the setup

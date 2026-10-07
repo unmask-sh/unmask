@@ -1007,6 +1007,8 @@ CREATE TABLE IF NOT EXISTS unmask_user (
     reset_token_expires_at   INTEGER,                                     -- reset token expiry (unix seconds, UTC)
     created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,  -- account creation time (UTC)
     last_login               DATETIME                                     -- last successful login time (UTC)
+    -- NOTE: ui_lang is added by migration 0035, not here (see
+    -- unmask_user_audit for why).
 );
 
 -- unmask_user_audit: append-only audit trail of admin actions.
@@ -1137,6 +1139,7 @@ CREATE TABLE IF NOT EXISTS unmask_user (
     reset_token_expires_at   BIGINT COMMENT 'reset token expiry (unix seconds, UTC)',
     created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'account creation time (UTC)',
     last_login               DATETIME COMMENT 'last successful login time (UTC)',
+    -- ui_lang is added by migration 0035 (see the SQLite schema for why).
     PRIMARY KEY (id),
     UNIQUE KEY uk_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Dashboard admin accounts';

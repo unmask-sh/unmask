@@ -23,6 +23,7 @@ func NotifierConfigFrom(n settings.Notifications, hostID string) notifier.Config
 		WebhookDisabled:     n.WebhookDisabled,
 		MailDisabled:        n.MailDisabled,
 		MailTo:              n.MailToResolved(),
+		Lang:                n.LangResolved(),
 	}
 }
 

@@ -3318,6 +3318,22 @@ type Notifications struct {
 	// separated (a mailing list, a shared alerts@ box) without registering a
 	// pseudo-user to carry the address.
 	MailTo string `yaml:"mail_to,omitempty"`
+	// Lang: the language of the over-block alert for a recipient whose own
+	// is not known -- an address in MailTo that is no account's, or an
+	// account that has not used the admin yet.  "en" (default) or "ja".  An
+	// account gets it in the language it last saw the admin in.  Other alert
+	// mail is English.
+	Lang string `yaml:"lang,omitempty"`
+}
+
+// LangResolved returns Lang when it is a language the mail is written in,
+// and "en" otherwise.
+func (n Notifications) LangResolved() string {
+	switch n.Lang {
+	case "ja", "en":
+		return n.Lang
+	}
+	return "en"
 }
 
 // MailToResolved splits MailTo into clean addresses (comma-separated, blanks

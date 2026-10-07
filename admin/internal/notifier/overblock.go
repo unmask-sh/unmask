@@ -40,11 +40,11 @@ type OverBlockExample struct {
 // OverBlock: the over-block circuit breaker changed state.  Called only on a
 // transition (trip or clear), so there is no flap to throttle.
 //
-// The mail says what is happening, the figures it was decided on, the
-// addresses stuck, whether protection changed, and where to look -- the alert
-// it replaces was one line of "browser-grade challenge serves" and a ratio,
-// and stated a loop as fact on an average that one scanner had lifted
-// (2026-10-07).
+// The mail says, in the reader's language, what is happening, the figures it
+// was decided on, the addresses stuck, whether protection changed, and where
+// to look -- the alert it replaces was one line of "browser-grade challenge
+// serves" and a ratio, and stated a loop as fact on an average that one
+// scanner had lifted (2026-10-07).
 func (n *Notifier) OverBlock(r OverBlockReport) {
 	if n == nil {
 		return
@@ -67,10 +67,12 @@ func (n *Notifier) OverBlock(r OverBlockReport) {
 			"site":             cfg.Sites,
 			"ts":               time.Now().Unix(),
 		}
-		go n.send(cfg, EventOverBlock, fields, overBlockLine(r, i18n.LangEN, cfg.Sites))
+		lang := i18n.Lang(cfg.mailLang())
+		go n.send(cfg, EventOverBlock, fields, overBlockLine(r, lang, cfg.Sites))
 	}
-	subject, text, html := renderOverBlock(r, i18n.LangEN, cfg.Sites, r.AdminURL)
-	go n.sendMailAlt(subject, text, html)
+	go n.sendMailLocalized(func(lang string) (string, string, string) {
+		return renderOverBlock(r, i18n.Lang(lang), cfg.Sites, r.AdminURL)
+	})
 }
 
 // overBlockLine is the webhook's one line.

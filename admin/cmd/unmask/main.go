@@ -476,7 +476,9 @@ func cmdServe(args []string) error {
 	// Wire mail notifications into the notifier.  The recipient resolver is a
 	// thin closure that calls UserRepo.AlertRecipients.  On failure, return
 	// an empty list to skip mail sending.
-	notifierInst.WithMail(mailerInst, func() []string {
+	// Each recipient gets the over-block alert in the language it last saw
+	// the admin in.
+	notifierInst.WithMail(mailerInst, func() []notifier.Recipient {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		xs, err := userRepo.AlertRecipients(ctx)
@@ -484,7 +486,15 @@ func cmdServe(args []string) error {
 			log.Printf("alert recipients lookup: %v", err)
 			return nil
 		}
-		return xs
+		out := make([]notifier.Recipient, 0, len(xs))
+		for _, x := range xs {
+			out = append(out, notifier.Recipient{Email: x.Email, Lang: x.Lang})
+		}
+		return out
+	}, func(email string) string {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		return userRepo.UILangByEmail(ctx, email)
 	})
 	if banMgr != nil {
 		banMgr.OnCreated = notifierInst.BanCreated

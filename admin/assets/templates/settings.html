@@ -6244,6 +6244,18 @@ document.getElementById('notify-test-btn').addEventListener('click', function(){
       <input type="text" name="mail_to" value="{{ .Notifications.MailTo }}" placeholder="alerts@example.com, oncall@example.com" style="width:100%;font-family:ui-monospace,monospace">
       <div class="note" style="margin-top:.35rem">{{ t .Lang "settings.notify.mail_to_note" }}</div>
     </div>
+    <div class="field">
+      <div class="field-label field-label-row">
+        <span>{{ t .Lang "settings.notify.mail_lang" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="notify-mail-lang-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="notify-mail-lang-help">{{ t .Lang "settings.notify.mail_lang_desc" }}</script>
+      <select name="mail_lang">
+        <option value=""{{ if ne .Notifications.Lang "ja" }} selected{{ end }}>English</option>
+        <option value="ja"{{ if eq .Notifications.Lang "ja" }} selected{{ end }}>日本語</option>
+      </select>
+      <div class="note" style="margin-top:.35rem">{{ t .Lang "settings.notify.mail_lang_note" }}</div>
+    </div>
   </div>
 
   {{/* The mail SERVER, right under its channel: same tab, same form, one

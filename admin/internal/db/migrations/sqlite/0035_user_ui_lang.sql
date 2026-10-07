@@ -1,0 +1,14 @@
+-- 0035 user ui lang: the language each account last saw the admin in.
+--
+-- The over-block alert went out in English to everyone.  It is now written
+-- in the language its reader uses the admin in -- the one picked in the
+-- header, or the browser's when none was picked -- recorded as the account
+-- uses the admin: the session check already reads the account on every
+-- request, and writes this column only when the language differs.  Empty
+-- until the first visit; an address that is no account's gets
+-- notifications.lang.  Other alert mail stays in English.
+--
+-- Not in migrate.go's base schema, which runs before the numbered
+-- migrations: SQLite has no ADD COLUMN IF NOT EXISTS, so a column declared
+-- in both places fails here on every fresh install (see unmask_user_audit).
+ALTER TABLE unmask_user ADD COLUMN ui_lang VARCHAR(8) NOT NULL DEFAULT ''; -- language the account last saw the admin in ('' before its first visit); the over-block alert is written in it

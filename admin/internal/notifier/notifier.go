@@ -49,7 +49,17 @@ type Config struct {
 	WebhookDisabled     bool     // pause the webhook channel (URL kept)
 	MailDisabled        bool     // pause alert mail (SMTP transport stays up for password reset)
 	MailTo              []string // explicit alert recipients; empty = resolve via mailGetTo (admin users)
+	// Lang: the language of mail written per language (the over-block
+	// alert) for a recipient whose own is not known -- an address in MailTo
+	// that is no account's, or an account that has not used the admin yet
+	// ("en" when empty).  Other alert mail is English.
+	Lang string
 }
+
+// Recipient is an address alert mail goes to, and the language mail written
+// per language reaches it in: the account's, as it last used the admin (""
+// when unknown -- then Config.Lang).
+type Recipient struct{ Email, Lang string }
 
 // MailSender: thin interface used by notifier for mail sending.  Taking
 // *mail.Mailer directly would cause an import cycle, so we accept an
@@ -78,7 +88,10 @@ type Notifier struct {
 
 	// Optional mail integration.  If both are nil, mail notification is skipped.
 	mailer    MailSender
-	mailGetTo func() []string // recipient list resolver (= wraps UserRepo.AlertRecipients)
+	mailGetTo func() []Recipient // recipient list resolver (= wraps UserRepo.AlertRecipients)
+	// mailLangOf: the language of the account an address belongs to ("" when
+	// none), for the addresses in Config.MailTo.
+	mailLangOf func(email string) string
 }
 
 // New: cfg is passed by value (= hot-swap later via SetConfig).
@@ -100,16 +113,48 @@ func (n *Notifier) SetConfig(cfg Config) {
 }
 
 // WithMail: configure mail notifications in parallel with the webhook.  If
-// m.Enabled() is true, send the same subject / body to every recipient
-// returned by resolveTo().  If either m or resolveTo is nil, mail
-// notification is skipped.
-func (n *Notifier) WithMail(m MailSender, resolveTo func() []string) *Notifier {
+// m.Enabled() is true, alert mail goes to every recipient returned by
+// resolveTo() -- or to Config.MailTo, when the operator set addresses there,
+// each in the language langOf finds for it (nil: Config.Lang for all).  If
+// either m or resolveTo is nil, mail notification is skipped.
+func (n *Notifier) WithMail(m MailSender, resolveTo func() []Recipient, langOf func(email string) string) *Notifier {
 	if n == nil {
 		return n
 	}
 	n.mailer = m
 	n.mailGetTo = resolveTo
+	n.mailLangOf = langOf
 	return n
+}
+
+// recipients resolves who alert mail goes to now, each with a language.
+func (n *Notifier) recipients(cfg Config) []Recipient {
+	var out []Recipient
+	if len(cfg.MailTo) > 0 {
+		for _, e := range cfg.MailTo {
+			r := Recipient{Email: e}
+			if n.mailLangOf != nil {
+				r.Lang = n.mailLangOf(e)
+			}
+			out = append(out, r)
+		}
+	} else if n.mailGetTo != nil {
+		out = n.mailGetTo()
+	}
+	for i := range out {
+		if out[i].Lang == "" {
+			out[i].Lang = cfg.mailLang()
+		}
+	}
+	return out
+}
+
+// mailLang: the default language of alert mail.
+func (c Config) mailLang() string {
+	if c.Lang == "" {
+		return "en"
+	}
+	return c.Lang
 }
 
 func (n *Notifier) currentCfg() Config {
@@ -218,25 +263,20 @@ func (n *Notifier) sendMail(subject, body string) {
 	if cfg.MailDisabled {
 		return
 	}
-	to := cfg.MailTo
-	if len(to) == 0 {
-		if n.mailGetTo == nil {
-			return
-		}
-		to = n.mailGetTo()
-	}
-	for _, t := range to {
-		if t == "" {
+	for _, r := range n.recipients(cfg) {
+		if r.Email == "" {
 			continue
 		}
-		if err := n.mailer.Send(t, subject, body); err != nil {
-			log.Printf("notifier mail to %s: %v", t, err)
+		if err := n.mailer.Send(r.Email, subject, body); err != nil {
+			log.Printf("notifier mail to %s: %v", r.Email, err)
 		}
 	}
 }
 
-// sendMailAlt: sendMail with a text part and an HTML part.
-func (n *Notifier) sendMailAlt(subject, text, html string) {
+// sendMailLocalized sends alert mail written for each recipient's language:
+// build returns the subject, the text and the HTML for a language.  Same
+// gating as sendMail.
+func (n *Notifier) sendMailLocalized(build func(lang string) (subject, text, html string)) {
 	if n == nil || n.mailer == nil || !n.mailer.Enabled() {
 		return
 	}
@@ -244,19 +284,13 @@ func (n *Notifier) sendMailAlt(subject, text, html string) {
 	if cfg.MailDisabled {
 		return
 	}
-	to := cfg.MailTo
-	if len(to) == 0 {
-		if n.mailGetTo == nil {
-			return
-		}
-		to = n.mailGetTo()
-	}
-	for _, t := range to {
-		if t == "" {
+	for _, r := range n.recipients(cfg) {
+		if r.Email == "" {
 			continue
 		}
-		if err := n.mailer.SendAlt(t, subject, text, html); err != nil {
-			log.Printf("notifier mail to %s: %v", t, err)
+		subject, text, html := build(r.Lang)
+		if err := n.mailer.SendAlt(r.Email, subject, text, html); err != nil {
+			log.Printf("notifier mail to %s: %v", r.Email, err)
 		}
 	}
 }

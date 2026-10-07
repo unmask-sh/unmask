@@ -5551,6 +5551,12 @@ func applyNotificationsForm(c *settings.Notifications, r *http.Request) {
 	c.WebhookDisabled = r.FormValue("webhook_disabled") == "1"
 	c.MailDisabled = r.FormValue("mail_disabled") == "1"
 	c.MailTo = strings.TrimSpace(r.FormValue("mail_to"))
+	// English is the default and is stored as no value, so a save that
+	// changes nothing writes nothing.
+	c.Lang = ""
+	if r.FormValue("mail_lang") == "ja" {
+		c.Lang = "ja"
+	}
 }
 
 // AdminNotifyTest: POST {base}/admin/api/notify/test — send a test event.

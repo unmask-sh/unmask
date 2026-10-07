@@ -590,6 +590,7 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 							return
 						}
 						pay.Role = u.Role
+						h.rememberUILang(r, u)
 					} else if errors.Is(uerr, user.ErrNotFound) {
 						sec := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 						http.SetCookie(w, clearSessionCookie(sec))

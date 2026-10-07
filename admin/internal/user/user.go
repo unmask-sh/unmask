@@ -72,6 +72,9 @@ type User struct {
 	ResetTokenExpiresAt sql.NullInt64
 	CreatedAt           time.Time
 	LastLogin           sql.NullTime
+	// UILang: the language this account last saw the admin in ("" before
+	// its first visit) -- what its alert mail is written in.
+	UILang string
 }
 
 // ErrNotFound: user not found.  Also used for "auth failed" so that the
@@ -271,7 +274,7 @@ func (r *Repository) CreateWithHash(ctx context.Context, username, passwordHash,
 // GetByUsername: primary lookup used during authentication.
 func (r *Repository) GetByUsername(ctx context.Context, username string) (*User, error) {
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
 		 FROM unmask_user WHERE username = ?`, username)
 	return scanUser(row)
 }
@@ -279,7 +282,7 @@ func (r *Repository) GetByUsername(ctx context.Context, username string) (*User,
 // GetByID: load the user from the session cookie payload (= user_id).
 func (r *Repository) GetByID(ctx context.Context, id int64) (*User, error) {
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
 		 FROM unmask_user WHERE id = ?`, id)
 	return scanUser(row)
 }
@@ -287,7 +290,7 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*User, error) {
 // List: for the superadmin user-management UI.  Ascending by username.
 func (r *Repository) List(ctx context.Context) ([]*User, error) {
 	rows, err := r.DB.QueryContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
 		 FROM unmask_user ORDER BY username`)
 	if err != nil {
 		return nil, err
@@ -423,7 +426,7 @@ func scanUser(r interface {
 }) (*User, error) {
 	var u User
 	var optOut, disabled int64
-	err := r.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.Email, &optOut, &disabled, &u.ResetToken, &u.ResetTokenExpiresAt, &u.CreatedAt, &u.LastLogin)
+	err := r.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.Email, &optOut, &disabled, &u.ResetToken, &u.ResetTokenExpiresAt, &u.CreatedAt, &u.LastLogin, &u.UILang)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -502,7 +505,7 @@ func (r *Repository) ConsumeResetToken(ctx context.Context, token string) (*User
 		return nil, ErrNotFound
 	}
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
 		 FROM unmask_user WHERE reset_token = ?`, token)
 	u, err := scanUser(row)
 	if err != nil {
@@ -543,32 +546,60 @@ func (r *Repository) GetByEmail(ctx context.Context, email string) (*User, error
 		return nil, ErrNotFound
 	}
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
 		 FROM unmask_user WHERE email = ? ORDER BY id LIMIT 1`, email)
 	return scanUser(row)
 }
 
+// AlertRecipient is an account alert mail goes to: its address, and the
+// language it last saw the admin in ("" before its first visit).
+type AlertRecipient struct{ Email, Lang string }
+
 // AlertRecipients: load the users that should receive alert mail
 // (= email present + alert_opt_out=0 + role in superadmin/admin).
 // Called from the notifier.  viewers do not receive notifications.
-func (r *Repository) AlertRecipients(ctx context.Context) ([]string, error) {
+func (r *Repository) AlertRecipients(ctx context.Context) ([]AlertRecipient, error) {
 	rows, err := r.DB.QueryContext(ctx,
-		`SELECT email FROM unmask_user
+		`SELECT email, ui_lang FROM unmask_user
 		 WHERE email IS NOT NULL AND email <> '' AND alert_opt_out = 0 AND disabled = 0 AND role IN (?, ?)`,
 		RoleSuperadmin, RoleAdmin)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []string
+	var out []AlertRecipient
 	for rows.Next() {
 		var e sql.NullString
-		if err := rows.Scan(&e); err != nil {
+		var lang string
+		if err := rows.Scan(&e, &lang); err != nil {
 			return nil, err
 		}
 		if e.Valid && strings.TrimSpace(e.String) != "" {
-			out = append(out, e.String)
+			out = append(out, AlertRecipient{Email: e.String, Lang: lang})
 		}
 	}
 	return out, rows.Err()
+}
+
+// UILangByEmail: the language the account with this address last saw the
+// admin in -- "" when no account has the address, or it has not visited.
+// For alert addresses the operator listed by hand (notifications.mail_to),
+// which may or may not be someone's account.
+func (r *Repository) UILangByEmail(ctx context.Context, email string) string {
+	email = strings.TrimSpace(email)
+	if r == nil || email == "" {
+		return ""
+	}
+	var lang string
+	if err := r.DB.QueryRowContext(ctx,
+		`SELECT ui_lang FROM unmask_user WHERE LOWER(email) = LOWER(?) AND ui_lang <> '' ORDER BY id LIMIT 1`, email).Scan(&lang); err != nil {
+		return ""
+	}
+	return lang
+}
+
+// SetUILang records the language the account sees the admin in.
+func (r *Repository) SetUILang(ctx context.Context, userID int64, lang string) error {
+	_, err := r.DB.ExecContext(ctx, `UPDATE unmask_user SET ui_lang = ? WHERE id = ?`, lang, userID)
+	return err
 }

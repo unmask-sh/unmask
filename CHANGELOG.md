@@ -14,6 +14,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- (2026-10-07) **The over-block alert arrives in its reader's language.**  An account gets it in the language it last saw the admin in -- the one picked at the top right, or the browser's -- recorded as it uses the admin.  Addresses listed under Recipients, and accounts that have not opened the admin yet, get the language chosen on the notifications tab: English by default, or Japanese.  Other alert mail stays in English.
+
 ### Changed
 - (2026-10-07) **The admin asks in its own dialog, and names what an action is about.**  Confirmations, prompts and error messages open in the admin's modal instead of the browser's box.  Deleting a site's settings names the site in the question and in the message after it; unbanning, user changes, audit restores and community deletes name their target too.
 
