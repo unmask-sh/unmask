@@ -65,6 +65,30 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     };
   });
 
+  // No phase pill carries a title= tooltip: the pill opens a popover on
+  // hover, and a native tooltip opened over it (the abandon pill's detail,
+  // 2026-10-07).  The detail is a footnote inside the popover instead.
+  // Checked on the view filtered to abandon as well: unfiltered, the abandon
+  // row heads a collapsed session whose chain is rebuilt without the
+  // server-rendered pill.
+  const titledPills = () => page.$$eval('table.events tbody .phase-pill[title]', els => els.map(e => e.textContent.trim()));
+  let titled = await titledPills();
+  await page.goto(BASE + '/admin/hunt/?range=24h&phase=abandon', { waitUntil: 'networkidle2' });
+  titled = titled.concat(await titledPills());
+  ok(titled.length === 0, 'phase pills with a title= tooltip over their popover: ' + titled.join(', '));
+  const abandonNote = await page.evaluate(async () => {
+    const pill = document.querySelector('table.events tbody .phase-pill.ph-abandon');
+    if (!pill) return null;
+    const tr = pill.closest('tr');
+    pill.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true }));
+    await new Promise(r => setTimeout(r, 400));
+    const note = document.querySelector('.session-notes .session-note');
+    return { want: tr.getAttribute('data-detail') || '', got: note ? note.textContent : '' };
+  });
+  ok(abandonNote !== null, 'no abandon row to hover -- run.sh seeding changed');
+  if (abandonNote) ok(abandonNote.want && abandonNote.got.includes(abandonNote.want), "the abandon pill's popover carries its detail as a footnote: " + JSON.stringify(abandonNote));
+  await page.goto(BASE + '/admin/hunt/?range=24h', { waitUntil: 'networkidle2' });
+
   if (res.missing) {
     ok(false, 'no chainless row with a badge in its date cell -- run.sh seeding changed');
   } else {

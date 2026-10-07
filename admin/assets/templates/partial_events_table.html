@@ -427,7 +427,7 @@
            are empty; the session-collapse below promotes the group's real
            verdict onto the rep row so a folded bot session still shows it. */}}
       <td class="mono verdict-cell{{ if .Verdict }} cellpop{{ end }}">{{ if .Verdict }}{{ .Verdict }}{{ else }}<span class="muted">(none)</span>{{ end }}</td>
-      <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}"{{ if eq .Phase "abandon" }} title="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}"{{ end }}>{{ if eq .Phase "abandon" }}<span class="ret-mark{{ if gt .PassedAfter 0 }} ret-back{{ end }}">{{ if gt .PassedAfter 0 }}✓{{ else }}∅{{ end }}</span>{{ end }}{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }}({{ .Reason }}){{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }}({{ .AbandonPhase }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted reload-badge" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}{{/* ⇄: this row's JA4 differs from the one its challenge was served
+      <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ if eq .Phase "abandon" }}<span class="ret-mark{{ if gt .PassedAfter 0 }} ret-back{{ end }}">{{ if gt .PassedAfter 0 }}✓{{ else }}∅{{ end }}</span>{{ end }}{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }}({{ .Reason }}){{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }}({{ .AbandonPhase }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted reload-badge" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}{{/* ⇄: this row's JA4 differs from the one its challenge was served
            to (same device, connection-to-connection variation).  It sits with
            the session badges because its click opens the session's phase
            timeline (each phase's recorded JA4/verdict) -- which is also the
@@ -1336,6 +1336,9 @@ document.addEventListener('DOMContentLoaded', function(){
     if (!pill || pill.dataset.popWired === '1') return;
     pill.dataset.popWired = '1';
     var esc = function(v){ var d = document.createElement('div'); d.textContent = v; return d.innerHTML; };
+    var noteHtml = function(det){
+      return det ? '<div class="session-notes"><div class="session-note"><span class="session-note-ref">*1</span> ' + esc(det) + '</div></div>' : '';
+    };
     // The lead is read at the moment the popover opens, not when the row was
     // wired: a click settles the referer state, and the hover that follows has
     // to show what the click found.
@@ -1363,14 +1366,20 @@ document.addEventListener('DOMContentLoaded', function(){
       var v = tr.getAttribute('data-verdict') || '';
       var sj = tr.getAttribute('data-serve-ja4') || '';
       var changed = j && sj && j !== sj;
+      // Spelled out and annotated as on the collapsed timeline: abandon names
+      // the step it left at, and its detail is a footnote here -- not a
+      // title= tooltip, which opened over this popover (2026-10-07).
+      var sub = (tr.getAttribute('data-sub') || '').replace(/[^a-z0-9_]/g, '');
+      var det = tr.getAttribute('data-detail') || '';
       return leadHtml() +
              '<div class="session-timeline tl-grid"><div class="session-line">' +
              '<span class="ts-cell"><span class="ts-src">&nbsp;</span><time class="ts-mono">' + esc(when.trim()) + '</time></span>' +
-             '<span class="tl-ph"><span class="phase-pill ph-' + ph.replace(/[^a-z0-9_]/g, '') + '">' + esc(ph) + '</span></span>' +
+             '<span class="tl-ph"><span class="phase-pill ph-' + ph.replace(/[^a-z0-9_]/g, '') + '">' + esc(ph + (sub ? '(' + sub + ')' : '')) + '</span>' +
+             (det ? ' <span class="session-note-ref">*1</span>' : '') + '</span>' +
              '<span class="tl-rest"><span class="ts-ja4' + (changed ? ' ts-ja4-chg' : '') + '">' +
              '<span class="ts-ja4-mark">' + (changed ? '\u21c4' : '&nbsp;') + '</span>' + esc(j || '-') +
              (v ? ' <span class="ts-verdict">' + esc(v) + '</span>' : '') + '</span></span>' +
-             '</div></div>';
+             '</div></div>' + noteHtml(det);
     };
     pill.style.cursor = 'pointer';
     var t = null;
@@ -1400,6 +1409,8 @@ document.addEventListener('DOMContentLoaded', function(){
         .then(function(d){
           var rowsD = d.rows;
           var prevJ = '';
+          var det = tr.getAttribute('data-detail') || '';
+          var ownPh = tr.getAttribute('data-phase') || '';
           var out = leadHtml() + '<div class="session-timeline tl-grid">';
           rowsD.forEach(function(rw){
             var ph2 = String(rw.p || '').replace(/[^a-z0-9_]/g, '');
@@ -1411,10 +1422,11 @@ document.addEventListener('DOMContentLoaded', function(){
                   (rw.v ? ' <span class="ts-verdict">' + esc(rw.v) + '</span>' : '') + '</span>';
             out += '<div class="session-line"><span class="ts-cell"><span class="ts-src">&nbsp;</span>' +
                    '<time class="ts-mono">' + esc(fmtTs(rw.t)) + '</time></span>' +
-                   '<span class="tl-ph"><span class="phase-pill ph-' + ph2 + '">' + esc(rw.p || '') + '</span></span>' +
+                   '<span class="tl-ph"><span class="phase-pill ph-' + ph2 + '">' + esc(rw.p || '') + '</span>' +
+                   (det && rw.p === ownPh ? ' <span class="session-note-ref">*1</span>' : '') + '</span>' +
                    '<span class="tl-rest">' + seg + '</span></div>';
           });
-          out += '</div>';
+          out += '</div>' + noteHtml(det);
           if (d.truncated) out += '<div class="session-notes">' + esc({{ t .Lang "hunt.ja4chain_truncated" }}) + '</div>';
           pin.handleClick(out, x, y, pill, 'session (' + rowsD.length + ' phases)');
         })
