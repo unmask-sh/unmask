@@ -28,6 +28,7 @@ type RedirectExemptGroup struct {
 	Patterns  []string
 	DefaultOn bool
 	AddedIn   string
+	UpdatedIn string // last release that changed the group ("updated vX"); shown only
 }
 
 // RedirectExemptMatchPath / MatchUA name the two match axes shared by presets
@@ -43,7 +44,8 @@ const (
 var RedirectExemptPresetGroups = []RedirectExemptGroup{
 	{
 		ID:        "acme",
-		DefaultOn: true, // a 301'd ACME HTTP-01 = failed cert renewal
+		DefaultOn: true,     // a 301'd ACME HTTP-01 = failed cert renewal
+		AddedIn:   "v0.1.3", // the exemption groups came with v0.1.3; v0.1.2's redirect exempted ACME in code
 		Label:     "ACME HTTP-01 (= /.well-known/acme-challenge/ — webroot cert renewal)",
 		MatchType: RedirectExemptMatchPath,
 		Patterns:  []string{`^/\.well-known/acme-challenge/`},
@@ -51,6 +53,7 @@ var RedirectExemptPresetGroups = []RedirectExemptGroup{
 	{
 		ID:        "lb-health",
 		DefaultOn: true, // a 301'd health check = LB drops the node from rotation
+		AddedIn:   "v0.1.3",
 		Label:     "Load-balancer health checks (= GoogleHC / ELB-HealthChecker / kube-probe / Azure — matched by user-agent)",
 		MatchType: RedirectExemptMatchUA,
 		// One pattern (an alternation) so the render emits a single `if`.  These

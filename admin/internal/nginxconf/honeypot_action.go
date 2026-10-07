@@ -59,7 +59,7 @@ func ResolveHoneypotAction(uri, site string, n settings.Nginx) (action string, m
 		} else if disabledHP[g.ID] {
 			continue
 		}
-		if !g.OptIn && EnforcementHeld(n, g.AddedIn) {
+		if HoneypotGroupHeld(n, g) {
 			continue // held pending upgrade review -- match native render
 		}
 		for _, p := range g.Patterns {

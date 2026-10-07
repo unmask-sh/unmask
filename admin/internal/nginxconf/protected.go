@@ -98,6 +98,9 @@ type ProtectedPathPresetGroup struct {
 	Label   string
 	Rules   []ProtectedPathRule
 	AddedIn string
+	// UpdatedIn: the last release that changed the rules, shown as "updated
+	// vX" (v0.1.28 left the mode to the tab's default).
+	UpdatedIn string
 }
 
 // ProtectedPathPresetGroups: typical "you probably want to protect this" path sets.
@@ -119,15 +122,17 @@ type ProtectedPathPresetGroup struct {
 // CAPTCHA wall.
 var ProtectedPathPresetGroups = []ProtectedPathPresetGroup{
 	{
-		ID:    "unmask",
-		Label: "unmask itself (gate the /unmask/admin/ login page)",
+		ID:        "unmask",
+		Label:     "unmask itself (gate the /unmask/admin/ login page)",
+		UpdatedIn: "v0.1.28",
 		Rules: []ProtectedPathRule{
 			{Pattern: `^/unmask/admin/`},
 		},
 	},
 	{
-		ID:    "common-admin",
-		Label: "Common admin / CMS paths (/wp-admin/ /wp-login.php /phpmyadmin/ /admin/ /administrator/ /manager/html)",
+		ID:        "common-admin",
+		Label:     "Common admin / CMS paths (/wp-admin/ /wp-login.php /phpmyadmin/ /admin/ /administrator/ /manager/html)",
+		UpdatedIn: "v0.1.28",
 		Rules: []ProtectedPathRule{
 			{Pattern: `^/wp-admin/`},
 			{Pattern: `^/wp-login\.php`},

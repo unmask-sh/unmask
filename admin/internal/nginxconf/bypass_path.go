@@ -25,6 +25,9 @@ type BypassPathGroup struct {
 	Label   string
 	Rules   []BypassPathRule // {Pattern, Site}
 	AddedIn string
+	// UpdatedIn: the last release that changed the rules or the default,
+	// shown as "updated vX" (v0.1.2 turned the machine-access presets on).
+	UpdatedIn string
 	// DefaultOn: the preset's factory state when the operator has recorded no
 	// choice for it (= its ID is in neither EnabledPresets nor DisabledPresets).
 	// ON is reserved for presets where staying OFF silently breaks machine
@@ -60,6 +63,7 @@ var BypassPathPresetGroups = []BypassPathGroup{
 	{
 		ID:        "static-assets",
 		DefaultOn: true, // robots.txt / sitemap.xml behind a challenge = SEO incident
+		UpdatedIn: "v0.1.2",
 		Label:     "Static assets (= /static/ /assets/ /favicon.ico /robots.txt /sitemap.xml /ads.txt etc.)",
 		Rules: []BypassPathRule{
 			{Pattern: `^/static/`},
@@ -77,6 +81,7 @@ var BypassPathPresetGroups = []BypassPathGroup{
 	{
 		ID:        "well-known",
 		DefaultOn: true, // a challenged ACME HTTP-01 = failed cert renewal, noticed on expiry day
+		UpdatedIn: "v0.1.2",
 		Label:     "/.well-known/ (= ACME / OIDC discovery / security.txt etc.)",
 		Rules: []BypassPathRule{
 			{Pattern: `^/\.well-known/`},
@@ -85,6 +90,7 @@ var BypassPathPresetGroups = []BypassPathGroup{
 	{
 		ID:        "browser-metadata",
 		DefaultOn: true, // browsers fetch these cookie-less without user action; a challenge page breaks them silently
+		UpdatedIn: "v0.1.2",
 		Label:     "Browser metadata (= manifest / browserconfig / apple-touch-icon / service worker -- browsers fetch these without user action)",
 		Rules: []BypassPathRule{
 			// PWA manifests (= both naming conventions).
@@ -106,6 +112,7 @@ var BypassPathPresetGroups = []BypassPathGroup{
 	{
 		ID:        "health",
 		DefaultOn: true, // a challenged health check = LB marks the node unhealthy
+		UpdatedIn: "v0.1.2",
 		Label:     "Health checks (= /healthz / /readyz / /api/health)",
 		Rules: []BypassPathRule{
 			{Pattern: `^/healthz$`},

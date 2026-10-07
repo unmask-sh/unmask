@@ -1863,7 +1863,7 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 		} else if disabledHP[g.ID] {
 			continue
 		}
-		if !g.OptIn && nginxconf.EnforcementHeld(n, g.AddedIn) {
+		if nginxconf.HoneypotGroupHeld(n, g) {
 			continue // held pending upgrade review -- match native render
 		}
 		act := strings.TrimSpace(n.Honeypot.PresetAction[g.ID])

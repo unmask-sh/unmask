@@ -19,6 +19,7 @@ type HostingProvider struct {
 	OrgPatterns []string // case-insensitive org-name substrings that identify this provider
 	Aliases     []string // brand/nickname terms ABSENT from the org name (Azure, GCP, AWS...) -- used only to match a suggest query to this provider, never for the block decision
 	AddedIn     string   // release the provider joined the catalog (v-form); drives the "NEW" badge
+	UpdatedIn   string   // last release that changed its patterns ("updated vX"); shown only
 }
 
 // HostingProviders: the built-in catalog.  Order is UI display order (roughly

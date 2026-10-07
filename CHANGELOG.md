@@ -16,6 +16,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- (2026-10-07) **Presets say how their patterns match, and when a release changed them.**  Each preset's patterns now carry the same chip as a custom row (regex for every shipped preset), and an "updated" label joins "since" where a later release changed the preset.  The SQL-injection preset reads since v0.1.0, updated v0.1.50; the upgrade review still holds its new default from v0.1.50.
+
 - (2026-10-07) **The schema update notice says what a stop costs, and can stop a run from a shell.**  Like the compaction card, the notice shows the update's steps, the held events against their limit, and what stopping it loses: nothing during the index build, only the statistics at the end.  A superadmin can now stop an `unmask migrate` typed into a shell, and both buttons ask in a modal.
 
 - (2026-10-07) **The compaction card shows each step and the time it has left.**  One figure covered the copy and its write-back, so a half-done copy read as a quarter.  Each step now has its own percentage and the time left at its speed so far; the held events show their limit, and the plan says "about" rather than "up to", with how long the daemon can hold them.
@@ -23,6 +25,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-10-07) **A superadmin can stop a compaction started from a shell.**  The card offered to stop only a run its daemon had started.  It now stops an `unmask db-vacuum` typed into a shell too, after checking the process, and says what stopping costs: nothing while VACUUM runs, only the statistics at the last step.  The final write into the file cannot be stopped.
 
 ### Fixed
+- (2026-10-07) **The upgrade review no longer holds a SQL-injection preset the operator had turned on.**  v0.1.50 turned the preset on by default and holds that change on installs that review upgrades, but it also held it on installs whose operator had enabled it while it was opt-in, switching their protection off until the review.  Their go-ahead now counts.
 
 - (2026-10-07) **A compaction whose final checkpoint ran long is no longer recorded as failed.**  After VACUUM, the run copies the database out of the write-ahead log for at most ten minutes; on a large file on a slow disk, the limit stopped the checkpoint and recorded the committed compaction as failed.  The limit now grows with the compaction's own time, and running out leaves the rest to the daemon.
 

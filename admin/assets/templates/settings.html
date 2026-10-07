@@ -10,6 +10,12 @@
      line they no longer recognise.  Callers that want notes pass Titles;
      the field renders either way so the two inputs stay index-aligned on
      submit.  Same shape as the bypass-IP rows. */}}
+{{/* presetPats: a preset's patterns, saying how they are read as the custom
+     rows do (patModeLabel): one chip ahead of them when they share a mode --
+     every shipped preset is a regex -- or one after each when they do not.
+     Lang, Mode (presetMode in settings_admin.go: "" when mixed), Pats. */}}
+{{ define "presetPats" }}{{ if .Mode }}<span class="pat-lit lead" data-mode="{{ .Mode }}">{{ patModeName .Lang .Mode }}</span>{{ range $i, $p := .Pats }}{{ if $i }} · {{ end }}{{ patText $p }}{{ end }}{{ else }}{{ range $i, $p := .Pats }}{{ if $i }} · {{ end }}{{ patText $p }}<span class="pat-lit" data-mode="{{ patMode $p }}">{{ patModeLabel $.Lang $p }}</span>{{ end }}{{ end }}{{ end }}
+
 {{/* ruleButtons: the shared per-row action buttons for every rule-list.  One
      definition instead of the copy in each block; icon-only, so aria-label and
      never title -- a hover tooltip on an icon button is exactly what
@@ -338,6 +344,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .pat .pat-lit[data-mode="exact"]{background:#dbeafe;color:#1e40af}
 .pat .pat-lit[data-mode="subdomain"]{background:#fef3c7;color:#92400e}
 .pat .pat-lit[data-mode="regex"]{background:#ede9fe;color:#5b21b6}
+.pat .pat-lit.lead{margin:0 .4rem 0 0}
 .rule-row input.rule-verd{flex:1;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem;color:#92400e}
 /* Free-text note beside a bare value (IP / host).  Narrower than the value it
    annotates and set in the UI font, so a row still reads value-first. */
@@ -1312,7 +1319,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="preset lb-preset{{ if .IsNew }} is-new{{ end }}">
         <input type="checkbox" name="trusted_lb_preset" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="lb-{{ .ID }}">
         <label for="lb-{{ .ID }}" class="lbl">
-          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
+          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .UpdatedIn }}<span class="added">{{ tf $.Lang "settings.ua.updated_in" .UpdatedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
           <div class="pat" style="font-size:.7rem;color:#94a3b8;font-family:ui-monospace,Menlo,monospace">
             <details class="lb-cidrs"><summary>{{ .CIDRCount }} CIDRs</summary><div class="lb-cidrs-body">{{ range .CIDRs }}<div>{{ . }}</div>{{ end }}{{ if .Source }}<div class="lb-cidrs-src"><a href="{{ .Source }}" target="_blank" rel="noopener">source ↗</a></div>{{ end }}</div></details>
             · header: <code>{{ .Header }}</code>
@@ -1380,7 +1387,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div class="preset{{ if .IsNew }} is-new{{ end }}">
           <input type="checkbox" name="redirect_exempt_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="re-{{ .ID }}">
           <label for="re-{{ .ID }}" class="lbl">
-            <div class="ttl">{{ .Label }}{{ if .DefaultOn }}<span class="added">{{ t $.Lang "settings.bypass_paths.preset_default_on" }}</span>{{ end }}<span class="added">{{ if eq .MatchType "ua" }}UA{{ else }}path{{ end }}</span>{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
+            <div class="ttl">{{ .Label }}{{ if .DefaultOn }}<span class="added">{{ t $.Lang "settings.bypass_paths.preset_default_on" }}</span>{{ end }}<span class="added">{{ if eq .MatchType "ua" }}UA{{ else }}path{{ end }}</span>{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .UpdatedIn }}<span class="added">{{ tf $.Lang "settings.ua.updated_in" .UpdatedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
           </label>
         </div>
         {{ end }}
@@ -1650,7 +1657,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <td><input type="checkbox" name="bypass_preset_enabled" value="{{ .ID }}" {{ if or .Enabled .AutoEnabled }}checked{{ end }}>{{ if .AutoEnabled }}<input type="hidden" name="bypass_preset_auto" value="{{ .ID }}">{{ end }}</td>
           <td>
             {{ .Label }}
-            {{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}
+            {{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .UpdatedIn }}<span class="added">{{ tf $.Lang "settings.ua.updated_in" .UpdatedIn }}</span>{{ end }}
             {{ if .AutoEnabled }}<span class="added auto-bp" title="{{ tf $.Lang "settings.bypass.preset.auto_tooltip" .AutoNames }}">{{ t $.Lang "settings.bypass.preset.auto_badge" }}</span>{{ end }}
             {{ if .AutoExcluded }}<span class="added auto-bp" title="{{ t $.Lang "settings.bypass.preset.auto_excluded_tooltip" }}">{{ t $.Lang "settings.bypass.preset.auto_excluded_badge" }}</span>{{ end }}
             {{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}
@@ -1826,8 +1833,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
         <input type="checkbox" name="bypass_path_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="bp-{{ .ID }}">
         <label for="bp-{{ .ID }}" class="lbl">
-          <div class="ttl">{{ .Label }}{{ if .DefaultOn }}<span class="added">{{ t $.Lang "settings.bypass_paths.preset_default_on" }}</span>{{ end }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
-          <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }} · {{ end }}{{ $r.Pattern }}{{ end }}</div>
+          <div class="ttl">{{ .Label }}{{ if .DefaultOn }}<span class="added">{{ t $.Lang "settings.bypass_paths.preset_default_on" }}</span>{{ end }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .UpdatedIn }}<span class="added">{{ tf $.Lang "settings.ua.updated_in" .UpdatedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
+          <div class="pat">{{ template "presetPats" (dict "Lang" $.Lang "Mode" .Mode "Pats" .Patterns) }}</div>
         </label>
       </div>
       {{ end }}
@@ -2171,8 +2178,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
         <input type="checkbox" name="black_presets" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="black-{{ .ID }}">
         <label for="black-{{ .ID }}" class="lbl">
-          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
-          <div class="pat">{{ range $i, $p := .Patterns }}{{ if $i }} · {{ end }}{{ $p }}{{ end }}</div>
+          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .UpdatedIn }}<span class="added">{{ tf $.Lang "settings.ua.updated_in" .UpdatedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
+          <div class="pat">{{ template "presetPats" (dict "Lang" $.Lang "Mode" .Mode "Pats" .Patterns) }}</div>
         </label>
         <select class="preset-action-sel" name="black_preset_action__{{ .ID }}" title="{{ t $.Lang "settings.ua.upstream.action_title" }}"{{ if not .Enabled }} disabled{{ end }}>
           <option value="inherit" {{ if eq $pact "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
@@ -2746,8 +2753,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
         <input type="checkbox" name="enabled_presets" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="ja4-{{ .ID }}">
         <label for="ja4-{{ .ID }}" class="lbl">
-          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
-          <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }}<br>{{ end }}{{ $r.Pattern }} → <span class="verdict">{{ $r.Verdict }}</span> <span class="action-pill action-{{ $r.Action }}">{{ t $.Lang (printf "settings.ja4.action_label.%s" $r.Action) }}</span>{{ end }}</div>
+          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .UpdatedIn }}<span class="added">{{ tf $.Lang "settings.ua.updated_in" .UpdatedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
+          <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }}<br>{{ end }}<span class="pat-lit lead" data-mode="{{ patMode $r.Pattern }}">{{ patModeLabel $.Lang $r.Pattern }}</span>{{ $r.Pattern }} → <span class="verdict">{{ $r.Verdict }}</span> <span class="action-pill action-{{ $r.Action }}">{{ t $.Lang (printf "settings.ja4.action_label.%s" $r.Action) }}</span>{{ end }}</div>
         </label>
         <select class="preset-action-sel" name="ja4_preset_action__{{ .ID }}" title="{{ t $.Lang "settings.ua.upstream.action_title" }}"{{ if not .Enabled }} disabled{{ end }}>
           <option value="inherit" {{ if eq $jpa "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
@@ -2903,8 +2910,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
         <input type="checkbox" name="honeypot_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="hp-{{ .ID }}">
         <label for="hp-{{ .ID }}" class="lbl">
-          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
-          <div class="pat">{{ range $i, $p := .Patterns }}{{ if $i }} · {{ end }}{{ $p }}{{ end }}</div>
+          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .UpdatedIn }}<span class="added">{{ tf $.Lang "settings.ua.updated_in" .UpdatedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
+          <div class="pat">{{ template "presetPats" (dict "Lang" $.Lang "Mode" .Mode "Pats" .Patterns) }}</div>
         </label>
         {{/* Per-preset action.  This control was once removed as a no-op, but the
              override IS wired on both wires (honeypotDecide and the native
@@ -3052,8 +3059,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
         <input type="checkbox" name="protected_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="pp-{{ .ID }}">
         <label for="pp-{{ .ID }}" class="lbl">
-          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
-          <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }} · {{ end }}{{ $r.Pattern }}{{ end }}</div>
+          <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .UpdatedIn }}<span class="added">{{ tf $.Lang "settings.ua.updated_in" .UpdatedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
+          <div class="pat">{{ template "presetPats" (dict "Lang" $.Lang "Mode" .PatMode "Pats" .Patterns) }}</div>
         </label>
         <select name="protected_preset_mode__{{ .ID }}" title="{{ t $.Lang "settings.protected.mode_title" }}" style="padding:.3rem .5rem;font-size:.8rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff">
           <option value=""                 {{ if eq .Mode "" }}selected{{ end }}>{{ tf $.Lang "settings.select.unset_as" $.ProtectedResolvedDefault }}</option>
@@ -4380,7 +4387,7 @@ function secToHuman(s){
           <td>{{ .Label }}</td>
           <td class="num">{{ if ge .ASNCount 0 }}{{ .ASNCount }}{{ else }}-{{ end }}</td>
           <td class="col-since" style="white-space:nowrap">
-            {{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}
+            {{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .UpdatedIn }}<span class="added">{{ tf $.Lang "settings.ua.updated_in" .UpdatedIn }}</span>{{ end }}
             {{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}
           </td>
           <td class="asn-action-cell">

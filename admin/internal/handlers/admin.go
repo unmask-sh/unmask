@@ -331,16 +331,11 @@ func loadDashboardTemplate() (*template.Template, error) {
 			// row defaulting to "contains", a blank badge would mark the unusual
 			// case as the ordinary one.
 			"patModeLabel": func(lang i18n.Lang, p string) string {
-				switch settings.PatternModeOf(p) {
-				case settings.ModeContains:
-					return strings.ReplaceAll(i18n.T(lang, "settings.rule.pat_contains"), "\n", "")
-				case settings.ModeExact:
-					return strings.ReplaceAll(i18n.T(lang, "settings.rule.pat_exact"), "\n", "")
-				case settings.ModeSubdomain:
-					return strings.ReplaceAll(i18n.T(lang, "settings.rule.pat_subdomain"), "\n", "")
-				}
-				return strings.ReplaceAll(i18n.T(lang, "settings.rule.pat_regex"), "\n", "")
+				return patModeName(lang, string(settings.PatternModeOf(p)))
 			},
+			// patModeName: the same label for a mode, where a preset's chip
+			// speaks for all of its patterns.
+			"patModeName": patModeName,
 			// uaCrawler: is this UA a listed crawler?  The hunt log marks
 			// those rows -- a crawler in the CHALLENGE log is one that did
 			// not pass verification, which is what an operator hunting
@@ -2275,4 +2270,18 @@ func (h *Handler) AdminFunnelJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "site": site, "range": rng, "funnel": rows})
+}
+
+// patModeName is the chip's label for a pattern mode (settings.PatternMode).
+func patModeName(lang i18n.Lang, mode string) string {
+	key := "settings.rule.pat_regex"
+	switch settings.PatternMode(mode) {
+	case settings.ModeContains:
+		key = "settings.rule.pat_contains"
+	case settings.ModeExact:
+		key = "settings.rule.pat_exact"
+	case settings.ModeSubdomain:
+		key = "settings.rule.pat_subdomain"
+	}
+	return strings.ReplaceAll(i18n.T(lang, key), "\n", "")
 }

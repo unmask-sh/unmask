@@ -124,4 +124,34 @@ func TestSQLInjectionGroupOnByDefault(t *testing.T) {
 	if _, matched := ResolveHoneypotAction(uri, "", held); !matched {
 		t.Fatal("the group is still held after v0.1.50 was reviewed")
 	}
+
+	// It shipped opt-in in v0.1.0: an install that turned it on then gave its
+	// go-ahead, and keeps it through the upgrade without a review.
+	consented := n
+	consented.UpgradeReviewPolicy = settings.UpgradeReviewReview
+	consented.EnforcementReviewedVersion = "v0.1.49"
+	consented.Honeypot.EnabledPresets = []string{"sql-injection"}
+	if _, matched := ResolveHoneypotAction(uri, "", consented); !matched {
+		t.Fatal("the group is held on an install that had turned it on while it was opt-in")
+	}
+	g := sqlInjectionGroup(t)
+	if g.AddedIn != "v0.1.0" || g.UpdatedIn != "v0.1.50" || g.DefaultOnIn != "v0.1.50" {
+		t.Errorf("versions: added %q, updated %q, on by default %q; want v0.1.0, v0.1.50, v0.1.50", g.AddedIn, g.UpdatedIn, g.DefaultOnIn)
+	}
+	// The review banner names the release whose change is held.
+	var heldSet settings.Settings
+	heldSet.Nginx = held
+	heldSet.Nginx.EnforcementReviewedVersion = "v0.1.49"
+	var found bool
+	for _, hp := range HeldEnforcementPresets(heldSet) {
+		if hp.Category == "honeypot" && hp.ID == "sql-injection" {
+			found = true
+			if hp.AddedIn != "v0.1.50" {
+				t.Errorf("held as of %q, want v0.1.50", hp.AddedIn)
+			}
+		}
+	}
+	if !found {
+		t.Error("the review banner does not list the held group")
+	}
 }

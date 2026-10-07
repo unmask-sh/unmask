@@ -204,8 +204,11 @@ type LBIPRange struct {
 	CIDRs  []string // mixed IPv4 / IPv6.  goes directly into a geo directive.
 	// AddedIn: release this vendor joined the catalog (v-form).  Drives the
 	// settings UI "since vX.Y.Z" label + NEW badge, like every other preset.
-	// Empty is defaulted to "v0.1.0" in data.go's init().
-	AddedIn string
+	// Empty is defaulted to "v0.1.0" in data.go's init().  UpdatedIn: the last
+	// release that changed the vendor's entry ("updated vX"); the ranges'
+	// own refreshes do not count.
+	AddedIn   string
+	UpdatedIn string
 }
 
 // LBIPRanges: per-vendor IP range snapshots.  Add to this list by appending.

@@ -60,7 +60,7 @@ var GCPLBHealthCheckCIDRs = []string{
 // stats-exclude/bypass (a loosening), which upgrade-review never holds, so the
 // value is informational, not load-bearing.
 const (
-	PrivateNetworkStatsExcludeAddedIn   = "v0.1.4"  // 3f70cfb
+	PrivateNetworkStatsExcludeAddedIn   = "v0.1.4"  // 5dc7d1f0
 	GCPLBHealthCheckStatsExcludeAddedIn = "v0.1.26" // set to the release this ships in
 )
 
@@ -76,6 +76,10 @@ type BypassIPGroup struct {
 	Source  string // upstream URL (= "https://developers.google.com/...", for display + auto-update reference)
 	File    string // embed file name (= "iprange/<file>.json")
 	AddedIn string
+	// UpdatedIn: the last release that changed the group -- its source, its
+	// file -- shown as "updated vX".  The ranges themselves are refreshed
+	// every release and dated on their own; they do not count.
+	UpdatedIn string
 	// Populated post-load.  Don't build directly; go through Resolve().
 	prefixes []string  // merged list of ipv4 / ipv6 prefixes
 	creation time.Time // creationTime from the JSON (= for UI display)
@@ -160,10 +164,11 @@ var BypassIPGroups = []BypassIPGroup{
 		File:   "iprange/chatgpt-user.json",
 	},
 	{
-		ID:     "perplexitybot",
-		Label:  "Perplexity (PerplexityBot)",
-		Source: "https://www.perplexity.ai/perplexitybot.json",
-		File:   "iprange/perplexitybot.json",
+		ID:        "perplexitybot",
+		Label:     "Perplexity (PerplexityBot)",
+		Source:    "https://www.perplexity.ai/perplexitybot.json",
+		File:      "iprange/perplexitybot.json",
+		UpdatedIn: "v0.1.7", // the source moved from perplexity.com
 	},
 	{
 		ID:      "perplexity-user",

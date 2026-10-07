@@ -13,6 +13,9 @@ package nginxconf
 //
 // New presets that explicitly set AddedIn: "v0.5.0" etc. get a "since v0.5.0"
 // label in the UI.  Existing (v0.1.0-era) groups keep their initial release.
+// A release that changes what an existing preset does -- its patterns or
+// rules, its default -- sets the preset's UpdatedIn, shown as "updated vX"
+// beside "since"; AddedIn stays the release that first shipped it.
 //
 // ⚠ A preset that a LATER release adds MUST set AddedIn to that release's
 // version.  AddedIn feeds nginxconf.EnforcementHeld: the empty->"v0.1.0"
@@ -78,6 +81,9 @@ type JA4VerdictGroup struct {
 	Label   string
 	Rules   []JA4VerdictRule
 	AddedIn string
+	// UpdatedIn: the last release that changed the rules, for the UI ("" when
+	// none has).  Shown only: the upgrade review holds by AddedIn.
+	UpdatedIn string
 }
 
 type JA4VerdictRule struct {
@@ -169,10 +175,11 @@ var JA4VerdictGroups = []JA4VerdictGroup{
 //   - What remains here are presets that don't fit any upstream category
 //     (= empty / very short UA) and are still worth flagging.
 type ChallengeTargetGroup struct {
-	ID       string
-	Label    string
-	Patterns []string // nginx case-insensitive regex (= evaluated with ~*)
-	AddedIn  string   // admin version added (= e.g. "v0.1.0".  UI labels "since vX.Y.Z")
+	ID        string
+	Label     string
+	Patterns  []string // nginx case-insensitive regex (= evaluated with ~*)
+	AddedIn   string   // admin version added (= e.g. "v0.1.0".  UI labels "since vX.Y.Z")
+	UpdatedIn string   // last release that changed the patterns ("updated vX.Y.Z"); shown only
 }
 
 var ChallengeTargetGroups = []ChallengeTargetGroup{
@@ -203,6 +210,14 @@ type HoneypotGroup struct {
 	Label    string
 	Patterns []string
 	AddedIn  string
+	// UpdatedIn: the last release that changed the group -- its patterns,
+	// its default -- shown as "updated vX" beside "since".  Shown only.
+	UpdatedIn string
+	// DefaultOnIn: the release that turned an opt-in group on by default.
+	// The upgrade review holds the group from that release rather than from
+	// AddedIn, except on an install that had turned it on while it was
+	// opt-in: that was the operator's go-ahead (HoneypotGroupHeld).
+	DefaultOnIn string
 	// OptIn: when true, the group ships disabled and only renders when the
 	// operator explicitly names it in settings.Honeypot.EnabledPresets.
 	// Reserved for patterns whose false-positive surface area is wider than
@@ -284,13 +299,13 @@ var HoneypotPresetGroups = []HoneypotGroup{
 	},
 	// SQL injection signatures: high-confidence query-string patterns that
 	// almost never appear in legitimate browser traffic.  Trip = persistent
-	// BAN like any other honeypot.  On by default since v0.1.50 (opt-in
-	// before): the patterns need SQL syntax, not SQL words, so a search such
-	// as "?q=order by date" and the other ordinary URLs in
+	// BAN like any other honeypot.  Shipped opt-in since v0.1.0, on by
+	// default since v0.1.50: the patterns need SQL syntax, not SQL words, so
+	// a search such as "?q=order by date" and the other ordinary URLs in
 	// honeypot_sqli_test.go match nothing.  A site whose search echoes SQL
 	// itself ("?q=union select") turns the group off in disabled_presets.
-	// AddedIn is the version that turned it on, so an install that reviews
-	// new enforcement holds it until reviewed.  Patterns
+	// DefaultOnIn is the version that turned it on, so an install that
+	// reviews new enforcement holds it until reviewed.  Patterns
 	// are evaluated against $request_uri so they cover both the path and the
 	// query string in one shot; the case-insensitive `~*` flag on the
 	// rendered map absorbs UNION / Union / union variations.
@@ -324,6 +339,7 @@ var HoneypotPresetGroups = []HoneypotGroup{
 			// Destructive
 			`(?:;|%3b)` + sqlSp + `*drop` + sqlSp + `+(?:table|database)`,
 		},
-		AddedIn: "v0.1.50",
+		UpdatedIn:   "v0.1.50",
+		DefaultOnIn: "v0.1.50",
 	},
 }

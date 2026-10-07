@@ -208,12 +208,13 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := !disabledV[g.ID]
 		ja4Groups = append(ja4Groups, map[string]any{
-			"ID":      g.ID,
-			"Label":   g.Label,
-			"Rules":   g.Rules,
-			"Enabled": enabled,
-			"AddedIn": g.AddedIn,
-			"IsNew":   isNew,
+			"ID":        g.ID,
+			"Label":     g.Label,
+			"Rules":     g.Rules,
+			"Enabled":   enabled,
+			"AddedIn":   g.AddedIn,
+			"UpdatedIn": g.UpdatedIn,
+			"IsNew":     isNew,
 		})
 	}
 	// extra verdicts: row-UI struct slice (= same shape as UA filter + verdict column).
@@ -232,12 +233,14 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := !disabledTgt[g.ID]
 		tgtGroups = append(tgtGroups, map[string]any{
-			"ID":       g.ID,
-			"Label":    g.Label,
-			"Patterns": g.Patterns,
-			"Enabled":  enabled,
-			"AddedIn":  g.AddedIn,
-			"IsNew":    isNew,
+			"ID":        g.ID,
+			"Label":     g.Label,
+			"Patterns":  g.Patterns,
+			"Mode":      presetMode(g.Patterns),
+			"Enabled":   enabled,
+			"AddedIn":   g.AddedIn,
+			"UpdatedIn": g.UpdatedIn,
+			"IsNew":     isNew,
 		})
 	}
 
@@ -248,12 +251,14 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := !disabledHP[g.ID]
 		honeypotGroups = append(honeypotGroups, map[string]any{
-			"ID":       g.ID,
-			"Label":    g.Label,
-			"Patterns": g.Patterns,
-			"Enabled":  enabled,
-			"AddedIn":  g.AddedIn,
-			"IsNew":    isNew,
+			"ID":        g.ID,
+			"Label":     g.Label,
+			"Patterns":  g.Patterns,
+			"Mode":      presetMode(g.Patterns),
+			"Enabled":   enabled,
+			"AddedIn":   g.AddedIn,
+			"UpdatedIn": g.UpdatedIn,
+			"IsNew":     isNew,
 		})
 	}
 
@@ -270,12 +275,19 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	for _, g := range nginxconf.BypassPathPresetGroups {
 		isNew := nginxconf.PresetIsNew(seenVer, g.AddedIn)
 		enabled := enabledBPath[g.ID]
+		pats := make([]string, 0, len(g.Rules))
+		for _, r := range g.Rules {
+			pats = append(pats, r.Pattern)
+		}
 		bypassPathGroups = append(bypassPathGroups, map[string]any{
 			"ID":        g.ID,
 			"Label":     g.Label,
 			"Rules":     g.Rules,
+			"Patterns":  pats,
+			"Mode":      presetMode(pats),
 			"Enabled":   enabled,
 			"AddedIn":   g.AddedIn,
+			"UpdatedIn": g.UpdatedIn,
 			"IsNew":     isNew,
 			"DefaultOn": g.DefaultOn,
 		})
@@ -295,6 +307,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			"Enabled":   enabledRE[g.ID],
 			"DefaultOn": g.DefaultOn,
 			"AddedIn":   g.AddedIn,
+			"UpdatedIn": g.UpdatedIn,
 			"IsNew":     nginxconf.PresetIsNew(seenVer, g.AddedIn),
 		})
 	}
@@ -329,14 +342,21 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		if m, ok := cur.ProtectedPaths.PresetMode[g.ID]; ok && nginxconf.IsValidProtectedMode(m) {
 			mode = m
 		}
+		pats := make([]string, 0, len(g.Rules))
+		for _, r := range g.Rules {
+			pats = append(pats, r.Pattern)
+		}
 		protectedPresetGroups = append(protectedPresetGroups, map[string]any{
-			"ID":      g.ID,
-			"Label":   g.Label,
-			"Rules":   g.Rules,
-			"Enabled": enabled,
-			"AddedIn": g.AddedIn,
-			"IsNew":   isNew,
-			"Mode":    mode,
+			"ID":        g.ID,
+			"Label":     g.Label,
+			"Rules":     g.Rules,
+			"Patterns":  pats,
+			"PatMode":   presetMode(pats),
+			"Enabled":   enabled,
+			"AddedIn":   g.AddedIn,
+			"UpdatedIn": g.UpdatedIn,
+			"IsNew":     isNew,
+			"Mode":      mode,
 		})
 	}
 
@@ -377,6 +397,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			"AutoNames":    strings.Join(autoNames, ", "),
 			"AutoExcluded": excludedBP[g.ID],
 			"AddedIn":      g.AddedIn,
+			"UpdatedIn":    g.UpdatedIn,
 			"IsNew":        isNew,
 			"PrefixCount":  g.PrefixCount(),
 			"CreationTime": ts,
@@ -3047,6 +3068,7 @@ type LBPresetView struct {
 	Header    string
 	Enabled   bool
 	AddedIn   string // "since vX.Y.Z" label
+	UpdatedIn string // "updated vX.Y.Z" label: the last release that changed the entry
 	IsNew     bool   // added after the operator's last save
 }
 
@@ -3081,10 +3103,26 @@ func buildLBPresetView(n settings.Nginx) []LBPresetView {
 			Header:    nginxconf.HeaderFromNginxVar(p.Header),
 			Enabled:   enabled[p.ID],
 			AddedIn:   p.AddedIn,
+			UpdatedIn: p.UpdatedIn,
 			IsNew:     nginxconf.PresetIsNew(n.SeenVersion, p.AddedIn),
 		})
 	}
 	return out
+}
+
+// presetMode is how a preset's patterns are read, for the chip that custom
+// rows carry too: the one mode they all share, or "" when they differ, and
+// each pattern then says its own.  The shipped presets are regexes.
+func presetMode(pats []string) string {
+	mode := ""
+	for i, p := range pats {
+		m := string(settings.PatternModeOf(p))
+		if i > 0 && m != mode {
+			return ""
+		}
+		mode = m
+	}
+	return mode
 }
 
 // buildLBExtraView: display for the custom row UI.
@@ -5229,14 +5267,15 @@ func applyGeoForm(c *settings.GeoConfig, r *http.Request) error {
 // code.
 // asnProviderRow: one catalog provider as the settings UI sees it.
 type asnProviderRow struct {
-	ID       string
-	Label    string
-	Enabled  bool
-	Action   string // "" = inherit default
-	ASNCount int    // distinct ASNs matched in the loaded mmdb (-1 = not computed / no db)
-	AddedIn  string // release the provider joined the catalog (v-form)
-	IsNew    bool   // added in a release newer than the operator's SeenVersion
-	RateStr  string // per-provider rate override ("" = inherit the config default)
+	ID        string
+	Label     string
+	Enabled   bool
+	Action    string // "" = inherit default
+	ASNCount  int    // distinct ASNs matched in the loaded mmdb (-1 = not computed / no db)
+	AddedIn   string // release the provider joined the catalog (v-form)
+	UpdatedIn string // last release that changed its patterns ("updated vX")
+	IsNew     bool   // added in a release newer than the operator's SeenVersion
+	RateStr   string // per-provider rate override ("" = inherit the config default)
 }
 
 // asnProviderView returns the catalog providers merged with the operator's
@@ -5266,11 +5305,12 @@ func (h *Handler) asnProviderView(cfg settings.AsnConfig) []asnProviderRow {
 	out := make([]asnProviderRow, 0, len(settings.HostingProviders))
 	for _, hp := range settings.HostingProviders {
 		row := asnProviderRow{
-			ID:       hp.ID,
-			Label:    hp.Label,
-			ASNCount: -1,
-			AddedIn:  hp.AddedIn,
-			IsNew:    nginxconf.PresetIsNew(seenVer, hp.AddedIn),
+			ID:        hp.ID,
+			Label:     hp.Label,
+			ASNCount:  -1,
+			AddedIn:   hp.AddedIn,
+			UpdatedIn: hp.UpdatedIn,
+			IsNew:     nginxconf.PresetIsNew(seenVer, hp.AddedIn),
 		}
 		if s, ok := sel[hp.ID]; ok {
 			row.Enabled = s.Enabled

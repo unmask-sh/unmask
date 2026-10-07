@@ -1170,7 +1170,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		} else if disabledHP[g.ID] {
 			continue
 		}
-		if !g.OptIn && EnforcementHeld(s.Nginx, g.AddedIn) {
+		if HoneypotGroupHeld(s.Nginx, g) {
 			continue
 		}
 		for _, p := range g.Patterns {

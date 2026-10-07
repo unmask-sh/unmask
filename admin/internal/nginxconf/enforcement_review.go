@@ -18,7 +18,11 @@
 // holds (HeldEnforcementPresets -> settings banner + `unmask upgrade-review`).
 package nginxconf
 
-import "github.com/unmask-sh/unmask/admin/internal/settings"
+import (
+	"slices"
+
+	"github.com/unmask-sh/unmask/admin/internal/settings"
+)
 
 // EnforcementHeld reports whether a default-on tightening preset added in
 // addedIn must stay inert given this install's upgrade-review policy.  Callers
@@ -33,6 +37,23 @@ func EnforcementHeld(n settings.Nginx, addedIn string) bool {
 	// nothing -- switching to "review" without a baseline is safe, not a sudden
 	// blackout of every preset.
 	return PresetIsNew(n.EnforcementReviewedVersion, addedIn)
+}
+
+// HoneypotGroupHeld reports whether g is held inert pending upgrade review:
+// an on-by-default group newer than the reviewed release.  A group that went
+// on by default after it shipped (DefaultOnIn) counts from that release --
+// except on an install that had turned it on while it was opt-in, which was
+// the operator's go-ahead.  An opt-in group is never held: naming it is
+// consent.  Every wire asks this one question (render, forward-auth,
+// ResolveHoneypotAction, HeldEnforcementPresets).
+func HoneypotGroupHeld(n settings.Nginx, g HoneypotGroup) bool {
+	switch {
+	case g.OptIn:
+		return false
+	case g.DefaultOnIn != "":
+		return !slices.Contains(n.Honeypot.EnabledPresets, g.ID) && EnforcementHeld(n, g.DefaultOnIn)
+	}
+	return EnforcementHeld(n, g.AddedIn)
 }
 
 // HeldPreset is one enforcement preset currently held pending upgrade review.
@@ -90,8 +111,14 @@ func HeldEnforcementPresets(s settings.Settings) []HeldPreset {
 		if g.OptIn || disH[g.ID] {
 			continue
 		}
-		if EnforcementHeld(n, g.AddedIn) {
-			out = append(out, HeldPreset{Category: "honeypot", ID: g.ID, Label: g.Label, AddedIn: g.AddedIn})
+		if HoneypotGroupHeld(n, g) {
+			// The release whose change is held: a group turned on by
+			// default later is held from then.
+			since := g.AddedIn
+			if g.DefaultOnIn != "" {
+				since = g.DefaultOnIn
+			}
+			out = append(out, HeldPreset{Category: "honeypot", ID: g.ID, Label: g.Label, AddedIn: since})
 		}
 	}
 	return out
