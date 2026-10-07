@@ -768,7 +768,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 </h1>
 
 {{ if .Saved }}
-{{ if .SavedRestart }}
+{{ if .DeletedSite }}
+<div class="banner ok">{{ tf .Lang "settings.scope.deleted_banner" .DeletedSite }}</div>
+{{ else if .SavedRestart }}
 <div class="banner ok">{{ safeHTML (t .Lang "settings.saved_banner_restart") }}{{ if .SavedReload }} {{ safeHTML (t .Lang "settings.saved_banner_also_reload") }}{{ end }}</div>
 {{ else if .SavedReload }}
 <div class="banner ok">{{ safeHTML (t .Lang "settings.saved_banner") }}</div>
@@ -3261,7 +3263,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   </div>
   <label for="scope-select-challenge" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
   <select id="scope-select-challenge" class="scope-picker-select"
-          onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(h){h=h.trim();}if(!h){sel.value='{{ .Scope }}';return;}location.href='{{ .BasePath }}/admin/settings/challenge/?scope='+encodeURIComponent(h);return;}location.href=v?'{{ .BasePath }}/admin/settings/challenge/?scope='+encodeURIComponent(v):'{{ .BasePath }}/admin/settings/challenge/';})(this)">
+          onchange="(function(sel){var v=sel.value;if(v==='__add__'){unmaskDialog.prompt({title:{{ t .Lang "settings.scope.add_title" }},message:{{ t .Lang "settings.scope.add_prompt" }},placeholder:'shop.example.com',ok:{{ t .Lang "settings.scope.add_ok" }}}).then(function(h){h=h?h.trim():'';if(!h){sel.value='{{ .Scope }}';return;}location.href='{{ .BasePath }}/admin/settings/challenge/?scope='+encodeURIComponent(h);});return;}location.href=v?'{{ .BasePath }}/admin/settings/challenge/?scope='+encodeURIComponent(v):'{{ .BasePath }}/admin/settings/challenge/';})(this)">
     <option value="" {{ if not .Scope }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
     {{ range $h := .ScopeHosts }}
     <option value="{{ $h }}" {{ if eq $.Scope $h }}selected{{ end }}>{{ $h }} {{ if index $.ChallengeOverrideHosts $h }}{{ t $.Lang "settings.scope.option_override" }}{{ else if index $.BrandingRecordHosts $h }}{{ t $.Lang "settings.scope.option_inherit_other_theme" }}{{ else }}{{ t $.Lang "settings.scope.option_inherit" }}{{ end }}</option>
@@ -3294,7 +3296,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <button type="submit" class="scope-delete"
             formaction="{{ .BasePath }}/admin/settings/challenge/site/delete?site={{ .Scope }}"
             formnovalidate
-            onclick="return confirm({{ t .Lang "settings.scope.delete_confirm" }})">{{ t .Lang "settings.scope.delete" }}</button>
+            data-confirm="{{ tf .Lang "settings.scope.delete_confirm" .Scope }}"
+            data-confirm-title="{{ tf .Lang "settings.scope.delete_title" .Scope }}"
+            data-confirm-ok="{{ t .Lang "settings.scope.delete_ok" }}"
+            data-confirm-danger="1">{{ t .Lang "settings.scope.delete" }}</button>
     {{ end }}
   {{/* Inheritance markers.  The per-site form is pre-filled with RESOLVED
        values, so a field the site pins looks exactly like one it is borrowing
@@ -4755,7 +4760,7 @@ function secToHuman(s){
   </div>
   <label for="scope-select-theme" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
   <select id="scope-select-theme" class="scope-picker-select"
-          onchange="(function(sel){var v=sel.value;if(v==='__add__'){var h=prompt('{{ t .Lang "settings.scope.add_prompt" }}');if(h){h=h.trim();}if(!h){sel.value='{{ .Scope }}';return;}location.href='{{ .BasePath }}/admin/settings/theme/?scope='+encodeURIComponent(h);return;}location.href=v?'{{ .BasePath }}/admin/settings/theme/?scope='+encodeURIComponent(v):'{{ .BasePath }}/admin/settings/theme/';})(this)">
+          onchange="(function(sel){var v=sel.value;if(v==='__add__'){unmaskDialog.prompt({title:{{ t .Lang "settings.scope.add_title" }},message:{{ t .Lang "settings.scope.add_prompt" }},placeholder:'shop.example.com',ok:{{ t .Lang "settings.scope.add_ok" }}}).then(function(h){h=h?h.trim():'';if(!h){sel.value='{{ .Scope }}';return;}location.href='{{ .BasePath }}/admin/settings/theme/?scope='+encodeURIComponent(h);});return;}location.href=v?'{{ .BasePath }}/admin/settings/theme/?scope='+encodeURIComponent(v):'{{ .BasePath }}/admin/settings/theme/';})(this)">
     <option value="" {{ if not .Scope }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
     {{ range $h := .ScopeHosts }}
     <option value="{{ $h }}" {{ if eq $.Scope $h }}selected{{ end }}>{{ $h }} {{ if index $.BrandingOverrideHosts $h }}{{ t $.Lang "settings.scope.option_override" }}{{ else if index $.ChallengeRecordHosts $h }}{{ t $.Lang "settings.scope.option_inherit_other_challenge" }}{{ else }}{{ t $.Lang "settings.scope.option_inherit" }}{{ end }}</option>
@@ -4796,7 +4801,10 @@ function secToHuman(s){
     <button type="submit" class="scope-delete"
             formaction="{{ .BasePath }}/admin/settings/branding/site/delete?site={{ .Scope }}"
             formnovalidate
-            onclick="return confirm({{ t .Lang "settings.scope.delete_confirm" }})">{{ t .Lang "settings.scope.delete" }}</button>
+            data-confirm="{{ tf .Lang "settings.scope.delete_confirm" .Scope }}"
+            data-confirm-title="{{ tf .Lang "settings.scope.delete_title" .Scope }}"
+            data-confirm-ok="{{ t .Lang "settings.scope.delete_ok" }}"
+            data-confirm-danger="1">{{ t .Lang "settings.scope.delete" }}</button>
     {{ end }}
   {{/* Inheritance markers.  The per-site form is pre-filled with RESOLVED
        values, so a field the site pins looks exactly like one it is borrowing
@@ -7454,8 +7462,8 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
   // listed in this section (= the operator can't tell which (ip, ja4) they
   // belong to without joining back).  Use the community-bans page detail
   // panel for those.
-  function delBtn(id){
-    return '<button type="button" class="my-data-del" data-id="' + esc(id) + '" ' +
+  function delBtn(id, target){
+    return '<button type="button" class="my-data-del" data-id="' + esc(id) + '" data-target="' + esc(target) + '" ' +
            'style="border:1px solid #fecaca;background:#fff;color:#b91c1c;padding:.1rem .45rem;border-radius:.25rem;cursor:pointer;font-size:.78rem" ' +
            'aria-label="' + esc(T.del) + '">×</button>';
   }
@@ -7484,7 +7492,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         '<td style="padding:.2rem .4rem;font-family:ui-monospace,Menlo,monospace;color:#475569;font-size:.72rem">' + esc(s.ja4||'') + '</td>' +
         '<td style="padding:.2rem .4rem">' + esc(s.reason||'') + '</td>' +
         '<td style="padding:.2rem .4rem;color:#94a3b8;font-size:.78rem;white-space:nowrap"><time class="js-datetime" data-ts="' + esc(s.submitted_at) + '">' + fmtTime(s.submitted_at) + '</time></td>' +
-        '<td style="padding:.2rem .4rem;text-align:right">' + delBtn(s.id) + '</td>' +
+        '<td style="padding:.2rem .4rem;text-align:right">' + delBtn(s.id, [s.ip, s.ja4].filter(Boolean).join(' · ')) + '</td>' +
         '</tr>';
     });
 
@@ -7513,19 +7521,21 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     var btn = e.target.closest('.my-data-del');
     if (!btn) return;
     e.preventDefault();
-    if (!confirm(T.confirm)) return;
-    var id = btn.getAttribute('data-id');
-    btn.disabled = true;
-    fetch(BASE + "/admin/api/community-bans/submission/" + encodeURIComponent(id),
-          {method: 'DELETE', credentials:'same-origin'})
-      .then(function(r){
-        if (!r.ok && r.status !== 204) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
-        loaded = false; load();
-      })
-      .catch(function(err){
-        btn.disabled = false;
-        alert((T.err || 'error') + ': ' + (err.message || err));
-      });
+    unmaskDialog.confirm({title: T.confirm.replace('%s', btn.getAttribute('data-target') || ''), ok: T.del, danger: true}).then(function(ok){
+      if (!ok) return;
+      var id = btn.getAttribute('data-id');
+      btn.disabled = true;
+      fetch(BASE + "/admin/api/community-bans/submission/" + encodeURIComponent(id),
+            {method: 'DELETE', credentials:'same-origin'})
+        .then(function(r){
+          if (!r.ok && r.status !== 204) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+          loaded = false; load();
+        })
+        .catch(function(err){
+          btn.disabled = false;
+          unmaskDialog.error((T.err || 'error') + ': ' + (err.message || err));
+        });
+    });
   });
 })();
 </script>

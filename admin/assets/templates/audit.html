@@ -96,7 +96,7 @@ table.audit td.detail{font-family:ui-monospace,Menlo,monospace;color:#64748b;fon
     </div>
     <p class="muted" style="font-size:.78rem;margin:.2rem 0 .55rem;line-height:1.5">{{ safeHTML (t .Lang "audit.snapshot_desc") }}</p>
     <form method="post" action="{{ .BasePath }}/admin/settings/snapshot" style="display:flex;gap:.4rem;align-items:center;margin:0"
-          onsubmit="return confirm('{{ t .Lang "settings.snapshot_confirm" }}');">
+          data-confirm="{{ t .Lang "settings.snapshot_confirm" }}">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
       <input type="text" name="name" placeholder="{{ t .Lang "settings.snapshot_name_ph" }}" maxlength="80"
              style="font-size:.82rem;padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;flex:1">
@@ -151,7 +151,9 @@ table.audit td.detail{font-family:ui-monospace,Menlo,monospace;color:#64748b;fon
               <button type="button" class="diff-toggle" data-target="diff-{{ .ID }}">{{ t $.Lang "audit.show_diff" }}</button>
               {{ if .HasBefore }}
                 <form method="post" action="{{ $.BasePath }}/admin/audit/restore?id={{ .ID }}" class="restore-form"
-                      onsubmit="return confirm('{{ t $.Lang "audit.restore_confirm" }}');">
+                      data-confirm="{{ t $.Lang "audit.restore_confirm" }}"
+                      data-confirm-title="{{ tf $.Lang "audit.restore_confirm_title" .At }}"
+                      data-confirm-ok="{{ t $.Lang "audit.restore_ok" }}">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
                   <button type="submit" class="restore-btn">{{ t $.Lang "audit.restore" }}</button>
                 </form>

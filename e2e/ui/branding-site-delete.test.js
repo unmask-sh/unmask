@@ -3,8 +3,8 @@
 // form's action with the token, so that button's request carried none and the
 // server refused it with "csrf token mismatch" (0.1.25..0.1.40).  This drives
 // a real browser through the gesture: create the per-site entry, click the
-// button through its confirm dialog, and check the request was accepted and
-// the entry is gone.
+// button through the admin's confirmation modal, and check the request was
+// accepted, the entry is gone, and the banner names the site.
 //
 // Driven by run.sh. Env: UI_E2E_BASE, UI_E2E_USER, UI_E2E_PASS, CHROME_BIN.
 const puppeteer = require('puppeteer-core');
@@ -24,7 +24,9 @@ const ok = (c, m) => { if (!c) fails.push(m); };
     args: ['--no-sandbox', '--disable-gpu'], defaultViewport: { width: 1360, height: 900 },
   });
   const page = await browser.newPage();
-  page.on('dialog', d => d.accept());
+  // The delete asks in the admin's own modal; a browser dialog means a
+  // confirm() came back.
+  page.on('dialog', async d => { fails.push(`a browser ${d.type()} opened: ${d.message()}`); await d.dismiss(); });
   const posts = [];
   page.on('response', r => {
     const req = r.request();
@@ -69,12 +71,23 @@ const ok = (c, m) => { if (!c) fails.push(m); };
   if (btn) {
     const fa = await page.evaluate(b => b.getAttribute('formaction'), btn);
     ok(/branding\/site\/delete\?site=/.test(fa || ''), 'reset button posts to its own formaction, got ' + fa);
-    // 3) Click it (the confirm dialog is accepted above).  This is the
-    //    request that used to come back 403.
+    // 3) Click it: the modal asks, naming the site; Cancel first must post
+    //    nothing.  Then OK -- the request that used to come back 403.
+    await btn.click();
+    await page.waitForSelector('dialog.ux-dialog[open]', { timeout: 5000 });
+    const q = await page.$eval('dialog.ux-dialog[open] h3', e => e.textContent);
+    ok(q.includes(SITE), 'the question names the site, got ' + q);
+    await page.click('dialog.ux-dialog[open] .ux-dialog-btn:not(.danger):not(.primary)');
+    await new Promise(r => setTimeout(r, 400));
+    ok(!posts.some(p => /branding\/site\/delete/.test(p.url)), 'Cancel must not post the delete');
+    await btn.click();
+    await page.waitForSelector('dialog.ux-dialog[open]', { timeout: 5000 });
     await Promise.all([
       page.waitForNavigation({ waitUntil: 'networkidle2' }),
-      btn.click(),
+      page.click('dialog.ux-dialog[open] .ux-dialog-btn.danger'),
     ]);
+    const banner = await page.$$eval('.banner.ok', els => els.map(e => e.textContent).join(' | '));
+    ok(banner.includes(SITE), 'the banner after the delete names the site, got ' + banner);
     const del = posts.find(p => /branding\/site\/delete/.test(p.url));
     ok(!!del, 'the delete POST was sent, posts: ' + JSON.stringify(posts));
     ok(del && del.status !== 403, 'reset to default must not be a csrf mismatch, got ' + JSON.stringify(del));

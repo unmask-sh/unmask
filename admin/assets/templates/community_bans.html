@@ -575,7 +575,7 @@ document.addEventListener('click', function(e){
     }
     r.text().then(function(t){
       console.warn('mute-toggle: HTTP', r.status, t);
-      alert('mute-toggle failed: ' + r.status + ' ' + (t || '').slice(0, 200));
+      unmaskDialog.error('mute-toggle failed: ' + r.status + ' ' + (t || '').slice(0, 200));
       btn.className = prevClass;
       btn.textContent = prevText;
       btn.dataset.muteAction = prevAction;
@@ -588,7 +588,7 @@ document.addEventListener('click', function(e){
     });
   }).catch(function(err){
     console.warn('mute-toggle: network', err);
-    alert('mute-toggle failed: network');
+    unmaskDialog.error('mute-toggle failed: network');
     btn.className = prevClass;
     btn.textContent = prevText;
     btn.dataset.muteAction = prevAction;
@@ -803,9 +803,18 @@ document.addEventListener('click', function(e){
     myHnLabel: {{ t .Lang "community_bans.detail.my_hn_label" }},
     selfMark: {{ t .Lang "community_bans.detail.self_mark" }},
     deleteConfirm: {{ t .Lang "community_bans.detail.delete_confirm" }},
+    deleteComment: {{ t .Lang "community_bans.detail.delete_comment_confirm" }},
+    deleteReport: {{ t .Lang "community_bans.detail.delete_report_confirm" }},
     deleteLabel: {{ t .Lang "community_bans.detail.delete_label" }},
     notRegistered: {{ t .Lang "community_bans.detail.not_registered" }}
   };
+  // A delete asks in a modal that names what goes: a comment or a report,
+  // and the IP / JA4 of the row it belongs to.
+  function askDelete(kind, row){
+    var target = row ? [row.dataset.ip, row.dataset.ja4].filter(Boolean).join(' · ') : '';
+    var q = kind === 'comment' ? t.deleteComment : kind === 'submission' ? t.deleteReport : t.deleteConfirm;
+    return unmaskDialog.confirm({title: q.replace('%s', target), ok: t.deleteLabel, danger: true});
+  }
   function esc(s){
     return String(s == null ? "" : s).replace(/[&<>"']/g, c => ({
       '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
@@ -1054,19 +1063,21 @@ document.addEventListener('click', function(e){
           // handlers are bound to document, not to the action buttons.
           actions.innerHTML = snapshotActions;
           if (listVotesTd && snapshotListVotes !== null) listVotesTd.innerHTML = snapshotListVotes;
-          alert((t.err || 'error') + ' ' + (err.message || err));
+          unmaskDialog.error((t.err || 'error') + ' ' + (err.message || err));
         });
       } else if (delBtn){
         ev.preventDefault();
         var kind = delBtn.dataset.deleteKind;
         var id = delBtn.dataset.deleteId;
         if (!kind || !id) return;
-        if (!confirm(t.deleteConfirm)) return;
-        delBtn.disabled = true;
-        postDelete(kind, id).then(function(r){
-          if (!r.ok && r.status !== 404) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
-          return fetchDetail(row, dr);
-        }).catch(function(err){ alert((t.err || 'error') + ' ' + (err.message || err)); });
+        askDelete(kind, row).then(function(ok){
+          if (!ok) return;
+          delBtn.disabled = true;
+          postDelete(kind, id).then(function(r){
+            if (!r.ok && r.status !== 404) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+            return fetchDetail(row, dr);
+          }).catch(function(err){ unmaskDialog.error((t.err || 'error') + ' ' + (err.message || err)); });
+        });
       }
     });
     document.addEventListener('submit', function(ev){
@@ -1169,7 +1180,7 @@ document.addEventListener('click', function(e){
         var newForm = dp.querySelector('.detail-comment-form');
         var newTa = newForm && newForm.querySelector('textarea[name=text]');
         if (newTa) newTa.value = taOrigValue;
-        alert((t.err || 'error') + ' ' + (err.message || err));
+        unmaskDialog.error((t.err || 'error') + ' ' + (err.message || err));
       });
     });
   });
@@ -1363,7 +1374,7 @@ document.addEventListener('click', function(e){
     }).catch(function(err){
       if (submitBtn) submitBtn.disabled = false;
       if (ta) ta.disabled = false;
-      alert((t.err || 'error') + ' ' + (err.message || err));
+      unmaskDialog.error((t.err || 'error') + ' ' + (err.message || err));
     });
   });
 
@@ -1377,17 +1388,19 @@ document.addEventListener('click', function(e){
     e.stopPropagation();
     var row = cloneToRow.get(clone);
     if (!row) return;
-    if (!confirm(t.deleteConfirm)) return;
     var kind = del.dataset.deleteKind;
     var id = del.dataset.deleteId;
-    del.disabled = true;
-    postDelete(kind, id).then(function(r){
-      if (!r.ok && r.status !== 204) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
-      if (kind === 'comment') bumpCmtCount(row, -1);
-      refreshClone(clone, row);
-    }).catch(function(err){
-      del.disabled = false;
-      alert((t.err || 'error') + ' ' + (err.message || err));
+    askDelete(kind, row).then(function(ok){
+      if (!ok) return;
+      del.disabled = true;
+      postDelete(kind, id).then(function(r){
+        if (!r.ok && r.status !== 204) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+        if (kind === 'comment') bumpCmtCount(row, -1);
+        refreshClone(clone, row);
+      }).catch(function(err){
+        del.disabled = false;
+        unmaskDialog.error((t.err || 'error') + ' ' + (err.message || err));
+      });
     });
   });
 
@@ -1521,16 +1534,18 @@ document.addEventListener('click', function(e){
     e.stopPropagation();
     var row = reportsCloneToRow.get(clone);
     if (!row) return;
-    if (!confirm(t.deleteConfirm)) return;
     var kind = del.dataset.deleteKind; // 'submission'
     var id = del.dataset.deleteId;
-    del.disabled = true;
-    postDelete(kind, id).then(function(r){
-      if (!r.ok && r.status !== 204) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
-      refreshReportsClone(clone, row);
-    }).catch(function(err){
-      del.disabled = false;
-      alert((t.err || 'error') + ' ' + (err.message || err));
+    askDelete(kind, row).then(function(ok){
+      if (!ok) return;
+      del.disabled = true;
+      postDelete(kind, id).then(function(r){
+        if (!r.ok && r.status !== 204) return r.text().then(function(b){ throw new Error('HTTP ' + r.status + ': ' + b); });
+        refreshReportsClone(clone, row);
+      }).catch(function(err){
+        del.disabled = false;
+        unmaskDialog.error((t.err || 'error') + ' ' + (err.message || err));
+      });
     });
   });
 
@@ -1621,7 +1636,7 @@ document.addEventListener('click', function(e){
     }).catch(function(err){
       voteBtn.disabled = false;
       if (otherBtn) otherBtn.disabled = false;
-      alert((t.err || 'error') + ' ' + (err.message || err));
+      unmaskDialog.error((t.err || 'error') + ' ' + (err.message || err));
     });
   });
 

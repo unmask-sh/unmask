@@ -104,7 +104,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   </dl>
 </div>
 
-<form method="POST" action="{{ .BasePath }}/admin/users/save" onsubmit="return confirmSave('{{ .User.Username }}', this)">
+<form method="POST" action="{{ .BasePath }}/admin/users/save" onsubmit="return confirmSave(event)">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
   <input type="hidden" name="op" value="update">
   <input type="hidden" name="id" value="{{ .User.ID }}">
@@ -161,7 +161,9 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   </form>
   {{ else }}
   <p class="desc">{{ t .Lang "users.edit.status_enabled_desc" }}</p>
-  <form method="POST" action="{{ .BasePath }}/admin/users/save" onsubmit="return confirm('Disable {{ .User.Username }}?')">
+  <form method="POST" action="{{ .BasePath }}/admin/users/save"
+        data-confirm-title="{{ tf .Lang "users.confirm.disable" .User.Username }}" data-confirm="{{ t .Lang "users.confirm.disable_body" }}"
+        data-confirm-ok="{{ t .Lang "users.btn.disable" }}" data-confirm-danger="1">
     <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
     <input type="hidden" name="op" value="set_disabled">
     <input type="hidden" name="id" value="{{ .User.ID }}">
@@ -175,7 +177,9 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 <div class="bcd-card danger">
   <h2>{{ t .Lang "users.edit.danger_h" }}</h2>
   <p class="desc">{{ t .Lang "users.edit.danger_desc" }}</p>
-  <form method="POST" action="{{ .BasePath }}/admin/users/save" onsubmit="return confirm('Delete user {{ .User.Username }}?')">
+  <form method="POST" action="{{ .BasePath }}/admin/users/save"
+        data-confirm-title="{{ tf .Lang "users.confirm.delete" .User.Username }}" data-confirm="{{ t .Lang "users.confirm.delete_body" }}"
+        data-confirm-ok="{{ t .Lang "users.btn.delete" }}" data-confirm-danger="1">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
     <input type="hidden" name="op" value="delete">
     <input type="hidden" name="id" value="{{ .User.ID }}">
@@ -186,14 +190,12 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 
 </main>
 <script>
-// Confirm "change password" only when the password field has a value.
-// Empty value passes through with no confirm.
-function confirmSave(name, form){
-  var pw = form.querySelector('input[name="password"]');
-  if (pw && pw.value !== '') {
-    return confirm("Reset password for " + name + "?");
-  }
-  return true;
+// Ask before a save only when it changes the password (the field has a
+// value); a save without one goes through as it is.
+function confirmSave(e){
+  var pw = e.target.querySelector('input[name="password"]');
+  if (!pw || pw.value === '') return true;
+  return unmaskDialog.confirmSubmit(e, {title: {{ tf .Lang "users.confirm.password" .User.Username }}, ok: {{ t .Lang "users.confirm.password_ok" }}});
 }
 // js-datetime: render data-ts (unix sec) as localized string (same as users.html).
 </script>

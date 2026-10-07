@@ -698,6 +698,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Tab":        tab,
 		"TabHelpKey": tabHelpKey(tab),
 		"Saved":      r.URL.Query().Get("saved") != "",
+		// DeletedSite: the host whose per-site record a delete just dropped;
+		// the banner names it in place of the generic "saved".  Only when the
+		// redirect named one -- normalizeSite turns "" into the default site.
+		"DeletedSite": deletedSiteParam(r),
 		// SavedReload: whether the just-saved section ends up in the
 		// rendered http.inc.  Drives the post-save banner copy: true =
 		// "needs nginx -s reload on native mode"; false = "applies
@@ -6644,6 +6648,20 @@ func (h *Handler) AdminChallengeSiteDelete(w http.ResponseWriter, r *http.Reques
 	}, true)
 }
 
+// deletedSiteParam: the host a per-site delete just dropped, from the
+// redirect's ?deleted=, or "" when the request carries none (or names the
+// default record, which no delete removes).
+func deletedSiteParam(r *http.Request) string {
+	v := strings.TrimSpace(r.URL.Query().Get("deleted"))
+	if v == "" {
+		return ""
+	}
+	if v = normalizeSite(v); v == defaultSite {
+		return ""
+	}
+	return v
+}
+
 // adminScalarSiteSave is the shared body for all four per-site card endpoints.
 // It loads the latest settings from disk, runs mutate, saves atomically, and
 // swaps the in-memory snapshot under settingsMu.  Errors are surfaced via the
@@ -6681,6 +6699,9 @@ func (h *Handler) adminScalarSiteApply(w http.ResponseWriter, r *http.Request, t
 	// The deletes redirect to the Default form (= scope="") which is correct
 	// because the entry the operator just dropped no longer has a form.
 	site := normalizeSite(strings.TrimSpace(r.FormValue("site")))
+	// The host a successful delete was for, named by the banner on the page
+	// the delete lands on (the Default scope, where the host is not in view).
+	deleted := ""
 	redirBack := func(msg string, scopeHost string) {
 		dst := base + "/admin/settings/" + tab + "/"
 		sep := "?"
@@ -6695,6 +6716,9 @@ func (h *Handler) adminScalarSiteApply(w http.ResponseWriter, r *http.Request, t
 			// reaches the conf, add the same RenderSignature diff used by the
 			// main save handler here.
 			dst += sep + "saved=1&section=" + url.QueryEscape(tab)
+			if deleted != "" {
+				dst += "&deleted=" + url.QueryEscape(deleted)
+			}
 		} else {
 			setFlash(w, r, base, "err", msg)
 		}
@@ -6728,6 +6752,7 @@ func (h *Handler) adminScalarSiteApply(w http.ResponseWriter, r *http.Request, t
 	// drops scope intentionally) or by typing default into the scope picker.
 	// A delete is the exception: its host is gone, so the Default scope it is.
 	if backToDefault {
+		deleted = site
 		redirBack("", "")
 		return
 	}

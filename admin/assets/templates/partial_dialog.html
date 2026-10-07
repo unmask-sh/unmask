@@ -1,0 +1,176 @@
+{{- /*
+  init_dialog: the admin's own confirm / alert / prompt, in a modal <dialog>
+  instead of the browser's (2026-10-07: the browser's box cannot say which
+  site, user or entry an action is about in a way that stands out, and it
+  looks like nothing else in the admin).  It rides on header_tools, so every
+  signed-in page has it; the CSS is here too, since the markup is built by
+  this script and no page should have to style it.
+
+  Script:
+    unmaskDialog.confirm(o)  -> Promise<boolean>
+    unmaskDialog.alert(o)    -> Promise<void>
+    unmaskDialog.prompt(o)   -> Promise<string|null>   (null = cancelled)
+    unmaskDialog.error(msg)  -> Promise<void>   an alert titled as an error
+      o: a message string, or {title, message, ok, cancel, danger,
+         value, placeholder}.  The texts are set as text, never as HTML.
+    unmaskDialog.confirmSubmit(event, o)
+      for a form's own submit handler that asks only sometimes:
+      `return unmaskDialog.confirmSubmit(event, {...})` holds the post, asks,
+      and posts again on OK.
+  Markup:
+    data-confirm="message" on a <form>, or on one of its submit buttons
+    (then only that button asks), with data-confirm-title, data-confirm-ok
+    and data-confirm-danger="1" as wanted.  After OK the form goes out with
+    requestSubmit(), so the CSRF shim and the button's formaction apply as
+    for any submit.
+
+  Where a browser has no <dialog>, the browser's own boxes stand in.
+*/ -}}
+{{ define "init_dialog" }}
+<style>
+.ux-dialog{border:1px solid #cbd5e1;border-radius:.4rem;padding:0;max-width:30rem;width:90%;background:#fff;color:#0f172a;box-shadow:0 .5rem 1.5rem rgba(15,23,42,.18)}
+.ux-dialog::backdrop{background:rgba(15,23,42,.45)}
+.ux-dialog form{display:flex;flex-direction:column;gap:.65rem;padding:1rem 1.1rem;margin:0}
+.ux-dialog h3{margin:0;font-size:1rem;line-height:1.45;word-break:break-word}
+.ux-dialog p{margin:0;font-size:.85rem;line-height:1.6;color:#334155;white-space:pre-line;word-break:break-word}
+.ux-dialog input[type=text]{font:inherit;font-size:.9rem;padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.3rem;width:100%;box-sizing:border-box}
+.ux-dialog input[type=text]:focus{outline:2px solid #93c5fd;outline-offset:0;border-color:#3b82f6}
+.ux-dialog-actions{display:flex;justify-content:flex-end;gap:.5rem;margin-top:.2rem}
+.ux-dialog-btn{font:inherit;font-size:.85rem;padding:.4rem .9rem;border-radius:.3rem;border:1px solid #cbd5e1;background:#fff;color:#0f172a;cursor:pointer}
+.ux-dialog-btn:hover{background:#f1f5f9}
+.ux-dialog-btn.primary{background:#1d4ed8;border-color:#1d4ed8;color:#fff}
+.ux-dialog-btn.primary:hover{background:#1e40af}
+.ux-dialog-btn.danger{background:#b91c1c;border-color:#b91c1c;color:#fff}
+.ux-dialog-btn.danger:hover{background:#991b1b}
+.ux-dialog-btn:focus-visible{outline:2px solid #93c5fd;outline-offset:2px}
+</style>
+<script>
+window.unmaskDialog = (function(){
+  var L = {ok: {{ t .Lang "dialog.ok" }}, cancel: {{ t .Lang "dialog.cancel" }}, error: {{ t .Lang "dialog.error_title" }}};
+  var native = typeof HTMLDialogElement !== 'function';
+  var dlg, form, titleEl, msgEl, inputEl, okBtn, cancelBtn, settle = null;
+
+  function build(){
+    dlg = document.createElement('dialog');
+    dlg.className = 'ux-dialog';
+    dlg.setAttribute('aria-labelledby', 'ux-dialog-title');
+    dlg.setAttribute('aria-describedby', 'ux-dialog-msg');
+    form = document.createElement('form');
+    form.method = 'dialog';
+    titleEl = document.createElement('h3'); titleEl.id = 'ux-dialog-title';
+    msgEl = document.createElement('p'); msgEl.id = 'ux-dialog-msg';
+    inputEl = document.createElement('input'); inputEl.type = 'text'; inputEl.autocomplete = 'off';
+    var actions = document.createElement('div'); actions.className = 'ux-dialog-actions';
+    cancelBtn = document.createElement('button'); cancelBtn.type = 'button'; cancelBtn.className = 'ux-dialog-btn';
+    okBtn = document.createElement('button'); okBtn.type = 'submit'; okBtn.className = 'ux-dialog-btn primary';
+    actions.appendChild(cancelBtn); actions.appendChild(okBtn);
+    form.appendChild(titleEl); form.appendChild(msgEl); form.appendChild(inputEl); form.appendChild(actions);
+    dlg.appendChild(form);
+    document.body.appendChild(dlg);
+    // OK: the form's own submit.
+    form.addEventListener('submit', function(e){ e.preventDefault(); finish(true); });
+    // Enter in the prompt's field is OK too, said here because some pages
+    // swallow Enter in every text field (the settings forms do, so that a
+    // stray Enter cannot save half an edit) -- but not while an input
+    // method is still composing.
+    inputEl.addEventListener('keydown', function(e){
+      if (e.key === 'Enter' && !e.isComposing && e.keyCode !== 229) { e.preventDefault(); finish(true); }
+    });
+    cancelBtn.addEventListener('click', function(){ finish(false); });
+    // Esc, and a click on the backdrop (it lands on the dialog itself).
+    dlg.addEventListener('cancel', function(e){ e.preventDefault(); finish(false); });
+    dlg.addEventListener('click', function(e){ if (e.target === dlg) finish(false); });
+  }
+  function finish(ok){
+    if (!settle) return;
+    var s = settle; settle = null;
+    var value = inputEl.value;
+    if (dlg.open) dlg.close();
+    s(ok, value);
+  }
+  function open(kind, o){
+    if (typeof o === 'string') o = {message: o};
+    o = o || {};
+    return new Promise(function(resolve){
+      var answer = function(ok, value){
+        if (kind === 'alert') resolve();
+        else if (kind === 'prompt') resolve(ok ? value : null);
+        else resolve(!!ok);
+      };
+      if (native) {
+        var text = [o.title, o.message].filter(Boolean).join('\n\n');
+        if (kind === 'alert') { window.alert(text); answer(true); }
+        else if (kind === 'prompt') { var v = window.prompt(text, o.value || ''); answer(v !== null, v === null ? '' : v); }
+        else answer(window.confirm(text));
+        return;
+      }
+      if (!dlg) build();
+      // A second request while one is open answers the first as cancelled.
+      finish(false);
+      titleEl.textContent = o.title || '';
+      titleEl.hidden = !o.title;
+      msgEl.textContent = o.message || '';
+      msgEl.hidden = !o.message;
+      inputEl.hidden = kind !== 'prompt';
+      inputEl.value = o.value || '';
+      inputEl.placeholder = o.placeholder || '';
+      okBtn.textContent = o.ok || L.ok;
+      okBtn.className = 'ux-dialog-btn ' + (o.danger ? 'danger' : 'primary');
+      cancelBtn.textContent = o.cancel || L.cancel;
+      cancelBtn.hidden = kind === 'alert';
+      settle = answer;
+      dlg.showModal();
+      // The prompt starts in its field; a destructive question on Cancel, so
+      // a stray Enter does not delete anything; everything else on OK.
+      (kind === 'prompt' ? inputEl : (o.danger ? cancelBtn : okBtn)).focus();
+    });
+  }
+  // Post a held form again once asked; the flag lets that second submit
+  // through every handler that would otherwise ask again.
+  function resubmit(f, submitter){
+    f.__uxConfirmed = true;
+    if (f.requestSubmit) f.requestSubmit(submitter && submitter.form === f ? submitter : undefined);
+    else f.submit();
+  }
+  function fromAttrs(el){
+    return {
+      message: el.getAttribute('data-confirm'),
+      title: el.getAttribute('data-confirm-title') || '',
+      ok: el.getAttribute('data-confirm-ok') || '',
+      danger: el.getAttribute('data-confirm-danger') === '1'
+    };
+  }
+  // data-confirm: capture phase, after the CSRF shim (registered first), and
+  // before any handler of the page sees the submit it is holding.
+  document.addEventListener('submit', function(e){
+    var f = e.target;
+    if (!f || f.tagName !== 'FORM') return;
+    var sub = e.submitter && e.submitter.hasAttribute && e.submitter.hasAttribute('data-confirm') ? e.submitter : null;
+    var src = sub || (f.hasAttribute('data-confirm') ? f : null);
+    if (!src) return;
+    if (f.__uxConfirmed) { f.__uxConfirmed = false; return; }
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    var submitter = e.submitter;
+    open('confirm', fromAttrs(src)).then(function(ok){ if (ok) resubmit(f, submitter); });
+  }, true);
+
+  return {
+    confirm: function(o){ return open('confirm', o); },
+    alert: function(o){ return open('alert', o); },
+    prompt: function(o){ return open('prompt', o); },
+    // A request that failed: the error title, and what went wrong.
+    error: function(msg){ return open('alert', {title: L.error, message: String(msg == null ? '' : msg)}); },
+    confirmSubmit: function(e, o){
+      var f = e && e.target;
+      if (!f || f.tagName !== 'FORM') return true;
+      if (f.__uxConfirmed) { f.__uxConfirmed = false; return true; }
+      e.preventDefault();
+      var submitter = e.submitter;
+      open('confirm', o).then(function(ok){ if (ok) resubmit(f, submitter); });
+      return false;
+    }
+  };
+})();
+</script>
+{{ end }}

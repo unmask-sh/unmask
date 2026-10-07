@@ -15,6 +15,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Changed
+- (2026-10-07) **The admin asks in its own dialog, and names what an action is about.**  Confirmations, prompts and error messages open in the admin's modal instead of the browser's box.  Deleting a site's settings names the site in the question and in the message after it; unbanning, user changes, audit restores and community deletes name their target too.
 
 - (2026-10-07) **Presets say how their patterns match, and when a release changed them.**  Each preset's patterns now carry the same chip as a custom row (regex for every shipped preset), and an "updated" label joins "since" where a later release changed the preset.  The SQL-injection preset reads since v0.1.0, updated v0.1.50; the upgrade review still holds its new default from v0.1.50.
 

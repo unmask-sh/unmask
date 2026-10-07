@@ -130,7 +130,7 @@ $('eval-btn').addEventListener('click', () => {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ ja4: $('ja4').value.trim(), ua: $('ua').value.trim(), ip: $('ip').value.trim() })
   }).then(r => r.json()).then(d => {
-    if (d.ok !== 1) { alert('error: ' + (d.error || '?')); return; }
+    if (d.ok !== 1) { unmaskDialog.error(d.error || '?'); return; }
     var s = d.summary || '';
     var sum = $('summary');
     sum.textContent = s;
@@ -148,7 +148,7 @@ $('eval-btn').addEventListener('click', () => {
     rows += '<tr><th>bypass IP</th><td>' + (d.bypass_ip ? 'yes' : 'no') + '</td></tr>';
     $('detail-body').innerHTML = rows;
     $('result').classList.add('show');
-  }).catch(e => alert('fetch error: ' + e));
+  }).catch(e => unmaskDialog.error('fetch: ' + e));
 });
 
 function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }

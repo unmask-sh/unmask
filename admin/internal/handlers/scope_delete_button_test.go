@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -62,9 +63,17 @@ func TestScopeDeleteButtonRendered(t *testing.T) {
 		if !strings.Contains(btn, "site=shop.example.com") {
 			t.Errorf("%s tab: delete button does not carry the scope: %s", tab, btn)
 		}
-		// Destructive, so it asks first.
-		if !strings.Contains(btn, "confirm(") {
+		// Destructive, so it asks first -- in the admin's own modal
+		// (partial_dialog.html), never the browser's confirm(), and the
+		// question names the site it is about.
+		if !strings.Contains(btn, `data-confirm-danger="1"`) {
 			t.Errorf("%s tab: delete button skips the confirmation", tab)
+		}
+		if strings.Contains(btn, "confirm(") {
+			t.Errorf("%s tab: delete button asks with the browser's confirm(): %s", tab, btn)
+		}
+		if m := regexp.MustCompile(`data-confirm-title="([^"]*)"`).FindStringSubmatch(btn); m == nil || !strings.Contains(m[1], "shop.example.com") {
+			t.Errorf("%s tab: the question does not name the site: %s", tab, btn)
 		}
 		// formnovalidate: the edit form's required/min/max inputs must not be
 		// able to block a delete.
@@ -194,5 +203,53 @@ func TestScopeDeleteRemovesHostFromPicker(t *testing.T) {
 	del("challenge")
 	if strings.Contains(renderSettings(t, h, "?tab=theme"), `<option value="shop.example.com"`) {
 		t.Error("with both records gone the host is still offered by the scope picker")
+	}
+}
+
+// TestScopeDeleteBannerNamesTheSite: a delete lands on the Default scope, where
+// the host is no longer in view, so the banner there says which site's record
+// went.
+func TestScopeDeleteBannerNamesTheSite(t *testing.T) {
+	var s settings.Settings
+	s.Branding.Sites = map[string]settings.BrandingValues{"shop.example.com": {SiteName: "Shop"}}
+	s.Challenge.Sites = map[string]settings.ChallengeValues{"shop.example.com": {PowDifficulty: 22}}
+	h := deleteTestHandler(t, s)
+
+	for _, c := range []struct{ tab, page string }{{"branding", "theme"}, {"challenge", "challenge"}} {
+		form := url.Values{"site": {"shop.example.com"}}
+		r := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/"+c.tab+"/site/delete?site=shop.example.com", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
+		if c.tab == "branding" {
+			h.AdminBrandingSiteDelete(rr, r)
+		} else {
+			h.AdminChallengeSiteDelete(rr, r)
+		}
+		loc, err := url.Parse(rr.Header().Get("Location"))
+		if err != nil || loc.Query().Get("deleted") != "shop.example.com" {
+			t.Fatalf("%s: the redirect after a delete does not name the site: %q", c.tab, rr.Header().Get("Location"))
+		}
+		if loc.Query().Get("scope") != "" {
+			t.Errorf("%s: a delete must land on the Default scope, got %q", c.tab, loc.String())
+		}
+		body := renderSettings(t, h, "?tab="+c.page+"&"+loc.RawQuery)
+		if !regexp.MustCompile(`<div class="banner ok">[^<]*shop\.example\.com[^<]*</div>`).MatchString(body) {
+			t.Errorf("%s: no banner naming the deleted site after the redirect", c.tab)
+		}
+	}
+	// Without a delete the generic banner stays as it was: a plain save, on a
+	// per-site tab and on any other, must not say something was deleted (an
+	// absent ?deleted= once normalised to "default" and did, on every save).
+	for _, q := range []string{"?tab=theme&saved=1&section=theme", "?tab=rate-limit&saved=1&section=rate-limit", "?tab=theme&saved=1&section=theme&deleted=default"} {
+		body := renderSettings(t, h, q)
+		if !strings.Contains(body, `<div class="banner ok">`) {
+			t.Errorf("%s: no saved banner at all", q)
+		}
+		for _, l := range []i18n.Lang{i18n.LangJA, i18n.LangEN} {
+			marker := strings.SplitN(i18n.T(l, "settings.scope.deleted_banner"), "%s", 2)[1]
+			if strings.Contains(body, strings.TrimSpace(marker)[:12]) {
+				t.Errorf("%s: a plain save shows the delete banner", q)
+			}
+		}
 	}
 }

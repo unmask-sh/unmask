@@ -273,7 +273,9 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
                   data-reason="{{ .Reason }}"
                   data-action="{{ .Action }}">{{ t $.Lang "bans.btn.edit" }}</button>
           {{ end }}
-          <form method="POST" action="{{ $.BasePath }}/admin/bans/save" onsubmit="return confirm('Unban {{ .IP }}|{{ .JA4 }}?')" style="display:inline">
+          <form method="POST" action="{{ $.BasePath }}/admin/bans/save" style="display:inline"
+                data-confirm-title="{{ tf $.Lang "bans.unban_confirm" (printf "%s%s%s" .IP (or (and .IP .JA4 " · ") "") .JA4) }}"
+                data-confirm="" data-confirm-ok="{{ t $.Lang "bans.btn.unban" }}" data-confirm-danger="1">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
             <input type="hidden" name="op" value="delete">
             <input type="hidden" name="id" value="{{ .ID }}">
