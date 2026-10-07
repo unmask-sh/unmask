@@ -148,6 +148,13 @@ func printVacuumPlan(say func(string, ...any), p db.VacuumPlan) {
 	if p.BuildsStats {
 		say("there are no query planner statistics yet: they are built after the compaction, while the daemon's writes are still held (counted in the estimate) -- the stats and hunt pages read whole indexes without them")
 	}
-	say("the daemon keeps serving meanwhile, and holds its writes: about %d events an hour here, up to %d over the run -- about %s of memory, and at most %s of access-log counters besides (it keeps up to %d events)",
-		p.EventsPerHour, p.HeldEvents, humanBytesCLI(p.HeldBytes), humanBytesCLI(p.CountersBytes), p.HeldLimit)
+	// The events over the run are the rate over the estimate's high end:
+	// an estimate, not a bound -- a run on a slow disk takes longer.  How
+	// long the daemon can hold them is what says whether that matters.
+	lasts := ""
+	if p.EventsPerHour > 0 {
+		lasts = fmt.Sprintf(", about %.1f h at this rate", float64(p.HeldLimit)/float64(p.EventsPerHour))
+	}
+	say("the daemon keeps serving meanwhile, and holds its writes: about %d events an hour here, about %d over the run if it takes the high end of the estimate -- about %s of memory, and at most %s of access-log counters besides (it keeps up to %d events%s)",
+		p.EventsPerHour, p.HeldEvents, humanBytesCLI(p.HeldBytes), humanBytesCLI(p.CountersBytes), p.HeldLimit, lasts)
 }

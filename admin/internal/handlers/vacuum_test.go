@@ -190,7 +190,14 @@ func TestVacuumRunFromTheUI(t *testing.T) {
 	if v == nil || v.State != "running" || !v.CanCancel || v.StartedAt == 0 || v.By == "" {
 		t.Fatalf("view while running = %+v", v)
 	}
-	if other := h.vacuumView(user.RoleAdmin, i18n.LangEN); other == nil || other.State != "running" || other.CanCancel {
+	limit := groupDigits(int64(db.HeldEventsLimit()))
+	if v.StepText == "" || v.PillText == "" || v.Steps < 3 || len(v.Bars) != v.Steps ||
+		!strings.Contains(v.HeldText, limit) || v.CancelNote != i18n.T(i18n.LangEN, "vacuum.cancel_note") || v.StopHint != "" {
+		t.Errorf("view while running: step %q / %q of %d (%d bars), held %q, note %q, hint %q",
+			v.StepText, v.PillText, v.Steps, len(v.Bars), v.HeldText, v.CancelNote, v.StopHint)
+	}
+	if other := h.vacuumView(user.RoleAdmin, i18n.LangEN); other == nil || other.State != "running" || other.CanCancel ||
+		other.StopHint != i18n.T(i18n.LangEN, "vacuum.stop_hint_role") {
 		t.Errorf("admin view while running = %+v", other)
 	}
 	for i := 0; i < 25; i++ {
@@ -296,8 +303,14 @@ func TestVacuumRunFromAShell(t *testing.T) {
 	if !h.DB.WritesHeldForVacuum() {
 		t.Error("handed over without holding the writes")
 	}
-	if v := h.vacuumView(user.RoleSuperadmin, i18n.LangEN); v == nil || v.State != "running" || v.CanCancel || v.By != db.VacuumByCLI {
-		t.Errorf("view of a run from a shell = %+v (not ours to cancel)", v)
+	// The helper is this test binary, no `db-vacuum` process: the daemon
+	// does not signal it, and says where it can be stopped.
+	if v := h.vacuumView(user.RoleSuperadmin, i18n.LangEN); v == nil || v.State != "running" || v.Cancellable || v.CanCancel ||
+		v.By != db.VacuumByCLI || v.StopHint != i18n.Tf(i18n.LangEN, "vacuum.stop_hint_shell", cmd.Process.Pid) {
+		t.Errorf("view of a run from a shell = %+v (not one to signal)", v)
+	}
+	if _, err := h.vacuumCancel(); err != errVacuumNotOurs {
+		t.Errorf("cancel of a process that is no db-vacuum: %v, want errVacuumNotOurs", err)
 	}
 	select {
 	case err := <-done:
@@ -313,6 +326,186 @@ func TestVacuumRunFromAShell(t *testing.T) {
 	}
 	if rec, ok, _ := h.DB.LoadVacuum(context.Background()); !ok || rec.State != db.VacuumDone {
 		t.Errorf("record = %+v", rec)
+	}
+}
+
+// A run typed into a shell can be stopped from the card too: the daemon makes
+// sure the process on record is a `db-vacuum` it may signal, and sends it what
+// Ctrl-C would.  The run rolls back and records itself as cancelled, and the
+// stop is in the audit log once the writes are let go.
+func TestVacuumCancelARunFromAShell(t *testing.T) {
+	h := vacuumHandler(t, 2000)
+	before := fileSizeOf(t, h.DB.SQLitePath)
+	// A trailing "db-vacuum" makes the helper's command line read as a run's
+	// (the test binary takes it as a positional argument and ignores it).
+	cmd := exec.Command(os.Args[0], append(append([]string{}, vacuumHelperArgs...), "db-vacuum")...)
+	cmd.Env = vacuumHelperEnv(h, time.Minute, db.VacuumByCLI)
+	out := &logLines{prefix: "shell run: "}
+	cmd.Stdout, cmd.Stderr = out, out
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- cmd.Wait() }()
+	t.Cleanup(func() { _ = cmd.Process.Kill() })
+
+	waitFor(t, "the daemon to hand over to the run", 20*time.Second, func() bool {
+		h.VacuumRefresh(context.Background())
+		return h.DB.VacuumHeldFor(cmd.Process.Pid)
+	})
+	waitFor(t, "the run's record", 20*time.Second, func() bool {
+		h.VacuumRefresh(context.Background())
+		rec, ok, _ := h.DB.LoadVacuum(context.Background())
+		return ok && rec.State == db.VacuumRunning && rec.PID == cmd.Process.Pid
+	})
+	v := h.vacuumView(user.RoleSuperadmin, i18n.LangEN)
+	if v == nil || !v.Cancellable || !v.CanCancel || v.StopHint != "" {
+		t.Fatalf("superadmin's view of a db-vacuum from a shell = %+v, want it stoppable", v)
+	}
+	if body := renderTab(t, h, "retention", user.RoleSuperadmin, "en"); !strings.Contains(body, `id="vacuum-cancel"`) ||
+		!strings.Contains(body, i18n.T(i18n.LangEN, "vacuum.cancel_note")) {
+		t.Error("the card of a run from a shell has no cancel button, or does not say what a stop does")
+	}
+	if a := h.vacuumView(user.RoleAdmin, i18n.LangEN); a == nil || a.Cancellable || a.StopHint != i18n.T(i18n.LangEN, "vacuum.stop_hint_role") {
+		t.Errorf("admin's view = %+v", a)
+	}
+	if code, body := postJSON(t, h.AdminVacuumCancel, "/unmask/admin/api/vacuum/cancel", user.RoleSuperadmin); code != http.StatusOK {
+		t.Fatalf("cancel: %d %v", code, body)
+	}
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the run did not stop")
+	}
+	waitFor(t, "the writes to be let go", 20*time.Second, func() bool {
+		h.VacuumRefresh(context.Background())
+		return !h.VacuumGoing() && !h.DB.WritesHeld()
+	})
+	if rec, ok, _ := h.DB.LoadVacuum(context.Background()); !ok || rec.State != db.VacuumCancelled {
+		t.Errorf("record = %+v, want cancelled", rec)
+	}
+	if after := fileSizeOf(t, h.DB.SQLitePath); after != before {
+		t.Errorf("a cancelled run changed the file: %d -> %d", before, after)
+	}
+	waitFor(t, "the stop in the audit log", 5*time.Second, func() bool {
+		var n int
+		err := h.DB.QueryRow(`SELECT COUNT(*) FROM unmask_user_audit WHERE action = 'db.vacuum.cancel' AND target = ?`, db.VacuumByCLI).Scan(&n)
+		return err == nil && n == 1
+	})
+}
+
+// Once VACUUM has committed, the run moves the database out of the
+// write-ahead log: a stop would neither undo nor shorten that, so the card
+// offers none and says why, and a stop asked for anyway is refused.
+func TestVacuumNoCancelAtTheCheckpoint(t *testing.T) {
+	h := vacuumHandler(t, 10)
+	lock, err := h.DB.LockVacuumRun(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lock.Release()
+	rec := db.VacuumRecord{State: db.VacuumRunning, PID: os.Getpid(), By: "alice", Host: "test-host", Stats: true,
+		StartedAt: time.Now().Add(-time.Hour).Unix(), LiveBefore: 1 << 30, DiskFreeAtStart: 100 << 30, Stage: db.VacuumStageCheckpoint}
+	if err := h.DB.SaveMaintState(context.Background(), db.MaintVacuum, rec); err != nil {
+		t.Fatal(err)
+	}
+	h.VacuumRefresh(context.Background())
+	v := h.vacuumView(user.RoleSuperadmin, i18n.LangJA)
+	if v == nil || v.Phase != db.VacuumStageCheckpoint || v.Progress != -1 || v.CanCancel || v.StopHint != "" ||
+		v.CancelNote != i18n.T(i18n.LangJA, "vacuum.cancel_note_checkpoint") || v.StepText != i18n.T(i18n.LangJA, "vacuum.phase_checkpoint") {
+		t.Fatalf("view at the checkpoint = %+v", v)
+	}
+	// Four steps with the statistics: the copy and the write-back done, the
+	// checkpoint going with no figure, the statistics to come.
+	want := []VacuumStepBar{{"copy", 100, false, false}, {"write", 100, false, false},
+		{db.VacuumStageCheckpoint, 100, true, true}, {db.VacuumStageStats, 0, false, false}}
+	if fmt.Sprint(v.Bars) != fmt.Sprint(want) {
+		t.Errorf("bars = %+v, want %+v", v.Bars, want)
+	}
+	if _, err := h.vacuumCancel(); err != errVacuumCommitted {
+		t.Errorf("cancel at the checkpoint: %v, want errVacuumCommitted", err)
+	}
+}
+
+// The time a step has left is read off the run's own speed: the copy's from
+// the start of the run, the write-back's from the daemon's first sight of it,
+// and the checkpoint's from the write-back's (it copies the same data).
+func TestVacuumTimeLeft(t *testing.T) {
+	t0 := time.Now()
+	rec := db.VacuumRecord{State: db.VacuumRunning, StartedAt: t0.Add(-10 * time.Minute).Unix()}
+	var v vacuumRunner
+	if _, ok := v.timeLeft(rec, t0); ok {
+		t.Error("a time left before any reading")
+	}
+	// 30% copied in ten minutes: 70% more at that speed.
+	v.observe(rec, db.VacuumStep{Phase: "copy", Done: 300, Total: 1000}, t0)
+	if d, ok := v.timeLeft(rec, t0); !ok || d < 23*time.Minute || d > 24*time.Minute {
+		t.Errorf("copy: %v %v, want about 23m20s", d, ok)
+	}
+	if d, _ := v.timeLeft(rec, t0.Add(20*time.Minute)); d > 4*time.Minute {
+		t.Errorf("copy, twenty minutes after the reading: %v, want what is left of it", d)
+	}
+	// The write-back: from the first sight of it, 300 bytes a minute.
+	w := t0.Add(time.Minute)
+	v.observe(rec, db.VacuumStep{Phase: "write", Done: 100, Total: 1000}, w)
+	if _, ok := v.timeLeft(rec, w); ok {
+		t.Error("a time left at the first sight of the write-back")
+	}
+	v.observe(rec, db.VacuumStep{Phase: "write", Done: 400, Total: 1000}, w.Add(time.Minute))
+	if d, ok := v.timeLeft(rec, w.Add(time.Minute)); !ok || d != 2*time.Minute {
+		t.Errorf("write-back: %v %v, want 2m", d, ok)
+	}
+	// The checkpoint, at the write-back's speed: 1000 bytes at 5 a second.
+	c := w.Add(3 * time.Minute)
+	v.observe(rec, db.VacuumStep{Phase: db.VacuumStageCheckpoint}, c)
+	if d, ok := v.timeLeft(rec, c.Add(50*time.Second)); !ok || d != 150*time.Second {
+		t.Errorf("checkpoint: %v %v, want 2m30s", d, ok)
+	}
+	if _, ok := v.timeLeft(rec, c.Add(10*time.Minute)); ok {
+		t.Error("a time left past the checkpoint's own: no figure rather than a wrong one")
+	}
+	v.observe(rec, db.VacuumStep{Phase: db.VacuumStageStats}, c.Add(time.Minute))
+	if _, ok := v.timeLeft(rec, c.Add(time.Minute)); ok {
+		t.Error("a time left for the statistics, which no file measures")
+	}
+	// Another run starts over.
+	next := rec
+	next.StartedAt = t0.Unix()
+	v.observe(next, db.VacuumStep{Phase: "copy", Done: 10, Total: 1000}, t0.Add(30*time.Second))
+	if v.writeRate != 0 {
+		t.Error("the last run's write-back speed carried over")
+	}
+}
+
+// What the card says of the held events, and of a time ahead.
+func TestVacuumHeldAndAboutText(t *testing.T) {
+	if s, near := heldText(i18n.LangJA, 41234, 810906, 30*time.Minute); near || s != "保留中のイベント 41,234 件 (上限 810,906 件。いまの流量なら上限まで約 9 時間 20 分)" {
+		t.Errorf("held = %q, %v", s, near)
+	}
+	if s, near := heldText(i18n.LangEN, 760000, 810906, time.Hour); !near || !strings.Contains(s, "oldest are dropped") {
+		t.Errorf("held near the limit = %q, %v", s, near)
+	}
+	if s, _ := heldText(i18n.LangEN, 10, 50000, 20*time.Second); s != "10 events held (the limit is 50,000)." {
+		t.Errorf("held in the first minute = %q", s)
+	}
+	for _, c := range []struct {
+		d      time.Duration
+		ja, en string
+	}{
+		{40 * time.Second, "1 分未満", "under a minute"},
+		{33*time.Minute + 20*time.Second, "約 33 分", "about 33 min"},
+		{70 * time.Minute, "約 70 分", "about 70 min"},
+		{2*time.Hour + 4*time.Minute, "約 2 時間 5 分", "about 2 h 5 min"},
+		{3*time.Hour + 59*time.Minute, "約 4 時間", "about 4 h"},
+		{11*time.Hour + 9*time.Minute, "約 11 時間", "about 11 h"},
+		{170 * time.Hour, "約 7 日", "about 7 days"},
+	} {
+		if got := aboutText(i18n.LangJA, c.d); got != c.ja {
+			t.Errorf("aboutText(ja, %v) = %q, want %q", c.d, got, c.ja)
+		}
+		if got := aboutText(i18n.LangEN, c.d); got != c.en {
+			t.Errorf("aboutText(en, %v) = %q, want %q", c.d, got, c.en)
+		}
 	}
 }
 
@@ -375,6 +568,12 @@ func TestVacuumCardOnTheRetentionTab(t *testing.T) {
 			}
 		}
 	}
+	// The events held over the run are an estimate, with how long the
+	// daemon can hold them at the recent rate.
+	if body := renderTab(t, h, "retention", user.RoleSuperadmin, "en"); !strings.Contains(body, "the high end of the estimate") ||
+		!strings.Contains(body, " at this rate)") || strings.Contains(body, "up to about") {
+		t.Error("the plan's held events: not worded as an estimate with how long the hold lasts")
+	}
 	// Not on another tab.
 	if body := renderTab(t, h, "network", user.RoleSuperadmin, "en"); strings.Contains(body, `id="vacuum-card"`) {
 		t.Error("the compaction card is on the network tab")
@@ -430,7 +629,7 @@ func TestVacuumNoticeOnEveryPage(t *testing.T) {
 			if !strings.Contains(body, `id="vacpill"`) || !strings.Contains(body, `data-state="running"`) {
 				t.Errorf("%s (%s): no sign of the running compaction in the top bar", path, lang)
 			}
-			// "Compacting DB 12%": the words before the figure.
+			// "Compacting DB: copy 12%": the words before the step.
 			if w, _, _ := strings.Cut(i18n.T(i18n.Lang(lang), "vacuum.pill_running"), " %"); !strings.Contains(body, w) {
 				t.Errorf("%s (%s): the sign does not say a compaction is running", path, lang)
 			}
@@ -453,8 +652,9 @@ func TestVacuumNoticeOnEveryPage(t *testing.T) {
 			t.Errorf("the retention tab lacks %q while a run goes", w)
 		}
 	}
+	// The run on record is this test's own process, no db-vacuum to signal.
 	if strings.Contains(body, `id="vacpill"`) || strings.Contains(body, `id="vacuum-cancel"`) {
-		t.Error("the retention tab: a sign in the top bar, or a cancel button for a run from a shell")
+		t.Error("the retention tab: a sign in the top bar, or a cancel button for a process that is no db-vacuum")
 	}
 	// A change that writes to the database is refused with a compaction's
 	// words, not a schema update's.
@@ -496,8 +696,8 @@ func TestUpToTextRoundsLikeTheEstimate(t *testing.T) {
 
 // A database without the query planner's statistics: the card says the run
 // builds them after the compaction, and so does the modal; with them, neither
-// does.  While they are built the progress line says so -- the files the
-// percentage is read from say nothing of it.
+// does.  While they are built the progress line says so, as the last of four
+// steps -- the files the percentages are read from say nothing of it.
 func TestVacuumCardSaysItBuildsTheStatistics(t *testing.T) {
 	h := vacuumHandler(t, 400)
 	ctx := context.Background()
@@ -527,16 +727,21 @@ func TestVacuumCardSaysItBuildsTheStatistics(t *testing.T) {
 	}
 	h.VacuumRefresh(ctx)
 	body = renderTab(t, h, "retention", user.RoleAdmin, "ja")
-	if !strings.Contains(body, `<span id="vacuum-phase">`+i18n.T(i18n.LangJA, "vacuum.phase_stats")+`</span>`) {
+	if !strings.Contains(body, `<span id="vacuum-step">`+i18n.T(i18n.LangJA, "vacuum.phase_stats")+`</span>`) {
 		t.Error("the progress line does not say the statistics are being built")
 	}
-	if !strings.Contains(body, `data-l-phase-stats="`+i18n.T(i18n.LangJA, "vacuum.phase_stats")+`"`) {
-		t.Error("the page's poll has no words for the statistics stage")
+	if !strings.Contains(body, `class="vacuum-step is-current is-busy" data-step="stats"`) {
+		t.Error("the statistics are not the step going, drawn with no figure")
 	}
+	// The page's poll gets the words from the status, in the reader's
+	// language.
+	req := asRole(httptest.NewRequest(http.MethodGet, "/unmask/admin/api/vacuum", nil), user.RoleAdmin)
+	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "ja"})
 	rr := httptest.NewRecorder()
-	h.AdminVacuumStatus(rr, asRole(httptest.NewRequest(http.MethodGet, "/unmask/admin/api/vacuum", nil), user.RoleAdmin))
+	h.AdminVacuumStatus(rr, req)
 	var v VacuumView
-	if err := json.Unmarshal(rr.Body.Bytes(), &v); err != nil || v.State != "running" || v.Phase != "stats" || v.Progress != 99 {
+	if err := json.Unmarshal(rr.Body.Bytes(), &v); err != nil || v.State != "running" || v.Phase != "stats" || v.Progress != -1 ||
+		v.Steps != 4 || v.StepText != i18n.T(i18n.LangJA, "vacuum.phase_stats") || v.CancelNote != i18n.T(i18n.LangJA, "vacuum.cancel_note_stats") {
 		t.Errorf("status at the statistics stage = %s (%v)", rr.Body.String(), err)
 	}
 }

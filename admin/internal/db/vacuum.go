@@ -94,15 +94,24 @@ type VacuumRecord struct {
 	// included.
 	Seconds float64 `json:"seconds,omitempty"`
 	Err     string  `json:"err,omitempty"`
-	// Stage: VacuumStageStats while the run builds the query planner's
-	// statistics after the compaction; "" otherwise.  The files say how far
-	// the compaction is (VacuumProgress); they say nothing of this.
+	// Stage: what the run does once VACUUM has returned -- VacuumStageCheckpoint
+	// while it moves the copied-back database out of the write-ahead log,
+	// VacuumStageStats while it builds the query planner's statistics; ""
+	// before that.  The files say how far VACUUM is (VacuumProgress); they
+	// say nothing of these.
 	Stage string `json:"stage,omitempty"`
+	// Stats: the run builds the query planner's statistics after the
+	// compaction (the plan's BuildsStats) -- one step more to show.
+	Stats bool `json:"stats,omitempty"`
 }
 
-// VacuumStageStats is the stage of a run that builds the query planner's
-// statistics after its compaction (RunVacuum).
-const VacuumStageStats = "stats"
+// The stages of a run after VACUUM has returned (RunVacuum): the compaction
+// is committed by then, and stopping the run no longer gives the database
+// back as it was.
+const (
+	VacuumStageCheckpoint = "checkpoint"
+	VacuumStageStats      = "stats"
+)
 
 // VacuumRateRecord is how fast this host compacted its database the last time
 // it did, per GB of live data.  Estimates use it in place of the derived
@@ -436,41 +445,68 @@ func (d *DB) recentEventsPerHour(ctx context.Context) int64 {
 	return hour
 }
 
-// VacuumProgress estimates how far a running compaction has got, from the
+// VacuumStep is how far a running compaction has got (VacuumProgress): the
+// step it is on, and for the two steps VACUUM itself takes, the bytes done of
+// the bytes the step moves.
+type VacuumStep struct {
+	// Phase: "copy" (VACUUM copies the database into a temporary file),
+	// "write" (it copies that back through the write-ahead log),
+	// VacuumStageCheckpoint or VacuumStageStats.
+	Phase string
+	// Done / Total: bytes; 0 at the stages, whose progress no file shows.
+	Done, Total int64
+}
+
+// Frac is how far through its step the run is, 0 to 0.99, or -1 at a stage
+// whose progress no file shows.
+func (s VacuumStep) Frac() float64 {
+	if s.Total <= 0 {
+		return -1
+	}
+	f := float64(s.Done) / float64(s.Total)
+	switch {
+	case f < 0:
+		return 0
+	case f > 0.99:
+		return 0.99
+	}
+	return f
+}
+
+// VacuumProgress reads how far a running compaction has got from the
 // outside: VACUUM is one statement and reports nothing while it runs.  It
 // first writes its copy into a temporary file in the database's directory --
 // a file no listing shows, whose size is read off the directory's free space
 // -- and then copies it back through the write-ahead log, whose growth is
-// plain.  frac runs 0..0.99 over the two halves; phase is "copy" or "write",
-// and "stats" (VacuumStageStats) once the run builds the planner's statistics.
-func VacuumProgress(rec VacuumRecord, diskFreeNow, walNow int64) (frac float64, phase string) {
-	if rec.Stage == VacuumStageStats {
-		return 0.99, VacuumStageStats // compacted: the statistics are what is left
+// plain.  The two take different times -- the copy reads the fragmented file
+// out of order, the write-back writes in one run -- so each is told as a
+// step of its own rather than as halves of one figure.
+func VacuumProgress(rec VacuumRecord, diskFreeNow, walNow int64) VacuumStep {
+	switch rec.Stage {
+	case VacuumStageCheckpoint, VacuumStageStats:
+		return VacuumStep{Phase: rec.Stage}
 	}
 	live := rec.LiveBefore
 	if live <= 0 {
-		return 0, "copy"
+		return VacuumStep{Phase: "copy"}
 	}
-	walGrown := walNow - rec.WALAtStart
-	if walGrown < 0 {
-		walGrown = 0
-	}
-	clamp := func(f float64) float64 {
-		switch {
-		case f < 0:
-			return 0
-		case f > 0.99:
-			return 0.99
-		}
-		return f
-	}
+	walGrown := max(walNow-rec.WALAtStart, 0)
+	copied := rec.DiskFreeAtStart - diskFreeNow - walGrown
 	// The copy back has begun once the log holds a twentieth of the data:
 	// before that, its growth is the daemon's own writes that got in.
 	if walGrown*20 >= live {
-		return clamp(0.5 + 0.5*float64(walGrown)/float64(live)), "write"
+		// The copy is whole by now, and what is written back is its size
+		// -- less than the data in use where pages were part empty.  The
+		// data in use when the free space says too little: something else
+		// on the disk gave space back meanwhile.
+		total := live
+		if copied > live/2 {
+			total = copied
+		}
+		return VacuumStep{Phase: "write", Done: walGrown, Total: total}
 	}
-	copied := rec.DiskFreeAtStart - diskFreeNow - walGrown
-	return clamp(0.5 * float64(copied) / float64(live)), "copy"
+	// The data in use is what the copy comes to at most.
+	return VacuumStep{Phase: "copy", Done: max(copied, 0), Total: live}
 }
 
 // VacuumOptions tunes RunVacuum.
@@ -515,8 +551,9 @@ const vacuumCacheKiB = 16 << 10
 // prune chunk, a rollup -- to finish.
 const vacuumLockWait = 60 * time.Second
 
-// checkpointAfterVacuumWithin bounds the wait for the copied-back database to
-// be checkpointed out of the write-ahead log before the run ends.
+// checkpointAfterVacuumWithin is the least time the run gives the copied-back
+// database to be checkpointed out of the write-ahead log before it ends --
+// as long as VACUUM took, where that was longer.
 const checkpointAfterVacuumWithin = 10 * time.Minute
 
 // RunVacuum compacts the database conn is open on.  conn must be a
@@ -566,6 +603,7 @@ func RunVacuum(ctx context.Context, conn *DB, opt VacuumOptions) (VacuumResult, 
 		State: VacuumRunning, Host: opt.Host, PID: os.Getpid(), By: opt.By,
 		StartedAt: time.Now().Unix(), EstLowSec: int(plan.EstLow.Seconds()), EstHighSec: int(plan.EstHigh.Seconds()),
 		FileBefore: plan.FileBytes, LiveBefore: plan.LiveBytes, DiskFreeAtStart: plan.DiskFree, WALAtStart: plan.WALBytes,
+		Stats: plan.BuildsStats,
 	}
 	if err := conn.SaveMaintState(ctx, MaintVacuum, rec); err != nil {
 		return res, fmt.Errorf("record the run: %w", err)
@@ -600,8 +638,15 @@ func RunVacuum(ctx context.Context, conn *DB, opt VacuumOptions) (VacuumResult, 
 		if _, err := conn.ExecContext(ctx, `VACUUM`); err != nil {
 			return err
 		}
-		logf("compacted in %s; writing it out of the write-ahead log", time.Since(t0).Round(time.Second))
-		return checkpointAfterVacuum(conn, logf)
+		// Committed: from here on, stopping the run leaves the compaction
+		// done.
+		rec.Stage = VacuumStageCheckpoint
+		recordStage(conn, rec, logf)
+		took := time.Since(t0)
+		logf("compacted in %s; writing it out of the write-ahead log", took.Round(time.Second))
+		// The checkpoint copies what the write-back wrote, the same pages
+		// in the same order: it takes no longer than VACUUM did.
+		return checkpointAfterVacuum(conn, max(checkpointAfterVacuumWithin, took), logf)
 	}()
 	res.Elapsed = time.Since(t0)
 	if st, err := os.Stat(conn.SQLitePath); err == nil {
@@ -661,11 +706,7 @@ func statsAfterVacuum(ctx context.Context, conn *DB, rec *VacuumRecord, logf fun
 		return 0, nil
 	}
 	rec.Stage = VacuumStageStats
-	sctx, scancel := context.WithTimeout(context.Background(), 10*time.Second)
-	if err := conn.SaveMaintState(sctx, MaintVacuum, *rec); err != nil {
-		logf("could not record the run's progress: %v", err)
-	}
-	scancel()
+	recordStage(conn, *rec, logf)
 	logf("building the query planner's statistics (there are none yet)")
 	t0 := time.Now()
 	if err := conn.RefreshPlannerStats(ctx); err != nil {
@@ -689,6 +730,16 @@ func statsAfterVacuum(ctx context.Context, conn *DB, rec *VacuumRecord, logf fun
 	return el, nil
 }
 
+// recordStage writes the run's record at a new stage, for the admin UI to
+// show.  On a context of its own: a run being stopped still says where it is.
+func recordStage(conn *DB, rec VacuumRecord, logf func(string, ...any)) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := conn.SaveMaintState(ctx, MaintVacuum, rec); err != nil {
+		logf("could not record the run's progress: %v", err)
+	}
+}
+
 // checkpointAfterVacuum moves the copied-back database out of the write-ahead
 // log before the run lets the daemon write again.
 //
@@ -699,14 +750,23 @@ func statsAfterVacuum(ctx context.Context, conn *DB, rec *VacuumRecord, logf fun
 // daemon's own, inside the first write it makes.  Measured: that write waited
 // 5.7 s over a 0.85 GB log; a large database's is minutes.  So the run copies
 // until the log is all in the file (the daemon's readers finish in moments),
-// then truncates it if nobody is on it.
-func checkpointAfterVacuum(conn *DB, logf func(string, ...any)) error {
-	ctx, cancel := context.WithTimeout(context.Background(), checkpointAfterVacuumWithin)
+// then truncates it if nobody is on it -- for up to within.
+//
+// The compaction is committed before this starts, so nothing here fails the
+// run: a checkpoint that runs out of time (SQLite stops it part way) or
+// fails leaves the rest to the daemon's next one.
+func checkpointAfterVacuum(conn *DB, within time.Duration, logf func(string, ...any)) error {
+	ctx, cancel := context.WithTimeout(context.Background(), within)
 	defer cancel()
 	for {
 		cp, err := conn.CheckpointWAL(ctx, "PASSIVE", 0)
 		if err != nil {
-			return fmt.Errorf("write-ahead log checkpoint: %w", err)
+			if ctx.Err() != nil {
+				logf("the write-ahead log is not all checkpointed after %s; the daemon finishes it", within.Round(time.Second))
+			} else {
+				logf("write-ahead log checkpoint: %v; the compaction stands, and the daemon's next checkpoint finishes it", err)
+			}
+			return nil
 		}
 		if !cp.Busy && cp.Checkpointed >= cp.LogFrames {
 			break

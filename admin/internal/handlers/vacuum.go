@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -67,6 +68,83 @@ type vacuumRunner struct {
 	wasGoing  bool
 	lastEnded int64
 	handedTo  int
+
+	// The running run's progress, read at every refresh (two seconds apart
+	// while one goes) whether or not anybody has the page open: step as last
+	// read, at stepAt; stepRun the run it is of (its StartedAt).  stepSince /
+	// stepFrom: when this daemon first saw the run at that step, and how far
+	// it was then.  writeRate / writeTotal: the write-back's speed (bytes a
+	// second) and size, once it has ended -- the checkpoint that follows
+	// copies the same data (vacuumTimeLeft).
+	step       db.VacuumStep
+	stepOK     bool
+	stepAt     time.Time
+	stepRun    int64
+	stepSince  time.Time
+	stepFrom   int64
+	writeRate  float64
+	writeTotal int64
+}
+
+// observe takes a reading of the running run's progress.  v.mu held.
+func (v *vacuumRunner) observe(rec db.VacuumRecord, s db.VacuumStep, now time.Time) {
+	sameRun := v.stepOK && v.stepRun == rec.StartedAt
+	if !sameRun || v.step.Phase != s.Phase {
+		switch {
+		case !sameRun:
+			v.writeRate, v.writeTotal = 0, 0
+		case v.step.Phase == "write":
+			// The write-back has ended: its speed, from this daemon's
+			// first sight of it to the last.
+			if el := v.stepAt.Sub(v.stepSince).Seconds(); el >= 1 && v.step.Done > v.stepFrom {
+				v.writeRate, v.writeTotal = float64(v.step.Done-v.stepFrom)/el, v.step.Total
+			}
+		}
+		v.stepRun, v.stepSince, v.stepFrom = rec.StartedAt, now, s.Done
+	}
+	v.step, v.stepOK, v.stepAt = s, true, now
+}
+
+// timeLeft is how long the run's current step has left at the speed it has
+// gone, read off the files rather than the estimate the run started with:
+// the copy from the start of the run, the write-back from this daemon's
+// first sight of it, the checkpoint at the write-back's speed (the same data
+// again, in the same order).  ok is false until there is enough to go on --
+// a minute and a few percent of the copy, twenty seconds of the write-back --
+// and at the statistics, which no file measures.  v.mu held.
+func (v *vacuumRunner) timeLeft(rec db.VacuumRecord, now time.Time) (time.Duration, bool) {
+	if !v.stepOK || v.stepRun != rec.StartedAt {
+		return 0, false
+	}
+	s := v.step
+	var left float64 // seconds, as of stepAt
+	switch s.Phase {
+	case "copy":
+		el := v.stepAt.Sub(time.Unix(rec.StartedAt, 0)).Seconds()
+		if el < 60 || s.Total <= 0 || s.Done*30 < s.Total {
+			return 0, false
+		}
+		left = float64(s.Total-s.Done) / (float64(s.Done) / el)
+	case "write":
+		el, done := v.stepAt.Sub(v.stepSince).Seconds(), s.Done-v.stepFrom
+		if el < 20 || done <= 0 || s.Total <= 0 {
+			return 0, false
+		}
+		left = float64(s.Total-s.Done) / (float64(done) / el)
+	case db.VacuumStageCheckpoint:
+		if v.writeRate <= 0 || v.writeTotal <= 0 {
+			return 0, false
+		}
+		left = float64(v.writeTotal)/v.writeRate - v.stepAt.Sub(v.stepSince).Seconds()
+	default:
+		return 0, false
+	}
+	d := time.Duration(left*float64(time.Second)) - now.Sub(v.stepAt)
+	if d <= 0 {
+		// Slower than its speed so far: no figure rather than "soon".
+		return 0, false
+	}
+	return d, true
 }
 
 func (v *vacuumRunner) going() bool { return v.running || v.child != nil || v.starting }
@@ -98,8 +176,19 @@ func (h *Handler) VacuumRefresh(ctx context.Context) {
 	if !known {
 		running = ok && h.DB.VacuumAlive(rec, time.Now())
 	}
+	// The run's progress, from its files (statfs and a stat).
+	var step db.VacuumStep
+	stepRead := false
+	if running && ok && rec.State == db.VacuumRunning && rec.DiskFreeAtStart > 0 && h.DB.SQLitePath != "" {
+		if free, err := db.DirFree(filepath.Dir(h.DB.SQLitePath)); err == nil {
+			step, stepRead = db.VacuumProgress(rec, free, h.DB.WALSize()), true
+		}
+	}
 
 	v.mu.Lock()
+	if stepRead {
+		v.observe(rec, step, time.Now())
+	}
 	if ok {
 		v.rec, v.hasRec = rec, true
 		if rec.EndedAt > 0 && !v.startFailureAt.IsZero() && time.Unix(rec.EndedAt, 0).After(v.startFailureAt) {
@@ -204,19 +293,52 @@ type VacuumView struct {
 	By   string `json:"by,omitempty"`
 	Host string `json:"host,omitempty"`
 	Err  string `json:"err,omitempty"`
-	// Progress (percent) and Phase ("copy" / "write", read from its files;
-	// "stats" while it builds the query planner's statistics after the
-	// compaction) of a running run; Held the events the daemon keeps
-	// meanwhile.
-	Progress int    `json:"progress"`
+	// Phase: the step a running run is on -- "copy" and "write", the two
+	// VACUUM takes, read from its files, then db.VacuumStageCheckpoint and
+	// db.VacuumStageStats -- of Steps (3, or 4 with the statistics);
+	// Progress the percent of that step, -1 where no file shows it.
+	// StepText says it in the reader's words ("Copying 52%"), PillText the
+	// top bar's way ("Compacting DB: copy 52%"); TimeLeft the time the step
+	// has left at the speed it has gone, "" until that can be told.
 	Phase    string `json:"phase,omitempty"`
+	Steps    int    `json:"steps,omitempty"`
+	Progress int    `json:"progress"`
+	StepText string `json:"step_text,omitempty"`
+	PillText string `json:"pill_text,omitempty"`
+	TimeLeft string `json:"time_left,omitempty"`
+	// Held: the events the daemon keeps meanwhile.  HeldText says so with
+	// the limit past which the oldest go and how long the rest lasts at the
+	// rate they come; HeldNear: the count is close to that limit.
 	Held     int    `json:"held"`
+	HeldText string `json:"held_text,omitempty"`
+	HeldNear bool   `json:"held_near,omitempty"`
 	// FileBefore / FileAfter: the file's size before, and after a done run.
 	FileBefore string `json:"file_before,omitempty"`
 	FileAfter  string `json:"file_after,omitempty"`
-	// CanCancel: this session may stop the run (a superadmin, and the run is
-	// this daemon's).
-	CanCancel bool `json:"can_cancel"`
+	// Cancellable: this session may stop the run -- a superadmin, and the
+	// run is this daemon's own or a `db-vacuum` from a shell that this
+	// daemon may signal (vacuumSignalable).  CanCancel: and its step allows
+	// it -- not the checkpoint, which a stop neither undoes nor shortens.
+	// CancelNote: what stopping it now does; StopHint: how else it is
+	// stopped, where this session cannot.  StopNote: the two as the card
+	// puts them by the button.
+	Cancellable bool   `json:"cancellable"`
+	CanCancel   bool   `json:"can_cancel"`
+	CancelNote  string `json:"cancel_note,omitempty"`
+	StopHint    string `json:"stop_hint,omitempty"`
+	StopNote    string `json:"stop_note,omitempty"`
+	// Bars: the steps as the card first draws them; the page redraws them
+	// from Phase and Progress.
+	Bars []VacuumStepBar `json:"-"`
+}
+
+// VacuumStepBar is one step of a running run on the card: its share filled,
+// whether it is the step going, and whether that step's progress is unknown
+// (the bar is drawn full and moving).
+type VacuumStepBar struct {
+	Phase         string
+	Fill          int
+	Current, Busy bool
 }
 
 // vacuumShownFor is how long an ended run stays on the page.
@@ -228,15 +350,17 @@ func (h *Handler) vacuumView(role string, lang i18n.Lang) *VacuumView {
 	if h == nil || h.DB == nil || h.DB.Driver != db.DriverSQLite {
 		return nil
 	}
+	now := time.Now()
 	v := &h.vacuum
 	v.mu.Lock()
 	rec, hasRec, running := v.rec, v.hasRec, v.running
 	ours := v.child != nil || v.starting
 	childPID, childStarted := v.childPID, v.childStarted
 	failure, failureAt := v.startFailure, v.startFailureAt
+	step, stepOK := v.step, v.stepOK && v.stepRun == rec.StartedAt
+	left, leftOK := v.timeLeft(rec, now)
 	v.mu.Unlock()
 
-	now := time.Now()
 	super := roleAtLeast(role, user.RoleSuperadmin)
 	out := &VacuumView{Now: now.Unix()}
 	fromRecord := func() {
@@ -249,17 +373,22 @@ func (h *Handler) vacuumView(role string, lang i18n.Lang) *VacuumView {
 	switch {
 	case running || ours:
 		out.State = "running"
-		if hasRec && rec.State == db.VacuumRunning && (childPID == 0 || rec.PID == childPID) {
+		out.Phase, out.Steps = "copy", 3
+		onRecord := hasRec && rec.State == db.VacuumRunning && (childPID == 0 || rec.PID == childPID)
+		if onRecord {
 			fromRecord()
-			free := int64(-1)
-			if h.DB.SQLitePath != "" {
-				if f, err := db.DirFree(filepath.Dir(h.DB.SQLitePath)); err == nil {
-					free = f
+			if stepOK {
+				out.Phase, out.Progress = step.Phase, int(step.Frac()*100)
+				if step.Frac() < 0 {
+					out.Progress = -1
 				}
 			}
-			if free >= 0 && rec.DiskFreeAtStart > 0 {
-				frac, phase := db.VacuumProgress(rec, free, h.DB.WALSize())
-				out.Progress, out.Phase = int(frac*100), phase
+			// The statistics step: announced by the run, or under way.
+			if rec.Stats || out.Phase == db.VacuumStageStats {
+				out.Steps = 4
+			}
+			if leftOK {
+				out.TimeLeft = i18n.Tf(lang, "vacuum.left_"+out.Phase, aboutText(lang, left))
 			}
 		} else {
 			out.StartedAt = now.Unix()
@@ -267,8 +396,54 @@ func (h *Handler) vacuumView(role string, lang i18n.Lang) *VacuumView {
 				out.StartedAt = childStarted.Unix()
 			}
 		}
+		out.StepText, out.PillText = vacuumStepText(lang, out.Phase, out.Progress)
+		phases := []string{"copy", "write", db.VacuumStageCheckpoint}
+		if out.Steps == 4 {
+			phases = append(phases, db.VacuumStageStats)
+		}
+		passed := false
+		for _, p := range phases {
+			b := VacuumStepBar{Phase: p}
+			switch {
+			case p == out.Phase:
+				b.Current, passed = true, true
+				b.Fill = out.Progress
+				if out.Progress < 0 {
+					b.Fill, b.Busy = 100, true
+				}
+			case !passed:
+				b.Fill = 100
+			}
+			out.Bars = append(out.Bars, b)
+		}
 		out.Held = int(events.HeldEvents())
-		out.CanCancel = super && childPID != 0
+		out.HeldText, out.HeldNear = heldText(lang, out.Held, db.HeldEventsLimit(), now.Sub(time.Unix(out.StartedAt, 0)))
+		shell := childPID == 0 && onRecord && running && super && vacuumSignalable(rec.PID)
+		out.Cancellable = super && (childPID != 0 || shell)
+		out.CanCancel = out.Cancellable && out.Phase != db.VacuumStageCheckpoint
+		switch out.Phase {
+		case db.VacuumStageCheckpoint:
+			out.CancelNote = i18n.T(lang, "vacuum.cancel_note_checkpoint")
+		case db.VacuumStageStats:
+			out.CancelNote = i18n.T(lang, "vacuum.cancel_note_stats")
+		default:
+			out.CancelNote = i18n.T(lang, "vacuum.cancel_note")
+		}
+		switch {
+		case out.Cancellable || out.Phase == db.VacuumStageCheckpoint:
+		case !super:
+			out.StopHint = i18n.T(lang, "vacuum.stop_hint_role")
+		case onRecord && rec.PID > 0:
+			out.StopHint = i18n.Tf(lang, "vacuum.stop_hint_shell", rec.PID)
+		}
+		out.StopNote = out.CancelNote
+		if out.StopHint != "" {
+			sep := " "
+			if lang == i18n.LangJA {
+				sep = "" // sentences run on after "。"
+			}
+			out.StopNote = out.StopHint + sep + out.CancelNote
+		}
 	case failure != "" && now.Sub(failureAt) < vacuumShownFor:
 		out.State, out.Err, out.EndedAt = "failed", failure, failureAt.Unix()
 	case hasRec && rec.EndedAt > 0 && now.Sub(time.Unix(rec.EndedAt, 0)) < vacuumShownFor:
@@ -307,11 +482,14 @@ type VacuumCard struct {
 	Est                                                               string
 	EventsPerHour, HeldEvents, HeldLimit                              string
 	// HeldUpTo: the high end of the estimate, which HeldEvents is the event
-	// rate over.  HoldMem: the memory the hold may take -- the events, and
-	// the access-log counters when the access-log integration is on
-	// (CountersOn); without it there are no counters to keep.
-	HeldUpTo, HoldMem string
-	CountersOn        bool
+	// rate over -- an estimate, not a bound: a run may take longer.
+	// HeldLasts: how long the daemon can hold events at that rate before the
+	// oldest go ("" with no events lately).  HoldMem: the memory the hold
+	// takes over HeldUpTo -- the events, and the access-log counters when
+	// the access-log integration is on (CountersOn); without it there are
+	// no counters to keep.
+	HeldUpTo, HeldLasts, HoldMem string
+	CountersOn                   bool
 	// CanRun: this session may start a run now (a superadmin, nothing going,
 	// and the plan says it is worth it and has room).
 	CanRun bool
@@ -350,6 +528,9 @@ func (h *Handler) vacuumCard(ctx context.Context, role string, lang i18n.Lang) V
 		c.Est = estimateText(lang, p.EstLow, p.EstHigh)
 		c.EventsPerHour, c.HeldEvents, c.HeldLimit = groupDigits(p.EventsPerHour), groupDigits(p.HeldEvents), groupDigits(p.HeldLimit)
 		c.HeldUpTo = upToText(lang, p.EstHigh)
+		if p.EventsPerHour > 0 {
+			c.HeldLasts = aboutText(lang, time.Duration(float64(p.HeldLimit)/float64(p.EventsPerHour)*float64(time.Hour)))
+		}
 		mem := p.HeldBytes
 		if c.CountersOn = h.cfg().NginxLog.Enabled; c.CountersOn {
 			mem += p.CountersBytes
@@ -436,16 +617,30 @@ func (h *Handler) AdminVacuumRun(w http.ResponseWriter, r *http.Request) {
 
 // AdminVacuumCancel: POST /admin/api/vacuum/cancel (superadmin).
 func (h *Handler) AdminVacuumCancel(w http.ResponseWriter, r *http.Request) {
-	if err := h.vacuumCancel(); err != nil {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	h.VacuumRefresh(ctx)
+	by, err := h.vacuumCancel()
+	if err != nil {
 		writeJSON(w, http.StatusConflict, map[string]any{"ok": 0, "error": err.Error()})
 		return
+	}
+	// Held with the other writes until the run has ended.  The target is
+	// who started the run: a superadmin may stop a run typed into a shell.
+	if pay := SessionFromContext(r); pay != nil && h.UserRepo != nil {
+		name := "admin"
+		if u, err := h.UserRepo.GetByID(r.Context(), pay.UserID); err == nil && u != nil {
+			name = u.Username
+		}
+		h.UserRepo.Record(r.Context(), pay.UserID, name, "db.vacuum.cancel", by, "")
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 }
 
 var (
-	errVacuumNothing = errors.New("no compaction is running")
-	errVacuumNotOurs = errors.New("the running compaction was not started by this daemon; stop it where it was started")
+	errVacuumNothing   = errors.New("no compaction is running")
+	errVacuumNotOurs   = errors.New("the running compaction cannot be stopped from here (it runs as another user, or is not a db-vacuum process of this host); stop it where it runs: Ctrl-C, or kill -INT with its process id")
+	errVacuumCommitted = errors.New("the compaction is committed and is being written into the database file; that cannot be stopped")
 )
 
 // vacuumReserve claims the start of a run: no compaction and no schema update
@@ -527,19 +722,57 @@ func (h *Handler) vacuumStart(by string) error {
 	return nil
 }
 
-// vacuumCancel stops the run this daemon started.
-func (h *Handler) vacuumCancel() error {
+// vacuumCancel stops the run going -- the one this daemon started, or one
+// typed into a shell that it may signal (vacuumSignalable) -- with SIGTERM,
+// which `unmask db-vacuum` takes as Ctrl-C: SQLite rolls VACUUM back and the
+// run records itself as cancelled.  At the statistics, only they are given
+// up.  by: who started the run, as its record says.
+func (h *Handler) vacuumCancel() (by string, err error) {
 	v := &h.vacuum
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.child == nil || v.child.Process == nil {
-		if v.running {
-			return errVacuumNotOurs
+	if v.hasRec && v.rec.State == db.VacuumRunning {
+		by = v.rec.By
+		if v.stepOK && v.stepRun == v.rec.StartedAt && v.step.Phase == db.VacuumStageCheckpoint {
+			return by, errVacuumCommitted
 		}
-		return errVacuumNothing
 	}
-	log.Printf("db vacuum: cancel requested (pid %d)", v.child.Process.Pid)
-	return v.child.Process.Signal(syscall.SIGTERM)
+	if v.child != nil && v.child.Process != nil {
+		log.Printf("db vacuum: cancel requested (pid %d)", v.child.Process.Pid)
+		return by, v.child.Process.Signal(syscall.SIGTERM)
+	}
+	if !v.running {
+		return "", errVacuumNothing
+	}
+	pid := 0
+	if v.hasRec && v.rec.State == db.VacuumRunning {
+		pid = v.rec.PID
+	}
+	if !vacuumSignalable(pid) {
+		return by, errVacuumNotOurs
+	}
+	log.Printf("db vacuum: cancel requested for the run started from a shell (pid %d)", pid)
+	return by, syscall.Kill(pid, syscall.SIGTERM)
+}
+
+// vacuumSignalable reports whether pid is a compaction run this daemon may
+// stop: a process of this host running `db-vacuum` -- the record's process
+// id is checked, not trusted -- that a signal from the daemon's user
+// reaches, which one started as root is not.
+func vacuumSignalable(pid int) bool {
+	if pid <= 0 || pid == os.Getpid() {
+		return false
+	}
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
+	if err != nil {
+		return false
+	}
+	for _, arg := range strings.Split(string(b), "\x00") {
+		if arg == "db-vacuum" {
+			return syscall.Kill(pid, 0) == nil
+		}
+	}
+	return false
 }
 
 // StopVacuumRun stops the run this daemon started, if one is going, and waits
@@ -593,6 +826,79 @@ func (h *Handler) vacuumCommand(by string) (*exec.Cmd, error) {
 	out := &logLines{prefix: "db vacuum: "}
 	cmd.Stdout, cmd.Stderr = out, out
 	return cmd, nil
+}
+
+// vacuumStepText words a running run's step: in full for the card
+// ("Copying 52%") and short for the top bar ("Compacting DB: copy 52%").
+// pct is -1 at a step no file measures.
+func vacuumStepText(lang i18n.Lang, phase string, pct int) (step, pill string) {
+	name := i18n.T(lang, "vacuum.step_"+phase)
+	switch phase {
+	case "copy", "write":
+		pct = max(pct, 0)
+		return i18n.Tf(lang, "vacuum.phase_"+phase, pct), i18n.Tf(lang, "vacuum.pill_running", fmt.Sprintf("%s %d%%", name, pct))
+	}
+	return i18n.T(lang, "vacuum.phase_"+phase), i18n.Tf(lang, "vacuum.pill_running", name)
+}
+
+// heldText words the events the daemon keeps during a run: how many, the
+// limit past which the oldest go, and -- once the run has gone a minute --
+// how long the rest lasts at the rate they have come.  near: within a tenth
+// of the limit, which the flusher trims back to when it is passed.
+func heldText(lang i18n.Lang, held, limit int, el time.Duration) (string, bool) {
+	n, l := groupDigits(int64(held)), groupDigits(int64(limit))
+	if limit > 0 && held*10 >= limit*9 {
+		return i18n.Tf(lang, "vacuum.held_near", n, l), true
+	}
+	if held > 0 && el >= time.Minute && limit > held {
+		lasts := time.Duration(float64(limit-held) / float64(held) * float64(el))
+		return i18n.Tf(lang, "vacuum.held_now_lasts", n, l, aboutText(lang, lasts)), false
+	}
+	return i18n.Tf(lang, "vacuum.held_now", n, l), false
+}
+
+// aboutText words a projected time, "about" included: to the minute under an
+// hour and a half, to five minutes under ten hours, to the hour under two
+// days, and in days above.
+func aboutText(lang i18n.Lang, d time.Duration) string {
+	ja := lang == i18n.LangJA
+	switch {
+	case d < time.Minute:
+		if ja {
+			return "1 分未満"
+		}
+		return "under a minute"
+	case d < 90*time.Minute:
+		m := int((d + 30*time.Second) / time.Minute)
+		if ja {
+			return fmt.Sprintf("約 %d 分", m)
+		}
+		return fmt.Sprintf("about %d min", m)
+	case d < 10*time.Hour:
+		m := int((d+150*time.Second)/(5*time.Minute)) * 5
+		h, m := m/60, m%60
+		switch {
+		case m == 0 && ja:
+			return fmt.Sprintf("約 %d 時間", h)
+		case m == 0:
+			return fmt.Sprintf("about %d h", h)
+		case ja:
+			return fmt.Sprintf("約 %d 時間 %d 分", h, m)
+		}
+		return fmt.Sprintf("about %d h %d min", h, m)
+	}
+	if d < 48*time.Hour {
+		h := int((d + 30*time.Minute) / time.Hour)
+		if ja {
+			return fmt.Sprintf("約 %d 時間", h)
+		}
+		return fmt.Sprintf("about %d h", h)
+	}
+	days := int((d + 12*time.Hour) / (24 * time.Hour))
+	if ja {
+		return fmt.Sprintf("約 %d 日", days)
+	}
+	return fmt.Sprintf("about %d days", days)
 }
 
 // groupDigits: 1234567 -> "1,234,567".

@@ -1,7 +1,7 @@
 {{- /*
   vacuum_notice: the top bar's small sign of a database compaction
-  (internal/db/vacuum.go, internal/handlers/vacuum.go) -- "Compacting DB 21%"
-  while one runs, and how it ended for a day after.  It links to the
+  (internal/db/vacuum.go, internal/handlers/vacuum.go) -- "Compacting DB:
+  copy 52%" while one runs, and how it ended for a day after.  It links to the
   compaction card on the retention tab, which shows the run in full: the
   progress, the time, the events held and the cancel button.  That tab has
   the card instead of this (settings_admin.go sets .VacuumNotice to nil).
@@ -35,11 +35,10 @@
 <span id="vacpill" class="vacpill vacpill-{{ .State }}" role="status"{{ if ne .State "running" }} hidden{{ end }}
       data-state="{{ .State }}" data-ended="{{ .EndedAt }}"
       data-api="{{ $.BasePath }}/admin/api/vacuum"
-      data-l-running="{{ t $.Lang "vacuum.pill_running" }}"
       data-l-done="{{ t $.Lang "vacuum.pill_done" }}"
       data-l-cancelled="{{ t $.Lang "vacuum.pill_cancelled" }}"
       data-l-failed="{{ t $.Lang "vacuum.pill_failed" }}">
-  <a href="{{ $.BasePath }}/admin/settings/retention/#vacuum-card"><span class="vacpill-dot" aria-hidden="true"></span><span id="vacpill-text">{{ if eq .State "running" }}{{ tf $.Lang "vacuum.pill_running" .Progress }}{{ else }}{{ t $.Lang (printf "vacuum.pill_%s" .State) }}{{ end }}</span></a>
+  <a href="{{ $.BasePath }}/admin/settings/retention/#vacuum-card"><span class="vacpill-dot" aria-hidden="true"></span><span id="vacpill-text">{{ if eq .State "running" }}{{ .PillText }}{{ else }}{{ t $.Lang (printf "vacuum.pill_%s" .State) }}{{ end }}</span></a>
   <button type="button" id="vacpill-x" aria-label="{{ t $.Lang "vacuum.dismiss" }}"{{ if eq .State "running" }} hidden{{ end }}>×</button>
 </span>
 <script>
@@ -62,14 +61,14 @@
   if (x) x.addEventListener('click', function(){ lsSet(SEEN_KEY, el.getAttribute('data-ended')); el.hidden = true; });
   if (el.getAttribute('data-state') !== 'running') { showEnded(); return; }
 
-  // A run going: its percentage every few seconds, and how it ended, in
-  // place -- the page under it is left alone.
+  // A run going: its step every few seconds, and how it ended, in place --
+  // the page under it is left alone.
   var api = el.getAttribute('data-api');
   var poll = setInterval(function(){
     fetch(api, {credentials: 'same-origin'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(v){
       if (!v) return;
       if (v.state === 'running') {
-        text.textContent = L('running').replace('%d', v.progress || 0).replace('%%', '%');
+        if (v.pill_text) text.textContent = v.pill_text;
         return;
       }
       clearInterval(poll);

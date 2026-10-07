@@ -315,7 +315,8 @@ func TestVacuumPlanVerdicts(t *testing.T) {
 }
 
 // Progress is read from the outside: the copy through the directory's free
-// space, the write-back through the log's growth.
+// space, the write-back through the log's growth -- each a step of its own,
+// told as a share of what that step moves.
 func TestVacuumProgress(t *testing.T) {
 	rec := VacuumRecord{LiveBefore: 1000, DiskFreeAtStart: 10000, WALAtStart: 40}
 	cases := []struct {
@@ -324,16 +325,24 @@ func TestVacuumProgress(t *testing.T) {
 		phase     string
 	}{
 		{10000, 40, 0, "copy"},
-		{9500, 40, 0.25, "copy"},
-		{9000, 60, 0.49, "copy"}, // 20 bytes of the daemon's own writes, not the write-back
-		{8900, 540, 0.75, "write"},
-		{8000, 2000, 0.99, "write"},
+		{9500, 40, 0.5, "copy"},
+		{9000, 60, 0.98, "copy"},    // 20 bytes of the daemon's own writes, not the write-back
+		{8900, 540, 0.83, "write"},  // the copy came to 600 bytes: what is written back
+		{8000, 2000, 0.99, "write"}, // the free space says too little: the data in use
 		{12000, 0, 0, "copy"},
 	}
 	for _, c := range cases {
-		f, ph := VacuumProgress(rec, c.free, c.wal)
-		if ph != c.phase || f < c.frac-0.011 || f > c.frac+0.011 {
-			t.Errorf("free %d wal %d: %.3f %s, want %.2f %s", c.free, c.wal, f, ph, c.frac, c.phase)
+		s := VacuumProgress(rec, c.free, c.wal)
+		if f := s.Frac(); s.Phase != c.phase || f < c.frac-0.011 || f > c.frac+0.011 {
+			t.Errorf("free %d wal %d: %.3f %s, want %.2f %s", c.free, c.wal, f, s.Phase, c.frac, c.phase)
+		}
+	}
+	// After VACUUM the run says where it is; no file gives a figure.
+	for _, stage := range []string{VacuumStageCheckpoint, VacuumStageStats} {
+		r := rec
+		r.Stage = stage
+		if s := VacuumProgress(r, 8000, 2000); s.Phase != stage || s.Frac() != -1 {
+			t.Errorf("at the %s stage: %+v (frac %v)", stage, s, s.Frac())
 		}
 	}
 }
@@ -371,12 +380,15 @@ func TestRunVacuumBuildsMissingStats(t *testing.T) {
 	vacuumRateMinLive = 0
 	defer func() { vacuumRateMinLive = prevMin }()
 
-	var during VacuumRecord
+	var during, checkpointing VacuumRecord
 	var heldDuring bool
 	m := maintOf(t, d)
 	res, err := RunVacuum(ctx, m, VacuumOptions{Host: "h1", By: "tester",
 		Logf: func(f string, a ...any) {
-			if strings.HasPrefix(fmt.Sprintf(f, a...), "building the query planner's statistics") {
+			switch line := fmt.Sprintf(f, a...); {
+			case strings.HasPrefix(line, "compacted in"):
+				checkpointing, _, _ = d.LoadVacuum(ctx)
+			case strings.HasPrefix(line, "building the query planner's statistics"):
 				during, _, _ = d.LoadVacuum(ctx)
 				heldDuring, _ = d.VacuumRunLockHeld()
 			}
@@ -393,8 +405,14 @@ func TestRunVacuumBuildsMissingStats(t *testing.T) {
 	if during.State != VacuumRunning || during.Stage != VacuumStageStats || !heldDuring {
 		t.Errorf("while the statistics were built: record %+v, run lock held %v; want running at the stats stage, lock held", during, heldDuring)
 	}
-	if frac, phase := VacuumProgress(during, 0, 0); phase != VacuumStageStats || frac < 0.99 {
-		t.Errorf("progress at the stats stage = %v %q", frac, phase)
+	if s := VacuumProgress(during, 0, 0); s.Phase != VacuumStageStats || s.Frac() != -1 {
+		t.Errorf("progress at the stats stage = %+v", s)
+	}
+	// Between VACUUM and the statistics, the run says it is moving the
+	// compacted database out of the write-ahead log -- the step a stop no
+	// longer undoes -- and that a statistics step follows.
+	if checkpointing.State != VacuumRunning || checkpointing.Stage != VacuumStageCheckpoint || !checkpointing.Stats {
+		t.Errorf("after VACUUM: record %+v, want running at the checkpoint stage with the statistics to come", checkpointing)
 	}
 	rec, _, _ := d.LoadVacuum(ctx)
 	if rec.State != VacuumDone || rec.Stage != "" || rec.Seconds < res.Elapsed.Seconds() {

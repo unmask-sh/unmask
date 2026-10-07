@@ -6605,10 +6605,20 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
   .vacuum-progress-done{border-color:#86efac;background:#f0fdf4;color:#166534}
   .vacuum-progress-cancelled{border-color:#fcd34d;background:#fffbeb;color:#78350f}
   .vacuum-progress-failed{border-color:#fca5a5;background:#fef2f2;color:#991b1b}
-  .vacuum-bar{height:.4rem;margin:.4rem 0 .45rem;background:rgba(30,58,138,.15);border-radius:.2rem;overflow:hidden}
-  .vacuum-bar>span{display:block;height:100%;background:#2563eb;transition:width .6s}
+  .vacuum-steps{display:flex;gap:.3rem;margin:.45rem 0 .5rem}
+  .vacuum-step{flex:1;min-width:0}
+  .vacuum-step-bar{display:block;height:.4rem;background:rgba(30,58,138,.15);border-radius:.2rem;overflow:hidden}
+  .vacuum-step-bar>i{display:block;height:100%;background:#2563eb;transition:width .6s}
+  .vacuum-step.is-busy .vacuum-step-bar>i{background:repeating-linear-gradient(-45deg,#2563eb 0 .35rem,#60a5fa .35rem .7rem);background-size:1rem 100%;animation:vacuum-busy 1s linear infinite}
+  @keyframes vacuum-busy{to{background-position:1rem 0}}
+  @media (prefers-reduced-motion:reduce){.vacuum-step.is-busy .vacuum-step-bar>i{animation:none}}
+  .vacuum-step-name{display:block;margin-top:.2rem;font-size:.72rem;opacity:.75;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .vacuum-step.is-current .vacuum-step-name{font-weight:600;opacity:1}
   .vacuum-sub{font-size:.8rem;opacity:.9}
-  .vacuum-progress .btn{margin-top:.6rem}
+  .vacuum-sub.vacuum-near{color:#b45309;font-weight:600;opacity:1}
+  .vacuum-cancel-row{display:flex;gap:.75rem;align-items:center;flex-wrap:wrap;margin-top:.6rem}
+  .vacuum-cancel-row .btn[hidden]{display:none}
+  .vacuum-cancel-note{flex:1 1 18rem;font-size:.78rem;opacity:.9}
   .vacuum-dialog{border:1px solid #cbd5e1;border-radius:.4rem;padding:0;max-width:30rem;width:90%;background:#fff;color:#0f172a}
   .vacuum-dialog::backdrop{background:rgba(15,23,42,.45)}
   .vacuum-dialog-body{display:flex;flex-direction:column;gap:.75rem;padding:1.1rem 1.25rem}
@@ -6633,7 +6643,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       <div data-vacuum="size">{{ t $.Lang "vacuum.size_label" }}: <strong>{{ tf $.Lang "vacuum.size_value" .File .Live .Reclaim .ReclaimPct }}</strong></div>
       <div data-vacuum="disk">{{ t $.Lang "vacuum.disk_label" }}: <strong>{{ .DiskNeed }}</strong>{{ if .DiskFree }} <span style="color:#64748b">({{ tf $.Lang "vacuum.disk_free" .DiskFree }})</span>{{ end }}</div>
       <div data-vacuum="time">{{ t $.Lang "vacuum.time_label" }}: <strong>{{ .Est }}</strong> <span style="color:#94a3b8;font-size:.75rem">{{ t $.Lang (printf "vacuum.est_from_%s" .Plan.EstFrom) }}</span></div>
-      <div data-vacuum="held">{{ t $.Lang "vacuum.held_label" }}: <strong>{{ tf $.Lang "vacuum.held_value" .HeldEvents }}</strong> <span style="color:#94a3b8;font-size:.75rem">{{ tf $.Lang "vacuum.held_basis" .EventsPerHour .HeldUpTo .HeldLimit }}</span></div>
+      <div data-vacuum="held">{{ t $.Lang "vacuum.held_label" }}: <strong>{{ tf $.Lang "vacuum.held_value" .HeldEvents }}</strong> <span style="color:#94a3b8;font-size:.75rem">{{ if .HeldLasts }}{{ tf $.Lang "vacuum.held_basis" .EventsPerHour .HeldUpTo .HeldLimit .HeldLasts }}{{ else }}{{ tf $.Lang "vacuum.held_basis_idle" .HeldLimit }}{{ end }}</span></div>
       <div data-vacuum="mem">{{ t $.Lang "vacuum.mem_label" }}: <strong>{{ tf $.Lang "vacuum.mem_value" .HoldMem }}</strong>{{ if .CountersOn }} <span style="color:#94a3b8;font-size:.75rem">{{ tf $.Lang "vacuum.mem_basis" .HeldBytes .CountersBytes }}</span>{{ end }}</div>
       {{ if .Plan.BuildsStats }}<div data-vacuum="stats">{{ t $.Lang "vacuum.stats_label" }}: <strong>{{ t $.Lang "vacuum.stats_value" }}</strong> <span style="color:#94a3b8;font-size:.75rem">{{ t $.Lang "vacuum.stats_basis" }}</span></div>{{ end }}
     </div>
@@ -6643,24 +6653,25 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
          data-started="{{ .StartedAt }}" data-now="{{ .Now }}"
          data-api="{{ $.BasePath }}/admin/api/vacuum"
          data-l-elapsed="{{ t $.Lang "vacuum.elapsed" }}"
-         data-l-phase-copy="{{ t $.Lang "vacuum.phase_copy" }}"
-         data-l-phase-write="{{ t $.Lang "vacuum.phase_write" }}"
-         data-l-phase-stats="{{ t $.Lang "vacuum.phase_stats" }}"
-         data-l-held="{{ t $.Lang "vacuum.held_now" }}"
          data-l-stopping="{{ t $.Lang "vacuum.stopping" }}"
          data-l-done="{{ t $.Lang "vacuum.done" }}"
          data-l-cancelled="{{ t $.Lang "vacuum.cancelled" }}"
          data-l-failed="{{ t $.Lang "vacuum.failed" }}">
-      <div><strong>{{ t $.Lang "vacuum.running" }}</strong> <span id="vacuum-phase">{{ if eq .Phase "write" }}{{ tf $.Lang "vacuum.phase_write" .Progress }}{{ else if eq .Phase "stats" }}{{ t $.Lang "vacuum.phase_stats" }}{{ else }}{{ tf $.Lang "vacuum.phase_copy" .Progress }}{{ end }}</span> · <span id="vacuum-elapsed"></span>{{ if .Est }} {{ tf $.Lang "vacuum.expected" .Est }}{{ end }}</div>
-      <div class="vacuum-bar" aria-hidden="true"><span id="vacuum-bar" style="width:{{ .Progress }}%"></span></div>
-      <div class="vacuum-sub">{{ t $.Lang "vacuum.running_sub" }} <span id="vacuum-held">{{ tf $.Lang "vacuum.held_now" (comma .Held) }}</span>{{ if and .By (not .CanCancel) }} {{ tf $.Lang "vacuum.started_by" .By .Host }}{{ end }}</div>
-      {{ if .CanCancel }}<button type="button" class="btn secondary" id="vacuum-cancel">{{ t $.Lang "vacuum.cancel" }}</button>{{ end }}
+      <div><strong>{{ t $.Lang "vacuum.running" }}</strong> <span id="vacuum-step">{{ .StepText }}</span> · <span id="vacuum-elapsed"></span><span id="vacuum-left">{{ if .TimeLeft }} · {{ .TimeLeft }}{{ end }}</span></div>
+      <div class="vacuum-steps" aria-hidden="true">{{ range .Bars }}<div class="vacuum-step{{ if .Current }} is-current{{ end }}{{ if .Busy }} is-busy{{ end }}" data-step="{{ .Phase }}"><span class="vacuum-step-bar"><i style="width:{{ .Fill }}%"></i></span><span class="vacuum-step-name">{{ t $.Lang (printf "vacuum.step_%s" .Phase) }}</span></div>{{ end }}</div>
+      <div class="vacuum-sub">{{ t $.Lang "vacuum.running_sub" }}</div>
+      <div id="vacuum-held" class="vacuum-sub{{ if .HeldNear }} vacuum-near{{ end }}">{{ .HeldText }}</div>
+      {{ if .By }}<div class="vacuum-sub">{{ tf $.Lang "vacuum.started_by" .By .Host }}</div>{{ end }}
+      <div class="vacuum-cancel-row">
+        {{ if .Cancellable }}<button type="button" class="btn secondary" id="vacuum-cancel"{{ if not .CanCancel }} hidden{{ end }}>{{ t $.Lang "vacuum.cancel" }}</button>{{ end }}
+        <span id="vacuum-cancel-note" class="vacuum-cancel-note">{{ .StopNote }}</span>
+      </div>
     </div>
-    {{ if .CanCancel }}
+    {{ if .Cancellable }}
     <dialog id="vacuum-stop-dialog" class="vacuum-dialog" aria-labelledby="vacuum-stop-h">
       <div class="vacuum-dialog-body">
         <h3 id="vacuum-stop-h">{{ t $.Lang "vacuum.stop_h" }}</h3>
-        <p class="vacuum-dialog-text">{{ t $.Lang "vacuum.stop_body" }}</p>
+        <p class="vacuum-dialog-text" id="vacuum-stop-body">{{ .CancelNote }}</p>
         <p class="vacuum-dialog-err" data-err role="alert" hidden>{{ t $.Lang "vacuum.request_failed" }}</p>
         <div class="vacuum-dialog-actions">
           <button type="button" class="btn secondary" data-back>{{ t $.Lang "vacuum.stop_keep" }}</button>
@@ -6782,11 +6793,27 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       if (!out || !started) return;
       out.textContent = L('elapsed').replace('%s', mmss(serverNow + (Date.now() - arrived) / 1000 - started));
     }
-    function fmt(n){ return String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+    function setText(id, t){ var e = document.getElementById(id); if (e) e.textContent = t; }
+    // The steps: those before the one going are done, the one going is
+    // filled to its share -- full and moving where no file measures it.
+    var steps = el.querySelectorAll('.vacuum-step');
+    function paint(phase, pct){
+      var passed = false;
+      for (var i = 0; i < steps.length; i++) {
+        var st = steps[i], cur = st.getAttribute('data-step') === phase;
+        st.classList.toggle('is-current', cur);
+        st.classList.toggle('is-busy', cur && pct < 0);
+        st.querySelector('i').style.width = (cur ? (pct < 0 ? 100 : pct) : passed ? 0 : 100) + '%';
+        if (cur) passed = true;
+      }
+    }
     var cancel = document.getElementById('vacuum-cancel');
     var openStop = cancel && modal('vacuum-stop-dialog', function(done, fail){
       fetch(api + '/cancel', {method: 'POST', credentials: 'same-origin'}).then(function(r){
-        if (!r.ok && r.status !== 409) throw new Error('HTTP ' + r.status);
+        // 409: it ended meanwhile, or reached the step a stop no longer
+        // undoes -- the poll shows which.
+        if (r.status === 409) { done(); return; }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
         done();
         // Stopping takes the run a moment; the poll shows how it ended.
         cancel.disabled = true;
@@ -6800,10 +6827,16 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       fetch(api, {credentials: 'same-origin'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(v){
         if (!v) return;
         if (v.state === 'running') {
-          var p = v.progress || 0;
-          document.getElementById('vacuum-bar').style.width = p + '%';
-          document.getElementById('vacuum-phase').textContent = L(v.phase === 'write' ? 'phase-write' : v.phase === 'stats' ? 'phase-stats' : 'phase-copy').replace('%d', p).replace('%%', '%');
-          document.getElementById('vacuum-held').textContent = L('held').replace('%s', fmt(v.held || 0));
+          setText('vacuum-step', v.step_text || '');
+          setText('vacuum-left', v.time_left ? ' · ' + v.time_left : '');
+          paint(v.phase || 'copy', typeof v.progress === 'number' ? v.progress : 0);
+          var held = document.getElementById('vacuum-held');
+          held.textContent = v.held_text || '';
+          held.classList.toggle('vacuum-near', !!v.held_near);
+          // A stop already asked for keeps its button saying so.
+          if (cancel && !cancel.disabled) cancel.hidden = !v.can_cancel;
+          setText('vacuum-cancel-note', v.stop_note || '');
+          setText('vacuum-stop-body', v.cancel_note || '');
           return;
         }
         clearInterval(poll);

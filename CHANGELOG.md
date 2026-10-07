@@ -12,6 +12,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-10-07) **The compaction card shows each step and the time it has left.**  One figure covered the copy and its write-back, so a half-done copy read as a quarter.  Each step now has its own percentage and the time left at its speed so far; the held events show their limit, and the plan says "about" rather than "up to", with how long the daemon can hold them.
+
+- (2026-10-07) **A superadmin can stop a compaction started from a shell.**  The card offered to stop only a run its daemon had started.  It now stops an `unmask db-vacuum` typed into a shell too, after checking the process, and says what stopping costs: nothing while VACUUM runs, only the statistics at the last step.  The final write into the file cannot be stopped.
+
+### Fixed
+
+- (2026-10-07) **A compaction whose final checkpoint ran long is no longer recorded as failed.**  After VACUUM, the run copies the database out of the write-ahead log for at most ten minutes; on a large file on a slow disk, the limit stopped the checkpoint and recorded the committed compaction as failed.  The limit now grows with the compaction's own time, and running out leaves the rest to the daemon.
+
 ## [0.1.50] - 2026-10-07
 
 ### Added
