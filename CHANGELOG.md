@@ -12,12 +12,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.51-rc1] - 2026-10-08 (testing build)
 
 ### Added
+
 - (2026-10-07) **The over-block alert arrives in its reader's language.**  An account gets it in the language it last saw the admin in -- the one picked at the top right, or the browser's -- recorded as it uses the admin.  Addresses listed under Recipients, and accounts that have not opened the admin yet, get the language chosen on the notifications tab: English by default, or Japanese.  Other alert mail stays in English.
 
 ### Changed
+
 - (2026-10-07) **The admin asks in its own dialog, and names what an action is about.**  Confirmations, prompts and error messages open in the admin's modal instead of the browser's box.  Deleting a site's settings names the site in the question and in the message after it; unbanning, user changes, audit restores and community deletes name their target too.
 
 - (2026-10-07) **The over-block alarm watches for visitors stuck at the challenge.**  It divided challenges by addresses, so one scanner using a browser's user-agent could set it off.  It now counts addresses challenged again on the same page right after passing, or failing verification: at least three, and half of those that ran the challenge, in ten minutes or an hour (`min_stuck_ips` and `stuck_percent`, replacing `min_serves` and `max_serves_per_ip`).
@@ -33,6 +35,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-10-07) **A superadmin can stop a compaction started from a shell.**  The card offered to stop only a run its daemon had started.  It now stops an `unmask db-vacuum` typed into a shell too, after checking the process, and says what stopping costs: nothing while VACUUM runs, only the statistics at the last step.  The final write into the file cannot be stopped.
 
 ### Fixed
+
 - (2026-10-07) **The bot hunt shows an abandon's details in one place.**  Hovering an abandon row opened the browser's tooltip on top of the row's popover, two boxes over each other.  The tooltip is gone; where the visitor left, how long after the page appeared and what followed now sit as a footnote in the popover, as on a collapsed session's timeline.
 
 - (2026-10-07) **The AI advisor's switch reads in the admin's language again.**  Its label and description sat in the other language's table, so the Japanese admin showed them in English and the English admin in Japanese.  The Web Bot Auth key-cache label is translated too, and a test now fails on any pair of texts swapped between the two languages.
