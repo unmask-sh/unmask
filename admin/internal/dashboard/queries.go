@@ -673,15 +673,54 @@ func Funnel(ctx context.Context, d *db.DB, site string, hosts []string, hours in
 // funnelScan builds the funnel by scanning raw unmask_event. Used for
 // site/host-filtered views, which the hourly aggregate deliberately does not
 // dimension.
+// eventWindowHint pins a raw unmask_event window scan to the date index when
+// nothing narrower applies.  A GROUP BY on an indexed column with no equality
+// predicate on it makes SQLite walk that column's covering index end to end
+// (the GROUP BY order comes free that way), so the scan costs the whole
+// table, not the window -- unless the planner has statistics, which a large
+// install rarely does (migrate builds them only under 256 MiB, and ANALYZE
+// on a multi-GB file is a write lock of many minutes).  Measured on 8M rows:
+// the funnel's one-hour scan read 369 MB of the verdict index, 17-23 s cold /
+// 1.3-2 s warm; pinned, 12-40 MB and 0.5-1.5 s cold / 0.07-0.23 s warm.
+//
+// A site or host predicate has its own (col, date_created) index to seek, so
+// the hint is left out there: INDEXED BY would forbid that better plan.
+func eventWindowHint(d *db.DB, since, sc string) string {
+	if sc != "" {
+		return ""
+	}
+	return d.EventDateIndexHint(since)
+}
+
+// queryHinted runs the statement built with the date hint and, when the hint
+// names an index this database does not have (failed or blocked migrate, a
+// hand-rebuilt schema), the unhinted one: slow, but an answer.  INDEXED BY
+// turns a missing index into a hard error rather than a slow plan.
+func queryHinted(ctx context.Context, d *db.DB, hint string, build func(hint string) string, args ...any) (*sql.Rows, error) {
+	rows, err := d.QueryContext(ctx, build(hint), args...)
+	if err != nil && hint != "" && strings.Contains(err.Error(), "idx_unmask_event_date") {
+		rows, err = d.QueryContext(ctx, build(""), args...)
+	}
+	return rows, err
+}
+
+// funnelScanSQL is the funnel's base aggregation (verdict x phase over the
+// window); hint is the date-index pin, "" for none.  Exposed to the planner test.
+func funnelScanSQL(hint, since, sc string) string {
+	return fmt.Sprintf(`
+        SELECT COALESCE(ja4_verdict, '(none)') AS v, ja4_verdict_id AS vid, phase, COUNT(*) AS n
+        FROM unmask_event%s WHERE %s%s
+        GROUP BY ja4_verdict, ja4_verdict_id, phase`, hint, since, sc)
+}
+
 func funnelScan(ctx context.Context, d *db.DB, site string, hosts []string, hours int, botVerdicts []string, reg *nginxconf.VerdictRegistry) ([]FunnelRow, error) {
 	since := tsWindow(ctx, hours, "date_created")
 	sc := siteCond(site) + hostCond(hosts)
 
 	// A) base aggregation by verdict × phase. SELECT id too so canon can use it.
-	rows, err := d.QueryContext(ctx, fmt.Sprintf(`
-        SELECT COALESCE(ja4_verdict, '(none)') AS v, ja4_verdict_id AS vid, phase, COUNT(*) AS n
-        FROM unmask_event WHERE %s%s
-        GROUP BY ja4_verdict, ja4_verdict_id, phase`, since, sc))
+	rows, err := queryHinted(ctx, d, eventWindowHint(d, since, sc), func(hint string) string {
+		return funnelScanSQL(hint, since, sc)
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -1343,14 +1382,23 @@ func VerdictDistribution(ctx context.Context, d *db.DB, site string, hosts []str
 	return verdictDistScan(ctx, d, site, hosts, hours)
 }
 
-func verdictDistScan(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]VerdictCount, error) {
-	stmt := fmt.Sprintf(`
+// verdictDistScanSQL is the raw verdict distribution over the window; hint is
+// the date-index pin, "" for none.  Exposed to the planner test.
+func verdictDistScanSQL(hint, since, sc string) string {
+	return fmt.Sprintf(`
         SELECT COALESCE(ja4_verdict, '(none)') AS v,
                COUNT(*) AS cnt,
                COUNT(DISTINCT ip_address) AS uniq
-        FROM unmask_event WHERE %s%s
-        GROUP BY ja4_verdict`, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts))
-	rows, err := d.QueryContext(ctx, stmt)
+        FROM unmask_event%s WHERE %s%s
+        GROUP BY ja4_verdict`, hint, since, sc)
+}
+
+func verdictDistScan(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]VerdictCount, error) {
+	since := tsWindow(ctx, hours, "date_created")
+	sc := siteCond(site) + hostCond(hosts)
+	rows, err := queryHinted(ctx, d, eventWindowHint(d, since, sc), func(hint string) string {
+		return verdictDistScanSQL(hint, since, sc)
+	})
 	if err != nil {
 		return nil, err
 	}

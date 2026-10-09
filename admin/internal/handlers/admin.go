@@ -1351,6 +1351,10 @@ func (h *Handler) dashboardHosts(r *http.Request) []string {
 // renderStats renders the stats template for the result of pickSite.  Called
 // by both AdminStats (/admin/stats/{site}/) and AdminSiteList (/admin/stats/
 // when site<=1).
+// funnelQueryTimeout is the funnel card's own budget inside the page's
+// overall deadline.  A variable so a test can make the card fail at once.
+var funnelQueryTimeout = 5 * time.Second
+
 func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site string) {
 	// The stats page scopes by the shared site_picker (single-select), not by
 	// the legacy /admin/stats/{site}/ path segment.  cookie / ?site=; "" = all sites.
@@ -1571,7 +1575,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		}()
 	}
 	run("funnel", func() error {
-		fctx, fcancel := queryCtx(5 * time.Second)
+		fctx, fcancel := queryCtx(funnelQueryTimeout)
 		defer fcancel()
 		funnel, funnelErr = dashboard.Funnel(fctx, h.DB, site, hosts, hours, botVerdicts, h.VerdictRegistry(), site != "" && h.cfg().Sites.DefinedSet()[site])
 		return funnelErr
@@ -1837,16 +1841,18 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	dashboard.ApplyDisplayLoc(dailyCountry, loc)
 	dashboard.ApplyDisplayLoc(dailyUniq, loc)
 
-	// funnel is the centerpiece, so a confirmed error returns 500.  Other
-	// cards may be missing; render continues with "0 entries" (same
-	// degradation policy as the old sequential version).  Note we only fail
-	// the page on a true error -- if the overall deadline fired before
-	// funnel returned, funnel / funnelErr are both nil and we render the
-	// dashboard with an empty funnel card.
+	// The funnel is the centerpiece, but a funnel that could not be read is
+	// still one card of twenty-odd: it is named in the "could not load"
+	// banner like any other and the page renders around it.  This used to be
+	// a 500 for the whole page, which on a large install meant the stats page
+	// was gone exactly when the operator wanted it -- the funnel's raw 24h
+	// scan (every load after a restart until the hourly rollup is ready, and
+	// every site- or host-filtered view) cannot finish inside its budget
+	// there, while the other cards had come back fine.  The same shape the
+	// overall deadline already produced: funnel nil, the card empty.
 	if funnelErr != nil {
 		log.Printf("funnel: %v", funnelErr)
-		http.Error(w, "db error: "+funnelErr.Error(), http.StatusInternalServerError)
-		return
+		funnel = nil
 	}
 	rlPathQueriesJSON, _ := json.Marshal(rlPathQueries)
 	countriesJSON, _ := json.Marshal(countries)

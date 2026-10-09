@@ -1564,12 +1564,28 @@ func RankByJA4(ctx context.Context, d *db.DB, sinceMin, limit int, site string) 
 	if limit < 1 || limit > 200 {
 		limit = 30
 	}
+	win := dateCreatedWindow(ctx, d, sinceMin)
 	cond, args := rankSiteCond(site)
 	args = append(args, limit)
-	stmt := `SELECT COALESCE(ja4, ''), COUNT(*) AS c FROM unmask_event
-	         WHERE ` + dateCreatedWindow(ctx, d, sinceMin) + cond + `
+	// Pinned to the date index for the same reason as RankByIP: with no
+	// equality on ja4, SQLite walks the whole (ja4, phase, date_created)
+	// covering index to get the GROUP BY order for free, so the cost follows
+	// the table, not the window -- and ANALYZE does not change its mind.
+	// Measured on an 8M-row database: 678 MB read for a ONE HOUR window, 61-86 s
+	// cold / 1.4-3 s warm; pinned, 14-40 MB and 0.5-2.7 s cold / 0.04-0.24 s warm.
+	// This was the hunt page's first load after an idle spell, and every
+	// page of it, since the rankings are recomputed per page.
+	stmt := `SELECT COALESCE(ja4, ''), COUNT(*) AS c FROM unmask_event` + d.EventDateIndexHint(win) + `
+	         WHERE ` + win + cond + `
 	         GROUP BY ja4 ORDER BY c DESC LIMIT ?`
 	rows, err := d.QueryContext(ctx, stmt, args...)
+	if err != nil && strings.Contains(err.Error(), "idx_unmask_event_date") {
+		// Same degradation as RankByIP: INDEXED BY makes a missing index a hard
+		// error, and a slow ranking beats an empty one.
+		rows, err = d.QueryContext(ctx, `SELECT COALESCE(ja4, ''), COUNT(*) AS c FROM unmask_event
+	         WHERE `+win+cond+`
+	         GROUP BY ja4 ORDER BY c DESC LIMIT ?`, args...)
+	}
 	if err != nil {
 		return nil, err
 	}

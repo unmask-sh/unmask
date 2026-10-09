@@ -154,3 +154,56 @@ func TestSampleIPForJA4PinsDateIndex(t *testing.T) {
 		t.Errorf("SampleIPForJA4 must NOT scan the ip covering index; plan:\n%s", plan)
 	}
 }
+
+// TestRankByJA4PinsDateIndex: the JA4 ranking had no pin and walked the whole
+// (ja4, phase, date_created) covering index for a one-hour window -- 678 MB on
+// an 8M-row database, which was the hunt page's cold load after an idle spell
+// and the cost of every page of it.  Statistics do not change that plan (the
+// planner still prefers the free GROUP BY order), so the query is pinned like
+// RankByIP, and the pin must not change the answer.
+func TestRankByJA4PinsDateIndex(t *testing.T) {
+	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if err := db.Migrate(d); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	now := time.Now().UTC()
+	for i := 0; i < 20; i++ {
+		if err := Insert(ctx, d, &Event{
+			IPPacked:   PackIP("10.0.0.1"),
+			JA4:        fmt.Sprintf("t13d%04d_x", i%5),
+			Phase:      "serve",
+			OccurredAt: now,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	win := dateCreatedWindow(ctx, d, 60)
+	stmt := `SELECT COALESCE(ja4, ''), COUNT(*) AS c FROM unmask_event` + d.EventDateIndexHint(win) + `
+	         WHERE ` + win + `
+	         GROUP BY ja4 ORDER BY c DESC LIMIT ?`
+	plan := planOf(t, d, stmt, 30)
+	if !strings.Contains(plan, "idx_unmask_event_date") {
+		t.Errorf("RankByJA4 must seek the date index; plan:\n%s", plan)
+	}
+	if strings.Contains(plan, "idx_unmask_event_ja4_phase") {
+		t.Errorf("RankByJA4 must NOT scan the (ja4, phase, date_created) covering index "+
+			"(cost would grow with the table, not the window); plan:\n%s", plan)
+	}
+	got, err := RankByJA4(ctx, d, 60, 30, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 5 {
+		t.Fatalf("want 5 ranked fingerprints, got %d (%v)", len(got), got)
+	}
+	for _, r := range got {
+		if r.Count != 4 {
+			t.Errorf("ja4 %s: want count 4, got %d", r.Key, r.Count)
+		}
+	}
+}
