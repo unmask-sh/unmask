@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-10-09) **The built-in icon is 192 px, not the 1.3 MB source artwork.**  The icon the admin pages, the favicon and the challenge page's credit line load was the 1254 px original, so a page showing it at 14 px downloaded 1.3 MB.  It is now the same mark at 192 px, 33 kB.
+
 ## [0.1.51-rc2] - 2026-10-09 (testing build)
 
 ### Changed
