@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -113,8 +114,8 @@ func TestGeoDecideForCountry(t *testing.T) {
 		{Country: "CN", Action: settings.RateChallengeDeny, Enabled: true},
 		{Country: "DE", Action: settings.GeoActionSkip, Enabled: true},
 		{Country: "RU", Action: settings.RateChallengeCaptchaOnly, Enabled: false}, // disabled -> no opinion
-		{Country: "FR", Action: ""},                                                // disabled (Enabled unset) -> no opinion, falls to default
-		{Country: "IT", Action: "", Enabled: true},                                 // ENABLED registered rule, blank action -> inherits DefaultRuleAction
+		{Country: "FR", Action: ""},                // disabled (Enabled unset) -> no opinion, falls to default
+		{Country: "IT", Action: "", Enabled: true}, // ENABLED registered rule, blank action -> inherits DefaultRuleAction
 	}
 	geoSkipDefault := settings.GeoConfig{DefaultAction: settings.GeoActionSkip, Rules: rules}
 	geoDenyDefault := settings.GeoConfig{DefaultAction: settings.RateChallengeDeny, Rules: rules}
@@ -370,7 +371,7 @@ func TestHoneypotDecidePerPreset(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			m := pathMatchers{honeypot: c.rules}
-			d, ok := honeypotDecide(context.Background(), c.uri, m, c.cfg, nil, "203.0.113.9", "example.test")
+			d, ok := honeypotDecide(context.Background(), c.uri, m, c.cfg, nil, "203.0.113.9", "example.test", "https")
 			if ok != c.wantOK {
 				t.Fatalf("ok=%v, want %v (decision=%+v)", ok, c.wantOK, d)
 			}
@@ -667,30 +668,70 @@ func TestIsSearchBotUARangeVerified(t *testing.T) {
 }
 
 // A honeypot ban's reason is read months after the trip, often by someone
-// deciding whether to lift it.  It has to say which host was probed: on a
-// multi-site install /cgi-bin/ exists on every vhost that has one, and a path
-// alone cannot answer "which site is being scanned".  Both wires build it here
-// so the two cannot drift into two spellings of the same event.
+// deciding whether to lift it.  It has to say which rule fired -- an SQL
+// injection probe and a WordPress scan are different decisions -- and which
+// URL was probed, host first: on a multi-site install /cgi-bin/ exists on
+// every vhost that has one, and a path alone cannot answer "which site is
+// being scanned".  Both wires build it here so the two cannot drift into two
+// spellings of the same event.
 func TestHoneypotReason(t *testing.T) {
-	long := "/cgi-bin/x?" + strings.Repeat("a", 400)
-	for _, tc := range []struct{ name, host, uri, want string }{
-		{"host and path", "www.example.com", "/cgi-bin/test?cmd=id", "hit www.example.com/cgi-bin/test?cmd=id"},
-		{"no host still names the path", "", "/cgi-bin/test", "hit /cgi-bin/test"},
-		{"no path still names the host", "www.example.com", "", "honeypot on www.example.com"},
-		{"neither", "", "", "honeypot"},
-		{"whitespace is not a value", "  ", "  ", "honeypot"},
+	for _, tc := range []struct {
+		name string
+		trip HoneypotTrip
+		want string
+	}{
+		{"rule, scheme, host and path", HoneypotTrip{"https", "www.example.com", "/cgi-bin/test?cmd=id", "CGI / Tomcat"}, "CGI / Tomcat: https://www.example.com/cgi-bin/test?cmd=id"},
+		{"no scheme on a line from an older configuration", HoneypotTrip{"", "www.example.com", "/cgi-bin/test", "CGI / Tomcat"}, "CGI / Tomcat: www.example.com/cgi-bin/test"},
+		{"no rule resolved still says what was hit", HoneypotTrip{"https", "www.example.com", "/cgi-bin/test", ""}, "hit https://www.example.com/cgi-bin/test"},
+		{"no host: the path alone, with nothing to be absolute to", HoneypotTrip{"https", "", "/cgi-bin/test", "CGI / Tomcat"}, "CGI / Tomcat: /cgi-bin/test"},
+		{"a scheme other than http(s) is not written", HoneypotTrip{"javascript", "www.example.com", "/x", "r"}, "r: www.example.com/x"},
+		{"the scheme is normalised", HoneypotTrip{" HTTP ", "www.example.com", "/x", "r"}, "r: http://www.example.com/x"},
+		{"no path still names the host", HoneypotTrip{"https", "www.example.com", "", "r"}, "honeypot on www.example.com"},
+		{"neither", HoneypotTrip{}, "honeypot"},
+		{"whitespace is not a value", HoneypotTrip{" ", "  ", "  ", " "}, "honeypot"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := honeypotReason(tc.host, tc.uri); got != tc.want {
-				t.Errorf("honeypotReason(%q, %q) = %q, want %q", tc.host, tc.uri, got, tc.want)
+			if got := honeypotReason(tc.trip); got != tc.want {
+				t.Errorf("honeypotReason(%+v) = %q, want %q", tc.trip, got, tc.want)
 			}
 		})
 	}
-	// Both halves are attacker-supplied, so both are bounded.  The reason
-	// column is VARCHAR(255); a scanner that sends a kilobyte of path must not
-	// be able to decide how much of the row survives the insert.
-	got := honeypotReason(strings.Repeat("h", 200), long)
-	if len(got) > reasonMaxLen {
-		t.Errorf("reason is %d chars, past what the column holds: %q", len(got), got[:80])
+	// Host, path and scheme are attacker-supplied, and a custom rule's title is
+	// free text, so every part is bounded.  The reason column is VARCHAR(255);
+	// a scanner that sends a kilobyte of path must not be able to decide how
+	// much of the row survives the insert, and forward-auth's prefix has to fit
+	// under the column too.
+	long := "/cgi-bin/x?" + strings.Repeat("a", 400)
+	got := honeypotReason(HoneypotTrip{"https", strings.Repeat("h", 200), long, strings.Repeat("r", 100)})
+	if n := utf8.RuneCountInString(got); n > reasonMaxLen-reasonPrefixMax {
+		t.Errorf("reason is %d chars, past what the column holds under the prefix: %q", n, got[:80])
+	}
+	// Each cut value ends in an ellipsis, inside its budget: the operator can
+	// see that the title, the host or the path goes on, instead of reading a
+	// path cut mid-way as the complete URL.
+	if want := strings.Repeat("r", reasonRuleMax-1) + "…: https://" + strings.Repeat("h", reasonHostMax-1) + "…/cgi-bin/x?"; !strings.HasPrefix(got, want) {
+		t.Errorf("the rule and the host do not survive a long path, marked as cut: %q", got[:120])
+	}
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("a cut path is not marked: %q", got[len(got)-40:])
+	}
+	// The path takes what the rule and the host leave: under a preset's name
+	// and an ordinary host it keeps far more than under the longest title.
+	short := honeypotReason(HoneypotTrip{"https", "www.example.com", long, "WordPress"})
+	if n := utf8.RuneCountInString(short); n != reasonMaxLen-reasonPrefixMax {
+		t.Errorf("a long path under a short rule fills %d chars, want the whole %d", n, reasonMaxLen-reasonPrefixMax)
+	}
+	if !strings.HasPrefix(short, "WordPress: https://www.example.com/cgi-bin/x?"+strings.Repeat("a", 150)) {
+		t.Errorf("the path under a short rule is cut early: %q", short[:80])
+	}
+	// A cut falls on a rune boundary: the title is the operator's text, and a
+	// half character would make the row invalid UTF-8.
+	jp := honeypotReason(HoneypotTrip{"https", "www.example.com", "/x", strings.Repeat("罠", reasonRuleMax+8)})
+	if !utf8.ValidString(jp) || !strings.HasPrefix(jp, strings.Repeat("罠", reasonRuleMax-1)+"…: https://") {
+		t.Errorf("a multi-byte title is not cut on a rune boundary: %q", jp)
+	}
+	// A value that fits is left alone, ellipsis and all.
+	if got := honeypotReason(HoneypotTrip{"https", "www.example.com", "/x", strings.Repeat("r", reasonRuleMax)}); !strings.HasPrefix(got, strings.Repeat("r", reasonRuleMax)+": ") {
+		t.Errorf("a title within the budget was cut: %q", got)
 	}
 }

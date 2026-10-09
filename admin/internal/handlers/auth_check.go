@@ -29,6 +29,7 @@
 //	X-Original-IP     client IP (= equivalent to nginx/Apache's $remote_addr)
 //	X-Original-UA     User-Agent
 //	X-Original-Host   Host header
+//	X-Original-Scheme (= optional) the visitor's scheme, http / https; a honeypot ban's reason writes the URL with it
 //	X-Unmask-Site     (= optional) multi-site identifier
 //	Cookie            client cookies including _bv / _br (= passed by the server)
 //
@@ -50,6 +51,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 
 	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
@@ -478,7 +480,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 					decisions = append(decisions, d)
 				}
 			}
-			if d, ok := honeypotDecide(r.Context(), uri, matchers, cfg, h.BanMgr, ip, host); ok {
+			if d, ok := honeypotDecide(r.Context(), uri, matchers, cfg, h.BanMgr, ip, host, scheme); ok {
 				decisions = append(decisions, d)
 			}
 			if d, ok := protectedDecide(uri, matchers, cfg, site); ok {
@@ -944,10 +946,11 @@ func asnDecideFor(asn uint, org string, cfg settings.AsnConfig) (axisDecision, b
 // honeypotDecide returns a decision when the URI matches a honeypot path.
 // Side effect: adds an entry to the persistent BAN list (= regardless of
 // whether honeypot wins the max — the trap counts even if a stronger axis
-// is the visible verdict).
+// is the visible verdict).  scheme is the visitor's (X-Original-Scheme), for
+// the URL in the ban's reason.
 func honeypotDecide(ctx context.Context, uri string, matchers pathMatchers, cfg settings.Settings,
-	banMgr *ban.Manager, ip, host string) (axisDecision, bool) {
-	presetAct, ok := matchHoneypot(uri, matchers.honeypot)
+	banMgr *ban.Manager, ip, host, scheme string) (axisDecision, bool) {
+	presetAct, rule, ok := matchHoneypot(uri, matchers.honeypot)
 	if !ok {
 		return axisDecision{}, false
 	}
@@ -957,7 +960,7 @@ func honeypotDecide(ctx context.Context, uri string, matchers pathMatchers, cfg 
 		// forward-auth (banDecide rowAction) alike -- enforces the operator's
 		// per-preset choice, not just this first trip.
 		banMgr.AddWithSourceAction(ctx, ip, "", "honeypot",
-			"auth_request: "+honeypotReason(host, uri), "", presetAct)
+			"auth_request: "+honeypotReason(HoneypotTrip{Scheme: scheme, Host: host, URI: uri, Rule: rule}), "", presetAct)
 	}
 	// Immediate decision: per-preset override -> Honeypot.DefaultAction -> the
 	// same rate-limit chain default the other axes inherit.  A per-preset
@@ -977,36 +980,67 @@ func honeypotDecide(ctx context.Context, uri string, matchers pathMatchers, cfg 
 	return axisDecision{sev: s, reason: "honeypot:" + act, chMode: chModeFromSeverity(s)}, true
 }
 
-// HoneypotReason writes the ban reason for a honeypot trip: which host was
-// probed and which trap fired.  One function for both wires, because a reason
-// is what the operator reads months later and two spellings of the same event
-// read as two different events.
+// HoneypotTrip is what a honeypot ban's reason is written from: the rule that
+// fired and the URL that tripped it, in the parts the two wires have.  Any
+// part may be empty -- the scheme on an access-log line from a configuration
+// that predates the field, or on a forward-auth check whose server sends no
+// X-Original-Scheme; the rule when the settings changed between nginx's match
+// and the daemon's -- and the reason says what it can.
+type HoneypotTrip struct {
+	Scheme, Host, URI, Rule string
+}
+
+// HoneypotReason writes the ban reason for a honeypot trip: which rule fired,
+// and which URL -- scheme, host and path -- tripped it.
 //
-// The host leads because on a multi-site install a path alone does not say
-// whose trap this was -- /cgi-bin/ exists on every vhost that has one, and
-// "which site is being scanned" is usually the first question.  It is the
-// request's own Host, so it is attacker-supplied like the path; both are
-// truncated and neither is interpreted.
+//	SQL injection signatures: https://www.example.com/x?id=1'+UNION+SELECT+1
+//	hit https://www.example.com/cgi-bin/x    (no rule resolved)
+//	honeypot on www.example.com              (no path: an older log line)
+//
+// The rule leads because it is the one part the operator cannot read off the
+// URL, and the one an attacker does not supply.  The host comes before the
+// path because on a multi-site install /cgi-bin/ exists on every vhost that
+// has one, and "which site is being scanned" is usually the first question.
+// Host and path are the request's own, attacker-supplied like the scheme
+// header; all are bounded and none is interpreted.  One function for both
+// wires, because a reason is what the operator reads months later and two
+// spellings of the same event read as two different events.
 //
 // honeypotReason is the unexported spelling used inside this package; the
 // exported one exists for the native wire, which builds the same reason from
 // an access-log line in main.go.
-func HoneypotReason(host, uri string) string { return honeypotReason(host, uri) }
+func HoneypotReason(t HoneypotTrip) string { return honeypotReason(t) }
 
-// reasonMaxLen mirrors the reason column (VARCHAR(255) on both backends).  The
-// parts are budgeted to fit rather than trimmed afterwards, so a scanner
-// sending a kilobyte of path cannot decide how much of the host survives --
-// the host is the half that answers "which site", and it is never the part
-// that gets cut.
+// The parts are budgeted to fit the reason column (VARCHAR(255) on both
+// backends, counted in characters) under forward-auth's "auth_request: "
+// prefix, rather than trimmed afterwards: the rule and the host are cut at
+// their own limits first and the path takes what they leave (at least 103
+// characters; some 190 under a preset's name), so a scanner sending a
+// kilobyte of path cannot decide how much of the rule or the host survives
+// the insert.  A cut value ends in an ellipsis, so a path cut mid-way does
+// not read as a complete URL, and falls on a rune boundary: a custom rule's
+// title is the operator's text.
+//
+// reasonRuleMax is also the title's limit on the honeypot tab
+// (applyHoneypotForm, and the page as the operator types), so the cut here
+// is for titles stored before that limit existed.  80 fits the titles this
+// operator writes on the other rule lists (up to 66 so far).
 const (
-	reasonMaxLen  = 255
-	reasonHostMax = 60
-	reasonURIMax  = 180 // 4 ("hit ") + 60 + 180 = 244
+	reasonMaxLen    = 255
+	reasonPrefixMax = 14 // len("auth_request: ")
+	reasonRuleMax   = 80
+	reasonSchemeMax = 8 // len("https://")
+	reasonHostMax   = 48
 )
 
-func honeypotReason(host, uri string) string {
-	uri = truncateAt(strings.TrimSpace(uri), reasonURIMax)
-	host = truncateAt(strings.TrimSpace(host), reasonHostMax)
+func honeypotReason(t HoneypotTrip) string {
+	host := cutRunes(strings.TrimSpace(t.Host), reasonHostMax)
+	rule := cutRunes(strings.TrimSpace(t.Rule), reasonRuleMax)
+	lead := utf8.RuneCountInString(rule) + 2 // "<rule>: "
+	if rule == "" {
+		lead = 4 // "hit "
+	}
+	uri := cutRunes(strings.TrimSpace(t.URI), reasonMaxLen-reasonPrefixMax-lead-reasonSchemeMax-utf8.RuneCountInString(host))
 	if uri == "" {
 		// Nothing to name.  "honeypot" alone is what the column said before a
 		// trip carried its URL, and it stays truthful when one does not.
@@ -1015,21 +1049,49 @@ func honeypotReason(host, uri string) string {
 		}
 		return "honeypot on " + host
 	}
-	if host == "" {
-		return "hit " + uri
-	}
-	return "hit " + host + uri
-}
-
-// matchHoneypot returns the action override of the FIRST honeypot rule uri hits.
-// action=="" = inherit Honeypot.DefaultAction; ok=false = no honeypot rule hit.
-func matchHoneypot(uri string, list []honeypotRule) (action string, ok bool) {
-	for _, h := range list {
-		if h.re.MatchString(uri) {
-			return h.action, true
+	url := host + uri
+	if host != "" {
+		// Only http and https are schemes here -- the header is
+		// request-supplied on a forward-auth check -- and a host-less path has
+		// nothing to be absolute to.
+		switch scheme := strings.ToLower(strings.TrimSpace(t.Scheme)); scheme {
+		case "http", "https":
+			url = scheme + "://" + url
 		}
 	}
-	return "", false
+	if rule == "" {
+		return "hit " + url
+	}
+	return rule + ": " + url
+}
+
+// cutRunes returns s, or its first n-1 runes and an ellipsis when it is longer
+// than n runes -- within the budget, and never splitting a multi-byte
+// character.
+func cutRunes(s string, n int) string {
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	i := 0
+	for pos := range s {
+		if i == n-1 {
+			return s[:pos] + "…"
+		}
+		i++
+	}
+	return s
+}
+
+// matchHoneypot returns the action override and the name of the FIRST honeypot
+// rule uri hits.  action=="" = inherit Honeypot.DefaultAction; ok=false = no
+// honeypot rule hit.
+func matchHoneypot(uri string, list []honeypotRule) (action, name string, ok bool) {
+	for _, h := range list {
+		if h.re.MatchString(uri) {
+			return h.action, h.name, true
+		}
+	}
+	return "", "", false
 }
 
 // banDecide consults the persistent BAN list.  Resolution (= mgr lookup) is
@@ -1696,6 +1758,7 @@ func notifPreviewRescue(ua, ja4 string, m pathMatchers) bool {
 type honeypotRule struct {
 	re     *regexp.Regexp
 	action string
+	name   string // what the ban's reason calls the rule: HoneypotGroup.Name / HoneypotURLName
 }
 
 // bypassMatchersCache: reused until the (published-snapshot pointer, site)
@@ -1869,7 +1932,7 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 		act := strings.TrimSpace(n.Honeypot.PresetAction[g.ID])
 		for _, p := range g.Patterns {
 			if re := compileCachedRe("(?i)" + p); re != nil {
-				pm.honeypot = append(pm.honeypot, honeypotRule{re: re, action: act})
+				pm.honeypot = append(pm.honeypot, honeypotRule{re: re, action: act, name: g.Name()})
 			}
 		}
 	}
@@ -1878,7 +1941,7 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 			continue
 		}
 		if re := compileCachedRe("(?i)" + settings.PatternRegex(u.Path)); re != nil {
-			pm.honeypot = append(pm.honeypot, honeypotRule{re: re, action: strings.TrimSpace(u.Action)})
+			pm.honeypot = append(pm.honeypot, honeypotRule{re: re, action: strings.TrimSpace(u.Action), name: nginxconf.HoneypotURLName(u)})
 		}
 	}
 

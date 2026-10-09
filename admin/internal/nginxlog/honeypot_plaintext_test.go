@@ -45,13 +45,21 @@ func TestOnLineHoneypotPlaintextRedirectVeto(t *testing.T) {
 	tests := []struct {
 		name          string
 		ja4           string // "" renders as the access log's ja4=- placeholder
+		scheme        string // "" = a line from a configuration before the field
 		httpsRedirect bool
 		wantBan       bool
 	}{
-		{"plaintext trip while redirecting -> vetoed", "", true, false},
-		{"TLS trip while redirecting -> banned", ja4Real, true, true},
-		{"plaintext trip, redirect off -> banned", "", false, true},
-		{"TLS trip, redirect off -> banned", ja4Real, false, true},
+		{"plaintext trip while redirecting -> vetoed", "", "", true, false},
+		{"TLS trip while redirecting -> banned", ja4Real, "", true, true},
+		{"plaintext trip, redirect off -> banned", "", "", false, true},
+		{"TLS trip, redirect off -> banned", ja4Real, "", false, true},
+		// Once the configuration logs the scheme, the line says it itself and
+		// that is read over the JA4: a trip over https with no fingerprint was
+		// served, not bounced, and a plaintext one was bounced whatever the JA4
+		// field says.
+		{"scheme=https, no JA4, while redirecting -> banned", "", "https", true, true},
+		{"scheme=http, JA4, while redirecting -> vetoed", ja4Real, "http", true, false},
+		{"scheme=http, redirect off -> banned", "", "http", false, true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -72,7 +80,7 @@ func TestOnLineHoneypotPlaintextRedirectVeto(t *testing.T) {
 			r := &Reader{}
 			r.SetHTTPSRedirectCheck(func() bool { return tc.httpsRedirect })
 			var got []string
-			r.SetHoneypotCallback(func(ip, ja4, uri, site string) {
+			r.SetHoneypotCallback(func(ip, ja4, uri, site, scheme string) {
 				got = append(got, ip)
 				banMgr.AddWithSourceAction(t.Context(), ip, ja4, ban.SourceHoneypot,
 					"hit "+uri, "", "")
@@ -85,7 +93,11 @@ func TestOnLineHoneypotPlaintextRedirectVeto(t *testing.T) {
 				ja4Field = "-"
 			}
 			line := "1783938726.123 site=example.com kind= fc=1 hp=1 ip=" + scanIP +
-				" ja4=" + ja4Field + " hpuri=" + hpURI + " ua=" + scanUA
+				" ja4=" + ja4Field + " hpuri=" + hpURI
+			if tc.scheme != "" {
+				line += " bp=0 scheme=" + tc.scheme
+			}
+			line += " ua=" + scanUA
 			r.onLine(line)
 
 			banned := len(got) > 0
@@ -110,7 +122,7 @@ func TestOnLineHoneypotSearchBotVetoStillApplies(t *testing.T) {
 	r.SetSearchBotCheck(func(ua string) bool { return strings.Contains(ua, "Googlebot") })
 	r.SetHTTPSRedirectCheck(func() bool { return false })
 	var banned []string
-	r.SetHoneypotCallback(func(ip, ja4, uri, site string) { banned = append(banned, ip) })
+	r.SetHoneypotCallback(func(ip, ja4, uri, site, scheme string) { banned = append(banned, ip) })
 
 	r.onLine("1783938726.123 site=example.com kind= fc=1 hp=1 ip=66.249.66.1 " +
 		"ja4=t13d1516h2_8daaf6152771_02713d6af862 hpuri=/wp-login.php " +

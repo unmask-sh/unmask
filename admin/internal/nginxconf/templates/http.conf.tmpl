@@ -1513,7 +1513,14 @@ map "$is_bypass_ip$is_bypass_path" $unmask_bypassed {
     "00"    0;
 }
 
-log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bypassed ua=$http_user_agent';
+# scheme=$unmask_forwarded_proto is the visitor's scheme (http / https): the
+# edge's X-Forwarded-Proto behind a terminating LB, else $scheme -- the key the
+# HTTPS redirect (server.inc) uses, so the daemon reads from the line whether
+# a honeypot trip was a plaintext request nginx bounced (it inferred that from
+# an empty JA4 before), and a honeypot ban's reason names the URL in full.
+# Optional to the daemon's parser, like bp: a line from a configuration
+# rendered before this field still parses.
+log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bypassed scheme=$unmask_forwarded_proto ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed.
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;

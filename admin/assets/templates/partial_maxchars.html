@@ -1,0 +1,98 @@
+{{- /*
+  init_maxchars: a field with a character limit says so the moment its value
+  runs past it.  The field turns red (:invalid), the same words appear under
+  it -- or under its rule row -- and the save is held: setCustomValidity, so
+  the browser's own bubble points at the field when the form is submitted.
+  Replaces maxlength, which stops the typing without a word, and a server
+  that cut the value after the fact.  Counted in characters (code points), as
+  the server counts them.
+
+    <input data-maxchars="80" data-maxchars-msg="At most 80 characters.">
+    <input pattern="..." data-invalid-msg="3-32 characters, ...">
+    data-maxchars-anchor="form"   the note goes after the closest such element
+                                  (a field on a flex line has no room under it)
+
+  A dialog that submits through its own JS asks first:
+    if (!window.unmaskMaxChars.report(dialog)) return;   // bubble on the field
+
+  A field in a rule row that is not open for editing is hidden, and a hidden
+  invalid field would hold the save with nothing to point at: the row opens
+  (the invalid event) so the field is there.
+
+  On every signed-in page through header_tools, after init_dialog.  The styles
+  are here rather than in each page's <style>: the note is added by this
+  script, and a page that did not know about it would show it unstyled.
+*/ -}}
+{{ define "init_maxchars" }}
+<style>
+input[data-maxchars]:invalid,textarea[data-maxchars]:invalid,input[data-invalid-msg]:invalid{border-color:#dc2626 !important;background:#fef2f2 !important;box-shadow:0 0 0 1px #dc2626 !important}
+.maxchars-err{margin:.15rem 0 .6rem;padding:.4rem .6rem;background:#fee2e2;border:1px solid #fca5a5;border-radius:.3rem;color:#7f1d1d;font-size:.82rem;line-height:1.5}
+</style>
+<script>
+(function(){
+  var SEL = 'input[data-maxchars],textarea[data-maxchars],input[data-invalid-msg]';
+  function check(el){
+    var max = parseInt(el.getAttribute('data-maxchars') || '', 10);
+    var msg = '';
+    if (max && Array.from(el.value).length > max) msg = el.getAttribute('data-maxchars-msg') || '';
+    el.setCustomValidity(msg);
+    if (!msg && el.hasAttribute('data-invalid-msg') && !el.validity.valid) {
+      // A pattern field: the browser's own check, in our words.
+      msg = el.getAttribute('data-invalid-msg') || '';
+      el.setCustomValidity(msg);
+    }
+    var note = el._maxcharsNote;
+    if (note && !note.isConnected) note = null;
+    if (msg) {
+      if (!note) {
+        note = document.createElement('div');
+        note.className = 'maxchars-err';
+        var sel = el.getAttribute('data-maxchars-anchor');
+        var anchor = (sel && el.closest(sel)) || el.closest('.rule-row') || el;
+        anchor.insertAdjacentElement('afterend', note);
+        el._maxcharsNote = note;
+      }
+      note.textContent = msg;
+    } else if (note) {
+      note.remove();
+      el._maxcharsNote = null;
+    }
+    return !msg;
+  }
+  function is(el){ return !!(el && el.matches && el.matches(SEL)); }
+  document.addEventListener('input', function(e){ if (is(e.target)) check(e.target); });
+  document.addEventListener('focusin', function(e){ if (is(e.target)) check(e.target); });
+  // A row opened for editing shows its stored value: check it as it opens.
+  document.addEventListener('click', function(e){
+    var row = e.target.closest && e.target.closest('.rule-row.editing');
+    if (row) row.querySelectorAll(SEL).forEach(check);
+  });
+  document.addEventListener('invalid', function(e){
+    var row = e.target.closest && e.target.closest('.rule-row');
+    if (row) row.classList.add('editing');
+  }, true);
+  document.addEventListener('DOMContentLoaded', function(){
+    document.querySelectorAll(SEL).forEach(function(el){
+      var row = el.closest('.rule-row');
+      if (!row || row.classList.contains('editing')) check(el);
+    });
+  });
+  window.unmaskMaxChars = {
+    check: check,
+    // For a dialog that submits through its own JS: true when every field in
+    // root is within its limit; else false, with the bubble on the first one
+    // that is not.
+    report: function(root){
+      var bad = null;
+      (root || document).querySelectorAll(SEL).forEach(function(el){
+        if (el.disabled) return;
+        if (!check(el) && !bad) bad = el;
+      });
+      if (!bad) return true;
+      if (bad.reportValidity) bad.reportValidity(); else bad.focus();
+      return false;
+    }
+  };
+})();
+</script>
+{{ end }}

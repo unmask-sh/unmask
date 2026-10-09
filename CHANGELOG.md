@@ -12,6 +12,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-10-09) **Every field with a character limit says so as you type.**  A field that had a limit used to stop taking characters at it without a word, or the save cut the value afterwards.  Now the field turns red the moment the text runs past the limit, the limit is written under it, and the save waits until it fits: a honeypot rule's title, an ASN rule's label, the branding site name and footer, a snapshot's name, the labels and reason in the bot hunt dialogs, a community comment, and the community hub name, which also says its rule instead of being cleared.
+
+- (2026-10-09) **A honeypot ban's reason names the rule and the whole URL.**  The ban list said only which host and path tripped a trap.  The reason now leads with the honeypot rule that fired -- a preset's name, or a custom row's title -- and writes the URL with its scheme, so a SQL-injection probe reads differently from a WordPress scan without opening the honeypot tab.  A custom rule's title is held to 80 characters: the field turns red as it runs past the limit, says why, and the save waits.  On a module install the scheme reaches the daemon with the next render and reload.
+
+### Fixed
+
+- (2026-10-09) **Rule labels are counted in characters, and the ASN tab says its limit.**  A label typed in Japanese on the bot hunt, or a settings snapshot's name, was cut at a third of its stated length, sometimes in the middle of a character.  On the ASN tab a label or an organisation name was shortened to 80 characters without a word, which could change what an organisation rule matched.  Both now count characters; the ASN tab turns the field red at 200 as you type and the save waits.  The password hint said 72 characters; the limit has been 1,024 bytes since argon2id.
+
 ## [0.1.51-rc1] - 2026-10-08 (testing build)
 
 ### Added

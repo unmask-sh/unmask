@@ -66,7 +66,7 @@ func TestOnLineNativeHoneypotPerPresetAction(t *testing.T) {
 	r := Start("", conn)
 	defer r.Close()
 	r.SetSearchBotCheck(func(ua string) bool { return strings.Contains(ua, "Googlebot") })
-	r.SetHoneypotCallback(func(ip, ja4, uri, site string) {
+	r.SetHoneypotCallback(func(ip, ja4, uri, site, scheme string) {
 		action, _ := nginxconf.ResolveHoneypotAction(uri, site, n)
 		banMgr.AddWithSourceAction(context.Background(), ip, ja4, ban.SourceHoneypot, "hit "+uri, "", action)
 	})

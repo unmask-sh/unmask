@@ -2964,7 +2964,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <div class="pat{{ if not $r.Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.honeypot.empty_pattern" }}">{{ if $r.Pattern }}{{ patText $r.Pattern }}<span class="pat-lit" data-mode="{{ patMode $r.Pattern }}">{{ patModeLabel $.Lang $r.Pattern }}</span>{{ else }}{{ t $.Lang "settings.honeypot.empty_pattern" }}{{ end }}{{ with $r.Action }} <span class="action-pill action-bot" data-pill="action">{{ . }}</span>{{ end }}{{ if $r.Site }} <span class="action-pill action-suspect" data-pill="site">site={{ $r.Site }}</span>{{ end }}</div>
           {{ if gt $r.CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $r.CreatedAt }}">{{ $r.CreatedAt }}</time>{{ if gt $r.UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time>{{ end }}</div>{{ end }}
         </span>
-        <input type="text" name="honeypot_url_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
+        <input type="text" name="honeypot_url_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title" data-maxchars="{{ $.HoneypotTitleMax }}" data-maxchars-msg="{{ tf $.Lang "err.honeypot_title_long" $.HoneypotTitleMax }}">
         <span class="rule-pat-wrap"><input type="text" name="honeypot_url_path" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
         <input type="text" name="honeypot_url_site" list="honeypot-site-candidates" value="{{ $r.Site }}" placeholder="{{ t $.Lang "settings.honeypot.site_all" }}" class="rule-action" style="width:7rem">
         <select name="honeypot_url_action" class="extra-action-sel" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
@@ -2987,7 +2987,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
             <div class="pat empty">{{ t .Lang "settings.honeypot.empty_pattern" }}</div>
           </span>
-          <input type="text" name="honeypot_url_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
+          <input type="text" name="honeypot_url_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title" data-maxchars="{{ .HoneypotTitleMax }}" data-maxchars-msg="{{ tf .Lang "err.honeypot_title_long" .HoneypotTitleMax }}">
           <span class="rule-pat-wrap"><input type="text" name="honeypot_url_path" value="" placeholder="{{ t .Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <input type="text" name="honeypot_url_site" list="honeypot-site-candidates" value="" placeholder="{{ t .Lang "settings.honeypot.site_all" }}" class="rule-action" style="width:7rem">
           <select name="honeypot_url_action" class="extra-action-sel" title="{{ t .Lang "settings.ua.upstream.action_title" }}">
@@ -4437,8 +4437,8 @@ function secToHuman(s){
           <div class="pat"><span class="cc-code">{{ $r.Value }}</span>{{ if $r.IsOrg }} <span class="action-pill action-suspect">{{ t $.Lang "settings.asn.org_badge" }}</span>{{ end }} <span class="action-pill action-suspect asn-act-pill{{ if not $r.Action }} inherit{{ end }}">{{ if $r.Action }}{{ $r.Action }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRuleAction }}{{ end }}</span> <span class="action-pill action-suspect asn-rate-pill{{ if not $r.RateStr }} inherit{{ end }}">{{ if $r.RateStr }}{{ if eq $r.RateStr "0" }}{{ t $.Lang "settings.asn.rate_ph" }}{{ else }}{{ $r.RateStr }} {{ t $.Lang "settings.asn.rate_unit" }}{{ end }}{{ else }}{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }} {{ t $.Lang "settings.asn.rate_unit" }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}{{ end }}</span></div>
           {{ if gt $r.CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $r.CreatedAt }}">{{ $r.CreatedAt }}</time>{{ if gt $r.UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time>{{ end }}</div>{{ end }}
         </span>
-        <input type="text" name="asn_label" value="{{ $r.Label }}" placeholder="{{ t $.Lang "settings.asn.label_ph" }}" class="rule-title">
-        <span class="asn-suggest-wrap"><span class="rule-pat-wrap"><input type="text" name="asn_number" value="{{ $r.Value }}" autocomplete="off" placeholder="{{ t $.Lang "settings.asn.add_ph" }}" class="rule-pat"></span></span>
+        <input type="text" name="asn_label" value="{{ $r.Label }}" placeholder="{{ t $.Lang "settings.asn.label_ph" }}" class="rule-title" data-maxchars="{{ $.LabelMax }}" data-maxchars-msg="{{ tf $.Lang "err.value_long" $.LabelMax }}">
+        <span class="asn-suggest-wrap"><span class="rule-pat-wrap"><input type="text" name="asn_number" value="{{ $r.Value }}" autocomplete="off" placeholder="{{ t $.Lang "settings.asn.add_ph" }}" data-maxchars="{{ $.LabelMax }}" data-maxchars-msg="{{ tf $.Lang "err.value_long" $.LabelMax }}" class="rule-pat"></span></span>
         <select name="asn_action" class="rule-action">
           <option value=""                 {{ if eq $r.Action ""                 }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRuleAction }}</option>
           <option value="skip"             {{ if eq $r.Action "skip"             }}selected{{ end }}>skip</option>
@@ -4461,8 +4461,8 @@ function secToHuman(s){
             <div class="ttl empty">{{ t .Lang "settings.ua.empty_title" }}</div>
             <div class="pat empty">{{ t .Lang "settings.asn.add_ph" }}</div>
           </span>
-          <input type="text" name="asn_label" value="" placeholder="{{ t .Lang "settings.asn.label_ph" }}" class="rule-title">
-          <span class="asn-suggest-wrap"><span class="rule-pat-wrap"><input type="text" name="asn_number" value="" autocomplete="off" placeholder="{{ t .Lang "settings.asn.add_ph" }}" class="rule-pat"></span></span>
+          <input type="text" name="asn_label" value="" placeholder="{{ t .Lang "settings.asn.label_ph" }}" class="rule-title" data-maxchars="{{ .LabelMax }}" data-maxchars-msg="{{ tf .Lang "err.value_long" .LabelMax }}">
+          <span class="asn-suggest-wrap"><span class="rule-pat-wrap"><input type="text" name="asn_number" value="" autocomplete="off" placeholder="{{ t .Lang "settings.asn.add_ph" }}" data-maxchars="{{ .LabelMax }}" data-maxchars-msg="{{ tf .Lang "err.value_long" .LabelMax }}" class="rule-pat"></span></span>
           <select name="asn_action" class="rule-action">
             <option value="" selected>{{ tf .Lang "settings.asn.rate_inherit_ph" .AsnDefaultRuleAction }}</option>
             <option value="skip">skip</option>
@@ -4847,7 +4847,7 @@ function secToHuman(s){
     <div class="branding-grid">
       <div class="field">
         <label for="branding-site-name">{{ t .Lang "settings.branding.site_name_label" }}</label>
-        <input type="text" id="branding-site-name" name="branding_site_name" maxlength="80"
+        <input type="text" id="branding-site-name" name="branding_site_name" data-maxchars="{{ .BrandingSiteNameMax }}" data-maxchars-msg="{{ tf .Lang "err.value_long" .BrandingSiteNameMax }}"
                value="{{ .BrandingValues.SiteName }}" placeholder="{{ t .Lang "settings.branding.site_name_placeholder" }}"
                style="width:100%;max-width:24rem">
         <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.branding.site_name_desc" }}</p>
@@ -4855,7 +4855,7 @@ function secToHuman(s){
 
       <div class="field">
         <label for="branding-footer-text">{{ t .Lang "settings.branding.footer_label" }}</label>
-        <input type="text" id="branding-footer-text" name="branding_footer_text" maxlength="160"
+        <input type="text" id="branding-footer-text" name="branding_footer_text" data-maxchars="{{ .BrandingFooterMax }}" data-maxchars-msg="{{ tf .Lang "err.value_long" .BrandingFooterMax }}"
                value="{{ .BrandingValues.FooterText }}" placeholder="{{ t .Lang "settings.branding.footer_placeholder" }}"
                style="width:100%;max-width:24rem">
         <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.branding.footer_desc" }}</p>
@@ -7397,7 +7397,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       </div>
       <div style="flex:1;min-width:14rem">
         <label style="display:block;font-size:.85rem;color:#475569">{{ t .Lang "settings.community_bans.hn_override_label" }}</label>
-        <input type="text" name="hn_override" value="{{ .CommunityBans.HNOverride }}" maxlength="32" placeholder="example-name-x1" pattern="[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]" style="width:100%;padding:.35rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;font-family:ui-monospace,Menlo,monospace;font-size:.9rem">
+        <input type="text" name="hn_override" value="{{ .CommunityBans.HNOverride }}" placeholder="example-name-x1" pattern="[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]" data-invalid-msg="{{ t .Lang "err.hn_override_format" }}" style="width:100%;padding:.35rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;font-family:ui-monospace,Menlo,monospace;font-size:.9rem">
         <div class="note" style="margin-top:.25rem;font-size:.72rem">{{ safeHTML (t .Lang "settings.community_bans.hn_override_rules") }}</div>
       </div>
     </div>

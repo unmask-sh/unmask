@@ -98,7 +98,7 @@ table.audit td.detail{font-family:ui-monospace,Menlo,monospace;color:#64748b;fon
     <form method="post" action="{{ .BasePath }}/admin/settings/snapshot" style="display:flex;gap:.4rem;align-items:center;margin:0"
           data-confirm="{{ t .Lang "settings.snapshot_confirm" }}">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
-      <input type="text" name="name" placeholder="{{ t .Lang "settings.snapshot_name_ph" }}" maxlength="80"
+      <input type="text" name="name" placeholder="{{ t .Lang "settings.snapshot_name_ph" }}" data-maxchars="{{ .SnapshotNameMax }}" data-maxchars-msg="{{ tf .Lang "err.value_long" .SnapshotNameMax }}" data-maxchars-anchor="form"
              style="font-size:.82rem;padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;flex:1">
       <button type="submit" style="font-size:.82rem;padding:.3rem .9rem;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:.25rem;cursor:pointer;white-space:nowrap">
         {{ t .Lang "settings.snapshot_take" }}

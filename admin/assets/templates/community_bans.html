@@ -800,6 +800,7 @@ document.addEventListener('click', function(e){
     btnBad: {{ t .Lang "community_bans.detail.btn_bad" }},
     btnPost: {{ t .Lang "community_bans.detail.btn_post" }},
     commentPh: {{ t .Lang "community_bans.detail.comment_placeholder" }},
+    tooLong: {{ tf .Lang "err.value_long" 280 }},
     myHnLabel: {{ t .Lang "community_bans.detail.my_hn_label" }},
     selfMark: {{ t .Lang "community_bans.detail.self_mark" }},
     deleteConfirm: {{ t .Lang "community_bans.detail.delete_confirm" }},
@@ -887,7 +888,7 @@ document.addEventListener('click', function(e){
         '<button class="vote-btn' + (mine === 'bad' ? ' active bad' : '') + '" data-vote-kind="bad"' + badIdAttr + '>' + esc(t.btnBad) + ' (' + badCount + ')</button>' +
         '<span class="my-hn">' + esc(t.myHnLabel) + ': ' + esc(MY_HN) + '</span></div>';
       commentForm = '<form class="detail-comment-form" data-rep-id="' + esc(d.representative_submission_id) + '">' +
-        '<textarea name="text" maxlength="280" placeholder="' + esc(t.commentPh) + '" rows="1"></textarea>' +
+        '<textarea name="text" placeholder="' + esc(t.commentPh) + '" rows="1" data-maxchars="280" data-maxchars-msg="' + esc(t.tooLong) + '" data-maxchars-anchor="form"></textarea>' +
         '<button type="submit">' + esc(t.btnPost) + '</button></form>';
     } else {
       actions = '<div class="detail-actions"><span class="empty">' + esc(t.notRegistered) + '</span></div>';
@@ -1091,6 +1092,7 @@ document.addEventListener('click', function(e){
       var ta = form.querySelector('textarea[name=text]');
       var text = ta && ta.value.trim();
       if (!repID || !text) return;
+      if (window.unmaskMaxChars && !unmaskMaxChars.report(form)) return; // the bubble says how long it may be
       var submitBtn = form.querySelector('button[type=submit]');
 
       // Locate the comments <section> -- it is the last section in the panel
@@ -1212,7 +1214,7 @@ document.addEventListener('click', function(e){
     var form = '';
     if (MY_HN) {
       form = '<form class="detail-comment-form" data-rep-id="' + esc(d.representative_submission_id) + '">' +
-        '<textarea name="text" maxlength="280" placeholder="' + esc(t.commentPh) + '" rows="2"></textarea>' +
+        '<textarea name="text" placeholder="' + esc(t.commentPh) + '" rows="2" data-maxchars="280" data-maxchars-msg="' + esc(t.tooLong) + '" data-maxchars-anchor="form"></textarea>' +
         '<button type="submit">' + esc(t.btnPost) + '</button></form>';
     }
     return '<div class="detail-panel">' +

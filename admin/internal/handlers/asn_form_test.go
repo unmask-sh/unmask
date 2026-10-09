@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -17,7 +18,7 @@ func asnForm(t *testing.T, form url.Values) *settings.AsnConfig {
 		t.Fatal(err)
 	}
 	var c settings.AsnConfig
-	if err := applyAsnForm(&c, r); err != nil {
+	if err := applyAsnForm(&c, r, i18n.LangEN); err != nil {
 		t.Fatalf("applyAsnForm: %v", err)
 	}
 	return &c
@@ -61,7 +62,7 @@ func TestApplyAsnForm(t *testing.T) {
 	r2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	_ = r2.ParseForm()
 	var c2 settings.AsnConfig
-	if err := applyAsnForm(&c2, r2); err != nil {
+	if err := applyAsnForm(&c2, r2, i18n.LangEN); err != nil {
 		t.Fatalf("applyAsnForm: %v", err)
 	}
 	if c2.DefaultRuleAction != "" {
@@ -117,7 +118,7 @@ func TestApplyAsnFormRejects(t *testing.T) {
 			r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 			_ = r.ParseForm()
 			var cfg settings.AsnConfig
-			if err := applyAsnForm(&cfg, r); err == nil {
+			if err := applyAsnForm(&cfg, r, i18n.LangEN); err == nil {
 				t.Errorf("%s: expected error, got nil", c.name)
 			}
 		})

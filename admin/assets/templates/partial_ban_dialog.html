@@ -91,7 +91,10 @@
          accepts.  Kept small: most bans are not shared. */}}
     <div id="ban-dialog-reason-row" class="ban-dialog-reason">
       <label for="ban-dialog-reason">{{ t .Lang "advisor.ban.reason_label" }}</label>
-      <input type="text" id="ban-dialog-reason" maxlength="200" placeholder="{{ t .Lang "hunt.ban.reason_placeholder" }}">
+      {{/* 200 / 280: the same numbers as banReasonMax / shareCommentMax in
+           hunt_admin.go, which rejects a value past them; a test holds the
+           two spellings together. */}}
+      <input type="text" id="ban-dialog-reason" placeholder="{{ t .Lang "hunt.ban.reason_placeholder" }}" data-maxchars="200" data-maxchars-msg="{{ tf .Lang "err.value_long" 200 }}">
     </div>
     <div class="ban-dialog-share-group">
       <label class="ban-dialog-share">
@@ -108,7 +111,7 @@
         {{ end }}
         <div id="ban-dialog-comment-row" class="ban-dialog-comment">
           <label for="ban-dialog-comment">{{ t .Lang "hunt.ban.comment_label" }}</label>
-          <textarea id="ban-dialog-comment" maxlength="280" rows="2" placeholder="{{ t .Lang "hunt.ban.comment_placeholder" }}"></textarea>
+          <textarea id="ban-dialog-comment" rows="2" placeholder="{{ t .Lang "hunt.ban.comment_placeholder" }}" data-maxchars="280" data-maxchars-msg="{{ tf .Lang "err.value_long" 280 }}"></textarea>
           <div class="ban-dialog-counter"><span id="ban-dialog-counter">0</span>/280</div>
         </div>
       </div>
@@ -119,7 +122,7 @@
     {{ if .BanDialogEffectKey }}<p class="ban-dialog-effect">{{ t .Lang "hunt.ban.effect_label" }} <code>{{ .BanDialogAction }}</code> — {{ t .Lang .BanDialogEffectKey }} <span class="ban-dialog-effect-where">({{ t .Lang "hunt.ban.effect_where" }})</span></p>{{ end }}
     <p class="ban-dialog-after">{{ safeHTML (tf .Lang "hunt.ban.after_note" .BasePath) }}</p>
     <div class="ban-dialog-actions">
-      <button type="submit" value="cancel" class="rank-act">{{ t .Lang "hunt.ban.cancel" }}</button>
+      <button type="submit" value="cancel" class="rank-act" formnovalidate>{{ t .Lang "hunt.ban.cancel" }}</button>
       <button type="submit" value="ok" class="rank-act danger" id="ban-dialog-ok">{{ t .Lang "hunt.ban.confirm" }}</button>
     </div>
   </form>
@@ -197,6 +200,9 @@
   function syncShareRows(on){
     if (shareMore) shareMore.style.display = on ? '' : 'none';
     if (cmtRow) cmtRow.style.display = on ? '' : 'none';
+    // A hidden field past its limit would hold the BAN with nothing to point
+    // at; a disabled one is not checked (and its text is not sent).
+    if (cmtTa) cmtTa.disabled = !on;
   }
 
   if (cmtTa && cmtCnt){
@@ -251,6 +257,8 @@
       // Seed the editable reason with the auto-generated default so the operator
       // can review, tweak, or clear it before sharing.
       if (reasonEl){ var rIn = form.querySelector('input[name=reason]'); reasonEl.value = rIn ? rIn.value : ''; }
+      // Values set here, not typed: check them as the dialog opens.
+      if (window.unmaskMaxChars) { if (reasonEl) unmaskMaxChars.check(reasonEl); if (cmtTa) unmaskMaxChars.check(cmtTa); }
       if (shareCb){
         // Sharing is opt-in per BAN: always start unchecked so a routine BAN
         // never silently shares.  The box is always enabled now -- ticking it

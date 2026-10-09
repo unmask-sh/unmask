@@ -42,8 +42,11 @@ table.bans td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
    not teach different things.
    The clamp sits on an inner span rather than the cell: max-width on a <td>
    is advisory under table-layout:auto and browsers size the column by content
-   anyway, which is the very thing being prevented here. */
-table.bans .clamp-v{display:inline-block;max-width:20rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+   anyway, which is the very thing being prevented here.
+   26rem: a honeypot reason leads with the rule's name ("SQL injection
+   signatures: https://..."), and the host that was probed has to show after
+   it without opening the popover. */
+table.bans .clamp-v{display:inline-block;max-width:26rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 /* Every other column holds a value that has no sensible break point -- an
    address, a fingerprint, an action name, a timestamp -- so wrapping one does
    not fit more in, it just makes the whole row two lines tall and harder to

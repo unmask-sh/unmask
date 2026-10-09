@@ -14,6 +14,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -23,6 +24,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/communitybans"
@@ -649,6 +651,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		// config cannot store.  The ASN dialog does offer one, and labels its
 		// "inherit" option with what inheriting resolves to.
 		"UAResolvedAction":     h.resolvedUABlacklistAction(),
+		"LabelMax":             labelMax,
 		"ASNDefaultRuleAction": h.snapshotSettings().Nginx.Asn.ResolvedDefaultRuleAction(),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -717,6 +720,16 @@ func rangeToMinutes(rng string) int {
 //	                   (= source=manual / reason="bot hunt")
 //	op=ua_blacklist  : add a UA pattern to ChallengeTargets.Extra
 //	op=ja4_bot       : add a JA4 pattern to JA4Verdicts.Extra (= action=bot)
+//
+// banReasonMax / shareCommentMax bound the BAN dialog's reason and comment;
+// partial_ban_dialog.html carries the same numbers on the fields (a test holds
+// the two together).  The reason column holds 255 characters; the hub clamps a
+// comment at 280.
+const (
+	banReasonMax    = 200
+	shareCommentMax = 280
+)
+
 func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "bad form", http.StatusBadRequest)
@@ -738,6 +751,11 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, dst, http.StatusFound)
 	}
 	redir := func(msg string) { redirFlag(msg, "") }
+	lang := i18n.Resolve(r)
+	// A value past its limit is refused with the limit, the way the page
+	// refuses it as the operator types (partial_ban_dialog.html, hunt.html):
+	// this is for a request that did not come through the page.
+	tooLong := func(s string, max int) bool { return utf8.RuneCountInString(s) > max }
 	// redirRendered: for the ops that write a rule into the nginx config.  A
 	// BAN lands in the ban file, which the module re-reads by mtime, so it is
 	// live the moment it is saved -- these are not.  Rendering happens here;
@@ -776,6 +794,14 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 		// shared (hub) reason, however, is sent verbatim -- empty included (=
 		// the operator chose to share without a reason).
 		rawReason := strings.TrimSpace(r.FormValue("reason"))
+		if tooLong(rawReason, banReasonMax) {
+			redir("ban: " + i18n.Tf(lang, "err.value_long", banReasonMax))
+			return
+		}
+		if tooLong(r.FormValue("comment"), shareCommentMax) {
+			redir("ban: " + i18n.Tf(lang, "err.value_long", shareCommentMax))
+			return
+		}
 		banReason := rawReason
 		if banReason == "" {
 			banReason = "bot hunt"
@@ -847,6 +873,10 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 		// One marker at most, as the settings form stores it.
 		pat := settings.NormalizePattern(strings.TrimSpace(r.FormValue("pattern")))
 		title := strings.TrimSpace(r.FormValue("title"))
+		if tooLong(title, labelMax) {
+			redir("ua_blacklist: " + i18n.Tf(lang, "err.value_long", labelMax))
+			return
+		}
 		if pat == "" {
 			redir("pattern is required")
 			return
@@ -888,6 +918,10 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 	case "ja4_bot":
 		pat := strings.TrimSpace(r.FormValue("pattern"))
 		title := strings.TrimSpace(r.FormValue("title"))
+		if tooLong(title, labelMax) {
+			redir("ja4_bot: " + i18n.Tf(lang, "err.value_long", labelMax))
+			return
+		}
 		if pat == "" {
 			redir("pattern is required")
 			return
@@ -1050,8 +1084,11 @@ func (h *Handler) appendASNRule(r *http.Request, asn uint, label, action, userna
 		}
 	}
 	label = strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/").Replace(strings.TrimSpace(label))
-	if len(label) > 200 {
-		label = label[:200]
+	// Refused with the limit, as the dialog refuses it while typing; this is
+	// for a request that did not come through the dialog.  In characters: a
+	// byte count cut a Japanese label at a third of that, mid-character.
+	if utf8.RuneCountInString(label) > labelMax {
+		return errors.New(i18n.Tf(i18n.Resolve(r), "err.value_long", labelMax))
 	}
 	cur.Nginx.Asn.Rules = append(cur.Nginx.Asn.Rules, settings.AsnRule{
 		ASN: asn, Label: label, Action: action, Enabled: true, CreatedAt: nowUnix(),

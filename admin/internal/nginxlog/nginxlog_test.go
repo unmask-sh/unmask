@@ -306,3 +306,37 @@ func TestCrawlerClassifierUnset(t *testing.T) {
 		t.Errorf("classifier unset: want 0 rows, got %d", n)
 	}
 }
+
+// scheme= joined the line after bp=.  Both shapes parse -- the binary is
+// deployed before the configuration that emits the field -- and neither
+// un-anchors the fields after it (the chained-group regression ja4=- had).
+func TestParseScheme(t *testing.T) {
+	r := &Reader{}
+	p, ok := r.parse(`<134>1751400000.1 site=shop.example.com kind= fc=0 hp=1 ip=9.9.9.9 ja4=- hpuri=/x bp=0 scheme=https ua=curl/8`)
+	if !ok || p.scheme != "https" || p.hpuri != "/x" || p.bypassed || p.ua != "curl/8" {
+		t.Errorf("line with scheme=https: ok=%v %+v", ok, p)
+	}
+	if p.plaintext() {
+		t.Error("scheme=https read as plaintext")
+	}
+	p, ok = r.parse(`<134>1751400000.2 site=shop.example.com kind= fc=0 hp=1 ip=9.9.9.9 ja4=- hpuri=/x bp=1 scheme=http ua=curl/8`)
+	if !ok || p.scheme != "http" || !p.bypassed || p.ua != "curl/8" {
+		t.Errorf("line with scheme=http: ok=%v %+v", ok, p)
+	}
+	if !p.plaintext() {
+		t.Error("scheme=http not read as plaintext")
+	}
+	// A line from an older configuration: no scheme, and the plaintext
+	// question falls back to the JA4 (none = no TLS).
+	p, ok = r.parse(`<134>1751400000.3 site=shop.example.com kind= fc=0 hp=1 ip=9.9.9.9 ja4=- hpuri=/x bp=0 ua=curl/8`)
+	if !ok || p.scheme != "" || p.hpuri != "/x" || p.ua != "curl/8" {
+		t.Errorf("line without scheme: ok=%v %+v", ok, p)
+	}
+	if !p.plaintext() {
+		t.Error("an older line with no JA4 is not read as plaintext")
+	}
+	p, _ = r.parse(`<134>1751400000.4 site=shop.example.com kind= fc=0 hp=1 ip=9.9.9.9 ja4=t13d1516h2_8daaf6152771_02713d6af862 hpuri=/x ua=curl/8`)
+	if p.plaintext() {
+		t.Error("an older line with a JA4 is read as plaintext")
+	}
+}

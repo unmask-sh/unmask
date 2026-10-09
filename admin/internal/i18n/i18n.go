@@ -349,7 +349,7 @@ var dict = map[Lang]map[string]string{
 		"profile.err.current":                           "現 password が違います。",
 		"profile.err.empty":                             "新 password が空です。",
 		"profile.err.mismatch":                          "新 password と確認用が一致しません。",
-		"profile.err.too_long":                          "password が長すぎます (72 byte 上限)。",
+		"profile.err.too_long":                          "password が長すぎます (1024 byte 上限)。",
 		"profile.err.unknown_op":                        "未知の操作です。",
 		"overview.title":                                "ダッシュボード",
 		"overview.upgrade_review.banner":                "アップグレードで追加された enforcement ルール %d 件が確認待ちです",
@@ -2199,6 +2199,9 @@ var dict = map[Lang]map[string]string{
 		"err.site_honeypot_regex":                       "site %q の honeypot_extra %q が不正な regex: %v",
 		"err.site_zero":                                 "有効な site が 0 件",
 		"err.honeypot_regex":                            "honeypot pattern %q が不正な regex: %v",
+		"err.honeypot_title_long":                       "title は %d 文字までです。この rule で作られる BAN の理由の先頭に title が入ります。",
+		"err.value_long":                                "%d 文字までです。",
+		"err.hn_override_format":                        "3〜32 文字の半角英数と - _ だけです (先頭と末尾は英数)。",
 
 		// docs
 		"docs.title":         "ドキュメント",
@@ -2285,7 +2288,7 @@ var dict = map[Lang]map[string]string{
 		"forgot.back_to_login":    "ログイン画面に戻る",
 
 		"reset.title":            "新しい password を設定",
-		"reset.subtitle":         "8 文字以上 72 byte 以下で設定してください。",
+		"reset.subtitle":         "8 文字以上で設定してください。",
 		"reset.new_password":     "新しい password",
 		"reset.confirm_password": "もう一度入力 (確認)",
 		"reset.submit":           "password を更新",
@@ -2699,7 +2702,7 @@ var dict = map[Lang]map[string]string{
 		"profile.err.current":                           "Current password is wrong.",
 		"profile.err.empty":                             "New password is empty.",
 		"profile.err.mismatch":                          "New password and confirmation do not match.",
-		"profile.err.too_long":                          "Password too long (= 72 byte limit).",
+		"profile.err.too_long":                          "Password too long (= 1024 byte limit).",
 		"profile.err.unknown_op":                        "Unknown op.",
 		"overview.title":                                "Dashboard",
 		"overview.upgrade_review.banner":                "%d enforcement rule(s) added by an upgrade are awaiting review",
@@ -4538,6 +4541,9 @@ Matching requests are <strong>added to the BAN list</strong>; what happens after
 		"err.site_honeypot_regex":                       "honeypot_extra %q in site %q is invalid regex: %v",
 		"err.site_zero":                                 "No valid sites",
 		"err.honeypot_regex":                            "Honeypot pattern %q is invalid regex: %v",
+		"err.honeypot_title_long":                       "The title can be at most %d characters: it leads the reason of every ban this rule creates.",
+		"err.value_long":                                "At most %d characters.",
+		"err.hn_override_format":                        "3-32 characters: letters, digits, - and _ only, starting and ending with a letter or digit.",
 
 		"docs.title":         "Documentation",
 		"docs.subtitle":      "Challenge flow and design notes.",
@@ -4620,7 +4626,7 @@ where <code>&lt;site-id&gt;</code> is any <code>[a-z0-9-]{1,32}</code>. Omit to 
 		"forgot.back_to_login":    "Back to login",
 
 		"reset.title":            "Set a new password",
-		"reset.subtitle":         "Use 8 to 72 characters.",
+		"reset.subtitle":         "Use at least 8 characters.",
 		"reset.new_password":     "New password",
 		"reset.confirm_password": "Confirm password",
 		"reset.submit":           "Update password",

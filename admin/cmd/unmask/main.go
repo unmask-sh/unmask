@@ -615,13 +615,16 @@ func cmdServe(args []string) error {
 			nlog.SetHTTPSRedirectCheck(func() bool {
 				return h.SnapshotSettings().Nginx.HTTPSRedirect
 			})
-			nlog.SetHoneypotCallback(func(ip, ja4, uri, site string) {
+			nlog.SetHoneypotCallback(func(ip, ja4, uri, site, scheme string) {
 				// site is $host from the access line, so the reason can name the
 				// vhost that was probed.  On a multi-site install a path alone
-				// does not say which site owns the trap that fired.
-				reason := handlers.HoneypotReason(site, uri)
-				action, _ := nginxconf.ResolveHoneypotAction(uri, site, h.SnapshotSettings().Nginx)
-				banMgr.AddWithSourceAction(context.Background(), ip, ja4, ban.SourceHoneypot, reason, "", action)
+				// does not say which site owns the trap that fired.  The rule is
+				// resolved here, not by nginx: the line says only that a trap
+				// matched, and the reason names which (and the URL in full,
+				// with the scheme the line carries).
+				rule, _ := nginxconf.ResolveHoneypotRule(uri, site, h.SnapshotSettings().Nginx)
+				reason := handlers.HoneypotReason(handlers.HoneypotTrip{Scheme: scheme, Host: site, URI: uri, Rule: rule.Rule})
+				banMgr.AddWithSourceAction(context.Background(), ip, ja4, ban.SourceHoneypot, reason, "", rule.Action)
 			})
 			// Native rDNS post-pass: auto-ban forged crawlers off the access log
 			// (native has no daemon in the request path).  Gated by

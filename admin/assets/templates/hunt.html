@@ -743,7 +743,7 @@ function dismissHuntTip(id){
     </div>
     <div class="rule-dialog-field">
       <label for="ua-dialog-title">{{ t .Lang "hunt.rule.label" }}</label>
-      <input type="text" id="ua-dialog-title" maxlength="200" autocomplete="off">
+      <input type="text" id="ua-dialog-title" autocomplete="off" data-maxchars="{{ .LabelMax }}" data-maxchars-msg="{{ tf .Lang "err.value_long" .LabelMax }}">
     </div>
     <div class="rule-dialog-field">
       <label for="ua-dialog-action">{{ t .Lang "hunt.rule.action" }}</label>
@@ -757,7 +757,7 @@ function dismissHuntTip(id){
     </div>
     <p class="rule-dialog-warn">{{ safeHTML (t .Lang "hunt.rule.reload_note") }}</p>
     <div class="ban-dialog-actions">
-      <button type="submit" value="cancel" class="rank-act">{{ t .Lang "hunt.ban.cancel" }}</button>
+      <button type="submit" value="cancel" class="rank-act" formnovalidate>{{ t .Lang "hunt.ban.cancel" }}</button>
       <button type="submit" value="ok" class="rank-act" id="ua-dialog-ok">{{ t .Lang "hunt.rule.add" }}</button>
     </div>
   </form>
@@ -771,7 +771,7 @@ function dismissHuntTip(id){
     <p class="ban-dialog-target"><code id="asn-dialog-target"></code></p>
     <div class="rule-dialog-field">
       <label for="asn-dialog-label">{{ t .Lang "hunt.rule.label" }}</label>
-      <input type="text" id="asn-dialog-label" maxlength="200" autocomplete="off">
+      <input type="text" id="asn-dialog-label" autocomplete="off" data-maxchars="{{ .LabelMax }}" data-maxchars-msg="{{ tf .Lang "err.value_long" .LabelMax }}">
     </div>
     <div class="rule-dialog-field">
       <label for="asn-dialog-action">{{ t .Lang "hunt.rule.action" }}</label>
@@ -788,7 +788,7 @@ function dismissHuntTip(id){
       <a href="{{ .BasePath }}/admin/settings/asn/">{{ t .Lang "hunt.rule.open_tab" }}</a></p>
     <p class="rule-dialog-warn">{{ safeHTML (t .Lang "hunt.rule.reload_note") }}</p>
     <div class="ban-dialog-actions">
-      <button type="submit" value="cancel" class="rank-act">{{ t .Lang "hunt.ban.cancel" }}</button>
+      <button type="submit" value="cancel" class="rank-act" formnovalidate>{{ t .Lang "hunt.ban.cancel" }}</button>
       <button type="submit" value="ok" class="rank-act" id="asn-dialog-ok">{{ t .Lang "hunt.rule.add" }}</button>
     </div>
   </form>
@@ -1369,6 +1369,7 @@ function dismissHuntTip(id){
       var asn = form.dataset.asn || '', org = form.dataset.org || '';
       tgtEl.textContent = 'AS' + asn + (org ? ' — ' + org : '');
       lblEl.value = org;
+      if (window.unmaskMaxChars) unmaskMaxChars.check(lblEl); // a long organisation name is flagged as it is shown
       actEl.value = '';
       pending = form;
       dlg.returnValue = '';

@@ -34,20 +34,28 @@ func hpCompile(pattern string) *regexp.Regexp {
 	return re
 }
 
-// ResolveHoneypotAction returns the per-preset / per-URL action override for the
-// FIRST honeypot rule that uri matches, mirroring render.go's active-set logic
-// (OptIn / DisabledPresets / EnabledPresets) so the resolved rule agrees with
-// what nginx actually rendered as a honeypot.  Preset patterns are
-// global; custom URLs honor their per-row Site (site="" considers only global
-// URLs, which is all the native callback -- it carries no host -- can resolve).
+// HoneypotMatch is the honeypot rule a URI tripped: its per-preset / per-URL
+// action override, RAW ("" = inherit Honeypot.DefaultAction), and its name for
+// the ban's reason -- a preset group's name (HoneypotGroup.Name) or a custom
+// row's (HoneypotURLName).
+type HoneypotMatch struct {
+	Action string
+	Rule   string
+}
+
+// ResolveHoneypotRule returns the FIRST honeypot rule that uri matches,
+// mirroring render.go's active-set logic (OptIn / DisabledPresets /
+// EnabledPresets) so the resolved rule agrees with what nginx actually rendered
+// as a honeypot.  Preset patterns are global; custom URLs honor their per-row
+// Site (site="" considers only global URLs).
 //
-// The returned action is RAW (un-resolved): "" means "no override" so the caller
+// The action is RAW (un-resolved): "" means "no override" so the caller
 // inherits Honeypot.DefaultAction (and, persisted as a ban's action column,
 // stays dynamic via EffectiveAction); a concrete chain mode pins the per-preset
 // choice.  matched reports whether any honeypot rule hit.
-func ResolveHoneypotAction(uri, site string, n settings.Nginx) (action string, matched bool) {
+func ResolveHoneypotRule(uri, site string, n settings.Nginx) (m HoneypotMatch, matched bool) {
 	if strings.TrimSpace(uri) == "" {
-		return "", false
+		return HoneypotMatch{}, false
 	}
 	disabledHP := toSet(n.Honeypot.DisabledPresets)
 	enabledHP := toSet(n.Honeypot.EnabledPresets)
@@ -64,7 +72,7 @@ func ResolveHoneypotAction(uri, site string, n settings.Nginx) (action string, m
 		}
 		for _, p := range g.Patterns {
 			if re := hpCompile("(?i)" + p); re != nil && re.MatchString(uri) {
-				return strings.TrimSpace(n.Honeypot.PresetAction[g.ID]), true
+				return HoneypotMatch{Action: strings.TrimSpace(n.Honeypot.PresetAction[g.ID]), Rule: g.Name()}, true
 			}
 		}
 	}
@@ -82,8 +90,24 @@ func ResolveHoneypotAction(uri, site string, n settings.Nginx) (action string, m
 		// A custom URL may carry the pattern-mode marker (contains: / exact:);
 		// resolve it the way the rendered map does (rx) so both wires agree.
 		if re := hpCompile("(?i)" + settings.PatternRegex(p)); re != nil && re.MatchString(uri) {
-			return strings.TrimSpace(u.Action), true
+			return HoneypotMatch{Action: strings.TrimSpace(u.Action), Rule: HoneypotURLName(u)}, true
 		}
 	}
-	return "", false
+	return HoneypotMatch{}, false
+}
+
+// ResolveHoneypotAction is the action half of ResolveHoneypotRule, for the
+// callers that only stamp the override onto a ban.
+func ResolveHoneypotAction(uri, site string, n settings.Nginx) (action string, matched bool) {
+	m, ok := ResolveHoneypotRule(uri, site, n)
+	return m.Action, ok
+}
+
+// HoneypotURLName is what a ban's reason calls a custom honeypot row: its
+// title, or, for a row without one, the pattern as the operator typed it.
+func HoneypotURLName(u settings.HoneypotURL) string {
+	if t := strings.TrimSpace(u.Title); t != "" {
+		return t
+	}
+	return strings.TrimSpace(settings.PatternText(u.Path))
 }

@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
@@ -126,19 +127,20 @@ func (h *Handler) AdminAuditIndex(w http.ResponseWriter, r *http.Request) {
 	// We simply convert page → offset by encoding a "page=N" link and letting
 	// the handler accept either page= or offset=.
 	data := map[string]any{
-		"Lang":       i18n.Resolve(r),
-		"TZ":         resolveTZ(r),
-		"BasePath":   h.cfg().Server.BasePath,
-		"Version":    h.Version,
-		"Entries":    enriched,
-		"Offset":     offset,
-		"NextOffset": offset + auditPageSize,
-		"PrevOffset": maxInt(offset-auditPageSize, 0),
-		"HasMore":    hasMore,
-		"HasPrev":    offset > 0,
-		"Saved":      r.URL.Query().Get("saved") != "",
-		"Error":      readFlash(w, r, h.cfg().Server.BasePath, "err"),
-		"Pager":      pager,
+		"Lang":            i18n.Resolve(r),
+		"SnapshotNameMax": snapshotNameMax,
+		"TZ":              resolveTZ(r),
+		"BasePath":        h.cfg().Server.BasePath,
+		"Version":         h.Version,
+		"Entries":         enriched,
+		"Offset":          offset,
+		"NextOffset":      offset + auditPageSize,
+		"PrevOffset":      maxInt(offset-auditPageSize, 0),
+		"HasMore":         hasMore,
+		"HasPrev":         offset > 0,
+		"Saved":           r.URL.Query().Get("saved") != "",
+		"Error":           readFlash(w, r, h.cfg().Server.BasePath, "err"),
+		"Pager":           pager,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
@@ -158,6 +160,9 @@ func (h *Handler) AdminAuditIndex(w http.ResponseWriter, r *http.Request) {
 //
 // Differs from settings_save audit rows in that nothing is changed; this is a
 // pure capture.  Listed alongside save rows on /admin/audit/ with its own pill.
+// snapshotNameMax bounds a snapshot's name; audit.html carries it on the field.
+const snapshotNameMax = 80
+
 func (h *Handler) AdminSettingsSnapshot(w http.ResponseWriter, r *http.Request) {
 	if h.UserRepo == nil {
 		http.Error(w, "user repo not configured", http.StatusInternalServerError)
@@ -171,8 +176,12 @@ func (h *Handler) AdminSettingsSnapshot(w http.ResponseWriter, r *http.Request) 
 	if name == "" {
 		name = "manual"
 	}
-	if len(name) > 80 {
-		name = name[:80]
+	// Refused with the limit, as the page refuses it while typing; this is for
+	// a request that did not come through the page.  In characters: a byte
+	// count cut a Japanese name at a third of that, mid-character.
+	if utf8.RuneCountInString(name) > snapshotNameMax {
+		http.Error(w, i18n.Tf(i18n.Resolve(r), "err.value_long", snapshotNameMax), http.StatusBadRequest)
+		return
 	}
 	curYAML, err := settings.MarshalYAML(h.snapshotSettings())
 	if err != nil {

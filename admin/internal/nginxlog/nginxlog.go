@@ -93,9 +93,11 @@ type Reader struct {
 
 	// onHoneypot: callback for honeypot-path-trip events (= hp=1 lines).  site
 	// (= $host from the access log) lets the callback resolve a per-site custom
-	// honeypot URL's action override, matching forward-auth.  Wired up by the ban
-	// manager via SetHoneypotCallback.  nil-safe.
-	onHoneypot func(ip, ja4, uri, site string)
+	// honeypot URL's action override, matching forward-auth; scheme (http /
+	// https, "" on a line from a configuration that predates the field) lets
+	// the ban's reason name the URL in full.  Wired up by the ban manager via
+	// SetHoneypotCallback.  nil-safe.
+	onHoneypot func(ip, ja4, uri, site, scheme string)
 
 	// isSearchBot: UA -> true for a rescued search/AI crawler.  Wired by main to
 	// classify.IsBot==search_ai.  Native-mode honeypot bans are driven by the
@@ -154,8 +156,9 @@ type Reader struct {
 }
 
 // SetHoneypotCallback: register a callback invoked on hp=1 lines (ip, ja4, trip
-// URI, and the request's site/$host for per-site action resolution).
-func (r *Reader) SetHoneypotCallback(f func(ip, ja4, uri, site string)) {
+// URI, the request's site/$host for per-site action resolution, and its
+// scheme for the reason's URL).
+func (r *Reader) SetHoneypotCallback(f func(ip, ja4, uri, site, scheme string)) {
 	if r == nil {
 		return
 	}
@@ -188,7 +191,7 @@ func (r *Reader) honeypotBanAllowed(p parsed) bool {
 	if r.isSearchBot != nil && r.isSearchBot(p.ua) {
 		return false // rescued search / AI crawler: banning it is a ranking accident
 	}
-	if p.ja4 == "" && r.httpsRedirectOn != nil && r.httpsRedirectOn() {
+	if r.httpsRedirectOn != nil && r.httpsRedirectOn() && p.plaintext() {
 		return false // plaintext request we 301-ed: bounced, not served
 	}
 	return true
@@ -496,8 +499,8 @@ func (r *Reader) Loaded() bool {
 // ("captcha" / "pow" / "" / future additions).  [a-z0-9_-] is enough
 // (= plugin implementations always use ASCII lowercase as a constraint).
 //
-// fc / hp / ip / ja4 / ua are optional groups (= degrade gracefully even
-// with older config or mode mismatch).  ua is last and matched with .* —
+// fc / hp / ip / ja4 / hpuri / bp / scheme / ua are optional groups (= degrade
+// gracefully even with older config or mode mismatch).  ua is last and matched with .* —
 // it contains spaces, so it must be the final field of the log line.
 //
 // site is matched as \S* (any non-space): the field carries $host, which is a
@@ -514,9 +517,10 @@ func (r *Reader) Loaded() bool {
 var lineRE = regexp.MustCompile(
 	`([0-9]+\.[0-9]+) site=(\S*) kind=([a-z0-9_-]*)` +
 		`(?: fc=([01]))?(?: hp=([01]))?(?: ip=([0-9a-fA-F:.]+))?(?: ja4=(\S*))?(?: hpuri=(\S*))?` +
-		// bp is optional: the binary is deployed before the config that emits it,
-		// so both shapes have to parse for the length of that window.
-		`(?: bp=([01]))?(?: ua=(.*))?`)
+		// bp and scheme are optional: the binary is deployed before the config
+		// that emits them, so both shapes have to parse for the length of that
+		// window.
+		`(?: bp=([01]))?(?: scheme=(\S*))?(?: ua=(.*))?`)
 
 // parsed: struct holding the regex match result.
 type parsed struct {
@@ -533,7 +537,22 @@ type parsed struct {
 	// carried the field, which read as false -- the same as "not bypassed",
 	// which is the safe way round: it under-counts rather than inventing one.
 	bypassed bool
-	ua       string
+	// scheme: the visitor's scheme, http or https ($unmask_forwarded_proto: the
+	// edge's X-Forwarded-Proto behind a terminating LB, else $scheme).  Empty on
+	// a line from a configuration that predates the field.
+	scheme string
+	ua     string
+}
+
+// plaintext reports whether the request came over the plaintext port.  The
+// line says so itself once the configuration logs the scheme; a line from an
+// older configuration is read the way it always was: no JA4 means no TLS,
+// since the module fingerprints every handshake.
+func (p parsed) plaintext() bool {
+	if p.scheme != "" {
+		return p.scheme == "http"
+	}
+	return p.ja4 == ""
 }
 
 func (r *Reader) parse(line string) (parsed, bool) {
@@ -571,7 +590,8 @@ func (r *Reader) parse(line string) (parsed, bool) {
 		ja4:      ja4,
 		hpuri:    m[8],
 		bypassed: m[9] == "1",
-		ua:       m[10],
+		scheme:   m[10],
+		ua:       m[11],
 	}, true
 }
 
@@ -592,7 +612,7 @@ func (r *Reader) onLine(line string) {
 	// Honeypot ban -- subject to the vetoes in honeypotBanAllowed (rescued
 	// search/AI crawler; a plaintext request we answered with a 301).
 	if p.hp && r.onHoneypot != nil && p.ip != "" && r.honeypotBanAllowed(p) {
-		r.onHoneypot(p.ip, p.ja4, p.hpuri, p.site)
+		r.onHoneypot(p.ip, p.ja4, p.hpuri, p.site, p.scheme)
 	}
 	kind := p.kind
 	if kind == "" && p.fc {

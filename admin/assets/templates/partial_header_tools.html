@@ -19,9 +19,11 @@
   compaction (partial_vacuum.html) goes first: it sits in the bar, left of
   the pickers, and its script only reads.  The admin's own confirm / alert /
   prompt (partial_dialog.html) comes right after init_csrf, so its hold on a
-  submit runs after the shim has put the token in.
+  submit runs after the shim has put the token in.  The character-limit check
+  on fields (partial_maxchars.html) follows it: every page has such a field
+  somewhere, and its note has to look the same on each.
 */ -}}
-{{ define "header_tools" }}{{ template "vacuum_notice" . }}{{ template "host_picker" . }}  {{ template "site_picker" . }}  {{ template "user_menu" . }}{{ template "init_tz_cookie" . }}{{ template "init_csrf" . }}{{ template "init_dialog" . }}{{ template "schema_update_notice" . }}{{ end }}
+{{ define "header_tools" }}{{ template "vacuum_notice" . }}{{ template "host_picker" . }}  {{ template "site_picker" . }}  {{ template "user_menu" . }}{{ template "init_tz_cookie" . }}{{ template "init_csrf" . }}{{ template "init_dialog" . }}{{ template "init_maxchars" . }}{{ template "schema_update_notice" . }}{{ end }}
 
 {{/*
   init_csrf: double-submit CSRF shim, global so no individual form or fetch

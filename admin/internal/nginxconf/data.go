@@ -9,6 +9,8 @@
 //   - The presets are updated with each admin release.
 package nginxconf
 
+import "strings"
+
 // init: when AddedIn is empty on a preset group, default it to "v0.1.0".
 //
 // New presets that explicitly set AddedIn: "v0.5.0" etc. get a "since v0.5.0"
@@ -207,7 +209,7 @@ var ChallengeTargetGroups = []ChallengeTargetGroup{
 // "protected paths" tab.
 type HoneypotGroup struct {
 	ID       string
-	Label    string
+	Label    string // the honeypot tab's title; Name() is the part before " ("
 	Patterns []string
 	AddedIn  string
 	// UpdatedIn: the last release that changed the group -- its patterns,
@@ -225,6 +227,17 @@ type HoneypotGroup struct {
 	// made for, went on by default in v0.1.50.  Default false matches the
 	// historical opt-out shape that the on-by-default presets already use.
 	OptIn bool
+}
+
+// Name is what a ban's reason calls the group: its label up to the
+// parenthesised examples ("SQL injection signatures" for "SQL injection
+// signatures (sqlmap / probes)"), which is how the honeypot tab titles it.
+func (g HoneypotGroup) Name() string {
+	l := g.Label
+	if i := strings.Index(l, " ("); i > 0 {
+		l = l[:i]
+	}
+	return strings.TrimSpace(l)
 }
 
 // Pieces of the sql-injection patterns, each spelt as it may reach

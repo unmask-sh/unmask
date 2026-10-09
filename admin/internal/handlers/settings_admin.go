@@ -33,6 +33,7 @@ import (
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/oschwald/maxminddb-golang"
 	"github.com/unmask-sh/unmask/admin/internal/advisor"
@@ -849,6 +850,8 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"ChallengeTargets":           cur.ChallengeTargets,
 		"ChallengePresetAction":      cur.ChallengeTargets.PresetAction,
 		"HoneypotGroups":             honeypotGroups,
+		"HoneypotTitleMax":           reasonRuleMax,
+		"LabelMax":                   labelMax,
 		"HoneypotRules":              honeypotURLRows(cur.Honeypot.URLs),
 		"HoneypotDefaultBanDuration": cur.Honeypot.BanDurationSec,
 		"Honeypot":                   cur.Honeypot,
@@ -976,6 +979,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// presets are resolved client-side (challenge.js).
 		"Branding":       snap.Branding,
 		"BrandingValues": scopeBranding,
+		// The two free-text fields' limits, said on the fields (data-maxchars)
+		// and refused past them in applyBrandingForm.
+		"BrandingSiteNameMax": brandingSiteNameMax,
+		"BrandingFooterMax":   brandingFooterMax,
 		// Resolved (site-over-Default) records for the checkbox fields.  A
 		// checkbox cannot show "inherit" as a third state, so it renders the
 		// EFFECTIVE value -- what the challenge page actually does.  Rendering
@@ -1736,7 +1743,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			"asn_number": valuesOfAsn(cur.Nginx.Asn.Rules),
 			"ax_path":    pathsOfBypass(cur.Nginx.Asn.ExemptPaths),
 		}
-		if sectionErr("asn", asnStored, applyAsnForm(&cur.Nginx.Asn, r)) {
+		if sectionErr("asn", asnStored, applyAsnForm(&cur.Nginx.Asn, r, lang)) {
 			return
 		}
 		// ASN-axis exempt paths (RSS feeds etc.) live on the ASN tab.
@@ -1800,7 +1807,9 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// an immediate pull below instead of waiting up to an hour for the
 		// next periodic tick.
 		wasSubscribing := cur.CommunityBans.SubscribeActive()
-		applyCommunityBansForm(&cur.CommunityBans, r)
+		if sectionErr("community-bans", map[string][]string{}, applyCommunityBansForm(&cur.CommunityBans, r, lang)) {
+			return
+		}
 		communityPullNeeded = !wasSubscribing && cur.CommunityBans.SubscribeActive()
 		// The shared-BAN fallback action is not edited from the UI: the
 		// "auto-BAN action" select writes a concrete action onto every
@@ -3741,6 +3750,13 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: "honeypot_url_path", Value: p, Msg: i18n.Tf(lang, "err.honeypot_regex", p, err)}
 		}
+		// The title leads the reason of every ban this rule creates, which
+		// keeps reasonRuleMax characters of it.  Said here, where the operator
+		// can shorten it, rather than cut on the way into the ban (the page
+		// says the same the moment the field runs past the limit).
+		if utf8.RuneCountInString(t) > reasonRuleMax {
+			return &listFieldError{Field: "honeypot_url_path", Value: p, Msg: i18n.Tf(lang, "err.honeypot_title_long", reasonRuleMax)}
+		}
 		if ts <= 0 {
 			ts = now
 		}
@@ -5365,7 +5381,12 @@ func asnCustomRuleView(cfg settings.AsnConfig) []asnCustomRow {
 	return out
 }
 
-func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
+// labelMax bounds a rule's free-text label where nothing downstream budgets
+// it (a honeypot title has its own, reasonRuleMax).  The hunt dialogs' label
+// fields carry the same number in data-maxchars.
+const labelMax = 200
+
+func applyAsnForm(c *settings.AsnConfig, r *http.Request, lang i18n.Lang) error {
 	if v := strings.TrimSpace(r.FormValue("asn_default_action")); v != "" {
 		if !settings.IsValidGeoAction(v) {
 			return fmt.Errorf("asn_default_action invalid (got %q)", v)
@@ -5466,8 +5487,9 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 		var label string
 		if i < len(labels) {
 			label = strings.TrimSpace(labels[i])
-			if len([]rune(label)) > 80 {
-				label = string([]rune(label)[:80])
+			// Said on the row, as the page says it while typing; not cut.
+			if utf8.RuneCountInString(label) > labelMax {
+				return &listFieldError{Field: "asn_number", Value: s, Msg: i18n.Tf(lang, "err.value_long", labelMax)}
 			}
 		}
 		enVal := r.FormValue(fmt.Sprintf("asn_enabled_%d", i))
@@ -5515,8 +5537,10 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request) error {
 			rule.ASN = uint(n)
 		} else {
 			org := s
-			if len([]rune(org)) > 80 {
-				org = string([]rune(org)[:80])
+			// An organisation rule matches on this text: cutting it would
+			// change what the rule matches without a word.
+			if utf8.RuneCountInString(org) > labelMax {
+				return &listFieldError{Field: "asn_number", Value: s, Msg: i18n.Tf(lang, "err.value_long", labelMax)}
 			}
 			key := strings.ToLower(org)
 			if seenOrg[key] {
@@ -5602,7 +5626,7 @@ func (h *Handler) AdminNotifyTest(w http.ResponseWriter, r *http.Request) {
 // The hub URLs live in defaults() (communitybans-package constants) and are not
 // edited from the UI; the unmask.sh hub is the only target until the feature
 // graduates beyond preview.
-func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
+func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request, lang i18n.Lang) error {
 	// report_enabled is the unified clickwrap: one checkbox both enables
 	// submission AND records terms acceptance (= ticking it is the
 	// affirmative action).
@@ -5646,44 +5670,45 @@ func applyCommunityBansForm(c *settings.CommunityBans, r *http.Request) {
 	// count running deployments; OFF returns the pull to being anonymous and
 	// changes nothing else about subscribing.
 	c.PublishLiveness = r.FormValue("publish_liveness") == "1"
-	// HN override: trim + lowercase + clamp.  Strict validation lives on the
-	// hub side -- here we just normalize so the saved value matches what the
-	// hub will accept (= avoids "looks accepted in admin, rejected on hub").
-	c.HNOverride = normalizeHNOverride(r.FormValue("hn_override"))
+	// HN override: trim + lowercase, then the hub's own rule (3-32 characters
+	// of a-z 0-9 - _, alphanumeric at both ends).  A value that breaks it is
+	// refused with the rule, on the page as the operator types and here --
+	// it used to be replaced by an empty one, which cleared the override
+	// without a word.
+	hn, ok := hnOverrideValue(r.FormValue("hn_override"))
+	if !ok {
+		return errors.New(i18n.T(lang, "err.hn_override_format"))
+	}
+	c.HNOverride = hn
 	// terms acceptance is handled at the top via the unified report_enabled
 	// checkbox (= ticking it IS the acceptance).
+	return nil
 }
 
-// applySMTPForm: receive the SMTP card of the notifications form. Empty password submit preserves
-// current value (= matches the "***" placeholder UX where the value is
-// untouched). Port: 0 / invalid → 587.
-// normalizeHNOverride: client-side parity with the hub's validHN().  Empty
-// string clears the override.  Invalid input (= disallowed chars / length)
-// is also coerced to empty so the bad value never reaches the wire; the
-// hub silently re-validates on every register / submit.
-func normalizeHNOverride(in string) string {
+// hnOverrideValue is the hub name override as it is saved: trimmed and
+// lower-cased, "" clearing the override.  ok is false for a non-empty value
+// that breaks the hub's rule (3-32 characters of a-z 0-9 - _, alphanumeric at
+// both ends); the hub re-validates on every register / submit, so what is
+// saved is what it will accept.
+func hnOverrideValue(in string) (hn string, ok bool) {
 	s := strings.ToLower(strings.TrimSpace(in))
 	if s == "" {
-		return ""
+		return "", true
 	}
 	if len(s) < 3 || len(s) > 32 {
-		return ""
+		return "", false
 	}
 	for i := 0; i < len(s); i++ {
 		c := s[i]
-		ok := (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_'
-		if !ok {
-			return ""
+		if !((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_') {
+			return "", false
 		}
 	}
-	// First / last must be alphanum so the result reads like the derived form.
-	isAlnum := func(c byte) bool {
-		return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+	alnum := func(c byte) bool { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') }
+	if !alnum(s[0]) || !alnum(s[len(s)-1]) {
+		return "", false
 	}
-	if !isAlnum(s[0]) || !isAlnum(s[len(s)-1]) {
-		return ""
-	}
-	return s
+	return s, true
 }
 
 func applySMTPForm(c *settings.SMTP, r *http.Request) {
@@ -6371,6 +6396,13 @@ func brandingFormHasEdits(r *http.Request) bool {
 	return false
 }
 
+// brandingSiteNameMax / brandingFooterMax bound the two free-text branding
+// fields; the page carries the same numbers on the fields.
+const (
+	brandingSiteNameMax = 80
+	brandingFooterMax   = 160
+)
+
 func applyBrandingForm(cur *settings.BrandingValues, scope string, r *http.Request) error {
 	cur.SiteName = strings.TrimSpace(r.FormValue("branding_site_name"))
 	cur.FooterText = strings.TrimSpace(r.FormValue("branding_footer_text"))
@@ -6410,11 +6442,13 @@ func applyBrandingForm(cur *settings.BrandingValues, scope string, r *http.Reque
 	cur.DenyBanColors = parseDenyColorsField(r, "ban")
 	// Length caps so a runaway paste doesn't bloat the config file or
 	// overflow the challenge layout.
-	if n := len([]rune(cur.SiteName)); n > 80 {
-		cur.SiteName = string([]rune(cur.SiteName)[:80])
+	// Said, not cut: the page says the same on the field as the operator
+	// types, so this is for a request that did not come through it.
+	if n := utf8.RuneCountInString(cur.SiteName); n > brandingSiteNameMax {
+		return fmt.Errorf("site name: at most %d characters (%d given)", brandingSiteNameMax, n)
 	}
-	if n := len([]rune(cur.FooterText)); n > 160 {
-		cur.FooterText = string([]rune(cur.FooterText)[:160])
+	if n := utf8.RuneCountInString(cur.FooterText); n > brandingFooterMax {
+		return fmt.Errorf("footer text: at most %d characters (%d given)", brandingFooterMax, n)
 	}
 	// Logo handling: explicit clear takes priority over file upload.
 	if r.FormValue("branding_logo_clear") == "1" {
