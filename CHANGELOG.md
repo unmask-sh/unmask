@@ -16,6 +16,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- (2026-10-10) **The bans table's reason column gives way before the table scrolls.**  The reason was capped at a fixed width, so on a laptop-sized window the table scrolled sideways inside its card while the reason could have been shorter.  The reason now takes the width the other columns leave, down to a floor, and the popover carries the rest; a wide window shows the whole URL.
+
 - (2026-10-09) **The built-in icon is 192 px, not the 1.3 MB source artwork.**  The icon the admin pages, the favicon and the challenge page's credit line load was the 1254 px original, so a page showing it at 14 px downloaded 1.3 MB.  It is now the same mark at 192 px, 33 kB.
 
 ## [0.1.51-rc2] - 2026-10-09 (testing build)

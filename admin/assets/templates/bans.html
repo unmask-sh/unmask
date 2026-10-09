@@ -40,17 +40,25 @@ table.bans td.mono{font-family:ui-monospace,Menlo,monospace;color:#475569}
    Clamp it and hand the full text to a popover -- the same gesture and the
    same #clamp-popover the community feed table uses, so the two ban pages do
    not teach different things.
-   The clamp sits on an inner span rather than the cell: max-width on a <td>
-   is advisory under table-layout:auto and browsers size the column by content
-   anyway, which is the very thing being prevented here.
-   26rem: a honeypot reason leads with the rule's name ("SQL injection
-   signatures: https://..."), and the host that was probed has to show after
-   it without opening the popover. */
-table.bans .clamp-v{display:inline-block;max-width:26rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+   The reason is the table's one elastic column.  Every other column is as
+   narrow as its values, and the reason takes whatever width the card has
+   left: a wide window shows the whole URL, a laptop shows its head and hands
+   the rest to the popover.  12rem is the floor -- the rule's name and the
+   start of the host stay readable -- and only below it does the table
+   scroll inside .bans-scroll.  A fixed 26rem cap did this before, and a
+   window that could have held every column with a shorter reason scrolled
+   the table sideways instead (2026-10-10).
+   width:100% + max-width:0 is what makes an auto-layout column take the
+   table's leftover space rather than its content's width: a plain max-width
+   on a <td> is advisory there, and the browser sizes the column by the text
+   anyway.  The span inside then clips at the cell's edge; the popover and
+   the truncation check below read the span, as before. */
+table.bans th:nth-child(5),table.bans tbody td:nth-child(5){width:100%;max-width:0;min-width:12rem;white-space:nowrap}
+table.bans .clamp-v{display:inline-block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
 /* Every other column holds a value that has no sensible break point -- an
    address, a fingerprint, an action name, a timestamp -- so wrapping one does
    not fit more in, it just makes the whole row two lines tall and harder to
-   scan.  The reason is the only column allowed to be long, and it is clamped
+   scan.  The reason is the only column allowed to be long, and it gives way
    above, so nothing here can push the table off the page.
    ("pow_then_captcha (default)" was the one that actually wrapped, taking
    every row with it, since a table row is as tall as its tallest cell.) */

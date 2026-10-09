@@ -55,6 +55,7 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
       longWidth: longCell ? longCell.getBoundingClientRect().width : null,
       shortClipped: shortCell ? shortCell.scrollWidth > shortCell.clientWidth + 1 : null,
       pageScrolls: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+      boxScrolls: (function(){ const b = document.querySelector('.bans-scroll'); return b ? b.scrollWidth > b.clientWidth + 1 : null; })(),
       // The full value must survive in the DOM, or the popover has nothing to
       // show and the operator has lost the reason entirely.
       longFullLen: longCell ? (longCell.dataset.full || '').length : 0,
@@ -75,6 +76,10 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
       `the clamped reason hides the host that was probed: ${geo.longVisible}`);
     // The clamp is worth nothing if the row still drags the page sideways.
     ok(!geo.pageScrolls, 'the page scrolls sideways at full width');
+    // The reason is the column that gives way: at this width every other
+    // column fits with room to spare, so the table must not scroll inside
+    // its box either -- the reason has to take what is left, not its 26rem.
+    ok(geo.boxScrolls === false, 'the table scrolls inside its box at 1500px although the reason column could have given way');
   }
   if (geo.hasShort) {
     ok(geo.shortClipped === false, 'a short reason is being treated as clipped');
@@ -174,11 +179,13 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     const row = document.querySelector('table.bans tbody tr');
     if (!row) return { missing: true };
     const cells = Array.from(row.children);
-    const table = document.querySelector('table.bans');
+    const box = document.querySelector('.bans-scroll');
     return {
       ip: wrapped(cells[0]),
       ja4: wrapped(cells[1]),
       action: wrapped(cells[3]),
+      reasonColW: Math.round(cells[4].getBoundingClientRect().width),
+      boxScrolls: box ? box.scrollWidth > box.clientWidth + 1 : null,
       // The table may legitimately be wider than the window now -- it lives in
       // its own scroll box.  What must never happen is the PAGE scrolling
       // sideways, which is what dragged the layout around before.
@@ -193,6 +200,15 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     ok(!narrow.ja4, 'the fingerprint wraps onto two lines when the window is narrow');
     ok(!narrow.action, 'the action wraps onto two lines when the window is narrow');
     ok(!narrow.pageScrolls, 'the page scrolls sideways instead of the table scrolling inside its box');
+    // The reason gives way down to 12rem (192px at the 16px root) and no
+    // further: the rule's name and the head of the host stay readable.  So
+    // the column is never narrower than the floor, and once the table has to
+    // scroll, the reason must already be at it -- the scroll is not hiding
+    // width the reason could have given up.
+    ok(narrow.reasonColW >= 191, `the reason column shrank past its 12rem floor (${narrow.reasonColW}px)`);
+    if (narrow.boxScrolls) {
+      ok(narrow.reasonColW <= 193, `the table scrolls while the reason column still holds ${narrow.reasonColW}px`);
+    }
   }
 
   await browser.close();
