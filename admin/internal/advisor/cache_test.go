@@ -2,8 +2,12 @@ package advisor
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
 // The cached list is served without a recompute inside cacheFresh, applies
@@ -72,5 +76,60 @@ func TestCachedCandidates(t *testing.T) {
 			t.Fatalf("the background refresh never landed: %+v", fresh)
 		}
 		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// The list is computed off the request.  A request that finds no list starts
+// the computation and, when it has not finished in computeWait, answers
+// "being computed"; the status says so; the next request gets the list.
+func TestCandidatesComputedBehind(t *testing.T) {
+	ResetCandidateCache()
+	t.Cleanup(ResetCandidateCache)
+	defer SetComputeWaitForTest(0)()
+	d := newTestDB(t)
+	opt := Options{MinServes: 5, Limit: 50}
+	for i := 0; i < 6; i++ {
+		insertEvent(t, d, "203.0.113.10", "t13d_a", "serve", "curl/8", "")
+	}
+	_, _, err := CachedCandidates(context.Background(), d, nil, Exclusions{}, opt)
+	if !errors.Is(err, ErrComputing) {
+		t.Fatalf("a request with no list must answer ErrComputing, got %v", err)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		st := CandidateStatus(d, opt)
+		if !st.At.IsZero() {
+			break
+		}
+		if st.Err != "" || time.Now().After(deadline) {
+			t.Fatalf("the computation did not land: %+v", st)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	cands, _, err := CachedCandidates(context.Background(), d, nil, Exclusions{}, opt)
+	if err != nil || len(cands) == 0 || cands[0].Target != "203.0.113.10" {
+		t.Fatalf("the computed list is not served: %v %+v", err, cands)
+	}
+	if st := CandidateStatus(d, opt); st.Computing || st.Err != "" {
+		t.Errorf("status after the list landed: %+v", st)
+	}
+}
+
+// A computation that fails is reported, not waited for.
+func TestCandidatesComputeFailureIsReported(t *testing.T) {
+	ResetCandidateCache()
+	t.Cleanup(ResetCandidateCache)
+	// A database with no schema: the engine's query fails at once.
+	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/empty.sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	_, _, err = CachedCandidates(context.Background(), d, nil, Exclusions{}, Options{WindowMinutes: 60})
+	if err == nil || errors.Is(err, ErrComputing) {
+		t.Fatalf("a failed computation must surface its error, got %v", err)
+	}
+	if st := CandidateStatus(d, Options{WindowMinutes: 60}); st.Err == "" || st.Computing {
+		t.Errorf("status after a failure: %+v", st)
 	}
 }

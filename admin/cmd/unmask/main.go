@@ -1505,6 +1505,9 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	// the page polls this while a run is out, then fills its rows in place
 	mux.HandleFunc("GET "+base+"/admin/advisor/ai-status",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAdvisorAIStatus)))
+	// and this while the candidate list itself is being computed, then reloads
+	mux.HandleFunc("GET "+base+"/admin/advisor/status",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAdvisorStatus)))
 	// model picker: the saved provider's model list (no overrides -- see handler)
 	// what a fingerprint ban would hit (the BAN dialog asks before confirming)
 	mux.HandleFunc("GET "+base+"/admin/api/ja4-collateral",

@@ -7,6 +7,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -49,7 +50,17 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 	cands, candAt, err := advisor.CachedCandidates(r.Context(), h.DB, h.IPGeo, excl,
 		advisor.Options{WindowMinutes: windowH * 60})
 	engineErr := ""
-	if err != nil {
+	// The list is computed off the request (advisor.CachedCandidates).  With
+	// none to show yet the page says so and polls /advisor/status until it
+	// lands; a list older than a minute is shown with its age while a fresh
+	// one is computed behind it.
+	computing, computingSince := false, 0
+	if errors.Is(err, advisor.ErrComputing) {
+		computing = true
+		if st := advisor.CandidateStatus(h.DB, advisor.Options{WindowMinutes: windowH * 60}); st.Computing {
+			computingSince = int(time.Since(st.Since).Seconds())
+		}
+	} else if err != nil {
 		// Render the page with the error rather than a bare 500: the operator
 		// still gets the frame, the window picker and the explanation.
 		engineErr = err.Error()
@@ -175,6 +186,8 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 		"BasePath":       h.cfg().Server.BasePath,
 		"Version":        h.Version,
 		"BanTab":         "advisor",
+		"Computing":      computing,
+		"ComputingSince": computingSince,
 		"Candidates":     cands,
 		"ShowAll":        showAll,
 		"Hidden":         hidden,
@@ -206,7 +219,7 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 		"WindowH":        windowH,
 		"EngineErr":      engineErr,
 		"CandAge":        humanAge(time.Since(candAt)),
-		"CandStale":      time.Since(candAt) >= 60*time.Second, // served from memory, refresh running behind
+		"CandStale":      !computing && time.Since(candAt) >= 60*time.Second, // served from memory, refresh running behind
 		"LLMErr":         aiErr,
 		"Saved":          r.URL.Query().Get("saved") != "",
 		"Dismissed":      r.URL.Query().Get("done") == "dismissed",
@@ -446,6 +459,22 @@ func (h *Handler) AdminAdvisorAIRun(w http.ResponseWriter, r *http.Request) {
 
 // AdminAdvisorAIStatus: GET {base}/admin/advisor/ai-status?window=N — is a run
 // for this window still out (and what it is doing), and is there a result.
+// AdminAdvisorStatus: GET {base}/admin/advisor/status?window=H -- whether the
+// window's candidate list is being computed, and whether one is on hand.
+// The page polls this while it shows "being computed", then reloads.
+func (h *Handler) AdminAdvisorStatus(w http.ResponseWriter, r *http.Request) {
+	windowH := advisorWindow(r.URL.Query().Get("window"))
+	st := advisor.CandidateStatus(h.DB, advisor.Options{WindowMinutes: windowH * 60})
+	out := map[string]any{"computing": st.Computing, "ready": !st.At.IsZero()}
+	if st.Computing {
+		out["since"] = int(time.Since(st.Since).Seconds())
+	}
+	if st.Err != "" {
+		out["error"] = st.Err
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 func (h *Handler) AdminAdvisorAIStatus(w http.ResponseWriter, r *http.Request) {
 	windowH := advisorWindow(r.URL.Query().Get("window"))
 	aiCfg := h.cfg().AIAdvisor

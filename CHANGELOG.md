@@ -16,11 +16,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- (2026-10-09) **The ban candidates page answers at once; the list is computed behind it.**  Extracting candidates is a pass over every event in the window, and the page waited for it -- on a large install past the server's write timeout, so it showed nothing.  A request now shows the list it has with its age, or says the list is being computed and reloads when it lands.
+
+- (2026-10-09) **The bot hunt's rankings each get their own budget, and the pages of one session share them.**  The four ranking tables ran on one shared ten-second budget, so a slow table starved those after it, and every page of a paging session computed all four again.  Each table now has its own budget under a page cap, and a page carrying page 1's freeze id reuses page 1's tables.
+
 - (2026-10-09) **Every field with a character limit says so as you type.**  A field that had a limit used to stop taking characters at it without a word, or the save cut the value afterwards.  Now the field turns red the moment the text runs past the limit, the limit is written under it, and the save waits until it fits: a honeypot rule's title, an ASN rule's label, the branding site name and footer, a snapshot's name, the labels and reason in the bot hunt dialogs, a community comment, and the community hub name, which also says its rule instead of being cleared.
 
 - (2026-10-09) **A honeypot ban's reason names the rule and the whole URL.**  The ban list said only which host and path tripped a trap.  The reason now leads with the honeypot rule that fired -- a preset's name, or a custom row's title -- and writes the URL with its scheme, so a SQL-injection probe reads differently from a WordPress scan without opening the honeypot tab.  A custom rule's title is held to 80 characters: the field turns red as it runs past the limit, says why, and the save waits.  On a module install the scheme reaches the daemon with the next render and reload.
 
 ### Fixed
+
+- (2026-10-09) **The bot hunt's JA4 ranking reads the window, not its whole index.**  For a one-hour window the ranking walked the entire JA4 index -- on a large install hundreds of megabytes, a minute cold -- because the planner preferred the index's ready-made grouping over the date range, with or without statistics.  It is now pinned to the date index like the IP and network rankings.
+
+- (2026-10-09) **The stats page's hour-range scans seek the date index without planner statistics.**  The funnel and verdict cards' raw scans (ranges under a day, and a day until the hourly rollup is ready) walked the whole verdict index on a database that never ran ANALYZE, which past a few hundred megabytes is most of them.  They now seek the date index unless a site or host narrows them.
+
+- (2026-10-09) **A funnel that could not be read no longer takes the stats page down.**  The page answered 500 when the funnel query failed, while every other card degrades to "could not load".  On a large install the funnel's raw day-long scan cannot finish in its budget after a restart or on a filtered view, so the page was gone when wanted.  It renders with the funnel named in the banner.
 
 - (2026-10-09) **Rule labels are counted in characters, and the ASN tab says its limit.**  A label typed in Japanese on the bot hunt, or a settings snapshot's name, was cut at a third of its stated length, sometimes in the middle of a character.  On the ASN tab a label or an organisation name was shortened to 80 characters without a word, which could change what an organisation rule matched.  Both now count characters; the ASN tab turns the field red at 200 as you type and the save waits.  The password hint said 72 characters; the limit has been 1,024 bytes since argon2id.
 

@@ -153,14 +153,17 @@ type Handler struct {
 	// zero-value Handler used all over the tests keep working.
 	loginThrottle     *loginThrottle
 	loginThrottleOnce sync.Once
-	Notifier          *notifier.Notifier    // optional, may be nil (notification URL unset)
-	Mailer            *mail.Mailer          // optional, may be nil (SMTP unset).  Used by alert / password reset.
-	RateLimiter       *ratelimit.Limiter    // sliding-window counter for forward-auth mode.  nil disables counting.
-	CommunityBans     *communitybans.Client // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
-	IPRangeSync       *nginxconf.Sync       // optional, may be nil.  Subscribe loop that pulls bypass-IP prefixes from the hub.
-	BrowserSync       *browsermajors.Sync   // optional, may be nil.  Subscribe loop that pulls stale-browser baselines from the hub.
-	WebBotAuth        *webbotauth.Verifier  // optional, may be nil.  RFC 9421 signature verification for bot requests.
-	PrivacyPass       *privacypass.Verifier // optional, may be nil.  Privacy Pass / PAT (RFC 9577/9578) token verification.
+	// huntRank keeps the hunt page's ranking tables from one page-1 load for
+	// the pages that follow it (see hunt_rank.go).  Zero value is ready.
+	huntRank      huntRankCache
+	Notifier      *notifier.Notifier    // optional, may be nil (notification URL unset)
+	Mailer        *mail.Mailer          // optional, may be nil (SMTP unset).  Used by alert / password reset.
+	RateLimiter   *ratelimit.Limiter    // sliding-window counter for forward-auth mode.  nil disables counting.
+	CommunityBans *communitybans.Client // optional, may be nil.  Async submit to community feed on BAN + periodic pull.
+	IPRangeSync   *nginxconf.Sync       // optional, may be nil.  Subscribe loop that pulls bypass-IP prefixes from the hub.
+	BrowserSync   *browsermajors.Sync   // optional, may be nil.  Subscribe loop that pulls stale-browser baselines from the hub.
+	WebBotAuth    *webbotauth.Verifier  // optional, may be nil.  RFC 9421 signature verification for bot requests.
+	PrivacyPass   *privacypass.Verifier // optional, may be nil.  Privacy Pass / PAT (RFC 9577/9578) token verification.
 
 	// overBlockTripped is the over-block circuit breaker state, sampled and set
 	// by RunOverBlockMonitor (over_block.go) and read in ServeChallenge.

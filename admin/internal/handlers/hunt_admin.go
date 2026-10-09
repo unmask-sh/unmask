@@ -283,22 +283,30 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	// failed rendered as an empty table, which is the same thing the page shows
 	// when a window genuinely has no traffic.  "Nothing happened" and "we could
 	// not find out" are opposite answers for an operator hunting a bot.
-	rankCtx, cancelRank := context.WithTimeout(huntCtx, rankQueryTimeout)
-	defer cancelRank()
 	// Per table, because they fail independently: the UA scan is the expensive
 	// one and can time out while the others land.  Saying so table by table is
 	// the same rule the retention card follows -- name the metric that could
 	// not be read, rather than blanking the card around it.
-	rankFailed := map[string]bool{}
-	ipRankRaw, ipRankErr := events.RankByIP(rankCtx, h.DB, sinceMin, 30, "")
-	ja4RankRaw, ja4RankErr := events.RankByJA4(rankCtx, h.DB, sinceMin, 30, "")
-	uaRankRaw, uaRankErr := events.RankByUA(rankCtx, h.DB, sinceMin, 30, "")
-	logRankErr("ip", ipRankErr)
-	logRankErr("ja4", ja4RankErr)
-	logRankErr("ua", uaRankErr)
-	rankFailed["ip"] = ipRankErr != nil
-	rankFailed["ja4"] = ja4RankErr != nil
-	rankFailed["ua"] = uaRankErr != nil
+	//
+	// Concurrent, each on its own budget, and reused across the pages of one
+	// paging session (see hunt_rank.go).  A page that carries a freeze id is
+	// such a page: it asks the cache first.  Page 1 always computes, and
+	// keeps what it computed for the pages that will follow it.
+	wantASN := h.IPGeo != nil && h.IPGeo.ASNLoaded()
+	rankKey := huntRankKey(rng, sinceMin, customFromTS, customToTS, freezeID)
+	ranks, reused := huntRankSet{}, false
+	if q.Get("asof") != "" {
+		ranks, reused = h.huntRank.get(rankKey)
+	}
+	if !reused {
+		ranks = h.runHuntRankings(huntCtx, sinceMin, wantASN)
+		h.huntRank.put(rankKey, ranks)
+	}
+	rankFailed := ranks.failed
+	if rankFailed == nil {
+		rankFailed = map[string]bool{}
+	}
+	ipRankRaw, ja4RankRaw, uaRankRaw := ranks.ip, ranks.ja4, ranks.ua
 
 	cur := h.snapshotSettings().Nginx
 
@@ -379,15 +387,9 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		Rule  string // action of the ASN rule already covering it, "" if none
 	}
 	var asnRank []asnRankRow
-	if h.IPGeo != nil && h.IPGeo.ASNLoaded() {
-		// LookupASN, not LookupInfo: this walks every distinct IP in the window
-		// once, where LookupInfo's country lookup is wasted work and its cache
-		// is pure overhead (see ipgeo.LookupASN).
-		asnRaw, asnRankErr := events.RankByASN(rankCtx, h.DB, sinceMin, 20, h.IPGeo.LookupASN)
-		logRankErr("asn", asnRankErr)
-		rankFailed["asn"] = asnRankErr != nil
-		asnRank = make([]asnRankRow, 0, len(asnRaw))
-		for _, r0 := range asnRaw {
+	if wantASN {
+		asnRank = make([]asnRankRow, 0, len(ranks.asn))
+		for _, r0 := range ranks.asn {
 			asnRank = append(asnRank, asnRankRow{
 				ASN: r0.ASN, Org: r0.Org, IPs: r0.IPs, Count: r0.Count,
 				Rule: lookupASNRuleAction(r0.ASN, r0.Org, cur.Asn),
@@ -1464,16 +1466,8 @@ func rebindLineageRows(ctx context.Context, h *Handler, rows []events.RebindLine
 	return out
 }
 
-// rankQueryTimeout bounds the hunt page's ranking scans.  Ten seconds is the
-// figure the retention card settled on for the same reason: long enough that a
-// cold cache on a large database still answers, short enough that a page which
-// cannot answer says so instead of hanging.
-//
-// A var, not a const, so a test can make the deadline expire immediately.  The
-// alternative -- removing the table the rankings read -- fails every other
-// query on the page too, which is a different failure and takes the page down
-// with it; the case worth pinning is the one where only these are missing.
-var rankQueryTimeout = 10 * time.Second
+// The rankings' budget (rankQueryTimeout) and the cache the pages of one
+// paging session share live in hunt_rank.go.
 
 // logRankErr records a ranking that could not be read.  Written to the log as
 // well as shown in the UI: the operator sees WHICH table is missing, and the

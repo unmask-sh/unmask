@@ -213,6 +213,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   {{ if .Dismissed }}<div class="banner ok">{{ t .Lang "advisor.dismissed_ok" }}</div>{{ end }}
   {{ if .Undismissed }}<div class="banner ok">{{ t .Lang "advisor.undismissed_ok" }}</div>{{ end }}
   {{ if .EngineErr }}<div class="banner bad">{{ t .Lang "advisor.engine_err" }}: {{ .EngineErr }}</div>{{ end }}
+  {{ if .Computing }}<div class="banner" id="adv-computing" data-base="{{ .BasePath }}" data-window="{{ .WindowH }}" data-since="{{ .ComputingSince }}" data-err="{{ t .Lang "advisor.engine_err" }}"><span id="adv-computing-text">{{ tf .Lang "advisor.computing" .ComputingSince }}</span></div>{{ end }}
 
   <div class="bcd-card">
     <form method="get" action="{{.BasePath}}/admin/advisor/" class="windowbar">
@@ -436,6 +437,30 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 // a user agent's summary in the cell and its full string in the popover, a
 // path's full address with Open / Copy, a clipped network / reverse DNS.
 {{ template "cellpop_js" . }}
+
+// While the candidate list is being computed (the page said so in
+// #adv-computing), poll /advisor/status and reload once it has landed; a
+// computation that failed is shown in place instead of waiting forever.
+(function(){
+  var box = document.getElementById('adv-computing');
+  if (!box || !window.fetch) return;
+  var since = parseInt(box.dataset.since || '0', 10), text = document.getElementById('adv-computing-text');
+  var tmpl = text.textContent, t0 = Date.now() - since * 1000;
+  function tick(){ text.textContent = tmpl.replace(/\d+/, String(Math.floor((Date.now() - t0) / 1000))); }
+  var ticker = setInterval(tick, 1000);
+  function poll(){
+    fetch(box.dataset.base + '/admin/advisor/status?window=' + encodeURIComponent(box.dataset.window),
+          { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        if (d.ready) { location.reload(); return; }
+        if (!d.computing && d.error) { clearInterval(ticker); box.className = 'banner bad'; text.textContent = box.dataset.err + ': ' + d.error; return; }
+        setTimeout(poll, 2000);
+      })
+      .catch(function(){ setTimeout(poll, 4000); });
+  }
+  setTimeout(poll, 2000);
+})();
 
 // Ask the model without leaving the page.  The click posts to ai-run and
 // gets a 202 back at once; the bar turns into a progress line, every eligible
