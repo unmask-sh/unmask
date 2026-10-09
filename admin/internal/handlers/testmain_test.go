@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/advisor"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 )
 
@@ -19,7 +20,15 @@ func TestMain(m *testing.M) {
 	// timed out, with nothing pointing at the cause.  The tests that pin the
 	// trigger count the calls instead.
 	scheduleReexecFn = func() {}
+	// The ban candidates are computed behind the page, which waits two
+	// seconds for them before it answers without a list.  A CI runner can
+	// take longer than that over a test database, and every test that reads
+	// the list off the page would then see the "being computed" notice
+	// instead.  The tests wait for the list; the one test of the notice
+	// sets the wait to zero itself.
+	restoreWait := advisor.SetComputeWaitForTest(2 * time.Minute)
 	code := m.Run()
+	restoreWait()
 	restore()
 	os.Exit(code)
 }

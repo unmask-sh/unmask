@@ -429,6 +429,17 @@ func (h *Handler) AdminAdvisorAIRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	prep, err := h.planAdvisorAI(r.Context(), aiCfg, windowH, lang)
+	if errors.Is(err, advisor.ErrComputing) {
+		// No list yet: the candidates are being computed behind the page,
+		// which says so and reloads when they land.  Not a failed run, so
+		// nothing is stored as one.
+		secs := 0
+		if st := advisor.CandidateStatus(h.DB, advisor.Options{WindowMinutes: windowH * 60}); st.Computing {
+			secs = int(time.Since(st.Since).Seconds())
+		}
+		respond(http.StatusOK, map[string]any{"running": false, "computing": true, "error": i18n.Tf(i18n.Lang(lang), "advisor.computing", secs)})
+		return
+	}
 	if err != nil {
 		advisor.StoreLast(h.DB, key, advisor.Stored{ErrAt: time.Now(), Model: aiCfg.ResolvedModel(), Err: err.Error()})
 		respond(http.StatusOK, map[string]any{"running": false, "error": err.Error()})
