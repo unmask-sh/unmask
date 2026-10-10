@@ -409,6 +409,14 @@ func TestCompositionHasItsOwnCard(t *testing.T) {
 		t.Error("a tile still carries the composition; it is in two places at once")
 	}
 
+	// The chips are toggles drawn as plain text, struck through when a segment
+	// is excluded; their rules once left the page with another card's style
+	// block and the legend grew underlines.
+	for _, rule := range []string{`.comp-chip .comp-tgl{color:inherit;text-decoration:none`, `.comp-chip.comp-out .comp-tgl{text-decoration:line-through}`} {
+		if !strings.Contains(tpl, rule) {
+			t.Errorf("the composition chip rule %q is missing", rule)
+		}
+	}
 	// The bar's segments are shares of one total, so they have to be driven by
 	// the same selected denominator the headline is -- one range over the
 	// segment state, every width against $t, never a hand-picked KPI field

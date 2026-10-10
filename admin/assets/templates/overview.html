@@ -114,6 +114,12 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .bcd-card h2.pipe-h{display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap}
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;margin:0 0 .9rem}
 .comp-card h3.comp-h3{margin:0;font-size:1rem;font-weight:700;color:#334155}
+/* The composition chips are toggles: plain text, struck through while a
+   segment is excluded.  (These rules once sat in a style block beside the
+   hourly chart and left with it, 2026-10-10.) */
+.comp-chip .comp-tgl{color:inherit;text-decoration:none;cursor:pointer;user-select:none}
+.comp-chip.comp-out .comp-tgl{text-decoration:line-through}
+.comp-chip .comp-tgl-pinned{cursor:default}
 .comp-card .pipe-h.after-comp{margin-top:1.1rem;padding-top:.9rem;border-top:1px solid #e2e8f0}
 .day-err{margin:-.6rem 0 1rem;font-size:.78rem;color:#b45309}
 /* The map: a dark canvas the streams glow on, the server's position as a
