@@ -43,6 +43,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1031,7 +1032,13 @@ type Nginx struct {
 	BypassPaths      BypassPathsConfig      `yaml:"bypass_paths"`
 	Geo              GeoConfig              `yaml:"geo,omitempty"`
 	Asn              AsnConfig              `yaml:"asn,omitempty"`
-	CrawlerVerify    CrawlerVerifyConfig    `yaml:"crawler_verify,omitempty"`
+	// CustomRules: the operator's own rules, each a conjunction of
+	// conditions over the request (addresses, fingerprints, countries,
+	// networks, user agent, path, host) with one action.  Tried in order;
+	// the first that holds decides.  Native nginx only: rendered as maps,
+	// never evaluated by forward-auth (frozen).
+	CustomRules   []CustomRule        `yaml:"custom_rules,omitempty"`
+	CrawlerVerify CrawlerVerifyConfig `yaml:"crawler_verify,omitempty"`
 
 	// HTTPSRedirect, when on, emits an HTTP->HTTPS 301 at the very top of the
 	// rendered server.inc — before any ban / honeypot / challenge gate.  A
@@ -1407,6 +1414,170 @@ func (n Nginx) BypassIPAutoFromUAEnabled() bool {
 // host, a set Site matches only that host.  Order is preserved.
 func (g GeoConfig) ResolveExemptPaths(site string) []BypassPath {
 	return filterExemptPaths(g.ExemptPaths, site)
+}
+
+// CustomRule: one operator rule.  Every condition listed must hold (an AND);
+// a condition left empty is not consulted; a rule with no condition at all
+// is invalid.  The action is what a match does: monitor counts it and does
+// nothing else, the challenge actions name the chain the visitor faces,
+// deny answers 403.  RatePerMin above zero turns the rule into a throttle:
+// matching clients are counted per address and the rate path answers once
+// they exceed it (the action is then the rate limit's).
+type CustomRule struct {
+	ID         string   `yaml:"id"`                     // stable key the log carries ("cr" + base36 of the creation second)
+	Label      string   `yaml:"label,omitempty"`        // operator note
+	Enabled    bool     `yaml:"enabled"`                // false: kept, not rendered
+	IPs        []string `yaml:"ips,omitempty"`          // addresses or CIDRs
+	JA4s       []string `yaml:"ja4s,omitempty"`         // fingerprints; a trailing * matches a prefix
+	Countries  []string `yaml:"countries,omitempty"`    // ISO 3166-1 alpha-2
+	ASNs       []uint32 `yaml:"asns,omitempty"`         // autonomous system numbers
+	UA         string   `yaml:"ua,omitempty"`           // regex over the user agent, case-insensitive
+	Path       string   `yaml:"path,omitempty"`         // regex over the request URI (path and query)
+	Hosts      []string `yaml:"hosts,omitempty"`        // exact host names
+	Action     string   `yaml:"action"`                 // monitor / pow_only / captcha_only / pow_then_captcha / deny
+	RatePerMin int      `yaml:"rate_per_min,omitempty"` // >0: throttle instead of acting on every request
+	CreatedAt  int64    `yaml:"created_at,omitempty"`   // unix sec the rule was added
+	UpdatedAt  int64    `yaml:"updated_at,omitempty"`   // unix sec of the last edit
+}
+
+// CustomRuleMonitor is the action that only counts.
+const CustomRuleMonitor = "monitor"
+
+// IsValidCustomRuleAction: the actions a custom rule may carry.
+func IsValidCustomRuleAction(a string) bool {
+	switch a {
+	case CustomRuleMonitor, GeoActionPoWOnly, GeoActionCaptchaOnly, GeoActionPoWThenCaptcha, GeoActionDeny:
+		return true
+	}
+	return false
+}
+
+// HasCondition reports whether the rule can ever match.
+func (r CustomRule) HasCondition() bool {
+	return len(r.IPs) > 0 || len(r.JA4s) > 0 || len(r.Countries) > 0 || len(r.ASNs) > 0 || r.UA != "" || r.Path != "" || len(r.Hosts) > 0
+}
+
+// IsChallenge / IsCaptcha / IsDeny read the action.
+func (r CustomRule) IsChallenge() bool {
+	return r.Action == GeoActionPoWOnly || r.Action == GeoActionCaptchaOnly || r.Action == GeoActionPoWThenCaptcha
+}
+func (r CustomRule) IsCaptcha() bool {
+	return r.Action == GeoActionCaptchaOnly || r.Action == GeoActionPoWThenCaptcha
+}
+func (r CustomRule) IsDeny() bool { return r.Action == GeoActionDeny }
+
+var (
+	customRuleIDRE   = regexp.MustCompile(`^[a-z0-9]{2,24}$`)
+	customRuleJA4RE  = regexp.MustCompile(`^[0-9a-z_]{1,64}\*?$`)
+	customRuleCCRE   = regexp.MustCompile(`^[A-Z]{2}$`)
+	customRuleHostRE = regexp.MustCompile(`^[a-z0-9.-]{1,253}$`)
+)
+
+// NormalizeCustomRule trims and lower-cases what the operator typed and
+// checks every condition; the error names the field.
+func NormalizeCustomRule(r *CustomRule) error {
+	r.ID = strings.ToLower(strings.TrimSpace(r.ID))
+	if r.ID != "" && !customRuleIDRE.MatchString(r.ID) {
+		return fmt.Errorf("rule id %q: letters and digits only", r.ID)
+	}
+	r.Label = strings.TrimSpace(r.Label)
+	r.Action = strings.TrimSpace(r.Action)
+	if !IsValidCustomRuleAction(r.Action) {
+		return fmt.Errorf("rule %q: action %q is not one of monitor, pow_only, captcha_only, pow_then_captcha, deny", r.Label, r.Action)
+	}
+	if r.RatePerMin < 0 {
+		r.RatePerMin = 0
+	}
+	if r.RatePerMin > 1_000_000 {
+		r.RatePerMin = 1_000_000
+	}
+	ips := r.IPs[:0]
+	for _, v := range r.IPs {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		if !strings.Contains(v, "/") {
+			if net.ParseIP(v) == nil {
+				return fmt.Errorf("rule %q: %q is not an address or CIDR", r.Label, v)
+			}
+		} else if _, _, err := net.ParseCIDR(v); err != nil {
+			return fmt.Errorf("rule %q: %q is not an address or CIDR", r.Label, v)
+		}
+		ips = append(ips, v)
+	}
+	r.IPs = ips
+	ja4s := r.JA4s[:0]
+	for _, v := range r.JA4s {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if v == "" {
+			continue
+		}
+		if !customRuleJA4RE.MatchString(v) {
+			return fmt.Errorf("rule %q: %q is not a JA4 fingerprint (a trailing * matches a prefix)", r.Label, v)
+		}
+		ja4s = append(ja4s, v)
+	}
+	r.JA4s = ja4s
+	ccs := r.Countries[:0]
+	for _, v := range r.Countries {
+		v = strings.ToUpper(strings.TrimSpace(v))
+		if v == "" {
+			continue
+		}
+		if !customRuleCCRE.MatchString(v) {
+			return fmt.Errorf("rule %q: %q is not a two-letter country code", r.Label, v)
+		}
+		ccs = append(ccs, v)
+	}
+	r.Countries = ccs
+	asns := r.ASNs[:0]
+	for _, v := range r.ASNs {
+		if v == 0 {
+			continue
+		}
+		asns = append(asns, v)
+	}
+	r.ASNs = asns
+	r.UA = strings.TrimSpace(r.UA)
+	if r.UA != "" {
+		if _, err := regexp.Compile("(?i)" + r.UA); err != nil {
+			return fmt.Errorf("rule %q: user-agent pattern: %v", r.Label, err)
+		}
+	}
+	r.Path = strings.TrimSpace(r.Path)
+	if r.Path != "" {
+		if _, err := regexp.Compile(r.Path); err != nil {
+			return fmt.Errorf("rule %q: path pattern: %v", r.Label, err)
+		}
+	}
+	hosts := r.Hosts[:0]
+	for _, v := range r.Hosts {
+		v = strings.ToLower(strings.TrimSpace(v))
+		if v == "" {
+			continue
+		}
+		if !customRuleHostRE.MatchString(v) {
+			return fmt.Errorf("rule %q: %q is not a host name", r.Label, v)
+		}
+		hosts = append(hosts, v)
+	}
+	r.Hosts = hosts
+	if !r.HasCondition() {
+		return fmt.Errorf("rule %q: at least one condition is needed", r.Label)
+	}
+	return nil
+}
+
+// EnabledCustomRules returns the rules that render, in order.
+func (n Nginx) EnabledCustomRules() []CustomRule {
+	var out []CustomRule
+	for _, r := range n.CustomRules {
+		if r.Enabled && r.ID != "" && r.HasCondition() && IsValidCustomRuleAction(r.Action) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // GeoRule: one country override.

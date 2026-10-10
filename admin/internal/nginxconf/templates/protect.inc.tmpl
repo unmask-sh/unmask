@@ -43,6 +43,10 @@ limit_req zone={{ .ZoneName }} burst={{ .Burst }} nodelay;
 # counts traffic from the throttled country.
 limit_req zone={{ .ZoneName }} burst={{ .Burst }} nodelay;
 {{- end }}
+{{- range .CustomRuleRateZones }}
+# custom rule throttle
+limit_req zone={{ .ZoneName }} burst={{ .Burst }} nodelay;
+{{- end }}
 {{- with .ReuseZone }}
 # Pass-cookie reuse cap "{{ .Name }}": its key is set only for a request that
 # carries a valid _bv (see http.inc), so it counts exactly what every limit

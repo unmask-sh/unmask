@@ -764,6 +764,16 @@ type renderData struct {
 	// block over ipgeo.ASNRateCIDRs), with verified crawlers / bypass IPs exempt
 	// (SEO safety).  Empty when no rate rule / ASN mmdb.
 	AsnRateZones []AsnRateZoneRender
+	// CustomRules: the operator's own rules as the conf draws them, in order
+	// (CustomRuleRender); CustomRuleRateZones: the throttling ones, each a
+	// limit_req zone keyed on the client address while the rule matches.
+	CustomRules         []CustomRuleRender
+	CustomRuleRateZones []CustomRuleRateZoneRender
+	// CustomRuleFirstPick: what $unmask_cr_id reads -- the first rule's pick
+	// variable, or "" when there are no rules (a literal here, so the
+	// undefined-variable scan does not see a name that only exists when a
+	// rule does).
+	CustomRuleFirstPick string
 
 	// CommunityBans: the unmask.sh community feed (= submit + pull from the
 	// distribution-side install).  Include the 3 map snippets only when
@@ -940,6 +950,119 @@ type AsnRateZoneRender struct {
 // already-resolved $unmask_country (whose geo block includes rate-mode
 // countries), so the counter is per country, matching forward-auth's
 // "geo:<CC>" counter.  The key map drops verified crawlers / bypass IPs.
+// CustomRuleRender: one custom rule as http.inc draws it.  Each condition
+// present becomes a map to 0/1 on its own variable ({{Var}}_ip, _ja4, _cc,
+// _asn, _ua, _path, _host); Keys joins those variables and Match is the all-
+// ones value, so one more map ANDs them into {{Var}}.  The rules are then
+// chained first-match through {{Var}}_pick: a rule's pick is its id when it
+// matched, else the next rule's pick (Next), the last falling to "".
+type CustomRuleRender struct {
+	ID        string
+	Var       string
+	Next      string   // the next rule's pick variable, or "" for the last
+	IPs       []string // addresses / CIDRs
+	JA4Exact  []string
+	JA4Prefix []string
+	Countries []string
+	ASNs      []string // "AS<n>" tokens, as $unmask_asn carries them
+	UA        string   // regex, quotes escaped
+	Path      string   // regex over $request_uri, quotes escaped
+	Hosts     []string
+	Action    string // the action map entry; "" for monitor and for throttles
+	Keys      string
+	Match     string
+}
+
+// CustomRuleRateZoneRender: a throttling rule's limit_req zone.  The key is
+// the client address while the rule matches (and the client is neither a
+// verified crawler nor a bypass address), "" otherwise, so only matching
+// traffic is counted.
+type CustomRuleRateZoneRender struct {
+	Var            string
+	KeyVar         string
+	ZoneName       string
+	RequestsPerMin int
+	Burst          int
+}
+
+// nginxQuote makes a value safe inside a double-quoted nginx map key.
+func nginxQuote(v string) string {
+	v = strings.ReplaceAll(v, "\n", "")
+	v = strings.ReplaceAll(v, "\r", "")
+	return strings.ReplaceAll(v, `"`, `\"`)
+}
+
+// customRulesRender lays the enabled rules out for the templates and
+// returns the countries and ASNs they name, so the geo / ASN address walks
+// include them (a rule's country or network condition reads $unmask_country
+// / $unmask_asn, which only resolve the addresses those walks emitted).
+func customRulesRender(s settings.Settings) (rules []CustomRuleRender, zones []CustomRuleRateZoneRender, countries []string, asns []uint32) {
+	enabled := s.Nginx.EnabledCustomRules()
+	seenCC, seenASN := map[string]bool{}, map[uint32]bool{}
+	for i, r := range enabled {
+		v := fmt.Sprintf("$unmask_cr_%d", i+1)
+		cr := CustomRuleRender{ID: r.ID, Var: v, Hosts: r.Hosts, UA: nginxQuote(r.UA), Path: nginxQuote(r.Path)}
+		if i+1 < len(enabled) {
+			cr.Next = fmt.Sprintf("$unmask_cr_%d_pick", i+2)
+		}
+		cr.IPs = append(cr.IPs, r.IPs...)
+		for _, j := range r.JA4s {
+			if strings.HasSuffix(j, "*") {
+				cr.JA4Prefix = append(cr.JA4Prefix, strings.TrimSuffix(j, "*"))
+			} else {
+				cr.JA4Exact = append(cr.JA4Exact, j)
+			}
+		}
+		for _, cc := range r.Countries {
+			cr.Countries = append(cr.Countries, cc)
+			if !seenCC[cc] {
+				seenCC[cc] = true
+				countries = append(countries, cc)
+			}
+		}
+		for _, a := range r.ASNs {
+			cr.ASNs = append(cr.ASNs, "AS"+strconv.FormatUint(uint64(a), 10))
+			if !seenASN[a] {
+				seenASN[a] = true
+				asns = append(asns, a)
+			}
+		}
+		var keys []string
+		if len(cr.IPs) > 0 {
+			keys = append(keys, v+"_ip")
+		}
+		if len(cr.JA4Exact)+len(cr.JA4Prefix) > 0 {
+			keys = append(keys, v+"_ja4")
+		}
+		if len(cr.Countries) > 0 {
+			keys = append(keys, v+"_cc")
+		}
+		if len(cr.ASNs) > 0 {
+			keys = append(keys, v+"_asn")
+		}
+		if cr.UA != "" {
+			keys = append(keys, v+"_ua")
+		}
+		if cr.Path != "" {
+			keys = append(keys, v+"_path")
+		}
+		if len(cr.Hosts) > 0 {
+			keys = append(keys, v+"_host")
+		}
+		cr.Keys = strings.Join(keys, ":")
+		cr.Match = strings.TrimSuffix(strings.Repeat("1:", len(keys)), ":")
+		switch {
+		case r.RatePerMin > 0:
+			name := fmt.Sprintf("crrate_%d", i+1)
+			zones = append(zones, CustomRuleRateZoneRender{Var: v, KeyVar: "$" + name + "_key", ZoneName: name, RequestsPerMin: r.RatePerMin, Burst: r.RatePerMin})
+		case r.Action != settings.CustomRuleMonitor:
+			cr.Action = r.Action
+		}
+		rules = append(rules, cr)
+	}
+	return rules, zones, countries, asns
+}
+
 type GeoRateZoneRender struct {
 	ZoneName       string // georate_<i>
 	RequestsPerMin int
@@ -1556,6 +1679,15 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	d.GeoDefaultAction = s.Nginx.Geo.ResolvedDefaultAction()
 	geoCountrySet := map[string]bool{}
 	var geoCIDRCodes []string
+	// The operator's custom rules (settings.Nginx.CustomRules): laid out for
+	// the templates here, and the countries / networks they name join the
+	// address walks below so their conditions can resolve.
+	crRules, crZones, crCountries, crASNs := customRulesRender(s)
+	d.CustomRules, d.CustomRuleRateZones = crRules, crZones
+	d.CustomRuleFirstPick = `""`
+	if len(crRules) > 0 {
+		d.CustomRuleFirstPick = "$unmask_cr_1_pick"
+	}
 	for _, r := range s.Nginx.Geo.Rules {
 		if !r.Enabled {
 			continue
@@ -1585,6 +1717,12 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		d.GeoRules = append(d.GeoRules, GeoRuleRender{Country: cc, Action: action})
 	}
 	sort.Slice(d.GeoRules, func(i, j int) bool { return d.GeoRules[i].Country < d.GeoRules[j].Country })
+	for _, cc := range crCountries {
+		if !geoCountrySet[cc] {
+			geoCountrySet[cc] = true
+			geoCIDRCodes = append(geoCIDRCodes, cc)
+		}
+	}
 	if len(geoCIDRCodes) > 0 && strings.TrimSpace(s.IPGeo.MMDBPath) != "" {
 		if cidrs, err := ipgeo.GeoCIDRsForCountries(s.IPGeo.MMDBPath, geoCIDRCodes); err == nil {
 			d.GeoCIDRs = cidrs
@@ -1618,7 +1756,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// stable token: "AS<n>" for exact rules, "org:<pattern>" for org / provider
 	// matches.  Requires the ASN mmdb (MMDBASNPath); inert without it.
 	d.AsnDefaultAction = s.Nginx.Asn.ResolvedDefaultAction()
-	if s.Nginx.Asn.HasEnabled() {
+	if s.Nginx.Asn.HasEnabled() || len(crASNs) > 0 {
 		var targets []ipgeo.ASNTarget
 		seenKey := map[string]bool{}
 		addRule := func(key, action string, t ipgeo.ASNTarget) {
@@ -1646,6 +1784,17 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			key := "org:" + strings.ToLower(o.Pattern)
 			addRule(key, o.Action, ipgeo.ASNTarget{OrgPattern: o.Pattern})
 		}
+		// Networks a custom rule names: in the walk, so $unmask_asn resolves
+		// them, with no entry of their own in the action map (the ASN axis
+		// treats them as any unlisted network).
+		for _, a := range crASNs {
+			key := "AS" + strconv.FormatUint(uint64(a), 10)
+			if seenKey[key] {
+				continue
+			}
+			seenKey[key] = true
+			targets = append(targets, ipgeo.ASNTarget{ASN: uint(a), Value: key})
+		}
 		if len(targets) > 0 && strings.TrimSpace(s.IPGeo.MMDBASNPath) != "" {
 			if cidrs, err := ipgeo.CIDRsForASNTargets(s.IPGeo.MMDBASNPath, targets); err == nil {
 				d.AsnCIDRs = cidrs
@@ -1668,6 +1817,9 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		d.HardDenyActive = d.HardDenyActive || r.Action == settings.RateChallengeDeny
 	}
 	for _, r := range d.AsnRules {
+		d.HardDenyActive = d.HardDenyActive || r.Action == settings.RateChallengeDeny
+	}
+	for _, r := range d.CustomRules {
 		d.HardDenyActive = d.HardDenyActive || r.Action == settings.RateChallengeDeny
 	}
 

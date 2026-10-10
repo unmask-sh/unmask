@@ -676,6 +676,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <li><a href="{{ .BasePath }}/admin/settings/protected/"    {{ if eq .Tab "protected"    }}class="active"{{ end }}>{{ t .Lang "settings.tab.protected"    }}</a></li>
     <li><a href="{{ .BasePath }}/admin/settings/geo/"          {{ if eq .Tab "geo"          }}class="active"{{ end }}>{{ t .Lang "settings.tab.geo"          }}</a></li>
     <li><a href="{{ .BasePath }}/admin/settings/asn/"          {{ if eq .Tab "asn"          }}class="active"{{ end }}>{{ t .Lang "settings.tab.asn"          }}</a></li>
+    <li><a href="{{ .BasePath }}/admin/settings/custom-rules/" {{ if eq .Tab "custom-rules" }}class="active"{{ end }}>{{ t .Lang "settings.tab.custom_rules" }}</a></li>
     <li><a href="{{ .BasePath }}/admin/settings/honeypot/"     {{ if eq .Tab "honeypot"     }}class="active"{{ end }}>{{ t .Lang "settings.tab.honeypot"     }}</a></li>
     {{/* Last in the group on purpose: this is the fallback for requests no
          other axis matched, so it is the least-touched screen here -- and
@@ -812,6 +813,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <a class="sti" href="{{ .BasePath }}/admin/settings/protected/"><b>{{ t .Lang "settings.tab.protected" }}</b><span>{{ t .Lang "settings.top.desc.protected" }}</span></a>
   <a class="sti" href="{{ .BasePath }}/admin/settings/geo/"><b>{{ t .Lang "settings.tab.geo" }}</b><span>{{ t .Lang "settings.top.desc.geo" }}</span></a>
   <a class="sti" href="{{ .BasePath }}/admin/settings/asn/"><b>{{ t .Lang "settings.tab.asn" }}</b><span>{{ t .Lang "settings.top.desc.asn" }}</span></a>
+  <a class="sti" href="{{ .BasePath }}/admin/settings/custom-rules/"><b>{{ t .Lang "settings.tab.custom_rules" }}</b><span>{{ t .Lang "settings.top.desc.custom_rules" }}</span></a>
   <a class="sti" href="{{ .BasePath }}/admin/settings/honeypot/"><b>{{ t .Lang "settings.tab.honeypot" }}</b><span>{{ t .Lang "settings.top.desc.honeypot" }}</span></a>
   <a class="sti" href="{{ .BasePath }}/admin/settings/global/"><b>{{ t .Lang "settings.tab.global" }}</b><span>{{ t .Lang "settings.top.desc.global" }}</span></a>
 </div>
@@ -4078,6 +4080,118 @@ function secToHuman(s){
 {{/* Per-site rate-limit scalars dropped in v2 step b: per-site rate
      variations are now expressed by adding a Zone with a Site column
      (= the Zones table above already supports per-row Site filter). */}}
+{{ end }}
+
+{{ if eq .Tab "custom-rules" }}
+<style>
+.cr-rule{border:1px solid #e2e8f0;border-radius:.4rem;padding:.7rem .9rem;margin:0 0 .7rem;background:#fff}
+.cr-rule.disabled-row{opacity:.6;background:#f8fafc}
+.cr-head{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:.5rem}
+.cr-head .cr-label{flex:1;min-width:12rem;padding:.35rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;font:inherit;font-size:.9rem}
+.cr-head .cr-hits{font-size:.75rem;color:#64748b;white-space:nowrap}
+.cr-head button{font:inherit;font-size:.75rem;padding:.2rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#334155;cursor:pointer}
+.cr-head button.cr-remove{color:#b91c1c}
+.cr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:.5rem .8rem}
+.cr-grid label{display:flex;flex-direction:column;gap:.2rem;font-size:.75rem;color:#475569}
+.cr-grid input[type=text],.cr-grid input[type=number],.cr-grid select{padding:.35rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;font:inherit;font-size:.88rem;font-family:ui-monospace,Menlo,monospace}
+.cr-grid select{font-family:inherit}
+.cr-toggle{display:inline-flex;align-items:center;gap:.3rem;font-size:.8rem;color:#334155;white-space:nowrap}
+.cr-add{font:inherit;font-size:.85rem;padding:.4rem .8rem;border:1px dashed #94a3b8;border-radius:.3rem;background:#f8fafc;color:#334155;cursor:pointer;width:100%}
+</style>
+<form method="post" action="{{ .BasePath }}/admin/settings/save?section=custom-rules">
+  <div class="bcd-card">
+    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.cr.intro") }}</div>
+    <p class="note" style="font-size:.78rem;color:#64748b;margin:0 0 .8rem">{{ tf .Lang "settings.cr.hits_note" "" }}<time class="js-datetime js-datetime-notz" data-ts="{{ .CustomRuleHitsSince }}"></time></p>
+    <div id="cr-list">
+      {{ range .CustomRules }}
+      <div class="cr-rule{{ if not .Enabled }} disabled-row{{ end }}" data-cr>
+        <input type="hidden" name="cr_id" value="{{ .ID }}"><input type="hidden" name="cr_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="cr_updated_at" value="{{ .UpdatedAt }}">
+        <div class="cr-head">
+          <label class="cr-toggle"><input type="checkbox" class="cr-enabled-cb" {{ if .Enabled }}checked{{ end }}><input type="hidden" name="cr_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">{{ t $.Lang "settings.cr.enabled" }}</label>
+          <input type="text" name="cr_label" value="{{ .Label }}" placeholder="{{ t $.Lang "settings.cr.label_ph" }}" class="cr-label" data-maxchars="80" data-maxchars-msg="{{ tf $.Lang "err.value_long" 80 }}">
+          <span class="cr-hits">{{ if .LastHit }}{{ tf $.Lang "settings.cr.hits" (comma .HitsDay) }} <time class="js-datetime js-datetime-notz" data-ts="{{ .LastHit }}"></time>{{ else }}{{ t $.Lang "settings.cr.hits_none" }}{{ end }}</span>
+          <button type="button" class="cr-up" title="{{ t $.Lang "settings.cr.up" }}">↑</button><button type="button" class="cr-down" title="{{ t $.Lang "settings.cr.down" }}">↓</button>
+          <button type="button" class="cr-remove">{{ t $.Lang "settings.cr.remove" }}</button>
+        </div>
+        <div class="cr-grid">
+          <label>{{ t $.Lang "settings.cr.f_ips" }}<input type="text" name="cr_ips" value="{{ .IPsText }}" placeholder="203.0.113.0/24, 198.51.100.7"></label>
+          <label>{{ t $.Lang "settings.cr.f_ja4s" }}<input type="text" name="cr_ja4s" value="{{ .JA4sText }}" placeholder="t13d1516h2_8daaf6152771_b0da82dd1658, t13d*"></label>
+          <label>{{ t $.Lang "settings.cr.f_countries" }}<input type="text" name="cr_countries" value="{{ .CountriesText }}" placeholder="CN, RU"></label>
+          <label>{{ t $.Lang "settings.cr.f_asns" }}<input type="text" name="cr_asns" value="{{ .ASNsText }}" placeholder="4134, 16509"></label>
+          <label>{{ t $.Lang "settings.cr.f_ua" }}<input type="text" name="cr_ua" value="{{ .UA }}" placeholder="python-requests|scrapy"></label>
+          <label>{{ t $.Lang "settings.cr.f_path" }}<input type="text" name="cr_path" value="{{ .Path }}" placeholder="^/search"></label>
+          <label>{{ t $.Lang "settings.cr.f_hosts" }}<input type="text" name="cr_hosts" value="{{ .HostsText }}" placeholder="shop.example.jp"></label>
+          <label>{{ t $.Lang "settings.cr.f_action" }}<select name="cr_action">
+            <option value="monitor"{{ if eq .Action "monitor" }} selected{{ end }}>{{ t $.Lang "settings.cr.act_monitor" }}</option>
+            <option value="pow_only"{{ if eq .Action "pow_only" }} selected{{ end }}>{{ t $.Lang "settings.cr.act_pow_only" }}</option>
+            <option value="captcha_only"{{ if eq .Action "captcha_only" }} selected{{ end }}>{{ t $.Lang "settings.cr.act_captcha_only" }}</option>
+            <option value="pow_then_captcha"{{ if eq .Action "pow_then_captcha" }} selected{{ end }}>{{ t $.Lang "settings.cr.act_pow_then_captcha" }}</option>
+            <option value="deny"{{ if eq .Action "deny" }} selected{{ end }}>{{ t $.Lang "settings.cr.act_deny" }}</option>
+          </select></label>
+          <label>{{ t $.Lang "settings.cr.f_rate" }}<input type="number" name="cr_rate" min="0" value="{{ if gt .RatePerMin 0 }}{{ .RatePerMin }}{{ end }}" placeholder="{{ t $.Lang "settings.cr.rate_ph" }}"></label>
+        </div>
+      </div>
+      {{ else }}
+      <p class="note" id="cr-empty">{{ t .Lang "settings.cr.empty" }}</p>
+      {{ end }}
+    </div>
+    <template id="cr-template">
+      <div class="cr-rule" data-cr>
+        <input type="hidden" name="cr_id" value=""><input type="hidden" name="cr_created_at" value=""><input type="hidden" name="cr_updated_at" value="">
+        <div class="cr-head">
+          <label class="cr-toggle"><input type="checkbox" class="cr-enabled-cb" checked><input type="hidden" name="cr_enabled" value="1">{{ t .Lang "settings.cr.enabled" }}</label>
+          <input type="text" name="cr_label" value="" placeholder="{{ t .Lang "settings.cr.label_ph" }}" class="cr-label" data-maxchars="80" data-maxchars-msg="{{ tf .Lang "err.value_long" 80 }}">
+          <span class="cr-hits"></span>
+          <button type="button" class="cr-up" title="{{ t .Lang "settings.cr.up" }}">↑</button><button type="button" class="cr-down" title="{{ t .Lang "settings.cr.down" }}">↓</button>
+          <button type="button" class="cr-remove">{{ t .Lang "settings.cr.remove" }}</button>
+        </div>
+        <div class="cr-grid">
+          <label>{{ t .Lang "settings.cr.f_ips" }}<input type="text" name="cr_ips" value="" placeholder="203.0.113.0/24, 198.51.100.7"></label>
+          <label>{{ t .Lang "settings.cr.f_ja4s" }}<input type="text" name="cr_ja4s" value="" placeholder="t13d1516h2_8daaf6152771_b0da82dd1658, t13d*"></label>
+          <label>{{ t .Lang "settings.cr.f_countries" }}<input type="text" name="cr_countries" value="" placeholder="CN, RU"></label>
+          <label>{{ t .Lang "settings.cr.f_asns" }}<input type="text" name="cr_asns" value="" placeholder="4134, 16509"></label>
+          <label>{{ t .Lang "settings.cr.f_ua" }}<input type="text" name="cr_ua" value="" placeholder="python-requests|scrapy"></label>
+          <label>{{ t .Lang "settings.cr.f_path" }}<input type="text" name="cr_path" value="" placeholder="^/search"></label>
+          <label>{{ t .Lang "settings.cr.f_hosts" }}<input type="text" name="cr_hosts" value="" placeholder="shop.example.jp"></label>
+          <label>{{ t .Lang "settings.cr.f_action" }}<select name="cr_action">
+            <option value="monitor">{{ t .Lang "settings.cr.act_monitor" }}</option>
+            <option value="pow_only">{{ t .Lang "settings.cr.act_pow_only" }}</option>
+            <option value="captcha_only" selected>{{ t .Lang "settings.cr.act_captcha_only" }}</option>
+            <option value="pow_then_captcha">{{ t .Lang "settings.cr.act_pow_then_captcha" }}</option>
+            <option value="deny">{{ t .Lang "settings.cr.act_deny" }}</option>
+          </select></label>
+          <label>{{ t .Lang "settings.cr.f_rate" }}<input type="number" name="cr_rate" min="0" value="" placeholder="{{ t .Lang "settings.cr.rate_ph" }}"></label>
+        </div>
+      </div>
+    </template>
+    <button type="button" class="cr-add" id="cr-add">+ {{ t .Lang "settings.cr.add" }}</button>
+    <p class="note" style="font-size:.78rem;color:#64748b;margin:.6rem 0 0">{{ t .Lang "settings.cr.rate_hint" }}</p>
+    <div style="margin-top:1rem">
+      <button type="submit" class="save-btn">{{ t .Lang "settings.save" }}</button>
+    </div>
+  </div>
+</form>
+<script>
+(function(){
+  var list = document.getElementById('cr-list'), tpl = document.getElementById('cr-template'), add = document.getElementById('cr-add');
+  if (!list || !tpl || !add) return;
+  function wire(card){
+    var cb = card.querySelector('.cr-enabled-cb'), hid = card.querySelector('input[name=cr_enabled]');
+    cb.addEventListener('change', function(){ hid.value = cb.checked ? '1' : '0'; card.classList.toggle('disabled-row', !cb.checked); });
+    card.querySelector('.cr-remove').addEventListener('click', function(){ card.remove(); });
+    card.querySelector('.cr-up').addEventListener('click', function(){ var p = card.previousElementSibling; if (p && p.hasAttribute('data-cr')) list.insertBefore(card, p); });
+    card.querySelector('.cr-down').addEventListener('click', function(){ var n = card.nextElementSibling; if (n && n.hasAttribute('data-cr')) list.insertBefore(n, card); });
+  }
+  list.querySelectorAll('[data-cr]').forEach(wire);
+  add.addEventListener('click', function(){
+    var empty = document.getElementById('cr-empty'); if (empty) empty.remove();
+    var card = tpl.content.firstElementChild.cloneNode(true);
+    list.appendChild(card); wire(card);
+    if (window.unmaskMaxChars && unmaskMaxChars.wire) unmaskMaxChars.wire(card);
+    card.querySelector('.cr-label').focus();
+  });
+})();
+</script>
 {{ end }}
 
 {{ if eq .Tab "geo" }}

@@ -25,7 +25,7 @@ import (
 var settingsTabOrder = []string{
 	"top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths",
 	"web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design",
-	"geo", "asn", "theme", "notifications", "retention", "performance", "community-bans", "sites",
+	"geo", "asn", "custom-rules", "theme", "notifications", "retention", "performance", "community-bans", "sites",
 	"gateway", "ai-advisor", "about",
 }
 

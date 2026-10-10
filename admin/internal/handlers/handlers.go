@@ -40,6 +40,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/privacypass"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
+	"github.com/unmask-sh/unmask/admin/internal/rulehits"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 	"github.com/unmask-sh/unmask/admin/internal/webbotauth"
@@ -149,6 +150,7 @@ type Handler struct {
 	NginxLog      *nginxlog.Reader        // optional, may be nil/empty (access_log_path unset)
 	BanMgr        *ban.Manager            // optional, may be nil (ban_file_path unset)
 	Live          *live.Counter           // optional, may be nil: the dashboard's "right now" strip then stays off
+	RuleHits      *rulehits.Counter       // optional, may be nil: the custom-rules tab then shows no counts
 	// mapAuto: the server's own position worked out for the dashboard's map
 	// (map_admin.go autoMapLocation), kept for an hour.
 	mapAutoMu sync.Mutex
@@ -1732,6 +1734,15 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// only augments the native serve (a direct hit re-checks cheaply).
 	if g := h.cfg().Global; chMode != settings.RateChallengeDeny && headerAxisFiresForServe(r, g) {
 		chMode = g.HeaderIntegrityResolvedAction()
+	}
+	// A custom rule's own chain (native): the conf decided the request by
+	// one of the operator's rules and names its action on the internal
+	// rewrite to the challenge (X-Unmask-Rule-Action).  The rule was written
+	// for exactly this request, so it replaces the chain the tiers above
+	// chose; a hard deny is never softened (the conf answers 403 before a
+	// deny ever reaches here anyway).
+	if a := strings.TrimSpace(r.Header.Get("X-Unmask-Rule-Action")); a != "" && chMode != settings.RateChallengeDeny && settings.IsValidRateChallengeMode(a) && a != settings.RateChallengeDeny {
+		chMode = a
 	}
 	if cm := strings.TrimSpace(r.URL.Query().Get("chm")); cm != "" && settings.IsValidRateChallengeMode(cm) {
 		chMode = cm

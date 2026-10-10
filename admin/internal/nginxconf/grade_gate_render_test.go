@@ -67,7 +67,7 @@ func TestCaptchaGradeGateRender(t *testing.T) {
 		noPresets(&s)
 		s.Nginx.ChallengeTargets.Extra = []string{"contains:Bytespider"}
 		out := render(s)
-		gate := out[strings.Index(out, "map \"$unmask_ua_needs_captcha:"):]
+		gate := out[strings.Index(out, "map \"$unmask_ua_captcha_eff:"):]
 		gate = gate[:strings.Index(gate, "}")]
 		if strings.Contains(gate, "$bv_captcha_valid") || strings.Contains(gate, "$unmask_bv_kind") {
 			t.Errorf("the gate key must reuse $bv_kind, got: %s", gate)

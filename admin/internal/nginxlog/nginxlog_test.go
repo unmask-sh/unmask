@@ -340,3 +340,22 @@ func TestParseScheme(t *testing.T) {
 		t.Error("an older line with a JA4 is read as plaintext")
 	}
 }
+
+// The custom rule that decided the request rides as cr= before the UA; "-"
+// (nginx's empty) and a line from a configuration without the field both
+// read as none.
+func TestParseCustomRule(t *testing.T) {
+	r := &Reader{}
+	p, ok := r.parse(`<134>1751400000.1 site=shop.example.com kind= fc=1 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=cr1a2b ua=curl/8`)
+	if !ok || p.cr != "cr1a2b" || p.ua != "curl/8" || p.scheme != "https" {
+		t.Errorf("line with cr: ok=%v %+v", ok, p)
+	}
+	p, ok = r.parse(`<134>1751400000.2 site=shop.example.com kind= fc=0 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- ua=curl/8`)
+	if !ok || p.cr != "" || p.ua != "curl/8" {
+		t.Errorf("line with cr=-: ok=%v %+v", ok, p)
+	}
+	p, ok = r.parse(`<134>1751400000.3 site=shop.example.com kind= fc=0 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https ua=curl/8`)
+	if !ok || p.cr != "" || p.ua != "curl/8" {
+		t.Errorf("older line: ok=%v %+v", ok, p)
+	}
+}

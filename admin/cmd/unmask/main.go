@@ -48,6 +48,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/privacypass"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
+	"github.com/unmask-sh/unmask/admin/internal/rulehits"
 	"github.com/unmask-sh/unmask/admin/internal/safe"
 	"github.com/unmask-sh/unmask/admin/internal/selabel"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -530,6 +531,9 @@ func cmdServe(args []string) error {
 	// The dashboard's "right now" strip: a ring of the last five minutes, fed
 	// by the access-log reader below and by every event as it is written.
 	liveCounter := live.New()
+	// The custom rules' hit counts (handlers/rulehits), fed by the
+	// access-log reader's cr= field.
+	ruleHits := rulehits.New()
 	events.OnInsert = func(e *events.Event) {
 		cc := ""
 		if gip != nil && gip.Loaded() && len(e.IPPacked) > 0 {
@@ -546,6 +550,7 @@ func cmdServe(args []string) error {
 		CrawlerVerify: crawlerverify.New(nil), // net.DefaultResolver; gated by cfg.Nginx.CrawlerVerify.Enabled
 		NginxLog:      nlog,
 		Live:          liveCounter,
+		RuleHits:      ruleHits,
 		BanMgr:        banMgr,
 		UserRepo:      userRepo,
 		Notifier:      notifierInst,
@@ -625,6 +630,7 @@ func cmdServe(args []string) error {
 			// https_redirect is on).  Live settings, so toggling the redirect
 			// applies without a restart.  See Reader.httpsRedirectOn.
 			nlog.SetLive(liveCounter)
+			nlog.SetRuleHit(func(id string) { ruleHits.Hit(id, time.Now()) })
 			// A banned client whose action is deny is refused by nginx itself;
 			// the line only shows that no challenge was the answer.
 			nlog.SetDeniedCheck(func(ip, ja4 string) bool {

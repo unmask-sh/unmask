@@ -22,7 +22,7 @@ func TestAxisExemptPathRender(t *testing.T) {
 		"$is_asn_exempt_path {",
 		`map "$is_geo_challenge:$is_geo_exempt_path" $geo_challenge_eff`,
 		`map "$is_asn_challenge:$is_asn_exempt_path" $asn_challenge_eff`,
-		`map "$geo_challenge_eff:$asn_challenge_eff" $is_net_challenge`,
+		`map "$geo_challenge_eff:$asn_challenge_eff:$unmask_cr_challenge" $is_net_challenge`,
 	} {
 		if !strings.Contains(off, want) {
 			t.Errorf("no rules: expected %q in http.inc", want)

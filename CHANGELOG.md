@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- (2026-10-10) **Custom rules: several conditions, one action.**  A new settings tab takes rules combining addresses, JA4 fingerprints, countries, networks (ASN), user agent, path and host -- all must hold -- and acting narrowly: count only, PoW, CAPTCHA, PoW then CAPTCHA, deny, or a throttle per address.  Rules are tried in order; the first that holds decides, after bans and bypasses.  The tab shows each rule's hits over the last day.
+
 ### Changed
 
 - (2026-10-10) **The model picker keeps the list it fetched, sorted.**  Fetching the models from the saved provider used to fill the picker for that visit only; the list is now kept beside the daemon's state and the picker opens on it, with when it was fetched, until the provider or endpoint changes.  Every provider's list is sorted by ID.  The AI tab's text now covers the Ask page too.

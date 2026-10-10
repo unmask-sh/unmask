@@ -780,6 +780,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"AsnDefaultRuleAction": cur.Asn.ResolvedDefaultRuleAction(), // what a blank row action inherits
 		"GeoDefaultRuleAction": cur.Geo.ResolvedDefaultRuleAction(),
 		"GeoDefaultRate":       cur.Geo.DefaultRatePerMin,
+		// The custom rules with their day's hit count and last hit (in
+		// memory since the daemon started: CustomRuleHitsSince).
+		"CustomRules":         h.customRuleViews(cur.CustomRules),
+		"CustomRuleHitsSince": h.customRuleHitsSince(),
 		// What an UNSET chain picker acts as: protected paths / the ja4 default
 		// chain fall back to the rate-limit default chmode; surfaced so the
 		// "(unset)" option can show the value it resolves to.
@@ -1429,7 +1433,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "retention", "performance", "community-bans", "sites", "about", "geo", "asn", "gateway", "ai-advisor":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "custom-rules", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "retention", "performance", "community-bans", "sites", "about", "geo", "asn", "gateway", "ai-advisor":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -1726,6 +1730,11 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// here, before the config is saved, so a bad paste leaves both the
 		// files and the config as they were.
 		if err := applyGatewayForm(&cur.Gateway, r, nginxOutDir(cur)); err != nil {
+			redirBack(err.Error())
+			return
+		}
+	case "custom-rules":
+		if err := applyCustomRulesForm(&cur.Nginx.CustomRules, r); err != nil {
 			redirBack(err.Error())
 			return
 		}
@@ -2057,7 +2066,7 @@ var settingsTabs = map[string]bool{
 	"top": true, "network": true, "global": true, "ua-filter": true, "ja4-verdicts": true,
 	"honeypot": true, "bypass-ips": true, "bypass-paths": true, "web-bot-auth": true,
 	"privacy-pass": true, "protected": true, "captcha": true, "challenge": true,
-	"rate-limit": true, "deny-design": true, "geo": true, "asn": true, "theme": true,
+	"rate-limit": true, "deny-design": true, "geo": true, "asn": true, "custom-rules": true, "theme": true,
 	"notifications": true, "retention": true, "performance": true, "community-bans": true,
 	"sites": true, "gateway": true, "ai-advisor": true, "about": true,
 }

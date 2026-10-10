@@ -388,6 +388,12 @@ map $http_user_agent $unmask_ua_needs_captcha {
     "~*{{ rx . }}" 1;
 {{- end }}
 }
+# A custom rule ending in a CAPTCHA demands the same grade; it joins the UA
+# source here so the grade key below keeps its shape.
+map "$unmask_ua_needs_captcha$unmask_cr_captcha" $unmask_ua_captcha_eff {
+    default 0;
+    "~1"    1;
+}
 # Fold the three independent sources of a CAPTCHA-grade requirement into one
 # signal: the UA is on a captcha chain ($unmask_ua_needs_captcha), OR the URI hit
 # a protected path whose mode ends in a CAPTCHA ($protected_mode = captcha |
@@ -433,7 +439,7 @@ map $effective_ja4 $unmask_ja4_captcha {
 {{- else }}
 map "" $unmask_ja4_captcha { default 0; }
 {{- end }}
-map "$unmask_ua_needs_captcha:$protected_mode:$unmask_cb_captcha:$unmask_geo_captcha$unmask_asn_captcha$unmask_ja4_captcha" $unmask_needs_captcha_grade {
+map "$unmask_ua_captcha_eff:$protected_mode:$unmask_cb_captcha:$unmask_geo_captcha$unmask_asn_captcha$unmask_ja4_captcha" $unmask_needs_captcha_grade {
     default                 0;
     "~^1:"                  1;   # UA on a captcha-ending chain (any other source)
     "~^0:captcha:"          1;   # protected path: straight CAPTCHA
@@ -764,6 +770,111 @@ map $unmask_ax_global $is_asn_exempt_path {
 
 # Effective per-axis verdicts: each axis fires only when it votes AND its own
 # exempt-path list does not match.
+# -----------------------------------------------------------------------------
+# Custom rules ($unmask_cr_id / $unmask_cr_action)
+# -----------------------------------------------------------------------------
+# The operator's own rules (settings -> custom rules): each a conjunction of
+# conditions over this request -- addresses, fingerprints, country, network,
+# user agent, path, host -- with one action.  Every condition present is a
+# 0/1 map of its own; one map ANDs them; the rules are chained first-match,
+# so $unmask_cr_id is the first rule that holds (its id, carried by the
+# access log as cr=) and $unmask_cr_action its action, "" for monitor-only
+# and throttling rules.  A challenge action joins the challenge decision and
+# the CAPTCHA grade; deny joins the hard-deny block; the serve reads the
+# action from X-Unmask-Rule-Action on the internal rewrite.  Bans and bypass
+# still come first: a rule neither lifts a ban nor overrides a bypass.
+{{- range .CustomRules }}
+{{- if .IPs }}
+geo $remote_addr {{ .Var }}_ip {
+    default 0;
+{{- range .IPs }}
+    {{ . }} 1;
+{{- end }}
+}
+{{- end }}
+{{- if or .JA4Exact .JA4Prefix }}
+map $effective_ja4 {{ .Var }}_ja4 {
+    default 0;
+{{- range .JA4Exact }}
+    "{{ . }}" 1;
+{{- end }}
+{{- range .JA4Prefix }}
+    "~^{{ . }}" 1;
+{{- end }}
+}
+{{- end }}
+{{- if .Countries }}
+map $unmask_country {{ .Var }}_cc {
+    default 0;
+{{- range .Countries }}
+    "{{ . }}" 1;
+{{- end }}
+}
+{{- end }}
+{{- if .ASNs }}
+map $unmask_asn {{ .Var }}_asn {
+    default 0;
+{{- range .ASNs }}
+    "{{ . }}" 1;
+{{- end }}
+}
+{{- end }}
+{{- if .UA }}
+map $http_user_agent {{ .Var }}_ua {
+    default 0;
+    "~*{{ .UA }}" 1;
+}
+{{- end }}
+{{- if .Path }}
+map $request_uri {{ .Var }}_path {
+    default 0;
+    "~{{ .Path }}" 1;
+}
+{{- end }}
+{{- if .Hosts }}
+map $host {{ .Var }}_host {
+    default 0;
+{{- range .Hosts }}
+    "{{ . }}" 1;
+{{- end }}
+}
+{{- end }}
+map "{{ .Keys }}" {{ .Var }} {
+    default 0;
+    "{{ .Match }}" 1;
+}
+map {{ .Var }} {{ .Var }}_pick {
+    default {{ if .Next }}{{ .Next }}{{ else }}""{{ end }};
+    "1"     "{{ .ID }}";
+}
+{{- end }}
+map "" $unmask_cr_id {
+    default {{ .CustomRuleFirstPick }};
+}
+map $unmask_cr_id $unmask_cr_action {
+    default "";
+{{- range .CustomRules }}
+{{- if .Action }}
+    "{{ .ID }}" "{{ .Action }}";
+{{- end }}
+{{- end }}
+}
+map $unmask_cr_action $unmask_cr_challenge {
+    default            0;
+    "pow_only"         1;
+    "captcha_only"     1;
+    "pow_then_captcha" 1;
+}
+map $unmask_cr_action $unmask_cr_captcha {
+    default            0;
+    "captcha_only"     1;
+    "pow_then_captcha" 1;
+}
+map $unmask_cr_action $unmask_cr_deny {
+    default 0;
+    "deny"  1;
+}
+
 map "$is_geo_challenge:$is_geo_exempt_path" $geo_challenge_eff {
     default 1;
     "~^0:"  0;  # country axis not firing
@@ -779,9 +890,9 @@ map "$is_asn_challenge:$is_asn_exempt_path" $asn_challenge_eff {
 # into one variable so it drops into the existing $final_challenge composite
 # key at the geo position without widening it.  The other $final_challenge
 # fields (ja4 / honeypot / protected / UA) are untouched by the exemptions.
-map "$geo_challenge_eff:$asn_challenge_eff" $is_net_challenge {
+map "$geo_challenge_eff:$asn_challenge_eff:$unmask_cr_challenge" $is_net_challenge {
     default 1;
-    "0:0"   0;
+    "0:0:0" 0;
 }
 
 {{- if .HardDenyActive }}
@@ -858,13 +969,14 @@ map $community_bans_hit $unmask_cb_deny { default 0; "1" 1; }
 map "" $unmask_cb_deny { default 0; }
 {{- end }}
 
-map "$geo_deny_eff:$asn_deny_eff:$unmask_ua_deny:$unmask_ja4_deny:$unmask_cb_deny" $unmask_axis_deny {
-    default        0;
-    "~^1:"         1;  # country rule
-    "~^0:1:"       1;  # ASN rule
-    "~^0:0:1:"     1;  # UA black-list row / preset / upstream group
-    "~^0:0:0:1:"   1;  # JA4 verdict set to deny
-    "~^0:0:0:0:1$" 1;  # community feed hit, action = deny
+map "$geo_deny_eff:$asn_deny_eff:$unmask_ua_deny:$unmask_ja4_deny:$unmask_cb_deny:$unmask_cr_deny" $unmask_axis_deny {
+    default          0;
+    "~^1:"           1;  # country rule
+    "~^0:1:"         1;  # ASN rule
+    "~^0:0:1:"       1;  # UA black-list row / preset / upstream group
+    "~^0:0:0:1:"     1;  # JA4 verdict set to deny
+    "~^0:0:0:0:1:"   1;  # community feed hit, action = deny
+    "~^0:0:0:0:0:1$" 1;  # custom rule set to deny
 }
 
 # The rescues are consulted through a map VALUE, not folded into a key, so they
@@ -1410,6 +1522,16 @@ map "$is_search_bot:$is_bypass_ip:$unmask_country" {{ .KeyVar }} {
 }
 limit_req_zone {{ .KeyVar }} zone={{ .ZoneName }}:10m rate={{ .RequestsPerMin }}r/m;
 {{- end }}
+# Custom-rule throttles: a zone per throttling rule, counted per client
+# address while the rule matches; verified crawlers and bypass addresses
+# are never counted.
+{{- range .CustomRuleRateZones }}
+map "$is_search_bot:$is_bypass_ip:{{ .Var }}" {{ .KeyVar }} {
+    default "";
+    "0:0:1" $binary_remote_addr;
+}
+limit_req_zone {{ .KeyVar }} zone={{ .ZoneName }}:10m rate={{ .RequestsPerMin }}r/m;
+{{- end }}
 
 # Distinguish whether the request went through rate-limit (i.e. carries ?_rl=1).
 map $args $rl_hit {
@@ -1520,7 +1642,7 @@ map "$is_bypass_ip$is_bypass_path" $unmask_bypassed {
 # an empty JA4 before), and a honeypot ban's reason names the URL in full.
 # Optional to the daemon's parser, like bp: a line from a configuration
 # rendered before this field still parses.
-log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bypassed scheme=$unmask_forwarded_proto ua=$http_user_agent';
+log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bypassed scheme=$unmask_forwarded_proto cr=$unmask_cr_id ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed.
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;

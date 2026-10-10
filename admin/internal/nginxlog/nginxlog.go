@@ -58,6 +58,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -94,6 +95,8 @@ type Reader struct {
 	// live, when set, sees every request as it is read -- the dashboard's
 	// "right now" strip, which the minute buckets above are too coarse for.
 	live *live.Counter
+	// ruleHit counts the custom rule a line names (cr=); nil until set.
+	ruleHit func(id string)
 	// isDenied answers whether a client is banned with an action that refuses
 	// it outright: the access-log line does not say that nginx denied the
 	// request, and the ban list is what nginx denies from.
@@ -265,6 +268,17 @@ func (r *Reader) SetDeniedCheck(f func(ip, ja4 string) bool) {
 	}
 	r.mu.Lock()
 	r.isDenied = f
+	r.mu.Unlock()
+}
+
+// SetRuleHit installs the custom-rule counter: f is called with the id of
+// the rule that decided a request (the line's cr= field), once per line.
+func (r *Reader) SetRuleHit(f func(id string)) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.ruleHit = f
 	r.mu.Unlock()
 }
 
@@ -551,7 +565,7 @@ var lineRE = regexp.MustCompile(
 		// bp and scheme are optional: the binary is deployed before the config
 		// that emits them, so both shapes have to parse for the length of that
 		// window.
-		`(?: bp=([01]))?(?: scheme=(\S*))?(?: ua=(.*))?`)
+		`(?: bp=([01]))?(?: scheme=(\S*))?(?: cr=(\S*))?(?: ua=(.*))?`)
 
 // parsed: struct holding the regex match result.
 type parsed struct {
@@ -572,7 +586,10 @@ type parsed struct {
 	// edge's X-Forwarded-Proto behind a terminating LB, else $scheme).  Empty on
 	// a line from a configuration that predates the field.
 	scheme string
-	ua     string
+	// cr: the custom rule that decided the request (its id), "" when none
+	// did or the configuration predates the field.
+	cr string
+	ua string
 }
 
 // plaintext reports whether the request came over the plaintext port.  The
@@ -622,7 +639,8 @@ func (r *Reader) parse(line string) (parsed, bool) {
 		hpuri:    m[8],
 		bypassed: m[9] == "1",
 		scheme:   m[10],
-		ua:       m[11],
+		cr:       strings.TrimSuffix(m[11], "-"),
+		ua:       m[12],
 	}, true
 }
 
@@ -693,6 +711,14 @@ func (r *Reader) onLine(line string) {
 		r.bumpKind(p.site, "bypass_pass")
 	}
 	r.liveHit(p, isCrawler)
+	if p.cr != "" {
+		r.mu.Lock()
+		f := r.ruleHit
+		r.mu.Unlock()
+		if f != nil {
+			f(p.cr)
+		}
+	}
 	// Fold the client IP into the per-minute HLL sketches (= unique-client
 	// stats).  Uses the raw bv_kind (p.kind), not the "challenge_served"
 	// alias, so ipPass only counts a genuine pow/captcha cookie.
