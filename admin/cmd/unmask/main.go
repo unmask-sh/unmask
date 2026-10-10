@@ -41,6 +41,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/handlers"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
+	"github.com/unmask-sh/unmask/admin/internal/live"
 	"github.com/unmask-sh/unmask/admin/internal/mail"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/nginxlog"
@@ -526,6 +527,16 @@ func cmdServe(args []string) error {
 	// mis-configured instances are excluded from aggregation from the start.
 	dashboard.SetDisabledHosts(s.Hosts.Disabled)
 
+	// The dashboard's "right now" strip: a ring of the last five minutes, fed
+	// by the access-log reader below and by every event as it is written.
+	liveCounter := live.New()
+	events.OnInsert = func(e *events.Event) {
+		cc := ""
+		if gip != nil && gip.Loaded() && len(e.IPPacked) > 0 {
+			cc = gip.LookupBytes(e.IPPacked)
+		}
+		liveCounter.ObserveEvent(time.Now(), e.Phase, cc, payloadRateLimited(e.Payload))
+	}
 	h := &handlers.Handler{
 		DB:            conn,
 		ConfigPath:    settings.ResolvePath(*configPath),
@@ -534,6 +545,7 @@ func cmdServe(args []string) error {
 		IPGeo:         gip,
 		CrawlerVerify: crawlerverify.New(nil), // net.DefaultResolver; gated by cfg.Nginx.CrawlerVerify.Enabled
 		NginxLog:      nlog,
+		Live:          liveCounter,
 		BanMgr:        banMgr,
 		UserRepo:      userRepo,
 		Notifier:      notifierInst,
@@ -612,6 +624,16 @@ func cmdServe(args []string) error {
 			// answered with a 301 (= a JA4-less access-log line while
 			// https_redirect is on).  Live settings, so toggling the redirect
 			// applies without a restart.  See Reader.httpsRedirectOn.
+			nlog.SetLive(liveCounter)
+			// A banned client whose action is deny is refused by nginx itself;
+			// the line only shows that no challenge was the answer.
+			nlog.SetDeniedCheck(func(ip, ja4 string) bool {
+				if banMgr == nil {
+					return false
+				}
+				action, _, banned := banMgr.IsBannedActionSource(context.Background(), ip, ja4)
+				return banned && action == "deny"
+			})
 			nlog.SetHTTPSRedirectCheck(func() bool {
 				return h.SnapshotSettings().Nginx.HTTPSRedirect
 			})
@@ -1362,6 +1384,8 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.AdminFunnelJSON))
 	mux.HandleFunc("GET "+base+"/admin/api/myip",
 		h.AuthMiddleware(h.AdminMyIP))
+	mux.HandleFunc("GET "+base+"/admin/api/now",
+		h.AuthMiddleware(h.AdminNowJSON))
 	mux.HandleFunc("GET "+base+"/admin/community-bans/{$}",
 		h.AuthMiddleware(h.AdminCommunityBansIndex))
 	mux.HandleFunc("POST "+base+"/admin/community-bans/mute-toggle",
@@ -1870,3 +1894,24 @@ func randHex(n int) string {
 // (bootstrapInitialAdmin was removed in v0.1.  Admin creation is now
 // unified to either the install wizard or the CLI sub-command
 // `unmask user create`.)
+
+// payloadRateLimited reads the serve event's rl marker, written as the number
+// 1 by the serve paths (and as "1" by anything that went through JSON).
+func payloadRateLimited(p map[string]any) bool {
+	if p == nil {
+		return false
+	}
+	switch v := p["rl"].(type) {
+	case int:
+		return v == 1
+	case int64:
+		return v == 1
+	case float64:
+		return v == 1
+	case bool:
+		return v
+	case string:
+		return v == "1"
+	}
+	return false
+}

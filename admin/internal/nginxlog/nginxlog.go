@@ -65,6 +65,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/hll"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
+	"github.com/unmask-sh/unmask/admin/internal/live"
 	"github.com/unmask-sh/unmask/admin/internal/safe"
 	"github.com/unmask-sh/unmask/admin/internal/selabel"
 )
@@ -90,6 +91,13 @@ type Reader struct {
 	// unmask_traffic_country_hourly aggregation that powers the 30-day chart's
 	// country breakdown.  nil-safe (= country bucket flushes with cc="").
 	geo *ipgeo.Reader
+	// live, when set, sees every request as it is read -- the dashboard's
+	// "right now" strip, which the minute buckets above are too coarse for.
+	live *live.Counter
+	// isDenied answers whether a client is banned with an action that refuses
+	// it outright: the access-log line does not say that nginx denied the
+	// request, and the ban list is what nginx denies from.
+	isDenied func(ip, ja4 string) bool
 
 	// onHoneypot: callback for honeypot-path-trip events (= hp=1 lines).  site
 	// (= $host from the access log) lets the callback resolve a per-site custom
@@ -235,6 +243,29 @@ func (r *Reader) SetIPGeo(g *ipgeo.Reader) {
 		return
 	}
 	r.geo = g
+}
+
+// SetLive hands the reader the counter the dashboard's live strip reads.
+// nil-safe on both sides.
+func (r *Reader) SetLive(c *live.Counter) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.live = c
+	r.mu.Unlock()
+}
+
+// SetDeniedCheck registers how to tell a client nginx refuses outright (a ban
+// whose action is deny).  The live strip counts those as denied; the line
+// itself only shows that no challenge was the answer.
+func (r *Reader) SetDeniedCheck(f func(ip, ja4 string) bool) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.isDenied = f
+	r.mu.Unlock()
 }
 
 type bucketKey struct {
@@ -618,7 +649,7 @@ func (r *Reader) onLine(line string) {
 	if kind == "" && p.fc {
 		kind = "challenge_served"
 	}
-	r.Bump(p.site, kind)
+	r.bumpLine(p.site, kind)
 	// crawler_pass / bypass_pass are shares of the same total the composition
 	// card divides up, so exactly one of them may fire per request -- and
 	// neither may fire for a request that already counted as a pass cookie
@@ -650,16 +681,18 @@ func (r *Reader) onLine(line string) {
 	// share of the day's requests was counted twice, and the excess tracked
 	// each site's bypass-path share exactly -- heavy where the assets are
 	// local, negligible where they sit on a CDN.
+	isCrawler := r.classifyCrawler != nil && p.ua != "" && r.classifyCrawler(p.ua) != ""
 	switch {
 	case p.kind != "":
 		// counted by Bump above as "pow" / "captcha"; nothing further.
 	case p.fc:
 		// counted above as "challenge_served".
-	case r.classifyCrawler != nil && p.ua != "" && r.classifyCrawler(p.ua) != "":
+	case isCrawler:
 		r.bumpKind(p.site, "crawler_pass")
 	case p.bypassed:
 		r.bumpKind(p.site, "bypass_pass")
 	}
+	r.liveHit(p, isCrawler)
 	// Fold the client IP into the per-minute HLL sketches (= unique-client
 	// stats).  Uses the raw bv_kind (p.kind), not the "challenge_served"
 	// alias, so ipPass only counts a genuine pow/captcha cookie.
@@ -687,6 +720,49 @@ func (r *Reader) onLine(line string) {
 	}
 }
 
+// liveHit counts one access-log line for the dashboard's live strip, under
+// the same precedence the minute buckets use: a pass cookie, else a challenge,
+// else a crawler or a bypass.  Denied is read off the ban list, since the line
+// does not carry nginx's answer; a honeypot trip counts as denied too (it is
+// the request that earned the ban).  Country comes from the same lookup the
+// hourly country buckets use, which ipgeo caches.
+func (r *Reader) liveHit(p parsed, isCrawler bool) {
+	r.mu.Lock()
+	c, denied, geo := r.live, r.isDenied, r.geo
+	r.mu.Unlock()
+	if c == nil {
+		return
+	}
+	m := live.Of(live.Requests)
+	switch {
+	case p.hp || (denied != nil && p.ip != "" && denied(p.ip, p.ja4)):
+		m |= live.Of(live.Deny)
+	case p.kind != "":
+		m |= live.Of(live.Pass)
+	case p.fc:
+		m |= live.Of(live.Serve)
+	case isCrawler || p.bypassed:
+		m |= live.Of(live.Bypass)
+	}
+	cc := ""
+	if geo != nil && geo.Loaded() && p.ip != "" {
+		cc = geo.Lookup(p.ip)
+	}
+	c.Hit(time.Now(), cc, m)
+}
+
+// liveBump is the forward-auth twin of liveHit for the exported Bump* entry
+// points: /api/check has no access-log line, so each exported counter feeds
+// the strip with what it knows.  Country and denial are not known here.
+func (r *Reader) liveBump(m live.Mask) {
+	r.mu.Lock()
+	c := r.live
+	r.mu.Unlock()
+	if c != nil {
+		c.Hit(time.Now(), "", m)
+	}
+}
+
 // Bump: increment the minute bucket by 1 from outside
 // (= forward-auth mode in /api/check).  site == "" is treated as
 // "default".  kind == "" only +1s total (= records the "no cookie"
@@ -698,6 +774,24 @@ func (r *Reader) onLine(line string) {
 //
 // nil-safe (= no-op when Reader isn't running).
 func (r *Reader) Bump(site, kind string) {
+	if r == nil || r.d == nil {
+		return
+	}
+	// No access-log line stands behind this call, so the live strip learns of
+	// the request here (onLine counts its lines itself, with more to go on).
+	m := live.Of(live.Requests)
+	switch kind {
+	case "pow", "captcha", "rebind":
+		m |= live.Of(live.Pass)
+	case "challenge_served":
+		m |= live.Of(live.Serve)
+	}
+	r.liveBump(m)
+	r.bumpLine(site, kind)
+}
+
+// bumpLine is the minute-bucket increment itself: one call per request.
+func (r *Reader) bumpLine(site, kind string) {
 	if r == nil || r.d == nil {
 		return
 	}
@@ -865,6 +959,7 @@ func (r *Reader) BumpBypass(site string) {
 		return
 	}
 	r.bumpKind(site, "bypass_pass")
+	r.liveBump(live.Of(live.Bypass))
 }
 
 // BumpCrawlerPass: the forward-auth twin of onLine's crawler_pass case -- a
@@ -881,6 +976,7 @@ func (r *Reader) BumpCrawlerPass(site string) {
 		return
 	}
 	r.bumpKind(site, "crawler_pass")
+	r.liveBump(live.Of(live.Bypass))
 }
 
 // BumpTrafficHLL / BumpCountry: exported entry points for forward-auth mode.

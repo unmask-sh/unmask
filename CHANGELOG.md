@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+
+- (2026-10-10) **The dashboard opens with a "right now" strip that refreshes itself.**  Seven tiles say what the last minute brought -- requests, passes, bypasses, challenges served, solves, denials, rate limits -- each with a five-minute sparkline and the change against the minute before, read every five seconds from an in-memory counter.  A switch turns the refresh off, and the last figures stay up while a new reading is fetched.
+
 ## [0.1.51-rc3] - 2026-10-10 (testing build)
 
 ### Fixed

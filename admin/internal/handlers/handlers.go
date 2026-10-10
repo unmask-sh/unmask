@@ -33,6 +33,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
+	"github.com/unmask-sh/unmask/admin/internal/live"
 	"github.com/unmask-sh/unmask/admin/internal/mail"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/nginxlog"
@@ -147,6 +148,7 @@ type Handler struct {
 	CrawlerVerify *crawlerverify.Verifier // optional; nil disables rDNS crawler auth
 	NginxLog      *nginxlog.Reader        // optional, may be nil/empty (access_log_path unset)
 	BanMgr        *ban.Manager            // optional, may be nil (ban_file_path unset)
+	Live          *live.Counter           // optional, may be nil: the dashboard's "right now" strip then stays off
 	UserRepo      *user.Repository        // internal user management (login / users tab / audit hook)
 	// loginThrottle guards the credential endpoints (login / forgot-password)
 	// against per-IP hammering.  Accessed via throttle(); the Once lets the

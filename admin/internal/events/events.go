@@ -208,6 +208,9 @@ func InsertAsync(d *db.DB, e *Event) {
 	if e.OccurredAt.IsZero() {
 		e.OccurredAt = time.Now().UTC()
 	}
+	if OnInsert != nil {
+		OnInsert(e)
+	}
 	if f := globalFlusher.Load(); f != nil {
 		f.Submit(e)
 		return
@@ -216,7 +219,7 @@ func InsertAsync(d *db.DB, e *Event) {
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = Insert(ctx, d, e)
+		_ = insertDirect(ctx, d, e)
 	}()
 }
 
@@ -564,8 +567,24 @@ func prepareInsertArgs(e *Event) []any {
 	}
 }
 
+// OnInsert, when set, sees every event as it is handed to the persistence
+// layer -- once, whether it goes through Insert or InsertAsync, and before it
+// is written, so a reader of the moment (the dashboard's live strip) is not a
+// flush interval behind.  Set at startup, before any request is served; never
+// swapped at runtime.  Must be quick and must not touch the database.
+var OnInsert func(*Event)
+
 // Insert writes one row into unmask_event.  Best-effort: failures only log.
 func Insert(ctx context.Context, d *db.DB, e *Event) error {
+	if e != nil && OnInsert != nil {
+		OnInsert(e)
+	}
+	return insertDirect(ctx, d, e)
+}
+
+// insertDirect is Insert without the OnInsert notice: the path InsertAsync
+// falls back to when no flusher runs, after it has already given notice.
+func insertDirect(ctx context.Context, d *db.DB, e *Event) error {
 	if e != nil && e.OccurredAt.IsZero() {
 		e.OccurredAt = time.Now().UTC()
 	}

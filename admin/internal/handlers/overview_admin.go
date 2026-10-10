@@ -447,8 +447,9 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		kpiPoWTotal += comp.PowPass
 		kpiCaptchaTotal += comp.CaptchaPass
 	}
+	lang := i18n.Resolve(r)
 	data := map[string]any{
-		"Lang":            i18n.Resolve(r),
+		"Lang":            lang,
 		"TZ":              resolveTZ(r),
 		"KPIServes":       kpiFired,
 		"KPIPoWTotal":     kpiPoWTotal,
@@ -522,6 +523,16 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"AITrafficDetail": aiDetail,
 		"AITrafficServed": aiServed,
 		"OverBlock":       overBlock,
+	}
+	// The "right now" strip: rendered with its first reading here, so the page
+	// says real numbers before its script has run, and refreshed in place by
+	// /admin/api/now from then on.
+	if h.Live != nil {
+		lv := h.liveView(time.Now(), resolveTZ(r))
+		data["LiveTiles"] = lv.Tiles
+		data["LiveFeedOff"] = lv.FeedOff
+		data["LiveAt"] = lv.At
+		data["LiveAtTS"] = lv.AtTS
 	}
 	// Persist the denominator choice when it arrived as a link click, so the
 	// next visit opens on the view the operator picked.  Written only for an

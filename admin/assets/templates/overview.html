@@ -103,6 +103,38 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
    but visibly not part of the arithmetic above. */
 .comp-out{opacity:.5}
 .comp-out .comp-share{color:#94a3b8;font-style:italic}
+/* The "right now" strip: one tile per outcome for the last minute, a
+   five-minute sparkline under each, refreshed in place every few seconds by
+   the script at the foot of the page.  The figures are rendered by the server
+   first, so the page says real numbers before any script runs; the script
+   only replaces them.  A refresh dims the strip only when the answer is slow
+   (a dim on every five-second fetch would flicker), and the previous figures
+   stay up until the new ones land. */
+.live-head{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;margin:0 0 .5rem}
+.live-head .live-h{font-size:1rem;font-weight:700;color:#334155;margin:0;display:flex;align-items:center;gap:.3rem}
+.live-status{font-size:.8rem;color:#64748b;display:inline-flex;align-items:center;gap:.4rem}
+.live-status b{color:#0f172a;font-variant-numeric:tabular-nums;font-weight:600}
+.live-bar{display:inline-block;width:5rem;height:.3rem;background:#e2e8f0;border-radius:.15rem;overflow:hidden}
+.live-bar i{display:block;height:100%;width:0;background:#16a34a;transition:width .9s linear}
+.live-tg{border:1px solid #cbd5e1;border-radius:.25rem;padding:.1rem .55rem;background:#fff;color:#334155;font-size:.75rem;cursor:pointer;font-family:inherit}
+.live-tg.off{color:#94a3b8;border-style:dashed}
+.live-err{font-size:.75rem;color:#b45309}
+.live-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;margin-bottom:1rem;transition:opacity .2s}
+.live-grid.refreshing{opacity:.55}
+.live{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.7rem .8rem .4rem;display:flex;flex-direction:column;gap:.1rem;min-width:0}
+.live .label{font-size:.7rem;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:.25rem}
+.live .label .info-tip{flex:none}
+.live .row{display:flex;align-items:baseline;justify-content:space-between;gap:.4rem}
+.live .value{font-size:1.6rem;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1;color:#0f172a}
+/* The change against the minute before is a fact, not a verdict: a rise in
+   requests is not bad news and a fall in passes is not good news, so neither
+   direction gets a warning colour. */
+.live .delta{font-size:.72rem;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}
+.live .delta.up{color:#334155}
+.live .delta small{color:#94a3b8;font-size:.65rem}
+.live .sub{font-size:.68rem;color:#94a3b8;line-height:1.3}
+.live .spk{width:100%;height:2.1rem;margin-top:auto;padding-top:.25rem;display:block;flex:none}
+.live-note{margin:-.4rem 0 1rem;font-size:.78rem;color:#b45309}
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;margin-bottom:1rem}
 /* The row's caption sits on the row, not adrift above it: .meta's full
    bottom margin would read as a paragraph of its own. */
@@ -238,6 +270,26 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 </div>
 {{ end }}
 <p class="meta">{{ t .Lang "overview.subtitle" }}</p>
+
+{{ if .LiveTiles }}
+<div class="live-head">
+  <h2 class="live-h">{{ t .Lang "overview.live.h" }}<span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.live.note" }}</span></span></h2>
+  <span class="live-status"><span>{{ t .Lang "overview.live.updated" }}<b id="live-at" data-ts="{{ .LiveAtTS }}">{{ .LiveAt }}</b></span><span>·</span><span>{{ t .Lang "overview.live.next_pre" }}<b id="live-next">5</b>{{ t .Lang "overview.live.next_post" }}</span><span class="live-bar"><i id="live-bar"></i></span></span>
+  <button type="button" id="live-toggle" class="live-tg" aria-pressed="true" data-txt-on="{{ t .Lang "overview.live.auto_on" }}" data-txt-off="{{ t .Lang "overview.live.auto_off" }}">{{ t .Lang "overview.live.auto_on" }}</button>
+  <span id="live-err" class="live-err" hidden>{{ t .Lang "overview.live.err" }}</span>
+</div>
+<div class="live-grid" id="live-grid" data-src="{{ .BasePath }}/admin/api/now">
+  {{ range .LiveTiles }}
+  <div class="live" data-k="{{ .Key }}">
+    <div class="label"><span class="kdot" style="background:{{ .Color }}"></span><span style="overflow:hidden;text-overflow:ellipsis">{{ t $.Lang .LabelKey }}</span><span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ t $.Lang .HelpKey }}</span></span></div>
+    <div class="row"><div class="value" data-f="last">{{ comma .Last }}</div><div class="delta{{ if .DeltaClass }} {{ .DeltaClass }}{{ end }}" data-f="delta"><span data-f="dv">{{ .DeltaText }}</span> <small>{{ t $.Lang "overview.live.vs_prev" }}</small></div></div>
+    {{ if eq .Key "requests" }}<div class="sub" data-f="tps">{{ tf $.Lang "overview.live.tps" .TPS .Peak .Avg }}</div>{{ end }}
+    <svg class="spk" viewBox="0 0 150 34" preserveAspectRatio="none" aria-hidden="true"><polyline fill="none" stroke="{{ .Color }}" stroke-width="1.6" points="{{ .Points }}" data-f="spark"/></svg>
+  </div>
+  {{ end }}
+</div>
+<p class="live-note" id="live-feed-off"{{ if not .LiveFeedOff }} hidden{{ end }}>{{ t .Lang "overview.live.feed_off" }}</p>
+{{ end }}
 
 {{- /* Host filtering is unified into the shared host_picker in the top bar (old host-filter-bar removed). */ -}}
 
@@ -777,6 +829,94 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 // drift between the two).  Recent-card visible-row cap is wired via the
 // data-events-cap attribute on the table itself (set by the partial when
 // .EventsCap > 0 is passed in the context).
+</script>
+<script>
+// The "right now" strip.  Every PERIOD seconds (while the tab is visible and
+// the operator has not switched it off) the page re-reads /admin/api/now and
+// writes the figures over the ones it has.  The previous reading stays up
+// through a slow or failed fetch; a failure only shows a note.
+(function(){
+  var grid = document.getElementById('live-grid');
+  if (!grid || !window.fetch) return;
+  var src = grid.dataset.src;
+  var atEl = document.getElementById('live-at'), nextEl = document.getElementById('live-next');
+  var bar = document.getElementById('live-bar'), tg = document.getElementById('live-toggle');
+  var err = document.getElementById('live-err'), feedOff = document.getElementById('live-feed-off');
+  var PERIOD = 5, W = 150, H = 34;
+  var on = true;
+  try { on = localStorage.getItem('unmask:live-auto') !== 'off'; } catch (e) {}
+  var left = PERIOD, busy = false, dimTimer = null;
+  // The clock shows the picker's zone, read from the same key the shared
+  // datetime formatter uses (header_tools).
+  var tf = null;
+  try {
+    var tz; try { tz = localStorage.getItem('unmask:tz') || undefined; } catch (e) {}
+    tf = new Intl.DateTimeFormat('ja', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  } catch (e) {}
+  function clock(d){ return tf ? tf.format(d) : d.toTimeString().slice(0, 8); }
+  function comma(n){ return Number(n).toLocaleString('en-US'); }
+  // Same geometry as the server's liveSparkPoints: a flat line along the
+  // bottom when every bucket is zero.
+  function points(vals){
+    var max = 0, i, out = [];
+    for (i = 0; i < vals.length; i++) if (vals[i] > max) max = vals[i];
+    for (i = 0; i < vals.length; i++) {
+      var x = i * (W / (vals.length - 1));
+      var y = max > 0 ? H - 2 - vals[i] / max * (H - 6) : H - 2;
+      out.push(x.toFixed(1) + ',' + y.toFixed(1));
+    }
+    return out.join(' ');
+  }
+  function paint(j){
+    grid.querySelectorAll('.live[data-k]').forEach(function(tile){
+      var k = tile.dataset.k;
+      var last = (j.last && j.last[k]) || 0, prev = (j.prev && j.prev[k]) || 0, d = last - prev;
+      tile.querySelector('[data-f=last]').textContent = comma(last);
+      tile.querySelector('[data-f=dv]').textContent = d > 0 ? '+' + d : d < 0 ? String(d) : '\u00b10';
+      tile.querySelector('[data-f=delta]').classList.toggle('up', d > 0);
+      var sp = tile.querySelector('[data-f=spark]');
+      if (sp && j.series && j.series[k]) sp.setAttribute('points', points(j.series[k]));
+      var tps = tile.querySelector('[data-f=tps]');
+      if (tps && j.tps_text) tps.textContent = j.tps_text;
+    });
+    if (feedOff) feedOff.hidden = !j.feed_off;
+  }
+  function setToggle(){
+    // data-txt-*, not data-on/off: html/template reads a data-on attribute as
+    // an event handler and would hand the label over JS-quoted.
+    tg.textContent = on ? tg.dataset.txtOn : tg.dataset.txtOff;
+    tg.setAttribute('aria-pressed', on ? 'true' : 'false');
+    tg.classList.toggle('off', !on);
+  }
+  function refresh(){
+    if (busy) return;
+    busy = true;
+    dimTimer = setTimeout(function(){ grid.classList.add('refreshing'); }, 400);
+    fetch(src, { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'application/json' } })
+      .then(function(r){ if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+      .then(function(j){ paint(j); err.hidden = true; atEl.textContent = clock(new Date()); })
+      .catch(function(){ err.hidden = false; })
+      .then(function(){ clearTimeout(dimTimer); grid.classList.remove('refreshing'); busy = false; left = PERIOD; });
+  }
+  function tick(){
+    if (!on || document.visibilityState !== 'visible') return;
+    left = Math.max(0, left - 1);
+    nextEl.textContent = left;
+    bar.style.width = ((PERIOD - left) / PERIOD * 100) + '%';
+    if (left <= 0) refresh();
+  }
+  setInterval(tick, 1000);
+  document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible' && on) refresh(); });
+  tg.addEventListener('click', function(){
+    on = !on;
+    try { localStorage.setItem('unmask:live-auto', on ? 'on' : 'off'); } catch (e) {}
+    setToggle();
+    if (on) refresh();
+  });
+  setToggle();
+  var ts = parseInt(atEl.dataset.ts, 10);
+  if (ts) atEl.textContent = clock(new Date(ts * 1000));
+})();
 </script>
 </body>
 </html>
