@@ -1395,6 +1395,9 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAskSend)))
 	mux.HandleFunc("POST "+base+"/admin/ask/clear",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAskClear)))
+	mux.HandleFunc("GET "+base+"/admin/ask/history/{$}", h.AuthMiddleware(h.AdminAskHistory))
+	mux.HandleFunc("POST "+base+"/admin/ask/delete",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAskDelete)))
 	mux.HandleFunc("GET "+base+"/admin/community-bans/{$}",
 		h.AuthMiddleware(h.AdminCommunityBansIndex))
 	mux.HandleFunc("POST "+base+"/admin/community-bans/mute-toggle",

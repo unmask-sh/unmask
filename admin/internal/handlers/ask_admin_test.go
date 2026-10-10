@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -118,14 +119,35 @@ func TestAskPageAndSend(t *testing.T) {
 	if err := h.DB.Gorm.Find(&runs).Error; err != nil || len(runs) != 1 || !strings.HasPrefix(runs[0].ResultKey, "chat|openai|m") || runs[0].InTokens != 41 {
 		t.Errorf("run log: %v %+v", err, runs)
 	}
-	// The history is on the page, with the tool chip and the token line.
+	// The latest turn is on the ask tab, whole, with the tool chip, the
+	// token line and a copy; the clear and the delete are the history tab's.
 	rec = httptest.NewRecorder()
 	h.AdminAsk(rec, askReq("GET", "/unmask/admin/ask/", "", "admin"))
 	body = rec.Body.String()
-	for _, want := range []string{"BAN は 0 件です。", `<a href="/unmask/admin/bans/">/admin/bans/</a>`, "<pre>bans=0</pre>", `class="tool-chip"`, "tokens 入力 41 / 出力 10", `action="/unmask/admin/ask/clear"`} {
+	for _, want := range []string{"BAN は 0 件です。", `<a href="/unmask/admin/bans/">/admin/bans/</a>`, "<pre>bans=0</pre>", `class="tool-chip"`, "tokens 入力 41 / 出力 10", `class="a-copy"`, `class="ask-tabs"`} {
 		if !strings.Contains(body, want) {
-			t.Errorf("history lacks %q", want)
+			t.Errorf("ask tab lacks %q", want)
 		}
+	}
+	for _, gone := range []string{`action="/unmask/admin/ask/clear"`, `action="/unmask/admin/ask/delete"`, `class="a folded"`} {
+		if strings.Contains(body, gone) {
+			t.Errorf("ask tab carries %q", gone)
+		}
+	}
+	rec = httptest.NewRecorder()
+	h.AdminAskHistory(rec, askReq("GET", "/unmask/admin/ask/history/", "", "admin"))
+	body = rec.Body.String()
+	// The answer has several lines, so the history folds it.
+	for _, want := range []string{`class="a folded"`, `class="a-toggle"`, `class="a-copy"`, `action="/unmask/admin/ask/delete"`, `action="/unmask/admin/ask/clear"`, "BAN は 0 件です。"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("history tab lacks %q", want)
+		}
+	}
+	// A viewer reads the history but gets no delete or clear.
+	rec = httptest.NewRecorder()
+	h.AdminAskHistory(rec, askReq("GET", "/unmask/admin/ask/history/", "", "viewer"))
+	if body = rec.Body.String(); strings.Contains(body, `action="/unmask/admin/ask/delete"`) || strings.Contains(body, `action="/unmask/admin/ask/clear"`) {
+		t.Error("a viewer is offered a delete or a clear")
 	}
 	// Refusals: empty, too long.
 	rec = httptest.NewRecorder()
@@ -213,5 +235,60 @@ func TestSplitFences(t *testing.T) {
 	}
 	if p := splitFences(""); len(p) != 0 {
 		t.Errorf("%+v", p)
+	}
+}
+
+// A delete removes one of the account's own turns, never another account's,
+// and lands on the history tab; a short answer stays whole there.
+func TestAskDeleteOwnTurn(t *testing.T) {
+	h := newTestHandler(t)
+	if _, err := h.DB.Exec(`CREATE TABLE IF NOT EXISTS unmask_ai_chat (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, asked_at INTEGER NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '', tools TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', in_tokens INTEGER NOT NULL DEFAULT 0, out_tokens INTEGER NOT NULL DEFAULT 0, err TEXT NOT NULL DEFAULT '')`); err != nil {
+		t.Fatal(err)
+	}
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
+	now := time.Now().Unix()
+	mine := []db.AIChat{
+		{UserID: 7, AskedAt: now - 20, Question: "first, long", Answer: strings.Repeat("長い答え ", 60)},
+		{UserID: 7, AskedAt: now - 10, Question: "second, short", Answer: "短い"},
+	}
+	other := db.AIChat{UserID: 8, AskedAt: now - 5, Question: "theirs", Answer: "x"}
+	for i := range mine {
+		if err := h.DB.Gorm.Create(&mine[i]).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.DB.Gorm.Create(&other).Error; err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	h.AdminAskHistory(rec, askReq("GET", "/unmask/admin/ask/history/", "", "admin"))
+	body := rec.Body.String()
+	// (the page's script carries the copy button's markup once more, so the
+	// turns are counted by their ids.)
+	if strings.Count(body, `data-id="`) != 2 || strings.Count(body, `class="a-copy"`) < 2 || strings.Count(body, `class="a folded"`) != 1 || strings.Contains(body, "theirs") {
+		t.Errorf("history: turns=%d copies=%d folded=%d theirs=%v", strings.Count(body, `data-id="`), strings.Count(body, `class="a-copy"`), strings.Count(body, `class="a folded"`), strings.Contains(body, "theirs"))
+	}
+	if strings.Index(body, "second, short") > strings.Index(body, "first, long") {
+		t.Error("the history must read newest first")
+	}
+	// The ask tab: the latest alone, whole.
+	rec = httptest.NewRecorder()
+	h.AdminAsk(rec, askReq("GET", "/unmask/admin/ask/", "", "admin"))
+	if body = rec.Body.String(); strings.Contains(body, "first, long") || !strings.Contains(body, "second, short") || !strings.Contains(body, `class="cnt">2<`) {
+		t.Error("the ask tab must show the latest turn alone, and the history count")
+	}
+	// Delete the first; another account's id is a no-op.
+	rec = httptest.NewRecorder()
+	h.AdminAskDelete(rec, askReq("POST", "/unmask/admin/ask/delete", "id="+strconv.FormatInt(mine[0].ID, 10), "admin"))
+	if rec.Code != 303 || rec.Header().Get("Location") != "/unmask/admin/ask/history/" {
+		t.Errorf("delete: %d %s", rec.Code, rec.Header().Get("Location"))
+	}
+	rec = httptest.NewRecorder()
+	h.AdminAskDelete(rec, askReq("POST", "/unmask/admin/ask/delete", "id="+strconv.FormatInt(other.ID, 10), "admin"))
+	var rows []db.AIChat
+	if err := h.DB.Gorm.Order("id").Find(&rows).Error; err != nil || len(rows) != 2 || rows[0].ID != mine[1].ID || rows[1].ID != other.ID {
+		t.Errorf("rows after the deletes: %v %+v", err, rows)
 	}
 }

@@ -12,6 +12,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+
+- (2026-10-10) **The assistant names the exact setting.**  Asked where or how something is configured, it now reads the settings pages as the operator sees them -- the tab and its path, the section heading, the field's label and current value -- and the config.yml key, and answers with those rather than "the settings page".  What unmask does not write, such as nginx's own real_ip directives, it says so.
+
+### Changed
+
+- (2026-10-10) **The ask page keeps its history on a tab of its own.**  The page opens on the question box with the latest answer under it; the history tab lists every turn newest first, long answers folded to their first lines with a button for the rest, each with a copy of question and answer as text and a delete of its own, and the clear of everything.
+
 ## [0.1.51-rc6] - 2026-10-10 (testing build)
 
 ### Since rc5

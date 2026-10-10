@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -43,10 +44,23 @@ type askView struct {
 	InTokens  int
 	OutTokens int
 	Err       string
+	// Folded: on the history tab a long answer opens on its first lines;
+	// the ask tab's latest turn and short answers stay whole.
+	Folded bool
+	// QuestionHead names the turn in the delete confirmation.
+	QuestionHead string
 }
 
-func (h *Handler) askTools() aitools.Deps {
-	return aitools.Deps{DB: h.DB, Settings: h.SnapshotSettings, IPGeo: h.IPGeo, Live: h.Live, Version: h.Version, ConfigPath: h.ConfigPath}
+// askTools: the tools for one question.  The settings outline renders as
+// the asking operator (their session rides in the chat's context) and in
+// their language.
+func (h *Handler) askTools(r *http.Request) aitools.Deps {
+	lang := i18n.Lang(i18n.Resolve(r))
+	return aitools.Deps{
+		DB: h.DB, Settings: h.SnapshotSettings, IPGeo: h.IPGeo, Live: h.Live, Version: h.Version, ConfigPath: h.ConfigPath,
+		SettingsFind: func(ctx context.Context, q string) (any, error) { return h.SettingsFind(ctx, lang, q) },
+		SettingsTab:  func(ctx context.Context, tab string) (any, error) { return h.SettingsTabOutline(ctx, lang, tab) },
+	}
 }
 
 // askBusy serialises one account's questions: a double click must not pay
@@ -114,20 +128,38 @@ func linkAdminPaths(text string) []askPart {
 	return out
 }
 
-func askViews(rows []db.AIChat) []askView {
+// askViews prepares turns for the page; fold folds the long answers.
+func askViews(rows []db.AIChat, fold bool) []askView {
 	out := make([]askView, 0, len(rows))
 	for _, r := range rows {
 		v := askView{ID: r.ID, Question: r.Question, Answer: r.Answer, Parts: splitFences(r.Answer), AskedTS: r.AskedAt, Model: r.Model, InTokens: r.InTokens, OutTokens: r.OutTokens, Err: r.Err}
 		if r.Tools != "" {
 			_ = json.Unmarshal([]byte(r.Tools), &v.Tools)
 		}
+		v.Folded = fold && r.Err == "" && (len([]rune(r.Answer)) > 160 || strings.Count(r.Answer, "\n") > 1)
+		q := []rune(strings.Join(strings.Fields(r.Question), " "))
+		if len(q) > 40 {
+			q = append(q[:40], '…')
+		}
+		v.QuestionHead = string(q)
 		out = append(out, v)
 	}
 	return out
 }
 
-// AdminAsk: GET {base}/admin/ask/ -- the page with the account's history.
+// AdminAsk: GET {base}/admin/ask/ -- the composer with the latest turn
+// under it.  The earlier turns are the history tab's.
 func (h *Handler) AdminAsk(w http.ResponseWriter, r *http.Request) {
+	h.askPage(w, r, "ask")
+}
+
+// AdminAskHistory: GET {base}/admin/ask/history/ -- every turn of the
+// account, newest first, long answers folded, each with a copy and a delete.
+func (h *Handler) AdminAskHistory(w http.ResponseWriter, r *http.Request) {
+	h.askPage(w, r, "history")
+}
+
+func (h *Handler) askPage(w http.ResponseWriter, r *http.Request, tab string) {
 	tmpl, err := loadDashboardTemplate()
 	if err != nil {
 		http.Error(w, "template error", http.StatusInternalServerError)
@@ -144,22 +176,34 @@ func (h *Handler) AdminAsk(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("ask: history: %v", err)
 	}
+	var turns []askView
+	if tab == "history" {
+		// Newest first: the list is read from the top.
+		for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
+			rows[i], rows[j] = rows[j], rows[i]
+		}
+		turns = askViews(rows, true)
+	} else if len(rows) > 0 {
+		turns = askViews(rows[len(rows)-1:], false)
+	}
 	cfg := h.cfg().AIAdvisor
 	month := advisor.Totals(h.DB, time.Now().Add(-30*24*time.Hour))
 	data := map[string]any{
-		"Lang":        i18n.Resolve(r),
-		"TZ":          resolveTZ(r),
-		"BasePath":    h.cfg().Server.BasePath,
-		"Version":     h.Version,
-		"AIActive":    cfg.Active(),
-		"AIProvider":  cfg.ResolvedProvider(),
-		"AIModel":     cfg.ResolvedModel(),
-		"CanAsk":      canAsk,
-		"Turns":       askViews(rows),
-		"MonthRuns":   int(month.Runs),
-		"MonthIn":     int(month.InTokens),
-		"MonthOut":    int(month.OutTokens),
-		"QuestionMax": askQuestionMax,
+		"Lang":         i18n.Resolve(r),
+		"TZ":           resolveTZ(r),
+		"BasePath":     h.cfg().Server.BasePath,
+		"Version":      h.Version,
+		"AIActive":     cfg.Active(),
+		"AIProvider":   cfg.ResolvedProvider(),
+		"AIModel":      cfg.ResolvedModel(),
+		"CanAsk":       canAsk,
+		"Tab":          tab,
+		"Turns":        turns,
+		"HistoryCount": len(rows),
+		"MonthRuns":    int(month.Runs),
+		"MonthIn":      int(month.InTokens),
+		"MonthOut":     int(month.OutTokens),
+		"QuestionMax":  askQuestionMax,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
@@ -217,7 +261,7 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	res, err := advisor.Chat(ctx, cfg, h.askTools(), history, q, string(lang))
+	res, err := advisor.Chat(ctx, cfg, h.askTools(r), history, q, string(lang))
 	advisor.RecordChatRun(h.DB, cfg, res, err)
 	row := db.AIChat{UserID: pay.UserID, AskedAt: time.Now().Unix(), Question: q, Answer: res.Answer, Model: cfg.ResolvedModel(), InTokens: res.Usage.Input, OutTokens: res.Usage.Output}
 	if b, e := json.Marshal(res.Tools); e == nil && len(res.Tools) > 0 {
@@ -253,5 +297,18 @@ func (h *Handler) AdminAskClear(w http.ResponseWriter, r *http.Request) {
 			log.Printf("ask: clear: %v", err)
 		}
 	}
-	http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/ask/?cleared=1", http.StatusSeeOther)
+	http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/ask/history/?cleared=1", http.StatusSeeOther)
+}
+
+// AdminAskDelete: POST {base}/admin/ask/delete (admin role), form field id.
+// Removes one of the account's own turns.
+func (h *Handler) AdminAskDelete(w http.ResponseWriter, r *http.Request) {
+	pay := SessionFromContext(r)
+	id, _ := strconv.ParseInt(strings.TrimSpace(r.FormValue("id")), 10, 64)
+	if pay != nil && h.DB != nil && id > 0 {
+		if err := h.DB.Gorm.Where("user_id = ? AND id = ?", pay.UserID, id).Delete(&db.AIChat{}).Error; err != nil {
+			log.Printf("ask: delete: %v", err)
+		}
+	}
+	http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/ask/history/", http.StatusSeeOther)
 }

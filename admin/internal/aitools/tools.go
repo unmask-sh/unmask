@@ -41,6 +41,11 @@ type Deps struct {
 	Live       *live.Counter // optional
 	Version    string
 	ConfigPath string // for doctor; empty runs doctor on the default config
+	// The admin's settings outline, rendered by the handlers for the asking
+	// operator (their language, the current values): a search across every
+	// tab, and one tab whole.  nil where the tools run without the admin.
+	SettingsFind func(ctx context.Context, query string) (any, error)
+	SettingsTab  func(ctx context.Context, tab string) (any, error)
 }
 
 // Tool is one tool as the model sees it: a name, what it answers, and the
@@ -79,6 +84,14 @@ func hoursProp(desc string) map[string]any {
 	return map[string]any{"type": "integer", "minimum": 1, "maximum": MaxWindowHours, "description": desc}
 }
 
+// settingsTabNames: the admin's settings tabs, as the settings_tab tool names them.
+var settingsTabNames = []string{
+	"top", "network", "global", "ua-filter", "ja4-verdicts", "honeypot", "bypass-ips", "bypass-paths",
+	"web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate-limit", "deny-design",
+	"geo", "asn", "theme", "notifications", "retention", "performance", "community-bans", "sites",
+	"gateway", "ai-advisor", "about",
+}
+
 // List returns the tools in a stable order.
 func (d Deps) List() []Tool {
 	return []Tool{
@@ -111,6 +124,10 @@ func (d Deps) List() []Tool {
 			Schema: obj(map[string]any{})},
 		{Name: "settings_summary", Description: "A summary of how this install is configured (no secrets): version, database driver, retention, community bans, bypass presets, geo database.",
 			Schema: obj(map[string]any{})},
+		{Name: "settings_find", Description: "Where a setting lives: searches every settings tab of the admin (section headings, help, field labels, field names, current values) and the config.yml keys for the given words.  Returns the matching sections with the tab, its path (/admin/settings/<tab>/), the heading and the fields with their current values, plus matching config.yml keys.  Use it to name the exact tab, section and field in an answer about where or how something is configured.",
+			Schema: obj(map[string]any{"query": map[string]any{"type": "string", "description": "a few words: the setting, a vendor, a header, a preset name (e.g. \"GCP load balancer\", \"retention\", \"honeypot action\")"}}, "query")},
+		{Name: "settings_tab", Description: "One settings tab whole: every section heading with its help text and fields with current values.  Tabs: " + strings.Join(settingsTabNames, ", ") + ".",
+			Schema: obj(map[string]any{"tab": map[string]any{"type": "string", "description": "the tab's name as in its path /admin/settings/<tab>/"}}, "tab")},
 		{Name: "doctor", Description: "The install's health checks (unmask doctor): configuration, database, nginx render freshness, services.  Slow (a few seconds).",
 			Schema: obj(map[string]any{})},
 	}
@@ -167,6 +184,32 @@ func (d Deps) Run(ctx context.Context, name string, args map[string]any) (any, e
 		return d.liveNow(), nil
 	case "settings_summary":
 		return d.settingsSummary(), nil
+	case "settings_find":
+		q, _ := args["query"].(string)
+		if strings.TrimSpace(q) == "" {
+			return nil, errors.New("query is required: a few words naming the setting")
+		}
+		out := map[string]any{"query": q}
+		if d.SettingsFind != nil {
+			m, err := d.SettingsFind(ctx, q)
+			if err != nil {
+				return nil, err
+			}
+			out["admin"] = m
+		} else {
+			out["admin"] = "the admin's settings pages are not available here"
+		}
+		if d.Settings != nil {
+			out["config_keys"] = configKeysMatching(flattenConfig(d.Settings()), queryWords(q))
+		}
+		out["note"] = "admin: the tab (path), its section and fields as the page shows them; config_keys: the same settings in config.yml.  Directives unmask does not write (nginx's own, such as set_real_ip_from) have no entry: say so."
+		return out, nil
+	case "settings_tab":
+		if d.SettingsTab == nil {
+			return nil, errors.New("the admin's settings pages are not available here")
+		}
+		tab, _ := args["tab"].(string)
+		return d.SettingsTab(ctx, strings.TrimSpace(tab))
 	case "doctor":
 		return d.doctor(ctx)
 	}

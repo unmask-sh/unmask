@@ -46,6 +46,21 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .tool-chip{display:inline-block;padding:.05rem .45rem;border-radius:.25rem;background:#eef2ff;color:#3730a3;font-family:ui-monospace,Menlo,monospace;font-size:.7rem;margin-right:.25rem}
 .tool-chip.err{background:#fee2e2;color:#991b1b}
 .a.pending .txt{color:#64748b;font-style:italic}
+/* The history's long answers open on their first lines; the button shows the
+   rest.  A copy puts the question and the answer on the clipboard as text. */
+.a.folded .txt{max-height:3.4em;overflow:hidden;position:relative}
+.a.folded .txt::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1.8em;background:linear-gradient(rgba(255,255,255,0),#fff)}
+.a.folded .a-meta{display:none}
+.a-act{display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;margin-top:.45rem}
+.a-act button{font:inherit;font-size:.74rem;color:#2563eb;background:none;border:none;padding:0;cursor:pointer}
+.a-act button:hover{text-decoration:underline}
+.a-act form{display:inline;margin:0}
+.a-act .a-del{color:#b91c1c}
+.ask-tabs{display:flex;gap:.25rem;margin:0 0 .9rem;border-bottom:1px solid #e2e8f0}
+.ask-tabs a{padding:.4rem .8rem;color:#64748b;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;font-size:.9rem}
+.ask-tabs a:hover{color:#0f172a}
+.ask-tabs a.on{color:#0f172a;border-bottom-color:#0f172a;font-weight:600}
+.ask-tabs .cnt{display:inline-block;min-width:1.2em;padding:0 .35em;border-radius:1em;background:#e2e8f0;color:#334155;font-size:.72rem;text-align:center;font-weight:600}
 .spin{display:inline-block;width:.8rem;height:.8rem;border:2px solid #cbd5e1;border-top-color:#0f172a;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-.1em;margin-right:.4rem}
 @keyframes spin{to{transform:rotate(360deg)}}
 .composer textarea{width:100%;min-height:5rem;padding:.6rem .75rem;border:1px solid #cbd5e1;border-radius:.3rem;font:inherit;font-size:.92rem;resize:vertical}
@@ -93,6 +108,13 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 <main class="unmask-main">
 <h1>{{ t .Lang "ask.title" }}<span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ t .Lang "ask.help" }}</span></span></h1>
 <p class="meta">{{ t .Lang "ask.intro" }}</p>
+{{/* Two tabs: the composer with the latest turn under it, and the history
+     (every turn, newest first, long answers folded, a copy and a delete on
+     each).  The model's context -- the last ten turns -- is the same on both. */}}
+<nav class="ask-tabs">
+  <a href="{{ .BasePath }}/admin/ask/"{{ if eq .Tab "ask" }} class="on" aria-current="page"{{ end }}>{{ t .Lang "ask.tab_ask" }}</a>
+  <a href="{{ .BasePath }}/admin/ask/history/"{{ if eq .Tab "history" }} class="on" aria-current="page"{{ end }}>{{ t .Lang "ask.tab_history" }}{{ if .HistoryCount }} <span class="cnt">{{ .HistoryCount }}</span>{{ end }}</a>
+</nav>
 
 {{ if not .AIActive }}
 <div class="banner warn" id="ask-off">{{ safeHTML (tf .Lang "ask.off_notice" (printf "%s/admin/settings/ai-advisor/" .BasePath)) }}</div>
@@ -100,23 +122,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 <div class="banner warn" id="ask-viewer">{{ t .Lang "ask.viewer_note" }}</div>
 {{ end }}
 
-<div class="turns" id="turns" data-txt-pending="{{ t .Lang "ask.pending" }}" data-txt-tools="{{ t .Lang "ask.tools" }}" data-txt-failed="{{ t .Lang "ask.failed" }}" data-txt-tokens="{{ t .Lang "ask.tokens" }}">
-  {{ range .Turns }}
-  <div class="q">{{ .Question }}</div>
-  <div class="a{{ if .Err }} fail{{ end }}" data-id="{{ .ID }}">
-    <div class="txt">{{ if .Err }}{{ t $.Lang "ask.failed" }}: {{ .Err }}{{ else }}{{ range .Parts }}{{ if .Code }}<pre>{{ .Text }}</pre>{{ else if .Link }}<a href="{{ $.BasePath }}{{ .Link }}">{{ .Text }}</a>{{ else }}{{ .Text }}{{ end }}{{ end }}{{ end }}</div>
-    <div class="a-meta">
-      <time class="js-datetime js-datetime-notz" data-ts="{{ .AskedTS }}"></time>
-      {{ if .Tools }}<span>{{ t $.Lang "ask.tools" }}: {{ range .Tools }}<span class="tool-chip{{ if .Err }} err{{ end }}" title="{{ .Ms }} ms">{{ .Name }}</span>{{ end }}</span>{{ end }}
-      {{ if or .InTokens .OutTokens }}<span>{{ tf $.Lang "ask.tokens" (comma .InTokens) (comma .OutTokens) }}{{ if .Model }} · {{ .Model }}{{ end }}</span>{{ end }}
-    </div>
-  </div>
-  {{ else }}
-  <p class="meta" id="ask-empty">{{ t .Lang "ask.empty" }}</p>
-  {{ end }}
-</div>
-
-{{ if and .AIActive .CanAsk }}
+{{ if and (eq .Tab "ask") .AIActive .CanAsk }}
 <div class="bcd-card composer">
   <div class="suggest">
     <button type="button" data-q="{{ t .Lang "ask.suggest1" }}">{{ t .Lang "ask.suggest1" }}</button>
@@ -135,15 +141,70 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   </form>
   <p class="privacy">{{ t .Lang "ask.privacy" }}</p>
 </div>
-{{ if .Turns }}
+{{ end }}
+{{ if eq .Tab "history" }}<p class="meta">{{ t .Lang "ask.history_note" }}</p>{{ end }}
+
+<div class="turns" id="turns" data-txt-pending="{{ t .Lang "ask.pending" }}" data-txt-tools="{{ t .Lang "ask.tools" }}" data-txt-failed="{{ t .Lang "ask.failed" }}" data-txt-tokens="{{ t .Lang "ask.tokens" }}" data-txt-copy="{{ t .Lang "ask.copy" }}" data-txt-copied="{{ t .Lang "ask.copied" }}">
+  {{ range .Turns }}
+  <div class="q">{{ .Question }}</div>
+  <div class="a{{ if .Err }} fail{{ end }}{{ if .Folded }} folded{{ end }}" data-id="{{ .ID }}">
+    <div class="txt">{{ if .Err }}{{ t $.Lang "ask.failed" }}: {{ .Err }}{{ else }}{{ range .Parts }}{{ if .Code }}<pre>{{ .Text }}</pre>{{ else if .Link }}<a href="{{ $.BasePath }}{{ .Link }}">{{ .Text }}</a>{{ else }}{{ .Text }}{{ end }}{{ end }}{{ end }}</div>
+    <div class="a-meta">
+      <time class="js-datetime js-datetime-notz" data-ts="{{ .AskedTS }}"></time>
+      {{ if .Tools }}<span>{{ t $.Lang "ask.tools" }}: {{ range .Tools }}<span class="tool-chip{{ if .Err }} err{{ end }}" title="{{ .Ms }} ms">{{ .Name }}</span>{{ end }}</span>{{ end }}
+      {{ if or .InTokens .OutTokens }}<span>{{ tf $.Lang "ask.tokens" (comma .InTokens) (comma .OutTokens) }}{{ if .Model }} · {{ .Model }}{{ end }}</span>{{ end }}
+    </div>
+    <div class="a-act">
+      {{ if .Folded }}<button type="button" class="a-toggle" data-txt-more="{{ t $.Lang "ask.show_full" }}" data-txt-less="{{ t $.Lang "ask.fold" }}">{{ t $.Lang "ask.show_full" }}</button>{{ end }}
+      <button type="button" class="a-copy" data-txt-copied="{{ t $.Lang "ask.copied" }}">{{ t $.Lang "ask.copy" }}</button>
+      {{ if and (eq $.Tab "history") $.CanAsk }}<form method="POST" action="{{ $.BasePath }}/admin/ask/delete" data-confirm="{{ tf $.Lang "ask.delete_confirm" .QuestionHead }}" data-confirm-title="{{ t $.Lang "ask.delete" }}" data-confirm-ok="{{ t $.Lang "ask.delete" }}" data-confirm-danger="1">
+        <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}"><input type="hidden" name="id" value="{{ .ID }}">
+        <button type="submit" class="a-del">{{ t $.Lang "ask.delete" }}</button>
+      </form>{{ end }}
+    </div>
+  </div>
+  {{ else }}
+  <p class="meta" id="ask-empty">{{ if eq .Tab "history" }}{{ t .Lang "ask.history_empty" }}{{ else }}{{ t .Lang "ask.empty" }}{{ end }}</p>
+  {{ end }}
+</div>
+
+{{ if and (eq .Tab "history") .Turns .CanAsk }}
 <form method="POST" action="{{ .BasePath }}/admin/ask/clear" data-confirm="{{ t .Lang "ask.clear_confirm" }}" data-confirm-title="{{ t .Lang "ask.clear" }}" data-confirm-ok="{{ t .Lang "ask.clear" }}" data-confirm-danger="1" style="text-align:right">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
   <button type="submit" class="btn quiet">{{ t .Lang "ask.clear" }}</button>
 </form>
 {{ end }}
-{{ end }}
 </main>
 <script>
+// Fold / unfold and copy, on both tabs.  The copy is "Q: ... / A: ..." as
+// plain text, from the question beside the answer.
+(function(){
+  var turns = document.getElementById('turns');
+  if (!turns) return;
+  function copyText(t){
+    if (navigator.clipboard && navigator.clipboard.writeText) return navigator.clipboard.writeText(t);
+    return new Promise(function(res, rej){
+      var ta = document.createElement('textarea'); ta.value = t; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.top = '-100vh';
+      document.body.appendChild(ta); ta.select();
+      var done = false; try { done = document.execCommand('copy'); } catch (e) {}
+      ta.remove(); if (done) res(); else rej(new Error('copy'));
+    });
+  }
+  turns.addEventListener('click', function(ev){
+    var b = ev.target.closest('button'); if (!b || !turns.contains(b)) return;
+    var a = b.closest('.a'); if (!a) return;
+    if (b.classList.contains('a-toggle')) {
+      var folded = a.classList.toggle('folded');
+      b.textContent = folded ? b.dataset.txtMore : b.dataset.txtLess;
+      if (!folded) a.scrollIntoView({ block: 'nearest' });
+    } else if (b.classList.contains('a-copy')) {
+      var q = a.previousElementSibling, txt = a.querySelector('.txt');
+      var text = 'Q: ' + (q && q.classList.contains('q') ? q.textContent : '') + '\n\nA: ' + (txt ? txt.textContent : '');
+      var was = b.textContent;
+      copyText(text).then(function(){ b.textContent = b.dataset.txtCopied; setTimeout(function(){ b.textContent = was; }, 1500); }).catch(function(){});
+    }
+  });
+})();
 (function(){
   var form = document.getElementById('ask-form'), turns = document.getElementById('turns');
   if (!form || !turns) return;
@@ -185,7 +246,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     ad.classList.remove('pending');
     var meta = '<time class="js-datetime js-datetime-notz" data-ts="' + esc(d.asked_ts || Math.floor(Date.now() / 1000)) + '"></time>' + chips(d.tools);
     if (d.in_tokens || d.out_tokens) meta += '<span>' + esc(tokensText(d.in_tokens || 0, d.out_tokens || 0)) + (d.model ? ' · ' + esc(d.model) : '') + '</span>';
-    ad.innerHTML = '<div class="txt">' + render(d.answer) + '</div><div class="a-meta">' + meta + '</div>';
+    ad.innerHTML = '<div class="txt">' + render(d.answer) + '</div><div class="a-meta">' + meta + '</div><div class="a-act"><button type="button" class="a-copy" data-txt-copied="' + esc(turns.dataset.txtCopied) + '">' + esc(turns.dataset.txtCopy) + '</button></div>';
     if (window.unmaskFmtTimes) unmaskFmtTimes();
   }
   function failed(ad, msg){

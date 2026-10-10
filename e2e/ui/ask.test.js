@@ -134,15 +134,56 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const released = await page.evaluate(() => !document.getElementById('ask-send').disabled);
   ok(released, 'the button stayed held after the answer');
 
-  // The history survives a reload; clearing empties it.
+  // The latest turn survives a reload, under the composer, with a copy.
   await page.reload({ waitUntil: 'networkidle2' });
-  const kept = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, link: (function(){ const a = document.querySelector('#turns .a .txt a'); return a ? a.getAttribute('href') : ''; })(), text: (document.querySelector('#turns .a .txt') || {}).textContent || '', pre: !!document.querySelector('#turns .a pre'), clear: !!document.querySelector('form[action$="/admin/ask/clear"]') }));
-  ok(kept.turns === 1 && kept.text.indexOf('E2E-ANSWER') >= 0 && kept.clear, 'the history did not survive the reload: ' + JSON.stringify(kept));
-  ok(kept.pre, 'the server-rendered history does not show the code fence as a block');
-  ok(kept.link === '/unmask/admin/bans/', 'the server-rendered history does not link the admin path: ' + kept.link);
+  const kept = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, link: (function(){ const a = document.querySelector('#turns .a .txt a'); return a ? a.getAttribute('href') : ''; })(), text: (document.querySelector('#turns .a .txt') || {}).textContent || '', pre: !!document.querySelector('#turns .a pre'), copy: !!document.querySelector('#turns .a .a-copy'), folded: !!document.querySelector('#turns .a.folded'), tabs: Array.from(document.querySelectorAll('.ask-tabs a')).map(a => a.textContent.trim()), composerFirst: (function(){ const c = document.querySelector('.composer'), t = document.getElementById('turns'); return !!c && !!t && c.compareDocumentPosition(t) === Node.DOCUMENT_POSITION_FOLLOWING; })() }));
+  ok(kept.turns === 1 && kept.text.indexOf('E2E-ANSWER') >= 0, 'the latest turn did not survive the reload: ' + JSON.stringify(kept));
+  ok(kept.pre, 'the server-rendered turn does not show the code fence as a block');
+  ok(kept.link === '/unmask/admin/bans/', 'the server-rendered turn does not link the admin path: ' + kept.link);
+  ok(kept.copy && !kept.folded, 'the latest turn must carry a copy and stay whole: ' + JSON.stringify(kept));
+  ok(kept.tabs.length === 2 && kept.composerFirst, 'the two tabs or the composer-first layout are missing: ' + JSON.stringify(kept));
   if (process.env.UI_E2E_SHOT_DIR) {
     try { await page.screenshot({ path: path.join(process.env.UI_E2E_SHOT_DIR, 'ask.png'), fullPage: true }); } catch (e) {}
   }
+
+  // The history tab: the turn folded (its answer has several lines), the
+  // button opens it; the copy puts "Q: ... A: ..." on the clipboard; the
+  // delete removes the one turn after the dialog.
+  resp = await page.goto(BASE + '/admin/ask/history/', { waitUntil: 'networkidle2' });
+  ok(resp.status() === 200, `/admin/ask/history/ status ${resp.status()}`);
+  const hist = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, folded: !!document.querySelector('#turns .a.folded'), toggle: !!document.querySelector('#turns .a .a-toggle'), del: !!document.querySelector('#turns .a form[action$="/admin/ask/delete"]'), clear: !!document.querySelector('form[action$="/admin/ask/clear"]'), metaHidden: (function(){ const m = document.querySelector('#turns .a .a-meta'); return m ? getComputedStyle(m).display === 'none' : null; })() }));
+  ok(hist.turns === 1 && hist.folded && hist.toggle && hist.del && hist.clear, 'the history tab is not as expected: ' + JSON.stringify(hist));
+  ok(hist.metaHidden === true, 'a folded answer still shows its meta line');
+  await page.click('#turns .a .a-toggle');
+  const opened = await page.evaluate(() => ({ folded: !!document.querySelector('#turns .a.folded'), label: document.querySelector('#turns .a .a-toggle').textContent }));
+  ok(!opened.folded && opened.label !== '', 'the toggle did not open the answer: ' + JSON.stringify(opened));
+  // A headless page is not focused, so the clipboard refuses writes; the
+  // write is captured instead and the text checked.
+  await page.evaluate(() => { navigator.clipboard.writeText = function(t){ window.__copied = t; return Promise.resolve(); }; });
+  await page.click('#turns .a .a-copy');
+  await sleep(200);
+  const copied = await page.evaluate(() => { const b = document.querySelector('#turns .a .a-copy'); return { clip: window.__copied || '', label: b.textContent, said: b.dataset.txtCopied }; });
+  ok(/^Q: E2E: how many bans\?\n\nA: E2E-ANSWER/.test(copied.clip), 'the copy does not carry the question and answer: ' + JSON.stringify(copied.clip).slice(0, 120));
+  ok(copied.label === copied.said, 'the copy button did not say it copied: ' + JSON.stringify(copied));
+  await page.click('#turns .a form[action$="/admin/ask/delete"] button');
+  await page.waitForSelector('.ux-dialog[open] .ux-dialog-btn.primary, .ux-dialog[open] .ux-dialog-btn.danger', { timeout: 5000 }).catch(() => {});
+  const dialogText = await page.evaluate(() => (document.querySelector('.ux-dialog[open]') || {}).textContent || '');
+  ok(dialogText.indexOf('E2E: how many bans?') >= 0, 'the delete dialog does not name the question: ' + dialogText.slice(0, 120));
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 10000 }).catch(() => {}),
+    page.click('.ux-dialog[open] .ux-dialog-btn.danger, .ux-dialog[open] .ux-dialog-btn.primary').catch(() => {}),
+  ]);
+  const afterDel = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, empty: !!document.getElementById('ask-empty'), path: location.pathname }));
+  ok(afterDel.turns === 0 && afterDel.empty && /\/admin\/ask\/history\/$/.test(afterDel.path), 'the delete did not remove the turn: ' + JSON.stringify(afterDel));
+
+  // Clearing: a second question, then the history's clear empties it.
+  await page.goto(BASE + '/admin/ask/', { waitUntil: 'networkidle2' });
+  await page.evaluate(() => { document.getElementById('ask-q').value = 'E2E: again?'; });
+  await page.click('#ask-send');
+  let second = false;
+  for (let i = 0; i < 30 && !second; i++) { await sleep(300); second = await page.evaluate(() => !!Array.from(document.querySelectorAll('#turns .a:not(.pending)')).find(a => a.textContent.indexOf('E2E-ANSWER') >= 0)); }
+  ok(second, 'the second question got no answer');
+  await page.goto(BASE + '/admin/ask/history/', { waitUntil: 'networkidle2' });
   await page.click('form[action$="/admin/ask/clear"] button');
   await page.waitForSelector('.ux-dialog[open] .ux-dialog-btn.primary, .ux-dialog[open] .ux-dialog-btn.danger', { timeout: 5000 }).catch(() => {});
   await Promise.all([
