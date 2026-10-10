@@ -16,7 +16,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- (2026-10-10) **The map places the server on its own.**  Without a set position, the server is placed by its address: a global address on one of its interfaces, or, behind NAT, the address the community-bans hub saw it come from (echoed on the hourly feed pull).  A City geo database gives the point; a Country one puts it at the country's centre, and the card says so.  A set position wins outright.
+- (2026-10-10) **The map places the server on its own.**  Without a set position, the server is placed by its address: a global one on an interface, or, behind NAT, the one the community-bans hub saw it come from.  A City geo database gives the point; a Country one puts it at the country's centre, and the card says so.  The setting dialog shows that estimate and takes a position by hand.
 
 ## [0.1.51-rc4] - 2026-10-10 (testing build)
 
@@ -28,7 +28,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-10) **The dashboard's recent detections keep up on their own.**  The table redraws from the server every ten seconds under the same switch as the strip above it; a row the page had not seen flashes green and settles, and the rows keep their session chains and popovers across a redraw.
 
-- (2026-10-10) **Ask the configured model about this install.**  A new page, linked from every admin page's header, takes a question in plain words and answers it with the install's own data: the model reads through read-only tools (the overview, rankings, the event log, one address, bans, the live strip, a settings summary, doctor) and changes nothing.  Same provider settings as the AI advisor; the history stays per account.
+- (2026-10-10) **Ask the configured model about this install.**  A new page, linked from every admin page's header, takes a question in plain words and answers it from the install's own data: the model reads through read-only tools (overview, rankings, event log, one address, bans, the live strip, settings summary, doctor) and changes nothing.  Same provider settings as the AI advisor; history per account; answers link the admin pages they name.
 
 ### Changed
 

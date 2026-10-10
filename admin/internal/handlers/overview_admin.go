@@ -546,6 +546,9 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		// an admin sets from the card), and whether countries can be told at
 		// all (an IP geo database is loaded).
 		data["MapLoc"] = h.mapLocation()
+		// The worked-out position on its own, for the setting dialog's
+		// "automatic" choice to show what it would use.
+		data["MapAuto"] = h.autoMapLocation()
 		data["GeoKnown"] = h.IPGeo != nil && h.IPGeo.Loaded()
 		pay := SessionFromContext(r)
 		data["CanEditMap"] = pay != nil && roleAtLeast(pay.Role, "admin")

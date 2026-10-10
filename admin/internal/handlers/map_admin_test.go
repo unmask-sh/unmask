@@ -232,9 +232,28 @@ func TestAutoMapLocation(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.AdminTopOverview(rec, req)
 	body := rec.Body.String()
-	for _, want := range []string{`data-auto="1"`, `id="geo-auto"`, `data-label="Japan (日本) (国の中心)"`, `id="geo-unset" style="margin:.4rem 0 0" hidden`} {
+	for _, want := range []string{`data-auto="1"`, `id="geo-auto"`, `data-label="Japan (日本) (国の中心)"`, `id="geo-unset" style="margin:.4rem 0 0" hidden`, `data-auto-set="1"`, `data-auto-source="interface"`, `id="geo-dialog"`, `id="geo-mode-auto"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %q", want)
 		}
+	}
+	// Clearing the setting through the endpoint answers with the worked-out
+	// position and the note the card shows for it.
+	dir := t.TempDir()
+	h.ConfigPath = filepath.Join(dir, "config.yml")
+	if err := os.WriteFile(h.ConfigPath, []byte("server:\n  base_path: /unmask\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest("POST", "/unmask/admin/api/map-location", strings.NewReader("lat=&lon=&label="))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Cookie", "unmask_lang=ja")
+	rec = httptest.NewRecorder()
+	h.AdminMapLocationSave(rec, req)
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != 200 {
+		t.Fatalf("clear: %d %s", rec.Code, rec.Body.String())
+	}
+	if out["set"] != true || out["auto"] != true || out["source"] != "interface" || out["label"] != "Japan (日本) (国の中心)" || !strings.Contains(out["note"].(string), "自動推定") {
+		t.Errorf("cleared: %v", out)
 	}
 }

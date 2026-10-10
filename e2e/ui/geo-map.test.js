@@ -94,25 +94,61 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(usAfter > usBefore * 1.2, `the US source did not paint (${usBefore} -> ${usAfter})`);
   const sourcesLit = await lit();
 
-  // Set the position through the card's dialog.
+  // Set the position through the card's dialog: it offers the automatic
+  // estimate (none here: no geo database) and the fields for a manual one.
   await page.click('#geo-set');
-  await page.waitForSelector('.ux-dialog input[type=text]', { timeout: 5000 });
-  await page.evaluate(() => { const i = document.querySelector('.ux-dialog input[type=text]'); i.value = '35.68, 139.76, Tokyo'; });
-  await page.click('.ux-dialog .ux-dialog-btn.primary');
+  await page.waitForSelector('#geo-dialog[open]', { timeout: 5000 });
+  const dlg = await page.evaluate(() => ({
+    autoChecked: document.getElementById('geo-mode-auto').checked,
+    autoText: document.getElementById('geo-dlg-auto').textContent,
+    manualDisabled: document.getElementById('geo-lat').disabled,
+  }));
+  ok(dlg.autoChecked && dlg.manualDisabled, 'with nothing set the dialog must start on automatic with the fields off');
+  ok(dlg.autoText.length > 10, 'the automatic line is empty');
+  await page.click('#geo-mode-manual');
+  await page.evaluate(() => { document.getElementById('geo-lat').value = '35.68'; document.getElementById('geo-lon').value = '139.76'; document.getElementById('geo-label').value = 'Tokyo'; });
+  await page.click('#geo-save');
   await sleep(700);
   const after = await page.evaluate(() => ({
     set: document.getElementById('geo-card').dataset.set,
+    auto: document.getElementById('geo-card').dataset.auto,
     unsetShown: !document.getElementById('geo-unset').hidden,
+    open: !!document.querySelector('#geo-dialog[open]'),
   }));
-  ok(after.set === '1', 'the position was not saved from the dialog');
-  ok(!after.unsetShown, 'the unset note is still up after setting a position');
+  ok(after.set === '1' && after.auto === '0', 'the manual position was not saved from the dialog: ' + JSON.stringify(after));
+  ok(!after.unsetShown && !after.open, 'the unset note is still up, or the dialog still open, after setting a position');
+  // A bad point is refused in the dialog, without closing it.
+  await page.click('#geo-set');
+  await page.waitForSelector('#geo-dialog[open]', { timeout: 5000 });
+  const reopened = await page.evaluate(() => ({ manual: document.getElementById('geo-mode-manual').checked, lat: document.getElementById('geo-lat').value, label: document.getElementById('geo-label').value }));
+  ok(reopened.manual && reopened.lat === '35.68' && reopened.label === 'Tokyo', 'the dialog does not reopen on the saved manual position: ' + JSON.stringify(reopened));
+  await page.evaluate(() => { document.getElementById('geo-lat').value = '95'; });
+  await page.click('#geo-save');
+  await sleep(300);
+  const refused = await page.evaluate(() => ({ err: !document.getElementById('geo-dlg-err').hidden, open: !!document.querySelector('#geo-dialog[open]') }));
+  ok(refused.err && refused.open, 'a point off the globe was not refused in the dialog');
+  await page.click('#geo-cancel');
   await feed(); await sleep(1200);
   const streamsLit = await lit();
   ok(streamsLit > sourcesLit, `streams did not paint after the position was set (${sourcesLit} -> ${streamsLit})`);
-  // The setting survives a reload and a bad point is refused with a message.
+  // The setting survives a reload; back to automatic through the dialog
+  // (nothing to work out here, so the card says the position is unknown).
   await page.reload({ waitUntil: 'networkidle2' });
   const kept = await page.evaluate(() => document.getElementById('geo-card').dataset.label);
   ok(kept === 'Tokyo', 'the position did not survive a reload: ' + kept);
+  await page.click('#geo-set');
+  await page.waitForSelector('#geo-dialog[open]', { timeout: 5000 });
+  await page.click('#geo-mode-auto');
+  await page.click('#geo-save');
+  await sleep(700);
+  const backAuto = await page.evaluate(() => ({ set: document.getElementById('geo-card').dataset.set, unsetShown: !document.getElementById('geo-unset').hidden }));
+  ok(backAuto.set === '0' && backAuto.unsetShown, 'switching back to automatic did not clear the setting: ' + JSON.stringify(backAuto));
+  await page.click('#geo-set');
+  await page.waitForSelector('#geo-dialog[open]', { timeout: 5000 });
+  await page.click('#geo-mode-manual');
+  await page.evaluate(() => { document.getElementById('geo-lat').value = '35.68'; document.getElementById('geo-lon').value = '139.76'; document.getElementById('geo-label').value = 'Tokyo'; });
+  await page.click('#geo-save');
+  await sleep(700);
   const bad = await page.evaluate(async base => {
     const r = await fetch(base + '/admin/api/map-location', { method: 'POST', credentials: 'same-origin', body: new URLSearchParams({ lat: '95', lon: '0', label: '' }) });
     return { status: r.status, body: await r.json() };

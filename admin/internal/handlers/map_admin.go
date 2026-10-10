@@ -185,6 +185,20 @@ func (h *Handler) AdminMapLocationSave(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": err.Error()})
 		return
 	}
+	// The effective position after the save: the setting, or, cleared, the
+	// worked-out one (with what the card says about it).
 	v := h.mapLocation()
-	_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "set": v.Set, "lat": v.Lat, "lon": v.Lon, "label": v.Label})
+	shown := v.Label
+	if v.Approx {
+		shown += " " + i18n.T(lang, "overview.map.approx")
+	}
+	out := map[string]any{"ok": true, "set": v.Set, "lat": v.Lat, "lon": v.Lon, "label": shown, "auto": v.Auto, "approx": v.Approx}
+	if v.Auto {
+		out["source"] = v.Source
+		out["note"] = i18n.Tf(lang, "overview.map.auto_note", i18n.T(lang, "overview.map.src_"+v.Source))
+		if v.Approx {
+			out["note"] = out["note"].(string) + " " + i18n.T(lang, "overview.map.approx_note")
+		}
+	}
+	_ = json.NewEncoder(w).Encode(out)
 }

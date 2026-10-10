@@ -324,7 +324,8 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
      data-map="{{ .BasePath }}/static/world-110m.json?v={{ assetv }}" data-flags="{{ .BasePath }}/static/flags/"
      data-save="{{ .BasePath }}/admin/api/map-location"
      data-set="{{ if .MapLoc.Set }}1{{ else }}0{{ end }}" data-lat="{{ .MapLoc.Lat }}" data-lon="{{ .MapLoc.Lon }}" data-label="{{ .MapLoc.Label }}{{ if .MapLoc.Approx }} {{ t .Lang "overview.map.approx" }}{{ end }}" data-auto="{{ if .MapLoc.Auto }}1{{ else }}0{{ end }}"
-     data-txt-server="{{ t .Lang "overview.map.server" }}" data-txt-title="{{ t .Lang "overview.map.set_title" }}" data-txt-msg="{{ t .Lang "overview.map.set_msg" }}">
+     data-auto-set="{{ if .MapAuto.Set }}1{{ else }}0{{ end }}" data-auto-lat="{{ .MapAuto.Lat }}" data-auto-lon="{{ .MapAuto.Lon }}" data-auto-label="{{ .MapAuto.Label }}{{ if .MapAuto.Approx }} {{ t .Lang "overview.map.approx" }}{{ end }}" data-auto-source="{{ .MapAuto.Source }}"
+     data-txt-server="{{ t .Lang "overview.map.server" }}" data-txt-src-interface="{{ t .Lang "overview.map.src_interface" }}" data-txt-src-hub="{{ t .Lang "overview.map.src_hub" }}">
   <h2 class="pipe-h">{{ t .Lang "overview.map.h" }}<small>{{ t .Lang "overview.map.sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.map.help" }}</span></span>{{ if .CanEditMap }}<button type="button" class="live-tg" id="geo-set" style="margin-left:auto">{{ t .Lang "overview.map.set" }}</button>{{ end }}</h2>
   <div class="geo-wrap"><canvas id="geo" aria-label="{{ t .Lang "overview.map.h" }}" role="img"></canvas></div>
   <p class="live-note" id="geo-unset" style="margin:.4rem 0 0"{{ if .MapLoc.Set }} hidden{{ end }}>{{ t .Lang "overview.map.unset" }}</p>
@@ -332,6 +333,34 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   <p class="live-note" id="geo-nogeo" style="margin:.4rem 0 0"{{ if .GeoKnown }} hidden{{ end }}>{{ t .Lang "overview.map.nogeo" }}</p>
   <div class="geo-foot"><span><i style="background:#94a3b8"></i>{{ t .Lang "overview.map.legend_pass" }}</span><span><i style="background:#f87171"></i>{{ t .Lang "overview.map.legend_serve" }}</span><span><i style="background:#b91c1c"></i>{{ t .Lang "overview.map.legend_deny" }}</span><span><i style="background:#818cf8"></i>{{ t .Lang "overview.map.legend_bypass" }}</span><span class="geo-top" id="geo-top" data-txt="{{ t .Lang "overview.map.top" }}"></span></div>
 </div>
+{{ if .CanEditMap }}
+{{/* The position setting: automatic (what the server works out from its
+     own address, shown as it stands) or by hand.  Its own dialog rather than
+     the shared prompt, since it is a choice with fields, not one line. */}}
+<dialog id="geo-dialog" class="ux-dialog" aria-labelledby="geo-dialog-title">
+  <form method="dialog" id="geo-form">
+    <h3 id="geo-dialog-title">{{ t .Lang "overview.map.set_title" }}</h3>
+    <label style="display:flex;gap:.5rem;align-items:flex-start;font-size:.9rem;cursor:pointer">
+      <input type="radio" name="geo-mode" value="auto" id="geo-mode-auto" style="margin-top:.3rem">
+      <span><b>{{ t .Lang "overview.map.dlg_auto" }}</b><br><span id="geo-dlg-auto" style="font-size:.8rem;color:#475569"></span></span>
+    </label>
+    <label style="display:flex;gap:.5rem;align-items:flex-start;font-size:.9rem;cursor:pointer">
+      <input type="radio" name="geo-mode" value="manual" id="geo-mode-manual" style="margin-top:.3rem">
+      <span><b>{{ t .Lang "overview.map.dlg_manual" }}</b></span>
+    </label>
+    <div id="geo-manual" style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem .75rem;padding-left:1.6rem">
+      <label style="font-size:.78rem;color:#475569">{{ t .Lang "overview.map.dlg_lat" }}<input type="text" id="geo-lat" inputmode="decimal" placeholder="35.68"></label>
+      <label style="font-size:.78rem;color:#475569">{{ t .Lang "overview.map.dlg_lon" }}<input type="text" id="geo-lon" inputmode="decimal" placeholder="139.76"></label>
+      <label style="font-size:.78rem;color:#475569;grid-column:1 / span 2">{{ t .Lang "overview.map.dlg_label" }}<input type="text" id="geo-label" placeholder="Tokyo" data-maxchars="80" data-maxchars-msg="{{ tf .Lang "err.value_long" 80 }}"></label>
+    </div>
+    <p id="geo-dlg-err" style="margin:0;font-size:.8rem;color:#b91c1c" hidden></p>
+    <div class="ux-dialog-actions">
+      <button type="button" class="ux-dialog-btn" id="geo-cancel">{{ t .Lang "dialog.cancel" }}</button>
+      <button type="submit" class="ux-dialog-btn primary" id="geo-save">{{ t .Lang "overview.map.dlg_save" }}</button>
+    </div>
+  </form>
+</dialog>
+{{ end }}
 {{ end }}
 
 {{- /* Host filtering is unified into the shared host_picker in the top bar (old host-filter-bar removed). */ -}}
@@ -1088,30 +1117,60 @@ unmaskInitComp();
   var rt = null;
   window.addEventListener('resize', function(){ clearTimeout(rt); rt = setTimeout(function(){ fit(); if (reduce) { running = false; start(); } }, 150); });
 
-  var btn = document.getElementById('geo-set');
-  if (btn && window.unmaskDialog) {
+  var btn = document.getElementById('geo-set'), dlg = document.getElementById('geo-dialog');
+  function applySaved(j){
+    loc = { set: !!j.set, lat: j.lat || 0, lon: j.lon || 0, label: j.label || '' };
+    card.dataset.set = loc.set ? '1' : '0';
+    card.dataset.auto = j.auto ? '1' : '0';
+    var note = document.getElementById('geo-unset'); if (note) note.hidden = loc.set;
+    var auto = document.getElementById('geo-auto');
+    if (j.auto && j.note) {
+      if (!auto) { auto = document.createElement('p'); auto.id = 'geo-auto'; auto.className = 'meta'; auto.style.cssText = 'margin:.4rem 0 0;font-size:.78rem'; (note || card).insertAdjacentElement(note ? 'afterend' : 'beforeend', auto); }
+      auto.textContent = j.note; auto.hidden = false;
+    } else if (auto) { auto.hidden = true; }
+    setServer(); rebuild(); parts = []; if (reduce) { running = false; } start();
+  }
+  if (btn && dlg && typeof dlg.showModal === 'function') {
+    var form = document.getElementById('geo-form'), err = document.getElementById('geo-dlg-err');
+    var modeAuto = document.getElementById('geo-mode-auto'), modeManual = document.getElementById('geo-mode-manual');
+    var manual = document.getElementById('geo-manual'), latEl = document.getElementById('geo-lat'), lonEl = document.getElementById('geo-lon'), labelEl = document.getElementById('geo-label');
+    function syncMode(){ var m = modeManual.checked; manual.style.opacity = m ? '1' : '.45'; latEl.disabled = lonEl.disabled = labelEl.disabled = !m; }
+    modeAuto.addEventListener('change', syncMode); modeManual.addEventListener('change', syncMode);
     btn.addEventListener('click', function(){
-      var cur = loc.set ? (loc.lat + ', ' + loc.lon + (loc.label ? ', ' + loc.label : '')) : '';
-      unmaskDialog.prompt({ title: card.dataset.txtTitle, message: card.dataset.txtMsg, value: cur, placeholder: '35.68, 139.76, Tokyo' }).then(function(v){
-        if (v === null) return;
-        var parts3 = String(v).split(','), body = new URLSearchParams();
-        var lat = (parts3[0] || '').trim(), lon = (parts3[1] || '').trim(), label = parts3.slice(2).join(',').trim();
-        if (lat || lon) { body.set('lat', lat); body.set('lon', lon); }
-        body.set('label', label);
-        fetch(card.dataset.save, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }, body: body })
-          .then(function(r){ return r.json().then(function(j){ if (!r.ok || !j.ok) throw new Error(j.error || r.status); return j; }); })
-          .then(function(j){
-            loc = { set: !!j.set, lat: j.lat || 0, lon: j.lon || 0, label: j.label || '' };
-            card.dataset.set = loc.set ? '1' : '0';
-            var note = document.getElementById('geo-unset'); if (note) note.hidden = loc.set;
-            // A setting replaces the worked-out position; clearing it brings
-            // that back only on the next load, so the note just goes.
-            var auto = document.getElementById('geo-auto'); if (auto) auto.hidden = true;
-            card.dataset.auto = '0';
-            setServer(); rebuild(); parts = []; if (reduce) { running = false; } start();
-          })
-          .catch(function(err){ unmaskDialog.error(err && err.message ? err.message : String(err)); });
-      });
+      // The automatic line: what the server works out right now, and from what.
+      var autoEl = document.getElementById('geo-dlg-auto');
+      if (card.dataset.autoSet === '1') {
+        var src = card.dataset.autoSource === 'hub' ? card.dataset.txtSrcHub : card.dataset.txtSrcInterface;
+        autoEl.textContent = {{ tf .Lang "overview.map.dlg_auto_now" "%s" }}.replace('%s', card.dataset.autoLabel + ' (' + card.dataset.autoLat + ', ' + card.dataset.autoLon + ')') + ' · ' + {{ tf .Lang "overview.map.dlg_auto_from" "%s" }}.replace('%s', src);
+      } else {
+        autoEl.textContent = {{ t .Lang "overview.map.dlg_auto_none" }};
+      }
+      var isManual = card.dataset.auto !== '1' && loc.set;
+      modeManual.checked = isManual; modeAuto.checked = !isManual;
+      latEl.value = isManual ? String(loc.lat) : (card.dataset.autoSet === '1' ? card.dataset.autoLat : '');
+      lonEl.value = isManual ? String(loc.lon) : (card.dataset.autoSet === '1' ? card.dataset.autoLon : '');
+      labelEl.value = isManual ? loc.label : '';
+      err.hidden = true; syncMode();
+      dlg.showModal();
+    });
+    document.getElementById('geo-cancel').addEventListener('click', function(){ dlg.close(); });
+    form.addEventListener('submit', function(ev){
+      ev.preventDefault();
+      var body = new URLSearchParams();
+      if (modeManual.checked) {
+        var lat = parseFloat(latEl.value), lon = parseFloat(lonEl.value);
+        if (!(lat >= -90 && lat <= 90) || !(lon >= -180 && lon <= 180)) { err.textContent = {{ t .Lang "overview.map.err_point" }}; err.hidden = false; return; }
+        if (window.unmaskMaxChars && unmaskMaxChars.check && unmaskMaxChars.check(labelEl) === false) return;
+        body.set('lat', latEl.value.trim()); body.set('lon', lonEl.value.trim()); body.set('label', labelEl.value.trim());
+      } else {
+        body.set('lat', ''); body.set('lon', ''); body.set('label', '');
+      }
+      document.getElementById('geo-save').disabled = true;
+      fetch(card.dataset.save, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }, body: body })
+        .then(function(r){ return r.json().then(function(j){ if (!r.ok || !j.ok) throw new Error(j.error || r.status); return j; }); })
+        .then(function(j){ dlg.close(); applySaved(j); })
+        .catch(function(e){ err.textContent = e && e.message ? e.message : String(e); err.hidden = false; })
+        .then(function(){ document.getElementById('geo-save').disabled = false; });
     });
   }
 
