@@ -70,11 +70,14 @@ func customRuleDraft(q url.Values, lang i18n.Lang) *customRuleView {
 			r.ASNs = append(r.ASNs, uint32(n))
 		}
 	}
-	if !settings.IsValidCustomRuleAction(r.Action) {
-		r.Action = settings.GeoActionCaptchaOnly
-	}
 	if n, err := strconv.Atoi(q.Get("rate")); err == nil && n > 0 {
 		r.RatePerMin = n
+		if r.Action == "" {
+			r.Action = settings.CustomRuleRateLimit
+		}
+	}
+	if !settings.IsValidCustomRuleAction(r.Action) {
+		r.Action = settings.GeoActionCaptchaOnly
 	}
 	v := customRuleViewOf(r, lang)
 	v.Draft = true
@@ -154,14 +157,14 @@ func applyCustomRulesForm(dst *[]settings.CustomRule, r *http.Request) error {
 			a = strings.TrimPrefix(strings.ToUpper(a), "AS")
 			n, err := strconv.ParseUint(a, 10, 32)
 			if err != nil || n == 0 {
-				return fmt.Errorf("rule %q: %q is not an AS number", rule.Label, a)
+				return fmt.Errorf("%s: %q is not an AS number", customRuleRef(i, rule.Label), a)
 			}
 			rule.ASNs = append(rule.ASNs, uint32(n))
 		}
 		if v := strings.TrimSpace(at("cr_rate", i)); v != "" {
 			n, err := strconv.Atoi(v)
 			if err != nil || n < 0 {
-				return fmt.Errorf("rule %q: the rate must be a number of requests per minute", rule.Label)
+				return fmt.Errorf("%s: the rate must be a number of requests per minute", customRuleRef(i, rule.Label))
 			}
 			rule.RatePerMin = n
 		}
@@ -169,11 +172,11 @@ func applyCustomRulesForm(dst *[]settings.CustomRule, r *http.Request) error {
 			rule.ID = "cr" + strconv.FormatInt(now, 36) + strconv.Itoa(i)
 		}
 		if seen[rule.ID] {
-			return fmt.Errorf("rule %q: duplicate id %s", rule.Label, rule.ID)
+			return fmt.Errorf("%s: duplicate id %s", customRuleRef(i, rule.Label), rule.ID)
 		}
 		seen[rule.ID] = true
 		if err := settings.NormalizeCustomRule(&rule); err != nil {
-			return err
+			return fmt.Errorf("%s: %w", customRuleRef(i, rule.Label), err)
 		}
 		// The dates: the stored rule's when it is known (an edit stamps
 		// UpdatedAt here, not in the browser), else the ones the form
@@ -195,6 +198,15 @@ func applyCustomRulesForm(dst *[]settings.CustomRule, r *http.Request) error {
 	}
 	*dst = out
 	return nil
+}
+
+// customRuleRef names a rule in an error: its position on the tab, and its
+// memo when it has one.
+func customRuleRef(i int, memo string) string {
+	if memo = strings.TrimSpace(memo); memo != "" {
+		return fmt.Sprintf("rule %d (%s)", i+1, memo)
+	}
+	return fmt.Sprintf("rule %d", i+1)
 }
 
 func customRuleSame(a, b settings.CustomRule) bool {

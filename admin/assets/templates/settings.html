@@ -46,8 +46,9 @@
             <option value="captcha_only"{{ if eq .Action "captcha_only" }} selected{{ end }}>{{ t .Lang "settings.cr.act_captcha_only" }}</option>
             <option value="pow_then_captcha"{{ if eq .Action "pow_then_captcha" }} selected{{ end }}>{{ t .Lang "settings.cr.act_pow_then_captcha" }}</option>
             <option value="deny"{{ if eq .Action "deny" }} selected{{ end }}>{{ t .Lang "settings.cr.act_deny" }}</option>
+            <option value="rate_limit"{{ if eq .Action "rate_limit" }} selected{{ end }}>{{ t .Lang "settings.cr.act_rate_limit" }}</option>
           </select></label>
-          <label>{{ t .Lang "settings.cr.f_rate" }}<input type="number" name="cr_rate" min="0" value="{{ if gt .RatePerMin 0 }}{{ .RatePerMin }}{{ end }}" placeholder="{{ t .Lang "settings.cr.rate_ph" }}"></label>
+          <label class="cr-rate"{{ if ne .Action "rate_limit" }} hidden{{ end }}>{{ t .Lang "settings.cr.f_rate" }}<input type="number" name="cr_rate" min="1" value="{{ if gt .RatePerMin 0 }}{{ .RatePerMin }}{{ end }}" placeholder="{{ t .Lang "settings.cr.rate_ph" }}"></label>
         </div>
       </div>
 {{ end }}
@@ -4154,6 +4155,9 @@ function secToHuman(s){
   if (!list || !tpl || !add) return;
   function wire(card){
     var cb = card.querySelector('.cr-enabled-cb'), hid = card.querySelector('input[name=cr_enabled]');
+    // The requests-per-minute field belongs to the rate-limit action alone.
+    var act = card.querySelector('select[name=cr_action]'), rate = card.querySelector('.cr-rate');
+    if (act && rate) act.addEventListener('change', function(){ rate.hidden = act.value !== 'rate_limit'; if (!rate.hidden) { var n = rate.querySelector('input'); if (n) n.focus(); } });
     cb.addEventListener('change', function(){ hid.value = cb.checked ? '1' : '0'; card.classList.toggle('disabled-row', !cb.checked); });
     card.querySelector('.cr-remove').addEventListener('click', function(){ card.remove(); });
     card.querySelector('.cr-up').addEventListener('click', function(){ var p = card.previousElementSibling; if (p && p.hasAttribute('data-cr')) list.insertBefore(card, p); });

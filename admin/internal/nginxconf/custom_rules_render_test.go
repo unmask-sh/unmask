@@ -54,7 +54,7 @@ func TestCustomRulesRender(t *testing.T) {
 	var s settings.Settings
 	s.Nginx.CustomRules = []settings.CustomRule{
 		{ID: "cr1", Label: "scraper", Enabled: true, JA4s: []string{"t13d1516h2_8daaf6152771_b0da82dd1658", "t13d*"}, UA: `python-requests|scrapy`, Path: `^/search\?`, Hosts: []string{"shop.example.jp"}, Action: settings.GeoActionCaptchaOnly},
-		{ID: "cr2", Label: "burst", Enabled: true, IPs: []string{"203.0.113.0/24", "198.51.100.7"}, Action: settings.CustomRuleMonitor, RatePerMin: 30},
+		{ID: "cr2", Label: "burst", Enabled: true, IPs: []string{"203.0.113.0/24", "198.51.100.7"}, Action: settings.CustomRuleRateLimit, RatePerMin: 30},
 		{ID: "cr3", Label: "deny", Enabled: true, IPs: []string{"192.0.2.0/24"}, Action: settings.GeoActionDeny},
 		{ID: "cr4", Label: "off", Enabled: false, IPs: []string{"192.0.2.9"}, Action: settings.GeoActionDeny},
 		{ID: "cr5", Label: "count", Enabled: true, UA: `"quoted"`, Action: settings.CustomRuleMonitor},
@@ -68,7 +68,7 @@ func TestCustomRulesRender(t *testing.T) {
 		"map $host $unmask_cr_1_host {\n    default 0;\n    \"shop.example.jp\" 1;\n}",
 		"map \"$unmask_cr_1_ja4:$unmask_cr_1_ua:$unmask_cr_1_path:$unmask_cr_1_host\" $unmask_cr_1 {\n    default 0;\n    \"1:1:1:1\" 1;\n}",
 		"map $unmask_cr_1 $unmask_cr_1_pick {\n    default $unmask_cr_2_pick;\n    \"1\"     \"cr1\";\n}",
-		// rule 2: addresses, a throttle (no action entry)
+		// rule 2: addresses, a throttle (the rate_limit action: a zone, no action entry)
 		"geo $remote_addr $unmask_cr_2_ip {\n    default 0;\n    203.0.113.0/24 1;\n    198.51.100.7 1;\n}",
 		"map \"$is_search_bot:$is_bypass_ip:$unmask_cr_2\" $crrate_2_key {",
 		"limit_req_zone $crrate_2_key zone=crrate_2:10m rate=30r/m;",

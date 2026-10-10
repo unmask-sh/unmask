@@ -1052,10 +1052,10 @@ func customRulesRender(s settings.Settings) (rules []CustomRuleRender, zones []C
 		cr.Keys = strings.Join(keys, ":")
 		cr.Match = strings.TrimSuffix(strings.Repeat("1:", len(keys)), ":")
 		switch {
-		case r.RatePerMin > 0:
+		case r.Action == settings.CustomRuleRateLimit && r.RatePerMin > 0:
 			name := fmt.Sprintf("crrate_%d", i+1)
 			zones = append(zones, CustomRuleRateZoneRender{Var: v, KeyVar: "$" + name + "_key", ZoneName: name, RequestsPerMin: r.RatePerMin, Burst: r.RatePerMin})
-		case r.Action != settings.CustomRuleMonitor:
+		case r.Action != settings.CustomRuleMonitor && r.Action != settings.CustomRuleRateLimit:
 			cr.Action = r.Action
 		}
 		rules = append(rules, cr)

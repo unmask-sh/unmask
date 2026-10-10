@@ -60,7 +60,12 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   await page.type('#cr-list [data-cr] input[name="cr_asns"]', 'AS4134');
   await page.type('#cr-list [data-cr] input[name="cr_ua"]', 'python-requests|scrapy');
   await page.type('#cr-list [data-cr] input[name="cr_path"]', '^/search');
-  await page.select('#cr-list [data-cr] select[name="cr_action"]', 'pow_then_captcha');
+  // The requests-per-minute field shows only for the rate-limit action.
+  const rateHidden = await page.evaluate(() => document.querySelector('#cr-list [data-cr] .cr-rate').hidden);
+  ok(rateHidden === true, 'the rate field shows for an action that does not use it');
+  await page.select('#cr-list [data-cr] select[name="cr_action"]', 'rate_limit');
+  const rateShown = await page.evaluate(() => !document.querySelector('#cr-list [data-cr] .cr-rate').hidden);
+  ok(rateShown, 'choosing the rate-limit action did not show the rate field');
   await page.type('#cr-list [data-cr] input[name="cr_rate"]', '30');
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'networkidle2' }),
@@ -74,6 +79,7 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     return {
       id: v('cr_id'), label: v('cr_label'), ips: v('cr_ips'), ja4s: v('cr_ja4s'), cc: v('cr_countries'), asns: v('cr_asns'),
       ua: v('cr_ua'), path: v('cr_path'), action: v('cr_action'), rate: v('cr_rate'), enabled: v('cr_enabled'),
+      rateVisible: !(row.querySelector('.cr-rate') || {}).hidden,
       rows: document.querySelectorAll('#cr-list [data-cr]').length,
       hits: (row.querySelector('.cr-hits') || {}).textContent || '',
       banner: (document.querySelector('.saved, .flash, .alert-ok, [data-saved]') || {}).textContent || '',
@@ -88,7 +94,8 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     ok(saved.cc === 'CN', `country came back as ${saved.cc}`);
     ok(saved.asns === '4134', `asn came back as ${saved.asns}`);
     ok(saved.ua === 'python-requests|scrapy' && saved.path === '^/search', `ua/path came back as ${saved.ua} / ${saved.path}`);
-    ok(saved.action === 'pow_then_captcha' && saved.rate === '30' && saved.enabled === '1', `action/rate/enabled came back as ${saved.action}/${saved.rate}/${saved.enabled}`);
+    ok(saved.action === 'rate_limit' && saved.rate === '30' && saved.enabled === '1', `action/rate/enabled came back as ${saved.action}/${saved.rate}/${saved.enabled}`);
+    ok(saved.rateVisible === true, 'the saved rate-limit rule hides its rate field');
     ok(saved.hits.length > 0, 'the hit count cell is empty');
   }
 

@@ -133,7 +133,7 @@ func (d Deps) List() []Tool {
 			Schema: obj(map[string]any{})},
 		{Name: "propose_custom_rule", Description: "Proposes a custom rule for the operator to review: several conditions that must all hold (addresses, JA4 fingerprints, countries, networks by AS number, a user-agent regex, a path regex, hosts) and one action.  Validates the rule and returns create_path, the admin page with the rule filled in; the operator saves it there.  Nothing is changed by this call.",
 			Schema: obj(map[string]any{
-				"label":        map[string]any{"type": "string", "description": "a short name for the rule (what it catches)"},
+				"label":        map[string]any{"type": "string", "description": "an optional note on the rule (what it catches, why)"},
 				"ips":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "addresses or CIDR ranges"},
 				"ja4s":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "JA4 fingerprints; a trailing * matches a prefix"},
 				"countries":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "ISO 3166 two-letter country codes"},
@@ -141,9 +141,9 @@ func (d Deps) List() []Tool {
 				"ua":           map[string]any{"type": "string", "description": "a case-insensitive regex over the user agent"},
 				"path":         map[string]any{"type": "string", "description": "a regex over the request path and query"},
 				"hosts":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "host names on a multi-site install"},
-				"action":       map[string]any{"type": "string", "enum": []string{"monitor", "pow_only", "captcha_only", "pow_then_captcha", "deny"}, "description": "monitor counts only; deny answers 403"},
-				"rate_per_min": map[string]any{"type": "integer", "minimum": 1, "description": "instead of the action on every match: allow this many requests per minute per address and rate-limit the rest"},
-			}, "label", "action")},
+				"action":       map[string]any{"type": "string", "enum": []string{"monitor", "pow_only", "captcha_only", "pow_then_captcha", "deny", "rate_limit"}, "description": "monitor counts only; deny answers 403; rate_limit allows rate_per_min requests per minute per address and rate-limits the rest"},
+				"rate_per_min": map[string]any{"type": "integer", "minimum": 1, "description": "with action rate_limit: the requests per minute allowed per address"},
+			}, "action")},
 	}
 }
 
@@ -277,9 +277,6 @@ func proposeCustomRule(args map[string]any) (any, error) {
 	if v, ok := args["rate_per_min"].(float64); ok && v > 0 {
 		r.RatePerMin = int(v)
 	}
-	if r.Label == "" {
-		return nil, errors.New("label is required: a short name for the rule")
-	}
 	if err := settings.NormalizeCustomRule(&r); err != nil {
 		return nil, err
 	}
@@ -287,7 +284,7 @@ func proposeCustomRule(args map[string]any) (any, error) {
 		"rule":        r,
 		"create_path": "/admin/settings/custom-rules/" + settings.CustomRuleDraftQuery(r),
 		"note": "Nothing was changed.  create_path opens the custom-rules tab with this rule filled in as an unsaved draft; the operator reviews and saves it, and it takes effect after the nginx configuration is rendered and reloaded.  " +
-			"Put create_path in your answer on a line of its own.  All conditions must hold at once (AND); a rule with a rate_per_min throttles instead of acting on every match.",
+			"Put create_path in your answer on a line of its own.  All conditions must hold at once (AND); OR is several values in one field or a rule of its own.  The rate_limit action throttles per address instead of acting on every match.",
 	}, nil
 }
 

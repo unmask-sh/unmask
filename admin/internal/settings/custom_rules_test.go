@@ -10,8 +10,20 @@ func TestNormalizeCustomRule(t *testing.T) {
 	if err := NormalizeCustomRule(&r); err != nil {
 		t.Fatal(err)
 	}
-	if r.ID != "cr1" || r.Label != "x" || len(r.IPs) != 2 || r.JA4s[0] != "t13d*" || r.Countries[0] != "JP" || len(r.ASNs) != 1 || r.Hosts[0] != "example.com" || r.RatePerMin != 1_000_000 {
+	// The rate belongs to the rate_limit action: any other action drops it.
+	if r.ID != "cr1" || r.Label != "x" || len(r.IPs) != 2 || r.JA4s[0] != "t13d*" || r.Countries[0] != "JP" || len(r.ASNs) != 1 || r.Hosts[0] != "example.com" || r.RatePerMin != 0 {
 		t.Errorf("normalised: %+v", r)
+	}
+	rl := CustomRule{Action: CustomRuleRateLimit, IPs: []string{"203.0.113.5"}, RatePerMin: 2_000_000}
+	if err := NormalizeCustomRule(&rl); err != nil || rl.RatePerMin != 1_000_000 {
+		t.Errorf("rate limit: %v %+v", err, rl)
+	}
+	if err := NormalizeCustomRule(&CustomRule{Action: CustomRuleRateLimit, IPs: []string{"203.0.113.5"}}); err == nil {
+		t.Error("a rate limit without a rate was accepted")
+	}
+	// A memo is optional.
+	if err := NormalizeCustomRule(&CustomRule{Action: "deny", IPs: []string{"203.0.113.5"}}); err != nil {
+		t.Errorf("a rule without a memo: %v", err)
 	}
 	for name, bad := range map[string]CustomRule{
 		"no condition": {Action: "deny"},
@@ -25,8 +37,8 @@ func TestNormalizeCustomRule(t *testing.T) {
 		b := bad
 		if err := NormalizeCustomRule(&b); err == nil {
 			t.Errorf("%s: accepted %+v", name, b)
-		} else if !strings.Contains(err.Error(), "rule") {
-			t.Errorf("%s: the error does not name the rule: %v", name, err)
+		} else if strings.TrimSpace(err.Error()) == "" {
+			t.Errorf("%s: an empty error", name)
 		}
 	}
 	var n Nginx

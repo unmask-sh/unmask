@@ -41,6 +41,7 @@ package settings
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -1444,10 +1445,14 @@ type CustomRule struct {
 // CustomRuleMonitor is the action that only counts.
 const CustomRuleMonitor = "monitor"
 
+// CustomRuleRateLimit: the rule throttles (RatePerMin per address) instead
+// of acting on every match; the overflow gets the rate-limit answer.
+const CustomRuleRateLimit = "rate_limit"
+
 // IsValidCustomRuleAction: the actions a custom rule may carry.
 func IsValidCustomRuleAction(a string) bool {
 	switch a {
-	case CustomRuleMonitor, GeoActionPoWOnly, GeoActionCaptchaOnly, GeoActionPoWThenCaptcha, GeoActionDeny:
+	case CustomRuleMonitor, GeoActionPoWOnly, GeoActionCaptchaOnly, GeoActionPoWThenCaptcha, GeoActionDeny, CustomRuleRateLimit:
 		return true
 	}
 	return false
@@ -1484,13 +1489,18 @@ func NormalizeCustomRule(r *CustomRule) error {
 	r.Label = strings.TrimSpace(r.Label)
 	r.Action = strings.TrimSpace(r.Action)
 	if !IsValidCustomRuleAction(r.Action) {
-		return fmt.Errorf("rule %q: action %q is not one of monitor, pow_only, captcha_only, pow_then_captcha, deny", r.Label, r.Action)
+		return fmt.Errorf("action %q is not one of monitor, pow_only, captcha_only, pow_then_captcha, deny, rate_limit", r.Action)
 	}
-	if r.RatePerMin < 0 {
+	// The rate belongs to the rate_limit action alone: one rule, one answer.
+	if r.Action == CustomRuleRateLimit {
+		if r.RatePerMin < 1 {
+			return errors.New("a rate limit needs the requests per minute")
+		}
+		if r.RatePerMin > 1_000_000 {
+			r.RatePerMin = 1_000_000
+		}
+	} else {
 		r.RatePerMin = 0
-	}
-	if r.RatePerMin > 1_000_000 {
-		r.RatePerMin = 1_000_000
 	}
 	ips := r.IPs[:0]
 	for _, v := range r.IPs {
@@ -1500,10 +1510,10 @@ func NormalizeCustomRule(r *CustomRule) error {
 		}
 		if !strings.Contains(v, "/") {
 			if net.ParseIP(v) == nil {
-				return fmt.Errorf("rule %q: %q is not an address or CIDR", r.Label, v)
+				return fmt.Errorf("%q is not an address or CIDR", v)
 			}
 		} else if _, _, err := net.ParseCIDR(v); err != nil {
-			return fmt.Errorf("rule %q: %q is not an address or CIDR", r.Label, v)
+			return fmt.Errorf("%q is not an address or CIDR", v)
 		}
 		ips = append(ips, v)
 	}
@@ -1515,7 +1525,7 @@ func NormalizeCustomRule(r *CustomRule) error {
 			continue
 		}
 		if !customRuleJA4RE.MatchString(v) {
-			return fmt.Errorf("rule %q: %q is not a JA4 fingerprint (a trailing * matches a prefix)", r.Label, v)
+			return fmt.Errorf("%q is not a JA4 fingerprint (a trailing * matches a prefix)", v)
 		}
 		ja4s = append(ja4s, v)
 	}
@@ -1527,7 +1537,7 @@ func NormalizeCustomRule(r *CustomRule) error {
 			continue
 		}
 		if !customRuleCCRE.MatchString(v) {
-			return fmt.Errorf("rule %q: %q is not a two-letter country code", r.Label, v)
+			return fmt.Errorf("%q is not a two-letter country code", v)
 		}
 		ccs = append(ccs, v)
 	}
@@ -1543,13 +1553,13 @@ func NormalizeCustomRule(r *CustomRule) error {
 	r.UA = strings.TrimSpace(r.UA)
 	if r.UA != "" {
 		if _, err := regexp.Compile("(?i)" + r.UA); err != nil {
-			return fmt.Errorf("rule %q: user-agent pattern: %v", r.Label, err)
+			return fmt.Errorf("user-agent pattern: %v", err)
 		}
 	}
 	r.Path = strings.TrimSpace(r.Path)
 	if r.Path != "" {
 		if _, err := regexp.Compile(r.Path); err != nil {
-			return fmt.Errorf("rule %q: path pattern: %v", r.Label, err)
+			return fmt.Errorf("path pattern: %v", err)
 		}
 	}
 	hosts := r.Hosts[:0]
@@ -1559,13 +1569,13 @@ func NormalizeCustomRule(r *CustomRule) error {
 			continue
 		}
 		if !customRuleHostRE.MatchString(v) {
-			return fmt.Errorf("rule %q: %q is not a host name", r.Label, v)
+			return fmt.Errorf("%q is not a host name", v)
 		}
 		hosts = append(hosts, v)
 	}
 	r.Hosts = hosts
 	if !r.HasCondition() {
-		return fmt.Errorf("rule %q: at least one condition is needed", r.Label)
+		return errors.New("at least one condition is needed")
 	}
 	return nil
 }

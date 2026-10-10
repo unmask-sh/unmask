@@ -159,8 +159,16 @@ func TestProposeCustomRule(t *testing.T) {
 	if _, err := d.Run(ctx, "propose_custom_rule", map[string]any{"label": "x", "action": "deny"}); err == nil {
 		t.Error("a rule without a condition must be refused")
 	}
-	if _, err := d.Run(ctx, "propose_custom_rule", map[string]any{"ips": []any{"203.0.113.1"}, "action": "deny"}); err == nil {
-		t.Error("a rule without a label must be refused")
+	// The note is optional; a rate limit needs its rate.
+	if _, err := d.Run(ctx, "propose_custom_rule", map[string]any{"ips": []any{"203.0.113.1"}, "action": "deny"}); err != nil {
+		t.Errorf("a rule without a note must be accepted: %v", err)
+	}
+	if _, err := d.Run(ctx, "propose_custom_rule", map[string]any{"ips": []any{"203.0.113.1"}, "action": "rate_limit"}); err == nil {
+		t.Error("a rate limit without a rate must be refused")
+	}
+	out, err = d.Run(ctx, "propose_custom_rule", map[string]any{"ips": []any{"203.0.113.1"}, "action": "rate_limit", "rate_per_min": float64(30)})
+	if err != nil || !strings.Contains(MarshalResult(out, 1<<20), "action=rate_limit") || !strings.Contains(MarshalResult(out, 1<<20), "rate=30") {
+		t.Errorf("rate limit proposal: %v %s", err, MarshalResult(out, 1<<20))
 	}
 	if n := d.Settings().Nginx.CustomRules; len(n) != 0 {
 		t.Errorf("the tool saved a rule: %+v", n)
