@@ -232,7 +232,7 @@ func TestAutoMapLocation(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.AdminLive(rec, req)
 	body := rec.Body.String()
-	for _, want := range []string{`data-auto="1"`, `id="geo-auto"`, `data-label="Japan (日本) (国の中心)"`, `id="geo-unset" style="margin:.4rem 0 0" hidden`, `data-auto-set="1"`, `data-auto-source="interface"`, `id="geo-dialog"`, `id="geo-mode-auto"`, `data-txt-from-hub="共有 BAN の hub が見た送信元アドレス"`} {
+	for _, want := range []string{`data-auto="1"`, `id="geo-auto"`, `data-label="Japan (日本) (国の中心)"`, `id="geo-unset" style="margin:.4rem 0 0" hidden`, `data-auto-set="1"`, `data-auto-source="interface"`, `id="geo-dialog"`, `id="geo-mode-auto"`, `data-txt-from-hub="外から見たこのサーバーのアドレス (インターフェースにグローバルアドレスが無いため、共有 BAN の hub が応答で返した値)"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %q", want)
 		}

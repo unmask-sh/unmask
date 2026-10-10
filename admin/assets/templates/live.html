@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>unmask · {{ t .Lang "live.title" }}</title>
+<title>unmask · {{ t .Lang "overview.title" }} · {{ t .Lang "overview.tab_live" }}</title>
 <link rel="icon" type="image/png" href="/unmask/static/icon.png">
 <link rel="apple-touch-icon" href="/unmask/static/icon.png">
 <meta name="robots" content="noindex, nofollow">
@@ -142,6 +142,10 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 /* The recent-detections card redraws its table every few seconds; a row that
    was not there before flashes green and settles. */
 .livebadge{display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;color:#16a34a;font-weight:600}
+.dash-tabs{display:flex;gap:.25rem;margin:0 0 .9rem;border-bottom:1px solid #e2e8f0}
+.dash-tabs a{padding:.4rem .9rem;color:#64748b;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;font-size:.92rem}
+.dash-tabs a:hover{color:#0f172a}
+.dash-tabs a.on{color:#0f172a;border-bottom-color:#0f172a;font-weight:600}
 .livebadge i{width:.5rem;height:.5rem;border-radius:50%;background:#16a34a;display:inline-block}
 /* A figure that changed on a refresh flashes briefly, so a reader watching
    the page sees which numbers moved. */
@@ -280,8 +284,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     unmask
   </a>
   <nav class="nav">
-    <a href="{{.BasePath}}/admin/">{{ t .Lang "nav.dashboard" }}</a>
-    <a href="{{.BasePath}}/admin/live/" class="active">{{ t .Lang "nav.live" }}</a>
+    <a href="{{.BasePath}}/admin/" class="active">{{ t .Lang "nav.dashboard" }}</a>
     <a href="{{.BasePath}}/admin/stats/">{{ t .Lang "nav.stats" }}</a>
     <a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
     <a href="{{.BasePath}}/admin/bans/">{{ t .Lang "nav.bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
@@ -291,7 +294,13 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   {{ template "header_tools" . }}
 </header>
 <main class="unmask-main">
-<h1>{{ t .Lang "live.title" }}</h1>
+<h1>{{ t .Lang "overview.title" }}</h1>
+{{/* The dashboard's two tabs: the day, and the last thirty minutes (this
+     page).  Links, so each has its own address and refresh loop. */}}
+<nav class="dash-tabs">
+  <a href="{{ .BasePath }}/admin/">{{ t .Lang "overview.tab_day" }}</a>
+  <a href="{{ .BasePath }}/admin/live/" class="on" aria-current="page">{{ t .Lang "overview.tab_live" }}</a>
+</nav>
 <p class="meta">{{ t .Lang "live.intro" }}</p>
 
 {{ if .LiveTiles }}

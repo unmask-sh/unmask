@@ -78,8 +78,11 @@ func TestAdminNowJSON(t *testing.T) {
 	if out.CountryNames["JP"] != "Japan (日本)" || out.CountryNames["US"] == "" || len(out.CountryNames) < len(out.Countries) {
 		t.Errorf("country_names = %v", out.CountryNames)
 	}
-	if out.Last30["requests"] != 4 || len(out.Minutes["requests"]) != 30 || out.Minutes["requests"][29] != 3 || out.Minutes["requests"][28] != 1 {
-		t.Errorf("thirty minutes: last30=%v minutes=%v", out.Last30, out.Minutes["requests"])
+	// The hit 70 s ago sits one or two minutes back, by where in the minute
+	// the reading was taken.
+	prevIdx := 29 - int(now.Unix()/60-(now.Unix()-70)/60)
+	if out.Last30["requests"] != 4 || len(out.Minutes["requests"]) != 30 || out.Minutes["requests"][29] != 3 || out.Minutes["requests"][prevIdx] != 1 {
+		t.Errorf("thirty minutes: last30=%v minutes=%v (70 s ago expected at %d)", out.Last30, out.Minutes["requests"], prevIdx)
 	}
 	if out.Countries30["US"].N != 1 || out.Countries30["JP"].N != 3 {
 		t.Errorf("countries30 = %v", out.Countries30)
@@ -185,8 +188,11 @@ func TestLivePageRendersStrip(t *testing.T) {
 			t.Errorf("the dashboard still carries %q", gone)
 		}
 	}
-	if !strings.Contains(page, `class="now-line"`) || !strings.Contains(page, `href="/unmask/admin/live/"`) {
-		t.Error("the dashboard lacks the line of now with its link to the realtime page")
+	if !strings.Contains(page, `class="now-line"`) || !strings.Contains(page, `href="/unmask/admin/live/"`) || !strings.Contains(page, `class="dash-tabs"`) {
+		t.Error("the dashboard lacks the tab bar or the line of now with its link to the realtime tab")
+	}
+	if !strings.Contains(body, `class="dash-tabs"`) || strings.Contains(body, `nav.live`) {
+		t.Error("the realtime tab must carry the tab bar and no nav entry of its own")
 	}
 	rec = httptest.NewRecorder()
 	h.AdminTopOverview(rec, httptest.NewRequest("GET", "/unmask/admin/?partial=day", nil))

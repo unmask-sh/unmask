@@ -16,7 +16,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- (2026-10-10) **Realtime moves to its own page and reads thirty minutes.**  The "right now" strip, the map of sources and the recent detections leave the dashboard for a Realtime page in the nav, as analytics products keep them apart.  Each tile shows the last thirty minutes with a bar a minute and the last minute under it; the map draws the same thirty.  The dashboard keeps a line of now, linking there.
+- (2026-10-10) **Realtime becomes a dashboard tab and reads thirty minutes.**  The "right now" strip, the map of sources and the recent detections leave the day's view for a Realtime tab beside it, as analytics products keep them apart.  Each tile shows the last thirty minutes with a bar a minute and the last minute under it; the map draws the same.  The day's tab keeps a line of now, linking there.
 
 ### Fixed
 
