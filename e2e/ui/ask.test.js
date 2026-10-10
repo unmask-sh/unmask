@@ -134,13 +134,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const released = await page.evaluate(() => !document.getElementById('ask-send').disabled);
   ok(released, 'the button stayed held after the answer');
 
-  // The latest turn survives a reload, under the composer, with a copy.
+  // A reload opens on the composer alone: the turn is the history tab's now.
   await page.reload({ waitUntil: 'networkidle2' });
-  const kept = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, link: (function(){ const a = document.querySelector('#turns .a .txt a'); return a ? a.getAttribute('href') : ''; })(), text: (document.querySelector('#turns .a .txt') || {}).textContent || '', pre: !!document.querySelector('#turns .a pre'), copy: !!document.querySelector('#turns .a .a-copy'), folded: !!document.querySelector('#turns .a.folded'), tabs: Array.from(document.querySelectorAll('.ask-tabs a')).map(a => a.textContent.trim()), composerFirst: (function(){ const c = document.querySelector('.composer'), t = document.getElementById('turns'); return !!c && !!t && c.compareDocumentPosition(t) === Node.DOCUMENT_POSITION_FOLLOWING; })() }));
-  ok(kept.turns === 1 && kept.text.indexOf('E2E-ANSWER') >= 0, 'the latest turn did not survive the reload: ' + JSON.stringify(kept));
-  ok(kept.pre, 'the server-rendered turn does not show the code fence as a block');
-  ok(kept.link === '/unmask/admin/bans/', 'the server-rendered turn does not link the admin path: ' + kept.link);
-  ok(kept.copy && !kept.folded, 'the latest turn must carry a copy and stay whole: ' + JSON.stringify(kept));
+  const kept = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, link: (function(){ const a = document.querySelector('#turns .a .txt a'); return a ? a.getAttribute('href') : ''; })(), text: (document.querySelector('#turns .a .txt') || {}).textContent || '', pre: !!document.querySelector('#turns .a pre'), copy: !!document.querySelector('#turns .a .a-copy'), folded: !!document.querySelector('#turns .a.folded'), tabs: Array.from(document.querySelectorAll('.ask-tabs a')).map(a => a.textContent.trim()), composerFirst: (function(){ const c = document.querySelector('.composer'), t = document.getElementById('turns'); return !!c && !!t && c.compareDocumentPosition(t) === Node.DOCUMENT_POSITION_FOLLOWING; })(), emptyNote: !!document.getElementById('ask-empty') }));
+  ok(kept.turns === 0 && !kept.emptyNote, 'the ask tab must open on the composer alone after a reload: ' + JSON.stringify(kept));
   ok(kept.tabs.length === 2 && kept.composerFirst, 'the two tabs or the composer-first layout are missing: ' + JSON.stringify(kept));
   if (process.env.UI_E2E_SHOT_DIR) {
     try { await page.screenshot({ path: path.join(process.env.UI_E2E_SHOT_DIR, 'ask.png'), fullPage: true }); } catch (e) {}
@@ -151,8 +148,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   // delete removes the one turn after the dialog.
   resp = await page.goto(BASE + '/admin/ask/history/', { waitUntil: 'networkidle2' });
   ok(resp.status() === 200, `/admin/ask/history/ status ${resp.status()}`);
-  const hist = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, folded: !!document.querySelector('#turns .a.folded'), toggle: !!document.querySelector('#turns .a .a-toggle'), del: !!document.querySelector('#turns .a form[action$="/admin/ask/delete"]'), clear: !!document.querySelector('form[action$="/admin/ask/clear"]'), metaHidden: (function(){ const m = document.querySelector('#turns .a .a-meta'); return m ? getComputedStyle(m).display === 'none' : null; })() }));
+  const hist = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, folded: !!document.querySelector('#turns .a.folded'), toggle: !!document.querySelector('#turns .a .a-toggle'), del: !!document.querySelector('#turns .a form[action$="/admin/ask/delete"]'), clear: !!document.querySelector('form[action$="/admin/ask/clear"]'), metaHidden: (function(){ const m = document.querySelector('#turns .a .a-meta'); return m ? getComputedStyle(m).display === 'none' : null; })(), text: (document.querySelector('#turns .a .txt') || {}).textContent || '', pre: !!document.querySelector('#turns .a pre'), link: (function(){ const a = document.querySelector('#turns .a .txt a'); return a ? a.getAttribute('href') : ''; })(), copy: !!document.querySelector('#turns .a .a-copy') }));
   ok(hist.turns === 1 && hist.folded && hist.toggle && hist.del && hist.clear, 'the history tab is not as expected: ' + JSON.stringify(hist));
+  // The server-rendered turn: the answer whole in the DOM, the fence a
+  // block, the admin path linked, a copy.
+  ok(hist.text.indexOf('E2E-ANSWER') >= 0 && hist.pre && hist.link === '/unmask/admin/bans/' && hist.copy, 'the server-rendered turn is not as expected: ' + JSON.stringify({ pre: hist.pre, link: hist.link, copy: hist.copy }));
   ok(hist.metaHidden === true, 'a folded answer still shows its meta line');
   await page.click('#turns .a .a-toggle');
   const opened = await page.evaluate(() => ({ folded: !!document.querySelector('#turns .a.folded'), label: document.querySelector('#turns .a .a-toggle').textContent }));

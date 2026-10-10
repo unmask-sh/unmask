@@ -177,7 +177,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     </div>
   </div>
   {{ else }}
-  <p class="meta" id="ask-empty">{{ if eq .Tab "history" }}{{ t .Lang "ask.history_empty" }}{{ else }}{{ t .Lang "ask.empty" }}{{ end }}</p>
+  {{ if eq .Tab "history" }}<p class="meta" id="ask-empty">{{ t .Lang "ask.history_empty" }}</p>{{ end }}
   {{ end }}
 </div>
 

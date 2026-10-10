@@ -87,10 +87,15 @@ func TestAskPageAndSend(t *testing.T) {
 	rec = httptest.NewRecorder()
 	h.AdminAsk(rec, askReq("GET", "/unmask/admin/ask/", "", "admin"))
 	body = rec.Body.String()
-	for _, want := range []string{`id="ask-form"`, `id="ask-empty"`, `data-maxchars="2000"`, `openai · m`} {
+	// A fresh page is the composer alone: no turn and no empty note (the
+	// note is the history tab's).
+	for _, want := range []string{`id="ask-form"`, `data-maxchars="2000"`, `openai · m`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %q", want)
 		}
+	}
+	if strings.Contains(body, `id="ask-empty"`) || strings.Contains(body, `data-id="`) {
+		t.Error("a fresh ask tab carries a turn or an empty note")
 	}
 	rec = httptest.NewRecorder()
 	h.AdminAsk(rec, askReq("GET", "/unmask/admin/ask/", "", "viewer"))
@@ -119,17 +124,19 @@ func TestAskPageAndSend(t *testing.T) {
 	if err := h.DB.Gorm.Find(&runs).Error; err != nil || len(runs) != 1 || !strings.HasPrefix(runs[0].ResultKey, "chat|openai|m") || runs[0].InTokens != 41 {
 		t.Errorf("run log: %v %+v", err, runs)
 	}
-	// The latest turn is on the ask tab, whole, with the tool chip, the
-	// token line and a copy; the clear and the delete are the history tab's.
+	// A fresh open of the ask tab is the composer alone: no turn, no empty
+	// note, the tabs with the history's count.
 	rec = httptest.NewRecorder()
 	h.AdminAsk(rec, askReq("GET", "/unmask/admin/ask/", "", "admin"))
 	body = rec.Body.String()
-	for _, want := range []string{"BAN は 0 件です。", `<a href="/unmask/admin/bans/">/admin/bans/</a>`, "<pre>bans=0</pre>", `class="tool-chip"`, "tokens 入力 41 / 出力 10", `class="a-copy ib"`, `class="ask-tabs"`} {
+	for _, want := range []string{`class="ask-tabs"`, `class="cnt">1<`, `id="ask-form"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("ask tab lacks %q", want)
 		}
 	}
-	for _, gone := range []string{`action="/unmask/admin/ask/clear"`, `action="/unmask/admin/ask/delete"`, `class="a folded"`} {
+	// (The copy icon's class is in the page's script too, for a fresh
+	// answer; a server-rendered turn is told by its data-id.)
+	for _, gone := range []string{"BAN は 0 件です。", `data-id="`, `id="ask-empty"`, `action="/unmask/admin/ask/clear"`, `action="/unmask/admin/ask/delete"`, `class="a folded"`} {
 		if strings.Contains(body, gone) {
 			t.Errorf("ask tab carries %q", gone)
 		}
@@ -137,8 +144,10 @@ func TestAskPageAndSend(t *testing.T) {
 	rec = httptest.NewRecorder()
 	h.AdminAskHistory(rec, askReq("GET", "/unmask/admin/ask/history/", "", "admin"))
 	body = rec.Body.String()
-	// The answer has several lines, so the history folds it.
-	for _, want := range []string{`class="a folded"`, `class="a-toggle"`, `class="a-copy ib"`, `action="/unmask/admin/ask/delete"`, `action="/unmask/admin/ask/clear"`, "BAN は 0 件です。"} {
+	// The answer has several lines, so the history folds it; the turn is
+	// rendered whole underneath: the admin path linked, the fence a block,
+	// the tool chip, the token line and a copy.
+	for _, want := range []string{`class="a folded"`, `class="a-toggle"`, `class="a-copy ib"`, `action="/unmask/admin/ask/delete"`, `action="/unmask/admin/ask/clear"`, "BAN は 0 件です。", `<a href="/unmask/admin/bans/">/admin/bans/</a>`, "<pre>bans=0</pre>", `class="tool-chip"`, "tokens 入力 41 / 出力 10"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("history tab lacks %q", want)
 		}
@@ -194,8 +203,9 @@ func TestAskSendFailureIsKept(t *testing.T) {
 	if err := h.DB.Gorm.Find(&rows).Error; err != nil || len(rows) != 1 || rows[0].Err == "" || rows[0].Answer != "" {
 		t.Errorf("stored failure: %v %+v", err, rows)
 	}
+	// The history shows the turn as failed (a failed turn is never folded).
 	rec = httptest.NewRecorder()
-	h.AdminAsk(rec, askReq("GET", "/unmask/admin/ask/", "", "admin"))
+	h.AdminAskHistory(rec, askReq("GET", "/unmask/admin/ask/history/", "", "admin"))
 	if b := rec.Body.String(); !strings.Contains(b, `class="a fail"`) || !strings.Contains(b, "失敗: ") {
 		t.Error("the failed turn is not shown as failed")
 	}
@@ -288,11 +298,11 @@ func TestAskDeleteOwnTurn(t *testing.T) {
 	if strings.Index(body, "second, short") > strings.Index(body, "first, long") {
 		t.Error("the history must read newest first")
 	}
-	// The ask tab: the latest alone, whole.
+	// The ask tab: no turn at all, and the history count.
 	rec = httptest.NewRecorder()
 	h.AdminAsk(rec, askReq("GET", "/unmask/admin/ask/", "", "admin"))
-	if body = rec.Body.String(); strings.Contains(body, "first, long") || !strings.Contains(body, "second, short") || !strings.Contains(body, `class="cnt">2<`) {
-		t.Error("the ask tab must show the latest turn alone, and the history count")
+	if body = rec.Body.String(); strings.Contains(body, "first, long") || strings.Contains(body, "second, short") || !strings.Contains(body, `class="cnt">2<`) {
+		t.Error("the ask tab must open on the composer alone, with the history count")
 	}
 	// Delete the first; another account's id is a no-op.
 	rec = httptest.NewRecorder()

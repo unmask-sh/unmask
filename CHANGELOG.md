@@ -50,7 +50,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- (2026-10-10) **The ask page keeps its history on a tab of its own.**  The page opens on the question box with the latest answer under it; the history tab lists every turn newest first and dated, long answers folded to their first lines with a button for the rest, each with icons to copy question and answer or delete the turn, and the clear of everything.
+- (2026-10-10) **The ask page keeps its history on a tab of its own.**  The page opens on the question box alone and stacks this visit's answers under it; the history tab lists every turn newest first and dated, long answers folded to their first lines with a button for the rest, each with icons to copy question and answer or delete the turn, and the clear of everything.
 
 ## [0.1.51-rc6] - 2026-10-10 (testing build)
 

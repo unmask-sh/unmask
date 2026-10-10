@@ -182,6 +182,10 @@ func (h *Handler) askPage(w http.ResponseWriter, r *http.Request, tab string) {
 	if err != nil {
 		log.Printf("ask: history: %v", err)
 	}
+	// The ask tab opens on the composer alone: the turns of this visit stack
+	// under it as they are asked, and earlier ones are the history tab's
+	// (2026-10-10, the operator's call).  The model still gets the last
+	// turns as context whatever is shown.
 	var turns []askView
 	if tab == "history" {
 		// Newest first: the list is read from the top.
@@ -189,8 +193,6 @@ func (h *Handler) askPage(w http.ResponseWriter, r *http.Request, tab string) {
 			rows[i], rows[j] = rows[j], rows[i]
 		}
 		turns = askViews(rows, true)
-	} else if len(rows) > 0 {
-		turns = askViews(rows[len(rows)-1:], false)
 	}
 	cfg := h.cfg().AIAdvisor
 	month := advisor.Totals(h.DB, time.Now().Add(-30*24*time.Hour))
