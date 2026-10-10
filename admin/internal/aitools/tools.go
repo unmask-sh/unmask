@@ -131,10 +131,9 @@ func (d Deps) List() []Tool {
 			Schema: obj(map[string]any{"tab": map[string]any{"type": "string", "description": "the tab's name as in its path /admin/settings/<tab>/"}}, "tab")},
 		{Name: "doctor", Description: "The install's health checks (unmask doctor): configuration, database, nginx render freshness, services.  Slow (a few seconds).",
 			Schema: obj(map[string]any{})},
-		{Name: "propose_custom_rule", Description: "Proposes a custom rule for the operator to review: several conditions that must all hold (addresses, JA4 fingerprints, countries, networks by AS number, a user-agent regex, a path regex, hosts) and one action.  Validates the rule and returns create_path, the admin page with the rule filled in; the operator saves it there.  Nothing is changed by this call.",
+		{Name: "propose_custom_rule", Description: "Proposes a custom rule for the operator to review: condition lines that must all hold (addresses, JA4 fingerprints, countries, networks by AS number, a user-agent regex, a path regex, hosts; each given kind becomes one line, any of its values matching) and one action, with an optional rate limit beside it.  Validates the rule and returns create_path, the admin page with the rule filled in; the operator saves it there.  Nothing is changed by this call.",
 			Schema: obj(map[string]any{
 				"label":        map[string]any{"type": "string", "description": "the rule's name (optional): what it catches"},
-				"memo":         map[string]any{"type": "string", "description": "an optional note for the operator: why these conditions"},
 				"ips":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "addresses or CIDR ranges"},
 				"ja4s":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "JA4 fingerprints; a trailing * matches a prefix"},
 				"countries":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "ISO 3166 two-letter country codes"},
@@ -260,22 +259,34 @@ func proposeCustomRule(args map[string]any) (any, error) {
 		v, _ := args[key].(string)
 		return strings.TrimSpace(v)
 	}
-	r := settings.CustomRule{ID: "draft", Label: str("label"), Memo: str("memo"), Enabled: true,
-		IPs: strs("ips"), JA4s: strs("ja4s"), Countries: strs("countries"), UA: str("ua"), Path: str("path"), Hosts: strs("hosts"), Action: str("action")}
-	if asns, ok := args["asns"].([]any); ok {
-		for _, a := range asns {
+	r := settings.CustomRule{ID: "draft", Label: str("label"), Enabled: true, Action: str("action")}
+	line := func(kind string, vals []string) {
+		if len(vals) > 0 {
+			r.Conditions = append(r.Conditions, settings.CustomCondition{Kind: kind, Values: vals})
+		}
+	}
+	line(settings.CustomCondIP, strs("ips"))
+	line(settings.CustomCondJA4, strs("ja4s"))
+	line(settings.CustomCondCountry, strs("countries"))
+	var asns []string
+	if vs, ok := args["asns"].([]any); ok {
+		for _, a := range vs {
 			switch v := a.(type) {
 			case float64:
-				r.ASNs = append(r.ASNs, uint32(v))
+				asns = append(asns, strconv.FormatUint(uint64(v), 10))
 			case string:
-				n, err := strconv.ParseUint(strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(v)), "AS"), 10, 32)
-				if err != nil {
-					return nil, fmt.Errorf("asns: %q is not an AS number", v)
-				}
-				r.ASNs = append(r.ASNs, uint32(n))
+				asns = append(asns, strings.TrimSpace(v))
 			}
 		}
 	}
+	line(settings.CustomCondASN, asns)
+	if v := str("ua"); v != "" {
+		line(settings.CustomCondUA, []string{v})
+	}
+	if v := str("path"); v != "" {
+		line(settings.CustomCondPath, []string{v})
+	}
+	line(settings.CustomCondHost, strs("hosts"))
 	if v, ok := args["rate_per_min"].(float64); ok && v > 0 {
 		r.RatePerMin = int(v)
 		r.RateAction = str("rate_action")
@@ -287,7 +298,7 @@ func proposeCustomRule(args map[string]any) (any, error) {
 		"rule":        r,
 		"create_path": "/admin/settings/custom-rules/" + settings.CustomRuleDraftQuery(r),
 		"note": "Nothing was changed.  create_path opens the custom-rules tab with this rule filled in as an unsaved draft; the operator reviews and saves it, and it takes effect after the nginx configuration is rendered and reloaded.  " +
-			"Put create_path in your answer on a line of its own.  All conditions must hold at once (AND); OR is several values in one field or a rule of its own.  The action applies on every match; a rate_per_min beside it counts per address and answers the overflow with rate_action (or the rate limit's own mode).",
+			"Put create_path in your answer on a line of its own.  Every condition line must hold (AND); within a line any value does (OR).  The action applies on every match; a rate_per_min beside it counts per address and answers the overflow with rate_action (or the rate limit's own mode).",
 	}, nil
 }
 

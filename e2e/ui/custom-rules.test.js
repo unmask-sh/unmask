@@ -1,6 +1,10 @@
-// The custom-rules tab: a rule is added from the template, its fields filled,
-// saved, and comes back on reload with the same values; the id the save gave
-// it is in the row; a bad address keeps the page on the tab with the error.
+// The custom-rules tab: a rule is a name, condition lines (kind + values +
+// memo; all must hold), one action and an optional rate limit with its own
+// over-limit answer.  A new rule is made from the page's template, lines
+// are added and removed, the rule is saved and comes back on reload with
+// the same values; a bad line keeps the page on the tab with the error
+// naming the rule and the line; a draft from the hunt or the assistant
+// arrives filled in and unsaved.
 //
 // Env: UI_E2E_BASE, UI_E2E_USER, UI_E2E_PASS, CHROME_BIN.
 const puppeteer = require('puppeteer-core');
@@ -12,6 +16,7 @@ const CHROME = process.env.CHROME_BIN || '/usr/bin/chromium-browser';
 
 const fails = [];
 const ok = (cond, msg) => { if (!cond) fails.push(msg); };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 (async () => {
   const browser = await puppeteer.launch({
@@ -38,39 +43,56 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     rows: document.querySelectorAll('#cr-list [data-cr]').length,
     empty: !!document.getElementById('cr-empty'),
     add: !!document.getElementById('cr-add'),
-    active: (document.querySelector('.settings-nav a.active, nav a.active') || {}).textContent || '',
+    addText: (document.getElementById('cr-add') || {}).textContent || '',
   }));
-  ok(before.add, 'the add button is missing');
+  ok(before.add && /新規ルール|New rule/.test(before.addText), 'the new-rule button is missing or misnamed: ' + before.addText);
   ok(before.rows === 0 && before.empty, `a fresh install shows ${before.rows} rules (empty note: ${before.empty})`);
 
-  // Add a rule, fill it, save.
+  // A new rule: one empty line to start, keyed new1; fill the name and the
+  // first line (JA4), add an ASN line and a UA line, remove a spare line.
   await page.click('#cr-add');
-  const added = await page.evaluate(() => ({
-    rows: document.querySelectorAll('#cr-list [data-cr]').length,
-    empty: !!document.getElementById('cr-empty'),
-    focused: document.activeElement && document.activeElement.name,
-  }));
-  ok(added.rows === 1, `after add: ${added.rows} rows`);
-  ok(!added.empty, 'the empty note stayed after a rule was added');
-  ok(added.focused === 'cr_label', `focus after add is on ${added.focused}`);
+  const added = await page.evaluate(() => {
+    const card = document.querySelector('#cr-list [data-cr]');
+    return {
+      rows: document.querySelectorAll('#cr-list [data-cr]').length,
+      key: card ? card.dataset.key : '', keyField: card ? card.querySelector('[name="cr_key"]').value : '',
+      lines: card ? card.querySelectorAll('[data-cond]').length : 0,
+      lineName: card ? (card.querySelector('[data-cond] select') || {}).name : '',
+      radioName: card ? (card.querySelector('.cr-apply input[type=radio]') || {}).name : '',
+      boxes: card ? card.querySelectorAll('fieldset.cr-box').length : 0,
+      focused: document.activeElement && document.activeElement.name,
+      empty: !!document.getElementById('cr-empty'),
+    };
+  });
+  ok(added.rows === 1 && !added.empty, `after the new rule: ${added.rows} rows, empty note ${added.empty}`);
+  ok(added.key === 'new1' && added.keyField === 'new1' && added.lineName === 'cc_new1_kind' && added.radioName === 'cr_act_new1', 'the new card is not keyed new1: ' + JSON.stringify(added));
+  ok(added.lines === 1 && added.boxes === 2 && added.focused === 'cr_label', 'the new card is not one line in two boxes with the name focused: ' + JSON.stringify(added));
   await page.type('#cr-list [data-cr] input[name="cr_label"]', 'ui e2e scraper');
-  await page.type('#cr-list [data-cr] input[name="cr_ips"]', '203.0.113.0/24, 198.51.100.7');
-  await page.type('#cr-list [data-cr] input[name="cr_ja4s"]', 'T13D1516H2_8daaf6152771_b0da82dd1658, t13d*');
-  await page.type('#cr-list [data-cr] input[name="cr_countries"]', 'cn');
-  await page.type('#cr-list [data-cr] input[name="cr_asns"]', 'AS4134');
-  await page.type('#cr-list [data-cr] input[name="cr_ua"]', 'python-requests|scrapy');
-  await page.type('#cr-list [data-cr] input[name="cr_path"]', '^/search');
-  await page.type('#cr-list [data-cr] input[name="cr_memo"]', 'seen in the hunt');
-  // Two boxes: the conditions, and the action -- one action on a match,
-  // and beside it a rate limit with its own answer over the limit.
+  await page.select('#cr-list [data-cr] [data-cond]:nth-child(1) select', 'ja4');
+  const ph = await page.evaluate(() => document.querySelector('#cr-list [data-cr] [data-cond]:nth-child(1) .cc-values').placeholder);
+  ok(/t13d/.test(ph), 'the values placeholder did not follow the kind: ' + ph);
+  await page.type('#cr-list [data-cr] [data-cond]:nth-child(1) .cc-values', 'T13D1516H2_8daaf6152771_b0da82dd1658, t13d*');
+  await page.type('#cr-list [data-cr] [data-cond]:nth-child(1) .cc-memo', 'seen in the hunt');
+  await page.click('#cr-list [data-cr] .cc-add');
+  await page.select('#cr-list [data-cr] [data-cond]:nth-child(2) select', 'asn');
+  await page.type('#cr-list [data-cr] [data-cond]:nth-child(2) .cc-values', 'AS4134, 16509');
+  await page.click('#cr-list [data-cr] .cc-add');
+  await page.select('#cr-list [data-cr] [data-cond]:nth-child(3) select', 'ua');
+  await page.type('#cr-list [data-cr] [data-cond]:nth-child(3) .cc-values', 'python-requests|scrapy');
+  await page.click('#cr-list [data-cr] .cc-add');
+  const four = await page.evaluate(() => document.querySelectorAll('#cr-list [data-cr] [data-cond]').length);
+  ok(four === 4, `after three adds: ${four} lines`);
+  await page.click('#cr-list [data-cr] [data-cond]:nth-child(4) .cc-del');
+  const three = await page.evaluate(() => document.querySelectorAll('#cr-list [data-cr] [data-cond]').length);
+  ok(three === 3, `after removing the spare line: ${three} lines`);
+
+  // One action on a match; beside it the rate limit with its own answer.
   const shape = await page.evaluate(() => ({
-    boxes: document.querySelectorAll('#cr-list [data-cr] fieldset.cr-box').length,
     actRadios: document.querySelectorAll('#cr-list [data-cr] .cr-apply input[type=radio]').length,
     rateRadios: document.querySelectorAll('#cr-list [data-cr] .cr-rate input[type=radio]').length,
-    select: !!document.querySelector('#cr-list [data-cr] select'),
     rateOff: document.querySelector('#cr-list [data-cr] .cr-rate').classList.contains('off'),
   }));
-  ok(shape.boxes === 2 && shape.actRadios === 5 && shape.rateRadios === 5 && !shape.select && shape.rateOff, 'the card is not two boxes with five + five radios: ' + JSON.stringify(shape));
+  ok(shape.actRadios === 5 && shape.rateRadios === 5 && shape.rateOff, 'the action box is not five + five radios: ' + JSON.stringify(shape));
   await page.click('#cr-list [data-cr] .cr-apply input[type=radio][value="captcha_only"]');
   await page.type('#cr-list [data-cr] input[name="cr_rate"]', '30');
   await page.click('#cr-list [data-cr] .cr-rate input[type=radio][value="deny"]');
@@ -85,44 +107,45 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     const row = document.querySelector('#cr-list [data-cr]');
     if (!row) return { missing: true };
     const v = n => (row.querySelector('[name="' + n + '"]') || {}).value;
+    const lines = Array.from(row.querySelectorAll('[data-cond]')).map(l => ({ kind: l.querySelector('select').value, values: l.querySelector('.cc-values').value, memo: l.querySelector('.cc-memo').value }));
     return {
-      id: v('cr_id'), label: v('cr_label'), ips: v('cr_ips'), ja4s: v('cr_ja4s'), cc: v('cr_countries'), asns: v('cr_asns'),
-      ua: v('cr_ua'), path: v('cr_path'), action: v('cr_action'), rate: v('cr_rate'), rateAction: v('cr_rate_action'), enabled: v('cr_enabled'), memo: v('cr_memo'),
+      id: v('cr_id'), key: v('cr_key'), label: v('cr_label'), action: v('cr_action'), rate: v('cr_rate'), rateAction: v('cr_rate_action'), enabled: v('cr_enabled'),
+      lines, rows: document.querySelectorAll('#cr-list [data-cr]').length,
       checked: (row.querySelector('.cr-apply input[type=radio]:checked') || {}).value,
       rateChecked: (row.querySelector('.cr-rate input[type=radio]:checked') || {}).value,
-      rows: document.querySelectorAll('#cr-list [data-cr]').length,
       hits: (row.querySelector('.cr-hits') || {}).textContent || '',
-      banner: (document.querySelector('.saved, .flash, .alert-ok, [data-saved]') || {}).textContent || '',
     };
   });
   ok(!saved.missing && saved.rows === 1, `after save: ${saved.rows} rows`);
   if (!saved.missing) {
-    ok(/^cr[0-9a-z]+$/.test(saved.id), `the saved rule has no id (${saved.id})`);
+    ok(/^cr[0-9a-z]+$/.test(saved.id) && saved.key === saved.id, `the saved rule has no id or its key differs (${saved.id} / ${saved.key})`);
     ok(saved.label === 'ui e2e scraper', `label came back as ${saved.label}`);
-    ok(saved.ips === '203.0.113.0/24, 198.51.100.7', `ips came back as ${saved.ips}`);
-    ok(saved.ja4s === 't13d1516h2_8daaf6152771_b0da82dd1658, t13d*', `ja4s came back as ${saved.ja4s}`);
-    ok(saved.cc === 'CN', `country came back as ${saved.cc}`);
-    ok(saved.asns === '4134', `asn came back as ${saved.asns}`);
-    ok(saved.ua === 'python-requests|scrapy' && saved.path === '^/search', `ua/path came back as ${saved.ua} / ${saved.path}`);
+    ok(saved.lines.length === 3 && saved.lines[0].kind === 'ja4' && saved.lines[0].values === 't13d1516h2_8daaf6152771_b0da82dd1658, t13d*' && saved.lines[0].memo === 'seen in the hunt' &&
+       saved.lines[1].kind === 'asn' && saved.lines[1].values === '4134, 16509' && saved.lines[2].kind === 'ua' && saved.lines[2].values === 'python-requests|scrapy',
+       'the lines came back differently: ' + JSON.stringify(saved.lines));
     ok(saved.action === 'captcha_only' && saved.rate === '30' && saved.rateAction === 'deny' && saved.enabled === '1', `action/rate/over/enabled came back as ${saved.action}/${saved.rate}/${saved.rateAction}/${saved.enabled}`);
-    ok(saved.checked === 'captcha_only' && saved.rateChecked === 'deny' && saved.memo === 'seen in the hunt', 'the saved rule is not shown as it was saved: ' + JSON.stringify({ checked: saved.checked, rateChecked: saved.rateChecked, memo: saved.memo }));
+    ok(saved.checked === 'captcha_only' && saved.rateChecked === 'deny', 'the radios do not show the saved choices: ' + JSON.stringify({ checked: saved.checked, rateChecked: saved.rateChecked }));
     ok(saved.hits.length > 0, 'the hit count cell is empty');
   }
 
-  // A bad address is refused: still one row, the page shows the error.
-  await page.evaluate(() => { document.querySelector('#cr-list [data-cr] input[name="cr_ips"]').value = 'not-an-address'; });
+  // A bad line is refused: still one rule, the error names the rule and
+  // the line, the stored values are untouched.
+  await page.evaluate(() => { document.querySelector('#cr-list [data-cr] [data-cond]:nth-child(1) .cc-values').value = 'not a ja4!'; });
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'networkidle2' }),
     page.click('form[action$="section=custom-rules"] button[type="submit"]'),
   ]);
   const refused = await page.evaluate(() => ({
     rows: document.querySelectorAll('#cr-list [data-cr]').length,
-    ips: (document.querySelector('#cr-list [data-cr] input[name="cr_ips"]') || {}).value,
+    values: (document.querySelector('#cr-list [data-cr] [data-cond]:nth-child(1) .cc-values') || {}).value,
     text: document.body.innerText,
+    banner: (document.querySelector('.banner.bad') || {}).textContent || '',
   }));
   ok(refused.rows === 1, `after a refused save: ${refused.rows} rows`);
-  ok(refused.ips === '203.0.113.0/24, 198.51.100.7', `a refused save changed the stored rule (${refused.ips})`);
-  ok(/not-an-address/.test(refused.text), 'the error does not name the bad value');
+  ok(refused.values === 't13d1516h2_8daaf6152771_b0da82dd1658, t13d*', `a refused save changed the stored rule (${refused.values})`);
+  // (a list field splits on spaces too, so the value named is the first
+  // token that fails: "ja4!")
+  ok(/rule 1 \(ui e2e scraper\): condition 1 \(ja4\)/.test(refused.banner) && /"ja4!" is not a JA4 fingerprint/.test(refused.banner), 'the error does not name the rule, the line and the bad value: ' + JSON.stringify(refused.banner));
 
   // Removing the card and saving removes the rule.
   await page.click('#cr-list [data-cr] .cr-remove');
@@ -133,38 +156,39 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   const gone = await page.evaluate(() => document.querySelectorAll('#cr-list [data-cr]').length);
   ok(gone === 0, `after removing: ${gone} rows`);
 
-  // A draft from the hunt or the assistant: the card is there, filled and
-  // focused, unsaved until the operator saves it.
-  resp = await page.goto(BASE + '/admin/settings/custom-rules/?new=1&label=from%20hunt&asns=4134&ua=scrapy&action=monitor', { waitUntil: 'networkidle2' });
+  // A draft from the hunt or the assistant: the lines are there, filled and
+  // keyed "draft", the name focused, unsaved until the operator saves it.
+  const draftURL = '/admin/settings/custom-rules/?new=1&label=hunt%3A%20AS4134&c=asn%3A4134&c=ua%3Ascrapy&action=monitor';
+  resp = await page.goto(BASE + draftURL, { waitUntil: 'networkidle2' });
   ok(resp.status() === 200, `draft status ${resp.status()}`);
   const draft = await page.evaluate(() => {
     const d = document.getElementById('cr-draft');
     if (!d) return { missing: true };
     const v = n => (d.querySelector('[name="' + n + '"]') || {}).value;
-    return { id: v('cr_id'), label: v('cr_label'), asns: v('cr_asns'), ua: v('cr_ua'), action: v('cr_action'),
-      focused: document.activeElement && document.activeElement.name, rows: document.querySelectorAll('#cr-list [data-cr]').length };
+    const lines = Array.from(d.querySelectorAll('[data-cond]')).map(l => ({ kind: l.querySelector('select').value, values: l.querySelector('.cc-values').value, name: l.querySelector('select').name }));
+    return { id: v('cr_id'), key: v('cr_key'), label: v('cr_label'), action: v('cr_action'), lines, focused: document.activeElement && document.activeElement.name, rows: document.querySelectorAll('#cr-list [data-cr]').length };
   });
   ok(!draft.missing, 'the draft card is missing');
   if (!draft.missing) {
-    ok(draft.id === '' && draft.label === 'from hunt' && draft.asns === '4134' && draft.ua === 'scrapy' && draft.action === 'monitor', `draft fields: ${JSON.stringify(draft)}`);
-    ok(draft.focused === 'cr_label', `focus on the draft is on ${draft.focused}`);
-    ok(draft.rows === 1, `rows with a draft: ${draft.rows}`);
+    ok(draft.id === '' && draft.key === 'draft' && draft.label === 'hunt: AS4134' && draft.action === 'monitor', `draft fields: ${JSON.stringify(draft)}`);
+    ok(draft.lines.length === 2 && draft.lines[0].kind === 'asn' && draft.lines[0].values === '4134' && draft.lines[1].kind === 'ua' && draft.lines[1].values === 'scrapy' && draft.lines[0].name === 'cc_draft_kind', 'the draft lines: ' + JSON.stringify(draft.lines));
+    ok(draft.focused === 'cr_label' && draft.rows === 1, `focus / rows on the draft: ${draft.focused} / ${draft.rows}`);
   }
-  // Reloading the plain tab shows nothing was saved by viewing the draft.
   await page.goto(BASE + '/admin/settings/custom-rules/', { waitUntil: 'networkidle2' });
   const unsaved = await page.evaluate(() => document.querySelectorAll('#cr-list [data-cr]').length);
   ok(unsaved === 0, `viewing a draft saved ${unsaved} rule(s)`);
-  // Saving the draft keeps it.
-  await page.goto(BASE + '/admin/settings/custom-rules/?new=1&label=from%20hunt&asns=4134&ua=scrapy&action=monitor', { waitUntil: 'networkidle2' });
+  // Saving the draft keeps it, and a draft line removed before saving stays removed.
+  await page.goto(BASE + draftURL, { waitUntil: 'networkidle2' });
+  await page.click('#cr-draft [data-cond]:nth-child(2) .cc-del');
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'networkidle2' }),
     page.click('form[action$="section=custom-rules"] button[type="submit"]'),
   ]);
   const kept = await page.evaluate(() => {
     const row = document.querySelector('#cr-list [data-cr]');
-    return { rows: document.querySelectorAll('#cr-list [data-cr]').length, id: row ? row.querySelector('[name="cr_id"]').value : '', draft: !!document.getElementById('cr-draft') };
+    return { rows: document.querySelectorAll('#cr-list [data-cr]').length, id: row ? row.querySelector('[name="cr_id"]').value : '', lines: row ? row.querySelectorAll('[data-cond]').length : 0, draft: !!document.getElementById('cr-draft') };
   });
-  ok(kept.rows === 1 && /^cr[0-9a-z]+$/.test(kept.id) && !kept.draft, `after saving the draft: ${JSON.stringify(kept)}`);
+  ok(kept.rows === 1 && /^cr[0-9a-z]+$/.test(kept.id) && kept.lines === 1 && !kept.draft, `after saving the draft: ${JSON.stringify(kept)}`);
   await page.click('#cr-list [data-cr] .cr-remove');
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'networkidle2' }),

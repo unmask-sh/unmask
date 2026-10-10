@@ -21,9 +21,17 @@
      never title -- a hover tooltip on an icon button is exactly what
      feedback_icon_tooltips rules out.  Reorder omits up/down for lists whose
      order is not even organisational. */}}
+{{ define "settings_cr_cond" }}
+            <div class="cr-cond" data-cond>
+              <select name="cc_{{ .Key }}_kind" class="cc-kind">{{ range .Kinds }}<option value="{{ . }}"{{ if eq . $.Kind }} selected{{ end }}>{{ t $.Lang (printf "settings.cr.k_%s" .) }}</option>{{ end }}</select>
+              <input type="text" name="cc_{{ .Key }}_values" value="{{ .ValuesText }}" class="cc-values" placeholder="{{ t .Lang "settings.cr.cond_values_ph" }}">
+              <input type="text" name="cc_{{ .Key }}_memo" value="{{ .Memo }}" class="cc-memo" placeholder="{{ t .Lang "settings.cr.cond_memo_ph" }}" data-maxchars="300" data-maxchars-msg="{{ tf .Lang "err.value_long" 300 }}">
+              <button type="button" class="cc-del" aria-label="{{ t .Lang "settings.cr.cond_del" }}">×</button>
+            </div>
+{{ end }}
 {{ define "settings_cr_card" }}
-      <div class="cr-rule{{ if not .Enabled }} disabled-row{{ end }}{{ if .Draft }} cr-draft{{ end }}" data-cr{{ if .Draft }} id="cr-draft"{{ end }}>
-        <input type="hidden" name="cr_id" value="{{ .ID }}"><input type="hidden" name="cr_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="cr_updated_at" value="{{ .UpdatedAt }}">
+      <div class="cr-rule{{ if not .Enabled }} disabled-row{{ end }}{{ if .Draft }} cr-draft{{ end }}" data-cr data-key="{{ .Key }}"{{ if .Draft }} id="cr-draft"{{ end }}>
+        <input type="hidden" name="cr_id" value="{{ .ID }}"><input type="hidden" name="cr_key" value="{{ .Key }}"><input type="hidden" name="cr_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="cr_updated_at" value="{{ .UpdatedAt }}">
         {{ if .Draft }}<p class="cr-draft-note">{{ t .Lang "settings.cr.draft_note" }}</p>{{ end }}
         <div class="cr-head">
           <label class="cr-toggle"><input type="checkbox" class="cr-enabled-cb" {{ if .Enabled }}checked{{ end }}><input type="hidden" name="cr_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">{{ t .Lang "settings.cr.enabled" }}</label>
@@ -34,36 +42,32 @@
         </div>
         <fieldset class="cr-box cr-box-cond">
           <legend>{{ t .Lang "settings.cr.h_cond" }}</legend>
-          <div class="cr-grid">
-            <label>{{ t .Lang "settings.cr.f_ips" }}<input type="text" name="cr_ips" value="{{ .IPsText }}" placeholder="203.0.113.0/24, 198.51.100.7"></label>
-            <label>{{ t .Lang "settings.cr.f_ja4s" }}<input type="text" name="cr_ja4s" value="{{ .JA4sText }}" placeholder="t13d1516h2_8daaf6152771_b0da82dd1658, t13d*"></label>
-            <label>{{ t .Lang "settings.cr.f_countries" }}<input type="text" name="cr_countries" value="{{ .CountriesText }}" placeholder="CN, RU"></label>
-            <label>{{ t .Lang "settings.cr.f_asns" }}<input type="text" name="cr_asns" value="{{ .ASNsText }}" placeholder="4134, 16509"></label>
-            <label>{{ t .Lang "settings.cr.f_ua" }}<input type="text" name="cr_ua" value="{{ .UA }}" placeholder="python-requests|scrapy"></label>
-            <label>{{ t .Lang "settings.cr.f_path" }}<input type="text" name="cr_path" value="{{ .Path }}" placeholder="^/search"></label>
-            <label>{{ t .Lang "settings.cr.f_hosts" }}<input type="text" name="cr_hosts" value="{{ .HostsText }}" placeholder="shop.example.jp"></label>
+          <div class="cr-conds">
+{{- range .Conds }}
+{{ template "settings_cr_cond" (dict "Key" $.Key "Kinds" $.Kinds "Lang" $.Lang "Kind" .Kind "ValuesText" .ValuesText "Memo" .Memo) }}
+{{- end }}
           </div>
+          <button type="button" class="cc-add">+ {{ t .Lang "settings.cr.cond_add" }}</button>
         </fieldset>
         <fieldset class="cr-box cr-box-act">
           <legend>{{ t .Lang "settings.cr.h_act" }}</legend>
           <input type="hidden" name="cr_action" value="{{ .Action }}"><input type="hidden" name="cr_rate_action" value="{{ .RateAction }}">
           <div class="cr-row cr-apply"><span class="cr-row-l">{{ t .Lang "settings.cr.on_match" }}</span>
-          <label><input type="radio" name="cr_act_{{ if .ID }}{{ .ID }}{{ else if .Draft }}draft{{ else }}tpl{{ end }}" value="monitor"{{ if eq .Action "monitor" }} checked{{ end }}>{{ t .Lang "settings.cr.act_monitor" }}</label>
-          <label><input type="radio" name="cr_act_{{ if .ID }}{{ .ID }}{{ else if .Draft }}draft{{ else }}tpl{{ end }}" value="pow_only"{{ if eq .Action "pow_only" }} checked{{ end }}>{{ t .Lang "settings.cr.act_pow_only" }}</label>
-          <label><input type="radio" name="cr_act_{{ if .ID }}{{ .ID }}{{ else if .Draft }}draft{{ else }}tpl{{ end }}" value="captcha_only"{{ if eq .Action "captcha_only" }} checked{{ end }}>{{ t .Lang "settings.cr.act_captcha_only" }}</label>
-          <label><input type="radio" name="cr_act_{{ if .ID }}{{ .ID }}{{ else if .Draft }}draft{{ else }}tpl{{ end }}" value="pow_then_captcha"{{ if eq .Action "pow_then_captcha" }} checked{{ end }}>{{ t .Lang "settings.cr.act_pow_then_captcha" }}</label>
-          <label><input type="radio" name="cr_act_{{ if .ID }}{{ .ID }}{{ else if .Draft }}draft{{ else }}tpl{{ end }}" value="deny"{{ if eq .Action "deny" }} checked{{ end }}>{{ t .Lang "settings.cr.act_deny" }}</label>
+          <label><input type="radio" name="cr_act_{{ .Key }}" value="monitor"{{ if eq .Action "monitor" }} checked{{ end }}>{{ t .Lang "settings.cr.act_monitor" }}</label>
+          <label><input type="radio" name="cr_act_{{ .Key }}" value="pow_only"{{ if eq .Action "pow_only" }} checked{{ end }}>{{ t .Lang "settings.cr.act_pow_only" }}</label>
+          <label><input type="radio" name="cr_act_{{ .Key }}" value="captcha_only"{{ if eq .Action "captcha_only" }} checked{{ end }}>{{ t .Lang "settings.cr.act_captcha_only" }}</label>
+          <label><input type="radio" name="cr_act_{{ .Key }}" value="pow_then_captcha"{{ if eq .Action "pow_then_captcha" }} checked{{ end }}>{{ t .Lang "settings.cr.act_pow_then_captcha" }}</label>
+          <label><input type="radio" name="cr_act_{{ .Key }}" value="deny"{{ if eq .Action "deny" }} checked{{ end }}>{{ t .Lang "settings.cr.act_deny" }}</label>
           </div>
           <div class="cr-row cr-rate{{ if not (gt .RatePerMin 0) }} off{{ end }}"><span class="cr-row-l">{{ t .Lang "settings.cr.rate_limit" }}</span>
             <input type="number" name="cr_rate" min="0" value="{{ if gt .RatePerMin 0 }}{{ .RatePerMin }}{{ end }}" placeholder="60"> <span class="cr-row-m">{{ t .Lang "settings.cr.rate_over" }}</span>
-          <label><input type="radio" name="cr_ract_{{ if .ID }}{{ .ID }}{{ else if .Draft }}draft{{ else }}tpl{{ end }}" value=""{{ if eq .RateAction "" }} checked{{ end }}>{{ t .Lang "settings.cr.rate_default" }}</label>
-          <label><input type="radio" name="cr_ract_{{ if .ID }}{{ .ID }}{{ else if .Draft }}draft{{ else }}tpl{{ end }}" value="pow_only"{{ if eq .RateAction "pow_only" }} checked{{ end }}>{{ t .Lang "settings.cr.act_pow_only" }}</label>
-          <label><input type="radio" name="cr_ract_{{ if .ID }}{{ .ID }}{{ else if .Draft }}draft{{ else }}tpl{{ end }}" value="captcha_only"{{ if eq .RateAction "captcha_only" }} checked{{ end }}>{{ t .Lang "settings.cr.act_captcha_only" }}</label>
-          <label><input type="radio" name="cr_ract_{{ if .ID }}{{ .ID }}{{ else if .Draft }}draft{{ else }}tpl{{ end }}" value="pow_then_captcha"{{ if eq .RateAction "pow_then_captcha" }} checked{{ end }}>{{ t .Lang "settings.cr.act_pow_then_captcha" }}</label>
-          <label><input type="radio" name="cr_ract_{{ if .ID }}{{ .ID }}{{ else if .Draft }}draft{{ else }}tpl{{ end }}" value="deny"{{ if eq .RateAction "deny" }} checked{{ end }}>{{ t .Lang "settings.cr.act_deny" }}</label>
+          <label><input type="radio" name="cr_ract_{{ .Key }}" value=""{{ if eq .RateAction "" }} checked{{ end }}>{{ t .Lang "settings.cr.rate_default" }}</label>
+          <label><input type="radio" name="cr_ract_{{ .Key }}" value="pow_only"{{ if eq .RateAction "pow_only" }} checked{{ end }}>{{ t .Lang "settings.cr.act_pow_only" }}</label>
+          <label><input type="radio" name="cr_ract_{{ .Key }}" value="captcha_only"{{ if eq .RateAction "captcha_only" }} checked{{ end }}>{{ t .Lang "settings.cr.act_captcha_only" }}</label>
+          <label><input type="radio" name="cr_ract_{{ .Key }}" value="pow_then_captcha"{{ if eq .RateAction "pow_then_captcha" }} checked{{ end }}>{{ t .Lang "settings.cr.act_pow_then_captcha" }}</label>
+          <label><input type="radio" name="cr_ract_{{ .Key }}" value="deny"{{ if eq .RateAction "deny" }} checked{{ end }}>{{ t .Lang "settings.cr.act_deny" }}</label>
           </div>
         </fieldset>
-        <label class="cr-memo">{{ t .Lang "settings.cr.f_memo" }}<input type="text" name="cr_memo" value="{{ .Memo }}" placeholder="{{ t .Lang "settings.cr.memo_ph" }}" data-maxchars="300" data-maxchars-msg="{{ tf .Lang "err.value_long" 300 }}"></label>
       </div>
 {{ end }}
 {{ define "ruleButtons" }}
@@ -4136,9 +4140,15 @@ function secToHuman(s){
 .cr-head .cr-hits{font-size:.75rem;color:#64748b;white-space:nowrap}
 .cr-head button{font:inherit;font-size:.75rem;padding:.2rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#334155;cursor:pointer}
 .cr-head button.cr-remove{color:#b91c1c}
-.cr-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(16rem,1fr));gap:.5rem .8rem}
-.cr-grid label{display:flex;flex-direction:column;gap:.2rem;font-size:.75rem;color:#475569}
-.cr-grid input[type=text],.cr-grid input[type=number],.cr-grid select{padding:.35rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;font:inherit;font-size:.88rem;font-family:ui-monospace,Menlo,monospace}
+.cr-conds{display:flex;flex-direction:column;gap:.35rem}
+.cr-cond{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap}
+.cr-cond select{font:inherit;font-size:.82rem;padding:.3rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:11rem}
+.cr-cond input[type=text]{padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;font:inherit;font-size:.85rem}
+.cr-cond .cc-values{flex:3;min-width:14rem;font-family:ui-monospace,Menlo,monospace}
+.cr-cond .cc-memo{flex:1;min-width:8rem;color:#475569}
+.cr-cond .cc-del{font:inherit;font-size:.9rem;width:1.6rem;height:1.6rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#64748b;cursor:pointer}
+.cr-cond .cc-del:hover{color:#b91c1c;border-color:#fca5a5}
+.cc-add{font:inherit;font-size:.78rem;margin-top:.4rem;padding:.25rem .6rem;border:1px dashed #94a3b8;border-radius:.25rem;background:#fff;color:#334155;cursor:pointer}
 .cr-box{border:1px solid #cbd5e1;border-radius:.4rem;padding:.5rem .8rem .7rem;margin:.5rem 0 0;min-width:0}
 .cr-box legend{font-size:.75rem;font-weight:600;color:#334155;padding:0 .35rem}
 .cr-box-act{background:#f8fafc}
@@ -4148,8 +4158,6 @@ function secToHuman(s){
 .cr-row label{display:inline-flex;align-items:center;gap:.3rem;white-space:nowrap}
 .cr-row input[type=number]{width:5rem;padding:.2rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;font:inherit;font-size:.85rem}
 .cr-rate.off label{color:#94a3b8}
-.cr-memo{display:flex;flex-direction:column;gap:.2rem;font-size:.75rem;color:#475569;margin-top:.6rem}
-.cr-memo input{padding:.35rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;font:inherit;font-size:.85rem}
 .cr-toggle{display:inline-flex;align-items:center;gap:.3rem;font-size:.8rem;color:#334155;white-space:nowrap}
 .cr-add{font:inherit;font-size:.85rem;padding:.4rem .8rem;border:1px dashed #94a3b8;border-radius:.3rem;background:#f8fafc;color:#334155;cursor:pointer;width:100%}
 .cr-rule.cr-draft{border-color:#f59e0b;background:#fffbeb}
@@ -4166,6 +4174,7 @@ function secToHuman(s){
       {{ with .CustomRuleDraft }}{{ template "settings_cr_card" . }}{{ end }}
     </div>
     <template id="cr-template">{{ template "settings_cr_card" .CustomRuleBlank }}</template>
+    <template id="cc-template">{{ template "settings_cr_cond" (dict "Key" "KEY" "Kinds" .CustomRuleBlank.Kinds "Lang" .Lang "Kind" "ip" "ValuesText" "" "Memo" "") }}</template>
     <button type="button" class="cr-add" id="cr-add">+ {{ t .Lang "settings.cr.add" }}</button>
     <p class="note" style="font-size:.75rem;color:#94a3b8;margin:.3rem 0 0">{{ t .Lang "settings.cr.add_hint" }}</p>
     <p class="note" style="font-size:.78rem;color:#64748b;margin:.6rem 0 0">{{ t .Lang "settings.cr.rate_hint" }}</p>
@@ -4179,21 +4188,46 @@ function secToHuman(s){
   var list = document.getElementById('cr-list'), tpl = document.getElementById('cr-template'), add = document.getElementById('cr-add');
   if (!list || !tpl || !add) return;
   var seq = 0;
+  var PH = { ip: '203.0.113.0/24, 198.51.100.7', ja4: 't13d1516h2_8daaf6152771_b0da82dd1658, t13d*', country: 'CN, RU', asn: '4134, 16509', ua: 'python-requests|scrapy', path: '^/search', host: 'shop.example.jp' };
+  var ccTpl = document.getElementById('cc-template');
+  function wireCond(line){
+    var sel = line.querySelector('.cc-kind'), val = line.querySelector('.cc-values');
+    function ph(){ val.placeholder = PH[sel.value] || ''; }
+    sel.addEventListener('change', ph); ph();
+    line.querySelector('.cc-del').addEventListener('click', function(){
+      var box = line.parentNode, card = line.closest('[data-cr]');
+      line.remove();
+      // A rule keeps at least one line to type into.
+      if (!box.querySelector('[data-cond]')) addCond(card);
+    });
+  }
+  function addCond(card){
+    var key = card.dataset.key, line = ccTpl.content.firstElementChild.cloneNode(true);
+    line.querySelectorAll('[name]').forEach(function(el){ el.name = el.name.replace('KEY', key); });
+    card.querySelector('.cr-conds').appendChild(line); wireCond(line);
+    if (window.unmaskMaxChars && unmaskMaxChars.wire) unmaskMaxChars.wire(line);
+    line.querySelector('.cc-values').focus();
+    return line;
+  }
   function wire(card){
     var cb = card.querySelector('.cr-enabled-cb'), hid = card.querySelector('input[name=cr_enabled]');
-    // One answer per rule: the radios set the hidden cr_action (one field
-    // per card, in order), and the requests-per-minute field is live only
-    // with the rate-limit choice.  A cloned card gets radio names of its own.
+    // A cloned card gets a key of its own: its condition fields and radio
+    // names carry it, so the lines stay with their rule whatever the order.
+    if (card.dataset.key === 'tpl') {
+      seq += 1; var key = 'new' + seq; card.dataset.key = key;
+      card.querySelectorAll('[name]').forEach(function(el){ el.name = el.name.replace('_tpl', '_' + key); });
+      card.querySelector('input[name=cr_key]').value = key;
+    }
     // One action per rule, and beside it the rate limit with its own answer
     // over the limit: each radio row sets its hidden field (one per card,
-    // in order).  A cloned card gets radio names of its own.
+    // in order).
     var act = card.querySelector('input[name=cr_action]'), ract = card.querySelector('input[name=cr_rate_action]');
     var rate = card.querySelector('.cr-rate'), num = card.querySelector('input[name=cr_rate]');
-    var actRadios = card.querySelectorAll('.cr-apply input[type=radio]'), rateRadios = card.querySelectorAll('.cr-rate input[type=radio]');
-    if (actRadios.length && actRadios[0].name === 'cr_act_tpl') { seq += 1; actRadios.forEach(function(r){ r.name = 'cr_act_new' + seq; }); rateRadios.forEach(function(r){ r.name = 'cr_ract_new' + seq; }); }
-    actRadios.forEach(function(r){ r.addEventListener('change', function(){ if (r.checked) act.value = r.value; }); });
-    rateRadios.forEach(function(r){ r.addEventListener('change', function(){ if (r.checked) ract.value = r.value; }); });
+    card.querySelectorAll('.cr-apply input[type=radio]').forEach(function(r){ r.addEventListener('change', function(){ if (r.checked) act.value = r.value; }); });
+    card.querySelectorAll('.cr-rate input[type=radio]').forEach(function(r){ r.addEventListener('change', function(){ if (r.checked) ract.value = r.value; }); });
     num.addEventListener('input', function(){ rate.classList.toggle('off', !(parseInt(num.value, 10) > 0)); });
+    card.querySelectorAll('[data-cond]').forEach(wireCond);
+    card.querySelector('.cc-add').addEventListener('click', function(){ addCond(card); });
     cb.addEventListener('change', function(){ hid.value = cb.checked ? '1' : '0'; card.classList.toggle('disabled-row', !cb.checked); });
     card.querySelector('.cr-remove').addEventListener('click', function(){ card.remove(); });
     card.querySelector('.cr-up').addEventListener('click', function(){ var p = card.previousElementSibling; if (p && p.hasAttribute('data-cr')) list.insertBefore(card, p); });

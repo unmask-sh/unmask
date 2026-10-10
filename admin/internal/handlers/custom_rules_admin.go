@@ -12,29 +12,37 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// The custom-rules tab: the operator's conjunction rules (settings.CustomRule)
-// as a list of cards, each with its conditions, action, throttle and the
-// day's hit count (rulehits), saved as parallel form fields in order.
+// The custom-rules tab: the operator's rules (settings.CustomRule) as a
+// list of cards -- a name, the condition lines (all must hold), one action
+// with an optional rate limit beside it -- with the day's hit count
+// (rulehits).  Each card posts its own fields: cr_* once per card, in
+// order, and the condition lines as cc_<key>_kind / _values / _memo, keyed
+// by the card (its id, or a key the page gives a new card) so reordering
+// and adding cards cannot shift the lines between rules.
+
+type customCondView struct {
+	Kind       string
+	ValuesText string // the values joined for the field; one regex as is
+	Memo       string
+}
 
 type customRuleView struct {
 	settings.CustomRule
-	IPsText, JA4sText, CountriesText, ASNsText, HostsText string
-	HitsDay                                               int
-	LastHit                                               int64
-	Lang                                                  i18n.Lang // the card template reads its labels through this
-	Draft                                                 bool      // an unsaved card from the hunt or the assistant (?new=1)
-	Blank                                                 bool      // the page's template for "add a rule"
+	Key     string // the card's key for its condition fields: the id, "draft", or "tpl"
+	Conds   []customCondView
+	Kinds   []string // the condition kinds, for the selects
+	HitsDay int
+	LastHit int64
+	Lang    i18n.Lang // the card template reads its labels through this
+	Draft   bool      // an unsaved card from the hunt or the assistant (?new=1)
+	Blank   bool      // the page's template for "new rule"
 }
 
 func customRuleViewOf(r settings.CustomRule, lang i18n.Lang) customRuleView {
-	v := customRuleView{CustomRule: r, Lang: lang,
-		IPsText: strings.Join(r.IPs, ", "), JA4sText: strings.Join(r.JA4s, ", "),
-		CountriesText: strings.Join(r.Countries, ", "), HostsText: strings.Join(r.Hosts, ", ")}
-	asns := make([]string, len(r.ASNs))
-	for i, a := range r.ASNs {
-		asns[i] = strconv.FormatUint(uint64(a), 10)
+	v := customRuleView{CustomRule: r, Key: r.ID, Lang: lang, Kinds: settings.CustomConditionKinds}
+	for _, c := range r.Conditions {
+		v.Conds = append(v.Conds, customCondView{Kind: c.Kind, ValuesText: strings.Join(c.Values, ", "), Memo: c.Memo})
 	}
-	v.ASNsText = strings.Join(asns, ", ")
 	return v
 }
 
@@ -51,56 +59,12 @@ func (h *Handler) customRuleViews(rules []settings.CustomRule, lang i18n.Lang) [
 	return out
 }
 
-// customRuleDraft reads a rule the hunt or the assistant proposed
-// (settings.CustomRuleDraftQuery) into an unsaved card; nil without ?new=1.
-// Nothing is validated here -- the card is the operator's to finish, and the
-// save validates.
-func customRuleDraft(q url.Values, lang i18n.Lang) *customRuleView {
-	if q.Get("new") != "1" {
-		return nil
-	}
-	r := settings.CustomRule{
-		Label: q.Get("label"), Memo: q.Get("memo"), Enabled: true,
-		IPs: splitList(q.Get("ips")), JA4s: splitList(q.Get("ja4s")), Countries: splitList(q.Get("countries")),
-		UA: q.Get("ua"), Path: q.Get("path"), Hosts: splitList(q.Get("hosts")),
-		Action: q.Get("action"),
-	}
-	for _, a := range splitList(q.Get("asns")) {
-		if n, err := strconv.ParseUint(strings.TrimPrefix(strings.ToUpper(a), "AS"), 10, 32); err == nil {
-			r.ASNs = append(r.ASNs, uint32(n))
-		}
-	}
-	if n, err := strconv.Atoi(q.Get("rate")); err == nil && n > 0 {
-		r.RatePerMin = n
-		if a := q.Get("rate_action"); settings.IsValidCustomRuleRateAction(a) {
-			r.RateAction = a
-		}
-	}
-	if !settings.IsValidCustomRuleAction(r.Action) {
-		r.Action = settings.GeoActionCaptchaOnly
-	}
-	v := customRuleViewOf(r, lang)
-	v.Draft = true
-	return &v
-}
-
-// customRuleDraftLink: the hunt's "make a rule from this row" link -- one
-// condition of the given kind (ips / ja4s / asns / ua), with a label.
-func customRuleDraftLink(kind, value, label string) string {
-	r := settings.CustomRule{Label: label, Action: settings.GeoActionCaptchaOnly}
-	switch kind {
-	case "ips":
-		r.IPs = []string{value}
-	case "ja4s":
-		r.JA4s = []string{value}
-	case "asns":
-		if n, err := strconv.ParseUint(value, 10, 32); err == nil {
-			r.ASNs = []uint32{uint32(n)}
-		}
-	case "ua":
-		r.UA = value
-	}
-	return settings.CustomRuleDraftQuery(r)
+// customRuleBlank is the page's template for a new rule: one empty
+// condition line, CAPTCHA on a match.
+func customRuleBlank(lang i18n.Lang) customRuleView {
+	v := customRuleViewOf(settings.CustomRule{Enabled: true, Action: settings.GeoActionCaptchaOnly, Conditions: []settings.CustomCondition{{Kind: settings.CustomCondIP}}}, lang)
+	v.Key, v.Blank = "tpl", true
+	return v
 }
 
 func (h *Handler) customRuleHitsSince() int64 {
@@ -117,6 +81,64 @@ func splitList(v string) []string {
 		}
 	}
 	return out
+}
+
+// condValues splits a line's field for its kind: a regex is one value as
+// typed (a comma inside it is part of the pattern); the rest are lists.
+func condValues(kind, field string) []string {
+	if settings.CustomCondIsRegex(kind) {
+		if field = strings.TrimSpace(field); field != "" {
+			return []string{field}
+		}
+		return nil
+	}
+	return splitList(field)
+}
+
+// customRuleDraft reads a rule the hunt or the assistant proposed
+// (settings.CustomRuleDraftQuery: c=<kind>:<values> per line) into an
+// unsaved card; nil without ?new=1.  Nothing is validated here -- the card
+// is the operator's to finish, and the save validates.
+func customRuleDraft(q url.Values, lang i18n.Lang) *customRuleView {
+	if q.Get("new") != "1" {
+		return nil
+	}
+	r := settings.CustomRule{Label: q.Get("label"), Enabled: true, Action: q.Get("action")}
+	for _, c := range q["c"] {
+		kind, vals, ok := strings.Cut(c, ":")
+		if !ok {
+			continue
+		}
+		kind = strings.ToLower(strings.TrimSpace(kind))
+		if v := condValues(kind, vals); settings.IsValidCustomConditionKind(kind) && len(v) > 0 {
+			r.Conditions = append(r.Conditions, settings.CustomCondition{Kind: kind, Values: v})
+		}
+	}
+	if len(r.Conditions) == 0 {
+		r.Conditions = []settings.CustomCondition{{Kind: settings.CustomCondIP}}
+	}
+	if n, err := strconv.Atoi(q.Get("rate")); err == nil && n > 0 {
+		r.RatePerMin = n
+		if a := q.Get("rate_action"); settings.IsValidCustomRuleRateAction(a) {
+			r.RateAction = a
+		}
+	}
+	if !settings.IsValidCustomRuleAction(r.Action) {
+		r.Action = settings.GeoActionCaptchaOnly
+	}
+	v := customRuleViewOf(r, lang)
+	v.Key, v.Draft = "draft", true
+	return &v
+}
+
+// customRuleDraftLink: the hunt's "make a rule from this row" link -- one
+// condition line of the given kind, with a name.
+func customRuleDraftLink(kind, value, label string) string {
+	r := settings.CustomRule{Label: label, Action: settings.GeoActionCaptchaOnly}
+	if settings.IsValidCustomConditionKind(kind) && strings.TrimSpace(value) != "" {
+		r.Conditions = []settings.CustomCondition{{Kind: kind, Values: []string{strings.TrimSpace(value)}}}
+	}
+	return settings.CustomRuleDraftQuery(r)
 }
 
 // applyCustomRulesForm reads the tab's cards in order.  A card without an
@@ -144,24 +166,25 @@ func applyCustomRulesForm(dst *[]settings.CustomRule, r *http.Request) error {
 		rule := settings.CustomRule{
 			ID:         strings.TrimSpace(ids[i]),
 			Label:      at("cr_label", i),
-			Memo:       at("cr_memo", i),
 			Enabled:    at("cr_enabled", i) != "0",
-			IPs:        splitList(at("cr_ips", i)),
-			JA4s:       splitList(at("cr_ja4s", i)),
-			Countries:  splitList(at("cr_countries", i)),
-			UA:         at("cr_ua", i),
-			Path:       at("cr_path", i),
-			Hosts:      splitList(at("cr_hosts", i)),
 			Action:     at("cr_action", i),
 			RateAction: at("cr_rate_action", i),
 		}
-		for _, a := range splitList(at("cr_asns", i)) {
-			a = strings.TrimPrefix(strings.ToUpper(a), "AS")
-			n, err := strconv.ParseUint(a, 10, 32)
-			if err != nil || n == 0 {
-				return fmt.Errorf("%s: %q is not an AS number", customRuleRef(i, rule.Label), a)
+		// The condition lines, keyed by the card.
+		key := strings.TrimSpace(at("cr_key", i))
+		if key == "" {
+			key = rule.ID
+		}
+		kinds, vals, memos := r.Form["cc_"+key+"_kind"], r.Form["cc_"+key+"_values"], r.Form["cc_"+key+"_memo"]
+		for j, kind := range kinds {
+			c := settings.CustomCondition{Kind: kind}
+			if j < len(vals) {
+				c.Values = condValues(strings.ToLower(strings.TrimSpace(kind)), vals[j])
 			}
-			rule.ASNs = append(rule.ASNs, uint32(n))
+			if j < len(memos) {
+				c.Memo = memos[j]
+			}
+			rule.Conditions = append(rule.Conditions, c)
 		}
 		if v := strings.TrimSpace(at("cr_rate", i)); v != "" {
 			n, err := strconv.Atoi(v)

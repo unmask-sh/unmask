@@ -1418,36 +1418,62 @@ func (g GeoConfig) ResolveExemptPaths(site string) []BypassPath {
 	return filterExemptPaths(g.ExemptPaths, site)
 }
 
-// CustomRule: one operator rule.  Every condition listed must hold (an AND);
-// a condition left empty is not consulted; a rule with no condition at all
-// is invalid.  The action is what a match does: monitor counts it and does
-// nothing else, the challenge actions name the chain the visitor faces,
-// deny answers 403.  RatePerMin above zero turns the rule into a throttle:
-// matching clients are counted per address and the rate path answers once
-// they exceed it (the action is then the rate limit's).
+// CustomRule: one of the operator's own rules (settings -> custom rules).
+// A rule is a set of conditions and one action: every condition line must
+// hold (AND), and within a line any of its values does (OR).  The action is
+// what a match does: monitor counts it and does nothing else, the challenge
+// actions name the chain the visitor faces, deny answers 403.  Beside the
+// action an optional rate limit counts matching clients per address and
+// answers the overflow with RateAction (or the rate limit's own mode).
 type CustomRule struct {
-	ID         string   `yaml:"id"`                     // stable key the log carries ("cr" + base36 of the creation second)
-	Label      string   `yaml:"label,omitempty"`        // the rule's name (the card's title); optional
-	Memo       string   `yaml:"memo,omitempty"`         // a note on the conditions, at the card's foot; optional
-	Enabled    bool     `yaml:"enabled"`                // false: kept, not rendered
-	IPs        []string `yaml:"ips,omitempty"`          // addresses or CIDRs
-	JA4s       []string `yaml:"ja4s,omitempty"`         // fingerprints; a trailing * matches a prefix
-	Countries  []string `yaml:"countries,omitempty"`    // ISO 3166-1 alpha-2
-	ASNs       []uint32 `yaml:"asns,omitempty"`         // autonomous system numbers
-	UA         string   `yaml:"ua,omitempty"`           // regex over the user agent, case-insensitive
-	Path       string   `yaml:"path,omitempty"`         // regex over the request URI (path and query)
-	Hosts      []string `yaml:"hosts,omitempty"`        // exact host names
-	Action     string   `yaml:"action"`                 // on every match: monitor / pow_only / captcha_only / pow_then_captcha / deny
-	RatePerMin int      `yaml:"rate_per_min,omitempty"` // >0: a rate limit beside the action, per address
-	RateAction string   `yaml:"rate_action,omitempty"`  // over the rate limit: "" = the rate limit's own mode, else a chain or deny
-	CreatedAt  int64    `yaml:"created_at,omitempty"`   // unix sec the rule was added
-	UpdatedAt  int64    `yaml:"updated_at,omitempty"`   // unix sec of the last edit
+	ID         string            `yaml:"id"`                     // stable key the log carries ("cr" + base36 of the creation second)
+	Label      string            `yaml:"label,omitempty"`        // the rule's name; optional
+	Enabled    bool              `yaml:"enabled"`                // false: kept, not rendered
+	Conditions []CustomCondition `yaml:"conditions"`             // all must hold
+	Action     string            `yaml:"action"`                 // on every match: monitor / pow_only / captcha_only / pow_then_captcha / deny
+	RatePerMin int               `yaml:"rate_per_min,omitempty"` // >0: a rate limit beside the action, per address
+	RateAction string            `yaml:"rate_action,omitempty"`  // over the rate limit: "" = the rate limit's own mode, else a chain or deny
+	CreatedAt  int64             `yaml:"created_at,omitempty"`   // unix sec the rule was added
+	UpdatedAt  int64             `yaml:"updated_at,omitempty"`   // unix sec of the last edit
 }
+
+// CustomCondition: one line of a rule -- a kind, the values any of which
+// holds, and a note.
+type CustomCondition struct {
+	Kind   string   `yaml:"kind"`           // ip / ja4 / country / asn / ua / path / host
+	Values []string `yaml:"values"`         // addresses or CIDRs; fingerprints (a trailing * matches a prefix); country codes; AS numbers; regexes (ua, path); host names
+	Memo   string   `yaml:"memo,omitempty"` // the operator's note on this line
+}
+
+// The condition kinds, in the order the tab lists them.
+const (
+	CustomCondIP      = "ip"
+	CustomCondJA4     = "ja4"
+	CustomCondCountry = "country"
+	CustomCondASN     = "asn"
+	CustomCondUA      = "ua"
+	CustomCondPath    = "path"
+	CustomCondHost    = "host"
+)
+
+var CustomConditionKinds = []string{CustomCondIP, CustomCondJA4, CustomCondCountry, CustomCondASN, CustomCondUA, CustomCondPath, CustomCondHost}
+
+func IsValidCustomConditionKind(k string) bool {
+	for _, x := range CustomConditionKinds {
+		if x == k {
+			return true
+		}
+	}
+	return false
+}
+
+// CustomCondIsRegex: the kinds whose values are regexes, one per value --
+// a comma inside one is part of the pattern, not a separator.
+func CustomCondIsRegex(k string) bool { return k == CustomCondUA || k == CustomCondPath }
 
 // CustomRuleMonitor is the action that only counts.
 const CustomRuleMonitor = "monitor"
 
-// IsValidCustomRuleAction: the actions a custom rule may carry.
 func IsValidCustomRuleAction(a string) bool {
 	switch a {
 	case CustomRuleMonitor, GeoActionPoWOnly, GeoActionCaptchaOnly, GeoActionPoWThenCaptcha, GeoActionDeny:
@@ -1468,11 +1494,8 @@ func IsValidCustomRuleRateAction(a string) bool {
 }
 
 // HasCondition reports whether the rule can ever match.
-func (r CustomRule) HasCondition() bool {
-	return len(r.IPs) > 0 || len(r.JA4s) > 0 || len(r.Countries) > 0 || len(r.ASNs) > 0 || r.UA != "" || r.Path != "" || len(r.Hosts) > 0
-}
+func (r CustomRule) HasCondition() bool { return len(r.Conditions) > 0 }
 
-// IsChallenge / IsCaptcha / IsDeny read the action.
 func (r CustomRule) IsChallenge() bool {
 	return r.Action == GeoActionPoWOnly || r.Action == GeoActionCaptchaOnly || r.Action == GeoActionPoWThenCaptcha
 }
@@ -1488,20 +1511,86 @@ var (
 	customRuleHostRE = regexp.MustCompile(`^[a-z0-9.-]{1,253}$`)
 )
 
-// NormalizeCustomRule trims and lower-cases what the operator typed and
-// checks every condition; the error names the field.
+// NormalizeCustomCondition trims and validates one line for its kind.  A
+// line left with no values is reported as ErrEmptyCondition, for the caller
+// to drop.
+func NormalizeCustomCondition(c *CustomCondition) error {
+	c.Kind = strings.ToLower(strings.TrimSpace(c.Kind))
+	if !IsValidCustomConditionKind(c.Kind) {
+		return fmt.Errorf("kind %q is not one of %s", c.Kind, strings.Join(CustomConditionKinds, ", "))
+	}
+	c.Memo = strings.TrimSpace(c.Memo)
+	if n := len([]rune(c.Memo)); n > 300 {
+		return fmt.Errorf("the memo is %d characters; 300 at most", n)
+	}
+	vals := c.Values[:0]
+	for _, v := range c.Values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		switch c.Kind {
+		case CustomCondIP:
+			if !strings.Contains(v, "/") {
+				if net.ParseIP(v) == nil {
+					return fmt.Errorf("%q is not an address or CIDR", v)
+				}
+			} else if _, _, err := net.ParseCIDR(v); err != nil {
+				return fmt.Errorf("%q is not an address or CIDR", v)
+			}
+		case CustomCondJA4:
+			v = strings.ToLower(v)
+			if !customRuleJA4RE.MatchString(v) {
+				return fmt.Errorf("%q is not a JA4 fingerprint (a trailing * matches a prefix)", v)
+			}
+		case CustomCondCountry:
+			v = strings.ToUpper(v)
+			if !customRuleCCRE.MatchString(v) {
+				return fmt.Errorf("%q is not a two-letter country code", v)
+			}
+		case CustomCondASN:
+			n, err := strconv.ParseUint(strings.TrimPrefix(strings.ToUpper(v), "AS"), 10, 32)
+			if err != nil || n == 0 {
+				return fmt.Errorf("%q is not an AS number", v)
+			}
+			v = strconv.FormatUint(n, 10)
+		case CustomCondUA:
+			if _, err := regexp.Compile("(?i)" + v); err != nil {
+				return fmt.Errorf("user-agent pattern %q: %v", v, err)
+			}
+		case CustomCondPath:
+			if _, err := regexp.Compile(v); err != nil {
+				return fmt.Errorf("path pattern %q: %v", v, err)
+			}
+		case CustomCondHost:
+			v = strings.ToLower(v)
+			if !customRuleHostRE.MatchString(v) {
+				return fmt.Errorf("%q is not a host name", v)
+			}
+		}
+		vals = append(vals, v)
+	}
+	c.Values = vals
+	if len(vals) == 0 {
+		return ErrEmptyCondition
+	}
+	return nil
+}
+
+// ErrEmptyCondition: a condition line with no values; the caller drops it.
+var ErrEmptyCondition = errors.New("empty condition")
+
+// NormalizeCustomRule trims and validates a rule in place; the error names
+// the field (the caller names the rule).  Empty condition lines are dropped;
+// a rule needs at least one.
 func NormalizeCustomRule(r *CustomRule) error {
 	r.ID = strings.ToLower(strings.TrimSpace(r.ID))
 	if r.ID != "" && !customRuleIDRE.MatchString(r.ID) {
 		return fmt.Errorf("rule id %q: letters and digits only", r.ID)
 	}
 	r.Label = strings.TrimSpace(r.Label)
-	r.Memo = strings.TrimSpace(r.Memo)
 	if n := len([]rune(r.Label)); n > 80 {
 		return fmt.Errorf("the name is %d characters; 80 at most", n)
-	}
-	if n := len([]rune(r.Memo)); n > 300 {
-		return fmt.Errorf("the memo is %d characters; 300 at most", n)
 	}
 	r.Action = strings.TrimSpace(r.Action)
 	if !IsValidCustomRuleAction(r.Action) {
@@ -1522,88 +1611,29 @@ func NormalizeCustomRule(r *CustomRule) error {
 	if r.RatePerMin == 0 {
 		r.RateAction = ""
 	}
-	ips := r.IPs[:0]
-	for _, v := range r.IPs {
-		v = strings.TrimSpace(v)
-		if v == "" {
-			continue
-		}
-		if !strings.Contains(v, "/") {
-			if net.ParseIP(v) == nil {
-				return fmt.Errorf("%q is not an address or CIDR", v)
+	conds := r.Conditions[:0]
+	for i := range r.Conditions {
+		c := r.Conditions[i]
+		if err := NormalizeCustomCondition(&c); err != nil {
+			if errors.Is(err, ErrEmptyCondition) {
+				continue
 			}
-		} else if _, _, err := net.ParseCIDR(v); err != nil {
-			return fmt.Errorf("%q is not an address or CIDR", v)
+			return fmt.Errorf("condition %d (%s): %w", len(conds)+1, c.Kind, err)
 		}
-		ips = append(ips, v)
+		conds = append(conds, c)
 	}
-	r.IPs = ips
-	ja4s := r.JA4s[:0]
-	for _, v := range r.JA4s {
-		v = strings.ToLower(strings.TrimSpace(v))
-		if v == "" {
-			continue
-		}
-		if !customRuleJA4RE.MatchString(v) {
-			return fmt.Errorf("%q is not a JA4 fingerprint (a trailing * matches a prefix)", v)
-		}
-		ja4s = append(ja4s, v)
-	}
-	r.JA4s = ja4s
-	ccs := r.Countries[:0]
-	for _, v := range r.Countries {
-		v = strings.ToUpper(strings.TrimSpace(v))
-		if v == "" {
-			continue
-		}
-		if !customRuleCCRE.MatchString(v) {
-			return fmt.Errorf("%q is not a two-letter country code", v)
-		}
-		ccs = append(ccs, v)
-	}
-	r.Countries = ccs
-	asns := r.ASNs[:0]
-	for _, v := range r.ASNs {
-		if v == 0 {
-			continue
-		}
-		asns = append(asns, v)
-	}
-	r.ASNs = asns
-	r.UA = strings.TrimSpace(r.UA)
-	if r.UA != "" {
-		if _, err := regexp.Compile("(?i)" + r.UA); err != nil {
-			return fmt.Errorf("user-agent pattern: %v", err)
-		}
-	}
-	r.Path = strings.TrimSpace(r.Path)
-	if r.Path != "" {
-		if _, err := regexp.Compile(r.Path); err != nil {
-			return fmt.Errorf("path pattern: %v", err)
-		}
-	}
-	hosts := r.Hosts[:0]
-	for _, v := range r.Hosts {
-		v = strings.ToLower(strings.TrimSpace(v))
-		if v == "" {
-			continue
-		}
-		if !customRuleHostRE.MatchString(v) {
-			return fmt.Errorf("%q is not a host name", v)
-		}
-		hosts = append(hosts, v)
-	}
-	r.Hosts = hosts
-	if !r.HasCondition() {
+	r.Conditions = conds
+	if len(conds) == 0 {
 		return errors.New("at least one condition is needed")
 	}
 	return nil
 }
 
 // CustomRuleDraftQuery is the query string that opens the custom-rules tab
-// with r filled in as an unsaved draft (/admin/settings/custom-rules/?new=1&...).
-// Every value is percent-encoded so the result is one run of
-// [A-Za-z0-9_./?=&%-]: the ask page's linkifier stops at anything else.
+// with r filled in as an unsaved draft (/admin/settings/custom-rules/?new=1&...):
+// one c=<kind>:<values> per condition line.  Every value is percent-encoded
+// so the result is one run of [A-Za-z0-9_.%=&-]: the ask page's linkifier
+// stops at anything else.
 func CustomRuleDraftQuery(r CustomRule) string {
 	// new=1 leads so the page and the ask page's linkifier recognise the
 	// path by its prefix; url.Values would sort it among the rest.
@@ -1614,18 +1644,11 @@ func CustomRuleDraftQuery(r CustomRule) string {
 		}
 	}
 	set("label", r.Label)
-	set("memo", r.Memo)
-	set("ips", strings.Join(r.IPs, ","))
-	set("ja4s", strings.Join(r.JA4s, ","))
-	set("countries", strings.Join(r.Countries, ","))
-	asns := make([]string, len(r.ASNs))
-	for i, a := range r.ASNs {
-		asns[i] = strconv.FormatUint(uint64(a), 10)
+	for _, c := range r.Conditions {
+		if c.Kind != "" && len(c.Values) > 0 {
+			q.Add("c", c.Kind+":"+strings.Join(c.Values, ","))
+		}
 	}
-	set("asns", strings.Join(asns, ","))
-	set("ua", r.UA)
-	set("path", r.Path)
-	set("hosts", strings.Join(r.Hosts, ","))
 	set("action", r.Action)
 	if r.RatePerMin > 0 {
 		set("rate", strconv.Itoa(r.RatePerMin))

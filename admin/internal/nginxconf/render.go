@@ -959,19 +959,22 @@ type AsnRateZoneRender struct {
 type CustomRuleRender struct {
 	ID         string
 	Var        string
-	Next       string   // the next rule's pick variable, or "" for the last
-	IPs        []string // addresses / CIDRs
-	JA4Exact   []string
-	JA4Prefix  []string
-	Countries  []string
-	ASNs       []string // "AS<n>" tokens, as $unmask_asn carries them
-	UA         string   // regex, quotes escaped
-	Path       string   // regex over $request_uri, quotes escaped
-	Hosts      []string
-	Action     string // the action map entry; "" for monitor and for throttles
+	Next       string // the next rule's pick variable, or "" for the last
+	Conds      []CustomCondRender
+	Action     string // the action map entry; "" for monitor
 	RateAction string // over the rule's rate limit: "" = the rate limit's own mode
 	Keys       string
 	Match      string
+}
+
+// CustomCondRender: one condition line as a 0/1 map (or geo block, for
+// addresses) over its nginx source variable; Entries are the map's keys,
+// quoted as nginx expects.
+type CustomCondRender struct {
+	Var     string
+	Geo     bool
+	Source  string
+	Entries []string
 }
 
 // CustomRuleRateZoneRender: a throttling rule's limit_req zone.  The key is
@@ -1002,53 +1005,71 @@ func customRulesRender(s settings.Settings) (rules []CustomRuleRender, zones []C
 	seenCC, seenASN := map[string]bool{}, map[uint32]bool{}
 	for i, r := range enabled {
 		v := fmt.Sprintf("$unmask_cr_%d", i+1)
-		cr := CustomRuleRender{ID: r.ID, Var: v, Hosts: r.Hosts, UA: nginxQuote(r.UA), Path: nginxQuote(r.Path)}
+		cr := CustomRuleRender{ID: r.ID, Var: v}
 		if i+1 < len(enabled) {
 			cr.Next = fmt.Sprintf("$unmask_cr_%d_pick", i+2)
 		}
-		cr.IPs = append(cr.IPs, r.IPs...)
-		for _, j := range r.JA4s {
-			if strings.HasSuffix(j, "*") {
-				cr.JA4Prefix = append(cr.JA4Prefix, strings.TrimSuffix(j, "*"))
-			} else {
-				cr.JA4Exact = append(cr.JA4Exact, j)
-			}
-		}
-		for _, cc := range r.Countries {
-			cr.Countries = append(cr.Countries, cc)
-			if !seenCC[cc] {
-				seenCC[cc] = true
-				countries = append(countries, cc)
-			}
-		}
-		for _, a := range r.ASNs {
-			cr.ASNs = append(cr.ASNs, "AS"+strconv.FormatUint(uint64(a), 10))
-			if !seenASN[a] {
-				seenASN[a] = true
-				asns = append(asns, a)
-			}
-		}
 		var keys []string
-		if len(cr.IPs) > 0 {
-			keys = append(keys, v+"_ip")
+		for j, c := range r.Conditions {
+			cv := fmt.Sprintf("%s_c%d", v, j+1)
+			cc := CustomCondRender{Var: cv}
+			switch c.Kind {
+			case settings.CustomCondIP:
+				cc.Geo, cc.Source = true, "$remote_addr"
+				cc.Entries = append(cc.Entries, c.Values...)
+			case settings.CustomCondJA4:
+				cc.Source = "$effective_ja4"
+				for _, x := range c.Values {
+					if strings.HasSuffix(x, "*") {
+						cc.Entries = append(cc.Entries, `"~^`+strings.TrimSuffix(x, "*")+`"`)
+					} else {
+						cc.Entries = append(cc.Entries, `"`+x+`"`)
+					}
+				}
+			case settings.CustomCondCountry:
+				cc.Source = "$unmask_country"
+				for _, x := range c.Values {
+					cc.Entries = append(cc.Entries, `"`+x+`"`)
+					if !seenCC[x] {
+						seenCC[x] = true
+						countries = append(countries, x)
+					}
+				}
+			case settings.CustomCondASN:
+				cc.Source = "$unmask_asn"
+				for _, x := range c.Values {
+					cc.Entries = append(cc.Entries, `"AS`+x+`"`)
+					if n, err := strconv.ParseUint(x, 10, 32); err == nil && !seenASN[uint32(n)] {
+						seenASN[uint32(n)] = true
+						asns = append(asns, uint32(n))
+					}
+				}
+			case settings.CustomCondUA:
+				cc.Source = "$http_user_agent"
+				for _, x := range c.Values {
+					cc.Entries = append(cc.Entries, `"~*`+nginxQuote(x)+`"`)
+				}
+			case settings.CustomCondPath:
+				cc.Source = "$request_uri"
+				for _, x := range c.Values {
+					cc.Entries = append(cc.Entries, `"~`+nginxQuote(x)+`"`)
+				}
+			case settings.CustomCondHost:
+				cc.Source = "$host"
+				for _, x := range c.Values {
+					cc.Entries = append(cc.Entries, `"`+x+`"`)
+				}
+			default:
+				continue
+			}
+			if len(cc.Entries) == 0 {
+				continue
+			}
+			cr.Conds = append(cr.Conds, cc)
+			keys = append(keys, cv)
 		}
-		if len(cr.JA4Exact)+len(cr.JA4Prefix) > 0 {
-			keys = append(keys, v+"_ja4")
-		}
-		if len(cr.Countries) > 0 {
-			keys = append(keys, v+"_cc")
-		}
-		if len(cr.ASNs) > 0 {
-			keys = append(keys, v+"_asn")
-		}
-		if cr.UA != "" {
-			keys = append(keys, v+"_ua")
-		}
-		if cr.Path != "" {
-			keys = append(keys, v+"_path")
-		}
-		if len(cr.Hosts) > 0 {
-			keys = append(keys, v+"_host")
+		if len(keys) == 0 {
+			continue
 		}
 		cr.Keys = strings.Join(keys, ":")
 		cr.Match = strings.TrimSuffix(strings.Repeat("1:", len(keys)), ":")

@@ -148,7 +148,7 @@ func TestProposeCustomRule(t *testing.T) {
 	}
 	js := MarshalResult(out, 1<<20)
 	// (the JSON writes & as \u0026, so the assertions avoid it)
-	for _, want := range []string{`"create_path":"/admin/settings/custom-rules/?new=1`, "ips=203.0.113.0%2F24", "ja4s=t13d%2A", "asns=4134%2C16509", "action=captcha_only", "Nothing was changed"} {
+	for _, want := range []string{`"create_path":"/admin/settings/custom-rules/?new=1`, "c=ip%3A203.0.113.0%2F24", "c=ja4%3At13d%2A", "c=asn%3A4134%2C16509", "c=ua%3Apython-requests", "c=path%3A%5E%2Fsearch", "action=captcha_only", "Nothing was changed"} {
 		if !strings.Contains(js, want) {
 			t.Errorf("propose: lacks %q in %s", want, js)
 		}

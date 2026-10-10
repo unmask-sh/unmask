@@ -49,7 +49,7 @@ func TestHuntASNRankingRenders(t *testing.T) {
 		// ... and a way to a custom rule with the network filled in, in a
 		// new tab so the page keeps its state.
 		`/admin/settings/custom-rules/?new=1&amp;`, // (html/template writes & as &amp; in an attribute)
-		`asns=398781`,
+		`c=asn%3A398781`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("hunt page is missing %q", want)
