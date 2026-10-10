@@ -66,15 +66,21 @@ func (h *Handler) askHistory(ctx context.Context, userID int64, limit int) ([]db
 	return rows, err
 }
 
-// askPart is a run of an answer: prose, or a ``` block shown as one.  The
-// page's script splits a fresh answer the same way; nothing else in an
-// answer is markup.
+// askPart is a run of an answer: prose, a ``` block shown as one, or an
+// admin path shown as a link to it.  The page's script splits a fresh answer
+// the same way; nothing else in an answer is markup.
 type askPart struct {
 	Code bool
+	Link string // the admin path (under the base path) this run links to
 	Text string
 }
 
 var fenceRE = regexp.MustCompile("```[A-Za-z0-9_-]*\n?")
+
+// adminPathRE: a path of this admin the model may name (the system prompt
+// gives it a few).  Only such paths become links -- same origin, under the
+// base path -- never a URL the model wrote.  Trailing punctuation stays text.
+var adminPathRE = regexp.MustCompile(`/admin/[A-Za-z0-9_./?=&%#-]*[A-Za-z0-9_/=%#-]`)
 
 func splitFences(text string) []askPart {
 	segs := fenceRE.Split(text, -1)
@@ -82,11 +88,28 @@ func splitFences(text string) []askPart {
 	for i, seg := range segs {
 		if i%2 == 1 {
 			seg = strings.TrimSuffix(seg, "\n")
-		}
-		if seg == "" {
+			if seg != "" {
+				out = append(out, askPart{Code: true, Text: seg})
+			}
 			continue
 		}
-		out = append(out, askPart{Code: i%2 == 1, Text: seg})
+		out = append(out, linkAdminPaths(seg)...)
+	}
+	return out
+}
+
+func linkAdminPaths(text string) []askPart {
+	var out []askPart
+	pos := 0
+	for _, m := range adminPathRE.FindAllStringIndex(text, -1) {
+		if m[0] > pos {
+			out = append(out, askPart{Text: text[pos:m[0]]})
+		}
+		out = append(out, askPart{Link: text[m[0]:m[1]], Text: text[m[0]:m[1]]})
+		pos = m[1]
+	}
+	if pos < len(text) {
+		out = append(out, askPart{Text: text[pos:]})
 	}
 	return out
 }

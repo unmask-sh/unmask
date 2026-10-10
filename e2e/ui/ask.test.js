@@ -41,7 +41,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       }
       let count = '?';
       try { count = JSON.parse(lastTool.content).count; } catch (e) {}
-      res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'E2E-ANSWER: the ban list has ' + count + ' rows.\n```\nbans count=' + count + '\n```' } }], usage: { prompt_tokens: 40, completion_tokens: 9 } }));
+      res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'E2E-ANSWER: the ban list has ' + count + ' rows. See /admin/bans/ for them.\n```\nbans count=' + count + '\n```' } }], usage: { prompt_tokens: 40, completion_tokens: 9 } }));
     });
   });
   await new Promise(r => stub.listen(0, '127.0.0.1', r));
@@ -117,13 +117,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     answered = await page.evaluate(() => {
       const a = Array.from(document.querySelectorAll('#turns .a:not(.pending)')).pop();
       if (!a || a.textContent.indexOf('E2E-ANSWER') < 0) return null;
-      return { text: a.querySelector('.txt').textContent, pre: !!a.querySelector('pre'), chips: Array.from(a.querySelectorAll('.tool-chip')).map(c => c.textContent), meta: a.querySelector('.a-meta').textContent, fail: a.classList.contains('fail') };
+      const link = a.querySelector('.txt a');
+      return { text: a.querySelector('.txt').textContent, pre: !!a.querySelector('pre'), link: link ? link.getAttribute('href') : '', chips: Array.from(a.querySelectorAll('.tool-chip')).map(c => c.textContent), meta: a.querySelector('.a-meta').textContent, fail: a.classList.contains('fail') };
     });
   }
   ok(!!answered, 'no answer arrived');
   if (answered) {
     ok(/the ban list has \d+ rows/.test(answered.text), 'the answer does not carry the tool result: ' + answered.text);
     ok(answered.pre, 'the code fence was not shown as a block');
+    ok(answered.link === '/unmask/admin/bans/', 'the admin path in the answer is not a link: ' + answered.link);
     ok(answered.chips.join(',') === 'bans', 'the tool chips: ' + answered.chips.join(','));
     ok(/52/.test(answered.meta) && /e2e-model/.test(answered.meta), 'the token line is missing: ' + answered.meta);
     ok(!answered.fail, 'the answer is marked failed');
@@ -134,9 +136,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   // The history survives a reload; clearing empties it.
   await page.reload({ waitUntil: 'networkidle2' });
-  const kept = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, text: (document.querySelector('#turns .a .txt') || {}).textContent || '', pre: !!document.querySelector('#turns .a pre'), clear: !!document.querySelector('form[action$="/admin/ask/clear"]') }));
+  const kept = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, link: (function(){ const a = document.querySelector('#turns .a .txt a'); return a ? a.getAttribute('href') : ''; })(), text: (document.querySelector('#turns .a .txt') || {}).textContent || '', pre: !!document.querySelector('#turns .a pre'), clear: !!document.querySelector('form[action$="/admin/ask/clear"]') }));
   ok(kept.turns === 1 && kept.text.indexOf('E2E-ANSWER') >= 0 && kept.clear, 'the history did not survive the reload: ' + JSON.stringify(kept));
   ok(kept.pre, 'the server-rendered history does not show the code fence as a block');
+  ok(kept.link === '/unmask/admin/bans/', 'the server-rendered history does not link the admin path: ' + kept.link);
   if (process.env.UI_E2E_SHOT_DIR) {
     try { await page.screenshot({ path: path.join(process.env.UI_E2E_SHOT_DIR, 'ask.png'), fullPage: true }); } catch (e) {}
   }

@@ -104,7 +104,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   {{ range .Turns }}
   <div class="q">{{ .Question }}</div>
   <div class="a{{ if .Err }} fail{{ end }}" data-id="{{ .ID }}">
-    <div class="txt">{{ if .Err }}{{ t $.Lang "ask.failed" }}: {{ .Err }}{{ else }}{{ range .Parts }}{{ if .Code }}<pre>{{ .Text }}</pre>{{ else }}{{ .Text }}{{ end }}{{ end }}{{ end }}</div>
+    <div class="txt">{{ if .Err }}{{ t $.Lang "ask.failed" }}: {{ .Err }}{{ else }}{{ range .Parts }}{{ if .Code }}<pre>{{ .Text }}</pre>{{ else if .Link }}<a href="{{ $.BasePath }}{{ .Link }}">{{ .Text }}</a>{{ else }}{{ .Text }}{{ end }}{{ end }}{{ end }}</div>
     <div class="a-meta">
       <time class="js-datetime js-datetime-notz" data-ts="{{ .AskedTS }}"></time>
       {{ if .Tools }}<span>{{ t $.Lang "ask.tools" }}: {{ range .Tools }}<span class="tool-chip{{ if .Err }} err{{ end }}" title="{{ .Ms }} ms">{{ .Name }}</span>{{ end }}</span>{{ end }}
@@ -149,10 +149,20 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   if (!form || !turns) return;
   var ta = document.getElementById('ask-q'), btn = document.getElementById('ask-send');
   function esc(s){ var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
-  // Plain text, with ``` fences shown as blocks.  Nothing else is markup.
+  // Plain text, with ``` fences shown as blocks and this admin's own paths
+  // (/admin/...) as links under the base path.  Nothing else is markup.
+  var BASE = {{ .BasePath }};
+  function linkPaths(p){
+    var re = /\/admin\/[A-Za-z0-9_.\/?=&%#-]*[A-Za-z0-9_\/=%#-]/g, out = '', last = 0, m;
+    while ((m = re.exec(p)) !== null) {
+      out += esc(p.slice(last, m.index)) + '<a href="' + esc(BASE + m[0]) + '">' + esc(m[0]) + '</a>';
+      last = m.index + m[0].length;
+    }
+    return out + esc(p.slice(last));
+  }
   function render(text){
     var parts = String(text || '').split(/```[a-zA-Z0-9_-]*\n?/), html = '';
-    parts.forEach(function(p, i){ html += i % 2 ? '<pre>' + esc(p.replace(/\n$/, '')) + '</pre>' : esc(p); });
+    parts.forEach(function(p, i){ html += i % 2 ? '<pre>' + esc(p.replace(/\n$/, '')) + '</pre>' : linkPaths(p); });
     return html;
   }
   function chips(tools){

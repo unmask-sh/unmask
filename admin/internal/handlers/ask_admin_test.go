@@ -76,7 +76,7 @@ func TestAskPageAndSend(t *testing.T) {
 		if !strings.Contains(string(b), `"role":"tool"`) {
 			t.Error("the tool result did not go back")
 		}
-		io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"BAN は 0 件です。\n`+"```"+`\nbans=0\n`+"```"+`"}}],"usage":{"prompt_tokens":30,"completion_tokens":8}}`)
+		io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"BAN は 0 件です。/admin/bans/ を見てください。\n`+"```"+`\nbans=0\n`+"```"+`"}}],"usage":{"prompt_tokens":30,"completion_tokens":8}}`)
 	}))
 	defer srv.Close()
 	s = h.snapshotSettings()
@@ -122,7 +122,7 @@ func TestAskPageAndSend(t *testing.T) {
 	rec = httptest.NewRecorder()
 	h.AdminAsk(rec, askReq("GET", "/unmask/admin/ask/", "", "admin"))
 	body = rec.Body.String()
-	for _, want := range []string{"BAN は 0 件です。", "<pre>bans=0</pre>", `class="tool-chip"`, "tokens 入力 41 / 出力 10", `action="/unmask/admin/ask/clear"`} {
+	for _, want := range []string{"BAN は 0 件です。", `<a href="/unmask/admin/bans/">/admin/bans/</a>`, "<pre>bans=0</pre>", `class="tool-chip"`, "tokens 入力 41 / 出力 10", `action="/unmask/admin/ask/clear"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("history lacks %q", want)
 		}
@@ -176,6 +176,28 @@ func TestAskSendFailureIsKept(t *testing.T) {
 	h.AdminAsk(rec, askReq("GET", "/unmask/admin/ask/", "", "admin"))
 	if b := rec.Body.String(); !strings.Contains(b, `class="a fail"`) || !strings.Contains(b, "失敗: ") {
 		t.Error("the failed turn is not shown as failed")
+	}
+}
+
+func TestAnswerLinksAdminPaths(t *testing.T) {
+	parts := splitFences("BAN は /admin/bans/ で、設定は /admin/settings/ai-advisor/ です。外部は https://example.com/admin/x ではない。")
+	var links []string
+	for _, p := range parts {
+		if p.Link != "" {
+			links = append(links, p.Link)
+			if p.Text != p.Link {
+				t.Errorf("link text %q != %q", p.Text, p.Link)
+			}
+		}
+	}
+	// The host of a URL is not this admin: its /admin/x still links (it is
+	// the same path under this base), and the sentence's full stops stay text.
+	want := []string{"/admin/bans/", "/admin/settings/ai-advisor/", "/admin/x"}
+	if strings.Join(links, " ") != strings.Join(want, " ") {
+		t.Errorf("links %v, want %v", links, want)
+	}
+	if p := splitFences("see /admin/hunt/."); len(p) != 3 || p[1].Link != "/admin/hunt/" || p[2].Text != "." {
+		t.Errorf("trailing stop: %+v", p)
 	}
 }
 
