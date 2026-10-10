@@ -124,7 +124,7 @@ func TestAskPageAndSend(t *testing.T) {
 	rec = httptest.NewRecorder()
 	h.AdminAsk(rec, askReq("GET", "/unmask/admin/ask/", "", "admin"))
 	body = rec.Body.String()
-	for _, want := range []string{"BAN は 0 件です。", `<a href="/unmask/admin/bans/">/admin/bans/</a>`, "<pre>bans=0</pre>", `class="tool-chip"`, "tokens 入力 41 / 出力 10", `class="a-copy"`, `class="ask-tabs"`} {
+	for _, want := range []string{"BAN は 0 件です。", `<a href="/unmask/admin/bans/">/admin/bans/</a>`, "<pre>bans=0</pre>", `class="tool-chip"`, "tokens 入力 41 / 出力 10", `class="a-copy ib"`, `class="ask-tabs"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("ask tab lacks %q", want)
 		}
@@ -138,7 +138,7 @@ func TestAskPageAndSend(t *testing.T) {
 	h.AdminAskHistory(rec, askReq("GET", "/unmask/admin/ask/history/", "", "admin"))
 	body = rec.Body.String()
 	// The answer has several lines, so the history folds it.
-	for _, want := range []string{`class="a folded"`, `class="a-toggle"`, `class="a-copy"`, `action="/unmask/admin/ask/delete"`, `action="/unmask/admin/ask/clear"`, "BAN は 0 件です。"} {
+	for _, want := range []string{`class="a folded"`, `class="a-toggle"`, `class="a-copy ib"`, `action="/unmask/admin/ask/delete"`, `action="/unmask/admin/ask/clear"`, "BAN は 0 件です。"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("history tab lacks %q", want)
 		}
@@ -282,8 +282,8 @@ func TestAskDeleteOwnTurn(t *testing.T) {
 	body := rec.Body.String()
 	// (the page's script carries the copy button's markup once more, so the
 	// turns are counted by their ids.)
-	if strings.Count(body, `data-id="`) != 2 || strings.Count(body, `class="a-copy"`) < 2 || strings.Count(body, `class="a folded"`) != 1 || strings.Contains(body, "theirs") {
-		t.Errorf("history: turns=%d copies=%d folded=%d theirs=%v", strings.Count(body, `data-id="`), strings.Count(body, `class="a-copy"`), strings.Count(body, `class="a folded"`), strings.Contains(body, "theirs"))
+	if strings.Count(body, `data-id="`) != 2 || strings.Count(body, `class="a-copy ib"`) < 2 || strings.Count(body, `class="a folded"`) != 1 || strings.Contains(body, "theirs") {
+		t.Errorf("history: turns=%d copies=%d folded=%d theirs=%v", strings.Count(body, `data-id="`), strings.Count(body, `class="a-copy ib"`), strings.Count(body, `class="a folded"`), strings.Contains(body, "theirs"))
 	}
 	if strings.Index(body, "second, short") > strings.Index(body, "first, long") {
 		t.Error("the history must read newest first")

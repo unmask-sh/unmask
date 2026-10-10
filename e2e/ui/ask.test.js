@@ -162,9 +162,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.evaluate(() => { navigator.clipboard.writeText = function(t){ window.__copied = t; return Promise.resolve(); }; });
   await page.click('#turns .a .a-copy');
   await sleep(200);
-  const copied = await page.evaluate(() => { const b = document.querySelector('#turns .a .a-copy'); return { clip: window.__copied || '', label: b.textContent, said: b.dataset.txtCopied }; });
+  // An icon has no label to change: the button turns green and its
+  // popover says so for a moment.
+  const copied = await page.evaluate(() => { const b = document.querySelector('#turns .a .a-copy'); const pop = b.parentNode.querySelector('.ib-pop'); return { clip: window.__copied || '', label: pop ? pop.textContent : '', said: b.dataset.txtCopied, green: b.classList.contains('copied'), shown: pop ? getComputedStyle(pop).display !== 'none' : false, icon: !!b.querySelector('svg') }; });
   ok(/^Q: E2E: how many bans\?\n\nA: E2E-ANSWER/.test(copied.clip), 'the copy does not carry the question and answer: ' + JSON.stringify(copied.clip).slice(0, 120));
-  ok(copied.label === copied.said, 'the copy button did not say it copied: ' + JSON.stringify(copied));
+  ok(copied.label === copied.said && copied.green && copied.shown && copied.icon, 'the copy icon did not say it copied: ' + JSON.stringify(copied));
   await page.click('#turns .a form[action$="/admin/ask/delete"] button');
   await page.waitForSelector('.ux-dialog[open] .ux-dialog-btn.primary, .ux-dialog[open] .ux-dialog-btn.danger', { timeout: 5000 }).catch(() => {});
   const dialogText = await page.evaluate(() => (document.querySelector('.ux-dialog[open]') || {}).textContent || '');

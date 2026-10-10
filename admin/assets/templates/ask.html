@@ -1,3 +1,4 @@
+{{ define "ask_icon_copy" }}<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>{{ end }}{{ define "ask_icon_trash" }}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>{{ end }}
 <!DOCTYPE html>
 <html lang="{{ .Lang }}">
 <head>
@@ -57,7 +58,17 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .a-act button{font:inherit;font-size:.74rem;color:#2563eb;background:none;border:none;padding:0;cursor:pointer}
 .a-act button:hover{text-decoration:underline}
 .a-act form{display:inline;margin:0}
-.a-act .a-del{color:#b91c1c}
+.q-row{align-self:flex-end;max-width:85%;display:flex;flex-direction:column;align-items:flex-end;gap:.15rem}
+.q-row .q{max-width:100%}
+.q-time{font-size:.7rem;color:#94a3b8;padding-right:.2rem}
+.ib-wrap{position:relative;display:inline-flex}
+.a-act .ib{display:inline-flex;align-items:center;justify-content:center;width:1.6rem;height:1.6rem;border-radius:.3rem;color:#64748b;padding:0}
+.a-act .ib:hover,.a-act .ib:focus{background:#f1f5f9;color:#0f172a;text-decoration:none}
+.a-act .ib.a-del:hover,.a-act .ib.a-del:focus{color:#b91c1c;background:#fef2f2}
+.a-act .ib svg{width:1rem;height:1rem;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.a-act .ib.copied{color:#15803d}
+.ib-pop{display:none;position:absolute;bottom:calc(100% + .35rem);left:50%;transform:translateX(-50%);white-space:nowrap;background:#0f172a;color:#f8fafc;font-size:.72rem;padding:.25rem .55rem;border-radius:.3rem;pointer-events:none;z-index:5}
+.ib-wrap:hover .ib-pop,.ib-wrap:focus-within .ib-pop,.ib-wrap.show .ib-pop{display:block}
 .ask-tabs{display:flex;gap:.25rem;margin:0 0 .9rem;border-bottom:1px solid #e2e8f0}
 .ask-tabs a{padding:.4rem .8rem;color:#64748b;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;font-size:.9rem}
 .ask-tabs a:hover{color:#0f172a}
@@ -146,22 +157,22 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 {{ end }}
 {{ if eq .Tab "history" }}<p class="meta">{{ t .Lang "ask.history_note" }}</p>{{ end }}
 
+<template id="ask-icon-copy">{{ template "ask_icon_copy" }}</template>
 <div class="turns" id="turns" data-txt-pending="{{ t .Lang "ask.pending" }}" data-txt-tools="{{ t .Lang "ask.tools" }}" data-txt-rule="{{ t .Lang "ask.create_rule" }}" data-txt-failed="{{ t .Lang "ask.failed" }}" data-txt-tokens="{{ t .Lang "ask.tokens" }}" data-txt-copy="{{ t .Lang "ask.copy" }}" data-txt-copied="{{ t .Lang "ask.copied" }}">
   {{ range .Turns }}
-  <div class="q">{{ .Question }}</div>
+  <div class="q-row"><time class="js-datetime js-datetime-notz q-time" data-ts="{{ .AskedTS }}"></time><div class="q">{{ .Question }}</div></div>
   <div class="a{{ if .Err }} fail{{ end }}{{ if .Folded }} folded{{ end }}" data-id="{{ .ID }}">
     <div class="txt">{{ if .Err }}{{ t $.Lang "ask.failed" }}: {{ .Err }}{{ else }}{{ range .Parts }}{{ if .Code }}<pre>{{ .Text }}</pre>{{ else if .Rule }}<a class="ask-rule" href="{{ $.BasePath }}{{ .Link }}" target="_blank" rel="noopener">{{ t $.Lang "ask.create_rule" }} ↗</a>{{ else if .Link }}<a href="{{ $.BasePath }}{{ .Link }}">{{ .Text }}</a>{{ else }}{{ .Text }}{{ end }}{{ end }}{{ end }}</div>
     <div class="a-meta">
-      <time class="js-datetime js-datetime-notz" data-ts="{{ .AskedTS }}"></time>
       {{ if .Tools }}<span>{{ t $.Lang "ask.tools" }}: {{ range .Tools }}<span class="tool-chip{{ if .Err }} err{{ end }}" title="{{ .Ms }} ms">{{ .Name }}</span>{{ end }}</span>{{ end }}
       {{ if or .InTokens .OutTokens }}<span>{{ tf $.Lang "ask.tokens" (comma .InTokens) (comma .OutTokens) }}{{ if .Model }} · {{ .Model }}{{ end }}</span>{{ end }}
     </div>
     <div class="a-act">
       {{ if .Folded }}<button type="button" class="a-toggle" data-txt-more="{{ t $.Lang "ask.show_full" }}" data-txt-less="{{ t $.Lang "ask.fold" }}">{{ t $.Lang "ask.show_full" }}</button>{{ end }}
-      <button type="button" class="a-copy" data-txt-copied="{{ t $.Lang "ask.copied" }}">{{ t $.Lang "ask.copy" }}</button>
+      <span class="ib-wrap"><button type="button" class="a-copy ib" aria-label="{{ t $.Lang "ask.copy" }}" data-txt-copied="{{ t $.Lang "ask.copied" }}" data-txt-copy="{{ t $.Lang "ask.copy" }}">{{ template "ask_icon_copy" }}</button><span class="ib-pop">{{ t $.Lang "ask.copy" }}</span></span>
       {{ if and (eq $.Tab "history") $.CanAsk }}<form method="POST" action="{{ $.BasePath }}/admin/ask/delete" data-confirm="{{ tf $.Lang "ask.delete_confirm" .QuestionHead }}" data-confirm-title="{{ t $.Lang "ask.delete" }}" data-confirm-ok="{{ t $.Lang "ask.delete" }}" data-confirm-danger="1">
         <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}"><input type="hidden" name="id" value="{{ .ID }}">
-        <button type="submit" class="a-del">{{ t $.Lang "ask.delete" }}</button>
+        <span class="ib-wrap"><button type="submit" class="a-del ib" aria-label="{{ t $.Lang "ask.delete" }}">{{ template "ask_icon_trash" }}</button><span class="ib-pop">{{ t $.Lang "ask.delete" }}</span></span>
       </form>{{ end }}
     </div>
   </div>
@@ -200,10 +211,15 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
       b.textContent = folded ? b.dataset.txtMore : b.dataset.txtLess;
       if (!folded) a.scrollIntoView({ block: 'nearest' });
     } else if (b.classList.contains('a-copy')) {
-      var q = a.previousElementSibling, txt = a.querySelector('.txt');
-      var text = 'Q: ' + (q && q.classList.contains('q') ? q.textContent : '') + '\n\nA: ' + (txt ? txt.textContent : '');
-      var was = b.textContent;
-      copyText(text).then(function(){ b.textContent = b.dataset.txtCopied; setTimeout(function(){ b.textContent = was; }, 1500); }).catch(function(){});
+      var qr = a.previousElementSibling, q = qr ? (qr.classList.contains('q') ? qr : qr.querySelector('.q')) : null, txt = a.querySelector('.txt');
+      var text = 'Q: ' + (q ? q.textContent : '') + '\n\nA: ' + (txt ? txt.textContent : '');
+      // The icon has no label to change: the popover says "copied" for a
+      // moment, and the icon turns green.
+      var wrap = b.parentNode, pop = wrap && wrap.querySelector('.ib-pop');
+      copyText(text).then(function(){
+        b.classList.add('copied'); if (wrap) wrap.classList.add('show'); if (pop) pop.textContent = b.dataset.txtCopied;
+        setTimeout(function(){ b.classList.remove('copied'); if (wrap) wrap.classList.remove('show'); if (pop) pop.textContent = b.dataset.txtCopy; }, 1500);
+      }).catch(function(){});
     }
   });
 })();
@@ -242,7 +258,10 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   function tokensText(i, o){ return turns.dataset.txtTokens.replace('%s', Number(i).toLocaleString('en-US')).replace('%s', Number(o).toLocaleString('en-US')); }
   function append(q){
     var empty = document.getElementById('ask-empty'); if (empty) empty.remove();
-    var qd = document.createElement('div'); qd.className = 'q'; qd.textContent = q; turns.appendChild(qd);
+    var qr = document.createElement('div'); qr.className = 'q-row';
+    qr.innerHTML = '<time class="js-datetime js-datetime-notz q-time" data-ts="' + Math.floor(Date.now() / 1000) + '"></time>';
+    var qd = document.createElement('div'); qd.className = 'q'; qd.textContent = q; qr.appendChild(qd); turns.appendChild(qr);
+    if (window.unmaskFmtTimes) unmaskFmtTimes();
     var ad = document.createElement('div'); ad.className = 'a pending';
     ad.innerHTML = '<div class="txt"><span class="spin"></span>' + esc(turns.dataset.txtPending) + '</div>';
     turns.appendChild(ad);
@@ -251,9 +270,9 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   }
   function settle(ad, d){
     ad.classList.remove('pending');
-    var meta = '<time class="js-datetime js-datetime-notz" data-ts="' + esc(d.asked_ts || Math.floor(Date.now() / 1000)) + '"></time>' + chips(d.tools);
+    var meta = chips(d.tools);
     if (d.in_tokens || d.out_tokens) meta += '<span>' + esc(tokensText(d.in_tokens || 0, d.out_tokens || 0)) + (d.model ? ' · ' + esc(d.model) : '') + '</span>';
-    ad.innerHTML = '<div class="txt">' + render(d.answer) + '</div><div class="a-meta">' + meta + '</div><div class="a-act"><button type="button" class="a-copy" data-txt-copied="' + esc(turns.dataset.txtCopied) + '">' + esc(turns.dataset.txtCopy) + '</button></div>';
+    ad.innerHTML = '<div class="txt">' + render(d.answer) + '</div><div class="a-meta">' + meta + '</div><div class="a-act"><span class="ib-wrap"><button type="button" class="a-copy ib" aria-label="' + esc(turns.dataset.txtCopy) + '" data-txt-copied="' + esc(turns.dataset.txtCopied) + '" data-txt-copy="' + esc(turns.dataset.txtCopy) + '">' + document.getElementById('ask-icon-copy').innerHTML + '</button><span class="ib-pop">' + esc(turns.dataset.txtCopy) + '</span></span></div>';
     if (window.unmaskFmtTimes) unmaskFmtTimes();
   }
   function failed(ad, msg){
