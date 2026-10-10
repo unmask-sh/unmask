@@ -20,6 +20,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-10) **A map of where requests come from, drawn live.**  Under the strip, the last minute's requests flow as light from their source countries to this server: a stream's width, glow and particle count follow the count on a log scale, and the particles are coloured by outcome.  An admin sets the server's position from the card; until then the sources alone are shown.  The outline is Natural Earth's, embedded.
 
+- (2026-10-10) **The dashboard's recent detections keep up on their own.**  The table redraws from the server every ten seconds under the same switch as the strip above it; a row the page had not seen flashes green and settles, and the rows keep their session chains and popovers across a redraw.
+
+- (2026-10-10) **Ask the configured model about this install.**  A new page, linked from every admin page's header, takes a question in plain words and answers it with the install's own data: the model reads through read-only tools (the overview, rankings, the event log, one address, bans, the live strip, a settings summary, doctor) and changes nothing.  Same provider settings as the AI advisor; the history stays per account.
+
 ### Changed
 
 - (2026-10-10) **The dashboard's 24-hour section reads as the path a request takes.**  One card lays the day out in order (requests, bypassed, rate-limited, challenged, passed), each with its share and a breakdown line, above the composition bar; a second draws today's requests by hour against yesterday's.  The section redraws every minute.  The AI / crawler table moved to the stats page, which has long had it with a range selector.

@@ -364,140 +364,8 @@
      marks -- recognisable by shape and colour at 13px, not reproductions. */}}
 {{ template "ua_assets" }}
 
-<table class="events"{{ if and .EventsCap (gt .EventsCap 0) }} data-events-cap="{{ .EventsCap }}"{{ end }}>
-  <thead>
-    <tr>
-      <th style="width:13rem">{{ t .Lang "hunt.col.at" }}</th>
-      <th style="width:10.5rem">IP</th>
-      <th style="width:10rem">JA4</th>
-      <th style="width:5rem">verdict</th>
-      {{/* phase header help: each line pulls the i18n value from
-           help.phase.* (= same source the dashboard funnel uses), so the
-           text stays in the user's language and auto-updates when the
-           catalog moves.  Previously this was a hardcoded English block
-           that drifted from the canonical phase set. */}}
-      {{/* 15.5rem, not 12: the collapsed chain is what sits here, and its width
-           has to come from this th.  The cell carries overflow:visible so the
-           chain never wraps, which also means it contributes nothing to auto
-           layout's column sizing -- min-width:max-content on a table cell is
-           ignored, so whatever this says IS the column.  Measured pill runs:
-           serve>load>bv_pow 137px, +check 185px, +bv_rej 191px, and with the
-           CAPTCHA path bv_rej>serve>load>captcha>bv_pc 245px -- the last of
-           which overflowed the old 192px once rebind refusals joined the
-           chain.  15.5rem (248px) covers every run native mode can produce. */}}
-      <th style="width:15.5rem">phase <span class="info-tip" tabindex="0" aria-label="phase help">?<span class="info-popup">
-        {{ safeHTML (t .Lang "help.phase.serve") }}<br><br>
-        {{ safeHTML (t .Lang "help.phase.load") }}<br><br>
-        {{ safeHTML (t .Lang "help.phase.pow_pass") }}<br><br>
-        {{ safeHTML (t .Lang "help.phase.captcha") }}<br><br>
-        {{ safeHTML (t .Lang "help.phase.bv_pow_only") }}<br><br>
-        {{ safeHTML (t .Lang "help.phase.bv_captcha_only") }}<br><br>
-        {{ safeHTML (t .Lang "help.phase.bv_pow_then_captcha") }}<br><br>
-        {{ safeHTML (t .Lang "help.phase.bv_rebind") }}<br><br>
-        {{ safeHTML (t .Lang "help.phase.bv_rebind_reject") }}<br><br>
-        {{ safeHTML (t .Lang "help.phase.verify_ng") }}<br><br>
-        {{ safeHTML (t .Lang "help.phase.cookie_err") }}<br><br>
-        {{ safeHTML (t .Lang "help.phase.abandon") }}<br><br>
-        {{ safeHTML (t .Lang "help.phase.js_error") }}<br><br>
-        {{ safeHTML (t .Lang "help.phase.rl") }}
-      </span></span></th>
-      <th style="width:5.5rem">{{ t .Lang "th.force_reason" }} <span class="info-tip" tabindex="0" aria-label="force_reason help">?<span class="info-popup">{{ safeHTML (t .Lang "help.phase.force_reason") }}</span></span></th>
-      <th>URL</th>
-      <th>UA <span class="info-tip" tabindex="0" aria-label="UA help">?<span class="info-popup">{{ safeHTML (t .Lang "help.col.ua") }}</span></span></th>
-      {{/* 4rem: the only thing in this column is the BAN button, measured at
-           39px, and the cell adds 16px of padding.  At the old 7rem it sat in
-           112px, leaving 65px of blank column immediately right of the UA --
-           which reads as room the UA was refused, since that is exactly where
-           the UA gets cut.  The freed width goes to the UA column, which is
-           the one that takes whatever is left. */}}
-      {{ if not .HideActions }}<th style="width:4rem"></th>{{ end }}
-    </tr>
-  </thead>
-  <tbody>
-    {{ range .Rows }}
-    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}"{{ with .CapReason }} data-cap-reason="{{ . }}"{{ end }}{{ if ge .Seq 0 }} data-seq="{{ .Seq }}"{{ end }}{{ if ge .ElapsedMs 0 }} data-elapsed-ms="{{ .ElapsedMs }}"{{ end }} data-ref="{{ .Ref }}" data-site="{{ .Site }}"{{ if and .Host (gt (len $.Hosts) 1) }} data-host="{{ .Host }}"{{ end }} data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}"{{ if .ServeJA4 }} data-serve-ja4="{{ .ServeJA4 }}"{{ end }} data-referer="{{ .Referer }}"{{ if gt .LocalPort 0 }} data-local-port="{{ .LocalPort }}"{{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (eq .Phase "abandon") (gt .PassedAfter 0) }} data-passed-after="1"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .PassedAfter 0 }}{{ t $.Lang "hunt.passed_after_long" }}{{ else }}{{ t $.Lang "hunt.no_pass_after_long" }}{{ end }}"{{ end }}>
-      <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if .Site }} <span class="site-badge cellpop{{ if index $.RowsGhostSites .Site }} site-ghost{{ end }}">{{ .Site }}</span>{{ end }}</td>
-      <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
-      <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-      {{/* No stored verdict renders as "(none)" -- the one token every verdict
-           column uses for the absence of a label.  It used to synthesize "ok",
-           which overclaimed (no rule matched is not an evaluation the row can
-           vouch for) and collided with a rule genuinely named ok.  forward-auth
-           records the verdict only on the check event, so serve / beacon rows
-           are empty; the session-collapse below promotes the group's real
-           verdict onto the rep row so a folded bot session still shows it. */}}
-      <td class="mono verdict-cell{{ if .Verdict }} cellpop{{ end }}">{{ if .Verdict }}{{ .Verdict }}{{ else }}<span class="muted">(none)</span>{{ end }}</td>
-      <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ if eq .Phase "abandon" }}<span class="ret-mark{{ if gt .PassedAfter 0 }} ret-back{{ end }}">{{ if gt .PassedAfter 0 }}✓{{ else }}∅{{ end }}</span>{{ end }}{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }}({{ .Reason }}){{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }}({{ .AbandonPhase }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted reload-badge" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}{{/* ⇄: this row's JA4 differs from the one its challenge was served
-           to (same device, connection-to-connection variation).  It sits with
-           the session badges because its click opens the session's phase
-           timeline (each phase's recorded JA4/verdict) -- which is also the
-           way back to the sibling phases a filtered view hides.  Marked only
-           when the difference is real; rows recorded before serve_ja4 existed
-           stay unmarked. */}}{{ if and .ServeJA4 (ne .ServeJA4 .JA4) }} <span class="ja4var-badge" data-info="{{ tf $.Lang "hunt.ja4_varied_info" .ServeJA4 }}" aria-label="{{ t $.Lang "hunt.ja4_varied_aria" }}">⇄</span>{{ end }}</td>
-      {{/* Escalation axis in its own cell (= not a phase): the phase cell was
-           getting crowded and the dashboard cards already give 昇格理由 a
-           dedicated column -- keep the two views consistent.  Same value on
-           every phase row of a visit (challenge.js propagates force_reason),
-           so the session-collapse rep row shows it too, unmodified. */}}
-      <td>{{ if and .ForceReason (ne .ForceReason "none") }}<span class="fr-badge" title="{{ t $.Lang "hunt.force_reason_title" }}">{{ .ForceReason }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
-      <td class="url mono{{ if .Path }} cellpop{{ end }}">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
-      {{/* Browser UAs show as "<platform> · <browser> <major>": the raw string
-           is ~740px wide and every human visitor's opens with the same
-           "Mozilla/5.0 (...) AppleWebKit/537.36 (KHTML, like Gecko)" run, so
-           the column filled its width while telling the operator apart almost
-           nothing.  data-full-value hands the untouched string to the popover,
-           which is what cellpop reads before falling back to cell text.
-           Anything that does NOT summarise -- curl, a library, a crawler,
-           something malformed -- keeps its raw bytes on the row, because on a
-           bot-hunting surface that is the row worth reading in full. */}}
-      {{ $uaShort := uaSummary .UA }}{{ $uaBot := uaBotKind .UA }}
-      {{/* botNote: the row's reading of a bot claim, carried on the CELL and shown
-           inside the popover.  Not a title= attribute: the cell already opens a
-           popover on hover, and a native tooltip on top of it made two boxes
-           fight for the same corner. */}}
-      {{ $botNote := "" }}
-      {{ if eq $uaBot "self" }}{{ $botNote = t $.Lang "hunt.ua.bot_self" }}
-      {{ else if eq $uaBot "listed" }}
-        {{ $kind := "" }}{{ if $.UABotNote }}{{ $kind = index $.UABotNote .UA }}{{ end }}
-        {{ if eq $kind "range" }}{{ $botNote = t $.Lang "hunt.ua.bot_range_failed" }}
-        {{ else if eq $kind "challenged" }}{{ $botNote = t $.Lang "hunt.ua.bot_challenged" }}
-        {{ else }}{{ $botNote = t $.Lang "hunt.ua.bot_listed" }}{{ end }}
-      {{ else }}{{/* not a bot: the old-browser mark's sentence, when the cell carries the mark */}}{{ $botNote = uaOldNote $.Lang .UA }}
-      {{ end }}
-      <td class="ua{{ if .UA }} cellpop{{ end }}"{{ if $uaShort }} data-full-value="{{ .UA }}"{{ end }}{{ with $botNote }} data-note="{{ . }}"{{ end }}>{{ template "ua_cell" .UA }}</td>
-      {{ if not $.HideActions }}
-      <td class="actions">
-        {{ if .Banned }}
-          <span class="rank-registered">
-            {{ if .Ban }}
-            <span class="action-pill action-bot ban-pop" tabindex="0" role="button" aria-label="{{ t $.Lang "ban_pop.aria" }}">{{ t $.Lang "hunt.already_banned" }}<template><div class="banpop"><div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.source" }}</span><span class="banpop-v">{{ .Ban.Source }}</span></div>{{ if .Ban.Reason }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.reason" }}</span><span class="banpop-v">{{ .Ban.Reason }}</span></div>{{ end }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.action" }}</span><span class="banpop-v">{{ .Ban.Action }}</span></div><div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.when" }}</span><span class="banpop-v">{{ .Ban.When }}</span></div>{{ if .Ban.By }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.by" }}</span><span class="banpop-v">{{ .Ban.By }}</span></div>{{ end }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.expires" }}</span><span class="banpop-v">{{ if .Ban.Expires }}{{ .Ban.Expires }}{{ else }}{{ t $.Lang "ban_pop.permanent" }}{{ end }}</span></div></div></template></span>
-            {{ else }}
-            <span class="action-pill action-bot">{{ t $.Lang "hunt.already_banned" }}</span>
-            {{ end }}
-          </span>
-        {{ else }}
-          <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" class="js-ban-form" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}">
-  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
-            <input type="hidden" name="op" value="ban">
-            <input type="hidden" name="ip"  value="{{ .IP }}">
-            <input type="hidden" name="ja4" value="{{ .JA4 }}">
-            <input type="hidden" name="duration_sec" value="0">
-            <input type="hidden" name="reason" value="bot hunt (= event row)">
-            <input type="hidden" name="range" value="{{ $.Range }}">
-            <input type="hidden" name="share" value="">
-            <input type="hidden" name="comment" value="">
-            <input type="hidden" name="accept_terms" value="">
-            <button type="submit" class="rank-act danger">{{ t $.Lang "hunt.btn.ban" }}</button>
-          </form>
-        {{ end }}
-      </td>
-      {{ end }}
-    </tr>
-    {{ else }}
-    <tr><td colspan="{{ if .HideActions }}8{{ else }}9{{ end }}" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "hunt.empty" }}</td></tr>
-    {{ end }}
-  </tbody>
-</table>
+{{ template "events_table_only" . }}
+
 
 {{/* Session view + cellpop scripts.  Self-contained: each IIFE scans the
      DOM for table.events tbody tr[data-bt] (= session) and .cellpop (=
@@ -590,7 +458,18 @@ window.unmaskHuntReferer = (function(){
   }
   return { label: LABEL, state: state, text: text, first: first };
 })();
-document.addEventListener('DOMContentLoaded', function(){
+// unmaskWireEventsTable(root): the session chains, the BAN and info popovers
+// and the row cap, bound per element under root.  Run once at load over the
+// document -- after the cell-popover div below the partial's host has been
+// parsed -- and again by a page that redraws its table in place (the
+// overview's recent-detections card), through the window.unmaskRewire hooks.
+// The popover manager is made once per popover element and kept on it.
+(function(){
+function unmaskWireEventsTable(root){
+  root = root || document;
+  // The table carries a mark once wired, so a page that redraws it can tell
+  // (and a test can check) that the hooks ran on the new element.
+  root.querySelectorAll('table.events').forEach(function(tbl){ tbl.dataset.evWired = '1'; });
 // Session view: one challenge fire (= serve -> load -> pow -> bv_*) generates
 // 3-5 rows that share the same beacon_token.  Collapse them into the latest
 // phase row + an inline 'serve › load › bv_pow' chain.  Each pill is the
@@ -600,11 +479,11 @@ document.addEventListener('DOMContentLoaded', function(){
 (function(){
   var pop = document.getElementById('cell-popover');
   if (!pop || !window.popoverPin) return;
-  var pin = window.popoverPin.install(pop);
+  var pin = pop.__unmaskPinSessions || (pop.__unmaskPinSessions = window.popoverPin.install(pop));
   // "already BANned" pill -> popover with the ban record (source / reason /
   // action / when), so an operator sees WHY the IP is banned without leaving
   // the hunt log.  Content is pre-rendered server-side into an inert <template>.
-  document.querySelectorAll('table.events .ban-pop').forEach(function(el){
+  root.querySelectorAll('table.events .ban-pop').forEach(function(el){
     var tpl = el.querySelector('template');
     if (!tpl) return;
     var html = tpl.innerHTML, bt = null;
@@ -620,7 +499,7 @@ document.addEventListener('DOMContentLoaded', function(){
       pin.handleClick(html, e.pageX, e.pageY, el, 'BAN');
     });
   });
-  var rows = document.querySelectorAll('table.events tbody tr[data-bt]');
+  var rows = root.querySelectorAll('table.events tbody tr[data-bt]');
   var groups = {};
   rows.forEach(function(tr){
     var bt = tr.getAttribute('data-bt');
@@ -1329,7 +1208,7 @@ document.addEventListener('DOMContentLoaded', function(){
   // timeline, one line instead of several.  Until now a lone serve row -- the
   // common case on a quiet site -- had no popover at all, so the chain it
   // offered was recorded and invisible.
-  document.querySelectorAll('table.events tbody tr').forEach(function(tr){
+  root.querySelectorAll('table.events tbody tr').forEach(function(tr){
     var cell = tr.querySelector('td:nth-child(5)');
     if (!cell || cell.querySelector('.session-chain')) return; // the chain has its own
     var pill = cell.querySelector('.phase-pill');
@@ -1442,7 +1321,7 @@ document.addEventListener('DOMContentLoaded', function(){
   // (the collapsed chain's, or the lone pill's server-fetched one), so the
   // detail always looks the same and always carries the dates.
   var escT = function(v){ var d = document.createElement('div'); d.textContent = v == null ? '' : String(v); return d.innerHTML; };
-  document.querySelectorAll('table.events [data-info]').forEach(function(el){
+  root.querySelectorAll('table.events [data-info]').forEach(function(el){
     var note = el.getAttribute('data-info') || '';
     var noteHtml = '<div style="max-width:30rem;font-size:.8rem;line-height:1.55;white-space:normal">' + escT(note) + '</div>';
     var tmr = null;
@@ -1464,16 +1343,15 @@ document.addEventListener('DOMContentLoaded', function(){
   });
   // at 5; hunt leaves it uncapped).  Read from a data-attr on the table to
   // keep the partial parameterless.
-  var capAttr = document.querySelector('table.events');
+  var capAttr = root.querySelector('table.events');
   var cap = capAttr ? Number(capAttr.getAttribute('data-events-cap') || 0) : 0;
   if (cap > 0){
-    var visible = Array.from(document.querySelectorAll('table.events tbody tr'))
+    var visible = Array.from(root.querySelectorAll('table.events tbody tr'))
       .filter(function(tr){ return tr.style.display !== 'none'; });
     visible.slice(cap).forEach(function(tr){ tr.style.display = 'none'; });
   }
 })();
 
-{{ template "cellpop_js" . }}
 
 // Portal the phase '?' info-popup out of the .events-scroll wrapper on hover.
 // .events-scroll has overflow:hidden auto (= the horizontal-scroll fallback for
@@ -1484,7 +1362,7 @@ document.addEventListener('DOMContentLoaded', function(){
 // mouseleave so the click-to-pin flow (= popover-pin.js clones the original
 // popup) keeps working.
 (function(){
-  var tips = document.querySelectorAll('table.events thead .info-tip');
+  var tips = root.querySelectorAll('table.events thead .info-tip');
   tips.forEach(function(tip){
     var popup = tip.querySelector('.info-popup');
     if (!popup) return;
@@ -1553,7 +1431,18 @@ document.addEventListener('DOMContentLoaded', function(){
     tip.addEventListener('click', unportal, true /* capture */);
   });
 })();
-}); // DOMContentLoaded
+}
+function unmaskBootEventsTable(){
+  unmaskWireEventsTable(document);
+  {{ template "cellpop_js" . }}
+}
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', unmaskBootEventsTable);
+} else {
+  unmaskBootEventsTable();
+}
+(window.unmaskRewire = window.unmaskRewire || []).push(unmaskWireEventsTable);
+})();
 </script>
 {{ end }}
 
@@ -1562,6 +1451,148 @@ document.addEventListener('DOMContentLoaded', function(){
      for a URL cell.  Part of events_table_block, and included on its own by
      a page that shows the same values outside an events table (the advisor
      page).  Needs #cell-popover and the popover-pin assets on the page. */}}
+{{/* events_table_only: the table alone, for a page that redraws its rows in
+     place (the overview's recent-detections card reads it every few seconds).
+     The block above wraps it with the styles and the scripts, which bind on
+     load and re-bind through window.unmaskRewire; a redraw replaces this
+     table and calls those hooks on it. */}}
+{{ define "events_table_only" }}
+<table class="events"{{ if and .EventsCap (gt .EventsCap 0) }} data-events-cap="{{ .EventsCap }}"{{ end }}>
+  <thead>
+    <tr>
+      <th style="width:13rem">{{ t .Lang "hunt.col.at" }}</th>
+      <th style="width:10.5rem">IP</th>
+      <th style="width:10rem">JA4</th>
+      <th style="width:5rem">verdict</th>
+      {{/* phase header help: each line pulls the i18n value from
+           help.phase.* (= same source the dashboard funnel uses), so the
+           text stays in the user's language and auto-updates when the
+           catalog moves.  Previously this was a hardcoded English block
+           that drifted from the canonical phase set. */}}
+      {{/* 15.5rem, not 12: the collapsed chain is what sits here, and its width
+           has to come from this th.  The cell carries overflow:visible so the
+           chain never wraps, which also means it contributes nothing to auto
+           layout's column sizing -- min-width:max-content on a table cell is
+           ignored, so whatever this says IS the column.  Measured pill runs:
+           serve>load>bv_pow 137px, +check 185px, +bv_rej 191px, and with the
+           CAPTCHA path bv_rej>serve>load>captcha>bv_pc 245px -- the last of
+           which overflowed the old 192px once rebind refusals joined the
+           chain.  15.5rem (248px) covers every run native mode can produce. */}}
+      <th style="width:15.5rem">phase <span class="info-tip" tabindex="0" aria-label="phase help">?<span class="info-popup">
+        {{ safeHTML (t .Lang "help.phase.serve") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.load") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.pow_pass") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.captcha") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.bv_pow_only") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.bv_captcha_only") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.bv_pow_then_captcha") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.bv_rebind") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.bv_rebind_reject") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.verify_ng") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.cookie_err") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.abandon") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.js_error") }}<br><br>
+        {{ safeHTML (t .Lang "help.phase.rl") }}
+      </span></span></th>
+      <th style="width:5.5rem">{{ t .Lang "th.force_reason" }} <span class="info-tip" tabindex="0" aria-label="force_reason help">?<span class="info-popup">{{ safeHTML (t .Lang "help.phase.force_reason") }}</span></span></th>
+      <th>URL</th>
+      <th>UA <span class="info-tip" tabindex="0" aria-label="UA help">?<span class="info-popup">{{ safeHTML (t .Lang "help.col.ua") }}</span></span></th>
+      {{/* 4rem: the only thing in this column is the BAN button, measured at
+           39px, and the cell adds 16px of padding.  At the old 7rem it sat in
+           112px, leaving 65px of blank column immediately right of the UA --
+           which reads as room the UA was refused, since that is exactly where
+           the UA gets cut.  The freed width goes to the UA column, which is
+           the one that takes whatever is left. */}}
+      {{ if not .HideActions }}<th style="width:4rem"></th>{{ end }}
+    </tr>
+  </thead>
+  <tbody>
+    {{ range .Rows }}
+    <tr data-bt="{{ .BeaconToken }}" data-phase="{{ .Phase }}" data-ch-mode="{{ .ChMode }}" data-ts="{{ .Ts }}" data-ts-ms="{{ .TsMs }}"{{ with .CapReason }} data-cap-reason="{{ . }}"{{ end }}{{ if ge .Seq 0 }} data-seq="{{ .Seq }}"{{ end }}{{ if ge .ElapsedMs 0 }} data-elapsed-ms="{{ .ElapsedMs }}"{{ end }} data-ref="{{ .Ref }}" data-site="{{ .Site }}"{{ if and .Host (gt (len $.Hosts) 1) }} data-host="{{ .Host }}"{{ end }} data-scheme="{{ .Scheme }}" data-port="{{ .Port }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}" data-act="{{ .Action }}" data-verdict="{{ .Verdict }}"{{ if .ServeJA4 }} data-serve-ja4="{{ .ServeJA4 }}"{{ end }} data-referer="{{ .Referer }}"{{ if gt .LocalPort 0 }} data-local-port="{{ .LocalPort }}"{{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }} data-sub="{{ .AbandonPhase }}"{{ end }}{{ if and (eq .Phase "abandon") (gt .PassedAfter 0) }} data-passed-after="1"{{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }} data-sub="{{ .Reason }}"{{ end }}{{ if eq .Phase "abandon" }} data-detail="{{ tf $.Lang "hunt.abandon_detail" .AbandonPhase .LeftAtMs .NoticeDelayMs }}{{ if eq .AbandonVia "pagehide" }} / {{ t $.Lang "hunt.abandon_via.pagehide" }}{{ else if eq .AbandonVia "hidden" }} / {{ t $.Lang "hunt.abandon_via.hidden" }}{{ end }} / {{ if gt .PassedAfter 0 }}{{ t $.Lang "hunt.passed_after_long" }}{{ else }}{{ t $.Lang "hunt.no_pass_after_long" }}{{ end }}"{{ end }}>
+      <td class="at">{{ if .Ts }}<time class="js-datetime js-datetime-notz" data-ts="{{ .Ts }}">{{ .Date }}</time>{{ else }}{{ .Date }}{{ end }}{{ if .Site }} <span class="site-badge cellpop{{ if index $.RowsGhostSites .Site }} site-ghost{{ end }}">{{ .Site }}</span>{{ end }}</td>
+      <td class="mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
+      <td class="mono{{ if .JA4 }} cellpop{{ end }}">{{ if .JA4 }}{{ .JA4 }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      {{/* No stored verdict renders as "(none)" -- the one token every verdict
+           column uses for the absence of a label.  It used to synthesize "ok",
+           which overclaimed (no rule matched is not an evaluation the row can
+           vouch for) and collided with a rule genuinely named ok.  forward-auth
+           records the verdict only on the check event, so serve / beacon rows
+           are empty; the session-collapse below promotes the group's real
+           verdict onto the rep row so a folded bot session still shows it. */}}
+      <td class="mono verdict-cell{{ if .Verdict }} cellpop{{ end }}">{{ if .Verdict }}{{ .Verdict }}{{ else }}<span class="muted">(none)</span>{{ end }}</td>
+      <td><span class="phase-pill ph-{{ .Phase }}{{ if and (eq .Phase "check") .Action }} ph-check-{{ .Action }}{{ end }}">{{ if eq .Phase "abandon" }}<span class="ret-mark{{ if gt .PassedAfter 0 }} ret-back{{ end }}">{{ if gt .PassedAfter 0 }}✓{{ else }}∅{{ end }}</span>{{ end }}{{ .Phase }}{{ if and (eq .Phase "check") .Action }}({{ .Action }}){{ end }}{{ if and (or (eq .Phase "bv_rebind_reject") (eq .Phase "bv_rebind")) .Reason }}({{ .Reason }}){{ end }}{{ if and (eq .Phase "abandon") .AbandonPhase }}({{ .AbandonPhase }}){{ end }}</span>{{ if .RLZone }} <span class="rl-badge">rl:{{ .RLZone }}</span>{{ end }}{{ if gt .ReloadCount 0 }} <span class="muted reload-badge" title="reloads in this session">↻{{ .ReloadCount }}</span>{{ end }}{{ if .LBWarning }} <span class="lb-warn-badge" data-info="{{ t $.Lang "hunt.lb_warning_title" }} — {{ .LBWarning }}" aria-label="{{ t $.Lang "hunt.lb_warning_aria" }}">⚠</span>{{ end }}{{/* ⇄: this row's JA4 differs from the one its challenge was served
+           to (same device, connection-to-connection variation).  It sits with
+           the session badges because its click opens the session's phase
+           timeline (each phase's recorded JA4/verdict) -- which is also the
+           way back to the sibling phases a filtered view hides.  Marked only
+           when the difference is real; rows recorded before serve_ja4 existed
+           stay unmarked. */}}{{ if and .ServeJA4 (ne .ServeJA4 .JA4) }} <span class="ja4var-badge" data-info="{{ tf $.Lang "hunt.ja4_varied_info" .ServeJA4 }}" aria-label="{{ t $.Lang "hunt.ja4_varied_aria" }}">⇄</span>{{ end }}</td>
+      {{/* Escalation axis in its own cell (= not a phase): the phase cell was
+           getting crowded and the dashboard cards already give 昇格理由 a
+           dedicated column -- keep the two views consistent.  Same value on
+           every phase row of a visit (challenge.js propagates force_reason),
+           so the session-collapse rep row shows it too, unmodified. */}}
+      <td>{{ if and .ForceReason (ne .ForceReason "none") }}<span class="fr-badge" title="{{ t $.Lang "hunt.force_reason_title" }}">{{ .ForceReason }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+      <td class="url mono{{ if .Path }} cellpop{{ end }}">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+      {{/* Browser UAs show as "<platform> · <browser> <major>": the raw string
+           is ~740px wide and every human visitor's opens with the same
+           "Mozilla/5.0 (...) AppleWebKit/537.36 (KHTML, like Gecko)" run, so
+           the column filled its width while telling the operator apart almost
+           nothing.  data-full-value hands the untouched string to the popover,
+           which is what cellpop reads before falling back to cell text.
+           Anything that does NOT summarise -- curl, a library, a crawler,
+           something malformed -- keeps its raw bytes on the row, because on a
+           bot-hunting surface that is the row worth reading in full. */}}
+      {{ $uaShort := uaSummary .UA }}{{ $uaBot := uaBotKind .UA }}
+      {{/* botNote: the row's reading of a bot claim, carried on the CELL and shown
+           inside the popover.  Not a title= attribute: the cell already opens a
+           popover on hover, and a native tooltip on top of it made two boxes
+           fight for the same corner. */}}
+      {{ $botNote := "" }}
+      {{ if eq $uaBot "self" }}{{ $botNote = t $.Lang "hunt.ua.bot_self" }}
+      {{ else if eq $uaBot "listed" }}
+        {{ $kind := "" }}{{ if $.UABotNote }}{{ $kind = index $.UABotNote .UA }}{{ end }}
+        {{ if eq $kind "range" }}{{ $botNote = t $.Lang "hunt.ua.bot_range_failed" }}
+        {{ else if eq $kind "challenged" }}{{ $botNote = t $.Lang "hunt.ua.bot_challenged" }}
+        {{ else }}{{ $botNote = t $.Lang "hunt.ua.bot_listed" }}{{ end }}
+      {{ else }}{{/* not a bot: the old-browser mark's sentence, when the cell carries the mark */}}{{ $botNote = uaOldNote $.Lang .UA }}
+      {{ end }}
+      <td class="ua{{ if .UA }} cellpop{{ end }}"{{ if $uaShort }} data-full-value="{{ .UA }}"{{ end }}{{ with $botNote }} data-note="{{ . }}"{{ end }}>{{ template "ua_cell" .UA }}</td>
+      {{ if not $.HideActions }}
+      <td class="actions">
+        {{ if .Banned }}
+          <span class="rank-registered">
+            {{ if .Ban }}
+            <span class="action-pill action-bot ban-pop" tabindex="0" role="button" aria-label="{{ t $.Lang "ban_pop.aria" }}">{{ t $.Lang "hunt.already_banned" }}<template><div class="banpop"><div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.source" }}</span><span class="banpop-v">{{ .Ban.Source }}</span></div>{{ if .Ban.Reason }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.reason" }}</span><span class="banpop-v">{{ .Ban.Reason }}</span></div>{{ end }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.action" }}</span><span class="banpop-v">{{ .Ban.Action }}</span></div><div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.when" }}</span><span class="banpop-v">{{ .Ban.When }}</span></div>{{ if .Ban.By }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.by" }}</span><span class="banpop-v">{{ .Ban.By }}</span></div>{{ end }}<div class="banpop-row"><span class="banpop-k">{{ t $.Lang "ban_pop.expires" }}</span><span class="banpop-v">{{ if .Ban.Expires }}{{ .Ban.Expires }}{{ else }}{{ t $.Lang "ban_pop.permanent" }}{{ end }}</span></div></div></template></span>
+            {{ else }}
+            <span class="action-pill action-bot">{{ t $.Lang "hunt.already_banned" }}</span>
+            {{ end }}
+          </span>
+        {{ else }}
+          <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" class="js-ban-form" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+            <input type="hidden" name="op" value="ban">
+            <input type="hidden" name="ip"  value="{{ .IP }}">
+            <input type="hidden" name="ja4" value="{{ .JA4 }}">
+            <input type="hidden" name="duration_sec" value="0">
+            <input type="hidden" name="reason" value="bot hunt (= event row)">
+            <input type="hidden" name="range" value="{{ $.Range }}">
+            <input type="hidden" name="share" value="">
+            <input type="hidden" name="comment" value="">
+            <input type="hidden" name="accept_terms" value="">
+            <button type="submit" class="rank-act danger">{{ t $.Lang "hunt.btn.ban" }}</button>
+          </form>
+        {{ end }}
+      </td>
+      {{ end }}
+    </tr>
+    {{ else }}
+    <tr><td colspan="{{ if .HideActions }}8{{ else }}9{{ end }}" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "hunt.empty" }}</td></tr>
+    {{ end }}
+  </tbody>
+</table>
+{{ end }}
+
 {{ define "cellpop_js" }}
 // JA4 / UA / URL / verdict / site-badge cellpop.  A truncated
 // cell opens a pinnable popover holding the full value (= selectable text +
@@ -1889,9 +1920,11 @@ document.addEventListener('DOMContentLoaded', function(){
     if (utc && utc !== local) body += '<div class="dtpop-time dtpop-utc">' + esc(utc) + '</div>';
     return '<div class="dtpop">' + body + '</div>';
   }
-  document.querySelectorAll('table.events tbody td.at time.js-datetime').forEach(function(el){
+  function wireDt(root){
+  root.querySelectorAll('table.events tbody td.at time.js-datetime').forEach(function(el){
     var tr = el.closest('tr');
-    if (!tr) return;
+    if (!tr || el.dataset.dtWired) return;
+    el.dataset.dtWired = '1';
     el.classList.add('dtpop-trigger');
     // The shared js-datetime formatter sets a local+UTC title on every
     // datetime; here the dtpop popover shows the same detail (plus Ref +
@@ -1918,5 +1951,8 @@ document.addEventListener('DOMContentLoaded', function(){
       pin.handleClick(html, e.pageX, e.pageY, el, ref || fmtAt(dtMs(tr), lsGet('unmask:tz') || undefined));
     });
   });
+  }
+  wireDt(document);
+  (window.unmaskRewire = window.unmaskRewire || []).push(wireDt);
 })();
 {{ end }}

@@ -80,6 +80,23 @@ type AdvisorRun struct {
 
 func (AdvisorRun) TableName() string { return "unmask_advisor_run" }
 
+// AIChat: a row of unmask_ai_chat — one question an operator asked the model
+// from the admin's ask page, with its answer and the tools it drew on.
+type AIChat struct {
+	ID        int64  `gorm:"primaryKey;autoIncrement"`
+	UserID    int64  `gorm:"column:user_id;not null"`
+	AskedAt   int64  `gorm:"column:asked_at;not null;autoCreateTime:false"`
+	Question  string `gorm:"column:question;not null"`
+	Answer    string `gorm:"column:answer;not null"`
+	Tools     string `gorm:"column:tools;not null"`
+	Model     string `gorm:"column:model;not null"`
+	InTokens  int    `gorm:"column:in_tokens;not null"`
+	OutTokens int    `gorm:"column:out_tokens;not null"`
+	Err       string `gorm:"column:err;not null"`
+}
+
+func (AIChat) TableName() string { return "unmask_ai_chat" }
+
 // AdvisorResult: a row of unmask_advisor_result — the model's last answer for
 // one window (per provider / model / endpoint / language), kept so a restart
 // does not turn a paid answer into "not asked yet".  Upserted on key_hash.

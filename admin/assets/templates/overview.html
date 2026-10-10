@@ -129,11 +129,18 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
    drawn only by script; without it the outline alone would say nothing. */
 .geo-card{padding:.8rem 1.25rem .7rem}
 .geo-wrap{position:relative}
-.geo-wrap canvas{width:100%;display:block;border-radius:.3rem;background:#0f172a}
+.geo-wrap canvas{width:100%;max-width:1200px;margin:0 auto;display:block;border-radius:.3rem;background:#0f172a}
 .geo-foot{display:flex;gap:1rem;flex-wrap:wrap;align-items:center;font-size:.75rem;color:#64748b;margin-top:.5rem}
 .geo-foot i{display:inline-block;width:.6rem;height:.6rem;border-radius:50%;margin-right:.3rem;vertical-align:-.05em}
 .geo-top{margin-left:auto;color:#475569;display:inline-flex;gap:.6rem;flex-wrap:wrap;align-items:center}
 .geo-top img{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.2em;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
+/* The recent-detections card redraws its table every few seconds; a row that
+   was not there before flashes green and settles. */
+.livebadge{display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;color:#16a34a;font-weight:600}
+.livebadge i{width:.5rem;height:.5rem;border-radius:50%;background:#16a34a;display:inline-block}
+@keyframes ev-new{from{background:#dcfce7}to{background:transparent}}
+table.events tbody tr.ev-new>td{animation:ev-new 2.5s ease-out}
+@media (prefers-reduced-motion: reduce){table.events tbody tr.ev-new>td{animation:none;background:#f0fdf4}}
 .live-head{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;margin:0 0 .5rem}
 .live-head .live-h{font-size:1rem;font-weight:700;color:#334155;margin:0;display:flex;align-items:center;gap:.3rem}
 .live-status{font-size:.8rem;color:#64748b;display:inline-flex;align-items:center;gap:.4rem}
@@ -510,9 +517,10 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 .session-line .ts-mono{font-family:ui-monospace,Menlo,monospace;color:#475569;font-size:.75rem;flex:none}
 </style>
 
-<div class="bcd-card">
-  <h2>{{ t .Lang "overview.recent_h" }}</h2>
-  <div class="events-scroll">
+{{ define "overview_recent" }}{{ template "events_table_only" . }}{{ end }}
+<div class="bcd-card" id="recent-card" data-src="{{ .BasePath }}/admin/?partial=recent">
+  <h2 style="display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap">{{ t .Lang "overview.recent_h" }}{{ if .LiveTiles }}<span class="livebadge"><i></i>live</span><small style="font-size:.75rem;color:#94a3b8;font-weight:normal">{{ t .Lang "overview.recent_live" }}</small>{{ end }}</h2>
+  <div class="events-scroll" id="recent-section">
   {{ template "events_table_block" . }}
   </div>
   <div style="margin-top:.5rem;text-align:right">
@@ -792,6 +800,56 @@ window.unmaskInitComp = function(){
 unmaskInitComp();
 </script>
 <script>
+// The recent-detections table is redrawn from the server every PERIOD
+// seconds under the live strip's switch.  The server renders the same table
+// it did for the page; the page swaps it in, flags the rows it had not seen
+// (by beacon token and time), and re-runs the table's own wiring hooks
+// (window.unmaskRewire: session chains, cell and datetime popovers).
+(function(){
+  var card = document.getElementById('recent-card'), sec = document.getElementById('recent-section');
+  if (!card || !sec || !window.fetch) return;
+  var PERIOD = 10, left = PERIOD, busy = false;
+  function on(){
+    var tg = document.getElementById('live-toggle');
+    return !tg || tg.getAttribute('aria-pressed') !== 'false';
+  }
+  function rowKey(tr){ return (tr.dataset.bt || '') + '|' + (tr.dataset.tsMs || '') + '|' + (tr.dataset.phase || ''); }
+  function keys(tbl){
+    var out = {};
+    tbl.querySelectorAll('tbody tr').forEach(function(tr){ out[rowKey(tr)] = 1; });
+    return out;
+  }
+  // The keys the page has seen, read from each table as the server sent it
+  // (this script runs before the wiring, which rewrites a session's rows).
+  var seen = keys(sec.querySelector('table.events') || document.createElement('table'));
+  window.unmaskRefreshRecent = function(){
+    if (busy) return Promise.resolve();
+    busy = true;
+    var old = sec.querySelector('table.events');
+    return fetch(card.dataset.src, { credentials: 'same-origin', cache: 'no-store' })
+      .then(function(r){ if (!r.ok) throw new Error(String(r.status)); return r.text(); })
+      .then(function(html){
+        var box = document.createElement('div'); box.innerHTML = html;
+        var fresh = box.querySelector('table.events');
+        if (!fresh || !old) return;
+        var now = keys(fresh);
+        fresh.querySelectorAll('tbody tr').forEach(function(tr){ if (!seen[rowKey(tr)]) tr.classList.add('ev-new'); });
+        seen = now;
+        old.replaceWith(fresh);
+        (window.unmaskRewire || []).forEach(function(f){ try { f(sec); } catch (e) {} });
+        if (window.unmaskFmtTimes) unmaskFmtTimes();
+      })
+      .catch(function(){})
+      .then(function(){ busy = false; left = PERIOD; });
+  };
+  setInterval(function(){
+    if (!on() || document.visibilityState !== 'visible') return;
+    left -= 1;
+    if (left <= 0) unmaskRefreshRecent();
+  }, 1000);
+})();
+</script>
+<script>
 // The "right now" strip.  Every PERIOD seconds (while the tab is visible and
 // the operator has not switched it off) the page re-reads /admin/api/now and
 // writes the figures over the ones it has.  The previous reading stays up
@@ -906,7 +964,9 @@ unmaskInitComp();
   var dpr = 1, cw = 0, ch = 0;
 
   function fit(){
-    var w = Math.max(200, Math.round(card.querySelector('.geo-wrap').getBoundingClientRect().width));
+    // Capped at 1200px (the CSS max-width), so a wide window does not get a
+    // map taller than the rest of the page put together.
+    var w = Math.min(1200, Math.max(200, Math.round(card.querySelector('.geo-wrap').getBoundingClientRect().width)));
     dpr = Math.min(2, window.devicePixelRatio || 1);
     cw = w; ch = Math.round(w * 0.46);
     cv.style.height = ch + 'px';

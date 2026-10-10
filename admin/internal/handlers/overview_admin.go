@@ -114,10 +114,12 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	launch(func() { _, uBlocked, uKnown = trafficUnique(ctx, h, 1440, site) })
 	// 10 most recent detections: fetch 40 raw rows so the client-side session
 	// collapse (group by beacon_token) still shows ~10 sessions.
-	// The section refresh (?partial=day) redraws the hero, the pipeline and the
-	// hourly chart only, so it does not read the recent detections.
-	partial := r.URL.Query().Get("partial") == "day"
-	if !partial {
+	// The section refreshes: ?partial=day redraws the hero, the pipeline and
+	// the hourly chart and does not read the recent detections; ?partial=recent
+	// redraws the recent-detections table alone (the day queries above still
+	// run -- cheap against the rollups -- but their work is not rendered).
+	partial := r.URL.Query().Get("partial")
+	if partial != "day" {
 		launch(func() {
 			recentRaw, recentErr = events.FetchPaged(ctx, h.DB, "", "", "", "", "", "", site, hosts, 0, 40, 0)
 		})
@@ -580,10 +582,10 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	h.addMeToData(r, data)
 	data["Pipe"] = pipeline(lang, comp, kpiFired, kpiPoWTotal, kpiCaptchaTotal, kpiPoWPass+kpiCaptchaPass, comp.PowPass+comp.CaptchaPass, comp.OK, kpiKnown, rlServes, rlKnown)
 	data["Hourly"] = hourly(lang, hourlyCmp)
-	if partial {
+	if partial == "day" || partial == "recent" {
 		w.Header().Set("Cache-Control", "no-store")
-		if err := tmpl.ExecuteTemplate(w, "overview_day", data); err != nil {
-			log.Printf("overview day render: %v", err)
+		if err := tmpl.ExecuteTemplate(w, "overview_"+partial, data); err != nil {
+			log.Printf("overview %s render: %v", partial, err)
 		}
 		return
 	}

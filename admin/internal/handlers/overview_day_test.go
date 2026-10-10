@@ -124,3 +124,35 @@ func TestPipelineStages(t *testing.T) {
 	}
 	_ = time.Now
 }
+
+// ?partial=recent renders the recent-detections table alone: the rows the
+// page redraws every few seconds, without the block's styles and scripts.
+func TestOverviewRecentPartial(t *testing.T) {
+	h := newTestHandler(t)
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
+	rr := httptest.NewRecorder()
+	h.AdminTopOverview(rr, httptest.NewRequest(http.MethodGet, "/unmask/admin/?partial=recent", nil))
+	if rr.Code != http.StatusOK || rr.Header().Get("Cache-Control") != "no-store" {
+		t.Fatalf("status %d cache-control %q", rr.Code, rr.Header().Get("Cache-Control"))
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, `<table class="events"`) || !strings.Contains(body, `data-events-cap="10"`) {
+		t.Errorf("the partial is not the recent table: %.200s", body)
+	}
+	for _, gone := range []string{`<html`, `<script`, `<style`, `id="day-section"`, `id="recent-card"`, `class="hero`} {
+		if strings.Contains(body, gone) {
+			t.Errorf("the recent partial carries %q", gone)
+		}
+	}
+	// The page itself carries the card with its live note and the redraw hook.
+	rr = httptest.NewRecorder()
+	h.AdminTopOverview(rr, httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil))
+	page := rr.Body.String()
+	for _, want := range []string{`id="recent-card"`, `id="recent-section"`, `data-src="/unmask/admin/?partial=recent"`, `window.unmaskRefreshRecent = function`, `function unmaskWireEventsTable(root)`, `function wireDt(root)`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+}

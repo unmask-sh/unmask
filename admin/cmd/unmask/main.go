@@ -1389,6 +1389,12 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.AdminNowJSON))
 	mux.HandleFunc("POST "+base+"/admin/api/map-location",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminMapLocationSave)))
+	// The ask page: every account reads it, asking and clearing take admin.
+	mux.HandleFunc("GET "+base+"/admin/ask/{$}", h.AuthMiddleware(h.AdminAsk))
+	mux.HandleFunc("POST "+base+"/admin/ask/send",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAskSend)))
+	mux.HandleFunc("POST "+base+"/admin/ask/clear",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAskClear)))
 	mux.HandleFunc("GET "+base+"/admin/community-bans/{$}",
 		h.AuthMiddleware(h.AdminCommunityBansIndex))
 	mux.HandleFunc("POST "+base+"/admin/community-bans/mute-toggle",
