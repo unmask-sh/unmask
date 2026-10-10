@@ -42,8 +42,9 @@ func TestAdminNowJSON(t *testing.T) {
 			N    uint32 `json:"n"`
 			Pass uint32 `json:"pass"`
 		} `json:"countries"`
-		FeedOff bool   `json:"feed_off"`
-		TPSText string `json:"tps_text"`
+		CountryNames map[string]string `json:"country_names"`
+		FeedOff      bool              `json:"feed_off"`
+		TPSText      string            `json:"tps_text"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("json: %v\n%s", err, rec.Body.String())
@@ -65,6 +66,10 @@ func TestAdminNowJSON(t *testing.T) {
 	}
 	if _, ok := out.Countries["US"]; ok {
 		t.Error("a country from the previous minute leaked into the window")
+	}
+	// The map's popover names the source in full, from the same reading.
+	if out.CountryNames["JP"] != "Japan (日本)" || len(out.CountryNames) != len(out.Countries) {
+		t.Errorf("country_names = %v", out.CountryNames)
 	}
 	if out.TPS["now"] != 3.0/live.Step {
 		t.Errorf("tps = %v", out.TPS)

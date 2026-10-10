@@ -111,6 +111,9 @@ for i in range(${n}):
       after = s.r; pass = s.p; serve = s.s;
     }
     ok(after >= before + 6, `requests tile ${before} -> ${after}, expected +6 within 16 s`);
+    // The figure that moved flashed (the class stays after the animation).
+    const flashed = await page.evaluate(() => document.querySelector('#live-grid .live[data-k="requests"] [data-f="last"]').classList.contains('v-flash'));
+    ok(flashed, 'the requests figure changed without a flash');
     ok(pass >= 3 && serve >= 3, `pass=${pass} serve=${serve}, expected 3 each from the fed lines`);
     const noFeedNote = await page.evaluate(() => document.getElementById('live-feed-off').hidden);
     ok(noFeedNote === true, 'the "feed off" note shows although lines arrive');

@@ -3,9 +3,9 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
@@ -29,23 +29,25 @@ func TestOverviewDaySection(t *testing.T) {
 		return rr.Body.String()
 	}
 	page := get("/unmask/admin/")
-	for _, want := range []string{`id="day-section"`, `data-stage="requests"`, `data-stage="bypass"`, `data-stage="rl"`, `data-stage="serve"`, `data-stage="pass"`, `id="hourly-card"`, `id="comp-card"`, `class="meta kpi-note"`, `window.unmaskInitComp = function`, `window.unmaskRefreshDay = function`} {
+	for _, want := range []string{`id="day-section"`, `class="kpi-grid"`, `data-kpi="requests"`, `data-kpi="serve"`, `data-kpi="pow"`, `data-kpi="captcha"`, `data-kpi="abandon"`, `data-kpi="bans"`, `id="hourly-card"`, `id="comp-card"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("page lacks %q", want)
 		}
 	}
-	if strings.Count(page, `class="pipe-st"`) != 5 {
-		t.Errorf("%d pipeline stages, want 5", strings.Count(page, `class="pipe-st"`))
+	// Six tiles: the request total, then the five the row has always had.
+	if strings.Count(page, `data-kpi="`) != 6 {
+		t.Errorf("%d tiles, want 6", strings.Count(page, `data-kpi="`))
 	}
-	for _, gone := range []string{`table.ai-traffic`, `ai_traffic_card`, `class="ai-tabs"`, `class="kpi-grid"`} {
+	for _, gone := range []string{`table.ai-traffic`, `ai_traffic_card`, `class="ai-tabs"`, `class="pipe"`, `pipe-st`, `pipe-side`} {
 		if strings.Contains(page, gone) {
 			t.Errorf("page still carries %q", gone)
 		}
 	}
-	// The rate-limit stage has no rollup to read in this test: a dash, and
-	// the line says why.
-	if !strings.Contains(page, `data-stage="rl"`) || !strings.Contains(page, i18n.T("ja", "overview.pipe.rl_unknown")) {
-		t.Error("the rate-limit stage must say its figure is not available here")
+	// Without the access-log feed the requests tile has no figure: a dash,
+	// and the line says the feed is off.
+	req := regexp.MustCompile(`(?s)data-kpi="requests">.*?<div class="value">([^<]*)</div>\s*<div class="sub">([^<]*)</div>`).FindStringSubmatch(page)
+	if req == nil || strings.TrimSpace(req[1]) != "—" || !strings.Contains(req[2], i18n.T("ja", "overview.kpi.nonhuman_nodata")) {
+		t.Errorf("the requests tile must show a dash and say the feed is off: %q", req)
 	}
 
 	// The partial: the section alone, not the page.
@@ -93,36 +95,6 @@ func TestHourlyViewGeometry(t *testing.T) {
 	if empty.OK || empty.Max != 0 || empty.Bars[5].YH != 0 {
 		t.Errorf("empty: %+v", empty.Bars[5])
 	}
-}
-
-func TestPipelineStages(t *testing.T) {
-	comp := dashboard.TrafficComposition{Total: 1000, Benign: 100, Bypassed: 50, Challenged: 300, PowPass: 400, CaptchaPass: 20, OK: true}
-	st := pipeline("ja", comp, 300, 410, 25, 15, 420, true, true, 7, true)
-	keys := []string{"requests", "bypass", "rl", "serve", "pass"}
-	for i, k := range keys {
-		if st[i].Key != k || !st[i].Known {
-			t.Errorf("stage %d = %+v, want %s known", i, st[i], k)
-		}
-	}
-	if st[0].N != 1000 || st[1].N != 150 || st[2].N != 7 || st[3].N != 300 || st[4].N != 435 {
-		t.Errorf("counts: %d %d %d %d %d", st[0].N, st[1].N, st[2].N, st[3].N, st[4].N)
-	}
-	if !strings.Contains(st[1].Sub, "100") || !strings.Contains(st[1].Sub, "50") {
-		t.Errorf("bypass sub: %q", st[1].Sub)
-	}
-	if !strings.Contains(st[4].Sub, "410") || !strings.Contains(st[4].Sub, "25") || !strings.Contains(st[4].Sub, "15") || !strings.Contains(st[4].Sub, "420") {
-		t.Errorf("pass sub: %q", st[4].Sub)
-	}
-	// Without the feed: the request-based stages are unknown and say so; the
-	// passed stage's line says the cookie share is missing.
-	none := pipeline("en", dashboard.TrafficComposition{}, 300, 15, 10, 25, 0, false, true, 0, false)
-	if none[0].Known || none[1].Known || none[2].Known || !none[3].Known || !none[4].Known {
-		t.Errorf("known flags without the feed: %+v", none)
-	}
-	if !strings.Contains(none[4].Sub, "access-log") || !strings.Contains(none[2].Sub, "not available") {
-		t.Errorf("subs without the feed: %q / %q", none[4].Sub, none[2].Sub)
-	}
-	_ = time.Now
 }
 
 // ?partial=recent renders the recent-detections table alone: the rows the

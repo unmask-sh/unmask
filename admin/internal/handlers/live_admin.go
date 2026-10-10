@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/live"
 )
 
@@ -135,6 +136,7 @@ func liveSparkPoints(vals []uint32) string {
 //	 "series": {"requests": [60 ints], ...}, "last": {"requests": n, ...},
 //	 "prev": {...}, "tps": {"now": 1.6, "peak": 8.6, "avg": 2.5},
 //	 "countries": {"JP": {"n":148,"pass":100,"bypass":3,"serve":40,"deny":5}},
+//	 "country_names": {"JP": "Japan (日本)"},
 //	 "feed_off": false, "bans": 9}
 //
 // Read-only, cheap (an in-memory ring), and answered for every signed-in role:
@@ -163,6 +165,13 @@ func (h *Handler) AdminNowJSON(w http.ResponseWriter, r *http.Request) {
 		out["prev"] = prev
 		out["tps"] = map[string]float64{"now": sn.TPS, "peak": sn.Peak, "avg": sn.Avg}
 		out["countries"] = sn.Countries
+		// Each source's full name, for the map's popover: worded once here
+		// rather than shipping the country table to the page.
+		names := make(map[string]string, len(sn.Countries))
+		for cc := range sn.Countries {
+			names[cc] = ipgeo.CountryName(cc)
+		}
+		out["country_names"] = names
 		out["feed_off"] = !h.cfg().NginxLog.Enabled && sn.LastLine == 0
 		// The request tile's caption, pre-worded here so the script does not
 		// carry the format strings of every language.

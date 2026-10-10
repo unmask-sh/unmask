@@ -84,6 +84,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const feed = () => page.evaluate(() => {
     document.dispatchEvent(new CustomEvent('unmask:now', { detail: {
       countries: { JP: { n: 148, pass: 100, bypass: 3, serve: 40, deny: 5 }, US: { n: 31, pass: 10, bypass: 0, serve: 15, deny: 6 }, DE: { n: 6, pass: 6, bypass: 0, serve: 0, deny: 0 } },
+      country_names: { JP: 'Japan (日本)', US: 'United States (アメリカ合衆国)', DE: 'Germany (ドイツ)' },
     } }));
   });
   const usBefore = await around(-98.5, 39.5);
@@ -92,6 +93,34 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(/JP 148/.test(top) && /US 31/.test(top), 'the top-sources line does not list the reading: ' + top);
   const usAfter = await around(-98.5, 39.5);
   ok(usAfter > usBefore * 1.2, `the US source did not paint (${usBefore} -> ${usAfter})`);
+
+  // The pointer on a source opens its popover: flag, full name, the count,
+  // its share and the split by outcome.  Off the sources it goes away.
+  const us = await page.evaluate(() => {
+    const h = (window.unmaskGeoHot ? unmaskGeoHot() : []).find(x => x.cc === 'US');
+    const r = document.getElementById('geo').getBoundingClientRect();
+    return h ? { x: r.left + h.x, y: r.top + h.y } : null;
+  });
+  ok(!!us, 'the US source has no hit area');
+  if (us) {
+    await page.mouse.move(us.x, us.y);
+    await sleep(150);
+    const pop = await page.evaluate(() => {
+      const p = document.getElementById('geo-pop');
+      const img = p.querySelector('img');
+      return { hidden: p.hidden, text: p.textContent.replace(/\s+/g, ' '), img: img ? img.getAttribute('src') : '', cursor: getComputedStyle(document.getElementById('geo')).cursor };
+    });
+    ok(!pop.hidden, 'no popover on the US source');
+    ok(/United States/.test(pop.text), 'the popover lacks the full name: ' + pop.text);
+    ok(/us\.png$/.test(pop.img), 'the popover lacks the flag: ' + pop.img);
+    for (const n of ['31', '10', '15', '6', '17%']) ok(pop.text.indexOf(n) >= 0, 'the popover lacks ' + n + ': ' + pop.text);
+    ok(pop.cursor === 'pointer', 'the source does not signal it is interactive: ' + pop.cursor);
+    // The sea west of Africa: nothing there.
+    const off = await page.evaluate(() => { const r = document.getElementById('geo').getBoundingClientRect(); return { x: r.left + r.width * 0.44, y: r.top + r.height * 0.6 }; });
+    await page.mouse.move(off.x, off.y);
+    await sleep(100);
+    ok(await page.evaluate(() => document.getElementById('geo-pop').hidden), 'the popover stays up off the sources');
+  }
   const sourcesLit = await lit();
 
   // Set the position through the card's dialog: it offers the automatic

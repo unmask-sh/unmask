@@ -68,8 +68,6 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		uKnown                                bool
 		recentRaw                             []events.Row
 		recentErr                             error
-		rlServes                              int
-		rlKnown                               bool
 		hourlyCmp                             dashboard.HourlyCompare
 		overBlock                             OverBlockHealth
 	)
@@ -127,7 +125,6 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// The pipeline's rate-limit stage and the hourly chart.  (The AI / crawler
 	// table left this page for the stats page, which has had the same card
 	// with a range selector all along.)
-	launch(func() { rlServes, rlKnown, _ = dashboard.RateLimitedServes(ctx, h.DB, site, hosts, 24) })
 	launch(func() {
 		var err error
 		if hourlyCmp, err = dashboard.HourlyRequests(ctx, h.DB, site, resolveLocation(r), time.Now()); err != nil {
@@ -487,6 +484,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIAbandonPct":  abandonPct,
 		"KPIKnown":       kpiKnown,
 		"KPIReqTotal":    comp.Total,
+		"KPIReqKnown":    comp.OK, // the requests tile: a figure only with the access-log feed
 		"KPIReqBenign":   comp.Benign,
 		"KPIReqNonHuman": rNonHuman,
 		// Requests holding a pass cookie plus the challenges cleared inside the
@@ -583,7 +581,6 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
-	data["Pipe"] = pipeline(lang, comp, kpiFired, kpiPoWTotal, kpiCaptchaTotal, kpiPoWPass+kpiCaptchaPass, comp.PowPass+comp.CaptchaPass, comp.OK, kpiKnown, rlServes, rlKnown)
 	data["Hourly"] = hourly(lang, hourlyCmp)
 	if partial == "day" || partial == "recent" {
 		w.Header().Set("Cache-Control", "no-store")

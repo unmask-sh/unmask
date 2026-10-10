@@ -105,21 +105,14 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
    only replaces them.  A refresh dims the strip only when the answer is slow
    (a dim on every five-second fetch would flicker), and the previous figures
    stay up until the new ones land. */
-/* The pipeline card: the 24-hour numbers in the order a request meets them,
-   above the composition bar they are shares of.  Each stage is a box with
-   the figure, its share of all requests and a line of breakdown. */
+/* The 24-hour card: one row of tiles above the composition bar they are
+   read against.  Six tiles at a 10rem minimum need 63rem (1008px), which the
+   usual 1280-1920px viewport clears; auto-fit wraps rather than overflowing
+   when the window is genuinely narrow. */
 .comp-card .pipe-h{font-size:1.05rem;font-weight:700;color:#334155;margin:0 0 .6rem;display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap}
 .comp-card .pipe-h small,.bcd-card .pipe-h small{font-size:.75rem;color:#94a3b8;font-weight:normal}
 .bcd-card h2.pipe-h{display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap}
-.pipe{display:flex;align-items:stretch;gap:.2rem;overflow-x:auto;margin-bottom:.7rem}
-.pipe-st{flex:1;min-width:7.5rem}
-.pipe-box{border-top:.25rem solid;background:#f8fafc;border-radius:.3rem;padding:.5rem .65rem;height:100%}
-.pipe-l{font-size:.76rem;color:#475569;font-weight:600;display:flex;align-items:center;gap:.25rem}
-.pipe-v{font-size:1.4rem;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.15;color:#0f172a}
-.pipe-p{font-size:.72rem;color:#64748b;font-variant-numeric:tabular-nums;min-height:1em}
-.pipe-s{font-size:.68rem;color:#94a3b8;margin-top:.2rem;line-height:1.3}
-.pipe-arrow{align-self:center;color:#cbd5e1;font-size:1.4rem;padding:0 .1rem;flex:none}
-.pipe-side{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;margin:0 0 .9rem}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;margin:0 0 .9rem}
 .comp-card h3.comp-h3{margin:0;font-size:1rem;font-weight:700;color:#334155}
 .hourly-legend{display:flex;gap:1rem;font-size:.75rem;color:#64748b;align-items:center;flex-wrap:wrap;margin-bottom:.3rem}
 .hourly-legend i{display:inline-block;width:.7rem;height:.7rem;border-radius:.15rem;margin-right:.3rem;vertical-align:-.05em}
@@ -132,12 +125,29 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .geo-wrap canvas{width:100%;max-width:1200px;margin:0 auto;display:block;border-radius:.3rem;background:#0f172a}
 .geo-foot{display:flex;gap:1rem;flex-wrap:wrap;align-items:center;font-size:.75rem;color:#64748b;margin-top:.5rem}
 .geo-foot i{display:inline-block;width:.6rem;height:.6rem;border-radius:50%;margin-right:.3rem;vertical-align:-.05em}
+/* The popover a source gets under the pointer: the flag and full name, the
+   last minute's count and its share, and the split by outcome in the
+   particles' colours.  pointer-events:none so it never sits between the
+   pointer and the point that opened it. */
+.geo-pop{position:absolute;z-index:3;pointer-events:none;background:#0f172a;color:#e2e8f0;border:1px solid #475569;border-radius:.35rem;padding:.45rem .6rem;font-size:.78rem;line-height:1.45;box-shadow:0 .4rem 1rem rgba(0,0,0,.45);min-width:11rem;max-width:16rem}
+.geo-pop b{font-weight:700;color:#f8fafc}
+.geo-pop img{width:1.125rem;height:.8rem;vertical-align:-.1em;margin-right:.35em;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(255,255,255,.15)}
+.geo-pop table{border-collapse:collapse;margin-top:.25rem}
+.geo-pop td{padding:.05rem .5rem .05rem 0;white-space:nowrap}
+.geo-pop td.n{text-align:right;font-variant-numeric:tabular-nums;padding-right:0}
+.geo-pop td.share{color:#94a3b8}
+.geo-pop i{display:inline-block;width:.55rem;height:.55rem;border-radius:50%;margin-right:.3rem;vertical-align:-.02em}
 .geo-top{margin-left:auto;color:#475569;display:inline-flex;gap:.6rem;flex-wrap:wrap;align-items:center}
 .geo-top img{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.2em;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
 /* The recent-detections card redraws its table every few seconds; a row that
    was not there before flashes green and settles. */
 .livebadge{display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;color:#16a34a;font-weight:600}
 .livebadge i{width:.5rem;height:.5rem;border-radius:50%;background:#16a34a;display:inline-block}
+/* A figure that changed on a refresh flashes briefly, so a reader watching
+   the page sees which numbers moved. */
+@keyframes v-flash{0%{background:#bae6fd;box-shadow:0 0 0 .3rem #bae6fd}100%{background:transparent;box-shadow:0 0 0 .3rem transparent}}
+.v-flash{animation:v-flash .8s ease-out;border-radius:.2rem}
+@media (prefers-reduced-motion: reduce){.v-flash{animation:none}}
 @keyframes ev-new{from{background:#dcfce7}to{background:transparent}}
 table.events tbody tr.ev-new>td{animation:ev-new 2.5s ease-out}
 @media (prefers-reduced-motion: reduce){table.events tbody tr.ev-new>td{animation:none;background:#f0fdf4}}
@@ -325,9 +335,12 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
      data-save="{{ .BasePath }}/admin/api/map-location"
      data-set="{{ if .MapLoc.Set }}1{{ else }}0{{ end }}" data-lat="{{ .MapLoc.Lat }}" data-lon="{{ .MapLoc.Lon }}" data-label="{{ .MapLoc.Label }}{{ if .MapLoc.Approx }} {{ t .Lang "overview.map.approx" }}{{ end }}" data-auto="{{ if .MapLoc.Auto }}1{{ else }}0{{ end }}"
      data-auto-set="{{ if .MapAuto.Set }}1{{ else }}0{{ end }}" data-auto-lat="{{ .MapAuto.Lat }}" data-auto-lon="{{ .MapAuto.Lon }}" data-auto-label="{{ .MapAuto.Label }}{{ if .MapAuto.Approx }} {{ t .Lang "overview.map.approx" }}{{ end }}" data-auto-source="{{ .MapAuto.Source }}"
-     data-txt-server="{{ t .Lang "overview.map.server" }}" data-txt-src-interface="{{ t .Lang "overview.map.src_interface" }}" data-txt-src-hub="{{ t .Lang "overview.map.src_hub" }}">
+     data-txt-server="{{ t .Lang "overview.map.server" }}" data-txt-src-interface="{{ t .Lang "overview.map.src_interface" }}" data-txt-src-hub="{{ t .Lang "overview.map.src_hub" }}"
+     data-txt-pop-requests="{{ t .Lang "overview.map.pop_requests" }}" data-txt-pop-share="{{ t .Lang "overview.map.pop_share" }}"
+     data-txt-legend-pass="{{ t .Lang "overview.map.legend_pass" }}" data-txt-legend-serve="{{ t .Lang "overview.map.legend_serve" }}" data-txt-legend-deny="{{ t .Lang "overview.map.legend_deny" }}" data-txt-legend-bypass="{{ t .Lang "overview.map.legend_bypass" }}">
   <h2 class="pipe-h">{{ t .Lang "overview.map.h" }}<small>{{ t .Lang "overview.map.sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.map.help" }}</span></span>{{ if .CanEditMap }}<button type="button" class="live-tg" id="geo-set" style="margin-left:auto">{{ t .Lang "overview.map.set" }}</button>{{ end }}</h2>
-  <div class="geo-wrap"><canvas id="geo" aria-label="{{ t .Lang "overview.map.h" }}" role="img"></canvas></div>
+  <div class="geo-wrap"><canvas id="geo" aria-label="{{ t .Lang "overview.map.h" }}" role="img"></canvas>
+    <div class="geo-pop" id="geo-pop" hidden></div></div>
   <p class="live-note" id="geo-unset" style="margin:.4rem 0 0"{{ if .MapLoc.Set }} hidden{{ end }}>{{ t .Lang "overview.map.unset" }}</p>
   {{ if .MapLoc.Auto }}<p class="meta" id="geo-auto" style="margin:.4rem 0 0;font-size:.78rem">{{ tf .Lang "overview.map.auto_note" (t .Lang (printf "overview.map.src_%s" .MapLoc.Source)) }}{{ if .MapLoc.Approx }} {{ t .Lang "overview.map.approx_note" }}{{ end }}</p>{{ end }}
   <p class="live-note" id="geo-nogeo" style="margin:.4rem 0 0"{{ if .GeoKnown }} hidden{{ end }}>{{ t .Lang "overview.map.nogeo" }}</p>
@@ -405,33 +418,52 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
      another).  It also carries four numbers, which a 13rem tile could only show
      at 0.7rem across two wrapped lines. */}}
 <div class="bcd-card comp-card" id="comp-card">
-  <h2 class="pipe-h">{{ t .Lang "overview.pipe.h" }}<small>{{ t .Lang "overview.pipe.sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.pipe.help" }}</span></span></h2>
-  {{/* Shares are of the request total, so a stage counted from the event log
-       (solves, rate limits) is read against the access log's total: the two
-       logs count different things, and the share says how much of the whole
-       that stage was, not how it relates to the stage before it. */}}
-  <div class="pipe">
-    {{ range $i, $st := .Pipe }}{{ if $i }}<div class="pipe-arrow" aria-hidden="true">›</div>{{ end }}
-    <div class="pipe-st" data-stage="{{ .Key }}">
-      <div class="pipe-box" style="border-top-color:{{ .Color }}">
-        <div class="pipe-l">{{ t $.Lang .LabelKey }}{{ if .HelpKey }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ t $.Lang .HelpKey }}</span></span>{{ end }}</div>
-        <div class="pipe-v">{{ if .Known }}{{ comma .N }}{{ else }}—{{ end }}</div>
-        <div class="pipe-p">{{ if and .Known $.KPIReqTotal }}{{ if eq .Key "requests" }}100%{{ else }}{{ tf $.Lang "overview.pipe.of_total" (pctLabel .N $.KPIReqTotal) }}{{ end }}{{ end }}</div>
-        <div class="pipe-s">{{ .Sub }}</div>
-      </div>
-    </div>
-    {{ end }}
+  <h2 class="pipe-h">{{ t .Lang "overview.kpi.h" }}<small>{{ t .Lang "overview.kpi.h_sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.kpi.h_help" }}</span></span></h2>
+  {{/* One row: the access log's request total, then what the challenge did
+       (served, passed by PoW, passed by CAPTCHA, abandoned -- the operator's
+       2026-10-10 call: these read better as the tiles they were than as a
+       merged "passed" stage), then the clients banned right now.  Every tile
+       but the bans is a request count for the last 24 hours. */}}
+  <div class="kpi-grid">
+  <div class="kpi k-req" data-kpi="requests">
+    <div class="label">{{ t .Lang "overview.kpi.requests" }}</div>
+    <div class="value">{{ if .KPIReqKnown }}{{ comma .KPIReqTotal }}{{ else }}—{{ end }}</div>
+    <div class="sub">{{ if .KPIReqKnown }}{{ t .Lang "overview.kpi.requests_sub" }}{{ else }}{{ t .Lang "overview.kpi.nonhuman_nodata" }}{{ end }}</div>
   </div>
-  {{/* The two operating counters that are not stages: visitors who walked
-       away from the proof-of-work, and the clients banned right now. */}}
-  <p class="meta kpi-note">{{ t .Lang "overview.kpi.row_note" }}</p>
-  <div class="pipe-side">
-  <div class="kpi {{ if gt .KPIAbandonPct 10.0 }}warn{{ end }}">
+  <div class="kpi k-serve" data-kpi="serve">
+    <div class="label"><span class="kdot" style="background:#dc2626"></span>{{ t .Lang "overview.kpi.serves" }}</div>
+    <div class="value">{{ if .KPIKnown }}{{ comma .KPIServes }}{{ else }}—{{ end }}</div>
+    <div class="sub">{{ t .Lang "overview.kpi.serves_sub" }}</div>
+  </div>
+  <div class="kpi k-pow" data-kpi="pow">
+    <div class="label"><span class="kdot" style="background:#0ea5e9"></span>{{ t .Lang "overview.kpi.pow_pass" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.pow_pass_help") }}</span></span></div>
+    <div class="value">{{ if .KPIKnown }}{{ comma .KPIPoWTotal }}{{ else }}—{{ end }}</div>
+    <div class="sub">{{ t .Lang "overview.kpi.pow_pass_sub" }}</div>
+    {{/* The headline is requests -- the solves plus what their cookies then
+         admitted -- in the same unit as "challenge fired" beside it.  The
+         breakdown keeps the solves visible: they are the visitor count and
+         the abandon rate's base.  Without the access-log feed the cookie
+         share is unknown, and the tile says the headline is solves alone. */}}
+    <div class="sub sub-cookie">{{ if .KPICookieKnown }}{{ tf .Lang "overview.kpi.pass_breakdown" (comma .KPIPoWPass) (comma .KPIPoWCookie) }}{{ else }}{{ tf .Lang "overview.kpi.pass_solves_only" (comma .KPIPoWPass) }}{{ end }}</div>
+  </div>
+  <div class="kpi k-captcha" data-kpi="captcha">
+    <div class="label"><span class="kdot" style="background:#16a34a"></span>{{ t .Lang "overview.kpi.captcha_pass" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.captcha_pass_help") }}</span></span></div>
+    <div class="value">{{ if .KPIKnown }}{{ comma .KPICaptchaTotal }}{{ else }}—{{ end }}</div>
+    <div class="sub">{{ t .Lang "overview.kpi.captcha_pass_sub" }}</div>
+    <div class="sub sub-cookie">{{ if .KPICookieKnown }}{{ tf .Lang "overview.kpi.pass_breakdown" (comma .KPICaptchaPass) (comma .KPICaptchaCookie) }}{{ else }}{{ tf .Lang "overview.kpi.pass_solves_only" (comma .KPICaptchaPass) }}{{ end }}</div>
+  </div>
+  {{/* Abandonment: the tile an operator reads before touching PoW difficulty.
+       A request count, like every tile beside it, with the share and its
+       denominator underneath -- challenge pages whose JS ran, so bots (which
+       never do) are excluded by construction, unlike the blocked count in the
+       hero, which is mostly them.  Warn styling past 10%: at that point the
+       challenge is costing real visitors, not just bots. */}}
+  <div class="kpi {{ if gt .KPIAbandonPct 10.0 }}warn{{ end }}" data-kpi="abandon">
     <div class="label">{{ t .Lang "overview.kpi.abandon" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.abandon_help") }}</span></span></div>
     <div class="value">{{ if .KPIKnown }}{{ comma .KPIAbandon }}{{ else }}—{{ end }}</div>
     <div class="sub">{{ if gt .KPIPoWLoaded 0 }}{{ tf .Lang "overview.kpi.abandon_sub" (comma .KPIPoWLoaded) (printf "%.1f" .KPIAbandonPct) }}{{ else }}{{ t .Lang "overview.kpi.abandon_sub_empty" }}{{ end }}</div>
   </div>
-  <div class="kpi {{ if gt .KPICurrentBans 0 }}warn{{ end }}">
+  <div class="kpi {{ if gt .KPICurrentBans 0 }}warn{{ end }}" data-kpi="bans">
     <div class="label">{{ t .Lang "overview.kpi.bans" }}</div>
     <div class="value">{{ comma .KPICurrentBans }}</div>
     <div class="sub"><a href="{{.BasePath}}/admin/bans/">{{ t .Lang "overview.kpi.bans_sub" }}</a></div>
@@ -916,11 +948,17 @@ unmaskInitComp();
     }
     return out.join(' ');
   }
+  // A figure that changed flashes once (the class restarts the animation).
+  window.unmaskFlash = function(el){
+    if (!el) return;
+    el.classList.remove('v-flash'); void el.offsetWidth; el.classList.add('v-flash');
+  };
   function paint(j){
     grid.querySelectorAll('.live[data-k]').forEach(function(tile){
       var k = tile.dataset.k;
       var last = (j.last && j.last[k]) || 0, prev = (j.prev && j.prev[k]) || 0, d = last - prev;
-      tile.querySelector('[data-f=last]').textContent = comma(last);
+      var lastEl = tile.querySelector('[data-f=last]'), txt = comma(last);
+      if (lastEl.textContent !== txt) { lastEl.textContent = txt; unmaskFlash(lastEl); }
       tile.querySelector('[data-f=dv]').textContent = d > 0 ? '+' + d : d < 0 ? String(d) : '\u00b10';
       tile.querySelector('[data-f=delta]').classList.toggle('up', d > 0);
       var sp = tile.querySelector('[data-f=spark]');
@@ -987,7 +1025,15 @@ unmaskInitComp();
   if (!ctx) return;
   var MAP = null, land = [];
   var loc = { set: card.dataset.set === '1', lat: parseFloat(card.dataset.lat) || 0, lon: parseFloat(card.dataset.lon) || 0, label: card.dataset.label || '' };
-  var counts = {}, streams = [], parts = [], server = null;
+  var counts = {}, names = {}, streams = [], parts = [], server = null;
+  // Hit areas for the popover, in CSS pixels: each source's point and, when
+  // it got one, its label box.  Rebuilt by every frame.
+  var hot = [], flagImgs = {};
+  function flagImg(cc){
+    var k = cc.toLowerCase();
+    if (!flagImgs[k]) { var im = new Image(); im.src = card.dataset.flags + k + '.png'; flagImgs[k] = im; }
+    return flagImgs[k];
+  }
   var reduce = false;
   try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
   var colors = { pass: '#94a3b8', serve: '#f87171', deny: '#b91c1c', bypass: '#818cf8' };
@@ -1075,21 +1121,29 @@ unmaskInitComp();
     // Labels for the top sources, placed so neighbours (Korea beside
     // Japan) do not overprint: a label that would cross one already drawn
     // moves down a row, up to three times, then goes unlabelled.
-    var placed = [];
+    var placed = [], fresh = [];
     streams.forEach(function(st, i){
-      ctx.beginPath(); ctx.arc(st.x0 * sx, st.y0 * sy, (1.5 + 3 * st.w) * dpr, 0, Math.PI * 2);
+      var r = (1.5 + 3 * st.w) * dpr;
+      ctx.beginPath(); ctx.arc(st.x0 * sx, st.y0 * sy, r, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(186,230,253,' + (0.35 + 0.65 * st.w) + ')'; ctx.fill();
+      var he = { st: st, x: st.x0 * sx / dpr, y: st.y0 * sy / dpr, r: r / dpr };
+      fresh.push(he);
       if (i < 6) {
-        var t = st.cc + ' ' + st.n, tw = ctx.measureText(t).width + 8 * dpr, th = 16 * dpr;
+        // The label: the flag, the code and the count.
+        var t = st.cc + ' ' + st.n, fw = 14 * dpr, fh = 10 * dpr, tw = ctx.measureText(t).width + 11 * dpr + fw, th = 16 * dpr;
         var lx = st.x0 * sx + 6 * dpr, ly = st.y0 * sy - 8 * dpr, tries = 0;
         var hits = function(){ return placed.some(function(r){ return lx < r.x + r.w && lx + tw > r.x && ly < r.y + r.h && ly + th > r.y; }); };
         while (hits() && tries < 3) { ly += th + 2 * dpr; tries++; }
         if (hits()) return;
         placed.push({ x: lx, y: ly, w: tw, h: th });
+        he.lbl = { x: lx / dpr, y: ly / dpr, w: tw / dpr, h: th / dpr };
         ctx.fillStyle = 'rgba(15,23,42,.7)'; ctx.fillRect(lx, ly, tw, th);
-        ctx.fillStyle = '#e0f2fe'; ctx.fillText(t, lx + 4 * dpr, ly + th / 2);
+        var im = flagImg(st.cc);
+        if (im.complete && im.naturalWidth) { try { ctx.drawImage(im, lx + 4 * dpr, ly + (th - fh) / 2, fw, fh); } catch (e) {} }
+        ctx.fillStyle = '#e0f2fe'; ctx.fillText(t, lx + 7 * dpr + fw, ly + th / 2);
       }
     });
+    hot = fresh;
     if (server) {
       var sxp = server[0] * sx, syp = server[1] * sy, pulse = reduce ? 0.5 : (ts / 1000) % 1;
       ctx.beginPath(); ctx.arc(sxp, syp, (4 + pulse * 16) * dpr, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(56,189,248,' + (1 - pulse) * 0.8 + ')'; ctx.lineWidth = 2 * dpr; ctx.stroke();
@@ -1110,9 +1164,55 @@ unmaskInitComp();
   document.addEventListener('unmask:now', function(e){
     var j = e.detail || {};
     counts = j.countries || {};
+    if (j.country_names) names = j.country_names;
     rebuild();
     if (reduce) { running = false; start(); }
+    // A popover left open follows the new reading (or goes, with its source).
+    if (!pop.hidden) setTimeout(function(){ var h = findHot(mx, my); if (h) showPop(h, mx, my); else hidePop(); }, 60);
   });
+
+  // The popover: the source under the pointer (its point, or its label).
+  var pop = document.getElementById('geo-pop'), mx = -1, my = -1;
+  function findHot(x, y){
+    var best = null, bd = 1e9;
+    hot.forEach(function(h){
+      if (h.lbl && x >= h.lbl.x && x <= h.lbl.x + h.lbl.w && y >= h.lbl.y && y <= h.lbl.y + h.lbl.h) { best = h; bd = -1; return; }
+      var d = Math.hypot(h.x - x, h.y - y);
+      if (d <= Math.max(10, h.r + 4) && d < bd) { best = h; bd = d; }
+    });
+    return best;
+  }
+  function esc(v){ return String(v).replace(/[&<>"]/g, function(c){ return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function showPop(h, x, y){
+    var st = h.st, c = st.mix, total = 0, cc;
+    for (cc in counts) total += counts[cc].n || 0;
+    var html = '<div><img src="' + card.dataset.flags + st.cc.toLowerCase() + '.png" alt=""><b>' + esc(names[st.cc] || st.cc) + '</b></div><table>';
+    html += '<tr><td>' + esc(card.dataset.txtPopRequests) + '</td><td class="n"><b>' + st.n + '</b></td></tr>';
+    if (total) html += '<tr><td class="share" colspan="2">' + esc(card.dataset.txtPopShare).replace('%s', (st.n / total < 0.095 ? (100 * st.n / total).toFixed(1) : Math.round(100 * st.n / total)) + '%') + '</td></tr>';
+    [['pass', c.pass], ['serve', c.serve], ['deny', c.deny], ['bypass', c.bypass]].forEach(function(kv){
+      var k = kv[0];
+      html += '<tr><td><i style="background:' + colors[k] + '"></i>' + esc(card.dataset['txtLegend' + k.charAt(0).toUpperCase() + k.slice(1)]) + '</td><td class="n">' + (kv[1] || 0) + '</td></tr>';
+    });
+    pop.innerHTML = html + '</table>';
+    pop.hidden = false;
+    var wrap = cv.parentNode, pw = pop.offsetWidth, ph = pop.offsetHeight;
+    var left = cv.offsetLeft + x + 14, top = cv.offsetTop + y + 14;
+    if (left + pw > wrap.clientWidth) left = Math.max(0, cv.offsetLeft + x - pw - 14);
+    if (top + ph > wrap.clientHeight) top = Math.max(0, cv.offsetTop + y - ph - 14);
+    pop.style.left = left + 'px'; pop.style.top = top + 'px';
+    cv.style.cursor = 'pointer';
+  }
+  function hidePop(){ pop.hidden = true; cv.style.cursor = ''; }
+  cv.addEventListener('mousemove', function(ev){
+    mx = ev.offsetX; my = ev.offsetY;
+    var h = findHot(mx, my);
+    if (h) showPop(h, mx, my); else if (!pop.hidden) hidePop();
+  });
+  cv.addEventListener('mouseleave', function(){ mx = my = -1; hidePop(); });
+  // A tap on a touch screen: the same popover, closed by a tap elsewhere.
+  cv.addEventListener('click', function(ev){ var h = findHot(ev.offsetX, ev.offsetY); if (h) showPop(h, ev.offsetX, ev.offsetY); else hidePop(); });
+  // For the UI tests: where the sources are, in CSS pixels of the canvas.
+  window.unmaskGeoHot = function(){ return hot.map(function(h){ return { cc: h.st.cc, x: h.x, y: h.y }; }); };
   document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible') start(); else stop(); });
   var rt = null;
   window.addEventListener('resize', function(){ clearTimeout(rt); rt = setTimeout(function(){ fit(); if (reduce) { running = false; start(); } }, 150); });
@@ -1185,7 +1285,7 @@ unmaskInitComp();
 })();
 </script>
 <script>
-// The 24-hour section (#day-section: the hero, the pipeline, the hourly
+// The 24-hour section (#day-section: the hero, the tiles, the hourly
 // chart) is redrawn from the server every minute, under the same switch as
 // the live strip.  The server renders the same template it did for the page,
 // so a refresh cannot show numbers the page would not; a failure keeps what
@@ -1212,7 +1312,16 @@ unmaskInitComp();
     return fetch(u.toString(), { credentials: 'same-origin', cache: 'no-store' })
       .then(function(r){ if (!r.ok) throw new Error(String(r.status)); return r.text(); })
       .then(function(html){
+        // The figures before the redraw, so the ones that moved can flash.
+        var was = {};
+        day.querySelectorAll('[data-kpi] .value, .hero .value').forEach(function(el){
+          was[el.closest('[data-kpi]') ? el.closest('[data-kpi]').dataset.kpi : 'hero'] = el.textContent;
+        });
         day.innerHTML = html;
+        day.querySelectorAll('[data-kpi] .value, .hero .value').forEach(function(el){
+          var k = el.closest('[data-kpi]') ? el.closest('[data-kpi]').dataset.kpi : 'hero';
+          if (k in was && was[k] !== el.textContent && window.unmaskFlash) unmaskFlash(el);
+        });
         if (window.unmaskInitComp) unmaskInitComp();
         if (window.unmaskFmtTimes) unmaskFmtTimes();
         err.hidden = true;

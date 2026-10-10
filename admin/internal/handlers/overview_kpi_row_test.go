@@ -7,14 +7,16 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/i18n"
 )
 
 // The KPI row is the challenge's funnel and its operating state, counted in
 // requests throughout: the abandonment tile shows how many requests loaded a
 // challenge and left, with the share and its denominator underneath, so no
-// tile in the row is a bare percentage.  The row says what it is a breakdown
-// of, because the card above it splits all traffic by what it is and counts
-// some of the same requests under other names.
+// tile in the row is a bare percentage.  The card says what the row covers,
+// because the composition under it splits all traffic by what it is and
+// counts some of the same requests under other names.
 func TestOverviewKPIRowIsRequestsAndSaysWhatItCovers(t *testing.T) {
 	h := newTestHandler(t)
 	s := h.snapshotSettings()
@@ -42,8 +44,8 @@ func TestOverviewKPIRowIsRequestsAndSaysWhatItCovers(t *testing.T) {
 	}
 	body := rr.Body.String()
 
-	if !strings.Contains(body, `class="meta kpi-note"`) {
-		t.Error("the row must say what it is a breakdown of")
+	if !strings.Contains(body, i18n.T("ja", "overview.kpi.h_help")) {
+		t.Error("the card must say what the row covers")
 	}
 	// The abandonment tile: a count on top, the share and denominator below.
 	re := regexp.MustCompile(`(?s)<div class="label">離脱<span.*?<div class="value">([^<]*)</div>\s*<div class="sub">([^<]*)</div>`)

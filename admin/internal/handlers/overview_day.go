@@ -8,59 +8,10 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 )
 
-// The dashboard's 24-hour section: the pipeline card's stages and the hourly
-// today/yesterday chart.  The server renders both, for the page and again for
-// the section's minute refresh (?partial=day), so the two never disagree.
-
-// pipeStage is one stage of the pipeline card, in the order requests pass
-// through them.
-type pipeStage struct {
-	Key      string // requests / bypass / rl / serve / solve / pass
-	LabelKey string
-	HelpKey  string // "" = no help tip
-	Sub      string // the line under the figure, worded here
-	Color    string
-	N        int
-	Known    bool // false renders a dash with Sub saying why
-}
-
-// pipeline lays the 24-hour numbers the handler already has out as stages.
-// Shares are computed by the template against the request total.
-//
-// The passed stage counts requests, like every other stage: the solves plus
-// the requests admitted on the cookies those solves minted, split by method
-// on the first line and by solve/cookie on the second (the operator's 2026-09-09
-// call: a headline of solves alone beside "challenges served" read as almost
-// nothing passing).  Without the access-log feed the cookie share is unknown,
-// the headline is the solves alone and the stage says so.
-func pipeline(lang i18n.Lang, comp dashboard.TrafficComposition, fired, powTotal, captchaTotal, solves, cookies int, cookieKnown, kpiKnown bool, rl int, rlKnown bool) []pipeStage {
-	t := func(k string) string { return i18n.T(lang, k) }
-	tf := func(k string, a ...any) string { return i18n.Tf(lang, k, a...) }
-	passSub := tf("overview.pipe.pass_sub", commaStr(powTotal), commaStr(captchaTotal)) + " · "
-	if cookieKnown {
-		passSub += tf("overview.kpi.pass_breakdown", commaStr(solves), commaStr(cookies))
-	} else {
-		passSub += tf("overview.kpi.pass_solves_only", commaStr(solves))
-	}
-	stages := []pipeStage{
-		{Key: "requests", LabelKey: "overview.pipe.requests", Sub: t("overview.pipe.requests_sub"), Color: "#0f172a", N: comp.Total, Known: comp.OK},
-		{Key: "bypass", LabelKey: "overview.pipe.bypass", HelpKey: "overview.live.bypass_help", Sub: tf("overview.pipe.bypass_sub", commaStr(comp.Benign), commaStr(comp.Bypassed)), Color: "#6366f1", N: comp.Benign + comp.Bypassed, Known: comp.OK},
-		{Key: "rl", LabelKey: "overview.pipe.rl", HelpKey: "overview.live.rate_limit_help", Sub: t("overview.pipe.rl_sub"), Color: "#f59e0b", N: rl, Known: rlKnown},
-		{Key: "serve", LabelKey: "overview.kpi.serves", HelpKey: "overview.live.serve_help", Sub: t("overview.kpi.serves_sub"), Color: "#dc2626", N: fired, Known: kpiKnown},
-		{Key: "pass", LabelKey: "overview.pipe.pass", HelpKey: "overview.pipe.pass_help", Sub: passSub, Color: "#16a34a", N: powTotal + captchaTotal, Known: kpiKnown},
-	}
-	if !rlKnown {
-		stages[2].Sub = t("overview.pipe.rl_unknown")
-	}
-	if !comp.OK {
-		for i := range stages {
-			if stages[i].Key == "requests" || stages[i].Key == "bypass" {
-				stages[i].Sub = t("overview.kpi.nonhuman_nodata")
-			}
-		}
-	}
-	return stages
-}
+// The dashboard's 24-hour section: the tiles are rendered straight from the
+// handler's figures by the template; the hourly today/yesterday chart is laid
+// out here.  The server renders the section for the page and again for its
+// minute refresh (?partial=day), so the two never disagree.
 
 // commaStr is the template's comma for Go-side wording.
 func commaStr(n int) string {

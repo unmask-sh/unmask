@@ -1,5 +1,6 @@
-// The dashboard's 24-hour section: the pipeline card (five stages above the
-// composition bar), the hourly today/yesterday chart, no AI / crawler table.
+// The dashboard's 24-hour section: the tile row (requests, then what the
+// challenge did, then bans, above the composition bar), the hourly
+// today/yesterday chart, no AI / crawler table.
 // The section is redrawn from the server every minute; after a redraw the
 // composition's segment toggles must still work, since their script binds to
 // the card that was replaced.
@@ -38,23 +39,24 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
 
   const shape = await page.evaluate(() => ({
     day: !!document.getElementById('day-section'),
-    stages: Array.from(document.querySelectorAll('.pipe-st')).map(s => s.dataset.stage),
+    tiles: Array.from(document.querySelectorAll('.kpi-grid .kpi')).map(k => k.dataset.kpi),
+    // one row at 1400px: every tile's top edge is the same
+    oneRow: new Set(Array.from(document.querySelectorAll('.kpi-grid .kpi')).map(k => Math.round(k.getBoundingClientRect().top))).size,
     hourly: !!document.getElementById('hourly-card'),
     comp: !!document.querySelector('#comp-card .comp-body'),
     ai: !!document.querySelector('table.ai-traffic'),
-    kpiGrid: !!document.querySelector('.kpi-grid'),
-    sideTiles: document.querySelectorAll('.pipe-side .kpi').length,
+    stages: document.querySelectorAll('.pipe-st, .pipe-side').length,
     pageScrolls: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
-    // every stage figure is a number or a dash, never blank
-    values: Array.from(document.querySelectorAll('.pipe-v')).map(v => v.textContent.trim()),
+    // every tile figure is a number or a dash, never blank
+    values: Array.from(document.querySelectorAll('.kpi-grid .kpi .value')).map(v => v.textContent.trim()),
   }));
   ok(shape.day && shape.hourly && shape.comp, 'the day section, hourly card or composition card is missing');
-  ok(shape.stages.join(',') === 'requests,bypass,rl,serve,pass', 'stages: ' + shape.stages.join(','));
+  ok(shape.tiles.join(',') === 'requests,serve,pow,captcha,abandon,bans', 'tiles: ' + shape.tiles.join(','));
+  ok(shape.oneRow === 1, 'the tiles wrap onto ' + shape.oneRow + ' rows at 1400px');
   ok(!shape.ai, 'the AI / crawler table is still on the dashboard');
-  ok(!shape.kpiGrid, 'the old KPI grid is still on the dashboard');
-  ok(shape.sideTiles === 2, `${shape.sideTiles} side tiles, want 2 (abandon, bans)`);
+  ok(shape.stages === 0, 'the pipeline stages are still on the dashboard');
   ok(!shape.pageScrolls, 'the page scrolls sideways');
-  ok(shape.values.every(v => v === '—' || /^[\d,]+$/.test(v)), 'a stage figure is blank: ' + shape.values.join('|'));
+  ok(shape.values.every(v => v === '—' || /^[\d,]+$/.test(v)), 'a tile figure is blank: ' + shape.values.join('|'));
 
   // Toggle a composition segment, redraw the section, toggle again.
   const comp = await page.evaluate(async () => {
@@ -75,6 +77,25 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     ok(comp.stillOff, 'the redraw lost the excluded segment (the server did not get the state)');
     ok(comp.backOn, 'the toggle no longer works after the redraw (the script was not rebound)');
     ok(comp.dayErr === true, 'the day refresh reported a failure');
+  }
+
+  // A figure that changed on the redraw flashes; one that did not stays
+  // plain.  (The tampered value is what the server's figure differs from.)
+  const flash = await page.evaluate(async () => {
+    const req = document.querySelector('[data-kpi="requests"] .value');
+    const serve = document.querySelector('[data-kpi="serve"] .value');
+    if (!req || !serve) return { missing: true };
+    req.textContent = 'x';
+    await window.unmaskRefreshDay();
+    const r2 = document.querySelector('[data-kpi="requests"] .value'), s2 = document.querySelector('[data-kpi="serve"] .value');
+    return { changed: r2.classList.contains('v-flash'), same: s2.classList.contains('v-flash'), anim: getComputedStyle(r2).animationName, text: r2.textContent };
+  });
+  if (flash.missing) {
+    ok(false, 'the requests or serve tile is gone');
+  } else {
+    ok(flash.changed && flash.anim === 'v-flash', 'a changed figure did not flash: ' + JSON.stringify(flash));
+    ok(!flash.same, 'an unchanged figure flashed');
+    ok(flash.text !== 'x', 'the redraw kept the tampered figure');
   }
 
   if (process.env.UI_E2E_SHOT_DIR) {
