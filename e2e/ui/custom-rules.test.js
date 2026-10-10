@@ -94,7 +94,25 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   }));
   ok(shape.actRadios === 5 && shape.rateRadios === 5 && shape.rateOff, 'the action box is not five + five radios: ' + JSON.stringify(shape));
   await page.click('#cr-list [data-cr] .cr-apply input[type=radio][value="captcha_only"]');
-  await page.type('#cr-list [data-cr] input[name="cr_rate"]', '30');
+  // The rate limit is off until its box is ticked, and off means the
+  // figure and the answers are out of sight -- an empty figure beside
+  // five radios read as a limit that merely lacked a number.  Ticking
+  // shows a figure to edit, unticking clears it.
+  const rateSel = '#cr-list [data-cr] input[name="cr_rate"]';
+  const rateState = () => page.evaluate(sel => { const n = document.querySelector(sel); return { shown: n.offsetParent !== null, value: n.value, off: n.closest('.cr-rate').classList.contains('off'), ticked: n.closest('.cr-rate').querySelector('.cr-rate-cb').checked }; }, rateSel);
+  const offState = await rateState();
+  ok(!offState.shown && offState.value === '' && !offState.ticked, 'the rate figure shows while the rate limit is off: ' + JSON.stringify(offState));
+  await page.click('#cr-list [data-cr] .cr-rate-cb');
+  const onState = await rateState();
+  ok(onState.shown && onState.value === '60' && !onState.off && onState.ticked, 'ticking the rate limit did not show a figure to edit: ' + JSON.stringify(onState));
+  await page.click('#cr-list [data-cr] .cr-rate-cb');
+  const backOff = await rateState();
+  ok(!backOff.shown && backOff.value === '' && backOff.off, 'unticking the rate limit kept the figure: ' + JSON.stringify(backOff));
+  await page.click('#cr-list [data-cr] .cr-rate-cb');
+  // Select-all by keyboard: a triple-click does not select a number field's text.
+  await page.focus(rateSel);
+  await page.keyboard.down('Control'); await page.keyboard.press('KeyA'); await page.keyboard.up('Control');
+  await page.type(rateSel, '30');
   await page.click('#cr-list [data-cr] .cr-rate input[type=radio][value="deny"]');
   const chosen = await page.evaluate(() => ({ act: document.querySelector('#cr-list [data-cr] input[name="cr_action"]').value, ract: document.querySelector('#cr-list [data-cr] input[name="cr_rate_action"]').value, rateOff: document.querySelector('#cr-list [data-cr] .cr-rate').classList.contains('off') }));
   ok(chosen.act === 'captcha_only' && chosen.ract === 'deny' && !chosen.rateOff, 'the radios did not set the hidden fields: ' + JSON.stringify(chosen));
@@ -113,6 +131,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       lines, rows: document.querySelectorAll('#cr-list [data-cr]').length,
       checked: (row.querySelector('.cr-apply input[type=radio]:checked') || {}).value,
       rateChecked: (row.querySelector('.cr-rate input[type=radio]:checked') || {}).value,
+      rateTicked: row.querySelector('.cr-rate-cb').checked && !row.querySelector('.cr-rate').classList.contains('off'),
       hits: (row.querySelector('.cr-hits') || {}).textContent || '',
     };
   });
@@ -125,6 +144,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
        'the lines came back differently: ' + JSON.stringify(saved.lines));
     ok(saved.action === 'captcha_only' && saved.rate === '30' && saved.rateAction === 'deny' && saved.enabled === '1', `action/rate/over/enabled came back as ${saved.action}/${saved.rate}/${saved.rateAction}/${saved.enabled}`);
     ok(saved.checked === 'captcha_only' && saved.rateChecked === 'deny', 'the radios do not show the saved choices: ' + JSON.stringify({ checked: saved.checked, rateChecked: saved.rateChecked }));
+    ok(saved.rateTicked, 'the saved rate limit comes back unticked');
     ok(saved.hits.length > 0, 'the hit count cell is empty');
   }
 

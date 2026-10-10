@@ -52,7 +52,7 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 	}
 	page := tab()
 	for _, want := range []string{`name="cr_id" value="crold"`, `name="cr_key" value="crold"`, `name="cc_crold_kind"`, `<option value="ip" selected>`, `name="cc_crold_values" value="192.0.2.0/24"`, `name="cc_crold_memo" value="why"`,
-		`name="cr_action" value="deny"`, `name="cr_act_crold" value="deny" checked`, "条件 (すべて満たす)", "<legend>アクション</legend>", "当たったら", "件/分 を超えたら", "条件を追加", "直近 24h 1 件",
+		`name="cr_action" value="deny"`, `name="cr_act_crold" value="deny" checked`, "条件 (すべて満たす)", "<legend>アクション</legend>", "当たったら", "件/分 を超えたら", `class="cr-row cr-rate off"`, `<input type="checkbox" class="cr-rate-cb">`, "rate-limit タブと同じ (PoW → CAPTCHA)", "条件を追加", "直近 24h 1 件",
 		`id="cr-template"`, `id="cc-template"`, `name="cc_KEY_kind"`, `id="cr-add"`, "新規ルール", `section=custom-rules`, "</html>"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("tab lacks %q", want)
@@ -160,7 +160,7 @@ func TestCustomRulesTabDraft(t *testing.T) {
 	page := rr.Body.String()
 	for _, want := range []string{`id="cr-draft"`, `name="cr_id" value=""`, `name="cr_key" value="draft"`, `name="cr_label" value="scraper"`,
 		`name="cc_draft_values" value="203.0.113.0/24, 198.51.100.7"`, `name="cc_draft_values" value="t13d*"`, `name="cc_draft_values" value="AS4134"`, `name="cc_draft_values" value="python-requests"`,
-		`name="cr_act_draft" value="deny" checked`, `name="cr_rate" min="0" value="30"`, `name="cr_ract_draft" value="captcha_only" checked`, "まだ保存されていません", `id="cr-template"`} {
+		`name="cr_act_draft" value="deny" checked`, `<input type="checkbox" class="cr-rate-cb" checked>`, `name="cr_rate" min="0" value="30"`, `name="cr_ract_draft" value="captcha_only" checked`, "まだ保存されていません", `id="cr-template"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("draft tab lacks %q", want)
 		}
@@ -188,5 +188,33 @@ func TestCustomRulesTabDraft(t *testing.T) {
 	h.AdminSettingsIndex(rr, req)
 	if strings.Contains(rr.Body.String(), `id="cr-draft"`) {
 		t.Error("a draft without new=1")
+	}
+}
+
+// The answer over a rule's rate limit that is not the rule's own is the
+// rate-limit tab's mode, and the radio says which that is now -- the tab's
+// current mode, not a fixed word -- so "as configured" never has to be
+// looked up.  Deny shows without its status: it sits in parentheses.
+func TestCustomRulesTabRateDefaultNamesTheMode(t *testing.T) {
+	for mode, want := range map[string]string{
+		"":             "rate-limit タブと同じ (PoW → CAPTCHA)",
+		"captcha_only": "rate-limit タブと同じ (CAPTCHA)",
+		"deny":         "rate-limit タブと同じ (遮断)",
+	} {
+		h := newTestHandler(t)
+		s := h.snapshotSettings()
+		s.RateLimit.Default.ChallengeMode = mode
+		h.SetSettings(s)
+		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/", nil)
+		req.SetPathValue("tab", "custom-rules")
+		req.Header.Set("Cookie", "unmask_lang=ja")
+		rr := httptest.NewRecorder()
+		h.AdminSettingsIndex(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("mode %q: tab %d", mode, rr.Code)
+		}
+		if !strings.Contains(rr.Body.String(), want) {
+			t.Errorf("mode %q: the rate row's fallback does not say %q", mode, want)
+		}
 	}
 }

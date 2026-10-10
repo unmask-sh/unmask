@@ -784,8 +784,8 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// memory since the daemon started: CustomRuleHitsSince).
 		"CustomRules":         h.customRuleViews(cur.CustomRules, i18n.Resolve(r)),
 		"CustomRuleHitsSince": h.customRuleHitsSince(),
-		"CustomRuleDraft":     customRuleDraft(r.URL.Query(), i18n.Resolve(r)),
-		"CustomRuleBlank":     customRuleBlank(i18n.Resolve(r)),
+		"CustomRuleDraft":     customRuleDraft(r.URL.Query(), i18n.Resolve(r), h.customRuleRateDefault(i18n.Resolve(r))),
+		"CustomRuleBlank":     customRuleBlank(i18n.Resolve(r), h.customRuleRateDefault(i18n.Resolve(r))),
 		// What an UNSET chain picker acts as: protected paths / the ja4 default
 		// chain fall back to the rate-limit default chmode; surfaced so the
 		// "(unset)" option can show the value it resolves to.

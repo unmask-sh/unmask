@@ -36,10 +36,14 @@ type customRuleView struct {
 	Lang    i18n.Lang // the card template reads its labels through this
 	Draft   bool      // an unsaved card from the hunt or the assistant (?new=1)
 	Blank   bool      // the page's template for "new rule"
+	// RateDefault names what the rate limit answers with when the rule
+	// picks no answer of its own: the rate-limit tab's mode, as the row's
+	// radios name it, so the operator need not look it up.
+	RateDefault string
 }
 
-func customRuleViewOf(r settings.CustomRule, lang i18n.Lang) customRuleView {
-	v := customRuleView{CustomRule: r, Key: r.ID, Lang: lang, Kinds: settings.CustomConditionKinds}
+func customRuleViewOf(r settings.CustomRule, lang i18n.Lang, rateDefault string) customRuleView {
+	v := customRuleView{CustomRule: r, Key: r.ID, Lang: lang, Kinds: settings.CustomConditionKinds, RateDefault: rateDefault}
 	for _, c := range r.Conditions {
 		v.Conds = append(v.Conds, customCondView{Kind: c.Kind, ValuesText: strings.Join(c.Values, ", "), Memo: c.Memo})
 	}
@@ -49,8 +53,9 @@ func customRuleViewOf(r settings.CustomRule, lang i18n.Lang) customRuleView {
 func (h *Handler) customRuleViews(rules []settings.CustomRule, lang i18n.Lang) []customRuleView {
 	stats, _ := h.RuleHits.Snapshot(time.Now())
 	out := make([]customRuleView, 0, len(rules))
+	def := h.customRuleRateDefault(lang)
 	for _, r := range rules {
-		v := customRuleViewOf(r, lang)
+		v := customRuleViewOf(r, lang, def)
 		if st, ok := stats[r.ID]; ok {
 			v.HitsDay, v.LastHit = int(st.Day), st.Last
 		}
@@ -59,10 +64,21 @@ func (h *Handler) customRuleViews(rules []settings.CustomRule, lang i18n.Lang) [
 	return out
 }
 
+// customRuleRateDefault is the answer over a rule's rate limit when the
+// rule picks none of its own -- the rate-limit tab's mode -- named as the
+// row's radios name it (deny without its status: it sits in parentheses).
+func (h *Handler) customRuleRateDefault(lang i18n.Lang) string {
+	mode := h.snapshotSettings().RateLimit.Default.ResolvedChallengeMode()
+	if mode == settings.RateChallengeDeny {
+		return i18n.T(lang, "settings.cr.mode_deny")
+	}
+	return i18n.T(lang, "settings.cr.act_"+mode)
+}
+
 // customRuleBlank is the page's template for a new rule: one empty
 // condition line, CAPTCHA on a match.
-func customRuleBlank(lang i18n.Lang) customRuleView {
-	v := customRuleViewOf(settings.CustomRule{Enabled: true, Action: settings.GeoActionCaptchaOnly, Conditions: []settings.CustomCondition{{Kind: settings.CustomCondIP}}}, lang)
+func customRuleBlank(lang i18n.Lang, rateDefault string) customRuleView {
+	v := customRuleViewOf(settings.CustomRule{Enabled: true, Action: settings.GeoActionCaptchaOnly, Conditions: []settings.CustomCondition{{Kind: settings.CustomCondIP}}}, lang, rateDefault)
 	v.Key, v.Blank = "tpl", true
 	return v
 }
@@ -99,7 +115,7 @@ func condValues(kind, field string) []string {
 // (settings.CustomRuleDraftQuery: c=<kind>:<values> per line) into an
 // unsaved card; nil without ?new=1.  Nothing is validated here -- the card
 // is the operator's to finish, and the save validates.
-func customRuleDraft(q url.Values, lang i18n.Lang) *customRuleView {
+func customRuleDraft(q url.Values, lang i18n.Lang, rateDefault string) *customRuleView {
 	if q.Get("new") != "1" {
 		return nil
 	}
@@ -126,7 +142,7 @@ func customRuleDraft(q url.Values, lang i18n.Lang) *customRuleView {
 	if !settings.IsValidCustomRuleAction(r.Action) {
 		r.Action = settings.GeoActionCaptchaOnly
 	}
-	v := customRuleViewOf(r, lang)
+	v := customRuleViewOf(r, lang, rateDefault)
 	v.Key, v.Draft = "draft", true
 	return &v
 }

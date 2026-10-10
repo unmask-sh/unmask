@@ -59,13 +59,13 @@
           <label><input type="radio" name="cr_act_{{ .Key }}" value="pow_then_captcha"{{ if eq .Action "pow_then_captcha" }} checked{{ end }}>{{ t .Lang "settings.cr.act_pow_then_captcha" }}</label>
           <label><input type="radio" name="cr_act_{{ .Key }}" value="deny"{{ if eq .Action "deny" }} checked{{ end }}>{{ t .Lang "settings.cr.act_deny" }}</label>
           </div>
-          <div class="cr-row cr-rate{{ if not (gt .RatePerMin 0) }} off{{ end }}"><span class="cr-row-l">{{ t .Lang "settings.cr.rate_limit" }}</span>
+          <div class="cr-row cr-rate{{ if not (gt .RatePerMin 0) }} off{{ end }}"><label class="cr-row-l cr-rate-on"><input type="checkbox" class="cr-rate-cb"{{ if gt .RatePerMin 0 }} checked{{ end }}>{{ t .Lang "settings.cr.rate_limit" }}</label>
             <input type="number" name="cr_rate" min="0" value="{{ if gt .RatePerMin 0 }}{{ .RatePerMin }}{{ end }}" placeholder="60"> <span class="cr-row-m">{{ t .Lang "settings.cr.rate_over" }}</span>
-          <label><input type="radio" name="cr_ract_{{ .Key }}" value=""{{ if eq .RateAction "" }} checked{{ end }}>{{ t .Lang "settings.cr.rate_default" }}</label>
+          <label><input type="radio" name="cr_ract_{{ .Key }}" value=""{{ if eq .RateAction "" }} checked{{ end }}>{{ tf .Lang "settings.cr.rate_default" .RateDefault }}</label>
           <label><input type="radio" name="cr_ract_{{ .Key }}" value="pow_only"{{ if eq .RateAction "pow_only" }} checked{{ end }}>{{ t .Lang "settings.cr.act_pow_only" }}</label>
           <label><input type="radio" name="cr_ract_{{ .Key }}" value="captcha_only"{{ if eq .RateAction "captcha_only" }} checked{{ end }}>{{ t .Lang "settings.cr.act_captcha_only" }}</label>
           <label><input type="radio" name="cr_ract_{{ .Key }}" value="pow_then_captcha"{{ if eq .RateAction "pow_then_captcha" }} checked{{ end }}>{{ t .Lang "settings.cr.act_pow_then_captcha" }}</label>
-          <label><input type="radio" name="cr_ract_{{ .Key }}" value="deny"{{ if eq .RateAction "deny" }} checked{{ end }}>{{ t .Lang "settings.cr.act_deny" }}</label>
+          <label><input type="radio" name="cr_ract_{{ .Key }}" value="deny"{{ if eq .RateAction "deny" }} checked{{ end }}>{{ t .Lang "settings.cr.ract_deny" }}</label>
           </div>
         </fieldset>
       </div>
@@ -4157,7 +4157,8 @@ function secToHuman(s){
 .cr-row .cr-row-m{font-size:.8rem;color:#475569}
 .cr-row label{display:inline-flex;align-items:center;gap:.3rem;white-space:nowrap}
 .cr-row input[type=number]{width:5rem;padding:.2rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;font:inherit;font-size:.85rem}
-.cr-rate.off label{color:#94a3b8}
+.cr-rate .cr-rate-on{cursor:pointer}
+.cr-rate.off > :not(.cr-rate-on){display:none}
 .cr-toggle{display:inline-flex;align-items:center;gap:.3rem;font-size:.8rem;color:#334155;white-space:nowrap}
 .cr-add{font:inherit;font-size:.85rem;padding:.4rem .8rem;border:1px dashed #94a3b8;border-radius:.3rem;background:#f8fafc;color:#334155;cursor:pointer;width:100%}
 .cr-rule.cr-draft{border-color:#f59e0b;background:#fffbeb}
@@ -4225,7 +4226,16 @@ function secToHuman(s){
     var rate = card.querySelector('.cr-rate'), num = card.querySelector('input[name=cr_rate]');
     card.querySelectorAll('.cr-apply input[type=radio]').forEach(function(r){ r.addEventListener('change', function(){ if (r.checked) act.value = r.value; }); });
     card.querySelectorAll('.cr-rate input[type=radio]').forEach(function(r){ r.addEventListener('change', function(){ if (r.checked) ract.value = r.value; }); });
-    num.addEventListener('input', function(){ rate.classList.toggle('off', !(parseInt(num.value, 10) > 0)); });
+    // The rate limit is off until its box is ticked, and the figure is
+    // what the server reads (empty = none): ticking shows a figure to
+    // edit, unticking clears it, and a figure cleared or zeroed by hand
+    // unticks the box.
+    var rcb = card.querySelector('.cr-rate-cb');
+    rcb.addEventListener('change', function(){
+      if (rcb.checked) { if (!(parseInt(num.value, 10) > 0)) num.value = '60'; rate.classList.remove('off'); num.focus(); num.select(); }
+      else { num.value = ''; rate.classList.add('off'); }
+    });
+    num.addEventListener('change', function(){ if (!(parseInt(num.value, 10) > 0)) { num.value = ''; rcb.checked = false; rate.classList.add('off'); } });
     card.querySelectorAll('[data-cond]').forEach(wireCond);
     card.querySelector('.cc-add').addEventListener('click', function(){ addCond(card); });
     cb.addEventListener('change', function(){ hid.value = cb.checked ? '1' : '0'; card.classList.toggle('disabled-row', !cb.checked); });
