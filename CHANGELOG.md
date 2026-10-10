@@ -12,6 +12,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [0.1.51-rc6] - 2026-10-10 (testing build)
+
+### Since rc5
+
+- The 24-hour card is a row of six tiles again: the request total joins the five it had (served, PoW passed, CAPTCHA passed, abandoned, bans) in place of the five stages.
+
+- On the map, pointing at a source opens a popover with its flag, full name, count and split; labels carry the flag; the position dialog offers the worked-out estimate or a position by hand.
+
+- Figures that changed on a refresh flash; answers on the ask page link the admin pages they name.
+
 ## [0.1.51-rc5] - 2026-10-10 (testing build)
 
 ### Added
