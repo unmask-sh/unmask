@@ -121,6 +121,9 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .comp-chip.comp-out .comp-tgl{text-decoration:line-through}
 .comp-chip .comp-tgl-pinned{cursor:default}
 .comp-card .pipe-h.after-comp{margin-top:1.1rem;padding-top:.9rem;border-top:1px solid #e2e8f0}
+.day-refresh{margin-left:auto;font:inherit;font-size:.72rem;font-weight:normal;padding:.15rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#334155;cursor:pointer}
+.day-refresh:hover{background:#0f172a;color:#fff;border-color:#0f172a}
+.day-refresh:disabled{opacity:.5;cursor:default}
 .day-err{margin:-.6rem 0 1rem;font-size:.78rem;color:#b45309}
 /* The map: a dark canvas the streams glow on, the server's position as a
    pulsing point, and under it the legend and the top sources.  The card is
@@ -438,7 +441,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     </div>
   </div>
   {{ end }}
-  <h2 class="pipe-h after-comp">{{ t .Lang "overview.kpi.h" }}<small>{{ t .Lang "overview.kpi.h_sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.kpi.h_help" }}</span></span></h2>
+  <h2 class="pipe-h after-comp">{{ t .Lang "overview.kpi.h" }}<small>{{ t .Lang "overview.kpi.h_sub" }} · {{ t .Lang "overview.day.updated" }} <time class="js-datetime js-datetime-notz" data-ts="{{ .DayRenderedTS }}"></time></small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.kpi.h_help" }}</span></span><button type="button" class="day-refresh" id="day-refresh">↻ {{ t .Lang "overview.day.refresh" }}</button></h2>
   {{/* One row: the access log's request total, then what the challenge did
        (served, passed by PoW, passed by CAPTCHA, abandoned -- the operator's
        2026-10-10 call: these read better as the tiles they were than as a
@@ -686,11 +689,11 @@ unmaskInitComp();
     if (!el) return;
     el.classList.remove('v-flash'); void el.offsetWidth; el.classList.add('v-flash');
   };
-  var PERIOD = 60, left = PERIOD, busy = false;
-  function on(){
-    var tg = document.getElementById('live-toggle');
-    return !tg || tg.getAttribute('aria-pressed') !== 'false';
-  }
+  // The section redraws only when asked (the button in its header, or a
+  // composition toggle): the day's figures move by a few per minute, and a
+  // page that keeps redrawing itself is one the operator cannot read in
+  // peace.  The realtime tab is the one that moves.
+  var busy = false;
   function compState(){
     var b = document.querySelector('#comp-card .comp-body');
     return b && b.dataset.state ? b.dataset.state : '';
@@ -720,13 +723,14 @@ unmaskInitComp();
         err.hidden = true;
       })
       .catch(function(){ err.hidden = false; })
-      .then(function(){ busy = false; left = PERIOD; });
+      .then(function(){ busy = false; });
   };
-  setInterval(function(){
-    if (!on() || document.visibilityState !== 'visible') return;
-    left -= 1;
-    if (left <= 0) unmaskRefreshDay();
-  }, 1000);
+  day.addEventListener('click', function(ev){
+    var b = ev.target.closest('#day-refresh');
+    if (!b) return;
+    b.disabled = true;
+    unmaskRefreshDay().then(function(){ var nb = document.getElementById('day-refresh'); if (nb) nb.disabled = false; });
+  });
 })();
 </script>
 </body>

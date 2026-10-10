@@ -448,6 +448,9 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// minutes and the last minute, pointing at the realtime page, which has
 	// the strip, the map and the recent detections.
 	data["HasLive"] = h.Live != nil
+	// When the day's figures were computed: the section's header shows it,
+	// since the section redraws only on the operator's button.
+	data["DayRenderedTS"] = time.Now().Unix()
 	if h.Live != nil {
 		sn := h.Live.Snapshot(time.Now())
 		data["Now30"] = int(sn.Last30[live.Requests])

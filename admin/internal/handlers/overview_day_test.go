@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -52,7 +53,7 @@ func TestOverviewDaySection(t *testing.T) {
 
 	// The partial: the section alone, not the page.
 	part := get("/unmask/admin/?partial=day")
-	for _, want := range []string{`class="hero`, `id="comp-card"`} {
+	for _, want := range []string{`class="hero`, `id="comp-card"`, `id="day-refresh"`, `class="js-datetime js-datetime-notz" data-ts="`} {
 		if !strings.Contains(part, want) {
 			t.Errorf("partial lacks %q", want)
 		}
@@ -98,6 +99,26 @@ func TestLiveRecentPartial(t *testing.T) {
 	for _, want := range []string{`id="recent-card"`, `id="recent-section"`, `data-src="/unmask/admin/live/?partial=recent"`, `window.unmaskRefreshRecent = function`, `function unmaskWireEventsTable(root)`, `function wireDt(root)`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("page lacks %q", want)
+		}
+	}
+}
+
+// The day section does not redraw itself: its figures move by a few per
+// minute, and a dashboard that keeps changing under the operator cannot be
+// read (2026-10-10).  It redraws on its header's button; the realtime tab
+// is the one that moves.
+func TestDaySectionHasNoTimer(t *testing.T) {
+	b, err := os.ReadFile("../../assets/templates/overview.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(b)
+	if strings.Contains(src, "setInterval(") || strings.Contains(src, "setTimeout(unmaskRefreshDay") {
+		t.Error("overview.html sets a timer; the day section must redraw only on the button")
+	}
+	for _, want := range []string{`id="day-refresh"`, "closest('#day-refresh')", "window.unmaskRefreshDay = function"} {
+		if !strings.Contains(src, want) {
+			t.Errorf("overview.html lacks %q", want)
 		}
 	}
 }

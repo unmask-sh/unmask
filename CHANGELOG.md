@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-10-10) **The dashboard's day section no longer redraws itself.**  Its figures moved by a few per minute, and a page that keeps changing under the operator cannot be read; the realtime tab is the one that moves.  The section's header now shows when its figures were computed and a button redraws it on demand, with the same flash on the figures that changed.
+
 ## [0.1.51-rc9] - 2026-10-10 (testing build)
 
 ### Added

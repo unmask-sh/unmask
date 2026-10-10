@@ -66,6 +66,24 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   ok(!shape.pageScrolls, 'the page scrolls sideways');
   ok(shape.values.every(v => v === '—' || /^[\d,]+$/.test(v)), 'a tile figure is blank: ' + shape.values.join('|'));
 
+  // The section has a refresh button and the time of its figures; the
+  // button redraws it (and comes back enabled).
+  const manual = await page.evaluate(async () => {
+    const b = document.getElementById('day-refresh');
+    const t = document.querySelector('#day-section .pipe-h time[data-ts]');
+    if (!b || !t) return { missing: true, b: !!b, t: !!t };
+    const before = t.dataset.ts;
+    b.click();
+    await new Promise(r => setTimeout(r, 1500));
+    const b2 = document.getElementById('day-refresh'), t2 = document.querySelector('#day-section .pipe-h time[data-ts]');
+    return { before, after: t2 ? t2.dataset.ts : '', enabled: b2 ? !b2.disabled : false, timeText: t2 ? t2.textContent : '', err: document.getElementById('day-err').hidden };
+  });
+  ok(!manual.missing, 'the refresh button or the figures\' time is missing: ' + JSON.stringify(manual));
+  if (!manual.missing) {
+    ok(manual.after && manual.after >= manual.before && manual.enabled && manual.err === true, 'the manual refresh did not redraw cleanly: ' + JSON.stringify(manual));
+    ok(/\d/.test(manual.timeText), 'the figures\' time is not formatted: ' + JSON.stringify(manual.timeText));
+  }
+
   // Toggle a composition segment, redraw the section, toggle again.
   const comp = await page.evaluate(async () => {
     const chip = document.querySelector('#comp-card .comp-chip a.comp-tgl[href]');
