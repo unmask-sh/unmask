@@ -380,11 +380,12 @@ func compositionPopup(t *testing.T, body string) string {
 		strings.ReplaceAll(strings.ReplaceAll(m[1], "<br>", " | "), "<", " <"))), " ")
 }
 
-// The composition figure sits in its own full-width card rather than in the KPI
-// row.  The row holds operational counters -- events, challenges, passes, bans
-// -- and this is the diagnostic one: the single number that says what a site is
-// dealing with independent of its size.  It also carries four figures, which a
-// 13rem tile could only render at 0.7rem across two wrapped lines.
+// The composition figure is the full-width card's own, not a tile among the
+// operating counters.  It is the diagnostic one -- the single number that says
+// what a site is dealing with independent of its size -- and it carries four
+// figures, which a 13rem tile could only render at 0.7rem across two wrapped
+// lines.  Since the pipeline joined the card it sits under the stages it is
+// the composition of, above the two operating tiles; neither may carry it too.
 func TestCompositionHasItsOwnCard(t *testing.T) {
 	b, err := os.ReadFile("../../assets/templates/overview.html")
 	if err != nil {
@@ -393,19 +394,21 @@ func TestCompositionHasItsOwnCard(t *testing.T) {
 	tpl := string(b)
 
 	card := strings.Index(tpl, `class="bcd-card comp-card"`)
-	grid := strings.Index(tpl, `<div class="kpi-grid">`)
-	if card < 0 {
-		t.Fatal("the composition card is gone")
+	pipe := strings.Index(tpl, `<div class="pipe">`)
+	side := strings.Index(tpl, `<div class="pipe-side">`)
+	comp := strings.Index(tpl, `<div class="comp-hd">`)
+	if card < 0 || pipe < 0 || side < 0 || comp < 0 {
+		t.Fatalf("the composition card (%d), the pipeline (%d), the operating tiles (%d) or the composition header (%d) is gone", card, pipe, side, comp)
 	}
-	if card > grid {
-		t.Error("the composition card sits below the KPI row; it is the headline figure, not a footnote")
+	if !(card < pipe && pipe < side && side < comp) {
+		t.Error("the card must read stages, then the operating tiles, then the composition they are shares of")
 	}
 	// It must not also be a tile: two copies of one number invite the reader to
 	// look for a difference between them.
-	row := tpl[grid:]
-	row = row[:strings.Index(row, "\n</div>")]
-	if strings.Contains(row, "nonhuman_benign") {
-		t.Error("the KPI row still carries the composition; it is in two places at once")
+	for _, region := range []string{tpl[pipe:side], tpl[side:comp]} {
+		if strings.Contains(region, "nonhuman_benign") {
+			t.Error("a stage or an operating tile still carries the composition; it is in two places at once")
+		}
 	}
 
 	// The bar's segments are shares of one total, so they have to be driven by

@@ -18,6 +18,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-10) **The dashboard opens with a "right now" strip that refreshes itself.**  Seven tiles say what the last minute brought -- requests, passes, bypasses, challenges served, solves, denials, rate limits -- each with a five-minute sparkline and the change against the minute before, read every five seconds from an in-memory counter.  A switch turns the refresh off, and the last figures stay up while a new reading is fetched.
 
+- (2026-10-10) **A map of where requests come from, drawn live.**  Under the strip, the last minute's requests flow as light from their source countries to this server: a stream's width, glow and particle count follow the count on a log scale, and the particles are coloured by outcome.  An admin sets the server's position from the card; until then the sources alone are shown.  The outline is Natural Earth's, embedded.
+
+### Changed
+
+- (2026-10-10) **The dashboard's 24-hour section reads as the path a request takes.**  One card lays the day out in order (requests, bypassed, rate-limited, challenged, passed), each with its share and a breakdown line, above the composition bar; a second draws today's requests by hour against yesterday's.  The section redraws every minute.  The AI / crawler table moved to the stats page, which has long had it with a range selector.
+
 ## [0.1.51-rc3] - 2026-10-10 (testing build)
 
 ### Fixed

@@ -643,6 +643,19 @@ type Captcha struct {
 	RecaptchaMinScore     float64 `yaml:"recaptcha_min_score,omitempty"` // reCAPTCHA v3 score threshold. default 0.5
 }
 
+// MapLocation is a point on the dashboard's map: the server's own position,
+// and the label shown beside it (the city, the region, the host).
+type MapLocation struct {
+	Lat   float64 `yaml:"lat"`
+	Lon   float64 `yaml:"lon"`
+	Label string  `yaml:"label,omitempty"`
+}
+
+// Valid reports whether the point is on the globe.
+func (m MapLocation) Valid() bool {
+	return m.Lat >= -90 && m.Lat <= 90 && m.Lon >= -180 && m.Lon <= 180
+}
+
 type Server struct {
 	// Bind: an IP for TCP (= "127.0.0.1" / "0.0.0.0" / a specific IP).
 	// For unix domain socket, "unix:/path/to.sock" form. When the "unix:"
@@ -664,6 +677,11 @@ type Server struct {
 	// read/write directly. Override to "apache" / "www-data" etc. when the
 	// httpd runs as a different group.
 	SocketGroup string `yaml:"socket_group,omitempty"`
+	// MapLocation: where this server is, for the dashboard's map of inbound
+	// traffic to draw its streams towards.  Unset, the map shows the source
+	// countries only.  Set from the dashboard (the card's own button) rather
+	// than the settings page; it means nothing to the data plane.
+	MapLocation *MapLocation `yaml:"map_location,omitempty"`
 	// HostID: name that identifies "which machine produced this record" in a
 	// shared DB / aggregated dashboard. Unset → main.go's startup resolves
 	// to os.Hostname(). For single-host installs leave empty (= hostname is

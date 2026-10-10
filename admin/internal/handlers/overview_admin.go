@@ -68,9 +68,9 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		uKnown                                bool
 		recentRaw                             []events.Row
 		recentErr                             error
-		aiRows                                []AITrafficRow
-		aiDetail                              map[string][]AICrawlerRow
-		aiServed                              []dashboard.AITrafficRow
+		rlServes                              int
+		rlKnown                               bool
+		hourlyCmp                             dashboard.HourlyCompare
 		overBlock                             OverBlockHealth
 	)
 	var wg sync.WaitGroup
@@ -114,14 +114,24 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	launch(func() { _, uBlocked, uKnown = trafficUnique(ctx, h, 1440, site) })
 	// 10 most recent detections: fetch 40 raw rows so the client-side session
 	// collapse (group by beacon_token) still shows ~10 sessions.
+	// The section refresh (?partial=day) redraws the hero, the pipeline and the
+	// hourly chart only, so it does not read the recent detections.
+	partial := r.URL.Query().Get("partial") == "day"
+	if !partial {
+		launch(func() {
+			recentRaw, recentErr = events.FetchPaged(ctx, h.DB, "", "", "", "", "", "", site, hosts, 0, 40, 0)
+		})
+	}
+	// The pipeline's rate-limit stage and the hourly chart.  (The AI / crawler
+	// table left this page for the stats page, which has had the same card
+	// with a range selector all along.)
+	launch(func() { rlServes, rlKnown, _ = dashboard.RateLimitedServes(ctx, h.DB, site, hosts, 24) })
 	launch(func() {
-		recentRaw, recentErr = events.FetchPaged(ctx, h.DB, "", "", "", "", "", "", site, hosts, 0, 40, 0)
+		var err error
+		if hourlyCmp, err = dashboard.HourlyRequests(ctx, h.DB, site, resolveLocation(r), time.Now()); err != nil {
+			log.Printf("overview hourly: %v", err)
+		}
 	})
-	// AI traffic funnel: "all" reads unmask_crawler_minute (sees rescued/bypassed
-	// traffic too), "served" reads the hkAITag aggregate (phase=serve only).
-	launch(func() { aiRows = aiTrafficSummary(ctx, h, 1440) })
-	launch(func() { aiDetail = aiTrafficDrilldown(ctx, h, 1440) })
-	launch(func() { aiServed, _ = dashboard.AITrafficBreakdown(ctx, h.DB, "", nil, 24) })
 	// Over-block circuit-breaker health -- a global signal, so it lives on the
 	// landing rather than the per-site stats dashboard.
 	launch(func() { overBlock, _ = h.OverBlockHealth(ctx) })
@@ -518,11 +528,8 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		// Drop the per-row BAN action column on the overview card so the URL /
 		// UA columns get the recovered ~4rem of horizontal room.  The hunt page
 		// (= the actual deep-dive destination) keeps the action column on.
-		"HideActions":     true,
-		"AITraffic":       aiRows,
-		"AITrafficDetail": aiDetail,
-		"AITrafficServed": aiServed,
-		"OverBlock":       overBlock,
+		"HideActions": true,
+		"OverBlock":   overBlock,
 	}
 	// The "right now" strip: rendered with its first reading here, so the page
 	// says real numbers before its script has run, and refreshed in place by
@@ -533,6 +540,13 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		data["LiveFeedOff"] = lv.FeedOff
 		data["LiveAt"] = lv.At
 		data["LiveAtTS"] = lv.AtTS
+		// The map beside it: the server's position (its one setting, which
+		// an admin sets from the card), and whether countries can be told at
+		// all (an IP geo database is loaded).
+		data["MapLoc"] = h.mapLocation()
+		data["GeoKnown"] = h.IPGeo != nil && h.IPGeo.Loaded()
+		pay := SessionFromContext(r)
+		data["CanEditMap"] = pay != nil && roleAtLeast(pay.Role, "admin")
 	}
 	// Persist the denominator choice when it arrived as a link click, so the
 	// next visit opens on the view the operator picked.  Written only for an
@@ -564,6 +578,15 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
+	data["Pipe"] = pipeline(lang, comp, kpiFired, kpiPoWTotal, kpiCaptchaTotal, kpiPoWPass+kpiCaptchaPass, comp.PowPass+comp.CaptchaPass, comp.OK, kpiKnown, rlServes, rlKnown)
+	data["Hourly"] = hourly(lang, hourlyCmp)
+	if partial {
+		w.Header().Set("Cache-Control", "no-store")
+		if err := tmpl.ExecuteTemplate(w, "overview_day", data); err != nil {
+			log.Printf("overview day render: %v", err)
+		}
+		return
+	}
 	if err := tmpl.ExecuteTemplate(w, "overview.html", data); err != nil {
 		log.Printf("overview render: %v", err)
 	}

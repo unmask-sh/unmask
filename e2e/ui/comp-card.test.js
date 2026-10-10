@@ -133,11 +133,14 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   // ---- 2. no layout shift ------------------------------------------------
   await page.goto(BASE + '/admin/?comp=all', { waitUntil: 'networkidle2' });
   await page.waitForSelector('#comp-card .comp-chip');
+  // Page coordinates, not viewport ones: the card sits below the fold now
+  // (the live strip and the pipeline come first), and a click scrolls it
+  // into view, which is not a layout shift.
   const boxes = () => page.evaluate(() => {
     const out = {};
     document.querySelectorAll('.comp-chip').forEach(c => {
       const r = c.getBoundingClientRect();
-      out[c.dataset.key] = { x: r.x, y: r.y, w: r.width };
+      out[c.dataset.key] = { x: r.x + window.scrollX, y: r.y + window.scrollY, w: r.width };
     });
     return out;
   });

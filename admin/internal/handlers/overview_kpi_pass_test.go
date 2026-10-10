@@ -41,20 +41,21 @@ func TestOverviewPassTilesCountAdmittedRequests(t *testing.T) {
 		}
 		return rr.Body.String()
 	}
-	tile := func(body, class string) (value, sub string) {
-		re := regexp.MustCompile(`(?s)<div class="kpi ` + class + `">.*?<div class="value">([^<]*)</div>.*?<div class="sub sub-cookie">([^<]*)</div>`)
+	// The pipeline's passed stage: the figure, and the line under it.
+	stage := func(body string) (value, sub string) {
+		re := regexp.MustCompile(`(?s)<div class="pipe-st" data-stage="pass">.*?<div class="pipe-v">([^<]*)</div>.*?<div class="pipe-s">([^<]*)</div>`)
 		m := re.FindStringSubmatch(body)
 		if m == nil {
-			t.Fatalf("tile %s not found", class)
+			t.Fatalf("the passed stage is not on the page")
 		}
 		return strings.TrimSpace(m[1]), strings.TrimSpace(m[2])
 	}
 
-	// No access-log counters at all: the headline is the solves, and the
-	// tile says the cookie share is missing.
+	// No access-log counters at all: the headline is the solves (3 + 2), and
+	// the stage says the cookie share is missing.
 	body := get()
-	if v, sub := tile(body, "k-pow"); v != "3" || !strings.Contains(sub, "3") || !strings.Contains(sub, "access-log") {
-		t.Errorf("without the feed the PoW tile shows the solves alone and says so: value=%q sub=%q", v, sub)
+	if v, sub := stage(body); v != "5" || !strings.Contains(sub, "5") || !strings.Contains(sub, "access-log") {
+		t.Errorf("without the feed the stage shows the solves alone and says so: value=%q sub=%q", v, sub)
 	}
 
 	// With the feed: 150 requests on a PoW cookie and 40 on a CAPTCHA cookie.
@@ -69,10 +70,18 @@ func TestOverviewPassTilesCountAdmittedRequests(t *testing.T) {
 		}
 	}
 	body = get()
-	if v, sub := tile(body, "k-pow"); v != "153" || !strings.Contains(sub, "3") || !strings.Contains(sub, "150") {
-		t.Errorf("PoW tile: want 153 = 3 solves + 150 on a cookie, got value=%q sub=%q", v, sub)
+	// 195 = (3 + 150) on the PoW side + (2 + 40) on the CAPTCHA side; the line
+	// below carries both the per-method totals and the solve / cookie split.
+	v, sub := stage(body)
+	if v != "195" {
+		t.Errorf("passed stage: want 195 = 5 solves + 190 on a cookie, got %q (sub %q)", v, sub)
 	}
-	if v, sub := tile(body, "k-captcha"); v != "42" || !strings.Contains(sub, "2") || !strings.Contains(sub, "40") {
-		t.Errorf("CAPTCHA tile: want 42 = 2 solves + 40 on a cookie, got value=%q sub=%q", v, sub)
+	for _, want := range []string{"153", "42", "190"} {
+		if !strings.Contains(sub, want) {
+			t.Errorf("the breakdown lacks %s: %q", want, sub)
+		}
+	}
+	if strings.Contains(sub, "access-log") {
+		t.Errorf("with the feed the stage must not say the cookie share is missing: %q", sub)
 	}
 }

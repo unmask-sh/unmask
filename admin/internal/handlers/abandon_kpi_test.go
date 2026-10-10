@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -82,34 +83,39 @@ func TestAbandonRateExcludesClientsThatNeverRanTheJS(t *testing.T) {
 	}
 }
 
-// The KPI row has to stay one row at ordinary desktop widths.  Adding the
-// abandon tile pushed the grid past its old 13rem minimum -- 7 tiles needed
-// 95.5rem (1528px) and wrapped at 1600px and below.  Measured in a real
-// browser afterwards: one row down to 1280px, wrapping only at 1152.
-func TestKPIGridFitsOneRowOnDesktop(t *testing.T) {
+// The pipeline has to stay one row at ordinary desktop widths.  Its
+// forerunner, the KPI row, wrapped at 1600px and below once the abandon tile
+// pushed it past its old 13rem minimum; the stages have a minimum width of
+// their own and arrows between them, so the same arithmetic guards them.
+func TestPipelineFitsOneRowOnDesktop(t *testing.T) {
 	b, err := os.ReadFile("../../assets/templates/overview.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	tpl := string(b)
 
-	m := regexp.MustCompile(`\.kpi-grid\{[^}]*minmax\(([0-9.]+)rem[^}]*gap:([0-9.]+)rem`).FindStringSubmatch(tpl)
+	m := regexp.MustCompile(`\.pipe-st\{[^}]*min-width:([0-9.]+)rem`).FindStringSubmatch(tpl)
 	if m == nil {
-		t.Fatal("could not read the kpi-grid track sizing")
+		t.Fatal("could not read the pipeline stage's minimum width")
 	}
 	minRem, _ := strconv.ParseFloat(m[1], 64)
-	gapRem, _ := strconv.ParseFloat(m[2], 64)
-	tiles := strings.Count(tpl[strings.Index(tpl, `<div class="kpi-grid">`):], `<div class="kpi`) - 1 // minus the grid itself
-	// The row is the challenge funnel plus bans.  The composition figure has a
-	// card of its own above it, and the total-events tile was removed: its
-	// parts are the tiles here and its unit meant nothing to a reader.
-	if tiles < 5 {
-		t.Fatalf("counted %d tiles; the grid markup moved and this test is measuring the wrong thing", tiles)
+	g := regexp.MustCompile(`\.pipe\{[^}]*gap:([0-9.]+)rem`).FindStringSubmatch(tpl)
+	if g == nil {
+		t.Fatal("could not read the pipeline's gap")
 	}
-	needPx := (float64(tiles)*minRem + float64(tiles-1)*gapRem) * 16
+	gapRem, _ := strconv.ParseFloat(g[1], 64)
+	// The stages are what pipeline() lays out.
+	stages := len(pipeline("en", dashboard.TrafficComposition{OK: true}, 0, 0, 0, 0, 0, true, true, 0, true))
+	if stages < 5 {
+		t.Fatalf("counted %d stages; the pipeline moved and this test is measuring the wrong thing", stages)
+	}
+	// An arrow is a 1.4rem glyph with .1rem of padding either side, and sits
+	// in its own gap on both sides.
+	const arrowRem = 1.4 + 0.2
+	needPx := (float64(stages)*minRem + float64(stages-1)*(arrowRem+2*gapRem)) * 16
 	const target = 1280.0 // the narrowest desktop width we keep on one row
 	if needPx > target {
-		t.Errorf("%d tiles need %.0fpx but must fit %0.fpx: lower the minmax, tighten the gap, or drop a tile",
-			tiles, needPx, target)
+		t.Errorf("%d stages need %.0fpx but must fit %0.fpx: lower the min-width, tighten the gap, or drop a stage",
+			stages, needPx, target)
 	}
 }

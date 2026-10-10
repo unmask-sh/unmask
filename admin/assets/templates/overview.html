@@ -38,11 +38,6 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .hero .desc{font-size:.92rem;opacity:.92;line-height:1.5}
 .hero .sub{font-size:.78rem;opacity:.7;margin-top:.4rem}
 .hero .hero-clients{display:block;font-size:.82rem;opacity:.85;margin-top:.25rem}
-/* 7 tiles in one row on a normal desktop.  At the previous 13rem minimum the
-   row needed 95.5rem (1528px) and wrapped as soon as the abandon tile was
-   added; 10rem needs 74.5rem (1192px), which the usual 1280-1920px viewport
-   clears.  auto-fit still wraps rather than overflowing when the window is
-   genuinely narrow, and the padding and type sizes below are tightened to match. */
 /* Traffic composition card.  Full width because the breakdown is the point:
    five shares of one total read as a bar and five labels, not as five numbers
    crammed into a tile the width of a phone. */
@@ -110,6 +105,35 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
    only replaces them.  A refresh dims the strip only when the answer is slow
    (a dim on every five-second fetch would flicker), and the previous figures
    stay up until the new ones land. */
+/* The pipeline card: the 24-hour numbers in the order a request meets them,
+   above the composition bar they are shares of.  Each stage is a box with
+   the figure, its share of all requests and a line of breakdown. */
+.comp-card .pipe-h{font-size:1.05rem;font-weight:700;color:#334155;margin:0 0 .6rem;display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap}
+.comp-card .pipe-h small,.bcd-card .pipe-h small{font-size:.75rem;color:#94a3b8;font-weight:normal}
+.bcd-card h2.pipe-h{display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap}
+.pipe{display:flex;align-items:stretch;gap:.2rem;overflow-x:auto;margin-bottom:.7rem}
+.pipe-st{flex:1;min-width:7.5rem}
+.pipe-box{border-top:.25rem solid;background:#f8fafc;border-radius:.3rem;padding:.5rem .65rem;height:100%}
+.pipe-l{font-size:.76rem;color:#475569;font-weight:600;display:flex;align-items:center;gap:.25rem}
+.pipe-v{font-size:1.4rem;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.15;color:#0f172a}
+.pipe-p{font-size:.72rem;color:#64748b;font-variant-numeric:tabular-nums;min-height:1em}
+.pipe-s{font-size:.68rem;color:#94a3b8;margin-top:.2rem;line-height:1.3}
+.pipe-arrow{align-self:center;color:#cbd5e1;font-size:1.4rem;padding:0 .1rem;flex:none}
+.pipe-side{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;margin:0 0 .9rem}
+.comp-card h3.comp-h3{margin:0;font-size:1rem;font-weight:700;color:#334155}
+.hourly-legend{display:flex;gap:1rem;font-size:.75rem;color:#64748b;align-items:center;flex-wrap:wrap;margin-bottom:.3rem}
+.hourly-legend i{display:inline-block;width:.7rem;height:.7rem;border-radius:.15rem;margin-right:.3rem;vertical-align:-.05em}
+.day-err{margin:-.6rem 0 1rem;font-size:.78rem;color:#b45309}
+/* The map: a dark canvas the streams glow on, the server's position as a
+   pulsing point, and under it the legend and the top sources.  The card is
+   drawn only by script; without it the outline alone would say nothing. */
+.geo-card{padding:.8rem 1.25rem .7rem}
+.geo-wrap{position:relative}
+.geo-wrap canvas{width:100%;display:block;border-radius:.3rem;background:#0f172a}
+.geo-foot{display:flex;gap:1rem;flex-wrap:wrap;align-items:center;font-size:.75rem;color:#64748b;margin-top:.5rem}
+.geo-foot i{display:inline-block;width:.6rem;height:.6rem;border-radius:50%;margin-right:.3rem;vertical-align:-.05em}
+.geo-top{margin-left:auto;color:#475569;display:inline-flex;gap:.6rem;flex-wrap:wrap;align-items:center}
+.geo-top img{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.2em;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
 .live-head{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;margin:0 0 .5rem}
 .live-head .live-h{font-size:1rem;font-weight:700;color:#334155;margin:0;display:flex;align-items:center;gap:.3rem}
 .live-status{font-size:.8rem;color:#64748b;display:inline-flex;align-items:center;gap:.4rem}
@@ -135,7 +159,6 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .live .sub{font-size:.68rem;color:#94a3b8;line-height:1.3}
 .live .spk{width:100%;height:2.1rem;margin-top:auto;padding-top:.25rem;display:block;flex:none}
 .live-note{margin:-.4rem 0 1rem;font-size:.78rem;color:#b45309}
-.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;margin-bottom:1rem}
 /* The row's caption sits on the row, not adrift above it: .meta's full
    bottom margin would read as a paragraph of its own. */
 .kpi-note{margin:0 0 .35rem;font-size:.8rem}
@@ -289,10 +312,23 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   {{ end }}
 </div>
 <p class="live-note" id="live-feed-off"{{ if not .LiveFeedOff }} hidden{{ end }}>{{ t .Lang "overview.live.feed_off" }}</p>
+
+<div class="bcd-card geo-card" id="geo-card"
+     data-map="{{ .BasePath }}/static/world-110m.json?v={{ assetv }}" data-flags="{{ .BasePath }}/static/flags/"
+     data-save="{{ .BasePath }}/admin/api/map-location"
+     data-set="{{ if .MapLoc.Set }}1{{ else }}0{{ end }}" data-lat="{{ .MapLoc.Lat }}" data-lon="{{ .MapLoc.Lon }}" data-label="{{ .MapLoc.Label }}"
+     data-txt-server="{{ t .Lang "overview.map.server" }}" data-txt-title="{{ t .Lang "overview.map.set_title" }}" data-txt-msg="{{ t .Lang "overview.map.set_msg" }}">
+  <h2 class="pipe-h">{{ t .Lang "overview.map.h" }}<small>{{ t .Lang "overview.map.sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.map.help" }}</span></span>{{ if .CanEditMap }}<button type="button" class="live-tg" id="geo-set" style="margin-left:auto">{{ t .Lang "overview.map.set" }}</button>{{ end }}</h2>
+  <div class="geo-wrap"><canvas id="geo" aria-label="{{ t .Lang "overview.map.h" }}" role="img"></canvas></div>
+  <p class="live-note" id="geo-unset" style="margin:.4rem 0 0"{{ if .MapLoc.Set }} hidden{{ end }}>{{ t .Lang "overview.map.unset" }}</p>
+  <p class="live-note" id="geo-nogeo" style="margin:.4rem 0 0"{{ if .GeoKnown }} hidden{{ end }}>{{ t .Lang "overview.map.nogeo" }}</p>
+  <div class="geo-foot"><span><i style="background:#94a3b8"></i>{{ t .Lang "overview.map.legend_pass" }}</span><span><i style="background:#f87171"></i>{{ t .Lang "overview.map.legend_serve" }}</span><span><i style="background:#b91c1c"></i>{{ t .Lang "overview.map.legend_deny" }}</span><span><i style="background:#818cf8"></i>{{ t .Lang "overview.map.legend_bypass" }}</span><span class="geo-top" id="geo-top" data-txt="{{ t .Lang "overview.map.top" }}"></span></div>
+</div>
 {{ end }}
 
 {{- /* Host filtering is unified into the shared host_picker in the top bar (old host-filter-bar removed). */ -}}
 
+{{ define "overview_day" }}
 {{ if not .KPIKnown }}
 <div role="alert" style="margin:0 0 1rem;padding:.7rem 1rem;border:1px solid #f59e0b;background:#fffbeb;border-radius:.4rem;color:#92400e;line-height:1.5">⚠ {{ t .Lang "overview.kpi.timeout_banner" }}</div>
 {{ end }}
@@ -332,8 +368,40 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
      another).  It also carries four numbers, which a 13rem tile could only show
      at 0.7rem across two wrapped lines. */}}
 <div class="bcd-card comp-card" id="comp-card">
+  <h2 class="pipe-h">{{ t .Lang "overview.pipe.h" }}<small>{{ t .Lang "overview.pipe.sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.pipe.help" }}</span></span></h2>
+  {{/* Shares are of the request total, so a stage counted from the event log
+       (solves, rate limits) is read against the access log's total: the two
+       logs count different things, and the share says how much of the whole
+       that stage was, not how it relates to the stage before it. */}}
+  <div class="pipe">
+    {{ range $i, $st := .Pipe }}{{ if $i }}<div class="pipe-arrow" aria-hidden="true">›</div>{{ end }}
+    <div class="pipe-st" data-stage="{{ .Key }}">
+      <div class="pipe-box" style="border-top-color:{{ .Color }}">
+        <div class="pipe-l">{{ t $.Lang .LabelKey }}{{ if .HelpKey }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ t $.Lang .HelpKey }}</span></span>{{ end }}</div>
+        <div class="pipe-v">{{ if .Known }}{{ comma .N }}{{ else }}—{{ end }}</div>
+        <div class="pipe-p">{{ if and .Known $.KPIReqTotal }}{{ if eq .Key "requests" }}100%{{ else }}{{ tf $.Lang "overview.pipe.of_total" (pctLabel .N $.KPIReqTotal) }}{{ end }}{{ end }}</div>
+        <div class="pipe-s">{{ .Sub }}</div>
+      </div>
+    </div>
+    {{ end }}
+  </div>
+  {{/* The two operating counters that are not stages: visitors who walked
+       away from the proof-of-work, and the clients banned right now. */}}
+  <p class="meta kpi-note">{{ t .Lang "overview.kpi.row_note" }}</p>
+  <div class="pipe-side">
+  <div class="kpi {{ if gt .KPIAbandonPct 10.0 }}warn{{ end }}">
+    <div class="label">{{ t .Lang "overview.kpi.abandon" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.abandon_help") }}</span></span></div>
+    <div class="value">{{ if .KPIKnown }}{{ comma .KPIAbandon }}{{ else }}—{{ end }}</div>
+    <div class="sub">{{ if gt .KPIPoWLoaded 0 }}{{ tf .Lang "overview.kpi.abandon_sub" (comma .KPIPoWLoaded) (printf "%.1f" .KPIAbandonPct) }}{{ else }}{{ t .Lang "overview.kpi.abandon_sub_empty" }}{{ end }}</div>
+  </div>
+  <div class="kpi {{ if gt .KPICurrentBans 0 }}warn{{ end }}">
+    <div class="label">{{ t .Lang "overview.kpi.bans" }}</div>
+    <div class="value">{{ comma .KPICurrentBans }}</div>
+    <div class="sub"><a href="{{.BasePath}}/admin/bans/">{{ t .Lang "overview.kpi.bans_sub" }}</a></div>
+  </div>
+  </div>
   <div class="comp-hd">
-    <h2>{{ t .Lang "overview.kpi.nonhuman" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.nonhuman_help") }}</span></span></h2>
+    <h3 class="comp-h3">{{ t .Lang "overview.kpi.nonhuman" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.nonhuman_help") }}</span></span></h3>
     {{/* One view, rendered server-side against the selected denominator, so
          the page is truthful without JS and never flashes a default.  The
          script below mirrors the same arithmetic only for in-place toggles;
@@ -404,189 +472,6 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 .comp-chip.comp-out .comp-tgl{text-decoration:line-through}
 .comp-chip .comp-tgl-pinned{cursor:default}
 </style>
-<script>
-// Segment toggles.  The server renders the selected view (cookie/?comp=), so
-// the page is truthful without JS; this script mirrors the same arithmetic to
-// make a toggle instant -- share labels, bar widths, headline and caption are
-// all recomputed against the new denominator, exactly as Go would render them
-// (pctLabel's "<0.1%" floor included, so the two paths cannot disagree).
-(function(){
-  var card = document.getElementById('comp-card');
-  if (!card) return;
-  var body = card.querySelector('.comp-body');
-  var view = card.querySelector('.comp-view');
-  if (!body || !view) return;
-  var ORDER = ['benign','bad','bypass','human','other'];
-  var chips = {};
-  card.querySelectorAll('.comp-chip').forEach(function(c){ chips[c.dataset.key] = c; });
-  var total = parseInt(view.dataset.total, 10) || 0;
-  var fmt = new Intl.NumberFormat('en-US');
-
-  function state(){
-    var on = {};
-    ORDER.forEach(function(k){ if (chips[k]) on[k] = !chips[k].classList.contains('comp-out'); });
-    return on;
-  }
-  function param(on){
-    var keys = ORDER.filter(function(k){ return chips[k] && on[k]; });
-    if (!keys.length) return '';
-    var present = ORDER.filter(function(k){ return chips[k]; });
-    if (keys.length === present.length) return 'all';
-    if (keys.length === present.length - 1 && !on['bypass'] && chips['bypass']) return 'judged';
-    return keys.join('-');
-  }
-  function pctLabel(n, t){
-    if (t <= 0 || n <= 0) return '0%';
-    var p = n / t * 100;
-    if (p < 0.05) return '<0.1%';
-    return p.toFixed(1) + '%';
-  }
-  function apply(on){
-    var denom = total;
-    var nonhuman = 0;
-    ORDER.forEach(function(k){
-      var c = chips[k];
-      if (!c) return;
-      var n = parseInt(c.dataset.count, 10) || 0;
-      if (!on[k]) denom -= n;
-      else if (c.dataset.nonhuman === 'true') nonhuman += n;
-    });
-    if (denom < 0) denom = 0;
-    // Headline + caption.  The dash state (no feed) never reaches here: the
-    // card renders no chips without data.
-    var pctEl = view.querySelector('.comp-pct');
-    if (pctEl && pctEl.textContent.indexOf('—') === -1) {
-      var pct = denom > 0 ? (nonhuman / denom * 100) : 0;
-      pctEl.innerHTML = pct.toFixed(1) + '<span class="comp-pct-u">%</span>';
-    }
-    var st = param(on);
-    var capTpl = st === 'all' ? view.dataset.capAll : (st === 'judged' ? view.dataset.capJudged : view.dataset.capSelected);
-    var ofEl = view.querySelector('.comp-of');
-    if (ofEl && capTpl) ofEl.textContent = capTpl.replace('%s', fmt.format(denom));
-    // Bar + chips.
-    ORDER.forEach(function(k){
-      var c = chips[k];
-      if (!c) return;
-      var n = parseInt(c.dataset.count, 10) || 0;
-      var seg = body.querySelector('.comp-seg[data-key="' + k + '"]');
-      if (seg) {
-        seg.style.display = on[k] ? '' : 'none';
-        seg.style.width = (on[k] && denom > 0 && n > 0 ? (n / denom * 100).toFixed(4) : '0') + '%';
-      }
-      c.classList.toggle('comp-out', !on[k]);
-      var share = c.querySelector('.comp-share');
-      if (share && share.textContent !== '?') {
-        // The strike-through and the grey already say "excluded"; swapping a
-        // wide label in and out made the whole legend reflow on every click.
-        share.textContent = on[k] ? pctLabel(n, denom) : '';
-      }
-      var tgl = c.querySelector('a.comp-tgl');
-      if (tgl && !c.classList.contains('comp-tgl-static')) {
-        tgl.setAttribute('aria-checked', on[k] ? 'true' : 'false');
-        var t2 = {};
-        ORDER.forEach(function(kk){ t2[kk] = on[kk]; });
-        t2[k] = !t2[k];
-        var tp = param(t2);
-        // Pinned = no href: the last enabled segment cannot be switched off.
-        if (tp) {
-          tgl.setAttribute('href', '?comp=' + tp);
-          tgl.classList.remove('comp-tgl-pinned');
-          tgl.removeAttribute('aria-disabled');
-        } else {
-          tgl.removeAttribute('href');
-          tgl.classList.add('comp-tgl-pinned');
-          tgl.setAttribute('aria-disabled', 'true');
-        }
-      }
-    });
-    // Presets highlight when the state matches them.
-    card.querySelectorAll('.comp-scope a[data-preset]').forEach(function(a){
-      var hit = a.dataset.preset === st;
-      a.classList.toggle('on', hit);
-      if (hit) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current');
-    });
-    body.dataset.state = st;
-    // Remember it the same way the server would have, and put the choice in
-    // the URL so a reload or a shared link opens on the view being looked at.
-    try {
-      document.cookie = 'unmask_comp_seg=' + encodeURIComponent(st) +
-        ';path=' + (window.UNMASK_BASE || '/unmask') + ';max-age=' + (365*24*3600) + ';SameSite=Lax';
-      var u = new URL(window.location.href);
-      u.searchParams.set('comp', st);
-      history.replaceState(null, '', u);
-    } catch (_) {}
-  }
-  card.addEventListener('click', function(e){
-    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
-    // The other chip's help tip sits beside the toggle link, never inside it,
-    // so opening the popover cannot flip the segment.
-    var preset = e.target.closest('.comp-scope a[data-preset]');
-    if (preset) {
-      e.preventDefault();
-      var on = {};
-      ORDER.forEach(function(k){ on[k] = preset.dataset.preset === 'all' ? true : k !== 'bypass'; });
-      apply(on);
-      return;
-    }
-    var tgl = e.target.closest('a.comp-tgl');
-    if (!tgl || !tgl.getAttribute('href')) return;
-    e.preventDefault();
-    var chip = tgl.closest('.comp-chip');
-    var on = state();
-    var k = chip.dataset.key;
-    on[k] = !on[k];
-    // The last enabled segment stays: a share of nothing answers nothing.
-    if (!ORDER.some(function(kk){ return chips[kk] && on[kk]; })) return;
-    apply(on);
-  });
-})();
-</script>
-
-{{/* The row is the challenge's own funnel plus operating state.  The card
-     above splits ALL traffic by what it is (human, benign bot, bypassed) and
-     counts some of the same requests under those names, so the two blocks are
-     told apart here rather than left to be inferred. */}}
-<p class="meta kpi-note">{{ t .Lang "overview.kpi.row_note" }}</p>
-<div class="kpi-grid">
-  <div class="kpi k-serve">
-    <div class="label"><span class="kdot" style="background:#dc2626"></span>{{ t .Lang "overview.kpi.serves" }}</div>
-    <div class="value">{{ if .KPIKnown }}{{ comma .KPIServes }}{{ else }}—{{ end }}</div>
-    <div class="sub">{{ t .Lang "overview.kpi.serves_sub" }}</div>
-  </div>
-  <div class="kpi k-pow">
-    <div class="label"><span class="kdot" style="background:#0ea5e9"></span>{{ t .Lang "overview.kpi.pow_pass" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.pow_pass_help") }}</span></span></div>
-    <div class="value">{{ if .KPIKnown }}{{ comma .KPIPoWTotal }}{{ else }}—{{ end }}</div>
-    <div class="sub">{{ t .Lang "overview.kpi.pow_pass_sub" }}</div>
-    {{/* The headline is requests -- the solves plus what their cookies then
-         admitted -- in the same unit as "challenge fired" beside it.  The
-         breakdown keeps the solves visible: they are the visitor count and
-         the abandon rate's base.  Without the access-log feed the cookie
-         share is unknown, and the tile says the headline is solves alone. */}}
-    <div class="sub sub-cookie">{{ if .KPICookieKnown }}{{ tf .Lang "overview.kpi.pass_breakdown" (comma .KPIPoWPass) (comma .KPIPoWCookie) }}{{ else }}{{ tf .Lang "overview.kpi.pass_solves_only" (comma .KPIPoWPass) }}{{ end }}</div>
-  </div>
-  <div class="kpi k-captcha">
-    <div class="label"><span class="kdot" style="background:#16a34a"></span>{{ t .Lang "overview.kpi.captcha_pass" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.captcha_pass_help") }}</span></span></div>
-    <div class="value">{{ if .KPIKnown }}{{ comma .KPICaptchaTotal }}{{ else }}—{{ end }}</div>
-    <div class="sub">{{ t .Lang "overview.kpi.captcha_pass_sub" }}</div>
-    <div class="sub sub-cookie">{{ if .KPICookieKnown }}{{ tf .Lang "overview.kpi.pass_breakdown" (comma .KPICaptchaPass) (comma .KPICaptchaCookie) }}{{ else }}{{ tf .Lang "overview.kpi.pass_solves_only" (comma .KPICaptchaPass) }}{{ end }}</div>
-  </div>
-  {{/* Abandonment: the tile an operator reads before touching PoW difficulty.
-       A request count, like every tile beside it, with the share and its
-       denominator underneath -- challenge pages whose JS ran, so bots (which
-       never do) are excluded by construction, unlike the blocked count in the
-       hero, which is mostly them.  Warn styling past 10%: at that point the
-       challenge is costing real visitors, not just bots. */}}
-  <div class="kpi {{ if gt .KPIAbandonPct 10.0 }}warn{{ end }}">
-    <div class="label">{{ t .Lang "overview.kpi.abandon" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.abandon_help") }}</span></span></div>
-    <div class="value">{{ if .KPIKnown }}{{ comma .KPIAbandon }}{{ else }}—{{ end }}</div>
-    <div class="sub">{{ if gt .KPIPoWLoaded 0 }}{{ tf .Lang "overview.kpi.abandon_sub" (comma .KPIPoWLoaded) (printf "%.1f" .KPIAbandonPct) }}{{ else }}{{ t .Lang "overview.kpi.abandon_sub_empty" }}{{ end }}</div>
-  </div>
-  <div class="kpi {{ if gt .KPICurrentBans 0 }}warn{{ end }}">
-    <div class="label">{{ t .Lang "overview.kpi.bans" }}</div>
-    <div class="value">{{ comma .KPICurrentBans }}</div>
-    <div class="sub"><a href="{{.BasePath}}/admin/bans/">{{ t .Lang "overview.kpi.bans_sub" }}</a></div>
-  </div>
-</div>
 
 {{ with .OverBlock }}{{ if .Tripped }}
 <div role="alert" style="margin:1rem 0;padding:.7rem 1rem;border:1px solid #dc2626;background:#fef2f2;border-radius:.4rem;color:#991b1b;line-height:1.5">
@@ -594,90 +479,27 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 </div>
 {{ end }}{{ end }}
 
-{{ template "ai_traffic_card" . }}
-{{ template "ai_traffic_card_assets" . }}
+<div class="bcd-card" id="hourly-card">
+  <h2 class="pipe-h">{{ t .Lang "overview.hourly.h" }}<small>{{ t .Lang "overview.hourly.sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.hourly.help" }}</span></span></h2>
+  {{ with .Hourly }}{{ if .OK }}
+  <div class="hourly-legend"><span><i style="background:#2563eb"></i>{{ t $.Lang "overview.hourly.today" }}</span><span><i style="background:#dc2626"></i>{{ t $.Lang "overview.hourly.now" }}</span><span><i style="background:#cbd5e1"></i>{{ t $.Lang "overview.hourly.yesterday" }}</span><span style="margin-left:auto">{{ .MaxText }}</span></div>
+  <svg viewBox="0 0 1400 170" style="width:100%;height:11rem;display:block" role="img" aria-label="{{ t $.Lang "overview.hourly.h" }}">
+    <line x1="0" y1="150.5" x2="1400" y2="150.5" stroke="#e2e8f0"/>
+    {{ range .Bars }}
+    <rect x="{{ printf "%.1f" .XY }}" y="{{ printf "%.1f" .YY }}" width="18" height="{{ printf "%.1f" .YH }}" fill="#cbd5e1"><title>{{ t $.Lang "overview.hourly.yesterday" }} {{ printf "%02d" .H }}:00 — {{ comma .Yesterday }}</title></rect>
+    {{ if not .Future }}<rect x="{{ printf "%.1f" .XT }}" y="{{ printf "%.1f" .TY }}" width="18" height="{{ printf "%.1f" .TH }}" fill="{{ if .Now }}#dc2626{{ else }}#2563eb{{ end }}"><title>{{ t $.Lang "overview.hourly.today" }} {{ printf "%02d" .H }}:00 — {{ comma .Today }}</title></rect>{{ end }}
+    <text x="{{ printf "%.1f" .XC }}" y="165" font-size="11" fill="#64748b" text-anchor="middle">{{ printf "%02d" .H }}</text>
+    {{ end }}
+  </svg>
+  {{ else }}
+  <p class="meta" style="margin:0">{{ t $.Lang "overview.kpi.nonhuman_nodata" }}</p>
+  {{ end }}{{ end }}
+</div>
+{{ end }}
+<div id="day-section">{{ template "overview_day" . }}</div>
+<p class="day-err" id="day-err" hidden>{{ t .Lang "overview.day.err" }}</p>
+
 <style>
-.ai-tabs{display:flex;gap:.25rem;margin-bottom:.5rem;border-bottom:1px solid #e2e8f0}
-.ai-tab{background:none;border:none;padding:.4rem .75rem;font-size:.85rem;color:#64748b;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
-.ai-tab:hover{color:#0f172a}
-.ai-tab.active{color:#0f172a;border-bottom-color:#0f172a;font-weight:600}
-/* zero-row visibility (= shared with stats page).  Default: hidden.
-   .bcd-zero-hidden on the card collapses .bcd-zero-row entries. */
-.bcd-zero-row{display:table-row}
-.bcd-zero-hidden .bcd-zero-row{display:none}
-.bcd-zero-toggle{display:inline-flex;align-items:center;gap:.35rem;margin-top:.4rem;font-size:.78rem;color:#64748b;cursor:pointer;user-select:none}
-.bcd-zero-toggle input[type=checkbox]{margin:0;cursor:pointer}
-.bcd-zero-toggle:hover{color:#0f172a}
-</style>
-<script>
-// zero-row visibility (= mirrors the stats-page implementation; see
-// dashboard.html for the design rules).  Default = hidden (= collapsed for
-// a first-time visitor); the checkbox inserted under each table reveals
-// them and the choice persists via localStorage.  Shared key prefix so a
-// "show" set on stats carries over to overview's twin card.
-document.addEventListener('DOMContentLoaded', function(){
-  function lsGet(k){ try { return localStorage.getItem(k); } catch(e) { return null; } }
-  function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e) {} }
-
-  const HIDE_TPL = {{ t .Lang "toggle.hide_zero_n_cb" }};
-
-  document.querySelectorAll('.bcd-card .bcd-table').forEach(function(tbl){
-    var rows = Array.from(tbl.querySelectorAll('tbody tr'));
-    var zeroRows = rows.filter(function(tr){
-      if (tr.classList.contains('muted-row')) return true;
-      var nums = tr.querySelectorAll('.num, .bcd-num');
-      if (!nums.length) return false;
-      return Array.from(nums).every(function(td){
-        var s = td.textContent.trim().replace(/[,%\s]/g,'');
-        return s === '' || s === '-' || s === '0' || s === '0.0' || s === '0.00';
-      });
-    });
-    if (zeroRows.length === 0) return;
-    zeroRows.forEach(function(tr){ tr.classList.add('bcd-zero-row'); });
-
-    var card = tbl.closest('.bcd-card') || tbl.parentNode;
-    var h2 = card.querySelector('h2');
-    var keySrc = h2 ? h2.textContent.trim() : ('table-' + Array.from(document.querySelectorAll('.bcd-table')).indexOf(tbl));
-    var key = 'unmask:zero_v2:' + keySrc;
-
-    var label = document.createElement('label');
-    label.className = 'bcd-zero-toggle';
-    var cb = document.createElement('input');
-    cb.type = 'checkbox';
-    var span = document.createElement('span');
-    span.textContent = HIDE_TPL.replace('%d', zeroRows.length);
-    label.appendChild(cb);
-    label.appendChild(span);
-
-    function applyState(hide){ card.classList.toggle('bcd-zero-hidden', hide); }
-
-    // Default = HIDE zero rows: a first-time visitor (no saved choice) gets
-    // them collapsed, and only an explicit "show" persists as visible.
-    var saved = lsGet(key);
-    cb.checked = (saved !== 'show');
-    applyState(cb.checked);
-
-    cb.addEventListener('change', function(){
-      applyState(cb.checked);
-      lsSet(key, cb.checked ? 'hide' : 'show');
-    });
-
-    tbl.parentNode.insertBefore(label, tbl.nextSibling);
-  });
-});
-</script>
-<style>
-<style>
-table.ai-traffic{width:100%;border-collapse:collapse;font-size:.88rem}
-table.ai-traffic th{text-align:left;padding:.4rem .5rem;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:600;font-size:.78rem;background:#f8fafc}
-table.ai-traffic th.num,table.ai-traffic td.num{text-align:right;font-variant-numeric:tabular-nums}
-table.ai-traffic tbody td{padding:.35rem .5rem;border-bottom:1px solid #f1f5f9}
-.ai-cat{display:inline-block;font-size:.7rem;font-weight:700;padding:.1rem .45rem;border-radius:.25rem;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace}
-.ai-cat-search   {background:#dbeafe;color:#1e3a8a}
-.ai-cat-training {background:#fde68a;color:#854d0e}
-.ai-cat-agent    {background:#bbf7d0;color:#14532d}
-.ai-cat-scraper  {background:#fecaca;color:#7f1d1d}
-.ai-cat-collector{background:#e9d5ff;color:#5b21b6}
 /* session chain (= same logic as the hunt table.  Collapses serve/load/pow/bv
    into one row identified by beacon_token.) */
 .session-chain{display:inline-flex;align-items:center;gap:.1rem;flex-wrap:nowrap;white-space:nowrap}
@@ -831,6 +653,145 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 // .EventsCap > 0 is passed in the context).
 </script>
 <script>
+// Segment toggles.  A function rather than a one-shot block: the section
+// this card sits in is redrawn every minute, and the new card needs binding.  The server renders the selected view (cookie/?comp=), so
+// the page is truthful without JS; this script mirrors the same arithmetic to
+// make a toggle instant -- share labels, bar widths, headline and caption are
+// all recomputed against the new denominator, exactly as Go would render them
+// (pctLabel's "<0.1%" floor included, so the two paths cannot disagree).
+window.unmaskInitComp = function(){
+  var card = document.getElementById('comp-card');
+  if (!card) return;
+  var body = card.querySelector('.comp-body');
+  var view = card.querySelector('.comp-view');
+  if (!body || !view) return;
+  var ORDER = ['benign','bad','bypass','human','other'];
+  var chips = {};
+  card.querySelectorAll('.comp-chip').forEach(function(c){ chips[c.dataset.key] = c; });
+  var total = parseInt(view.dataset.total, 10) || 0;
+  var fmt = new Intl.NumberFormat('en-US');
+
+  function state(){
+    var on = {};
+    ORDER.forEach(function(k){ if (chips[k]) on[k] = !chips[k].classList.contains('comp-out'); });
+    return on;
+  }
+  function param(on){
+    var keys = ORDER.filter(function(k){ return chips[k] && on[k]; });
+    if (!keys.length) return '';
+    var present = ORDER.filter(function(k){ return chips[k]; });
+    if (keys.length === present.length) return 'all';
+    if (keys.length === present.length - 1 && !on['bypass'] && chips['bypass']) return 'judged';
+    return keys.join('-');
+  }
+  function pctLabel(n, t){
+    if (t <= 0 || n <= 0) return '0%';
+    var p = n / t * 100;
+    if (p < 0.05) return '<0.1%';
+    return p.toFixed(1) + '%';
+  }
+  function apply(on){
+    var denom = total;
+    var nonhuman = 0;
+    ORDER.forEach(function(k){
+      var c = chips[k];
+      if (!c) return;
+      var n = parseInt(c.dataset.count, 10) || 0;
+      if (!on[k]) denom -= n;
+      else if (c.dataset.nonhuman === 'true') nonhuman += n;
+    });
+    if (denom < 0) denom = 0;
+    // Headline + caption.  The dash state (no feed) never reaches here: the
+    // card renders no chips without data.
+    var pctEl = view.querySelector('.comp-pct');
+    if (pctEl && pctEl.textContent.indexOf('—') === -1) {
+      var pct = denom > 0 ? (nonhuman / denom * 100) : 0;
+      pctEl.innerHTML = pct.toFixed(1) + '<span class="comp-pct-u">%</span>';
+    }
+    var st = param(on);
+    var capTpl = st === 'all' ? view.dataset.capAll : (st === 'judged' ? view.dataset.capJudged : view.dataset.capSelected);
+    var ofEl = view.querySelector('.comp-of');
+    if (ofEl && capTpl) ofEl.textContent = capTpl.replace('%s', fmt.format(denom));
+    // Bar + chips.
+    ORDER.forEach(function(k){
+      var c = chips[k];
+      if (!c) return;
+      var n = parseInt(c.dataset.count, 10) || 0;
+      var seg = body.querySelector('.comp-seg[data-key="' + k + '"]');
+      if (seg) {
+        seg.style.display = on[k] ? '' : 'none';
+        seg.style.width = (on[k] && denom > 0 && n > 0 ? (n / denom * 100).toFixed(4) : '0') + '%';
+      }
+      c.classList.toggle('comp-out', !on[k]);
+      var share = c.querySelector('.comp-share');
+      if (share && share.textContent !== '?') {
+        // The strike-through and the grey already say "excluded"; swapping a
+        // wide label in and out made the whole legend reflow on every click.
+        share.textContent = on[k] ? pctLabel(n, denom) : '';
+      }
+      var tgl = c.querySelector('a.comp-tgl');
+      if (tgl && !c.classList.contains('comp-tgl-static')) {
+        tgl.setAttribute('aria-checked', on[k] ? 'true' : 'false');
+        var t2 = {};
+        ORDER.forEach(function(kk){ t2[kk] = on[kk]; });
+        t2[k] = !t2[k];
+        var tp = param(t2);
+        // Pinned = no href: the last enabled segment cannot be switched off.
+        if (tp) {
+          tgl.setAttribute('href', '?comp=' + tp);
+          tgl.classList.remove('comp-tgl-pinned');
+          tgl.removeAttribute('aria-disabled');
+        } else {
+          tgl.removeAttribute('href');
+          tgl.classList.add('comp-tgl-pinned');
+          tgl.setAttribute('aria-disabled', 'true');
+        }
+      }
+    });
+    // Presets highlight when the state matches them.
+    card.querySelectorAll('.comp-scope a[data-preset]').forEach(function(a){
+      var hit = a.dataset.preset === st;
+      a.classList.toggle('on', hit);
+      if (hit) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current');
+    });
+    body.dataset.state = st;
+    // Remember it the same way the server would have, and put the choice in
+    // the URL so a reload or a shared link opens on the view being looked at.
+    try {
+      document.cookie = 'unmask_comp_seg=' + encodeURIComponent(st) +
+        ';path=' + (window.UNMASK_BASE || '/unmask') + ';max-age=' + (365*24*3600) + ';SameSite=Lax';
+      var u = new URL(window.location.href);
+      u.searchParams.set('comp', st);
+      history.replaceState(null, '', u);
+    } catch (_) {}
+  }
+  card.addEventListener('click', function(e){
+    if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+    // The other chip's help tip sits beside the toggle link, never inside it,
+    // so opening the popover cannot flip the segment.
+    var preset = e.target.closest('.comp-scope a[data-preset]');
+    if (preset) {
+      e.preventDefault();
+      var on = {};
+      ORDER.forEach(function(k){ on[k] = preset.dataset.preset === 'all' ? true : k !== 'bypass'; });
+      apply(on);
+      return;
+    }
+    var tgl = e.target.closest('a.comp-tgl');
+    if (!tgl || !tgl.getAttribute('href')) return;
+    e.preventDefault();
+    var chip = tgl.closest('.comp-chip');
+    var on = state();
+    var k = chip.dataset.key;
+    on[k] = !on[k];
+    // The last enabled segment stays: a share of nothing answers nothing.
+    if (!ORDER.some(function(kk){ return chips[kk] && on[kk]; })) return;
+    apply(on);
+  });
+};
+unmaskInitComp();
+</script>
+<script>
 // The "right now" strip.  Every PERIOD seconds (while the tab is visible and
 // the operator has not switched it off) the page re-reads /admin/api/now and
 // writes the figures over the ones it has.  The previous reading stays up
@@ -880,6 +841,8 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       if (tps && j.tps_text) tps.textContent = j.tps_text;
     });
     if (feedOff) feedOff.hidden = !j.feed_off;
+    // The map draws from the same reading.
+    try { document.dispatchEvent(new CustomEvent('unmask:now', { detail: j })); } catch (e) {}
   }
   function setToggle(){
     // data-txt-*, not data-on/off: html/template reads a data-on attribute as
@@ -916,6 +879,219 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   setToggle();
   var ts = parseInt(atEl.dataset.ts, 10);
   if (ts) atEl.textContent = clock(new Date(ts * 1000));
+  // One reading right away: the strip's own figures are already on the page,
+  // but the map beside it has nothing until a reading arrives.
+  if (on && document.visibilityState === 'visible') refresh();
+})();
+</script>
+<script>
+// The map.  Streams from each source country's centroid to the server's
+// position, with width, glow and particle rate following the last minute's
+// count on a log scale (so one busy country does not drown the rest), and
+// particles coloured by outcome.  The outline comes from /static/world-110m.json
+// (see world-110m.md); the counts from the live strip's readings
+// (unmask:now).  Without a server position only the sources are drawn.
+(function(){
+  var card = document.getElementById('geo-card');
+  if (!card || !window.fetch) return;
+  var cv = document.getElementById('geo');
+  var ctx = cv.getContext && cv.getContext('2d');
+  if (!ctx) return;
+  var MAP = null, land = [];
+  var loc = { set: card.dataset.set === '1', lat: parseFloat(card.dataset.lat) || 0, lon: parseFloat(card.dataset.lon) || 0, label: card.dataset.label || '' };
+  var counts = {}, streams = [], parts = [], server = null;
+  var reduce = false;
+  try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+  var colors = { pass: '#94a3b8', serve: '#f87171', deny: '#b91c1c', bypass: '#818cf8' };
+  var dpr = 1, cw = 0, ch = 0;
+
+  function fit(){
+    var w = Math.max(200, Math.round(card.querySelector('.geo-wrap').getBoundingClientRect().width));
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    cw = w; ch = Math.round(w * 0.46);
+    cv.style.height = ch + 'px';
+    cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr);
+  }
+  function P(lon, lat){ return [ (lon + 180) / 360 * MAP.w, (90 - lat) / 180 * MAP.h ]; }
+  function setServer(){ server = loc.set ? P(loc.lon, loc.lat) : null; }
+
+  function rebuild(){
+    streams = [];
+    if (!MAP) return;
+    var max = 0, cc;
+    for (cc in counts) if (counts[cc].n > max) max = counts[cc].n;
+    for (cc in counts) {
+      var c = counts[cc], ct = MAP.centroids[cc];
+      if (!ct || !c.n) continue;
+      var o = P(ct[0], ct[1]);
+      var st = { cc: cc, n: c.n, x0: o[0], y0: o[1], w: Math.log1p(c.n) / Math.log1p(max || 1), mix: c };
+      if (server) {
+        var dx = server[0] - o[0], dy = server[1] - o[1], d = Math.hypot(dx, dy) || 1;
+        st.cx = (o[0] + server[0]) / 2 + (-dy / d) * d * 0.25 * (o[1] > server[1] ? -1 : 1);
+        st.cy = (o[1] + server[1]) / 2 - Math.abs(dx / d) * d * 0.25 - 10;
+      }
+      streams.push(st);
+    }
+    streams.sort(function(a, b){ return b.n - a.n; });
+    var top = document.getElementById('geo-top');
+    if (top) {
+      var html = '';
+      streams.slice(0, 6).forEach(function(st){
+        html += '<span><img src="' + card.dataset.flags + st.cc.toLowerCase() + '.png" alt="">' + st.cc + ' ' + st.n + '</span>';
+      });
+      top.innerHTML = html ? '<span>' + top.dataset.txt + ':</span>' + html : '';
+    }
+  }
+  function kindOf(mix){
+    var r = Math.random() * (mix.n || 1);
+    if ((r -= mix.deny) < 0) return 'deny';
+    if ((r -= mix.serve) < 0) return 'serve';
+    if ((r -= mix.bypass) < 0) return 'bypass';
+    return 'pass';
+  }
+  function bez(st, t){ var u = 1 - t; return [u*u*st.x0 + 2*u*t*st.cx + t*t*server[0], u*u*st.y0 + 2*u*t*st.cy + t*t*server[1]]; }
+
+  var running = false, last = 0;
+  function frame(ts){
+    if (!running) return;
+    var sx = cv.width / MAP.w, sy = cv.height / MAP.h;
+    ctx.globalCompositeOperation = 'source-over';
+    // Fading rather than clearing leaves each particle a tail: the glow.
+    ctx.fillStyle = reduce ? '#0f172a' : 'rgba(15,23,42,0.25)';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.save(); ctx.scale(sx, sy); ctx.fillStyle = '#1e293b'; ctx.strokeStyle = '#334155'; ctx.lineWidth = 0.6;
+    for (var i = 0; i < land.length; i++) { ctx.fill(land[i]); ctx.stroke(land[i]); }
+    ctx.restore();
+    ctx.globalCompositeOperation = 'lighter';
+    streams.forEach(function(st){
+      if (server) {
+        ctx.beginPath(); ctx.moveTo(st.x0 * sx, st.y0 * sy); ctx.quadraticCurveTo(st.cx * sx, st.cy * sy, server[0] * sx, server[1] * sy);
+        ctx.lineWidth = (0.4 + 5 * st.w) * dpr; ctx.strokeStyle = 'rgba(125,211,252,' + (0.04 + 0.22 * st.w) + ')';
+        ctx.shadowBlur = (4 + 18 * st.w) * dpr; ctx.shadowColor = 'rgba(125,211,252,' + (0.3 + 0.6 * st.w) + ')'; ctx.stroke();
+        if (!reduce && parts.length < 400 && Math.random() < st.n * 0.0022 + 0.004) {
+          parts.push({ st: st, t: 0, v: 0.004 + Math.random() * 0.004, k: kindOf(st.mix), sz: (0.9 + 2.2 * st.w + Math.random()) * dpr });
+        }
+      }
+    });
+    for (var p = parts.length - 1; p >= 0; p--) {
+      var q = parts[p]; q.t += q.v;
+      if (q.t >= 1 || !server || streams.indexOf(q.st) < 0) { parts.splice(p, 1); continue; }
+      var xy = bez(q.st, q.t);
+      ctx.beginPath(); ctx.arc(xy[0] * sx, xy[1] * sy, q.sz, 0, Math.PI * 2);
+      ctx.shadowBlur = (8 + 10 * q.st.w) * dpr; ctx.shadowColor = colors[q.k]; ctx.fillStyle = colors[q.k]; ctx.globalAlpha = 0.55 + 0.45 * q.st.w; ctx.fill();
+    }
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    ctx.font = '600 ' + (11 * dpr) + 'px -apple-system,Segoe UI,Roboto,sans-serif'; ctx.textBaseline = 'middle';
+    streams.forEach(function(st, i){
+      ctx.beginPath(); ctx.arc(st.x0 * sx, st.y0 * sy, (1.5 + 3 * st.w) * dpr, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(186,230,253,' + (0.35 + 0.65 * st.w) + ')'; ctx.fill();
+      if (i < 6) {
+        var t = st.cc + ' ' + st.n, tw = ctx.measureText(t).width;
+        ctx.fillStyle = 'rgba(15,23,42,.7)'; ctx.fillRect(st.x0 * sx + 6 * dpr, st.y0 * sy - 8 * dpr, tw + 8 * dpr, 16 * dpr);
+        ctx.fillStyle = '#e0f2fe'; ctx.fillText(t, st.x0 * sx + 10 * dpr, st.y0 * sy);
+      }
+    });
+    if (server) {
+      var sxp = server[0] * sx, syp = server[1] * sy, pulse = reduce ? 0.5 : (ts / 1000) % 1;
+      ctx.beginPath(); ctx.arc(sxp, syp, (4 + pulse * 16) * dpr, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(56,189,248,' + (1 - pulse) * 0.8 + ')'; ctx.lineWidth = 2 * dpr; ctx.stroke();
+      ctx.beginPath(); ctx.arc(sxp, syp, 4.5 * dpr, 0, Math.PI * 2); ctx.fillStyle = '#38bdf8'; ctx.fill();
+      var lbl = card.dataset.txtServer + (loc.label ? ': ' + loc.label : ''), lw = ctx.measureText(lbl).width;
+      ctx.fillStyle = 'rgba(15,23,42,.7)'; ctx.fillRect(sxp + 8 * dpr, syp + 6 * dpr, lw + 8 * dpr, 16 * dpr);
+      ctx.fillStyle = '#e0f2fe'; ctx.fillText(lbl, sxp + 12 * dpr, syp + 14 * dpr);
+    }
+    if (reduce) { running = false; return; }   // one still frame per reading
+    requestAnimationFrame(frame);
+  }
+  function start(){
+    if (!MAP || running || document.visibilityState !== 'visible') return;
+    running = true; requestAnimationFrame(frame);
+  }
+  function stop(){ running = false; }
+
+  document.addEventListener('unmask:now', function(e){
+    var j = e.detail || {};
+    counts = j.countries || {};
+    rebuild();
+    if (reduce) { running = false; start(); }
+  });
+  document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible') start(); else stop(); });
+  var rt = null;
+  window.addEventListener('resize', function(){ clearTimeout(rt); rt = setTimeout(function(){ fit(); if (reduce) { running = false; start(); } }, 150); });
+
+  var btn = document.getElementById('geo-set');
+  if (btn && window.unmaskDialog) {
+    btn.addEventListener('click', function(){
+      var cur = loc.set ? (loc.lat + ', ' + loc.lon + (loc.label ? ', ' + loc.label : '')) : '';
+      unmaskDialog.prompt({ title: card.dataset.txtTitle, message: card.dataset.txtMsg, value: cur, placeholder: '35.68, 139.76, Tokyo' }).then(function(v){
+        if (v === null) return;
+        var parts3 = String(v).split(','), body = new URLSearchParams();
+        var lat = (parts3[0] || '').trim(), lon = (parts3[1] || '').trim(), label = parts3.slice(2).join(',').trim();
+        if (lat || lon) { body.set('lat', lat); body.set('lon', lon); }
+        body.set('label', label);
+        fetch(card.dataset.save, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }, body: body })
+          .then(function(r){ return r.json().then(function(j){ if (!r.ok || !j.ok) throw new Error(j.error || r.status); return j; }); })
+          .then(function(j){
+            loc = { set: !!j.set, lat: j.lat || 0, lon: j.lon || 0, label: j.label || '' };
+            card.dataset.set = loc.set ? '1' : '0';
+            var note = document.getElementById('geo-unset'); if (note) note.hidden = loc.set;
+            setServer(); rebuild(); parts = []; if (reduce) { running = false; } start();
+          })
+          .catch(function(err){ unmaskDialog.error(err && err.message ? err.message : String(err)); });
+      });
+    });
+  }
+
+  fit();
+  fetch(card.dataset.map, { credentials: 'same-origin' })
+    .then(function(r){ if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+    .then(function(m){
+      MAP = m; land = m.paths.map(function(d){ return new Path2D(d); });
+      setServer(); rebuild(); start();
+    })
+    .catch(function(){ card.hidden = true; });
+})();
+</script>
+<script>
+// The 24-hour section (#day-section: the hero, the pipeline, the hourly
+// chart) is redrawn from the server every minute, under the same switch as
+// the live strip.  The server renders the same template it did for the page,
+// so a refresh cannot show numbers the page would not; a failure keeps what
+// is there and shows a note.
+(function(){
+  var day = document.getElementById('day-section'), err = document.getElementById('day-err');
+  if (!day || !window.fetch) return;
+  var PERIOD = 60, left = PERIOD, busy = false;
+  function on(){
+    var tg = document.getElementById('live-toggle');
+    return !tg || tg.getAttribute('aria-pressed') !== 'false';
+  }
+  function compState(){
+    var b = document.querySelector('#comp-card .comp-body');
+    return b && b.dataset.state ? b.dataset.state : '';
+  }
+  window.unmaskRefreshDay = function(){
+    if (busy) return Promise.resolve();
+    busy = true;
+    var u = new URL(window.location.href);
+    u.searchParams.set('partial', 'day');
+    var st = compState();
+    if (st) u.searchParams.set('comp', st);
+    return fetch(u.toString(), { credentials: 'same-origin', cache: 'no-store' })
+      .then(function(r){ if (!r.ok) throw new Error(String(r.status)); return r.text(); })
+      .then(function(html){
+        day.innerHTML = html;
+        if (window.unmaskInitComp) unmaskInitComp();
+        if (window.unmaskFmtTimes) unmaskFmtTimes();
+        err.hidden = true;
+      })
+      .catch(function(){ err.hidden = false; })
+      .then(function(){ busy = false; left = PERIOD; });
+  };
+  setInterval(function(){
+    if (!on() || document.visibilityState !== 'visible') return;
+    left -= 1;
+    if (left <= 0) unmaskRefreshDay();
+  }, 1000);
 })();
 </script>
 </body>

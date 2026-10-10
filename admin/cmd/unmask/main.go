@@ -1291,6 +1291,7 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux.HandleFunc("GET "+base+"/static/popover-pin.js", h.ServePopoverPinJS)
 	mux.HandleFunc("GET "+base+"/static/popover-pin.css", h.ServePopoverPinCSS)
 	mux.HandleFunc("GET "+base+"/static/icon.png", h.ServeIcon)
+	mux.HandleFunc("GET "+base+"/static/world-110m.json", h.ServeWorldMap)
 	// Branding logo (visitor-facing, no auth).  Single endpoint regardless
 	// of the stored file's extension; the handler picks the correct
 	// Content-Type from the on-disk file.  Cache-busting is via ?v=<mtime>
@@ -1386,6 +1387,8 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.AdminMyIP))
 	mux.HandleFunc("GET "+base+"/admin/api/now",
 		h.AuthMiddleware(h.AdminNowJSON))
+	mux.HandleFunc("POST "+base+"/admin/api/map-location",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminMapLocationSave)))
 	mux.HandleFunc("GET "+base+"/admin/community-bans/{$}",
 		h.AuthMiddleware(h.AdminCommunityBansIndex))
 	mux.HandleFunc("POST "+base+"/admin/community-bans/mute-toggle",
