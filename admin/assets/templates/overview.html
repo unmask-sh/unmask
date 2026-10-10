@@ -323,11 +323,12 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 <div class="bcd-card geo-card" id="geo-card"
      data-map="{{ .BasePath }}/static/world-110m.json?v={{ assetv }}" data-flags="{{ .BasePath }}/static/flags/"
      data-save="{{ .BasePath }}/admin/api/map-location"
-     data-set="{{ if .MapLoc.Set }}1{{ else }}0{{ end }}" data-lat="{{ .MapLoc.Lat }}" data-lon="{{ .MapLoc.Lon }}" data-label="{{ .MapLoc.Label }}"
+     data-set="{{ if .MapLoc.Set }}1{{ else }}0{{ end }}" data-lat="{{ .MapLoc.Lat }}" data-lon="{{ .MapLoc.Lon }}" data-label="{{ .MapLoc.Label }}{{ if .MapLoc.Approx }} {{ t .Lang "overview.map.approx" }}{{ end }}" data-auto="{{ if .MapLoc.Auto }}1{{ else }}0{{ end }}"
      data-txt-server="{{ t .Lang "overview.map.server" }}" data-txt-title="{{ t .Lang "overview.map.set_title" }}" data-txt-msg="{{ t .Lang "overview.map.set_msg" }}">
   <h2 class="pipe-h">{{ t .Lang "overview.map.h" }}<small>{{ t .Lang "overview.map.sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.map.help" }}</span></span>{{ if .CanEditMap }}<button type="button" class="live-tg" id="geo-set" style="margin-left:auto">{{ t .Lang "overview.map.set" }}</button>{{ end }}</h2>
   <div class="geo-wrap"><canvas id="geo" aria-label="{{ t .Lang "overview.map.h" }}" role="img"></canvas></div>
   <p class="live-note" id="geo-unset" style="margin:.4rem 0 0"{{ if .MapLoc.Set }} hidden{{ end }}>{{ t .Lang "overview.map.unset" }}</p>
+  {{ if .MapLoc.Auto }}<p class="meta" id="geo-auto" style="margin:.4rem 0 0;font-size:.78rem">{{ tf .Lang "overview.map.auto_note" (t .Lang (printf "overview.map.src_%s" .MapLoc.Source)) }}{{ if .MapLoc.Approx }} {{ t .Lang "overview.map.approx_note" }}{{ end }}</p>{{ end }}
   <p class="live-note" id="geo-nogeo" style="margin:.4rem 0 0"{{ if .GeoKnown }} hidden{{ end }}>{{ t .Lang "overview.map.nogeo" }}</p>
   <div class="geo-foot"><span><i style="background:#94a3b8"></i>{{ t .Lang "overview.map.legend_pass" }}</span><span><i style="background:#f87171"></i>{{ t .Lang "overview.map.legend_serve" }}</span><span><i style="background:#b91c1c"></i>{{ t .Lang "overview.map.legend_deny" }}</span><span><i style="background:#818cf8"></i>{{ t .Lang "overview.map.legend_bypass" }}</span><span class="geo-top" id="geo-top" data-txt="{{ t .Lang "overview.map.top" }}"></span></div>
 </div>
@@ -1103,6 +1104,10 @@ unmaskInitComp();
             loc = { set: !!j.set, lat: j.lat || 0, lon: j.lon || 0, label: j.label || '' };
             card.dataset.set = loc.set ? '1' : '0';
             var note = document.getElementById('geo-unset'); if (note) note.hidden = loc.set;
+            // A setting replaces the worked-out position; clearing it brings
+            // that back only on the next load, so the note just goes.
+            var auto = document.getElementById('geo-auto'); if (auto) auto.hidden = true;
+            card.dataset.auto = '0';
             setServer(); rebuild(); parts = []; if (reduce) { running = false; } start();
           })
           .catch(function(err){ unmaskDialog.error(err && err.message ? err.message : String(err)); });

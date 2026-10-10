@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -68,6 +69,7 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
 		return FeedDocument{}, fmt.Errorf("feed: status %d: %s", resp.StatusCode, string(raw))
 	}
+	c.noteHubIP(resp.Header.Get("X-Unmask-Client-IP"))
 
 	var doc FeedDocument
 	// Cap the body so a compromised / mis-configured hub can't drive admin
@@ -178,4 +180,32 @@ func redactURL(u string) string {
 		}
 	}
 	return u
+}
+
+// noteHubIP keeps the address the hub echoed, when it is one.  Called under
+// c.mu (from Pull).
+func (c *Client) noteHubIP(v string) {
+	v = strings.TrimSpace(v)
+	if net.ParseIP(v) == nil {
+		return
+	}
+	c.hubIP, c.hubIPAt = v, time.Now()
+}
+
+// HubSeenIP returns the public address the hub last saw this install come
+// from, and when; "" when no pull has carried one.
+func (c *Client) HubSeenIP() (string, time.Time) {
+	if c == nil {
+		return "", time.Time{}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.hubIP, c.hubIPAt
+}
+
+// SetHubSeenIPForTest seeds the echoed address.
+func (c *Client) SetHubSeenIPForTest(ip string) {
+	c.mu.Lock()
+	c.noteHubIP(ip)
+	c.mu.Unlock()
 }

@@ -149,7 +149,12 @@ type Handler struct {
 	NginxLog      *nginxlog.Reader        // optional, may be nil/empty (access_log_path unset)
 	BanMgr        *ban.Manager            // optional, may be nil (ban_file_path unset)
 	Live          *live.Counter           // optional, may be nil: the dashboard's "right now" strip then stays off
-	UserRepo      *user.Repository        // internal user management (login / users tab / audit hook)
+	// mapAuto: the server's own position worked out for the dashboard's map
+	// (map_admin.go autoMapLocation), kept for an hour.
+	mapAutoMu sync.Mutex
+	mapAuto   mapLocView
+	mapAutoAt time.Time
+	UserRepo  *user.Repository // internal user management (login / users tab / audit hook)
 	// loginThrottle guards the credential endpoints (login / forgot-password)
 	// against per-IP hammering.  Accessed via throttle(); the Once lets the
 	// zero-value Handler used all over the tests keep working.

@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+
+- (2026-10-10) **The map places the server on its own.**  Without a set position, the server is placed by its address: a global address on one of its interfaces, or, behind NAT, the address the community-bans hub saw it come from (echoed on the hourly feed pull).  A City geo database gives the point; a Country one puts it at the country's centre, and the card says so.  A set position wins outright.
+
 ## [0.1.51-rc4] - 2026-10-10 (testing build)
 
 ### Added

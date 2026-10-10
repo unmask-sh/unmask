@@ -48,3 +48,13 @@ func abs(f float64) float64 {
 	}
 	return f
 }
+
+func TestWorldCentroid(t *testing.T) {
+	lon, lat, ok := WorldCentroid("JP")
+	if !ok || abs(lon-138) > 3 || abs(lat-37) > 3 {
+		t.Errorf("JP = %v,%v ok=%v", lon, lat, ok)
+	}
+	if _, _, ok := WorldCentroid("ZZ"); ok {
+		t.Error("an unknown code is on the map")
+	}
+}

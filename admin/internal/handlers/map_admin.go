@@ -2,13 +2,16 @@ package handlers
 
 import (
 	"encoding/json"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/unmask-sh/unmask/admin/assets"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -30,19 +33,112 @@ func (h *Handler) ServeWorldMap(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(b)
 }
 
-// mapLocView is what the map card renders of the setting.
+// mapLocView is what the map card renders: the operator's setting, or,
+// without one, the position worked out from the server's own address.
 type mapLocView struct {
 	Set      bool
 	Lat, Lon float64
 	Label    string
+	Auto     bool   // worked out, not set: the card says so and from what
+	Source   string // "interface" / "hub" when Auto
+	Approx   bool   // Auto from a country alone: the country's centre
 }
 
 func (h *Handler) mapLocation() mapLocView {
 	m := h.cfg().Server.MapLocation
-	if m == nil || !m.Valid() {
-		return mapLocView{}
+	if m != nil && m.Valid() {
+		return mapLocView{Set: true, Lat: m.Lat, Lon: m.Lon, Label: m.Label}
 	}
-	return mapLocView{Set: true, Lat: m.Lat, Lon: m.Lon, Label: m.Label}
+	return h.autoMapLocation()
+}
+
+// The server's own position, worked out without asking a third party.  Two
+// sources: a global address on one of the host's own interfaces (a bare-metal
+// server, most VPSes), else the address the community-bans hub saw this
+// install come from (echoed on the hourly feed pull; the hub is ours).  The
+// address is then placed by the install's own geo database: coordinates from
+// a City database, the country's centre from a Country one.  Cached for an
+// hour; a manual setting always wins.
+const mapAutoTTL = time.Hour
+
+// interfaceAddrs is net.InterfaceAddrs, replaceable in tests.
+var interfaceAddrs = net.InterfaceAddrs
+
+func (h *Handler) autoMapLocation() mapLocView {
+	h.mapAutoMu.Lock()
+	defer h.mapAutoMu.Unlock()
+	if time.Since(h.mapAutoAt) < mapAutoTTL {
+		return h.mapAuto
+	}
+	h.mapAutoAt = time.Now()
+	h.mapAuto = mapLocView{}
+	ip, source := "", ""
+	if addrs, err := interfaceAddrs(); err == nil {
+		if v := pickGlobalIP(addrs); v != "" {
+			ip, source = v, "interface"
+		}
+	}
+	if ip == "" && h.CommunityBans != nil {
+		if v, _ := h.CommunityBans.HubSeenIP(); v != "" {
+			ip, source = v, "hub"
+		}
+	}
+	if ip == "" || h.IPGeo == nil {
+		return h.mapAuto
+	}
+	info := h.IPGeo.LookupInfo(ip)
+	// The country's name from the record, or from the built-in table when
+	// the record carries only the code.
+	country := info.CountryName
+	if country == "" || country == info.Country {
+		country = ipgeo.CountryName(info.Country)
+	}
+	switch {
+	case info.HasCoords:
+		label := info.City
+		if label == "" {
+			label = country
+		}
+		h.mapAuto = mapLocView{Set: true, Lat: info.Lat, Lon: info.Lon, Label: label, Auto: true, Source: source}
+	case info.Country != "":
+		if lon, lat, ok := assets.WorldCentroid(info.Country); ok {
+			h.mapAuto = mapLocView{Set: true, Lat: lat, Lon: lon, Label: country, Auto: true, Source: source, Approx: true}
+		}
+	}
+	return h.mapAuto
+}
+
+// pickGlobalIP returns the first global unicast address among addrs, IPv4
+// before IPv6; "" when the host has none (NAT, or loopback only).
+func pickGlobalIP(addrs []net.Addr) string {
+	var v6 string
+	for _, a := range addrs {
+		var ip net.IP
+		switch v := a.(type) {
+		case *net.IPNet:
+			ip = v.IP
+		case *net.IPAddr:
+			ip = v.IP
+		default:
+			continue
+		}
+		if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || isCGNAT(ip) {
+			continue
+		}
+		if ip.To4() != nil {
+			return ip.String()
+		}
+		if v6 == "" {
+			v6 = ip.String()
+		}
+	}
+	return v6
+}
+
+// isCGNAT: 100.64.0.0/10, the carrier-grade range IsPrivate does not cover.
+func isCGNAT(ip net.IP) bool {
+	v4 := ip.To4()
+	return v4 != nil && v4[0] == 100 && v4[1]&0xc0 == 64
 }
 
 // mapLabelMax bounds the label; the dialog says so as the text runs past it.

@@ -25,6 +25,12 @@ type Client struct {
 	// SettingsGetter: returns the snapshot at call time.
 	SettingsGetter func() settings.Settings
 
+	// hubIP / hubIPAt: the public address the hub saw this install come
+	// from, as echoed on the last successful pull (X-Unmask-Client-IP).  The
+	// admin's map places the server by it when nothing better is known.
+	hubIP   string
+	hubIPAt time.Time
+
 	// SettingsUpdate: callback that persists token / LastPulledAt / Entries.
 	// The closure is expected to perform settings.Save + handler.Settings swap.
 	SettingsUpdate func(func(*settings.Settings)) error

@@ -28,6 +28,10 @@ type Info struct {
 	City        string // English city name (e.g. "Tokyo").  Only populated with a City DB
 	ASN         uint   // Autonomous System Number (e.g. 4713)
 	ASNOrg      string // ASN organization (e.g. "NTT Communications")
+	// Lat / Lon: the record's coordinates, present only with a City DB
+	// (HasCoords); a Country DB places nothing.
+	Lat, Lon  float64
+	HasCoords bool
 }
 
 type Reader struct {
@@ -227,6 +231,10 @@ func (r *Reader) LookupInfo(ip string) Info {
 			City struct {
 				Names map[string]string `maxminddb:"names"`
 			} `maxminddb:"city"`
+			Location struct {
+				Lat float64 `maxminddb:"latitude"`
+				Lon float64 `maxminddb:"longitude"`
+			} `maxminddb:"location"`
 		}
 		if err := r.geoDB.Lookup(parsed, &rec); err == nil {
 			info.Country = rec.Country.ISOCode
@@ -235,6 +243,9 @@ func (r *Reader) LookupInfo(ip string) Info {
 			}
 			if rec.City.Names != nil {
 				info.City = rec.City.Names["en"]
+			}
+			if rec.Location.Lat != 0 || rec.Location.Lon != 0 {
+				info.Lat, info.Lon, info.HasCoords = rec.Location.Lat, rec.Location.Lon, true
 			}
 		}
 	}

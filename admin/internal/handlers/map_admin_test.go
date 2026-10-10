@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -11,6 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/assets"
+	"github.com/unmask-sh/unmask/admin/internal/communitybans"
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/live"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -131,5 +135,106 @@ func TestOverviewMapCard(t *testing.T) {
 	h.Live = nil
 	if strings.Contains(get("admin"), `id="geo-card"`) {
 		t.Error("the map card rendered without the live counter")
+	}
+}
+
+func TestPickGlobalIP(t *testing.T) {
+	mk := func(cidrs ...string) []net.Addr {
+		var out []net.Addr
+		for _, c := range cidrs {
+			_, n, err := net.ParseCIDR(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			ip, _, _ := net.ParseCIDR(c)
+			n.IP = ip
+			out = append(out, n)
+		}
+		return out
+	}
+	if got := pickGlobalIP(mk("127.0.0.1/8", "10.146.0.7/32", "172.18.0.1/16", "192.168.1.2/24", "100.64.3.4/10", "fe80::1/64", "fd00::1/64")); got != "" {
+		t.Errorf("private-only host picked %q", got)
+	}
+	if got := pickGlobalIP(mk("127.0.0.1/8", "2001:db8::10/64", "203.0.113.5/24")); got != "203.0.113.5" {
+		t.Errorf("IPv4 before IPv6: %q", got)
+	}
+	if got := pickGlobalIP(mk("10.0.0.1/8", "2001:db8::10/64")); got != "2001:db8::10" {
+		t.Errorf("IPv6 when that is all: %q", got)
+	}
+}
+
+// Without a setting the card places the server by its own address: an
+// interface's global address first, the hub's echo when the host is behind
+// NAT; a Country database puts it at the country's centre and says so; a
+// manual setting always wins.
+func TestAutoMapLocation(t *testing.T) {
+	t.Setenv("UNMASK_TEST_GEO_OVERRIDE", "203.0.113.5:JP,198.51.100.9:DE")
+	h := newTestHandler(t)
+	h.IPGeo = ipgeo.Open("", "")
+	h.CommunityBans = &communitybans.Client{}
+	orig := interfaceAddrs
+	t.Cleanup(func() { interfaceAddrs = orig })
+	addrs := func(cidrs ...string) func() ([]net.Addr, error) {
+		return func() ([]net.Addr, error) {
+			var out []net.Addr
+			for _, c := range cidrs {
+				ip, n, _ := net.ParseCIDR(c)
+				n.IP = ip
+				out = append(out, n)
+			}
+			return out, nil
+		}
+	}
+	fresh := func() { h.mapAutoAt = time.Time{} }
+
+	// Behind NAT, nothing from the hub yet: unknown.
+	interfaceAddrs = addrs("10.146.0.7/32")
+	if v := h.mapLocation(); v.Set {
+		t.Errorf("nothing to go on, got %+v", v)
+	}
+	// The hub's echo places it (Country DB: the country's centre, flagged).
+	h.CommunityBans.SetHubSeenIPForTest("198.51.100.9")
+	fresh()
+	v := h.mapLocation()
+	lon, lat, _ := assets.WorldCentroid("DE")
+	if !v.Set || !v.Auto || !v.Approx || v.Source != "hub" || v.Lat != lat || v.Lon != lon || v.Label != "Germany (ドイツ)" {
+		t.Errorf("hub-placed: %+v", v)
+	}
+	// An interface's own global address wins over the hub.
+	interfaceAddrs = addrs("127.0.0.1/8", "203.0.113.5/24")
+	fresh()
+	if v = h.mapLocation(); !v.Auto || v.Source != "interface" || v.Label != "Japan (日本)" {
+		t.Errorf("interface-placed: %+v", v)
+	}
+	// Cached: a change in the interfaces is not seen within the hour.
+	interfaceAddrs = addrs("10.0.0.1/8")
+	if v = h.mapLocation(); v.Source != "interface" {
+		t.Errorf("cache: %+v", v)
+	}
+	// A manual setting wins outright.
+	s := h.snapshotSettings()
+	s.Server.MapLocation = &settings.MapLocation{Lat: 35.68, Lon: 139.76, Label: "Tokyo"}
+	h.SetSettings(s)
+	if v = h.mapLocation(); v.Auto || v.Label != "Tokyo" {
+		t.Errorf("manual: %+v", v)
+	}
+	// The page says the position was worked out, and from what.
+	s.Server.MapLocation = nil
+	h.SetSettings(s)
+	interfaceAddrs = addrs("203.0.113.5/24")
+	fresh()
+	h.Live = live.New()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
+	req := httptest.NewRequest("GET", "/unmask/admin/", nil)
+	req.Header.Set("Cookie", "unmask_lang=ja")
+	req = req.WithContext(context.WithValue(req.Context(), sessionCtxKey{}, &SessionPayload{UserID: 1, Role: "admin", Exp: time.Now().Add(time.Hour).Unix()}))
+	rec := httptest.NewRecorder()
+	h.AdminTopOverview(rec, req)
+	body := rec.Body.String()
+	for _, want := range []string{`data-auto="1"`, `id="geo-auto"`, `data-label="Japan (日本) (国の中心)"`, `id="geo-unset" style="margin:.4rem 0 0" hidden`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("page lacks %q", want)
+		}
 	}
 }
