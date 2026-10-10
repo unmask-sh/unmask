@@ -114,6 +114,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .bcd-card h2.pipe-h{display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap}
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;margin:0 0 .9rem}
 .comp-card h3.comp-h3{margin:0;font-size:1rem;font-weight:700;color:#334155}
+.comp-card .pipe-h.after-comp{margin-top:1.1rem;padding-top:.9rem;border-top:1px solid #e2e8f0}
 .hourly-legend{display:flex;gap:1rem;font-size:.75rem;color:#64748b;align-items:center;flex-wrap:wrap;margin-bottom:.3rem}
 .hourly-legend i{display:inline-block;width:.7rem;height:.7rem;border-radius:.15rem;margin-right:.3rem;vertical-align:-.05em}
 .day-err{margin:-.6rem 0 1rem;font-size:.78rem;color:#b45309}
@@ -371,57 +372,9 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
      another).  It also carries four numbers, which a 13rem tile could only show
      at 0.7rem across two wrapped lines. */}}
 <div class="bcd-card comp-card" id="comp-card">
-  <h2 class="pipe-h">{{ t .Lang "overview.kpi.h" }}<small>{{ t .Lang "overview.kpi.h_sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.kpi.h_help" }}</span></span></h2>
-  {{/* One row: the access log's request total, then what the challenge did
-       (served, passed by PoW, passed by CAPTCHA, abandoned -- the operator's
-       2026-10-10 call: these read better as the tiles they were than as a
-       merged "passed" stage), then the clients banned right now.  Every tile
-       but the bans is a request count for the last 24 hours. */}}
-  <div class="kpi-grid">
-  <div class="kpi k-req" data-kpi="requests">
-    <div class="label">{{ t .Lang "overview.kpi.requests" }}</div>
-    <div class="value">{{ if .KPIReqKnown }}{{ comma .KPIReqTotal }}{{ else }}—{{ end }}</div>
-    <div class="sub">{{ if .KPIReqKnown }}{{ t .Lang "overview.kpi.requests_sub" }}{{ else }}{{ t .Lang "overview.kpi.nonhuman_nodata" }}{{ end }}</div>
-  </div>
-  <div class="kpi k-serve" data-kpi="serve">
-    <div class="label"><span class="kdot" style="background:#dc2626"></span>{{ t .Lang "overview.kpi.serves" }}</div>
-    <div class="value">{{ if .KPIKnown }}{{ comma .KPIServes }}{{ else }}—{{ end }}</div>
-    <div class="sub">{{ t .Lang "overview.kpi.serves_sub" }}</div>
-  </div>
-  <div class="kpi k-pow" data-kpi="pow">
-    <div class="label"><span class="kdot" style="background:#0ea5e9"></span>{{ t .Lang "overview.kpi.pow_pass" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.pow_pass_help") }}</span></span></div>
-    <div class="value">{{ if .KPIKnown }}{{ comma .KPIPoWTotal }}{{ else }}—{{ end }}</div>
-    <div class="sub">{{ t .Lang "overview.kpi.pow_pass_sub" }}</div>
-    {{/* The headline is requests -- the solves plus what their cookies then
-         admitted -- in the same unit as "challenge fired" beside it.  The
-         breakdown keeps the solves visible: they are the visitor count and
-         the abandon rate's base.  Without the access-log feed the cookie
-         share is unknown, and the tile says the headline is solves alone. */}}
-    <div class="sub sub-cookie">{{ if .KPICookieKnown }}{{ tf .Lang "overview.kpi.pass_breakdown" (comma .KPIPoWPass) (comma .KPIPoWCookie) }}{{ else }}{{ tf .Lang "overview.kpi.pass_solves_only" (comma .KPIPoWPass) }}{{ end }}</div>
-  </div>
-  <div class="kpi k-captcha" data-kpi="captcha">
-    <div class="label"><span class="kdot" style="background:#16a34a"></span>{{ t .Lang "overview.kpi.captcha_pass" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.captcha_pass_help") }}</span></span></div>
-    <div class="value">{{ if .KPIKnown }}{{ comma .KPICaptchaTotal }}{{ else }}—{{ end }}</div>
-    <div class="sub">{{ t .Lang "overview.kpi.captcha_pass_sub" }}</div>
-    <div class="sub sub-cookie">{{ if .KPICookieKnown }}{{ tf .Lang "overview.kpi.pass_breakdown" (comma .KPICaptchaPass) (comma .KPICaptchaCookie) }}{{ else }}{{ tf .Lang "overview.kpi.pass_solves_only" (comma .KPICaptchaPass) }}{{ end }}</div>
-  </div>
-  {{/* Abandonment: the tile an operator reads before touching PoW difficulty.
-       A request count, like every tile beside it, with the share and its
-       denominator underneath -- challenge pages whose JS ran, so bots (which
-       never do) are excluded by construction, unlike the blocked count in the
-       hero, which is mostly them.  Warn styling past 10%: at that point the
-       challenge is costing real visitors, not just bots. */}}
-  <div class="kpi {{ if gt .KPIAbandonPct 10.0 }}warn{{ end }}" data-kpi="abandon">
-    <div class="label">{{ t .Lang "overview.kpi.abandon" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.abandon_help") }}</span></span></div>
-    <div class="value">{{ if .KPIKnown }}{{ comma .KPIAbandon }}{{ else }}—{{ end }}</div>
-    <div class="sub">{{ if gt .KPIPoWLoaded 0 }}{{ tf .Lang "overview.kpi.abandon_sub" (comma .KPIPoWLoaded) (printf "%.1f" .KPIAbandonPct) }}{{ else }}{{ t .Lang "overview.kpi.abandon_sub_empty" }}{{ end }}</div>
-  </div>
-  <div class="kpi {{ if gt .KPICurrentBans 0 }}warn{{ end }}" data-kpi="bans">
-    <div class="label">{{ t .Lang "overview.kpi.bans" }}</div>
-    <div class="value">{{ comma .KPICurrentBans }}</div>
-    <div class="sub"><a href="{{.BasePath}}/admin/bans/">{{ t .Lang "overview.kpi.bans_sub" }}</a></div>
-  </div>
-  </div>
+  {{/* The composition first: the one figure that says what the site is
+       dealing with, independent of its size; the tiles under it are what
+       the challenge did with that traffic. */}}
   <div class="comp-hd">
     <h3 class="comp-h3">{{ t .Lang "overview.kpi.nonhuman" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.nonhuman_help") }}</span></span></h3>
     {{/* One view, rendered server-side against the selected denominator, so
@@ -481,6 +434,57 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     </div>
   </div>
   {{ end }}
+  <h2 class="pipe-h after-comp">{{ t .Lang "overview.kpi.h" }}<small>{{ t .Lang "overview.kpi.h_sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.kpi.h_help" }}</span></span></h2>
+  {{/* One row: the access log's request total, then what the challenge did
+       (served, passed by PoW, passed by CAPTCHA, abandoned -- the operator's
+       2026-10-10 call: these read better as the tiles they were than as a
+       merged "passed" stage), then the clients banned right now.  Every tile
+       but the bans is a request count for the last 24 hours. */}}
+  <div class="kpi-grid">
+  <div class="kpi k-req" data-kpi="requests">
+    <div class="label">{{ t .Lang "overview.kpi.requests" }}</div>
+    <div class="value">{{ if .KPIReqKnown }}{{ comma .KPIReqTotal }}{{ else }}—{{ end }}</div>
+    <div class="sub">{{ if .KPIReqKnown }}{{ t .Lang "overview.kpi.requests_sub" }}{{ else }}{{ t .Lang "overview.kpi.nonhuman_nodata" }}{{ end }}</div>
+  </div>
+  <div class="kpi k-serve" data-kpi="serve">
+    <div class="label"><span class="kdot" style="background:#dc2626"></span>{{ t .Lang "overview.kpi.serves" }}</div>
+    <div class="value">{{ if .KPIKnown }}{{ comma .KPIServes }}{{ else }}—{{ end }}</div>
+    <div class="sub">{{ t .Lang "overview.kpi.serves_sub" }}</div>
+  </div>
+  <div class="kpi k-pow" data-kpi="pow">
+    <div class="label"><span class="kdot" style="background:#0ea5e9"></span>{{ t .Lang "overview.kpi.pow_pass" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.pow_pass_help") }}</span></span></div>
+    <div class="value">{{ if .KPIKnown }}{{ comma .KPIPoWTotal }}{{ else }}—{{ end }}</div>
+    <div class="sub">{{ t .Lang "overview.kpi.pow_pass_sub" }}</div>
+    {{/* The headline is requests -- the solves plus what their cookies then
+         admitted -- in the same unit as "challenge fired" beside it.  The
+         breakdown keeps the solves visible: they are the visitor count and
+         the abandon rate's base.  Without the access-log feed the cookie
+         share is unknown, and the tile says the headline is solves alone. */}}
+    <div class="sub sub-cookie">{{ if .KPICookieKnown }}{{ tf .Lang "overview.kpi.pass_breakdown" (comma .KPIPoWPass) (comma .KPIPoWCookie) }}{{ else }}{{ tf .Lang "overview.kpi.pass_solves_only" (comma .KPIPoWPass) }}{{ end }}</div>
+  </div>
+  <div class="kpi k-captcha" data-kpi="captcha">
+    <div class="label"><span class="kdot" style="background:#16a34a"></span>{{ t .Lang "overview.kpi.captcha_pass" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.captcha_pass_help") }}</span></span></div>
+    <div class="value">{{ if .KPIKnown }}{{ comma .KPICaptchaTotal }}{{ else }}—{{ end }}</div>
+    <div class="sub">{{ t .Lang "overview.kpi.captcha_pass_sub" }}</div>
+    <div class="sub sub-cookie">{{ if .KPICookieKnown }}{{ tf .Lang "overview.kpi.pass_breakdown" (comma .KPICaptchaPass) (comma .KPICaptchaCookie) }}{{ else }}{{ tf .Lang "overview.kpi.pass_solves_only" (comma .KPICaptchaPass) }}{{ end }}</div>
+  </div>
+  {{/* Abandonment: the tile an operator reads before touching PoW difficulty.
+       A request count, like every tile beside it, with the share and its
+       denominator underneath -- challenge pages whose JS ran, so bots (which
+       never do) are excluded by construction, unlike the blocked count in the
+       hero, which is mostly them.  Warn styling past 10%: at that point the
+       challenge is costing real visitors, not just bots. */}}
+  <div class="kpi {{ if gt .KPIAbandonPct 10.0 }}warn{{ end }}" data-kpi="abandon">
+    <div class="label">{{ t .Lang "overview.kpi.abandon" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.abandon_help") }}</span></span></div>
+    <div class="value">{{ if .KPIKnown }}{{ comma .KPIAbandon }}{{ else }}—{{ end }}</div>
+    <div class="sub">{{ if gt .KPIPoWLoaded 0 }}{{ tf .Lang "overview.kpi.abandon_sub" (comma .KPIPoWLoaded) (printf "%.1f" .KPIAbandonPct) }}{{ else }}{{ t .Lang "overview.kpi.abandon_sub_empty" }}{{ end }}</div>
+  </div>
+  <div class="kpi {{ if gt .KPICurrentBans 0 }}warn{{ end }}" data-kpi="bans">
+    <div class="label">{{ t .Lang "overview.kpi.bans" }}</div>
+    <div class="value">{{ comma .KPICurrentBans }}</div>
+    <div class="sub"><a href="{{.BasePath}}/admin/bans/">{{ t .Lang "overview.kpi.bans_sub" }}</a></div>
+  </div>
+  </div>
 </div>
 
 <style>

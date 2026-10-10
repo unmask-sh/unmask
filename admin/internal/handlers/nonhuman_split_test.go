@@ -384,8 +384,8 @@ func compositionPopup(t *testing.T, body string) string {
 // operating counters.  It is the diagnostic one -- the single number that says
 // what a site is dealing with independent of its size -- and it carries four
 // figures, which a 13rem tile could only render at 0.7rem across two wrapped
-// lines.  Since the tile row joined the card it sits under the tiles it is
-// the composition of; no tile may carry it too.
+// lines.  It leads the card -- the share first, then the tiles of what the
+// challenge did (the operator's 2026-10-10 call); no tile may carry it too.
 func TestCompositionHasItsOwnCard(t *testing.T) {
 	b, err := os.ReadFile("../../assets/templates/overview.html")
 	if err != nil {
@@ -394,17 +394,18 @@ func TestCompositionHasItsOwnCard(t *testing.T) {
 	tpl := string(b)
 
 	card := strings.Index(tpl, `class="bcd-card comp-card"`)
-	grid := strings.Index(tpl, `<div class="kpi-grid">`)
 	comp := strings.Index(tpl, `<div class="comp-hd">`)
-	if card < 0 || grid < 0 || comp < 0 {
-		t.Fatalf("the composition card (%d), the tile row (%d) or the composition header (%d) is gone", card, grid, comp)
+	grid := strings.Index(tpl, `<div class="kpi-grid">`)
+	hourly := strings.Index(tpl, `id="hourly-card"`)
+	if card < 0 || grid < 0 || comp < 0 || hourly < 0 {
+		t.Fatalf("the composition card (%d), the composition header (%d), the tile row (%d) or the hourly card (%d) is gone", card, comp, grid, hourly)
 	}
-	if !(card < grid && grid < comp) {
-		t.Error("the card must read the tiles, then the composition they are shares of")
+	if !(card < comp && comp < grid) {
+		t.Error("the card must read the composition first, then the tiles")
 	}
 	// It must not also be a tile: two copies of one number invite the reader to
 	// look for a difference between them.
-	if strings.Contains(tpl[grid:comp], "nonhuman_benign") {
+	if strings.Contains(tpl[grid:hourly], "nonhuman_benign") {
 		t.Error("a tile still carries the composition; it is in two places at once")
 	}
 

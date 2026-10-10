@@ -68,7 +68,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- (2026-10-10) **The dashboard's 24-hour section is one card that redraws every minute.**  The request total from the access log joins the row of tiles (challenges served, passed by PoW, passed by CAPTCHA, abandoned, current bans), the composition bar sits under them, and a second card draws today's requests by hour against yesterday's.  The AI / crawler table moved to the stats page, which has long had it with a range selector.
+- (2026-10-10) **The dashboard's 24-hour section is one card that redraws every minute.**  The composition bar leads it; the request total from the access log joins the row of tiles under it (challenges served, passed by PoW, passed by CAPTCHA, abandoned, current bans); a second card draws today's requests by hour against yesterday's.  The AI / crawler table moved to the stats page, which has long had it with a range selector.
 
 ## [0.1.51-rc3] - 2026-10-10 (testing build)
 
