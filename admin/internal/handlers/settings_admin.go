@@ -720,6 +720,9 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"Cur":            cur,
 		"AIAdvisor":      maskedAIAdvisor(h.snapshotSettings().AIAdvisor),
 		"AIModelPresets": advisor.ModelPresets,
+		// The list fetched last time, when it is the saved provider's: the
+		// picker opens on it instead of the presets.
+		"AIModelCache": h.loadModelCache(),
 		// what an empty model means per provider (the picker's first option)
 		"AIModelDefaults": map[string]string{
 			"anthropic": settings.AIAdvisorConfig{Provider: "anthropic"}.ResolvedModel(),

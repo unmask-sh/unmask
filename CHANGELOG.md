@@ -16,6 +16,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- (2026-10-10) **The model picker keeps the list it fetched, sorted.**  Fetching the models from the saved provider used to fill the picker for that visit only; the list is now kept beside the daemon's state and the picker opens on it, with when it was fetched, until the provider or endpoint changes.  Every provider's list is sorted by ID.  The AI tab's text now covers the Ask page too.
+
 - (2026-10-10) **Realtime becomes a dashboard tab and reads thirty minutes.**  The "right now" strip, the map of sources and the recent detections leave the day's view for a Realtime tab beside it, as analytics products keep them apart.  Each tile shows the last thirty minutes with a bar a minute and the last minute under it; the map draws the same.  The day's tab keeps a line of now, linking there.
 
 ### Fixed
@@ -68,7 +70,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- (2026-10-10) **The dashboard's 24-hour section is one card that redraws every minute.**  The composition bar leads it; the request total from the access log joins the row of tiles under it (challenges served, passed by PoW, passed by CAPTCHA, abandoned, current bans); a second card draws today's requests by hour against yesterday's.  The AI / crawler table moved to the stats page, which has long had it with a range selector.
+- (2026-10-10) **The dashboard's 24-hour section is one card that redraws every minute.**  The composition bar leads it; the request total from the access log joins the row of tiles under it (challenges served, passed by PoW, passed by CAPTCHA, abandoned, current bans).  The AI / crawler table moved to the stats page, which has long had it with a range selector, and the hourly chart is left to that page too.
 
 ## [0.1.51-rc3] - 2026-10-10 (testing build)
 

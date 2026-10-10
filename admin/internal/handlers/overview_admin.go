@@ -66,7 +66,6 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		comp                                  dashboard.TrafficComposition
 		uBlocked                              int
 		uKnown                                bool
-		hourlyCmp                             dashboard.HourlyCompare
 		overBlock                             OverBlockHealth
 	)
 	var wg sync.WaitGroup
@@ -112,15 +111,6 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// chart) for the page's minute refresh.  The recent detections and the
 	// live strip are the realtime page's (/admin/live/).
 	partial := r.URL.Query().Get("partial")
-	// The pipeline's rate-limit stage and the hourly chart.  (The AI / crawler
-	// table left this page for the stats page, which has had the same card
-	// with a range selector all along.)
-	launch(func() {
-		var err error
-		if hourlyCmp, err = dashboard.HourlyRequests(ctx, h.DB, site, resolveLocation(r), time.Now()); err != nil {
-			log.Printf("overview hourly: %v", err)
-		}
-	})
 	// Over-block circuit-breaker health -- a global signal, so it lives on the
 	// landing rather than the per-site stats dashboard.
 	launch(func() { overBlock, _ = h.OverBlockHealth(ctx) })
@@ -493,7 +483,6 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
-	data["Hourly"] = hourly(lang, hourlyCmp)
 	if partial == "day" {
 		w.Header().Set("Cache-Control", "no-store")
 		if err := tmpl.ExecuteTemplate(w, "overview_"+partial, data); err != nil {

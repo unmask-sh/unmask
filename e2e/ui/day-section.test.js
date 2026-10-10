@@ -1,6 +1,6 @@
-// The dashboard's 24-hour section: the tile row (requests, then what the
-// challenge did, then bans, above the composition bar), the hourly
-// today/yesterday chart, no AI / crawler table.
+// The dashboard's 24-hour section: the composition bar, then the tile row
+// (requests, what the challenge did, bans); no hourly chart, no AI / crawler
+// table (the stats page has both).
 // The section is redrawn from the server every minute; after a redraw the
 // composition's segment toggles must still work, since their script binds to
 // the card that was replaced.
@@ -42,7 +42,7 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     tiles: Array.from(document.querySelectorAll('.kpi-grid .kpi')).map(k => k.dataset.kpi),
     // one row at 1400px: every tile's top edge is the same
     oneRow: new Set(Array.from(document.querySelectorAll('.kpi-grid .kpi')).map(k => Math.round(k.getBoundingClientRect().top))).size,
-    hourly: !!document.getElementById('hourly-card'),
+    hourly: !!document.getElementById('hourly-card'),   // gone: the stats page has the series
     comp: !!document.querySelector('#comp-card .comp-body'),
     ai: !!document.querySelector('table.ai-traffic'),
     stages: document.querySelectorAll('.pipe-st, .pipe-side').length,
@@ -55,7 +55,7 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     // every tile figure is a number or a dash, never blank
     values: Array.from(document.querySelectorAll('.kpi-grid .kpi .value')).map(v => v.textContent.trim()),
   }));
-  ok(shape.day && shape.hourly && shape.comp, 'the day section, hourly card or composition card is missing');
+  ok(shape.day && !shape.hourly && shape.comp, 'the day section or composition card is missing, or the hourly card is back');
   ok(shape.tiles.join(',') === 'requests,serve,pow,captcha,abandon,bans', 'tiles: ' + shape.tiles.join(','));
   ok(shape.oneRow === 1, 'the tiles wrap onto ' + shape.oneRow + ' rows at 1400px');
   ok(!shape.ai, 'the AI / crawler table is still on the dashboard');

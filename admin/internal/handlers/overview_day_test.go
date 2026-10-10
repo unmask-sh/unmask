@@ -7,13 +7,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 )
 
-// The dashboard's 24-hour section: the pipeline card and the hourly chart on
-// the page, the AI / crawler table gone (the stats page has it), and the same
-// section alone when the page asks for its minute refresh.
+// The dashboard's 24-hour section: the composition and the tile row on
+// the page, the AI / crawler table and the hourly chart gone (the stats page
+// has both), and the same section alone when the page asks for its minute
+// refresh.
 func TestOverviewDaySection(t *testing.T) {
 	h := newTestHandler(t)
 	s := h.snapshotSettings()
@@ -29,7 +29,7 @@ func TestOverviewDaySection(t *testing.T) {
 		return rr.Body.String()
 	}
 	page := get("/unmask/admin/")
-	for _, want := range []string{`id="day-section"`, `class="kpi-grid"`, `data-kpi="requests"`, `data-kpi="serve"`, `data-kpi="pow"`, `data-kpi="captcha"`, `data-kpi="abandon"`, `data-kpi="bans"`, `id="hourly-card"`, `id="comp-card"`} {
+	for _, want := range []string{`id="day-section"`, `class="kpi-grid"`, `data-kpi="requests"`, `data-kpi="serve"`, `data-kpi="pow"`, `data-kpi="captcha"`, `data-kpi="abandon"`, `data-kpi="bans"`, `id="comp-card"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("page lacks %q", want)
 		}
@@ -52,7 +52,7 @@ func TestOverviewDaySection(t *testing.T) {
 
 	// The partial: the section alone, not the page.
 	part := get("/unmask/admin/?partial=day")
-	for _, want := range []string{`class="hero`, `id="comp-card"`, `id="hourly-card"`} {
+	for _, want := range []string{`class="hero`, `id="comp-card"`} {
 		if !strings.Contains(part, want) {
 			t.Errorf("partial lacks %q", want)
 		}
@@ -66,34 +66,6 @@ func TestOverviewDaySection(t *testing.T) {
 	h.AdminTopOverview(rr, httptest.NewRequest(http.MethodGet, "/unmask/admin/?partial=day", nil))
 	if rr.Header().Get("Cache-Control") != "no-store" {
 		t.Errorf("the partial must not be cached: %q", rr.Header().Get("Cache-Control"))
-	}
-}
-
-func TestHourlyViewGeometry(t *testing.T) {
-	var hc dashboard.HourlyCompare
-	hc.OK = true
-	hc.NowHour = 10
-	hc.Today[10] = 50
-	hc.Yesterday[10] = 100
-	hc.Yesterday[23] = 25
-	v := hourly("ja", hc)
-	if !v.OK || v.Max != 100 || len(v.Bars) != 24 || !strings.Contains(v.MaxText, "100") {
-		t.Fatalf("view: ok=%v max=%d bars=%d maxText=%q", v.OK, v.Max, len(v.Bars), v.MaxText)
-	}
-	b := v.Bars[10]
-	if !b.Now || b.Future || b.YH != hourlyPlotH || b.TH != hourlyPlotH/2 || b.TY != hourlyBase-hourlyPlotH/2 {
-		t.Errorf("hour 10: %+v", b)
-	}
-	if !v.Bars[11].Future || v.Bars[11].TH != 0 || v.Bars[23].YH != hourlyPlotH/4 {
-		t.Errorf("hours 11/23: %+v %+v", v.Bars[11], v.Bars[23])
-	}
-	if v.Bars[0].X != 0 || v.Bars[1].X <= v.Bars[0].X || v.Bars[1].XC <= v.Bars[1].X {
-		t.Errorf("x layout: %+v %+v", v.Bars[0], v.Bars[1])
-	}
-	// Nothing counted: no bars drawn at all, and no division by zero.
-	empty := hourly("en", dashboard.HourlyCompare{})
-	if empty.OK || empty.Max != 0 || empty.Bars[5].YH != 0 {
-		t.Errorf("empty: %+v", empty.Bars[5])
 	}
 }
 

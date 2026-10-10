@@ -7180,11 +7180,12 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
         <select id="ai_model_sel" style="padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;font-size:.92rem;min-width:22rem">
           <option value="">{{ tf .Lang "settings.ai_advisor.model_desc" $ai.ResolvedModel }}</option>
-          {{ range index $.AIModelPresets $p }}<option value="{{ .ID }}"{{ if eq .ID $ai.Model }} selected{{ end }}>{{ .Label }}</option>
-          {{ end }}<option value="__custom__">{{ t .Lang "settings.ai_advisor.model_custom" }}</option>
+          {{ if $.AIModelCache }}{{ range $.AIModelCache.Models }}<option value="{{ .ID }}"{{ if eq .ID $ai.Model }} selected{{ end }}>{{ .Label }}</option>
+          {{ end }}{{ else }}{{ range index $.AIModelPresets $p }}<option value="{{ .ID }}"{{ if eq .ID $ai.Model }} selected{{ end }}>{{ .Label }}</option>
+          {{ end }}{{ end }}<option value="__custom__">{{ t .Lang "settings.ai_advisor.model_custom" }}</option>
         </select>
         <button type="button" class="btn-secondary" id="ai_model_fetch" style="padding:.35rem .7rem;font-size:.85rem">{{ t .Lang "settings.ai_advisor.model_fetch" }}</button>
-        <span class="note" id="ai_model_status"></span>
+        <span class="note" id="ai_model_status">{{ with $.AIModelCache }}{{ tf $.Lang "settings.ai_advisor.model_cached" (len .Models) }} <time class="js-datetime js-datetime-notz" data-ts="{{ .FetchedAt }}"></time>{{ end }}</span>
       </div>
       <input id="ai_model" type="text" name="ai_model" value="{{ $ai.Model }}" placeholder="{{ $ai.ResolvedModel }}" autocomplete="off" spellcheck="false"
              style="margin-top:.4rem;padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;min-width:22rem;font-family:ui-monospace,Menlo,monospace">
@@ -7254,7 +7255,10 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
               var o = document.createElement('option'); o.value = m.id; o.textContent = m.label || m.id; sel.appendChild(o);
             });
             var c = document.createElement('option'); c.value = '__custom__'; c.textContent = {{ t .Lang "settings.ai_advisor.model_custom" }}; sel.appendChild(c);
-            st.textContent = (d.models || []).length + ' ' + {{ t .Lang "settings.ai_advisor.model_fetched" }};
+            // The same line the page opens with next time: the count and when.
+            st.textContent = {{ t .Lang "settings.ai_advisor.model_cached" }}.replace('%d', (d.models || []).length) + ' ';
+            var tm = document.createElement('time'); tm.className = 'js-datetime js-datetime-notz'; tm.dataset.ts = String(d.fetched_at || Math.floor(Date.now() / 1000)); st.appendChild(tm);
+            if (window.unmaskFmtTimes) unmaskFmtTimes();
             sync();
           })
           .catch(function(e){ st.textContent = String(e); });

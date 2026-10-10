@@ -396,16 +396,16 @@ func TestCompositionHasItsOwnCard(t *testing.T) {
 	card := strings.Index(tpl, `class="bcd-card comp-card"`)
 	comp := strings.Index(tpl, `<div class="comp-hd">`)
 	grid := strings.Index(tpl, `<div class="kpi-grid">`)
-	hourly := strings.Index(tpl, `id="hourly-card"`)
-	if card < 0 || grid < 0 || comp < 0 || hourly < 0 {
-		t.Fatalf("the composition card (%d), the composition header (%d), the tile row (%d) or the hourly card (%d) is gone", card, comp, grid, hourly)
+	section := strings.Index(tpl, `<div id="day-section">`)
+	if card < 0 || grid < 0 || comp < 0 || section < 0 {
+		t.Fatalf("the composition card (%d), the composition header (%d), the tile row (%d) or the day section (%d) is gone", card, comp, grid, section)
 	}
 	if !(card < comp && comp < grid) {
 		t.Error("the card must read the composition first, then the tiles")
 	}
 	// It must not also be a tile: two copies of one number invite the reader to
 	// look for a difference between them.
-	if strings.Contains(tpl[grid:hourly], "nonhuman_benign") {
+	if strings.Contains(tpl[grid:section], "nonhuman_benign") {
 		t.Error("a tile still carries the composition; it is in two places at once")
 	}
 

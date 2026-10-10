@@ -115,8 +115,6 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;margin:0 0 .9rem}
 .comp-card h3.comp-h3{margin:0;font-size:1rem;font-weight:700;color:#334155}
 .comp-card .pipe-h.after-comp{margin-top:1.1rem;padding-top:.9rem;border-top:1px solid #e2e8f0}
-.hourly-legend{display:flex;gap:1rem;font-size:.75rem;color:#64748b;align-items:center;flex-wrap:wrap;margin-bottom:.3rem}
-.hourly-legend i{display:inline-block;width:.7rem;height:.7rem;border-radius:.15rem;margin-right:.3rem;vertical-align:-.05em}
 .day-err{margin:-.6rem 0 1rem;font-size:.78rem;color:#b45309}
 /* The map: a dark canvas the streams glow on, the server's position as a
    pulsing point, and under it the legend and the top sources.  The card is
@@ -487,40 +485,6 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   </div>
 </div>
 
-<style>
-/* Colocated with the script below: a hidden view must stay hidden even though
-   .comp-view sits inside a flex header, where display:flex would beat [hidden].
-   (The same trap the rule-dialog choices hit.) */
-/* Segment chips: the same visual grammar as the stats charts' legend --
-   clickable, and an excluded segment goes grey with its label struck through
-   while its count stays readable. */
-.comp-chip .comp-tgl{color:inherit;text-decoration:none;cursor:pointer;user-select:none}
-.comp-chip.comp-out .comp-tgl{text-decoration:line-through}
-.comp-chip .comp-tgl-pinned{cursor:default}
-</style>
-
-{{ with .OverBlock }}{{ if .Tripped }}
-<div role="alert" style="margin:1rem 0;padding:.7rem 1rem;border:1px solid #dc2626;background:#fef2f2;border-radius:.4rem;color:#991b1b;line-height:1.5">
-  &#9888; <strong>{{ t $.Lang "mail.overblock.title_tripped" }}</strong> {{ tf $.Lang "mail.overblock.summary_tripped" .WindowMin .Stuck .Loaders .StuckPct }}{{ if .AutoPass }} &mdash; <span style="font-weight:600">{{ t $.Lang "dashboard.overblock.autopass_on" }}</span>{{ end }}
-</div>
-{{ end }}{{ end }}
-
-<div class="bcd-card" id="hourly-card">
-  <h2 class="pipe-h">{{ t .Lang "overview.hourly.h" }}<small>{{ t .Lang "overview.hourly.sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.hourly.help" }}</span></span></h2>
-  {{ with .Hourly }}{{ if .OK }}
-  <div class="hourly-legend"><span><i style="background:#2563eb"></i>{{ t $.Lang "overview.hourly.today" }}</span><span><i style="background:#dc2626"></i>{{ t $.Lang "overview.hourly.now" }}</span><span><i style="background:#cbd5e1"></i>{{ t $.Lang "overview.hourly.yesterday" }}</span><span style="margin-left:auto">{{ .MaxText }}</span></div>
-  <svg viewBox="0 0 1400 170" style="width:100%;height:11rem;display:block" role="img" aria-label="{{ t $.Lang "overview.hourly.h" }}">
-    <line x1="0" y1="150.5" x2="1400" y2="150.5" stroke="#e2e8f0"/>
-    {{ range .Bars }}
-    <rect x="{{ printf "%.1f" .XY }}" y="{{ printf "%.1f" .YY }}" width="18" height="{{ printf "%.1f" .YH }}" fill="#cbd5e1"><title>{{ t $.Lang "overview.hourly.yesterday" }} {{ printf "%02d" .H }}:00 — {{ comma .Yesterday }}</title></rect>
-    {{ if not .Future }}<rect x="{{ printf "%.1f" .XT }}" y="{{ printf "%.1f" .TY }}" width="18" height="{{ printf "%.1f" .TH }}" fill="{{ if .Now }}#dc2626{{ else }}#2563eb{{ end }}"><title>{{ t $.Lang "overview.hourly.today" }} {{ printf "%02d" .H }}:00 — {{ comma .Today }}</title></rect>{{ end }}
-    <text x="{{ printf "%.1f" .XC }}" y="165" font-size="11" fill="#64748b" text-anchor="middle">{{ printf "%02d" .H }}</text>
-    {{ end }}
-  </svg>
-  {{ else }}
-  <p class="meta" style="margin:0">{{ t $.Lang "overview.kpi.nonhuman_nodata" }}</p>
-  {{ end }}{{ end }}
-</div>
 {{ end }}
 <div id="day-section">{{ template "overview_day" . }}</div>
 <p class="day-err" id="day-err" hidden>{{ t .Lang "overview.day.err" }}</p>
@@ -704,8 +668,7 @@ window.unmaskInitComp = function(){
 unmaskInitComp();
 </script>
 <script>
-// The 24-hour section (#day-section: the hero, the tiles, the hourly
-// chart) is redrawn from the server every minute, under the same switch as
+// The 24-hour section (#day-section: the hero, the composition, the tiles) is redrawn from the server every minute, under the same switch as
 // the live strip.  The server renders the same template it did for the page,
 // so a refresh cannot show numbers the page would not; a failure keeps what
 // is there and shows a note.

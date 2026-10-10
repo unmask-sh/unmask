@@ -58,6 +58,17 @@ var ModelPresets = map[string][]ModelInfo{
 // takes the stored config only: the credential must never be sent anywhere an
 // unsaved form field (or a crafted GET) could point it.
 func ListModels(ctx context.Context, cfg settings.AIAdvisorConfig) ([]ModelInfo, error) {
+	out, err := listModels(ctx, cfg)
+	if err != nil {
+		return nil, err
+	}
+	// One order for every provider: by ID, case folded, so the picker
+	// reads as a list and not as the provider's own (newest-first, or none).
+	sort.SliceStable(out, func(i, j int) bool { return strings.ToLower(out[i].ID) < strings.ToLower(out[j].ID) })
+	return out, nil
+}
+
+func listModels(ctx context.Context, cfg settings.AIAdvisorConfig) ([]ModelInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	defer cancel()
 	switch cfg.ResolvedProvider() {

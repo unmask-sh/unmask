@@ -79,10 +79,14 @@ func TestAdminAIModelsListsFromSavedProvider(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"data":[{"id":"claude-opus-5","display_name":"Claude Opus 5"},{"id":"claude-sonnet-5","display_name":"Claude Sonnet 5"}],"has_more":false}`))
+		// Newest first, as the provider lists them: the picker sorts.
+		_, _ = w.Write([]byte(`{"data":[{"id":"claude-sonnet-5","display_name":"Claude Sonnet 5"},{"id":"claude-opus-5","display_name":"Claude Opus 5"}],"has_more":false}`))
 	}))
 	defer stub.Close()
 
+	orig := ModelCachePath
+	ModelCachePath = filepath.Join(t.TempDir(), "ai-models.json")
+	t.Cleanup(func() { ModelCachePath = orig })
 	h := newTestHandler(t)
 	cur := h.snapshotSettings()
 	cur.AIAdvisor.Enabled = true
@@ -103,6 +107,35 @@ func TestAdminAIModelsListsFromSavedProvider(t *testing.T) {
 	}
 	if strings.Contains(body, "k-secret-marker") {
 		t.Error("the key leaked into the response")
+	}
+	if strings.Index(body, `"claude-opus-5"`) > strings.Index(body, `"claude-sonnet-5"`) {
+		t.Error("the list must be sorted by ID")
+	}
+	// The list is kept: the tab opens on it, with when it was fetched; a
+	// different saved provider does not get it.
+	if _, err := os.Stat(ModelCachePath); err != nil {
+		t.Fatalf("the fetched list was not kept: %v", err)
+	}
+	tab := func() string {
+		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/ai-advisor/", nil)
+		req.SetPathValue("tab", "ai-advisor")
+		rr := httptest.NewRecorder()
+		h.AdminSettingsIndex(rr, req)
+		return rr.Body.String()
+	}
+	page := tab()
+	for _, want := range []string{`<option value="claude-opus-5"`, `<option value="claude-sonnet-5"`, `id="ai_model_status">`, `class="js-datetime js-datetime-notz" data-ts="`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("the tab lacks %q", want)
+		}
+	}
+	if strings.Index(page, `<option value="claude-opus-5"`) > strings.Index(page, `<option value="claude-sonnet-5"`) {
+		t.Error("the tab's list must keep the sorted order")
+	}
+	cur.AIAdvisor.Provider = "openai"
+	h.settingsPtr.Store(&cur)
+	if page = tab(); strings.Contains(page, `<option value="claude-sonnet-5"`) || !strings.Contains(page, `id="ai_model_status"></span>`) {
+		t.Error("another provider must open on its presets, not the kept list")
 	}
 }
 
