@@ -22,6 +22,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- (2026-10-10) **The hunt's network (ASN) ranking lists thirty rows like the other rankings.**  It stopped at twenty, which read as a different page from the addresses, fingerprints and user agents beside it; the per-address resolution that once made it the heavier query is cached, so the same length costs little.
+
 - (2026-10-10) **The map's position dialog showed the source's name percent-encoded.**  The line saying what the automatic position was worked out from read %e5%85%b1... instead of the words: the attribute carrying the text was named like a URL, and the template engine encoded it as one.  Renamed, and a test now refuses such attribute names across every page.
 
 ## [0.1.51-rc8] - 2026-10-10 (testing build)

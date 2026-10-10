@@ -101,7 +101,7 @@ func (h *Handler) runHuntRankings(ctx context.Context, sinceMin int, wantASN boo
 			// LookupASN, not LookupInfo: this walks every distinct IP in the
 			// window once, where LookupInfo's country lookup is wasted work and
 			// its cache is pure overhead (see ipgeo.LookupASN).
-			rows, err := events.RankByASN(c, h.DB, sinceMin, 20, h.IPGeo.LookupASN)
+			rows, err := events.RankByASN(c, h.DB, sinceMin, 30, h.IPGeo.LookupASN)
 			set.asn = rows
 			return err
 		})
