@@ -94,7 +94,7 @@ func TestAdminMapLocationSave(t *testing.T) {
 	}
 }
 
-// The map card rides with the live strip: drawn with the server's position
+// The map card rides with the live strip on the realtime page: drawn with the server's position
 // when one is set, saying so when none is, and offering the setting only to
 // an admin.
 func TestOverviewMapCard(t *testing.T) {
@@ -104,12 +104,12 @@ func TestOverviewMapCard(t *testing.T) {
 	s.Server.BasePath = "/unmask"
 	h.SetSettings(s)
 	get := func(role string) string {
-		req := httptest.NewRequest("GET", "/unmask/admin/", nil)
+		req := httptest.NewRequest("GET", "/unmask/admin/live/", nil)
 		if role != "" {
 			req = req.WithContext(context.WithValue(req.Context(), sessionCtxKey{}, &SessionPayload{UserID: 1, Role: role, Exp: time.Now().Add(time.Hour).Unix()}))
 		}
 		rec := httptest.NewRecorder()
-		h.AdminTopOverview(rec, req)
+		h.AdminLive(rec, req)
 		return rec.Body.String()
 	}
 	body := get("admin")
@@ -226,13 +226,13 @@ func TestAutoMapLocation(t *testing.T) {
 	h.Live = live.New()
 	s.Server.BasePath = "/unmask"
 	h.SetSettings(s)
-	req := httptest.NewRequest("GET", "/unmask/admin/", nil)
+	req := httptest.NewRequest("GET", "/unmask/admin/live/", nil)
 	req.Header.Set("Cookie", "unmask_lang=ja")
 	req = req.WithContext(context.WithValue(req.Context(), sessionCtxKey{}, &SessionPayload{UserID: 1, Role: "admin", Exp: time.Now().Add(time.Hour).Unix()}))
 	rec := httptest.NewRecorder()
-	h.AdminTopOverview(rec, req)
+	h.AdminLive(rec, req)
 	body := rec.Body.String()
-	for _, want := range []string{`data-auto="1"`, `id="geo-auto"`, `data-label="Japan (日本) (国の中心)"`, `id="geo-unset" style="margin:.4rem 0 0" hidden`, `data-auto-set="1"`, `data-auto-source="interface"`, `id="geo-dialog"`, `id="geo-mode-auto"`} {
+	for _, want := range []string{`data-auto="1"`, `id="geo-auto"`, `data-label="Japan (日本) (国の中心)"`, `id="geo-unset" style="margin:.4rem 0 0" hidden`, `data-auto-set="1"`, `data-auto-source="interface"`, `id="geo-dialog"`, `id="geo-mode-auto"`, `data-txt-from-hub="共有 BAN の hub が見た送信元アドレス"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %q", want)
 		}

@@ -97,15 +97,16 @@ func TestHourlyViewGeometry(t *testing.T) {
 	}
 }
 
-// ?partial=recent renders the recent-detections table alone: the rows the
-// page redraws every few seconds, without the block's styles and scripts.
-func TestOverviewRecentPartial(t *testing.T) {
+// ?partial=recent on the realtime page renders the recent-detections table
+// alone: the rows the page redraws every few seconds, without the block's
+// styles and scripts.
+func TestLiveRecentPartial(t *testing.T) {
 	h := newTestHandler(t)
 	s := h.snapshotSettings()
 	s.Server.BasePath = "/unmask"
 	h.SetSettings(s)
 	rr := httptest.NewRecorder()
-	h.AdminTopOverview(rr, httptest.NewRequest(http.MethodGet, "/unmask/admin/?partial=recent", nil))
+	h.AdminLive(rr, httptest.NewRequest(http.MethodGet, "/unmask/admin/live/?partial=recent", nil))
 	if rr.Code != http.StatusOK || rr.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status %d cache-control %q", rr.Code, rr.Header().Get("Cache-Control"))
 	}
@@ -120,9 +121,9 @@ func TestOverviewRecentPartial(t *testing.T) {
 	}
 	// The page itself carries the card with its live note and the redraw hook.
 	rr = httptest.NewRecorder()
-	h.AdminTopOverview(rr, httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil))
+	h.AdminLive(rr, httptest.NewRequest(http.MethodGet, "/unmask/admin/live/", nil))
 	page := rr.Body.String()
-	for _, want := range []string{`id="recent-card"`, `id="recent-section"`, `data-src="/unmask/admin/?partial=recent"`, `window.unmaskRefreshRecent = function`, `function unmaskWireEventsTable(root)`, `function wireDt(root)`} {
+	for _, want := range []string{`id="recent-card"`, `id="recent-section"`, `data-src="/unmask/admin/live/?partial=recent"`, `window.unmaskRefreshRecent = function`, `function unmaskWireEventsTable(root)`, `function wireDt(root)`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("page lacks %q", want)
 		}

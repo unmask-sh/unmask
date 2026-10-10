@@ -32,8 +32,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     page.waitForNavigation({ waitUntil: 'networkidle2' }),
     page.click('button[type="submit"], input[type="submit"]'),
   ]);
-  const resp = await page.goto(BASE + '/admin/', { waitUntil: 'networkidle2' });
-  ok(resp.status() === 200, `/admin/ status ${resp.status()}`);
+  const resp = await page.goto(BASE + '/admin/live/', { waitUntil: 'networkidle2' });
+  ok(resp.status() === 200, `/admin/live/ status ${resp.status()}`);
 
   const shape = (tag) => page.evaluate(tag => {
     const tbl = document.querySelector('#recent-section table.events');

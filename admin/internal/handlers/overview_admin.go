@@ -22,9 +22,9 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
-	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/hll"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
+	"github.com/unmask-sh/unmask/admin/internal/live"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 )
 
@@ -66,8 +66,6 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		comp                                  dashboard.TrafficComposition
 		uBlocked                              int
 		uKnown                                bool
-		recentRaw                             []events.Row
-		recentErr                             error
 		hourlyCmp                             dashboard.HourlyCompare
 		overBlock                             OverBlockHealth
 	)
@@ -110,18 +108,10 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// the one figure on this page where a distinct count is what is being
 	// asked for rather than a proxy for volume.
 	launch(func() { _, uBlocked, uKnown = trafficUnique(ctx, h, 1440, site) })
-	// 10 most recent detections: fetch 40 raw rows so the client-side session
-	// collapse (group by beacon_token) still shows ~10 sessions.
-	// The section refreshes: ?partial=day redraws the hero, the pipeline and
-	// the hourly chart and does not read the recent detections; ?partial=recent
-	// redraws the recent-detections table alone (the day queries above still
-	// run -- cheap against the rollups -- but their work is not rendered).
+	// ?partial=day redraws the section (the hero, the tiles and the hourly
+	// chart) for the page's minute refresh.  The recent detections and the
+	// live strip are the realtime page's (/admin/live/).
 	partial := r.URL.Query().Get("partial")
-	if partial != "day" {
-		launch(func() {
-			recentRaw, recentErr = events.FetchPaged(ctx, h.DB, "", "", "", "", "", "", site, hosts, 0, 40, 0)
-		})
-	}
 	// The pipeline's rate-limit stage and the hourly chart.  (The AI / crawler
 	// table left this page for the stats page, which has had the same card
 	// with a range selector all along.)
@@ -136,9 +126,6 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	launch(func() { overBlock, _ = h.OverBlockHealth(ctx) })
 	wg.Wait()
 
-	if recentErr != nil {
-		log.Printf("overview recent: %v", recentErr)
-	}
 	// "Blocked" for the hero: challenges fired that produced no pass, minus the
 	// visitors who loaded the challenge and left.  Someone who walked away was
 	// not stopped -- and the abandons are recorded, so they can be taken out
@@ -252,49 +239,6 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		currentBans = len(h.BanMgr.Snapshot())
 	}
 
-	// IP rendering is unified as "flag + IP + popover" (= same as bans / hunt / dashboard).
-	// Tag each row with the IP-geo-looked-up country code + the ban state for the IP.
-	// Banned is required by the shared partial_events_table.html partial -- without
-	// it the {{ if .Banned }} branch fails template execution and the page truncates
-	// at the first row of the recent table.  Same shape as huntEventRow.
-	type recentRow struct {
-		events.Row
-		CountryCode string
-		Banned      bool
-	}
-	geoOK := h.IPGeo != nil && h.IPGeo.Loaded()
-	banOK := h.BanMgr != nil
-	ccCache := map[string]string{}
-	banCache := map[string]bool{}
-	recent := make([]recentRow, 0, len(recentRaw))
-	for _, r0 := range recentRaw {
-		cc := ""
-		if geoOK && r0.IP != "" {
-			if v, ok := ccCache[r0.IP]; ok {
-				cc = v
-			} else {
-				cc = h.IPGeo.LookupInfo(r0.IP).Country
-				ccCache[r0.IP] = cc
-			}
-		}
-		banned := false
-		if banOK && r0.IP != "" {
-			if v, ok := banCache[r0.IP]; ok {
-				banned = v
-			} else {
-				banned = h.BanMgr.IsBanned(ctx, r0.IP, "")
-				banCache[r0.IP] = banned
-			}
-		}
-		recent = append(recent, recentRow{Row: r0, CountryCode: cc, Banned: banned})
-	}
-
-	// Hosts / HostSelected / SelfHostID (= for the shared host_picker) are
-	// injected by addMeToData, which is shared across every admin page.
-	recentUAList := make([]string, len(recent))
-	for i := range recent {
-		recentUAList[i] = recent[i].UA
-	}
 	// Human is COUNTED, not left over: requests that arrived already holding a
 	// pass cookie, plus the ones that cleared a challenge inside the window
 	// (those arrived without a cookie, so the counters filed them under
@@ -438,11 +382,6 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	compState := compSegsParam(enabledSegs)
-	ovSites := make([]string, 0, len(recent))
-	for _, r := range recent {
-		ovSites = append(ovSites, r.Site)
-	}
-	_, ovGhostSites := siteBadgeState(ovSites, h.snapshotSettings())
 	// The pass tiles' headline: every request the gate of that kind admitted
 	// -- the solves (a fresh cookie each) plus the requests that came back on
 	// such a cookie.  The same request unit as "challenge fired", so the two
@@ -513,43 +452,16 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPINonHumanPct":   nonHumanPct,
 		"KPINonHumanKnown": comp.OK && comp.Total > 0,
 		"KPICurrentBans":   currentBans,
-		"Recent":           recent,
-		// partial_events_table reads .Rows / .EventsCap / .Range so we expose the
-		// same recent slice under those keys.  EventsCap=10 caps the client-side
-		// visible-session count after the session-collapse pass so the card
-		// honours its "10 most recent" heading even though we pre-fetched 40 raw rows.
-		// UABotNote: see hunt_admin.go -- same key the shared events partial
-		// reads to caption a listed-crawler badge.
-		"UABotNote":      uaBotNoteByUA(recentUAList, h.snapshotSettings().Nginx),
-		"Rows":           recent,
-		"RowsGhostSites": ovGhostSites,
-		"EventsCap":      10,
-		"Range":          "",
-		// Drop the per-row BAN action column on the overview card so the URL /
-		// UA columns get the recovered ~4rem of horizontal room.  The hunt page
-		// (= the actual deep-dive destination) keeps the action column on.
-		"HideActions": true,
-		"OverBlock":   overBlock,
+		"OverBlock":        overBlock,
 	}
-	// The "right now" strip: rendered with its first reading here, so the page
-	// says real numbers before its script has run, and refreshed in place by
-	// /admin/api/now from then on.
+	// One line of now at the top of the day section: the last thirty
+	// minutes and the last minute, pointing at the realtime page, which has
+	// the strip, the map and the recent detections.
+	data["HasLive"] = h.Live != nil
 	if h.Live != nil {
-		lv := h.liveView(time.Now(), resolveTZ(r))
-		data["LiveTiles"] = lv.Tiles
-		data["LiveFeedOff"] = lv.FeedOff
-		data["LiveAt"] = lv.At
-		data["LiveAtTS"] = lv.AtTS
-		// The map beside it: the server's position (its one setting, which
-		// an admin sets from the card), and whether countries can be told at
-		// all (an IP geo database is loaded).
-		data["MapLoc"] = h.mapLocation()
-		// The worked-out position on its own, for the setting dialog's
-		// "automatic" choice to show what it would use.
-		data["MapAuto"] = h.autoMapLocation()
-		data["GeoKnown"] = h.IPGeo != nil && h.IPGeo.Loaded()
-		pay := SessionFromContext(r)
-		data["CanEditMap"] = pay != nil && roleAtLeast(pay.Role, "admin")
+		sn := h.Live.Snapshot(time.Now())
+		data["Now30"] = int(sn.Last30[live.Requests])
+		data["Now1"] = int(sn.Last[live.Requests])
 	}
 	// Persist the denominator choice when it arrived as a link click, so the
 	// next visit opens on the view the operator picked.  Written only for an
@@ -582,7 +494,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
 	data["Hourly"] = hourly(lang, hourlyCmp)
-	if partial == "day" || partial == "recent" {
+	if partial == "day" {
 		w.Header().Set("Cache-Control", "no-store")
 		if err := tmpl.ExecuteTemplate(w, "overview_"+partial, data); err != nil {
 			log.Printf("overview %s render: %v", partial, err)

@@ -1377,6 +1377,8 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	// /admin/stats/ shows the site list (or jumps straight to chart when site<=1).  /admin/stats/{site}/ shows per-site chart.
 	mux.HandleFunc("GET "+base+"/admin/{$}",
 		h.AuthMiddleware(h.AdminTopOverview))
+	mux.HandleFunc("GET "+base+"/admin/live/{$}",
+		h.AuthMiddleware(h.AdminLive))
 	mux.HandleFunc("GET "+base+"/admin/stats/{$}",
 		h.AuthMiddleware(h.AdminSiteList))
 	mux.HandleFunc("GET "+base+"/admin/stats/{site}/{$}",

@@ -1,0 +1,927 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>unmask · {{ t .Lang "live.title" }}</title>
+<link rel="icon" type="image/png" href="/unmask/static/icon.png">
+<link rel="apple-touch-icon" href="/unmask/static/icon.png">
+<meta name="robots" content="noindex, nofollow">
+<style>
+html{font-size:16px}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;margin:0;padding:0;background:#f1f5f9;color:#0f172a;font-size:1rem;line-height:1.5}
+.unmask-header{display:flex;align-items:center;gap:.6rem;padding:.7rem 1.5rem;background:#0f172a;color:#f1f5f9;border-bottom:1px solid #1e293b}
+.unmask-header a.logo{display:flex;align-items:center;gap:.5rem;text-decoration:none;color:inherit;font-weight:700;font-size:1.1rem}
+.unmask-header a.logo:hover{color:#93c5fd}
+.unmask-header a.logo img{display:block;border-radius:.25rem;flex:none}
+.unmask-header .spacer{flex:1}
+.unmask-header .nav{display:flex;gap:1.1rem;margin-left:.6rem;padding-left:.6rem;border-left:1px solid #334155}
+.unmask-header .nav a,.unmask-header .nav-logout{font-size:.85rem;color:#cbd5e1;text-decoration:none}
+.unmask-header .nav a:hover,.unmask-header .nav-logout:hover{color:#fff}
+.unmask-header .nav a.active{color:#fff;font-weight:600}
+.unmask-main{padding:1.5rem 2rem}
+h1{font-size:1.5rem;margin:0 0 .2rem}
+.meta{color:#64748b;font-size:.875rem;margin-bottom:1rem}
+.bcd-card{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:1rem 1.25rem;margin-bottom:1rem}
+.bcd-card h2{font-size:1.125rem;font-weight:700;margin:0 0 .75rem;color:#334155}
+/* Hero box: showcases the "blocks" headline prominently. */
+.hero{background:linear-gradient(135deg,#dc2626 0%,#7f1d1d 100%);color:#fff;border-radius:.5rem;padding:1.6rem 2rem;margin-bottom:1.2rem;display:flex;align-items:center;gap:1.6rem;flex-wrap:wrap}
+.hero .icon{font-size:3.5rem;line-height:1}
+/* Observe mode: the red gradient reads as "actively defending", which is the
+   opposite of what this state means -- judging, deliberately not acting.  Slate
+   keeps the card prominent without claiming a defence that is switched off. */
+.hero-observe{background:linear-gradient(135deg,#475569 0%,#1e293b 100%)}
+.hero .body{flex:1;min-width:14rem}
+.hero .label{font-size:.85rem;text-transform:uppercase;letter-spacing:.08em;opacity:.85;font-weight:600}
+.hero .value{font-size:4rem;font-weight:900;line-height:1.05;font-variant-numeric:tabular-nums;margin:.05rem 0;text-shadow:0 .15rem .5rem rgba(0,0,0,.2)}
+.hero .desc{font-size:.92rem;opacity:.92;line-height:1.5}
+.hero .sub{font-size:.78rem;opacity:.7;margin-top:.4rem}
+.hero .hero-clients{display:block;font-size:.82rem;opacity:.85;margin-top:.25rem}
+/* Traffic composition card.  Full width because the breakdown is the point:
+   five shares of one total read as a bar and five labels, not as five numbers
+   crammed into a tile the width of a phone. */
+.comp-card{padding:.9rem 1.25rem}
+.comp-hd{display:flex;align-items:baseline;gap:.75rem;flex-wrap:wrap}
+.comp-card h2{margin:0;font-size:1rem}
+.comp-pct{font-size:2.1rem;font-weight:800;line-height:1;font-variant-numeric:tabular-nums;color:#0f172a}
+.comp-pct-u{font-size:1.1rem;font-weight:700;margin-left:.1rem;opacity:.7}
+.comp-of{font-size:.78rem;color:#94a3b8;margin-left:auto}
+.comp-bar{display:flex;height:.6rem;border-radius:.3rem;overflow:hidden;margin:.55rem 0 .45rem;background:#f1f5f9}
+.comp-seg{display:block;height:100%}
+.comp-seg.comp-benign,i.comp-benign{background:#16a34a}
+.comp-seg.comp-bad,i.comp-bad{background:#dc2626}
+.comp-seg.comp-bypass,i.comp-bypass{background:#c7d2fe}
+.comp-seg.comp-human,i.comp-human{background:#94a3b8}
+/* Hatched rather than a fifth flat colour: this segment is the traffic the
+   other four could not claim, and a solid swatch would read as one more
+   category of its own. */
+.comp-seg.comp-other,i.comp-other{background:repeating-linear-gradient(45deg,#e2e8f0,#e2e8f0 .18rem,#cbd5e1 .18rem,#cbd5e1 .36rem)}
+/* Last entry in the legend, so anchor the popup to its right edge -- left:0
+   would push 28rem off-screen on a narrow window. */
+.comp-other-pop{left:auto;right:0;width:max-content;max-width:min(24rem,calc(100vw - 1rem))}
+/* Breakdown rows: the figure sits apart from its label on a shared line, and
+   the explanation drops to a quieter line below — numbers scan as a column
+   instead of being buried mid-sentence.  Scoped to .info-popup, the ONE class
+   both homes of this markup share: the in-place popup has it as an ancestor,
+   and the pinned copy's body-level clone carries it on its root (the clone
+   does NOT carry .comp-other-pop, which is how a tighter scope broke pinning
+   once already).  A bare .orow is not enough either: .comp-legend span above
+   outranks a lone class (class+type beats class) and flattens the rows back
+   into inline-flex — the same trap that comment warns about. */
+.info-popup .orow{display:flex;justify-content:space-between;align-items:baseline;gap:1.5rem;margin-top:.6rem}
+.info-popup .orow>b{font-variant-numeric:tabular-nums;white-space:nowrap}
+.info-popup .orow-d{display:block;opacity:.72;font-size:.86em;line-height:1.5;margin-top:.1rem}
+.comp-legend{display:flex;gap:1.1rem;flex-wrap:wrap;font-size:.78rem;color:#475569}
+.comp-legend span{display:inline-flex;align-items:center;gap:.35rem}
+/* ...and that rule sets display on EVERY descendant span, which outranks
+   .info-popup's own display:none (a class plus a type beats a class alone) and
+   would pin the breakdown permanently open.  Put it back at the same scope it
+   was lost.  Deliberately weaker than popover-pin.css's :hover and .pinned
+   rules, so both still work. */
+.comp-legend .info-popup{display:none}
+.comp-legend i{width:.6rem;height:.6rem;border-radius:.15rem;display:inline-block}
+/* The share is the point of the bar; the count is the detail behind it. */
+/* The share box keeps its width whether it holds "5.9%", "100.0%" or nothing
+   at all (an excluded chip) -- 6.5ch fits the widest possible reading, so a
+   toggle never changes any chip's width and the legend never reflows. */
+.comp-share{display:inline-block;min-width:6.5ch;margin-left:.4rem;color:#0f172a;font-variant-numeric:tabular-nums}
+/* Denominator switch.  Segmented-control shape so the two read as one choice
+   rather than two links. */
+.comp-scope{display:flex;gap:0;margin:0 0 .5rem;font-size:.72rem}
+.comp-scope a{padding:.2rem .6rem;border:1px solid #e2e8f0;color:#64748b;text-decoration:none;background:#fff}
+.comp-scope a:first-child{border-radius:.25rem 0 0 .25rem}
+.comp-scope a:last-child{border-radius:0 .25rem .25rem 0;border-left:0}
+.comp-scope a:hover{background:#f8fafc;color:#334155}
+.comp-scope a.on{background:#0f172a;border-color:#0f172a;color:#fff}
+/* A row whose traffic left the denominator: still listed (it did not vanish),
+   but visibly not part of the arithmetic above. */
+.comp-out{opacity:.5}
+.comp-out .comp-share{color:#94a3b8;font-style:italic}
+/* The "right now" strip: one tile per outcome for the last minute, a
+   five-minute sparkline under each, refreshed in place every few seconds by
+   the script at the foot of the page.  The figures are rendered by the server
+   first, so the page says real numbers before any script runs; the script
+   only replaces them.  A refresh dims the strip only when the answer is slow
+   (a dim on every five-second fetch would flicker), and the previous figures
+   stay up until the new ones land. */
+/* The 24-hour card: one row of tiles above the composition bar they are
+   read against.  Six tiles at a 10rem minimum need 63rem (1008px), which the
+   usual 1280-1920px viewport clears; auto-fit wraps rather than overflowing
+   when the window is genuinely narrow. */
+.comp-card .pipe-h{font-size:1.05rem;font-weight:700;color:#334155;margin:0 0 .6rem;display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap}
+.comp-card .pipe-h small,.bcd-card .pipe-h small{font-size:.75rem;color:#94a3b8;font-weight:normal}
+.bcd-card h2.pipe-h{display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;margin:0 0 .9rem}
+.comp-card h3.comp-h3{margin:0;font-size:1rem;font-weight:700;color:#334155}
+.hourly-legend{display:flex;gap:1rem;font-size:.75rem;color:#64748b;align-items:center;flex-wrap:wrap;margin-bottom:.3rem}
+.hourly-legend i{display:inline-block;width:.7rem;height:.7rem;border-radius:.15rem;margin-right:.3rem;vertical-align:-.05em}
+.day-err{margin:-.6rem 0 1rem;font-size:.78rem;color:#b45309}
+/* The map: a dark canvas the streams glow on, the server's position as a
+   pulsing point, and under it the legend and the top sources.  The card is
+   drawn only by script; without it the outline alone would say nothing. */
+.geo-card{padding:.8rem 1.25rem .7rem}
+.geo-wrap{position:relative}
+.geo-wrap canvas{width:100%;max-width:1200px;margin:0 auto;display:block;border-radius:.3rem;background:#0f172a}
+.geo-foot{display:flex;gap:1rem;flex-wrap:wrap;align-items:center;font-size:.75rem;color:#64748b;margin-top:.5rem}
+.geo-foot i{display:inline-block;width:.6rem;height:.6rem;border-radius:50%;margin-right:.3rem;vertical-align:-.05em}
+/* The popover a source gets under the pointer: the flag and full name, the
+   last minute's count and its share, and the split by outcome in the
+   particles' colours.  pointer-events:none so it never sits between the
+   pointer and the point that opened it. */
+.geo-pop{position:absolute;z-index:3;pointer-events:none;background:#0f172a;color:#e2e8f0;border:1px solid #475569;border-radius:.35rem;padding:.45rem .6rem;font-size:.78rem;line-height:1.45;box-shadow:0 .4rem 1rem rgba(0,0,0,.45);min-width:11rem;max-width:16rem}
+.geo-pop b{font-weight:700;color:#f8fafc}
+.geo-pop img{width:1.125rem;height:.8rem;vertical-align:-.1em;margin-right:.35em;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(255,255,255,.15)}
+.geo-pop table{border-collapse:collapse;margin-top:.25rem}
+.geo-pop td{padding:.05rem .5rem .05rem 0;white-space:nowrap}
+.geo-pop td.n{text-align:right;font-variant-numeric:tabular-nums;padding-right:0}
+.geo-pop td.share{color:#94a3b8}
+.geo-pop i{display:inline-block;width:.55rem;height:.55rem;border-radius:50%;margin-right:.3rem;vertical-align:-.02em}
+.geo-top{margin-left:auto;color:#475569;display:inline-flex;gap:.6rem;flex-wrap:wrap;align-items:center}
+.geo-top img{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.2em;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
+/* The recent-detections card redraws its table every few seconds; a row that
+   was not there before flashes green and settles. */
+.livebadge{display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;color:#16a34a;font-weight:600}
+.livebadge i{width:.5rem;height:.5rem;border-radius:50%;background:#16a34a;display:inline-block}
+/* A figure that changed on a refresh flashes briefly, so a reader watching
+   the page sees which numbers moved. */
+@keyframes v-flash{0%{background:#bae6fd;box-shadow:0 0 0 .3rem #bae6fd}100%{background:transparent;box-shadow:0 0 0 .3rem transparent}}
+.v-flash{animation:v-flash .8s ease-out;border-radius:.2rem}
+@media (prefers-reduced-motion: reduce){.v-flash{animation:none}}
+@keyframes ev-new{from{background:#dcfce7}to{background:transparent}}
+table.events tbody tr.ev-new>td{animation:ev-new 2.5s ease-out}
+@media (prefers-reduced-motion: reduce){table.events tbody tr.ev-new>td{animation:none;background:#f0fdf4}}
+.live-head{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;margin:0 0 .5rem}
+.live-head .live-h{font-size:1rem;font-weight:700;color:#334155;margin:0;display:flex;align-items:center;gap:.3rem}
+.live-status{font-size:.8rem;color:#64748b;display:inline-flex;align-items:center;gap:.4rem}
+.live-status b{color:#0f172a;font-variant-numeric:tabular-nums;font-weight:600}
+.live-bar{display:inline-block;width:5rem;height:.3rem;background:#e2e8f0;border-radius:.15rem;overflow:hidden}
+.live-bar i{display:block;height:100%;width:0;background:#16a34a;transition:width .9s linear}
+.live-tg{border:1px solid #cbd5e1;border-radius:.25rem;padding:.1rem .55rem;background:#fff;color:#334155;font-size:.75rem;cursor:pointer;font-family:inherit}
+.live-tg.off{color:#94a3b8;border-style:dashed}
+.live-err{font-size:.75rem;color:#b45309}
+.live-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;margin-bottom:1rem;transition:opacity .2s}
+.live-grid.refreshing{opacity:.55}
+.live{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.7rem .8rem .4rem;display:flex;flex-direction:column;gap:.1rem;min-width:0}
+.live .label{font-size:.7rem;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:.25rem}
+.live .label .info-tip{flex:none}
+.live .row{display:flex;align-items:baseline;justify-content:space-between;gap:.4rem}
+.live .value{font-size:1.6rem;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1;color:#0f172a}
+.live .win{font-size:.7rem;color:#94a3b8;white-space:nowrap}
+.live .minute{font-size:.74rem;color:#64748b;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.live .minute b{color:#0f172a;font-weight:600}
+/* The change against the minute before is a fact, not a verdict: a rise in
+   requests is not bad news and a fall in passes is not good news, so neither
+   direction gets a warning colour. */
+.live .delta{font-size:.72rem;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}
+.live .delta.up{color:#334155}
+.live .delta small{color:#94a3b8;font-size:.65rem}
+.live .sub{font-size:.68rem;color:#94a3b8;line-height:1.3}
+.live .spk{width:100%;height:2.1rem;margin-top:auto;padding-top:.25rem;display:block;flex:none}
+.live-note{margin:-.4rem 0 1rem;font-size:.78rem;color:#b45309}
+/* The row's caption sits on the row, not adrift above it: .meta's full
+   bottom margin would read as a paragraph of its own. */
+.kpi-note{margin:0 0 .35rem;font-size:.8rem}
+.kpi{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.85rem .9rem;display:flex;flex-direction:column;gap:.15rem}
+.kpi .label{font-size:.72rem;color:#64748b;text-transform:uppercase;letter-spacing:.03em}
+.kpi .value{font-size:1.75rem;font-weight:800;color:#0f172a;font-variant-numeric:tabular-nums;line-height:1.1;text-align:right}
+.kpi .sub{font-size:.7rem;color:#94a3b8;line-height:1.35}
+.kpi .sub-cookie{margin-top:auto;padding-top:.3rem;border-top:1px dashed #e2e8f0;font-variant-numeric:tabular-nums}
+.kpi .nh-split{display:block}
+.kpi .nh-benign{color:#16a34a;font-weight:600}
+.kpi .nh-bad{color:#dc2626;font-weight:600}
+.kpi.warn .value{color:#dc2626}
+/* Kind-coloured tiles: the dot in the label reuses the EXACT legend colour of
+   the stats "all requests" stacked chart (KIND_COLOR: pow #0ea5e9 / captcha
+   #16a34a / not-pass #dc2626) so the KPI reads as that chart's bucket; the
+   value uses the darker text variant the dashboard pass-summary strip already
+   pairs with each hue (readable at 2rem bold). */
+.kdot{display:inline-block;width:.6em;height:.6em;border-radius:50%;margin-right:.4em;vertical-align:baseline}
+.kpi.k-serve .value{color:#991b1b}
+.kpi.k-pow .value{color:#075985}
+.kpi.k-captcha .value{color:#166534}
+/* Host filtering is unified into the shared host_picker in the top bar (old host-filter CSS removed). */
+.host-badge,.site-badge{display:inline-block;font-size:.65rem;padding:.05rem .3rem;border:1px solid #cbd5e1;border-radius:.2rem;font-family:ui-monospace,Menlo,monospace;margin-left:.3rem;max-width:4rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
+.host-badge{color:#475569;background:#f8fafc}
+.site-badge{color:#1e40af;background:#eff6ff;border-color:#bfdbfe}
+.shortcut-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(12rem,1fr));gap:.6rem}
+.shortcut{display:block;background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.85rem 1rem;text-decoration:none;color:#0f172a;transition:border-color .1s,transform .05s}
+.shortcut:hover{border-color:#3b82f6;transform:translateY(-1px)}
+.shortcut .ico{font-size:1.4rem;display:block;margin-bottom:.2rem}
+.shortcut .ttl{font-weight:600;color:#0f172a;font-size:.92rem}
+.shortcut .desc{font-size:.78rem;color:#64748b;margin-top:.15rem;line-height:1.4}
+/* Recent events table -- shared partial.  table.events / phase-pill / etc.
+   are styled identically to the hunt page so the partial can scan
+   document.querySelectorAll('table.events tbody tr[data-bt]') uniformly.
+   Font sizes mirror hunt.html (= .8rem for the table, .7rem for thead)
+   so a user moving from /admin/ to /admin/hunt/ does not see a sudden
+   size jump on the same data.
+   .events-scroll wraps the table for horizontal-scroll fallback when the
+   sum of per-th widths overflows the card. */
+.events-scroll{overflow-x:auto}
+.events-scroll table.events{min-width:100%}
+table.events{width:100%;border-collapse:collapse;font-size:.8rem;table-layout:fixed}
+table.events thead th{text-align:left;padding:.35rem .5rem;border-bottom:1px solid #e2e8f0;color:#64748b;font-weight:600;font-size:.7rem;text-transform:uppercase;letter-spacing:.04em}
+table.events tbody td{padding:.35rem .5rem;border-bottom:1px solid #f1f5f9;vertical-align:middle}
+table.events tbody tr:hover{background:#f8fafc}
+table.events td.mono{font-family:ui-monospace,Menlo,monospace;color:#0f172a;font-size:.78rem;max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.events td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-space:nowrap;overflow:hidden}
+table.events td.at .site-badge{max-width:4rem}
+table.events td.ipclick{white-space:nowrap}
+table.events td.verdict-cell{max-width:8rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+table.events td.url{max-width:14rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.78rem;color:#475569}
+/* No cap on the URL column: it existed to hand leftover width to the UA
+   column back when the UA rendered as a 740px raw string.  The UA now shows as
+   a summary (classify.UASummary) and needs ~110px, so URL and UA share the
+   remainder by content again -- which is what lets a long path use the room a
+   short one leaves. */
+/* No max-width here: under the table's auto layout a cell's own max-width is
+   only a hint, and the 24rem this used to carry never bound the column (widening
+   or removing it changed nothing).  The column's share comes from the th widths
+   above; these three properties are what actually cut an over-long UA. */
+table.events td.ua{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#64748b;font-size:.75rem}
+table.events td.num{text-align:right;font-variant-numeric:tabular-nums;color:#475569;font-family:ui-monospace,Menlo,monospace}
+table.events td.actions{text-align:right;white-space:nowrap;width:auto}
+.rl-badge{display:inline-block;background:#fde68a;color:#92400e;font-size:.65rem;font-weight:700;padding:.05rem .3rem;border-radius:.2rem;margin-left:.25rem;font-family:ui-monospace,Menlo,monospace;text-transform:uppercase;letter-spacing:.04em}
+/* cellpop: truncated cell opens a pinnable popover with the full value */
+/* .info-tip / .info-popup are styled by /static/popover-pin.css (= same as
+   hunt / dashboard).  Local rules were removed -- they were overriding the
+   shared stylesheet and killing the hover popup, so the "?" only opened via
+   the popover-pin.js click-to-pin path. */
+/* ban form action button (= matches hunt.html .rank-act + .danger) */
+.actions .rank-act{font-size:.7rem;padding:.2rem .55rem;border:1px solid #cbd5e1;background:#fff;color:#475569;border-radius:.2rem;cursor:pointer;font-weight:600}
+.actions .rank-act.danger{border-color:#fecaca;background:#fef2f2;color:#991b1b}
+.actions .rank-act.danger:hover{background:#fee2e2;border-color:#fca5a5}
+.action-pill{display:inline-block;padding:.1rem .45rem;border-radius:.25rem;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace;background:#fee2e2;color:#991b1b}
+/* IP display unified across all cards: flag + IP + popover (same as dashboard / bans / hunt). */
+.ipclick{cursor:help;text-decoration:underline dotted;text-decoration-color:#cbd5e1;text-underline-offset:.2em}
+img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
+.muted{color:#94a3b8}
+.user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
+.user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
+.user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
+.user-menu-name{font-weight:600}
+.user-menu-arrow{font-size:.7rem;opacity:.7}
+.user-menu-pop{display:none;position:absolute;top:calc(100% + .35rem);right:0;min-width:11rem;background:#1e293b;border:1px solid #334155;border-radius:.3rem;padding:.3rem;z-index:200;box-shadow:0 .35rem 1rem rgba(0,0,0,.25)}
+.user-menu.open .user-menu-pop{display:block}
+.user-menu-pop a{display:block;padding:.4rem .7rem;color:#cbd5e1;text-decoration:none;font-size:.85rem;border-radius:.2rem;font-weight:normal}
+.user-menu-pop a:hover{background:#334155;color:#fff}
+.picker{display:flex;align-items:center;gap:.4rem;font-size:.78rem;color:#cbd5e1}
+.picker label{color:#94a3b8}
+.picker select{font-size:.75rem;color:#cbd5e1;background:#1e293b;border:1px solid #334155;border-radius:.2rem;padding:.15rem .35rem;cursor:pointer}
+.picker select option{color:#0f172a;background:#fff}
+</style>
+{{ template "popover_pin_assets" . }}
+</head>
+<body>
+<header class="unmask-header">
+  <a href="{{.BasePath}}/admin/" class="logo">
+    <img src="/unmask/static/icon.png" alt="" width="22" height="22" style="display:block;border-radius:.25rem;flex:none">
+    unmask
+  </a>
+  <nav class="nav">
+    <a href="{{.BasePath}}/admin/">{{ t .Lang "nav.dashboard" }}</a>
+    <a href="{{.BasePath}}/admin/live/" class="active">{{ t .Lang "nav.live" }}</a>
+    <a href="{{.BasePath}}/admin/stats/">{{ t .Lang "nav.stats" }}</a>
+    <a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
+    <a href="{{.BasePath}}/admin/bans/">{{ t .Lang "nav.bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
+    <a href="{{.BasePath}}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
+  </nav>
+  <span class="spacer"></span>
+  {{ template "header_tools" . }}
+</header>
+<main class="unmask-main">
+<h1>{{ t .Lang "live.title" }}</h1>
+<p class="meta">{{ t .Lang "live.intro" }}</p>
+
+{{ if .LiveTiles }}
+<div class="live-head">
+  <h2 class="live-h">{{ t .Lang "overview.live.h" }}<span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.live.note" }}</span></span></h2>
+  <span class="live-status"><span>{{ t .Lang "overview.live.updated" }}<b id="live-at" data-ts="{{ .LiveAtTS }}">{{ .LiveAt }}</b></span><span>·</span><span>{{ t .Lang "overview.live.next_pre" }}<b id="live-next">5</b>{{ t .Lang "overview.live.next_post" }}</span><span class="live-bar"><i id="live-bar"></i></span></span>
+  <button type="button" id="live-toggle" class="live-tg" aria-pressed="true" data-txt-on="{{ t .Lang "overview.live.auto_on" }}" data-txt-off="{{ t .Lang "overview.live.auto_off" }}">{{ t .Lang "overview.live.auto_on" }}</button>
+  <span id="live-err" class="live-err" hidden>{{ t .Lang "overview.live.err" }}</span>
+</div>
+<div class="live-grid" id="live-grid" data-src="{{ .BasePath }}/admin/api/now">
+  {{ range $t := .LiveTiles }}
+  <div class="live" data-k="{{ .Key }}">
+    <div class="label"><span class="kdot" style="background:{{ .Color }}"></span><span style="overflow:hidden;text-overflow:ellipsis">{{ t $.Lang .LabelKey }}</span><span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ t $.Lang .HelpKey }}</span></span></div>
+    <div class="row"><div class="value" data-f="last30">{{ comma .Last30 }}</div><div class="win">{{ t $.Lang "overview.live.window" }}</div></div>
+    <div class="sub minute"><b data-f="last">{{ comma .Last }}</b> {{ t $.Lang "overview.live.minute" }} · <span class="delta{{ if .DeltaClass }} {{ .DeltaClass }}{{ end }}" data-f="delta"><span data-f="dv">{{ .DeltaText }}</span> <small>{{ t $.Lang "overview.live.vs_prev" }}</small></span></div>
+    {{ if eq .Key "requests" }}<div class="sub" data-f="tps">{{ tf $.Lang "overview.live.tps" .TPS .Peak .Avg }}</div>{{ end }}
+    <svg class="spk" viewBox="0 0 150 34" preserveAspectRatio="none" aria-hidden="true" data-f="bars">{{ range .Bars }}<rect x="{{ .X }}" y="{{ .Y }}" width="4" height="{{ .H }}" fill="{{ $t.Color }}"/>{{ end }}</svg>
+  </div>
+  {{ end }}
+</div>
+<p class="live-note" id="live-feed-off"{{ if not .LiveFeedOff }} hidden{{ end }}>{{ t .Lang "overview.live.feed_off" }}</p>
+
+<div class="bcd-card geo-card" id="geo-card"
+     data-map="{{ .BasePath }}/static/world-110m.json?v={{ assetv }}" data-flags="{{ .BasePath }}/static/flags/"
+     data-save="{{ .BasePath }}/admin/api/map-location"
+     data-set="{{ if .MapLoc.Set }}1{{ else }}0{{ end }}" data-lat="{{ .MapLoc.Lat }}" data-lon="{{ .MapLoc.Lon }}" data-label="{{ .MapLoc.Label }}{{ if .MapLoc.Approx }} {{ t .Lang "overview.map.approx" }}{{ end }}" data-auto="{{ if .MapLoc.Auto }}1{{ else }}0{{ end }}"
+     data-auto-set="{{ if .MapAuto.Set }}1{{ else }}0{{ end }}" data-auto-lat="{{ .MapAuto.Lat }}" data-auto-lon="{{ .MapAuto.Lon }}" data-auto-label="{{ .MapAuto.Label }}{{ if .MapAuto.Approx }} {{ t .Lang "overview.map.approx" }}{{ end }}" data-auto-source="{{ .MapAuto.Source }}"
+     data-txt-server="{{ t .Lang "overview.map.server" }}" data-txt-from-interface="{{ t .Lang "overview.map.src_interface" }}" data-txt-from-hub="{{ t .Lang "overview.map.src_hub" }}"
+     data-txt-pop-requests="{{ t .Lang "overview.map.pop_requests" }}" data-txt-pop-now="{{ t .Lang "overview.map.pop_now" }}" data-txt-pop-share="{{ t .Lang "overview.map.pop_share" }}"
+     data-txt-legend-pass="{{ t .Lang "overview.map.legend_pass" }}" data-txt-legend-serve="{{ t .Lang "overview.map.legend_serve" }}" data-txt-legend-deny="{{ t .Lang "overview.map.legend_deny" }}" data-txt-legend-bypass="{{ t .Lang "overview.map.legend_bypass" }}">
+  <h2 class="pipe-h">{{ t .Lang "overview.map.h" }}<small>{{ t .Lang "overview.map.sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.map.help" }}</span></span>{{ if .CanEditMap }}<button type="button" class="live-tg" id="geo-set" style="margin-left:auto">{{ t .Lang "overview.map.set" }}</button>{{ end }}</h2>
+  <div class="geo-wrap"><canvas id="geo" aria-label="{{ t .Lang "overview.map.h" }}" role="img"></canvas>
+    <div class="geo-pop" id="geo-pop" hidden></div></div>
+  <p class="live-note" id="geo-unset" style="margin:.4rem 0 0"{{ if .MapLoc.Set }} hidden{{ end }}>{{ t .Lang "overview.map.unset" }}</p>
+  {{ if .MapLoc.Auto }}<p class="meta" id="geo-auto" style="margin:.4rem 0 0;font-size:.78rem">{{ tf .Lang "overview.map.auto_note" (t .Lang (printf "overview.map.src_%s" .MapLoc.Source)) }}{{ if .MapLoc.Approx }} {{ t .Lang "overview.map.approx_note" }}{{ end }}</p>{{ end }}
+  <p class="live-note" id="geo-nogeo" style="margin:.4rem 0 0"{{ if .GeoKnown }} hidden{{ end }}>{{ t .Lang "overview.map.nogeo" }}</p>
+  <div class="geo-foot"><span><i style="background:#94a3b8"></i>{{ t .Lang "overview.map.legend_pass" }}</span><span><i style="background:#f87171"></i>{{ t .Lang "overview.map.legend_serve" }}</span><span><i style="background:#b91c1c"></i>{{ t .Lang "overview.map.legend_deny" }}</span><span><i style="background:#818cf8"></i>{{ t .Lang "overview.map.legend_bypass" }}</span><span class="geo-top" id="geo-top" data-txt="{{ t .Lang "overview.map.top" }}"></span></div>
+</div>
+{{ if .CanEditMap }}
+{{/* The position setting: automatic (what the server works out from its
+     own address, shown as it stands) or by hand.  Its own dialog rather than
+     the shared prompt, since it is a choice with fields, not one line. */}}
+<dialog id="geo-dialog" class="ux-dialog" aria-labelledby="geo-dialog-title">
+  <form method="dialog" id="geo-form">
+    <h3 id="geo-dialog-title">{{ t .Lang "overview.map.set_title" }}</h3>
+    <label style="display:flex;gap:.5rem;align-items:flex-start;font-size:.9rem;cursor:pointer">
+      <input type="radio" name="geo-mode" value="auto" id="geo-mode-auto" style="margin-top:.3rem">
+      <span><b>{{ t .Lang "overview.map.dlg_auto" }}</b><br><span id="geo-dlg-auto" style="font-size:.8rem;color:#475569"></span></span>
+    </label>
+    <label style="display:flex;gap:.5rem;align-items:flex-start;font-size:.9rem;cursor:pointer">
+      <input type="radio" name="geo-mode" value="manual" id="geo-mode-manual" style="margin-top:.3rem">
+      <span><b>{{ t .Lang "overview.map.dlg_manual" }}</b></span>
+    </label>
+    <div id="geo-manual" style="display:grid;grid-template-columns:1fr 1fr;gap:.5rem .75rem;padding-left:1.6rem">
+      <label style="font-size:.78rem;color:#475569">{{ t .Lang "overview.map.dlg_lat" }}<input type="text" id="geo-lat" inputmode="decimal" placeholder="35.68"></label>
+      <label style="font-size:.78rem;color:#475569">{{ t .Lang "overview.map.dlg_lon" }}<input type="text" id="geo-lon" inputmode="decimal" placeholder="139.76"></label>
+      <label style="font-size:.78rem;color:#475569;grid-column:1 / span 2">{{ t .Lang "overview.map.dlg_label" }}<input type="text" id="geo-label" placeholder="Tokyo" data-maxchars="80" data-maxchars-msg="{{ tf .Lang "err.value_long" 80 }}"></label>
+    </div>
+    <p id="geo-dlg-err" style="margin:0;font-size:.8rem;color:#b91c1c" hidden></p>
+    <div class="ux-dialog-actions">
+      <button type="button" class="ux-dialog-btn" id="geo-cancel">{{ t .Lang "dialog.cancel" }}</button>
+      <button type="submit" class="ux-dialog-btn primary" id="geo-save">{{ t .Lang "overview.map.dlg_save" }}</button>
+    </div>
+  </form>
+</dialog>
+{{ end }}
+{{ else }}
+<p class="meta">{{ t .Lang "live.unavailable" }}</p>
+{{ end }}
+
+<style>
+/* session chain (= same logic as the hunt table.  Collapses serve/load/pow/bv
+   into one row identified by beacon_token.) */
+.session-chain{display:inline-flex;align-items:center;gap:.1rem;flex-wrap:nowrap;white-space:nowrap}
+table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;overflow:visible}
+.session-arrow{color:#94a3b8;font-size:.85rem;user-select:none;line-height:1;padding:0}
+.session-timeline{display:flex;flex-direction:column;gap:.2rem;font-size:.78rem;min-width:18rem}
+.session-line{display:flex;align-items:center;gap:.5rem;white-space:nowrap}
+.session-line .ts-mono{font-family:ui-monospace,Menlo,monospace;color:#475569;font-size:.75rem;flex:none}
+</style>
+
+{{ define "live_recent" }}{{ template "events_table_only" . }}{{ end }}
+<div class="bcd-card" id="recent-card" data-src="{{ .BasePath }}/admin/live/?partial=recent">
+  <h2 style="display:flex;align-items:baseline;gap:.6rem;flex-wrap:wrap">{{ t .Lang "overview.recent_h" }}{{ if .LiveTiles }}<span class="livebadge"><i></i>live</span><small style="font-size:.75rem;color:#94a3b8;font-weight:normal">{{ t .Lang "overview.recent_live" }}</small>{{ end }}</h2>
+  <div class="events-scroll" id="recent-section">
+  {{ template "events_table_block" . }}
+  </div>
+  <div style="margin-top:.5rem;text-align:right">
+    <a href="{{.BasePath}}/admin/hunt/" style="font-size:.85rem;color:#475569;text-decoration:none">{{ t .Lang "overview.recent_more" }} →</a>
+  </div>
+</div>
+
+</main>
+
+<div id="ip-popover" data-popover="ip"></div>
+<div id="cell-popover" data-popover="cell"></div>
+<script>
+// IP popover (rDNS + IP-geo + ASN). Same form as dashboard / hunt / bans
+// (every IP display unified as "flag + IP + popover").
+(function(){
+  const pop = document.getElementById('ip-popover');
+  if (!pop || !window.popoverPin) return;
+  const pin = window.popoverPin.install(pop);
+  const cache = new Map();
+  let timer = null;
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]);
+  }
+  function fmt(d){
+    if (d.error) return '<span style="color:#dc2626">' + esc(d.error) + '</span>';
+    const na = '<span class="muted">(unavailable)</span>';
+    const ccLow = (d.country && d.country.length === 2) ? d.country.toLowerCase() : 'unknown';
+    const ccLabel = (d.country && d.country.length === 2) ? d.country : '??';
+    const flagImg = '<img class="flag" src="{{.BasePath}}/static/flags/' + ccLow +
+                    '.png" alt="' + ccLabel + '" title="' + ccLabel + '" loading="lazy" style="width:1rem;height:.75rem;vertical-align:-.05em;margin-right:.3em">';
+    let h = '<h3>' + flagImg + esc(d.ip) + '</h3><dl>';
+    h += '<dt>family</dt><dd>' + esc(d.family || '?') + '</dd>';
+    const types = [];
+    if (d.is_private) types.push('private');
+    if (d.is_loopback) types.push('loopback');
+    if (!types.length) types.push('public');
+    h += '<dt>type</dt><dd>' + types.join(', ') + '</dd>';
+    if (d.reverse_dns && d.reverse_dns.length){
+      h += '<dt>rDNS</dt><dd>' + d.reverse_dns.map(esc).join('<br>') + '</dd>';
+    } else if (d.reverse_dns_error){
+      h += '<dt>rDNS</dt><dd>' + na + ' <span class="muted" style="font-size:.78em">' +
+           esc(d.reverse_dns_error) + '</span></dd>';
+    } else {
+      h += '<dt>rDNS</dt><dd>' + na + '</dd>';
+    }
+    if (d.country || d.country_name) {
+      const cn = d.country_name ? esc(d.country_name) : '';
+      const cc = d.country ? '<span class="muted">(' + esc(d.country) + ')</span>' : '';
+      h += '<dt>country</dt><dd>' + cn + (cn && cc ? ' ' : '') + cc + '</dd>';
+    } else {
+      h += '<dt>country</dt><dd>' + na + '</dd>';
+    }
+    if (d.city) {
+      h += '<dt>city</dt><dd>' + esc(d.city) + '</dd>';
+    } else {
+      h += '<dt>city</dt><dd>' + na + '</dd>';
+    }
+    if (d.asn) {
+      h += '<dt>ASN</dt><dd>AS' + d.asn +
+           (d.asn_org ? ' <span class="muted">' + esc(d.asn_org) + '</span>' : '') + '</dd>';
+    } else {
+      h += '<dt>ASN</dt><dd>' + na + '</dd>';
+    }
+    h += '</dl>';
+    return h;
+  }
+  function fetchAndFmt(ip, cb){
+    if (cache.has(ip)){ cb(fmt(cache.get(ip))); return; }
+    cb('looking up ' + ip + '…');
+    fetch('{{.BasePath}}/admin/api/myip?ip=' + encodeURIComponent(ip))
+      .then(r => r.json())
+      .then(d => { cache.set(ip, d); cb(fmt(d)); })
+      .catch(() => cb('lookup failed'));
+  }
+  document.querySelectorAll('.ipclick').forEach(td => {
+    td.addEventListener('mouseenter', e => {
+      clearTimeout(timer);
+      if (pin.hasPinFor(td)) return;
+      const ip = td.dataset.ip;
+      const x = e.pageX, y = e.pageY;
+      timer = setTimeout(() => {
+        fetchAndFmt(ip, html => pin.showHover(html, x, y, td));
+      }, 200);
+    });
+    td.addEventListener('mouseleave', () => { clearTimeout(timer); pin.hideHover(); });
+    td.addEventListener('click', e => {
+      e.preventDefault();
+      clearTimeout(timer);
+      const ip = td.dataset.ip;
+      const x = e.pageX, y = e.pageY;
+      fetchAndFmt(ip, html => pin.handleClick(html, x, y, td, ip));
+    });
+  });
+})();
+
+// Session view + cellpop IIFEs are injected by partial_events_table.html
+// so the overview card shares the exact same logic as the hunt page (= no
+// drift between the two).  Recent-card visible-row cap is wired via the
+// data-events-cap attribute on the table itself (set by the partial when
+// .EventsCap > 0 is passed in the context).
+</script>
+<script>
+// The recent-detections table is redrawn from the server every PERIOD
+// seconds under the live strip's switch.  The server renders the same table
+// it did for the page; the page swaps it in, flags the rows it had not seen
+// (by beacon token and time), and re-runs the table's own wiring hooks
+// (window.unmaskRewire: session chains, cell and datetime popovers).
+(function(){
+  var card = document.getElementById('recent-card'), sec = document.getElementById('recent-section');
+  if (!card || !sec || !window.fetch) return;
+  var PERIOD = 10, left = PERIOD, busy = false;
+  function on(){
+    var tg = document.getElementById('live-toggle');
+    return !tg || tg.getAttribute('aria-pressed') !== 'false';
+  }
+  function rowKey(tr){ return (tr.dataset.bt || '') + '|' + (tr.dataset.tsMs || '') + '|' + (tr.dataset.phase || ''); }
+  function keys(tbl){
+    var out = {};
+    tbl.querySelectorAll('tbody tr').forEach(function(tr){ out[rowKey(tr)] = 1; });
+    return out;
+  }
+  // The keys the page has seen, read from each table as the server sent it
+  // (this script runs before the wiring, which rewrites a session's rows).
+  var seen = keys(sec.querySelector('table.events') || document.createElement('table'));
+  window.unmaskRefreshRecent = function(){
+    if (busy) return Promise.resolve();
+    busy = true;
+    var old = sec.querySelector('table.events');
+    return fetch(card.dataset.src, { credentials: 'same-origin', cache: 'no-store' })
+      .then(function(r){ if (!r.ok) throw new Error(String(r.status)); return r.text(); })
+      .then(function(html){
+        var box = document.createElement('div'); box.innerHTML = html;
+        var fresh = box.querySelector('table.events');
+        if (!fresh || !old) return;
+        var now = keys(fresh);
+        fresh.querySelectorAll('tbody tr').forEach(function(tr){ if (!seen[rowKey(tr)]) tr.classList.add('ev-new'); });
+        seen = now;
+        old.replaceWith(fresh);
+        (window.unmaskRewire || []).forEach(function(f){ try { f(sec); } catch (e) {} });
+        if (window.unmaskFmtTimes) unmaskFmtTimes();
+      })
+      .catch(function(){})
+      .then(function(){ busy = false; left = PERIOD; });
+  };
+  setInterval(function(){
+    if (!on() || document.visibilityState !== 'visible') return;
+    left -= 1;
+    if (left <= 0) unmaskRefreshRecent();
+  }, 1000);
+})();
+</script>
+<script>
+// The "right now" strip.  Every PERIOD seconds (while the tab is visible and
+// the operator has not switched it off) the page re-reads /admin/api/now and
+// writes the figures over the ones it has.  The previous reading stays up
+// through a slow or failed fetch; a failure only shows a note.
+(function(){
+  var grid = document.getElementById('live-grid');
+  if (!grid || !window.fetch) return;
+  var src = grid.dataset.src;
+  var atEl = document.getElementById('live-at'), nextEl = document.getElementById('live-next');
+  var bar = document.getElementById('live-bar'), tg = document.getElementById('live-toggle');
+  var err = document.getElementById('live-err'), feedOff = document.getElementById('live-feed-off');
+  var PERIOD = 5, W = 150, H = 34;
+  var on = true;
+  try { on = localStorage.getItem('unmask:live-auto') !== 'off'; } catch (e) {}
+  var left = PERIOD, busy = false, dimTimer = null;
+  // The clock shows the picker's zone, read from the same key the shared
+  // datetime formatter uses (header_tools).
+  var tf = null;
+  try {
+    var tz; try { tz = localStorage.getItem('unmask:tz') || undefined; } catch (e) {}
+    tf = new Intl.DateTimeFormat('ja', { timeZone: tz, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  } catch (e) {}
+  function clock(d){ return tf ? tf.format(d) : d.toTimeString().slice(0, 8); }
+  function comma(n){ return Number(n).toLocaleString('en-US'); }
+  // Same geometry as the server's liveBarGeom: a 4-unit bar in each 5-unit
+  // slot, scaled to the busiest minute, flat when every minute is zero.
+  function bars(vals){
+    var max = 0, i, out = [];
+    for (i = 0; i < vals.length; i++) if (vals[i] > max) max = vals[i];
+    for (i = 0; i < vals.length; i++) {
+      var h = max > 0 ? vals[i] / max * (H - 4) : 0;
+      out.push({ y: (H - 2 - h).toFixed(1), h: h.toFixed(1) });
+    }
+    return out;
+  }
+  // Same geometry as the server's liveSparkPoints: a flat line along the
+  // bottom when every bucket is zero.
+  function points(vals){
+    var max = 0, i, out = [];
+    for (i = 0; i < vals.length; i++) if (vals[i] > max) max = vals[i];
+    for (i = 0; i < vals.length; i++) {
+      var x = i * (W / (vals.length - 1));
+      var y = max > 0 ? H - 2 - vals[i] / max * (H - 6) : H - 2;
+      out.push(x.toFixed(1) + ',' + y.toFixed(1));
+    }
+    return out.join(' ');
+  }
+  // A figure that changed flashes once (the class restarts the animation).
+  window.unmaskFlash = function(el){
+    if (!el) return;
+    el.classList.remove('v-flash'); void el.offsetWidth; el.classList.add('v-flash');
+  };
+  function paint(j){
+    grid.querySelectorAll('.live[data-k]').forEach(function(tile){
+      var k = tile.dataset.k;
+      var last = (j.last && j.last[k]) || 0, prev = (j.prev && j.prev[k]) || 0, d = last - prev;
+      var l30 = (j.last30 && j.last30[k]) || 0, el30 = tile.querySelector('[data-f=last30]'), t30 = comma(l30);
+      if (el30 && el30.textContent !== t30) { el30.textContent = t30; unmaskFlash(el30); }
+      var lastEl = tile.querySelector('[data-f=last]'), txt = comma(last);
+      if (lastEl && lastEl.textContent !== txt) { lastEl.textContent = txt; unmaskFlash(lastEl); }
+      tile.querySelector('[data-f=dv]').textContent = d > 0 ? '+' + d : d < 0 ? String(d) : '\u00b10';
+      tile.querySelector('[data-f=delta]').classList.toggle('up', d > 0);
+      var sp = tile.querySelector('[data-f=bars]');
+      if (sp && j.minutes && j.minutes[k]) {
+        var bs = bars(j.minutes[k]), rects = sp.querySelectorAll('rect');
+        for (var i = 0; i < rects.length && i < bs.length; i++) { rects[i].setAttribute('y', bs[i].y); rects[i].setAttribute('height', bs[i].h); }
+      }
+      var tps = tile.querySelector('[data-f=tps]');
+      if (tps && j.tps_text) tps.textContent = j.tps_text;
+    });
+    if (feedOff) feedOff.hidden = !j.feed_off;
+    // The map draws from the same reading.
+    try { document.dispatchEvent(new CustomEvent('unmask:now', { detail: j })); } catch (e) {}
+  }
+  function setToggle(){
+    // data-txt-*, not data-on/off: html/template reads a data-on attribute as
+    // an event handler and would hand the label over JS-quoted.
+    tg.textContent = on ? tg.dataset.txtOn : tg.dataset.txtOff;
+    tg.setAttribute('aria-pressed', on ? 'true' : 'false');
+    tg.classList.toggle('off', !on);
+  }
+  function refresh(){
+    if (busy) return;
+    busy = true;
+    dimTimer = setTimeout(function(){ grid.classList.add('refreshing'); }, 400);
+    fetch(src, { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'application/json' } })
+      .then(function(r){ if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+      .then(function(j){ paint(j); err.hidden = true; atEl.textContent = clock(new Date()); })
+      .catch(function(){ err.hidden = false; })
+      .then(function(){ clearTimeout(dimTimer); grid.classList.remove('refreshing'); busy = false; left = PERIOD; });
+  }
+  function tick(){
+    if (!on || document.visibilityState !== 'visible') return;
+    left = Math.max(0, left - 1);
+    nextEl.textContent = left;
+    bar.style.width = ((PERIOD - left) / PERIOD * 100) + '%';
+    if (left <= 0) refresh();
+  }
+  setInterval(tick, 1000);
+  document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible' && on) refresh(); });
+  tg.addEventListener('click', function(){
+    on = !on;
+    try { localStorage.setItem('unmask:live-auto', on ? 'on' : 'off'); } catch (e) {}
+    setToggle();
+    if (on) refresh();
+  });
+  setToggle();
+  var ts = parseInt(atEl.dataset.ts, 10);
+  if (ts) atEl.textContent = clock(new Date(ts * 1000));
+  // One reading right away: the strip's own figures are already on the page,
+  // but the map beside it has nothing until a reading arrives.
+  if (on && document.visibilityState === 'visible') refresh();
+})();
+</script>
+<script>
+// The map.  Streams from each source country's centroid to the server's
+// position, with width, glow and particle rate following the last minute's
+// count on a log scale (so one busy country does not drown the rest), and
+// particles coloured by outcome.  The outline comes from /static/world-110m.json
+// (see world-110m.md); the counts from the live strip's readings
+// (unmask:now).  Without a server position only the sources are drawn.
+(function(){
+  var card = document.getElementById('geo-card');
+  if (!card || !window.fetch) return;
+  var cv = document.getElementById('geo');
+  var ctx = cv.getContext && cv.getContext('2d');
+  if (!ctx) return;
+  var MAP = null, land = [];
+  var loc = { set: card.dataset.set === '1', lat: parseFloat(card.dataset.lat) || 0, lon: parseFloat(card.dataset.lon) || 0, label: card.dataset.label || '' };
+  var counts = {}, nowCounts = {}, names = {}, streams = [], parts = [], server = null;
+  // Hit areas for the popover, in CSS pixels: each source's point and, when
+  // it got one, its label box.  Rebuilt by every frame.
+  var hot = [], flagImgs = {};
+  function flagImg(cc){
+    var k = cc.toLowerCase();
+    if (!flagImgs[k]) { var im = new Image(); im.src = card.dataset.flags + k + '.png'; flagImgs[k] = im; }
+    return flagImgs[k];
+  }
+  var reduce = false;
+  try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+  var colors = { pass: '#94a3b8', serve: '#f87171', deny: '#b91c1c', bypass: '#818cf8' };
+  var dpr = 1, cw = 0, ch = 0;
+
+  function fit(){
+    // Capped at 1200px (the CSS max-width), so a wide window does not get a
+    // map taller than the rest of the page put together.
+    var w = Math.min(1200, Math.max(200, Math.round(card.querySelector('.geo-wrap').getBoundingClientRect().width)));
+    dpr = Math.min(2, window.devicePixelRatio || 1);
+    cw = w; ch = Math.round(w * 0.46);
+    cv.style.height = ch + 'px';
+    cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr);
+  }
+  function P(lon, lat){ return [ (lon + 180) / 360 * MAP.w, (90 - lat) / 180 * MAP.h ]; }
+  function setServer(){ server = loc.set ? P(loc.lon, loc.lat) : null; }
+
+  function rebuild(){
+    streams = [];
+    if (!MAP) return;
+    var max = 0, cc;
+    for (cc in counts) if (counts[cc].n > max) max = counts[cc].n;
+    for (cc in counts) {
+      var c = counts[cc], ct = MAP.centroids[cc];
+      if (!ct || !c.n) continue;
+      var o = P(ct[0], ct[1]);
+      var st = { cc: cc, n: c.n, now: (nowCounts[cc] || {}).n || 0, x0: o[0], y0: o[1], w: Math.log1p(c.n) / Math.log1p(max || 1), mix: c };
+      if (server) {
+        var dx = server[0] - o[0], dy = server[1] - o[1], d = Math.hypot(dx, dy) || 1;
+        st.cx = (o[0] + server[0]) / 2 + (-dy / d) * d * 0.25 * (o[1] > server[1] ? -1 : 1);
+        st.cy = (o[1] + server[1]) / 2 - Math.abs(dx / d) * d * 0.25 - 10;
+      }
+      streams.push(st);
+    }
+    streams.sort(function(a, b){ return b.n - a.n; });
+    var top = document.getElementById('geo-top');
+    if (top) {
+      var html = '';
+      streams.slice(0, 6).forEach(function(st){
+        html += '<span><img src="' + card.dataset.flags + st.cc.toLowerCase() + '.png" alt="">' + st.cc + ' ' + st.n + '</span>';
+      });
+      top.innerHTML = html ? '<span>' + top.dataset.txt + ':</span>' + html : '';
+    }
+  }
+  function kindOf(mix){
+    var r = Math.random() * (mix.n || 1);
+    if ((r -= mix.deny) < 0) return 'deny';
+    if ((r -= mix.serve) < 0) return 'serve';
+    if ((r -= mix.bypass) < 0) return 'bypass';
+    return 'pass';
+  }
+  function bez(st, t){ var u = 1 - t; return [u*u*st.x0 + 2*u*t*st.cx + t*t*server[0], u*u*st.y0 + 2*u*t*st.cy + t*t*server[1]]; }
+
+  var running = false, last = 0;
+  function frame(ts){
+    if (!running) return;
+    var sx = cv.width / MAP.w, sy = cv.height / MAP.h;
+    ctx.globalCompositeOperation = 'source-over';
+    // Fading rather than clearing leaves each particle a tail: the glow.
+    ctx.fillStyle = reduce ? '#0f172a' : 'rgba(15,23,42,0.25)';
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.save(); ctx.scale(sx, sy); ctx.fillStyle = '#1e293b'; ctx.strokeStyle = '#334155'; ctx.lineWidth = 0.6;
+    for (var i = 0; i < land.length; i++) { ctx.fill(land[i]); ctx.stroke(land[i]); }
+    ctx.restore();
+    ctx.globalCompositeOperation = 'lighter';
+    streams.forEach(function(st){
+      if (server) {
+        ctx.beginPath(); ctx.moveTo(st.x0 * sx, st.y0 * sy); ctx.quadraticCurveTo(st.cx * sx, st.cy * sy, server[0] * sx, server[1] * sy);
+        ctx.lineWidth = (0.4 + 5 * st.w) * dpr; ctx.strokeStyle = 'rgba(125,211,252,' + (0.04 + 0.22 * st.w) + ')';
+        ctx.shadowBlur = (4 + 18 * st.w) * dpr; ctx.shadowColor = 'rgba(125,211,252,' + (0.3 + 0.6 * st.w) + ')'; ctx.stroke();
+        if (!reduce && parts.length < 400 && Math.random() < st.now * 0.0022 + 0.004) {
+          parts.push({ st: st, t: 0, v: 0.004 + Math.random() * 0.004, k: kindOf(st.mix), sz: (0.9 + 2.2 * st.w + Math.random()) * dpr });
+        }
+      }
+    });
+    for (var p = parts.length - 1; p >= 0; p--) {
+      var q = parts[p]; q.t += q.v;
+      if (q.t >= 1 || !server || streams.indexOf(q.st) < 0) { parts.splice(p, 1); continue; }
+      var xy = bez(q.st, q.t);
+      ctx.beginPath(); ctx.arc(xy[0] * sx, xy[1] * sy, q.sz, 0, Math.PI * 2);
+      ctx.shadowBlur = (8 + 10 * q.st.w) * dpr; ctx.shadowColor = colors[q.k]; ctx.fillStyle = colors[q.k]; ctx.globalAlpha = 0.55 + 0.45 * q.st.w; ctx.fill();
+    }
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
+    ctx.font = '600 ' + (11 * dpr) + 'px -apple-system,Segoe UI,Roboto,sans-serif'; ctx.textBaseline = 'middle';
+    // Labels for the top sources, placed so neighbours (Korea beside
+    // Japan) do not overprint: a label that would cross one already drawn
+    // moves down a row, up to three times, then goes unlabelled.
+    var placed = [], fresh = [];
+    streams.forEach(function(st, i){
+      var r = (1.5 + 3 * st.w) * dpr;
+      ctx.beginPath(); ctx.arc(st.x0 * sx, st.y0 * sy, r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(186,230,253,' + (0.35 + 0.65 * st.w) + ')'; ctx.fill();
+      var he = { st: st, x: st.x0 * sx / dpr, y: st.y0 * sy / dpr, r: r / dpr };
+      fresh.push(he);
+      if (i < 6) {
+        // The label: the flag, the code and the count.
+        var t = st.cc + ' ' + st.n, fw = 14 * dpr, fh = 10 * dpr, tw = ctx.measureText(t).width + 11 * dpr + fw, th = 16 * dpr;
+        var lx = st.x0 * sx + 6 * dpr, ly = st.y0 * sy - 8 * dpr, tries = 0;
+        var hits = function(){ return placed.some(function(r){ return lx < r.x + r.w && lx + tw > r.x && ly < r.y + r.h && ly + th > r.y; }); };
+        while (hits() && tries < 3) { ly += th + 2 * dpr; tries++; }
+        if (hits()) return;
+        placed.push({ x: lx, y: ly, w: tw, h: th });
+        he.lbl = { x: lx / dpr, y: ly / dpr, w: tw / dpr, h: th / dpr };
+        ctx.fillStyle = 'rgba(15,23,42,.7)'; ctx.fillRect(lx, ly, tw, th);
+        var im = flagImg(st.cc);
+        if (im.complete && im.naturalWidth) { try { ctx.drawImage(im, lx + 4 * dpr, ly + (th - fh) / 2, fw, fh); } catch (e) {} }
+        ctx.fillStyle = '#e0f2fe'; ctx.fillText(t, lx + 7 * dpr + fw, ly + th / 2);
+      }
+    });
+    hot = fresh;
+    if (server) {
+      var sxp = server[0] * sx, syp = server[1] * sy, pulse = reduce ? 0.5 : (ts / 1000) % 1;
+      ctx.beginPath(); ctx.arc(sxp, syp, (4 + pulse * 16) * dpr, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(56,189,248,' + (1 - pulse) * 0.8 + ')'; ctx.lineWidth = 2 * dpr; ctx.stroke();
+      ctx.beginPath(); ctx.arc(sxp, syp, 4.5 * dpr, 0, Math.PI * 2); ctx.fillStyle = '#38bdf8'; ctx.fill();
+      var lbl = card.dataset.txtServer + (loc.label ? ': ' + loc.label : ''), lw = ctx.measureText(lbl).width;
+      ctx.fillStyle = 'rgba(15,23,42,.7)'; ctx.fillRect(sxp + 8 * dpr, syp + 6 * dpr, lw + 8 * dpr, 16 * dpr);
+      ctx.fillStyle = '#e0f2fe'; ctx.fillText(lbl, sxp + 12 * dpr, syp + 14 * dpr);
+    }
+    if (reduce) { running = false; return; }   // one still frame per reading
+    requestAnimationFrame(frame);
+  }
+  function start(){
+    if (!MAP || running || document.visibilityState !== 'visible') return;
+    running = true; requestAnimationFrame(frame);
+  }
+  function stop(){ running = false; }
+
+  document.addEventListener('unmask:now', function(e){
+    var j = e.detail || {};
+    // The streams and labels are the last thirty minutes; the last minute
+    // drives the particles, so the picture is steady and still moves.
+    counts = j.countries30 || j.countries || {};
+    nowCounts = j.countries || {};
+    if (j.country_names) names = j.country_names;
+    rebuild();
+    if (reduce) { running = false; start(); }
+    // A popover left open follows the new reading (or goes, with its source).
+    if (!pop.hidden) setTimeout(function(){ var h = findHot(mx, my); if (h) showPop(h, mx, my); else hidePop(); }, 60);
+  });
+
+  // The popover: the source under the pointer (its point, or its label).
+  var pop = document.getElementById('geo-pop'), mx = -1, my = -1;
+  function findHot(x, y){
+    var best = null, bd = 1e9;
+    hot.forEach(function(h){
+      if (h.lbl && x >= h.lbl.x && x <= h.lbl.x + h.lbl.w && y >= h.lbl.y && y <= h.lbl.y + h.lbl.h) { best = h; bd = -1; return; }
+      var d = Math.hypot(h.x - x, h.y - y);
+      if (d <= Math.max(10, h.r + 4) && d < bd) { best = h; bd = d; }
+    });
+    return best;
+  }
+  function esc(v){ return String(v).replace(/[&<>"]/g, function(c){ return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  function showPop(h, x, y){
+    var st = h.st, c = st.mix, total = 0, cc;
+    for (cc in counts) total += counts[cc].n || 0;
+    var html = '<div><img src="' + card.dataset.flags + st.cc.toLowerCase() + '.png" alt=""><b>' + esc(names[st.cc] || st.cc) + '</b></div><table>';
+    html += '<tr><td>' + esc(card.dataset.txtPopRequests) + '</td><td class="n"><b>' + st.n + '</b></td></tr>';
+    html += '<tr><td>' + esc(card.dataset.txtPopNow) + '</td><td class="n">' + st.now + '</td></tr>';
+    if (total) html += '<tr><td class="share" colspan="2">' + esc(card.dataset.txtPopShare).replace('%s', (st.n / total < 0.095 ? (100 * st.n / total).toFixed(1) : Math.round(100 * st.n / total)) + '%') + '</td></tr>';
+    [['pass', c.pass], ['serve', c.serve], ['deny', c.deny], ['bypass', c.bypass]].forEach(function(kv){
+      var k = kv[0];
+      html += '<tr><td><i style="background:' + colors[k] + '"></i>' + esc(card.dataset['txtLegend' + k.charAt(0).toUpperCase() + k.slice(1)]) + '</td><td class="n">' + (kv[1] || 0) + '</td></tr>';
+    });
+    pop.innerHTML = html + '</table>';
+    pop.hidden = false;
+    var wrap = cv.parentNode, pw = pop.offsetWidth, ph = pop.offsetHeight;
+    var left = cv.offsetLeft + x + 14, top = cv.offsetTop + y + 14;
+    if (left + pw > wrap.clientWidth) left = Math.max(0, cv.offsetLeft + x - pw - 14);
+    if (top + ph > wrap.clientHeight) top = Math.max(0, cv.offsetTop + y - ph - 14);
+    pop.style.left = left + 'px'; pop.style.top = top + 'px';
+    cv.style.cursor = 'pointer';
+  }
+  function hidePop(){ pop.hidden = true; cv.style.cursor = ''; }
+  cv.addEventListener('mousemove', function(ev){
+    mx = ev.offsetX; my = ev.offsetY;
+    var h = findHot(mx, my);
+    if (h) showPop(h, mx, my); else if (!pop.hidden) hidePop();
+  });
+  cv.addEventListener('mouseleave', function(){ mx = my = -1; hidePop(); });
+  // A tap on a touch screen: the same popover, closed by a tap elsewhere.
+  cv.addEventListener('click', function(ev){ var h = findHot(ev.offsetX, ev.offsetY); if (h) showPop(h, ev.offsetX, ev.offsetY); else hidePop(); });
+  // For the UI tests: where the sources are, in CSS pixels of the canvas.
+  window.unmaskGeoHot = function(){ return hot.map(function(h){ return { cc: h.st.cc, x: h.x, y: h.y }; }); };
+  document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible') start(); else stop(); });
+  var rt = null;
+  window.addEventListener('resize', function(){ clearTimeout(rt); rt = setTimeout(function(){ fit(); if (reduce) { running = false; start(); } }, 150); });
+
+  var btn = document.getElementById('geo-set'), dlg = document.getElementById('geo-dialog');
+  function applySaved(j){
+    loc = { set: !!j.set, lat: j.lat || 0, lon: j.lon || 0, label: j.label || '' };
+    card.dataset.set = loc.set ? '1' : '0';
+    card.dataset.auto = j.auto ? '1' : '0';
+    var note = document.getElementById('geo-unset'); if (note) note.hidden = loc.set;
+    var auto = document.getElementById('geo-auto');
+    if (j.auto && j.note) {
+      if (!auto) { auto = document.createElement('p'); auto.id = 'geo-auto'; auto.className = 'meta'; auto.style.cssText = 'margin:.4rem 0 0;font-size:.78rem'; (note || card).insertAdjacentElement(note ? 'afterend' : 'beforeend', auto); }
+      auto.textContent = j.note; auto.hidden = false;
+    } else if (auto) { auto.hidden = true; }
+    setServer(); rebuild(); parts = []; if (reduce) { running = false; } start();
+  }
+  if (btn && dlg && typeof dlg.showModal === 'function') {
+    var form = document.getElementById('geo-form'), err = document.getElementById('geo-dlg-err');
+    var modeAuto = document.getElementById('geo-mode-auto'), modeManual = document.getElementById('geo-mode-manual');
+    var manual = document.getElementById('geo-manual'), latEl = document.getElementById('geo-lat'), lonEl = document.getElementById('geo-lon'), labelEl = document.getElementById('geo-label');
+    function syncMode(){ var m = modeManual.checked; manual.style.opacity = m ? '1' : '.45'; latEl.disabled = lonEl.disabled = labelEl.disabled = !m; }
+    modeAuto.addEventListener('change', syncMode); modeManual.addEventListener('change', syncMode);
+    btn.addEventListener('click', function(){
+      // The automatic line: what the server works out right now, and from what.
+      var autoEl = document.getElementById('geo-dlg-auto');
+      if (card.dataset.autoSet === '1') {
+        var src = card.dataset.autoSource === 'hub' ? card.dataset.txtFromHub : card.dataset.txtFromInterface;
+        autoEl.textContent = {{ tf .Lang "overview.map.dlg_auto_now" "%s" }}.replace('%s', card.dataset.autoLabel + ' (' + card.dataset.autoLat + ', ' + card.dataset.autoLon + ')') + ' · ' + {{ tf .Lang "overview.map.dlg_auto_from" "%s" }}.replace('%s', src);
+      } else {
+        autoEl.textContent = {{ t .Lang "overview.map.dlg_auto_none" }};
+      }
+      var isManual = card.dataset.auto !== '1' && loc.set;
+      modeManual.checked = isManual; modeAuto.checked = !isManual;
+      latEl.value = isManual ? String(loc.lat) : (card.dataset.autoSet === '1' ? card.dataset.autoLat : '');
+      lonEl.value = isManual ? String(loc.lon) : (card.dataset.autoSet === '1' ? card.dataset.autoLon : '');
+      labelEl.value = isManual ? loc.label : '';
+      err.hidden = true; syncMode();
+      dlg.showModal();
+    });
+    document.getElementById('geo-cancel').addEventListener('click', function(){ dlg.close(); });
+    form.addEventListener('submit', function(ev){
+      ev.preventDefault();
+      var body = new URLSearchParams();
+      if (modeManual.checked) {
+        var lat = parseFloat(latEl.value), lon = parseFloat(lonEl.value);
+        if (!(lat >= -90 && lat <= 90) || !(lon >= -180 && lon <= 180)) { err.textContent = {{ t .Lang "overview.map.err_point" }}; err.hidden = false; return; }
+        if (window.unmaskMaxChars && unmaskMaxChars.check && unmaskMaxChars.check(labelEl) === false) return;
+        body.set('lat', latEl.value.trim()); body.set('lon', lonEl.value.trim()); body.set('label', labelEl.value.trim());
+      } else {
+        body.set('lat', ''); body.set('lon', ''); body.set('label', '');
+      }
+      document.getElementById('geo-save').disabled = true;
+      fetch(card.dataset.save, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }, body: body })
+        .then(function(r){ return r.json().then(function(j){ if (!r.ok || !j.ok) throw new Error(j.error || r.status); return j; }); })
+        .then(function(j){ dlg.close(); applySaved(j); })
+        .catch(function(e){ err.textContent = e && e.message ? e.message : String(e); err.hidden = false; })
+        .then(function(){ document.getElementById('geo-save').disabled = false; });
+    });
+  }
+
+  fit();
+  fetch(card.dataset.map, { credentials: 'same-origin' })
+    .then(function(r){ if (!r.ok) throw new Error(String(r.status)); return r.json(); })
+    .then(function(m){
+      MAP = m; land = m.paths.map(function(d){ return new Path2D(d); });
+      setServer(); rebuild(); start();
+    })
+    .catch(function(){ card.hidden = true; });
+})();
+</script>
+</body>
+</html>

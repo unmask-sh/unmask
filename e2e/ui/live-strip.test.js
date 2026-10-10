@@ -55,8 +55,8 @@ for i in range(${n}):
     page.click('button[type="submit"], input[type="submit"]'),
   ]);
 
-  const resp = await page.goto(BASE + '/admin/', { waitUntil: 'networkidle2' });
-  ok(resp.status() === 200, `/admin/ status ${resp.status()}`);
+  const resp = await page.goto(BASE + '/admin/live/', { waitUntil: 'networkidle2' });
+  ok(resp.status() === 200, `/admin/live/ status ${resp.status()}`);
 
   const first = await page.evaluate(() => {
     const grid = document.getElementById('live-grid');
@@ -68,8 +68,8 @@ for i in range(${n}):
       requests: req ? req.textContent.trim() : null,
       at: (document.getElementById('live-at') || {}).textContent,
       toggle: (document.getElementById('live-toggle') || {}).textContent,
-      spark: (grid.querySelector('.live[data-k="requests"] [data-f="spark"]') || {}).getAttribute
-        ? grid.querySelector('.live[data-k="requests"] [data-f="spark"]').getAttribute('points') : '',
+      bars: grid.querySelectorAll('.live[data-k="requests"] [data-f="bars"] rect').length,
+      last30: (grid.querySelector('.live[data-k="requests"] [data-f="last30"]') || {}).textContent,
       errHidden: (document.getElementById('live-err') || {}).hidden,
     };
   });
@@ -80,7 +80,8 @@ for i in range(${n}):
       'tiles are not the seven outcomes in order: ' + first.tiles.join(','));
     ok(/^\d{2}:\d{2}:\d{2}$/.test(first.at || ''), 'the reading clock is not HH:MM:SS: ' + first.at);
     ok(/ON|on/.test(first.toggle || ''), 'auto-refresh is not on by default: ' + first.toggle);
-    ok(first.spark && first.spark.split(' ').length === 60, 'the sparkline does not carry 60 buckets');
+    ok(first.bars === 30, 'the tile does not carry a bar per minute for 30 minutes: ' + first.bars);
+    ok(/^[\d,]+$/.test(first.last30 || ''), 'the thirty-minute headline is not a number: ' + first.last30);
     ok(first.errHidden === true, 'the failure note shows on a healthy page');
   }
 
@@ -112,7 +113,7 @@ for i in range(${n}):
     }
     ok(after >= before + 6, `requests tile ${before} -> ${after}, expected +6 within 16 s`);
     // The figure that moved flashed (the class stays after the animation).
-    const flashed = await page.evaluate(() => document.querySelector('#live-grid .live[data-k="requests"] [data-f="last"]').classList.contains('v-flash'));
+    const flashed = await page.evaluate(() => document.querySelector('#live-grid .live[data-k="requests"] [data-f="last30"]').classList.contains('v-flash'));
     ok(flashed, 'the requests figure changed without a flash');
     ok(pass >= 3 && serve >= 3, `pass=${pass} serve=${serve}, expected 3 each from the fed lines`);
     const noFeedNote = await page.evaluate(() => document.getElementById('live-feed-off').hidden);

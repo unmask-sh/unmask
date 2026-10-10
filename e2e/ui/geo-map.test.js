@@ -36,8 +36,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.evaluate(async base => {
     await fetch(base + '/admin/api/map-location', { method: 'POST', credentials: 'same-origin', body: new URLSearchParams({ lat: '', lon: '', label: '' }) });
   }, BASE);
-  const resp = await page.goto(BASE + '/admin/', { waitUntil: 'networkidle2' });
-  ok(resp.status() === 200, `/admin/ status ${resp.status()}`);
+  const resp = await page.goto(BASE + '/admin/live/', { waitUntil: 'networkidle2' });
+  ok(resp.status() === 200, `/admin/live/ status ${resp.status()}`);
   await sleep(800); // the outline fetch and the first reading
 
   // Painted pixels: the land is drawn, so the canvas is no longer blank.
@@ -80,10 +80,16 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(landLit > 50, `the outline did not paint (${landLit} lit samples)`);
 
   // A reading with countries: sources are drawn (dots and labels), and once
-  // a position is set, streams bright enough to lift the lit count.
+  // a position is set, streams bright enough to lift the lit count.  The
+  // strip's own five-second poll is switched off first, or a real reading
+  // (empty on this install) could land between the feed and the checks.
+  await page.click('#live-toggle');
+  const autoOff = await page.evaluate(() => document.getElementById('live-toggle').getAttribute('aria-pressed') === 'false');
+  ok(autoOff, 'the auto-refresh switch did not go off');
   const feed = () => page.evaluate(() => {
     document.dispatchEvent(new CustomEvent('unmask:now', { detail: {
-      countries: { JP: { n: 148, pass: 100, bypass: 3, serve: 40, deny: 5 }, US: { n: 31, pass: 10, bypass: 0, serve: 15, deny: 6 }, DE: { n: 6, pass: 6, bypass: 0, serve: 0, deny: 0 } },
+      countries: { JP: { n: 48, pass: 30, bypass: 1, serve: 12, deny: 5 }, US: { n: 9, pass: 3, bypass: 0, serve: 4, deny: 2 } },
+      countries30: { JP: { n: 148, pass: 100, bypass: 3, serve: 40, deny: 5 }, US: { n: 31, pass: 10, bypass: 0, serve: 15, deny: 6 }, DE: { n: 6, pass: 6, bypass: 0, serve: 0, deny: 0 } },
       country_names: { JP: 'Japan (日本)', US: 'United States (アメリカ合衆国)', DE: 'Germany (ドイツ)' },
     } }));
   });
@@ -113,7 +119,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     ok(!pop.hidden, 'no popover on the US source');
     ok(/United States/.test(pop.text), 'the popover lacks the full name: ' + pop.text);
     ok(/us\.png$/.test(pop.img), 'the popover lacks the flag: ' + pop.img);
-    for (const n of ['31', '10', '15', '6', '17%']) ok(pop.text.indexOf(n) >= 0, 'the popover lacks ' + n + ': ' + pop.text);
+    for (const n of ['31', '10', '15', '6', '17%', '9']) ok(pop.text.indexOf(n) >= 0, 'the popover lacks ' + n + ': ' + pop.text);
     ok(pop.cursor === 'pointer', 'the source does not signal it is interactive: ' + pop.cursor);
     // The sea west of Africa: nothing there.
     const off = await page.evaluate(() => { const r = document.getElementById('geo').getBoundingClientRect(); return { x: r.left + r.width * 0.44, y: r.top + r.height * 0.6 }; });

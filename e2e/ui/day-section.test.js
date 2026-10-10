@@ -46,6 +46,10 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     comp: !!document.querySelector('#comp-card .comp-body'),
     ai: !!document.querySelector('table.ai-traffic'),
     stages: document.querySelectorAll('.pipe-st, .pipe-side').length,
+    // the live parts moved to the realtime page; the day keeps one line of now
+    liveLeft: document.querySelectorAll('#live-grid, #geo-card, #recent-card').length,
+    nowLine: (function(){ const p = document.querySelector('.now-line'); return p ? { text: p.textContent, link: (p.querySelector('a') || {}).getAttribute ? p.querySelector('a').getAttribute('href') : '' } : null; })(),
+    navLive: !!document.querySelector('nav.nav a[href$="/admin/live/"]'),
     pageScrolls: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
     // every tile figure is a number or a dash, never blank
     values: Array.from(document.querySelectorAll('.kpi-grid .kpi .value')).map(v => v.textContent.trim()),
@@ -55,6 +59,9 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   ok(shape.oneRow === 1, 'the tiles wrap onto ' + shape.oneRow + ' rows at 1400px');
   ok(!shape.ai, 'the AI / crawler table is still on the dashboard');
   ok(shape.stages === 0, 'the pipeline stages are still on the dashboard');
+  ok(shape.liveLeft === 0, 'the live strip, map or recent card is still on the dashboard');
+  ok(shape.nowLine && /\/admin\/live\/$/.test(shape.nowLine.link) && /\d/.test(shape.nowLine.text), 'the now line with its link to the realtime page is missing: ' + JSON.stringify(shape.nowLine));
+  ok(shape.navLive, 'the nav has no realtime link');
   ok(!shape.pageScrolls, 'the page scrolls sideways');
   ok(shape.values.every(v => v === '—' || /^[\d,]+$/.test(v)), 'a tile figure is blank: ' + shape.values.join('|'));
 

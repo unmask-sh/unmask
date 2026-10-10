@@ -58,6 +58,7 @@ th{background:#f8fafc;font-weight:600;color:#475569;font-size:.78rem;text-transf
   </a>
   <nav class="nav">
     <a href="{{ .BasePath }}/admin/">{{ t .Lang "nav.dashboard" }}</a>
+    <a href="{{.BasePath}}/admin/live/">{{ t .Lang "nav.live" }}</a>
     <a href="{{ .BasePath }}/admin/community-bans/">{{ t .Lang "nav.community_bans" }}</a>
     <a href="{{ .BasePath }}/admin/community-bans/removals" class="active">{{ t .Lang "removal_requests.nav" }}</a>
     <a href="{{ .BasePath }}/admin/settings/">{{ t .Lang "nav.settings" }}</a>

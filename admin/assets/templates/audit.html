@@ -75,6 +75,7 @@ table.audit td.detail{font-family:ui-monospace,Menlo,monospace;color:#64748b;fon
   </a>
   <nav class="nav">
     <a href="{{.BasePath}}/admin/">{{ t .Lang "nav.dashboard" }}</a>
+    <a href="{{.BasePath}}/admin/live/">{{ t .Lang "nav.live" }}</a>
     <a href="{{.BasePath}}/admin/stats/">{{ t .Lang "nav.stats" }}</a>
     <a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
     <a href="{{.BasePath}}/admin/bans/">{{ t .Lang "nav.bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>

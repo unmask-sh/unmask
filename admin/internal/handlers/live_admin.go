@@ -25,6 +25,8 @@ type liveTile struct {
 	HelpKey    string // i18n key of its help text
 	Color      string // the kind's colour, the same one the stats charts use
 	Last       int    // the last live.Window seconds
+	Last30     int    // the last live.Minutes minutes: the tile's headline
+	Bars       []liveBar
 	Delta      int    // Last minus the window before
 	DeltaText  string // "+12" / "-3" / "±0"
 	DeltaClass string // "up" / "down" / ""
@@ -75,6 +77,8 @@ func (h *Handler) liveView(now time.Time, tzName string) liveView {
 			HelpKey:  "overview.live." + live.Names[k] + "_help",
 			Color:    lk.color,
 			Last:     int(sn.Last[k]),
+			Last30:   int(sn.Last30[k]),
+			Bars:     liveBarGeom(sn.PerMinute[k][:]),
 			Delta:    int(sn.Last[k]) - int(sn.Prev[k]),
 			Points:   liveSparkPoints(sn.Series[k][:]),
 		}
@@ -97,6 +101,35 @@ func deltaText(d int) (string, string) {
 		return fmt.Sprintf("%d", d), "down"
 	}
 	return "±0", ""
+}
+
+// liveBar is one minute's bar of a tile's chart: the same 150×34 box as the
+// sparkline, a 4-unit bar in each 5-unit slot, the top 2 left free, a bar
+// of zero height for a minute without hits.
+type liveBar struct {
+	X, Y, H float64
+}
+
+func liveBarGeom(vals []uint32) []liveBar {
+	if len(vals) == 0 {
+		return nil
+	}
+	var max uint32
+	for _, v := range vals {
+		if v > max {
+			max = v
+		}
+	}
+	slot := sparkW / float64(len(vals))
+	out := make([]liveBar, len(vals))
+	for i, v := range vals {
+		h := 0.0
+		if max > 0 {
+			h = float64(v) / float64(max) * (sparkH - 4)
+		}
+		out[i] = liveBar{X: float64(i) * slot, Y: sparkH - 2 - h, H: h}
+	}
+	return out
 }
 
 // Sparkline geometry, shared with the script that redraws it: a 150×34 box,
@@ -136,6 +169,8 @@ func liveSparkPoints(vals []uint32) string {
 //	 "series": {"requests": [60 ints], ...}, "last": {"requests": n, ...},
 //	 "prev": {...}, "tps": {"now": 1.6, "peak": 8.6, "avg": 2.5},
 //	 "countries": {"JP": {"n":148,"pass":100,"bypass":3,"serve":40,"deny":5}},
+//	 "minutes": {"requests": [30 ints], ...}, "minutes_n": 30, "last30": {"requests": n, ...},
+//	 "countries30": {"JP": {...}},
 //	 "country_names": {"JP": "Japan (日本)"},
 //	 "feed_off": false, "bans": 9}
 //
@@ -155,19 +190,30 @@ func (h *Handler) AdminNowJSON(w http.ResponseWriter, r *http.Request) {
 		series := map[string][]uint32{}
 		last := map[string]uint32{}
 		prev := map[string]uint32{}
+		minutes := map[string][]uint32{}
+		last30 := map[string]uint32{}
 		for k := live.Kind(0); k < live.NumKinds; k++ {
 			series[live.Names[k]] = sn.Series[k][:]
 			last[live.Names[k]] = sn.Last[k]
 			prev[live.Names[k]] = sn.Prev[k]
+			minutes[live.Names[k]] = sn.PerMinute[k][:]
+			last30[live.Names[k]] = sn.Last30[k]
 		}
 		out["series"] = series
 		out["last"] = last
 		out["prev"] = prev
+		out["minutes"] = minutes
+		out["minutes_n"] = live.Minutes
+		out["last30"] = last30
+		out["countries30"] = sn.Countries30
 		out["tps"] = map[string]float64{"now": sn.TPS, "peak": sn.Peak, "avg": sn.Avg}
 		out["countries"] = sn.Countries
 		// Each source's full name, for the map's popover: worded once here
 		// rather than shipping the country table to the page.
-		names := make(map[string]string, len(sn.Countries))
+		names := make(map[string]string, len(sn.Countries30))
+		for cc := range sn.Countries30 {
+			names[cc] = ipgeo.CountryName(cc)
+		}
 		for cc := range sn.Countries {
 			names[cc] = ipgeo.CountryName(cc)
 		}

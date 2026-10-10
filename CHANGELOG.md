@@ -12,6 +12,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-10-10) **Realtime moves to its own page and reads thirty minutes.**  The "right now" strip, the map of sources and the recent detections leave the dashboard for a Realtime page in the nav, as analytics products keep them apart.  Each tile shows the last thirty minutes with a bar a minute and the last minute under it; the map draws the same thirty.  The dashboard keeps a line of now, linking there.
+
+### Fixed
+
+- (2026-10-10) **The map's position dialog showed the source's name percent-encoded.**  The line saying what the automatic position was worked out from read %e5%85%b1... instead of the words: the attribute carrying the text was named like a URL, and the template engine encoded it as one.  Renamed, and a test now refuses such attribute names across every page.
+
 ## [0.1.51-rc8] - 2026-10-10 (testing build)
 
 ### Fixed

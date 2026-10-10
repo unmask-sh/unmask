@@ -71,10 +71,23 @@ type slot struct {
 	cc  map[string]*[NumKinds]uint32
 }
 
+// Minutes is the number of one-minute buckets kept beside the second ring:
+// the realtime page's window, thirty minutes drawn a minute at a time.
+const Minutes = 30
+
+// minSlot is one minute of the longer ring: the counts and the per-country
+// counts of every hit whose unix minute is min (0 = never used).
+type minSlot struct {
+	min int64
+	n   [NumKinds]uint32
+	cc  map[string]*[NumKinds]uint32
+}
+
 // Counter is the ring.  The zero value is not ready; use New.
 type Counter struct {
 	mu    sync.Mutex
 	slots [Span]slot
+	mins  [Minutes]minSlot
 	// lastLine is the unix second of the most recent Requests hit: whether the
 	// feed that fills the strip is alive at all.
 	lastLine int64
@@ -107,13 +120,33 @@ func (c *Counter) Hit(now time.Time, cc string, m Mask) {
 			s.cc[cc] = e
 		}
 	}
+	// The minute ring, kept the same way.
+	mn := sec / 60
+	ms := &c.mins[mn%Minutes]
+	if ms.min != mn {
+		*ms = minSlot{min: mn}
+	}
+	var me *[NumKinds]uint32
+	if cc != "" {
+		if ms.cc == nil {
+			ms.cc = map[string]*[NumKinds]uint32{}
+		}
+		if me = ms.cc[cc]; me == nil {
+			me = new([NumKinds]uint32)
+			ms.cc[cc] = me
+		}
+	}
 	for k := Kind(0); k < NumKinds; k++ {
 		if !m.Has(k) {
 			continue
 		}
 		s.n[k]++
+		ms.n[k]++
 		if e != nil {
 			e[k]++
+		}
+		if me != nil {
+			me[k]++
 		}
 	}
 	if m.Has(Requests) && sec > c.lastLine {
@@ -166,6 +199,13 @@ type Snapshot struct {
 	// Countries is the last Window seconds by source country ("" is not a key:
 	// requests of unknown country count only in the totals).
 	Countries map[string]Country
+	// PerMinute holds the last Minutes minutes per kind, oldest first; the
+	// last entry is the minute the reading was taken in, still filling.
+	PerMinute [NumKinds][Minutes]uint32
+	// Last30 is the sum of PerMinute; Countries30 the same minutes by source
+	// country.
+	Last30      [NumKinds]uint32
+	Countries30 map[string]Country
 	// LastLine is the unix second of the most recent request counted, 0 if
 	// none ever was.
 	LastLine int64
@@ -175,12 +215,36 @@ type Snapshot struct {
 func (c *Counter) Snapshot(now time.Time) Snapshot {
 	end := now.Unix() + 1
 	start := end - Span
-	sn := Snapshot{At: end, Countries: map[string]Country{}}
+	sn := Snapshot{At: end, Countries: map[string]Country{}, Countries30: map[string]Country{}}
 	if c == nil {
 		return sn
 	}
 	c.mu.Lock()
 	sn.LastLine = c.lastLine
+	curMin := (end - 1) / 60
+	for i := 0; i < Minutes; i++ {
+		mn := curMin - int64(Minutes-1) + int64(i)
+		if mn < 0 {
+			continue
+		}
+		ms := &c.mins[mn%Minutes]
+		if ms.min != mn {
+			continue
+		}
+		for k := Kind(0); k < NumKinds; k++ {
+			sn.PerMinute[k][i] = ms.n[k]
+			sn.Last30[k] += ms.n[k]
+		}
+		for cc, e := range ms.cc {
+			x := sn.Countries30[cc]
+			x.N += e[Requests]
+			x.Pass += e[Pass]
+			x.Bypass += e[Bypass]
+			x.Serve += e[Serve]
+			x.Deny += e[Deny]
+			sn.Countries30[cc] = x
+		}
+	}
 	for sec := start; sec < end; sec++ {
 		s := &c.slots[sec%Span]
 		if s.sec != sec {

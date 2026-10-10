@@ -42,9 +42,14 @@ func TestAdminNowJSON(t *testing.T) {
 			N    uint32 `json:"n"`
 			Pass uint32 `json:"pass"`
 		} `json:"countries"`
-		CountryNames map[string]string `json:"country_names"`
-		FeedOff      bool              `json:"feed_off"`
-		TPSText      string            `json:"tps_text"`
+		CountryNames map[string]string   `json:"country_names"`
+		Minutes      map[string][]uint32 `json:"minutes"`
+		Last30       map[string]uint32   `json:"last30"`
+		Countries30  map[string]struct {
+			N uint32 `json:"n"`
+		} `json:"countries30"`
+		FeedOff bool   `json:"feed_off"`
+		TPSText string `json:"tps_text"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("json: %v\n%s", err, rec.Body.String())
@@ -68,8 +73,16 @@ func TestAdminNowJSON(t *testing.T) {
 		t.Error("a country from the previous minute leaked into the window")
 	}
 	// The map's popover names the source in full, from the same reading.
-	if out.CountryNames["JP"] != "Japan (日本)" || len(out.CountryNames) != len(out.Countries) {
+	// (the names cover the thirty-minute window too, so US is named
+	// although it left the last minute.)
+	if out.CountryNames["JP"] != "Japan (日本)" || out.CountryNames["US"] == "" || len(out.CountryNames) < len(out.Countries) {
 		t.Errorf("country_names = %v", out.CountryNames)
+	}
+	if out.Last30["requests"] != 4 || len(out.Minutes["requests"]) != 30 || out.Minutes["requests"][29] != 3 || out.Minutes["requests"][28] != 1 {
+		t.Errorf("thirty minutes: last30=%v minutes=%v", out.Last30, out.Minutes["requests"])
+	}
+	if out.Countries30["US"].N != 1 || out.Countries30["JP"].N != 3 {
+		t.Errorf("countries30 = %v", out.Countries30)
 	}
 	if out.TPS["now"] != 3.0/live.Step {
 		t.Errorf("tps = %v", out.TPS)
@@ -134,29 +147,61 @@ func TestLiveViewTiles(t *testing.T) {
 
 // The overview renders the strip with its first reading, so a page without
 // script still says real numbers; without a counter the strip is absent.
-func TestOverviewRendersLiveStrip(t *testing.T) {
+func TestLivePageRendersStrip(t *testing.T) {
 	h := newTestHandler(t)
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
 	h.Live = live.New()
 	h.Live.Hit(time.Now(), "JP", live.Of(live.Requests, live.Serve))
-	req := httptest.NewRequest("GET", "/unmask/admin/", nil)
+	req := httptest.NewRequest("GET", "/unmask/admin/live/", nil)
 	rec := httptest.NewRecorder()
-	h.AdminTopOverview(rec, req)
+	h.AdminLive(rec, req)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status %d", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{`id="live-grid"`, `data-k="requests"`, `data-k="rate_limit"`, `/admin/api/now`, `id="live-toggle"`} {
+	for _, want := range []string{`id="live-grid"`, `data-k="requests"`, `data-k="rate_limit"`, `/admin/api/now`, `id="live-toggle"`, `data-f="last30"`, `data-f="bars"`, `id="geo-card"`, `id="recent-card"`, `data-src="/unmask/admin/live/?partial=recent"`} {
 		if !strings.Contains(body, want) {
-			t.Errorf("overview lacks %q", want)
+			t.Errorf("realtime page lacks %q", want)
 		}
 	}
 	if strings.Count(body, `class="live" data-k=`) != int(live.NumKinds) {
 		t.Errorf("%d tiles rendered", strings.Count(body, `class="live" data-k=`))
 	}
-	h.Live = nil
+	// A bar a minute on every tile (counted inside the grid: the shared
+	// partials draw rects of their own).
+	grid := body[strings.Index(body, `id="live-grid"`):strings.Index(body, `id="live-feed-off"`)]
+	if n := strings.Count(grid, `<rect x="`); n != int(live.NumKinds)*live.Minutes {
+		t.Errorf("%d bars, want %d", n, int(live.NumKinds)*live.Minutes)
+	}
+	// The dashboard has no strip, map or recent card any more: a line of now
+	// that points here, redrawn with the day section.
 	rec = httptest.NewRecorder()
 	h.AdminTopOverview(rec, httptest.NewRequest("GET", "/unmask/admin/", nil))
-	if strings.Contains(rec.Body.String(), `id="live-grid"`) {
-		t.Error("the strip rendered without a counter")
+	page := rec.Body.String()
+	for _, gone := range []string{`id="live-grid"`, `id="geo-card"`, `id="recent-card"`} {
+		if strings.Contains(page, gone) {
+			t.Errorf("the dashboard still carries %q", gone)
+		}
+	}
+	if !strings.Contains(page, `class="now-line"`) || !strings.Contains(page, `href="/unmask/admin/live/"`) {
+		t.Error("the dashboard lacks the line of now with its link to the realtime page")
+	}
+	rec = httptest.NewRecorder()
+	h.AdminTopOverview(rec, httptest.NewRequest("GET", "/unmask/admin/?partial=day", nil))
+	if !strings.Contains(rec.Body.String(), `class="now-line"`) {
+		t.Error("the day partial must carry the line of now, so the minute refresh keeps it")
+	}
+	h.Live = nil
+	rec = httptest.NewRecorder()
+	h.AdminLive(rec, httptest.NewRequest("GET", "/unmask/admin/live/", nil))
+	if b := rec.Body.String(); strings.Contains(b, `id="live-grid"`) || !strings.Contains(b, "リアルタイム計測") {
+		t.Error("without a counter the realtime page must say so and show no strip")
+	}
+	rec = httptest.NewRecorder()
+	h.AdminTopOverview(rec, httptest.NewRequest("GET", "/unmask/admin/", nil))
+	if strings.Contains(rec.Body.String(), `class="now-line"`) {
+		t.Error("the line of now rendered without a counter")
 	}
 }

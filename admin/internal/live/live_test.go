@@ -122,3 +122,32 @@ func TestMask(t *testing.T) {
 		t.Errorf("names %v", Names)
 	}
 }
+
+// The minute ring: thirty one-minute buckets, the reading's own minute
+// last, with the countries of those minutes; a hit older than the window
+// is gone.
+func TestMinuteRing(t *testing.T) {
+	c := New()
+	now := time.Unix(1_700_000_000, 0).Add(45 * time.Second) // 45 s into a minute
+	c.Hit(now, "JP", Of(Requests, Pass))
+	c.Hit(now.Add(-2*time.Minute), "JP", Of(Requests, Serve))
+	c.Hit(now.Add(-29*time.Minute), "US", Of(Requests, Deny))
+	c.Hit(now.Add(-31*time.Minute), "DE", Of(Requests))
+	sn := c.Snapshot(now)
+	if sn.PerMinute[Requests][Minutes-1] != 1 || sn.PerMinute[Requests][Minutes-3] != 1 || sn.PerMinute[Requests][0] != 1 {
+		t.Errorf("per-minute requests: %v", sn.PerMinute[Requests])
+	}
+	if sn.Last30[Requests] != 3 || sn.Last30[Pass] != 1 || sn.Last30[Serve] != 1 || sn.Last30[Deny] != 1 {
+		t.Errorf("last30: %v", sn.Last30)
+	}
+	if sn.Countries30["JP"].N != 2 || sn.Countries30["JP"].Serve != 1 || sn.Countries30["US"].Deny != 1 {
+		t.Errorf("countries30: %v", sn.Countries30)
+	}
+	if _, ok := sn.Countries30["DE"]; ok {
+		t.Error("a hit 31 minutes old is outside the window")
+	}
+	// The second ring's last minute is unchanged by the longer one.
+	if sn.Last[Requests] != 1 || sn.Countries["JP"].N != 1 {
+		t.Errorf("last minute: %v %v", sn.Last, sn.Countries)
+	}
+}
