@@ -344,6 +344,7 @@ func loadDashboardTemplate() (*template.Template, error) {
 			// pattern for this UA -- the name it calls itself, or "" when it
 			// only claims to be a browser.
 			"uaRuleToken":    classify.UARuleToken,
+			"crDraft":        customRuleDraftLink,
 			"uaPlatformIcon": classify.UAPlatformIcon,
 			"uaBrowserColor": classify.UABrowserColor,
 			"uaBrowserIcon":  classify.UABrowserIcon,

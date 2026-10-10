@@ -116,6 +116,44 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   const gone = await page.evaluate(() => document.querySelectorAll('#cr-list [data-cr]').length);
   ok(gone === 0, `after removing: ${gone} rows`);
 
+  // A draft from the hunt or the assistant: the card is there, filled and
+  // focused, unsaved until the operator saves it.
+  resp = await page.goto(BASE + '/admin/settings/custom-rules/?new=1&label=from%20hunt&asns=4134&ua=scrapy&action=monitor', { waitUntil: 'networkidle2' });
+  ok(resp.status() === 200, `draft status ${resp.status()}`);
+  const draft = await page.evaluate(() => {
+    const d = document.getElementById('cr-draft');
+    if (!d) return { missing: true };
+    const v = n => (d.querySelector('[name="' + n + '"]') || {}).value;
+    return { id: v('cr_id'), label: v('cr_label'), asns: v('cr_asns'), ua: v('cr_ua'), action: v('cr_action'),
+      focused: document.activeElement && document.activeElement.name, rows: document.querySelectorAll('#cr-list [data-cr]').length };
+  });
+  ok(!draft.missing, 'the draft card is missing');
+  if (!draft.missing) {
+    ok(draft.id === '' && draft.label === 'from hunt' && draft.asns === '4134' && draft.ua === 'scrapy' && draft.action === 'monitor', `draft fields: ${JSON.stringify(draft)}`);
+    ok(draft.focused === 'cr_label', `focus on the draft is on ${draft.focused}`);
+    ok(draft.rows === 1, `rows with a draft: ${draft.rows}`);
+  }
+  // Reloading the plain tab shows nothing was saved by viewing the draft.
+  await page.goto(BASE + '/admin/settings/custom-rules/', { waitUntil: 'networkidle2' });
+  const unsaved = await page.evaluate(() => document.querySelectorAll('#cr-list [data-cr]').length);
+  ok(unsaved === 0, `viewing a draft saved ${unsaved} rule(s)`);
+  // Saving the draft keeps it.
+  await page.goto(BASE + '/admin/settings/custom-rules/?new=1&label=from%20hunt&asns=4134&ua=scrapy&action=monitor', { waitUntil: 'networkidle2' });
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'networkidle2' }),
+    page.click('form[action$="section=custom-rules"] button[type="submit"]'),
+  ]);
+  const kept = await page.evaluate(() => {
+    const row = document.querySelector('#cr-list [data-cr]');
+    return { rows: document.querySelectorAll('#cr-list [data-cr]').length, id: row ? row.querySelector('[name="cr_id"]').value : '', draft: !!document.getElementById('cr-draft') };
+  });
+  ok(kept.rows === 1 && /^cr[0-9a-z]+$/.test(kept.id) && !kept.draft, `after saving the draft: ${JSON.stringify(kept)}`);
+  await page.click('#cr-list [data-cr] .cr-remove');
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'networkidle2' }),
+    page.click('form[action$="section=custom-rules"] button[type="submit"]'),
+  ]);
+
   ok(errors.length === 0, 'page errors: ' + errors.join(' | '));
   await browser.close();
   if (fails.length) {

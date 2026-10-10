@@ -86,8 +86,13 @@ func (h *Handler) askHistory(ctx context.Context, userID int64, limit int) ([]db
 type askPart struct {
 	Code bool
 	Link string // the admin path (under the base path) this run links to
+	Rule bool   // Link opens the custom-rules tab with a proposed rule filled in: shown as a button
 	Text string
 }
+
+// customRuleDraftPrefix: the path propose_custom_rule returns (the tab with
+// ?new=1 and the rule's fields); the page shows it as a button, not a URL.
+const customRuleDraftPrefix = "/admin/settings/custom-rules/?new=1"
 
 var fenceRE = regexp.MustCompile("```[A-Za-z0-9_-]*\n?")
 
@@ -119,7 +124,8 @@ func linkAdminPaths(text string) []askPart {
 		if m[0] > pos {
 			out = append(out, askPart{Text: text[pos:m[0]]})
 		}
-		out = append(out, askPart{Link: text[m[0]:m[1]], Text: text[m[0]:m[1]]})
+		link := text[m[0]:m[1]]
+		out = append(out, askPart{Link: link, Text: link, Rule: strings.HasPrefix(link, customRuleDraftPrefix)})
 		pos = m[1]
 	}
 	if pos < len(text) {

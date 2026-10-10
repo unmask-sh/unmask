@@ -133,3 +133,36 @@ func (d Deps) Run2(ctx context.Context, name string) any {
 	v, _ := d.Run(ctx, name, nil)
 	return v
 }
+
+// propose_custom_rule validates and answers with the page that creates the
+// rule; it never saves one, and a bad condition is the error the model reads.
+func TestProposeCustomRule(t *testing.T) {
+	d := testDeps(t)
+	ctx := context.Background()
+	out, err := d.Run(ctx, "propose_custom_rule", map[string]any{
+		"label": "scraper", "ips": []any{"203.0.113.0/24"}, "ja4s": []any{"T13D*"}, "asns": []any{float64(4134), "AS16509"},
+		"ua": "python-requests", "path": "^/search", "action": "captcha_only",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := MarshalResult(out, 1<<20)
+	// (the JSON writes & as \u0026, so the assertions avoid it)
+	for _, want := range []string{`"create_path":"/admin/settings/custom-rules/?new=1`, "ips=203.0.113.0%2F24", "ja4s=t13d%2A", "asns=4134%2C16509", "action=captcha_only", "Nothing was changed"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("propose: lacks %q in %s", want, js)
+		}
+	}
+	if _, err := d.Run(ctx, "propose_custom_rule", map[string]any{"label": "x", "ips": []any{"not-an-address"}, "action": "deny"}); err == nil {
+		t.Error("a bad address must be refused")
+	}
+	if _, err := d.Run(ctx, "propose_custom_rule", map[string]any{"label": "x", "action": "deny"}); err == nil {
+		t.Error("a rule without a condition must be refused")
+	}
+	if _, err := d.Run(ctx, "propose_custom_rule", map[string]any{"ips": []any{"203.0.113.1"}, "action": "deny"}); err == nil {
+		t.Error("a rule without a label must be refused")
+	}
+	if n := d.Settings().Nginx.CustomRules; len(n) != 0 {
+		t.Errorf("the tool saved a rule: %+v", n)
+	}
+}

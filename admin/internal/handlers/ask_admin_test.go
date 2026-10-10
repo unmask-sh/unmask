@@ -221,6 +221,21 @@ func TestAnswerLinksAdminPaths(t *testing.T) {
 	if p := splitFences("see /admin/hunt/."); len(p) != 3 || p[1].Link != "/admin/hunt/" || p[2].Text != "." {
 		t.Errorf("trailing stop: %+v", p)
 	}
+	// The page propose_custom_rule returns is a button, not a URL to read;
+	// the whole percent-encoded query is the link.
+	p := splitFences("A rule:\n/admin/settings/custom-rules/?new=1&label=scraper&ips=203.0.113.0%2F24&action=deny\nSave it there.")
+	var rule *askPart
+	for i := range p {
+		if p[i].Rule {
+			rule = &p[i]
+		}
+	}
+	if rule == nil || rule.Link != "/admin/settings/custom-rules/?new=1&label=scraper&ips=203.0.113.0%2F24&action=deny" {
+		t.Errorf("rule part: %+v", p)
+	}
+	if p := splitFences("/admin/settings/custom-rules/"); len(p) != 1 || p[0].Rule {
+		t.Errorf("the bare tab is a plain link: %+v", p)
+	}
 }
 
 func TestSplitFences(t *testing.T) {

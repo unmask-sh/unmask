@@ -243,6 +243,7 @@ table.rank td.actions{text-align:right;white-space:nowrap}
 .rank-act:hover{background:#0f172a;color:#fff;border-color:#0f172a}
 .rank-act.danger{color:#b91c1c;border-color:#fca5a5}
 .rank-act.danger:hover{background:#dc2626;color:#fff;border-color:#dc2626}
+.rank-act.cr-link{text-decoration:none;margin-left:.25rem}
 /* req count doubles as a "filter raw log by this key" link.  The magnifier is
    faint at rest so the column still reads as numbers, and lights up on hover. */
 .req-search{display:inline-flex;align-items:center;gap:.3rem;justify-content:flex-end;text-decoration:none;color:inherit}
@@ -416,6 +417,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <button type="submit" class="rank-act danger">{{ t $.Lang "hunt.btn.ban" }}</button>
             </form>
           {{ end }}
+            <a class="rank-act cr-link" href="{{ $.BasePath }}/admin/settings/custom-rules/{{ crDraft "ips" .Key (printf "bot hunt: %s" .Key) }}" target="_blank" rel="noopener" title="{{ t $.Lang "hunt.btn.custom_rule_title" }}">{{ t $.Lang "hunt.btn.custom_rule" }} ↗</a>
         </td>
       </tr>
       {{ else }}
@@ -478,6 +480,9 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <button type="submit" class="rank-act">{{ t $.Lang "hunt.btn.asn_rule" }}</button>
             </form>
           {{ end }}
+          {{ if .ASN }}
+            <a class="rank-act cr-link" href="{{ $.BasePath }}/admin/settings/custom-rules/{{ crDraft "asns" (printf "%d" .ASN) .Org }}" target="_blank" rel="noopener" title="{{ t $.Lang "hunt.btn.custom_rule_title" }}">{{ t $.Lang "hunt.btn.custom_rule" }} ↗</a>
+          {{ end }}
         </td>
       </tr>
       {{ end }}
@@ -534,6 +539,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <button type="submit" class="rank-act">{{ t $.Lang "hunt.btn.ja4_ban" }}</button>
             </form>
             {{ end }}
+            <a class="rank-act cr-link" href="{{ $.BasePath }}/admin/settings/custom-rules/{{ crDraft "ja4s" .Key (printf "bot hunt: %s" .Key) }}" target="_blank" rel="noopener" title="{{ t $.Lang "hunt.btn.custom_rule_title" }}">{{ t $.Lang "hunt.btn.custom_rule" }} ↗</a>
           {{ end }}
         </td>
       </tr>
@@ -591,6 +597,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <button type="submit" class="rank-act">{{ t $.Lang "hunt.btn.ua_blacklist" }}</button>
             </form>
             {{ end }}
+            <a class="rank-act cr-link" href="{{ $.BasePath }}/admin/settings/custom-rules/{{ crDraft "ua" (uaRuleToken .Key) (printf "bot hunt: %s" (uaRuleToken .Key)) }}" target="_blank" rel="noopener" title="{{ t $.Lang "hunt.btn.custom_rule_title" }}">{{ t $.Lang "hunt.btn.custom_rule" }} ↗</a>
           {{ end }}
         </td>
       </tr>

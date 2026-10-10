@@ -782,8 +782,10 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"GeoDefaultRate":       cur.Geo.DefaultRatePerMin,
 		// The custom rules with their day's hit count and last hit (in
 		// memory since the daemon started: CustomRuleHitsSince).
-		"CustomRules":         h.customRuleViews(cur.CustomRules),
+		"CustomRules":         h.customRuleViews(cur.CustomRules, i18n.Resolve(r)),
 		"CustomRuleHitsSince": h.customRuleHitsSince(),
+		"CustomRuleDraft":     customRuleDraft(r.URL.Query(), i18n.Resolve(r)),
+		"CustomRuleBlank":     customRuleView{CustomRule: settings.CustomRule{Enabled: true, Action: settings.GeoActionCaptchaOnly}, Lang: i18n.Resolve(r), Blank: true},
 		// What an UNSET chain picker acts as: protected paths / the ja4 default
 		// chain fall back to the rate-limit default chmode; surfaced so the
 		// "(unset)" option can show the value it resolves to.

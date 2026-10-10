@@ -44,6 +44,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1567,6 +1568,44 @@ func NormalizeCustomRule(r *CustomRule) error {
 		return fmt.Errorf("rule %q: at least one condition is needed", r.Label)
 	}
 	return nil
+}
+
+// CustomRuleDraftQuery is the query string that opens the custom-rules tab
+// with r filled in as an unsaved draft (/admin/settings/custom-rules/?new=1&...).
+// Every value is percent-encoded so the result is one run of
+// [A-Za-z0-9_./?=&%-]: the ask page's linkifier stops at anything else.
+func CustomRuleDraftQuery(r CustomRule) string {
+	// new=1 leads so the page and the ask page's linkifier recognise the
+	// path by its prefix; url.Values would sort it among the rest.
+	q := url.Values{}
+	set := func(k, v string) {
+		if v = strings.TrimSpace(v); v != "" {
+			q.Set(k, v)
+		}
+	}
+	set("label", r.Label)
+	set("ips", strings.Join(r.IPs, ","))
+	set("ja4s", strings.Join(r.JA4s, ","))
+	set("countries", strings.Join(r.Countries, ","))
+	asns := make([]string, len(r.ASNs))
+	for i, a := range r.ASNs {
+		asns[i] = strconv.FormatUint(uint64(a), 10)
+	}
+	set("asns", strings.Join(asns, ","))
+	set("ua", r.UA)
+	set("path", r.Path)
+	set("hosts", strings.Join(r.Hosts, ","))
+	set("action", r.Action)
+	if r.RatePerMin > 0 {
+		set("rate", strconv.Itoa(r.RatePerMin))
+	}
+	enc := q.Encode()
+	enc = strings.ReplaceAll(enc, "+", "%20")
+	enc = strings.ReplaceAll(enc, "~", "%7E")
+	if enc == "" {
+		return "?new=1"
+	}
+	return "?new=1&" + enc
 }
 
 // EnabledCustomRules returns the rules that render, in order.

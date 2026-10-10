@@ -132,3 +132,45 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 		t.Errorf("the rule left out was not removed: %+v", again.Nginx.CustomRules)
 	}
 }
+
+// A draft (?new=1&...) from the hunt or the assistant renders as an unsaved
+// card with the fields filled in and no id, and nothing is saved by viewing
+// it; the add-a-rule template is still there.
+func TestCustomRulesTabDraft(t *testing.T) {
+	h := newTestHandler(t)
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/?new=1&label=scraper&ips=203.0.113.0%2F24%2C198.51.100.7&ja4s=t13d%2A&asns=AS4134&ua=python-requests&action=deny&rate=30", nil)
+	req.SetPathValue("tab", "custom-rules")
+	req.Header.Set("Cookie", "unmask_lang=ja")
+	rr := httptest.NewRecorder()
+	h.AdminSettingsIndex(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("tab: %d", rr.Code)
+	}
+	page := rr.Body.String()
+	for _, want := range []string{`id="cr-draft"`, `name="cr_id" value=""`, `name="cr_label" value="scraper"`, `name="cr_ips" value="203.0.113.0/24, 198.51.100.7"`, `name="cr_ja4s" value="t13d*"`, `name="cr_asns" value="4134"`, `name="cr_ua" value="python-requests"`, `<option value="deny" selected>`, `name="cr_rate" min="0" value="30"`, "まだ保存されていません", `id="cr-template"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("draft tab lacks %q", want)
+		}
+	}
+	if strings.Contains(page, `id="cr-empty"`) {
+		t.Error("the empty note shows beside a draft")
+	}
+	if n := h.snapshotSettings().Nginx.CustomRules; len(n) != 0 {
+		t.Errorf("viewing a draft saved it: %+v", n)
+	}
+	// An unknown action falls back to CAPTCHA; without ?new=1 there is no draft.
+	req = httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/?new=1&ips=203.0.113.1&action=ban", nil)
+	req.SetPathValue("tab", "custom-rules")
+	rr = httptest.NewRecorder()
+	h.AdminSettingsIndex(rr, req)
+	if !strings.Contains(rr.Body.String(), `<option value="captcha_only" selected>`) {
+		t.Error("an unknown action did not fall back to captcha_only")
+	}
+	req = httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/?ips=203.0.113.1", nil)
+	req.SetPathValue("tab", "custom-rules")
+	rr = httptest.NewRecorder()
+	h.AdminSettingsIndex(rr, req)
+	if strings.Contains(rr.Body.String(), `id="cr-draft"`) {
+		t.Error("a draft without new=1")
+	}
+}

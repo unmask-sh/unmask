@@ -21,6 +21,36 @@
      never title -- a hover tooltip on an icon button is exactly what
      feedback_icon_tooltips rules out.  Reorder omits up/down for lists whose
      order is not even organisational. */}}
+{{ define "settings_cr_card" }}
+      <div class="cr-rule{{ if not .Enabled }} disabled-row{{ end }}{{ if .Draft }} cr-draft{{ end }}" data-cr{{ if .Draft }} id="cr-draft"{{ end }}>
+        <input type="hidden" name="cr_id" value="{{ .ID }}"><input type="hidden" name="cr_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="cr_updated_at" value="{{ .UpdatedAt }}">
+        {{ if .Draft }}<p class="cr-draft-note">{{ t .Lang "settings.cr.draft_note" }}</p>{{ end }}
+        <div class="cr-head">
+          <label class="cr-toggle"><input type="checkbox" class="cr-enabled-cb" {{ if .Enabled }}checked{{ end }}><input type="hidden" name="cr_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">{{ t .Lang "settings.cr.enabled" }}</label>
+          <input type="text" name="cr_label" value="{{ .Label }}" placeholder="{{ t .Lang "settings.cr.label_ph" }}" class="cr-label" data-maxchars="80" data-maxchars-msg="{{ tf .Lang "err.value_long" 80 }}">
+          <span class="cr-hits">{{ if .LastHit }}{{ tf .Lang "settings.cr.hits" (comma .HitsDay) }} <time class="js-datetime js-datetime-notz" data-ts="{{ .LastHit }}"></time>{{ else if not (or .Draft .Blank) }}{{ t .Lang "settings.cr.hits_none" }}{{ end }}</span>
+          <button type="button" class="cr-up" title="{{ t .Lang "settings.cr.up" }}">↑</button><button type="button" class="cr-down" title="{{ t .Lang "settings.cr.down" }}">↓</button>
+          <button type="button" class="cr-remove">{{ t .Lang "settings.cr.remove" }}</button>
+        </div>
+        <div class="cr-grid">
+          <label>{{ t .Lang "settings.cr.f_ips" }}<input type="text" name="cr_ips" value="{{ .IPsText }}" placeholder="203.0.113.0/24, 198.51.100.7"></label>
+          <label>{{ t .Lang "settings.cr.f_ja4s" }}<input type="text" name="cr_ja4s" value="{{ .JA4sText }}" placeholder="t13d1516h2_8daaf6152771_b0da82dd1658, t13d*"></label>
+          <label>{{ t .Lang "settings.cr.f_countries" }}<input type="text" name="cr_countries" value="{{ .CountriesText }}" placeholder="CN, RU"></label>
+          <label>{{ t .Lang "settings.cr.f_asns" }}<input type="text" name="cr_asns" value="{{ .ASNsText }}" placeholder="4134, 16509"></label>
+          <label>{{ t .Lang "settings.cr.f_ua" }}<input type="text" name="cr_ua" value="{{ .UA }}" placeholder="python-requests|scrapy"></label>
+          <label>{{ t .Lang "settings.cr.f_path" }}<input type="text" name="cr_path" value="{{ .Path }}" placeholder="^/search"></label>
+          <label>{{ t .Lang "settings.cr.f_hosts" }}<input type="text" name="cr_hosts" value="{{ .HostsText }}" placeholder="shop.example.jp"></label>
+          <label>{{ t .Lang "settings.cr.f_action" }}<select name="cr_action">
+            <option value="monitor"{{ if eq .Action "monitor" }} selected{{ end }}>{{ t .Lang "settings.cr.act_monitor" }}</option>
+            <option value="pow_only"{{ if eq .Action "pow_only" }} selected{{ end }}>{{ t .Lang "settings.cr.act_pow_only" }}</option>
+            <option value="captcha_only"{{ if eq .Action "captcha_only" }} selected{{ end }}>{{ t .Lang "settings.cr.act_captcha_only" }}</option>
+            <option value="pow_then_captcha"{{ if eq .Action "pow_then_captcha" }} selected{{ end }}>{{ t .Lang "settings.cr.act_pow_then_captcha" }}</option>
+            <option value="deny"{{ if eq .Action "deny" }} selected{{ end }}>{{ t .Lang "settings.cr.act_deny" }}</option>
+          </select></label>
+          <label>{{ t .Lang "settings.cr.f_rate" }}<input type="number" name="cr_rate" min="0" value="{{ if gt .RatePerMin 0 }}{{ .RatePerMin }}{{ end }}" placeholder="{{ t .Lang "settings.cr.rate_ph" }}"></label>
+        </div>
+      </div>
+{{ end }}
 {{ define "ruleButtons" }}
 {{- if .Reorder }}<button type="button" class="rule-up" aria-label="{{ t .Lang "settings.ua.move_up" }}">↑</button>
 <button type="button" class="rule-down" aria-label="{{ t .Lang "settings.ua.move_down" }}">↓</button>
@@ -4097,73 +4127,20 @@ function secToHuman(s){
 .cr-grid select{font-family:inherit}
 .cr-toggle{display:inline-flex;align-items:center;gap:.3rem;font-size:.8rem;color:#334155;white-space:nowrap}
 .cr-add{font:inherit;font-size:.85rem;padding:.4rem .8rem;border:1px dashed #94a3b8;border-radius:.3rem;background:#f8fafc;color:#334155;cursor:pointer;width:100%}
+.cr-rule.cr-draft{border-color:#f59e0b;background:#fffbeb}
+.cr-draft-note{margin:0 0 .5rem;font-size:.78rem;color:#92400e}
 </style>
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=custom-rules">
   <div class="bcd-card">
     <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.cr.intro") }}</div>
     <p class="note" style="font-size:.78rem;color:#64748b;margin:0 0 .8rem">{{ tf .Lang "settings.cr.hits_note" "" }}<time class="js-datetime js-datetime-notz" data-ts="{{ .CustomRuleHitsSince }}"></time></p>
     <div id="cr-list">
-      {{ range .CustomRules }}
-      <div class="cr-rule{{ if not .Enabled }} disabled-row{{ end }}" data-cr>
-        <input type="hidden" name="cr_id" value="{{ .ID }}"><input type="hidden" name="cr_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="cr_updated_at" value="{{ .UpdatedAt }}">
-        <div class="cr-head">
-          <label class="cr-toggle"><input type="checkbox" class="cr-enabled-cb" {{ if .Enabled }}checked{{ end }}><input type="hidden" name="cr_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">{{ t $.Lang "settings.cr.enabled" }}</label>
-          <input type="text" name="cr_label" value="{{ .Label }}" placeholder="{{ t $.Lang "settings.cr.label_ph" }}" class="cr-label" data-maxchars="80" data-maxchars-msg="{{ tf $.Lang "err.value_long" 80 }}">
-          <span class="cr-hits">{{ if .LastHit }}{{ tf $.Lang "settings.cr.hits" (comma .HitsDay) }} <time class="js-datetime js-datetime-notz" data-ts="{{ .LastHit }}"></time>{{ else }}{{ t $.Lang "settings.cr.hits_none" }}{{ end }}</span>
-          <button type="button" class="cr-up" title="{{ t $.Lang "settings.cr.up" }}">↑</button><button type="button" class="cr-down" title="{{ t $.Lang "settings.cr.down" }}">↓</button>
-          <button type="button" class="cr-remove">{{ t $.Lang "settings.cr.remove" }}</button>
-        </div>
-        <div class="cr-grid">
-          <label>{{ t $.Lang "settings.cr.f_ips" }}<input type="text" name="cr_ips" value="{{ .IPsText }}" placeholder="203.0.113.0/24, 198.51.100.7"></label>
-          <label>{{ t $.Lang "settings.cr.f_ja4s" }}<input type="text" name="cr_ja4s" value="{{ .JA4sText }}" placeholder="t13d1516h2_8daaf6152771_b0da82dd1658, t13d*"></label>
-          <label>{{ t $.Lang "settings.cr.f_countries" }}<input type="text" name="cr_countries" value="{{ .CountriesText }}" placeholder="CN, RU"></label>
-          <label>{{ t $.Lang "settings.cr.f_asns" }}<input type="text" name="cr_asns" value="{{ .ASNsText }}" placeholder="4134, 16509"></label>
-          <label>{{ t $.Lang "settings.cr.f_ua" }}<input type="text" name="cr_ua" value="{{ .UA }}" placeholder="python-requests|scrapy"></label>
-          <label>{{ t $.Lang "settings.cr.f_path" }}<input type="text" name="cr_path" value="{{ .Path }}" placeholder="^/search"></label>
-          <label>{{ t $.Lang "settings.cr.f_hosts" }}<input type="text" name="cr_hosts" value="{{ .HostsText }}" placeholder="shop.example.jp"></label>
-          <label>{{ t $.Lang "settings.cr.f_action" }}<select name="cr_action">
-            <option value="monitor"{{ if eq .Action "monitor" }} selected{{ end }}>{{ t $.Lang "settings.cr.act_monitor" }}</option>
-            <option value="pow_only"{{ if eq .Action "pow_only" }} selected{{ end }}>{{ t $.Lang "settings.cr.act_pow_only" }}</option>
-            <option value="captcha_only"{{ if eq .Action "captcha_only" }} selected{{ end }}>{{ t $.Lang "settings.cr.act_captcha_only" }}</option>
-            <option value="pow_then_captcha"{{ if eq .Action "pow_then_captcha" }} selected{{ end }}>{{ t $.Lang "settings.cr.act_pow_then_captcha" }}</option>
-            <option value="deny"{{ if eq .Action "deny" }} selected{{ end }}>{{ t $.Lang "settings.cr.act_deny" }}</option>
-          </select></label>
-          <label>{{ t $.Lang "settings.cr.f_rate" }}<input type="number" name="cr_rate" min="0" value="{{ if gt .RatePerMin 0 }}{{ .RatePerMin }}{{ end }}" placeholder="{{ t $.Lang "settings.cr.rate_ph" }}"></label>
-        </div>
-      </div>
-      {{ else }}
+      {{ range .CustomRules }}{{ template "settings_cr_card" . }}{{ else }}{{ if not .CustomRuleDraft }}
       <p class="note" id="cr-empty">{{ t .Lang "settings.cr.empty" }}</p>
-      {{ end }}
+      {{ end }}{{ end }}
+      {{ with .CustomRuleDraft }}{{ template "settings_cr_card" . }}{{ end }}
     </div>
-    <template id="cr-template">
-      <div class="cr-rule" data-cr>
-        <input type="hidden" name="cr_id" value=""><input type="hidden" name="cr_created_at" value=""><input type="hidden" name="cr_updated_at" value="">
-        <div class="cr-head">
-          <label class="cr-toggle"><input type="checkbox" class="cr-enabled-cb" checked><input type="hidden" name="cr_enabled" value="1">{{ t .Lang "settings.cr.enabled" }}</label>
-          <input type="text" name="cr_label" value="" placeholder="{{ t .Lang "settings.cr.label_ph" }}" class="cr-label" data-maxchars="80" data-maxchars-msg="{{ tf .Lang "err.value_long" 80 }}">
-          <span class="cr-hits"></span>
-          <button type="button" class="cr-up" title="{{ t .Lang "settings.cr.up" }}">↑</button><button type="button" class="cr-down" title="{{ t .Lang "settings.cr.down" }}">↓</button>
-          <button type="button" class="cr-remove">{{ t .Lang "settings.cr.remove" }}</button>
-        </div>
-        <div class="cr-grid">
-          <label>{{ t .Lang "settings.cr.f_ips" }}<input type="text" name="cr_ips" value="" placeholder="203.0.113.0/24, 198.51.100.7"></label>
-          <label>{{ t .Lang "settings.cr.f_ja4s" }}<input type="text" name="cr_ja4s" value="" placeholder="t13d1516h2_8daaf6152771_b0da82dd1658, t13d*"></label>
-          <label>{{ t .Lang "settings.cr.f_countries" }}<input type="text" name="cr_countries" value="" placeholder="CN, RU"></label>
-          <label>{{ t .Lang "settings.cr.f_asns" }}<input type="text" name="cr_asns" value="" placeholder="4134, 16509"></label>
-          <label>{{ t .Lang "settings.cr.f_ua" }}<input type="text" name="cr_ua" value="" placeholder="python-requests|scrapy"></label>
-          <label>{{ t .Lang "settings.cr.f_path" }}<input type="text" name="cr_path" value="" placeholder="^/search"></label>
-          <label>{{ t .Lang "settings.cr.f_hosts" }}<input type="text" name="cr_hosts" value="" placeholder="shop.example.jp"></label>
-          <label>{{ t .Lang "settings.cr.f_action" }}<select name="cr_action">
-            <option value="monitor">{{ t .Lang "settings.cr.act_monitor" }}</option>
-            <option value="pow_only">{{ t .Lang "settings.cr.act_pow_only" }}</option>
-            <option value="captcha_only" selected>{{ t .Lang "settings.cr.act_captcha_only" }}</option>
-            <option value="pow_then_captcha">{{ t .Lang "settings.cr.act_pow_then_captcha" }}</option>
-            <option value="deny">{{ t .Lang "settings.cr.act_deny" }}</option>
-          </select></label>
-          <label>{{ t .Lang "settings.cr.f_rate" }}<input type="number" name="cr_rate" min="0" value="" placeholder="{{ t .Lang "settings.cr.rate_ph" }}"></label>
-        </div>
-      </div>
-    </template>
+    <template id="cr-template">{{ template "settings_cr_card" .CustomRuleBlank }}</template>
     <button type="button" class="cr-add" id="cr-add">+ {{ t .Lang "settings.cr.add" }}</button>
     <p class="note" style="font-size:.78rem;color:#64748b;margin:.6rem 0 0">{{ t .Lang "settings.cr.rate_hint" }}</p>
     <div style="margin-top:1rem">
@@ -4183,6 +4160,8 @@ function secToHuman(s){
     card.querySelector('.cr-down').addEventListener('click', function(){ var n = card.nextElementSibling; if (n && n.hasAttribute('data-cr')) list.insertBefore(n, card); });
   }
   list.querySelectorAll('[data-cr]').forEach(wire);
+  var draft = document.getElementById('cr-draft');
+  if (draft) { draft.scrollIntoView({ block: 'center' }); var lb = draft.querySelector('.cr-label'); if (lb) lb.focus(); }
   add.addEventListener('click', function(){
     var empty = document.getElementById('cr-empty'); if (empty) empty.remove();
     var card = tpl.content.firstElementChild.cloneNode(true);

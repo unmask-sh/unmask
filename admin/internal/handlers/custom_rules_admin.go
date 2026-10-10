@@ -3,10 +3,12 @@ package handlers
 import (
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -19,26 +21,83 @@ type customRuleView struct {
 	IPsText, JA4sText, CountriesText, ASNsText, HostsText string
 	HitsDay                                               int
 	LastHit                                               int64
+	Lang                                                  i18n.Lang // the card template reads its labels through this
+	Draft                                                 bool      // an unsaved card from the hunt or the assistant (?new=1)
+	Blank                                                 bool      // the page's template for "add a rule"
 }
 
-func (h *Handler) customRuleViews(rules []settings.CustomRule) []customRuleView {
+func customRuleViewOf(r settings.CustomRule, lang i18n.Lang) customRuleView {
+	v := customRuleView{CustomRule: r, Lang: lang,
+		IPsText: strings.Join(r.IPs, ", "), JA4sText: strings.Join(r.JA4s, ", "),
+		CountriesText: strings.Join(r.Countries, ", "), HostsText: strings.Join(r.Hosts, ", ")}
+	asns := make([]string, len(r.ASNs))
+	for i, a := range r.ASNs {
+		asns[i] = strconv.FormatUint(uint64(a), 10)
+	}
+	v.ASNsText = strings.Join(asns, ", ")
+	return v
+}
+
+func (h *Handler) customRuleViews(rules []settings.CustomRule, lang i18n.Lang) []customRuleView {
 	stats, _ := h.RuleHits.Snapshot(time.Now())
 	out := make([]customRuleView, 0, len(rules))
 	for _, r := range rules {
-		v := customRuleView{CustomRule: r,
-			IPsText: strings.Join(r.IPs, ", "), JA4sText: strings.Join(r.JA4s, ", "),
-			CountriesText: strings.Join(r.Countries, ", "), HostsText: strings.Join(r.Hosts, ", ")}
-		asns := make([]string, len(r.ASNs))
-		for i, a := range r.ASNs {
-			asns[i] = strconv.FormatUint(uint64(a), 10)
-		}
-		v.ASNsText = strings.Join(asns, ", ")
+		v := customRuleViewOf(r, lang)
 		if st, ok := stats[r.ID]; ok {
 			v.HitsDay, v.LastHit = int(st.Day), st.Last
 		}
 		out = append(out, v)
 	}
 	return out
+}
+
+// customRuleDraft reads a rule the hunt or the assistant proposed
+// (settings.CustomRuleDraftQuery) into an unsaved card; nil without ?new=1.
+// Nothing is validated here -- the card is the operator's to finish, and the
+// save validates.
+func customRuleDraft(q url.Values, lang i18n.Lang) *customRuleView {
+	if q.Get("new") != "1" {
+		return nil
+	}
+	r := settings.CustomRule{
+		Label: q.Get("label"), Enabled: true,
+		IPs: splitList(q.Get("ips")), JA4s: splitList(q.Get("ja4s")), Countries: splitList(q.Get("countries")),
+		UA: q.Get("ua"), Path: q.Get("path"), Hosts: splitList(q.Get("hosts")),
+		Action: q.Get("action"),
+	}
+	for _, a := range splitList(q.Get("asns")) {
+		if n, err := strconv.ParseUint(strings.TrimPrefix(strings.ToUpper(a), "AS"), 10, 32); err == nil {
+			r.ASNs = append(r.ASNs, uint32(n))
+		}
+	}
+	if !settings.IsValidCustomRuleAction(r.Action) {
+		r.Action = settings.GeoActionCaptchaOnly
+	}
+	if n, err := strconv.Atoi(q.Get("rate")); err == nil && n > 0 {
+		r.RatePerMin = n
+	}
+	v := customRuleViewOf(r, lang)
+	v.Draft = true
+	return &v
+}
+
+// customRuleDraftLink: the hunt's "make a rule from this row" link -- one
+// condition of the given kind (ips / ja4s / asns / ua), with a label.
+func customRuleDraftLink(kind, value, label string) string {
+	r := settings.CustomRule{Label: label, Action: settings.GeoActionCaptchaOnly}
+	switch kind {
+	case "ips":
+		r.IPs = []string{value}
+	case "ja4s":
+		r.JA4s = []string{value}
+	case "asns":
+		if n, err := strconv.ParseUint(value, 10, 32); err == nil {
+			r.ASNs = []uint32{uint32(n)}
+		}
+	case "ua":
+		r.UA = value
+	}
+	return settings.CustomRuleDraftQuery(r)
 }
 
 func (h *Handler) customRuleHitsSince() int64 {

@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -130,6 +131,19 @@ func (d Deps) List() []Tool {
 			Schema: obj(map[string]any{"tab": map[string]any{"type": "string", "description": "the tab's name as in its path /admin/settings/<tab>/"}}, "tab")},
 		{Name: "doctor", Description: "The install's health checks (unmask doctor): configuration, database, nginx render freshness, services.  Slow (a few seconds).",
 			Schema: obj(map[string]any{})},
+		{Name: "propose_custom_rule", Description: "Proposes a custom rule for the operator to review: several conditions that must all hold (addresses, JA4 fingerprints, countries, networks by AS number, a user-agent regex, a path regex, hosts) and one action.  Validates the rule and returns create_path, the admin page with the rule filled in; the operator saves it there.  Nothing is changed by this call.",
+			Schema: obj(map[string]any{
+				"label":        map[string]any{"type": "string", "description": "a short name for the rule (what it catches)"},
+				"ips":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "addresses or CIDR ranges"},
+				"ja4s":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "JA4 fingerprints; a trailing * matches a prefix"},
+				"countries":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "ISO 3166 two-letter country codes"},
+				"asns":         map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "description": "AS numbers"},
+				"ua":           map[string]any{"type": "string", "description": "a case-insensitive regex over the user agent"},
+				"path":         map[string]any{"type": "string", "description": "a regex over the request path and query"},
+				"hosts":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "host names on a multi-site install"},
+				"action":       map[string]any{"type": "string", "enum": []string{"monitor", "pow_only", "captcha_only", "pow_then_captcha", "deny"}, "description": "monitor counts only; deny answers 403"},
+				"rate_per_min": map[string]any{"type": "integer", "minimum": 1, "description": "instead of the action on every match: allow this many requests per minute per address and rate-limit the rest"},
+			}, "label", "action")},
 	}
 }
 
@@ -212,8 +226,69 @@ func (d Deps) Run(ctx context.Context, name string, args map[string]any) (any, e
 		return d.SettingsTab(ctx, strings.TrimSpace(tab))
 	case "doctor":
 		return d.doctor(ctx)
+	case "propose_custom_rule":
+		return proposeCustomRule(args)
 	}
 	return nil, fmt.Errorf("unknown tool %q", name)
+}
+
+// proposeCustomRule validates the model's rule and answers with the page
+// that creates it.  A bad condition comes back as the error, so the model
+// corrects it; a valid one is never saved here.
+func proposeCustomRule(args map[string]any) (any, error) {
+	strs := func(key string) []string {
+		var out []string
+		switch v := args[key].(type) {
+		case []any:
+			for _, x := range v {
+				if s, ok := x.(string); ok && strings.TrimSpace(s) != "" {
+					out = append(out, strings.TrimSpace(s))
+				}
+			}
+		case string:
+			for _, s := range strings.Split(v, ",") {
+				if s = strings.TrimSpace(s); s != "" {
+					out = append(out, s)
+				}
+			}
+		}
+		return out
+	}
+	str := func(key string) string {
+		v, _ := args[key].(string)
+		return strings.TrimSpace(v)
+	}
+	r := settings.CustomRule{ID: "draft", Label: str("label"), Enabled: true,
+		IPs: strs("ips"), JA4s: strs("ja4s"), Countries: strs("countries"), UA: str("ua"), Path: str("path"), Hosts: strs("hosts"), Action: str("action")}
+	if asns, ok := args["asns"].([]any); ok {
+		for _, a := range asns {
+			switch v := a.(type) {
+			case float64:
+				r.ASNs = append(r.ASNs, uint32(v))
+			case string:
+				n, err := strconv.ParseUint(strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(v)), "AS"), 10, 32)
+				if err != nil {
+					return nil, fmt.Errorf("asns: %q is not an AS number", v)
+				}
+				r.ASNs = append(r.ASNs, uint32(n))
+			}
+		}
+	}
+	if v, ok := args["rate_per_min"].(float64); ok && v > 0 {
+		r.RatePerMin = int(v)
+	}
+	if r.Label == "" {
+		return nil, errors.New("label is required: a short name for the rule")
+	}
+	if err := settings.NormalizeCustomRule(&r); err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"rule":        r,
+		"create_path": "/admin/settings/custom-rules/" + settings.CustomRuleDraftQuery(r),
+		"note": "Nothing was changed.  create_path opens the custom-rules tab with this rule filled in as an unsaved draft; the operator reviews and saves it, and it takes effect after the nginx configuration is rendered and reloaded.  " +
+			"Put create_path in your answer on a line of its own.  All conditions must hold at once (AND); a rule with a rate_per_min throttles instead of acting on every match.",
+	}, nil
 }
 
 func (d Deps) overview(ctx context.Context, hours int) (any, error) {

@@ -44,6 +44,8 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .a.fail .txt{color:#991b1b}
 .a-meta{display:flex;gap:.8rem;flex-wrap:wrap;align-items:center;font-size:.72rem;color:#94a3b8;margin-top:.5rem;padding-top:.4rem;border-top:1px dashed #e2e8f0}
 .tool-chip{display:inline-block;padding:.05rem .45rem;border-radius:.25rem;background:#eef2ff;color:#3730a3;font-family:ui-monospace,Menlo,monospace;font-size:.7rem;margin-right:.25rem}
+.ask-rule{display:inline-block;margin:.3rem 0;padding:.35rem .75rem;border:1px solid #f59e0b;border-radius:.3rem;background:#fffbeb;color:#92400e;text-decoration:none;font-size:.85rem;font-weight:600}
+.ask-rule:hover{background:#fef3c7}
 .tool-chip.err{background:#fee2e2;color:#991b1b}
 .a.pending .txt{color:#64748b;font-style:italic}
 /* The history's long answers open on their first lines; the button shows the
@@ -144,11 +146,11 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 {{ end }}
 {{ if eq .Tab "history" }}<p class="meta">{{ t .Lang "ask.history_note" }}</p>{{ end }}
 
-<div class="turns" id="turns" data-txt-pending="{{ t .Lang "ask.pending" }}" data-txt-tools="{{ t .Lang "ask.tools" }}" data-txt-failed="{{ t .Lang "ask.failed" }}" data-txt-tokens="{{ t .Lang "ask.tokens" }}" data-txt-copy="{{ t .Lang "ask.copy" }}" data-txt-copied="{{ t .Lang "ask.copied" }}">
+<div class="turns" id="turns" data-txt-pending="{{ t .Lang "ask.pending" }}" data-txt-tools="{{ t .Lang "ask.tools" }}" data-txt-rule="{{ t .Lang "ask.create_rule" }}" data-txt-failed="{{ t .Lang "ask.failed" }}" data-txt-tokens="{{ t .Lang "ask.tokens" }}" data-txt-copy="{{ t .Lang "ask.copy" }}" data-txt-copied="{{ t .Lang "ask.copied" }}">
   {{ range .Turns }}
   <div class="q">{{ .Question }}</div>
   <div class="a{{ if .Err }} fail{{ end }}{{ if .Folded }} folded{{ end }}" data-id="{{ .ID }}">
-    <div class="txt">{{ if .Err }}{{ t $.Lang "ask.failed" }}: {{ .Err }}{{ else }}{{ range .Parts }}{{ if .Code }}<pre>{{ .Text }}</pre>{{ else if .Link }}<a href="{{ $.BasePath }}{{ .Link }}">{{ .Text }}</a>{{ else }}{{ .Text }}{{ end }}{{ end }}{{ end }}</div>
+    <div class="txt">{{ if .Err }}{{ t $.Lang "ask.failed" }}: {{ .Err }}{{ else }}{{ range .Parts }}{{ if .Code }}<pre>{{ .Text }}</pre>{{ else if .Rule }}<a class="ask-rule" href="{{ $.BasePath }}{{ .Link }}" target="_blank" rel="noopener">{{ t $.Lang "ask.create_rule" }} ↗</a>{{ else if .Link }}<a href="{{ $.BasePath }}{{ .Link }}">{{ .Text }}</a>{{ else }}{{ .Text }}{{ end }}{{ end }}{{ end }}</div>
     <div class="a-meta">
       <time class="js-datetime js-datetime-notz" data-ts="{{ .AskedTS }}"></time>
       {{ if .Tools }}<span>{{ t $.Lang "ask.tools" }}: {{ range .Tools }}<span class="tool-chip{{ if .Err }} err{{ end }}" title="{{ .Ms }} ms">{{ .Name }}</span>{{ end }}</span>{{ end }}
@@ -216,7 +218,12 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   function linkPaths(p){
     var re = /\/admin\/[A-Za-z0-9_.\/?=&%#-]*[A-Za-z0-9_\/=%#-]/g, out = '', last = 0, m;
     while ((m = re.exec(p)) !== null) {
-      out += esc(p.slice(last, m.index)) + '<a href="' + esc(BASE + m[0]) + '">' + esc(m[0]) + '</a>';
+      out += esc(p.slice(last, m.index));
+      if (m[0].indexOf('/admin/settings/custom-rules/?new=1') === 0) {
+        out += '<a class="ask-rule" href="' + esc(BASE + m[0]) + '" target="_blank" rel="noopener">' + esc(turns.dataset.txtRule) + ' \u2197</a>';
+      } else {
+        out += '<a href="' + esc(BASE + m[0]) + '">' + esc(m[0]) + '</a>';
+      }
       last = m.index + m[0].length;
     }
     return out + esc(p.slice(last));
