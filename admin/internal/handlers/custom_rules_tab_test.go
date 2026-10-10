@@ -48,7 +48,7 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 		return rr.Body.String()
 	}
 	page := tab()
-	for _, want := range []string{`name="cr_id" value="crold"`, `name="cr_ips" value="192.0.2.0/24"`, `<option value="deny" selected>`, "直近 24h 1 件", `id="cr-template"`, `id="cr-add"`, `section=custom-rules`, "</html>"} {
+	for _, want := range []string{`name="cr_id" value="crold"`, `name="cr_ips" value="192.0.2.0/24"`, `name="cr_action" value="deny"`, `name="cr_act_crold" value="deny" checked`, `name="cr_memo"`, "条件 (すべて満たす)", "適用 (ひとつ)", "直近 24h 1 件", `id="cr-template"`, `id="cr-add"`, `section=custom-rules`, "</html>"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("tab lacks %q", want)
 		}
@@ -74,7 +74,7 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 	// Two cards: the old rule edited (first), a new one without an id.
 	code, loc := post(url.Values{
 		"cr_id": {"crold", ""}, "cr_created_at": {"1700000000", ""},
-		"cr_label": {"old edited", " Scraper "}, "cr_enabled": {"1", "0"},
+		"cr_label": {"old edited", " Scraper "}, "cr_memo": {"", " seen in the hunt "}, "cr_enabled": {"1", "0"},
 		"cr_ips": {"192.0.2.0/24, 198.51.100.7", ""}, "cr_ja4s": {"", "T13D1516H2_8daaf6152771_b0da82dd1658, t13d*"},
 		"cr_countries": {"", "cn, ru"}, "cr_asns": {"", "AS4134, 16509"},
 		"cr_ua": {"", "python-requests|scrapy"}, "cr_path": {"", `^/search`}, "cr_hosts": {"", "Shop.Example.jp"},
@@ -98,7 +98,7 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 	nw := rules[1]
 	if nw.ID == "" || nw.ID == "crold" || nw.Enabled || nw.Label != "Scraper" || nw.JA4s[0] != "t13d1516h2_8daaf6152771_b0da82dd1658" || nw.JA4s[1] != "t13d*" ||
 		nw.Countries[0] != "CN" || nw.Countries[1] != "RU" || nw.ASNs[0] != 4134 || nw.ASNs[1] != 16509 || nw.Hosts[0] != "shop.example.jp" ||
-		nw.Action != "rate_limit" || nw.RatePerMin != 30 || nw.CreatedAt == 0 {
+		nw.Action != "rate_limit" || nw.RatePerMin != 30 || nw.Memo != "seen in the hunt" || nw.CreatedAt == 0 {
 		t.Errorf("the new rule: %+v", nw)
 	}
 	// The rendered conf carries the enabled rule and not the disabled one.
@@ -154,7 +154,7 @@ func TestCustomRulesTabDraft(t *testing.T) {
 		t.Fatalf("tab: %d", rr.Code)
 	}
 	page := rr.Body.String()
-	for _, want := range []string{`id="cr-draft"`, `name="cr_id" value=""`, `name="cr_label" value="scraper"`, `name="cr_ips" value="203.0.113.0/24, 198.51.100.7"`, `name="cr_ja4s" value="t13d*"`, `name="cr_asns" value="4134"`, `name="cr_ua" value="python-requests"`, `<option value="deny" selected>`, `name="cr_rate" min="1" value="30"`, "まだ保存されていません", `id="cr-template"`} {
+	for _, want := range []string{`id="cr-draft"`, `name="cr_id" value=""`, `name="cr_label" value="scraper"`, `name="cr_ips" value="203.0.113.0/24, 198.51.100.7"`, `name="cr_ja4s" value="t13d*"`, `name="cr_asns" value="4134"`, `name="cr_ua" value="python-requests"`, `name="cr_act_draft" value="deny" checked`, `name="cr_rate" min="1" value="30"`, "まだ保存されていません", `id="cr-template"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("draft tab lacks %q", want)
 		}
@@ -170,7 +170,7 @@ func TestCustomRulesTabDraft(t *testing.T) {
 	req.SetPathValue("tab", "custom-rules")
 	rr = httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
-	if !strings.Contains(rr.Body.String(), `<option value="captcha_only" selected>`) {
+	if !strings.Contains(rr.Body.String(), `name="cr_act_draft" value="captcha_only" checked`) {
 		t.Error("an unknown action did not fall back to captcha_only")
 	}
 	req = httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/?ips=203.0.113.1", nil)

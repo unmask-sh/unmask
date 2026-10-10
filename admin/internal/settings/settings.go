@@ -1427,7 +1427,8 @@ func (g GeoConfig) ResolveExemptPaths(site string) []BypassPath {
 // they exceed it (the action is then the rate limit's).
 type CustomRule struct {
 	ID         string   `yaml:"id"`                     // stable key the log carries ("cr" + base36 of the creation second)
-	Label      string   `yaml:"label,omitempty"`        // operator note
+	Label      string   `yaml:"label,omitempty"`        // the rule's name (the card's title); optional
+	Memo       string   `yaml:"memo,omitempty"`         // a note on the conditions, at the card's foot; optional
 	Enabled    bool     `yaml:"enabled"`                // false: kept, not rendered
 	IPs        []string `yaml:"ips,omitempty"`          // addresses or CIDRs
 	JA4s       []string `yaml:"ja4s,omitempty"`         // fingerprints; a trailing * matches a prefix
@@ -1436,8 +1437,8 @@ type CustomRule struct {
 	UA         string   `yaml:"ua,omitempty"`           // regex over the user agent, case-insensitive
 	Path       string   `yaml:"path,omitempty"`         // regex over the request URI (path and query)
 	Hosts      []string `yaml:"hosts,omitempty"`        // exact host names
-	Action     string   `yaml:"action"`                 // monitor / pow_only / captcha_only / pow_then_captcha / deny
-	RatePerMin int      `yaml:"rate_per_min,omitempty"` // >0: throttle instead of acting on every request
+	Action     string   `yaml:"action"`                 // monitor / pow_only / captcha_only / pow_then_captcha / deny / rate_limit
+	RatePerMin int      `yaml:"rate_per_min,omitempty"` // with rate_limit: requests per minute per address
 	CreatedAt  int64    `yaml:"created_at,omitempty"`   // unix sec the rule was added
 	UpdatedAt  int64    `yaml:"updated_at,omitempty"`   // unix sec of the last edit
 }
@@ -1487,6 +1488,13 @@ func NormalizeCustomRule(r *CustomRule) error {
 		return fmt.Errorf("rule id %q: letters and digits only", r.ID)
 	}
 	r.Label = strings.TrimSpace(r.Label)
+	r.Memo = strings.TrimSpace(r.Memo)
+	if n := len([]rune(r.Label)); n > 80 {
+		return fmt.Errorf("the name is %d characters; 80 at most", n)
+	}
+	if n := len([]rune(r.Memo)); n > 300 {
+		return fmt.Errorf("the memo is %d characters; 300 at most", n)
+	}
 	r.Action = strings.TrimSpace(r.Action)
 	if !IsValidCustomRuleAction(r.Action) {
 		return fmt.Errorf("action %q is not one of monitor, pow_only, captcha_only, pow_then_captcha, deny, rate_limit", r.Action)
@@ -1594,6 +1602,7 @@ func CustomRuleDraftQuery(r CustomRule) string {
 		}
 	}
 	set("label", r.Label)
+	set("memo", r.Memo)
 	set("ips", strings.Join(r.IPs, ","))
 	set("ja4s", strings.Join(r.JA4s, ","))
 	set("countries", strings.Join(r.Countries, ","))

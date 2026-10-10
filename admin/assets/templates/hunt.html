@@ -417,7 +417,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <button type="submit" class="rank-act danger">{{ t $.Lang "hunt.btn.ban" }}</button>
             </form>
           {{ end }}
-            <a class="rank-act cr-link" href="{{ $.BasePath }}/admin/settings/custom-rules/{{ crDraft "ips" .Key (tf $.Lang "hunt.cr_memo" .Key) }}" target="_blank" rel="noopener" title="{{ t $.Lang "hunt.btn.custom_rule_title" }}">{{ t $.Lang "hunt.btn.custom_rule" }} ↗</a>
+            <a class="rank-act cr-link" href="{{ $.BasePath }}/admin/settings/custom-rules/{{ crDraft "ips" .Key (tf $.Lang "hunt.cr_name" .Key) }}" target="_blank" rel="noopener" title="{{ t $.Lang "hunt.btn.custom_rule_title" }}">{{ t $.Lang "hunt.btn.custom_rule" }} ↗</a>
         </td>
       </tr>
       {{ else }}
@@ -539,7 +539,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <button type="submit" class="rank-act">{{ t $.Lang "hunt.btn.ja4_ban" }}</button>
             </form>
             {{ end }}
-            <a class="rank-act cr-link" href="{{ $.BasePath }}/admin/settings/custom-rules/{{ crDraft "ja4s" .Key (tf $.Lang "hunt.cr_memo" .Key) }}" target="_blank" rel="noopener" title="{{ t $.Lang "hunt.btn.custom_rule_title" }}">{{ t $.Lang "hunt.btn.custom_rule" }} ↗</a>
+            <a class="rank-act cr-link" href="{{ $.BasePath }}/admin/settings/custom-rules/{{ crDraft "ja4s" .Key (tf $.Lang "hunt.cr_name" .Key) }}" target="_blank" rel="noopener" title="{{ t $.Lang "hunt.btn.custom_rule_title" }}">{{ t $.Lang "hunt.btn.custom_rule" }} ↗</a>
           {{ end }}
         </td>
       </tr>
@@ -597,7 +597,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <button type="submit" class="rank-act">{{ t $.Lang "hunt.btn.ua_blacklist" }}</button>
             </form>
             {{ end }}
-            <a class="rank-act cr-link" href="{{ $.BasePath }}/admin/settings/custom-rules/{{ crDraft "ua" (uaRuleToken .Key) (tf $.Lang "hunt.cr_memo" (uaRuleToken .Key)) }}" target="_blank" rel="noopener" title="{{ t $.Lang "hunt.btn.custom_rule_title" }}">{{ t $.Lang "hunt.btn.custom_rule" }} ↗</a>
+            <a class="rank-act cr-link" href="{{ $.BasePath }}/admin/settings/custom-rules/{{ crDraft "ua" (uaRuleToken .Key) (tf $.Lang "hunt.cr_name" (uaRuleToken .Key)) }}" target="_blank" rel="noopener" title="{{ t $.Lang "hunt.btn.custom_rule_title" }}">{{ t $.Lang "hunt.btn.custom_rule" }} ↗</a>
           {{ end }}
         </td>
       </tr>

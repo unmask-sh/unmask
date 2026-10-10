@@ -21,9 +21,19 @@ func TestNormalizeCustomRule(t *testing.T) {
 	if err := NormalizeCustomRule(&CustomRule{Action: CustomRuleRateLimit, IPs: []string{"203.0.113.5"}}); err == nil {
 		t.Error("a rate limit without a rate was accepted")
 	}
-	// A memo is optional.
+	// The name and the memo are optional and bounded.
 	if err := NormalizeCustomRule(&CustomRule{Action: "deny", IPs: []string{"203.0.113.5"}}); err != nil {
-		t.Errorf("a rule without a memo: %v", err)
+		t.Errorf("a rule without a name: %v", err)
+	}
+	m := CustomRule{Action: "deny", IPs: []string{"203.0.113.5"}, Label: " name ", Memo: " why "}
+	if err := NormalizeCustomRule(&m); err != nil || m.Label != "name" || m.Memo != "why" {
+		t.Errorf("name and memo: %v %+v", err, m)
+	}
+	if err := NormalizeCustomRule(&CustomRule{Action: "deny", IPs: []string{"203.0.113.5"}, Label: strings.Repeat("x", 81)}); err == nil {
+		t.Error("an 81-character name was accepted")
+	}
+	if err := NormalizeCustomRule(&CustomRule{Action: "deny", IPs: []string{"203.0.113.5"}, Memo: strings.Repeat("x", 301)}); err == nil {
+		t.Error("a 301-character memo was accepted")
 	}
 	for name, bad := range map[string]CustomRule{
 		"no condition": {Action: "deny"},
@@ -52,11 +62,11 @@ func TestNormalizeCustomRule(t *testing.T) {
 // one run of the characters the ask page's linkifier accepts, so the path
 // survives as a link in an answer.
 func TestCustomRuleDraftQuery(t *testing.T) {
-	q := CustomRuleDraftQuery(CustomRule{Label: "scraper ~ v2", IPs: []string{"203.0.113.0/24", "198.51.100.7"}, JA4s: []string{"t13d*"}, ASNs: []uint32{4134}, UA: "python-requests|scrapy (x)", Path: `^/search\?q=`, Action: "captcha_only", RatePerMin: 30})
+	q := CustomRuleDraftQuery(CustomRule{Label: "scraper ~ v2", Memo: "seen 10-10", IPs: []string{"203.0.113.0/24", "198.51.100.7"}, JA4s: []string{"t13d*"}, ASNs: []uint32{4134}, UA: "python-requests|scrapy (x)", Path: `^/search\?q=`, Action: "captcha_only", RatePerMin: 30})
 	if !strings.HasPrefix(q, "?new=1&") {
 		t.Errorf("new=1 must lead: %q", q)
 	}
-	for _, want := range []string{"label=scraper%20%7E%20v2", "ips=203.0.113.0%2F24%2C198.51.100.7", "ja4s=t13d%2A", "asns=4134", "ua=python-requests%7Cscrapy%20%28x%29", "path=%5E%2Fsearch%5C%3Fq%3D", "action=captcha_only", "rate=30"} {
+	for _, want := range []string{"label=scraper%20%7E%20v2", "memo=seen%2010-10", "ips=203.0.113.0%2F24%2C198.51.100.7", "ja4s=t13d%2A", "asns=4134", "ua=python-requests%7Cscrapy%20%28x%29", "path=%5E%2Fsearch%5C%3Fq%3D", "action=captcha_only", "rate=30"} {
 		if !strings.Contains(q, want) {
 			t.Errorf("query %q lacks %q", q, want)
 		}

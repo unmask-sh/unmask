@@ -60,7 +60,7 @@ func customRuleDraft(q url.Values, lang i18n.Lang) *customRuleView {
 		return nil
 	}
 	r := settings.CustomRule{
-		Label: q.Get("label"), Enabled: true,
+		Label: q.Get("label"), Memo: q.Get("memo"), Enabled: true,
 		IPs: splitList(q.Get("ips")), JA4s: splitList(q.Get("ja4s")), Countries: splitList(q.Get("countries")),
 		UA: q.Get("ua"), Path: q.Get("path"), Hosts: splitList(q.Get("hosts")),
 		Action: q.Get("action"),
@@ -144,6 +144,7 @@ func applyCustomRulesForm(dst *[]settings.CustomRule, r *http.Request) error {
 		rule := settings.CustomRule{
 			ID:        strings.TrimSpace(ids[i]),
 			Label:     at("cr_label", i),
+			Memo:      at("cr_memo", i),
 			Enabled:   at("cr_enabled", i) != "0",
 			IPs:       splitList(at("cr_ips", i)),
 			JA4s:      splitList(at("cr_ja4s", i)),
@@ -201,10 +202,10 @@ func applyCustomRulesForm(dst *[]settings.CustomRule, r *http.Request) error {
 }
 
 // customRuleRef names a rule in an error: its position on the tab, and its
-// memo when it has one.
-func customRuleRef(i int, memo string) string {
-	if memo = strings.TrimSpace(memo); memo != "" {
-		return fmt.Sprintf("rule %d (%s)", i+1, memo)
+// name when it has one.
+func customRuleRef(i int, name string) string {
+	if name = strings.TrimSpace(name); name != "" {
+		return fmt.Sprintf("rule %d (%s)", i+1, name)
 	}
 	return fmt.Sprintf("rule %d", i+1)
 }

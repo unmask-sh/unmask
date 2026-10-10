@@ -133,7 +133,8 @@ func (d Deps) List() []Tool {
 			Schema: obj(map[string]any{})},
 		{Name: "propose_custom_rule", Description: "Proposes a custom rule for the operator to review: several conditions that must all hold (addresses, JA4 fingerprints, countries, networks by AS number, a user-agent regex, a path regex, hosts) and one action.  Validates the rule and returns create_path, the admin page with the rule filled in; the operator saves it there.  Nothing is changed by this call.",
 			Schema: obj(map[string]any{
-				"label":        map[string]any{"type": "string", "description": "an optional note on the rule (what it catches, why)"},
+				"label":        map[string]any{"type": "string", "description": "the rule's name (optional): what it catches"},
+				"memo":         map[string]any{"type": "string", "description": "an optional note for the operator: why these conditions"},
 				"ips":          map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "addresses or CIDR ranges"},
 				"ja4s":         map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "JA4 fingerprints; a trailing * matches a prefix"},
 				"countries":    map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "ISO 3166 two-letter country codes"},
@@ -258,7 +259,7 @@ func proposeCustomRule(args map[string]any) (any, error) {
 		v, _ := args[key].(string)
 		return strings.TrimSpace(v)
 	}
-	r := settings.CustomRule{ID: "draft", Label: str("label"), Enabled: true,
+	r := settings.CustomRule{ID: "draft", Label: str("label"), Memo: str("memo"), Enabled: true,
 		IPs: strs("ips"), JA4s: strs("ja4s"), Countries: strs("countries"), UA: str("ua"), Path: str("path"), Hosts: strs("hosts"), Action: str("action")}
 	if asns, ok := args["asns"].([]any); ok {
 		for _, a := range asns {

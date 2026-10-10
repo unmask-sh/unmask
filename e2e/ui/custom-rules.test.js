@@ -60,12 +60,14 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   await page.type('#cr-list [data-cr] input[name="cr_asns"]', 'AS4134');
   await page.type('#cr-list [data-cr] input[name="cr_ua"]', 'python-requests|scrapy');
   await page.type('#cr-list [data-cr] input[name="cr_path"]', '^/search');
-  // The requests-per-minute field shows only for the rate-limit action.
-  const rateHidden = await page.evaluate(() => document.querySelector('#cr-list [data-cr] .cr-rate').hidden);
-  ok(rateHidden === true, 'the rate field shows for an action that does not use it');
-  await page.select('#cr-list [data-cr] select[name="cr_action"]', 'rate_limit');
-  const rateShown = await page.evaluate(() => !document.querySelector('#cr-list [data-cr] .cr-rate').hidden);
-  ok(rateShown, 'choosing the rate-limit action did not show the rate field');
+  await page.type('#cr-list [data-cr] input[name="cr_memo"]', 'seen in the hunt');
+  // One answer per rule: a radio row; the requests-per-minute field is live
+  // only with the rate-limit choice.
+  const rateOff = await page.evaluate(() => { const n = document.querySelector('#cr-list [data-cr] input[name="cr_rate"]'); return { ro: n.readOnly, radios: document.querySelectorAll('#cr-list [data-cr] .cr-apply input[type=radio]').length, select: !!document.querySelector('#cr-list [data-cr] select[name="cr_action"]') }; });
+  ok(rateOff.ro && rateOff.radios === 6 && !rateOff.select, 'the apply row is not six radios with the rate field read-only: ' + JSON.stringify(rateOff));
+  await page.click('#cr-list [data-cr] .cr-apply input[type=radio][value="rate_limit"]');
+  const rateOn = await page.evaluate(() => { const n = document.querySelector('#cr-list [data-cr] input[name="cr_rate"]'); return { ro: n.readOnly, hidden: document.querySelector('#cr-list [data-cr] input[name="cr_action"]').value, focused: document.activeElement === n }; });
+  ok(!rateOn.ro && rateOn.hidden === 'rate_limit' && rateOn.focused, 'choosing the rate limit did not free the rate field: ' + JSON.stringify(rateOn));
   await page.type('#cr-list [data-cr] input[name="cr_rate"]', '30');
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'networkidle2' }),
@@ -78,8 +80,9 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     const v = n => (row.querySelector('[name="' + n + '"]') || {}).value;
     return {
       id: v('cr_id'), label: v('cr_label'), ips: v('cr_ips'), ja4s: v('cr_ja4s'), cc: v('cr_countries'), asns: v('cr_asns'),
-      ua: v('cr_ua'), path: v('cr_path'), action: v('cr_action'), rate: v('cr_rate'), enabled: v('cr_enabled'),
-      rateVisible: !(row.querySelector('.cr-rate') || {}).hidden,
+      ua: v('cr_ua'), path: v('cr_path'), action: v('cr_action'), rate: v('cr_rate'), enabled: v('cr_enabled'), memo: v('cr_memo'),
+      rateVisible: !(row.querySelector('input[name="cr_rate"]') || {}).readOnly,
+      checked: (row.querySelector('.cr-apply input[type=radio]:checked') || {}).value,
       rows: document.querySelectorAll('#cr-list [data-cr]').length,
       hits: (row.querySelector('.cr-hits') || {}).textContent || '',
       banner: (document.querySelector('.saved, .flash, .alert-ok, [data-saved]') || {}).textContent || '',
@@ -95,7 +98,7 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     ok(saved.asns === '4134', `asn came back as ${saved.asns}`);
     ok(saved.ua === 'python-requests|scrapy' && saved.path === '^/search', `ua/path came back as ${saved.ua} / ${saved.path}`);
     ok(saved.action === 'rate_limit' && saved.rate === '30' && saved.enabled === '1', `action/rate/enabled came back as ${saved.action}/${saved.rate}/${saved.enabled}`);
-    ok(saved.rateVisible === true, 'the saved rate-limit rule hides its rate field');
+    ok(saved.rateVisible === true && saved.checked === 'rate_limit' && saved.memo === 'seen in the hunt', 'the saved rule is not shown as it was saved: ' + JSON.stringify({ rate: saved.rateVisible, checked: saved.checked, memo: saved.memo }));
     ok(saved.hits.length > 0, 'the hit count cell is empty');
   }
 
