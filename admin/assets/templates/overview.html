@@ -1042,13 +1042,22 @@ unmaskInitComp();
     }
     ctx.shadowBlur = 0; ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
     ctx.font = '600 ' + (11 * dpr) + 'px -apple-system,Segoe UI,Roboto,sans-serif'; ctx.textBaseline = 'middle';
+    // Labels for the top sources, placed so neighbours (Korea beside
+    // Japan) do not overprint: a label that would cross one already drawn
+    // moves down a row, up to three times, then goes unlabelled.
+    var placed = [];
     streams.forEach(function(st, i){
       ctx.beginPath(); ctx.arc(st.x0 * sx, st.y0 * sy, (1.5 + 3 * st.w) * dpr, 0, Math.PI * 2);
       ctx.fillStyle = 'rgba(186,230,253,' + (0.35 + 0.65 * st.w) + ')'; ctx.fill();
       if (i < 6) {
-        var t = st.cc + ' ' + st.n, tw = ctx.measureText(t).width;
-        ctx.fillStyle = 'rgba(15,23,42,.7)'; ctx.fillRect(st.x0 * sx + 6 * dpr, st.y0 * sy - 8 * dpr, tw + 8 * dpr, 16 * dpr);
-        ctx.fillStyle = '#e0f2fe'; ctx.fillText(t, st.x0 * sx + 10 * dpr, st.y0 * sy);
+        var t = st.cc + ' ' + st.n, tw = ctx.measureText(t).width + 8 * dpr, th = 16 * dpr;
+        var lx = st.x0 * sx + 6 * dpr, ly = st.y0 * sy - 8 * dpr, tries = 0;
+        var hits = function(){ return placed.some(function(r){ return lx < r.x + r.w && lx + tw > r.x && ly < r.y + r.h && ly + th > r.y; }); };
+        while (hits() && tries < 3) { ly += th + 2 * dpr; tries++; }
+        if (hits()) return;
+        placed.push({ x: lx, y: ly, w: tw, h: th });
+        ctx.fillStyle = 'rgba(15,23,42,.7)'; ctx.fillRect(lx, ly, tw, th);
+        ctx.fillStyle = '#e0f2fe'; ctx.fillText(t, lx + 4 * dpr, ly + th / 2);
       }
     });
     if (server) {
