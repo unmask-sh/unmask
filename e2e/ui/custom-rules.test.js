@@ -61,14 +61,21 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   await page.type('#cr-list [data-cr] input[name="cr_ua"]', 'python-requests|scrapy');
   await page.type('#cr-list [data-cr] input[name="cr_path"]', '^/search');
   await page.type('#cr-list [data-cr] input[name="cr_memo"]', 'seen in the hunt');
-  // One answer per rule: a radio row; the requests-per-minute field is live
-  // only with the rate-limit choice.
-  const rateOff = await page.evaluate(() => { const n = document.querySelector('#cr-list [data-cr] input[name="cr_rate"]'); return { ro: n.readOnly, radios: document.querySelectorAll('#cr-list [data-cr] .cr-apply input[type=radio]').length, select: !!document.querySelector('#cr-list [data-cr] select[name="cr_action"]') }; });
-  ok(rateOff.ro && rateOff.radios === 6 && !rateOff.select, 'the apply row is not six radios with the rate field read-only: ' + JSON.stringify(rateOff));
-  await page.click('#cr-list [data-cr] .cr-apply input[type=radio][value="rate_limit"]');
-  const rateOn = await page.evaluate(() => { const n = document.querySelector('#cr-list [data-cr] input[name="cr_rate"]'); return { ro: n.readOnly, hidden: document.querySelector('#cr-list [data-cr] input[name="cr_action"]').value, focused: document.activeElement === n }; });
-  ok(!rateOn.ro && rateOn.hidden === 'rate_limit' && rateOn.focused, 'choosing the rate limit did not free the rate field: ' + JSON.stringify(rateOn));
+  // Two boxes: the conditions, and the action -- one action on a match,
+  // and beside it a rate limit with its own answer over the limit.
+  const shape = await page.evaluate(() => ({
+    boxes: document.querySelectorAll('#cr-list [data-cr] fieldset.cr-box').length,
+    actRadios: document.querySelectorAll('#cr-list [data-cr] .cr-apply input[type=radio]').length,
+    rateRadios: document.querySelectorAll('#cr-list [data-cr] .cr-rate input[type=radio]').length,
+    select: !!document.querySelector('#cr-list [data-cr] select'),
+    rateOff: document.querySelector('#cr-list [data-cr] .cr-rate').classList.contains('off'),
+  }));
+  ok(shape.boxes === 2 && shape.actRadios === 5 && shape.rateRadios === 5 && !shape.select && shape.rateOff, 'the card is not two boxes with five + five radios: ' + JSON.stringify(shape));
+  await page.click('#cr-list [data-cr] .cr-apply input[type=radio][value="captcha_only"]');
   await page.type('#cr-list [data-cr] input[name="cr_rate"]', '30');
+  await page.click('#cr-list [data-cr] .cr-rate input[type=radio][value="deny"]');
+  const chosen = await page.evaluate(() => ({ act: document.querySelector('#cr-list [data-cr] input[name="cr_action"]').value, ract: document.querySelector('#cr-list [data-cr] input[name="cr_rate_action"]').value, rateOff: document.querySelector('#cr-list [data-cr] .cr-rate').classList.contains('off') }));
+  ok(chosen.act === 'captcha_only' && chosen.ract === 'deny' && !chosen.rateOff, 'the radios did not set the hidden fields: ' + JSON.stringify(chosen));
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'networkidle2' }),
     page.click('form[action$="section=custom-rules"] button[type="submit"]'),
@@ -80,9 +87,9 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     const v = n => (row.querySelector('[name="' + n + '"]') || {}).value;
     return {
       id: v('cr_id'), label: v('cr_label'), ips: v('cr_ips'), ja4s: v('cr_ja4s'), cc: v('cr_countries'), asns: v('cr_asns'),
-      ua: v('cr_ua'), path: v('cr_path'), action: v('cr_action'), rate: v('cr_rate'), enabled: v('cr_enabled'), memo: v('cr_memo'),
-      rateVisible: !(row.querySelector('input[name="cr_rate"]') || {}).readOnly,
+      ua: v('cr_ua'), path: v('cr_path'), action: v('cr_action'), rate: v('cr_rate'), rateAction: v('cr_rate_action'), enabled: v('cr_enabled'), memo: v('cr_memo'),
       checked: (row.querySelector('.cr-apply input[type=radio]:checked') || {}).value,
+      rateChecked: (row.querySelector('.cr-rate input[type=radio]:checked') || {}).value,
       rows: document.querySelectorAll('#cr-list [data-cr]').length,
       hits: (row.querySelector('.cr-hits') || {}).textContent || '',
       banner: (document.querySelector('.saved, .flash, .alert-ok, [data-saved]') || {}).textContent || '',
@@ -97,8 +104,8 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     ok(saved.cc === 'CN', `country came back as ${saved.cc}`);
     ok(saved.asns === '4134', `asn came back as ${saved.asns}`);
     ok(saved.ua === 'python-requests|scrapy' && saved.path === '^/search', `ua/path came back as ${saved.ua} / ${saved.path}`);
-    ok(saved.action === 'rate_limit' && saved.rate === '30' && saved.enabled === '1', `action/rate/enabled came back as ${saved.action}/${saved.rate}/${saved.enabled}`);
-    ok(saved.rateVisible === true && saved.checked === 'rate_limit' && saved.memo === 'seen in the hunt', 'the saved rule is not shown as it was saved: ' + JSON.stringify({ rate: saved.rateVisible, checked: saved.checked, memo: saved.memo }));
+    ok(saved.action === 'captcha_only' && saved.rate === '30' && saved.rateAction === 'deny' && saved.enabled === '1', `action/rate/over/enabled came back as ${saved.action}/${saved.rate}/${saved.rateAction}/${saved.enabled}`);
+    ok(saved.checked === 'captcha_only' && saved.rateChecked === 'deny' && saved.memo === 'seen in the hunt', 'the saved rule is not shown as it was saved: ' + JSON.stringify({ checked: saved.checked, rateChecked: saved.rateChecked, memo: saved.memo }));
     ok(saved.hits.length > 0, 'the hit count cell is empty');
   }
 

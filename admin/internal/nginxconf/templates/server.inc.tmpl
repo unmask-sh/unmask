@@ -337,6 +337,7 @@ location @unmask_rate_challenge {
     # on the internal rewrite to the challenge, the serve picks that chain.
     proxy_set_header   X-Unmask-Rule        $unmask_cr_id;
     proxy_set_header   X-Unmask-Rule-Action $unmask_cr_action;
+    proxy_set_header   X-Unmask-Rule-Rate-Action $unmask_cr_rate_action;
 {{- if .HeaderIntegrityEnabled }}
     # Header-integrity axis (native): the nginx tier already computed the
     # LB-aware mismatch; hand it to ServeChallenge so the serve is attributed

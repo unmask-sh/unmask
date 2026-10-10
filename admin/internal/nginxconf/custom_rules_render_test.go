@@ -36,6 +36,7 @@ func TestCustomRulesRender(t *testing.T) {
 	for _, want := range []string{
 		"map \"\" $unmask_cr_id {\n    default \"\";\n}",
 		"map $unmask_cr_id $unmask_cr_action {\n    default \"\";\n}",
+		"map $unmask_cr_id $unmask_cr_rate_action {\n    default \"\";\n}",
 		"map $unmask_cr_action $unmask_cr_challenge {",
 		"map $unmask_cr_action $unmask_cr_deny {",
 		`map "$unmask_ua_needs_captcha$unmask_cr_captcha" $unmask_ua_captcha_eff {`,
@@ -54,7 +55,7 @@ func TestCustomRulesRender(t *testing.T) {
 	var s settings.Settings
 	s.Nginx.CustomRules = []settings.CustomRule{
 		{ID: "cr1", Label: "scraper", Enabled: true, JA4s: []string{"t13d1516h2_8daaf6152771_b0da82dd1658", "t13d*"}, UA: `python-requests|scrapy`, Path: `^/search\?`, Hosts: []string{"shop.example.jp"}, Action: settings.GeoActionCaptchaOnly},
-		{ID: "cr2", Label: "burst", Enabled: true, IPs: []string{"203.0.113.0/24", "198.51.100.7"}, Action: settings.CustomRuleRateLimit, RatePerMin: 30},
+		{ID: "cr2", Label: "burst", Enabled: true, IPs: []string{"203.0.113.0/24", "198.51.100.7"}, Action: settings.CustomRuleMonitor, RatePerMin: 30, RateAction: settings.GeoActionDeny},
 		{ID: "cr3", Label: "deny", Enabled: true, IPs: []string{"192.0.2.0/24"}, Action: settings.GeoActionDeny},
 		{ID: "cr4", Label: "off", Enabled: false, IPs: []string{"192.0.2.9"}, Action: settings.GeoActionDeny},
 		{ID: "cr5", Label: "count", Enabled: true, UA: `"quoted"`, Action: settings.CustomRuleMonitor},
@@ -68,7 +69,8 @@ func TestCustomRulesRender(t *testing.T) {
 		"map $host $unmask_cr_1_host {\n    default 0;\n    \"shop.example.jp\" 1;\n}",
 		"map \"$unmask_cr_1_ja4:$unmask_cr_1_ua:$unmask_cr_1_path:$unmask_cr_1_host\" $unmask_cr_1 {\n    default 0;\n    \"1:1:1:1\" 1;\n}",
 		"map $unmask_cr_1 $unmask_cr_1_pick {\n    default $unmask_cr_2_pick;\n    \"1\"     \"cr1\";\n}",
-		// rule 2: addresses, a throttle (the rate_limit action: a zone, no action entry)
+		// rule 2: addresses, monitor on a match plus a rate limit (a zone, no
+		// action entry) that denies over the limit
 		"geo $remote_addr $unmask_cr_2_ip {\n    default 0;\n    203.0.113.0/24 1;\n    198.51.100.7 1;\n}",
 		"map \"$is_search_bot:$is_bypass_ip:$unmask_cr_2\" $crrate_2_key {",
 		"limit_req_zone $crrate_2_key zone=crrate_2:10m rate=30r/m;",
@@ -77,6 +79,7 @@ func TestCustomRulesRender(t *testing.T) {
 		"map $unmask_cr_4 $unmask_cr_4_pick {\n    default \"\";\n    \"1\"     \"cr5\";\n}",
 		"map \"\" $unmask_cr_id {\n    default $unmask_cr_1_pick;\n}",
 		"map $unmask_cr_id $unmask_cr_action {\n    default \"\";\n    \"cr1\" \"captcha_only\";\n    \"cr3\" \"deny\";\n}",
+		"map $unmask_cr_id $unmask_cr_rate_action {\n    default \"\";\n    \"cr2\" \"deny\";\n}",
 		// a quote in a pattern is escaped
 		"\"~*\\\"quoted\\\"\" 1;",
 		// the deny block is drawn, with the rule's term
@@ -104,7 +107,7 @@ func TestCustomRulesServerHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"proxy_set_header   X-Unmask-Rule        $unmask_cr_id;", "proxy_set_header   X-Unmask-Rule-Action $unmask_cr_action;"} {
+	for _, want := range []string{"proxy_set_header   X-Unmask-Rule        $unmask_cr_id;", "proxy_set_header   X-Unmask-Rule-Action $unmask_cr_action;", "proxy_set_header   X-Unmask-Rule-Rate-Action $unmask_cr_rate_action;"} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("server.inc lacks %q", want)
 		}

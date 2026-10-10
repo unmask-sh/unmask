@@ -22,7 +22,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- (2026-10-10) **Custom rules: several conditions, one action.**  A new settings tab takes rules combining addresses, JA4 fingerprints, countries, networks (ASN), user agent, path and host -- all must hold -- and acting narrowly: count only, PoW, CAPTCHA, PoW then CAPTCHA, deny, or a throttle per address.  The first rule that holds decides, after bans and bypasses.  The hunt's rows and the assistant propose a rule to review and save.
+- (2026-10-10) **Custom rules: several conditions, one action.**  A new settings tab takes rules combining addresses, JA4 fingerprints, countries, networks (ASN), user agent, path and host -- all must hold -- with one action (count only, PoW, CAPTCHA, PoW then CAPTCHA, deny) and an optional per-address rate limit with its own answer over the limit.  The first rule that holds decides, after bans and bypasses.  The hunt and the assistant propose rules.
 
 ### Changed
 

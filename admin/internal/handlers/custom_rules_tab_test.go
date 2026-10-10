@@ -48,7 +48,7 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 		return rr.Body.String()
 	}
 	page := tab()
-	for _, want := range []string{`name="cr_id" value="crold"`, `name="cr_ips" value="192.0.2.0/24"`, `name="cr_action" value="deny"`, `name="cr_act_crold" value="deny" checked`, `name="cr_memo"`, "条件 (すべて満たす)", "適用 (ひとつ)", "直近 24h 1 件", `id="cr-template"`, `id="cr-add"`, `section=custom-rules`, "</html>"} {
+	for _, want := range []string{`name="cr_id" value="crold"`, `name="cr_ips" value="192.0.2.0/24"`, `name="cr_action" value="deny"`, `name="cr_act_crold" value="deny" checked`, `name="cr_memo"`, "条件 (すべて満たす)", "<legend>アクション</legend>", "当たったら", "件/分 を超えたら", "直近 24h 1 件", `id="cr-template"`, `id="cr-add"`, `section=custom-rules`, "</html>"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("tab lacks %q", want)
 		}
@@ -78,7 +78,7 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 		"cr_ips": {"192.0.2.0/24, 198.51.100.7", ""}, "cr_ja4s": {"", "T13D1516H2_8daaf6152771_b0da82dd1658, t13d*"},
 		"cr_countries": {"", "cn, ru"}, "cr_asns": {"", "AS4134, 16509"},
 		"cr_ua": {"", "python-requests|scrapy"}, "cr_path": {"", `^/search`}, "cr_hosts": {"", "Shop.Example.jp"},
-		"cr_action": {"deny", "rate_limit"}, "cr_rate": {"", "30"},
+		"cr_action": {"deny", "captcha_only"}, "cr_rate": {"", "30"}, "cr_rate_action": {"deny", "deny"},
 	})
 	if code >= 400 || strings.Contains(loc, "err=") {
 		t.Fatalf("save: %d %s", code, loc)
@@ -92,13 +92,14 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 		t.Fatalf("rules after the save: %+v", rules)
 	}
 	old := rules[0]
-	if old.ID != "crold" || old.Label != "old edited" || len(old.IPs) != 2 || old.CreatedAt != 1_700_000_000 || old.UpdatedAt == 0 {
+	// (its over-limit answer was posted without a rate, so it is dropped)
+	if old.ID != "crold" || old.Label != "old edited" || len(old.IPs) != 2 || old.RateAction != "" || old.CreatedAt != 1_700_000_000 || old.UpdatedAt == 0 {
 		t.Errorf("the edited rule: %+v", old)
 	}
 	nw := rules[1]
 	if nw.ID == "" || nw.ID == "crold" || nw.Enabled || nw.Label != "Scraper" || nw.JA4s[0] != "t13d1516h2_8daaf6152771_b0da82dd1658" || nw.JA4s[1] != "t13d*" ||
 		nw.Countries[0] != "CN" || nw.Countries[1] != "RU" || nw.ASNs[0] != 4134 || nw.ASNs[1] != 16509 || nw.Hosts[0] != "shop.example.jp" ||
-		nw.Action != "rate_limit" || nw.RatePerMin != 30 || nw.Memo != "seen in the hunt" || nw.CreatedAt == 0 {
+		nw.Action != "captcha_only" || nw.RatePerMin != 30 || nw.RateAction != "deny" || nw.Memo != "seen in the hunt" || nw.CreatedAt == 0 {
 		t.Errorf("the new rule: %+v", nw)
 	}
 	// The rendered conf carries the enabled rule and not the disabled one.
@@ -115,10 +116,10 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 	if code >= 500 || !strings.Contains(loc, "err=") || !strings.Contains(loc, "rule 1 (old)") {
 		t.Errorf("a bad address must be refused, naming the rule: %d %s", code, loc)
 	}
-	// A rate limit without a rate is refused; a rate with another action is dropped.
-	code, loc = post(url.Values{"cr_id": {"crold"}, "cr_label": {""}, "cr_enabled": {"1"}, "cr_ips": {"203.0.113.9"}, "cr_action": {"rate_limit"}, "cr_rate": {""}})
+	// An unknown over-limit answer is refused, naming the rule by position.
+	code, loc = post(url.Values{"cr_id": {"crold"}, "cr_label": {""}, "cr_enabled": {"1"}, "cr_ips": {"203.0.113.9"}, "cr_action": {"deny"}, "cr_rate": {"10"}, "cr_rate_action": {"ban"}})
 	if code >= 500 || !strings.Contains(loc, "err=") || !strings.Contains(loc, "rule 1:") {
-		t.Errorf("a rate limit without a rate must be refused: %d %s", code, loc)
+		t.Errorf("an unknown over-limit answer must be refused: %d %s", code, loc)
 	}
 	// A rule with no condition is refused too.
 	code, loc = post(url.Values{"cr_id": {"crold"}, "cr_label": {"old"}, "cr_enabled": {"1"}, "cr_action": {"deny"}})
@@ -145,7 +146,7 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 // it; the add-a-rule template is still there.
 func TestCustomRulesTabDraft(t *testing.T) {
 	h := newTestHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/?new=1&label=scraper&ips=203.0.113.0%2F24%2C198.51.100.7&ja4s=t13d%2A&asns=AS4134&ua=python-requests&action=deny&rate=30", nil)
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/?new=1&label=scraper&ips=203.0.113.0%2F24%2C198.51.100.7&ja4s=t13d%2A&asns=AS4134&ua=python-requests&action=deny&rate=30&rate_action=captcha_only", nil)
 	req.SetPathValue("tab", "custom-rules")
 	req.Header.Set("Cookie", "unmask_lang=ja")
 	rr := httptest.NewRecorder()
@@ -154,7 +155,7 @@ func TestCustomRulesTabDraft(t *testing.T) {
 		t.Fatalf("tab: %d", rr.Code)
 	}
 	page := rr.Body.String()
-	for _, want := range []string{`id="cr-draft"`, `name="cr_id" value=""`, `name="cr_label" value="scraper"`, `name="cr_ips" value="203.0.113.0/24, 198.51.100.7"`, `name="cr_ja4s" value="t13d*"`, `name="cr_asns" value="4134"`, `name="cr_ua" value="python-requests"`, `name="cr_act_draft" value="deny" checked`, `name="cr_rate" min="1" value="30"`, "まだ保存されていません", `id="cr-template"`} {
+	for _, want := range []string{`id="cr-draft"`, `name="cr_id" value=""`, `name="cr_label" value="scraper"`, `name="cr_ips" value="203.0.113.0/24, 198.51.100.7"`, `name="cr_ja4s" value="t13d*"`, `name="cr_asns" value="4134"`, `name="cr_ua" value="python-requests"`, `name="cr_act_draft" value="deny" checked`, `name="cr_rate" min="0" value="30"`, `name="cr_ract_draft" value="captcha_only" checked`, "まだ保存されていません", `id="cr-template"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("draft tab lacks %q", want)
 		}

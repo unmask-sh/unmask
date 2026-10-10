@@ -859,6 +859,16 @@ map $unmask_cr_id $unmask_cr_action {
 {{- end }}
 {{- end }}
 }
+# Over a rule's rate limit: the rule's own answer, "" for the rate limit's
+# mode (the daemon reads it on the rate path).
+map $unmask_cr_id $unmask_cr_rate_action {
+    default "";
+{{- range .CustomRules }}
+{{- if .RateAction }}
+    "{{ .ID }}" "{{ .RateAction }}";
+{{- end }}
+{{- end }}
+}
 map $unmask_cr_action $unmask_cr_challenge {
     default            0;
     "pow_only"         1;

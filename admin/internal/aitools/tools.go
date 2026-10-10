@@ -142,8 +142,9 @@ func (d Deps) List() []Tool {
 				"ua":           map[string]any{"type": "string", "description": "a case-insensitive regex over the user agent"},
 				"path":         map[string]any{"type": "string", "description": "a regex over the request path and query"},
 				"hosts":        map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "host names on a multi-site install"},
-				"action":       map[string]any{"type": "string", "enum": []string{"monitor", "pow_only", "captcha_only", "pow_then_captcha", "deny", "rate_limit"}, "description": "monitor counts only; deny answers 403; rate_limit allows rate_per_min requests per minute per address and rate-limits the rest"},
-				"rate_per_min": map[string]any{"type": "integer", "minimum": 1, "description": "with action rate_limit: the requests per minute allowed per address"},
+				"action":       map[string]any{"type": "string", "enum": []string{"monitor", "pow_only", "captcha_only", "pow_then_captcha", "deny"}, "description": "on every match; monitor counts only, deny answers 403"},
+				"rate_per_min": map[string]any{"type": "integer", "minimum": 1, "description": "optional, beside the action: a rate limit per address in requests per minute"},
+				"rate_action":  map[string]any{"type": "string", "enum": []string{"pow_only", "captcha_only", "pow_then_captcha", "deny"}, "description": "with rate_per_min: the answer over the limit; omit for the rate limit's own configured mode"},
 			}, "action")},
 	}
 }
@@ -277,6 +278,7 @@ func proposeCustomRule(args map[string]any) (any, error) {
 	}
 	if v, ok := args["rate_per_min"].(float64); ok && v > 0 {
 		r.RatePerMin = int(v)
+		r.RateAction = str("rate_action")
 	}
 	if err := settings.NormalizeCustomRule(&r); err != nil {
 		return nil, err
@@ -285,7 +287,7 @@ func proposeCustomRule(args map[string]any) (any, error) {
 		"rule":        r,
 		"create_path": "/admin/settings/custom-rules/" + settings.CustomRuleDraftQuery(r),
 		"note": "Nothing was changed.  create_path opens the custom-rules tab with this rule filled in as an unsaved draft; the operator reviews and saves it, and it takes effect after the nginx configuration is rendered and reloaded.  " +
-			"Put create_path in your answer on a line of its own.  All conditions must hold at once (AND); OR is several values in one field or a rule of its own.  The rate_limit action throttles per address instead of acting on every match.",
+			"Put create_path in your answer on a line of its own.  All conditions must hold at once (AND); OR is several values in one field or a rule of its own.  The action applies on every match; a rate_per_min beside it counts per address and answers the overflow with rate_action (or the rate limit's own mode).",
 	}, nil
 }
 

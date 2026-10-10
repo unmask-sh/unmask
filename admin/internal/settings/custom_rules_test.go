@@ -10,16 +10,25 @@ func TestNormalizeCustomRule(t *testing.T) {
 	if err := NormalizeCustomRule(&r); err != nil {
 		t.Fatal(err)
 	}
-	// The rate belongs to the rate_limit action: any other action drops it.
-	if r.ID != "cr1" || r.Label != "x" || len(r.IPs) != 2 || r.JA4s[0] != "t13d*" || r.Countries[0] != "JP" || len(r.ASNs) != 1 || r.Hosts[0] != "example.com" || r.RatePerMin != 0 {
+	// The rate limit sits beside the action (capped), with its own answer.
+	if r.ID != "cr1" || r.Label != "x" || len(r.IPs) != 2 || r.JA4s[0] != "t13d*" || r.Countries[0] != "JP" || len(r.ASNs) != 1 || r.Hosts[0] != "example.com" || r.RatePerMin != 1_000_000 {
 		t.Errorf("normalised: %+v", r)
 	}
-	rl := CustomRule{Action: CustomRuleRateLimit, IPs: []string{"203.0.113.5"}, RatePerMin: 2_000_000}
-	if err := NormalizeCustomRule(&rl); err != nil || rl.RatePerMin != 1_000_000 {
-		t.Errorf("rate limit: %v %+v", err, rl)
+	rl := CustomRule{Action: "captcha_only", IPs: []string{"203.0.113.5"}, RatePerMin: 60, RateAction: " deny "}
+	if err := NormalizeCustomRule(&rl); err != nil || rl.RatePerMin != 60 || rl.RateAction != "deny" || rl.Action != "captcha_only" {
+		t.Errorf("action with a rate limit: %v %+v", err, rl)
 	}
-	if err := NormalizeCustomRule(&CustomRule{Action: CustomRuleRateLimit, IPs: []string{"203.0.113.5"}}); err == nil {
-		t.Error("a rate limit without a rate was accepted")
+	// Without a rate the over-limit answer means nothing and is dropped; an
+	// unknown answer is refused; "rate_limit" is not an action.
+	nr := CustomRule{Action: "deny", IPs: []string{"203.0.113.5"}, RateAction: "deny"}
+	if err := NormalizeCustomRule(&nr); err != nil || nr.RateAction != "" {
+		t.Errorf("rate answer without a rate: %v %+v", err, nr)
+	}
+	if err := NormalizeCustomRule(&CustomRule{Action: "deny", IPs: []string{"203.0.113.5"}, RatePerMin: 10, RateAction: "ban"}); err == nil {
+		t.Error("an unknown over-limit answer was accepted")
+	}
+	if err := NormalizeCustomRule(&CustomRule{Action: "rate_limit", IPs: []string{"203.0.113.5"}, RatePerMin: 10}); err == nil {
+		t.Error("rate_limit as an action was accepted")
 	}
 	// The name and the memo are optional and bounded.
 	if err := NormalizeCustomRule(&CustomRule{Action: "deny", IPs: []string{"203.0.113.5"}}); err != nil {
@@ -62,11 +71,11 @@ func TestNormalizeCustomRule(t *testing.T) {
 // one run of the characters the ask page's linkifier accepts, so the path
 // survives as a link in an answer.
 func TestCustomRuleDraftQuery(t *testing.T) {
-	q := CustomRuleDraftQuery(CustomRule{Label: "scraper ~ v2", Memo: "seen 10-10", IPs: []string{"203.0.113.0/24", "198.51.100.7"}, JA4s: []string{"t13d*"}, ASNs: []uint32{4134}, UA: "python-requests|scrapy (x)", Path: `^/search\?q=`, Action: "captcha_only", RatePerMin: 30})
+	q := CustomRuleDraftQuery(CustomRule{Label: "scraper ~ v2", Memo: "seen 10-10", IPs: []string{"203.0.113.0/24", "198.51.100.7"}, JA4s: []string{"t13d*"}, ASNs: []uint32{4134}, UA: "python-requests|scrapy (x)", Path: `^/search\?q=`, Action: "captcha_only", RatePerMin: 30, RateAction: "deny"})
 	if !strings.HasPrefix(q, "?new=1&") {
 		t.Errorf("new=1 must lead: %q", q)
 	}
-	for _, want := range []string{"label=scraper%20%7E%20v2", "memo=seen%2010-10", "ips=203.0.113.0%2F24%2C198.51.100.7", "ja4s=t13d%2A", "asns=4134", "ua=python-requests%7Cscrapy%20%28x%29", "path=%5E%2Fsearch%5C%3Fq%3D", "action=captcha_only", "rate=30"} {
+	for _, want := range []string{"label=scraper%20%7E%20v2", "memo=seen%2010-10", "ips=203.0.113.0%2F24%2C198.51.100.7", "ja4s=t13d%2A", "asns=4134", "ua=python-requests%7Cscrapy%20%28x%29", "path=%5E%2Fsearch%5C%3Fq%3D", "action=captcha_only", "rate=30", "rate_action=deny"} {
 		if !strings.Contains(q, want) {
 			t.Errorf("query %q lacks %q", q, want)
 		}

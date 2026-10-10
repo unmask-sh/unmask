@@ -1437,8 +1437,9 @@ type CustomRule struct {
 	UA         string   `yaml:"ua,omitempty"`           // regex over the user agent, case-insensitive
 	Path       string   `yaml:"path,omitempty"`         // regex over the request URI (path and query)
 	Hosts      []string `yaml:"hosts,omitempty"`        // exact host names
-	Action     string   `yaml:"action"`                 // monitor / pow_only / captcha_only / pow_then_captcha / deny / rate_limit
-	RatePerMin int      `yaml:"rate_per_min,omitempty"` // with rate_limit: requests per minute per address
+	Action     string   `yaml:"action"`                 // on every match: monitor / pow_only / captcha_only / pow_then_captcha / deny
+	RatePerMin int      `yaml:"rate_per_min,omitempty"` // >0: a rate limit beside the action, per address
+	RateAction string   `yaml:"rate_action,omitempty"`  // over the rate limit: "" = the rate limit's own mode, else a chain or deny
 	CreatedAt  int64    `yaml:"created_at,omitempty"`   // unix sec the rule was added
 	UpdatedAt  int64    `yaml:"updated_at,omitempty"`   // unix sec of the last edit
 }
@@ -1446,14 +1447,21 @@ type CustomRule struct {
 // CustomRuleMonitor is the action that only counts.
 const CustomRuleMonitor = "monitor"
 
-// CustomRuleRateLimit: the rule throttles (RatePerMin per address) instead
-// of acting on every match; the overflow gets the rate-limit answer.
-const CustomRuleRateLimit = "rate_limit"
-
 // IsValidCustomRuleAction: the actions a custom rule may carry.
 func IsValidCustomRuleAction(a string) bool {
 	switch a {
-	case CustomRuleMonitor, GeoActionPoWOnly, GeoActionCaptchaOnly, GeoActionPoWThenCaptcha, GeoActionDeny, CustomRuleRateLimit:
+	case CustomRuleMonitor, GeoActionPoWOnly, GeoActionCaptchaOnly, GeoActionPoWThenCaptcha, GeoActionDeny:
+		return true
+	}
+	return false
+}
+
+// IsValidCustomRuleRateAction: what a rule answers over its rate limit --
+// "" for the rate limit's own mode (settings -> rate limit), else a chain
+// or deny.
+func IsValidCustomRuleRateAction(a string) bool {
+	switch a {
+	case "", GeoActionPoWOnly, GeoActionCaptchaOnly, GeoActionPoWThenCaptcha, GeoActionDeny:
 		return true
 	}
 	return false
@@ -1497,18 +1505,22 @@ func NormalizeCustomRule(r *CustomRule) error {
 	}
 	r.Action = strings.TrimSpace(r.Action)
 	if !IsValidCustomRuleAction(r.Action) {
-		return fmt.Errorf("action %q is not one of monitor, pow_only, captcha_only, pow_then_captcha, deny, rate_limit", r.Action)
+		return fmt.Errorf("action %q is not one of monitor, pow_only, captcha_only, pow_then_captcha, deny", r.Action)
 	}
-	// The rate belongs to the rate_limit action alone: one rule, one answer.
-	if r.Action == CustomRuleRateLimit {
-		if r.RatePerMin < 1 {
-			return errors.New("a rate limit needs the requests per minute")
-		}
-		if r.RatePerMin > 1_000_000 {
-			r.RatePerMin = 1_000_000
-		}
-	} else {
+	// The rate limit sits beside the action; its own answer means nothing
+	// without a rate.
+	if r.RatePerMin < 0 {
 		r.RatePerMin = 0
+	}
+	if r.RatePerMin > 1_000_000 {
+		r.RatePerMin = 1_000_000
+	}
+	r.RateAction = strings.TrimSpace(r.RateAction)
+	if !IsValidCustomRuleRateAction(r.RateAction) {
+		return fmt.Errorf("the answer over the rate limit %q is not one of pow_only, captcha_only, pow_then_captcha, deny (or empty for the rate limit's own mode)", r.RateAction)
+	}
+	if r.RatePerMin == 0 {
+		r.RateAction = ""
 	}
 	ips := r.IPs[:0]
 	for _, v := range r.IPs {
@@ -1617,6 +1629,7 @@ func CustomRuleDraftQuery(r CustomRule) string {
 	set("action", r.Action)
 	if r.RatePerMin > 0 {
 		set("rate", strconv.Itoa(r.RatePerMin))
+		set("rate_action", r.RateAction)
 	}
 	enc := q.Encode()
 	enc = strings.ReplaceAll(enc, "+", "%20")

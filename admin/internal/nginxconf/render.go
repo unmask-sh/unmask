@@ -957,20 +957,21 @@ type AsnRateZoneRender struct {
 // chained first-match through {{Var}}_pick: a rule's pick is its id when it
 // matched, else the next rule's pick (Next), the last falling to "".
 type CustomRuleRender struct {
-	ID        string
-	Var       string
-	Next      string   // the next rule's pick variable, or "" for the last
-	IPs       []string // addresses / CIDRs
-	JA4Exact  []string
-	JA4Prefix []string
-	Countries []string
-	ASNs      []string // "AS<n>" tokens, as $unmask_asn carries them
-	UA        string   // regex, quotes escaped
-	Path      string   // regex over $request_uri, quotes escaped
-	Hosts     []string
-	Action    string // the action map entry; "" for monitor and for throttles
-	Keys      string
-	Match     string
+	ID         string
+	Var        string
+	Next       string   // the next rule's pick variable, or "" for the last
+	IPs        []string // addresses / CIDRs
+	JA4Exact   []string
+	JA4Prefix  []string
+	Countries  []string
+	ASNs       []string // "AS<n>" tokens, as $unmask_asn carries them
+	UA         string   // regex, quotes escaped
+	Path       string   // regex over $request_uri, quotes escaped
+	Hosts      []string
+	Action     string // the action map entry; "" for monitor and for throttles
+	RateAction string // over the rule's rate limit: "" = the rate limit's own mode
+	Keys       string
+	Match      string
 }
 
 // CustomRuleRateZoneRender: a throttling rule's limit_req zone.  The key is
@@ -1051,12 +1052,15 @@ func customRulesRender(s settings.Settings) (rules []CustomRuleRender, zones []C
 		}
 		cr.Keys = strings.Join(keys, ":")
 		cr.Match = strings.TrimSuffix(strings.Repeat("1:", len(keys)), ":")
-		switch {
-		case r.Action == settings.CustomRuleRateLimit && r.RatePerMin > 0:
+		// The action on every match, and beside it the rate limit with its
+		// own answer over the limit (both may be set).
+		if r.Action != settings.CustomRuleMonitor {
+			cr.Action = r.Action
+		}
+		if r.RatePerMin > 0 {
 			name := fmt.Sprintf("crrate_%d", i+1)
 			zones = append(zones, CustomRuleRateZoneRender{Var: v, KeyVar: "$" + name + "_key", ZoneName: name, RequestsPerMin: r.RatePerMin, Burst: r.RatePerMin})
-		case r.Action != settings.CustomRuleMonitor && r.Action != settings.CustomRuleRateLimit:
-			cr.Action = r.Action
+			cr.RateAction = r.RateAction
 		}
 		rules = append(rules, cr)
 	}

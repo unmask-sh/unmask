@@ -626,6 +626,19 @@ func (h *Handler) ServeChallengeOrJSON(w http.ResponseWriter, r *http.Request) {
 			h.serveRateDeny(w, r, site, "rate_limit")
 			return
 		}
+		// A custom rule's own answer over its rate limit (settings -> custom
+		// rules), named by the conf on the proxy: deny is a hard cap, a
+		// chain is served in place of the rule's on-match action, and
+		// without one the rate limit's own mode applies -- so the on-match
+		// action never leaks into the rate path.
+		if a := strings.TrimSpace(r.Header.Get("X-Unmask-Rule-Rate-Action")); a == settings.RateChallengeDeny {
+			h.serveRateDeny(w, r, site, "rate_limit")
+			return
+		} else if a != "" && settings.IsValidRateChallengeMode(a) {
+			r.Header.Set("X-Unmask-Rule-Action", a)
+		} else {
+			r.Header.Del("X-Unmask-Rule-Action")
+		}
 		// The pass-cookie reuse cap: a client that holds a valid pass and has
 		// used it past the budget gets the deny page, or a CAPTCHA -- whose
 		// solved pass the cap no longer counts.

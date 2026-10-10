@@ -72,8 +72,8 @@ func customRuleDraft(q url.Values, lang i18n.Lang) *customRuleView {
 	}
 	if n, err := strconv.Atoi(q.Get("rate")); err == nil && n > 0 {
 		r.RatePerMin = n
-		if r.Action == "" {
-			r.Action = settings.CustomRuleRateLimit
+		if a := q.Get("rate_action"); settings.IsValidCustomRuleRateAction(a) {
+			r.RateAction = a
 		}
 	}
 	if !settings.IsValidCustomRuleAction(r.Action) {
@@ -142,17 +142,18 @@ func applyCustomRulesForm(dst *[]settings.CustomRule, r *http.Request) error {
 	seen := map[string]bool{}
 	for i := range ids {
 		rule := settings.CustomRule{
-			ID:        strings.TrimSpace(ids[i]),
-			Label:     at("cr_label", i),
-			Memo:      at("cr_memo", i),
-			Enabled:   at("cr_enabled", i) != "0",
-			IPs:       splitList(at("cr_ips", i)),
-			JA4s:      splitList(at("cr_ja4s", i)),
-			Countries: splitList(at("cr_countries", i)),
-			UA:        at("cr_ua", i),
-			Path:      at("cr_path", i),
-			Hosts:     splitList(at("cr_hosts", i)),
-			Action:    at("cr_action", i),
+			ID:         strings.TrimSpace(ids[i]),
+			Label:      at("cr_label", i),
+			Memo:       at("cr_memo", i),
+			Enabled:    at("cr_enabled", i) != "0",
+			IPs:        splitList(at("cr_ips", i)),
+			JA4s:       splitList(at("cr_ja4s", i)),
+			Countries:  splitList(at("cr_countries", i)),
+			UA:         at("cr_ua", i),
+			Path:       at("cr_path", i),
+			Hosts:      splitList(at("cr_hosts", i)),
+			Action:     at("cr_action", i),
+			RateAction: at("cr_rate_action", i),
 		}
 		for _, a := range splitList(at("cr_asns", i)) {
 			a = strings.TrimPrefix(strings.ToUpper(a), "AS")
