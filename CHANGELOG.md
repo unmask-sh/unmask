@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-10-10) **A long answer on the ask page was lost on the way.**  The server closes a response after a minute, sized for the dashboard, and an answer that took longer -- the model's rounds through the tools do -- was cut before it was sent: it was stored, the page said the question had failed, and it showed up on the next visit.  The send now keeps its connection for the question's whole budget.
+
 ## [0.1.51-rc7] - 2026-10-10 (testing build)
 
 ### Added

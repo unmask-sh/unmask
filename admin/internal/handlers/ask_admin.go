@@ -218,6 +218,13 @@ func (h *Handler) askPage(w http.ResponseWriter, r *http.Request, tab string) {
 // with 4xx/5xx.  The answer arrives whole; the page shows a pending row
 // meanwhile and keeps the earlier turns.
 func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
+	// An answer takes as long as the model's rounds through the tools -- a
+	// minute or more when it reads the settings pages -- and the server's
+	// write timeout (60 s, sized for the dashboard) would close the
+	// connection first: the answer was stored, the page said the question
+	// failed.  This response gets the question's whole budget.
+	rc := http.NewResponseController(w)
+	_ = rc.SetWriteDeadline(time.Now().Add(askTimeout + time.Minute))
 	lang := i18n.Lang(i18n.Resolve(r))
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")

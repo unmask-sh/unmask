@@ -292,3 +292,31 @@ func TestAskDeleteOwnTurn(t *testing.T) {
 		t.Errorf("rows after the deletes: %v %+v", err, rows)
 	}
 }
+
+// deadlineRecorder records the write deadline a handler asks for, the way
+// http.ResponseController hands it to the server's connection.
+type deadlineRecorder struct {
+	*httptest.ResponseRecorder
+	writeDeadline time.Time
+}
+
+func (d *deadlineRecorder) SetWriteDeadline(t time.Time) error { d.writeDeadline = t; return nil }
+
+// The send keeps its connection for the question's whole budget: the
+// server's write timeout is a minute, an answer can take longer, and a
+// connection closed before the answer is written loses it (the 2026-10-10
+// answer about a load balancer took 65 s, was stored, and the page said
+// the question had failed).
+func TestAskSendExtendsWriteDeadline(t *testing.T) {
+	h := newTestHandler(t)
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
+	rec := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	// No model configured: the handler answers 4xx at once, after setting
+	// the deadline it would have needed.
+	h.AdminAskSend(rec, askReq("POST", "/unmask/admin/ask/send", "q=anything", "admin"))
+	if rec.writeDeadline.IsZero() || time.Until(rec.writeDeadline) < askTimeout {
+		t.Errorf("the send must keep the connection for at least %v; deadline %v", askTimeout, rec.writeDeadline)
+	}
+}
