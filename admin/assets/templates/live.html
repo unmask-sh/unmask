@@ -327,11 +327,11 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
      data-map="{{ .BasePath }}/static/world-110m.json?v={{ assetv }}" data-flags="{{ .BasePath }}/static/flags/"
      data-save="{{ .BasePath }}/admin/api/map-location"
      data-set="{{ if .MapLoc.Set }}1{{ else }}0{{ end }}" data-lat="{{ .MapLoc.Lat }}" data-lon="{{ .MapLoc.Lon }}" data-label="{{ .MapLoc.Label }}{{ if .MapLoc.Approx }} {{ t .Lang "overview.map.approx" }}{{ end }}" data-auto="{{ if .MapLoc.Auto }}1{{ else }}0{{ end }}"
-     data-auto-set="{{ if .MapAuto.Set }}1{{ else }}0{{ end }}" data-auto-lat="{{ .MapAuto.Lat }}" data-auto-lon="{{ .MapAuto.Lon }}" data-auto-label="{{ .MapAuto.Label }}{{ if .MapAuto.Approx }} {{ t .Lang "overview.map.approx" }}{{ end }}" data-auto-source="{{ .MapAuto.Source }}"
-     data-txt-server="{{ t .Lang "overview.map.server" }}" data-txt-from-interface="{{ t .Lang "overview.map.src_interface" }}" data-txt-from-hub="{{ t .Lang "overview.map.src_hub" }}"
-     data-txt-pop-requests="{{ t .Lang "overview.map.pop_requests" }}" data-txt-pop-now="{{ t .Lang "overview.map.pop_now" }}" data-txt-pop-share="{{ t .Lang "overview.map.pop_share" }}"
+     data-auto-set="{{ if .MapAuto.Set }}1{{ else }}0{{ end }}" data-auto-lat="{{ .MapAuto.Lat }}" data-auto-lon="{{ .MapAuto.Lon }}" data-auto-label="{{ .MapAuto.Label }}{{ if .MapAuto.Approx }} {{ t .Lang "overview.map.approx" }}{{ end }}" data-auto-source="{{ .MapAuto.Source }}" data-auto-ip="{{ .MapAuto.IP }}" data-auto-at="{{ .MapAuto.At }}" data-probe="{{ .BasePath }}/admin/api/map-location/probe"
+     data-txt-server="{{ t .Lang "overview.map.server" }}" data-txt-from-interface="{{ t .Lang "overview.map.src_interface" }}" data-txt-from-echo="{{ t .Lang "overview.map.src_echo" }}"
+     data-txt-probe-at="{{ t .Lang "overview.map.dlg_probe_at" }}" data-txt-auto-suffix="{{ t .Lang "overview.map.auto_suffix" }}" data-txt-none="{{ t .Lang "overview.map.none" }}" data-txt-pop-requests="{{ t .Lang "overview.map.pop_requests" }}" data-txt-pop-now="{{ t .Lang "overview.map.pop_now" }}" data-txt-pop-share="{{ t .Lang "overview.map.pop_share" }}"
      data-txt-legend-pass="{{ t .Lang "overview.map.legend_pass" }}" data-txt-legend-serve="{{ t .Lang "overview.map.legend_serve" }}" data-txt-legend-deny="{{ t .Lang "overview.map.legend_deny" }}" data-txt-legend-bypass="{{ t .Lang "overview.map.legend_bypass" }}">
-  <h2 class="pipe-h">{{ t .Lang "overview.map.h" }}<small>{{ t .Lang "overview.map.sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.map.help" }}</span></span>{{ if .CanEditMap }}<button type="button" class="live-tg" id="geo-set" style="margin-left:auto">{{ t .Lang "overview.map.set" }}</button>{{ end }}</h2>
+  <h2 class="pipe-h">{{ t .Lang "overview.map.h" }}<small>{{ t .Lang "overview.map.sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.map.help" }}</span></span>{{ if .CanEditMap }}<button type="button" class="live-tg" id="geo-set" style="margin-left:auto">{{ t .Lang "overview.map.set" }}: <span id="geo-set-cur">{{ if .MapLoc.Set }}{{ .MapLoc.Label }}{{ if .MapLoc.Approx }} {{ t .Lang "overview.map.approx" }}{{ end }}{{ if .MapLoc.Auto }} · {{ t .Lang "overview.map.auto_suffix" }}{{ end }}{{ else }}{{ t .Lang "overview.map.none" }}{{ end }}</span></button>{{ end }}</h2>
   <div class="geo-wrap"><canvas id="geo" aria-label="{{ t .Lang "overview.map.h" }}" role="img"></canvas>
     <div class="geo-pop" id="geo-pop" hidden></div></div>
   <p class="live-note" id="geo-unset" style="margin:.4rem 0 0"{{ if .MapLoc.Set }} hidden{{ end }}>{{ t .Lang "overview.map.unset" }}</p>
@@ -348,7 +348,12 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     <h3 id="geo-dialog-title">{{ t .Lang "overview.map.set_title" }}</h3>
     <label style="display:flex;gap:.5rem;align-items:flex-start;font-size:.9rem;cursor:pointer">
       <input type="radio" name="geo-mode" value="auto" id="geo-mode-auto" style="margin-top:.3rem">
-      <span><b>{{ t .Lang "overview.map.dlg_auto" }}</b><br><span id="geo-dlg-auto" style="font-size:.8rem;color:#475569"></span></span>
+      <span><b>{{ t .Lang "overview.map.dlg_auto" }}</b><br><span id="geo-dlg-auto" style="font-size:.8rem;color:#475569"></span>
+        <span id="geo-probe-wrap" style="display:block;margin-top:.35rem;font-size:.78rem;color:#475569" hidden>
+          <span>{{ t .Lang "overview.map.dlg_probe_hint" }}</span><br>
+          <button type="button" class="ux-dialog-btn" id="geo-probe" style="margin-top:.3rem;font-size:.78rem;padding:.2rem .6rem" data-txt-probe="{{ t .Lang "overview.map.dlg_probe" }}" data-txt-reprobe="{{ t .Lang "overview.map.dlg_reprobe" }}"></button>
+          <span id="geo-probe-at" style="margin-left:.4rem"></span>
+        </span></span>
     </label>
     <label style="display:flex;gap:.5rem;align-items:flex-start;font-size:.9rem;cursor:pointer">
       <input type="radio" name="geo-mode" value="manual" id="geo-mode-manual" style="margin-top:.3rem">
@@ -877,6 +882,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       auto.textContent = j.note; auto.hidden = false;
     } else if (auto) { auto.hidden = true; }
     setServer(); rebuild(); parts = []; if (reduce) { running = false; } start();
+    if (typeof setCur === 'function') setCur();
   }
   if (btn && dlg && typeof dlg.showModal === 'function') {
     var form = document.getElementById('geo-form'), err = document.getElementById('geo-dlg-err');
@@ -884,15 +890,49 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     var manual = document.getElementById('geo-manual'), latEl = document.getElementById('geo-lat'), lonEl = document.getElementById('geo-lon'), labelEl = document.getElementById('geo-label');
     function syncMode(){ var m = modeManual.checked; manual.style.opacity = m ? '1' : '.45'; latEl.disabled = lonEl.disabled = labelEl.disabled = !m; }
     modeAuto.addEventListener('change', syncMode); modeManual.addEventListener('change', syncMode);
-    btn.addEventListener('click', function(){
-      // The automatic line: what the server works out right now, and from what.
+    // The automatic line: what the server works out right now, and from
+    // what; and, with no global address on an interface, the button that
+    // asks unmask.sh's address check (the one call home, on this button
+    // only) with when it last answered.
+    var probeWrap = document.getElementById('geo-probe-wrap'), probeBtn = document.getElementById('geo-probe'), probeAt = document.getElementById('geo-probe-at');
+    function renderAuto(){
       var autoEl = document.getElementById('geo-dlg-auto');
       if (card.dataset.autoSet === '1') {
-        var src = card.dataset.autoSource === 'hub' ? card.dataset.txtFromHub : card.dataset.txtFromInterface;
+        var src = card.dataset.autoSource === 'echo' ? card.dataset.txtFromEcho : card.dataset.txtFromInterface;
         autoEl.textContent = {{ tf .Lang "overview.map.dlg_auto_now" "%s" }}.replace('%s', card.dataset.autoLabel + ' (' + card.dataset.autoLat + ', ' + card.dataset.autoLon + ')') + ' · ' + {{ tf .Lang "overview.map.dlg_auto_from" "%s" }}.replace('%s', src);
       } else {
         autoEl.textContent = {{ t .Lang "overview.map.dlg_auto_none" }};
       }
+      probeWrap.hidden = card.dataset.autoSource === 'interface';
+      probeBtn.textContent = card.dataset.autoIp ? probeBtn.dataset.txtReprobe : probeBtn.dataset.txtProbe;
+      probeAt.textContent = '';
+      if (card.dataset.autoIp && card.dataset.autoAt && card.dataset.autoAt !== '0') {
+        probeAt.textContent = card.dataset.txtProbeAt + card.dataset.autoIp + ' · ';
+        var tm = document.createElement('time'); tm.className = 'js-datetime js-datetime-notz'; tm.dataset.ts = card.dataset.autoAt; probeAt.appendChild(tm);
+        if (window.unmaskFmtTimes) unmaskFmtTimes();
+      }
+    }
+    function setCur(){
+      var el = document.getElementById('geo-set-cur'); if (!el) return;
+      el.textContent = loc.set ? loc.label + (card.dataset.auto === '1' ? ' · ' + card.dataset.txtAutoSuffix : '') : card.dataset.txtNone;
+    }
+    probeBtn.addEventListener('click', function(){
+      probeBtn.disabled = true; err.hidden = true;
+      fetch(card.dataset.probe, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+        .then(function(r){ return r.json().then(function(j){ if (!r.ok || !j.ok) throw new Error(j.error || r.status); return j; }); })
+        .then(function(j){
+          card.dataset.autoSet = j.auto_set ? '1' : '0'; card.dataset.autoLat = String(j.auto_lat || ''); card.dataset.autoLon = String(j.auto_lon || '');
+          card.dataset.autoLabel = j.auto_label || ''; card.dataset.autoSource = j.auto_source || ''; card.dataset.autoIp = j.auto_ip || ''; card.dataset.autoAt = String(j.auto_at || 0);
+          renderAuto();
+          if (modeAuto.checked) { latEl.value = card.dataset.autoLat; lonEl.value = card.dataset.autoLon; }
+          // No setting in force: the map follows the fresh estimate at once.
+          if (card.dataset.auto === '1' || !loc.set) applySaved(j);
+        })
+        .catch(function(e){ err.textContent = e && e.message ? e.message : String(e); err.hidden = false; })
+        .then(function(){ probeBtn.disabled = false; });
+    });
+    btn.addEventListener('click', function(){
+      renderAuto();
       var isManual = card.dataset.auto !== '1' && loc.set;
       modeManual.checked = isManual; modeAuto.checked = !isManual;
       latEl.value = isManual ? String(loc.lat) : (card.dataset.autoSet === '1' ? card.dataset.autoLat : '');

@@ -54,7 +54,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- (2026-10-10) **The map places the server on its own.**  Without a set position, the server is placed by its address: a global one on an interface, or, behind NAT, the one the community-bans hub saw it come from.  A City geo database gives the point; a Country one puts it at the country's centre, and the card says so.  The setting dialog shows that estimate and takes a position by hand.
+- (2026-10-10) **The map places the server on its own.**  Without a set position, the server is placed by its address: a global one on an interface, or, behind NAT, the one unmask.sh's address check reports when a button in the dialog asks it (api/ip returns the caller's address, nothing else).  A City geo database gives the point; a Country one the country's centre.  The dialog also takes a position by hand.
 
 ## [0.1.51-rc4] - 2026-10-10 (testing build)
 

@@ -40,8 +40,10 @@ type mapLocView struct {
 	Lat, Lon float64
 	Label    string
 	Auto     bool   // worked out, not set: the card says so and from what
-	Source   string // "interface" / "hub" when Auto
+	Source   string // "interface" / "echo" when Auto
 	Approx   bool   // Auto from a country alone: the country's centre
+	IP       string // the address the automatic position came from
+	At       int64  // when the address check answered (echo only), unix
 }
 
 func (h *Handler) mapLocation() mapLocView {
@@ -73,14 +75,18 @@ func (h *Handler) autoMapLocation() mapLocView {
 	h.mapAutoAt = time.Now()
 	h.mapAuto = mapLocView{}
 	ip, source := "", ""
+	var at int64
 	if addrs, err := interfaceAddrs(); err == nil {
 		if v := pickGlobalIP(addrs); v != "" {
 			ip, source = v, "interface"
 		}
 	}
-	if ip == "" && h.CommunityBans != nil {
-		if v, _ := h.CommunityBans.HubSeenIP(); v != "" {
-			ip, source = v, "hub"
+	if ip == "" {
+		// Behind NAT or a load balancer: the address the server shows the
+		// outside, as the operator last asked unmask.sh's address check
+		// for it (public_ip.go); nothing until they have.
+		if v, t := h.publicIP(); v != "" {
+			ip, source, at = v, "echo", t.Unix()
 		}
 	}
 	if ip == "" || h.IPGeo == nil {
@@ -99,10 +105,10 @@ func (h *Handler) autoMapLocation() mapLocView {
 		if label == "" {
 			label = country
 		}
-		h.mapAuto = mapLocView{Set: true, Lat: info.Lat, Lon: info.Lon, Label: label, Auto: true, Source: source}
+		h.mapAuto = mapLocView{Set: true, Lat: info.Lat, Lon: info.Lon, Label: label, Auto: true, Source: source, IP: ip, At: at}
 	case info.Country != "":
 		if lon, lat, ok := assets.WorldCentroid(info.Country); ok {
-			h.mapAuto = mapLocView{Set: true, Lat: lat, Lon: lon, Label: country, Auto: true, Source: source, Approx: true}
+			h.mapAuto = mapLocView{Set: true, Lat: lat, Lon: lon, Label: country, Auto: true, Source: source, Approx: true, IP: ip, At: at}
 		}
 	}
 	return h.mapAuto
@@ -187,6 +193,14 @@ func (h *Handler) AdminMapLocationSave(w http.ResponseWriter, r *http.Request) {
 	}
 	// The effective position after the save: the setting, or, cleared, the
 	// worked-out one (with what the card says about it).
+	_ = json.NewEncoder(w).Encode(h.mapLocationAnswer(lang))
+}
+
+// mapLocationAnswer is the effective position as the page's script reads
+// it after a save or a probe: the point, the label as shown, and the note
+// the card carries when it is worked out; plus the worked-out candidate on
+// its own (auto_*), for the dialog.
+func (h *Handler) mapLocationAnswer(lang i18n.Lang) map[string]any {
 	v := h.mapLocation()
 	shown := v.Label
 	if v.Approx {
@@ -200,5 +214,33 @@ func (h *Handler) AdminMapLocationSave(w http.ResponseWriter, r *http.Request) {
 			out["note"] = out["note"].(string) + " " + i18n.T(lang, "overview.map.approx_note")
 		}
 	}
+	a := h.autoMapLocation()
+	al := a.Label
+	if a.Approx {
+		al += " " + i18n.T(lang, "overview.map.approx")
+	}
+	out["auto_set"], out["auto_lat"], out["auto_lon"], out["auto_label"], out["auto_source"], out["auto_ip"], out["auto_at"] = a.Set, a.Lat, a.Lon, al, a.Source, a.IP, a.At
+	return out
+}
+
+// AdminMapLocationProbe: POST {base}/admin/api/map-location/probe (admin
+// role).  Asks unmask.sh's address check for the server's outward address
+// now -- the one call home the map makes, and only on this button -- keeps
+// the answer, and returns the position worked out from it.
+func (h *Handler) AdminMapLocationProbe(w http.ResponseWriter, r *http.Request) {
+	lang := i18n.Lang(i18n.Resolve(r))
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	ip, err := h.ProbePublicIP(r.Context())
+	if err != nil {
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": i18n.Tf(lang, "overview.map.dlg_probe_err", err.Error())})
+		return
+	}
+	h.mapAutoMu.Lock()
+	h.mapAutoAt = time.Time{} // worked out afresh from the new address
+	h.mapAutoMu.Unlock()
+	out := h.mapLocationAnswer(lang)
+	out["ip"] = ip
 	_ = json.NewEncoder(w).Encode(out)
 }

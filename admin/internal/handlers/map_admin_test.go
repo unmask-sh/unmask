@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
@@ -13,7 +14,6 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/assets"
-	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/live"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -171,7 +171,7 @@ func TestAutoMapLocation(t *testing.T) {
 	t.Setenv("UNMASK_TEST_GEO_OVERRIDE", "203.0.113.5:JP,198.51.100.9:DE")
 	h := newTestHandler(t)
 	h.IPGeo = ipgeo.Open("", "")
-	h.CommunityBans = &communitybans.Client{}
+	t.Cleanup(func() { setPublicIPForTest("") })
 	orig := interfaceAddrs
 	t.Cleanup(func() { interfaceAddrs = orig })
 	addrs := func(cidrs ...string) func() ([]net.Addr, error) {
@@ -187,20 +187,21 @@ func TestAutoMapLocation(t *testing.T) {
 	}
 	fresh := func() { h.mapAutoAt = time.Time{} }
 
-	// Behind NAT, nothing from the hub yet: unknown.
+	// Behind NAT, no answer from the address check yet: unknown.
 	interfaceAddrs = addrs("10.146.0.7/32")
 	if v := h.mapLocation(); v.Set {
 		t.Errorf("nothing to go on, got %+v", v)
 	}
-	// The hub's echo places it (Country DB: the country's centre, flagged).
-	h.CommunityBans.SetHubSeenIPForTest("198.51.100.9")
+	// The address check's answer places it (Country DB: the country's
+	// centre, flagged).
+	setPublicIPForTest("198.51.100.9")
 	fresh()
 	v := h.mapLocation()
 	lon, lat, _ := assets.WorldCentroid("DE")
-	if !v.Set || !v.Auto || !v.Approx || v.Source != "hub" || v.Lat != lat || v.Lon != lon || v.Label != "Germany (ドイツ)" {
-		t.Errorf("hub-placed: %+v", v)
+	if !v.Set || !v.Auto || !v.Approx || v.Source != "echo" || v.Lat != lat || v.Lon != lon || v.Label != "Germany (ドイツ)" {
+		t.Errorf("echo-placed: %+v", v)
 	}
-	// An interface's own global address wins over the hub.
+	// An interface's own global address wins over the answer.
 	interfaceAddrs = addrs("127.0.0.1/8", "203.0.113.5/24")
 	fresh()
 	if v = h.mapLocation(); !v.Auto || v.Source != "interface" || v.Label != "Japan (日本)" {
@@ -232,7 +233,7 @@ func TestAutoMapLocation(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.AdminLive(rec, req)
 	body := rec.Body.String()
-	for _, want := range []string{`data-auto="1"`, `id="geo-auto"`, `data-label="Japan (日本) (国の中心)"`, `id="geo-unset" style="margin:.4rem 0 0" hidden`, `data-auto-set="1"`, `data-auto-source="interface"`, `id="geo-dialog"`, `id="geo-mode-auto"`, `data-txt-from-hub="外から見たこのサーバーのアドレス (インターフェースにグローバルアドレスが無いため、共有 BAN の hub が応答で返した値)"`} {
+	for _, want := range []string{`data-auto="1"`, `id="geo-auto"`, `data-label="Japan (日本) (国の中心)"`, `id="geo-unset" style="margin:.4rem 0 0" hidden`, `data-auto-set="1"`, `data-auto-source="interface"`, `id="geo-dialog"`, `id="geo-mode-auto"`, `data-txt-from-echo="外から見たこのサーバーのアドレス (unmask.sh の IP 確認に問い合わせた値)"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %q", want)
 		}
@@ -255,5 +256,74 @@ func TestAutoMapLocation(t *testing.T) {
 	}
 	if out["set"] != true || out["auto"] != true || out["source"] != "interface" || out["label"] != "Japan (日本) (国の中心)" || !strings.Contains(out["note"].(string), "自動推定") {
 		t.Errorf("cleared: %v", out)
+	}
+}
+
+// The address check: asked only on the dialog's button (the probe
+// endpoint), the answer kept in a file and read back after a restart; a
+// failing check is reported, not guessed.
+func TestProbePublicIP(t *testing.T) {
+	calls := 0
+	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path != "/api/ip" {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = w.Write([]byte(`{"ip":"203.0.113.77"}`))
+	}))
+	defer stub.Close()
+	origURL, origPath := ipEchoURL, PublicIPPath
+	ipEchoURL = stub.URL + "/api/ip"
+	PublicIPPath = filepath.Join(t.TempDir(), "public-ip.json")
+	t.Cleanup(func() { ipEchoURL = origURL; PublicIPPath = origPath; setPublicIPForTest("") })
+	setPublicIPForTest("")
+	t.Setenv("UNMASK_TEST_GEO_OVERRIDE", "203.0.113.77:JP")
+	h := newTestHandler(t)
+	h.IPGeo = ipgeo.Open("", "")
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
+	orig := interfaceAddrs
+	interfaceAddrs = func() ([]net.Addr, error) { _, n, _ := net.ParseCIDR("10.0.0.1/8"); return []net.Addr{n}, nil }
+	t.Cleanup(func() { interfaceAddrs = orig })
+
+	// Nothing asked on its own: the page renders with no address and the
+	// stub untouched.
+	if v, _ := h.publicIP(); v != "" || calls != 0 {
+		t.Errorf("before the button: %q, %d calls", v, calls)
+	}
+	// The button.
+	req := httptest.NewRequest("POST", "/unmask/admin/api/map-location/probe", nil)
+	req.Header.Set("Cookie", "unmask_lang=ja")
+	req = req.WithContext(context.WithValue(req.Context(), sessionCtxKey{}, &SessionPayload{UserID: 1, Role: "admin", Exp: time.Now().Add(time.Hour).Unix()}))
+	rec := httptest.NewRecorder()
+	h.AdminMapLocationProbe(rec, req)
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != 200 || out["ok"] != true || out["ip"] != "203.0.113.77" {
+		t.Fatalf("probe: %d %s", rec.Code, rec.Body.String())
+	}
+	if out["auto_source"] != "echo" || out["auto_ip"] != "203.0.113.77" || out["auto_label"] != "Japan (日本) (国の中心)" || out["source"] != "echo" {
+		t.Errorf("the position worked out from the answer: %v", out)
+	}
+	if calls != 1 {
+		t.Errorf("%d calls", calls)
+	}
+	// Kept in the file: a fresh process reads it back without asking.
+	if _, err := os.Stat(PublicIPPath); err != nil {
+		t.Fatalf("not kept: %v", err)
+	}
+	pipMu.Lock()
+	pipLoaded, pipAddr = false, ""
+	pipMu.Unlock()
+	if v, at := h.publicIP(); v != "203.0.113.77" || at.IsZero() || calls != 1 {
+		t.Errorf("read back: %q %v (%d calls)", v, at, calls)
+	}
+	// A failing check says so.
+	ipEchoURL = stub.URL + "/nothing"
+	rec = httptest.NewRecorder()
+	h.AdminMapLocationProbe(rec, req)
+	if rec.Code != http.StatusBadGateway || !strings.Contains(rec.Body.String(), "取得できませんでした") {
+		t.Errorf("a failing check: %d %s", rec.Code, rec.Body.String())
 	}
 }

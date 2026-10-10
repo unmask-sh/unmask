@@ -139,6 +139,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     manualDisabled: document.getElementById('geo-lat').disabled,
   }));
   ok(dlg.autoChecked && dlg.manualDisabled, 'with nothing set the dialog must start on automatic with the fields off');
+  // The address-check button is offered only when no interface has a global
+  // address; this host may have one, so the rule is checked, not the state.
+  const probe = await page.evaluate(() => ({ src: document.getElementById('geo-card').dataset.autoSource, hidden: document.getElementById('geo-probe-wrap').hidden, label: document.getElementById('geo-probe').textContent }));
+  ok(probe.hidden === (probe.src === 'interface'), 'the address-check button must show exactly when no interface has a global address: ' + JSON.stringify(probe));
+  ok(probe.hidden || probe.label.length > 3, 'the address-check button has no label');
+  const setLabel = await page.evaluate(() => document.getElementById('geo-set').textContent);
+  ok(/:\s*\S/.test(setLabel), 'the set button does not show the current position: ' + setLabel);
   ok(dlg.autoText.length > 10, 'the automatic line is empty');
   await page.click('#geo-mode-manual');
   await page.evaluate(() => { document.getElementById('geo-lat').value = '35.68'; document.getElementById('geo-lon').value = '139.76'; document.getElementById('geo-label').value = 'Tokyo'; });
