@@ -40,6 +40,8 @@ func (h *Handler) loadModelCache() *aiModelCache {
 	if c.Provider != cfg.ResolvedProvider() || c.Endpoint != cfg.Endpoint {
 		return nil
 	}
+	// In the pickers' order, whatever order the file was kept in.
+	advisor.SortModels(c.Models)
 	return &c
 }
 

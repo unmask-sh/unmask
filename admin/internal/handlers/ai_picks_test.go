@@ -43,6 +43,15 @@ func TestAIPicksNameTheDefault(t *testing.T) {
 	if v.Model != "claude-haiku-5-5" || v.DefaultLabel != "既定 (medium)" || v.NoEffort || v.Effort != "" {
 		t.Errorf("configured: %+v", v)
 	}
+	// The list in the pickers' order: families by name, newest first, the
+	// configured model in its place.
+	var order []string
+	for _, m := range v.Models {
+		order = append(order, m.ID)
+	}
+	if strings.Join(order, ",") != "claude-haiku-5-5,claude-haiku-4-5,claude-opus-5-5" {
+		t.Errorf("order: %v", order)
+	}
 	labels, none := map[string]string{}, map[string]bool{}
 	for _, m := range v.Models {
 		labels[m.ID], none[m.ID] = m.DefaultLabel, m.NoEffort

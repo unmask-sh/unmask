@@ -16,6 +16,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- (2026-10-12) **Model pickers list the newest version first.**  The AI settings tab, the ask page and the advisor page order models by family name, with each family's versions newest first (Claude Opus 5.5 before 5 and 4.8, gpt-5.4 before gpt-5.2), whatever order the provider lists them in.  The configured model keeps its place in that order and is the one selected.
+
 - (2026-10-11) **The overview names what monitor mode let through.**  The "other" segment's breakdown gets a monitor-mode line -- requests judged and let through, which going live would have challenged or denied -- and the line that read "passed while monitoring" now says what it counted all along: requests riding a cookie the over-block breaker handed out.
 
 ### Added

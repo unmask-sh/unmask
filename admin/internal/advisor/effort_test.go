@@ -1,6 +1,7 @@
 package advisor
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -67,5 +68,49 @@ func TestReviewSendsEffort(t *testing.T) {
 	body = openaiReviewBody(settings.AIAdvisorConfig{Provider: "openai", Model: "gpt-4o", Effort: "high"}, "u")
 	if _, ok := body["reasoning_effort"]; ok {
 		t.Error("gpt-4o was sent an effort")
+	}
+}
+
+// The pickers' order: the families by name, versions newest first, a base
+// model before its variants, and a later dated ID of one name first.
+func TestSortModels(t *testing.T) {
+	ms := []ModelInfo{
+		{ID: "claude-haiku-4-5-20251001", Label: "Claude Haiku 4.5"},
+		{ID: "claude-opus-4-5-20251101", Label: "Claude Opus 4.5"},
+		{ID: "claude-opus-5", Label: "Claude Opus 5"},
+		{ID: "claude-fable-5", Label: "Claude Fable 5"},
+		{ID: "claude-opus-5-5", Label: "Claude Opus 5.5"},
+		{ID: "claude-haiku-5-5", Label: "Claude Haiku 5.5"},
+		{ID: "claude-fable-5-1", Label: "Claude Fable 5.1"},
+		{ID: "claude-opus-4-8", Label: "Claude Opus 4.8"},
+		{ID: "claude-opus-4-10", Label: "Claude Opus 4.10"},
+		{ID: "claude-sonnet-5-5", Label: "Claude Sonnet 5.5"},
+	}
+	SortModels(ms)
+	var got []string
+	for _, m := range ms {
+		got = append(got, m.Label)
+	}
+	want := "Claude Fable 5.1,Claude Fable 5,Claude Haiku 5.5,Claude Haiku 4.5,Claude Opus 5.5,Claude Opus 5,Claude Opus 4.10,Claude Opus 4.8,Claude Opus 4.5,Claude Sonnet 5.5"
+	if strings.Join(got, ",") != want {
+		t.Errorf("anthropic:\n got %s\nwant %s", strings.Join(got, ","), want)
+	}
+
+	ids := []ModelInfo{{ID: "gpt-5"}, {ID: "gpt-4o"}, {ID: "gpt-5-mini"}, {ID: "gpt-5.2"}, {ID: "o3"}, {ID: "gpt-4.1"}, {ID: "o4-mini"}, {ID: "gpt-5.4-mini"}, {ID: "gpt-5.4"}, {ID: "o3-mini"}, {ID: "gpt-4o-2024-05-13"}}
+	SortModels(ids)
+	got = got[:0]
+	for _, m := range ids {
+		got = append(got, m.ID)
+	}
+	want = "gpt-5.4,gpt-5.4-mini,gpt-5.2,gpt-5,gpt-5-mini,gpt-4.1,gpt-4o,gpt-4o-2024-05-13,o4-mini,o3,o3-mini"
+	if strings.Join(got, ",") != want {
+		t.Errorf("openai:\n got %s\nwant %s", strings.Join(got, ","), want)
+	}
+
+	// Two IDs of one name: the later date first.
+	same := []ModelInfo{{ID: "claude-x-20250101", Label: "Claude X"}, {ID: "claude-x-20251001", Label: "Claude X"}}
+	SortModels(same)
+	if same[0].ID != "claude-x-20251001" {
+		t.Errorf("dated: %v", same)
 	}
 }

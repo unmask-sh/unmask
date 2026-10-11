@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/settings"
+	"regexp"
+	"strconv"
 )
 
 // ModelInfo is one entry the settings tab offers.
@@ -62,10 +64,110 @@ func ListModels(ctx context.Context, cfg settings.AIAdvisorConfig) ([]ModelInfo,
 	if err != nil {
 		return nil, err
 	}
-	// One order for every provider: by ID, case folded, so the picker
-	// reads as a list and not as the provider's own (newest-first, or none).
-	sort.SliceStable(out, func(i, j int) bool { return strings.ToLower(out[i].ID) < strings.ToLower(out[j].ID) })
+	// One order for every provider (SortModels), so the picker reads the
+	// same whatever order the provider lists in.
+	SortModels(out)
 	return out, nil
+}
+
+// SortModels orders a model list the way the pickers show it: the families
+// by name, and within a family the versions newest first -- Claude Opus
+// 5.5, 5, 4.8 ...; gpt-5.4, gpt-5.4-mini, gpt-5.2 ... (operator,
+// 2026-10-12: "バージョンは降順のほうがいい").  It reads the name the
+// picker shows (the label, else the ID) as runs of text and of versions
+// (digits, dotted parts): text runs compare as text, version runs newest
+// first, and a name that stops where another goes on (gpt-5 against
+// gpt-5-mini) comes first.  Two models of one name -- dated IDs of one
+// model -- put the later ID first.
+func SortModels(ms []ModelInfo) {
+	sort.SliceStable(ms, func(i, j int) bool { return modelBefore(ms[i], ms[j]) })
+}
+
+func init() {
+	for _, ms := range ModelPresets {
+		SortModels(ms)
+	}
+}
+
+// modelRun is a run of a model's name: text, or a version (4.5 -> [4 5]).
+type modelRun struct {
+	text  string
+	ver   []int
+	isVer bool
+}
+
+var modelVerRE = regexp.MustCompile(`\d+(?:\.\d+)*`)
+
+func modelRuns(name string) []modelRun {
+	name = strings.ToLower(name)
+	var out []modelRun
+	pos := 0
+	for _, m := range modelVerRE.FindAllStringIndex(name, -1) {
+		if m[0] > pos {
+			out = append(out, modelRun{text: name[pos:m[0]]})
+		}
+		var v []int
+		for _, p := range strings.Split(name[m[0]:m[1]], ".") {
+			n, _ := strconv.Atoi(p)
+			v = append(v, n)
+		}
+		out = append(out, modelRun{ver: v, isVer: true})
+		pos = m[1]
+	}
+	if pos < len(name) {
+		out = append(out, modelRun{text: name[pos:]})
+	}
+	return out
+}
+
+// newerVersion compares two versions part by part, a missing part below
+// any present one (5.5 is newer than 5).
+func newerVersion(a, b []int) int {
+	for i := 0; i < len(a) || i < len(b); i++ {
+		x, y := -1, -1
+		if i < len(a) {
+			x = a[i]
+		}
+		if i < len(b) {
+			y = b[i]
+		}
+		if x != y {
+			if x > y {
+				return 1
+			}
+			return -1
+		}
+	}
+	return 0
+}
+
+func modelBefore(a, b ModelInfo) bool {
+	name := func(m ModelInfo) string {
+		if strings.TrimSpace(m.Label) != "" {
+			return m.Label
+		}
+		return m.ID
+	}
+	ra, rb := modelRuns(name(a)), modelRuns(name(b))
+	for i := 0; i < len(ra) && i < len(rb); i++ {
+		x, y := ra[i], rb[i]
+		switch {
+		case x.isVer && y.isVer:
+			if c := newerVersion(x.ver, y.ver); c != 0 {
+				return c > 0
+			}
+		case !x.isVer && !y.isVer:
+			if x.text != y.text {
+				return x.text < y.text
+			}
+		default:
+			return !x.isVer
+		}
+	}
+	if len(ra) != len(rb) {
+		return len(ra) < len(rb)
+	}
+	return strings.ToLower(a.ID) > strings.ToLower(b.ID)
 }
 
 func listModels(ctx context.Context, cfg settings.AIAdvisorConfig) ([]ModelInfo, error) {

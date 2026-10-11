@@ -42,20 +42,24 @@ type aiPicksView struct {
 }
 
 // aiModelChoices is the model pick's list: the provider's models as the AI
-// tab fetched them, with the configured model first (added when the list
-// does not carry it, or there is no list).
+// tab fetched them, with the configured model added when the list does not
+// carry it (or there is no list), in the pickers' order (advisor.SortModels:
+// families by name, versions newest first).  The configured model sits in
+// its place; it is the one drawn selected.
 func (h *Handler) aiModelChoices(cfg settings.AIAdvisorConfig) []advisor.ModelInfo {
 	cur := cfg.ResolvedModel()
-	out := []advisor.ModelInfo{{ID: cur}}
+	var out []advisor.ModelInfo
+	have := false
 	if c := h.loadModelCache(); c != nil {
 		for _, m := range c.Models {
-			if m.ID == cur {
-				out[0].Label = m.Label
-				continue
-			}
+			have = have || m.ID == cur
 			out = append(out, m)
 		}
 	}
+	if !have {
+		out = append(out, advisor.ModelInfo{ID: cur})
+	}
+	advisor.SortModels(out)
 	return out
 }
 
