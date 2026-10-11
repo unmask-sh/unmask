@@ -101,9 +101,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   saved = await saveAI(true, 'openai', stubURL, 'e2e-key');
   ok(saved === 'ok', 'could not save the AI settings (on): ' + saved);
   await page.goto(BASE + '/admin/ask/', { waitUntil: 'networkidle2' });
-  const on = await page.evaluate(() => ({ form: !!document.getElementById('ask-form'), suggestions: document.querySelectorAll('.suggest button').length }));
-  ok(on.form && on.suggestions === 3, 'the composer or its three suggestions are missing');
-  await page.click('.suggest button');
+  const on = await page.evaluate(() => ({ form: !!document.getElementById('ask-form'), suggestions: document.querySelectorAll('#ask-suggest option').length, rows: document.getElementById('ask-q').getAttribute('rows') }));
+  ok(on.form && on.suggestions === 4 && on.rows === '1', 'the composer, its examples pick or its one-line field are missing: ' + JSON.stringify(on));
+  await page.select('#ask-suggest', await page.$eval('#ask-suggest option:nth-child(2)', o => o.value));
   const filled = await page.evaluate(() => document.getElementById('ask-q').value.length > 5);
   ok(filled, 'a suggestion did not fill the question');
   // The picks: the configured model is selected, the effort select carries
@@ -128,8 +128,6 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   }
   ok(!!answered, 'no answer arrived');
   ok(seen.some(m => m.reasoning_effort === 'low'), 'the effort picked on the page did not reach the provider');
-  const afterAsk = await page.evaluate(() => ({ suggestHidden: !!document.querySelector('#ask-dock .suggest') && document.querySelector('#ask-dock .suggest').hidden }));
-  ok(afterAsk.suggestHidden, 'the suggestions did not go away after the first question');
   if (answered) {
     ok(/the ban list has \d+ rows/.test(answered.text), 'the answer does not carry the tool result: ' + answered.text);
     ok(answered.pre, 'the code fence was not shown as a block');
@@ -207,7 +205,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   // turn: the form is pointed at a path that is not there, then put back.
   await page.goto(BASE + '/admin/ask/', { waitUntil: 'networkidle2' });
   await page.evaluate(() => { const f = document.getElementById('ask-form'); f.dataset.realAction = f.action; f.action = f.action.replace('/ask/send', '/ask/nowhere'); document.getElementById('ask-q').value = 'E2E: retry me'; });
-  await page.click('#ask-send');
+  // Enter sends.
+  await page.focus('#ask-q');
+  await page.keyboard.press('Enter');
   let failedTurn = null;
   for (let i = 0; i < 20 && !failedTurn; i++) {
     await sleep(200);

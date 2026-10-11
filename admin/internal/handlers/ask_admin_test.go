@@ -92,7 +92,7 @@ func TestAskPageAndSend(t *testing.T) {
 	body = rec.Body.String()
 	// A fresh page is the composer alone: no turn and no empty note (the
 	// note is the history tab's).
-	for _, want := range []string{`id="ask-form"`, `data-maxchars="2000"`, `<select name="model" id="ask-model"><option value="m" selected>m</option></select>`, `<select name="effort" id="ask-effort"><option value="" selected>既定</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select>`} {
+	for _, want := range []string{`id="ask-form"`, `data-maxchars="2000"`, `<select name="model" id="ask-model" class="pick-sel"><option value="m" selected>m</option></select>`, `<select name="effort" id="ask-effort" class="pick-sel"><option value="" selected>既定</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select>`, `id="ask-suggest"`, `rows="1"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %q", want)
 		}

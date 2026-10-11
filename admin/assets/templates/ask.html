@@ -78,19 +78,16 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .ask-tabs .cnt{display:inline-block;min-width:1.2em;padding:0 .35em;border-radius:1em;background:#e2e8f0;color:#334155;font-size:.72rem;text-align:center;font-weight:600}
 .spin{display:inline-block;width:.8rem;height:.8rem;border:2px solid #cbd5e1;border-top-color:#0f172a;border-radius:50%;animation:spin .8s linear infinite;vertical-align:-.1em;margin-right:.4rem}
 @keyframes spin{to{transform:rotate(360deg)}}
-.composer textarea{width:100%;min-height:5rem;padding:.6rem .75rem;border:1px solid #cbd5e1;border-radius:.3rem;font:inherit;font-size:.92rem;resize:vertical}
 .composer textarea:focus{outline:2px solid #93c5fd;outline-offset:0;border-color:#3b82f6}
-.composer-row{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-top:.5rem}
-.composer-row .hint{font-size:.75rem;color:#94a3b8}
-.suggest{display:flex;gap:.4rem;flex-wrap:wrap;margin:.4rem 0 .6rem}
-.suggest button{font:inherit;font-size:.78rem;padding:.25rem .6rem;border:1px solid #cbd5e1;border-radius:1rem;background:#f8fafc;color:#334155;cursor:pointer}
-.suggest button:hover{background:#eef2ff;border-color:#a5b4fc}
-.privacy{font-size:.75rem;color:#64748b;line-height:1.5;margin:.6rem 0 0}
 /* The dock: at the foot of the viewport while the conversation above it is
    taller than the window, at its place under the tabs otherwise. */
-.composer{position:sticky;bottom:0;z-index:3;margin-top:.8rem;box-shadow:0 -8px 18px -14px rgba(15,23,42,.35)}
-.composer-row .pick{display:inline-flex;align-items:center;gap:.3rem;font-size:.75rem;color:#64748b}
-.composer-row .pick select{font:inherit;font-size:.78rem;padding:.2rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;max-width:14rem}
+.composer{position:sticky;bottom:0;z-index:3;margin-top:.8rem;padding:.5rem .7rem;background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;box-shadow:0 -8px 18px -14px rgba(15,23,42,.35)}
+.composer-row{display:flex;gap:.4rem;align-items:flex-end;flex-wrap:wrap}
+.composer textarea{flex:1 1 20rem;min-width:12rem;min-height:2.2rem;max-height:10rem;padding:.45rem .6rem;border:1px solid #cbd5e1;border-radius:.3rem;font:inherit;font-size:.92rem;line-height:1.35;resize:none;overflow-y:hidden}
+.composer textarea:focus{outline:2px solid #93c5fd;outline-offset:0;border-color:#3b82f6}
+.composer .pick{display:inline-flex;align-items:center;gap:.3rem;font-size:.75rem;color:#64748b;white-space:nowrap}
+.composer .pick-sel{font:inherit;font-size:.78rem;height:2.2rem;padding:0 .4rem;border:1px solid #cbd5e1;border-radius:.3rem;background:#fff;color:#334155;max-width:13rem}
+#ask-send{height:2.2rem;padding:0 .8rem;font-size:1rem;line-height:1}
 .a,.q-row{scroll-margin-top:.75rem}
 .user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
 .user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
@@ -127,7 +124,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   {{ template "header_tools" . }}
 </header>
 <main class="unmask-main">
-<h1>{{ t .Lang "ask.title" }}<span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ t .Lang "ask.help" }}</span></span></h1>
+<h1>{{ t .Lang "ask.title" }}<span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ t .Lang "ask.help" }}<br><br>{{ t .Lang "ask.privacy" }}</span></span></h1>
 <p class="meta">{{ t .Lang "ask.intro" }}</p>
 {{/* Two tabs: the composer with the latest turn under it, and the history
      (every turn, newest first, long answers folded, a copy and a delete on
@@ -173,26 +170,20 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 {{ if and (eq .Tab "ask") .AIActive .CanAsk }}
 {{/* The composer is a dock at the foot of the page: the conversation grows
      above it the way a chat does, so the next question needs no trip back
-     up.  The suggestions show until the first question. */}}
-<div class="bcd-card composer" id="ask-dock">
-  <div class="suggest">
-    <button type="button" data-q="{{ t .Lang "ask.suggest1" }}">{{ t .Lang "ask.suggest1" }}</button>
-    <button type="button" data-q="{{ t .Lang "ask.suggest2" }}">{{ t .Lang "ask.suggest2" }}</button>
-    <button type="button" data-q="{{ t .Lang "ask.suggest3" }}">{{ t .Lang "ask.suggest3" }}</button>
-  </div>
+     up.  One row: the examples as a pick, the field (one line, growing with
+     what is typed; Enter sends, Shift+Enter breaks a line), the send button,
+     and the model and effort picks for the question. */}}
+<div class="composer" id="ask-dock">
   <form id="ask-form" action="{{ .BasePath }}/admin/ask/send" method="POST">
     <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
-    <textarea name="q" id="ask-q" placeholder="{{ t .Lang "ask.placeholder" }}" data-maxchars="{{ .QuestionMax }}" data-maxchars-msg="{{ tf .Lang "err.value_long" .QuestionMax }}"></textarea>
     <div class="composer-row">
-      <button type="submit" class="btn" id="ask-send">{{ t .Lang "ask.send" }}</button>
-      <span class="hint">{{ t .Lang "ask.hint" }}</span>
-      <span class="spacer" style="flex:1"></span>
-      <label class="pick"><span>{{ t .Lang "ask.model" }}</span><select name="model" id="ask-model">{{ range .AIModels }}<option value="{{ .ID }}"{{ if eq .ID $.AIModel }} selected{{ end }}>{{ if .Label }}{{ .Label }}{{ else }}{{ .ID }}{{ end }}</option>{{ end }}</select></label>
-      {{ if .AIEfforts }}<label class="pick"><span>{{ t .Lang "ask.effort" }}</span><select name="effort" id="ask-effort"><option value=""{{ if eq .AIEffort "" }} selected{{ end }}>{{ t .Lang "ask.effort_default" }}</option>{{ range .AIEfforts }}<option value="{{ . }}"{{ if eq . $.AIEffort }} selected{{ end }}>{{ . }}</option>{{ end }}</select></label>{{ end }}
-      <span class="hint">{{ .AIProvider }} · {{ tf .Lang "ask.month" (comma .MonthRuns) (comma .MonthIn) (comma .MonthOut) }}</span>
+      <select id="ask-suggest" class="pick-sel" aria-label="{{ t .Lang "ask.suggest_pick" }}"><option value="">{{ t .Lang "ask.suggest_pick" }}</option><option value="{{ t .Lang "ask.suggest1" }}">{{ t .Lang "ask.suggest1" }}</option><option value="{{ t .Lang "ask.suggest2" }}">{{ t .Lang "ask.suggest2" }}</option><option value="{{ t .Lang "ask.suggest3" }}">{{ t .Lang "ask.suggest3" }}</option></select>
+      <textarea name="q" id="ask-q" rows="1" placeholder="{{ t .Lang "ask.placeholder" }}" data-maxchars="{{ .QuestionMax }}" data-maxchars-msg="{{ tf .Lang "err.value_long" .QuestionMax }}"></textarea>
+      <button type="submit" class="btn" id="ask-send" aria-label="{{ t .Lang "ask.send" }}">➤</button>
+      <label class="pick"><span>{{ t .Lang "ask.model" }}</span><select name="model" id="ask-model" class="pick-sel">{{ range .AIModels }}<option value="{{ .ID }}"{{ if eq .ID $.AIModel }} selected{{ end }}>{{ if .Label }}{{ .Label }}{{ else }}{{ .ID }}{{ end }}</option>{{ end }}</select></label>
+      {{ if .AIEfforts }}<label class="pick"><span>{{ t .Lang "ask.effort" }}</span><select name="effort" id="ask-effort" class="pick-sel"><option value=""{{ if eq .AIEffort "" }} selected{{ end }}>{{ t .Lang "ask.effort_default" }}</option>{{ range .AIEfforts }}<option value="{{ . }}"{{ if eq . $.AIEffort }} selected{{ end }}>{{ . }}</option>{{ end }}</select></label>{{ end }}
     </div>
   </form>
-  <p class="privacy">{{ t .Lang "ask.privacy" }}</p>
 </div>
 {{ end }}
 
@@ -274,7 +265,6 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   function pendingHTML(){ return '<div class="txt"><span class="spin"></span>' + esc(turns.dataset.txtPending) + '</div>'; }
   function append(q){
     var empty = document.getElementById('ask-empty'); if (empty) empty.remove();
-    var sg = document.querySelector('#ask-dock .suggest'); if (sg) sg.hidden = true;
     var qr = document.createElement('div'); qr.className = 'q-row';
     qr.innerHTML = '<time class="js-datetime js-datetime-notz q-time" data-ts="' + Math.floor(Date.now() / 1000) + '"></time>';
     var qd = document.createElement('div'); qd.className = 'q'; qd.textContent = q; qr.appendChild(qd); turns.appendChild(qr);
@@ -309,7 +299,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     if (!q || btn.disabled) return;
     if (window.unmaskMaxChars && unmaskMaxChars.check && unmaskMaxChars.check(ta) === false) return;
     var ad = append(q);
-    ta.value = '';
+    ta.value = ''; grow();
     send(q, ad);
   });
   // send posts the question and fills the turn's answer element, or marks
@@ -327,21 +317,26 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
       .catch(function(err){ failed(ad, err && err.message ? err.message : String(err), q); })
       .then(function(){ btn.disabled = false; ta.focus(); });
   }
-  ta.addEventListener('keydown', function(e){ if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); form.requestSubmit(); } });
+  // The field is one line that grows with what is typed, up to a few lines.
+  function grow(){ ta.style.height = 'auto'; var h = Math.min(ta.scrollHeight, 160); ta.style.height = h + 'px'; ta.style.overflowY = ta.scrollHeight > 160 ? 'auto' : 'hidden'; }
+  ta.addEventListener('input', grow); grow();
+  // Enter sends, Shift+Enter breaks a line; an Enter that ends an IME
+  // conversion (isComposing) is the conversion's, not a send.
+  ta.addEventListener('keydown', function(e){ if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && !e.altKey) { e.preventDefault(); form.requestSubmit(); } });
+  var sg = document.getElementById('ask-suggest');
+  if (sg) sg.addEventListener('change', function(){ if (sg.value) { ta.value = sg.value; grow(); ta.focus(); sg.value = ''; } });
+  ta.focus();
   // A retry from the history lands here with the question in the URL: fill
   // the composer and leave the sending to the operator -- a reload must not
   // send it again.
   var pre = new URLSearchParams(location.search).get('q');
-  if (pre) { ta.value = pre; ta.focus(); try { history.replaceState(null, '', location.pathname); } catch (e) {} }
+  if (pre) { ta.value = pre; grow(); ta.focus(); try { history.replaceState(null, '', location.pathname); } catch (e) {} }
   // The model and effort picks are remembered in this browser, as long as
   // the remembered value is still on the list.
   [['ask-model', 'unmask:ask-model'], ['ask-effort', 'unmask:ask-effort']].forEach(function(p){
     var el = document.getElementById(p[0]); if (!el) return;
     try { var v = localStorage.getItem(p[1]); if (v !== null && Array.prototype.some.call(el.options, function(o){ return o.value === v; })) el.value = v; } catch (e) {}
     el.addEventListener('change', function(){ try { localStorage.setItem(p[1], el.value); } catch (e) {} });
-  });
-  document.querySelectorAll('.suggest button[data-q]').forEach(function(b){
-    b.addEventListener('click', function(){ ta.value = b.dataset.q; ta.focus(); });
   });
 })();
 </script>

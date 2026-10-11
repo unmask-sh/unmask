@@ -197,14 +197,12 @@ func (h *Handler) askPage(w http.ResponseWriter, r *http.Request, tab string) {
 		turns = askViews(rows, true)
 	}
 	cfg := h.cfg().AIAdvisor
-	month := advisor.Totals(h.DB, time.Now().Add(-30*24*time.Hour))
 	data := map[string]any{
 		"Lang":         i18n.Resolve(r),
 		"TZ":           resolveTZ(r),
 		"BasePath":     h.cfg().Server.BasePath,
 		"Version":      h.Version,
 		"AIActive":     cfg.Active(),
-		"AIProvider":   cfg.ResolvedProvider(),
 		"AIModel":      cfg.ResolvedModel(),
 		"AIModels":     h.askModelChoices(cfg),
 		"AIEfforts":    advisor.EffortLevels(cfg.ResolvedProvider()),
@@ -213,9 +211,6 @@ func (h *Handler) askPage(w http.ResponseWriter, r *http.Request, tab string) {
 		"Tab":          tab,
 		"Turns":        turns,
 		"HistoryCount": len(rows),
-		"MonthRuns":    int(month.Runs),
-		"MonthIn":      int(month.InTokens),
-		"MonthOut":     int(month.OutTokens),
 		"QuestionMax":  askQuestionMax,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
