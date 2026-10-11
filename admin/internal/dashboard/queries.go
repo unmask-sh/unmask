@@ -4411,6 +4411,8 @@ func ObserveOnlyWouldBlock(ctx context.Context, d *db.DB, site string, hosts []s
 //	          Observed: serve events an order of magnitude below the log
 //	          fires, on a site that denies bots outright.
 //	bypassed = requests let through without being judged (a bypass IP or path).
+//	observe = requests a site in monitor mode let through ('observe_pass'):
+//	          judged, and going live would have challenged or denied them.
 //	benign  = requests from listed crawlers we passed on purpose
 //	          ('crawler_pass')
 //	passed  = requests that ARRIVED holding a valid pass cookie ('pow' /
@@ -4441,6 +4443,7 @@ type TrafficComposition struct {
 	CaptchaPass  int // PoW share and the CAPTCHA share.  The landing KPIs show
 	Rebound      int // these beside the solve counts, which count solves, not
 	Passthrough  int // the requests a solve's cookie then admits.
+	Observe      int // let through by monitor mode: judged, nothing enforced.
 	Unchallenged int
 	OK           bool
 }
@@ -4465,10 +4468,11 @@ func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (T
                COALESCE(SUM(CASE WHEN kind = 'pow'              THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'captcha'          THEN cnt ELSE 0 END), 0),
                COALESCE(SUM(CASE WHEN kind = 'rebind'           THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind = 'passthrough'      THEN cnt ELSE 0 END), 0)
+               COALESCE(SUM(CASE WHEN kind = 'passthrough'      THEN cnt ELSE 0 END), 0),
+               COALESCE(SUM(CASE WHEN kind = 'observe_pass'     THEN cnt ELSE 0 END), 0)
         FROM unmask_cookie_minute
         WHERE bucket_min >= ?`+cond, args...).
-		Scan(&c.Total, &c.Benign, &c.Bypassed, &c.Challenged, &c.PowPass, &c.CaptchaPass, &c.Rebound, &c.Passthrough)
+		Scan(&c.Total, &c.Benign, &c.Bypassed, &c.Challenged, &c.PowPass, &c.CaptchaPass, &c.Rebound, &c.Passthrough, &c.Observe)
 	if err != nil {
 		return TrafficComposition{}, err
 	}
@@ -4502,7 +4506,10 @@ func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (T
 	// exempted on purpose.  Left unsubtracted they would surface as "window
 	// skew", which is a label for arithmetic noise, not for a monitoring
 	// window the operator opened.
-	c.Unchallenged = c.Total - c.Benign - c.Bypassed - c.Challenged - c.Passed - c.Rebound - c.Passthrough
+	// Monitor mode's passes are their own bucket for the same reason: the
+	// judgement fired and the operator chose not to enforce it, which is
+	// neither "nothing matched" nor a rule's exemption.
+	c.Unchallenged = c.Total - c.Benign - c.Bypassed - c.Challenged - c.Passed - c.Rebound - c.Passthrough - c.Observe
 	if c.Unchallenged < 0 {
 		c.Unchallenged = 0
 	}

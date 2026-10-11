@@ -12,6 +12,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-10-11) **The overview names what monitor mode let through.**  The "other" segment's breakdown gets a monitor-mode line -- requests judged and let through, which going live would have challenged or denied -- and the line that read "passed while monitoring" now says what it counted all along: requests riding a cookie the over-block breaker handed out.
+
+### Removed
+
+- (2026-10-11) **Pass-through mode.**  Two switches on the operating-mode tab both meant "stop nobody".  This one handed out a pass cookie, so the measurement it was turned on to collect decayed and the cookies outlived the mode, and it never stopped a deny or a ban.  Monitor mode is the one switch now; a leftover `global.passthrough` in config.yml is ignored with a warning, and the over-block breaker keeps its own `auto_passthrough`.
+
+### Fixed
+
+- (2026-10-11) **Monitor mode works on an nginx-module install.**  It looped: the daemon answered the challenge route with a cookie-less redirect back to the page, and nginx, judging by the cookie alone, sent first-time visitors back again.  The mode is now rendered into nginx: a watched site passes the gate, the rate zones and the deny and ban rewrites, while the judgement is logged and counted.  Takes effect at render-nginx + reload.
+
+- (2026-10-11) **The over-block breaker sends visitors back to the page they asked for.**  Its pass-through read the original URL under a query name nothing sends, so a visitor it let through landed on the front page instead of the page they had requested.  It now reads the `_orig` every dispatcher carries.
+
 ## [0.1.51-rc10] - 2026-10-11 (testing build)
 
 ### Since rc9

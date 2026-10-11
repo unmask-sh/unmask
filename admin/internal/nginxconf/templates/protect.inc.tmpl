@@ -65,7 +65,12 @@ limit_req zone={{ .Name }} burst={{ .Burst }} nodelay;
 # misses ("1:1"), so the replay reaches the real content instead of looping
 # back into the dead challenge endpoint.  $unmask_orig_path / _args feed
 # that replay.
-{{ if or .WebBotAuthEnabled .PrivacyPassEnabled }}
+{{ if .MonitorMode }}
+# Monitor mode is rendered (http.inc): $unmask_enforce is the challenge
+# decision minus the sites the operator is watching, which pass.  fc= in the
+# access log still carries $final_challenge, so the judgement is counted.
+set $unmask_gate "${unmask_enforce}:${unmask_failopen}";
+{{ else if or .WebBotAuthEnabled .PrivacyPassEnabled }}
 # Veto-pass: $final_challenge_eff = $final_challenge minus a daemon-verified
 # signed agent (Web Bot Auth) or PrivateToken (Privacy Pass), via the detours in
 # server.inc.  For traffic with no such credential the two variables are equal.

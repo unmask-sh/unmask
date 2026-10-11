@@ -321,6 +321,7 @@ func (d Deps) overview(ctx context.Context, hours int) (any, error) {
 			"passed_captcha":     comp.CaptchaPass,
 			"passed_rebind":      comp.Rebound,
 			"passthrough_cookie": comp.Passthrough,
+			"monitor_mode_pass":  comp.Observe,
 		}
 	} else {
 		out["requests"] = "unknown: the access-log feed is off on this install"

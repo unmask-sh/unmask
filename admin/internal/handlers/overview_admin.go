@@ -178,16 +178,18 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// being scanned continuously.  The judgement is still recorded, so when the
 	// mode is on the headline switches to what unmask WOULD have stopped, and
 	// says which question it is answering.
-	// Passthrough suppresses the challenge too, so it lands the card in the same
-	// structural zero.  Both states must stop the card claiming quiet.
-	observeOnly := h.cfg().Challenge.Resolve(site).IsObserveOnly() || h.cfg().Global.Passthrough
+	observeOnly := h.cfg().Challenge.Resolve(site).IsObserveOnly()
 	kpiWouldBlock := 0
 	if observeOnly {
+		// One source per deploy path, distinct requests, so a sum: forward-auth
+		// records the judgement as an event (would_be_action); the module path
+		// logs it, and the aggregator files the line under its own kind.
 		if n, err := dashboard.ObserveOnlyWouldBlock(ctx, h.DB, site, hosts, 24); err == nil {
 			kpiWouldBlock = n
 		} else {
 			log.Printf("overview observe-mode count: %v", err)
 		}
+		kpiWouldBlock += comp.Observe
 	}
 	// Abandon rate: of the visitors whose browser LOADED the challenge, how
 	// many never finished it.  This is the one number that says whether the
@@ -296,7 +298,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// whole, which is worth more than the line's absence, and a skew worth
 	// noticing is exactly what an operator should see rather than a tidied
 	// number.
-	rOtherSkew := rOtherRaw - abandon - comp.Unchallenged - comp.Passthrough - rRebound
+	rOtherSkew := rOtherRaw - abandon - comp.Unchallenged - comp.Passthrough - comp.Observe - rRebound
 
 	// Which denominator the share is taken against.  Bypassed requests are the
 	// ones the operator exempted from judgement -- package managers, monitors,
@@ -424,6 +426,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		// The residue, with the two things in it named for the popover.
 		"KPIReqOther":        rOther,
 		"KPIReqPassthrough":  comp.Passthrough,
+		"KPIReqObserve":      comp.Observe,
 		"KPIReqOtherKnown":   rOtherKnown,
 		"KPIReqOtherAbandon": abandon,
 		"KPIReqOtherUnchall": comp.Unchallenged,

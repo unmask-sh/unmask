@@ -156,6 +156,7 @@ func statsTraffic(ctx context.Context, out *statsWriter, conn *db.DB, o statsOpt
 		{"crawler_pass", c.Benign},
 		{"bypass_pass", c.Bypassed},
 		{"passthrough", c.Passthrough},
+		{"observe_pass", c.Observe},
 		{"unchallenged", c.Unchallenged},
 	} {
 		out.row("traffic", r.name, itoa(r.n), share(r.n, c.Total))

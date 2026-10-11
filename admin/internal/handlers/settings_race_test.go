@@ -33,7 +33,7 @@ func TestSettingsPointerConcurrentAccess(t *testing.T) {
 				default:
 				}
 				_ = h.cfg().Secret.BVSecret
-				_ = h.cfg().Global.Passthrough
+				_ = h.cfg().Global.HeaderIntegrity
 				snap := h.snapshotSettings()
 				_ = snap.Nginx.AdminAllowedIPs
 			}
@@ -50,7 +50,7 @@ func TestSettingsPointerConcurrentAccess(t *testing.T) {
 			for j := 0; j < 2000; j++ {
 				h.updateSettingsInMemory(func(s *settings.Settings) {
 					s.Secret.BVSecret = "rotated"
-					s.Global.Passthrough = !s.Global.Passthrough
+					s.Global.HeaderIntegrity = !s.Global.HeaderIntegrity
 				})
 				h.SetSettings(settings.Settings{Secret: settings.Secret{BVSecret: "replaced"}})
 			}

@@ -544,7 +544,7 @@ func (r *Reader) Loaded() bool {
 // ("captcha" / "pow" / "" / future additions).  [a-z0-9_-] is enough
 // (= plugin implementations always use ASCII lowercase as a constraint).
 //
-// fc / hp / ip / ja4 / hpuri / bp / scheme / ua are optional groups (= degrade
+// fc / hp / ip / ja4 / hpuri / bp / scheme / cr / ob / ua are optional groups (= degrade
 // gracefully even with older config or mode mismatch).  ua is last and matched with .* —
 // it contains spaces, so it must be the final field of the log line.
 //
@@ -565,7 +565,7 @@ var lineRE = regexp.MustCompile(
 		// bp and scheme are optional: the binary is deployed before the config
 		// that emits them, so both shapes have to parse for the length of that
 		// window.
-		`(?: bp=([01]))?(?: scheme=(\S*))?(?: cr=(\S*))?(?: ua=(.*))?`)
+		`(?: bp=([01]))?(?: scheme=(\S*))?(?: cr=(\S*))?(?: ob=([01]))?(?: ua=(.*))?`)
 
 // parsed: struct holding the regex match result.
 type parsed struct {
@@ -589,7 +589,12 @@ type parsed struct {
 	// cr: the custom rule that decided the request (its id), "" when none
 	// did or the configuration predates the field.
 	cr string
-	ua string
+	// observe: the site was in monitor mode, so the judgement (fc / hp) was
+	// recorded and not enforced -- the request went through.  Absent on a
+	// line from a configuration that predates the field, or from a site not
+	// in the mode; both read the same: enforced.
+	observe bool
+	ua      string
 }
 
 // plaintext reports whether the request came over the plaintext port.  The
@@ -640,7 +645,8 @@ func (r *Reader) parse(line string) (parsed, bool) {
 		bypassed: m[9] == "1",
 		scheme:   m[10],
 		cr:       strings.TrimSuffix(m[11], "-"),
-		ua:       m[12],
+		observe:  m[12] == "1",
+		ua:       m[13],
 	}, true
 }
 
@@ -666,6 +672,12 @@ func (r *Reader) onLine(line string) {
 	kind := p.kind
 	if kind == "" && p.fc {
 		kind = "challenge_served"
+		if p.observe {
+			// Monitor mode: the judgement fired and nothing was served.  Its
+			// own kind, so the composition card can name it and the landing
+			// page can say what going live would have stopped.
+			kind = "observe_pass"
+		}
 	}
 	r.bumpLine(p.site, kind)
 	// crawler_pass / bypass_pass are shares of the same total the composition
@@ -704,7 +716,8 @@ func (r *Reader) onLine(line string) {
 	case p.kind != "":
 		// counted by Bump above as "pow" / "captcha"; nothing further.
 	case p.fc:
-		// counted above as "challenge_served".
+		// counted above as "challenge_served" (or "observe_pass" on a site in
+		// monitor mode).
 	case isCrawler:
 		r.bumpKind(p.site, "crawler_pass")
 	case p.bypassed:
@@ -736,8 +749,9 @@ func (r *Reader) onLine(line string) {
 	r.bumpCookieIP(p.site, p.ip, p.ja4, p.ua, p.kind)
 	// Crawler funnel: every request carries a UA.  fc=1 (= a challenge was the
 	// final action) counts as "served"; otherwise the request passed straight
-	// through (rescued / valid cookie).
-	r.bumpCrawler(p.ua, p.fc)
+	// through (rescued / valid cookie / a site in monitor mode, where nothing
+	// is served).
+	r.bumpCrawler(p.ua, p.fc && !p.observe)
 	// Native rDNS post-pass: verify a crawler-claiming visitor and auto-ban a
 	// forgery.  Cheap for the common (non-crawler) UA -- the callback short-
 	// circuits before any DNS or lock.
@@ -761,6 +775,10 @@ func (r *Reader) liveHit(p parsed, isCrawler bool) {
 	}
 	m := live.Of(live.Requests)
 	switch {
+	case p.observe && (p.fc || p.hp):
+		// A site in monitor mode let it through: filed with the other requests
+		// that went past without enforcement.
+		m |= live.Of(live.Bypass)
 	case p.hp || (denied != nil && p.ip != "" && denied(p.ip, p.ja4)):
 		m |= live.Of(live.Deny)
 	case p.kind != "":

@@ -53,6 +53,13 @@ var templatesFS embed.FS
 // If outDir is empty, settings.Nginx.OutputDir is used (= default /var/lib/unmask/nginx).
 // version is for display (= written in the header of the generated file).
 
+// ObserveHostRow is one site whose monitor-mode answer differs from the
+// default record's: Value is 1 (the site is being watched) or 0 (enforcing).
+type ObserveHostRow struct {
+	Host  string
+	Value int
+}
+
 // tmplFuncs: what the config template may call.  "rx" resolves an operator
 // pattern to the expression the map should match on -- a literal pattern means
 // itself and is escaped here, at the one point where it becomes a regex.  The
@@ -526,6 +533,15 @@ type renderData struct {
 	// "pass" or not; the actual chain choice happens admin-side.
 	KnownBrowserAction string
 	UnknownUAAction    string
+	// Monitor mode (challenge.default.observe_only, overridable per site).
+	// MonitorMode: some site is in it, so the maps that fold it in are
+	// rendered at all -- off, the template is its usual self (zero
+	// rendered-config diff on upgrade).  ObserveDefault is the default
+	// record's answer; ObservePerHost the site rows that answer differently,
+	// keyed the way $host arrives.
+	MonitorMode    bool
+	ObserveDefault bool
+	ObservePerHost []ObserveHostRow
 	// Stale-browser tier (Global.StaleBrowserEnabled).  When off, none of
 	// these are used and the template emits its original $final_challenge map
 	// verbatim (zero rendered-config diff on upgrade).  When on:
@@ -1186,6 +1202,31 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	}
 	d.HeaderIntegrityEnabled = s.Global.HeaderIntegrity
 	d.HeaderIntegrityLBFronted = len(d.LBIPRanges) > 0
+
+	// Monitor mode: rendered only while some site is in it, so the usual
+	// template is untouched otherwise.  The per-site rows carry only the
+	// sites whose answer differs from the default's (a disabled override
+	// resolves to the default and is skipped with it); sorted, so the render
+	// is stable.
+	d.ObserveDefault = s.Challenge.Default.IsObserveOnly()
+	d.MonitorMode = d.ObserveDefault
+	obsHosts := make([]string, 0, len(s.Challenge.Sites))
+	for host := range s.Challenge.Sites {
+		obsHosts = append(obsHosts, host)
+	}
+	sort.Strings(obsHosts)
+	for _, host := range obsHosts {
+		on := s.Challenge.Resolve(host).IsObserveOnly()
+		if on == d.ObserveDefault {
+			continue
+		}
+		row := ObserveHostRow{Host: host}
+		if on {
+			row.Value = 1
+		}
+		d.ObservePerHost = append(d.ObservePerHost, row)
+		d.MonitorMode = true
+	}
 
 	d.HTTPSRedirect = s.Nginx.HTTPSRedirect
 	if d.HTTPSRedirect {

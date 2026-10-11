@@ -28,9 +28,11 @@ func modeHandler(t *testing.T, s settings.Settings) *Handler {
 // TestMonitorModeHasAControl: monitor mode is what an operator reaches for when
 // putting unmask in front of a live site, and it had no control anywhere -- the
 // only way in or out was editing config.yml and restarting.  The operating-mode
-// tab meanwhile offered passthrough, which looks like the same thing and is
-// not: it hands out a pass cookie, so returning visitors stop being judged and
-// the very measurement the operator turned it on to collect decays away.
+// tab meanwhile offered passthrough, which looked like the same thing and was
+// not: it handed out a pass cookie, so returning visitors stopped being judged
+// and the very measurement the operator turned it on to collect decayed away.
+// That switch is gone; this is the one control, and its help has to say what
+// a module install must do for it to take effect.
 func TestMonitorModeHasAControl(t *testing.T) {
 	var s settings.Settings
 	s.Challenge.Default.ObserveOnly = settings.BoolPtr(true)
@@ -44,15 +46,15 @@ func TestMonitorModeHasAControl(t *testing.T) {
 	if !strings.Contains(m, "checked") {
 		t.Error("monitor mode is on but the box renders unchecked")
 	}
-	// It must sit above passthrough: that is the one an operator introducing
-	// unmask should meet first, and picking the other silently costs them the
-	// measurement.
-	if strings.Index(body, `name="global_observe_only"`) > strings.Index(body, `name="global_passthrough"`) {
-		t.Error("passthrough is presented before monitor mode")
+	// The pass-through switch is gone (0.1.51): two controls that both meant
+	// "stop nobody" sent operators to the one that cost them the measurement.
+	if strings.Contains(body, `name="global_passthrough"`) {
+		t.Error("the pass-through control is still rendered")
 	}
-	// The difference between the two has to be stated where the choice is made.
-	if !strings.Contains(body, "cookie") {
-		t.Error("the help does not explain why passthrough is not a substitute")
+	// On a module install the mode is rendered into nginx and takes effect at
+	// reload; the help has to say so where the box is ticked.
+	if !strings.Contains(body, "reload") {
+		t.Error("the help does not say that a module install needs render-nginx + reload")
 	}
 }
 

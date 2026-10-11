@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -142,5 +143,31 @@ func TestObserveCountIgnoresPassVerdicts(t *testing.T) {
 	}
 	if got := heroValue(renderOverview(t, h)); got != "3件" {
 		t.Errorf("hero value = %q, want only the 3 that would have been stopped", got)
+	}
+}
+
+// TestObserveModeCountsTheModuleLog: on a module install the judgement never
+// reaches the daemon -- nginx lets the request through and logs ob=1, and the
+// aggregator files it as observe_pass.  The headline has to add those to the
+// forward-auth events, or a module install in monitor mode reads 0 again.
+func TestObserveModeCountsTheModuleLog(t *testing.T) {
+	h := observeHandler(t, true, 3)
+	now := time.Now().Unix() / 60
+	for _, row := range []struct {
+		kind string
+		cnt  int
+	}{{"total", 9}, {"observe_pass", 5}, {"crawler_pass", 1}} {
+		if _, err := h.DB.Exec(`INSERT INTO unmask_cookie_minute (bucket_min, site, kind, cnt) VALUES (?, 'default', ?, ?)`,
+			now, row.kind, row.cnt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	body := renderOverview(t, h)
+	if !heroHasObserveClass(body) {
+		t.Fatal("observe mode is on but the hero is not in its observe state")
+	}
+	// The value carries the unit ("8件" / "8 requests"): compare the number.
+	if got := regexp.MustCompile(`^[0-9,]+`).FindString(heroValue(body)); got != "8" {
+		t.Errorf("hero = %q, want 8 (3 forward-auth judgements + 5 module-log passes)", heroValue(body))
 	}
 }

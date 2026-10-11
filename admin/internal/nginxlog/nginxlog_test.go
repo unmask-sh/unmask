@@ -359,3 +359,82 @@ func TestParseCustomRule(t *testing.T) {
 		t.Errorf("older line: ok=%v %+v", ok, p)
 	}
 }
+
+// Monitor mode rides as ob=1 between cr= and the UA.  A line from a site in
+// the mode is a judgement that was recorded and not enforced; a line without
+// the field, or with ob=0, is enforced as it always was.
+func TestParseMonitorMode(t *testing.T) {
+	r := &Reader{}
+	p, ok := r.parse(`<134>1751400000.1 site=shop.example.com kind= fc=1 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- ob=1 ua=curl/8`)
+	if !ok || !p.observe || !p.fc || p.cr != "" || p.ua != "curl/8" {
+		t.Errorf("line with ob=1: ok=%v %+v", ok, p)
+	}
+	p, ok = r.parse(`<134>1751400000.2 site=shop.example.com kind= fc=1 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=cr1a2b ob=0 ua=curl/8`)
+	if !ok || p.observe || p.cr != "cr1a2b" || p.ua != "curl/8" {
+		t.Errorf("line with ob=0: ok=%v %+v", ok, p)
+	}
+	p, ok = r.parse(`<134>1751400000.3 site=shop.example.com kind= fc=1 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- ua=curl/8`)
+	if !ok || p.observe || p.ua != "curl/8" {
+		t.Errorf("line without ob (older configuration): ok=%v %+v", ok, p)
+	}
+}
+
+// TestMonitorModeLineIsItsOwnKind: a judged request a watched site let through
+// is filed as observe_pass, not as a served challenge -- nothing was served --
+// and the crawler funnel reads it as passed, not challenged.  The same line
+// from an enforcing site still counts as challenge_served.
+func TestMonitorModeLineIsItsOwnKind(t *testing.T) {
+	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if err := db.Migrate(d); err != nil {
+		t.Fatal(err)
+	}
+	r := &Reader{
+		d: d, buckets: map[bucketKey]*bucket{},
+		crawlerBuckets:       map[crawlerKey]*crawlerBucket{},
+		countryHourlyBuckets: map[countryHourKey]*countryHourBucket{},
+		cookieIPBuckets:      map[cookieIPKey]*cookieIPBucket{},
+	}
+	r.SetCrawlerClassifier(func(ua string) string {
+		if strings.Contains(ua, "Googlebot") {
+			return "search"
+		}
+		return ""
+	})
+	// watched site: judged (fc=1), let through
+	r.onLine(`1751400000.1 site=shop.example.com kind= fc=1 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- ob=1 ua=curl/8`)
+	r.onLine(`1751400000.2 site=shop.example.com kind= fc=1 hp=1 ip=9.9.9.10 ja4=- hpuri=/wp-login.php bp=0 scheme=https cr=- ob=1 ua=Mozilla/5.0 (compatible; Googlebot/2.1)`)
+	// enforcing site: the same judgement, served
+	r.onLine(`1751400000.3 site=shop.example.com kind= fc=1 hp=0 ip=9.9.9.11 ja4=- hpuri=- bp=0 scheme=https cr=- ob=0 ua=curl/8`)
+	r.flushOnce(true)
+
+	counts := map[string]int{}
+	rows, err := d.QueryContext(context.Background(), `SELECT kind, cnt FROM unmask_cookie_minute WHERE site = 'shop.example.com'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for rows.Next() {
+		var k string
+		var n int
+		if err := rows.Scan(&k, &n); err != nil {
+			t.Fatal(err)
+		}
+		counts[k] += n
+	}
+	rows.Close()
+	if counts["total"] != 3 || counts["observe_pass"] != 2 || counts["challenge_served"] != 1 {
+		t.Errorf("cookie_minute = %v, want total 3 / observe_pass 2 / challenge_served 1", counts)
+	}
+	// The crawler on the watched site passed; nothing was served to it.
+	var total, served int
+	if err := d.QueryRowContext(context.Background(),
+		`SELECT total, served FROM unmask_crawler_minute WHERE category = 'search'`).Scan(&total, &served); err != nil {
+		t.Fatalf("query crawler_minute: %v", err)
+	}
+	if total != 1 || served != 0 {
+		t.Errorf("search crawler on a watched site: total=%d served=%d, want 1 / 0", total, served)
+	}
+}

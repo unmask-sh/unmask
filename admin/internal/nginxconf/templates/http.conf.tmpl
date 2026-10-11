@@ -181,6 +181,33 @@ map $unmask_stats_excluded $unmask_log_keep {
     default 1;
     "1"     0;
 }
+{{- if .MonitorMode }}
+
+# -----------------------------------------------------------------------------
+# Monitor mode ($unmask_observe)
+# -----------------------------------------------------------------------------
+# The operator is watching what going live would do.  Every axis below still
+# judges, and the access log still carries the judgement (fc= and hp= as ever,
+# plus ob=1), but nothing is enforced on a site being watched: no challenge
+# (protect.inc's gate reads $unmask_enforce), no rate limit (every zone's key
+# map leads with this, so the client is not counted -- the zone itself keeps
+# the key variable it always had, which is what lets nginx reload into and out
+# of the mode: a zone whose key variable changes is refused at reload), no deny
+# and no ban (the rewrites in server.inc read maps that fold this in).  The daemon's challenge route is
+# never reached, which is what keeps the mode from looping: it used to answer
+# that route with a redirect back to the page and no cookie, and nginx -- which
+# judges by the cookie alone -- sent the visitor straight back, forever, on
+# every first visit to a module install.
+# Rendered only while some site is in the mode, so an install that never uses
+# it has no diff.  Resolved per site like the rest of the challenge record: a
+# site row overrides the default.  Takes effect at reload, like every map here.
+map $host $unmask_observe {
+    default {{ if .ObserveDefault }}1{{ else }}0{{ end }};
+{{- range .ObservePerHost }}
+    "{{ .Host }}" {{ .Value }};
+{{- end }}
+}
+{{- end }}
 
 # -----------------------------------------------------------------------------
 # -----------------------------------------------------------------------------
@@ -490,6 +517,20 @@ map "" $unmask_chmode { default ""; }
 # hand-written nginx.conf branches.  /unmask/* is masked off so a banned
 # visitor can still fetch the challenge HTML and clear the BAN -- without
 # this guard the rewrite would loop on each challenge asset request.
+{{- if .MonitorMode }}
+# Monitor mode: a watched site enforces no ban.  The ban is still recorded (the
+# daemon writes it from the honeypot line), so going live applies it.
+map "$unmask_observe:$request_uri" $unmask_ban_action_effective {
+    default        $unmask_ban_action;
+    "~^1:"         "";
+    "~^0:/unmask/" "";
+}
+map "$unmask_observe:$request_uri" $unmask_banned_effective {
+    default        $unmask_banned;
+    "~^1:"         "0";
+    "~^0:/unmask/" "0";
+}
+{{- else }}
 map $request_uri $unmask_ban_action_effective {
     default      $unmask_ban_action;
     "~^/unmask/" "";
@@ -498,6 +539,7 @@ map $request_uri $unmask_banned_effective {
     default      $unmask_banned;
     "~^/unmask/" "0";
 }
+{{- end }}
 
 # -----------------------------------------------------------------------------
 # Honeypot path detection ($serve_bot_challenge)
@@ -966,10 +1008,18 @@ map $unmask_axis_deny $unmask_deny_raw {
     default 0;
     "1"     $unmask_deny_unrescued;
 }
+{{- if .MonitorMode }}
+# A site in monitor mode denies nothing: the mode rides beside the rescues.
+map "$is_search_bot:$is_bypass_ip:$is_bypass_path:$unmask_observe" $unmask_deny_unrescued {
+    default 0;
+    "0:0:0:0" 1;
+}
+{{- else }}
 map "$is_search_bot:$is_bypass_ip:$is_bypass_path" $unmask_deny_unrescued {
     default 0;
     "0:0:0" 1;
 }
+{{- end }}
 
 # /unmask/* is masked off for the same reason the ban masks it: the dispatch is
 # a rewrite, and without this the rewritten request matches again and loops.
@@ -1349,6 +1399,23 @@ map "$final_challenge:$unmask_verified" $final_challenge_eff {
     default  0;
 }
 {{ end }}
+{{- if .MonitorMode }}
+
+# $unmask_enforce: the challenge decision protect.inc enforces while monitor
+# mode is rendered -- the decision above for a site the operator is not
+# watching, 0 for one they are.  The log keeps fc=$final_challenge, so the
+# dashboard still counts what would have fired.  volatile because the source
+# may be (the veto-pass detours set $unmask_verified mid-request).
+{{- if or .WebBotAuthEnabled .PrivacyPassEnabled }}
+map "$final_challenge_eff:$unmask_observe" $unmask_enforce {
+{{- else }}
+map "$final_challenge:$unmask_observe" $unmask_enforce {
+{{- end }}
+    volatile;
+    "1:0"    1;
+    default  0;
+}
+{{- end }}
 
 # -----------------------------------------------------------------------------
 # Rate-limit smart key + zone definitions (provided by unmask / auto-rendered)
@@ -1363,6 +1430,17 @@ map "$final_challenge:$unmask_verified" $final_challenge_eff {
 #   - is_search_bot=1  search bot UA (Googlebot etc.; avoid ranking accidents on large crawls)
 #   - is_bypass_ip=1   bypass IP (trusted crawler official IP range / internal LB)
 #   - is_bypass_path=1 bypass path (e.g. /static/)
+{{- if $.MonitorMode }}
+# Monitor mode leads the key: a watched site's request is not counted.
+map "$unmask_observe:$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key {
+    default         {{ .RateLimitKeyExpr }};
+    "~^1:"          "";
+    "~^.:1:"        "";
+    "~^.:.:1:"      "";
+    "~^.:.:.:1:"    "";
+    "~^.:.:.:.:1$"  "";
+}
+{{- else }}
 map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key {
     default       {{ .RateLimitKeyExpr }};
     "~^1:"        "";
@@ -1370,6 +1448,7 @@ map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key
     "~^.:.:1:"    "";
     "~^.:.:.:1$"  "";
 }
+{{- end }}
 
 # $rate_limit_key_deny: identical to $rate_limit_key but WITHOUT the _bv
 # exemption.  A "deny" zone is a HARD CAP -- a human who already passed a CAPTCHA
@@ -1377,12 +1456,22 @@ map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key
 # would just sell more requests).  Trusted sources (search bot / bypass IP /
 # bypass path) stay exempt in both.  nginx only evaluates this map when a
 # deny-mode path zone references it via its conditional key (below).
+{{- if $.MonitorMode }}
+map "$unmask_observe:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny {
+    default       {{ .RateLimitKeyExpr }};
+    "~^1:"        "";
+    "~^.:1:"      "";
+    "~^.:.:1:"    "";
+    "~^.:.:.:1$"  "";
+}
+{{- else }}
 map "$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny {
     default      {{ .RateLimitKeyExpr }};
     "~^1:"       "";
     "~^.:1:"     "";
     "~^.:.:1$"   "";
 }
+{{- end }}
 
 {{- if .RateKeyVariants }}
 
@@ -1392,11 +1481,31 @@ map "$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny {
 # differs.  Rendered only for kinds a zone actually uses.
 {{- range .RateKeyVariants }}
 {{- if .Deny }}
+{{- if $.MonitorMode }}
+map "$unmask_observe:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny_{{ .Suffix }} {
+    default       {{ .Expr }};
+    "~^1:"        "";
+    "~^.:1:"      "";
+    "~^.:.:1:"    "";
+    "~^.:.:.:1$"  "";
+}
+{{- else }}
 map "$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny_{{ .Suffix }} {
     default      {{ .Expr }};
     "~^1:"       "";
     "~^.:1:"     "";
     "~^.:.:1$"   "";
+}
+{{- end }}
+{{- else }}
+{{- if $.MonitorMode }}
+map "$unmask_observe:$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_{{ .Suffix }} {
+    default         {{ .Expr }};
+    "~^1:"          "";
+    "~^.:1:"        "";
+    "~^.:.:1:"      "";
+    "~^.:.:.:1:"    "";
+    "~^.:.:.:.:1$"  "";
 }
 {{- else }}
 map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_{{ .Suffix }} {
@@ -1406,6 +1515,7 @@ map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key
     "~^.:.:1:"    "";
     "~^.:.:.:1$"  "";
 }
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}
@@ -1455,6 +1565,16 @@ limit_req_zone {{ .KeyVar }} zone={{ .Name }}:10m rate={{ .RequestsPerMin }}r/m;
 # and a CAPTCHA solve puts its entry first, so the solver's next request reads
 # "captcha".
 map $unmask_bv_kind $bv_reuse_counted { default 1;  ""  0;  "captcha" 0; }
+{{- if $.MonitorMode }}
+map "$unmask_observe:$bv_reuse_counted:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse {
+    default         "";
+    "~^1:"          "";
+    "~^.:.:1:"      "";
+    "~^.:.:.:1:"    "";
+    "~^.:.:.:.:1$"  "";
+    "~^0:1:"        {{ .KeyExpr }};
+}
+{{- else }}
 map "$bv_reuse_counted:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse {
     default       "";
     "~^.:1:"      "";
@@ -1462,6 +1582,7 @@ map "$bv_reuse_counted:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit
     "~^.:.:.:1$"  "";
     "~^1:"        {{ .KeyExpr }};
 }
+{{- end }}
 limit_req_zone $rate_limit_key_reuse zone={{ .Name }}:10m rate={{ .RequestsPerMin }}r/m;
 {{- end }}
 
@@ -1475,11 +1596,20 @@ limit_req_zone $rate_limit_key_reuse zone={{ .Name }}:10m rate={{ .RequestsPerMi
 geo $remote_addr {{ .RawVar }} {
     default "";
 {{ .GeoBody }}}
+{{- if $.MonitorMode }}
+map "$unmask_observe:$is_search_bot:$is_bypass_ip:{{ .RawVar }}" {{ .KeyVar }} {
+    default    {{ .RawVar }};
+    "~^1:"     "";
+    "~^.:1:"   "";
+    "~^.:.:1:" "";
+}
+{{- else }}
 map "$is_search_bot:$is_bypass_ip:{{ .RawVar }}" {{ .KeyVar }} {
     default    {{ .RawVar }};
     "~^1:"     "";
     "~^.:1:"   "";
 }
+{{- end }}
 limit_req_zone {{ .KeyVar }} zone={{ .ZoneName }}:10m rate={{ .RequestsPerMin }}r/m;
 {{- end }}
 
@@ -1489,20 +1619,34 @@ limit_req_zone {{ .KeyVar }} zone={{ .ZoneName }}:10m rate={{ .RequestsPerMin }}
 # verified crawlers ($is_search_bot) and bypass IPs ($is_bypass_ip) dropped to
 # "" so a genuine crawler from a throttled country is NEVER rate-limited.
 {{- range .GeoRateZones }}
+{{- if $.MonitorMode }}
+map "$unmask_observe:$is_search_bot:$is_bypass_ip:$unmask_country" {{ .KeyVar }} {
+    default    "";
+    "0:0:0:{{ .Country }}" "{{ .Country }}";
+}
+{{- else }}
 map "$is_search_bot:$is_bypass_ip:$unmask_country" {{ .KeyVar }} {
     default    "";
     "0:0:{{ .Country }}" "{{ .Country }}";
 }
+{{- end }}
 limit_req_zone {{ .KeyVar }} zone={{ .ZoneName }}:10m rate={{ .RequestsPerMin }}r/m;
 {{- end }}
 # Custom-rule throttles: a zone per throttling rule, counted per client
 # address while the rule matches; verified crawlers and bypass addresses
 # are never counted.
 {{- range .CustomRuleRateZones }}
+{{- if $.MonitorMode }}
+map "$unmask_observe:$is_search_bot:$is_bypass_ip:{{ .Var }}" {{ .KeyVar }} {
+    default "";
+    "0:0:0:1" $binary_remote_addr;
+}
+{{- else }}
 map "$is_search_bot:$is_bypass_ip:{{ .Var }}" {{ .KeyVar }} {
     default "";
     "0:0:1" $binary_remote_addr;
 }
+{{- end }}
 limit_req_zone {{ .KeyVar }} zone={{ .ZoneName }}:10m rate={{ .RequestsPerMin }}r/m;
 {{- end }}
 
@@ -1615,7 +1759,13 @@ map "$is_bypass_ip$is_bypass_path" $unmask_bypassed {
 # an empty JA4 before), and a honeypot ban's reason names the URL in full.
 # Optional to the daemon's parser, like bp: a line from a configuration
 # rendered before this field still parses.
-log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bypassed scheme=$unmask_forwarded_proto cr=$unmask_cr_id ua=$http_user_agent';
+{{- if .MonitorMode }}
+# ob=1 marks a request on a site in monitor mode: judged (fc= and hp= say how),
+# let through on purpose.  The daemon files it under its own kind, so the
+# dashboard can say what going live would have stopped.  Optional to the
+# parser, like bp.
+{{- end }}
+log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bypassed scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }} ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed.
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;

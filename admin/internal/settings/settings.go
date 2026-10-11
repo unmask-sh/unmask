@@ -280,20 +280,24 @@ type ChallengeValues struct {
 	// the built-in default (200ms), an explicit 0 = no fade (content pops in
 	// at the reveal instant).
 	RevealFadeMS *int `yaml:"reveal_fade_ms,omitempty"`
-	// ObserveOnly: monitor mode. When true, all challenge actions are
-	// suppressed and only event logging continues (= for the post-install
-	// observation phase).
+	// ObserveOnly: monitor mode.  Every axis still judges and the judgement is
+	// recorded, but no visitor is stopped: no challenge, no rate limit, no
+	// deny, no ban.  For the observation phase after install, and the place
+	// to retreat to when a rule looks wrong.
 	//
-	// Behavior:
-	//   - forward-auth mode: even when auth_check returns action=challenge/block,
-	//     the response ends up action=pass. event payload retains observe_only=1.
-	//   - native mode: for requests nginx forwards to the challenge route,
-	//     the admin's ServeChallenge skips PoW/CAPTCHA and returns HTML that
-	//     redirects to orig_path immediately (= one extra round-trip but
-	//     feels like passthrough).
+	//   - forward-auth mode: /api/check answers pass where it would have
+	//     answered challenge / block, and the event keeps the verdict
+	//     (observe_only=1, would_be_action).  Immediate.
+	//   - module (native) mode: rendered into nginx -- protect.inc's gate, the
+	//     rate zone keys and server.inc's deny / ban rewrites read
+	//     $unmask_observe, and the access log carries ob=1 so the aggregator
+	//     files the request under its own kind (observe_pass).  Takes effect
+	//     at render-nginx + reload, like every other map.  The daemon's
+	//     challenge route takes no part: an earlier design answered it with a
+	//     cookie-less redirect back to the page, which nginx -- judging by the
+	//     cookie alone -- sent back again, forever (fixed in 0.1.51).
 	//
-	// Toggle with `unmask apply-preset monitor` (= ObserveOnly=true).
-	// Reset back to false when switching to strict / balanced.
+	// Resolved per site (Resolve); the operating-mode tab sets the default.
 	ObserveOnly *bool `yaml:"observe_only,omitempty"`
 	// Disabled: when true on a Sites[<host>] entry, Resolve(site) returns
 	// Default instead of this record.  Used by the admin UI's override
@@ -2791,12 +2795,12 @@ func (c RebindConfig) MaxRebindsPerHourResolved() int {
 }
 
 type GlobalConfig struct {
-	// Passthrough = monitoring mode.  When true, the admin's serveBotChallenge
-	// short-circuits and bounces the user straight back to the original URL
-	// without issuing PoW / CAPTCHA.  Useful for staged rollouts: signals
-	// are still recorded in events / dashboard, but visitors are never
-	// inconvenienced.
-	Passthrough bool `yaml:"passthrough,omitempty"`
+	// (passthrough, the operator-facing pass-through switch, was removed in
+	// 0.1.51: monitor mode -- Challenge.Default.ObserveOnly -- is the one
+	// switch that lets every visitor through, and the over-block breaker keeps
+	// its own OverBlock.AutoPassthrough.  A leftover key is ignored with a
+	// warning: warnRemovedGlobalPassthrough.)
+	//
 	// KnownBrowserAction: chain for no-match requests whose UA looks like a
 	// real browser (= classify.IsKnownBrowser).  Default "pow_only" = a
 	// transparent first-visit PoW (defense in depth behind the JA4 axis).  Set
@@ -4633,6 +4637,7 @@ func Load(path string) (Settings, error) {
 		// branding record still carry theme / colors / credit under challenge.
 		relocateLegacyAppearance(&s, raw)
 		warnRemovedChallengeAll(resolved, raw)
+		warnRemovedGlobalPassthrough(resolved, raw)
 	}
 	if s.Secret.BVSecret == "" {
 		// Neither config.yml nor config-init supplied a key.  A per-process

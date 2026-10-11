@@ -1525,10 +1525,9 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	beforeDB := cur.DB
 	switch section {
 	case "global":
-		cur.Global.Passthrough = r.FormValue("global_passthrough") == "1"
 		// Monitor mode lives on the challenge record (it is resolved per site by
-		// both deploy paths), but the operator meets it here, beside the other
-		// switch that suppresses the challenge.
+		// both deploy paths), but the operator meets it here, on the
+		// operating-mode tab.
 		cur.Challenge.Default.ObserveOnly = settings.BoolPtr(r.FormValue("global_observe_only") == "1")
 		validBucket := func(v string) string {
 			v = strings.TrimSpace(v)

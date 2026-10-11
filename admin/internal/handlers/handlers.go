@@ -1197,20 +1197,16 @@ func protectedModeForOrig(n settings.Nginx, site, orig string) string {
 func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	site := siteFromRequest(r, h.snapshotSettings())
 	// Explicit operator-side force (= /test/force-pow / /admin/test/force-*
-	// add ?_force=...) -- short-circuit the monitor / passthrough early exits
-	// below so the operator can preview the challenge page even when the
-	// site is in observe-only or passthrough mode.  Public /test/* is already
-	// gated by Challenge.PublicTestPages; /admin/test/* is auth-gated.
+	// add ?_force=...) -- short-circuit the breaker's pass-through below so
+	// the operator can preview the challenge page while it is tripped.
+	// Public /test/* is already gated by Challenge.PublicTestPages;
+	// /admin/test/* is auth-gated.
 	forceQuery := strings.TrimSpace(r.URL.Query().Get("_force"))
-	// monitor mode: don't serve a challenge, redirect immediately.  Keep the
-	// event with phase=serve (preserves dashboard aggregation continuity).
-	// In forward-auth mode AuthCheck has already returned pass, so this path
-	// is not reached.  Reached via native mode (nginx plugin sends straight
-	// to the challenge route).
-	if forceQuery == "" && h.snapshotSettings().Challenge.Resolve(site).IsObserveOnly() {
-		h.serveObserveOnlyRedirect(w, r, site)
-		return
-	}
+	// Monitor mode takes no part here.  Forward-auth answers pass at
+	// /api/check; the module path renders the mode into nginx, whose gate
+	// then never sends a watched site's visitor to this route.  An earlier
+	// design answered them here with a cookie-less redirect back to the page,
+	// which nginx -- judging by the cookie alone -- sent back again, forever.
 	action := strings.TrimSpace(r.Header.Get("X-JA4-Action"))
 	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
 	// Verdict NAME is unmask-derived from the JA4 (X-Client-JA4 = nginx's
@@ -1544,11 +1540,15 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	//      don't yet have default_action set continue to behave as before.
 	//   3) ?chm= explicit override from the auth_request wrapper.
 	//   4) ?_force= debug override (via /unmask/force-pow / -captcha).
-	// Monitoring mode (= let every request through).  When ON -- either the
-	// operator's Global.Passthrough, or the over-block circuit breaker tripping
-	// into auto-passthrough -- we short-circuit the challenge: issue a signed _bv
-	// and bounce the visitor to the original URL without showing PoW / CAPTCHA.
-	if forceQuery == "" && (h.cfg().Global.Passthrough || h.overBlockPassthrough()) {
+	// The over-block breaker's pass-through (over_block_breaker.auto_passthrough,
+	// while tripped): short-circuit the challenge, issue a signed _bv and bounce
+	// the visitor to the original URL without showing PoW / CAPTCHA.  A cookie
+	// is the right tool HERE and nowhere else: the breaker trips on visitors
+	// stuck in a challenge loop, and only a cookie ends the loop for them.  The
+	// operator-facing pass-through switch that shared this branch is gone;
+	// monitor mode is the one switch, and it is rendered into nginx rather
+	// than handing out cookies.
+	if forceQuery == "" && h.overBlockPassthrough() {
 		// Issue a PROPERLY-SIGNED _bv so the visitor doesn't loop back through
 		// nginx's challenge redirect.  This MUST be a real HMAC-signed cookie
 		// (IssueValue, same as the post-PoW / CAPTCHA success path): the native C
@@ -1569,7 +1569,10 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		target := "/"
 		if rlOrigURI != "" {
 			target = rlOrigURI
-		} else if orig := strings.TrimSpace(r.URL.Query().Get("orig")); isLocalRedirect(orig) {
+		} else if orig := strings.TrimSpace(r.URL.Query().Get("_orig")); isLocalRedirect(orig) {
+			// _orig is what every dispatcher sends (protect.inc's rewrite, the
+			// apache snippet).  This read "orig" for a long time, so a visitor
+			// let through by the breaker landed on / instead of their page.
 			target = orig
 		}
 		if !isLocalRedirect(target) {
@@ -2088,75 +2091,6 @@ func isLocalRedirect(s string) bool {
 		return false
 	}
 	return u.Scheme == "" && u.Host == ""
-}
-
-// serveObserveOnlyRedirect is a lightweight handler that, under monitor mode,
-// redirects immediately without serving a challenge.  Records the event with
-// phase=serve + observe_only=1 so stats still reflect "the number of
-// challenges that would fire under strict mode".  Body is a 2-tier fallback
-// of `<meta http-equiv=refresh>` + `<script>location.replace()`.
-func (h *Handler) serveObserveOnlyRedirect(w http.ResponseWriter, r *http.Request, site string) {
-	// Restore orig_path (same 2-tier fallback as ServeChallenge).
-	rlOrigURI := ""
-	if i := strings.Index(r.URL.Path, "/_rl/"); i >= 0 {
-		rlOrigURI = r.URL.Path[i+len("/_rl"):]
-		if rlOrigURI == "" {
-			rlOrigURI = "/"
-		}
-		if r.URL.RawQuery != "" {
-			rlOrigURI += "?" + r.URL.RawQuery
-		}
-	}
-	origPath := truncateAt(r.URL.Query().Get("_orig"), 200)
-	if origPath == "" {
-		origPath = truncateAt(rlOrigURI, 200)
-	}
-	if !isLocalRedirect(origPath) {
-		// _orig is client-supplied (= "//evil.com" would be an open redirect in
-		// the meta-refresh + location.replace below); fall back to root.
-		origPath = "/"
-	}
-
-	// Record event (phase=serve + observe_only=1 + would_be_action=challenge).
-	ip := clientIP(r)
-	if pkt := events.PackIP(ip); pkt != nil {
-		payload := map[string]any{
-			"force_reason":    "observe_only",
-			"observe_only":    1,
-			"would_be_action": "challenge",
-			"orig_path":       origPath,
-		}
-		ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
-		verdict := h.resolvedVerdictName(ja4) // unmask-derived (not the X-JA4-Verdict header)
-		events.InsertAsync(h.DB, &events.Event{
-			Site:         site,
-			Host:         h.HostID,
-			Scheme:       schemeFromRequest(r),
-			Port:         portFromRequest(r),
-			IPPacked:     pkt,
-			UserAgent:    r.Header.Get("User-Agent"),
-			JA4:          safeJA4(ja4),
-			JA4Verdict:   verdict,
-			JA4VerdictID: h.VerdictNameToID(verdict),
-			Phase:        string(events.PhaseServe),
-			Payload:      payload,
-		})
-	}
-
-	// Two-tier redirect to orig_path via JS / meta-refresh.  href is JSON-encoded
-	// for XSS safety (origPath is attacker-controlled, derived from the user URL).
-	origJSON, _ := json.Marshal(origPath)
-	body := []byte(`<!doctype html><meta charset=utf-8>` +
-		`<title>unmask: observe-only</title>` +
-		`<meta http-equiv="refresh" content="0; url=` + htmlEscape(origPath) + `">` +
-		`<script>try{location.replace(` + string(origJSON) + `)}catch(e){}</script>` +
-		`<noscript>redirecting...</noscript>`)
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
-	w.Header().Set("X-Unmask-Mode", "observe-only")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(body)
 }
 
 // htmlEscape is a minimal HTML attribute escaper for the meta-refresh URL.
