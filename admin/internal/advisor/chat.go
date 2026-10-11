@@ -212,6 +212,9 @@ func (a *anthropicChat) step(ctx context.Context) (turn, error) {
 		"messages":   a.messages,
 		"tools":      a.tools,
 	}
+	if e := a.cfg.Effort; e != "" {
+		body["output_config"] = map[string]any{"effort": e}
+	}
 	out, err := post(ctx, endpointOr(a.cfg, "https://api.anthropic.com")+"/v1/messages",
 		map[string]string{"x-api-key": a.cfg.APIKey, "anthropic-version": "2023-06-01"}, body)
 	if err != nil {
@@ -315,6 +318,9 @@ func (o *openaiChat) step(ctx context.Context) (turn, error) {
 	body := map[string]any{"model": o.cfg.ResolvedModel(), "messages": o.messages}
 	if len(o.tools) > 0 {
 		body["tools"] = o.tools
+	}
+	if e := o.cfg.Effort; e != "" {
+		body["reasoning_effort"] = e
 	}
 	headers := map[string]string{}
 	if o.cfg.APIKey != "" {
@@ -454,4 +460,17 @@ func RecordChatRun(conn *db.DB, cfg settings.AIAdvisorConfig, res ChatResult, er
 	if err := conn.Gorm.Create(&row).Error; err != nil {
 		log.Printf("ask: record run: %v", err)
 	}
+}
+
+// EffortLevels is what a provider accepts as the reasoning effort, in
+// order: Anthropic's output_config.effort takes five levels, an
+// OpenAI-compatible endpoint's reasoning_effort three, Ollama has none.
+func EffortLevels(provider string) []string {
+	switch provider {
+	case "anthropic":
+		return []string{"low", "medium", "high", "xhigh", "max"}
+	case "openai":
+		return []string{"low", "medium", "high"}
+	}
+	return nil
 }

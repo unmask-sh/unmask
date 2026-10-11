@@ -106,6 +106,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.click('.suggest button');
   const filled = await page.evaluate(() => document.getElementById('ask-q').value.length > 5);
   ok(filled, 'a suggestion did not fill the question');
+  // The picks: the configured model is selected, the effort select carries
+  // what the provider takes, and a pick rides along with the question.
+  const picks = await page.evaluate(() => ({ model: (document.getElementById('ask-model') || {}).value, efforts: Array.from((document.getElementById('ask-effort') || { options: [] }).options).map(o => o.value) }));
+  ok(picks.model === 'e2e-model' && picks.efforts.join(',') === ',low,medium,high', 'the model / effort picks are not as expected: ' + JSON.stringify(picks));
+  await page.select('#ask-effort', 'low');
   await page.evaluate(() => { document.getElementById('ask-q').value = 'E2E: how many bans?'; });
   await page.click('#ask-send');
   await sleep(300);
@@ -122,6 +127,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     });
   }
   ok(!!answered, 'no answer arrived');
+  ok(seen.some(m => m.reasoning_effort === 'low'), 'the effort picked on the page did not reach the provider');
+  const afterAsk = await page.evaluate(() => ({ suggestHidden: !!document.querySelector('#ask-dock .suggest') && document.querySelector('#ask-dock .suggest').hidden }));
+  ok(afterAsk.suggestHidden, 'the suggestions did not go away after the first question');
   if (answered) {
     ok(/the ban list has \d+ rows/.test(answered.text), 'the answer does not carry the tool result: ' + answered.text);
     ok(answered.pre, 'the code fence was not shown as a block');
@@ -136,9 +144,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   // A reload opens on the composer alone: the turn is the history tab's now.
   await page.reload({ waitUntil: 'networkidle2' });
-  const kept = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, link: (function(){ const a = document.querySelector('#turns .a .txt a'); return a ? a.getAttribute('href') : ''; })(), text: (document.querySelector('#turns .a .txt') || {}).textContent || '', pre: !!document.querySelector('#turns .a pre'), copy: !!document.querySelector('#turns .a .a-copy'), folded: !!document.querySelector('#turns .a.folded'), tabs: Array.from(document.querySelectorAll('.ask-tabs a')).map(a => a.textContent.trim()), composerFirst: (function(){ const c = document.querySelector('.composer'), t = document.getElementById('turns'); return !!c && !!t && c.compareDocumentPosition(t) === Node.DOCUMENT_POSITION_FOLLOWING; })(), emptyNote: !!document.getElementById('ask-empty') }));
+  const kept = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, link: (function(){ const a = document.querySelector('#turns .a .txt a'); return a ? a.getAttribute('href') : ''; })(), text: (document.querySelector('#turns .a .txt') || {}).textContent || '', pre: !!document.querySelector('#turns .a pre'), copy: !!document.querySelector('#turns .a .a-copy'), folded: !!document.querySelector('#turns .a.folded'), tabs: Array.from(document.querySelectorAll('.ask-tabs a')).map(a => a.textContent.trim()), composerDocked: (function(){ const c = document.querySelector('.composer'), t = document.getElementById('turns'); return !!c && !!t && c.compareDocumentPosition(t) === Node.DOCUMENT_POSITION_PRECEDING && getComputedStyle(c).position === 'sticky'; })(), emptyNote: !!document.getElementById('ask-empty') }));
   ok(kept.turns === 0 && !kept.emptyNote, 'the ask tab must open on the composer alone after a reload: ' + JSON.stringify(kept));
-  ok(kept.tabs.length === 2 && kept.composerFirst, 'the two tabs or the composer-first layout are missing: ' + JSON.stringify(kept));
+  ok(kept.tabs.length === 2 && kept.composerDocked, 'the two tabs or the docked composer under the conversation are missing: ' + JSON.stringify(kept));
   if (process.env.UI_E2E_SHOT_DIR) {
     try { await page.screenshot({ path: path.join(process.env.UI_E2E_SHOT_DIR, 'ask.png'), fullPage: true }); } catch (e) {}
   }

@@ -71,6 +71,9 @@ func TestAskPageAndSend(t *testing.T) {
 			if !strings.Contains(string(b), "日本語") {
 				t.Error("the question did not ask for Japanese")
 			}
+			if !strings.Contains(string(b), `"reasoning_effort":"low"`) {
+				t.Error("the effort picked on the page did not reach the provider")
+			}
 			io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"c1","type":"function","function":{"name":"bans","arguments":"{\"limit\":5}"}}]}}],"usage":{"prompt_tokens":11,"completion_tokens":2}}`)
 			return
 		}
@@ -89,7 +92,7 @@ func TestAskPageAndSend(t *testing.T) {
 	body = rec.Body.String()
 	// A fresh page is the composer alone: no turn and no empty note (the
 	// note is the history tab's).
-	for _, want := range []string{`id="ask-form"`, `data-maxchars="2000"`, `openai · m`} {
+	for _, want := range []string{`id="ask-form"`, `data-maxchars="2000"`, `<select name="model" id="ask-model"><option value="m" selected>m</option></select>`, `<select name="effort" id="ask-effort"><option value="" selected>既定</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select>`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %q", want)
 		}
@@ -103,8 +106,17 @@ func TestAskPageAndSend(t *testing.T) {
 		t.Error("a viewer got the composer, or no note")
 	}
 
+	// A model off the list, or an effort the provider does not take, is
+	// refused before the provider is called.
+	for _, bad := range []string{"q=hi&model=not-on-the-list", "q=hi&effort=xhigh"} {
+		rec = httptest.NewRecorder()
+		h.AdminAskSend(rec, askReq("POST", "/unmask/admin/ask/send", bad, "admin"))
+		if rec.Code != 400 {
+			t.Errorf("%s: %d %s", bad, rec.Code, rec.Body.String())
+		}
+	}
 	rec = httptest.NewRecorder()
-	h.AdminAskSend(rec, askReq("POST", "/unmask/admin/ask/send", url.Values{"q": {"BAN は?"}}.Encode(), "admin"))
+	h.AdminAskSend(rec, askReq("POST", "/unmask/admin/ask/send", url.Values{"q": {"BAN は?"}, "effort": {"low"}}.Encode(), "admin"))
 	var out map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || rec.Code != 200 || out["ok"] != true {
 		t.Fatalf("send: %d %s (%v)", rec.Code, rec.Body.String(), err)

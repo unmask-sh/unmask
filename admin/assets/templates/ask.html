@@ -86,6 +86,12 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .suggest button{font:inherit;font-size:.78rem;padding:.25rem .6rem;border:1px solid #cbd5e1;border-radius:1rem;background:#f8fafc;color:#334155;cursor:pointer}
 .suggest button:hover{background:#eef2ff;border-color:#a5b4fc}
 .privacy{font-size:.75rem;color:#64748b;line-height:1.5;margin:.6rem 0 0}
+/* The dock: at the foot of the viewport while the conversation above it is
+   taller than the window, at its place under the tabs otherwise. */
+.composer{position:sticky;bottom:0;z-index:3;margin-top:.8rem;box-shadow:0 -8px 18px -14px rgba(15,23,42,.35)}
+.composer-row .pick{display:inline-flex;align-items:center;gap:.3rem;font-size:.75rem;color:#64748b}
+.composer-row .pick select{font:inherit;font-size:.78rem;padding:.2rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;max-width:14rem}
+.a,.q-row{scroll-margin-top:.75rem}
 .user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
 .user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
 .user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
@@ -137,26 +143,6 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 <div class="banner warn" id="ask-viewer">{{ t .Lang "ask.viewer_note" }}</div>
 {{ end }}
 
-{{ if and (eq .Tab "ask") .AIActive .CanAsk }}
-<div class="bcd-card composer">
-  <div class="suggest">
-    <button type="button" data-q="{{ t .Lang "ask.suggest1" }}">{{ t .Lang "ask.suggest1" }}</button>
-    <button type="button" data-q="{{ t .Lang "ask.suggest2" }}">{{ t .Lang "ask.suggest2" }}</button>
-    <button type="button" data-q="{{ t .Lang "ask.suggest3" }}">{{ t .Lang "ask.suggest3" }}</button>
-  </div>
-  <form id="ask-form" action="{{ .BasePath }}/admin/ask/send" method="POST">
-    <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
-    <textarea name="q" id="ask-q" placeholder="{{ t .Lang "ask.placeholder" }}" data-maxchars="{{ .QuestionMax }}" data-maxchars-msg="{{ tf .Lang "err.value_long" .QuestionMax }}"></textarea>
-    <div class="composer-row">
-      <button type="submit" class="btn" id="ask-send">{{ t .Lang "ask.send" }}</button>
-      <span class="hint">{{ t .Lang "ask.hint" }}</span>
-      <span class="spacer" style="flex:1"></span>
-      <span class="hint">{{ .AIProvider }} · {{ .AIModel }} · {{ tf .Lang "ask.month" (comma .MonthRuns) (comma .MonthIn) (comma .MonthOut) }}</span>
-    </div>
-  </form>
-  <p class="privacy">{{ t .Lang "ask.privacy" }}</p>
-</div>
-{{ end }}
 {{ if eq .Tab "history" }}<p class="meta">{{ t .Lang "ask.history_note" }}</p>{{ end }}
 
 <template id="ask-icon-copy">{{ template "ask_icon_copy" }}</template>
@@ -183,6 +169,32 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   {{ if eq .Tab "history" }}<p class="meta" id="ask-empty">{{ t .Lang "ask.history_empty" }}</p>{{ end }}
   {{ end }}
 </div>
+
+{{ if and (eq .Tab "ask") .AIActive .CanAsk }}
+{{/* The composer is a dock at the foot of the page: the conversation grows
+     above it the way a chat does, so the next question needs no trip back
+     up.  The suggestions show until the first question. */}}
+<div class="bcd-card composer" id="ask-dock">
+  <div class="suggest">
+    <button type="button" data-q="{{ t .Lang "ask.suggest1" }}">{{ t .Lang "ask.suggest1" }}</button>
+    <button type="button" data-q="{{ t .Lang "ask.suggest2" }}">{{ t .Lang "ask.suggest2" }}</button>
+    <button type="button" data-q="{{ t .Lang "ask.suggest3" }}">{{ t .Lang "ask.suggest3" }}</button>
+  </div>
+  <form id="ask-form" action="{{ .BasePath }}/admin/ask/send" method="POST">
+    <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+    <textarea name="q" id="ask-q" placeholder="{{ t .Lang "ask.placeholder" }}" data-maxchars="{{ .QuestionMax }}" data-maxchars-msg="{{ tf .Lang "err.value_long" .QuestionMax }}"></textarea>
+    <div class="composer-row">
+      <button type="submit" class="btn" id="ask-send">{{ t .Lang "ask.send" }}</button>
+      <span class="hint">{{ t .Lang "ask.hint" }}</span>
+      <span class="spacer" style="flex:1"></span>
+      <label class="pick"><span>{{ t .Lang "ask.model" }}</span><select name="model" id="ask-model">{{ range .AIModels }}<option value="{{ .ID }}"{{ if eq .ID $.AIModel }} selected{{ end }}>{{ if .Label }}{{ .Label }}{{ else }}{{ .ID }}{{ end }}</option>{{ end }}</select></label>
+      {{ if .AIEfforts }}<label class="pick"><span>{{ t .Lang "ask.effort" }}</span><select name="effort" id="ask-effort"><option value=""{{ if eq .AIEffort "" }} selected{{ end }}>{{ t .Lang "ask.effort_default" }}</option>{{ range .AIEfforts }}<option value="{{ . }}"{{ if eq . $.AIEffort }} selected{{ end }}>{{ . }}</option>{{ end }}</select></label>{{ end }}
+      <span class="hint">{{ .AIProvider }} · {{ tf .Lang "ask.month" (comma .MonthRuns) (comma .MonthIn) (comma .MonthOut) }}</span>
+    </div>
+  </form>
+  <p class="privacy">{{ t .Lang "ask.privacy" }}</p>
+</div>
+{{ end }}
 
 {{ if and (eq .Tab "history") .Turns .CanAsk }}
 <form method="POST" action="{{ .BasePath }}/admin/ask/clear" data-confirm="{{ t .Lang "ask.clear_confirm" }}" data-confirm-title="{{ t .Lang "ask.clear" }}" data-confirm-ok="{{ t .Lang "ask.clear" }}" data-confirm-danger="1" style="text-align:right">
@@ -262,6 +274,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   function pendingHTML(){ return '<div class="txt"><span class="spin"></span>' + esc(turns.dataset.txtPending) + '</div>'; }
   function append(q){
     var empty = document.getElementById('ask-empty'); if (empty) empty.remove();
+    var sg = document.querySelector('#ask-dock .suggest'); if (sg) sg.hidden = true;
     var qr = document.createElement('div'); qr.className = 'q-row';
     qr.innerHTML = '<time class="js-datetime js-datetime-notz q-time" data-ts="' + Math.floor(Date.now() / 1000) + '"></time>';
     var qd = document.createElement('div'); qd.className = 'q'; qd.textContent = q; qr.appendChild(qd); turns.appendChild(qr);
@@ -269,7 +282,8 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     var ad = document.createElement('div'); ad.className = 'a pending';
     ad.innerHTML = pendingHTML();
     turns.appendChild(ad);
-    ad.scrollIntoView({ block: 'nearest' });
+    // The pending bubble sits just above the dock: follow it down.
+    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
     return ad;
   }
   function settle(ad, d){
@@ -278,6 +292,8 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     if (d.in_tokens || d.out_tokens) meta += '<span>' + esc(tokensText(d.in_tokens || 0, d.out_tokens || 0)) + (d.model ? ' · ' + esc(d.model) : '') + '</span>';
     ad.innerHTML = '<div class="txt">' + render(d.answer) + '</div><div class="a-meta">' + meta + '</div><div class="a-act"><span class="ib-wrap"><button type="button" class="a-copy ib" aria-label="' + esc(turns.dataset.txtCopy) + '" data-txt-copied="' + esc(turns.dataset.txtCopied) + '" data-txt-copy="' + esc(turns.dataset.txtCopy) + '">' + document.getElementById('ask-icon-copy').innerHTML + '</button><span class="ib-pop">' + esc(turns.dataset.txtCopy) + '</span></span></div>';
     if (window.unmaskFmtTimes) unmaskFmtTimes();
+    // Read from the top of the answer.
+    ad.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
   // A failed turn offers a retry: the same question goes out again on the
   // same turn, so the page does not fill with the attempts.
@@ -300,7 +316,10 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   // it failed with a retry.  The button is held while a question is out.
   function send(q, ad){
     btn.disabled = true;
-    fetch(form.action, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }, body: new URLSearchParams({ q: q }) })
+    var params = { q: q }, ms = document.getElementById('ask-model'), es = document.getElementById('ask-effort');
+    if (ms && ms.value) params.model = ms.value;
+    if (es && es.value) params.effort = es.value;
+    fetch(form.action, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }, body: new URLSearchParams(params) })
       // Not JSON (a proxy's error page, a cut connection): say the status and
       // the start of what came back, not a parser's complaint about it.
       .then(function(r){ return r.text().then(function(t){ var d; try { d = JSON.parse(t); } catch (e) { throw new Error('HTTP ' + r.status + ': ' + t.replace(/\s+/g, ' ').trim().slice(0, 80)); } if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); })
@@ -314,6 +333,13 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   // send it again.
   var pre = new URLSearchParams(location.search).get('q');
   if (pre) { ta.value = pre; ta.focus(); try { history.replaceState(null, '', location.pathname); } catch (e) {} }
+  // The model and effort picks are remembered in this browser, as long as
+  // the remembered value is still on the list.
+  [['ask-model', 'unmask:ask-model'], ['ask-effort', 'unmask:ask-effort']].forEach(function(p){
+    var el = document.getElementById(p[0]); if (!el) return;
+    try { var v = localStorage.getItem(p[1]); if (v !== null && Array.prototype.some.call(el.options, function(o){ return o.value === v; })) el.value = v; } catch (e) {}
+    el.addEventListener('change', function(){ try { localStorage.setItem(p[1], el.value); } catch (e) {} });
+  });
   document.querySelectorAll('.suggest button[data-q]').forEach(function(b){
     b.addEventListener('click', function(){ ta.value = b.dataset.q; ta.focus(); });
   });
