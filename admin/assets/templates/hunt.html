@@ -358,9 +358,9 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 
 <div class="range-bar">
   <span style="color:#64748b">{{ t .Lang "hunt.range_label" }}</span>
-  <a href="?range=1h"  {{ if eq .Range "1h" }}class="active"{{ end }}>1 {{ t .Lang "hunt.range.hour" }}</a>
-  <a href="?range=6h"  {{ if eq .Range "6h" }}class="active"{{ end }}>6 {{ t .Lang "hunt.range.hour" }}</a>
-  <a href="?range=24h" {{ if eq .Range "24h" }}class="active"{{ end }}>24 {{ t .Lang "hunt.range.hour" }}</a>
+  <a href="?range=1h{{ .FilterQuery }}"  {{ if eq .Range "1h" }}class="active"{{ end }}>1 {{ t .Lang "hunt.range.hour" }}</a>
+  <a href="?range=6h{{ .FilterQuery }}"  {{ if eq .Range "6h" }}class="active"{{ end }}>6 {{ t .Lang "hunt.range.hour" }}</a>
+  <a href="?range=24h{{ .FilterQuery }}" {{ if eq .Range "24h" }}class="active"{{ end }}>24 {{ t .Lang "hunt.range.hour" }}</a>
   {{ template "range_custom_modal" . }}
 </div>
 

@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"net/url"
@@ -116,6 +117,10 @@ func refFromQuery(s string) string {
 	}
 	return ""
 }
+
+// huntFilter is one active filter of the hunt's log, as the range links and
+// the custom-range form carry it (hunt.html, partial_range_modal.html).
+type huntFilter struct{ Key, Value string }
 
 // AdminHuntIndex: GET /admin/hunt/ — ranking + raw log + live tail.
 func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
@@ -575,7 +580,32 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	// site); only the ghost styling still needs the defined-set comparison.
 	_, huntGhostSites := siteBadgeState(huntSites, h.snapshotSettings())
 	huntBanAct, huntBanEffect := h.banDialogEffect()
+	// The active filters, carried by the range links and the custom-range
+	// form so that changing the period keeps what the operator narrowed
+	// the log to (the preset links carried only the range and dropped the
+	// rest).  Only what narrows the log: the page offset and the as-of mark
+	// are a position in it and start over with the period.
+	var filterPairs []huntFilter
+	filterQuery := ""
+	for _, f := range []huntFilter{
+		{"ip", ipFilter}, {"ja4", ja4Filter}, {"ua", uaFilter}, {"ref", refFilter},
+		{"phase", phaseFilter}, {"force_reason", forceReasonFilter},
+		{"asn", map[bool]string{true: strconv.Itoa(asnFilter), false: ""}[asnFilter > 0]},
+		{"n", map[bool]string{true: strconv.Itoa(pageSize), false: ""}[q.Get("n") != ""]},
+	} {
+		if f.Value == "" {
+			continue
+		}
+		filterPairs = append(filterPairs, f)
+		// %20 for a space, not +: an attribute escaper writes + as &#43;,
+		// which is correct but reads badly in the page source and in tests.
+		filterQuery += "&" + f.Key + "=" + strings.ReplaceAll(url.QueryEscape(f.Value), "+", "%20")
+	}
 	data := map[string]any{
+		"FilterPairs": filterPairs,
+		// A URL fragment the links append as it is; as a plain string the
+		// escaper would take it for one query value and encode its & and =.
+		"FilterQuery": template.URL(filterQuery),
 		"Lang":        i18n.Resolve(r),
 		"TZ":          resolveTZ(r),
 		"CustomFrom":  customFrom,

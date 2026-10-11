@@ -32,9 +32,9 @@
     <h3>{{ t .Lang "dashboard.range_custom" }}</h3>
     <form method="get" class="js-urange-form">
       <input type="hidden" name="range" value="custom">
-      {{ if .IPFilter }}<input type="hidden" name="ip" value="{{ .IPFilter }}">{{ end }}
-      {{ if .JA4Filter }}<input type="hidden" name="ja4" value="{{ .JA4Filter }}">{{ end }}
-      {{ if .Phase }}<input type="hidden" name="phase" value="{{ .Phase }}">{{ end }}
+      {{/* The host page's active filters (the hunt's; the dashboard has
+           none), so the custom period keeps them like the preset links do. */}}
+      {{ range .FilterPairs }}<input type="hidden" name="{{ .Key }}" value="{{ .Value }}">{{ end }}
       <div class="urange-field"><label>{{ t .Lang "dashboard.range_from" }}</label><input type="date" name="from" value="{{ .CustomFrom }}"{{ if .DataMinDate }} min="{{ .DataMinDate }}"{{ end }}{{ if .DataMaxDate }} max="{{ .DataMaxDate }}"{{ end }} required></div>
       <div class="urange-field"><label>{{ t .Lang "dashboard.range_to" }}</label><input type="date" name="to" value="{{ .CustomTo }}"{{ if .DataMinDate }} min="{{ .DataMinDate }}"{{ end }}{{ if .DataMaxDate }} max="{{ .DataMaxDate }}"{{ end }} required></div>
       {{ if .DataMinDate }}<div class="urange-hint">{{ t .Lang "dashboard.range_data_span" }}: {{ .DataMinDate }} 〜 {{ .DataMaxDate }}</div>{{ end }}
