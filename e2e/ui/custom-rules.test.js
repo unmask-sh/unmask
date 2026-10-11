@@ -92,7 +92,19 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     rateRadios: document.querySelectorAll('#cr-list [data-cr] .cr-rate input[type=radio]').length,
     rateOff: document.querySelector('#cr-list [data-cr] .cr-rate').classList.contains('off'),
   }));
-  ok(shape.actRadios === 5 && shape.rateRadios === 5 && shape.rateOff, 'the action box is not five + five radios: ' + JSON.stringify(shape));
+  ok(shape.actRadios === 4 && shape.rateRadios === 5 && shape.rateOff, 'the action box is not four + five radios: ' + JSON.stringify(shape));
+  // The on-match action is a tick as well: off, the rule changes nothing
+  // on a match and only counts it; on again, the answer comes back.
+  const actSel = '#cr-list [data-cr] .cr-apply';
+  const actState = () => page.evaluate(sel => { const row = document.querySelector(sel); return { v: row.closest('[data-cr]').querySelector('input[name="cr_action"]').value, off: row.classList.contains('off'), shown: row.querySelector('input[type=radio]').offsetParent !== null, ticked: row.querySelector('.cr-act-cb').checked }; }, actSel);
+  const actOn0 = await actState();
+  ok(actOn0.ticked && actOn0.shown && !actOn0.off, 'a new rule does not start with an answer: ' + JSON.stringify(actOn0));
+  await page.click(actSel + ' .cr-act-cb');
+  const actOff = await actState();
+  ok(actOff.v === 'monitor' && actOff.off && !actOff.shown && !actOff.ticked, 'unticking the action did not make the rule count-only: ' + JSON.stringify(actOff));
+  await page.click(actSel + ' .cr-act-cb');
+  const actOn = await actState();
+  ok(actOn.v === 'captcha_only' && !actOn.off && actOn.shown, 'ticking the action back did not restore an answer: ' + JSON.stringify(actOn));
   await page.click('#cr-list [data-cr] .cr-apply input[type=radio][value="captcha_only"]');
   // The rate limit is off until its box is ticked, and off means the
   // figure and the answers are out of sight -- an empty figure beside

@@ -52,7 +52,7 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 	}
 	page := tab()
 	for _, want := range []string{`name="cr_id" value="crold"`, `name="cr_key" value="crold"`, `name="cc_crold_kind"`, `<option value="ip" selected>`, `name="cc_crold_values" value="192.0.2.0/24"`, `name="cc_crold_memo" value="why"`,
-		`name="cr_action" value="deny"`, `name="cr_act_crold" value="deny" checked`, "条件 (すべて満たす)", "<legend>アクション</legend>", "当たったら", "件/分 を超えたら", `class="cr-row cr-rate off"`, `<input type="checkbox" class="cr-rate-cb">`, "rate-limit タブと同じ (PoW → CAPTCHA)", "条件を追加", "直近 24h 1 件",
+		`name="cr_action" value="deny"`, `name="cr_act_crold" value="deny" checked`, "条件 (すべて満たす)", "<legend>アクション</legend>", "判定を変える", `<input type="checkbox" class="cr-act-cb" checked>`, "件/分 を超えたら", `class="cr-row cr-rate off"`, `<input type="checkbox" class="cr-rate-cb">`, "rate-limit タブと同じ (PoW → CAPTCHA)", "条件を追加", "直近 24h 1 件",
 		`id="cr-template"`, `id="cc-template"`, `name="cc_KEY_kind"`, `id="cr-add"`, "新規ルール", `section=custom-rules`, "</html>"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("tab lacks %q", want)
@@ -216,5 +216,54 @@ func TestCustomRulesTabRateDefaultNamesTheMode(t *testing.T) {
 		if !strings.Contains(rr.Body.String(), want) {
 			t.Errorf("mode %q: the rate row's fallback does not say %q", mode, want)
 		}
+	}
+}
+
+// The on-match action is a tick: a rule that only counts (action "monitor")
+// renders with the tick off and its answers out of sight, and one with an
+// answer renders ticked with that answer chosen.
+func TestCustomRulesTabActionTick(t *testing.T) {
+	h := newTestHandler(t)
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yml")
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	s.Nginx.OutputDir = dir
+	s.CommunityBans.MapDir = dir
+	s.Nginx.CustomRules = []settings.CustomRule{
+		{ID: "crcount", Label: "count", Enabled: true, Action: "monitor", RatePerMin: 30, Conditions: []settings.CustomCondition{{Kind: "asn", Values: []string{"4134"}}}},
+		{ID: "crdeny", Label: "deny", Enabled: true, Action: "deny", Conditions: []settings.CustomCondition{{Kind: "ip", Values: []string{"192.0.2.0/24"}}}},
+	}
+	if err := settings.Save(s, cfgPath); err != nil {
+		t.Fatal(err)
+	}
+	h.ConfigPath = cfgPath
+	loaded, _ := settings.Load(cfgPath)
+	h.SetSettings(loaded)
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/", nil)
+	req.SetPathValue("tab", "custom-rules")
+	req.Header.Set("Cookie", "unmask_lang=ja")
+	rr := httptest.NewRecorder()
+	h.AdminSettingsIndex(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("tab: %d", rr.Code)
+	}
+	page := rr.Body.String()
+	for _, want := range []string{
+		`class="cr-row cr-apply off"><label class="cr-row-l cr-on"><input type="checkbox" class="cr-act-cb">`, // the counting rule: tick off
+		`name="cr_action" value="monitor"`,
+		`class="cr-row cr-apply"><label class="cr-row-l cr-on"><input type="checkbox" class="cr-act-cb" checked>`, // the denying rule: tick on
+		`name="cr_act_crdeny" value="deny" checked`,
+		`class="cr-rate-cb" checked>`, // the counting rule's rate limit
+	} {
+		if !strings.Contains(page, want) {
+			t.Errorf("tab lacks %q", want)
+		}
+	}
+	if strings.Contains(page, `value="monitor"`+"\"") || strings.Contains(page, "監視のみ") {
+		t.Error("the tab still offers monitor as a radio")
+	}
+	if strings.Contains(page, `name="cr_act_crcount"`) && strings.Contains(page, `name="cr_act_crcount" value="captcha_only" checked`) {
+		t.Error("the counting rule has an answer chosen")
 	}
 }
