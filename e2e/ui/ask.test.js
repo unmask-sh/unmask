@@ -102,7 +102,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(saved === 'ok', 'could not save the AI settings (on): ' + saved);
   await page.goto(BASE + '/admin/ask/', { waitUntil: 'networkidle2' });
   const on = await page.evaluate(() => ({ form: !!document.getElementById('ask-form'), suggestions: document.querySelectorAll('#ask-suggest option').length, rows: document.getElementById('ask-q').getAttribute('rows') }));
-  ok(on.form && on.suggestions === 4 && on.rows === '1', 'the composer, its examples pick or its one-line field are missing: ' + JSON.stringify(on));
+  ok(on.form && on.suggestions >= 5 && on.rows === '1', 'the composer, its examples pick or its one-line field are missing: ' + JSON.stringify(on));
   await page.select('#ask-suggest', await page.$eval('#ask-suggest option:nth-child(2)', o => o.value));
   const filled = await page.evaluate(() => document.getElementById('ask-q').value.length > 5);
   ok(filled, 'a suggestion did not fill the question');

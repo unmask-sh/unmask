@@ -114,18 +114,20 @@ func TestCheckAdminBind(t *testing.T) {
 	}
 }
 
-// TestCheckRealIPReminder: the reminder fires only when a trusted LB is set.
+// TestCheckRealIPReminder: without a database to read the events from, the
+// check is the reminder it used to be, and only when a trusted LB is set
+// (with events it judges: doctor_realip_test.go).
 func TestCheckRealIPReminder(t *testing.T) {
 	t.Run("no LB -> silent", func(t *testing.T) {
-		cap, _, addWarn, _ := newCaptures()
-		checkRealIPReminder(settings.Settings{}, addWarn)
-		if len(cap.warn) != 0 {
-			t.Errorf("expected silent, got %v", cap.warn)
+		cap, addOK, addWarn, addErr := newCaptures()
+		checkRealIP(nil, settings.Settings{}, addOK, addWarn, addErr)
+		if len(cap.warn)+len(cap.ok) != 0 {
+			t.Errorf("expected silent, got %v %v", cap.ok, cap.warn)
 		}
 	})
 	t.Run("preset LB -> WARN", func(t *testing.T) {
-		cap, _, addWarn, _ := newCaptures()
-		checkRealIPReminder(settings.Settings{Nginx: settings.Nginx{TrustedLBPresets: []string{"gcp"}}}, addWarn)
+		cap, addOK, addWarn, addErr := newCaptures()
+		checkRealIP(nil, settings.Settings{Nginx: settings.Nginx{TrustedLBPresets: []string{"gcp"}}}, addOK, addWarn, addErr)
 		if len(cap.warn) != 1 || !strings.Contains(cap.warn[0], "real_ip_header") {
 			t.Errorf("expected 1 WARN mentioning real_ip_header, got %v", cap.warn)
 		}

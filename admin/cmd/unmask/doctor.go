@@ -577,7 +577,7 @@ func cmdDoctor(args []string) error {
 	checkDataOwnership(s, addOK, addWarn)
 	checkChallengeAssets(addOK, addWarn)
 	checkAdminBind(s, addOK, addWarn)
-	checkRealIPReminder(s, addWarn)
+	checkRealIP(conn, s, addOK, addWarn, addErr)
 	checkApacheConnPeer(addWarn)
 	checkNativeFailsafe(addWarn)
 	checkNginxConfTest(addOK, addWarn, addErr)
@@ -1111,15 +1111,53 @@ func checkAdminBind(s settings.Settings, addOK, addWarn func(t, m string)) {
 	addWarn("admin bind exposure", fmt.Sprintf("server.bind=%q is not loopback/unix; the admin API talks cleartext HTTP, so a routable bind exposes it without TLS. Bind to 127.0.0.1 or a unix socket and front it with a TLS-terminating proxy.", rawBind))
 }
 
-// checkRealIPReminder fires when a trusted LB is configured (native mode):
-// the LB's X-Client-JA4 is trusted, but the visitor IP still comes from
-// $remote_addr unless nginx is told to rewrite it.  Without set_real_ip_from
-// + real_ip_header every visitor resolves to the LB IP, so challenge / ban /
-// rate-limit apply to all of them at once.  doctor can't read the vhost, so
-// this is a reminder rather than a hard check.
-func checkRealIPReminder(s settings.Settings, addWarn func(t, m string)) {
-	if len(s.Nginx.TrustedLBPresets) > 0 || len(s.Nginx.TrustedLBExtra) > 0 {
-		addWarn("real client IP (LB)", "a trusted LB is configured; confirm nginx has set_real_ip_from + real_ip_header for it, otherwise every visitor resolves to the LB's IP and challenge / ban / rate-limit hit all clients at once.")
+// checkRealIP: with a trusted LB configured (native mode) the LB's
+// X-Client-JA4 is trusted, but the visitor's address still comes from
+// $remote_addr unless nginx rewrites it from the LB's header
+// (set_real_ip_from + real_ip_header).  Without that every visitor resolves
+// to the LB's address and challenge / ban / rate-limit hit all of them at
+// once.  The vhost is not readable here, but the events tell: an address
+// inside the LB's own ranges is the LB connecting, so an hour of events
+// whose addresses all fall there means nothing is restored, and an hour
+// with addresses from outside means it is.  Without events there is nothing
+// to tell by, and the reminder stands.
+func checkRealIP(conn *db.DB, s settings.Settings, addOK, addWarn, addErr func(t, m string)) {
+	if len(s.Nginx.TrustedLBPresets) == 0 && len(s.Nginx.TrustedLBExtra) == 0 {
+		return
+	}
+	const title = "real client IP (LB)"
+	const remind = "confirm nginx has set_real_ip_from + real_ip_header for it, otherwise every visitor resolves to the LB's IP and challenge / ban / rate-limit hit all clients at once"
+	if conn == nil {
+		addWarn(title, "a trusted LB is configured; "+remind)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	since := time.Now().UTC().Add(-time.Hour).Format("2006-01-02 15:04:05")
+	rows, err := conn.QueryContext(ctx, `SELECT ip_address FROM unmask_event WHERE date_created > ? GROUP BY ip_address LIMIT 500`, since)
+	if err != nil {
+		addWarn(title, "a trusted LB is configured; "+remind+" (the events could not be read: "+err.Error()+")")
+		return
+	}
+	defer rows.Close()
+	total, inside := 0, 0
+	for rows.Next() {
+		var raw []byte
+		if rows.Scan(&raw) != nil || (len(raw) != 4 && len(raw) != 16) {
+			continue
+		}
+		total++
+		if ok, _ := nginxconf.IsTrustedLBIP(net.IP(raw).String(), s.Nginx); ok {
+			inside++
+		}
+	}
+	switch {
+	case total == 0:
+		addWarn(title, "a trusted LB is configured and no request of the last hour says whether nginx restores the client address; "+remind)
+	case inside == total:
+		addErr(title, fmt.Sprintf("every client address of the last hour (%d distinct) is the load balancer's own: nginx is NOT restoring the client address. Add set_real_ip_from + real_ip_header for the LB, or challenge / ban / rate-limit hit all clients at once", total))
+	default:
+		addOK(title, fmt.Sprintf("nginx restores the client address: %d distinct addresses in the last hour, %d of them the load balancer's own", total, inside))
 	}
 }
 
@@ -1927,13 +1965,17 @@ func checkMMDBPath(title, path string,
 		msg += ")"
 	}
 	if !info.BuildTime.IsZero() {
+		// DB-IP publishes a monthly edition dated the first of the month, so
+		// the current month's is current however many days old; past 35
+		// days a refresh was missed.  Said as an edition, not an age: "10
+		// days old" read as stale to the assistant.
 		ageDays := int(time.Since(info.BuildTime).Hours() / 24)
-		msg += fmt.Sprintf(" · build %s (%d days old)", info.BuildTime.Format("2006-01-02"), ageDays)
+		msg += fmt.Sprintf(" · build %s", info.BuildTime.Format("2006-01-02"))
 		if ageDays > 35 {
-			// DB-IP publishes monthly; > 35 days = missed refresh.
-			addWarn(title, msg+" — stale; run `unmask install-ipgeo` (cron)")
+			addWarn(title, msg+fmt.Sprintf(" (%d days old) — stale; DB-IP publishes a monthly edition; run `unmask install-ipgeo` (cron)", ageDays))
 			return
 		}
+		msg += " (the current monthly edition)"
 	}
 	addOK(title, msg)
 }

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"regexp"
@@ -207,6 +208,7 @@ func (h *Handler) askPage(w http.ResponseWriter, r *http.Request, tab string) {
 		"AIModels":     h.askModelChoices(cfg),
 		"AIEfforts":    advisor.EffortLevels(cfg.ResolvedProvider()),
 		"AIEffort":     cfg.Effort,
+		"Suggests":     askSuggestions(i18n.Resolve(r)),
 		"CanAsk":       canAsk,
 		"Tab":          tab,
 		"Turns":        turns,
@@ -376,3 +378,15 @@ func (h *Handler) askModelAllowed(cfg settings.AIAdvisorConfig, id string) bool 
 	}
 	return false
 }
+
+// askSuggestions: the example questions in the composer's pick, in order.
+func askSuggestions(lang i18n.Lang) []string {
+	out := make([]string, 0, askSuggestionCount)
+	for i := 1; i <= askSuggestionCount; i++ {
+		out = append(out, i18n.T(lang, fmt.Sprintf("ask.suggest%d", i)))
+	}
+	return out
+}
+
+// askSuggestionCount is how many ask.suggestN strings the dictionary carries.
+const askSuggestionCount = 12
