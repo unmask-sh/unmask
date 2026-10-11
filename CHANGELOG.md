@@ -18,6 +18,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-10) **The dashboard's day section no longer redraws itself.**  Its figures moved by a few per minute, and a page that keeps changing under the operator cannot be read; the realtime tab is the one that moves.  The section's header now shows when its figures were computed and a button redraws it on demand, with the same flash on the figures that changed.
 
+### Fixed
+
+- (2026-10-11) **The hunt keeps its filters when the period changes.**  The one-hour, six-hour and 24-hour links, and the custom period, now carry every active filter -- address, fingerprint, user agent, Ref ID, phase, reason, network and rows per page -- so a narrowed log stays narrowed while the operator looks at another period.  The clear link still clears them.
+
 ## [0.1.51-rc9] - 2026-10-10 (testing build)
 
 ### Added
