@@ -128,6 +128,12 @@ func TestAskPageAndSend(t *testing.T) {
 	if len(tools) != 1 || tools[0].(map[string]any)["name"] != "bans" {
 		t.Errorf("tools %v", tools)
 	}
+	// The answer's runs ride along for the page to draw: the path a link,
+	// the fence a block.  Model "m" has no list price, so no cost.
+	parts, _ := out["parts"].([]any)
+	if len(parts) != 4 || parts[1].(map[string]any)["link"] != "/admin/bans/" || parts[3].(map[string]any)["code"] != true || out["cost"] != "" {
+		t.Errorf("parts %v cost %v", parts, out["cost"])
+	}
 	var rows []db.AIChat
 	if err := h.DB.Gorm.Find(&rows).Error; err != nil || len(rows) != 1 || rows[0].UserID != 7 || rows[0].Answer == "" || !strings.Contains(rows[0].Tools, `"bans"`) {
 		t.Fatalf("stored turn: %v %+v", err, rows)
@@ -359,5 +365,98 @@ func TestAskSendExtendsWriteDeadline(t *testing.T) {
 	h.AdminAskSend(rec, askReq("POST", "/unmask/admin/ask/send", "q=anything", "admin"))
 	if rec.writeDeadline.IsZero() || time.Until(rec.writeDeadline) < askTimeout {
 		t.Errorf("the send must keep the connection for at least %v; deadline %v", askTimeout, rec.writeDeadline)
+	}
+}
+
+// An answer's addresses are marked for the popover; versions, times and
+// joined tokens are not.
+func TestAnswerMarksAddresses(t *testing.T) {
+	ips := func(text string) []string {
+		var out []string
+		for _, p := range splitFences(text) {
+			if p.IP != "" {
+				if p.Text != p.IP {
+					t.Errorf("%q: part text %q", text, p.Text)
+				}
+				out = append(out, p.IP)
+			}
+		}
+		return out
+	}
+	for _, c := range []struct {
+		text string
+		want string
+	}{
+		{"45.148.10.244 が 3,654 件です。", "45.148.10.244"},
+		{"**52.141.3.247**: 2,381 件 (KR)", "52.141.3.247"},
+		{"送信元は 203.0.113.0/24 の範囲です", "203.0.113.0"},
+		{"10.0.0.1:8080 へ", "10.0.0.1"},
+		{"2001:db8::1 と fe80::1.", "2001:db8::1 fe80::1"},
+		{"[2001:db8:85a3::8a2e:370:7334]:443", "2001:db8:85a3::8a2e:370:7334"},
+		{"Windows の Chrome/120.0.0.0 を名乗る", ""},
+		{"14:42:28 UTC に、2026-10-11T14:42:28Z", ""},
+		{"JA4 t13d1516h2_8daaf6152771_d8a2da3f94cd", ""},
+		{"version 1.2.3.4.5 and 999.1.1.1", ""},
+		{"deadbeef:cafe", ""},
+		{"/admin/hunt/?ip=45.148.10.244 を見る", ""},
+	} {
+		if got := strings.Join(ips(c.text), " "); got != c.want {
+			t.Errorf("%q: marked %q, want %q", c.text, got, c.want)
+		}
+	}
+	// Around a link: text, address, text, link, text.
+	p := splitFences("IP 45.148.10.244 は /admin/bans/ で。")
+	if len(p) != 5 || p[1].IP != "45.148.10.244" || p[3].Link != "/admin/bans/" || p[0].Text != "IP " || p[2].Text != " は " || p[4].Text != " で。" {
+		t.Errorf("parts: %+v", p)
+	}
+}
+
+// The history tab prints an answer's estimated cost from the model's list
+// price, the month's sum, and the popover's host for the addresses.
+func TestAskHistoryCostAndAddresses(t *testing.T) {
+	h := newTestHandler(t)
+	if _, err := h.DB.Exec(`CREATE TABLE IF NOT EXISTS unmask_ai_chat (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, asked_at INTEGER NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL, tools TEXT NOT NULL, model TEXT NOT NULL, in_tokens INTEGER NOT NULL, out_tokens INTEGER NOT NULL, err TEXT NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	s.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k", Model: "claude-haiku-5-5"}
+	h.SetSettings(s)
+	now := time.Now().Unix()
+	for _, row := range []db.AIChat{
+		{UserID: 7, AskedAt: now - 60, Question: "who", Answer: "45.148.10.244 が Chrome/120.0.0.0 で 14:42:28 に。", Tools: "[]", Model: "claude-haiku-5-5", InTokens: 59340, OutTokens: 2219},
+		{UserID: 8, AskedAt: now - 30, Question: "other account", Answer: "x", Tools: "[]", Model: "claude-opus-5-5", InTokens: 100000, OutTokens: 10000}, // $0.40 + $0.20
+		{UserID: 7, AskedAt: now - 3*32*86400, Question: "old", Answer: "y", Tools: "[]", Model: "claude-haiku-5-5", InTokens: 1000000, OutTokens: 0},     // not this month
+		{UserID: 7, AskedAt: now - 10, Question: "failed", Answer: "", Tools: "[]", Model: "claude-haiku-5-5", Err: "boom"},
+	} {
+		if err := h.DB.Gorm.Create(&row).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := httptest.NewRecorder()
+	h.AdminAskHistory(rec, askReq("GET", "/unmask/admin/ask/history/", "", "admin"))
+	body := rec.Body.String()
+	for _, want := range []string{
+		`<span class="ipclick" data-ip="45.148.10.244">45.148.10.244</span>`,
+		`id="ip-popover"`, `/static/popover-pin.js`,
+		` $0.007</span>`,           // the answer's own cost after its token line
+		`id="ask-month">`, `$0.61`, // the month: $0.007 + $0.60, two questions
+		`(2 `,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("history lacks %q", want)
+		}
+	}
+	if strings.Contains(body, `data-ip="120.0.0.0"`) || strings.Contains(body, `data-ip="14:42:28"`) {
+		t.Error("a version or a time is marked as an address")
+	}
+	// A local provider bills nothing: no cost, no month.
+	s = h.snapshotSettings()
+	s.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "ollama", Model: "claude-haiku-5-5"}
+	h.SetSettings(s)
+	rec = httptest.NewRecorder()
+	h.AdminAskHistory(rec, askReq("GET", "/unmask/admin/ask/history/", "", "admin"))
+	if body = rec.Body.String(); strings.Contains(body, "$0.007") || strings.Contains(body, `id="ask-month"`) {
+		t.Error("a local provider shows a cost")
 	}
 }

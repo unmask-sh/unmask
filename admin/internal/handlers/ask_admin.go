@@ -19,6 +19,8 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
+	"net/netip"
+	"sort"
 )
 
 // The ask page: an operator's questions to the configured model, answered
@@ -47,6 +49,8 @@ type askView struct {
 	InTokens  int
 	OutTokens int
 	Err       string
+	// Cost: the answer's estimated cost ("$0.007"), or "" (askCostOf).
+	Cost string
 	// Folded: on the history tab a long answer opens on its first lines;
 	// the ask tab's latest turn and short answers stay whole.
 	Folded bool
@@ -83,14 +87,16 @@ func (h *Handler) askHistory(ctx context.Context, userID int64, limit int) ([]db
 	return rows, err
 }
 
-// askPart is a run of an answer: prose, a ``` block shown as one, or an
-// admin path shown as a link to it.  The page's script splits a fresh answer
-// the same way; nothing else in an answer is markup.
+// askPart is a run of an answer: prose, a ``` block shown as one, an admin
+// path shown as a link to it, or an address shown with the hunt page's
+// popover.  A fresh answer goes to the page split the same way (the send
+// response carries the parts); nothing else in an answer is markup.
 type askPart struct {
-	Code bool
-	Link string // the admin path (under the base path) this run links to
-	Rule bool   // Link opens the custom-rules tab with a proposed rule filled in: shown as a button
-	Text string
+	Code bool   `json:"code,omitempty"`
+	Link string `json:"link,omitempty"` // the admin path (under the base path) this run links to
+	Rule bool   `json:"rule,omitempty"` // Link opens the custom-rules tab with a proposed rule filled in: shown as a button
+	IP   string `json:"ip,omitempty"`   // an address the answer names: shown with the hunt page's popover
+	Text string `json:"text"`
 }
 
 // customRuleDraftPrefix: the path propose_custom_rule returns (the tab with
@@ -125,16 +131,96 @@ func linkAdminPaths(text string) []askPart {
 	pos := 0
 	for _, m := range adminPathRE.FindAllStringIndex(text, -1) {
 		if m[0] > pos {
-			out = append(out, askPart{Text: text[pos:m[0]]})
+			out = append(out, markAddresses(text[pos:m[0]])...)
 		}
 		link := text[m[0]:m[1]]
 		out = append(out, askPart{Link: link, Text: link, Rule: strings.HasPrefix(link, customRuleDraftPrefix)})
 		pos = m[1]
 	}
 	if pos < len(text) {
+		out = append(out, markAddresses(text[pos:])...)
+	}
+	return out
+}
+
+// ipv4RE and ipv6RE: what may be an address in prose.  A match counts only
+// when netip parses it and it stands alone -- not the tail of a version
+// (Chrome/120.0.0.0), a time (14:42:28 is no IPv6) or a longer token.
+var (
+	ipv4RE = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+	ipv6RE = regexp.MustCompile(`[0-9A-Fa-f:]{3,45}`)
+)
+
+// markAddresses splits prose into text and the addresses it names.
+func markAddresses(text string) []askPart {
+	type span struct{ s, e int }
+	var spans []span
+	joined := func(c byte) bool {
+		return c == '_' || c == ':' || c == '.' || c == '/' || c == '-' || c == '+' || c == '@' ||
+			(c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z')
+	}
+	// alone: nothing joins the run to what is before it, and what follows is
+	// not a word or a further dotted part (1.2.3.4.5, fe80::1.local).
+	alone := func(s, e int) bool {
+		if s > 0 && joined(text[s-1]) {
+			return false
+		}
+		if e < len(text) {
+			c := text[e]
+			if c == '_' || (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') {
+				return false
+			}
+			if c == '.' && e+1 < len(text) && joined(text[e+1]) && text[e+1] != '.' {
+				return false
+			}
+		}
+		return true
+	}
+	for _, m := range ipv4RE.FindAllStringIndex(text, -1) {
+		if a, err := netip.ParseAddr(text[m[0]:m[1]]); err == nil && a.Is4() && alone(m[0], m[1]) {
+			spans = append(spans, span{m[0], m[1]})
+		}
+	}
+	for _, m := range ipv6RE.FindAllStringIndex(text, -1) {
+		c := text[m[0]:m[1]]
+		if strings.Count(c, ":") < 2 || c == "::" || !alone(m[0], m[1]) {
+			continue
+		}
+		if a, err := netip.ParseAddr(c); err == nil && a.Is6() {
+			spans = append(spans, span{m[0], m[1]})
+		}
+	}
+	if len(spans) == 0 {
+		return []askPart{{Text: text}}
+	}
+	sort.Slice(spans, func(i, j int) bool { return spans[i].s < spans[j].s })
+	var out []askPart
+	pos := 0
+	for _, sp := range spans {
+		if sp.s > pos {
+			out = append(out, askPart{Text: text[pos:sp.s]})
+		}
+		out = append(out, askPart{IP: text[sp.s:sp.e], Text: text[sp.s:sp.e]})
+		pos = sp.e
+	}
+	if pos < len(text) {
 		out = append(out, askPart{Text: text[pos:]})
 	}
 	return out
+}
+
+// askCostOf is an answer's estimated cost as the page prints it, from the
+// model's list price: "" when the provider is local (nothing is billed) or
+// the model's price is not known.
+func askCostOf(provider, model string, in, out int) string {
+	if provider == "ollama" || in+out == 0 {
+		return ""
+	}
+	usd, ok := advisor.Cost(model, in, out)
+	if !ok {
+		return ""
+	}
+	return advisor.FormatUSD(usd)
 }
 
 // askViews prepares turns for the page; fold folds the long answers.
@@ -198,8 +284,35 @@ func (h *Handler) askPage(w http.ResponseWriter, r *http.Request, tab string) {
 		turns = askViews(rows, true)
 	}
 	cfg := h.cfg().AIAdvisor
+	for i := range turns {
+		turns[i].Cost = askCostOf(cfg.ResolvedProvider(), turns[i].Model, turns[i].InTokens, turns[i].OutTokens)
+	}
+	// The history tab sums the month -- every account's questions, since the
+	// provider bills the install -- in the operator's month.
+	monthCost, monthCount := "", 0
+	if tab == "history" && cfg.ResolvedProvider() != "ollama" {
+		loc := resolveLocation(r)
+		now := time.Now().In(loc)
+		start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, loc).Unix()
+		var month []db.AIChat
+		if err := h.DB.Gorm.WithContext(r.Context()).Select("model", "in_tokens", "out_tokens").Where("asked_at >= ?", start).Find(&month).Error; err != nil {
+			log.Printf("ask: month: %v", err)
+		}
+		usd := 0.0
+		for _, c := range month {
+			if v, ok := advisor.Cost(c.Model, c.InTokens, c.OutTokens); ok && c.InTokens+c.OutTokens > 0 {
+				usd += v
+				monthCount++
+			}
+		}
+		if monthCount > 0 {
+			monthCost = advisor.FormatUSD(usd)
+		}
+	}
 	data := map[string]any{
 		"Lang":         i18n.Resolve(r),
+		"MonthCost":    monthCost,
+		"MonthCount":   monthCount,
 		"TZ":           resolveTZ(r),
 		"BasePath":     h.cfg().Server.BasePath,
 		"Version":      h.Version,
@@ -223,8 +336,9 @@ func (h *Handler) askPage(w http.ResponseWriter, r *http.Request, tab string) {
 }
 
 // AdminAskSend: POST {base}/admin/ask/send (admin role), form field q.
-// Answers JSON: {"ok":true,"id":..,"answer":"..","tools":[..],"in_tokens":..,
-// "out_tokens":..,"model":"..","asked_ts":..} or {"ok":false,"error":".."}
+// Answers JSON: {"ok":true,"id":..,"answer":"..","parts":[..],"tools":[..],
+// "in_tokens":..,"out_tokens":..,"model":"..","cost":"..","asked_ts":..} or
+// {"ok":false,"error":".."}
 // with 4xx/5xx.  The answer arrives whole; the page shows a pending row
 // meanwhile and keeps the earlier turns.
 func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
@@ -321,7 +435,8 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"ok": true, "id": row.ID, "answer": res.Answer, "tools": res.Tools,
+		"ok": true, "id": row.ID, "answer": res.Answer, "parts": splitFences(res.Answer), "tools": res.Tools,
+		"cost":      askCostOf(cfg.ResolvedProvider(), row.Model, res.Usage.Input, res.Usage.Output),
 		"in_tokens": res.Usage.Input, "out_tokens": res.Usage.Output, "model": row.Model, "asked_ts": row.AskedAt,
 	})
 }

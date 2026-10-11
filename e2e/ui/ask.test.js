@@ -41,7 +41,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       }
       let count = '?';
       try { count = JSON.parse(lastTool.content).count; } catch (e) {}
-      res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'E2E-ANSWER: the ban list has ' + count + ' rows. See /admin/bans/ for them.\n```\nbans count=' + count + '\n```' } }], usage: { prompt_tokens: 40, completion_tokens: 9 } }));
+      res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'E2E-ANSWER: the ban list has ' + count + ' rows, most from 203.0.113.5. See /admin/bans/ for them.\n```\nbans count=' + count + '\n```' } }], usage: { prompt_tokens: 40, completion_tokens: 9 } }));
     });
   });
   await new Promise(r => stub.listen(0, '127.0.0.1', r));
@@ -123,7 +123,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       const a = Array.from(document.querySelectorAll('#turns .a:not(.pending)')).pop();
       if (!a || a.textContent.indexOf('E2E-ANSWER') < 0) return null;
       const link = a.querySelector('.txt a');
-      return { text: a.querySelector('.txt').textContent, pre: !!a.querySelector('pre'), link: link ? link.getAttribute('href') : '', chips: Array.from(a.querySelectorAll('.tool-chip')).map(c => c.textContent), meta: a.querySelector('.a-meta').textContent, fail: a.classList.contains('fail') };
+      return { text: a.querySelector('.txt').textContent, pre: !!a.querySelector('pre'), link: link ? link.getAttribute('href') : '', ip: (a.querySelector('.ipclick') || { dataset: {} }).dataset.ip || '', chips: Array.from(a.querySelectorAll('.tool-chip')).map(c => c.textContent), meta: a.querySelector('.a-meta').textContent, fail: a.classList.contains('fail') };
     });
   }
   ok(!!answered, 'no answer arrived');
@@ -135,6 +135,16 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     ok(answered.chips.join(',') === 'bans', 'the tool chips: ' + answered.chips.join(','));
     ok(/52/.test(answered.meta) && /e2e-model/.test(answered.meta), 'the token line is missing: ' + answered.meta);
     ok(!answered.fail, 'the answer is marked failed');
+    ok(answered.ip === '203.0.113.5', 'the address in the answer is not marked for the popover: ' + answered.ip);
+  }
+  // Hovering the address opens the hunt page's popover, naming it at once
+  // (the lookup fills in behind).
+  if (answered && answered.ip) {
+    await page.hover('#turns .ipclick');
+    await sleep(700);
+    const pop = await page.evaluate(() => { const p = document.getElementById('ip-popover'); return p ? { shown: p.offsetParent !== null, text: p.textContent } : null; });
+    ok(pop && pop.shown && pop.text.indexOf('203.0.113.5') >= 0, 'the address popover did not open: ' + JSON.stringify(pop));
+    await page.mouse.move(5, 5);
   }
   ok(seen.length === 2 && Array.isArray(seen[0].tools) && seen[0].tools.length >= 5, 'the provider did not get the tools, or was called ' + seen.length + ' times');
   const released = await page.evaluate(() => !document.getElementById('ask-send').disabled);

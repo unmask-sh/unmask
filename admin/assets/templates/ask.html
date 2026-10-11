@@ -109,7 +109,9 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .info-tip{display:inline-block;position:relative;width:1.1em;height:1.1em;line-height:1.1em;text-align:center;border-radius:50%;background:#e2e8f0;color:#475569;font-size:.7em;cursor:help;vertical-align:middle;margin-left:.3rem}
 .info-tip .info-popup{display:none;position:absolute;left:0;top:1.5em;z-index:50;width:22rem;background:#fff;border:1px solid #cbd5e1;border-radius:.3rem;padding:.6rem .8rem;font-size:.8rem;font-weight:normal;color:#334155;text-align:left;line-height:1.5;box-shadow:0 .3rem .8rem rgba(0,0,0,.12)}
 .info-tip:hover .info-popup,.info-tip:focus .info-popup{display:block}
+{{ template "ip_popover_css" . }}
 </style>
+{{ template "popover_pin_assets" . }}
 </head>
 <body>
 <header class="unmask-header">
@@ -128,7 +130,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   {{ template "header_tools" . }}
 </header>
 <main class="unmask-main">
-<h1>{{ t .Lang "ask.title" }}<span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ t .Lang "ask.help" }}<br><br>{{ t .Lang "ask.privacy" }}</span></span></h1>
+<h1>{{ t .Lang "ask.title" }}<span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ t .Lang "ask.help" }}<br><br>{{ t .Lang "ask.privacy" }}<br><br>{{ t .Lang "ask.cost_note" }}</span></span></h1>
 <p class="meta">{{ t .Lang "ask.intro" }}</p>
 {{/* Two tabs: the composer with the latest turn under it, and the history
      (every turn, newest first, long answers folded, a copy and a delete on
@@ -147,17 +149,17 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 <div class="banner warn" id="ask-viewer">{{ t .Lang "ask.viewer_note" }}</div>
 {{ end }}
 
-{{ if eq .Tab "history" }}<p class="meta">{{ t .Lang "ask.history_note" }}</p>{{ end }}
+{{ if eq .Tab "history" }}<p class="meta">{{ t .Lang "ask.history_note" }}{{ if .MonthCount }} <span id="ask-month">{{ tf .Lang "ask.cost_month" .MonthCost (comma .MonthCount) }}</span>{{ end }}</p>{{ end }}
 
 <template id="ask-icon-copy">{{ template "ask_icon_copy" }}</template>
-<div class="turns" id="turns" data-txt-pending="{{ t .Lang "ask.pending" }}" data-txt-tools="{{ t .Lang "ask.tools" }}" data-txt-rule="{{ t .Lang "ask.create_rule" }}" data-txt-failed="{{ t .Lang "ask.failed" }}" data-txt-tokens="{{ t .Lang "ask.tokens" }}" data-txt-copy="{{ t .Lang "ask.copy" }}" data-txt-copied="{{ t .Lang "ask.copied" }}" data-txt-retry="{{ t .Lang "ask.retry" }}">
+<div class="turns" id="turns" data-txt-cost="{{ t .Lang "ask.cost" }}" data-txt-pending="{{ t .Lang "ask.pending" }}" data-txt-tools="{{ t .Lang "ask.tools" }}" data-txt-rule="{{ t .Lang "ask.create_rule" }}" data-txt-failed="{{ t .Lang "ask.failed" }}" data-txt-tokens="{{ t .Lang "ask.tokens" }}" data-txt-copy="{{ t .Lang "ask.copy" }}" data-txt-copied="{{ t .Lang "ask.copied" }}" data-txt-retry="{{ t .Lang "ask.retry" }}">
   {{ range .Turns }}
   <div class="q-row"><time class="js-datetime js-datetime-notz q-time" data-ts="{{ .AskedTS }}"></time><div class="q">{{ .Question }}</div></div>
   <div class="a{{ if .Err }} fail{{ end }}{{ if .Folded }} folded{{ end }}" data-id="{{ .ID }}">
-    <div class="txt">{{ if .Err }}{{ t $.Lang "ask.failed" }}: {{ .Err }}{{ else }}{{ range .Parts }}{{ if .Code }}<pre>{{ .Text }}</pre>{{ else if .Rule }}<a class="ask-rule" href="{{ $.BasePath }}{{ .Link }}" target="_blank" rel="noopener">{{ t $.Lang "ask.create_rule" }} ↗</a>{{ else if .Link }}<a href="{{ $.BasePath }}{{ .Link }}">{{ .Text }}</a>{{ else }}{{ .Text }}{{ end }}{{ end }}{{ end }}</div>
+    <div class="txt">{{ if .Err }}{{ t $.Lang "ask.failed" }}: {{ .Err }}{{ else }}{{ range .Parts }}{{ if .Code }}<pre>{{ .Text }}</pre>{{ else if .Rule }}<a class="ask-rule" href="{{ $.BasePath }}{{ .Link }}" target="_blank" rel="noopener">{{ t $.Lang "ask.create_rule" }} ↗</a>{{ else if .Link }}<a href="{{ $.BasePath }}{{ .Link }}">{{ .Text }}</a>{{ else if .IP }}<span class="ipclick" data-ip="{{ .IP }}">{{ .Text }}</span>{{ else }}{{ .Text }}{{ end }}{{ end }}{{ end }}</div>
     <div class="a-meta">
       {{ if .Tools }}<span>{{ t $.Lang "ask.tools" }}: {{ range .Tools }}<span class="tool-chip{{ if .Err }} err{{ end }}" title="{{ .Ms }} ms">{{ .Name }}</span>{{ end }}</span>{{ end }}
-      {{ if or .InTokens .OutTokens }}<span>{{ tf $.Lang "ask.tokens" (comma .InTokens) (comma .OutTokens) }}{{ if .Model }} · {{ .Model }}{{ end }}</span>{{ end }}
+      {{ if or .InTokens .OutTokens }}<span>{{ tf $.Lang "ask.tokens" (comma .InTokens) (comma .OutTokens) }}{{ if .Model }} · {{ .Model }}{{ end }}{{ if .Cost }} · {{ tf $.Lang "ask.cost" .Cost }}{{ end }}</span>{{ end }}
     </div>
     <div class="a-act">
       {{ if .Err }}<a class="a-retry" href="{{ $.BasePath }}/admin/ask/?q={{ urlquery .Question }}">{{ t $.Lang "ask.retry" }}</a>{{ end }}
@@ -199,7 +201,9 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 </form>
 {{ end }}
 </main>
+{{ template "ip_popover_el" . }}
 <script>
+{{ template "ip_popover_js" . }}
 // Fold / unfold and copy, on both tabs.  The copy is "Q: ... / A: ..." as
 // plain text, from the question beside the answer.
 (function(){
@@ -239,25 +243,20 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   if (!form || !turns) return;
   var ta = document.getElementById('ask-q'), btn = document.getElementById('ask-send');
   function esc(s){ var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
-  // Plain text, with ``` fences shown as blocks and this admin's own paths
-  // (/admin/...) as links under the base path.  Nothing else is markup.
+  // The answer arrives split into runs, the way the history tab draws
+  // them: prose, ``` blocks, this admin's own paths as links under the base
+  // path, and addresses with the hunt page's popover.  Nothing else is
+  // markup.
   var BASE = {{ .BasePath }};
-  function linkPaths(p){
-    var re = /\/admin\/[A-Za-z0-9_.\/?=&%#-]*[A-Za-z0-9_\/=%#-]/g, out = '', last = 0, m;
-    while ((m = re.exec(p)) !== null) {
-      out += esc(p.slice(last, m.index));
-      if (m[0].indexOf('/admin/settings/custom-rules/?new=1') === 0) {
-        out += '<a class="ask-rule" href="' + esc(BASE + m[0]) + '" target="_blank" rel="noopener">' + esc(turns.dataset.txtRule) + ' \u2197</a>';
-      } else {
-        out += '<a href="' + esc(BASE + m[0]) + '">' + esc(m[0]) + '</a>';
-      }
-      last = m.index + m[0].length;
-    }
-    return out + esc(p.slice(last));
-  }
-  function render(text){
-    var parts = String(text || '').split(/```[a-zA-Z0-9_-]*\n?/), html = '';
-    parts.forEach(function(p, i){ html += i % 2 ? '<pre>' + esc(p.replace(/\n$/, '')) + '</pre>' : linkPaths(p); });
+  function render(parts){
+    var html = '';
+    (parts || []).forEach(function(p){
+      if (p.code) html += '<pre>' + esc(p.text) + '</pre>';
+      else if (p.rule) html += '<a class="ask-rule" href="' + esc(BASE + p.link) + '" target="_blank" rel="noopener">' + esc(turns.dataset.txtRule) + ' \u2197</a>';
+      else if (p.link) html += '<a href="' + esc(BASE + p.link) + '">' + esc(p.text) + '</a>';
+      else if (p.ip) html += '<span class="ipclick" data-ip="' + esc(p.ip) + '">' + esc(p.text) + '</span>';
+      else html += esc(p.text);
+    });
     return html;
   }
   function chips(tools){
@@ -284,9 +283,11 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   function settle(ad, d){
     ad.classList.remove('pending');
     var meta = chips(d.tools);
-    if (d.in_tokens || d.out_tokens) meta += '<span>' + esc(tokensText(d.in_tokens || 0, d.out_tokens || 0)) + (d.model ? ' · ' + esc(d.model) : '') + '</span>';
-    ad.innerHTML = '<div class="txt">' + render(d.answer) + '</div><div class="a-meta">' + meta + '</div><div class="a-act"><span class="ib-wrap"><button type="button" class="a-copy ib" aria-label="' + esc(turns.dataset.txtCopy) + '" data-txt-copied="' + esc(turns.dataset.txtCopied) + '" data-txt-copy="' + esc(turns.dataset.txtCopy) + '">' + document.getElementById('ask-icon-copy').innerHTML + '</button><span class="ib-pop">' + esc(turns.dataset.txtCopy) + '</span></span></div>';
+    if (d.in_tokens || d.out_tokens) meta += '<span>' + esc(tokensText(d.in_tokens || 0, d.out_tokens || 0)) + (d.model ? ' · ' + esc(d.model) : '') + (d.cost ? ' · ' + esc(turns.dataset.txtCost.replace('%s', d.cost)) : '') + '</span>';
+    ad.innerHTML = '<div class="txt">' + render(d.parts) + '</div><div class="a-meta">' + meta + '</div><div class="a-act"><span class="ib-wrap"><button type="button" class="a-copy ib" aria-label="' + esc(turns.dataset.txtCopy) + '" data-txt-copied="' + esc(turns.dataset.txtCopied) + '" data-txt-copy="' + esc(turns.dataset.txtCopy) + '">' + document.getElementById('ask-icon-copy').innerHTML + '</button><span class="ib-pop">' + esc(turns.dataset.txtCopy) + '</span></span></div>';
     if (window.unmaskFmtTimes) unmaskFmtTimes();
+    // The addresses in the fresh answer get the popover.
+    (window.unmaskRewire || []).forEach(function(fn){ try { fn(ad); } catch (e) {} });
     // Read from the top of the answer.
     ad.scrollIntoView({ block: 'start', behavior: 'smooth' });
   }

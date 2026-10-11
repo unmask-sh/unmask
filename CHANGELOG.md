@@ -18,6 +18,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-11) **The overview names what monitor mode let through.**  The "other" segment's breakdown gets a monitor-mode line -- requests judged and let through, which going live would have challenged or denied -- and the line that read "passed while monitoring" now says what it counted all along: requests riding a cookie the over-block breaker handed out.
 
+### Added
+
+- (2026-10-12) **Ask AI shows what an answer cost, and its addresses open the popover.**  An answer's token line now carries its cost, estimated from the provider's published list prices, and the history tab sums the month for every account; both are marked as estimates, the provider's statement being the bill.  An address an answer names opens the hunt page's popover -- reverse DNS, country, ASN -- on hover or click.
+
 ### Removed
 
 - (2026-10-11) **Pass-through mode.**  Two switches on the operating-mode tab both meant "stop nobody".  This one handed out a pass cookie, so the measurement it was turned on to collect decayed and the cookies outlived the mode, and it never stopped a deny or a ban.  Monitor mode is the one switch now; a leftover `global.passthrough` in config.yml is ignored with a warning, and the over-block breaker keeps its own `auto_passthrough`.
