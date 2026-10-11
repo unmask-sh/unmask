@@ -125,9 +125,44 @@ func TestCheckNginxReloadLag(t *testing.T) {
 
 	t.Run("no inspectable worker -> silent", func(t *testing.T) {
 		fakeProcWorkers(t, btime, nil)
+		// pid 1 visible, no worker: nginx is not running, which other checks
+		// report (with pid 1 hidden too, the check says it cannot tell).
+		if err := os.MkdirAll(filepath.Join(procRoot, "1"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		ok, warn := run(renderDir(time.Now()))
 		if len(ok) != 0 || len(warn) != 0 {
 			t.Fatalf("nginx not inspectable must stay silent, got ok=%v warn=%v", ok, warn)
 		}
 	})
+}
+
+// Inside the service the unit hides other processes (ProtectProc=invisible):
+// no worker and no pid 1 to be seen.  The check says it cannot tell, with
+// the render's time, instead of staying silent -- silence read as fresh to
+// the assistant.  With pid 1 visible and no worker, nginx is simply not
+// running, which other checks report.
+func TestCheckNginxReloadLagHiddenProc(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, nginxconf.SubstantiveRenderMarker)
+	if err := os.WriteFile(p, []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := settings.Settings{}
+	s.Nginx.OutputDir = dir
+	run := func() (ok, warn []string) {
+		checkNginxReloadLag(s, func(_, m string) { ok = append(ok, m) }, func(_, m string) { warn = append(warn, m) })
+		return
+	}
+	btime := time.Date(2026, 8, 6, 0, 0, 0, 0, time.Local).Unix()
+	fakeProcWorkers(t, btime, nil)
+	if ok, warn := run(); len(ok) != 0 || len(warn) != 1 || !strings.Contains(warn[0], "hides other processes") || !strings.Contains(warn[0], "unmask doctor") {
+		t.Errorf("hidden /proc: want the cannot-tell warning, got ok=%v warn=%v", ok, warn)
+	}
+	if err := os.MkdirAll(filepath.Join(procRoot, "1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if ok, warn := run(); len(ok)+len(warn) != 0 {
+		t.Errorf("pid 1 visible, no worker: want silence, got ok=%v warn=%v", ok, warn)
+	}
 }

@@ -134,7 +134,18 @@ func checkNginxReloadLag(s settings.Settings, addOK, addWarn func(t, m string)) 
 	}
 	loaded, ok := nginxLastReload()
 	if !ok {
-		return // nginx not inspectable; other checks report it down
+		// Inside the service the unit hides other users' processes
+		// (ProtectProc=invisible, ProcSubset=pid): no worker is visible, and
+		// pid 1 neither.  Say so rather than stay silent -- silence read as
+		// fresh on the admin's doctor page and to the assistant, which never
+		// saw a render waiting for its reload.
+		if _, err := os.Stat(filepath.Join(procRoot, "1")); err != nil {
+			addWarn("nginx reload freshness", fmt.Sprintf(
+				"cannot be told from inside the service (the unit hides other processes: ProtectProc); "+
+					"the rendered config last CHANGED %s -- run `unmask doctor` in a shell to see whether nginx has loaded it.",
+				rendered.Format("2006-01-02 15:04:05")))
+		}
+		return // nginx not running: other checks report it down
 	}
 	// A render finishing in the same second as a reload must not flap.
 	if rendered.After(loaded.Add(2 * time.Second)) {
