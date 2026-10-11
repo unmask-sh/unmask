@@ -51,8 +51,10 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 		return rr.Body.String()
 	}
 	page := tab()
-	for _, want := range []string{`name="cr_id" value="crold"`, `name="cr_key" value="crold"`, `name="cc_crold_kind"`, `<option value="ip" selected>`, `name="cc_crold_values" value="192.0.2.0/24"`, `name="cc_crold_memo" value="why"`,
+	for _, want := range []string{`name="cr_id" value="crold"`, `name="cr_key" value="crold"`, `name="cc_crold_kind"`, `<option value="ip" data-pill="IP" selected>`, `name="cc_crold_values" value="192.0.2.0/24"`, `name="cc_crold_memo" value="why"`,
 		`name="cr_action" value="deny"`, `<input type="checkbox" class="cr-act-cb" checked>`, `<option value="deny" selected>`, "条件 (すべて満たす)", "<legend>アクション</legend>", "条件を満たしたら", "件/分 を超えたら", `class="cr-row cr-rate off"`, `<input type="checkbox" class="cr-rate-cb">`, "rate-limit タブと同じ (PoW → CAPTCHA)", "条件を追加", "直近 24h 1 件",
+		// the row as the list shows it, folded (no "editing"), and the new-rule template open
+		`class="cr-rule" data-cr data-key="crold"`, `class="cr-v-name" data-empty="(名前なし)">old<`, `<span class="cr-pill cr-pill-cond"><b>IP</b> 192.0.2.0/24</span>`, `cr-pill-act" data-none="判定はそのまま">遮断 (403)<`, `class="cr-rule editing" data-cr data-key="tpl"`, `class="cr-edit"`, `class="cr-done"`,
 		`id="cr-template"`, `id="cc-template"`, `name="cc_KEY_kind"`, `id="cr-add"`, "新規ルール", `section=custom-rules`, "</html>"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("tab lacks %q", want)
@@ -158,7 +160,7 @@ func TestCustomRulesTabDraft(t *testing.T) {
 		t.Fatalf("tab: %d", rr.Code)
 	}
 	page := rr.Body.String()
-	for _, want := range []string{`id="cr-draft"`, `name="cr_id" value=""`, `name="cr_key" value="draft"`, `name="cr_label" value="scraper"`,
+	for _, want := range []string{`class="cr-rule cr-draft editing" data-cr data-key="draft" id="cr-draft"`, `name="cr_id" value=""`, `name="cr_key" value="draft"`, `name="cr_label" value="scraper"`,
 		`name="cc_draft_values" value="203.0.113.0/24, 198.51.100.7"`, `name="cc_draft_values" value="t13d*"`, `name="cc_draft_values" value="AS4134"`, `name="cc_draft_values" value="python-requests"`,
 		`<input type="checkbox" class="cr-rate-cb" checked>`, `name="cr_rate" value="30"`, `class="cr-rate-n" min="1" value="30"`, "まだ保存されていません", `id="cr-template"`} {
 		if !strings.Contains(page, want) {
@@ -263,12 +265,17 @@ func TestCustomRulesTabActionTicks(t *testing.T) {
 	for want, n := range map[string]int{
 		// the rate-limited rule without an answer on a match
 		`class="cr-row cr-apply off"><label class="cr-row-l cr-on"><input type="checkbox" class="cr-act-cb">`: 1,
-		`<select class="cr-act" disabled>`:                       1,
-		`name="cr_action" value="monitor"`:                       1,
-		`name="cr_rate" value="30"`:                              1,
-		`name="cr_rate_action" value="deny"`:                     1,
-		`<option value="deny" selected>遮断 (429)`:                 1,
-		`class="cr-rate-n" min="1" value="30" placeholder="60">`: 1,
+		`<select class="cr-act" disabled>`:       1,
+		`name="cr_action" value="monitor"`:       1,
+		`name="cr_rate" value="30"`:              1,
+		`name="cr_rate_action" value="deny"`:     1,
+		`<option value="deny" selected>遮断 (429)`: 1,
+		// the rows as the list shows them
+		`cr-pill-act off" data-none="判定はそのまま">判定はそのまま<`:             1,
+		`cr-pill-rate" data-fmt="%d 件/分 → %s">30 件/分 → 遮断 (429)<`:   1,
+		`cr-pill-act" data-none="判定はそのまま">PoW<`:                     1,
+		`<span class="cr-pill cr-pill-cond"><b>ASN</b> 4134</span>`: 1,
+		`class="cr-rate-n" min="1" value="30" placeholder="60">`:    1,
 		// the PoW rule without a rate limit
 		`name="cr_action" value="pow_only"`:  1,
 		`<option value="pow_only" selected>`: 1,

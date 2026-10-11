@@ -127,6 +127,28 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.select('#cr-list [data-cr] select.cr-ract', 'deny');
   const chosen = await page.evaluate(() => ({ act: document.querySelector('#cr-list [data-cr] input[name="cr_action"]').value, ract: document.querySelector('#cr-list [data-cr] input[name="cr_rate_action"]').value, rateOff: document.querySelector('#cr-list [data-cr] .cr-rate').classList.contains('off') }));
   ok(chosen.act === 'captcha_only' && chosen.ract === 'deny' && !chosen.rateOff, 'the selects did not take the choices: ' + JSON.stringify(chosen));
+  // "Confirm" folds the form into a row of the list that says what was set;
+  // "edit" opens it again.  Nothing is saved by either.
+  await page.click('#cr-list [data-cr] .cr-done');
+  const folded = await page.evaluate(() => {
+    const c = document.querySelector('#cr-list [data-cr]');
+    return {
+      editing: c.classList.contains('editing'),
+      formShown: c.querySelector('.cr-edit-body').offsetParent !== null,
+      name: c.querySelector('.cr-v-name').textContent.trim(),
+      conds: Array.from(c.querySelectorAll('.cr-pill-cond')).map(p => p.textContent.trim()),
+      act: c.querySelector('.cr-pill-act').textContent.trim(),
+      rate: c.querySelector('.cr-pill-rate').hidden ? '' : c.querySelector('.cr-pill-rate').textContent.trim(),
+    };
+  });
+  ok(!folded.editing && !folded.formShown, 'confirm did not fold the form: ' + JSON.stringify(folded));
+  // (as typed: the save is what normalises the case and the AS prefix)
+  ok(folded.name === 'ui e2e scraper' && folded.conds.length === 3 && /^JA4 t13d1516h2_8daaf6152771_b0da82dd1658, t13d\*$/i.test(folded.conds[0]) && /^ASN (AS)?4134, 16509$/.test(folded.conds[1]) && /^UA python-requests\|scrapy$/.test(folded.conds[2]),
+     'the row does not say the name and the lines: ' + JSON.stringify(folded));
+  ok(/CAPTCHA/.test(folded.act) && /30/.test(folded.rate) && /429/.test(folded.rate), 'the row does not say the answer and the rate: ' + JSON.stringify(folded));
+  await page.click('#cr-list [data-cr] .cr-edit');
+  const reopened = await page.evaluate(() => { const c = document.querySelector('#cr-list [data-cr]'); return c.classList.contains('editing') && c.querySelector('.cr-edit-body').offsetParent !== null; });
+  ok(reopened, 'edit did not open the form again');
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'networkidle2' }),
     page.click('form[action$="section=custom-rules"] button[type="submit"]'),
@@ -143,6 +165,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       checked: row.querySelector('select.cr-act').value,
       rateChecked: row.querySelector('select.cr-ract').value,
       rateTicked: row.querySelector('.cr-rate-cb').checked && !row.querySelector('.cr-rate').classList.contains('off'),
+      folded: !row.classList.contains('editing') && row.querySelector('.cr-edit-body').offsetParent === null,
+      rowText: row.querySelector('.cr-view').textContent.replace(/\s+/g, ' ').trim(),
       hits: (row.querySelector('.cr-hits') || {}).textContent || '',
     };
   });
@@ -156,19 +180,23 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     ok(saved.action === 'captcha_only' && saved.rate === '30' && saved.rateAction === 'deny' && saved.enabled === '1', `action/rate/over/enabled came back as ${saved.action}/${saved.rate}/${saved.rateAction}/${saved.enabled}`);
     ok(saved.checked === 'captcha_only' && saved.rateChecked === 'deny', 'the selects do not show the saved choices: ' + JSON.stringify({ checked: saved.checked, rateChecked: saved.rateChecked }));
     ok(saved.rateTicked, 'the saved rate limit comes back unticked');
+    ok(saved.folded && /ui e2e scraper/.test(saved.rowText) && /JA4/.test(saved.rowText) && /CAPTCHA/.test(saved.rowText) && /30/.test(saved.rowText), 'a saved rule does not come back as a folded row: ' + JSON.stringify({ folded: saved.folded, rowText: saved.rowText }));
     ok(saved.hits.length > 0, 'the hit count cell is empty');
   }
 
   // A rule with neither tick would do nothing, and the save refuses it.
   if (!saved.missing) {
+    await page.click('#cr-list [data-cr] .cr-edit');
     await page.click('#cr-list [data-cr] .cr-act-cb');
     await page.click('#cr-list [data-cr] .cr-rate-cb');
     await Promise.all([
       page.waitForNavigation({ waitUntil: 'networkidle2' }),
       page.click('form[action$="section=custom-rules"] button[type="submit"]'),
     ]);
-    const neither = await page.evaluate(() => ({ rows: document.querySelectorAll('#cr-list [data-cr]').length, banner: ((document.querySelector('.banner.bad') || {}).textContent || '').slice(0, 160) }));
+    const neither = await page.evaluate(() => ({ rows: document.querySelectorAll('#cr-list [data-cr]').length, banner: ((document.querySelector('.banner.bad') || {}).textContent || '').slice(0, 160), open: document.querySelector('#cr-list [data-cr]').classList.contains('editing') }));
     ok(neither.rows === 1 && /nothing to do/.test(neither.banner), 'a rule with neither tick was not refused: ' + JSON.stringify(neither));
+    // The refused rule comes back with its form open, since the message is about its fields.
+    ok(neither.open, 'the refused rule did not come back open');
   }
 
   // A bad line is refused: still one rule, the error names the rule and
