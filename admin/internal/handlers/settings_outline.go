@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 
 	"golang.org/x/net/html"
 
@@ -180,14 +181,36 @@ func (h *Handler) SettingsFind(ctx context.Context, lang i18n.Lang, query string
 	if len(terms) == 0 {
 		return nil, errors.New("give one or more words to look for (a setting's name, a vendor, a header...)")
 	}
+	// The tabs render a few at a time: one at a time they took half a
+	// minute on a busy node (a tab is a page render, one to three seconds
+	// each), which was most of the assistant's answer time.  The outlines
+	// come back in tab order whatever the finishing order.
+	outlines := make([]*SettingsTabOutline, len(settingsTabOrder))
+	sem := make(chan struct{}, 4)
+	var wg sync.WaitGroup
+	for i, tab := range settingsTabOrder {
+		wg.Add(1)
+		go func(i int, tab string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if ctx.Err() != nil {
+				return
+			}
+			if o, err := h.SettingsTabOutline(ctx, lang, tab); err == nil {
+				outlines[i] = o // a tab this install does not show stays nil
+			}
+		}(i, tab)
+	}
+	wg.Wait()
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
 	var all []SettingsMatch
-	for _, tab := range settingsTabOrder {
-		if ctx.Err() != nil {
-			return nil, ctx.Err()
-		}
-		o, err := h.SettingsTabOutline(ctx, lang, tab)
-		if err != nil {
-			continue // a tab this install does not show
+	for i, tab := range settingsTabOrder {
+		o := outlines[i]
+		if o == nil {
+			continue
 		}
 		for _, s := range o.Sections {
 			hay := strings.ToLower(s.Heading + " " + s.Help + " " + strings.Join(s.Notes, " "))

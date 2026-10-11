@@ -2173,7 +2173,9 @@ func (h *Handler) AdminEventsStream(w http.ResponseWriter, r *http.Request) {
 	}
 	// Disable the http.Server WriteTimeout for SSE.  Without this it would drop at 15s.
 	rc := http.NewResponseController(w)
-	_ = rc.SetWriteDeadline(time.Time{})
+	if err := rc.SetWriteDeadline(time.Time{}); err != nil {
+		log.Printf("events stream: the write deadline could not be lifted (%v); the server's write timeout will cut the stream", err)
+	}
 	_ = rc.SetReadDeadline(time.Time{})
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")

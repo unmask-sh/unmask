@@ -288,7 +288,9 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     var ad = append(q);
     ta.value = '';
     fetch(form.action, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }, body: new URLSearchParams({ q: q }) })
-      .then(function(r){ return r.json().then(function(d){ if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); })
+      // Not JSON (a proxy's error page, a cut connection): say the status and
+      // the start of what came back, not a parser's complaint about it.
+      .then(function(r){ return r.text().then(function(t){ var d; try { d = JSON.parse(t); } catch (e) { throw new Error('HTTP ' + r.status + ': ' + t.replace(/\s+/g, ' ').trim().slice(0, 80)); } if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); })
       .then(function(d){ settle(ad, d); })
       .catch(function(err){ failed(ad, err && err.message ? err.message : String(err)); })
       .then(function(){ btn.disabled = false; ta.focus(); });

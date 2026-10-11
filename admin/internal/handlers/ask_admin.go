@@ -232,7 +232,11 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 	// connection first: the answer was stored, the page said the question
 	// failed.  This response gets the question's whole budget.
 	rc := http.NewResponseController(w)
-	_ = rc.SetWriteDeadline(time.Now().Add(askTimeout + time.Minute))
+	if err := rc.SetWriteDeadline(time.Now().Add(askTimeout + time.Minute)); err != nil {
+		// A wrapper in the chain without Unwrap leaves the server's write
+		// timeout in force; say so rather than find out at the 61st second.
+		log.Printf("ask: the response's write deadline could not be extended (%v); the server's write timeout applies", err)
+	}
 	lang := i18n.Lang(i18n.Resolve(r))
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")

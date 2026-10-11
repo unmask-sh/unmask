@@ -1630,6 +1630,14 @@ func (s *statusRecorder) WriteHeader(c int) {
 	s.ResponseWriter.WriteHeader(c)
 }
 
+// Unwrap lets http.ResponseController reach the connection through the
+// wrapper.  Without it, a handler's SetWriteDeadline fails (silently, when
+// its error is dropped) and the server's 60 s WriteTimeout stands: the
+// assistant's answer, written after 61 s, went to a closed connection,
+// nginx served its daemon-down 503, and the page said the question failed
+// although the answer was stored.
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
 // Flush forwards the http.Flusher needed by streaming handlers such as SSE.
 // No-op when the underlying ResponseWriter does not implement Flusher.
 func (s *statusRecorder) Flush() {
