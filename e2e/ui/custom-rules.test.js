@@ -58,7 +58,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       key: card ? card.dataset.key : '', keyField: card ? card.querySelector('[name="cr_key"]').value : '',
       lines: card ? card.querySelectorAll('[data-cond]').length : 0,
       lineName: card ? (card.querySelector('[data-cond] select') || {}).name : '',
-      actName: card ? (card.querySelector('select[name="cr_action"]') || {}).name : '',
+      actName: card ? (card.querySelector('input[name="cr_action"]') || {}).name : '',
       boxes: card ? card.querySelectorAll('fieldset.cr-box').length : 0,
       focused: document.activeElement && document.activeElement.name,
       empty: !!document.getElementById('cr-empty'),
@@ -88,39 +88,44 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   // One action on a match; beside it the rate limit with its own answer.
   const shape = await page.evaluate(() => ({
-    actOptions: document.querySelectorAll('#cr-list [data-cr] select[name="cr_action"] option').length,
-    rateOptions: document.querySelectorAll('#cr-list [data-cr] select[name="cr_rate_action"] option').length,
+    actOptions: document.querySelectorAll('#cr-list [data-cr] select.cr-act option').length,
+    rateOptions: document.querySelectorAll('#cr-list [data-cr] select.cr-ract option').length,
     rateOff: document.querySelector('#cr-list [data-cr] .cr-rate').classList.contains('off'),
   }));
-  ok(shape.actOptions === 5 && shape.rateOptions === 5 && shape.rateOff, 'the action box is not two selects of five: ' + JSON.stringify(shape));
-  // "No change (count only)" is the first choice: a match then changes
-  // nothing and the rule counts it; the answers follow, CAPTCHA to start.
-  const actSel = '#cr-list [data-cr] select[name="cr_action"]';
-  const start = await page.evaluate(sel => { const s = document.querySelector(sel); return { first: s.options[0].value, value: s.value }; }, actSel);
-  ok(start.first === 'monitor' && start.value === 'captcha_only', 'a new rule does not start at CAPTCHA with "no change" first: ' + JSON.stringify(start));
-  await page.select(actSel, 'monitor');
-  await page.select(actSel, 'captcha_only');
+  ok(shape.actOptions === 4 && shape.rateOptions === 5 && shape.rateOff, 'the action box is not a select of four and one of five: ' + JSON.stringify(shape));
+  // The answer on a match is a tick with its select beside it: off, the
+  // select is greyed and the rule posts "monitor" (nothing on a match);
+  // on again, the select's answer.  A new rule starts ticked at CAPTCHA.
+  const actState = () => page.evaluate(() => { const c = document.querySelector('#cr-list [data-cr]'); const sel = c.querySelector('select.cr-act'); return { ticked: c.querySelector('.cr-act-cb').checked, disabled: sel.disabled, shown: sel.offsetParent !== null, sel: sel.value, posted: c.querySelector('input[name="cr_action"]').value, off: c.querySelector('.cr-apply').classList.contains('off') }; });
+  const act0 = await actState();
+  ok(act0.ticked && !act0.disabled && act0.shown && act0.sel === 'captcha_only' && act0.posted === 'captcha_only', 'a new rule does not start ticked at CAPTCHA: ' + JSON.stringify(act0));
+  await page.click('#cr-list [data-cr] .cr-act-cb');
+  const act1 = await actState();
+  ok(!act1.ticked && act1.disabled && act1.shown && act1.posted === 'monitor' && act1.off, 'unticking the answer did not grey its select and post monitor: ' + JSON.stringify(act1));
+  await page.click('#cr-list [data-cr] .cr-act-cb');
+  const act2 = await actState();
+  ok(act2.ticked && !act2.disabled && act2.posted === 'captcha_only' && !act2.off, 'ticking the answer back did not restore it: ' + JSON.stringify(act2));
   // The rate limit is off until its box is ticked, and off means the
   // figure and the answers are out of sight -- an empty figure beside
   // an answer read as a limit that merely lacked a number.  Ticking
   // shows a figure to edit, unticking clears it.
-  const rateSel = '#cr-list [data-cr] input[name="cr_rate"]';
-  const rateState = () => page.evaluate(sel => { const n = document.querySelector(sel); return { shown: n.offsetParent !== null, value: n.value, off: n.closest('.cr-rate').classList.contains('off'), ticked: n.closest('.cr-rate').querySelector('.cr-rate-cb').checked }; }, rateSel);
+  const rateSel = '#cr-list [data-cr] .cr-rate-n';
+  const rateState = () => page.evaluate(sel => { const n = document.querySelector(sel); const c = n.closest('[data-cr]'); return { shown: n.offsetParent !== null, enabled: !n.disabled, value: n.value, posted: c.querySelector('input[name="cr_rate"]').value, off: n.closest('.cr-rate').classList.contains('off'), ticked: n.closest('.cr-rate').querySelector('.cr-rate-cb').checked }; }, rateSel);
   const offState = await rateState();
-  ok(!offState.shown && offState.value === '' && !offState.ticked, 'the rate figure shows while the rate limit is off: ' + JSON.stringify(offState));
+  ok(offState.shown && !offState.enabled && offState.value === '' && offState.posted === '' && !offState.ticked, 'the rate figure is not greyed and empty while the rate limit is off: ' + JSON.stringify(offState));
   await page.click('#cr-list [data-cr] .cr-rate-cb');
   const onState = await rateState();
-  ok(onState.shown && onState.value === '60' && !onState.off && onState.ticked, 'ticking the rate limit did not show a figure to edit: ' + JSON.stringify(onState));
+  ok(onState.enabled && onState.value === '60' && onState.posted === '60' && !onState.off && onState.ticked, 'ticking the rate limit did not give a figure to edit: ' + JSON.stringify(onState));
   await page.click('#cr-list [data-cr] .cr-rate-cb');
   const backOff = await rateState();
-  ok(!backOff.shown && backOff.value === '' && backOff.off, 'unticking the rate limit kept the figure: ' + JSON.stringify(backOff));
+  ok(!backOff.enabled && backOff.posted === '' && backOff.off, 'unticking the rate limit still posts a figure: ' + JSON.stringify(backOff));
   await page.click('#cr-list [data-cr] .cr-rate-cb');
   // Select-all by keyboard: a triple-click does not select a number field's text.
   await page.focus(rateSel);
   await page.keyboard.down('Control'); await page.keyboard.press('KeyA'); await page.keyboard.up('Control');
   await page.type(rateSel, '30');
-  await page.select('#cr-list [data-cr] select[name="cr_rate_action"]', 'deny');
-  const chosen = await page.evaluate(() => ({ act: document.querySelector('#cr-list [data-cr] select[name="cr_action"]').value, ract: document.querySelector('#cr-list [data-cr] select[name="cr_rate_action"]').value, rateOff: document.querySelector('#cr-list [data-cr] .cr-rate').classList.contains('off') }));
+  await page.select('#cr-list [data-cr] select.cr-ract', 'deny');
+  const chosen = await page.evaluate(() => ({ act: document.querySelector('#cr-list [data-cr] input[name="cr_action"]').value, ract: document.querySelector('#cr-list [data-cr] input[name="cr_rate_action"]').value, rateOff: document.querySelector('#cr-list [data-cr] .cr-rate').classList.contains('off') }));
   ok(chosen.act === 'captcha_only' && chosen.ract === 'deny' && !chosen.rateOff, 'the selects did not take the choices: ' + JSON.stringify(chosen));
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'networkidle2' }),
@@ -135,8 +140,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     return {
       id: v('cr_id'), key: v('cr_key'), label: v('cr_label'), action: v('cr_action'), rate: v('cr_rate'), rateAction: v('cr_rate_action'), enabled: v('cr_enabled'),
       lines, rows: document.querySelectorAll('#cr-list [data-cr]').length,
-      checked: row.querySelector('select[name="cr_action"]').value,
-      rateChecked: row.querySelector('select[name="cr_rate_action"]').value,
+      checked: row.querySelector('select.cr-act').value,
+      rateChecked: row.querySelector('select.cr-ract').value,
       rateTicked: row.querySelector('.cr-rate-cb').checked && !row.querySelector('.cr-rate').classList.contains('off'),
       hits: (row.querySelector('.cr-hits') || {}).textContent || '',
     };
@@ -152,6 +157,18 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     ok(saved.checked === 'captcha_only' && saved.rateChecked === 'deny', 'the selects do not show the saved choices: ' + JSON.stringify({ checked: saved.checked, rateChecked: saved.rateChecked }));
     ok(saved.rateTicked, 'the saved rate limit comes back unticked');
     ok(saved.hits.length > 0, 'the hit count cell is empty');
+  }
+
+  // A rule with neither tick would do nothing, and the save refuses it.
+  if (!saved.missing) {
+    await page.click('#cr-list [data-cr] .cr-act-cb');
+    await page.click('#cr-list [data-cr] .cr-rate-cb');
+    await Promise.all([
+      page.waitForNavigation({ waitUntil: 'networkidle2' }),
+      page.click('form[action$="section=custom-rules"] button[type="submit"]'),
+    ]);
+    const neither = await page.evaluate(() => ({ rows: document.querySelectorAll('#cr-list [data-cr]').length, banner: ((document.querySelector('.banner.bad') || {}).textContent || '').slice(0, 160) }));
+    ok(neither.rows === 1 && /nothing to do/.test(neither.banner), 'a rule with neither tick was not refused: ' + JSON.stringify(neither));
   }
 
   // A bad line is refused: still one rule, the error names the rule and
@@ -184,7 +201,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   // A draft from the hunt or the assistant: the lines are there, filled and
   // keyed "draft", the name focused, unsaved until the operator saves it.
-  const draftURL = '/admin/settings/custom-rules/?new=1&label=hunt%3A%20AS4134&c=asn%3A4134&c=ua%3Ascrapy&action=monitor';
+  // ("monitor" -- nothing on a match -- is only valid beside a rate limit)
+  const draftURL = '/admin/settings/custom-rules/?new=1&label=hunt%3A%20AS4134&c=asn%3A4134&c=ua%3Ascrapy&action=monitor&rate=60';
   resp = await page.goto(BASE + draftURL, { waitUntil: 'networkidle2' });
   ok(resp.status() === 200, `draft status ${resp.status()}`);
   const draft = await page.evaluate(() => {

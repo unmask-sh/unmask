@@ -51,18 +51,18 @@
         </fieldset>
         <fieldset class="cr-box cr-box-act">
           <legend>{{ t .Lang "settings.cr.h_act" }}</legend>
-          <div class="cr-row cr-apply"><span class="cr-row-l">{{ t .Lang "settings.cr.on_match" }}</span>
-          <select name="cr_action" class="cr-act">
-            <option value="monitor"{{ if eq .Action "monitor" }} selected{{ end }}>{{ t .Lang "settings.cr.act_none" }}</option>
+          <input type="hidden" name="cr_action" value="{{ .Action }}"><input type="hidden" name="cr_rate" value="{{ if gt .RatePerMin 0 }}{{ .RatePerMin }}{{ end }}"><input type="hidden" name="cr_rate_action" value="{{ .RateAction }}">
+          <div class="cr-row cr-apply{{ if eq .Action "monitor" }} off{{ end }}"><label class="cr-row-l cr-on"><input type="checkbox" class="cr-act-cb"{{ if ne .Action "monitor" }} checked{{ end }}>{{ t .Lang "settings.cr.on_match" }}</label>
+          <select class="cr-act"{{ if eq .Action "monitor" }} disabled{{ end }}>
             <option value="pow_only"{{ if eq .Action "pow_only" }} selected{{ end }}>{{ t .Lang "settings.cr.act_pow_only" }}</option>
-            <option value="captcha_only"{{ if eq .Action "captcha_only" }} selected{{ end }}>{{ t .Lang "settings.cr.act_captcha_only" }}</option>
+            <option value="captcha_only"{{ if or (eq .Action "captcha_only") (eq .Action "monitor") }} selected{{ end }}>{{ t .Lang "settings.cr.act_captcha_only" }}</option>
             <option value="pow_then_captcha"{{ if eq .Action "pow_then_captcha" }} selected{{ end }}>{{ t .Lang "settings.cr.act_pow_then_captcha" }}</option>
             <option value="deny"{{ if eq .Action "deny" }} selected{{ end }}>{{ t .Lang "settings.cr.act_deny" }}</option>
           </select>
           </div>
           <div class="cr-row cr-rate{{ if not (gt .RatePerMin 0) }} off{{ end }}"><label class="cr-row-l cr-on"><input type="checkbox" class="cr-rate-cb"{{ if gt .RatePerMin 0 }} checked{{ end }}>{{ t .Lang "settings.cr.rate_limit" }}</label>
-            <input type="number" name="cr_rate" min="0" value="{{ if gt .RatePerMin 0 }}{{ .RatePerMin }}{{ end }}" placeholder="60"> <span class="cr-row-m">{{ t .Lang "settings.cr.rate_over" }}</span>
-          <select name="cr_rate_action" class="cr-ract">
+            <input type="number" class="cr-rate-n" min="1" value="{{ if gt .RatePerMin 0 }}{{ .RatePerMin }}{{ end }}" placeholder="60"{{ if not (gt .RatePerMin 0) }} disabled{{ end }}> <span class="cr-row-m">{{ t .Lang "settings.cr.rate_over" }}</span>
+          <select class="cr-ract"{{ if not (gt .RatePerMin 0) }} disabled{{ end }}>
             <option value=""{{ if eq .RateAction "" }} selected{{ end }}>{{ tf .Lang "settings.cr.rate_default" .RateDefault }}</option>
             <option value="pow_only"{{ if eq .RateAction "pow_only" }} selected{{ end }}>{{ t .Lang "settings.cr.act_pow_only" }}</option>
             <option value="captcha_only"{{ if eq .RateAction "captcha_only" }} selected{{ end }}>{{ t .Lang "settings.cr.act_captcha_only" }}</option>
@@ -4160,10 +4160,13 @@ function secToHuman(s){
 .cr-row .cr-row-m{font-size:.8rem;color:#475569}
 .cr-row label{display:inline-flex;align-items:center;gap:.3rem;white-space:nowrap}
 .cr-row input[type=number]{width:5rem;padding:.2rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;font:inherit;font-size:.85rem}
-/* The rate row is a tick: off, it shows its label alone -- no rate limit. */
+/* Each row of the action box is a tick with its controls beside it, greyed
+   (disabled) while the tick is off, so what the row would take stays in
+   view. */
 .cr-row .cr-on{cursor:pointer}
-.cr-row.off > :not(.cr-on){display:none}
 .cr-row select{font:inherit;font-size:.82rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff}
+.cr-row select:disabled,.cr-row input[type=number]:disabled{opacity:.45;cursor:not-allowed}
+.cr-row.off .cr-row-m{color:#94a3b8}
 .cr-toggle{display:inline-flex;align-items:center;gap:.3rem;font-size:.8rem;color:#334155;white-space:nowrap}
 .cr-add{font:inherit;font-size:.85rem;padding:.4rem .8rem;border:1px dashed #94a3b8;border-radius:.3rem;background:#f8fafc;color:#334155;cursor:pointer;width:100%}
 .cr-rule.cr-draft{border-color:#f59e0b;background:#fffbeb}
@@ -4224,19 +4227,23 @@ function secToHuman(s){
       card.querySelectorAll('[name]').forEach(function(el){ el.name = el.name.replace('_tpl', '_' + key); });
       card.querySelector('input[name=cr_key]').value = key;
     }
-    // The action and the answer over the rate limit are selects named
-    // cr_action / cr_rate_action (one per card, in order).
-    var rate = card.querySelector('.cr-rate'), num = card.querySelector('input[name=cr_rate]');
-    // The rate limit is off until its box is ticked, and the figure is
-    // what the server reads (empty = none): ticking shows a figure to
-    // edit, unticking clears it, and a figure cleared or zeroed by hand
-    // unticks the box.
-    var rcb = card.querySelector('.cr-rate-cb');
-    rcb.addEventListener('change', function(){
-      if (rcb.checked) { if (!(parseInt(num.value, 10) > 0)) num.value = '60'; rate.classList.remove('off'); num.focus(); num.select(); }
-      else { num.value = ''; rate.classList.add('off'); }
-    });
-    num.addEventListener('change', function(){ if (!(parseInt(num.value, 10) > 0)) { num.value = ''; rcb.checked = false; rate.classList.add('off'); } });
+    // Each row of the action box is a tick with its controls beside it,
+    // greyed (disabled) while the tick is off.  Disabled controls are not
+    // posted, so what the server reads lives in hidden fields (one set per
+    // card, in order) that the controls mirror: with the tick off, the
+    // action is "monitor" and the rate is empty.  Both off is refused on
+    // save -- a rule has to do something.
+    var hAct = card.querySelector('input[name=cr_action]'), hRate = card.querySelector('input[name=cr_rate]'), hRact = card.querySelector('input[name=cr_rate_action]');
+    var acb = card.querySelector('.cr-act-cb'), actSel = card.querySelector('.cr-act'), arow = card.querySelector('.cr-apply');
+    var rcb = card.querySelector('.cr-rate-cb'), num = card.querySelector('.cr-rate-n'), ractSel = card.querySelector('.cr-ract'), rate = card.querySelector('.cr-rate');
+    function syncAct(){ actSel.disabled = !acb.checked; arow.classList.toggle('off', !acb.checked); hAct.value = acb.checked ? actSel.value : 'monitor'; }
+    function syncRate(){ var on = rcb.checked; num.disabled = !on; ractSel.disabled = !on; rate.classList.toggle('off', !on); hRate.value = on ? num.value : ''; hRact.value = on ? ractSel.value : ''; }
+    acb.addEventListener('change', syncAct); actSel.addEventListener('change', syncAct);
+    rcb.addEventListener('change', function(){ if (rcb.checked && !(parseInt(num.value, 10) > 0)) num.value = '60'; syncRate(); if (rcb.checked) { num.focus(); num.select(); } });
+    num.addEventListener('input', syncRate); ractSel.addEventListener('change', syncRate);
+    // A figure cleared or zeroed by hand unticks the rate limit.
+    num.addEventListener('change', function(){ if (!(parseInt(num.value, 10) > 0)) { num.value = ''; rcb.checked = false; } syncRate(); });
+    syncAct(); syncRate();
     card.querySelectorAll('[data-cond]').forEach(wireCond);
     card.querySelector('.cc-add').addEventListener('click', function(){ addCond(card); });
     cb.addEventListener('change', function(){ hid.value = cb.checked ? '1' : '0'; card.classList.toggle('disabled-row', !cb.checked); });

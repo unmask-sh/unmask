@@ -52,7 +52,7 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 	}
 	page := tab()
 	for _, want := range []string{`name="cr_id" value="crold"`, `name="cr_key" value="crold"`, `name="cc_crold_kind"`, `<option value="ip" selected>`, `name="cc_crold_values" value="192.0.2.0/24"`, `name="cc_crold_memo" value="why"`,
-		`<select name="cr_action"`, `<option value="deny" selected>`, "条件 (すべて満たす)", "<legend>アクション</legend>", "当たったら", "変えない (数えるだけ)", "件/分 を超えたら", `class="cr-row cr-rate off"`, `<input type="checkbox" class="cr-rate-cb">`, "rate-limit タブと同じ (PoW → CAPTCHA)", "条件を追加", "直近 24h 1 件",
+		`name="cr_action" value="deny"`, `<input type="checkbox" class="cr-act-cb" checked>`, `<option value="deny" selected>`, "条件 (すべて満たす)", "<legend>アクション</legend>", "条件を満たしたら", "件/分 を超えたら", `class="cr-row cr-rate off"`, `<input type="checkbox" class="cr-rate-cb">`, "rate-limit タブと同じ (PoW → CAPTCHA)", "条件を追加", "直近 24h 1 件",
 		`id="cr-template"`, `id="cc-template"`, `name="cc_KEY_kind"`, `id="cr-add"`, "新規ルール", `section=custom-rules`, "</html>"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("tab lacks %q", want)
@@ -133,7 +133,7 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 		t.Error("a refused save changed the rules")
 	}
 	// Leaving a card out removes the rule.
-	code, _ = post(url.Values{"cr_id": {nw.ID}, "cr_key": {nw.ID}, "cr_created_at": {"1"}, "cr_label": {"Scraper"}, "cr_enabled": {"1"}, "cc_" + nw.ID + "_kind": {"ua"}, "cc_" + nw.ID + "_values": {"scrapy"}, "cr_action": {"monitor"}})
+	code, _ = post(url.Values{"cr_id": {nw.ID}, "cr_key": {nw.ID}, "cr_created_at": {"1"}, "cr_label": {"Scraper"}, "cr_enabled": {"1"}, "cc_" + nw.ID + "_kind": {"ua"}, "cc_" + nw.ID + "_values": {"scrapy"}, "cr_action": {"captcha_only"}})
 	if code >= 400 {
 		t.Fatalf("second save: %d", code)
 	}
@@ -160,7 +160,7 @@ func TestCustomRulesTabDraft(t *testing.T) {
 	page := rr.Body.String()
 	for _, want := range []string{`id="cr-draft"`, `name="cr_id" value=""`, `name="cr_key" value="draft"`, `name="cr_label" value="scraper"`,
 		`name="cc_draft_values" value="203.0.113.0/24, 198.51.100.7"`, `name="cc_draft_values" value="t13d*"`, `name="cc_draft_values" value="AS4134"`, `name="cc_draft_values" value="python-requests"`,
-		`<input type="checkbox" class="cr-rate-cb" checked>`, `name="cr_rate" min="0" value="30"`, "まだ保存されていません", `id="cr-template"`} {
+		`<input type="checkbox" class="cr-rate-cb" checked>`, `name="cr_rate" value="30"`, `class="cr-rate-n" min="1" value="30"`, "まだ保存されていません", `id="cr-template"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("draft tab lacks %q", want)
 		}
@@ -228,11 +228,12 @@ func TestCustomRulesTabRateDefaultNamesTheMode(t *testing.T) {
 	}
 }
 
-// The action is a select whose first choice is "no change (count only)": a
-// rule that only counts (action "monitor") renders with that chosen, one
-// with an answer renders with the answer chosen, and the answer over the
-// rate limit is a select of its own.
-func TestCustomRulesTabActionSelect(t *testing.T) {
+// Each row of the action box is a tick with its controls beside it: a rule
+// without an answer on a match (action "monitor", valid only beside a rate
+// limit) renders with the tick off and the select disabled, and a rule
+// without a rate limit renders that row's figure and select disabled.  The
+// values the server reads are hidden fields the controls mirror.
+func TestCustomRulesTabActionTicks(t *testing.T) {
 	h := newTestHandler(t)
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yml")
@@ -259,18 +260,26 @@ func TestCustomRulesTabActionSelect(t *testing.T) {
 		t.Fatalf("tab: %d", rr.Code)
 	}
 	page := rr.Body.String()
-	// Two rules and the new-rule template: three action selects, three
-	// over-the-rate selects, each starting with its "no change" / default.
 	for want, n := range map[string]int{
-		`<select name="cr_action"`:                      3,
-		`<select name="cr_rate_action"`:                 3,
-		`<option value="monitor" selected>変えない (数えるだけ)`: 1, // the counting rule
-		`<option value="pow_only" selected>`:            1, // the PoW rule
-		`<option value="captcha_only" selected>`:        1, // the template's start
-		`<option value="deny" selected>遮断 (429)`:        1, // the counting rule's answer over its rate
-		`class="cr-rate-cb" checked>`:                   1,
-		`type="radio"`:                                  0,
-		`cr-act-cb`:                                     0,
+		// the rate-limited rule without an answer on a match
+		`class="cr-row cr-apply off"><label class="cr-row-l cr-on"><input type="checkbox" class="cr-act-cb">`: 1,
+		`<select class="cr-act" disabled>`:                       1,
+		`name="cr_action" value="monitor"`:                       1,
+		`name="cr_rate" value="30"`:                              1,
+		`name="cr_rate_action" value="deny"`:                     1,
+		`<option value="deny" selected>遮断 (429)`:                 1,
+		`class="cr-rate-n" min="1" value="30" placeholder="60">`: 1,
+		// the PoW rule without a rate limit
+		`name="cr_action" value="pow_only"`:  1,
+		`<option value="pow_only" selected>`: 1,
+		// its rate row and the template's: figure and select disabled
+		`class="cr-rate-n" min="1" value="" placeholder="60" disabled>`: 2,
+		`<select class="cr-ract" disabled>`:                             2,
+		// two rules and the template, one hidden set each
+		`name="cr_action" value="`:      3,
+		`name="cr_rate" value="`:        3,
+		`name="cr_rate_action" value="`: 3,
+		`type="radio"`:                  0,
 	} {
 		if got := strings.Count(page, want); got != n {
 			t.Errorf("%q appears %d times, want %d", want, got, n)

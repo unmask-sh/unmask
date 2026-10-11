@@ -102,3 +102,21 @@ func TestCustomRuleDraftQuery(t *testing.T) {
 		t.Errorf("empty rule: %q", q)
 	}
 }
+
+// A rule has to do something: "monitor" (no answer on a match) is only
+// valid beside a rate limit.
+func TestNormalizeCustomRuleNeedsSomethingToDo(t *testing.T) {
+	cond := []CustomCondition{{Kind: CustomCondIP, Values: []string{"192.0.2.0/24"}}}
+	r := CustomRule{Action: CustomRuleMonitor, Conditions: cond}
+	if err := NormalizeCustomRule(&r); err == nil || !strings.Contains(err.Error(), "nothing to do") {
+		t.Errorf("monitor without a rate limit: err = %v, want nothing to do", err)
+	}
+	r = CustomRule{Action: CustomRuleMonitor, RatePerMin: 10, Conditions: cond}
+	if err := NormalizeCustomRule(&r); err != nil {
+		t.Errorf("monitor with a rate limit: %v", err)
+	}
+	r = CustomRule{Action: GeoActionCaptchaOnly, Conditions: cond}
+	if err := NormalizeCustomRule(&r); err != nil {
+		t.Errorf("an answer without a rate limit: %v", err)
+	}
+}

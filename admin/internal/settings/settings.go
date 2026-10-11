@@ -1615,6 +1615,12 @@ func NormalizeCustomRule(r *CustomRule) error {
 	if r.RatePerMin == 0 {
 		r.RateAction = ""
 	}
+	// A rule has to do something: an answer on a match, a rate limit, or
+	// both.  Neither would only count, which the form's two ticks cannot
+	// express; the save refuses it.
+	if r.Action == CustomRuleMonitor && r.RatePerMin == 0 {
+		return errors.New("nothing to do: tick an answer on a match or a rate limit")
+	}
 	conds := r.Conditions[:0]
 	for i := range r.Conditions {
 		c := r.Conditions[i]
