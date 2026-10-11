@@ -58,17 +58,13 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
    value in the row and the one the operator reads, while the UA card's values
    are truncated anyway.  Content-sized (flex 0) it stayed narrow no matter how
    wide the page was, and the UA card took everything. */
-.rank-card-asn{flex:2 1 23rem;min-width:23rem}
+.rank-card-asn{flex:2 1 24rem;min-width:24rem}
 /* The UA card is the one with no natural width -- a raw UA is 150 characters
    -- so it takes what the others leave rather than competing for it. */
 /* ...but the UA card keeps a floor: below ~22rem its summary ("Windows 10+ ·
    Chrome 151") is cut to a few characters.  When the row cannot hold both
    floors the UA card wraps to a line of its own rather than starving. */
-/* Both floors sit a rem under what they were measured at: the per-row rule
-   link added about 1.75rem to each of the two content-sized cards, and the
-   two cards that flex give that back, so a window that held four cards in
-   a row still does. */
-.rank-card-ua{flex:1 1 21rem;max-width:none}
+.rank-card-ua{flex:1 1 22rem;max-width:none}
 /* A folded card gives up its share of the row.  Spelled out for the two cards
    that carry a flex-grow of their own -- same specificity as those rules, so
    without naming them the fold would lose and the strip would stay full width. */
@@ -235,7 +231,7 @@ table.events{table-layout:fixed;width:100%}
  * grid items need min-width:0 before they can shrink below min-content (= default is min-content).
  * Hack on td: max-width:0 + width:100% means "shrink table cell as much as possible + use all remaining width"
  * (= same purpose as flex min-width:0).  Content uses white-space:nowrap for one line + text-overflow:ellipsis. */
-.rank-card-ua{min-width:21rem;overflow:hidden}
+.rank-card-ua{min-width:22rem;overflow:hidden}
 .rank-card-ua table.rank td.key{font-size:.74rem}
 /* country flag PNG (= left of the IP cell).  16x12 png rendered subtly at 14px wide.
  * Served from the existing /static/flags/<cc>.png handler (= same pattern as the dashboard country chart). */
@@ -247,19 +243,6 @@ table.rank td.actions{text-align:right;white-space:nowrap}
 .rank-act:hover{background:#0f172a;color:#fff;border-color:#0f172a}
 .rank-act.danger{color:#b91c1c;border-color:#fca5a5}
 .rank-act.danger:hover{background:#dc2626;color:#fff;border-color:#dc2626}
-/* The per-row "make a rule" link is an icon.  As a text button ("Rule ↗")
-   it widened the two content-sized cards (IP, JA4) by some 4.4rem between
-   them, which at a common window width was what pushed the UA card onto a
-   line of its own.  No title= (the native bubble is intrusive); the label
-   is a popover of the page's own, to the left of the icon so that neither
-   the card's overflow nor the row above clips it. */
-.cr-wrap{position:relative;display:inline-flex;vertical-align:middle}
-.rank-act.cr-link{display:inline-flex;align-items:center;justify-content:center;width:1.5rem;padding:.1rem 0;margin-left:.25rem;color:#475569}
-.cr-ico{width:.85rem;height:.85rem;display:block}
-.cr-ico circle{fill:#fff;stroke:currentColor;stroke-width:1.4}
-.rank-act.cr-link:hover .cr-ico circle{fill:#0f172a}
-.cr-pop{display:none;position:absolute;right:calc(100% + .35rem);top:50%;transform:translateY(-50%);white-space:nowrap;background:#0f172a;color:#f8fafc;font-size:.72rem;font-weight:normal;padding:.25rem .55rem;border-radius:.3rem;pointer-events:none;z-index:5}
-.cr-wrap:hover .cr-pop,.cr-wrap:focus-within .cr-pop{display:block}
 /* req count doubles as a "filter raw log by this key" link.  The magnifier is
    faint at rest so the column still reads as numbers, and lights up on hover. */
 .req-search{display:inline-flex;align-items:center;gap:.3rem;justify-content:flex-end;text-decoration:none;color:inherit}
@@ -272,6 +255,7 @@ table.rank td.actions{text-align:right;white-space:nowrap}
 .filter-bar input{width:14rem}
 .filter-bar button{padding:.3rem .8rem;font-size:.85rem;border:1px solid #0f172a;background:#0f172a;color:#fff;border-radius:.2rem;cursor:pointer;font-weight:600}
 .filter-bar button.reset{background:#fff;color:#475569;border-color:#cbd5e1;font-weight:normal}
+.filter-bar .cr-from-filter{margin-left:.35rem;text-decoration:none}
 /* host filtering is consolidated into the shared host_picker in the top bar (= old host-filter CSS removed). */
 /* small host badge inside an event row (= rendered alongside the "at" column) */
 .host-badge,.site-badge{display:inline-block;font-size:.65rem;padding:.05rem .3rem;border:1px solid #cbd5e1;border-radius:.2rem;font-family:ui-monospace,Menlo,monospace;margin-left:.3rem;max-width:4rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom}
@@ -433,7 +417,6 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <button type="submit" class="rank-act danger">{{ t $.Lang "hunt.btn.ban" }}</button>
             </form>
           {{ end }}
-            <span class="cr-wrap"><a class="rank-act cr-link" href="{{ $.BasePath }}/admin/settings/custom-rules/{{ crDraft "ip" .Key (tf $.Lang "hunt.cr_name" .Key) }}" target="_blank" rel="noopener" aria-label="{{ t $.Lang "hunt.btn.custom_rule" }}">{{ template "hunt_cr_icon" }}</a><span class="cr-pop">{{ t $.Lang "hunt.btn.custom_rule_pop" }} ↗</span></span>
         </td>
       </tr>
       {{ else }}
@@ -497,7 +480,6 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
             </form>
           {{ end }}
           {{ if .ASN }}
-            <span class="cr-wrap"><a class="rank-act cr-link" href="{{ $.BasePath }}/admin/settings/custom-rules/{{ crDraft "asn" (printf "%d" .ASN) .Org }}" target="_blank" rel="noopener" aria-label="{{ t $.Lang "hunt.btn.custom_rule" }}">{{ template "hunt_cr_icon" }}</a><span class="cr-pop">{{ t $.Lang "hunt.btn.custom_rule_pop" }} ↗</span></span>
           {{ end }}
         </td>
       </tr>
@@ -555,7 +537,6 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <button type="submit" class="rank-act">{{ t $.Lang "hunt.btn.ja4_ban" }}</button>
             </form>
             {{ end }}
-            <span class="cr-wrap"><a class="rank-act cr-link" href="{{ $.BasePath }}/admin/settings/custom-rules/{{ crDraft "ja4" .Key (tf $.Lang "hunt.cr_name" .Key) }}" target="_blank" rel="noopener" aria-label="{{ t $.Lang "hunt.btn.custom_rule" }}">{{ template "hunt_cr_icon" }}</a><span class="cr-pop">{{ t $.Lang "hunt.btn.custom_rule_pop" }} ↗</span></span>
           {{ end }}
         </td>
       </tr>
@@ -613,7 +594,6 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <button type="submit" class="rank-act">{{ t $.Lang "hunt.btn.ua_blacklist" }}</button>
             </form>
             {{ end }}
-            <span class="cr-wrap"><a class="rank-act cr-link" href="{{ $.BasePath }}/admin/settings/custom-rules/{{ crDraft "ua" (uaRuleToken .Key) (tf $.Lang "hunt.cr_name" (uaRuleToken .Key)) }}" target="_blank" rel="noopener" aria-label="{{ t $.Lang "hunt.btn.custom_rule" }}">{{ template "hunt_cr_icon" }}</a><span class="cr-pop">{{ t $.Lang "hunt.btn.custom_rule_pop" }} ↗</span></span>
           {{ end }}
         </td>
       </tr>
@@ -728,6 +708,12 @@ function dismissHuntTip(id){
     {{ if or .IPFilter .JA4Filter .UAFilter .Phase .ForceReason .HostSelected .ASNFilter }}
     <a href="?range={{ .Range }}" class="rank-act reset">{{ t .Lang "hunt.filter.reset" }}</a>
     {{ end }}
+    {{/* The way to a custom rule: the active filters are its conditions,
+         one line each, and the rows below are what it would catch.  A
+         ranking row has one key, and a rule of one condition is what BAN
+         and the per-axis buttons beside it already make, so the entry is
+         here and not on the rows.  New tab, so the page keeps its state. */}}
+    {{ if .CustomRuleDraftHref }}<a href="{{ .BasePath }}/admin/settings/custom-rules/{{ .CustomRuleDraftHref }}" target="_blank" rel="noopener" class="rank-act cr-from-filter">{{ t .Lang "hunt.filter.custom_rule" }} ↗</a>{{ end }}
   </form>
   <div class="events-scroll">
   {{ template "pager_seek" .PagerSeek }}
@@ -1403,4 +1389,3 @@ function dismissHuntTip(id){
 </script>
 </body>
 </html>
-{{ define "hunt_cr_icon" }}<svg class="cr-ico" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 4.5h12M2 8h12M2 11.5h12" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" fill="none"/><circle cx="6" cy="4.5" r="1.7"/><circle cx="10.5" cy="8" r="1.7"/><circle cx="5" cy="11.5" r="1.7"/></svg>{{ end }}

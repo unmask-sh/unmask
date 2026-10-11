@@ -1583,14 +1583,18 @@ var ErrEmptyCondition = errors.New("empty condition")
 // NormalizeCustomRule trims and validates a rule in place; the error names
 // the field (the caller names the rule).  Empty condition lines are dropped;
 // a rule needs at least one.
+// CustomRuleLabelMax is the rule name's limit in characters; the save refuses
+// a longer one rather than cutting it, and drafts stay within it.
+const CustomRuleLabelMax = 80
+
 func NormalizeCustomRule(r *CustomRule) error {
 	r.ID = strings.ToLower(strings.TrimSpace(r.ID))
 	if r.ID != "" && !customRuleIDRE.MatchString(r.ID) {
 		return fmt.Errorf("rule id %q: letters and digits only", r.ID)
 	}
 	r.Label = strings.TrimSpace(r.Label)
-	if n := len([]rune(r.Label)); n > 80 {
-		return fmt.Errorf("the name is %d characters; 80 at most", n)
+	if n := len([]rune(r.Label)); n > CustomRuleLabelMax {
+		return fmt.Errorf("the name is %d characters; %d at most", n, CustomRuleLabelMax)
 	}
 	r.Action = strings.TrimSpace(r.Action)
 	if !IsValidCustomRuleAction(r.Action) {

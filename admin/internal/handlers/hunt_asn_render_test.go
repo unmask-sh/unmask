@@ -46,13 +46,33 @@ func TestHuntASNRankingRenders(t *testing.T) {
 		// leaving the page drops the range, the filters and the fold state.
 		`class="js-asn-form"`,
 		`name="asn" value="398781"`,
-		// ... and a way to a custom rule with the network filled in, in a
-		// new tab so the page keeps its state.
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("hunt page is missing %q", want)
+		}
+	}
+	// A ranking row has one key, and a rule of one condition is what the
+	// button beside it already makes, so the rows carry no custom-rule link.
+	if strings.Contains(body, "/admin/settings/custom-rules/?new=1") {
+		t.Error("a ranking row links to a custom-rule draft")
+	}
+
+	// Narrowed to the network, the filter bar offers the rule with the
+	// network as its condition, in a new tab so the page keeps its state.
+	req = httptest.NewRequest(http.MethodGet, "/unmask/admin/hunt/?asn=398781", nil)
+	rr = httptest.NewRecorder()
+	h.AdminHuntIndex(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("filtered: want 200, got %d", rr.Code)
+	}
+	body = rr.Body.String()
+	for _, want := range []string{
+		`class="rank-act cr-from-filter"`,
 		`/admin/settings/custom-rules/?new=1&amp;`, // (html/template writes & as &amp; in an attribute)
 		`c=asn%3A398781`,
 	} {
 		if !strings.Contains(body, want) {
-			t.Errorf("hunt page is missing %q", want)
+			t.Errorf("filtered hunt page is missing %q", want)
 		}
 	}
 }

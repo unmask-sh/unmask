@@ -602,6 +602,8 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		"ASNFilterOrg":  asnOrg,
 		"ASNFilterMore": asnIPTotal > asnIPs,
 		"Filtering":     ipFilter != "" || ja4Filter != "" || uaFilter != "" || refFilter != "" || phaseFilter != "" || asnFilter > 0,
+		// The filters as a custom-rule draft (the filter bar's "make a rule").
+		"CustomRuleDraftHref": huntCustomRuleDraft(ipFilter, ja4Filter, uaFilter, asnFilter, i18n.Resolve(r)),
 		// UABotNote: per listed-crawler UA, which reading its badge note
 		// carries (address check failed / configured target / generic).
 		"UABotNote":      uaBotNoteByUA(rowUAList, cur),

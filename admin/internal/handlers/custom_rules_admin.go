@@ -4,9 +4,11 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -147,15 +149,53 @@ func customRuleDraft(q url.Values, lang i18n.Lang, rateDefault string) *customRu
 	return &v
 }
 
-// customRuleDraftLink: the hunt's "make a rule from this row" link -- one
-// condition line of the given kind, with a name.
-func customRuleDraftLink(kind, value, label string) string {
-	r := settings.CustomRule{Label: label, Action: settings.GeoActionCaptchaOnly}
-	if settings.IsValidCustomConditionKind(kind) && strings.TrimSpace(value) != "" {
-		r.Conditions = []settings.CustomCondition{{Kind: kind, Values: []string{strings.TrimSpace(value)}}}
+// huntCustomRuleDraft turns the hunt's active filters into a custom-rule
+// draft (settings.CustomRuleDraftQuery): one condition line per filter, each
+// as the rule needs it -- the address and the network as they are, the
+// fingerprint whole when it is one and as a prefix otherwise, the user-agent
+// substring quoted into a regex.  Empty when no filter that can be a
+// condition is active (a phase or a Ref ID is not one).  A ranking row has
+// one key, and a rule of one condition is what BAN and the per-axis buttons
+// already make, so the rows carry no entry; the filters, several at once,
+// are where the combination a rule is for comes together.
+func huntCustomRuleDraft(ip, ja4, ua string, asn int, lang i18n.Lang) string {
+	r := settings.CustomRule{Action: settings.GeoActionCaptchaOnly}
+	var parts []string
+	add := func(kind, v, shown string) {
+		r.Conditions = append(r.Conditions, settings.CustomCondition{Kind: kind, Values: []string{v}})
+		parts = append(parts, shown)
+	}
+	if ip = strings.TrimSpace(ip); ip != "" {
+		add(settings.CustomCondIP, ip, ip)
+	}
+	if ja4 = strings.ToLower(strings.TrimSpace(ja4)); ja4 != "" {
+		v := ja4
+		if !huntJA4WholeRE.MatchString(ja4) {
+			v = strings.TrimRight(ja4, "*") + "*"
+		}
+		add(settings.CustomCondJA4, v, ja4)
+	}
+	if ua = strings.TrimSpace(ua); ua != "" {
+		add(settings.CustomCondUA, regexp.QuoteMeta(ua), ua)
+	}
+	if asn > 0 {
+		add(settings.CustomCondASN, strconv.Itoa(asn), "AS"+strconv.Itoa(asn))
+	}
+	if len(r.Conditions) == 0 {
+		return ""
+	}
+	// The name is a suggestion, kept inside the rule's limit (the save
+	// refuses a longer one rather than cutting it).
+	r.Label = i18n.Tf(lang, "hunt.cr_name", strings.Join(parts, " + "))
+	if utf8.RuneCountInString(r.Label) > settings.CustomRuleLabelMax {
+		r.Label = i18n.Tf(lang, "hunt.cr_name", parts[0]+" + …")
 	}
 	return settings.CustomRuleDraftQuery(r)
 }
+
+// A whole JA4 (t13d1516h2_8daaf6152771_b0da82dd1658); anything shorter the
+// hunt matched as a substring, which a rule can only take as a prefix.
+var huntJA4WholeRE = regexp.MustCompile(`^[a-z][0-9]{2}[a-z][0-9]{4}[a-z0-9]{2}_[0-9a-f]{12}_[0-9a-f]{12}$`)
 
 // applyCustomRulesForm reads the tab's cards in order.  A card without an
 // id is a new rule and gets one; a rule missing from the form is removed;
