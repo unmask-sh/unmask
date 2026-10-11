@@ -12,7 +12,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.51-rc10] - 2026-10-11 (testing build)
+
+### Since rc9
+
+- Custom rules: a rule is a name, condition lines (kind, values, memo; every line must hold) and one action, with the rate limit beside it as a tick box whose fallback answer names the rate-limit tab's mode.
+
+- The hunt offers a custom rule from its filters rather than from a ranking row, which has one key; the row link is gone.
+
+- The ask page dates each question, copy and delete are icons with a label on hover, and the page opens on the composer alone.
 
 ### Changed
 
