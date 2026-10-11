@@ -12,7 +12,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.51-rc11] - 2026-10-12 (testing build)
+
+### Since rc10
+
+- Custom rules: the list shows each rule as one row (name, conditions, action, rate limit) that opens into its form; the action on a match and the rate limit's answer are each a tick box with a select, greyed while off, and a rule with both off is refused.
+
+- Ask AI reads like a chat: one row docked under the conversation (examples, the question, send; Enter sends), the model and effort picked beside the tabs, a failed question offers a retry, and an answer that takes over a minute now arrives.
+
+- The assistant reads the data more as the install works: a window's countries, serves by their forced reason, and review answers that list findings only; doctor judges the real-IP setup from recent requests and says when it cannot see nginx.
 
 ### Changed
 
