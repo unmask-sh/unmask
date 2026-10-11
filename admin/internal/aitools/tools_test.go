@@ -3,6 +3,8 @@ package aitools
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"strings"
 	"testing"
 	"time"
@@ -172,5 +174,51 @@ func TestProposeCustomRule(t *testing.T) {
 	}
 	if n := d.Settings().Nginx.CustomRules; len(n) != 0 {
 		t.Errorf("the tool saved a rule: %+v", n)
+	}
+}
+
+// The countries tool: the window's challenges by the client's country, with
+// each country's share and its figure over the trailing week, through the
+// geo reader; without one it says so instead of returning nothing.
+func TestCountriesTool(t *testing.T) {
+	d := testDeps(t)
+	ctx := context.Background()
+	out, err := d.countries(ctx, 24, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m, ok := out.(map[string]any); !ok || !strings.Contains(fmt.Sprint(m["note"]), "no geo database") {
+		t.Errorf("without a geo reader: want the note, got %v", out)
+	}
+	// Two serves from a German address two hours ago (the window's upper
+	// bound is the current second, so a serve written in this very second
+	// may fall outside it; the harness's own serves are that fresh).
+	for i := 0; i < 2; i++ {
+		if err := events.Insert(ctx, d.DB, &events.Event{IPPacked: events.PackIP("198.51.100.4"), Phase: "serve", UserAgent: "ua", OccurredAt: time.Now().Add(-2 * time.Hour)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("UNMASK_TEST_GEO_OVERRIDE", "198.51.100.4:DE:0,203.0.113.9:JP:0")
+	d.IPGeo = ipgeo.Open("", "")
+	out, err = d.countries(ctx, 24, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := out.(map[string]any)
+	rows, _ := m["rows"].([]map[string]any)
+	var de map[string]any
+	for _, r := range rows {
+		if r["country"] == "DE" {
+			de = r
+		}
+	}
+	if de == nil || de["challenges"] != 2 || de["addresses"] != 1 || m["window_days"] != 1 {
+		t.Errorf("with the seeded serves: got %v", out)
+	}
+	if de != nil && (de["share_pct"].(float64) <= 0 || de["week_share_pct"].(float64) <= 0) {
+		t.Errorf("the shares are missing: %v", de)
+	}
+	if res, err := d.Run(ctx, "countries", map[string]any{"window_hours": float64(48), "limit": float64(5)}); err != nil || res.(map[string]any)["window_days"] != 2 {
+		t.Errorf("through Run: %v %v", res, err)
 	}
 }

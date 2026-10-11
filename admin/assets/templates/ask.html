@@ -85,8 +85,10 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .composer-row{display:flex;gap:.4rem;align-items:flex-end;flex-wrap:wrap}
 .composer textarea{flex:1 1 20rem;min-width:12rem;min-height:2.2rem;max-height:10rem;padding:.45rem .6rem;border:1px solid #cbd5e1;border-radius:.3rem;font:inherit;font-size:.92rem;line-height:1.35;resize:none;overflow-y:hidden}
 .composer textarea:focus{outline:2px solid #93c5fd;outline-offset:0;border-color:#3b82f6}
-.composer .pick{display:inline-flex;align-items:center;gap:.3rem;font-size:.75rem;color:#64748b;white-space:nowrap}
-.composer .pick-sel{font:inherit;font-size:.78rem;height:2.2rem;padding:0 .4rem;border:1px solid #cbd5e1;border-radius:.3rem;background:#fff;color:#334155;max-width:13rem}
+.pick{display:inline-flex;align-items:center;gap:.3rem;font-size:.75rem;color:#64748b;white-space:nowrap}
+.pick-sel{font:inherit;font-size:.78rem;height:2rem;padding:0 .4rem;border:1px solid #cbd5e1;border-radius:.3rem;background:#fff;color:#334155;max-width:13rem}
+.ask-tabs .ask-picks{margin-left:auto;display:inline-flex;gap:.6rem;align-items:center;padding-bottom:.3rem}
+.composer .pick-sel{height:2.2rem}
 #ask-send{height:2.2rem;padding:0 .8rem;font-size:1rem;line-height:1}
 /* The pick is as wide as its label, not its longest question. */
 #ask-suggest{width:6.5rem;flex:0 0 auto}
@@ -131,9 +133,12 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 {{/* Two tabs: the composer with the latest turn under it, and the history
      (every turn, newest first, long answers folded, a copy and a delete on
      each).  The model's context -- the last ten turns -- is the same on both. */}}
+{{/* The model and effort picks sit in the tabs row: they hold for the
+     conversation, and the composer's row is the field's. */}}
 <nav class="ask-tabs">
   <a href="{{ .BasePath }}/admin/ask/"{{ if eq .Tab "ask" }} class="on" aria-current="page"{{ end }}>{{ t .Lang "ask.tab_ask" }}</a>
   <a href="{{ .BasePath }}/admin/ask/history/"{{ if eq .Tab "history" }} class="on" aria-current="page"{{ end }}>{{ t .Lang "ask.tab_history" }}{{ if .HistoryCount }} <span class="cnt">{{ .HistoryCount }}</span>{{ end }}</a>
+  {{ if and (eq .Tab "ask") .AIActive .CanAsk }}<span class="ask-picks"><label class="pick"><span>{{ t .Lang "ask.model" }}</span><select name="model" id="ask-model" class="pick-sel">{{ range .AIModels }}<option value="{{ .ID }}"{{ if eq .ID $.AIModel }} selected{{ end }}>{{ if .Label }}{{ .Label }}{{ else }}{{ .ID }}{{ end }}</option>{{ end }}</select></label> {{ if .AIEfforts }}<label class="pick"><span>{{ t .Lang "ask.effort" }}</span><select name="effort" id="ask-effort" class="pick-sel"><option value=""{{ if eq .AIEffort "" }} selected{{ end }}>{{ t .Lang "ask.effort_default" }}</option>{{ range .AIEfforts }}<option value="{{ . }}"{{ if eq . $.AIEffort }} selected{{ end }}>{{ . }}</option>{{ end }}</select></label>{{ end }}</span>{{ end }}
 </nav>
 
 {{ if not .AIActive }}
@@ -182,8 +187,6 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
       <select id="ask-suggest" class="pick-sel" aria-label="{{ t .Lang "ask.suggest_pick" }}"><option value="">{{ t .Lang "ask.suggest_pick" }}</option>{{ range .Suggests }}<option value="{{ . }}">{{ . }}</option>{{ end }}</select>
       <textarea name="q" id="ask-q" rows="1" placeholder="{{ t .Lang "ask.placeholder" }}" data-maxchars="{{ .QuestionMax }}" data-maxchars-msg="{{ tf .Lang "err.value_long" .QuestionMax }}"></textarea>
       <button type="submit" class="btn" id="ask-send" aria-label="{{ t .Lang "ask.send" }}">➤</button>
-      <label class="pick"><span>{{ t .Lang "ask.model" }}</span><select name="model" id="ask-model" class="pick-sel">{{ range .AIModels }}<option value="{{ .ID }}"{{ if eq .ID $.AIModel }} selected{{ end }}>{{ if .Label }}{{ .Label }}{{ else }}{{ .ID }}{{ end }}</option>{{ end }}</select></label>
-      {{ if .AIEfforts }}<label class="pick"><span>{{ t .Lang "ask.effort" }}</span><select name="effort" id="ask-effort" class="pick-sel"><option value=""{{ if eq .AIEffort "" }} selected{{ end }}>{{ t .Lang "ask.effort_default" }}</option>{{ range .AIEfforts }}<option value="{{ . }}"{{ if eq . $.AIEffort }} selected{{ end }}>{{ . }}</option>{{ end }}</select></label>{{ end }}
     </div>
   </form>
 </div>

@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"net"
 	"os"
 	"os/exec"
@@ -121,6 +122,11 @@ func (d Deps) List() []Tool {
 				"source": map[string]any{"type": "string", "description": "only this source: manual, honeypot, protected_failed, rate_limit_abuse, ja4_loop, community"},
 				"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": 200, "description": "rows to return; 50 by default"},
 			})},
+		{Name: "countries", Description: "Where the window's challenges came from, by the client's country (the dashboard's country chart): challenges served and distinct addresses per country, each country's share of the window, and the same country's share and per-day figure over the trailing seven days, to set the window against the usual.  Needs the geo database.  (live_now's countries count every request of the last minute only.)",
+			Schema: obj(map[string]any{
+				"window_hours": hoursProp("trailing window in hours; 24 by default"),
+				"limit":        map[string]any{"type": "integer", "minimum": 1, "maximum": 50, "description": "countries to return, most challenged first; 15 by default"},
+			})},
 		{Name: "live_now", Description: "What is arriving right now: the last 60 seconds and the minute before, per outcome, with the source countries of the last minute.",
 			Schema: obj(map[string]any{})},
 		{Name: "settings_summary", Description: "A summary of how this install is configured (no secrets): version, database driver, retention, community bans, bypass presets, geo database.",
@@ -195,6 +201,8 @@ func (d Deps) Run(ctx context.Context, name string, args map[string]any) (any, e
 		return d.lookupIP(ctx, ip)
 	case "bans":
 		return d.bans(ctx, str("source"), num("limit", 50, 200))
+	case "countries":
+		return d.countries(ctx, hours, num("limit", 15, 50))
 	case "live_now":
 		return d.liveNow(), nil
 	case "settings_summary":
@@ -546,4 +554,59 @@ func MarshalResult(v any, max int) string {
 		return string(b[:max]) + "\n…[truncated: ask with a smaller limit or window]"
 	}
 	return string(b)
+}
+
+// countries: where the window's challenges came from -- the dashboard's
+// country chart (per-country serve counts from the hourly rollup, raw events
+// where the rollup has no pass yet) -- with each country's share, and the
+// same country over the trailing seven days (share and per-day figure) so a
+// window can be set against what is usual.  The last minute's countries
+// (live_now) count every request; this counts challenges served.
+func (d Deps) countries(ctx context.Context, hours, limit int) (any, error) {
+	if d.DB == nil {
+		return nil, errors.New("no database")
+	}
+	if d.IPGeo == nil || !d.IPGeo.Loaded() {
+		return map[string]any{"note": "no geo database on this install (Settings -> Network), so requests cannot be told apart by country"}, nil
+	}
+	days := (hours + 23) / 24
+	if days < 1 {
+		days = 1
+	}
+	rows, err := dashboard.CountriesByServe(ctx, d.DB, d.IPGeo, "", nil, days, limit)
+	if err != nil {
+		return nil, err
+	}
+	week, err := dashboard.CountriesByServe(ctx, d.DB, d.IPGeo, "", nil, 7, 500)
+	if err != nil {
+		return nil, err
+	}
+	total, weekTotal := 0, 0
+	for _, r := range rows {
+		total += r.Req
+	}
+	weekBy := map[string]int{}
+	for _, r := range week {
+		weekBy[r.CountryCode] = r.Req
+		weekTotal += r.Req
+	}
+	pct := func(n, of int) float64 {
+		if of == 0 {
+			return 0
+		}
+		return math.Round(1000*float64(n)/float64(of)) / 10
+	}
+	out := make([]map[string]any, 0, len(rows))
+	for _, r := range rows {
+		m := map[string]any{"country": r.CountryCode, "challenges": r.Req, "addresses": r.UniqIPs, "share_pct": pct(r.Req, total)}
+		if weekTotal > 0 {
+			m["week_share_pct"] = pct(weekBy[r.CountryCode], weekTotal)
+			m["week_per_day"] = weekBy[r.CountryCode] / 7
+		}
+		out = append(out, m)
+	}
+	return map[string]any{
+		"window_days": days, "metric": "challenges served (phase serve), by the client's country", "total": total, "rows": out,
+		"note": "share_pct is the country's share of the window's challenges; week_share_pct and week_per_day are the same country over the trailing 7 days (the usual).  A share well above its week share is the unusual part.  live_now counts every request of the last minute; this counts challenges served.",
+	}, nil
 }
