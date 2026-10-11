@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/advisor"
+	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -150,5 +151,41 @@ func TestAdvisorPicks(t *testing.T) {
 	_ = json.Unmarshal(rr.Body.Bytes(), &out)
 	if out["running"] != false || !strings.Contains(out["error"].(string), "一覧にありません") {
 		t.Errorf("a run with a model off the list: %d %s", rr.Code, rr.Body.String())
+	}
+}
+
+// The bar prints what the last run and the last 30 days cost, estimated
+// from the models' list prices; a model with no price adds none.
+func TestAdvisorCost(t *testing.T) {
+	h := pickTestHandler(t)
+	cfg := h.snapshotSettings().AIAdvisor
+	advisor.StoreLast(h.DB, advisor.ResultKey(cfg, 24*60, "ja"), advisor.Stored{At: time.Now(), Model: "claude-haiku-5-5", Reviewed: 2, InTokens: 59340, OutTokens: 2219})
+	for _, r := range []db.AdvisorRun{
+		{RanAt: time.Now().Add(-time.Hour).Unix(), ResultKey: "chat|anthropic|claude-opus-5-5", Model: "claude-opus-5-5", InTokens: 100000, OutTokens: 10000},
+		{RanAt: time.Now().Add(-2 * time.Hour).Unix(), ResultKey: "chat|anthropic|local", Model: "some-local-model", InTokens: 5000, OutTokens: 500},
+		{RanAt: time.Now().Add(-40 * 24 * time.Hour).Unix(), ResultKey: "chat|anthropic|claude-opus-5-5", Model: "claude-opus-5-5", InTokens: 1000000},
+	} {
+		if err := h.DB.Gorm.Create(&r).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	tot := advisor.Totals(h.DB, time.Now().Add(-30*24*time.Hour))
+	// $0.007 (haiku) + $0.60 (opus); the local model adds nothing, the
+	// run 40 days back is out of the window.
+	if tot.PricedRuns != 2 || tot.CostUSD < 0.6070 || tot.CostUSD > 0.6071 {
+		t.Errorf("totals: %+v", tot)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
+	req.Header.Set("Cookie", "unmask_lang=ja")
+	rr := httptest.NewRecorder()
+	h.AdminAdvisorIndex(rr, req)
+	body := rr.Body.String()
+	for _, want := range []string{"出力 2,219 · 概算 $0.007", "· 概算 $0.61"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the bar lacks %q", want)
+		}
+	}
+	if advisorMonthCost("ollama", tot) != "" || advisorMonthCost("anthropic", advisor.RunTotals{Runs: 3}) != "" {
+		t.Error("a local provider, or a list of unpriced models, shows a cost")
 	}
 }

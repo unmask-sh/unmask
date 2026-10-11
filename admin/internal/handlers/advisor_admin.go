@@ -87,7 +87,8 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 	var month advisor.RunTotals
 	if aiCfg.Active() {
 		// What the last 30 days cost, across every window and model: the
-		// number to hold against the provider's bill (no prices here).
+		// number to hold against the provider's bill, with an estimate from
+		// the models' list prices beside it.
 		month = advisor.Totals(h.DB, time.Now().Add(-30*24*time.Hour))
 		if info, ok := advisor.Running(advisor.ResultKey(aiCfg, windowH*60, lang)); ok {
 			aiRunning, aiSince = true, int(time.Since(info.Since).Seconds())
@@ -213,6 +214,8 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 		"AIMonthFailed":  int(month.Failed),
 		"AIMonthIn":      int(month.InTokens),
 		"AIMonthOut":     int(month.OutTokens),
+		"AIMonthCost":    advisorMonthCost(aiCfg.ResolvedProvider(), month),
+		"AICost":         askCostOf(aiCfg.ResolvedProvider(), aiModel, aiIn, aiOut),
 		// A run in flight: the bar says so, the rows show they are being
 		// analysed, and the page's script polls until the answer lands.
 		"AIRunning":      aiRunning,
@@ -690,4 +693,14 @@ func humanAge(d time.Duration) string {
 		return fmt.Sprintf("%dh", int(d.Hours()))
 	}
 	return fmt.Sprintf("%dd", int(d.Hours()/24))
+}
+
+// advisorMonthCost is the 30 days' estimated cost as the bar prints it, or
+// "" -- a local provider bills nothing, and a list of unpriced models has
+// no estimate.
+func advisorMonthCost(provider string, t advisor.RunTotals) string {
+	if provider == "ollama" || t.PricedRuns == 0 {
+		return ""
+	}
+	return advisor.FormatUSD(t.CostUSD)
 }

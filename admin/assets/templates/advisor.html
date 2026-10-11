@@ -206,7 +206,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   {{ template "ua_assets" . }}
   <h1 style="display:flex;align-items:center;gap:.5rem">
     {{ t .Lang "advisor.title" }}
-    <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "advisor.help") }}{{ if .AIActive }}<br><br>{{ t .Lang "ask.effort_help" }}{{ end }}</span></span>
+    <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "advisor.help") }}{{ if .AIActive }}<br><br>{{ t .Lang "ask.effort_help" }}<br><br>{{ t .Lang "ask.cost_note" }}{{ end }}</span></span>
   </h1>
   {{ template "ban_tabs" . }}
 
@@ -268,11 +268,12 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       {{ if and .AIFailed (not .AIRunning) }}<span class="kv ai-delta ai-fail"><span class="ai-failed">{{ t .Lang "advisor.ai_failed" }}</span> (<time class="js-datetime js-datetime-short ai-at" data-ts="{{ .AIErrAtTs }}">{{ .AIErrAt }}</time> · {{ .AIModel }}): {{ .LLMErr }}</span>{{ end }}
       {{- /* what the last click did, on its own line: sent N / kept M, or nothing sent */ -}}
       {{ if and .AIHave (not .AIRunning) }}
-      {{ if .AIReviewed }}<span class="kv ai-delta" data-reviewed="{{ .AIReviewed }}" data-kept="{{ .AIKept }}">{{ t .Lang "advisor.ai_last_run" }} {{ if .AIKept }}{{ tf .Lang "advisor.ai_delta" .AIReviewed .AIKept }}{{ else }}{{ tf .Lang "advisor.ai_reviewed" .AIReviewed }}{{ end }}{{ if or .AIInTokens .AIOutTokens }} · {{ tf .Lang "advisor.ai_tokens" (comma .AIInTokens) (comma .AIOutTokens) }}{{ end }}</span>
+      {{ if .AIReviewed }}<span class="kv ai-delta" data-reviewed="{{ .AIReviewed }}" data-kept="{{ .AIKept }}">{{ t .Lang "advisor.ai_last_run" }} {{ if .AIKept }}{{ tf .Lang "advisor.ai_delta" .AIReviewed .AIKept }}{{ else }}{{ tf .Lang "advisor.ai_reviewed" .AIReviewed }}{{ end }}{{ if or .AIInTokens .AIOutTokens }} · {{ tf .Lang "advisor.ai_tokens" (comma .AIInTokens) (comma .AIOutTokens) }}{{ if .AICost }} · {{ tf .Lang "ask.cost" .AICost }}{{ end }}{{ end }}</span>
       {{ else if .AIKept }}<span class="kv ai-delta" data-reviewed="0" data-kept="{{ .AIKept }}">{{ t .Lang "advisor.ai_last_run" }} {{ tf .Lang "advisor.ai_nochange" .AIKept }}</span>{{ end }}
       {{ end }}
-      {{- /* the last 30 days, every window and model: the number to hold against the bill */ -}}
-      {{ if and .AIMonthRuns (not .AIRunning) }}<span class="kv ai-delta ai-month">{{ tf .Lang "advisor.ai_month" .AIMonthRuns (comma .AIMonthIn) (comma .AIMonthOut) }}{{ if .AIMonthFailed }} · {{ tf .Lang "advisor.ai_month_failed" .AIMonthFailed }}{{ end }}</span>{{ end }}
+      {{- /* the last 30 days, every window and model (the ask page's questions
+           too): the number to hold against the bill, and its estimate */ -}}
+      {{ if and .AIMonthRuns (not .AIRunning) }}<span class="kv ai-delta ai-month">{{ tf .Lang "advisor.ai_month" .AIMonthRuns (comma .AIMonthIn) (comma .AIMonthOut) }}{{ if .AIMonthCost }} · {{ tf .Lang "ask.cost" .AIMonthCost }}{{ end }}{{ if .AIMonthFailed }} · {{ tf .Lang "advisor.ai_month_failed" .AIMonthFailed }}{{ end }}</span>{{ end }}
     </div>
     <template id="ai-wait-tpl"><span class="ai-wait"><span class="ai-spin"></span>{{ t .Lang "advisor.ai_row_wait" }}</span></template>
     <template id="ai-refresh-tpl"><span class="ai-wait"><span class="ai-spin"></span>{{ t .Lang "advisor.ai_row_refresh" }}</span></template>

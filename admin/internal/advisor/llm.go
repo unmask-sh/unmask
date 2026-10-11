@@ -671,10 +671,17 @@ type RunTotals struct {
 	Failed    int64
 	InTokens  int64
 	OutTokens int64
+	// CostUSD is what the runs of a priced model come to at its list price
+	// (Cost): an estimate, the provider's statement being the bill.
+	// PricedRuns counts those runs; 0 means there is no estimate to show.
+	CostUSD    float64
+	PricedRuns int64
 }
 
 // Totals sums unmask_advisor_run since `since`, across every window, model
-// and language: the number the operator compares with the provider's bill.
+// and language -- the ask page's questions are recorded there too: the
+// number the operator compares with the provider's bill.  The cost is
+// summed per model, each at its own price.
 func Totals(conn *db.DB, since time.Time) RunTotals {
 	var t RunTotals
 	if conn == nil {
@@ -685,6 +692,25 @@ func Totals(conn *db.DB, since time.Time) RunTotals {
 		FROM unmask_advisor_run WHERE ran_at >= ?`, since.UTC().Unix()).Row()
 	if err := row.Scan(&t.Runs, &t.Failed, &t.InTokens, &t.OutTokens); err != nil {
 		log.Printf("advisor: run totals: %v", err)
+	}
+	rows, err := conn.Gorm.Raw(`SELECT model, COUNT(*), COALESCE(SUM(in_tokens), 0), COALESCE(SUM(out_tokens), 0)
+		FROM unmask_advisor_run WHERE ran_at >= ? AND in_tokens + out_tokens > 0 GROUP BY model`, since.UTC().Unix()).Rows()
+	if err != nil {
+		log.Printf("advisor: run cost: %v", err)
+		return t
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var model string
+		var n, in, out int64
+		if err := rows.Scan(&model, &n, &in, &out); err != nil {
+			log.Printf("advisor: run cost: %v", err)
+			continue
+		}
+		if usd, ok := Cost(model, int(in), int(out)); ok {
+			t.CostUSD += usd
+			t.PricedRuns += n
+		}
 	}
 	return t
 }
