@@ -57,6 +57,8 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .a-act{display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;margin-top:.45rem}
 .a-act button{font:inherit;font-size:.74rem;color:#2563eb;background:none;border:none;padding:0;cursor:pointer}
 .a-act button:hover{text-decoration:underline}
+.a-act a.a-retry{font-size:.74rem;color:#2563eb;text-decoration:none}
+.a-act a.a-retry:hover{text-decoration:underline}
 .a-act form{display:inline;margin:0}
 .q-row{align-self:flex-end;max-width:85%;display:flex;flex-direction:column;align-items:flex-end;gap:.15rem}
 .q-row .q{max-width:100%}
@@ -158,7 +160,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 {{ if eq .Tab "history" }}<p class="meta">{{ t .Lang "ask.history_note" }}</p>{{ end }}
 
 <template id="ask-icon-copy">{{ template "ask_icon_copy" }}</template>
-<div class="turns" id="turns" data-txt-pending="{{ t .Lang "ask.pending" }}" data-txt-tools="{{ t .Lang "ask.tools" }}" data-txt-rule="{{ t .Lang "ask.create_rule" }}" data-txt-failed="{{ t .Lang "ask.failed" }}" data-txt-tokens="{{ t .Lang "ask.tokens" }}" data-txt-copy="{{ t .Lang "ask.copy" }}" data-txt-copied="{{ t .Lang "ask.copied" }}">
+<div class="turns" id="turns" data-txt-pending="{{ t .Lang "ask.pending" }}" data-txt-tools="{{ t .Lang "ask.tools" }}" data-txt-rule="{{ t .Lang "ask.create_rule" }}" data-txt-failed="{{ t .Lang "ask.failed" }}" data-txt-tokens="{{ t .Lang "ask.tokens" }}" data-txt-copy="{{ t .Lang "ask.copy" }}" data-txt-copied="{{ t .Lang "ask.copied" }}" data-txt-retry="{{ t .Lang "ask.retry" }}">
   {{ range .Turns }}
   <div class="q-row"><time class="js-datetime js-datetime-notz q-time" data-ts="{{ .AskedTS }}"></time><div class="q">{{ .Question }}</div></div>
   <div class="a{{ if .Err }} fail{{ end }}{{ if .Folded }} folded{{ end }}" data-id="{{ .ID }}">
@@ -168,6 +170,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
       {{ if or .InTokens .OutTokens }}<span>{{ tf $.Lang "ask.tokens" (comma .InTokens) (comma .OutTokens) }}{{ if .Model }} · {{ .Model }}{{ end }}</span>{{ end }}
     </div>
     <div class="a-act">
+      {{ if .Err }}<a class="a-retry" href="{{ $.BasePath }}/admin/ask/?q={{ urlquery .Question }}">{{ t $.Lang "ask.retry" }}</a>{{ end }}
       {{ if .Folded }}<button type="button" class="a-toggle" data-txt-more="{{ t $.Lang "ask.show_full" }}" data-txt-less="{{ t $.Lang "ask.fold" }}">{{ t $.Lang "ask.show_full" }}</button>{{ end }}
       <span class="ib-wrap"><button type="button" class="a-copy ib" aria-label="{{ t $.Lang "ask.copy" }}" data-txt-copied="{{ t $.Lang "ask.copied" }}" data-txt-copy="{{ t $.Lang "ask.copy" }}">{{ template "ask_icon_copy" }}</button><span class="ib-pop">{{ t $.Lang "ask.copy" }}</span></span>
       {{ if and (eq $.Tab "history") $.CanAsk }}<form method="POST" action="{{ $.BasePath }}/admin/ask/delete" data-confirm="{{ tf $.Lang "ask.delete_confirm" .QuestionHead }}" data-confirm-title="{{ t $.Lang "ask.delete" }}" data-confirm-ok="{{ t $.Lang "ask.delete" }}" data-confirm-danger="1">
@@ -256,6 +259,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     return h + '</span>';
   }
   function tokensText(i, o){ return turns.dataset.txtTokens.replace('%s', Number(i).toLocaleString('en-US')).replace('%s', Number(o).toLocaleString('en-US')); }
+  function pendingHTML(){ return '<div class="txt"><span class="spin"></span>' + esc(turns.dataset.txtPending) + '</div>'; }
   function append(q){
     var empty = document.getElementById('ask-empty'); if (empty) empty.remove();
     var qr = document.createElement('div'); qr.className = 'q-row';
@@ -263,7 +267,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     var qd = document.createElement('div'); qd.className = 'q'; qd.textContent = q; qr.appendChild(qd); turns.appendChild(qr);
     if (window.unmaskFmtTimes) unmaskFmtTimes();
     var ad = document.createElement('div'); ad.className = 'a pending';
-    ad.innerHTML = '<div class="txt"><span class="spin"></span>' + esc(turns.dataset.txtPending) + '</div>';
+    ad.innerHTML = pendingHTML();
     turns.appendChild(ad);
     ad.scrollIntoView({ block: 'nearest' });
     return ad;
@@ -275,27 +279,41 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     ad.innerHTML = '<div class="txt">' + render(d.answer) + '</div><div class="a-meta">' + meta + '</div><div class="a-act"><span class="ib-wrap"><button type="button" class="a-copy ib" aria-label="' + esc(turns.dataset.txtCopy) + '" data-txt-copied="' + esc(turns.dataset.txtCopied) + '" data-txt-copy="' + esc(turns.dataset.txtCopy) + '">' + document.getElementById('ask-icon-copy').innerHTML + '</button><span class="ib-pop">' + esc(turns.dataset.txtCopy) + '</span></span></div>';
     if (window.unmaskFmtTimes) unmaskFmtTimes();
   }
-  function failed(ad, msg){
+  // A failed turn offers a retry: the same question goes out again on the
+  // same turn, so the page does not fill with the attempts.
+  function failed(ad, msg, q){
     ad.classList.remove('pending'); ad.classList.add('fail');
-    ad.innerHTML = '<div class="txt">' + esc(turns.dataset.txtFailed) + ': ' + esc(msg) + '</div>';
+    ad.innerHTML = '<div class="txt">' + esc(turns.dataset.txtFailed) + ': ' + esc(msg) + '</div>' + (q ? '<div class="a-act"><button type="button" class="a-retry">' + esc(turns.dataset.txtRetry) + '</button></div>' : '');
+    var rb = ad.querySelector('.a-retry');
+    if (rb) rb.addEventListener('click', function(){ ad.classList.remove('fail'); ad.classList.add('pending'); ad.innerHTML = pendingHTML(); send(q, ad); });
   }
   form.addEventListener('submit', function(ev){
     ev.preventDefault();
     var q = ta.value.trim();
     if (!q || btn.disabled) return;
     if (window.unmaskMaxChars && unmaskMaxChars.check && unmaskMaxChars.check(ta) === false) return;
-    btn.disabled = true;
     var ad = append(q);
     ta.value = '';
+    send(q, ad);
+  });
+  // send posts the question and fills the turn's answer element, or marks
+  // it failed with a retry.  The button is held while a question is out.
+  function send(q, ad){
+    btn.disabled = true;
     fetch(form.action, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }, body: new URLSearchParams({ q: q }) })
       // Not JSON (a proxy's error page, a cut connection): say the status and
       // the start of what came back, not a parser's complaint about it.
       .then(function(r){ return r.text().then(function(t){ var d; try { d = JSON.parse(t); } catch (e) { throw new Error('HTTP ' + r.status + ': ' + t.replace(/\s+/g, ' ').trim().slice(0, 80)); } if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); })
       .then(function(d){ settle(ad, d); })
-      .catch(function(err){ failed(ad, err && err.message ? err.message : String(err)); })
+      .catch(function(err){ failed(ad, err && err.message ? err.message : String(err), q); })
       .then(function(){ btn.disabled = false; ta.focus(); });
-  });
+  }
   ta.addEventListener('keydown', function(e){ if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') { e.preventDefault(); form.requestSubmit(); } });
+  // A retry from the history lands here with the question in the URL: fill
+  // the composer and leave the sending to the operator -- a reload must not
+  // send it again.
+  var pre = new URLSearchParams(location.search).get('q');
+  if (pre) { ta.value = pre; ta.focus(); try { history.replaceState(null, '', location.pathname); } catch (e) {} }
   document.querySelectorAll('.suggest button[data-q]').forEach(function(b){
     b.addEventListener('click', function(){ ta.value = b.dataset.q; ta.focus(); });
   });

@@ -195,6 +195,26 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const cleared = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, empty: !!document.getElementById('ask-empty') }));
   ok(cleared.turns === 0 && cleared.empty, 'the history was not cleared: ' + JSON.stringify(cleared));
 
+  // A question that fails offers a retry that sends it again on the same
+  // turn: the form is pointed at a path that is not there, then put back.
+  await page.goto(BASE + '/admin/ask/', { waitUntil: 'networkidle2' });
+  await page.evaluate(() => { const f = document.getElementById('ask-form'); f.dataset.realAction = f.action; f.action = f.action.replace('/ask/send', '/ask/nowhere'); document.getElementById('ask-q').value = 'E2E: retry me'; });
+  await page.click('#ask-send');
+  let failedTurn = null;
+  for (let i = 0; i < 20 && !failedTurn; i++) {
+    await sleep(200);
+    failedTurn = await page.evaluate(() => { const a = document.querySelector('#turns .a.fail'); return a ? { text: a.querySelector('.txt').textContent, retry: !!a.querySelector('.a-retry'), qs: document.querySelectorAll('#turns .q').length } : null; });
+  }
+  ok(!!failedTurn && failedTurn.retry && /HTTP 404/.test(failedTurn.text), 'a failed question does not offer a retry: ' + JSON.stringify(failedTurn));
+  await page.evaluate(() => { const f = document.getElementById('ask-form'); f.action = f.dataset.realAction; });
+  await page.click('#turns .a.fail .a-retry');
+  let retried = null;
+  for (let i = 0; i < 30 && !retried; i++) {
+    await sleep(300);
+    retried = await page.evaluate(() => { const a = document.querySelector('#turns .a:last-child'); if (!a || a.classList.contains('pending') || a.classList.contains('fail')) return null; return { text: a.querySelector('.txt').textContent, fails: document.querySelectorAll('#turns .a.fail').length, qs: document.querySelectorAll('#turns .q').length }; });
+  }
+  ok(!!retried && /E2E-ANSWER/.test(retried.text) && retried.fails === 0 && !!failedTurn && retried.qs === failedTurn.qs, 'the retry did not answer on the same turn: ' + JSON.stringify(retried));
+
   // Leave the AI off for whichever test runs next.
   await saveAI(false, 'openai', stubURL, 'e2e-key');
   ok(errors.length === 0, 'page errors: ' + errors.join(' | '));

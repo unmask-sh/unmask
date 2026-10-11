@@ -209,6 +209,10 @@ func TestAskSendFailureIsKept(t *testing.T) {
 	if b := rec.Body.String(); !strings.Contains(b, `class="a fail"`) || !strings.Contains(b, "失敗: ") {
 		t.Error("the failed turn is not shown as failed")
 	}
+	// ... with a retry that brings the question back to the composer.
+	if b := rec.Body.String(); !strings.Contains(b, `class="a-retry" href="/unmask/admin/ask/?q=`) || !strings.Contains(b, ">再試行</a>") {
+		t.Error("the failed turn offers no retry")
+	}
 }
 
 func TestAnswerLinksAdminPaths(t *testing.T) {
