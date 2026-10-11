@@ -95,6 +95,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(resp.status() === 200, `/admin/advisor/ status ${resp.status()}`);
   const before = page.url();
   const hasForm = await page.evaluate(() => !!document.querySelector('#ai-run-form button'));
+  // The run's model and effort are picked beside the button, the effort's
+  // default named.
+  const picks = await page.evaluate(() => { const m = document.querySelector('#ai-run-form #advisor-model'), e = document.querySelector('#ai-run-form #advisor-effort'); return { model: m ? m.value : '', def: e && e.options[0] ? e.options[0].textContent : '' }; });
+  ok(picks.model !== '' && /\(.+\)/.test(picks.def), 'the run form does not carry the model and effort picks: ' + JSON.stringify(picks));
+  if (process.env.UI_E2E_SHOT_DIR) {
+    try { const bar = await page.$('#ai-bar'); if (bar) await bar.screenshot({ path: require('path').join(process.env.UI_E2E_SHOT_DIR, 'advisor-picks.png') }); } catch (e) {}
+  }
   if (!hasForm) {
     ok(false, 'the page does not offer the model button after saving the key');
   } else {

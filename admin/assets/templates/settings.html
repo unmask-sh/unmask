@@ -21,73 +21,6 @@
      never title -- a hover tooltip on an icon button is exactly what
      feedback_icon_tooltips rules out.  Reorder omits up/down for lists whose
      order is not even organisational. */}}
-{{ define "settings_cr_cond" }}
-            <div class="cr-cond" data-cond>
-              <select name="cc_{{ .Key }}_kind" class="cc-kind">{{ range .Kinds }}<option value="{{ . }}" data-pill="{{ t $.Lang (printf "settings.cr.ks_%s" .) }}"{{ if eq . $.Kind }} selected{{ end }}>{{ t $.Lang (printf "settings.cr.k_%s" .) }}</option>{{ end }}</select>
-              <input type="text" name="cc_{{ .Key }}_values" value="{{ .ValuesText }}" class="cc-values" placeholder="{{ t .Lang "settings.cr.cond_values_ph" }}">
-              <input type="text" name="cc_{{ .Key }}_memo" value="{{ .Memo }}" class="cc-memo" placeholder="{{ t .Lang "settings.cr.cond_memo_ph" }}" data-maxchars="300" data-maxchars-msg="{{ tf .Lang "err.value_long" 300 }}">
-              <button type="button" class="cc-del" aria-label="{{ t .Lang "settings.cr.cond_del" }}">×</button>
-            </div>
-{{ end }}
-{{ define "settings_cr_card" }}
-      <div class="cr-rule{{ if not .Enabled }} disabled-row{{ end }}{{ if .Draft }} cr-draft{{ end }}{{ if or .Draft .Blank }} editing{{ end }}" data-cr data-key="{{ .Key }}"{{ if .Draft }} id="cr-draft"{{ end }}>
-        <input type="hidden" name="cr_id" value="{{ .ID }}"><input type="hidden" name="cr_key" value="{{ .Key }}"><input type="hidden" name="cr_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="cr_updated_at" value="{{ .UpdatedAt }}">
-        {{ if .Draft }}<p class="cr-draft-note">{{ t .Lang "settings.cr.draft_note" }}</p>{{ end }}
-        <div class="cr-head">
-          <label class="cr-toggle"><input type="checkbox" class="cr-enabled-cb" {{ if .Enabled }}checked{{ end }}><input type="hidden" name="cr_enabled" value="{{ if .Enabled }}1{{ else }}0{{ end }}">{{ t .Lang "settings.cr.enabled" }}</label>
-          {{/* The row as the list shows it: the name, the condition lines as
-               pills (all must hold), the answer on a match and the rate
-               limit.  The script rewrites it from the fields on "confirm";
-               the fields post either way, so the row shows what the save
-               takes. */}}
-          {{- $ract := "" }}{{ if eq .RateAction "" }}{{ $ract = tf .Lang "settings.cr.rate_default" .RateDefault }}{{ else if eq .RateAction "deny" }}{{ $ract = t .Lang "settings.cr.ract_deny" }}{{ else }}{{ $ract = t .Lang (printf "settings.cr.act_%s" .RateAction) }}{{ end }}
-          <div class="cr-view">
-            <span class="cr-v-name{{ if not .Label }} empty{{ end }}" data-empty="{{ t .Lang "settings.cr.v_noname" }}">{{ if .Label }}{{ .Label }}{{ else }}{{ t .Lang "settings.cr.v_noname" }}{{ end }}</span>
-            <span class="cr-v-conds" data-empty="{{ t .Lang "settings.cr.v_nocond" }}">{{ range .Conds }}{{ if .ValuesText }}<span class="cr-pill cr-pill-cond"><b>{{ t $.Lang (printf "settings.cr.ks_%s" .Kind) }}</b> {{ .ValuesText }}</span>{{ end }}{{ end }}</span>
-            <span class="cr-pill cr-pill-act{{ if eq .Action "monitor" }} off{{ end }}" data-none="{{ t .Lang "settings.cr.v_none" }}">{{ if eq .Action "monitor" }}{{ t .Lang "settings.cr.v_none" }}{{ else }}{{ t .Lang (printf "settings.cr.act_%s" .Action) }}{{ end }}</span>
-            <span class="cr-pill cr-pill-rate" data-fmt="{{ t .Lang "settings.cr.v_rate" }}"{{ if not (gt .RatePerMin 0) }} hidden{{ end }}>{{ if gt .RatePerMin 0 }}{{ tf .Lang "settings.cr.v_rate" .RatePerMin $ract }}{{ end }}</span>
-          </div>
-          <input type="text" name="cr_label" value="{{ .Label }}" placeholder="{{ t .Lang "settings.cr.label_ph" }}" class="cr-label" data-maxchars="80" data-maxchars-msg="{{ tf .Lang "err.value_long" 80 }}">
-          <span class="cr-hits">{{ if .LastHit }}{{ tf .Lang "settings.cr.hits" (comma .HitsDay) }} <time class="js-datetime js-datetime-notz" data-ts="{{ .LastHit }}"></time>{{ else if not (or .Draft .Blank) }}{{ t .Lang "settings.cr.hits_none" }}{{ end }}</span>
-          <button type="button" class="cr-edit" aria-label="{{ t .Lang "settings.ua.edit_row" }}">✏️</button><button type="button" class="cr-done" aria-label="{{ t .Lang "settings.ua.save_row" }}">✓</button>
-          <button type="button" class="cr-up" aria-label="{{ t .Lang "settings.cr.up" }}">↑</button><button type="button" class="cr-down" aria-label="{{ t .Lang "settings.cr.down" }}">↓</button>
-          <button type="button" class="cr-remove" aria-label="{{ t .Lang "settings.ua.delete_row" }}">🗑</button>
-        </div>
-        <div class="cr-edit-body">
-        <fieldset class="cr-box cr-box-cond">
-          <legend>{{ t .Lang "settings.cr.h_cond" }}</legend>
-          <div class="cr-conds">
-{{- range .Conds }}
-{{ template "settings_cr_cond" (dict "Key" $.Key "Kinds" $.Kinds "Lang" $.Lang "Kind" .Kind "ValuesText" .ValuesText "Memo" .Memo) }}
-{{- end }}
-          </div>
-          <button type="button" class="cc-add">+ {{ t .Lang "settings.cr.cond_add" }}</button>
-        </fieldset>
-        <fieldset class="cr-box cr-box-act">
-          <legend>{{ t .Lang "settings.cr.h_act" }}</legend>
-          <input type="hidden" name="cr_action" value="{{ .Action }}"><input type="hidden" name="cr_rate" value="{{ if gt .RatePerMin 0 }}{{ .RatePerMin }}{{ end }}"><input type="hidden" name="cr_rate_action" value="{{ .RateAction }}">
-          <div class="cr-row cr-apply{{ if eq .Action "monitor" }} off{{ end }}"><label class="cr-row-l cr-on"><input type="checkbox" class="cr-act-cb"{{ if ne .Action "monitor" }} checked{{ end }}>{{ t .Lang "settings.cr.on_match" }}</label>
-          <select class="cr-act"{{ if eq .Action "monitor" }} disabled{{ end }}>
-            <option value="pow_only"{{ if eq .Action "pow_only" }} selected{{ end }}>{{ t .Lang "settings.cr.act_pow_only" }}</option>
-            <option value="captcha_only"{{ if or (eq .Action "captcha_only") (eq .Action "monitor") }} selected{{ end }}>{{ t .Lang "settings.cr.act_captcha_only" }}</option>
-            <option value="pow_then_captcha"{{ if eq .Action "pow_then_captcha" }} selected{{ end }}>{{ t .Lang "settings.cr.act_pow_then_captcha" }}</option>
-            <option value="deny"{{ if eq .Action "deny" }} selected{{ end }}>{{ t .Lang "settings.cr.act_deny" }}</option>
-          </select>
-          </div>
-          <div class="cr-row cr-rate{{ if not (gt .RatePerMin 0) }} off{{ end }}"><label class="cr-row-l cr-on"><input type="checkbox" class="cr-rate-cb"{{ if gt .RatePerMin 0 }} checked{{ end }}>{{ t .Lang "settings.cr.rate_limit" }}</label>
-            <input type="number" class="cr-rate-n" min="1" value="{{ if gt .RatePerMin 0 }}{{ .RatePerMin }}{{ end }}" placeholder="60"{{ if not (gt .RatePerMin 0) }} disabled{{ end }}> <span class="cr-row-m">{{ t .Lang "settings.cr.rate_over" }}</span>
-          <select class="cr-ract"{{ if not (gt .RatePerMin 0) }} disabled{{ end }}>
-            <option value=""{{ if eq .RateAction "" }} selected{{ end }}>{{ tf .Lang "settings.cr.rate_default" .RateDefault }}</option>
-            <option value="pow_only"{{ if eq .RateAction "pow_only" }} selected{{ end }}>{{ t .Lang "settings.cr.act_pow_only" }}</option>
-            <option value="captcha_only"{{ if eq .RateAction "captcha_only" }} selected{{ end }}>{{ t .Lang "settings.cr.act_captcha_only" }}</option>
-            <option value="pow_then_captcha"{{ if eq .RateAction "pow_then_captcha" }} selected{{ end }}>{{ t .Lang "settings.cr.act_pow_then_captcha" }}</option>
-            <option value="deny"{{ if eq .RateAction "deny" }} selected{{ end }}>{{ t .Lang "settings.cr.ract_deny" }}</option>
-          </select>
-          </div>
-        </fieldset>
-        </div>
-      </div>
-{{ end }}
 {{ define "ruleButtons" }}
 {{- if .Reorder }}<button type="button" class="rule-up" aria-label="{{ t .Lang "settings.ua.move_up" }}">↑</button>
 <button type="button" class="rule-down" aria-label="{{ t .Lang "settings.ua.move_down" }}">↓</button>
@@ -4140,62 +4073,7 @@ function secToHuman(s){
 
 {{ if eq .Tab "custom-rules" }}
 <style>
-.cr-rule{border:1px solid #e2e8f0;border-radius:.4rem;padding:.7rem .9rem;margin:0 0 .7rem;background:#fff}
-.cr-rule.disabled-row{opacity:.6;background:#f8fafc}
-.cr-head{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:.5rem}
-.cr-head .cr-label{flex:1;min-width:12rem;padding:.35rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;font:inherit;font-size:.9rem}
-.cr-head .cr-hits{font-size:.75rem;color:#64748b;white-space:nowrap}
-.cr-head button{font:inherit;font-size:.75rem;padding:.2rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#334155;cursor:pointer}
-.cr-head button.cr-remove{color:#b91c1c}
-.cr-conds{display:flex;flex-direction:column;gap:.35rem}
-.cr-cond{display:flex;gap:.4rem;align-items:center;flex-wrap:wrap}
-.cr-cond select{font:inherit;font-size:.82rem;padding:.3rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:11rem}
-.cr-cond input[type=text]{padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;font:inherit;font-size:.85rem}
-.cr-cond .cc-values{flex:3;min-width:14rem;font-family:ui-monospace,Menlo,monospace}
-.cr-cond .cc-memo{flex:1;min-width:8rem;color:#475569}
-.cr-cond .cc-del{font:inherit;font-size:.9rem;width:1.6rem;height:1.6rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#64748b;cursor:pointer}
-.cr-cond .cc-del:hover{color:#b91c1c;border-color:#fca5a5}
-.cc-add{font:inherit;font-size:.78rem;margin-top:.4rem;padding:.25rem .6rem;border:1px dashed #94a3b8;border-radius:.25rem;background:#fff;color:#334155;cursor:pointer}
-.cr-box{border:1px solid #cbd5e1;border-radius:.4rem;padding:.5rem .8rem .7rem;margin:.5rem 0 0;min-width:0}
-.cr-box legend{font-size:.75rem;font-weight:600;color:#334155;padding:0 .35rem}
-.cr-box-act{background:#f8fafc}
-.cr-row{display:flex;flex-wrap:wrap;gap:.3rem .9rem;align-items:center;font-size:.85rem;color:#334155;margin:.25rem 0}
-.cr-row .cr-row-l{font-size:.75rem;color:#64748b;min-width:5.5rem}
-.cr-row .cr-row-m{font-size:.8rem;color:#475569}
-.cr-row label{display:inline-flex;align-items:center;gap:.3rem;white-space:nowrap}
-.cr-row input[type=number]{width:5rem;padding:.2rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;font:inherit;font-size:.85rem}
-/* Each row of the action box is a tick with its controls beside it, greyed
-   (disabled) while the tick is off, so what the row would take stays in
-   view. */
-.cr-row .cr-on{cursor:pointer}
-.cr-row select{font:inherit;font-size:.82rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff}
-.cr-row select:disabled,.cr-row input[type=number]:disabled{opacity:.45;cursor:not-allowed}
-.cr-row.off .cr-row-m{color:#94a3b8}
-.cr-toggle{display:inline-flex;align-items:center;gap:.3rem;font-size:.8rem;color:#334155;white-space:nowrap}
-.cr-add{font:inherit;font-size:.85rem;padding:.4rem .8rem;border:1px dashed #94a3b8;border-radius:.3rem;background:#f8fafc;color:#334155;cursor:pointer;width:100%}
-/* A rule is a row of the list that opens into the form: "edit" (or a new
-   rule, or a draft) shows the fields, "confirm" folds them back into the
-   row.  The fields stay in the document either way, so the save posts the
-   rows as they are. */
-.cr-rule.editing .cr-view,.cr-rule.editing .cr-edit{display:none}
-.cr-rule:not(.editing) .cr-label,.cr-rule:not(.editing) .cr-edit-body,.cr-rule:not(.editing) .cr-done{display:none}
-.cr-rule:not(.editing){padding:.45rem .9rem}
-.cr-rule:not(.editing) .cr-head{margin-bottom:0}
-.cr-view{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:.25rem .5rem}
-.cr-v-name{font-weight:600;font-size:.9rem;color:#0f172a;margin-right:.3rem}
-.cr-v-name.empty{color:#94a3b8;font-weight:normal;font-style:italic}
-.cr-v-conds{display:inline-flex;flex-wrap:wrap;gap:.25rem}
-.cr-v-empty{color:#cbd5e1;font-style:italic;font-size:.8rem}
-.cr-pill{display:inline-block;padding:.1rem .45rem;border-radius:.25rem;font-size:.75rem;line-height:1.4;white-space:nowrap;max-width:24rem;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
-.cr-pill-cond{background:#f1f5f9;color:#334155;border:1px solid #e2e8f0;font-family:ui-monospace,Menlo,monospace}
-.cr-pill-cond b{font-weight:600;color:#64748b;margin-right:.2rem;font-family:inherit}
-.cr-pill-act{background:#0f172a;color:#f8fafc;font-weight:600}
-.cr-pill-act.off{background:#e2e8f0;color:#64748b;font-weight:normal}
-.cr-pill-rate{background:#fef3c7;color:#92400e;border:1px solid #fde68a}
-.cr-head button.cr-edit,.cr-head button.cr-done,.cr-head button.cr-remove{font-size:.8rem;padding:.15rem .4rem}
-.cr-head button.cr-done{color:#16a34a;border-color:#16a34a}
-.cr-rule.cr-draft{border-color:#f59e0b;background:#fffbeb}
-.cr-draft-note{margin:0 0 .5rem;font-size:.78rem;color:#92400e}
+{{ template "cr_css" . }}
 </style>
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=custom-rules">
   <div class="bcd-card">
@@ -4218,95 +4096,12 @@ function secToHuman(s){
   </div>
 </form>
 <script>
+{{ template "cr_js" . }}
 (function(){
   var list = document.getElementById('cr-list'), tpl = document.getElementById('cr-template'), add = document.getElementById('cr-add');
-  if (!list || !tpl || !add) return;
-  var seq = 0;
-  var PH = { ip: '203.0.113.0/24, 198.51.100.7', ja4: 't13d1516h2_8daaf6152771_b0da82dd1658, t13d*', country: 'CN, RU', asn: '4134, 16509', ua: 'python-requests|scrapy', path: '^/search', host: 'shop.example.jp' };
-  var ccTpl = document.getElementById('cc-template');
-  function wireCond(line){
-    var sel = line.querySelector('.cc-kind'), val = line.querySelector('.cc-values');
-    function ph(){ val.placeholder = PH[sel.value] || ''; }
-    sel.addEventListener('change', ph); ph();
-    line.querySelector('.cc-del').addEventListener('click', function(){
-      var box = line.parentNode, card = line.closest('[data-cr]');
-      line.remove();
-      // A rule keeps at least one line to type into.
-      if (!box.querySelector('[data-cond]')) addCond(card);
-    });
-  }
-  function addCond(card){
-    var key = card.dataset.key, line = ccTpl.content.firstElementChild.cloneNode(true);
-    line.querySelectorAll('[name]').forEach(function(el){ el.name = el.name.replace('KEY', key); });
-    card.querySelector('.cr-conds').appendChild(line); wireCond(line);
-    if (window.unmaskMaxChars && unmaskMaxChars.wire) unmaskMaxChars.wire(line);
-    line.querySelector('.cc-values').focus();
-    return line;
-  }
-  function wire(card){
-    var cb = card.querySelector('.cr-enabled-cb'), hid = card.querySelector('input[name=cr_enabled]');
-    // A cloned card gets a key of its own: its condition fields and radio
-    // names carry it, so the lines stay with their rule whatever the order.
-    if (card.dataset.key === 'tpl') {
-      seq += 1; var key = 'new' + seq; card.dataset.key = key;
-      card.querySelectorAll('[name]').forEach(function(el){ el.name = el.name.replace('_tpl', '_' + key); });
-      card.querySelector('input[name=cr_key]').value = key;
-    }
-    // Each row of the action box is a tick with its controls beside it,
-    // greyed (disabled) while the tick is off.  Disabled controls are not
-    // posted, so what the server reads lives in hidden fields (one set per
-    // card, in order) that the controls mirror: with the tick off, the
-    // action is "monitor" and the rate is empty.  Both off is refused on
-    // save -- a rule has to do something.
-    var hAct = card.querySelector('input[name=cr_action]'), hRate = card.querySelector('input[name=cr_rate]'), hRact = card.querySelector('input[name=cr_rate_action]');
-    var acb = card.querySelector('.cr-act-cb'), actSel = card.querySelector('.cr-act'), arow = card.querySelector('.cr-apply');
-    var rcb = card.querySelector('.cr-rate-cb'), num = card.querySelector('.cr-rate-n'), ractSel = card.querySelector('.cr-ract'), rate = card.querySelector('.cr-rate');
-    function syncAct(){ actSel.disabled = !acb.checked; arow.classList.toggle('off', !acb.checked); hAct.value = acb.checked ? actSel.value : 'monitor'; }
-    function syncRate(){ var on = rcb.checked; num.disabled = !on; ractSel.disabled = !on; rate.classList.toggle('off', !on); hRate.value = on ? num.value : ''; hRact.value = on ? ractSel.value : ''; }
-    acb.addEventListener('change', syncAct); actSel.addEventListener('change', syncAct);
-    rcb.addEventListener('change', function(){ if (rcb.checked && !(parseInt(num.value, 10) > 0)) num.value = '60'; syncRate(); if (rcb.checked) { num.focus(); num.select(); } });
-    num.addEventListener('input', syncRate); ractSel.addEventListener('change', syncRate);
-    // A figure cleared or zeroed by hand unticks the rate limit.
-    num.addEventListener('change', function(){ if (!(parseInt(num.value, 10) > 0)) { num.value = ''; rcb.checked = false; } syncRate(); });
-    syncAct(); syncRate();
-    // The row's two faces: the list's view (name, lines, answer, rate as
-    // pills) and the form.  "Confirm" rewrites the view from the fields and
-    // folds the form; "edit" opens it again.  The fields post either way.
-    var view = card.querySelector('.cr-view');
-    function syncView(){
-      var lb = card.querySelector('.cr-label'), name = view.querySelector('.cr-v-name');
-      name.textContent = lb.value.trim() || name.dataset.empty; name.classList.toggle('empty', !lb.value.trim());
-      var conds = view.querySelector('.cr-v-conds'); conds.textContent = '';
-      card.querySelectorAll('[data-cond]').forEach(function(line){
-        var sel = line.querySelector('.cc-kind'), vals = line.querySelector('.cc-values').value.trim();
-        if (!vals) return;
-        var pill = document.createElement('span'), b = document.createElement('b');
-        pill.className = 'cr-pill cr-pill-cond'; b.textContent = sel.options[sel.selectedIndex].dataset.pill || sel.value;
-        pill.appendChild(b); pill.appendChild(document.createTextNode(' ' + vals)); conds.appendChild(pill);
-      });
-      if (!conds.children.length) { var e = document.createElement('span'); e.className = 'cr-v-empty'; e.textContent = conds.dataset.empty; conds.appendChild(e); }
-      var ap = view.querySelector('.cr-pill-act');
-      ap.textContent = acb.checked ? actSel.options[actSel.selectedIndex].text : ap.dataset.none; ap.classList.toggle('off', !acb.checked);
-      var rp = view.querySelector('.cr-pill-rate');
-      if (rcb.checked && parseInt(num.value, 10) > 0) { rp.textContent = rp.dataset.fmt.replace('%d', num.value).replace('%s', ractSel.options[ractSel.selectedIndex].text); rp.hidden = false; }
-      else { rp.hidden = true; }
-    }
-    card.querySelector('.cr-done').addEventListener('click', function(){
-      // A name over its limit keeps the form open: the limit's own message
-      // sits beside the field, and folded away it would go unseen.
-      var lb = card.querySelector('.cr-label'), max = parseInt(lb.dataset.maxchars, 10);
-      if (max && lb.value.length > max) { lb.focus(); return; }
-      syncView(); card.classList.remove('editing');
-    });
-    card.querySelector('.cr-edit').addEventListener('click', function(){ card.classList.add('editing'); card.querySelector('.cr-label').focus(); });
-    card.querySelectorAll('[data-cond]').forEach(wireCond);
-    card.querySelector('.cc-add').addEventListener('click', function(){ addCond(card); });
-    cb.addEventListener('change', function(){ hid.value = cb.checked ? '1' : '0'; card.classList.toggle('disabled-row', !cb.checked); });
-    card.querySelector('.cr-remove').addEventListener('click', function(){ card.remove(); });
-    card.querySelector('.cr-up').addEventListener('click', function(){ var p = card.previousElementSibling; if (p && p.hasAttribute('data-cr')) list.insertBefore(card, p); });
-    card.querySelector('.cr-down').addEventListener('click', function(){ var n = card.nextElementSibling; if (n && n.hasAttribute('data-cr')) list.insertBefore(n, card); });
-  }
-  list.querySelectorAll('[data-cr]').forEach(wire);
+  if (!list || !tpl || !add || !window.unmaskCustomRule) return;
+  var CR = window.unmaskCustomRule;
+  list.querySelectorAll('[data-cr]').forEach(function(c){ CR.wire(c, list); });
   // A refused save names the rule ("rule 3 (...)"): open that one, so the
   // fields the message is about are in view.
   var bad = document.querySelector('.banner.bad'), named = bad && /rule (\d+)/.exec(bad.textContent || '');
@@ -4316,7 +4111,7 @@ function secToHuman(s){
   add.addEventListener('click', function(){
     var empty = document.getElementById('cr-empty'); if (empty) empty.remove();
     var card = tpl.content.firstElementChild.cloneNode(true);
-    list.appendChild(card); wire(card);
+    list.appendChild(card); CR.wire(card, list);
     if (window.unmaskMaxChars && unmaskMaxChars.wire) unmaskMaxChars.wire(card);
     card.querySelector('.cr-label').focus();
   });

@@ -1458,6 +1458,11 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminUpgradeReviewApply)))
 	// ASN custom-rule autocomplete: searches the installed ASN mmdb (org name /
 	// AS number).  Read-only, so viewer-and-above (plain AuthMiddleware).
+	// A proposed custom rule as the tab's card, for the ask page's modal
+	// (which saves it with section=custom-rules-add): admin or above, as
+	// the save is.
+	mux.HandleFunc("GET "+base+"/admin/settings/custom-rules/draft",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminCustomRuleDraftCard)))
 	mux.HandleFunc("GET "+base+"/admin/settings/asn/suggest",
 		h.AuthMiddleware(h.AdminASNSuggest))
 	// per-site card endpoints for the Branding / Challenge tabs (= v2

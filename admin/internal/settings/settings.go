@@ -4826,11 +4826,12 @@ type AIAdvisorConfig struct {
 	// the settings UI.  Empty for a local ollama.
 	APIKey string `yaml:"api_key,omitempty"`
 	Model  string `yaml:"model,omitempty"`
-	// Effort: the reasoning effort sent with every question ("" = the
-	// provider's default).  Anthropic takes low / medium / high / xhigh / max
-	// as output_config.effort, an OpenAI-compatible endpoint low / medium /
-	// high as reasoning_effort, Ollama nothing.  The ask page lets the
-	// operator pick one per question over this.
+	// Effort: the reasoning effort sent with every question and every
+	// advisor review ("" = the model's own default).  Anthropic takes low /
+	// medium / high / xhigh / max as output_config.effort, an
+	// OpenAI-compatible endpoint low / medium / high as reasoning_effort,
+	// Ollama nothing; a model known to take none is sent none.  The ask and
+	// advisor pages let the operator pick one over this.
 	Effort string `yaml:"effort,omitempty"`
 	// NotifyEnabled turns on the scheduled pass: the deterministic engine runs
 	// on its own every NotifyIntervalHours and the existing alert channels

@@ -222,7 +222,7 @@ func (a *anthropicChat) step(ctx context.Context) (turn, error) {
 		"messages":   a.messages,
 		"tools":      a.tools,
 	}
-	if e := a.cfg.Effort; e != "" {
+	if e := effortToSend(a.cfg.ResolvedModel(), a.cfg.Effort); e != "" {
 		body["output_config"] = map[string]any{"effort": e}
 	}
 	out, err := post(ctx, endpointOr(a.cfg, "https://api.anthropic.com")+"/v1/messages",
@@ -329,7 +329,7 @@ func (o *openaiChat) step(ctx context.Context) (turn, error) {
 	if len(o.tools) > 0 {
 		body["tools"] = o.tools
 	}
-	if e := o.cfg.Effort; e != "" {
+	if e := effortToSend(o.cfg.ResolvedModel(), o.cfg.Effort); e != "" {
 		body["reasoning_effort"] = e
 	}
 	headers := map[string]string{}

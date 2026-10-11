@@ -985,25 +985,36 @@ func endpointOr(cfg settings.AIAdvisorConfig, def string) string {
 	return def
 }
 
-// callAnthropic uses the Messages API with structured outputs, so the reply is
-// schema-valid JSON in a text block rather than prose we would have to scrape.
-// Thinking is deliberately not configured: on the current models omitting it
-// runs adaptive thinking, which is what this judgement task wants.
-func callAnthropic(ctx context.Context, cfg settings.AIAdvisorConfig, userMsg string) (string, Usage, error) {
-	body := map[string]any{
+// anthropicReviewBody is the review request: the Messages API with structured
+// outputs, so the reply is schema-valid JSON in a text block rather than prose
+// we would have to scrape.  Thinking is deliberately not configured: on the
+// current models omitting it runs adaptive thinking, which is what this
+// judgement task wants.  The effort, when one is configured or picked on the
+// page, rides in the same output_config.
+func anthropicReviewBody(cfg settings.AIAdvisorConfig, userMsg string) map[string]any {
+	oc := map[string]any{
+		"format": map[string]any{
+			"type":   "json_schema",
+			"schema": reviewSchema(),
+		},
+	}
+	if e := effortToSend(cfg.ResolvedModel(), cfg.Effort); e != "" {
+		oc["effort"] = e
+	}
+	return map[string]any{
 		"model":      cfg.ResolvedModel(),
 		"max_tokens": 8192,
 		"system":     systemPrompt,
 		"messages": []any{
 			map[string]any{"role": "user", "content": userMsg},
 		},
-		"output_config": map[string]any{
-			"format": map[string]any{
-				"type":   "json_schema",
-				"schema": reviewSchema(),
-			},
-		},
+		"output_config": oc,
 	}
+}
+
+// callAnthropic sends the review (anthropicReviewBody) and reads its JSON.
+func callAnthropic(ctx context.Context, cfg settings.AIAdvisorConfig, userMsg string) (string, Usage, error) {
+	body := anthropicReviewBody(cfg, userMsg)
 	out, err := postJSON(ctx, endpointOr(cfg, "https://api.anthropic.com")+"/v1/messages",
 		map[string]string{
 			"x-api-key":         cfg.APIKey,
@@ -1038,9 +1049,9 @@ func callAnthropic(ctx context.Context, cfg settings.AIAdvisorConfig, userMsg st
 	return "", usage, fmt.Errorf("no text block in the response")
 }
 
-// callOpenAICompatible targets any /v1/chat/completions server (OpenAI itself,
-// vLLM, LM Studio, an ollama in OpenAI mode).
-func callOpenAICompatible(ctx context.Context, cfg settings.AIAdvisorConfig, userMsg string) (string, Usage, error) {
+// openaiReviewBody is the review request for a /v1/chat/completions server,
+// with the effort as reasoning_effort when one is configured or picked.
+func openaiReviewBody(cfg settings.AIAdvisorConfig, userMsg string) map[string]any {
 	body := map[string]any{
 		"model": cfg.ResolvedModel(),
 		"messages": []any{
@@ -1056,6 +1067,16 @@ func callOpenAICompatible(ctx context.Context, cfg settings.AIAdvisorConfig, use
 			},
 		},
 	}
+	if e := effortToSend(cfg.ResolvedModel(), cfg.Effort); e != "" {
+		body["reasoning_effort"] = e
+	}
+	return body
+}
+
+// callOpenAICompatible targets any /v1/chat/completions server (OpenAI itself,
+// vLLM, LM Studio, an ollama in OpenAI mode).
+func callOpenAICompatible(ctx context.Context, cfg settings.AIAdvisorConfig, userMsg string) (string, Usage, error) {
+	body := openaiReviewBody(cfg, userMsg)
 	headers := map[string]string{}
 	if cfg.APIKey != "" {
 		headers["authorization"] = "Bearer " + cfg.APIKey

@@ -138,7 +138,8 @@ table.cands tbody tr.dismissed td .sig,table.cands tbody tr.dismissed td .score{
 /* The AI bar: what the last click produced, and the button that asks again.
    The page never calls the model on its own. */
 .ai-bar{display:flex;align-items:center;gap:.7rem;flex-wrap:wrap;margin:-.4rem 0 1rem;padding:.5rem .8rem;background:#f5f3ff;border:1px solid #ddd6fe;border-radius:.3rem;font-size:.82rem;color:#4c1d95}
-.ai-bar form{display:inline;margin:0}
+.ai-bar form{display:inline-flex;align-items:center;gap:.6rem;flex-wrap:wrap;margin:0}
+{{ template "ai_picks_css" . }}
 /* no model configured: the same place, quiet, with the way to switch one on */
 .ai-bar.ai-off{background:#f8fafc;border-color:#e2e8f0;color:#475569}
 .ai-bar.ai-off a{color:#1d4ed8}
@@ -205,7 +206,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   {{ template "ua_assets" . }}
   <h1 style="display:flex;align-items:center;gap:.5rem">
     {{ t .Lang "advisor.title" }}
-    <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "advisor.help") }}</span></span>
+    <span class="info-tip" tabindex="0" aria-label="help" style="font-size:.7em;font-weight:normal">?<span class="info-popup">{{ safeHTML (t .Lang "advisor.help") }}{{ if .AIActive }}<br><br>{{ t .Lang "ask.effort_help" }}{{ end }}</span></span>
   </h1>
   {{ template "ban_tabs" . }}
 
@@ -256,6 +257,9 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         <input type="hidden" name="window" value="{{ .WindowH }}">
         <input type="hidden" name="min" value="{{ if .ShowAll }}all{{ end }}">
         <input type="hidden" name="show_dismissed" value="{{ if .ShowDismissed }}1{{ end }}">
+        {{- /* the model and effort for this run; the review shown is the
+             picked model's (a review is kept per model) */}}
+        {{ template "ai_picks" . }}
         <button type="submit" class="btn ai"{{ if .AIRunning }} disabled{{ end }}>{{ if .AIHave }}{{ t .Lang "advisor.ai_rerun" }}{{ else if .AIFailed }}{{ t .Lang "advisor.ai_retry" }}{{ else }}{{ t .Lang "advisor.ai_run" }}{{ end }}</button>
       </form>
       <span class="kv" id="ai-hint">{{ if .AIRunning }}{{ t .Lang "advisor.ai_running_hint" }}{{ else }}{{ t .Lang "advisor.ai_hint" }}{{ end }}</span>
@@ -430,6 +434,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 {{ template "ban_dialog" . }}
 <script>
 {{ template "ip_popover_js" . }}
+{{ template "ai_picks_js" . }}
 
 {{ template "ban_dialog_js" . }}
 
@@ -590,6 +595,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         obar.parentNode.replaceChild(document.importNode(nbar, true), obar);
         (window.unmaskRewire || []).forEach(function(fn){ try { fn(document.getElementById('cands-body')); } catch (e) {} });
         if (window.unmaskFmtTimes) { try { window.unmaskFmtTimes(); } catch (e) {} }
+        if (window.unmaskAIPicks) window.unmaskAIPicks(bar());
         if (note === 'uptodate') showUpToDate();
         bind();
       })

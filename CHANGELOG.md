@@ -20,6 +20,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- (2026-10-12) **Ask AI adds a rule in place; the effort pick names its default.**  "Create this rule" opens the proposed rule in a dialog, the custom-rules tab's own card, and adds it without leaving the page, warning when a rule with the same conditions exists.  The effort's default now says what runs, and the advisor page picks its model and effort too, keeping a review per model.
+
 - (2026-10-12) **Ask AI shows what an answer cost, and its addresses open the popover.**  An answer's token line now carries its cost, estimated from the provider's published list prices, and the history tab sums the month for every account; both are marked as estimates, the provider's statement being the bill.  An address an answer names opens the hunt page's popover -- reverse DNS, country, ASN -- on hover or click.
 
 ### Removed

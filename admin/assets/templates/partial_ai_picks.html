@@ -1,0 +1,55 @@
+{{- /*
+  ai_picks: the model and effort picks of the ask and advisor pages
+  (handlers.aiPicksView as .AIPicks).  The effort's first option is the
+  default, named: the configured effort, the picked model's own level, or
+  "the model's own"; each model option carries its own text for it, so a
+  model change renames it without a round trip.  A model known to take no
+  effort holds the effort pick.
+
+  ai_picks_js remembers the picks in two cookies under the admin path
+  (unmask_<page>_model / _effort; the server reads them to draw the picks
+  and, on the advisor page, to show the picked model's review -- a model
+  change there reloads the page for that).
+
+  Markup ids: <page>-model, <page>-effort (ask-model, advisor-model).
+  ai_picks_css: the rules (no <style>), for the page's own style block.
+  window.unmaskAIPicks(root) wires the picks under root, once each: a page
+  that swaps them in from a fresh render calls it again.
+*/ -}}
+{{ define "ai_picks_css" -}}
+.pick{display:inline-flex;align-items:center;gap:.3rem;font-size:.75rem;color:#64748b;white-space:nowrap}
+.pick-sel{font:inherit;font-size:.78rem;height:2rem;padding:0 .4rem;border:1px solid #cbd5e1;border-radius:.3rem;background:#fff;color:#334155;max-width:13rem}
+.pick-sel:disabled{opacity:.55;cursor:not-allowed}
+.ai-picks{display:inline-flex;gap:.6rem;align-items:center;flex-wrap:wrap}
+{{- end }}
+{{ define "ai_picks" }}{{ with .AIPicks }}<span class="ai-picks" data-page="{{ .Page }}" data-base="{{ $.BasePath }}"><label class="pick"><span>{{ t $.Lang "ask.model" }}</span><select name="model" id="{{ .Page }}-model" class="pick-sel">{{ range .Models }}<option value="{{ .ID }}" data-effort-default="{{ .DefaultLabel }}"{{ if .NoEffort }} data-no-effort="1"{{ end }}{{ if eq .ID $.AIPicks.Model }} selected{{ end }}>{{ if .Label }}{{ .Label }}{{ else }}{{ .ID }}{{ end }}</option>{{ end }}</select></label>{{ if .Efforts }} <label class="pick"><span>{{ t $.Lang "ask.effort" }}</span><select name="effort" id="{{ .Page }}-effort" class="pick-sel"{{ if .NoEffort }} disabled{{ end }}><option value="">{{ .DefaultLabel }}</option>{{ range .Efforts }}<option value="{{ . }}"{{ if and (eq . $.AIPicks.Effort) (not $.AIPicks.NoEffort) }} selected{{ end }}>{{ . }}</option>{{ end }}</select></label>{{ end }}</span>{{ end }}{{ end }}
+{{ define "ai_picks_js" -}}
+// The model and effort picks (partial_ai_picks.html).
+window.unmaskAIPicks = function(root){
+  (root || document).querySelectorAll('.ai-picks').forEach(function(box){
+    if (box.dataset.wired) return;
+    box.dataset.wired = '1';
+    var page = box.dataset.page, ms = box.querySelector('select[name=model]'), es = box.querySelector('select[name=effort]');
+    function remember(which, v){
+      try { document.cookie = 'unmask_' + page + '_' + which + '=' + encodeURIComponent(v) + '; path=' + box.dataset.base + '/admin/; max-age=31536000; samesite=lax' + (location.protocol === 'https:' ? '; secure' : ''); } catch (e) {}
+    }
+    // The default names what the picked model runs at; a model that takes
+    // no effort holds the pick.
+    function syncEffort(){
+      if (!ms || !es) return;
+      var o = ms.options[ms.selectedIndex];
+      if (!o) return;
+      es.options[0].textContent = o.dataset.effortDefault || es.options[0].textContent;
+      es.disabled = o.dataset.noEffort === '1';
+      if (es.disabled) es.value = '';
+    }
+    if (ms) ms.addEventListener('change', function(){
+      remember('model', ms.value); syncEffort();
+      // The advisor keeps a review per model: show the picked one's.
+      if (page === 'advisor') location.reload();
+    });
+    if (es) es.addEventListener('change', function(){ remember('effort', es.value); });
+  });
+};
+window.unmaskAIPicks(document);
+{{- end }}

@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -317,12 +316,10 @@ func (h *Handler) askPage(w http.ResponseWriter, r *http.Request, tab string) {
 		"BasePath":     h.cfg().Server.BasePath,
 		"Version":      h.Version,
 		"AIActive":     cfg.Active(),
-		"AIModel":      cfg.ResolvedModel(),
-		"AIModels":     h.askModelChoices(cfg),
-		"AIEfforts":    advisor.EffortLevels(cfg.ResolvedProvider()),
-		"AIEffort":     cfg.Effort,
+		"AIPicks":      h.aiPicks(r, "ask"),
 		"Suggests":     askSuggestions(i18n.Resolve(r)),
 		"CanAsk":       canAsk,
+		"CRKinds":      settings.CustomConditionKinds,
 		"Tab":          tab,
 		"Turns":        turns,
 		"HistoryCount": len(rows),
@@ -382,19 +379,9 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 	// The page's picks for this question: a model from the provider's list
 	// (the one fetched for the AI tab, or the configured one) and an effort
 	// the provider takes.  The configured values stay what they are.
-	if m := strings.TrimSpace(r.FormValue("model")); m != "" && m != cfg.ResolvedModel() {
-		if !h.askModelAllowed(cfg, m) {
-			fail(http.StatusBadRequest, i18n.T(lang, "ask.err_model"))
-			return
-		}
-		cfg.Model = m
-	}
-	if e := strings.TrimSpace(r.FormValue("effort")); e != "" && e != cfg.Effort {
-		if !slices.Contains(advisor.EffortLevels(cfg.ResolvedProvider()), e) {
-			fail(http.StatusBadRequest, i18n.T(lang, "ask.err_effort"))
-			return
-		}
-		cfg.Effort = e
+	if err := h.applyAIPick(&cfg, r.FormValue("model"), r.FormValue("effort"), lang); err != nil {
+		fail(http.StatusBadRequest, err.Error())
+		return
 	}
 	mu, _ := askBusy.LoadOrStore(pay.UserID, &sync.Mutex{})
 	if !mu.(*sync.Mutex).TryLock() {
@@ -464,34 +451,6 @@ func (h *Handler) AdminAskDelete(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/ask/history/", http.StatusSeeOther)
-}
-
-// askModelChoices is the model pick's list: the provider's models as the AI
-// tab fetched them, with the configured model first (added when the list
-// does not carry it, or there is no list).
-func (h *Handler) askModelChoices(cfg settings.AIAdvisorConfig) []advisor.ModelInfo {
-	cur := cfg.ResolvedModel()
-	out := []advisor.ModelInfo{{ID: cur}}
-	if c := h.loadModelCache(); c != nil {
-		for _, m := range c.Models {
-			if m.ID == cur {
-				out[0].Label = m.Label
-				continue
-			}
-			out = append(out, m)
-		}
-	}
-	return out
-}
-
-// askModelAllowed: a question may name any model of askModelChoices.
-func (h *Handler) askModelAllowed(cfg settings.AIAdvisorConfig, id string) bool {
-	for _, m := range h.askModelChoices(cfg) {
-		if m.ID == id {
-			return true
-		}
-	}
-	return false
 }
 
 // askSuggestions: the example questions in the composer's pick, in order.

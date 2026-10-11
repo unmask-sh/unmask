@@ -73,7 +73,9 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 	// banned or dismissed, the reverse DNS it resolved -- and how old that
 	// is, so the operator can decide whether to ask again.
 	var reviews map[string]advisor.Review
-	aiCfg := h.cfg().AIAdvisor
+	// The model the page picks (a review is kept per model: the one shown
+	// is the picked model's) and the effort its runs go out with.
+	aiCfg, _ := h.pickedAICfg(r, "advisor")
 	aiHave, aiFailed, aiAt, aiAge, aiModel, aiErr, aiErrAt := false, false, "", "", "", "", ""
 	var aiErrAtTs int64
 	aiReviewed, aiKept := 0, 0
@@ -194,6 +196,7 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 		"AttentionScore": advisor.AttentionScore,
 		"Reviews":        reviews,
 		"AIActive":       aiCfg.Active(),
+		"AIPicks":        h.aiPicks(r, "advisor"),
 		"AIHave":         aiHave,
 		"AIFailed":       aiFailed,
 		"AIAt":           aiAt,
@@ -416,7 +419,6 @@ func (h *Handler) AdminAdvisorAIRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lang := string(i18n.Resolve(r))
-	key := advisor.ResultKey(aiCfg, windowH*60, lang)
 	respond := func(code int, body map[string]any) {
 		if wantsJSON(r) {
 			writeJSON(w, code, body)
@@ -424,6 +426,18 @@ func (h *Handler) AdminAdvisorAIRun(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Redirect(w, r, back, http.StatusFound)
 	}
+	// The run's model and effort: the page's picks, posted with the click,
+	// else the remembered ones.  A pick the provider does not take is
+	// refused, the way the bar shows any failure to start.
+	if r.Form.Has("model") || r.Form.Has("effort") {
+		if err := h.applyAIPick(&aiCfg, r.FormValue("model"), r.FormValue("effort"), i18n.Lang(lang)); err != nil {
+			respond(http.StatusOK, map[string]any{"running": false, "error": err.Error()})
+			return
+		}
+	} else {
+		aiCfg, _ = h.pickedAICfg(r, "advisor")
+	}
+	key := advisor.ResultKey(aiCfg, windowH*60, lang)
 	if info, ok := advisor.Running(key); ok {
 		respond(http.StatusAccepted, map[string]any{"running": true, "since": int(time.Since(info.Since).Seconds()), "sent": keys(info.Sent), "kept": keys(info.Kept)})
 		return
@@ -488,7 +502,7 @@ func (h *Handler) AdminAdvisorStatus(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) AdminAdvisorAIStatus(w http.ResponseWriter, r *http.Request) {
 	windowH := advisorWindow(r.URL.Query().Get("window"))
-	aiCfg := h.cfg().AIAdvisor
+	aiCfg, _ := h.pickedAICfg(r, "advisor")
 	if !aiCfg.Active() {
 		writeJSON(w, http.StatusOK, map[string]any{"active": false, "running": false})
 		return

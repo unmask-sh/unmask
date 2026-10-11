@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -293,4 +295,68 @@ func customRuleRef(i int, name string) string {
 func customRuleSame(a, b settings.CustomRule) bool {
 	a.CreatedAt, a.UpdatedAt, b.CreatedAt, b.UpdatedAt = 0, 0, 0, 0
 	return fmt.Sprintf("%+v", a) == fmt.Sprintf("%+v", b)
+}
+
+// AdminCustomRuleDraftCard: GET {base}/admin/settings/custom-rules/draft --
+// a proposed rule (settings.CustomRuleDraftQuery, as the hunt and the
+// assistant link it) as the custom-rules tab's card, open for editing.  The
+// ask page shows it in a modal and saves it with section=custom-rules-add.
+// A rule already on the list with the same conditions is named above it,
+// so a second click on the same answer does not add the rule twice unseen.
+func (h *Handler) AdminCustomRuleDraftCard(w http.ResponseWriter, r *http.Request) {
+	tmpl, err := loadDashboardTemplate()
+	if err != nil {
+		http.Error(w, "template error", http.StatusInternalServerError)
+		return
+	}
+	lang := i18n.Resolve(r)
+	q := r.URL.Query()
+	q.Set("new", "1")
+	card := customRuleDraft(q, lang, h.customRuleRateDefault(lang))
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	data := map[string]any{"Card": card, "Dup": customRuleWithConditions(h.cfg().Nginx.CustomRules, card.Conditions)}
+	if err := tmpl.ExecuteTemplate(w, "cr_draft_body", data); err != nil {
+		log.Printf("custom rule draft card: %v", err)
+	}
+}
+
+// customRuleWithConditions names the first rule whose conditions are the
+// same as conds (each kind with the same values, in any order), or "".
+func customRuleWithConditions(rules []settings.CustomRule, conds []settings.CustomCondition) string {
+	sig := func(cs []settings.CustomCondition) string {
+		var lines []string
+		for _, c := range cs {
+			vals := make([]string, 0, len(c.Values))
+			for _, v := range c.Values {
+				vals = append(vals, strings.ToLower(strings.TrimSpace(v)))
+			}
+			sort.Strings(vals)
+			lines = append(lines, strings.ToLower(strings.TrimSpace(c.Kind))+":"+strings.Join(vals, ","))
+		}
+		sort.Strings(lines)
+		return strings.Join(lines, "|")
+	}
+	want := sig(conds)
+	for i, r := range rules {
+		if len(r.Conditions) > 0 && sig(r.Conditions) == want {
+			return strings.TrimPrefix(customRuleRef(i, r.Label), "rule ")
+		}
+	}
+	return ""
+}
+
+// freeCustomRuleID is id, or id with a suffix when a rule already holds it:
+// a rule added on its own gets the id a new card gets (the time and its
+// position), which a rule saved in the same second can hold already.  The
+// suffix keeps to the id's alphabet (settings: [a-z0-9], 24 at most).
+func freeCustomRuleID(rules []settings.CustomRule, id string) string {
+	taken := map[string]bool{}
+	for _, r := range rules {
+		taken[r.ID] = true
+	}
+	out := id
+	for n := int64(1); taken[out]; n++ {
+		out = id + strconv.FormatInt(n, 36)
+	}
+	return out
 }

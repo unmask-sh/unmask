@@ -41,7 +41,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       }
       let count = '?';
       try { count = JSON.parse(lastTool.content).count; } catch (e) {}
-      res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'E2E-ANSWER: the ban list has ' + count + ' rows, most from 203.0.113.5. See /admin/bans/ for them.\n```\nbans count=' + count + '\n```' } }], usage: { prompt_tokens: 40, completion_tokens: 9 } }));
+      res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'E2E-ANSWER: the ban list has ' + count + ' rows, most from 203.0.113.5. See /admin/bans/ for them.\n```\nbans count=' + count + '\n```\nA rule for it: /admin/settings/custom-rules/?new=1&label=e2e%20rule&c=ip%3A203.0.113.5&action=captcha_only' } }], usage: { prompt_tokens: 40, completion_tokens: 9 } }));
     });
   });
   await new Promise(r => stub.listen(0, '127.0.0.1', r));
@@ -110,6 +110,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   // what the provider takes, and a pick rides along with the question.
   const picks = await page.evaluate(() => ({ model: (document.getElementById('ask-model') || {}).value, efforts: Array.from((document.getElementById('ask-effort') || { options: [] }).options).map(o => o.value) }));
   ok(picks.model === 'e2e-model' && picks.efforts.join(',') === ',low,medium,high', 'the model / effort picks are not as expected: ' + JSON.stringify(picks));
+  // The effort's default says what runs (here: a model the table does not
+  // know, so "the model's own").
+  const defLabel = await page.$eval('#ask-effort option', o => o.textContent);
+  ok(/\(.+\)/.test(defLabel), 'the effort default is not named: ' + defLabel);
   await page.select('#ask-effort', 'low');
   await page.evaluate(() => { document.getElementById('ask-q').value = 'E2E: how many bans?'; });
   await page.click('#ask-send');
@@ -145,6 +149,39 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const pop = await page.evaluate(() => { const p = document.getElementById('ip-popover'); return p ? { shown: p.offsetParent !== null, text: p.textContent } : null; });
     ok(pop && pop.shown && pop.text.indexOf('203.0.113.5') >= 0, 'the address popover did not open: ' + JSON.stringify(pop));
     await page.mouse.move(5, 5);
+  }
+  // "Make this rule" opens the rule in a modal: the custom-rules tab's card
+  // for it, edited in place and added without leaving the page; the button
+  // then says so, and the tab lists the rule.
+  if (answered) {
+    const btnText = await page.evaluate(() => { const a = document.querySelector('#turns a.ask-rule'); return a ? a.textContent : ''; });
+    ok(btnText !== '' && btnText.indexOf('\u2197') < 0, 'the rule button is missing, or still promises a new tab: ' + btnText);
+    await page.click('#turns a.ask-rule');
+    await page.waitForSelector('#cr-modal[open] #cr-modal-body [data-cr]', { timeout: 5000 }).catch(() => {});
+    const card = await page.evaluate(() => { const c = document.querySelector('#cr-modal[open] #cr-modal-body [data-cr]'); return c ? { label: c.querySelector('.cr-label').value, vals: c.querySelector('.cc-values').value, act: c.querySelector('input[name=cr_action]').value, path: location.pathname } : null; });
+    ok(!!card && card.label === 'e2e rule' && card.vals === '203.0.113.5' && card.act === 'captcha_only' && /\/admin\/ask\/$/.test(card.path), 'the modal does not carry the proposed rule: ' + JSON.stringify(card));
+    if (process.env.UI_E2E_SHOT_DIR) {
+      try { await page.screenshot({ path: path.join(process.env.UI_E2E_SHOT_DIR, 'ask-rule-modal.png') }); } catch (e) {}
+    }
+    await page.focus('#cr-modal .cr-label');
+    await page.keyboard.down('Control'); await page.keyboard.press('KeyA'); await page.keyboard.up('Control');
+    await page.keyboard.type('e2e rule from ask');
+    await page.click('#cr-modal-save');
+    await page.waitForSelector('#cr-modal-msg.ok', { timeout: 5000 }).catch(() => {});
+    const saved = await page.evaluate(() => ({ msg: (document.getElementById('cr-modal-msg') || {}).textContent || '', added: !!document.querySelector('#turns a.ask-rule.added'), saveHidden: document.getElementById('cr-modal-save').hidden }));
+    ok(/nginx/.test(saved.msg) && saved.added && saved.saveHidden, 'the add did not report, or the button did not change: ' + JSON.stringify(saved));
+    await page.click('#cr-modal-cancel');
+    const tabPage = await browser.newPage();
+    await tabPage.goto(BASE + '/admin/settings/custom-rules/', { waitUntil: 'networkidle2' });
+    const listed = await tabPage.evaluate(() => Array.from(document.querySelectorAll('#cr-list [data-cr] .cr-v-name')).map(e => e.textContent.trim()));
+    ok(listed.length === 1 && listed[0] === 'e2e rule from ask', 'the tab does not list the added rule: ' + JSON.stringify(listed));
+    // Leave the list empty for the custom-rules test: a save of no cards.
+    // (The page's CSRF shim puts the token on a same-origin fetch.)
+    await tabPage.evaluate(async (base) => { await fetch(base + '/admin/settings/save?section=custom-rules', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: '' }); }, BASE);
+    await tabPage.goto(BASE + '/admin/settings/custom-rules/', { waitUntil: 'networkidle2' });
+    const left = await tabPage.evaluate(() => document.querySelectorAll('#cr-list [data-cr]').length);
+    ok(left === 0, 'the added rule could not be cleared: ' + left + ' left');
+    await tabPage.close();
   }
   ok(seen.length === 2 && Array.isArray(seen[0].tools) && seen[0].tools.length >= 5, 'the provider did not get the tools, or was called ' + seen.length + ' times');
   const released = await page.evaluate(() => !document.getElementById('ask-send').disabled);

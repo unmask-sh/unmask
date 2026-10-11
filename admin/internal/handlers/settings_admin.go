@@ -1435,7 +1435,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch section {
-	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "custom-rules", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "retention", "performance", "community-bans", "sites", "about", "geo", "asn", "gateway", "ai-advisor":
+	case "global", "network", "ua-filter", "ja4-verdicts", "honeypot", "custom-rules", "custom-rules-add", "bypass-ips", "bypass-paths", "web-bot-auth", "privacy-pass", "protected", "captcha", "challenge", "rate_limit", "deny_design", "theme", "branding", "appearance", "notifications", "retention", "performance", "community-bans", "sites", "about", "geo", "asn", "gateway", "ai-advisor":
 		// ok
 	default:
 		http.Error(w, "unknown section", http.StatusBadRequest)
@@ -1457,7 +1457,19 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	// off -> on, so we kick an immediate feed pull after save (= populate the
 	// browse list now instead of waiting for the next hourly tick).
 	communityPullNeeded := false
+	// custom-rules-add is the ask page's modal: one rule added after the
+	// list's own, answered in JSON for the page's script (a plain post
+	// lands on the tab like any other save).
+	jsonAnswer := section == "custom-rules-add" && wantsJSON(r)
 	redirBack := func(msg string) {
+		if jsonAnswer {
+			if msg != "" {
+				writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": msg})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "reload": nginxReloadNeeded, "restart": unmaskRestartNeeded})
+			return
+		}
 		dst := base + "/admin/settings/" + tabForSection(section) + "/"
 		if msg == "" {
 			// Pass the section name through to the saved banner; reload=1 tells
@@ -1739,6 +1751,20 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			redirBack(err.Error())
 			return
 		}
+	case "custom-rules-add":
+		// The form is one card, read as the tab reads its list; the rule
+		// joins the end of the list as the tab's draft card would.
+		var add []settings.CustomRule
+		if err := applyCustomRulesForm(&add, r); err != nil {
+			redirBack(err.Error())
+			return
+		}
+		if len(add) != 1 {
+			redirBack("one rule expected")
+			return
+		}
+		add[0].ID = freeCustomRuleID(cur.Nginx.CustomRules, add[0].ID)
+		cur.Nginx.CustomRules = append(cur.Nginx.CustomRules, add[0])
 	case "geo":
 		geoStored := map[string][]string{
 			"geo_country": countriesOfGeo(cur.Nginx.Geo.Rules),
@@ -2080,6 +2106,9 @@ var settingsTabs = map[string]bool{
 func tabForSection(s string) string {
 	if s == "branding" || s == "appearance" {
 		return "theme"
+	}
+	if s == "custom-rules-add" {
+		return "custom-rules"
 	}
 	return strings.ReplaceAll(s, "_", "-")
 }
