@@ -105,12 +105,13 @@ func (d Deps) List() []Tool {
 				"window_hours": hoursProp("trailing window in hours; 24 by default"),
 				"limit":        map[string]any{"type": "integer", "minimum": 1, "maximum": 50, "description": "rows to return; 20 by default"},
 			}, "kind")},
-		{Name: "events", Description: "Rows of the event log (challenge served, loaded, solved, abandoned, passed on a cookie...), newest first, with optional filters.  Substring filters on ip, ja4 and ua.",
+		{Name: "events", Description: "Rows of the event log (challenge served, loaded, solved, abandoned, passed on a cookie...), newest first, with optional filters.  Substring filters on ip, ja4 and ua.  reason narrows serves to why they were forced -- rate_limit for who hit the rate limit, honeypot for what tripped the honeypot -- which is the way to count those over a window (group the rows by address in the answer).",
 			Schema: obj(map[string]any{
 				"ip":           map[string]any{"type": "string", "description": "address or its prefix"},
 				"ja4":          map[string]any{"type": "string", "description": "JA4 fingerprint or its prefix"},
 				"ua":           map[string]any{"type": "string", "description": "a substring of the user agent"},
 				"phase":        map[string]any{"type": "string", "description": "one phase: serve, load, abandon, bv_pow_only, bv_captcha_only, bv_pow_then_captcha, bv_rebind, check"},
+				"reason":       map[string]any{"type": "string", "description": "why the challenge was forced: rate_limit, honeypot, banned, protected, asn, geo, ja4_bot, ua_target, header, stale, geo_deny, asn_deny, ua_deny, ja4_deny, community_deny; serves only"},
 				"site":         map[string]any{"type": "string", "description": "one site (host name) on a multi-site install"},
 				"window_hours": hoursProp("trailing window in hours; 24 by default"),
 				"limit":        map[string]any{"type": "integer", "minimum": 1, "maximum": 200, "description": "rows to return; 50 by default"},
@@ -192,7 +193,7 @@ func (d Deps) Run(ctx context.Context, name string, args map[string]any) (any, e
 	case "top":
 		return d.top(ctx, str("kind"), hours, num("limit", 20, 50))
 	case "events":
-		return d.events(ctx, str("ip"), str("ja4"), str("ua"), str("phase"), str("site"), hours, num("limit", 50, 200))
+		return d.events(ctx, str("ip"), str("ja4"), str("ua"), str("phase"), str("reason"), str("site"), hours, num("limit", 50, 200))
 	case "lookup_ip":
 		ip := str("ip")
 		if net.ParseIP(ip) == nil {
@@ -375,11 +376,11 @@ func (d Deps) top(ctx context.Context, kind string, hours, limit int) (any, erro
 	return map[string]any{"kind": kind, "window_hours": hours, "rows": list, "note": untrusted}, nil
 }
 
-func (d Deps) events(ctx context.Context, ip, ja4, ua, phase, site string, hours, limit int) (any, error) {
+func (d Deps) events(ctx context.Context, ip, ja4, ua, phase, reason, site string, hours, limit int) (any, error) {
 	if d.DB == nil {
 		return nil, errors.New("no database")
 	}
-	rows, err := events.FetchPaged(ctx, d.DB, ip, ja4, ua, "", phase, "", site, nil, hours*60, limit, 0)
+	rows, err := events.FetchPaged(ctx, d.DB, ip, ja4, ua, "", phase, reason, site, nil, hours*60, limit, 0)
 	if err != nil {
 		return nil, err
 	}
