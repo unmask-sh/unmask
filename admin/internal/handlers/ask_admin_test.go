@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/advisor"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -125,7 +127,7 @@ func TestAskPageAndSend(t *testing.T) {
 		t.Errorf("answer %v", out)
 	}
 	tools := out["tools"].([]any)
-	if len(tools) != 1 || tools[0].(map[string]any)["name"] != "bans" {
+	if len(tools) != 1 || tools[0].(map[string]any)["name"] != "bans" || tools[0].(map[string]any)["calls"] != float64(1) {
 		t.Errorf("tools %v", tools)
 	}
 	// The answer's runs ride along for the page to draw: the path a link,
@@ -424,7 +426,7 @@ func TestAskHistoryCostAndAddresses(t *testing.T) {
 	h.SetSettings(s)
 	now := time.Now().Unix()
 	for _, row := range []db.AIChat{
-		{UserID: 7, AskedAt: now - 60, Question: "who", Answer: "45.148.10.244 が Chrome/120.0.0.0 で 14:42:28 に。", Tools: "[]", Model: "claude-haiku-5-5", InTokens: 59340, OutTokens: 2219},
+		{UserID: 7, AskedAt: now - 60, Question: "who", Answer: "45.148.10.244 が Chrome/120.0.0.0 で 14:42:28 に。", Tools: `[{"name":"events","args":{"ip":"45.148.10.244"},"ms":120},{"name":"settings_find","ms":5},{"name":"events","args":{"ip":"35.74.36.78"},"ms":340,"err":"timeout"}]`, Model: "claude-haiku-5-5", InTokens: 59340, OutTokens: 2219},
 		{UserID: 8, AskedAt: now - 30, Question: "other account", Answer: "x", Tools: "[]", Model: "claude-opus-5-5", InTokens: 100000, OutTokens: 10000}, // $0.40 + $0.20
 		{UserID: 7, AskedAt: now - 3*32*86400, Question: "old", Answer: "y", Tools: "[]", Model: "claude-haiku-5-5", InTokens: 1000000, OutTokens: 0},     // not this month
 		{UserID: 7, AskedAt: now - 10, Question: "failed", Answer: "", Tools: "[]", Model: "claude-haiku-5-5", Err: "boom"},
@@ -442,6 +444,9 @@ func TestAskHistoryCostAndAddresses(t *testing.T) {
 		` $0.007</span>`,           // the answer's own cost after its token line
 		`id="ask-month">`, `$0.61`, // the month: $0.007 + $0.60, two questions
 		`(2 `,
+		// The model looked events up twice: one chip with the count, the
+		// failed call marking it, a space before the next chip.
+		`<span class="tool-chip err" title="460 ms">events ×2</span> <span class="tool-chip" title="5 ms">settings_find</span>`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("history lacks %q", want)
@@ -458,5 +463,23 @@ func TestAskHistoryCostAndAddresses(t *testing.T) {
 	h.AdminAskHistory(rec, askReq("GET", "/unmask/admin/ask/history/", "", "admin"))
 	if body = rec.Body.String(); strings.Contains(body, "$0.007") || strings.Contains(body, `id="ask-month"`) {
 		t.Error("a local provider shows a cost")
+	}
+}
+
+// A tool called more than once is one chip: the calls counted, their time
+// summed, a failed call marking it, in the order the tools were first used.
+func TestAskToolChips(t *testing.T) {
+	got := askToolChips([]advisor.ToolTrace{
+		{Name: "events", Ms: 10},
+		{Name: "settings_find", Ms: 5},
+		{Name: "events", Ms: 20, Err: "boom"},
+		{Name: "events", Ms: 1},
+	})
+	want := []askToolChip{{Name: "events", Calls: 3, Ms: 31, Err: true}, {Name: "settings_find", Calls: 1, Ms: 5}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("chips %+v", got)
+	}
+	if askToolChips(nil) != nil {
+		t.Error("no calls gave chips")
 	}
 }

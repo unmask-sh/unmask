@@ -42,7 +42,7 @@ type askView struct {
 	Question  string
 	Answer    string
 	Parts     []askPart // the answer split at ``` fences: text, and blocks
-	Tools     []advisor.ToolTrace
+	Tools     []askToolChip
 	AskedTS   int64
 	Model     string
 	InTokens  int
@@ -55,6 +55,37 @@ type askView struct {
 	Folded bool
 	// QuestionHead names the turn in the delete confirmation.
 	QuestionHead string
+}
+
+// askToolChip is one tool on an answer's meta line.  A tool the model
+// called more than once (events for two addresses, say) shows once with
+// its count; Ms is the time all its calls took.
+type askToolChip struct {
+	Name  string `json:"name"`
+	Calls int    `json:"calls"`
+	Ms    int64  `json:"ms"`
+	Err   bool   `json:"err,omitempty"` // a call failed
+}
+
+// askToolChips folds the calls into one chip per tool, in the order each
+// tool was first called.
+func askToolChips(calls []advisor.ToolTrace) []askToolChip {
+	var out []askToolChip
+	at := map[string]int{}
+	for _, c := range calls {
+		i, ok := at[c.Name]
+		if !ok {
+			i = len(out)
+			at[c.Name] = i
+			out = append(out, askToolChip{Name: c.Name})
+		}
+		out[i].Calls++
+		out[i].Ms += c.Ms
+		if c.Err != "" {
+			out[i].Err = true
+		}
+	}
+	return out
 }
 
 // askTools: the tools for one question.  The settings outline renders as
@@ -228,7 +259,9 @@ func askViews(rows []db.AIChat, fold bool) []askView {
 	for _, r := range rows {
 		v := askView{ID: r.ID, Question: r.Question, Answer: r.Answer, Parts: splitFences(r.Answer), AskedTS: r.AskedAt, Model: r.Model, InTokens: r.InTokens, OutTokens: r.OutTokens, Err: r.Err}
 		if r.Tools != "" {
-			_ = json.Unmarshal([]byte(r.Tools), &v.Tools)
+			var calls []advisor.ToolTrace
+			_ = json.Unmarshal([]byte(r.Tools), &calls)
+			v.Tools = askToolChips(calls)
 		}
 		v.Folded = fold && r.Err == "" && (len([]rune(r.Answer)) > 160 || strings.Count(r.Answer, "\n") > 1)
 		q := []rune(strings.Join(strings.Fields(r.Question), " "))
@@ -422,7 +455,7 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"ok": true, "id": row.ID, "answer": res.Answer, "parts": splitFences(res.Answer), "tools": res.Tools,
+		"ok": true, "id": row.ID, "answer": res.Answer, "parts": splitFences(res.Answer), "tools": askToolChips(res.Tools),
 		"cost":      askCostOf(cfg.ResolvedProvider(), row.Model, res.Usage.Input, res.Usage.Output),
 		"in_tokens": res.Usage.Input, "out_tokens": res.Usage.Output, "model": row.Model, "asked_ts": row.AskedAt,
 	})

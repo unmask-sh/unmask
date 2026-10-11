@@ -35,7 +35,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       if (!lastTool) {
         // Slow enough for the page's pending state to be seen.
         setTimeout(() => {
-          res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'bans', arguments: '{"limit":5}' } }] } }], usage: { prompt_tokens: 12, completion_tokens: 3 } }));
+          res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: '', tool_calls: [{ id: 'c1', type: 'function', function: { name: 'bans', arguments: '{"limit":5}' } }, { id: 'c2', type: 'function', function: { name: 'bans', arguments: '{"limit":3}' } }] } }], usage: { prompt_tokens: 12, completion_tokens: 3 } }));
         }, 1500);
         return;
       }
@@ -136,7 +136,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     ok(/the ban list has \d+ rows/.test(answered.text), 'the answer does not carry the tool result: ' + answered.text);
     ok(answered.pre, 'the code fence was not shown as a block');
     ok(answered.link === '/unmask/admin/bans/', 'the admin path in the answer is not a link: ' + answered.link);
-    ok(answered.chips.join(',') === 'bans', 'the tool chips: ' + answered.chips.join(','));
+    // The two bans calls are one chip with their count.
+    ok(answered.chips.join(',') === 'bans ×2', 'the tool chips: ' + answered.chips.join(','));
     ok(/52/.test(answered.meta) && /e2e-model/.test(answered.meta), 'the token line is missing: ' + answered.meta);
     ok(!answered.fail, 'the answer is marked failed');
     ok(answered.ip === '203.0.113.5', 'the address in the answer is not marked for the popover: ' + answered.ip);
@@ -201,12 +202,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   // delete removes the one turn after the dialog.
   resp = await page.goto(BASE + '/admin/ask/history/', { waitUntil: 'networkidle2' });
   ok(resp.status() === 200, `/admin/ask/history/ status ${resp.status()}`);
-  const hist = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, folded: !!document.querySelector('#turns .a.folded'), toggle: !!document.querySelector('#turns .a .a-toggle'), del: !!document.querySelector('#turns .a form[action$="/admin/ask/delete"]'), clear: !!document.querySelector('form[action$="/admin/ask/clear"]'), metaHidden: (function(){ const m = document.querySelector('#turns .a .a-meta'); return m ? getComputedStyle(m).display === 'none' : null; })(), text: (document.querySelector('#turns .a .txt') || {}).textContent || '', pre: !!document.querySelector('#turns .a pre'), link: (function(){ const a = document.querySelector('#turns .a .txt a'); return a ? a.getAttribute('href') : ''; })(), copy: !!document.querySelector('#turns .a .a-copy') }));
+  const hist = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, folded: !!document.querySelector('#turns .a.folded'), toggle: !!document.querySelector('#turns .a .a-toggle'), del: !!document.querySelector('#turns .a form[action$="/admin/ask/delete"]'), clear: !!document.querySelector('form[action$="/admin/ask/clear"]'), metaHidden: (function(){ const m = document.querySelector('#turns .a .a-meta'); return m ? getComputedStyle(m).display === 'none' : null; })(), text: (document.querySelector('#turns .a .txt') || {}).textContent || '', pre: !!document.querySelector('#turns .a pre'), link: (function(){ const a = document.querySelector('#turns .a .txt a'); return a ? a.getAttribute('href') : ''; })(), copy: !!document.querySelector('#turns .a .a-copy'), chips: Array.from(document.querySelectorAll('#turns .a .tool-chip')).map(c => c.textContent) }));
   ok(hist.turns === 1 && hist.folded && hist.toggle && hist.del && hist.clear, 'the history tab is not as expected: ' + JSON.stringify(hist));
   // The server-rendered turn: the answer whole in the DOM, the fence a
   // block, the admin path linked, a copy.
   ok(hist.text.indexOf('E2E-ANSWER') >= 0 && hist.pre && hist.link === '/unmask/admin/bans/' && hist.copy, 'the server-rendered turn is not as expected: ' + JSON.stringify({ pre: hist.pre, link: hist.link, copy: hist.copy }));
   ok(hist.metaHidden === true, 'a folded answer still shows its meta line');
+  ok(hist.chips.join(',') === 'bans ×2', 'the history tab\'s tool chips: ' + hist.chips.join(','));
   await page.click('#turns .a .a-toggle');
   const opened = await page.evaluate(() => ({ folded: !!document.querySelector('#turns .a.folded'), label: document.querySelector('#turns .a .a-toggle').textContent }));
   ok(!opened.folded && opened.label !== '', 'the toggle did not open the answer: ' + JSON.stringify(opened));

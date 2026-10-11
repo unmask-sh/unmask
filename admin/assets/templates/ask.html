@@ -44,7 +44,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .a pre{background:#f1f5f9;padding:.5rem .7rem;border-radius:.3rem;overflow-x:auto;font-size:.82rem;margin:.4rem 0}
 .a.fail .txt{color:#991b1b}
 .a-meta{display:flex;gap:.8rem;flex-wrap:wrap;align-items:center;font-size:.72rem;color:#94a3b8;margin-top:.5rem;padding-top:.4rem;border-top:1px dashed #e2e8f0}
-.tool-chip{display:inline-block;padding:.05rem .45rem;border-radius:.25rem;background:#eef2ff;color:#3730a3;font-family:ui-monospace,Menlo,monospace;font-size:.7rem;margin-right:.25rem}
+.tool-chip{display:inline-block;padding:.05rem .45rem;border-radius:.25rem;background:#eef2ff;color:#3730a3;font-family:ui-monospace,Menlo,monospace;font-size:.7rem}
 .ask-rule{display:inline-block;margin:.3rem 0;padding:.35rem .75rem;border:1px solid #f59e0b;border-radius:.3rem;background:#fffbeb;color:#92400e;text-decoration:none;font-size:.85rem;font-weight:600}
 .ask-rule:hover{background:#fef3c7}
 .ask-rule.added{border-color:#16a34a;background:#f0fdf4;color:#166534}
@@ -182,7 +182,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   <div class="a{{ if .Err }} fail{{ end }}{{ if .Folded }} folded{{ end }}" data-id="{{ .ID }}">
     <div class="txt">{{ if .Err }}{{ t $.Lang "ask.failed" }}: {{ .Err }}{{ else }}{{ range .Parts }}{{ if .Code }}<pre>{{ .Text }}</pre>{{ else if .Rule }}<a class="ask-rule" href="{{ $.BasePath }}{{ .Link }}" target="_blank" rel="noopener">{{ t $.Lang "ask.create_rule" }}{{ if not $.CanAsk }} ↗{{ end }}</a>{{ else if .Link }}<a href="{{ $.BasePath }}{{ .Link }}">{{ .Text }}</a>{{ else if .IP }}<span class="ipclick" data-ip="{{ .IP }}">{{ .Text }}</span>{{ else }}{{ .Text }}{{ end }}{{ end }}{{ end }}</div>
     <div class="a-meta">
-      {{ if .Tools }}<span>{{ t $.Lang "ask.tools" }}: {{ range .Tools }}<span class="tool-chip{{ if .Err }} err{{ end }}" title="{{ .Ms }} ms">{{ .Name }}</span>{{ end }}</span>{{ end }}
+      {{ if .Tools }}<span>{{ t $.Lang "ask.tools" }}: {{ range $i, $c := .Tools }}{{ if $i }} {{ end }}<span class="tool-chip{{ if $c.Err }} err{{ end }}" title="{{ $c.Ms }} ms">{{ $c.Name }}{{ if gt $c.Calls 1 }} ×{{ $c.Calls }}{{ end }}</span>{{ end }}</span>{{ end }}
       {{ if or .InTokens .OutTokens }}<span>{{ tf $.Lang "ask.tokens" (comma .InTokens) (comma .OutTokens) }}{{ if .Model }} · {{ .Model }}{{ end }}{{ if .Cost }} · {{ tf $.Lang "ask.cost" .Cost }}{{ end }}</span>{{ end }}
     </div>
     <div class="a-act">
@@ -364,10 +364,12 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     });
     return html;
   }
+  // One chip per tool (the server folds repeated calls into a count), a
+  // space between them so a selected line copies as words.
   function chips(tools){
     if (!tools || !tools.length) return '';
     var h = '<span>' + esc(turns.dataset.txtTools) + ': ';
-    tools.forEach(function(t){ h += '<span class="tool-chip' + (t.err ? ' err' : '') + '" title="' + esc(t.ms) + ' ms">' + esc(t.name) + '</span>'; });
+    tools.forEach(function(t, i){ h += (i ? ' ' : '') + '<span class="tool-chip' + (t.err ? ' err' : '') + '" title="' + esc(t.ms) + ' ms">' + esc(t.name) + (t.calls > 1 ? ' ×' + esc(t.calls) : '') + '</span>'; });
     return h + '</span>';
   }
   function tokensText(i, o){ return turns.dataset.txtTokens.replace('%s', Number(i).toLocaleString('en-US')).replace('%s', Number(o).toLocaleString('en-US')); }
