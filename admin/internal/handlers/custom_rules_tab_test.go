@@ -52,7 +52,7 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 	}
 	page := tab()
 	for _, want := range []string{`name="cr_id" value="crold"`, `name="cr_key" value="crold"`, `name="cc_crold_kind"`, `<option value="ip" selected>`, `name="cc_crold_values" value="192.0.2.0/24"`, `name="cc_crold_memo" value="why"`,
-		`name="cr_action" value="deny"`, `name="cr_act_crold" value="deny" checked`, "条件 (すべて満たす)", "<legend>アクション</legend>", "判定を変える", `<input type="checkbox" class="cr-act-cb" checked>`, "件/分 を超えたら", `class="cr-row cr-rate off"`, `<input type="checkbox" class="cr-rate-cb">`, "rate-limit タブと同じ (PoW → CAPTCHA)", "条件を追加", "直近 24h 1 件",
+		`<select name="cr_action"`, `<option value="deny" selected>`, "条件 (すべて満たす)", "<legend>アクション</legend>", "当たったら", "変えない (数えるだけ)", "件/分 を超えたら", `class="cr-row cr-rate off"`, `<input type="checkbox" class="cr-rate-cb">`, "rate-limit タブと同じ (PoW → CAPTCHA)", "条件を追加", "直近 24h 1 件",
 		`id="cr-template"`, `id="cc-template"`, `name="cc_KEY_kind"`, `id="cr-add"`, "新規ルール", `section=custom-rules`, "</html>"} {
 		if !strings.Contains(page, want) {
 			t.Errorf("tab lacks %q", want)
@@ -160,9 +160,18 @@ func TestCustomRulesTabDraft(t *testing.T) {
 	page := rr.Body.String()
 	for _, want := range []string{`id="cr-draft"`, `name="cr_id" value=""`, `name="cr_key" value="draft"`, `name="cr_label" value="scraper"`,
 		`name="cc_draft_values" value="203.0.113.0/24, 198.51.100.7"`, `name="cc_draft_values" value="t13d*"`, `name="cc_draft_values" value="AS4134"`, `name="cc_draft_values" value="python-requests"`,
-		`name="cr_act_draft" value="deny" checked`, `<input type="checkbox" class="cr-rate-cb" checked>`, `name="cr_rate" min="0" value="30"`, `name="cr_ract_draft" value="captcha_only" checked`, "まだ保存されていません", `id="cr-template"`} {
+		`<input type="checkbox" class="cr-rate-cb" checked>`, `name="cr_rate" min="0" value="30"`, "まだ保存されていません", `id="cr-template"`} {
 		if !strings.Contains(page, want) {
 			t.Errorf("draft tab lacks %q", want)
+		}
+	}
+	// The draft's own selects: deny on a match, CAPTCHA over the rate (the
+	// new-rule template below it starts at CAPTCHA on a match, so look only
+	// inside the draft card).
+	draft := page[strings.Index(page, `id="cr-draft"`):strings.Index(page, `id="cr-template"`)]
+	for _, want := range []string{`<option value="deny" selected>`, `<option value="captcha_only" selected>`} {
+		if !strings.Contains(draft, want) {
+			t.Errorf("draft card lacks %q", want)
 		}
 	}
 	if strings.Count(page, `name="cc_draft_kind"`) != 4 {
@@ -179,7 +188,7 @@ func TestCustomRulesTabDraft(t *testing.T) {
 	req.SetPathValue("tab", "custom-rules")
 	rr = httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
-	if !strings.Contains(rr.Body.String(), `name="cr_act_draft" value="captcha_only" checked`) {
+	if body := rr.Body.String(); !strings.Contains(body[strings.Index(body, `id="cr-draft"`):strings.Index(body, `id="cr-template"`)], `<option value="captcha_only" selected>`) {
 		t.Error("an unknown action did not fall back to captcha_only")
 	}
 	req = httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/?c=ip%3A203.0.113.1", nil)
@@ -219,10 +228,11 @@ func TestCustomRulesTabRateDefaultNamesTheMode(t *testing.T) {
 	}
 }
 
-// The on-match action is a tick: a rule that only counts (action "monitor")
-// renders with the tick off and its answers out of sight, and one with an
-// answer renders ticked with that answer chosen.
-func TestCustomRulesTabActionTick(t *testing.T) {
+// The action is a select whose first choice is "no change (count only)": a
+// rule that only counts (action "monitor") renders with that chosen, one
+// with an answer renders with the answer chosen, and the answer over the
+// rate limit is a select of its own.
+func TestCustomRulesTabActionSelect(t *testing.T) {
 	h := newTestHandler(t)
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yml")
@@ -231,8 +241,8 @@ func TestCustomRulesTabActionTick(t *testing.T) {
 	s.Nginx.OutputDir = dir
 	s.CommunityBans.MapDir = dir
 	s.Nginx.CustomRules = []settings.CustomRule{
-		{ID: "crcount", Label: "count", Enabled: true, Action: "monitor", RatePerMin: 30, Conditions: []settings.CustomCondition{{Kind: "asn", Values: []string{"4134"}}}},
-		{ID: "crdeny", Label: "deny", Enabled: true, Action: "deny", Conditions: []settings.CustomCondition{{Kind: "ip", Values: []string{"192.0.2.0/24"}}}},
+		{ID: "crcount", Label: "count", Enabled: true, Action: "monitor", RatePerMin: 30, RateAction: "deny", Conditions: []settings.CustomCondition{{Kind: "asn", Values: []string{"4134"}}}},
+		{ID: "crpow", Label: "pow", Enabled: true, Action: "pow_only", Conditions: []settings.CustomCondition{{Kind: "ip", Values: []string{"192.0.2.0/24"}}}},
 	}
 	if err := settings.Save(s, cfgPath); err != nil {
 		t.Fatal(err)
@@ -249,21 +259,21 @@ func TestCustomRulesTabActionTick(t *testing.T) {
 		t.Fatalf("tab: %d", rr.Code)
 	}
 	page := rr.Body.String()
-	for _, want := range []string{
-		`class="cr-row cr-apply off"><label class="cr-row-l cr-on"><input type="checkbox" class="cr-act-cb">`, // the counting rule: tick off
-		`name="cr_action" value="monitor"`,
-		`class="cr-row cr-apply"><label class="cr-row-l cr-on"><input type="checkbox" class="cr-act-cb" checked>`, // the denying rule: tick on
-		`name="cr_act_crdeny" value="deny" checked`,
-		`class="cr-rate-cb" checked>`, // the counting rule's rate limit
+	// Two rules and the new-rule template: three action selects, three
+	// over-the-rate selects, each starting with its "no change" / default.
+	for want, n := range map[string]int{
+		`<select name="cr_action"`:                      3,
+		`<select name="cr_rate_action"`:                 3,
+		`<option value="monitor" selected>変えない (数えるだけ)`: 1, // the counting rule
+		`<option value="pow_only" selected>`:            1, // the PoW rule
+		`<option value="captcha_only" selected>`:        1, // the template's start
+		`<option value="deny" selected>遮断 (429)`:        1, // the counting rule's answer over its rate
+		`class="cr-rate-cb" checked>`:                   1,
+		`type="radio"`:                                  0,
+		`cr-act-cb`:                                     0,
 	} {
-		if !strings.Contains(page, want) {
-			t.Errorf("tab lacks %q", want)
+		if got := strings.Count(page, want); got != n {
+			t.Errorf("%q appears %d times, want %d", want, got, n)
 		}
-	}
-	if strings.Contains(page, `value="monitor"`+"\"") || strings.Contains(page, "監視のみ") {
-		t.Error("the tab still offers monitor as a radio")
-	}
-	if strings.Contains(page, `name="cr_act_crcount"`) && strings.Contains(page, `name="cr_act_crcount" value="captcha_only" checked`) {
-		t.Error("the counting rule has an answer chosen")
 	}
 }

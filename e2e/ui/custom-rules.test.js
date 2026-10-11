@@ -58,14 +58,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       key: card ? card.dataset.key : '', keyField: card ? card.querySelector('[name="cr_key"]').value : '',
       lines: card ? card.querySelectorAll('[data-cond]').length : 0,
       lineName: card ? (card.querySelector('[data-cond] select') || {}).name : '',
-      radioName: card ? (card.querySelector('.cr-apply input[type=radio]') || {}).name : '',
+      actName: card ? (card.querySelector('select[name="cr_action"]') || {}).name : '',
       boxes: card ? card.querySelectorAll('fieldset.cr-box').length : 0,
       focused: document.activeElement && document.activeElement.name,
       empty: !!document.getElementById('cr-empty'),
     };
   });
   ok(added.rows === 1 && !added.empty, `after the new rule: ${added.rows} rows, empty note ${added.empty}`);
-  ok(added.key === 'new1' && added.keyField === 'new1' && added.lineName === 'cc_new1_kind' && added.radioName === 'cr_act_new1', 'the new card is not keyed new1: ' + JSON.stringify(added));
+  ok(added.key === 'new1' && added.keyField === 'new1' && added.lineName === 'cc_new1_kind' && added.actName === 'cr_action', 'the new card is not keyed new1: ' + JSON.stringify(added));
   ok(added.lines === 1 && added.boxes === 2 && added.focused === 'cr_label', 'the new card is not one line in two boxes with the name focused: ' + JSON.stringify(added));
   await page.type('#cr-list [data-cr] input[name="cr_label"]', 'ui e2e scraper');
   await page.select('#cr-list [data-cr] [data-cond]:nth-child(1) select', 'ja4');
@@ -88,27 +88,21 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   // One action on a match; beside it the rate limit with its own answer.
   const shape = await page.evaluate(() => ({
-    actRadios: document.querySelectorAll('#cr-list [data-cr] .cr-apply input[type=radio]').length,
-    rateRadios: document.querySelectorAll('#cr-list [data-cr] .cr-rate input[type=radio]').length,
+    actOptions: document.querySelectorAll('#cr-list [data-cr] select[name="cr_action"] option').length,
+    rateOptions: document.querySelectorAll('#cr-list [data-cr] select[name="cr_rate_action"] option').length,
     rateOff: document.querySelector('#cr-list [data-cr] .cr-rate').classList.contains('off'),
   }));
-  ok(shape.actRadios === 4 && shape.rateRadios === 5 && shape.rateOff, 'the action box is not four + five radios: ' + JSON.stringify(shape));
-  // The on-match action is a tick as well: off, the rule changes nothing
-  // on a match and only counts it; on again, the answer comes back.
-  const actSel = '#cr-list [data-cr] .cr-apply';
-  const actState = () => page.evaluate(sel => { const row = document.querySelector(sel); return { v: row.closest('[data-cr]').querySelector('input[name="cr_action"]').value, off: row.classList.contains('off'), shown: row.querySelector('input[type=radio]').offsetParent !== null, ticked: row.querySelector('.cr-act-cb').checked }; }, actSel);
-  const actOn0 = await actState();
-  ok(actOn0.ticked && actOn0.shown && !actOn0.off, 'a new rule does not start with an answer: ' + JSON.stringify(actOn0));
-  await page.click(actSel + ' .cr-act-cb');
-  const actOff = await actState();
-  ok(actOff.v === 'monitor' && actOff.off && !actOff.shown && !actOff.ticked, 'unticking the action did not make the rule count-only: ' + JSON.stringify(actOff));
-  await page.click(actSel + ' .cr-act-cb');
-  const actOn = await actState();
-  ok(actOn.v === 'captcha_only' && !actOn.off && actOn.shown, 'ticking the action back did not restore an answer: ' + JSON.stringify(actOn));
-  await page.click('#cr-list [data-cr] .cr-apply input[type=radio][value="captcha_only"]');
+  ok(shape.actOptions === 5 && shape.rateOptions === 5 && shape.rateOff, 'the action box is not two selects of five: ' + JSON.stringify(shape));
+  // "No change (count only)" is the first choice: a match then changes
+  // nothing and the rule counts it; the answers follow, CAPTCHA to start.
+  const actSel = '#cr-list [data-cr] select[name="cr_action"]';
+  const start = await page.evaluate(sel => { const s = document.querySelector(sel); return { first: s.options[0].value, value: s.value }; }, actSel);
+  ok(start.first === 'monitor' && start.value === 'captcha_only', 'a new rule does not start at CAPTCHA with "no change" first: ' + JSON.stringify(start));
+  await page.select(actSel, 'monitor');
+  await page.select(actSel, 'captcha_only');
   // The rate limit is off until its box is ticked, and off means the
   // figure and the answers are out of sight -- an empty figure beside
-  // five radios read as a limit that merely lacked a number.  Ticking
+  // an answer read as a limit that merely lacked a number.  Ticking
   // shows a figure to edit, unticking clears it.
   const rateSel = '#cr-list [data-cr] input[name="cr_rate"]';
   const rateState = () => page.evaluate(sel => { const n = document.querySelector(sel); return { shown: n.offsetParent !== null, value: n.value, off: n.closest('.cr-rate').classList.contains('off'), ticked: n.closest('.cr-rate').querySelector('.cr-rate-cb').checked }; }, rateSel);
@@ -125,9 +119,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.focus(rateSel);
   await page.keyboard.down('Control'); await page.keyboard.press('KeyA'); await page.keyboard.up('Control');
   await page.type(rateSel, '30');
-  await page.click('#cr-list [data-cr] .cr-rate input[type=radio][value="deny"]');
-  const chosen = await page.evaluate(() => ({ act: document.querySelector('#cr-list [data-cr] input[name="cr_action"]').value, ract: document.querySelector('#cr-list [data-cr] input[name="cr_rate_action"]').value, rateOff: document.querySelector('#cr-list [data-cr] .cr-rate').classList.contains('off') }));
-  ok(chosen.act === 'captcha_only' && chosen.ract === 'deny' && !chosen.rateOff, 'the radios did not set the hidden fields: ' + JSON.stringify(chosen));
+  await page.select('#cr-list [data-cr] select[name="cr_rate_action"]', 'deny');
+  const chosen = await page.evaluate(() => ({ act: document.querySelector('#cr-list [data-cr] select[name="cr_action"]').value, ract: document.querySelector('#cr-list [data-cr] select[name="cr_rate_action"]').value, rateOff: document.querySelector('#cr-list [data-cr] .cr-rate').classList.contains('off') }));
+  ok(chosen.act === 'captcha_only' && chosen.ract === 'deny' && !chosen.rateOff, 'the selects did not take the choices: ' + JSON.stringify(chosen));
   await Promise.all([
     page.waitForNavigation({ waitUntil: 'networkidle2' }),
     page.click('form[action$="section=custom-rules"] button[type="submit"]'),
@@ -141,8 +135,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     return {
       id: v('cr_id'), key: v('cr_key'), label: v('cr_label'), action: v('cr_action'), rate: v('cr_rate'), rateAction: v('cr_rate_action'), enabled: v('cr_enabled'),
       lines, rows: document.querySelectorAll('#cr-list [data-cr]').length,
-      checked: (row.querySelector('.cr-apply input[type=radio]:checked') || {}).value,
-      rateChecked: (row.querySelector('.cr-rate input[type=radio]:checked') || {}).value,
+      checked: row.querySelector('select[name="cr_action"]').value,
+      rateChecked: row.querySelector('select[name="cr_rate_action"]').value,
       rateTicked: row.querySelector('.cr-rate-cb').checked && !row.querySelector('.cr-rate').classList.contains('off'),
       hits: (row.querySelector('.cr-hits') || {}).textContent || '',
     };
@@ -155,7 +149,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
        saved.lines[1].kind === 'asn' && saved.lines[1].values === '4134, 16509' && saved.lines[2].kind === 'ua' && saved.lines[2].values === 'python-requests|scrapy',
        'the lines came back differently: ' + JSON.stringify(saved.lines));
     ok(saved.action === 'captcha_only' && saved.rate === '30' && saved.rateAction === 'deny' && saved.enabled === '1', `action/rate/over/enabled came back as ${saved.action}/${saved.rate}/${saved.rateAction}/${saved.enabled}`);
-    ok(saved.checked === 'captcha_only' && saved.rateChecked === 'deny', 'the radios do not show the saved choices: ' + JSON.stringify({ checked: saved.checked, rateChecked: saved.rateChecked }));
+    ok(saved.checked === 'captcha_only' && saved.rateChecked === 'deny', 'the selects do not show the saved choices: ' + JSON.stringify({ checked: saved.checked, rateChecked: saved.rateChecked }));
     ok(saved.rateTicked, 'the saved rate limit comes back unticked');
     ok(saved.hits.length > 0, 'the hit count cell is empty');
   }
