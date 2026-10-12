@@ -23,8 +23,8 @@ import (
 //
 // Providers: the same three as the advisor (anthropic, an OpenAI-compatible
 // endpoint, ollama), each with its own tool-calling shape; the loop here is
-// shared and the adapters below translate.  Nothing is streamed: an answer
-// arrives whole, within providerTimeout per request.
+// shared and the adapters below translate.  An answer arrives whole: each
+// request within attemptTimeout (Anthropic's read as a stream, anthropicPost).
 
 // ChatTurn is one earlier exchange, as the page stores it, handed back as
 // context for the next question.
@@ -53,8 +53,8 @@ const (
 	chatMaxRounds   = 8
 	chatToolTimeout = 30 * time.Second
 	chatResultMax   = 48 << 10 // bytes of one tool result the model reads
-	chatMaxTokens   = 4096
-	chatHistoryMax  = 10 // earlier turns carried as context
+	chatMaxTokens   = 4096     // the answer's own need; the thinking comes on top (maxTokensFor)
+	chatHistoryMax  = 10       // earlier turns carried as context
 )
 
 // ErrChatRounds is the answer when the model keeps asking for data past the
@@ -108,11 +108,12 @@ func Chat(ctx context.Context, cfg settings.AIAdvisorConfig, tools aitools.Runne
 	for round := 1; round <= chatMaxRounds; round++ {
 		res.Rounds = round
 		turn, err := c.step(ctx)
+		// A failed round is billed too: its tokens count before the error.
+		res.Usage.Input += turn.usage.Input
+		res.Usage.Output += turn.usage.Output
 		if err != nil {
 			return res, err
 		}
-		res.Usage.Input += turn.usage.Input
-		res.Usage.Output += turn.usage.Output
 		if len(turn.calls) == 0 {
 			res.Answer = strings.TrimSpace(turn.text)
 			if res.Answer == "" {
@@ -176,11 +177,16 @@ func runTool(ctx context.Context, tools aitools.Runner, call toolCall) (ToolTrac
 	return tr, aitools.MarshalResult(out, chatResultMax)
 }
 
-// post sends one request, retrying once on a transient failure.
-func post(ctx context.Context, url string, headers map[string]string, body any) ([]byte, error) {
+// post sends one request, retrying once on a transient failure: as JSON,
+// or to Anthropic as a stream (anthropicPost), each attempt within its
+// ceiling (attemptTimeout).
+func post(ctx context.Context, provider, url string, headers map[string]string, body map[string]any) ([]byte, error) {
 	attempt := func() ([]byte, error) {
-		actx, cancel := context.WithTimeout(ctx, providerTimeout)
+		actx, cancel := context.WithTimeout(ctx, attemptTimeout(provider))
 		defer cancel()
+		if provider == "anthropic" {
+			return anthropicPost(actx, url, headers, body)
+		}
 		return postJSON(actx, url, headers, body)
 	}
 	out, err := attempt()
@@ -217,7 +223,7 @@ func (a *anthropicChat) begin(tools []aitools.Tool, history []ChatTurn, question
 func (a *anthropicChat) step(ctx context.Context) (turn, error) {
 	body := map[string]any{
 		"model":      a.cfg.ResolvedModel(),
-		"max_tokens": chatMaxTokens,
+		"max_tokens": maxTokensFor(a.cfg.ResolvedModel(), a.cfg.Effort, chatMaxTokens),
 		"system":     chatSystemPrompt,
 		"messages":   a.messages,
 		"tools":      a.tools,
@@ -225,7 +231,7 @@ func (a *anthropicChat) step(ctx context.Context) (turn, error) {
 	if e := effortToSend(a.cfg.ResolvedModel(), a.cfg.Effort); e != "" {
 		body["output_config"] = map[string]any{"effort": e}
 	}
-	out, err := post(ctx, endpointOr(a.cfg, "https://api.anthropic.com")+"/v1/messages",
+	out, err := post(ctx, "anthropic", endpointOr(a.cfg, "https://api.anthropic.com")+"/v1/messages",
 		map[string]string{"x-api-key": a.cfg.APIKey, "anthropic-version": "2023-06-01"}, body)
 	if err != nil {
 		return turn{}, err
@@ -242,8 +248,12 @@ func (a *anthropicChat) step(ctx context.Context) (turn, error) {
 		return turn{}, err
 	}
 	t := turn{usage: Usage{Input: resp.Usage.Input, Output: resp.Usage.Output}}
-	if resp.StopReason == "refusal" {
+	switch resp.StopReason {
+	case "refusal":
 		return t, errors.New("the model declined this request")
+	case "max_tokens":
+		// The answer, or a tool call's arguments, cut off: nothing whole to use.
+		return t, errOutOfRoom(body["max_tokens"])
 	}
 	var texts []string
 	for _, raw := range resp.Content {
@@ -336,7 +346,7 @@ func (o *openaiChat) step(ctx context.Context) (turn, error) {
 	if o.cfg.APIKey != "" {
 		headers["authorization"] = "Bearer " + o.cfg.APIKey
 	}
-	out, err := post(ctx, endpointOr(o.cfg, "https://api.openai.com")+"/v1/chat/completions", headers, body)
+	out, err := post(ctx, "openai", endpointOr(o.cfg, "https://api.openai.com")+"/v1/chat/completions", headers, body)
 	if err != nil {
 		return turn{}, err
 	}
@@ -401,7 +411,7 @@ func (o *ollamaChat) step(ctx context.Context) (turn, error) {
 	if len(o.tools) > 0 {
 		body["tools"] = o.tools
 	}
-	out, err := post(ctx, endpointOr(o.cfg, "http://127.0.0.1:11434")+"/api/chat", nil, body)
+	out, err := post(ctx, "ollama", endpointOr(o.cfg, "http://127.0.0.1:11434")+"/api/chat", nil, body)
 	if err != nil {
 		return turn{}, err
 	}

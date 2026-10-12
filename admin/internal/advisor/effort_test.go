@@ -114,3 +114,44 @@ func TestSortModels(t *testing.T) {
 		t.Errorf("dated: %v", same)
 	}
 }
+
+// max_tokens leaves room for the thinking by effort: the picked one, else
+// the model's own default.  A model that takes no effort, or an unknown
+// one at its own default, keeps the reply's size.
+func TestMaxTokensFor(t *testing.T) {
+	for _, tc := range []struct {
+		model, effort string
+		want          int
+	}{
+		{"claude-opus-5-5", "", 16000}, // runs at medium
+		{"claude-opus-5-5", "max", 64000},
+		{"claude-opus-5-5", "xhigh", 64000},
+		{"claude-opus-5-5", "high", 32000},
+		{"claude-opus-5-5", "low", 16000},
+		{"claude-sonnet-5-5", "", 32000},  // runs at high
+		{"claude-haiku-4-5", "max", 8192}, // takes no effort
+		{"claude-3-5-haiku-20241022", "", 8192},
+		{"some-local-model", "", 8192},
+		{"some-local-model", "max", 64000},
+	} {
+		if got := maxTokensFor(tc.model, tc.effort, 8192); got != tc.want {
+			t.Errorf("%s %q: %d, want %d", tc.model, tc.effort, got, tc.want)
+		}
+	}
+	if got := maxTokensFor("claude-opus-5-5", "", 20000); got != 20000 {
+		t.Errorf("a reply larger than the effort's room keeps its own: %d", got)
+	}
+	for _, tc := range []struct {
+		model, effort string
+		want          bool
+	}{
+		{"claude-opus-5-5", "max", true},
+		{"claude-opus-5-5", "xhigh", true},
+		{"claude-opus-5-5", "", false},
+		{"claude-haiku-4-5", "max", false},
+	} {
+		if got := ThinksLong(tc.model, tc.effort); got != tc.want {
+			t.Errorf("ThinksLong(%s, %q) = %v", tc.model, tc.effort, got)
+		}
+	}
+}

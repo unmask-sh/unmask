@@ -33,7 +33,8 @@ const (
 	askQuestionMax = 2000 // runes
 	askHistoryShow = 50   // turns the page lists
 	askKeep        = 90 * 24 * time.Hour
-	askTimeout     = 6 * time.Minute // a question's whole budget, tools and rounds included
+	askTimeout     = 6 * time.Minute  // a question's whole budget, tools and rounds included
+	askLongTimeout = 20 * time.Minute // the same at effort xhigh or max (advisor.ThinksLong)
 )
 
 // askView is one turn as the page draws it.
@@ -416,6 +417,13 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusBadRequest, err.Error())
 		return
 	}
+	// At xhigh or max each round may think for minutes: the question gets
+	// the longer budget, and the response a deadline to match.
+	budget := askTimeout
+	if advisor.ThinksLong(cfg.ResolvedModel(), cfg.Effort) {
+		budget = askLongTimeout
+		_ = rc.SetWriteDeadline(time.Now().Add(budget + time.Minute)) // a failure was logged above
+	}
 	mu, _ := askBusy.LoadOrStore(pay.UserID, &sync.Mutex{})
 	if !mu.(*sync.Mutex).TryLock() {
 		fail(http.StatusConflict, i18n.T(lang, "ask.err_busy"))
@@ -423,7 +431,7 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 	}
 	defer mu.(*sync.Mutex).Unlock()
 
-	ctx, cancel := context.WithTimeout(r.Context(), askTimeout)
+	ctx, cancel := context.WithTimeout(r.Context(), budget)
 	defer cancel()
 	var history []advisor.ChatTurn
 	if rows, err := h.askHistory(ctx, pay.UserID, 10); err == nil {

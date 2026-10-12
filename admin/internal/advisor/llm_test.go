@@ -163,12 +163,12 @@ func TestReviewCandidatesRefusalAndHTTPError(t *testing.T) {
 }
 
 // A transient provider failure is retried once and only once: 503 then a
-// good answer succeeds in two calls, the attempt's own timeout is retried
-// the same way, and a permanent failure (401) is not retried.
+// good answer succeeds in two calls, a stalled attempt is retried the same
+// way, and a permanent failure (401) is not retried.
 func TestReviewRetriesTransientFailuresOnce(t *testing.T) {
-	origBackoff, origTimeout := retryBackoff, providerTimeout
-	retryBackoff, providerTimeout = 0, 300*time.Millisecond
-	t.Cleanup(func() { retryBackoff, providerTimeout = origBackoff, origTimeout })
+	origBackoff, origIdle := retryBackoff, streamIdle
+	retryBackoff, streamIdle = 0, 300*time.Millisecond
+	t.Cleanup(func() { retryBackoff, streamIdle = origBackoff, origIdle })
 	good := `{"stop_reason":"end_turn","content":[{"type":"text","text":"{\"reviews\":[{\"target\":\"203.0.113.10\",\"priority\":\"high\",\"reasoning\":\"scanner\"}]}"}]}`
 
 	var calls int32
@@ -190,7 +190,7 @@ func TestReviewRetriesTransientFailuresOnce(t *testing.T) {
 	atomic.StoreInt32(&calls, 0)
 	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if atomic.AddInt32(&calls, 1) == 1 {
-			time.Sleep(800 * time.Millisecond) // past providerTimeout: the first attempt times out
+			time.Sleep(800 * time.Millisecond) // nothing for longer than streamIdle: the first attempt is cut as stalled
 			return
 		}
 		w.Header().Set("content-type", "application/json")

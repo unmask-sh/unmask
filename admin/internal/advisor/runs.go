@@ -17,9 +17,10 @@ import (
 )
 
 // runTimeout bounds one run end to end: engine, pool, reverse DNS, model
-// (two attempts of providerTimeout, llm.go).  The click does not wait for
-// it, so it only has to beat a hung run, not the operator's patience.
-var runTimeout = 2*providerTimeout + 2*time.Minute
+// (two attempts, each within attemptTimeout, llm.go).  The click does not
+// wait for it, so it only has to beat a hung run, not the operator's
+// patience.
+var runTimeout = 2*streamTimeout + 2*time.Minute
 
 // RunInfo describes a run in flight: when it started and, from the plan
 // made before it started, which candidates were sent to the model and which

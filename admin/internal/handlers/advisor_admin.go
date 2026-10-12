@@ -625,8 +625,11 @@ func (h *Handler) finishAdvisorAI(ctx context.Context, aiCfg settings.AIAdvisorC
 	t2 := time.Now()
 	res, err := advisor.ReviewWithPool(ctx, aiCfg, prep.send, pool, lang)
 	if err != nil {
-		// StoreLast keeps the last answer and notes this failure beside it.
-		return advisor.Stored{Model: aiCfg.ResolvedModel(), Err: err.Error(), ErrAt: time.Now()}
+		// StoreLast keeps the last answer and notes this failure beside it;
+		// the tokens go to the run log, the provider bills a failed run too.
+		log.Printf("advisor run failed: sent %d, model %s after %s, tokens in %d out %d: %v",
+			len(prep.send), aiCfg.ResolvedModel(), time.Since(t2).Round(time.Millisecond), res.Usage.Input, res.Usage.Output, err)
+		return advisor.Stored{Model: aiCfg.ResolvedModel(), Err: err.Error(), ErrAt: time.Now(), InTokens: res.Usage.Input, OutTokens: res.Usage.Output}
 	}
 	// Where a consultation's time goes, for the operator asking why it took
 	// minutes: the pool's queries, the collateral lookups, the model.

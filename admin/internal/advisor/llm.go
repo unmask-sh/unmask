@@ -71,6 +71,10 @@ type Usage struct {
 	Output int
 }
 
+func (u Usage) plus(v Usage) Usage {
+	return Usage{Input: u.Input + v.Input, Output: u.Output + v.Output}
+}
+
 // Result is what one model call yields.
 type Result struct {
 	Reviews     map[string]Review
@@ -383,6 +387,9 @@ func ReviewWithPool(ctx context.Context, cfg settings.AIAdvisorConfig, cands []C
 	}
 	wg.Wait()
 	for i := range outs {
+		res.Usage = res.Usage.plus(outs[i].res.Usage)
+	}
+	for i := range outs {
 		if outs[i].err != nil {
 			return res, outs[i].err
 		}
@@ -403,8 +410,6 @@ func ReviewWithPool(ctx context.Context, cfg settings.AIAdvisorConfig, cands []C
 				res.Nominations = append(res.Nominations, n)
 			}
 		}
-		res.Usage.Input += outs[i].res.Usage.Input
-		res.Usage.Output += outs[i].res.Usage.Output
 	}
 	res.Batches = len(batches)
 	return res, nil
@@ -466,12 +471,12 @@ func reviewBatch(ctx context.Context, cfg settings.AIAdvisorConfig, provider str
 	if lang == "ja" {
 		userMsg += "\n\nWrite every reasoning field in Japanese (日本語で書いてください)."
 	}
-	// One attempt, bounded by providerTimeout; a transient failure (the
+	// One attempt, bounded by attemptTimeout; a transient failure (the
 	// attempt's own timeout, 429, 5xx) is retried once after a short pause,
 	// as long as the run itself is still alive.  Seen live: a single timeout
 	// cost the operator the whole answer.
 	attempt := func() (string, Usage, error) {
-		actx, cancel := context.WithTimeout(ctx, providerTimeout)
+		actx, cancel := context.WithTimeout(ctx, attemptTimeout(provider))
 		defer cancel()
 		switch provider {
 		case "anthropic":
@@ -487,20 +492,22 @@ func reviewBatch(ctx context.Context, cfg settings.AIAdvisorConfig, provider str
 		log.Printf("advisor: %v -- retrying once in %s", err, retryBackoff)
 		select {
 		case <-time.After(retryBackoff):
-			raw, usage, err = attempt()
+			var again Usage
+			raw, again, err = attempt()
+			usage = usage.plus(again)
 		case <-ctx.Done():
 			err = ctx.Err()
 		}
 	}
+	// What the attempts cost goes with the result, failed or not: the
+	// provider bills a cut-off answer too.
 	if err != nil {
+		res.Usage = usage
 		return res, err
 	}
 	res, err = mergeResult(raw, cands, pool)
-	if err != nil {
-		return res, err
-	}
 	res.Usage = usage
-	return res, nil
+	return res, err
 }
 
 // mergeReviews keeps the pool-less shape for callers and tests that only want
@@ -594,18 +601,30 @@ func normPriority(p string) string {
 // from the click (runs.go), so this is a ceiling against a hung endpoint,
 // not a budget the operator waits out: a large model writing the reasoning
 // for a long list in Japanese has taken well over the 90 seconds this used
-// to be.  retryBackoff is the pause before the one retry of a transient
-// failure.  Both are variables so tests can shorten them.
+// to be.  An Anthropic attempt is a stream, which ends on a stall by itself
+// (streamIdle), so its ceiling, streamTimeout, only has to hold the longest
+// think: at effort max, tens of thousands of tokens are minutes.
+// retryBackoff is the pause before the one retry of a transient failure.
+// All are variables so tests can shorten them.
 var (
 	providerTimeout = 5 * time.Minute
+	streamTimeout   = 20 * time.Minute
 	retryBackoff    = 5 * time.Second
 )
+
+// attemptTimeout is one attempt's ceiling with the provider.
+func attemptTimeout(provider string) time.Duration {
+	if provider == "anthropic" {
+		return streamTimeout
+	}
+	return providerTimeout
+}
 
 // retryable: the attempt's own timeout, a rate limit or a server-side error
 // -- the failures a second attempt has a fair chance of getting past.  A
 // bad key, an unknown model or a refusal will not change on retry.
 func retryable(err error) bool {
-	if errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, errStreamCut) {
 		return true
 	}
 	var he *providerHTTPError
@@ -979,15 +998,20 @@ func postJSON(ctx context.Context, url string, headers map[string]string, body a
 		return nil, err
 	}
 	if resp.StatusCode != http.StatusOK {
-		// The body carries the provider's reason (bad key, unknown model, rate
-		// limit); pass a trimmed copy on so the operator can act on it.
-		msg := strings.TrimSpace(string(out))
-		if len(msg) > 300 {
-			msg = msg[:300]
-		}
-		return nil, &providerHTTPError{Status: resp.StatusCode, StatusText: resp.Status, Msg: msg}
+		return nil, providerError(resp, out)
 	}
 	return out, nil
+}
+
+// providerError is a non-200 answer.  The body carries the provider's
+// reason (bad key, unknown model, rate limit); a trimmed copy goes on so
+// the operator can act on it.
+func providerError(resp *http.Response, body []byte) error {
+	msg := strings.TrimSpace(string(body))
+	if len(msg) > 300 {
+		msg = msg[:300]
+	}
+	return &providerHTTPError{Status: resp.StatusCode, StatusText: resp.Status, Msg: msg}
 }
 
 // providerHTTPError is a non-200 answer from the provider, typed so the
@@ -1011,12 +1035,18 @@ func endpointOr(cfg settings.AIAdvisorConfig, def string) string {
 	return def
 }
 
+// reviewReplyTokens is what the review's JSON needs: a batch's reviews and
+// the nominations, reasoning included.  The thinking comes on top
+// (maxTokensFor).
+const reviewReplyTokens = 8192
+
 // anthropicReviewBody is the review request: the Messages API with structured
 // outputs, so the reply is schema-valid JSON in a text block rather than prose
 // we would have to scrape.  Thinking is deliberately not configured: on the
 // current models omitting it runs adaptive thinking, which is what this
 // judgement task wants.  The effort, when one is configured or picked on the
-// page, rides in the same output_config.
+// page, rides in the same output_config; max_tokens grows with it, the
+// thinking counting against it (maxTokensFor).
 func anthropicReviewBody(cfg settings.AIAdvisorConfig, userMsg string) map[string]any {
 	oc := map[string]any{
 		"format": map[string]any{
@@ -1029,7 +1059,7 @@ func anthropicReviewBody(cfg settings.AIAdvisorConfig, userMsg string) map[strin
 	}
 	return map[string]any{
 		"model":      cfg.ResolvedModel(),
-		"max_tokens": 8192,
+		"max_tokens": maxTokensFor(cfg.ResolvedModel(), cfg.Effort, reviewReplyTokens),
 		"system":     systemPrompt,
 		"messages": []any{
 			map[string]any{"role": "user", "content": userMsg},
@@ -1038,10 +1068,11 @@ func anthropicReviewBody(cfg settings.AIAdvisorConfig, userMsg string) map[strin
 	}
 }
 
-// callAnthropic sends the review (anthropicReviewBody) and reads its JSON.
+// callAnthropic sends the review (anthropicReviewBody), streamed
+// (anthropicPost), and reads its JSON.
 func callAnthropic(ctx context.Context, cfg settings.AIAdvisorConfig, userMsg string) (string, Usage, error) {
 	body := anthropicReviewBody(cfg, userMsg)
-	out, err := postJSON(ctx, endpointOr(cfg, "https://api.anthropic.com")+"/v1/messages",
+	out, err := anthropicPost(ctx, endpointOr(cfg, "https://api.anthropic.com")+"/v1/messages",
 		map[string]string{
 			"x-api-key":         cfg.APIKey,
 			"anthropic-version": "2023-06-01",
@@ -1064,15 +1095,26 @@ func callAnthropic(ctx context.Context, cfg settings.AIAdvisorConfig, userMsg st
 		return "", Usage{}, err
 	}
 	usage := Usage{Input: resp.Usage.Input, Output: resp.Usage.Output}
-	if resp.StopReason == "refusal" {
+	switch resp.StopReason {
+	case "refusal":
 		return "", usage, fmt.Errorf("the model declined this request")
+	case "max_tokens":
+		// The JSON is cut off, or was never begun: the thinking took the room.
+		return "", usage, errOutOfRoom(body["max_tokens"])
 	}
 	for _, c := range resp.Content {
 		if c.Type == "text" && strings.TrimSpace(c.Text) != "" {
 			return c.Text, usage, nil
 		}
 	}
-	return "", usage, fmt.Errorf("no text block in the response")
+	return "", usage, fmt.Errorf("no text block in the response (stop_reason %q)", resp.StopReason)
+}
+
+// errOutOfRoom is an answer cut off at max_tokens.  The thinking counts
+// against the same limit, so at a high effort it can spend the whole of
+// it before the answer begins.
+func errOutOfRoom(limit any) error {
+	return fmt.Errorf("the model used its whole output allowance (max_tokens %v) before it finished the answer: try a lower effort", limit)
 }
 
 // openaiReviewBody is the review request for a /v1/chat/completions server,

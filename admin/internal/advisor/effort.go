@@ -109,3 +109,46 @@ func effortToSend(model, effort string) string {
 	}
 	return effort
 }
+
+// effortFor is the effort a request runs at: the one it carries, else the
+// model's own default ("" for a model the table does not know, or one that
+// takes no effort).
+func effortFor(model, effort string) string {
+	if e := effortToSend(model, effort); e != "" {
+		return e
+	}
+	def, _, _ := EffortDefault(model)
+	return def
+}
+
+// ThinksLong is true where a request runs at xhigh or max: the model may
+// think for minutes before it answers, and a caller's time budget should
+// allow it.
+func ThinksLong(model, effort string) bool {
+	switch effortFor(model, effort) {
+	case "xhigh", "max":
+		return true
+	}
+	return false
+}
+
+// maxTokensFor is max_tokens for a request whose reply needs about reply
+// tokens.  Where the model thinks, the thinking counts against the same
+// limit and grows with the effort: at xhigh and max the provider's
+// guidance is 64K, or the answer is cut off mid-thought (seen at max: the
+// review spent all of 8192 thinking and never wrote its JSON); high gets
+// half of that, low and medium 16K.  A model that takes no effort, or one
+// the table does not know running at its own default, keeps reply: the
+// older models cap their output below these.
+func maxTokensFor(model, effort string, reply int) int {
+	n := reply
+	switch effortFor(model, effort) {
+	case "xhigh", "max":
+		n = 64000
+	case "high":
+		n = 32000
+	case "low", "medium":
+		n = 16000
+	}
+	return max(n, reply)
+}

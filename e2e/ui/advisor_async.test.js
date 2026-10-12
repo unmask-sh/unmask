@@ -28,7 +28,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 (async () => {
   // --- provider stub: answers after 3s so the spinner state is observable --
-  let calls = 0;
+  let calls = 0, streamed = 0;
   const stub = http.createServer((req, res) => {
     calls++;
     let body = '';
@@ -36,6 +36,25 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     req.on('end', () => {
       setTimeout(() => {
         const answer = JSON.stringify({ reviews: [{ target: SEED_IP, priority: 'high', reasoning: 'E2E-REASON-OK' }], nominations: [] });
+        let wantsStream = false;
+        try { wantsStream = JSON.parse(body).stream === true; } catch (e) {}
+        if (wantsStream) {
+          // The daemon reads Anthropic as a stream: the answer comes as
+          // events, its text in two pieces.
+          streamed++;
+          const ev = o => 'event: ' + o.type + '\ndata: ' + JSON.stringify(o) + '\n\n';
+          res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+          res.end(
+            ev({ type: 'message_start', message: { usage: { input_tokens: 50 } } }) +
+            ev({ type: 'ping' }) +
+            ev({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }) +
+            ev({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: answer.slice(0, 20) } }) +
+            ev({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: answer.slice(20) } }) +
+            ev({ type: 'content_block_stop', index: 0 }) +
+            ev({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 20 } }) +
+            ev({ type: 'message_stop' }));
+          return;
+        }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ stop_reason: 'end_turn', content: [{ type: 'text', text: answer }] }));
       }, 3000);
@@ -165,6 +184,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       ok(done.emptyCards === 0, `${done.emptyCards} empty AI card(s) after the run`);
       ok(/^\d{2}[-/]\d{2} \d{2}:\d{2}$/.test(done.barTimeNow.trim()), `right after the swap the bar time must be compact, got ${JSON.stringify(done.barTimeNow)}`);
       ok(calls === 1, `the provider was called ${calls} time(s), want 1`);
+      ok(streamed === 1, 'the review did not ask for a stream');
 
       // --- the swapped-in rows are wired: IP popover + BAN dialog ------------
       const popText = await page.evaluate(async (ip) => {
