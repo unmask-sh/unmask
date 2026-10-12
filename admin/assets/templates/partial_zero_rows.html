@@ -1,0 +1,85 @@
+{{/*
+  partial_zero_rows -- the zero-row toggle shared by the stats page and the
+  overview (feedback_zero_row_policy: a table keeps every item, the rows that
+  read zero collapse behind a checkbox under the table, and the choice is kept
+  per table in localStorage).
+
+  window.unmaskZeroRows(root) wires every `.bcd-card .bcd-table` under root
+  that it has not wired yet, so a page that redraws a section (the overview's
+  day section) calls it again on the new markup.  It runs on DOMContentLoaded
+  for the whole document.
+
+  A row counts as zero when it carries class="muted-row" (templates that know,
+  such as the crawler card) or when every .bcd-num cell reads 0 / 0.0 / - /
+  empty.  Rows marked bcd-rl / bcd-axis / bcd-total never collapse, and a
+  table with data-no-zero-toggle (one row per event, where 0 is a value) is
+  left alone.  Default = collapsed: only an explicit "show" is remembered.
+*/}}
+{{ define "zero_rows_assets" }}
+<style>
+.bcd-zero-row{display:table-row}
+.bcd-zero-hidden .bcd-zero-row{display:none}
+.bcd-zero-toggle{display:inline-flex;align-items:center;gap:.35rem;margin-top:.4rem;font-size:.78rem;color:#64748b;cursor:pointer;user-select:none}
+.bcd-zero-toggle input[type=checkbox]{margin:0;cursor:pointer}
+.bcd-zero-toggle:hover{color:#0f172a}
+</style>
+<script>
+(function(){
+  function lsGet(k){ try { return localStorage.getItem(k); } catch(e) { return null; } }
+  function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e) {} }
+  var HIDE_TPL = {{ t .Lang "toggle.hide_zero_n_cb" }};
+
+  window.unmaskZeroRows = function(root){
+    root = root || document;
+    root.querySelectorAll('.bcd-card .bcd-table').forEach(function(tbl){
+      if (tbl.hasAttribute('data-zero-done')) return;
+      tbl.setAttribute('data-zero-done', '');
+      // Per-event tables opt out, but must still be made visible (a page may
+      // keep tables hidden until .bcd-ready lands).
+      if (tbl.hasAttribute('data-no-zero-toggle')) { tbl.classList.add('bcd-ready'); return; }
+      var rows = Array.from(tbl.querySelectorAll('tbody tr'));
+      var zeroRows = rows.filter(function(tr){
+        if (tr.classList.contains('bcd-rl') || tr.classList.contains('bcd-axis') || tr.classList.contains('bcd-total')) return false;
+        if (tr.classList.contains('muted-row')) return true;
+        var nums = tr.querySelectorAll('.bcd-num');
+        if (!nums.length) return false;
+        return Array.from(nums).every(function(td){
+          var s = td.textContent.trim().replace(/[,%\s]/g,'');
+          return s === '' || s === '-' || s === '0' || s === '0.0' || s === '0.00';
+        });
+      });
+      if (zeroRows.length === 0) { tbl.classList.add('bcd-ready'); return; }
+      zeroRows.forEach(function(tr){ tr.classList.add('bcd-zero-row'); });
+
+      var card = tbl.closest('.bcd-card') || tbl.parentNode;
+      var h2 = card.querySelector('h2');
+      var keySrc = h2 ? h2.textContent.trim() : ('table-' + Array.from(document.querySelectorAll('.bcd-table')).indexOf(tbl));
+      var key = 'unmask:zero_v2:' + keySrc;
+
+      var label = document.createElement('label');
+      label.className = 'bcd-zero-toggle';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      var span = document.createElement('span');
+      span.textContent = HIDE_TPL.replace('%d', zeroRows.length);
+      label.appendChild(cb);
+      label.appendChild(span);
+      function applyState(hide){ card.classList.toggle('bcd-zero-hidden', hide); }
+      cb.checked = (lsGet(key) !== 'show');
+      applyState(cb.checked);
+      cb.addEventListener('change', function(){
+        applyState(cb.checked);
+        lsSet(key, cb.checked ? 'hide' : 'show');
+      });
+      tbl.parentNode.insertBefore(label, tbl.nextSibling);
+      tbl.classList.add('bcd-ready');
+    });
+  };
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function(){ window.unmaskZeroRows(document); });
+  } else {
+    window.unmaskZeroRows(document);
+  }
+})();
+</script>
+{{ end }}

@@ -1426,6 +1426,22 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			forceReason = "ua_target"
 		}
 	}
+	// recordReason is the reason this serve is RECORDED under: the event's
+	// force_reason and the one the page beacons back.  It differs from
+	// forceReason in one case, a custom rule.  The conf decided the request by
+	// one of the operator's rules and names its chain on the internal rewrite
+	// (X-Unmask-Rule-Action) but forwards no axis, so the serve resolved
+	// "none" and the dashboard filed the rule's work under the site's default
+	// posture.  The chain logic below keys on forceReason and keeps seeing
+	// "none" (the rule's chain replaces whatever it picks, further down), so
+	// only the record names the rule.  A reason an axis already gave wins, as
+	// a stronger one does everywhere above.
+	recordReason := forceReason
+	if forceReason == "none" {
+		if a := strings.TrimSpace(r.Header.Get("X-Unmask-Rule-Action")); a != "" && a != settings.RateChallengeDeny && settings.IsValidRateChallengeMode(a) {
+			recordReason = "custom_rule"
+		}
+	}
 
 	body, err := h.loadChallengeHTML()
 	if err != nil {
@@ -1434,9 +1450,9 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body = bytes.ReplaceAll(body, []byte(challengePlaceholder),
-		[]byte(`/*__CAPTCHA_FORCE__*/"`+forceReason+`"`))
+		[]byte(`/*__CAPTCHA_FORCE__*/"`+recordReason+`"`))
 	body = bytes.ReplaceAll(body, []byte(challengeProbe),
-		[]byte("<!--probe=ON force_reason="+forceReason+"-->"))
+		[]byte("<!--probe=ON force_reason="+recordReason+"-->"))
 	// Resolve per-site challenge + branding once; reuse for every placeholder
 	// substitution below.  Default verbatim when the site has no Sites entry.
 	// Authorized test-page preview may resolve the challenge + branding VALUES
@@ -1962,7 +1978,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			// visitor was about to meet a CAPTCHA or a transparent PoW, and
 			// that is the difference between a rule working quietly and a rule
 			// putting a puzzle in front of people.
-			"force_reason": forceReason, "ch_mode": chMode, "rl": rlInt, "test": testInt,
+			"force_reason": recordReason, "ch_mode": chMode, "rl": rlInt, "test": testInt,
 			// Echo the beacon token so this serve row shares a group key
 			// with the subsequent load / pow / bv_* beacons in the hunt UI.
 			"bt": beaconToken,

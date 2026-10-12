@@ -152,14 +152,7 @@ tr.rl-row td{background:#fff7ed}
 .tag.suspect{background:#fef3c7;color:#92400e}
 .tag.ok{background:#dcfce7;color:#166534}
 .tag.none{background:#e2e8f0;color:#475569}
-/* zero-row visibility. default = HIDDEN (operator unchecks to show);
-   .bcd-zero-hidden on the card collapses zero rows.  Toggle is a checkbox
-   inserted right after each table; state persists via localStorage. */
-.bcd-zero-row{display:table-row}
-.bcd-zero-hidden .bcd-zero-row{display:none}
-.bcd-zero-toggle{display:inline-flex;align-items:center;gap:.35rem;margin-top:.4rem;font-size:.78rem;color:#64748b;cursor:pointer;user-select:none}
-.bcd-zero-toggle input[type=checkbox]{margin:0;cursor:pointer}
-.bcd-zero-toggle:hover{color:#0f172a}
+/* zero-row visibility: partial_zero_rows.html (shared with the overview). */
 .bcd-card .bcd-table{visibility:hidden}
 .bcd-card .bcd-table.bcd-ready{visibility:visible}
 .flex{display:grid;grid-template-columns:1fr 1fr;gap:.875rem}
@@ -987,86 +980,8 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
    (= loaded by the "popover_pin_assets" partial. defer ensures DOM-ready execution). */
 </script>
 
+{{ template "zero_rows_assets" . }}
 <script>
-// zero-row visibility — design rules:
-//   default = SHOWN (= feedback_zero_row_policy: "0 件でも item 自体は default
-//                       表示. toggle で隠せるように").
-//   user ticks a checkbox under the table to collapse zero rows; state is
-//   persisted to localStorage so the choice survives reloads.
-//   key: "unmask:zero_v2:" + (h2 text or DOM index).  The "_v2" suffix
-//   avoids inheriting state from the legacy "default hidden + show toggle"
-//   key whose semantics were inverted.
-document.addEventListener('DOMContentLoaded', function(){
-  function lsGet(k){ try { return localStorage.getItem(k); } catch(e) { return null; } }
-  function lsSet(k,v){ try { localStorage.setItem(k,v); } catch(e) {} }
-
-  const HIDE_TPL = {{ t .Lang "toggle.hide_zero_n_cb" }};
-
-  document.querySelectorAll('.bcd-card .bcd-table').forEach(function(tbl){
-    // Per-event tables (JSErrors / ReloadLoops / VerifyNGRanking /
-    // CookieSetFails / StealthPassed) carry data-no-zero-toggle: a row is
-    // one event, so "flags == 0" doesn't mean "empty row", and treating it
-    // as one hides legitimate observations.  Opt-out at the table level.
-    // Per-event tables opt out of the zero-row toggle, but must still be made
-    // visible (= the default is visibility:hidden until .bcd-ready lands).
-    if (tbl.hasAttribute('data-no-zero-toggle')) { tbl.classList.add('bcd-ready'); return; }
-    var rows = Array.from(tbl.querySelectorAll('tbody tr'));
-    var zeroRows = rows.filter(function(tr){
-      // rate_limit / force-reason (bcd-axis) / TOTAL rows are always visible (= excluded from zero-row toggle)
-      if (tr.classList.contains('bcd-rl') || tr.classList.contains('bcd-axis') || tr.classList.contains('bcd-total')) return false;
-      // Some templates already mark rows via class="muted-row" (= AI card etc.).
-      // Treat that as "this is a zero row" without re-checking each cell.
-      if (tr.classList.contains('muted-row')) return true;
-      var nums = tr.querySelectorAll('.bcd-num');
-      if (!nums.length) return false;
-      return Array.from(nums).every(function(td){
-        var s = td.textContent.trim().replace(/[,%\s]/g,'');
-        // treat "-" as "no data" too (= shown when rate has load=0).
-        return s === '' || s === '-' || s === '0' || s === '0.0' || s === '0.00';
-      });
-    });
-    if (zeroRows.length === 0) {
-      tbl.classList.add('bcd-ready');
-      return;
-    }
-    zeroRows.forEach(function(tr){ tr.classList.add('bcd-zero-row'); });
-
-    var card = tbl.closest('.bcd-card') || tbl.parentNode;
-    var h2 = card.querySelector('h2');
-    var keySrc = h2 ? h2.textContent.trim() : ('table-' + Array.from(document.querySelectorAll('.bcd-table')).indexOf(tbl));
-    var key = 'unmask:zero_v2:' + keySrc;
-
-    var label = document.createElement('label');
-    label.className = 'bcd-zero-toggle';
-    var cb = document.createElement('input');
-    cb.type = 'checkbox';
-    var span = document.createElement('span');
-    span.textContent = HIDE_TPL.replace('%d', zeroRows.length);
-    label.appendChild(cb);
-    label.appendChild(span);
-
-    function applyState(hide){
-      // When the checkbox is ticked, mark the card and CSS hides the rows.
-      // When unticked the rows fall back to their natural table-row display.
-      card.classList.toggle('bcd-zero-hidden', hide);
-    }
-
-    // Default = HIDE zero rows: a first-time visitor (no saved choice) gets
-    // them collapsed, and only an explicit "show" persists as visible.
-    var saved = lsGet(key);
-    cb.checked = (saved !== 'show');
-    applyState(cb.checked);
-
-    cb.addEventListener('change', function(){
-      applyState(cb.checked);
-      lsSet(key, cb.checked ? 'hide' : 'show');
-    });
-
-    tbl.parentNode.insertBefore(label, tbl.nextSibling);
-    tbl.classList.add('bcd-ready');
-  });
-});
-
 // 30-day stacked bar chart (= aggregate all reqs from nginx access_log).
 // data: [{date, kind, req}, ...].  kind = 1(white_pass) / 2(pow_pass) / 3(not_pass).
 // Hover shows a popover with each kind's count for the day plus the total.

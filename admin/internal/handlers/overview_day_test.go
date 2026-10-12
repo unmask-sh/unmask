@@ -12,9 +12,10 @@ import (
 )
 
 // The dashboard's 24-hour section: the composition and the tile row on
-// the page, the AI / crawler table and the hourly chart gone (the stats page
-// has both), and the same section alone when the page asks for its minute
-// refresh.
+// the page, the crawler table back under them (the operator's 2026-10-12 call:
+// it is the breakdown of the known-crawler share, and where a search engine
+// being challenged shows first), the pipeline stages and the hourly chart
+// gone, and the same section alone when the page asks for its refresh.
 func TestOverviewDaySection(t *testing.T) {
 	h := newTestHandler(t)
 	s := h.snapshotSettings()
@@ -39,7 +40,12 @@ func TestOverviewDaySection(t *testing.T) {
 	if strings.Count(page, `data-kpi="`) != 6 {
 		t.Errorf("%d tiles, want 6", strings.Count(page, `data-kpi="`))
 	}
-	for _, gone := range []string{`table.ai-traffic`, `ai_traffic_card`, `class="ai-tabs"`, `class="pipe"`, `pipe-st`, `pipe-side`} {
+	for _, want := range []string{`data-ai-card`, `class="ai-tabs"`, `id="reasons-card"`} {
+		if !strings.Contains(page, want) {
+			t.Errorf("page lacks %q", want)
+		}
+	}
+	for _, gone := range []string{`class="pipe"`, `pipe-st`, `pipe-side`} {
 		if strings.Contains(page, gone) {
 			t.Errorf("page still carries %q", gone)
 		}

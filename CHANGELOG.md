@@ -14,7 +14,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- (2026-10-12) **The dashboard's day names who crawled and why visitors were stopped.**  The crawler table is back under the composition: who the known crawlers were, and whether a search engine was challenged.  A new card counts the day's challenge and deny pages by the reason behind each, every reason opening bot hunt on it.  It replaces the ten latest detections, which stay live on the realtime tab.
+
 ### Fixed
+
+- (2026-10-12) **A custom rule's challenge is recorded as the rule's.**  The challenge page recorded no reason for a visitor one of your custom rules sent there, so bot hunt and the dashboard filed the rule's work under the site's default posture.  It now records custom_rule, and bot hunt's reason filter offers it, along with four other reasons it was missing.
 
 - (2026-10-12) **JavaScript errors from Brave on iOS fold with foreign-script noise.**  Brave's built-in wallet sets window.ethereum fields after every page load and throws where a page has none.  WebKit reports that injected code against the page's own address at line 1, so the dashboard listed it as a challenge failure, from a browser it called Safari.  Rows already stored move too, and the browser now reads Brave.
 

@@ -144,68 +144,20 @@
 .ai-spark polyline{fill:none;stroke:#3b82f6;stroke-width:1;vector-effect:non-scaling-stroke;stroke-linejoin:round;stroke-linecap:round}
 </style>
 <script>
+// window.unmaskWireAITraffic(root) wires the cards under root that it has not
+// wired yet: the tabs, the totals row and the tag popovers.  The overview
+// redraws its day section (the card included) on the refresh button and calls
+// it again on the new markup; the stats page runs it once.
 (function(){
-  document.querySelectorAll('[data-ai-card]').forEach(function(card){
-    var tabs  = card.querySelectorAll('.ai-tab');
-    var panes = card.querySelectorAll('.ai-pane');
-    tabs.forEach(function(tab){
-      tab.addEventListener('click', function(){
-        var which = tab.getAttribute('data-tab');
-        tabs.forEach(function(t){ t.classList.toggle('active', t === tab); });
-        panes.forEach(function(p){ p.style.display = (p.getAttribute('data-pane') === which) ? '' : 'none'; });
-      });
-    });
-  });
-})();
-(function(){
-  // Append a totals row to each AI-traffic table.  Sum the numeric columns;
-  // the all-traffic pass-rate column is recomputed from the summed
-  // passed/total rather than averaged, so it stays a true overall rate.
-  document.querySelectorAll('.ai-traffic-card table.ai-traffic').forEach(function(tbl){
-    var tbody = tbl.querySelector('tbody');
-    if (!tbody || tbl.querySelector('tfoot')) return;
-    var rows = tbody.querySelectorAll('tr');
-    if (rows.length < 2) return;
-    var ncol = tbl.querySelectorAll('thead th').length;
-    var sums = new Array(ncol).fill(0);
-    rows.forEach(function(tr){
-      var tds = tr.querySelectorAll('td');
-      for (var i = 1; i < tds.length && i < ncol; i++){
-        var v = parseFloat(tds[i].textContent.replace(/[,%\s]/g, ''));
-        if (!isNaN(v)) sums[i] += v;
-      }
-    });
-    var label = tbl.getAttribute('data-total-label') || 'Total';
-    var html = '<td>' + label + '</td>';
-    if (ncol === 5){
-      // all-traffic: total / served / passed / pass-rate
-      html += '<td class="bcd-num">' + sums[1].toLocaleString() + '</td>';
-      html += '<td class="bcd-num">' + sums[2].toLocaleString() + '</td>';
-      html += '<td class="bcd-num">' + sums[3].toLocaleString() + '</td>';
-      html += '<td class="bcd-num">' + (sums[1] > 0 ? (sums[3] / sums[1] * 100).toFixed(1) + '%' : '—') + '</td>';
-    } else {
-      // served-only: count / uniq-ip
-      for (var i = 1; i < ncol; i++) html += '<td class="bcd-num">' + sums[i].toLocaleString() + '</td>';
-    }
-    var tfoot = document.createElement('tfoot');
-    var tr = document.createElement('tr');
-    tr.innerHTML = html;
-    tfoot.appendChild(tr);
-    tbl.appendChild(tfoot);
-  });
-})();
-(function(){
-  // Hover/click popover of representative services for each tag.  Scoped to
-  // the ai-cat tags only (not a document-wide [data-info] handler) so it
-  // never picks up other data-info badges on the same page.  Reuses the
-  // shared popoverPin (loaded via popover_pin_assets) for styling + pinning.
-  if (!window.popoverPin) return;
-  var cats = document.querySelectorAll('.ai-traffic-card .ai-cat[data-info]');
-  if (!cats.length) return;
-  var pop = document.createElement('div');
-  pop.setAttribute('data-popover', 'info');
-  document.body.appendChild(pop);
-  var pin = window.popoverPin.install(pop);
+  var pin = null;
+  function popover(){
+    if (pin || !window.popoverPin) return pin;
+    var pop = document.createElement('div');
+    pop.setAttribute('data-popover', 'info');
+    document.body.appendChild(pop);
+    pin = window.popoverPin.install(pop);
+    return pin;
+  }
   function fmt(t){ return '<div style="max-width:26rem;font-size:.82rem;line-height:1.5;white-space:normal">' + t + '</div>'; }
   // detailFor: the hidden per-category drill-down table for el's category, if
   // present (only the "all" tab's tags carry data-detail-cat).  The store's
@@ -219,18 +171,77 @@
     var store = card.querySelector('.ai-detail-store .ai-detail-pop[data-cat="' + sel + '"]');
     return store ? '<div class="ai-detail-wrap">' + store.innerHTML + '</div>' : '';
   }
-  cats.forEach(function(el){
-    var info = el.getAttribute('data-info');
-    if (!info) return;
-    // Hover and click both show the examples hint + (when present) the per-
-    // crawler breakdown table -- so the detail is visible on hover, not only
-    // once pinned.  Clicking pins it (the small "v" caret signals a breakdown)
-    // so a long list can be scrolled without the popover chasing the cursor.
-    var content = fmt(info + detailFor(el));
-    el.addEventListener('mouseenter', function(e){ pin.showHover(content, e.pageX, e.pageY, el); });
-    el.addEventListener('mouseleave', function(){ if (!pin.hasPinFor(el)) pin.hideHover(); });
-    el.addEventListener('click', function(e){ e.preventDefault(); pin.handleClick(content, e.pageX, e.pageY, el); });
-  });
+  window.unmaskWireAITraffic = function(root){
+    root = root || document;
+    root.querySelectorAll('[data-ai-card]').forEach(function(card){
+      if (card.hasAttribute('data-ai-wired')) return;
+      card.setAttribute('data-ai-wired', '');
+      var tabs  = card.querySelectorAll('.ai-tab');
+      var panes = card.querySelectorAll('.ai-pane');
+      tabs.forEach(function(tab){
+        tab.addEventListener('click', function(){
+          var which = tab.getAttribute('data-tab');
+          tabs.forEach(function(t){ t.classList.toggle('active', t === tab); });
+          panes.forEach(function(p){ p.style.display = (p.getAttribute('data-pane') === which) ? '' : 'none'; });
+        });
+      });
+      // Append a totals row to each table.  Sum the numeric columns; the
+      // all-traffic pass-rate column is recomputed from the summed
+      // passed/total rather than averaged, so it stays a true overall rate.
+      card.querySelectorAll('table.ai-traffic').forEach(function(tbl){
+        var tbody = tbl.querySelector('tbody');
+        if (!tbody || tbl.querySelector('tfoot')) return;
+        var rows = tbody.querySelectorAll('tr');
+        if (rows.length < 2) return;
+        var ncol = tbl.querySelectorAll('thead th').length;
+        var sums = new Array(ncol).fill(0);
+        rows.forEach(function(tr){
+          var tds = tr.querySelectorAll('td');
+          for (var i = 1; i < tds.length && i < ncol; i++){
+            var v = parseFloat(tds[i].textContent.replace(/[,%\s]/g, ''));
+            if (!isNaN(v)) sums[i] += v;
+          }
+        });
+        var label = tbl.getAttribute('data-total-label') || 'Total';
+        var html = '<td>' + label + '</td>';
+        if (ncol === 5){
+          // all-traffic: total / served / passed / pass-rate
+          html += '<td class="bcd-num">' + sums[1].toLocaleString() + '</td>';
+          html += '<td class="bcd-num">' + sums[2].toLocaleString() + '</td>';
+          html += '<td class="bcd-num">' + sums[3].toLocaleString() + '</td>';
+          html += '<td class="bcd-num">' + (sums[1] > 0 ? (sums[3] / sums[1] * 100).toFixed(1) + '%' : '—') + '</td>';
+        } else {
+          // served-only: count / uniq-ip
+          for (var i = 1; i < ncol; i++) html += '<td class="bcd-num">' + sums[i].toLocaleString() + '</td>';
+        }
+        var tfoot = document.createElement('tfoot');
+        var tr = document.createElement('tr');
+        tr.innerHTML = html;
+        tfoot.appendChild(tr);
+        tbl.appendChild(tfoot);
+      });
+      // Hover/click popover of representative services for each tag.  Scoped
+      // to the ai-cat tags only (not a document-wide [data-info] handler) so it
+      // never picks up other data-info badges on the same page.  Reuses the
+      // shared popoverPin (loaded via popover_pin_assets) for styling + pinning.
+      var cats = card.querySelectorAll('.ai-cat[data-info]');
+      if (!cats.length || !popover()) return;
+      cats.forEach(function(el){
+        var info = el.getAttribute('data-info');
+        if (!info) return;
+        // Hover and click both show the examples hint + (when present) the
+        // per-crawler breakdown table -- so the detail is visible on hover, not
+        // only once pinned.  Clicking pins it (the small "v" caret signals a
+        // breakdown) so a long list can be scrolled without the popover
+        // chasing the cursor.
+        var content = fmt(info + detailFor(el));
+        el.addEventListener('mouseenter', function(e){ pin.showHover(content, e.pageX, e.pageY, el); });
+        el.addEventListener('mouseleave', function(){ if (!pin.hasPinFor(el)) pin.hideHover(); });
+        el.addEventListener('click', function(e){ e.preventDefault(); pin.handleClick(content, e.pageX, e.pageY, el); });
+      });
+    });
+  };
+  window.unmaskWireAITraffic(document);
 })();
 </script>
 {{ end }}

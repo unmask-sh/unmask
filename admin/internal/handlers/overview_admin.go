@@ -67,6 +67,13 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		uBlocked                              int
 		uKnown                                bool
 		overBlock                             OverBlockHealth
+		// The crawler card (the stats page's, same partial and the same three
+		// reads over the day) and the detections-by-reason card.
+		aiAll     []AITrafficRow
+		aiDetail  map[string][]AICrawlerRow
+		aiServed  []dashboard.AITrafficRow
+		reasons   map[string]int
+		reasonsOK bool
 	)
 	var wg sync.WaitGroup
 	launch := func(f func()) {
@@ -114,6 +121,19 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// Over-block circuit-breaker health -- a global signal, so it lives on the
 	// landing rather than the per-site stats dashboard.
 	launch(func() { overBlock, _ = h.OverBlockHealth(ctx) })
+	// Who the known crawlers were and whether any was challenged: the "all"
+	// tab is install-wide (the access log's crawler counters carry no site),
+	// the "challenged" tab follows the site picker, as on the stats page.
+	launch(func() { aiAll = aiTrafficSummary(ctx, h, 1440) })
+	launch(func() { aiDetail = aiTrafficDrilldown(ctx, h, 1440) })
+	launch(func() {
+		var err error
+		if aiServed, err = dashboard.AITrafficBreakdown(ctx, h.DB, site, hosts, 24); err != nil {
+			log.Printf("overview crawler card: %v", err)
+		}
+	})
+	// What sent visitors to a challenge or a deny page today, by reason.
+	launch(func() { reasons, reasonsOK = dashboard.ServeReasons(ctx, h.DB, site, hosts, 24) })
 	wg.Wait()
 
 	// "Blocked" for the hero: challenges fired that produced no pass, minus the
@@ -388,8 +408,18 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		kpiCaptchaTotal += comp.CaptchaPass
 	}
 	lang := i18n.Resolve(r)
+	reasonRows, reasonsTotal := overviewReasonRows(lang, h.cfg().Server.BasePath, reasons)
 	data := map[string]any{
-		"Lang":            lang,
+		"Lang": lang,
+		// Crawler card (partial_ai_traffic_card), same keys as the stats page.
+		"AITraffic":       aiAll,
+		"AITrafficServed": aiServed,
+		"AITrafficDetail": aiDetail,
+		// Detections by reason: every known reason (zeros collapse behind the
+		// table's toggle), then any the daemon wrote that no label covers.
+		"Reasons":         reasonRows,
+		"ReasonsTotal":    reasonsTotal,
+		"ReasonsKnown":    reasonsOK,
 		"TZ":              resolveTZ(r),
 		"KPIServes":       kpiFired,
 		"KPIPoWTotal":     kpiPoWTotal,
@@ -1098,4 +1128,71 @@ func resolveCompSegs(r *http.Request) map[string]bool {
 	}
 	on, _ := parseCompSegs(compScopeAll)
 	return on
+}
+
+// overviewReasonOrder is every reason a serve is recorded under, in the order
+// the detections-by-reason card lists them when counts tie (and zeros, which
+// collapse behind the table's toggle): the challenge axes, the deny axes, the
+// site's default posture, then the operator's own test pages.  A reason the
+// daemon writes that is not here still gets a row, under its raw value.
+var overviewReasonOrder = []string{
+	"ja4_bot", "ua_target", "custom_rule", "protected", "honeypot", "banned", "community_bans",
+	"header", "stale", "asn", "geo", "rate_limit", "reuse_limit",
+	"ua_deny", "ja4_deny", "asn_deny", "geo_deny", "community_deny", "axis_deny",
+	"none", "test",
+}
+
+// reasonRow is one row of the detections-by-reason card.
+type reasonRow struct {
+	Reason string
+	Label  string
+	Count  int
+	Pct    float64
+	// Hunt opens bot hunt on this reason over the day; "" for "unknown",
+	// which no filter can select (the events carry no reason at all).
+	Hunt string
+}
+
+// overviewReasonRows orders the counts for the card: by count, then in
+// overviewReasonOrder, with every known reason present (zero included) and
+// any other reason appended.  The share is of the card's own total.
+func overviewReasonRows(lang i18n.Lang, base string, counts map[string]int) ([]reasonRow, int) {
+	rank := make(map[string]int, len(overviewReasonOrder))
+	for i, r := range overviewReasonOrder {
+		rank[r] = i
+	}
+	keys := append([]string(nil), overviewReasonOrder...)
+	for k := range counts {
+		if _, ok := rank[k]; !ok {
+			rank[k] = len(rank)
+			keys = append(keys, k)
+		}
+	}
+	total := 0
+	for _, n := range counts {
+		total += n
+	}
+	rows := make([]reasonRow, 0, len(keys))
+	for _, k := range keys {
+		key := "overview.reason." + k
+		label := i18n.T(lang, key)
+		if label == key {
+			label = k
+		}
+		row := reasonRow{Reason: k, Label: label, Count: counts[k]}
+		if total > 0 {
+			row.Pct = float64(row.Count) * 100 / float64(total)
+		}
+		if k != "unknown" {
+			row.Hunt = base + "/admin/hunt/?range=24h&force_reason=" + url.QueryEscape(k)
+		}
+		rows = append(rows, row)
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].Count != rows[j].Count {
+			return rows[i].Count > rows[j].Count
+		}
+		return rank[rows[i].Reason] < rank[rows[j].Reason]
+	})
+	return rows, total
 }

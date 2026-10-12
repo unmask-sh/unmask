@@ -66,9 +66,15 @@ const (
 	// transparent proof-of-work without a rule pointing at them.  Same filter
 	// as countUnruledPoW: no force_reason, chain pow_only.  Keyed by phase so
 	// 'load' and 'abandon' share one kind.
-	hkUnruledPoW = "upw"  // key '<phase>'  phase in (load, abandon), no force_reason, chmode=pow_only
-	hkAITag      = "ait"  // key '<crawler-tag>'     phase=serve, payload rl != 1 (AI traffic breakdown count, install-wide)
-	hkAITagSite  = "aits" // key '<site>|<crawler-tag>' phase=serve, payload rl != 1 (AI traffic per-site)
+	hkUnruledPoW = "upw" // key '<phase>'  phase in (load, abandon), no force_reason, chmode=pow_only
+	// hkServeReason: every phase=serve event (a challenge page or a deny page),
+	// by the reason that sent the visitor there -- the landing page's
+	// detections-by-reason card (ServeReasons).  Its keys sum to hkPhase's
+	// 'serve' over any hour folded since the kind existed, which is how the
+	// read side tells a complete window from one that reaches back past it.
+	hkServeReason = "svr"  // key '<force_reason>'  phase=serve, every event
+	hkAITag       = "ait"  // key '<crawler-tag>'     phase=serve, payload rl != 1 (AI traffic breakdown count, install-wide)
+	hkAITagSite   = "aits" // key '<site>|<crawler-tag>' phase=serve, payload rl != 1 (AI traffic per-site)
 	// Per-site funnel twins, written ONLY for operator-declared sites
 	// (Settings.Sites.ActiveDefined in "defined" mode; resolved via DefinedSitesFn).
 	// They let a site-filtered funnel read the fixed 32-day aggregate instead of
@@ -657,6 +663,9 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 			if site != "" {
 				batch.counts[hourlyKey{hour, hkSiteServe, site}]++
 			}
+			// svr: every serve, rate-limited ones included, so the kind sums
+			// to ph 'serve' exactly (ServeReasons checks that).
+			batch.counts[hourlyKey{hour, hkServeReason, serveReasonKey(frRaw)}]++
 			rl := payloadRL(payload.String)
 			if rl {
 				batch.counts[hourlyKey{hour, hkServeRL, vv}]++

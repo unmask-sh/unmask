@@ -1,9 +1,10 @@
 // The dashboard's 24-hour section: the composition bar, then the tile row
-// (requests, what the challenge did, bans); no hourly chart, no AI / crawler
-// table (the stats page has both).
-// The section is redrawn from the server every minute; after a redraw the
-// composition's segment toggles must still work, since their script binds to
-// the card that was replaced.
+// (requests, what the challenge did, bans), then the crawler table and the
+// detections by reason; no hourly chart (the stats page has it).
+// The section is redrawn from the server on its refresh button; after a
+// redraw the composition's segment toggles, the crawler table's tabs and the
+// zero-row toggles must still work, since their scripts bind to the markup
+// that was replaced.
 //
 // Env: UI_E2E_BASE, UI_E2E_USER, UI_E2E_PASS, CHROME_BIN, UI_E2E_SHOT_DIR.
 const puppeteer = require('puppeteer-core');
@@ -58,7 +59,7 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   ok(shape.day && !shape.hourly && shape.comp, 'the day section or composition card is missing, or the hourly card is back');
   ok(shape.tiles.join(',') === 'requests,serve,pow,captcha,abandon,bans', 'tiles: ' + shape.tiles.join(','));
   ok(shape.oneRow === 1, 'the tiles wrap onto ' + shape.oneRow + ' rows at 1400px');
-  ok(!shape.ai, 'the AI / crawler table is still on the dashboard');
+  ok(shape.ai, 'the crawler table is not on the dashboard');
   ok(shape.stages === 0, 'the pipeline stages are still on the dashboard');
   ok(shape.liveLeft === 0, 'the live strip, map or recent card is still on the dashboard');
   ok(shape.nowLine && /\/admin\/live\/$/.test(shape.nowLine.link) && /\d/.test(shape.nowLine.text), 'the now line with its link to the realtime page is missing: ' + JSON.stringify(shape.nowLine));
@@ -103,6 +104,44 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     ok(comp.stillOff, 'the redraw lost the excluded segment (the server did not get the state)');
     ok(comp.backOn, 'the toggle no longer works after the redraw (the script was not rebound)');
     ok(comp.dayErr === true, 'the day refresh reported a failure');
+  }
+
+  // The crawler table and the detections by reason come back with the
+  // redraw, wired: the tabs switch, and each table with zero rows has
+  // exactly one toggle (a second wiring would add a second).
+  const cards = await page.evaluate(async () => {
+    await window.unmaskRefreshDay();
+    const card = document.querySelector('#day-section [data-ai-card]');
+    const reasons = document.querySelector('#day-section #reasons-card');
+    if (!card || !reasons) return { missing: true, card: !!card, reasons: !!reasons };
+    const served = card.querySelector('.ai-tab[data-tab="served"]');
+    served.click();
+    const shown = card.querySelector('.ai-pane[data-pane="served"]').style.display !== 'none' &&
+                  card.querySelector('.ai-pane[data-pane="all"]').style.display === 'none';
+    card.querySelector('.ai-tab[data-tab="all"]').click();
+    const rows = Array.from(reasons.querySelectorAll('tbody tr[data-reason]'));
+    const counts = rows.map(tr => parseInt(tr.children[1].textContent.replace(/,/g, ''), 10));
+    const zeros = rows.filter(tr => tr.classList.contains('muted-row'));
+    return {
+      shown,
+      rows: rows.length,
+      sorted: counts.every((n, i) => i === 0 || counts[i - 1] >= n),
+      zeros: zeros.length,
+      zerosHidden: zeros.every(tr => getComputedStyle(tr).display === 'none'),
+      reasonToggles: reasons.querySelectorAll('.bcd-zero-toggle').length,
+      aiToggles: card.querySelectorAll('.bcd-zero-toggle').length,
+      aiZeroTables: Array.from(card.querySelectorAll('table.bcd-table')).filter(t => t.querySelector('tr.muted-row')).length,
+      firstLink: (rows[0] && rows[0].querySelector('a')) ? rows[0].querySelector('a').getAttribute('href') : '',
+    };
+  });
+  if (cards.missing) {
+    ok(false, 'the crawler table or the reasons card did not come back with the redraw: ' + JSON.stringify(cards));
+  } else {
+    ok(cards.shown, 'the crawler table\'s tabs do not switch after the redraw');
+    ok(cards.rows > 0 && cards.sorted, 'the reasons are missing or out of order: ' + JSON.stringify(cards));
+    ok(cards.zeros === 0 || (cards.reasonToggles === 1 && cards.zerosHidden), 'the reasons card\'s zero rows are not folded behind one toggle: ' + JSON.stringify(cards));
+    ok(cards.aiToggles === cards.aiZeroTables, 'the crawler card has ' + cards.aiToggles + ' zero-row toggles for ' + cards.aiZeroTables + ' tables with zero rows');
+    ok(/\/admin\/hunt\/\?range=24h&force_reason=[a-z0-9_]+$/.test(cards.firstLink), 'the top reason does not open bot hunt on it: ' + cards.firstLink);
   }
 
   // A figure that changed on the redraw flashes; one that did not stays
