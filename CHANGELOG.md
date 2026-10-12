@@ -12,7 +12,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.51-rc12] - 2026-10-12 (testing build)
+
+### Since rc11
+
+- Ask AI lists each tool it called once, with how many times ("events ×2"), and a copied answer reads as words.
+
+- The advisor and Ask AI at effort xhigh or max no longer fail with "no text block": the token budget follows the effort, Anthropic answers are read as a stream, a cut-off answer says so, and a failed run's tokens are counted.
+
+- Any custom rule Ask AI suggests now comes with the button that opens it, filled in, in the dialog.
 
 ### Changed
 
