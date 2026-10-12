@@ -1091,7 +1091,7 @@ var dict = map[Lang]map[string]string{
 		"dashboard.card.verdict_dist":        "JA4 verdict 分布",
 		"dashboard.verdict_dist.desc":        "全リクエストの TLS fingerprint (JA4) を verdict 別に集計したランキング。<br><br><code>(none)</code> = verdict の付かなかった request (どの ルール にも一致しなかった通常ブラウザ、および JA4 を取得できなかった request)。それ以外は preset / custom ルール で名付けられた JA4 pattern (例: <code>chrome_fake_h1</code>)。<br><br><strong>action 別の挙動:</strong><br>・allow (<code>ok</code>): 通常の challenge で透過<br>・block (<code>bot</code>): challenge を強制。chain は 設定 &gt; JA4 verdict の default action に従う<br>・observe (<code>suspect</code>): 挙動は通常のまま、観測用 label として記録<br><br>ルール の管理は <strong>設定 &gt; JA4 verdict</strong>。",
 		"dashboard.card.captcha_force":       "強制 CAPTCHA 判定 (理由別)",
-		"dashboard.captcha_force.desc":       "challenge が表示された理由 (強制理由) 別の集計ランキング。<code>none</code> 以外は、何らかの判定で<strong>強制的に challenge へ回された</strong>リクエスト。<br><br><strong>各 reason の意味:</strong><br>・<code>none</code>: 強制なし (通常の challenge 経由)<br>・<code>ja4_bot</code>: TLS fingerprint が block 判定<br>・<code>honeypot</code>: 罠 URL を踏んだ<br>・<code>banned</code>: BAN list に一致<br>・<code>protected</code>: 保護パスに一致<br>・<code>rate_limit</code>: rate-limit 閾値超過<br>・<code>test</code>: 動作確認用 test ページ経由<br>・<code>stale</code>: 旧バージョンブラウザ引き上げ<br>・<code>header</code>: ヘッダ整合性チェック (Sec-CH-UA 欠落)<br>・<code>asn</code>: ASN フィルタ (直接 challenge 分)<br>・<code>geo</code>: 国別フィルタ (直接 challenge 分)<br>・<code>unknown</code>: 理由未記録 (通常 0)<br><br>1 つの reason に集中している場合は、その原因を狙い撃ちで設定見直しできる (例: <code>honeypot</code> 急増なら罠 URL がどこかでリンクされていないか疑う)。各 reason の詳細は表内ラベルの hover で表示される。",
+		"dashboard.captcha_force.desc":       "challenge が表示された理由 (強制理由) 別の集計ランキング。<code>none</code> 以外は、何らかの判定で<strong>強制的に challenge へ回された</strong>リクエスト。<br><br><strong>各 reason の意味:</strong><br>・<code>none</code>: 強制なし (通常の challenge 経由)<br>・<code>ja4_bot</code>: TLS fingerprint が block 判定<br>・<code>honeypot</code>: 罠 URL を踏んだ<br>・<code>banned</code>: BAN list に一致<br>・<code>community_bans</code>: 共有 BAN の一覧に一致<br>・<code>protected</code>: 保護パスに一致<br>・<code>rate_limit</code>: rate-limit 閾値超過<br>・<code>reuse_limit</code>: 通過 cookie の使い回し上限を超過<br>・<code>test</code>: 動作確認用 test ページ経由<br>・<code>stale</code>: 旧バージョンブラウザ引き上げ<br>・<code>header</code>: ヘッダ整合性チェック (Sec-CH-UA 欠落)<br>・<code>ua_target</code>: UA フィルタのパターンに一致<br>・<code>asn</code>: ASN フィルタ (直接 challenge 分)<br>・<code>geo</code>: 国別フィルタ (直接 challenge 分)<br>・<code>custom_rule</code>: カスタムルールに一致<br>・<code>unknown</code>: 理由未記録 (通常 0)<br><br>1 つの reason に集中している場合は、その原因を狙い撃ちで設定見直しできる (例: <code>honeypot</code> 急増なら罠 URL がどこかでリンクされていないか疑う)。各 reason の詳細は表内ラベルの hover で表示される。",
 		"captcha_force.kind.none":            "通常 PoW (強制なし)",
 		"captcha_force.kind.ja4_bot":         "JA4 verdict=bot",
 		"captcha_force.kind.honeypot":        "honeypot 踏み",
@@ -1159,6 +1159,15 @@ var dict = map[Lang]map[string]string{
 		"dashboard.banned.forever":           "(永久)",
 		"th.banned_at":                       "BAN 日時",
 		"th.expires_at":                      "失効日時",
+
+		// The reasons the serve path has named since the list above: a shared
+		// ban list hit, the UA filter's own patterns, a custom rule.
+		"captcha_force.kind.community_bans":      "共有 BAN ヒット",
+		"captcha_force.kind.ua_target":           "UA フィルタ",
+		"captcha_force.kind.custom_rule":         "カスタムルール",
+		"help.captcha_force.kind.community_bans": "<b>community_bans</b>: 共有 BAN (Community Bans) の一覧に一致した訪問者。challenge 系の action の entry がここに出る (deny の entry は 403 で弾くので出ない)。購読と action は 設定 &gt; Community Bans で管理。",
+		"help.captcha_force.kind.ua_target":      "<b>ua_target</b>: 設定 &gt; UA フィルタ で challenge の対象にした UA のパターンに一致した訪問者。既定の動作 (設定 &gt; 動作モード) で challenge した訪問者はここではなく <code>none</code> に入る。",
+		"help.captcha_force.kind.custom_rule":    "<b>custom_rule</b>: カスタムルールの条件をすべて満たし、そのルールのアクション (PoW / CAPTCHA) で challenge に回された訪問者。遮断のルールは 403 で弾くのでここには出ない。ルールごとの当たり数は 設定 &gt; カスタムルール で見られる。",
 
 		"dashboard.trend_all.subtitle":   "(access_log 集計)",
 		"dashboard.trend_serve.subtitle": "(phase=serve を classify.IsBot で分類)",
@@ -3665,7 +3674,7 @@ var dict = map[Lang]map[string]string{
 		"dashboard.card.verdict_dist":        "JA4 verdict distribution",
 		"dashboard.verdict_dist.desc":        "Ranking of all requests by TLS fingerprint (JA4) verdict.<br><br><code>(none)</code> = requests that earned no verdict (normal browsers matching no rule, plus requests whose JA4 could not be captured). The rest are JA4 patterns named by preset or custom rules (e.g. <code>chrome_fake_h1</code>).<br><br><strong>Behavior per action:</strong><br>- allow (<code>ok</code>): passes via the normal challenge<br>- block (<code>bot</code>): challenge is forced; the chain follows the default action under Settings &gt; JA4 verdict<br>- observe (<code>suspect</code>): behavior stays normal; the label is recorded for observation<br><br>Manage rules under <strong>Settings &gt; JA4 verdict</strong>.",
 		"dashboard.card.captcha_force":       "Forced CAPTCHA (reason breakdown)",
-		"dashboard.captcha_force.desc":       "Ranking by the reason a challenge was forced. Anything other than <code>none</code> means a detection <strong>forced the request into a challenge</strong>.<br><br><strong>Reason meanings:</strong><br>- <code>none</code>: not forced (the normal challenge path)<br>- <code>ja4_bot</code>: TLS fingerprint matched a blocked verdict<br>- <code>honeypot</code>: tripped a trap URL<br>- <code>banned</code>: matched the BAN list<br>- <code>protected</code>: matched a protected path<br>- <code>rate_limit</code>: exceeded a rate limit<br>- <code>test</code>: came via the operator test pages<br>- <code>stale</code>: stale-browser escalation<br>- <code>header</code>: header-integrity check (missing Sec-CH-UA)<br>- <code>asn</code>: ASN filter (direct challenge)<br>- <code>geo</code>: country filter (direct challenge)<br>- <code>unknown</code>: reason not recorded (usually 0)<br><br>Concentration on one reason tells you exactly which setting to revisit (e.g. a spike in <code>honeypot</code> suggests a trap URL got linked somewhere). Hover each label in the table for details.",
+		"dashboard.captcha_force.desc":       "Ranking by the reason a challenge was forced. Anything other than <code>none</code> means a detection <strong>forced the request into a challenge</strong>.<br><br><strong>Reason meanings:</strong><br>- <code>none</code>: not forced (the normal challenge path)<br>- <code>ja4_bot</code>: TLS fingerprint matched a blocked verdict<br>- <code>honeypot</code>: tripped a trap URL<br>- <code>banned</code>: matched the BAN list<br>- <code>community_bans</code>: matched the shared ban list<br>- <code>protected</code>: matched a protected path<br>- <code>rate_limit</code>: exceeded a rate limit<br>- <code>reuse_limit</code>: over the pass-cookie reuse cap<br>- <code>test</code>: came via the operator test pages<br>- <code>stale</code>: stale-browser escalation<br>- <code>header</code>: header-integrity check (missing Sec-CH-UA)<br>- <code>ua_target</code>: matched a UA filter pattern<br>- <code>asn</code>: ASN filter (direct challenge)<br>- <code>geo</code>: country filter (direct challenge)<br>- <code>custom_rule</code>: matched a custom rule<br>- <code>unknown</code>: reason not recorded (usually 0)<br><br>Concentration on one reason tells you exactly which setting to revisit (e.g. a spike in <code>honeypot</code> suggests a trap URL got linked somewhere). Hover each label in the table for details.",
 		"captcha_force.kind.none":            "Normal PoW (not forced)",
 		"captcha_force.kind.ja4_bot":         "JA4 verdict=bot",
 		"captcha_force.kind.honeypot":        "Honeypot trip",
@@ -3733,6 +3742,15 @@ var dict = map[Lang]map[string]string{
 		"dashboard.banned.forever":           "(forever)",
 		"th.banned_at":                       "banned at",
 		"th.expires_at":                      "expires at",
+
+		// The reasons the serve path has named since the list above: a shared
+		// ban list hit, the UA filter's own patterns, a custom rule.
+		"captcha_force.kind.community_bans":      "Shared ban list hit",
+		"captcha_force.kind.ua_target":           "UA filter",
+		"captcha_force.kind.custom_rule":         "Custom rule",
+		"help.captcha_force.kind.community_bans": "<b>community_bans</b>: matched the shared ban list (Community Bans). Entries with a challenge action land here; a deny entry is refused with a 403 and never does. Manage the subscription and the action under Settings &gt; Community Bans.",
+		"help.captcha_force.kind.ua_target":      "<b>ua_target</b>: matched a UA pattern you set to be challenged under Settings &gt; UA filter. A visitor challenged by the default posture (Settings &gt; Operating mode) is counted under <code>none</code>, not here.",
+		"help.captcha_force.kind.custom_rule":    "<b>custom_rule</b>: met every condition of one of your custom rules and was challenged with that rule's action (PoW / CAPTCHA). A rule set to deny refuses with a 403 and never lands here. Each rule's hit count is under Settings &gt; Custom rules.",
 
 		"dashboard.trend_all.subtitle":   "(access_log aggregation)",
 		"dashboard.trend_serve.subtitle": "(phase=serve classified by classify.IsBot)",

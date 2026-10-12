@@ -647,8 +647,8 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 				batch.sketch(hllKey{hour, hkLoadVerdictIPSite, site + "|" + v}).add(ip)
 			}
 			// CaptchaForceBreakdown: per-reason count + distinct IP.  Matches
-			// the raw query's CASE-fold: any value outside the known seven
-			// reasons (or no force_reason key at all) collapses to 'unknown'.
+			// the raw query's CASE-fold: any value outside the reasons the card
+			// names (or no force_reason key at all) collapses to 'unknown'.
 			fr := normalizeForceReason(frRaw)
 			batch.counts[hourlyKey{hour, hkCaptchaForce, fr}]++
 			batch.sketch(hllKey{hour, hkCaptchaForceIP, fr}).add(ip)
@@ -883,12 +883,11 @@ func payloadForceReason(payload string) string {
 }
 
 // normalizeForceReason mirrors the raw query's CASE WHEN ... IN (...) ELSE
-// 'unknown' fold.  Known seven reasons pass through; everything else (empty
-// string included) becomes "unknown".  Keep in sync with queries.go's
-// captchaForceKinds slice.
+// 'unknown' fold: a reason the card names (queries.go's captchaForceKinds,
+// which builds both) passes through; everything else (empty string included)
+// becomes "unknown".
 func normalizeForceReason(fr string) string {
-	switch fr {
-	case "none", "ja4_bot", "honeypot", "banned", "protected", "rate_limit", "reuse_limit", "test", "header", "asn", "geo", "stale":
+	if captchaForceNamed[fr] {
 		return fr
 	}
 	return "unknown"

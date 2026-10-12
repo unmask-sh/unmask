@@ -1753,9 +1753,12 @@ func orderFlagsRows(by map[int]FlagsRow) []FlagsRow {
 //	"honeypot"   hit a honeypot path
 //	"banned"     hit the persistent BAN list
 //	"protected"  protected path (captcha / strict mode)
+//	"community_bans" matched the shared ban list (a challenge-action entry)
 //	"rate_limit" rate-limit redirect (= /_rl/...)
 //	"reuse_limit" the pass-cookie reuse cap's redirect (a valid pass over its budget)
 //	"test"       debug path (_test_ja4 / _force=captcha)
+//	"stale" / "header" / "ua_target" / "asn" / "geo"  the page-side axes
+//	"custom_rule" one of the operator's custom rules picked the challenge
 //	"unknown"    flag not recorded (= old challenge.html etc.; normally absent)
 type CaptchaForceRow struct {
 	Kind   string
@@ -1764,7 +1767,35 @@ type CaptchaForceRow struct {
 }
 
 // captchaForceKinds: display order = none / each forced reason / unknown.
-var captchaForceKinds = []string{"none", "ja4_bot", "honeypot", "banned", "protected", "rate_limit", "reuse_limit", "test", "stale", "header", "asn", "geo", "unknown"}
+// It is also the one list of the reasons the card names: the rollup's
+// normalizeForceReason and the raw scan's CASE fold are both built from it,
+// so a reason added here is counted under its own name on both paths.  (The
+// two used to carry copies of their own, and the reasons added since --
+// community_bans, ua_target, custom_rule -- were counted as "unknown".)
+var captchaForceKinds = []string{"none", "ja4_bot", "honeypot", "banned", "community_bans", "protected", "rate_limit", "reuse_limit", "test", "stale", "header", "ua_target", "asn", "geo", "custom_rule", "unknown"}
+
+// captchaForceNamed: captchaForceKinds without the "unknown" fallback.
+var captchaForceNamed = func() map[string]bool {
+	m := make(map[string]bool, len(captchaForceKinds))
+	for _, k := range captchaForceKinds {
+		if k != "unknown" {
+			m[k] = true
+		}
+	}
+	return m
+}()
+
+// captchaForceSQLList: captchaForceNamed as an SQL IN list, in display
+// order.  The values are this file's constants, never input.
+func captchaForceSQLList() string {
+	q := make([]string, 0, len(captchaForceKinds))
+	for _, k := range captchaForceKinds {
+		if captchaForceNamed[k] {
+			q = append(q, "'"+k+"'")
+		}
+	}
+	return strings.Join(q, ",")
+}
 
 // AITrafficRow: one crawler-tag's traffic share over the window.
 //
@@ -1992,13 +2023,13 @@ func captchaForceBreakdownScan(ctx context.Context, d *db.DB, site string, hosts
 	stmt := fmt.Sprintf(`
         SELECT
           CASE
-            WHEN %s IN ('none','ja4_bot','honeypot','banned','protected','rate_limit','reuse_limit','test','stale','header','asn','geo') THEN %s
+            WHEN %s IN (%s) THEN %s
             ELSE 'unknown'
           END AS kind,
           COUNT(*) AS n,
           COUNT(DISTINCT ip_address) AS uniq
         FROM unmask_event WHERE %s%s AND phase='load'
-        GROUP BY kind`, reasonExpr, reasonExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts))
+        GROUP BY kind`, reasonExpr, captchaForceSQLList(), reasonExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
