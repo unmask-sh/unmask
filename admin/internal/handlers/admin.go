@@ -998,6 +998,12 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 		if _, ok := data["VacuumNotice"]; !ok {
 			data["VacuumNotice"] = h.vacuumView(pay.Role, i18n.Resolve(r))
 		}
+		// The reload notice (partial_reload_notice.html, beside the schema
+		// one): nil unless nginx logs an older configuration than the one
+		// the admin wrote last.
+		if _, ok := data["ReloadNotice"]; !ok {
+			data["ReloadNotice"] = h.reloadNotice()
+		}
 	}
 	// "共有 BAN" tab badge: count of source=community_bans rows in BanMgr so
 	// auto-applied entries don't go unnoticed across multiple sessions.

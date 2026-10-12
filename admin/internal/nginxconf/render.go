@@ -20,7 +20,9 @@ package nginxconf
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"io/fs"
@@ -32,6 +34,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -68,6 +71,12 @@ type ObserveHostRow struct {
 var tmplFuncs = template.FuncMap{"rx": settings.PatternRegex}
 
 func Render(s settings.Settings, outDir, version string) error {
+	// One render at a time in this process: the settings save, the IP-range
+	// pull and the GeoIP update each render, and two interleaved renders
+	// could leave a set of files that are not one render -- an http.inc whose
+	// render id (rv=) describes files that are not the ones beside it.
+	renderMu.Lock()
+	defer renderMu.Unlock()
 	if outDir == "" {
 		outDir = s.Nginx.OutputDir
 	}
@@ -86,6 +95,11 @@ func Render(s settings.Settings, outDir, version string) error {
 		return err
 	}
 	data.Gateway = gatewayRenderOf(s, outDir)
+	id, err := renderIDOf(data)
+	if err != nil {
+		return err
+	}
+	data.RenderID = id
 	// Surface a host map_hash mismatch (probed in buildRenderData) once per actual
 	// render.  RenderSignature shares buildRenderData but must not log, so the
 	// warning rides on the (unexported) renderData field and is emitted only here.
@@ -367,6 +381,20 @@ func RenderSignature(s settings.Settings, outDir, version string) (string, error
 	}
 	data.Gateway = gatewayRenderOf(s, outDir)
 	data.GeneratedAt = ""
+	var sig strings.Builder
+	for _, tmpl := range renderedTemplates(data) {
+		out, err := renderToString(tmpl, data)
+		if err != nil {
+			return "", err
+		}
+		sig.WriteString("\x00" + tmpl + "\x00")
+		sig.WriteString(out)
+	}
+	return sig.String(), nil
+}
+
+// renderedTemplates: every template Render writes, in a fixed order.
+func renderedTemplates(data renderData) []string {
 	tmpls := []string{
 		"templates/http.conf.tmpl",
 		"templates/server.inc.tmpl",
@@ -379,16 +407,54 @@ func RenderSignature(s settings.Settings, outDir, version string) (string, error
 			tmpls = append(tmpls, gt[1])
 		}
 	}
-	var sig strings.Builder
-	for _, tmpl := range tmpls {
+	return tmpls
+}
+
+// renderMu serialises Render within the process.
+var renderMu sync.Mutex
+
+// renderIDOf: the id of the configuration data renders to -- the first 12
+// hex digits of a SHA-256 over every file, without the render stamps and
+// without the id itself (rendered here with RenderID empty).  Two renders of
+// the same configuration get the same id whichever build or process wrote
+// them, so a package upgrade that changes nothing keeps the id nginx already
+// logs; any change nginx would see changes it.
+func renderIDOf(data renderData) (string, error) {
+	data.RenderID = ""
+	data.GeneratedAt = ""
+	h := sha256.New()
+	for _, tmpl := range renderedTemplates(data) {
 		out, err := renderToString(tmpl, data)
 		if err != nil {
 			return "", err
 		}
-		sig.WriteString("\x00" + tmpl + "\x00")
-		sig.WriteString(out)
+		_, _ = io.WriteString(h, "\x00"+tmpl+"\x00")
+		_, _ = io.WriteString(h, StripRenderStamps([]byte(out)))
 	}
-	return sig.String(), nil
+	return hex.EncodeToString(h.Sum(nil))[:12], nil
+}
+
+// renderIDRE finds the id in a rendered http.inc: the rv= of the
+// unmask_minimal log format.
+var renderIDRE = regexp.MustCompile(`log_format unmask_minimal '[^'\n]* rv=([0-9a-f]{12}) `)
+
+// RenderIDOnDisk: the render id the http.inc in dir was written with, and
+// when that file was written.  id is "" when the file is missing, unreadable
+// or from a build that did not write one.
+func RenderIDOnDisk(dir string) (id string, written time.Time) {
+	p := filepath.Join(dir, "http.inc")
+	fi, err := os.Stat(p)
+	if err != nil {
+		return "", time.Time{}
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return "", time.Time{}
+	}
+	if m := renderIDRE.FindSubmatch(b); m != nil {
+		return string(m[1]), fi.ModTime()
+	}
+	return "", fi.ModTime()
 }
 
 // gatewayRender: the container gateway's vhost name and certificate source,
@@ -524,6 +590,10 @@ type renderData struct {
 	BVPowValidSeconds     int // unmask_bv_pow_valid_seconds     (= per-kind seconds)
 	BVCaptchaValidSeconds int // unmask_bv_captcha_valid_seconds (= per-kind seconds)
 	PowDifficulty         int
+	// RenderID: this render's id, logged on every access-log line (rv=) so
+	// the daemon can tell whether nginx runs it.  See renderIDOf.  Empty
+	// while the id itself is being computed, and in RenderSignature.
+	RenderID string
 	// Resolved Global-axis actions for the no-match fallback in the
 	// final_challenge nginx map.  fall-back ladder is KnownBrowserAction →
 	// DefaultAction → "pow_only" (= the same chain handlers.go uses when

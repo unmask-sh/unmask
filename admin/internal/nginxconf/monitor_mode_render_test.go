@@ -72,7 +72,7 @@ func TestMonitorModeRenderOn(t *testing.T) {
 		// the gate's decision: the challenge decision minus watched sites
 		`map "$final_challenge:$unmask_observe" $unmask_enforce {`,
 		// the log says the judgement was recorded, not enforced
-		` cr=$unmask_cr_id ob=$unmask_observe ua=$http_user_agent';`,
+		` cr=$unmask_cr_id ob=$unmask_observe rv=`,
 		// a watched site enforces no ban ...
 		`map "$unmask_observe:$request_uri" $unmask_ban_action_effective {`,
 		`map "$unmask_observe:$request_uri" $unmask_banned_effective {`,

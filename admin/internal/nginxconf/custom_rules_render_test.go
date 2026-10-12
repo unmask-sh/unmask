@@ -40,7 +40,7 @@ func TestCustomRulesRender(t *testing.T) {
 		"map $unmask_cr_action $unmask_cr_deny {",
 		`map "$unmask_ua_needs_captcha$unmask_cr_captcha" $unmask_ua_captcha_eff {`,
 		`map "$geo_challenge_eff:$asn_challenge_eff:$unmask_cr_challenge" $is_net_challenge {`,
-		"scheme=$unmask_forwarded_proto cr=$unmask_cr_id ua=$http_user_agent",
+		"scheme=$unmask_forwarded_proto cr=$unmask_cr_id rv=",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("no rules: http.inc lacks %q", want)

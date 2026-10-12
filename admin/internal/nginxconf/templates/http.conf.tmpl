@@ -1765,7 +1765,13 @@ map "$is_bypass_ip$is_bypass_path" $unmask_bypassed {
 # dashboard can say what going live would have stopped.  Optional to the
 # parser, like bp.
 {{- end }}
-log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bypassed scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }} ua=$http_user_agent';
+{{- if .RenderID }}
+# rv= names this render: a hash of every file unmask wrote for nginx (this
+# field and the stamps aside).  nginx logs the one it loaded, so the daemon
+# can tell a render nginx has not been reloaded into and say so at the top
+# of the admin pages.  Optional to the parser, like bp.
+{{- end }}
+log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bypassed scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed.
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;

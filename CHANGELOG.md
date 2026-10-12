@@ -12,6 +12,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+
+- (2026-10-13) **The admin pages say when nginx has not loaded the saved settings.**  Saving renders nginx's configuration and leaves the reload to you; until then the change is not live, and nothing said so.  Every access-log line now carries the id of the configuration nginx loaded, and every admin page shows a notice while nginx logs an older one.  The doctor the admin runs gives the same verdict.
+
+### Fixed
+
+- (2026-10-13) **A GeoIP update reaches nginx's country and ASN rules.**  The monthly snapshot replaced the address data the daemon reads, but the ranges written into nginx's configuration for country and ASN rules stayed the previous snapshot's until something else rendered it.  The update now renders, and the admin pages say when nginx needs a reload to take it.
+
+- (2026-10-13) **The stats page names every reason a CAPTCHA was forced.**  Its forced-CAPTCHA card counted shared ban list hits, UA filter patterns and custom rules as "unknown", and explained the pass-cookie reuse cap's row with the unknown row's text.  Each now has its own row and explanation.  Hours counted before the update keep those reasons under "unknown".
+
+- (2026-10-13) **A custom rule's deny is recorded as the rule's.**  A request one of your custom rules denied was recorded as "axis_deny", so bot hunt and the dashboard's reasons card could not tell it from other denies.  It is now recorded as custom_rule, as a rule's challenge is, with the rule's id.
+
 ## [0.1.51-rc12] - 2026-10-12 (testing build)
 
 ### Since rc11

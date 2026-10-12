@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/renderwatch"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -164,5 +165,46 @@ func TestCheckNginxReloadLagHiddenProc(t *testing.T) {
 	}
 	if ok, warn := run(); len(ok)+len(warn) != 0 {
 		t.Errorf("pid 1 visible, no worker: want silence, got ok=%v warn=%v", ok, warn)
+	}
+}
+
+// Inside the service, with the daemon's access-log record beside the render:
+// the check gives the verdict the log supports instead of "cannot tell".
+func TestCheckNginxReloadLagFromTheAccessLog(t *testing.T) {
+	dir := t.TempDir()
+	conf := filepath.Join(dir, "nginx.conf")
+	if err := os.WriteFile(conf, []byte("http {\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := settings.Settings{}
+	s.Nginx.OutputDir = dir
+	s.Nginx.ConfPath = conf
+	if err := nginxconf.Render(s, dir, "test"); err != nil {
+		t.Fatal(err)
+	}
+	cur, written := nginxconf.RenderIDOnDisk(dir)
+	run := func() (ok, warn []string) {
+		checkNginxReloadLag(s, func(_, m string) { ok = append(ok, m) }, func(_, m string) { warn = append(warn, m) })
+		return
+	}
+	btime := time.Date(2026, 8, 6, 0, 0, 0, 0, time.Local).Unix()
+	fakeProcWorkers(t, btime, nil) // hidden /proc: no worker, no pid 1
+
+	w := renderwatch.New(func() string { return dir })
+	// nginx logs a configuration from before render ids, after the write.
+	w.Saw("", written.Add(2*time.Minute))
+	if err := w.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if ok, warn := run(); len(ok) != 0 || len(warn) != 1 || !strings.Contains(warn[0], "NOT live") || !strings.Contains(warn[0], cur) {
+		t.Errorf("stale per the access log: want the older-render warning naming %s, got ok=%v warn=%v", cur, ok, warn)
+	}
+	// The reload: nginx logs the current id.
+	w.Saw(cur, written.Add(3*time.Minute))
+	if err := w.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if ok, warn := run(); len(warn) != 0 || len(ok) != 1 || !strings.Contains(ok[0], cur) {
+		t.Errorf("fresh per the access log: want OK naming %s, got ok=%v warn=%v", cur, ok, warn)
 	}
 }

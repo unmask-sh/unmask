@@ -40,6 +40,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/privacypass"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
+	"github.com/unmask-sh/unmask/admin/internal/renderwatch"
 	"github.com/unmask-sh/unmask/admin/internal/rulehits"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/user"
@@ -151,6 +152,7 @@ type Handler struct {
 	BanMgr        *ban.Manager            // optional, may be nil (ban_file_path unset)
 	Live          *live.Counter           // optional, may be nil: the dashboard's "right now" strip then stays off
 	RuleHits      *rulehits.Counter       // optional, may be nil: the custom-rules tab then shows no counts
+	RenderWatch   *renderwatch.Watch      // optional, may be nil: no "nginx has not reloaded" notice then
 	// mapAuto: the server's own position worked out for the dashboard's map
 	// (map_admin.go autoMapLocation), kept for an hour.
 	mapAutoMu sync.Mutex

@@ -1,0 +1,39 @@
+{{- /*
+  reload_notice: nginx has not loaded the configuration the admin last wrote
+  (internal/renderwatch, handlers/reload_notice.go).  Saving a setting renders
+  nginx's configuration and deliberately does not reload nginx; until the
+  reload, what was saved is not live, and nothing on the page said so.
+
+  Part of header_tools, so it is on every signed-in page, and moved under the
+  page's <header> by its script like the schema update notice beside it.
+  .ReloadNotice is nil -- nothing is rendered -- while nginx runs what was
+  written, and on an install that sends the daemon no access log
+  (forward-auth), where there is nothing to tell it by.
+
+  The styles are here rather than in each page's <style>, for the same reason
+  as the schema update notice's: the markup is injected by this partial.
+*/ -}}
+{{ define "reload_notice" }}{{ with .ReloadNotice }}
+<style>
+.rlnote{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;padding:.6rem 1.5rem;font-size:.875rem;line-height:1.5;border-bottom:1px solid #fcd34d;background:#fffbeb;color:#78350f}
+.rlnote[hidden]{display:none}
+.rlnote-msg{flex:1;min-width:16rem}
+.rlnote-sub{display:block;font-size:.8125rem;opacity:.85}
+.rlnote code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8125rem;background:rgba(120,53,15,.08);padding:0 .25rem;border-radius:.2rem}
+</style>
+<div id="rlnote" class="rlnote" role="status" hidden>
+  <span class="rlnote-msg">{{ safeHTML (tf $.Lang "reload_notice.msg" .WrittenHTML) }}
+    <span class="rlnote-sub">{{ if .Gateway }}{{ safeHTML (t $.Lang "reload_notice.sub_gateway") }}{{ else }}{{ safeHTML (t $.Lang "reload_notice.sub") }}{{ end }}</span>
+  </span>
+</div>
+<script>
+(function(){
+  var el = document.getElementById('rlnote');
+  if (!el) return;
+  // Under the header, across the page.
+  var hdr = document.querySelector('header.unmask-header') || document.querySelector('header');
+  if (hdr && hdr.parentNode) hdr.parentNode.insertBefore(el, hdr.nextSibling);
+  el.hidden = false;
+})();
+</script>
+{{ end }}{{ end }}

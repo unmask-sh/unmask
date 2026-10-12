@@ -97,6 +97,9 @@ type Reader struct {
 	live *live.Counter
 	// ruleHit counts the custom rule a line names (cr=); nil until set.
 	ruleHit func(id string)
+	// renderSeen hears the render id every line carries (rv=, "" when the
+	// line has none); nil until set.  Set before Receive, read unlocked.
+	renderSeen func(id string)
 	// isDenied answers whether a client is banned with an action that refuses
 	// it outright: the access-log line does not say that nginx denied the
 	// request, and the ban list is what nginx denies from.
@@ -279,6 +282,17 @@ func (r *Reader) SetRuleHit(f func(id string)) {
 	}
 	r.mu.Lock()
 	r.ruleHit = f
+	r.mu.Unlock()
+}
+
+// SetRenderSeen installs the render watch: f is called with every line's
+// render id (rv=; "" for a line without one).  Call before Receive.
+func (r *Reader) SetRenderSeen(f func(id string)) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.renderSeen = f
 	r.mu.Unlock()
 }
 
@@ -544,7 +558,7 @@ func (r *Reader) Loaded() bool {
 // ("captcha" / "pow" / "" / future additions).  [a-z0-9_-] is enough
 // (= plugin implementations always use ASCII lowercase as a constraint).
 //
-// fc / hp / ip / ja4 / hpuri / bp / scheme / cr / ob / ua are optional groups (= degrade
+// fc / hp / ip / ja4 / hpuri / bp / scheme / cr / ob / rv / ua are optional groups (= degrade
 // gracefully even with older config or mode mismatch).  ua is last and matched with .* —
 // it contains spaces, so it must be the final field of the log line.
 //
@@ -565,7 +579,7 @@ var lineRE = regexp.MustCompile(
 		// bp and scheme are optional: the binary is deployed before the config
 		// that emits them, so both shapes have to parse for the length of that
 		// window.
-		`(?: bp=([01]))?(?: scheme=(\S*))?(?: cr=(\S*))?(?: ob=([01]))?(?: ua=(.*))?`)
+		`(?: bp=([01]))?(?: scheme=(\S*))?(?: cr=(\S*))?(?: ob=([01]))?(?: rv=([0-9a-f]{12}))?(?: ua=(.*))?`)
 
 // parsed: struct holding the regex match result.
 type parsed struct {
@@ -594,7 +608,11 @@ type parsed struct {
 	// line from a configuration that predates the field, or from a site not
 	// in the mode; both read the same: enforced.
 	observe bool
-	ua      string
+	// rv: the render id of the configuration nginx logged this line under
+	// (renderwatch).  "" on a line from a configuration written before
+	// render ids.
+	rv string
+	ua string
 }
 
 // plaintext reports whether the request came over the plaintext port.  The
@@ -646,7 +664,8 @@ func (r *Reader) parse(line string) (parsed, bool) {
 		scheme:   m[10],
 		cr:       strings.TrimSuffix(m[11], "-"),
 		observe:  m[12] == "1",
-		ua:       m[13],
+		rv:       m[13],
+		ua:       m[14],
 	}, true
 }
 
@@ -724,6 +743,9 @@ func (r *Reader) onLine(line string) {
 		r.bumpKind(p.site, "bypass_pass")
 	}
 	r.liveHit(p, isCrawler)
+	if r.renderSeen != nil {
+		r.renderSeen(p.rv)
+	}
 	if p.cr != "" {
 		r.mu.Lock()
 		f := r.ruleHit

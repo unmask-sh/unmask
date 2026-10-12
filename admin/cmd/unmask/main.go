@@ -48,6 +48,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/privacypass"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
+	"github.com/unmask-sh/unmask/admin/internal/renderwatch"
 	"github.com/unmask-sh/unmask/admin/internal/rulehits"
 	"github.com/unmask-sh/unmask/admin/internal/safe"
 	"github.com/unmask-sh/unmask/admin/internal/selabel"
@@ -561,6 +562,35 @@ func cmdServe(args []string) error {
 	// daemon seeds it through the exported setter rather than a struct literal.
 	h.SetSettings(s)
 
+	// renderOutDir: where nginx's configuration is rendered (Render's own
+	// default when the setting is empty).
+	renderOutDir := func() string {
+		if d := strings.TrimSpace(h.SnapshotSettings().Nginx.OutputDir); d != "" {
+			return d
+		}
+		return "/var/lib/unmask/nginx"
+	}
+	// renderNow re-renders nginx's configuration from the live settings: what
+	// the IP-range pull and the GeoIP update call when their data changed.
+	// The reload stays the operator's call (= predictable blast radius; we
+	// don't surprise-reload nginx); the render watch below tells the admin
+	// pages when nginx has not taken a render.
+	renderNow := func() error {
+		cur := h.SnapshotSettings()
+		out := strings.TrimSpace(cur.Nginx.OutputDir)
+		if out == "" {
+			return nil // no output dir configured → nothing to render
+		}
+		return nginxconf.Render(cur, out, Version)
+	}
+	// The render watch: whether nginx runs the configuration last written,
+	// from the render id every access-log line carries (rv=).  The admin
+	// pages say so when it does not.  What it saw is kept beside the rendered
+	// files, for `unmask doctor` run inside the service and for the next start.
+	renderWatch := renderwatch.New(renderOutDir)
+	renderWatch.Load()
+	h.RenderWatch = renderWatch
+
 	// Keep a managed mmdb current.  Checked DAILY against the snapshot's own
 	// build date rather than run monthly on a fixed day: DB-IP publishes
 	// several days into the month, and a monthly timer that fires before the
@@ -587,8 +617,10 @@ func cmdServe(args []string) error {
 				// effect without a restart (same pattern as the other loops).
 				cur := h.SnapshotSettings()
 				if cur.IPGeo.AutoUpdate || cur.IPGeo.AutoUpdateASN {
-					ipgeo.AutoUpdateStaleKinds(cur.IPGeo.MMDBPath, cur.IPGeo.MMDBASNPath,
-						cur.IPGeo.AutoUpdate, cur.IPGeo.AutoUpdateASN, gip, staleAfter, time.Time{})
+					if ipgeo.AutoUpdateStaleKinds(cur.IPGeo.MMDBPath, cur.IPGeo.MMDBASNPath,
+						cur.IPGeo.AutoUpdate, cur.IPGeo.AutoUpdateASN, gip, staleAfter, time.Time{}) > 0 {
+						renderAfterGeoUpdate(renderNow, renderOutDir())
+					}
 				}
 				time.Sleep(checkEvery)
 			}
@@ -631,6 +663,8 @@ func cmdServe(args []string) error {
 			// applies without a restart.  See Reader.httpsRedirectOn.
 			nlog.SetLive(liveCounter)
 			nlog.SetRuleHit(func(id string) { ruleHits.Hit(id, time.Now()) })
+			nlog.SetRenderSeen(func(id string) { renderWatch.Saw(id, time.Now()) })
+			go saveRenderWatch(renderWatch)
 			// A banned client whose action is deny is refused by nginx itself;
 			// the line only shows that no challenge was the answer.
 			nlog.SetDeniedCheck(func(ip, ja4 string) bool {
@@ -734,14 +768,7 @@ func cmdServe(args []string) error {
 	ipSync.HubURL = strings.TrimSpace(s.Nginx.SyncHubURL) // empty = the published document
 	syncOff := func() bool { return h.SnapshotSettings().Nginx.SyncDisabled }
 	ipSync.Disabled = syncOff
-	ipSync.RenderFunc = func() error {
-		cur := h.SnapshotSettings()
-		out := strings.TrimSpace(cur.Nginx.OutputDir)
-		if out == "" {
-			return nil // no output dir configured → nothing to render
-		}
-		return nginxconf.Render(cur, out, Version)
-	}
+	ipSync.RenderFunc = renderNow
 	h.IPRangeSync = ipSync
 	go ipSync.Start(context.Background())
 

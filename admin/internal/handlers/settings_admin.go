@@ -5753,6 +5753,9 @@ func hnOverrideValue(in string) (hn string, ok bool) {
 	return s, true
 }
 
+// applySMTPForm receives the SMTP card of the notifications form.  An empty
+// password submit preserves the current value (= the "***" placeholder UX
+// where the value is untouched).  Port: 0 / invalid -> 587.
 func applySMTPForm(c *settings.SMTP, r *http.Request) {
 	c.Host = strings.TrimSpace(r.FormValue("host"))
 	if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("port"))); err == nil && v >= 0 && v <= 65535 {

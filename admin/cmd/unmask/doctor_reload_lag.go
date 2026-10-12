@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/renderwatch"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -136,10 +137,14 @@ func checkNginxReloadLag(s settings.Settings, addOK, addWarn func(t, m string)) 
 	if !ok {
 		// Inside the service the unit hides other users' processes
 		// (ProtectProc=invisible, ProcSubset=pid): no worker is visible, and
-		// pid 1 neither.  Say so rather than stay silent -- silence read as
-		// fresh on the admin's doctor page and to the assistant, which never
-		// saw a render waiting for its reload.
+		// pid 1 neither.  The access log can still tell (reloadLagFromLog);
+		// when it cannot either, say so rather than stay silent -- silence
+		// read as fresh on the admin's doctor page and to the assistant, which
+		// never saw a render waiting for its reload.
 		if _, err := os.Stat(filepath.Join(procRoot, "1")); err != nil {
+			if reloadLagFromLog(dir, addOK, addWarn) {
+				return
+			}
 			addWarn("nginx reload freshness", fmt.Sprintf(
 				"cannot be told from inside the service (the unit hides other processes: ProtectProc); "+
 					"the rendered config last CHANGED %s -- run `unmask doctor` in a shell to see whether nginx has loaded it.",
@@ -158,4 +163,43 @@ func checkNginxReloadLag(s settings.Settings, addOK, addWarn func(t, m string)) 
 		return
 	}
 	addOK("nginx reload freshness", "running config is newer than the last render")
+}
+
+// reloadLagFromLog: the same verdict from the access log, for a doctor run
+// inside the service.  Every rendered log line carries the render id of the
+// configuration nginx loaded; the daemon keeps the ids it saw beside the
+// rendered files (renderwatch), and the http.inc there names the one written
+// last.  false when the log cannot tell -- no state file, no line since the
+// configuration was written, or an http.inc from before render ids -- and the
+// caller then says it cannot tell.
+func reloadLagFromLog(dir string, addOK, addWarn func(t, m string)) bool {
+	cur, written := nginxconf.RenderIDOnDisk(dir)
+	if cur == "" {
+		return false
+	}
+	seen, err := renderwatch.LoadSeen(dir)
+	if err != nil {
+		return false
+	}
+	st := renderwatch.Evaluate(cur, written, seen)
+	switch {
+	case st.Pending:
+		running := "an id from before render ids"
+		if st.Running != "" {
+			running = st.Running
+		}
+		addWarn("nginx running on an older render", fmt.Sprintf(
+			"the rendered config last CHANGED %s (render %s); nginx's access log still names %s (last line %s). "+
+				"Those changes are written but NOT live "+
+				"(saving in the admin UI renders and deliberately does not reload). "+
+				"Apply with: nginx -t && reload (systemd: systemctl reload nginx / SysVinit: service nginx reload).",
+			written.Format("2006-01-02 15:04:05"), cur, running, st.LastStale.Local().Format("2006-01-02 15:04:05")))
+		return true
+	case st.Fresh():
+		addOK("nginx reload freshness", fmt.Sprintf(
+			"nginx's access log names the current render %s (last line %s)",
+			cur, st.LastCurrent.Local().Format("2006-01-02 15:04:05")))
+		return true
+	}
+	return false
 }

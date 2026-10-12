@@ -379,6 +379,34 @@ func TestParseMonitorMode(t *testing.T) {
 	}
 }
 
+// The render id rides as rv= just before the UA (after ob= when the site is
+// in monitor mode).  A line from a configuration written before render ids
+// carries none, and the watch hears "" for it; a malformed value is not an
+// id and the UA still parses.
+func TestParseRenderID(t *testing.T) {
+	r := &Reader{}
+	p, ok := r.parse(`<134>1751400000.1 site=shop.example.com kind= fc=0 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- rv=0123456789ab ua=Mozilla/5.0 (X11)`)
+	if !ok || p.rv != "0123456789ab" || p.ua != "Mozilla/5.0 (X11)" || p.cr != "" {
+		t.Errorf("line with rv: ok=%v %+v", ok, p)
+	}
+	p, ok = r.parse(`<134>1751400000.2 site=shop.example.com kind= fc=1 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=cr1a2b ob=1 rv=0123456789ab ua=curl/8`)
+	if !ok || p.rv != "0123456789ab" || !p.observe || p.cr != "cr1a2b" || p.ua != "curl/8" {
+		t.Errorf("line with ob and rv: ok=%v %+v", ok, p)
+	}
+	p, ok = r.parse(`<134>1751400000.3 site=shop.example.com kind= fc=0 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- ua=curl/8`)
+	if !ok || p.rv != "" || p.ua != "curl/8" {
+		t.Errorf("older line: ok=%v %+v", ok, p)
+	}
+
+	var heard []string
+	r.SetRenderSeen(func(id string) { heard = append(heard, id) })
+	r.onLine(`1751400000.4 site=shop.example.com kind= fc=0 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- rv=0123456789ab ua=curl/8`)
+	r.onLine(`1751400000.5 site=shop.example.com kind= fc=0 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- ua=curl/8`)
+	if len(heard) != 2 || heard[0] != "0123456789ab" || heard[1] != "" {
+		t.Errorf("render watch heard %q, want [0123456789ab \"\"]", heard)
+	}
+}
+
 // TestMonitorModeLineIsItsOwnKind: a judged request a watched site let through
 // is filed as observe_pass, not as a served challenge -- nothing was served --
 // and the crawler funnel reads it as passed, not challenged.  The same line
