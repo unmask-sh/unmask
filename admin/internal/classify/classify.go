@@ -927,6 +927,10 @@ var (
 	uaWeChatRE   = regexp.MustCompile(`MicroMessenger/(\d+)`)
 	uaKakaoRE    = regexp.MustCompile(`KAKAOTALK`)
 	uaSmartNewRE = regexp.MustCompile(`SmartNews/(\d+)`)
+	// Brave on iOS appends a bare "Brave" to Safari's own tokens.  Its
+	// Version/ is WebKit's, not Brave's, so the label carries no number; the
+	// word boundary keeps Brave Search's "Bravebot" out.
+	uaBraveRE = regexp.MustCompile(`\bBrave\b`)
 	// Trident is IE's engine.  A "Trident/3.1" does not exist (real ones are
 	// 4.0-7.0), so this token shows up mainly on forged UAs -- naming it beats
 	// leaving the row unsummarised, and the version is worth showing because
@@ -1490,6 +1494,11 @@ func uaBrowser(ua string) (name, ver string) {
 	}
 	if uaKakaoRE.MatchString(ua) {
 		return "KakaoTalk", ""
+	}
+	// Ahead of Safari, whose tokens it carries in full.  Brave elsewhere
+	// sends Chrome's UA unchanged and reads as Chrome.
+	if uaBraveRE.MatchString(ua) {
+		return "Brave", ""
 	}
 	if v := first(uaCriOSRE); v != "" {
 		return "Chrome", v

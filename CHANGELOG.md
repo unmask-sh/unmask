@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-10-12) **JavaScript errors from Brave on iOS fold with foreign-script noise.**  Brave's built-in wallet sets window.ethereum fields after every page load and throws where a page has none.  WebKit reports that injected code against the page's own address at line 1, so the dashboard listed it as a challenge failure, from a browser it called Safari.  Rows already stored move too, and the browser now reads Brave.
+
 ## [0.1.51-rc11] - 2026-10-12 (testing build)
 
 ### Since rc10

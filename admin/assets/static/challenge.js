@@ -128,12 +128,19 @@
   //   js_exception : this document (inline challenge script) or an /unmask/
   //                  asset -- actionable
   //   js_foreign   : cross-origin "Script error." (browsers mask message and
-  //                  filename for foreign scripts) or a source that is
-  //                  neither this document nor /unmask/*
+  //                  filename for foreign scripts), a source that is
+  //                  neither this document nor /unmask/*, or this document
+  //                  at line 1.  Code an app evaluates into the page from
+  //                  outside (WKWebView's evaluateJavaScript: Brave on iOS
+  //                  sets window.ethereum.* after every navigation and
+  //                  throws where the page has none) is reported against
+  //                  the page's own URL from line 1, and line 1 of this
+  //                  document is the doctype, never a script
   window.addEventListener('error', function(e){
     try {
       var src = String((e && e.filename) || '');
-      var own = src && (src.split('#')[0] === location.href.split('#')[0] || src.indexOf('/unmask/') !== -1);
+      var doc = src.split('#')[0] === location.href.split('#')[0];
+      var own = src && ((doc && e.lineno > 1) || src.indexOf('/unmask/') !== -1);
       _bcDebug('error', { kind: own ? 'js_exception' : 'js_foreign', error_msg:String(e && e.message), error_filename:src, error_lineno:e && e.lineno });
     } catch(_){}
   });

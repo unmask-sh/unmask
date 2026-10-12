@@ -3015,11 +3015,20 @@ type JSErrorRow struct {
 // challenge.js classifies at capture time (payload kind=js_foreign: in-app
 // webview bridges, extensions, carrier-injected scripts); rows ingested
 // before that classification existed are caught by the masked message
-// cross-origin scripts always produce ("Script error.").
+// cross-origin scripts always produce ("Script error.").  Rows from before
+// challenge.js counted the page's own URL at line 1 as foreign get the same
+// test here: that line is the doctype, so an error there is code an app
+// evaluated into the page from outside (Brave on iOS setting
+// window.ethereum.* after every navigation), while an /unmask/ asset keeps
+// its line 1.
 func jsForeignCond(d *db.DB) string {
 	kind := jsonExtract(d, "payload_json", "$.kind")
 	errMsg := jsonExtract(d, "payload_json", "$.error_msg")
-	return fmt.Sprintf("(COALESCE(%s,'') = 'js_foreign' OR COALESCE(%s,'') = 'Script error.')", kind, errMsg)
+	file := jsonExtract(d, "payload_json", "$.error_filename")
+	line := jsonExtract(d, "payload_json", "$.error_lineno")
+	return fmt.Sprintf("(COALESCE(%s,'') = 'js_foreign' OR COALESCE(%s,'') = 'Script error.'"+
+		" OR (COALESCE(%s,'') = 'js_exception' AND COALESCE(%s,0) <= 1 AND COALESCE(%s,'') NOT LIKE '%%/unmask/%%'))",
+		kind, errMsg, kind, line, file)
 }
 
 func jsErrorRows(ctx context.Context, d *db.DB, site string, hosts []string, hours int, foreign bool, limit int) ([]JSErrorRow, error) {

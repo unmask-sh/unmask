@@ -142,6 +142,25 @@ func TestUASummaryNamesInAppBrowsers(t *testing.T) {
 	}
 }
 
+// Brave on iOS carries Safari's tokens in full plus a bare "Brave", so it read
+// as Safari -- and the errors its wallet throws on every page read as Safari's
+// on the JavaScript errors card.  Brave Search's crawler shares the word, not
+// the browser.  From live fleet traffic.
+func TestUASummaryNamesBraveOnIOS(t *testing.T) {
+	for _, c := range []struct{ ua, want string }{
+		{"Mozilla/5.0 (iPhone; CPU iPhone OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.6.2 Mobile/15E148 Safari/604.1 Brave",
+			"iPhone 18.7 · Brave"},
+		{"Mozilla/5.0 (iPad; CPU OS 18_7 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0.1 Mobile/15E148 Safari/604.1 Brave",
+			"iPad 18.7 · Brave"},
+		{"Mozilla/5.0 (compatible; Bravebot/1.0; +https://brave.com/search/)",
+			"Bravebot"},
+	} {
+		if got := UASummary(c.ua); got != c.want {
+			t.Errorf("UASummary(%.60q)\n  = %q\n want %q", c.ua, got, c.want)
+		}
+	}
+}
+
 // A named app wins over the engine token it embeds: an Android WebView sends
 // both, and "Chrome 120" is the least distinguishing thing a UA can say while
 // the app names a real cohort.  iOS already answered this way, so this is also
