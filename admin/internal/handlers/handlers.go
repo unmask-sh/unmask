@@ -963,10 +963,10 @@ func (h *Handler) ServeBanDeny(w http.ResponseWriter, r *http.Request) {
 //
 // The daemon asks the same resolvers in the same order server.inc composes
 // them ($unmask_axis_deny: country, then ASN, then UA, then JA4 verdict, then
-// the community feed), so the label matches the decision that was actually
-// made.  This is a label, never a decision: the block already happened, and an
-// answer this cannot derive falls back to the generic name rather than
-// guessing.
+// the community feed, then the operator's custom rules), so the label matches
+// the decision that was actually made.  This is a label, never a decision:
+// the block already happened, and an answer this cannot derive falls back to
+// the generic name rather than guessing.
 func (h *Handler) axisDenyReason(r *http.Request, ja4, verdict string) (reason, rule string) {
 	cfg := *h.cfg()
 	if h.IPGeo != nil {
@@ -995,6 +995,13 @@ func (h *Handler) axisDenyReason(r *http.Request, ja4, verdict string) (reason, 
 		if d, ok := communityBansDecide(m, adminClientIP(r, cfg), ja4, cfg); ok && d.sev == sevDeny {
 			return "community_deny", strings.TrimPrefix(d.reason, "community_bans:")
 		}
+	}
+	// A custom rule whose action is deny: nginx names the rule on the internal
+	// rewrite (X-Unmask-Rule / -Action are proxy_set_header values, so a
+	// client cannot bring its own), the same way a rule's challenge is named
+	// custom_rule.  The rule id is what the custom-rules tab counts hits by.
+	if strings.TrimSpace(r.Header.Get("X-Unmask-Rule-Action")) == settings.RateChallengeDeny {
+		return "custom_rule", strings.TrimSpace(r.Header.Get("X-Unmask-Rule"))
 	}
 	return "axis_deny", ""
 }

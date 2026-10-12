@@ -53,4 +53,27 @@ func TestAxisDenyNamesTheAxisThatFired(t *testing.T) {
 	if got := reasonOf(req("Mozilla/5.0 (innocent)")); got == "ua_deny" {
 		t.Error("a non-matching UA must not be labelled ua_deny")
 	}
+
+	// A custom rule set to deny: nginx names the rule on the rewrite, and the
+	// record says custom_rule -- as a rule's challenge does -- not the generic
+	// axis_deny.  A named axis that also denies keeps the label.
+	rule := req("Mozilla/5.0 (innocent)")
+	rule.Header.Set("X-Unmask-Rule", "cr1a2b")
+	rule.Header.Set("X-Unmask-Rule-Action", settings.RateChallengeDeny)
+	if got := reasonOf(rule); got != "custom_rule" {
+		t.Errorf("a custom rule's deny must be labelled custom_rule, got %q", got)
+	}
+	both := req("BadScraper/1.0")
+	both.Header.Set("X-Unmask-Rule", "cr1a2b")
+	both.Header.Set("X-Unmask-Rule-Action", settings.RateChallengeDeny)
+	if got := reasonOf(both); got != "ua_deny" {
+		t.Errorf("the UA deny row comes first in the conf's composite, got %q", got)
+	}
+	// A rule whose action is a challenge does not reach the deny page; if a
+	// header said so anyway, it is no deny reason.
+	chal := req("Mozilla/5.0 (innocent)")
+	chal.Header.Set("X-Unmask-Rule-Action", "captcha_only")
+	if got := reasonOf(chal); got != "axis_deny" {
+		t.Errorf("a challenge action is no deny reason, got %q", got)
+	}
 }
