@@ -259,3 +259,24 @@ func TestToolTimesInTheOperatorsZone(t *testing.T) {
 		}
 	}
 }
+
+// crawlers is listed, and without the admin's figures it says so rather than
+// answering empty.
+func TestCrawlersTool(t *testing.T) {
+	d := testDeps(t)
+	listed := false
+	for _, tl := range d.List() {
+		listed = listed || tl.Name == "crawlers"
+	}
+	if !listed {
+		t.Error("crawlers is not listed")
+	}
+	if _, err := d.Run(context.Background(), "crawlers", nil); err == nil {
+		t.Error("crawlers without the admin's figures must be an error")
+	}
+	d.Crawlers = func(_ context.Context, hours int) (any, error) { return map[string]any{"window_hours": hours}, nil }
+	out, err := d.Run(context.Background(), "crawlers", map[string]any{"window_hours": float64(6)})
+	if err != nil || MarshalResult(out, 1<<20) != `{"window_hours":6}` {
+		t.Errorf("crawlers: %v %v", out, err)
+	}
+}

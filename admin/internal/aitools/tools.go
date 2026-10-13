@@ -49,6 +49,10 @@ type Deps struct {
 	// tab, and one tab whole.  nil where the tools run without the admin.
 	SettingsFind func(ctx context.Context, query string) (any, error)
 	SettingsTab  func(ctx context.Context, tab string) (any, error)
+	// Crawlers: the dashboard's crawler card -- each known crawler's requests,
+	// challenged and passed -- read by the handlers, which own that query.
+	// nil where the tools run without the admin.
+	Crawlers func(ctx context.Context, hours int) (any, error)
 	// Loc: the asking operator's time zone.  Times and the day's boundaries
 	// are given in it -- a model converting UTC itself got the hour and the
 	// day wrong.  nil = UTC.
@@ -140,6 +144,8 @@ func (d Deps) List() []Tool {
 				"window_hours": hoursProp("trailing window in hours; 24 by default"),
 				"limit":        map[string]any{"type": "integer", "minimum": 1, "maximum": 50, "description": "countries to return, most challenged first; 15 by default"},
 			})},
+		{Name: "crawlers", Description: "Known crawlers over a trailing window (the dashboard's crawler card): for each category and each crawler in it, the requests that carried its user agent, how many were challenged and how many passed, and whether the crawler passes only from its vendor's published address ranges (range_verified).  The way to say which search engines and AI crawlers came, how much, and whether they got through.",
+			Schema: obj(map[string]any{"window_hours": hoursProp("trailing window in hours; 24 by default")})},
 		{Name: "live_now", Description: "What is arriving right now: the last 60 seconds and the minute before, per outcome, with the source countries of the last minute.",
 			Schema: obj(map[string]any{})},
 		{Name: "settings_summary", Description: "A summary of how this install is configured (no secrets): version, database driver, retention, community bans, bypass presets, geo database.",
@@ -216,6 +222,11 @@ func (d Deps) Run(ctx context.Context, name string, args map[string]any) (any, e
 		return d.bans(ctx, str("source"), num("limit", 50, 200))
 	case "countries":
 		return d.countries(ctx, hours, num("limit", 15, 50))
+	case "crawlers":
+		if d.Crawlers == nil {
+			return nil, errors.New("the crawler figures are not available here")
+		}
+		return d.Crawlers(ctx, hours)
 	case "live_now":
 		return d.liveNow(), nil
 	case "settings_summary":
@@ -638,6 +649,6 @@ func (d Deps) countries(ctx context.Context, hours, limit int) (any, error) {
 	}
 	return map[string]any{
 		"window_days": days, "metric": "challenges served (phase serve), by the client's country", "total": total, "rows": out,
-		"note": "share_pct is the country's share of the window's challenges; week_share_pct and week_per_day are the same country over the trailing 7 days (the usual).  A share well above its week share is the unusual part.  live_now counts every request of the last minute; this counts challenges served.",
+		"note": "share_pct is the country's share of the window's challenges; week_share_pct and week_per_day are the same country over the trailing 7 days (the usual).  A share well above its week share is the unusual part.  addresses estimates the distinct addresses over the whole days (UTC) the window touches, not the window's hours: compare it between countries, never with challenges.  live_now counts every request of the last minute; this counts challenges served.",
 	}, nil
 }

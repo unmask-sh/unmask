@@ -98,8 +98,38 @@ func (h *Handler) askTools(r *http.Request) aitools.Deps {
 		DB: h.DB, Settings: h.SnapshotSettings, IPGeo: h.IPGeo, Live: h.Live, Version: h.Version, ConfigPath: h.ConfigPath,
 		SettingsFind: func(ctx context.Context, q string) (any, error) { return h.SettingsFind(ctx, lang, q) },
 		SettingsTab:  func(ctx context.Context, tab string) (any, error) { return h.SettingsTabOutline(ctx, lang, tab) },
+		Crawlers:     h.askCrawlers,
 		Loc:          askLocation(r),
 	}
+}
+
+// askCrawlers: the dashboard's crawler card for the model -- each category of
+// known crawler and each crawler in it, with its requests, how many were
+// challenged and how many passed over the trailing window.  Asked how much
+// the search engines and AI crawlers came and whether they got through, the
+// model had only the install-wide pass count to go on.
+func (h *Handler) askCrawlers(ctx context.Context, hours int) (any, error) {
+	minutes := hours * 60
+	detail := aiTrafficDrilldown(ctx, h, minutes)
+	cats := []map[string]any{}
+	for _, c := range aiTrafficSummary(ctx, h, minutes) {
+		if c.Total == 0 {
+			continue
+		}
+		row := map[string]any{"category": c.Category, "requests": c.Total, "challenged": c.Served, "passed": c.Passed}
+		var crawlers []map[string]any
+		for _, d := range detail[c.Category] {
+			crawlers = append(crawlers, map[string]any{"crawler": d.Crawler, "requests": d.Total, "challenged": d.Served, "passed": d.Passed, "range_verified": d.RangeVerified})
+		}
+		if len(crawlers) > 0 {
+			row["crawlers"] = crawlers
+		}
+		cats = append(cats, row)
+	}
+	return map[string]any{
+		"window_hours": hours, "categories": cats,
+		"note": "Requests carrying a known crawler's user agent.  A range_verified crawler passes only from its vendor's published address ranges, so its challenged requests used its name from elsewhere: impostors, stopped.  Any other crawler passes on its user agent, which anyone can send, so its passes do not prove it is the crawler.",
+	}, nil
 }
 
 // askTZRe: what a time zone name may hold (the TZ picker's allowlist).
@@ -181,9 +211,21 @@ func splitFences(text string) []askPart {
 			}
 			continue
 		}
-		out = append(out, linkAdminPaths(seg)...)
+		out = append(out, linkAdminPaths(plainProse(seg))...)
 	}
 	return out
+}
+
+// emphRE / inlineCodeRE: markdown the page does not draw.  The prompt asks
+// for plain text, and the model still bolds a line now and then; shown as
+// typed, the asterisks and backticks only get in the way.
+var (
+	emphRE       = regexp.MustCompile(`\*\*([^*\n]+)\*\*`)
+	inlineCodeRE = regexp.MustCompile("`([^`\n]+)`")
+)
+
+func plainProse(s string) string {
+	return inlineCodeRE.ReplaceAllString(emphRE.ReplaceAllString(s, "$1"), "$1")
 }
 
 func linkAdminPaths(text string) []askPart {
