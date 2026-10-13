@@ -172,15 +172,20 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     } catch (e) {}
   }
 
-  // Each reason's gear opens where it is set.  Where the link names a card,
-  // the settings page has to land on it: the card in the upper half of the
-  // window, not the top of a long tab.
+  // Each reason's gear opens where it is set, and sits right after the
+  // reason's name (its code) so it reads as that row's.  Where the link names
+  // a card, the settings page has to land on it: the card in the upper half
+  // of the window, not the top of a long tab.
   const gears = await page.evaluate(() => Array.from(document.querySelectorAll('#reasons-card tbody tr[data-reason]')).map(tr => {
-    const a = tr.querySelector('td.rs-set a');
-    return { reason: tr.dataset.reason, href: a ? a.getAttribute('href') : '' };
+    const a = tr.querySelector('a.rs-set'), code = tr.querySelector('.rs-id');
+    const gap = a && code ? Math.round(a.getBoundingClientRect().left - code.getBoundingClientRect().right) : null;
+    const sameLine = a && code ? Math.abs(a.getBoundingClientRect().top - code.getBoundingClientRect().top) < 8 : null;
+    return { reason: tr.dataset.reason, href: a ? a.getAttribute('href') : '', firstCell: a ? a.closest('td') === tr.cells[0] : null, gap, sameLine };
   }));
   ok(gears.length > 0 && gears.every(g => g.reason === 'axis_deny' || g.reason === 'unknown' ||
     /\/admin\/(settings\/[a-z0-9-]+\/|bans\/)(#[a-z0-9-]+)?$/.test(g.href)), 'a reason has no settings link: ' + JSON.stringify(gears));
+  ok(gears.filter(g => g.href).every(g => g.firstCell && g.sameLine && g.gap >= 0 && g.gap < 24),
+    'a gear is not right after its reason\'s name: ' + JSON.stringify(gears.filter(g => g.href)));
   for (const g of gears.filter(g => g.href.includes('#'))) {
     const id = g.href.split('#')[1];
     // From a blank page each time, as from the dashboard: two cards on one

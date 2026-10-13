@@ -75,13 +75,17 @@ func TestOverviewShowsCrawlersAndReasons(t *testing.T) {
 	if !regexp.MustCompile(`(?s)data-reason="ja4_bot".*?<td class="bcd-num">3</td>.*?60\.0%`).MatchString(day) {
 		t.Error("ja4_bot's row should carry its count and its share of the card")
 	}
-	// The gear opens where the reason is set; a reason with nowhere to
-	// point keeps the cell, empty, so the columns stay aligned.
-	if !regexp.MustCompile(`(?s)data-reason="ja4_bot".*?<td class="rs-set"><a href="` + base + `/admin/settings/ja4-verdicts/" aria-label="[^"]+">`).MatchString(day) {
-		t.Error("ja4_bot's row does not open the JA4 verdict settings")
+	// The gear opens where the reason is set, right after the reason's name
+	// -- not in a column at the far edge, where it was hard to tell whose it
+	// was.  A reason with nowhere to point has none.
+	if !regexp.MustCompile(`(?s)data-reason="ja4_bot".*?<code class="rs-id">ja4_bot</code><a class="rs-set" href="` + base + `/admin/settings/ja4-verdicts/" aria-label="[^"]+">`).MatchString(day) {
+		t.Error("ja4_bot's name is not followed by the gear to the JA4 verdict settings")
 	}
-	if !regexp.MustCompile(`(?s)data-reason="axis_deny".*?<td class="rs-set"></td>`).MatchString(day) {
+	if !regexp.MustCompile(`(?s)data-reason="axis_deny".*?<code class="rs-id">axis_deny</code></span></td>`).MatchString(day) {
 		t.Error("axis_deny names no axis, so its row should have no settings link")
+	}
+	if strings.Contains(day, `class="rs-set"></td>`) || strings.Contains(day, `<th class="rs-set"`) {
+		t.Error("the settings column is gone; the gear lives beside the name")
 	}
 
 	// The refresh redraws the section from ?partial=day: both cards come back,
