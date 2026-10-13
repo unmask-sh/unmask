@@ -438,6 +438,17 @@ func renderIDOf(data renderData) (string, error) {
 // unmask_minimal log format.
 var renderIDRE = regexp.MustCompile(`log_format unmask_minimal '[^'\n]* rv=([0-9a-f]{12}) `)
 
+// renderIDMaskRE: the same rv=, with what surrounds the id captured.
+var renderIDMaskRE = regexp.MustCompile(`(log_format unmask_minimal '[^'\n]* rv=)[0-9a-f]{12}( )`)
+
+// MaskRenderID blanks the render id in a rendered http.inc, for comparing two
+// renders on what they tell nginx.  The id hashes every file, and the files
+// name the directory they were written to, so the same configuration
+// rendered into another directory -- doctor's dry-run -- carries another id.
+func MaskRenderID(conf string) string {
+	return renderIDMaskRE.ReplaceAllString(conf, "${1}${2}")
+}
+
 // RenderIDOnDisk: the render id the http.inc in dir was written with, and
 // when that file was written.  id is "" when the file is missing, unreadable
 // or from a build that did not write one.

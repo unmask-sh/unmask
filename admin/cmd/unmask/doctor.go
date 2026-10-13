@@ -1789,8 +1789,10 @@ func checkRenderFreshness(freshDir, outputDir string, addWarn, addOK func(string
 		// The rendered conf echoes its own output dir in a usage-example
 		// comment, so a dry-run into a temp dir always differs on that line;
 		// normalize the fresh copy's dir back to the live one before comparing.
-		freshS := strings.ReplaceAll(stripRenderStamps(fresh), freshDir, outputDir)
-		liveS := stripRenderStamps(live)
+		// The render id (rv=) hashes the files with that dir in them, so it
+		// differs too, and no normalizing brings it back: it is left out.
+		freshS := nginxconf.MaskRenderID(strings.ReplaceAll(stripRenderStamps(fresh), freshDir, outputDir))
+		liveS := nginxconf.MaskRenderID(stripRenderStamps(live))
 		if freshS != liveS {
 			stale = append(stale, name+" ("+firstDifference(liveS, freshS)+")")
 		}

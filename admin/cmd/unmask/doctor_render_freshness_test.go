@@ -5,6 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
 // TestCheckRenderFreshness covers the freshness comparison's four outcomes:
@@ -81,6 +84,49 @@ func TestCheckRenderFreshness(t *testing.T) {
 			t.Errorf("empty output_dir must be silent, got ok=%v warn=%v", c.ok, c.warn)
 		}
 	})
+}
+
+// Doctor renders into a temp dir and compares that with the live render.  The
+// render id (rv=) hashes the files, which name the directory they were written
+// to, so the two ids differ even when nothing else does: an install whose
+// render is current must read fresh, and a real change must be reported at
+// its own line, not at the id.
+func TestRenderFreshnessAcrossDirs(t *testing.T) {
+	live := t.TempDir()
+	conf := filepath.Join(live, "nginx.conf")
+	if err := os.WriteFile(conf, []byte("http {\n}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := settings.Settings{}
+	s.Nginx.OutputDir = live
+	s.Nginx.ConfPath = conf
+	if err := nginxconf.Render(s, live, "test"); err != nil {
+		t.Fatal(err)
+	}
+	check := func(s settings.Settings) (ok, warn []string) {
+		fresh := t.TempDir()
+		if err := nginxconf.Render(s, fresh, "test"); err != nil {
+			t.Fatal(err)
+		}
+		if a, _ := nginxconf.RenderIDOnDisk(fresh); a == "" {
+			t.Fatal("the dry-run carries no render id")
+		}
+		checkRenderFreshness(fresh, live,
+			func(_, m string) { warn = append(warn, m) },
+			func(_, m string) { ok = append(ok, m) })
+		return
+	}
+	if ok, warn := check(s); len(warn) != 0 || len(ok) != 1 {
+		t.Errorf("same configuration, another directory: want fresh, got ok=%v warn=%v", ok, warn)
+	}
+	s.Challenge.Default.PowDifficulty = 20
+	_, warn := check(s)
+	if len(warn) != 1 {
+		t.Fatalf("PoW difficulty changed: want 1 warning, got %v", warn)
+	}
+	if !strings.Contains(warn[0], "unmask_bv_pow_difficulty") || strings.Contains(warn[0], "log_format") {
+		t.Errorf("the warning should point at the difficulty, not the render id: %s", warn[0])
+	}
 }
 
 func TestStripRenderStamps(t *testing.T) {
