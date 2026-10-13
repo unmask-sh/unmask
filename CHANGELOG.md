@@ -12,7 +12,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.51-rc14] - 2026-10-13 (testing build)
+
+### Since rc13
+
+- The JavaScript errors card's help says what each of its tables holds and how to judge the harm: whether the same IP passed afterwards.
 
 ### Added
 
