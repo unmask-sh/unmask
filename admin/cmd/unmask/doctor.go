@@ -1412,10 +1412,28 @@ type nginxErrorLogReport struct {
 	UninitLast string         // the most recent such line
 	Fatal      int            // [emerg] / [crit] / [alert] lines
 	FatalLast  string
+	Benign     int // fatal-severity lines that report no failure (benignAlerts)
 	Lines      int
 }
 
 var uninitVarRe = regexp.MustCompile(`using uninitialized "([^"]+)" variable`)
+
+// benignAlerts: fatal-severity lines that report no failure.  The Lua module,
+// built against a LuaJIT other than OpenResty's, says so at [alert] every
+// time nginx reads its configuration -- a test, a reload, a start -- so on
+// such a host the tail always holds one, and it says nothing about unmask.
+var benignAlerts = []string{
+	"detected a LuaJIT version which is not OpenResty's",
+}
+
+func isBenignAlert(line string) bool {
+	for _, s := range benignAlerts {
+		if strings.Contains(line, s) {
+			return true
+		}
+	}
+	return false
+}
 
 // scanNginxErrorLog picks out of nginx error-log lines the two things a
 // functional test cannot see: a variable read before it is set, and the
@@ -1434,6 +1452,10 @@ func scanNginxErrorLog(r io.Reader) nginxErrorLogReport {
 			continue
 		}
 		if strings.Contains(ln, "[emerg]") || strings.Contains(ln, "[crit]") || strings.Contains(ln, "[alert]") {
+			if isBenignAlert(ln) {
+				rep.Benign++
+				continue
+			}
 			rep.Fatal++
 			rep.FatalLast = ln
 		}
@@ -1508,7 +1530,11 @@ func checkNginxErrorLog(addOK, addWarn func(t, m string)) {
 	}
 	rep := scanNginxErrorLog(r)
 	if len(rep.Uninit) == 0 && rep.Fatal == 0 {
-		addOK("nginx error log", fmt.Sprintf("no uninitialized-variable warning and no [emerg]/[crit]/[alert] line in the last %d line(s) of %s", rep.Lines, path))
+		benign := ""
+		if rep.Benign > 0 {
+			benign = fmt.Sprintf(" (%d [alert] line(s) of the Lua module's LuaJIT notice, written at every configuration load, are not failures and are left out)", rep.Benign)
+		}
+		addOK("nginx error log", fmt.Sprintf("no uninitialized-variable warning and no [emerg]/[crit]/[alert] line in the last %d line(s) of %s%s", rep.Lines, path, benign))
 		return
 	}
 	if len(rep.Uninit) > 0 {
@@ -1524,7 +1550,7 @@ func checkNginxErrorLog(addOK, addWarn func(t, m string)) {
 		addWarn("nginx error log", fmt.Sprintf("%s: a variable is read before it is set (%s) -- a directive in the rendered config runs ahead of server.inc's initialisation. After an upgrade, `unmask render-nginx` then reload nginx; if it persists on the current version, please report it with this line: %s", path, strings.Join(parts, ", "), truncLine(rep.UninitLast)))
 	}
 	if rep.Fatal > 0 {
-		addWarn("nginx error log", fmt.Sprintf("%s: %d [emerg]/[crit]/[alert] line(s) in its tail, the last: %s -- `nginx -t` and `systemctl status nginx` say whether it is current", path, rep.Fatal, truncLine(rep.FatalLast)))
+		addWarn("nginx error log", fmt.Sprintf("%s: %d [emerg]/[crit]/[alert] line(s) in its tail, the last: %s -- `nginx -t` and `systemctl status nginx` say whether it is current", path, rep.Fatal, truncLogLine(rep.FatalLast)))
 	}
 }
 
@@ -1837,6 +1863,16 @@ func truncLine(s string) string {
 	}
 	if len(s) > 60 {
 		return s[:57] + "..."
+	}
+	return s
+}
+
+// truncLogLine keeps a log line whole enough to judge: its message starts
+// after a timestamp and a process id, which would take a short sample's room.
+func truncLogLine(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) > 240 {
+		return s[:237] + "..."
 	}
 	return s
 }

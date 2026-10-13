@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-10-14) **Doctor no longer counts the Lua module's LuaJIT notice as an nginx error.**  nginx built with the Lua module against a LuaJIT other than OpenResty's writes an [alert] at every configuration load, so doctor always warned about its error log there.  That line is now left out and named in the OK, and a real fatal line is quoted whole enough to read.
+
 ## [0.1.51-rc14] - 2026-10-13 (testing build)
 
 ### Since rc13

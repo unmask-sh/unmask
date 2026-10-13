@@ -78,3 +78,35 @@ func TestCheckNginxErrorLog(t *testing.T) {
 		}
 	}
 }
+
+// The Lua module built against a LuaJIT other than OpenResty's writes an
+// [alert] at every configuration load: on such a host the tail always holds
+// one, so it is left out (and said so), while a real fatal line beside it is
+// still reported -- whole enough to read past its timestamp and pid.
+func TestNginxErrorLogLuaJITNotice(t *testing.T) {
+	dir := t.TempDir()
+	old := nginxErrorLogFile
+	t.Cleanup(func() { nginxErrorLogFile = old })
+	luajit := `2026/10/13 14:37:28 [alert] 1234#1234: detected a LuaJIT version which is not OpenResty's; many optimizations will be disabled and performance and stability may suffer (please use OpenResty's LuaJIT 2.1 for optimal performance and stability)`
+
+	nginxErrorLogFile = filepath.Join(dir, "lua.log")
+	if err := os.WriteFile(nginxErrorLogFile, []byte(luajit+"\n"+luajit+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cap, addOK, addWarn, _ := newCaptures()
+	checkNginxErrorLog(addOK, addWarn)
+	if len(cap.warn) != 0 || len(cap.ok) != 1 || !strings.Contains(fmt.Sprint(cap.ok[0]), "2 [alert] line(s) of the Lua module's LuaJIT notice") {
+		t.Errorf("LuaJIT notice only: ok=%v warn=%v", cap.ok, cap.warn)
+	}
+
+	emerg := `2026/10/13 14:52:10 [emerg] 1#1: unknown directive "unmask_nope" in /etc/nginx/conf.d/x.conf:3`
+	if err := os.WriteFile(nginxErrorLogFile, []byte(emerg+"\n"+luajit+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cap, addOK, addWarn, _ = newCaptures()
+	checkNginxErrorLog(addOK, addWarn)
+	if len(cap.ok) != 0 || len(cap.warn) != 1 || !strings.Contains(fmt.Sprint(cap.warn[0]), "1 [emerg]/[crit]/[alert] line(s)") ||
+		!strings.Contains(fmt.Sprint(cap.warn[0]), "/etc/nginx/conf.d/x.conf:3") {
+		t.Errorf("a real [emerg] beside the notice: ok=%v warn=%v", cap.ok, cap.warn)
+	}
+}
