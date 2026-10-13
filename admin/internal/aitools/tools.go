@@ -377,18 +377,10 @@ func (d Deps) top(ctx context.Context, kind string, hours, limit int) (any, erro
 	if d.DB == nil {
 		return nil, errors.New("no database")
 	}
-	var rows []events.RankRow
-	var err error
-	switch kind {
-	case "ip":
-		rows, err = events.RankByIP(ctx, d.DB, hours*60, limit, "")
-	case "ja4":
-		rows, err = events.RankByJA4(ctx, d.DB, hours*60, limit, "")
-	case "ua":
-		rows, err = events.RankByUA(ctx, d.DB, hours*60, limit, "")
-	default:
-		return nil, fmt.Errorf("kind must be ip, ja4 or ua, not %q", kind)
-	}
+	// Serves only: the hunt's rankings count every event, several per
+	// challenge for a browser that runs the page, and the answers read
+	// those counts as challenges.
+	rows, err := events.RankServes(ctx, d.DB, kind, hours*60, limit)
 	if err != nil {
 		return nil, err
 	}

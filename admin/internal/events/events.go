@@ -1658,6 +1658,56 @@ func SampleIPForJA4(ctx context.Context, d *db.DB, sinceMin int, ja4 string) (st
 	return ip, nil
 }
 
+// RankServes ranks the window's challenge serves (phase 'serve') by address
+// ("ip"), fingerprint ("ja4") or user agent ("ua").  RankByIP and its kin
+// count every event, which for a browser that runs the challenge page is
+// several per challenge (served, loaded, solved or abandoned); "served the
+// most challenges" is this one.  Pinned to the date index as RankByIP is.
+func RankServes(ctx context.Context, d *db.DB, kind string, sinceMin, limit int) ([]RankRow, error) {
+	var col string
+	switch kind {
+	case "ip":
+		col = "ip_address"
+	case "ja4":
+		col = "COALESCE(ja4, '')"
+	case "ua":
+		col = "COALESCE(user_agent, '')"
+	default:
+		return nil, fmt.Errorf("kind must be ip, ja4 or ua, not %q", kind)
+	}
+	if limit < 1 || limit > 200 {
+		limit = 30
+	}
+	win := dateCreatedWindow(ctx, d, sinceMin)
+	query := func(hint string) (*sql.Rows, error) {
+		return d.QueryContext(ctx, `SELECT `+col+`, COUNT(*) AS c FROM unmask_event`+hint+`
+		         WHERE `+win+` AND phase = 'serve'
+		         GROUP BY `+col+` ORDER BY c DESC LIMIT ?`, limit)
+	}
+	rows, err := query(d.EventDateIndexHint(win))
+	if err != nil && strings.Contains(err.Error(), "idx_unmask_event_date") {
+		rows, err = query("") // the missing-index degradation of RankByIP
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []RankRow{}
+	for rows.Next() {
+		var key []byte
+		var c int
+		if err := rows.Scan(&key, &c); err != nil {
+			return nil, err
+		}
+		k := string(key)
+		if kind == "ip" {
+			k = unpackIP(key)
+		}
+		out = append(out, RankRow{Key: k, Count: c})
+	}
+	return out, rows.Err()
+}
+
 // RankByUA aggregates unmask_event from the last sinceMin minutes by UA.
 func RankByUA(ctx context.Context, d *db.DB, sinceMin, limit int, site string) ([]RankRow, error) {
 	if limit < 1 || limit > 200 {
