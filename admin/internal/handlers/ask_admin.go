@@ -128,7 +128,7 @@ func (h *Handler) askCrawlers(ctx context.Context, hours int) (any, error) {
 	}
 	return map[string]any{
 		"window_hours": hours, "categories": cats,
-		"note": "Requests carrying a known crawler's user agent.  A range_verified crawler passes only from its vendor's published address ranges, so its challenged requests used its name from elsewhere: impostors, stopped.  Any other crawler passes on its user agent, which anyone can send, so its passes do not prove it is the crawler.",
+		"note": "Requests carrying a known crawler's user agent.  A range_verified crawler passes only from its vendor's published address ranges, so its challenged requests used its name from elsewhere: impostors, stopped.  Any other crawler passes on its user agent, which anyone can send, so its passes do not prove it is the crawler.  Passed crawler requests are not in the event log, so events, top and the bot hunt do not show them; only the challenged ones are there.",
 	}, nil
 }
 
