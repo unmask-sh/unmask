@@ -68,7 +68,7 @@ limit_req zone={{ .Name }} burst={{ .Burst }} nodelay;
 {{ if .MonitorMode }}
 # Monitor mode is rendered (http.inc): $unmask_enforce is the challenge
 # decision minus the sites the operator is watching, which pass.  fc= in the
-# access log still carries $final_challenge, so the judgement is counted.
+# access log still carries the decision ($unmask_fc_log), so it is counted.
 set $unmask_gate "${unmask_enforce}:${unmask_failopen}";
 {{ else if or .WebBotAuthEnabled .PrivacyPassEnabled }}
 # Veto-pass: $final_challenge_eff = $final_challenge minus a daemon-verified
@@ -78,6 +78,9 @@ set $unmask_gate "${final_challenge_eff}:${unmask_failopen}";
 {{ else }}
 set $unmask_gate "${final_challenge}:${unmask_failopen}";
 {{ end }}
+# The access log counts a challenge only for a request a gate saw (http.inc,
+# $unmask_gated): set here, ahead of any rewrite below, which ends this phase.
+set $unmask_gated "1:${unmask_failopen}";
 {{ if .ComposeMode }}
 # Compose mode (host nginx >= 1.17.6): the limit_req directives above run in
 # DRY-RUN (count, never reject), and the unmask plugin's ACCESS-phase handler

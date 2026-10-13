@@ -20,6 +20,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- (2026-10-13) **A challenge is counted only where one was served.**  The access log carried the challenge decision for every request, so a site that protects its pages but not its images counted each image fetched without a pass cookie as challenged: in the request breakdown, by country and in the non-human share.  Those requests now count as let through unjudged.  Native installs need an nginx reload.
+
+- (2026-10-13) **The stats page's country charts say what they count.**  The one in the challenge-serves card was headed "period total", which read as a count of addresses and made a country that sent many requests but met few challenges look like it slipped through; it now reads "challenges served".
+
 - (2026-10-13) **The Linode provider no longer takes in Apple's iCloud Private Relay.**  The ASN catalog found Linode by a name the ASN databases also give the networks the relay leaves from, so turning it on, or blocking every data center, challenged or denied the iPhones and Macs behind the relay.  It now finds Linode by its AS number, and the advisor's hosting check reads the same.
 
 ## [0.1.51-rc13] - 2026-10-13 (testing build)

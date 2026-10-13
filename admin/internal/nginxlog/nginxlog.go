@@ -4,7 +4,7 @@
 //
 // On the nginx side (= rendered by admin at /var/lib/unmask/nginx/http.inc):
 //
-//	log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 ua=$http_user_agent';
+//	log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 ua=$http_user_agent';
 //	access_log syslog:server=unix:/run/unmask/log.sock unmask_minimal;
 //
 // The ua= field (always last — it contains spaces) is classified into crawler
@@ -17,7 +17,11 @@
 //   - "total"            : all reqs.  always +1
 //   - "captcha"          : repeater carrying a 3-seg _bv with HMAC OK
 //   - "pow"              : repeater carrying a 4-seg _bv with SHA-256 OK
-//   - "challenge_served" : $final_challenge=1 (= the req was rejected)
+//   - "challenge_served" : fc=1 (= the req was rejected).  fc= is a gate's
+//     decision, not the judgement alone: http.inc logs $final_challenge only
+//     for a request protect.inc (or server.inc's ban / deny rewrite) saw, so
+//     a location without protect.inc -- which serves its content whatever the
+//     judgement says -- logs fc=0 and bp=1, passed without judgement.
 //   - extensibility: if the plugin returns a new kind ("signature" /
 //     "webauthn" / "passkey" etc.), it gets recorded as a new
 //     row automatically with no schema change.
@@ -546,7 +550,7 @@ func (r *Reader) Loaded() bool {
 // regex is the core of log_format unmask_minimal (= what remains
 // after stripping the syslog prefix).
 //
-//	$msec site=$host kind=$bv_kind fc=$final_challenge
+//	$msec site=$host kind=$bv_kind fc=$unmask_fc_log
 //	  hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4
 //	  ua=$http_user_agent
 //

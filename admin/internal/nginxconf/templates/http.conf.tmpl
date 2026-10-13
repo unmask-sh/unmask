@@ -1403,8 +1403,9 @@ map "$final_challenge:$unmask_verified" $final_challenge_eff {
 
 # $unmask_enforce: the challenge decision protect.inc enforces while monitor
 # mode is rendered -- the decision above for a site the operator is not
-# watching, 0 for one they are.  The log keeps fc=$final_challenge, so the
-# dashboard still counts what would have fired.  volatile because the source
+# watching, 0 for one they are.  The log's fc= keeps the decision without it
+# ($unmask_fc_log), so the dashboard still counts what would have fired.
+# volatile because the source
 # may be (the veto-pass detours set $unmask_verified mid-request).
 {{- if or .WebBotAuthEnabled .PrivacyPassEnabled }}
 map "$final_challenge_eff:$unmask_observe" $unmask_enforce {
@@ -1752,6 +1753,32 @@ map "$is_bypass_ip$is_bypass_path" $unmask_bypassed {
     "00"    0;
 }
 
+# fc= and bp= say what a gate did, not what it would have done.  The judgement
+# ($final_challenge) is there for any request that asks for it, and this log
+# asks on every line -- including the lines of locations without protect.inc,
+# which serve their content whatever the judgement says.  Logging it there
+# counted challenges nobody was shown: on a site that protects its pages and
+# not its images, every image a cookie-less client fetched.  So protect.inc,
+# and server.inc's ban and deny rewrites (they answer before any location),
+# record in $unmask_gated that a gate saw the request: "1:" plus
+# $unmask_failopen, which is "1" on the replay that serves the content while
+# the daemon is down.  The map below is only the default (""); `set` overrides
+# it for the request, and the value survives the rewrite or internal redirect
+# into /unmask/challenge/, so the challenge logs the decision that sent it
+# there.  What no gate saw -- or a fail-open replay let through -- is logged as
+# passed without judgement (bp=1), the share a bypass path is counted in.
+map $remote_addr $unmask_gated {
+    default "";
+}
+map $unmask_gated $unmask_fc_log {
+    default 0;
+    "1:"    {{ if or .WebBotAuthEnabled .PrivacyPassEnabled }}$final_challenge_eff{{ else }}$final_challenge{{ end }};
+}
+map $unmask_gated $unmask_bp_log {
+    default 1;
+    "1:"    $unmask_bypassed;
+}
+
 # scheme=$unmask_forwarded_proto is the visitor's scheme (http / https): the
 # edge's X-Forwarded-Proto behind a terminating LB, else $scheme -- the key the
 # HTTPS redirect (server.inc) uses, so the daemon reads from the line whether
@@ -1771,7 +1798,7 @@ map "$is_bypass_ip$is_bypass_path" $unmask_bypassed {
 # can tell a render nginx has not been reloaded into and say so at the top
 # of the admin pages.  Optional to the parser, like bp.
 {{- end }}
-log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$final_challenge hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bypassed scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} ua=$http_user_agent';
+log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed.
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;

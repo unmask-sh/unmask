@@ -99,9 +99,12 @@ if ($unmask_ban_action_effective = "deny") {
     # fails closed: a daemon-down request lands in @unmask_daemon_down with no
     # saved original and returns 503, never a free pass.  /unmask/* is ban-blanked
     # (http.inc) so the rewritten request does not re-trigger this branch.
+    # $unmask_gated: this answer is a gate's, for the access log (http.inc).
+    set $unmask_gated "1:";
     rewrite ^ /unmask/_ban$request_uri last;
 }
 if ($unmask_banned_effective = "1") {
+    set $unmask_gated "1:";
     rewrite ^ /unmask/challenge/ last;
 }
 
@@ -118,6 +121,7 @@ if ($unmask_banned_effective = "1") {
 # server rewrite phase, so it costs every request to the vhost, and on an
 # install that denies nothing there is no answer for it to find.
 if ($unmask_deny_now = "1") {
+    set $unmask_gated "1:";
     rewrite ^ /unmask/_deny$request_uri last;
 }
 {{- end }}
