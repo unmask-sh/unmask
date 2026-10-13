@@ -134,7 +134,7 @@ func (d Deps) List() []Tool {
 			})},
 		{Name: "lookup_ip", Description: "One address in detail: reverse DNS, country and network (ASN), whether it is banned and why, and its last events.",
 			Schema: obj(map[string]any{"ip": map[string]any{"type": "string", "description": "an IPv4 or IPv6 address"}}, "ip")},
-		{Name: "bans", Description: "The current ban list, newest first: address, fingerprint, source (manual, honeypot, ...), reason, action, when it expires.",
+		{Name: "bans", Description: "The bans in force, newest first: address, fingerprint, source (manual, honeypot, ...), reason, action, when it expires and how long it has left (expires_in).  A lapsed ban is not listed; lookup_ip gives an address's past ones, with active=false.",
 			Schema: obj(map[string]any{
 				"source": map[string]any{"type": "string", "description": "only this source: manual, honeypot, protected_failed, rate_limit_abuse, ja4_loop, community"},
 				"limit":  map[string]any{"type": "integer", "minimum": 1, "maximum": 200, "description": "rows to return; 50 by default"},
@@ -457,7 +457,7 @@ func (d Deps) lookupIP(ctx context.Context, ip string) (any, error) {
 		if err := d.DB.Gorm.WithContext(ctx).Where("ip = ?", ip).Order("banned_at DESC").Limit(10).Find(&bans).Error; err != nil {
 			return nil, fmt.Errorf("ban lookup: %w", err)
 		}
-		out["bans"] = banViews(bans, d.loc())
+		out["bans"] = banViews(bans, d.loc(), time.Now())
 		rows, err := events.FetchPaged(ctx, d.DB, ip, "", "", "", "", "", "", nil, 7*24*60, 20, 0)
 		if err != nil {
 			return nil, fmt.Errorf("event lookup: %w", err)
@@ -467,13 +467,21 @@ func (d Deps) lookupIP(ctx context.Context, ip string) (any, error) {
 	return out, nil
 }
 
-func banViews(bans []db.Ban, loc *time.Location) []map[string]any {
+// banViews: each ban with its times in the operator's zone, and whether it is
+// still in force (active) and for how long (expires_in) -- worked out here,
+// since a model comparing an expiry with the time named a running ban lapsed.
+func banViews(bans []db.Ban, loc *time.Location, now time.Time) []map[string]any {
 	out := make([]map[string]any, 0, len(bans))
 	for _, b := range bans {
 		v := map[string]any{"ip": b.IP, "ja4": b.JA4, "source": b.Source, "reason": b.Reason, "action": b.Action, "scope": b.Scope,
-			"banned_at": time.Unix(b.BannedAt, 0).In(loc).Format(time.RFC3339), "banned_by": b.BannedBy}
+			"banned_at": time.Unix(b.BannedAt, 0).In(loc).Format(time.RFC3339), "banned_by": b.BannedBy, "active": true}
 		if b.ExpiresAt > 0 {
 			v["expires_at"] = time.Unix(b.ExpiresAt, 0).In(loc).Format(time.RFC3339)
+			if left := time.Unix(b.ExpiresAt, 0).Sub(now); left > 0 {
+				v["expires_in"] = left.Round(time.Minute).String()
+			} else {
+				v["active"] = false
+			}
 		} else {
 			v["expires_at"] = "never"
 		}
@@ -482,11 +490,14 @@ func banViews(bans []db.Ban, loc *time.Location) []map[string]any {
 	return out
 }
 
+// bans lists the bans in force, as overview's banned_now counts them; an
+// expired one is history, which lookup_ip gives for an address.
 func (d Deps) bans(ctx context.Context, source string, limit int) (any, error) {
 	if d.DB == nil {
 		return nil, errors.New("no database")
 	}
-	q := d.DB.Gorm.WithContext(ctx).Order("banned_at DESC").Limit(limit)
+	now := time.Now()
+	q := d.DB.Gorm.WithContext(ctx).Where("expires_at = 0 OR expires_at > ?", now.Unix()).Order("banned_at DESC").Limit(limit)
 	if source != "" {
 		q = q.Where("source = ?", source)
 	}
@@ -494,7 +505,7 @@ func (d Deps) bans(ctx context.Context, source string, limit int) (any, error) {
 	if err := q.Find(&bans).Error; err != nil {
 		return nil, err
 	}
-	return map[string]any{"count": len(bans), "bans": banViews(bans, d.loc()), "note": untrusted}, nil
+	return map[string]any{"count": len(bans), "bans": banViews(bans, d.loc(), now), "note": untrusted}, nil
 }
 
 func (d Deps) liveNow() any {

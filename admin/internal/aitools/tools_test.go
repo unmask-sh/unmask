@@ -280,3 +280,35 @@ func TestCrawlersTool(t *testing.T) {
 		t.Errorf("crawlers: %v %v", out, err)
 	}
 }
+
+// A ban's standing is worked out here: bans lists only those in force, each
+// with how long it has left, and lookup_ip marks a lapsed one inactive -- a
+// model comparing an expiry with the time named a running ban lapsed.
+func TestBansInForce(t *testing.T) {
+	d := testDeps(t)
+	ctx := context.Background()
+	now := time.Now()
+	for _, b := range []db.Ban{
+		{IP: "198.51.100.1", Source: "honeypot", BannedAt: now.Add(-26 * time.Hour).Unix(), ExpiresAt: now.Add(-2 * time.Hour).Unix()},
+		{IP: "198.51.100.2", Source: "honeypot", BannedAt: now.Add(-22 * time.Hour).Unix(), ExpiresAt: now.Add(2*time.Hour + 30*time.Second).Unix()},
+	} {
+		if err := d.DB.Gorm.Create(&b).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := d.Run(ctx, "bans", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := MarshalResult(out, 1<<20)
+	if strings.Contains(js, "198.51.100.1") || !strings.Contains(js, "198.51.100.2") || !strings.Contains(js, `"expires_in":"2h0m0s"`) || !strings.Contains(js, `"count":2`) {
+		t.Errorf("bans in force (the lapsed one out, the running one with its time left): %s", js)
+	}
+	look, err := d.Run(ctx, "lookup_ip", map[string]any{"ip": "198.51.100.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if js := MarshalResult(look, 1<<20); !strings.Contains(js, `"active":false`) {
+		t.Errorf("lookup_ip keeps a lapsed ban as history, inactive: %s", js)
+	}
+}
