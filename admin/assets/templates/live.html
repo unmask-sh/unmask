@@ -167,7 +167,11 @@ table.events tbody tr.ev-new>td{animation:ev-new 2.5s ease-out}
 .live-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;margin-bottom:1rem;transition:opacity .2s}
 .live-grid.refreshing{opacity:.55}
 .live{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.7rem .8rem .4rem;display:flex;flex-direction:column;gap:.1rem;min-width:0}
-.live .label{font-size:.7rem;color:#64748b;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:flex;align-items:center;gap:.25rem}
+/* The label clips its text (.lt), not itself: overflow:hidden here clipped the
+   "?" popup it holds, so the help opened only by clicking (the pinned copy
+   lives on <body>), never on hover. */
+.live .label{font-size:.7rem;color:#64748b;white-space:nowrap;display:flex;align-items:center;gap:.25rem;min-width:0}
+.live .label .lt{overflow:hidden;text-overflow:ellipsis;min-width:0}
 .live .label .info-tip{flex:none}
 .live .row{display:flex;align-items:baseline;justify-content:space-between;gap:.4rem}
 .live .value{font-size:1.6rem;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.1;color:#0f172a}
@@ -313,7 +317,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 <div class="live-grid" id="live-grid" data-src="{{ .BasePath }}/admin/api/now">
   {{ range $t := .LiveTiles }}
   <div class="live" data-k="{{ .Key }}">
-    <div class="label"><span class="kdot" style="background:{{ .Color }}"></span><span style="overflow:hidden;text-overflow:ellipsis">{{ t $.Lang .LabelKey }}</span><span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ t $.Lang .HelpKey }}</span></span></div>
+    <div class="label"><span class="kdot" style="background:{{ .Color }}"></span><span class="lt">{{ t $.Lang .LabelKey }}</span><span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ t $.Lang .HelpKey }}</span></span></div>
     <div class="row"><div class="value" data-f="last30">{{ comma .Last30 }}</div><div class="win">{{ t $.Lang "overview.live.window" }}</div></div>
     <div class="sub minute"><b data-f="last">{{ comma .Last }}</b> {{ t $.Lang "overview.live.minute" }} · <span class="delta{{ if .DeltaClass }} {{ .DeltaClass }}{{ end }}" data-f="delta"><span data-f="dv">{{ .DeltaText }}</span> <small>{{ t $.Lang "overview.live.vs_prev" }}</small></span></div>
     {{ if eq .Key "requests" }}<div class="sub" data-f="tps">{{ tf $.Lang "overview.live.tps" .TPS .Peak .Avg }}</div>{{ end }}

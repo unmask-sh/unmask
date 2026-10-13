@@ -20,6 +20,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- (2026-10-13) **The realtime page's help opens on hover.**  The question marks beside the realtime tiles opened their help only when clicked: each tile's label cut off whatever reached past it, the help included, so hovering showed nothing.  The label now shortens only its own text, and hovering opens the help as it does on the other pages.
+
 - (2026-10-13) **A challenge is counted only where one was served.**  The access log carried the challenge decision for every request, so a site that protects its pages but not its images counted each image fetched without a pass cookie as challenged: in the request breakdown, by country and in the non-human share.  Those requests now count as let through unjudged.  Native installs need an nginx reload.
 
 - (2026-10-13) **The stats page's country charts say what they count.**  The one in the challenge-serves card was headed "period total", which read as a count of addresses and made a country that sent many requests but met few challenges look like it slipped through; it now reads "challenges served".
