@@ -4,7 +4,8 @@
 // The section is redrawn from the server on its refresh button; after a
 // redraw the composition's segment toggles, the crawler table's tabs and the
 // zero-row toggles must still work, since their scripts bind to the markup
-// that was replaced.
+// that was replaced.  Each reason's gear opens where the reason is set,
+// landing on the card it names.
 //
 // Env: UI_E2E_BASE, UI_E2E_USER, UI_E2E_PASS, CHROME_BIN, UI_E2E_SHOT_DIR.
 const puppeteer = require('puppeteer-core');
@@ -164,7 +165,36 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   }
 
   if (process.env.UI_E2E_SHOT_DIR) {
-    try { await page.screenshot({ path: path.join(process.env.UI_E2E_SHOT_DIR, 'overview-full.png'), fullPage: true }); } catch (e) {}
+    try {
+      await page.screenshot({ path: path.join(process.env.UI_E2E_SHOT_DIR, 'overview-full.png'), fullPage: true });
+      const rc = await page.$('#reasons-card');
+      if (rc) await rc.screenshot({ path: path.join(process.env.UI_E2E_SHOT_DIR, 'reasons-card.png') });
+    } catch (e) {}
+  }
+
+  // Each reason's gear opens where it is set.  Where the link names a card,
+  // the settings page has to land on it: the card in the upper half of the
+  // window, not the top of a long tab.
+  const gears = await page.evaluate(() => Array.from(document.querySelectorAll('#reasons-card tbody tr[data-reason]')).map(tr => {
+    const a = tr.querySelector('td.rs-set a');
+    return { reason: tr.dataset.reason, href: a ? a.getAttribute('href') : '' };
+  }));
+  ok(gears.length > 0 && gears.every(g => g.reason === 'axis_deny' || g.reason === 'unknown' ||
+    /\/admin\/(settings\/[a-z0-9-]+\/|bans\/)(#[a-z0-9-]+)?$/.test(g.href)), 'a reason has no settings link: ' + JSON.stringify(gears));
+  for (const g of gears.filter(g => g.href.includes('#'))) {
+    const id = g.href.split('#')[1];
+    // From a blank page each time, as from the dashboard: two cards on one
+    // tab would otherwise be a same-document hash change, not a load.
+    const url = new URL(g.href, page.url()).href;
+    await page.goto('about:blank');
+    const r = await page.goto(url, { waitUntil: 'networkidle2' });
+    const at = await page.evaluate(id => {
+      const el = document.getElementById(id);
+      if (!el) return null;
+      return { top: Math.round(el.getBoundingClientRect().top), vh: innerHeight, y: Math.round(scrollY) };
+    }, id);
+    ok(r.status() === 200 && at && at.top >= 0 && at.top < at.vh / 2,
+      g.reason + '\'s settings link does not land on #' + id + ': ' + JSON.stringify(at));
   }
   ok(errors.length === 0, 'page errors: ' + errors.join(' | '));
 

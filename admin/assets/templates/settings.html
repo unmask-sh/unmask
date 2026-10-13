@@ -2262,8 +2262,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   </div><!-- /.bcd-card blacklist parent -->
 
   {{/* Header-integrity axis: a Chromium UA over https/h2h3 with no Sec-CH-UA.
-       Sibling of the stale-browser tier; clamped to a challenge (never deny). */}}
-  <div class="bcd-card">
+       Sibling of the stale-browser tier; clamped to a challenge (never deny).
+       The ids on this card and the next are where the dashboard's
+       detections-by-reason card sends "header" and "stale". */}}
+  <div class="bcd-card" id="ua-header">
     <h2 style="display:flex;align-items:center;gap:.6rem">
       {{ t .Lang "settings.ua.header_h" }}
       <button type="button" class="ua-help-trigger" data-help-target="ua-header-help" aria-label="?">?</button>
@@ -2292,7 +2294,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </script>
   </div>
 
-  <div class="bcd-card">
+  <div class="bcd-card" id="ua-stale">
     <h2 style="display:flex;align-items:center;gap:.6rem">
       {{ t .Lang "settings.ua.stale_h" }}
       <button type="button" class="ua-help-trigger" data-help-target="ua-stale-help" aria-label="?">?</button>
@@ -3458,7 +3460,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
          help text stays the canonical source. */}}
 
     <hr style="border:none;border-top:1px solid #e2e8f0;margin:1.4rem 0">
-    <div class="field">
+    <div class="field" id="ch-test-pages">
       <div class="field-label field-label-row">
         <span>{{ t .Lang "settings.challenge.public_test_pages" }}</span>
         <button type="button" class="ua-help-trigger" data-help-target="ch-test-help" aria-label="?">?</button>
@@ -3737,7 +3739,7 @@ function secToHuman(s){
          WITH one.  On by default at volumes no person reaches; the seeds show
          as placeholders. */}}
     {{ $ru := .RateLimit.Reuse }}
-    <h3 style="font-size:1rem;margin:1.5rem 0 .4rem;display:flex;align-items:center;gap:.45rem">{{ t .Lang "settings.rate_limit.reuse_h" }}
+    <h3 id="rl-reuse-h" style="font-size:1rem;margin:1.5rem 0 .4rem;display:flex;align-items:center;gap:.45rem">{{ t .Lang "settings.rate_limit.reuse_h" }}
       <button type="button" class="ua-help-trigger" data-help-target="rl-reuse-help" aria-label="?">?</button>
     </h3>
     <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.rate_limit.reuse_desc") }}</div>

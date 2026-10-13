@@ -11,6 +11,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/i18n"
 )
 
 // The dashboard's day section carries the crawler card again (who the known
@@ -74,6 +75,14 @@ func TestOverviewShowsCrawlersAndReasons(t *testing.T) {
 	if !regexp.MustCompile(`(?s)data-reason="ja4_bot".*?<td class="bcd-num">3</td>.*?60\.0%`).MatchString(day) {
 		t.Error("ja4_bot's row should carry its count and its share of the card")
 	}
+	// The gear opens where the reason is set; a reason with nowhere to
+	// point keeps the cell, empty, so the columns stay aligned.
+	if !regexp.MustCompile(`(?s)data-reason="ja4_bot".*?<td class="rs-set"><a href="` + base + `/admin/settings/ja4-verdicts/" aria-label="[^"]+">`).MatchString(day) {
+		t.Error("ja4_bot's row does not open the JA4 verdict settings")
+	}
+	if !regexp.MustCompile(`(?s)data-reason="axis_deny".*?<td class="rs-set"></td>`).MatchString(day) {
+		t.Error("axis_deny names no axis, so its row should have no settings link")
+	}
 
 	// The refresh redraws the section from ?partial=day: both cards come back,
 	// and their page-level script and style do not come back a second time.
@@ -109,6 +118,47 @@ func TestHuntOffersEveryDashboardReason(t *testing.T) {
 	for _, r := range overviewReasonOrder {
 		if !strings.Contains(string(b), `<option value="`+r+`"`) {
 			t.Errorf("bot hunt's reason filter has no %q option", r)
+		}
+	}
+}
+
+// Every reason's settings link has to land: on a tab that exists, on the card
+// it names, under a title both languages have.  A tab renamed or a card's id
+// dropped would otherwise leave the gear opening a 404 or the top of a long
+// tab, which nothing else would notice.
+func TestReasonSettingsLinksLand(t *testing.T) {
+	h := newTestHandler(t)
+	known := make(map[string]bool, len(overviewReasonOrder))
+	for _, r := range overviewReasonOrder {
+		known[r] = true
+		if _, ok := overviewReasonSettings[r]; !ok && r != "axis_deny" {
+			t.Errorf("reason %q has no settings link", r)
+		}
+	}
+	for r, s := range overviewReasonSettings {
+		if !known[r] {
+			t.Errorf("settings link for %q, which the card never lists", r)
+		}
+		for _, lang := range []i18n.Lang{i18n.LangJA, i18n.LangEN} {
+			if i18n.T(lang, s.name) == s.name {
+				t.Errorf("reason %q: %q has no %s title", r, s.name, lang)
+			}
+		}
+		path, frag, _ := strings.Cut(s.path, "#")
+		tab, ok := strings.CutPrefix(path, "settings/")
+		if !ok {
+			if path != "bans/" {
+				t.Errorf("reason %q opens %q, neither a settings tab nor the ban list", r, path)
+			}
+			continue
+		}
+		tab = strings.TrimSuffix(tab, "/")
+		if !settingsTabs[tab] {
+			t.Errorf("reason %q opens settings tab %q, which does not exist", r, tab)
+			continue
+		}
+		if frag != "" && !strings.Contains(renderSettingsTab(t, h, tab), `id="`+frag+`"`) {
+			t.Errorf("reason %q opens #%s, which the %s tab does not have", r, frag, tab)
 		}
 	}
 }

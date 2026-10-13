@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+
+- (2026-10-13) **Each reason on the dashboard opens its settings.**  The card of why requests were challenged or denied gains a gear on every row that opens the settings behind that reason, at the card that sets it where a tab holds several: header integrity and outdated browsers under the UA filter, the reuse cap under rate limit, the test pages under challenge.  Banned opens the ban list.
+
 ## [0.1.51-rc13] - 2026-10-13 (testing build)
 
 ### Added

@@ -1142,6 +1142,35 @@ var overviewReasonOrder = []string{
 	"none", "test",
 }
 
+// overviewReasonSettings is where each reason is set: the settings tab that
+// decides when a visitor is sent to a challenge or a deny page for it, and
+// the card inside it where the tab holds several unrelated ones.  "banned"
+// opens the ban list instead, since a ban is lifted there.  axis_deny (an
+// axis the daemon could not name) and unknown have nowhere to point.  Paths
+// are under <base>/admin/; name is the i18n key of the destination's title.
+var overviewReasonSettings = map[string]struct{ path, name string }{
+	"ja4_bot":        {"settings/ja4-verdicts/", "settings.tab.ja4_verdicts"},
+	"ja4_deny":       {"settings/ja4-verdicts/", "settings.tab.ja4_verdicts"},
+	"ua_target":      {"settings/ua-filter/", "settings.tab.ua_filter"},
+	"ua_deny":        {"settings/ua-filter/", "settings.tab.ua_filter"},
+	"header":         {"settings/ua-filter/#ua-header", "settings.tab.ua_filter"},
+	"stale":          {"settings/ua-filter/#ua-stale", "settings.tab.ua_filter"},
+	"custom_rule":    {"settings/custom-rules/", "settings.tab.custom_rules"},
+	"protected":      {"settings/protected/", "settings.tab.protected"},
+	"honeypot":       {"settings/honeypot/", "settings.tab.honeypot"},
+	"banned":         {"bans/", "nav.bans"},
+	"community_bans": {"settings/community-bans/", "settings.tab.community_bans"},
+	"community_deny": {"settings/community-bans/", "settings.tab.community_bans"},
+	"asn":            {"settings/asn/", "settings.tab.asn"},
+	"asn_deny":       {"settings/asn/", "settings.tab.asn"},
+	"geo":            {"settings/geo/", "settings.tab.geo"},
+	"geo_deny":       {"settings/geo/", "settings.tab.geo"},
+	"rate_limit":     {"settings/rate-limit/", "settings.tab.rate_limit"},
+	"reuse_limit":    {"settings/rate-limit/#rl-reuse-h", "settings.tab.rate_limit"},
+	"none":           {"settings/global/", "settings.tab.global"},
+	"test":           {"settings/challenge/#ch-test-pages", "settings.tab.challenge"},
+}
+
 // reasonRow is one row of the detections-by-reason card.
 type reasonRow struct {
 	Reason string
@@ -1151,6 +1180,11 @@ type reasonRow struct {
 	// Hunt opens bot hunt on this reason over the day; "" for "unknown",
 	// which no filter can select (the events carry no reason at all).
 	Hunt string
+	// Settings opens where the reason is set (overviewReasonSettings), and
+	// SettingsName is that page's title for the link's accessible name;
+	// both "" where there is nowhere to point.
+	Settings     string
+	SettingsName string
 }
 
 // overviewReasonRows orders the counts for the card: by count, then in
@@ -1185,6 +1219,10 @@ func overviewReasonRows(lang i18n.Lang, base string, counts map[string]int) ([]r
 		}
 		if k != "unknown" {
 			row.Hunt = base + "/admin/hunt/?range=24h&force_reason=" + url.QueryEscape(k)
+		}
+		if s, ok := overviewReasonSettings[k]; ok {
+			row.Settings = base + "/admin/" + s.path
+			row.SettingsName = i18n.T(lang, s.name)
 		}
 		rows = append(rows, row)
 	}
