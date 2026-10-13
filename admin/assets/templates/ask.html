@@ -117,6 +117,10 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 /* The pick is as wide as its label, not its longest question. */
 #ask-suggest{width:6.5rem;flex:0 0 auto}
 .a,.q-row{scroll-margin-top:.75rem}
+/* An answer comes in with a brief tint, so its arrival shows. */
+.a.fresh{animation:a-fresh 1.8s ease-out}
+@keyframes a-fresh{from{background:#e0f2fe;border-color:#7dd3fc}to{background:#fff;border-color:#e2e8f0}}
+@media (prefers-reduced-motion:reduce){.a.fresh{animation:none}}
 .user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
 .user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
 .user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
@@ -395,8 +399,18 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     if (window.unmaskFmtTimes) unmaskFmtTimes();
     // The addresses in the fresh answer get the popover.
     (window.unmaskRewire || []).forEach(function(fn){ try { fn(ad); } catch (e) {} });
-    // Read from the top of the answer.
-    ad.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    // The answer arrives where the pending line was.  When it all fits above
+    // the dock nothing moves; when it runs on, its question comes to the top,
+    // so the answer reads on from under it.  Scrolling the answer itself to
+    // the top took the question off the screen and changed everything in
+    // view at once: it was hard to tell that the answer had come.
+    ad.classList.add('fresh');
+    var dock = document.getElementById('ask-dock');
+    var floor = innerHeight - (dock ? dock.getBoundingClientRect().height : 0);
+    if (ad.getBoundingClientRect().bottom > floor) {
+      var qr = ad.previousElementSibling;
+      (qr && qr.classList.contains('q-row') ? qr : ad).scrollIntoView({ block: 'start', behavior: 'smooth' });
+    }
   }
   // A failed turn offers a retry: the same question goes out again on the
   // same turn, so the page does not fill with the attempts.
@@ -431,7 +445,9 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
       .then(function(r){ return r.text().then(function(t){ var d; try { d = JSON.parse(t); } catch (e) { throw new Error('HTTP ' + r.status + ': ' + t.replace(/\s+/g, ' ').trim().slice(0, 80)); } if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status)); return d; }); })
       .then(function(d){ settle(ad, d); })
       .catch(function(err){ failed(ad, err && err.message ? err.message : String(err), q); })
-      .then(function(){ btn.disabled = false; ta.focus(); });
+      // Back to the field without scrolling to it: a scroll here would cut
+      // the one above short.
+      .then(function(){ btn.disabled = false; ta.focus({ preventScroll: true }); });
   }
   // The field is one line that grows with what is typed, up to a few lines.
   function grow(){ ta.style.height = 'auto'; var h = Math.min(ta.scrollHeight, 160); ta.style.height = h + 'px'; ta.style.overflowY = ta.scrollHeight > 160 ? 'auto' : 'hidden'; }

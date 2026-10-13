@@ -31,6 +31,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       seen.push(m);
       res.writeHead(200, { 'Content-Type': 'application/json' });
       const msgs = m.messages || [];
+      // A question asking for a long answer gets one straight away: more
+      // lines than the window holds.
+      const lastUser = msgs.filter(x => x.role === 'user').pop();
+      if (lastUser && String(lastUser.content).indexOf('E2E-LONG') >= 0) {
+        const long = Array.from({ length: 80 }, (_, i) => 'E2E-LONG line ' + (i + 1)).join('\n');
+        res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: long } }], usage: { prompt_tokens: 10, completion_tokens: 80 } }));
+        return;
+      }
       const lastTool = msgs.filter(x => x.role === 'tool').pop();
       if (!lastTool) {
         // Slow enough for the page's pending state to be seen.
@@ -131,6 +139,19 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     });
   }
   ok(!!answered, 'no answer arrived');
+  // The answer comes in tinted, and its question stays in view: the page no
+  // longer throws the answer to the top, taking the question off the screen.
+  if (answered) {
+    await sleep(900);
+    const arrival = await page.evaluate(() => {
+      const a = Array.from(document.querySelectorAll('#turns .a')).pop();
+      const q = a && a.previousElementSibling;
+      const r = q ? q.getBoundingClientRect() : null;
+      return { fresh: !!a && a.classList.contains('fresh'), q: !!q && q.classList.contains('q-row'), qTop: r ? Math.round(r.top) : null, vh: innerHeight };
+    });
+    ok(arrival.fresh, 'the arriving answer is not marked to show its arrival');
+    ok(arrival.q && arrival.qTop !== null && arrival.qTop >= 0 && arrival.qTop < arrival.vh, 'the question went out of view when its answer came: ' + JSON.stringify(arrival));
+  }
   ok(seen.some(m => m.reasoning_effort === 'low'), 'the effort picked on the page did not reach the provider');
   if (answered) {
     ok(/the ban list has \d+ rows/.test(answered.text), 'the answer does not carry the tool result: ' + answered.text);
@@ -271,6 +292,24 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     retried = await page.evaluate(() => { const a = document.querySelector('#turns .a:last-child'); if (!a || a.classList.contains('pending') || a.classList.contains('fail')) return null; return { text: a.querySelector('.txt').textContent, fails: document.querySelectorAll('#turns .a.fail').length, qs: document.querySelectorAll('#turns .q').length }; });
   }
   ok(!!retried && /E2E-ANSWER/.test(retried.text) && retried.fails === 0 && !!failedTurn && retried.qs === failedTurn.qs, 'the retry did not answer on the same turn: ' + JSON.stringify(retried));
+
+  // An answer longer than the window brings its question to the top, the
+  // answer reading on below it -- not the answer's own top, which took the
+  // question off the screen.
+  await page.evaluate(() => { document.getElementById('ask-q').value = 'E2E-LONG: a long one'; });
+  await page.click('#ask-send');
+  let long = false;
+  for (let i = 0; i < 30 && !long; i++) { await sleep(300); long = await page.evaluate(() => !!Array.from(document.querySelectorAll('#turns .a:not(.pending)')).find(a => a.textContent.indexOf('E2E-LONG line 80') >= 0)); }
+  ok(long, 'the long answer did not arrive');
+  if (long) {
+    await sleep(1200);
+    const at = await page.evaluate(() => {
+      const a = Array.from(document.querySelectorAll('#turns .a')).pop();
+      const q = a.previousElementSibling.getBoundingClientRect();
+      return { qTop: Math.round(q.top), aTop: Math.round(a.getBoundingClientRect().top), aBottom: Math.round(a.getBoundingClientRect().bottom), vh: innerHeight };
+    });
+    ok(at.qTop >= 0 && at.qTop < 60 && at.aTop > at.qTop && at.aBottom > at.vh, 'a long answer should bring its question to the top: ' + JSON.stringify(at));
+  }
 
   // Leave the AI off for whichever test runs next.
   await saveAI(false, 'openai', stubURL, 'e2e-key');
