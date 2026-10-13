@@ -422,6 +422,9 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     var params = { q: q }, ms = document.getElementById('ask-model'), es = document.getElementById('ask-effort');
     if (ms && ms.value) params.model = ms.value;
     if (es && es.value && !es.disabled) params.effort = es.value;
+    // The browser's time zone: the answer's times and "today" are given in
+    // it unless the TZ picker names one.
+    try { var tz = Intl.DateTimeFormat().resolvedOptions().timeZone; if (tz) params.tz = tz; } catch (e) {}
     fetch(form.action, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }, body: new URLSearchParams(params) })
       // Not JSON (a proxy's error page, a cut connection): say the status and
       // the start of what came back, not a parser's complaint about it.

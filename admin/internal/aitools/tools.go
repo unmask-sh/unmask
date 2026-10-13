@@ -31,6 +31,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/live"
+	"github.com/unmask-sh/unmask/admin/internal/relay"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -48,6 +49,17 @@ type Deps struct {
 	// tab, and one tab whole.  nil where the tools run without the admin.
 	SettingsFind func(ctx context.Context, query string) (any, error)
 	SettingsTab  func(ctx context.Context, tab string) (any, error)
+	// Loc: the asking operator's time zone.  Times and the day's boundaries
+	// are given in it -- a model converting UTC itself got the hour and the
+	// day wrong.  nil = UTC.
+	Loc *time.Location
+}
+
+func (d Deps) loc() *time.Location {
+	if d.Loc != nil {
+		return d.Loc
+	}
+	return time.UTC
 }
 
 // Tool is one tool as the model sees it: a name, what it answers, and the
@@ -341,8 +353,8 @@ func (d Deps) overview(ctx context.Context, hours int) (any, error) {
 	var banned int64
 	_ = d.DB.Gorm.WithContext(ctx).Model(&db.Ban{}).Where("expires_at = 0 OR expires_at > ?", time.Now().Unix()).Count(&banned).Error
 	out["banned_now"] = banned
-	if hc, err := dashboard.HourlyRequests(ctx, d.DB, "", time.UTC, time.Now()); err == nil && hc.OK {
-		out["requests_per_hour_utc"] = map[string]any{"today": hc.Today[:hc.NowHour+1], "yesterday": hc.Yesterday}
+	if hc, err := dashboard.HourlyRequests(ctx, d.DB, "", d.loc(), time.Now()); err == nil && hc.OK {
+		out["requests_per_hour"] = map[string]any{"time_zone": d.loc().String(), "today": hc.Today[:hc.NowHour+1], "yesterday": hc.Yesterday}
 	}
 	if d.Live != nil {
 		out["last_minute"] = d.liveNow()
@@ -384,17 +396,27 @@ func (d Deps) events(ctx context.Context, ip, ja4, ua, phase, reason, site strin
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"window_hours": hours, "count": len(rows), "events": scrub(rows), "note": untrusted}, nil
+	return map[string]any{"window_hours": hours, "count": len(rows), "events": scrub(rows, d.loc()), "note": untrusted}, nil
+}
+
+// eventView is an event row with its time in the operator's zone (at), so
+// the model reads the time rather than converting ts.
+type eventView struct {
+	events.Row
+	At string `json:"at"`
 }
 
 // scrub blanks the pass-cookie values: a _bv cookie is a live credential for
 // the visitor it was minted for, and the answer goes to a provider.
-func scrub(rows []events.Row) []events.Row {
-	out := make([]events.Row, len(rows))
+func scrub(rows []events.Row, loc *time.Location) []eventView {
+	out := make([]eventView, len(rows))
 	for i, r := range rows {
 		r.CookieBV = ""
 		r.CookieBR = ""
-		out[i] = r
+		out[i] = eventView{Row: r}
+		if r.Ts > 0 {
+			out[i].At = time.Unix(r.Ts, 0).In(loc).Format(time.RFC3339)
+		}
 	}
 	return out
 }
@@ -416,6 +438,14 @@ func (d Deps) lookupIP(ctx context.Context, ip string) (any, error) {
 			out["asn"] = info.ASN
 			out["asn_org"] = info.ASNOrg
 		}
+		// A relay's shared egress: its users are many, and the country is
+		// theirs (the relay's list), not the network's.
+		if info.Relay != "" {
+			out["relay"] = relay.Name(info.Relay)
+			if info.CountryDB != "" {
+				out["country_in_geo_database"] = info.CountryDB
+			}
+		}
 	} else {
 		out["country"] = "unknown: no IP geo database"
 	}
@@ -424,23 +454,23 @@ func (d Deps) lookupIP(ctx context.Context, ip string) (any, error) {
 		if err := d.DB.Gorm.WithContext(ctx).Where("ip = ?", ip).Order("banned_at DESC").Limit(10).Find(&bans).Error; err != nil {
 			return nil, fmt.Errorf("ban lookup: %w", err)
 		}
-		out["bans"] = banViews(bans)
+		out["bans"] = banViews(bans, d.loc())
 		rows, err := events.FetchPaged(ctx, d.DB, ip, "", "", "", "", "", "", nil, 7*24*60, 20, 0)
 		if err != nil {
 			return nil, fmt.Errorf("event lookup: %w", err)
 		}
-		out["recent_events_7d"] = scrub(rows)
+		out["recent_events_7d"] = scrub(rows, d.loc())
 	}
 	return out, nil
 }
 
-func banViews(bans []db.Ban) []map[string]any {
+func banViews(bans []db.Ban, loc *time.Location) []map[string]any {
 	out := make([]map[string]any, 0, len(bans))
 	for _, b := range bans {
 		v := map[string]any{"ip": b.IP, "ja4": b.JA4, "source": b.Source, "reason": b.Reason, "action": b.Action, "scope": b.Scope,
-			"banned_at": time.Unix(b.BannedAt, 0).UTC().Format(time.RFC3339), "banned_by": b.BannedBy}
+			"banned_at": time.Unix(b.BannedAt, 0).In(loc).Format(time.RFC3339), "banned_by": b.BannedBy}
 		if b.ExpiresAt > 0 {
-			v["expires_at"] = time.Unix(b.ExpiresAt, 0).UTC().Format(time.RFC3339)
+			v["expires_at"] = time.Unix(b.ExpiresAt, 0).In(loc).Format(time.RFC3339)
 		} else {
 			v["expires_at"] = "never"
 		}
@@ -461,7 +491,7 @@ func (d Deps) bans(ctx context.Context, source string, limit int) (any, error) {
 	if err := q.Find(&bans).Error; err != nil {
 		return nil, err
 	}
-	return map[string]any{"count": len(bans), "bans": banViews(bans), "note": untrusted}, nil
+	return map[string]any{"count": len(bans), "bans": banViews(bans, d.loc()), "note": untrusted}, nil
 }
 
 func (d Deps) liveNow() any {

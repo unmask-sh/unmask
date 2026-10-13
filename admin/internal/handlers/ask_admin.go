@@ -98,7 +98,36 @@ func (h *Handler) askTools(r *http.Request) aitools.Deps {
 		DB: h.DB, Settings: h.SnapshotSettings, IPGeo: h.IPGeo, Live: h.Live, Version: h.Version, ConfigPath: h.ConfigPath,
 		SettingsFind: func(ctx context.Context, q string) (any, error) { return h.SettingsFind(ctx, lang, q) },
 		SettingsTab:  func(ctx context.Context, tab string) (any, error) { return h.SettingsTabOutline(ctx, lang, tab) },
+		Loc:          askLocation(r),
 	}
+}
+
+// askTZRe: what a time zone name may hold (the TZ picker's allowlist).
+var askTZRe = regexp.MustCompile(`^[A-Za-z0-9/_+-]{1,64}$`)
+
+// askLocation: the asking operator's time zone -- the TZ picker's when one is
+// set, else the browser's, which the page sends with the question (with the
+// picker on "browser" the server has none of its own), else UTC.
+func askLocation(r *http.Request) *time.Location {
+	if resolveTZ(r) != "" {
+		return resolveLocation(r)
+	}
+	if name := strings.TrimSpace(r.FormValue("tz")); askTZRe.MatchString(name) {
+		if loc, err := time.LoadLocation(name); err == nil {
+			return loc
+		}
+	}
+	return time.UTC
+}
+
+// askContext is set after the question, as the language request is: what
+// the model cannot know of itself.  The operator's clock, for "today" and
+// for the times it names; and the browser versions current today, which it
+// otherwise judged from what it remembered -- a released Chrome read as "a
+// version that does not exist".
+func askContext(now time.Time, loc *time.Location, g settings.GlobalConfig) string {
+	return fmt.Sprintf("\n\n(Now: %s, time zone %s.  Current stable browsers: Chrome %d (Edge and the other Chromium browsers follow its numbers), Firefox %d.)",
+		now.In(loc).Format("2006-01-02 15:04 -07:00"), loc.String(), g.CurrentChromeMajorResolved(), g.CurrentFirefoxMajorResolved())
 }
 
 // askBusy serialises one account's questions: a double click must not pay
@@ -441,7 +470,7 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	res, err := advisor.Chat(ctx, cfg, h.askTools(r), history, q, string(lang))
+	res, err := advisor.Chat(ctx, cfg, h.askTools(r), history, q+askContext(time.Now(), askLocation(r), h.cfg().Global), string(lang))
 	advisor.RecordChatRun(h.DB, cfg, res, err)
 	row := db.AIChat{UserID: pay.UserID, AskedAt: time.Now().Unix(), Question: q, Answer: res.Answer, Model: cfg.ResolvedModel(), InTokens: res.Usage.Input, OutTokens: res.Usage.Output}
 	if b, e := json.Marshal(res.Tools); e == nil && len(res.Tools) > 0 {

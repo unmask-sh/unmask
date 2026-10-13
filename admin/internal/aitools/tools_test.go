@@ -222,3 +222,40 @@ func TestCountriesTool(t *testing.T) {
 		t.Errorf("through Run: %v %v", res, err)
 	}
 }
+
+// Times reach the model in the operator's zone: ban times with the zone's
+// offset, and each event row with its time (at) beside its unix ts -- a model
+// converting UTC itself named the wrong hour and the wrong day.
+func TestToolTimesInTheOperatorsZone(t *testing.T) {
+	d := testDeps(t)
+	d.Loc = time.FixedZone("JST", 9*3600)
+	ctx := context.Background()
+	bans, err := d.Run(ctx, "bans", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if js := MarshalResult(bans, 1<<20); !strings.Contains(js, "+09:00") {
+		t.Errorf("ban times in the operator's zone: %s", js)
+	}
+	ev, err := d.Run(ctx, "events", map[string]any{"ip": "203.0.113.9"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got struct {
+		Events []struct {
+			Ts int64  `json:"ts"`
+			At string `json:"at"`
+		} `json:"events"`
+	}
+	if err := json.Unmarshal([]byte(MarshalResult(ev, 1<<20)), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Events) == 0 {
+		t.Fatal("no events")
+	}
+	for _, e := range got.Events {
+		if want := time.Unix(e.Ts, 0).In(d.Loc).Format(time.RFC3339); e.Ts == 0 || e.At != want {
+			t.Errorf("event at %q, want %q (ts %d)", e.At, want, e.Ts)
+		}
+	}
+}
