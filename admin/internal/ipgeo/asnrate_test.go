@@ -25,3 +25,34 @@ func TestASNRateCIDRsGuards(t *testing.T) {
 		})
 	}
 }
+
+// TestASNMatcherOrder: an exact AS number outranks everything; the rest --
+// org substrings and the AS numbers a catalog provider names (InOrder) --
+// match in the caller's order, so a custom org rule placed ahead of a
+// provider keeps a network the two share, as AsnConfig.ResolveRule does.
+func TestASNMatcherOrder(t *testing.T) {
+	m := newASNMatcher([]ASNTarget{
+		{ASN: 16509, Value: "AS16509"},
+		{OrgPattern: "Akamai Technologies", Value: "org:akamai technologies"},
+		{ASN: 63949, InOrder: true, Value: "AS63949"},
+		{OrgPattern: "Akamai Connected Cloud", Value: "org:akamai connected cloud"},
+	})
+	for _, c := range []struct {
+		asn       uint
+		org, want string
+	}{
+		{16509, "Amazon.com, Inc.", "AS16509"},
+		{63949, "Akamai Technologies, Inc.", "org:akamai technologies"}, // the custom org rule ranks first
+		{63949, "Akamai Connected Cloud", "AS63949"},                    // the number, ahead of the later pattern
+		{0, "AKAMAI CONNECTED CLOUD", "org:akamai connected cloud"},     // case-insensitive
+		{36183, "AKAMAI-AS", ""},
+		{13335, "", ""},
+	} {
+		if got := m.value(c.asn, c.org); got != c.want {
+			t.Errorf("AS%d %q -> %q, want %q", c.asn, c.org, got, c.want)
+		}
+	}
+	if !newASNMatcher([]ASNTarget{{Value: "x"}}).empty() {
+		t.Error("a target naming neither an AS number nor an org is no target")
+	}
+}

@@ -5355,10 +5355,12 @@ func (h *Handler) asnProviderView(cfg settings.AsnConfig) []asnProviderRow {
 	if h.IPGeo != nil && h.IPGeo.ASNLoaded() {
 		if path := strings.TrimSpace(h.cfg().IPGeo.MMDBASNPath); path != "" {
 			pats := map[string][]string{}
+			nums := map[string][]uint{}
 			for _, hp := range settings.HostingProviders {
 				pats[hp.ID] = hp.OrgPatterns
+				nums[hp.ID] = hp.ASNs
 			}
-			if c, err := ipgeo.ASNCounts(path, pats); err == nil {
+			if c, err := ipgeo.ASNCounts(path, pats, nums); err == nil {
 				counts = c
 				haveCounts = true
 			}

@@ -2004,14 +2004,14 @@ func (a AsnConfig) ResolveRule(asn uint, org string) (action string, ratePerMin 
 			return resolve(r.Action), a.effectiveRate(r.RatePerMin), true
 		}
 	}
-	// 3. enabled catalog provider (org match).
+	// 3. enabled catalog provider (its AS numbers or org match).
 	for i := range a.Providers {
 		p := &a.Providers[i]
 		if !p.Enabled {
 			continue
 		}
 		hp := HostingProviderByID(p.ID)
-		if hp != nil && OrgMatchesAny(org, hp.OrgPatterns) {
+		if hp != nil && hp.Matches(asn, org) {
 			return resolve(p.Action), a.effectiveRate(p.RatePerMin), true
 		}
 	}
@@ -2031,7 +2031,8 @@ type AsnRateRule struct {
 // RateRules returns every enabled rule/provider whose EFFECTIVE rate (override
 // or DefaultRatePerMin) is >0 -- what the native rate-zone render (one
 // limit_req_zone per entry, keyed on ipgeo.ASNRateCIDRs) and the settings UI
-// enumerate.  A provider expands to one entry per OrgPattern.  Entries with an
+// enumerate.  A provider expands to one entry per OrgPattern and one per AS
+// number of its own.  Entries with an
 // effective rate of 0 stay with the ordinary immediate-action geo block
 // (EnabledASNRules / EnabledOrgPatterns).
 func (a AsnConfig) RateRules() []AsnRateRule {
@@ -2060,6 +2061,9 @@ func (a AsnConfig) RateRules() []AsnRateRule {
 		if hp := HostingProviderByID(p.ID); hp != nil {
 			for _, pat := range hp.OrgPatterns {
 				out = append(out, AsnRateRule{Org: pat, RatePerMin: rate, Action: act(p.Action)})
+			}
+			for _, n := range hp.ASNs {
+				out = append(out, AsnRateRule{ASN: n, RatePerMin: rate, Action: act(p.Action)})
 			}
 		}
 	}
@@ -2130,6 +2134,42 @@ func (a AsnConfig) EnabledASNRules() []struct {
 				ASN    uint
 				Action string
 			}{r.ASN, act})
+		}
+	}
+	return out
+}
+
+// EnabledProviderASNs returns the AS numbers of the enabled catalog providers
+// (HostingProvider.ASNs) with each provider's resolved action, for the native
+// render walk.  They rank as the provider does in ResolveRule: below every
+// custom rule, the org-substring ones included, so the walk places them after
+// EnabledOrgPatterns rather than with the exact-AS custom rules.
+func (a AsnConfig) EnabledProviderASNs() []struct {
+	ASN    uint
+	Action string
+} {
+	var out []struct {
+		ASN    uint
+		Action string
+	}
+	for i := range a.Providers {
+		p := &a.Providers[i]
+		if !p.Enabled || a.effectiveRate(p.RatePerMin) > 0 { // rate providers -> rate zone, not here
+			continue
+		}
+		hp := HostingProviderByID(p.ID)
+		if hp == nil {
+			continue
+		}
+		act := p.Action
+		if strings.TrimSpace(act) == "" {
+			act = a.ResolvedDefaultRuleAction()
+		}
+		for _, n := range hp.ASNs {
+			out = append(out, struct {
+				ASN    uint
+				Action string
+			}{n, act})
 		}
 	}
 	return out

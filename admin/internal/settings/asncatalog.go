@@ -8,7 +8,9 @@ import "strings"
 // spans many ASNs (Microsoft/Azure alone is a dozen+), so the match is by the
 // autonomous-system ORGANIZATION name, not a hard-coded AS-number list that
 // would go stale.  OrgPatterns are case-insensitive substrings tested against
-// the ASN mmdb's autonomous_system_organization field.
+// the ASN mmdb's autonomous_system_organization field.  ASNs is the exception,
+// for a provider whose networks carry a name it shares with networks it does
+// not run.
 //
 // This same catalog powers three things: the preset table (enable a provider),
 // the "block all data centers" bulk action (enable them all), and the
@@ -17,9 +19,23 @@ type HostingProvider struct {
 	ID          string   // stable identifier (config + UI); never renamed
 	Label       string   // display name
 	OrgPatterns []string // case-insensitive org-name substrings that identify this provider
+	ASNs        []uint   // AS numbers that are the provider's whatever the ASN database calls them
 	Aliases     []string // brand/nickname terms ABSENT from the org name (Azure, GCP, AWS...) -- used only to match a suggest query to this provider, never for the block decision
 	AddedIn     string   // release the provider joined the catalog (v-form); drives the "NEW" badge
 	UpdatedIn   string   // last release that changed its patterns ("updated vX"); shown only
+}
+
+// Matches reports whether a network -- its AS number and organization name --
+// belongs to the provider.
+func (hp HostingProvider) Matches(asn uint, org string) bool {
+	if asn != 0 {
+		for _, n := range hp.ASNs {
+			if n == asn {
+				return true
+			}
+		}
+	}
+	return OrgMatchesAny(org, hp.OrgPatterns)
 }
 
 // HostingProviders: the built-in catalog.  Order is UI display order (roughly
@@ -39,7 +55,15 @@ var HostingProviders = []HostingProvider{
 	{ID: "digitalocean", Label: "DigitalOcean", OrgPatterns: []string{"DigitalOcean"}, AddedIn: asnCatalogInitial},
 	{ID: "ovh", Label: "OVH", OrgPatterns: []string{"OVH"}, AddedIn: asnCatalogInitial},
 	{ID: "hetzner", Label: "Hetzner", OrgPatterns: []string{"Hetzner"}, AddedIn: asnCatalogInitial},
-	{ID: "linode", Label: "Linode / Akamai", OrgPatterns: []string{"Linode", "Akamai"}, AddedIn: asnCatalogInitial},
+	// Linode is Akamai's cloud now, and the ASN databases name it after the
+	// parent: GeoLite2 calls AS63949 "Akamai Connected Cloud", DB-IP "Akamai
+	// Technologies, Inc." -- the name DB-IP gives Akamai's content-delivery
+	// networks too, the ones most of Apple's iCloud Private Relay leaves from.
+	// A bare "Akamai" pattern took in every one of them, so a site that turned
+	// the provider on challenged the iPhones and Macs behind the relay.  The
+	// AS number finds Linode under either name; "Akamai Connected Cloud" keeps
+	// any network the cloud adds under its own.
+	{ID: "linode", Label: "Linode / Akamai Cloud", OrgPatterns: []string{"Linode", "Akamai Connected Cloud"}, ASNs: []uint{63949}, AddedIn: asnCatalogInitial, UpdatedIn: "v0.1.51"},
 	// Vultr operates as "The Constant Company"; "Choopa" is its former name (still
 	// seen on legacy allocations) -- folded here so it is one provider, not two.
 	{ID: "vultr", Label: "Vultr", OrgPatterns: []string{"Vultr", "Constant Company", "Choopa"}, Aliases: []string{"Choopa"}, AddedIn: asnCatalogInitial},

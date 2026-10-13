@@ -626,7 +626,7 @@ func (c *Candidate) addressSignals(opt Options) {
 			Detail: fmt.Sprintf("%d requests, %d challenges served -- the volume itself is a cost", c.Requests, c.Serves),
 		})
 	}
-	if hp := hostingMatch(c.ASNOrg); hp != "" {
+	if hp := hostingMatch(c.ASN, c.ASNOrg); hp != "" {
 		w := 1
 		detail := "address in a hosting network (" + hp + ")"
 		id := "hosting_network"
@@ -772,15 +772,12 @@ func (c Candidate) SharedEgress() bool {
 	return c.Type == "ip" && c.DistinctUAs >= sharedEgressUAs && c.DistinctJA4s >= sharedEgressJA4s
 }
 
-// hostingMatch returns the catalog label when the ASN organisation belongs to
-// a known hosting / cloud provider (the only axis that held against the
+// hostingMatch returns the catalog label when the network belongs to a known
+// hosting / cloud provider (the only axis that held against the
 // CAPTCHA-solving JS crawlers).
-func hostingMatch(asnOrg string) string {
-	if asnOrg == "" {
-		return ""
-	}
+func hostingMatch(asn uint, asnOrg string) string {
 	for _, hp := range settings.HostingProviders {
-		if settings.OrgMatchesAny(asnOrg, hp.OrgPatterns) {
+		if hp.Matches(asn, asnOrg) {
 			return hp.Label
 		}
 	}

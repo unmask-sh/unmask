@@ -560,7 +560,61 @@ func GeoCIDRsForCountries(path string, codes []string) (string, error) {
 type ASNTarget struct {
 	ASN        uint
 	OrgPattern string
-	Value      string // map key written into the geo block for a matching CIDR
+	// InOrder: match ASN by number at this target's place among the org
+	// targets, not ahead of all of them as an exact rule does.  A catalog
+	// provider's own AS numbers match this way, so a custom org rule still
+	// outranks the provider in the walk, as it does in AsnConfig.ResolveRule.
+	InOrder bool
+	Value   string // map key written into the geo block for a matching CIDR
+}
+
+// asnMatcher resolves a network to the Value of the target it falls under:
+// an exact AS number first, then the ordered targets -- org substrings and
+// the InOrder AS numbers -- in the caller's order.
+type asnMatcher struct {
+	byNum   map[uint]string
+	ordered []orderedASNTarget
+}
+
+type orderedASNTarget struct {
+	num uint   // an InOrder AS number, or 0
+	low string // a lower-cased org substring, or ""
+	val string
+}
+
+func newASNMatcher(targets []ASNTarget) asnMatcher {
+	m := asnMatcher{byNum: map[uint]string{}}
+	for _, t := range targets {
+		switch {
+		case t.ASN != 0 && t.InOrder:
+			m.ordered = append(m.ordered, orderedASNTarget{num: t.ASN, val: t.Value})
+		case t.ASN != 0:
+			if _, ok := m.byNum[t.ASN]; !ok {
+				m.byNum[t.ASN] = t.Value
+			}
+		case t.OrgPattern != "":
+			m.ordered = append(m.ordered, orderedASNTarget{low: strings.ToLower(t.OrgPattern), val: t.Value})
+		}
+	}
+	return m
+}
+
+func (m asnMatcher) empty() bool { return len(m.byNum) == 0 && len(m.ordered) == 0 }
+
+// value is the Value of the first target the network matches, "" for none.
+func (m asnMatcher) value(asn uint, org string) string {
+	if asn != 0 {
+		if v, ok := m.byNum[asn]; ok {
+			return v
+		}
+	}
+	low := strings.ToLower(org)
+	for _, o := range m.ordered {
+		if (o.num != 0 && o.num == asn) || (o.low != "" && low != "" && strings.Contains(low, o.low)) {
+			return o.val
+		}
+	}
+	return ""
 }
 
 // CIDRsForASNTargets walks the ASN mmdb once and returns the nginx `geo`-block
@@ -574,19 +628,8 @@ func CIDRsForASNTargets(path string, targets []ASNTarget) (string, error) {
 	if path == "" || len(targets) == 0 {
 		return "", nil
 	}
-	byNum := make(map[uint]string)
-	type orgT struct{ low, val string }
-	var orgs []orgT
-	for _, t := range targets {
-		if t.ASN != 0 {
-			if _, ok := byNum[t.ASN]; !ok {
-				byNum[t.ASN] = t.Value
-			}
-		} else if t.OrgPattern != "" {
-			orgs = append(orgs, orgT{strings.ToLower(t.OrgPattern), t.Value})
-		}
-	}
-	if len(byNum) == 0 && len(orgs) == 0 {
+	m := newASNMatcher(targets)
+	if m.empty() {
 		return "", nil
 	}
 	db, err := maxminddb.Open(path)
@@ -606,21 +649,7 @@ func CIDRsForASNTargets(path string, targets []ASNTarget) (string, error) {
 		if err != nil {
 			continue
 		}
-		val := ""
-		if rec.ASN != 0 {
-			if v, ok := byNum[rec.ASN]; ok {
-				val = v
-			}
-		}
-		if val == "" && rec.Org != "" && len(orgs) > 0 {
-			low := strings.ToLower(rec.Org)
-			for _, o := range orgs {
-				if strings.Contains(low, o.low) {
-					val = o.val
-					break
-				}
-			}
-		}
+		val := m.value(rec.ASN, rec.Org)
 		if val == "" {
 			continue
 		}
@@ -713,14 +742,20 @@ func ASNRateCIDRs(path string, targets []ASNTarget) (string, error) {
 	return b.String(), nil
 }
 
-// ASNCounts walks the ASN mmdb once and returns, per input target key, the
-// number of distinct AS numbers whose org matches the pattern (for org
-// targets) or 1 (for exact-ASN presence).  Used by the settings UI to show
-// "matches N networks" next to a provider without a second walk per provider.
-// Keyed by the caller's target Value.
-func ASNCounts(path string, orgPatternsByKey map[string][]string) (map[string]int, error) {
-	if path == "" || len(orgPatternsByKey) == 0 {
+// ASNCounts walks the ASN mmdb once and returns, per input key, the number of
+// distinct AS numbers in the database whose org matches one of the key's
+// patterns or whose number is one of the key's own (asnsByKey).  Used by the
+// settings UI to show "matches N networks" next to a provider without a
+// second walk per provider.
+func ASNCounts(path string, orgPatternsByKey map[string][]string, asnsByKey map[string][]uint) (map[string]int, error) {
+	if path == "" || (len(orgPatternsByKey) == 0 && len(asnsByKey) == 0) {
 		return map[string]int{}, nil
+	}
+	keysByNum := map[uint][]string{}
+	for key, ns := range asnsByKey {
+		for _, n := range ns {
+			keysByNum[n] = append(keysByNum[n], key)
+		}
 	}
 	// Lower-case patterns once.
 	type pk struct {
@@ -751,16 +786,25 @@ func ASNCounts(path string, orgPatternsByKey map[string][]string) (map[string]in
 		if _, err := nets.Network(&rec); err != nil {
 			continue
 		}
-		if rec.ASN == 0 || rec.Org == "" {
+		if rec.ASN == 0 {
+			continue
+		}
+		mark := func(key string) {
+			if seen[key] == nil {
+				seen[key] = map[uint]bool{}
+			}
+			seen[key][rec.ASN] = true
+		}
+		for _, key := range keysByNum[rec.ASN] {
+			mark(key)
+		}
+		if rec.Org == "" {
 			continue
 		}
 		low := strings.ToLower(rec.Org)
 		for _, p := range pats {
 			if strings.Contains(low, p.low) {
-				if seen[p.key] == nil {
-					seen[p.key] = map[uint]bool{}
-				}
-				seen[p.key][rec.ASN] = true
+				mark(p.key)
 			}
 		}
 	}

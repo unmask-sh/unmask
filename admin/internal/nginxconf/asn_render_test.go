@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -52,5 +53,79 @@ func TestAsnRenderBlocks(t *testing.T) {
 	}
 	if strings.Contains(on, `"org:google"`) {
 		t.Error("disabled provider must not render")
+	}
+}
+
+// asnMMDB returns an ASN mmdb the walk can read, or skips (present in dev,
+// absent in bare CI; probe with a walk, since a path can exist unreadable).
+func asnMMDB(t *testing.T) string {
+	t.Helper()
+	for _, p := range []string{
+		"/var/lib/unmask/ipgeo/dbip-asn.mmdb",
+		"/usr/share/GeoIP/GeoLite2-ASN.mmdb",
+	} {
+		if body, err := ipgeo.CIDRsForASNTargets(p, []ipgeo.ASNTarget{{ASN: 63949, Value: "x"}}); err == nil && body != "" {
+			return p
+		}
+	}
+	t.Skip("no readable ASN mmdb available")
+	return ""
+}
+
+// TestAsnRenderLinodeByNumber: the Linode provider renders as its AS number,
+// ranked under the custom rules, and its old "Akamai" pattern -- which took in
+// the networks Apple's iCloud Private Relay leaves from -- is gone.
+func TestAsnRenderLinodeByNumber(t *testing.T) {
+	on := renderHTTPInc(t, func(s *settings.Settings) {
+		s.Nginx.Asn = settings.AsnConfig{
+			DefaultAction: settings.GeoActionSkip,
+			Providers:     []settings.AsnProviderSel{{ID: "linode", Action: settings.GeoActionDeny, Enabled: true}},
+		}
+	})
+	if !strings.Contains(on, `"AS63949" "deny";`) {
+		t.Error("the linode provider does not render its AS number")
+	}
+	if strings.Contains(on, `"org:akamai"`) {
+		t.Error("the bare Akamai pattern still renders")
+	}
+}
+
+// TestAsnWalkLinodeSparesRelay walks a real ASN mmdb: Linode's networks are
+// in the geo block (keyed by the number or by the cloud's own name, whichever
+// the database matches first), the relay's (AS36183) are not.
+func TestAsnWalkLinodeSparesRelay(t *testing.T) {
+	mmdb := asnMMDB(t)
+	s := settings.Settings{}
+	s.IPGeo.MMDBASNPath = mmdb
+	s.Nginx.Asn = settings.AsnConfig{
+		Providers: []settings.AsnProviderSel{{ID: "linode", Action: settings.GeoActionDeny, Enabled: true}},
+	}
+	d, err := buildRenderData(s, t.TempDir(), "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cidrsOf := func(asn uint) []string {
+		t.Helper()
+		body, err := ipgeo.CIDRsForASNTargets(mmdb, []ipgeo.ASNTarget{{ASN: asn, Value: "x"}})
+		if err != nil || body == "" {
+			t.Fatalf("cannot list AS%d in %s: %v", asn, mmdb, err)
+		}
+		var out []string
+		for _, line := range strings.Split(strings.TrimSpace(body), "\n") {
+			out = append(out, strings.Fields(line)[0])
+		}
+		return out
+	}
+	for _, cidr := range cidrsOf(63949) {
+		if !strings.Contains(d.AsnCIDRs, "    "+cidr+" ") {
+			t.Errorf("Linode network %s is not in the geo block", cidr)
+			break
+		}
+	}
+	for _, cidr := range cidrsOf(36183) {
+		if strings.Contains(d.AsnCIDRs, "    "+cidr+" ") {
+			t.Errorf("relay network %s is in the linode provider's geo block", cidr)
+			break
+		}
 	}
 }

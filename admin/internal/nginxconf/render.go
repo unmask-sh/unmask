@@ -1920,6 +1920,11 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			key := "org:" + strings.ToLower(o.Pattern)
 			addRule(key, o.Action, ipgeo.ASNTarget{OrgPattern: o.Pattern})
 		}
+		// A provider's own AS numbers, where it ranks: under the custom rules.
+		for _, p := range s.Nginx.Asn.EnabledProviderASNs() {
+			key := "AS" + strconv.FormatUint(uint64(p.ASN), 10)
+			addRule(key, p.Action, ipgeo.ASNTarget{ASN: p.ASN, InOrder: true})
+		}
 		// Networks a custom rule names: in the walk, so $unmask_asn resolves
 		// them, with no entry of their own in the action map (the ASN axis
 		// treats them as any unlisted network).

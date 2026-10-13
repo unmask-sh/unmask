@@ -18,6 +18,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-13) **Each reason on the dashboard opens its settings.**  The card of why requests were challenged or denied gains a gear on every row that opens the settings behind that reason, at the card that sets it where a tab holds several: header integrity and outdated browsers under the UA filter, the reuse cap under rate limit, the test pages under challenge.  Banned opens the ban list.
 
+### Fixed
+
+- (2026-10-13) **The Linode provider no longer takes in Apple's iCloud Private Relay.**  The ASN catalog found Linode by a name the ASN databases also give the networks the relay leaves from, so turning it on, or blocking every data center, challenged or denied the iPhones and Macs behind the relay.  It now finds Linode by its AS number, and the advisor's hosting check reads the same.
+
 ## [0.1.51-rc13] - 2026-10-13 (testing build)
 
 ### Added

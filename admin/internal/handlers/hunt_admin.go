@@ -705,7 +705,9 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 // Both rule shapes are checked the way the ASN axis itself resolves them -- an
 // exact AS number, and an organization-name substring (which is also how the
 // built-in hosting-provider presets match, so an enabled "Amazon" preset shows
-// up here for every Amazon AS).  Rate-mode rules are reported too: throttled is
+// up here for every Amazon AS), then the AS numbers a preset names outright
+// (Linode, whose org name it shares with networks it does not run).
+// Rate-mode rules are reported too: throttled is
 // not untouched, and showing such a row as unhandled would invite a second,
 // conflicting rule.
 func lookupASNRuleAction(asn uint, org string, cfg settings.AsnConfig) string {
@@ -720,6 +722,13 @@ func lookupASNRuleAction(asn uint, org string, cfg settings.AsnConfig) string {
 		lower := strings.ToLower(org)
 		for _, p := range cfg.EnabledOrgPatterns() {
 			if pat := strings.ToLower(strings.TrimSpace(p.Pattern)); pat != "" && strings.Contains(lower, pat) {
+				return p.Action
+			}
+		}
+	}
+	if asn != 0 {
+		for _, p := range cfg.EnabledProviderASNs() {
+			if p.ASN == asn {
 				return p.Action
 			}
 		}
