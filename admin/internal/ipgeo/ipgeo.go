@@ -12,12 +12,15 @@ package ipgeo
 
 import (
 	"net"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/oschwald/maxminddb-golang"
+
+	"github.com/unmask-sh/unmask/admin/internal/relay"
 )
 
 // Info: geographic + network info associated with an IP.
@@ -32,6 +35,13 @@ type Info struct {
 	// (HasCoords); a Country DB places nothing.
 	Lat, Lon  float64
 	HasCoords bool
+	// Relay: the shared-egress relay the address belongs to (relay package
+	// id, e.g. "apple-private-relay"), "" for none.  Country is then the one
+	// the relay gives the address; CountryDB keeps the database's when the
+	// two differ, and the database's city and coordinates are dropped with
+	// it (they place the relay's address, not its users).
+	Relay     string
+	CountryDB string
 }
 
 type Reader struct {
@@ -192,8 +202,41 @@ func (r *Reader) Lookup(ip string) string {
 }
 
 // LookupInfo returns full info for the given IP string.  Empty Info{} if
-// no DB is loaded or the IP isn't found.
+// no DB is loaded or the IP isn't found.  An address a relay lists (relay
+// package) carries the relay's country -- see Info.Relay.
 func (r *Reader) LookupInfo(ip string) Info {
+	return withRelay(ip, r.lookupDB(ip))
+}
+
+// withRelay applies the relay list to a database answer.  The table is
+// looked up per call rather than cached with the answer, so a new list takes
+// effect without clearing the cache.
+func withRelay(ip string, info Info) Info {
+	t := relay.Active()
+	if t == nil {
+		return info
+	}
+	a, err := netip.ParseAddr(ip)
+	if err != nil {
+		return info
+	}
+	h, ok := t.Lookup(a)
+	if !ok {
+		return info
+	}
+	info.Relay = h.Relay
+	if info.Country != h.Country {
+		info.CountryDB = info.Country
+		info.Country = h.Country
+		info.CountryName = CountryName(h.Country)
+		info.City = ""
+		info.Lat, info.Lon, info.HasCoords = 0, 0, false
+	}
+	return info
+}
+
+// lookupDB is LookupInfo without the relay list: what the databases say.
+func (r *Reader) lookupDB(ip string) Info {
 	if r == nil {
 		return Info{}
 	}

@@ -45,6 +45,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/handlers"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/relay"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -135,6 +136,11 @@ func cmdDoctor(args []string) error {
 	nginxconf.SetOverrideDir(nginxconf.SyncDefaultDir)
 	if err := browsermajors.LoadState(""); err != nil {
 		addWarn("browser baselines", fmt.Sprintf("%v (render check falls back to the built-in baselines)", err))
+	}
+	// The relay egress list, likewise: the country and network rules carry it.
+	relay.SetOff(func() bool { return s.IPGeo.RelayListOff })
+	if err := relay.LoadDir(nginxconf.SyncDefaultDir); err != nil {
+		addWarn("relay list", fmt.Sprintf("%v (render check runs without it)", err))
 	}
 
 	// 2. nginxconf render dry-run.  Render into a private 0700 temp dir and

@@ -1157,6 +1157,19 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
     </div>
     </div>{{/* /ipgeo-section asn */}}
+
+    {{/* The relay egress list (relay package): pulled with the crawler IP
+         ranges, so it has no path or mode of its own -- only whether it is
+         used, and what was last pulled. */}}
+    <div class="ipgeo-section" id="ipgeo-relay">
+      <h3 class="ipgeo-section-title">🔁 {{ t .Lang "settings.network.relay_h" }}</h3>
+      <p class="ipgeo-section-desc">{{ t .Lang "settings.network.relay_desc" }}</p>
+      <label class="ipgeo-auto-update">
+        <input type="checkbox" name="ipgeo_relay_list" value="1" {{ if not .IPGeoRelayOff }}checked{{ end }}>
+        <span>{{ t .Lang "settings.network.relay_use" }}</span>
+      </label>
+      <p class="muted" style="font-size:.72rem;margin:.3rem 0 0">{{ with .IPGeoRelay }}{{ tf $.Lang "settings.network.relay_status" (comma .Prefixes) .Countries }}{{ if .GeneratedTS }} · {{ t $.Lang "settings.network.relay_generated" }} <time class="js-datetime" data-ts="{{ .GeneratedTS }}">{{ .Generated }}</time>{{ end }}{{ else }}{{ t .Lang "settings.network.relay_none" }}{{ end }}</p>
+    </div>
     <script type="text/html" id="ipgeo-auto-update-help">{{ safeHTML (t .Lang "settings.network.ipgeo_auto_update_help") }}</script>
 
   </div>

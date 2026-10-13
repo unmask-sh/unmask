@@ -48,6 +48,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/privacypass"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
+	"github.com/unmask-sh/unmask/admin/internal/relay"
 	"github.com/unmask-sh/unmask/admin/internal/renderwatch"
 	"github.com/unmask-sh/unmask/admin/internal/rulehits"
 	"github.com/unmask-sh/unmask/admin/internal/safe"
@@ -562,6 +563,14 @@ func cmdServe(args []string) error {
 	// daemon seeds it through the exported setter rather than a struct literal.
 	h.SetSettings(s)
 
+	// The relay egress list (relay package): the copy the IP-range sync keeps,
+	// and the operator's switch, read live so a settings save takes effect at
+	// once.  Loaded before anything renders, so nginx gets it as the lookups do.
+	relay.SetOff(h.RelayListOff)
+	if err := relay.LoadDir(nginxconf.SyncDefaultDir); err != nil {
+		log.Printf("relay list: %v", err)
+	}
+
 	// renderOutDir: where nginx's configuration is rendered (Render's own
 	// default when the setting is empty).
 	renderOutDir := func() string {
@@ -769,6 +778,7 @@ func cmdServe(args []string) error {
 	syncOff := func() bool { return h.SnapshotSettings().Nginx.SyncDisabled }
 	ipSync.Disabled = syncOff
 	ipSync.RenderFunc = renderNow
+	ipSync.PullRelay = true
 	h.IPRangeSync = ipSync
 	go ipSync.Start(context.Background())
 

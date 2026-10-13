@@ -32,6 +32,8 @@ func cmdUpdateIPRange(args []string) error {
 	url := fs.String("url", nginxconf.SyncDefaultHubURL, "hub aggregated-doc URL")
 	file := fs.String("file", "",
 		"read the aggregated doc from a local file instead of the hub (for hosts that cannot verify the hub TLS certificate; transfer bypass-iprange-all.json out of band)")
+	relayFile := fs.String("relay-file", "",
+		"read the relay egress list (relay-egress.json, with its .sig beside it) from a local file -- the -file path for the iCloud Private Relay list; may be given alone")
 	insecure := fs.Bool("insecure-tls", false,
 		"skip transport certificate verification; the feed's detached signature then becomes REQUIRED (unsigned documents are refused)")
 	requireSig := fs.Bool("require-signature", false,
@@ -49,6 +51,18 @@ func cmdUpdateIPRange(args []string) error {
 		s.HTTPClient = &http.Client{Timeout: *timeout}
 	}
 
+	// The relay list goes beside the bypass-IP document only in the runtime
+	// dir: the release-time refresh of the embed source (-out
+	// admin/assets/iprange) must not compile it in.
+	s.PullRelay = *out == nginxconf.SyncDefaultDir
+	if *relayFile != "" {
+		if err := s.PullRelayFromFile(*relayFile); err != nil {
+			return fmt.Errorf("relay list from %s: %w", *relayFile, err)
+		}
+		if *file == "" {
+			return nil
+		}
+	}
 	if *file != "" {
 		if err := s.PullFromFile(*file); err != nil {
 			return fmt.Errorf("refresh from %s: %w", *file, err)

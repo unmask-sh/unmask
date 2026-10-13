@@ -18,6 +18,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
+	"github.com/unmask-sh/unmask/admin/internal/relay"
 )
 
 // PoolIP is one address in the pool.  JSON names are what the model reads:
@@ -54,6 +55,7 @@ type PoolIP struct {
 	ASNOrg       string        `json:"network,omitempty"`
 	Country      string        `json:"country,omitempty"`
 	RDNS         string        `json:"reverse_dns,omitempty"`
+	Relay        string        `json:"relay,omitempty"` // a privacy relay's shared address (relay package), by name
 	FirstSeen    string        `json:"first_seen"`
 	LastSeen     string        `json:"last_seen"`
 }
@@ -202,6 +204,9 @@ func BuildPool(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Exclusi
 		if gip != nil {
 			info := gip.LookupInfo(r.IP)
 			r.ASN, r.ASNOrg, r.Country = info.ASN, info.ASNOrg, info.Country
+			if info.Relay != "" {
+				r.Relay = relay.Name(info.Relay)
+			}
 		}
 		pool.IPs = append(pool.IPs, r)
 	}

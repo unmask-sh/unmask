@@ -47,6 +47,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/mail"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
+	"github.com/unmask-sh/unmask/admin/internal/relay"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -801,6 +802,8 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		"IPGeoASNLoaded":      h.IPGeo != nil && h.IPGeo.ASNLoaded(),
 		"IPGeoAutoUpdate":     ipgeoCur.AutoUpdate,
 		"IPGeoAutoUpdateASN":  ipgeoCur.AutoUpdateASN,
+		"IPGeoRelayOff":       ipgeoCur.RelayListOff,
+		"IPGeoRelay":          relayStatus(),
 		// Custom-path candidates exclude files under /var/lib/unmask/ipgeo/
 		// (= that directory belongs to the dbip radio; surfacing the same
 		// file under "custom" would confuse the operator).
@@ -2123,6 +2126,12 @@ func (h *Handler) snapshotSettings() settings.Settings {
 // access from non-handler packages (= communitybans's SettingsGetter callback etc.).
 func (h *Handler) SnapshotSettings() settings.Settings { return h.snapshotSettings() }
 
+// RelayListOff reads the relay list's switch from the live settings without
+// copying them: relay.SetOff asks it on every address lookup, one per
+// access-log line, where SnapshotSettings' copy of the whole struct would be
+// the cost.
+func (h *Handler) RelayListOff() bool { return h.cfg().IPGeo.RelayListOff }
+
 // UpdateSettings: atomically modify + persist + in-memory swap a settings.Settings.
 //  1. Re-load the latest from disk (= consistent with other processes / concurrent saves)
 //  2. Apply the mutator
@@ -3302,6 +3311,8 @@ func applyIPGeoForm(g *settings.IPGeo, r *http.Request, lang i18n.Lang) error {
 	// operator and AutoUpdateStale skips it regardless of this flag.
 	g.AutoUpdate = r.FormValue("ipgeo_auto_update") != ""
 	g.AutoUpdateASN = r.FormValue("ipgeo_auto_update_asn") != ""
+	// The relay list is on unless the box is cleared (a plain checkbox).
+	g.RelayListOff = r.FormValue("ipgeo_relay_list") == ""
 	mode := strings.TrimSpace(r.FormValue("ipgeo_mode"))
 	if mode == "" {
 		mode = "dbip"
@@ -7011,3 +7022,26 @@ func applyAIAdvisorForm(c *settings.AIAdvisorConfig, r *http.Request) {
 // retentionWALLarge is the write-ahead log size the retention tab warns
 // from (db.WALLargeBytes; a variable so a test can lower it).
 var retentionWALLarge int64 = db.WALLargeBytes
+
+// relayStatusRow: the relay egress list as the network tab reports it.
+type relayStatusRow struct {
+	Prefixes, Countries int
+	GeneratedTS         int64
+	Generated           string
+}
+
+// relayStatus: what the relay list in memory holds, nil before the first pull.
+// Reported whether or not the list is switched off: that is the operator's
+// setting, shown beside it.
+func relayStatus() *relayStatusRow {
+	t := relay.Current()
+	if t == nil {
+		return nil
+	}
+	row := &relayStatusRow{Prefixes: t.Prefixes, Countries: t.Countries}
+	if !t.GeneratedAt.IsZero() {
+		row.GeneratedTS = t.GeneratedAt.Unix()
+		row.Generated = t.GeneratedAt.UTC().Format("2006-01-02 15:04 UTC")
+	}
+	return row
+}

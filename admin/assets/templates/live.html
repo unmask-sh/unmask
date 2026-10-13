@@ -460,6 +460,12 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     } else {
       h += '<dt>ASN</dt><dd>' + na + '</dd>';
     }
+    // relay (= the address is a privacy relay's, shared by many people; the
+    // country above is the relay's own -- the database's in brackets)
+    if (d.relay) {
+      h += '<dt>relay</dt><dd>' + esc(d.relay) +
+           (d.country_db ? ' <span class="muted">(DB: ' + esc(d.country_db) + ')</span>' : '') + '</dd>';
+    }
     h += '</dl>';
     return h;
   }

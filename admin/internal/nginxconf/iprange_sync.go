@@ -126,6 +126,12 @@ type Sync struct {
 	// affected: that is the operator asking for one.
 	Disabled func() bool
 
+	// PullRelay: pull the relay egress list (relay package) from beside the
+	// hub document on every PullOnce.  The daemon sets it; the release-time
+	// refresh of the embed source does not, so the list is never compiled
+	// in -- it is only as good as it is fresh.
+	PullRelay bool
+
 	// RenderFunc: called after a successful pull writes at least one file.
 	// Typically wired to a closure that calls nginxconf.Render(settings,
 	// outDir, version) so http.inc / server.inc pick up the new prefixes.
@@ -316,8 +322,28 @@ func (s *Sync) scheduledPull(ctx context.Context) (bool, error) {
 }
 
 // PullOnce performs one fetch + apply.  Exported so the settings handler can
-// drive a manual sync from the UI.
+// drive a manual sync from the UI.  With PullRelay set it then pulls the
+// relay list too, whatever came of the bypass-IP document -- and the relay
+// list's failure is only logged: the list in use stays, and the bypass-IP
+// result is what PullOnce reports.
 func (s *Sync) PullOnce(ctx context.Context) error {
+	err := s.pullAggregate(ctx)
+	if s.PullRelay {
+		installed, rerr := s.pullRelay(ctx)
+		switch {
+		case rerr != nil:
+			s.logf("relay list: %v", rerr)
+		case installed && s.RenderFunc != nil:
+			if ferr := s.RenderFunc(); ferr != nil {
+				s.logf("relay list: render after pull failed: %v", ferr)
+			}
+		}
+	}
+	return err
+}
+
+// pullAggregate fetches and applies the bypass-IP document.
+func (s *Sync) pullAggregate(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.hubURL(), nil)
 	if err != nil {
 		return fmt.Errorf("new request: %w", err)
@@ -379,7 +405,13 @@ func (s *Sync) PullOnce(ctx context.Context) error {
 // published feed), and is logged otherwise so an operator can see whether
 // their own hub signs at all.
 func (s *Sync) verifyAgainstDetachedSig(ctx context.Context, body []byte) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.hubURL()+FeedSigSuffix, nil)
+	return s.verifyDetachedSigAt(ctx, s.hubURL(), body)
+}
+
+// verifyDetachedSigAt is verifyAgainstDetachedSig for the document at docURL
+// (the relay list sits beside the hub document and is held to the same rule).
+func (s *Sync) verifyDetachedSigAt(ctx context.Context, docURL string, body []byte) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, docURL+FeedSigSuffix, nil)
 	if err != nil {
 		// A hub URL that cannot even form a .sig sibling (odd custom URLs)
 		// counts as "no signature published there": fatal only when the

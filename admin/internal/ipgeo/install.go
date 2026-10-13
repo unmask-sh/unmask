@@ -25,6 +25,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -32,6 +33,8 @@ import (
 	"time"
 
 	"github.com/oschwald/maxminddb-golang"
+
+	"github.com/unmask-sh/unmask/admin/internal/relay"
 )
 
 // DefaultMMDBPath: standard install location for the country DB.  Matches
@@ -528,26 +531,48 @@ func GeoCIDRsForCountries(path string, codes []string) (string, error) {
 			ISOCode string `maxminddb:"iso_code"`
 		} `maxminddb:"country"`
 	}
+	// The relay egress list (relay_render.go): a network inside a relay
+	// prefix carries the relay's country, and the prefixes the walk does not
+	// reach get lines of their own after it.
+	t := relay.Active()
+	written := map[netip.Prefix]bool{}
+	innerRuled := map[netip.Prefix]bool{}
 	nets := db.Networks(maxminddb.SkipAliasedNetworks)
 	for nets.Next() {
 		cidr, err := nets.Network(&rec)
 		if err != nil {
 			continue
 		}
-		if rec.Country.ISOCode == "" {
+		cc := rec.Country.ISOCode
+		if sp, h, ok := relayOwner(t, cidr); ok {
+			if wanted[cc] {
+				innerRuled[sp] = true
+			}
+			if wanted[cc] || wanted[h.Country] {
+				b.WriteString("    " + cidr.String() + " " + h.Country + ";\n")
+				if p, okp := prefixOf(cidr); okp {
+					written[p] = true
+				}
+			}
 			continue
 		}
-		if !wanted[rec.Country.ISOCode] {
+		if cc == "" {
+			continue
+		}
+		if !wanted[cc] {
 			continue
 		}
 		b.WriteString("    ")
 		b.WriteString(cidr.String())
 		b.WriteString(" ")
-		b.WriteString(rec.Country.ISOCode)
+		b.WriteString(cc)
 		b.WriteString(";\n")
 	}
 	if err := nets.Err(); err != nil {
 		return b.String(), err
+	}
+	if t != nil {
+		relayCountryLines(&b, db, t, wanted, written, innerRuled)
 	}
 	return b.String(), nil
 }
@@ -632,6 +657,7 @@ func CIDRsForASNTargets(path string, targets []ASNTarget) (string, error) {
 	if m.empty() {
 		return "", nil
 	}
+	t := relay.Active()
 	db, err := maxminddb.Open(path)
 	if err != nil {
 		return "", fmt.Errorf("open %s: %w", path, err)
@@ -653,10 +679,19 @@ func CIDRsForASNTargets(path string, targets []ASNTarget) (string, error) {
 		if val == "" {
 			continue
 		}
+		// A relay's addresses are not the network's to judge (relay package):
+		// a network inside a relay prefix is left out, and a relay prefix
+		// inside a network that is written gets the empty value after the walk.
+		if _, _, ok := relayOwner(t, cidr); ok {
+			continue
+		}
 		b.WriteString(geoLine(cidr.String(), val))
 	}
 	if err := nets.Err(); err != nil {
 		return b.String(), err
+	}
+	if t != nil {
+		relayASNLines(&b, db, t, func(asn uint, org string) bool { return m.value(asn, org) != "" })
 	}
 	return b.String(), nil
 }
@@ -705,6 +740,7 @@ func ASNRateCIDRs(path string, targets []ASNTarget) (string, error) {
 		return "", fmt.Errorf("open %s: %w", path, err)
 	}
 	defer db.Close()
+	t := relay.Active()
 
 	var b strings.Builder
 	var rec struct {
@@ -730,6 +766,9 @@ func ASNRateCIDRs(path string, targets []ASNTarget) (string, error) {
 		if !match {
 			continue
 		}
+		if _, _, ok := relayOwner(t, cidr); ok {
+			continue // a relay's addresses are not the network's to throttle
+		}
 		b.WriteString("    ")
 		b.WriteString(cidr.String())
 		b.WriteString(" ")
@@ -738,6 +777,20 @@ func ASNRateCIDRs(path string, targets []ASNTarget) (string, error) {
 	}
 	if err := nets.Err(); err != nil {
 		return b.String(), err
+	}
+	if t != nil {
+		relayASNLines(&b, db, t, func(asn uint, org string) bool {
+			if nums[asn] {
+				return true
+			}
+			low := strings.ToLower(org)
+			for _, o := range orgs {
+				if org != "" && strings.Contains(low, o) {
+					return true
+				}
+			}
+			return false
+		})
 	}
 	return b.String(), nil
 }

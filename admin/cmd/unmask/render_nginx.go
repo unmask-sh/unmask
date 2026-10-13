@@ -27,6 +27,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/relay"
 )
 
 func cmdRenderNginx(args []string) error {
@@ -50,6 +51,14 @@ func cmdRenderNginx(args []string) error {
 	// absent dir falls back to the embedded snapshot, so installs that never
 	// pulled are unaffected.
 	nginxconf.SetOverrideDir(nginxconf.SyncDefaultDir)
+
+	// The relay egress list the daemon keeps there too, under the same
+	// switch: the country and network rules carry it, so a render without it
+	// would differ from the daemon's.
+	relay.SetOff(func() bool { return s.IPGeo.RelayListOff })
+	if err := relay.LoadDir(nginxconf.SyncDefaultDir); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: relay list: %v (rendering without it)\n", err)
+	}
 
 	// Load the hub-pulled browser baselines (stale-browser tier) the daemon
 	// persists, for the same reason: a standalone render must emit the SAME

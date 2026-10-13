@@ -90,7 +90,10 @@ type Candidate struct {
 	ASNOrg        string      `json:"asn_org,omitempty"`
 	Country       string      `json:"country,omitempty"`
 	RDNS          string      `json:"rdns,omitempty"`
-	SamplePaths   []string    `json:"sample_paths,omitempty"`
+	// Relay: the privacy relay the address belongs to (relay package), by
+	// name -- many people leave from it, so it is never a ban candidate.
+	Relay       string   `json:"relay,omitempty"`
+	SamplePaths []string `json:"sample_paths,omitempty"`
 	// Contained: the client never completed a challenge.  The challenge is
 	// already doing its job; a ban buys the daemon fewer round trips and the
 	// log less noise, not more protection.  What deserves attention is the
@@ -579,6 +582,13 @@ func ipCandidates(ctx context.Context, conn *db.DB, gip *ipgeo.Reader, excl Excl
 		c.Contained = c.Passes == 0
 		if gip != nil {
 			info := gip.LookupInfo(ip)
+			if info.Relay != "" {
+				// A relay's address (iCloud Private Relay and the like) is
+				// shared by many people: banning it bans them, whatever the
+				// traffic looks like.  Not a candidate, as a private address
+				// is not.
+				continue
+			}
 			c.ASN, c.ASNOrg, c.Country = info.ASN, info.ASNOrg, info.Country
 		}
 		c.addressSignals(opt)

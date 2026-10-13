@@ -142,6 +142,9 @@ different ones there were: thousands is a crawler walking the site, a handful
 of admin, login or backup paths hit again and again is a scanner or a
 password guesser. reverse_dns and network name the operator; a hosting or
 cloud network with a browser user agent is a strong sign of automation.
+relay names a privacy relay the address belongs to (iCloud Private Relay):
+many people leave from one such address, so never nominate it -- a ban
+would shut all of them out.
 
 A client with many challenges served and none passed is already contained:
 blocking it would only save the server some work, so rank it low unless its
@@ -889,6 +892,9 @@ func NominatedRows(res Result, pool Pool) ([]Candidate, map[string]Review) {
 			c.Scope = "ja4_only"
 		}
 		buildPick(&c, pool, n.Priority)
+		if c.Relay != "" {
+			continue // a relay's shared address: never a ban candidate, whoever names it
+		}
 		reviews[n.Target] = Review{Target: n.Target, Priority: n.Priority, Reasoning: n.Reasoning}
 		rows = append(rows, c)
 	}
@@ -951,7 +957,7 @@ func fillFromPool(c *Candidate, pool Pool) bool {
 		c.PassPow, c.PassCaptcha, c.PassBoth = row.PassPow, row.PassCaptcha, row.PassBoth
 		c.ShownPow, c.ShownCaptcha, c.ShownBoth, c.Reasons = row.ShownPow, row.ShownCaptcha, row.ShownBoth, row.Reasons
 		c.TopUAs, c.DistinctUAs = row.TopUAs, row.DistinctUAs
-		c.JA4, c.UA, c.ASN, c.ASNOrg, c.Country, c.RDNS = row.JA4, row.UA, row.ASN, row.ASNOrg, row.Country, row.RDNS
+		c.JA4, c.UA, c.ASN, c.ASNOrg, c.Country, c.RDNS, c.Relay = row.JA4, row.UA, row.ASN, row.ASNOrg, row.Country, row.RDNS, row.Relay
 		// Through dbTime like an engine row: the compact, tz-aware range on
 		// the page needs the unix time, and the raw column text read as
 		// "2026-09-11 04:38:39.371" (operator, 2026-09-13).
@@ -1269,7 +1275,7 @@ func Merge(prev Stored, sent []Candidate, res Result, pool Pool, kept map[string
 		if nominatedNow[n.Target] || current[n.Target] {
 			continue
 		}
-		if !buildPick(&n, pool, prev.Reviews[n.Target].Priority) || n.HeldBelowCost() {
+		if !buildPick(&n, pool, prev.Reviews[n.Target].Priority) || n.HeldBelowCost() || n.Relay != "" {
 			continue
 		}
 		nominated = append(nominated, n)

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/relay"
 )
 
 type myipResponse struct {
@@ -26,6 +28,8 @@ type myipResponse struct {
 	City            string   `json:"city,omitempty"`              // English city name (e.g. "Tokyo")
 	ASN             uint     `json:"asn,omitempty"`               // e.g. 4713
 	ASNOrg          string   `json:"asn_org,omitempty"`           // e.g. "NTT Communications"
+	Relay           string   `json:"relay,omitempty"`             // a privacy relay's shared address, by name (relay package)
+	CountryDB       string   `json:"country_db,omitempty"`        // the database's country when the relay's differs
 	Error           string   `json:"error,omitempty"`             // fatal error (= invalid IP / missing required param)
 }
 
@@ -118,6 +122,10 @@ func (h *Handler) AdminMyIP(w http.ResponseWriter, r *http.Request) {
 		resp.City = info.City
 		resp.ASN = info.ASN
 		resp.ASNOrg = info.ASNOrg
+		if info.Relay != "" {
+			resp.Relay = relay.Name(info.Relay)
+			resp.CountryDB = info.CountryDB
+		}
 	}
 
 	// rDNS: 10-minute cache (= when the dashboard hammers the same IP, only look up once).

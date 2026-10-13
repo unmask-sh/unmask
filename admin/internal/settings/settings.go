@@ -761,6 +761,13 @@ type IPGeo struct {
 	// vendor file the operator maintains, or want one refreshed and the other
 	// pinned for a comparison.  Defaults to true alongside AutoUpdate.
 	AutoUpdateASN bool `yaml:"auto_update_asn"`
+	// RelayListOff: stop using the relay egress list (relay package) -- the
+	// addresses of Apple's iCloud Private Relay then count, and are judged,
+	// where the country database places them, and the network rules apply to
+	// them as to any address.  The list is still pulled and kept, so turning
+	// it back on takes effect at once (nginx after the next render and
+	// reload).  Off by default, i.e. the list is used.
+	RelayListOff bool `yaml:"relay_list_off,omitempty"`
 }
 
 // NginxLog: data source for the cookie-passage dashboard.

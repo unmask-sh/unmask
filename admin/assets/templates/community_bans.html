@@ -751,6 +751,12 @@ document.addEventListener('click', function(e){
     if (d.asn) {
       h += '<dt>ASN</dt><dd>AS' + d.asn + (d.asn_org ? ' <span class="muted">' + esc(d.asn_org) + '</span>' : '') + '</dd>';
     }
+    // relay (= the address is a privacy relay's, shared by many people; the
+    // country above is the relay's own -- the database's in brackets)
+    if (d.relay) {
+      h += '<dt>relay</dt><dd>' + esc(d.relay) +
+           (d.country_db ? ' <span class="muted">(DB: ' + esc(d.country_db) + ')</span>' : '') + '</dd>';
+    }
     h += '</dl>';
     return h;
   }

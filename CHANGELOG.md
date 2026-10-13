@@ -16,6 +16,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- (2026-10-13) **iCloud Private Relay users count where they are.**  Country databases place many of the relay's addresses in the wrong country, so an iPhone in Japan could count, and meet a country rule, as a foreign visitor.  The relay's own egress list now comes, signed, from unmask.sh each day: statistics, bot hunt and the country rules go by its country, and network rules and the advisor leave relay addresses alone.
+
 - (2026-10-13) **Each reason on the dashboard opens its settings.**  The card of why requests were challenged or denied gains a gear on every row that opens the settings behind that reason, at the card that sets it where a tab holds several: header integrity and outdated browsers under the UA filter, the reuse cap under rate limit, the test pages under challenge.  Banned opens the ban list.
 
 ### Fixed
