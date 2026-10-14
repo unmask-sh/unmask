@@ -52,6 +52,13 @@ if ! python3 -c 'import sqlite3' 2>/dev/null; then
     log_skip "63-schema-update needs python3 with sqlite3 on the host — skipped"
     exit 0
 fi
+# The host's SQLite rewrites the database, so it must parse the schema the
+# migrations write: the stats card indexes use ->>, which came in 3.38.  An
+# older one is the host's limit, not a missing part of the stack.
+if ! python3 -c 'import sqlite3, sys; sys.exit(sqlite3.sqlite_version_info < (3, 38))'; then
+    log_skip "63-schema-update: the host python3's SQLite $(python3 -c 'import sqlite3; print(sqlite3.sqlite_version)') predates 3.38 and cannot read this schema — skipped"
+    exit 0
+fi
 
 WORK=$(mktemp -d)
 HAMMER=""

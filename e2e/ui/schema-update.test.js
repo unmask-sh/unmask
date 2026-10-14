@@ -56,6 +56,14 @@ async function waitFor(what, ms, fn) {
 
 (async () => {
   if (!fs.existsSync(BIN)) throw new Error(`no unmask binary at ${BIN} (set UNMASK_BIN)`);
+  // The host's Python rewrites the database below, so its SQLite must parse
+  // the schema the migrations write: the stats card indexes use ->> (3.38).
+  const pySQLite = execFileSync('python3', ['-c', 'import sqlite3; print(sqlite3.sqlite_version)']).toString().trim();
+  const [maj, min] = pySQLite.split('.').map(Number);
+  if (maj < 3 || (maj === 3 && min < 38)) {
+    console.log(`SKIP schema-update: the host's python3 has SQLite ${pySQLite}, older than 3.38`);
+    process.exit(0);
+  }
   const work = fs.mkdtempSync(path.join(os.tmpdir(), 'unmask-ui-schema-'));
   // Whatever way this ends, the temporary directory goes, and so does the
   // daemon with every process it started (its process group: the run of

@@ -39,6 +39,11 @@ func jsonField(d *db.DB, field string) string {
 	return `json_extract(payload_json, '$.` + field + `')`
 }
 
+// rebindPhases is the rebind card's phase list, written out rather than bound:
+// the card index over these rows (migration 0037) carries this term in its
+// WHERE, and SQLite uses a partial index only for a query that names it.
+const rebindPhases = "('bv_rebind','bv_rebind_reject')"
+
 // RankByRebindLineage ranks lineages by how many distinct addresses they have
 // been re-bound onto, then by volume.
 //
@@ -62,20 +67,33 @@ func RankByRebindLineage(ctx context.Context, d *db.DB, sinceMin, limit int) ([]
 	if win == "" {
 		win = "1=1"
 	}
-	lineage := jsonField(d, "lineage")
-	stmt := `SELECT ` + lineage + ` AS lin,
+	// The rebinds of the window with their lineage, read the way the card
+	// index (migration 0037) carries it, then grouped outside the read: on
+	// SQLite the lineage is an indexed value the subquery returns, where a
+	// GROUP BY on the expression itself would go to the table for every row
+	// (LIMIT -1 keeps SQLite from folding the subquery back in).
+	var rowsSQL string
+	if d.Driver == db.DriverSQLite {
+		rowsSQL = `SELECT payload_json ->> '$.lineage' AS lin, phase, ip_address, date_created
+		           FROM unmask_event` + d.CardIndexHint(db.IdxEventRebind) + `
+		           WHERE ` + win + ` AND phase IN ` + rebindPhases + d.CardPayloadTerm() + `
+		           LIMIT -1`
+	} else {
+		rowsSQL = `SELECT ` + jsonField(d, "lineage") + ` AS lin, phase, ip_address, date_created
+		           FROM unmask_event WHERE ` + win + ` AND phase IN ` + rebindPhases
+	}
+	stmt := `SELECT lin,
 	                COUNT(DISTINCT CASE WHEN phase = ? THEN ip_address END),
 	                SUM(CASE WHEN phase = ? THEN 1 ELSE 0 END),
 	                SUM(CASE WHEN phase = ? THEN 1 ELSE 0 END),
 	                MAX(date_created)
-	         FROM unmask_event
-	         WHERE ` + win + ` AND phase IN (?, ?) AND ` + lineage + ` IS NOT NULL AND ` + lineage + ` <> ''
+	         FROM (` + rowsSQL + `) rebinds
+	         WHERE lin IS NOT NULL AND lin <> ''
 	         GROUP BY lin
 	         ORDER BY 2 DESC, 3 DESC
 	         LIMIT ?`
 	rows, err := d.QueryContext(ctx, stmt,
-		string(PhaseBVRebind), string(PhaseBVRebind), string(PhaseBVRebindReject),
-		string(PhaseBVRebind), string(PhaseBVRebindReject), limit)
+		string(PhaseBVRebind), string(PhaseBVRebind), string(PhaseBVRebindReject), limit)
 	if err != nil {
 		return nil, err
 	}

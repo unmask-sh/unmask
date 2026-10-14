@@ -21,8 +21,30 @@ func TestEventDateIndexHint(t *testing.T) {
 	if err := Migrate(lite); err != nil {
 		t.Fatal(err)
 	}
-	if got := lite.EventDateIndexHint(win); got != " INDEXED BY idx_unmask_event_date" {
-		t.Errorf("sqlite hint = %q", got)
+	if got := lite.EventDateIndexHint(win); got != " INDEXED BY "+IdxEventDateCover {
+		t.Errorf("sqlite hint = %q, want the date cover index", got)
+	}
+	// A database where 0038 waits for the operator still has the plain date
+	// index, and the hint falls back to it; with neither there is no pin.
+	ctx := context.Background()
+	for _, step := range []struct {
+		stmts []string
+		want  string
+	}{
+		{[]string{`DROP INDEX ` + IdxEventDateCover, `CREATE INDEX idx_unmask_event_date ON unmask_event(date_created)`}, " INDEXED BY idx_unmask_event_date"},
+		{[]string{`DROP INDEX idx_unmask_event_date`}, ""},
+	} {
+		for _, s := range step.stmts {
+			if _, err := lite.Exec(s); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := lite.RefreshIndexes(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if got := lite.EventDateIndexHint(win); got != step.want {
+			t.Errorf("after %q: hint = %q, want %q", step.stmts, got, step.want)
+		}
 	}
 	if got := (&DB{Driver: DriverMariaDB}).EventDateIndexHint(win); got != "" {
 		t.Errorf("mariadb must be unhinted, got %q", got)
@@ -33,6 +55,34 @@ func TestEventDateIndexHint(t *testing.T) {
 	for _, d := range []*DB{lite, {Driver: DriverMariaDB}} {
 		if got := d.EventDateIndexHint(""); got != "" {
 			t.Errorf("%s: an unwindowed query must not be pinned, got %q", d.Driver, got)
+		}
+	}
+}
+
+// TestDateCoverIndexReplacesTheDateIndex: once 0038 has built the date cover
+// index and dropped the plain one, a later start must not put the plain one
+// back.  The base schema runs at every start, so naming it there would: a
+// second index on every event write, which nothing reads, and on a large
+// table a build before the daemon listens.
+func TestDateCoverIndexReplacesTheDateIndex(t *testing.T) {
+	d, err := Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	ctx := context.Background()
+	for start := 1; start <= 2; start++ {
+		if err := Migrate(d); err != nil {
+			t.Fatal(err)
+		}
+		if err := d.RefreshIndexes(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if !d.HasIndex(IdxEventDateCover) {
+			t.Fatalf("start %d: no %s", start, IdxEventDateCover)
+		}
+		if d.HasIndex("idx_unmask_event_date") {
+			t.Fatalf("start %d: the replaced idx_unmask_event_date is there", start)
 		}
 	}
 }

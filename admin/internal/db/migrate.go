@@ -914,7 +914,9 @@ CREATE TABLE IF NOT EXISTS unmask_event (
     payload_json    TEXT,                                        -- extra structured event data (JSON)
     date_created    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP  -- event timestamp (UTC)
 );
-CREATE INDEX IF NOT EXISTS idx_unmask_event_date     ON unmask_event(date_created);
+-- The date index is migration 0038's idx_unmask_event_date_cover, which
+-- replaced idx_unmask_event_date.  This schema runs at every start, so naming
+-- the old one here would put it back after 0038 dropped it.
 CREATE INDEX IF NOT EXISTS idx_unmask_event_ip_date  ON unmask_event(ip_address, date_created);
 CREATE INDEX IF NOT EXISTS idx_unmask_event_phase    ON unmask_event(phase, date_created);
 CREATE INDEX IF NOT EXISTS idx_unmask_event_verdict     ON unmask_event(ja4_verdict, date_created);

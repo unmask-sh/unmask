@@ -105,3 +105,11 @@ func TestRebindLineageCaps(t *testing.T) {
 		t.Error("no lineages asked for -> no query, empty map")
 	}
 }
+
+// The rebind card names its phases in its SQL, where the card index's WHERE
+// (migration 0037) can be matched; they have to stay the phases it counts.
+func TestRebindCardPhases(t *testing.T) {
+	if want := "('" + string(PhaseBVRebind) + "','" + string(PhaseBVRebindReject) + "')"; rebindPhases != want {
+		t.Fatalf("rebind card phases %s, want %s", rebindPhases, want)
+	}
+}

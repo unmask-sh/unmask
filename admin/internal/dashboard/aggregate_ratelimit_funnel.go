@@ -29,8 +29,9 @@ const rlfOverlapSec = 600
 //	                                  (so the read sums the operator's current
 //	                                   bot verdicts into the stealth figure)
 //
-// Correlation is hour-local (see hkRateLimitFunnel).  Same settle / batch /
-// idempotency contract as the other rollups, on its own cursor.  Verdict-
+// Correlation is hour-local (see hkRateLimitFunnel).  Same settle /
+// idempotency contract as the other rollups, on its own cursor, committed an
+// hour at a time (see the loop).  Verdict-
 // agnostic: it stores every verdict's stealth count and lets the read filter,
 // so a settings change to the bot-verdict set needs no re-roll.  Driven by the
 // 60s ticker.
@@ -49,15 +50,15 @@ func RollupRateLimitFunnel(ctx context.Context, d *db.DB) error {
 	if start < floor {
 		start = floor
 	}
-	for start <= lastSettled {
-		end := start + trafficRollupBatchHours - 1
-		if end > lastSettled {
-			end = lastSettled
-		}
-		if err := rollupRateLimitFunnelRange(ctx, d, start, end); err != nil {
+	// One hour per commit, where the other rollups take 48: an hour here is a
+	// self-join over that hour's events, and on a large install a batch of a
+	// day or two outlasted the tick's budget -- the whole batch was lost each
+	// time, the cursor never moved, and the funnel's read scanned the gap raw
+	// instead.  Hour by hour, a tick keeps what it finished.
+	for h := start; h <= lastSettled; h++ {
+		if err := rollupRateLimitFunnelRange(ctx, d, h, h); err != nil {
 			return err
 		}
-		start = end + 1
 	}
 	return nil
 }
@@ -65,14 +66,22 @@ func RollupRateLimitFunnel(ctx context.Context, d *db.DB) error {
 func rollupRateLimitFunnelRange(ctx context.Context, d *db.DB, fromHour, toHour int64) error {
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	// inner = the rate-limited-IP set for the hour; outer = that hour's events.
+	// The set is read from the rate-limited serves' own index (migration 0037)
+	// where the database has it, which takes naming its terms; without it every
+	// serve of the hour is read from the table for its payload.
 	innerSub := `ip_address IN (
-	        SELECT ip_address FROM unmask_event
+	        SELECT ip_address FROM unmask_event` + d.CardIndexHint(db.IdxEventRateLimited) + `
 	        WHERE date_created >= ? AND date_created < ?
-	          AND phase = 'serve' AND ` + jsonRL + ` IN ('1', 1))`
-	phaseStmt := `SELECT phase, COUNT(*) FROM unmask_event
+	          AND phase = 'serve'` + d.CardPayloadTerm() + ` AND ` + jsonRL + ` IN ('1', 1))`
+	// The hour's events are read from the date cover index (migration 0038)
+	// where the database has it: their address, phase, flags and verdict are
+	// in it, so the hour is read in index order, not a table seek per event.
+	// Without it the planner seeks the set's addresses, as before.
+	outer := d.EventDateCoverHint()
+	phaseStmt := `SELECT phase, COUNT(*) FROM unmask_event` + outer + `
 	    WHERE date_created >= ? AND date_created < ? AND ` + innerSub + `
 	    GROUP BY phase`
-	stealthStmt := `SELECT ja4_verdict, COUNT(*) FROM unmask_event
+	stealthStmt := `SELECT ja4_verdict, COUNT(*) FROM unmask_event` + outer + `
 	    WHERE date_created >= ? AND date_created < ? AND phase = 'load' AND flags = 0 AND ` + innerSub + `
 	    GROUP BY ja4_verdict`
 

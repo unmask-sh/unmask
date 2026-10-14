@@ -934,9 +934,14 @@ func funnelAgg(ctx context.Context, d *db.DB, site string, hours int, botVerdict
 	// Prefer the hourly rate-limit-funnel rollup (settled hours) + a short raw
 	// tail over the per-IP self-join scan of the whole window.  Fall back to that
 	// scan only until the rollup has completed its first pass (rolled == false).
-	rlRow, rolled, err := rateLimitFunnelRowAgg(ctx, d, hours, botVerdicts)
-	if err != nil {
-		return nil, err
+	// With no rate-limited serve in the window the row is empty and left out,
+	// so its tail is not read at all.
+	var rlRow FunnelRow
+	rolled := false
+	if rlTotal > 0 {
+		if rlRow, rolled, err = rateLimitFunnelRowAgg(ctx, d, hours, botVerdicts); err != nil {
+			return nil, err
+		}
 	}
 	if rolled || rlTotal == 0 {
 		rows, err := buildFunnelRowsWithUniq(ctx, d, "", nil, since, byVP, loadByV, rlByV, botVerdicts, &totalUniq, true)
@@ -1313,6 +1318,13 @@ func rateLimitFunnelRowRange(ctx context.Context, d *db.DB, site string, hosts [
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
 	sc := siteCond(site) + hostCond(hosts)
 	botIn, botArgs := inClause(botVerdicts)
+	// The window's events come from the date cover index when the read is
+	// install-wide (see rollupRateLimitFunnelRange); a site or host filter
+	// leaves the plan to the planner, which has those columns' indexes.
+	outer := ""
+	if sc == "" {
+		outer = d.EventDateCoverHint()
+	}
 	stmt := fmt.Sprintf(`
         SELECT
           SUM(CASE WHEN phase='serve' THEN 1 ELSE 0 END)                AS n_serve,
@@ -1326,13 +1338,13 @@ func rateLimitFunnelRowRange(ctx context.Context, d *db.DB, site string, hosts [
           SUM(CASE WHEN phase='verify_ng' THEN 1 ELSE 0 END)            AS n_verify_ng,
           SUM(CASE WHEN phase='cookie_err' THEN 1 ELSE 0 END)            AS n_cookie_err,
           SUM(CASE WHEN phase='error' THEN 1 ELSE 0 END)                AS n_error
-        FROM unmask_event
+        FROM unmask_event%s
         WHERE %s%s
           AND ip_address IN (
-              SELECT ip_address FROM unmask_event
-              WHERE %s%s AND phase='serve'
+              SELECT ip_address FROM unmask_event%s
+              WHERE %s%s AND phase='serve'%s
                 AND %s IN ('1', 1)
-          )`, outerSince, sc, innerSince, sc, jsonRL)
+          )`, outer, outerSince, sc, d.CardIndexHint(db.IdxEventRateLimited), innerSince, sc, d.CardPayloadTerm(), jsonRL)
 	row := d.QueryRowContext(ctx, stmt, botArgs...)
 	var r FunnelRow
 	r.Verdict = "rate_limit"
@@ -2147,10 +2159,10 @@ func ReloadLoops(ctx context.Context, d *db.DB, site string, hosts []string, hou
 	stmt := fmt.Sprintf(`
         SELECT ip_address, COUNT(*) AS n, MAX(reload_count) AS max_rc,
                MAX(flags) AS max_flags, MAX(user_agent) AS ua, MAX(date_created) AS last_seen
-        FROM unmask_event WHERE %s%s AND phase='load' AND reload_count >= 1
+        FROM unmask_event%s WHERE %s%s AND phase='load' AND reload_count >= 1
         GROUP BY ip_address
         HAVING max_rc >= 2 OR n >= 3
-        ORDER BY max_rc DESC, n DESC LIMIT 30`, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts))
+        ORDER BY max_rc DESC, n DESC LIMIT 30`, d.CardIndexHint(db.IdxEventReload), tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts))
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -2251,13 +2263,13 @@ func RateLimitAll(ctx context.Context, d *db.DB, site string, hosts []string, ho
 	}
 
 	jsonRL := jsonExtract(d, "payload_json", "$.rl")
-	jsonPath := jsonExtract(d, "payload_json", "$.orig_path")
+	jsonPath := payloadValue(d, "$.orig_path")
 	stmt := fmt.Sprintf(`
         SELECT ip_address, COALESCE(user_agent, ''), date_created, COALESCE(%s, ''),
                COALESCE(site, ''), COALESCE(scheme, ''), COALESCE(port, 0)
-        FROM unmask_event
-        WHERE %s%s AND phase='serve' AND %s IN ('1', 1)`,
-		jsonPath, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), jsonRL)
+        FROM unmask_event%s
+        WHERE %s%s AND phase='serve'%s AND %s IN ('1', 1)`,
+		jsonPath, d.CardIndexHint(db.IdxEventRateLimited), tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), d.CardPayloadTerm(), jsonRL)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return RLSummary{}, nil, nil, nil, err
@@ -2468,9 +2480,9 @@ type CaptchaPassIPRow struct {
 func CaptchaPassVerdictCounts(ctx context.Context, d *db.DB, site string, hosts []string, hours int) (map[string]int, error) {
 	stmt := fmt.Sprintf(`
         SELECT COALESCE(ja4_verdict, ''), COUNT(*)
-        FROM unmask_event
-        WHERE %s%s AND phase IN %s
-        GROUP BY ja4_verdict`, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), captchaPassPhases)
+        FROM unmask_event%s
+        WHERE %s%s AND phase IN %s%s
+        GROUP BY ja4_verdict`, d.CardIndexHint(db.IdxEventCaptchaPass), tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), captchaPassPhases, d.CardPayloadTerm())
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -2496,12 +2508,8 @@ func CaptchaPassVerdictCounts(ctx context.Context, d *db.DB, site string, hosts 
 // carried it fold into "none".  Same small phase=bv_* subset as the verdict
 // counts, so no extra full scan.
 func CaptchaPassForceReasonCounts(ctx context.Context, d *db.DB, site string, hosts []string, hours int) (map[string]int, error) {
-	reasonExpr := jsonExtract(d, "payload_json", "$.force_reason")
-	stmt := fmt.Sprintf(`
-        SELECT COALESCE(%s, 'none'), COUNT(*)
-        FROM unmask_event
-        WHERE %s%s AND phase IN %s
-        GROUP BY %s`, reasonExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), captchaPassPhases, reasonExpr)
+	stmt := payloadFieldCounts(d, "$.force_reason", "unmask_event"+d.CardIndexHint(db.IdxEventCaptchaPass),
+		tsWindow(ctx, hours, "date_created")+siteCond(site)+hostCond(hosts)+" AND phase IN "+captchaPassPhases+d.CardPayloadTerm())
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -2528,12 +2536,8 @@ func CaptchaPassForceReasonCounts(ctx context.Context, d *db.DB, site string, ho
 // fail-by-axis read together as each axis's CAPTCHA effectiveness (a high fail
 // count on a bot-facing axis = the wall is working; a high pass count = solver).
 func CaptchaFailForceReasonCounts(ctx context.Context, d *db.DB, site string, hosts []string, hours int) (map[string]int, error) {
-	reasonExpr := jsonExtract(d, "payload_json", "$.force_reason")
-	stmt := fmt.Sprintf(`
-        SELECT COALESCE(%s, 'none'), COUNT(*)
-        FROM unmask_event
-        WHERE %s%s AND phase = 'verify_ng'
-        GROUP BY %s`, reasonExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), reasonExpr)
+	stmt := payloadFieldCounts(d, "$.force_reason", "unmask_event"+d.CardIndexHint(db.IdxEventVerifyNG),
+		tsWindow(ctx, hours, "date_created")+siteCond(site)+hostCond(hosts)+" AND phase = 'verify_ng'"+d.CardPayloadTerm())
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -2557,7 +2561,7 @@ func CaptchaFailForceReasonCounts(ctx context.Context, d *db.DB, site string, ho
 // CaptchaPassTopIPs ranks IPs by how many times they passed a CAPTCHA in the
 // window (= repeat passers are the persistent bots re-solving for fresh cookies).
 func CaptchaPassTopIPs(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]CaptchaPassIPRow, error) {
-	pathExpr := jsonExtract(d, "payload_json", "$.orig_path")
+	pathExpr := payloadValue(d, "$.orig_path")
 	stmt := fmt.Sprintf(`
         SELECT ip_address,
                MAX(ja4_verdict)  AS verdict,
@@ -2566,11 +2570,11 @@ func CaptchaPassTopIPs(ctx context.Context, d *db.DB, site string, hosts []strin
                COUNT(*)          AS passes,
                COUNT(DISTINCT %s) AS paths,
                MAX(date_created) AS last_seen
-        FROM unmask_event
-        WHERE %s%s AND phase IN %s
+        FROM unmask_event%s
+        WHERE %s%s AND phase IN %s%s
         GROUP BY ip_address
         ORDER BY passes DESC, last_seen DESC LIMIT ?`,
-		pathExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), captchaPassPhases)
+		pathExpr, d.CardIndexHint(db.IdxEventCaptchaPass), tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), captchaPassPhases, d.CardPayloadTerm())
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
@@ -2605,9 +2609,8 @@ func CaptchaPassRecent(ctx context.Context, d *db.DB, site string, hosts []strin
                COALESCE(%s, ''), COALESCE(%s, ''), phase, COALESCE(%s, ''),
                COALESCE(site, ''), COALESCE(scheme, ''), COALESCE(port, 0)
         FROM unmask_event
-        WHERE %s%s AND phase IN %s
-        ORDER BY date_created DESC LIMIT ?`,
-		pathExpr, refExpr, frExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), captchaPassPhases)
+        WHERE %s`,
+		pathExpr, refExpr, frExpr, captchaPassRecentRows(d, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts)))
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
@@ -2636,6 +2639,21 @@ func CaptchaPassRecent(ctx context.Context, d *db.DB, site string, hosts []strin
 		})
 	}
 	return out, rows.Err()
+}
+
+// captchaPassRecentRows is CaptchaPassRecent's row condition, ending in the
+// LIMIT its one argument fills.  On SQLite the newest ids come from the CAPTCHA
+// pass card index and only those rows are read; reading every pass of the
+// window to sort them read the table row by row.  MariaDB does not take a
+// LIMIT inside IN (...), and reads them the way it always did.
+func captchaPassRecentRows(d *db.DB, window, sc string) string {
+	if d.Driver != db.DriverSQLite {
+		return fmt.Sprintf("%s%s AND phase IN %s\n        ORDER BY date_created DESC LIMIT ?", window, sc, captchaPassPhases)
+	}
+	return fmt.Sprintf(`id IN (SELECT id FROM unmask_event%s
+                     WHERE %s%s AND phase IN %s%s
+                     ORDER BY date_created DESC LIMIT ?)
+        ORDER BY date_created DESC`, d.CardIndexHint(db.IdxEventCaptchaPass), window, sc, captchaPassPhases, d.CardPayloadTerm())
 }
 
 // --- cookie reuse ranking (= "使い回しクッキー アクセスランキング") -----------
@@ -2890,9 +2908,9 @@ type VerifyNGRow struct {
 }
 
 func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]VerifyNGRow, error) {
-	method := jsonExtract(d, "payload_json", "$.method")
-	score := jsonExtract(d, "payload_json", "$.score")
-	fr := jsonExtract(d, "payload_json", "$.force_reason")
+	method := payloadValue(d, "$.method")
+	score := payloadValue(d, "$.score")
+	fr := payloadValue(d, "$.force_reason")
 	// GROUP_CONCAT(DISTINCT ...) with "none"/NULL folded to NULL so the join
 	// keeps only the real escalation axes; portable across SQLite + MariaDB
 	// (both default the separator to ",").
@@ -2906,8 +2924,8 @@ func VerifyNGRanking(ctx context.Context, d *db.DB, site string, hosts []string,
                COALESCE(MAX(ja4_verdict), '') AS ja4,
                MAX(date_created) AS last_seen,
                GROUP_CONCAT(DISTINCT NULLIF(COALESCE(%s, 'none'), 'none')) AS reasons
-        FROM unmask_event WHERE %s%s AND phase='verify_ng'
-        GROUP BY ip_address ORDER BY total DESC LIMIT ?`, method, method, score, fr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts))
+        FROM unmask_event%s WHERE %s%s AND phase='verify_ng'%s
+        GROUP BY ip_address ORDER BY total DESC LIMIT ?`, method, method, score, fr, d.CardIndexHint(db.IdxEventVerifyNG), tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), d.CardPayloadTerm())
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
@@ -2955,9 +2973,9 @@ func CookieSetFails(ctx context.Context, d *db.DB, site string, hosts []string, 
 	cookieOK := jsonExtract(d, "payload_json", "$.cookie_set_ok")
 	stmt := fmt.Sprintf(`
         SELECT ip_address, COUNT(*) AS n, MAX(user_agent) AS ua, MAX(date_created) AS ls
-        FROM unmask_event
-        WHERE %s%s AND phase='bv_pow_only' AND %s IN ('false', 0)
-        GROUP BY ip_address ORDER BY n DESC LIMIT 30`, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), cookieOK)
+        FROM unmask_event%s
+        WHERE %s%s AND phase='bv_pow_only'%s AND %s IN ('false', 0)
+        GROUP BY ip_address ORDER BY n DESC LIMIT 30`, d.CardIndexHint(db.IdxEventCookieFail), tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), d.CardPayloadTerm(), cookieOK)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -3003,11 +3021,11 @@ func StealthPassed(ctx context.Context, d *db.DB, site string, hosts []string, h
 	stmt := fmt.Sprintf(`
         SELECT ip_address, COALESCE(ja4_verdict,'(none)') AS v,
                MAX(user_agent) AS ua, COUNT(*) AS n, MAX(date_created) AS ls
-        FROM unmask_event
+        FROM unmask_event%s
         WHERE %s%s
-          AND phase IN ('bv_captcha_only','bv_pow_then_captcha')
+          AND phase IN %s%s
           AND ja4_verdict %s
-        GROUP BY ip_address, ja4_verdict ORDER BY n DESC LIMIT 30`, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), botIn)
+        GROUP BY ip_address, ja4_verdict ORDER BY n DESC LIMIT 30`, d.CardIndexHint(db.IdxEventCaptchaPass), tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), captchaPassPhases, d.CardPayloadTerm(), botIn)
 	rows, err := d.QueryContext(ctx, stmt, botArgs...)
 	if err != nil {
 		return nil, err
@@ -4380,6 +4398,33 @@ func jsonExtract(d *db.DB, col, path string) string {
 		return fmt.Sprintf("json_extract(%s, '%s')", col, path)
 	}
 	return fmt.Sprintf("JSON_UNQUOTE(JSON_EXTRACT(%s, '%s'))", col, path)
+}
+
+// payloadValue reads a payload field the way the card indexes (migration
+// 0037) carry it: payload_json ->> '$.field' on SQLite.  SQLite reads that
+// value back from an index; a json_extract it does not (the function may
+// return a JSON subtype an index cannot keep), so a card naming one went to
+// the table for every row.  Elsewhere it is jsonExtract.
+func payloadValue(d *db.DB, path string) string {
+	if d.Driver == db.DriverSQLite {
+		return fmt.Sprintf("payload_json ->> '%s'", path)
+	}
+	return jsonExtract(d, "payload_json", path)
+}
+
+// payloadFieldCounts is SELECT COALESCE(<field>, 'none'), COUNT(*) over the
+// rows of `from WHERE where`, grouped by the field.  On SQLite the field is
+// read in a subquery and grouped outside it: SQLite reads an indexed value
+// back for a column the query returns or aggregates, but goes to the table
+// for a GROUP BY on the expression itself (seconds instead of milliseconds
+// over a day of CAPTCHA passes, cold).  LIMIT -1 keeps the subquery from being
+// folded into the outer query, which would put the GROUP BY back on it.
+func payloadFieldCounts(d *db.DB, field, from, where string) string {
+	v := payloadValue(d, field)
+	if d.Driver != db.DriverSQLite {
+		return fmt.Sprintf("SELECT COALESCE(%s, 'none'), COUNT(*) FROM %s WHERE %s GROUP BY %s", v, from, where, v)
+	}
+	return fmt.Sprintf("SELECT COALESCE(r, 'none'), COUNT(*) FROM (SELECT %s AS r FROM %s WHERE %s LIMIT -1) GROUP BY r", v, from, where)
 }
 
 func ipFromBytes(b []byte) string {

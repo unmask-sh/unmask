@@ -696,11 +696,69 @@ func (d *DB) HasPlannerStats(ctx context.Context) (bool, error) {
 // forgotten.  MariaDB names its indexes differently (idx_date) and its
 // optimizer estimates the range from live InnoDB statistics, so it is
 // deliberately left unhinted.
+//
+// The index named is the date cover index where the database has it
+// (migration 0038), the plain date index where that migration waits for the
+// operator: both lead with date_created, so the plan is the same.
 func (d *DB) EventDateIndexHint(window string) string {
 	if window == "" {
 		return ""
 	}
+	if h := d.indexHint(IdxEventDateCover); h != "" {
+		return h
+	}
 	return d.indexHint("idx_unmask_event_date")
+}
+
+// IdxEventDateCover is the event table's date index with the columns reads of
+// a window take beside the time -- address, phase, flags, verdict (migration
+// 0038, which drops the plain idx_unmask_event_date it replaces).
+const IdxEventDateCover = "idx_unmask_event_date_cover"
+
+// EventDateCoverHint pins a read of a window to the date cover index, or ""
+// when the database does not have it yet.  For a read that is better left to
+// the planner without it: one that also seeks by address, where a pin to the
+// plain date index would trade those seeks for a table read of every event in
+// the window.
+func (d *DB) EventDateCoverHint() string { return d.indexHint(IdxEventDateCover) }
+
+// The stats page's card indexes (migration 0037): partial indexes, each over
+// one card family's rows of the event table, carrying the columns those cards
+// read.  A large install may hold them unbuilt (a deferred schema update the
+// operator has not applied); the hint is then "" and the cards read the table
+// as before.
+const (
+	IdxEventReload      = "idx_unmask_event_reload"
+	IdxEventVerifyNG    = "idx_unmask_event_verify_ng"
+	IdxEventCaptchaPass = "idx_unmask_event_captcha_pass"
+	IdxEventCookieFail  = "idx_unmask_event_cookie_fail"
+	IdxEventRebind      = "idx_unmask_event_rebind"
+	IdxEventRateLimited = "idx_unmask_event_rate_limited"
+)
+
+// CardIndexHint is the INDEXED BY clause for one of the card indexes, or ""
+// where the driver takes none or the index is not built.  The query has to
+// carry the index's WHERE terms: SQLite uses a partial index only for a query
+// that names them, and rejects a pinned one it cannot use.
+func (d *DB) CardIndexHint(name string) string {
+	return d.indexHint(name)
+}
+
+// PayloadReadable is the payload test in the WHERE of every card index that
+// reads the payload: a row whose payload is not JSON stays out of the index,
+// where json_extract would otherwise fail its write.  The writer only ever
+// stores JSON or NULL; a database carried over from older releases may hold
+// rows from before it did.
+const PayloadReadable = "(payload_json IS NULL OR json_valid(payload_json))"
+
+// CardPayloadTerm is the AND-term a query over a payload-reading card index
+// adds: PayloadReadable on SQLite, nothing elsewhere.  Without the index it
+// only drops rows the query's json_extract would have failed on.
+func (d *DB) CardPayloadTerm() string {
+	if d.Driver != DriverSQLite {
+		return ""
+	}
+	return " AND " + PayloadReadable
 }
 
 // SQLiteSpace is what the database file holds: its size on disk, and the

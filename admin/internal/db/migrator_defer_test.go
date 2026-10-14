@@ -85,11 +85,15 @@ func names(ps []PendingMigration) string {
 // how fast a read is, never what it returns -- and for nothing else, so a
 // marked file may hold CREATE INDEX and DROP INDEX and that is all.  Both
 // drivers must mark the same versions, or one of them would wait for an
-// operator the other never asks for.
+// operator the other never asks for -- unless the other driver's file of that
+// version does nothing (the no-op marker): an index one engine cannot have,
+// such as 0037's partial indexes, leaves the other nothing to wait for.
 func TestDeferrableMigrationsAreIndexOnly(t *testing.T) {
 	marked := map[string]map[int]bool{}
+	noop := map[string]map[int]bool{}
 	for _, driver := range []string{"sqlite", "mariadb"} {
 		marked[driver] = map[int]bool{}
+		noop[driver] = map[int]bool{}
 		entries, err := fs.ReadDir(migrationFS, "migrations/"+driver)
 		if err != nil {
 			t.Fatal(err)
@@ -103,6 +107,15 @@ func TestDeferrableMigrationsAreIndexOnly(t *testing.T) {
 			if dm == nil {
 				if strings.Contains(string(body), "unmask:deferrable") {
 					t.Errorf("%s/%s mentions unmask:deferrable but the line does not parse as the marker", driver, e.Name())
+				}
+				if isNoopMigration(string(body)) {
+					if m := migrationFileRE.FindStringSubmatch(e.Name()); m != nil {
+						v := 0
+						for _, c := range m[1] {
+							v = v*10 + int(c-'0')
+						}
+						noop[driver][v] = true
+					}
 				}
 				continue
 			}
@@ -133,15 +146,33 @@ func TestDeferrableMigrationsAreIndexOnly(t *testing.T) {
 		t.Fatal("no deferrable migration found: the marker stopped parsing")
 	}
 	for v := range marked["sqlite"] {
-		if !marked["mariadb"][v] {
+		if !marked["mariadb"][v] && !noop["mariadb"][v] {
 			t.Errorf("version %d is deferrable on sqlite and not on mariadb", v)
 		}
 	}
 	for v := range marked["mariadb"] {
-		if !marked["sqlite"][v] {
+		if !marked["sqlite"][v] && !noop["sqlite"][v] {
 			t.Errorf("version %d is deferrable on mariadb and not on sqlite", v)
 		}
 	}
+}
+
+// isNoopMigration reports whether a migration does nothing: comments, then the
+// no-op marker statement and nothing else.
+func isNoopMigration(body string) bool {
+	var stmts []string
+	for _, st := range splitStatements(body) {
+		var kept []string
+		for _, line := range strings.Split(st, "\n") {
+			if l := strings.TrimSpace(line); l != "" && !strings.HasPrefix(l, "--") {
+				kept = append(kept, l)
+			}
+		}
+		if len(kept) > 0 {
+			stmts = append(stmts, strings.Join(kept, " "))
+		}
+	}
+	return len(stmts) == 1 && strings.TrimSuffix(stmts[0], ";") == "SELECT 1 WHERE 0"
 }
 
 func TestIndexOnly(t *testing.T) {
