@@ -20,6 +20,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- (2026-10-14) **Path exemptions and protected paths are decided on the path nginx serves.**  Bypass, country- and network-exempt and protected-path rules matched the raw request line, so an encoded form such as /static/%2e%2e/page met the /static/ bypass yet was served as /page, past the challenge.  They now match the decoded, normalized path without its query string; honeypot and custom-rule paths still see the raw request.  Native installs need an nginx reload.
+
 - (2026-10-14) **Admin pages answer within their time limits on a large database.**  The SQLite driver let a query run to its end whatever its deadline, so a page waited for its slowest card while that query held a connection: on a database larger than memory the dashboard did not answer for minutes.  Deadlines now stop the query, and the reasons card gives up early on its first day.
 
 - (2026-10-14) **Doctor no longer counts the Lua module's LuaJIT notice as an nginx error.**  nginx built with the Lua module against a LuaJIT other than OpenResty's writes an [alert] at every configuration load, so doctor always warned about its error log there.  That line is now left out and named in the OK, and a real fatal line is quoted whole enough to read.
