@@ -494,10 +494,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .ua-help-trigger{width:1.6rem;height:1.6rem;border-radius:50%;border:1px solid #cbd5e1;background:#f8fafc;color:#475569;font-size:.95rem;font-weight:700;cursor:help;display:inline-flex;align-items:center;justify-content:center;padding:0;line-height:1}
 .ua-help-trigger:hover{background:#e2e8f0;color:#0f172a;border-color:#94a3b8}
 
-/* upstream-list per-group white/none/black + modal popup (ua-filter tab) */
+/* upstream-list per-group pass / normal checks / stop + Detail dialog with
+   the crawlers set one by one (ua-filter tab) */
 .upstream-overall{font-size:.85rem;color:#475569}
 .upstream-overall strong{color:#0f172a;font-weight:600}
-.upstream-group{display:flex;align-items:center;gap:.6rem;padding:.4rem .55rem;margin:.3rem 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem}
+.upstream-group{display:flex;flex-wrap:wrap;align-items:center;gap:.6rem;padding:.4rem .55rem;margin:.3rem 0;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem}
 .upstream-mode-control{display:inline-flex;border:1px solid #cbd5e1;border-radius:.25rem;overflow:hidden;background:#fff;flex:0 0 auto}
 .upstream-mode-control .mode-opt{display:inline-flex;align-items:center;justify-content:center;padding:.2rem .55rem;font-size:.72rem;font-weight:600;color:#64748b;cursor:pointer;border-right:1px solid #e2e8f0;line-height:1}
 .upstream-mode-control .mode-opt:last-child{border-right:0}
@@ -506,14 +507,17 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .upstream-mode-control .mode-opt.active.mode-white{background:#dcfce7;color:#15803d}
 .upstream-mode-control .mode-opt.active.mode-none{background:#f1f5f9;color:#475569}
 .upstream-mode-control .mode-opt.active.mode-black{background:#fee2e2;color:#b91c1c}
-.upstream-group .upstream-cat-label{flex:1;font-size:.85rem;color:#334155;font-weight:500}
-.upstream-group .upstream-count{font-weight:600;color:#64748b;font-size:.72rem;font-family:ui-monospace,monospace;white-space:nowrap}
-.upstream-group .upstream-mode-label{font-weight:700}
-.upstream-group[data-mode="white"] .upstream-mode-label{color:#15803d}
-.upstream-group[data-mode="black"] .upstream-mode-label{color:#b91c1c}
-.upstream-group[data-mode="none"] .upstream-mode-label{color:#94a3b8}
-.upstream-group .upstream-action-sel{padding:.2rem .4rem;font-size:.72rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;color:#475569;max-width:9rem}
-.upstream-group .upstream-action-sel:disabled{background:#f1f5f9;color:#94a3b8;cursor:not-allowed;opacity:.6}
+/* Takes the room left on the line, and drops below the switch once that is
+   too narrow to read -- the count and the buttons then follow it. */
+.upstream-group .upstream-cat-label{flex:1 1 14rem;min-width:0;font-size:.85rem;color:#334155;font-weight:500}
+.upstream-group .upstream-count{color:#64748b;font-size:.72rem;white-space:nowrap}
+/* The crawlers set on their own stand out from the plain total: they are
+   what the group's mode does not decide. */
+.upstream-group .upstream-own-count{color:#4338ca;font-weight:600}
+.upstream-group .upstream-own-count[hidden]{display:none}
+.upstream-group .upstream-action-wrap{display:inline-flex;align-items:center;gap:.3rem;font-size:.72rem;color:#b91c1c;white-space:nowrap}
+.upstream-group .upstream-action-wrap[hidden]{display:none}
+.upstream-group .upstream-action-sel{padding:.2rem .4rem;font-size:.72rem;border:1px solid #fca5a5;border-radius:.25rem;background:#fff;color:#475569;max-width:9rem}
 .upstream-group .upstream-detail-btn{padding:.25rem .7rem;font-size:.78rem;background:#fff;border:1px solid #cbd5e1;border-radius:.25rem;cursor:pointer;color:#475569}
 .upstream-rv{display:inline-block;margin-left:.45rem;padding:.05rem .4rem;font-size:.68rem;font-weight:600;border-radius:.25rem;background:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;white-space:nowrap;vertical-align:.05rem}
 /* rescue-path badge for range-backed patterns (4 states, uarange.go):
@@ -525,11 +529,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
    carries no title -- and must not look like it does. */
 .upstream-rv.rv-on{background:#dcfce7;color:#15803d;border-color:#86efac}
 .upstream-rv.rv-off{background:#f1f5f9;color:#64748b;border-color:#cbd5e1}
-/* A row whose UA rescue is settled by the standing policy: dimmed, with the
-   checkbox left interactive so the per-pattern value is still submitted and
-   comes back the moment the policy is switched off. */
-.upstream-row[data-rv-forced] code{opacity:.55}
-.upstream-row[data-rv-forced] .upstream-desc{opacity:.55}
 .require-rv{display:flex;gap:.55rem;align-items:flex-start;margin:.4rem 0 .9rem;padding:.6rem .75rem;background:#f0fdf4;border-left:.1875rem solid #22c55e;border-radius:.25rem;cursor:pointer}
 .require-rv input{margin-top:.15rem;flex:0 0 auto}
 /* Only the label's own heading is a block; the <strong> runs inside the
@@ -549,26 +548,46 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .upstream-modal-box{position:relative;background:#fff;border-radius:.5rem;width:min(40rem,92vw);max-height:85vh;display:flex;flex-direction:column;box-shadow:0 1.25rem 3rem rgba(15,23,42,.35)}
 .upstream-modal-head{padding:.8rem 1rem;border-bottom:1px solid #e2e8f0;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
 .upstream-modal-head h4{margin:0;flex:1 1 100%;font-size:1rem;color:#334155}
+.upstream-modal-help{margin:0;flex:1 1 100%;font-size:.76rem;line-height:1.55;color:#64748b}
 .upstream-modal-filter{flex:1;min-width:10rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem}
-.upstream-modal-all-on,.upstream-modal-all-off{padding:.25rem .55rem;font-size:.75rem;border:1px solid #cbd5e1;background:#fff;border-radius:.25rem;cursor:pointer;color:#475569}
-.upstream-modal-all-on:hover,.upstream-modal-all-off:hover{background:#f1f5f9}
+.upstream-own-only{display:inline-flex;align-items:center;gap:.3rem;font-size:.76rem;color:#475569;cursor:pointer;white-space:nowrap}
+.upstream-modal-bulk{display:flex;flex-wrap:wrap;align-items:center;gap:.35rem;padding:.45rem 1rem;border-bottom:1px solid #e2e8f0;font-size:.75rem;color:#475569}
+.upstream-bulk-btn{padding:.2rem .55rem;font-size:.75rem;border:1px solid #cbd5e1;background:#fff;border-radius:.25rem;cursor:pointer;color:#475569}
+.upstream-bulk-btn:hover{background:#f1f5f9}
 .upstream-modal-list-head{display:grid;grid-template-columns:auto 1fr auto;gap:.4rem .6rem;align-items:center;padding:.3rem .6rem;border-bottom:1px solid #e2e8f0;background:#f8fafc;font-size:.75rem;color:#475569;font-weight:600}
 .upstream-sort-btn{background:none;border:0;padding:.1rem .2rem;cursor:pointer;color:inherit;font:inherit;text-align:left;display:inline-flex;align-items:center;gap:.25rem}
 .upstream-sort-btn:hover{color:#0f172a}
 .upstream-sort-ind{font-size:.7rem;color:#94a3b8;min-width:.6rem}
 .upstream-sort-btn.active .upstream-sort-ind{color:#475569}
 .upstream-modal-list{overflow:auto;flex:1;padding:.4rem .6rem}
-.upstream-row{display:grid;grid-template-columns:auto 1fr auto;gap:.4rem .6rem;align-items:center;padding:.25rem .4rem;border-radius:.2rem;font-size:.82rem;cursor:pointer}
+.upstream-row{display:grid;grid-template-columns:auto 1fr auto;gap:.4rem .6rem;align-items:center;padding:.25rem .4rem;border-radius:.2rem;font-size:.82rem}
+/* A crawler following its group reads quiet; one set on its own wears its
+   mode's colour, the same three as the group control. */
+.upstream-own-sel{padding:.15rem .3rem;font-size:.74rem;border:1px solid #e2e8f0;border-radius:.25rem;background:#fff;color:#64748b;max-width:11rem}
+.upstream-row[data-own="white"] .upstream-own-sel{border-color:#86efac;background:#dcfce7;color:#15803d;font-weight:600}
+.upstream-row[data-own="none"] .upstream-own-sel{border-color:#94a3b8;background:#f1f5f9;color:#334155;font-weight:600}
+.upstream-row[data-own="black"] .upstream-own-sel{border-color:#fca5a5;background:#fee2e2;color:#b91c1c;font-weight:600}
+/* On a phone the select takes a line of its own above the pattern, which
+   would otherwise be squeezed to a few characters a line. */
+@media (max-width:30rem){
+  .upstream-row{grid-template-columns:1fr auto}
+  .upstream-row .upstream-own-sel{grid-column:1 / -1;max-width:none}
+}
 .upstream-row:hover{background:#f8fafc}
 .upstream-row.hidden{display:none}
 .upstream-row code{background:#f1f5f9;padding:0 .3rem;border-radius:.2rem;font-family:'JetBrains Mono',ui-monospace,monospace;font-size:.78rem;color:#0f172a;word-break:break-all}
 .upstream-row .upstream-since{color:#94a3b8;font-size:.72rem;white-space:nowrap;font-family:ui-monospace,monospace}
-.upstream-row .upstream-desc{grid-column:2 / 4;color:#94a3b8;font-size:.72rem;margin-top:-.1rem;line-height:1.3}
+.upstream-row .upstream-desc{grid-column:2 / 4;margin-left:.35rem;color:#94a3b8;font-size:.72rem;margin-top:-.1rem;line-height:1.3}
 .upstream-modal-foot{padding:.6rem 1rem;border-top:1px solid #e2e8f0;display:flex;justify-content:flex-end;gap:.5rem}
 .upstream-modal-foot button{padding:.35rem .9rem;font-size:.82rem;border-radius:.25rem;cursor:pointer;border:1px solid #cbd5e1}
 .upstream-modal-cancel{background:#fff;color:#475569}
 .upstream-modal-save{background:#475569;color:#fff;border-color:#475569}
 .upstream-modal-save:hover{background:#334155}
+.upstream-orphans{margin:.8rem 0 0;padding:.6rem .75rem;background:#fffbeb;border-left:.1875rem solid #f59e0b;border-radius:.25rem;font-size:.8rem;line-height:1.6;color:#78350f}
+.upstream-orphans p{margin:.2rem 0 .4rem}
+.upstream-orphans ul{margin:0;padding-left:1.1rem}
+.upstream-orphans code{background:#fef3c7;padding:0 .3rem;border-radius:.2rem}
+.upstream-orphans label{margin-left:.4rem;cursor:pointer}
 
 /* Scope picker row (= multi-site v2 step c).  Sits above the appearance /
    challenge form and toggles which BrandingValues / ChallengeValues record
@@ -1987,7 +2006,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
      the rules on this tab. */}}
 <p class="note" style="margin:0 0 .8rem"><a href="{{ .BasePath }}/admin/playground/">{{ t .Lang "playground.title" }}</a> — {{ t .Lang "settings.playground_hint" }}</p>
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=ua-filter">
-  <!-- preset card (= upstream-rescue groups placed into white / none / black).
+  <!-- preset card (= upstream-rescue groups set to pass / normal checks /
+       stop, with crawlers set one by one in each group's Detail dialog).
        Renders BEFORE the whitelist/blacklist custom cards so the preset axis
        is what the user sees first; the custom cards handle per-installation
        overrides that fall outside the upstream taxonomy. -->
@@ -2001,17 +2021,15 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </script>
     <div class="upstream-overall" style="margin:.4rem 0 .9rem">
       {{ t .Lang "settings.ua.upstream.overall_label" }}
-      <strong><span class="upstream-overall-enabled">{{ .UpstreamRescueEnabled }}</span> / {{ .UpstreamRescueTotal }}</strong>
+      <strong><span class="upstream-overall-enabled">{{ .Upstream.Passing }}</span> / {{ .Upstream.Total }}</strong>
       {{ t .Lang "settings.ua.upstream.overall_unit" }}
     </div>
     <p style="background:#f1f5f9;border-left:.1875rem solid #6366f1;padding:.5rem .7rem;border-radius:.25rem;font-size:.82rem;line-height:1.65;margin:.4rem 0 .9rem;color:#334155">{{ safeHTML (t .Lang "settings.ua.upstream.spoof_note") }}</p>
     {{/* Standing policy, above the per-category rows: for the vendors that
          publish their egress ranges, a UA is a name tag rather than an ID.
-         Stating it once here beats deriving it per row -- the per-pattern
-         checkboxes already express the same thing, but their meaning flips
-         depending on whether the row has a range behind it (unchecked =
-         "blocked" without one, "verified by IP" with one), which is what
-         makes that list hard to read. */}}
+         Stated once here rather than per crawler -- it is true of all of
+         them at once, and each row's own setting then says only whether the
+         crawler passes at all. */}}
     <label class="require-rv">
       <input type="checkbox" name="require_range_verification" value="1" {{ if .Cur.SearchBots.RangeVerificationRequired }}checked{{ end }}>
       <span>
@@ -2019,37 +2037,54 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <span class="require-rv-desc">{{ safeHTML (t .Lang "settings.ua.upstream.require_rv_desc") }}</span>
       </span>
     </label>
-    {{ range $cat, $entries := .UpstreamRescue }}
-    {{ $mode := index $.UpstreamGroupMode $cat }}
-    {{ $act := index $.UpstreamGroupAction $cat }}
-    <div class="upstream-group" data-cat="{{ $cat }}" data-mode="{{ $mode }}">
-      <div class="upstream-mode-control" role="radiogroup" aria-label="{{ $cat }}">
-        <label class="mode-opt mode-white{{ if eq $mode "white" }} active{{ end }}"><input type="radio" name="upstream_group_mode__{{ $cat }}" value="white" {{ if eq $mode "white" }}checked{{ end }}><span>{{ t $.Lang "settings.ua.upstream.mode.white" }}</span></label>
-        <label class="mode-opt mode-none{{ if eq $mode "none" }} active{{ end }}"><input type="radio" name="upstream_group_mode__{{ $cat }}" value="none" {{ if eq $mode "none" }}checked{{ end }}><span>{{ t $.Lang "settings.ua.upstream.mode.none" }}</span></label>
-        <label class="mode-opt mode-black{{ if eq $mode "black" }} active{{ end }}"><input type="radio" name="upstream_group_mode__{{ $cat }}" value="black" {{ if eq $mode "black" }}checked{{ end }}><span>{{ t $.Lang "settings.ua.upstream.mode.black" }}</span></label>
+    {{ range $g := .Upstream.Groups }}
+    {{ $catLabel := t $.Lang (printf "settings.ua.upstream.cat.%s" $g.Cat) }}
+    <div class="upstream-group" data-cat="{{ $g.Cat }}" data-mode="{{ $g.Mode }}">
+      <div class="upstream-mode-control" role="radiogroup" aria-label="{{ $g.Cat }}">
+        <label class="mode-opt mode-white{{ if eq $g.Mode "white" }} active{{ end }}"><input type="radio" name="upstream_group_mode__{{ $g.Cat }}" value="white" {{ if eq $g.Mode "white" }}checked{{ end }}><span>{{ t $.Lang "settings.ua.upstream.mode.white" }}</span></label>
+        <label class="mode-opt mode-none{{ if eq $g.Mode "none" }} active{{ end }}"><input type="radio" name="upstream_group_mode__{{ $g.Cat }}" value="none" {{ if eq $g.Mode "none" }}checked{{ end }}><span>{{ t $.Lang "settings.ua.upstream.mode.none" }}</span></label>
+        <label class="mode-opt mode-black{{ if eq $g.Mode "black" }} active{{ end }}"><input type="radio" name="upstream_group_mode__{{ $g.Cat }}" value="black" {{ if eq $g.Mode "black" }}checked{{ end }}><span>{{ t $.Lang "settings.ua.upstream.mode.black" }}</span></label>
       </div>
-      <span class="upstream-cat-label">{{ t $.Lang (printf "settings.ua.upstream.cat.%s" $cat) }}</span>
-      <span class="upstream-count" data-total="{{ len $entries }}"><span class="upstream-mode-label">—</span> <span class="upstream-enabled-n">0</span> / {{ len $entries }}</span>
-      <select class="upstream-action-sel" name="upstream_group_action__{{ $cat }}" data-cat="{{ $cat }}" title="{{ t $.Lang "settings.ua.upstream.action_title" }}"{{ if ne $mode "black" }} disabled{{ end }}>
-        <option value="inherit" {{ if eq $act "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
-        <option value="pow_only"         {{ if eq $act "pow_only" }}selected{{ end }}>pow_only</option>
-        <option value="pow_then_captcha" {{ if eq $act "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
-        <option value="captcha_only"     {{ if eq $act "captcha_only" }}selected{{ end }}>captcha_only</option>
-        <option value="deny"             {{ if eq $act "deny" }}selected{{ end }}>deny</option>
-      </select>
-      <button type="button" class="upstream-detail-btn" data-cat="{{ $cat }}">{{ t $.Lang "settings.ua.upstream.detail_btn" }}</button>
+      <span class="upstream-cat-label">{{ $catLabel }}</span>
+      <span class="upstream-count"><span class="upstream-total">{{ tf $.Lang "settings.ua.upstream.count_total" (len $g.Rows) }}</span><span class="upstream-own-count" data-fmt="{{ t $.Lang "settings.ua.upstream.count_own" }}"{{ if not $g.Own }} hidden{{ end }}> · <span class="upstream-own-n">{{ tf $.Lang "settings.ua.upstream.count_own" $g.Own }}</span></span></span>
+      {{/* The chain the group's stopped crawlers get.  Shown while anything
+           here is stopped -- the whole group, or a crawler on its own -- and
+           posted either way, so the choice survives a spell with nothing
+           stopped. */}}
+      <label class="upstream-action-wrap"{{ if not (or (eq $g.Mode "black") $g.OwnBlack) }} hidden{{ end }}>
+        <span>{{ t $.Lang "settings.ua.upstream.action_label" }}</span>
+        <select class="upstream-action-sel" name="upstream_group_action__{{ $g.Cat }}" data-cat="{{ $g.Cat }}" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
+          <option value="inherit" {{ if eq $g.Action "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
+          <option value="pow_only"         {{ if eq $g.Action "pow_only" }}selected{{ end }}>pow_only</option>
+          <option value="pow_then_captcha" {{ if eq $g.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+          <option value="captcha_only"     {{ if eq $g.Action "captcha_only" }}selected{{ end }}>captcha_only</option>
+          <option value="deny"             {{ if eq $g.Action "deny" }}selected{{ end }}>deny</option>
+        </select>
+      </label>
+      <button type="button" class="upstream-detail-btn" data-cat="{{ $g.Cat }}">{{ t $.Lang "settings.ua.upstream.detail_btn" }}</button>
     </div>
 
-    <div class="upstream-modal" data-cat="{{ $cat }}" style="display:none">
+    {{/* The selects carry no name: on submit the page posts one
+         upstream_pattern_mode ("<mode>:<pattern>") per crawler set on its
+         own, and nothing for one that follows its group. */}}
+    {{ $follow := tf $.Lang "settings.ua.upstream.own_follow" (t $.Lang (printf "settings.ua.upstream.mode.%s" $g.Mode)) }}
+    <div class="upstream-modal" data-cat="{{ $g.Cat }}" data-follow-fmt="{{ t $.Lang "settings.ua.upstream.own_follow" }}" style="display:none">
       <div class="upstream-modal-backdrop"></div>
-      <div class="upstream-modal-box">
+      <div class="upstream-modal-box" role="dialog" aria-modal="true" aria-label="{{ $catLabel }}">
         <div class="upstream-modal-head">
-          <h4>{{ t $.Lang (printf "settings.ua.upstream.cat.%s" $cat) }} <span class="muted" style="font-weight:normal;font-size:.78rem">— {{ t $.Lang "settings.ua.upstream.row_help" }}</span></h4>
+          <h4>{{ $catLabel }}</h4>
+          <p class="upstream-modal-help">{{ t $.Lang "settings.ua.upstream.row_help" }}</p>
           <input type="text" class="upstream-modal-filter" placeholder="{{ t $.Lang "settings.ua.upstream.search_placeholder" }}">
-          <button type="button" class="upstream-modal-all-on">{{ t $.Lang "settings.ua.upstream.all_enable" }}</button>
-          <button type="button" class="upstream-modal-all-off">{{ t $.Lang "settings.ua.upstream.all_disable" }}</button>
+          <label class="upstream-own-only"><input type="checkbox" class="upstream-own-only-chk"> {{ t $.Lang "settings.ua.upstream.own_only" }}</label>
         </div>
-        {{ if index $.UpstreamCatHasRV $cat }}
+        <div class="upstream-modal-bulk">
+          <span>{{ t $.Lang "settings.ua.upstream.bulk_label" }}</span>
+          <button type="button" class="upstream-bulk-btn" data-set="">{{ t $.Lang "settings.ua.upstream.bulk_follow" }}</button>
+          <button type="button" class="upstream-bulk-btn" data-set="white">{{ t $.Lang "settings.ua.upstream.mode.white" }}</button>
+          <button type="button" class="upstream-bulk-btn" data-set="none">{{ t $.Lang "settings.ua.upstream.mode.none" }}</button>
+          <button type="button" class="upstream-bulk-btn" data-set="black">{{ t $.Lang "settings.ua.upstream.mode.black" }}</button>
+        </div>
+        {{ if $g.HasRV }}
         <p class="upstream-rv-legend">{{ safeHTML (t $.Lang "settings.ua.upstream.rv_note") }}</p>
         {{ end }}
         <div class="upstream-modal-list-head">
@@ -2058,20 +2093,19 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <button type="button" class="upstream-sort-btn" data-sort="since">{{ t $.Lang "settings.ua.upstream.col_since" }} <span class="upstream-sort-ind"></span></button>
         </div>
         <div class="upstream-modal-list">
-          {{ range $entries }}
-          {{ $backed := index $.UpstreamRangeBacked .Pattern }}{{ $rvActive := and $backed (index $.UpstreamRVActive .Pattern) }}
-          {{/* data-rv-forced: this row's UA rescue is settled by the standing
-               policy above, not by its own checkbox.  The checkbox still shows
-               (and still submits) the per-pattern state, so switching the
-               policy off brings it straight back -- it is dimmed rather than
-               disabled precisely so nothing is lost while the policy holds. */}}
-          <label class="upstream-row" data-pattern="{{ .Pattern }}" data-since="{{ .AdditionDate }}"{{ if $backed }} data-rv="1"{{ if $rvActive }} data-rv-active="1"{{ end }}{{ if $.Cur.SearchBots.RangeVerificationRequired }} data-rv-forced="1"{{ end }}{{ end }}>
-            <input type="checkbox" class="upstream-pattern-chk" value="{{ .Pattern }}" {{ if not (index $.UpstreamUAOff .Pattern) }}checked{{ end }}>
+          {{ range $g.Rows }}
+          <div class="upstream-row" data-pattern="{{ .Pattern }}" data-since="{{ .Since }}" data-own="{{ .Own }}">
+            <select class="upstream-own-sel" aria-label="{{ .Pattern }}">
+              <option value=""{{ if eq .Own "" }} selected{{ end }}>{{ $follow }}</option>
+              <option value="white"{{ if eq .Own "white" }} selected{{ end }}>{{ t $.Lang "settings.ua.upstream.mode.white" }}</option>
+              <option value="none"{{ if eq .Own "none" }} selected{{ end }}>{{ t $.Lang "settings.ua.upstream.mode.none" }}</option>
+              <option value="black"{{ if eq .Own "black" }} selected{{ end }}>{{ t $.Lang "settings.ua.upstream.mode.black" }}</option>
+            </select>
             {{/* The badge reports the preset's state only, so it never repaints
-                 from this row's checkbox -- see nginxconf.UpstreamRangeActive. */}}
-            <span><code>{{ .Pattern }}</code>{{ if $backed }}<span class="upstream-rv {{ if $rvActive }}rv-on{{ else }}rv-off{{ end }}">{{ t $.Lang "settings.ua.upstream.rv_badge" }}</span>{{ end }}{{ if .Description }}<span class="upstream-desc">{{ .Description }}</span>{{ end }}</span>
-            <span class="upstream-since">{{ if .AdditionDate }}{{ .AdditionDate }}{{ else }}—{{ end }}</span>
-          </label>
+                 from this row's setting -- see nginxconf.UpstreamRangeActive. */}}
+            <span><code>{{ .Pattern }}</code>{{ if .RangeBacked }}<span class="upstream-rv {{ if .RangeActive }}rv-on{{ else }}rv-off{{ end }}">{{ t $.Lang "settings.ua.upstream.rv_badge" }}</span>{{ end }}{{ if .Description }}<span class="upstream-desc">{{ .Description }}</span>{{ end }}</span>
+            <span class="upstream-since">{{ if .Since }}{{ .Since }}{{ else }}—{{ end }}</span>
+          </div>
           {{ end }}
         </div>
         <div class="upstream-modal-foot">
@@ -2079,6 +2113,20 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <button type="button" class="upstream-modal-save">{{ t $.Lang "settings.ua.upstream.save" }}</button>
         </div>
       </div>
+    </div>
+    {{ end }}
+    {{/* Crawlers set one by one whose pattern a newer catalog renamed or
+         dropped: nothing resolves them any more.  Posted back as they are
+         until the operator removes them, so a save never loses one quietly. */}}
+    {{ with .Upstream.Orphans }}
+    <div class="upstream-orphans">
+      <strong>{{ t $.Lang "settings.ua.upstream.orphan_h" }}</strong>
+      <p>{{ t $.Lang "settings.ua.upstream.orphan_desc" }}</p>
+      <ul>
+        {{ range . }}
+        <li><code>{{ .Pattern }}</code> — {{ t $.Lang (printf "settings.ua.upstream.mode.%s" .Mode) }}<input type="hidden" name="upstream_pattern_mode" value="{{ .Mode }}:{{ .Pattern }}"> <label><input type="checkbox" name="upstream_pattern_drop" value="{{ .Pattern }}"> {{ t $.Lang "settings.ua.upstream.orphan_drop" }}</label></li>
+        {{ end }}
+      </ul>
     </div>
     {{ end }}
   </div><!-- /.bcd-card preset -->
@@ -2421,52 +2469,75 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 // so it works in every settings tab.)
 
 (function(){
-  // Semantic: checkbox ✓ = "pass this pattern" (= enabled, default).
-  // Empty = "disable this pattern" (= the pattern is added to upstream_disabled).
-  // The checkboxes themselves have no name attribute; on form submit, JS
-  // generates hidden input[name=upstream_disabled] inputs for unchecked rows.
-  // Three-axis model: each group resolves to white / none / black via the
-  // segmented control.  Per-pattern checkboxes inside the modal stay as a
-  // separate axis (= "individual OFF within the group").
-  var MODE_LABEL = { white: 'ON', none: 'OFF', black: 'BLOCK' };
-  function getMode(grp) {
+  // Each crawler follows its group's mode unless the operator set it on its
+  // own in the group's Detail dialog.  The dialogs' selects carry no name: on
+  // submit, one hidden upstream_pattern_mode ("<mode>:<pattern>") is
+  // generated per crawler set on its own, so a crawler left following its
+  // group posts nothing.
+  function groupOf(cat) { return document.querySelector('.upstream-group[data-cat="'+cat+'"]'); }
+  function modalOf(cat) { return document.querySelector('.upstream-modal[data-cat="'+cat+'"]'); }
+  function groupMode(grp) {
     var radio = grp.querySelector('.upstream-mode-control input[type=radio]:checked');
     return radio ? radio.value : 'white';
   }
-  function refreshCount(cat) {
-    var grp = document.querySelector('.upstream-group[data-cat="'+cat+'"]');
-    if (!grp) return;
-    var modal = document.querySelector('.upstream-modal[data-cat="'+cat+'"]');
-    if (!modal) return;
-    var checks = modal.querySelectorAll('.upstream-pattern-chk');
-    var total = checks.length;
-    var enabled = 0;
-    checks.forEach(function(c){ if (c.checked) enabled++; });
-    var mode = getMode(grp);
+  // The mode names come off the group's own segmented control, so the page
+  // carries each label once.
+  function modeLabel(grp, mode) {
+    var s = grp.querySelector('.mode-opt.mode-' + mode + ' span');
+    return s ? s.textContent : mode;
+  }
+  function refreshGroup(cat) {
+    var grp = groupOf(cat), modal = modalOf(cat);
+    if (!grp || !modal) return;
+    var mode = groupMode(grp);
     grp.dataset.mode = mode;
-    var countEl = grp.querySelector('.upstream-count');
-    if (countEl) {
-      countEl.innerHTML = '<span class="upstream-mode-label">' + MODE_LABEL[mode] + '</span> <span class="upstream-enabled-n">' + enabled + '</span> / ' + total;
-    }
-    // Sync mode-opt active class with the radio selection.
     grp.querySelectorAll('.mode-opt').forEach(function(opt){
       var input = opt.querySelector('input[type=radio]');
-      if (input && input.checked) opt.classList.add('active');
-      else opt.classList.remove('active');
+      opt.classList.toggle('active', !!(input && input.checked));
     });
+    // "Follow the group (X)" names what following resolves to right now.
+    var follow = (modal.dataset.followFmt || '%s').replace('%s', modeLabel(grp, mode));
+    modal.querySelectorAll('.upstream-own-sel option[value=""]').forEach(function(o){ o.textContent = follow; });
+    var own = 0, ownBlack = false;
+    modal.querySelectorAll('.upstream-row').forEach(function(row){
+      var v = row.querySelector('.upstream-own-sel').value;
+      row.dataset.own = v;
+      if (v) { own++; if (v === 'black') ownBlack = true; }
+    });
+    var oc = grp.querySelector('.upstream-own-count');
+    if (oc) {
+      oc.hidden = own === 0;
+      var n = oc.querySelector('.upstream-own-n');
+      if (n) n.textContent = (oc.dataset.fmt || '%d').replace('%d', own);
+    }
+    // The chain picker matters while anything here is stopped.
+    var aw = grp.querySelector('.upstream-action-wrap');
+    if (aw) aw.hidden = !(mode === 'black' || ownBlack);
     updateOverall();
   }
   function updateOverall() {
-    var en = 0;
+    var n = 0;
     document.querySelectorAll('.upstream-group').forEach(function(grp){
-      if (getMode(grp) !== 'white') return;
-      var cat = grp.dataset.cat;
-      var modal = document.querySelector('.upstream-modal[data-cat="'+cat+'"]');
+      var mode = groupMode(grp), modal = modalOf(grp.dataset.cat);
       if (!modal) return;
-      modal.querySelectorAll('.upstream-pattern-chk').forEach(function(c){ if (c.checked) en++; });
+      modal.querySelectorAll('.upstream-own-sel').forEach(function(sel){
+        if ((sel.value || mode) === 'white') n++;
+      });
     });
     var el = document.querySelector('.upstream-overall-enabled');
-    if (el) el.textContent = en;
+    if (el) el.textContent = n;
+  }
+  function applyFilter(modal) {
+    var f = modal.querySelector('.upstream-modal-filter');
+    var q = f ? f.value.trim().toLowerCase() : '';
+    var oo = modal.querySelector('.upstream-own-only-chk');
+    var ownOnly = !!(oo && oo.checked);
+    modal.querySelectorAll('.upstream-row').forEach(function(r){
+      var pat = (r.dataset.pattern || '').toLowerCase();
+      var show = (!q || pat.indexOf(q) !== -1) &&
+        (!ownOnly || r.querySelector('.upstream-own-sel').value !== '');
+      r.classList.toggle('hidden', !show);
+    });
   }
   function applySort(modal) {
     var key = modal.dataset.sortKey || 'pattern';
@@ -2497,110 +2568,81 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     });
   }
   function openModal(cat) {
-    var modal = document.querySelector('.upstream-modal[data-cat="'+cat+'"]');
+    var modal = modalOf(cat);
     if (!modal) return;
     var snap = [];
-    modal.querySelectorAll('.upstream-pattern-chk').forEach(function(c){ snap.push(c.checked); });
+    modal.querySelectorAll('.upstream-own-sel').forEach(function(sel){ snap.push(sel.value); });
     modal.dataset.snapshot = JSON.stringify(snap);
     if (!modal.dataset.sortKey) { modal.dataset.sortKey = 'pattern'; modal.dataset.sortDir = 'asc'; }
     applySort(modal);
     modal.style.display = 'flex';
     var f = modal.querySelector('.upstream-modal-filter');
-    if (f) {
-      f.value = '';
-      modal.querySelectorAll('.upstream-row').forEach(function(r){ r.classList.remove('hidden'); });
-      setTimeout(function(){ f.focus(); }, 0);
-    }
+    if (f) f.value = '';
+    var oo = modal.querySelector('.upstream-own-only-chk');
+    if (oo) oo.checked = false;
+    applyFilter(modal);
+    if (f) setTimeout(function(){ f.focus(); }, 0);
   }
   function closeModal(cat) {
-    var modal = document.querySelector('.upstream-modal[data-cat="'+cat+'"]');
+    var modal = modalOf(cat);
     if (!modal) return;
     modal.style.display = 'none';
-    refreshCount(cat);
+    refreshGroup(cat);
   }
   function restoreSnapshot(cat) {
-    var modal = document.querySelector('.upstream-modal[data-cat="'+cat+'"]');
+    var modal = modalOf(cat);
     if (!modal) return;
     var snap = JSON.parse(modal.dataset.snapshot || '[]');
-    modal.querySelectorAll('.upstream-pattern-chk').forEach(function(c, i){
-      if (i < snap.length) c.checked = !!snap[i];
+    modal.querySelectorAll('.upstream-own-sel').forEach(function(sel, i){
+      if (i < snap.length) sel.value = snap[i];
     });
-    rvSyncAll(modal);
   }
   function syncHidden(form) {
-    form.querySelectorAll('input.js-upstream-disabled-hidden').forEach(function(x){ x.remove(); });
-    document.querySelectorAll('.upstream-group').forEach(function(grp){
-      var cat = grp.dataset.cat;
-      var p = grp.querySelector('.upstream-parent-chk');
-      var modal = document.querySelector('.upstream-modal[data-cat="'+cat+'"]');
-      if (!modal) return;
-      var groupOff = p && !p.checked;
-      modal.querySelectorAll('.upstream-pattern-chk').forEach(function(c){
-        // disabled list = parent OFF entire group + (parent ON & row unchecked).
-        // Checked range-backed rows are mirrored into upstream_ua_enabled
-        // instead (explicit UA-rescue opt-in): the server treats a saved tab
-        // as fully explicit, so the preset-driven auto default stops applying.
-        var off = groupOff || !c.checked;
-        var row = c.closest('.upstream-row');
-        if (!off && !(row && row.dataset.rv === '1')) return;
-        var h = document.createElement('input');
-        h.type = 'hidden';
-        h.name = off ? 'upstream_disabled' : 'upstream_ua_enabled';
-        h.value = c.value;
-        h.className = 'js-upstream-disabled-hidden';
-        form.appendChild(h);
-      });
+    form.querySelectorAll('input.js-upstream-own-hidden').forEach(function(x){ x.remove(); });
+    document.querySelectorAll('.upstream-row').forEach(function(row){
+      var v = row.querySelector('.upstream-own-sel').value;
+      if (!v) return;
+      var h = document.createElement('input');
+      h.type = 'hidden';
+      h.name = 'upstream_pattern_mode';
+      h.value = v + ':' + row.dataset.pattern;
+      h.className = 'js-upstream-own-hidden';
+      form.appendChild(h);
     });
   }
-  // The standing policy settles range-backed rows regardless of their own
-  // checkbox, so the row styling has to read it -- without this a row ticked
-  // while the policy is on still looks like it passes on its UA, which is the
-  // opposite of what saving would do.
-  function rvPolicyOn() {
-    var p = document.querySelector('input[name="require_range_verification"]');
-    return !p || p.checked;
-  }
-  // The badge is server-rendered from the preset's state alone and nothing on
-  // this screen can change that, so there is no badge to repaint here.  What
-  // does move is whether the policy is settling this row: that dims the
-  // checkbox, and the operator toggles the policy right next to it.
-  function rvSync(row) {
-    if (!row || row.dataset.rv !== '1') return;
-    if (rvPolicyOn()) row.setAttribute('data-rv-forced', '1');
-    else row.removeAttribute('data-rv-forced');
-  }
-  function rvSyncAll(modal) {
-    modal.querySelectorAll('.upstream-row[data-rv="1"]').forEach(rvSync);
-  }
-  // The policy lives on the card, the rows live in the per-category modals:
-  // toggling it has to repaint every badge, or a modal opened afterwards
-  // still shows the previous policy's verdict.
-  (function(){
-    var p = document.querySelector('input[name="require_range_verification"]');
-    if (!p) return;
-    p.addEventListener('change', function(){
-      document.querySelectorAll('.upstream-row[data-rv="1"]').forEach(rvSync);
-    });
-  })();
-  // Initial render: just sync the count badge.  Mode comes pre-set from the
-  // server-rendered radios (= no JS-side initial computation needed).
+  // Initial render: counts and labels come pre-set from the server; this
+  // only has to agree with them.
   document.querySelectorAll('.upstream-group').forEach(function(g){
-    refreshCount(g.dataset.cat);
+    refreshGroup(g.dataset.cat);
   });
   document.querySelectorAll('.upstream-detail-btn').forEach(function(b){
     b.addEventListener('click', function(){ openModal(b.dataset.cat); });
   });
-  // Segmented mode control: re-render the count when the user picks
-  // white / none / black.  The radio value is what gets submitted.
+  // Segmented mode control: the radio value is what gets submitted; the
+  // group's labels, counts and chain picker follow it here.
   document.querySelectorAll('.upstream-mode-control input[type=radio]').forEach(function(radio){
     radio.addEventListener('change', function(){
       var grp = radio.closest('.upstream-group');
-      if (!grp) return;
-      refreshCount(grp.dataset.cat);
-      // Toggle the action-override select alongside the mode (action is
-      // only meaningful for "black"; greyed out otherwise).
-      var sel = grp.querySelector('.upstream-action-sel');
-      if (sel) sel.disabled = radio.value !== 'black';
+      if (grp) refreshGroup(grp.dataset.cat);
+    });
+  });
+  document.querySelectorAll('.upstream-own-sel').forEach(function(sel){
+    sel.addEventListener('change', function(){
+      var modal = sel.closest('.upstream-modal');
+      sel.closest('.upstream-row').dataset.own = sel.value;
+      if (modal) refreshGroup(modal.dataset.cat);
+    });
+  });
+  // Set every row the filters leave showing -- "stop the Google ones" is a
+  // search and one click.
+  document.querySelectorAll('.upstream-bulk-btn').forEach(function(b){
+    b.addEventListener('click', function(){
+      var modal = b.closest('.upstream-modal');
+      modal.querySelectorAll('.upstream-row').forEach(function(row){
+        if (!row.classList.contains('hidden')) row.querySelector('.upstream-own-sel').value = b.dataset.set;
+      });
+      refreshGroup(modal.dataset.cat);
+      applyFilter(modal);
     });
   });
   document.querySelectorAll('.upstream-modal-backdrop').forEach(function(b){
@@ -2610,13 +2652,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       closeModal(modal.dataset.cat);
     });
   });
-  // Modal "close" button: just close the modal.  The pattern-checkbox state
-  // is kept; the page-level "save" button at the bottom is what actually
+  // Modal "confirm" button: just close the modal.  The rows keep their
+  // values; the page-level "save" button at the bottom is what actually
   // persists the change (= unified with the rest of the ua-filter tab).
   document.querySelectorAll('.upstream-modal-save').forEach(function(b){
     b.addEventListener('click', function(){
-      var modal = b.closest('.upstream-modal');
-      closeModal(modal.dataset.cat);
+      closeModal(b.closest('.upstream-modal').dataset.cat);
     });
   });
   document.querySelectorAll('.upstream-modal-cancel').forEach(function(b){
@@ -2635,33 +2676,6 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       }
     });
   });
-  document.querySelectorAll('.upstream-modal-all-on').forEach(function(b){
-    b.addEventListener('click', function(){
-      var modal = b.closest('.upstream-modal');
-      modal.querySelectorAll('.upstream-pattern-chk').forEach(function(c){
-        if (!c.closest('.upstream-row').classList.contains('hidden')) c.checked = true;
-      });
-      refreshCount(modal.dataset.cat);
-      rvSyncAll(modal);
-    });
-  });
-  document.querySelectorAll('.upstream-modal-all-off').forEach(function(b){
-    b.addEventListener('click', function(){
-      var modal = b.closest('.upstream-modal');
-      modal.querySelectorAll('.upstream-pattern-chk').forEach(function(c){
-        if (!c.closest('.upstream-row').classList.contains('hidden')) c.checked = false;
-      });
-      refreshCount(modal.dataset.cat);
-      rvSyncAll(modal);
-    });
-  });
-  document.querySelectorAll('.upstream-pattern-chk').forEach(function(c){
-    c.addEventListener('change', function(){
-      var modal = c.closest('.upstream-modal');
-      refreshCount(modal.dataset.cat);
-      rvSync(c.closest('.upstream-row'));
-    });
-  });
   document.querySelectorAll('.upstream-sort-btn').forEach(function(b){
     b.addEventListener('click', function(){
       var modal = b.closest('.upstream-modal');
@@ -2677,18 +2691,13 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     });
   });
   document.querySelectorAll('.upstream-modal-filter').forEach(function(f){
-    f.addEventListener('input', function(){
-      var q = f.value.trim().toLowerCase();
-      var modal = f.closest('.upstream-modal');
-      modal.querySelectorAll('.upstream-row').forEach(function(r){
-        var pat = (r.dataset.pattern || '').toLowerCase();
-        if (!q || pat.indexOf(q) !== -1) r.classList.remove('hidden');
-        else r.classList.add('hidden');
-      });
-    });
+    f.addEventListener('input', function(){ applyFilter(f.closest('.upstream-modal')); });
+  });
+  document.querySelectorAll('.upstream-own-only-chk').forEach(function(c){
+    c.addEventListener('change', function(){ applyFilter(c.closest('.upstream-modal')); });
   });
   // Also intercept the page-level save button so the hidden inputs are
-  // generated even when the user does not use the modal "save" button.
+  // generated even when the user does not use the modal "confirm" button.
   document.querySelectorAll('form[action*="section=ua-filter"]').forEach(function(form){
     form.addEventListener('submit', function(){ syncHidden(form); });
   });

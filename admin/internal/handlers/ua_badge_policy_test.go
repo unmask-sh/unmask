@@ -16,7 +16,7 @@ const gbotUA = "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/b
 
 // The badge's "did not pass verification" claim is only true for crawlers the
 // policy actually rescues.  A crawler the operator deliberately challenges
-// (group black / none, pattern upstream-disabled) lands in the log genuine
+// (set to black / none, group-wide or on its own) lands in the log genuine
 // and spoofed alike, so those resolve to "challenged" and get the other title.
 func TestCrawlerBadgeChallenged(t *testing.T) {
 	tag := classify.LookupTag(gbotUA)
@@ -33,8 +33,19 @@ func TestCrawlerBadgeChallenged(t *testing.T) {
 			t.Errorf("group mode %q deliberately challenges the crawler; badge must not claim a failed verification", mode)
 		}
 	}
-	if !crawlerBadgeChallenged(gbotUA, tag, settings.SearchBotsConfig{UpstreamDisabled: []string{"Googlebot"}}) {
-		t.Error("an upstream-disabled pattern is deliberately challenged")
+	for _, mode := range []string{classify.GroupModeBlack, classify.GroupModeNone} {
+		sb := settings.SearchBotsConfig{UpstreamPatternMode: map[string]string{`Googlebot\/`: mode}}
+		if !crawlerBadgeChallenged(gbotUA, tag, sb) {
+			t.Errorf("Googlebot set to %q on its own is deliberately challenged", mode)
+		}
+	}
+	// Set to pass on its own, it passes whatever its group says.
+	passOwn := settings.SearchBotsConfig{
+		UpstreamGroupMode:   map[string]string{tag: classify.GroupModeBlack},
+		UpstreamPatternMode: map[string]string{`Googlebot\/`: classify.GroupModeWhite},
+	}
+	if crawlerBadgeChallenged(gbotUA, tag, passOwn) {
+		t.Error("Googlebot set to pass on its own inside a stopped group is rescued")
 	}
 	// An enabled operator Extra rescue wins over everything, mirroring
 	// isSearchBotUA -- the crawler passes, so a row of it here is back to

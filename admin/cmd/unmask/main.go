@@ -522,9 +522,9 @@ func cmdServe(args []string) error {
 		events.StartFlusher(conn, s.EventsBatchSize, s.EventsBatchIntervalMs)
 	}
 
-	// classify init: apply the persisted per-pattern upstream disable filter
+	// classify init: apply the crawlers set one by one to "none" / "black"
 	// once at startup so the first request already sees the saved settings.
-	classify.SetUpstreamDisabled(s.Nginx.SearchBots.UpstreamDisabled)
+	classify.SetUpstreamUnrescued(nginxconf.UpstreamUnrescued(s.Nginx))
 
 	// host inventory: apply the persisted disabled-host list so retired /
 	// mis-configured instances are excluded from aggregation from the start.

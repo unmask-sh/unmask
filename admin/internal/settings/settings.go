@@ -2533,53 +2533,43 @@ type SearchBotsConfig struct {
 	// ExtraUpdatedAt: parallel to ExtraCreatedAt -- unix sec of the last edit,
 	// 0 while untouched.
 	ExtraUpdatedAt []int64 `yaml:"extra_updated_at,omitempty"`
-	// UpstreamDisabled: per-pattern disable list applied to the upstream
-	// crawler-user-agents.json auto-rescue.  Patterns listed here will not
-	// be auto-passed via the search_ai branch, even if they match a
-	// search-engine / ai-crawler / advertising tag.  Edited via the
-	// "details" modal on the settings UI.
-	UpstreamDisabled []string `yaml:"upstream_disabled,omitempty"`
-	// UpstreamUAEnabled: explicit UA-string rescue opt-in for range-backed
-	// patterns (nginxconf.UARangePresets), which otherwise default to
-	// IP-range verification with no UA-only pass.  A listed pattern is
-	// rescued by its UA string in addition to the vendor ranges — the
-	// operator accepts that a spoofed UA passes too.  Non-range-backed
-	// patterns never need listing here (UA rescue is their only path).
-	// See nginxconf.EffectiveUpstreamUAOff for the resolution order.
-	UpstreamUAEnabled []string `yaml:"upstream_ua_enabled,omitempty"`
 	// RequireRangeVerification: for every crawler whose vendor publishes an
 	// official IP range, refuse the UA-string rescue outright -- only an
 	// address inside the published range passes, so a spoofed UA is
-	// challenged like any other visitor.  Overrides UpstreamUAEnabled for
-	// those patterns.
+	// challenged like any other visitor.  It needs the vendor's range presets
+	// enabled to act: until the addresses are loaded, the name stands (see
+	// nginxconf.RangeVerifiedUA).
 	//
-	// The per-pattern default already resolves this way, but only while every
-	// backing preset happens to be enabled, and only for patterns the
-	// operator has not touched: one saved UA-filter tab writes explicit
-	// entries and pins whatever was on screen at the time.  This is the
-	// standing policy instead of a state the config can drift out of -- "a
-	// name tag is not an ID for vendors that publish their addresses" said
-	// once, rather than re-derived per row.
-	//
-	// Patterns with no published range are unaffected (the UA string is
-	// their only rescue path, so refusing it would just block the crawler).
+	// One standing policy rather than a per-crawler choice: "a name tag is
+	// not an ID for vendors that publish their addresses" is true of all of
+	// them at once.  Patterns with no published range are unaffected (the UA
+	// string is their only rescue path, so refusing it would just block the
+	// crawler).
 	//
 	// A pointer so "not in the config" is distinguishable from "turned off":
-	// unset means ON.  This is the safe direction and the one the per-pattern
-	// default already resolved to, so an install that has never seen this
-	// setting keeps behaving exactly as before; turning it off is a decision
-	// the operator makes, and one that has to be recorded to survive.
+	// unset means ON, the safe direction; turning it off is a decision the
+	// operator makes, and one that has to be recorded to survive.
 	RequireRangeVerification *bool `yaml:"require_range_verification,omitempty"`
 	// UpstreamGroupMode: per-group override mapping that places a category
-	// into "white" (auto-pass), "black" (challenge-target), or "none"
-	// (ignore).  Only entries that differ from the built-in default are
-	// stored.  See classify.DefaultGroupMode for the defaults.
+	// into "white" (pass), "black" (stop: challenge or deny), or "none"
+	// (normal checks).  Only entries that differ from the built-in default
+	// are stored.  See classify.DefaultGroupMode for the defaults.
+	//
+	// The group's mode is the default for every crawler in it, including the
+	// ones a newer catalog adds later; UpstreamPatternMode holds the
+	// crawlers the operator set one by one.
 	UpstreamGroupMode map[string]string `yaml:"upstream_group_mode,omitempty"`
-	// UpstreamGroupAction: when a group resolves to "black", optionally
-	// override the challenge chain for that specific group (= "pow_only" /
-	// "pow_then_captcha" / "captcha_only" / "deny").  Empty / absent =
-	// inherit ChallengeTargets.DefaultAction.  Stored as a flat map so the
-	// YAML stays small and inspectable.
+	// UpstreamPatternMode: crawlers set one by one, keyed by their catalog
+	// pattern (crawler-user-agents.json `pattern`), each "white" / "none" /
+	// "black" like a group.  A listed pattern keeps its mode whatever its
+	// group is set to; an unlisted one follows the group.  Resolved through
+	// classify.ResolvePatternMode.  Edited in the group's Detail dialog.
+	UpstreamPatternMode map[string]string `yaml:"upstream_pattern_mode,omitempty"`
+	// UpstreamGroupAction: the chain a group's stopped crawlers get (=
+	// "pow_only" / "pow_then_captcha" / "captcha_only" / "deny") -- the whole
+	// group when it is set to "black", or the crawlers in it set to "black"
+	// one by one.  Empty / absent = inherit ChallengeTargets.DefaultAction.
+	// Stored as a flat map so the YAML stays small and inspectable.
 	UpstreamGroupAction map[string]string `yaml:"upstream_group_action,omitempty"`
 }
 
@@ -4685,6 +4675,7 @@ func Load(path string) (Settings, error) {
 		relocateLegacyAppearance(&s, raw)
 		warnRemovedChallengeAll(resolved, raw)
 		warnRemovedGlobalPassthrough(resolved, raw)
+		warnRemovedUpstreamLists(resolved, raw)
 	}
 	if s.Secret.BVSecret == "" {
 		// Neither config.yml nor config-init supplied a key.  A per-process

@@ -1252,23 +1252,22 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	}
 
 	// Upstream rescue groups (= crawler-user-agents.json categories).  Each
-	// group resolves to "white" / "black" / "none" via classify; collect
-	// patterns into the corresponding nginx map.  Per-pattern disable
-	// (= SearchBots.UpstreamDisabled) wins over both directions.
+	// crawler resolves to "white" / "black" / "none" -- its group's mode, or
+	// its own where the operator set it one by one
+	// (classify.ResolvePatternMode) -- and lands in the corresponding nginx
+	// map.
 	//
-	// Range-backed patterns whose UA-string rescue is effectively off are
+	// Range-backed patterns the standing policy verifies by address are
 	// dropped from the UA whitelist here: the rescue rides geo $is_bypass_ip
 	// instead, so a spoofed UA from outside the published ranges gets the
-	// normal challenge flow.  See uarange.go for the per-pattern resolution
-	// (explicit lists first, then the preset-driven auto default).
-	upstreamDisabled := toSet(s.Nginx.SearchBots.UpstreamDisabled)
-	rangeVerified := EffectiveUpstreamUAOff(s.Nginx)
-	upstreamGroupWhitePatterns, upstreamGroupBlackPatterns, notifPreviewPatterns := collectUpstreamPatternsByMode(
-		s.Nginx.SearchBots.UpstreamGroupMode, upstreamDisabled, rangeVerified)
+	// normal challenge flow.  See uarange.go.
+	rangeVerified := RangeVerifiedUA(s.Nginx)
+	upstreamGroupWhitePatterns, upstreamGroupBlackPatterns, notifPreviewPatterns, rangeVerifiedWhite := collectUpstreamPatternsByMode(
+		s.Nginx.SearchBots, rangeVerified)
 	d.SearchBotPatterns = append(d.SearchBotPatterns, upstreamGroupWhitePatterns...)
 	d.NotifPreviewPatterns = notifPreviewPatterns
 	d.NotifPreviewJA4Regex = classify.AppleCFNetworkJA4B
-	d.RangeVerifiedUACount = len(rangeVerified)
+	d.RangeVerifiedUACount = rangeVerifiedWhite
 
 	// Stale-browser tier: only wire it when enabled AND the generated pattern
 	// is non-empty (a lag so large that no positive major qualifies yields no
@@ -2255,13 +2254,6 @@ func toSet(xs []string) map[string]bool {
 	return m
 }
 
-// collectUpstreamPatternsByMode walks the upstream rescue groups and returns
-// the patterns that should land in the white map and the black map
-// respectively.  Mode is resolved per-category via classify.ResolveGroupMode.
-// Patterns listed in disabledSet are skipped regardless of mode (= explicit
-// per-pattern OFF wins over the group default).  Patterns in rangeVerified
-// are skipped on the white side only: their rescue is carried by the
-// vendor's IP-range presets (geo $is_bypass_ip), not by the UA string.
 // hardDenyUAPatterns: the UA black-list patterns whose resolved action is
 // "deny".  The precedence mirrors ServeChallenge's chain for this axis -- list
 // default, then the operator's own row, then the upstream group, then the
@@ -2340,10 +2332,12 @@ func uaPatternsWhereAction(s settings.Settings, upstreamBlack []string, want fun
 			add(p)
 		}
 	}
-	// Upstream rescue groups resolved to "black": their per-group action, or
-	// the list default when they pinned none.  upstreamBlack is already the
-	// enabled/deduped pattern set, so walk the catalogue only to find which
-	// group each pattern came from.
+	// Upstream crawlers resolved to "black" -- a whole group, or a crawler
+	// set on its own -- take their group's action, or the list default when
+	// the group pinned none.  upstreamBlack is already the deduped pattern
+	// set, so walk the catalogue only to find which group each pattern came
+	// from.
+	sb := s.Nginx.SearchBots
 	inBlack := toSet(upstreamBlack)
 	groups := classify.UpstreamRescueList()
 	cats := make([]string, 0, len(groups))
@@ -2352,14 +2346,11 @@ func uaPatternsWhereAction(s settings.Settings, upstreamBlack []string, want fun
 	}
 	sort.Strings(cats)
 	for _, cat := range cats {
-		if classify.ResolveGroupMode(cat, s.Nginx.SearchBots.UpstreamGroupMode) != classify.GroupModeBlack {
-			continue
-		}
-		if !denies(s.Nginx.SearchBots.UpstreamGroupAction[cat]) {
+		if !denies(sb.UpstreamGroupAction[cat]) {
 			continue
 		}
 		for _, e := range groups[cat] {
-			if inBlack[e.Pattern] {
+			if inBlack[e.Pattern] && classify.ResolvePatternMode(cat, e.Pattern, sb.UpstreamGroupMode, sb.UpstreamPatternMode) == classify.GroupModeBlack {
 				add(e.Pattern)
 			}
 		}
@@ -2367,7 +2358,15 @@ func uaPatternsWhereAction(s settings.Settings, upstreamBlack []string, want fun
 	return out
 }
 
-func collectUpstreamPatternsByMode(overrides map[string]string, disabledSet, rangeVerified map[string]bool) (white, black, guarded []string) {
+// collectUpstreamPatternsByMode walks the upstream rescue groups and returns
+// the patterns that should land in the white map and the black map
+// respectively, plus the guarded notification-preview patterns.  Each crawler
+// resolves through classify.ResolvePatternMode: the mode the operator set for
+// it on its own, else its group's.  Patterns in rangeVerified are skipped on
+// the white side only: their rescue is carried by the vendor's IP-range
+// presets (geo $is_bypass_ip), not by the UA string; rangeVerifiedWhite counts
+// them for the conf comment that explains the missing lines.
+func collectUpstreamPatternsByMode(sb settings.SearchBotsConfig, rangeVerified map[string]bool) (white, black, guarded []string, rangeVerifiedWhite int) {
 	groups := classify.UpstreamRescueList()
 	// Iterate categories in sorted order: groups is a map, and Go map
 	// iteration is randomized, so ranging it directly makes the rendered
@@ -2381,46 +2380,43 @@ func collectUpstreamPatternsByMode(overrides map[string]string, disabledSet, ran
 	sort.Strings(cats)
 	whiteSeen := map[string]bool{}
 	blackSeen := map[string]bool{}
+	verifiedSeen := map[string]bool{}
 	for _, cat := range cats {
-		entries := groups[cat]
-		mode := classify.ResolveGroupMode(cat, overrides)
-		switch mode {
-		case classify.GroupModeWhite:
-			// Guarded tags never join the plain UA whitelist: their rescue
-			// requires the TLS-stack condition too (see the template's
-			// $unmask_notif_preview_ua composite), because these clients call
-			// from residential device IPs with no vendor ranges and the UA
-			// alone is the whole spoof surface.
-			if cat == classify.NotificationPreviewTag {
-				for _, e := range entries {
-					if e.Pattern == "" || disabledSet[e.Pattern] {
-						continue
-					}
-					guarded = append(guarded, e.Pattern)
-				}
+		for _, e := range groups[cat] {
+			if e.Pattern == "" {
 				continue
 			}
-			for _, e := range entries {
-				if e.Pattern == "" || disabledSet[e.Pattern] || whiteSeen[e.Pattern] {
+			switch classify.ResolvePatternMode(cat, e.Pattern, sb.UpstreamGroupMode, sb.UpstreamPatternMode) {
+			case classify.GroupModeWhite:
+				// Guarded tags never join the plain UA whitelist: their rescue
+				// requires the TLS-stack condition too (see the template's
+				// $unmask_notif_preview_ua composite), because these clients
+				// call from residential device IPs with no vendor ranges and
+				// the UA alone is the whole spoof surface.
+				if cat == classify.NotificationPreviewTag {
+					guarded = append(guarded, e.Pattern)
 					continue
 				}
 				if rangeVerified[e.Pattern] {
+					if !verifiedSeen[e.Pattern] {
+						verifiedSeen[e.Pattern] = true
+						rangeVerifiedWhite++
+					}
 					continue
 				}
-				whiteSeen[e.Pattern] = true
-				white = append(white, e.Pattern)
-			}
-		case classify.GroupModeBlack:
-			for _, e := range entries {
-				if e.Pattern == "" || disabledSet[e.Pattern] || blackSeen[e.Pattern] {
-					continue
+				if !whiteSeen[e.Pattern] {
+					whiteSeen[e.Pattern] = true
+					white = append(white, e.Pattern)
 				}
-				blackSeen[e.Pattern] = true
-				black = append(black, e.Pattern)
+			case classify.GroupModeBlack:
+				if !blackSeen[e.Pattern] {
+					blackSeen[e.Pattern] = true
+					black = append(black, e.Pattern)
+				}
 			}
 		}
 	}
-	return white, black, guarded
+	return white, black, guarded, rangeVerifiedWhite
 }
 
 func defStr(v, fallback string) string {
@@ -2602,7 +2598,6 @@ func trimSpaceAndQuotes(s string) string {
 // one from there, the only thing pinning them would be that the same person
 // happened to edit both.
 func HardDenyUAPatternsForTest(s settings.Settings) []string {
-	_, black, _ := collectUpstreamPatternsByMode(
-		s.Nginx.SearchBots.UpstreamGroupMode, toSet(s.Nginx.SearchBots.UpstreamDisabled), map[string]bool{})
+	_, black, _, _ := collectUpstreamPatternsByMode(s.Nginx.SearchBots, map[string]bool{})
 	return hardDenyUAPatterns(s, black)
 }

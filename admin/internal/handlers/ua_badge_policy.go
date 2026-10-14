@@ -19,8 +19,8 @@ const (
 	// botNoteChallenged precisely because the IP axis outranks the UA one.
 	botNoteRange = "range"
 	// botNoteChallenged: no live range rescue, and the policy deliberately
-	// challenges this crawler (group black / none, or the pattern disabled).
-	// Genuine visits land here too -- nothing was failed.
+	// challenges this crawler (set to black / none, group-wide or on its
+	// own).  Genuine visits land here too -- nothing was failed.
 	botNoteChallenged = "challenged"
 	// botNoteListed: rescued by UA today, so a row here is unexplained by
 	// policy: the generic "did not verify" reading.
@@ -59,8 +59,8 @@ func crawlerBadgeNote(ua, tag string, n settings.Nginx) string {
 
 // crawlerBadgeChallenged reports whether a crawler-user-agents.json-listed UA
 // is one the CURRENT policy deliberately challenges rather than rescues: its
-// category resolves to black or none, or its own pattern sits in
-// upstream_disabled.  The hunt badge title hangs on this: for a rescued
+// category resolves to black or none, or the operator set its own pattern to
+// one of those.  The hunt badge title hangs on this: for a rescued
 // crawler, a row in the challenge log means the request failed IP-range
 // verification (the spoof signal), but for a deliberately-challenged one the
 // genuine crawler lands here too and the title must not claim a failed
@@ -89,15 +89,25 @@ func crawlerBadgeChallenged(ua, tag string, sb settings.SearchBotsConfig) bool {
 			return false
 		}
 	}
-	if classify.ResolveGroupMode(tag, sb.UpstreamGroupMode) != classify.GroupModeWhite {
-		return true
-	}
-	for _, p := range sb.UpstreamDisabled {
-		if matchedRegex(p, ua) {
-			return true
+	// A crawler set on its own decides for itself.  White wins over the
+	// other two, as it does in the render's decision map, so one matching
+	// pattern set to white means the UA is rescued.
+	unrescued := false
+	for p, mode := range sb.UpstreamPatternMode {
+		if !matchedRegex(p, ua) {
+			continue
+		}
+		switch mode {
+		case classify.GroupModeWhite:
+			return false
+		case classify.GroupModeNone, classify.GroupModeBlack:
+			unrescued = true
 		}
 	}
-	return false
+	if unrescued {
+		return true
+	}
+	return classify.ResolveGroupMode(tag, sb.UpstreamGroupMode) != classify.GroupModeWhite
 }
 
 // uaBotNoteByUA builds the per-UA lookup behind the events-table partial's

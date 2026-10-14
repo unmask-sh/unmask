@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- (2026-10-14) **Crawlers in the UA filter's presets can be set one by one.**  Each group is set to Pass, Normal checks or Stop (formerly White, Neutral, Black), which also covers crawlers a later list adds; its Detail sets any crawler to follow the group or take its own mode, so one crawler can be stopped in a passing group.  This replaces `upstream_disabled`: crawlers still listed there pass again, and the log names them.
+
 ### Fixed
 
 - (2026-10-14) **Admin pages answer within their time limits on a large database.**  The SQLite driver let a query run to its end whatever its deadline, so a page waited for its slowest card while that query held a connection: on a database larger than memory the dashboard did not answer for minutes.  Deadlines now stop the query, and the reasons card gives up early on its first day.

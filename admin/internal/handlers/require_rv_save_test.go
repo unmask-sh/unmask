@@ -13,9 +13,10 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// The policy checkbox has to survive a save round trip, and the per-pattern
-// rows it outranks must still be written -- turning the policy off is what
-// brings them back, so losing them here would make the switch one-way.
+// The policy checkbox has to survive a save round trip, and the crawlers set
+// one by one that it outranks must still be written -- turning the policy off
+// is what brings them back, so losing them here would make the switch
+// one-way.
 func TestRequireRangeVerificationSaveRoundTrip(t *testing.T) {
 	// adminScalarSiteSave / AdminSettingsSave persist through settings.Save,
 	// so the handler needs a real config file to write to.
@@ -42,10 +43,7 @@ func TestRequireRangeVerificationSaveRoundTrip(t *testing.T) {
 	if !strings.Contains(page(), `name="require_range_verification"`) {
 		t.Fatal("the ua-filter tab does not offer the policy checkbox")
 	}
-	// Off by default: this changes who gets rescued, so it is opt-in.
-	// Unset means ON: the safe direction, and the one the per-pattern default
-	// already resolved to, so an install that never saw this setting keeps
-	// behaving as before.
+	// Unset means ON: the safe direction.
 	if load0, _ := settings.Load(cfgPath); !load0.Nginx.SearchBots.RangeVerificationRequired() {
 		t.Error("an unset policy must read as on")
 	}
@@ -73,13 +71,13 @@ func TestRequireRangeVerificationSaveRoundTrip(t *testing.T) {
 		return got.Nginx
 	}
 
-	save(`require_range_verification=1&upstream_ua_enabled=Googlebot%5C%2F`)
+	save(`require_range_verification=1&upstream_pattern_mode=white%3AGooglebot%5C%2F`)
 	sb := load().SearchBots
 	if !sb.RangeVerificationRequired() {
 		t.Error("policy did not persist")
 	}
-	if len(sb.UpstreamUAEnabled) == 0 {
-		t.Error("the per-pattern opt-in was dropped; switching the policy off would not restore it")
+	if sb.UpstreamPatternMode[`Googlebot\/`] != "white" {
+		t.Error("the crawler set to pass on its own was dropped; switching the policy off would not restore it")
 	}
 	// The in-memory swap happens only after a successful nginx render, which
 	// this environment has no config for -- the save itself completed (the
@@ -94,7 +92,7 @@ func TestRequireRangeVerificationSaveRoundTrip(t *testing.T) {
 
 	// Unchecking a checkbox submits nothing at all, so the absent field has
 	// to read as false rather than leaving the stored value alone.
-	save(`upstream_ua_enabled=Googlebot%5C%2F`)
+	save(`upstream_pattern_mode=white%3AGooglebot%5C%2F`)
 	// Turning it off has to be recorded, not just left unset -- unset means on.
 	if load().SearchBots.RangeVerificationRequired() {
 		t.Error("unchecking the policy did not turn it off")
@@ -102,11 +100,10 @@ func TestRequireRangeVerificationSaveRoundTrip(t *testing.T) {
 }
 
 // The point of the switch is that the two questions stop sharing one control.
-// Out of the box a range-backed crawler is ON the rescue list (its checkbox is
-// checked -- it is a crawler we intend to let through) while the policy says
-// it is verified by address, so the effective path is IP-only.  Before this,
-// the same state showed as an UNCHECKED box, which on every other row means
-// "blocked" -- that collision is what made the list unreadable.
+// Out of the box a range-backed crawler follows its passing group (it is a
+// crawler we intend to let through) while the policy says it is verified by
+// address, so the effective path is IP-only.  The row has to read as passing,
+// with the badge saying how -- not as a crawler that is turned away.
 func TestRangeBackedRowReadsAsRescuedWhilePolicyVerifiesByIP(t *testing.T) {
 	h := newTestHandler(t)
 	// Google's range presets enabled, as a real install ships them -- without
@@ -126,26 +123,22 @@ func TestRangeBackedRowReadsAsRescuedWhilePolicyVerifiesByIP(t *testing.T) {
 	}
 	body := rr.Body.String()
 
-	// The row for a range-backed pattern: checkbox checked, badge saying the
-	// UA path is closed.
+	// The row for a range-backed pattern: following its group, which passes,
+	// and a badge saying the vendor's ranges are loaded.
 	// The attribute holds the pattern verbatim, backslash included.
-	row := regexp.MustCompile(`(?s)<label class="upstream-row" data-pattern="Googlebot\\/"[^>]*>.*?</label>`).FindString(body)
+	row := regexp.MustCompile(`(?s)<div class="upstream-row" data-pattern="Googlebot\\/"[^>]*>.*?</select>.*?</div>`).FindString(body)
 	if row == "" {
 		t.Fatal("no Googlebot row rendered")
 	}
-	if !strings.Contains(row, "checked") {
-		t.Error("a range-backed crawler must show as ON the rescue list by default; " +
-			"an unchecked box reads as \"blocked\", which is not what happens to it")
+	if !strings.Contains(row, `data-own=""`) || !regexp.MustCompile(`<option value="" selected>[^<]*\((Pass|通す)\)</option>`).MatchString(row) {
+		t.Errorf("a range-backed crawler must show as following its passing group by default, got: %.400s", row)
 	}
 	if !strings.Contains(row, "rv-on") {
-		t.Errorf("the badge must show as verified-by-address (green), got: %.200s", row)
-	}
-	if !strings.Contains(row, `data-rv-forced="1"`) {
-		t.Error("the row must be marked as settled by the policy rather than by its own checkbox")
+		t.Errorf("the badge must show as verified-by-address (green), got: %.400s", row)
 	}
 
 	// And the effective config agrees: the UA string does not rescue it.
-	if !nginxconf.EffectiveUpstreamUAOff(h.cfg().Nginx)[`Googlebot\/`] {
+	if !nginxconf.RangeVerifiedUA(h.cfg().Nginx)[`Googlebot\/`] {
 		t.Error("default install: a spoofed Googlebot UA would be rescued by the string")
 	}
 }
@@ -160,7 +153,7 @@ func TestPolicyDescriptionStatesThePresetCondition(t *testing.T) {
 	// Behaviour: preset off -> the UA rescue survives despite the policy.
 	var n settings.Nginx
 	n.SearchBots.RequireRangeVerification = settings.BoolPtr(true)
-	if nginxconf.EffectiveUpstreamUAOff(n)[`Googlebot\/`] {
+	if nginxconf.RangeVerifiedUA(n)[`Googlebot\/`] {
 		t.Fatal("precondition: with no preset loaded the UA rescue must remain")
 	}
 
@@ -187,13 +180,13 @@ func TestPolicyDescriptionStatesThePresetCondition(t *testing.T) {
 // Every piece of copy around this feature has to describe the same model, or
 // the tab teaches one thing and does another.  The model is:
 //
-//	checkbox        -> is this crawler rescued at all
-//	policy switch   -> how a rescued crawler is verified
-//	badge           -> the resulting path
+//	group / row setting -> does this crawler pass, get normal checks, or stop
+//	policy switch       -> how a passing crawler is verified
+//	badge               -> whether the vendor's ranges are loaded
 //
-// The copy predates the switch and described the checkbox itself as the UA
-// axis ("UA (この checkbox)" / "the UA checkbox ... independent rescue
-// paths"), which is no longer what it controls.  Pin the stale phrasings out.
+// Earlier copy described a per-row checkbox as the UA axis ("UA (この
+// checkbox)" / "the UA checkbox ... independent rescue paths"), and named the
+// group settings after lists (白 / 中立 / 黒).  Pin the stale phrasings out.
 func TestUAFilterCopyMatchesTheCurrentModel(t *testing.T) {
 	for _, lang := range []i18n.Lang{"ja", "en"} {
 		legend := i18n.T(lang, "settings.ua.upstream.rv_note")
@@ -207,14 +200,13 @@ func TestUAFilterCopyMatchesTheCurrentModel(t *testing.T) {
 			"checking the box passes the bot by UA",
 			"既定で UA の自動 pass から外れ", // intro: describes the retired auto-default
 			"out of the UA auto-pass by default",
-			// Off does not re-open the UA path on its own: the per-pattern
-			// auto rule keeps it closed while the presets are live.
-			"OFF にすると UA でも通過",
-			"Turning that setting off lets the UA pass",
+			// The group settings are named for what they do, not for lists.
+			"白 (ホワイトリスト)", "中立", "White (allowlist)", "Neutral",
+			"チェックを入れた", "ticked",
 		} {
 			for name, text := range map[string]string{"legend": legend, "intro": intro} {
 				if strings.Contains(text, stale) {
-					t.Errorf("%s/%s still says %q -- the checkbox no longer selects the UA path", lang, name, stale)
+					t.Errorf("%s/%s still says %q -- the copy describes a retired model", lang, name, stale)
 				}
 			}
 		}
@@ -224,7 +216,6 @@ func TestUAFilterCopyMatchesTheCurrentModel(t *testing.T) {
 		if strings.Contains(head, "UA だけで通さない") || strings.Contains(head, "on the UA alone") {
 			t.Errorf("%s heading reads as \"not by UA alone\": %q", lang, head)
 		}
-		// And the legend has to name what the checkbox does mean now.
 		// The legend shows the two real badges and states the CONDITION behind
 		// each, rather than naming colours or restating the outcome: an
 		// operator looking at a grey badge wants to know what to change, and

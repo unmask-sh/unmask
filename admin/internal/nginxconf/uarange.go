@@ -4,32 +4,31 @@
 // Rationale: an attacker picks the most-trusted UA to spoof, and the vendors
 // whose UAs are most spoofed (Google, Bing, OpenAI, ...) are exactly the ones
 // that publish their egress ranges.  For these patterns the UA string is a
-// name tag, not an ID: the default drops them from the UA whitelist and lets
-// the rescue ride the vendor's IP ranges instead (geo $is_bypass_ip / the
-// forward-auth challenge matcher).  A genuine crawler always arrives from a
-// published range, so it still passes; a fake UA from outside the ranges
-// falls through to the normal challenge flow.
+// name tag, not an ID: under the standing policy
+// (SearchBots.RequireRangeVerification, on unless the operator turns it off)
+// they are dropped from the UA whitelist and the rescue rides the vendor's IP
+// ranges instead (geo $is_bypass_ip / the forward-auth challenge matcher).  A
+// genuine crawler always arrives from a published range, so it still passes;
+// a fake UA from outside the ranges falls through to the normal challenge
+// flow.
 //
 // The UA axis and the IP-preset axis are independent (each tab's toggle only
-// controls its own rescue path; both ON simply ORs the two paths).  The
-// per-pattern UA state resolves as:
+// controls its own rescue path; both ON simply ORs the two paths).  A
+// range-backed pattern loses its UA rescue when:
 //
-//  1. listed in SearchBots.UpstreamDisabled  -> UA rescue OFF (explicit)
-//  2. listed in SearchBots.UpstreamUAEnabled -> UA rescue ON  (explicit;
-//     the operator accepts that a spoofed UA passes too)
-//  3. neither (auto) -> OFF while every backing preset is enabled, ON
-//     otherwise.  The auto rule keeps an install safe without a config
-//     migration: a preset an operator keeps off stays on UA-only rescue --
-//     never "UA
-//     dropped AND range off = genuine crawler challenged" -- and a current
-//     install gets IP-verification by default.  Saving the UA-filter tab
-//     writes the shown state into the explicit lists, after which the IP
-//     tab no longer influences this axis.
+//  1. it does not resolve to "white" at all (its group, or the crawler set on
+//     its own -- classify.ResolvePatternMode): nothing rescues it by UA, OR
+//  2. the policy is on AND every preset backing it is enabled
+//     (RangeVerifiedUA).  The presets are required: until the addresses are
+//     loaded the policy has nothing to verify against, so the name stands --
+//     never "UA dropped AND range off = genuine crawler challenged" by the
+//     policy's own hand.
 package nginxconf
 
 import (
 	"sort"
 
+	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -164,50 +163,40 @@ func bypassIPGroupByID(id string) *BypassIPGroup {
 	return nil
 }
 
-// EffectiveUpstreamUAOff returns the set of range-backed upstream UA patterns
-// whose UA-string rescue is effectively off under the given settings (see the
-// package comment for the explicit-lists-then-auto resolution).  Callers drop
-// these patterns from the UA whitelist (native render) / the search_ai pass
-// (forward-auth); whether the request still passes is then purely the IP
-// axis's business (bypass-IP presets).
-func EffectiveUpstreamUAOff(n settings.Nginx) map[string]bool {
-	disabled := make(map[string]bool, len(n.SearchBots.UpstreamDisabled))
-	for _, p := range n.SearchBots.UpstreamDisabled {
-		disabled[p] = true
-	}
-	uaEnabled := make(map[string]bool, len(n.SearchBots.UpstreamUAEnabled))
-	for _, p := range n.SearchBots.UpstreamUAEnabled {
-		uaEnabled[p] = true
-	}
+// RangeVerifiedUA returns the set of range-backed upstream UA patterns the
+// standing policy verifies by address: the policy is on and every preset
+// backing the pattern is enabled.  Callers drop these patterns from the UA
+// whitelist (native render) / the search_ai pass (forward-auth); whether the
+// request still passes is then purely the IP axis's business (bypass-IP
+// presets).
+//
+// A crawler set to "none" or "black" is not in this set: it has no UA rescue
+// to replace, and the render and IsBot already keep it off the rescue list
+// (collectUpstreamPatternsByMode, UpstreamUnrescued).
+func RangeVerifiedUA(n settings.Nginx) map[string]bool {
 	out := make(map[string]bool, len(UARangePresets))
+	if !n.SearchBots.RangeVerificationRequired() {
+		return out
+	}
 	for pat := range UARangePresets {
-		switch {
-		// Standing policy wins over every per-pattern state, including an
-		// explicit UA opt-in: the operator turned it on precisely to stop
-		// vendor-branded UAs passing on the strength of the string, and a
-		// row saved months earlier should not quietly carve an exception
-		// out of it.  Turning the policy back off restores the per-pattern
-		// states below untouched -- they are still in the config.
-		//
-		// RangePresetsActive is required, not incidental.  The policy says
-		// "verify a rescued crawler by address rather than by name", so it
-		// has nothing to act on until the addresses are loaded (preset off)
-		// -- the name stands until then.
-		//
-		// Not rescuing a crawler at all is a separate, legitimate choice,
-		// and it has its own control: the per-pattern checkbox
-		// (UpstreamDisabled).  Letting this policy collapse into that would
-		// silently answer a question the operator did not ask here.
-		case n.SearchBots.RangeVerificationRequired() && RangePresetsActive(n, pat):
-			out[pat] = true
-		case disabled[pat]:
-			out[pat] = true
-		case uaEnabled[pat]:
-			// explicit UA-only opt-in
-		case RangePresetsActive(n, pat):
+		if RangePresetsActive(n, pat) {
 			out[pat] = true
 		}
 	}
+	return out
+}
+
+// UpstreamUnrescued: the crawlers the operator set one by one to "none" or
+// "black", sorted -- the patterns classify.IsBot must not report as a
+// rescued search_ai hit (classify.SetUpstreamUnrescued).
+func UpstreamUnrescued(n settings.Nginx) []string {
+	var out []string
+	for pat, mode := range n.SearchBots.UpstreamPatternMode {
+		if mode == classify.GroupModeNone || mode == classify.GroupModeBlack {
+			out = append(out, pat)
+		}
+	}
+	sort.Strings(out)
 	return out
 }
 
@@ -223,11 +212,11 @@ func RangeVerifiedPresetIDs(pattern string) []string {
 // when they are.
 //
 // Deliberately absolute: it answers "can this bot be verified by address at
-// all", and nothing about the row's own UA checkbox.  An earlier version folded
-// both in (green only when the row also had its UA rescue off), which left the
+// all", and nothing about how the row is set.  An earlier version folded both
+// in (green only when the row also had its UA rescue off), which left the
 // badge changing colour for two unrelated reasons and a legend that could not
 // describe either without contradicting the policy switch.  What a bot with a
-// green badge does is now read off the switch and the row's checkbox, each of
+// green badge does is read off the switch and the row's own setting, each of
 // which says one thing.
 func UpstreamRangeActive(n settings.Nginx) map[string]bool {
 	out := make(map[string]bool, len(UARangePresets))
@@ -237,10 +226,10 @@ func UpstreamRangeActive(n settings.Nginx) map[string]bool {
 	return out
 }
 
-// SortedUpstreamUAOff: EffectiveUpstreamUAOff as a sorted slice, for
+// SortedRangeVerifiedUA: RangeVerifiedUA as a sorted slice, for
 // deterministic joins (regex alternation, rendered comments).
-func SortedUpstreamUAOff(n settings.Nginx) []string {
-	set := EffectiveUpstreamUAOff(n)
+func SortedRangeVerifiedUA(n settings.Nginx) []string {
+	set := RangeVerifiedUA(n)
 	out := make([]string, 0, len(set))
 	for p := range set {
 		out = append(out, p)

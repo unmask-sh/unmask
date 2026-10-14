@@ -56,43 +56,35 @@ func allPresetIDs() []string {
 	return ids
 }
 
-// TestEffectiveUpstreamUAOffAuto pins the auto default (no explicit lists):
-// identical to the v0.1.7 inversion, so an unsaved upgrade keeps its exact
-// pre-decouple behavior — UA off while every backing preset is live, UA-only
-// rescue otherwise (never "UA dropped AND range off").
-func TestEffectiveUpstreamUAOffAuto(t *testing.T) {
+// TestRangeVerifiedUA pins what the standing policy verifies by address: every
+// range-backed pattern whose backing presets are all live, and nothing while
+// the presets are off (never "UA dropped AND range off" by the policy's own
+// hand).
+func TestRangeVerifiedUA(t *testing.T) {
 	allOn := allPresetIDs()
 
-	// Operator saved on the release that shipped the new presets: everything
-	// mapped is UA-off (rescued by IP ranges).
+	// Every preset live: everything mapped is verified by its ranges.
 	n := settings.Nginx{BypassIPEnabledPresets: allOn, SeenVersion: "v0.1.7"}
-	set := EffectiveUpstreamUAOff(n)
+	set := RangeVerifiedUA(n)
 	for _, pat := range []string{`Googlebot\/`, `bingbot`, `GPTBot`, `Amazonbot`, `DuckAssistBot`, `Perplexity-User`} {
 		if !set[pat] {
-			t.Errorf("all presets on: expected %q UA-off", pat)
+			t.Errorf("all presets on: expected %q verified by address", pat)
 		}
 	}
 	if len(set) != len(UARangePresets) {
-		t.Errorf("all presets on: got %d UA-off patterns, want %d", len(set), len(UARangePresets))
+		t.Errorf("all presets on: got %d verified patterns, want %d", len(set), len(UARangePresets))
 	}
 
-	// SeenVersion no longer gates: the opt-in gate was removed, so an operator
-	// still on v0.1.6 gets the newer presets active exactly like a current save —
-	// every backing pattern is UA-off, nothing held back on UA-only rescue.
+	// SeenVersion does not gate: an operator still on v0.1.6 gets the newer
+	// presets active exactly like a current save.
 	n.SeenVersion = "v0.1.6"
-	set = EffectiveUpstreamUAOff(n)
-	for _, pat := range []string{`Amazonbot`, `Applebot`, `DuckAssistBot`, `Perplexity-User`, `Googlebot\/`, `bingbot`} {
-		if !set[pat] {
-			t.Errorf("seenVer v0.1.6: expected %q UA-off (gate removed, preset active)", pat)
-		}
-	}
-	if len(set) != len(UARangePresets) {
-		t.Errorf("seenVer v0.1.6: got %d UA-off patterns, want %d (SeenVersion must not gate)", len(set), len(UARangePresets))
+	if set = RangeVerifiedUA(n); len(set) != len(UARangePresets) {
+		t.Errorf("seenVer v0.1.6: got %d verified patterns, want %d (SeenVersion must not gate)", len(set), len(UARangePresets))
 	}
 
 	// Union fallback: disabling ONE Google range preset reverts every Google
-	// pattern to UA-only rescue (never "UA required with a hole in the
-	// ranges"), and leaves other vendors UA-off.
+	// pattern to its UA rescue (never "UA required with a hole in the
+	// ranges"), and leaves other vendors verified.
 	partial := make([]string, 0, len(allOn))
 	for _, id := range allOn {
 		if id == "google-special" {
@@ -101,73 +93,61 @@ func TestEffectiveUpstreamUAOffAuto(t *testing.T) {
 		partial = append(partial, id)
 	}
 	n = settings.Nginx{BypassIPEnabledPresets: partial, SeenVersion: "v0.1.7"}
-	set = EffectiveUpstreamUAOff(n)
+	set = RangeVerifiedUA(n)
 	for _, pat := range []string{`Googlebot\/`, `AdsBot-Google([^-]|$)`, `Google-Site-Verification`} {
 		if set[pat] {
-			t.Errorf("google-special off: expected %q to fall back to UA-only", pat)
+			t.Errorf("google-special off: expected %q to fall back to its UA rescue", pat)
 		}
 	}
 	if !set[`bingbot`] || !set[`GPTBot`] {
-		t.Error("google-special off: unrelated vendors must stay UA-off")
+		t.Error("google-special off: unrelated vendors must stay verified")
 	}
 
-	// SeenVersion is irrelevant to the effective set now (gate removed); an
-	// unparseable dev/source build is no exception -- presets stay effective.
+	// An unparseable dev/source build is no exception -- presets stay effective.
 	n = settings.Nginx{BypassIPEnabledPresets: allOn, SeenVersion: "v6f94983"}
-	if set = EffectiveUpstreamUAOff(n); !set[`Amazonbot`] {
+	if set = RangeVerifiedUA(n); !set[`Amazonbot`] {
 		t.Error("dev build seenVer: expected presets effective")
 	}
 
-	// No presets enabled: nothing UA-off.
+	// No presets enabled: nothing to verify against.
 	n = settings.Nginx{SeenVersion: "v0.1.7"}
-	if set = EffectiveUpstreamUAOff(n); len(set) != 0 {
-		t.Errorf("no presets: want empty UA-off set, got %d", len(set))
+	if set = RangeVerifiedUA(n); len(set) != 0 {
+		t.Errorf("no presets: want an empty set, got %d", len(set))
+	}
+
+	// The policy off: nothing is verified by address, whatever is live -- a
+	// crawler set to pass passes on its UA string as well (the OR state).
+	n = settings.Nginx{BypassIPEnabledPresets: allOn, SeenVersion: "v0.1.7"}
+	n.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
+	if set = RangeVerifiedUA(n); len(set) != 0 {
+		t.Errorf("policy off: want an empty set, got %d", len(set))
 	}
 }
 
-// TestEffectiveUpstreamUAOffExplicit pins the explicit lists: they beat the
-// auto default in both directions, and the two axes stay independent (the IP
-// preset state no longer moves a pattern that has been saved explicitly).
-func TestEffectiveUpstreamUAOffExplicit(t *testing.T) {
+// How a row is set does not move the verified set: a crawler set to "none"
+// or "black" has no UA rescue to replace, and the render and IsBot keep it
+// off the rescue list on their own.  UpstreamUnrescued is that list for IsBot.
+func TestRangeVerifiedIgnoresTheRowsOwnMode(t *testing.T) {
 	allOn := allPresetIDs()
-
-	// Explicit UA opt-in: the pattern keeps UA rescue although every preset
-	// is live (the OR state — a spoofed UA passes and the operator said ok).
-	// Requires the standing policy off: when it is on it outranks this
-	// per-pattern choice (see require_range_verification_test.go).
-	n := settings.Nginx{BypassIPEnabledPresets: allOn, SeenVersion: "v0.1.7"}
-	n.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
-	n.SearchBots.UpstreamUAEnabled = []string{`Googlebot\/`}
-	set := EffectiveUpstreamUAOff(n)
-	if set[`Googlebot\/`] {
-		t.Error("UpstreamUAEnabled: expected Googlebot to keep UA rescue")
-	}
-	if !set[`bingbot`] {
-		t.Error("UpstreamUAEnabled: unrelated patterns must stay UA-off")
+	for _, mode := range []string{"white", "none", "black"} {
+		n := settings.Nginx{BypassIPEnabledPresets: allOn, SeenVersion: "v0.1.7"}
+		n.SearchBots.UpstreamPatternMode = map[string]string{`Googlebot\/`: mode}
+		if !RangeVerifiedUA(n)[`Googlebot\/`] {
+			t.Errorf("Googlebot set to %s: the policy still verifies it by address", mode)
+		}
 	}
 
-	// Explicit disable: UA-off even with every preset inactive — the operator
-	// chose it, so it does NOT fall back to UA-only rescue.
-	n = settings.Nginx{SeenVersion: "v0.1.7"}
-	n.SearchBots.UpstreamDisabled = []string{`Googlebot\/`}
-	set = EffectiveUpstreamUAOff(n)
-	if !set[`Googlebot\/`] {
-		t.Error("UpstreamDisabled: expected Googlebot UA-off with presets inactive")
-	}
-
-	// Disabled wins over UAEnabled when both list the same pattern.
-	n = settings.Nginx{BypassIPEnabledPresets: allOn, SeenVersion: "v0.1.7"}
-	n.SearchBots.UpstreamDisabled = []string{`GPTBot`}
-	n.SearchBots.UpstreamUAEnabled = []string{`GPTBot`}
-	if set = EffectiveUpstreamUAOff(n); !set[`GPTBot`] {
-		t.Error("both lists: disabled must win")
+	n := settings.Nginx{}
+	n.SearchBots.UpstreamPatternMode = map[string]string{`GPTBot`: "black", `bingbot`: "none", `Applebot`: "white", `odd`: "maybe"}
+	if got := UpstreamUnrescued(n); len(got) != 2 || got[0] != `GPTBot` || got[1] != `bingbot` {
+		t.Errorf("UpstreamUnrescued = %q, want [GPTBot bingbot] (none and black, sorted)", got)
 	}
 }
 
 // The badge reports one thing: is this bot's range preset enabled.  It must
 // not move for any other reason -- the legend states it as an absolute, and a
-// badge that also tracked the row's checkbox is what made the previous legend
-// self-contradictory.
+// badge that also tracked the row's own setting is what made an earlier
+// legend self-contradictory.
 func TestBadgeFollowsThePresetAndNothingElse(t *testing.T) {
 	allOn := allPresetIDs()
 	const pat = `Googlebot\/`
@@ -181,19 +161,17 @@ func TestBadgeFollowsThePresetAndNothingElse(t *testing.T) {
 		t.Error("preset disabled: the badge must be grey")
 	}
 
-	// Neither the policy nor the row's own checkbox may move it.
+	// Neither the policy nor how the row is set may move it.
 	for _, policy := range []bool{true, false} {
-		for _, rowUA := range []bool{true, false} {
+		for _, mode := range []string{"", "white", "none", "black"} {
 			n := settings.Nginx{BypassIPEnabledPresets: allOn, SeenVersion: "v99.0.0"}
 			n.SearchBots.RequireRangeVerification = settings.BoolPtr(policy)
-			if rowUA {
-				n.SearchBots.UpstreamUAEnabled = []string{pat}
-			} else {
-				n.SearchBots.UpstreamDisabled = []string{pat}
+			if mode != "" {
+				n.SearchBots.UpstreamPatternMode = map[string]string{pat: mode}
 			}
 			if !UpstreamRangeActive(n)[pat] {
-				t.Errorf("policy=%v rowUA=%v: the preset is still enabled, so the badge must stay green",
-					policy, rowUA)
+				t.Errorf("policy=%v row=%q: the preset is still enabled, so the badge must stay green",
+					policy, mode)
 			}
 		}
 	}

@@ -183,21 +183,19 @@ func autoBypassPresetIDsUngated(n settings.Nginx) map[string][]string {
 	for _, id := range n.BypassIPAutoExcluded {
 		excluded[id] = true
 	}
-	disabled := map[string]bool{}
-	for _, p := range n.SearchBots.UpstreamDisabled {
-		disabled[p] = true
-	}
+	sb := n.SearchBots
 	cats := patternCategories()
 
 	// Intent is judged per PRESET, and a preset is vendor-wide while the UA
 	// config is per-pattern: Google's ad crawlers and its search crawler ride
 	// the same ranges.  Enabling the preset because one white pattern shows
 	// intent would also address-pass every OTHER pattern the ranges back --
-	// including one whose group the operator set to black, and bypass
-	// outranks the challenge that black asked for.  So the bar is total: a
+	// including one the operator set to black, group-wide or on its own, and
+	// bypass outranks the challenge that black asked for.  So the bar is total: a
 	// preset derives only when EVERY pattern it backs currently passes by UA
-	// (group white, not disabled).  Anything short of that is a mixed signal,
-	// and mixed signals are the operator's call, not this rule's.
+	// (its group, or the crawler set on its own, resolves to white).  Anything
+	// short of that is a mixed signal, and mixed signals are the operator's
+	// call, not this rule's.
 	type tally struct {
 		white  []string
 		vetoed bool
@@ -205,8 +203,8 @@ func autoBypassPresetIDsUngated(n settings.Nginx) map[string][]string {
 	tallies := map[string]*tally{}
 	for pat, ids := range UARangePresets {
 		cat, known := cats[pat]
-		passes := known && !disabled[pat] &&
-			classify.ResolveGroupMode(cat, n.SearchBots.UpstreamGroupMode) == classify.GroupModeWhite
+		passes := known &&
+			classify.ResolvePatternMode(cat, pat, sb.UpstreamGroupMode, sb.UpstreamPatternMode) == classify.GroupModeWhite
 		for _, id := range ids {
 			if explicit[id] || excluded[id] {
 				continue

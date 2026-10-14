@@ -140,68 +140,9 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// to time.UTC when the cookie is empty / invalid.
 	loc := resolveLocation(r)
 
-	// upstream rescue summary: aggregate pattern counts for the UI banner.
-	//
-	// The per-pattern checkbox shows INTENT -- "is this crawler on the rescue
-	// list at all" -- not the effective rescue path.  Those are two questions,
-	// and answering both with one control is what made this list hard to read:
-	// a range-backed row appeared unchecked, which on any other row means
-	// "blocked", while here it meant "passes, verified by IP".  How a rescued
-	// crawler is verified is now the standing policy's business (the switch
-	// above the rows), and the per-pattern badge states the resulting path.
-	upstreamRescue := classify.UpstreamRescueList()
-	upstreamDisabledSet := toSet(cur.SearchBots.UpstreamDisabled)
-	upstreamUAOffView := map[string]bool{}
-	for p := range upstreamDisabledSet {
-		upstreamUAOffView[p] = true
-	}
-	// With the policy off, the UA path is per-pattern again, so the checkbox
-	// goes back to showing that resolution.
-	if !cur.SearchBots.RangeVerificationRequired() {
-		for p, off := range nginxconf.EffectiveUpstreamUAOff(cur) {
-			if off {
-				upstreamUAOffView[p] = true
-			}
-		}
-	}
-	upstreamTotal := 0
-	upstreamEnabled := 0
-	for _, entries := range upstreamRescue {
-		for _, e := range entries {
-			upstreamTotal++
-			if !upstreamUAOffView[e.Pattern] {
-				upstreamEnabled++
-			}
-		}
-	}
-	upstreamGroupMode := map[string]string{}
-	upstreamGroupAction := map[string]string{}
-	for cat := range upstreamRescue {
-		upstreamGroupMode[cat] = classify.ResolveGroupMode(cat, cur.SearchBots.UpstreamGroupMode)
-		if cur.SearchBots.UpstreamGroupAction != nil {
-			upstreamGroupAction[cat] = cur.SearchBots.UpstreamGroupAction[cat]
-		}
-	}
-	// Range-verification badges for the detail modal: which patterns have a
-	// published vendor IP range at all (backed), and for those, whether the
-	// vendor's addresses are loaded right now (= the badge is green).
-	// catHasRV drives the per-category legend line.  UpstreamUAOff feeds the
-	// checkbox state so the UI shows the *effective* UA rescue, explicit or
-	// auto.
-	upstreamRangeBacked := make(map[string]bool, len(nginxconf.UARangePresets))
-	for pat := range nginxconf.UARangePresets {
-		upstreamRangeBacked[pat] = true
-	}
-	upstreamRVActive := nginxconf.UpstreamRangeActive(cur)
-	upstreamCatHasRV := map[string]bool{}
-	for cat, entries := range upstreamRescue {
-		for _, e := range entries {
-			if upstreamRangeBacked[e.Pattern] {
-				upstreamCatHasRV[cat] = true
-				break
-			}
-		}
-	}
+	// The crawler card: each upstream group with its crawlers, how each is
+	// set, and the vendor-range badges (ua_upstream_view.go).
+	upstream := buildUpstreamView(cur)
 
 	// JA4 verdicts: same shape
 	disabledV := toSet(cur.JA4Verdicts.DisabledPresets)
@@ -833,25 +774,17 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			info, _ := buildIPGeoPathInfo(h.cfg().IPGeo.MMDBASNPath, loc)
 			return info
 		}(),
-		"LBPresets":             buildLBPresetView(cur),
-		"LBExtras":              buildLBExtraView(cur),
-		"SearchBotsRules":       pairRules(cur.SearchBots.Extra, cur.SearchBots.ExtraTitle, cur.SearchBots.ExtraDisabled, cur.SearchBots.ExtraCreatedAt, cur.SearchBots.ExtraUpdatedAt, nil),
-		"UpstreamRescue":        upstreamRescue,
-		"UpstreamUAOff":         upstreamUAOffView,
-		"UpstreamRescueTotal":   upstreamTotal,
-		"UpstreamRescueEnabled": upstreamEnabled,
-		"UpstreamGroupMode":     upstreamGroupMode,
-		"UpstreamGroupAction":   upstreamGroupAction,
-		"UpstreamRangeBacked":   upstreamRangeBacked,
-		"UpstreamRVActive":      upstreamRVActive,
-		"UpstreamCatHasRV":      upstreamCatHasRV,
-		"JA4Groups":             ja4Groups,
-		"JA4Rules":              ja4ExtraRules,
-		"JA4Verdicts":           cur.JA4Verdicts,
-		"JA4PresetAction":       cur.JA4Verdicts.PresetAction,
-		"JA4ExtraAction":        padToLen(cur.JA4Verdicts.ExtraAction, len(cur.JA4Verdicts.Extra)),
-		"ChallengeGroups":       tgtGroups,
-		"ChallengeRules":        pairRules(cur.ChallengeTargets.Extra, cur.ChallengeTargets.ExtraTitle, cur.ChallengeTargets.ExtraDisabled, cur.ChallengeTargets.ExtraCreatedAt, cur.ChallengeTargets.ExtraUpdatedAt, cur.ChallengeTargets.ExtraAction),
+		"LBPresets":       buildLBPresetView(cur),
+		"LBExtras":        buildLBExtraView(cur),
+		"SearchBotsRules": pairRules(cur.SearchBots.Extra, cur.SearchBots.ExtraTitle, cur.SearchBots.ExtraDisabled, cur.SearchBots.ExtraCreatedAt, cur.SearchBots.ExtraUpdatedAt, nil),
+		"Upstream":        upstream,
+		"JA4Groups":       ja4Groups,
+		"JA4Rules":        ja4ExtraRules,
+		"JA4Verdicts":     cur.JA4Verdicts,
+		"JA4PresetAction": cur.JA4Verdicts.PresetAction,
+		"JA4ExtraAction":  padToLen(cur.JA4Verdicts.ExtraAction, len(cur.JA4Verdicts.Extra)),
+		"ChallengeGroups": tgtGroups,
+		"ChallengeRules":  pairRules(cur.ChallengeTargets.Extra, cur.ChallengeTargets.ExtraTitle, cur.ChallengeTargets.ExtraDisabled, cur.ChallengeTargets.ExtraCreatedAt, cur.ChallengeTargets.ExtraUpdatedAt, cur.ChallengeTargets.ExtraAction),
 		// What "inherit" resolves to, so a row that pins nothing still says
 		// which chain it will run rather than just "inherit".
 		"ChallengeDefaultActionLabel": h.resolvedUABlacklistAction(),
@@ -2023,10 +1956,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		h.IPGeo.Reload(cur.IPGeo.MMDBPath, cur.IPGeo.MMDBASNPath)
 	}
 
-	// classify hot-swap: rebuild the upstream per-pattern disable filter so
+	// classify hot-swap: rebuild the filter of crawlers set one by one so
 	// the next IsBot call reflects the saved settings.
 	if section == "ua-filter" {
-		classify.SetUpstreamDisabled(cur.Nginx.SearchBots.UpstreamDisabled)
+		classify.SetUpstreamUnrescued(nginxconf.UpstreamUnrescued(cur.Nginx))
 	}
 
 	// notifier hot-swap (= picks up URL / format / threshold changes immediately)
@@ -3380,47 +3313,17 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 	}
 	n.SearchBots.Extra, n.SearchBots.ExtraTitle, n.SearchBots.ExtraDisabled, n.SearchBots.ExtraCreatedAt, n.SearchBots.ExtraUpdatedAt = whiteP, whiteT, whiteD, whiteC, whiteU
 
-	// upstream auto-rescue per-pattern disable list (= modal popup form).
-	// Dedup + strip empty so the YAML stays tidy.
-	seen := map[string]bool{}
-	upDisabled := []string{}
-	for _, p := range r.Form["upstream_disabled"] {
-		p = strings.TrimSpace(p)
-		if p == "" || seen[p] {
-			continue
-		}
-		seen[p] = true
-		upDisabled = append(upDisabled, p)
-	}
-	n.SearchBots.UpstreamDisabled = upDisabled
-
-	// Explicit UA-string rescue opt-in for range-backed patterns.  The
-	// submit JS mirrors every range-backed checkbox into exactly one of the
-	// two hidden lists (checked -> upstream_ua_enabled, unchecked ->
-	// upstream_disabled), so a saved UA-filter tab is fully explicit and the
-	// preset-driven auto default (uarange.go) no longer applies to it.
-	// Non-range-backed patterns are dropped: UA rescue is their only path,
-	// so listing them would be dead weight in the YAML.
-	seenUA := map[string]bool{}
-	uaEnabled := []string{}
-	for _, p := range r.Form["upstream_ua_enabled"] {
-		p = strings.TrimSpace(p)
-		if p == "" || seenUA[p] || seen[p] || nginxconf.RangeVerifiedPresetIDs(p) == nil {
-			continue
-		}
-		seenUA[p] = true
-		uaEnabled = append(uaEnabled, p)
-	}
-	n.SearchBots.UpstreamUAEnabled = uaEnabled
+	// Crawlers set one by one (= the groups' Detail dialogs).  The page
+	// posts only the crawlers that do not follow their group, so this map is
+	// the whole state, not a patch on the saved one.
+	n.SearchBots.UpstreamPatternMode = parseUpstreamPatternModes(r.Form["upstream_pattern_mode"], r.Form["upstream_pattern_drop"])
 
 	// Standing policy: refuse the UA-string rescue for every vendor that
-	// publishes an egress range.  Kept separate from the per-pattern lists
-	// above so turning it off restores them untouched -- they are still in
-	// the config, just outranked while this is on (EffectiveUpstreamUAOff).
-	// Store only the departure from the default.  Unset already means on, so
-	// writing an explicit `true` would add a line to every config the moment
-	// this tab is saved -- and a save that changes the file without changing
-	// anything is exactly what the no-op-save guard exists to catch.
+	// publishes an egress range (RangeVerifiedUA).  Store only the departure
+	// from the default.  Unset already means on, so writing an explicit
+	// `true` would add a line to every config the moment this tab is saved --
+	// and a save that changes the file without changing anything is exactly
+	// what the no-op-save guard exists to catch.
 	if r.FormValue("require_range_verification") == "1" {
 		n.SearchBots.RequireRangeVerification = nil
 	} else {
@@ -3457,10 +3360,10 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 		n.SearchBots.UpstreamGroupMode = overrides
 	}
 
-	// per-group challenge action override (= only meaningful for groups
-	// resolved to black, so we keep entries even if the group is currently
-	// white — the user may flip the mode later and expect the override to
-	// be remembered).
+	// per-group challenge action override: the chain for the group's stopped
+	// crawlers, group-wide or set one by one.  The picker is posted whether
+	// or not anything in the group is stopped right now, so a group that is
+	// not keeps its choice for when one is.
 	actOverrides := map[string]string{}
 	for cat, vals := range r.Form {
 		if !strings.HasPrefix(cat, "upstream_group_action__") {

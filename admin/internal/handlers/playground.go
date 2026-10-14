@@ -122,14 +122,14 @@ func (h *Handler) AdminPlaygroundEval(w http.ResponseWriter, r *http.Request) {
 	}
 	cat := classify.IsBot(in.UA, verdictForClassify).String()
 
-	// 2b. Range-backed crawler UAs with UA-string rescue off (uarange.go)
-	// are not rescued by the UA string alone; the playground can't run the
-	// geo CIDR check on the IP field (see the bypass-IP note below), so
-	// surface the conditional instead of promising a pass a spoof would not
-	// get.
+	// 2b. Range-backed crawler UAs the standing policy verifies by address
+	// (uarange.go) are not rescued by the UA string alone; the playground
+	// can't run the geo CIDR check on the IP field (see the bypass-IP note
+	// below), so surface the conditional instead of promising a pass a spoof
+	// would not get.
 	rangeVerified := false
 	if cat == "search_ai" {
-		if pats := nginxconf.SortedUpstreamUAOff(cur); len(pats) > 0 {
+		if pats := nginxconf.SortedRangeVerifiedUA(cur); len(pats) > 0 {
 			if re := compileCachedRe("(?i)(?:" + strings.Join(pats, ")|(?:") + ")"); re != nil && re.MatchString(in.UA) {
 				rangeVerified = true
 			}

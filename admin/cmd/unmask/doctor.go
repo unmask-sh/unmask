@@ -40,6 +40,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/assets"
 	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
+	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/handlers"
@@ -185,7 +186,7 @@ func cmdDoctor(args []string) error {
 	// genuine crawlers arriving from newly added vendor IPs.  The embed
 	// snapshot carries no fetch date (vendors' creationTime can sit for years,
 	// e.g. Applebot), so the synced override files' mtime is the signal.
-	if inverted := nginxconf.EffectiveUpstreamUAOff(s.Nginx); len(inverted) > 0 {
+	if inverted := nginxconf.RangeVerifiedUA(s.Nginx); len(inverted) > 0 {
 		need := map[string]bool{}
 		for pat := range inverted {
 			for _, id := range nginxconf.UARangePresets[pat] {
@@ -240,21 +241,32 @@ func cmdDoctor(args []string) error {
 		}
 	}
 
-	// 2d. crawler patterns with no rescue path at all (UA rescue explicitly
-	// off AND the backing range presets inactive).  Auto resolution never
-	// lands here, so this is always the product of explicit choices — but a
-	// genuine crawler is challenged, which usually means an SEO accident.
-	if uaOff := nginxconf.EffectiveUpstreamUAOff(s.Nginx); len(uaOff) > 0 {
+	// 2d. crawler patterns with no rescue path at all (set to "none" on the
+	// UA-filter tab AND the backing range presets inactive).  The standing
+	// policy never lands here -- it needs the presets live to act -- so this
+	// is always the product of explicit choices, but a genuine crawler is
+	// judged like any other client, which usually means an SEO accident.  A
+	// crawler set to "black" is left out: stopping it is what was asked for.
+	{
+		sb := s.Nginx.SearchBots
+		cats := map[string]string{}
+		for cat, entries := range classify.UpstreamRescueList() {
+			for _, e := range entries {
+				cats[e.Pattern] = cat
+			}
+		}
 		var none []string
 		for pat := range nginxconf.UARangePresets {
-			if uaOff[pat] && !nginxconf.RangePresetsActive(s.Nginx, pat) {
+			cat, known := cats[pat]
+			if known && classify.ResolvePatternMode(cat, pat, sb.UpstreamGroupMode, sb.UpstreamPatternMode) == classify.GroupModeNone &&
+				!nginxconf.RangePresetsActive(s.Nginx, pat) {
 				none = append(none, pat)
 			}
 		}
 		if len(none) > 0 {
 			sort.Strings(none)
 			addWarn("crawler rescue", fmt.Sprintf(
-				"%d crawler UA pattern(s) have NO rescue path (UA rescue off + range presets inactive) — a genuine crawler gets challenged: %s. Re-enable the pattern on the UA-filter tab or the vendor's range preset on the Bypass IPs tab.",
+				"%d crawler UA pattern(s) have NO rescue path (set to Normal checks + range presets inactive) — a genuine crawler is judged like any other client and usually challenged: %s. Set it to Pass on the UA-filter tab or enable the vendor's range preset on the Bypass IPs tab.",
 				len(none), strings.Join(none, ", ")))
 		}
 	}

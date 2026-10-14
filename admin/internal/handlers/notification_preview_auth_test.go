@@ -68,8 +68,15 @@ func TestNotificationPreviewGuardedRescue(t *testing.T) {
 		t.Error("group mode none must disable the guarded rescue")
 	}
 	dis := settings.Settings{}
-	dis.Nginx.SearchBots.UpstreamDisabled = []string{"Notification(Service)?Extension/.*CFNetwork"}
+	dis.Nginx.SearchBots.UpstreamPatternMode = map[string]string{"Notification(Service)?Extension/.*CFNetwork": classify.GroupModeNone}
 	if got := drive(dis, uaNotif, ja4Apple); got == "pass" {
-		t.Error("per-pattern disable must disable the guarded rescue")
+		t.Error("the pattern set to normal checks on its own must disable the guarded rescue")
+	}
+	// And the other way: set to pass on its own inside a group set to normal
+	// checks, the guarded rescue comes back.
+	own := off
+	own.Nginx.SearchBots.UpstreamPatternMode = map[string]string{"Notification(Service)?Extension/.*CFNetwork": classify.GroupModeWhite}
+	if got := drive(own, uaNotif, ja4Apple); got != "pass" {
+		t.Errorf("the pattern set to pass on its own must keep the guarded rescue, got %q", got)
 	}
 }

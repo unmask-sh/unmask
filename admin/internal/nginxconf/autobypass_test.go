@@ -55,14 +55,24 @@ func TestAutoBypassDerivesFromUAPass(t *testing.T) {
 func TestAutoBypassRespectsBlocks(t *testing.T) {
 	pinFreshSnapshot(t, time.Hour)
 
-	// Per-pattern disable: every Anthropic pattern off -> no claude preset.
+	// Set one by one: every Anthropic pattern to normal checks -> no claude
+	// preset.
 	n := nginxWithSearchBots(settings.SearchBotsConfig{
-		UpstreamDisabled: []string{
-			`[cC]laude[bB]ot`, `Claude-User`, `Claude-SearchBot`, `Claude-Web`, `anthropic-ai`,
+		UpstreamPatternMode: map[string]string{
+			`[cC]laude[bB]ot`: "none", `Claude-User`: "none", `Claude-SearchBot`: "none", `Claude-Web`: "none", `anthropic-ai`: "none",
 		},
 	})
 	if auto := AutoBypassPresetIDs(n); auto["claude"] != nil {
-		t.Fatalf("claude derived despite every pattern disabled: %v", auto["claude"])
+		t.Fatalf("claude derived despite every pattern set to none: %v", auto["claude"])
+	}
+
+	// One crawler stopped on its own inside a passing group is a mixed
+	// signal: the preset would address-pass the stopped one too.
+	n1 := nginxWithSearchBots(settings.SearchBotsConfig{
+		UpstreamPatternMode: map[string]string{`Claude-User`: "black"},
+	})
+	if auto := AutoBypassPresetIDs(n1); auto["claude"] != nil {
+		t.Fatalf("claude derived despite Claude-User set to black: %v", auto["claude"])
 	}
 
 	// Group mode black: ai-user / ai-training groups challenged -> none of
@@ -146,7 +156,7 @@ func TestSnapshotFreshEnoughBoundary(t *testing.T) {
 func TestAutoBypassFlipsUARescue(t *testing.T) {
 	pinFreshSnapshot(t, time.Hour)
 	n := nginxWithSearchBots(settings.SearchBotsConfig{})
-	uaOff := EffectiveUpstreamUAOff(n)
+	uaOff := RangeVerifiedUA(n)
 	if !uaOff[`[cC]laude[bB]ot`] {
 		t.Fatalf("ClaudeBot UA rescue still on despite auto-derived claude preset")
 	}

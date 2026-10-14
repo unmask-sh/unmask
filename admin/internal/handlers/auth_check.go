@@ -1821,25 +1821,23 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 	// whitelist is the narrower NewIPBypassMatcher set without stats_exclude).
 	pm.ipBypass = nginxconf.NewChallengeBypassMatcher(n)
 
-	// Range-backed crawler UA patterns whose UA-string rescue is off
-	// (uarange.go): one alternation regex.  compileCachedRe memoizes by the
-	// joined string, so the hot path pays a map lookup, not a compile.
-	if pats := nginxconf.SortedUpstreamUAOff(n); len(pats) > 0 {
+	// Range-backed crawler UA patterns the standing policy verifies by
+	// address (uarange.go): one alternation regex.  compileCachedRe memoizes
+	// by the joined string, so the hot path pays a map lookup, not a compile.
+	if pats := nginxconf.SortedRangeVerifiedUA(n); len(pats) > 0 {
 		pm.rangeVerifiedUA = compileCachedRe("(?i)(?:" + strings.Join(pats, ")|(?:") + ")")
 	}
 
 	// Guarded notification-preview UA matcher (rescue = UA + Apple TLS, see
-	// notifPreviewRescue).  Built from the group's enabled patterns so the
-	// per-pattern disable and the group-mode override behave exactly like the
-	// native render (collectUpstreamPatternsByMode).
-	if classify.ResolveGroupMode(classify.NotificationPreviewTag, n.SearchBots.UpstreamGroupMode) == classify.GroupModeWhite {
-		disabled := map[string]bool{}
-		for _, p := range n.SearchBots.UpstreamDisabled {
-			disabled[p] = true
-		}
+	// notifPreviewRescue).  Built from the group's patterns that resolve to
+	// white -- the group's mode, or the crawler's own where it was set one by
+	// one -- so it behaves exactly like the native render
+	// (collectUpstreamPatternsByMode).
+	{
+		sb := n.SearchBots
 		var pats []string
 		for _, e := range classify.UpstreamRescueList()[classify.NotificationPreviewTag] {
-			if e.Pattern != "" && !disabled[e.Pattern] {
+			if e.Pattern != "" && classify.ResolvePatternMode(classify.NotificationPreviewTag, e.Pattern, sb.UpstreamGroupMode, sb.UpstreamPatternMode) == classify.GroupModeWhite {
 				pats = append(pats, e.Pattern)
 			}
 		}
@@ -2101,22 +2099,22 @@ func lookupUAListed(ua string, n settings.Nginx) (listed, category, action strin
 			return "extra", "challenge", act
 		}
 	}
-	// Upstream rescue groups (= crawler-user-agents.json categories) resolved
-	// to mode=black contribute additional challenge-target UAs.  The nginx
-	// render side already pushes these into the $is_challenge_target map; this
-	// branch keeps the admin's auth_request decision symmetric (otherwise
-	// curl / python-requests / Headless variants would 401 in native mode but
-	// 200 in forward-auth mode).
-	upstreamDisabled := map[string]bool{}
-	for _, p := range n.SearchBots.UpstreamDisabled {
-		upstreamDisabled[strings.TrimSpace(p)] = true
-	}
+	// Upstream rescue crawlers (= crawler-user-agents.json categories)
+	// resolved to black -- a whole group, or a crawler set on its own --
+	// contribute additional challenge-target UAs.  The nginx render side
+	// already pushes these into the $is_challenge_target map; this branch
+	// keeps the admin's auth_request decision symmetric (otherwise curl /
+	// python-requests / Headless variants would 401 in native mode but 200 in
+	// forward-auth mode).
+	sb := n.SearchBots
 	for cat, entries := range classify.UpstreamRescueList() {
-		if classify.ResolveGroupMode(cat, n.SearchBots.UpstreamGroupMode) != classify.GroupModeBlack {
+		// This runs on every request; with no crawler set on its own, a group
+		// that is not stopped has nothing to contribute.
+		if len(sb.UpstreamPatternMode) == 0 && classify.ResolveGroupMode(cat, sb.UpstreamGroupMode) != classify.GroupModeBlack {
 			continue
 		}
 		for _, e := range entries {
-			if upstreamDisabled[e.Pattern] {
+			if classify.ResolvePatternMode(cat, e.Pattern, sb.UpstreamGroupMode, sb.UpstreamPatternMode) != classify.GroupModeBlack {
 				continue
 			}
 			if matchedRegex(e.Pattern, ua) {
@@ -2216,19 +2214,13 @@ func hardDenyUA(ua string, n settings.Nginx) bool {
 			return true
 		}
 	}
-	upstreamDisabled := map[string]bool{}
-	for _, p := range n.SearchBots.UpstreamDisabled {
-		upstreamDisabled[strings.TrimSpace(p)] = true
-	}
+	sb := n.SearchBots
 	for cat, entries := range classify.UpstreamRescueList() {
-		if classify.ResolveGroupMode(cat, n.SearchBots.UpstreamGroupMode) != classify.GroupModeBlack {
-			continue
-		}
-		if !denies(n.SearchBots.UpstreamGroupAction[cat]) {
+		if !denies(sb.UpstreamGroupAction[cat]) {
 			continue
 		}
 		for _, e := range entries {
-			if !upstreamDisabled[e.Pattern] && matchedRegex(e.Pattern, ua) {
+			if classify.ResolvePatternMode(cat, e.Pattern, sb.UpstreamGroupMode, sb.UpstreamPatternMode) == classify.GroupModeBlack && matchedRegex(e.Pattern, ua) {
 				return true
 			}
 		}

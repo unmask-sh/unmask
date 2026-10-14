@@ -522,6 +522,7 @@ export UI_E2E_BASE="http://127.0.0.1:$PORT/unmask"
 export UI_E2E_USER="ui-e2e"
 export UI_E2E_PASS="$PASS"
 export UI_E2E_OUT="$WORK/out"
+export UI_E2E_CONFIG="$WORK/config.yml"
 export CHROME_BIN
 
 fail=0

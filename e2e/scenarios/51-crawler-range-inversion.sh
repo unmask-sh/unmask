@@ -15,13 +15,14 @@
 #      operator's policy, so autobypass derives the presets back and the
 #      vendor stays address-verified.  B2: the bypass_ip_auto_from_ua kill
 #      switch restores the old UA-only fallback.
-#   C. explicit UA-off: search_bots.upstream_disabled beats the auto
-#      fallback — presets off AND the pattern disabled = no rescue at all
-#      (both axes off is reachable only through explicit choices).
-#   D. explicit UA opt-in vs the ON-by-default require_range_verification
-#      policy: the policy outranks the row, the UA stays closed.
-#   E. policy off + the same opt-in: search_bots.upstream_ua_enabled keeps the UA line
-#      although every preset is live (the OR state — either axis passes).
+#   C. a crawler set to normal checks on its own
+#      (search_bots.upstream_pattern_mode) with the presets off = no rescue
+#      at all (both axes off is reachable only through explicit choices).
+#   D. a crawler set to pass on its own vs the ON-by-default
+#      require_range_verification policy: the policy outranks the row, the UA
+#      stays closed.
+#   E. policy off: the crawler set to pass keeps its UA line although every
+#      preset is live (the OR state — either axis passes).
 #
 # Needs the docker e2e stack (it writes files inside the unmask container and
 # restarts it); skips cleanly when the suite targets a remote BASE_URL.
@@ -171,12 +172,12 @@ fi
 assert_in "search_ai" "$(reason_for_ip "$IP_OUT_RANGE")" \
     "derivation off + presets off → Googlebot falls back to UA-only rescue (reason carries search_ai)"
 
-# C. Explicit UA-off beats the auto fallback: presets still off, and the
-#    pattern in upstream_disabled — no rescue path remains (yaml flow plain
-#    scalar keeps the backslash: [Googlebot\/]).
-admin_exec "sed -i 's,^  seen_version: v0.1.0\$,  seen_version: v0.1.0\n  search_bots:\n    upstream_disabled: [Googlebot\\\\/],' '$CONF'"
-if ! admin_exec "grep -q 'upstream_disabled' '$CONF'"; then
-    log_fail "failed to inject search_bots.upstream_disabled into $CONF"
+# C. Set to normal checks on its own, with the presets still off — no rescue
+#    path remains (yaml flow plain scalar keeps the backslash:
+#    {Googlebot\/: none}).
+admin_exec "sed -i 's,^  seen_version: v0.1.0\$,  seen_version: v0.1.0\n  search_bots:\n    upstream_pattern_mode: {Googlebot\\\\/: none},' '$CONF'"
+if ! admin_exec "grep -q 'upstream_pattern_mode' '$CONF'"; then
+    log_fail "failed to inject search_bots.upstream_pattern_mode into $CONF"
     exit 1
 fi
 if ! restart_admin; then
@@ -186,35 +187,35 @@ fi
 r=$(reason_for_ip "$IP_OUT_RANGE")
 case "$r" in
     *search_ai*|*bypass:ip*)
-        log_fail "explicit UA-off + presets off: expected no rescue, got reason=$r"
+        log_fail "set to normal checks + presets off: expected no rescue, got reason=$r"
         ;;
-    *) log_pass "explicit UA-off + presets off → no rescue (reason=$r)" ;;
+    *) log_pass "set to normal checks + presets off → no rescue (reason=$r)" ;;
 esac
 
-# D. Explicit UA opt-in vs the standing policy.  require_range_verification
-#    defaults to ON, and it outranks the per-pattern opt-in: with the presets
-#    live the UA string stays closed however the row is ticked, so the same
-#    non-Google IP is still refused.  (The unit side is
-#    TestRequireRangeVerificationOutranksAnExplicitUAOptIn; this pins the
-#    same resolution through the config file and the forward-auth wire.)
-admin_exec "cp '$CONF.bak51' '$CONF' && sed -i 's,^  seen_version: v0.1.0\$,  seen_version: v0.1.0\n  search_bots:\n    upstream_ua_enabled: [Googlebot\\\\/],' '$CONF'"
-if ! admin_exec "grep -q 'upstream_ua_enabled' '$CONF'"; then
-    log_fail "failed to inject search_bots.upstream_ua_enabled into $CONF"
+# D. Set to pass on its own vs the standing policy.  require_range_verification
+#    defaults to ON, and it outranks the row: with the presets live the UA
+#    string stays closed however the row is set, so the same non-Google IP is
+#    still refused.  (The unit side is TestRequireRangeVerificationOutranksPass;
+#    this pins the same resolution through the config file and the
+#    forward-auth wire.)
+admin_exec "cp '$CONF.bak51' '$CONF' && sed -i 's,^  seen_version: v0.1.0\$,  seen_version: v0.1.0\n  search_bots:\n    upstream_pattern_mode: {Googlebot\\\\/: white},' '$CONF'"
+if ! admin_exec "grep -q 'upstream_pattern_mode' '$CONF'"; then
+    log_fail "failed to inject search_bots.upstream_pattern_mode into $CONF"
     exit 1
 fi
 if ! restart_admin; then
-    log_fail "admin did not come back after the opt-in restart (healthz $(healthz))"
+    log_fail "admin did not come back after the set-to-pass restart (healthz $(healthz))"
     exit 1
 fi
 r=$(reason_for_ip "$IP_OUT_RANGE")
 case "$r" in
     *search_ai*|*bypass:ip*)
-        log_fail "policy at its ON default: the UA opt-in must be outranked, got reason=$r"
+        log_fail "policy at its ON default: the row set to pass must be outranked, got reason=$r"
         ;;
-    *) log_pass "policy at its ON default → UA opt-in outranked from outside the ranges (reason=$r)" ;;
+    *) log_pass "policy at its ON default → the row set to pass is outranked from outside the ranges (reason=$r)" ;;
 esac
 
-# E. The OR state needs the policy switched off: same opt-in with
+# E. The OR state needs the policy switched off: the same row with
 #    require_range_verification: false, and the UA line is back — a non-Google
 #    IP passes by UA although every preset is live.
 admin_exec "sed -i 's,^  search_bots:\$,  search_bots:\n    require_range_verification: false,' '$CONF'"
@@ -227,6 +228,6 @@ if ! restart_admin; then
     exit 1
 fi
 assert_in "search_ai" "$(reason_for_ip "$IP_OUT_RANGE")" \
-    "policy off + explicit UA opt-in → rescued by UA from outside the ranges (OR state)"
+    "policy off + set to pass → rescued by UA from outside the ranges (OR state)"
 
 exit 0

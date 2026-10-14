@@ -722,21 +722,23 @@ func aiSubcategory(pattern string) string {
 	return "ai-training"
 }
 
-// upstreamDisabledRE holds the compiled regex of UA patterns that should
+// upstreamUnrescuedRE holds the compiled regex of UA patterns that should
 // NOT be auto-rescued via the upstream list, even if they match the
-// search_ai category.  Set via SetUpstreamDisabled by the settings handler
-// whenever settings change.  nil means "no patterns disabled" (= default
-// behavior: all upstream matches pass).
+// search_ai category: the crawlers the operator set one by one to "none" or
+// "black".  Set via SetUpstreamUnrescued by the settings handler whenever
+// settings change.  nil means "none set" (= default behavior: all upstream
+// matches pass).
 var (
-	upstreamDisabledMu sync.RWMutex
-	upstreamDisabledRE *regexp.Regexp
+	upstreamUnrescuedMu sync.RWMutex
+	upstreamUnrescuedRE *regexp.Regexp
 )
 
-// GroupModeWhite / Black / None: roles a upstream-rescue group can play.
+// GroupModeWhite / Black / None: roles an upstream-rescue group -- or one
+// crawler in it, set on its own -- can play.
 //
-//	white -> the group's patterns are auto-passed (= "is_search_bot=1").
-//	black -> the group's patterns are challenge-targets (= "is_challenge_target=1").
-//	none  -> the group is inert (= patterns get no special handling).
+//	white -> passed (= "is_search_bot=1").
+//	black -> stopped: a challenge-target (= "is_challenge_target=1").
+//	none  -> normal checks (= no special handling).
 const (
 	GroupModeWhite = "white"
 	GroupModeBlack = "black"
@@ -773,6 +775,18 @@ func ResolveGroupMode(cat string, overrides map[string]string) string {
 	return DefaultGroupMode(cat)
 }
 
+// ResolvePatternMode returns the effective mode for one crawler: the mode the
+// operator set for its pattern on its own when there is one, otherwise its
+// group's (ResolveGroupMode).  patternModes is keyed by the catalog pattern;
+// a value outside {white, black, none} counts as unset, like a group's.
+func ResolvePatternMode(cat, pattern string, groupModes, patternModes map[string]string) string {
+	switch v := patternModes[pattern]; v {
+	case GroupModeWhite, GroupModeBlack, GroupModeNone:
+		return v
+	}
+	return ResolveGroupMode(cat, groupModes)
+}
+
 // PresetGroupSpec is a minimal {ID, Patterns} pair used by callers that
 // want to feed ChallengeTargetGroups (or any similarly shaped preset list)
 // into ResolvePresetActionForUA without dragging the nginxconf package into
@@ -807,27 +821,30 @@ func ResolvePresetActionForUA(ua string, groups []PresetGroupSpec, overrides map
 }
 
 // ResolveActionForUA matches the UA string against the upstream rescue
-// groups currently resolved to "black" mode and returns the per-group
-// action override if any.  Empty string = no per-group override (caller
-// should fall back to the global default).
+// crawlers currently resolved to "black" (their whole group, or the crawler
+// on its own) and returns their group's action override if any.  Empty
+// string = no per-group override (caller should fall back to the global
+// default).
 //
-// modeOverrides + actionOverrides come from settings.SearchBots.
-func ResolveActionForUA(ua string, modeOverrides, actionOverrides map[string]string) string {
+// groupModes, patternModes and actionOverrides come from settings.SearchBots.
+func ResolveActionForUA(ua string, groupModes, patternModes, actionOverrides map[string]string) string {
 	if ua == "" || len(actionOverrides) == 0 {
 		return ""
 	}
 	groups := UpstreamRescueList()
 	for cat, entries := range groups {
-		if ResolveGroupMode(cat, modeOverrides) != GroupModeBlack {
-			continue
-		}
 		act, ok := actionOverrides[cat]
 		if !ok || act == "" {
 			continue
 		}
 		pats := make([]string, 0, len(entries))
 		for _, e := range entries {
-			pats = append(pats, e.Pattern)
+			if ResolvePatternMode(cat, e.Pattern, groupModes, patternModes) == GroupModeBlack {
+				pats = append(pats, e.Pattern)
+			}
+		}
+		if len(pats) == 0 {
+			continue
 		}
 		re := joinAlt(pats)
 		if re != nil && re.MatchString(ua) {
@@ -837,18 +854,18 @@ func ResolveActionForUA(ua string, modeOverrides, actionOverrides map[string]str
 	return ""
 }
 
-// SetUpstreamDisabled rebuilds the per-pattern disable filter from the
-// settings UI.  Patterns listed here are removed from the search_ai pass
-// path: they will fall through to ja4 / old-ua / user_dev / service /
-// human classification instead.
-func SetUpstreamDisabled(patterns []string) {
-	upstreamDisabledMu.Lock()
-	defer upstreamDisabledMu.Unlock()
+// SetUpstreamUnrescued rebuilds the filter of crawlers the operator set one
+// by one to "none" or "black".  Patterns listed here are removed from the
+// search_ai pass path: they will fall through to ja4 / old-ua / user_dev /
+// service / human classification instead.
+func SetUpstreamUnrescued(patterns []string) {
+	upstreamUnrescuedMu.Lock()
+	defer upstreamUnrescuedMu.Unlock()
 	if len(patterns) == 0 {
-		upstreamDisabledRE = nil
+		upstreamUnrescuedRE = nil
 		return
 	}
-	upstreamDisabledRE = joinAlt(patterns)
+	upstreamUnrescuedRE = joinAlt(patterns)
 }
 
 // IsBot classifies (ua, ja4Action) into one of the Category values.
@@ -858,13 +875,13 @@ func SetUpstreamDisabled(patterns []string) {
 func IsBot(ua, ja4Action string) Category {
 	res := getCategoryREs()
 	if ua != "" && res.searchAI.MatchString(ua) {
-		// Honor the per-pattern disable list (= settings UI). A search_ai
-		// hit that matches a disabled pattern falls through to the other
-		// classification branches instead of pass.
-		upstreamDisabledMu.RLock()
-		disabled := upstreamDisabledRE
-		upstreamDisabledMu.RUnlock()
-		if disabled == nil || !disabled.MatchString(ua) {
+		// Honor the crawlers set one by one (= settings UI). A search_ai hit
+		// that matches one set to "none" or "black" falls through to the
+		// other classification branches instead of pass.
+		upstreamUnrescuedMu.RLock()
+		unrescued := upstreamUnrescuedRE
+		upstreamUnrescuedMu.RUnlock()
+		if unrescued == nil || !unrescued.MatchString(ua) {
 			return SearchAI
 		}
 		// fallthrough

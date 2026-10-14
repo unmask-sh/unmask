@@ -62,15 +62,22 @@ func TestNotificationPreviewRenderOff(t *testing.T) {
 	}
 }
 
-// Per-pattern disable behaves like every other upstream pattern: the guarded
-// maps disappear with their last enabled pattern.
-func TestNotificationPreviewRenderPatternDisabled(t *testing.T) {
+// A crawler set on its own behaves like every other upstream pattern: the
+// guarded maps disappear with their last pattern set to pass, and come back
+// for one set to pass inside a group that is not.
+func TestNotificationPreviewRenderPatternSetOnItsOwn(t *testing.T) {
+	const pat = "Notification(Service)?Extension/.*CFNetwork"
 	conf := renderHTTPInc(t, func(s *settings.Settings) {
-		s.Nginx.SearchBots.UpstreamDisabled = []string{
-			"Notification(Service)?Extension/.*CFNetwork",
-		}
+		s.Nginx.SearchBots.UpstreamPatternMode = map[string]string{pat: "none"}
 	})
 	if strings.Contains(conf, "$unmask_notif_preview_ua") {
-		t.Error("disabling the only pattern must drop the guarded maps")
+		t.Error("setting the only pattern to normal checks must drop the guarded maps")
+	}
+	conf = renderHTTPInc(t, func(s *settings.Settings) {
+		s.Nginx.SearchBots.UpstreamGroupMode = map[string]string{"notification-preview": "none"}
+		s.Nginx.SearchBots.UpstreamPatternMode = map[string]string{pat: "white"}
+	})
+	if !strings.Contains(conf, "$unmask_notif_preview_ua") {
+		t.Error("the pattern set to pass in a group set to normal checks must keep the guarded maps")
 	}
 }

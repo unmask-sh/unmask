@@ -1,65 +1,69 @@
 package nginxconf
 
 import (
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
+// uaRescued: does pat land in the UA whitelist under n -- the same two steps
+// the render runs (RangeVerifiedUA, then each crawler's own mode).
+func uaRescued(n settings.Nginx, pat string) bool {
+	white, _, _, _ := collectUpstreamPatternsByMode(n.SearchBots, RangeVerifiedUA(n))
+	return slices.Contains(white, pat)
+}
+
 // Googlebot publishes its egress ranges, so its UA is a name tag rather than
-// an ID.  The per-pattern default already drops such patterns from the UA
-// whitelist -- but only while every backing preset happens to be enabled, and
-// only for rows the operator has never saved, since saving the tab writes
-// explicit entries that pin whatever was on screen.  RequireRangeVerification
-// is the standing policy instead: for every range-backed pattern the UA
-// rescue is off, full stop.
-func TestRequireRangeVerificationOutranksAnExplicitUAOptIn(t *testing.T) {
+// an ID.  RequireRangeVerification is the standing policy: for every
+// range-backed pattern whose ranges are loaded, the UA rescue is off -- a
+// crawler set to pass, group-wide or on its own, included.
+func TestRequireRangeVerificationOutranksPass(t *testing.T) {
 	const pat = `Googlebot\/`
 	if RangeVerifiedPresetIDs(pat) == nil {
 		t.Fatalf("%s is expected to be range-backed", pat)
 	}
 
-	// Operator explicitly opted this pattern into UA-string rescue, with the
-	// vendor's ranges wired in (the policy only closes the UA path when there
-	// is an address list to verify against -- see EffectiveUpstreamUAOff).
+	// Operator set this crawler to pass on its own, with the vendor's ranges
+	// wired in (the policy only closes the UA path when there is an address
+	// list to verify against -- see RangeVerifiedUA).
 	var n settings.Nginx
 	n.BypassIPEnabledPresets = googleRangePresets
-	n.SearchBots.UpstreamUAEnabled = []string{pat}
+	n.SearchBots.UpstreamPatternMode = map[string]string{pat: "white"}
 	n.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
-	if EffectiveUpstreamUAOff(n)[pat] {
-		t.Fatal("precondition: an explicit UA opt-in should keep the UA rescue on")
+	if !uaRescued(n, pat) {
+		t.Fatal("precondition: with the policy off, a crawler set to pass is rescued by its UA")
 	}
 
 	// The policy has to win: it is switched on precisely to stop
-	// vendor-branded UA strings passing, and a row saved months earlier must
+	// vendor-branded UA strings passing, and a row set months earlier must
 	// not carve a silent exception out of it.
 	n.SearchBots.RequireRangeVerification = settings.BoolPtr(true)
-	if !EffectiveUpstreamUAOff(n)[pat] {
+	if uaRescued(n, pat) {
 		t.Error("policy on: a range-backed pattern must not be rescued by its UA, " +
-			"even when explicitly opted in -- a spoofed Googlebot would pass")
+			"even when set to pass on its own -- a spoofed Googlebot would pass")
 	}
 	if !UpstreamRangeActive(n)[pat] {
 		t.Error("policy on with presets live: the badge reports the preset, which is still enabled")
 	}
 
-	// Switching it back off must restore the explicit choice untouched: the
-	// per-pattern lists are still in the config, merely outranked.
+	// Switching it back off restores the row's own setting untouched.
 	n.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
-	if EffectiveUpstreamUAOff(n)[pat] {
-		t.Error("policy off: the operator's explicit UA opt-in should come back")
+	if !uaRescued(n, pat) {
+		t.Error("policy off: the crawler set to pass should be rescued by its UA again")
 	}
 }
 
 // The policy must not touch patterns with no published range.  It switches how
 // a rescued crawler is verified, and for these there is no address list to
 // verify by -- so there is nothing for it to act on.  (Choosing not to rescue
-// such a crawler at all is a separate decision with its own control: the
-// per-pattern checkbox.)
+// such a crawler at all is a separate decision with its own control: setting
+// it to normal checks or stop.)
 func TestRequireRangeVerificationLeavesRangelessPatternsAlone(t *testing.T) {
 	var n settings.Nginx
 	n.SearchBots.RequireRangeVerification = settings.BoolPtr(true)
-	off := EffectiveUpstreamUAOff(n)
+	verified := RangeVerifiedUA(n)
 
 	for _, pat := range []string{
 		`ChatWork LinkPreview`, // unmask's own supplement: no vendor ranges
@@ -68,10 +72,13 @@ func TestRequireRangeVerificationLeavesRangelessPatternsAlone(t *testing.T) {
 		if RangeVerifiedPresetIDs(pat) != nil {
 			continue // gained a range mapping since; nothing to assert
 		}
-		if off[pat] {
+		if verified[pat] {
 			t.Errorf("%s has no published range, so the policy must leave its UA rescue alone "+
 				"(dropping it would block the real crawler)", pat)
 		}
+	}
+	if !uaRescued(n, `Bytespider`) {
+		t.Error("Bytespider passes by default (its group passes, it has no range), policy or not")
 	}
 }
 
@@ -81,7 +88,7 @@ func TestRequireRangeVerificationDropsPatternFromRenderedWhitelist(t *testing.T)
 	const pat = `Googlebot\/`
 	on := renderHTTPInc(t, func(s *settings.Settings) {
 		s.Nginx.BypassIPEnabledPresets = googleRangePresets
-		s.Nginx.SearchBots.UpstreamUAEnabled = []string{pat}
+		s.Nginx.SearchBots.UpstreamPatternMode = map[string]string{pat: "white"}
 		s.Nginx.SearchBots.RequireRangeVerification = settings.BoolPtr(true)
 	})
 	if containsPattern(on, pat) {
@@ -90,11 +97,11 @@ func TestRequireRangeVerificationDropsPatternFromRenderedWhitelist(t *testing.T)
 	}
 	off := renderHTTPInc(t, func(s *settings.Settings) {
 		s.Nginx.BypassIPEnabledPresets = googleRangePresets
-		s.Nginx.SearchBots.UpstreamUAEnabled = []string{pat}
+		s.Nginx.SearchBots.UpstreamPatternMode = map[string]string{pat: "white"}
 		s.Nginx.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
 	})
 	if !containsPattern(off, pat) {
-		t.Error("policy off: the explicit UA opt-in should render into the whitelist again")
+		t.Error("policy off: the crawler set to pass should render into the whitelist again")
 	}
 }
 
@@ -112,15 +119,15 @@ func containsPattern(conf, pat string) bool {
 // by, so the name stands.
 //
 // Collapsing this into "no rescue" would answer a question the operator did
-// not ask here -- refusing a crawler outright is its own choice, made with
-// the per-pattern checkbox.
+// not ask here -- refusing a crawler outright is its own choice, made by
+// setting it to normal checks or stop.
 func TestRequireRangeVerificationKeepsUARescueWhenRangesAreNotLoaded(t *testing.T) {
 	const pat = `Googlebot\/`
 
 	// Policy on, presets never enabled.
 	var n settings.Nginx
 	n.SearchBots.RequireRangeVerification = settings.BoolPtr(true)
-	if EffectiveUpstreamUAOff(n)[pat] {
+	if !uaRescued(n, pat) {
 		t.Error("no presets enabled: the UA rescue must stay, or the real crawler is challenged")
 	}
 
@@ -129,99 +136,92 @@ func TestRequireRangeVerificationKeepsUARescueWhenRangesAreNotLoaded(t *testing.
 	n.BypassIPEnabledPresets = googleRangePresets
 	n.SeenVersion = "v0.1.0"
 	if !RangePresetsActive(n, pat) { // still NEW-gated at this SeenVersion
-		if EffectiveUpstreamUAOff(n)[pat] {
+		if !uaRescued(n, pat) {
 			t.Error("presets still behind the NEW gate: the UA rescue must stay until they render")
 		}
 	}
 
 	// Once they are live, the policy takes effect.
 	n.SeenVersion = "v99.0.0"
-	if !EffectiveUpstreamUAOff(n)[pat] {
+	if uaRescued(n, pat) {
 		t.Error("presets live: the policy should now close the UA path")
 	}
 }
 
-// Turning the policy off does NOT by itself put a range-backed crawler back on
-// UA rescue.  The per-pattern resolution takes over, and its auto rule already
-// keeps the UA off while the vendor's presets are live -- passing by UA needs
-// the operator to tick that row.  The intuition runs the other way ("off means
-// the UA works again"), and the settings copy said exactly that until this
-// pinned it.
-func TestPolicyOffDoesNotByItselfRestoreUARescue(t *testing.T) {
+// Turning the policy off puts a range-backed crawler that is set to pass back
+// on its UA rescue, alongside its addresses (the OR state: a spoofed UA passes
+// too, which is what turning the policy off accepts).  A crawler set to normal
+// checks keeps only the address path.
+func TestPolicyOffRestoresUARescueForPass(t *testing.T) {
 	const pat = `Googlebot\/`
 	var n settings.Nginx
 	n.BypassIPEnabledPresets = googleRangePresets
 	n.SeenVersion = "v99.0.0"
 	n.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
 
-	if !EffectiveUpstreamUAOff(n)[pat] {
-		t.Error("policy off with presets live: the auto rule should still keep the UA path closed")
+	if !uaRescued(n, pat) {
+		t.Error("policy off with presets live: a crawler following its passing group is rescued by its UA")
 	}
 	if !UpstreamRangeActive(n)[pat] {
 		t.Error("policy off: the preset is enabled, so the badge stays green")
 	}
 
-	// It takes an explicit tick on the row.
-	n.SearchBots.UpstreamUAEnabled = []string{pat}
-	if EffectiveUpstreamUAOff(n)[pat] {
-		t.Error("policy off + explicit opt-in: the UA path should be open")
+	n.SearchBots.UpstreamPatternMode = map[string]string{pat: "none"}
+	if uaRescued(n, pat) {
+		t.Error("policy off + set to normal checks: the UA path must stay closed")
 	}
 	if !UpstreamRangeActive(n)[pat] {
-		t.Error("policy off + explicit opt-in: the badge tracks the preset, not this row's checkbox")
+		t.Error("policy off + set to normal checks: the badge tracks the preset, not this row's setting")
 	}
 }
 
-// The legend now states the badge as an absolute -- green means the preset is
+// The legend states the badge as an absolute -- green means the preset is
 // enabled, grey means it is not -- and separately describes what the policy
-// switch does with a green-badged bot.  Pin both halves against the resolution so the
-// copy and the behaviour cannot drift apart.
-//
-// The previous legend tried to make the colour carry the row's UA state too,
-// which is why it read as a contradiction: the same badge had to mean "the UA
-// is not consulted" while the switch above it decided exactly that.
+// switch does with a green-badged bot set to pass.  Pin both halves against
+// the resolution so the copy and the behaviour cannot drift apart.
 func TestBadgeAndPolicyMatchTheLegend(t *testing.T) {
 	const pat = `Googlebot\/`
-	mk := func(policy, presetOn, rowPassesOnUA bool) settings.Nginx {
+	mk := func(policy, presetOn, rowPasses bool) settings.Nginx {
 		var n settings.Nginx
 		n.SeenVersion = "v99.0.0"
 		if presetOn {
 			n.BypassIPEnabledPresets = googleRangePresets
 		}
 		n.SearchBots.RequireRangeVerification = settings.BoolPtr(policy)
-		if rowPassesOnUA {
-			n.SearchBots.UpstreamUAEnabled = []string{pat}
+		if rowPasses {
+			n.SearchBots.UpstreamPatternMode = map[string]string{pat: "white"}
 		} else {
-			n.SearchBots.UpstreamDisabled = []string{pat}
+			n.SearchBots.UpstreamPatternMode = map[string]string{pat: "none"}
 		}
 		return n
 	}
 	for _, c := range []struct {
-		policy, preset, rowUA bool
-		wantUAPasses          bool
-		why                   string
+		policy, preset, rowPasses bool
+		wantUAPasses              bool
+		why                       string
 	}{
-		// Legend: "On -- ticking a bot changes nothing; the address alone decides."
-		{true, true, true, false, "policy on outranks the row's tick"},
-		{true, true, false, false, "policy on, row unticked"},
-		// Legend: "Off -- a ticked bot passes on either its UA string or its address."
-		{false, true, true, true, "policy off, row ticked: the UA passes it too"},
-		{false, true, false, false, "policy off, row unticked: address only"},
+		// Legend: "On -- the address alone decides."
+		{true, true, true, false, "policy on outranks the row set to pass"},
+		{true, true, false, false, "policy on, row set to normal checks"},
+		// Legend: "Off -- it passes on either its UA string or its address."
+		{false, true, true, true, "policy off, row set to pass: the UA passes it too"},
+		{false, true, false, false, "policy off, row set to normal checks: address only"},
 		// Grey rows: the policy has no addresses to redirect the check to, so
-		// the row's tick is all there is.
-		{true, false, true, true, "no addresses loaded, row ticked"},
-		{true, false, false, false, "no addresses loaded, row unticked"},
-		{false, false, true, true, "no addresses loaded, row ticked"},
-		{false, false, false, false, "no addresses loaded, row unticked"},
+		// the row's own setting is all there is.
+		{true, false, true, true, "no addresses loaded, row set to pass"},
+		{true, false, false, false, "no addresses loaded, row set to normal checks"},
+		{false, false, true, true, "no addresses loaded, row set to pass"},
+		{false, false, false, false, "no addresses loaded, row set to normal checks"},
 	} {
-		n := mk(c.policy, c.preset, c.rowUA)
+		n := mk(c.policy, c.preset, c.rowPasses)
 		if green := UpstreamRangeActive(n)[pat]; green != c.preset {
-			t.Errorf("policy=%v preset=%v rowUA=%v: badge green=%v, want %v -- "+
+			t.Errorf("policy=%v preset=%v rowPasses=%v: badge green=%v, want %v -- "+
 				"the legend says the badge reports the preset and nothing else",
-				c.policy, c.preset, c.rowUA, green, c.preset)
+				c.policy, c.preset, c.rowPasses, green, c.preset)
 		}
-		if uaPasses := !EffectiveUpstreamUAOff(n)[pat]; uaPasses != c.wantUAPasses {
-			t.Errorf("policy=%v preset=%v rowUA=%v: UA passes=%v, want %v (%s)",
-				c.policy, c.preset, c.rowUA, uaPasses, c.wantUAPasses, c.why)
+		if uaPasses := uaRescued(n, pat); uaPasses != c.wantUAPasses {
+			t.Errorf("policy=%v preset=%v rowPasses=%v: UA passes=%v, want %v (%s)",
+				c.policy, c.preset, c.rowPasses, uaPasses, c.wantUAPasses, c.why)
 		}
 	}
 }

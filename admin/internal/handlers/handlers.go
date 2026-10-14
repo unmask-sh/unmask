@@ -1708,11 +1708,13 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 					chMode = uaRowAction
 				}
 			}
-			// Per-group override: scan the UA against any upstream-rescue
-			// group resolved to "black" that carries an action override.
+			// Per-group override: scan the UA against the upstream-rescue
+			// crawlers resolved to "black" (group-wide or on their own) whose
+			// group carries an action override.
+			sb := h.cfg().Nginx.SearchBots
 			if grpAct := classify.ResolveActionForUA(ua,
-				h.cfg().Nginx.SearchBots.UpstreamGroupMode,
-				h.cfg().Nginx.SearchBots.UpstreamGroupAction); grpAct != "" && settings.IsValidRateChallengeMode(grpAct) {
+				sb.UpstreamGroupMode, sb.UpstreamPatternMode,
+				sb.UpstreamGroupAction); grpAct != "" && settings.IsValidRateChallengeMode(grpAct) {
 				chMode = grpAct
 			}
 			// Per-preset override (= ChallengeTargetGroups).  Same
