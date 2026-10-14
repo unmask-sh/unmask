@@ -9,6 +9,9 @@ WORKDIR /src
 RUN apk add --no-cache git
 # admin/ is a standalone Go module.  Bundles embed assets like crawler-user-agents.json.
 COPY admin/go.mod admin/go.sum ./admin/
+# The module go.mod replaces the SQLite driver with (see admin/sqliteshim):
+# `go mod download` reads its go.mod, so it comes with the two above.
+COPY admin/sqliteshim/ ./admin/sqliteshim/
 RUN cd admin && go mod download
 COPY admin/ ./admin/
 RUN cd admin && CGO_ENABLED=0 go build \

@@ -82,6 +82,18 @@ func TestServeReasonsMatchTheRawDefinition(t *testing.T) {
 	if got, ok := ServeReasons(ctx, d, "", nil, 24); !ok || !reflect.DeepEqual(got, want) {
 		t.Fatalf("after declining: got %v (ok=%v), want %v", got, ok, want)
 	}
+
+	// While the rollup fills, that scan has a budget of its own, so a large
+	// install's first day does not hold the page to the scan; a filtered view,
+	// always the scan's, keeps the caller's budget.
+	defer func(b time.Duration) { serveReasonsWarmupBudget = b }(serveReasonsWarmupBudget)
+	serveReasonsWarmupBudget = time.Nanosecond
+	if got, ok := ServeReasons(ctx, d, "", nil, 24); ok {
+		t.Fatalf("the warm-up scan answered past its budget: %v", got)
+	}
+	if got, ok := ServeReasons(ctx, d, "a.example", nil, 24); !ok || !reflect.DeepEqual(got, wantA) {
+		t.Fatalf("site filter under the warm-up budget: got %v (ok=%v), want %v", got, ok, wantA)
+	}
 }
 
 func TestServeReasonKey(t *testing.T) {

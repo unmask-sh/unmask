@@ -31,3 +31,8 @@ require (
 	modernc.org/memory v1.11.0 // indirect
 	modernc.org/sqlite v1.51.0 // indirect
 )
+
+// The GORM dialector's driver, modernc.org/sqlite's own in place of the
+// glebarez fork, which did not let a context deadline interrupt a running
+// SELECT: see sqliteshim/sqlite.go.
+replace github.com/glebarez/go-sqlite => ./sqliteshim

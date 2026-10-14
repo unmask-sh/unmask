@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 )
@@ -31,6 +32,15 @@ func ServeReasons(ctx context.Context, d *db.DB, site string, hosts []string, ho
 		if m, ok := serveReasonsRollup(ctx, d, hours); ok {
 			return m, true
 		}
+		// The rollup cannot answer yet: the first day after an upgrade.  The
+		// scan then counts every serve of the day with a JSON read per row,
+		// which on a large install outlasts the page's budget -- and the page
+		// waits for its slowest card, every load of that day.  A shorter
+		// budget of its own keeps the rest of the page prompt; a small
+		// install's scan still finishes inside it.
+		sctx, cancel := context.WithTimeout(ctx, serveReasonsWarmupBudget)
+		defer cancel()
+		ctx = sctx
 	}
 	m, err := serveReasonsScan(ctx, d, site, hosts, hours)
 	if err != nil {
@@ -39,6 +49,10 @@ func ServeReasons(ctx context.Context, d *db.DB, site string, hosts []string, ho
 	}
 	return m, true
 }
+
+// serveReasonsWarmupBudget: how long the scan may run while the rollup is
+// still filling (see ServeReasons).  A var for tests.
+var serveReasonsWarmupBudget = 2 * time.Second
 
 // serveReasonsRollup reads kind svr and declines (ok=false) unless it covers
 // every serve hkPhase counted in the same hours.

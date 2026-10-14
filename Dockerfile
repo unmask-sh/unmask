@@ -37,6 +37,9 @@ RUN apk add --no-cache git ca-certificates
 
 # COPY module files first to leverage the go mod cache.
 COPY admin/go.mod admin/go.sum ./admin/
+# The module go.mod replaces the SQLite driver with (see admin/sqliteshim):
+# `go mod download` reads its go.mod, so it comes with the two above.
+COPY admin/sqliteshim/ ./admin/sqliteshim/
 RUN cd admin && go mod download
 
 COPY admin/ ./admin/

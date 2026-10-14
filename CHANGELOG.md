@@ -16,6 +16,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- (2026-10-14) **Admin pages answer within their time limits on a large database.**  The SQLite driver let a query run to its end whatever its deadline, so a page waited for its slowest card while that query held a connection: on a database larger than memory the dashboard did not answer for minutes.  Deadlines now stop the query, and the reasons card gives up early on its first day.
+
 - (2026-10-14) **Doctor no longer counts the Lua module's LuaJIT notice as an nginx error.**  nginx built with the Lua module against a LuaJIT other than OpenResty's writes an [alert] at every configuration load, so doctor always warned about its error log there.  That line is now left out and named in the OK, and a real fatal line is quoted whole enough to read.
 
 ## [0.1.51-rc14] - 2026-10-13 (testing build)
@@ -84,12 +86,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - The assistant reads the data more as the install works: a window's countries, serves by their forced reason, and review answers that list findings only; doctor judges the real-IP setup from recent requests and says when it cannot see nginx.
 
-### Changed
-
-- (2026-10-12) **Model pickers list the newest version first.**  The AI settings tab, the ask page and the advisor page order models by family name, with each family's versions newest first (Claude Opus 5.5 before 5 and 4.8, gpt-5.4 before gpt-5.2), whatever order the provider lists them in.  The configured model keeps its place in that order and is the one selected.
-
-- (2026-10-11) **The overview names what monitor mode let through.**  The "other" segment's breakdown gets a monitor-mode line -- requests judged and let through, which going live would have challenged or denied -- and the line that read "passed while monitoring" now says what it counted all along: requests riding a cookie the over-block breaker handed out.
-
 ### Added
 
 - (2026-10-12) **The advisor page shows what its runs cost.**  The AI bar adds an estimated cost to the last run's token line and to the 30-day total, each run priced at its own model's list rate, the ask page's questions included.  As on the ask page, it is marked as an estimate and the provider's statement stays the bill.
@@ -97,6 +93,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-10-12) **Ask AI adds a rule in place; the effort pick names its default.**  "Create this rule" opens the proposed rule in a dialog, the custom-rules tab's own card, and adds it without leaving the page, warning when a rule with the same conditions exists.  The effort's default now says what runs, and the advisor page picks its model and effort too, keeping a review per model.
 
 - (2026-10-12) **Ask AI shows what an answer cost, and its addresses open the popover.**  An answer's token line now carries its cost, estimated from the provider's published list prices, and the history tab sums the month for every account; both are marked as estimates, the provider's statement being the bill.  An address an answer names opens the hunt page's popover -- reverse DNS, country, ASN -- on hover or click.
+
+### Changed
+
+- (2026-10-12) **Model pickers list the newest version first.**  The AI settings tab, the ask page and the advisor page order models by family name, with each family's versions newest first (Claude Opus 5.5 before 5 and 4.8, gpt-5.4 before gpt-5.2), whatever order the provider lists them in.  The configured model keeps its place in that order and is the one selected.
+
+- (2026-10-11) **The overview names what monitor mode let through.**  The "other" segment's breakdown gets a monitor-mode line -- requests judged and let through, which going live would have challenged or denied -- and the line that read "passed while monitoring" now says what it counted all along: requests riding a cookie the over-block breaker handed out.
 
 ### Removed
 
