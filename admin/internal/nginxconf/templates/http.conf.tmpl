@@ -625,7 +625,7 @@ map $serve_bot_challenge $unmask_hp_uri {
 # dispatcher reads through to the actual per-host map's result).
 
 # Stage A: global rules (= rule.Site == "").  Applied to every host.
-map $request_uri $unmask_pp_global {
+map $uri $unmask_pp_global {
     default "";
 {{- range .ProtectedPathsGlobal }}
     "~*{{ rx .Pattern }}" "{{ .Mode }}";
@@ -638,7 +638,7 @@ map $request_uri $unmask_pp_global {
 # protected mode literal so per-host rules can carry a different mode than
 # the global pattern would.
 {{- range .ProtectedPathsPerHost }}
-map $request_uri $unmask_pp_host_{{ .VarName }} {
+map $uri $unmask_pp_host_{{ .VarName }} {
     default "";
 {{- range .Rules }}
     "~*{{ rx .Pattern }}" "{{ .Mode }}";
@@ -743,10 +743,10 @@ map $unmask_asn_action $is_asn_challenge {
 # limit / ban) still runs -- unlike $is_bypass_path, which vetoes EVERY
 # judgment.  For endpoints that legitimately draw datacenter or overseas bots:
 # RSS/Atom feeds pulled by Feedly / Inoreader from AWS/GCP IPs that a country
-# or ASN policy would otherwise sweep up.  Same $request_uri-keyed convention
+# or ASN policy would otherwise sweep up.  Same $uri-keyed convention
 # as bypass paths: path-anchored regex used verbatim, per-host rules via a
 # $host dispatcher.
-map $request_uri $unmask_gx_global {
+map $uri $unmask_gx_global {
     default "0";
 {{- range .GeoExemptPathsGlobal }}
     "~{{ rx . }}" "1";
@@ -754,7 +754,7 @@ map $request_uri $unmask_gx_global {
 }
 {{- if .GeoExemptPathsPerHost }}
 {{- range .GeoExemptPathsPerHost }}
-map $request_uri $unmask_gx_host_{{ .VarName }} {
+map $uri $unmask_gx_host_{{ .VarName }} {
     default "0";
 {{- range .Patterns }}
     "~{{ rx . }}" "1";
@@ -778,7 +778,7 @@ map $unmask_gx_global $is_geo_exempt_path {
 }
 {{- end }}
 
-map $request_uri $unmask_ax_global {
+map $uri $unmask_ax_global {
     default "0";
 {{- range .AsnExemptPathsGlobal }}
     "~{{ rx . }}" "1";
@@ -786,7 +786,7 @@ map $request_uri $unmask_ax_global {
 }
 {{- if .AsnExemptPathsPerHost }}
 {{- range .AsnExemptPathsPerHost }}
-map $request_uri $unmask_ax_host_{{ .VarName }} {
+map $uri $unmask_ax_host_{{ .VarName }} {
     default "0";
 {{- range .Patterns }}
     "~{{ rx . }}" "1";
@@ -1101,14 +1101,18 @@ map "" $unmask_cb_captcha { default 0; }
 # paths / rate limit.  Useful for "the whole site is under unmask, but
 # static / api pass through".
 #
-# Design: every path map is keyed on `$request_uri` alone -- never a
-# host-prefixed concatenation.  This lets operators write path-anchored
-# regex (`^/api/`) literally without worrying about a second `^` landing
-# mid-string.  Per-host rules go through a host dispatcher map that selects
-# which per-host map's result to surface.
+# Design: every path map here is keyed on `$uri` (the normalized, decoded
+# path), NOT `$request_uri`.  The exemption / protected mode is then decided
+# on the exact path nginx routes and serves, so an encoded traversal like
+# `/static/%2e%2e/admin` (whose raw `$request_uri` starts `/static/` but whose
+# `$uri` is `/admin`) can neither buy a bypass nor dodge a protected rule.
+# Honeypot and custom-rule path maps stay on `$request_uri` on purpose: they
+# match the raw, undecoded form and the query string.  Patterns are still
+# path-anchored (`^/api/`); per-host rules go through a host dispatcher map
+# that selects which per-host map's result to surface.
 #
 # Stage A: global rules (= rule.Site == "").  Applied to every host.
-map $request_uri $unmask_bp_global {
+map $uri $unmask_bp_global {
     default "0";
 {{- range .BypassPathsGlobal }}
     "~{{ rx . }}" "1";
@@ -1120,7 +1124,7 @@ map $request_uri $unmask_bp_global {
 # Stage B: per-host rules.  One map per unique host string; pattern stays in
 # the same path-anchored form because the map is keyed on $request_uri.
 {{- range .BypassPathsPerHost }}
-map $request_uri $unmask_bp_host_{{ .VarName }} {
+map $uri $unmask_bp_host_{{ .VarName }} {
     default "0";
 {{- range .Patterns }}
     "~{{ rx . }}" "1";

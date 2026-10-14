@@ -1,7 +1,7 @@
 // Tests for bypass-path Pattern conventions and the renderer split.
 //
 // Convention: BypassPathRule.Pattern is a path-anchored PCRE regex
-// (e.g., `^/api/`) evaluated against `$request_uri` directly.  No host
+// (e.g., `^/api/`) evaluated against `$uri` (the normalized path) directly.  No host
 // concatenation, no anchor stripping.  Per-host rules are emitted as
 // separate path-only maps + a host dispatcher (see splitBypassPathsForRender).
 package nginxconf
@@ -157,7 +157,7 @@ func TestHostToNginxVarSegment(t *testing.T) {
 }
 
 // TestRenderedMapRegexNaturalForm proves the rendered nginx map entry --
-// `~^/api/` against a `$request_uri` input -- matches normally.  Guards
+// `~^/api/` against a `$uri` input -- matches normally.  Guards
 // against any future refactor that re-introduces a host concatenation.
 func TestRenderedMapRegexNaturalForm(t *testing.T) {
 	cases := []struct {

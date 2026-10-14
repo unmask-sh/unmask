@@ -16,8 +16,8 @@ import (
 func TestAxisExemptPathRender(t *testing.T) {
 	off := renderHTTPInc(t, nil)
 	for _, want := range []string{
-		"map $request_uri $unmask_gx_global",
-		"map $request_uri $unmask_ax_global",
+		"map $uri $unmask_gx_global",
+		"map $uri $unmask_ax_global",
 		"$is_geo_exempt_path {",
 		"$is_asn_exempt_path {",
 		`map "$is_geo_challenge:$is_geo_exempt_path" $geo_challenge_eff`,
@@ -54,7 +54,7 @@ func TestAxisExemptPathRender(t *testing.T) {
 		t.Error("disabled asn-exempt row must not render")
 	}
 	// The geo-only /feed pattern must not leak into the asn map ($unmask_ax_*).
-	axStart := strings.Index(on, "map $request_uri $unmask_ax_global")
+	axStart := strings.Index(on, "map $uri $unmask_ax_global")
 	if axStart < 0 {
 		t.Fatal("asn exempt global map missing")
 	}
