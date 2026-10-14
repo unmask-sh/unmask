@@ -12,7 +12,17 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.51-rc15] - 2026-10-15 (testing build)
+
+### Since rc14
+
+- Doctor's nginx render check no longer warns on every install that the configuration is out of date with config.yml: since rc13 its dry run could never match.
+
+- Ask AI reads the install more truly: times in the operator's time zone, the iCloud Private Relay, the dashboard's crawler table, challenges ranked by serves rather than events, and the bans in force with the time each has left; it no longer suggests a rule on a crawler's name, which would stop the real crawler too.
+
+- On the ask page an answer arrives without the page jumping: a short one moves nothing, a long one brings its question to the top.
+
+- On the dashboard, the gear that opens a reason's settings sits beside the reason's name.
 
 ### Changed
 
