@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-10-15) **Ask AI works with OpenAI's newest models.**  Asked on an OpenAI model such as gpt-6.1-sol, the page failed at once: the model takes tool calls together with a reasoning effort only on OpenAI's Responses API, and the page spoke the older chat API.  Questions to OpenAI's own endpoint now go over the Responses API, with nothing stored on OpenAI's side; a self-hosted OpenAI-compatible server is spoken to as before.
+
 ## [0.1.51-rc15] - 2026-10-15 (testing build)
 
 ### Since rc14

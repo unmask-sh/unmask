@@ -138,6 +138,111 @@ func TestChatToolLoopOpenAI(t *testing.T) {
 	}
 }
 
+// OpenAI's own endpoint is spoken to on the Responses API: the system prompt
+// as instructions, flat function tools, nothing stored, the effort under
+// reasoning; the second request replays every output item of the first --
+// the encrypted reasoning and the function_call -- and then the tool's
+// result under its call_id.
+func TestChatToolLoopOpenAIResponses(t *testing.T) {
+	old := openaiUsesResponses
+	openaiUsesResponses = func(string) bool { return true }
+	t.Cleanup(func() { openaiUsesResponses = old })
+	var reqs []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/responses" || r.Header.Get("authorization") != "Bearer k" {
+			http.Error(w, "wrong path or key", 400)
+			return
+		}
+		m := readBody(t, r)
+		reqs = append(reqs, m)
+		if len(reqs) == 1 {
+			io.WriteString(w, `{"status":"completed","output":[
+			  {"type":"reasoning","id":"rs_1","summary":[],"encrypted_content":"gAAAA"},
+			  {"type":"function_call","id":"fc_1","call_id":"call_1","name":"bans","arguments":"{\"limit\":2}","status":"completed"}],
+			  "usage":{"input_tokens":3,"output_tokens":4}}`)
+			return
+		}
+		io.WriteString(w, `{"status":"completed","output":[
+		  {"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"Done.","annotations":[]}]}],
+		  "usage":{"input_tokens":5,"output_tokens":6}}`)
+	}))
+	defer srv.Close()
+	cfg := settings.AIAdvisorConfig{Enabled: true, Provider: "openai", Endpoint: srv.URL, APIKey: "k", Model: "gpt-6.1-sol", Effort: "low"}
+	res, err := Chat(context.Background(), cfg, &stubTools{}, []ChatTurn{{Question: "earlier?", Answer: "Earlier."}}, "q", "en")
+	if err != nil || res.Answer != "Done." || res.Usage.Input != 8 || res.Usage.Output != 10 || len(res.Tools) != 1 || res.Tools[0].Args["limit"] != float64(2) {
+		t.Fatalf("err=%v res=%+v", err, res)
+	}
+	first := reqs[0]
+	if first["instructions"] != chatSystemPrompt || first["store"] != false {
+		t.Errorf("instructions/store: %v / %v", first["instructions"] != nil, first["store"])
+	}
+	if r, ok := first["reasoning"].(map[string]any); !ok || r["effort"] != "low" {
+		t.Errorf("reasoning = %v, want effort low", first["reasoning"])
+	}
+	if _, has := first["reasoning_effort"]; has {
+		t.Error("reasoning_effort is chat/completions' field")
+	}
+	if tools, ok := first["tools"].([]any); !ok || len(tools) != 1 || tools[0].(map[string]any)["name"] != "bans" || tools[0].(map[string]any)["function"] != nil {
+		t.Errorf("tools not in the Responses (flat) shape: %v", first["tools"])
+	}
+	// the earlier turn (two messages) and the question
+	if in := first["input"].([]any); len(in) != 3 || in[2].(map[string]any)["role"] != "user" {
+		t.Errorf("first input %v", first["input"])
+	}
+	in := reqs[1]["input"].([]any)
+	// earlier turn ×2, question, reasoning, function_call, function_call_output
+	if len(in) != 6 {
+		t.Fatalf("%d input items on the second request", len(in))
+	}
+	if r := in[3].(map[string]any); r["type"] != "reasoning" || r["encrypted_content"] != "gAAAA" {
+		t.Errorf("the reasoning item was not replayed as it came: %v", r)
+	}
+	if c := in[4].(map[string]any); c["type"] != "function_call" || c["call_id"] != "call_1" {
+		t.Errorf("the function_call item was not replayed: %v", c)
+	}
+	if o := in[5].(map[string]any); o["type"] != "function_call_output" || o["call_id"] != "call_1" || !strings.Contains(o["output"].(string), "203.0.113.9") {
+		t.Errorf("tool result %v", o)
+	}
+}
+
+// Which API an OpenAI-provider endpoint is spoken to on: OpenAI's own host
+// the Responses API, any other server chat/completions.
+func TestOpenAIEndpointPicksTheAPI(t *testing.T) {
+	for ep, want := range map[string]bool{
+		"https://api.openai.com":          true,
+		"https://API.OpenAI.com/":         true,
+		"http://127.0.0.1:11434/v1":       false,
+		"https://llm.example/openai":      false,
+		"https://api.openai.com.example":  false,
+		"https://openai.azure.example/v1": false,
+	} {
+		if got := openaiUsesResponses(ep); got != want {
+			t.Errorf("%s: responses=%v, want %v", ep, got, want)
+		}
+	}
+}
+
+// A Responses answer that stopped short, or a refusal, is an error the page
+// can show, with the tokens it cost counted.
+func TestChatOpenAIResponsesIncompleteAndRefusal(t *testing.T) {
+	old := openaiUsesResponses
+	openaiUsesResponses = func(string) bool { return true }
+	t.Cleanup(func() { openaiUsesResponses = old })
+	for _, tc := range []struct{ body, wantErr string }{
+		{`{"status":"incomplete","incomplete_details":{"reason":"max_output_tokens"},"output":[],"usage":{"input_tokens":7,"output_tokens":9}}`, "max_output_tokens"},
+		{`{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"refusal","refusal":"No."}]}],"usage":{"input_tokens":7,"output_tokens":9}}`, "declined"},
+	} {
+		body := tc.body
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, body) }))
+		cfg := settings.AIAdvisorConfig{Enabled: true, Provider: "openai", Endpoint: srv.URL, APIKey: "k", Model: "m"}
+		res, err := Chat(context.Background(), cfg, &stubTools{}, nil, "q", "en")
+		srv.Close()
+		if err == nil || !strings.Contains(err.Error(), tc.wantErr) || res.Usage.Input != 7 || res.Usage.Output != 9 {
+			t.Errorf("%s: err=%v usage=%+v", tc.wantErr, err, res.Usage)
+		}
+	}
+}
+
 func TestChatToolLoopOllama(t *testing.T) {
 	var reqs []map[string]any
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

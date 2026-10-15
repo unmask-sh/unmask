@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"strings"
 	"time"
 
@@ -23,7 +24,9 @@ import (
 //
 // Providers: the same three as the advisor (anthropic, an OpenAI-compatible
 // endpoint, ollama), each with its own tool-calling shape; the loop here is
-// shared and the adapters below translate.  An answer arrives whole: each
+// shared and the adapters below translate.  OpenAI's own endpoint is spoken
+// to on its Responses API, any other OpenAI-compatible server on
+// chat/completions (openaiUsesResponses).  An answer arrives whole: each
 // request within attemptTimeout (Anthropic's read as a stream, anthropicPost).
 
 // ChatTurn is one earlier exchange, as the page stores it, handed back as
@@ -104,7 +107,11 @@ func Chat(ctx context.Context, cfg settings.AIAdvisorConfig, tools aitools.Runne
 	case "anthropic":
 		c = &anthropicChat{cfg: cfg}
 	case "openai":
-		c = &openaiChat{cfg: cfg}
+		if openaiUsesResponses(endpointOr(cfg, openaiDefaultEndpoint)) {
+			c = &openaiResponses{cfg: cfg}
+		} else {
+			c = &openaiChat{cfg: cfg}
+		}
 	default:
 		c = &ollamaChat{cfg: cfg}
 	}
@@ -351,7 +358,7 @@ func (o *openaiChat) step(ctx context.Context) (turn, error) {
 	if o.cfg.APIKey != "" {
 		headers["authorization"] = "Bearer " + o.cfg.APIKey
 	}
-	out, err := post(ctx, "openai", endpointOr(o.cfg, "https://api.openai.com")+"/v1/chat/completions", headers, body)
+	out, err := post(ctx, "openai", endpointOr(o.cfg, openaiDefaultEndpoint)+"/v1/chat/completions", headers, body)
 	if err != nil {
 		return turn{}, err
 	}
@@ -391,6 +398,158 @@ func (o *openaiChat) resolve(t turn, results []toolResult) {
 	o.messages = append(o.messages, t.raw)
 	for _, r := range results {
 		o.messages = append(o.messages, map[string]any{"role": "tool", "tool_call_id": r.call.ID, "content": r.text})
+	}
+}
+
+// --- OpenAI Responses API -----------------------------------------------------
+
+const openaiDefaultEndpoint = "https://api.openai.com"
+
+// openaiUsesResponses says whether an OpenAI-provider endpoint is spoken to
+// on the Responses API (/v1/responses) rather than chat/completions.
+//
+// OpenAI's own endpoint takes tool calls from its newer models there only:
+// gpt-6.1-sol answers a chat/completions request that carries tools and a
+// reasoning effort with 400, "use /v1/responses or set reasoning_effort to
+// 'none'", and the ask page needs both -- the tools are how it reads the
+// install.  An OpenAI-compatible server an operator points the endpoint at
+// (vLLM, LM Studio, an ollama in OpenAI mode, a proxy) speaks
+// chat/completions, and not every one of them the Responses API, so those
+// stay as they were.  A variable so a test can route a local server here.
+var openaiUsesResponses = func(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	return err == nil && strings.EqualFold(u.Hostname(), "api.openai.com")
+}
+
+// openaiResponses is the transcript for OpenAI's Responses API: the system
+// prompt as instructions, the turns as input items, and every output item
+// the model returns -- its reasoning (encrypted, since nothing is stored on
+// the provider's side), its tool calls, its messages -- replayed in the next
+// request ahead of the tool results, as the API asks.
+type openaiResponses struct {
+	cfg   settings.AIAdvisorConfig
+	tools []map[string]any
+	input []any
+}
+
+func (o *openaiResponses) begin(tools []aitools.Tool, history []ChatTurn, question string) {
+	for _, t := range tools {
+		// Not strict: strict mode wants every property required, and the
+		// tools take optional arguments (a limit, a window), as they do on
+		// chat/completions.
+		o.tools = append(o.tools, map[string]any{"type": "function", "name": t.Name, "description": t.Description, "parameters": t.Schema, "strict": false})
+	}
+	for _, h := range history {
+		o.input = append(o.input, map[string]any{"role": "user", "content": h.Question}, map[string]any{"role": "assistant", "content": h.Answer})
+	}
+	o.input = append(o.input, map[string]any{"role": "user", "content": question})
+}
+
+func (o *openaiResponses) step(ctx context.Context) (turn, error) {
+	body := map[string]any{
+		"model":        o.cfg.ResolvedModel(),
+		"instructions": chatSystemPrompt,
+		"input":        o.input,
+		// The install's data is in the questions and the tool results;
+		// nothing of it is kept on the provider's side.  The reasoning comes
+		// back encrypted instead and is replayed by resolve.
+		"store": false,
+	}
+	if len(o.tools) > 0 {
+		body["tools"] = o.tools
+	}
+	if e := effortToSend(o.cfg.ResolvedModel(), o.cfg.Effort); e != "" {
+		body["reasoning"] = map[string]any{"effort": e}
+	}
+	headers := map[string]string{}
+	if o.cfg.APIKey != "" {
+		headers["authorization"] = "Bearer " + o.cfg.APIKey
+	}
+	out, err := post(ctx, "openai", endpointOr(o.cfg, openaiDefaultEndpoint)+"/v1/responses", headers, body)
+	if err != nil {
+		return turn{}, err
+	}
+	var resp struct {
+		Status     string `json:"status"`
+		Incomplete *struct {
+			Reason string `json:"reason"`
+		} `json:"incomplete_details"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+		Output []json.RawMessage `json:"output"`
+		Usage  struct {
+			Input  int `json:"input_tokens"`
+			Output int `json:"output_tokens"`
+		} `json:"usage"`
+	}
+	if err := json.Unmarshal(out, &resp); err != nil {
+		return turn{}, err
+	}
+	t := turn{usage: Usage{Input: resp.Usage.Input, Output: resp.Usage.Output}}
+	if resp.Error != nil && resp.Error.Message != "" {
+		return t, errors.New(resp.Error.Message)
+	}
+	if resp.Status == "incomplete" {
+		// The answer, or a tool call's arguments, cut off: nothing whole to use.
+		reason := "unknown reason"
+		if resp.Incomplete != nil && resp.Incomplete.Reason != "" {
+			reason = resp.Incomplete.Reason
+		}
+		return t, fmt.Errorf("the model stopped before it finished the answer (%s): try a narrower question or a lower effort", reason)
+	}
+	var texts []string
+	for _, raw := range resp.Output {
+		var item struct {
+			Type      string `json:"type"`
+			CallID    string `json:"call_id"`
+			Name      string `json:"name"`
+			Arguments string `json:"arguments"`
+			Content   []struct {
+				Type    string `json:"type"`
+				Text    string `json:"text"`
+				Refusal string `json:"refusal"`
+			} `json:"content"`
+		}
+		if err := json.Unmarshal(raw, &item); err != nil {
+			continue
+		}
+		switch item.Type {
+		case "message":
+			for _, c := range item.Content {
+				switch c.Type {
+				case "output_text":
+					texts = append(texts, c.Text)
+				case "refusal":
+					return t, errors.New("the model declined this request: " + c.Refusal)
+				}
+			}
+		case "function_call":
+			args := map[string]any{}
+			if strings.TrimSpace(item.Arguments) != "" {
+				_ = json.Unmarshal([]byte(item.Arguments), &args)
+			}
+			t.calls = append(t.calls, toolCall{ID: item.CallID, Name: item.Name, Args: args})
+		}
+	}
+	t.text = strings.Join(texts, "\n")
+	// Every output item goes back as it came -- the reasoning items carry
+	// the thinking the tool calls came from, the function_call items the ids
+	// the results answer to.
+	items := make([]any, 0, len(resp.Output))
+	for _, raw := range resp.Output {
+		items = append(items, raw)
+	}
+	t.raw = items
+	return t, nil
+}
+
+func (o *openaiResponses) resolve(t turn, results []toolResult) {
+	if items, ok := t.raw.([]any); ok {
+		o.input = append(o.input, items...)
+	}
+	for _, r := range results {
+		o.input = append(o.input, map[string]any{"type": "function_call_output", "call_id": r.call.ID, "output": r.text})
 	}
 }
 

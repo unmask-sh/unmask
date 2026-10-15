@@ -4853,9 +4853,10 @@ func BackfillExtraVerdictIDs(s *Settings) {
 // sent is discarded, so a user agent carrying instructions cannot conjure one.
 type AIAdvisorConfig struct {
 	Enabled bool `yaml:"enabled,omitempty"`
-	// Provider: "anthropic" (Claude API), "openai" (any OpenAI-compatible
-	// chat-completions endpoint) or "ollama" (a local model -- nothing leaves
-	// the host).  Empty behaves as "anthropic".
+	// Provider: "anthropic" (Claude API), "openai" (OpenAI itself, on its
+	// Responses API, or any OpenAI-compatible chat-completions server named
+	// in Endpoint) or "ollama" (a local model -- nothing leaves the host).
+	// Empty behaves as "anthropic".
 	Provider string `yaml:"provider,omitempty"`
 	// Endpoint overrides the provider's default base URL.  Required for
 	// ollama / self-hosted OpenAI-compatible servers.
@@ -4867,9 +4868,10 @@ type AIAdvisorConfig struct {
 	// Effort: the reasoning effort sent with every question and every
 	// advisor review ("" = the model's own default).  Anthropic takes low /
 	// medium / high / xhigh / max as output_config.effort, an
-	// OpenAI-compatible endpoint low / medium / high as reasoning_effort,
-	// Ollama nothing; a model known to take none is sent none.  The ask and
-	// advisor pages let the operator pick one over this.
+	// OpenAI-compatible endpoint low / medium / high as reasoning_effort
+	// (reasoning.effort on OpenAI's own Responses API), Ollama nothing; a
+	// model known to take none is sent none.  The ask and advisor pages let
+	// the operator pick one over this.
 	Effort string `yaml:"effort,omitempty"`
 	// NotifyEnabled turns on the scheduled pass: the deterministic engine runs
 	// on its own every NotifyIntervalHours and the existing alert channels
