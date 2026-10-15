@@ -1,6 +1,9 @@
 // The dashboard's map: the outline loads, a reading with countries paints
 // streams onto the canvas, an admin can set the server's position from the
 // card (through the shared dialog's prompt), and an unset position says so.
+// And it stays cheap: the map's canvas is painted once per reading, only the
+// particles' layer moves, and nothing draws with a canvas shadow (a shadow
+// blurs on every draw, and a busy install's page stalled on them).
 //
 // Env: UI_E2E_BASE, UI_E2E_USER, UI_E2E_PASS, CHROME_BIN, UI_E2E_SHOT_DIR.
 const puppeteer = require('puppeteer-core');
@@ -24,6 +27,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const page = await browser.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
+  // Every canvas shadow anyone sets, from the first script on.
+  await page.evaluateOnNewDocument(() => {
+    const d = Object.getOwnPropertyDescriptor(CanvasRenderingContext2D.prototype, 'shadowBlur');
+    Object.defineProperty(CanvasRenderingContext2D.prototype, 'shadowBlur', {
+      get() { return d.get.call(this); },
+      set(v) { if (v > 0) window.__shadows = (window.__shadows || 0) + 1; d.set.call(this, v); },
+    });
+  });
 
   await page.goto(BASE + '/admin/login', { waitUntil: 'networkidle2' });
   await page.type('input[name="username"]', USER);
@@ -173,6 +184,26 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await feed(); await sleep(1200);
   const streamsLit = await lit();
   ok(streamsLit > sourcesLit, `streams did not paint after the position was set (${sourcesLit} -> ${streamsLit})`);
+  // A second without a reading: the particles' layer is drawn frame after
+  // frame, the map under it not at all.
+  const work = await page.evaluate(async () => {
+    const n = { map: 0, fx: 0 };
+    const count = (cv, k) => {
+      const c = cv.getContext('2d');
+      ['fill', 'stroke', 'drawImage', 'fillRect', 'fillText', 'clearRect'].forEach(fn => {
+        const orig = c[fn]; c[fn] = function () { n[k]++; return orig.apply(this, arguments); };
+      });
+    };
+    const fx = document.querySelector('#geo-card canvas.geo-fx');
+    count(document.getElementById('geo'), 'map');
+    if (fx) count(fx, 'fx');
+    await new Promise(r => setTimeout(r, 1000));
+    return Object.assign(n, { layer: !!fx, shadows: window.__shadows || 0 });
+  });
+  ok(work.layer, 'the map has no particles layer over it');
+  ok(work.fx > 30, `the particles did not move (${work.fx} draws in a second)`);
+  ok(work.map === 0, `the map was repainted between readings (${work.map} draws in a second)`);
+  ok(work.shadows === 0, `the map drew with canvas shadows (${work.shadows} times)`);
   // The setting survives a reload; back to automatic through the dialog
   // (nothing to work out here, so the card says the position is unknown).
   await page.reload({ waitUntil: 'networkidle2' });

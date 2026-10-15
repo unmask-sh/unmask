@@ -123,6 +123,9 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .geo-card{padding:.8rem 1.25rem .7rem}
 .geo-wrap{position:relative}
 .geo-wrap canvas{width:100%;max-width:1200px;margin:0 auto;display:block;border-radius:.3rem;background:#0f172a}
+/* The particles' layer (the map script below): laid over the map, clear where
+   nothing moves, and never in the pointer's way. */
+.geo-wrap canvas.geo-fx{position:absolute;margin:0;background:transparent;pointer-events:none}
 .geo-foot{display:flex;gap:1rem;flex-wrap:wrap;align-items:center;font-size:.75rem;color:#64748b;margin-top:.5rem}
 .geo-foot i{display:inline-block;width:.6rem;height:.6rem;border-radius:50%;margin-right:.3rem;vertical-align:-.05em}
 /* The popover a source gets under the pointer: the flag and full name, the
@@ -676,6 +679,15 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 // particles coloured by outcome.  The outline comes from /static/world-110m.json
 // (see world-110m.md); the counts from the live strip's readings
 // (unmask:now).  Without a server position only the sources are drawn.
+//
+// A frame costs the same however many countries send traffic.  Everything
+// that changes only with a reading -- the sea and the land, the streams, the
+// source dots and labels -- is painted once onto the map's canvas, and the
+// frames draw only the particles and the server's pulse, on a transparent
+// canvas laid over it, from glow sprites rendered once per colour.  The
+// first version drew it all every frame with canvas shadows, which blur on
+// every draw: with a hundred and more sources and the particle cap reached,
+// a busy install's page stalled.
 (function(){
   var card = document.getElementById('geo-card');
   if (!card || !window.fetch) return;
@@ -686,17 +698,44 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   var loc = { set: card.dataset.set === '1', lat: parseFloat(card.dataset.lat) || 0, lon: parseFloat(card.dataset.lon) || 0, label: card.dataset.label || '' };
   var counts = {}, nowCounts = {}, names = {}, streams = [], parts = [], server = null;
   // Hit areas for the popover, in CSS pixels: each source's point and, when
-  // it got one, its label box.  Rebuilt by every frame.
+  // it got one, its label box.  Rebuilt with the labels.
   var hot = [], flagImgs = {};
   function flagImg(cc){
     var k = cc.toLowerCase();
-    if (!flagImgs[k]) { var im = new Image(); im.src = card.dataset.flags + k + '.png'; flagImgs[k] = im; }
+    if (!flagImgs[k]) {
+      var im = new Image();
+      // A flag that arrives after its label was painted repaints the labels.
+      im.onload = function(){ if (MAP) paintStatic(); };
+      im.src = card.dataset.flags + k + '.png'; flagImgs[k] = im;
+    }
     return flagImgs[k];
   }
   var reduce = false;
   try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
   var colors = { pass: '#94a3b8', serve: '#f87171', deny: '#b91c1c', bypass: '#818cf8' };
   var dpr = 1, cw = 0, ch = 0;
+  // The particles' layer, over the map and under the popover.
+  var fx = document.createElement('canvas'), fctx = fx.getContext('2d');
+  fx.className = 'geo-fx'; fx.setAttribute('aria-hidden', 'true');
+  cv.parentNode.insertBefore(fx, cv.nextSibling);
+  // Where the labels and the server's mark are (device pixels): stamped back
+  // over the particles on every frame, so the text stays on top.
+  var stamps = [];
+  // The streams' glow: drawn at a sixth of the size and scaled up, which
+  // softens it the way a blur would, for the cost of one image copy.
+  var halo = document.createElement('canvas'), hctx = halo.getContext('2d');
+  // A particle's glow, one per colour: a solid core fading out to nothing.
+  var sprites = {};
+  function sprite(k){
+    if (sprites[k]) return sprites[k];
+    var c = document.createElement('canvas'); c.width = c.height = 64;
+    var g = c.getContext('2d'), gr = g.createRadialGradient(32, 32, 0, 32, 32, 32), n = parseInt(colors[k].slice(1), 16);
+    var rgb = (n >> 16) + ',' + (n >> 8 & 255) + ',' + (n & 255);
+    gr.addColorStop(0, 'rgba(' + rgb + ',1)'); gr.addColorStop(0.15, 'rgba(' + rgb + ',1)');
+    gr.addColorStop(0.35, 'rgba(' + rgb + ',.3)'); gr.addColorStop(1, 'rgba(' + rgb + ',0)');
+    g.fillStyle = gr; g.fillRect(0, 0, 64, 64);
+    return (sprites[k] = c);
+  }
 
   function fit(){
     // Capped at 1200px (the CSS max-width), so a wide window does not get a
@@ -705,7 +744,11 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     dpr = Math.min(2, window.devicePixelRatio || 1);
     cw = w; ch = Math.round(w * 0.46);
     cv.style.height = ch + 'px';
-    cv.width = Math.round(cw * dpr); cv.height = Math.round(ch * dpr);
+    cv.width = fx.width = Math.round(cw * dpr);
+    cv.height = fx.height = Math.round(ch * dpr);
+    halo.width = Math.ceil(cv.width / 6); halo.height = Math.ceil(cv.height / 6);
+    fx.style.left = cv.offsetLeft + 'px'; fx.style.top = cv.offsetTop + 'px';
+    fx.style.width = cv.offsetWidth + 'px'; fx.style.height = ch + 'px';
   }
   function P(lon, lat){ return [ (lon + 180) / 360 * MAP.w, (90 - lat) / 180 * MAP.h ]; }
   function setServer(){ server = loc.set ? P(loc.lon, loc.lat) : null; }
@@ -728,6 +771,12 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       streams.push(st);
     }
     streams.sort(function(a, b){ return b.n - a.n; });
+    // Particles in flight carry on along their country's new stream (the
+    // same curve while the server stays put); a country gone from the
+    // reading takes its particles with it.
+    var next = {};
+    streams.forEach(function(st){ next[st.cc] = st; });
+    parts = parts.filter(function(q){ return !!(q.st = next[q.st.cc]); });
     var top = document.getElementById('geo-top');
     if (top) {
       var html = '';
@@ -746,40 +795,41 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   }
   function bez(st, t){ var u = 1 - t; return [u*u*st.x0 + 2*u*t*st.cx + t*t*server[0], u*u*st.y0 + 2*u*t*st.cy + t*t*server[1]]; }
 
-  var running = false, last = 0;
-  function frame(ts){
-    if (!running) return;
+  // The map's canvas, once per reading: the sea, the land, the streams (each
+  // a line over its glow), the source
+  // dots, the labels of the top sources and the server's mark.  Labels are
+  // placed so neighbours (Korea beside Japan) do not overprint: a label that
+  // would cross one already drawn moves down a row, up to three times, then
+  // goes unlabelled.
+  function paintStatic(){
     var sx = cv.width / MAP.w, sy = cv.height / MAP.h;
     ctx.globalCompositeOperation = 'source-over';
-    // Fading rather than clearing leaves each particle a tail: the glow.
-    ctx.fillStyle = reduce ? '#0f172a' : 'rgba(15,23,42,0.25)';
-    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, cv.width, cv.height);
     ctx.save(); ctx.scale(sx, sy); ctx.fillStyle = '#1e293b'; ctx.strokeStyle = '#334155'; ctx.lineWidth = 0.6;
     for (var i = 0; i < land.length; i++) { ctx.fill(land[i]); ctx.stroke(land[i]); }
     ctx.restore();
-    ctx.globalCompositeOperation = 'lighter';
-    streams.forEach(function(st){
-      if (server) {
+    if (server) {
+      var hs = halo.width / cv.width;
+      hctx.clearRect(0, 0, halo.width, halo.height);
+      hctx.globalCompositeOperation = 'lighter'; hctx.lineCap = 'round';
+      streams.forEach(function(st){
+        // As bright as a blur of the line would be: the line's light spread
+        // over the glow's width.
+        var lw = 0.4 + 5 * st.w, gw = lw + 4 + 18 * st.w;
+        hctx.beginPath(); hctx.moveTo(st.x0 * sx * hs, st.y0 * sy * hs); hctx.quadraticCurveTo(st.cx * sx * hs, st.cy * sy * hs, server[0] * sx * hs, server[1] * sy * hs);
+        hctx.lineWidth = Math.max(1, gw * dpr * hs); hctx.strokeStyle = 'rgba(125,211,252,' + (0.3 + 0.6 * st.w) * lw / gw + ')'; hctx.stroke();
+      });
+      ctx.globalCompositeOperation = 'lighter'; ctx.imageSmoothingEnabled = true;
+      try { ctx.imageSmoothingQuality = 'high'; } catch (e) {}
+      ctx.drawImage(halo, 0, 0, cv.width, cv.height);
+      ctx.lineCap = 'round';
+      streams.forEach(function(st){
         ctx.beginPath(); ctx.moveTo(st.x0 * sx, st.y0 * sy); ctx.quadraticCurveTo(st.cx * sx, st.cy * sy, server[0] * sx, server[1] * sy);
-        ctx.lineWidth = (0.4 + 5 * st.w) * dpr; ctx.strokeStyle = 'rgba(125,211,252,' + (0.04 + 0.22 * st.w) + ')';
-        ctx.shadowBlur = (4 + 18 * st.w) * dpr; ctx.shadowColor = 'rgba(125,211,252,' + (0.3 + 0.6 * st.w) + ')'; ctx.stroke();
-        if (!reduce && parts.length < 400 && Math.random() < st.now * 0.0022 + 0.004) {
-          parts.push({ st: st, t: 0, v: 0.004 + Math.random() * 0.004, k: kindOf(st.mix), sz: (0.9 + 2.2 * st.w + Math.random()) * dpr });
-        }
-      }
-    });
-    for (var p = parts.length - 1; p >= 0; p--) {
-      var q = parts[p]; q.t += q.v;
-      if (q.t >= 1 || !server || streams.indexOf(q.st) < 0) { parts.splice(p, 1); continue; }
-      var xy = bez(q.st, q.t);
-      ctx.beginPath(); ctx.arc(xy[0] * sx, xy[1] * sy, q.sz, 0, Math.PI * 2);
-      ctx.shadowBlur = (8 + 10 * q.st.w) * dpr; ctx.shadowColor = colors[q.k]; ctx.fillStyle = colors[q.k]; ctx.globalAlpha = 0.55 + 0.45 * q.st.w; ctx.fill();
+        ctx.lineWidth = (0.4 + 5 * st.w) * dpr; ctx.strokeStyle = 'rgba(125,211,252,' + (0.04 + 0.22 * st.w) + ')'; ctx.stroke();
+      });
+      ctx.globalCompositeOperation = 'source-over'; ctx.lineCap = 'butt';
     }
-    ctx.shadowBlur = 0; ctx.globalAlpha = 1; ctx.globalCompositeOperation = 'source-over';
     ctx.font = '600 ' + (11 * dpr) + 'px -apple-system,Segoe UI,Roboto,sans-serif'; ctx.textBaseline = 'middle';
-    // Labels for the top sources, placed so neighbours (Korea beside
-    // Japan) do not overprint: a label that would cross one already drawn
-    // moves down a row, up to three times, then goes unlabelled.
     var placed = [], fresh = [];
     streams.forEach(function(st, i){
       var r = (1.5 + 3 * st.w) * dpr;
@@ -803,22 +853,82 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       }
     });
     hot = fresh;
+    stamps = placed.slice();
     if (server) {
-      var sxp = server[0] * sx, syp = server[1] * sy, pulse = reduce ? 0.5 : (ts / 1000) % 1;
-      ctx.beginPath(); ctx.arc(sxp, syp, (4 + pulse * 16) * dpr, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(56,189,248,' + (1 - pulse) * 0.8 + ')'; ctx.lineWidth = 2 * dpr; ctx.stroke();
+      var sxp = server[0] * sx, syp = server[1] * sy;
       ctx.beginPath(); ctx.arc(sxp, syp, 4.5 * dpr, 0, Math.PI * 2); ctx.fillStyle = '#38bdf8'; ctx.fill();
-      var lbl = card.dataset.txtServer + (loc.label ? ': ' + loc.label : ''), lw = ctx.measureText(lbl).width;
-      ctx.fillStyle = 'rgba(15,23,42,.7)'; ctx.fillRect(sxp + 8 * dpr, syp + 6 * dpr, lw + 8 * dpr, 16 * dpr);
+      var lbl = card.dataset.txtServer + (loc.label ? ': ' + loc.label : ''), lw2 = ctx.measureText(lbl).width;
+      ctx.fillStyle = 'rgba(15,23,42,.7)'; ctx.fillRect(sxp + 8 * dpr, syp + 6 * dpr, lw2 + 8 * dpr, 16 * dpr);
       ctx.fillStyle = '#e0f2fe'; ctx.fillText(lbl, sxp + 12 * dpr, syp + 14 * dpr);
+      stamps.push({ x: sxp - 5 * dpr, y: syp - 5 * dpr, w: 10 * dpr, h: 10 * dpr }, { x: sxp + 8 * dpr, y: syp + 6 * dpr, w: lw2 + 8 * dpr, h: 16 * dpr });
     }
-    if (reduce) { running = false; return; }   // one still frame per reading
-    requestAnimationFrame(frame);
   }
+  // A frame: the particles, each a head and a fading tail drawn back along
+  // its stream, the pulse ring, then the labels and the server's mark copied
+  // back from the map so they stay on top.  dt is the frames' worth of time
+  // since the last frame, so the speed and the rate particles set off at do
+  // not depend on the frame rate.
+  function paintFx(ts, dt){
+    fctx.clearRect(0, 0, fx.width, fx.height);
+    if (!server) return;
+    var sx = cv.width / MAP.w, sy = cv.height / MAP.h;
+    if (dt) {
+      streams.forEach(function(st){
+        if (parts.length < 200 && Math.random() < (st.now * 0.0022 + 0.004) * dt) {
+          parts.push({ st: st, t: 0, v: 0.004 + Math.random() * 0.004, k: kindOf(st.mix), sz: (0.9 + 2.2 * st.w + Math.random()) * dpr });
+        }
+      });
+      fctx.globalCompositeOperation = 'lighter';
+      for (var p = parts.length - 1; p >= 0; p--) {
+        var q = parts[p]; q.t += q.v * dt;
+        if (q.t >= 1) { parts.splice(p, 1); continue; }
+        var img = sprite(q.k), a = 0.45 + 0.35 * q.st.w, r = q.sz + (8 + 10 * q.st.w) * dpr * 0.35;
+        for (var k = 2; k >= 0; k--) {
+          var tt = q.t - q.v * 3 * k;
+          if (tt < 0) continue;
+          var xy = bez(q.st, tt), rr = r * Math.pow(0.65, k);
+          fctx.globalAlpha = a * Math.pow(0.35, k);
+          fctx.drawImage(img, xy[0] * sx - rr, xy[1] * sy - rr, rr * 2, rr * 2);
+        }
+      }
+      fctx.globalAlpha = 1; fctx.globalCompositeOperation = 'source-over';
+    }
+    var pulse = reduce ? 0.5 : (ts / 1000) % 1;
+    fctx.beginPath(); fctx.arc(server[0] * sx, server[1] * sy, (4 + pulse * 16) * dpr, 0, Math.PI * 2);
+    fctx.strokeStyle = 'rgba(56,189,248,' + (1 - pulse) * 0.8 + ')'; fctx.lineWidth = 2 * dpr; fctx.stroke();
+    stamps.forEach(function(b){
+      var x = Math.max(0, Math.floor(b.x)), y = Math.max(0, Math.floor(b.y));
+      var w = Math.min(cv.width - x, Math.ceil(b.w) + 1), h = Math.min(cv.height - y, Math.ceil(b.h) + 1);
+      if (w > 0 && h > 0) fctx.drawImage(cv, x, y, w, h, x, y, w, h);
+    });
+  }
+
+  // About thirty frames a second: the particles are slow, and half the
+  // frames are half the work.
+  var running = false, last = 0, onScreen = true;
+  function frame(ts){
+    if (!running) return;
+    requestAnimationFrame(frame);
+    if (last && ts - last < 30) return;
+    var dt = last ? Math.min(4, (ts - last) / 16.7) : 1;
+    last = ts;
+    paintFx(ts, dt);
+  }
+  function animated(){ return MAP && server && !reduce && onScreen && document.visibilityState === 'visible'; }
   function start(){
-    if (!MAP || running || document.visibilityState !== 'visible') return;
-    running = true; requestAnimationFrame(frame);
+    if (running || !animated()) return;
+    running = true; last = 0; requestAnimationFrame(frame);
   }
   function stop(){ running = false; }
+  // A new reading, a new size or a new position: repaint the map, then
+  // either keep animating or leave the still picture (with reduced motion,
+  // the ring held half way out).
+  function relayer(){
+    if (!MAP) return;
+    paintStatic();
+    if (animated()) { start(); return; }
+    stop(); paintFx(0, 0);
+  }
 
   document.addEventListener('unmask:now', function(e){
     var j = e.detail || {};
@@ -828,7 +938,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     nowCounts = j.countries || {};
     if (j.country_names) names = j.country_names;
     rebuild();
-    if (reduce) { running = false; start(); }
+    relayer();
     // A popover left open follows the new reading (or goes, with its source).
     if (!pop.hidden) setTimeout(function(){ var h = findHot(mx, my); if (h) showPop(h, mx, my); else hidePop(); }, 60);
   });
@@ -876,9 +986,17 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   cv.addEventListener('click', function(ev){ var h = findHot(ev.offsetX, ev.offsetY); if (h) showPop(h, ev.offsetX, ev.offsetY); else hidePop(); });
   // For the UI tests: where the sources are, in CSS pixels of the canvas.
   window.unmaskGeoHot = function(){ return hot.map(function(h){ return { cc: h.st.cc, x: h.x, y: h.y }; }); };
-  document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible') start(); else stop(); });
+  // Nothing animates where nobody can see it: a hidden tab, or the map
+  // scrolled out of view.
+  document.addEventListener('visibilitychange', function(){ if (animated()) start(); else stop(); });
+  if (window.IntersectionObserver) {
+    new IntersectionObserver(function(es){
+      onScreen = es[es.length - 1].isIntersecting;
+      if (animated()) start(); else stop();
+    }).observe(cv);
+  }
   var rt = null;
-  window.addEventListener('resize', function(){ clearTimeout(rt); rt = setTimeout(function(){ fit(); if (reduce) { running = false; start(); } }, 150); });
+  window.addEventListener('resize', function(){ clearTimeout(rt); rt = setTimeout(function(){ fit(); relayer(); }, 150); });
 
   var btn = document.getElementById('geo-set'), dlg = document.getElementById('geo-dialog');
   function applySaved(j){
@@ -891,7 +1009,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       if (!auto) { auto = document.createElement('p'); auto.id = 'geo-auto'; auto.className = 'meta'; auto.style.cssText = 'margin:.4rem 0 0;font-size:.78rem'; (note || card).insertAdjacentElement(note ? 'afterend' : 'beforeend', auto); }
       auto.textContent = j.note; auto.hidden = false;
     } else if (auto) { auto.hidden = true; }
-    setServer(); rebuild(); parts = []; if (reduce) { running = false; } start();
+    setServer(); parts = []; rebuild(); relayer();
     if (typeof setCur === 'function') setCur();
   }
   if (btn && dlg && typeof dlg.showModal === 'function') {
@@ -977,7 +1095,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     .then(function(r){ if (!r.ok) throw new Error(String(r.status)); return r.json(); })
     .then(function(m){
       MAP = m; land = m.paths.map(function(d){ return new Path2D(d); });
-      setServer(); rebuild(); start();
+      setServer(); rebuild(); relayer();
     })
     .catch(function(){ card.hidden = true; });
 })();

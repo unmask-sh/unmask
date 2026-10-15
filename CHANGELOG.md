@@ -20,6 +20,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- (2026-10-15) **The live map stays light on a busy site.**  With traffic from a hundred and more countries, the realtime map's animation could stall the admin page.  The map is now painted once per reading, and only the particles move, on a layer of their own drawn without canvas shadows; the animation also pauses while the map is scrolled out of view.
+
+## [0.1.51-rc16] - 2026-10-15 (testing build)
+
+### Since rc15
+
+- The startup warning for the removed crawler lists (upstream_disabled, upstream_ua_enabled) names 0.1.51, and no longer says a crawler already set under upstream_pattern_mode is rescued again.
+
+### Fixed
+
 - (2026-10-15) **Ask AI works with OpenAI's newest models.**  Asked on an OpenAI model such as gpt-6.1-sol, the page failed at once: the model takes tool calls together with a reasoning effort only on OpenAI's Responses API, and the page spoke the older chat API.  Questions to OpenAI's own endpoint now go over the Responses API, with nothing stored on OpenAI's side; a self-hosted OpenAI-compatible server is spoken to as before.
 
 ## [0.1.51-rc15] - 2026-10-15 (testing build)
