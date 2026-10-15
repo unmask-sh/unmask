@@ -293,10 +293,11 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
   <div class="impact-panel">
     <span class="impact-stat" data-info="{{ t .Lang "community_bans.hits30d_tip" }}">
       📊 <strong>{{ t .Lang "community_bans.hits30d_label" }}</strong>
-      <span id="cb-impact-figure" data-computing="{{ if and (not .CommunityBansHitsKnown) .CommunityBansHitsComputing }}1{{ end }}" data-poll-url="{{ .BasePath }}/admin/api/community-bans/impact">
+      <span id="cb-impact-figure" data-computing="{{ if and (not .CommunityBansHitsKnown) .CommunityBansHitsComputing }}1{{ end }}" data-poll-url="{{ .BasePath }}/admin/api/community-bans/impact" data-unavailable-tip="{{ t .Lang "community_bans.hits_unavailable_tip" }}">
       {{- if .CommunityBansHitsKnown }}<span class="impact-num">{{ comma .CommunityBansHits30d }}</span> 件
       {{ if gt .CommunityBansHitsUniqueIP30d 0 }}<span class="impact-sub">(uniq IP: {{ comma .CommunityBansHitsUniqueIP30d }})</span>{{ end }}
       {{- else if .CommunityBansHitsComputing }}<span class="impact-num impact-computing" title="{{ t .Lang "community_bans.hits_computing_tip" }}"><span class="impact-spinner" aria-hidden="true"></span>{{ t .Lang "community_bans.hits_computing" }}</span>
+      {{- else if .CommunityBansHitsUnavailable }}<span class="impact-num impact-unavailable" title="{{ t .Lang "community_bans.hits_unavailable_tip" }}">—</span>
       {{- else }}<span class="impact-num" title="collecting…">—</span>{{ end -}}
       </span>
     </span>
@@ -470,14 +471,17 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
 
 // Impact figure: while the 30-day scan runs in the background the figure shows
 // a spinner.  Poll the impact endpoint and swap the spinner for the number the
-// moment it lands, so the operator never has to reload.  Progressive
-// enhancement: with JS off the spinner stays and a manual reload still works.
+// moment it lands, so the operator never has to reload.  A scan that did not
+// finish (its budget ran out on a large database) answers "unavailable": the
+// spinner becomes an em dash whose title says so, and the polling stops --
+// the daemon tries again later on its own.  Progressive enhancement: with JS
+// off the spinner stays and a manual reload still works.
 (function(){
   var fig = document.getElementById('cb-impact-figure');
   if (!fig || fig.getAttribute('data-computing') !== '1') return;
   var url = fig.getAttribute('data-poll-url');
   if (!url) return;
-  var tries = 0, MAX = 40; // ~40 * 4s = ~2.5 min ceiling
+  var tries = 0, MAX = 40; // ~40 * 4s = ~2.5 min, past the scan's own budget
   function fmtInt(n){ try { return Number(n).toLocaleString(); } catch(e){ return String(n); } }
   function land(d){
     var html = '<span class="impact-num">' + fmtInt(d.count) + '</span> 件';
@@ -485,12 +489,22 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
     fig.innerHTML = html;
     fig.removeAttribute('data-computing');
   }
+  function unavailable(){
+    var dash = document.createElement('span');
+    dash.className = 'impact-num impact-unavailable';
+    dash.title = fig.getAttribute('data-unavailable-tip') || '';
+    dash.textContent = '\u2014';
+    fig.innerHTML = '';
+    fig.appendChild(dash);
+    fig.removeAttribute('data-computing');
+  }
   function poll(){
-    if (tries++ >= MAX) return; // give up quietly; a manual reload still shows it
+    if (tries++ >= MAX) { unavailable(); return; } // the scan is over by now either way
     fetch(url, {credentials:'same-origin', headers:{'Accept':'application/json'}})
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(d){
         if (d && d.known) { land(d); return; }
+        if (d && d.unavailable) { unavailable(); return; }
         setTimeout(poll, 4000); // still computing (or a hiccup) -> keep waiting
       })
       .catch(function(){ setTimeout(poll, 4000); });

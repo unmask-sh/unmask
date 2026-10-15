@@ -20,6 +20,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- (2026-10-16) **The Community Bans impact figure settles on a large database.**  The "past 30 days" count on the Community Bans tab could stay at "computing…" where its scan outlasted the budget, with every poll starting the scan over.  A scan that does not finish is now tried again an hour later, and the page says so.  The figure counts the requests the feed sent to a challenge; before, it read zero.
+
 - (2026-10-15) **The live map stays light on a busy site.**  With traffic from a hundred and more countries, the realtime map's animation could stall the admin page.  The map is now painted once per reading, and only the particles move, on a layer of their own drawn without canvas shadows; the animation also pauses while the map is scrolled out of view.
 
 ## [0.1.51-rc16] - 2026-10-15 (testing build)

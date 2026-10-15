@@ -8,7 +8,7 @@ import (
 )
 
 // TestAdminCommunityBansImpactJSON: the poll endpoint returns a well-formed
-// JSON body with the four fields the page's spinner JS reads, and never blocks
+// JSON body with the five fields the page's spinner JS reads, and never blocks
 // (the figure is computed in the background).
 func TestAdminCommunityBansImpactJSON(t *testing.T) {
 	h := newTestHandler(t)
@@ -22,15 +22,16 @@ func TestAdminCommunityBansImpactJSON(t *testing.T) {
 		t.Errorf("content-type = %q, want application/json", ct)
 	}
 	var body struct {
-		Known     *bool `json:"known"`
-		Computing *bool `json:"computing"`
-		Count     *int  `json:"count"`
-		UniqueIP  *int  `json:"uniqueIP"`
+		Known       *bool `json:"known"`
+		Computing   *bool `json:"computing"`
+		Unavailable *bool `json:"unavailable"`
+		Count       *int  `json:"count"`
+		UniqueIP    *int  `json:"uniqueIP"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatalf("invalid JSON: %v (%s)", err, rr.Body.String())
 	}
-	if body.Known == nil || body.Computing == nil || body.Count == nil || body.UniqueIP == nil {
+	if body.Known == nil || body.Computing == nil || body.Unavailable == nil || body.Count == nil || body.UniqueIP == nil {
 		t.Errorf("missing a field the spinner JS reads: %s", rr.Body.String())
 	}
 	// The first call must not have blocked on the scan: it returns not-known

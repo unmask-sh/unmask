@@ -361,7 +361,7 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 	// the communityHits TTL cache -- the query scans the whole 30-day serve
 	// window and must not run per page load (see community_hits.go).  When no
 	// figure is known yet the template renders an em dash, never a fake zero.
-	hitStats, hitsKnown, hitsComputing := h.communityHitsFigure()
+	hitStats, hitsKnown, hitsComputing, hitsUnavailable := h.communityHitsFigure()
 	var hitsFromHub int
 	if h.DB != nil {
 		// Rows currently in the local BAN list sourced from the hub (= shown
@@ -407,19 +407,23 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 		// bare em dash (which reads as "no data").  The page's JS polls
 		// /admin/api/community-bans/impact and swaps in the number when it lands.
 		"CommunityBansHitsComputing": hitsComputing,
-		"CommunityBansFromHub":       hitsFromHub,
-		"CommunityBansMatch":         match,
-		"CommunityBansQuery":         q,
-		"CommunityBansMapDir":        mapDir,
-		"CommunityBansSort":          sortKey,
-		"CommunityBansOrder":         orderParam,
-		"Page":                       page,
-		"PageNext":                   page + 1,
-		"PagePrev":                   page - 1,
-		"TotalPages":                 totalPages,
-		"PerPage":                    perPage,
-		"PageStart":                  start + 1,
-		"PageEnd":                    end,
+		// Unavailable: the last scan failed (its budget ran out on a large
+		// database) and no retry is due yet: an em dash with the reason, and
+		// the page does not poll.
+		"CommunityBansHitsUnavailable": hitsUnavailable,
+		"CommunityBansFromHub":         hitsFromHub,
+		"CommunityBansMatch":           match,
+		"CommunityBansQuery":           q,
+		"CommunityBansMapDir":          mapDir,
+		"CommunityBansSort":            sortKey,
+		"CommunityBansOrder":           orderParam,
+		"Page":                         page,
+		"PageNext":                     page + 1,
+		"PagePrev":                     page - 1,
+		"TotalPages":                   totalPages,
+		"PerPage":                      perPage,
+		"PageStart":                    start + 1,
+		"PageEnd":                      end,
 		"Pager": buildPagerData(
 			i18n.Resolve(r),
 			page, totalPages, perPage, total,
@@ -438,36 +442,40 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 }
 
 // communityHitsFigure returns the cached 30-day Community Bans impact figure,
-// whether it is known yet, and whether a background computation is in flight.
-// Shared by the page render and the impact-poll JSON endpoint.  The compute is
-// always dispatched to the background (community_hits.go), so this never blocks
-// on the 30-day scan.
-func (h *Handler) communityHitsFigure() (communityHitStats, bool, bool) {
+// whether it is known yet, whether a background computation is in flight, and
+// whether the figure is unavailable because the last scan failed and no retry
+// is due yet.  Shared by the page render and the impact-poll JSON endpoint.
+// The compute is always dispatched to the background (community_hits.go), so
+// this never blocks on the 30-day scan.
+func (h *Handler) communityHitsFigure() (stats communityHitStats, known, computing, unavailable bool) {
 	if h.DB == nil {
-		return communityHitStats{}, false, false
+		return communityHitStats{}, false, false, false
 	}
-	stats, known := h.communityHits.get(time.Now(), func() (communityHitStats, error) {
+	now := time.Now()
+	stats, known = h.communityHits.get(now, func() (communityHitStats, error) {
 		// Background-safe: independent of the request context so a page abort
 		// can't kill the refresh half-way.
 		return communityBansHits30d(context.Background(), h.DB)
 	})
-	return stats, known, !known && h.communityHits.Refreshing()
+	return stats, known, !known && h.communityHits.Refreshing(), h.communityHits.Unavailable(now)
 }
 
 // AdminCommunityBansImpact: GET /admin/api/community-bans/impact — the 30-day
 // impact figure as JSON.  The community-bans page polls this while the
 // background scan runs so the spinner resolves into the number without a manual
-// reload; each poll also nudges a stalled computation back to life (a not-known,
-// not-refreshing state re-dispatches the background scan).
+// reload.  A scan that failed is not re-dispatched by the poll: "unavailable"
+// tells the page to show an em dash with the reason and stop polling
+// (community_hits.go, communityHitsRetryAfter).
 func (h *Handler) AdminCommunityBansImpact(w http.ResponseWriter, r *http.Request) {
-	stats, known, computing := h.communityHitsFigure()
+	stats, known, computing, unavailable := h.communityHitsFigure()
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"known":     known,
-		"computing": computing,
-		"count":     stats.Count,
-		"uniqueIP":  stats.UniqueIP,
+		"known":       known,
+		"computing":   computing,
+		"unavailable": unavailable,
+		"count":       stats.Count,
+		"uniqueIP":    stats.UniqueIP,
 	})
 }
 
