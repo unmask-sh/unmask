@@ -766,6 +766,18 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 	case "pow", "captcha", "strict":
 		reason = "protected"
 	}
+	// A feed hit, named from the matcher the daemon holds, as ServeChallenge
+	// names it for the HTML page: native nginx says only that the request is
+	// challenged, never why.  Without this a client the shared feed caught
+	// that cannot take the HTML page (a script, a crawler asking for JSON)
+	// was recorded under force_reason=none, and the Community Bans tab, which
+	// counts feed hits by their name, missed it.  Same place in the ladder as
+	// the HTML page's: after protected, before the rate path.
+	if h.CommunityBans != nil && h.cfg().CommunityBans.ApplyActive() {
+		if _, ok := h.CommunityBans.Matcher().Hit(clientIP(r), ja4); ok {
+			reason = "community_bans"
+		}
+	}
 	if rl == 1 {
 		reason = "rate_limit"
 	}
