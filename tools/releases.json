@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.50",
+  "latest": "0.1.51",
   "releases": [
+    {
+      "version": "0.1.51",
+      "date": "2026-10-16",
+      "notes": "The dashboard opens with a strip of what is happening right now, a live map of where requests come from, and a day section that names who crawled and why visitors were stopped, each reason opening its settings. A new Ask page puts the configured model to work on this install: it answers a question in plain words from the install's own data through read-only tools, names the exact setting to change, can add a rule in place, and says what each answer cost. Custom rules combine several conditions into one action, the UA filter's presets let crawlers be set one by one, and pickers that inherit a default name the chain. Pass-through mode is gone, and monitor mode works on an nginx-module install. iCloud Private Relay users are counted where they are. Path exemptions and protected paths are decided on the path nginx serves, so an encoded path no longer slips past the challenge. On a large database the admin pages answer within their time limits, the Community Bans impact figure settles instead of computing for good, and the stats and hunt scans seek the date index. The admin pages say when nginx has not loaded the saved settings, and Ask AI works with OpenAI's newest models."
+    },
     {
       "version": "0.1.50",
       "date": "2026-10-07",

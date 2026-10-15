@@ -12,119 +12,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
-
-### Changed
-
-- (2026-10-15) **Pickers that inherit a default name the chain.**  The UA filter's crawler groups and blocklist presets, and the JA4 verdict and honeypot tabs' presets and rows, say which chain "inherit" resolves to and follow the tab's default as it changes; an unset honeypot default reads as the install's default chain.  The crawler group's picker moves ahead of the count, so the count and Detail line up on every row.
-
-### Fixed
-
-- (2026-10-16) **The Community Bans impact figure settles on a large database.**  The "past 30 days" count on the Community Bans tab could stay at "computing…" where its scan outlasted the budget, with every poll starting the scan over.  A scan that does not finish is now tried again an hour later, and the page says so.  The figure counts the requests the feed sent to a challenge; before, it read zero.
-
-- (2026-10-15) **The live map stays light on a busy site.**  With traffic from a hundred and more countries, the realtime map's animation could stall the admin page.  The map is now painted once per reading, and only the particles move, on a layer of their own drawn without canvas shadows; the animation also pauses while the map is scrolled out of view.
-
-## [0.1.51-rc16] - 2026-10-15 (testing build)
-
-### Since rc15
-
-- The startup warning for the removed crawler lists (upstream_disabled, upstream_ua_enabled) names 0.1.51, and no longer says a crawler already set under upstream_pattern_mode is rescued again.
-
-### Fixed
-
-- (2026-10-15) **Ask AI works with OpenAI's newest models.**  Asked on an OpenAI model such as gpt-6.1-sol, the page failed at once: the model takes tool calls together with a reasoning effort only on OpenAI's Responses API, and the page spoke the older chat API.  Questions to OpenAI's own endpoint now go over the Responses API, with nothing stored on OpenAI's side; a self-hosted OpenAI-compatible server is spoken to as before.
-
-## [0.1.51-rc15] - 2026-10-15 (testing build)
-
-### Since rc14
-
-- Doctor's nginx render check no longer warns on every install that the configuration is out of date with config.yml: since rc13 its dry run could never match.
-
-- Ask AI reads the install more truly: times in the operator's time zone, the iCloud Private Relay, the dashboard's crawler table, challenges ranked by serves rather than events, and the bans in force with the time each has left; it no longer suggests a rule on a crawler's name, which would stop the real crawler too.
-
-- On the ask page an answer arrives without the page jumping: a short one moves nothing, a long one brings its question to the top.
-
-- On the dashboard, the gear that opens a reason's settings sits beside the reason's name.
-
-### Changed
-
-- (2026-10-14) **Crawlers in the UA filter's presets can be set one by one.**  Each group is set to Pass, Normal checks or Stop (formerly White, Neutral, Black), which also covers crawlers a later list adds; its Detail sets any crawler to follow the group or take its own mode, so one crawler can be stopped in a passing group.  This replaces `upstream_disabled`: crawlers still listed there pass again, and the log names them.
-
-### Fixed
-
-- (2026-10-14) **Path exemptions and protected paths are decided on the path nginx serves.**  Bypass, country- and network-exempt and protected-path rules matched the raw request line, so an encoded form such as /static/%2e%2e/page met the /static/ bypass yet was served as /page, past the challenge.  They now match the decoded, normalized path without its query string; honeypot and custom-rule paths still see the raw request.  Native installs need an nginx reload.
-
-- (2026-10-14) **Admin pages answer within their time limits on a large database.**  The SQLite driver let a query run to its end whatever its deadline, so a page waited for its slowest card while that query held a connection: on a database larger than memory the dashboard did not answer for minutes.  Deadlines now stop the query, and the reasons card gives up early on its first day.
-
-- (2026-10-14) **Doctor no longer counts the Lua module's LuaJIT notice as an nginx error.**  nginx built with the Lua module against a LuaJIT other than OpenResty's writes an [alert] at every configuration load, so doctor always warned about its error log there.  That line is now left out and named in the OK, and a real fatal line is quoted whole enough to read.
-
-## [0.1.51-rc14] - 2026-10-13 (testing build)
-
-### Since rc13
-
-- The JavaScript errors card's help says what each of its tables holds and how to judge the harm: whether the same IP passed afterwards.
+## [0.1.51] - 2026-10-16
 
 ### Added
-
 - (2026-10-13) **iCloud Private Relay users count where they are.**  Country databases place many of the relay's addresses in the wrong country, so an iPhone in Japan could count, and meet a country rule, as a foreign visitor.  The relay's own egress list now comes, signed, from unmask.sh each day: statistics, bot hunt and the country rules go by its country, and network rules and the advisor leave relay addresses alone.
 
 - (2026-10-13) **Each reason on the dashboard opens its settings.**  The card of why requests were challenged or denied gains a gear on every row that opens the settings behind that reason, at the card that sets it where a tab holds several: header integrity and outdated browsers under the UA filter, the reuse cap under rate limit, the test pages under challenge.  Banned opens the ban list.
 
-### Fixed
-
-- (2026-10-13) **The realtime page's help opens on hover.**  The question marks beside the realtime tiles opened their help only when clicked: each tile's label cut off whatever reached past it, the help included, so hovering showed nothing.  The label now shortens only its own text, and hovering opens the help as it does on the other pages.
-
-- (2026-10-13) **A challenge is counted only where one was served.**  The access log carried the challenge decision for every request, so a site that protects its pages but not its images counted each image fetched without a pass cookie as challenged: in the request breakdown, by country and in the non-human share.  Those requests now count as let through unjudged.  Native installs need an nginx reload.
-
-- (2026-10-13) **The stats page's country charts say what they count.**  The one in the challenge-serves card was headed "period total", which read as a count of addresses and made a country that sent many requests but met few challenges look like it slipped through; it now reads "challenges served".
-
-- (2026-10-13) **The Linode provider no longer takes in Apple's iCloud Private Relay.**  The ASN catalog found Linode by a name the ASN databases also give the networks the relay leaves from, so turning it on, or blocking every data center, challenged or denied the iPhones and Macs behind the relay.  It now finds Linode by its AS number, and the advisor's hosting check reads the same.
-
-## [0.1.51-rc13] - 2026-10-13 (testing build)
-
-### Added
-
 - (2026-10-13) **The admin pages say when nginx has not loaded the saved settings.**  Saving renders nginx's configuration and leaves the reload to you; until then the change is not live, and nothing said so.  Every access-log line now carries the id of the configuration nginx loaded, and every admin page shows a notice while nginx logs an older one.  The doctor the admin runs gives the same verdict.
-
-### Fixed
-
-- (2026-10-13) **A GeoIP update reaches nginx's country and ASN rules.**  The monthly snapshot replaced the address data the daemon reads, but the ranges written into nginx's configuration for country and ASN rules stayed the previous snapshot's until something else rendered it.  The update now renders, and the admin pages say when nginx needs a reload to take it.
-
-- (2026-10-13) **The stats page names every reason a CAPTCHA was forced.**  Its forced-CAPTCHA card counted shared ban list hits, UA filter patterns and custom rules as "unknown", and explained the pass-cookie reuse cap's row with the unknown row's text.  Each now has its own row and explanation.  Hours counted before the update keep those reasons under "unknown".
-
-- (2026-10-13) **A custom rule's deny is recorded as the rule's.**  A request one of your custom rules denied was recorded as "axis_deny", so bot hunt and the dashboard's reasons card could not tell it from other denies.  It is now recorded as custom_rule, as a rule's challenge is, with the rule's id.
-
-## [0.1.51-rc12] - 2026-10-12 (testing build)
-
-### Since rc11
-
-- Ask AI lists each tool it called once, with how many times ("events ×2"), and a copied answer reads as words.
-
-- The advisor and Ask AI at effort xhigh or max no longer fail with "no text block": the token budget follows the effort, Anthropic answers are read as a stream, a cut-off answer says so, and a failed run's tokens are counted.
-
-- Any custom rule Ask AI suggests now comes with the button that opens it, filled in, in the dialog.
-
-### Changed
-
-- (2026-10-12) **The dashboard's day names who crawled and why visitors were stopped.**  The crawler table is back under the composition: who the known crawlers were, and whether a search engine was challenged.  A new card counts the day's challenge and deny pages by the reason behind each, every reason opening bot hunt on it.  It replaces the ten latest detections, which stay live on the realtime tab.
-
-### Fixed
-
-- (2026-10-12) **A custom rule's challenge is recorded as the rule's.**  The challenge page recorded no reason for a visitor one of your custom rules sent there, so bot hunt and the dashboard filed the rule's work under the site's default posture.  It now records custom_rule, and bot hunt's reason filter offers it, along with four other reasons it was missing.
-
-- (2026-10-12) **JavaScript errors from Brave on iOS fold with foreign-script noise.**  Brave's built-in wallet sets window.ethereum fields after every page load and throws where a page has none.  WebKit reports that injected code against the page's own address at line 1, so the dashboard listed it as a challenge failure, from a browser it called Safari.  Rows already stored move too, and the browser now reads Brave.
-
-## [0.1.51-rc11] - 2026-10-12 (testing build)
-
-### Since rc10
-
-- Custom rules: the list shows each rule as one row (name, conditions, action, rate limit) that opens into its form; the action on a match and the rate limit's answer are each a tick box with a select, greyed while off, and a rule with both off is refused.
-
-- Ask AI reads like a chat: one row docked under the conversation (examples, the question, send; Enter sends), the model and effort picked beside the tabs, a failed question offers a retry, and an answer that takes over a minute now arrives.
-
-- The assistant reads the data more as the install works: a window's countries, serves by their forced reason, and review answers that list findings only; doctor judges the real-IP setup from recent requests and says when it cannot see nginx.
-
-### Added
 
 - (2026-10-12) **The advisor page shows what its runs cost.**  The AI bar adds an estimated cost to the last run's token line and to the 30-day total, each run priced at its own model's list rate, the ask page's questions included.  As on the ask page, it is marked as an estimate and the provider's statement stays the bill.
 
@@ -132,93 +27,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-12) **Ask AI shows what an answer cost, and its addresses open the popover.**  An answer's token line now carries its cost, estimated from the provider's published list prices, and the history tab sums the month for every account; both are marked as estimates, the provider's statement being the bill.  An address an answer names opens the hunt page's popover -- reverse DNS, country, ASN -- on hover or click.
 
-### Changed
-
-- (2026-10-12) **Model pickers list the newest version first.**  The AI settings tab, the ask page and the advisor page order models by family name, with each family's versions newest first (Claude Opus 5.5 before 5 and 4.8, gpt-5.4 before gpt-5.2), whatever order the provider lists them in.  The configured model keeps its place in that order and is the one selected.
-
-- (2026-10-11) **The overview names what monitor mode let through.**  The "other" segment's breakdown gets a monitor-mode line -- requests judged and let through, which going live would have challenged or denied -- and the line that read "passed while monitoring" now says what it counted all along: requests riding a cookie the over-block breaker handed out.
-
-### Removed
-
-- (2026-10-11) **Pass-through mode.**  Two switches on the operating-mode tab both meant "stop nobody".  This one handed out a pass cookie, so the measurement it was turned on to collect decayed and the cookies outlived the mode, and it never stopped a deny or a ban.  Monitor mode is the one switch now; a leftover `global.passthrough` in config.yml is ignored with a warning, and the over-block breaker keeps its own `auto_passthrough`.
-
-### Fixed
-
-- (2026-10-11) **Monitor mode works on an nginx-module install.**  It looped: the daemon answered the challenge route with a cookie-less redirect back to the page, and nginx, judging by the cookie alone, sent first-time visitors back again.  The mode is now rendered into nginx: a watched site passes the gate, the rate zones and the deny and ban rewrites, while the judgement is logged and counted.  Takes effect at render-nginx + reload.
-
-- (2026-10-11) **The over-block breaker sends visitors back to the page they asked for.**  Its pass-through read the original URL under a query name nothing sends, so a visitor it let through landed on the front page instead of the page they had requested.  It now reads the `_orig` every dispatcher carries.
-
-## [0.1.51-rc10] - 2026-10-11 (testing build)
-
-### Since rc9
-
-- Custom rules: a rule is a name, condition lines (kind, values, memo; every line must hold) and one action, with the rate limit beside it as a tick box whose fallback answer names the rate-limit tab's mode.
-
-- The hunt offers a custom rule from its filters rather than from a ranking row, which has one key; the row link is gone.
-
-- The ask page dates each question, copy and delete are icons with a label on hover, and the page opens on the composer alone.
-
-### Changed
-
-- (2026-10-10) **The dashboard's day section no longer redraws itself.**  Its figures moved by a few per minute, and a page that keeps changing under the operator cannot be read; the realtime tab is the one that moves.  The section's header now shows when its figures were computed and a button redraws it on demand, with the same flash on the figures that changed.
-
-### Fixed
-
-- (2026-10-11) **The hunt keeps its filters when the period changes.**  The one-hour, six-hour and 24-hour links, and the custom period, now carry every active filter -- address, fingerprint, user agent, Ref ID, phase, reason, network and rows per page -- so a narrowed log stays narrowed while the operator looks at another period.  The clear link still clears them.
-
-## [0.1.51-rc9] - 2026-10-10 (testing build)
-
-### Added
-
 - (2026-10-10) **Custom rules: several conditions, one action.**  A new settings tab takes rules: condition lines (addresses, JA4 fingerprints, countries, networks, user agent, path, host; all must hold, any value of a line matches), one action (count only, PoW, CAPTCHA, PoW then CAPTCHA, deny) and an optional per-address rate limit with its own over-limit answer.  The first rule that holds decides, after bans and bypasses.  The hunt and the assistant propose rules.
-
-### Changed
-
-- (2026-10-10) **The model picker keeps the list it fetched, sorted.**  Fetching the models from the saved provider used to fill the picker for that visit only; the list is now kept beside the daemon's state and the picker opens on it, with when it was fetched, until the provider or endpoint changes.  Every provider's list is sorted by ID.  The AI tab's text now covers the Ask page too.
-
-- (2026-10-10) **Realtime becomes a dashboard tab and reads thirty minutes.**  The "right now" strip, the map of sources and the recent detections leave the day's view for a Realtime tab beside it, as analytics products keep them apart.  Each tile shows the last thirty minutes with a bar a minute and the last minute under it; the map draws the same.  The day's tab keeps a line of now, linking there.
-
-### Fixed
-
-- (2026-10-10) **The hunt's network (ASN) ranking lists thirty rows like the other rankings.**  It stopped at twenty, which read as a different page from the addresses, fingerprints and user agents beside it; the per-address resolution that once made it the heavier query is cached, so the same length costs little.
-
-- (2026-10-10) **The map's position dialog showed the source's name percent-encoded.**  The line saying what the automatic position was worked out from read %e5%85%b1... instead of the words: the attribute carrying the text was named like a URL, and the template engine encoded it as one.  Renamed, and a test now refuses such attribute names across every page.
-
-## [0.1.51-rc8] - 2026-10-10 (testing build)
-
-### Fixed
-
-- (2026-10-10) **A long answer on the ask page was lost on the way.**  The server closes a response after a minute, sized for the dashboard, and an answer that took longer (the model's rounds through the tools do) was cut before it was sent: stored, but the page said the question had failed.  The send now keeps its connection for the question's whole budget.
-
-## [0.1.51-rc7] - 2026-10-10 (testing build)
-
-### Added
 
 - (2026-10-10) **The assistant names the exact setting.**  Asked where or how something is configured, it now reads the settings pages as the operator sees them -- the tab and its path, the section heading, the field's label and current value -- and the config.yml key, and answers with those rather than "the settings page".  What unmask does not write, such as nginx's own real_ip directives, it says so.
 
-### Changed
-
-- (2026-10-10) **The ask page keeps its history on a tab of its own.**  The page opens on the question box alone and stacks this visit's answers under it; the history tab lists every turn newest first and dated, long answers folded to their first lines with a button for the rest, each with icons to copy question and answer or delete the turn, and the clear of everything.
-
-## [0.1.51-rc6] - 2026-10-10 (testing build)
-
-### Since rc5
-
-- The 24-hour card is a row of six tiles again: the request total joins the five it had (served, PoW passed, CAPTCHA passed, abandoned, bans) in place of the five stages.
-
-- On the map, pointing at a source opens a popover with its flag, full name, count and split; labels carry the flag; the position dialog offers the worked-out estimate or a position by hand.
-
-- Figures that changed on a refresh flash; answers on the ask page link the admin pages they name.
-
-## [0.1.51-rc5] - 2026-10-10 (testing build)
-
-### Added
-
 - (2026-10-10) **The map places the server on its own.**  Without a set position, the server is placed by its address: a global one on an interface, or, behind NAT, the one unmask.sh's address check reports when a button in the dialog asks it (api/ip returns the caller's address, nothing else).  A City geo database gives the point; a Country one the country's centre.  The dialog also takes a position by hand.
-
-## [0.1.51-rc4] - 2026-10-10 (testing build)
-
-### Added
 
 - (2026-10-10) **The dashboard opens with a "right now" strip that refreshes itself.**  Seven tiles say what the last minute brought -- requests, passes, bypasses, challenges served, solves, denials, rate limits -- each with a five-minute sparkline and the change on the minute before, read every five seconds from memory.  A switch turns the refresh off; the last figures stay up while a reading is fetched, and a figure that moved flashes.
 
@@ -228,21 +41,29 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-10) **Ask the configured model about this install.**  A new page, linked from every admin page's header, takes a question in plain words and answers it from the install's own data: the model reads through read-only tools (overview, rankings, event log, one address, bans, the live strip, settings summary, doctor) and changes nothing.  Same provider settings as the AI advisor; history per account; answers link the admin pages they name.
 
+- (2026-10-07) **The over-block alert arrives in its reader's language.**  An account gets it in the language it last saw the admin in -- the one picked at the top right, or the browser's -- recorded as it uses the admin.  Addresses listed under Recipients, and accounts that have not opened the admin yet, get the language chosen on the notifications tab: English by default, or Japanese.  Other alert mail stays in English.
+
 ### Changed
+
+- (2026-10-15) **Pickers that inherit a default name the chain.**  The UA filter's crawler groups and blocklist presets, and the JA4 verdict and honeypot tabs' presets and rows, say which chain "inherit" resolves to and follow the tab's default as it changes; an unset honeypot default reads as the install's default chain.  The crawler group's picker moves ahead of the count, so the count and Detail line up on every row.
+
+- (2026-10-14) **Crawlers in the UA filter's presets can be set one by one.**  Each group is set to Pass, Normal checks or Stop (formerly White, Neutral, Black), which also covers crawlers a later list adds; its Detail sets any crawler to follow the group or take its own mode, so one crawler can be stopped in a passing group.  This replaces `upstream_disabled`: crawlers still listed there pass again, and the log names them.
+
+- (2026-10-12) **The dashboard's day names who crawled and why visitors were stopped.**  The crawler table is back under the composition: who the known crawlers were, and whether a search engine was challenged.  A new card counts the day's challenge and deny pages by the reason behind each, every reason opening bot hunt on it.  It replaces the ten latest detections, which stay live on the realtime tab.
+
+- (2026-10-12) **Model pickers list the newest version first.**  The AI settings tab, the ask page and the advisor page order models by family name, with each family's versions newest first (Claude Opus 5.5 before 5 and 4.8, gpt-5.4 before gpt-5.2), whatever order the provider lists them in.  The configured model keeps its place in that order and is the one selected.
+
+- (2026-10-11) **The overview names what monitor mode let through.**  The "other" segment's breakdown gets a monitor-mode line -- requests judged and let through, which going live would have challenged or denied -- and the line that read "passed while monitoring" now says what it counted all along: requests riding a cookie the over-block breaker handed out.
+
+- (2026-10-10) **The dashboard's day section no longer redraws itself.**  Its figures moved by a few per minute, and a page that keeps changing under the operator cannot be read; the realtime tab is the one that moves.  The section's header now shows when its figures were computed and a button redraws it on demand, with the same flash on the figures that changed.
+
+- (2026-10-10) **The model picker keeps the list it fetched, sorted.**  Fetching the models from the saved provider used to fill the picker for that visit only; the list is now kept beside the daemon's state and the picker opens on it, with when it was fetched, until the provider or endpoint changes.  Every provider's list is sorted by ID.  The AI tab's text now covers the Ask page too.
+
+- (2026-10-10) **Realtime becomes a dashboard tab and reads thirty minutes.**  The "right now" strip, the map of sources and the recent detections leave the day's view for a Realtime tab beside it, as analytics products keep them apart.  Each tile shows the last thirty minutes with a bar a minute and the last minute under it; the map draws the same.  The day's tab keeps a line of now, linking there.
+
+- (2026-10-10) **The ask page keeps its history on a tab of its own.**  The page opens on the question box alone and stacks this visit's answers under it; the history tab lists every turn newest first and dated, long answers folded to their first lines with a button for the rest, each with icons to copy question and answer or delete the turn, and the clear of everything.
 
 - (2026-10-10) **The dashboard's 24-hour section is one card that redraws every minute.**  The composition bar leads it; the request total from the access log joins the row of tiles under it (challenges served, passed by PoW, passed by CAPTCHA, abandoned, current bans).  The AI / crawler table moved to the stats page, which has long had it with a range selector, and the hourly chart is left to that page too.
-
-## [0.1.51-rc3] - 2026-10-10 (testing build)
-
-### Fixed
-
-- (2026-10-10) **The bans table's reason column gives way before the table scrolls.**  The reason was capped at a fixed width, so on a laptop-sized window the table scrolled sideways inside its card while the reason could have been shorter.  The reason now takes the width the other columns leave, down to a floor, and the popover carries the rest; a wide window shows the whole URL.
-
-- (2026-10-09) **The built-in icon is 192 px, not the 1.3 MB source artwork.**  The icon the admin pages, the favicon and the challenge page's credit line load was the 1254 px original, so a page showing it at 14 px downloaded 1.3 MB.  It is now the same mark at 192 px, 33 kB.
-
-## [0.1.51-rc2] - 2026-10-09 (testing build)
-
-### Changed
 
 - (2026-10-09) **The ban candidates page answers at once; the list is computed behind it.**  Extracting candidates is a pass over every event in the window, and the page waited for it -- on a large install past the server's write timeout, so it showed nothing.  A request now shows the list it has with its age, or says the list is being computed and reloads when it lands.
 
@@ -251,24 +72,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-10-09) **Every field with a character limit says so as you type.**  A field that had a limit used to stop taking characters at it without a word, or the save cut the value afterwards.  Now the field turns red the moment the text runs past the limit, the limit is written under it, and the save waits until it fits: a honeypot rule's title, an ASN rule's label, the branding site name and footer, a snapshot's name, the labels and reason in the bot hunt dialogs, a community comment, and the community hub name, which also says its rule instead of being cleared.
 
 - (2026-10-09) **A honeypot ban's reason names the rule and the whole URL.**  The ban list said only which host and path tripped a trap.  The reason now leads with the honeypot rule that fired -- a preset's name, or a custom row's title -- and writes the URL with its scheme, so a SQL-injection probe reads differently from a WordPress scan without opening the honeypot tab.  A custom rule's title is held to 80 characters: the field turns red as it runs past the limit, says why, and the save waits.  On a module install the scheme reaches the daemon with the next render and reload.
-
-### Fixed
-
-- (2026-10-09) **The bot hunt's JA4 ranking reads the window, not its whole index.**  For a one-hour window the ranking walked the entire JA4 index -- on a large install hundreds of megabytes, a minute cold -- because the planner preferred the index's ready-made grouping over the date range, with or without statistics.  It is now pinned to the date index like the IP and network rankings.
-
-- (2026-10-09) **The stats page's hour-range scans seek the date index without planner statistics.**  The funnel and verdict cards' raw scans (ranges under a day, and a day until the hourly rollup is ready) walked the whole verdict index on a database that never ran ANALYZE, which past a few hundred megabytes is most of them.  They now seek the date index unless a site or host narrows them.
-
-- (2026-10-09) **A funnel that could not be read no longer takes the stats page down.**  The page answered 500 when the funnel query failed, while every other card degrades to "could not load".  On a large install the funnel's raw day-long scan cannot finish in its budget after a restart or on a filtered view, so the page was gone when wanted.  It renders with the funnel named in the banner.
-
-- (2026-10-09) **Rule labels are counted in characters, and the ASN tab says its limit.**  A label typed in Japanese on the bot hunt, or a settings snapshot's name, was cut at a third of its stated length, sometimes in the middle of a character.  On the ASN tab a label or an organisation name was shortened to 80 characters without a word, which could change what an organisation rule matched.  Both now count characters; the ASN tab turns the field red at 200 as you type and the save waits.  The password hint said 72 characters; the limit has been 1,024 bytes since argon2id.
-
-## [0.1.51-rc1] - 2026-10-08 (testing build)
-
-### Added
-
-- (2026-10-07) **The over-block alert arrives in its reader's language.**  An account gets it in the language it last saw the admin in -- the one picked at the top right, or the browser's -- recorded as it uses the admin.  Addresses listed under Recipients, and accounts that have not opened the admin yet, get the language chosen on the notifications tab: English by default, or Japanese.  Other alert mail stays in English.
-
-### Changed
 
 - (2026-10-07) **The admin asks in its own dialog, and names what an action is about.**  Confirmations, prompts and error messages open in the admin's modal instead of the browser's box.  Deleting a site's settings names the site in the question and in the message after it; unbanning, user changes, audit restores and community deletes name their target too.
 
@@ -284,7 +87,63 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-07) **A superadmin can stop a compaction started from a shell.**  The card offered to stop only a run its daemon had started.  It now stops an `unmask db-vacuum` typed into a shell too, after checking the process, and says what stopping costs: nothing while VACUUM runs, only the statistics at the last step.  The final write into the file cannot be stopped.
 
+### Removed
+- (2026-10-11) **Pass-through mode.**  Two switches on the operating-mode tab both meant "stop nobody".  This one handed out a pass cookie, so the measurement it was turned on to collect decayed and the cookies outlived the mode, and it never stopped a deny or a ban.  Monitor mode is the one switch now; a leftover `global.passthrough` in config.yml is ignored with a warning, and the over-block breaker keeps its own `auto_passthrough`.
+
 ### Fixed
+- (2026-10-16) **The Community Bans impact figure settles on a large database.**  The "past 30 days" count on the Community Bans tab could stay at "computing…" where its scan outlasted the budget, with every poll starting the scan over.  A scan that does not finish is now tried again an hour later, and the page says so.  The figure counts the requests the feed sent to a challenge; before, it read zero.
+
+- (2026-10-15) **The live map stays light on a busy site.**  With traffic from a hundred and more countries, the realtime map's animation could stall the admin page.  The map is now painted once per reading, and only the particles move, on a layer of their own drawn without canvas shadows; the animation also pauses while the map is scrolled out of view.
+
+- (2026-10-15) **Ask AI works with OpenAI's newest models.**  Asked on an OpenAI model such as gpt-6.1-sol, the page failed at once: the model takes tool calls together with a reasoning effort only on OpenAI's Responses API, and the page spoke the older chat API.  Questions to OpenAI's own endpoint now go over the Responses API, with nothing stored on OpenAI's side; a self-hosted OpenAI-compatible server is spoken to as before.
+
+- (2026-10-14) **Path exemptions and protected paths are decided on the path nginx serves.**  Bypass, country- and network-exempt and protected-path rules matched the raw request line, so an encoded form such as /static/%2e%2e/page met the /static/ bypass yet was served as /page, past the challenge.  They now match the decoded, normalized path without its query string; honeypot and custom-rule paths still see the raw request.  Native installs need an nginx reload.
+
+- (2026-10-14) **Admin pages answer within their time limits on a large database.**  The SQLite driver let a query run to its end whatever its deadline, so a page waited for its slowest card while that query held a connection: on a database larger than memory the dashboard did not answer for minutes.  Deadlines now stop the query, and the reasons card gives up early on its first day.
+
+- (2026-10-14) **Doctor no longer counts the Lua module's LuaJIT notice as an nginx error.**  nginx built with the Lua module against a LuaJIT other than OpenResty's writes an [alert] at every configuration load, so doctor always warned about its error log there.  That line is now left out and named in the OK, and a real fatal line is quoted whole enough to read.
+
+- (2026-10-13) **The realtime page's help opens on hover.**  The question marks beside the realtime tiles opened their help only when clicked: each tile's label cut off whatever reached past it, the help included, so hovering showed nothing.  The label now shortens only its own text, and hovering opens the help as it does on the other pages.
+
+- (2026-10-13) **A challenge is counted only where one was served.**  The access log carried the challenge decision for every request, so a site that protects its pages but not its images counted each image fetched without a pass cookie as challenged: in the request breakdown, by country and in the non-human share.  Those requests now count as let through unjudged.  Native installs need an nginx reload.
+
+- (2026-10-13) **The stats page's country charts say what they count.**  The one in the challenge-serves card was headed "period total", which read as a count of addresses and made a country that sent many requests but met few challenges look like it slipped through; it now reads "challenges served".
+
+- (2026-10-13) **The Linode provider no longer takes in Apple's iCloud Private Relay.**  The ASN catalog found Linode by a name the ASN databases also give the networks the relay leaves from, so turning it on, or blocking every data center, challenged or denied the iPhones and Macs behind the relay.  It now finds Linode by its AS number, and the advisor's hosting check reads the same.
+
+- (2026-10-13) **A GeoIP update reaches nginx's country and ASN rules.**  The monthly snapshot replaced the address data the daemon reads, but the ranges written into nginx's configuration for country and ASN rules stayed the previous snapshot's until something else rendered it.  The update now renders, and the admin pages say when nginx needs a reload to take it.
+
+- (2026-10-13) **The stats page names every reason a CAPTCHA was forced.**  Its forced-CAPTCHA card counted shared ban list hits, UA filter patterns and custom rules as "unknown", and explained the pass-cookie reuse cap's row with the unknown row's text.  Each now has its own row and explanation.  Hours counted before the update keep those reasons under "unknown".
+
+- (2026-10-13) **A custom rule's deny is recorded as the rule's.**  A request one of your custom rules denied was recorded as "axis_deny", so bot hunt and the dashboard's reasons card could not tell it from other denies.  It is now recorded as custom_rule, as a rule's challenge is, with the rule's id.
+
+- (2026-10-12) **A custom rule's challenge is recorded as the rule's.**  The challenge page recorded no reason for a visitor one of your custom rules sent there, so bot hunt and the dashboard filed the rule's work under the site's default posture.  It now records custom_rule, and bot hunt's reason filter offers it, along with four other reasons it was missing.
+
+- (2026-10-12) **JavaScript errors from Brave on iOS fold with foreign-script noise.**  Brave's built-in wallet sets window.ethereum fields after every page load and throws where a page has none.  WebKit reports that injected code against the page's own address at line 1, so the dashboard listed it as a challenge failure, from a browser it called Safari.  Rows already stored move too, and the browser now reads Brave.
+
+- (2026-10-11) **Monitor mode works on an nginx-module install.**  It looped: the daemon answered the challenge route with a cookie-less redirect back to the page, and nginx, judging by the cookie alone, sent first-time visitors back again.  The mode is now rendered into nginx: a watched site passes the gate, the rate zones and the deny and ban rewrites, while the judgement is logged and counted.  Takes effect at render-nginx + reload.
+
+- (2026-10-11) **The over-block breaker sends visitors back to the page they asked for.**  Its pass-through read the original URL under a query name nothing sends, so a visitor it let through landed on the front page instead of the page they had requested.  It now reads the `_orig` every dispatcher carries.
+
+- (2026-10-11) **The hunt keeps its filters when the period changes.**  The one-hour, six-hour and 24-hour links, and the custom period, now carry every active filter -- address, fingerprint, user agent, Ref ID, phase, reason, network and rows per page -- so a narrowed log stays narrowed while the operator looks at another period.  The clear link still clears them.
+
+- (2026-10-10) **The hunt's network (ASN) ranking lists thirty rows like the other rankings.**  It stopped at twenty, which read as a different page from the addresses, fingerprints and user agents beside it; the per-address resolution that once made it the heavier query is cached, so the same length costs little.
+
+- (2026-10-10) **The map's position dialog showed the source's name percent-encoded.**  The line saying what the automatic position was worked out from read %e5%85%b1... instead of the words: the attribute carrying the text was named like a URL, and the template engine encoded it as one.  Renamed, and a test now refuses such attribute names across every page.
+
+- (2026-10-10) **A long answer on the ask page was lost on the way.**  The server closes a response after a minute, sized for the dashboard, and an answer that took longer (the model's rounds through the tools do) was cut before it was sent: stored, but the page said the question had failed.  The send now keeps its connection for the question's whole budget.
+
+- (2026-10-10) **The bans table's reason column gives way before the table scrolls.**  The reason was capped at a fixed width, so on a laptop-sized window the table scrolled sideways inside its card while the reason could have been shorter.  The reason now takes the width the other columns leave, down to a floor, and the popover carries the rest; a wide window shows the whole URL.
+
+- (2026-10-09) **The built-in icon is 192 px, not the 1.3 MB source artwork.**  The icon the admin pages, the favicon and the challenge page's credit line load was the 1254 px original, so a page showing it at 14 px downloaded 1.3 MB.  It is now the same mark at 192 px, 33 kB.
+
+- (2026-10-09) **The bot hunt's JA4 ranking reads the window, not its whole index.**  For a one-hour window the ranking walked the entire JA4 index -- on a large install hundreds of megabytes, a minute cold -- because the planner preferred the index's ready-made grouping over the date range, with or without statistics.  It is now pinned to the date index like the IP and network rankings.
+
+- (2026-10-09) **The stats page's hour-range scans seek the date index without planner statistics.**  The funnel and verdict cards' raw scans (ranges under a day, and a day until the hourly rollup is ready) walked the whole verdict index on a database that never ran ANALYZE, which past a few hundred megabytes is most of them.  They now seek the date index unless a site or host narrows them.
+
+- (2026-10-09) **A funnel that could not be read no longer takes the stats page down.**  The page answered 500 when the funnel query failed, while every other card degrades to "could not load".  On a large install the funnel's raw day-long scan cannot finish in its budget after a restart or on a filtered view, so the page was gone when wanted.  It renders with the funnel named in the banner.
+
+- (2026-10-09) **Rule labels are counted in characters, and the ASN tab says its limit.**  A label typed in Japanese on the bot hunt, or a settings snapshot's name, was cut at a third of its stated length, sometimes in the middle of a character.  On the ASN tab a label or an organisation name was shortened to 80 characters without a word, which could change what an organisation rule matched.  Both now count characters; the ASN tab turns the field red at 200 as you type and the save waits.  The password hint said 72 characters; the limit has been 1,024 bytes since argon2id.
 
 - (2026-10-07) **The bot hunt shows an abandon's details in one place.**  Hovering an abandon row opened the browser's tooltip on top of the row's popover, two boxes over each other.  The tooltip is gone; where the visitor left, how long after the page appeared and what followed now sit as a footnote in the popover, as on a collapsed session's timeline.
 
