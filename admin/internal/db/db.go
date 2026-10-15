@@ -726,14 +726,17 @@ func (d *DB) EventDateCoverHint() string { return d.indexHint(IdxEventDateCover)
 // one card family's rows of the event table, carrying the columns those cards
 // read.  A large install may hold them unbuilt (a deferred schema update the
 // operator has not applied); the hint is then "" and the cards read the table
-// as before.
+// as before.  IdxEventCommunityBans (0039) is the Community Bans tab's, of the
+// same kind: the serve events the shared feed sent to a challenge, by time and
+// address.
 const (
-	IdxEventReload      = "idx_unmask_event_reload"
-	IdxEventVerifyNG    = "idx_unmask_event_verify_ng"
-	IdxEventCaptchaPass = "idx_unmask_event_captcha_pass"
-	IdxEventCookieFail  = "idx_unmask_event_cookie_fail"
-	IdxEventRebind      = "idx_unmask_event_rebind"
-	IdxEventRateLimited = "idx_unmask_event_rate_limited"
+	IdxEventReload        = "idx_unmask_event_reload"
+	IdxEventVerifyNG      = "idx_unmask_event_verify_ng"
+	IdxEventCaptchaPass   = "idx_unmask_event_captcha_pass"
+	IdxEventCookieFail    = "idx_unmask_event_cookie_fail"
+	IdxEventRebind        = "idx_unmask_event_rebind"
+	IdxEventRateLimited   = "idx_unmask_event_rate_limited"
+	IdxEventCommunityBans = "idx_unmask_event_community_bans"
 )
 
 // CardIndexHint is the INDEXED BY clause for one of the card indexes, or ""

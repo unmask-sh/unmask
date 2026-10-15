@@ -140,27 +140,44 @@ func (c *communityHitsCache) refresh(compute func() (communityHitStats, error)) 
 // that the shared feed sent to a challenge.  A feed hit is recorded as
 // force_reason=community_bans (the HTML and the non-HTML challenge both name
 // it from the matcher); the feed is never copied into unmask_ban, so no event
-// carries it as a ban source.  The LIKE prefilter lets the scan skip the JSON
-// parse on the overwhelming majority of rows, which never mention
-// community_bans (5.0s -> 0.8s measured); json_extract stays as the
-// authoritative predicate so a stray substring match can't inflate the count.
+// carries it as a ban source.
 func communityBansHits30d(ctx context.Context, d *db.DB) (communityHitStats, error) {
-	var jsonExpr, dateExpr string
-	if d.Driver == "sqlite" {
-		jsonExpr = `json_extract(payload_json, '$.force_reason')`
-		dateExpr = `date_created >= datetime('now', '-30 days')`
-	} else {
-		jsonExpr = `JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.force_reason'))`
-		dateExpr = `date_created >= DATE_SUB(NOW(), INTERVAL 30 DAY)`
-	}
 	ctx, cancel := context.WithTimeout(ctx, communityHitsBudget)
 	defer cancel()
 	var s communityHitStats
-	err := d.QueryRowContext(ctx, `SELECT COUNT(*), COUNT(DISTINCT ip_address)
-	   FROM unmask_event
-	  WHERE phase = 'serve'
-	    AND payload_json LIKE '%community_bans%'
-	    AND `+jsonExpr+` = 'community_bans'
-	    AND `+dateExpr).Scan(&s.Count, &s.UniqueIP)
+	err := d.QueryRowContext(ctx, communityHitsSQL(d)).Scan(&s.Count, &s.UniqueIP)
 	return s, err
+}
+
+// communityHitsSQL is the impact query's text for this database.  With the
+// partial index of migration 0039 (SQLite, once built) it is a read of that
+// index alone: the query names the index's WHERE terms, which is what lets
+// SQLite use a partial index, and pins it.  Without the index -- MariaDB, or
+// a large install whose operator has not applied the schema update yet -- it
+// is the scan it always was: a LIKE prefilter lets the scan skip the JSON
+// parse on the overwhelming majority of rows, which never mention
+// community_bans (5.0s -> 0.8s measured), and json_extract stays as the
+// authoritative predicate so a stray substring match can't inflate the count.
+func communityHitsSQL(d *db.DB) string {
+	const cols = `SELECT COUNT(*), COUNT(DISTINCT ip_address) FROM unmask_event`
+	if d.Driver != db.DriverSQLite {
+		return cols + `
+		  WHERE phase = 'serve'
+		    AND payload_json LIKE '%community_bans%'
+		    AND JSON_UNQUOTE(JSON_EXTRACT(payload_json, '$.force_reason')) = 'community_bans'
+		    AND date_created >= DATE_SUB(NOW(), INTERVAL 30 DAY)`
+	}
+	hint := d.CardIndexHint(db.IdxEventCommunityBans)
+	prefilter := `
+		    AND payload_json LIKE '%community_bans%'`
+	if hint != "" {
+		// The index holds only the rows the predicate names; a LIKE on the
+		// payload would send each of them back to the table.
+		prefilter = ""
+	}
+	return cols + hint + `
+		  WHERE phase = 'serve'
+		    AND ` + db.PayloadReadable + prefilter + `
+		    AND json_extract(payload_json, '$.force_reason') = 'community_bans'
+		    AND date_created >= datetime('now', '-30 days')`
 }
