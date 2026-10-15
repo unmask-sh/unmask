@@ -120,6 +120,94 @@ const CASES = [
     ok(checked >= 2, `${c.tab}: only ${checked} inherit label(s) present -- the check is not exercising the tab`);
   }
 
+  // The UA-filter tab has two more pickers that inherit the blocklist default
+  // without a scaffold or a pill: the crawler groups' "when stopped" picker
+  // and the blocklist presets' picker.  Their inherit option names the default
+  // too, and follows the tab's picker the same way.
+  {
+    const resp = await page.goto(BASE + '/admin/settings/ua-filter/', { waitUntil: 'networkidle2' });
+    ok(resp.status() === 200, `ua-filter (group / preset pickers): status ${resp.status()}`);
+    const res = await page.evaluate(() => {
+      const d = document.querySelector('select[name="ua_black_action"]');
+      if (!d) return { missing: true };
+      const text = (sel) => { const o = document.querySelector(sel); return o ? o.textContent.trim() : null; };
+      const read = () => ({
+        group: text('select[name^="upstream_group_action__"] option[value="inherit"]'),
+        preset: text('select[name^="black_preset_action__"] option[value="inherit"]'),
+      });
+      const before = read();
+      d.value = 'deny';
+      d.dispatchEvent(new Event('change', { bubbles: true }));
+      return { before, after: read() };
+    });
+    if (res.missing) ok(false, 'ua-filter: default picker select[name="ua_black_action"] not found');
+    else for (const k of ['group', 'preset']) {
+      ok(res.before[k] !== null, `ua-filter: no ${k} inherit option found`);
+      ok(res.before[k] && /\(.+\)/.test(res.before[k]),
+         `ua-filter: the ${k} inherit option should name the resolved default on load, got ${JSON.stringify(res.before[k])}`);
+      ok(res.after[k] && res.after[k].includes('deny'),
+         `ua-filter: the ${k} inherit option should follow the default (deny), got ${JSON.stringify(res.after[k])}`);
+    }
+  }
+
+  // The ja4-verdicts and honeypot tabs: their presets and custom rows inherit
+  // the tab's own default, and that default may itself be unset -- it then
+  // falls back to the install's default chain.  The inherit option (the
+  // scaffold's included) names the resolved chain on load, follows the tab's
+  // picker, and names the fallback again when the picker is set back to unset.
+  for (const c of [
+    {
+      tab: 'ja4-verdicts',
+      picker: 'select[name="ja4_default_action"]',
+      list: 'ja4_extra',
+      preset: 'select[name^="ja4_preset_action__"] option[value="inherit"]',
+      row: 'select[name="ja4_extra_action_chain"] option[value="inherit"]',
+    },
+    {
+      tab: 'honeypot',
+      picker: 'select[name="honeypot_default_action"]',
+      list: 'honeypot_url_path',
+      preset: 'select[name^="honeypot_preset_action__"] option[value="inherit"]',
+      row: 'select[name="honeypot_url_action"] option[value="inherit"]',
+    },
+  ]) {
+    const resp = await page.goto(BASE + '/admin/settings/' + c.tab + '/', { waitUntil: 'networkidle2' });
+    ok(resp.status() === 200, `${c.tab}: status ${resp.status()}`);
+    const res = await page.evaluate((c) => {
+      const d = document.querySelector(c.picker);
+      if (!d) return { missing: true };
+      // A real row, so the row's own option is exercised and not only the scaffold.
+      const add = document.querySelector('.rule-add-bottom[data-target-list="' + c.list + '"]');
+      if (add && !document.querySelector(c.row)) add.click();
+      const text = (sel) => { const o = document.querySelector(sel); return o ? o.textContent.trim() : null; };
+      const scaffold = (sel) => {
+        for (const t of document.querySelectorAll('template.rule-row-template')) {
+          const o = t.content.querySelector(sel);
+          if (o) return o.textContent.trim();
+        }
+        return null;
+      };
+      const read = () => ({ preset: text(c.preset), row: text(c.row), scaffold: scaffold(c.row) });
+      const before = read();
+      d.value = 'deny';
+      d.dispatchEvent(new Event('change', { bubbles: true }));
+      const after = read();
+      d.value = '';
+      d.dispatchEvent(new Event('change', { bubbles: true }));
+      return { before, after, unset: read() };
+    }, c);
+    if (res.missing) { ok(false, `${c.tab}: default picker ${c.picker} not found`); continue; }
+    for (const k of ['preset', 'row', 'scaffold']) {
+      ok(res.before[k] !== null, `${c.tab}: no ${k} inherit option found`);
+      ok(res.before[k] && /\(.+\)/.test(res.before[k]),
+         `${c.tab}: the ${k} inherit option should name the resolved default on load, got ${JSON.stringify(res.before[k])}`);
+      ok(res.after[k] && res.after[k].includes('deny'),
+         `${c.tab}: the ${k} inherit option should follow the default (deny), got ${JSON.stringify(res.after[k])}`);
+      ok(res.unset[k] && /\(.+\)/.test(res.unset[k]) && !res.unset[k].includes('deny'),
+         `${c.tab}: with the default unset the ${k} inherit option should name the install's chain, got ${JSON.stringify(res.unset[k])}`);
+    }
+  }
+
   await browser.close();
   if (fails.length) {
     console.error('FAIL\n- ' + fails.join('\n- '));

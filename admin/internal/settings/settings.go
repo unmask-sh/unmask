@@ -2416,8 +2416,10 @@ type HoneypotConfig struct {
 	// reads this -- forward-auth checks the DB directly.
 	BanFilePath string `yaml:"ban_file_path,omitempty"`
 	// DefaultAction: chain to run when a honeypot trip results in a
-	// challenge (= chMode used by challenge.html JS).  Empty = inherit
-	// ChallengeTargets.DefaultAction → RateLimit.Default.
+	// challenge (= chMode used by challenge.html JS).  Empty = the install's
+	// default chain (RateLimit.Default.ResolvedChallengeMode), which is where
+	// the native serve starts; Settings.HoneypotDefaultChain resolves it.
+	// (The forward-auth decision still pins pow_then_captcha there.)
 	DefaultAction string `yaml:"default_action,omitempty"`
 	// PresetAction: per-preset action override (preset ID → mode).
 	// Path-level resolution (= which preset was tripped) is wired up in a
@@ -3502,6 +3504,30 @@ const DefaultVersionCheckURL = "https://unmask.sh/api/version"
 // the latter.
 func (s Settings) UABlacklistChain() string {
 	if act := strings.TrimSpace(s.Nginx.ChallengeTargets.DefaultAction); IsValidRateChallengeMode(act) {
+		return act
+	}
+	return s.RateLimit.Default.ResolvedChallengeMode()
+}
+
+// JA4DefaultChain: the chain a bot-verdict fingerprint runs when neither its
+// preset nor its row pins one -- the ja4-verdicts tab's own default, and
+// failing that the install's default chain.  The fallback
+// nginxconf.EffectiveJA4BotChain takes, and what the settings UI names as the
+// chain a row's "inherit" resolves to.
+func (s Settings) JA4DefaultChain() string {
+	if act := strings.TrimSpace(s.Nginx.JA4Verdicts.DefaultAction); IsValidRateChallengeMode(act) {
+		return act
+	}
+	return s.RateLimit.Default.ResolvedChallengeMode()
+}
+
+// HoneypotDefaultChain: the chain a tripped honeypot serves when neither its
+// preset nor its row pins one -- the honeypot tab's own default, and failing
+// that the install's default chain, which is where the native serve starts.
+// What the settings UI names as the chain a row's "inherit" resolves to, and
+// as what the tab's unset default acts as.
+func (s Settings) HoneypotDefaultChain() string {
+	if act := strings.TrimSpace(s.Nginx.Honeypot.DefaultAction); IsValidRateChallengeMode(act) {
 		return act
 	}
 	return s.RateLimit.Default.ResolvedChallengeMode()

@@ -47,7 +47,8 @@ func ChainEndsInCaptcha(chMode string) bool {
 // fallback: a bot verdict with nothing configured on this tab runs the
 // operating default chain (RateLimit.Default.ResolvedChallengeMode --
 // pow_then_captcha on a fresh install), exactly what the settings UI shows
-// for the unset option.  Inheriting rather than pinning a chain here keeps
+// for the unset option and names on every row that inherits
+// (Settings.JA4DefaultChain).  Inheriting rather than pinning a chain here keeps
 // one knob in charge, and the default's proof-of-work leg is deliberate: it
 // costs a person nothing, costs a bot fleet real compute, and its funnel
 // tells simple no-JS bots (PoW stays zero) apart from JS-capable ones.
@@ -65,7 +66,7 @@ func EffectiveJA4BotChain(verdict string, s settings.Settings) string {
 	if act := ResolveJA4VerdictAction(verdict, s.Nginx); act != "" {
 		return act
 	}
-	return s.RateLimit.Default.ResolvedChallengeMode()
+	return s.JA4DefaultChain()
 }
 
 // ja4PresetAction: the override attached to the preset group that ships the

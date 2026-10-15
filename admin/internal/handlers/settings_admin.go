@@ -732,6 +732,12 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// chain fall back to the rate-limit default chmode; surfaced so the
 		// "(unset)" option can show the value it resolves to.
 		"RateDefaultChMode": h.snapshotSettings().RateLimit.Default.ResolvedChallengeMode(),
+		// What "inherit" resolves to on the ja4-verdicts and honeypot tabs: the
+		// tab's own default, or the install's default chain while that is unset
+		// -- the resolvers the serve path uses, so a row that pins nothing says
+		// the chain it will run.
+		"JA4DefaultActionLabel":      h.snapshotSettings().JA4DefaultChain(),
+		"HoneypotDefaultActionLabel": h.snapshotSettings().HoneypotDefaultChain(),
 		// Literal prefixes of the protected paths that are actually enforced,
 		// for the rate-limit tab's live warning: a zone whose effective mode
 		// is deny and whose paths overlap one of these needs nginx 1.17.6+

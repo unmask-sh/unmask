@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- (2026-10-15) **Pickers that inherit a default name the chain.**  The UA filter's crawler groups and blocklist presets, and the JA4 verdict and honeypot tabs' presets and rows, say which chain "inherit" resolves to and follow the tab's default as it changes; an unset honeypot default reads as the install's default chain.  The crawler group's picker moves ahead of the count, so the count and Detail line up on every row.
+
 ### Fixed
 
 - (2026-10-15) **Ask AI works with OpenAI's newest models.**  Asked on an OpenAI model such as gpt-6.1-sol, the page failed at once: the model takes tool calls together with a reasoning effort only on OpenAI's Responses API, and the page spoke the older chat API.  Questions to OpenAI's own endpoint now go over the Responses API, with nothing stored on OpenAI's side; a self-hosted OpenAI-compatible server is spoken to as before.

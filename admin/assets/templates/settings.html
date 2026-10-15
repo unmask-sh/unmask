@@ -510,14 +510,14 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 /* Takes the room left on the line, and drops below the switch once that is
    too narrow to read -- the count and the buttons then follow it. */
 .upstream-group .upstream-cat-label{flex:1 1 14rem;min-width:0;font-size:.85rem;color:#334155;font-weight:500}
-.upstream-group .upstream-count{color:#64748b;font-size:.72rem;white-space:nowrap}
+.upstream-group .upstream-count{margin-left:auto;color:#64748b;font-size:.72rem;white-space:nowrap}
 /* The crawlers set on their own stand out from the plain total: they are
    what the group's mode does not decide. */
 .upstream-group .upstream-own-count{color:#4338ca;font-weight:600}
 .upstream-group .upstream-own-count[hidden]{display:none}
 .upstream-group .upstream-action-wrap{display:inline-flex;align-items:center;gap:.3rem;font-size:.72rem;color:#b91c1c;white-space:nowrap}
 .upstream-group .upstream-action-wrap[hidden]{display:none}
-.upstream-group .upstream-action-sel{padding:.2rem .4rem;font-size:.72rem;border:1px solid #fca5a5;border-radius:.25rem;background:#fff;color:#475569;max-width:9rem}
+.upstream-group .upstream-action-sel{padding:.2rem .4rem;font-size:.72rem;border:1px solid #fca5a5;border-radius:.25rem;background:#fff;color:#475569}
 .upstream-group .upstream-detail-btn{padding:.25rem .7rem;font-size:.78rem;background:#fff;border:1px solid #cbd5e1;border-radius:.25rem;cursor:pointer;color:#475569}
 .upstream-rv{display:inline-block;margin-left:.45rem;padding:.05rem .4rem;font-size:.68rem;font-weight:600;border-radius:.25rem;background:#f1f5f9;color:#64748b;border:1px solid #cbd5e1;white-space:nowrap;vertical-align:.05rem}
 /* rescue-path badge for range-backed patterns (4 states, uarange.go):
@@ -2046,21 +2046,25 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <label class="mode-opt mode-black{{ if eq $g.Mode "black" }} active{{ end }}"><input type="radio" name="upstream_group_mode__{{ $g.Cat }}" value="black" {{ if eq $g.Mode "black" }}checked{{ end }}><span>{{ t $.Lang "settings.ua.upstream.mode.black" }}</span></label>
       </div>
       <span class="upstream-cat-label">{{ $catLabel }}</span>
-      <span class="upstream-count"><span class="upstream-total">{{ tf $.Lang "settings.ua.upstream.count_total" (len $g.Rows) }}</span><span class="upstream-own-count" data-fmt="{{ t $.Lang "settings.ua.upstream.count_own" }}"{{ if not $g.Own }} hidden{{ end }}> · <span class="upstream-own-n">{{ tf $.Lang "settings.ua.upstream.count_own" $g.Own }}</span></span></span>
       {{/* The chain the group's stopped crawlers get.  Shown while anything
            here is stopped -- the whole group, or a crawler on its own -- and
            posted either way, so the choice survives a spell with nothing
-           stopped. */}}
+           stopped.  It sits before the count so that the count and the
+           Detail button keep one place on every row, with or without a
+           picker; the inherit option names the chain it resolves to, in the
+           form the custom rows below use (the blocklist default of this tab,
+           kept live by the refresh below). */}}
       <label class="upstream-action-wrap"{{ if not (or (eq $g.Mode "black") $g.OwnBlack) }} hidden{{ end }}>
         <span>{{ t $.Lang "settings.ua.upstream.action_label" }}</span>
         <select class="upstream-action-sel" name="upstream_group_action__{{ $g.Cat }}" data-cat="{{ $g.Cat }}" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
-          <option value="inherit" {{ if eq $g.Action "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
+          <option value="inherit" {{ if eq $g.Action "" }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.ChallengeDefaultActionLabel }}</option>
           <option value="pow_only"         {{ if eq $g.Action "pow_only" }}selected{{ end }}>pow_only</option>
           <option value="pow_then_captcha" {{ if eq $g.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
           <option value="captcha_only"     {{ if eq $g.Action "captcha_only" }}selected{{ end }}>captcha_only</option>
           <option value="deny"             {{ if eq $g.Action "deny" }}selected{{ end }}>deny</option>
         </select>
       </label>
+      <span class="upstream-count"><span class="upstream-total">{{ tf $.Lang "settings.ua.upstream.count_total" (len $g.Rows) }}</span><span class="upstream-own-count" data-fmt="{{ t $.Lang "settings.ua.upstream.count_own" }}"{{ if not $g.Own }} hidden{{ end }}> · <span class="upstream-own-n">{{ tf $.Lang "settings.ua.upstream.count_own" $g.Own }}</span></span></span>
       <button type="button" class="upstream-detail-btn" data-cat="{{ $g.Cat }}">{{ t $.Lang "settings.ua.upstream.detail_btn" }}</button>
     </div>
 
@@ -2236,7 +2240,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <div class="pat">{{ template "presetPats" (dict "Lang" $.Lang "Mode" .Mode "Pats" .Patterns) }}</div>
         </label>
         <select class="preset-action-sel" name="black_preset_action__{{ .ID }}" title="{{ t $.Lang "settings.ua.upstream.action_title" }}"{{ if not .Enabled }} disabled{{ end }}>
-          <option value="inherit" {{ if eq $pact "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
+          <option value="inherit" {{ if eq $pact "" }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.ChallengeDefaultActionLabel }}</option>
           <option value="pow_only"         {{ if eq $pact "pow_only" }}selected{{ end }}>pow_only</option>
           <option value="pow_then_captcha" {{ if eq $pact "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
           <option value="captcha_only"     {{ if eq $pact "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -2719,6 +2723,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     unmaskInheritNodes('select[name="black_extra_action"] option[value=""]')
       .forEach(function(o){ o.textContent = lbl; });
     unmaskInheritNodes('.ua-act-pill.inherit').forEach(function(p){ p.textContent = lbl; });
+    // The crawler groups' and the presets' pickers inherit the same default.
+    unmaskInheritNodes('select[name^="upstream_group_action__"] option[value="inherit"], '
+      + 'select[name^="black_preset_action__"] option[value="inherit"]')
+      .forEach(function(o){ o.textContent = lbl; });
   }
   d.addEventListener('change', refresh);
 })();
@@ -2774,7 +2782,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }}<br>{{ end }}<span class="pat-lit lead" data-mode="{{ patMode $r.Pattern }}">{{ patModeLabel $.Lang $r.Pattern }}</span>{{ $r.Pattern }} → <span class="verdict">{{ $r.Verdict }}</span> <span class="action-pill action-{{ $r.Action }}">{{ t $.Lang (printf "settings.ja4.action_label.%s" $r.Action) }}</span>{{ end }}</div>
         </label>
         <select class="preset-action-sel" name="ja4_preset_action__{{ .ID }}" title="{{ t $.Lang "settings.ua.upstream.action_title" }}"{{ if not .Enabled }} disabled{{ end }}>
-          <option value="inherit" {{ if eq $jpa "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
+          <option value="inherit" {{ if eq $jpa "" }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.JA4DefaultActionLabel }}</option>
           <option value="pow_only"         {{ if eq $jpa "pow_only" }}selected{{ end }}>pow_only</option>
           <option value="pow_then_captcha" {{ if eq $jpa "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
           <option value="captcha_only"     {{ if eq $jpa "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -2828,7 +2836,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             <option value="ok" {{ if eq $r.Action "ok" }}selected{{ end }}>{{ t $.Lang "settings.ja4.action_label.ok" }}</option>
           </select>
           <select name="ja4_extra_action_chain" class="extra-action-sel" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
-            <option value="inherit" {{ if eq $jea "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
+            <option value="inherit" {{ if eq $jea "" }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.JA4DefaultActionLabel }}</option>
             <option value="pow_only"         {{ if eq $jea "pow_only" }}selected{{ end }}>pow_only</option>
             <option value="pow_then_captcha" {{ if eq $jea "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
             <option value="captcha_only"     {{ if eq $jea "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -2857,7 +2865,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
               <option value="ok">{{ t .Lang "settings.ja4.action_label.ok" }}</option>
             </select>
             <select name="ja4_extra_action_chain" class="extra-action-sel" title="{{ t .Lang "settings.ua.upstream.action_title" }}">
-              <option value="inherit" selected>{{ t .Lang "settings.ua.upstream.action_inherit" }}</option>
+              <option value="inherit" selected>{{ tf .Lang "settings.asn.rate_inherit_ph" .JA4DefaultActionLabel }}</option>
               <option value="pow_only">pow_only</option>
               <option value="pow_then_captcha">pow_then_captcha</option>
               <option value="captcha_only">captcha_only</option>
@@ -2873,6 +2881,27 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
+<script>
+(function(){
+  // The chain the rows inherit tracks the tab's own picker live: the
+  // "inherit" option on every preset and custom row (and on the scaffold a
+  // new row is cloned from) re-resolves as the operator changes it, instead
+  // of naming what the page was rendered with.  An unset picker resolves to
+  // the install's default chain, as the serve path does.  Same refresh the
+  // ua-filter / geo / asn tabs run.
+  var d = document.querySelector('select[name="ja4_default_action"]');
+  if (!d) return;
+  var PAT = '{{ t .Lang "settings.asn.rate_inherit_ph" }}';  // e.g. "inherit (%v)"
+  var FALLBACK = '{{ .RateDefaultChMode }}';                  // what an unset picker resolves to
+  function refresh(){
+    var lbl = PAT.replace('%v', d.value || FALLBACK);
+    unmaskInheritNodes('select[name^="ja4_preset_action__"] option[value="inherit"], '
+      + 'select[name="ja4_extra_action_chain"] option[value="inherit"]')
+      .forEach(function(o){ o.textContent = lbl; });
+  }
+  d.addEventListener('change', refresh);
+})();
+</script>
 {{ end }}
 
 {{ if eq .Tab "honeypot" }}
@@ -2900,7 +2929,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       {{ $hcm := .Honeypot.DefaultAction }}
       <select name="honeypot_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
-        <option value=""                 {{ if eq $hcm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_then_captcha" }}</option>
+        <option value=""                 {{ if eq $hcm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" .RateDefaultChMode }}</option>
         <option value="pow_only"         {{ if eq $hcm "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $hcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $hcm "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -2917,7 +2946,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}<br>{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</li>
       </ul>
     
-      <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_fixed" "pow_then_captcha") }}</p>
+      <p style="margin:.5rem 0 0">{{ safeHTML (tf .Lang "settings.select.unset_logic_chain" .RateDefaultChMode) }}</p>
     </script>
 
     <!-- preset sub-section -->
@@ -2937,7 +2966,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
              save of this tab.  Same shape as the ja4 / ua-filter preset pickers. */}}
         {{ $hpa := index $.HoneypotPresetAction .ID }}
         <select name="honeypot_preset_action__{{ .ID }}" class="preset-action-sel" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
-          <option value="inherit" {{ if eq $hpa "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
+          <option value="inherit" {{ if eq $hpa "" }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.HoneypotDefaultActionLabel }}</option>
           <option value="pow_only"         {{ if eq $hpa "pow_only" }}selected{{ end }}>pow_only</option>
           <option value="pow_then_captcha" {{ if eq $hpa "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
           <option value="captcha_only"     {{ if eq $hpa "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -2983,7 +3012,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <span class="rule-pat-wrap"><input type="text" name="honeypot_url_path" value="{{ $r.Pattern }}" placeholder="{{ t $.Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
         <input type="text" name="honeypot_url_site" list="honeypot-site-candidates" value="{{ $r.Site }}" placeholder="{{ t $.Lang "settings.honeypot.site_all" }}" class="rule-action" style="width:7rem">
         <select name="honeypot_url_action" class="extra-action-sel" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
-          <option value="inherit" {{ if eq $r.Action "" }}selected{{ end }}>{{ t $.Lang "settings.ua.upstream.action_inherit" }}</option>
+          <option value="inherit" {{ if eq $r.Action "" }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.HoneypotDefaultActionLabel }}</option>
           <option value="pow_only"         {{ if eq $r.Action "pow_only" }}selected{{ end }}>pow_only</option>
           <option value="pow_then_captcha" {{ if eq $r.Action "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
           <option value="captcha_only"     {{ if eq $r.Action "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -3006,7 +3035,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <span class="rule-pat-wrap"><input type="text" name="honeypot_url_path" value="" placeholder="{{ t .Lang "settings.honeypot.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <input type="text" name="honeypot_url_site" list="honeypot-site-candidates" value="" placeholder="{{ t .Lang "settings.honeypot.site_all" }}" class="rule-action" style="width:7rem">
           <select name="honeypot_url_action" class="extra-action-sel" title="{{ t .Lang "settings.ua.upstream.action_title" }}">
-            <option value="inherit" selected>{{ t .Lang "settings.ua.upstream.action_inherit" }}</option>
+            <option value="inherit" selected>{{ tf .Lang "settings.asn.rate_inherit_ph" .HoneypotDefaultActionLabel }}</option>
             <option value="pow_only">pow_only</option>
             <option value="pow_then_captcha">pow_then_captcha</option>
             <option value="captcha_only">captcha_only</option>
@@ -3030,6 +3059,25 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
      on IP+JA4, not on the visited host, so a per-host TTL did not have a
      coherent meaning.  URL rows above carry their own per-row site filter
      and remain per-host scoped. */}}
+<script>
+(function(){
+  // The chain the traps inherit tracks the tab's own picker live, the same
+  // way as the ja4-verdicts tab above: every preset's and custom row's
+  // "inherit" option, and the scaffold a new row is cloned from.  An unset
+  // picker resolves to the install's default chain, where the serve starts.
+  var d = document.querySelector('select[name="honeypot_default_action"]');
+  if (!d) return;
+  var PAT = '{{ t .Lang "settings.asn.rate_inherit_ph" }}';  // e.g. "inherit (%v)"
+  var FALLBACK = '{{ .RateDefaultChMode }}';                  // what an unset picker resolves to
+  function refresh(){
+    var lbl = PAT.replace('%v', d.value || FALLBACK);
+    unmaskInheritNodes('select[name^="honeypot_preset_action__"] option[value="inherit"], '
+      + 'select[name="honeypot_url_action"] option[value="inherit"]')
+      .forEach(function(o){ o.textContent = lbl; });
+  }
+  d.addEventListener('change', refresh);
+})();
+</script>
 {{ end }}
 
 {{ if eq .Tab "protected" }}
