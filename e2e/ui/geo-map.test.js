@@ -231,6 +231,40 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   if (process.env.UI_E2E_SHOT_DIR) {
     try { await page.evaluate(() => document.getElementById('geo-card').scrollIntoView()); await sleep(1500); await page.screenshot({ path: path.join(process.env.UI_E2E_SHOT_DIR, 'geo-map.png') }); } catch (e) {}
   }
+  // In Japanese the map is centred on Japan: the Pacific whole, the Americas
+  // to the right, Europe to the left -- and the outline still paints under
+  // the shifted sources.  Counts carry a thousands separator in every
+  // language.
+  await page.setCookie({ name: 'unmask_locale', value: 'ja', url: BASE + '/' });
+  await page.goto(BASE + '/admin/live/', { waitUntil: 'networkidle2' });
+  ok(await page.evaluate(() => document.documentElement.lang) === 'ja', 'the page did not switch to Japanese');
+  await page.click('#live-toggle');
+  await page.evaluate(() => {
+    document.dispatchEvent(new CustomEvent('unmask:now', { detail: {
+      countries: { JP: { n: 480, pass: 300, bypass: 10, serve: 120, deny: 50 } },
+      countries30: { JP: { n: 1480, pass: 1000, bypass: 30, serve: 400, deny: 50 }, US: { n: 310, pass: 100, bypass: 0, serve: 150, deny: 60 }, DE: { n: 60, pass: 60, bypass: 0, serve: 0, deny: 0 } },
+      country_names: { JP: 'Japan (日本)', US: 'United States (アメリカ合衆国)', DE: 'Germany (ドイツ)' },
+    } }));
+  });
+  await sleep(400);
+  const ja = await page.evaluate(() => {
+    const cv = document.getElementById('geo'), w = cv.getBoundingClientRect().width;
+    const at = cc => (window.unmaskGeoHot ? unmaskGeoHot() : []).find(h => h.cc === cc);
+    const ctx = cv.getContext('2d'), d = ctx.getImageData(0, 0, cv.width, cv.height).data;
+    let lit = 0;
+    for (let i = 0; i < d.length; i += 4 * 97) if (d[i] + d[i + 1] + d[i + 2] > 60) lit++;
+    return { w, jp: at('JP'), us: at('US'), de: at('DE'), lit, top: document.getElementById('geo-top').textContent };
+  });
+  ok(ja.jp && Math.abs(ja.jp.x - ja.w / 2) < ja.w * 0.06, 'Japan is not in the middle of the Japanese map: ' + JSON.stringify(ja.jp) + ' of ' + ja.w);
+  ok(ja.us && ja.jp && ja.us.x > ja.jp.x, 'the Americas are not to the right of Japan: ' + JSON.stringify([ja.jp, ja.us]));
+  ok(ja.de && ja.jp && ja.de.x < ja.jp.x, 'Europe is not to the left of Japan: ' + JSON.stringify([ja.jp, ja.de]));
+  ok(ja.lit > 50, `the shifted outline did not paint (${ja.lit} lit samples)`);
+  ok(/JP 1,480/.test(ja.top), 'the top-sources line lacks the thousands separator: ' + ja.top);
+  if (process.env.UI_E2E_SHOT_DIR) {
+    try { await page.evaluate(() => document.getElementById('geo-card').scrollIntoView()); await sleep(1500); await page.screenshot({ path: path.join(process.env.UI_E2E_SHOT_DIR, 'geo-map-ja.png') }); } catch (e) { /* the picture is a convenience */ }
+  }
+  await page.deleteCookie({ name: 'unmask_locale', url: BASE + '/' });
+
   // Clear the position for whichever test runs next.
   await page.evaluate(async base => {
     await fetch(base + '/admin/api/map-location', { method: 'POST', credentials: 'same-origin', body: new URLSearchParams({ lat: '', lon: '', label: '' }) });

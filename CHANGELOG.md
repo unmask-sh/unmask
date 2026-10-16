@@ -12,6 +12,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+- (2026-10-16) **The realtime map puts Japan in the middle for a Japanese admin, and its counts carry a thousands separator.**  Read in Japanese, the map is centred on Japan with the Pacific whole and the Americas to the right, as a map printed in Japan is; in English it stays centred on Greenwich.  The continents are two shades lighter than the sea, so they read at a glance under the streams, and every count on the map, in the top-sources line and in a source's popover separates its thousands.
+
 ## [0.1.51] - 2026-10-16
 
 ### Added

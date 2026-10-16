@@ -713,6 +713,16 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   var reduce = false;
   try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
   var colors = { pass: '#94a3b8', serve: '#f87171', deny: '#b91c1c', bypass: '#818cf8' };
+  // The counts on the map, in the top-sources line and in the popover, with
+  // their thousands separated (the strip formats its figures the same way).
+  function comma(n){ return Number(n).toLocaleString('en-US'); }
+  // The meridian down the middle of the map.  The outline is projected with
+  // Greenwich there, as a map read in English is; a Japanese admin gets
+  // Japan in the middle instead, the Pacific whole and the Americas to the
+  // right, as a map printed in Japan is -- the outline is drawn shifted by
+  // the difference, twice, so the part that leaves one edge comes in at the
+  // other, and every point goes through the same shift (P).
+  var centreLon = document.documentElement.lang === 'ja' ? 140 : 0;
   var dpr = 1, cw = 0, ch = 0;
   // The particles' layer, over the map and under the popover.
   var fx = document.createElement('canvas'), fctx = fx.getContext('2d');
@@ -750,7 +760,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     fx.style.left = cv.offsetLeft + 'px'; fx.style.top = cv.offsetTop + 'px';
     fx.style.width = cv.offsetWidth + 'px'; fx.style.height = ch + 'px';
   }
-  function P(lon, lat){ return [ (lon + 180) / 360 * MAP.w, (90 - lat) / 180 * MAP.h ]; }
+  function P(lon, lat){ return [ ((lon - centreLon + 540) % 360) / 360 * MAP.w, (90 - lat) / 180 * MAP.h ]; }
   function setServer(){ server = loc.set ? P(loc.lon, loc.lat) : null; }
 
   function rebuild(){
@@ -781,7 +791,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     if (top) {
       var html = '';
       streams.slice(0, 6).forEach(function(st){
-        html += '<span><img src="' + card.dataset.flags + st.cc.toLowerCase() + '.png" alt="">' + st.cc + ' ' + st.n + '</span>';
+        html += '<span><img src="' + card.dataset.flags + st.cc.toLowerCase() + '.png" alt="">' + st.cc + ' ' + comma(st.n) + '</span>';
       });
       top.innerHTML = html ? '<span>' + top.dataset.txt + ':</span>' + html : '';
     }
@@ -805,8 +815,17 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     var sx = cv.width / MAP.w, sy = cv.height / MAP.h;
     ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, cv.width, cv.height);
-    ctx.save(); ctx.scale(sx, sy); ctx.fillStyle = '#1e293b'; ctx.strokeStyle = '#334155'; ctx.lineWidth = 0.6;
-    for (var i = 0; i < land.length; i++) { ctx.fill(land[i]); ctx.stroke(land[i]); }
+    // The land two shades up from the sea, so the continents read at a glance
+    // under the streams; the coastline a shade lighter again.
+    ctx.save(); ctx.scale(sx, sy); ctx.fillStyle = '#334155'; ctx.strokeStyle = '#475569'; ctx.lineWidth = 0.6;
+    // With the middle moved, the outline is drawn shifted and again a whole
+    // map's width over, so what leaves one edge comes in at the other.
+    var shift = -centreLon / 360 * MAP.w, offsets = centreLon ? [shift, shift + MAP.w] : [0];
+    offsets.forEach(function(dx){
+      ctx.save(); ctx.translate(dx, 0);
+      for (var i = 0; i < land.length; i++) { ctx.fill(land[i]); ctx.stroke(land[i]); }
+      ctx.restore();
+    });
     ctx.restore();
     if (server) {
       var hs = halo.width / cv.width;
@@ -839,7 +858,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       fresh.push(he);
       if (i < 6) {
         // The label: the flag, the code and the count.
-        var t = st.cc + ' ' + st.n, fw = 14 * dpr, fh = 10 * dpr, tw = ctx.measureText(t).width + 11 * dpr + fw, th = 16 * dpr;
+        var t = st.cc + ' ' + comma(st.n), fw = 14 * dpr, fh = 10 * dpr, tw = ctx.measureText(t).width + 11 * dpr + fw, th = 16 * dpr;
         var lx = st.x0 * sx + 6 * dpr, ly = st.y0 * sy - 8 * dpr, tries = 0;
         var hits = function(){ return placed.some(function(r){ return lx < r.x + r.w && lx + tw > r.x && ly < r.y + r.h && ly + th > r.y; }); };
         while (hits() && tries < 3) { ly += th + 2 * dpr; tries++; }
@@ -959,12 +978,12 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     var st = h.st, c = st.mix, total = 0, cc;
     for (cc in counts) total += counts[cc].n || 0;
     var html = '<div><img src="' + card.dataset.flags + st.cc.toLowerCase() + '.png" alt=""><b>' + esc(names[st.cc] || st.cc) + '</b></div><table>';
-    html += '<tr><td>' + esc(card.dataset.txtPopRequests) + '</td><td class="n"><b>' + st.n + '</b></td></tr>';
-    html += '<tr><td>' + esc(card.dataset.txtPopNow) + '</td><td class="n">' + st.now + '</td></tr>';
+    html += '<tr><td>' + esc(card.dataset.txtPopRequests) + '</td><td class="n"><b>' + comma(st.n) + '</b></td></tr>';
+    html += '<tr><td>' + esc(card.dataset.txtPopNow) + '</td><td class="n">' + comma(st.now) + '</td></tr>';
     if (total) html += '<tr><td class="share" colspan="2">' + esc(card.dataset.txtPopShare).replace('%s', (st.n / total < 0.095 ? (100 * st.n / total).toFixed(1) : Math.round(100 * st.n / total)) + '%') + '</td></tr>';
     [['pass', c.pass], ['serve', c.serve], ['deny', c.deny], ['bypass', c.bypass]].forEach(function(kv){
       var k = kv[0];
-      html += '<tr><td><i style="background:' + colors[k] + '"></i>' + esc(card.dataset['txtLegend' + k.charAt(0).toUpperCase() + k.slice(1)]) + '</td><td class="n">' + (kv[1] || 0) + '</td></tr>';
+      html += '<tr><td><i style="background:' + colors[k] + '"></i>' + esc(card.dataset['txtLegend' + k.charAt(0).toUpperCase() + k.slice(1)]) + '</td><td class="n">' + comma(kv[1] || 0) + '</td></tr>';
     });
     pop.innerHTML = html + '</table>';
     pop.hidden = false;
