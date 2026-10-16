@@ -12,9 +12,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.52-rc1] - 2026-10-16 (testing build)
 
 ### Added
+
 - (2026-10-16) **Ask AI counts a window instead of reading it.**  A new tool counts the event log over a window under the hunt's filters -- by phase, hour by hour, with the distinct addresses -- so how many, and whether a rule made a difference, is answered from the whole window.  The row tool now says what span of the window its rows cover and whether more exist, and no longer carries each event's raw payload.
 
 - (2026-10-16) **A local address shows a flag of its own.**  An address from a private network, loopback or link-local range showed the same "??" as a public address the country database could not place.  It now carries its own flag, a house, wherever an address is shown with one, and the stats page's country rankings list local addresses and unplaceable ones as two rows, named for what they are.
@@ -24,6 +25,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-10-16) **The admin has a notification list: a bell in the top bar.**  Every alert the daemon sends by webhook or mail (bans, bursts, the over-block breaker, the advisor's digest) is also kept for the admin, whatever the notification switches say.  The bell counts what the account has not opened; the panel and the page write each line in the reader's language, bans folded into one line per hour.
 
 ### Changed
+
 - (2026-10-16) **The realtime map puts Japan in the middle for a Japanese admin, and its counts carry a thousands separator.**  Read in Japanese, the map is centred on Japan with the Pacific whole, as a map printed in Japan is; in English it stays centred on Greenwich.  The continents are two shades lighter than the sea, and every count on the map and in its popovers separates its thousands.
 
 - (2026-10-16) **The "nginx has not reloaded" bar is one line.**  The notice that nginx is still running an earlier configuration took two lines on every page, the second spelling out the commands.  It now says what is the case and since when on one line; the way to apply the configuration, and how the notice knows, open from a question mark beside it.
@@ -37,6 +39,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-10-16) **The realtime map shows what unmask blocked, and what it refused.**  The legend switches each kind of request on or off, blocked alone by default -- the dashboard's blocked count, country by country.  A country's popover still splits all its requests, and a line under the map lists the last thirty minutes' refusals by reason, each linking to bot hunt, with the rules that matched most.
 
 ### Removed
+
 - (2026-10-16) **The realtime tiles no longer compare the last minute with the one before.**  The bars under each tile already show the last thirty minutes a minute at a time, which says more than the difference between two of them.  The reading the page refreshes from, `/admin/api/now`, no longer carries the previous minute.
 
 ### Fixed
