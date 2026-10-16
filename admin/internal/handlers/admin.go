@@ -1068,6 +1068,13 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 	if _, ok := data["NavActive"]; !ok {
 		data["NavActive"] = navActive(r.URL.Path)
 	}
+	// WinSuffix names the window a page's figures cover, as the suffix of the
+	// i18n keys that say so ("" = the day, "_7d" = the week): the dashboard
+	// sets it per tab, every other page reads over the day, and the shared
+	// partials (the crawler card) pick their label with it.
+	if _, ok := data["WinSuffix"]; !ok {
+		data["WinSuffix"] = ""
+	}
 
 	// Host + site picker data for the shared header_tools partial (= the
 	// host / site filter pickers, rendered on every admin page).  Each key is

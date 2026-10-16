@@ -24,7 +24,6 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/hll"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
-	"github.com/unmask-sh/unmask/admin/internal/live"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 )
 
@@ -47,7 +46,22 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "template error", http.StatusInternalServerError)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	// The section's window: the day (24 h, the default) or the week (?range=7d,
+	// the "1 週間" tab).  Every figure below -- the hero, the composition, the
+	// tiles, the crawler card and the reasons -- reads the same window, and the
+	// arithmetic does not change with it.  On the default view the week reads
+	// seven times the hours from the same rollups, so it costs about what the
+	// day does; a site or host filter scans events over the window instead,
+	// so the week gets a longer budget before the "timed out" banner.
+	week := r.URL.Query().Get("range") == "7d"
+	winHours := 24
+	budget := 5 * time.Second
+	if week {
+		winHours = 168
+		budget = 8 * time.Second
+	}
+	winMinutes := winHours * 60
+	ctx, cancel := context.WithTimeout(r.Context(), budget)
 	defer cancel()
 
 	// host filter (= global scope of the shared host_picker.  Sourced from cookie / ?host=).
@@ -80,32 +94,32 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		wg.Add(1)
 		go func() { defer wg.Done(); f() }()
 	}
-	launch(func() { kpiServes = countEvents(ctx, h, 1440, "serve", site, hosts) })
+	launch(func() { kpiServes = countEvents(ctx, h, winMinutes, "serve", site, hosts) })
 	// Passed counts split by how the visitor cleared the challenge.  PoW-only is
 	// transparent (mostly real browsers); the CAPTCHA paths mean a human solved
 	// one.  The old "verify" phase does not exist in native mode.
-	launch(func() { kpiPoWPass = countEvents(ctx, h, 1440, "bv_pow_only", site, hosts) })
+	launch(func() { kpiPoWPass = countEvents(ctx, h, winMinutes, "bv_pow_only", site, hosts) })
 	// Challenge pages that actually ran their JS.  `load` rather than `serve`
 	// because a scraper that never executes JS is served a page and emits no
 	// load, so counting serves would fold every bot into a number meant to
 	// describe real visitors.  Used by the funnel below.
-	launch(func() { kpiLoaded = countEvents(ctx, h, 1440, "load", site, hosts) })
+	launch(func() { kpiLoaded = countEvents(ctx, h, winMinutes, "load", site, hosts) })
 	// ...and the abandon rate's own pair, narrowed to ordinary visitors facing
 	// the transparent proof-of-work.  See countUnruledPoW: counting every
 	// abandon made the tile a readout of how much targeted traffic the rules
 	// were turning away, which is the configuration working rather than
 	// visitors lost.
-	launch(func() { powLoaded = countUnruledPoW(ctx, h, 1440, "load", site, hosts) })
-	launch(func() { powAbandon = countUnruledPoW(ctx, h, 1440, "abandon", site, hosts) })
+	launch(func() { powLoaded = countUnruledPoW(ctx, h, winMinutes, "load", site, hosts) })
+	launch(func() { powAbandon = countUnruledPoW(ctx, h, winMinutes, "abandon", site, hosts) })
 	launch(func() {
-		kpiCaptchaPass = countEventsPhases(ctx, h, 1440,
+		kpiCaptchaPass = countEventsPhases(ctx, h, winMinutes,
 			[]string{"bv_captcha_only", "bv_pow_then_captcha"}, site, hosts)
 	})
 	// Non-human %: request counts from unmask_cookie_minute.  "—" when the
 	// access-log feed is off (no counters at all).
 	launch(func() {
 		var err error
-		comp, err = dashboard.TrafficRequests(ctx, h.DB, 1440, site)
+		comp, err = dashboard.TrafficRequests(ctx, h.DB, winMinutes, site)
 		if err != nil {
 			log.Printf("trafficRequests: %v", err)
 		}
@@ -113,7 +127,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// Distinct clients, for the hero's "from an estimated N addresses" line --
 	// the one figure on this page where a distinct count is what is being
 	// asked for rather than a proxy for volume.
-	launch(func() { _, uBlocked, uKnown = trafficUnique(ctx, h, 1440, site) })
+	launch(func() { _, uBlocked, uKnown = trafficUnique(ctx, h, winMinutes, site) })
 	// ?partial=day redraws the section (the hero, the tiles and the hourly
 	// chart) for the page's minute refresh.  The recent detections and the
 	// live strip are the realtime page's (/admin/live/).
@@ -124,16 +138,16 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// Who the known crawlers were and whether any was challenged: the "all"
 	// tab is install-wide (the access log's crawler counters carry no site),
 	// the "challenged" tab follows the site picker, as on the stats page.
-	launch(func() { aiAll = aiTrafficSummary(ctx, h, 1440) })
-	launch(func() { aiDetail = aiTrafficDrilldown(ctx, h, 1440) })
+	launch(func() { aiAll = aiTrafficSummary(ctx, h, winMinutes) })
+	launch(func() { aiDetail = aiTrafficDrilldown(ctx, h, winMinutes) })
 	launch(func() {
 		var err error
-		if aiServed, err = dashboard.AITrafficBreakdown(ctx, h.DB, site, hosts, 24); err != nil {
+		if aiServed, err = dashboard.AITrafficBreakdown(ctx, h.DB, site, hosts, winHours); err != nil {
 			log.Printf("overview crawler card: %v", err)
 		}
 	})
 	// What sent visitors to a challenge or a deny page today, by reason.
-	launch(func() { reasons, reasonsOK = dashboard.ServeReasons(ctx, h.DB, site, hosts, 24) })
+	launch(func() { reasons, reasonsOK = dashboard.ServeReasons(ctx, h.DB, site, hosts, winHours) })
 	wg.Wait()
 
 	// "Blocked" for the hero: challenges fired that produced no pass, minus the
@@ -204,7 +218,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		// One source per deploy path, distinct requests, so a sum: forward-auth
 		// records the judgement as an event (would_be_action); the module path
 		// logs it, and the aggregator files the line under its own kind.
-		if n, err := dashboard.ObserveOnlyWouldBlock(ctx, h.DB, site, hosts, 24); err == nil {
+		if n, err := dashboard.ObserveOnlyWouldBlock(ctx, h.DB, site, hosts, winHours); err == nil {
 			kpiWouldBlock = n
 		} else {
 			log.Printf("overview observe-mode count: %v", err)
@@ -480,14 +494,16 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// One line of now at the top of the day section: the last thirty
 	// minutes and the last minute, pointing at the realtime page, which has
 	// the strip, the map and the recent detections.
-	data["HasLive"] = h.Live != nil
 	// When the day's figures were computed: the section's header shows it,
 	// since the section redraws only on the operator's button.
 	data["DayRenderedTS"] = time.Now().Unix()
-	if h.Live != nil {
-		sn := h.Live.Snapshot(time.Now())
-		data["Now30"] = int(sn.Last30[live.Requests])
-		data["Now1"] = int(sn.Last[live.Requests])
+	// The window, for the tab bar's mark and for the texts that name it:
+	// WinSuffix is "" for the day and "_7d" for the week, the suffix of the
+	// overview.*_7d keys the template picks with printf.
+	data["WeekView"] = week
+	data["WinSuffix"] = ""
+	if week {
+		data["WinSuffix"] = "_7d"
 	}
 	// Persist the denominator choice when it arrived as a link click, so the
 	// next visit opens on the view the operator picked.  Written only for an

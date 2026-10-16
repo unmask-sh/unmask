@@ -20,7 +20,7 @@
 */}}
 {{ define "ai_traffic_card" }}
 <div class="bcd-card ai-traffic-card" data-ai-card>
-  <h2>{{ t .Lang "ai_traffic.title" }}<span class="ai-window">{{ t .Lang "ai_traffic.window" }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "ai_traffic.desc") }}</span></span></h2>
+  <h2>{{ t .Lang "ai_traffic.title" }}<span class="ai-window">{{ t .Lang (printf "ai_traffic.window%s" $.WinSuffix) }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "ai_traffic.desc") }}</span></span></h2>
   <div class="ai-tabs" role="tablist">
     <button class="ai-tab active" data-tab="all" role="tab">{{ t .Lang "ai_traffic.tab.all" }}</button>
     <button class="ai-tab" data-tab="served" role="tab">{{ t .Lang "ai_traffic.tab.served" }}</button>

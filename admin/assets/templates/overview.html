@@ -167,16 +167,10 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .geo-top img{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.2em;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
 /* The recent-detections card redraws its table every few seconds; a row that
    was not there before flashes green and settles. */
-.livebadge{display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;color:#16a34a;font-weight:600}
 .dash-tabs{display:flex;gap:.25rem;margin:0 0 .9rem;border-bottom:1px solid #e2e8f0}
 .dash-tabs a{padding:.4rem .9rem;color:#64748b;text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px;font-size:.92rem}
 .dash-tabs a:hover{color:#0f172a}
 .dash-tabs a.on{color:#0f172a;border-bottom-color:#0f172a;font-weight:600}
-.now-line{margin:0 0 .8rem;font-size:.85rem;color:#334155;display:flex;gap:.5rem;align-items:center;flex-wrap:wrap}
-.now-line b{font-variant-numeric:tabular-nums}
-.now-line a{color:#2563eb;text-decoration:none}
-.now-line a:hover{text-decoration:underline}
-.livebadge i{width:.5rem;height:.5rem;border-radius:50%;background:#16a34a;display:inline-block}
 /* A figure that changed on a refresh flashes briefly, so a reader watching
    the page sees which numbers moved. */
 @keyframes v-flash{0%{background:#bae6fd;box-shadow:0 0 0 .3rem #bae6fd}100%{background:transparent;box-shadow:0 0 0 .3rem transparent}}
@@ -316,10 +310,12 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 </header>
 <main class="unmask-main">
 <h1>{{ t .Lang "overview.title" }}</h1>
-{{/* The dashboard's two tabs: the day (this page), and the last thirty
-     minutes on the realtime tab, which has its own address and refresh. */}}
+{{/* The dashboard's tabs: the day and the week (this page, the same section
+     over 24 hours or seven days -- ?range=7d), and the last thirty minutes
+     on the realtime tab, which has its own address and refresh. */}}
 <nav class="dash-tabs">
-  <a href="{{ .BasePath }}/admin/" class="on" aria-current="page">{{ t .Lang "overview.tab_day" }}</a>
+  <a href="{{ .BasePath }}/admin/"{{ if not .WeekView }} class="on" aria-current="page"{{ end }}>{{ t .Lang "overview.tab_day" }}</a>
+  <a href="{{ .BasePath }}/admin/?range=7d"{{ if .WeekView }} class="on" aria-current="page"{{ end }}>{{ t .Lang "overview.tab_week" }}</a>
   <a href="{{ .BasePath }}/admin/live/">{{ t .Lang "overview.tab_live" }}</a>
 </nav>
 {{ if .UpgradeApplied }}
@@ -349,11 +345,8 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 {{- /* Host filtering is unified into the shared host_picker in the top bar (old host-filter-bar removed). */ -}}
 
 {{ define "overview_day" }}
-{{/* One line of "now": the last thirty minutes and the last minute, and the
-     way to the realtime page.  Redrawn with the section every minute. */}}
-{{ if .HasLive }}<p class="now-line"><span class="livebadge"><i></i>live</span> {{ safeHTML (tf .Lang "overview.now_line" (comma .Now30) (comma .Now1)) }} <a href="{{ .BasePath }}/admin/live/">{{ t .Lang "overview.now_link" }} →</a></p>{{ end }}
 {{ if not .KPIKnown }}
-<div role="alert" style="margin:0 0 1rem;padding:.7rem 1rem;border:1px solid #f59e0b;background:#fffbeb;border-radius:.4rem;color:#92400e;line-height:1.5">⚠ {{ t .Lang "overview.kpi.timeout_banner" }}</div>
+<div role="alert" style="margin:0 0 1rem;padding:.7rem 1rem;border:1px solid #f59e0b;background:#fffbeb;border-radius:.4rem;color:#92400e;line-height:1.5">⚠ {{ t .Lang (printf "overview.kpi.timeout_banner%s" $.WinSuffix) }}</div>
 {{ end }}
 
 {{/* Observe mode fires no challenge, so the blocked arithmetic is
@@ -369,19 +362,19 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       {{ if not .KPIKnown }}
         {{ t .Lang "overview.hero.timeout" }}
       {{ else if .ObserveOnly }}
-        {{ safeHTML (t .Lang "overview.hero.observe_desc") }}
+        {{ safeHTML (t .Lang (printf "overview.hero.observe_desc%s" $.WinSuffix)) }}
       {{ else if gt .KPIBlocked 0 }}
         {{/* Requests, not clients: one scraper hitting a thousand URLs is a
              thousand here.  When the access-log sketches are available we can
              also say how many distinct addresses that came from, which is the
              number people actually picture when they read "bots blocked". */}}
-        {{ safeHTML (t .Lang "overview.hero.desc") }}
+        {{ safeHTML (t .Lang (printf "overview.hero.desc%s" $.WinSuffix)) }}
         {{ if and .KPIUniqueKnown (gt .KPIUniqueBlocked 0) }}<span class="hero-clients">{{ tf .Lang "overview.hero.clients" (comma .KPIUniqueBlocked) }}</span>{{ end }}
       {{ else }}
         {{ t .Lang "overview.hero.zero" }}
       {{ end }}
     </div>
-    <div class="sub">{{ t .Lang "overview.kpi.range_24h" }} · {{ t .Lang "overview.hero.basis" }}</div>
+    <div class="sub">{{ if .WeekView }}{{ t .Lang "overview.kpi.range_7d" }}{{ else }}{{ t .Lang "overview.kpi.range_24h" }}{{ end }} · {{ t .Lang "overview.hero.basis" }}</div>
   </div>
 </div>
 
@@ -401,11 +394,11 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
          script below mirrors the same arithmetic only for in-place toggles;
          the no-JS path stays the ?comp= links. */}}
     <div class="comp-view" data-total="{{ .KPIReqTotal }}"
-         data-cap-all="{{ tf .Lang "overview.kpi.nonhuman_of_card" "%s" }}"
-         data-cap-judged="{{ tf .Lang "overview.kpi.nonhuman_of_judged" "%s" }}"
-         data-cap-selected="{{ tf .Lang "overview.kpi.nonhuman_of_selected" "%s" }}">
+         data-cap-all="{{ tf .Lang (printf "overview.kpi.nonhuman_of_card%s" $.WinSuffix) "%s" }}"
+         data-cap-judged="{{ tf .Lang (printf "overview.kpi.nonhuman_of_judged%s" $.WinSuffix) "%s" }}"
+         data-cap-selected="{{ tf .Lang (printf "overview.kpi.nonhuman_of_selected%s" $.WinSuffix) "%s" }}">
       <div class="comp-pct">{{ if $.KPINonHumanKnown }}{{ printf "%.1f" .CompPct }}<span class="comp-pct-u">%</span>{{ else }}—{{ end }}</div>
-      <div class="comp-of">{{ if $.KPINonHumanKnown }}{{ if eq .CompState "judged" }}{{ tf $.Lang "overview.kpi.nonhuman_of_judged" (comma .CompDenom) }}{{ else if eq .CompState "all" }}{{ tf $.Lang "overview.kpi.nonhuman_of_card" (comma .CompDenom) }}{{ else }}{{ tf $.Lang "overview.kpi.nonhuman_of_selected" (comma .CompDenom) }}{{ end }}{{ else }}{{ t $.Lang "overview.kpi.nonhuman_nodata" }}{{ end }}</div>
+      <div class="comp-of">{{ if $.KPINonHumanKnown }}{{ if eq .CompState "judged" }}{{ tf $.Lang (printf "overview.kpi.nonhuman_of_judged%s" $.WinSuffix) (comma .CompDenom) }}{{ else if eq .CompState "all" }}{{ tf $.Lang (printf "overview.kpi.nonhuman_of_card%s" $.WinSuffix) (comma .CompDenom) }}{{ else }}{{ tf $.Lang (printf "overview.kpi.nonhuman_of_selected%s" $.WinSuffix) (comma .CompDenom) }}{{ end }}{{ else }}{{ t $.Lang "overview.kpi.nonhuman_nodata" }}{{ end }}</div>
     </div>
   </div>
   {{ if .KPINonHumanKnown }}
@@ -447,13 +440,13 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         {{- else }}{{ tf $.Lang (printf "overview.kpi.nonhuman_%s" .Key) (comma .Count) }}<b class="comp-share">{{ if .On }}{{ pctLabel .Count $t }}{{ end }}</b>
         {{- end }}
         </a>
-        {{- if eq .Key "other" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup comp-other-pop">{{ if $.KPIReqOtherKnown }}<b>{{ t $.Lang "overview.kpi.other_head" }}</b><span class="orow"><span>{{ t $.Lang "overview.kpi.other_abandon_label" }}</span><b>{{ comma $.KPIReqOtherAbandon }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_abandon_desc" }}</span><span class="orow"><span>{{ t $.Lang "overview.kpi.other_unchallenged_label" }}</span><b>{{ comma $.KPIReqOtherUnchall }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_unchallenged_desc" }}</span>{{ if $.KPIReqRebound }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_rebind_label" }}</span><b>{{ comma $.KPIReqRebound }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_rebind_desc" }}</span>{{ end }}{{ if $.KPIReqPassthrough }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_passthrough_label" }}</span><b>{{ comma $.KPIReqPassthrough }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_passthrough_desc" }}</span>{{ end }}{{ if $.KPIReqObserve }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_observe_label" }}</span><b>{{ comma $.KPIReqObserve }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_observe_desc" }}</span>{{ end }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_skew_label" }}</span><b>{{ comma $.KPIReqOtherSkew }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_skew_desc" }}</span>{{ else }}{{ t $.Lang "overview.kpi.other_unknown" }}{{ end }}</span></span>{{ end -}}
+        {{- if eq .Key "other" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup comp-other-pop">{{ if $.KPIReqOtherKnown }}<b>{{ t $.Lang "overview.kpi.other_head" }}</b><span class="orow"><span>{{ t $.Lang "overview.kpi.other_abandon_label" }}</span><b>{{ comma $.KPIReqOtherAbandon }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_abandon_desc" }}</span><span class="orow"><span>{{ t $.Lang "overview.kpi.other_unchallenged_label" }}</span><b>{{ comma $.KPIReqOtherUnchall }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_unchallenged_desc" }}</span>{{ if $.KPIReqRebound }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_rebind_label" }}</span><b>{{ comma $.KPIReqRebound }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_rebind_desc" }}</span>{{ end }}{{ if $.KPIReqPassthrough }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_passthrough_label" }}</span><b>{{ comma $.KPIReqPassthrough }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_passthrough_desc" }}</span>{{ end }}{{ if $.KPIReqObserve }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_observe_label" }}</span><b>{{ comma $.KPIReqObserve }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_observe_desc" }}</span>{{ end }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_skew_label" }}</span><b>{{ comma $.KPIReqOtherSkew }}</b></span><span class="orow-d">{{ t $.Lang (printf "overview.kpi.other_skew_desc%s" $.WinSuffix) }}</span>{{ else }}{{ t $.Lang "overview.kpi.other_unknown" }}{{ end }}</span></span>{{ end -}}
       </span>
       {{ end }}
     </div>
   </div>
   {{ end }}
-  <h2 class="pipe-h after-comp">{{ t .Lang "overview.kpi.h" }}<small>{{ t .Lang "overview.kpi.h_sub" }} · {{ t .Lang "overview.day.updated" }} <time class="js-datetime js-datetime-notz" data-ts="{{ .DayRenderedTS }}"></time></small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.kpi.h_help" }}</span></span><button type="button" class="day-refresh" id="day-refresh">↻ {{ t .Lang "overview.day.refresh" }}</button></h2>
+  <h2 class="pipe-h after-comp">{{ t .Lang (printf "overview.kpi.h%s" $.WinSuffix) }}<small>{{ t .Lang "overview.kpi.h_sub" }} · {{ t .Lang "overview.day.updated" }} <time class="js-datetime js-datetime-notz" data-ts="{{ .DayRenderedTS }}"></time></small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.kpi.h_help" }}</span></span><button type="button" class="day-refresh" id="day-refresh">↻ {{ t .Lang "overview.day.refresh" }}</button></h2>
   {{/* One row: the access log's request total, then what the challenge did
        (served, passed by PoW, passed by CAPTCHA, abandoned -- the operator's
        2026-10-10 call: these read better as the tiles they were than as a
@@ -471,7 +464,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     <div class="sub">{{ t .Lang "overview.kpi.serves_sub" }}</div>
   </div>
   <div class="kpi k-pow" data-kpi="pow">
-    <div class="label"><span class="kdot" style="background:#0ea5e9"></span>{{ t .Lang "overview.kpi.pow_pass" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.pow_pass_help") }}</span></span></div>
+    <div class="label"><span class="kdot" style="background:#0ea5e9"></span>{{ t .Lang "overview.kpi.pow_pass" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang (printf "overview.kpi.pow_pass_help%s" $.WinSuffix)) }}</span></span></div>
     <div class="value">{{ if .KPIKnown }}{{ comma .KPIPoWTotal }}{{ else }}—{{ end }}</div>
     <div class="sub">{{ t .Lang "overview.kpi.pow_pass_sub" }}</div>
     {{/* The headline is requests -- the solves plus what their cookies then
@@ -482,7 +475,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     <div class="sub sub-cookie">{{ if .KPICookieKnown }}{{ tf .Lang "overview.kpi.pass_breakdown" (comma .KPIPoWPass) (comma .KPIPoWCookie) }}{{ else }}{{ tf .Lang "overview.kpi.pass_solves_only" (comma .KPIPoWPass) }}{{ end }}</div>
   </div>
   <div class="kpi k-captcha" data-kpi="captcha">
-    <div class="label"><span class="kdot" style="background:#16a34a"></span>{{ t .Lang "overview.kpi.captcha_pass" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.captcha_pass_help") }}</span></span></div>
+    <div class="label"><span class="kdot" style="background:#16a34a"></span>{{ t .Lang "overview.kpi.captcha_pass" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang (printf "overview.kpi.captcha_pass_help%s" $.WinSuffix)) }}</span></span></div>
     <div class="value">{{ if .KPIKnown }}{{ comma .KPICaptchaTotal }}{{ else }}—{{ end }}</div>
     <div class="sub">{{ t .Lang "overview.kpi.captcha_pass_sub" }}</div>
     <div class="sub sub-cookie">{{ if .KPICookieKnown }}{{ tf .Lang "overview.kpi.pass_breakdown" (comma .KPICaptchaPass) (comma .KPICaptchaCookie) }}{{ else }}{{ tf .Lang "overview.kpi.pass_solves_only" (comma .KPICaptchaPass) }}{{ end }}</div>
@@ -519,13 +512,13 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
      does not refresh itself, stayed frozen there; the realtime tab keeps that
      list, live. */}}
 <div class="bcd-card reasons-card" id="reasons-card">
-  <h2>{{ t .Lang "overview.reasons.h" }}<span class="rs-window">{{ t .Lang "overview.reasons.window" }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "overview.reasons.help") }}</span></span></h2>
+  <h2>{{ t .Lang "overview.reasons.h" }}<span class="rs-window">{{ t .Lang (printf "overview.reasons.window%s" $.WinSuffix) }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "overview.reasons.help") }}</span></span></h2>
   {{- /* The sentence about the links names the ones the account gets: a reason opens its records in bot hunt for every role, the gear its setting for an administrator. */ -}}
   <p class="rs-desc">{{ t .Lang "overview.reasons.desc" }}{{ if .CanWrite }}{{ t .Lang "overview.reasons.desc_links" }}{{ else }}{{ t .Lang "overview.reasons.desc_hunt" }}{{ end }}</p>
   {{ if not .ReasonsKnown }}
   <p class="rs-note" role="status">{{ t .Lang "overview.reasons.timeout" }}</p>
   {{ else if eq .ReasonsTotal 0 }}
-  <p class="rs-note">{{ t .Lang "overview.reasons.empty" }}</p>
+  <p class="rs-note">{{ t .Lang (printf "overview.reasons.empty%s" $.WinSuffix) }}</p>
   {{ else }}
   <table class="bcd-table reasons-table">
     <thead><tr><th>{{ t .Lang "overview.reasons.col.reason" }}</th><th class="bcd-num">{{ t .Lang "overview.reasons.col.count" }}</th><th class="bcd-num">{{ t .Lang "overview.reasons.col.share" }}</th></tr></thead>

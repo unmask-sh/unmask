@@ -48,10 +48,11 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     comp: !!document.querySelector('#comp-card .comp-body'),
     ai: !!document.querySelector('table.ai-traffic'),
     stages: document.querySelectorAll('.pipe-st, .pipe-side').length,
-    // the live parts moved to the realtime page; the day keeps one line of now
-    liveLeft: document.querySelectorAll('#live-grid, #geo-card, #recent-card').length,
-    nowLine: (function(){ const p = document.querySelector('.now-line'); return p ? { text: p.textContent, link: (p.querySelector('a') || {}).getAttribute ? p.querySelector('a').getAttribute('href') : '' } : null; })(),
+    // the live parts moved to the realtime page, the line of now with them
+    liveLeft: document.querySelectorAll('#live-grid, #geo-card, #recent-card, .now-line').length,
     tabLive: !!document.querySelector('.dash-tabs a[href$="/admin/live/"]'),
+    tabWeek: !!document.querySelector('.dash-tabs a[href$="/admin/?range=7d"]'),
+    tabOn: Array.from(document.querySelectorAll('.dash-tabs a.on')).map(a => new URL(a.href).search),
     navLive: !!document.querySelector('nav.nav a[href$="/admin/live/"]'),
     pageScrolls: document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
     // every tile figure is a number or a dash, never blank
@@ -62,8 +63,8 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   ok(shape.oneRow === 1, 'the tiles wrap onto ' + shape.oneRow + ' rows at 1400px');
   ok(shape.ai, 'the crawler table is not on the dashboard');
   ok(shape.stages === 0, 'the pipeline stages are still on the dashboard');
-  ok(shape.liveLeft === 0, 'the live strip, map or recent card is still on the dashboard');
-  ok(shape.nowLine && /\/admin\/live\/$/.test(shape.nowLine.link) && /\d/.test(shape.nowLine.text), 'the now line with its link to the realtime page is missing: ' + JSON.stringify(shape.nowLine));
+  ok(shape.liveLeft === 0, 'the live strip, map, recent card or line of now is still on the dashboard');
+  ok(shape.tabWeek && shape.tabOn.length === 1 && shape.tabOn[0] === '', 'the week tab is missing or the day tab is not the one marked: ' + JSON.stringify({ week: shape.tabWeek, on: shape.tabOn }));
   ok(shape.tabLive && !shape.navLive, 'realtime must be a tab of the dashboard, not a nav entry: ' + JSON.stringify({ tab: shape.tabLive, nav: shape.navLive }));
   ok(!shape.pageScrolls, 'the page scrolls sideways');
   ok(shape.values.every(v => v === '—' || /^[\d,]+$/.test(v)), 'a tile figure is blank: ' + shape.values.join('|'));
@@ -85,6 +86,32 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     ok(manual.after && manual.after >= manual.before && manual.enabled && manual.err === true, 'the manual refresh did not redraw cleanly: ' + JSON.stringify(manual));
     ok(/\d/.test(manual.timeText), 'the figures\' time is not formatted: ' + JSON.stringify(manual.timeText));
   }
+
+  // The week tab: the same section over seven days, the tab marked, the
+  // texts naming the window, and the refresh staying on the week.
+  await page.evaluate(() => { document.cookie = 'unmask_locale=ja; path=/'; });
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: 'networkidle2' }),
+    page.click('.dash-tabs a[href$="/admin/?range=7d"]'),
+  ]);
+  const week = await page.evaluate(async () => {
+    const on = Array.from(document.querySelectorAll('.dash-tabs a.on')).map(a => new URL(a.href).search);
+    const sub = (document.querySelector('.hero .sub') || {}).textContent || '';
+    const h = (document.querySelector('#day-section .pipe-h') || {}).textContent || '';
+    const tiles = Array.from(document.querySelectorAll('.kpi-grid .kpi')).map(k => k.dataset.kpi);
+    const t = document.querySelector('#day-section .pipe-h time[data-ts]');
+    const before = t ? t.dataset.ts : '';
+    document.getElementById('day-refresh').click();
+    await new Promise(r => setTimeout(r, 1500));
+    const t2 = document.querySelector('#day-section .pipe-h time[data-ts]');
+    return { url: location.search, on, sub, h, tiles: tiles.join(','), before, after: t2 ? t2.dataset.ts : '',
+      subAfter: (document.querySelector('.hero .sub') || {}).textContent || '', err: document.getElementById('day-err').hidden };
+  });
+  ok(week.url === '?range=7d' && week.on.length === 1 && week.on[0] === '?range=7d', 'the week tab did not open or is not marked: ' + JSON.stringify(week));
+  ok(/直近 7 日/.test(week.sub) && /直近 7 日/.test(week.h) && !/24h/.test(week.sub), 'the week view does not name its window: ' + JSON.stringify({ sub: week.sub, h: week.h }));
+  ok(week.tiles === 'requests,serve,pow,captcha,abandon,bans', 'week tiles: ' + week.tiles);
+  ok(week.after && week.after >= week.before && /直近 7 日/.test(week.subAfter) && week.err === true, 'the refresh on the week view did not keep the week: ' + JSON.stringify(week));
+  await page.goto(BASE + '/admin/', { waitUntil: 'networkidle2' });
 
   // Toggle a composition segment, redraw the section, toggle again.
   const comp = await page.evaluate(async () => {

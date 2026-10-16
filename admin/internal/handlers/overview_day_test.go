@@ -128,3 +128,59 @@ func TestDaySectionHasNoTimer(t *testing.T) {
 		}
 	}
 }
+
+// TestOverviewWeekTab: the dashboard's "1 週間" tab (?range=7d) draws the same
+// section over the last seven days -- the tab marked, every text that names
+// the window saying seven days, the refresh partial under the same range --
+// while the default stays the day.  The line of now is gone from both.
+func TestOverviewWeekTab(t *testing.T) {
+	h := navHandler(t)
+	get := func(target string) string {
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		req.AddCookie(&http.Cookie{Name: "unmask_locale", Value: "ja"})
+		rr := httptest.NewRecorder()
+		h.AdminTopOverview(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s: %d", target, rr.Code)
+		}
+		return rr.Body.String()
+	}
+	day := get("/unmask/admin/")
+	week := get("/unmask/admin/?range=7d")
+	part := get("/unmask/admin/?range=7d&partial=day")
+	for _, page := range []string{day, week, part} {
+		if strings.Contains(page, `class="now-line"`) {
+			t.Error("the line of now is still drawn")
+		}
+	}
+	if !strings.Contains(day, `href="/unmask/admin/" class="on"`) || strings.Contains(day, `href="/unmask/admin/?range=7d" class="on"`) {
+		t.Error("the day page does not mark the day tab alone")
+	}
+	if !strings.Contains(week, `href="/unmask/admin/?range=7d" class="on"`) || strings.Contains(week, `href="/unmask/admin/" class="on"`) {
+		t.Error("the week page does not mark the week tab alone")
+	}
+	for _, k := range []string{"overview.kpi.range_7d", "overview.kpi.h_7d", "overview.reasons.window_7d", "ai_traffic.window_7d"} {
+		want := i18n.T("ja", k)
+		if i := strings.Index(want, "<"); i > 0 {
+			want = want[:i]
+		}
+		if !strings.Contains(week, want) || !strings.Contains(part, want) {
+			t.Errorf("the week view lacks %s (%q)", k, want)
+		}
+		if strings.Contains(day, want) {
+			t.Errorf("the day view carries the week text %s", k)
+		}
+	}
+	for _, k := range []string{"overview.kpi.range_24h", "overview.kpi.h"} {
+		want := i18n.T("ja", k)
+		if strings.Contains(week, want) {
+			t.Errorf("the week view still says %q", want)
+		}
+		if !strings.Contains(day, want) {
+			t.Errorf("the day view lacks %q", want)
+		}
+	}
+	if !strings.Contains(week, `id="day-refresh"`) {
+		t.Error("the week view lacks the refresh button")
+	}
+}

@@ -187,8 +187,8 @@ func TestLivePageRendersStrip(t *testing.T) {
 	if n := strings.Count(grid, `<rect x="`); n != len(liveKinds)*live.Minutes {
 		t.Errorf("%d bars, want %d", n, len(liveKinds)*live.Minutes)
 	}
-	// The dashboard has no strip, map or recent card any more: a line of now
-	// that points here, redrawn with the day section.
+	// The dashboard has no strip, map, recent card or line of now any more:
+	// the realtime tab holds the figures of now, and the tab bar points there.
 	rec = httptest.NewRecorder()
 	h.AdminTopOverview(rec, httptest.NewRequest("GET", "/unmask/admin/", nil))
 	page := rec.Body.String()
@@ -197,16 +197,16 @@ func TestLivePageRendersStrip(t *testing.T) {
 			t.Errorf("the dashboard still carries %q", gone)
 		}
 	}
-	if !strings.Contains(page, `class="now-line"`) || !strings.Contains(page, `href="/unmask/admin/live/"`) || !strings.Contains(page, `class="dash-tabs"`) {
-		t.Error("the dashboard lacks the tab bar or the line of now with its link to the realtime tab")
+	if strings.Contains(page, `class="now-line"`) || !strings.Contains(page, `href="/unmask/admin/live/"`) || !strings.Contains(page, `class="dash-tabs"`) {
+		t.Error("the dashboard lacks the tab bar with its realtime entry, or still carries the line of now")
 	}
 	if !strings.Contains(body, `class="dash-tabs"`) || strings.Contains(body, `nav.live`) {
 		t.Error("the realtime tab must carry the tab bar and no nav entry of its own")
 	}
 	rec = httptest.NewRecorder()
 	h.AdminTopOverview(rec, httptest.NewRequest("GET", "/unmask/admin/?partial=day", nil))
-	if !strings.Contains(rec.Body.String(), `class="now-line"`) {
-		t.Error("the day partial must carry the line of now, so the minute refresh keeps it")
+	if strings.Contains(rec.Body.String(), `class="now-line"`) {
+		t.Error("the day partial still carries the line of now")
 	}
 	h.Live = nil
 	rec = httptest.NewRecorder()
