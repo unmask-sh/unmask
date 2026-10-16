@@ -1,6 +1,8 @@
 // The dashboard's map: the outline loads, a reading with countries paints
 // streams onto the canvas, an admin can set the server's position from the
 // card (through the shared dialog's prompt), and an unset position says so.
+// The legend switches what the map draws (blocked bots alone by default, the
+// choice kept in the browser), and a line under it names what was refused.
 // And it stays cheap: the map's canvas is painted once per reading, only the
 // particles' layer moves, and nothing draws with a canvas shadow (a shadow
 // blurs on every draw, and a busy install's page stalled on them).
@@ -97,17 +99,22 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.click('#live-toggle');
   const autoOff = await page.evaluate(() => document.getElementById('live-toggle').getAttribute('aria-pressed') === 'false');
   ok(autoOff, 'the auto-refresh switch did not go off');
-  const feed = () => page.evaluate(() => {
-    document.dispatchEvent(new CustomEvent('unmask:now', { detail: {
-      countries: { JP: { n: 48, pass: 30, bypass: 1, serve: 12, deny: 5 }, US: { n: 9, pass: 3, bypass: 0, serve: 4, deny: 2 } },
-      countries30: { JP: { n: 148, pass: 100, bypass: 3, serve: 40, deny: 5 }, US: { n: 31, pass: 10, bypass: 0, serve: 15, deny: 6 }, DE: { n: 6, pass: 6, bypass: 0, serve: 0, deny: 0 } },
+  const feed = (refused) => page.evaluate(refused => {
+    document.dispatchEvent(new CustomEvent('unmask:now', { detail: Object.assign({
+      countries: { JP: { n: 48, pass: 30, bypass: 1, serve: 12, deny: 5, blocked: 6, people: 11 }, US: { n: 9, pass: 3, bypass: 0, serve: 4, deny: 2, blocked: 3, people: 3 } },
+      countries30: { JP: { n: 148, pass: 100, bypass: 3, serve: 40, deny: 5, blocked: 13, people: 32 }, US: { n: 31, pass: 10, bypass: 0, serve: 15, deny: 6, blocked: 8, people: 13 }, DE: { n: 6, pass: 6, bypass: 0, serve: 0, deny: 0, blocked: 0, people: 0 } },
       country_names: { JP: 'Japan (日本)', US: 'United States (アメリカ合衆国)', DE: 'Germany (ドイツ)' },
-    } }));
-  });
+    }, refused || {}) }));
+  }, refused);
   const usBefore = await around(-98.5, 39.5);
   await feed(); await sleep(400);
-  const top = await page.evaluate(() => document.getElementById('geo-top').textContent);
-  ok(/JP 148/.test(top) && /US 31/.test(top), 'the top-sources line does not list the reading: ' + top);
+  // Blocked bots alone by default: JP and US blocked some, DE none.
+  // The line's entries, one per source (the text runs them together).
+  const topItems = () => page.evaluate(() => Array.from(document.querySelectorAll('#geo-top span')).map(s => s.textContent.trim()));
+  const top = await topItems();
+  ok(top.includes('JP 13') && top.includes('US 8') && !top.some(t => /^DE/.test(t)), 'the top-sources line does not list the blocked bots of the reading: ' + top.join(' | '));
+  const pressed = () => page.evaluate(() => Array.from(document.querySelectorAll('#geo-legend .geo-k')).filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.dataset.k).join(','));
+  ok(await pressed() === 'blocked', 'the legend does not start on blocked alone: ' + await pressed());
   const usAfter = await around(-98.5, 39.5);
   ok(usAfter > usBefore * 1.2, `the US source did not paint (${usBefore} -> ${usAfter})`);
 
@@ -125,12 +132,16 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const pop = await page.evaluate(() => {
       const p = document.getElementById('geo-pop');
       const img = p.querySelector('img');
-      return { hidden: p.hidden, text: p.textContent.replace(/\s+/g, ' '), img: img ? img.getAttribute('src') : '', cursor: getComputedStyle(document.getElementById('geo')).cursor };
+      return { hidden: p.hidden, text: p.textContent.replace(/\s+/g, ' '), cells: Array.from(p.querySelectorAll('td.n')).map(td => td.textContent.trim()).join(','), img: img ? img.getAttribute('src') : '', cursor: getComputedStyle(document.getElementById('geo')).cursor };
     });
     ok(!pop.hidden, 'no popover on the US source');
     ok(/United States/.test(pop.text), 'the popover lacks the full name: ' + pop.text);
     ok(/us\.png$/.test(pop.img), 'the popover lacks the flag: ' + pop.img);
-    for (const n of ['31', '10', '15', '6', '17%', '9']) ok(pop.text.indexOf(n) >= 0, 'the popover lacks ' + n + ': ' + pop.text);
+    // Every request of the source and the whole split, though the map draws
+    // only the blocked: requests, last minute, then blocked / solved or left
+    // / passed on a cookie / bypassed.
+    ok(pop.cells === '31,9,8,13,10,0', 'the popover figures are not the whole split: ' + pop.cells);
+    ok(pop.text.indexOf('17%') >= 0, 'the popover lacks the share: ' + pop.text);
     ok(pop.cursor === 'pointer', 'the source does not signal it is interactive: ' + pop.cursor);
     // The sea west of Africa: nothing there.
     const off = await page.evaluate(() => { const r = document.getElementById('geo').getBoundingClientRect(); return { x: r.left + r.width * 0.44, y: r.top + r.height * 0.6 }; });
@@ -138,6 +149,41 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await sleep(100);
     ok(await page.evaluate(() => document.getElementById('geo-pop').hidden), 'the popover stays up off the sources');
   }
+
+  // The legend's switches: passed-on-a-cookie added, every source counts its
+  // blocked and its passes (DE comes in on its passes); everything off, the
+  // line says nothing is switched on and no source is left to point at.
+  const legendClick = k => page.click('#geo-legend .geo-k[data-k="' + k + '"]');
+  await legendClick('pass'); await sleep(200);
+  const both = { top: await topItems(), kept: await page.evaluate(() => localStorage.getItem('unmask:map-kinds')) };
+  ok(['JP 113', 'US 18', 'DE 6'].every(t => both.top.includes(t)), 'switching passes on did not redraw the sources: ' + both.top.join(' | '));
+  ok(both.kept === '["blocked","pass"]', 'the choice is not kept in the browser: ' + both.kept);
+  await legendClick('pass'); await legendClick('blocked'); await sleep(200);
+  const none = await page.evaluate(() => ({ top: document.getElementById('geo-top').textContent, hot: unmaskGeoHot().length }));
+  ok(none.hot === 0 && none.top.length > 3 && !/JP|US/.test(none.top), 'with nothing switched on the map still draws, or says nothing: ' + JSON.stringify(none));
+  await legendClick('blocked'); await sleep(200);
+  ok(await pressed() === 'blocked', 'the legend did not come back to blocked alone: ' + await pressed());
+
+  // The refusals line: each reason with its count and its busiest rules,
+  // linked to the hunt page filtered on it; none in the reading says so.
+  await feed({
+    refused30: { asn_deny: 812, banned: 40, geo_deny: 5 },
+    refused_rules30: { asn_deny: [{ rule: 'AS16509', n: 700, label: 'AS16509' }, { rule: 'AS14061', n: 112, label: 'AS14061' }], geo_deny: [{ rule: 'CN', n: 5, label: 'CN' }] },
+    refused_names: { asn_deny: 'ASN deny', banned: 'Banned', geo_deny: 'Country deny' },
+  });
+  await sleep(200);
+  const ref = await page.evaluate(() => {
+    const el = document.getElementById('geo-refused');
+    return { text: el.textContent.replace(/\s+/g, ' '), links: Array.from(el.querySelectorAll('a')).map(a => a.getAttribute('href')), flag: !!el.querySelector('img[src$="/cn.png"]') };
+  });
+  ok(/ASN deny 812/.test(ref.text) && /AS16509 700/.test(ref.text) && /AS14061 112/.test(ref.text) && /Banned 40/.test(ref.text), 'the refusals line does not list the reasons and rules: ' + ref.text);
+  ok(ref.text.indexOf('ASN deny') < ref.text.indexOf('Banned') && ref.text.indexOf('Banned') < ref.text.indexOf('Country deny'), 'the reasons are not busiest first: ' + ref.text);
+  ok(ref.links.length === 3 && /\/admin\/hunt\/\?range=1h&force_reason=asn_deny$/.test(ref.links[0]), 'the reasons do not link to the hunt page: ' + ref.links.join(' '));
+  ok(ref.flag, 'a country rule is shown without its flag');
+  await feed({ refused30: {} }); await sleep(200);
+  const refNone = await page.evaluate(() => { const el = document.getElementById('geo-refused'); return { text: el.textContent, links: el.querySelectorAll('a').length }; });
+  ok(refNone.links === 0 && /:\s*\S/.test(refNone.text), 'with nothing refused the line does not say so: ' + refNone.text);
+  await feed(); await sleep(200);
   const sourcesLit = await lit();
 
   // Set the position through the card's dialog: it offers the automatic
@@ -204,11 +250,15 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(work.fx > 30, `the particles did not move (${work.fx} draws in a second)`);
   ok(work.map === 0, `the map was repainted between readings (${work.map} draws in a second)`);
   ok(work.shadows === 0, `the map drew with canvas shadows (${work.shadows} times)`);
-  // The setting survives a reload; back to automatic through the dialog
-  // (nothing to work out here, so the card says the position is unknown).
+  // The setting survives a reload, and so does the legend's choice; back to
+  // automatic through the dialog (nothing to work out here, so the card says
+  // the position is unknown).
+  await legendClick('people'); await sleep(100);
   await page.reload({ waitUntil: 'networkidle2' });
   const kept = await page.evaluate(() => document.getElementById('geo-card').dataset.label);
   ok(kept === 'Tokyo', 'the position did not survive a reload: ' + kept);
+  ok(await pressed() === 'blocked,people', 'the legend\'s choice did not survive a reload: ' + await pressed());
+  await legendClick('people'); await sleep(100);
   await page.click('#geo-set');
   await page.waitForSelector('#geo-dialog[open]', { timeout: 5000 });
   await page.click('#geo-mode-auto');
@@ -234,7 +284,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   // In Japanese the map is centred on Japan: the Pacific whole, the Americas
   // to the right, Europe to the left -- and the outline still paints under
   // the shifted sources.  Counts carry a thousands separator in every
-  // language.
+  // language (JP's blocked here, what the map draws by default).
   await page.setCookie({ name: 'unmask_locale', value: 'ja', url: BASE + '/' });
   await page.goto(BASE + '/admin/live/', { waitUntil: 'networkidle2' });
   ok(await page.evaluate(() => document.documentElement.lang) === 'ja', 'the page did not switch to Japanese');
@@ -247,8 +297,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(await page.evaluate(() => document.getElementById('live-toggle').getAttribute('aria-pressed') === 'false'), 'the auto-refresh switch is not off for the Japanese pass');
   await page.evaluate(() => {
     document.dispatchEvent(new CustomEvent('unmask:now', { detail: {
-      countries: { JP: { n: 480, pass: 300, bypass: 10, serve: 120, deny: 50 } },
-      countries30: { JP: { n: 1480, pass: 1000, bypass: 30, serve: 400, deny: 50 }, US: { n: 310, pass: 100, bypass: 0, serve: 150, deny: 60 }, DE: { n: 60, pass: 60, bypass: 0, serve: 0, deny: 0 } },
+      countries: { JP: { n: 480, pass: 300, bypass: 10, serve: 120, deny: 50, blocked: 130, people: 40 } },
+      countries30: { JP: { n: 3010, pass: 1000, bypass: 30, serve: 1900, deny: 80, blocked: 1480, people: 500 }, US: { n: 310, pass: 100, bypass: 0, serve: 150, deny: 60, blocked: 160, people: 50 }, DE: { n: 60, pass: 40, bypass: 0, serve: 20, deny: 0, blocked: 15, people: 5 } },
       country_names: { JP: 'Japan (日本)', US: 'United States (アメリカ合衆国)', DE: 'Germany (ドイツ)' },
     } }));
   });

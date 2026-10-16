@@ -34,6 +34,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-14) **The stats page answers in seconds on a large database.**  Its per-visitor cards -- reload loops, verification failures, CAPTCHA passes, cookie failures, rebinds, rate-limited requests -- read indexes of their own rows, reads of a time window find the address, phase and verdict in the date index, and the funnel no longer waits on its rate-limit row.  A large database builds the indexes when you run the update.
 
+- (2026-10-16) **The realtime map shows what unmask blocked, and what it refused.**  The legend switches each kind of request on or off, blocked alone by default -- the dashboard's blocked count, country by country.  A country's popover still splits all its requests, and a line under the map lists the last thirty minutes' refusals by reason, each linking to bot hunt, with the rules that matched most.
+
 ## [0.1.51] - 2026-10-16
 
 ### Added

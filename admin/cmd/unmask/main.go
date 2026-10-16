@@ -555,7 +555,7 @@ func cmdServe(args []string) error {
 		if gip != nil && gip.Loaded() && len(e.IPPacked) > 0 {
 			cc = gip.LookupBytes(e.IPPacked)
 		}
-		liveCounter.ObserveEvent(time.Now(), e.Phase, cc, payloadRateLimited(e.Payload))
+		liveCounter.ObserveEvent(time.Now(), e.Phase, cc, e.Payload)
 	}
 	h := &handlers.Handler{
 		DB:            conn,
@@ -2004,24 +2004,3 @@ func randHex(n int) string {
 // (bootstrapInitialAdmin was removed in v0.1.  Admin creation is now
 // unified to either the install wizard or the CLI sub-command
 // `unmask user create`.)
-
-// payloadRateLimited reads the serve event's rl marker, written as the number
-// 1 by the serve paths (and as "1" by anything that went through JSON).
-func payloadRateLimited(p map[string]any) bool {
-	if p == nil {
-		return false
-	}
-	switch v := p["rl"].(type) {
-	case int:
-		return v == 1
-	case int64:
-		return v == 1
-	case float64:
-		return v == 1
-	case bool:
-		return v
-	case string:
-		return v == "1"
-	}
-	return false
-}

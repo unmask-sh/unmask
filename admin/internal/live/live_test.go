@@ -88,12 +88,12 @@ func TestSlotReuseDropsTheOldSecond(t *testing.T) {
 func TestObserveEvent(t *testing.T) {
 	c := New()
 	now := time.Unix(1_800_000_000, 0)
-	c.ObserveEvent(now, "bv_pow_only", "JP", false)
-	c.ObserveEvent(now, "bv_captcha_only", "", false)
-	c.ObserveEvent(now, "bv_pow_then_captcha", "", false)
-	c.ObserveEvent(now, "serve", "US", true)
-	c.ObserveEvent(now, "serve", "US", false) // an ordinary serve: the access log counts it
-	c.ObserveEvent(now, "load", "", false)
+	c.ObserveEvent(now, "bv_pow_only", "JP", nil)
+	c.ObserveEvent(now, "bv_captcha_only", "", nil)
+	c.ObserveEvent(now, "bv_pow_then_captcha", "", nil)
+	c.ObserveEvent(now, "serve", "US", map[string]any{"rl": 1})
+	c.ObserveEvent(now, "serve", "US", nil) // an ordinary serve: the access log counts it
+	c.ObserveEvent(now, "load", "", nil)
 	sn := c.Snapshot(now)
 	if sn.Last[Solve] != 3 || sn.Last[RateLimit] != 1 || sn.Last[Requests] != 0 || sn.Last[Serve] != 0 {
 		t.Errorf("last = %v, want 3 solves, 1 rate-limit, nothing else", sn.Last)
@@ -103,10 +103,86 @@ func TestObserveEvent(t *testing.T) {
 	}
 }
 
+// Only an ordinary visitor's abandoned proof-of-work counts as walking away:
+// the dashboard's narrowing, so a CAPTCHA a targeted client never solves stays
+// counted as stopped.
+func TestObserveEventAbandon(t *testing.T) {
+	c := New()
+	now := time.Unix(1_800_000_000, 0)
+	c.ObserveEvent(now, "abandon", "JP", map[string]any{"chmode": "pow_only"})
+	c.ObserveEvent(now, "abandon", "JP", map[string]any{"chmode": "pow_only", "force_reason": "none"})
+	c.ObserveEvent(now, "abandon", "JP", map[string]any{"chmode": "captcha_only"})
+	c.ObserveEvent(now, "abandon", "JP", map[string]any{"chmode": "pow_only", "force_reason": "asn"})
+	if got := c.Snapshot(now).Last[Abandon]; got != 2 {
+		t.Errorf("abandons = %d, want 2 (the unruled proof-of-work only)", got)
+	}
+}
+
+// A country's challenged and denied requests split into what nobody cleared
+// (blocked) and what a person cleared or walked away from (people).
+func TestCountryBlockedAndPeople(t *testing.T) {
+	c := New()
+	now := time.Unix(1_800_000_000, 0)
+	for i := 0; i < 10; i++ {
+		c.Hit(now, "CN", Of(Requests, Serve))
+	}
+	c.Hit(now, "CN", Of(Requests, Deny))
+	c.Hit(now, "CN", Of(Requests, Pass))
+	for i := 0; i < 3; i++ {
+		c.ObserveEvent(now, "bv_pow_only", "CN", nil)
+	}
+	c.ObserveEvent(now, "abandon", "CN", map[string]any{"chmode": "pow_only"})
+	sn := c.Snapshot(now)
+	for name, x := range map[string]Country{"last minute": sn.Countries["CN"], "thirty minutes": sn.Countries30["CN"]} {
+		if x.Blocked != 7 || x.People != 4 || x.Pass != 1 || x.N != 12 {
+			t.Errorf("%s: %+v, want 11 met a challenge or a deny, 4 of them people, 7 blocked", name, x)
+		}
+	}
+	// More solves than challenges (two logs read at different moments): the
+	// people never outnumber what met a challenge, and blocked never goes
+	// below zero.
+	c2 := New()
+	c2.Hit(now, "US", Of(Requests, Serve))
+	c2.ObserveEvent(now, "bv_pow_only", "US", nil)
+	c2.ObserveEvent(now, "bv_pow_only", "US", nil)
+	if x := c2.Snapshot(now).Countries["US"]; x.Blocked != 0 || x.People != 1 {
+		t.Errorf("US = %+v, want blocked 0, people 1", x)
+	}
+}
+
+// Deny pages, by reason and by the rule that matched, over the thirty
+// minutes; a minute that has left the window takes its refusals with it.
+func TestRefusals(t *testing.T) {
+	c := New()
+	now := time.Unix(1_800_000_000, 0)
+	for i := 0; i < 3; i++ {
+		c.ObserveEvent(now, "serve", "US", map[string]any{"deny": 1, "force_reason": "asn_deny", "deny_rule": "16509"})
+	}
+	c.ObserveEvent(now, "serve", "US", map[string]any{"deny": 1, "force_reason": "asn_deny", "deny_rule": "14061"})
+	c.ObserveEvent(now, "serve", "", map[string]any{"deny": 1, "force_reason": "banned", "ban": 1})
+	c.ObserveEvent(now, "serve", "", map[string]any{"deny": float64(1)})    // no reason recorded
+	c.ObserveEvent(now, "serve", "", map[string]any{"force_reason": "asn"}) // a challenge, not a deny
+	c.ObserveEvent(now.Add(-31*time.Minute), "serve", "", map[string]any{"deny": 1, "force_reason": "geo_deny", "deny_rule": "CN"})
+	sn := c.Snapshot(now)
+	want := map[string]uint32{"asn_deny": 4, "banned": 1, "axis_deny": 1}
+	if len(sn.Refused30) != len(want) {
+		t.Errorf("refused = %v, want %v", sn.Refused30, want)
+	}
+	for k, n := range want {
+		if sn.Refused30[k] != n {
+			t.Errorf("refused[%s] = %d, want %d", k, sn.Refused30[k], n)
+		}
+	}
+	if r := sn.Rules30["asn_deny"]; r["16509"] != 3 || r["14061"] != 1 || len(sn.Rules30) != 1 {
+		t.Errorf("rules = %v, want the two AS numbers under asn_deny only", sn.Rules30)
+	}
+}
+
 func TestNilCounterIsInert(t *testing.T) {
 	var c *Counter
 	c.Hit(time.Now(), "JP", Of(Requests))
-	c.ObserveEvent(time.Now(), "serve", "", true)
+	c.ObserveEvent(time.Now(), "serve", "", map[string]any{"rl": 1})
+	c.Refuse(time.Now(), "banned", "")
 	sn := c.Snapshot(time.Now())
 	if sn.Last[Requests] != 0 || len(sn.Countries) != 0 {
 		t.Errorf("nil counter read %+v", sn)
@@ -118,7 +194,7 @@ func TestMask(t *testing.T) {
 	if !m.Has(Requests) || !m.Has(Deny) || m.Has(Pass) {
 		t.Errorf("mask %b", m)
 	}
-	if len(Names) != int(NumKinds) || Names[RateLimit] != "rate_limit" {
+	if len(Names) != int(NumKinds) || Names[RateLimit] != "rate_limit" || Names[Abandon] != "abandon" {
 		t.Errorf("names %v", Names)
 	}
 }

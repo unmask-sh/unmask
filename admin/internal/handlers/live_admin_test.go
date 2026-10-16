@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/live"
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
 func TestAdminNowJSON(t *testing.T) {
@@ -18,8 +19,9 @@ func TestAdminNowJSON(t *testing.T) {
 		h.Live.Hit(now, "JP", live.Of(live.Requests, live.Pass))
 	}
 	h.Live.Hit(now.Add(-70*time.Second), "US", live.Of(live.Requests, live.Serve))
-	h.Live.ObserveEvent(now, "bv_pow_only", "JP", false)
-	h.Live.ObserveEvent(now, "serve", "", true)
+	h.Live.ObserveEvent(now, "bv_pow_only", "JP", nil)
+	h.Live.ObserveEvent(now, "serve", "", map[string]any{"rl": 1})
+	h.Live.ObserveEvent(now, "serve", "US", map[string]any{"deny": 1, "force_reason": "asn_deny", "deny_rule": "AS16509"})
 
 	req := httptest.NewRequest("GET", "/unmask/admin/api/now", nil)
 	rec := httptest.NewRecorder()
@@ -48,8 +50,11 @@ func TestAdminNowJSON(t *testing.T) {
 		Countries30  map[string]struct {
 			N uint32 `json:"n"`
 		} `json:"countries30"`
-		FeedOff bool   `json:"feed_off"`
-		TPSText string `json:"tps_text"`
+		FeedOff      bool                     `json:"feed_off"`
+		TPSText      string                   `json:"tps_text"`
+		Refused30    map[string]uint32        `json:"refused30"`
+		RefusedRules map[string][]refusedRule `json:"refused_rules30"`
+		RefusedNames map[string]string        `json:"refused_names"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
 		t.Fatalf("json: %v\n%s", err, rec.Body.String())
@@ -77,6 +82,17 @@ func TestAdminNowJSON(t *testing.T) {
 	// although it left the last minute.)
 	if out.CountryNames["JP"] != "Japan (日本)" || out.CountryNames["US"] == "" || len(out.CountryNames) < len(out.Countries) {
 		t.Errorf("country_names = %v", out.CountryNames)
+	}
+	// The deny pages of the thirty minutes, by reason, with the busiest rules
+	// and the reason worded as the dashboard words it.
+	if out.Refused30["asn_deny"] != 1 {
+		t.Errorf("refused30 = %v", out.Refused30)
+	}
+	if r := out.RefusedRules["asn_deny"]; len(r) != 1 || r[0].Rule != "AS16509" || r[0].N != 1 || r[0].Label != "AS16509" {
+		t.Errorf("refused_rules30 = %v", out.RefusedRules)
+	}
+	if out.RefusedNames["asn_deny"] == "" || out.RefusedNames["asn_deny"] == "asn_deny" {
+		t.Errorf("refused_names = %v", out.RefusedNames)
 	}
 	// The hit 70 s ago sits one or two minutes back, by where in the minute
 	// the reading was taken.
@@ -120,7 +136,7 @@ func TestLiveViewTiles(t *testing.T) {
 	if v.At != "10:02:03" || v.AtTS != now.Unix() {
 		t.Errorf("At = %q (%d), want 10:02:03 in Tokyo", v.At, v.AtTS)
 	}
-	if len(v.Tiles) != int(live.NumKinds) {
+	if len(v.Tiles) != len(liveKinds) {
 		t.Fatalf("%d tiles", len(v.Tiles))
 	}
 	req := v.Tiles[0]
@@ -169,14 +185,14 @@ func TestLivePageRendersStrip(t *testing.T) {
 			t.Errorf("realtime page lacks %q", want)
 		}
 	}
-	if strings.Count(body, `class="live" data-k=`) != int(live.NumKinds) {
+	if strings.Count(body, `class="live" data-k=`) != len(liveKinds) {
 		t.Errorf("%d tiles rendered", strings.Count(body, `class="live" data-k=`))
 	}
 	// A bar a minute on every tile (counted inside the grid: the shared
 	// partials draw rects of their own).
 	grid := body[strings.Index(body, `id="live-grid"`):strings.Index(body, `id="live-feed-off"`)]
-	if n := strings.Count(grid, `<rect x="`); n != int(live.NumKinds)*live.Minutes {
-		t.Errorf("%d bars, want %d", n, int(live.NumKinds)*live.Minutes)
+	if n := strings.Count(grid, `<rect x="`); n != len(liveKinds)*live.Minutes {
+		t.Errorf("%d bars, want %d", n, len(liveKinds)*live.Minutes)
 	}
 	// The dashboard has no strip, map or recent card any more: a line of now
 	// that points here, redrawn with the day section.
@@ -209,5 +225,19 @@ func TestLivePageRendersStrip(t *testing.T) {
 	h.AdminTopOverview(rec, httptest.NewRequest("GET", "/unmask/admin/", nil))
 	if strings.Contains(rec.Body.String(), `class="now-line"`) {
 		t.Error("the line of now rendered without a counter")
+	}
+}
+
+// The busiest rules first, three at most, ties by rule; a custom rule shows
+// its name, or its id when it has none.
+func TestTopRules(t *testing.T) {
+	got := topRules("asn_deny", map[string]uint32{"AS1": 5, "AS2": 9, "AS3": 5, "AS4": 1}, 3, nil)
+	if len(got) != 3 || got[0].Rule != "AS2" || got[1].Rule != "AS1" || got[2].Rule != "AS3" {
+		t.Errorf("order = %+v", got)
+	}
+	custom := []settings.CustomRule{{ID: "cr1", Label: "scrapers"}, {ID: "cr2"}}
+	got = topRules("custom_rule", map[string]uint32{"cr1": 2, "cr2": 1}, 3, custom)
+	if got[0].Label != "scrapers" || got[1].Label != "cr2" {
+		t.Errorf("labels = %+v", got)
 	}
 }

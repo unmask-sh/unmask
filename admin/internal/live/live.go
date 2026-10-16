@@ -9,7 +9,7 @@
 // is never written to disk and never read by SQL.  The access-log reader and
 // the event writer add to it; the dashboard's JSON endpoint takes a snapshot.
 //
-// It is deliberately small: seven counters a second for Span seconds, and per
+// It is deliberately small: eight counters a second for Span seconds, and per
 // second a map of the source countries seen (the map on the dashboard draws
 // from those).  Nothing is allocated on the hot path beyond that map's entries,
 // and a slot is reused in place once its second has passed out of the ring.
@@ -32,11 +32,16 @@ const (
 	Solve                 // a challenge was cleared: a bv_* cookie was issued
 	Deny                  // refused: a honeypot trip, or a banned client whose action is deny
 	RateLimit             // the rate-limit path fired (its CAPTCHA or deny, with 429)
+	// Abandon: an ordinary visitor's proof-of-work left unfinished -- the page
+	// loaded, no rule had sent them there, and they went away.  Taken out of
+	// the challenged requests the way the dashboard's blocked count takes it
+	// out: someone who walked away was not stopped.
+	Abandon
 	NumKinds
 )
 
 // Names spells the kinds the way the JSON endpoint does, in Kind order.
-var Names = [NumKinds]string{"requests", "pass", "bypass", "serve", "solve", "deny", "rate_limit"}
+var Names = [NumKinds]string{"requests", "pass", "bypass", "serve", "solve", "deny", "rate_limit", "abandon"}
 
 // Mask is the set of kinds one request counts under.
 type Mask uint16
@@ -76,12 +81,20 @@ type slot struct {
 const Minutes = 30
 
 // minSlot is one minute of the longer ring: the counts and the per-country
-// counts of every hit whose unix minute is min (0 = never used).
+// counts of every hit whose unix minute is min (0 = never used), and the
+// requests refused outright in that minute, by reason and by matching rule.
 type minSlot struct {
-	min int64
-	n   [NumKinds]uint32
-	cc  map[string]*[NumKinds]uint32
+	min     int64
+	n       [NumKinds]uint32
+	cc      map[string]*[NumKinds]uint32
+	refused map[string]uint32
+	rules   map[string]map[string]uint32
 }
+
+// maxRules bounds the rules one reason keeps per minute.  The rules are the
+// operator's own (AS numbers, countries, custom rules), so this is a guard
+// against a configuration far larger than any seen, not a sampling choice.
+const maxRules = 256
 
 // Counter is the ring.  The zero value is not ready; use New.
 type Counter struct {
@@ -160,27 +173,137 @@ func (c *Counter) Hit(now time.Time, cc string, m Mask) {
 var solvedPhases = map[string]bool{"bv_pow_only": true, "bv_captcha_only": true, "bv_pow_then_captcha": true}
 
 // ObserveEvent counts what the event log says that the access log cannot: a
-// solved challenge, and a serve on the rate-limit path.  Every event passes
-// through here; the ones that say neither cost a map lookup.
-func (c *Counter) ObserveEvent(now time.Time, phase, cc string, rateLimited bool) {
+// solved challenge, a serve on the rate-limit path, an ordinary visitor's
+// abandoned proof-of-work, and the reason and rule behind a deny page.  p is
+// the event's payload.  Every event passes through here; the ones that say
+// none of it cost a map lookup.
+func (c *Counter) ObserveEvent(now time.Time, phase, cc string, p map[string]any) {
 	if c == nil {
 		return
 	}
 	switch {
 	case solvedPhases[phase]:
 		c.Hit(now, cc, Of(Solve))
-	case phase == "serve" && rateLimited:
+	case phase == "serve" && flag(p, "rl"):
 		c.Hit(now, cc, Of(RateLimit))
+	case phase == "abandon" && unruledPoW(p):
+		c.Hit(now, cc, Of(Abandon))
+	}
+	if flag(p, "deny") {
+		reason, _ := p["force_reason"].(string)
+		rule, _ := p["deny_rule"].(string)
+		if reason == "" {
+			reason = "axis_deny"
+		}
+		c.Refuse(now, reason, rule)
+	}
+}
+
+// flag reads a payload marker the serve paths write as the number 1 (and
+// anything that went through JSON as 1.0 or "1").
+func flag(p map[string]any, key string) bool {
+	switch v := p[key].(type) {
+	case int:
+		return v == 1
+	case int64:
+		return v == 1
+	case float64:
+		return v == 1
+	case bool:
+		return v
+	case string:
+		return v == "1"
+	}
+	return false
+}
+
+// unruledPoW: the challenge was the transparent proof-of-work and no rule had
+// sent the visitor to it -- the same narrowing the dashboard's abandon figure
+// makes, so a CAPTCHA a targeted client never solves stays counted as stopped.
+func unruledPoW(p map[string]any) bool {
+	reason, _ := p["force_reason"].(string)
+	mode, _ := p["chmode"].(string)
+	return (reason == "" || reason == "none") && mode == "pow_only"
+}
+
+// Refuse records one request unmask refused outright -- a deny page, not a
+// challenge -- under the reason it was refused for and, where the reason has
+// one, the rule that matched (an AS number, a country code).  Minute
+// resolution only: it feeds the thirty-minute breakdown.  nil-safe.
+func (c *Counter) Refuse(now time.Time, reason, rule string) {
+	if c == nil || reason == "" {
+		return
+	}
+	mn := now.Unix() / 60
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	ms := &c.mins[mn%Minutes]
+	if ms.min != mn {
+		*ms = minSlot{min: mn}
+	}
+	if ms.refused == nil {
+		ms.refused = map[string]uint32{}
+	}
+	ms.refused[reason]++
+	if rule == "" {
+		return
+	}
+	if ms.rules == nil {
+		ms.rules = map[string]map[string]uint32{}
+	}
+	r := ms.rules[reason]
+	if r == nil {
+		r = map[string]uint32{}
+		ms.rules[reason] = r
+	}
+	if _, seen := r[rule]; seen || len(r) < maxRules {
+		r[rule]++
 	}
 }
 
 // Country is one source country's share of the last Window seconds.
 type Country struct {
-	N      uint32 `json:"n"`
-	Pass   uint32 `json:"pass"`
-	Bypass uint32 `json:"bypass"`
-	Serve  uint32 `json:"serve"`
-	Deny   uint32 `json:"deny"`
+	N       uint32 `json:"n"`
+	Pass    uint32 `json:"pass"`
+	Bypass  uint32 `json:"bypass"`
+	Serve   uint32 `json:"serve"`
+	Deny    uint32 `json:"deny"`
+	Solve   uint32 `json:"solve"`
+	Abandon uint32 `json:"abandon"`
+	// Blocked and People split the requests that met a challenge or a deny.
+	// Blocked is what nobody cleared: the dashboard's "bot accesses unmask
+	// blocked" (challenges fired, minus PoW/CAPTCHA solves, minus visitors who
+	// walked away) for one country.  People is the rest: the challenges a
+	// person cleared or walked away from.  The parts come from two logs (the
+	// access log, the event log), so People is capped at what met a challenge.
+	Blocked uint32 `json:"blocked"`
+	People  uint32 `json:"people"`
+}
+
+func (x *Country) add(e *[NumKinds]uint32) {
+	x.N += e[Requests]
+	x.Pass += e[Pass]
+	x.Bypass += e[Bypass]
+	x.Serve += e[Serve]
+	x.Deny += e[Deny]
+	x.Solve += e[Solve]
+	x.Abandon += e[Abandon]
+}
+
+func (x *Country) settle() {
+	met := x.Serve + x.Deny
+	out := x.Solve + x.Abandon
+	if out > met {
+		out = met
+	}
+	x.People, x.Blocked = out, met-out
+}
+
+func settleAll(m map[string]Country) {
+	for cc, x := range m {
+		x.settle()
+		m[cc] = x
+	}
 }
 
 // Snapshot is one reading of the ring, ending at the second it was taken.
@@ -206,6 +329,10 @@ type Snapshot struct {
 	// country.
 	Last30      [NumKinds]uint32
 	Countries30 map[string]Country
+	// Refused30 is the requests refused outright in the same minutes, by
+	// reason; Rules30 the same by reason and matching rule.
+	Refused30 map[string]uint32
+	Rules30   map[string]map[string]uint32
 	// LastLine is the unix second of the most recent request counted, 0 if
 	// none ever was.
 	LastLine int64
@@ -215,7 +342,8 @@ type Snapshot struct {
 func (c *Counter) Snapshot(now time.Time) Snapshot {
 	end := now.Unix() + 1
 	start := end - Span
-	sn := Snapshot{At: end, Countries: map[string]Country{}, Countries30: map[string]Country{}}
+	sn := Snapshot{At: end, Countries: map[string]Country{}, Countries30: map[string]Country{},
+		Refused30: map[string]uint32{}, Rules30: map[string]map[string]uint32{}}
 	if c == nil {
 		return sn
 	}
@@ -237,12 +365,21 @@ func (c *Counter) Snapshot(now time.Time) Snapshot {
 		}
 		for cc, e := range ms.cc {
 			x := sn.Countries30[cc]
-			x.N += e[Requests]
-			x.Pass += e[Pass]
-			x.Bypass += e[Bypass]
-			x.Serve += e[Serve]
-			x.Deny += e[Deny]
+			x.add(e)
 			sn.Countries30[cc] = x
+		}
+		for reason, n := range ms.refused {
+			sn.Refused30[reason] += n
+		}
+		for reason, rs := range ms.rules {
+			r := sn.Rules30[reason]
+			if r == nil {
+				r = map[string]uint32{}
+				sn.Rules30[reason] = r
+			}
+			for rule, n := range rs {
+				r[rule] += n
+			}
 		}
 	}
 	for sec := start; sec < end; sec++ {
@@ -264,16 +401,14 @@ func (c *Counter) Snapshot(now time.Time) Snapshot {
 		if age < Window {
 			for cc, e := range s.cc {
 				x := sn.Countries[cc]
-				x.N += e[Requests]
-				x.Pass += e[Pass]
-				x.Bypass += e[Bypass]
-				x.Serve += e[Serve]
-				x.Deny += e[Deny]
+				x.add(e)
 				sn.Countries[cc] = x
 			}
 		}
 	}
 	c.mu.Unlock()
+	settleAll(sn.Countries)
+	settleAll(sn.Countries30)
 	var total, peak uint32
 	for _, v := range sn.Series[Requests] {
 		total += v

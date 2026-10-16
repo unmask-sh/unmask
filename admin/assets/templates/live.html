@@ -126,8 +126,22 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 /* The particles' layer (the map script below): laid over the map, clear where
    nothing moves, and never in the pointer's way. */
 .geo-wrap canvas.geo-fx{position:absolute;margin:0;background:transparent;pointer-events:none}
-.geo-foot{display:flex;gap:1rem;flex-wrap:wrap;align-items:center;font-size:.75rem;color:#64748b;margin-top:.5rem}
+.geo-foot{display:flex;gap:.45rem;flex-wrap:wrap;align-items:center;font-size:.75rem;color:#64748b;margin-top:.5rem}
 .geo-foot i{display:inline-block;width:.6rem;height:.6rem;border-radius:50%;margin-right:.3rem;vertical-align:-.05em}
+/* The legend is the map's filter: each entry a switch for its kind's streams
+   and particles, the ones switched off faded.  Blocked bots alone by
+   default; the choice is kept in this browser. */
+.geo-k{font:inherit;color:#64748b;background:#fff;border:1px solid #e2e8f0;border-radius:999px;padding:.12rem .6rem;cursor:pointer;display:inline-flex;align-items:center;line-height:1.4}
+.geo-k:hover{border-color:#94a3b8}
+.geo-k[aria-pressed="true"]{color:#1e293b;border-color:#94a3b8;background:#f1f5f9;font-weight:600}
+.geo-k[aria-pressed="false"] i{opacity:.35}
+/* What was refused outright in the same thirty minutes, by reason, with the
+   busiest rules of each: a line under the legend. */
+.geo-refused{font-size:.75rem;color:#64748b;margin:.45rem 0 0;line-height:1.7;display:flex;flex-wrap:wrap;gap:.2rem .9rem}
+.geo-refused a{color:#334155}
+.geo-refused b{color:#1e293b;font-variant-numeric:tabular-nums}
+.geo-refused small{font-size:inherit;color:#94a3b8}
+.geo-refused img{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.2em;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
 /* The popover a source gets under the pointer: the flag and full name, the
    last minute's count and its share, and the split by outcome in the
    particles' colours.  pointer-events:none so it never sits between the
@@ -331,14 +345,15 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
      data-auto-set="{{ if .MapAuto.Set }}1{{ else }}0{{ end }}" data-auto-lat="{{ .MapAuto.Lat }}" data-auto-lon="{{ .MapAuto.Lon }}" data-auto-label="{{ .MapAuto.Label }}{{ if .MapAuto.Approx }} {{ t .Lang "overview.map.approx" }}{{ end }}" data-auto-source="{{ .MapAuto.Source }}" data-auto-ip="{{ .MapAuto.IP }}" data-auto-at="{{ .MapAuto.At }}" data-probe="{{ .BasePath }}/admin/api/map-location/probe"
      data-txt-server="{{ t .Lang "overview.map.server" }}" data-txt-from-interface="{{ t .Lang "overview.map.src_interface" }}" data-txt-from-echo="{{ t .Lang "overview.map.src_echo" }}"
      data-txt-probe-at="{{ t .Lang "overview.map.dlg_probe_at" }}" data-txt-auto-suffix="{{ t .Lang "overview.map.auto_suffix" }}" data-txt-none="{{ t .Lang "overview.map.none" }}" data-txt-pop-requests="{{ t .Lang "overview.map.pop_requests" }}" data-txt-pop-now="{{ t .Lang "overview.map.pop_now" }}" data-txt-pop-share="{{ t .Lang "overview.map.pop_share" }}"
-     data-txt-legend-pass="{{ t .Lang "overview.map.legend_pass" }}" data-txt-legend-serve="{{ t .Lang "overview.map.legend_serve" }}" data-txt-legend-deny="{{ t .Lang "overview.map.legend_deny" }}" data-txt-legend-bypass="{{ t .Lang "overview.map.legend_bypass" }}">
+     data-txt-legend-blocked="{{ t .Lang "overview.map.legend_blocked" }}" data-txt-legend-people="{{ t .Lang "overview.map.legend_people" }}" data-txt-legend-pass="{{ t .Lang "overview.map.legend_pass" }}" data-txt-legend-bypass="{{ t .Lang "overview.map.legend_bypass" }}">
   <h2 class="pipe-h">{{ t .Lang "overview.map.h" }}<small>{{ t .Lang "overview.map.sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.map.help" }}</span></span>{{ if .CanEditMap }}<button type="button" class="live-tg" id="geo-set" style="margin-left:auto">{{ t .Lang "overview.map.set" }}: <span id="geo-set-cur">{{ if .MapLoc.Set }}{{ .MapLoc.Label }}{{ if .MapLoc.Approx }} {{ t .Lang "overview.map.approx" }}{{ end }}{{ if .MapLoc.Auto }} · {{ t .Lang "overview.map.auto_suffix" }}{{ end }}{{ else }}{{ t .Lang "overview.map.none" }}{{ end }}</span></button>{{ end }}</h2>
   <div class="geo-wrap"><canvas id="geo" aria-label="{{ t .Lang "overview.map.h" }}" role="img"></canvas>
     <div class="geo-pop" id="geo-pop" hidden></div></div>
   <p class="live-note" id="geo-unset" style="margin:.4rem 0 0"{{ if .MapLoc.Set }} hidden{{ end }}>{{ t .Lang "overview.map.unset" }}</p>
   {{ if .MapLoc.Auto }}<p class="meta" id="geo-auto" style="margin:.4rem 0 0;font-size:.78rem">{{ tf .Lang "overview.map.auto_note" (t .Lang (printf "overview.map.src_%s" .MapLoc.Source)) }}{{ if .MapLoc.Approx }} {{ t .Lang "overview.map.approx_note" }}{{ end }}</p>{{ end }}
   <p class="live-note" id="geo-nogeo" style="margin:.4rem 0 0"{{ if .GeoKnown }} hidden{{ end }}>{{ t .Lang "overview.map.nogeo" }}</p>
-  <div class="geo-foot"><span><i style="background:#94a3b8"></i>{{ t .Lang "overview.map.legend_pass" }}</span><span><i style="background:#f87171"></i>{{ t .Lang "overview.map.legend_serve" }}</span><span><i style="background:#b91c1c"></i>{{ t .Lang "overview.map.legend_deny" }}</span><span><i style="background:#818cf8"></i>{{ t .Lang "overview.map.legend_bypass" }}</span><span class="geo-top" id="geo-top" data-txt="{{ t .Lang "overview.map.top" }}"></span></div>
+  <div class="geo-foot" id="geo-legend" role="group" aria-label="{{ t .Lang "overview.map.legend_h" }}"><button type="button" class="geo-k" data-k="blocked" aria-pressed="true"><i style="background:#f87171"></i>{{ t .Lang "overview.map.legend_blocked" }}</button><button type="button" class="geo-k" data-k="people" aria-pressed="false"><i style="background:#34d399"></i>{{ t .Lang "overview.map.legend_people" }}</button><button type="button" class="geo-k" data-k="pass" aria-pressed="false"><i style="background:#94a3b8"></i>{{ t .Lang "overview.map.legend_pass" }}</button><button type="button" class="geo-k" data-k="bypass" aria-pressed="false"><i style="background:#818cf8"></i>{{ t .Lang "overview.map.legend_bypass" }}</button><span class="geo-top" id="geo-top" data-txt="{{ t .Lang "overview.map.top" }}" data-txt-empty="{{ t .Lang "overview.map.empty" }}" data-txt-empty-sel="{{ t .Lang "overview.map.empty_sel" }}"></span></div>
+  <p class="geo-refused" id="geo-refused" data-txt="{{ t .Lang "overview.map.refused" }}" data-txt-none="{{ t .Lang "overview.map.refused_none" }}" data-hunt="{{ .BasePath }}/admin/hunt/?range=1h&amp;force_reason=" data-flags="{{ .BasePath }}/static/flags/"></p>
 </div>
 {{ if .CanEditMap }}
 {{/* The position setting: automatic (what the server works out from its
@@ -708,7 +723,21 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   }
   var reduce = false;
   try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
-  var colors = { pass: '#94a3b8', serve: '#f87171', deny: '#b91c1c', bypass: '#818cf8' };
+  var colors = { blocked: '#f87171', people: '#34d399', pass: '#94a3b8', bypass: '#818cf8' };
+  // The kinds the map can draw, in the legend's order, and the ones it does:
+  // blocked bots alone unless this browser chose otherwise.  blocked and
+  // people come split by the server (the dashboard's blocked count, a country
+  // at a time); pass and bypass are the access log's own.
+  var KINDS = ['blocked', 'people', 'pass', 'bypass'], sel = { blocked: true };
+  try {
+    var saved = JSON.parse(localStorage.getItem('unmask:map-kinds') || 'null');
+    if (Array.isArray(saved)) { sel = {}; saved.forEach(function(k){ if (KINDS.indexOf(k) >= 0) sel[k] = true; }); }
+  } catch (e) {}
+  function measure(c){
+    var v = 0;
+    for (var i = 0; i < KINDS.length; i++) if (sel[KINDS[i]]) v += (c && c[KINDS[i]]) || 0;
+    return v;
+  }
   // The counts on the map, in the top-sources line and in the popover, with
   // their thousands separated (the strip formats its figures the same way).
   function comma(n){ return Number(n).toLocaleString('en-US'); }
@@ -762,13 +791,15 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   function rebuild(){
     streams = [];
     if (!MAP) return;
+    // A source's stream is the kinds the legend has on: its width the thirty
+    // minutes' count of them, its particles the last minute's.
     var max = 0, cc;
-    for (cc in counts) if (counts[cc].n > max) max = counts[cc].n;
+    for (cc in counts) if (measure(counts[cc]) > max) max = measure(counts[cc]);
     for (cc in counts) {
-      var c = counts[cc], ct = MAP.centroids[cc];
-      if (!ct || !c.n) continue;
+      var c = counts[cc], ct = MAP.centroids[cc], m = measure(c);
+      if (!ct || !m) continue;
       var o = P(ct[0], ct[1]);
-      var st = { cc: cc, n: c.n, now: (nowCounts[cc] || {}).n || 0, x0: o[0], y0: o[1], w: Math.log1p(c.n) / Math.log1p(max || 1), mix: c };
+      var st = { cc: cc, n: m, now: measure(nowCounts[cc]), x0: o[0], y0: o[1], w: Math.log1p(m) / Math.log1p(max || 1), mix: c };
       if (server) {
         var dx = server[0] - o[0], dy = server[1] - o[1], d = Math.hypot(dx, dy) || 1;
         st.cx = (o[0] + server[0]) / 2 + (-dy / d) * d * 0.25 * (o[1] > server[1] ? -1 : 1);
@@ -789,15 +820,22 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       streams.slice(0, 6).forEach(function(st){
         html += '<span><img src="' + card.dataset.flags + st.cc.toLowerCase() + '.png" alt="">' + st.cc + ' ' + comma(st.n) + '</span>';
       });
-      top.innerHTML = html ? '<span>' + top.dataset.txt + ':</span>' + html : '';
+      // Nothing to draw says why: no kind switched on, or none arrived.
+      if (!html) html = '<span>' + esc(KINDS.some(function(k){ return sel[k]; }) ? top.dataset.txtEmpty : top.dataset.txtEmptySel) + '</span>';
+      else html = '<span>' + top.dataset.txt + ':</span>' + html;
+      top.innerHTML = html;
     }
   }
+  // A particle's kind: one of the kinds switched on, as often as each
+  // arrived from its source.
   function kindOf(mix){
-    var r = Math.random() * (mix.n || 1);
-    if ((r -= mix.deny) < 0) return 'deny';
-    if ((r -= mix.serve) < 0) return 'serve';
-    if ((r -= mix.bypass) < 0) return 'bypass';
-    return 'pass';
+    var r = Math.random() * (measure(mix) || 1), k = 'blocked';
+    for (var i = 0; i < KINDS.length; i++) {
+      if (!sel[KINDS[i]]) continue;
+      k = KINDS[i];
+      if ((r -= mix[k] || 0) < 0) return k;
+    }
+    return k;
   }
   function bez(st, t){ var u = 1 - t; return [u*u*st.x0 + 2*u*t*st.cx + t*t*server[0], u*u*st.y0 + 2*u*t*st.cy + t*t*server[1]]; }
 
@@ -954,6 +992,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     if (j.country_names) names = j.country_names;
     rebuild();
     relayer();
+    refusals(j);
     // A popover left open follows the new reading (or goes, with its source).
     if (!pop.hidden) setTimeout(function(){ var h = findHot(mx, my); if (h) showPop(h, mx, my); else hidePop(); }, 60);
   });
@@ -970,16 +1009,17 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     return best;
   }
   function esc(v){ return String(v).replace(/[&<>"]/g, function(c){ return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+  // The popover tells the whole of a source's traffic, whatever the legend
+  // has switched on: all its requests, their share, and the split by kind.
   function showPop(h, x, y){
-    var st = h.st, c = st.mix, total = 0, cc;
+    var st = h.st, c = st.mix, n = c.n || 0, total = 0, cc;
     for (cc in counts) total += counts[cc].n || 0;
     var html = '<div><img src="' + card.dataset.flags + st.cc.toLowerCase() + '.png" alt=""><b>' + esc(names[st.cc] || st.cc) + '</b></div><table>';
-    html += '<tr><td>' + esc(card.dataset.txtPopRequests) + '</td><td class="n"><b>' + comma(st.n) + '</b></td></tr>';
-    html += '<tr><td>' + esc(card.dataset.txtPopNow) + '</td><td class="n">' + comma(st.now) + '</td></tr>';
-    if (total) html += '<tr><td class="share" colspan="2">' + esc(card.dataset.txtPopShare).replace('%s', (st.n / total < 0.095 ? (100 * st.n / total).toFixed(1) : Math.round(100 * st.n / total)) + '%') + '</td></tr>';
-    [['pass', c.pass], ['serve', c.serve], ['deny', c.deny], ['bypass', c.bypass]].forEach(function(kv){
-      var k = kv[0];
-      html += '<tr><td><i style="background:' + colors[k] + '"></i>' + esc(card.dataset['txtLegend' + k.charAt(0).toUpperCase() + k.slice(1)]) + '</td><td class="n">' + comma(kv[1] || 0) + '</td></tr>';
+    html += '<tr><td>' + esc(card.dataset.txtPopRequests) + '</td><td class="n"><b>' + comma(n) + '</b></td></tr>';
+    html += '<tr><td>' + esc(card.dataset.txtPopNow) + '</td><td class="n">' + comma((nowCounts[st.cc] || {}).n || 0) + '</td></tr>';
+    if (total) html += '<tr><td class="share" colspan="2">' + esc(card.dataset.txtPopShare).replace('%s', (n / total < 0.095 ? (100 * n / total).toFixed(1) : Math.round(100 * n / total)) + '%') + '</td></tr>';
+    KINDS.forEach(function(k){
+      html += '<tr><td><i style="background:' + colors[k] + '"></i>' + esc(card.dataset['txtLegend' + k.charAt(0).toUpperCase() + k.slice(1)]) + '</td><td class="n">' + comma(c[k] || 0) + '</td></tr>';
     });
     pop.innerHTML = html + '</table>';
     pop.hidden = false;
@@ -999,6 +1039,48 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   cv.addEventListener('mouseleave', function(){ mx = my = -1; hidePop(); });
   // A tap on a touch screen: the same popover, closed by a tap elsewhere.
   cv.addEventListener('click', function(ev){ var h = findHot(ev.offsetX, ev.offsetY); if (h) showPop(h, ev.offsetX, ev.offsetY); else hidePop(); });
+  // The legend's switches: a kind on or off redraws the map from the reading
+  // already in hand, and the particles of a kind switched off leave with it.
+  var legend = document.getElementById('geo-legend');
+  function syncLegend(){
+    Array.prototype.forEach.call(legend.querySelectorAll('.geo-k'), function(b){ b.setAttribute('aria-pressed', sel[b.dataset.k] ? 'true' : 'false'); });
+  }
+  if (legend) {
+    syncLegend();
+    legend.addEventListener('click', function(ev){
+      var b = ev.target.closest && ev.target.closest('.geo-k');
+      if (!b) return;
+      var k = b.dataset.k;
+      if (sel[k]) delete sel[k]; else sel[k] = true;
+      try { localStorage.setItem('unmask:map-kinds', JSON.stringify(KINDS.filter(function(x){ return sel[x]; }))); } catch (e) {}
+      syncLegend();
+      parts = parts.filter(function(q){ return sel[q.k]; });
+      hidePop();
+      rebuild();
+      relayer();
+    });
+  }
+  // The refusals of the same thirty minutes: each reason (worded as the
+  // dashboard's reasons card words it, linked to the hunt page filtered on
+  // it) with its count and its busiest rules.
+  var refusedLine = document.getElementById('geo-refused');
+  function refusals(j){
+    if (!refusedLine || !j.refused30) return;
+    var r = j.refused30, rules = j.refused_rules30 || {}, rnames = j.refused_names || {}, d = refusedLine.dataset;
+    var keys = Object.keys(r).filter(function(k){ return r[k] > 0; }).sort(function(a, b){ return r[b] - r[a] || (a < b ? -1 : 1); });
+    var html = '<span>' + esc(d.txt) + ':</span>';
+    if (!keys.length) html += '<span>' + esc(d.txtNone) + '</span>';
+    keys.forEach(function(k){
+      var one = '<span><a href="' + esc(d.hunt + encodeURIComponent(k)) + '">' + esc(rnames[k] || k) + '</a> <b>' + comma(r[k]) + '</b>';
+      var rs = (rules[k] || []).map(function(x){
+        var flag = k === 'geo_deny' && /^[A-Z]{2}$/.test(x.rule) ? '<img src="' + esc(d.flags + x.rule.toLowerCase()) + '.png" alt="">' : '';
+        return flag + esc(x.label || x.rule) + ' ' + comma(x.n);
+      });
+      if (rs.length) one += ' <small>(' + rs.join(' · ') + ')</small>';
+      html += one + '</span>';
+    });
+    refusedLine.innerHTML = html;
+  }
   // For the UI tests: where the sources are, in CSS pixels of the canvas.
   window.unmaskGeoHot = function(){ return hot.map(function(h){ return { cc: h.st.cc, x: h.x, y: h.y }; }); };
   // Nothing animates where nobody can see it: a hidden tab, or the map

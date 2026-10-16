@@ -4,19 +4,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/live"
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// The dashboard's "right now" strip: one tile per live.Kind, each with the
-// last minute's count, its change against the minute before, and a five-minute
-// sparkline.  The page renders the strip with a first reading (so it says real
-// numbers before any script runs) and then re-reads /admin/api/now every few
-// seconds, replacing the figures in place.
+// The dashboard's "right now" strip: one tile per kind in liveKinds, each with
+// the last minute's count, its change against the minute before, and a
+// five-minute sparkline.  (The abandoned proofs-of-work have no tile: they
+// only split the map's challenged traffic into blocked bots and the rest.)
+// The page renders the strip with a first reading (so it says real numbers
+// before any script runs) and then re-reads /admin/api/now every few seconds,
+// replacing the figures in place.
 
 // liveTile is one tile as the template draws it.
 type liveTile struct {
@@ -168,10 +172,14 @@ func liveSparkPoints(vals []uint32) string {
 //	{"at": unix, "step": 5, "span": 300, "window": 60, "available": true,
 //	 "series": {"requests": [60 ints], ...}, "last": {"requests": n, ...},
 //	 "prev": {...}, "tps": {"now": 1.6, "peak": 8.6, "avg": 2.5},
-//	 "countries": {"JP": {"n":148,"pass":100,"bypass":3,"serve":40,"deny":5}},
+//	 "countries": {"JP": {"n":148,"pass":100,"bypass":3,"serve":40,"deny":5,
+//	               "solve":31,"abandon":2,"blocked":12,"people":33}},
 //	 "minutes": {"requests": [30 ints], ...}, "minutes_n": 30, "last30": {"requests": n, ...},
 //	 "countries30": {"JP": {...}},
 //	 "country_names": {"JP": "Japan (日本)"},
+//	 "refused30": {"asn_deny": 812, "banned": 40},
+//	 "refused_rules30": {"asn_deny": [{"rule": "AS16509", "n": 700, "label": "AS16509"}, ...]},
+//	 "refused_names": {"asn_deny": "ASN で遮断", ...},
 //	 "feed_off": false, "bans": 9}
 //
 // Read-only, cheap (an in-memory ring), and answered for every signed-in role:
@@ -218,6 +226,20 @@ func (h *Handler) AdminNowJSON(w http.ResponseWriter, r *http.Request) {
 			names[cc] = ipgeo.CountryName(cc)
 		}
 		out["country_names"] = names
+		// What was refused outright, and on which rule: the busiest few rules
+		// of each reason, each reason named the way the dashboard's reasons
+		// card names it.
+		lang := i18n.Lang(i18n.Resolve(r))
+		cfg := h.cfg()
+		rules := map[string][]refusedRule{}
+		reasonNames := map[string]string{}
+		for reason := range sn.Refused30 {
+			reasonNames[reason] = reasonLabel(lang, reason)
+			rules[reason] = topRules(reason, sn.Rules30[reason], 3, cfg.Nginx.CustomRules)
+		}
+		out["refused30"] = sn.Refused30
+		out["refused_rules30"] = rules
+		out["refused_names"] = reasonNames
 		out["feed_off"] = !h.cfg().NginxLog.Enabled && sn.LastLine == 0
 		// The request tile's caption, pre-worded here so the script does not
 		// carry the format strings of every language.
@@ -229,4 +251,46 @@ func (h *Handler) AdminNowJSON(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	_ = json.NewEncoder(w).Encode(out)
+}
+
+// refusedRule is one matching rule of a refusal reason: the rule as the
+// event names it (an AS number, a country code, a custom rule's id), how many
+// requests it refused, and what to call it on the page.
+type refusedRule struct {
+	Rule  string `json:"rule"`
+	N     uint32 `json:"n"`
+	Label string `json:"label"`
+}
+
+// topRules: the n busiest rules of one reason, busiest first (ties by rule,
+// so the order holds still between readings).  A custom rule is called by its
+// name where it has one: its id is what the log carries, not what the operator
+// typed.
+func topRules(reason string, m map[string]uint32, n int, custom []settings.CustomRule) []refusedRule {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if m[keys[i]] != m[keys[j]] {
+			return m[keys[i]] > m[keys[j]]
+		}
+		return keys[i] < keys[j]
+	})
+	if len(keys) > n {
+		keys = keys[:n]
+	}
+	out := make([]refusedRule, 0, len(keys))
+	for _, k := range keys {
+		label := k
+		if reason == "custom_rule" {
+			for _, cr := range custom {
+				if cr.ID == k && strings.TrimSpace(cr.Label) != "" {
+					label = strings.TrimSpace(cr.Label)
+				}
+			}
+		}
+		out = append(out, refusedRule{Rule: k, N: m[k], Label: label})
+	}
+	return out
 }

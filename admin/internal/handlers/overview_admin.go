@@ -1208,12 +1208,7 @@ func overviewReasonRows(lang i18n.Lang, base string, counts map[string]int) ([]r
 	}
 	rows := make([]reasonRow, 0, len(keys))
 	for _, k := range keys {
-		key := "overview.reason." + k
-		label := i18n.T(lang, key)
-		if label == key {
-			label = k
-		}
-		row := reasonRow{Reason: k, Label: label, Count: counts[k]}
+		row := reasonRow{Reason: k, Label: reasonLabel(lang, k), Count: counts[k]}
 		if total > 0 {
 			row.Pct = float64(row.Count) * 100 / float64(total)
 		}
@@ -1233,4 +1228,14 @@ func overviewReasonRows(lang i18n.Lang, base string, counts map[string]int) ([]r
 		return rank[rows[i].Reason] < rank[rows[j].Reason]
 	})
 	return rows, total
+}
+
+// reasonLabel names a challenge or deny reason the way the dashboard's reasons
+// card does; a reason with no wording of its own shows as its key.
+func reasonLabel(lang i18n.Lang, k string) string {
+	key := "overview.reason." + k
+	if label := i18n.T(lang, key); label != key {
+		return label
+	}
+	return k
 }
