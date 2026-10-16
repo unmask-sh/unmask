@@ -39,6 +39,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Removed
 - (2026-10-16) **The realtime tiles no longer compare the last minute with the one before.**  The bars under each tile already show the last thirty minutes a minute at a time, which says more than the difference between two of them.  The reading the page refreshes from, `/admin/api/now`, no longer carries the previous minute.
 
+### Fixed
+
+- (2026-10-16) **The Community Bans impact figure reads an index.**  The "past 30 days" count on the Community Bans tab read every serve event of the window, which on a large database outlasted its budget and left the tab without a figure.  Schema update 0039 adds a small index of the rows it counts; a large install leaves it to the operator, as the card indexes do.
+
+- (2026-10-16) **A feed hit from a client that cannot take the HTML page is named.**  A script or crawler the shared feed caught that asked for JSON rather than the challenge page was recorded under no reason and told none, so the Community Bans tab's figure missed it.  The JSON answer now resolves the hit from the same matcher as the page and records community_bans.
+
 ## [0.1.51] - 2026-10-16
 
 ### Added
