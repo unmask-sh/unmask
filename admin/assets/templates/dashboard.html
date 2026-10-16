@@ -926,6 +926,47 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
   </div>
 </div>
 
+<!-- 11c) 30-day trend: the bot requests unmask stopped, per day -- the landing page's hero figure
+     (challenges fired − PoW/CAPTCHA answers − unruled abandons), one bar a day.  The terms come from
+     DailyBlockedByDay (events) and DailyPassByDay (the access log's not-pass count as "fired"). -->
+<div class="bcd-card">
+  <h2>{{ t .Lang "dashboard.card.trend_blocked" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.trend_blocked.desc") }}</span></span></h2>
+  <div class="kpi-row" style="margin-bottom:.8rem">
+    <div class="kpi">
+      <div style="font-size:.7rem;color:#64748b;font-weight:600">{{ t .Lang "kpi.blocked_30d" }}</div>
+      <div style="font-size:1.4rem;font-weight:700;color:#0f172a;font-variant-numeric:tabular-nums">{{ if .DailyBlockedFailed }}—{{ else }}{{ comma .DailyBlockedSum }}{{ end }}</div>
+      <div style="font-size:.7rem;color:#94a3b8">{{ t .Lang "overview.hero.basis" }}{{ if not .DailyBlockedFromLog }} · {{ t .Lang "chart.blocked_from_events" }}{{ end }}</div>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:3fr auto;gap:1rem;align-items:start">
+    <div>
+      <h6 style="font-size:.85rem;margin:0 0 .4rem;color:#0f172a;font-weight:600">{{ t .Lang "chart.day_blocked" }}</h6>
+      <canvas id="chart-blocked" height="280"></canvas>
+      <div id="chart-blocked-legend" style="margin-top:.4rem;font-size:.85rem;color:#475569;line-height:1.6"></div>
+    </div>
+    <div>
+      {{if .DailyBlockedRows}}
+      <div style="border:1px solid #e2e8f0;border-radius:.4rem">
+        <table class="bcd-table" style="margin:0;white-space:nowrap">
+          <thead><tr><th style="background:#f8fafc">{{ t .Lang "th.day" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.blocked" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.fired" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.answered" }}</th><th class="bcd-num" style="background:#f8fafc">{{ t .Lang "th.abandon" }}</th></tr></thead>
+          <tbody>
+            {{range firstN 10 (reverse .DailyBlockedRows)}}
+            <tr><td>{{.Date}} <span style="color:#94a3b8;font-size:.78rem">({{weekday .Date $.Lang}})</span></td><td class="bcd-num"><strong>{{comma .Blocked}}</strong></td><td class="bcd-num">{{comma .Fired}}</td><td class="bcd-num">{{comma .Answered}}</td><td class="bcd-num">{{comma .Abandon}}</td></tr>
+            {{end}}
+          </tbody>
+        </table>
+      </div>
+      {{else if .ServeAggregating}}
+      <p class="muted" style="font-size:.9rem">{{ t .Lang "chart.card_aggregating" }}</p>
+      {{else if .DailyBlockedFailed}}
+      <p class="muted card-failed" style="font-size:.9rem">{{ t .Lang "chart.card_failed" }}</p>
+      {{else}}
+      <p class="muted" style="font-size:.9rem">{{ t .Lang "chart.no_data_blocked" }}</p>
+      {{end}}
+    </div>
+  </div>
+</div>
+
 <!-- 11b) 30-day trend (= phase=serve grouped by classify.IsBot kind as a stacked bar.  Breakdown of challenge displays) -->
 <div class="bcd-card">
   <h2>{{ t .Lang "dashboard.card.trend_serve" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.trend_serve.desc") }}</span></span></h2>
@@ -985,6 +1026,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 // Hover shows a popover with each kind's count for the day plus the total.
 const dailyKind = {{.DailyKindJSON}};
 const dailyServeKind = {{.DailyServeKindJSON}};
+const dailyBlocked = {{.DailyBlockedJSON}};
 
 // Localized weekday, mirroring the server-side `weekday` template helper used in
 // the per-day tables, so the chart hover popover labels a day like "2026-06-07 (土)".
@@ -1273,6 +1315,16 @@ renderStackedBarChart({
   KIND_LABEL: {0:{{ t .Lang "chart.kind.human" }}, 1:{{ t .Lang "chart.kind.search" }}, 2:{{ t .Lang "chart.kind.ja4_bot" }}, 4:{{ t .Lang "chart.kind.old_ua" }}, 5:{{ t .Lang "chart.kind.service" }}, 6:{{ t .Lang "chart.kind.user_dev" }}, 99:{{ t .Lang "chart.kind.rate_limit" }}},
   KIND_COLOR: {0:'#16a34a', 1:'#3b82f6', 2:'#dc2626', 4:'#8b5cf6', 5:'#ec4899', 6:'#64748b', 99:'#fbbf24'},
   noDataMsg: {{ if .ServeAggregating }}{{ t .Lang "chart.card_aggregating" }}{{ else if .DailyServeFailed }}{{ t .Lang "chart.card_failed" }}{{ else }}{{ t .Lang "chart.no_data_serve" }}{{ end }},
+});
+
+// chart 3: the bot requests unmask stopped, one kind -- the hero figure per day.
+renderStackedBarChart({
+  canvasId: 'chart-blocked',
+  legendId: 'chart-blocked-legend',
+  data: dailyBlocked,
+  KIND_LABEL: {1:{{ t .Lang "chart.legend.blocked" }}},
+  KIND_COLOR: {1:'#b91c1c'},
+  noDataMsg: {{ if .ServeAggregating }}{{ t .Lang "chart.card_aggregating" }}{{ else if .DailyBlockedFailed }}{{ t .Lang "chart.card_failed" }}{{ else }}{{ t .Lang "chart.no_data_blocked" }}{{ end }},
 });
 
 // per-country horizontal bar (= HTML version.  Renders /static/flags/<cc>.png in an img tag).

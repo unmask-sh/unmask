@@ -16,6 +16,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- (2026-10-17) **The stats page charts the bot requests unmask blocked, by day.**  A new 30-day card shows the landing page's headline figure as one bar a day -- challenges fired minus the proof-of-work and CAPTCHA answers minus the visitors who walked away -- with the 30-day total and a table of the terms, so the trend of what was stopped is visible beside the request and challenge breakdowns.
+
 - (2026-10-17) **An account can be kept from changing its own password.**  A viewer login shared by a team broke the day one of its users changed the password.  The users page has a checkbox per account: with it set, the profile's password form gives way to a note and the forgot-password link issues nothing, while an administrator still sets the password there, and the CLI can create such an account.
 
 ## [0.1.52-rc1] - 2026-10-16 (testing build)

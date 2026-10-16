@@ -1575,6 +1575,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		dailyTotal              []dashboard.DailyTotal
 		dailyServeKind          []dashboard.DailyKindBucket
 		dailyServeTotal         []dashboard.DailyTotal
+		dailyBlocked            []dashboard.DailyBlockedDay
 		countries               []dashboard.CountryRow
 		dailyCountry            []dashboard.DailyCountryBucket
 		dailyUniq               []dashboard.DailyUniq
@@ -1804,6 +1805,20 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 			var e error
 			countries, e = dashboard.CountriesByServe(ctx, h.DB, h.IPGeo, site, hosts, 30, 15)
 			return e
+		})
+		// 30-day trend chart 3: the bot requests unmask stopped, per day, by
+		// the landing page's definition (challenges fired − PoW/CAPTCHA
+		// answers − unruled abandons).  The event-side terms come from here;
+		// the access log's per-day not-pass count (DailyPassByDay) is the
+		// "fired" ruler when the log feed is on, the serves when it is not --
+		// combined below, once both have answered.  Same gate as the other
+		// serve cards: a raw scan past the ceiling is not attempted.
+		run("DailyBlockedByDay", func() error {
+			dbCtx, dbCancel := queryCtx(15 * time.Second)
+			defer dbCancel()
+			var derr error
+			dailyBlocked, derr = dashboard.DailyBlockedByDay(dbCtx, h.DB, site, hosts, 30, loc)
+			return derr
 		})
 	}
 	// 30-day country breakdown of ALL requests (= same source as DailyPassByDay,
@@ -2041,6 +2056,42 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	}
 	sumTotal := sumWhite + sumCaptcha + sumPow + sumNot
 	dailyKindJSON, _ := json.Marshal(kindPts)
+	// Chart 3: blocked per day.  The access log's not-pass count is "fired"
+	// when the feed is on (the hero's ruler: a deny page serves no challenge
+	// and writes no serve event); the serves stand in when it is not.
+	notPassByDay := map[string]int{}
+	for _, b := range dailyKind {
+		if b.Kind == dashboard.KindNotPass {
+			notPassByDay[b.Date] += b.Req
+		}
+	}
+	blockedFromLog := len(dailyKind) > 0
+	type blockedRow struct {
+		Date     string
+		Fired    int
+		Answered int
+		Abandon  int
+		Blocked  int
+	}
+	blockedRows := make([]blockedRow, 0, len(dailyBlocked))
+	blockedPts := make([]kindPt, 0, len(dailyBlocked))
+	blockedSum := 0
+	for _, day := range dailyBlocked {
+		fired := day.Serves
+		if blockedFromLog {
+			fired = notPassByDay[day.Date]
+		}
+		blocked := fired - day.PoW - day.Captcha - day.Abandon
+		if blocked < 0 {
+			blocked = 0
+		}
+		blockedSum += blocked
+		blockedRows = append(blockedRows, blockedRow{Date: day.Date, Fired: fired, Answered: day.PoW + day.Captcha, Abandon: day.Abandon, Blocked: blocked})
+		if blocked > 0 {
+			blockedPts = append(blockedPts, kindPt{day.Date, 1, blocked})
+		}
+	}
+	dailyBlockedJSON, _ := json.Marshal(blockedPts)
 	servePts := make([]kindPt, 0, len(dailyServeKind))
 	for _, b := range dailyServeKind {
 		servePts = append(servePts, kindPt{b.Date, b.Kind, b.Req})
@@ -2124,51 +2175,56 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		"FailedCards":        failedCardList,
 		"DailyPassFailed":    failedSet["DailyPassByDay"],
 		"DailyServeFailed":   failedSet["DailyServeByKind"],
+		"DailyBlockedFailed": failedSet["DailyBlockedByDay"],
 		"CountriesFailed":    failedSet["CountriesByServe"],
 		// The serve cards were not run: the rollup is not ready and the raw
 		// scan would not finish.  Rendered as "aggregating", not as failed
 		// and not as empty.
-		"ServeAggregating":   aggregating,
-		"DailyCountryFailed": failedSet["DailyPassByCountry"],
-		"Funnel":             funnel,
-		"CookieRows":         cookieRows,
-		"RLSummary":          rlSummary,
-		"RLIPs":              rlIPs,
-		"RLPaths":            rlPaths,
-		"RLPathQueriesJSON":  template.JS(rlPathQueriesJSON),
-		"FlagsRows":          flagsRows,
-		"VerdictDist":        verdictDist,
-		"HitRows":            hitRows,
-		"LoopRows":           loopRows,
-		"VerifyNG":           verifyNG,
-		"VerifyNGByReason":   cpFailByReason,
-		"CookieFails":        cookieFails,
-		"Stealth":            stealth,
-		"JSErrors":           jsErrs,
-		"JSForeignErrors":    jsForeign,
-		"JSForeignCount":     jsForeignCount,
-		"CaptchaReport":      captchaReport,
-		"CaptchaReuse":       cpReuse,
-		"PowReuse":           powReuse,
-		"RebindReuse":        rebindReuse,
-		"RebindLineages":     rebindLineageRows(ctx, h, rebindLineages),
-		"AITrafficServed":    aiTraffic,
-		"AITraffic":          aiTrafficAll,
-		"AITrafficDetail":    aiTrafficDetail,
-		"DailyKindJSON":      template.JS(dailyKindJSON),
-		"DailyTotal":         dailyTotal,
-		"PassSumTotal":       sumTotal,
-		"PassSumWhite":       sumWhite,
-		"PassSumCaptcha":     sumCaptcha,
-		"PassSumPoW":         sumPow,
-		"PassSumNot":         sumNot,
-		"DailyServeKindJSON": template.JS(dailyServeKindJSON),
-		"DailyServeTotal":    dailyServeTotal,
-		"Countries":          countries,
-		"CountriesJSON":      template.JS(countriesJSON),
-		"CountriesAll":       countriesAll,
-		"CountriesAllJSON":   template.JS(countriesAllJSON),
-		"IPGeoLoaded":        h.IPGeo != nil && h.IPGeo.Loaded(),
+		"ServeAggregating":    aggregating,
+		"DailyCountryFailed":  failedSet["DailyPassByCountry"],
+		"Funnel":              funnel,
+		"CookieRows":          cookieRows,
+		"RLSummary":           rlSummary,
+		"RLIPs":               rlIPs,
+		"RLPaths":             rlPaths,
+		"RLPathQueriesJSON":   template.JS(rlPathQueriesJSON),
+		"FlagsRows":           flagsRows,
+		"VerdictDist":         verdictDist,
+		"HitRows":             hitRows,
+		"LoopRows":            loopRows,
+		"VerifyNG":            verifyNG,
+		"VerifyNGByReason":    cpFailByReason,
+		"CookieFails":         cookieFails,
+		"Stealth":             stealth,
+		"JSErrors":            jsErrs,
+		"JSForeignErrors":     jsForeign,
+		"JSForeignCount":      jsForeignCount,
+		"CaptchaReport":       captchaReport,
+		"CaptchaReuse":        cpReuse,
+		"PowReuse":            powReuse,
+		"RebindReuse":         rebindReuse,
+		"RebindLineages":      rebindLineageRows(ctx, h, rebindLineages),
+		"AITrafficServed":     aiTraffic,
+		"AITraffic":           aiTrafficAll,
+		"AITrafficDetail":     aiTrafficDetail,
+		"DailyKindJSON":       template.JS(dailyKindJSON),
+		"DailyTotal":          dailyTotal,
+		"PassSumTotal":        sumTotal,
+		"PassSumWhite":        sumWhite,
+		"PassSumCaptcha":      sumCaptcha,
+		"PassSumPoW":          sumPow,
+		"PassSumNot":          sumNot,
+		"DailyServeKindJSON":  template.JS(dailyServeKindJSON),
+		"DailyServeTotal":     dailyServeTotal,
+		"DailyBlockedJSON":    template.JS(dailyBlockedJSON),
+		"DailyBlockedRows":    blockedRows,
+		"DailyBlockedSum":     blockedSum,
+		"DailyBlockedFromLog": blockedFromLog,
+		"Countries":           countries,
+		"CountriesJSON":       template.JS(countriesJSON),
+		"CountriesAll":        countriesAll,
+		"CountriesAllJSON":    template.JS(countriesAllJSON),
+		"IPGeoLoaded":         h.IPGeo != nil && h.IPGeo.Loaded(),
 		// The persistent BAN list section was removed from the dashboard (the
 		// /admin/bans/ tab retains all that functionality).
 		// Reverse map: verdict name -> action ("bot"/"suspect"/"ok").  Used by funnel etc. for badge judgment.
