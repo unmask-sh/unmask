@@ -15,28 +15,25 @@ import (
 )
 
 // The dashboard's "right now" strip: one tile per kind in liveKinds, each with
-// the last minute's count, its change against the minute before, and a
-// five-minute sparkline.  (The abandoned proofs-of-work have no tile: they
-// only split the map's challenged traffic into blocked bots and the rest.)
+// the last thirty minutes' count, the last minute's, and a bar a minute.
+// (The abandoned proofs-of-work have no tile: they only split the map's
+// challenged traffic into blocked bots and the rest.)
 // The page renders the strip with a first reading (so it says real numbers
 // before any script runs) and then re-reads /admin/api/now every few seconds,
 // replacing the figures in place.
 
 // liveTile is one tile as the template draws it.
 type liveTile struct {
-	Key        string // live.Names entry: the JSON key the script updates from
-	LabelKey   string // i18n key of the tile's name
-	HelpKey    string // i18n key of its help text
-	Color      string // the kind's colour, the same one the stats charts use
-	Last       int    // the last live.Window seconds
-	Last30     int    // the last live.Minutes minutes: the tile's headline
-	Bars       []liveBar
-	Delta      int    // Last minus the window before
-	DeltaText  string // "+12" / "-3" / "±0"
-	DeltaClass string // "up" / "down" / ""
-	Points     string // SVG polyline points of the series
-	TPS        string // requests only: "1.6 · 8.6 · 2.5" as three strings
-	Peak, Avg  string
+	Key       string // live.Names entry: the JSON key the script updates from
+	LabelKey  string // i18n key of the tile's name
+	HelpKey   string // i18n key of its help text
+	Color     string // the kind's colour, the same one the stats charts use
+	Last      int    // the last live.Window seconds
+	Last30    int    // the last live.Minutes minutes: the tile's headline
+	Bars      []liveBar
+	Points    string // SVG polyline points of the series
+	TPS       string // requests only: "1.6 · 8.6 · 2.5" as three strings
+	Peak, Avg string
 }
 
 type liveView struct {
@@ -83,10 +80,8 @@ func (h *Handler) liveView(now time.Time, tzName string) liveView {
 			Last:     int(sn.Last[k]),
 			Last30:   int(sn.Last30[k]),
 			Bars:     liveBarGeom(sn.PerMinute[k][:]),
-			Delta:    int(sn.Last[k]) - int(sn.Prev[k]),
 			Points:   liveSparkPoints(sn.Series[k][:]),
 		}
-		t.DeltaText, t.DeltaClass = deltaText(t.Delta)
 		if k == live.Requests {
 			t.TPS, t.Peak, t.Avg = rate(sn.TPS), rate(sn.Peak), rate(sn.Avg)
 		}
@@ -96,16 +91,6 @@ func (h *Handler) liveView(now time.Time, tzName string) liveView {
 }
 
 func rate(f float64) string { return fmt.Sprintf("%.1f", f) }
-
-func deltaText(d int) (string, string) {
-	switch {
-	case d > 0:
-		return fmt.Sprintf("+%d", d), "up"
-	case d < 0:
-		return fmt.Sprintf("%d", d), "down"
-	}
-	return "±0", ""
-}
 
 // liveBar is one minute's bar of a tile's chart: the same 150×34 box as the
 // sparkline, a 4-unit bar in each 5-unit slot, the top 2 left free, a bar
@@ -171,7 +156,7 @@ func liveSparkPoints(vals []uint32) string {
 //
 //	{"at": unix, "step": 5, "span": 300, "window": 60, "available": true,
 //	 "series": {"requests": [60 ints], ...}, "last": {"requests": n, ...},
-//	 "prev": {...}, "tps": {"now": 1.6, "peak": 8.6, "avg": 2.5},
+//	 "tps": {"now": 1.6, "peak": 8.6, "avg": 2.5},
 //	 "countries": {"JP": {"n":148,"pass":100,"bypass":3,"serve":40,"deny":5,
 //	               "solve":31,"abandon":2,"blocked":12,"people":33}},
 //	 "minutes": {"requests": [30 ints], ...}, "minutes_n": 30, "last30": {"requests": n, ...},
@@ -197,19 +182,16 @@ func (h *Handler) AdminNowJSON(w http.ResponseWriter, r *http.Request) {
 		sn := h.Live.Snapshot(now)
 		series := map[string][]uint32{}
 		last := map[string]uint32{}
-		prev := map[string]uint32{}
 		minutes := map[string][]uint32{}
 		last30 := map[string]uint32{}
 		for k := live.Kind(0); k < live.NumKinds; k++ {
 			series[live.Names[k]] = sn.Series[k][:]
 			last[live.Names[k]] = sn.Last[k]
-			prev[live.Names[k]] = sn.Prev[k]
 			minutes[live.Names[k]] = sn.PerMinute[k][:]
 			last30[live.Names[k]] = sn.Last30[k]
 		}
 		out["series"] = series
 		out["last"] = last
-		out["prev"] = prev
 		out["minutes"] = minutes
 		out["minutes_n"] = live.Minutes
 		out["last30"] = last30

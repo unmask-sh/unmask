@@ -36,6 +36,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-16) **The realtime map shows what unmask blocked, and what it refused.**  The legend switches each kind of request on or off, blocked alone by default -- the dashboard's blocked count, country by country.  A country's popover still splits all its requests, and a line under the map lists the last thirty minutes' refusals by reason, each linking to bot hunt, with the rules that matched most.
 
+### Removed
+- (2026-10-16) **The realtime tiles no longer compare the last minute with the one before.**  The bars under each tile already show the last thirty minutes a minute at a time, which says more than the difference between two of them.  The reading the page refreshes from, `/admin/api/now`, no longer carries the previous minute.
+
 ## [0.1.51] - 2026-10-16
 
 ### Added

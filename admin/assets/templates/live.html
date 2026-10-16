@@ -195,12 +195,6 @@ table.events tbody tr.ev-new>td{animation:ev-new 2.5s ease-out}
 .live .win{font-size:.7rem;color:#94a3b8;white-space:nowrap}
 .live .minute{font-size:.74rem;color:#64748b;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .live .minute b{color:#0f172a;font-weight:600}
-/* The change against the minute before is a fact, not a verdict: a rise in
-   requests is not bad news and a fall in passes is not good news, so neither
-   direction gets a warning colour. */
-.live .delta{font-size:.72rem;color:#94a3b8;font-variant-numeric:tabular-nums;white-space:nowrap}
-.live .delta.up{color:#334155}
-.live .delta small{color:#94a3b8;font-size:.65rem}
 .live .sub{font-size:.68rem;color:#94a3b8;line-height:1.3}
 .live .spk{width:100%;height:2.1rem;margin-top:auto;padding-top:.25rem;display:block;flex:none}
 .live-note{margin:-.4rem 0 1rem;font-size:.78rem;color:#b45309}
@@ -330,7 +324,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   <div class="live" data-k="{{ .Key }}">
     <div class="label"><span class="kdot" style="background:{{ .Color }}"></span><span class="lt">{{ t $.Lang .LabelKey }}</span><span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ t $.Lang .HelpKey }}</span></span></div>
     <div class="row"><div class="value" data-f="last30">{{ comma .Last30 }}</div><div class="win">{{ t $.Lang "overview.live.window" }}</div></div>
-    <div class="sub minute"><b data-f="last">{{ comma .Last }}</b> {{ t $.Lang "overview.live.minute" }} · <span class="delta{{ if .DeltaClass }} {{ .DeltaClass }}{{ end }}" data-f="delta"><span data-f="dv">{{ .DeltaText }}</span> <small>{{ t $.Lang "overview.live.vs_prev" }}</small></span></div>
+    <div class="sub minute"><b data-f="last">{{ comma .Last }}</b> {{ t $.Lang "overview.live.minute" }}</div>
     {{ if eq .Key "requests" }}<div class="sub" data-f="tps">{{ tf $.Lang "overview.live.tps" .TPS .Peak .Avg }}</div>{{ end }}
     <svg class="spk" viewBox="0 0 150 34" preserveAspectRatio="none" aria-hidden="true" data-f="bars">{{ range .Bars }}<rect x="{{ .X }}" y="{{ .Y }}" width="4" height="{{ .H }}" fill="{{ $t.Color }}"/>{{ end }}</svg>
   </div>
@@ -624,13 +618,11 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   function paint(j){
     grid.querySelectorAll('.live[data-k]').forEach(function(tile){
       var k = tile.dataset.k;
-      var last = (j.last && j.last[k]) || 0, prev = (j.prev && j.prev[k]) || 0, d = last - prev;
+      var last = (j.last && j.last[k]) || 0;
       var l30 = (j.last30 && j.last30[k]) || 0, el30 = tile.querySelector('[data-f=last30]'), t30 = comma(l30);
       if (el30 && el30.textContent !== t30) { el30.textContent = t30; unmaskFlash(el30); }
       var lastEl = tile.querySelector('[data-f=last]'), txt = comma(last);
       if (lastEl && lastEl.textContent !== txt) { lastEl.textContent = txt; unmaskFlash(lastEl); }
-      tile.querySelector('[data-f=dv]').textContent = d > 0 ? '+' + d : d < 0 ? String(d) : '\u00b10';
-      tile.querySelector('[data-f=delta]').classList.toggle('up', d > 0);
       var sp = tile.querySelector('[data-f=bars]');
       if (sp && j.minutes && j.minutes[k]) {
         var bs = bars(j.minutes[k]), rects = sp.querySelectorAll('rect');
