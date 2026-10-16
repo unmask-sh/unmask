@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- (2026-10-16) **A local address shows a flag of its own.**  An address from a private network, loopback or link-local range showed the same "??" as a public address the country database could not place.  It now carries its own flag, a house, wherever an address is shown with one, and the stats page's country rankings list local addresses and unplaceable ones as two rows, named for what they are.
+
 ### Changed
 - (2026-10-16) **The realtime map puts Japan in the middle for a Japanese admin, and its counts carry a thousands separator.**  Read in Japanese, the map is centred on Japan with the Pacific whole and the Americas to the right, as a map printed in Japan is; in English it stays centred on Greenwich.  The continents are two shades lighter than the sea, so they read at a glance under the streams, and every count on the map, in the top-sources line and in a source's popover separates its thousands.
 

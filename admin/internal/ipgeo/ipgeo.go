@@ -203,9 +203,48 @@ func (r *Reader) Lookup(ip string) string {
 
 // LookupInfo returns full info for the given IP string.  Empty Info{} if
 // no DB is loaded or the IP isn't found.  An address a relay lists (relay
-// package) carries the relay's country -- see Info.Relay.
+// package) carries the relay's country -- see Info.Relay.  A local address
+// is Local, with no database asked: see IsLocal.
 func (r *Reader) LookupInfo(ip string) Info {
+	if IsLocal(ip) {
+		return Info{Country: Local, CountryName: localName}
+	}
 	return withRelay(ip, r.lookupDB(ip))
+}
+
+// Local is the country code of an address that is not on the public
+// Internet: a private network's (10/8, 172.16/12, 192.168/16, fc00::/7),
+// loopback, link-local, the carrier-NAT range 100.64/10, the unspecified
+// address.  No database places such an address, and the admin used to show
+// it as a country it could not tell, like a public address outside the
+// database -- the same "??".  "XL" is in ISO 3166-1's user-assigned range
+// (AA, QM-QZ, XA-XZ, ZZ), which no country database hands out, so it fits
+// the two-letter columns and the flag files (xl.png) like any code.  It is
+// not in Countries: a country rule on it would match nothing in nginx.
+const Local = "XL"
+
+const localName = "Local network"
+
+// IsLocal reports whether ip is an address no country database can place:
+// one of the local ranges Local stands for.  Decided from the address alone,
+// so it holds with no database loaded, and before the relay list, which
+// only ever names public addresses.
+func IsLocal(ip string) bool {
+	a, err := netip.ParseAddr(ip)
+	if err != nil {
+		return false
+	}
+	a = a.Unmap()
+	if a.IsPrivate() || a.IsLoopback() || a.IsLinkLocalUnicast() || a.IsLinkLocalMulticast() || a.IsUnspecified() {
+		return true
+	}
+	// 100.64.0.0/10, the shared address space of carrier-grade NAT (and of
+	// overlay networks that borrow it): never routed on the public Internet.
+	if a.Is4() {
+		b := a.As4()
+		return b[0] == 100 && b[1]&0xc0 == 64
+	}
+	return false
 }
 
 // withRelay applies the relay list to a database answer.  The table is

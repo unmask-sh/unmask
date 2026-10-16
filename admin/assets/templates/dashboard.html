@@ -1297,6 +1297,10 @@ function renderCountryChart(wrapId, data){
   }
   const max = Math.max(1, ...data.map(c => c.Req));
   const flagBase = '{{.BasePath}}/static/flags/';
+  // Two rows carry no country: "" is an address the database could not
+  // place, XL a local one (ipgeo.Local), which has a flag of its own.  Each
+  // is named for what it is, so the two read apart.
+  const unknownLabel = {{ t .Lang "country.unknown" }}, localLabel = {{ t .Lang "country.local" }};
   function flagSrc(cc){
     if (!cc) return flagBase + 'unknown.png';
     const lc = String(cc).toLowerCase();
@@ -1308,18 +1312,20 @@ function renderCountryChart(wrapId, data){
       const lang = (document.documentElement.lang || 'ja').split('-')[0];
       const dn = new Intl.DisplayNames([lang, 'en'], { type: 'region' });
       return cc => {
-        if (!cc) return '';
+        if (!cc) return unknownLabel;
+        if (cc === 'XL') return localLabel;
         try { return dn.of(String(cc).toUpperCase()) || cc; } catch(e) { return cc; }
       };
-    } catch(e){ return cc => cc || ''; }
+    } catch(e){ return cc => cc === 'XL' ? localLabel : (cc || unknownLabel); }
   })();
   const rows = data.map(row => {
     const safeCC = String(row.CountryCode || '').replace(/[^A-Za-z0-9-]/g, '');
     const pct = (row.Req / max) * 100;
+    const text = safeCC === 'XL' ? localLabel : (safeCC || unknownLabel);
     return '<div class="country-row" data-cc="' + safeCC + '">' +
              '<div class="cc-label">' +
                '<img class="cc-flag" src="' + flagSrc(safeCC) + '" alt="" loading="lazy" onerror="this.src=\'' + flagBase + 'unknown.png\';this.onerror=null">' +
-               '<span>' + (safeCC || '??') + '</span>' +
+               '<span>' + text + '</span>' +
              '</div>' +
              '<div class="cc-bar-wrap"><div class="cc-bar" style="width:' + pct.toFixed(2) + '%"></div></div>' +
              '<div class="cc-count">' + row.Req.toLocaleString() + '</div>' +

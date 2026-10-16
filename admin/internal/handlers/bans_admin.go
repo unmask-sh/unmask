@@ -60,7 +60,9 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	ipCC := map[string]string{}
 	lookupCC := func(ip string) string {
-		if ip == "" || h.IPGeo == nil || !h.IPGeo.Loaded() {
+		// Asked with or without a database: a local address is ipgeo.Local
+		// either way.
+		if ip == "" || h.IPGeo == nil {
 			return ""
 		}
 		if cc, ok := ipCC[ip]; ok {
@@ -235,7 +237,9 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 
 	ipCC := map[string]string{}
 	lookupCC := func(ip string) string {
-		if ip == "" || h.IPGeo == nil || !h.IPGeo.Loaded() {
+		// Asked with or without a database: a local address is ipgeo.Local
+		// either way.
+		if ip == "" || h.IPGeo == nil {
 			return ""
 		}
 		if cc, ok := ipCC[ip]; ok {

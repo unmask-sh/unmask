@@ -934,15 +934,17 @@ func (r *Reader) bumpTrafficHLL(site, ip string, fc bool, bvKind, ua string) {
 // "" only bumps total (= the "no signal" share is back-computed on read as
 // total - SUM(kinds), same as cookie_minute).
 //
-// nil-safe (= no-op when the Reader isn't running).  geo == nil OR
-// !geo.Loaded() folds every request into country="" (rendered as "Unknown"
-// on read).  ip == "" (= log line carried no ip= field) also produces "".
+// nil-safe (= no-op when the Reader isn't running).  geo == nil, or no
+// database loaded, folds every public address into country="" (rendered as
+// "Unknown" on read); a local address is ipgeo.Local whenever there is a
+// reader, since telling one takes no database.  ip == "" (= log line
+// carried no ip= field) also produces "".
 func (r *Reader) bumpCountryHourly(site, ip, kind string) {
 	if r == nil || r.d == nil {
 		return
 	}
 	cc := ""
-	if r.geo != nil && r.geo.Loaded() && ip != "" {
+	if r.geo != nil && ip != "" {
 		cc = r.geo.Lookup(ip)
 	}
 	key := countryHourKey{hour: time.Now().Unix() / 3600, site: site, country: cc}

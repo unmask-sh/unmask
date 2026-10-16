@@ -32,7 +32,9 @@ func (h *Handler) recentDetections(ctx context.Context, site string, hosts []str
 	if err != nil {
 		return nil, err
 	}
-	geoOK := h.IPGeo != nil && h.IPGeo.Loaded()
+	// The reader is asked with or without a database: a local address is
+	// ipgeo.Local either way, a public one "" without a database.
+	geoOK := h.IPGeo != nil
 	banOK := h.BanMgr != nil
 	ccCache := map[string]string{}
 	banCache := map[string]bool{}

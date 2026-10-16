@@ -1865,11 +1865,13 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 
 	// All IP-display cards use a unified "flag + IP + popover" layout (same as
 	// bans / hunt).  Attach the IP-geo-looked-up country code to each row.
-	// Duplicate lookups for the same IP are avoided via cache.  If IP-geo is not
-	// loaded, leave it empty (template falls back to the "??" flag).
+	// Duplicate lookups for the same IP are avoided via cache.  The reader is
+	// asked whether or not a database is loaded: a local address is
+	// ipgeo.Local either way, a public one "" without a database (the
+	// template falls back to the "??" flag).
 	ccCache := map[string]string{}
 	lookupCC := func(ip string) string {
-		if ip == "" || h.IPGeo == nil || !h.IPGeo.Loaded() {
+		if ip == "" || h.IPGeo == nil {
 			return ""
 		}
 		if cc, ok := ccCache[ip]; ok {

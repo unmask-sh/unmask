@@ -336,7 +336,8 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		if bypassSet[r0.Key] {
 			row.BypassIP = true
 		}
-		if h.IPGeo != nil && h.IPGeo.Loaded() && r0.Key != "" {
+		// With or without a database: a local address is ipgeo.Local either way.
+		if h.IPGeo != nil && r0.Key != "" {
 			row.CountryCode = h.IPGeo.LookupInfo(r0.Key).Country
 		}
 		ipRank = append(ipRank, row)
@@ -434,7 +435,8 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		Ban         *huntBanInfo // nil unless this IP has a ban record with detail
 	}
 	enriched := make([]huntEventRow, 0, len(rows))
-	geoOK := h.IPGeo != nil && h.IPGeo.Loaded()
+	// With or without a database: a local address is ipgeo.Local either way.
+	geoOK := h.IPGeo != nil
 	banOK := h.BanMgr != nil
 	ipCC := map[string]string{}
 	ipBan := map[string]bool{}

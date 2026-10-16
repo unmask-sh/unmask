@@ -2550,6 +2550,10 @@ var dict = map[Lang]map[string]string{
 		"reload_notice.msg":         "nginx がまだ前の設定で動いています。%s に書き出した設定は reload まで効きません。",
 		"reload_notice.sub":         "反映するには <code>sudo nginx -t &amp;&amp; sudo nginx -s reload</code>。nginx が送るアクセスログで判断しているので、reload の後の最初のリクエストで消えます。",
 		"reload_notice.sub_gateway": "コンテナは設定が書き出されると自分で nginx を reload しますが、それが済んでいません。コンテナのログで <code>nginx -t</code> のエラーを確かめてください。アクセスログで判断しているので、reload の後の最初のリクエストで消えます。",
+		// The two rows of a country ranking that are not a country: an
+		// address the database could not place, and a local one (ipgeo.Local).
+		"country.unknown": "取得不可",
+		"country.local":   "ローカル",
 		// schema update notice (partial_schema_update.html)
 		"schema_update.pending":            "データベースの更新があります (所要時間の目安: %s)。",
 		"schema_update.pending_sub":        "実行中も challenge は動き続け、その間のイベントは完了後に記録されます。設定の保存はそのまま行えます。ユーザーや手動 BAN の編集など、データベースに直接書く変更は完了まで待ちます。",
@@ -5141,6 +5145,8 @@ where <code>&lt;site-id&gt;</code> is any <code>[a-z0-9-]{1,32}</code>. Omit to 
 		"reload_notice.msg":         "nginx is still running the previous configuration: the one written at %s takes effect once nginx reloads.",
 		"reload_notice.sub":         "To apply it: <code>sudo nginx -t &amp;&amp; sudo nginx -s reload</code>. This is read from the access log nginx sends, so it clears with the first request after the reload.",
 		"reload_notice.sub_gateway": "The container reloads nginx by itself when the configuration is written, and that reload has not happened. Check the container's log for an <code>nginx -t</code> error. This is read from the access log, so it clears with the first request after the reload.",
+		"country.unknown":           "Unknown",
+		"country.local":             "Local",
 		// schema update notice (partial_schema_update.html)
 		"schema_update.pending":            "A database update is waiting (expected to take %s).",
 		"schema_update.pending_sub":        "The challenge keeps working while it runs, and events from that time are recorded afterwards. Settings can be saved as usual; changes that write to the database itself, such as users and manual bans, wait until it has finished.",

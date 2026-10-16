@@ -276,8 +276,12 @@ func IsValidCountry(c string) bool {
 }
 
 // CountryName returns "EN (JP)" for display; falls back to the raw code if
-// not in the master list (= unknown but not-blocked).
+// not in the master list (= unknown but not-blocked).  Local, which the
+// master list leaves out on purpose, has a name of its own.
 func CountryName(code string) string {
+	if code == Local {
+		return localName + " (ローカル)"
+	}
 	if c, ok := Countries[code]; ok {
 		return c.NameEN + " (" + c.NameJP + ")"
 	}
