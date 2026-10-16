@@ -32,7 +32,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-16) **The audit log is kept by default, and its retention and the notification list's are set on the retention tab.**  `audit_retention_days`, which deleted the admin-action log past 90 days, is gone: the log is kept until the operator sets `audit_log_retention_days` (0 = keep), the notification list has `notice_retention_days` of its own, and a config file still carrying the old key is told so at startup.
 
-- (2026-10-16) **The menu offers a viewer the pages the role can open.**  An account with the viewer role sees the dashboard and the statistics in the top bar, not the entries to bot hunt, BAN management and the settings, which refused it with a 403; the dashboard's tiles and links to those pages and the BAN pages' tabs follow the same rule.  The settings page now takes the admin role.
+- (2026-10-16) **The menu offers a viewer the pages the role can open.**  An account with the viewer role sees the dashboard, the statistics and bot hunt, not BAN management and the settings, which refuse it with a 403; the dashboard's tiles and links and the BAN pages' tabs follow the same rule.  Bot hunt opens for the role without its BAN and rule buttons; the settings page now takes admin.
 
 - (2026-10-14) **The stats page answers in seconds on a large database.**  Its per-visitor cards -- reload loops, verification failures, CAPTCHA passes, cookie failures, rebinds, rate-limited requests -- read indexes of their own rows, reads of a time window find the address, phase and verdict in the date index, and the funnel no longer waits on its rate-limit row.  A large database builds the indexes when you run the update.
 

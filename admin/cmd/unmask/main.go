@@ -1635,14 +1635,17 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux.HandleFunc("GET "+base+"/admin/api/ai-models",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminAIModels)))
 
-	// bot hunt tab (admin or above)
+	// bot hunt tab: read by every signed-in role (a viewer gets the rankings
+	// and the event log without the BAN and rule buttons, which hunt.html and
+	// partial_events_table.html draw for CanWrite); the actions take admin.
 	mux.HandleFunc("GET "+base+"/admin/hunt/{$}",
-		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminHuntIndex)))
+		h.AuthMiddleware(h.AdminHuntIndex))
 	mux.HandleFunc("POST "+base+"/admin/hunt/action",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminHuntAction)))
-	// ⇄ badge detail: a challenge session's recorded JA4/verdict history.
+	// ⇄ badge detail: a challenge session's recorded JA4/verdict history
+	// (a read, for every role that reads the page).
 	mux.HandleFunc("GET "+base+"/admin/hunt/ja4chain",
-		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminHuntJA4Chain)))
+		h.AuthMiddleware(h.AdminHuntJA4Chain))
 
 	// audit log viewer tab (admin or above)
 	mux.HandleFunc("GET "+base+"/admin/audit/{$}",

@@ -403,11 +403,9 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   <div class="events-scroll" id="recent-section">
   {{ template "events_table_block" . }}
   </div>
-  {{ if .CanWrite }}{{/* bot hunt is an admin page: no link for a viewer */}}
   <div style="margin-top:.5rem;text-align:right">
     <a href="{{.BasePath}}/admin/hunt/" style="font-size:.85rem;color:#475569;text-decoration:none">{{ t .Lang "overview.recent_more" }} →</a>
   </div>
-  {{ end }}
 </div>
 
 </main>

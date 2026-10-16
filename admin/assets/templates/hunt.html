@@ -399,6 +399,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <span class="action-pill action-bot">{{ t $.Lang "hunt.already_banned" }}</span>
             </span>
           {{ else }}
+            {{ if $.CanWrite }}
             <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" class="js-ban-form" data-ip="{{ .Key }}" data-ja4="">
               <input type="hidden" name="op" value="ban">
               <input type="hidden" name="ip" value="{{ .Key }}">
@@ -410,6 +411,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <input type="hidden" name="accept_terms" value="">
               <button type="submit" class="rank-act danger">{{ t $.Lang "hunt.btn.ban" }}</button>
             </form>
+            {{ end }}
           {{ end }}
         </td>
       </tr>
@@ -464,6 +466,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
                  with it, and the evidence for the decision is on this page.
                  The tab is still one click away in the dialog, for the parts a
                  ranking row cannot express (rate, org rules, ordering). */}}
+            {{ if $.CanWrite }}
             <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" class="js-asn-form" data-asn="{{ .ASN }}" data-org="{{ .Org }}">
               <input type="hidden" name="op" value="asn_rule">
               <input type="hidden" name="asn" value="{{ .ASN }}">
@@ -472,6 +475,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <input type="hidden" name="range" value="{{ $.Range }}">
               <button type="submit" class="rank-act">{{ t $.Lang "hunt.btn.asn_rule" }}</button>
             </form>
+            {{ end }}
           {{ end }}
           {{ if .ASN }}
           {{ end }}
@@ -519,6 +523,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <span class="action-pill action-{{ .Action }}">{{ .Verdict }}</span>
             </span>
             {{ else }}
+            {{ if $.CanWrite }}
             <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" class="js-ban-form" data-ja4="{{ .Key }}" style="display:inline">
               <input type="hidden" name="op" value="ban">
               <input type="hidden" name="ja4" value="{{ .Key }}">
@@ -530,6 +535,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <input type="hidden" name="accept_terms" value="">
               <button type="submit" class="rank-act">{{ t $.Lang "hunt.btn.ja4_ban" }}</button>
             </form>
+            {{ end }}
             {{ end }}
           {{ end }}
         </td>
@@ -578,6 +584,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
                  poor one: "(" and "+" are operators, and the version numbers
                  stop matching next week.  The dialog proposes the identifying
                  token instead, and the full string stays one click away. */}}
+            {{ if $.CanWrite }}
             <form method="POST" action="{{ $.BasePath }}/admin/hunt/action" style="display:inline" class="js-ua-form" data-ua="{{ .Key }}" data-token="{{ uaRuleToken .Key }}">
               <input type="hidden" name="op" value="ua_blacklist">
               <input type="hidden" name="pattern" value="{{ .Key }}">
@@ -587,6 +594,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
               <input type="hidden" name="range" value="{{ $.Range }}">
               <button type="submit" class="rank-act">{{ t $.Lang "hunt.btn.ua_blacklist" }}</button>
             </form>
+            {{ end }}
             {{ end }}
           {{ end }}
         </td>
@@ -712,7 +720,7 @@ function dismissHuntTip(id){
          ranking row has one key, and a rule of one condition is what BAN
          and the per-axis buttons beside it already make, so the entry is
          here and not on the rows.  New tab, so the page keeps its state. */}}
-    {{ if .CustomRuleDraftHref }}<a href="{{ .BasePath }}/admin/settings/custom-rules/{{ .CustomRuleDraftHref }}" target="_blank" rel="noopener" class="rank-act cr-from-filter">{{ t .Lang "hunt.filter.custom_rule" }} ↗</a>{{ end }}
+    {{ if and .CustomRuleDraftHref .CanWrite }}<a href="{{ .BasePath }}/admin/settings/custom-rules/{{ .CustomRuleDraftHref }}" target="_blank" rel="noopener" class="rank-act cr-from-filter">{{ t .Lang "hunt.filter.custom_rule" }} ↗</a>{{ end }}
   </form>
   <div class="events-scroll">
   {{ template "pager_seek" .PagerSeek }}

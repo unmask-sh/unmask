@@ -13,7 +13,8 @@
     - .NavCommunityBadge : count of community-sourced bans (0 = no badge)
 
   A viewer sees the entries for the pages the viewer role can open: the
-  dashboard and the statistics.  Bot hunt, the BAN pages and the settings
+  dashboard, the statistics and bot hunt (which it reads; the BAN and rule
+  buttons on it are drawn for .CanWrite).  The BAN pages and the settings
   refuse the role (403), so their entries are not drawn for it -- a menu
   entry that answers "forbidden" is a trap, not a menu entry.  The route
   stays the guard; this only stops offering what it would refuse.
@@ -22,8 +23,8 @@
 <nav class="nav">
     <a href="{{ .BasePath }}/admin/"{{ if eq .NavActive "dashboard" }} class="active"{{ end }}>{{ t .Lang "nav.dashboard" }}</a>
     <a href="{{ .BasePath }}/admin/stats/"{{ if eq .NavActive "stats" }} class="active"{{ end }}>{{ t .Lang "nav.stats" }}</a>
-    {{- if .CanWrite }}
     <a href="{{ .BasePath }}/admin/hunt/"{{ if eq .NavActive "hunt" }} class="active"{{ end }}>{{ t .Lang "nav.hunt" }}</a>
+    {{- if .CanWrite }}
     <a href="{{ .BasePath }}/admin/bans/"{{ if eq .NavActive "bans" }} class="active"{{ end }}>{{ t .Lang "nav.bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
     <a href="{{ .BasePath }}/admin/settings/"{{ if eq .NavActive "settings" }} class="active"{{ end }}>{{ t .Lang "nav.settings" }}</a>
     {{- end }}

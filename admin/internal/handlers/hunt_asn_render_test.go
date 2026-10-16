@@ -32,6 +32,7 @@ func TestHuntASNRankingRenders(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/hunt/", nil)
+	req = asRole(req, "admin") // the rankings' BAN and rule buttons are drawn for CanWrite
 	rr := httptest.NewRecorder()
 	h.AdminHuntIndex(rr, req)
 	if rr.Code != http.StatusOK {
@@ -60,6 +61,7 @@ func TestHuntASNRankingRenders(t *testing.T) {
 	// Narrowed to the network, the filter bar offers the rule with the
 	// network as its condition, in a new tab so the page keeps its state.
 	req = httptest.NewRequest(http.MethodGet, "/unmask/admin/hunt/?asn=398781", nil)
+	req = asRole(req, "admin") // the rankings' BAN and rule buttons are drawn for CanWrite
 	rr = httptest.NewRecorder()
 	h.AdminHuntIndex(rr, req)
 	if rr.Code != http.StatusOK {
@@ -90,6 +92,7 @@ func TestHuntASNRankingOmittedWithoutMMDB(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/hunt/", nil)
+	req = asRole(req, "admin") // the rankings' BAN and rule buttons are drawn for CanWrite
 	rr := httptest.NewRecorder()
 	h.AdminHuntIndex(rr, req)
 	if rr.Code != http.StatusOK {

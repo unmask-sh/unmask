@@ -213,7 +213,7 @@ func TestEventsTableActionsColumnIsNotPaddedWithEmptySpace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(partial), `{{ if not .HideActions }}<th style="width:4rem"></th>{{ end }}`) {
+	if !strings.Contains(string(partial), `{{ if and (not .HideActions) .CanWrite }}<th style="width:4rem"></th>{{ end }}`) {
 		t.Error("the actions column is no longer 4rem -- it holds a 39px button, and any excess shows up " +
 			"as blank space next to the UA")
 	}

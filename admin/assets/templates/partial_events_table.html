@@ -25,6 +25,10 @@
                            the overview card so the recent-events table fits
                            inside the bcd-card and the URL / UA columns get
                            more horizontal room.  Hunt keeps it on.
+    .CanWrite              bool -- the account may BAN (admin or superadmin;
+                           addMeToData sets it).  The column is drawn only
+                           for it: a viewer reads the log without a form
+                           that the action route would refuse.
     .UABotNote             map[ua]string -- optional; per listed-crawler UA,
                            which reading its badge note carries: "range" (the
                            vendor's ranges are live, so a row here failed the
@@ -1503,7 +1507,7 @@ if (document.readyState === 'loading') {
            which reads as room the UA was refused, since that is exactly where
            the UA gets cut.  The freed width goes to the UA column, which is
            the one that takes whatever is left. */}}
-      {{ if not .HideActions }}<th style="width:4rem"></th>{{ end }}
+      {{ if and (not .HideActions) .CanWrite }}<th style="width:4rem"></th>{{ end }}
     </tr>
   </thead>
   <tbody>
@@ -1558,7 +1562,7 @@ if (document.readyState === 'loading') {
       {{ else }}{{/* not a bot: the old-browser mark's sentence, when the cell carries the mark */}}{{ $botNote = uaOldNote $.Lang .UA }}
       {{ end }}
       <td class="ua{{ if .UA }} cellpop{{ end }}"{{ if $uaShort }} data-full-value="{{ .UA }}"{{ end }}{{ with $botNote }} data-note="{{ . }}"{{ end }}>{{ template "ua_cell" .UA }}</td>
-      {{ if not $.HideActions }}
+      {{ if and (not $.HideActions) $.CanWrite }}
       <td class="actions">
         {{ if .Banned }}
           <span class="rank-registered">
@@ -1587,7 +1591,7 @@ if (document.readyState === 'loading') {
       {{ end }}
     </tr>
     {{ else }}
-    <tr><td colspan="{{ if .HideActions }}8{{ else }}9{{ end }}" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "hunt.empty" }}</td></tr>
+    <tr><td colspan="{{ if and (not .HideActions) .CanWrite }}9{{ else }}8{{ end }}" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "hunt.empty" }}</td></tr>
     {{ end }}
   </tbody>
 </table>

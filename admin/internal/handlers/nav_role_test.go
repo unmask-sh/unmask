@@ -10,10 +10,10 @@ import (
 )
 
 // The top nav (partial_nav.html) offers an account the pages its role can
-// open.  An administrator gets the five entries; a viewer gets the dashboard
-// and the statistics -- bot hunt, the BAN pages and the settings refuse the
-// role, and an entry that answers "forbidden" is not offered.  The mark of
-// the page's own entry follows the request path.
+// open.  An administrator gets the five entries; a viewer gets the dashboard,
+// the statistics and bot hunt (which it reads) -- the BAN pages and the
+// settings refuse the role, and an entry that answers "forbidden" is not
+// offered.  The mark of the page's own entry follows the request path.
 
 func navHandler(t *testing.T) *Handler {
 	t.Helper()
@@ -53,18 +53,18 @@ func TestNavOffersWhatTheRoleCanOpen(t *testing.T) {
 			}
 		}
 		nav = navOf(t, renderAs(t, fn, path, user.RoleViewer, "en"), path)
-		for _, want := range all[:2] {
+		for _, want := range all[:3] {
 			if !strings.Contains(nav, want) {
 				t.Errorf("%s: a viewer's nav lacks %s: %s", path, want, nav)
 			}
 		}
-		for _, gone := range all[2:] {
+		for _, gone := range all[3:] {
 			if strings.Contains(nav, gone) {
 				t.Errorf("%s: a viewer's nav offers %s, a page the role cannot open", path, gone)
 			}
 		}
-		if n := strings.Count(nav, "<a "); n != 2 {
-			t.Errorf("%s: a viewer's nav has %d entries, want 2: %s", path, n, nav)
+		if n := strings.Count(nav, "<a "); n != 3 {
+			t.Errorf("%s: a viewer's nav has %d entries, want 3: %s", path, n, nav)
 		}
 	}
 }
@@ -137,9 +137,9 @@ func TestNavActive(t *testing.T) {
 	}
 }
 
-// TestOverviewShortcutsFollowTheRole: the dashboard's shortcut tiles to bot
-// hunt, BAN management and the settings are drawn for an administrator and
-// not for a viewer, who keeps the statistics, the community feed and the
+// TestOverviewShortcutsFollowTheRole: the dashboard's shortcut tiles to BAN
+// management and the settings are drawn for an administrator and not for a
+// viewer, who keeps the statistics, bot hunt, the community feed and the
 // documentation.
 func TestOverviewShortcutsFollowTheRole(t *testing.T) {
 	h := navHandler(t)
@@ -151,18 +151,52 @@ func TestOverviewShortcutsFollowTheRole(t *testing.T) {
 		}
 	}
 	viewer := renderAs(t, h.AdminTopOverview, "/unmask/admin/", user.RoleViewer, "en")
-	for _, href := range []string{"/unmask/admin/stats/", "/unmask/admin/community-bans/"} {
+	for _, href := range []string{"/unmask/admin/stats/", "/unmask/admin/hunt/", "/unmask/admin/community-bans/"} {
 		if !strings.Contains(viewer, tile(href)) {
 			t.Errorf("viewer: no tile to %s", href)
 		}
 	}
-	for _, href := range []string{"/unmask/admin/hunt/", "/unmask/admin/bans/", "/unmask/admin/settings/"} {
+	for _, href := range []string{"/unmask/admin/bans/", "/unmask/admin/settings/"} {
 		if strings.Contains(viewer, tile(href)) {
 			t.Errorf("viewer: a tile to %s, a page the role cannot open", href)
 		}
 	}
-	if n, m := strings.Count(admin, `class="shortcut"`), strings.Count(viewer, `class="shortcut"`); n != 6 || m != 3 {
-		t.Errorf("tiles: administrator %d (want 6), viewer %d (want 3)", n, m)
+	if n, m := strings.Count(admin, `class="shortcut"`), strings.Count(viewer, `class="shortcut"`); n != 6 || m != 4 {
+		t.Errorf("tiles: administrator %d (want 6), viewer %d (want 4)", n, m)
+	}
+	// The reasons card's links follow the same line: the reason's records in
+	// bot hunt for every role, the gear to its setting and the sentence that
+	// tells of it for an administrator.
+	if !strings.Contains(viewer, `href="/unmask/admin/hunt/?range=24h"`) || strings.Contains(viewer, `class="rs-set"`) {
+		t.Errorf("viewer: the reasons card's links: hunt %v, gear %v", strings.Contains(viewer, `href="/unmask/admin/hunt/?range=24h"`), strings.Contains(viewer, `class="rs-set"`))
+	}
+	if !strings.Contains(viewer, "Click a reason to open its records in bot hunt.") || strings.Contains(viewer, "or its ⚙︎ to open where it is set") {
+		t.Errorf("viewer: the reasons sentence tells of links the role does not get")
+	}
+	if !strings.Contains(admin, "or its ⚙︎ to open where it is set") {
+		t.Errorf("administrator: the reasons sentence lacks the gear")
+	}
+}
+
+// TestHuntReadsForEveryRole: bot hunt opens for a viewer as a reading --
+// the rankings and the event log without the BAN and rule buttons, which
+// post to an action route that takes admin.  An administrator keeps them:
+// the event log's actions column, and the way to a custom rule.
+func TestHuntReadsForEveryRole(t *testing.T) {
+	h := navHandler(t)
+	const actions = `/admin/hunt/action`
+	viewer := renderAs(t, h.AdminHuntIndex, "/unmask/admin/hunt/?range=24h", user.RoleViewer, "en")
+	for _, gone := range []string{actions, `class="rank-act cr-from-filter"`, `<th style="width:4rem"></th>`, `class="js-ban-form"`, `class="js-asn-form"`, `class="js-ua-form"`} {
+		if strings.Contains(viewer, gone) {
+			t.Errorf("viewer: bot hunt draws %s, a way to an action the role cannot take", gone)
+		}
+	}
+	if !strings.Contains(viewer, `href="/unmask/admin/hunt/" class="active"`) {
+		t.Errorf("viewer: the hunt entry is not marked on the hunt page")
+	}
+	admin := renderAs(t, h.AdminHuntIndex, "/unmask/admin/hunt/?range=24h", user.RoleAdmin, "en")
+	if !strings.Contains(admin, `<th style="width:4rem"></th>`) {
+		t.Errorf("administrator: the event log lacks its actions column")
 	}
 }
 
