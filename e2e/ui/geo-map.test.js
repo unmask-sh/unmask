@@ -238,7 +238,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.setCookie({ name: 'unmask_locale', value: 'ja', url: BASE + '/' });
   await page.goto(BASE + '/admin/live/', { waitUntil: 'networkidle2' });
   ok(await page.evaluate(() => document.documentElement.lang) === 'ja', 'the page did not switch to Japanese');
-  await page.click('#live-toggle');
+  // The auto-refresh switch is remembered across loads (localStorage), and
+  // the first pass left it off: a blind click here would turn it on, and the
+  // reading that fetch brings (empty on this install) would land after the
+  // one fed below and wipe it -- which is what happened on the CI runner,
+  // where the fetch is slower than the feed.  Off it stays, checked.
+  if (await page.evaluate(() => document.getElementById('live-toggle').getAttribute('aria-pressed') !== 'false')) await page.click('#live-toggle');
+  ok(await page.evaluate(() => document.getElementById('live-toggle').getAttribute('aria-pressed') === 'false'), 'the auto-refresh switch is not off for the Japanese pass');
   await page.evaluate(() => {
     document.dispatchEvent(new CustomEvent('unmask:now', { detail: {
       countries: { JP: { n: 480, pass: 300, bypass: 10, serve: 120, deny: 50 } },
@@ -246,6 +252,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       country_names: { JP: 'Japan (日本)', US: 'United States (アメリカ合衆国)', DE: 'Germany (ドイツ)' },
     } }));
   });
+  await page.waitForFunction(() => /JP 1,480/.test(document.getElementById('geo-top').textContent), { timeout: 5000 }).catch(() => {});
   await sleep(400);
   const ja = await page.evaluate(() => {
     const cv = document.getElementById('geo'), w = cv.getBoundingClientRect().width;

@@ -32,7 +32,7 @@ type cardAnswers struct {
 	RLFunnel       FunnelRow
 }
 
-func readCards(t *testing.T, ctx context.Context, d *db.DB, site string) cardAnswers {
+func readCards(ctx context.Context, t *testing.T, d *db.DB, site string) cardAnswers {
 	t.Helper()
 	var a cardAnswers
 	var err error
@@ -162,7 +162,7 @@ func TestCardIndexesAnswerAsTheTable(t *testing.T) {
 
 	withIdx := map[string]cardAnswers{}
 	for _, site := range []string{"", "a.example"} {
-		withIdx[site] = readCards(t, ctx, d, site)
+		withIdx[site] = readCards(ctx, t, d, site)
 	}
 	// The cards found what was planted (not merely the same nothing twice).
 	if got := withIdx[""]; len(got.Reload) != 2 || len(got.VerifyNG) != 3 || len(got.PassTopIPs) != 3 ||
@@ -187,7 +187,7 @@ func TestCardIndexesAnswerAsTheTable(t *testing.T) {
 		}
 	}
 	for site, want := range withIdx {
-		if got := readCards(t, ctx, d, site); !reflect.DeepEqual(got, want) {
+		if got := readCards(ctx, t, d, site); !reflect.DeepEqual(got, want) {
 			t.Errorf("site %q: the cards answer differently from the table:\nindex: %+v\ntable: %+v", site, want, got)
 		}
 	}
