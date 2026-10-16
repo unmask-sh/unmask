@@ -15,6 +15,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ## [Unreleased]
 
 ### Added
+- (2026-10-16) **Ask AI counts a window instead of reading it.**  A new tool counts the event log over a window under the hunt's filters -- by phase, hour by hour, with the distinct addresses -- so how many, and whether a rule made a difference, is answered from the whole window.  The row tool now says what span of the window its rows cover and whether more exist, and no longer carries each event's raw payload.
 
 - (2026-10-16) **A local address shows a flag of its own.**  An address from a private network, loopback or link-local range showed the same "??" as a public address the country database could not place.  It now carries its own flag, a house, wherever an address is shown with one, and the stats page's country rankings list local addresses and unplaceable ones as two rows, named for what they are.
 

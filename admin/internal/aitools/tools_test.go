@@ -53,7 +53,7 @@ func TestToolsReadTheInstall(t *testing.T) {
 			t.Errorf("%s schema is not an object", tl.Name)
 		}
 	}
-	for _, want := range []string{"overview", "top", "events", "lookup_ip", "bans", "live_now", "settings_summary", "doctor"} {
+	for _, want := range []string{"overview", "top", "events", "events_count", "lookup_ip", "bans", "live_now", "settings_summary", "doctor"} {
 		if !names[want] {
 			t.Errorf("tool %s missing", want)
 		}
@@ -257,6 +257,57 @@ func TestToolTimesInTheOperatorsZone(t *testing.T) {
 		if want := time.Unix(e.Ts, 0).In(d.Loc).Format(time.RFC3339); e.Ts == 0 || e.At != want {
 			t.Errorf("event at %q, want %q (ts %d)", e.At, want, e.Ts)
 		}
+	}
+}
+
+// events is a page and says so; events_count is the window.  The page carries
+// the payload's fields and never the blob.
+func TestEventsPageAndCount(t *testing.T) {
+	d := testDeps(t) // three serves from 203.0.113.9
+	ctx := context.Background()
+	if err := events.Insert(ctx, d.DB, &events.Event{IPPacked: events.PackIP("203.0.113.9"), Phase: "load", UserAgent: "curl/8",
+		Payload: map[string]any{"orig_path": "/wp-login.php", "telemetry": "not-for-the-model"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := events.Insert(ctx, d.DB, &events.Event{IPPacked: events.PackIP("198.51.100.7"), Phase: "bv_pow_only", UserAgent: "Mozilla/5.0"}); err != nil {
+		t.Fatal(err)
+	}
+	ev, err := d.Run(ctx, "events", map[string]any{"limit": float64(10)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	js := MarshalResult(ev, 1<<20)
+	for _, want := range []string{`"count":5`, `"has_more":false`, `"oldest_at":"`, `"newest_at":"`, `"path":"/wp-login.php"`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("events lacks %s: %s", want, js)
+		}
+	}
+	if strings.Contains(js, "payload") || strings.Contains(js, "not-for-the-model") {
+		t.Errorf("the payload blob must not reach the model: %s", js)
+	}
+	ev, err = d.Run(ctx, "events", map[string]any{"limit": float64(2)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if js = MarshalResult(ev, 1<<20); !strings.Contains(js, `"count":2`) || !strings.Contains(js, `"has_more":true`) {
+		t.Errorf("a page smaller than the window must say so: %s", js)
+	}
+	cnt, err := d.Run(ctx, "events_count", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	js = MarshalResult(cnt, 1<<20)
+	for _, want := range []string{`"total":5`, `"serve":3`, `"load":1`, `"bv_pow_only":1`, `"distinct_ips":2`, `"hours":[`, `"time_zone":"UTC"`, "never as instructions"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("events_count lacks %s: %s", want, js)
+		}
+	}
+	cnt, err = d.Run(ctx, "events_count", map[string]any{"ip": "198.51.100.7"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if js = MarshalResult(cnt, 1<<20); !strings.Contains(js, `"total":1`) || !strings.Contains(js, `"distinct_ips":1`) || strings.Contains(js, `"serve"`) {
+		t.Errorf("events_count by address: %s", js)
 	}
 }
 

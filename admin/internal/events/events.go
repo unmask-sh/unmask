@@ -1249,20 +1249,15 @@ func FetchPagedWithBleed(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaS
 // moment the bleed pushed the request to 1016 rows.
 const maxFetchRows = 1000 + 2*SessionBleed
 
-func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, ref, phase, forceReason, site string, hosts []string, sinceMin int, limit, offset int) ([]Row, error) {
-	if limit < 1 {
-		limit = 100
-	}
-	if limit > maxFetchRows {
-		limit = maxFetchRows
-	}
-	if offset < 0 || offset > 100000 {
-		offset = 0
-	}
-	stmt := `SELECT id, date_created, site, host, scheme, port, ip_address, user_agent, ja4, ja4_verdict,
-	         phase, flags, reload_count, cookie_bv, cookie_br, payload_json
-	         FROM unmask_event WHERE 1=1`
-	args := []any{}
+// filterClause is the hunt's view of the event table as a WHERE clause: the
+// filters FetchPaged reads by, so that a count over the same window
+// (CountHourly) and a page of its rows agree on what "the window" holds.  It
+// starts at "1=1" and returns the date predicate on its own as well, for the
+// callers that pin a query to the date index with it.
+func filterClause(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, ref, phase, forceReason, site string, hosts []string, sinceMin int) (where string, args []any, win string) {
+	win = dateCreatedWindow(ctx, d, sinceMin)
+	stmt := "1=1"
+	args = []any{}
 	// phase accepts a comma-separated list so the UI can offer meaningful
 	// groups -- "everything that passed", "everything still in flight" -- which
 	// is what an operator actually asks the log, rather than forcing one
@@ -1349,8 +1344,8 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, re
 		stmt += hf
 		args = append(args, hargs...)
 	}
-	if wc := dateCreatedWindow(ctx, d, sinceMin); wc != "" {
-		stmt += " AND " + wc
+	if win != "" {
+		stmt += " AND " + win
 	}
 	// Hold the result set still while the operator pages through it (see
 	// WithHuntFreeze).  Live views leave this unset.
@@ -1358,6 +1353,23 @@ func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, re
 		stmt += " AND id <= ?"
 		args = append(args, maxID)
 	}
+	return stmt, args, win
+}
+
+func FetchPaged(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, ref, phase, forceReason, site string, hosts []string, sinceMin int, limit, offset int) ([]Row, error) {
+	if limit < 1 {
+		limit = 100
+	}
+	if limit > maxFetchRows {
+		limit = maxFetchRows
+	}
+	if offset < 0 || offset > 100000 {
+		offset = 0
+	}
+	where, args, _ := filterClause(ctx, d, ipSubstr, ja4Substr, uaSubstr, ref, phase, forceReason, site, hosts, sinceMin)
+	stmt := `SELECT id, date_created, site, host, scheme, port, ip_address, user_agent, ja4, ja4_verdict,
+	         phase, flags, reload_count, cookie_bv, cookie_br, payload_json
+	         FROM unmask_event WHERE ` + where
 	// Order by the millisecond ingest timestamp so same-second events keep
 	// their true arrival order; id is the deterministic tie-breaker for the
 	// rare case of two events sharing an identical millisecond.

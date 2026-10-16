@@ -121,16 +121,26 @@ func (d Deps) List() []Tool {
 				"window_hours": hoursProp("trailing window in hours; 24 by default"),
 				"limit":        map[string]any{"type": "integer", "minimum": 1, "maximum": 50, "description": "rows to return; 20 by default"},
 			}, "kind")},
-		{Name: "events", Description: "Rows of the event log (challenge served, loaded, solved, abandoned, passed on a cookie...), newest first, with optional filters.  Substring filters on ip, ja4 and ua.  reason narrows serves to why they were forced -- rate_limit for who hit the rate limit, honeypot for what tripped the honeypot -- which is the way to count those over a window (group the rows by address in the answer).",
+		{Name: "events", Description: "Rows of the event log (challenge served, loaded, solved, abandoned, passed on a cookie...), newest first, with optional filters: the newest `limit` rows of the window, not the window.  Substring filters on ip, ja4 and ua.  reason narrows serves to why they were forced -- rate_limit for who hit the rate limit, honeypot for what tripped the honeypot.  The result says the span the rows cover (oldest_at, newest_at) and whether the window holds more (has_more); to count anything over a window use events_count, never a page of rows.",
 			Schema: obj(map[string]any{
 				"ip":           map[string]any{"type": "string", "description": "address or its prefix"},
 				"ja4":          map[string]any{"type": "string", "description": "JA4 fingerprint or its prefix"},
 				"ua":           map[string]any{"type": "string", "description": "a substring of the user agent"},
-				"phase":        map[string]any{"type": "string", "description": "one phase: serve, load, abandon, bv_pow_only, bv_captcha_only, bv_pow_then_captcha, bv_rebind, check"},
+				"phase":        map[string]any{"type": "string", "description": "one phase, or several comma-separated: serve, load, abandon, bv_pow_only, bv_captcha_only, bv_pow_then_captcha, bv_rebind, check"},
 				"reason":       map[string]any{"type": "string", "description": "why the challenge was forced: rate_limit, honeypot, banned, protected, asn, geo, ja4_bot, ua_target, header, stale, geo_deny, asn_deny, ua_deny, ja4_deny, community_deny; serves only"},
 				"site":         map[string]any{"type": "string", "description": "one site (host name) on a multi-site install"},
 				"window_hours": hoursProp("trailing window in hours; 24 by default"),
 				"limit":        map[string]any{"type": "integer", "minimum": 1, "maximum": 200, "description": "rows to return; 50 by default"},
+			})},
+		{Name: "events_count", Description: "The event log counted over a window, under the same filters as events: every matching event by phase (serve, load, abandon, bv_pow_only, bv_captcha_only, bv_pow_then_captcha, bv_rebind, check...), the distinct addresses, and the same split hour by hour in the operator's time zone.  The way to say how many challenges a fingerprint, a user agent, a site or a reason drew, how many passed, how many addresses were behind it, and when: it counts the whole window, where events shows a page.  Compare a rule's effect by counting the hours before and after it.",
+			Schema: obj(map[string]any{
+				"ip":           map[string]any{"type": "string", "description": "address or its prefix"},
+				"ja4":          map[string]any{"type": "string", "description": "JA4 fingerprint or its prefix"},
+				"ua":           map[string]any{"type": "string", "description": "a substring of the user agent"},
+				"phase":        map[string]any{"type": "string", "description": "one phase, or several comma-separated, to count only those; empty counts every phase"},
+				"reason":       map[string]any{"type": "string", "description": "why the challenge was forced: rate_limit, honeypot, banned, protected, asn, geo, ja4_bot, ua_target, header, stale, geo_deny, asn_deny, ua_deny, ja4_deny, community_deny; serves only"},
+				"site":         map[string]any{"type": "string", "description": "one site (host name) on a multi-site install"},
+				"window_hours": hoursProp("trailing window in hours; 24 by default"),
 			})},
 		{Name: "lookup_ip", Description: "One address in detail: reverse DNS, country and network (ASN), whether it is banned and why, and its last events.",
 			Schema: obj(map[string]any{"ip": map[string]any{"type": "string", "description": "an IPv4 or IPv6 address"}}, "ip")},
@@ -212,6 +222,8 @@ func (d Deps) Run(ctx context.Context, name string, args map[string]any) (any, e
 		return d.top(ctx, str("kind"), hours, num("limit", 20, 50))
 	case "events":
 		return d.events(ctx, str("ip"), str("ja4"), str("ua"), str("phase"), str("reason"), str("site"), hours, num("limit", 50, 200))
+	case "events_count":
+		return d.eventsCount(ctx, str("ip"), str("ja4"), str("ua"), str("phase"), str("reason"), str("site"), hours)
 	case "lookup_ip":
 		ip := str("ip")
 		if net.ParseIP(ip) == nil {
@@ -391,15 +403,49 @@ func (d Deps) top(ctx context.Context, kind string, hours, limit int) (any, erro
 	return map[string]any{"kind": kind, "window_hours": hours, "rows": list, "note": untrusted}, nil
 }
 
+// events: a page of the log, newest first.  One row more than asked is read
+// so the result can say whether the window holds more than the page -- the
+// model otherwise takes "50 rows" for "50 events in 24 hours".  The span the
+// page covers is given for the same reason.
 func (d Deps) events(ctx context.Context, ip, ja4, ua, phase, reason, site string, hours, limit int) (any, error) {
 	if d.DB == nil {
 		return nil, errors.New("no database")
 	}
-	rows, err := events.FetchPaged(ctx, d.DB, ip, ja4, ua, "", phase, reason, site, nil, hours*60, limit, 0)
+	rows, err := events.FetchPaged(ctx, d.DB, ip, ja4, ua, "", phase, reason, site, nil, hours*60, limit+1, 0)
 	if err != nil {
 		return nil, err
 	}
-	return map[string]any{"window_hours": hours, "count": len(rows), "events": scrub(rows, d.loc()), "note": untrusted}, nil
+	more := len(rows) > limit
+	if more {
+		rows = rows[:limit]
+	}
+	out := map[string]any{"window_hours": hours, "count": len(rows), "has_more": more, "events": scrub(rows, d.loc()), "note": untrusted}
+	if n := len(rows); n > 0 {
+		out["newest_at"] = time.Unix(rows[0].Ts, 0).In(d.loc()).Format(time.RFC3339)
+		out["oldest_at"] = time.Unix(rows[n-1].Ts, 0).In(d.loc()).Format(time.RFC3339)
+	}
+	return out, nil
+}
+
+// eventsCount: the window counted in the database.  A window a scan cannot
+// finish within the chat's tool timeout comes back as advice rather than a
+// bare deadline: the model can narrow the window or add a filter.
+func (d Deps) eventsCount(ctx context.Context, ip, ja4, ua, phase, reason, site string, hours int) (any, error) {
+	if d.DB == nil {
+		return nil, errors.New("no database")
+	}
+	c, err := events.CountHourly(ctx, d.DB, ip, ja4, ua, phase, reason, site, nil, hours*60, d.loc())
+	if err != nil {
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("counting %d hours took too long: narrow window_hours or add a filter (%v)", hours, err)
+		}
+		return nil, err
+	}
+	return map[string]any{
+		"window_hours": hours, "time_zone": d.loc().String(),
+		"total": c.Total, "distinct_ips": c.DistinctIPs, "phases": c.Phases, "hours": c.Hours,
+		"note": "phases counts events, not requests: a browser that runs a challenge page writes several (serve, load, then a pass or an abandon); " + untrusted,
+	}, nil
 }
 
 // eventView is an event row with its time in the operator's zone (at), so
@@ -410,12 +456,17 @@ type eventView struct {
 }
 
 // scrub blanks the pass-cookie values: a _bv cookie is a live credential for
-// the visitor it was minted for, and the answer goes to a provider.
+// the visitor it was minted for, and the answer goes to a provider.  The raw
+// payload goes too: everything the model reads from it (user agent, path,
+// referer, reason, chain) is already a field of the row, and carrying the
+// blob as well made a row three times the size, so a page of 200 rows was
+// cut by the result cap after some 70.
 func scrub(rows []events.Row, loc *time.Location) []eventView {
 	out := make([]eventView, len(rows))
 	for i, r := range rows {
 		r.CookieBV = ""
 		r.CookieBR = ""
+		r.Payload = ""
 		out[i] = eventView{Row: r}
 		if r.Ts > 0 {
 			out[i].At = time.Unix(r.Ts, 0).In(loc).Format(time.RFC3339)
