@@ -6,7 +6,10 @@
 // switches, recipient list and payload format apply to it unchanged.
 package notifier
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // AdvisorDigest reports ban candidates the scheduled advisor pass found since
 // the previous digest.  Advisory only -- nothing has been blocked -- so it is
@@ -17,6 +20,14 @@ func (n *Notifier) AdvisorDigest(newCount, total int, body string) {
 		return
 	}
 	cfg := n.currentCfg()
+	fields := map[string]any{
+		"event":            EventAdvisorDigest,
+		"new_candidates":   newCount,
+		"total_candidates": total,
+		"site":             cfg.Sites,
+		"ts":               time.Now().Unix(),
+	}
+	n.toInbox(EventAdvisorDigest, fields)
 	if cfg.Disabled || !cfg.BanEvents {
 		return
 	}
@@ -24,10 +35,8 @@ func (n *Notifier) AdvisorDigest(newCount, total int, body string) {
 	if cfg.Sites != "" {
 		subject = fmt.Sprintf("[unmask %s] %d new ban candidate(s)", cfg.Sites, newCount)
 	}
-	n.send(cfg, "advisor_digest", map[string]any{
-		"new_candidates":   newCount,
-		"total_candidates": total,
-		"site":             cfg.Sites,
-	}, body)
+	if cfg.URL != "" && !cfg.WebhookDisabled {
+		n.send(cfg, EventAdvisorDigest, fields, body)
+	}
 	n.sendMail(subject, body)
 }

@@ -10,6 +10,10 @@
 //   - Notification event kinds:
 //     ban_created     : auto-BAN from a honeypot trip, or admin manual BAN
 //     challenge_burst : challenge count in the last 5 minutes exceeds the threshold
+//   - A third channel, the admin's own notification list (Inbox, the notice
+//     package), gets every event whatever the switches below say: they are
+//     about how much mail and webhook traffic the operator wants, and the
+//     list is the one channel every install has.
 package notifier
 
 import (
@@ -33,6 +37,7 @@ const (
 	EventBanCreated     = "ban_created"
 	EventChallengeBurst = "challenge_burst"
 	EventOverBlock      = "over_block"
+	EventAdvisorDigest  = "advisor_digest"
 )
 
 // Config: notification settings.  Disabled mutes both channels; the
@@ -72,6 +77,15 @@ type MailSender interface {
 	SendAlt(to, subject, text, html string) error
 }
 
+// Inbox is the admin's own notification list (internal/notice): it gets
+// every event's name and fields -- the same the generic webhook payload
+// carries -- so what the list shows and what the webhook sent are one thing.
+// An interface, like MailSender, so this package does not import the
+// database.
+type Inbox interface {
+	Add(event string, fields map[string]any)
+}
+
 // Notifier: external webhook client.  Every method is nil-safe.
 type Notifier struct {
 	cfg    Config
@@ -92,6 +106,10 @@ type Notifier struct {
 	// mailLangOf: the language of the account an address belongs to ("" when
 	// none), for the addresses in Config.MailTo.
 	mailLangOf func(email string) string
+
+	// inbox: the admin's notification list; nil when the daemon has no
+	// database.
+	inbox Inbox
 }
 
 // New: cfg is passed by value (= hot-swap later via SetConfig).
@@ -125,6 +143,25 @@ func (n *Notifier) WithMail(m MailSender, resolveTo func() []Recipient, langOf f
 	n.mailGetTo = resolveTo
 	n.mailLangOf = langOf
 	return n
+}
+
+// WithInbox keeps every event for the admin's notification list, beside the
+// webhook and the mail.
+func (n *Notifier) WithInbox(ib Inbox) *Notifier {
+	if n == nil {
+		return n
+	}
+	n.inbox = ib
+	return n
+}
+
+// toInbox hands an event to the list.  Off the caller's path, like the
+// other channels: a ban's caller does not wait on the database.
+func (n *Notifier) toInbox(event string, fields map[string]any) {
+	if n == nil || n.inbox == nil {
+		return
+	}
+	go n.inbox.Add(event, fields)
 }
 
 // recipients resolves who alert mail goes to now, each with a language.
@@ -170,16 +207,13 @@ func (n *Notifier) currentCfg() Config {
 // BanCreated: called from places like the ban manager.  ip / ja4 / source / reason / bannedBy.
 // Sends webhook + mail in parallel (= no-op when both are disabled).
 // The BanEvents flag is a shared switch for webhook / mail.  Mail is still
-// sent even if the webhook URL is empty.
+// sent even if the webhook URL is empty.  The admin's list gets the ban
+// whatever the switches say (it folds an hour's bans into one line).
 func (n *Notifier) BanCreated(ip, ja4, source, reason, bannedBy string) {
 	if n == nil {
 		return
 	}
 	cfg := n.currentCfg()
-	if cfg.Disabled || !cfg.BanEvents {
-		return
-	}
-	text := formatBanText(ip, ja4, source, reason, bannedBy, cfg.Sites)
 	fields := map[string]any{
 		"event":     EventBanCreated,
 		"ip":        ip,
@@ -190,6 +224,11 @@ func (n *Notifier) BanCreated(ip, ja4, source, reason, bannedBy string) {
 		"site":      cfg.Sites,
 		"ts":        time.Now().Unix(),
 	}
+	n.toInbox(EventBanCreated, fields)
+	if cfg.Disabled || !cfg.BanEvents {
+		return
+	}
+	text := formatBanText(ip, ja4, source, reason, bannedBy, cfg.Sites)
 	if cfg.URL != "" && !cfg.WebhookDisabled {
 		go n.send(cfg, EventBanCreated, fields, text)
 	}
@@ -205,13 +244,15 @@ func (n *Notifier) BanCreated(ip, ja4, source, reason, bannedBy string) {
 //
 // Even if the threshold is exceeded many times within the same window, the
 // burst event only fires once per 5 minutes (= flap prevention).  Mail is
-// sent even when the webhook URL is empty.
+// sent even when the webhook URL is empty.  The admin's list gets the burst
+// whatever the switches say, so the count runs whenever there is a
+// threshold to pass.
 func (n *Notifier) ChallengeServed() {
 	if n == nil {
 		return
 	}
 	cfg := n.currentCfg()
-	if cfg.Disabled || !cfg.ChallengeBurst || cfg.BurstThresholdPer5m <= 0 {
+	if cfg.BurstThresholdPer5m <= 0 {
 		return
 	}
 	now := time.Now()
@@ -231,7 +272,6 @@ func (n *Notifier) ChallengeServed() {
 	if !canSend {
 		return
 	}
-	text := fmt.Sprintf("[WARN] challenge fired %d times in the last 5 minutes (= threshold %d exceeded)%s", count, thresh, siteSuffix(cfg.Sites))
 	fields := map[string]any{
 		"event":        EventChallengeBurst,
 		"count_per_5m": count,
@@ -239,6 +279,11 @@ func (n *Notifier) ChallengeServed() {
 		"site":         cfg.Sites,
 		"ts":           now.Unix(),
 	}
+	n.toInbox(EventChallengeBurst, fields)
+	if cfg.Disabled || !cfg.ChallengeBurst {
+		return
+	}
+	text := fmt.Sprintf("[WARN] challenge fired %d times in the last 5 minutes (= threshold %d exceeded)%s", count, thresh, siteSuffix(cfg.Sites))
 	if cfg.URL != "" && !cfg.WebhookDisabled {
 		go n.send(cfg, EventChallengeBurst, fields, text)
 	}

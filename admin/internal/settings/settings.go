@@ -3335,12 +3335,20 @@ type Settings struct {
 	// would drop it on Save and Load would re-default it -- silently deleting
 	// the history the operator chose to keep forever.
 	EventsRetentionDays int `yaml:"events_retention_days"`
-	// AuditRetentionDays: retention days for the admin-action log
-	// (unmask_user_audit: login / settings save / user + ban mutations).
-	// Default 90. 0 = retain forever. Pruned by the same 24h startup goroutine
-	// as events (`DELETE FROM unmask_user_audit WHERE at < now - N days`).
+	// AuditLogRetentionDays: how long the admin-action log is kept
+	// (unmask_user_audit: login / settings save / user + ban mutations, the
+	// daemon's own install / update entries), in days.  0 (the default)
+	// keeps it: the log is small -- a settings save, the largest entry, is
+	// two copies of this file -- and it is the record that answers "since
+	// when" months later.  Pruned by the same 24h goroutine as events when
+	// set.  Replaces audit_retention_days (default 90) from 0.1.52: the old
+	// key is ignored, so every install keeps its log from then on.
 	// No omitempty (same 0-must-round-trip reason as EventsRetentionDays).
-	AuditRetentionDays int `yaml:"audit_retention_days"`
+	AuditLogRetentionDays int `yaml:"audit_log_retention_days"`
+	// NoticeRetentionDays: the same for the admin's notification list
+	// (unmask_notice): 0 (the default) keeps it.  The list is bounded by
+	// how it is written -- an hour of bans is one row -- so it stays small.
+	NoticeRetentionDays int `yaml:"notice_retention_days"`
 	// EventsBatchSize: how many raw events to batch per write. Default 100.
 	// Once accumulated, run a bulk INSERT (= N rows in one transaction).
 	// On high-traffic sites (= >100 events/sec) this reduces DB writes to 1/N.
@@ -4416,7 +4424,6 @@ func (c RateLimitConfig) ResolveZone(path, site string) RateLimitValues {
 func defaults() Settings {
 	return Settings{
 		EventsRetentionDays:   7,
-		AuditRetentionDays:    90,
 		EventsBatchSize:       100,
 		EventsBatchIntervalMs: 1000,
 		// Notifications / SMTP carry their effective defaults here because the
@@ -4702,6 +4709,7 @@ func Load(path string) (Settings, error) {
 		warnRemovedChallengeAll(resolved, raw)
 		warnRemovedGlobalPassthrough(resolved, raw)
 		warnRemovedUpstreamLists(resolved, raw)
+		warnRemovedAuditRetention(resolved, raw)
 	}
 	if s.Secret.BVSecret == "" {
 		// Neither config.yml nor config-init supplied a key.  A per-process

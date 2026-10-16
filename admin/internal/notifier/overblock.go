@@ -50,23 +50,28 @@ func (n *Notifier) OverBlock(r OverBlockReport) {
 		return
 	}
 	cfg := n.currentCfg()
+	fields := map[string]any{
+		"event":            EventOverBlock,
+		"tripped":          r.Tripped,
+		"window_minutes":   r.Minutes,
+		"stuck":            r.Stuck,
+		"ran_challenge":    r.Loaders,
+		"stuck_percent":    r.StuckPct,
+		"rechallenged":     r.Rechallenged,
+		"verify_failed":    r.VerifyFailed,
+		"auto_passthrough": r.AutoPassthrough,
+		// where the breaker trips: the list's line for a clearing says what
+		// the figures fell below
+		"min_stuck":   r.MinStuck,
+		"min_percent": r.MinPct,
+		"site":        cfg.Sites,
+		"ts":          time.Now().Unix(),
+	}
+	n.toInbox(EventOverBlock, fields)
 	if cfg.Disabled {
 		return
 	}
 	if cfg.URL != "" && !cfg.WebhookDisabled {
-		fields := map[string]any{
-			"event":            EventOverBlock,
-			"tripped":          r.Tripped,
-			"window_minutes":   r.Minutes,
-			"stuck":            r.Stuck,
-			"ran_challenge":    r.Loaders,
-			"stuck_percent":    r.StuckPct,
-			"rechallenged":     r.Rechallenged,
-			"verify_failed":    r.VerifyFailed,
-			"auto_passthrough": r.AutoPassthrough,
-			"site":             cfg.Sites,
-			"ts":               time.Now().Unix(),
-		}
 		lang := i18n.Lang(cfg.mailLang())
 		go n.send(cfg, EventOverBlock, fields, overBlockLine(r, lang, cfg.Sites))
 	}

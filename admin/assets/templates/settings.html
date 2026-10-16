@@ -6266,6 +6266,10 @@ function secToHuman(s){
          recreates the incident it exists for.  Muting it means disabling
          notifications as a whole (or the breaker itself, in config.yml). */}}
     <div class="note">{{ t .Lang "settings.notify.over_block_note" }}</div>
+    {{/* The admin's own list (the bell) is the third channel, and the one
+         every install has: it gets every event whatever is switched on
+         here, so the switches are about mail and webhook volume only. */}}
+    <div class="note">{{ t .Lang "settings.notify.inbox_note" }}</div>
   </div>
 
   {{/* Channel 1: webhook.  The event selection above gates this channel and
@@ -7034,6 +7038,26 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       {{ if .Retention.WALLarge }}
       <div class="banner bad" style="margin-top:.5rem" id="retention-wal-warn">{{ printf (t .Lang "settings.retention.wal_warn") .Retention.WALSizeStr }}</div>
       {{ end }}
+    </div>
+
+    {{/* The audit log's and the notification list's own retention: both
+         kept by default (0), each a small table, so neither follows the
+         events window. */}}
+    <div class="field">
+      <div class="field-label field-label-row">
+        <span>{{ t .Lang "settings.retention.audit_days" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="retention-audit-days-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="retention-audit-days-help">{{ safeHTML (t .Lang "settings.retention.audit_days_desc") }}</script>
+      <input type="number" name="audit_log_retention_days" value="{{ .AuditLogRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
+    </div>
+    <div class="field">
+      <div class="field-label field-label-row">
+        <span>{{ t .Lang "settings.retention.notice_days" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="retention-notice-days-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="retention-notice-days-help">{{ safeHTML (t .Lang "settings.retention.notice_days_desc") }}</script>
+      <input type="number" name="notice_retention_days" value="{{ .NoticeRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
     </div>
   </div>
 

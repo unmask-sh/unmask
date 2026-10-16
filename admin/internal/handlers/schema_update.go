@@ -798,6 +798,7 @@ func (h *Handler) schemaWriteExempt(r *http.Request) bool {
 		"/admin/settings/", // save, branding and challenge per site, snapshot
 		"/admin/upgrade-review/apply",
 		"/admin/audit/restore",
+		"/admin/notices/panel", // reads; its read mark is skipped while writes are held
 		"/admin/api/sites/promote",
 		"/admin/community-bans/mute-toggle",
 		"/admin/api/community-bans/vote",

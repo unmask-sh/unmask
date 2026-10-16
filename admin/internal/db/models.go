@@ -97,6 +97,35 @@ type AIChat struct {
 
 func (AIChat) TableName() string { return "unmask_ai_chat" }
 
+// Notice: a row of unmask_notice -- one alert (or, for bans, an hour of
+// them) kept for the admin's notification list.  Detail is the event's
+// fields as JSON; the page writes the line from them in the reader's
+// language.  UserID nil is every administrator.
+type Notice struct {
+	ID        int64  `gorm:"primaryKey;autoIncrement"`
+	CreatedAt int64  `gorm:"column:created_at;not null;autoCreateTime:false"`
+	UpdatedAt int64  `gorm:"column:updated_at;not null;autoUpdateTime:false"`
+	Kind      string `gorm:"column:kind;not null"`
+	Severity  string `gorm:"column:severity;not null"`
+	UserID    *int64 `gorm:"column:user_id"`
+	Site      string `gorm:"column:site;not null"`
+	GroupKey  string `gorm:"column:group_key;not null"`
+	Events    int    `gorm:"column:events;not null"`
+	Detail    string `gorm:"column:detail;not null"`
+}
+
+func (Notice) TableName() string { return "unmask_notice" }
+
+// NoticeSeen: a row of unmask_notice_seen -- how far an account has read the
+// notification list (the id of the newest row it had opened the list to).
+type NoticeSeen struct {
+	UserID int64 `gorm:"column:user_id;primaryKey;autoIncrement:false"`
+	SeenID int64 `gorm:"column:seen_id;not null"`
+	SeenAt int64 `gorm:"column:seen_at;not null;autoUpdateTime:false"`
+}
+
+func (NoticeSeen) TableName() string { return "unmask_notice_seen" }
+
 // AdvisorResult: a row of unmask_advisor_result — the model's last answer for
 // one window (per provider / model / endpoint / language), kept so a restart
 // does not turn a paid answer into "not asked yet".  Upserted on key_hash.

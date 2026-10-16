@@ -1004,6 +1004,12 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 		if _, ok := data["ReloadNotice"]; !ok {
 			data["ReloadNotice"] = h.reloadNotice()
 		}
+		// The bell (partial_notice_bell.html): how many notices the account
+		// has not opened the list to.  One indexed count; a database that
+		// cannot answer in time shows no badge rather than holding the page.
+		if _, ok := data["NoticeUnread"]; !ok {
+			data["NoticeUnread"] = h.noticeUnread(r.Context(), pay)
+		}
 	}
 	// "共有 BAN" tab badge: count of source=community_bans rows in BanMgr so
 	// auto-applied entries don't go unnoticed across multiple sessions.

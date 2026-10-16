@@ -37,6 +37,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/mail"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/nginxlog"
+	"github.com/unmask-sh/unmask/admin/internal/notice"
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/privacypass"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
@@ -168,6 +169,7 @@ type Handler struct {
 	// the pages that follow it (see hunt_rank.go).  Zero value is ready.
 	huntRank      huntRankCache
 	Notifier      *notifier.Notifier    // optional, may be nil (notification URL unset)
+	Notices       *notice.Store         // optional, may be nil (no database): the admin's notification list
 	Mailer        *mail.Mailer          // optional, may be nil (SMTP unset).  Used by alert / password reset.
 	RateLimiter   *ratelimit.Limiter    // sliding-window counter for forward-auth mode.  nil disables counting.
 	CommunityBans *communitybans.Client // optional, may be nil.  Async submit to community feed on BAN + periodic pull.

@@ -595,6 +595,8 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// forcing "nginx" into the field would pin it and break apache hosts.
 		"ListenSockGroup":       h.cfg().Server.SocketGroup,
 		"EventsRetentionDays":   h.cfg().EventsRetentionDays,
+		"AuditLogRetentionDays": h.cfg().AuditLogRetentionDays,
+		"NoticeRetentionDays":   h.cfg().NoticeRetentionDays,
 		"EventsBatchSize":       h.cfg().EventsBatchSize,
 		"EventsBatchIntervalMs": h.cfg().EventsBatchIntervalMs,
 		"EventsDropped":         events.GlobalFlusherDropped(),
@@ -1904,6 +1906,21 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 				v = 3650
 			}
 			cur.EventsRetentionDays = v
+		}
+		// The audit log's and the notification list's: 0 = kept, the
+		// default for both; the same cap.
+		for name, dst := range map[string]*int{
+			"audit_log_retention_days": &cur.AuditLogRetentionDays,
+			"notice_retention_days":    &cur.NoticeRetentionDays,
+		} {
+			if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue(name))); err == nil {
+				if v < 0 {
+					v = 0
+				} else if v > 3650 {
+					v = 3650
+				}
+				*dst = v
+			}
 		}
 
 		// nginx_log_enabled toggle. To apply, the next render-nginx + nginx

@@ -45,6 +45,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/mail"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/nginxlog"
+	"github.com/unmask-sh/unmask/admin/internal/notice"
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/privacypass"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
@@ -370,11 +371,15 @@ func cmdServe(args []string) error {
 	// CLI-oriented users can still bypass the wizard with
 	// `unmask user create <name> -role superadmin -password <pw>`.
 	var userRepo *user.Repository
+	// noticeStore: the admin's notification list (the bell), the notifier's
+	// third channel.
+	var noticeStore *notice.Store
 	if conn != nil {
 		userRepo = user.New(conn)
 		// The audit log's own entries: an install, an update since the last
 		// start, the schema updates this start applied.
 		userRepo.RecordStart(context.Background(), Version, Commit, applied)
+		noticeStore = notice.New(conn)
 	}
 
 	// setupComplete reports whether the install wizard has been finished — i.e.
@@ -506,6 +511,9 @@ func cmdServe(args []string) error {
 		defer cancel()
 		return userRepo.UILangByEmail(ctx, email)
 	})
+	if noticeStore != nil {
+		notifierInst.WithInbox(noticeStore)
+	}
 	if banMgr != nil {
 		banMgr.OnCreated = notifierInst.BanCreated
 	}
@@ -562,6 +570,7 @@ func cmdServe(args []string) error {
 		BanMgr:        banMgr,
 		UserRepo:      userRepo,
 		Notifier:      notifierInst,
+		Notices:       noticeStore,
 		Mailer:        mailerInst,
 		RateLimiter:   limiter,
 	}
@@ -830,13 +839,26 @@ func cmdServe(args []string) error {
 				// Admin-action audit log first: it is tiny and must not lose its
 				// daily run to an events prune that used the whole budget.
 				// (Independent retention; checked separately so
-				// events_retention_days=0 doesn't disable it.)
+				// events_retention_days=0 doesn't disable it.  Its own
+				// default is 0: the log is kept until the operator sets a
+				// number.)
 				if h.UserRepo != nil {
-					if retention := cfg.AuditRetentionDays; retention > 0 {
+					if retention := cfg.AuditLogRetentionDays; retention > 0 {
 						if n, err := h.UserRepo.PruneOldAudit(ctx, retention); err != nil {
 							log.Printf("audit prune: %v", err)
 						} else if n > 0 {
 							log.Printf("audit prune: deleted %d row(s) older than %d days", n, retention)
+						}
+					}
+				}
+				// The notification list, on its own retention (also kept by
+				// default).
+				if h.Notices != nil {
+					if retention := cfg.NoticeRetentionDays; retention > 0 {
+						if n, err := h.Notices.Prune(ctx, retention); err != nil {
+							log.Printf("notice prune: %v", err)
+						} else if n > 0 {
+							log.Printf("notice prune: deleted %d row(s) older than %d days", n, retention)
 						}
 					}
 				}
@@ -1625,6 +1647,12 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	// to superadmin since it overwrites the live config.
 	mux.HandleFunc("POST "+base+"/admin/audit/restore",
 		h.AuthMiddleware(h.RequireRole(user.RoleSuperadmin, h.AdminAuditRestore)))
+	// the notification list (admin or above): the page, and the bell's
+	// panel -- a POST, since opening either marks the list read
+	mux.HandleFunc("GET "+base+"/admin/notices/{$}",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminNoticesIndex)))
+	mux.HandleFunc("POST "+base+"/admin/notices/panel",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminNoticesPanel)))
 	// Explicit snapshot capture (no mutation).  admin or above.
 	mux.HandleFunc("POST "+base+"/admin/settings/snapshot",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSettingsSnapshot)))

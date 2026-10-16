@@ -14,7 +14,8 @@ func TestSettings_ZeroValueOptOutsRoundTrip(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "config.yml")
 	s := defaults()
 	s.EventsRetentionDays = 0              // forever
-	s.AuditRetentionDays = 0               // forever
+	s.AuditLogRetentionDays = 0            // forever (the default since 0.1.52)
+	s.NoticeRetentionDays = 30             // a number of the operator's own
 	s.CommunityBans.PublishCountry = false // privacy opt-out
 
 	if err := Save(s, p); err != nil {
@@ -28,8 +29,11 @@ func TestSettings_ZeroValueOptOutsRoundTrip(t *testing.T) {
 	if got.EventsRetentionDays != 0 {
 		t.Errorf("EventsRetentionDays = %d, want 0 (reverted to default)", got.EventsRetentionDays)
 	}
-	if got.AuditRetentionDays != 0 {
-		t.Errorf("AuditRetentionDays = %d, want 0 (reverted to default)", got.AuditRetentionDays)
+	if got.AuditLogRetentionDays != 0 {
+		t.Errorf("AuditLogRetentionDays = %d, want 0 (reverted to default)", got.AuditLogRetentionDays)
+	}
+	if got.NoticeRetentionDays != 30 {
+		t.Errorf("NoticeRetentionDays = %d, want 30", got.NoticeRetentionDays)
 	}
 	if got.CommunityBans.PublishCountry {
 		t.Error("CommunityBans.PublishCountry = true, want false (privacy opt-out reverted)")

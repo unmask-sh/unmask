@@ -20,10 +20,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-16) **The audit log records installs, updates and schema updates.**  Beside the operator's actions, the log now says when the software itself changed: the first start of a new database, a start as another version than the last one (from and to, with the build), and the schema updates a start or `unmask migrate` applied, with how long each took.  A restart as the same version writes nothing.
 
+- (2026-10-16) **The admin has a notification list: a bell in the top bar.**  Every alert the daemon sends by webhook or mail (a ban, a challenge burst, the over-block breaker tripping or clearing, the advisor's digest) is also kept for the admin, whatever the notification switches say -- most installs have neither a webhook nor SMTP, and the alert went nowhere.  The bell counts what the account has not opened the list to; its panel and the page write each line in the reader's language, with where to look.  Bans fold into one line per hour.  Kept as long as the audit log.
+
 ### Changed
 - (2026-10-16) **The realtime map puts Japan in the middle for a Japanese admin, and its counts carry a thousands separator.**  Read in Japanese, the map is centred on Japan with the Pacific whole and the Americas to the right, as a map printed in Japan is; in English it stays centred on Greenwich.  The continents are two shades lighter than the sea, so they read at a glance under the streams, and every count on the map, in the top-sources line and in a source's popover separates its thousands.
 
 - (2026-10-16) **The "nginx has not reloaded" bar is one line.**  The notice that nginx is still running an earlier configuration took two lines on every page, the second spelling out the commands.  It now says what is the case and since when on one line, and the way to apply the configuration, and how the notice knows, open from a question mark beside it.  The bar is a little tighter too.
+
+- (2026-10-16) **The audit log is kept by default, and its retention and the notification list's are set on the retention tab.**  `audit_retention_days` deleted the admin-action log past 90 days, could be set only in config.yml, and was named nowhere.  It is gone: the log is kept until the operator sets `audit_log_retention_days` (Settings → Log management, 0 = keep), and the notification list has `notice_retention_days` of its own, also 0.  Every install keeps its log from this version on; a config file that still carries the old key is told so at startup.
 
 ## [0.1.51] - 2026-10-16
 
