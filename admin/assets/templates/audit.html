@@ -141,7 +141,7 @@ table.audit td.detail{font-family:ui-monospace,Menlo,monospace;color:#64748b;fon
       {{ range .Entries }}
       <tr>
         <td class="at">{{ .At }}</td>
-        <td class="username">{{ .Username }}{{ if not .UserIDValid }}<span class="muted"> (anon)</span>{{ end }}</td>
+        <td class="username">{{ .Username }}{{ if and (not .UserIDValid) (not .System) }}<span class="muted"> (anon)</span>{{ end }}</td>
         <td class="audit-ip">{{ if .IP }}{{ .IP }}{{ else }}<span class="muted" title="{{ t $.Lang "audit.ip_absent" }}">-</span>{{ end }}</td>
         <td class="action"><span class="action-pill act-{{ .Action }}">{{ .Action }}</span></td>
         <td class="target">{{ if .Target }}{{ .Target }}{{ else }}<span class="muted">-</span>{{ end }}</td>

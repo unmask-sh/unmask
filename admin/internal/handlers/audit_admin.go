@@ -22,6 +22,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
+	"github.com/unmask-sh/unmask/admin/internal/user"
 )
 
 const auditPageSize = 100
@@ -40,14 +41,17 @@ type auditEnriched struct {
 	ID          int64
 	UserID      int64
 	UserIDValid bool
-	Username    string
-	Action      string
-	Target      string
-	IP          string // where the action came from; empty for pre-0024 rows and CLI callers
-	At          string
-	Section     string // settings_save only
-	Diff        string
-	HasBefore   bool
+	// System: the daemon's own entry (an install, an update, a schema update)
+	// or a shell's -- no account, and not anonymous either.
+	System    bool
+	Username  string
+	Action    string
+	Target    string
+	IP        string // where the action came from; empty for pre-0024 rows and CLI callers
+	At        string
+	Section   string // settings_save only
+	Diff      string
+	HasBefore bool
 }
 
 func (h *Handler) AdminAuditIndex(w http.ResponseWriter, r *http.Request) {
@@ -80,6 +84,7 @@ func (h *Handler) AdminAuditIndex(w http.ResponseWriter, r *http.Request) {
 			Action:      e.Action,
 			At:          e.At,
 			UserIDValid: e.UserID.Valid,
+			System:      !e.UserID.Valid && user.IsSystemActor(e.Username),
 			IP:          e.IP.String,
 		}
 		if e.UserID.Valid {

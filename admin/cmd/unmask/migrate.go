@@ -13,6 +13,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
+	"github.com/unmask-sh/unmask/admin/internal/user"
 )
 
 // cmdMigrate: `unmask migrate` -- create the schema on a new database, and
@@ -98,6 +99,8 @@ func cmdMigrate(args []string) error {
 		}
 		return err
 	}
+	// The audit log's entry for the run, under the name it was started by.
+	user.New(conn).RecordSchemaUpdate(context.Background(), *by, res.Applied)
 	if n := len(res.Applied); n > 0 && res.Elapsed >= time.Second {
 		fmt.Printf("schema applied (%d update(s) in %s)\n", n, res.Elapsed.Round(time.Second))
 	} else {

@@ -333,6 +333,8 @@ func cmdServe(args []string) error {
 		}
 	}
 	var conn *db.DB
+	// What this start applied to the schema, for the audit log's entry.
+	var applied []db.AppliedMigration
 	if c, err := db.Open(s.DB); err != nil {
 		log.Printf("db: open failed (redirecting to setup wizard): %v", err)
 	} else {
@@ -356,6 +358,7 @@ func cmdServe(args []string) error {
 		if n := len(res.Deferred); n > 0 {
 			log.Printf("db: %d schema update(s) wait for the operator; the daemon runs without them.  Apply from the admin UI (the notice at the top of every page) or with `unmask migrate`", n)
 		}
+		applied = res.Applied
 	}
 
 	// The initial admin user is now created via the **install wizard**
@@ -369,6 +372,9 @@ func cmdServe(args []string) error {
 	var userRepo *user.Repository
 	if conn != nil {
 		userRepo = user.New(conn)
+		// The audit log's own entries: an install, an update since the last
+		// start, the schema updates this start applied.
+		userRepo.RecordStart(context.Background(), Version, Commit, applied)
 	}
 
 	// setupComplete reports whether the install wizard has been finished — i.e.
