@@ -13,7 +13,8 @@
 #   UI_E2E_FONTS=ci ./run.sh       # draw with the CI runner's fonts (see below)
 #
 # Requirements: go (unless UNMASK_BIN is set), node + node_modules (npm ci),
-# python3 (seeding), and a Chromium/Chrome binary.
+# python3 whose sqlite3 module loads SQLite 3.38 or newer (seeding; see the
+# check below), and a Chromium/Chrome binary.
 #
 # UI_E2E_FONTS=ci: the browser draws the pages with whatever fonts the machine
 # resolves the stylesheets' stacks to, and a developer's machine and the CI
@@ -38,6 +39,23 @@ if [ -z "$CHROME_BIN" ]; then
 fi
 [ -n "$CHROME_BIN" ] || { echo "FAIL: no Chromium/Chrome found (set CHROME_BIN)"; exit 99; }
 [ -d "$DIR/node_modules/puppeteer-core" ] || { echo "FAIL: run 'npm ci' in e2e/ui first"; exit 99; }
+
+# The seeding below goes through python3's sqlite3 module, hence through the
+# libsqlite3 the interpreter loads.  Since migration 0037 the schema carries
+# the ->> operator (partial indexes on payload_json), which SQLite older than
+# 3.38 cannot parse: every seed would fail with "malformed database schema",
+# the first one only after the binary was built and the daemon had migrated.
+# Checked up front, with the way out.
+python3 - <<'PY' || exit 99
+import sqlite3, sys
+if sqlite3.sqlite_version_info < (3, 38, 0):
+    sys.stderr.write(
+        "FAIL: python3's sqlite3 module loads SQLite %s; the seeding needs 3.38 or newer\n"
+        "      (the schema uses the ->> operator since migration 0037).  Point\n"
+        "      LD_LIBRARY_PATH at a newer libsqlite3.so.0 -- one built from sqlite.org's\n"
+        "      amalgamation does -- and run again.\n" % sqlite3.sqlite_version)
+    sys.exit(1)
+PY
 
 WORK="$(mktemp -d)"
 SERVE_PID=""
