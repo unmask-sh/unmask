@@ -109,6 +109,15 @@ func (h *Handler) AdminForgotPasswordPost(w http.ResponseWriter, r *http.Request
 		http.Redirect(w, r, base+"/admin/forgot-password?sent=1", http.StatusFound)
 		return
 	}
+	if u.PasswordLocked {
+		// An administrator keeps this account from changing its own
+		// password (a login shared by a team): no link, the same answer as
+		// for an unknown name, so the page tells nobody which it was.  A
+		// setup link an administrator sends from the users page still works.
+		log.Printf("forgot password: user %s may not change its own password", u.Username)
+		http.Redirect(w, r, base+"/admin/forgot-password?sent=1", http.StatusFound)
+		return
+	}
 
 	// 2) Issue the token (= 32-byte hex).
 	tok, err := newResetToken()

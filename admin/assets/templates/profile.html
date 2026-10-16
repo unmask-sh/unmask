@@ -111,6 +111,12 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 
 <div class="bcd-card">
   <h2>{{ t .Lang "profile.password_h" }}</h2>
+  {{ if .PasswordLocked }}
+  {{/* An administrator keeps this account from changing its own password
+       (a login shared by a team): the note stands where the form would,
+       and the save op refuses the same way. */}}
+  <p class="desc" id="password-locked-note">{{ t .Lang "profile.password_locked" }}</p>
+  {{ else }}
   <p class="desc">{{ t .Lang "profile.password_desc" }}</p>
   <form method="POST" action="{{.BasePath}}/admin/profile/save" autocomplete="off">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
@@ -129,6 +135,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     </div>
     <button type="submit" class="btn">{{ t .Lang "profile.submit" }}</button>
   </form>
+  {{ end }}
 </div>
 
 <div class="bcd-card profile-prefs">

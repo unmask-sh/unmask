@@ -48,6 +48,10 @@ func (h *Handler) AdminProfileIndex(w http.ResponseWriter, r *http.Request) {
 		"Error":    readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		"Me":       pay,
 		"User":     me,
+		// PasswordLocked: an administrator keeps this account from changing
+		// its own password (a login shared by a team).  The template draws a
+		// note in place of the form; the save op refuses as well.
+		"PasswordLocked": me.PasswordLocked,
 		// MailToActive: notifications.mail_to is set, so alert mail goes to
 		// that explicit list and the per-user opt-out is never consulted.  The
 		// template disables the checkbox and says why, instead of showing a
@@ -111,6 +115,10 @@ func (h *Handler) AdminProfileSave(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case "password":
+		if me.PasswordLocked {
+			redir("profile.err.locked")
+			return
+		}
 		cur := r.FormValue("current_password")
 		newPass := r.FormValue("new_password")
 		confirm := r.FormValue("confirm_password")

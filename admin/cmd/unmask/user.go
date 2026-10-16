@@ -93,10 +93,11 @@ func cmdUserCreate(args []string) error {
 	configPath := fs.String("config", "", "path to config.yml")
 	role := fs.String("role", "admin", "superadmin | admin | viewer")
 	passwordFlag := fs.String("password", "", "password (interactive prompt if omitted)")
+	passwordLocked := fs.Bool("password-locked", false, "the account cannot change its own password (a login shared by a team)")
 	pos := parseMixed(fs, args)
 
 	if len(pos) < 1 {
-		return errors.New("usage: unmask user create <username> [-role ...] [-password ...]")
+		return errors.New("usage: unmask user create <username> [-role ...] [-password ...] [-password-locked]")
 	}
 	username := pos[0]
 	if !user.IsValidRole(*role) {
@@ -120,7 +121,12 @@ func cmdUserCreate(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("created user: id=%d username=%s role=%s\n", u.ID, u.Username, u.Role)
+	if *passwordLocked {
+		if err := repo.SetPasswordLocked(context.Background(), u.ID, true); err != nil {
+			return fmt.Errorf("created user %s, but the password lock was not set: %w", u.Username, err)
+		}
+	}
+	fmt.Printf("created user: id=%d username=%s role=%s password_locked=%v\n", u.ID, u.Username, u.Role, *passwordLocked)
 	return nil
 }
 

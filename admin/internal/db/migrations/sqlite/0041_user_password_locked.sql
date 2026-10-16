@@ -1,0 +1,15 @@
+-- 0041 user password lock: an account the administrator keeps from changing
+-- its own password.
+--
+-- A viewer login shared by a team (one account for the people who read the
+-- dashboard) breaks the day one of them changes its password: the others are
+-- locked out, and nobody knows who did it.  With the flag set, the profile
+-- page's password form and the forgot-password link leave the password
+-- alone; an administrator still sets it from the users page, and a setup
+-- link an administrator sends still works.  Set from the users page (edit
+-- and new) and by `unmask user create -password-locked`.
+--
+-- Not in migrate.go's base schema, which runs before the numbered
+-- migrations: SQLite has no ADD COLUMN IF NOT EXISTS, so a column declared
+-- in both places fails here on every fresh install (see 0035).
+ALTER TABLE unmask_user ADD COLUMN password_locked INTEGER NOT NULL DEFAULT 0; -- 1 = the account cannot change its own password (profile page, forgot-password link); an administrator sets it from the users page

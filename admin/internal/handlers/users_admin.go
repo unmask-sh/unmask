@@ -232,6 +232,7 @@ func (h *Handler) AdminUsersSave(w http.ResponseWriter, r *http.Request) {
 		}
 		email := strings.TrimSpace(r.FormValue("email"))
 		alertOptOut := r.FormValue("alert_opt_out") == "1"
+		passwordLocked := r.FormValue("password_locked") == "1"
 		newPass := r.FormValue("password")
 
 		// Call SetRole if the role differs from the current one.  The
@@ -252,6 +253,12 @@ func (h *Handler) AdminUsersSave(w http.ResponseWriter, r *http.Request) {
 			redir("set profile: " + err.Error())
 			return
 		}
+		if current.PasswordLocked != passwordLocked {
+			if err := h.UserRepo.SetPasswordLocked(r.Context(), uid, passwordLocked); err != nil {
+				redir("set password lock: " + err.Error())
+				return
+			}
+		}
 		// Apply password if non-empty.  Track via a bool for audit branching.
 		passChanged := false
 		if newPass != "" {
@@ -263,7 +270,7 @@ func (h *Handler) AdminUsersSave(w http.ResponseWriter, r *http.Request) {
 		}
 		targetUsername := current.Username
 		h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "user_update", targetUsername,
-			fmt.Sprintf(`{"role":%q,"email":%q,"alert_opt_out":%v,"password_changed":%v}`, newRole, email, alertOptOut, passChanged))
+			fmt.Sprintf(`{"role":%q,"email":%q,"alert_opt_out":%v,"password_locked":%v,"password_changed":%v}`, newRole, email, alertOptOut, passwordLocked, passChanged))
 		redir("")
 		return
 
@@ -282,6 +289,7 @@ func (h *Handler) AdminUsersSave(w http.ResponseWriter, r *http.Request) {
 		}
 		email := strings.TrimSpace(r.FormValue("email"))
 		alertOptOut := r.FormValue("alert_opt_out") == "1"
+		passwordLocked := r.FormValue("password_locked") == "1"
 		if sendInvite && email == "" {
 			redir("an email address is required to send a setup link")
 			return
@@ -307,20 +315,26 @@ func (h *Handler) AdminUsersSave(w http.ResponseWriter, r *http.Request) {
 			redir("create: " + err.Error())
 			return
 		}
+		if passwordLocked {
+			if err := h.UserRepo.SetPasswordLocked(r.Context(), u.ID, true); err != nil {
+				redir("user created, but the password lock was not set: " + err.Error())
+				return
+			}
+		}
 		inviteSent := false
 		if sendInvite {
 			if err := h.sendSetupLinkMail(r, u); err != nil {
 				// The account exists; say so rather than pretending the
 				// invite went out.  The list page's resend button recovers.
 				h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "user_create", username,
-					fmt.Sprintf(`{"role":%q,"email":%q,"invite_sent":false}`, role, email))
+					fmt.Sprintf(`{"role":%q,"email":%q,"password_locked":%v,"invite_sent":false}`, role, email, passwordLocked))
 				redir("user created, but sending the setup link failed: " + err.Error())
 				return
 			}
 			inviteSent = true
 		}
 		h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "user_create", username,
-			fmt.Sprintf(`{"role":%q,"email":%q,"invite_sent":%v}`, role, email, inviteSent))
+			fmt.Sprintf(`{"role":%q,"email":%q,"password_locked":%v,"invite_sent":%v}`, role, email, passwordLocked, inviteSent))
 		log.Printf("user created: %d %s role=%s by=%s invite=%v", u.ID, u.Username, u.Role, meUsername, inviteSent)
 		redir("")
 		return

@@ -99,7 +99,7 @@ table.users tbody tr:hover{background:#f8fafc}
       {{ range .Users }}
       <tr>
         <td><strong{{ if .Disabled }} style="color:#94a3b8"{{ end }}>{{ .Username }}</strong></td>
-        <td><span class="role-pill role-{{ .Role }}">{{ .Role }}</span>{{ if .Disabled }} <span class="disabled-pill">{{ t $.Lang "users.badge.disabled" }}</span>{{ end }}</td>
+        <td><span class="role-pill role-{{ .Role }}">{{ .Role }}</span>{{ if .Disabled }} <span class="disabled-pill">{{ t $.Lang "users.badge.disabled" }}</span>{{ end }}{{ if .PasswordLocked }} <span class="disabled-pill" title="{{ t $.Lang "users.password_locked" }}">{{ t $.Lang "users.badge.password_locked" }}</span>{{ end }}</td>
         <td>{{ if .Email.Valid }}<code style="font-size:.78rem">{{ .Email.String }}</code>{{ else }}<span class="muted">—</span>{{ end }}</td>
         <td>{{ if .AlertOptOut }}<span class="muted">opt-out</span>{{ else if .Email.Valid }}<span style="color:#16a34a">✓</span>{{ else }}<span class="muted">—</span>{{ end }}</td>
         <td><time class="js-datetime" data-ts="{{ .CreatedAt.Unix }}">{{ .CreatedAt.Format "2006-01-02 15:04" }}</time></td>

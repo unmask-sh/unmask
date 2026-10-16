@@ -52,7 +52,9 @@ const tilesOf = page => page.evaluate(() => Array.from(document.querySelectorAll
 const statusOf = (page, p) => page.evaluate(async u => (await fetch(u, { credentials: 'same-origin', cache: 'no-store' })).status, BASE + p);
 
 (async () => {
-  execFileSync(BIN, ['user', 'create', VIEWER, '-role', 'viewer', '-password', VPASS, '-config', CFG],
+  // -password-locked: the account is a shared login, kept from changing its
+  // own password (checked on its profile below).
+  execFileSync(BIN, ['user', 'create', VIEWER, '-role', 'viewer', '-password', VPASS, '-password-locked', '-config', CFG],
     { env: Object.assign({}, process.env, { UNMASK_NO_PRIVDROP: '1' }), stdio: 'pipe' });
 
   const browser = await puppeteer.launch({
@@ -126,6 +128,14 @@ const statusOf = (page, p) => page.evaluate(async u => (await fetch(u, { credent
   ok(tabs.length === 1 && /\/admin\/community-bans\/$/.test(tabs[0]), 'viewer: ban tabs ' + JSON.stringify(tabs));
   nav = await navOf(vw);
   ok(nav.length === 3 && !nav.some(e => e.active), 'viewer on the community feed: no entry is marked: ' + JSON.stringify(nav));
+  // The profile of a shared login: an administrator keeps it from changing
+  // its own password, so the password card holds a note and no form.
+  await vw.goto(BASE + '/admin/profile/', { waitUntil: 'networkidle2' });
+  const prof = await vw.evaluate(() => ({
+    note: (document.querySelector('#password-locked-note') || {}).textContent || '',
+    form: document.querySelectorAll('input[name="current_password"], input[name="new_password"]').length,
+  }));
+  ok(/管理者が管理/.test(prof.note) && prof.form === 0, 'viewer profile (password locked): ' + JSON.stringify(prof));
   ok(vw.errors.length === 0, 'viewer: page errors ' + vw.errors.join(' | '));
 
   // ---- the administrator ----------------------------------------------------
@@ -145,6 +155,17 @@ const statusOf = (page, p) => page.evaluate(async u => (await fetch(u, { credent
   // rankings' buttons need rows, which a fresh instance has none of).
   await su.goto(BASE + '/admin/hunt/', { waitUntil: 'networkidle2' });
   ok((await su.evaluate(() => document.querySelectorAll('th[style="width:4rem"]').length)) === 1, 'admin on hunt: the actions column');
+  // The users list marks the shared login, and its edit page offers the setting, checked.
+  await su.goto(BASE + '/admin/users/', { waitUntil: 'networkidle2' });
+  const row = await su.evaluate(name => {
+    const tr = Array.from(document.querySelectorAll('tbody tr')).find(r => r.textContent.includes(name));
+    return tr ? { badge: /パスワード固定/.test(tr.textContent), edit: (tr.querySelector('a[href*="/edit"]') || {}).href || '' } : null;
+  }, VIEWER);
+  ok(row && row.badge && row.edit, 'admin: the users list row of the shared login ' + JSON.stringify(row));
+  if (row && row.edit) {
+    await su.goto(row.edit, { waitUntil: 'networkidle2' });
+    ok(await su.evaluate(() => { const cb = document.querySelector('input[name="password_locked"]'); return !!cb && cb.checked; }), 'admin: the edit page shows the password lock checked');
+  }
   await su.goto(BASE + '/admin/advisor/', { waitUntil: 'networkidle2' });
   nav = await navOf(su);
   ok(nav.filter(e => e.active).length === 1 && /\/admin\/bans\/$/.test(nav.find(e => e.active).href), 'admin on the advisor: the BAN entry is marked: ' + JSON.stringify(nav));

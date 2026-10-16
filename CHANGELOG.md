@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+
+- (2026-10-17) **An account can be kept from changing its own password.**  A viewer login shared by a team broke the day one of its users changed the password.  The users page has a checkbox per account: with it set, the profile's password form gives way to a note and the forgot-password link issues nothing, while an administrator still sets the password there, and the CLI can create such an account.
+
 ## [0.1.52-rc1] - 2026-10-16 (testing build)
 
 ### Added

@@ -67,6 +67,12 @@ type User struct {
 	// next request, alert mail skipped — while the row (role, email, history)
 	// is kept for re-enabling.  The deletion-free way to lock someone out.
 	Disabled bool
+	// PasswordLocked: 1 keeps the account from changing its own password --
+	// the profile page's form and the forgot-password link leave it alone --
+	// so a login shared by a team stays as the administrator set it.  The
+	// users page (and the CLI) still set the password, and a setup link an
+	// administrator sends still works.
+	PasswordLocked bool
 	// ResetToken / ResetTokenExpiresAt: for the password reset link.  Expires is unix-sec.
 	ResetToken          sql.NullString
 	ResetTokenExpiresAt sql.NullInt64
@@ -274,7 +280,7 @@ func (r *Repository) CreateWithHash(ctx context.Context, username, passwordHash,
 // GetByUsername: primary lookup used during authentication.
 func (r *Repository) GetByUsername(ctx context.Context, username string) (*User, error) {
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, password_locked, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
 		 FROM unmask_user WHERE username = ?`, username)
 	return scanUser(row)
 }
@@ -282,7 +288,7 @@ func (r *Repository) GetByUsername(ctx context.Context, username string) (*User,
 // GetByID: load the user from the session cookie payload (= user_id).
 func (r *Repository) GetByID(ctx context.Context, id int64) (*User, error) {
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, password_locked, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
 		 FROM unmask_user WHERE id = ?`, id)
 	return scanUser(row)
 }
@@ -290,7 +296,7 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*User, error) {
 // List: for the superadmin user-management UI.  Ascending by username.
 func (r *Repository) List(ctx context.Context) ([]*User, error) {
 	rows, err := r.DB.QueryContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, password_locked, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
 		 FROM unmask_user ORDER BY username`)
 	if err != nil {
 		return nil, err
@@ -425,8 +431,8 @@ func scanUser(r interface {
 	Scan(...any) error
 }) (*User, error) {
 	var u User
-	var optOut, disabled int64
-	err := r.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.Email, &optOut, &disabled, &u.ResetToken, &u.ResetTokenExpiresAt, &u.CreatedAt, &u.LastLogin, &u.UILang)
+	var optOut, disabled, locked int64
+	err := r.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.Email, &optOut, &disabled, &locked, &u.ResetToken, &u.ResetTokenExpiresAt, &u.CreatedAt, &u.LastLogin, &u.UILang)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -435,7 +441,32 @@ func scanUser(r interface {
 	}
 	u.AlertOptOut = optOut != 0
 	u.Disabled = disabled != 0
+	u.PasswordLocked = locked != 0
 	return &u, nil
+}
+
+// SetPasswordLocked: an administrator keeps the account from changing its
+// own password (locked = true), or lets it again.  The flag is read where
+// the account would change it -- the profile page and the forgot-password
+// flow -- not here; SetPassword stays open to the users page and the CLI.
+func (r *Repository) SetPasswordLocked(ctx context.Context, userID int64, locked bool) error {
+	v := 0
+	if locked {
+		v = 1
+	}
+	res := r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
+		Update("password_locked", v)
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		// Also the no-op case (the value already held): confirm the row is
+		// there, since GORM reports no rows for both.
+		if _, err := r.GetByID(ctx, userID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SetProfile: superadmin updates a user's email + alert_opt_out.  Also
@@ -505,7 +536,7 @@ func (r *Repository) ConsumeResetToken(ctx context.Context, token string) (*User
 		return nil, ErrNotFound
 	}
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, password_locked, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
 		 FROM unmask_user WHERE reset_token = ?`, token)
 	u, err := scanUser(row)
 	if err != nil {
@@ -546,7 +577,7 @@ func (r *Repository) GetByEmail(ctx context.Context, email string) (*User, error
 		return nil, ErrNotFound
 	}
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, password_locked, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
 		 FROM unmask_user WHERE email = ? ORDER BY id LIMIT 1`, email)
 	return scanUser(row)
 }

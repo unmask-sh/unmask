@@ -125,6 +125,10 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
         <label class="check"><input type="checkbox" name="alert_opt_out" value="1" {{ if .User.AlertOptOut }}checked{{ end }}> {{ t .Lang "users.col.alert" }} opt-out</label>
       </div>
       <div class="full">
+        <label class="check"><input type="checkbox" name="password_locked" value="1" {{ if .User.PasswordLocked }}checked{{ end }}> {{ t .Lang "users.password_locked" }}</label>
+        <p class="muted" style="margin:.2rem 0 0;font-size:.8rem">{{ t .Lang "users.password_locked_hint" }}</p>
+      </div>
+      <div class="full">
         <label>{{ t .Lang "users.edit.new_password_label" }} <span class="muted">({{ t .Lang "users.edit.new_password_hint" }})</span></label>
         <input type="password" name="password" placeholder="{{ t .Lang "users.placeholder.new_password" }}" autocomplete="new-password">
       </div>
