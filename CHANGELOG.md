@@ -12,7 +12,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.52-rc2] - 2026-10-17 (testing build)
+
+### Since rc1
+
+- Bot hunt opens for a viewer, without its BAN and rule buttons (rc1 refused the role); the viewer-menu entry above describes the menu as it is from this build.
 
 ### Added
 
