@@ -2547,8 +2547,8 @@ var dict = map[Lang]map[string]string{
 		"reset.err_empty":        "password を入力してください。",
 		"reset.err_set":          "password の更新に失敗しました。時間をおいて再試行してください。",
 		// nginx has not reloaded (partial_reload_notice.html)
-		"reload_notice.msg":         "nginx がまだ前の設定で動いています。%s に書き出した設定は、nginx を reload するまで効きません。",
-		"reload_notice.sub":         "反映するには <code>nginx -t</code> で確かめてから <code>systemctl reload nginx</code> (SysVinit は <code>service nginx reload</code>)。nginx が送るアクセスログで判断しているので、reload の後の最初のリクエストで消えます。",
+		"reload_notice.msg":         "nginx がまだ前の設定で動いています。%s に書き出した設定は reload まで効きません。",
+		"reload_notice.sub":         "反映するには <code>sudo nginx -t &amp;&amp; sudo nginx -s reload</code>。nginx が送るアクセスログで判断しているので、reload の後の最初のリクエストで消えます。",
 		"reload_notice.sub_gateway": "コンテナは設定が書き出されると自分で nginx を reload しますが、それが済んでいません。コンテナのログで <code>nginx -t</code> のエラーを確かめてください。アクセスログで判断しているので、reload の後の最初のリクエストで消えます。",
 		// schema update notice (partial_schema_update.html)
 		"schema_update.pending":            "データベースの更新があります (所要時間の目安: %s)。",
@@ -5138,8 +5138,8 @@ where <code>&lt;site-id&gt;</code> is any <code>[a-z0-9-]{1,32}</code>. Omit to 
 		"reset.err_empty":        "Please enter a password.",
 		"reset.err_set":          "Failed to update the password. Please try again in a moment.",
 		// nginx has not reloaded (partial_reload_notice.html)
-		"reload_notice.msg":         "nginx is still running the previous configuration. The configuration written at %s takes effect once nginx reloads.",
-		"reload_notice.sub":         "To apply it, check it with <code>nginx -t</code>, then <code>systemctl reload nginx</code> (SysVinit: <code>service nginx reload</code>). This is read from the access log nginx sends, so it clears with the first request after the reload.",
+		"reload_notice.msg":         "nginx is still running the previous configuration: the one written at %s takes effect once nginx reloads.",
+		"reload_notice.sub":         "To apply it: <code>sudo nginx -t &amp;&amp; sudo nginx -s reload</code>. This is read from the access log nginx sends, so it clears with the first request after the reload.",
 		"reload_notice.sub_gateway": "The container reloads nginx by itself when the configuration is written, and that reload has not happened. Check the container's log for an <code>nginx -t</code> error. This is read from the access log, so it clears with the first request after the reload.",
 		// schema update notice (partial_schema_update.html)
 		"schema_update.pending":            "A database update is waiting (expected to take %s).",

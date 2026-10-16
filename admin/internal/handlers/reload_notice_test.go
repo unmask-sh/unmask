@@ -53,7 +53,7 @@ func TestReloadNoticeOnEveryPage(t *testing.T) {
 			t.Errorf("%s: the reload notice is missing", path)
 			continue
 		}
-		if !strings.Contains(body, "systemctl reload nginx") || strings.Contains(body, "reload_notice.") {
+		if !strings.Contains(body, "nginx -t &amp;&amp; sudo nginx -s reload") || strings.Contains(body, "reload_notice.") {
 			t.Errorf("%s: the notice lacks the command, or shows a raw key", path)
 		}
 		if !strings.Contains(body, `<time class="js-datetime" data-ts="`) {

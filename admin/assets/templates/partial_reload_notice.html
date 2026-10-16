@@ -10,21 +10,31 @@
   written, and on an install that sends the daemon no access log
   (forward-auth), where there is nothing to tell it by.
 
-  The styles are here rather than in each page's <style>, for the same reason
-  as the schema update notice's: the markup is injected by this partial.
+  One line: what is the case and since when.  How to apply it, and how the
+  notice knows, sit behind a "?" that opens on hover or focus, under the
+  bar's left edge so it fits whatever the window's width (the "?" sits at
+  the end of the line, where a popup hung from it would run off a narrow
+  window) -- the same look as the pages' help tips, but styled here: the
+  tips' stylesheet (popover-pin.css) is on the pages that have tips, and
+  this bar is on every page.  The styles are here rather than in each
+  page's <style>, for the same reason as the schema update notice's: the
+  markup is injected by this partial.
 */ -}}
 {{ define "reload_notice" }}{{ with .ReloadNotice }}
 <style>
-.rlnote{display:flex;align-items:center;gap:.75rem;flex-wrap:wrap;padding:.6rem 1.5rem;font-size:.875rem;line-height:1.5;border-bottom:1px solid #fcd34d;background:#fffbeb;color:#78350f}
+.rlnote{position:relative;display:flex;align-items:center;gap:.5rem;padding:.35rem 1.5rem;font-size:.85rem;line-height:1.45;border-bottom:1px solid #fcd34d;background:#fffbeb;color:#78350f}
 .rlnote[hidden]{display:none}
-.rlnote-msg{flex:1;min-width:16rem}
-.rlnote-sub{display:block;font-size:.8125rem;opacity:.85}
-.rlnote code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.8125rem;background:rgba(120,53,15,.08);padding:0 .25rem;border-radius:.2rem}
+.rlnote-msg{min-width:0}
+.rlnote-tip{display:inline-flex;align-items:center;justify-content:center;width:1.2rem;height:1.2rem;border-radius:50%;background:#d6b86a;color:#fff;font-size:.7rem;font-weight:700;cursor:help;flex:none;outline:none;user-select:none}
+.rlnote-tip:hover,.rlnote-tip:focus{background:#78350f}
+.rlnote-pop{display:none;position:absolute;top:100%;left:1.5rem;width:min(28rem,calc(100vw - 3rem));background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:.6rem .9rem;border-radius:.4rem;font-size:.8rem;font-weight:400;line-height:1.6;z-index:600;text-align:left;cursor:auto;box-shadow:0 .5rem 1.5rem rgba(15,23,42,.12)}
+.rlnote-tip:hover .rlnote-pop,.rlnote-tip:focus .rlnote-pop{display:block}
+.rlnote code,.rlnote-pop code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;background:rgba(120,53,15,.08);padding:0 .25rem;border-radius:.2rem}
+.rlnote-pop code{background:#f1f5f9}
 </style>
 <div id="rlnote" class="rlnote" role="status" hidden>
-  <span class="rlnote-msg">{{ safeHTML (tf $.Lang "reload_notice.msg" .WrittenHTML) }}
-    <span class="rlnote-sub">{{ if .Gateway }}{{ safeHTML (t $.Lang "reload_notice.sub_gateway") }}{{ else }}{{ safeHTML (t $.Lang "reload_notice.sub") }}{{ end }}</span>
-  </span>
+  <span class="rlnote-msg">{{ safeHTML (tf $.Lang "reload_notice.msg" .WrittenHTML) }}</span>
+  <span class="rlnote-tip" tabindex="0" aria-label="help">?<span class="rlnote-pop">{{ if .Gateway }}{{ safeHTML (t $.Lang "reload_notice.sub_gateway") }}{{ else }}{{ safeHTML (t $.Lang "reload_notice.sub") }}{{ end }}</span></span>
 </div>
 <script>
 (function(){

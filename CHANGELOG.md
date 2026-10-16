@@ -17,6 +17,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Changed
 - (2026-10-16) **The realtime map puts Japan in the middle for a Japanese admin, and its counts carry a thousands separator.**  Read in Japanese, the map is centred on Japan with the Pacific whole and the Americas to the right, as a map printed in Japan is; in English it stays centred on Greenwich.  The continents are two shades lighter than the sea, so they read at a glance under the streams, and every count on the map, in the top-sources line and in a source's popover separates its thousands.
 
+- (2026-10-16) **The "nginx has not reloaded" bar is one line.**  The notice that nginx is still running an earlier configuration took two lines on every page, the second spelling out the commands.  It now says what is the case and since when on one line, and the way to apply the configuration, and how the notice knows, open from a question mark beside it.  The bar is a little tighter too.
+
 ## [0.1.51] - 2026-10-16
 
 ### Added
