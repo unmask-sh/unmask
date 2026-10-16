@@ -290,13 +290,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     <img src="/unmask/static/icon.png" alt="" width="22" height="22" style="display:block;border-radius:.25rem;flex:none">
     unmask
   </a>
-  <nav class="nav">
-    <a href="{{.BasePath}}/admin/" class="active">{{ t .Lang "nav.dashboard" }}</a>
-    <a href="{{.BasePath}}/admin/stats/">{{ t .Lang "nav.stats" }}</a>
-    <a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
-    <a href="{{.BasePath}}/admin/bans/">{{ t .Lang "nav.bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
-    <a href="{{.BasePath}}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
-  </nav>
+  {{ template "main_nav" . }}
   <span class="spacer"></span>
   {{ template "header_tools" . }}
 </header>
@@ -400,9 +394,11 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   <div class="events-scroll" id="recent-section">
   {{ template "events_table_block" . }}
   </div>
+  {{ if .CanWrite }}{{/* bot hunt is an admin page: no link for a viewer */}}
   <div style="margin-top:.5rem;text-align:right">
     <a href="{{.BasePath}}/admin/hunt/" style="font-size:.85rem;color:#475569;text-decoration:none">{{ t .Lang "overview.recent_more" }} →</a>
   </div>
+  {{ end }}
 </div>
 
 </main>

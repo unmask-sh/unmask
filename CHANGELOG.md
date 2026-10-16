@@ -29,6 +29,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-16) **The audit log is kept by default, and its retention and the notification list's are set on the retention tab.**  `audit_retention_days` deleted the admin-action log past 90 days, could be set only in config.yml, and was named nowhere.  It is gone: the log is kept until the operator sets `audit_log_retention_days` (Settings → Log management, 0 = keep), and the notification list has `notice_retention_days` of its own, also 0.  Every install keeps its log from this version on; a config file that still carries the old key is told so at startup.
 
+- (2026-10-16) **The menu offers a viewer the pages the role can open.**  An account with the viewer role now sees the dashboard and the statistics in the top bar, not the entries to bot hunt, BAN management and the settings, which refused it with a 403; the dashboard's shortcut tiles and the BAN pages' tabs follow the same rule.  The dashboard's own links to those pages (the BAN count's "view list", a reason's records in bot hunt and its gear, "browse all events") are not drawn for it either.  The settings page itself is now the administrator's: a viewer could open it before, with every save answering 403.
+
 ## [0.1.51] - 2026-10-16
 
 ### Added

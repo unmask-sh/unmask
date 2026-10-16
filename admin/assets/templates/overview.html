@@ -310,13 +310,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     <img src="/unmask/static/icon.png" alt="" width="22" height="22" style="display:block;border-radius:.25rem;flex:none">
     unmask
   </a>
-  <nav class="nav">
-    <a href="{{.BasePath}}/admin/" class="active">{{ t .Lang "nav.dashboard" }}</a>
-    <a href="{{.BasePath}}/admin/stats/">{{ t .Lang "nav.stats" }}</a>
-    <a href="{{.BasePath}}/admin/hunt/">{{ t .Lang "nav.hunt" }}</a>
-    <a href="{{.BasePath}}/admin/bans/">{{ t .Lang "nav.bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</a>
-    <a href="{{.BasePath}}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
-  </nav>
+  {{ template "main_nav" . }}
   <span class="spacer"></span>
   {{ template "header_tools" . }}
 </header>
@@ -507,7 +501,8 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   <div class="kpi {{ if gt .KPICurrentBans 0 }}warn{{ end }}" data-kpi="bans">
     <div class="label">{{ t .Lang "overview.kpi.bans" }}</div>
     <div class="value">{{ comma .KPICurrentBans }}</div>
-    <div class="sub"><a href="{{.BasePath}}/admin/bans/">{{ t .Lang "overview.kpi.bans_sub" }}</a></div>
+    {{/* The list is an admin page: no link to it for a viewer, who keeps the count. */}}
+    <div class="sub">{{ if .CanWrite }}<a href="{{.BasePath}}/admin/bans/">{{ t .Lang "overview.kpi.bans_sub" }}</a>{{ end }}</div>
   </div>
   </div>
 </div>
@@ -525,7 +520,8 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
      list, live. */}}
 <div class="bcd-card reasons-card" id="reasons-card">
   <h2>{{ t .Lang "overview.reasons.h" }}<span class="rs-window">{{ t .Lang "overview.reasons.window" }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "overview.reasons.help") }}</span></span></h2>
-  <p class="rs-desc">{{ t .Lang "overview.reasons.desc" }}</p>
+  {{- /* The sentence about the links is for the accounts that get them (the reason's records in bot hunt, the gear to its setting: admin pages). */ -}}
+  <p class="rs-desc">{{ t .Lang "overview.reasons.desc" }}{{ if .CanWrite }}{{ t .Lang "overview.reasons.desc_links" }}{{ end }}</p>
   {{ if not .ReasonsKnown }}
   <p class="rs-note" role="status">{{ t .Lang "overview.reasons.timeout" }}</p>
   {{ else if eq .ReasonsTotal 0 }}
@@ -539,7 +535,8 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         {{/* The gear sits right after the reason's name, not in a column of
              its own at the far edge, where on a wide card the eye had to
              trace the row back to tell which reason it opened. */}}
-        <td>{{ if .Hunt }}<a href="{{ .Hunt }}">{{ .Label }}</a>{{ else }}{{ .Label }}{{ end }}<span class="rs-tail"><code class="rs-id">{{ .Reason }}</code>{{ if .Settings }}<a class="rs-set" href="{{ .Settings }}" aria-label="{{ tf $.Lang "overview.reasons.settings_aria" .SettingsName }}">&#9881;&#xFE0E;</a>{{ end }}</span></td>
+        {{- /* The reason opens its records in bot hunt and the gear its setting: both admin pages, so a viewer gets the label and the id alone. */ -}}
+        <td>{{ if and .Hunt $.CanWrite }}<a href="{{ .Hunt }}">{{ .Label }}</a>{{ else }}{{ .Label }}{{ end }}<span class="rs-tail"><code class="rs-id">{{ .Reason }}</code>{{ if and .Settings $.CanWrite }}<a class="rs-set" href="{{ .Settings }}" aria-label="{{ tf $.Lang "overview.reasons.settings_aria" .SettingsName }}">&#9881;&#xFE0E;</a>{{ end }}</span></td>
         <td class="bcd-num">{{ comma .Count }}</td>
         <td class="bcd-num rs-share"><span class="rs-track" aria-hidden="true"><span class="rs-bar" style="width:{{ printf "%.1f" .Pct }}%"></span></span>{{ printf "%.1f" .Pct }}%</td>
       </tr>
@@ -547,7 +544,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     </tbody>
   </table>
   {{ end }}
-  <div class="rs-more"><a href="{{ .BasePath }}/admin/hunt/?range=24h">{{ t .Lang "overview.recent_more" }} →</a></div>
+  {{ if .CanWrite }}<div class="rs-more"><a href="{{ .BasePath }}/admin/hunt/?range=24h">{{ t .Lang "overview.recent_more" }} →</a></div>{{ end }}
 </div>
 
 {{ end }}
@@ -565,6 +562,10 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       <div class="ttl">{{ t .Lang "nav.stats" }}</div>
       <div class="desc">{{ t .Lang "overview.short.stats" }}</div>
     </a>
+    {{/* Bot hunt, BAN management and the settings take the admin role; a
+         viewer gets no tile to a page that would refuse it (the top nav,
+         partial_nav.html, draws the same three only for .CanWrite). */}}
+    {{ if .CanWrite }}
     <a class="shortcut" href="{{.BasePath}}/admin/hunt/">
       <span class="ico">🎯</span>
       <div class="ttl">{{ t .Lang "nav.hunt" }}</div>
@@ -575,16 +576,19 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       <div class="ttl">{{ t .Lang "nav.bans" }}</div>
       <div class="desc">{{ t .Lang "overview.short.bans" }}</div>
     </a>
+    {{ end }}
     <a class="shortcut" href="{{.BasePath}}/admin/community-bans/">
       <span class="ico">🛡️</span>
       <div class="ttl">{{ t .Lang "nav.community_bans" }}{{ if gt .NavCommunityBadge 0 }} <small style="font-weight:normal;color:#fca5a5">({{ .NavCommunityBadge }})</small>{{ end }}</div>
       <div class="desc">{{ t .Lang "overview.short.community_bans" }}</div>
     </a>
+    {{ if .CanWrite }}
     <a class="shortcut" href="{{.BasePath}}/admin/settings/">
       <span class="ico">⚙️</span>
       <div class="ttl">{{ t .Lang "nav.settings" }}</div>
       <div class="desc">{{ t .Lang "overview.short.settings" }}</div>
     </a>
+    {{ end }}
     <a class="shortcut" href="https://unmask.sh{{ if eq .Lang "ja" }}/ja{{ end }}/docs/" target="_blank" rel="noopener">
       <span class="ico">📖</span>
       <div class="ttl">{{ t .Lang "nav.docs" }} ↗</div>

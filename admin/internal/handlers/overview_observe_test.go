@@ -58,6 +58,10 @@ func renderOverview(t *testing.T, h *Handler) string {
 	t.Helper()
 	r := httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil)
 	r.AddCookie(issueSessionCookie(h.cfg().Secret.BVSecret, 1, "superadmin", false, false))
+	// The handler is called without AuthMiddleware, so the account goes
+	// into the context here: the reasons card draws its links to bot hunt
+	// and the settings for an administrator only.
+	r = asRole(r, "superadmin")
 	rr := httptest.NewRecorder()
 	h.AdminTopOverview(rr, r)
 	if rr.Code != http.StatusOK {

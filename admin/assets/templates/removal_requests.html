@@ -56,12 +56,7 @@ th{background:#f8fafc;font-weight:600;color:#475569;font-size:.78rem;text-transf
     <img src="{{ .BasePath }}/static/icon.png" alt="" width="22" height="22">
     <span>unmask</span>
   </a>
-  <nav class="nav">
-    <a href="{{ .BasePath }}/admin/">{{ t .Lang "nav.dashboard" }}</a>
-    <a href="{{ .BasePath }}/admin/community-bans/">{{ t .Lang "nav.community_bans" }}</a>
-    <a href="{{ .BasePath }}/admin/community-bans/removals" class="active">{{ t .Lang "removal_requests.nav" }}</a>
-    <a href="{{ .BasePath }}/admin/settings/">{{ t .Lang "nav.settings" }}</a>
-  </nav>
+  {{ template "main_nav" . }}
   <div class="spacer"></div>
   {{/* This page has no header_tools (its forms carry their own CSRF
        field); the schema update notice, which every other page gets from
@@ -121,7 +116,9 @@ th{background:#f8fafc;font-weight:600;color:#475569;font-size:.78rem;text-transf
         {{ if gt .HandledAt 0 }}<div style="font-size:.7rem;color:#94a3b8;margin-top:.15rem"><time class="js-datetime" data-ts="{{ .HandledAt }}">{{ .HandledAt }}</time></div>{{ end }}
       </td>
       <td class="actions">
-        {{ if eq .Status "pending" }}
+        {{/* Handling a request takes the admin role (the POST refuses a
+             viewer), so a viewer sees the state and no buttons. */}}
+        {{ if and (eq .Status "pending") $.CanWrite }}
         <form method="post" action="{{ $.BasePath }}/admin/community-bans/removals/{{ .ID }}">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
           <input type="hidden" name="status" value="done">

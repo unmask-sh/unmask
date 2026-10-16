@@ -1506,30 +1506,34 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux.HandleFunc("POST "+base+"/admin/api/hosts/toggle",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminHostToggle)))
 
-	// settings (web editing UI).  GET: viewer or above; POST: admin or above.
+	// settings (web editing UI): admin or above, the page as much as the
+	// save.  A viewer could open it until 0.1.52, with every save button
+	// answering 403; the role's pages are the dashboard and the statistics,
+	// and the top nav (partial_nav.html) offers it only those.
 	// The tab lives in the path (/admin/settings/sites/), mirroring the stats
 	// convention (/admin/stats/{site}/).  Bare /admin/settings/ renders the
 	// default (overview) tab.  {tab} never collides with the literal sub-routes
 	// below: asn/suggest is two segments and save/export/snapshot are POST or
 	// carry no trailing slash, so ServeMux routes them by specificity.
 	mux.HandleFunc("GET "+base+"/admin/settings/{$}",
-		h.AuthMiddleware(h.AdminSettingsIndex))
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSettingsIndex)))
 	mux.HandleFunc("GET "+base+"/admin/settings/{tab}/{$}",
-		h.AuthMiddleware(h.AdminSettingsIndex))
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSettingsIndex)))
 	mux.HandleFunc("POST "+base+"/admin/settings/save",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminSettingsSave)))
 	// Acknowledge held enforcement presets (dashboard upgrade-review banner).
 	mux.HandleFunc("POST "+base+"/admin/upgrade-review/apply",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminUpgradeReviewApply)))
 	// ASN custom-rule autocomplete: searches the installed ASN mmdb (org name /
-	// AS number).  Read-only, so viewer-and-above (plain AuthMiddleware).
+	// AS number).  Read-only, but the settings page is its one caller, so it
+	// takes the page's role.
 	// A proposed custom rule as the tab's card, for the ask page's modal
 	// (which saves it with section=custom-rules-add): admin or above, as
 	// the save is.
 	mux.HandleFunc("GET "+base+"/admin/settings/custom-rules/draft",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminCustomRuleDraftCard)))
 	mux.HandleFunc("GET "+base+"/admin/settings/asn/suggest",
-		h.AuthMiddleware(h.AdminASNSuggest))
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminASNSuggest)))
 	// per-site card endpoints for the Branding / Challenge tabs (= v2
 	// scalar override surface).  Each writes one Sites[<host>] entry.
 	mux.HandleFunc("POST "+base+"/admin/settings/branding/site/save",

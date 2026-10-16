@@ -974,6 +974,33 @@ func ipAllowed(ip string, allowList []string) bool {
 // and every POST form) plus the host / site picker data consumed by the
 // header_tools partial.  When unauthenticated (e.g. login page) Me / MeName
 // are skipped; BasePath / CSRFToken / picker data are always set.
+// navActive names the top nav entry a request path is under, for the
+// partial's "active" mark: the live view is the dashboard's, a site's
+// statistics are the statistics', and the three BAN pages (the list, the
+// advisor's candidates, the community feed) are the one BAN entry.  A page
+// with no entry -- the audit log, the notices, the profile, Ask AI, the user
+// management -- gives "".  The base path is skipped by looking for /admin/.
+func navActive(path string) string {
+	i := strings.Index(path, "/admin/")
+	if i < 0 {
+		return ""
+	}
+	p := path[i:]
+	switch {
+	case p == "/admin/" || strings.HasPrefix(p, "/admin/live/"):
+		return "dashboard"
+	case strings.HasPrefix(p, "/admin/stats/"):
+		return "stats"
+	case strings.HasPrefix(p, "/admin/hunt/"):
+		return "hunt"
+	case strings.HasPrefix(p, "/admin/bans/"), strings.HasPrefix(p, "/admin/advisor/"), strings.HasPrefix(p, "/admin/community-bans/"):
+		return "bans"
+	case strings.HasPrefix(p, "/admin/settings/"):
+		return "settings"
+	}
+	return ""
+}
+
 func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 	if _, ok := data["BasePath"]; !ok {
 		data["BasePath"] = h.cfg().Server.BasePath
@@ -1028,6 +1055,18 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 			}
 		}
 		data["NavCommunityBadge"] = n
+	}
+
+	// The top nav (partial_nav.html): whether the account may open the pages
+	// behind the entries that take the admin role, and which entry this page
+	// is under.  Always set, so a template can test them on any page; a
+	// handler that set its own first keeps it.
+	if _, ok := data["CanWrite"]; !ok {
+		pay := SessionFromContext(r)
+		data["CanWrite"] = pay != nil && user.CanWrite(pay.Role)
+	}
+	if _, ok := data["NavActive"]; !ok {
+		data["NavActive"] = navActive(r.URL.Path)
 	}
 
 	// Host + site picker data for the shared header_tools partial (= the
