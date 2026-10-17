@@ -29,10 +29,13 @@ table.notices{width:100%;border-collapse:collapse;font-size:.88rem}
 table.notices thead th{text-align:left;padding:.5rem .6rem;border-bottom:2px solid #e2e8f0;color:#475569;font-weight:600;font-size:.8rem}
 table.notices tbody td{padding:.5rem .6rem;border-bottom:1px solid #f1f5f9;vertical-align:top}
 table.notices tbody tr:hover{background:#f8fafc}
+table.notices tbody tr[data-unread]{background:#fffbeb}
+table.notices tbody tr[data-unread]:hover{background:#fef3c7}
 table.notices td.at{font-family:ui-monospace,Menlo,monospace;color:#475569;white-space:nowrap;font-size:.8rem}
 table.notices td.kind{white-space:nowrap}
 table.notices td.what{overflow-wrap:anywhere}
-.ntitle{font-weight:600;color:#0f172a;text-decoration:none}
+.ntitle{font-weight:500;color:#0f172a;text-decoration:none}
+tr[data-unread] .ntitle{font-weight:700}
 .ntitle:hover{text-decoration:underline}
 .nbody{display:block;color:#475569;font-size:.82rem;margin-top:.1rem}
 .nsite{color:#94a3b8;font-size:.78rem;margin-left:.4rem}

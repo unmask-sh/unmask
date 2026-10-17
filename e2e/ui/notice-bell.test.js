@@ -141,6 +141,41 @@ c.commit()
   const afterBadge = await page.evaluate(() => !!document.getElementById('nbell-badge'));
   ok(!afterBadge, 'the badge is back after the list was opened');
 
+  // Opened to new alerts above read ones, the panel tells them apart: the
+  // unread rows are bold and carry the "new" tag, the read rows sit back in
+  // a lighter weight and carry none.
+  const seedErr2 = seed();
+  ok(seedErr2 === '', 'seeding the second batch failed: ' + seedErr2);
+  await page.reload({ waitUntil: 'networkidle2' });
+  await page.click('#nbell-btn');
+  await page.waitForSelector('#nbell-list .nbell-item', { timeout: 5000 }).catch(() => {});
+  await sleep(300);
+  const mixed = await page.evaluate(() => {
+    const items = Array.from(document.querySelectorAll('#nbell-list .nbell-item'));
+    const weight = i => parseInt(getComputedStyle(i.querySelector('.nbell-title')).fontWeight, 10) || 0;
+    const unread = items.filter(i => i.classList.contains('unread'));
+    const read = items.filter(i => !i.classList.contains('unread'));
+    return {
+      n: items.length,
+      unread: unread.length,
+      read: read.length,
+      unreadWeights: unread.map(weight),
+      readWeights: read.map(weight),
+      unreadTags: unread.filter(i => i.querySelector('.nbell-tag-new')).length,
+      readTags: read.filter(i => i.querySelector('.nbell-tag-new')).length,
+      tagText: ((unread[0] || {}).querySelector ? (unread[0].querySelector('.nbell-tag-new') || {}).textContent : '') || '',
+    };
+  });
+  ok(mixed.unread === 3 && mixed.read >= 1, 'the second opening is not 3 unread rows above read ones: ' + JSON.stringify(mixed));
+  ok(mixed.unreadWeights.every(w => w >= 700) && mixed.readWeights.every(w => w < 700),
+    'unread rows are not bolder than read rows: ' + JSON.stringify([mixed.unreadWeights, mixed.readWeights]));
+  ok(mixed.unreadTags === 3 && mixed.readTags === 0, 'the "new" tag is not on exactly the unread rows: ' + mixed.unreadTags + '/' + mixed.readTags);
+  ok(mixed.tagText.trim() === '新着', 'the tag is not in the page\'s language: ' + mixed.tagText);
+  if (SHOTS) {
+    try { await page.screenshot({ path: path.join(SHOTS, 'notice-bell-mixed.png'), clip: { x: 700, y: 0, width: 700, height: 560 } }); } catch (e) {}
+  }
+  await page.mouse.click(300, 500);
+
   // The page: every row, the kind filter, and the retention line.
   const list = await page.goto(BASE + '/admin/notices/', { waitUntil: 'networkidle2' });
   ok(list.status() === 200, `/admin/notices/ status ${list.status()}`);

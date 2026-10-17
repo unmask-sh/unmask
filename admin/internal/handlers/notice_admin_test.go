@@ -77,6 +77,16 @@ func TestNoticeBellOnEveryPage(t *testing.T) {
 	if n, _ := h.Notices.Unread(context.Background(), 1); n != 0 {
 		t.Errorf("unread after the panel: %d", n)
 	}
+	// Every row stood above the read mark, so each carries the "new" tag of
+	// an unread row; opened again, the same rows sit back as read.
+	if n := strings.Count(panel, `nbell-tag-new`); n != 3 {
+		t.Errorf("new tags on the first opening: %d, want 3", n)
+	}
+	rr = httptest.NewRecorder()
+	h.AdminNoticesPanel(rr, asRole(httptest.NewRequest(http.MethodPost, "/unmask/admin/notices/panel", nil), user.RoleAdmin))
+	if reopened := rr.Body.String(); strings.Contains(reopened, ` unread"`) || strings.Contains(reopened, `nbell-tag-new`) {
+		t.Error("opened again, the rows still read as unread")
+	}
 	after := renderAs(t, h.AdminTopOverview, "/unmask/admin/", user.RoleAdmin, "en")
 	if !strings.Contains(after, `id="nbell"`) || strings.Contains(after, `id="nbell-badge"`) {
 		t.Error("after opening the panel the bell still shows a count, or is gone")
