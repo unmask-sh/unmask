@@ -157,18 +157,19 @@ func TestLiveViewTiles(t *testing.T) {
 	if req.TPS != "0.2" || req.Points == "" || !strings.HasPrefix(req.Points, "0.0,") {
 		t.Errorf("requests tile tps=%q points=%q", req.TPS, req.Points[:20])
 	}
-	deny := v.Tiles[4] // beside the challenges
-	if v.Tiles[3].Key != "serve" {
-		t.Errorf("tile 3 = %q, want serve before deny", v.Tiles[3].Key)
+	deny := v.Tiles[5] // beside the challenges
+	if v.Tiles[4].Key != "serve" {
+		t.Errorf("tile 4 = %q, want serve before deny", v.Tiles[4].Key)
 	}
 	if deny.Key != "deny" || deny.Last != 1 {
 		t.Errorf("deny tile = %+v", deny)
 	}
-	// The blocked tile follows the solves it is net of, in the map legend's
-	// colour; the deny above is its whole figure here.
-	blocked := v.Tiles[6]
-	if v.Tiles[5].Key != "solve" || v.Tiles[7].Key != "rate_limit" {
-		t.Errorf("tiles 5 and 7 = %q, %q; want solve and rate_limit around blocked", v.Tiles[5].Key, v.Tiles[7].Key)
+	// The blocked tile comes right after the requests, as the dashboard's
+	// headline does, in the map legend's colour; the deny above is its
+	// whole figure here.
+	blocked := v.Tiles[1]
+	if v.Tiles[2].Key != "pass" || v.Tiles[6].Key != "solve" || v.Tiles[7].Key != "rate_limit" {
+		t.Errorf("tiles 2, 6, 7 = %q, %q, %q; want pass, solve, rate_limit", v.Tiles[2].Key, v.Tiles[6].Key, v.Tiles[7].Key)
 	}
 	if blocked.Key != "blocked" || blocked.Last != 1 || blocked.Last30 != 1 || blocked.Color != "#f87171" ||
 		blocked.LabelKey != "overview.live.blocked" || blocked.HelpKey != "overview.live.blocked_help" || len(blocked.Bars) != live.Minutes {

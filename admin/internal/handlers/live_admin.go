@@ -46,20 +46,22 @@ type liveView struct {
 
 // liveTiles lists the tiles in display order with their colours: the kind
 // colours of the stats page's stacked charts (KIND_COLOR) where one exists,
-// the map legend's blocked colour for the blocked tile.  The refusals sit
-// beside the challenges (the two answers a gate gets); the blocked figure
-// follows the solves it is net of.
+// the map legend's blocked colour for the blocked tile.  The blocked figure
+// comes right after the requests, as the dashboard's headline does; then
+// what was let through, then the gate's answers, the refusals beside the
+// challenges.  Two rows of four on a laptop: the first row what came and
+// what became of it, the second the gate.
 var liveTiles = []struct {
 	key   string // live.Names entry or live.BlockedName: the JSON key, the i18n key's tail
 	color string
 }{
 	{live.Names[live.Requests], "#0f172a"},
+	{live.BlockedName, "#f87171"},
 	{live.Names[live.Pass], "#94a3b8"},
 	{live.Names[live.Bypass], "#c7d2fe"},
 	{live.Names[live.Serve], "#dc2626"},
 	{live.Names[live.Deny], "#7f1d1d"},
 	{live.Names[live.Solve], "#0ea5e9"},
-	{live.BlockedName, "#f87171"},
 	{live.Names[live.RateLimit], "#f59e0b"},
 }
 
