@@ -174,11 +174,11 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 {{ if eq .Tab "history" }}<p class="meta">{{ t .Lang "ask.history_note" }}{{ if .MonthCount }} <span id="ask-month">{{ tf .Lang "ask.cost_month" .MonthCost (comma .MonthCount) }}</span>{{ end }}</p>{{ end }}
 
 <template id="ask-icon-copy">{{ template "ask_icon_copy" }}</template>
-<div class="turns" id="turns" data-txt-cost="{{ t .Lang "ask.cost" }}" data-txt-pending="{{ t .Lang "ask.pending" }}" data-txt-tools="{{ t .Lang "ask.tools" }}" data-txt-rule="{{ t .Lang "ask.create_rule" }}" data-txt-failed="{{ t .Lang "ask.failed" }}" data-txt-tokens="{{ t .Lang "ask.tokens" }}" data-txt-copy="{{ t .Lang "ask.copy" }}" data-txt-copied="{{ t .Lang "ask.copied" }}" data-txt-retry="{{ t .Lang "ask.retry" }}">
+<div class="turns" id="turns" data-txt-cost="{{ t .Lang "ask.cost" }}" data-txt-pending="{{ t .Lang "ask.pending" }}" data-txt-tools="{{ t .Lang "ask.tools" }}" data-txt-rule="{{ t .Lang "ask.create_rule" }}" data-txt-made="{{ t .Lang "ask.rule_made" }}" data-txt-made-named="{{ t .Lang "ask.rule_made_named" }}" data-txt-failed="{{ t .Lang "ask.failed" }}" data-txt-tokens="{{ t .Lang "ask.tokens" }}" data-txt-copy="{{ t .Lang "ask.copy" }}" data-txt-copied="{{ t .Lang "ask.copied" }}" data-txt-retry="{{ t .Lang "ask.retry" }}">
   {{ range .Turns }}
   <div class="q-row"><time class="js-datetime js-datetime-notz q-time" data-ts="{{ .AskedTS }}"></time><div class="q">{{ .Question }}</div></div>
   <div class="a{{ if .Err }} fail{{ end }}{{ if .Folded }} folded{{ end }}" data-id="{{ .ID }}">
-    <div class="txt">{{ if .Err }}{{ t $.Lang "ask.failed" }}: {{ .Err }}{{ else }}{{ range .Parts }}{{ if .Code }}<pre>{{ .Text }}</pre>{{ else if .Rule }}{{ if $.CanAsk }}<a class="ask-rule" href="{{ $.BasePath }}{{ .Link }}" target="_blank" rel="noopener">{{ t $.Lang "ask.create_rule" }}</a>{{ end }}{{ else if .Link }}<a href="{{ $.BasePath }}{{ .Link }}">{{ .Text }}</a>{{ else if .IP }}<span class="ipclick" data-ip="{{ .IP }}">{{ .Text }}</span>{{ else }}{{ .Text }}{{ end }}{{ end }}{{ end }}</div>
+    <div class="txt">{{ if .Err }}{{ t $.Lang "ask.failed" }}: {{ .Err }}{{ else }}{{ range .Parts }}{{ if .Code }}<pre>{{ .Text }}</pre>{{ else if .Rule }}{{ if $.CanAsk }}{{ if .RuleID }}<a class="ask-rule added" data-added="1" href="{{ $.BasePath }}/admin/settings/custom-rules/#rule-{{ .RuleID }}" target="_blank" rel="noopener">{{ if .RuleName }}{{ tf $.Lang "ask.rule_made_named" .RuleName }}{{ else }}{{ t $.Lang "ask.rule_made" }}{{ end }} ↗</a>{{ else }}<a class="ask-rule" href="{{ $.BasePath }}{{ .Link }}" data-link="{{ .Link }}" target="_blank" rel="noopener">{{ t $.Lang "ask.create_rule" }}</a>{{ end }}{{ end }}{{ else if .Link }}<a href="{{ $.BasePath }}{{ .Link }}">{{ .Text }}</a>{{ else if .IP }}<span class="ipclick" data-ip="{{ .IP }}">{{ .Text }}</span>{{ else }}{{ .Text }}{{ end }}{{ end }}{{ end }}</div>
     <div class="a-meta">
       {{ if .Tools }}<span>{{ t $.Lang "ask.tools" }}: {{ range $i, $c := .Tools }}{{ if $i }} {{ end }}<span class="tool-chip{{ if $c.Err }} err{{ end }}" title="{{ $c.Ms }} ms">{{ $c.Name }}{{ if gt $c.Calls 1 }} ×{{ $c.Calls }}{{ end }}</span>{{ end }}</span>{{ end }}
       {{ if or .InTokens .OutTokens }}<span>{{ tf $.Lang "ask.tokens" (comma .InTokens) (comma .OutTokens) }}{{ if .Model }} · {{ .Model }}{{ end }}{{ if .Cost }} · {{ tf $.Lang "ask.cost" .Cost }}{{ end }}</span>{{ end }}
@@ -229,9 +229,12 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
      it, fetched from the server as it stands (custom-rules/draft), edited
      in place and added with section=custom-rules-add.  A click that asks
      for a new tab still gets the tab. */}}
-<dialog class="cr-modal" id="cr-modal" aria-labelledby="cr-modal-title" data-base="{{ .BasePath }}" data-txt-loading="{{ t .Lang "ask.rule_loading" }}" data-txt-failed="{{ t .Lang "ask.failed" }}" data-txt-added="{{ t .Lang "ask.rule_added" }}" data-txt-close="{{ t .Lang "ask.rule_close" }}">
+<dialog class="cr-modal" id="cr-modal" aria-labelledby="cr-modal-title" data-base="{{ .BasePath }}" data-txt-loading="{{ t .Lang "ask.rule_loading" }}" data-txt-failed="{{ t .Lang "ask.failed" }}" data-txt-close="{{ t .Lang "ask.rule_close" }}">
   <form id="cr-modal-form" method="post" action="{{ .BasePath }}/admin/settings/save?section=custom-rules-add">
     <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+    {{/* The answer the rule comes from: the save records the rule on that
+         turn, so the history shows the button as made. */}}
+    <input type="hidden" name="ask_id" id="cr-modal-ask-id" value=""><input type="hidden" name="ask_link" id="cr-modal-ask-link" value="">
     <h3 id="cr-modal-title">{{ t .Lang "ask.rule_title" }}</h3>
     <div id="cr-modal-body"></div>
     <div class="cr-modal-msg" id="cr-modal-msg" hidden></div>
@@ -257,8 +260,10 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   if (!dlg || !turns || typeof dlg.showModal !== 'function' || !window.unmaskCustomRule) return;
   var form = document.getElementById('cr-modal-form'), body = document.getElementById('cr-modal-body'), msg = document.getElementById('cr-modal-msg');
   var save = document.getElementById('cr-modal-save'), cancel = document.getElementById('cr-modal-cancel'), tab = document.getElementById('cr-modal-tab');
+  var askID = document.getElementById('cr-modal-ask-id'), askLink = document.getElementById('cr-modal-ask-link');
   var BASE = dlg.dataset.base, current = null, cancelText = cancel.textContent;
   function esc(s){ var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+  function made(name){ return name ? turns.dataset.txtMadeNamed.replace('%s', function(){ return name; }) : turns.dataset.txtMade; }
   // html: the dictionary's own markup (the saved notes), or escaped text.
   function say(html, bad){ msg.hidden = false; msg.className = 'cr-modal-msg ' + (bad ? 'bad' : 'ok'); msg.innerHTML = html; }
   turns.addEventListener('click', function(ev){
@@ -266,6 +271,8 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     if (!a || a.dataset.added || ev.button !== 0 || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.altKey) return;
     ev.preventDefault();
     current = a;
+    var turn = a.closest('.a');
+    askID.value = turn && turn.dataset.id ? turn.dataset.id : ''; askLink.value = a.dataset.link || '';
     var href = a.getAttribute('href'), qi = href.indexOf('?');
     tab.href = href; msg.hidden = true; save.hidden = false; save.disabled = true; cancel.textContent = cancelText;
     body.innerHTML = '<p class="cr-modal-wait">' + esc(dlg.dataset.txtLoading) + '</p>';
@@ -298,11 +305,12 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
       .then(function(d){
         if (!d.ok) { say(esc(d.error || '?'), true); save.disabled = false; return; }
         // Added: the modal says how it takes effect, and the answer's button
-        // now opens the tab with the rule on it.
+        // says the rule was made -- as the history will -- and opens it.
         body.innerHTML = ''; save.hidden = true; cancel.textContent = dlg.dataset.txtClose;
         say(document.getElementById(d.reload ? 'cr-modal-saved-reload' : 'cr-modal-saved-noop').innerHTML, false);
-        tab.href = BASE + '/admin/settings/custom-rules/';
-        if (current) { current.dataset.added = '1'; current.classList.add('added'); current.textContent = dlg.dataset.txtAdded + ' \u2197'; current.href = tab.href; }
+        var rule = d.rule || {}, to = BASE + '/admin/settings/custom-rules/' + (rule.id ? '#rule-' + rule.id : '');
+        tab.href = to;
+        if (current) { current.dataset.added = '1'; current.classList.add('added'); current.textContent = made(rule.label) + ' \u2197'; current.href = to; }
       })
       .catch(function(e){ say(esc(e.message), true); save.disabled = false; });
   });
@@ -351,11 +359,14 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   // path, and addresses with the hunt page's popover.  Nothing else is
   // markup.
   var BASE = {{ .BasePath }};
+  // A proposed rule already on the list: the button says it was made.
+  function made(name){ return name ? turns.dataset.txtMadeNamed.replace('%s', function(){ return name; }) : turns.dataset.txtMade; }
   function render(parts){
     var html = '';
     (parts || []).forEach(function(p){
       if (p.code) html += '<pre>' + esc(p.text) + '</pre>';
-      else if (p.rule) html += '<a class="ask-rule" href="' + esc(BASE + p.link) + '" target="_blank" rel="noopener">' + esc(turns.dataset.txtRule) + '</a>';
+      else if (p.rule && p.rule_id) html += '<a class="ask-rule added" data-added="1" href="' + esc(BASE + '/admin/settings/custom-rules/#rule-' + p.rule_id) + '" target="_blank" rel="noopener">' + esc(made(p.rule_name)) + ' \u2197</a>';
+      else if (p.rule) html += '<a class="ask-rule" href="' + esc(BASE + p.link) + '" data-link="' + esc(p.link) + '" target="_blank" rel="noopener">' + esc(turns.dataset.txtRule) + '</a>';
       else if (p.link) html += '<a href="' + esc(BASE + p.link) + '">' + esc(p.text) + '</a>';
       else if (p.ip) html += '<span class="ipclick" data-ip="' + esc(p.ip) + '">' + esc(p.text) + '</span>';
       else html += esc(p.text);
@@ -387,6 +398,8 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   }
   function settle(ad, d){
     ad.classList.remove('pending');
+    // The turn's id: a rule added from the answer is recorded on it.
+    if (d.id) ad.dataset.id = d.id;
     var meta = chips(d.tools);
     if (d.in_tokens || d.out_tokens) meta += '<span>' + esc(tokensText(d.in_tokens || 0, d.out_tokens || 0)) + (d.model ? ' · ' + esc(d.model) : '') + (d.cost ? ' · ' + esc(turns.dataset.txtCost.replace('%s', d.cost)) : '') + '</span>';
     ad.innerHTML = '<div class="txt">' + render(d.parts) + '</div><div class="a-meta">' + meta + '</div><div class="a-act"><span class="ib-wrap"><button type="button" class="a-copy ib" aria-label="' + esc(turns.dataset.txtCopy) + '" data-txt-copied="' + esc(turns.dataset.txtCopied) + '" data-txt-copy="' + esc(turns.dataset.txtCopy) + '">' + document.getElementById('ask-icon-copy').innerHTML + '</button><span class="ib-pop">' + esc(turns.dataset.txtCopy) + '</span></span></div>';

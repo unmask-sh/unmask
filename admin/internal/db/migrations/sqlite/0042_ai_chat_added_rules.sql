@@ -1,0 +1,11 @@
+-- 0042 AI chat added rules: the custom rules an operator added from an
+-- answer's "make this rule" buttons.
+--
+-- The history tab draws an answer's button as it was proposed: the next
+-- visit offered the same rule again, with nothing to say it had been added
+-- (the dialog can change it before the add, so its conditions alone do not
+-- tell).  The ask page's dialog now names the turn and the button, and the
+-- save records the rule's id here; the history shows the button as made
+-- while that rule is on the list.  Goes with the row: deleting a turn or
+-- clearing the history forgets it.
+ALTER TABLE unmask_ai_chat ADD COLUMN added_rules TEXT NOT NULL DEFAULT ''; -- JSON object: a rule button's path in the answer (the create_path propose_custom_rule gave) -> the id of the custom rule added from it; '' = none

@@ -26,7 +26,7 @@
             </div>
 {{ end }}
 {{ define "settings_cr_card" }}
-      <div class="cr-rule{{ if not .Enabled }} disabled-row{{ end }}{{ if .Draft }} cr-draft{{ end }}{{ if or .Draft .Blank }} editing{{ end }}" data-cr data-key="{{ .Key }}"{{ if .Draft }} id="cr-draft"{{ end }}>
+      <div class="cr-rule{{ if not .Enabled }} disabled-row{{ end }}{{ if .Draft }} cr-draft{{ end }}{{ if or .Draft .Blank }} editing{{ end }}" data-cr data-key="{{ .Key }}"{{ if .Draft }} id="cr-draft"{{ else if .ID }} id="rule-{{ .ID }}"{{ end }}>
         <input type="hidden" name="cr_id" value="{{ .ID }}"><input type="hidden" name="cr_key" value="{{ .Key }}"><input type="hidden" name="cr_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="cr_updated_at" value="{{ .UpdatedAt }}">
         {{ if .Draft }}<p class="cr-draft-note">{{ t .Lang "settings.cr.draft_note" }}</p>{{ end }}
         <div class="cr-head">
@@ -88,6 +88,10 @@
 {{ define "cr_css" -}}
 .cr-rule{border:1px solid #e2e8f0;border-radius:.4rem;padding:.7rem .9rem;margin:0 0 .7rem;background:#fff}
 .cr-rule.disabled-row{opacity:.6;background:#f8fafc}
+/* A link to one rule (#rule-<id>, from the ask page's made button) lands on
+   it, marked. */
+.cr-rule{scroll-margin-top:1rem}
+.cr-rule:target{border-color:#16a34a;box-shadow:0 0 0 2px #bbf7d0}
 .cr-head{display:flex;gap:.6rem;align-items:center;flex-wrap:wrap;margin-bottom:.5rem}
 .cr-head .cr-label{flex:1;min-width:12rem;padding:.35rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;font:inherit;font-size:.9rem}
 .cr-head .cr-hits{font-size:.75rem;color:#64748b;white-space:nowrap}

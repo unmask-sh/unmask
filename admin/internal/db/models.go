@@ -93,6 +93,9 @@ type AIChat struct {
 	InTokens  int    `gorm:"column:in_tokens;not null"`
 	OutTokens int    `gorm:"column:out_tokens;not null"`
 	Err       string `gorm:"column:err;not null"`
+	// AddedRules: the custom rules added from the answer's rule buttons, as
+	// JSON {button path: rule id} (migration 0042); "" for none.
+	AddedRules string `gorm:"column:added_rules;not null"`
 }
 
 func (AIChat) TableName() string { return "unmask_ai_chat" }

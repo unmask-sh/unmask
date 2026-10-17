@@ -39,7 +39,7 @@ func askReq(method, target, body string, role string) *http.Request {
 // history can be cleared.
 func TestAskPageAndSend(t *testing.T) {
 	h := newTestHandler(t)
-	if _, err := h.DB.Exec(`CREATE TABLE IF NOT EXISTS unmask_ai_chat (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, asked_at INTEGER NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '', tools TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', in_tokens INTEGER NOT NULL DEFAULT 0, out_tokens INTEGER NOT NULL DEFAULT 0, err TEXT NOT NULL DEFAULT '')`); err != nil {
+	if _, err := h.DB.Exec(`CREATE TABLE IF NOT EXISTS unmask_ai_chat (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, asked_at INTEGER NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '', tools TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', in_tokens INTEGER NOT NULL DEFAULT 0, out_tokens INTEGER NOT NULL DEFAULT 0, err TEXT NOT NULL DEFAULT '', added_rules TEXT NOT NULL DEFAULT '')`); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := h.DB.Exec(`CREATE TABLE IF NOT EXISTS unmask_ban (id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT NOT NULL, ja4 TEXT NOT NULL, source TEXT NOT NULL, reason TEXT, banned_at INTEGER NOT NULL, expires_at INTEGER NOT NULL DEFAULT 0, banned_by TEXT, action TEXT NOT NULL DEFAULT '', scope TEXT NOT NULL DEFAULT 'ip_ja4')`); err != nil {
@@ -203,7 +203,7 @@ func TestAskPageAndSend(t *testing.T) {
 // A failed turn is stored with its error and reported as one.
 func TestAskSendFailureIsKept(t *testing.T) {
 	h := newTestHandler(t)
-	if _, err := h.DB.Exec(`CREATE TABLE IF NOT EXISTS unmask_ai_chat (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, asked_at INTEGER NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '', tools TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', in_tokens INTEGER NOT NULL DEFAULT 0, out_tokens INTEGER NOT NULL DEFAULT 0, err TEXT NOT NULL DEFAULT '')`); err != nil {
+	if _, err := h.DB.Exec(`CREATE TABLE IF NOT EXISTS unmask_ai_chat (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, asked_at INTEGER NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '', tools TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', in_tokens INTEGER NOT NULL DEFAULT 0, out_tokens INTEGER NOT NULL DEFAULT 0, err TEXT NOT NULL DEFAULT '', added_rules TEXT NOT NULL DEFAULT '')`); err != nil {
 		t.Fatal(err)
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -291,7 +291,7 @@ func TestSplitFences(t *testing.T) {
 // and lands on the history tab; a short answer stays whole there.
 func TestAskDeleteOwnTurn(t *testing.T) {
 	h := newTestHandler(t)
-	if _, err := h.DB.Exec(`CREATE TABLE IF NOT EXISTS unmask_ai_chat (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, asked_at INTEGER NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '', tools TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', in_tokens INTEGER NOT NULL DEFAULT 0, out_tokens INTEGER NOT NULL DEFAULT 0, err TEXT NOT NULL DEFAULT '')`); err != nil {
+	if _, err := h.DB.Exec(`CREATE TABLE IF NOT EXISTS unmask_ai_chat (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, asked_at INTEGER NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '', tools TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', in_tokens INTEGER NOT NULL DEFAULT 0, out_tokens INTEGER NOT NULL DEFAULT 0, err TEXT NOT NULL DEFAULT '', added_rules TEXT NOT NULL DEFAULT '')`); err != nil {
 		t.Fatal(err)
 	}
 	s := h.snapshotSettings()
@@ -417,7 +417,7 @@ func TestAnswerMarksAddresses(t *testing.T) {
 // price, the month's sum, and the popover's host for the addresses.
 func TestAskHistoryCostAndAddresses(t *testing.T) {
 	h := newTestHandler(t)
-	if _, err := h.DB.Exec(`CREATE TABLE IF NOT EXISTS unmask_ai_chat (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, asked_at INTEGER NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL, tools TEXT NOT NULL, model TEXT NOT NULL, in_tokens INTEGER NOT NULL, out_tokens INTEGER NOT NULL, err TEXT NOT NULL)`); err != nil {
+	if _, err := h.DB.Exec(`CREATE TABLE IF NOT EXISTS unmask_ai_chat (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, asked_at INTEGER NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL, tools TEXT NOT NULL, model TEXT NOT NULL, in_tokens INTEGER NOT NULL, out_tokens INTEGER NOT NULL, err TEXT NOT NULL, added_rules TEXT NOT NULL DEFAULT '')`); err != nil {
 		t.Fatal(err)
 	}
 	s := h.snapshotSettings()

@@ -39,6 +39,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: long } }], usage: { prompt_tokens: 10, completion_tokens: 80 } }));
         return;
       }
+      // A question about a rule gets one proposed straight away.
+      if (lastUser && String(lastUser.content).indexOf('E2E-RULE') >= 0) {
+        res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'E2E-RULE: /admin/settings/custom-rules/?new=1&label=e2e%20again&c=ip%3A198.51.100.0%2F24&action=captcha_only' } }], usage: { prompt_tokens: 10, completion_tokens: 5 } }));
+        return;
+      }
       const lastTool = msgs.filter(x => x.role === 'tool').pop();
       if (!lastTool) {
         // Slow enough for the page's pending state to be seen.
@@ -174,7 +179,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   }
   // "Make this rule" opens the rule in a modal: the custom-rules tab's card
   // for it, edited in place and added without leaving the page; the button
-  // then says so, and the tab lists the rule.
+  // then names the rule and opens the tab at it, the history shows it made,
+  // and the tab lists the rule.
   if (answered) {
     const btnText = await page.evaluate(() => { const a = document.querySelector('#turns a.ask-rule'); return a ? a.textContent : ''; });
     ok(btnText !== '' && btnText.indexOf('\u2197') < 0, 'the rule button is missing, or still promises a new tab: ' + btnText);
@@ -188,13 +194,31 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await page.focus('#cr-modal .cr-label');
     await page.keyboard.down('Control'); await page.keyboard.press('KeyA'); await page.keyboard.up('Control');
     await page.keyboard.type('e2e rule from ask');
+    // The edit changes the condition too: only the record on the turn ties
+    // the rule to this answer then.
+    await page.evaluate(() => { const v = document.querySelector('#cr-modal .cc-values'); v.value = '203.0.113.0/24'; v.dispatchEvent(new Event('input', { bubbles: true })); });
     await page.click('#cr-modal-save');
     await page.waitForSelector('#cr-modal-msg.ok', { timeout: 5000 }).catch(() => {});
     const saved = await page.evaluate(() => ({ msg: (document.getElementById('cr-modal-msg') || {}).textContent || '', added: !!document.querySelector('#turns a.ask-rule.added'), saveHidden: document.getElementById('cr-modal-save').hidden }));
     ok(/nginx/.test(saved.msg) && saved.added && saved.saveHidden, 'the add did not report, or the button did not change: ' + JSON.stringify(saved));
+    const made = await page.evaluate(() => { const a = document.querySelector('#turns a.ask-rule.added'); return a ? { text: a.textContent.trim(), href: a.getAttribute('href'), tab: document.getElementById('cr-modal-tab').getAttribute('href') } : null; });
+    ok(!!made && made.text.indexOf('e2e rule from ask') >= 0 && made.text.indexOf('\u2197') >= 0 && /\/admin\/settings\/custom-rules\/#rule-[a-z0-9]+$/.test(made.href) && made.tab === made.href, 'the button does not name and open the added rule: ' + JSON.stringify(made));
     await page.click('#cr-modal-cancel');
     const tabPage = await browser.newPage();
-    await tabPage.goto(BASE + '/admin/settings/custom-rules/', { waitUntil: 'networkidle2' });
+    // The history draws the button made, as the page did after the add.
+    await tabPage.goto(BASE + '/admin/ask/history/', { waitUntil: 'networkidle2' });
+    const histMade = await tabPage.evaluate(() => { const a = document.querySelector('#turns a.ask-rule'); return a ? { added: a.classList.contains('added'), text: a.textContent.trim(), href: a.getAttribute('href') } : null; });
+    ok(!!made && !!histMade && histMade.added && histMade.text === made.text && histMade.href === made.href, 'the history does not show the rule as made: ' + JSON.stringify(histMade));
+    if (process.env.UI_E2E_SHOT_DIR) {
+      try { await tabPage.click('#turns .a .a-toggle'); await tabPage.screenshot({ path: path.join(process.env.UI_E2E_SHOT_DIR, 'ask-history-rule-made.png'), fullPage: true }); } catch (e) {}
+    }
+    // Its link lands on the rule, marked.
+    await tabPage.goto(new URL(made ? made.href : '/unmask/admin/settings/custom-rules/', BASE).href, { waitUntil: 'networkidle2' });
+    const target = await tabPage.evaluate(() => { const c = document.querySelector('#cr-list [data-cr]:target'); return c ? { name: (c.querySelector('.cr-v-name') || {}).textContent || '', mark: getComputedStyle(c).boxShadow } : null; });
+    ok(!!target && target.name.trim() === 'e2e rule from ask' && target.mark !== 'none', 'the made button does not land on the rule: ' + JSON.stringify(target));
+    if (process.env.UI_E2E_SHOT_DIR) {
+      try { await tabPage.screenshot({ path: path.join(process.env.UI_E2E_SHOT_DIR, 'ask-rule-target.png') }); } catch (e) {}
+    }
     const listed = await tabPage.evaluate(() => Array.from(document.querySelectorAll('#cr-list [data-cr] .cr-v-name')).map(e => e.textContent.trim()));
     ok(listed.length === 1 && listed[0] === 'e2e rule from ask', 'the tab does not list the added rule: ' + JSON.stringify(listed));
     // Leave the list empty for the custom-rules test: a save of no cards.
@@ -223,8 +247,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   // delete removes the one turn after the dialog.
   resp = await page.goto(BASE + '/admin/ask/history/', { waitUntil: 'networkidle2' });
   ok(resp.status() === 200, `/admin/ask/history/ status ${resp.status()}`);
-  const hist = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, folded: !!document.querySelector('#turns .a.folded'), toggle: !!document.querySelector('#turns .a .a-toggle'), del: !!document.querySelector('#turns .a form[action$="/admin/ask/delete"]'), clear: !!document.querySelector('form[action$="/admin/ask/clear"]'), metaHidden: (function(){ const m = document.querySelector('#turns .a .a-meta'); return m ? getComputedStyle(m).display === 'none' : null; })(), text: (document.querySelector('#turns .a .txt') || {}).textContent || '', pre: !!document.querySelector('#turns .a pre'), link: (function(){ const a = document.querySelector('#turns .a .txt a'); return a ? a.getAttribute('href') : ''; })(), copy: !!document.querySelector('#turns .a .a-copy'), chips: Array.from(document.querySelectorAll('#turns .a .tool-chip')).map(c => c.textContent) }));
+  const hist = await page.evaluate(() => ({ turns: document.querySelectorAll('#turns .a').length, folded: !!document.querySelector('#turns .a.folded'), toggle: !!document.querySelector('#turns .a .a-toggle'), del: !!document.querySelector('#turns .a form[action$="/admin/ask/delete"]'), clear: !!document.querySelector('form[action$="/admin/ask/clear"]'), metaHidden: (function(){ const m = document.querySelector('#turns .a .a-meta'); return m ? getComputedStyle(m).display === 'none' : null; })(), text: (document.querySelector('#turns .a .txt') || {}).textContent || '', pre: !!document.querySelector('#turns .a pre'), link: (function(){ const a = document.querySelector('#turns .a .txt a'); return a ? a.getAttribute('href') : ''; })(), copy: !!document.querySelector('#turns .a .a-copy'), chips: Array.from(document.querySelectorAll('#turns .a .tool-chip')).map(c => c.textContent), rule: (function(){ const a = document.querySelector('#turns a.ask-rule'); return a ? { added: a.classList.contains('added'), link: a.dataset.link || '' } : null; })() }));
   ok(hist.turns === 1 && hist.folded && hist.toggle && hist.del && hist.clear, 'the history tab is not as expected: ' + JSON.stringify(hist));
+  // The rule added from it is gone (cleared above): the button offers it again.
+  ok(!!hist.rule && !hist.rule.added && hist.rule.link.indexOf('/admin/settings/custom-rules/?new=1') === 0, 'with its rule removed, the history does not offer the rule again: ' + JSON.stringify(hist.rule));
   // The server-rendered turn: the answer whole in the DOM, the fence a
   // block, the admin path linked, a copy.
   ok(hist.text.indexOf('E2E-ANSWER') >= 0 && hist.pre && hist.link === '/unmask/admin/bans/' && hist.copy, 'the server-rendered turn is not as expected: ' + JSON.stringify({ pre: hist.pre, link: hist.link, copy: hist.copy }));
@@ -310,6 +336,24 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     });
     ok(at.qTop >= 0 && at.qTop < 60 && at.aTop > at.qTop && at.aBottom > at.vh, 'a long answer should bring its question to the top: ' + JSON.stringify(at));
   }
+
+  // A fresh answer proposing a rule already on the list says it was made
+  // from the start, and opens that rule.
+  const listedRule = await page.evaluate(async (base) => {
+    const body = new URLSearchParams({ cr_id: '', cr_key: 'draft', cr_label: 'e2e on the list', cr_enabled: '1', cr_action: 'captcha_only', cr_rate: '', cr_rate_action: '', cc_draft_kind: 'ip', cc_draft_values: '198.51.100.0/24', cc_draft_memo: '' });
+    const r = await fetch(base + '/admin/settings/save?section=custom-rules-add', { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }, body: body });
+    return r.json();
+  }, BASE);
+  ok(listedRule && listedRule.ok && listedRule.rule && listedRule.rule.id, 'the rule for the fresh answer could not be added: ' + JSON.stringify(listedRule));
+  await page.evaluate(() => { document.getElementById('ask-q').value = 'E2E-RULE: is it there?'; });
+  await page.click('#ask-send');
+  let fresh = null;
+  for (let i = 0; i < 30 && !fresh; i++) {
+    await sleep(300);
+    fresh = await page.evaluate(() => { const a = Array.from(document.querySelectorAll('#turns .a:not(.pending)')).find(e => e.textContent.indexOf('E2E-RULE') >= 0); const b = a && a.querySelector('a.ask-rule'); return b ? { added: b.classList.contains('added'), text: b.textContent.trim(), href: b.getAttribute('href') } : null; });
+  }
+  ok(!!fresh && fresh.added && fresh.text.indexOf('e2e on the list') >= 0 && !!listedRule.rule && fresh.href === '/unmask/admin/settings/custom-rules/#rule-' + listedRule.rule.id, 'a fresh answer does not show its rule as made: ' + JSON.stringify(fresh));
+  await page.evaluate(async (base) => { await fetch(base + '/admin/settings/save?section=custom-rules', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: '' }); }, BASE);
 
   // Leave the AI off for whichever test runs next.
   await saveAI(false, 'openai', stubURL, 'e2e-key');

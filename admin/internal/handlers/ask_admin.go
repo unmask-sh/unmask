@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -187,6 +188,10 @@ type askPart struct {
 	Rule bool   `json:"rule,omitempty"` // Link opens the custom-rules tab with a proposed rule filled in: shown as a button
 	IP   string `json:"ip,omitempty"`   // an address the answer names: shown with the hunt page's popover
 	Text string `json:"text"`
+	// RuleID / RuleName: the rule button's rule is on the list (askMarkRules)
+	// as this rule; the button says it was made and opens it.
+	RuleID   string `json:"rule_id,omitempty"`
+	RuleName string `json:"rule_name,omitempty"`
 }
 
 // customRuleDraftPrefix: the path propose_custom_rule returns (the tab with
@@ -311,6 +316,82 @@ func markAddresses(text string) []askPart {
 	return out
 }
 
+// askMarkRules marks the rule buttons whose rule is on the list: the rule
+// added from that button (added, the turn's added_rules) while it is still
+// there, else a rule with the same conditions -- added from another answer,
+// by hand, or before the page kept a record.  Such a button names the rule
+// and opens it, where it offered the rule again as if never made.
+func askMarkRules(parts []askPart, added map[string]string, rules []settings.CustomRule) {
+	for i := range parts {
+		p := &parts[i]
+		if !p.Rule {
+			continue
+		}
+		at := -1
+		if id := added[p.Link]; id != "" {
+			at = customRuleIndexOf(rules, id)
+		}
+		if at < 0 {
+			at = customRuleIndexWithConditions(rules, askDraftConditions(p.Link))
+		}
+		if at >= 0 {
+			p.RuleID, p.RuleName = rules[at].ID, rules[at].Label
+		}
+	}
+}
+
+// askDraftConditions: the condition lines of a rule button's path, as the
+// dialog's card reads them.
+func askDraftConditions(link string) []settings.CustomCondition {
+	_, query, _ := strings.Cut(link, "?")
+	q, _ := url.ParseQuery(query)
+	q.Set("new", "1")
+	return customRuleDraft(q, i18n.LangEN, "").Conditions
+}
+
+// askAddedRules reads a turn's added_rules: a rule button's path -> the id
+// of the rule added from it.
+func askAddedRules(s string) map[string]string {
+	var m map[string]string
+	if s != "" {
+		_ = json.Unmarshal([]byte(s), &m)
+	}
+	return m
+}
+
+// askNoteRuleAdded records on the operator's own turn that the rule button
+// at ask_link added rule id, for the history (askMarkRules).  The ask page's
+// dialog sends the turn (ask_id) and the button's path with the save; a
+// path that is not one of the answer's rule buttons is not kept.
+func (h *Handler) askNoteRuleAdded(r *http.Request, id string) {
+	pay := SessionFromContext(r)
+	turn, _ := strconv.ParseInt(strings.TrimSpace(r.FormValue("ask_id")), 10, 64)
+	link := r.FormValue("ask_link")
+	if pay == nil || h.DB == nil || turn <= 0 || id == "" || !strings.HasPrefix(link, customRuleDraftPrefix) {
+		return
+	}
+	var rows []db.AIChat
+	if err := h.DB.Gorm.WithContext(r.Context()).Where("user_id = ? AND id = ?", pay.UserID, turn).Limit(1).Find(&rows).Error; err != nil || len(rows) == 0 {
+		return
+	}
+	button := false
+	for _, p := range splitFences(rows[0].Answer) {
+		button = button || (p.Rule && p.Link == link)
+	}
+	if !button {
+		return
+	}
+	added := askAddedRules(rows[0].AddedRules)
+	if added == nil {
+		added = map[string]string{}
+	}
+	added[link] = id
+	b, _ := json.Marshal(added)
+	if err := h.DB.Gorm.WithContext(r.Context()).Model(&db.AIChat{}).Where("id = ?", turn).Update("added_rules", string(b)).Error; err != nil {
+		log.Printf("ask: note the added rule: %v", err)
+	}
+}
+
 // askCostOf is an answer's estimated cost as the page prints it, from the
 // model's list price: "" when the provider is local (nothing is billed) or
 // the model's price is not known.
@@ -325,11 +406,13 @@ func askCostOf(provider, model string, in, out int) string {
 	return advisor.FormatUSD(usd)
 }
 
-// askViews prepares turns for the page; fold folds the long answers.
-func askViews(rows []db.AIChat, fold bool) []askView {
+// askViews prepares turns for the page; fold folds the long answers, and
+// the rule buttons whose rule is on the list (rules) say so.
+func askViews(rows []db.AIChat, fold bool, rules []settings.CustomRule) []askView {
 	out := make([]askView, 0, len(rows))
 	for _, r := range rows {
 		v := askView{ID: r.ID, Question: r.Question, Answer: r.Answer, Parts: splitFences(r.Answer), AskedTS: r.AskedAt, Model: r.Model, InTokens: r.InTokens, OutTokens: r.OutTokens, Err: r.Err}
+		askMarkRules(v.Parts, askAddedRules(r.AddedRules), rules)
 		if r.Tools != "" {
 			var calls []advisor.ToolTrace
 			_ = json.Unmarshal([]byte(r.Tools), &calls)
@@ -385,7 +468,7 @@ func (h *Handler) askPage(w http.ResponseWriter, r *http.Request, tab string) {
 		for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
 			rows[i], rows[j] = rows[j], rows[i]
 		}
-		turns = askViews(rows, true)
+		turns = askViews(rows, true, h.cfg().Nginx.CustomRules)
 	}
 	cfg := h.cfg().AIAdvisor
 	for i := range turns {
@@ -533,8 +616,11 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusBadGateway, err.Error())
 		return
 	}
+	// A rule the answer proposes may be on the list already.
+	parts := splitFences(res.Answer)
+	askMarkRules(parts, nil, h.cfg().Nginx.CustomRules)
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"ok": true, "id": row.ID, "answer": res.Answer, "parts": splitFences(res.Answer), "tools": askToolChips(res.Tools),
+		"ok": true, "id": row.ID, "answer": res.Answer, "parts": parts, "tools": askToolChips(res.Tools),
 		"cost":      askCostOf(cfg.ResolvedProvider(), row.Model, res.Usage.Input, res.Usage.Output),
 		"in_tokens": res.Usage.Input, "out_tokens": res.Usage.Output, "model": row.Model, "asked_ts": row.AskedAt,
 	})

@@ -323,6 +323,25 @@ func (h *Handler) AdminCustomRuleDraftCard(w http.ResponseWriter, r *http.Reques
 // customRuleWithConditions names the first rule whose conditions are the
 // same as conds (each kind with the same values, in any order), or "".
 func customRuleWithConditions(rules []settings.CustomRule, conds []settings.CustomCondition) string {
+	if i := customRuleIndexWithConditions(rules, conds); i >= 0 {
+		return strings.TrimPrefix(customRuleRef(i, rules[i].Label), "rule ")
+	}
+	return ""
+}
+
+// customRuleIndexOf is the position of the rule with id on the list, or -1.
+func customRuleIndexOf(rules []settings.CustomRule, id string) int {
+	for i, r := range rules {
+		if r.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// customRuleIndexWithConditions is the position of the first rule whose
+// conditions are the same as conds (customRuleWithConditions), or -1.
+func customRuleIndexWithConditions(rules []settings.CustomRule, conds []settings.CustomCondition) int {
 	sig := func(cs []settings.CustomCondition) string {
 		var lines []string
 		for _, c := range cs {
@@ -339,10 +358,10 @@ func customRuleWithConditions(rules []settings.CustomRule, conds []settings.Cust
 	want := sig(conds)
 	for i, r := range rules {
 		if len(r.Conditions) > 0 && sig(r.Conditions) == want {
-			return strings.TrimPrefix(customRuleRef(i, r.Label), "rule ")
+			return i
 		}
 	}
-	return ""
+	return -1
 }
 
 // freeCustomRuleID is id, or id with a suffix when a rule already holds it:

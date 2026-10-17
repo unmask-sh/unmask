@@ -1405,13 +1405,20 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	// list's own, answered in JSON for the page's script (a plain post
 	// lands on the tab like any other save).
 	jsonAnswer := section == "custom-rules-add" && wantsJSON(r)
+	// addedRule: the rule custom-rules-add put on the list, which the answer
+	// names so the page's button can open it.
+	var addedRule *settings.CustomRule
 	redirBack := func(msg string) {
 		if jsonAnswer {
 			if msg != "" {
 				writeJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": msg})
 				return
 			}
-			writeJSON(w, http.StatusOK, map[string]any{"ok": true, "reload": nginxReloadNeeded, "restart": unmaskRestartNeeded})
+			out := map[string]any{"ok": true, "reload": nginxReloadNeeded, "restart": unmaskRestartNeeded}
+			if addedRule != nil {
+				out["rule"] = map[string]string{"id": addedRule.ID, "label": addedRule.Label}
+			}
+			writeJSON(w, http.StatusOK, out)
 			return
 		}
 		dst := base + "/admin/settings/" + tabForSection(section) + "/"
@@ -1709,6 +1716,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 		add[0].ID = freeCustomRuleID(cur.Nginx.CustomRules, add[0].ID)
 		cur.Nginx.CustomRules = append(cur.Nginx.CustomRules, add[0])
+		addedRule = &add[0]
 	case "geo":
 		geoStored := map[string][]string{
 			"geo_country": countriesOfGeo(cur.Nginx.Geo.Rules),
@@ -2041,6 +2049,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 		afterYAML, _ := settings.MarshalYAML(cur)
 		auditWriteSettingsSave(r.Context(), h, pay.UserID, username, section, beforeYAML, afterYAML)
+	}
+
+	// A rule added from an answer of the ask page: the history shows that
+	// answer's button as made.
+	if addedRule != nil {
+		h.askNoteRuleAdded(r, addedRule.ID)
 	}
 
 	redirBack("")
