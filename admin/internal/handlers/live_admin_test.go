@@ -203,6 +203,10 @@ func TestLivePageRendersStrip(t *testing.T) {
 	if !strings.Contains(body, `class="dash-tabs"`) || strings.Contains(body, `nav.live`) {
 		t.Error("the realtime tab must carry the tab bar and no nav entry of its own")
 	}
+	// The same three tabs as the dashboard: the week is reachable from here too.
+	if !strings.Contains(body, `href="/unmask/admin/?range=7d"`) || !strings.Contains(body, `href="/unmask/admin/"`) {
+		t.Error("the realtime tab's bar lacks the day or the week entry")
+	}
 	rec = httptest.NewRecorder()
 	h.AdminTopOverview(rec, httptest.NewRequest("GET", "/unmask/admin/?partial=day", nil))
 	if strings.Contains(rec.Body.String(), `class="now-line"`) {

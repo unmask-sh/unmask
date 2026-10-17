@@ -304,10 +304,12 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 </header>
 <main class="unmask-main">
 <h1>{{ t .Lang "overview.title" }}</h1>
-{{/* The dashboard's two tabs: the day, and the last thirty minutes (this
-     page).  Links, so each has its own address and refresh loop. */}}
+{{/* The dashboard's tabs: the day, the week (the same section over seven
+     days) and the last thirty minutes (this page).  Links, so each has its
+     own address and refresh loop. */}}
 <nav class="dash-tabs">
   <a href="{{ .BasePath }}/admin/">{{ t .Lang "overview.tab_day" }}</a>
+  <a href="{{ .BasePath }}/admin/?range=7d">{{ t .Lang "overview.tab_week" }}</a>
   <a href="{{ .BasePath }}/admin/live/" class="on" aria-current="page">{{ t .Lang "overview.tab_live" }}</a>
 </nav>
 <p class="meta">{{ t .Lang "live.intro" }}</p>
