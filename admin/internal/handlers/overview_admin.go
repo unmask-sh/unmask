@@ -115,8 +115,8 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		kpiCaptchaPass = countEventsPhases(ctx, h, winMinutes,
 			[]string{"bv_captcha_only", "bv_pow_then_captcha"}, site, hosts)
 	})
-	// Non-human %: request counts from unmask_cookie_minute.  "—" when the
-	// access-log feed is off (no counters at all).
+	// Non-human %: request counts from the access log's minute table and its
+	// hourly rollup.  "—" when the access-log feed is off (no counters at all).
 	launch(func() {
 		var err error
 		comp, err = dashboard.TrafficRequests(ctx, h.DB, winMinutes, site)

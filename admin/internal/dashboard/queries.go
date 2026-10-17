@@ -4533,71 +4533,129 @@ type TrafficComposition struct {
 	OK           bool
 }
 
+// TrafficRequests sums the access-log request kinds over the last `minutes`:
+// the composition behind the landing page's headline and tiles, on the day
+// tab and the week tab alike.  The install-wide read (site == "") takes the
+// hours the install-wide fold has settled from its hourly rollup
+// (hkCookiePass, a row per kind and hour) and reads unmask_cookie_minute only
+// around them -- the partial hour the window opens in and the hours past the
+// cursor -- so a week costs a few hundred rows where the per-minute scan cost
+// a row per site, kind and minute (seven days of a many-site install ran past
+// the page's budget and the page showed its "timed out" banner).  A
+// site-scoped read has no rollup and scans the window's minutes, as before.
 func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (TrafficComposition, error) {
-	var c TrafficComposition
 	if d == nil {
-		return c, nil
+		return TrafficComposition{}, nil
 	}
-	cutoff := time.Now().Unix()/60 - int64(minutes)
-	args := []any{cutoff}
-	cond := ""
-	if site != "" {
-		cond = " AND site = ?"
-		args = append(args, site)
+	untilMin := time.Now().Unix() / 60
+	return trafficRequestsFrom(ctx, d, untilMin-int64(minutes), untilMin, site)
+}
+
+// trafficRequestsFrom is TrafficRequests over the minutes from cutoffMin on.
+// The minute reads stay open-ended past untilMin, as the scan always was (a
+// row stamped ahead of the clock still counts); untilMin only keeps the
+// current hour out of the rollup read.
+func trafficRequestsFrom(ctx context.Context, d *db.DB, cutoffMin, untilMin int64, site string) (TrafficComposition, error) {
+	var c TrafficComposition
+	liveFrom := cutoffMin
+	if site == "" {
+		cursor, err := stateCursor(ctx, d, installWideState)
+		if err != nil {
+			return TrafficComposition{}, err
+		}
+		if last := untilMin/60 - 1; cursor > last {
+			cursor = last
+		}
+		// The first hour wholly inside the window; the minutes before it are
+		// the window's partial opening hour, read from the minute table.
+		firstFull := (cutoffMin + 59) / 60
+		if cursor >= firstFull {
+			if cutoffMin < firstFull*60 {
+				if err := c.addCookieMinutes(ctx, d, cutoffMin, firstFull*60, ""); err != nil {
+					return TrafficComposition{}, err
+				}
+			}
+			if err := c.addCookieHours(ctx, d, firstFull, cursor); err != nil {
+				return TrafficComposition{}, err
+			}
+			liveFrom = (cursor + 1) * 60
+		}
 	}
-	err := d.QueryRowContext(ctx, `
-        SELECT COALESCE(SUM(CASE WHEN kind = 'total'            THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind = 'crawler_pass'     THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind = 'bypass_pass'      THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind = 'challenge_served' THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind = 'pow'              THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind = 'captcha'          THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind = 'rebind'           THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind = 'passthrough'      THEN cnt ELSE 0 END), 0),
-               COALESCE(SUM(CASE WHEN kind = 'observe_pass'     THEN cnt ELSE 0 END), 0)
-        FROM unmask_cookie_minute
-        WHERE bucket_min >= ?`+cond, args...).
-		Scan(&c.Total, &c.Benign, &c.Bypassed, &c.Challenged, &c.PowPass, &c.CaptchaPass, &c.Rebound, &c.Passthrough, &c.Observe)
-	if err != nil {
+	if err := c.addCookieMinutes(ctx, d, liveFrom, 0, site); err != nil {
 		return TrafficComposition{}, err
 	}
 	c.Passed = c.PowPass + c.CaptchaPass
-	// All four figures come from the one table above, deliberately.  The
-	// install-wide view used to take the benign half from the crawler table
-	// instead, on the reasoning that it predates this counter and so answers
-	// for the whole window right after an upgrade rather than filling in over
-	// a day.  That traded a real invariant for a cosmetic one: the four are
-	// shares of ONE total, and that table is not part of the total's
-	// bookkeeping -- its "passed" counts crawlers that hit a bypassed path,
-	// which the same request already contributed to bypass_pass (535,977 in a
-	// day on the install where this surfaced).  The card could then not
-	// compute a human remainder at all and rendered it unknown.
-	//
-	// Bump() adds 1 to 'total' and 1 to at most one other kind per request, and
-	// those kinds are mutually exclusive, so what is left over is requests that
-	// carried no kind at all.  Floored anyway: a negative here would mean the
-	// exclusivity broke again, and the card's "other" share is where that shows
-	// up rather than silently skewing a named segment.
-	// Rebound is kept OUT of Passed on purpose.  Both are requests that
-	// arrived holding a valid cookie, but "passed" is read as "solved
-	// something", and a re-bound credential solved nothing on this address --
-	// it is the same solve, carried to a new IP.  Folding the two together is
-	// what let a crawler passing entirely by roaming read as steady CAPTCHA
-	// traffic while the PoW figures it never touched sat at zero.
-	// Passthrough passes are subtracted too, and named in the residue's
-	// breakdown rather than folded into a segment: they are requests that
-	// carried a cookie handed out while enforcement was suspended, so they
-	// belong neither with people who solved something nor with traffic a rule
-	// exempted on purpose.  Left unsubtracted they would surface as "window
-	// skew", which is a label for arithmetic noise, not for a monitoring
-	// window the operator opened.
-	// Monitor mode's passes are their own bucket for the same reason: the
-	// judgement fired and the operator chose not to enforce it, which is
-	// neither "nothing matched" nor a rule's exemption.
 	c.Unchallenged = c.Total - c.Benign - c.Bypassed - c.Challenged - c.Passed - c.Rebound - c.Passthrough - c.Observe
 	if c.Unchallenged < 0 {
 		c.Unchallenged = 0
 	}
 	c.OK = c.Total > 0
 	return c, nil
+}
+
+// addKind folds one request kind's count into the composition; the kinds are
+// unmask_cookie_minute's, which the install-wide rollup carries unchanged.
+func (c *TrafficComposition) addKind(kind string, n int) {
+	switch kind {
+	case "total":
+		c.Total += n
+	case "crawler_pass":
+		c.Benign += n
+	case "bypass_pass":
+		c.Bypassed += n
+	case "challenge_served":
+		c.Challenged += n
+	case "pow":
+		c.PowPass += n
+	case "captcha":
+		c.CaptchaPass += n
+	case "rebind":
+		c.Rebound += n
+	case "passthrough":
+		c.Passthrough += n
+	case "observe_pass":
+		c.Observe += n
+	}
+}
+
+// addCookieMinutes adds the minute table's counts from fromMin up to but not
+// including toMin (open-ended when toMin is 0), for one site or every site.
+func (c *TrafficComposition) addCookieMinutes(ctx context.Context, d *db.DB, fromMin, toMin int64, site string) error {
+	stmt := `SELECT kind, COALESCE(SUM(cnt), 0) FROM unmask_cookie_minute WHERE bucket_min >= ?`
+	args := []any{fromMin}
+	if toMin > 0 {
+		stmt += ` AND bucket_min < ?`
+		args = append(args, toMin)
+	}
+	if site != "" {
+		stmt += ` AND site = ?`
+		args = append(args, site)
+	}
+	return c.addRows(ctx, d, stmt+` GROUP BY kind`, args...)
+}
+
+// addCookieHours adds the install-wide hourly rollup's counts for the hours
+// fromHour through toHour (unix hours, both inclusive).
+func (c *TrafficComposition) addCookieHours(ctx context.Context, d *db.DB, fromHour, toHour int64) error {
+	bucket := func(h int64) string { return time.Unix(h*3600, 0).UTC().Format("2006-01-02 15") }
+	return c.addRows(ctx, d, `SELECT bucket_key, COALESCE(SUM(cnt), 0) FROM unmask_aggregate_hourly
+        WHERE bucket_kind = ? AND bucket_hour >= ? AND bucket_hour <= ? GROUP BY bucket_key`,
+		hkCookiePass, bucket(fromHour), bucket(toHour))
+}
+
+func (c *TrafficComposition) addRows(ctx context.Context, d *db.DB, stmt string, args ...any) error {
+	rows, err := d.QueryContext(ctx, stmt, args...)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var kind string
+		var n int
+		if err := rows.Scan(&kind, &n); err != nil {
+			return err
+		}
+		c.addKind(kind, n)
+	}
+	return rows.Err()
 }

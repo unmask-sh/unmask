@@ -92,6 +92,11 @@ func newTestHandler(t *testing.T) *Handler {
             err TEXT NOT NULL DEFAULT ''
         );
         CREATE INDEX idx_unmask_advisor_run_ran_at ON unmask_advisor_run (ran_at);
+        CREATE TABLE unmask_aggregate_state (
+            name TEXT PRIMARY KEY,
+            last_id INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
     `
 	for _, stmt := range strings.Split(schema, ";") {
 		if strings.TrimSpace(stmt) == "" {
