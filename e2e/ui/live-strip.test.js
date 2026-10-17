@@ -222,6 +222,25 @@ for i in range(${n}):
   });
   ok(refusedLine && refusedLine.links >= 1, 'the refusal is not in the line under the map: ' + JSON.stringify(refusedLine));
 
+  // A tile's help pins as a window titled by the tile's name: the "?" sits
+  // in the tile's name row, not in a heading (a pin with no title, 2026-10-18).
+  const tipSel = '#live-grid .live[data-k="blocked"] .info-tip';
+  await page.click(tipSel);
+  await sleep(200);
+  await page.mouse.move(4, 400);
+  await sleep(200);
+  const pin = await page.evaluate(() => {
+    const clones = document.querySelectorAll('body > .info-popup-pinned.popover-clone');
+    const c = clones[0];
+    return { clones: clones.length, title: c ? ((c.querySelector('.popover-title') || {}).textContent || '') : '' };
+  });
+  ok(pin.clones === 1, `pinned windows after a click on the blocked tile's help: ${pin.clones}, expected 1`);
+  ok(pin.title === 'Blocked', `the pinned help's title is "${pin.title}", expected the tile's name`);
+  await page.click('body > .info-popup-pinned.popover-clone button.popover-close');
+  await sleep(200);
+  const left = await page.evaluate(() => document.querySelectorAll('body > .info-popup-pinned.popover-clone').length);
+  ok(left === 0, `${left} pinned window(s) left after the close button`);
+
   // Switch auto-refresh off: the countdown stops, the choice survives a reload.
   await page.click('#live-toggle');
   const paused = await page.evaluate(async () => {

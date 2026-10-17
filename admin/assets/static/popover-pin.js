@@ -147,18 +147,21 @@ window.popoverPin = window.popoverPin || (function(){
     if (text.length > 60) return text.slice(0, 60).trim() + '…';
     return text;
   }
+  // TITLE_ANCHORS: the labelling contexts a `?` can sit in, nearest first
+  // -- prefer narrow, label-only ancestors before falling back to broader
+  // containers.  Most forms in settings.html wrap the label + `?` pair in a
+  // small `.field-label` row separate from the input + unit hint, so
+  // checking that class before `.field` keeps the title focused on the label
+  // and out of the "seconds (= 0 for forever, ...)" hint text that lives
+  // below it.  `.label` is a tile's name row (the dashboard's KPI tiles, the
+  // realtime strip): without it those pins had no title (2026-10-18).
+  var TITLE_ANCHORS = 'h1,h2,h3,h4,h5,h6, legend, th, label, .label, .field-label, .field, .bcd-card';
+  window._popoverTitleAnchors = TITLE_ANCHORS;
   // titleFromTrigger climbs from the `?` button up to the nearest labelling
-  // context -- prefer narrow, label-only ancestors before falling back to
-  // broader containers.  Most forms in settings.html wrap the label + `?`
-  // pair in a small `.field-label` row separate from the input + unit hint,
-  // so checking that class before `.field` keeps the title focused on the
-  // label and out of the "seconds (= 0 for forever, ...)" hint text that lives below it.
+  // context (TITLE_ANCHORS).
   function titleFromTrigger(trigger){
     if (!trigger || !trigger.closest) return '';
-    var anchor = trigger.closest(
-      'h1,h2,h3,h4,h5,h6, legend, th, label, ' +
-      '.field-label, .field, .bcd-card'
-    );
+    var anchor = trigger.closest(TITLE_ANCHORS);
     if (!anchor) return '';
     return capTitle(extractVisibleText(anchor));
   }
@@ -814,10 +817,8 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root, op
         // behave identically.
         var titleText = tip.getAttribute('data-pin-title') || '';
         if (!titleText){
-          var anchor = tip.closest && tip.closest(
-            'h1,h2,h3,h4,h5,h6, legend, th, label, ' +
-            '.field-label, .field, .bcd-card'
-          );
+          var anchor = tip.closest && tip.closest(window._popoverTitleAnchors ||
+            'h1,h2,h3,h4,h5,h6, legend, th, label, .label, .field-label, .field, .bcd-card');
           if (anchor && typeof window._popoverExtractVisibleText === 'function'){
             titleText = window._popoverExtractVisibleText(anchor);
           }
