@@ -654,9 +654,10 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 						return
 					}
 					// A schema update holds the database's write lock: a
-					// change made now would wait out the busy timeout and
-					// fail.  Say so instead (schema_update.go).
-					if h.DB.WritesHeld() && !h.schemaWriteExempt(r) {
+					// change that rewrites rows would wait out the busy
+					// timeout and fail.  Say so instead (schema_update.go);
+					// the rest goes through.
+					if h.DB.WritesHeld() && h.schemaWriteRefused(r) {
 						h.respondWritesHeld(w, r)
 						return
 					}

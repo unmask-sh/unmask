@@ -12,15 +12,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [0.1.52-rc4] - 2026-10-17 (testing build)
-
-### Since rc3
-
-- The notification bell's unread rows stand out from the read ones: bold with a blue edge and a New tag in the panel, bold on a tinted row in the list.
+## [Unreleased]
 
 ### Added
 
 - (2026-10-17) **The realtime tab has a blocked tile.**  Beside the challenge, refused and solved tiles, a tile counts what the dashboard's headline counts -- challenges served plus refusals, minus the proof-of-work and CAPTCHA answers and the visitors who walked away -- over the last thirty minutes and the last minute, a bar a minute.  It is the total of what the map draws by default.
+
+
+### Changed
+
+- (2026-10-17) **Bans can be placed and lifted while the database is being updated.**  A manual ban during an index build used to be refused until the build had finished.  It is now kept in memory like an automatic one -- enforced at once, listed as a row to come, written when the lock is free -- and a ban lifted meanwhile stops at once too.  Only editing a ban waits.
+
+- (2026-10-17) **A database update refuses only the changes that rewrite rows.**  While an index builds, only user accounts, the profile, the advisor's dismissals and the AI chat's history edits wait, told why at once; the hunt page's rules, the map's position and a question to the AI go through, as the settings always did.  The build runs at low CPU and I/O priority, so the pages stay quick.
 
 ## [0.1.52-rc4] - 2026-10-17 (testing build)
 

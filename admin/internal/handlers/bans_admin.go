@@ -831,11 +831,27 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case "delete":
+		// A ban placed while the database's writes were held is not a row
+		// yet: the page lifts it by its key.
+		if r.FormValue("held") == "1" {
+			ip, ja4, scope := strings.TrimSpace(r.FormValue("ip")), strings.TrimSpace(r.FormValue("ja4")), strings.TrimSpace(r.FormValue("scope"))
+			if !h.BanMgr.DropHeld(ip, ja4, scope) {
+				redir("unban: not found")
+				return
+			}
+			if h.UserRepo != nil {
+				h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "ban_remove", ip+"|"+ja4, `{"held":1}`)
+			}
+			redir("")
+			return
+		}
 		id, err := strconv.ParseInt(strings.TrimSpace(r.FormValue("id")), 10, 64)
 		if err != nil || id <= 0 {
 			redir("invalid id")
 			return
 		}
+		// A row lifted during a hold is unbanned at once and deleted when
+		// the lock is free (ban.Manager.Remove).
 		if err := h.BanMgr.Remove(r.Context(), id); err != nil {
 			redir("unban: " + err.Error())
 			return
@@ -848,6 +864,12 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case "edit":
+		// An edit rewrites the row: while a schema update holds the
+		// database's writes it waits, and the page says so.
+		if h.DB != nil && h.DB.WritesHeld() {
+			h.respondWritesHeld(w, r)
+			return
+		}
 		// Inline edit of an existing manual BAN row -- the dialog opened
 		// from the row's 「編集」 button posts here.  Match scope (= IP+JA4 /
 		// IP-only / JA4-only) flips by clearing one of the input fields

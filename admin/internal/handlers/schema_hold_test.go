@@ -6,11 +6,13 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
@@ -317,5 +319,88 @@ func TestStopSchemaRunCancelsTheChild(t *testing.T) {
 	h.StopSchemaRun(ctx)
 	if time.Since(t0) > time.Second {
 		t.Error("StopSchemaRun with no run waited")
+	}
+}
+
+// TestBansDuringAHold: the bans page works while a schema update holds the
+// writes -- a ban placed is listed as one to be written and lifted again by
+// its key, a row is lifted and its delete waits -- and only the edit, which
+// rewrites a row, is answered with the reason.
+func TestBansDuringAHold(t *testing.T) {
+	h := installedHandler(t)
+	s := *h.cfg()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
+	h.BanMgr = ban.New(h.DB, "", 0)
+	post := func(form url.Values) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodPost, "/unmask/admin/bans/save", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		r.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
+		rr := httptest.NewRecorder()
+		h.AdminBansSave(rr, asRole(r, "admin"))
+		return rr
+	}
+	saved := func(rr *httptest.ResponseRecorder) bool {
+		return rr.Code == http.StatusFound && strings.Contains(rr.Header().Get("Location"), "saved=1")
+	}
+	page := func() string {
+		r := httptest.NewRequest(http.MethodGet, "/unmask/admin/bans/", nil)
+		r.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
+		rr := httptest.NewRecorder()
+		h.AdminBansIndex(rr, asRole(r, "admin"))
+		if rr.Code != http.StatusOK {
+			t.Fatalf("bans page: %d", rr.Code)
+		}
+		return rr.Body.String()
+	}
+	ctx := context.Background()
+	// A row from before the hold.
+	if rr := post(url.Values{"op": {"add"}, "ip": {"203.0.113.71"}, "scope": {"ip_only"}, "reason": {"before"}}); !saved(rr) {
+		t.Fatalf("add before the hold: %d %s %s", rr.Code, rr.Header().Get("Location"), rr.Body.String())
+	}
+	var id int64
+	if err := h.DB.QueryRow(`SELECT id FROM unmask_ban WHERE ip = '203.0.113.71'`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+
+	h.DB.HoldWrites(true)
+	defer h.DB.HoldWrites(false)
+	// Placed: in force, listed as one to be written.
+	if rr := post(url.Values{"op": {"add"}, "ip": {"203.0.113.70"}, "scope": {"ip_only"}, "reason": {"during"}}); !saved(rr) {
+		t.Fatalf("add during the hold: %d %s", rr.Code, rr.Header().Get("Location"))
+	}
+	if !h.BanMgr.IsBanned(ctx, "203.0.113.70", "") {
+		t.Error("the ban placed during the hold is not enforced")
+	}
+	if body := page(); !strings.Contains(body, "203.0.113.70") || !strings.Contains(body, "to be written") || !strings.Contains(body, `name="held" value="1"`) {
+		t.Error("the page does not list the kept ban as one to be written, with the form that lifts it by its key")
+	}
+	// Lifted: the row stays until the lock is free, unbanned from now.
+	if rr := post(url.Values{"op": {"delete"}, "id": {strconv.FormatInt(id, 10)}}); !saved(rr) {
+		t.Fatalf("delete during the hold: %d %s", rr.Code, rr.Header().Get("Location"))
+	}
+	if h.BanMgr.IsBanned(ctx, "203.0.113.71", "") {
+		t.Error("the lifted ban is still enforced")
+	}
+	if strings.Contains(page(), "203.0.113.71") {
+		t.Error("the page still lists the lifted ban")
+	}
+	// The edit rewrites a row: refused with the reason.
+	if rr := post(url.Values{"op": {"edit"}, "id": {strconv.FormatInt(id, 10)}, "ip": {"203.0.113.71"}, "scope": {"ip_only"}}); rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Body.String(), "The database is being updated") {
+		t.Errorf("edit during the hold: %d %s", rr.Code, rr.Body.String())
+	}
+	// The kept ban, lifted again by its key.
+	if rr := post(url.Values{"op": {"delete"}, "held": {"1"}, "ip": {"203.0.113.70"}, "scope": {"ip_only"}}); !saved(rr) {
+		t.Fatalf("dropping the kept ban: %d %s", rr.Code, rr.Header().Get("Location"))
+	}
+	if h.BanMgr.IsBanned(ctx, "203.0.113.70", "") || strings.Contains(page(), "203.0.113.70") {
+		t.Error("the dropped ban is still enforced or listed")
+	}
+
+	h.DB.HoldWrites(false)
+	h.BanMgr.FlushHeld()
+	var n int
+	if err := h.DB.QueryRow(`SELECT COUNT(*) FROM unmask_ban`).Scan(&n); err != nil || n != 0 {
+		t.Errorf("rows after the hold: %d (%v), want the lifted row deleted and the dropped ban never written", n, err)
 	}
 }

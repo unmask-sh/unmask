@@ -776,13 +776,15 @@ func changesWaitWhileWritesAreHeld(t *testing.T, basePath string) {
 	if rr.Header().Get("Retry-After") == "" {
 		t.Error("no Retry-After")
 	}
-	for _, p := range []string{"/unmask/admin/bans/save", "/unmask/admin/profile/save", "/unmask/admin/advisor/dismiss", "/unmask/admin/hunt/action"} {
+	for _, p := range []string{"/unmask/admin/profile/save", "/unmask/admin/advisor/dismiss", "/unmask/admin/advisor/undismiss", "/unmask/admin/advisor/ai-run", "/unmask/admin/ask/clear", "/unmask/admin/ask/delete"} {
 		reached = 0
 		if rr := do(http.MethodPost, p); rr.Code != http.StatusServiceUnavailable || reached != 0 {
 			t.Errorf("POST %s while writes are held: %d (reached %d), want 503", p, rr.Code, reached)
 		}
 	}
-	rr = do(http.MethodPost, "/unmask/admin/api/hosts/toggle")
+	// An API path is answered in JSON.
+	rr = httptest.NewRecorder()
+	h.respondWritesHeld(rr, httptest.NewRequest(http.MethodPost, "/unmask/admin/api/x", nil))
 	if rr.Code != http.StatusServiceUnavailable || !strings.Contains(rr.Header().Get("Content-Type"), "application/json") {
 		t.Fatalf("an API post while writes are held: %d %s", rr.Code, rr.Header().Get("Content-Type"))
 	}
@@ -792,11 +794,20 @@ func changesWaitWhileWritesAreHeld(t *testing.T, basePath string) {
 	}
 
 	// What writes only an audit row -- kept until the lock is free -- goes
-	// through: the settings above all, where an attack is answered.
+	// through: the settings above all, where an attack is answered; and the
+	// bans, kept the same way (the page refuses an edit itself); the hunt
+	// page's rules; the map's position; a question to the AI; the hosts.
 	for _, c := range []struct{ method, path string }{
 		{http.MethodGet, "/unmask/admin/"},
 		{http.MethodGet, "/unmask/admin/api/schema-update"},
 		{http.MethodPost, "/unmask/admin/api/schema-update/cancel"},
+		{http.MethodPost, "/unmask/admin/bans/save"},
+		{http.MethodPost, "/unmask/admin/hunt/action"},
+		{http.MethodPost, "/unmask/admin/api/map-location"},
+		{http.MethodPost, "/unmask/admin/api/hosts/toggle"},
+		{http.MethodPost, "/unmask/admin/api/sites/promote"},
+		{http.MethodPost, "/unmask/admin/ask/send"},
+		{http.MethodPost, "/unmask/admin/notices/panel"},
 		{http.MethodPost, "/unmask/admin/settings/save"},
 		{http.MethodPost, "/unmask/admin/settings/branding/site/save"},
 		{http.MethodPost, "/unmask/admin/settings/snapshot"},
@@ -1056,10 +1067,10 @@ func TestSchemaNoticeWordsFollowTheDatabase(t *testing.T) {
 		t.Fatal("SQLite: the run holds the write lock, and the view must say so")
 	}
 	onSQLite := renderAs(t, h.AdminTopOverview, "/unmask/admin/", user.RoleSuperadmin, "en")
-	if !strings.Contains(onSQLite, "Settings can be saved as usual") || !strings.Contains(onSQLite, "users and manual bans, wait until it has finished") {
-		t.Error("SQLite: the notice must say what waits (the database's own changes) and what does not (settings)")
+	if !strings.Contains(onSQLite, "Settings can be saved and bans placed or lifted as usual") || !strings.Contains(onSQLite, "such as users, wait until it has finished") {
+		t.Error("SQLite: the notice must say what waits (the rows of the database) and what does not (settings, bans)")
 	}
-	if !strings.Contains(onSQLite, `id="schup-run-dialog"`) || !strings.Contains(onSQLite, "Changes to users and manual bans wait until it has finished (settings can be saved)") {
+	if !strings.Contains(onSQLite, `id="schup-run-dialog"`) || !strings.Contains(onSQLite, "so do saving settings and placing or lifting bans. Changes that rewrite rows of the database, such as users, wait until it has finished") {
 		t.Error("SQLite: the confirmation must say what cannot be changed during the run")
 	}
 
@@ -1394,5 +1405,29 @@ func TestRunThatFinishedWithoutItsEndIsNoNews(t *testing.T) {
 	h.SchemaRefresh(ctx)
 	if v := h.schemaView(user.RoleSuperadmin, i18n.LangEN); v == nil || v.State != "failed" || !strings.Contains(v.Err, "interrupted") {
 		t.Errorf("view = %+v, want the last attempt reported interrupted", v)
+	}
+}
+
+// TestLowPriorityArgv: the run's child goes behind the daemon's own work
+// through nice and ionice when the system has them, and runs as it is when it
+// does not.
+func TestLowPriorityArgv(t *testing.T) {
+	both := func(name string) (string, error) { return "/usr/bin/" + name, nil }
+	exe, args := lowPriority("/usr/sbin/unmask", []string{"migrate", "-by", "x"}, both)
+	if got := exe + " " + strings.Join(args, " "); got != "/usr/bin/nice -n 10 /usr/bin/ionice -c 2 -n 7 /usr/sbin/unmask migrate -by x" {
+		t.Errorf("argv = %q", got)
+	}
+	none := func(string) (string, error) { return "", exec.ErrNotFound }
+	if exe, args := lowPriority("/usr/sbin/unmask", []string{"migrate"}, none); exe != "/usr/sbin/unmask" || strings.Join(args, " ") != "migrate" {
+		t.Errorf("without nice and ionice: %q %q", exe, args)
+	}
+	niceOnly := func(name string) (string, error) {
+		if name == "nice" {
+			return "/bin/nice", nil
+		}
+		return "", exec.ErrNotFound
+	}
+	if exe, args := lowPriority("/usr/sbin/unmask", []string{"migrate"}, niceOnly); exe != "/bin/nice" || strings.Join(args, " ") != "-n 10 /usr/sbin/unmask migrate" {
+		t.Errorf("with nice alone: %q %q", exe, args)
 	}
 }

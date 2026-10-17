@@ -2,6 +2,7 @@ package ban
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -243,5 +244,209 @@ func TestKeptBansAreWrittenOnce(t *testing.T) {
 	}
 	if len(announced) != 20 {
 		t.Errorf("%d of 20 kept bans announced", len(announced))
+	}
+}
+
+// openHeldTest: a migrated SQLite and a manager with a ban file, for the
+// tests of what an operator does during a hold.
+func openHeldTest(t *testing.T) (*db.DB, *Manager, string) {
+	t.Helper()
+	dir := t.TempDir()
+	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: filepath.Join(dir, "t.db")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	if err := db.Migrate(d); err != nil {
+		t.Fatal(err)
+	}
+	banFile := filepath.Join(dir, "ban.list")
+	return d, New(d, banFile, time.Hour), banFile
+}
+
+// TestOperatorBanDuringAHold: a ban the operator places while a schema update
+// holds the writes is in force at once -- the file, the checks, the list --
+// and announced at once; it is written when the lock is free, once, and not
+// announced again.
+func TestOperatorBanDuringAHold(t *testing.T) {
+	d, mgr, banFile := openHeldTest(t)
+	ctx := context.Background()
+	created := 0
+	mgr.OnCreated = func(ip, ja4, source, reason, bannedBy string) { created++ }
+	rows := func() int {
+		var n int
+		if err := d.QueryRow(`SELECT COUNT(*) FROM unmask_ban`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	d.HoldWrites(true)
+	t0 := time.Now()
+	if err := mgr.AddManualWithScope(ctx, "203.0.113.50", "", ScopeIPOnly, "during the update", "op", "", 0); err != nil {
+		t.Fatalf("an operator's ban during a hold: %v", err)
+	}
+	if took := time.Since(t0); took > time.Second {
+		t.Errorf("the ban took %v while writes were held; it must not wait for the lock", took)
+	}
+	if n := rows(); n != 0 {
+		t.Fatalf("%d ban(s) written while writes were held", n)
+	}
+	if created != 1 {
+		t.Errorf("OnCreated ran %d times, want once, at once: the operator is here now", created)
+	}
+	if !mgr.IsBanned(ctx, "203.0.113.50", "") {
+		t.Error("the kept ban is not enforced by the checks")
+	}
+	if file, _ := os.ReadFile(banFile); !strings.Contains(string(file), "203.0.113.50||manual|deny") {
+		t.Errorf("the ban file does not carry the kept ban:\n%s", file)
+	}
+	snap := mgr.Snapshot()
+	if len(snap) != 1 || !snap[0].Held || snap[0].ID != 0 || snap[0].Source != SourceManual || snap[0].Scope != ScopeIPOnly || snap[0].BannedBy != "op" {
+		t.Fatalf("the list during the hold = %+v, want the kept ban, marked as held", snap)
+	}
+
+	d.HoldWrites(false)
+	mgr.writeHeld()
+	if n := rows(); n != 1 {
+		t.Fatalf("%d row(s) after the hold, want the kept ban written", n)
+	}
+	if created != 1 {
+		t.Errorf("OnCreated ran %d times in all; the write must not announce the ban again", created)
+	}
+	snap = mgr.Snapshot()
+	if len(snap) != 1 || snap[0].Held || snap[0].ID == 0 || snap[0].Reason != "during the update" {
+		t.Errorf("the list after the hold = %+v, want the row, no longer marked", snap)
+	}
+	mgr.writeHeld() // nothing kept: nothing changes
+	if n := rows(); n != 1 || created != 1 {
+		t.Errorf("a second pass changed things: rows=%d created=%d", n, created)
+	}
+}
+
+// TestLiftingABanDuringAHold: a row the operator unbans during a hold is out
+// of the file, the checks and the list at once, and deleted when the lock is
+// free.  Placed again meanwhile, the key is a row of its own.
+func TestLiftingABanDuringAHold(t *testing.T) {
+	d, mgr, banFile := openHeldTest(t)
+	ctx := context.Background()
+	if err := mgr.AddManualWithScope(ctx, "203.0.113.60", "t13d_z", "", "first", "op", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	var id int64
+	if err := d.QueryRow(`SELECT id FROM unmask_ban WHERE ip = '203.0.113.60'`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	if !mgr.IsBanned(ctx, "203.0.113.60", "t13d_z") {
+		t.Fatal("the row is not enforced before the hold")
+	}
+
+	d.HoldWrites(true)
+	if err := mgr.Remove(ctx, id); err != nil {
+		t.Fatalf("lifting a ban during a hold: %v", err)
+	}
+	var n int
+	_ = d.QueryRow(`SELECT COUNT(*) FROM unmask_ban WHERE id = ?`, id).Scan(&n)
+	if n != 1 {
+		t.Fatal("the row was deleted while writes were held")
+	}
+	if mgr.IsBanned(ctx, "203.0.113.60", "t13d_z") || mgr.IsBanned(ctx, "203.0.113.60", "") {
+		t.Error("a lifted ban is still enforced by the checks")
+	}
+	if _, _, banned := mgr.IsBannedActionSource(ctx, "203.0.113.60", "t13d_z"); banned {
+		t.Error("a lifted ban is still answered by IsBannedActionSource")
+	}
+	if file, _ := os.ReadFile(banFile); strings.Contains(string(file), "203.0.113.60|t13d_z") {
+		t.Errorf("the ban file still carries the lifted ban:\n%s", file)
+	}
+	if snap := mgr.Snapshot(); len(snap) != 0 {
+		t.Errorf("the list still shows the lifted ban: %+v", snap)
+	}
+	if err := mgr.Remove(ctx, id+100); err == nil {
+		t.Error("lifting a row that is not there must fail")
+	}
+	// The same key, placed again during the hold: kept, listed, in force.
+	if err := mgr.AddManualWithScope(ctx, "203.0.113.60", "t13d_z", "", "second", "op", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	if snap := mgr.Snapshot(); len(snap) != 1 || !snap[0].Held || snap[0].Reason != "second" {
+		t.Errorf("the list after placing the key again = %+v", snap)
+	}
+	if !mgr.IsBanned(ctx, "203.0.113.60", "t13d_z") {
+		t.Error("the ban placed again is not enforced")
+	}
+
+	d.HoldWrites(false)
+	mgr.writeHeld()
+	var count int
+	if err := d.QueryRow(`SELECT COUNT(*) FROM unmask_ban WHERE ip = '203.0.113.60'`).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("%d row(s) for the key after the hold, want the new one alone", count)
+	}
+	var reason string
+	if err := d.QueryRow(`SELECT reason FROM unmask_ban WHERE ip = '203.0.113.60'`).Scan(&reason); err != nil || reason != "second" {
+		t.Errorf("the row after the hold has reason %q (%v), want the ban placed again", reason, err)
+	}
+	if _, _, banned := mgr.IsBannedActionSource(ctx, "203.0.113.60", "t13d_z"); !banned {
+		t.Error("the row written after the hold is not enforced")
+	}
+	mgr.mu.Lock()
+	left := len(mgr.lifted)
+	mgr.mu.Unlock()
+	if left != 0 {
+		t.Errorf("%d lifted id(s) still on the list after the delete", left)
+	}
+}
+
+// TestDropHeld: a ban placed during a hold is lifted again from the list, by
+// its key, since it has no row yet.
+func TestDropHeld(t *testing.T) {
+	d, mgr, banFile := openHeldTest(t)
+	ctx := context.Background()
+	d.HoldWrites(true)
+	if err := mgr.AddManualWithScope(ctx, "203.0.113.70", "", ScopeIPOnly, "x", "op", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	if !mgr.DropHeld("203.0.113.70", "", ScopeIPOnly) {
+		t.Fatal("the kept ban was not found by its key")
+	}
+	if mgr.IsBanned(ctx, "203.0.113.70", "") {
+		t.Error("a dropped ban is still enforced")
+	}
+	if file, _ := os.ReadFile(banFile); strings.Contains(string(file), "203.0.113.70") {
+		t.Errorf("the ban file still carries the dropped ban:\n%s", file)
+	}
+	if snap := mgr.Snapshot(); len(snap) != 0 {
+		t.Errorf("the list still shows the dropped ban: %+v", snap)
+	}
+	if mgr.DropHeld("203.0.113.70", "", ScopeIPOnly) {
+		t.Error("dropped twice")
+	}
+	d.HoldWrites(false)
+	mgr.writeHeld()
+	var n int
+	_ = d.QueryRow(`SELECT COUNT(*) FROM unmask_ban`).Scan(&n)
+	if n != 0 {
+		t.Errorf("%d row(s) written for a dropped ban", n)
+	}
+}
+
+// TestEditDuringAHoldIsRefused: an edit rewrites the row, and nothing can be
+// kept for it; it is refused with the reason.
+func TestEditDuringAHoldIsRefused(t *testing.T) {
+	d, mgr, _ := openHeldTest(t)
+	ctx := context.Background()
+	if err := mgr.AddManualWithScope(ctx, "203.0.113.80", "", ScopeIPOnly, "x", "op", "", 0); err != nil {
+		t.Fatal(err)
+	}
+	var id int64
+	if err := d.QueryRow(`SELECT id FROM unmask_ban WHERE ip = '203.0.113.80'`).Scan(&id); err != nil {
+		t.Fatal(err)
+	}
+	d.HoldWrites(true)
+	if err := mgr.UpdateManual(ctx, id, "203.0.113.80", "", ScopeIPOnly, "y", "", 0); !errors.Is(err, db.ErrWritesHeld) {
+		t.Errorf("an edit during a hold: %v, want ErrWritesHeld", err)
 	}
 }

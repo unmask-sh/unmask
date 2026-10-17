@@ -249,6 +249,7 @@ c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     ok(n && (n.state === 'running' || n.state === 'done'),
       `after the click the notice says ${n ? n.state + ': ' + n.text : 'nothing (it is not on the page)'}`);
     const sawRunning = !!(n && n.state === 'running');
+    let banPlaced = false;
     if (sawRunning) {
       ok(n.buttons.join() === 'schup-cancel', `running: buttons ${JSON.stringify(n.buttons)}, want cancel alone`);
       const e1 = await su.$eval('#schup-elapsed', e => e.textContent);
@@ -285,6 +286,21 @@ c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         ok(/schema_update_running/.test(held.body), `a change during the update: body ${held.body}`);
         ok(held.ms < 2000, `a change during the update took ${held.ms}ms to be refused`);
       }
+      // A ban placed meanwhile goes through: in force, and listed as a row
+      // to come.  The page's own form, with its token.
+      const placed = await su.evaluate(async base => {
+        const page = await fetch(base + '/admin/bans/', { credentials: 'same-origin' }).then(r => r.text());
+        const m = page.match(/name="_csrf" value="([^"]+)"/);
+        if (!m) return { err: 'no token on the bans page' };
+        const body = new URLSearchParams({ _csrf: m[1], op: 'add', ip: '203.0.113.99', scope: 'ip_only', reason: 'placed during the update' });
+        const t0 = Date.now();
+        const r = await fetch(base + '/admin/bans/save', { method: 'POST', credentials: 'same-origin', body });
+        const list = await fetch(base + '/admin/bans/', { credentials: 'same-origin' }).then(x => x.text());
+        return { status: r.status, url: r.url, ms: Date.now() - t0, listed: list.includes('203.0.113.99'), badge: /to be written/.test(list) };
+      }, BASE);
+      banPlaced = !placed.err && placed.listed;
+      ok(banPlaced && placed.badge, `a ban placed during the update: ${JSON.stringify(placed)}`);
+      ok(placed.ms < 3000, `placing a ban during the update took ${placed.ms}ms; it must not wait for the lock`);
     } else {
       console.log(`   (the build finished before the page reloaded, ${Date.now() - clicked}ms after the click: running state not observed)`);
     }
@@ -306,6 +322,14 @@ c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     ok(n && /The database update finished \(.+\)\./.test(n.text), `done: ${n && n.text}`);
     ok(n && n.buttons.join() === 'schup-dismiss', `done: buttons ${JSON.stringify(n && n.buttons)}`);
     ok(/up to date/.test(cli('migrate', '-status')), 'the update the page reports as finished is still pending');
+    if (banPlaced) {
+      // The ban placed during the update is a row now, and still in force.
+      const after = await su.evaluate(async base => {
+        const list = await fetch(base + '/admin/bans/', { credentials: 'same-origin' }).then(r => r.text());
+        return { listed: list.includes('203.0.113.99'), badge: /to be written/.test(list) };
+      }, BASE);
+      ok(after.listed && !after.badge, `the ban placed during the update, afterwards: ${JSON.stringify(after)}`);
+    }
 
     // ---- dismissed: it stays away, in this browser -------------------------
     await su.click('#schup-dismiss');

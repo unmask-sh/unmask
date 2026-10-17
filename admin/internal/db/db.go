@@ -457,6 +457,7 @@ func open(s settings.DB, maintenance bool) (*DB, error) {
 	if driver == DriverSQLite {
 		out.SQLitePath = s.SQLitePath
 	}
+	out.guardWrites()
 	// Which indexes exist, for the hints (HasIndex).  Best effort: a failure
 	// leaves the set unread, and HasIndex looks again on first use.
 	ictx, icancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -585,6 +586,41 @@ func (d *DB) WritesHeld() bool { return d != nil && d.writesHeld.Load() != 0 }
 // WritesHeldForVacuum reports whether the hold is a compaction's -- for the
 // words a refused change is answered with.
 func (d *DB) WritesHeldForVacuum() bool { return d != nil && d.writesHeld.Load()&holdVacuum != 0 }
+
+// guardWrites makes a write through gorm fail at once with ErrWritesHeld
+// while HoldWrites is in effect, instead of waiting out the busy timeout
+// against the lock another process holds and failing then.  The writers that
+// can keep their rows for later (the events, the audit log, the bans) check
+// WritesHeld before they get here; this is for every other write -- a change
+// no page expected while the lock was held -- which fails fast and says why.
+// Reads are not touched.  Raw statements through database/sql are not
+// covered: the daemon's own are behind WritesHeld checks of their own.
+// Registered ahead of gorm's transaction, so nothing reaches the database.
+//
+// A statement made with Set(unguardedKey, true) is let through: the record a
+// run keeps about itself (SaveMaintState), which in the daemon the run's own
+// process writes, never meeting the flag, and which the daemon's tests write
+// on its handle to stand in for that process.
+func (d *DB) guardWrites() {
+	refuse := func(tx *gorm.DB) {
+		if !d.WritesHeld() {
+			return
+		}
+		if v, ok := tx.Get(unguardedKey); ok && v == true {
+			return
+		}
+		_ = tx.AddError(ErrWritesHeld)
+	}
+	cb := d.Gorm.Callback()
+	_ = cb.Create().Before("gorm:begin_transaction").Register("unmask:writes_held", refuse)
+	_ = cb.Update().Before("gorm:begin_transaction").Register("unmask:writes_held", refuse)
+	_ = cb.Delete().Before("gorm:begin_transaction").Register("unmask:writes_held", refuse)
+	_ = cb.Raw().Before("gorm:raw").Register("unmask:writes_held", refuse)
+}
+
+// unguardedKey marks a gorm statement guardWrites lets through while writes
+// are held (see there).
+const unguardedKey = "unmask:unguarded"
 
 // ErrWritesHeld is what a write that checks WritesHeld returns instead of
 // waiting for the lock.

@@ -249,7 +249,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
             {{ if eq .Scope "ip_only" }}<span class="muted" style="text-decoration:line-through" title="{{ t $.Lang "bans.scope.ignored_for_match" }}">{{ .JA4 }}</span>{{ else }}{{ .JA4 }}{{ end }}
           {{ else }}<span class="muted">(any)</span>{{ end }}
         </td>
-        <td><span class="source-pill src-{{ .Source }}">{{ .Source }}</span></td>
+        <td><span class="source-pill src-{{ .Source }}">{{ .Source }}</span>{{ if .Held }} <span class="reports-badge" title="{{ t $.Lang "bans.held_tip" }}">{{ t $.Lang "bans.held" }}</span>{{ end }}</td>
         <td>
           {{ if .Action }}
             <code>{{ .Action }}</code>
@@ -269,7 +269,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
         </td>
         <td>{{ if .BannedBy }}{{ .BannedBy }}{{ else }}<span class="muted">(auto)</span>{{ end }}</td>
         <td class="row-actions">
-          {{ if eq .Source "manual" }}
+          {{ if and (eq .Source "manual") (not .Held) }}
           <button type="button" class="btn js-ban-edit"
                   data-id="{{ .ID }}"
                   data-ip="{{ .IP }}"
@@ -283,7 +283,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
                 data-confirm="" data-confirm-ok="{{ t $.Lang "bans.btn.unban" }}" data-confirm-danger="1">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
             <input type="hidden" name="op" value="delete">
-            <input type="hidden" name="id" value="{{ .ID }}">
+            {{ if .Held }}<input type="hidden" name="held" value="1"><input type="hidden" name="ip" value="{{ .IP }}"><input type="hidden" name="ja4" value="{{ .JA4 }}"><input type="hidden" name="scope" value="{{ .Scope }}">{{ else }}<input type="hidden" name="id" value="{{ .ID }}">{{ end }}
             <button type="submit" class="btn danger">{{ t $.Lang "bans.btn.unban" }}</button>
           </form>
         </td>

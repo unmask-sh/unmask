@@ -102,6 +102,10 @@ type Entry struct {
 	BannedBy  string    // username (= for manual) or empty (= automatic)
 	Action    string    // per-row override; empty = source default at flush time
 	Scope     string    // ip_ja4 / ja4_only / ip_only (= ScopeIPJA4 etc.)
+	// Held: not a row yet.  Placed while a schema update held the database's
+	// writes: in force from the file and the checks, written when the lock
+	// is free.  No ID, so the page lifts it by its key (DropHeld).
+	Held bool
 }
 
 // ActionResolver maps a ban source (= "honeypot" / "manual" /
@@ -143,11 +147,15 @@ type Manager struct {
 	// (= so the ban package does not depend on notifier).
 	OnCreated func(ip, ja4, source, reason, bannedBy string)
 
-	// held: automatic bans that arrived while the database's writes were held
-	// by a schema update, written once the lock is free.  heldFull: the list
-	// reached heldBansMax and that has been logged.  Both under mu.
+	// held: the bans that arrived while the database's writes were held by a
+	// schema update -- automatic ones from the access log, an operator's --
+	// written once the lock is free.  heldFull: the list reached heldBansMax
+	// and that has been logged.  lifted: the rows an operator unbanned
+	// meanwhile, out of the file, the checks and the list from then on,
+	// deleted once the lock is free.  All under mu.
 	held     []heldBan
 	heldFull bool
+	lifted   map[int64]bool
 
 	// flushMu makes one flush at a time.  A flush follows every addition,
 	// and runs on the loop's tick too: an addition from the access log's
@@ -318,7 +326,7 @@ func (m *Manager) AddWithSourceAction(ctx context.Context, ip, ja4, source, reas
 		// written from the database and the kept bans (reading goes on
 		// under the hold), and the checks look at both.
 		m.hold(heldBan{ip: ip, ja4: ja4, source: source, reason: reason, bannedBy: bannedBy,
-			action: strings.TrimSpace(action), bannedAt: now, expiresAt: expires})
+			action: strings.TrimSpace(action), scope: DeriveScope(ip, ja4), bannedAt: now, expiresAt: expires})
 		m.markDirty()
 		if m.filePath != "" {
 			_ = m.flush()
@@ -396,6 +404,26 @@ func (m *Manager) AddManualWithScope(ctx context.Context, ip, ja4, scope, reason
 	if expiresSec > 0 {
 		expiresAt = now + expiresSec
 	}
+	if m.DB.WritesHeld() {
+		// A schema update holds the write lock.  The operator's ban is kept
+		// the way an automatic one is -- in force from the file and the
+		// checks at once, written when the lock is free -- and announced
+		// now, since the operator is here now; the write does not announce
+		// it again.  A full list is an error the operator sees, not a ban
+		// that silently never happens.
+		if !m.hold(heldBan{ip: ip, ja4: ja4, source: SourceManual, reason: reason, bannedBy: bannedBy,
+			action: strings.TrimSpace(action), scope: scope, bannedAt: now, expiresAt: expiresAt, announced: true}) {
+			return ErrHeldFull
+		}
+		m.markDirty()
+		if m.filePath != "" {
+			_ = m.flush()
+		}
+		if m.OnCreated != nil {
+			m.OnCreated(ip, ja4, SourceManual, reason, bannedBy)
+		}
+		return nil
+	}
 	if err := m.upsert(ctx, ip, ja4, SourceManual, reason, now, expiresAt, bannedBy, strings.TrimSpace(action), scope); err != nil {
 		return err
 	}
@@ -420,6 +448,11 @@ func (m *Manager) AddManualWithScope(ctx context.Context, ip, ja4, scope, reason
 func (m *Manager) UpdateManual(ctx context.Context, id int64, ip, ja4, scope, reason, action string, expiresSec int64) error {
 	if m == nil {
 		return errors.New("manager nil")
+	}
+	if m.DB.WritesHeld() {
+		// An edit rewrites a row: nothing to keep in memory for it.  The
+		// page says why and when to come back.
+		return db.ErrWritesHeld
 	}
 	ip = strings.TrimSpace(ip)
 	ja4 = strings.TrimSpace(ja4)
@@ -489,6 +522,29 @@ func (m *Manager) Remove(ctx context.Context, id int64) error {
 	if m == nil {
 		return errors.New("manager nil")
 	}
+	if m.DB.WritesHeld() {
+		// The row cannot be deleted while a schema update holds the write
+		// lock.  It is lifted now all the same: out of the file, the checks
+		// and the list from here, deleted when the lock is free.
+		var n int
+		if err := m.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM unmask_ban WHERE id = ?`, id).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			return errors.New("not found")
+		}
+		m.mu.Lock()
+		if m.lifted == nil {
+			m.lifted = map[int64]bool{}
+		}
+		m.lifted[id] = true
+		m.mu.Unlock()
+		m.markDirty()
+		if m.filePath != "" {
+			_ = m.flush()
+		}
+		return nil
+	}
 	res := m.DB.Gorm.WithContext(ctx).Where("id = ?", id).Delete(&db.Ban{})
 	if res.Error != nil {
 		return res.Error
@@ -503,11 +559,48 @@ func (m *Manager) Remove(ctx context.Context, id int64) error {
 	return nil
 }
 
-// heldBan is an automatic ban that could not be written while the database's
-// writes were held.
+// heldBan is a ban that could not be written while the database's writes
+// were held: an automatic one from the access log, or an operator's.
 type heldBan struct {
-	ip, ja4, source, reason, bannedBy, action string
-	bannedAt, expiresAt                       int64
+	ip, ja4, source, reason, bannedBy, action, scope string
+	bannedAt, expiresAt                              int64
+	// announced: OnCreated ran when the ban was kept (an operator's, told at
+	// once), so the write does not run it again.
+	announced bool
+}
+
+// ErrHeldFull: the list of bans kept for the end of a schema update is full.
+var ErrHeldFull = errors.New("too many bans are waiting for the database update to finish; try again when it has")
+
+// DropHeld takes a kept ban off the list before it is written: the operator
+// lifting one placed during the hold.  Reports whether one was there.
+func (m *Manager) DropHeld(ip, ja4, scope string) bool {
+	if m == nil {
+		return false
+	}
+	ip, ja4 = strings.TrimSpace(ip), strings.TrimSpace(ja4)
+	if scope == "" {
+		scope = DeriveScope(ip, ja4)
+	}
+	m.mu.Lock()
+	found := false
+	rest := m.held[:0]
+	for _, h := range m.held {
+		if !found && h.ip == ip && h.ja4 == ja4 && h.scope == scope {
+			found = true
+			continue
+		}
+		rest = append(rest, h)
+	}
+	m.held = rest
+	m.mu.Unlock()
+	if found {
+		m.markDirty()
+		if m.filePath != "" {
+			_ = m.flush()
+		}
+	}
+	return found
 }
 
 // heldBansMax bounds the bans kept while writes are held.  One per offending
@@ -515,26 +608,30 @@ type heldBan struct {
 // attack, and an attack must not grow the list without limit.
 const heldBansMax = 10000
 
-func (m *Manager) hold(b heldBan) {
+// hold keeps b for the end of the hold, and reports whether it did: the list
+// has a limit.
+func (m *Manager) hold(b heldBan) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	// One entry per ban, as in the table (the upsert's key): a scanner that
 	// trips the honeypot again and again refreshes its entry instead of
-	// filling the list.
+	// filling the list.  An entry announced once stays announced.
 	for i := range m.held {
-		if h := &m.held[i]; h.ip == b.ip && h.ja4 == b.ja4 && DeriveScope(h.ip, h.ja4) == DeriveScope(b.ip, b.ja4) {
+		if h := &m.held[i]; h.ip == b.ip && h.ja4 == b.ja4 && h.scope == b.scope {
+			b.announced = b.announced || h.announced
 			*h = b
-			return
+			return true
 		}
 	}
 	if len(m.held) >= heldBansMax {
 		if !m.heldFull {
 			m.heldFull = true
-			log.Printf("ban: %d automatic bans are waiting for the schema update to finish; further ones are not kept", heldBansMax)
+			log.Printf("ban: %d bans are waiting for the schema update to finish; further ones are not kept", heldBansMax)
 		}
-		return
+		return false
 	}
 	m.held = append(m.held, b)
+	return true
 }
 
 // FlushHeld writes the bans kept while writes were held, if the database
@@ -572,18 +669,37 @@ func (m *Manager) writeHeld() {
 	defer m.writeHeldMu.Unlock()
 	m.mu.Lock()
 	held := append([]heldBan(nil), m.held...)
+	lifted := make([]int64, 0, len(m.lifted))
+	for id := range m.lifted {
+		lifted = append(lifted, id)
+	}
 	m.mu.Unlock()
-	if len(held) == 0 {
+	if len(held) == 0 && len(lifted) == 0 {
 		return
+	}
+	// The lifted rows first: a ban placed again during the hold on a lifted
+	// row's key is a row of its own, not a refresh of the one on its way
+	// out.  A row already gone counts as lifted; a delete that fails stays
+	// on the list for the next pass.
+	deleted := 0
+	for _, id := range lifted {
+		if err := m.DB.Gorm.Where("id = ?", id).Delete(&db.Ban{}).Error; err != nil {
+			log.Printf("ban delete (lifted during the schema update): %v", err)
+			continue
+		}
+		deleted++
+		m.mu.Lock()
+		delete(m.lifted, id)
+		m.mu.Unlock()
 	}
 	n := 0
 	for _, b := range held {
-		if err := m.upsert(context.Background(), b.ip, b.ja4, b.source, b.reason, b.bannedAt, b.expiresAt, b.bannedBy, b.action, DeriveScope(b.ip, b.ja4)); err != nil {
+		if err := m.upsert(context.Background(), b.ip, b.ja4, b.source, b.reason, b.bannedAt, b.expiresAt, b.bannedBy, b.action, b.scope); err != nil {
 			log.Printf("ban upsert (kept during the schema update): %v", err)
 			continue
 		}
 		n++
-		if m.OnCreated != nil {
+		if m.OnCreated != nil && !b.announced {
 			m.OnCreated(b.ip, b.ja4, b.source, b.reason, b.bannedBy)
 		}
 	}
@@ -604,8 +720,8 @@ func (m *Manager) writeHeld() {
 	}
 	m.held, m.heldFull = rest, false
 	m.mu.Unlock()
-	log.Printf("ban: wrote %d automatic ban(s) kept during the schema update", n)
-	if n > 0 {
+	log.Printf("ban: wrote %d of %d ban(s) kept and deleted %d of %d lifted during the schema update", n, len(held), deleted, len(lifted))
+	if n > 0 || deleted > 0 {
 		m.markDirty()
 	}
 }
@@ -643,40 +759,8 @@ func (m *Manager) upsert(ctx context.Context, ip, ja4, source, reason string, ba
 // forward-auth mode).  Fast path that runs a single indexed query.
 // Expired entries are treated as false.
 func (m *Manager) IsBanned(ctx context.Context, ip, ja4 string) bool {
-	if m == nil || ip == "" {
-		return false
-	}
-	if _, _, ok := m.heldMatch(ip, ja4); ok {
-		return true
-	}
-	now := time.Now().Unix()
-	var n int
-	if ja4 != "" {
-		// full tuple match
-		err := m.DB.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM unmask_ban
-			 WHERE ip = ? AND ja4 = ? AND (expires_at = 0 OR expires_at > ?)`,
-			ip, ja4, now).Scan(&n)
-		if err != nil {
-			// COUNT(*) always returns a row, so err is a real DB failure (never
-			// ErrNoRows).  Fail open (not-banned) for availability -- failing
-			// closed would block every visitor incl. search bots on a DB blip --
-			// but LOG it, else a degraded ban check is silently invisible.
-			log.Printf("ban: IsBanned(ip+ja4) query failed, treating as not-banned: %v", err)
-			return false
-		}
-		return n > 0
-	}
-	// JA4 absent (= e.g. forward-auth mode): decide by IP only.
-	err := m.DB.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM unmask_ban
-		 WHERE ip = ? AND (expires_at = 0 OR expires_at > ?)`,
-		ip, now).Scan(&n)
-	if err != nil {
-		log.Printf("ban: IsBanned(ip) query failed, treating as not-banned: %v", err)
-		return false
-	}
-	return n > 0
+	_, _, banned := m.IsBannedActionSource(ctx, ip, ja4)
+	return banned
 }
 
 // IsBannedActionSource: same as IsBannedSource but ALSO returns the per-row
@@ -696,34 +780,47 @@ func (m *Manager) IsBannedActionSource(ctx context.Context, ip, ja4 string) (act
 		return action, source, true
 	}
 	now := time.Now().Unix()
+	var (
+		rows *sql.Rows
+		err  error
+	)
 	if ja4 != "" {
-		err := m.DB.QueryRowContext(ctx,
-			`SELECT action, source FROM unmask_ban
+		// full tuple match
+		rows, err = m.DB.QueryContext(ctx,
+			`SELECT id, action, source FROM unmask_ban
 			 WHERE ip = ? AND ja4 = ? AND (expires_at = 0 OR expires_at > ?)
-			 LIMIT 1`,
-			ip, ja4, now).Scan(&action, &source)
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", "", false // genuinely not banned (the common case)
-		}
-		if err != nil {
-			log.Printf("ban: IsBannedActionSource(ip+ja4) query failed, treating as not-banned: %v", err)
+			 ORDER BY id`, ip, ja4, now)
+	} else {
+		// JA4 absent (= e.g. forward-auth mode): decide by IP only.
+		rows, err = m.DB.QueryContext(ctx,
+			`SELECT id, action, source FROM unmask_ban
+			 WHERE ip = ? AND (expires_at = 0 OR expires_at > ?)
+			 ORDER BY id`, ip, now)
+	}
+	if err != nil {
+		// A real DB failure.  Fail open (not-banned) for availability --
+		// failing closed would block every visitor incl. search bots on a
+		// DB blip -- but LOG it, else a degraded ban check is silently
+		// invisible.
+		log.Printf("ban: IsBannedActionSource query failed, treating as not-banned: %v", err)
+		return "", "", false
+	}
+	defer rows.Close()
+	// A row lifted during a hold is unbanned although still there: the
+	// first live row that is not one wins.
+	lifted := m.liftedIDs()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id, &action, &source); err != nil {
+			log.Printf("ban: IsBannedActionSource scan failed, treating as not-banned: %v", err)
 			return "", "", false
+		}
+		if lifted[id] {
+			continue
 		}
 		return action, source, true
 	}
-	err := m.DB.QueryRowContext(ctx,
-		`SELECT action, source FROM unmask_ban
-		 WHERE ip = ? AND (expires_at = 0 OR expires_at > ?)
-		 LIMIT 1`,
-		ip, now).Scan(&action, &source)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", "", false
-	}
-	if err != nil {
-		log.Printf("ban: IsBannedActionSource(ip) query failed, treating as not-banned: %v", err)
-		return "", "", false
-	}
-	return action, source, true
+	return "", "", false // genuinely not banned (the common case)
 }
 
 // IsBannedSource: returns the ban source string (= "honeypot" | "manual" |
@@ -752,13 +849,18 @@ func (m *Manager) Snapshot() []Entry {
 		return nil
 	}
 	defer rows.Close()
+	lifted := m.liftedIDs()
 	out := []Entry{}
+	keys := map[[3]string]bool{}
 	for rows.Next() {
 		var e Entry
 		var bannedAt, expiresAt int64
 		if err := rows.Scan(&e.ID, &e.IP, &e.JA4, &e.Source, &e.Reason, &bannedAt, &expiresAt, &e.BannedBy, &e.Action, &e.Scope); err != nil {
 			log.Printf("ban scan: %v", err)
 			continue
+		}
+		if lifted[e.ID] {
+			continue // unbanned during a hold; the row goes when the lock is free
 		}
 		e.BannedAt = time.Unix(bannedAt, 0)
 		if expiresAt > 0 {
@@ -767,7 +869,52 @@ func (m *Manager) Snapshot() []Entry {
 		if e.Scope == "" {
 			e.Scope = DeriveScope(e.IP, e.JA4)
 		}
+		keys[[3]string{e.IP, e.JA4, e.Scope}] = true
 		out = append(out, e)
+	}
+	// The bans kept while the database's writes are held: in force, so
+	// listed, as the rows they will be.  One whose key the table has (a
+	// refresh of that row) is the row.
+	m.mu.Lock()
+	kept := false
+	for _, h := range m.held {
+		if h.expiresAt != 0 && h.expiresAt <= now {
+			continue
+		}
+		if keys[[3]string{h.ip, h.ja4, h.scope}] {
+			continue
+		}
+		e := Entry{IP: h.ip, JA4: h.ja4, Source: h.source, Reason: h.reason, BannedAt: time.Unix(h.bannedAt, 0),
+			BannedBy: h.bannedBy, Action: h.action, Scope: h.scope, Held: true}
+		if h.expiresAt > 0 {
+			e.ExpiresAt = time.Unix(h.expiresAt, 0)
+		}
+		out = append(out, e)
+		kept = true
+	}
+	m.mu.Unlock()
+	if kept {
+		sort.SliceStable(out, func(i, j int) bool {
+			if out[i].IP != out[j].IP {
+				return out[i].IP < out[j].IP
+			}
+			return out[i].JA4 < out[j].JA4
+		})
+	}
+	return out
+}
+
+// liftedIDs is a copy of the rows lifted during a hold, nil when there are
+// none: the common case, and no allocation on the checks' path.
+func (m *Manager) liftedIDs() map[int64]bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(m.lifted) == 0 {
+		return nil
+	}
+	out := make(map[int64]bool, len(m.lifted))
+	for id := range m.lifted {
+		out[id] = true
 	}
 	return out
 }
@@ -826,9 +973,10 @@ func (m *Manager) flush() error {
 	m.mu.Lock()
 	resolver := m.actionResolver
 	m.mu.Unlock()
+	lifted := m.liftedIDs()
 	now := time.Now().Unix()
 	rows, err := m.DB.QueryContext(context.Background(),
-		`SELECT ip, ja4, source, action, scope FROM unmask_ban
+		`SELECT id, ip, ja4, source, action, scope FROM unmask_ban
 		 WHERE expires_at = 0 OR expires_at > ?
 		 ORDER BY ip, ja4`, now)
 	if err != nil {
@@ -838,9 +986,13 @@ func (m *Manager) flush() error {
 	keys := []k{}
 	for rows.Next() {
 		var e k
-		if err := rows.Scan(&e.ip, &e.ja4, &e.source, &e.action, &e.scope); err != nil {
+		var id int64
+		if err := rows.Scan(&id, &e.ip, &e.ja4, &e.source, &e.action, &e.scope); err != nil {
 			rows.Close()
 			return err
+		}
+		if lifted[id] {
+			continue // unbanned during a hold: out of the file from now
 		}
 		// Per-row action wins; fall back to the source's default action
 		// via the resolver (= settings.Bans.ResolveAction).  Empty after
@@ -871,7 +1023,7 @@ func (m *Manager) flush() error {
 		if h.expiresAt != 0 && h.expiresAt <= now {
 			continue
 		}
-		e := k{ip: h.ip, ja4: h.ja4, source: h.source, action: h.action, scope: DeriveScope(h.ip, h.ja4)}
+		e := k{ip: h.ip, ja4: h.ja4, source: h.source, action: h.action, scope: h.scope}
 		if strings.TrimSpace(e.action) == "" && resolver != nil {
 			e.action = resolver(e.source)
 		}

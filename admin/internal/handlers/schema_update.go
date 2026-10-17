@@ -216,6 +216,7 @@ func (h *Handler) SchemaRefresh(ctx context.Context) {
 		if h.UserRepo != nil {
 			h.UserRepo.FlushHeld(ctx)
 		}
+		h.BanMgr.FlushHeld() // the bans placed and lifted meanwhile (nil-safe)
 	}
 }
 
@@ -724,11 +725,29 @@ func (h *Handler) schemaCommand(by string) (*exec.Cmd, error) {
 	if h.ConfigPath != "" {
 		args = append(args, "-config", h.ConfigPath)
 	}
+	exe, args = lowPriority(exe, args, exec.LookPath)
 	cmd := exec.Command(exe, args...)
 	cmd.Env = os.Environ()
 	out := &logLines{prefix: "schema update: "}
 	cmd.Stdout, cmd.Stderr = out, out
 	return cmd, nil
+}
+
+// lowPriority puts the child behind the daemon's own work: nice 10 for the
+// CPU and the lowest level of the best-effort I/O class, through the
+// system's nice and ionice when they are there (coreutils and util-linux, or
+// busybox on Alpine), which exec the binary in place, so the child's pid stays
+// the run's.  The build takes longer on a busy node; the pages stay quick.
+// look is exec.LookPath, a parameter for the test.
+func lowPriority(exe string, args []string, look func(string) (string, error)) (string, []string) {
+	argv := append([]string{exe}, args...)
+	if p, err := look("ionice"); err == nil {
+		argv = append([]string{p, "-c", "2", "-n", "7"}, argv...)
+	}
+	if p, err := look("nice"); err == nil {
+		argv = append([]string{p, "-n", "10"}, argv...)
+	}
+	return argv[0], argv[1:]
 }
 
 // logLines writes what it is given to the log, a line at a time, and keeps
@@ -778,38 +797,29 @@ func (l *logLines) tail() string {
 	return line
 }
 
-// schemaWriteExempt: the changes that go through while the database's writes
-// are held.
-//
-// The ones that end the hold, and the ones whose only writes to the database
-// are an audit row, which waits in memory until the lock is free (user.
-// Repository): the settings pages -- config.yml and the rendered nginx files
-// -- above all, which is where an attack is answered; the tests that send a
-// mail or a notification; the feeds and the database downloads; the shared
-// ban list's votes and comments, which go to the hub.  What writes to the
-// database itself -- users, bans, hosts, the advisor, the profile -- is
-// refused with the reason until the update has finished.
-func (h *Handler) schemaWriteExempt(r *http.Request) bool {
+// schemaWriteRefused: the changes that cannot be made while the database's
+// writes are held, judged by what the change does, not by where it is made
+// from.  Refused is what rewrites rows and has nothing to keep for later: the
+// accounts (users, the profile), the advisor's dismissals and its AI run, the
+// AI chat's history edits; and the bans page's edit, which its handler refuses
+// the same way.  Everything else goes through: the settings pages (config.yml
+// and the rendered nginx files, where an attack is answered), the bans placed
+// and lifted (kept in memory, in force at once, written when the lock is
+// free), the hunt page's rules, the map's position, asking the AI (the answer
+// comes; its turn is not kept), the tests that send a mail or a notification,
+// the hub's votes and comments, the feeds and the downloads.  A write this
+// list does not know is refused where it is made, at once and with the reason
+// (db.DB's gorm guard), not left to wait out the busy timeout.
+func (h *Handler) schemaWriteRefused(r *http.Request) bool {
 	p := strings.TrimPrefix(r.URL.Path, h.basePath())
-	if strings.HasPrefix(p, "/admin/api/schema-update/") || strings.HasPrefix(p, "/admin/api/vacuum/") {
-		return true
-	}
 	for _, prefix := range []string{
-		"/admin/settings/", // save, branding and challenge per site, snapshot
-		"/admin/upgrade-review/apply",
-		"/admin/audit/restore",
-		"/admin/notices/panel", // reads; its read mark is skipped while writes are held
-		"/admin/api/sites/promote",
-		"/admin/community-bans/mute-toggle",
-		"/admin/api/community-bans/vote",
-		"/admin/api/community-bans/comment",
-		"/admin/api/community-bans/submission/",
-		"/admin/api/notify/test",
-		"/admin/api/smtp/test",
-		"/admin/api/iprange/sync",
-		"/admin/api/ipgeo/install",
-		"/admin/api/playground/eval",
-		"/admin/test/preview-logo",
+		"/admin/users/",       // create, update, delete, passwords, locks
+		"/admin/profile/save", // the account's own password and profile
+		"/admin/advisor/dismiss",
+		"/admin/advisor/undismiss",
+		"/admin/advisor/ai-run", // stores its result
+		"/admin/ask/clear",
+		"/admin/ask/delete",
 	} {
 		if strings.HasPrefix(p, prefix) {
 			return true

@@ -135,7 +135,9 @@ func (d *DB) SaveMaintState(ctx context.Context, name string, v any) error {
 		return err
 	}
 	row := MaintState{Name: name, Value: string(b), UpdatedAt: time.Now().Unix()}
-	return d.Gorm.WithContext(ctx).Clauses(clause.OnConflict{
+	// Not refused while writes are held (guardWrites): a run's record of
+	// itself, written by the run's own process.
+	return d.Gorm.WithContext(ctx).Set(unguardedKey, true).Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "name"}},
 		DoUpdates: clause.AssignmentColumns([]string{"value", "updated_at"}),
 	}).Create(&row).Error
