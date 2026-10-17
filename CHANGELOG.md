@@ -24,6 +24,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-18) **Ask AI sends less, and reads the rest from the provider's cache.**  A question's context is now the conversation on the page since it was opened, not the last ten turns of the history whatever the question.  With Anthropic the system prompt, the tools and each round's transcript are marked for the prompt cache, so a round reads them back at a tenth of the rate; the turn shows how much came from the cache, and the estimates price it.
 
+- (2026-10-18) **The SQLite library is the current release.**  The driver moves from modernc.org/sqlite v1.51.0 (May, SQLite 3.53.1) to v1.60.1 (SQLite 3.53.4, with its libc and allocator): four months of fixes, among them the dozens of memory-safety corrections SQLite 3.53.2 to 3.53.4 took from fuzzing, and the driver's own hardening of the page cache and of interrupting a query from another goroutine.
+
 ### Fixed
 
 - (2026-10-18) **SQLite reads are no longer memory-mapped.**  Every connection mapped the first few dozen megabytes of the database, and dropped and re-made that map whenever the write-ahead log had changed, for next to no gain on a database of gigabytes: the page cache is the cache that matters.  Memory-mapped reads are off, and the performance tab no longer counts an mmap allowance beside the cache.
