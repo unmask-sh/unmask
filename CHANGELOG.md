@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- (2026-10-18) **SysVinit hosts start the daemon again when it dies.**  On systemd and OpenRC the service manager restarts the daemon after a fault; on RHEL 6 / CentOS 6 nothing did, and every challenge page waited until an operator ran `service unmask start`.  The init script now runs `unmask serve -supervise`: a small parent that keeps the daemon as its child, hands on the stop, and restarts it after five seconds, giving up after ten crashes in ten minutes.
+
 ### Fixed
 
 - (2026-10-18) **SQLite reads are no longer memory-mapped.**  Every connection mapped the first few dozen megabytes of the database, and dropped and re-made that map whenever the write-ahead log had changed, for next to no gain on a database of gigabytes: the page cache is the cache that matters.  Memory-mapped reads are off, and the performance tab no longer counts an mmap allowance beside the cache.

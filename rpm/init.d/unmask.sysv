@@ -53,10 +53,16 @@ start() {
     [ -e "$logfile" ] || { : > "$logfile" && chown "$user:$user" "$logfile"; }
     echo -n $"Starting $prog: "
     # The Go binary runs in the foreground (it does not self-daemonize), so
-    # launch it under the unmask user, background it, and record the child PID.
+    # launch it under the unmask user, background it, and record the PID.
     # nohup execs into unmask, so $! is unmask's own PID.
+    #
+    # -supervise: the process recorded here keeps the daemon running as its
+    # child, starting it again when it dies of a fault (systemd's Restart=
+    # on-failure, which SysVinit has no equivalent of).  It carries the same
+    # name, so status and stop below find it by this PID; a TERM to it is
+    # handed on to the daemon, and it waits for the daemon's end.
     runuser -s /bin/sh "$user" -c \
-        "nohup $exec serve -config $config >>$logfile 2>&1 & echo \$!" > "$pidfile" 2>/dev/null
+        "nohup $exec serve -supervise -config $config >>$logfile 2>&1 & echo \$!" > "$pidfile" 2>/dev/null
     # Settle briefly, then confirm it is actually up.
     sleep 1
     if status -p "$pidfile" "$prog" >/dev/null 2>&1; then

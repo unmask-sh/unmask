@@ -100,6 +100,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  (set %s=1 to run as root anyway -- files it creates will need chowning to the daemon user)\n", noPrivDropEnv)
 		os.Exit(1)
 	}
+	// serve -supervise: this process only keeps the daemon running (see
+	// supervise.go); the daemon is its child, started with the other flags.
+	if cmd == "serve" {
+		if rest, ok := stripSupervise(args); ok {
+			os.Exit(superviseServe(rest))
+		}
+	}
 
 	var err error
 	switch cmd {
@@ -163,7 +170,7 @@ func usage() {
 	fmt.Fprint(os.Stderr, `unmask — JA4 bot challenge admin server
 
 usage:
-  unmask serve [-config PATH]
+  unmask serve [-config PATH] [-supervise]
   unmask migrate [-config PATH] [-status] [-notice] [-startup] [-by NAME] [-skip-space-check]
   unmask config-init [-out PATH]
   unmask update-crawler-list [-out PATH]
