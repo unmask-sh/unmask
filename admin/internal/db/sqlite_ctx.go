@@ -64,7 +64,7 @@ var sqliteHandleWarned sync.Once
 
 func sqliteHandle(c driver.Conn) uintptr {
 	v := reflect.ValueOf(c)
-	if v.Kind() == reflect.Ptr && !v.IsNil() {
+	if v.Kind() == reflect.Pointer && !v.IsNil() {
 		v = v.Elem()
 	}
 	if v.Kind() == reflect.Struct {

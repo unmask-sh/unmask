@@ -367,8 +367,12 @@ func (h *Handler) schemaView(role string, lang i18n.Lang) *SchemaUpdateView {
 			v.StartedAt = now.Unix()
 		}
 		v.Held = int(events.HeldEvents())
+		// This daemon's child can be stopped from its first moment, whether
+		// or not its record is on hand yet (the run is known from its lock
+		// before the record is read); a shell's run, when it can be
+		// signalled.
 		shell := childPID == 0 && super && runSignalable(rec.PID, "migrate")
-		v.Cancellable = super && (childPID != 0 && rec.PID == childPID || shell)
+		v.Cancellable = super && (childPID != 0 || shell)
 		h.schemaRunningView(v, lang, super, rec.PID, now)
 	case ours:
 		// This daemon's run with no record of it under way: it is being
