@@ -9,7 +9,7 @@
 //   - Send failures are logged only (= ban / challenge is not blocked).  No retry.
 //   - Notification event kinds:
 //     ban_created     : auto-BAN from a honeypot trip, or admin manual BAN
-//     challenge_burst : challenge count in the last 5 minutes exceeds the threshold
+//     challenge_burst : five minutes of challenges far above the hour before (burst.go)
 //   - A third channel, the admin's own notification list (Inbox, the notice
 //     package), gets every event whatever the switches below say: they are
 //     about how much mail and webhook traffic the operator wants, and the
@@ -50,7 +50,7 @@ type Config struct {
 	Sites               string   // label to show in notification messages (= arbitrary operator-defined site name)
 	BanEvents           bool     // send ban_created (= honeypot / manual)
 	ChallengeBurst      bool     // send challenge_burst
-	BurstThresholdPer5m int      // challenge count in the last 5 minutes.  0 disables
+	BurstThresholdPer5m int      // the fewest challenges in 5 minutes that can be a burst (burst.go).  0 disables
 	WebhookDisabled     bool     // pause the webhook channel (URL kept)
 	MailDisabled        bool     // pause alert mail (SMTP transport stays up for password reset)
 	MailTo              []string // explicit alert recipients; empty = resolve via mailGetTo (admin users)
@@ -91,11 +91,12 @@ type Notifier struct {
 	cfg    Config
 	client *http.Client
 
-	// 5-minute sliding-window aggregation for challenge_burst + suppression of repeated fires.
-	mu             sync.Mutex
-	burstCount5m   int64
-	burstWindowEnd time.Time
-	lastBurstSent  time.Time
+	// challenge_burst: the challenges per five minutes and the hour before
+	// them (burst.go).
+	mu    sync.Mutex
+	burst burstState
+	// now is the clock the burst count reads; nil is time.Now (a test sets it).
+	now func() time.Time
 
 	// For config hot-swap.
 	dynamic atomic.Pointer[Config]
@@ -235,61 +236,6 @@ func (n *Notifier) BanCreated(ip, ja4, source, reason, bannedBy string) {
 	subject := "[unmask] BAN: " + ip
 	if cfg.Sites != "" {
 		subject = "[unmask:" + cfg.Sites + "] BAN: " + ip
-	}
-	go n.sendMail(subject, text)
-}
-
-// ChallengeServed: call every time the challenge page is served.  5-min
-// aggregation → burst event when the threshold is exceeded.
-//
-// Even if the threshold is exceeded many times within the same window, the
-// burst event only fires once per 5 minutes (= flap prevention).  Mail is
-// sent even when the webhook URL is empty.  The admin's list gets the burst
-// whatever the switches say, so the count runs whenever there is a
-// threshold to pass.
-func (n *Notifier) ChallengeServed() {
-	if n == nil {
-		return
-	}
-	cfg := n.currentCfg()
-	if cfg.BurstThresholdPer5m <= 0 {
-		return
-	}
-	now := time.Now()
-	n.mu.Lock()
-	if now.After(n.burstWindowEnd) {
-		n.burstWindowEnd = now.Add(5 * time.Minute)
-		n.burstCount5m = 0
-	}
-	n.burstCount5m++
-	count := n.burstCount5m
-	thresh := int64(cfg.BurstThresholdPer5m)
-	canSend := count == thresh && now.Sub(n.lastBurstSent) >= 5*time.Minute
-	if canSend {
-		n.lastBurstSent = now
-	}
-	n.mu.Unlock()
-	if !canSend {
-		return
-	}
-	fields := map[string]any{
-		"event":        EventChallengeBurst,
-		"count_per_5m": count,
-		"threshold":    thresh,
-		"site":         cfg.Sites,
-		"ts":           now.Unix(),
-	}
-	n.toInbox(EventChallengeBurst, fields)
-	if cfg.Disabled || !cfg.ChallengeBurst {
-		return
-	}
-	text := fmt.Sprintf("[WARN] challenge fired %d times in the last 5 minutes (= threshold %d exceeded)%s", count, thresh, siteSuffix(cfg.Sites))
-	if cfg.URL != "" && !cfg.WebhookDisabled {
-		go n.send(cfg, EventChallengeBurst, fields, text)
-	}
-	subject := fmt.Sprintf("[unmask] challenge burst: %d/5min", count)
-	if cfg.Sites != "" {
-		subject = fmt.Sprintf("[unmask:%s] challenge burst: %d/5min", cfg.Sites, count)
 	}
 	go n.sendMail(subject, text)
 }

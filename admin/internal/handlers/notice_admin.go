@@ -251,7 +251,13 @@ func noticeText(e notice.Entry, lang i18n.Lang, base string) (title, body, href 
 	case notice.KindBurst:
 		href = base + "/admin/hunt/?range=1h"
 		title = i18n.Tf(lang, "notice.burst.title", e.Int("count_per_5m"))
-		body = i18n.Tf(lang, "notice.burst.body", e.Int("threshold"))
+		// A burst is measured against the hour before it; a row from before
+		// that has only the fixed threshold it passed.
+		if _, measured := e.Detail["baseline_per_5m"]; measured {
+			body = i18n.Tf(lang, "notice.burst.body_hour", e.Int("baseline_per_5m"))
+		} else {
+			body = i18n.Tf(lang, "notice.burst.body", e.Int("threshold"))
+		}
 	case notice.KindOverBlock:
 		href = base + "/admin/hunt/?range=1h"
 		minutes, stuck, loaders, pct := e.Int("window_minutes"), e.Int("stuck"), e.Int("ran_challenge"), e.Int("stuck_percent")

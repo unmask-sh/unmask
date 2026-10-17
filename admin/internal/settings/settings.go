@@ -3672,8 +3672,8 @@ type Notifications struct {
 	Format              string `yaml:"format,omitempty"`                 // "slack" | "discord" | "generic"
 	SiteLabel           string `yaml:"site_label,omitempty"`             // optional label shown in notifications; __hostname__ expands to the host id
 	BanEvents           bool   `yaml:"ban_events,omitempty"`             // notify on honeypot / manual ban
-	ChallengeBurst      bool   `yaml:"challenge_burst,omitempty"`        // notify when the 5min threshold is exceeded
-	BurstThresholdPer5m int    `yaml:"burst_threshold_per_5m,omitempty"` // 0 = disabled
+	ChallengeBurst      bool   `yaml:"challenge_burst,omitempty"`        // notify on a challenge burst: 10x the hour before (notifier/burst.go)
+	BurstThresholdPer5m int    `yaml:"burst_threshold_per_5m,omitempty"` // the fewest challenges in 5 minutes that can be a burst; 0 = disabled
 	// Per-channel pauses: mute one transport without destroying its settings
 	// (the alternative was blanking the webhook URL / SMTP host to stop it).
 	// MailDisabled mutes alert mail ONLY — password-reset mail still rides the

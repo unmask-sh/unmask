@@ -50,9 +50,8 @@ func TestInboxGetsEveryEventWhateverTheSwitches(t *testing.T) {
 		t.Errorf("ban fields: %v", f)
 	}
 
-	for i := 0; i < 3; i++ {
-		n.ChallengeServed()
-	}
+	warmUp(n, 0)
+	serve(n, 3)
 	f = ib.next(t, "the burst")
 	if f["_event"] != EventChallengeBurst || f["count_per_5m"] != int64(3) || f["threshold"] != int64(3) {
 		t.Errorf("burst fields: %v", f)
@@ -87,6 +86,7 @@ func TestBurstCountsWithoutTheSwitch(t *testing.T) {
 	n := New(Config{BurstThresholdPer5m: 2}).
 		WithMail(m, func() []Recipient { return []Recipient{{Email: "ops@example.com"}} }, nil).
 		WithInbox(ib)
+	warmUp(n, 0)
 	n.ChallengeServed()
 	ib.none(t, "a count below the threshold")
 	n.ChallengeServed()
@@ -97,7 +97,7 @@ func TestBurstCountsWithoutTheSwitch(t *testing.T) {
 	case <-time.After(150 * time.Millisecond):
 	}
 
-	// No threshold: nothing is counted, nothing reaches the list.
+	// No floor: nothing reaches the list.
 	n2 := New(Config{}).WithInbox(ib)
 	for i := 0; i < 100; i++ {
 		n2.ChallengeServed()

@@ -27,7 +27,7 @@ func noticeHandler(t *testing.T) *Handler {
 	hour := now/3600*3600 + 10
 	h.Notices.Add(notice.KindBan, map[string]any{"event": notice.KindBan, "ip": "203.0.113.7", "ja4": "t13d", "source": "honeypot", "reason": "hit /wp-login.php", "banned_by": "", "site": "blog", "ts": hour})
 	h.Notices.Add(notice.KindBan, map[string]any{"event": notice.KindBan, "ip": "203.0.113.8", "source": "manual", "reason": "scraper", "banned_by": "alice", "site": "blog", "ts": hour + 1})
-	h.Notices.Add(notice.KindBurst, map[string]any{"event": notice.KindBurst, "count_per_5m": int64(60), "threshold": int64(50), "site": "blog", "ts": hour + 2})
+	h.Notices.Add(notice.KindBurst, map[string]any{"event": notice.KindBurst, "count_per_5m": int64(600), "threshold": int64(600), "baseline_per_5m": int64(60), "site": "blog", "ts": hour + 2})
 	h.Notices.Add(notice.KindOverBlock, map[string]any{"event": notice.KindOverBlock, "tripped": false, "window_minutes": 10, "stuck": 1, "ran_challenge": 40, "stuck_percent": 2, "min_stuck": 3, "min_percent": 50, "site": "", "ts": hour + 3})
 	return h
 }
@@ -63,7 +63,7 @@ func TestNoticeBellOnEveryPage(t *testing.T) {
 	for _, want := range []string{
 		`class="nbell-item sev-info unread"`,
 		"challenge を通れるようになりました", // the over-block clearing, in Japanese
-		"5 分間に challenge 60 回", "しきい値 (50 回) を超えました。",
+		"5 分間に challenge 600 回", "直前 1 時間は 5 分あたり平均 60 回でした。",
 		"BAN 2 件", "honeypot 1 / manual 1 · 最新 203.0.113.8 (scraper)",
 		`data-ts="`, " · BAN · blog",
 	} {
@@ -107,7 +107,7 @@ func TestNoticesPage(t *testing.T) {
 		"<h1>Notifications</h1>", "Kept for 90 days (Settings → Log management).",
 		"Visitors may be stuck at the challenge", "To you", ">New<",
 		"2 bans", "honeypot 1 / manual 1 · latest 203.0.113.8 (scraper)",
-		"60 challenges in 5 minutes", "Over the threshold of 50.",
+		"600 challenges in 5 minutes", "The hour before averaged 60 per 5 minutes.",
 		`href="/unmask/admin/hunt/?range=1h"`, `href="/unmask/admin/bans/"`,
 		`href="/unmask/admin/notices/?kind=over_block"`,
 	} {
@@ -129,7 +129,7 @@ func TestNoticesPage(t *testing.T) {
 	}
 
 	only := renderAs(t, h.AdminNoticesIndex, "/unmask/admin/notices/?kind=challenge_burst", user.RoleAdmin, "ja")
-	if strings.Count(only, "<tr data-id=") != 1 || !strings.Contains(only, "5 分間に challenge 60 回") || strings.Contains(only, ">新着<") {
+	if strings.Count(only, "<tr data-id=") != 1 || !strings.Contains(only, "5 分間に challenge 600 回") || strings.Contains(only, ">新着<") {
 		t.Errorf("the kind filter, read: %d rows", strings.Count(only, "<tr data-id="))
 	}
 	if !strings.Contains(only, `class="active">challenge の急増</a>`) {
@@ -166,5 +166,15 @@ func TestNoticesWithoutAStore(t *testing.T) {
 	h.AdminNoticesIndex(rr, asRole(httptest.NewRequest(http.MethodGet, "/unmask/admin/notices/", nil), user.RoleAdmin))
 	if rr.Code != http.StatusInternalServerError {
 		t.Errorf("no store: %d", rr.Code)
+	}
+}
+
+// TestNoticeTextBurstBeforeTheHour: a burst row from before bursts were
+// measured against the hour before has only the threshold it passed, and
+// says that rather than an average of nothing.
+func TestNoticeTextBurstBeforeTheHour(t *testing.T) {
+	e := notice.Entry{Kind: notice.KindBurst, Detail: map[string]any{"count_per_5m": int64(50), "threshold": int64(50)}}
+	if title, body, _ := noticeText(e, "ja", "/unmask"); title != "5 分間に challenge 50 回" || body != "しきい値 (50 回) を超えました。" {
+		t.Errorf("title %q, body %q", title, body)
 	}
 }

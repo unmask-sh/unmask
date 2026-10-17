@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- (2026-10-17) **A challenge burst is measured against the hour before.**  The burst notification, and its line in the admin's notification list, now come when five minutes bring ten times the challenges of an average five minutes in the hour before, and at least the configured minimum, which used to be the whole test.  A busy site's ordinary traffic no longer fills the list, and one surge gives one notice an hour.
+
 ### Fixed
 
 - (2026-10-17) **The week tab's request figures no longer time out on a large database.**  The composition behind the headline was summed from the per-minute table over the whole window, a row per site, kind and minute, and seven days of a many-site install ran past the page's budget.  The settled hours now come from the hourly rollup; only the minutes around them are read live.
