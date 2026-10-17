@@ -27,7 +27,7 @@ func TestCompSegsResolution(t *testing.T) {
 	cases := []struct {
 		name, query, cookie, want string
 	}{
-		{"no signal -> the long-standing view", "", "", "all"},
+		{"no signal -> the judged view (the default)", "", "", "judged"},
 		{"cookie remembers the pick", "", "judged", "judged"},
 		{"query wins over the cookie (first click)", "?comp=all", "judged", "all"},
 		{"query alone works before its cookie is read back", "?comp=judged", "", "judged"},
@@ -36,8 +36,8 @@ func TestCompSegsResolution(t *testing.T) {
 		{"every segment on IS the all preset", "?comp=benign-bad-bypass-human-other", "", "all"},
 		{"all minus bypass IS the judged preset", "?comp=benign-bad-human-other", "", "judged"},
 		{"unknown tokens are dropped, not fatal", "?comp=benign-junk", "", "benign"},
-		{"a hand-edited cookie falls back, it does not break the page", "", "nonsense", "all"},
-		{"a hand-edited query falls back too", "?comp=nonsense", "", "all"},
+		{"a hand-edited cookie falls back, it does not break the page", "", "nonsense", "judged"},
+		{"a hand-edited query falls back too", "?comp=nonsense", "", "judged"},
 		{"a custom subset sticks in the cookie", "", "bad-human", "bad-human"},
 	}
 	for _, c := range cases {
@@ -45,8 +45,8 @@ func TestCompSegsResolution(t *testing.T) {
 			t.Errorf("%s: got %q want %q", c.name, got, c.want)
 		}
 	}
-	if got := name(nil); got != "all" {
-		t.Errorf("nil request: got %q want %q", got, "all")
+	if got := name(nil); got != "judged" {
+		t.Errorf("nil request: got %q want %q", got, "judged")
 	}
 }
 

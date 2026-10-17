@@ -413,8 +413,8 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
        recompute. */}}
   {{ if .KPIReqBypassed }}
   <div class="comp-scope">
-    <a href="?comp=all" data-preset="all"{{ if eq .CompState "all" }} class="on" aria-current="true"{{ end }}>{{ t $.Lang "overview.kpi.scope_all" }}</a>
     <a href="?comp=judged" data-preset="judged"{{ if eq .CompState "judged" }} class="on" aria-current="true"{{ end }}>{{ t $.Lang "overview.kpi.scope_judged" }}</a>
+    <a href="?comp=all" data-preset="all"{{ if eq .CompState "all" }} class="on" aria-current="true"{{ end }}>{{ t $.Lang "overview.kpi.scope_all" }}</a>
   </div>
   {{ end }}
   {{ $t := .CompDenom }}

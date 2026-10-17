@@ -1058,11 +1058,15 @@ func trafficUnique(ctx context.Context, h *Handler, minutes int, site string) (t
 
 // Traffic-composition denominator, persisted per operator.
 //
-//	compScopeAll    — every request the access log saw (the default: it is the
-//	                  figure the card has always shown, and changing what a
-//	                  daily number means without being asked is its own bug)
 //	compScopeJudged — minus the requests a bypass rule exempted, i.e. the
-//	                  traffic unmask actually evaluated
+//	                  traffic unmask actually evaluated.  The default since
+//	                  0.1.52: the card is titled after what unmask judged,
+//	                  and the bypassed requests diluted its share with
+//	                  traffic unmask never looked at.  (Until then the
+//	                  default was "all", kept because changing what a daily
+//	                  number means without being asked is its own bug; the
+//	                  operator asked.)
+//	compScopeAll    — every request the access log saw, the bypassed ones too
 const (
 	compScopeAll      = "all"
 	compScopeJudged   = "judged"
@@ -1168,7 +1172,7 @@ func resolveCompSegs(r *http.Request) map[string]bool {
 			}
 		}
 	}
-	on, _ := parseCompSegs(compScopeAll)
+	on, _ := parseCompSegs(compScopeJudged)
 	return on
 }
 
