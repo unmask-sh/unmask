@@ -689,8 +689,8 @@ func cmdServe(args []string) error {
 			nlog.SetRuleHit(func(id string) { ruleHits.Hit(id, time.Now()) })
 			nlog.SetRenderSeen(func(id string) { renderWatch.Saw(id, time.Now()) })
 			go saveRenderWatch(renderWatch)
-			// A banned client whose action is deny is refused by nginx itself;
-			// the line only shows that no challenge was the answer.
+			// A banned client whose action is deny is refused before its
+			// cookie is looked at, so a line of it showing one is no pass.
 			nlog.SetDeniedCheck(func(ip, ja4 string) bool {
 				if banMgr == nil {
 					return false

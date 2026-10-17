@@ -28,9 +28,9 @@ const (
 	Requests  Kind = iota // every access-log line (or forward-auth check)
 	Pass                  // admitted on a valid pass cookie (pow / captcha / rebind)
 	Bypass                // let through unjudged: a bypass rule, or a listed crawler
-	Serve                 // a challenge page was the answer
+	Serve                 // a challenge page was the answer (its serve event)
 	Solve                 // a challenge was cleared: a bv_* cookie was issued
-	Deny                  // refused: a honeypot trip, or a banned client whose action is deny
+	Deny                  // refused with a deny page, for any reason (its serve event, deny=1)
 	RateLimit             // the rate-limit path fired (its CAPTCHA or deny, with 429)
 	// Abandon: an ordinary visitor's proof-of-work left unfinished -- the page
 	// loaded, no rule had sent them there, and they went away.  Taken out of
@@ -173,10 +173,16 @@ func (c *Counter) Hit(now time.Time, cc string, m Mask) {
 var solvedPhases = map[string]bool{"bv_pow_only": true, "bv_captcha_only": true, "bv_pow_then_captcha": true}
 
 // ObserveEvent counts what the event log says that the access log cannot: a
-// solved challenge, a serve on the rate-limit path, an ordinary visitor's
-// abandoned proof-of-work, and the reason and rule behind a deny page.  p is
-// the event's payload.  Every event passes through here; the ones that say
-// none of it cost a map lookup.
+// solved challenge, what the daemon answered a gated request with -- a
+// challenge page or a deny page, on the rate-limit path or not -- an ordinary
+// visitor's abandoned proof-of-work, and the reason and rule behind a deny
+// page.  p is the event's payload.  Every event passes through here; the ones
+// that say none of it cost a map lookup.
+//
+// The access log cannot tell the two answers apart: an ASN, country or custom
+// rule's deny and a challenge are both a request a gate handed to the daemon.
+// Counting them there put every refusal but a ban's under the challenges, and
+// left the deny tile with the bans alone.
 func (c *Counter) ObserveEvent(now time.Time, phase, cc string, p map[string]any) {
 	if c == nil {
 		return
@@ -184,8 +190,15 @@ func (c *Counter) ObserveEvent(now time.Time, phase, cc string, p map[string]any
 	switch {
 	case solvedPhases[phase]:
 		c.Hit(now, cc, Of(Solve))
-	case phase == "serve" && flag(p, "rl"):
-		c.Hit(now, cc, Of(RateLimit))
+	case phase == "serve":
+		m := Of(Serve)
+		if flag(p, "deny") {
+			m = Of(Deny)
+		}
+		if flag(p, "rl") {
+			m |= Of(RateLimit)
+		}
+		c.Hit(now, cc, m)
 	case phase == "abandon" && unruledPoW(p):
 		c.Hit(now, cc, Of(Abandon))
 	}

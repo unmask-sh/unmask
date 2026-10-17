@@ -2,7 +2,9 @@
 // reading, then refreshed in place from /admin/api/now.  Lines written to the
 // daemon's access-log socket must show up in the request tile within a refresh
 // or two, the previous figures must survive a refresh (no blanking), and the
-// auto-refresh switch must hold across a reload.
+// auto-refresh switch must hold across a reload.  What the daemon answers a
+// gated request with is counted from its serve event, not the line: a
+// challenge page in the challenge tile, a deny page in the refused tile.
 //
 // Env: UI_E2E_BASE, UI_E2E_USER, UI_E2E_PASS, UI_E2E_OUT (the work dir's out/,
 // beside which run.sh puts log.sock), CHROME_BIN.
@@ -76,7 +78,7 @@ for i in range(${n}):
   if (first.missing) {
     ok(false, 'the live strip is not on the dashboard');
   } else {
-    ok(first.tiles.join(',') === 'requests,pass,bypass,serve,solve,deny,rate_limit',
+    ok(first.tiles.join(',') === 'requests,pass,bypass,serve,deny,solve,rate_limit',
       'tiles are not the seven outcomes in order: ' + first.tiles.join(','));
     ok(/^\d{2}:\d{2}:\d{2}$/.test(first.at || ''), 'the reading clock is not HH:MM:SS: ' + first.at);
     ok(/ON|on/.test(first.toggle || ''), 'auto-refresh is not on by default: ' + first.toggle);
@@ -115,10 +117,35 @@ for i in range(${n}):
     // The figure that moved flashed (the class stays after the animation).
     const flashed = await page.evaluate(() => document.querySelector('#live-grid .live[data-k="requests"] [data-f="last30"]').classList.contains('v-flash'));
     ok(flashed, 'the requests figure changed without a flash');
-    ok(pass >= 3 && serve >= 3, `pass=${pass} serve=${serve}, expected 3 each from the fed lines`);
+    ok(pass >= 3, `pass=${pass}, expected 3 from the fed lines`);
     const noFeedNote = await page.evaluate(() => document.getElementById('live-feed-off').hidden);
     ok(noFeedNote === true, 'the "feed off" note shows although lines arrive');
   }
+
+  // Two challenge pages and a deny page, served for real: each lands in its
+  // own tile (the thirty-minute figures, which nothing leaves during the
+  // test), and the refusal in the line under the map as well.
+  const n30 = () => page.evaluate(() => {
+    const g = document.getElementById('live-grid');
+    const n = k => parseInt(g.querySelector('.live[data-k="' + k + '"] [data-f="last30"]').textContent.replace(/,/g, ''), 10) || 0;
+    return { serve: n('serve'), deny: n('deny') };
+  });
+  const before30 = await n30();
+  for (const u of ['/test/force-pow', '/test/force-pow', '/_deny/live-strip']) {
+    await fetch(BASE + u, { headers: { 'User-Agent': 'Mozilla/5.0 live-strip' } }).then(r => r.text()).catch(() => {});
+  }
+  let after30 = before30;
+  for (let i = 0; i < 16 && (after30.serve < before30.serve + 2 || after30.deny < before30.deny + 1); i++) {
+    await sleep(1000);
+    after30 = await n30();
+  }
+  ok(after30.serve === before30.serve + 2, `challenge tile ${before30.serve} -> ${after30.serve}, expected +2 (the deny page is no challenge)`);
+  ok(after30.deny === before30.deny + 1, `refused tile ${before30.deny} -> ${after30.deny}, expected +1`);
+  const refusedLine = await page.evaluate(() => {
+    const el = document.getElementById('geo-refused');
+    return el ? { links: el.querySelectorAll('a').length, text: el.textContent } : null;
+  });
+  ok(refusedLine && refusedLine.links >= 1, 'the refusal is not in the line under the map: ' + JSON.stringify(refusedLine));
 
   // Switch auto-refresh off: the countdown stops, the choice survives a reload.
   await page.click('#live-toggle');

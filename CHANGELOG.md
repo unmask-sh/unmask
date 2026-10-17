@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-10-17) **The realtime tab's refused tile counts every refusal, beside the challenges.**  It counted only honeypot trips and bans whose action is deny, while the deny page of an ASN, country, UA, JA4 or custom rule went under the challenges served.  Both tiles now count the page the daemon answered with: the refused tile matches the breakdown under the map, and the challenge tile holds challenges only.
+
 ## [0.1.52-rc3] - 2026-10-17 (testing build)
 
 ### Since rc2

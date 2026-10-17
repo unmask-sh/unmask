@@ -105,8 +105,9 @@ type Reader struct {
 	// line has none); nil until set.  Set before Receive, read unlocked.
 	renderSeen func(id string)
 	// isDenied answers whether a client is banned with an action that refuses
-	// it outright: the access-log line does not say that nginx denied the
-	// request, and the ban list is what nginx denies from.
+	// it outright.  The access-log line does not say that nginx denied the
+	// request, and the line of a refused client can still carry a pass
+	// cookie: the live strip must not count it as passed.
 	isDenied func(ip, ja4 string) bool
 
 	// onHoneypot: callback for honeypot-path-trip events (= hp=1 lines).  site
@@ -267,8 +268,8 @@ func (r *Reader) SetLive(c *live.Counter) {
 }
 
 // SetDeniedCheck registers how to tell a client nginx refuses outright (a ban
-// whose action is deny).  The live strip counts those as denied; the line
-// itself only shows that no challenge was the answer.
+// whose action is deny), so the live strip does not count its requests as
+// passed; the deny page's serve event counts them as refused.
 func (r *Reader) SetDeniedCheck(f func(ip, ja4 string) bool) {
 	if r == nil {
 		return
@@ -787,11 +788,13 @@ func (r *Reader) onLine(line string) {
 }
 
 // liveHit counts one access-log line for the dashboard's live strip, under
-// the same precedence the minute buckets use: a pass cookie, else a challenge,
-// else a crawler or a bypass.  Denied is read off the ban list, since the line
-// does not carry nginx's answer; a honeypot trip counts as denied too (it is
-// the request that earned the ban).  Country comes from the same lookup the
-// hourly country buckets use, which ipgeo caches.
+// the same precedence the minute buckets use: a pass cookie, else a crawler or
+// a bypass.  A request a gate handed to the daemon -- a challenge, a honeypot
+// trip, a client the ban list refuses, an ASN or country rule's deny -- is
+// none of those, and which page the daemon answered with the line does not
+// say: its serve event does, and live.ObserveEvent counts it as a challenge
+// or a refusal.  Country comes from the same lookup the hourly country buckets
+// use, which ipgeo caches.
 func (r *Reader) liveHit(p parsed, isCrawler bool) {
 	r.mu.Lock()
 	c, denied, geo := r.live, r.isDenied, r.geo
@@ -806,11 +809,11 @@ func (r *Reader) liveHit(p parsed, isCrawler bool) {
 		// that went past without enforcement.
 		m |= live.Of(live.Bypass)
 	case p.hp || (denied != nil && p.ip != "" && denied(p.ip, p.ja4)):
-		m |= live.Of(live.Deny)
+		// Answered by the daemon, a cookie or not: its serve event counts it.
 	case p.kind != "":
 		m |= live.Of(live.Pass)
 	case p.fc:
-		m |= live.Of(live.Serve)
+		// Answered by the daemon: its serve event counts it.
 	case isCrawler || p.bypassed:
 		m |= live.Of(live.Bypass)
 	}
@@ -849,12 +852,11 @@ func (r *Reader) Bump(site, kind string) {
 	}
 	// No access-log line stands behind this call, so the live strip learns of
 	// the request here (onLine counts its lines itself, with more to go on).
+	// A challenge_served has its page's serve event, which counts it.
 	m := live.Of(live.Requests)
 	switch kind {
 	case "pow", "captcha", "rebind":
 		m |= live.Of(live.Pass)
-	case "challenge_served":
-		m |= live.Of(live.Serve)
 	}
 	r.liveBump(m)
 	r.bumpLine(site, kind)

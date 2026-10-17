@@ -91,12 +91,16 @@ func TestObserveEvent(t *testing.T) {
 	c.ObserveEvent(now, "bv_pow_only", "JP", nil)
 	c.ObserveEvent(now, "bv_captcha_only", "", nil)
 	c.ObserveEvent(now, "bv_pow_then_captcha", "", nil)
-	c.ObserveEvent(now, "serve", "US", map[string]any{"rl": 1})
-	c.ObserveEvent(now, "serve", "US", nil) // an ordinary serve: the access log counts it
+	c.ObserveEvent(now, "serve", "US", map[string]any{"rl": 1})            // a challenge on the rate-limit path
+	c.ObserveEvent(now, "serve", "US", nil)                                // an ordinary challenge
+	c.ObserveEvent(now, "serve", "US", map[string]any{"rl": 1, "deny": 1}) // a deny-mode rate limit
 	c.ObserveEvent(now, "load", "", nil)
 	sn := c.Snapshot(now)
-	if sn.Last[Solve] != 3 || sn.Last[RateLimit] != 1 || sn.Last[Requests] != 0 || sn.Last[Serve] != 0 {
-		t.Errorf("last = %v, want 3 solves, 1 rate-limit, nothing else", sn.Last)
+	if sn.Last[Solve] != 3 || sn.Last[Serve] != 2 || sn.Last[Deny] != 1 || sn.Last[RateLimit] != 2 || sn.Last[Requests] != 0 {
+		t.Errorf("last = %v, want 3 solves, 2 challenges, 1 refusal, 2 on the rate-limit path, no requests", sn.Last)
+	}
+	if x := sn.Countries["US"]; x.Serve != 2 || x.Deny != 1 {
+		t.Errorf("US = %+v, want the challenges and the refusal under their country", x)
 	}
 	if sn.LastLine != 0 {
 		t.Error("events must not count as the access-log feed being alive")
@@ -164,6 +168,11 @@ func TestRefusals(t *testing.T) {
 	c.ObserveEvent(now, "serve", "", map[string]any{"force_reason": "asn"}) // a challenge, not a deny
 	c.ObserveEvent(now.Add(-31*time.Minute), "serve", "", map[string]any{"deny": 1, "force_reason": "geo_deny", "deny_rule": "CN"})
 	sn := c.Snapshot(now)
+	// The deny tile counts the same pages the breakdown does, and the one
+	// challenge among them is a challenge.
+	if sn.Last30[Deny] != 6 || sn.Last[Deny] != 6 || sn.Last30[Serve] != 1 {
+		t.Errorf("deny = %d (last minute %d), serve = %d; want 6, 6, 1", sn.Last30[Deny], sn.Last[Deny], sn.Last30[Serve])
+	}
 	want := map[string]uint32{"asn_deny": 4, "banned": 1, "axis_deny": 1}
 	if len(sn.Refused30) != len(want) {
 		t.Errorf("refused = %v, want %v", sn.Refused30, want)

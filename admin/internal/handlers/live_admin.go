@@ -45,6 +45,7 @@ type liveView struct {
 
 // liveKinds lists the tiles in display order with their colours: the kind
 // colours of the stats page's stacked charts (KIND_COLOR) where one exists.
+// The refusals sit beside the challenges: the two answers a gate gets.
 var liveKinds = []struct {
 	kind  live.Kind
 	color string
@@ -53,8 +54,8 @@ var liveKinds = []struct {
 	{live.Pass, "#94a3b8"},
 	{live.Bypass, "#c7d2fe"},
 	{live.Serve, "#dc2626"},
-	{live.Solve, "#0ea5e9"},
 	{live.Deny, "#7f1d1d"},
+	{live.Solve, "#0ea5e9"},
 	{live.RateLimit, "#f59e0b"},
 }
 

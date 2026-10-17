@@ -21,7 +21,7 @@ func TestAdminNowJSON(t *testing.T) {
 	h.Live.Hit(now.Add(-70*time.Second), "US", live.Of(live.Requests, live.Serve))
 	h.Live.ObserveEvent(now, "bv_pow_only", "JP", nil)
 	h.Live.ObserveEvent(now, "serve", "", map[string]any{"rl": 1})
-	h.Live.ObserveEvent(now, "serve", "US", map[string]any{"deny": 1, "force_reason": "asn_deny", "deny_rule": "AS16509"})
+	h.Live.ObserveEvent(now, "serve", "", map[string]any{"deny": 1, "force_reason": "asn_deny", "deny_rule": "AS16509"})
 
 	req := httptest.NewRequest("GET", "/unmask/admin/api/now", nil)
 	rec := httptest.NewRecorder()
@@ -61,7 +61,8 @@ func TestAdminNowJSON(t *testing.T) {
 	if !out.Available || out.Step != live.Step || out.Window != live.Window {
 		t.Errorf("available=%v step=%d window=%d", out.Available, out.Step, out.Window)
 	}
-	if out.Last["requests"] != 3 || out.Last["pass"] != 3 || out.Last["solve"] != 1 || out.Last["rate_limit"] != 1 {
+	if out.Last["requests"] != 3 || out.Last["pass"] != 3 || out.Last["solve"] != 1 || out.Last["rate_limit"] != 1 ||
+		out.Last["serve"] != 1 || out.Last["deny"] != 1 {
 		t.Errorf("last = %v", out.Last)
 	}
 	if len(out.Series["requests"]) != live.Buckets {
@@ -83,6 +84,14 @@ func TestAdminNowJSON(t *testing.T) {
 	// and the reason worded as the dashboard words it.
 	if out.Refused30["asn_deny"] != 1 {
 		t.Errorf("refused30 = %v", out.Refused30)
+	}
+	// The deny tile is the breakdown's total.
+	var refused uint32
+	for _, n := range out.Refused30 {
+		refused += n
+	}
+	if out.Last30["deny"] != refused {
+		t.Errorf("the deny tile says %d, the breakdown %d", out.Last30["deny"], refused)
 	}
 	if r := out.RefusedRules["asn_deny"]; len(r) != 1 || r[0].Rule != "AS16509" || r[0].N != 1 || r[0].Label != "AS16509" {
 		t.Errorf("refused_rules30 = %v", out.RefusedRules)
@@ -142,7 +151,10 @@ func TestLiveViewTiles(t *testing.T) {
 	if req.TPS != "0.2" || req.Points == "" || !strings.HasPrefix(req.Points, "0.0,") {
 		t.Errorf("requests tile tps=%q points=%q", req.TPS, req.Points[:20])
 	}
-	deny := v.Tiles[5]
+	deny := v.Tiles[4] // beside the challenges
+	if v.Tiles[3].Key != "serve" {
+		t.Errorf("tile 3 = %q, want serve before deny", v.Tiles[3].Key)
+	}
 	if deny.Key != "deny" || deny.Last != 1 {
 		t.Errorf("deny tile = %+v", deny)
 	}
