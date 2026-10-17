@@ -64,11 +64,15 @@ func TestKindCountersAreMutuallyExclusive(t *testing.T) {
 	}
 }
 
-// The four figures must come from one table.  The install-wide view used to
-// read the benign half from unmask_crawler_minute -- a different table, not
+// The four figures must come from one bookkeeping.  The install-wide view used
+// to read the benign half from unmask_crawler_minute -- a different table, not
 // part of the total's bookkeeping, whose "passed" includes crawlers that hit a
 // bypassed path and so double-counts against bypass_pass (535,977 in a day).
 // The card then could not compute a human remainder at all and rendered "—".
+// The bookkeeping is unmask_cookie_minute and its install-wide hourly fold
+// (hkCookiePass, every kind summed hour by hour from the same rows), which
+// the read takes for the settled hours; the read and the helpers it hands
+// the tables to are one family, scanned together.
 func TestCompositionReadsOneTable(t *testing.T) {
 	src := readFile(t, "../dashboard/queries.go")
 	fn := strings.Index(src, "func TrafficRequests(")
@@ -76,14 +80,21 @@ func TestCompositionReadsOneTable(t *testing.T) {
 		t.Fatal("TrafficRequests not found")
 	}
 	body := src[fn:]
-	if end := strings.Index(body, "\nfunc "); end > 0 {
-		body = body[:end]
+	last := strings.Index(body, "func (c *TrafficComposition) addRows(")
+	if last < 0 {
+		t.Fatal("the composition's row scanner (addRows) is not next to TrafficRequests any more; point this test at the helpers")
+	}
+	if end := strings.Index(body[last:], "\n}\n"); end > 0 {
+		body = body[:last+end]
 	}
 	if strings.Contains(body, "unmask_crawler_minute") {
-		t.Error("TrafficRequests reads unmask_crawler_minute; the four shares must all come from unmask_cookie_minute or they do not divide one total")
+		t.Error("the composition reads unmask_crawler_minute; the four shares must all come from unmask_cookie_minute or they do not divide one total")
 	}
 	if !strings.Contains(body, "unmask_cookie_minute") {
-		t.Error("TrafficRequests no longer reads unmask_cookie_minute")
+		t.Error("the composition no longer reads unmask_cookie_minute")
+	}
+	if !strings.Contains(body, "hkCookiePass") {
+		t.Error("the settled hours must come from unmask_cookie_minute's own fold (hkCookiePass), not another rollup")
 	}
 }
 
