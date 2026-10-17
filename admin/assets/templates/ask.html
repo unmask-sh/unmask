@@ -175,14 +175,14 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 {{ if eq .Tab "history" }}<p class="meta">{{ t .Lang "ask.history_note" }}{{ if .MonthCount }} <span id="ask-month">{{ tf .Lang "ask.cost_month" .MonthCost (comma .MonthCount) }}</span>{{ end }}</p>{{ end }}
 
 <template id="ask-icon-copy">{{ template "ask_icon_copy" }}</template>
-<div class="turns" id="turns" data-txt-cost="{{ t .Lang "ask.cost" }}" data-txt-pending="{{ t .Lang "ask.pending" }}" data-txt-tools="{{ t .Lang "ask.tools" }}" data-txt-rule="{{ t .Lang "ask.create_rule" }}" data-txt-made="{{ t .Lang "ask.rule_made" }}" data-txt-made-named="{{ t .Lang "ask.rule_made_named" }}" data-txt-failed="{{ t .Lang "ask.failed" }}" data-txt-tokens="{{ t .Lang "ask.tokens" }}" data-txt-copy="{{ t .Lang "ask.copy" }}" data-txt-copied="{{ t .Lang "ask.copied" }}" data-txt-retry="{{ t .Lang "ask.retry" }}">
+<div class="turns" id="turns" data-txt-cost="{{ t .Lang "ask.cost" }}" data-txt-pending="{{ t .Lang "ask.pending" }}" data-txt-tools="{{ t .Lang "ask.tools" }}" data-txt-rule="{{ t .Lang "ask.create_rule" }}" data-txt-made="{{ t .Lang "ask.rule_made" }}" data-txt-made-named="{{ t .Lang "ask.rule_made_named" }}" data-txt-failed="{{ t .Lang "ask.failed" }}" data-txt-tokens="{{ t .Lang "ask.tokens" }}" data-txt-tokens-cached="{{ t .Lang "ask.tokens_cached" }}" data-txt-copy="{{ t .Lang "ask.copy" }}" data-txt-copied="{{ t .Lang "ask.copied" }}" data-txt-retry="{{ t .Lang "ask.retry" }}">
   {{ range .Turns }}
   <div class="q-row"><time class="js-datetime js-datetime-notz q-time" data-ts="{{ .AskedTS }}"></time><div class="q">{{ .Question }}</div></div>
   <div class="a{{ if .Err }} fail{{ end }}{{ if .Folded }} folded{{ end }}" data-id="{{ .ID }}">
     <div class="txt">{{ if .Err }}{{ t $.Lang "ask.failed" }}: {{ .Err }}{{ else }}{{ range .Parts }}{{ if .Code }}<pre>{{ .Text }}</pre>{{ else if .Rule }}{{ if $.CanAsk }}{{ if .RuleID }}<a class="ask-rule added" data-added="1" href="{{ $.BasePath }}/admin/settings/custom-rules/#rule-{{ .RuleID }}" target="_blank" rel="noopener">{{ if .RuleName }}{{ tf $.Lang "ask.rule_made_named" .RuleName }}{{ else }}{{ t $.Lang "ask.rule_made" }}{{ end }} ↗</a>{{ else }}<a class="ask-rule" href="{{ $.BasePath }}{{ .Link }}" data-link="{{ .Link }}" target="_blank" rel="noopener">{{ t $.Lang "ask.create_rule" }}</a>{{ end }}{{ end }}{{ else if .Link }}<a href="{{ $.BasePath }}{{ .Link }}">{{ .Text }}</a>{{ else if .IP }}<span class="ipclick" data-ip="{{ .IP }}">{{ .Text }}</span>{{ else }}{{ .Text }}{{ end }}{{ end }}{{ end }}</div>
     <div class="a-meta">
       {{ if .Tools }}<span>{{ t $.Lang "ask.tools" }}: {{ range $i, $c := .Tools }}{{ if $i }} {{ end }}<span class="tool-chip{{ if $c.Err }} err{{ end }}" title="{{ $c.Ms }} ms">{{ $c.Name }}{{ if gt $c.Calls 1 }} ×{{ $c.Calls }}{{ end }}</span>{{ end }}</span>{{ end }}
-      {{ if or .InTokens .OutTokens }}<span>{{ tf $.Lang "ask.tokens" (comma .InTokens) (comma .OutTokens) }}{{ if .Model }} · {{ .Model }}{{ end }}{{ if .Cost }} · {{ tf $.Lang "ask.cost" .Cost }}{{ end }}</span>{{ end }}
+      {{ if or .InTokens .OutTokens }}<span>{{ if .CacheRead }}{{ tf $.Lang "ask.tokens_cached" (comma .InTokens) (comma .CacheRead) (comma .OutTokens) }}{{ else }}{{ tf $.Lang "ask.tokens" (comma .InTokens) (comma .OutTokens) }}{{ end }}{{ if .Model }} · {{ .Model }}{{ end }}{{ if .Cost }} · {{ tf $.Lang "ask.cost" .Cost }}{{ end }}</span>{{ end }}
     </div>
     <div class="a-act">
       {{ if .Err }}<a class="a-retry" href="{{ $.BasePath }}/admin/ask/?q={{ urlquery .Question }}">{{ t $.Lang "ask.retry" }}</a>{{ end }}
@@ -354,6 +354,8 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   var form = document.getElementById('ask-form'), turns = document.getElementById('turns');
   if (!form || !turns) return;
   var ta = document.getElementById('ask-q'), btn = document.getElementById('ask-send');
+  // The ids of the turns answered on this page, in order: a question's context.
+  var ctxIDs = [];
   function esc(s){ var d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
   // The answer arrives split into runs, the way the history tab draws
   // them: prose, ``` blocks, this admin's own paths as links under the base
@@ -382,7 +384,13 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     tools.forEach(function(t, i){ h += (i ? ' ' : '') + '<span class="tool-chip' + (t.err ? ' err' : '') + '" title="' + esc(t.ms) + ' ms">' + esc(t.name) + (t.calls > 1 ? ' ×' + esc(t.calls) : '') + '</span>'; });
     return h + '</span>';
   }
-  function tokensText(i, o){ return turns.dataset.txtTokens.replace('%s', Number(i).toLocaleString('en-US')).replace('%s', Number(o).toLocaleString('en-US')); }
+  // The tokens line; with a part of the prompt read from the provider's
+  // cache, the line that says so.
+  function tokensText(i, o, c){
+    var n = function(v){ return Number(v).toLocaleString('en-US'); };
+    if (c > 0) return turns.dataset.txtTokensCached.replace('%s', n(i)).replace('%s', n(c)).replace('%s', n(o));
+    return turns.dataset.txtTokens.replace('%s', n(i)).replace('%s', n(o));
+  }
   function pendingHTML(){ return '<div class="txt"><span class="spin"></span>' + esc(turns.dataset.txtPending) + '</div>'; }
   function append(q){
     var empty = document.getElementById('ask-empty'); if (empty) empty.remove();
@@ -400,11 +408,11 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   function settle(ad, d){
     ad.classList.remove('pending');
     // The turn's id: a rule added from the answer is recorded on it.
-    if (d.id) ad.dataset.id = d.id;
+    if (d.id) { ad.dataset.id = d.id; ctxIDs.push(String(d.id)); }
     var meta = chips(d.tools);
     // The turn was answered but not kept (the database's writes held): say so.
     if (d.unsaved_note) meta += '<span class="a-unsaved">' + esc(d.unsaved_note) + '</span>';
-    if (d.in_tokens || d.out_tokens) meta += '<span>' + esc(tokensText(d.in_tokens || 0, d.out_tokens || 0)) + (d.model ? ' · ' + esc(d.model) : '') + (d.cost ? ' · ' + esc(turns.dataset.txtCost.replace('%s', d.cost)) : '') + '</span>';
+    if (d.in_tokens || d.out_tokens) meta += '<span>' + esc(tokensText(d.in_tokens || 0, d.out_tokens || 0, d.cache_read_tokens || 0)) + (d.model ? ' · ' + esc(d.model) : '') + (d.cost ? ' · ' + esc(turns.dataset.txtCost.replace('%s', d.cost)) : '') + '</span>';
     ad.innerHTML = '<div class="txt">' + render(d.parts) + '</div><div class="a-meta">' + meta + '</div><div class="a-act"><span class="ib-wrap"><button type="button" class="a-copy ib" aria-label="' + esc(turns.dataset.txtCopy) + '" data-txt-copied="' + esc(turns.dataset.txtCopied) + '" data-txt-copy="' + esc(turns.dataset.txtCopy) + '">' + document.getElementById('ask-icon-copy').innerHTML + '</button><span class="ib-pop">' + esc(turns.dataset.txtCopy) + '</span></span></div>';
     if (window.unmaskFmtTimes) unmaskFmtTimes();
     // The addresses in the fresh answer get the popover.
@@ -444,6 +452,9 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   function send(q, ad){
     btn.disabled = true;
     var params = { q: q }, ms = document.getElementById('ask-model'), es = document.getElementById('ask-effort');
+    // The conversation so far on this page is the question's context: the
+    // turns answered since the tab was opened, newest ten.
+    if (ctxIDs.length) params.ctx_ids = ctxIDs.slice(-10).join(',');
     if (ms && ms.value) params.model = ms.value;
     if (es && es.value && !es.disabled) params.effort = es.value;
     // The browser's time zone: the answer's times and "today" are given in

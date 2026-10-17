@@ -121,8 +121,7 @@ func Chat(ctx context.Context, cfg settings.AIAdvisorConfig, tools aitools.Runne
 		res.Rounds = round
 		turn, err := c.step(ctx)
 		// A failed round is billed too: its tokens count before the error.
-		res.Usage.Input += turn.usage.Input
-		res.Usage.Output += turn.usage.Output
+		res.Usage = res.Usage.plus(turn.usage)
 		if err != nil {
 			return res, err
 		}
@@ -222,9 +221,19 @@ type anthropicChat struct {
 	messages []any
 }
 
+// cacheMark is Anthropic's cache_control: the request's prefix up to a
+// marked block is cached for a few minutes and read back at a tenth of the
+// input rate.  Three marks a request: the system prompt and the tools (the
+// same every time), and the last message, so that each round of a question
+// reads the rounds before it from the cache instead of sending them again.
+var cacheMark = map[string]any{"type": "ephemeral"}
+
 func (a *anthropicChat) begin(tools []aitools.Tool, history []ChatTurn, question string) {
 	for _, t := range tools {
 		a.tools = append(a.tools, map[string]any{"name": t.Name, "description": t.Description, "input_schema": t.Schema})
+	}
+	if n := len(a.tools); n > 0 {
+		a.tools[n-1]["cache_control"] = cacheMark
 	}
 	for _, h := range history {
 		a.messages = append(a.messages, map[string]any{"role": "user", "content": h.Question}, map[string]any{"role": "assistant", "content": h.Answer})
@@ -236,8 +245,8 @@ func (a *anthropicChat) step(ctx context.Context) (turn, error) {
 	body := map[string]any{
 		"model":      a.cfg.ResolvedModel(),
 		"max_tokens": maxTokensFor(a.cfg.ResolvedModel(), a.cfg.Effort, chatMaxTokens),
-		"system":     chatSystemPrompt,
-		"messages":   a.messages,
+		"system":     []any{map[string]any{"type": "text", "text": chatSystemPrompt, "cache_control": cacheMark}},
+		"messages":   anthropicMarkLast(a.messages),
 		"tools":      a.tools,
 	}
 	if e := effortToSend(a.cfg.ResolvedModel(), a.cfg.Effort); e != "" {
@@ -252,14 +261,16 @@ func (a *anthropicChat) step(ctx context.Context) (turn, error) {
 		StopReason string            `json:"stop_reason"`
 		Content    []json.RawMessage `json:"content"`
 		Usage      struct {
-			Input  int `json:"input_tokens"`
-			Output int `json:"output_tokens"`
+			Input      int `json:"input_tokens"` // the uncached part only
+			Output     int `json:"output_tokens"`
+			CacheRead  int `json:"cache_read_input_tokens"`
+			CacheWrite int `json:"cache_creation_input_tokens"`
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal(out, &resp); err != nil {
 		return turn{}, err
 	}
-	t := turn{usage: Usage{Input: resp.Usage.Input, Output: resp.Usage.Output}}
+	t := turn{usage: Usage{Input: resp.Usage.Input + resp.Usage.CacheRead + resp.Usage.CacheWrite, Output: resp.Usage.Output, CacheRead: resp.Usage.CacheRead, CacheWrite: resp.Usage.CacheWrite}}
 	switch resp.StopReason {
 	case "refusal":
 		return t, errors.New("the model declined this request")
@@ -304,6 +315,45 @@ func (a *anthropicChat) resolve(t turn, results []toolResult) {
 		content = append(content, map[string]any{"type": "tool_result", "tool_use_id": r.call.ID, "content": r.text})
 	}
 	a.messages = append(a.messages, map[string]any{"role": "user", "content": content})
+}
+
+// anthropicMarkLast returns messages with the cache mark on the last block
+// of the last message, which is the one this request adds: the prefix up
+// to it is what the next request reads back.  The messages themselves are
+// left as they are, so no older mark stays (the API takes four at most).
+func anthropicMarkLast(messages []any) []any {
+	n := len(messages)
+	if n == 0 {
+		return messages
+	}
+	last, ok := messages[n-1].(map[string]any)
+	if !ok {
+		return messages
+	}
+	var blocks []any
+	switch c := last["content"].(type) {
+	case string:
+		blocks = []any{map[string]any{"type": "text", "text": c}}
+	case []any:
+		blocks = append([]any(nil), c...)
+	default:
+		return messages
+	}
+	if len(blocks) == 0 {
+		return messages
+	}
+	lb, ok := blocks[len(blocks)-1].(map[string]any)
+	if !ok {
+		return messages
+	}
+	marked := make(map[string]any, len(lb)+1)
+	for k, v := range lb {
+		marked[k] = v
+	}
+	marked["cache_control"] = cacheMark
+	blocks[len(blocks)-1] = marked
+	out := append([]any(nil), messages[:n-1]...)
+	return append(out, map[string]any{"role": last["role"], "content": blocks})
 }
 
 // --- OpenAI-compatible --------------------------------------------------------
@@ -367,14 +417,17 @@ func (o *openaiChat) step(ctx context.Context) (turn, error) {
 			Message json.RawMessage `json:"message"`
 		} `json:"choices"`
 		Usage struct {
-			Prompt     int `json:"prompt_tokens"`
+			Prompt     int `json:"prompt_tokens"` // the cached part included
 			Completion int `json:"completion_tokens"`
+			Details    struct {
+				Cached int `json:"cached_tokens"`
+			} `json:"prompt_tokens_details"`
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal(out, &resp); err != nil {
 		return turn{}, err
 	}
-	t := turn{usage: Usage{Input: resp.Usage.Prompt, Output: resp.Usage.Completion}}
+	t := turn{usage: Usage{Input: resp.Usage.Prompt, Output: resp.Usage.Completion, CacheRead: resp.Usage.Details.Cached}}
 	if len(resp.Choices) == 0 {
 		return t, errors.New("no choices in the response")
 	}
@@ -479,14 +532,17 @@ func (o *openaiResponses) step(ctx context.Context) (turn, error) {
 		} `json:"error"`
 		Output []json.RawMessage `json:"output"`
 		Usage  struct {
-			Input  int `json:"input_tokens"`
-			Output int `json:"output_tokens"`
+			Input   int `json:"input_tokens"` // the cached part included
+			Output  int `json:"output_tokens"`
+			Details struct {
+				Cached int `json:"cached_tokens"`
+			} `json:"input_tokens_details"`
 		} `json:"usage"`
 	}
 	if err := json.Unmarshal(out, &resp); err != nil {
 		return turn{}, err
 	}
-	t := turn{usage: Usage{Input: resp.Usage.Input, Output: resp.Usage.Output}}
+	t := turn{usage: Usage{Input: resp.Usage.Input, Output: resp.Usage.Output, CacheRead: resp.Usage.Details.Cached}}
 	if resp.Error != nil && resp.Error.Message != "" {
 		return t, errors.New(resp.Error.Message)
 	}
@@ -634,12 +690,14 @@ func RecordChatRun(conn *db.DB, cfg settings.AIAdvisorConfig, res ChatResult, er
 	}
 	now := time.Now()
 	row := db.AdvisorRun{
-		RanAt:     now.Unix(),
-		ResultKey: "chat|" + cfg.ResolvedProvider() + "|" + cfg.ResolvedModel(),
-		Model:     cfg.ResolvedModel(),
-		InTokens:  res.Usage.Input,
-		OutTokens: res.Usage.Output,
-		Err:       errText,
+		RanAt:            now.Unix(),
+		ResultKey:        "chat|" + cfg.ResolvedProvider() + "|" + cfg.ResolvedModel(),
+		Model:            cfg.ResolvedModel(),
+		InTokens:         res.Usage.Input,
+		OutTokens:        res.Usage.Output,
+		CacheReadTokens:  res.Usage.CacheRead,
+		CacheWriteTokens: res.Usage.CacheWrite,
+		Err:              errText,
 	}
 	if err := conn.Gorm.Create(&row).Error; err != nil {
 		log.Printf("ask: record run: %v", err)

@@ -57,10 +57,10 @@ func TestChatToolLoopAnthropic(t *testing.T) {
 		m := readBody(t, r)
 		reqs = append(reqs, m)
 		if len(reqs) == 1 {
-			io.WriteString(w, `{"stop_reason":"tool_use","usage":{"input_tokens":10,"output_tokens":5},"content":[{"type":"text","text":"Let me look."},{"type":"tool_use","id":"tu_1","name":"bans","input":{"limit":3}}]}`)
+			io.WriteString(w, `{"stop_reason":"tool_use","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":100},"content":[{"type":"text","text":"Let me look."},{"type":"tool_use","id":"tu_1","name":"bans","input":{"limit":3}}]}`)
 			return
 		}
-		io.WriteString(w, `{"stop_reason":"end_turn","usage":{"input_tokens":20,"output_tokens":7},"content":[{"type":"text","text":"One ban: 203.0.113.9."}]}`)
+		io.WriteString(w, `{"stop_reason":"end_turn","usage":{"input_tokens":20,"output_tokens":7,"cache_read_input_tokens":100},"content":[{"type":"text","text":"One ban: 203.0.113.9."}]}`)
 	}))
 	defer srv.Close()
 	cfg := settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", Endpoint: srv.URL, APIKey: "k", Model: "m"}
@@ -69,7 +69,9 @@ func TestChatToolLoopAnthropic(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Answer != "One ban: 203.0.113.9." || res.Rounds != 2 || res.Usage.Input != 30 || res.Usage.Output != 12 {
+	// The input is the whole prompt: the cache's part counted in, and told
+	// apart (100 written by the first round, read back by the second).
+	if res.Answer != "One ban: 203.0.113.9." || res.Rounds != 2 || res.Usage.Input != 230 || res.Usage.Output != 12 || res.Usage.CacheWrite != 100 || res.Usage.CacheRead != 100 {
 		t.Errorf("result %+v", res)
 	}
 	if len(res.Tools) != 1 || res.Tools[0].Name != "bans" || res.Tools[0].Args["limit"] != float64(3) || res.Tools[0].Err != "" {
@@ -79,24 +81,39 @@ func TestChatToolLoopAnthropic(t *testing.T) {
 		t.Errorf("calls %v", st.calls)
 	}
 	// The first request: system prompt, tools, the history and the question
-	// with the language asked for.
+	// with the language asked for.  The prompt cache's marks sit on the
+	// system prompt, the last tool and the last message, and nowhere else.
 	first := reqs[0]
-	if first["system"] != chatSystemPrompt || len(first["tools"].([]any)) != 1 {
-		t.Error("first request lacks the system prompt or the tools")
+	marked := func(v any) bool {
+		m, _ := v.(map[string]any)
+		return m != nil && m["cache_control"] != nil
+	}
+	sys, _ := first["system"].([]any)
+	tools, _ := first["tools"].([]any)
+	if len(sys) != 1 || sys[0].(map[string]any)["text"] != chatSystemPrompt || !marked(sys[0]) || len(tools) != 1 || !marked(tools[0]) {
+		t.Errorf("first request's system prompt or tools, or their cache marks: %v %v", first["system"], first["tools"])
 	}
 	msgs := first["messages"].([]any)
-	if len(msgs) != 3 || !strings.Contains(msgs[2].(map[string]any)["content"].(string), "日本語") {
-		t.Errorf("messages %v", msgs)
+	if len(msgs) != 3 {
+		t.Fatalf("messages %v", msgs)
 	}
-	// The second: the assistant's blocks echoed, then the tool result by id.
+	q := msgs[2].(map[string]any)["content"].([]any)
+	if _, plain := msgs[0].(map[string]any)["content"].(string); !plain || len(q) != 1 || !strings.Contains(q[0].(map[string]any)["text"].(string), "日本語") || !marked(q[0]) {
+		t.Errorf("the question is not the one marked message: %v", msgs)
+	}
+	// The second: the assistant's blocks echoed, then the tool result by id,
+	// which carries the mark now; the question no longer does.
 	msgs = reqs[1]["messages"].([]any)
 	if len(msgs) != 5 {
 		t.Fatalf("second request has %d messages, want 5", len(msgs))
 	}
 	last := msgs[4].(map[string]any)
 	content := last["content"].([]any)[0].(map[string]any)
-	if last["role"] != "user" || content["type"] != "tool_result" || content["tool_use_id"] != "tu_1" || !strings.Contains(content["content"].(string), "203.0.113.9") {
+	if last["role"] != "user" || content["type"] != "tool_result" || content["tool_use_id"] != "tu_1" || !strings.Contains(content["content"].(string), "203.0.113.9") || !marked(content) {
 		t.Errorf("tool result message %v", last)
+	}
+	if _, plain := msgs[2].(map[string]any)["content"].(string); !plain {
+		t.Errorf("the question kept its cache mark in the second request: %v", msgs[2])
 	}
 }
 

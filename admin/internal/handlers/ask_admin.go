@@ -48,9 +48,13 @@ type askView struct {
 	Tools     []askToolChip
 	AskedTS   int64
 	Model     string
-	InTokens  int
+	InTokens  int // the whole prompt, the cached part included
 	OutTokens int
-	Err       string
+	// CacheRead / CacheWrite: the part of InTokens the provider served from
+	// its prompt cache, and the part it wrote to it.
+	CacheRead  int
+	CacheWrite int
+	Err        string
 	// Cost: the answer's estimated cost ("$0.007"), or "" (askCostOf).
 	Cost string
 	// Folded: on the history tab a long answer opens on its first lines;
@@ -396,11 +400,11 @@ func (h *Handler) askNoteRuleAdded(r *http.Request, id string) {
 // askCostOf is an answer's estimated cost as the page prints it, from the
 // model's list price: "" when the provider is local (nothing is billed) or
 // the model's price is not known.
-func askCostOf(provider, model string, in, out int) string {
-	if provider == "ollama" || in+out == 0 {
+func askCostOf(provider, model string, u advisor.Usage) string {
+	if provider == "ollama" || u.Input+u.Output == 0 {
 		return ""
 	}
-	usd, ok := advisor.Cost(model, in, out)
+	usd, ok := advisor.CostOf(model, u)
 	if !ok {
 		return ""
 	}
@@ -412,7 +416,7 @@ func askCostOf(provider, model string, in, out int) string {
 func askViews(rows []db.AIChat, fold bool, rules []settings.CustomRule) []askView {
 	out := make([]askView, 0, len(rows))
 	for _, r := range rows {
-		v := askView{ID: r.ID, Question: r.Question, Answer: r.Answer, Parts: splitFences(r.Answer), AskedTS: r.AskedAt, Model: r.Model, InTokens: r.InTokens, OutTokens: r.OutTokens, Err: r.Err}
+		v := askView{ID: r.ID, Question: r.Question, Answer: r.Answer, Parts: splitFences(r.Answer), AskedTS: r.AskedAt, Model: r.Model, InTokens: r.InTokens, OutTokens: r.OutTokens, CacheRead: r.CacheReadTokens, CacheWrite: r.CacheWriteTokens, Err: r.Err}
 		askMarkRules(v.Parts, askAddedRules(r.AddedRules), rules)
 		if r.Tools != "" {
 			var calls []advisor.ToolTrace
@@ -473,7 +477,7 @@ func (h *Handler) askPage(w http.ResponseWriter, r *http.Request, tab string) {
 	}
 	cfg := h.cfg().AIAdvisor
 	for i := range turns {
-		turns[i].Cost = askCostOf(cfg.ResolvedProvider(), turns[i].Model, turns[i].InTokens, turns[i].OutTokens)
+		turns[i].Cost = askCostOf(cfg.ResolvedProvider(), turns[i].Model, advisor.Usage{Input: turns[i].InTokens, Output: turns[i].OutTokens, CacheRead: turns[i].CacheRead, CacheWrite: turns[i].CacheWrite})
 	}
 	// The history tab sums the month -- every account's questions, since the
 	// provider bills the install -- in the operator's month.
@@ -483,12 +487,12 @@ func (h *Handler) askPage(w http.ResponseWriter, r *http.Request, tab string) {
 		now := time.Now().In(loc)
 		start := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, loc).Unix()
 		var month []db.AIChat
-		if err := h.DB.Gorm.WithContext(r.Context()).Select("model", "in_tokens", "out_tokens").Where("asked_at >= ?", start).Find(&month).Error; err != nil {
+		if err := h.DB.Gorm.WithContext(r.Context()).Select("model", "in_tokens", "out_tokens", "cache_read_tokens", "cache_write_tokens").Where("asked_at >= ?", start).Find(&month).Error; err != nil {
 			log.Printf("ask: month: %v", err)
 		}
 		usd := 0.0
 		for _, c := range month {
-			if v, ok := advisor.Cost(c.Model, c.InTokens, c.OutTokens); ok && c.InTokens+c.OutTokens > 0 {
+			if v, ok := advisor.CostOf(c.Model, advisor.Usage{Input: c.InTokens, Output: c.OutTokens, CacheRead: c.CacheReadTokens, CacheWrite: c.CacheWriteTokens}); ok && c.InTokens+c.OutTokens > 0 {
 				usd += v
 				monthCount++
 			}
@@ -588,17 +592,15 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), budget)
 	defer cancel()
-	var history []advisor.ChatTurn
-	if rows, err := h.askHistory(ctx, pay.UserID, 10); err == nil {
-		for _, row := range rows {
-			if row.Answer != "" {
-				history = append(history, advisor.ChatTurn{Question: row.Question, Answer: row.Answer})
-			}
-		}
-	}
+	// The context is the conversation on the page: the turns the ask tab
+	// has shown since it was opened (ctx_ids), which the page names.  The
+	// history is not sent on its own -- it went with every question before,
+	// ten turns of it, whatever the question, and was most of what a
+	// question cost (2026-10-18).
+	history := h.askContextTurns(ctx, pay.UserID, r.FormValue("ctx_ids"))
 	res, err := advisor.Chat(ctx, cfg, h.askTools(r), history, q+askContext(time.Now(), askLocation(r), h.cfg().Global), string(lang))
 	advisor.RecordChatRun(h.DB, cfg, res, err)
-	row := db.AIChat{UserID: pay.UserID, AskedAt: time.Now().Unix(), Question: q, Answer: res.Answer, Model: cfg.ResolvedModel(), InTokens: res.Usage.Input, OutTokens: res.Usage.Output}
+	row := db.AIChat{UserID: pay.UserID, AskedAt: time.Now().Unix(), Question: q, Answer: res.Answer, Model: cfg.ResolvedModel(), InTokens: res.Usage.Input, OutTokens: res.Usage.Output, CacheReadTokens: res.Usage.CacheRead, CacheWriteTokens: res.Usage.CacheWrite}
 	if b, e := json.Marshal(res.Tools); e == nil && len(res.Tools) > 0 {
 		row.Tools = string(b)
 	}
@@ -635,9 +637,42 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 	askMarkRules(parts, nil, h.cfg().Nginx.CustomRules)
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"ok": true, "id": row.ID, "unsaved": unsaved, "unsaved_note": unsavedNote, "answer": res.Answer, "parts": parts, "tools": askToolChips(res.Tools),
-		"cost":      askCostOf(cfg.ResolvedProvider(), row.Model, res.Usage.Input, res.Usage.Output),
-		"in_tokens": res.Usage.Input, "out_tokens": res.Usage.Output, "model": row.Model, "asked_ts": row.AskedAt,
+		"cost":      askCostOf(cfg.ResolvedProvider(), row.Model, res.Usage),
+		"in_tokens": res.Usage.Input, "out_tokens": res.Usage.Output, "cache_read_tokens": res.Usage.CacheRead, "model": row.Model, "asked_ts": row.AskedAt,
 	})
+}
+
+// askContextMax is how many turns of the page's conversation go with a
+// question, newest first.
+const askContextMax = 10
+
+// askContextTurns reads the turns the page names as its conversation
+// (ctx_ids, the ids of the turns it has shown, comma-separated): the
+// account's own, answered, in the order they were asked, the newest
+// askContextMax.  Nothing for no ids.
+func (h *Handler) askContextTurns(ctx context.Context, userID int64, ctxIDs string) []advisor.ChatTurn {
+	if h.DB == nil || strings.TrimSpace(ctxIDs) == "" {
+		return nil
+	}
+	var ids []int64
+	for _, s := range strings.Split(ctxIDs, ",") {
+		if id, err := strconv.ParseInt(strings.TrimSpace(s), 10, 64); err == nil && id > 0 {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	var rows []db.AIChat
+	if err := h.DB.Gorm.WithContext(ctx).Where("user_id = ? AND id IN ? AND answer <> ''", userID, ids).Order("asked_at DESC, id DESC").Limit(askContextMax).Find(&rows).Error; err != nil {
+		log.Printf("ask: context: %v", err)
+		return nil
+	}
+	out := make([]advisor.ChatTurn, 0, len(rows))
+	for i := len(rows) - 1; i >= 0; i-- { // oldest first, as a conversation reads
+		out = append(out, advisor.ChatTurn{Question: rows[i].Question, Answer: rows[i].Answer})
+	}
+	return out
 }
 
 // AdminAskClear: POST {base}/admin/ask/clear (admin role) -- forgets the

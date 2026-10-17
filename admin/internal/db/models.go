@@ -76,6 +76,11 @@ type AdvisorRun struct {
 	InTokens  int    `gorm:"column:in_tokens;not null"`
 	OutTokens int    `gorm:"column:out_tokens;not null"`
 	Err       string `gorm:"column:err;not null"`
+	// CacheReadTokens / CacheWriteTokens: the part of InTokens the provider
+	// served from its prompt cache, and the part it wrote to it (migration
+	// 0043); each is billed at its own rate.
+	CacheReadTokens  int `gorm:"column:cache_read_tokens;not null"`
+	CacheWriteTokens int `gorm:"column:cache_write_tokens;not null"`
 }
 
 func (AdvisorRun) TableName() string { return "unmask_advisor_run" }
@@ -96,6 +101,11 @@ type AIChat struct {
 	// AddedRules: the custom rules added from the answer's rule buttons, as
 	// JSON {button path: rule id} (migration 0042); "" for none.
 	AddedRules string `gorm:"column:added_rules;not null"`
+	// CacheReadTokens / CacheWriteTokens: the part of InTokens the provider
+	// served from its prompt cache, and the part it wrote to it (migration
+	// 0043).
+	CacheReadTokens  int `gorm:"column:cache_read_tokens;not null"`
+	CacheWriteTokens int `gorm:"column:cache_write_tokens;not null"`
 }
 
 func (AIChat) TableName() string { return "unmask_ai_chat" }

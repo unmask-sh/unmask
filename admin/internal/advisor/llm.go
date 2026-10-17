@@ -65,14 +65,19 @@ type Nomination struct {
 }
 
 // Usage is what the call cost in tokens, as the provider reported it (zero
-// when the provider did not say).
+// when the provider did not say).  Input is the whole prompt, the tokens
+// served from the provider's prompt cache included; CacheRead is the part
+// of it read from the cache and CacheWrite the part written to it, each
+// billed at its own rate (CostOf).
 type Usage struct {
-	Input  int
-	Output int
+	Input      int
+	Output     int
+	CacheRead  int
+	CacheWrite int
 }
 
 func (u Usage) plus(v Usage) Usage {
-	return Usage{Input: u.Input + v.Input, Output: u.Output + v.Output}
+	return Usage{Input: u.Input + v.Input, Output: u.Output + v.Output, CacheRead: u.CacheRead + v.CacheRead, CacheWrite: u.CacheWrite + v.CacheWrite}
 }
 
 // Result is what one model call yields.
@@ -691,8 +696,12 @@ func recordRun(conn *db.DB, key string, st Stored) {
 type RunTotals struct {
 	Runs      int64
 	Failed    int64
-	InTokens  int64
+	InTokens  int64 // the whole prompts, the cached part included
 	OutTokens int64
+	// CacheReadTokens / CacheWriteTokens: the part of InTokens served from
+	// the provider's prompt cache, and written to it (migration 0043).
+	CacheReadTokens  int64
+	CacheWriteTokens int64
 	// CostUSD is what the runs of a priced model come to at its list price
 	// (Cost): an estimate, the provider's statement being the bill.
 	// PricedRuns counts those runs; 0 means there is no estimate to show.
@@ -710,12 +719,14 @@ func Totals(conn *db.DB, since time.Time) RunTotals {
 		return t
 	}
 	row := conn.Gorm.Raw(`SELECT COUNT(*) AS runs, COALESCE(SUM(CASE WHEN err <> '' THEN 1 ELSE 0 END), 0) AS failed,
-		COALESCE(SUM(in_tokens), 0) AS in_tokens, COALESCE(SUM(out_tokens), 0) AS out_tokens
+		COALESCE(SUM(in_tokens), 0) AS in_tokens, COALESCE(SUM(out_tokens), 0) AS out_tokens,
+		COALESCE(SUM(cache_read_tokens), 0) AS cache_read, COALESCE(SUM(cache_write_tokens), 0) AS cache_write
 		FROM unmask_advisor_run WHERE ran_at >= ?`, since.UTC().Unix()).Row()
-	if err := row.Scan(&t.Runs, &t.Failed, &t.InTokens, &t.OutTokens); err != nil {
+	if err := row.Scan(&t.Runs, &t.Failed, &t.InTokens, &t.OutTokens, &t.CacheReadTokens, &t.CacheWriteTokens); err != nil {
 		log.Printf("advisor: run totals: %v", err)
 	}
-	rows, err := conn.Gorm.Raw(`SELECT model, COUNT(*), COALESCE(SUM(in_tokens), 0), COALESCE(SUM(out_tokens), 0)
+	rows, err := conn.Gorm.Raw(`SELECT model, COUNT(*), COALESCE(SUM(in_tokens), 0), COALESCE(SUM(out_tokens), 0),
+		COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_write_tokens), 0)
 		FROM unmask_advisor_run WHERE ran_at >= ? AND in_tokens + out_tokens > 0 GROUP BY model`, since.UTC().Unix()).Rows()
 	if err != nil {
 		log.Printf("advisor: run cost: %v", err)
@@ -724,12 +735,12 @@ func Totals(conn *db.DB, since time.Time) RunTotals {
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var model string
-		var n, in, out int64
-		if err := rows.Scan(&model, &n, &in, &out); err != nil {
+		var n, in, out, cr, cw int64
+		if err := rows.Scan(&model, &n, &in, &out, &cr, &cw); err != nil {
 			log.Printf("advisor: run cost: %v", err)
 			continue
 		}
-		if usd, ok := Cost(model, int(in), int(out)); ok {
+		if usd, ok := CostOf(model, Usage{Input: int(in), Output: int(out), CacheRead: int(cr), CacheWrite: int(cw)}); ok {
 			t.CostUSD += usd
 			t.PricedRuns += n
 		}

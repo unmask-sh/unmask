@@ -22,6 +22,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-18) **Ask AI counts a window from the hourly rollup, and refuses a scan it cannot finish.**  A count without a filter is answered from the rollup at once, with the addresses estimated; a filtered count reads the window's events, and a window of more than about two million is refused with the way out instead of being cut off by the tool's deadline.  The settings search renders each tab without the reads only its page needs.
 
+- (2026-10-18) **Ask AI sends less, and reads the rest from the provider's cache.**  A question's context is now the conversation on the page since it was opened, not the last ten turns of the history whatever the question.  With Anthropic the system prompt, the tools and each round's transcript are marked for the prompt cache, so a round reads them back at a tenth of the rate; the turn shows how much came from the cache, and the estimates price it.
+
 ### Fixed
 
 - (2026-10-18) **SQLite reads are no longer memory-mapped.**  Every connection mapped the first few dozen megabytes of the database, and dropped and re-made that map whenever the write-ahead log had changed, for next to no gain on a database of gigabytes: the page cache is the cache that matters.  Memory-mapped reads are off, and the performance tab no longer counts an mmap allowance beside the cache.

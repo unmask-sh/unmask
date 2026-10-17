@@ -215,7 +215,7 @@ func (h *Handler) AdminAdvisorIndex(w http.ResponseWriter, r *http.Request) {
 		"AIMonthIn":      int(month.InTokens),
 		"AIMonthOut":     int(month.OutTokens),
 		"AIMonthCost":    advisorMonthCost(aiCfg.ResolvedProvider(), month),
-		"AICost":         askCostOf(aiCfg.ResolvedProvider(), aiModel, aiIn, aiOut),
+		"AICost":         askCostOf(aiCfg.ResolvedProvider(), aiModel, advisor.Usage{Input: aiIn, Output: aiOut}),
 		// A run in flight: the bar says so, the rows show they are being
 		// analysed, and the page's script polls until the answer lands.
 		"AIRunning":      aiRunning,

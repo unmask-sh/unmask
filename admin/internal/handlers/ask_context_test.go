@@ -1,123 +1,112 @@
 package handlers
 
 import (
-	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
-	_ "time/tzdata" // the zones below, wherever the test runs
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// The answer's times are the operator's: the TZ picker's zone when one is
-// set, else the browser's, sent with the question; a name that is not a zone
-// is UTC.
-func TestAskLocation(t *testing.T) {
-	post := func(form url.Values, cookie string) *http.Request {
-		r := httptest.NewRequest(http.MethodPost, "/admin/ask/send", strings.NewReader(form.Encode()))
-		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		if cookie != "" {
-			r.AddCookie(&http.Cookie{Name: tzCookieName, Value: cookie})
-		}
-		return r
-	}
-	for _, c := range []struct {
-		name, cookie, tz, want string
-	}{
-		{"picker", "Europe/London", "Asia/Tokyo", "Europe/London"},
-		{"browser", "", "Asia/Tokyo", "Asia/Tokyo"},
-		{"picker on browser", "browser", "America/New_York", "America/New_York"},
-		{"not a zone", "", "../../etc/passwd", "UTC"},
-		{"none", "", "", "UTC"},
-	} {
-		if got := askLocation(post(url.Values{"q": {"x"}, "tz": {c.tz}}, c.cookie)).String(); got != c.want {
-			t.Errorf("%s: %s, want %s", c.name, got, c.want)
-		}
-	}
-}
-
-// The note set after the question carries the operator's clock and today's
-// browser versions.
-func TestAskContext(t *testing.T) {
-	loc, err := time.LoadLocation("Asia/Tokyo")
-	if err != nil {
+// A question's context is the conversation the page names (ctx_ids): the
+// account's own answered turns among them, oldest first, and nothing when
+// the page names none -- the history is not sent on its own.  The
+// provider's cache figure is kept with the turn and shown with the answer.
+func TestAskContextIsThePagesConversation(t *testing.T) {
+	h := newTestHandler(t)
+	if _, err := h.DB.Exec(`CREATE TABLE IF NOT EXISTS unmask_ai_chat (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, asked_at INTEGER NOT NULL, question TEXT NOT NULL, answer TEXT NOT NULL DEFAULT '', tools TEXT NOT NULL DEFAULT '', model TEXT NOT NULL DEFAULT '', in_tokens INTEGER NOT NULL DEFAULT 0, out_tokens INTEGER NOT NULL DEFAULT 0, err TEXT NOT NULL DEFAULT '', added_rules TEXT NOT NULL DEFAULT '', cache_read_tokens INTEGER NOT NULL DEFAULT 0, cache_write_tokens INTEGER NOT NULL DEFAULT 0)`); err != nil {
 		t.Fatal(err)
 	}
-	now := time.Date(2026, 10, 13, 17, 5, 0, 0, time.UTC)
-	note := askContext(now, loc, settings.GlobalConfig{})
-	for _, want := range []string{"Now: 2026-10-14 02:05 +09:00", "time zone Asia/Tokyo", "Chrome ", "Firefox "} {
-		if !strings.Contains(note, want) {
-			t.Errorf("note missing %q: %s", want, note)
+	// What the provider was sent, per request: the roles and texts of the
+	// messages.
+	var sent [][2]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		var req struct {
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
 		}
-	}
-}
-
-// The crawlers tool hands the model the dashboard's crawler card: each
-// category with its crawlers, their requests, challenged and passed, and
-// whether a crawler passes only from its published ranges.
-func TestAskCrawlers(t *testing.T) {
-	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { d.Close() })
-	if err := db.Migrate(d); err != nil {
-		t.Fatal(err)
-	}
-	h := &Handler{DB: d}
+		_ = json.Unmarshal(b, &req)
+		sent = sent[:0]
+		for _, m := range req.Messages {
+			sent = append(sent, [2]string{m.Role, m.Content})
+		}
+		io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"fine."}}],"usage":{"prompt_tokens":100,"completion_tokens":3,"prompt_tokens_details":{"cached_tokens":60}}}`)
+	}))
+	defer srv.Close()
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	s.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "openai", Endpoint: srv.URL, APIKey: "k", Model: "m"}
+	h.SetSettings(s)
+	// Earlier turns: the account's own (the admin test session is user 7)
+	// and another account's.
 	now := time.Now().Unix()
-	if _, err := d.Exec(`INSERT INTO unmask_crawler_minute (bucket_min, category, total, served) VALUES (?, 'search-engine', 150, 15)`, now/60-5); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := d.Exec(`INSERT INTO unmask_crawler_detail_hourly (bucket_hour, category, crawler, total, served) VALUES (?, 'search-engine', 'Googlebot', 150, 15)`, now/3600); err != nil {
-		t.Fatal(err)
-	}
-	out, err := h.askCrawlers(context.Background(), 24)
-	if err != nil {
-		t.Fatal(err)
-	}
-	b, _ := json.Marshal(out)
-	js := string(b)
-	for _, want := range []string{`"category":"search-engine"`, `"requests":150`, `"challenged":15`, `"passed":135`, `"crawler":"Googlebot"`, `"range_verified":`, "impostors"} {
-		if !strings.Contains(js, want) {
-			t.Errorf("crawlers missing %s: %s", want, js)
+	mine := db.AIChat{UserID: 7, AskedAt: now - 100, Question: "earlier question", Answer: "earlier answer"}
+	theirs := db.AIChat{UserID: 2, AskedAt: now - 50, Question: "someone else's", Answer: "their answer"}
+	unanswered := db.AIChat{UserID: 7, AskedAt: now - 20, Question: "failed one", Answer: "", Err: "boom"}
+	for _, row := range []*db.AIChat{&mine, &theirs, &unanswered} {
+		if err := h.DB.Gorm.Create(row).Error; err != nil {
+			t.Fatal(err)
 		}
 	}
-	if strings.Count(js, `"category":`) != 1 {
-		t.Errorf("only categories with traffic are listed: %s", js)
+	countRole := func(role string) int {
+		n := 0
+		for _, m := range sent {
+			if m[0] == role {
+				n++
+			}
+		}
+		return n
 	}
-}
 
-// Bold and inline code are not drawn: the asterisks and backticks go, the
-// words stay, a path inside backticks is still a link, and a fenced block
-// is left as it is.
-func TestPlainProse(t *testing.T) {
-	parts := splitFences("**見直すべき設定はありません。** BAN は `/admin/bans/` で。\n```\na **b** `c`\n```\n")
-	var prose, code strings.Builder
-	link := false
-	for _, p := range parts {
-		if p.Code {
-			code.WriteString(p.Text)
-			continue
+	// No ids: the question alone (the system prompt beside it).
+	rec := httptest.NewRecorder()
+	h.AdminAskSend(rec, askReq("POST", "/unmask/admin/ask/send", url.Values{"q": {"first"}}.Encode(), "admin"))
+	if rec.Code != 200 {
+		t.Fatalf("send: %d %s", rec.Code, rec.Body.String())
+	}
+	if countRole("assistant") != 0 || countRole("user") != 1 {
+		t.Errorf("without ctx_ids the provider got %v", sent)
+	}
+	var out map[string]any
+	_ = json.Unmarshal(rec.Body.Bytes(), &out)
+	if out["cache_read_tokens"] != float64(60) || out["in_tokens"] != float64(100) {
+		t.Errorf("the cache figure did not reach the page: %v", out)
+	}
+	var stored db.AIChat
+	if err := h.DB.Gorm.First(&stored, int64(out["id"].(float64))).Error; err != nil || stored.CacheReadTokens != 60 || stored.InTokens != 100 {
+		t.Errorf("the stored turn: %+v (%v)", stored, err)
+	}
+
+	// The page names its conversation: the own answered turn goes, in
+	// order; another account's, an unanswered one and an unknown id do not.
+	ids := strings.Join([]string{strconv.FormatInt(theirs.ID, 10), strconv.FormatInt(mine.ID, 10), strconv.FormatInt(unanswered.ID, 10), "999999"}, ",")
+	rec = httptest.NewRecorder()
+	h.AdminAskSend(rec, askReq("POST", "/unmask/admin/ask/send", url.Values{"q": {"second"}, "ctx_ids": {ids}}.Encode(), "admin"))
+	if rec.Code != 200 {
+		t.Fatalf("send with context: %d %s", rec.Code, rec.Body.String())
+	}
+	users := []string{}
+	for _, m := range sent {
+		if m[0] == "user" {
+			users = append(users, m[1])
 		}
-		prose.WriteString(p.Text)
-		if p.Link == "/admin/bans/" {
-			link = true
+	}
+	if countRole("assistant") != 1 || len(users) != 2 || users[0] != "earlier question" || !strings.HasPrefix(users[1], "second") {
+		t.Errorf("with ctx_ids the provider got %v", sent)
+	}
+	for _, m := range sent {
+		if strings.Contains(m[1], "someone else") || strings.Contains(m[1], "failed one") {
+			t.Errorf("another account's turn, or an unanswered one, was sent: %v", m)
 		}
-	}
-	if s := prose.String(); strings.ContainsAny(s, "*`") || !strings.Contains(s, "見直すべき設定はありません。") {
-		t.Errorf("prose: %q", s)
-	}
-	if !link {
-		t.Errorf("the path inside backticks must still be a link: %+v", parts)
-	}
-	if code.String() != "a **b** `c`" {
-		t.Errorf("a fenced block is left as written: %q", code.String())
 	}
 }

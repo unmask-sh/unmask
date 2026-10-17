@@ -115,11 +115,30 @@ func PriceFor(model string) (Price, bool) {
 // Cost is what in input and out output tokens come to at the model's list
 // price, in USD; ok is false when the price is unknown.
 func Cost(model string, in, out int) (float64, bool) {
+	return CostOf(model, Usage{Input: in, Output: out})
+}
+
+// The prompt cache's rates, as a share of the input rate: a token read from
+// the cache is a tenth (Anthropic and OpenAI alike), a token written to it
+// is Anthropic's one and a quarter (OpenAI writes for nothing and reports no
+// writes).  Estimates, like the list prices they scale.
+const (
+	cacheReadRate  = 0.1
+	cacheWriteRate = 1.25
+)
+
+// CostOf is Cost with the prompt cache told apart: the input tokens read
+// from or written to it at their rates, the rest at the input rate.
+func CostOf(model string, u Usage) (float64, bool) {
 	p, ok := PriceFor(model)
 	if !ok {
 		return 0, false
 	}
-	return (float64(in)*p.In + float64(out)*p.Out) / 1e6, true
+	full := u.Input - u.CacheRead - u.CacheWrite
+	if full < 0 {
+		full = 0
+	}
+	return (float64(full)*p.In + float64(u.CacheRead)*p.In*cacheReadRate + float64(u.CacheWrite)*p.In*cacheWriteRate + float64(u.Output)*p.Out) / 1e6, true
 }
 
 // FormatUSD writes a cost as the page shows it: to the cent from a tenth of

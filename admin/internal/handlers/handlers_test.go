@@ -89,7 +89,9 @@ func newTestHandler(t *testing.T) *Handler {
             kept INTEGER NOT NULL DEFAULT 0,
             in_tokens INTEGER NOT NULL DEFAULT 0,
             out_tokens INTEGER NOT NULL DEFAULT 0,
-            err TEXT NOT NULL DEFAULT ''
+            err TEXT NOT NULL DEFAULT '',
+            cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+            cache_write_tokens INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX idx_unmask_advisor_run_ran_at ON unmask_advisor_run (ran_at);
         CREATE TABLE unmask_aggregate_state (
