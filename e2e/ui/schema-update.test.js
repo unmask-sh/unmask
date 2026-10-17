@@ -286,6 +286,13 @@ c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         ok(/schema_update_running/.test(held.body), `a change during the update: body ${held.body}`);
         ok(held.ms < 2000, `a change during the update took ${held.ms}ms to be refused`);
       }
+      // The run may end at any moment on a quick runner: what is asserted
+      // about "during the update" is asserted only when the daemon still
+      // reports the run going after the check.
+      const stateNow = () => su.evaluate(async base => {
+        const r = await fetch(base + '/admin/api/schema-update', { credentials: 'same-origin' });
+        return r.ok ? (await r.json()).state : null;
+      }, BASE);
       // A ban placed meanwhile goes through: in force, and listed as a row
       // to come.  The page's own form, with its token.
       const placed = await su.evaluate(async base => {
@@ -298,8 +305,14 @@ c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         const list = await fetch(base + '/admin/bans/', { credentials: 'same-origin' }).then(x => x.text());
         return { status: r.status, url: r.url, ms: Date.now() - t0, listed: list.includes('203.0.113.99'), badge: /to be written/.test(list) };
       }, BASE);
+      const stillAfterBan = await stateNow();
       banPlaced = !placed.err && placed.listed;
-      ok(banPlaced && placed.badge, `a ban placed during the update: ${JSON.stringify(placed)}`);
+      ok(banPlaced, `a ban placed during the update: ${JSON.stringify(placed)}`);
+      if (stillAfterBan === 'running') {
+        ok(placed.badge, `a ban placed during the update is not listed as one to be written: ${JSON.stringify(placed)}`);
+      } else {
+        console.log('   (the build finished around the ban: the "to be written" badge not asserted)');
+      }
       ok(placed.ms < 3000, `placing a ban during the update took ${placed.ms}ms; it must not wait for the lock`);
       // The dashboard answers at once and says its section is waiting: its
       // reads must not stand in line behind the build's.
@@ -309,7 +322,13 @@ c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         const html = await r.text();
         return { status: r.status, ms: Date.now() - t0, held: html.includes('id="day-held"') };
       }, BASE);
-      ok(dash.status === 200 && dash.held, `the dashboard during the update: ${JSON.stringify(dash)}`);
+      const stillAfterDash = await stateNow();
+      ok(dash.status === 200, `the dashboard during the update: ${JSON.stringify(dash)}`);
+      if (stillAfterDash === 'running') {
+        ok(dash.held, `the dashboard during the update does not say its section is waiting: ${JSON.stringify(dash)}`);
+      } else {
+        console.log('   (the build finished around the dashboard check: the waiting note not asserted)');
+      }
       ok(dash.ms < 5000, `the dashboard during the update took ${dash.ms}ms`);
       // The status poll answers at once too.
       const st = await su.evaluate(async base => {
