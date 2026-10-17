@@ -22,6 +22,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-18) **Nothing is dropped while the events kept through an update are written back.**  The backlog was written in one long stretch while new events overflowed the queue, bans and notices waited out the lock, and the access-log socket lost lines.  The backlog now goes out in small chunks, the queue drained between them; an automatic ban no longer waits for the lock, and a notice that failed is tried again.
 
+- (2026-10-18) **The realtime tab's countdown ends when the figures change.**  The bar beside the countdown ran most of a second behind: the figures changed with a fifth of it still to fill, and the count then sat at 0 for a second.  Both now run out as the next reading is taken, and the recent-detections table is read with the strip, not on a clock of its own.
+
 ## [0.1.52-rc5] - 2026-10-17 (testing build)
 
 ### Since rc4

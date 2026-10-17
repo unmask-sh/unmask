@@ -6,6 +6,8 @@
 // gated request with is counted from its serve event, not the line: a
 // challenge page in the challenge tile, a deny page in the refused tile; the
 // blocked tile is the difference (served + refused − solved − abandoned).
+// The countdown beside the clock ends as a reading lands, and the recent
+// table under the strip is read with the strip, not on a clock of its own.
 //
 // Env: UI_E2E_BASE, UI_E2E_USER, UI_E2E_PASS, UI_E2E_OUT (the work dir's out/,
 // beside which run.sh puts log.sock), CHROME_BIN.
@@ -97,6 +99,67 @@ for i in range(${n}):
   ok(api.body.available === true && api.body.step === 5 && api.body.window === 60, 'api shape: ' + JSON.stringify(api.body).slice(0, 120));
   ok(api.body.series && api.body.series.requests && api.body.series.requests.length === 60, 'api series');
   ok(api.body.series && api.body.series.blocked && api.body.series.blocked.length === 60 && 'blocked' in api.body.last30, 'api carries the blocked figure');
+
+  // The countdown ends as a reading lands.  When the figures are written the
+  // bar is full and the countdown at 0; right after, it starts over from 5
+  // with an empty bar and steps down once a second.  (It ran a step behind:
+  // the figures changed with a fifth of the bar still to fill, then the
+  // countdown sat at 0 for a second and went on from 4.)
+  const cd = await page.evaluate(() => new Promise(resolve => {
+    const bar = document.getElementById('live-bar'), next = document.getElementById('live-next');
+    const full = () => bar.getBoundingClientRect().width / bar.parentNode.getBoundingClientRect().width;
+    const t0 = performance.now(), shown = [], reads = [];
+    const mo = new MutationObserver(() => shown.push({ t: performance.now() - t0, v: next.textContent }));
+    mo.observe(next, { childList: true, characterData: true, subtree: true });
+    const onNow = () => {
+      const at = { bar: full(), next: next.textContent };
+      setTimeout(() => reads.push({ at, after: { bar: full(), next: next.textContent } }), 80);
+    };
+    document.addEventListener('unmask:now', onNow);
+    setTimeout(() => { mo.disconnect(); document.removeEventListener('unmask:now', onNow); resolve({ shown, reads }); }, 11500);
+  }));
+  ok(cd.reads.length >= 2, `${cd.reads.length} readings in 11.5 s, expected 2`);
+  cd.reads.forEach((r, i) => {
+    ok(r.at.next === '0' && r.at.bar > 0.95, `reading ${i + 1} was written with the countdown at ${r.at.next} and the bar ${Math.round(r.at.bar * 100)}% full, expected 0 and full`);
+    ok(r.after.next === '5' && r.after.bar < 0.2, `right after reading ${i + 1} the countdown showed ${r.after.next} with the bar ${Math.round(r.after.bar * 100)}% full, expected 5 and empty`);
+  });
+  const runs = [];
+  cd.shown.forEach(s => { if (!runs.length || runs[runs.length - 1].v !== s.v) runs.push({ v: s.v, t: s.t }); });
+  const seq = runs.map(r => r.v).join(' ');
+  ok(seq.includes('5 4 3 2 1 0 5'), 'the countdown did not run 5 4 3 2 1 0: ' + seq);
+  // Each figure for a second; 0 only while the reading is on its way.  (The
+  // last run is cut by the end of the watch.)
+  runs.slice(0, -1).forEach((r, i) => {
+    const ms = Math.round(runs[i + 1].t - r.t);
+    if (r.v === '0') ok(ms < 600, `the countdown sat at 0 for ${ms} ms`);
+    else ok(ms > 600 && ms < 1400, `the countdown showed ${r.v} for ${ms} ms, expected a second`);
+  });
+
+  // The recent table under the strip is read with it, on every second turn
+  // of the countdown, so its rows arrive with the figures.  Its own clock ran
+  // on through a switch off and on (the strip reads at once then), and from
+  // there it read between the strip's readings.
+  await page.evaluate(() => new Promise(r => document.addEventListener('unmask:now', () => r(), { once: true })));
+  await sleep(2500);
+  const reads = [];
+  const onReq = req => {
+    const u = req.url();
+    if (u.includes('/admin/api/now')) reads.push({ k: 'now', t: Date.now() });
+    else if (u.includes('partial=recent')) reads.push({ k: 'recent', t: Date.now() });
+  };
+  page.on('request', onReq);
+  await page.click('#live-toggle');
+  await page.click('#live-toggle');
+  await sleep(11000);
+  page.off('request', onReq);
+  const nows = reads.filter(r => r.k === 'now').map(r => r.t);
+  const recents = reads.filter(r => r.k === 'recent').map(r => r.t);
+  ok(recents.length >= 1, `the recent table was not read in the 11 s after the switch went off and on (the strip read ${nows.length} times)`);
+  recents.forEach(t => {
+    const gap = nows.length ? Math.min(...nows.map(n => Math.abs(n - t))) : Infinity;
+    ok(gap < 200, `the recent table was read ${gap} ms away from the strip's nearest reading`);
+  });
+  ok(await page.evaluate(() => document.getElementById('live-toggle').getAttribute('aria-pressed')) === 'true', 'the switch is not back on');
 
   // Lines into the access-log socket show up within a refresh or two.
   const before = parseInt(String(first.requests || '0').replace(/,/g, ''), 10) || 0;

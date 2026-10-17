@@ -177,7 +177,8 @@ table.events tbody tr.ev-new>td{animation:ev-new 2.5s ease-out}
 .live-status{font-size:.8rem;color:#64748b;display:inline-flex;align-items:center;gap:.4rem}
 .live-status b{color:#0f172a;font-variant-numeric:tabular-nums;font-weight:600}
 .live-bar{display:inline-block;width:5rem;height:.3rem;background:#e2e8f0;border-radius:.15rem;overflow:hidden}
-.live-bar i{display:block;height:100%;width:0;background:#16a34a;transition:width .9s linear}
+/* The fill runs as one transition per countdown, set by the strip's script. */
+.live-bar i{display:block;height:100%;width:0;background:#16a34a}
 .live-tg{border:1px solid #cbd5e1;border-radius:.25rem;padding:.1rem .55rem;background:#fff;color:#334155;font-size:.75rem;cursor:pointer;font-family:inherit}
 .live-tg.off{color:#94a3b8;border-style:dashed}
 .live-err{font-size:.75rem;color:#b45309}
@@ -431,11 +432,14 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 // .EventsCap > 0 is passed in the context).
 </script>
 <script>
-// The recent-detections table is redrawn from the server every PERIOD
-// seconds under the live strip's switch.  The server renders the same table
-// it did for the page; the page swaps it in, flags the rows it had not seen
-// (by beacon token and time), and re-runs the table's own wiring hooks
-// (window.unmaskRewire: session chains, cell and datetime popovers).
+// The recent-detections table is redrawn from the server under the live
+// strip's switch: with the strip, on every second turn of its countdown (its
+// script calls window.unmaskRefreshRecent), so the rows arrive with the
+// figures; every PERIOD seconds on a clock of its own where there is no
+// strip.  The server renders the same table it did for the page; the page
+// swaps it in, flags the rows it had not seen (by beacon token and time), and
+// re-runs the table's own wiring hooks (window.unmaskRewire: session chains,
+// cell and datetime popovers).
 (function(){
   var card = document.getElementById('recent-card'), sec = document.getElementById('recent-section');
   if (!card || !sec || !window.fetch) return;
@@ -473,6 +477,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       .catch(function(){})
       .then(function(){ busy = false; left = PERIOD; });
   };
+  if (document.getElementById('live-grid')) return;
   setInterval(function(){
     if (!on() || document.visibilityState !== 'visible') return;
     left -= 1;
@@ -495,7 +500,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   var PERIOD = 5, W = 150, H = 34;
   var on = true;
   try { on = localStorage.getItem('unmask:live-auto') !== 'off'; } catch (e) {}
-  var left = PERIOD, busy = false, dimTimer = null;
+  var busy = false, dimTimer = null, due = 0, stepTimer = null, turn = 0;
   // The clock shows the picker's zone, read from the same key the shared
   // datetime formatter uses (header_tools).
   var tf = null;
@@ -563,27 +568,64 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   function refresh(){
     if (busy) return;
     busy = true;
+    clearTimeout(stepTimer);
     dimTimer = setTimeout(function(){ grid.classList.add('refreshing'); }, 400);
     fetch(src, { credentials: 'same-origin', cache: 'no-store', headers: { 'Accept': 'application/json' } })
       .then(function(r){ if (!r.ok) throw new Error(String(r.status)); return r.json(); })
       .then(function(j){ paint(j); err.hidden = true; atEl.textContent = clock(new Date()); })
       .catch(function(){ err.hidden = false; })
-      .then(function(){ clearTimeout(dimTimer); grid.classList.remove('refreshing'); busy = false; left = PERIOD; });
+      .then(function(){ clearTimeout(dimTimer); grid.classList.remove('refreshing'); busy = false; arm(); });
   }
-  function tick(){
-    if (!on || document.visibilityState !== 'visible') return;
-    left = Math.max(0, left - 1);
-    nextEl.textContent = left;
-    bar.style.width = ((PERIOD - left) / PERIOD * 100) + '%';
-    if (left <= 0) refresh();
+  // The countdown runs to a deadline PERIOD seconds after a reading landed.
+  // The figure is the whole seconds left, rounded up, redrawn just past each
+  // whole second; the bar fills in one linear transition that ends on the
+  // deadline.  Both reach the end as the next reading is taken, and start
+  // over as it lands.  (Stepped once a second with a 0.9 s ease on each
+  // step, the bar trailed by most of a step: the figures changed with a fifth
+  // of it still to fill, and the countdown then sat at 0 for a second.)
+  function running(){ return on && document.visibilityState === 'visible'; }
+  function arm(){
+    due = performance.now() + PERIOD * 1000;
+    if (!running()) return;
+    bar.style.transition = 'none';
+    bar.style.width = '0';
+    void bar.offsetWidth; // the empty bar is drawn before the run starts
+    bar.style.transition = 'width ' + PERIOD + 's linear';
+    bar.style.width = '100%';
+    step();
   }
-  setInterval(tick, 1000);
-  document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'visible' && on) refresh(); });
+  function step(){
+    clearTimeout(stepTimer);
+    if (!running() || busy) return;
+    var left = due - performance.now();
+    if (left <= 0) {
+      nextEl.textContent = 0;
+      // The recent table below reads on every second turn, with the strip.
+      if (++turn % 2 === 0 && window.unmaskRefreshRecent) window.unmaskRefreshRecent();
+      refresh();
+      return;
+    }
+    nextEl.textContent = Math.ceil(left / 1000);
+    stepTimer = setTimeout(step, (left % 1000 || 1000) + 5);
+  }
+  // Switched off or out of sight: the countdown stops where it is.
+  function hold(){
+    clearTimeout(stepTimer);
+    var w = bar.getBoundingClientRect().width, all = bar.parentNode.getBoundingClientRect().width;
+    bar.style.transition = 'none';
+    bar.style.width = (all > 0 ? w / all * 100 : 0) + '%';
+  }
+  // Back in sight or switched on: a reading at once, and the countdowns
+  // (and the table's turns) count again from it.
+  document.addEventListener('visibilitychange', function(){
+    if (document.visibilityState !== 'visible') hold();
+    else if (on) { turn = 0; refresh(); }
+  });
   tg.addEventListener('click', function(){
     on = !on;
     try { localStorage.setItem('unmask:live-auto', on ? 'on' : 'off'); } catch (e) {}
     setToggle();
-    if (on) refresh();
+    if (on) { turn = 0; refresh(); } else hold();
   });
   setToggle();
   var ts = parseInt(atEl.dataset.ts, 10);
