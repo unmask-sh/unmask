@@ -28,6 +28,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- (2026-10-18) **A page's time budget now reaches every row of a query, not only the first.**  The SQLite driver watches a query's deadline while the first row is found and no longer afterwards, so a query that streams rows ran on past its budget: on a disk kept busy by an index build, for hours.  The watch now lasts to the last row, and the query stops at its deadline.
+
 - (2026-10-18) **SQLite reads are no longer memory-mapped.**  Every connection mapped the first few dozen megabytes of the database, and dropped and re-made that map whenever the write-ahead log had changed, for next to no gain on a database of gigabytes: the page cache is the cache that matters.  Memory-mapped reads are off, and the performance tab no longer counts an mmap allowance beside the cache.
 
 ## [0.1.52-rc6] - 2026-10-18 (testing build)

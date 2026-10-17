@@ -13,6 +13,7 @@ require (
 	gorm.io/driver/mysql v1.6.0
 	gorm.io/gorm v1.31.2
 	modernc.org/libc v1.77.1
+	modernc.org/sqlite v1.60.1
 )
 
 require (
@@ -29,7 +30,6 @@ require (
 	golang.org/x/text v0.41.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
-	modernc.org/sqlite v1.60.1 // indirect
 )
 
 // The GORM dialector's driver, modernc.org/sqlite's own in place of the

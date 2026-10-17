@@ -406,7 +406,9 @@ func open(s settings.DB, maintenance bool) (*DB, error) {
 			// With a size limit, the checkpoint that resets the WAL also
 			// truncates the file to it.
 			"&_pragma=journal_size_limit(67108864)"
-		dialector = glsqlite.Open(dsn)
+		// Opened by this package's driver name: the library's driver with
+		// every query watched to its last row (sqlite_ctx.go).
+		dialector = &glsqlite.Dialector{DriverName: sqliteDriverName, DSN: dsn}
 		driver = DriverSQLite
 
 	case string(DriverMariaDB):
