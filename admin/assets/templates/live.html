@@ -645,13 +645,36 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   // The counts on the map, in the top-sources line and in the popover, with
   // their thousands separated (the strip formats its figures the same way).
   function comma(n){ return Number(n).toLocaleString('en-US'); }
-  // The meridian down the middle of the map.  The outline is projected with
-  // Greenwich there, as a map read in English is; a Japanese admin gets
-  // Japan in the middle instead, the Pacific whole and the Americas to the
-  // right, as a map printed in Japan is -- the outline is drawn shifted by
-  // the difference, twice, so the part that leaves one edge comes in at the
-  // other, and every point goes through the same shift (P).
+  // The meridian down the middle of the map: the one a world map printed in
+  // the server's country puts there.  Most of the world prints Greenwich in
+  // the middle, the outline's own projection; East Asia and Oceania print
+  // the Pacific there, their side of the world whole and the Americas to the
+  // right -- Japan at 140°E, which puts Japan in the middle, the others at
+  // 150°E.  The country is the one whose centroid is nearest the server's
+  // position; without a position the reader's language stands in for it.
+  // The outline is drawn shifted by the difference, twice, so the part that
+  // leaves one edge comes in at the other, and every point goes through the
+  // same shift (P).
+  var PACIFIC = { JP: 140, KR: 150, KP: 150, CN: 150, TW: 150, HK: 150, MO: 150, AU: 150, NZ: 150 };
   var centreLon = document.documentElement.lang === 'ja' ? 140 : 0;
+  function centreFor(){
+    if (!loc.set || !MAP || !MAP.centroids) return document.documentElement.lang === 'ja' ? 140 : 0;
+    var best = '', bd = Infinity, k = Math.cos(loc.lat * Math.PI / 180);
+    for (var cc in MAP.centroids) {
+      var c = MAP.centroids[cc], dx = Math.abs(loc.lon - c[0]);
+      if (dx > 180) dx = 360 - dx;
+      var dy = loc.lat - c[1], d = dx * k * dx * k + dy * dy;
+      if (d < bd) { bd = d; best = cc; }
+    }
+    return PACIFIC[best] || 0;
+  }
+  // The latitudes the map shows: down to 60°S, below the southern tips of
+  // South America and New Zealand.  Antarctica sends no traffic, and its band
+  // was a sixth of the map's height.  A point further south -- a server placed
+  // there, a source the database puts in Antarctica -- sits on the bottom edge.
+  var LAT_N = 90, LAT_S = -60;
+  // The height shown, in the outline's units (the outline spans all 180°).
+  function mapH(){ return (LAT_N - LAT_S) / 180 * MAP.h; }
   var dpr = 1, cw = 0, ch = 0;
   // The particles' layer, over the map and under the popover.
   var fx = document.createElement('canvas'), fctx = fx.getContext('2d');
@@ -681,7 +704,8 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     // map taller than the rest of the page put together.
     var w = Math.min(1200, Math.max(200, Math.round(card.querySelector('.geo-wrap').getBoundingClientRect().width)));
     dpr = Math.min(2, window.devicePixelRatio || 1);
-    cw = w; ch = Math.round(w * 0.46);
+    // 0.46: the whole world's height to its width, cut to the latitudes shown.
+    cw = w; ch = Math.round(w * 0.46 * (LAT_N - LAT_S) / 180);
     cv.style.height = ch + 'px';
     cv.width = fx.width = Math.round(cw * dpr);
     cv.height = fx.height = Math.round(ch * dpr);
@@ -689,8 +713,8 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     fx.style.left = cv.offsetLeft + 'px'; fx.style.top = cv.offsetTop + 'px';
     fx.style.width = cv.offsetWidth + 'px'; fx.style.height = ch + 'px';
   }
-  function P(lon, lat){ return [ ((lon - centreLon + 540) % 360) / 360 * MAP.w, (90 - lat) / 180 * MAP.h ]; }
-  function setServer(){ server = loc.set ? P(loc.lon, loc.lat) : null; }
+  function P(lon, lat){ return [ ((lon - centreLon + 540) % 360) / 360 * MAP.w, (LAT_N - Math.min(LAT_N, Math.max(LAT_S, lat))) / 180 * MAP.h ]; }
+  function setServer(){ centreLon = centreFor(); server = loc.set ? P(loc.lon, loc.lat) : null; }
 
   function rebuild(){
     streams = [];
@@ -750,7 +774,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   // would cross one already drawn moves down a row, up to three times, then
   // goes unlabelled.
   function paintStatic(){
-    var sx = cv.width / MAP.w, sy = cv.height / MAP.h;
+    var sx = cv.width / MAP.w, sy = cv.height / mapH();
     ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = '#0f172a'; ctx.fillRect(0, 0, cv.width, cv.height);
     // The land two shades up from the sea, so the continents read at a glance
@@ -760,7 +784,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     // map's width over, so what leaves one edge comes in at the other.
     var shift = -centreLon / 360 * MAP.w, offsets = centreLon ? [shift, shift + MAP.w] : [0];
     offsets.forEach(function(dx){
-      ctx.save(); ctx.translate(dx, 0);
+      ctx.save(); ctx.translate(dx, -(90 - LAT_N) / 180 * MAP.h);
       for (var i = 0; i < land.length; i++) { ctx.fill(land[i]); ctx.stroke(land[i]); }
       ctx.restore();
     });
@@ -828,7 +852,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   function paintFx(ts, dt){
     fctx.clearRect(0, 0, fx.width, fx.height);
     if (!server) return;
-    var sx = cv.width / MAP.w, sy = cv.height / MAP.h;
+    var sx = cv.width / MAP.w, sy = cv.height / mapH();
     if (dt) {
       streams.forEach(function(st){
         if (parts.length < 200 && Math.random() < (st.now * 0.0022 + 0.004) * dt) {

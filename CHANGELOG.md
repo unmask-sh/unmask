@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- (2026-10-17) **The realtime map is the one printed where the server is, without Antarctica.**  Its middle followed the reader's language; it now follows the server's country: Greenwich for most of the world, the Pacific for East Asia and Oceania, Japan in the middle of a Japanese server's map.  Antarctica, which sends no traffic, is cut off at 60°S, so the map takes less height.
+
 ### Fixed
 
 - (2026-10-17) **The realtime tab's refused tile counts every refusal, beside the challenges.**  It counted only honeypot trips and bans whose action is deny, while the deny page of an ASN, country, UA, JA4 or custom rule went under the challenges served.  Both tiles now count the page the daemon answered with: the refused tile matches the breakdown under the map, and the challenge tile holds challenges only.

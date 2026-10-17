@@ -70,10 +70,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     }
     return best;
   };
-  // Brightness around a country's centroid: where its dot and label go.
+  // Brightness around a country's centroid: where its dot and label go.  The
+  // map shows 90°N to 60°S.
   const around = (lon, lat) => page.evaluate((lon, lat) => {
     const cv = document.getElementById('geo'); const ctx = cv.getContext('2d');
-    const x = Math.round((lon + 180) / 360 * cv.width), y = Math.round((90 - lat) / 180 * cv.height);
+    const x = Math.round((lon + 180) / 360 * cv.width), y = Math.round((90 - lat) / 150 * cv.height);
     const d = ctx.getImageData(Math.max(0, x - 8), Math.max(0, y - 8), 40, 16).data;
     let sum = 0; for (let i = 0; i < d.length; i += 4) sum += d[i] + d[i+1] + d[i+2];
     return sum;
@@ -319,6 +320,35 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(/JP 1,480/.test(ja.top), 'the top-sources line lacks the thousands separator: ' + ja.top);
   if (process.env.UI_E2E_SHOT_DIR) {
     try { await page.evaluate(() => document.getElementById('geo-card').scrollIntoView()); await sleep(1500); await page.screenshot({ path: path.join(process.env.UI_E2E_SHOT_DIR, 'geo-map-ja.png') }); } catch (e) { /* the picture is a convenience */ }
+  }
+  // The server's country picks the map, not the reader's language: with the
+  // server in the United States the Japanese page prints Greenwich in the
+  // middle, as a map printed there does -- the Americas left, Europe in the
+  // middle, Japan right.
+  await page.evaluate(async base => {
+    await fetch(base + '/admin/api/map-location', { method: 'POST', credentials: 'same-origin', body: new URLSearchParams({ lat: '39.04', lon: '-77.49', label: 'Virginia' }) });
+  }, BASE);
+  await page.goto(BASE + '/admin/live/', { waitUntil: 'networkidle2' });
+  if (await page.evaluate(() => document.getElementById('live-toggle').getAttribute('aria-pressed') !== 'false')) await page.click('#live-toggle');
+  await page.evaluate(() => {
+    document.dispatchEvent(new CustomEvent('unmask:now', { detail: {
+      countries: { JP: { n: 480, pass: 300, bypass: 10, serve: 120, deny: 50, blocked: 130, people: 40 } },
+      countries30: { JP: { n: 3010, pass: 1000, bypass: 30, serve: 1900, deny: 80, blocked: 1480, people: 500 }, US: { n: 310, pass: 100, bypass: 0, serve: 150, deny: 60, blocked: 160, people: 50 }, DE: { n: 60, pass: 40, bypass: 0, serve: 20, deny: 0, blocked: 15, people: 5 } },
+      country_names: { JP: 'Japan (日本)', US: 'United States (アメリカ合衆国)', DE: 'Germany (ドイツ)' },
+    } }));
+  });
+  await page.waitForFunction(() => /JP 1,480/.test(document.getElementById('geo-top').textContent), { timeout: 5000 }).catch(() => {});
+  await sleep(400);
+  const usMap = await page.evaluate(() => {
+    const w = document.getElementById('geo').getBoundingClientRect().width;
+    const at = cc => (window.unmaskGeoHot ? unmaskGeoHot() : []).find(h => h.cc === cc);
+    return { w, lang: document.documentElement.lang, jp: at('JP'), us: at('US'), de: at('DE') };
+  });
+  ok(usMap.lang === 'ja', 'the page is not in Japanese for the US-server pass');
+  ok(usMap.de && Math.abs(usMap.de.x - usMap.w * 0.53) < usMap.w * 0.06, 'Greenwich is not in the middle with the server in the United States: ' + JSON.stringify(usMap.de) + ' of ' + usMap.w);
+  ok(usMap.us && usMap.de && usMap.jp && usMap.us.x < usMap.de.x && usMap.de.x < usMap.jp.x, 'the Americas, Europe and Japan are not in that order: ' + JSON.stringify([usMap.us, usMap.de, usMap.jp]));
+  if (process.env.UI_E2E_SHOT_DIR) {
+    try { await page.evaluate(() => document.getElementById('geo-card').scrollIntoView()); await sleep(1500); await page.screenshot({ path: path.join(process.env.UI_E2E_SHOT_DIR, 'geo-map-us.png') }); } catch (e) { /* the picture is a convenience */ }
   }
   await page.deleteCookie({ name: 'unmask_locale', url: BASE + '/' });
 
