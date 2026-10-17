@@ -81,10 +81,11 @@ type DB struct {
 // also concentrates the budget: fewer CPUs means fewer, fatter connections
 // rather than eight thin ones that cannot run in parallel anyway.
 //
-// The budget below applies to EACH of the two knobs, so the pool-wide worst
-// case is roughly 2x it: page cache (anonymous, not reclaimable -- this is the
-// part that can OOM a box) plus mmap (file-backed clean pages the kernel can
-// drop under pressure).  On a 1GB VPS that is 64MB + 64MB.
+// The budget below is the page cache's (anonymous, not reclaimable -- the
+// part that can OOM a box).  On a 1GB VPS that is 64MB across the pool.
+// Memory-mapped reads were sized from the same budget until 2026-10-18 and
+// are off since (see the DSN below): the map never covered more than the
+// first few dozen megabytes of a database, so it sped up next to nothing.
 const (
 	sqliteMaxConnsCeil = 8
 	sqliteMinConns     = 2
@@ -293,9 +294,9 @@ func sqlitePerConnBytesFor(s settings.DB) int64 {
 type SQLiteMemPlan struct {
 	Conns      int   // pooled connections actually used (custom override or CPU-derived)
 	CPUs       int   // CPUs the automatic sizing derives from
-	PerConn    int64 // page cache AND mmap allowance, per connection, in bytes
-	TotalCache int64 // PerConn * Conns -- the anonymous part (OOM-relevant)
-	TotalMmap  int64 // PerConn * Conns -- file-backed, reclaimable
+	PerConn    int64 // page cache allowance, per connection, in bytes
+	TotalCache int64 // PerConn * Conns -- anonymous memory (OOM-relevant)
+	TotalMmap  int64 // 0: memory-mapped reads are off since 2026-10-18 (the DSN says why)
 	Automatic  bool  // false when pinned via db.sqlite_cache_mb
 	// SharePercent is the profile's share of usable memory (the setting's real
 	// content -- the byte figures are just what that share works out to here).
@@ -329,7 +330,7 @@ func SQLiteMemPlanFor(s settings.DB) SQLiteMemPlan {
 		CPUs:         runtime.GOMAXPROCS(0),
 		PerConn:      per,
 		TotalCache:   per * int64(conns),
-		TotalMmap:    per * int64(conns),
+		TotalMmap:    0,
 		Automatic:    s.ResolvedPerfProfile() != settings.PerfProfileCustom,
 		MemLimit:     limit,
 		FromCgroup:   fromCgroup,
@@ -390,7 +391,15 @@ func open(s settings.DB, maintenance bool) (*DB, error) {
 			// negative cache_size = KiB of page cache (positive would be a page count)
 			fmt.Sprintf("&_pragma=cache_size(-%d)", perConn/1024) +
 			tempStore +
-			fmt.Sprintf("&_pragma=mmap_size(%d)", perConn) +
+			// No memory-mapped reads.  The map covered only the first
+			// perConn bytes of a database that is gigabytes on the installs
+			// where reads are slow, so it sped up next to nothing, while
+			// every read transaction that found the WAL changed dropped and
+			// re-made the mapping; the page cache above is the cache that
+			// matters.  A daemon died in the library's memory handling on
+			// 2026-10-18, with the mapping's addresses in the wreckage, and
+			// the map is the one piece of that machinery nothing needs.
+			"&_pragma=mmap_size(0)" +
 			// The WAL file is a high-water mark: a checkpoint recycles its
 			// pages but never shrinks the file, so one mass delete leaves
 			// gigabytes behind for good (10.7 GB measured on 2026-09-08).

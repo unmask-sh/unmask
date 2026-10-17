@@ -79,8 +79,7 @@ type DB struct {
 	//   "custom"        -> SQLiteCacheMB + MaxConns below
 	PerfProfile string `yaml:"perf_profile,omitempty"`
 	// SQLiteCacheMB pins the SQLite page-cache budget in MB, shared across the
-	// connection pool (the mmap budget follows the same number, so the pool-wide
-	// worst case is about twice it -- see db.sqlitePerConnBytes).  Consulted
+	// connection pool (see db.sqlitePerConnBytes).  Consulted
 	// only under the "custom" profile; 0 there falls back to the standard
 	// derivation.  It is the ceiling for the whole daemon, not per connection.
 	SQLiteCacheMB int `yaml:"sqlite_cache_mb,omitempty"`

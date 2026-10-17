@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-10-18) **SQLite reads are no longer memory-mapped.**  Every connection mapped the first few dozen megabytes of the database, and dropped and re-made that map whenever the write-ahead log had changed, for next to no gain on a database of gigabytes: the page cache is the cache that matters.  Memory-mapped reads are off, and the performance tab no longer counts an mmap allowance beside the cache.
+
 ## [0.1.52-rc6] - 2026-10-18 (testing build)
 
 ### Since rc5

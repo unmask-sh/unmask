@@ -6493,7 +6493,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         <strong>{{ .Retention.MemTotalStr }}</strong>
         <span style="color:#94a3b8;font-size:.75rem">
           ({{ printf (t .Lang "settings.perf.mem_split") .Retention.MemPerConnStr .Retention.MemConns }}
-          · {{ printf (t .Lang "settings.perf.mem_breakdown") .Retention.MemCacheStr .Retention.MemMmapStr }})
+          · {{ printf (t .Lang "settings.perf.mem_breakdown") .Retention.MemCacheStr }})
         </span>
       </div>
     </div>
@@ -6656,12 +6656,11 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     var isCustom = sel && sel.value === 'custom';
     if (custom) custom.hidden = !isCustom;
     if (isCustom) {
-      // Mirror the server rule: the number is a pool-wide budget and an equal
-      // mmap allowance rides alongside it.
+      // Mirror the server rule: the number is a pool-wide budget.
       var mb = parseInt(cacheInp && cacheInp.value, 10);
       var conns = parseInt(connsInp && connsInp.value, 10) || cpus;
-      // Headline is the TOTAL: the pinned cache budget plus an equal mmap
-      // allowance.  Same shape the server renders for the fixed profiles.
+      // Headline is the TOTAL: the pinned cache budget.  Same shape the
+      // server renders for the fixed profiles.
       // Blank cache field = auto (the placeholder says so, and the server
       // resolves it like the automatic profiles).  Fall back to the figure
       // the server computed for exactly that state instead of "—", which
@@ -6671,7 +6670,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         // The field is a POOL-WIDE budget, so the per-connection slice is
         // budget/conns.  This used to print the whole budget next to "x N",
         // claiming N times the memory the server actually configures.
-        : human(mb * 2 * 1048576) + ' (' + human(mb / conns * 1048576) + ' x ' + conns + ' + mmap)';
+        : human(mb * 1048576) + ' (' + human(mb / conns * 1048576) + ' x ' + conns + ')';
       if (warn) warn.style.display = (conns > cpus * 2) ? 'block' : 'none';
     } else if (sel) {
       estOut.textContent = sel.dataset.est || '—';

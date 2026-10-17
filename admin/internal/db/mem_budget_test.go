@@ -85,12 +85,14 @@ func TestSQLiteDSNUsesDerivedSizes(t *testing.T) {
 	if cacheKiB != -wantPerConnKiB {
 		t.Errorf("cache_size = %d, want -%d (64MB across the pool)", cacheKiB, wantPerConnKiB)
 	}
+	// Memory-mapped reads are off (db.go says why): the budget is the page
+	// cache's alone.
 	var mmap int64
 	if err := d.QueryRow("PRAGMA mmap_size").Scan(&mmap); err != nil {
 		t.Fatal(err)
 	}
-	if mmap != perConn {
-		t.Errorf("mmap_size = %d, want %d (bytes, not KiB-rounded)", mmap, perConn)
+	if mmap != 0 {
+		t.Errorf("mmap_size = %d, want 0", mmap)
 	}
 }
 

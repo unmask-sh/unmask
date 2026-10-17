@@ -5917,9 +5917,9 @@ type retentionStatsView struct {
 	MemPlanShow   bool
 	MemConns      int
 	MemPerConnStr string // e.g. "10.7 MB"
-	MemTotalStr   string // EVERYTHING across the pool (cache + mmap) -- the headline figure
-	MemCacheStr   string // the page-cache half (anonymous; the OOM-relevant part)
-	MemMmapStr    string // mmap across the pool (file-backed, reclaimable)
+	MemTotalStr   string // everything across the pool -- the headline figure
+	MemCacheStr   string // the page cache (anonymous; the OOM-relevant part)
+	MemMmapStr    string // "0 B": memory-mapped reads are off (db.go)
 	MemAutomatic  bool   // false = pinned via sqlite_cache_mb
 	MemCacheMB    int    // the stored override (0 = automatic), for the form
 	MemLimitStr   string // the memory limit the budget came from
@@ -5946,7 +5946,7 @@ type memProfileView struct {
 	LabelKey string
 	NoteKey  string
 	// TotalStr is the headline: everything this profile would use on THIS host
-	// (page cache + mmap).  Operators ask "how much will it take", so the sum
+	// (the page cache).  Operators ask "how much will it take", so the sum
 	// leads and the split is the footnote, not the other way round.
 	TotalStr string
 	SplitStr string // "96.0 MB x 2 connections" -- per-connection x pool size
