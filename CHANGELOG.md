@@ -12,7 +12,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.52-rc7] - 2026-10-18 (testing build)
+
+### Since rc6
+
+- The pinned help of a realtime tile is titled with the tile's name.
+
+- Ask AI answers during a schema update, and says the turn is not kept in the history.
+
+- The stop button of a schema update this daemon started shows from the run's first moment.
 
 ### Added
 
