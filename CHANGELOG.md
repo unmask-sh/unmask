@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-10-18) **The dashboard's headline says what it counts.**  Under the number of bot requests unmask blocked, the line read "requests in the last 24 hours", which could be taken for the site's whole traffic.  It now reads "requests blocked in the last 24 hours", and the week's view says the same for its seven days.
+
 ## [0.1.52-rc7] - 2026-10-18 (testing build)
 
 ### Since rc6
