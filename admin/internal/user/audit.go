@@ -13,6 +13,7 @@ package user
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log"
 	"time"
 
@@ -58,6 +59,12 @@ func (r *Repository) Record(ctx context.Context, userID int64, username, action,
 	// Omit At from the insert so the DB's CURRENT_TIMESTAMP default fires --
 	// but we still set it above for safety; either way is fine.
 	if err := r.DB.Gorm.WithContext(ctx).Create(&row).Error; err != nil {
+		// Refused as held: the hold went up between the check above and the
+		// write (a run this daemon has just started).  Kept like the rest.
+		if errors.Is(err, db.ErrWritesHeld) {
+			r.keepAudit(row)
+			return
+		}
 		// A canceled request context (the admin client disconnected before the
 		// audit row landed, or the daemon is stopping) is expected, not a fault
 		// -- match the unmask_event insert and only log a live-context failure.

@@ -72,3 +72,28 @@ func TestAuditAndSignInWaitForTheLock(t *testing.T) {
 		t.Errorf("a second flush wrote again: %d rows", n)
 	}
 }
+
+// TestARowRefusedAsHeldIsKept: a write the database refused as held -- the
+// hold went up between the check and the write -- is kept with the rest and
+// written when the hold ends, not dropped.
+func TestARowRefusedAsHeldIsKept(t *testing.T) {
+	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: filepath.Join(t.TempDir(), "k.sqlite")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	if err := db.Migrate(d); err != nil {
+		t.Fatal(err)
+	}
+	r := New(d)
+	r.keepAudit(db.UserAudit{Username: "op", Action: "x", At: time.Now()})
+	r.keepLogin(1, time.Now())
+	var n int
+	if err := r.DB.QueryRow(`SELECT COUNT(*) FROM unmask_user_audit WHERE action = 'x'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("written before the flush: %d (%v)", n, err)
+	}
+	r.FlushHeld(context.Background())
+	if err := r.DB.QueryRow(`SELECT COUNT(*) FROM unmask_user_audit WHERE action = 'x'`).Scan(&n); err != nil || n != 1 {
+		t.Errorf("after the flush: %d row(s) (%v), want 1", n, err)
+	}
+}

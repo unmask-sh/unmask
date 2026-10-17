@@ -36,6 +36,14 @@ func (r *Repository) holdAudit(row db.UserAudit) bool {
 	if r.DB == nil || !r.DB.WritesHeld() {
 		return false
 	}
+	r.keepAudit(row)
+	return true
+}
+
+// keepAudit keeps row for later, whatever the flag says now: for a write the
+// database refused as held (ErrWritesHeld) in the moment between the check
+// and the write.
+func (r *Repository) keepAudit(row db.UserAudit) {
 	r.held.mu.Lock()
 	defer r.held.mu.Unlock()
 	if len(r.held.audits) >= heldAuditMax {
@@ -43,10 +51,9 @@ func (r *Repository) holdAudit(row db.UserAudit) bool {
 			log.Printf("audit: %d rows are waiting for the schema update to finish; further ones are not kept", heldAuditMax)
 		}
 		r.held.dropped++
-		return true
+		return
 	}
 	r.held.audits = append(r.held.audits, row)
-	return true
 }
 
 // holdLogin keeps a sign-in's time for later when writes are held, and
@@ -55,13 +62,18 @@ func (r *Repository) holdLogin(userID int64, at time.Time) bool {
 	if r.DB == nil || !r.DB.WritesHeld() {
 		return false
 	}
+	r.keepLogin(userID, at)
+	return true
+}
+
+// keepLogin is holdLogin whatever the flag says now (see keepAudit).
+func (r *Repository) keepLogin(userID int64, at time.Time) {
 	r.held.mu.Lock()
 	defer r.held.mu.Unlock()
 	if r.held.logins == nil {
 		r.held.logins = map[int64]time.Time{}
 	}
 	r.held.logins[userID] = at
-	return true
 }
 
 // FlushHeld writes the audit rows and sign-in times kept while writes were

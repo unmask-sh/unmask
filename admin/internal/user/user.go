@@ -418,11 +418,14 @@ func (r *Repository) Delete(ctx context.Context, userID int64) error {
 // TouchLastLogin: update last_login on successful authentication.
 // best-effort (= login itself succeeds even if this fails).
 func (r *Repository) TouchLastLogin(ctx context.Context, userID int64) {
-	if r.holdLogin(userID, time.Now()) {
+	now := time.Now()
+	if r.holdLogin(userID, now) {
 		return
 	}
-	_ = r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
-		Update("last_login", time.Now()).Error
+	if err := r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
+		Update("last_login", now).Error; errors.Is(err, db.ErrWritesHeld) {
+		r.keepLogin(userID, now) // the hold went up between the check and the write
+	}
 }
 
 // scanUser: scanner that handles both QueryRow / Rows.  Includes
