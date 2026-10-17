@@ -102,7 +102,9 @@ const statusOf = (page, p) => page.evaluate(async u => (await fetch(u, { credent
   await vw.goto(BASE + '/admin/live/', { waitUntil: 'networkidle2' });
   nav = await navOf(vw);
   ok(nav.length === 3 && nav[0].active, 'viewer on live: the dashboard entry is marked: ' + JSON.stringify(nav));
-  ok((await vw.evaluate(() => Array.from(document.querySelectorAll('a[href*="/admin/hunt/"]')).filter(a => !a.closest('nav')).length)) === 1, 'viewer on live: the link to bot hunt');
+  // (The refusals line under the map links its reasons to bot hunt as well,
+  // once anything was refused; that depends on what ran before.)
+  ok((await vw.evaluate(() => document.querySelectorAll('#recent-card a[href$="/admin/hunt/"]').length)) === 1, 'viewer on live: the link to bot hunt');
   // Bot hunt itself: the entry is marked, the page reads, and nothing on it
   // posts to the action route -- no BAN or rule button on the rankings, no
   // actions column in the event log, no way to a custom rule.

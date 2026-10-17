@@ -251,7 +251,10 @@ const fitSweep = (makeSrc, html) => {
     page.click('button[type="submit"], input[type="submit"]'),
   ]);
 
-  const resp = await page.goto(BASE + '/admin/hunt/?range=24h', { waitUntil: 'networkidle2' });
+  // The seeded rows alone, by their JA4: the log lists the newest rows first,
+  // a page of them, and every test before this one that serves a challenge
+  // adds rows that push the seeded ones further down.
+  const resp = await page.goto(BASE + '/admin/hunt/?range=24h&ja4=t13d_uaold', { waitUntil: 'networkidle2' });
   ok(resp.status() === 200, `/admin/hunt/ status ${resp.status()}`);
 
   // ---- the log rows ------------------------------------------------------
@@ -322,6 +325,15 @@ const fitSweep = (makeSrc, html) => {
     ok(pop && /\d+/.test(pop), `the popover carries the note: ${JSON.stringify(pop)}`);
     await park();
   }
+
+  // The log cells' markup, for the width checks below, while the rows are on
+  // the page; the ranking is not shown on a filtered page, so the rest reads
+  // the whole log.
+  const logHTML = await page.evaluate(() => {
+    const at = bt => { const c = document.querySelector('table.events tbody tr[data-bt="' + bt + '"] td.ua'); return c ? c.innerHTML : ''; };
+    return { chrome: at('uiOldChrome'), ie: at('uiOldIE') };
+  });
+  await page.goto(BASE + '/admin/hunt/?range=24h', { waitUntil: 'networkidle2' });
 
   // ---- the UA ranking above the log --------------------------------------
   const rank = await page.evaluate(() => {
@@ -400,8 +412,8 @@ const fitSweep = (makeSrc, html) => {
     const t = document.createElement('table'); t.className = 'events'; t.style.cssText = 'width:' + w + 'px;min-width:0;margin:0';
     t.innerHTML = '<tbody><tr><td class="ua cellpop cellpop-active"></td></tr></tbody>';
     const td = t.querySelector('td'); td.innerHTML = html; return { root: t, cell: td };`;
-  await fit('log cell (a count)', logCell, await cellHTML('table.events tbody tr[data-bt="uiOldChrome"] td.ua'));
-  await fit('log cell (EOL)', logCell, await cellHTML('table.events tbody tr[data-bt="uiOldIE"] td.ua'));
+  await fit('log cell (a count)', logCell, logHTML.chrome);
+  await fit('log cell (EOL)', logCell, logHTML.ie);
   const rankHTML = await page.evaluate(() => {
     const c = Array.from(document.querySelectorAll('.rank-card-ua td.key')).find(c => /Chrome 91/.test(c.textContent));
     return c ? c.querySelector('.ua-sum').innerHTML : '';
