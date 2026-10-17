@@ -12,7 +12,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.52-rc4] - 2026-10-17 (testing build)
+
+### Since rc3
+
+- The notification bell's unread rows stand out from the read ones: bold with a blue edge and a New tag in the panel, bold on a tinted row in the list.
 
 ### Changed
 
