@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -604,12 +605,25 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		row.Err = err.Error()
 	}
+	// While a schema update holds the database's writes the answer goes out
+	// and its turn is not kept -- the history would wait out the build --
+	// and the page says so.
+	unsaved, unsavedNote := false, ""
 	if h.DB != nil {
-		if e := h.DB.Gorm.Create(&row).Error; e != nil {
-			log.Printf("ask: store turn: %v", e)
+		if h.DB.WritesHeld() {
+			unsaved = true
+		} else if e := h.DB.Gorm.Create(&row).Error; e != nil {
+			if errors.Is(e, db.ErrWritesHeld) {
+				unsaved = true
+			} else {
+				log.Printf("ask: store turn: %v", e)
+			}
 		} else if e := h.DB.Gorm.Where("asked_at < ?", time.Now().Add(-askKeep).Unix()).Delete(&db.AIChat{}).Error; e != nil {
 			log.Printf("ask: prune: %v", e)
 		}
+	}
+	if unsaved {
+		unsavedNote = i18n.T(lang, "ask.unsaved_held")
 	}
 	if err != nil {
 		log.Printf("ask: %v", err)
@@ -620,7 +634,7 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 	parts := splitFences(res.Answer)
 	askMarkRules(parts, nil, h.cfg().Nginx.CustomRules)
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"ok": true, "id": row.ID, "answer": res.Answer, "parts": parts, "tools": askToolChips(res.Tools),
+		"ok": true, "id": row.ID, "unsaved": unsaved, "unsaved_note": unsavedNote, "answer": res.Answer, "parts": parts, "tools": askToolChips(res.Tools),
 		"cost":      askCostOf(cfg.ResolvedProvider(), row.Model, res.Usage.Input, res.Usage.Output),
 		"in_tokens": res.Usage.Input, "out_tokens": res.Usage.Output, "model": row.Model, "asked_ts": row.AskedAt,
 	})

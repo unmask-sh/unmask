@@ -483,3 +483,56 @@ func TestAskToolChips(t *testing.T) {
 		t.Error("no calls gave chips")
 	}
 }
+
+// TestAskAnswersButKeepsNoTurnWhileWritesAreHeld: while a schema update
+// holds the database's writes the question is still answered; its turn is
+// not kept, and the page is told so.  The hold lifted, turns are kept again.
+func TestAskAnswersButKeepsNoTurnWhileWritesAreHeld(t *testing.T) {
+	h := newTestHandler(t)
+	if err := db.Migrate(h.DB); err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"all quiet"}}],"usage":{"prompt_tokens":3,"completion_tokens":2}}`)
+	}))
+	defer srv.Close()
+	s := h.snapshotSettings()
+	s.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "openai", Endpoint: srv.URL, APIKey: "k", Model: "m"}
+	h.SetSettings(s)
+	rows := func() int {
+		var n int
+		if err := h.DB.QueryRow(`SELECT COUNT(*) FROM unmask_ai_chat`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	send := func() map[string]any {
+		rec := httptest.NewRecorder()
+		h.AdminAskSend(rec, askReq("POST", "/unmask/admin/ask/send", "q=anything", "admin"))
+		if rec.Code != 200 {
+			t.Fatalf("send: %d %s", rec.Code, rec.Body.String())
+		}
+		var out map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+
+	h.DB.HoldWrites(true)
+	out := send()
+	if out["unsaved"] != true || out["unsaved_note"] == "" || out["answer"] != "all quiet" {
+		t.Errorf("under a hold: %v", out)
+	}
+	if n := rows(); n != 0 {
+		t.Errorf("%d turn(s) kept while writes were held", n)
+	}
+	h.DB.HoldWrites(false)
+	out = send()
+	if out["unsaved"] != false || out["unsaved_note"] != "" {
+		t.Errorf("after the hold: %v", out)
+	}
+	if n := rows(); n != 1 {
+		t.Errorf("%d turn(s) kept after the hold, want 1", n)
+	}
+}

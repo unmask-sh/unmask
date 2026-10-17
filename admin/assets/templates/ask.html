@@ -79,6 +79,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .a.folded .txt{max-height:3.4em;overflow:hidden;position:relative}
 .a.folded .txt::after{content:"";position:absolute;left:0;right:0;bottom:0;height:1.8em;background:linear-gradient(rgba(255,255,255,0),#fff)}
 .a.folded .a-meta{display:none}
+.a-unsaved{color:#b45309}
 .a-act{display:flex;gap:.8rem;align-items:center;flex-wrap:wrap;margin-top:.45rem}
 .a-act button{font:inherit;font-size:.74rem;color:#2563eb;background:none;border:none;padding:0;cursor:pointer}
 .a-act button:hover{text-decoration:underline}
@@ -401,6 +402,8 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     // The turn's id: a rule added from the answer is recorded on it.
     if (d.id) ad.dataset.id = d.id;
     var meta = chips(d.tools);
+    // The turn was answered but not kept (the database's writes held): say so.
+    if (d.unsaved_note) meta += '<span class="a-unsaved">' + esc(d.unsaved_note) + '</span>';
     if (d.in_tokens || d.out_tokens) meta += '<span>' + esc(tokensText(d.in_tokens || 0, d.out_tokens || 0)) + (d.model ? ' · ' + esc(d.model) : '') + (d.cost ? ' · ' + esc(turns.dataset.txtCost.replace('%s', d.cost)) : '') + '</span>';
     ad.innerHTML = '<div class="txt">' + render(d.parts) + '</div><div class="a-meta">' + meta + '</div><div class="a-act"><span class="ib-wrap"><button type="button" class="a-copy ib" aria-label="' + esc(turns.dataset.txtCopy) + '" data-txt-copied="' + esc(turns.dataset.txtCopied) + '" data-txt-copy="' + esc(turns.dataset.txtCopy) + '">' + document.getElementById('ask-icon-copy').innerHTML + '</button><span class="ib-pop">' + esc(turns.dataset.txtCopy) + '</span></span></div>';
     if (window.unmaskFmtTimes) unmaskFmtTimes();
