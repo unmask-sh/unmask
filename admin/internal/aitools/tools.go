@@ -570,6 +570,9 @@ func (d Deps) liveNow() any {
 		last[live.Names[k]] = sn.Last[k]
 		prev[live.Names[k]] = sn.Prev[k]
 	}
+	// The blocked figure the strip shows, derived from the kinds above.
+	last[live.BlockedName] = sn.Blocked.Last
+	prev[live.BlockedName] = sn.Blocked.Prev
 	type cc struct {
 		Country string `json:"country"`
 		N       uint32 `json:"requests"`

@@ -68,6 +68,12 @@ func TestAdminNowJSON(t *testing.T) {
 	if len(out.Series["requests"]) != live.Buckets {
 		t.Errorf("series has %d buckets, want %d", len(out.Series["requests"]), live.Buckets)
 	}
+	// The blocked figure, derived from the four above, sits in each of the
+	// maps: this minute a challenge and a deny less a solve, the half hour one
+	// more challenge (the one 70 s ago).
+	if out.Last["blocked"] != 1 || out.Last30["blocked"] != 2 || len(out.Minutes["blocked"]) != live.Minutes || len(out.Series["blocked"]) != live.Buckets {
+		t.Errorf("blocked: last=%d last30=%d minutes=%d series=%d", out.Last["blocked"], out.Last30["blocked"], len(out.Minutes["blocked"]), len(out.Series["blocked"]))
+	}
 	if out.Countries["JP"].N != 3 || out.Countries["JP"].Pass != 3 {
 		t.Errorf("countries = %v", out.Countries)
 	}
@@ -141,7 +147,7 @@ func TestLiveViewTiles(t *testing.T) {
 	if v.At != "10:02:03" || v.AtTS != now.Unix() {
 		t.Errorf("At = %q (%d), want 10:02:03 in Tokyo", v.At, v.AtTS)
 	}
-	if len(v.Tiles) != len(liveKinds) {
+	if len(v.Tiles) != len(liveTiles) {
 		t.Fatalf("%d tiles", len(v.Tiles))
 	}
 	req := v.Tiles[0]
@@ -157,6 +163,16 @@ func TestLiveViewTiles(t *testing.T) {
 	}
 	if deny.Key != "deny" || deny.Last != 1 {
 		t.Errorf("deny tile = %+v", deny)
+	}
+	// The blocked tile follows the solves it is net of, in the map legend's
+	// colour; the deny above is its whole figure here.
+	blocked := v.Tiles[6]
+	if v.Tiles[5].Key != "solve" || v.Tiles[7].Key != "rate_limit" {
+		t.Errorf("tiles 5 and 7 = %q, %q; want solve and rate_limit around blocked", v.Tiles[5].Key, v.Tiles[7].Key)
+	}
+	if blocked.Key != "blocked" || blocked.Last != 1 || blocked.Last30 != 1 || blocked.Color != "#f87171" ||
+		blocked.LabelKey != "overview.live.blocked" || blocked.HelpKey != "overview.live.blocked_help" || len(blocked.Bars) != live.Minutes {
+		t.Errorf("blocked tile = %+v", blocked)
 	}
 	// Nothing configured, nothing counted: the strip says the feed is off.
 	empty := &Handler{Live: live.New()}
@@ -185,19 +201,19 @@ func TestLivePageRendersStrip(t *testing.T) {
 		t.Fatalf("status %d", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{`id="live-grid"`, `data-k="requests"`, `data-k="rate_limit"`, `/admin/api/now`, `id="live-toggle"`, `data-f="last30"`, `data-f="bars"`, `id="geo-card"`, `id="recent-card"`, `data-src="/unmask/admin/live/?partial=recent"`} {
+	for _, want := range []string{`id="live-grid"`, `data-k="requests"`, `data-k="blocked"`, `data-k="rate_limit"`, `/admin/api/now`, `id="live-toggle"`, `data-f="last30"`, `data-f="bars"`, `id="geo-card"`, `id="recent-card"`, `data-src="/unmask/admin/live/?partial=recent"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("realtime page lacks %q", want)
 		}
 	}
-	if strings.Count(body, `class="live" data-k=`) != len(liveKinds) {
+	if strings.Count(body, `class="live" data-k=`) != len(liveTiles) {
 		t.Errorf("%d tiles rendered", strings.Count(body, `class="live" data-k=`))
 	}
 	// A bar a minute on every tile (counted inside the grid: the shared
 	// partials draw rects of their own).
 	grid := body[strings.Index(body, `id="live-grid"`):strings.Index(body, `id="live-feed-off"`)]
-	if n := strings.Count(grid, `<rect x="`); n != len(liveKinds)*live.Minutes {
-		t.Errorf("%d bars, want %d", n, len(liveKinds)*live.Minutes)
+	if n := strings.Count(grid, `<rect x="`); n != len(liveTiles)*live.Minutes {
+		t.Errorf("%d bars, want %d", n, len(liveTiles)*live.Minutes)
 	}
 	// The dashboard has no strip, map, recent card or line of now any more:
 	// the realtime tab holds the figures of now, and the tab bar points there.

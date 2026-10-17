@@ -154,6 +154,73 @@ func TestCountryBlockedAndPeople(t *testing.T) {
 	}
 }
 
+// The reading's blocked figure: a country's difference over the whole
+// reading, in every window and span.  The window figures are each window's own
+// difference, so a solve in the minute after its challenge still cancels it,
+// while the minutes keep their own, clamped, differences.
+func TestBlockedFigure(t *testing.T) {
+	c := New()
+	now := time.Unix(1_800_000_000, 0) // the first second of a minute
+	for i := 0; i < 10; i++ {
+		c.Hit(now, "CN", Of(Requests, Serve))
+	}
+	c.Hit(now, "", Of(Requests, Deny))
+	c.Hit(now, "CN", Of(Requests, Pass))
+	for i := 0; i < 3; i++ {
+		c.ObserveEvent(now, "bv_pow_only", "CN", nil)
+	}
+	c.ObserveEvent(now, "abandon", "", map[string]any{"chmode": "pow_only"})
+	// The window before: two challenges, one of them cleared (in the same
+	// second, so the same five-second bucket: the sums below stay whole).
+	c.Hit(now.Add(-90*time.Second), "US", Of(Requests, Serve))
+	c.Hit(now.Add(-90*time.Second), "US", Of(Requests, Serve))
+	c.ObserveEvent(now.Add(-90*time.Second), "bv_captcha_only", "US", nil)
+	b := c.Snapshot(now).Blocked
+	if b.Last != 7 || b.Prev != 1 || b.Last30 != 8 {
+		t.Errorf("blocked last=%d prev=%d last30=%d, want 7 / 1 / 8", b.Last, b.Prev, b.Last30)
+	}
+	if b.PerMinute[Minutes-1] != 7 || b.PerMinute[Minutes-3] != 1 || b.Series[Buckets-1] != 7 {
+		t.Errorf("minutes %v, newest bucket %d; want 7 now, 1 two minutes back, 7", b.PerMinute, b.Series[Buckets-1])
+	}
+	var minutes, buckets uint32
+	for _, v := range b.PerMinute {
+		minutes += v
+	}
+	for _, v := range b.Series {
+		buckets += v
+	}
+	if minutes != 8 || buckets != 8 {
+		t.Errorf("the minutes sum to %d and the buckets to %d, want 8 each (no span is clamped here)", minutes, buckets)
+	}
+
+	// A challenge in the last second of a minute, cleared two seconds later:
+	// the windows net the two, the minutes cannot.
+	c2 := New()
+	edge := now.Add(-time.Second)
+	c2.Hit(edge, "JP", Of(Requests, Serve))
+	c2.ObserveEvent(edge.Add(2*time.Second), "bv_pow_only", "JP", nil)
+	b2 := c2.Snapshot(edge.Add(2 * time.Second)).Blocked
+	if b2.Last != 0 || b2.Last30 != 0 {
+		t.Errorf("a cleared challenge reads as blocked: last=%d last30=%d", b2.Last, b2.Last30)
+	}
+	if b2.PerMinute[Minutes-2] != 1 || b2.PerMinute[Minutes-1] != 0 {
+		t.Errorf("minutes = %v, want 1 in the challenge's minute and 0 in the solve's", b2.PerMinute)
+	}
+
+	// More solves than challenges (two logs, two moments): nothing blocked,
+	// never a wrapped-around figure.
+	c3 := New()
+	c3.Hit(now, "", Of(Requests, Serve))
+	c3.ObserveEvent(now, "bv_pow_only", "", nil)
+	c3.ObserveEvent(now, "bv_pow_only", "", nil)
+	if b3 := c3.Snapshot(now).Blocked; b3.Last != 0 || b3.Last30 != 0 || b3.PerMinute[Minutes-1] != 0 {
+		t.Errorf("blocked = %+v, want zeroes", b3)
+	}
+	if sn := (*Counter)(nil).Snapshot(now); sn.Blocked.Last != 0 || sn.Blocked.Last30 != 0 {
+		t.Errorf("a nil counter's blocked figure = %+v", sn.Blocked)
+	}
+}
+
 // Deny pages, by reason and by the rule that matched, over the thirty
 // minutes; a minute that has left the window takes its refusals with it.
 func TestRefusals(t *testing.T) {

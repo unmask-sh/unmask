@@ -181,7 +181,13 @@ table.events tbody tr.ev-new>td{animation:ev-new 2.5s ease-out}
 .live-tg{border:1px solid #cbd5e1;border-radius:.25rem;padding:.1rem .55rem;background:#fff;color:#334155;font-size:.75rem;cursor:pointer;font-family:inherit}
 .live-tg.off{color:#94a3b8;border-style:dashed}
 .live-err{font-size:.75rem;color:#b45309}
-.live-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(10rem,1fr));gap:.6rem;margin-bottom:1rem;transition:opacity .2s}
+/* Eight tiles: one row where eight fit (a 10rem tile each from 1420px on),
+   two rows of four below that, two columns on a phone.  Fixed counts rather
+   than auto-fit, which at a laptop's width fitted seven and left the eighth
+   alone on a second row. */
+.live-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:.6rem;margin-bottom:1rem;transition:opacity .2s}
+@media (min-width:1420px){.live-grid{grid-template-columns:repeat(8,minmax(0,1fr))}}
+@media (max-width:760px){.live-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .live-grid.refreshing{opacity:.55}
 .live{background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:.7rem .8rem .4rem;display:flex;flex-direction:column;gap:.1rem;min-width:0}
 /* The label clips its text (.lt), not itself: overflow:hidden here clipped the

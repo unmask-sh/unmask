@@ -43,6 +43,10 @@ const (
 // Names spells the kinds the way the JSON endpoint does, in Kind order.
 var Names = [NumKinds]string{"requests", "pass", "bypass", "serve", "solve", "deny", "rate_limit", "abandon"}
 
+// BlockedName is the JSON key of the one figure a reading derives rather than
+// counts (Snapshot.Blocked).  Not a Kind: no request is ever counted under it.
+const BlockedName = "blocked"
+
 // Mask is the set of kinds one request counts under.
 type Mask uint16
 
@@ -304,12 +308,42 @@ func (x *Country) add(e *[NumKinds]uint32) {
 }
 
 func (x *Country) settle() {
-	met := x.Serve + x.Deny
-	out := x.Solve + x.Abandon
+	x.Blocked, x.People = split(x.Serve+x.Deny, x.Solve+x.Abandon)
+}
+
+// split divides what met a challenge or a deny page (met) into the blocked
+// bots and the people, given what a person cleared or walked away from (out).
+// The dashboard's headline, "bot requests blocked by unmask", is the same
+// difference over a day; the map's countries and the strip's blocked tile both
+// take it from here, so the three cannot drift apart.  The parts come from two
+// logs (the access log, the event log), so out is capped at met: the people
+// never outnumber what met a challenge, and blocked never goes below zero.
+func split(met, out uint32) (blocked, people uint32) {
 	if out > met {
 		out = met
 	}
-	x.People, x.Blocked = out, met-out
+	return met - out, out
+}
+
+// blockedOf is split's blocked side for one set of counts.
+func blockedOf(serve, deny, solve, abandon uint32) uint32 {
+	b, _ := split(serve+deny, solve+abandon)
+	return b
+}
+
+// Derived is a figure a Snapshot computes from its kinds, shaped like one
+// kind's counters.  The window figures are each window's own difference, not
+// the sum of its minutes' or buckets': a solve lands seconds after its
+// challenge, so at a minute's edge the two fall into different minutes, and a
+// sum of minutes clamped at zero would count that challenge as blocked.  The
+// per-minute and per-bucket values are each span's own difference: the shape
+// of the half hour, not a ledger that adds up to the headline.
+type Derived struct {
+	// Last covers the Window seconds up to At, Prev the Window before that,
+	// Last30 the Minutes minutes.
+	Last, Prev, Last30 uint32
+	PerMinute          [Minutes]uint32
+	Series             [nBuckets]uint32
 }
 
 func settleAll(m map[string]Country) {
@@ -349,6 +383,12 @@ type Snapshot struct {
 	// LastLine is the unix second of the most recent request counted, 0 if
 	// none ever was.
 	LastLine int64
+	// Blocked is the dashboard's "bot requests blocked by unmask" over this
+	// reading: what met a challenge or a deny page (Serve + Deny), less what a
+	// person cleared or walked away from (Solve + Abandon), over the same
+	// windows and series as a kind's.  The strip's blocked tile; the total of
+	// what the map draws by default (Country.Blocked, a country at a time).
+	Blocked Derived
 }
 
 // Snapshot reads the ring as of now.  nil-safe: a nil Counter reads as empty.
@@ -422,6 +462,17 @@ func (c *Counter) Snapshot(now time.Time) Snapshot {
 	c.mu.Unlock()
 	settleAll(sn.Countries)
 	settleAll(sn.Countries30)
+	sn.Blocked = Derived{
+		Last:   blockedOf(sn.Last[Serve], sn.Last[Deny], sn.Last[Solve], sn.Last[Abandon]),
+		Prev:   blockedOf(sn.Prev[Serve], sn.Prev[Deny], sn.Prev[Solve], sn.Prev[Abandon]),
+		Last30: blockedOf(sn.Last30[Serve], sn.Last30[Deny], sn.Last30[Solve], sn.Last30[Abandon]),
+	}
+	for i := range sn.Blocked.PerMinute {
+		sn.Blocked.PerMinute[i] = blockedOf(sn.PerMinute[Serve][i], sn.PerMinute[Deny][i], sn.PerMinute[Solve][i], sn.PerMinute[Abandon][i])
+	}
+	for i := range sn.Blocked.Series {
+		sn.Blocked.Series[i] = blockedOf(sn.Series[Serve][i], sn.Series[Deny][i], sn.Series[Solve][i], sn.Series[Abandon][i])
+	}
 	var total, peak uint32
 	for _, v := range sn.Series[Requests] {
 		total += v

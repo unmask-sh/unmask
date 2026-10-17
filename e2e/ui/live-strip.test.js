@@ -4,7 +4,8 @@
 // or two, the previous figures must survive a refresh (no blanking), and the
 // auto-refresh switch must hold across a reload.  What the daemon answers a
 // gated request with is counted from its serve event, not the line: a
-// challenge page in the challenge tile, a deny page in the refused tile.
+// challenge page in the challenge tile, a deny page in the refused tile; the
+// blocked tile is the difference (served + refused − solved − abandoned).
 //
 // Env: UI_E2E_BASE, UI_E2E_USER, UI_E2E_PASS, UI_E2E_OUT (the work dir's out/,
 // beside which run.sh puts log.sock), CHROME_BIN.
@@ -78,8 +79,8 @@ for i in range(${n}):
   if (first.missing) {
     ok(false, 'the live strip is not on the dashboard');
   } else {
-    ok(first.tiles.join(',') === 'requests,pass,bypass,serve,deny,solve,rate_limit',
-      'tiles are not the seven outcomes in order: ' + first.tiles.join(','));
+    ok(first.tiles.join(',') === 'requests,pass,bypass,serve,deny,solve,blocked,rate_limit',
+      'tiles are not the eight figures in order: ' + first.tiles.join(','));
     ok(/^\d{2}:\d{2}:\d{2}$/.test(first.at || ''), 'the reading clock is not HH:MM:SS: ' + first.at);
     ok(/ON|on/.test(first.toggle || ''), 'auto-refresh is not on by default: ' + first.toggle);
     ok(first.bars === 30, 'the tile does not carry a bar per minute for 30 minutes: ' + first.bars);
@@ -95,6 +96,7 @@ for i in range(${n}):
   ok(api.status === 200 && api.cc === 'no-store', `/admin/api/now ${api.status} ${api.cc}`);
   ok(api.body.available === true && api.body.step === 5 && api.body.window === 60, 'api shape: ' + JSON.stringify(api.body).slice(0, 120));
   ok(api.body.series && api.body.series.requests && api.body.series.requests.length === 60, 'api series');
+  ok(api.body.series && api.body.series.blocked && api.body.series.blocked.length === 60 && 'blocked' in api.body.last30, 'api carries the blocked figure');
 
   // Lines into the access-log socket show up within a refresh or two.
   const before = parseInt(String(first.requests || '0').replace(/,/g, ''), 10) || 0;
@@ -124,12 +126,18 @@ for i in range(${n}):
 
   // Two challenge pages and a deny page, served for real: each lands in its
   // own tile (the thirty-minute figures, which nothing leaves during the
-  // test), and the refusal in the line under the map as well.
+  // test), the refusal in the line under the map as well, and all three in
+  // the blocked tile, since nobody clears them.
   const n30 = () => page.evaluate(() => {
     const g = document.getElementById('live-grid');
     const n = k => parseInt(g.querySelector('.live[data-k="' + k + '"] [data-f="last30"]').textContent.replace(/,/g, ''), 10) || 0;
-    return { serve: n('serve'), deny: n('deny') };
+    return { serve: n('serve'), deny: n('deny'), blocked: n('blocked') };
   });
+  const nowApi = () => page.evaluate(async base => (await fetch(base + '/admin/api/now', { credentials: 'same-origin' })).json(), BASE);
+  // The blocked figure before the clamp at zero: earlier tests may have
+  // solved more challenges than they were served in this half hour.
+  const rawBlocked = j => (j.last30.serve + j.last30.deny) - (j.last30.solve + j.last30.abandon);
+  const apiBefore = await nowApi();
   const before30 = await n30();
   for (const u of ['/test/force-pow', '/test/force-pow', '/_deny/live-strip']) {
     await fetch(BASE + u, { headers: { 'User-Agent': 'Mozilla/5.0 live-strip' } }).then(r => r.text()).catch(() => {});
@@ -141,6 +149,10 @@ for i in range(${n}):
   }
   ok(after30.serve === before30.serve + 2, `challenge tile ${before30.serve} -> ${after30.serve}, expected +2 (the deny page is no challenge)`);
   ok(after30.deny === before30.deny + 1, `refused tile ${before30.deny} -> ${after30.deny}, expected +1`);
+  const apiAfter = await nowApi();
+  const expBlocked = Math.max(0, rawBlocked(apiBefore) + 3);
+  ok(apiAfter.last30.blocked === expBlocked, `api blocked30 ${apiAfter.last30.blocked}, expected ${expBlocked} (served ${apiAfter.last30.serve}, refused ${apiAfter.last30.deny}, solved ${apiAfter.last30.solve}, abandoned ${apiAfter.last30.abandon})`);
+  ok(after30.blocked === apiAfter.last30.blocked, `blocked tile ${after30.blocked}, the api says ${apiAfter.last30.blocked}`);
   const refusedLine = await page.evaluate(() => {
     const el = document.getElementById('geo-refused');
     return el ? { links: el.querySelectorAll('a').length, text: el.textContent } : null;

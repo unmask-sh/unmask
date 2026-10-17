@@ -102,7 +102,7 @@ func TestToolsReadTheInstall(t *testing.T) {
 		t.Errorf("overview: %s", js)
 	}
 	ln := MarshalResult(d.Run2(ctx, "live_now"), 1<<20)
-	if !strings.Contains(ln, `"requests":1`) || !strings.Contains(ln, `"JP"`) {
+	if !strings.Contains(ln, `"requests":1`) || !strings.Contains(ln, `"JP"`) || !strings.Contains(ln, `"blocked":0`) {
 		t.Errorf("live_now: %s", ln)
 	}
 	sm := MarshalResult(d.Run2(ctx, "settings_summary"), 1<<20)

@@ -18,6 +18,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - The notification bell's unread rows stand out from the read ones: bold with a blue edge and a New tag in the panel, bold on a tinted row in the list.
 
+### Added
+
+- (2026-10-17) **The realtime tab has a blocked tile.**  Beside the challenge, refused and solved tiles, a tile counts what the dashboard's headline counts -- challenges served plus refusals, minus the proof-of-work and CAPTCHA answers and the visitors who walked away -- over the last thirty minutes and the last minute, a bar a minute.  It is the total of what the map draws by default.
+
+## [0.1.52-rc4] - 2026-10-17 (testing build)
+
+### Since rc3
+
+- The notification bell's unread rows stand out from the read ones: bold with a blue edge and a New tag in the panel, bold on a tinted row in the list.
+
 ### Changed
 
 - (2026-10-17) **The realtime map is the one printed where the server is, without Antarctica.**  Its middle followed the reader's language; it now follows the server's country: Greenwich for most of the world, the Pacific for East Asia and Oceania, Japan in the middle of a Japanese server's map.  Antarctica, which sends no traffic, is cut off at 60°S, so the map takes less height.

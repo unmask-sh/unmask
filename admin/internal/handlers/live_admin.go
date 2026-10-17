@@ -14,10 +14,11 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// The dashboard's "right now" strip: one tile per kind in liveKinds, each with
-// the last thirty minutes' count, the last minute's, and a bar a minute.
-// (The abandoned proofs-of-work have no tile: they only split the map's
-// challenged traffic into blocked bots and the rest.)
+// The dashboard's "right now" strip: one tile per entry of liveTiles, each
+// with the last thirty minutes' count, the last minute's, and a bar a minute.
+// Seven tiles are kinds; the blocked tile is the figure derived from them
+// (the dashboard's headline, what the map draws by default).  The abandoned
+// proofs-of-work have no tile of their own: they are a term of that figure.
 // The page renders the strip with a first reading (so it says real numbers
 // before any script runs) and then re-reads /admin/api/now every few seconds,
 // replacing the figures in place.
@@ -43,20 +44,37 @@ type liveView struct {
 	AtTS    int64  // the same instant as unix seconds, for the script's clock
 }
 
-// liveKinds lists the tiles in display order with their colours: the kind
-// colours of the stats page's stacked charts (KIND_COLOR) where one exists.
-// The refusals sit beside the challenges: the two answers a gate gets.
-var liveKinds = []struct {
-	kind  live.Kind
+// liveTiles lists the tiles in display order with their colours: the kind
+// colours of the stats page's stacked charts (KIND_COLOR) where one exists,
+// the map legend's blocked colour for the blocked tile.  The refusals sit
+// beside the challenges (the two answers a gate gets); the blocked figure
+// follows the solves it is net of.
+var liveTiles = []struct {
+	key   string // live.Names entry or live.BlockedName: the JSON key, the i18n key's tail
 	color string
 }{
-	{live.Requests, "#0f172a"},
-	{live.Pass, "#94a3b8"},
-	{live.Bypass, "#c7d2fe"},
-	{live.Serve, "#dc2626"},
-	{live.Deny, "#7f1d1d"},
-	{live.Solve, "#0ea5e9"},
-	{live.RateLimit, "#f59e0b"},
+	{live.Names[live.Requests], "#0f172a"},
+	{live.Names[live.Pass], "#94a3b8"},
+	{live.Names[live.Bypass], "#c7d2fe"},
+	{live.Names[live.Serve], "#dc2626"},
+	{live.Names[live.Deny], "#7f1d1d"},
+	{live.Names[live.Solve], "#0ea5e9"},
+	{live.BlockedName, "#f87171"},
+	{live.Names[live.RateLimit], "#f59e0b"},
+}
+
+// liveFigures is one tile's reading: a kind's counters, or for the blocked
+// tile the figure derived from them.
+func liveFigures(sn *live.Snapshot, key string) (last, last30 uint32, minutes, series []uint32) {
+	if key == live.BlockedName {
+		return sn.Blocked.Last, sn.Blocked.Last30, sn.Blocked.PerMinute[:], sn.Blocked.Series[:]
+	}
+	for k := live.Kind(0); k < live.NumKinds; k++ {
+		if live.Names[k] == key {
+			return sn.Last[k], sn.Last30[k], sn.PerMinute[k][:], sn.Series[k][:]
+		}
+	}
+	return 0, 0, nil, nil
 }
 
 // liveView builds the strip's first reading.  tzName is the picker's zone
@@ -71,19 +89,19 @@ func (h *Handler) liveView(now time.Time, tzName string) liveView {
 	}
 	v := liveView{At: now.In(loc).Format("15:04:05"), AtTS: now.Unix()}
 	v.FeedOff = !h.cfg().NginxLog.Enabled && sn.LastLine == 0
-	for _, lk := range liveKinds {
-		k := lk.kind
+	for _, lt := range liveTiles {
+		last, last30, minutes, series := liveFigures(&sn, lt.key)
 		t := liveTile{
-			Key:      live.Names[k],
-			LabelKey: "overview.live." + live.Names[k],
-			HelpKey:  "overview.live." + live.Names[k] + "_help",
-			Color:    lk.color,
-			Last:     int(sn.Last[k]),
-			Last30:   int(sn.Last30[k]),
-			Bars:     liveBarGeom(sn.PerMinute[k][:]),
-			Points:   liveSparkPoints(sn.Series[k][:]),
+			Key:      lt.key,
+			LabelKey: "overview.live." + lt.key,
+			HelpKey:  "overview.live." + lt.key + "_help",
+			Color:    lt.color,
+			Last:     int(last),
+			Last30:   int(last30),
+			Bars:     liveBarGeom(minutes),
+			Points:   liveSparkPoints(series),
 		}
-		if k == live.Requests {
+		if lt.key == live.Names[live.Requests] {
 			t.TPS, t.Peak, t.Avg = rate(sn.TPS), rate(sn.Peak), rate(sn.Avg)
 		}
 		v.Tiles = append(v.Tiles, t)
@@ -156,7 +174,7 @@ func liveSparkPoints(vals []uint32) string {
 // page to refresh its tiles (and the map) in place.
 //
 //	{"at": unix, "step": 5, "span": 300, "window": 60, "available": true,
-//	 "series": {"requests": [60 ints], ...}, "last": {"requests": n, ...},
+//	 "series": {"requests": [60 ints], ..., "blocked": [60 ints]}, "last": {"requests": n, ..., "blocked": n},
 //	 "tps": {"now": 1.6, "peak": 8.6, "avg": 2.5},
 //	 "countries": {"JP": {"n":148,"pass":100,"bypass":3,"serve":40,"deny":5,
 //	               "solve":31,"abandon":2,"blocked":12,"people":33}},
@@ -191,6 +209,12 @@ func (h *Handler) AdminNowJSON(w http.ResponseWriter, r *http.Request) {
 			minutes[live.Names[k]] = sn.PerMinute[k][:]
 			last30[live.Names[k]] = sn.Last30[k]
 		}
+		// The blocked figure, derived from the kinds above, under a key of its
+		// own in each of the four: the page refreshes its tile like the rest.
+		series[live.BlockedName] = sn.Blocked.Series[:]
+		last[live.BlockedName] = sn.Blocked.Last
+		minutes[live.BlockedName] = sn.Blocked.PerMinute[:]
+		last30[live.BlockedName] = sn.Blocked.Last30
 		out["series"] = series
 		out["last"] = last
 		out["minutes"] = minutes
