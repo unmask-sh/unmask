@@ -1,7 +1,7 @@
 // The dashboard's recent-detections card redraws its table from the server.
 // After a redraw the table is a new element with the same rows, rows the page
 // had not seen flash as new, and the table's own behaviours -- session
-// chains, cell and datetime popovers -- are bound on the new rows.
+// chains, cell, datetime and address popovers -- are bound on the new rows.
 //
 // Env: UI_E2E_BASE, UI_E2E_USER, UI_E2E_PASS, CHROME_BIN.
 const puppeteer = require('puppeteer-core');
@@ -48,6 +48,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       multi: (function(){ const n = {}; tbl.querySelectorAll('tbody tr[data-bt]').forEach(tr => { if (tr.dataset.bt) n[tr.dataset.bt] = (n[tr.dataset.bt] || 0) + 1; }); return Object.values(n).filter(c => c > 1).length; })(),
       cellpops: tbl.querySelectorAll('.cellpop[data-cellpop-wired]').length,
       dts: tbl.querySelectorAll('time.dtpop-trigger').length,
+      ips: tbl.querySelectorAll('.ipclick').length,
+      ipsWired: tbl.querySelectorAll('.ipclick[data-ip-wired]').length,
       fresh: tbl.querySelectorAll('tr.ev-new').length,
       freshKeys: Array.from(tbl.querySelectorAll('tr.ev-new')).map(tr => (tr.dataset.bt || '') + '|' + (tr.dataset.tsMs || '') + '|' + (tr.dataset.phase || '')).slice(0, 6),
       wired: tbl.dataset.evWired === '1',
@@ -63,6 +65,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(before.multi === 0 || before.chains >= 1, `the seeded table holds ${before.multi} multi-row sessions but no chain was drawn`);
   ok(before.rows > 0 && before.wired && before.cellpops > 0 && before.dts > 0,
     `the seeded table is not wired: rows=${before.rows} wired=${before.wired} cellpops=${before.cellpops} dts=${before.dts}`);
+  ok(before.ips > 0 && before.ipsWired === before.ips, `the seeded table's addresses are not bound to the popover: ${before.ipsWired} of ${before.ips}`);
 
   // A real new detection: the challenge's own test page, loaded in another
   // tab, writes a serve and a load beacon.  Then a redraw: the table is new,
@@ -88,6 +91,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(after.multi === 0 || after.chains >= 1, `the redrawn table holds ${after.multi} multi-row sessions but no chain was drawn`);
   ok(after.cellpops > 0 && after.dts > 0, `the redrawn table is not wired: cellpops=${after.cellpops} dts=${after.dts}`);
   ok(after.fresh >= 1, 'the new detection did not flash as new');
+  // The address popover was bound once at load and lost every row a redraw
+  // brought: every address of the new table must be bound again.
+  ok(after.ips > 0 && after.ipsWired === after.ips, `the redrawn table's addresses are not bound to the popover: ${after.ipsWired} of ${after.ips}`);
 
   // A cell popover opens on the new table.
   const hover = await page.evaluate(async () => {
@@ -102,13 +108,27 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   });
   if (!hover.skipped) ok(hover.shown, 'a cell popover did not open on the redrawn table');
 
+  // So does an address popover.
+  const ipHover = await page.evaluate(async () => {
+    const el = document.querySelector('#recent-section table.events .ipclick');
+    if (!el) return { missing: true };
+    const r = el.getBoundingClientRect();
+    el.dispatchEvent(new MouseEvent('mouseenter', { bubbles: true, clientX: r.left + 4, clientY: r.top + 4 }));
+    await new Promise(res => setTimeout(res, 400));
+    const pop = document.getElementById('ip-popover');
+    const shown = !!pop && pop.offsetParent !== null;
+    el.dispatchEvent(new MouseEvent('mouseleave', { bubbles: true }));
+    return { shown, text: pop ? pop.textContent.slice(0, 60) : '' };
+  });
+  ok(!ipHover.missing && ipHover.shown, `an address popover did not open on the redrawn table: ${JSON.stringify(ipHover)}`);
+
   // A second redraw with nothing new flags nothing.
   await page.evaluate(() => window.unmaskRefreshRecent());
   await sleep(300);
   const again = await shape('');
   ok(again.fresh === 0, `${again.fresh} rows flagged as new on a redraw that brought nothing new: ${JSON.stringify(again.freshKeys)}`);
-  ok(again.wired && again.chains === after.chains && again.cellpops === after.cellpops && again.dts === after.dts,
-    `a redraw with nothing new changed the wiring: chains ${after.chains}->${again.chains} cellpops ${after.cellpops}->${again.cellpops} dts ${after.dts}->${again.dts}`);
+  ok(again.wired && again.chains === after.chains && again.cellpops === after.cellpops && again.dts === after.dts && again.ipsWired === after.ipsWired,
+    `a redraw with nothing new changed the wiring: chains ${after.chains}->${again.chains} cellpops ${after.cellpops}->${again.cellpops} dts ${after.dts}->${again.dts} ips ${after.ipsWired}->${again.ipsWired}`);
   ok(errors.length === 0, 'page errors: ' + errors.join(' | '));
 
   await browser.close();

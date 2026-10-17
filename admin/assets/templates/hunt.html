@@ -1037,10 +1037,13 @@ function dismissHuntTip(id){
       var pathEsc = escapeText(ev.path);
       pathHtml = '<span class="path" title="' + pathEsc + '">' + pathEsc + '</span>';
     }
+    // The address opens the same popover as the static rows' (rDNS, geo,
+    // ASN): flush() binds it once the line is built.
+    var ipOpen = ev.ip ? '<span class="ip ipclick" data-ip="' + escapeText(ev.ip) + '">' : '<span class="ip">';
     d.innerHTML =
       '<span class="ts">' + escapeText(fmtTs(ev)) + '</span>' +
       hostHtml + siteHtml +
-      '<span class="ip">' + flagHtml + escapeText(ev.ip || '-') + '</span>' +
+      ipOpen + flagHtml + escapeText(ev.ip || '-') + '</span>' +
       netHtml +
       '<span class="ph">' + escapeText(phaseTxt) + '</span>' +
       '<span class="ja4">' + escapeText(ev.ja4 || '-') + '</span> ' +
@@ -1074,6 +1077,7 @@ function dismissHuntTip(id){
       frag.appendChild(makeEl(queue[i]));
     }
     queue.length = 0;
+    if (window.unmaskWireIP) window.unmaskWireIP(frag);
     tail.insertBefore(frag, tail.firstChild);
     // trim overflow rows from the tail.  Brings the node count in line in one pass.
     var overflow = tail.childElementCount - MAX_LINES;

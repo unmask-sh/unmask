@@ -22,6 +22,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-17) **The week tab's request figures no longer time out on a large database.**  The composition behind the headline was summed from the per-minute table over the whole window, a row per site, kind and minute, and seven days of a many-site install ran past the page's budget.  The settled hours now come from the hourly rollup; only the minutes around them are read live.
 
+- (2026-10-17) **Addresses open their popover on the realtime tab's recent detections and in the bot hunt's live tail.**  The recent table lost the popover at its first redraw, ten seconds after the tab opened, and the live tail had never had one.  Both now show the same reverse DNS, country and network details as the bot hunt's table.
+
 ## [0.1.52-rc2] - 2026-10-17 (testing build)
 
 ### Since rc1

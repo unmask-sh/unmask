@@ -272,8 +272,7 @@ table.events td.actions{text-align:right;white-space:nowrap;width:auto}
 .actions .rank-act.danger{border-color:#fecaca;background:#fef2f2;color:#991b1b}
 .actions .rank-act.danger:hover{background:#fee2e2;border-color:#fca5a5}
 .action-pill{display:inline-block;padding:.1rem .45rem;border-radius:.25rem;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-family:ui-monospace,Menlo,monospace;background:#fee2e2;color:#991b1b}
-/* IP display unified across all cards: flag + IP + popover (same as dashboard / bans / hunt). */
-.ipclick{cursor:help;text-decoration:underline dotted;text-decoration-color:#cbd5e1;text-underline-offset:.2em}
+{{ template "ip_popover_css" . }}
 img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;border:0;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
 .muted{color:#94a3b8}
 .user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
@@ -412,99 +411,12 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 
 </main>
 
-<div id="ip-popover" data-popover="ip"></div>
+{{ template "ip_popover_el" . }}
 <div id="cell-popover" data-popover="cell"></div>
 <script>
-// IP popover (rDNS + IP-geo + ASN). Same form as dashboard / hunt / bans
-// (every IP display unified as "flag + IP + popover").
-(function(){
-  const pop = document.getElementById('ip-popover');
-  if (!pop || !window.popoverPin) return;
-  const pin = window.popoverPin.install(pop);
-  const cache = new Map();
-  let timer = null;
-  function esc(s){
-    return String(s).replace(/[&<>"']/g, c => ({
-      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
-    })[c]);
-  }
-  function fmt(d){
-    if (d.error) return '<span style="color:#dc2626">' + esc(d.error) + '</span>';
-    const na = '<span class="muted">(unavailable)</span>';
-    const ccLow = (d.country && d.country.length === 2) ? d.country.toLowerCase() : 'unknown';
-    const ccLabel = (d.country && d.country.length === 2) ? d.country : '??';
-    const flagImg = '<img class="flag" src="{{.BasePath}}/static/flags/' + ccLow +
-                    '.png" alt="' + ccLabel + '" title="' + ccLabel + '" loading="lazy" style="width:1rem;height:.75rem;vertical-align:-.05em;margin-right:.3em">';
-    let h = '<h3>' + flagImg + esc(d.ip) + '</h3><dl>';
-    h += '<dt>family</dt><dd>' + esc(d.family || '?') + '</dd>';
-    const types = [];
-    if (d.is_private) types.push('private');
-    if (d.is_loopback) types.push('loopback');
-    if (!types.length) types.push('public');
-    h += '<dt>type</dt><dd>' + types.join(', ') + '</dd>';
-    if (d.reverse_dns && d.reverse_dns.length){
-      h += '<dt>rDNS</dt><dd>' + d.reverse_dns.map(esc).join('<br>') + '</dd>';
-    } else if (d.reverse_dns_error){
-      h += '<dt>rDNS</dt><dd>' + na + ' <span class="muted" style="font-size:.78em">' +
-           esc(d.reverse_dns_error) + '</span></dd>';
-    } else {
-      h += '<dt>rDNS</dt><dd>' + na + '</dd>';
-    }
-    if (d.country || d.country_name) {
-      const cn = d.country_name ? esc(d.country_name) : '';
-      const cc = d.country ? '<span class="muted">(' + esc(d.country) + ')</span>' : '';
-      h += '<dt>country</dt><dd>' + cn + (cn && cc ? ' ' : '') + cc + '</dd>';
-    } else {
-      h += '<dt>country</dt><dd>' + na + '</dd>';
-    }
-    if (d.city) {
-      h += '<dt>city</dt><dd>' + esc(d.city) + '</dd>';
-    } else {
-      h += '<dt>city</dt><dd>' + na + '</dd>';
-    }
-    if (d.asn) {
-      h += '<dt>ASN</dt><dd>AS' + d.asn +
-           (d.asn_org ? ' <span class="muted">' + esc(d.asn_org) + '</span>' : '') + '</dd>';
-    } else {
-      h += '<dt>ASN</dt><dd>' + na + '</dd>';
-    }
-    // relay (= the address is a privacy relay's, shared by many people; the
-    // country above is the relay's own -- the database's in brackets)
-    if (d.relay) {
-      h += '<dt>relay</dt><dd>' + esc(d.relay) +
-           (d.country_db ? ' <span class="muted">(DB: ' + esc(d.country_db) + ')</span>' : '') + '</dd>';
-    }
-    h += '</dl>';
-    return h;
-  }
-  function fetchAndFmt(ip, cb){
-    if (cache.has(ip)){ cb(fmt(cache.get(ip))); return; }
-    cb('looking up ' + ip + '…');
-    fetch('{{.BasePath}}/admin/api/myip?ip=' + encodeURIComponent(ip))
-      .then(r => r.json())
-      .then(d => { cache.set(ip, d); cb(fmt(d)); })
-      .catch(() => cb('lookup failed'));
-  }
-  document.querySelectorAll('.ipclick').forEach(td => {
-    td.addEventListener('mouseenter', e => {
-      clearTimeout(timer);
-      if (pin.hasPinFor(td)) return;
-      const ip = td.dataset.ip;
-      const x = e.pageX, y = e.pageY;
-      timer = setTimeout(() => {
-        fetchAndFmt(ip, html => pin.showHover(html, x, y, td));
-      }, 200);
-    });
-    td.addEventListener('mouseleave', () => { clearTimeout(timer); pin.hideHover(); });
-    td.addEventListener('click', e => {
-      e.preventDefault();
-      clearTimeout(timer);
-      const ip = td.dataset.ip;
-      const x = e.pageX, y = e.pageY;
-      fetchAndFmt(ip, html => pin.handleClick(html, x, y, td, ip));
-    });
-  });
-})();
+// The shared IP popover: it binds the rows each redraw of the recent table
+// brings as well (window.unmaskRewire), where a copy bound at load lost them.
+{{ template "ip_popover_js" . }}
 
 // Session view + cellpop IIFEs are injected by partial_events_table.html
 // so the overview card shares the exact same logic as the hunt page (= no

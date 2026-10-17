@@ -1,7 +1,9 @@
 {{- /*
   ip_popover: the hover / click-to-pin address popover (rDNS + IP-geo + ASN)
-  shared by the bot-hunt page and the advisor page.  Any element carrying
-  class="ipclick" data-ip="<address>" gets it.
+  shared by the bot-hunt, realtime, advisor and ask pages.  Any element
+  carrying class="ipclick" data-ip="<address>" gets it: those in the page at
+  load, those in rows a page swaps in (window.unmaskRewire), and those in
+  elements a script builds, which it hands to window.unmaskWireIP(root).
 
   Three defines, spliced where the inline block used to live:
     ip_popover_css : the trigger-side rule -> inside the page's <style>
@@ -111,8 +113,10 @@
       .then(function(d){ cache.set(ip, d); cb(fmt(d)); })
       .catch(function(){ cb('lookup failed'); });
   }
-  // wire(root) binds every .ipclick under root; pages that swap rows in
-  // (advisor) call it again through window.unmaskRewire.
+  // wire(root) binds every .ipclick under root not bound yet; pages that
+  // swap rows in (advisor, the realtime tab) call it again through
+  // window.unmaskRewire, and a script building rows of its own (the hunt's
+  // live tail) calls it as window.unmaskWireIP.
   function wire(root){
   root.querySelectorAll('.ipclick').forEach(function(td){
     if (td.dataset.ipWired) return;
@@ -144,5 +148,6 @@
   }
   wire(document);
   (window.unmaskRewire = window.unmaskRewire || []).push(wire);
+  window.unmaskWireIP = wire;
 })();
 {{- end }}
