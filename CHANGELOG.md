@@ -12,7 +12,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.52-rc5] - 2026-10-17 (testing build)
+
+### Since rc4
+
+- The reload notice's help pins on a click, as a window with a copy button, so the command in it can be copied.
 
 ### Added
 
