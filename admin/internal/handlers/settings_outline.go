@@ -83,6 +83,20 @@ func (b *bufResponse) Header() http.Header {
 func (b *bufResponse) Write(p []byte) (int, error) { return b.body.Write(p) }
 func (b *bufResponse) WriteHeader(c int)           { b.code = c }
 
+// outlineLiteKey marks a settings render made for the outline, which skips
+// the page-only reads (settingsOutlineLite).
+type outlineLiteKey struct{}
+
+func withOutlineLite(ctx context.Context) context.Context {
+	return context.WithValue(ctx, outlineLiteKey{}, true)
+}
+
+// settingsOutlineLite reports a render made for the outline.
+func settingsOutlineLite(r *http.Request) bool {
+	v, _ := r.Context().Value(outlineLiteKey{}).(bool)
+	return v
+}
+
 var secretFieldRE = regexp.MustCompile(`(?i)(secret|password|passwd|token|api_key|apikey|_key$|^key$|dsn)`)
 
 // SettingsTabOutline renders one tab for the operator in ctx (their session
@@ -97,6 +111,12 @@ func (h *Handler) SettingsTabOutline(ctx context.Context, lang i18n.Lang, tab st
 		return nil, err
 	}
 	req.SetPathValue("tab", tab)
+	// The outline is the tab's headings, fields and values: the tab renders
+	// without the reads only its page needs (the retention tab's size of the
+	// data, the sites tab's inventory of hosts), which on a large database
+	// take seconds each under their budgets, and were most of what a search
+	// across the tabs cost (2026-10-18).
+	req = req.WithContext(withOutlineLite(req.Context()))
 	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: string(lang)})
 	w := &bufResponse{}
 	h.AdminSettingsIndex(w, req)

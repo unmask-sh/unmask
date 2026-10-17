@@ -397,7 +397,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	var siteGhosts []GhostSite
 	var hostInventory []dashboard.HostInfo
 	var sitesTimedOut bool
-	if tab == "sites" {
+	if tab == "sites" && !settingsOutlineLite(r) {
 		// 10s, not 3s: ghostSites + HostInventory both run GROUP BY aggregates
 		// over unmask_event, and on a large DB the old 3s budget expired -- the
 		// template then gated out the host table / ghost list as a false "none
@@ -427,7 +427,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// knobs will prune.  Cheap (= a few COUNT(*) / MIN() queries) but only
 	// needed when this tab is being viewed, so gate the work on `tab`.
 	var retentionView retentionStatsView
-	if tab == "retention" || tab == "performance" {
+	if (tab == "retention" || tab == "performance") && !settingsOutlineLite(r) {
 		// 10s, not 3s: COUNT(*)/MIN() over unmask_event is a full table scan, and
 		// on a large sqlite DB (millions of rows -- web1-us hit 2.1M / 1.9GB) the
 		// 3s budget expired, so retentionStats returned zeros and the template
@@ -441,7 +441,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// Retention tab: the compaction card (vacuum.go) -- what a run would give
 	// back and need, and the last run.
 	var vacuumCard VacuumCard
-	if tab == "retention" {
+	if tab == "retention" && !settingsOutlineLite(r) {
 		role := ""
 		if pay := SessionFromContext(r); pay != nil {
 			role = pay.Role

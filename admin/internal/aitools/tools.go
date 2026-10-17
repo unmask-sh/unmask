@@ -132,7 +132,7 @@ func (d Deps) List() []Tool {
 				"window_hours": hoursProp("trailing window in hours; 24 by default"),
 				"limit":        map[string]any{"type": "integer", "minimum": 1, "maximum": 200, "description": "rows to return; 50 by default"},
 			})},
-		{Name: "events_count", Description: "The event log counted over a window, under the same filters as events: every matching event by phase (serve, load, abandon, bv_pow_only, bv_captcha_only, bv_pow_then_captcha, bv_rebind, check...), the distinct addresses, and the same split hour by hour in the operator's time zone.  The way to say how many challenges a fingerprint, a user agent, a site or a reason drew, how many passed, how many addresses were behind it, and when: it counts the whole window, where events shows a page.  Compare a rule's effect by counting the hours before and after it.",
+		{Name: "events_count", Description: "The event log counted over a window, under the same filters as events: every matching event by phase (serve, load, abandon, bv_pow_only, bv_captcha_only, bv_pow_then_captcha, bv_rebind, check...), the distinct addresses, and the same split hour by hour in the operator's time zone.  The way to say how many challenges a fingerprint, a user agent, a site or a reason drew, how many passed, how many addresses were behind it, and when: it counts the whole window, where events shows a page.  Compare a rule's effect by counting the hours before and after it.  With no filter but phase the answer comes from the hourly rollup at once (folded every minute); a filtered count reads the window's events, and a window of more than about two million events is refused: narrow it.",
 			Schema: obj(map[string]any{
 				"ip":           map[string]any{"type": "string", "description": "address or its prefix"},
 				"ja4":          map[string]any{"type": "string", "description": "JA4 fingerprint or its prefix"},
@@ -427,12 +427,40 @@ func (d Deps) events(ctx context.Context, ip, ja4, ua, phase, reason, site strin
 	return out, nil
 }
 
-// eventsCount: the window counted in the database.  A window a scan cannot
-// finish within the chat's tool timeout comes back as advice rather than a
-// bare deadline: the model can narrow the window or add a filter.
+// eventsCountScanMax: the most events a count of the window may read,
+// judged from the id range before the scan.  Past it the window is refused
+// with advice rather than scanned: on a database larger than its memory a
+// count of a week is minutes of reads, and the tool's deadline cuts it off
+// (2026-10-18).  A var, so a test can lower it.
+var eventsCountScanMax int64 = 2_000_000
+
+// eventsCount: the window counted.  With no filter but the phases the
+// hourly rollup answers at once (dashboard.PhasesByHour: folded every
+// minute, the addresses estimated); otherwise the database
+// counts the window, unless the id range says it holds more than
+// eventsCountScanMax events.  A scan that still runs past the tool's
+// deadline comes back as advice rather than a bare deadline: the model can
+// narrow the window or drop the filter.
 func (d Deps) eventsCount(ctx context.Context, ip, ja4, ua, phase, reason, site string, hours int) (any, error) {
 	if d.DB == nil {
 		return nil, errors.New("no database")
+	}
+	note := "phases counts events, not requests: a browser that runs a challenge page writes several (serve, load, then a pass or an abandon); " + untrusted
+	if ip == "" && ja4 == "" && ua == "" && reason == "" && site == "" {
+		if c, source, ok := d.eventsCountFromRollup(ctx, phase, hours); ok {
+			return map[string]any{
+				"window_hours": hours, "time_zone": d.loc().String(),
+				"total": c.Total, "distinct_ips": c.DistinctIPs, "phases": c.Phases, "hours": c.Hours,
+				"source": source, "note": note,
+			}, nil
+		}
+	}
+	if n, err := events.WindowRows(ctx, d.DB, hours*60); err == nil && n > eventsCountScanMax {
+		fit := int(int64(hours) * eventsCountScanMax / n)
+		if fit < 1 {
+			fit = 1
+		}
+		return nil, fmt.Errorf("the last %d hours hold about %d events, too many to count under a filter on this database: narrow window_hours (about %d hours fit), or count without a filter to read the hourly rollup", hours, n, fit)
 	}
 	c, err := events.CountHourly(ctx, d.DB, ip, ja4, ua, phase, reason, site, nil, hours*60, d.loc())
 	if err != nil {
@@ -444,8 +472,66 @@ func (d Deps) eventsCount(ctx context.Context, ip, ja4, ua, phase, reason, site 
 	return map[string]any{
 		"window_hours": hours, "time_zone": d.loc().String(),
 		"total": c.Total, "distinct_ips": c.DistinctIPs, "phases": c.Phases, "hours": c.Hours,
-		"note": "phases counts events, not requests: a browser that runs a challenge page writes several (serve, load, then a pass or an abandon); " + untrusted,
+		"note": note,
 	}, nil
+}
+
+// eventsCountFromRollup is eventsCount's answer from the hourly rollup: the
+// window's events by hour and phase (phase narrows them, as the scan's
+// filter does), the distinct addresses estimated from the per-site sketches
+// -- which cover every phase, so under a phase filter they are left at 0 and
+// the source says so.  ok is false where the rollup cannot answer, and the
+// scan is the way.
+func (d Deps) eventsCountFromRollup(ctx context.Context, phase string, hours int) (events.Counts, string, bool) {
+	want := map[string]bool{}
+	for _, p := range strings.Split(phase, ",") {
+		if p = strings.TrimSpace(p); p != "" && events.IsValidPhase(p) {
+			want[p] = true
+		}
+	}
+	out := events.Counts{Phases: map[string]int{}, Hours: []events.HourCount{}}
+	source := "the hourly rollup, folded every minute (the newest minute may be missing); distinct_ips is an estimate (within a few percent)"
+	if strings.TrimSpace(phase) != "" && len(want) == 0 {
+		// A filter that names no phase counts nothing, as the scan does.
+		return out, source, true
+	}
+	byHour, ok := dashboard.PhasesByHour(ctx, d.DB, hours)
+	if !ok {
+		return out, "", false
+	}
+	ips, ipsTotal, ok := dashboard.DistinctIPsByHour(ctx, d.DB, hours)
+	if !ok {
+		return out, "", false
+	}
+	keys := make([]string, 0, len(byHour))
+	for k := range byHour {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys) // the key is UTC, so its order is time's
+	for _, k := range keys {
+		hc := events.HourCount{Hour: events.HourLabel(k, d.loc()), Phases: map[string]int{}}
+		for p, n := range byHour[k] {
+			if len(want) > 0 && !want[p] {
+				continue
+			}
+			hc.Phases[p] += n
+			out.Phases[p] += n
+			out.Total += n
+		}
+		if len(hc.Phases) == 0 {
+			continue
+		}
+		if len(want) == 0 {
+			hc.DistinctIPs = ips[k]
+		}
+		out.Hours = append(out.Hours, hc)
+	}
+	if len(want) == 0 {
+		out.DistinctIPs = ipsTotal
+	} else {
+		source = "the hourly rollup, folded every minute (the newest minute may be missing); distinct_ips is not known under a phase filter (0 here: count without phase for it)"
+	}
+	return out, source, true
 }
 
 // eventView is an event row with its time in the operator's zone (at), so

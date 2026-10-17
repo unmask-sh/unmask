@@ -3,6 +3,7 @@ package events
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"sort"
 	"strings"
 	"time"
@@ -64,13 +65,7 @@ func CountHourly(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, p
 		}
 		return rows, err
 	}
-	label := func(key string) string {
-		t, err := time.ParseInLocation("2006-01-02 15", key, time.UTC)
-		if err != nil {
-			return key
-		}
-		return t.In(loc).Format(time.RFC3339)
-	}
+	label := func(key string) string { return HourLabel(key, loc) }
 	out := Counts{Phases: map[string]int{}, Hours: []HourCount{}}
 	byHour := map[string]*HourCount{}
 	hourOf := func(key string) *HourCount {
@@ -148,4 +143,52 @@ func CountHourly(ctx context.Context, d *db.DB, ipSubstr, ja4Substr, uaSubstr, p
 		out.Hours = append(out.Hours, *byHour[k])
 	}
 	return out, nil
+}
+
+// HourLabel turns a UTC hour key ('YYYY-MM-DD HH', the rollup's and the
+// count's) into the hour's start in loc, RFC 3339; a key that is not one is
+// returned as it is.
+func HourLabel(key string, loc *time.Location) string {
+	t, err := time.ParseInLocation("2006-01-02 15", key, time.UTC)
+	if err != nil {
+		return key
+	}
+	if loc == nil {
+		loc = time.UTC
+	}
+	return t.In(loc).Format(time.RFC3339)
+}
+
+// WindowRows estimates how many events the last sinceMin minutes hold, from
+// the id range: ids are given in time order and the table is pruned from
+// its old end, so MAX(id) less the first id of the window is the count, to
+// within nothing.  Two index seeks, so a caller can judge a scan of the
+// window before starting it.  0 for an empty window.
+func WindowRows(ctx context.Context, d *db.DB, sinceMin int) (int64, error) {
+	win := dateCreatedWindow(ctx, d, sinceMin)
+	var first, last sql.NullInt64
+	if win == "" {
+		if err := d.QueryRowContext(ctx, "SELECT MIN(id), MAX(id) FROM unmask_event").Scan(&first, &last); err != nil {
+			return 0, err
+		}
+	} else {
+		run := func(h string) error {
+			return d.QueryRowContext(ctx, "SELECT id FROM unmask_event"+h+" WHERE "+win+" ORDER BY date_created LIMIT 1").Scan(&first)
+		}
+		hint := d.EventDateIndexHint(win)
+		err := run(hint)
+		if err != nil && hint != "" && strings.Contains(err.Error(), "idx_unmask_event_date") {
+			err = run("") // the missing-index degradation of RankServes
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return 0, err
+		}
+		if err := d.QueryRowContext(ctx, "SELECT MAX(id) FROM unmask_event").Scan(&last); err != nil {
+			return 0, err
+		}
+	}
+	if !first.Valid || !last.Valid || last.Int64 < first.Int64 {
+		return 0, nil
+	}
+	return last.Int64 - first.Int64 + 1, nil
 }

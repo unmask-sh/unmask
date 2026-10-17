@@ -18,6 +18,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-18) **SysVinit hosts start the daemon again when it dies.**  On systemd and OpenRC the service manager restarts the daemon after a fault; on RHEL 6 / CentOS 6 nothing did, and every challenge page waited until an operator ran `service unmask start`.  The init script now runs `unmask serve -supervise`: a small parent that keeps the daemon as its child, hands on the stop, and restarts it after five seconds, giving up after ten crashes in ten minutes.
 
+### Changed
+
+- (2026-10-18) **Ask AI counts a window from the hourly rollup, and refuses a scan it cannot finish.**  A count without a filter is answered from the rollup at once, with the addresses estimated; a filtered count reads the window's events, and a window of more than about two million is refused with the way out instead of being cut off by the tool's deadline.  The settings search renders each tab without the reads only its page needs.
+
 ### Fixed
 
 - (2026-10-18) **SQLite reads are no longer memory-mapped.**  Every connection mapped the first few dozen megabytes of the database, and dropped and re-made that map whenever the write-ahead log had changed, for next to no gain on a database of gigabytes: the page cache is the cache that matters.  Memory-mapped reads are off, and the performance tab no longer counts an mmap allowance beside the cache.
