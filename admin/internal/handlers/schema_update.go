@@ -46,6 +46,9 @@ type schemaUpdater struct {
 	// every open page and the end of a child all refresh, and a slower one
 	// finishing last would put back what it read before the others.
 	refreshMu sync.Mutex
+	// poke asks the watch for a refresh now (a page's status poll); the
+	// watch takes it at most once a second.  Made by RunSchemaWatch.
+	poke chan struct{}
 
 	mu sync.Mutex
 	// waiting: the deferrable migrations not applied -- the ones the daemon
@@ -169,10 +172,25 @@ func (h *Handler) SchemaRefresh(ctx context.Context) {
 	u := &h.schema
 	u.refreshMu.Lock()
 	defer u.refreshMu.Unlock()
-	pending, err := db.PendingMigrations(h.DB)
+	// The run's lock first.  It needs no read of the database, and it is
+	// what says a run is going: a run started from a shell takes it the
+	// moment it starts building, and under its build on a slow disk the
+	// reads below can take minutes each -- the daemon's writers must stand
+	// back before then, not after.  (2026-10-17, a table of seventeen
+	// million rows on a busy disk: a daemon that read first never held, and
+	// its writers waited out the busy timeout, over and over, for hours.)
+	lockHeld, lockKnown := h.DB.SchemaRunLockHeld(ctx)
+	if lockKnown {
+		u.mu.Lock()
+		u.running = lockHeld
+		h.DB.HoldWrites(u.going() && h.DB.SchemaUpdateHoldsWrites())
+		u.mu.Unlock()
+	}
+	// Then what waits and the run's record, within the time given.  A
+	// database that cannot be read now (locked, restarting, busy) says
+	// nothing new: the last answer stands, and so does the hold above.
+	pending, err := db.PendingMigrationsContext(ctx, h.DB)
 	if err != nil {
-		// A database that cannot be read now (locked, restarting) says
-		// nothing about what is waiting: keep the last answer.
 		return
 	}
 	var waiting []db.PendingMigration
@@ -185,7 +203,10 @@ func (h *Handler) SchemaRefresh(ctx context.Context) {
 	if err != nil {
 		return
 	}
-	running := ok && h.DB.SchemaUpdateAlive(ctx, rec, time.Now())
+	running := lockHeld
+	if !lockKnown {
+		running = ok && h.DB.SchemaUpdateAlive(ctx, rec, time.Now())
+	}
 
 	u.mu.Lock()
 	u.waiting, u.rec, u.hasRec, u.running = waiting, rec, ok, running
@@ -227,7 +248,14 @@ func (h *Handler) SchemaRefresh(ctx context.Context) {
 // every few seconds and a waiting update barely at all; with nothing waiting,
 // rarely.
 func (h *Handler) RunSchemaWatch(ctx context.Context) {
+	h.schema.mu.Lock()
+	if h.schema.poke == nil {
+		h.schema.poke = make(chan struct{}, 1)
+	}
+	poke := h.schema.poke
+	h.schema.mu.Unlock()
 	for {
+		last := time.Now()
 		func() {
 			// Per turn: a panic in one refresh must not end the watch.
 			defer safe.Recover("schema-watch")
@@ -251,7 +279,33 @@ func (h *Handler) RunSchemaWatch(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-time.After(wait):
+		case <-poke:
+			// A page asked.  Not more than once a second under a page that
+			// polls: the refresh reads the database.
+			if d := time.Since(last); d < time.Second {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Second - d):
+				}
+			}
 		}
+	}
+}
+
+// schemaPoke asks the watch to refresh soon.  Never waits: a page's poll
+// must answer from what the daemon knows, not stand in line for a read of
+// a database that a build may be keeping busy for hours.
+func (h *Handler) schemaPoke() {
+	h.schema.mu.Lock()
+	poke := h.schema.poke
+	h.schema.mu.Unlock()
+	if poke == nil {
+		return
+	}
+	select {
+	case poke <- struct{}{}:
+	default:
 	}
 }
 
@@ -305,7 +359,13 @@ func (h *Handler) schemaView(role string, lang i18n.Lang) *SchemaUpdateView {
 	switch {
 	case running:
 		v.State, v.Phase = "running", db.SchemaStageIndex
-		fromRecord()
+		if hasRec && rec.State == db.SchemaUpdateRunning {
+			fromRecord()
+		} else {
+			// Known from its lock alone: the record comes a moment after
+			// the lock, or the database could not be read for it yet.
+			v.StartedAt = now.Unix()
+		}
 		v.Held = int(events.HeldEvents())
 		shell := childPID == 0 && super && runSignalable(rec.PID, "migrate")
 		v.Cancellable = super && (childPID != 0 && rec.PID == childPID || shell)
@@ -481,9 +541,10 @@ func durationText(lang i18n.Lang, sec int) string {
 // {"state":"none"}.  Any signed-in role: the notice is for everyone who
 // opens the admin UI, the buttons are not.
 func (h *Handler) AdminSchemaUpdateStatus(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
-	h.SchemaRefresh(ctx)
+	// From what the daemon knows, at once; the watch is asked to look again.
+	// A poll that read the database itself stood in line behind the build's
+	// reads for minutes, and every open page polled (2026-10-17).
+	h.schemaPoke()
 	role := ""
 	if pay := SessionFromContext(r); pay != nil {
 		role = pay.Role

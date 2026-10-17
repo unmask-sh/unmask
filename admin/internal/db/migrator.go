@@ -295,11 +295,18 @@ func HasSchema(conn *DB) (bool, error) { return hasTable(conn, "unmask_event") }
 // the way a pass that applies does -- a DDL statement every two seconds on
 // MariaDB, for as long as the update waited.
 func PendingMigrations(conn *DB) ([]PendingMigration, error) {
+	return PendingMigrationsContext(context.Background(), conn)
+}
+
+// PendingMigrationsContext is PendingMigrations within ctx: the daemon's
+// watch reads with a deadline, so that a database busy with a build on a slow
+// disk -- where one seek can take minutes -- does not hold the watch up.
+func PendingMigrationsContext(ctx context.Context, conn *DB) ([]PendingMigration, error) {
 	applied, err := appliedVersionsReadOnly(conn)
 	if err != nil {
 		return nil, err
 	}
-	pending, err := pendingFrom(conn, applied, false)
+	pending, err := pendingFrom(ctx, conn, applied, false)
 	if err != nil {
 		return nil, err
 	}
@@ -378,7 +385,7 @@ func pendingMigrations(conn *DB, cold bool) ([]pendingEntry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read applied versions: %w", err)
 	}
-	return pendingFrom(conn, applied, cold)
+	return pendingFrom(context.Background(), conn, applied, cold)
 }
 
 // appliedVersionsReadOnly is appliedMigrationVersions for a reader that must
@@ -409,7 +416,7 @@ func appliedVersionsReadOnly(conn *DB) (map[int]bool, error) {
 
 // pendingFrom lists the migrations not in applied, with their estimates
 // (cold: see MigrateOptions.ColdCache).
-func pendingFrom(conn *DB, applied map[int]bool, cold bool) ([]pendingEntry, error) {
+func pendingFrom(ctx context.Context, conn *DB, applied map[int]bool, cold bool) ([]pendingEntry, error) {
 	all, err := listMigrations(string(conn.Driver))
 	if err != nil {
 		return nil, fmt.Errorf("list migrations: %w", err)
@@ -435,7 +442,7 @@ func pendingFrom(conn *DB, applied map[int]bool, cold bool) ([]pendingEntry, err
 			Version: m.version, Name: m.name, Deferrable: m.deferrable, Table: m.table,
 		}}
 		if m.deferrable {
-			if err := estimateIndexMigration(conn, m, &p.PendingMigration, planned, rates); err != nil {
+			if err := estimateIndexMigration(ctx, conn, m, &p.PendingMigration, planned, rates); err != nil {
 				p.Deferrable, p.estimateErr = false, err
 			}
 		}
@@ -477,7 +484,7 @@ type buildRates struct {
 
 // estimateIndexMigration fills in what a deferrable migration would build and
 // how long that is expected to take.
-func estimateIndexMigration(conn *DB, m migrationEntry, p *PendingMigration, planned map[string]bool, rates buildRates) error {
+func estimateIndexMigration(ctx context.Context, conn *DB, m migrationEntry, p *PendingMigration, planned map[string]bool, rates buildRates) error {
 	body, err := fs.ReadFile(migrationFS, m.path)
 	if err != nil {
 		return err
@@ -511,7 +518,7 @@ func estimateIndexMigration(conn *DB, m migrationEntry, p *PendingMigration, pla
 	if len(p.Indexes) == 0 {
 		return nil
 	}
-	rows, err := approxRows(conn, m.table)
+	rows, err := approxRows(ctx, conn, m.table)
 	if err != nil {
 		return err
 	}
@@ -535,7 +542,7 @@ func estimateIndexMigration(conn *DB, m migrationEntry, p *PendingMigration, pla
 // SQLite numbers its rows all the same, and a table filled forward and pruned
 // from its old end leaves the same kind of run in rowid.  MariaDB has no such
 // number; its own row count is approximate and costs one catalog read.
-func approxRows(conn *DB, table string) (int64, error) {
+func approxRows(ctx context.Context, conn *DB, table string) (int64, error) {
 	has, err := hasColumn(conn, table, "id")
 	if err != nil {
 		return 0, err
@@ -544,7 +551,7 @@ func approxRows(conn *DB, table string) (int64, error) {
 	if !has {
 		if conn.Driver != DriverSQLite {
 			var n *int64
-			if err := conn.QueryRow(`SELECT TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES
+			if err := conn.QueryRowContext(ctx, `SELECT TABLE_ROWS FROM INFORMATION_SCHEMA.TABLES
 				WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?`, table).Scan(&n); err != nil {
 				return 0, err
 			}
@@ -556,7 +563,7 @@ func approxRows(conn *DB, table string) (int64, error) {
 		col = "rowid" // a WITHOUT ROWID table has none: the query fails and the caller applies the migration now
 	}
 	var lo, hi *int64
-	if err := conn.QueryRow("SELECT MIN("+col+"), MAX("+col+") FROM "+table).Scan(&lo, &hi); err != nil {
+	if err := conn.QueryRowContext(ctx, "SELECT MIN("+col+"), MAX("+col+") FROM "+table).Scan(&lo, &hi); err != nil {
 		return 0, err
 	}
 	if lo == nil || hi == nil {

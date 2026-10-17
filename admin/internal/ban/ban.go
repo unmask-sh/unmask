@@ -35,6 +35,7 @@ import (
 	"sync"
 	"time"
 
+	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
@@ -167,7 +168,21 @@ type Manager struct {
 	// until they are written -- two at once would write and announce each
 	// of them twice.
 	writeHeldMu sync.Mutex
+	// wake asks the loop to write the kept bans and the file now rather
+	// than at its next tick: an automatic ban the receive loop could not
+	// write at once.  Buffered by one; a wake while one waits is the same.
+	wake chan struct{}
+	// keptLoggedAt: when a ban kept for the loop was last logged (one line
+	// a minute, not one a hit).  Under mu.
+	keptLoggedAt time.Time
 }
+
+// autoBanWriteWithin bounds the write of an automatic ban on the access log's
+// receive loop.  Against another writer's transaction -- a backlog being
+// written after a hold, the hourly aggregate -- the write would otherwise
+// wait out the busy timeout, five seconds a hit, and the socket behind the
+// loop drops what it cannot hold meanwhile (2026-10-17).
+const autoBanWriteWithin = 300 * time.Millisecond
 
 // SetActionResolver installs the per-source action picker.  Safe to call
 // after Start (= reads happen on the flush goroutine).
@@ -230,6 +245,15 @@ func New(d *db.DB, filePath string, duration time.Duration) *Manager {
 		duration: duration,
 		stopCh:   make(chan struct{}),
 		doneCh:   make(chan struct{}),
+		wake:     make(chan struct{}, 1),
+	}
+}
+
+// wakeLoop asks the loop to write what is kept, now.  Never waits.
+func (m *Manager) wakeLoop() {
+	select {
+	case m.wake <- struct{}{}:
+	default:
 	}
 }
 
@@ -333,8 +357,25 @@ func (m *Manager) AddWithSourceAction(ctx context.Context, ip, ja4, source, reas
 		}
 		return
 	}
-	if err := m.upsert(ctx, ip, ja4, source, reason, now, expires, bannedBy, strings.TrimSpace(action), DeriveScope(ip, ja4)); err != nil {
-		log.Printf("ban upsert: %v", err)
+	// The write, within a bound (autoBanWriteWithin): this runs on the
+	// access log's receive loop.  A write that cannot be made at once is
+	// kept the way a hold keeps it -- in force from the file and the checks
+	// -- and the loop writes it the moment it can.
+	err := m.upsertWithin(ctx, autoBanWriteWithin, ip, ja4, source, reason, now, expires, bannedBy, strings.TrimSpace(action), DeriveScope(ip, ja4))
+	if err != nil {
+		m.hold(heldBan{ip: ip, ja4: ja4, source: source, reason: reason, bannedBy: bannedBy,
+			action: strings.TrimSpace(action), scope: DeriveScope(ip, ja4), bannedAt: now, expiresAt: expires})
+		m.markDirty()
+		m.mu.Lock()
+		say := time.Since(m.keptLoggedAt) > time.Minute
+		if say {
+			m.keptLoggedAt = time.Now()
+		}
+		m.mu.Unlock()
+		if say {
+			log.Printf("ban: the database did not take the write at once (%v); the ban is kept and enforced, and written when it can be", err)
+		}
+		m.wakeLoop()
 		return
 	}
 	m.markDirty()
@@ -736,12 +777,35 @@ func (m *Manager) markDirty() {
 // renders portably -- ON CONFLICT on sqlite, ON DUPLICATE KEY UPDATE on
 // mariadb -- so the prior two-branch driver switch collapses to one path.
 func (m *Manager) upsert(ctx context.Context, ip, ja4, source, reason string, bannedAt, expiresAt int64, bannedBy, action, scope string) error {
+	return upsertOn(m.DB.Gorm.WithContext(ctx), ip, ja4, source, reason, bannedAt, expiresAt, bannedBy, action, scope)
+}
+
+// upsertWithin is upsert with the wait for the write lock bounded to within
+// on SQLite -- the busy timeout of the one connection the write uses, put
+// back after -- for a write made on the access log's receive loop.  A context
+// deadline does not cut that wait short: it sits in SQLite's busy handler,
+// not in a step the interrupt reaches.  MariaDB waits its own way.
+func (m *Manager) upsertWithin(ctx context.Context, within time.Duration, ip, ja4, source, reason string, bannedAt, expiresAt int64, bannedBy, action, scope string) error {
+	if m.DB.Driver != db.DriverSQLite {
+		return m.upsert(ctx, ip, ja4, source, reason, bannedAt, expiresAt, bannedBy, action, scope)
+	}
+	return m.DB.Gorm.Connection(func(tx *gorm.DB) error {
+		if err := tx.Exec(fmt.Sprintf("PRAGMA busy_timeout=%d", within.Milliseconds())).Error; err != nil {
+			return err
+		}
+		defer tx.Exec("PRAGMA busy_timeout=5000")
+		return upsertOn(tx.WithContext(ctx), ip, ja4, source, reason, bannedAt, expiresAt, bannedBy, action, scope)
+	})
+}
+
+// upsertOn writes the row through g.
+func upsertOn(g *gorm.DB, ip, ja4, source, reason string, bannedAt, expiresAt int64, bannedBy, action, scope string) error {
 	row := db.Ban{
 		IP: ip, JA4: ja4, Source: source, Reason: reason,
 		BannedAt: bannedAt, ExpiresAt: expiresAt,
 		BannedBy: bannedBy, Action: action, Scope: scope,
 	}
-	return m.DB.Gorm.WithContext(ctx).Clauses(clause.OnConflict{
+	return g.Clauses(clause.OnConflict{
 		// scope is part of the conflict key (DB-3): a honeypot ip_ja4 ban and a
 		// manual ja4_only ban on the SAME (ip, ja4) are distinct rows, not an
 		// overwrite.  Without scope here the upsert silently rewrote one into the
@@ -939,6 +1003,15 @@ func (m *Manager) loop() {
 			}
 			if m.shouldFlush() && m.filePath != "" {
 				_ = m.flush()
+			}
+		case <-m.wake:
+			// A ban kept by the receive loop: into the file now, and into
+			// the table when the lock is free.
+			if m.shouldFlush() && m.filePath != "" {
+				_ = m.flush()
+			}
+			if !m.DB.WritesHeld() {
+				m.writeHeld()
 			}
 		}
 	}

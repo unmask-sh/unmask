@@ -62,6 +62,17 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	}
 	winMinutes := winHours * 60
 	ctx, cancel := context.WithTimeout(r.Context(), budget)
+	// While a schema update or a compaction holds the database -- an index
+	// build on a slow disk reads it flat out for hours -- the section's
+	// reads would stand in line behind the build's and hold the page with
+	// them (2026-10-17: a day's figures took five hours to not come back).
+	// The section's budget is nothing then: every read below returns at
+	// once, the page says it is waiting, and the realtime tab, which reads
+	// nothing, stands in.
+	dayHeld := h.DB != nil && h.DB.WritesHeld()
+	if dayHeld {
+		cancel()
+	}
 	defer cancel()
 
 	// host filter (= global scope of the shared host_picker.  Sourced from cookie / ?host=).
@@ -458,6 +469,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIAbandon":     abandon,
 		"KPIAbandonPct":  abandonPct,
 		"KPIKnown":       kpiKnown,
+		"DayHeld":        dayHeld,
 		"KPIReqTotal":    comp.Total,
 		"KPIReqKnown":    comp.OK, // the requests tile: a figure only with the access-log feed
 		"KPIReqBenign":   comp.Benign,

@@ -450,3 +450,56 @@ func TestEditDuringAHoldIsRefused(t *testing.T) {
 		t.Errorf("an edit during a hold: %v, want ErrWritesHeld", err)
 	}
 }
+
+// TestAutomaticBanKeptWhenTheWriteIsSlow: an automatic ban runs on the
+// access log's receive loop.  Against another writer's transaction it must
+// not wait out the busy timeout: it is kept, in force from the file and the
+// checks, and written when the lock is free.
+func TestAutomaticBanKeptWhenTheWriteIsSlow(t *testing.T) {
+	d, mgr, banFile := openHeldTest(t)
+	ctx := context.Background()
+	created := 0
+	mgr.OnCreated = func(ip, ja4, source, reason, bannedBy string) { created++ }
+	// Another writer's transaction, open for the duration.
+	c, err := d.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Now()
+	mgr.AddWithSourceAction(ctx, "203.0.113.90", "t13d_k", SourceHoneypot, "trap /wp-login.php", "", "deny")
+	if took := time.Since(t0); took > 2*time.Second {
+		t.Errorf("the ban took %v against a held write lock; it must give up well before the busy timeout", took)
+	}
+	if !mgr.IsBanned(ctx, "203.0.113.90", "t13d_k") {
+		t.Error("the kept ban is not enforced by the checks")
+	}
+	select {
+	case <-mgr.wake:
+	default:
+		t.Error("the loop was not woken for the kept ban")
+	}
+	if err := mgr.flush(); err != nil {
+		t.Fatal(err)
+	}
+	if file, _ := os.ReadFile(banFile); !strings.Contains(string(file), "203.0.113.90|t13d_k|honeypot|deny") {
+		t.Errorf("the ban file does not carry the kept ban:\n%s", file)
+	}
+	var n int
+	_ = d.QueryRow(`SELECT COUNT(*) FROM unmask_ban`).Scan(&n)
+	if n != 0 || created != 0 {
+		t.Fatalf("rows=%d created=%d while the lock was held; want nothing written or announced yet", n, created)
+	}
+	// The lock free: the loop's write lands it, once.
+	if _, err := c.ExecContext(ctx, "ROLLBACK"); err != nil {
+		t.Fatal(err)
+	}
+	_ = c.Close()
+	mgr.writeHeld()
+	_ = d.QueryRow(`SELECT COUNT(*) FROM unmask_ban WHERE ip = '203.0.113.90'`).Scan(&n)
+	if n != 1 || created != 1 {
+		t.Errorf("after the lock: rows=%d created=%d, want 1 and 1", n, created)
+	}
+}

@@ -147,3 +147,32 @@ func TestNilStore(t *testing.T) {
 		t.Error("nil store")
 	}
 }
+
+// TestNoticeKeptWhileWritesAreHeld: a notice that cannot be written -- the
+// database's writes held, or busy past the deadline -- is kept and written
+// when it can be, not lost.
+func TestNoticeKeptWhileWritesAreHeld(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	h := time.Date(2026, 10, 17, 21, 0, 0, 0, time.UTC).Unix()
+	s.DB.HoldWrites(true)
+	s.Add(KindBan, ban("203.0.113.5", "honeypot", h+10))
+	if rows, _ := s.List(ctx, 1, "", 50, 0); len(rows) != 0 {
+		t.Fatalf("written while writes were held: %+v", rows)
+	}
+	s.RetryHeld() // under the hold: tries nothing
+	if rows, _ := s.List(ctx, 1, "", 50, 0); len(rows) != 0 {
+		t.Fatalf("a retry under the hold wrote: %+v", rows)
+	}
+	s.DB.HoldWrites(false)
+	if n := s.RetryHeld(); n != 0 {
+		t.Errorf("%d still kept after the retry", n)
+	}
+	rows, err := s.List(ctx, 1, "", 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Kind != KindBan || rows[0].Str("ip") != "203.0.113.5" || rows[0].CreatedAt != h+10 {
+		t.Errorf("after the retry: %+v, want the kept ban notice with its own time", rows)
+	}
+}

@@ -404,3 +404,99 @@ func TestBansDuringAHold(t *testing.T) {
 		t.Errorf("rows after the hold: %d (%v), want the lifted row deleted and the dropped ban never written", n, err)
 	}
 }
+
+// TestSchemaRefreshHoldsOnTheLockBeforeReading: a run started from a shell
+// holds its lock from its first moment; the daemon must hold its writes from
+// the lock alone, before -- and whether or not -- the database answers its
+// reads (on a slow disk under a build they take minutes).
+func TestSchemaRefreshHoldsOnTheLockBeforeReading(t *testing.T) {
+	h := installedHandler(t)
+	lock, err := h.DB.LockSchemaRun(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The reads cannot be made: a context already over.
+	over, cancel := context.WithCancel(context.Background())
+	cancel()
+	h.SchemaRefresh(over)
+	if !h.DB.WritesHeld() {
+		t.Fatal("the writes are not held although a run holds the lock")
+	}
+	if _, running := h.SchemaWaiting(); !running {
+		t.Error("the run known from its lock is not reported as running")
+	}
+	if v := h.schemaView(user.RoleSuperadmin, i18n.LangEN); v == nil || v.State != "running" || v.StartedAt == 0 {
+		t.Errorf("view = %+v, want running, started now (no record yet)", v)
+	}
+	// The lock released: the hold lifts, with or without the reads.
+	lock.Release()
+	h.SchemaRefresh(over)
+	if h.DB.WritesHeld() {
+		t.Error("the writes are still held after the lock was released")
+	}
+	h.SchemaRefresh(context.Background())
+	if h.DB.WritesHeld() {
+		t.Error("the writes are held with no run going")
+	}
+}
+
+// TestSchemaStatusAnswersWhileARefreshIsSlow: the status poll answers from
+// what the daemon knows, at once, while a refresh is still reading the
+// database (a build on a slow disk can keep one going for minutes).
+func TestSchemaStatusAnswersWhileARefreshIsSlow(t *testing.T) {
+	h := installedHandler(t)
+	s := *h.cfg()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
+	h.schema.refreshMu.Lock() // a refresh that does not come back
+	defer h.schema.refreshMu.Unlock()
+	done := make(chan int, 1)
+	go func() {
+		rr := httptest.NewRecorder()
+		h.AdminSchemaUpdateStatus(rr, asRole(httptest.NewRequest(http.MethodGet, "/unmask/admin/api/schema-update", nil), user.RoleSuperadmin))
+		done <- rr.Code
+	}()
+	select {
+	case code := <-done:
+		if code != http.StatusOK {
+			t.Errorf("status %d", code)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the status poll waited for the refresh")
+	}
+}
+
+// TestOverviewWhileWritesAreHeld: while a build holds the database the
+// dashboard's section reads nothing and says it is waiting, at once, instead
+// of standing in line behind the build's reads.
+func TestOverviewWhileWritesAreHeld(t *testing.T) {
+	h := installedHandler(t)
+	s := *h.cfg()
+	s.Server.BasePath = "/unmask"
+	h.SetSettings(s)
+	h.DB.HoldWrites(true)
+	defer h.DB.HoldWrites(false)
+	t0 := time.Now()
+	body := renderAs(t, h.AdminTopOverview, "/unmask/admin/", user.RoleSuperadmin, "en")
+	if took := time.Since(t0); took > 3*time.Second {
+		t.Errorf("the dashboard took %v under a hold", took)
+	}
+	if !strings.Contains(body, `id="day-held"`) || !strings.Contains(body, "The database is being updated, so this section") {
+		t.Error("the dashboard does not say its section is waiting for the update")
+	}
+	if strings.Contains(body, i18n.T(i18n.LangEN, "overview.kpi.timeout_banner")) {
+		t.Error("the dashboard calls the pause a timeout")
+	}
+	// The section's refresh (a fragment, no closing tag to look for).
+	req := asRole(httptest.NewRequest(http.MethodGet, "/unmask/admin/?partial=day", nil), user.RoleSuperadmin)
+	req.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
+	rr := httptest.NewRecorder()
+	h.AdminTopOverview(rr, req)
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), `id="day-held"`) {
+		t.Errorf("the refreshed section: %d, says it is waiting: %v", rr.Code, strings.Contains(rr.Body.String(), `id="day-held"`))
+	}
+	h.DB.HoldWrites(false)
+	if after := renderAs(t, h.AdminTopOverview, "/unmask/admin/", user.RoleSuperadmin, "en"); strings.Contains(after, `id="day-held"`) {
+		t.Error("the dashboard still says it is waiting after the hold")
+	}
+}

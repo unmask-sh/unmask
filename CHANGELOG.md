@@ -12,6 +12,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-10-18) **A schema update started from a shell holds the daemon's writes from its first moment.**  The daemon judged a run going only after reading the database, and under an index build on a slow disk those reads took minutes: its writers waited out the busy timeout at every write, and events, bans and the access-log feed suffered.  The run's lock is looked at first now, and the hold follows it.
+
+- (2026-10-18) **The update notice and the dashboard answer at once while an index builds.**  The notice's poll read the database on every page's turn and stood in line behind the build; the dashboard's figures waited with it, for hours.  The poll now answers from what the daemon knows, one at a time per page, and the dashboard's section says it is paused until the update has finished.
+
+- (2026-10-18) **Nothing is dropped while the events kept through an update are written back.**  The backlog was written in one long stretch while new events overflowed the queue, bans and notices waited out the lock, and the access-log socket lost lines.  The backlog now goes out in small chunks, the queue drained between them; an automatic ban no longer waits for the lock, and a notice that failed is tried again.
+
 ## [0.1.52-rc5] - 2026-10-17 (testing build)
 
 ### Since rc4

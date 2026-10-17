@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
@@ -72,7 +73,7 @@ func TestMariaDB_RollupKindIndex(t *testing.T) {
 
 	// Sized without an id column: the catalog's count, which ANALYZE has just
 	// brought up to date -- approximate, so only its order of magnitude is held.
-	n, err := approxRows(conn, "unmask_aggregate_hourly")
+	n, err := approxRows(context.Background(), conn, "unmask_aggregate_hourly")
 	if err != nil {
 		t.Fatalf("approxRows: %v", err)
 	}

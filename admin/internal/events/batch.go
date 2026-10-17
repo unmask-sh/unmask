@@ -18,6 +18,7 @@ package events
 
 import (
 	"context"
+	"errors"
 	"log"
 	"sync"
 	"sync/atomic"
@@ -100,6 +101,12 @@ var heldMax = db.HeldEventsLimit()
 // released between chunks, so whatever else is waiting to write gets in, and
 // no one transaction has to beat the flush's own deadline on a slow disk.
 const flushChunk = 500
+
+// backlogPause is the gap between the chunks of a backlog (the events kept
+// through a hold): the other writers -- a ban, a notice, the hourly
+// aggregate -- take the lock in the gaps, where one chunk after another had
+// them waiting out their busy timeout (2026-10-17, a nine-minute backlog).
+const backlogPause = 25 * time.Millisecond
 
 // maxRetain bounds what is kept for a retry when writing fails (the database
 // is down, full, read-only): a transient failure loses nothing, a persistent
@@ -196,8 +203,22 @@ func (f *Flusher) run() {
 		buf = append(buf[:0], buf[over:]...)
 		return over
 	}
+	// drain takes what has queued meanwhile into buf: a long write -- the
+	// backlog of a hold, minutes on a slow disk -- must not leave the queue
+	// to fill and drop while it goes (2026-10-17: it did, by the thousand).
+	drain := func() {
+		for {
+			select {
+			case e := <-f.ch:
+				buf = append(buf, e)
+			default:
+				return
+			}
+		}
+	}
 	// write writes buf out a chunk at a time and reports the first failure;
-	// what failed stays in buf.
+	// what failed stays in buf.  Between the chunks of a backlog the queue is
+	// drained and the lock left alone for a moment.
 	write := func(within time.Duration) error {
 		deadline := time.Now().Add(within)
 		for len(buf) > 0 {
@@ -209,6 +230,10 @@ func (f *Flusher) run() {
 				return err
 			}
 			buf = append(buf[:0], buf[n:]...)
+			drain()
+			if kept && len(buf) > 0 {
+				time.Sleep(backlogPause)
+			}
 		}
 		return nil
 	}
@@ -250,6 +275,15 @@ func (f *Flusher) run() {
 				f.droppedOnError.Add(uint64(len(buf)))
 				log.Printf("events flusher: %d event(s) could not be written before shutdown: %v", len(buf), err)
 				buf = buf[:0]
+				return
+			}
+			if kept && errors.Is(err, context.DeadlineExceeded) {
+				// A backlog outlasts one turn: what was written is written,
+				// the rest goes on at the next tick.  Not a failure, and
+				// nothing is dropped for it.
+				f.kept.Store(int64(len(buf)))
+				log.Printf("events flusher: %d event(s) of the backlog still to write", len(buf))
+				lastFlush = time.Now()
 				return
 			}
 			// Retain and retry on the next tick (mirrors nginxlog.flushOnce):

@@ -345,7 +345,9 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 {{- /* Host filtering is unified into the shared host_picker in the top bar (old host-filter-bar removed). */ -}}
 
 {{ define "overview_day" }}
-{{ if not .KPIKnown }}
+{{ if .DayHeld }}
+<div role="status" id="day-held" style="margin:0 0 1rem;padding:.7rem 1rem;border:1px solid #93c5fd;background:#eff6ff;border-radius:.4rem;color:#1e3a8a;line-height:1.5">⏳ {{ t .Lang "overview.day.held" }}</div>
+{{ else if not .KPIKnown }}
 <div role="alert" style="margin:0 0 1rem;padding:.7rem 1rem;border:1px solid #f59e0b;background:#fffbeb;border-radius:.4rem;color:#92400e;line-height:1.5">⚠ {{ t .Lang (printf "overview.kpi.timeout_banner%s" $.WinSuffix) }}</div>
 {{ end }}
 
@@ -354,12 +356,14 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
      continuous scanning that nothing was happening, so the headline answers a
      different question there -- what unmask WOULD have stopped -- and says so. */}}
 <div class="hero{{ if .ObserveOnly }} hero-observe{{ end }}">
-  <div class="icon">{{ if not .KPIKnown }}⚠️{{ else if .ObserveOnly }}👁️{{ else if gt .KPIBlocked 0 }}🛡️{{ else }}😴{{ end }}</div>
+  <div class="icon">{{ if .DayHeld }}⏳{{ else if not .KPIKnown }}⚠️{{ else if .ObserveOnly }}👁️{{ else if gt .KPIBlocked 0 }}🛡️{{ else }}😴{{ end }}</div>
   <div class="body">
     <div class="label">{{ if .ObserveOnly }}{{ t .Lang "overview.hero.label_observe" }}{{ else }}{{ t .Lang "overview.hero.label" }}{{ end }}</div>
     <div class="value">{{ if not .KPIKnown }}—{{ else if .ObserveOnly }}{{ comma .KPIWouldBlock }}<span style="font-size:1.5rem;font-weight:600;margin-left:.4rem;opacity:.85">{{ t .Lang "overview.hero.unit" }}</span>{{ else }}{{ comma .KPIBlocked }}<span style="font-size:1.5rem;font-weight:600;margin-left:.4rem;opacity:.85">{{ t .Lang "overview.hero.unit" }}</span>{{ end }}</div>
     <div class="desc">
-      {{ if not .KPIKnown }}
+      {{ if .DayHeld }}
+        {{ t .Lang "overview.hero.held" }}
+      {{ else if not .KPIKnown }}
         {{ t .Lang "overview.hero.timeout" }}
       {{ else if .ObserveOnly }}
         {{ safeHTML (t .Lang (printf "overview.hero.observe_desc%s" $.WinSuffix)) }}

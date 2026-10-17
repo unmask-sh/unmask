@@ -166,3 +166,60 @@ func TestFlusherWritesWhatItKeptAtShutdown(t *testing.T) {
 		t.Errorf("%d of %d kept events written at shutdown", rows, n)
 	}
 }
+
+// TestBacklogWriteKeepsTakingEvents: the backlog of a hold is written a
+// chunk at a time while what arrives meanwhile is taken off the queue, so
+// nothing is dropped for the length of the write.
+func TestBacklogWriteKeepsTakingEvents(t *testing.T) {
+	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: filepath.Join(t.TempDir(), "b.sqlite")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { d.Close() })
+	if err := db.Migrate(d); err != nil {
+		t.Fatal(err)
+	}
+	count := func() int {
+		var n int
+		if err := d.QueryRow(`SELECT COUNT(*) FROM unmask_event`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	f := NewFlusher(d, 100, 50)
+	defer f.Stop()
+
+	d.HoldWrites(true)
+	const kept = 6 * flushChunk
+	for i := 0; i < kept; i++ {
+		f.Submit(&Event{Site: "s", IPPacked: []byte{10, 0, 0, 1}, Phase: "serve"})
+	}
+	time.Sleep(300 * time.Millisecond)
+	if got := count(); got != 0 {
+		t.Fatalf("%d events written while writes were held", got)
+	}
+	// The lock free, and a steady arrival while the backlog is written.
+	d.HoldWrites(false)
+	const more = 4000
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < more; i++ {
+			f.Submit(&Event{Site: "s", IPPacked: []byte{10, 0, 0, 2}, Phase: "serve"})
+			if i%40 == 0 {
+				time.Sleep(time.Millisecond)
+			}
+		}
+	}()
+	<-done
+	deadline := time.Now().Add(90 * time.Second)
+	for count() != kept+more && time.Now().Before(deadline) {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if got := count(); got != kept+more {
+		t.Fatalf("%d of %d events written (kept %d, arrived meanwhile %d)", got, kept+more, kept, more)
+	}
+	if f.DroppedCount() != 0 || f.DroppedOnErrorCount() != 0 {
+		t.Errorf("dropped %d (queue) + %d (error) while the backlog was written", f.DroppedCount(), f.DroppedOnErrorCount())
+	}
+}

@@ -301,6 +301,25 @@ c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
       banPlaced = !placed.err && placed.listed;
       ok(banPlaced && placed.badge, `a ban placed during the update: ${JSON.stringify(placed)}`);
       ok(placed.ms < 3000, `placing a ban during the update took ${placed.ms}ms; it must not wait for the lock`);
+      // The dashboard answers at once and says its section is waiting: its
+      // reads must not stand in line behind the build's.
+      const dash = await su.evaluate(async base => {
+        const t0 = Date.now();
+        const r = await fetch(base + '/admin/', { credentials: 'same-origin' });
+        const html = await r.text();
+        return { status: r.status, ms: Date.now() - t0, held: html.includes('id="day-held"') };
+      }, BASE);
+      ok(dash.status === 200 && dash.held, `the dashboard during the update: ${JSON.stringify(dash)}`);
+      ok(dash.ms < 5000, `the dashboard during the update took ${dash.ms}ms`);
+      // The status poll answers at once too.
+      const st = await su.evaluate(async base => {
+        const t0 = Date.now();
+        const r = await fetch(base + '/admin/api/schema-update', { credentials: 'same-origin' });
+        const v = await r.json();
+        return { status: r.status, ms: Date.now() - t0, state: v.state };
+      }, BASE);
+      ok(st.status === 200 && (st.state === 'running' || st.state === 'done'), `the status poll during the update: ${JSON.stringify(st)}`);
+      ok(st.ms < 2000, `the status poll took ${st.ms}ms`);
     } else {
       console.log(`   (the build finished before the page reloaded, ${Date.now() - clicked}ms after the click: running state not observed)`);
     }

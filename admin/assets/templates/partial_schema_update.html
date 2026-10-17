@@ -226,8 +226,14 @@
         if (cur) passed = true;
       }
     }
+    // One poll at a time: a slow answer is not followed by a second ask
+    // (a page once had thousands queued behind an answer that took hours).
+    var inflight = false;
     var poll = setInterval(function(){
+      if (inflight) return;
+      inflight = true;
       fetch(api, {credentials: 'same-origin'}).then(function(r){ return r.ok ? r.json() : null; }).then(function(v){
+        inflight = false;
         if (!v) return;
         if (v.state !== 'running') { clearInterval(poll); location.reload(); return; }
         if (stageEl && v.stage) { stageEl.textContent = v.stage; stageEl.hidden = false; }
@@ -241,7 +247,7 @@
         if (cancel && !cancel.disabled) cancel.hidden = !v.can_cancel;
         if (noteEl) noteEl.textContent = v.stop_note || '';
         if (stopBody) stopBody.textContent = v.cancel_note || '';
-      }).catch(function(){});
+      }).catch(function(){ inflight = false; });
     }, 5000);
   }
 })();

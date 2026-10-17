@@ -1,6 +1,7 @@
 package db
 
 import (
+	"context"
 	"fmt"
 	"testing"
 	"time"
@@ -38,11 +39,11 @@ func fillRollup(t *testing.T, d *DB, n int) {
 // pruned from its old end leaves a contiguous run there, as ids do.
 func TestApproxRowsOfATableWithoutAnID(t *testing.T) {
 	d := migratedDB(t)
-	if n, err := approxRows(d, "unmask_aggregate_hourly"); err != nil || n != 0 {
+	if n, err := approxRows(context.Background(), d, "unmask_aggregate_hourly"); err != nil || n != 0 {
 		t.Fatalf("empty table: rows %d, err %v; want 0, nil", n, err)
 	}
 	fillRollup(t, d, 900)
-	if n, err := approxRows(d, "unmask_aggregate_hourly"); err != nil || n != 900 {
+	if n, err := approxRows(context.Background(), d, "unmask_aggregate_hourly"); err != nil || n != 900 {
 		t.Fatalf("rows %d, err %v; want the 900 the table holds", n, err)
 	}
 	// The hourly prune takes the oldest hours.
@@ -53,7 +54,7 @@ func TestApproxRowsOfATableWithoutAnID(t *testing.T) {
 	if err := d.QueryRow(`SELECT COUNT(*) FROM unmask_aggregate_hourly`).Scan(&left); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := approxRows(d, "unmask_aggregate_hourly"); err != nil || n != left || left == 0 || left == 900 {
+	if n, err := approxRows(context.Background(), d, "unmask_aggregate_hourly"); err != nil || n != left || left == 0 || left == 900 {
 		t.Fatalf("after a prune: rows %d, err %v; want the %d left", n, err, left)
 	}
 	// A table with neither an id nor a rowid cannot be sized; the caller then
@@ -61,7 +62,7 @@ func TestApproxRowsOfATableWithoutAnID(t *testing.T) {
 	if _, err := d.Exec(`CREATE TABLE no_rowid (k TEXT PRIMARY KEY) WITHOUT ROWID`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := approxRows(d, "no_rowid"); err == nil {
+	if _, err := approxRows(context.Background(), d, "no_rowid"); err == nil {
 		t.Error("a WITHOUT ROWID table was sized; want an error")
 	}
 }

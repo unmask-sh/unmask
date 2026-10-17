@@ -72,7 +72,20 @@ type Store struct {
 	// mu serialises writes: two bans in the same second must fold into one
 	// row, not race past each other into two.
 	mu sync.Mutex
+	// held: the entries that could not be written -- the database's writes
+	// held, or busy past the deadline (2026-10-17: a hundred ban notices
+	// lost behind a backlog being written) -- tried again until they are,
+	// oldest first; bounded.  heldMu guards it and retrying.
+	heldMu   sync.Mutex
+	held     []Entry
+	retrying bool
 }
+
+// heldMax bounds the entries kept for a retry.
+const heldMax = 1000
+
+// retryEvery is how often the kept entries are tried again.
+const retryEvery = 30 * time.Second
 
 // New returns a store over conn.
 func New(conn *db.DB) *Store { return &Store{DB: conn} }
@@ -88,11 +101,78 @@ func (s *Store) Add(event string, fields map[string]any) {
 	if e.Kind == "" {
 		return
 	}
+	if s.DB.WritesHeld() {
+		s.keep(e)
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := s.Put(ctx, e); err != nil {
-		log.Printf("notice %s: %v", event, err)
+		log.Printf("notice %s: %v (kept for a retry)", event, err)
+		s.keep(e)
 	}
+}
+
+// keep holds e for a later try and sees to it that one is made.
+func (s *Store) keep(e Entry) {
+	s.heldMu.Lock()
+	defer s.heldMu.Unlock()
+	if len(s.held) >= heldMax {
+		s.held = s.held[1:]
+	}
+	s.held = append(s.held, e)
+	if !s.retrying {
+		s.retrying = true
+		go s.retryLoop()
+	}
+}
+
+// retryLoop writes the kept entries every retryEvery until none are left.
+func (s *Store) retryLoop() {
+	for {
+		time.Sleep(retryEvery)
+		if s.RetryHeld() == 0 {
+			s.heldMu.Lock()
+			if len(s.held) == 0 {
+				s.retrying = false
+				s.heldMu.Unlock()
+				return
+			}
+			s.heldMu.Unlock()
+		}
+	}
+}
+
+// RetryHeld tries the kept entries once, oldest first, and reports how many
+// are still kept (0: none left, or the database's writes are held, in which
+// case nothing was tried).  Called by the retry loop, and by the tests.
+func (s *Store) RetryHeld() int {
+	if s == nil || s.DB == nil || s.DB.WritesHeld() {
+		return 0
+	}
+	s.heldMu.Lock()
+	batch := s.held
+	s.held = nil
+	s.heldMu.Unlock()
+	var back []Entry
+	for i, e := range batch {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		err := s.Put(ctx, e)
+		cancel()
+		if err != nil {
+			// The rest waits for the next try, in order.
+			back = append(back, batch[i:]...)
+			break
+		}
+	}
+	s.heldMu.Lock()
+	s.held = append(back, s.held...)
+	n := len(s.held)
+	s.heldMu.Unlock()
+	if written := len(batch) - len(back); written > 0 {
+		log.Printf("notice: wrote %d kept entr%s", written, map[bool]string{true: "y", false: "ies"}[written == 1])
+	}
+	return n
 }
 
 // fromEvent turns a webhook payload into a row: event, site and ts become
