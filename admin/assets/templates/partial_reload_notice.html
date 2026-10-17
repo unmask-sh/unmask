@@ -11,30 +11,31 @@
   (forward-auth), where there is nothing to tell it by.
 
   One line: what is the case and since when.  How to apply it, and how the
-  notice knows, sit behind a "?" that opens on hover or focus, under the
-  bar's left edge so it fits whatever the window's width (the "?" sits at
-  the end of the line, where a popup hung from it would run off a narrow
-  window) -- the same look as the pages' help tips, but styled here: the
-  tips' stylesheet (popover-pin.css) is on the pages that have tips, and
-  this bar is on every page.  The styles are here rather than in each
-  page's <style>, for the same reason as the schema update notice's: the
-  markup is injected by this partial.
+  notice knows, sit behind a "?" that is the pages' shared help tip
+  (.info-tip / .info-popup, popover-pin.css and .js): it opens on hover or
+  focus, and a click pins it as a window of its own -- title bar, copy
+  button, drag, Esc -- that stays when the pointer leaves.  The hover popup
+  closes as the pointer leaves the "?" for it, so the command in it could
+  not be selected; the pinned one is there to be copied from.  The popover
+  assets are on every signed-in page (popover_pin_assets at the end of each
+  page's <head>, which TestReloadNoticeHelpIsPinnableOnEveryPage holds), so
+  the bar relies on them as on the base layout; what is styled here is the
+  bar and the tip's colour in it, beside the markup like the schema update
+  notice's.  data-pin-title names the pinned window: the tip sits in no
+  heading, label or card the title would otherwise be read from.
 */ -}}
 {{ define "reload_notice" }}{{ with .ReloadNotice }}
 <style>
-.rlnote{position:relative;display:flex;align-items:center;gap:.5rem;padding:.35rem 1.5rem;font-size:.85rem;line-height:1.45;border-bottom:1px solid #fcd34d;background:#fffbeb;color:#78350f}
+.rlnote{display:flex;align-items:center;gap:.5rem;padding:.35rem 1.5rem;font-size:.85rem;line-height:1.45;border-bottom:1px solid #fcd34d;background:#fffbeb;color:#78350f}
 .rlnote[hidden]{display:none}
 .rlnote-msg{min-width:0}
-.rlnote-tip{display:inline-flex;align-items:center;justify-content:center;width:1.2rem;height:1.2rem;border-radius:50%;background:#d6b86a;color:#fff;font-size:.7rem;font-weight:700;cursor:help;flex:none;outline:none;user-select:none}
-.rlnote-tip:hover,.rlnote-tip:focus{background:#78350f}
-.rlnote-pop{display:none;position:absolute;top:100%;left:1.5rem;width:min(28rem,calc(100vw - 3rem));background:#fff;color:#0f172a;border:1px solid #cbd5e1;padding:.6rem .9rem;border-radius:.4rem;font-size:.8rem;font-weight:400;line-height:1.6;z-index:600;text-align:left;cursor:auto;box-shadow:0 .5rem 1.5rem rgba(15,23,42,.12)}
-.rlnote-tip:hover .rlnote-pop,.rlnote-tip:focus .rlnote-pop{display:block}
-.rlnote code,.rlnote-pop code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;background:rgba(120,53,15,.08);padding:0 .25rem;border-radius:.2rem}
-.rlnote-pop code{background:#f1f5f9}
+.rlnote .info-tip{margin-left:0;background:#d6b86a}
+.rlnote .info-tip:hover,.rlnote .info-tip:focus{background:#78350f}
+.rlnote .info-tip.pinned{background:#3b82f6}
 </style>
 <div id="rlnote" class="rlnote" role="status" hidden>
   <span class="rlnote-msg">{{ safeHTML (tf $.Lang "reload_notice.msg" .WrittenHTML) }}</span>
-  <span class="rlnote-tip" tabindex="0" aria-label="help">?<span class="rlnote-pop">{{ if .Gateway }}{{ safeHTML (t $.Lang "reload_notice.sub_gateway") }}{{ else }}{{ safeHTML (t $.Lang "reload_notice.sub") }}{{ end }}</span></span>
+  <span class="info-tip" tabindex="0" aria-label="help" data-pin-title="{{ t $.Lang "reload_notice.title" }}">?<span class="info-popup">{{ if .Gateway }}{{ safeHTML (t $.Lang "reload_notice.sub_gateway") }}{{ else }}{{ safeHTML (t $.Lang "reload_notice.sub") }}{{ end }}</span></span>
 </div>
 <script>
 (function(){

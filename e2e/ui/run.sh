@@ -181,6 +181,13 @@ EOF
 "$BIN" migrate -config "$WORK/config.yml" >/dev/null
 "$BIN" user create ui-e2e -role superadmin -password "$PASS" -config "$WORK/config.yml" >/dev/null
 
+# nginx's configuration on disk, with the render id its log format carries
+# (rv=): what the reload notice compares the access log against.
+# reload-notice.test.js feeds the log socket a line from before that
+# configuration and expects the notice on every page.
+"$BIN" render-nginx -config "$WORK/config.yml" >/dev/null 2>"$WORK/render.log" \
+    || { echo "FAIL: render-nginx"; cat "$WORK/render.log"; exit 99; }
+
 # Counters behind the composition card: every segment non-zero so all five
 # chips render, plus rebind/passthrough so the breakdown popover has its
 # conditional rows.

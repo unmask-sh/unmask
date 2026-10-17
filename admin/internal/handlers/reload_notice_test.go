@@ -1,12 +1,14 @@
 package handlers
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/assets"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/renderwatch"
 	"github.com/unmask-sh/unmask/admin/internal/user"
@@ -40,8 +42,9 @@ func reloadHandler(t *testing.T) (*Handler, string, time.Time) {
 
 // TestReloadNoticeOnEveryPage: while nginx logs an older configuration than
 // the one written, every page says so -- in the operator's language, with
-// the commands that apply it -- and once nginx logs the new one, no page
-// does.
+// the commands that apply it behind the pages' shared help tip, which pins,
+// and the popover assets that tip needs linked on the page -- and once nginx
+// logs the new one, no page does.
 func TestReloadNoticeOnEveryPage(t *testing.T) {
 	h, id, written := reloadHandler(t)
 
@@ -49,15 +52,34 @@ func TestReloadNoticeOnEveryPage(t *testing.T) {
 	h.RenderWatch.Saw("", written.Add(2*time.Minute))
 	for path, fn := range pagesWithTheHeader(h) {
 		body := renderAs(t, fn, path, user.RoleViewer, "en")
-		if !strings.Contains(body, `id="rlnote"`) || !strings.Contains(body, "nginx is still running the previous configuration") {
+		at := strings.Index(body, `id="rlnote"`)
+		if at < 0 || !strings.Contains(body, "nginx is still running the previous configuration") {
 			t.Errorf("%s: the reload notice is missing", path)
 			continue
 		}
-		if !strings.Contains(body, "nginx -t &amp;&amp; sudo nginx -s reload") || strings.Contains(body, "reload_notice.") {
+		notice := body[at:]
+		if end := strings.Index(notice, "</div>"); end >= 0 {
+			notice = notice[:end]
+		}
+		if !strings.Contains(notice, "nginx -t &amp;&amp; sudo nginx -s reload") || strings.Contains(notice, "reload_notice.") {
 			t.Errorf("%s: the notice lacks the command, or shows a raw key", path)
 		}
-		if !strings.Contains(body, `<time class="js-datetime" data-ts="`) {
+		if !strings.Contains(notice, `<time class="js-datetime" data-ts="`) {
 			t.Errorf("%s: the notice does not say when the configuration was written", path)
+		}
+		// The "?" is the shared help tip: hover opens it, a click pins it as
+		// a window the command is copied from, titled by the tip itself (it
+		// sits in no heading or label a title would be read from).
+		if !strings.Contains(notice, `class="info-tip"`) || !strings.Contains(notice, `class="info-popup"`) ||
+			!strings.Contains(notice, `data-pin-title="nginx is still running the previous configuration"`) {
+			t.Errorf("%s: the notice's help is not the shared, pinnable tip", path)
+		}
+		// The tip opens and pins through the popover assets, which the page
+		// links with the build stamp like every page that has tips.
+		for _, asset := range []string{"popover-pin.css", "popover-pin.js"} {
+			if !strings.Contains(body, asset+"?v=") {
+				t.Errorf("%s: the page does not link %s, which the notice's help tip opens and pins with", path, asset)
+			}
 		}
 	}
 	ja := renderAs(t, h.AdminTopOverview, "/unmask/admin/", user.RoleSuperadmin, "ja")
@@ -71,6 +93,41 @@ func TestReloadNoticeOnEveryPage(t *testing.T) {
 		if body := renderAs(t, fn, path, user.RoleSuperadmin, "en"); strings.Contains(body, "rlnote") {
 			t.Errorf("%s: still carries the reload notice after nginx logged the current configuration", path)
 		}
+	}
+}
+
+// TestReloadNoticeHelpIsPinnableOnEveryPage: the notice rides with the header
+// onto every signed-in page, and its help tip opens and pins through
+// popover-pin.css and .js, so every page template with the header links the
+// popover assets.  The test above renders a handful of pages; this reads
+// every page template, so a page added without the assets fails here and not
+// in front of an operator whose "?" opens nothing.
+func TestReloadNoticeHelpIsPinnableOnEveryPage(t *testing.T) {
+	entries, err := fs.ReadDir(assets.Templates, "templates")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pages := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".html") || strings.HasPrefix(name, "partial_") {
+			continue
+		}
+		b, err := fs.ReadFile(assets.Templates, "templates/"+name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := string(b)
+		if !strings.Contains(src, `{{ template "header_tools" . }}`) {
+			continue
+		}
+		pages++
+		if !strings.Contains(src, `{{ template "popover_pin_assets" . }}`) {
+			t.Errorf("%s has the header, and with it the reload notice, but not the popover assets its help tip opens and pins with", name)
+		}
+	}
+	if pages < 10 {
+		t.Fatalf("%d page templates carry the header; the scan is looking at the wrong thing", pages)
 	}
 }
 

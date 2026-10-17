@@ -808,15 +808,19 @@ window.installInfoTipPinning = window.installInfoTipPinning || function(root, op
           if (typeof clone._popoverUnpin === 'function') clone._popoverUnpin();
         });
         t.appendChild(icon);
-        // Title from the nearest labelling context -- same precedence as the
-        // popoverPin flavor so stacked pins behave identically.
-        var anchor = tip.closest && tip.closest(
-          'h1,h2,h3,h4,h5,h6, legend, th, label, ' +
-          '.field-label, .field, .bcd-card'
-        );
-        var titleText = '';
-        if (anchor && typeof window._popoverExtractVisibleText === 'function'){
-          titleText = window._popoverExtractVisibleText(anchor);
+        // Title: the tip's own (data-pin-title) where it sits in no labelling
+        // context -- the reload notice bar's help -- else from the nearest
+        // one, same precedence as the popoverPin flavor so stacked pins
+        // behave identically.
+        var titleText = tip.getAttribute('data-pin-title') || '';
+        if (!titleText){
+          var anchor = tip.closest && tip.closest(
+            'h1,h2,h3,h4,h5,h6, legend, th, label, ' +
+            '.field-label, .field, .bcd-card'
+          );
+          if (anchor && typeof window._popoverExtractVisibleText === 'function'){
+            titleText = window._popoverExtractVisibleText(anchor);
+          }
         }
         if (typeof window._popoverCapTitle === 'function'){
           titleText = window._popoverCapTitle(titleText);
