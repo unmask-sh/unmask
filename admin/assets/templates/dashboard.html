@@ -1344,9 +1344,12 @@ function renderCountryChart(wrapId, data){
   const max = Math.max(1, ...data.map(c => c.Req));
   const flagBase = '{{.BasePath}}/static/flags/';
   // Two rows carry no country: "" is an address the database could not
-  // place, XL a local one (ipgeo.Local), which has a flag of its own.  Each
-  // is named for what it is, so the two read apart.
+  // place, XL a local one (ipgeo.Local), which has a flag of its own.  The
+  // row shows a two-letter code like the rest ("??" for the first), so the
+  // bars start on one line; the popover names the row and says what it counts.
   const unknownLabel = {{ t .Lang "country.unknown" }}, localLabel = {{ t .Lang "country.local" }};
+  const unknownDesc = {{ t .Lang "country.unknown_desc" }}, localDesc = {{ t .Lang "country.local_desc" }};
+  const esc = s => String(s).replace(/[<&>"']/g, c => ({'<':'&lt;','&':'&amp;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   function flagSrc(cc){
     if (!cc) return flagBase + 'unknown.png';
     const lc = String(cc).toLowerCase();
@@ -1367,7 +1370,7 @@ function renderCountryChart(wrapId, data){
   const rows = data.map(row => {
     const safeCC = String(row.CountryCode || '').replace(/[^A-Za-z0-9-]/g, '');
     const pct = (row.Req / max) * 100;
-    const text = safeCC === 'XL' ? localLabel : (safeCC || unknownLabel);
+    const text = safeCC || '??';
     return '<div class="country-row" data-cc="' + safeCC + '">' +
              '<div class="cc-label">' +
                '<img class="cc-flag" src="' + flagSrc(safeCC) + '" alt="" loading="lazy" onerror="this.src=\'' + flagBase + 'unknown.png\';this.onerror=null">' +
@@ -1384,15 +1387,14 @@ function renderCountryChart(wrapId, data){
     if (!popEl || !window.popoverPin) return;
     const pin = window.popoverPin.install(popEl);
     function popHTML(cc){
-      const name = countryNameOf(cc);
-      const safeName = String(name).replace(/[<&>"']/g, c => ({'<':'&lt;','&':'&amp;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
       const safeCC = cc.replace(/[^A-Za-z0-9-]/g, '');
-      return '<div style="font-weight:700;color:#0f172a">' + safeName + '</div>' +
-             '<div style="font-size:.78rem;color:#64748b;margin-top:.2rem;font-family:ui-monospace,Menlo,monospace">' + safeCC + '</div>';
+      const desc = safeCC === 'XL' ? localDesc : (safeCC ? '' : unknownDesc);
+      return '<div style="font-weight:700;color:#0f172a">' + esc(countryNameOf(safeCC)) + '</div>' +
+             '<div style="font-size:.78rem;color:#64748b;margin-top:.2rem;font-family:ui-monospace,Menlo,monospace">' + (safeCC || '??') + '</div>' +
+             (desc ? '<div style="font-size:.8rem;color:#475569;margin-top:.45rem;line-height:1.5;max-width:22rem">' + esc(desc) + '</div>' : '');
     }
     wrap.querySelectorAll('.country-row').forEach(row => {
-      const cc = row.dataset.cc;
-      if (!cc) return;
+      const cc = row.dataset.cc || '';
       const label = row.querySelector('.cc-label');
       label.style.cursor = 'help';
       label.addEventListener('mouseenter', e => {

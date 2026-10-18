@@ -2637,10 +2637,14 @@ var dict = map[Lang]map[string]string{
 		"reload_notice.sub":         "反映するには <code>sudo nginx -t &amp;&amp; sudo nginx -s reload</code>。nginx が送るアクセスログで判断しているので、reload の後の最初のリクエストで消えます。",
 		"reload_notice.sub_gateway": "コンテナは設定が書き出されると自分で nginx を reload しますが、それが済んでいません。コンテナのログで <code>nginx -t</code> のエラーを確かめてください。アクセスログで判断しているので、reload の後の最初のリクエストで消えます。",
 		"reload_notice.title":       "nginx がまだ前の設定で動いています",
-		// The two rows of a country ranking that are not a country: an
-		// address the database could not place, and a local one (ipgeo.Local).
-		"country.unknown": "取得不可",
-		"country.local":   "ローカル",
+		// The two rows of a country ranking that are not a country.  The row
+		// shows a two-letter code like the rest ("??", ipgeo.Local), so the
+		// bars start on one line; the popover names the row and says what it
+		// counts.
+		"country.unknown":      "国を特定できないアドレス",
+		"country.unknown_desc": "IP geo データベースに載っていないアドレスからのリクエストです。データベースを読み込めていなかった時間帯の分もここに入ります。",
+		"country.local":        "ローカルアドレス",
+		"country.local_desc":   "インターネット上に無いアドレス (10/8・172.16/12・192.168/16 のプライベート網、100.64/10 のキャリア NAT、ループバック、リンクローカル) からのリクエストです。同じホストや LB の内側からの到達、監視などが含まれます。国データベースでは引けないので、ISO 3166 のユーザー割当コード XL で数えています。",
 		// schema update notice (partial_schema_update.html)
 		"schema_update.pending":            "データベースの更新があります (所要時間の目安: %s)。",
 		"schema_update.pending_sub":        "実行中も challenge は動き続け、その間のイベントは完了後に記録されます。設定の保存と BAN の追加・解除はそのまま行えます。ユーザーの編集など、データベースの行を書き換える変更は完了まで待ちます。",
@@ -5319,8 +5323,10 @@ where <code>&lt;site-id&gt;</code> is any <code>[a-z0-9-]{1,32}</code>. Omit to 
 		"reload_notice.sub":         "To apply it: <code>sudo nginx -t &amp;&amp; sudo nginx -s reload</code>. This is read from the access log nginx sends, so it clears with the first request after the reload.",
 		"reload_notice.sub_gateway": "The container reloads nginx by itself when the configuration is written, and that reload has not happened. Check the container's log for an <code>nginx -t</code> error. This is read from the access log, so it clears with the first request after the reload.",
 		"reload_notice.title":       "nginx is still running the previous configuration",
-		"country.unknown":           "Unknown",
-		"country.local":             "Local",
+		"country.unknown":           "Country unknown",
+		"country.unknown_desc":      "Requests from addresses the IP-geo database could not place. Hours when the daemon had no database loaded land here too.",
+		"country.local":             "Local address",
+		"country.local_desc":        "Requests from addresses that are not on the public Internet: a private network (10/8, 172.16/12, 192.168/16), carrier NAT (100.64/10), loopback or link-local -- reached from the same host, from inside a load balancer, by monitoring. No country database places them; they are counted under XL, a user-assigned ISO 3166 code.",
 		// schema update notice (partial_schema_update.html)
 		"schema_update.pending":            "A database update is waiting (expected to take %s).",
 		"schema_update.pending_sub":        "The challenge keeps working while it runs, and events from that time are recorded afterwards. Settings can be saved and bans placed or lifted as usual; changes that rewrite rows of the database, such as users, wait until it has finished.",
