@@ -85,7 +85,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 /* The share box keeps its width whether it holds "5.9%", "100.0%" or nothing
    at all (an excluded chip) -- 6.5ch fits the widest possible reading, so a
    toggle never changes any chip's width and the legend never reflows. */
-.comp-share{display:inline-block;min-width:6.5ch;margin-left:.4rem;color:#0f172a;font-variant-numeric:tabular-nums}
+.comp-share{display:inline-block;min-width:8ch;margin-left:.4rem;color:#0f172a;font-variant-numeric:tabular-nums}
 /* Denominator switch.  Segmented-control shape so the two read as one choice
    rather than two links. */
 .comp-scope{display:flex;gap:0;margin:0 0 .5rem;font-size:.72rem}
@@ -397,7 +397,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
          the page is truthful without JS and never flashes a default.  The
          script below mirrors the same arithmetic only for in-place toggles;
          the no-JS path stays the ?comp= links. */}}
-    <div class="comp-view" data-total="{{ .KPIReqTotal }}"
+    <div class="comp-view" data-total="{{ .KPIReqTotal }}" data-excluded="{{ t .Lang "overview.kpi.nonhuman_excluded" }}"
          data-cap-all="{{ tf .Lang (printf "overview.kpi.nonhuman_of_card%s" $.WinSuffix) "%s" }}"
          data-cap-judged="{{ tf .Lang (printf "overview.kpi.nonhuman_of_judged%s" $.WinSuffix) "%s" }}"
          data-cap-selected="{{ tf .Lang (printf "overview.kpi.nonhuman_of_selected%s" $.WinSuffix) "%s" }}">
@@ -441,7 +441,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
         {{- if .ToggleParam }}<a class="comp-tgl" href="?comp={{ .ToggleParam }}" role="switch" aria-checked="{{ .On }}">{{ else }}<a class="comp-tgl comp-tgl-pinned" role="switch" aria-checked="{{ .On }}" aria-disabled="true">{{ end -}}
         <i class="comp-{{ .Key }}"></i>
         {{- if and (eq .Key "other") (not $.KPIReqOtherKnown) }}{{ tf $.Lang "overview.kpi.nonhuman_other" "—" }}<b class="comp-share">?</b>
-        {{- else }}{{ tf $.Lang (printf "overview.kpi.nonhuman_%s" .Key) (comma .Count) }}<b class="comp-share">{{ if .On }}{{ pctLabel .Count $t }}{{ end }}</b>
+        {{- else }}{{ tf $.Lang (printf "overview.kpi.nonhuman_%s" .Key) (comma .Count) }}<b class="comp-share">{{ if .On }}{{ pctLabel .Count $t }}{{ else }}{{ t $.Lang "overview.kpi.nonhuman_excluded" }}{{ end }}</b>
         {{- end }}
         </a>
         {{- if eq .Key "other" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup comp-other-pop">{{ if $.KPIReqOtherKnown }}<b>{{ t $.Lang "overview.kpi.other_head" }}</b><span class="orow"><span>{{ t $.Lang "overview.kpi.other_abandon_label" }}</span><b>{{ comma $.KPIReqOtherAbandon }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_abandon_desc" }}</span><span class="orow"><span>{{ t $.Lang "overview.kpi.other_unchallenged_label" }}</span><b>{{ comma $.KPIReqOtherUnchall }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_unchallenged_desc" }}</span>{{ if $.KPIReqRebound }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_rebind_label" }}</span><b>{{ comma $.KPIReqRebound }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_rebind_desc" }}</span>{{ end }}{{ if $.KPIReqPassthrough }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_passthrough_label" }}</span><b>{{ comma $.KPIReqPassthrough }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_passthrough_desc" }}</span>{{ end }}{{ if $.KPIReqObserve }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_observe_label" }}</span><b>{{ comma $.KPIReqObserve }}</b></span><span class="orow-d">{{ t $.Lang "overview.kpi.other_observe_desc" }}</span>{{ end }}<span class="orow"><span>{{ t $.Lang "overview.kpi.other_skew_label" }}</span><b>{{ comma $.KPIReqOtherSkew }}</b></span><span class="orow-d">{{ t $.Lang (printf "overview.kpi.other_skew_desc%s" $.WinSuffix) }}</span>{{ else }}{{ t $.Lang "overview.kpi.other_unknown" }}{{ end }}</span></span>{{ end -}}
@@ -457,10 +457,14 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
        merged "passed" stage), then the clients banned right now.  Every tile
        but the bans is a request count for the last 24 hours. */}}
   <div class="kpi-grid">
-  <div class="kpi k-req" data-kpi="requests">
+  {{/* The requests tile reads with the composition card's denominator: with
+       the bypassed requests out of it, the requests unmask judged, and what
+       was left out named on the second line.  The data attributes let the
+       card's script redraw it on a toggle exactly as the server would. */}}
+  <div class="kpi k-req" data-kpi="requests" id="kpi-requests" data-total="{{ .KPIReqTotal }}" data-bypass="{{ .KPIReqBypassed }}" data-sub-all="{{ t .Lang "overview.kpi.requests_sub" }}" data-sub-judged="{{ tf .Lang "overview.kpi.requests_sub_judged" "%s" }}">
     <div class="label">{{ t .Lang "overview.kpi.requests" }}</div>
-    <div class="value">{{ if .KPIReqKnown }}{{ comma .KPIReqTotal }}{{ else }}—{{ end }}</div>
-    <div class="sub">{{ if .KPIReqKnown }}{{ t .Lang "overview.kpi.requests_sub" }}{{ else }}{{ t .Lang "overview.kpi.nonhuman_nodata" }}{{ end }}</div>
+    <div class="value">{{ if not .KPIReqKnown }}—{{ else if .ReqJudged }}{{ comma .KPIReqJudged }}{{ else }}{{ comma .KPIReqTotal }}{{ end }}</div>
+    <div class="sub">{{ if not .KPIReqKnown }}{{ t .Lang "overview.kpi.nonhuman_nodata" }}{{ else if .ReqJudged }}{{ tf .Lang "overview.kpi.requests_sub_judged" (comma .KPIReqBypassed) }}{{ else }}{{ t .Lang "overview.kpi.requests_sub" }}{{ end }}</div>
   </div>
   <div class="kpi k-serve" data-kpi="serve">
     <div class="label"><span class="kdot" style="background:#dc2626"></span>{{ t .Lang "overview.kpi.serves" }}</div>
@@ -669,9 +673,9 @@ window.unmaskInitComp = function(){
       c.classList.toggle('comp-out', !on[k]);
       var share = c.querySelector('.comp-share');
       if (share && share.textContent !== '?') {
-        // The strike-through and the grey already say "excluded"; swapping a
-        // wide label in and out made the whole legend reflow on every click.
-        share.textContent = on[k] ? pctLabel(n, denom) : '';
+        // A segment out of the denominator says so where its share was; the
+        // slot is wide enough for the word, so the legend does not reflow.
+        share.textContent = on[k] ? pctLabel(n, denom) : (view.dataset.excluded || '');
       }
       var tgl = c.querySelector('a.comp-tgl');
       if (tgl && !c.classList.contains('comp-tgl-static')) {
@@ -692,6 +696,17 @@ window.unmaskInitComp = function(){
         }
       }
     });
+    // The requests tile beside the card: the requests unmask judged while the
+    // bypassed ones are out of the denominator, every request otherwise, and
+    // its second line names what is left out -- the same arithmetic as Go's.
+    var req = document.getElementById('kpi-requests');
+    if (req && chips['bypass']) {
+      var byp = parseInt(chips['bypass'].dataset.count, 10) || 0;
+      var judged = !on['bypass'] && byp > 0;
+      var rv = req.querySelector('.value'), rs = req.querySelector('.sub');
+      if (rv && rv.textContent.indexOf('—') === -1) rv.textContent = fmt.format(judged ? Math.max(total - byp, 0) : total);
+      if (rs) rs.textContent = judged ? (req.dataset.subJudged || '').replace('%s', fmt.format(byp)) : (req.dataset.subAll || '');
+    }
     // Presets highlight when the state matches them.
     card.querySelectorAll('.comp-scope a[data-preset]').forEach(function(a){
       var hit = a.dataset.preset === st;

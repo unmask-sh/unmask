@@ -179,6 +179,7 @@ table.events tbody tr.ev-new>td{animation:ev-new 2.5s ease-out}
 .live-bar{display:inline-block;width:5rem;height:.3rem;background:#e2e8f0;border-radius:.15rem;overflow:hidden}
 /* The fill runs as one transition per countdown, set by the strip's script. */
 .live-bar i{display:block;height:100%;width:0;background:#16a34a}
+.live-scope{margin:0}
 .live-tg{border:1px solid #cbd5e1;border-radius:.25rem;padding:.1rem .55rem;background:#fff;color:#334155;font-size:.75rem;cursor:pointer;font-family:inherit}
 .live-tg.off{color:#94a3b8;border-style:dashed}
 .live-err{font-size:.75rem;color:#b45309}
@@ -325,12 +326,20 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   <h2 class="live-h">{{ t .Lang "overview.live.h" }}<span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.live.note" }}</span></span></h2>
   <span class="live-status"><span>{{ t .Lang "overview.live.updated" }}<b id="live-at" data-ts="{{ .LiveAtTS }}">{{ .LiveAt }}</b></span><span>·</span><span>{{ t .Lang "overview.live.next_pre" }}<b id="live-next">5</b>{{ t .Lang "overview.live.next_post" }}</span><span class="live-bar"><i id="live-bar"></i></span></span>
   <button type="button" id="live-toggle" class="live-tg" aria-pressed="true" data-txt-on="{{ t .Lang "overview.live.auto_on" }}" data-txt-off="{{ t .Lang "overview.live.auto_off" }}">{{ t .Lang "overview.live.auto_on" }}</button>
+  {{/* What the requests tile counts: the requests unmask judged (the
+       default, as the dashboard's composition card reads) or every request.
+       Real links, so the choice works without JS; the script below switches
+       in place and keeps the choice in the cookie the server reads. */}}
+  <span class="comp-scope live-scope" id="live-scope">
+    <a href="?scope=judged" data-scope="judged"{{ if eq .LiveScope "judged" }} class="on" aria-current="true"{{ end }}>{{ t .Lang "overview.live.scope_judged" }}</a>
+    <a href="?scope=all" data-scope="all"{{ if eq .LiveScope "all" }} class="on" aria-current="true"{{ end }}>{{ t .Lang "overview.live.scope_all" }}</a>
+  </span>
   <span id="live-err" class="live-err" hidden>{{ t .Lang "overview.live.err" }}</span>
 </div>
-<div class="live-grid" id="live-grid" data-src="{{ .BasePath }}/admin/api/now">
+<div class="live-grid" id="live-grid" data-src="{{ .BasePath }}/admin/api/now" data-scope="{{ .LiveScope }}">
   {{ range $t := .LiveTiles }}
   <div class="live" data-k="{{ .Key }}">
-    <div class="label"><span class="kdot" style="background:{{ .Color }}"></span><span class="lt">{{ t $.Lang .LabelKey }}</span><span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ t $.Lang .HelpKey }}</span></span></div>
+    <div class="label"><span class="kdot" style="background:{{ .Color }}"></span><span class="lt"{{ if eq .Key "requests" }} data-lt-all="{{ t $.Lang "overview.live.requests" }}" data-lt-judged="{{ t $.Lang "overview.live.requests_judged" }}"{{ end }}>{{ t $.Lang .LabelKey }}</span><span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ t $.Lang .HelpKey }}</span></span></div>
     <div class="row"><div class="value" data-f="last30">{{ comma .Last30 }}</div><div class="win">{{ t $.Lang "overview.live.window" }}</div></div>
     <div class="sub minute"><b data-f="last">{{ comma .Last }}</b> {{ t $.Lang "overview.live.minute" }}</div>
     {{ if eq .Key "requests" }}<div class="sub" data-f="tps">{{ tf $.Lang "overview.live.tps" .TPS .Peak .Avg }}</div>{{ end }}
@@ -498,6 +507,9 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   var bar = document.getElementById('live-bar'), tg = document.getElementById('live-toggle');
   var err = document.getElementById('live-err'), feedOff = document.getElementById('live-feed-off');
   var PERIOD = 5, W = 150, H = 34;
+  // The requests tile's scope (judged / all) and the last reading, so a
+  // switch redraws from it at once instead of waiting for the next one.
+  var scope = grid.dataset.scope || 'judged', lastJ = null;
   var on = true;
   try { on = localStorage.getItem('unmask:live-auto') !== 'off'; } catch (e) {}
   var busy = false, dimTimer = null, due = 0, stepTimer = null, turn = 0;
@@ -539,20 +551,27 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     el.classList.remove('v-flash'); void el.offsetWidth; el.classList.add('v-flash');
   };
   function paint(j){
+    lastJ = j;
     grid.querySelectorAll('.live[data-k]').forEach(function(tile){
       var k = tile.dataset.k;
-      var last = (j.last && j.last[k]) || 0;
-      var l30 = (j.last30 && j.last30[k]) || 0, el30 = tile.querySelector('[data-f=last30]'), t30 = comma(l30);
+      // The requests tile under the judged scope reads the figures without
+      // the bypassed requests, which the server words and sends beside the
+      // others under requests_judged.
+      var rj = (k === 'requests' && scope === 'judged' && j.requests_judged) ? j.requests_judged : null;
+      var last = rj ? (rj.last || 0) : ((j.last && j.last[k]) || 0);
+      var l30 = rj ? (rj.last30 || 0) : ((j.last30 && j.last30[k]) || 0), el30 = tile.querySelector('[data-f=last30]'), t30 = comma(l30);
       if (el30 && el30.textContent !== t30) { el30.textContent = t30; unmaskFlash(el30); }
       var lastEl = tile.querySelector('[data-f=last]'), txt = comma(last);
       if (lastEl && lastEl.textContent !== txt) { lastEl.textContent = txt; unmaskFlash(lastEl); }
       var sp = tile.querySelector('[data-f=bars]');
-      if (sp && j.minutes && j.minutes[k]) {
-        var bs = bars(j.minutes[k]), rects = sp.querySelectorAll('rect');
+      var mins = rj ? rj.minutes : (j.minutes && j.minutes[k]);
+      if (sp && mins) {
+        var bs = bars(mins), rects = sp.querySelectorAll('rect');
         for (var i = 0; i < rects.length && i < bs.length; i++) { rects[i].setAttribute('y', bs[i].y); rects[i].setAttribute('height', bs[i].h); }
       }
       var tps = tile.querySelector('[data-f=tps]');
-      if (tps && j.tps_text) tps.textContent = j.tps_text;
+      var tpsText = rj ? rj.tps_text : j.tps_text;
+      if (tps && tpsText) tps.textContent = tpsText;
     });
     if (feedOff) feedOff.hidden = !j.feed_off;
     // The map draws from the same reading.
@@ -626,6 +645,35 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     try { localStorage.setItem('unmask:live-auto', on ? 'on' : 'off'); } catch (e) {}
     setToggle();
     if (on) { turn = 0; refresh(); } else hold();
+  });
+  // The scope switch: the requests tile's name and figures change in place
+  // from the last reading, and the choice goes to the cookie the server
+  // reads (and the URL, so a reload opens on the view being looked at).
+  var sc = document.getElementById('live-scope');
+  function setScope(s){
+    scope = s;
+    grid.dataset.scope = s;
+    if (sc) sc.querySelectorAll('a[data-scope]').forEach(function(a){
+      var hit = a.dataset.scope === s;
+      a.classList.toggle('on', hit);
+      if (hit) a.setAttribute('aria-current', 'true'); else a.removeAttribute('aria-current');
+    });
+    var lt = grid.querySelector('.live[data-k="requests"] .lt');
+    if (lt) lt.textContent = (s === 'judged' ? lt.dataset.ltJudged : lt.dataset.ltAll) || lt.textContent;
+    if (lastJ) paint(lastJ);
+  }
+  if (sc) sc.addEventListener('click', function(e){
+    var a = e.target.closest('a[data-scope]');
+    if (!a || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+    e.preventDefault();
+    setScope(a.dataset.scope);
+    try {
+      var base = (grid.dataset.src || '').replace(/\/admin\/api\/now$/, '') || '/';
+      document.cookie = 'unmask_live_scope=' + a.dataset.scope + ';path=' + base + ';max-age=' + (365*24*3600) + ';SameSite=Lax';
+      var u = new URL(window.location.href);
+      u.searchParams.set('scope', a.dataset.scope);
+      history.replaceState(null, '', u);
+    } catch (_) {}
   });
   setToggle();
   var ts = parseInt(atEl.dataset.ts, 10);

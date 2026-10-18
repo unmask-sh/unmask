@@ -38,6 +38,7 @@ type liveTile struct {
 }
 
 type liveView struct {
+	Scope   string // liveScopeJudged or liveScopeAll: what the requests tile counts
 	Tiles   []liveTile
 	FeedOff bool   // no access-log feed configured and nothing ever counted
 	At      string // the reading's clock time, HH:MM:SS in the picker's zone
@@ -81,7 +82,7 @@ func liveFigures(sn *live.Snapshot, key string) (last, last30 uint32, minutes, s
 
 // liveView builds the strip's first reading.  tzName is the picker's zone
 // (resolveTZ); unknown or empty reads as UTC.
-func (h *Handler) liveView(now time.Time, tzName string) liveView {
+func (h *Handler) liveView(now time.Time, tzName, scope string) liveView {
 	sn := h.Live.Snapshot(now)
 	loc := time.UTC
 	if tzName != "" {
@@ -89,10 +90,14 @@ func (h *Handler) liveView(now time.Time, tzName string) liveView {
 			loc = l
 		}
 	}
-	v := liveView{At: now.In(loc).Format("15:04:05"), AtTS: now.Unix()}
+	v := liveView{At: now.In(loc).Format("15:04:05"), AtTS: now.Unix(), Scope: scope}
 	v.FeedOff = !h.cfg().NginxLog.Enabled && sn.LastLine == 0
 	for _, lt := range liveTiles {
 		last, last30, minutes, series := liveFigures(&sn, lt.key)
+		judged := lt.key == live.Names[live.Requests] && scope == liveScopeJudged
+		if judged {
+			last, last30, minutes, series = liveJudged(&sn)
+		}
 		t := liveTile{
 			Key:      lt.key,
 			LabelKey: "overview.live." + lt.key,
@@ -105,6 +110,11 @@ func (h *Handler) liveView(now time.Time, tzName string) liveView {
 		}
 		if lt.key == live.Names[live.Requests] {
 			t.TPS, t.Peak, t.Avg = rate(sn.TPS), rate(sn.Peak), rate(sn.Avg)
+			if judged {
+				t.LabelKey = "overview.live.requests_judged"
+				tps, peak, avg := liveRates(series)
+				t.TPS, t.Peak, t.Avg = rate(tps), rate(peak), rate(avg)
+			}
 		}
 		v.Tiles = append(v.Tiles, t)
 	}
@@ -112,6 +122,73 @@ func (h *Handler) liveView(now time.Time, tzName string) liveView {
 }
 
 func rate(f float64) string { return fmt.Sprintf("%.1f", f) }
+
+// The strip's scope: what its requests tile counts.  Judged (the default)
+// leaves out the requests a bypass let through unjudged, as the dashboard's
+// composition card does by default; all is every request nginx handled.
+// ?scope= switches it and the cookie keeps the choice, as the card's does.
+const (
+	liveScopeCookieName = "unmask_live_scope"
+	liveScopeJudged     = "judged"
+	liveScopeAll        = "all"
+)
+
+// resolveLiveScope reads the strip's scope: the query parameter (a toggle
+// link, before the cookie it sets is read back), then the cookie, then the
+// default.  Anything else is the default, not an error.
+func resolveLiveScope(r *http.Request) string {
+	if r != nil {
+		if v := r.URL.Query().Get("scope"); v == liveScopeAll || v == liveScopeJudged {
+			return v
+		}
+		if c, err := r.Cookie(liveScopeCookieName); err == nil && c != nil {
+			if v := decodeCookieValue(c.Value); v == liveScopeAll || v == liveScopeJudged {
+				return v
+			}
+		}
+	}
+	return liveScopeJudged
+}
+
+// liveJudged is the requests tile's reading without the bypassed requests:
+// each figure of the requests kind less the same figure of the bypass kind,
+// never below zero (the two are counted from the same lines, so they cannot
+// cross, but a reading taken between two increments must not go negative).
+func liveJudged(sn *live.Snapshot) (last, last30 uint32, minutes, series []uint32) {
+	sub := func(a, b uint32) uint32 {
+		if a > b {
+			return a - b
+		}
+		return 0
+	}
+	last = sub(sn.Last[live.Requests], sn.Last[live.Bypass])
+	last30 = sub(sn.Last30[live.Requests], sn.Last30[live.Bypass])
+	minutes = make([]uint32, len(sn.PerMinute[live.Requests]))
+	for i := range minutes {
+		minutes[i] = sub(sn.PerMinute[live.Requests][i], sn.PerMinute[live.Bypass][i])
+	}
+	series = make([]uint32, len(sn.Series[live.Requests]))
+	for i := range series {
+		series[i] = sub(sn.Series[live.Requests][i], sn.Series[live.Bypass][i])
+	}
+	return last, last30, minutes, series
+}
+
+// liveRates is the Snapshot's TPS / Peak / Avg for any series: the last
+// bucket's rate, the busiest bucket's, and the mean over the span.
+func liveRates(series []uint32) (tps, peak, avg float64) {
+	if len(series) == 0 {
+		return 0, 0, 0
+	}
+	var total, max uint32
+	for _, v := range series {
+		total += v
+		if v > max {
+			max = v
+		}
+	}
+	return float64(series[len(series)-1]) / float64(live.Step), float64(max) / float64(live.Step), float64(total) / float64(live.Span)
+}
 
 // liveBar is one minute's bar of a tile's chart: the same 150×34 box as the
 // sparkline, a 4-unit bar in each 5-unit slot, the top 2 left free, a bar
@@ -239,6 +316,15 @@ func (h *Handler) AdminNowJSON(w http.ResponseWriter, r *http.Request) {
 		// of each reason, each reason named the way the dashboard's reasons
 		// card names it.
 		lang := i18n.Lang(i18n.Resolve(r))
+		// The requests tile's reading without the bypassed requests, for the
+		// strip's judged scope: the four figures and the rate caption, worded
+		// here like tps_text below.
+		jl, jl30, jm, js := liveJudged(&sn)
+		jt, jp, ja := liveRates(js)
+		out["requests_judged"] = map[string]any{
+			"last": jl, "last30": jl30, "minutes": jm, "series": js,
+			"tps_text": i18n.Tf(lang, "overview.live.tps", rate(jt), rate(jp), rate(ja)),
+		}
 		cfg := h.cfg()
 		rules := map[string][]refusedRule{}
 		reasonNames := map[string]string{}

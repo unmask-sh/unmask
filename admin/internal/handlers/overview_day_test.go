@@ -52,7 +52,7 @@ func TestOverviewDaySection(t *testing.T) {
 	}
 	// Without the access-log feed the requests tile has no figure: a dash,
 	// and the line says the feed is off.
-	req := regexp.MustCompile(`(?s)data-kpi="requests">.*?<div class="value">([^<]*)</div>\s*<div class="sub">([^<]*)</div>`).FindStringSubmatch(page)
+	req := regexp.MustCompile(`(?s)data-kpi="requests"[^>]*>.*?<div class="value">([^<]*)</div>\s*<div class="sub">([^<]*)</div>`).FindStringSubmatch(page)
 	if req == nil || strings.TrimSpace(req[1]) != "—" || !strings.Contains(req[2], i18n.T("ja", "overview.kpi.nonhuman_nodata")) {
 		t.Errorf("the requests tile must show a dash and say the feed is off: %q", req)
 	}

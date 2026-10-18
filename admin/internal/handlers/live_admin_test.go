@@ -143,7 +143,7 @@ func TestLiveViewTiles(t *testing.T) {
 	h.Live.Hit(now, "", live.Of(live.Requests, live.Deny))
 	h.Live.Hit(now.Add(-65*time.Second), "", live.Of(live.Requests))
 	h.Live.Hit(now.Add(-65*time.Second), "", live.Of(live.Requests))
-	v := h.liveView(now, "Asia/Tokyo")
+	v := h.liveView(now, "Asia/Tokyo", liveScopeAll)
 	if v.At != "10:02:03" || v.AtTS != now.Unix() {
 		t.Errorf("At = %q (%d), want 10:02:03 in Tokyo", v.At, v.AtTS)
 	}
@@ -177,7 +177,7 @@ func TestLiveViewTiles(t *testing.T) {
 	}
 	// Nothing configured, nothing counted: the strip says the feed is off.
 	empty := &Handler{Live: live.New()}
-	if !empty.liveView(now, "").FeedOff {
+	if !empty.liveView(now, "", liveScopeJudged).FeedOff {
 		t.Error("FeedOff should be true with no feed and no lines")
 	}
 	// A flat series draws along the bottom edge.

@@ -419,6 +419,11 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	compState := compSegsParam(enabledSegs)
+	// The requests tile follows the card's denominator in one respect: with
+	// the bypassed requests out of it (the judged view, or any set without
+	// them), the tile counts the requests unmask judged and names what it
+	// leaves out.  Nothing bypassed: nothing to leave out, the plain tile.
+	reqJudged := !enabledSegs[compSegBypass] && comp.Bypassed > 0
 	// The pass tiles' headline: every request the gate of that kind admitted
 	// -- the solves (a fresh cookie each) plus the requests that came back on
 	// such a cookie.  The same request unit as "challenge fired", so the two
@@ -471,6 +476,8 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		"KPIKnown":       kpiKnown,
 		"DayHeld":        dayHeld,
 		"KPIReqTotal":    comp.Total,
+		"KPIReqJudged":   comp.Total - comp.Bypassed,
+		"ReqJudged":      reqJudged,
 		"KPIReqKnown":    comp.OK, // the requests tile: a figure only with the access-log feed
 		"KPIReqBenign":   comp.Benign,
 		"KPIReqNonHuman": rNonHuman,

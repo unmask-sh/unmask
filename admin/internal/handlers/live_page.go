@@ -105,7 +105,20 @@ func (h *Handler) AdminLive(w http.ResponseWriter, r *http.Request) {
 	// The strip and the map: rendered with a first reading, so the page says
 	// real numbers before its script runs, then refreshed from /admin/api/now.
 	if h.Live != nil {
-		lv := h.liveView(time.Now(), resolveTZ(r))
+		scope := resolveLiveScope(r)
+		// Keep the scope when it arrived as a toggle link, so the next visit
+		// opens on it; never on a plain load, so a bookmarked URL cannot repin
+		// someone else's session.  A view preference, on the same terms as
+		// the composition card's cookie.
+		if v := r.URL.Query().Get("scope"); v != "" && v == scope {
+			http.SetCookie(w, &http.Cookie{
+				Name: liveScopeCookieName, Value: scope, Path: h.basePath(),
+				MaxAge: 365 * 24 * 3600, SameSite: http.SameSiteLaxMode,
+				Secure: r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+			})
+		}
+		lv := h.liveView(time.Now(), resolveTZ(r), scope)
+		data["LiveScope"] = lv.Scope
 		data["LiveTiles"] = lv.Tiles
 		data["LiveFeedOff"] = lv.FeedOff
 		data["LiveAt"] = lv.At

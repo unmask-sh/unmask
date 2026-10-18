@@ -16,6 +16,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- (2026-10-18) **The request figures follow the judged scope.**  With the non-human card on the traffic unmask judged, the dashboard's request tile shows that count too and names the bypassed requests it leaves out, and a segment taken out of the card's share reads "excluded" instead of a blank.  The realtime tab gains the same switch for its request tile, judged only by default.
+
 - (2026-10-18) **The non-human traffic card opens on the traffic unmask judged.**  Its share was computed over every request in the access log, the bypassed ones too, which diluted it with traffic unmask never evaluated.  The card now opens on the requests unmask judged, with "All traffic" one click away; an operator who had picked a view keeps it.
 
 - (2026-10-18) **The dashboard's headline says what it counts.**  Under the number of bot requests unmask blocked, the line read "requests in the last 24 hours", which could be taken for the site's whole traffic.  It now reads "requests blocked in the last 24 hours", and the week's view says the same for its seven days.
