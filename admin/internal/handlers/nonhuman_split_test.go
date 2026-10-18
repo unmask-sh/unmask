@@ -93,8 +93,10 @@ func TestNonHumanTrafficCountsRequestsOnBothSides(t *testing.T) {
 			t.Errorf("the card does not read %q: %q", want, sub)
 		}
 	}
-	// The denominator sits in the card header beside the percentage.
-	if !strings.Contains(body, "10,000 requests") {
+	// The denominator sits in the card header beside the percentage: the
+	// requests unmask judged, which is the default view (nothing here was
+	// bypassed, so that is every one of them).
+	if !strings.Contains(body, "10,000 judged requests") {
 		t.Error("the card does not say what the percentage is a share of")
 	}
 	if strings.Contains(sub, "client") {
