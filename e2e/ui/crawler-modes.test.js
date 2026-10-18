@@ -102,6 +102,36 @@ const storedModes = () => {
 
   // 1. The bulk buttons set only what the search leaves showing.
   await openDetail(page);
+
+  // The badge legend is a popover off a one-line hint, not a block in the
+  // dialog, so the list keeps its height and shows a screenful of rows.
+  const fold = await page.evaluate(sel => {
+    const modal = document.querySelector(sel);
+    const legend = modal.querySelector('.upstream-rv-legend');
+    const list = modal.querySelector('.upstream-modal-list');
+    const row = list.querySelector('.upstream-row');
+    return {
+      hint: !!modal.querySelector('.upstream-rv-hint'),
+      badges: !!modal.querySelector('.upstream-row .upstream-rv'),
+      legendShown: !!legend && legend.getClientRects().length > 0,
+      rowsVisible: row ? Math.floor(list.clientHeight / row.getBoundingClientRect().height) : 0,
+    };
+  }, MODAL);
+  ok(fold.hint === fold.badges, 'the hint is there exactly when a row wears the badge: hint ' + fold.hint + ', badges ' + fold.badges);
+  ok(!fold.legendShown, 'the badge legend stays out of the dialog until its tip is hovered');
+  ok(fold.rowsVisible >= 8, 'the list shows a screenful of rows at once, shows ' + fold.rowsVisible);
+  if (fold.hint) {
+    await page.hover(MODAL + ' .upstream-rv-hint .info-tip');
+    const shown = await page.evaluate(sel => {
+      const legend = document.querySelector(sel + ' .upstream-rv-legend');
+      return !!legend && legend.getClientRects().length > 0 && legend.textContent.length > 100;
+    }, MODAL);
+    ok(shown, 'hovering the tip shows the legend');
+    if (process.env.UI_E2E_SHOT_DIR) {
+      try { await page.screenshot({ path: require('path').join(process.env.UI_E2E_SHOT_DIR, 'crawler-modes-legend.png') }); } catch (e) {}
+    }
+    await page.mouse.move(0, 0);
+  }
   await page.type(MODAL + ' .upstream-modal-filter', 'MJ12');
   g = await readGroup(page);
   ok(g.visible.length === 1 && g.visible[0] === 'MJ12bot', 'the search must leave MJ12bot alone: ' + JSON.stringify(g.visible));

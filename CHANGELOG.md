@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-10-19) **The crawler dialog's badge legend folds into a popover.**  In a group's Detail dialog on the UA filter tab, the seven-line note on the 🛡 badge sat above the list and left it a few rows tall.  The note is now a popover behind a one-line hint, and the list takes the room, with a floor of eight lines even on a short screen.
+
 ## [0.1.52-rc9] - 2026-10-19 (testing build)
 
 ### Added

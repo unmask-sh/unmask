@@ -537,13 +537,23 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .require-rv>span>strong{display:block;font-size:.85rem;color:#14532d}
 .require-rv-desc strong{font-weight:600;color:#14532d}
 .require-rv-desc{display:block;margin-top:.2rem;font-size:.78rem;line-height:1.6;color:#334155}
-.upstream-rv-legend{margin:.35rem 0 .1rem;padding:.45rem .7rem;background:#f0fdf4;border-left:.1875rem solid #22c55e;border-radius:.25rem;font-size:.76rem;line-height:1.9;color:#334155}
+/* The badge's meaning is a popover off a one-line hint under the bulk row:
+   as a block in the dialog it took seven lines and left the list a few rows. */
+.upstream-rv-hint{margin:0;padding:.35rem 1rem;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:.4rem;font-size:.76rem;color:#475569}
+.upstream-rv-hint .upstream-rv{margin-left:0}
+.upstream-rv-hint .info-tip{margin-left:0}
+.upstream-rv-legend{line-height:1.8}
 /* The legend shows the real badges inline, so the first one on a line must
    not carry the left margin that separates a badge from a pattern name. */
 .upstream-rv-legend .upstream-rv{margin-left:0;margin-right:.15rem}
 .upstream-group .upstream-detail-btn:hover{background:#f1f5f9;border-color:#94a3b8}
 
 .upstream-modal{position:fixed;inset:0;z-index:1000;display:flex;align-items:center;justify-content:center}
+/* A popover pinned from inside the dialog (the badge hint's tip) is cloned
+   onto the body at popover-pin.css's z-index (400, [data-popover].is-pinned),
+   below the dialog's 1000; that sheet is linked after this block, so the
+   lift needs the higher specificity. */
+[data-popover].is-pinned.info-popup-pinned{z-index:1100}
 .upstream-modal-backdrop{position:absolute;inset:0;background:rgba(15,23,42,.55)}
 .upstream-modal-box{position:relative;background:#fff;border-radius:.5rem;width:min(40rem,92vw);max-height:85vh;display:flex;flex-direction:column;box-shadow:0 1.25rem 3rem rgba(15,23,42,.35)}
 .upstream-modal-head{padding:.8rem 1rem;border-bottom:1px solid #e2e8f0;display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
@@ -559,7 +569,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .upstream-sort-btn:hover{color:#0f172a}
 .upstream-sort-ind{font-size:.7rem;color:#94a3b8;min-width:.6rem}
 .upstream-sort-btn.active .upstream-sort-ind{color:#475569}
-.upstream-modal-list{overflow:auto;flex:1;padding:.4rem .6rem}
+.upstream-modal-list{overflow:auto;flex:1;min-height:8rem;padding:.4rem .6rem}
 .upstream-row{display:grid;grid-template-columns:auto 1fr auto;gap:.4rem .6rem;align-items:center;padding:.25rem .4rem;border-radius:.2rem;font-size:.82rem}
 /* A crawler following its group reads quiet; one set on its own wears its
    mode's colour, the same three as the group control. */
@@ -2083,7 +2093,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <button type="button" class="upstream-bulk-btn" data-set="black">{{ t $.Lang "settings.ua.upstream.mode.black" }}</button>
         </div>
         {{ if $g.HasRV }}
-        <p class="upstream-rv-legend">{{ safeHTML (t $.Lang "settings.ua.upstream.rv_note") }}</p>
+        {{/* The badge's meaning is a popover off a one-line hint: as a block
+             in the dialog it took seven lines and left the list a few rows.
+             The hint is the tip's title anchor (.label, popover-pin.js), so
+             a pinned copy is titled by it and not by the section behind. */}}
+        <p class="upstream-rv-hint label"><span class="upstream-rv rv-on">{{ t $.Lang "settings.ua.upstream.rv_badge" }}</span> <span>{{ t $.Lang "settings.ua.upstream.rv_hint" }}</span><span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup upstream-rv-legend">{{ safeHTML (t $.Lang "settings.ua.upstream.rv_note") }}</span></span></p>
         {{ end }}
         <div class="upstream-modal-list-head">
           <span></span>
