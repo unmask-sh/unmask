@@ -16,7 +16,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- (2026-10-18) **The dashboard's request tile explains its arithmetic.**  The tiles beside it count what the challenge did, and summing them does not give the request count: a fire includes the solves, and the benign crawlers and the unchallenged requests have no tile.  A help popover on the tile now says how the figure divides, and points to the bar above for the full breakdown.
+- (2026-10-18) **The request tiles explain their arithmetic.**  The tiles beside them count what the challenge did, and summing those does not give the request count: a fire includes the solves, and the benign crawlers and the unchallenged requests have no tile.  The help of the dashboard's request tile and of the realtime tab's now says how the figure divides, and which neighbours are outcomes rather than parts.
 
 ## [0.1.52-rc8] - 2026-10-18 (testing build)
 

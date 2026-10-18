@@ -339,7 +339,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 <div class="live-grid" id="live-grid" data-src="{{ .BasePath }}/admin/api/now" data-scope="{{ .LiveScope }}">
   {{ range $t := .LiveTiles }}
   <div class="live" data-k="{{ .Key }}">
-    <div class="label"><span class="kdot" style="background:{{ .Color }}"></span><span class="lt"{{ if eq .Key "requests" }} data-lt-all="{{ t $.Lang "overview.live.requests" }}" data-lt-judged="{{ t $.Lang "overview.live.requests_judged" }}"{{ end }}>{{ t $.Lang .LabelKey }}</span><span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ t $.Lang .HelpKey }}</span></span></div>
+    <div class="label"><span class="kdot" style="background:{{ .Color }}"></span><span class="lt"{{ if eq .Key "requests" }} data-lt-all="{{ t $.Lang "overview.live.requests" }}" data-lt-judged="{{ t $.Lang "overview.live.requests_judged" }}"{{ end }}>{{ t $.Lang .LabelKey }}</span><span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t $.Lang .HelpKey) }}</span></span></div>
     <div class="row"><div class="value" data-f="last30">{{ comma .Last30 }}</div><div class="win">{{ t $.Lang "overview.live.window" }}</div></div>
     <div class="sub minute"><b data-f="last">{{ comma .Last }}</b> {{ t $.Lang "overview.live.minute" }}</div>
     {{ if eq .Key "requests" }}<div class="sub" data-f="tps">{{ tf $.Lang "overview.live.tps" .TPS .Peak .Avg }}</div>{{ end }}
