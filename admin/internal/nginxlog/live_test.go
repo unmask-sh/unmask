@@ -35,7 +35,7 @@ func TestLiveHitPerLine(t *testing.T) {
 	r.onLine(line("", "0", "0", "203.0.113.5", "0", "Mozilla/5.0 Chrome"))                      // nothing special: a request only
 
 	sn := c.Snapshot(time.Now())
-	want := map[live.Kind]uint32{live.Requests: 7, live.Pass: 1, live.Serve: 0, live.Bypass: 2, live.Deny: 0, live.Solve: 0, live.RateLimit: 0}
+	want := map[live.Kind]uint32{live.Requests: 7, live.Pass: 1, live.Serve: 0, live.Bypass: 1, live.Crawler: 1, live.Deny: 0, live.Solve: 0, live.RateLimit: 0}
 	for k, n := range want {
 		if sn.Last[k] != n {
 			t.Errorf("%s = %d, want %d", live.Names[k], sn.Last[k], n)
@@ -58,8 +58,8 @@ func TestLiveBumpForwardAuth(t *testing.T) {
 	r.BumpBypass("default")
 	r.BumpCrawlerPass("default")
 	sn := c.Snapshot(time.Now())
-	if sn.Last[live.Bypass] != 2 || sn.Last[live.Requests] != 0 {
-		t.Errorf("bypass=%d requests=%d, want 2/0", sn.Last[live.Bypass], sn.Last[live.Requests])
+	if sn.Last[live.Bypass] != 1 || sn.Last[live.Crawler] != 1 || sn.Last[live.Requests] != 0 {
+		t.Errorf("bypass=%d crawler=%d requests=%d, want 1/1/0", sn.Last[live.Bypass], sn.Last[live.Crawler], sn.Last[live.Requests])
 	}
 }
 

@@ -814,8 +814,13 @@ func (r *Reader) liveHit(p parsed, isCrawler bool) {
 		m |= live.Of(live.Pass)
 	case p.fc:
 		// Answered by the daemon: its serve event counts it.
-	case isCrawler || p.bypassed:
+	case p.bypassed:
 		m |= live.Of(live.Bypass)
+	case isCrawler:
+		// A listed crawler let through on purpose: judged and admitted, the
+		// dashboard's benign bot.  After bypassed, as the minute buckets have
+		// it: a crawler on a bypassed path was never judged.
+		m |= live.Of(live.Crawler)
 	}
 	cc := ""
 	if geo != nil && geo.Loaded() && p.ip != "" {
@@ -1050,7 +1055,7 @@ func (r *Reader) BumpCrawlerPass(site string) {
 		return
 	}
 	r.bumpKind(site, "crawler_pass")
-	r.liveBump(live.Of(live.Bypass))
+	r.liveBump(live.Of(live.Crawler))
 }
 
 // BumpTrafficHLL / BumpCountry: exported entry points for forward-auth mode.

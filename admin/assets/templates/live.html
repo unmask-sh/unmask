@@ -342,7 +342,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
     <div class="label"><span class="kdot" style="background:{{ .Color }}"></span><span class="lt"{{ if eq .Key "requests" }} data-lt-all="{{ t $.Lang "overview.live.requests" }}" data-lt-judged="{{ t $.Lang "overview.live.requests_judged" }}"{{ end }}>{{ t $.Lang .LabelKey }}</span><span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t $.Lang .HelpKey) }}</span></span></div>
     <div class="row"><div class="value" data-f="last30">{{ comma .Last30 }}</div><div class="win">{{ t $.Lang "overview.live.window" }}</div></div>
     <div class="sub minute"><b data-f="last">{{ comma .Last }}</b> {{ t $.Lang "overview.live.minute" }}</div>
-    {{ if eq .Key "requests" }}<div class="sub" data-f="tps">{{ tf $.Lang "overview.live.tps" .TPS .Peak .Avg }}</div>{{ end }}
+    {{ if eq .Key "requests" }}<div class="sub" data-f="tps">{{ tf $.Lang "overview.live.tps" .TPS .Peak .Avg }}</div><div class="sub" data-f="crawler" data-tpl="{{ tf $.Lang "overview.live.requests_crawlers" "%s" }}">{{ tf $.Lang "overview.live.requests_crawlers" (comma .Crawler30) }}</div>{{ end }}
     <svg class="spk" viewBox="0 0 150 34" preserveAspectRatio="none" aria-hidden="true" data-f="bars">{{ range .Bars }}<rect x="{{ .X }}" y="{{ .Y }}" width="4" height="{{ .H }}" fill="{{ $t.Color }}"/>{{ end }}</svg>
   </div>
   {{ end }}
@@ -356,14 +356,14 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
      data-auto-set="{{ if .MapAuto.Set }}1{{ else }}0{{ end }}" data-auto-lat="{{ .MapAuto.Lat }}" data-auto-lon="{{ .MapAuto.Lon }}" data-auto-label="{{ .MapAuto.Label }}{{ if .MapAuto.Approx }} {{ t .Lang "overview.map.approx" }}{{ end }}" data-auto-source="{{ .MapAuto.Source }}" data-auto-ip="{{ .MapAuto.IP }}" data-auto-at="{{ .MapAuto.At }}" data-probe="{{ .BasePath }}/admin/api/map-location/probe"
      data-txt-server="{{ t .Lang "overview.map.server" }}" data-txt-from-interface="{{ t .Lang "overview.map.src_interface" }}" data-txt-from-echo="{{ t .Lang "overview.map.src_echo" }}"
      data-txt-probe-at="{{ t .Lang "overview.map.dlg_probe_at" }}" data-txt-auto-suffix="{{ t .Lang "overview.map.auto_suffix" }}" data-txt-none="{{ t .Lang "overview.map.none" }}" data-txt-pop-requests="{{ t .Lang "overview.map.pop_requests" }}" data-txt-pop-now="{{ t .Lang "overview.map.pop_now" }}" data-txt-pop-share="{{ t .Lang "overview.map.pop_share" }}"
-     data-txt-legend-blocked="{{ t .Lang "overview.map.legend_blocked" }}" data-txt-legend-people="{{ t .Lang "overview.map.legend_people" }}" data-txt-legend-pass="{{ t .Lang "overview.map.legend_pass" }}" data-txt-legend-bypass="{{ t .Lang "overview.map.legend_bypass" }}">
+     data-txt-legend-blocked="{{ t .Lang "overview.map.legend_blocked" }}" data-txt-legend-people="{{ t .Lang "overview.map.legend_people" }}" data-txt-legend-pass="{{ t .Lang "overview.map.legend_pass" }}" data-txt-legend-bypass="{{ t .Lang "overview.map.legend_bypass" }}" data-txt-legend-crawler="{{ t .Lang "overview.map.legend_crawler" }}">
   <h2 class="pipe-h">{{ t .Lang "overview.map.h" }}<small>{{ t .Lang "overview.map.sub" }}</small><span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.map.help" }}</span></span>{{ if .CanEditMap }}<button type="button" class="live-tg" id="geo-set" style="margin-left:auto">{{ t .Lang "overview.map.set" }}: <span id="geo-set-cur">{{ if .MapLoc.Set }}{{ .MapLoc.Label }}{{ if .MapLoc.Approx }} {{ t .Lang "overview.map.approx" }}{{ end }}{{ if .MapLoc.Auto }} · {{ t .Lang "overview.map.auto_suffix" }}{{ end }}{{ else }}{{ t .Lang "overview.map.none" }}{{ end }}</span></button>{{ end }}</h2>
   <div class="geo-wrap"><canvas id="geo" aria-label="{{ t .Lang "overview.map.h" }}" role="img"></canvas>
     <div class="geo-pop" id="geo-pop" hidden></div></div>
   <p class="live-note" id="geo-unset" style="margin:.4rem 0 0"{{ if .MapLoc.Set }} hidden{{ end }}>{{ t .Lang "overview.map.unset" }}</p>
   {{ if .MapLoc.Auto }}<p class="meta" id="geo-auto" style="margin:.4rem 0 0;font-size:.78rem">{{ tf .Lang "overview.map.auto_note" (t .Lang (printf "overview.map.src_%s" .MapLoc.Source)) }}{{ if .MapLoc.Approx }} {{ t .Lang "overview.map.approx_note" }}{{ end }}</p>{{ end }}
   <p class="live-note" id="geo-nogeo" style="margin:.4rem 0 0"{{ if .GeoKnown }} hidden{{ end }}>{{ t .Lang "overview.map.nogeo" }}</p>
-  <div class="geo-foot" id="geo-legend" role="group" aria-label="{{ t .Lang "overview.map.legend_h" }}"><button type="button" class="geo-k" data-k="blocked" aria-pressed="true"><i style="background:#f87171"></i>{{ t .Lang "overview.map.legend_blocked" }}</button><button type="button" class="geo-k" data-k="people" aria-pressed="false"><i style="background:#34d399"></i>{{ t .Lang "overview.map.legend_people" }}</button><button type="button" class="geo-k" data-k="pass" aria-pressed="false"><i style="background:#94a3b8"></i>{{ t .Lang "overview.map.legend_pass" }}</button><button type="button" class="geo-k" data-k="bypass" aria-pressed="false"><i style="background:#818cf8"></i>{{ t .Lang "overview.map.legend_bypass" }}</button><span class="geo-top" id="geo-top" data-txt="{{ t .Lang "overview.map.top" }}" data-txt-empty="{{ t .Lang "overview.map.empty" }}" data-txt-empty-sel="{{ t .Lang "overview.map.empty_sel" }}"></span></div>
+  <div class="geo-foot" id="geo-legend" role="group" aria-label="{{ t .Lang "overview.map.legend_h" }}"><button type="button" class="geo-k" data-k="blocked" aria-pressed="true"><i style="background:#f87171"></i>{{ t .Lang "overview.map.legend_blocked" }}</button><button type="button" class="geo-k" data-k="people" aria-pressed="false"><i style="background:#34d399"></i>{{ t .Lang "overview.map.legend_people" }}</button><button type="button" class="geo-k" data-k="pass" aria-pressed="false"><i style="background:#94a3b8"></i>{{ t .Lang "overview.map.legend_pass" }}</button><button type="button" class="geo-k" data-k="bypass" aria-pressed="false"><i style="background:#818cf8"></i>{{ t .Lang "overview.map.legend_bypass" }}</button><button type="button" class="geo-k" data-k="crawler" aria-pressed="false"><i style="background:#fbbf24"></i>{{ t .Lang "overview.map.legend_crawler" }}</button><span class="geo-top" id="geo-top" data-txt="{{ t .Lang "overview.map.top" }}" data-txt-empty="{{ t .Lang "overview.map.empty" }}" data-txt-empty-sel="{{ t .Lang "overview.map.empty_sel" }}"></span></div>
   <p class="geo-refused" id="geo-refused" data-txt="{{ t .Lang "overview.map.refused" }}" data-txt-none="{{ t .Lang "overview.map.refused_none" }}" data-hunt="{{ .BasePath }}/admin/hunt/?range=1h&amp;force_reason=" data-flags="{{ .BasePath }}/static/flags/"></p>
 </div>
 {{ if .CanEditMap }}
@@ -572,6 +572,14 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       var tps = tile.querySelector('[data-f=tps]');
       var tpsText = rj ? rj.tps_text : j.tps_text;
       if (tps && tpsText) tps.textContent = tpsText;
+      // The listed crawlers let through, under the requests: in the judged
+      // count either way (judged and admitted), so the line reads the same
+      // under both scopes.
+      var cr = tile.querySelector('[data-f=crawler]');
+      if (cr && cr.dataset.tpl && j.last30) {
+        var crt = cr.dataset.tpl.replace('%s', comma((j.last30 && j.last30.crawler) || 0));
+        if (cr.textContent !== crt) cr.textContent = crt;
+      }
     });
     if (feedOff) feedOff.hidden = !j.feed_off;
     // The map draws from the same reading.
@@ -723,12 +731,12 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   }
   var reduce = false;
   try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
-  var colors = { blocked: '#f87171', people: '#34d399', pass: '#94a3b8', bypass: '#818cf8' };
+  var colors = { blocked: '#f87171', people: '#34d399', pass: '#94a3b8', bypass: '#818cf8', crawler: '#fbbf24' };
   // The kinds the map can draw, in the legend's order, and the ones it does:
   // blocked bots alone unless this browser chose otherwise.  blocked and
   // people come split by the server (the dashboard's blocked count, a country
-  // at a time); pass and bypass are the access log's own.
-  var KINDS = ['blocked', 'people', 'pass', 'bypass'], sel = { blocked: true };
+  // at a time); pass, bypass and crawler are the access log's own.
+  var KINDS = ['blocked', 'people', 'pass', 'bypass', 'crawler'], sel = { blocked: true };
   try {
     var saved = JSON.parse(localStorage.getItem('unmask:map-kinds') || 'null');
     if (Array.isArray(saved)) { sel = {}; saved.forEach(function(k){ if (KINDS.indexOf(k) >= 0) sel[k] = true; }); }

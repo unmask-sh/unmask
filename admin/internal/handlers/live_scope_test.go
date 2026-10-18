@@ -47,17 +47,18 @@ func TestLiveRequestsTileJudged(t *testing.T) {
 		h.Live.Hit(now, "JP", live.Of(live.Requests, live.Pass))
 	}
 	h.Live.Hit(now, "JP", live.Of(live.Requests, live.Bypass))
+	h.Live.Hit(now, "JP", live.Of(live.Requests, live.Crawler)) // a listed crawler: judged, so it stays
 	h.Live.Hit(now.Add(-70*time.Second), "US", live.Of(live.Requests, live.Bypass))
 
 	all := h.liveView(now, "", liveScopeAll)
-	if r := all.Tiles[0]; r.Key != "requests" || r.Last != 4 || r.Last30 != 5 || r.LabelKey != "overview.live.requests" || r.TPS != "0.8" {
+	if r := all.Tiles[0]; r.Key != "requests" || r.Last != 5 || r.Last30 != 6 || r.LabelKey != "overview.live.requests" || r.TPS != "1.0" || r.Crawler30 != 1 {
 		t.Errorf("all: %+v", r)
 	}
 	jud := h.liveView(now, "", liveScopeJudged)
 	if jud.Scope != liveScopeJudged {
 		t.Errorf("scope = %q", jud.Scope)
 	}
-	if r := jud.Tiles[0]; r.Last != 3 || r.Last30 != 3 || r.LabelKey != "overview.live.requests_judged" || r.TPS != "0.6" {
+	if r := jud.Tiles[0]; r.Last != 4 || r.Last30 != 4 || r.LabelKey != "overview.live.requests_judged" || r.TPS != "0.8" || r.Crawler30 != 1 {
 		t.Errorf("judged: %+v", r)
 	}
 	if b := jud.Tiles[3]; b.Key != "bypass" || b.Last30 != 2 {

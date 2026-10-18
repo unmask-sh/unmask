@@ -27,7 +27,7 @@ type Kind uint8
 const (
 	Requests  Kind = iota // every access-log line (or forward-auth check)
 	Pass                  // admitted on a valid pass cookie (pow / captcha / rebind)
-	Bypass                // let through unjudged: a bypass rule, or a listed crawler
+	Bypass                // let through unjudged: a bypass rule, an unprotected location, monitor mode
 	Serve                 // a challenge page was the answer (its serve event)
 	Solve                 // a challenge was cleared: a bv_* cookie was issued
 	Deny                  // refused with a deny page, for any reason (its serve event, deny=1)
@@ -37,11 +37,16 @@ const (
 	// the challenged requests the way the dashboard's blocked count takes it
 	// out: someone who walked away was not stopped.
 	Abandon
+	// Crawler: a listed crawler this configuration let through on purpose
+	// (named in the crawler list, and past the IP-range check where that is
+	// on).  Judged and admitted, not bypassed: the dashboard's benign bots,
+	// so the judged requests keep it while the bypassed ones leave.
+	Crawler
 	NumKinds
 )
 
 // Names spells the kinds the way the JSON endpoint does, in Kind order.
-var Names = [NumKinds]string{"requests", "pass", "bypass", "serve", "solve", "deny", "rate_limit", "abandon"}
+var Names = [NumKinds]string{"requests", "pass", "bypass", "serve", "solve", "deny", "rate_limit", "abandon", "crawler"}
 
 // BlockedName is the JSON key of the one figure a reading derives rather than
 // counts (Snapshot.Blocked).  Not a Kind: no request is ever counted under it.
@@ -287,6 +292,7 @@ type Country struct {
 	Deny    uint32 `json:"deny"`
 	Solve   uint32 `json:"solve"`
 	Abandon uint32 `json:"abandon"`
+	Crawler uint32 `json:"crawler"`
 	// Blocked and People split the requests that met a challenge or a deny.
 	// Blocked is what nobody cleared: the dashboard's "bot accesses unmask
 	// blocked" (challenges fired, minus PoW/CAPTCHA solves, minus visitors who
@@ -305,6 +311,7 @@ func (x *Country) add(e *[NumKinds]uint32) {
 	x.Deny += e[Deny]
 	x.Solve += e[Solve]
 	x.Abandon += e[Abandon]
+	x.Crawler += e[Crawler]
 }
 
 func (x *Country) settle() {

@@ -35,6 +35,7 @@ type liveTile struct {
 	Points    string // SVG polyline points of the series
 	TPS       string // requests only: "1.6 · 8.6 · 2.5" as three strings
 	Peak, Avg string
+	Crawler30 int // requests only: the listed crawlers let through, in the half hour
 }
 
 type liveView struct {
@@ -110,6 +111,7 @@ func (h *Handler) liveView(now time.Time, tzName, scope string) liveView {
 		}
 		if lt.key == live.Names[live.Requests] {
 			t.TPS, t.Peak, t.Avg = rate(sn.TPS), rate(sn.Peak), rate(sn.Avg)
+			t.Crawler30 = int(sn.Last30[live.Crawler])
 			if judged {
 				t.LabelKey = "overview.live.requests_judged"
 				tps, peak, avg := liveRates(series)

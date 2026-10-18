@@ -16,6 +16,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- (2026-10-18) **The realtime tab counts benign crawlers as judged, like the dashboard.**  The strip filed a listed crawler the configuration let through with the bypassed requests, so "judged only" left it out while the dashboard's judged traffic counted it as a benign bot.  The strip now keeps it in the judged requests, says how many under the request tile, and the map can draw them.
+
 - (2026-10-18) **The request tiles explain their arithmetic.**  The tiles beside them count what the challenge did, and summing those does not give the request count: a fire includes the solves, and the benign crawlers and the unchallenged requests have no tile.  The help of the dashboard's request tile and of the realtime tab's now says how the figure divides, and which neighbours are outcomes rather than parts.
 
 ## [0.1.52-rc8] - 2026-10-18 (testing build)

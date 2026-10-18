@@ -140,8 +140,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     ok(/us\.png$/.test(pop.img), 'the popover lacks the flag: ' + pop.img);
     // Every request of the source and the whole split, though the map draws
     // only the blocked: requests, last minute, then blocked / solved or left
-    // / passed on a cookie / bypassed.
-    ok(pop.cells === '31,9,8,13,10,0', 'the popover figures are not the whole split: ' + pop.cells);
+    // / passed on a cookie / bypassed / benign crawlers.
+    ok(pop.cells === '31,9,8,13,10,0,0', 'the popover figures are not the whole split: ' + pop.cells);
     ok(pop.text.indexOf('17%') >= 0, 'the popover lacks the share: ' + pop.text);
     ok(pop.cursor === 'pointer', 'the source does not signal it is interactive: ' + pop.cursor);
     // The sea west of Africa: nothing there.
