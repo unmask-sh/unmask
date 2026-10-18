@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.51",
+  "latest": "0.1.52",
   "releases": [
+    {
+      "version": "0.1.52",
+      "date": "2026-10-19",
+      "notes": "The dashboard gains a week tab beside the day, and its figures explain themselves: the headline says what it counts, the non-human card opens on the traffic unmask judged, the request tiles carry their arithmetic in a popover, and the country rankings show a two-letter code on every row. The realtime tab has a blocked tile, counts benign crawlers as judged, centres its map where the server is, and has an effects switch. The admin has a notification list behind a bell, the audit log records installs and schema updates, a viewer's menu offers only the pages the role can open, an account can be kept from changing its own password, and a local address shows a flag of its own. A schema update started from a shell holds the daemon's writes from its first moment; while an index builds, bans can be placed and lifted, only changes that rewrite rows wait, the notice and the dashboard answer at once, and nothing kept through the update is dropped when written back. SQLite reads are no longer memory-mapped, the library is the current release, and a page's time budget reaches every row of a query. SysVinit hosts start the daemon again when it dies. Ask AI counts from the hourly rollup, sends less, and says which proposed rules were made."
+    },
     {
       "version": "0.1.51",
       "date": "2026-10-16",

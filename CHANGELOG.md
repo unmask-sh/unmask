@@ -12,147 +12,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [0.1.52-rc10] - 2026-10-19 (testing build)
-
-### Changed
-
-- (2026-10-19) **The crawler dialog's badge legend folds into a popover.**  In a group's Detail dialog on the UA filter tab, the seven-line note on the 🛡 badge sat above the list and left it a few rows tall.  The note is now a popover behind a one-line hint, and the list takes the room, with a floor of eight lines even on a short screen.
-
-## [0.1.52-rc9] - 2026-10-19 (testing build)
+## [0.1.52] - 2026-10-19
 
 ### Added
-
-- (2026-10-18) **The realtime tab has an effects switch, on by default.**  The flash of a changed figure, the colour of a new row and the map's particles and pulse followed the operating system's reduce-motion setting, so on a browser set that way the page looked frozen while its numbers moved.  The effects now run whatever the system asks for; a switch beside auto-refresh turns them off, and the choice is kept in the browser.
-
-### Changed
-
-- (2026-10-18) **The country rankings show a two-letter code on every row.**  The two charts named the address the database could not place and the local one in words, so those rows' bars started further right than the rest.  Every row now shows a code -- `??` and `XL` for those two -- and the popover over either says what it counts: addresses the IP-geo database has no entry for, or private, loopback and link-local ones.
-
-- (2026-10-18) **The realtime tab counts benign crawlers as judged, like the dashboard.**  The strip filed a listed crawler the configuration let through with the bypassed requests, so "judged only" left it out while the dashboard's judged traffic counted it as a benign bot.  The strip now keeps it in the judged requests, shows how many beside the request tile's headline, and the map can draw them.
-
-- (2026-10-18) **The request tiles explain their arithmetic.**  The tiles beside them count what the challenge did, and summing those does not give the request count: a fire includes the solves, and the benign crawlers and the unchallenged requests have no tile.  The help of the dashboard's request tile and of the realtime tab's now says how the figure divides, and which neighbours are outcomes rather than parts.
-
-## [0.1.52-rc8] - 2026-10-18 (testing build)
-
-### Changed
-
-- (2026-10-18) **The request figures follow the judged scope.**  With the non-human card on the traffic unmask judged, the dashboard's request tile shows that count too and names the bypassed requests it leaves out, and a segment taken out of the card's share reads "excluded" instead of a blank.  The realtime tab gains the same switch for its request tile, judged only by default.
-
-- (2026-10-18) **The non-human traffic card opens on the traffic unmask judged.**  Its share was computed over every request in the access log, the bypassed ones too, which diluted it with traffic unmask never evaluated.  The card now opens on the requests unmask judged, with "All traffic" one click away; an operator who had picked a view keeps it.
-
-- (2026-10-18) **The dashboard's headline says what it counts.**  Under the number of bot requests unmask blocked, the line read "requests in the last 24 hours", which could be taken for the site's whole traffic.  It now reads "requests blocked in the last 24 hours", and the week's view says the same for its seven days.
-
-## [0.1.52-rc7] - 2026-10-18 (testing build)
-
-### Since rc6
-
-- The pinned help of a realtime tile is titled with the tile's name.
-
-- Ask AI answers during a schema update, and says the turn is not kept in the history.
-
-- The stop button of a schema update this daemon started shows from the run's first moment.
-
-### Added
-
-- (2026-10-18) **SysVinit hosts start the daemon again when it dies.**  On systemd and OpenRC the service manager restarts the daemon after a fault; on RHEL 6 / CentOS 6 nothing did, and every challenge page waited until an operator ran `service unmask start`.  The init script now runs `unmask serve -supervise`: a small parent that keeps the daemon as its child, hands on the stop, and restarts it after five seconds, giving up after ten crashes in ten minutes.
-
-### Changed
-
-- (2026-10-18) **Ask AI counts a window from the hourly rollup, and refuses a scan it cannot finish.**  A count without a filter is answered from the rollup at once, with the addresses estimated; a filtered count reads the window's events, and a window of more than about two million is refused with the way out instead of being cut off by the tool's deadline.  The settings search renders each tab without the reads only its page needs.
-
-- (2026-10-18) **Ask AI sends less, and reads the rest from the provider's cache.**  A question's context is now the conversation on the page since it was opened, not the last ten turns of the history whatever the question.  With Anthropic the system prompt, the tools and each round's transcript are marked for the prompt cache, so a round reads them back at a tenth of the rate; the turn shows how much came from the cache, and the estimates price it.
-
-- (2026-10-18) **The SQLite library is the current release.**  The driver moves from modernc.org/sqlite v1.51.0 (May, SQLite 3.53.1) to v1.60.1 (SQLite 3.53.4, with its libc and allocator): four months of fixes, among them the dozens of memory-safety corrections SQLite 3.53.2 to 3.53.4 took from fuzzing, and the driver's own hardening of the page cache and of interrupting a query from another goroutine.
-
-### Fixed
-
-- (2026-10-18) **A page's time budget now reaches every row of a query, not only the first.**  The SQLite driver watches a query's deadline while the first row is found and no longer afterwards, so a query that streams rows ran on past its budget: on a disk kept busy by an index build, for hours.  The watch now lasts to the last row, and the query stops at its deadline.
-
-- (2026-10-18) **SQLite reads are no longer memory-mapped.**  Every connection mapped the first few dozen megabytes of the database, and dropped and re-made that map whenever the write-ahead log had changed, for next to no gain on a database of gigabytes: the page cache is the cache that matters.  Memory-mapped reads are off, and the performance tab no longer counts an mmap allowance beside the cache.
-
-## [0.1.52-rc6] - 2026-10-18 (testing build)
-
-### Since rc5
-
-- The realtime tab's blocked tile sits next to the request tile, as the dashboard's headline does.
-
-- An audit row the database refused as held, in the moment a run starts, is kept for the end of the hold instead of dropped.
-
-### Fixed
-
-- (2026-10-18) **A schema update started from a shell holds the daemon's writes from its first moment.**  The daemon judged a run going only after reading the database, and under an index build on a slow disk those reads took minutes: its writers waited out the busy timeout at every write, and events, bans and the access-log feed suffered.  The run's lock is looked at first now, and the hold follows it.
-
-- (2026-10-18) **The update notice and the dashboard answer at once while an index builds.**  The notice's poll read the database on every page's turn and stood in line behind the build; the dashboard's figures waited with it, for hours.  The poll now answers from what the daemon knows, one at a time per page, and the dashboard's section says it is paused until the update has finished.
-
-- (2026-10-18) **Nothing is dropped while the events kept through an update are written back.**  The backlog was written in one long stretch while new events overflowed the queue, bans and notices waited out the lock, and the access-log socket lost lines.  The backlog now goes out in small chunks, the queue drained between them; an automatic ban no longer waits for the lock, and a notice that failed is tried again.
-
-- (2026-10-18) **The realtime tab's countdown ends when the figures change.**  The bar beside the countdown ran most of a second behind: the figures changed with a fifth of it still to fill, and the count then sat at 0 for a second.  Both now run out as the next reading is taken, and the recent-detections table is read with the strip, not on a clock of its own.
-
-## [0.1.52-rc5] - 2026-10-17 (testing build)
-
-### Since rc4
-
-- The reload notice's help pins on a click, as a window with a copy button, so the command in it can be copied.
-
-### Added
-
 - (2026-10-17) **The realtime tab has a blocked tile.**  Beside the challenge, refused and solved tiles, a tile counts what the dashboard's headline counts -- challenges served plus refusals, minus the proof-of-work and CAPTCHA answers and the visitors who walked away -- over the last thirty minutes and the last minute, a bar a minute.  It is the total of what the map draws by default.
-
-- (2026-10-17) **Ask AI's history says which proposed rules were made.**  A "Create this rule" button in an answer now reads "✓ Rule created" with the rule's name, and opens the custom-rules tab at that rule, once the rule is on the list -- the one added from that button, even if the dialog changed it, or one with the same conditions.  Removed, the rule is offered again.
-
-### Changed
-
-- (2026-10-17) **Bans can be placed and lifted while the database is being updated.**  A manual ban during an index build used to be refused until the build had finished.  It is now kept in memory like an automatic one -- enforced at once, listed as a row to come, written when the lock is free -- and a ban lifted meanwhile stops at once too.  Only editing a ban waits.
-
-- (2026-10-17) **A database update refuses only the changes that rewrite rows.**  While an index builds, only user accounts, the profile, the advisor's dismissals and the AI chat's history edits wait, told why at once; the hunt page's rules, the map's position and a question to the AI go through, as the settings always did.  The build runs at low CPU and I/O priority, so the pages stay quick.
-
-## [0.1.52-rc4] - 2026-10-17 (testing build)
-
-### Since rc3
-
-- The notification bell's unread rows stand out from the read ones: bold with a blue edge and a New tag in the panel, bold on a tinted row in the list.
-
-### Changed
-
-- (2026-10-17) **The realtime map is the one printed where the server is, without Antarctica.**  Its middle followed the reader's language; it now follows the server's country: Greenwich for most of the world, the Pacific for East Asia and Oceania, Japan in the middle of a Japanese server's map.  Antarctica, which sends no traffic, is cut off at 60°S, so the map takes less height.
-
-### Fixed
-
-- (2026-10-17) **The realtime tab's refused tile counts every refusal, beside the challenges.**  It counted only honeypot trips and bans whose action is deny, while the deny page of an ASN, country, UA, JA4 or custom rule went under the challenges served.  Both tiles now count the page the daemon answered with: the refused tile matches the breakdown under the map, and the challenge tile holds challenges only.
-
-## [0.1.52-rc3] - 2026-10-17 (testing build)
-
-### Since rc2
-
-- The realtime tab's tab bar lists the week tab too.
-
-### Changed
-
-- (2026-10-17) **A challenge burst is measured against the hour before.**  The burst notification, and its line in the admin's notification list, now come when five minutes bring ten times the challenges of an average five minutes in the hour before, and at least the configured minimum, which used to be the whole test.  A busy site's ordinary traffic no longer fills the list, and one surge gives one notice an hour.
-
-### Fixed
-
-- (2026-10-17) **The week tab's request figures no longer time out on a large database.**  The composition behind the headline was summed from the per-minute table over the whole window, a row per site, kind and minute, and seven days of a many-site install ran past the page's budget.  The settled hours now come from the hourly rollup; only the minutes around them are read live.
-
-- (2026-10-17) **Addresses open their popover on the realtime tab's recent detections and in the bot hunt's live tail.**  The recent table lost the popover at its first redraw, ten seconds after the tab opened, and the live tail had never had one.  Both now show the same reverse DNS, country and network details as the bot hunt's table.
-
-## [0.1.52-rc2] - 2026-10-17 (testing build)
-
-### Since rc1
-
-- Bot hunt opens for a viewer, without its BAN and rule buttons (rc1 refused the role); the viewer-menu entry above describes the menu as it is from this build.
-
-### Added
 
 - (2026-10-17) **The dashboard gets a week tab, and loses its line of now.**  Beside "Today (24 h)" a "Week (7 days)" tab draws the same section -- the blocked headline, the composition, the tiles, the crawler table and the reasons -- over the last seven days, from the same rollups, with its refresh button.  The line above the day section that repeated the realtime tab's figures is gone.
 
 - (2026-10-17) **The stats page charts the bot requests unmask blocked, by day.**  A new 30-day card shows the landing page's headline figure as one bar a day -- challenges fired minus the proof-of-work and CAPTCHA answers minus the visitors who walked away -- with the 30-day total and a table of the terms, so the trend of what was stopped is visible beside the request and challenge breakdowns.
 
 - (2026-10-17) **An account can be kept from changing its own password.**  A viewer login shared by a team broke the day one of its users changed the password.  The users page has a checkbox per account: with it set, the profile's password form gives way to a note and the forgot-password link issues nothing, while an administrator still sets the password there, and the CLI can create such an account.
-
-## [0.1.52-rc1] - 2026-10-16 (testing build)
-
-### Added
 
 - (2026-10-16) **Ask AI counts a window instead of reading it.**  A new tool counts the event log over a window under the hunt's filters -- by phase, hour by hour, with the distinct addresses -- so how many, and whether a rule made a difference, is answered from the whole window.  The row tool now says what span of the window its rows cover and whether more exist, and no longer carries each event's raw payload.
 
@@ -162,7 +31,30 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-16) **The admin has a notification list: a bell in the top bar.**  Every alert the daemon sends by webhook or mail (bans, bursts, the over-block breaker, the advisor's digest) is also kept for the admin, whatever the notification switches say.  The bell counts what the account has not opened; the panel and the page write each line in the reader's language, bans folded into one line per hour.
 
+- (2026-10-17) **Ask AI's history says which proposed rules were made.**  A "Create this rule" button in an answer now reads "✓ Rule created" with the rule's name, and opens the custom-rules tab at that rule, once the rule is on the list -- the one added from that button, even if the dialog changed it, or one with the same conditions.  Removed, the rule is offered again.
+
+- (2026-10-18) **SysVinit hosts start the daemon again when it dies.**  On systemd and OpenRC the service manager restarts the daemon after a fault; on RHEL 6 / CentOS 6 nothing did, and every challenge page waited until an operator ran `service unmask start`.  The init script now runs `unmask serve -supervise`: a small parent that keeps the daemon as its child, hands on the stop, and restarts it after five seconds, giving up after ten crashes in ten minutes.
+
+- (2026-10-18) **The realtime tab has an effects switch, on by default.**  The flash of a changed figure, the colour of a new row and the map's particles and pulse followed the operating system's reduce-motion setting, so on a browser set that way the page looked frozen while its numbers moved.  The effects now run whatever the system asks for; a switch beside auto-refresh turns them off, and the choice is kept in the browser.
+
 ### Changed
+- (2026-10-19) **The crawler dialog's badge legend folds into a popover.**  In a group's Detail dialog on the UA filter tab, the seven-line note on the 🛡 badge sat above the list and left it a few rows tall.  The note is now a popover behind a one-line hint, and the list takes the room, with a floor of eight lines even on a short screen.
+
+- (2026-10-18) **The country rankings show a two-letter code on every row.**  The two charts named the address the database could not place and the local one in words, so those rows' bars started further right than the rest.  Every row now shows a code -- `??` and `XL` for those two -- and the popover over either says what it counts: addresses the IP-geo database has no entry for, or private, loopback and link-local ones.
+
+- (2026-10-18) **The realtime tab counts benign crawlers as judged, like the dashboard.**  The strip filed a listed crawler the configuration let through with the bypassed requests, so "judged only" left it out while the dashboard's judged traffic counted it as a benign bot.  The strip now keeps it in the judged requests, shows how many beside the request tile's headline, and the map can draw them.
+
+- (2026-10-18) **The request tiles explain their arithmetic.**  The tiles beside them count what the challenge did, and summing those does not give the request count: a fire includes the solves, and the benign crawlers and the unchallenged requests have no tile.  The help of the dashboard's request tile and of the realtime tab's now says how the figure divides, and which neighbours are outcomes rather than parts.
+
+- (2026-10-18) **The request figures follow the judged scope.**  With the non-human card on the traffic unmask judged, the dashboard's request tile shows that count too and names the bypassed requests it leaves out, and a segment taken out of the card's share reads "excluded" instead of a blank.  The realtime tab gains the same switch for its request tile, judged only by default.
+
+- (2026-10-18) **The non-human traffic card opens on the traffic unmask judged.**  Its share was computed over every request in the access log, the bypassed ones too, which diluted it with traffic unmask never evaluated.  The card now opens on the requests unmask judged, with "All traffic" one click away; an operator who had picked a view keeps it.
+
+- (2026-10-18) **The dashboard's headline says what it counts.**  Under the number of bot requests unmask blocked, the line read "requests in the last 24 hours", which could be taken for the site's whole traffic.  It now reads "requests blocked in the last 24 hours", and the week's view says the same for its seven days.
+
+- (2026-10-17) **Bans can be placed and lifted while the database is being updated.**  A manual ban during an index build used to be refused until the build had finished.  It is now kept in memory like an automatic one -- enforced at once, listed as a row to come, written when the lock is free -- and a ban lifted meanwhile stops at once too.  Only editing a ban waits.
+
+- (2026-10-17) **A database update refuses only the changes that rewrite rows.**  While an index builds, only user accounts, the profile, the advisor's dismissals and the AI chat's history edits wait, told why at once; the hunt page's rules, the map's position and a question to the AI go through, as the settings always did.  The build runs at low CPU and I/O priority, so the pages stay quick.
 
 - (2026-10-16) **The realtime map puts Japan in the middle for a Japanese admin, and its counts carry a thousands separator.**  Read in Japanese, the map is centred on Japan with the Pacific whole, as a map printed in Japan is; in English it stays centred on Greenwich.  The continents are two shades lighter than the sea, and every count on the map and in its popovers separates its thousands.
 
@@ -176,15 +68,41 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-16) **The realtime map shows what unmask blocked, and what it refused.**  The legend switches each kind of request on or off, blocked alone by default -- the dashboard's blocked count, country by country.  A country's popover still splits all its requests, and a line under the map lists the last thirty minutes' refusals by reason, each linking to bot hunt, with the rules that matched most.
 
-### Removed
+- (2026-10-17) **A challenge burst is measured against the hour before.**  The burst notification, and its line in the admin's notification list, now come when five minutes bring ten times the challenges of an average five minutes in the hour before, and at least the configured minimum, which used to be the whole test.  A busy site's ordinary traffic no longer fills the list, and one surge gives one notice an hour.
 
+- (2026-10-17) **The realtime map is the one printed where the server is, without Antarctica.**  Its middle followed the reader's language; it now follows the server's country: Greenwich for most of the world, the Pacific for East Asia and Oceania, Japan in the middle of a Japanese server's map.  Antarctica, which sends no traffic, is cut off at 60°S, so the map takes less height.
+
+- (2026-10-18) **Ask AI counts a window from the hourly rollup, and refuses a scan it cannot finish.**  A count without a filter is answered from the rollup at once, with the addresses estimated; a filtered count reads the window's events, and a window of more than about two million is refused with the way out instead of being cut off by the tool's deadline.  The settings search renders each tab without the reads only its page needs.
+
+- (2026-10-18) **Ask AI sends less, and reads the rest from the provider's cache.**  A question's context is now the conversation on the page since it was opened, not the last ten turns of the history whatever the question.  With Anthropic the system prompt, the tools and each round's transcript are marked for the prompt cache, so a round reads them back at a tenth of the rate; the turn shows how much came from the cache, and the estimates price it.
+
+- (2026-10-18) **The SQLite library is the current release.**  The driver moves from modernc.org/sqlite v1.51.0 (May, SQLite 3.53.1) to v1.60.1 (SQLite 3.53.4, with its libc and allocator): four months of fixes, among them the dozens of memory-safety corrections SQLite 3.53.2 to 3.53.4 took from fuzzing, and the driver's own hardening of the page cache and of interrupting a query from another goroutine.
+
+### Removed
 - (2026-10-16) **The realtime tiles no longer compare the last minute with the one before.**  The bars under each tile already show the last thirty minutes a minute at a time, which says more than the difference between two of them.  The reading the page refreshes from, `/admin/api/now`, no longer carries the previous minute.
 
 ### Fixed
+- (2026-10-18) **A page's time budget now reaches every row of a query, not only the first.**  The SQLite driver watches a query's deadline while the first row is found and no longer afterwards, so a query that streams rows ran on past its budget: on a disk kept busy by an index build, for hours.  The watch now lasts to the last row, and the query stops at its deadline.
+
+- (2026-10-18) **A schema update started from a shell holds the daemon's writes from its first moment.**  The daemon judged a run going only after reading the database, and under an index build on a slow disk those reads took minutes: its writers waited out the busy timeout at every write, and events, bans and the access-log feed suffered.  The run's lock is looked at first now, and the hold follows it.
+
+- (2026-10-18) **The update notice and the dashboard answer at once while an index builds.**  The notice's poll read the database on every page's turn and stood in line behind the build; the dashboard's figures waited with it, for hours.  The poll now answers from what the daemon knows, one at a time per page, and the dashboard's section says it is paused until the update has finished.
+
+- (2026-10-18) **Nothing is dropped while the events kept through an update are written back.**  The backlog was written in one long stretch while new events overflowed the queue, bans and notices waited out the lock, and the access-log socket lost lines.  The backlog now goes out in small chunks, the queue drained between them; an automatic ban no longer waits for the lock, and a notice that failed is tried again.
+
+- (2026-10-17) **The week tab's request figures no longer time out on a large database.**  The composition behind the headline was summed from the per-minute table over the whole window, a row per site, kind and minute, and seven days of a many-site install ran past the page's budget.  The settled hours now come from the hourly rollup; only the minutes around them are read live.
 
 - (2026-10-16) **The Community Bans impact figure reads an index.**  The "past 30 days" count on the Community Bans tab read every serve event of the window, which on a large database outlasted its budget and left the tab without a figure.  Schema update 0039 adds a small index of the rows it counts; a large install leaves it to the operator, as the card indexes do.
 
 - (2026-10-16) **A feed hit from a client that cannot take the HTML page is named.**  A script or crawler the shared feed caught that asked for JSON rather than the challenge page was recorded under no reason and told none, so the Community Bans tab's figure missed it.  The JSON answer now resolves the hit from the same matcher as the page and records community_bans.
+
+- (2026-10-17) **Addresses open their popover on the realtime tab's recent detections and in the bot hunt's live tail.**  The recent table lost the popover at its first redraw, ten seconds after the tab opened, and the live tail had never had one.  Both now show the same reverse DNS, country and network details as the bot hunt's table.
+
+- (2026-10-17) **The realtime tab's refused tile counts every refusal, beside the challenges.**  It counted only honeypot trips and bans whose action is deny, while the deny page of an ASN, country, UA, JA4 or custom rule went under the challenges served.  Both tiles now count the page the daemon answered with: the refused tile matches the breakdown under the map, and the challenge tile holds challenges only.
+
+- (2026-10-18) **The realtime tab's countdown ends when the figures change.**  The bar beside the countdown ran most of a second behind: the figures changed with a fifth of it still to fill, and the count then sat at 0 for a second.  Both now run out as the next reading is taken, and the recent-detections table is read with the strip, not on a clock of its own.
+
+- (2026-10-18) **SQLite reads are no longer memory-mapped.**  Every connection mapped the first few dozen megabytes of the database, and dropped and re-made that map whenever the write-ahead log had changed, for next to no gain on a database of gigabytes: the page cache is the cache that matters.  Memory-mapped reads are off, and the performance tab no longer counts an mmap allowance beside the cache.
 
 ## [0.1.51] - 2026-10-16
 
