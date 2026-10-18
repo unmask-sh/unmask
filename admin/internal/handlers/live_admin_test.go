@@ -202,7 +202,7 @@ func TestLivePageRendersStrip(t *testing.T) {
 		t.Fatalf("status %d", rec.Code)
 	}
 	body := rec.Body.String()
-	for _, want := range []string{`id="live-grid"`, `data-k="requests"`, `data-k="blocked"`, `data-k="rate_limit"`, `/admin/api/now`, `id="live-toggle"`, `data-f="last30"`, `data-f="bars"`, `id="geo-card"`, `id="recent-card"`, `data-src="/unmask/admin/live/?partial=recent"`} {
+	for _, want := range []string{`id="live-grid"`, `data-k="requests"`, `data-k="blocked"`, `data-k="rate_limit"`, `/admin/api/now`, `id="live-toggle"`, `id="live-fx"`, `data-f="last30"`, `data-f="bars"`, `id="geo-card"`, `id="recent-card"`, `data-src="/unmask/admin/live/?partial=recent"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("realtime page lacks %q", want)
 		}

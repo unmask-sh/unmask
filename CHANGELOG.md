@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- (2026-10-18) **The realtime tab has an effects switch, on by default.**  The flash of a changed figure, the colour of a new row and the map's particles and pulse followed the operating system's reduce-motion setting, so on a browser set that way the page looked frozen while its numbers moved.  The effects now run whatever the system asks for; a switch beside auto-refresh turns them off, and the choice is kept in the browser.
+
 ### Changed
 
 - (2026-10-18) **The country rankings show a two-letter code on every row.**  The two charts named the address the database could not place and the local one in words, so those rows' bars started further right than the rest.  Every row now shows a code -- `??` and `XL` for those two -- and the popover over either says what it counts: addresses the IP-geo database has no entry for, or private, loopback and link-local ones.

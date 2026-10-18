@@ -241,6 +241,32 @@ for i in range(${n}):
   const left = await page.evaluate(() => document.querySelectorAll('body > .info-popup-pinned.popover-clone').length);
   ok(left === 0, `${left} pinned window(s) left after the close button`);
 
+  // The effects switch.  The flash of a changed figure (and the map's
+  // motion) run whatever the OS asks for: a browser set to reduce motion
+  // still sees them, as the switch is on by default; off, the flash is
+  // gone, and the choice survives a reload.  (The figure the feed changed
+  // above still carries its flash class, so its animation can be read.)
+  await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+  const fxSel = '#live-grid .live[data-k="requests"] [data-f="last30"]';
+  const fxState = () => page.evaluate(sel => {
+    const el = document.querySelector(sel), b = document.getElementById('live-fx');
+    let stored = null; try { stored = localStorage.getItem('unmask:live-fx'); } catch (e) {}
+    return { reduce: matchMedia('(prefers-reduced-motion: reduce)').matches, off: document.body.classList.contains('fx-off'), anim: el ? getComputedStyle(el).animationName : null, flashed: !!el && el.classList.contains('v-flash'), label: b && b.textContent, pressed: b && b.getAttribute('aria-pressed'), stored };
+  }, fxSel);
+  const fxOn = await fxState();
+  ok(fxOn.reduce === true, 'the reduce-motion emulation did not take');
+  ok(fxOn.flashed && fxOn.anim === 'v-flash' && !fxOn.off && fxOn.pressed === 'true' && /ON|on/.test(fxOn.label || ''), 'the effects are not on under reduced motion by default: ' + JSON.stringify(fxOn));
+  await page.click('#live-fx');
+  const fxOff = await fxState();
+  ok(fxOff.off && fxOff.anim === 'none' && fxOff.pressed === 'false' && /OFF|off/.test(fxOff.label || '') && fxOff.stored === 'off', 'switching the effects off did not take: ' + JSON.stringify(fxOff));
+  await page.reload({ waitUntil: 'networkidle2' });
+  const fxKept = await fxState();
+  ok(fxKept.off && fxKept.pressed === 'false', 'the effects choice did not survive a reload: ' + JSON.stringify(fxKept));
+  await page.click('#live-fx');
+  const fxBack = await fxState();
+  ok(!fxBack.off && fxBack.pressed === 'true' && fxBack.stored === 'on', 'the effects could not be switched back on: ' + JSON.stringify(fxBack));
+  await page.emulateMediaFeatures([]);
+
   // Switch auto-refresh off: the countdown stops, the choice survives a reload.
   await page.click('#live-toggle');
   const paused = await page.evaluate(async () => {

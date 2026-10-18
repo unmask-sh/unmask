@@ -168,10 +168,13 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
    the page sees which numbers moved. */
 @keyframes v-flash{0%{background:#bae6fd;box-shadow:0 0 0 .3rem #bae6fd}100%{background:transparent;box-shadow:0 0 0 .3rem transparent}}
 .v-flash{animation:v-flash .8s ease-out;border-radius:.2rem}
-@media (prefers-reduced-motion: reduce){.v-flash{animation:none}}
+/* The effects switch (#live-fx) rather than prefers-reduced-motion: the
+   operator opens this page to watch things move, so the effects are on
+   whatever the OS asks for, and off when the switch says so (body.fx-off). */
+.fx-off .v-flash{animation:none}
 @keyframes ev-new{from{background:#dcfce7}to{background:transparent}}
 table.events tbody tr.ev-new>td{animation:ev-new 2.5s ease-out}
-@media (prefers-reduced-motion: reduce){table.events tbody tr.ev-new>td{animation:none;background:#f0fdf4}}
+.fx-off table.events tbody tr.ev-new>td{animation:none;background:#f0fdf4}
 .live-head{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;margin:0 0 .5rem}
 .live-head .live-h{font-size:1rem;font-weight:700;color:#334155;margin:0;display:flex;align-items:center;gap:.3rem}
 .live-status{font-size:.8rem;color:#64748b;display:inline-flex;align-items:center;gap:.4rem}
@@ -331,6 +334,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   <h2 class="live-h">{{ t .Lang "overview.live.h" }}<span class="info-tip" tabindex="0" aria-label="help" style="font-size:.8em;font-weight:normal">?<span class="info-popup">{{ t .Lang "overview.live.note" }}</span></span></h2>
   <span class="live-status"><span>{{ t .Lang "overview.live.updated" }}<b id="live-at" data-ts="{{ .LiveAtTS }}">{{ .LiveAt }}</b></span><span>·</span><span>{{ t .Lang "overview.live.next_pre" }}<b id="live-next">5</b>{{ t .Lang "overview.live.next_post" }}</span><span class="live-bar"><i id="live-bar"></i></span></span>
   <button type="button" id="live-toggle" class="live-tg" aria-pressed="true" data-txt-on="{{ t .Lang "overview.live.auto_on" }}" data-txt-off="{{ t .Lang "overview.live.auto_off" }}">{{ t .Lang "overview.live.auto_on" }}</button>
+  <button type="button" id="live-fx" class="live-tg" aria-pressed="true" data-txt-on="{{ t .Lang "overview.live.fx_on" }}" data-txt-off="{{ t .Lang "overview.live.fx_off" }}">{{ t .Lang "overview.live.fx_on" }}</button>
   {{/* What the requests tile counts: the requests unmask judged (the
        default, as the dashboard's composition card reads) or every request.
        Real links, so the choice works without JS; the script below switches
@@ -692,6 +696,28 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     } catch (_) {}
   });
   setToggle();
+  // The effects: the flash of a changed figure, the green of a new row in
+  // the table below, the map's particles and pulse.  On by default whatever
+  // the OS asks for (prefers-reduced-motion): the operator opens this page
+  // to watch things move.  The switch turns them off, body.fx-off carries
+  // the state for the stylesheet and the map, and the choice is kept here.
+  var fxBtn = document.getElementById('live-fx'), fxOn = true;
+  try { fxOn = localStorage.getItem('unmask:live-fx') !== 'off'; } catch (e) {}
+  function setFx(){
+    document.body.classList.toggle('fx-off', !fxOn);
+    if (fxBtn) {
+      fxBtn.textContent = fxOn ? fxBtn.dataset.txtOn : fxBtn.dataset.txtOff;
+      fxBtn.setAttribute('aria-pressed', fxOn ? 'true' : 'false');
+      fxBtn.classList.toggle('off', !fxOn);
+    }
+    try { document.dispatchEvent(new CustomEvent('unmask:fx', { detail: { on: fxOn } })); } catch (e) {}
+  }
+  if (fxBtn) fxBtn.addEventListener('click', function(){
+    fxOn = !fxOn;
+    try { localStorage.setItem('unmask:live-fx', fxOn ? 'on' : 'off'); } catch (e) {}
+    setFx();
+  });
+  setFx();
   var ts = parseInt(atEl.dataset.ts, 10);
   if (ts) atEl.textContent = clock(new Date(ts * 1000));
   // One reading right away: the strip's own figures are already on the page,
@@ -737,8 +763,9 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     }
     return flagImgs[k];
   }
-  var reduce = false;
-  try { reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+  // The effects switch above the strip (body.fx-off): with it off the map
+  // keeps its still picture, the ring held half way out.
+  function fxOff(){ return document.body.classList.contains('fx-off'); }
   var colors = { blocked: '#f87171', people: '#34d399', pass: '#94a3b8', bypass: '#818cf8', crawler: '#fbbf24' };
   // The kinds the map can draw, in the legend's order, and the ones it does:
   // blocked bots alone unless this browser chose otherwise.  blocked and
@@ -986,7 +1013,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       }
       fctx.globalAlpha = 1; fctx.globalCompositeOperation = 'source-over';
     }
-    var pulse = reduce ? 0.5 : (ts / 1000) % 1;
+    var pulse = fxOff() ? 0.5 : (ts / 1000) % 1;
     fctx.beginPath(); fctx.arc(server[0] * sx, server[1] * sy, (4 + pulse * 16) * dpr, 0, Math.PI * 2);
     fctx.strokeStyle = 'rgba(56,189,248,' + (1 - pulse) * 0.8 + ')'; fctx.lineWidth = 2 * dpr; fctx.stroke();
     stamps.forEach(function(b){
@@ -1007,15 +1034,15 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     last = ts;
     paintFx(ts, dt);
   }
-  function animated(){ return MAP && server && !reduce && onScreen && document.visibilityState === 'visible'; }
+  function animated(){ return MAP && server && !fxOff() && onScreen && document.visibilityState === 'visible'; }
   function start(){
     if (running || !animated()) return;
     running = true; last = 0; requestAnimationFrame(frame);
   }
   function stop(){ running = false; }
   // A new reading, a new size or a new position: repaint the map, then
-  // either keep animating or leave the still picture (with reduced motion,
-  // the ring held half way out).
+  // either keep animating or leave the still picture (with the effects
+  // off, the ring held half way out).
   function relayer(){
     if (!MAP) return;
     paintStatic();
@@ -1126,6 +1153,9 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   // Nothing animates where nobody can see it: a hidden tab, or the map
   // scrolled out of view.
   document.addEventListener('visibilitychange', function(){ if (animated()) start(); else stop(); });
+  // The effects switch: on, the particles move again; off, the still
+  // picture is drawn once.
+  document.addEventListener('unmask:fx', function(){ if (animated()) { start(); return; } stop(); if (MAP) paintFx(0, 0); });
   if (window.IntersectionObserver) {
     new IntersectionObserver(function(es){
       onScreen = es[es.length - 1].isIntersecting;
