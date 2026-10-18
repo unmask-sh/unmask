@@ -462,7 +462,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
        was left out named on the second line.  The data attributes let the
        card's script redraw it on a toggle exactly as the server would. */}}
   <div class="kpi k-req" data-kpi="requests" id="kpi-requests" data-total="{{ .KPIReqTotal }}" data-bypass="{{ .KPIReqBypassed }}" data-sub-all="{{ t .Lang "overview.kpi.requests_sub" }}" data-sub-judged="{{ tf .Lang "overview.kpi.requests_sub_judged" "%s" }}">
-    <div class="label">{{ t .Lang "overview.kpi.requests" }}</div>
+    <div class="label">{{ t .Lang "overview.kpi.requests" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "overview.kpi.requests_help") }}</span></span></div>
     <div class="value">{{ if not .KPIReqKnown }}—{{ else if .ReqJudged }}{{ comma .KPIReqJudged }}{{ else }}{{ comma .KPIReqTotal }}{{ end }}</div>
     <div class="sub">{{ if not .KPIReqKnown }}{{ t .Lang "overview.kpi.nonhuman_nodata" }}{{ else if .ReqJudged }}{{ tf .Lang "overview.kpi.requests_sub_judged" (comma .KPIReqBypassed) }}{{ else }}{{ t .Lang "overview.kpi.requests_sub" }}{{ end }}</div>
   </div>

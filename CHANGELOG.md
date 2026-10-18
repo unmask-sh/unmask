@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-10-18) **The dashboard's request tile explains its arithmetic.**  The tiles beside it count what the challenge did, and summing them does not give the request count: a fire includes the solves, and the benign crawlers and the unchallenged requests have no tile.  A help popover on the tile now says how the figure divides, and points to the bar above for the full breakdown.
+
 ## [0.1.52-rc8] - 2026-10-18 (testing build)
 
 ### Changed
