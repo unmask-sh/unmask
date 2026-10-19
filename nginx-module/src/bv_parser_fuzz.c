@@ -120,6 +120,11 @@ static void check_bind_ip(void) {
         {"::ffff:1.2.3.4", NULL},                     /* v4-mapped   -> as-is */
         {"not-an-ip", NULL},                          /* unparseable -> as-is */
         {"", NULL},
+        /* A relay range used as the bind key (ngx_unmask_bind_key) never
+         * parses as an address, so the fold would leave it alone too -- the
+         * same as Go's bindIP, which the verifier and the daemon both rely on. */
+        {"140.248.33.0/24", NULL},
+        {"2a02:26f7:c9c0::/44", NULL},
     };
     for (size_t i = 0; i < sizeof(v) / sizeof(v[0]); i++) {
         size_t n = unmask_bind_ip_token(v[i].ip, strlen(v[i].ip), out);

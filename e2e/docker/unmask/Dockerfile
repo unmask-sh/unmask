@@ -31,6 +31,12 @@ COPY e2e/docker/unmask/config.yml /etc/unmask/config.yml
 COPY e2e/docker/wba/ca.crt /usr/local/share/ca-certificates/unmask-e2e-wba-ca.crt
 RUN update-ca-certificates
 
+# A relay egress list for scenario 68 (a pass cookie bound to the relay's
+# range).  Kept outside /var/lib/unmask -- a volume, so a file COPYed there
+# would only reach a volume created empty -- and copied in by the compose
+# command on every start.
+COPY e2e/docker/unmask/relay-egress.json /usr/local/share/unmask-e2e/relay-egress.json
+
 # unmask listens on 9477 (= reachable as http://unmask:9477/ from the nginx container in compose).
 EXPOSE 9477
 ENTRYPOINT ["/usr/local/bin/unmask"]

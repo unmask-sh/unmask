@@ -310,11 +310,12 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site, bt str
 		return false
 	}
 
-	// Mint the new per-IP entry as kind "rebind", NOT "captcha".  Both verify
-	// identically everywhere (the kind segment is free-form and HMAC-bound;
-	// the C plugin recomputes it verbatim), but IssueBVJ refuses to seed a
-	// fresh lineage off a rebound entry.
-	h.setBVCookie(w, r, cookies.IssueValue(cfg.Secret.BVSecret, ip, host, "rebind"))
+	// Mint the new entry (bound to this request's key: the address, or a
+	// relay's range) as kind "rebind", NOT "captcha".  Both verify identically
+	// everywhere (the kind segment is free-form and HMAC-bound; the C plugin
+	// recomputes it verbatim), but IssueBVJ refuses to seed a fresh lineage off
+	// a rebound entry.
+	h.setBVCookie(w, r, cookies.IssueValue(cfg.Secret.BVSecret, bindKeyFor(r), host, "rebind"))
 
 	origPath := truncateAt(r.URL.Query().Get("_orig"), 200)
 	if !isLocalRedirect(origPath) {

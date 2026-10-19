@@ -25,11 +25,13 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"math"
 	"math/big"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -120,7 +122,12 @@ func Score(s *Signal, ua string) float64 {
 		}
 	}
 
-	hasInput := s.HasMouseEvents || s.HasTouchEvents
+	// Any input device counts, the keyboard included: a visitor who tabs to
+	// the box and presses space produces no mouse or touch event at all, and
+	// used to lose 0.6 here for it -- straight into the arithmetic fallback on
+	// every visit.  (A script can claim key presses as easily as mouse events;
+	// the signal was never what kept scripts out, the proof-of-load token is.)
+	hasInput := s.HasMouseEvents || s.HasTouchEvents || s.Keys > 0
 	if !hasInput {
 		score -= 0.6
 	}
@@ -288,26 +295,41 @@ func isMobileUA(ua string) bool {
 	return false
 }
 
-// MathChallenge returns (a, b, token) for the client at ip.  token is
-// "<issued>.<hmac>" with hmac = HMAC(mathSecret(base, today), "math:<issued>:<ip>:<a+b>"),
-// so a solved (answer, token) pair is bound to the issuing IP and a freshness
-// window (see VerifyMath) -- it can't be harvested once and replayed from
-// another IP, nor reused after it goes stale.  True single-use is intentionally
-// not enforced: math is a trivially-solvable fallback behind PoW, and the
-// /verify path additionally requires the IP-bound ct proof-of-load token.
-func MathChallenge(captchaSecretBase, ip string) (int, int, string) {
+// TokenValidSeconds bounds the life of a proof-of-load token and of a math
+// token: a visitor gets this long between the challenge page (or the question)
+// and the answer.  TokenTTL is the same span for UsedSet, so a consumed token
+// is remembered for exactly as long as it could still verify.
+const TokenValidSeconds int64 = 900
+
+const TokenTTL = time.Duration(TokenValidSeconds) * time.Second
+
+// MathChallenge returns (a, b, token) for a fresh arithmetic question.  token
+// is "<issued>.<hmac>" with hmac = HMAC(mathSecret(base, today), "math:<issued>:<a+b>"),
+// so a solved (answer, token) pair is bound to a freshness window (see
+// VerifyMath) and to today's secret.
+//
+// The token is deliberately not bound to the client's address.  It used to be,
+// so a harvested (answer, token) pair could not be replayed from another
+// network -- and that binding locked out every visitor whose connections leave
+// through more than one exit (a two-uplink NAT, a relay that picks a fresh
+// egress per request): the question went out through one address and the
+// answer came back through another, every time, so the fallback meant to
+// rescue them never could.  What keeps one fetch of the question from minting
+// more than one pass is the ct proof-of-load token the /verify math path also
+// requires, which is single-use (UsedSet).
+func MathChallenge(captchaSecretBase string) (int, int, string) {
 	a := randomInt(1, 20)
 	b := randomInt(1, 20)
 	issued := time.Now().Unix()
 	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, today()))
-	mac.Write([]byte("math:" + strconv.FormatInt(issued, 10) + ":" + ip + ":" + strconv.Itoa(a+b)))
+	mac.Write([]byte("math:" + strconv.FormatInt(issued, 10) + ":" + strconv.Itoa(a+b)))
 	return a, b, strconv.FormatInt(issued, 10) + "." + hex.EncodeToString(mac.Sum(nil))
 }
 
 // VerifyMath returns true iff answerStr is a non-negative integer and token is a
-// fresh, IP-matching HMAC for that answer: issued within validSecs for ip and
-// signed with today's secret.  Returns false on any malformation.
-func VerifyMath(answerStr, token, captchaSecretBase, ip string, validSecs int64) bool {
+// fresh HMAC for that answer: issued within validSecs and signed with today's
+// secret.  Returns false on any malformation.
+func VerifyMath(answerStr, token, captchaSecretBase string, validSecs int64) bool {
 	s := strings.TrimSpace(answerStr)
 	if s == "" {
 		return false
@@ -331,33 +353,34 @@ func VerifyMath(answerStr, token, captchaSecretBase, ip string, validSecs int64)
 		return false
 	}
 	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, today()))
-	mac.Write([]byte("math:" + issuedStr + ":" + ip + ":" + s))
+	mac.Write([]byte("math:" + issuedStr + ":" + s))
 	expected := hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(expected), []byte(sig))
 }
 
-// IssueToken returns a proof-of-load token bound to the client IP and the
-// current time: "<issued>.<hmac>", hmac = HMAC(mathSecret(base, today), "ct:<issued>:<ip>").
-// The challenge page embeds it (window.UNMASK.ct) and challenge.js echoes it on
-// the behavioral-CAPTCHA submit, so the server can require that the client
-// actually fetched THIS challenge for THIS IP before accepting a behavioral
-// score (which the client fully controls and can forge from a blind POST).
-func IssueToken(captchaSecretBase, ip string) string {
-	issued := time.Now().Unix()
+// IssueToken returns a proof-of-load token: "<issued>.<nonce>.<hmac>", hmac =
+// HMAC(mathSecret(base, today), "ct:<issued>:<nonce>").  The nonce makes every
+// token distinct, which is what lets UsedSet refuse a second pass on the same
+// one; the timestamp bounds its life (VerifyToken).  Like the math token it is
+// not bound to the client's address -- MathChallenge has the reason.
+func IssueToken(captchaSecretBase string) string {
+	issued := strconv.FormatInt(time.Now().Unix(), 10)
+	nonce := tokenNonce()
 	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, today()))
-	mac.Write([]byte("ct:" + strconv.FormatInt(issued, 10) + ":" + ip))
-	return strconv.FormatInt(issued, 10) + "." + hex.EncodeToString(mac.Sum(nil))
+	mac.Write([]byte("ct:" + issued + ":" + nonce))
+	return issued + "." + nonce + "." + hex.EncodeToString(mac.Sum(nil))
 }
 
-// VerifyToken validates a token from IssueToken for the given IP: the HMAC must
-// match and issued must be within validSecs (and the daily secret rotation
-// bounds it further).  Returns false on any malformation.
-func VerifyToken(token, captchaSecretBase, ip string, validSecs int64) bool {
-	dot := strings.IndexByte(token, '.')
-	if dot <= 0 || dot >= len(token)-1 {
+// VerifyToken validates a token from IssueToken: the HMAC must match and
+// issued must be within validSecs (the daily secret rotation bounds it
+// further).  Returns false on any malformation.  It does not consume the
+// token; the caller does that with UsedSet once the token has earned a pass.
+func VerifyToken(token, captchaSecretBase string, validSecs int64) bool {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
 		return false
 	}
-	issuedStr, sig := token[:dot], token[dot+1:]
+	issuedStr, nonce, sig := parts[0], parts[1], parts[2]
 	issued, err := strconv.ParseInt(issuedStr, 10, 64)
 	if err != nil {
 		return false
@@ -367,9 +390,79 @@ func VerifyToken(token, captchaSecretBase, ip string, validSecs int64) bool {
 		return false
 	}
 	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, today()))
-	mac.Write([]byte("ct:" + issuedStr + ":" + ip))
+	mac.Write([]byte("ct:" + issuedStr + ":" + nonce))
 	expected := hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(expected), []byte(sig))
+}
+
+// tokenNonce: 64 random bits as 16 hex chars.  crypto/rand failing on a
+// running server is vanishingly rare; the nanosecond clock then still gives
+// consecutive tokens distinct values rather than refusing to issue one.
+func tokenNonce() string {
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		binary.BigEndian.PutUint64(b[:], uint64(time.Now().UnixNano()))
+	}
+	return hex.EncodeToString(b[:])
+}
+
+// UsedSet remembers the proof-of-load tokens that have already earned a pass,
+// so each one earns exactly one.  Before this the token was bound to the
+// client's address instead, which kept a harvested token from being replayed
+// from other networks but also failed every visitor whose own requests arrive
+// from more than one (MathChallenge has the story).  Single use keeps the
+// property that mattered -- one fetch of a challenge, one pass -- and drops
+// the one that did not.
+//
+// The set lives in this process: on a multi-node install behind a balancer a
+// token could earn one pass per node before it expires, which is still a
+// bound a blind POST flood never had.  Entries expire with the token (the
+// caller passes the same window VerifyToken enforces) and are swept as the
+// set is used; a flood of distinct tokens cannot grow it without limit
+// because past maxUsedTokens the sweep drops everything, trading a short
+// replay window for bounded memory.  The zero value is ready to use.
+type UsedSet struct {
+	mu  sync.Mutex
+	m   map[string]int64 // token -> expiry (unix seconds)
+	ops int
+}
+
+// maxUsedTokens: the set is dropped wholesale when it still holds more than
+// this after expired entries are swept (= a flood of distinct, unexpired
+// tokens).  At ~100 bytes a token that is on the order of 15 MB.
+const maxUsedTokens = 1 << 17
+
+// Consume records token as used.  It returns true the first time it sees a
+// token and false for every later call until the token has been held for ttl.
+func (u *UsedSet) Consume(token string, ttl time.Duration) bool {
+	return u.consumeAt(token, ttl, time.Now())
+}
+
+func (u *UsedSet) consumeAt(token string, ttl time.Duration, now time.Time) bool {
+	u.mu.Lock()
+	defer u.mu.Unlock()
+	if u.m == nil {
+		u.m = make(map[string]int64)
+	}
+	n := now.Unix()
+	if exp, seen := u.m[token]; seen && exp > n {
+		return false
+	}
+	exp := now.Add(ttl).Unix()
+	u.m[token] = exp
+	u.ops++
+	if u.ops >= 1024 || len(u.m) > maxUsedTokens {
+		u.ops = 0
+		for k, e := range u.m {
+			if e <= n {
+				delete(u.m, k)
+			}
+		}
+		if len(u.m) > maxUsedTokens {
+			u.m = map[string]int64{token: exp}
+		}
+	}
+	return true
 }
 
 func today() int64 { return time.Now().Unix() / 86400 }

@@ -18,7 +18,7 @@ import (
 // payload and replaying it infinitely to inflate phase counts).
 //
 // format: "<issued_unix_nano_b36>.<nonce64_b36>.<hmac16>"
-//   hmac16 = HMAC-SHA256("<issued>:<nonce>:<remote_ip>", CaptchaSecretBase) hex[:16]
+//   hmac16 = HMAC-SHA256("<issued>:<nonce>", CaptchaSecretBase) hex[:16]
 //
 // Nanosecond timestamp + a 64-bit crypto/rand nonce together guarantee that
 // every issued token is unique even when a multi-threaded bot bursts requests
@@ -26,18 +26,22 @@ import (
 // bt; collisions would fold unrelated challenges into one pseudo-session and
 // obscure how often a hot bot was actually re-served.
 //
-// IP binding: both the issuer (ServeChallenge) and verifier (DebugBeacon) use
-// clientIP() from the same admin handler, so there is no mismatch (= unlike
-// the JA4 binding problem on the captcha _bv cookie).
+// Not bound to the client's address.  It was, until a production install
+// showed what that costs: a visitor whose connections leave through more than
+// one exit (a two-uplink NAT, a relay that picks a fresh egress per request)
+// had every beacon refused, so the hunt page showed the challenge served and
+// nothing after it.  The token's job -- "this beacon comes from a page we
+// served recently" -- needs only the signature and the TTL; replay from
+// elsewhere is bounded by the TTL and by DebugBeacon's per-address limit.
 
 // beaconTokenTTL: grace period from challenge page delivery to beacon submit.
 // Set generously (= 15 min) to allow for humans solving CAPTCHA slowly or
 // leaving the tab open.
 const beaconTokenTTL = 15 * time.Minute
 
-func beaconSig(secret, issued, nonce, ip string) string {
+func beaconSig(secret, issued, nonce string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(issued + ":" + nonce + ":" + ip))
+	mac.Write([]byte(issued + ":" + nonce))
 	return hex.EncodeToString(mac.Sum(nil))[:16]
 }
 
@@ -72,16 +76,16 @@ func newRef() string {
 	return hex.EncodeToString(b[:]) // 16 hex chars, no separator
 }
 
-// issueBeaconToken returns a fresh signed token bound to ip.
-func issueBeaconToken(secret, ip string) string {
+// issueBeaconToken returns a fresh signed token.
+func issueBeaconToken(secret string) string {
 	issued := strconv.FormatInt(time.Now().UnixNano(), 36)
 	nonce := beaconNonce()
-	return issued + "." + nonce + "." + beaconSig(secret, issued, nonce, ip)
+	return issued + "." + nonce + "." + beaconSig(secret, issued, nonce)
 }
 
-// verifyBeaconToken returns true iff token is signed by secret, bound to ip,
-// and was issued within beaconTokenTTL.
-func verifyBeaconToken(token, secret, ip string) bool {
+// verifyBeaconToken returns true iff token is signed by secret and was issued
+// within beaconTokenTTL.
+func verifyBeaconToken(token, secret string) bool {
 	if token == "" || secret == "" {
 		return false
 	}
@@ -100,5 +104,5 @@ func verifyBeaconToken(token, secret, ip string) bool {
 	if issued > now+int64(60*time.Second) || now-issued > int64(beaconTokenTTL) {
 		return false
 	}
-	return hmac.Equal([]byte(sig), []byte(beaconSig(secret, issuedStr, nonce, ip)))
+	return hmac.Equal([]byte(sig), []byte(beaconSig(secret, issuedStr, nonce)))
 }

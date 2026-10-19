@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/captcha"
+	"github.com/unmask-sh/unmask/admin/internal/cookies"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -170,10 +171,10 @@ func dbTempDir(t *testing.T) string {
 // VerifyJSON: high score → 200 ok=1 + Set-Cookie _bv.
 func TestVerifyJSON_BehavioralPass(t *testing.T) {
 	h := newTestHandler(t)
-	// ct = the server-issued proof-of-load token, bound to the client IP and
-	// CaptchaSecretBase (= "test-base" in newTestHandler).  Required since the
-	// behavioral path now rejects a blind POST with no/invalid ct.
-	ct := captcha.IssueToken("test-base", "1.2.3.4")
+	// ct = the server-issued proof-of-load token, signed with CaptchaSecretBase
+	// (= "test-base" in newTestHandler).  Required since the behavioral path
+	// rejects a blind POST with no/invalid ct.
+	ct := captcha.IssueToken("test-base")
 	body := `{"token":"x","ct":"` + ct + `","sig":{"hasMouseEvents":true,"clickAt":3000,"mouseTrail":[[10,10,1],[40,33,80],[70,55,160],[100,77,240],[130,99,320]],"windowSize":[1280,800]}}`
 	req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -256,8 +257,8 @@ func TestDebugBeacon(t *testing.T) {
 
 	// In production ServeChallenge issues the beacon token and challenge.js
 	// echoes it back.  The test bypasses that by issuing a valid token here
-	// with the same secret + IP.
-	bt := issueBeaconToken(h.cfg().Secret.CaptchaSecretBase, "1.2.3.4")
+	// with the same secret.
+	bt := issueBeaconToken(h.cfg().Secret.CaptchaSecretBase)
 	body := `{"phase":"load","flags":3,"reload_count":1,"ua":"x","bt":"` + bt + `"}`
 	req := httptest.NewRequest(http.MethodPost, "/unmask/api/debug", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -656,5 +657,110 @@ func TestServeChallengeOrJSON_HTMLClient(t *testing.T) {
 	// a JSON 403 with the API shape.
 	if ct := rr.Header().Get("Content-Type"); strings.HasPrefix(ct, "application/json") {
 		t.Errorf("HTML client got JSON Content-Type %q (= took the API branch by mistake)", ct)
+	}
+}
+
+// A proof-of-load token earns one pass.  The second submit with the same ct
+// is refused as stale even though its signal would pass: one fetch of the
+// challenge page, one cookie.
+func TestVerifyJSON_CtSingleUse(t *testing.T) {
+	h := newTestHandler(t)
+	ct := captcha.IssueToken("test-base")
+	post := func(ip string) *httptest.ResponseRecorder {
+		body := `{"token":"x","ct":"` + ct + `","sig":{"hasMouseEvents":true,"clickAt":3000,"mouseTrail":[[10,10,1],[40,33,80],[70,55,160],[100,77,240],[130,99,320]],"windowSize":[1440,900]}}`
+		req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-Real-IP", ip)
+		rr := httptest.NewRecorder()
+		h.VerifyJSON(rr, req)
+		return rr
+	}
+	if rr := post("1.2.3.4"); rr.Code != http.StatusOK {
+		t.Fatalf("first submit: expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	rr := post("1.2.3.4")
+	if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "stale_challenge") {
+		t.Fatalf("second submit with the same ct: expected 403 stale_challenge, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == "_bv" {
+			t.Fatal("a second _bv was issued on a consumed proof-of-load token")
+		}
+	}
+}
+
+// The proof-of-load token is not bound to the client's address: the page can
+// be fetched through one exit and the answer posted through another (a
+// two-uplink NAT, a relay that changes its egress), and the visitor still
+// gets in.  The cookie that results is bound to the address that verified,
+// as before.
+func TestVerifyJSON_CtNotBoundToAddress(t *testing.T) {
+	h := newTestHandler(t)
+	// Issued while serving the page to one address...
+	pageReq := httptest.NewRequest(http.MethodGet, "/unmask/challenge/", nil)
+	pageReq.Header.Set("X-Real-IP", "198.51.100.7")
+	ct := captcha.IssueToken("test-base")
+	_ = pageReq
+	// ...posted back from another.
+	body := `{"token":"x","ct":"` + ct + `","sig":{"hasMouseEvents":true,"clickAt":3000,"mouseTrail":[[10,10,1],[40,33,80],[70,55,160],[100,77,240],[130,99,320]],"windowSize":[1440,900]}}`
+	req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Real-IP", "203.0.113.77")
+	rr := httptest.NewRecorder()
+	h.VerifyJSON(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("a verify from another address must pass, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	var bv string
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == "_bv" {
+			bv = c.Value
+		}
+	}
+	if bv == "" {
+		t.Fatal("expected a _bv cookie")
+	}
+	if !cookies.Verify(bv, h.cfg().Secret.BVSecret, "203.0.113.77", "example.com", 7*86400, 14*86400, 16) {
+		t.Errorf("the cookie must be bound to the address that verified (203.0.113.77); value %q", bv)
+	}
+}
+
+// With nginx's bind key on the request (X-Unmask-Bind-Key, from http.inc's
+// $unmask_bind_key: a relay's published egress range for a client inside one)
+// the cookie is bound to that key, not to the address the relay used for this
+// one request -- so the plugin, verifying with the same variable, accepts it
+// from every address in the range.
+func TestVerifyJSON_BindKeyHeader(t *testing.T) {
+	h := newTestHandler(t)
+	ct := captcha.IssueToken("test-base")
+	body := `{"token":"x","ct":"` + ct + `","sig":{"hasMouseEvents":true,"clickAt":3000,"mouseTrail":[[10,10,1],[40,33,80],[70,55,160],[100,77,240],[130,99,320]],"windowSize":[1440,900]}}`
+	req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Real-IP", "192.0.2.200")
+	req.Header.Set("X-Unmask-Bind-Key", "192.0.2.192/26")
+	rr := httptest.NewRecorder()
+	h.VerifyJSON(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d body=%s", rr.Code, rr.Body.String())
+	}
+	var bv string
+	for _, c := range rr.Result().Cookies() {
+		if c.Name == "_bv" {
+			bv = c.Value
+		}
+	}
+	if bv == "" {
+		t.Fatal("expected a _bv cookie")
+	}
+	secret := h.cfg().Secret.BVSecret
+	if !cookies.Verify(bv, secret, "192.0.2.192/26", "example.com", 7*86400, 14*86400, 16) {
+		t.Errorf("the cookie must verify against the bind key the request carried; value %q", bv)
+	}
+	if cookies.Verify(bv, secret, "192.0.2.200", "example.com", 7*86400, 14*86400, 16) {
+		t.Errorf("the cookie must not be bound to the request's address when a bind key was given; value %q", bv)
+	}
+	// Without the header the address is the key, as before.
+	if got := bindKeyFor(httptest.NewRequest(http.MethodGet, "/", nil)); got == "" || strings.Contains(got, "/") {
+		t.Errorf("bindKeyFor without a header must be the address, got %q", got)
 	}
 }

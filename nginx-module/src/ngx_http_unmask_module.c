@@ -82,6 +82,9 @@ typedef struct {
      * unmask_bv_pow_difficulty directive. */
     ngx_int_t   bv_pow_difficulty;
     ngx_str_t   ban_file_path;
+    /* Index of $unmask_bind_key (set in ngx_http_ja4_init; NGX_ERROR when the
+     * variable could not be registered).  See ngx_unmask_bind_key. */
+    ngx_int_t   bind_key_index;
 } ngx_http_ja4_main_conf_t;
 
 /* ban list entry: "<ip>|<ja4>|<source>|<action>" sorted ASC by the ip|ja4
@@ -123,6 +126,8 @@ static ngx_int_t ngx_http_unmask_has_signed_agent_variable(ngx_http_request_t *r
 static ngx_int_t ngx_http_unmask_client_net_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_unmask_compose_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data);
+static ngx_int_t ngx_http_unmask_bind_key_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 
 static ngx_command_t ngx_http_ja4_commands[] = {
@@ -233,6 +238,18 @@ static ngx_http_variable_t ngx_http_ja4_vars[] = {
      * ran keeps its cached "1" (the get_handler is never consulted there). */
     { ngx_string("unmask_compose"), NULL,
       ngx_http_unmask_compose_variable, 0,
+      NGX_HTTP_VAR_CHANGEABLE, 0 },
+    /* unmask_bind_key: what a client's _bv / PoW seed is bound to (read by
+     * ngx_unmask_bind_key in the verifier).  The render's http.inc defines it
+     * as a geo block -- a relay's published egress range for a client inside
+     * one, "" for everyone else.  This registration only gives the name a
+     * resolver (not_found = "") when no http.inc defines it, so a server.inc
+     * that forwards the variable to the daemon still loads.  CHANGEABLE so a
+     * geo / map can take it over; unlike $unmask_compose, an existing
+     * definition must WIN here, so ngx_http_ja4_init leaves a get_handler it
+     * finds in place (see there). */
+    { ngx_string("unmask_bind_key"), NULL,
+      ngx_http_unmask_bind_key_variable, 0,
       NGX_HTTP_VAR_CHANGEABLE, 0 },
     ngx_http_null_variable
 };
@@ -493,6 +510,18 @@ ngx_http_unmask_compose_variable(ngx_http_request_t *r,
     return NGX_OK;
 }
 
+/* $unmask_bind_key when the rendered http.inc does not define it: not_found,
+ * which the verifier reads as "no key, bind to the address". */
+static ngx_int_t
+ngx_http_unmask_bind_key_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data)
+{
+    (void) r;
+    (void) data;
+    v->not_found = 1;
+    return NGX_OK;
+}
+
 /* ----------------------------------------------------------------------
  * Rate-limit / protected composition (ACCESS phase).  On "compose" locations
  * (the render switches a protected location to the unified flow when a deny
@@ -659,8 +688,24 @@ static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
     for (ngx_http_variable_t *v = ngx_http_ja4_vars; v->name.len; v++) {
         ngx_http_variable_t *var = ngx_http_add_variable(cf, &v->name, v->flags);
         if (!var) return NGX_ERROR;
+        /* $unmask_bind_key: the geo block the render puts in http.inc is parsed
+         * before this hook runs and is the definition that must stand; the
+         * module's own handler is only the fallback for a config without one. */
+        if (v->get_handler == ngx_http_unmask_bind_key_variable
+            && var->get_handler != NULL)
+        {
+            continue;
+        }
         var->get_handler = v->get_handler;
         var->data = v->data;
+    }
+    {
+        ngx_str_t bk = ngx_string("unmask_bind_key");
+        ngx_http_ja4_main_conf_t *mcf =
+            ngx_http_conf_get_module_main_conf(cf, ngx_http_unmask_module);
+        if (mcf != NULL) {
+            mcf->bind_key_index = ngx_http_get_variable_index(cf, &bk);
+        }
     }
 
     /* Register ex_data slot once */
@@ -727,6 +772,7 @@ ngx_http_ja4_create_main_conf(ngx_conf_t *cf)
     cnf->bv_pow_valid_seconds = NGX_CONF_UNSET;
     cnf->bv_captcha_valid_seconds = NGX_CONF_UNSET;
     cnf->bv_pow_difficulty = NGX_CONF_UNSET;
+    cnf->bind_key_index = NGX_ERROR;
     /* bv_secret left zero-init: empty ngx_str_t */
     return cnf;
 }
@@ -1017,6 +1063,26 @@ ngx_unmask_bind_ip(ngx_str_t in, ngx_pool_t *pool)
     return in;
 }
 
+/* ngx_unmask_bind_key: what this client's _bv / PoW seed is bound to.  The
+ * rendered http.inc gives $unmask_bind_key a relay's published egress range
+ * for a client inside one (such a relay moves the address within the range
+ * from one request to the next); for everyone else it is empty and the
+ * address, folded as before, is the key.  The daemon issues against the same
+ * variable (forwarded as X-Unmask-Bind-Key), so the two never disagree. */
+static ngx_str_t
+ngx_unmask_bind_key(ngx_http_request_t *r, ngx_http_ja4_main_conf_t *mcf)
+{
+    if (mcf != NULL && mcf->bind_key_index != NGX_ERROR) {
+        ngx_http_variable_value_t *vv =
+            ngx_http_get_indexed_variable(r, (ngx_uint_t) mcf->bind_key_index);
+        if (vv != NULL && vv->valid && !vv->not_found && vv->len > 0) {
+            ngx_str_t k = { vv->len, vv->data };
+            return k;
+        }
+    }
+    return ngx_unmask_bind_ip(r->connection->addr_text, r->pool);
+}
+
 /* Verify a single `_bv` cookie value.  Returns the cookie kind on success
  * (POW / CAPTCHA) or NONE on parse / verify failure.  Called once per
  * candidate cookie by bv_kind_compute. */
@@ -1034,9 +1100,10 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
         return UNMASK_BV_KIND_NONE;
     }
 
-    /* Client IP folded for the HMAC seed (IPv6 -> /64).  Computed once and used
-     * by both the PoW and CAPTCHA branches so they bind identically. */
-    ngx_str_t remote = ngx_unmask_bind_ip(r->connection->addr_text, r->pool);
+    /* The bind key -- the client IP folded for the HMAC seed (IPv6 -> /64), or
+     * the relay range $unmask_bind_key names.  Computed once and used by both
+     * the PoW and CAPTCHA branches so they bind identically. */
+    ngx_str_t remote = ngx_unmask_bind_key(r, mcf);
 
     /* PoW path: bv_parse_entry only accepts the "pow2" SHA-256 hashcash form
      * (a 4-segment _bv whose parts[1] != "pow2" is rejected -- the removed v0.0

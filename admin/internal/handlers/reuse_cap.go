@@ -52,7 +52,7 @@ func (h *Handler) reuseCapHit(r *http.Request, site string) (string, bool) {
 	if !nginxconf.ReuseCapActive(cfg) {
 		return "", false
 	}
-	if bv, kind := pickValidBV(r, cfg, clientIP(r), site); bv == "" || kind == "captcha" {
+	if bv, kind := pickValidBV(r, cfg, bindKeyFor(r), site); bv == "" || kind == "captcha" {
 		return "", false
 	}
 	if _, matched := h.netRateRule(adminClientIP(r, cfg), cfg); matched {

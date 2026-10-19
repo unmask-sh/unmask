@@ -906,7 +906,7 @@ func TestChallengeServesWhileTheWriteLockIsHeld(t *testing.T) {
 	}
 
 	// Its beacons.
-	bt := issueBeaconToken(h.cfg().Secret.CaptchaSecretBase, ip)
+	bt := issueBeaconToken(h.cfg().Secret.CaptchaSecretBase)
 	for _, phase := range []string{"load", "pow_pass"} {
 		if code := within("the "+phase+" beacon", time.Second, func() int {
 			rr := httptest.NewRecorder()
@@ -918,7 +918,7 @@ func TestChallengeServesWhileTheWriteLockIsHeld(t *testing.T) {
 	}
 
 	// The verification that issues the cookie.
-	ct := captcha.IssueToken("test-base", ip)
+	ct := captcha.IssueToken("test-base")
 	var cookie string
 	if code := within("the verification", time.Second, func() int {
 		rr := httptest.NewRecorder()

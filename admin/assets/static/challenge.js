@@ -451,7 +451,7 @@
     }
   });
   document.addEventListener('touchstart', function(){ sig.hasTouchEvents = true; });
-  document.addEventListener('keypress',  function(){ sig.keys++; });
+  document.addEventListener('keydown', function(e){ noteTrust(e); sig.keys++; });
   document.addEventListener('scroll', function(){
     if (sig.scrolls.length < 50) sig.scrolls.push([window.scrollY || 0, Math.round(performance.now())]);
   });
@@ -555,18 +555,18 @@
     // error / timeout: external widgets can fail silently (= provider key not
     // enabled for this domain, network blocked, script blocked).  Surface it
     // instead of leaving a blank/stuck box the visitor cannot act on.
-    function extFail(kind){ return function(e){ stopSpin(); widget.innerHTML=''; showError(t.error); _bcDebug('error', { kind:kind, provider:provider, error:(e===undefined?'':String(e)) }); }; }
+    function extFail(kind){ return function(e){ stopSpin(); widget.innerHTML=''; showError(t.error + ' (E-WIDGET)'); _bcDebug('error', { kind:kind, provider:provider, error:(e===undefined?'':String(e)) }); }; }
     function done(token){ submitProviderToken(token); }
     if (provider === 'turnstile') {
       window._unmaskTurnstileCb = function(){
         try { spinUntilWidget(); window.turnstile.render(widget, { sitekey: siteKey, callback: done, 'error-callback': extFail('ext_error_cb'), 'timeout-callback': extFail('ext_timeout_cb') }); }
-        catch(e){ stopSpin(); showError(t.error); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
+        catch(e){ stopSpin(); showError(t.error + ' (E-WIDGET)'); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
       };
       injectScript('https://challenges.cloudflare.com/turnstile/v0/api.js?onload=_unmaskTurnstileCb&render=explicit');
     } else if (provider === 'hcaptcha') {
       window._unmaskHcaptchaCb = function(){
         try { spinUntilWidget(); window.hcaptcha.render(widget, { sitekey: siteKey, callback: done, 'error-callback': extFail('ext_error_cb') }); }
-        catch(e){ stopSpin(); showError(t.error); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
+        catch(e){ stopSpin(); showError(t.error + ' (E-WIDGET)'); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
       };
       injectScript('https://js.hcaptcha.com/1/api.js?onload=_unmaskHcaptchaCb&render=explicit');
     } else if (provider === 'recaptcha') {
@@ -576,15 +576,15 @@
         try {
           window.grecaptcha.ready(function(){
             window.grecaptcha.execute(siteKey, { action: 'unmask' }).then(function(tok){ stopSpin(); done(tok); }).catch(function(e){
-              stopSpin(); showError(t.error); _bcDebug('error', { kind:'ext_exec_err', provider: provider, error: String(e) });
+              stopSpin(); showError(t.error + ' (E-WIDGET)'); _bcDebug('error', { kind:'ext_exec_err', provider: provider, error: String(e) });
             });
           });
-        } catch(e){ stopSpin(); showError(t.error); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
+        } catch(e){ stopSpin(); showError(t.error + ' (E-WIDGET)'); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
       };
       injectScript('https://www.google.com/recaptcha/api.js?render=' + encodeURIComponent(siteKey) + '&onload=_unmaskRecaptchaCb');
     } else {
       stopSpin();
-      showError(t.error);
+      showError(t.error + ' (E-WIDGET)');
       _bcDebug('error', { kind:'ext_unknown_provider', provider: provider });
     }
   }
@@ -600,7 +600,7 @@
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({ token: captchaToken, provider_token: providerToken })
-    }).then(function(r){return r.json().then(function(d){return{status:r.status,data:d};});})
+    }).then(parseJSON)
     .then(function(res){
       if(res.data.ok===1){
         _bcDebug(bvPhaseForCaptchaPass(), { method:'provider', score: res.data.score });
@@ -609,7 +609,7 @@
         _bcDebug('verify_ng', { method:'provider', http_status: res.status, score: res.data.score, detail: res.data.detail });
         showError(t.wrong);
       }
-    }).catch(function(){ showError(t.error); });
+    }).catch(function(e){ verifyFailed(e, 'provider'); });
   }
 
   // Post-click status: hide the checkbox / math, show a spinner + message so a
@@ -662,7 +662,7 @@
           clickAt:    clickAt - (sig.loadAt || 0),  // ms elapsed since the captcha was shown
         }
       })
-    }).then(function(r){return r.json().then(function(d){return{status:r.status,data:d};});})
+    }).then(parseJSON)
     .then(function(res){
       if(res.data.ok===1){
         _bcDebug(bvPhaseForCaptchaPass(), { score: res.data.score });
@@ -674,10 +674,10 @@
         // Still, the 2-stage gate "behavioral failed + numeric add solved" keeps simple scrapers out.
         showMathFallback();
       }
-    }).catch(function(){
+    }).catch(function(e){
       var bz=document.getElementById('captchaBusy'); if(bz) bz.style.display='none';
       var cr=document.getElementById('clickRow'); if(cr) cr.style.display='';
-      showError(t.error);
+      verifyFailed(e, 'behavioral');
       var cb = document.getElementById('notRobot');
       cb.checked = false;
       cb.disabled = false;
@@ -755,14 +755,7 @@
     document.getElementById('errMsg').style.display='none';
     document.getElementById('mathFallback').style.display='block';
     document.getElementById('captchaDesc').textContent = (t.solveMath || 'Please solve this to continue.');
-    fetch(API_BASE + '/captcha/new').then(function(r){return r.json();}).then(function(data){
-      captchaToken = data.token;
-      captchaCt = data.ct || '';
-      document.getElementById('mathQ').textContent = data.a + ' + ' + data.b + ' = ?';
-      document.getElementById('answerInput').value='';
-      document.getElementById('answerInput').focus();
-      document.getElementById('submitBtn').disabled=false;
-    });
+    fetchMath(true);
     document.getElementById('submitBtn').onclick = submitMath;
     // Liveness evidence for the typed answer.  A person entering a number
     // produces input events on any input method -- physical keyboard, IME,
@@ -791,7 +784,7 @@
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({answer:parseInt(ans), token:captchaToken, ct:captchaCt,
                            iv:mathInputEvents, dt:(mathShownAt ? Date.now()-mathShownAt : 0)})
-    }).then(function(r){return r.json().then(function(d){return{status:r.status,data:d};});})
+    }).then(parseJSON)
     .then(function(res){
       if(res.data.ok===1){
         _bcDebug(bvPhaseForCaptchaPass(), { method:'math', iv:mathInputEvents,
@@ -801,18 +794,57 @@
         _bcDebug('verify_ng', { method:'math', http_status: res.status });
         showError(t.wrong);
         // retry with a different question
-        fetch(API_BASE + '/captcha/new').then(function(r){return r.json();}).then(function(data){
-          captchaToken = data.token;
-          captchaCt = data.ct || '';
-          document.getElementById('mathQ').textContent = data.a + ' + ' + data.b + ' = ?';
-          document.getElementById('answerInput').value='';
-          document.getElementById('submitBtn').disabled=false;
-        });
+        fetchMath(false);
       }
-    }).catch(function(){
-      showError(t.error);
+    }).catch(function(e){
+      verifyFailed(e, 'math');
       document.getElementById('submitBtn').disabled=false;
     });
+  }
+
+  // One fetch chain for the JSON endpoints: resolve to {status, data}, and when
+  // the body is not JSON reject with the status, so the failure handler can
+  // tell a block page or a dead daemon (a status) from a request that never
+  // completed (none).
+  function parseJSON(r){
+    return r.json().then(function(d){ return { status:r.status, data:d }; },
+                         function(){ throw { status:r.status }; });
+  }
+  // Code appended to the generic failure text, so a screenshot says what went
+  // wrong: the answer came back but not as JSON (E-<status>: a block page, a
+  // proxy, a daemon that is down), the request never completed (E-NET: an
+  // extension, a filter, the network), or this page's own code threw (E-JS).
+  function failCode(e){
+    if (e && typeof e.status === 'number') return '(E-' + e.status + ')';
+    if (e && e.name === 'TypeError') return '(E-NET)';
+    return '(E-JS)';
+  }
+  function failKind(e){
+    if (e && typeof e.status === 'number') return 'verify_bad_response';
+    if (e && e.name === 'TypeError') return 'verify_network';
+    return 'verify_exception';
+  }
+  // The failure handler the verify paths share: show the text with its code
+  // and record it, so the hunt page sees what the visitor saw.  (A transport
+  // failure used to show the text and leave no trace at all.)
+  function verifyFailed(e, method){
+    showError(t.error + ' ' + failCode(e));
+    _bcDebug('error', { kind: failKind(e), method: method,
+                        http_status: (e && typeof e.status === 'number') ? e.status : 0,
+                        error: (e && e.message) ? String(e.message) : '' });
+  }
+  // A fresh question (and the proof-of-load token that goes with it).  Shared
+  // by the first fall-back and by every retry after a wrong answer.
+  function fetchMath(focus){
+    fetch(API_BASE + '/captcha/new').then(parseJSON).then(function(res){
+      var data = res.data;
+      captchaToken = data.token;
+      captchaCt = data.ct || '';
+      document.getElementById('mathQ').textContent = data.a + ' + ' + data.b + ' = ?';
+      document.getElementById('answerInput').value='';
+      if (focus) document.getElementById('answerInput').focus();
+      document.getElementById('submitBtn').disabled=false;
+    }).catch(function(e){ verifyFailed(e, 'captcha_new'); });
   }
 
   function showError(msg){

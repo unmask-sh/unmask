@@ -55,6 +55,12 @@ import (
 // identical.  MUST stay identical to the C plugin's unmask_bind_ip_token; a
 // /64 is typically one device / subscriber, so widening replay to it is an
 // accepted trade for the far smaller IPv6 re-challenge rate.
+//
+// The argument may also be a bind KEY rather than an address: nginx hands the
+// daemon $unmask_bind_key (a relay's published egress range, e.g.
+// "140.248.33.0/24") for a client inside one, and the plugin verifies with the
+// same string.  A key never parses as an address, so it passes through here
+// unchanged -- as it does in the plugin, which uses the variable verbatim.
 func bindIP(ip string) string {
 	parsed := net.ParseIP(ip)
 	if parsed == nil {

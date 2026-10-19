@@ -113,7 +113,7 @@ func TestBeaconLimitDuringAHold(t *testing.T) {
 	holdTheWriteLock(t, h)
 
 	const ip = "198.51.100.9"
-	bt := issueBeaconToken(h.cfg().Secret.CaptchaSecretBase, ip)
+	bt := issueBeaconToken(h.cfg().Secret.CaptchaSecretBase)
 	accepted, refused := 0, 0
 	t0 := time.Now()
 	for i := 0; i < 40; i++ {

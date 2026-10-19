@@ -2,7 +2,10 @@ package captcha
 
 import (
 	"math"
+	"strconv"
+	"strings"
 	"testing"
+	"time"
 )
 
 // Fully human-like signal: input events present, slow click, jittery trail.
@@ -231,28 +234,108 @@ func TestScore_MobileUAContradiction(t *testing.T) {
 
 func TestVerifyMath(t *testing.T) {
 	const base = "test-base-secret"
-	const ip = "203.0.113.7"
-	a, b, token := MathChallenge(base, ip)
-	correct := []byte{'0' + byte((a+b)/10), '0' + byte((a+b)%10)}
-	correctStr := string(correct)
-	if a+b < 10 {
-		correctStr = correctStr[1:]
-	}
-	if !VerifyMath(correctStr, token, base, ip, 900) {
+	a, b, token := MathChallenge(base)
+	correctStr := strconv.Itoa(a + b)
+	if !VerifyMath(correctStr, token, base, 900) {
 		t.Errorf("correct answer should verify (a=%d b=%d ans=%s)", a, b, correctStr)
 	}
-	if VerifyMath("0", token, base, ip, 900) && a+b != 0 {
+	if VerifyMath("0", token, base, 900) && a+b != 0 {
 		t.Error("zero answer should not verify (unless a+b==0)")
 	}
-	if VerifyMath("not a number", token, base, ip, 900) {
+	if VerifyMath("not a number", token, base, 900) {
 		t.Error("non-numeric answer should fail")
 	}
-	// IP binding: a solved token must not verify from a different IP.
-	if VerifyMath(correctStr, token, base, "198.51.100.9", 900) {
-		t.Error("token bound to one IP should not verify from another")
+	if VerifyMath(correctStr, token, "another-secret", 900) {
+		t.Error("token signed with another secret should not verify")
 	}
 	// Freshness: validSecs=-1 forces the stale branch (now-issued >= 0 > -1).
-	if VerifyMath(correctStr, token, base, ip, -1) {
+	if VerifyMath(correctStr, token, base, -1) {
 		t.Error("token outside the freshness window should not verify")
+	}
+}
+
+func TestVerifyToken(t *testing.T) {
+	const base = "test-base-secret"
+	tok := IssueToken(base)
+	if !VerifyToken(tok, base, 900) {
+		t.Fatalf("freshly issued token should verify; got %q", tok)
+	}
+	if VerifyToken(tok, "another-secret", 900) {
+		t.Error("token signed with another secret should not verify")
+	}
+	if VerifyToken(tok, base, -1) {
+		t.Error("token outside the freshness window should not verify")
+	}
+	parts := strings.Split(tok, ".")
+	if len(parts) != 3 {
+		t.Fatalf("token should have three segments, got %q", tok)
+	}
+	for _, bad := range []string{"", "1", "1.2", "1.2.3.4", parts[0] + "." + parts[1] + ".", parts[0] + ".x." + parts[2], "x." + parts[1] + "." + parts[2]} {
+		if VerifyToken(bad, base, 900) {
+			t.Errorf("malformed token %q should not verify", bad)
+		}
+	}
+	sig := []byte(parts[2])
+	sig[0] ^= 1
+	if VerifyToken(parts[0]+"."+parts[1]+"."+string(sig), base, 900) {
+		t.Error("tampered signature should not verify")
+	}
+	// Two tokens issued in the same second differ: the nonce is what lets the
+	// used set tell them apart.
+	if IssueToken(base) == IssueToken(base) {
+		t.Error("consecutive tokens must differ")
+	}
+}
+
+func TestUsedSet(t *testing.T) {
+	var u UsedSet
+	now := time.Unix(1_700_000_000, 0)
+	if !u.consumeAt("a", TokenTTL, now) {
+		t.Fatal("first use of a token must be accepted")
+	}
+	if u.consumeAt("a", TokenTTL, now.Add(10*time.Minute)) {
+		t.Fatal("second use within the window must be refused")
+	}
+	if !u.consumeAt("b", TokenTTL, now) {
+		t.Fatal("a different token is independent")
+	}
+	// Once the window has passed the token could not verify anyway, and the
+	// set lets go of it.
+	if !u.consumeAt("a", TokenTTL, now.Add(TokenTTL+time.Second)) {
+		t.Fatal("an expired entry must not block the token")
+	}
+	// The sweep keeps the set bounded: fill it past the ceiling with unexpired
+	// tokens and the oldest go rather than memory.
+	var big UsedSet
+	for i := 0; i < maxUsedTokens+2000; i++ {
+		big.consumeAt(strconv.Itoa(i), TokenTTL, now)
+	}
+	if len(big.m) > maxUsedTokens {
+		t.Errorf("set grew past its ceiling: %d", len(big.m))
+	}
+	// Expired entries are swept as the set is used.
+	var exp UsedSet
+	for i := 0; i < 1500; i++ {
+		exp.consumeAt("old"+strconv.Itoa(i), time.Second, now)
+	}
+	for i := 0; i < 1100; i++ {
+		exp.consumeAt("new"+strconv.Itoa(i), TokenTTL, now.Add(time.Minute))
+	}
+	if len(exp.m) > 1100 {
+		t.Errorf("expired entries must be swept, set holds %d", len(exp.m))
+	}
+}
+
+// A visitor who reaches the box with the keyboard alone (tab, then space)
+// produces no mouse or touch event.  That is input all the same; it must not
+// be scored as a page nobody touched.
+func TestScore_KeyboardOnly(t *testing.T) {
+	s := &Signal{Keys: 3, ClickAt: 2500, WindowSize: []float64{1280, 800}}
+	if got := Score(s, "Mozilla/5.0 (X11; Linux x86_64) Chrome/155.0.0.0"); got < 0.9 {
+		t.Errorf("keyboard-only interaction must score as human, got %f", got)
+	}
+	none := &Signal{ClickAt: 2500, WindowSize: []float64{1280, 800}}
+	if got := Score(none, ""); got > 0.5 {
+		t.Errorf("no input at all must still be penalised, got %f", got)
 	}
 }

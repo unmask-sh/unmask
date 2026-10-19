@@ -12,6 +12,21 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+- (2026-10-19) **A pass cookie follows a relay's published egress range.**  Inside a range from the relay egress list, nginx's new `$unmask_bind_key` names the range, the daemon issues the cookie and the PoW seed against it, and the plugin verifies with the same variable, so a relay that moves the visitor's address within the range no longer re-challenges.  Update the plugin together with the daemon.
+
+### Changed
+- (2026-10-19) **The CAPTCHA's failure text says what failed.**  A verify whose request never completed reads E-NET, one answered with something other than JSON carries the status (E-503, a block page or a daemon that is down), and an external widget's failure E-WIDGET.  Each also leaves an error beacon with the same classification, so the hunt page shows what the visitor saw.
+
+- (2026-10-19) **Keyboard-only visitors score as present.**  Reaching the box with Tab and ticking it with Space produces no mouse or touch event, which the behavioural score read as a page nobody touched and sent straight to the arithmetic fallback on every visit.  Key presses now count as input, and the page counts them on keydown so Tab and Space register.
+
+- (2026-10-19) **Silent re-binding allows ten moves an hour, up from four.**  A phone roaming between networks rarely needed more, but a two-exit NAT or a relay that moves its egress now and then does.  The lifetime cap of sixteen re-binds per solve is unchanged, so one solve still cannot be stretched across a proxy pool.
+
+### Fixed
+- (2026-10-19) **A visitor whose requests leave through more than one address can solve the CAPTCHA again.**  The proof-of-load, arithmetic and beacon tokens were bound to the client address, so a two-uplink NAT or a relay that changes its egress between requests failed every attempt, and the arithmetic fallback with it.  They are now time-bound and single-use instead; the pass cookie itself stays bound as before.
+
 ## [0.1.52] - 2026-10-19
 
 ### Added

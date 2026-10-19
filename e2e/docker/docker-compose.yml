@@ -29,8 +29,13 @@ services:
     # entrypoint cleared so the sh -c chain works (the image's ENTRYPOINT is
     # /usr/local/bin/unmask, which would otherwise eat "sh" as a subcommand).
     entrypoint: []
+    # The relay egress fixture (scenario 68) goes into the data volume first:
+    # the daemon reads /var/lib/unmask/iprange/relay-egress.json at start, and
+    # every hub URL in the e2e config is dead, so nothing replaces it.
     command: >
-      sh -c "/usr/local/bin/unmask migrate -startup -config /etc/unmask/config.yml &&
+      sh -c "mkdir -p /var/lib/unmask/iprange &&
+             { [ -e /var/lib/unmask/iprange/relay-egress.json ] || cp /usr/local/share/unmask-e2e/relay-egress.json /var/lib/unmask/iprange/relay-egress.json; } &&
+             /usr/local/bin/unmask migrate -startup -config /etc/unmask/config.yml &&
              /usr/local/bin/unmask render-nginx -config /etc/unmask/config.yml &&
              /usr/local/bin/unmask serve       -config /etc/unmask/config.yml"
     environment:

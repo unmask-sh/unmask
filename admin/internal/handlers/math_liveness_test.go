@@ -11,12 +11,14 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/captcha"
 )
 
-// mathAnswerFor mints a real question for this IP and returns the pieces the
-// client would post back.
+// mathAnswerFor mints a real question and returns the pieces the client would
+// post back.  (ip is kept for the callers' symmetry with postMath; the tokens
+// themselves are not bound to an address.)
 func mathAnswerFor(t *testing.T, h *Handler, ip string) (answer int, token, ct string) {
 	t.Helper()
-	a, b, tok := captcha.MathChallenge(h.cfg().Secret.CaptchaSecretBase, ip)
-	return a + b, tok, captcha.IssueToken(h.cfg().Secret.CaptchaSecretBase, ip)
+	_ = ip
+	a, b, tok := captcha.MathChallenge(h.cfg().Secret.CaptchaSecretBase)
+	return a + b, tok, captcha.IssueToken(h.cfg().Secret.CaptchaSecretBase)
 }
 
 func postMath(t *testing.T, h *Handler, ip string, body map[string]any) (*http.Response, map[string]any) {
@@ -110,5 +112,33 @@ func TestMathWrongAnswerStillFails(t *testing.T) {
 	})
 	if fmt.Sprint(out["ok"]) == "1" {
 		t.Fatalf("a wrong answer must not pass, got %v", out)
+	}
+}
+
+// The math path consumes the proof-of-load token on success too: the same
+// (answer, token, ct) posted twice earns one cookie, not two.
+func TestMathCtSingleUse(t *testing.T) {
+	h := newTestHandler(t)
+	const ip = "203.0.113.9"
+	ans, token, ct := mathAnswerFor(t, h, ip)
+	body := map[string]any{"answer": ans, "token": token, "ct": ct, "iv": 5, "dt": 4000}
+	if _, out := postMath(t, h, ip, body); fmt.Sprint(out["ok"]) != "1" {
+		t.Fatalf("first answer must pass, got %v", out)
+	}
+	res, out := postMath(t, h, ip, body)
+	if res.StatusCode != http.StatusForbidden || fmt.Sprint(out["error"]) != "stale_challenge" {
+		t.Fatalf("second answer on the same ct must be refused as stale, got %d %v", res.StatusCode, out)
+	}
+}
+
+// A question fetched through one exit and answered through another still
+// passes: neither the math token nor the proof-of-load token is bound to an
+// address.
+func TestMathNotBoundToAddress(t *testing.T) {
+	h := newTestHandler(t)
+	ans, token, ct := mathAnswerFor(t, h, "198.51.100.7")
+	res, out := postMath(t, h, "203.0.113.77", map[string]any{"answer": ans, "token": token, "ct": ct, "iv": 5, "dt": 4000})
+	if res.StatusCode != http.StatusOK || fmt.Sprint(out["ok"]) != "1" {
+		t.Fatalf("an answer from another address must pass, got %d %v", res.StatusCode, out)
 	}
 }

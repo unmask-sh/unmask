@@ -710,6 +710,23 @@ map $unmask_geo_action $is_geo_challenge {
 }
 
 # -----------------------------------------------------------------------------
+# $unmask_bind_key: what this client's pass cookie (_bv) and PoW seed are bound
+# to.  Empty for everyone -- the plugin and the daemon then bind to the client
+# address (IPv6 folded to its /64) -- except inside a relay's published egress
+# range (iprange/relay-egress.json), where it is that range.  Such a relay moves
+# a visitor's egress address within the range from one request to the next, and
+# a cookie bound to the address re-challenged on every move.
+# The plugin's _bv verifier reads this variable; the daemon receives it on every
+# /unmask/ request (X-Unmask-Bind-Key, server.inc) and issues against the same
+# value, so issuer and verifier agree whatever the reload state.  The plugin
+# also registers the variable (empty), so a server.inc that forwards it loads
+# against an http.inc without this block.
+geo $remote_addr $unmask_bind_key {
+    default "";
+{{ .BindKeyCIDRs }}
+}
+
+# -----------------------------------------------------------------------------
 # ASN-based decision ($unmask_asn / $unmask_asn_action) — the by-network
 # sibling of the country block above.  Blocks a cloud/VPS/proxy network without
 # blocking a whole country.  Only CIDRs of the operator's targeted ASNs are

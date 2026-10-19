@@ -2741,7 +2741,9 @@ type RebindConfig struct {
 	MaxRebinds int `yaml:"max_rebinds,omitempty"`
 	// MaxRebindsPerHour caps re-binds per lineage within a rolling hour (a phone
 	// roaming naturally re-binds a few times; a stolen cookie fanned out across a
-	// proxy pool would burst).  Default 4.
+	// proxy pool would burst).  Default 10: a two-exit NAT or a relay that moves
+	// its egress now and then re-binds more often than a phone does, and the
+	// lifetime cap still bounds what one solve can be stretched to.
 	MaxRebindsPerHour int `yaml:"max_rebinds_per_hour,omitempty"`
 	// MaxEntries caps how many per-IP signatures one _bv accumulates -- the number
 	// of networks a roaming client (home wifi/5G, office, cafes, ...) stays
@@ -2824,10 +2826,10 @@ func (c RebindConfig) MaxRebindsResolved() int {
 	return c.MaxRebinds
 }
 
-// MaxRebindsPerHourResolved returns the hourly rebind cap, defaulting to 4.
+// MaxRebindsPerHourResolved returns the hourly rebind cap, defaulting to 10.
 func (c RebindConfig) MaxRebindsPerHourResolved() int {
 	if c.MaxRebindsPerHour <= 0 {
-		return 4
+		return 10
 	}
 	return c.MaxRebindsPerHour
 }

@@ -28,6 +28,7 @@ import (
 	"io/fs"
 	"log"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -40,6 +41,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
+	"github.com/unmask-sh/unmask/admin/internal/relay"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -837,6 +839,12 @@ type renderData struct {
 	// then degrades to default "" and the action map's default "skip"
 	// carries the request through unchanged.
 	GeoCIDRs string
+	// BindKeyCIDRs: pre-rendered `    <prefix> "<prefix>";` lines for every
+	// published relay egress range (relay.Active), for the
+	// `geo $remote_addr $unmask_bind_key` block in http.inc: inside such a
+	// range a pass cookie is bound to the range rather than to the address
+	// the relay happened to use for the request.  Empty without a relay list.
+	BindKeyCIDRs string
 	// GeoRules: pre-resolved per-country actions for the $unmask_geo_action
 	// map.  One entry per rule.Enabled.  Action falls back to ResolvedDefault
 	// when the rule's own Action is empty.
@@ -1876,6 +1884,18 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		// On error: silently leave GeoCIDRs empty.  The geo block then
 		// degrades to default "" → action map default action.  Operators
 		// see the WARN in `unmask doctor` (= mmdb path check).
+	}
+	// Relay egress ranges -> the $unmask_bind_key geo block, one line per
+	// published prefix valued with the prefix itself, so the key is the range
+	// in canonical text on both sides of the cookie (the plugin reads the
+	// variable, the daemon receives it as X-Unmask-Bind-Key).
+	if t := relay.Active(); t != nil {
+		var sb strings.Builder
+		t.Each(func(p netip.Prefix, _ relay.Hit) {
+			m := p.Masked().String()
+			fmt.Fprintf(&sb, "    %s \"%s\";\n", m, m)
+		})
+		d.BindKeyCIDRs = sb.String()
 	}
 	// Country rate zones: one limit_req zone per rate-mode rule, keyed on
 	// $unmask_country -- so they only work when the CIDR walk resolved (no

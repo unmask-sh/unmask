@@ -210,6 +210,9 @@ type Handler struct {
 	// heldBeacons counts the beacons accepted while the database's writes
 	// were held, for the beacon's per-address limit (schema_update.go).
 	heldBeacons heldBeaconCounts
+	// usedCT remembers the proof-of-load tokens that already earned a pass,
+	// so one fetch of a challenge earns one pass (captcha.UsedSet).
+	usedCT captcha.UsedSet
 	// SchemaCommand builds the process that applies a schema update; nil
 	// means this binary's `migrate`.  Tests put their own in.
 	SchemaCommand func(by string) (*exec.Cmd, error)
@@ -1407,7 +1410,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// and the serve on one row.  Before this, the reject row carried no token
 	// and sat alone, indistinguishable from an unrelated event.  A rebind that
 	// succeeds serves no challenge page, so its token is simply never echoed.
-	beaconToken := issueBeaconToken(h.cfg().Secret.CaptchaSecretBase, clientIP(r))
+	beaconToken := issueBeaconToken(h.cfg().Secret.CaptchaSecretBase)
 	if forceReason == "none" && rl == "0" && test == "0" && forceQuery == "" && !isPreview {
 		if h.tryRebind(w, r, site, beaconToken) {
 			return
@@ -1603,7 +1606,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		// monitoring window handed out cookies that stayed valid, and
 		// CAPTCHA-graded, for a fortnight.  A rule that requires a real
 		// CAPTCHA must not be satisfied by the moment enforcement was off.
-		val := cookies.IssueValue(h.cfg().Secret.BVSecret, clientIP(r), requestHost(r), "passthrough")
+		val := cookies.IssueValue(h.cfg().Secret.BVSecret, bindKeyFor(r), requestHost(r), "passthrough")
 		h.setBVCookie(w, r, val)
 		target := "/"
 		if rlOrigURI != "" {
@@ -1951,20 +1954,22 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// issued_at + pow_seed: both server-supplied so challenge.js relies on neither
 	// the visitor's Date.now() nor a client-derived seed.  issued is computed once
 	// and shared by the cookie's first segment AND the PoW seed, which binds the
-	// BV secret + client IP (= cookies.PowSeed: no offline precompute, no cross-IP
-	// reuse).  The server enforces a small future-skew tolerance on /verify.
+	// BV secret + the client's bind key (the address, or a relay's range; see
+	// bindKeyFor) -- cookies.PowSeed: no offline precompute, no reuse from
+	// another network.  The server enforces a small future-skew tolerance on
+	// /verify.
 	issued := time.Now().Unix()
-	chIP := clientIP(r)
+	chIP := bindKeyFor(r)
 	chHost := requestHost(r)
 	body = bytes.ReplaceAll(body, []byte(issuedAtPlaceholder),
 		[]byte(fmt.Sprintf("/*__ISSUED_AT__*/%d", issued)))
 	powSeedJSON, _ := json.Marshal(cookies.PowSeed(h.cfg().Secret.BVSecret, chIP, chHost, issued))
 	body = bytes.ReplaceAll(body, []byte(powSeedPlaceholder),
 		append([]byte(`/*__POW_SEED__*/`), powSeedJSON...))
-	// ct: a server-issued, IP+time-bound proof-of-load token for the behavioral
-	// CAPTCHA submit, so a forged behavioral score can't be accepted from a blind
-	// POST that never fetched this challenge (see captcha.IssueToken).
-	ctJSON, _ := json.Marshal(captcha.IssueToken(h.cfg().Secret.CaptchaSecretBase, chIP))
+	// ct: a server-issued, time-bound, single-use proof-of-load token for the
+	// behavioral CAPTCHA submit, so a forged behavioral score can't be accepted
+	// from a blind POST that never fetched this challenge (see captcha.IssueToken).
+	ctJSON, _ := json.Marshal(captcha.IssueToken(h.cfg().Secret.CaptchaSecretBase))
 	body = bytes.ReplaceAll(body, []byte(ctTokenPlaceholder),
 		append([]byte(`/*__CT__*/`), ctJSON...))
 	// ref: a short support correlation id, printed in the challenge footer and
@@ -2879,7 +2884,8 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := clientIP(r)
-	host := requestHost(r) // binds the issued _bv to this vhost
+	bindKey := bindKeyFor(r) // what the issued _bv is bound to: the address, or a relay's range
+	host := requestHost(r)   // binds the issued _bv to this vhost
 	site := siteFromRequest(r, *h.cfg())
 	// Same authorized preview override as ServeChallenge: a site-scoped page
 	// (/test/site/{site}/) routes its verify to /api/{site}/verify, which must
@@ -2917,7 +2923,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 			ok = ok && res.Score >= min
 		}
 		if ok {
-			val := cookies.IssueValue(h.cfg().Secret.BVSecret, ip, host, kind)
+			val := cookies.IssueValue(h.cfg().Secret.BVSecret, bindKey, host, kind)
 			h.setBVCookie(w, r, val)
 			h.mintBVJ(w, r, ip, host, kind)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "provider": cc.Provider, "score": round3(res.Score)})
@@ -2937,8 +2943,10 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		// Proof-of-load.  The behavioral score is fully client-controlled and
 		// forgeable, so without this a bot clears the CAPTCHA with a single blind
 		// POST of a fabricated signal.  Require the server-issued ct token that
-		// binds this IP + a recent fetch of THIS challenge page.
-		if !captcha.VerifyToken(payload.Ct, h.cfg().Secret.CaptchaSecretBase, ip, 900) {
+		// proves a recent fetch of THIS challenge page; it is consumed below, so
+		// one fetch earns one pass.  (Not bound to the address: a visitor whose
+		// requests leave through more than one exit must still get in.)
+		if !captcha.VerifyToken(payload.Ct, h.cfg().Secret.CaptchaSecretBase, captcha.TokenValidSeconds) {
 			writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
 			return
 		}
@@ -2953,7 +2961,11 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 			minScore = 0.5
 		}
 		if score >= minScore {
-			val := cookies.IssueValue(h.cfg().Secret.BVSecret, ip, host, kind)
+			if !h.usedCT.Consume(payload.Ct, captcha.TokenTTL) {
+				writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
+				return
+			}
+			val := cookies.IssueValue(h.cfg().Secret.BVSecret, bindKey, host, kind)
 			h.setBVCookie(w, r, val)
 			h.mintBVJ(w, r, ip, host, kind)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "score": round3(score)})
@@ -2985,12 +2997,17 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	// Require the proof-of-load token on the math path too (the behavioral path
 	// already does).  The math token binds only the answer (a+b in [2,40], ~39
 	// values), so without this a bot harvests the few answer/token pairs from
-	// /api/captcha/new once and blind-POSTs them from any IP to mint _bv cookies.
-	if !captcha.VerifyToken(payload.Ct, h.cfg().Secret.CaptchaSecretBase, ip, 900) {
+	// /api/captcha/new once and blind-POSTs them forever to mint _bv cookies.
+	// The ct is consumed on success, so each fetch of a question earns one pass.
+	if !captcha.VerifyToken(payload.Ct, h.cfg().Secret.CaptchaSecretBase, captcha.TokenValidSeconds) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
 		return
 	}
-	if captcha.VerifyMath(ans, payload.Token, h.cfg().Secret.CaptchaSecretBase, ip, 900) {
+	if captcha.VerifyMath(ans, payload.Token, h.cfg().Secret.CaptchaSecretBase, captcha.TokenValidSeconds) {
+		if !h.usedCT.Consume(payload.Ct, captcha.TokenTTL) {
+			writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
+			return
+		}
 		// Correct arithmetic proves very little: it is the one task a headless
 		// browser does better than the person this fallback exists for.  What
 		// separates them is how the answer got into the field -- a person
@@ -3014,7 +3031,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 			issueKind = "pow"
 			Metrics.CountMathNoInputEvidence()
 		}
-		val := cookies.IssueValue(h.cfg().Secret.BVSecret, ip, host, issueKind)
+		val := cookies.IssueValue(h.cfg().Secret.BVSecret, bindKey, host, issueKind)
 		h.setBVCookie(w, r, val)
 		h.mintBVJ(w, r, ip, host, issueKind)
 		out := map[string]any{"ok": 1}
@@ -3029,11 +3046,11 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 
 // CaptchaNew: GET {base}/api/captcha/new
 func (h *Handler) CaptchaNew(w http.ResponseWriter, r *http.Request) {
-	a, b, token := captcha.MathChallenge(h.cfg().Secret.CaptchaSecretBase, clientIP(r))
-	// ct: proof-of-load bound to this IP + time, returned with the math
+	a, b, token := captcha.MathChallenge(h.cfg().Secret.CaptchaSecretBase)
+	// ct: time-bound, single-use proof-of-load, returned with the math
 	// challenge and required on the /verify math path -- so the answer/token
-	// can't be harvested once and blind-replayed from any IP forever.
-	ct := captcha.IssueToken(h.cfg().Secret.CaptchaSecretBase, clientIP(r))
+	// can't be harvested once and blind-replayed forever.
+	ct := captcha.IssueToken(h.cfg().Secret.CaptchaSecretBase)
 	writeJSON(w, http.StatusOK, map[string]any{"a": a, "b": b, "token": token, "ct": ct})
 }
 
@@ -3072,7 +3089,7 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 	// server when the challenge page is served and echoed back by
 	// challenge.js.  Rejects blind POSTs / expired replays (an attack where
 	// a bot captures an old beacon payload to inflate phase counts).
-	if !verifyBeaconToken(p.BT, h.cfg().Secret.CaptchaSecretBase, ip) {
+	if !verifyBeaconToken(p.BT, h.cfg().Secret.CaptchaSecretBase) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "bad_token"})
 		return
 	}
@@ -3190,6 +3207,21 @@ func clientIP(r *http.Request) string {
 		host = host[:i]
 	}
 	return strings.Trim(host, "[]")
+}
+
+// bindKeyFor is what this client's pass cookie and PoW seed are bound to: the
+// key nginx derived for the request (X-Unmask-Bind-Key, set by the daemon
+// proxy from http.inc's $unmask_bind_key -- a relay's published egress range
+// for a client inside one, empty for everyone else) or, without one, the
+// client address.  Reading the key off the request rather than deriving it
+// here keeps the issuer and the plugin's verifier on the same value whatever
+// the render / reload state; a forward-auth install never sends it and keeps
+// binding to the address.
+func bindKeyFor(r *http.Request) string {
+	if v := strings.TrimSpace(r.Header.Get("X-Unmask-Bind-Key")); v != "" {
+		return v
+	}
+	return clientIP(r)
 }
 
 // requestHost returns the lowercased, port-stripped host the client requested.

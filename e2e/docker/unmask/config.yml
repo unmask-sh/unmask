@@ -339,3 +339,8 @@ community_bans:
   submit_url: "http://127.0.0.1:9/submit"
   feed_url: "http://127.0.0.1:9/list.json"
   aggregate_url: "http://127.0.0.1:9/aggregate"
+
+# Scenario 36 exercises the per-lineage hourly rebind cap with five fixture
+# addresses; the shipped default (10) is more than they can reach.
+rebind:
+  max_rebinds_per_hour: 4

@@ -122,7 +122,8 @@ printf '%s' "$body" | grep -q 'rebound_entry' \
     || log_fail "expected skip=rebound_entry, got: $body"
 
 # 6. Hourly cap: IP-B consumed slot 1 (step 2); IPs C-E consume 2-4; the 5th
-#    distinct rebind is refused (default max_rebinds_per_hour=4).  The UA gate
+#    distinct rebind is refused (the e2e config pins max_rebinds_per_hour=4;
+#    the shipped default is 10, which five fixture addresses cannot reach).  The UA gate
 #    in step 4 refused before charging, so IP-C still has its slot here.
 for ip in "$IP_C" "$IP_D" "$IP_E"; do
     resp=$(rebind_resp "$ip" "$UA_SOLVER")

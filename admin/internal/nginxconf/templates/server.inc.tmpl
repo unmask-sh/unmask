@@ -317,6 +317,10 @@ location @unmask_rate_challenge {
     proxy_pass         http://unmask_daemon;
     proxy_set_header   Host             $host;
     proxy_set_header   X-Real-IP        $remote_addr;
+    # What this client's pass cookie is bound to (http.inc $unmask_bind_key: a
+    # relay's egress range for a client inside one, empty = the address).  The
+    # daemon issues against the value the plugin verifies with.
+    proxy_set_header   X-Unmask-Bind-Key $unmask_bind_key;
     # If an LB terminated TLS and forwarded X-Forwarded-Proto/Port, use it; else
     # fall back to local $scheme/$server_port so the hunt page's URLs keep https.
     proxy_set_header   X-Forwarded-Proto $unmask_forwarded_proto;

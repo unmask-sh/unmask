@@ -16,6 +16,8 @@ func TestBindIP(t *testing.T) {
 		"::ffff:1.2.3.4":       "::ffff:1.2.3.4",   // v4-mapped -> IPv4 semantics, unchanged
 		"not-an-ip":            "not-an-ip",        // unparseable -> as-is
 		"":                     "",                 // empty -> as-is
+		"140.248.33.0/24":      "140.248.33.0/24",  // a bind key (relay range) -> as-is
+		"2a02:26f7:c9c0::/44":  "2a02:26f7:c9c0::/44",
 	}
 	for in, want := range cases {
 		if got := bindIP(in); got != want {
