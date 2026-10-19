@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-10-20) **The PoW cookie reuse ranking's "show more" opens its own rows.**  On the stats page the cookie-reuse card holds the CAPTCHA, PoW and re-bound rankings one under the other, and every "show more" there opened the card's first table, so the PoW ranking's rows past the tenth never appeared.  Each button now opens the ranking right above it.
+
 ## [0.1.53-rc2] - 2026-10-19 (testing build)
 
 ### Since rc1

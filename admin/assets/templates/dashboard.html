@@ -1830,11 +1830,18 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
   document.addEventListener('click', function(e){
     var btn = e.target.closest && e.target.closest('.cp-more');
     if (!btn) return;
-    // A card can hold several ranking sub-tables side by side (the rate-limit
-    // card has IP + path), so target the table in the button's own wrapper
-    // first; fall back to the card's single table for the simpler cards.
-    var scope = btn.parentElement;
-    var tbl = (scope && scope.querySelector('table.cp-rankable'));
+    // The button's table is the ranking table nearest above it.  A card can
+    // hold several: the rate-limit card has IP + path side by side, each in
+    // its own wrapper; the cookie-reuse card has the CAPTCHA, PoW and re-bound
+    // rankings one under the other, each a heading, a table and a button
+    // straight in the card (10-20: every button there took the card's first
+    // table, so the PoW ranking's button opened the CAPTCHA ranking and its
+    // own rows never showed).  So: the table in the nearest preceding sibling,
+    // then the button's wrapper, then the card.
+    var tbl = null, el;
+    for (el = btn.previousElementSibling; el && !tbl; el = el.previousElementSibling)
+      tbl = el.matches('table.cp-rankable') ? el : el.querySelector('table.cp-rankable');
+    if (!tbl) { var scope = btn.parentElement; tbl = scope && scope.querySelector('table.cp-rankable'); }
     if (!tbl) { var card = btn.closest('.bcd-card'); tbl = card ? card.querySelector('table.cp-rankable') : null; }
     if (!tbl) return;
     var expanded = tbl.classList.toggle('cp-expanded');
