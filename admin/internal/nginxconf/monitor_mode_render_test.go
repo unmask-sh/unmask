@@ -77,8 +77,8 @@ func TestMonitorModeRenderOn(t *testing.T) {
 		`map "$unmask_observe:$request_uri" $unmask_ban_action_effective {`,
 		`map "$unmask_observe:$request_uri" $unmask_banned_effective {`,
 		// ... and is not counted toward any rate zone: the key maps lead with it
-		`map "$unmask_observe:$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key {`,
-		`map "$unmask_observe:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny {`,
+		`map "$unmask_observe:$bv_any_valid:$is_bypass_ip:$is_bypass_path" $rate_limit_key {`,
+		`map "$unmask_observe:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny {`,
 	} {
 		if !strings.Contains(httpInc, want) {
 			t.Errorf("monitor mode on: http.inc missing %q", want)

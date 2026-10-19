@@ -21,8 +21,8 @@ func TestNotificationPreviewRenderGuarded(t *testing.T) {
 		`"~*Notification(Service)?Extension/.*CFNetwork" 1;`,
 		`map $effective_ja4 $unmask_apple_tls {`,
 		`"~` + classify.AppleCFNetworkJA4B + `" 1;`,
-		`map "$unmask_search_bot_ua$unmask_notif_preview_ua$unmask_apple_tls" $is_search_bot {`,
-		`"~^011$" 1;`,
+		`map "$unmask_search_bot_ua$unmask_notif_preview_ua$unmask_apple_tls:$request_method" $is_search_bot {`,
+		`"~^011:(?:GET|HEAD)$"`,
 	} {
 		if !strings.Contains(conf, want) {
 			t.Errorf("default render must carry the guarded composite; missing %q", want)
@@ -45,19 +45,19 @@ func TestNotificationPreviewRenderGuarded(t *testing.T) {
 }
 
 // Turning the group off ("none") removes the guarded maps entirely and falls
-// back to the single plain map, so existing deployments render byte-stable.
+// back to the plain two-stage map (the UA list, then the GET / HEAD gate).
 func TestNotificationPreviewRenderOff(t *testing.T) {
 	conf := renderHTTPInc(t, func(s *settings.Settings) {
 		s.Nginx.SearchBots.UpstreamGroupMode = map[string]string{
 			classify.NotificationPreviewTag: classify.GroupModeNone,
 		}
 	})
-	for _, absent := range []string{"$unmask_notif_preview_ua", "$unmask_apple_tls", "$unmask_search_bot_ua"} {
+	for _, absent := range []string{"$unmask_notif_preview_ua", "$unmask_apple_tls"} {
 		if strings.Contains(conf, absent) {
 			t.Errorf("group off: %q must not render", absent)
 		}
 	}
-	if !strings.Contains(conf, `map $http_user_agent $is_search_bot {`) {
+	if !strings.Contains(conf, `map "$unmask_search_bot_ua:$request_method" $is_search_bot {`) {
 		t.Error("group off: the plain $is_search_bot map must come back")
 	}
 }

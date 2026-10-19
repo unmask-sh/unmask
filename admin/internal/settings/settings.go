@@ -2572,6 +2572,11 @@ type SearchBotsConfig struct {
 	// one by one.  Empty / absent = inherit ChallengeTargets.DefaultAction.
 	// Stored as a flat map so the YAML stays small and inspectable.
 	UpstreamGroupAction map[string]string `yaml:"upstream_group_action,omitempty"`
+	// NameOnlyRatePerMin: the per-address budget, in requests a minute, for
+	// requests passed on a crawler's name alone -- no vendor range, no
+	// signature, no pass cookie.  nil = the default (30); 0 = no budget.  See
+	// NameOnlyRatePerMinResolved.
+	NameOnlyRatePerMin *int `yaml:"name_only_rate_per_min,omitempty"`
 }
 
 // JA4VerdictsConfig: JA4 verdict preset enable/disable + extras.
@@ -3956,6 +3961,9 @@ const (
 	ReuseMaxPerDay  = 10000000
 	ReuseMaxBurst   = 1000000
 	ReuseZoneName   = "unmask_reuse"
+	// NamedRescueZoneName: the name-only crawler budget zone
+	// (SearchBotsConfig.NameOnlyRatePerMinResolved).
+	NamedRescueZoneName = "unmask_named_rate"
 )
 
 // IsZero lets yaml.v3 honour omitempty: an install that never touched the
@@ -5147,4 +5155,22 @@ func randomHex(n int) string {
 		panic(err)
 	}
 	return hex.EncodeToString(buf)
+}
+
+// DefaultNameOnlyRatePerMin: the name-only crawler budget when the operator set
+// none.  A genuine link-preview or search fetcher takes a handful of pages from
+// one address; a scanner wearing a crawler's name takes hundreds.
+const DefaultNameOnlyRatePerMin = 30
+
+// NameOnlyRatePerMinResolved returns the per-address budget for requests
+// passed on a crawler's name alone, in requests a minute: the default when
+// unset, 0 when the operator turned it off (any negative value reads as off).
+func (c SearchBotsConfig) NameOnlyRatePerMinResolved() int {
+	if c.NameOnlyRatePerMin == nil {
+		return DefaultNameOnlyRatePerMin
+	}
+	if *c.NameOnlyRatePerMin < 0 {
+		return 0
+	}
+	return *c.NameOnlyRatePerMin
 }

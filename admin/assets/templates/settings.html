@@ -537,6 +537,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .require-rv>span>strong{display:block;font-size:.85rem;color:#14532d}
 .require-rv-desc strong{font-weight:600;color:#14532d}
 .require-rv-desc{display:block;margin-top:.2rem;font-size:.78rem;line-height:1.6;color:#334155}
+.named-rate{cursor:default}
+.named-rate .named-rate-row{display:flex;align-items:center;gap:.4rem;margin-top:.4rem;font-size:.82rem;color:#334155}
+.named-rate input{width:6rem;margin:0}
+.upstream-named{display:inline-block;margin-left:.45rem;padding:.05rem .4rem;font-size:.68rem;font-weight:600;border-radius:.25rem;background:#fef3c7;color:#b45309;border:1px solid #fcd34d;white-space:nowrap}
 /* The badge's meaning is a popover off a one-line hint under the bulk row:
    as a block in the dialog it took seven lines and left the list a few rows. */
 .upstream-rv-hint{margin:0;padding:.35rem 1rem;border-bottom:1px solid #e2e8f0;display:flex;align-items:center;gap:.4rem;font-size:.76rem;color:#475569}
@@ -2041,6 +2045,15 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <span class="require-rv-desc">{{ safeHTML (t .Lang "settings.ua.upstream.require_rv_desc") }}</span>
       </span>
     </label>
+    {{/* The budget for the crawlers that remain name-only: how much one
+         address gets through on the name before it meets a CAPTCHA. */}}
+    <div class="require-rv named-rate">
+      <span>
+        <strong>{{ t .Lang "settings.ua.upstream.name_only_rate" }}</strong>
+        <span class="require-rv-desc">{{ safeHTML (t .Lang "settings.ua.upstream.name_only_rate_desc") }}</span>
+        <span class="named-rate-row"><input type="number" name="name_only_rate_per_min" min="0" max="100000" step="1" value="{{ .Cur.SearchBots.NameOnlyRatePerMinResolved }}"> <span>{{ t .Lang "settings.ua.upstream.name_only_rate_unit" }}</span></span>
+      </span>
+    </div>
     {{ range $g := .Upstream.Groups }}
     {{ $catLabel := t $.Lang (printf "settings.ua.upstream.cat.%s" $g.Cat) }}
     <div class="upstream-group" data-cat="{{ $g.Cat }}" data-mode="{{ $g.Mode }}">
@@ -2115,7 +2128,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             </select>
             {{/* The badge reports the preset's state only, so it never repaints
                  from this row's setting -- see nginxconf.UpstreamRangeActive. */}}
-            <span><code>{{ .Pattern }}</code>{{ if .RangeBacked }}<span class="upstream-rv {{ if .RangeActive }}rv-on{{ else }}rv-off{{ end }}">{{ t $.Lang "settings.ua.upstream.rv_badge" }}</span>{{ end }}{{ if .Description }}<span class="upstream-desc">{{ .Description }}</span>{{ end }}</span>
+            <span><code>{{ .Pattern }}</code>{{ if .RangeBacked }}<span class="upstream-rv {{ if .RangeActive }}rv-on{{ else }}rv-off{{ end }}">{{ t $.Lang "settings.ua.upstream.rv_badge" }}</span>{{ end }}{{ if .NamedDay }}<span class="upstream-named" title="{{ t $.Lang "settings.ua.upstream.named_day_title" }}">{{ printf (t $.Lang "settings.ua.upstream.named_day") .NamedDay .NamedIPs }}</span>{{ end }}{{ if .Description }}<span class="upstream-desc">{{ .Description }}</span>{{ end }}</span>
             <span class="upstream-since">{{ if .Since }}{{ .Since }}{{ else }}—{{ end }}</span>
           </div>
           {{ end }}

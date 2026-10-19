@@ -102,6 +102,17 @@ map $http_x_forwarded_port $unmask_forwarded_port {
 # -----------------------------------------------------------------------------
 # Search / AI / Ads bot UA — exempt from challenge (avoid ranking accidents)
 # -----------------------------------------------------------------------------
+# $is_search_bot is the NAME-ONLY rescue: a crawler the configuration passes on
+# its User-Agent string alone, because its vendor publishes no address range
+# (the ones that do ride geo $is_bypass_ip instead).  A name is free to claim,
+# so what the rescue buys is deliberately narrow: it clears the global posture
+# (the JA4 verdict, the known / unknown-UA buckets) and the stale-browser /
+# header-integrity tiers, which every non-browser would otherwise trip -- and
+# nothing else.  A honeypot it trips, a community listing, a country / network
+# / custom rule, a protected path, a deny and every rate limit apply to it as to
+# anyone ($final_challenge, $unmask_deny_unrescued and the rate keys below), and
+# the name-only budget zone counts it.  It also holds only for a GET or HEAD: a
+# crawler fetches, it never posts.
 {{- if gt .RangeVerifiedUACount 0 }}
 # Note: {{ .RangeVerifiedUACount }} crawler UA patterns (Googlebot, bingbot, GPTBot, ...) are
 # deliberately NOT listed here.  Their vendors publish official IP ranges and
@@ -109,13 +120,13 @@ map $http_x_forwarded_port $unmask_forwarded_port {
 # geo $is_bypass_ip below instead — a spoofed UA from outside the published
 # ranges is challenged like any other client.
 {{- end }}
-{{- if .NotifPreviewPatterns }}
 map $http_user_agent $unmask_search_bot_ua {
     default 0;
 {{- range .SearchBotPatterns }}
     "~*{{ rx . }}" 1;
 {{- end }}
 }
+{{- if .NotifPreviewPatterns }}
 # Notification-preview fetchers (Apple notification service extensions pulling
 # a push notification's rich preview) run on subscribers' OWN devices --
 # residential IPs, no vendor ranges -- so the UA string is the entire spoof
@@ -134,17 +145,15 @@ map $effective_ja4 $unmask_apple_tls {
     default 0;
     "~{{ .NotifPreviewJA4Regex }}" 1;
 }
-map "$unmask_search_bot_ua$unmask_notif_preview_ua$unmask_apple_tls" $is_search_bot {
+map "$unmask_search_bot_ua$unmask_notif_preview_ua$unmask_apple_tls:$request_method" $is_search_bot {
     default 0;
-    "~^1"    1;   # plain UA-list rescue
-    "~^011$" 1;   # notification-preview UA backed by the Apple TLS stack
+    "~^1..:(?:GET|HEAD)$"  1;   # plain UA-list rescue, on a fetch
+    "~^011:(?:GET|HEAD)$"  1;   # notification-preview UA backed by the Apple TLS stack
 }
 {{- else }}
-map $http_user_agent $is_search_bot {
+map "$unmask_search_bot_ua:$request_method" $is_search_bot {
     default 0;
-{{- range .SearchBotPatterns }}
-    "~*{{ rx . }}" 1;
-{{- end }}
+    "~^1:(?:GET|HEAD)$" 1;      # plain UA-list rescue, on a fetch
 }
 {{- end }}
 
@@ -952,8 +961,8 @@ map "$geo_challenge_eff:$asn_challenge_eff:$unmask_cr_challenge" $is_net_challen
 # dispatch is an `if` in the server rewrite phase, so it is read on every
 # request to the vhost -- including ones served by locations that never include
 # protect.inc and therefore never read $final_challenge.  On those, building
-# $unmask_deny_now would newly cost a $is_search_bot UA-regex sweep per request
-# to answer a question that has only one possible answer.  So: nothing to deny,
+# $unmask_deny_now would newly cost the rescue lookups per request to answer a
+# question that has only one possible answer.  So: nothing to deny,
 # nothing rendered, nothing to pay.
 map $http_user_agent $unmask_ua_deny {
     default 0;
@@ -1014,8 +1023,7 @@ map "$geo_deny_eff:$asn_deny_eff:$unmask_ua_deny:$unmask_ja4_deny:$unmask_cb_den
 # The rescues are consulted through a map VALUE, not folded into a key, so they
 # are evaluated only on the branch that needs them.  nginx builds a map key
 # eagerly -- every variable in it, every request -- but resolves only the
-# matched entry's value.  $is_search_bot is the expensive one (a UA regex list
-# plus $effective_ja4 behind the notification-preview composite), and asking it
+# matched entry's value.  The bypass-path map runs a regex list, and asking it
 # on every request would make adding one deny rule cost the whole vhost: on a
 # location that does NOT include protect.inc, a synthetic benchmark lost an
 # order of magnitude in throughput, because such a location otherwise never
@@ -1027,14 +1035,14 @@ map $unmask_axis_deny $unmask_deny_raw {
 }
 {{- if .MonitorMode }}
 # A site in monitor mode denies nothing: the mode rides beside the rescues.
-map "$is_search_bot:$is_bypass_ip:$is_bypass_path:$unmask_observe" $unmask_deny_unrescued {
-    default 0;
-    "0:0:0:0" 1;
-}
-{{- else }}
-map "$is_search_bot:$is_bypass_ip:$is_bypass_path" $unmask_deny_unrescued {
+map "$is_bypass_ip:$is_bypass_path:$unmask_observe" $unmask_deny_unrescued {
     default 0;
     "0:0:0" 1;
+}
+{{- else }}
+map "$is_bypass_ip:$is_bypass_path" $unmask_deny_unrescued {
+    default 0;
+    "0:0" 1;
 }
 {{- end }}
 
@@ -1181,7 +1189,10 @@ map $unmask_bp_global $is_bypass_path {
 #
 # Decision priority:
 #   1. bv_any_valid=1                 -> exempt (already carries CAPTCHA / PoW pass cookie)
-#   2. is_search_bot / is_bypass_ip   -> exempt (Googlebot accident prevention / trusted IP)
+#   2. is_bypass_ip=1                 -> exempt (a crawler verified by its vendor's
+#                                        published range, or a trusted address)
+#      is_search_bot=1                -> exempt from the global posture ONLY (rows
+#                                        4-8 still apply: a name is free to claim)
 #   3. is_bypass_path=1               -> exempt (bypass path)
 #   4. unmask_cb_challenge=1          -> challenge (client is on the community
 #                                         feed under a challenge action; a deny
@@ -1207,7 +1218,23 @@ map $unmask_bp_global $is_bypass_path {
 map "{{ if .GradeCheckedPass }}$bv_pass_ok{{ else }}$bv_any_valid{{ end }}:$is_search_bot:$is_bypass_ip:$is_bypass_path:$unmask_cb_challenge:$is_net_challenge:$protected_mode:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if or .StaleBrowserEnabled .HeaderIntegrityEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
     default 0;
     "~^1:"                            0;  # _bv valid (CAPTCHA or PoW pass, grade-checked) -> exempt
-    "~^0:1:"                          0;  # search bot UA -> exempt
+    # A crawler known by its name alone (the UA list, no vendor range): the
+    # rescue clears the global posture -- the JA4 verdict and the known /
+    # unknown-UA buckets -- and nothing else.  A honeypot it trips, a community
+    # listing, a country / network / custom rule and a protected path all apply
+    # to it as to anyone: a name is free to claim, and these are the axes that
+    # catch whoever claims it.  A crawler verified by its vendor's published
+    # range rides $is_bypass_ip and keeps the full exemption.
+    "~^0:1:1:"                        0;  # named crawler from a bypass IP -> exempt
+    "~^0:1:0:1:"                      0;  # named crawler on a bypass path -> exempt
+    "~^0:1:0:0:1:"                    1;  # named crawler on the community feed -> challenge
+    "~^0:1:0:0:0:1:"                  1;  # named crawler under a country / network / custom rule -> challenge
+    "~^0:1:0:0:0:0:captcha:"          1;  # named crawler on a protected path -> challenge
+    "~^0:1:0:0:0:0:pow:"              1;
+    "~^0:1:0:0:0:0:pow_then_captcha:" 1;
+    "~^0:1:0:0:0:0::1:"               1;  # named crawler the operator also stops -> challenge
+    "~^0:1:0:0:0:0::0:[^:]*:1$"       1;  # named crawler tripping a honeypot -> challenge
+    "~^0:1:"                          0;  # named crawler, nothing targeted it -> exempt from the global posture
     "~^0:0:1:"                        0;  # bypass IP -> exempt
     "~^0:0:0:1:"                      0;  # bypass path -> exempt
     "~^0:0:0:0:1:"                    1;  # community feed hit -> challenge
@@ -1449,49 +1476,47 @@ map "$final_challenge:$unmask_observe" $unmask_enforce {
 #
 # Excluded:
 #   - bv_any_valid=1   _bv cookie passed (either CAPTCHA or PoW kind)
-#   - is_search_bot=1  search bot UA (Googlebot etc.; avoid ranking accidents on large crawls)
+#   (A crawler known by its name alone is NOT excluded: its vendor-verified
+#   kind is a bypass IP, and a name is free to claim.)
 #   - is_bypass_ip=1   bypass IP (trusted crawler official IP range / internal LB)
 #   - is_bypass_path=1 bypass path (e.g. /static/)
 {{- if $.MonitorMode }}
 # Monitor mode leads the key: a watched site's request is not counted.
-map "$unmask_observe:$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key {
-    default         {{ .RateLimitKeyExpr }};
-    "~^1:"          "";
-    "~^.:1:"        "";
-    "~^.:.:1:"      "";
-    "~^.:.:.:1:"    "";
-    "~^.:.:.:.:1$"  "";
-}
-{{- else }}
-map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key {
+map "$unmask_observe:$bv_any_valid:$is_bypass_ip:$is_bypass_path" $rate_limit_key {
     default       {{ .RateLimitKeyExpr }};
     "~^1:"        "";
     "~^.:1:"      "";
     "~^.:.:1:"    "";
     "~^.:.:.:1$"  "";
+}
+{{- else }}
+map "$bv_any_valid:$is_bypass_ip:$is_bypass_path" $rate_limit_key {
+    default     {{ .RateLimitKeyExpr }};
+    "~^1:"      "";
+    "~^.:1:"    "";
+    "~^.:.:1$"  "";
 }
 {{- end }}
 
 # $rate_limit_key_deny: identical to $rate_limit_key but WITHOUT the _bv
 # exemption.  A "deny" zone is a HARD CAP -- a human who already passed a CAPTCHA
 # can still flood -- so _bv holders MUST be counted toward it (issuing CAPTCHAs
-# would just sell more requests).  Trusted sources (search bot / bypass IP /
-# bypass path) stay exempt in both.  nginx only evaluates this map when a
+# would just sell more requests).  Trusted sources (bypass IP / bypass path)
+# stay exempt in both; a crawler known by its name alone is counted like
+# anyone (its vendor-verified kind rides $is_bypass_ip).  nginx only evaluates this map when a
 # deny-mode path zone references it via its conditional key (below).
 {{- if $.MonitorMode }}
-map "$unmask_observe:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny {
-    default       {{ .RateLimitKeyExpr }};
-    "~^1:"        "";
-    "~^.:1:"      "";
-    "~^.:.:1:"    "";
-    "~^.:.:.:1$"  "";
+map "$unmask_observe:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny {
+    default     {{ .RateLimitKeyExpr }};
+    "~^1:"      "";
+    "~^.:1:"    "";
+    "~^.:.:1$"  "";
 }
 {{- else }}
-map "$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny {
-    default      {{ .RateLimitKeyExpr }};
-    "~^1:"       "";
-    "~^.:1:"     "";
-    "~^.:.:1$"   "";
+map "$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny {
+    default    {{ .RateLimitKeyExpr }};
+    "~^1:"     "";
+    "~^.:1$"   "";
 }
 {{- end }}
 
@@ -1504,38 +1529,34 @@ map "$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny {
 {{- range .RateKeyVariants }}
 {{- if .Deny }}
 {{- if $.MonitorMode }}
-map "$unmask_observe:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny_{{ .Suffix }} {
-    default       {{ .Expr }};
-    "~^1:"        "";
-    "~^.:1:"      "";
-    "~^.:.:1:"    "";
-    "~^.:.:.:1$"  "";
+map "$unmask_observe:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny_{{ .Suffix }} {
+    default     {{ .Expr }};
+    "~^1:"      "";
+    "~^.:1:"    "";
+    "~^.:.:1$"  "";
 }
 {{- else }}
-map "$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny_{{ .Suffix }} {
-    default      {{ .Expr }};
-    "~^1:"       "";
-    "~^.:1:"     "";
-    "~^.:.:1$"   "";
+map "$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny_{{ .Suffix }} {
+    default    {{ .Expr }};
+    "~^1:"     "";
+    "~^.:1$"   "";
 }
 {{- end }}
 {{- else }}
 {{- if $.MonitorMode }}
-map "$unmask_observe:$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_{{ .Suffix }} {
-    default         {{ .Expr }};
-    "~^1:"          "";
-    "~^.:1:"        "";
-    "~^.:.:1:"      "";
-    "~^.:.:.:1:"    "";
-    "~^.:.:.:.:1$"  "";
-}
-{{- else }}
-map "$bv_any_valid:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_{{ .Suffix }} {
+map "$unmask_observe:$bv_any_valid:$is_bypass_ip:$is_bypass_path" $rate_limit_key_{{ .Suffix }} {
     default       {{ .Expr }};
     "~^1:"        "";
     "~^.:1:"      "";
     "~^.:.:1:"    "";
     "~^.:.:.:1$"  "";
+}
+{{- else }}
+map "$bv_any_valid:$is_bypass_ip:$is_bypass_path" $rate_limit_key_{{ .Suffix }} {
+    default     {{ .Expr }};
+    "~^1:"      "";
+    "~^.:1:"    "";
+    "~^.:.:1$"  "";
 }
 {{- end }}
 {{- end }}
@@ -1588,48 +1609,61 @@ limit_req_zone {{ .KeyVar }} zone={{ .Name }}:10m rate={{ .RequestsPerMin }}r/m;
 # "captcha".
 map $unmask_bv_kind $bv_reuse_counted { default 1;  ""  0;  "captcha" 0; }
 {{- if $.MonitorMode }}
-map "$unmask_observe:$bv_reuse_counted:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse {
-    default         "";
-    "~^1:"          "";
-    "~^.:.:1:"      "";
-    "~^.:.:.:1:"    "";
-    "~^.:.:.:.:1$"  "";
-    "~^0:1:"        {{ .KeyExpr }};
-}
-{{- else }}
-map "$bv_reuse_counted:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse {
+map "$unmask_observe:$bv_reuse_counted:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse {
     default       "";
-    "~^.:1:"      "";
+    "~^1:"        "";
     "~^.:.:1:"    "";
     "~^.:.:.:1$"  "";
-    "~^1:"        {{ .KeyExpr }};
+    "~^0:1:"      {{ .KeyExpr }};
+}
+{{- else }}
+map "$bv_reuse_counted:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse {
+    default     "";
+    "~^.:1:"    "";
+    "~^.:.:1$"  "";
+    "~^1:"      {{ .KeyExpr }};
 }
 {{- end }}
 limit_req_zone $rate_limit_key_reuse zone={{ .Name }}:10m rate={{ .RequestsPerMin }}r/m;
+{{- end }}
+{{- with .NamedRescueZone }}
+
+# Name-only crawler budget (settings.search_bots.name_only_rate_per_min).  A
+# request passed on a crawler's name alone -- no vendor range, no signature,
+# no pass cookie -- counts here per client address.  A genuine link-preview or
+# search fetcher takes a handful of pages from one address; a scanner wearing
+# the name takes hundreds.  Over the budget the request takes the rate route
+# like any zone (the daemon answers with a CAPTCHA, which a fetcher does not
+# solve), so the name buys nothing further from that address until the bucket
+# drains.  protect.inc applies the zone next to the others.
+map "$is_search_bot:$bv_any_valid:$is_bypass_ip:$is_bypass_path" $unmask_named_rate_key {
+    default   "";
+    "1:0:0:0" {{ .KeyExpr }};
+}
+limit_req_zone $unmask_named_rate_key zone={{ .Name }}:10m rate={{ .RequestsPerMin }}r/m;
 {{- end }}
 
 # ASN rate zones (auto-rendered from settings.nginx.asn rate rules): throttle a
 # datacenter/network to N req/min instead of denying it outright.  Each zone's
 # geo maps the rule's CIDRs to the network's own AS number (so the counter is
 # per AS number, matching forward-auth), "" elsewhere; the key then drops
-# verified crawlers ($is_search_bot) and bypass IPs ($is_bypass_ip) to "" so a
-# genuine Googlebot on a throttled ASN is NEVER rate-limited (SEO safety).
+# bypass IPs ($is_bypass_ip: a vendor-verified crawler among them) to "" so a
+# genuine Googlebot on a throttled ASN is NEVER rate-limited (SEO safety).  A
+# crawler known by its name alone is counted like anyone on the network.
 {{- range .AsnRateZones }}
 geo $remote_addr {{ .RawVar }} {
     default "";
 {{ .GeoBody }}}
 {{- if $.MonitorMode }}
-map "$unmask_observe:$is_search_bot:$is_bypass_ip:{{ .RawVar }}" {{ .KeyVar }} {
-    default    {{ .RawVar }};
-    "~^1:"     "";
-    "~^.:1:"   "";
-    "~^.:.:1:" "";
+map "$unmask_observe:$is_bypass_ip:{{ .RawVar }}" {{ .KeyVar }} {
+    default  {{ .RawVar }};
+    "~^1:"   "";
+    "~^.:1:" "";
 }
 {{- else }}
-map "$is_search_bot:$is_bypass_ip:{{ .RawVar }}" {{ .KeyVar }} {
-    default    {{ .RawVar }};
-    "~^1:"     "";
-    "~^.:1:"   "";
+map "$is_bypass_ip:{{ .RawVar }}" {{ .KeyVar }} {
+    default  {{ .RawVar }};
+    "~^1:"   "";
 }
 {{- end }}
 limit_req_zone {{ .KeyVar }} zone={{ .ZoneName }}:10m rate={{ .RequestsPerMin }}r/m;
@@ -1638,35 +1672,35 @@ limit_req_zone {{ .KeyVar }} zone={{ .ZoneName }}:10m rate={{ .RequestsPerMin }}
 # Country rate zones (auto-rendered from settings.nginx.geo rate rules): the
 # by-country twin of the ASN zones above.  Each keys on the already-resolved
 # $unmask_country -- exact-match on the zone's country, "" otherwise, with
-# verified crawlers ($is_search_bot) and bypass IPs ($is_bypass_ip) dropped to
+# bypass IPs ($is_bypass_ip: a vendor-verified crawler among them) dropped to
 # "" so a genuine crawler from a throttled country is NEVER rate-limited.
 {{- range .GeoRateZones }}
 {{- if $.MonitorMode }}
-map "$unmask_observe:$is_search_bot:$is_bypass_ip:$unmask_country" {{ .KeyVar }} {
-    default    "";
-    "0:0:0:{{ .Country }}" "{{ .Country }}";
-}
-{{- else }}
-map "$is_search_bot:$is_bypass_ip:$unmask_country" {{ .KeyVar }} {
+map "$unmask_observe:$is_bypass_ip:$unmask_country" {{ .KeyVar }} {
     default    "";
     "0:0:{{ .Country }}" "{{ .Country }}";
+}
+{{- else }}
+map "$is_bypass_ip:$unmask_country" {{ .KeyVar }} {
+    default    "";
+    "0:{{ .Country }}" "{{ .Country }}";
 }
 {{- end }}
 limit_req_zone {{ .KeyVar }} zone={{ .ZoneName }}:10m rate={{ .RequestsPerMin }}r/m;
 {{- end }}
 # Custom-rule throttles: a zone per throttling rule, counted per client
-# address while the rule matches; verified crawlers and bypass addresses
-# are never counted.
+# address while the rule matches; bypass addresses (a vendor-verified crawler
+# among them) are never counted.
 {{- range .CustomRuleRateZones }}
 {{- if $.MonitorMode }}
-map "$unmask_observe:$is_search_bot:$is_bypass_ip:{{ .Var }}" {{ .KeyVar }} {
-    default "";
-    "0:0:0:1" $binary_remote_addr;
-}
-{{- else }}
-map "$is_search_bot:$is_bypass_ip:{{ .Var }}" {{ .KeyVar }} {
+map "$unmask_observe:$is_bypass_ip:{{ .Var }}" {{ .KeyVar }} {
     default "";
     "0:0:1" $binary_remote_addr;
+}
+{{- else }}
+map "$is_bypass_ip:{{ .Var }}" {{ .KeyVar }} {
+    default "";
+    "0:1" $binary_remote_addr;
 }
 {{- end }}
 limit_req_zone {{ .KeyVar }} zone={{ .ZoneName }}:10m rate={{ .RequestsPerMin }}r/m;
@@ -1791,9 +1825,20 @@ map "$is_bypass_ip$is_bypass_path" $unmask_bypassed {
 map $remote_addr $unmask_gated {
     default "";
 }
-map $unmask_gated $unmask_fc_log {
-    default 0;
-    "1:"    {{ if or .WebBotAuthEnabled .PrivacyPassEnabled }}$final_challenge_eff{{ else }}$final_challenge{{ end }};
+# The rate route is a gate's answer too: over a zone the request is rewritten
+# (classic) or redirected (compose) to /unmask/_rl<uri>, and the daemon answers
+# with a CAPTCHA or a deny page -- but the challenge decision itself was 0, so
+# the line used to read as a pass, and the composition card and the crawler
+# drill-down counted a refused request among the passes.  The final $uri says
+# which route answered.
+map $uri $unmask_rl_served {
+    default        0;
+    "~^/unmask/_rl" 1;
+}
+map "$unmask_gated:$unmask_rl_served" $unmask_fc_log {
+    default   0;
+    "~^1::1$" 1;   # the rate route answered: served, not passed
+    "~^1::0$" {{ if or .WebBotAuthEnabled .PrivacyPassEnabled }}$final_challenge_eff{{ else }}$final_challenge{{ end }};
 }
 map $unmask_gated $unmask_bp_log {
     default 1;
@@ -1819,7 +1864,7 @@ map $unmask_gated $unmask_bp_log {
 # can tell a render nginx has not been reloaded into and say so at the top
 # of the admin pages.  Optional to the parser, like bp.
 {{- end }}
-log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} ua=$http_user_agent';
+log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} sb=$is_search_bot ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed.
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;

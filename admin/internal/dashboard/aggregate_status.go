@@ -144,6 +144,7 @@ func AuditAggregateWindows(ctx context.Context, d *db.DB) ([]AggregateWindow, er
 		{"unmask_cookie_minute", "bucket_min", "min"},
 		{"unmask_cookie_ip_minute", "bucket_min", "min"},
 		{"unmask_crawler_detail_hourly", "bucket_hour", "hour"},
+		{"unmask_crawler_named_hourly", "bucket_hour", "hour"},
 		{"unmask_traffic_country_hourly", "bucket_hour", "hour"},
 	}
 	out := make([]AggregateWindow, 0, len(probes))

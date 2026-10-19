@@ -49,8 +49,8 @@ func TestRenderIDNamesTheConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), " rv="+id1+" ua=$http_user_agent';") {
-		t.Errorf("the log format does not carry rv=%s just before ua=", id1)
+	if !strings.Contains(string(b), " rv="+id1+" sb=$is_search_bot ua=$http_user_agent';") {
+		t.Errorf("the log format does not carry rv=%s ahead of sb= and ua=", id1)
 	}
 
 	// Another build, same settings: same id, and http.inc is not rewritten.

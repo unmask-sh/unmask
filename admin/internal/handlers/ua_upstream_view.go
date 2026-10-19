@@ -54,6 +54,13 @@ type upstreamRowView struct {
 	// is green).
 	RangeBacked bool
 	RangeActive bool
+	// Name: the crawler's display name (classify.CrawlerNameFromPattern), the
+	// key the hourly aggregates use.  NamedDay / NamedIPs: requests the last
+	// 24 hours let through on this crawler's name alone, and roughly how many
+	// addresses they came from (fillNamedRescue); 0 when none.
+	Name     string
+	NamedDay int
+	NamedIPs int
 }
 
 type upstreamOrphanView struct {
@@ -90,6 +97,7 @@ func buildUpstreamView(n settings.Nginx) upstreamView {
 				Own:         own,
 				RangeBacked: backed,
 				RangeActive: backed && rvActive[e.Pattern],
+				Name:        classify.CrawlerNameFromPattern(e.Pattern),
 			})
 			if own != "" {
 				g.Own++

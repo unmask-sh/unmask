@@ -78,8 +78,10 @@ func TestADenyRuleRendersTheDispatch(t *testing.T) {
 			if !strings.Contains(serverInc, "/unmask/_deny") {
 				t.Error("server.inc does not dispatch the deny")
 			}
-			// The rescues have to gate the deny, or the fix would override an
-			// exemption the operator set on purpose.
+			// The address rescues have to gate the deny, or the fix would
+			// override an exemption the operator set on purpose.  A crawler
+			// known by its name alone is not one of them: a name is free to
+			// claim, and a deny is one of the axes the claim does not clear.
 			raw := strings.Index(httpInc, "$unmask_deny_raw {")
 			unresc := strings.Index(httpInc, "$unmask_deny_unrescued {")
 			if raw < 0 || unresc < 0 {
@@ -88,10 +90,13 @@ func TestADenyRuleRendersTheDispatch(t *testing.T) {
 			if !strings.Contains(httpInc[raw:raw+200], "$unmask_deny_unrescued") {
 				t.Error("$unmask_deny_raw does not consult the rescues")
 			}
-			for _, want := range []string{"$is_search_bot", "$is_bypass_ip", "$is_bypass_path"} {
+			for _, want := range []string{"$is_bypass_ip", "$is_bypass_path"} {
 				if !strings.Contains(httpInc[unresc-160:unresc], want) {
 					t.Errorf("%s does not gate the deny", want)
 				}
+			}
+			if strings.Contains(httpInc[unresc-160:unresc], "$is_search_bot") {
+				t.Error("a crawler known by its name alone must not escape the deny")
 			}
 			// ...but they must NOT be in a map KEY on the deny path.  nginx
 			// builds a key eagerly and resolves only the matched value, so a

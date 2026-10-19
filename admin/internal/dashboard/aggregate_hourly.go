@@ -489,6 +489,11 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 	// tracks the dashboard's 30-day range like every other aggregate.
 	_, err := PruneCrawlerDetailHourly(ctx, d, hourlyKeep)
 	step("unmask_crawler_detail_hourly", err)
+	// Name-only crawler claims: the same fixed window as the drill-down beside
+	// it (the UA-filter tab reads a day, doctor a day).
+	exec("unmask_crawler_named_hourly",
+		`DELETE FROM unmask_crawler_named_hourly WHERE bucket_hour < ?`,
+		time.Now().Unix()/3600-int64(hourlyKeep)*24)
 	// Rebind lineages: drop rows idle past the longest plausible _bvj window.
 	// The cookie windows are operator-tunable; 15 days exceeds both defaults
 	// (PoW 7, CAPTCHA 14 — the old 8-day cutoff predated those and could drop

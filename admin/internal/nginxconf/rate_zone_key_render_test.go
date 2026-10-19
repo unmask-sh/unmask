@@ -46,7 +46,7 @@ func TestRenderPerZoneKeyVariants(t *testing.T) {
 		// The variant carries the JA4 expression and the same exemptions.
 		i := strings.Index(conf, "$rate_limit_key_ja4 {")
 		seg := conf[i : i+300]
-		if !strings.Contains(seg, "default       $effective_ja4;") {
+		if !strings.Contains(seg, "default     $effective_ja4;") {
 			t.Errorf("ja4 variant should count $effective_ja4:\n%s", seg)
 		}
 		// The default zone stays on the plain map with the global (ip) expr.
@@ -95,7 +95,7 @@ func TestRenderPerZoneKeyVariants(t *testing.T) {
 		if i < 0 {
 			t.Fatal("ip variant map missing")
 		}
-		if !strings.Contains(conf[i:i+300], "default       $unmask_client_net;") {
+		if !strings.Contains(conf[i:i+300], "default     $unmask_client_net;") {
 			t.Error("ip variant should count $unmask_client_net")
 		}
 	})

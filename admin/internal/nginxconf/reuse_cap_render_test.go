@@ -20,8 +20,8 @@ func TestReuseCapRender(t *testing.T) {
 		// Every pass but a solved CAPTCHA is counted: that CAPTCHA is the
 		// cap's way out for a person behind a busy address.
 		`map $unmask_bv_kind $bv_reuse_counted { default 1;  ""  0;  "captcha" 0; }`,
-		`map "$bv_reuse_counted:$is_search_bot:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse {`,
-		`"~^1:"        $unmask_client_net;`,
+		`map "$bv_reuse_counted:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse {`,
+		`"~^1:"      $unmask_client_net;`,
 		// The seed, 10,000 a day, is 6.9 a minute: nginx counts whole
 		// requests a minute.
 		`limit_req_zone $rate_limit_key_reuse zone=unmask_reuse:10m rate=7r/m;`,
@@ -34,7 +34,7 @@ func TestReuseCapRender(t *testing.T) {
 	block := httpInc[strings.Index(httpInc, "$rate_limit_key_reuse {"):]
 	block = block[:strings.Index(block, "}")]
 	if strings.Index(block, `"~^.:1:"`) > strings.Index(block, `"~^1:"`) {
-		t.Error("the search-bot exemption must come before the cookie match (first regex wins)")
+		t.Error("the bypass exemptions must come before the cookie match (first regex wins)")
 	}
 	if !strings.Contains(protectInc, "limit_req zone=unmask_reuse burst=2000 nodelay;") {
 		t.Error("protect.inc does not apply the reuse zone")

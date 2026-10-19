@@ -89,6 +89,7 @@ type Reader struct {
 	buckets              map[bucketKey]*bucket
 	crawlerBuckets       map[crawlerKey]*crawlerBucket
 	crawlerDetailBuckets map[crawlerDetailKey]*crawlerBucket
+	namedBuckets         map[namedKey]*namedBucket
 	countryHourlyBuckets map[countryHourKey]*countryHourBucket
 	cookieIPBuckets      map[cookieIPKey]*cookieIPBucket
 
@@ -329,6 +330,22 @@ type crawlerDetailKey struct {
 	crawler  string
 }
 
+// namedKey / namedBucket: per-hour, per-crawler count of the requests the
+// configuration let through on the crawler's name alone (sb=1, no challenge, no
+// cookie, no bypass), with a HyperLogLog sketch of the addresses they came
+// from (= unmask_crawler_named_hourly).  A name is free to claim; this is how
+// the UA-filter tab and doctor show how much is being claimed, and from how
+// many places.  Hourly like the drill-down it sits beside.
+type namedKey struct {
+	hour    int64
+	crawler string
+}
+
+type namedBucket struct {
+	cnt int
+	ips hll.Sketch
+}
+
 // countryHourKey / countryHourBucket: per-hour, per-(site, country) request
 // aggregation for the 30-day chart's country breakdown.  hour is the unix
 // epoch hour (= time.Unix()/3600), matching the schema of
@@ -406,6 +423,7 @@ func Start(socketPath string, d *db.DB) *Reader {
 		buckets:              map[bucketKey]*bucket{},
 		crawlerBuckets:       map[crawlerKey]*crawlerBucket{},
 		crawlerDetailBuckets: map[crawlerDetailKey]*crawlerBucket{},
+		namedBuckets:         map[namedKey]*namedBucket{},
 		countryHourlyBuckets: map[countryHourKey]*countryHourBucket{},
 		cookieIPBuckets:      map[cookieIPKey]*cookieIPBucket{},
 		stop:                 make(chan struct{}),
@@ -584,7 +602,7 @@ var lineRE = regexp.MustCompile(
 		// bp and scheme are optional: the binary is deployed before the config
 		// that emits them, so both shapes have to parse for the length of that
 		// window.
-		`(?: bp=([01]))?(?: scheme=(\S*))?(?: cr=(\S*))?(?: ob=([01]))?(?: rv=([0-9a-f]{12}))?(?: ua=(.*))?`)
+		`(?: bp=([01]))?(?: scheme=(\S*))?(?: cr=(\S*))?(?: ob=([01]))?(?: rv=([0-9a-f]{12}))?(?: sb=([01]))?(?: ua=(.*))?`)
 
 // parsed: struct holding the regex match result.
 type parsed struct {
@@ -617,6 +635,12 @@ type parsed struct {
 	// (renderwatch).  "" on a line from a configuration written before
 	// render ids.
 	rv string
+	// sb: the configuration passed this request on a crawler's name alone
+	// (http.inc $is_search_bot: a UA on the list, no vendor range to check it
+	// against, on a GET / HEAD).  With fc=0, no cookie and no bypass it is a
+	// request that went through on the claim.  Absent on a line from a
+	// configuration that predates the field.
+	sb bool
 	ua string
 }
 
@@ -670,7 +694,8 @@ func (r *Reader) parse(line string) (parsed, bool) {
 		cr:       strings.TrimSuffix(m[11], "-"),
 		observe:  m[12] == "1",
 		rv:       m[13],
-		ua:       m[14],
+		sb:       m[14] == "1",
+		ua:       m[15],
 	}, true
 }
 
@@ -778,7 +803,9 @@ func (r *Reader) onLine(line string) {
 	// final action) counts as "served"; otherwise the request passed straight
 	// through (rescued / valid cookie / a site in monitor mode, where nothing
 	// is served).
-	r.bumpCrawler(p.ua, p.fc && !p.observe)
+	// A line with sb=1 and nothing else passing it -- no challenge, no cookie,
+	// no bypass -- went through on the crawler's name alone.
+	r.bumpCrawler(p.ua, p.fc && !p.observe, p.sb && !p.fc && !p.bypassed && p.kind == "", p.ip)
 	// Native rDNS post-pass: verify a crawler-claiming visitor and auto-ban a
 	// forgery.  Cheap for the common (non-crawler) UA -- the callback short-
 	// circuits before any DNS or lock.
@@ -970,8 +997,11 @@ func (r *Reader) bumpCountryHourly(site, ip, kind string) {
 
 // bumpCrawler: classify ua and increment its per-minute crawler bucket.
 // served=true means the request did not pass straight through (= challenged).
-// No-op when the classifier is unset or the UA is not a crawler.
-func (r *Reader) bumpCrawler(ua string, served bool) {
+// named=true means the request went through on the crawler's name alone
+// (the access-log line's sb=1 with nothing else passing it); ip is then folded
+// into that crawler's hourly address sketch.  No-op when the classifier is
+// unset or the UA is not a crawler.
+func (r *Reader) bumpCrawler(ua string, served, named bool, ip string) {
 	if r == nil || r.d == nil || r.classifyCrawler == nil || ua == "" {
 		return
 	}
@@ -1015,6 +1045,21 @@ func (r *Reader) bumpCrawler(ua string, served bool) {
 		if served {
 			db.served++
 		}
+		if named {
+			if r.namedBuckets == nil {
+				r.namedBuckets = map[namedKey]*namedBucket{}
+			}
+			nk := namedKey{hour: dkey.hour, crawler: dkey.crawler}
+			nb := r.namedBuckets[nk]
+			if nb == nil {
+				nb = &namedBucket{}
+				r.namedBuckets[nk] = nb
+			}
+			nb.cnt++
+			if ip != "" {
+				nb.ips.Add([]byte(ip))
+			}
+		}
 	}
 	r.mu.Unlock()
 }
@@ -1025,7 +1070,7 @@ func (r *Reader) BumpCrawler(ua string, served bool) {
 	if r == nil {
 		return
 	}
-	r.bumpCrawler(ua, served)
+	r.bumpCrawler(ua, served, false, "")
 }
 
 // BumpBypass records a request the configuration let through without judging
@@ -1186,6 +1231,11 @@ func (r *Reader) flushOnce(final bool) {
 		key crawlerDetailKey
 		b   crawlerBucket
 	}
+
+	type namedEntry struct {
+		key namedKey
+		b   namedBucket
+	}
 	type countryEntry struct {
 		key countryHourKey
 		b   countryHourBucket
@@ -1226,6 +1276,12 @@ func (r *Reader) flushOnce(final bool) {
 		crawlerDetailReady = append(crawlerDetailReady, crawlerDetailEntry{k, *b})
 		delete(r.crawlerDetailBuckets, k)
 	}
+	// name-only claims flush every tick too, for the same reason.
+	namedReady := make([]namedEntry, 0, len(r.namedBuckets))
+	for k, b := range r.namedBuckets {
+		namedReady = append(namedReady, namedEntry{k, *b})
+		delete(r.namedBuckets, k)
+	}
 	countryReady := make([]countryEntry, 0, len(r.countryHourlyBuckets))
 	for k, b := range r.countryHourlyBuckets {
 		// country buckets flush every tick (including the current hour) so the
@@ -1251,14 +1307,14 @@ func (r *Reader) flushOnce(final bool) {
 	}
 	r.mu.Unlock()
 
-	if len(ready) == 0 && len(crawlerReady) == 0 && len(crawlerDetailReady) == 0 && len(countryReady) == 0 && len(cookieIPReady) == 0 {
+	if len(ready) == 0 && len(crawlerReady) == 0 && len(crawlerDetailReady) == 0 && len(namedReady) == 0 && len(countryReady) == 0 && len(cookieIPReady) == 0 {
 		return
 	}
 
 	// Ten seconds for a minute's worth; more for the backlog of a hold, which
 	// is written in this one transaction and would otherwise miss the
 	// deadline at every try.
-	rows := len(ready)*4 + len(crawlerReady) + len(crawlerDetailReady) + len(countryReady)*2 + len(cookieIPReady)
+	rows := len(ready)*4 + len(crawlerReady) + len(crawlerDetailReady) + len(namedReady) + len(countryReady)*2 + len(cookieIPReady)
 	within := 10*time.Second + time.Duration(rows)*time.Millisecond
 	if within > 2*time.Minute {
 		within = 2 * time.Minute
@@ -1419,6 +1475,24 @@ func (r *Reader) flushOnce(final bool) {
 			return
 		}
 	}
+	// Name-only claims: the count accumulates; the address sketch is
+	// read-merge-written like the traffic sketches, so a restart or a late
+	// line unions with what is stored instead of overwriting it.
+	stmtNamed := namedUpsertStmt(r.d.Driver)
+	for _, e := range namedReady {
+		var prev []byte
+		row := tx.QueryRowContext(ctx,
+			`SELECT ips FROM unmask_crawler_named_hourly WHERE bucket_hour = ? AND crawler = ?`,
+			e.key.hour, e.key.crawler)
+		if err := row.Scan(&prev); err == nil && len(prev) > 0 {
+			e.b.ips.Merge(hll.Load(prev))
+		}
+		if _, err := tx.ExecContext(ctx, stmtNamed,
+			e.key.hour, e.key.crawler, e.b.cnt, e.b.ips.Bytes()); err != nil {
+			log.Printf("nginxlog: flush exec(named %s): %v", e.key.crawler, err)
+			return
+		}
+	}
 	stmtCountry := countryHourlyUpsertStmt(r.d.Driver)
 	for _, e := range countryReady {
 		// 1 row for kind="total" + 1 row per non-empty kind, mirroring the
@@ -1506,6 +1580,22 @@ func crawlerDetailUpsertStmt(drv db.Driver) string {
 		VALUES (?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE
 			total = total + VALUES(total), served = served + VALUES(served)`
+}
+
+// namedUpsertStmt: accumulate cnt with (bucket_hour, crawler) as the unique
+// key, into unmask_crawler_named_hourly; ips takes the merged sketch the
+// caller computed (read-merge-write), so it is replaced, not added.
+func namedUpsertStmt(drv db.Driver) string {
+	if drv == db.DriverSQLite {
+		return `INSERT INTO unmask_crawler_named_hourly (bucket_hour, crawler, cnt, ips)
+			VALUES (?, ?, ?, ?)
+			ON CONFLICT(bucket_hour, crawler) DO UPDATE SET
+				cnt = cnt + excluded.cnt, ips = excluded.ips`
+	}
+	return `INSERT INTO unmask_crawler_named_hourly (bucket_hour, crawler, cnt, ips)
+		VALUES (?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+			cnt = cnt + VALUES(cnt), ips = VALUES(ips)`
 }
 
 // countryHourlyUpsertStmt: accumulate cnt with (bucket_hour, site, country,

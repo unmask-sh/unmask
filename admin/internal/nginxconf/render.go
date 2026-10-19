@@ -828,6 +828,12 @@ type renderData struct {
 	// other key drops a request with a valid _bv, and this one keeps ONLY
 	// those.  See ReuseZoneRender.
 	ReuseZone *ReuseZoneRender
+	// NamedRescueZone: the name-only crawler budget (settings.search_bots
+	// .name_only_rate_per_min).  http.inc declares a zone keyed on the client
+	// address of a request passed on a crawler's name alone (no pass cookie,
+	// no bypass); protect.inc applies it through RatePlainZones.  nil when the
+	// operator turned the budget off.
+	NamedRescueZone *NamedRescueZoneRender
 
 	// GeoCIDRs: pre-rendered "  <cidr> <ISO>;\n" lines for every IP range
 	// resolving to one of the operator-registered Geo rule countries.
@@ -971,6 +977,15 @@ type RatePlainZoneRender struct {
 	ZoneName string
 	Burst    int
 	Label    string // comment label: "zone" for operator rows, "JA4 companion" for the built-in
+}
+
+// NamedRescueZoneRender: the name-only crawler budget zone.  Name is the zone,
+// RequestsPerMin the budget (the burst equals it: one minute's worth), KeyExpr
+// the counted expression (the client address).
+type NamedRescueZoneRender struct {
+	Name           string
+	RequestsPerMin int
+	KeyExpr        string
 }
 
 // ReuseZoneRender: the pass-cookie reuse cap.  http.inc declares a zone keyed
@@ -1810,6 +1825,21 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			ZoneName: name,
 			Burst:    row.Burst,
 			Label:    "default-axis",
+		})
+	}
+	// The name-only crawler budget: a request passed on a crawler's name alone
+	// counts per client address (the same address key the reuse cap uses),
+	// and over the budget takes the rate route like any zone.
+	if rpm := s.Nginx.SearchBots.NameOnlyRatePerMinResolved(); rpm > 0 {
+		d.NamedRescueZone = &NamedRescueZoneRender{
+			Name:           settings.NamedRescueZoneName,
+			RequestsPerMin: rpm,
+			KeyExpr:        "$unmask_client_net",
+		}
+		d.RatePlainZones = append(d.RatePlainZones, RatePlainZoneRender{
+			ZoneName: settings.NamedRescueZoneName,
+			Burst:    rpm,
+			Label:    "name-only crawler budget",
 		})
 	}
 	if ru := s.RateLimit.Reuse; ReuseCapActive(s) {

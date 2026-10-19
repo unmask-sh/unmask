@@ -74,7 +74,30 @@ check_challenged() {
 
 # Range-less crawler: pure UA rescue must survive, including on a protected path.
 check_rescued "PetalBot" "$UA_PETALBOT" "/"
-check_rescued "PetalBot" "$UA_PETALBOT" "$PROTECTED_PATH"
+# A crawler known by its name alone clears the global posture and nothing else:
+# a protected path, a honeypot it trips and the per-address budget are not
+# opened by the name (its vendor publishes no range to verify it against).
+check_challenged "PetalBot (name-only, protected path)" "$UA_PETALBOT" "$PROTECTED_PATH"
+check_challenged "PetalBot (name-only, honeypot)" "$UA_PETALBOT" "/wp-login.php"
+# (The GET / HEAD gate on the name is pinned by the render test
+# named_rescue_render_test: in this suite's posture an unrescued crawler UA
+# passes "/" like any ordinary client, so a POST shows no difference here.)
+# The budget: 30 a minute per address by default (burst of one minute), so a
+# fresh address gets its first fetches and loses the name past the bucket.
+BUDGET_IP=198.51.100.151
+first=$(curl -sk -A "$UA_PETALBOT" -H "X-Forwarded-For: $BUDGET_IP" -o /dev/null -w '%{http_code}' "${BASE_URL}/")
+assert_eq 200 "$first" "PetalBot UA: the first fetch from a fresh address passes on the name" || fails=$((fails+1))
+over=0
+for i in $(seq 1 45); do
+    c=$(curl -sk -A "$UA_PETALBOT" -H "X-Forwarded-For: $BUDGET_IP" -o /dev/null -w '%{http_code}' "${BASE_URL}/")
+    [ "$c" = "200" ] || over=$((over+1))
+done
+if [ "$over" -gt 0 ]; then
+    log_pass "PetalBot UA: past the per-address budget the name buys nothing ($over of 45 fetches answered with a challenge)"
+else
+    log_fail "PetalBot UA: 46 fetches in a row all passed on the name -- the name-only budget did not count them"
+    fails=$((fails+1))
+fi
 
 # Range-verified vendors from a non-vendor IP (= spoofs): no UA exemption on
 # the protected path.  ClaudeBot joined this list when Anthropic published

@@ -408,6 +408,7 @@ func cmdDoctor(args []string) error {
 		checkEventsRetention(s, conn, addOK, addWarn)
 		checkWALSize(conn, addOK, addWarn)
 		checkAggregateStatus(conn, addOK, addWarn)
+		checkNamedRescue(conn, addOK, addWarn)
 		checkAggregateWindows(conn, addOK, addWarn)
 		checkDBAgainstMemory(s, conn, addOK, addWarn)
 		checkVacuum(conn, addOK, addWarn)
@@ -2178,4 +2179,50 @@ func upstreamHost(v string) string {
 		return h
 	}
 	return v
+}
+
+// namedRescueWarnPerDay: past this many requests a day passed on a crawler's
+// name alone, the claim is being used and doctor says so.  A genuine
+// link-preview or search fetcher stays far below it.
+const namedRescueWarnPerDay = 200
+
+// checkNamedRescue: how much the last day let through on a crawler's name
+// alone (unmask_crawler_named_hourly, the access-log reader's hourly count).
+// A name is free to claim, and this is the one place outside the UA-filter
+// tab that says how much is being claimed, and by which names.
+func checkNamedRescue(conn *db.DB, addOK, addWarn func(t, m string)) {
+	const title = "name-only crawler rescue"
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	since := time.Now().Unix()/3600 - 24
+	rows, err := conn.QueryContext(ctx,
+		`SELECT crawler, SUM(cnt) AS n FROM unmask_crawler_named_hourly WHERE bucket_hour >= ? GROUP BY crawler ORDER BY n DESC`, since)
+	if err != nil {
+		addWarn(title, "could not read unmask_crawler_named_hourly: "+err.Error())
+		return
+	}
+	defer rows.Close()
+	total := 0
+	var top []string
+	for rows.Next() {
+		var crawler string
+		var n int
+		if err := rows.Scan(&crawler, &n); err != nil {
+			continue
+		}
+		total += n
+		if len(top) < 3 {
+			top = append(top, fmt.Sprintf("%s %d", crawler, n))
+		}
+	}
+	if total == 0 {
+		addOK(title, "no request in the last 24h passed on a crawler's name alone")
+		return
+	}
+	msg := fmt.Sprintf("%d request(s) in the last 24h passed on a crawler's name alone (%s)", total, strings.Join(top, ", "))
+	if total >= namedRescueWarnPerDay {
+		addWarn(title, msg+" -- the name is free to claim; the UA-filter tab's Detail dialog shows which crawler and from how many addresses, and can set it to normal checks or stop it")
+		return
+	}
+	addOK(title, msg)
 }

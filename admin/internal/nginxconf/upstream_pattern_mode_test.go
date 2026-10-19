@@ -26,7 +26,7 @@ func inMap(conf, header, pat string) bool {
 }
 
 const (
-	whiteMap   = "map $http_user_agent $is_search_bot {"
+	whiteMap   = "map $http_user_agent $unmask_search_bot_ua {"
 	blackMap   = "map $http_user_agent $is_challenge_target {"
 	denyMap    = "map $http_user_agent $unmask_ua_deny {"
 	captchaMap = "map $http_user_agent $unmask_ua_needs_captcha {"

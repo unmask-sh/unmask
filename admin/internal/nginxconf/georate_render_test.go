@@ -95,8 +95,8 @@ func TestBuildRenderDataGeoRate(t *testing.T) {
 		}}
 	})
 	for _, want := range []string{
-		`map "$is_search_bot:$is_bypass_ip:$unmask_country" $georate_0_key`,
-		`"0:0:BR" "BR";`,
+		`map "$is_bypass_ip:$unmask_country" $georate_0_key`,
+		`"0:BR" "BR";`,
 		`limit_req_zone $georate_0_key zone=georate_0:10m rate=60r/m;`,
 	} {
 		if !strings.Contains(httpInc, want) {

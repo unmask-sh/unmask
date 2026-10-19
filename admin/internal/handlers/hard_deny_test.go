@@ -152,17 +152,22 @@ func TestHardDenyDispatchesAheadOfTheCookie(t *testing.T) {
 		t.Fatal(err)
 	}
 	hs := string(h)
-	// The rescues gate the signal, so an exemption the operator set on purpose
-	// still wins over a deny.  Reached through a map VALUE rather than a key --
-	// see the render test for why that distinction is worth 8x.
+	// The address rescues gate the signal, so an exemption the operator set
+	// on purpose still wins over a deny.  A crawler known by its name alone is
+	// not one of them: a name is free to claim.  Reached through a map VALUE
+	// rather than a key -- see the render test for why that distinction is
+	// worth 8x.
 	unresc := strings.Index(hs, "$unmask_deny_unrescued {")
 	if unresc < 0 {
 		t.Fatal("the deny signal is not gated on the rescues")
 	}
-	for _, want := range []string{"$is_search_bot", "$is_bypass_ip", "$is_bypass_path"} {
+	for _, want := range []string{"$is_bypass_ip", "$is_bypass_path"} {
 		if !strings.Contains(hs[unresc-200:unresc], want) {
 			t.Errorf("%s does not gate the deny; an exemption would be overridden", want)
 		}
+	}
+	if strings.Contains(hs[unresc-200:unresc], "$is_search_bot") {
+		t.Error("a crawler known by its name alone must not escape the deny")
 	}
 	// ...and the dispatch is a rewrite, so it has to be masked off on the mount
 	// it rewrites to or it loops -- the same guard the ban carries.

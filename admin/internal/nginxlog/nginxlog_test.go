@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/hll"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -119,11 +120,11 @@ func TestCrawlerAggregation(t *testing.T) {
 		return ""
 	})
 
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false)  // passed
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false)  // passed
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", true)   // served (challenged)
-	r.bumpCrawler("Mozilla/5.0 (Windows NT 10.0) Chrome/120", false) // not a crawler -> ignored
-	r.bumpCrawler("", false)                                         // empty UA -> ignored
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "")  // passed
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "")  // passed
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", true, false, "")   // served (challenged)
+	r.bumpCrawler("Mozilla/5.0 (Windows NT 10.0) Chrome/120", false, false, "") // not a crawler -> ignored
+	r.bumpCrawler("", false, false, "")                                         // empty UA -> ignored
 
 	r.flushOnce(true)
 
@@ -186,11 +187,11 @@ func TestCrawlerDetailAggregation(t *testing.T) {
 		}
 	})
 
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false)  // Googlebot passed
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false)  // Googlebot passed
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", true)   // Googlebot served
-	r.bumpCrawler("Mozilla/5.0 (compatible; bingbot/2.0)", false)    // Bingbot passed
-	r.bumpCrawler("Mozilla/5.0 (Windows NT 10.0) Chrome/120", false) // not a crawler -> ignored
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "")  // Googlebot passed
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "")  // Googlebot passed
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", true, false, "")   // Googlebot served
+	r.bumpCrawler("Mozilla/5.0 (compatible; bingbot/2.0)", false, false, "")    // Bingbot passed
+	r.bumpCrawler("Mozilla/5.0 (Windows NT 10.0) Chrome/120", false, false, "") // not a crawler -> ignored
 
 	r.flushOnce(true)
 
@@ -264,7 +265,7 @@ func TestCrawlerDetailNamerUnset(t *testing.T) {
 		return ""
 	})
 	// no SetCrawlerNamer
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false)
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "")
 	r.flushOnce(true)
 	var nDetail, nCat int
 	if err := d.QueryRowContext(context.Background(),
@@ -295,7 +296,7 @@ func TestCrawlerClassifierUnset(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := &Reader{d: d, buckets: map[bucketKey]*bucket{}, crawlerBuckets: map[crawlerKey]*crawlerBucket{}}
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false) // classifier nil -> no-op
+	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "") // classifier nil -> no-op
 	r.flushOnce(true)
 	var n int
 	if err := d.QueryRowContext(context.Background(),
@@ -464,5 +465,74 @@ func TestMonitorModeLineIsItsOwnKind(t *testing.T) {
 	}
 	if total != 1 || served != 0 {
 		t.Errorf("search crawler on a watched site: total=%d served=%d, want 1 / 0", total, served)
+	}
+}
+
+// A line with sb=1 and nothing else passing the request -- no challenge, no
+// cookie, no bypass -- went through on the crawler's name alone: the reader
+// counts it per crawler and folds the address into that crawler's sketch.  A
+// line from a configuration that predates the field reads as not claimed.
+func TestNamedRescueAggregation(t *testing.T) {
+	d, err := db.Open(settings.DB{Driver: "sqlite", SQLitePath: t.TempDir() + "/s.sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if err := db.Migrate(d); err != nil {
+		t.Fatal(err)
+	}
+	r := &Reader{
+		d:                    d,
+		buckets:              map[bucketKey]*bucket{},
+		crawlerBuckets:       map[crawlerKey]*crawlerBucket{},
+		crawlerDetailBuckets: map[crawlerDetailKey]*crawlerBucket{},
+		namedBuckets:         map[namedKey]*namedBucket{},
+	}
+	r.SetCrawlerClassifier(func(ua string) string {
+		if strings.Contains(ua, "PetalBot") {
+			return "search-engine"
+		}
+		return ""
+	})
+	r.SetCrawlerNamer(func(ua, tag string) string { return "PetalBot" })
+
+	const ua = "Mozilla/5.0 (compatible; PetalBot;+https://webmaster.petalsearch.com/site/petalbot)"
+	line := func(extra string) string {
+		return "1700000000.123 site=example.com kind= fc=0 hp=0 ip=203.0.113.9 ja4=t13d1517h2_a_b hpuri= bp=0 scheme=https cr=- rv=0123456789ab" + extra + " ua=" + ua
+	}
+	p, ok := r.parse(line(" sb=1"))
+	if !ok || !p.sb {
+		t.Fatalf("sb=1 must parse as a claim: ok=%v sb=%v", ok, p.sb)
+	}
+	if p, ok := r.parse(line("")); !ok || p.sb {
+		t.Fatalf("a line without sb must read as not claimed: ok=%v sb=%v", ok, p.sb)
+	}
+
+	r.bumpCrawler(ua, false, true, "203.0.113.9")
+	r.bumpCrawler(ua, false, true, "203.0.113.9")
+	r.bumpCrawler(ua, false, true, "198.51.100.7")
+	r.bumpCrawler(ua, true, false, "203.0.113.9") // challenged: not a pass on the name
+	r.flushOnce(true)
+
+	var cnt int
+	var sketch []byte
+	if err := d.QueryRowContext(context.Background(),
+		`SELECT cnt, ips FROM unmask_crawler_named_hourly WHERE crawler = 'PetalBot'`).Scan(&cnt, &sketch); err != nil {
+		t.Fatalf("named row: %v", err)
+	}
+	if cnt != 3 {
+		t.Errorf("cnt = %d, want 3 (the challenged request is not a pass on the name)", cnt)
+	}
+	if n := hll.Load(sketch).Estimate(); n < 2 || n > 3 {
+		t.Errorf("address estimate = %d, want 2", n)
+	}
+	// The drill-down beside it still counts every request.
+	var total, served int
+	if err := d.QueryRowContext(context.Background(),
+		`SELECT total, served FROM unmask_crawler_detail_hourly WHERE crawler = 'PetalBot'`).Scan(&total, &served); err != nil {
+		t.Fatalf("detail row: %v", err)
+	}
+	if total != 4 || served != 1 {
+		t.Errorf("detail total/served = %d/%d, want 4/1", total, served)
 	}
 }

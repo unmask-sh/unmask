@@ -143,6 +143,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// The crawler card: each upstream group with its crawlers, how each is
 	// set, and the vendor-range badges (ua_upstream_view.go).
 	upstream := buildUpstreamView(cur)
+	h.fillNamedRescue(r.Context(), &upstream)
 
 	// JA4 verdicts: same shape
 	disabledV := toSet(cur.JA4Verdicts.DisabledPresets)
@@ -3365,6 +3366,21 @@ func applyUAFilterForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 		n.SearchBots.RequireRangeVerification = nil
 	} else {
 		n.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
+	}
+
+	// The name-only crawler budget.  Stored only as a departure from the
+	// default, for the same reason as the policy above; 0 is a real value (the
+	// budget off), so it is stored too.
+	if raw := strings.TrimSpace(r.FormValue("name_only_rate_per_min")); raw != "" {
+		v, err := strconv.Atoi(raw)
+		if err != nil || v < 0 || v > 100000 {
+			return fmt.Errorf("%s", i18n.T(lang, "err.name_only_rate_range"))
+		}
+		if v == settings.DefaultNameOnlyRatePerMin {
+			n.SearchBots.NameOnlyRatePerMin = nil
+		} else {
+			n.SearchBots.NameOnlyRatePerMin = &v
+		}
 	}
 
 	// upstream group mode: each category is white / black / none.

@@ -78,7 +78,7 @@ func TestCustomRulesRender(t *testing.T) {
 		"geo $remote_addr $unmask_cr_2_c1 {\n    default 0;\n    203.0.113.0/24 1;\n    198.51.100.7 1;\n}",
 		"map $unmask_country $unmask_cr_2_c2 {\n    default 0;\n    \"CN\" 1;\n}",
 		"map $unmask_asn $unmask_cr_2_c3 {\n    default 0;\n    \"AS4134\" 1;\n}",
-		"map \"$is_search_bot:$is_bypass_ip:$unmask_cr_2\" $crrate_2_key {",
+		"map \"$is_bypass_ip:$unmask_cr_2\" $crrate_2_key {",
 		"limit_req_zone $crrate_2_key zone=crrate_2:10m rate=30r/m;",
 		"map \"$unmask_cr_3_c1:$unmask_cr_3_c2\" $unmask_cr_3 {",
 		"map $unmask_cr_3 $unmask_cr_3_pick {\n    default $unmask_cr_4_pick;",

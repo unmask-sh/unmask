@@ -24,7 +24,7 @@ func TestGatedLogRender(t *testing.T) {
 		})
 		for _, want := range []string{
 			"map $remote_addr $unmask_gated {\n    default \"\";\n}",
-			"map $unmask_gated $unmask_fc_log {\n    default 0;\n    \"1:\"    $final_challenge;\n}",
+			"map \"$unmask_gated:$unmask_rl_served\" $unmask_fc_log {\n    default   0;\n    \"~^1::1$\" 1;   # the rate route answered: served, not passed\n    \"~^1::0$\" $final_challenge;\n}",
 			"map $unmask_gated $unmask_bp_log {\n    default 1;\n    \"1:\"    $unmask_bypassed;\n}",
 			" fc=$unmask_fc_log ",
 			" bp=$unmask_bp_log ",
@@ -66,7 +66,7 @@ func TestGatedLogRenderVetoPass(t *testing.T) {
 		s.Nginx.AdvancedEnabled = true // master gate: WebBotAuthActive() needs both
 		s.Nginx.WebBotAuth.Enabled = true
 	})
-	if !strings.Contains(httpInc, "\"1:\"    $final_challenge_eff;") {
+	if !strings.Contains(httpInc, "\"~^1::0$\" $final_challenge_eff;") {
 		t.Error("with Web Bot Auth on, fc= does not log the decision protect.inc enforces")
 	}
 }

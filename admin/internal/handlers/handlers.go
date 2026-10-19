@@ -807,6 +807,9 @@ func (h *Handler) serveChallengeJSON(w http.ResponseWriter, r *http.Request) {
 			"non_html_client": 1,
 			"method":          r.Method,
 		}
+		if namedRescueClaim(r) {
+			payload["named_rescue"] = 1
+		}
 		// When the BAN hit reason wins, attach the originating BAN row's
 		// source so the dashboard can split community_bans vs honeypot vs
 		// manual without a nginx-side config change (= BanMgr already
@@ -2014,6 +2017,11 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			"bt": beaconToken,
 			// ref: the same id printed in the page footer (support correlation).
 			"ref": ref,
+		}
+		// The request claimed a crawler's name and nothing verified it; what
+		// it met here is one of the axes the name does not clear.
+		if namedRescueClaim(r) {
+			payload["named_rescue"] = 1
 		}
 		if origPath != "" {
 			payload["orig_path"] = origPath
