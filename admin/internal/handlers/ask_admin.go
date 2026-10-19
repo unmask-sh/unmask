@@ -37,7 +37,17 @@ const (
 	askKeep        = 90 * 24 * time.Hour
 	askTimeout     = 6 * time.Minute  // a question's whole budget, tools and rounds included
 	askLongTimeout = 20 * time.Minute // the same at effort xhigh or max (advisor.ThinksLong)
+	// askBusyWait is how long a question waits for the one before it to let
+	// go of the user's lock: the handler of a question stopped from the page
+	// is still storing its turn when the operator's next question arrives.
+	askBusyWait = 3 * time.Second
+	// askErrStopped is the Err a turn keeps when the page stopped its
+	// question (the request ended before the answer came); the page says
+	// "stopped" in its language, not what the context said.
+	askErrStopped = "stopped"
 )
+
+var errAskStopped = errors.New(askErrStopped)
 
 // askView is one turn as the page draws it.
 type askView struct {
@@ -55,6 +65,8 @@ type askView struct {
 	CacheRead  int
 	CacheWrite int
 	Err        string
+	// Stopped: the question was stopped from the page (Err is askErrStopped).
+	Stopped bool
 	// Cost: the answer's estimated cost ("$0.007"), or "" (askCostOf).
 	Cost string
 	// Folded: on the history tab a long answer opens on its first lines;
@@ -418,6 +430,7 @@ func askViews(rows []db.AIChat, fold bool, rules []settings.CustomRule) []askVie
 	for _, r := range rows {
 		v := askView{ID: r.ID, Question: r.Question, Answer: r.Answer, Parts: splitFences(r.Answer), AskedTS: r.AskedAt, Model: r.Model, InTokens: r.InTokens, OutTokens: r.OutTokens, CacheRead: r.CacheReadTokens, CacheWrite: r.CacheWriteTokens, Err: r.Err}
 		askMarkRules(v.Parts, askAddedRules(r.AddedRules), rules)
+		v.Stopped = r.Err == askErrStopped
 		if r.Tools != "" {
 			var calls []advisor.ToolTrace
 			_ = json.Unmarshal([]byte(r.Tools), &calls)
@@ -531,6 +544,26 @@ func (h *Handler) askPage(w http.ResponseWriter, r *http.Request, tab string) {
 // {"ok":false,"error":".."}
 // with 4xx/5xx.  The answer arrives whole; the page shows a pending row
 // meanwhile and keeps the earlier turns.
+// askLock takes the user's lock, waiting up to wait for the question before
+// it to let go: the handler of a question stopped from the page is still
+// storing its turn when the operator's next question arrives, and the
+// operator would otherwise be told the previous question is still being
+// answered.  The wait ends with the request.
+func askLock(ctx context.Context, mu *sync.Mutex, wait time.Duration) bool {
+	deadline := time.Now().Add(wait)
+	for !mu.TryLock() {
+		if time.Now().After(deadline) {
+			return false
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(50 * time.Millisecond):
+		}
+	}
+	return true
+}
+
 func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 	// An answer takes as long as the model's rounds through the tools -- a
 	// minute or more when it reads the settings pages -- and the server's
@@ -584,7 +617,7 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 		_ = rc.SetWriteDeadline(time.Now().Add(budget + time.Minute)) // a failure was logged above
 	}
 	mu, _ := askBusy.LoadOrStore(pay.UserID, &sync.Mutex{})
-	if !mu.(*sync.Mutex).TryLock() {
+	if !askLock(r.Context(), mu.(*sync.Mutex), askBusyWait) {
 		fail(http.StatusConflict, i18n.T(lang, "ask.err_busy"))
 		return
 	}
@@ -599,6 +632,14 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 	// question cost (2026-10-18).
 	history := h.askContextTurns(ctx, pay.UserID, r.FormValue("ctx_ids"))
 	res, err := advisor.Chat(ctx, cfg, h.askTools(r), history, q+askContext(time.Now(), askLocation(r), h.cfg().Global), string(lang))
+	// The page stopped the question: its request ended before the answer
+	// came, and the provider call ended with it.  The turn is kept as
+	// stopped (the rounds it got through were billed), and there is no one
+	// left to answer.
+	stopped := err != nil && r.Context().Err() != nil
+	if stopped {
+		err = errAskStopped
+	}
 	advisor.RecordChatRun(h.DB, cfg, res, err)
 	row := db.AIChat{UserID: pay.UserID, AskedAt: time.Now().Unix(), Question: q, Answer: res.Answer, Model: cfg.ResolvedModel(), InTokens: res.Usage.Input, OutTokens: res.Usage.Output, CacheReadTokens: res.Usage.CacheRead, CacheWriteTokens: res.Usage.CacheWrite}
 	if b, e := json.Marshal(res.Tools); e == nil && len(res.Tools) > 0 {
@@ -626,6 +667,10 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 	}
 	if unsaved {
 		unsavedNote = i18n.T(lang, "ask.unsaved_held")
+	}
+	if stopped {
+		log.Printf("ask: stopped from the page after %d round(s)", res.Rounds)
+		return
 	}
 	if err != nil {
 		log.Printf("ask: %v", err)

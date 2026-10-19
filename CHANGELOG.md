@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- (2026-10-20) **The ask page can stop a question.**  While a question is out, the send button gives way to a stop button.  Stopping ends the request, and with it the daemon's call to the provider, so no more tokens go to a question the operator has given up on.  The turn reads "stopped", the question comes back to the field, and the history keeps the turn with a retry.
+
 ### Fixed
 
 - (2026-10-20) **The PoW cookie reuse ranking's "show more" opens its own rows.**  On the stats page the cookie-reuse card holds the CAPTCHA, PoW and re-bound rankings one under the other, and every "show more" there opened the card's first table, so the PoW ranking's rows past the tenth never appeared.  Each button now opens the ranking right above it.

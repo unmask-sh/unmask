@@ -22,6 +22,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 (async () => {
   // --- provider stub: asks for the bans, then answers with what it got ------
   const seen = [];
+  const held = []; // the requests of questions to be stopped, as they close
   const stub = http.createServer((req, res) => {
     let body = '';
     req.on('data', c => { body += c; });
@@ -37,6 +38,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       if (lastUser && String(lastUser.content).indexOf('E2E-LONG') >= 0) {
         const long = Array.from({ length: 80 }, (_, i) => 'E2E-LONG line ' + (i + 1)).join('\n');
         res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: long } }], usage: { prompt_tokens: 10, completion_tokens: 80 } }));
+        return;
+      }
+      // A question to be stopped: the response is held until the request is
+      // gone -- the daemon ends its call when the page stops the question.
+      if (lastUser && String(lastUser.content).indexOf('E2E-SLOW') >= 0) {
+        const late = setTimeout(() => { try { res.end(JSON.stringify({ choices: [{ message: { role: 'assistant', content: 'E2E-SLOW: too late' } }] })); } catch (e) {} }, 20000);
+        req.on('close', () => { clearTimeout(late); held.push(Date.now()); });
         return;
       }
       // A question about a rule gets one proposed straight away.
@@ -131,8 +139,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.evaluate(() => { document.getElementById('ask-q').value = 'E2E: how many bans?'; });
   await page.click('#ask-send');
   await sleep(300);
-  const pending = await page.evaluate(() => ({ q: !!Array.from(document.querySelectorAll('#turns .q')).find(e => e.textContent === 'E2E: how many bans?'), pend: !!document.querySelector('#turns .a.pending'), disabled: document.getElementById('ask-send').disabled }));
-  ok(pending.q && pending.pend && pending.disabled, 'the question is not shown as pending with the button held: ' + JSON.stringify(pending));
+  const pending = await page.evaluate(() => ({ q: !!Array.from(document.querySelectorAll('#turns .q')).find(e => e.textContent === 'E2E: how many bans?'), pend: !!document.querySelector('#turns .a.pending'), held: document.getElementById('ask-send').hidden && !document.getElementById('ask-stop').hidden }));
+  ok(pending.q && pending.pend && pending.held, 'the question is not shown as pending with the send button given way to stop: ' + JSON.stringify(pending));
   let answered = null;
   for (let i = 0; i < 30 && !answered; i++) {
     await sleep(300);
@@ -230,8 +238,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await tabPage.close();
   }
   ok(seen.length === 2 && Array.isArray(seen[0].tools) && seen[0].tools.length >= 5, 'the provider did not get the tools, or was called ' + seen.length + ' times');
-  const released = await page.evaluate(() => !document.getElementById('ask-send').disabled);
-  ok(released, 'the button stayed held after the answer');
+  const released = await page.evaluate(() => !document.getElementById('ask-send').hidden && document.getElementById('ask-stop').hidden);
+  ok(released, 'the send button did not come back after the answer');
 
   // A reload opens on the composer alone: the turn is the history tab's now.
   await page.reload({ waitUntil: 'networkidle2' });
@@ -318,6 +326,39 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     retried = await page.evaluate(() => { const a = document.querySelector('#turns .a:last-child'); if (!a || a.classList.contains('pending') || a.classList.contains('fail')) return null; return { text: a.querySelector('.txt').textContent, fails: document.querySelectorAll('#turns .a.fail').length, qs: document.querySelectorAll('#turns .q').length }; });
   }
   ok(!!retried && /E2E-ANSWER/.test(retried.text) && retried.fails === 0 && !!failedTurn && retried.qs === failedTurn.qs, 'the retry did not answer on the same turn: ' + JSON.stringify(retried));
+
+  // A question out can be stopped: the send button gives way to a stop
+  // button, which ends the request -- and with it the daemon's call to the
+  // provider.  The turn says stopped, the question comes back to the field
+  // selected, and the next question goes out at once.
+  await page.evaluate(() => { document.getElementById('ask-q').value = 'E2E-SLOW: stop me'; });
+  await page.focus('#ask-q');
+  await page.keyboard.press('Enter');
+  let out = null;
+  for (let i = 0; i < 20 && !out; i++) { await sleep(200); out = await page.evaluate(() => { const s = document.getElementById('ask-stop'), b = document.getElementById('ask-send'); return (s && !s.hidden && b.hidden && !!document.querySelector('#turns .a.pending')) ? { label: s.getAttribute('aria-label') } : null; }); }
+  ok(!!out && !!out.label, 'the stop button did not come up while the question was out: ' + JSON.stringify(out));
+  await sleep(600); // the daemon's call to the provider is out
+  await page.click('#ask-stop');
+  let stoppedTurn = null;
+  for (let i = 0; i < 20 && !stoppedTurn; i++) {
+    await sleep(200);
+    stoppedTurn = await page.evaluate(() => { const a = document.querySelector('#turns .a.stopped'); if (!a) return null; const ta = document.getElementById('ask-q'); return { text: a.querySelector('.txt').textContent, want: document.getElementById('turns').dataset.txtStopped, field: ta.value, selected: ta.selectionStart === 0 && ta.selectionEnd === ta.value.length, sendBack: !document.getElementById('ask-send').hidden && document.getElementById('ask-stop').hidden, pending: document.querySelectorAll('#turns .a.pending').length }; });
+  }
+  ok(!!stoppedTurn && stoppedTurn.text === stoppedTurn.want && stoppedTurn.field === 'E2E-SLOW: stop me' && stoppedTurn.selected && stoppedTurn.sendBack && stoppedTurn.pending === 0, 'the stopped question is not shown as stopped with the question back in the field: ' + JSON.stringify(stoppedTurn));
+  let closed = false;
+  for (let i = 0; i < 25 && !closed; i++) { await sleep(200); closed = held.length > 0; }
+  ok(closed, "the daemon's call to the provider did not end when the question was stopped");
+  await page.evaluate(() => { document.getElementById('ask-q').value = 'E2E: after the stop'; });
+  await page.focus('#ask-q');
+  await page.keyboard.press('Enter');
+  let after = null;
+  for (let i = 0; i < 30 && !after; i++) { await sleep(300); after = await page.evaluate(() => { const a = document.querySelector('#turns .a:last-child'); if (!a || a.classList.contains('pending')) return null; return { text: a.querySelector('.txt').textContent, stopped: a.classList.contains('stopped'), fail: a.classList.contains('fail') }; }); }
+  ok(!!after && /E2E-ANSWER/.test(after.text) && !after.stopped && !after.fail, 'the question after the stop was not answered: ' + JSON.stringify(after));
+  // The history keeps the stopped turn as stopped, with a retry.
+  await page.goto(BASE + '/admin/ask/history/', { waitUntil: 'networkidle2' });
+  const histStopped = await page.evaluate(() => { const a = document.querySelector('#turns .a.stopped'); return a ? { text: a.querySelector('.txt').textContent, want: document.getElementById('turns').dataset.txtStopped, retry: !!a.querySelector('.a-retry'), fail: a.classList.contains('fail') } : null; });
+  ok(!!histStopped && histStopped.text === histStopped.want && histStopped.retry && !histStopped.fail, 'the history does not show the stopped turn: ' + JSON.stringify(histStopped));
+  await page.goto(BASE + '/admin/ask/', { waitUntil: 'networkidle2' });
 
   // An answer longer than the window brings its question to the top, the
   // answer reading on below it -- not the answer's own top, which took the
