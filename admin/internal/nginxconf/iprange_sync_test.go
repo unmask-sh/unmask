@@ -157,7 +157,7 @@ func TestSyncPullOnce_RenderFuncFires(t *testing.T) {
 	s := NewSync()
 	s.HubURL = srv.URL
 	s.Dir = dir
-	s.RenderFunc = func() error { called++; return nil }
+	s.RenderFunc = func(string) error { called++; return nil }
 
 	if err := s.PullOnce(context.Background()); err != nil {
 		t.Fatalf("PullOnce: %v", err)

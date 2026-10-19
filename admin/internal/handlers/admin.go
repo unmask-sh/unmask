@@ -1030,7 +1030,7 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 		// one): nil unless nginx logs an older configuration than the one
 		// the admin wrote last.
 		if _, ok := data["ReloadNotice"]; !ok {
-			data["ReloadNotice"] = h.reloadNotice()
+			data["ReloadNotice"] = h.reloadNotice(i18n.Lang(i18n.Resolve(r)))
 		}
 		// The bell (partial_notice_bell.html): how many notices the account
 		// has not opened the list to.  One indexed count; a database that

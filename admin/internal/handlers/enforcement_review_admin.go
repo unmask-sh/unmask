@@ -50,7 +50,7 @@ func (h *Handler) AdminUpgradeReviewApply(w http.ResponseWriter, r *http.Request
 		http.Redirect(w, r, dash, http.StatusFound)
 		return
 	}
-	if err := nginxconf.Render(cur, "", h.Version); err != nil {
+	if err := nginxconf.RenderFor(cur, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderByReview}); err != nil {
 		setFlash(w, r, base, "err", "saved, but nginx render failed: "+err.Error())
 		http.Redirect(w, r, dash, http.StatusFound)
 		return

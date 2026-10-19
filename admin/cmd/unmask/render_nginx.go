@@ -125,7 +125,7 @@ func cmdRenderNginx(args []string) error {
 	// render overwrites it, so the warning below can compare the two.
 	prevDiff := renderedPowDifficulty(filepath.Join(dst, "http.inc"))
 
-	if err := nginxconf.Render(s, *outDir, Version); err != nil {
+	if err := nginxconf.RenderFor(s, *outDir, Version, nginxconf.RenderCause{Kind: nginxconf.RenderByCLI}); err != nil {
 		return err
 	}
 	for _, name := range renderedFiles {

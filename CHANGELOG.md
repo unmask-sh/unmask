@@ -20,6 +20,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-20) **The stats page names what fired behind each challenge reason.**  The forced-challenge card breaks every reason down by the entry that raised it: the custom rule, the UA filter row, the ASN or country rule, the trap, the protected path, the stale browser, the ban's source, the JA4 verdict.  Each name opens where it is set.  The hunt rows and the CAPTCHA-pass list name the entry too.
 
+### Changed
+
+- (2026-10-20) **The reload notice says why the configuration was written, and what changed.**  "nginx is still running the previous configuration" now names the cause: the settings tab that was saved, the IP range sync (the relay egress list, the bypass sources), the GeoIP update, or an install.  An automatic update gets its own calmer wording.  The help tip lists the blocks that moved, with the lines changed, added and removed.
+
 ### Fixed
 
 - (2026-10-20) **The PoW cookie reuse ranking's "show more" opens its own rows.**  On the stats page the cookie-reuse card holds the CAPTCHA, PoW and re-bound rankings one under the other, and every "show more" there opened the card's first table, so the PoW ranking's rows past the tenth never appeared.  Each button now opens the ranking right above it.

@@ -132,13 +132,15 @@ type Sync struct {
 	// in -- it is only as good as it is fresh.
 	PullRelay bool
 
-	// RenderFunc: called after a successful pull writes at least one file.
-	// Typically wired to a closure that calls nginxconf.Render(settings,
-	// outDir, version) so http.inc / server.inc pick up the new prefixes.
-	// Nil disables rendering (= operator runs `unmask render-nginx` manually).
-	// nginx -s reload is intentionally NOT triggered here — the operator
-	// keeps control of when nginx actually reloads.
-	RenderFunc func() error
+	// RenderFunc: called after a successful pull writes at least one file,
+	// with what was written ("relay" for the relay egress list, "sources:<n>"
+	// for n bypass-IP sources) -- the RenderCause detail the reload notice
+	// reads.  Typically wired to a closure that calls nginxconf.RenderFor so
+	// http.inc / server.inc pick up the new prefixes.  Nil disables
+	// rendering (= operator runs `unmask render-nginx` manually).  nginx -s
+	// reload is intentionally NOT triggered here — the operator keeps control
+	// of when nginx actually reloads.
+	RenderFunc func(detail string) error
 
 	// lastModified holds the previous response's Last-Modified header so we
 	// can send If-Modified-Since on the next request and let the hub answer
@@ -334,7 +336,7 @@ func (s *Sync) PullOnce(ctx context.Context) error {
 		case rerr != nil:
 			s.logf("relay list: %v", rerr)
 		case installed && s.RenderFunc != nil:
-			if ferr := s.RenderFunc(); ferr != nil {
+			if ferr := s.RenderFunc("relay"); ferr != nil {
 				s.logf("relay list: render after pull failed: %v", ferr)
 			}
 		}
@@ -572,7 +574,7 @@ func (s *Sync) ingest(body []byte, from, sigState string) (int, error) {
 	// failure is non-fatal: in-memory state is already updated, and the
 	// operator can run `unmask render-nginx` to recover.
 	if s.RenderFunc != nil {
-		if err := s.RenderFunc(); err != nil {
+		if err := s.RenderFunc(fmt.Sprintf("sources:%d", written)); err != nil {
 			s.logf("iprange sync: render after pull failed: %v", err)
 		}
 	}

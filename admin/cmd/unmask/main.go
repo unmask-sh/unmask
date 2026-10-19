@@ -606,13 +606,13 @@ func cmdServe(args []string) error {
 	// The reload stays the operator's call (= predictable blast radius; we
 	// don't surprise-reload nginx); the render watch below tells the admin
 	// pages when nginx has not taken a render.
-	renderNow := func() error {
+	renderNow := func(cause nginxconf.RenderCause) error {
 		cur := h.SnapshotSettings()
 		out := strings.TrimSpace(cur.Nginx.OutputDir)
 		if out == "" {
 			return nil // no output dir configured → nothing to render
 		}
-		return nginxconf.Render(cur, out, Version)
+		return nginxconf.RenderFor(cur, out, Version, cause)
 	}
 	// The render watch: whether nginx runs the configuration last written,
 	// from the render id every access-log line carries (rv=).  The admin
@@ -650,7 +650,7 @@ func cmdServe(args []string) error {
 				if cur.IPGeo.AutoUpdate || cur.IPGeo.AutoUpdateASN {
 					if ipgeo.AutoUpdateStaleKinds(cur.IPGeo.MMDBPath, cur.IPGeo.MMDBASNPath,
 						cur.IPGeo.AutoUpdate, cur.IPGeo.AutoUpdateASN, gip, staleAfter, time.Time{}) > 0 {
-						renderAfterGeoUpdate(renderNow, renderOutDir())
+						renderAfterGeoUpdate(func() error { return renderNow(nginxconf.RenderCause{Kind: nginxconf.RenderByGeoIP}) }, renderOutDir())
 					}
 				}
 				time.Sleep(checkEvery)
@@ -799,7 +799,9 @@ func cmdServe(args []string) error {
 	ipSync.HubURL = strings.TrimSpace(s.Nginx.SyncHubURL) // empty = the published document
 	syncOff := func() bool { return h.SnapshotSettings().Nginx.SyncDisabled }
 	ipSync.Disabled = syncOff
-	ipSync.RenderFunc = renderNow
+	ipSync.RenderFunc = func(detail string) error {
+		return renderNow(nginxconf.RenderCause{Kind: nginxconf.RenderByIPRange, Detail: detail})
+	}
 	ipSync.PullRelay = true
 	h.IPRangeSync = ipSync
 	go ipSync.Start(context.Background())

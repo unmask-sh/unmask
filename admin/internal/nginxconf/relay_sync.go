@@ -107,7 +107,7 @@ func (s *Sync) PullRelayFromFile(path string) error {
 	}
 	s.logf("relay list: %d prefixes in %d countries from %s", t.Prefixes, t.Countries, path)
 	if s.RenderFunc != nil {
-		if err := s.RenderFunc(); err != nil {
+		if err := s.RenderFunc("relay"); err != nil {
 			s.logf("relay list: render after import failed: %v", err)
 		}
 	}

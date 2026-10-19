@@ -1970,7 +1970,7 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		redirBack("save: " + err.Error())
 		return
 	}
-	if err := nginxconf.Render(cur, "", h.Version); err != nil {
+	if err := nginxconf.RenderFor(cur, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderBySettings, Detail: section}); err != nil {
 		// A render failure is critical (= the file is saved but nginx keeps the
 		// old conf). Surface the error in the banner while noting that the
 		// save itself did complete.

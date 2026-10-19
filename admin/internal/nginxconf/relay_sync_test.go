@@ -88,7 +88,7 @@ func TestRelayPull(t *testing.T) {
 	publishedHubURL = srv.URL + "/feed/bypass-iprange-all.json"
 	defer func() { publishedHubURL = saved }()
 	renders := 0
-	s := &Sync{Dir: t.TempDir(), PullRelay: true, RenderFunc: func() error { renders++; return nil }}
+	s := &Sync{Dir: t.TempDir(), PullRelay: true, RenderFunc: func(string) error { renders++; return nil }}
 	if err := s.PullOnce(context.Background()); err == nil || !strings.Contains(err.Error(), "500") {
 		t.Errorf("the bypass-IP document's failure should be what PullOnce reports, got %v", err)
 	}

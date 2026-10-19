@@ -1147,7 +1147,7 @@ func (h *Handler) appendASNRule(r *http.Request, asn uint, label, action, userna
 	if err := settings.Save(cur, h.ConfigPath); err != nil {
 		return err
 	}
-	if err := nginxconf.Render(cur, "", h.Version); err != nil {
+	if err := nginxconf.RenderFor(cur, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderBySettings, Detail: "asn"}); err != nil {
 		return err
 	}
 	settingsMu.Lock()
@@ -1216,7 +1216,7 @@ func (h *Handler) appendUABlacklist(r *http.Request, pattern, title, action, use
 	if err := settings.Save(cur, h.ConfigPath); err != nil {
 		return err
 	}
-	if err := nginxconf.Render(cur, "", h.Version); err != nil {
+	if err := nginxconf.RenderFor(cur, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderBySettings, Detail: "ua-filter"}); err != nil {
 		return err
 	}
 	settingsMu.Lock()
@@ -1267,7 +1267,7 @@ func (h *Handler) appendJA4Bot(r *http.Request, pattern, title, username string,
 	if err := settings.Save(cur, h.ConfigPath); err != nil {
 		return err
 	}
-	if err := nginxconf.Render(cur, "", h.Version); err != nil {
+	if err := nginxconf.RenderFor(cur, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderBySettings, Detail: "ja4-verdicts"}); err != nil {
 		return err
 	}
 	settingsMu.Lock()

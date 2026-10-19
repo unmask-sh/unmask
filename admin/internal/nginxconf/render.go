@@ -72,7 +72,16 @@ type ObserveHostRow struct {
 // cannot read a pattern differently.
 var tmplFuncs = template.FuncMap{"rx": settings.PatternRegex}
 
+// Render renders with no cause named: RenderFor with the zero RenderCause,
+// for a dry run or a caller that has nothing to say about why.
 func Render(s settings.Settings, outDir, version string) error {
+	return RenderFor(s, outDir, version, RenderCause{})
+}
+
+// RenderFor renders nginx's configuration from s into outDir and, when a
+// file changed, keeps why (cause) and what moved (per block) beside the
+// files, for the reload notice to tell the operator.
+func RenderFor(s settings.Settings, outDir, version string, cause RenderCause) error {
 	// One render at a time in this process: the settings save, the IP-range
 	// pull and the GeoIP update each render, and two interleaved renders
 	// could leave a set of files that are not one render -- an http.inc whose
@@ -113,9 +122,17 @@ func Render(s settings.Settings, outDir, version string) error {
 	// marker below records the moment any of them did.  Accumulated through a
 	// closure so adding a file cannot silently forget to feed it.
 	changed := false
+	var changes []RenderChange
 	render := func(outName, tmplPath string, perm os.FileMode) error {
+		prev, _ := os.ReadFile(filepath.Join(outDir, outName))
 		ch, err := renderToFile(outDir, outName, tmplPath, data, perm)
 		changed = changed || ch
+		if ch && err == nil {
+			// What moved, block by block, for the reload notice.
+			if next, rerr := os.ReadFile(filepath.Join(outDir, outName)); rerr == nil {
+				changes = append(changes, changedBlocks(outName, prev, next)...)
+			}
+		}
 		return err
 	}
 
@@ -187,8 +204,11 @@ func Render(s settings.Settings, outDir, version string) error {
 	// could not write makes doctor's reload check stay silent, which is the
 	// right failure -- it never reports a stale nginx it cannot prove.
 	if changed {
+		now := time.Now()
 		_ = os.WriteFile(filepath.Join(outDir, SubstantiveRenderMarker),
-			[]byte(time.Now().UTC().Format(time.RFC3339)+"\n"), 0o644)
+			[]byte(now.UTC().Format(time.RFC3339)+"\n"), 0o644)
+		// Why, and what moved: the reload notice names both.
+		writeRenderRecord(outDir, RenderRecord{At: now.Unix(), Cause: cause, Changes: changes})
 	}
 	return nil
 }

@@ -293,7 +293,7 @@ func (h *Handler) AdminAuditRestore(w http.ResponseWriter, r *http.Request) {
 		redir("save: " + err.Error())
 		return
 	}
-	if err := nginxconf.Render(restored, "", h.Version); err != nil {
+	if err := nginxconf.RenderFor(restored, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderByRestore}); err != nil {
 		redir("save ok / render failed: " + err.Error())
 		return
 	}
