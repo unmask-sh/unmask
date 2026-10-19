@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [0.1.53-rc2] - 2026-10-19 (testing build)
+
+### Since rc1
+
+- The plugin package carries the module built from this source; rc1's carried the previous one.  The arm64 plugin package still carries the previous module until its cache is rebuilt.
+
 ## [0.1.53-rc1] - 2026-10-19 (testing build)
 
 ### Added
