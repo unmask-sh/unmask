@@ -1809,6 +1809,127 @@ func captchaForceSQLList() string {
 	return strings.Join(q, ",")
 }
 
+// CaptchaForceRuleRow: one custom rule's share of the card's custom_rule row:
+// the rule's id, how many challenge pages loaded under it and from how many
+// addresses.  Rows carry the id; the handler names the rule.
+type CaptchaForceRuleRow struct {
+	Rule   string
+	Count  int
+	UniqIP int
+}
+
+// CaptchaForceRules breaks the card's custom_rule row down by the rule that
+// raised the challenge: payload force_rule, which the page echoes on its
+// beacons the way it echoes force_reason.  The same two paths and the same
+// window as CaptchaForceBreakdown, so the rows sum to at most that card's
+// custom_rule count: a load the page beaconed without a rule id (an older
+// challenge page) counts there and not here.  Busiest first.
+func CaptchaForceRules(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]CaptchaForceRuleRow, error) {
+	if site == "" && len(hosts) == 0 && hourlyAggUsable(ctx, hours) {
+		return captchaForceRulesAgg(ctx, d, hours)
+	}
+	return captchaForceRulesScan(ctx, d, site, hosts, hours)
+}
+
+func captchaForceRulesScan(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]CaptchaForceRuleRow, error) {
+	reasonExpr := jsonExtract(d, "payload_json", "$.force_reason")
+	ruleExpr := jsonExtract(d, "payload_json", "$.force_rule")
+	stmt := fmt.Sprintf(`
+        SELECT %s AS rule, COUNT(*) AS n, COUNT(DISTINCT ip_address) AS uniq
+        FROM unmask_event WHERE %s%s AND phase='load' AND %s = 'custom_rule' AND %s IS NOT NULL AND %s <> ''
+        GROUP BY rule`, ruleExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), reasonExpr, ruleExpr, ruleExpr)
+	rows, err := d.QueryContext(ctx, stmt)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []CaptchaForceRuleRow
+	for rows.Next() {
+		var v CaptchaForceRuleRow
+		if err := rows.Scan(&v.Rule, &v.Count, &v.UniqIP); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return orderCaptchaForceRuleRows(out), rows.Err()
+}
+
+func captchaForceRulesAgg(ctx context.Context, d *db.DB, hours int) ([]CaptchaForceRuleRow, error) {
+	by := map[string]CaptchaForceRuleRow{}
+	cRows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, SUM(cnt) FROM unmask_aggregate_hourly
+        WHERE bucket_kind = '`+hkCaptchaForceRule+`' AND `+hourWindow(ctx, hours, "bucket_hour")+`
+        GROUP BY bucket_key`)
+	if err != nil {
+		return nil, err
+	}
+	for cRows.Next() {
+		var rule string
+		var n int64
+		if err := cRows.Scan(&rule, &n); err != nil {
+			cRows.Close()
+			return nil, err
+		}
+		by[rule] = CaptchaForceRuleRow{Rule: rule, Count: int(n)}
+	}
+	if err := cRows.Err(); err != nil {
+		cRows.Close()
+		return nil, err
+	}
+	cRows.Close()
+
+	sRows, err := d.QueryContext(ctx, `
+        SELECT bucket_key, sketch FROM unmask_aggregate_hll
+        WHERE `+hourWindow(ctx, hours, "bucket")+`
+          AND bucket_kind = '`+hkCaptchaForceRuleIP+`'`)
+	if err != nil {
+		return nil, err
+	}
+	sketches := map[string]*hll{}
+	for sRows.Next() {
+		var rule string
+		var blob []byte
+		if err := sRows.Scan(&rule, &blob); err != nil {
+			sRows.Close()
+			return nil, err
+		}
+		h := loadHLL(blob)
+		if existing, ok := sketches[rule]; ok {
+			existing.merge(h)
+		} else {
+			sketches[rule] = h
+		}
+	}
+	if err := sRows.Err(); err != nil {
+		sRows.Close()
+		return nil, err
+	}
+	sRows.Close()
+	for rule, h := range sketches {
+		r := by[rule]
+		r.Rule = rule
+		r.UniqIP = int(h.estimate())
+		by[rule] = r
+	}
+	out := make([]CaptchaForceRuleRow, 0, len(by))
+	for _, r := range by {
+		out = append(out, r)
+	}
+	return orderCaptchaForceRuleRows(out), nil
+}
+
+// orderCaptchaForceRuleRows: busiest first, ties by id, so the rows hold
+// still between readings.
+func orderCaptchaForceRuleRows(rows []CaptchaForceRuleRow) []CaptchaForceRuleRow {
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Count != rows[j].Count {
+			return rows[i].Count > rows[j].Count
+		}
+		return rows[i].Rule < rows[j].Rule
+	})
+	return rows
+}
+
 // AITrafficRow: one crawler-tag's traffic share over the window.
 //
 // `Tag` is a crawler-user-agents.json tag (= "ai-crawler", "ai-training",
@@ -2450,6 +2571,8 @@ type CaptchaPassRow struct {
 	Ref         string
 	Phase       string
 	ForceReason string // "$.force_reason": axis that raised the challenge (none = normal path)
+	Rule        string // "$.force_rule": the custom rule behind a custom_rule challenge
+	RuleName    string // what the page calls Rule (its label); filled by the handler
 	IsBot       bool   // filled by the handler from the verdict->action map
 	CountryCode string // filled by the handler from IP-geo
 	// Which host the path was requested on, and how to reach it.  Without
@@ -2604,13 +2727,14 @@ func CaptchaPassRecent(ctx context.Context, d *db.DB, site string, hosts []strin
 	pathExpr := jsonExtract(d, "payload_json", "$.orig_path")
 	refExpr := jsonExtract(d, "payload_json", "$.ref")
 	frExpr := jsonExtract(d, "payload_json", "$.force_reason")
+	ruleExpr := jsonExtract(d, "payload_json", "$.force_rule")
 	stmt := fmt.Sprintf(`
         SELECT date_created, ip_address, COALESCE(ja4_verdict, ''), COALESCE(ja4, ''), COALESCE(user_agent, ''),
-               COALESCE(%s, ''), COALESCE(%s, ''), phase, COALESCE(%s, ''),
+               COALESCE(%s, ''), COALESCE(%s, ''), phase, COALESCE(%s, ''), COALESCE(%s, ''),
                COALESCE(site, ''), COALESCE(scheme, ''), COALESCE(port, 0)
         FROM unmask_event
         WHERE %s`,
-		pathExpr, refExpr, frExpr, captchaPassRecentRows(d, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts)))
+		pathExpr, refExpr, frExpr, ruleExpr, captchaPassRecentRows(d, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts)))
 	rows, err := d.QueryContext(ctx, stmt, limit)
 	if err != nil {
 		return nil, err
@@ -2619,7 +2743,7 @@ func CaptchaPassRecent(ctx context.Context, d *db.DB, site string, hosts []strin
 	var out []CaptchaPassRow
 	for rows.Next() {
 		var raw []byte
-		var dc, verdict, ja4, ua, path, ref, phase, fr, site, scheme string
+		var dc, verdict, ja4, ua, path, ref, phase, fr, rule, site, scheme string
 		// port is scanned as text and parsed, not straight into an int: the
 		// column is INTEGER in the schema but SQLite stores whatever it was
 		// given, and a row written with an empty string (fixtures, a
@@ -2627,14 +2751,14 @@ func CaptchaPassRecent(ctx context.Context, d *db.DB, site string, hosts []strin
 		// report down with it.  An unreadable port is 0, which the URL
 		// builder already treats as "no port".
 		var portRaw sql.NullString
-		if err := rows.Scan(&dc, &raw, &verdict, &ja4, &ua, &path, &ref, &phase, &fr,
+		if err := rows.Scan(&dc, &raw, &verdict, &ja4, &ua, &path, &ref, &phase, &fr, &rule,
 			&site, &scheme, &portRaw); err != nil {
 			return nil, err
 		}
 		out = append(out, CaptchaPassRow{
 			TS: parseDateTimeToUnix(dc), Date: dc, IP: ipFromBytes(raw),
 			Verdict: verdict, JA4: ja4, UA: truncate(ua, 80), UAFull: ua,
-			Path: path, Ref: ref, Phase: phase, ForceReason: fr,
+			Path: path, Ref: ref, Phase: phase, ForceReason: fr, Rule: rule,
 			Site: site, Scheme: scheme, Port: atoiOrZero(portRaw.String),
 		})
 	}

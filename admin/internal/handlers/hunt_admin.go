@@ -469,11 +469,19 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	// The rule a row names, as the page calls it: a custom rule by its label,
+	// anything else (an AS number, a country code) as recorded.
+	ruleNames := h.customRuleNames()
 	for _, e := range rows {
 		row := huntEventRow{
 			Row:         e,
 			CountryCode: ipCC[e.IP],
 			Banned:      ipBan[e.IP],
+		}
+		if e.Rule != "" {
+			if row.RuleName = ruleNames[e.Rule]; row.RuleName == "" {
+				row.RuleName = e.Rule
+			}
 		}
 		if row.Banned {
 			if be, ok := banByIP[e.IP]; ok {

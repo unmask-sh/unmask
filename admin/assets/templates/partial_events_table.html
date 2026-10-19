@@ -1536,7 +1536,7 @@ if (document.readyState === 'loading') {
            dedicated column -- keep the two views consistent.  Same value on
            every phase row of a visit (challenge.js propagates force_reason),
            so the session-collapse rep row shows it too, unmodified. */}}
-      <td>{{ if and .ForceReason (ne .ForceReason "none") }}<span class="fr-badge" title="{{ t $.Lang "hunt.force_reason_title" }}">{{ .ForceReason }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+      <td>{{ if and .ForceReason (ne .ForceReason "none") }}<span class="fr-badge" title="{{ t $.Lang "hunt.force_reason_title" }}">{{ .ForceReason }}{{ if .RuleName }} · {{ .RuleName }}{{ end }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
       <td class="url mono{{ if .Path }} cellpop{{ end }}">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       {{/* Browser UAs show as "<platform> · <browser> <major>": the raw string
            is ~740px wide and every human visitor's opens with the same

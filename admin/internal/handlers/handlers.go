@@ -50,6 +50,7 @@ import (
 
 const (
 	challengePlaceholder = `/*__CAPTCHA_FORCE__*/"none"`
+	forceRulePlaceholder = `/*__FORCE_RULE__*/""`
 	challengeProbe       = "<!--__SUBFILTER_PROBE__-->"
 	captchaPlaceholder   = "/*__CAPTCHA__*/null"
 	themePlaceholder     = `/*__THEME__*/"auto"`
@@ -1471,6 +1472,14 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			recordReason = "custom_rule"
 		}
 	}
+	// recordRule: the rule behind a custom_rule serve, as nginx names it on
+	// the rewrite (X-Unmask-Rule).  The page echoes it on every beacon the
+	// way it echoes force_reason, so the stats page can say which rule raised
+	// the challenge, not only that one did.
+	recordRule := ""
+	if recordReason == "custom_rule" {
+		recordRule = customRuleIDOrEmpty(r.Header.Get("X-Unmask-Rule"))
+	}
 
 	body, err := h.loadChallengeHTML()
 	if err != nil {
@@ -1480,6 +1489,8 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	}
 	body = bytes.ReplaceAll(body, []byte(challengePlaceholder),
 		[]byte(`/*__CAPTCHA_FORCE__*/"`+recordReason+`"`))
+	body = bytes.ReplaceAll(body, []byte(forceRulePlaceholder),
+		[]byte(`/*__FORCE_RULE__*/"`+recordRule+`"`))
 	body = bytes.ReplaceAll(body, []byte(challengeProbe),
 		[]byte("<!--probe=ON force_reason="+recordReason+"-->"))
 	// Resolve per-site challenge + branding once; reuse for every placeholder
@@ -2017,6 +2028,10 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			"bt": beaconToken,
 			// ref: the same id printed in the page footer (support correlation).
 			"ref": ref,
+		}
+		// force_rule: which custom rule, when one raised the challenge.
+		if recordRule != "" {
+			payload["force_rule"] = recordRule
 		}
 		// The request claimed a crawler's name and nothing verified it; what
 		// it met here is one of the axes the name does not clear.
@@ -3126,6 +3141,15 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 	// Save the payload too.  Decode raw JSON into a map (keep every field as-is).
 	var raw map[string]any
 	_ = json.Unmarshal(body, &raw)
+	// force_rule: the custom rule the serve named, echoed by the page the way
+	// force_reason is.  The page is the client's to rewrite, and the hourly
+	// aggregate keys a bucket by the id, so only a rule this install has is
+	// kept; anything else goes, as if the page had named none.
+	if raw != nil {
+		if s, _ := raw["force_rule"].(string); !h.knownCustomRuleID(s) {
+			delete(raw, "force_rule")
+		}
+	}
 
 	// Direct insert so the row is there when the challenge page's next
 	// request looks it up; when the write lock is taken past the busy

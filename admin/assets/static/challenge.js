@@ -86,6 +86,9 @@
         // can attribute the whole serve->load->pass chain to the axis that
         // raised it (header / asn / geo / rate_limit / ...), not only counts.
         force_reason: (window.UNMASK && window.UNMASK.force_reason) || 'none',
+        // force_rule: the custom rule a custom_rule serve named, echoed the
+        // same way so the stats page can break custom_rule down by rule.
+        force_rule: (window.UNMASK && window.UNMASK.force_rule) || '',
         // The JA4 the page was served to.  The beacon POST rides its own TLS
         // connection whose fingerprint can differ on the same device; echoing
         // the serve-time one lets a single hunt row show the variation.

@@ -1560,6 +1560,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		flagsRows               []dashboard.FlagsRow
 		verdictDist             []dashboard.VerdictCount
 		hitRows                 []dashboard.CaptchaForceRow
+		hitRules                []dashboard.CaptchaForceRuleRow
 		loopRows                []dashboard.ReloadLoopRow
 		verifyNG                []dashboard.VerifyNGRow
 		cookieFails             []dashboard.CookieFailRow
@@ -1675,6 +1676,11 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	run("CaptchaForceBreakdown", func() error {
 		var e error
 		hitRows, e = dashboard.CaptchaForceBreakdown(ctx, h.DB, site, hosts, hours)
+		return e
+	})
+	run("CaptchaForceRules", func() error {
+		var e error
+		hitRules, e = dashboard.CaptchaForceRules(ctx, h.DB, site, hosts, hours)
 		return e
 	})
 	run("ReloadLoops", func() error {
@@ -1989,8 +1995,10 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		cpTopIPs[i].IsBot = isBotVerdict(cpTopIPs[i].Verdict)
 		cpTopIPs[i].CountryCode = lookupCC(cpTopIPs[i].IP)
 	}
+	ruleNames := h.customRuleNames()
 	for i := range cpRecent {
 		cpRecent[i].IsBot = isBotVerdict(cpRecent[i].Verdict)
+		cpRecent[i].RuleName = ruleNames[cpRecent[i].Rule]
 		cpRecent[i].CountryCode = lookupCC(cpRecent[i].IP)
 	}
 	// Which axis raised each solved CAPTCHA (force_reason breakdown), most-passed
@@ -2199,6 +2207,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		"FlagsRows":           flagsRows,
 		"VerdictDist":         verdictDist,
 		"HitRows":             hitRows,
+		"HitRules":            h.captchaForceRuleViews(hitRules, hitRows),
 		"LoopRows":            loopRows,
 		"VerifyNG":            verifyNG,
 		"VerifyNGByReason":    cpFailByReason,

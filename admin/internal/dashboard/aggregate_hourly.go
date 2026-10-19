@@ -135,6 +135,15 @@ const (
 	hkTrafficBlockedAll = "tblkall" // hourly bucket, key '<ipc|ipp>' install-wide distinct-IP sketch (overview non-human-% source)
 )
 
+// The custom rule behind a custom_rule challenge: CaptchaForceRules breaks
+// the card's custom_rule row down by it.  Keyed by the rule's id, which a
+// load beacon carries only when the serve named one (and DebugBeacon keeps
+// only an id this install has, so the key space is the operator's rules).
+const (
+	hkCaptchaForceRule   = "cfr"   // hourly bucket, key '<rule id>' count, phase=load, force_reason=custom_rule
+	hkCaptchaForceRuleIP = "cfrip" // hourly bucket, key '<rule id>' distinct IP, the same rows
+)
+
 const (
 	hourlyState = "hourly" // unmask_aggregate_state.name for this aggregator
 	hourlyBatch = 20000    // unmask_event rows per backfill chunk / tx
@@ -657,6 +666,13 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 			fr := normalizeForceReason(frRaw)
 			batch.counts[hourlyKey{hour, hkCaptchaForce, fr}]++
 			batch.sketch(hllKey{hour, hkCaptchaForceIP, fr}).add(ip)
+			// CaptchaForceRules: the custom rule behind the custom_rule row.
+			if fr == "custom_rule" {
+				if rule := payloadStringField(payload.String, "force_rule"); rule != "" {
+					batch.counts[hourlyKey{hour, hkCaptchaForceRule, rule}]++
+					batch.sketch(hllKey{hour, hkCaptchaForceRuleIP, rule}).add(ip)
+				}
+			}
 			// FlagsDistribution: per-flags count + distinct IP.  flags is a
 			// small bitfield (= mostly 0..31), so key cardinality stays low.
 			// Stored as a decimal string so the bucket_key column matches
@@ -884,6 +900,20 @@ func payloadForceReason(payload string) string {
 		return ""
 	}
 	s, _ := m["force_reason"].(string)
+	return s
+}
+
+// payloadStringField reads one string field of payload_json: "" when the
+// payload is empty, malformed, or has no such string.
+func payloadStringField(payload, key string) string {
+	if payload == "" {
+		return ""
+	}
+	var m map[string]any
+	if json.Unmarshal([]byte(payload), &m) != nil {
+		return ""
+	}
+	s, _ := m[key].(string)
 	return s
 }
 

@@ -689,6 +689,14 @@ type Row struct {
 	// (the roaming-rebind cause); notably surfaces rate_limit so a rate-limit
 	// block is greppable / countable from `unmask events`.
 	ForceReason string `json:"force_reason,omitempty"`
+	// Rule: the operator's rule that decided the row, when one did -- a
+	// custom rule's id from payload "force_rule" (a challenge the rule
+	// raised; every beacon echoes it like force_reason) or "deny_rule" (the
+	// entry a deny axis matched: an AS number, a country code, a rule id).
+	Rule string `json:"rule,omitempty"`
+	// RuleName: what the page calls Rule -- a custom rule's label, filled by
+	// the handler that knows the rules; not part of the record.
+	RuleName string `json:"-"`
 	// ServeJA4: the JA4 the challenge was SERVED to, echoed back by every
 	// beacon (payload "serve_ja4") the way force_reason travels.  Beacons
 	// arrive on their own TLS connection, and the same device can present a
@@ -813,6 +821,7 @@ func decorateRowFromPayload(row *Row, payload string) {
 	row.Ref = extractRef(payload)
 	row.Reason = extractReason(payload)
 	row.ForceReason = extractForceReason(payload)
+	row.Rule = extractRule(payload)
 	row.ServeJA4 = extractStringField(payload, "serve_ja4", 40)
 	row.ChMode = extractStringField(payload, "ch_mode", 24)
 	// What the browser said about its own timing, kept beside what the server
@@ -885,6 +894,16 @@ func extractIntFieldOr(payload, key string, missing int) int {
 // none).  Recorded on phase=serve rows; empty elsewhere.
 func extractForceReason(payload string) string {
 	return extractStringField(payload, "force_reason", 24)
+}
+
+// extractRule pulls the rule that decided the row out of payload_json:
+// "force_rule" (the custom rule behind a custom_rule challenge) or, on a
+// deny row, "deny_rule" (the entry the axis matched).
+func extractRule(payload string) string {
+	if s := extractStringField(payload, "force_rule", 40); s != "" {
+		return s
+	}
+	return extractStringField(payload, "deny_rule", 40)
 }
 
 // extractPath pulls a URL path out of payload_json.  Field names vary by phase:
