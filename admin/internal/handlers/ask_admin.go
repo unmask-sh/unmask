@@ -32,9 +32,8 @@ import (
 // suggestions are carried out by the operator in the admin.
 
 const (
-	askQuestionMax = 2000 // runes
-	askHistoryShow = 50   // turns the page lists
-	askKeep        = 90 * 24 * time.Hour
+	askQuestionMax = 2000             // runes
+	askHistoryShow = 50               // turns per page of the history tab
 	askTimeout     = 6 * time.Minute  // a question's whole budget, tools and rounds included
 	askLongTimeout = 20 * time.Minute // the same at effort xhigh or max (advisor.ThinksLong)
 	// askBusyWait is how long a question waits for the one before it to let
@@ -182,12 +181,14 @@ func askContext(now time.Time, loc *time.Location, g settings.GlobalConfig) stri
 // for two answers.
 var askBusy sync.Map
 
-func (h *Handler) askHistory(ctx context.Context, userID int64, limit int) ([]db.AIChat, error) {
+// askHistory: limit of the account's turns, the newest first skipping
+// offset of them (the history tab's page), returned oldest first.
+func (h *Handler) askHistory(ctx context.Context, userID int64, limit, offset int) ([]db.AIChat, error) {
 	var rows []db.AIChat
 	if h.DB == nil {
 		return rows, nil
 	}
-	err := h.DB.Gorm.WithContext(ctx).Where("user_id = ?", userID).Order("asked_at DESC, id DESC").Limit(limit).Find(&rows).Error
+	err := h.DB.Gorm.WithContext(ctx).Where("user_id = ?", userID).Order("asked_at DESC, id DESC").Limit(limit).Offset(offset).Find(&rows).Error
 	// Oldest first for the page.
 	for i, j := 0, len(rows)-1; i < j; i, j = i+1, j-1 {
 		rows[i], rows[j] = rows[j], rows[i]
@@ -472,9 +473,34 @@ func (h *Handler) askPage(w http.ResponseWriter, r *http.Request, tab string) {
 		userID = pay.UserID
 		canAsk = roleAtLeast(pay.Role, "admin")
 	}
-	rows, err := h.askHistory(r.Context(), userID, askHistoryShow)
-	if err != nil {
-		log.Printf("ask: history: %v", err)
+	// The history tab lists askHistoryShow turns a page, newest first;
+	// ?page=N picks a page, a page past the last is the last.
+	total, page := 0, 1
+	if h.DB != nil {
+		var n int64
+		if err := h.DB.Gorm.WithContext(r.Context()).Model(&db.AIChat{}).Where("user_id = ?", userID).Count(&n).Error; err != nil {
+			log.Printf("ask: history count: %v", err)
+		}
+		total = int(n)
+	}
+	pages := (total + askHistoryShow - 1) / askHistoryShow
+	if pages < 1 {
+		pages = 1
+	}
+	if tab == "history" {
+		if p, _ := strconv.Atoi(strings.TrimSpace(r.URL.Query().Get("page"))); p > 1 {
+			page = p
+		}
+		if page > pages {
+			page = pages
+		}
+	}
+	var rows []db.AIChat
+	if tab == "history" {
+		var err error
+		if rows, err = h.askHistory(r.Context(), userID, askHistoryShow, (page-1)*askHistoryShow); err != nil {
+			log.Printf("ask: history: %v", err)
+		}
 	}
 	// The ask tab opens on the composer alone: the turns of this visit stack
 	// under it as they are asked, and earlier ones are the history tab's
@@ -528,8 +554,16 @@ func (h *Handler) askPage(w http.ResponseWriter, r *http.Request, tab string) {
 		"CRKinds":      settings.CustomConditionKinds,
 		"Tab":          tab,
 		"Turns":        turns,
-		"HistoryCount": len(rows),
-		"QuestionMax":  askQuestionMax,
+		"HistoryCount": total,
+		// The page: its number, the count, the turns it holds, the pages
+		// beside it (0 = none).
+		"Page":        page,
+		"Pages":       pages,
+		"From":        askPageFrom(page, total),
+		"To":          askPageTo(page, total),
+		"PrevPage":    page - 1,
+		"NextPage":    askNextPage(page, pages),
+		"QuestionMax": askQuestionMax,
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	h.addMeToData(r, data)
@@ -661,8 +695,6 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 			} else {
 				log.Printf("ask: store turn: %v", e)
 			}
-		} else if e := h.DB.Gorm.Where("asked_at < ?", time.Now().Add(-askKeep).Unix()).Delete(&db.AIChat{}).Error; e != nil {
-			log.Printf("ask: prune: %v", e)
 		}
 	}
 	if unsaved {
@@ -742,7 +774,46 @@ func (h *Handler) AdminAskDelete(w http.ResponseWriter, r *http.Request) {
 			log.Printf("ask: delete: %v", err)
 		}
 	}
-	http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/ask/history/", http.StatusSeeOther)
+	// Back to the page the turn was on.
+	back := h.cfg().Server.BasePath + "/admin/ask/history/"
+	if p, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("page"))); p > 1 {
+		back += "?page=" + strconv.Itoa(p)
+	}
+	http.Redirect(w, r, back, http.StatusSeeOther)
+}
+
+// askPageFrom / askPageTo: the first and last turn numbers (1-based, newest
+// first) of a history page; 0 and 0 with no turn.
+func askPageFrom(page, total int) int {
+	if total == 0 {
+		return 0
+	}
+	return (page-1)*askHistoryShow + 1
+}
+
+func askPageTo(page, total int) int {
+	if to := page * askHistoryShow; to < total {
+		return to
+	}
+	return total
+}
+
+func askNextPage(page, pages int) int {
+	if page < pages {
+		return page + 1
+	}
+	return 0
+}
+
+// PruneAskHistory deletes every account's turns older than days (the
+// retention tab's ask_history_retention_days, when set): the daily prune
+// calls it.  Returns how many went.
+func (h *Handler) PruneAskHistory(ctx context.Context, days int) (int64, error) {
+	if h == nil || h.DB == nil || days <= 0 {
+		return 0, nil
+	}
+	res := h.DB.Gorm.WithContext(ctx).Where("asked_at < ?", time.Now().Add(-time.Duration(days)*24*time.Hour).Unix()).Delete(&db.AIChat{})
+	return res.RowsAffected, res.Error
 }
 
 // askSuggestions: the example questions in the composer's pick, in order.

@@ -871,6 +871,15 @@ func cmdServe(args []string) error {
 						}
 					}
 				}
+				// The ask page's history, on its own retention (kept by default:
+				// a turn is a few KB, and the record is the operator's own).
+				if retention := cfg.AskHistoryRetentionDays; retention > 0 {
+					if n, err := h.PruneAskHistory(ctx, retention); err != nil {
+						log.Printf("ask history prune: %v", err)
+					} else if n > 0 {
+						log.Printf("ask history prune: deleted %d row(s) older than %d days", n, retention)
+					}
+				}
 				// Raw traffic events.  (The per-hour, per-crawler drill-down that
 				// backs the AI-card trend sparkline is NOT pruned here anymore --
 				// it moved to PruneHourly's fixed 32-day aggregate window so that

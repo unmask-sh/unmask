@@ -3355,6 +3355,13 @@ type Settings struct {
 	// (unmask_notice): 0 (the default) keeps it.  The list is bounded by
 	// how it is written -- an hour of bans is one row -- so it stays small.
 	NoticeRetentionDays int `yaml:"notice_retention_days"`
+	// AskHistoryRetentionDays: the same for the ask page's history
+	// (unmask_ai_chat): 0 (the default) keeps a turn until the operator
+	// deletes it.  A turn is a few KB -- the question, the answer, the tool
+	// trace -- and the record is the operator's own, so size is no reason to
+	// drop it; the answers do quote addresses and user agents, which is what
+	// a number here is for.  (Pruned at 90 days up to 0.1.53-rc3.)
+	AskHistoryRetentionDays int `yaml:"ask_history_retention_days"`
 	// EventsBatchSize: how many raw events to batch per write. Default 100.
 	// Once accumulated, run a bulk INSERT (= N rows in one transaction).
 	// On high-traffic sites (= >100 events/sec) this reduces DB writes to 1/N.

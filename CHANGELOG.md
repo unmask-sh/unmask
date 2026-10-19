@@ -20,9 +20,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-20) **The stats page names what fired behind each challenge reason.**  The forced-challenge card breaks every reason down by the entry that raised it: the custom rule, the UA filter row, the ASN or country rule, the trap, the protected path, the stale browser, the ban's source, the JA4 verdict.  Each name opens where it is set.  The hunt rows and the CAPTCHA-pass list name the entry too.
 
+- (2026-10-20) **The ask page's history pages.**  The history tab lists fifty turns a page, newest first, with the page's range in its note and a previous and next page below the turns; a turn deleted from a page leaves you on that page.  The list used to stop at the newest fifty, with no way to the older turns.
+
 ### Changed
 
 - (2026-10-20) **The reload notice says why the configuration was written, and what changed.**  "nginx is still running the previous configuration" now names the cause: the settings tab that was saved, the IP range sync (the relay egress list, the bypass sources), the GeoIP update, or an install.  An automatic update gets its own calmer wording.  The help tip lists the blocks that moved, with the lines changed, added and removed.
+
+- (2026-10-20) **The ask page's history is kept until you delete it.**  It used to be pruned after ninety days.  A turn is a few kilobytes and the record is your own, so it stays; since answers can quote addresses and user agents, the retention tab gains "Ask history retention" for installs that want it dropped after a number of days (0, the default, keeps it).
 
 ### Fixed
 

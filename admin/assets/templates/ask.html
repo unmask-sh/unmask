@@ -119,6 +119,8 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 /* The pick is as wide as its label, not its longest question. */
 #ask-suggest{width:6.5rem;flex:0 0 auto}
 .a,.q-row{scroll-margin-top:.75rem}
+.ask-pager{display:flex;gap:.8rem;align-items:center;margin:1rem 0}
+.ask-pager .meta{margin:0}
 /* An answer comes in with a brief tint, so its arrival shows. */
 .a.fresh{animation:a-fresh 1.8s ease-out}
 @keyframes a-fresh{from{background:#e0f2fe;border-color:#7dd3fc}to{background:#fff;border-color:#e2e8f0}}
@@ -173,7 +175,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 <div class="banner warn" id="ask-viewer">{{ t .Lang "ask.viewer_note" }}</div>
 {{ end }}
 
-{{ if eq .Tab "history" }}<p class="meta">{{ t .Lang "ask.history_note" }}{{ if .MonthCount }} <span id="ask-month">{{ tf .Lang "ask.cost_month" .MonthCost (comma .MonthCount) }}</span>{{ end }}</p>{{ end }}
+{{ if eq .Tab "history" }}<p class="meta">{{ t .Lang "ask.history_note" }}{{ if gt .Pages 1 }} <span id="ask-range">{{ tf .Lang "ask.page_range" .From .To (comma .HistoryCount) }}</span>{{ end }}{{ if .MonthCount }} <span id="ask-month">{{ tf .Lang "ask.cost_month" .MonthCost (comma .MonthCount) }}</span>{{ end }}</p>{{ end }}
 
 <template id="ask-icon-copy">{{ template "ask_icon_copy" }}</template>
 <div class="turns" id="turns" data-txt-cost="{{ t .Lang "ask.cost" }}" data-txt-pending="{{ t .Lang "ask.pending" }}" data-txt-stopped="{{ t .Lang "ask.stopped" }}" data-txt-tools="{{ t .Lang "ask.tools" }}" data-txt-rule="{{ t .Lang "ask.create_rule" }}" data-txt-made="{{ t .Lang "ask.rule_made" }}" data-txt-made-named="{{ t .Lang "ask.rule_made_named" }}" data-txt-failed="{{ t .Lang "ask.failed" }}" data-txt-tokens="{{ t .Lang "ask.tokens" }}" data-txt-tokens-cached="{{ t .Lang "ask.tokens_cached" }}" data-txt-copy="{{ t .Lang "ask.copy" }}" data-txt-copied="{{ t .Lang "ask.copied" }}" data-txt-retry="{{ t .Lang "ask.retry" }}">
@@ -190,7 +192,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
       {{ if .Folded }}<button type="button" class="a-toggle" data-txt-more="{{ t $.Lang "ask.show_full" }}" data-txt-less="{{ t $.Lang "ask.fold" }}">{{ t $.Lang "ask.show_full" }}</button>{{ end }}
       <span class="ib-wrap"><button type="button" class="a-copy ib" aria-label="{{ t $.Lang "ask.copy" }}" data-txt-copied="{{ t $.Lang "ask.copied" }}" data-txt-copy="{{ t $.Lang "ask.copy" }}">{{ template "ask_icon_copy" }}</button><span class="ib-pop">{{ t $.Lang "ask.copy" }}</span></span>
       {{ if and (eq $.Tab "history") $.CanAsk }}<form method="POST" action="{{ $.BasePath }}/admin/ask/delete" data-confirm="{{ tf $.Lang "ask.delete_confirm" .QuestionHead }}" data-confirm-title="{{ t $.Lang "ask.delete" }}" data-confirm-ok="{{ t $.Lang "ask.delete" }}" data-confirm-danger="1">
-        <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}"><input type="hidden" name="id" value="{{ .ID }}">
+        <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}"><input type="hidden" name="id" value="{{ .ID }}"><input type="hidden" name="page" value="{{ $.Page }}">
         <span class="ib-wrap"><button type="submit" class="a-del ib" aria-label="{{ t $.Lang "ask.delete" }}">{{ template "ask_icon_trash" }}</button><span class="ib-pop">{{ t $.Lang "ask.delete" }}</span></span>
       </form>{{ end }}
     </div>
@@ -220,6 +222,14 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 </div>
 {{ end }}
 
+{{/* The pager: 50 turns a page, newest first; the range is in the note above. */}}
+{{ if and (eq .Tab "history") (gt .Pages 1) }}
+<nav class="ask-pager" aria-label="{{ t .Lang "ask.pages" }}">
+  {{ if .PrevPage }}<a class="btn quiet" href="{{ .BasePath }}/admin/ask/history/{{ if gt .PrevPage 1 }}?page={{ .PrevPage }}{{ end }}">{{ t .Lang "ask.prev" }}</a>{{ end }}
+  <span class="meta">{{ tf .Lang "ask.page_of" .Page .Pages }}</span>
+  {{ if .NextPage }}<a class="btn quiet" href="{{ .BasePath }}/admin/ask/history/?page={{ .NextPage }}">{{ t .Lang "ask.next" }}</a>{{ end }}
+</nav>
+{{ end }}
 {{ if and (eq .Tab "history") .Turns .CanAsk }}
 <form method="POST" action="{{ .BasePath }}/admin/ask/clear" data-confirm="{{ t .Lang "ask.clear_confirm" }}" data-confirm-title="{{ t .Lang "ask.clear" }}" data-confirm-ok="{{ t .Lang "ask.clear" }}" data-confirm-danger="1" style="text-align:right">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">

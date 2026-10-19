@@ -594,16 +594,17 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// Keep empty when unset (do NOT default to "nginx"): an empty value lets
 		// the daemon auto-detect the web server's group at listen time, so
 		// forcing "nginx" into the field would pin it and break apache hosts.
-		"ListenSockGroup":       h.cfg().Server.SocketGroup,
-		"EventsRetentionDays":   h.cfg().EventsRetentionDays,
-		"AuditLogRetentionDays": h.cfg().AuditLogRetentionDays,
-		"NoticeRetentionDays":   h.cfg().NoticeRetentionDays,
-		"EventsBatchSize":       h.cfg().EventsBatchSize,
-		"EventsBatchIntervalMs": h.cfg().EventsBatchIntervalMs,
-		"EventsDropped":         events.GlobalFlusherDropped(),
-		"NginxLogEnabled":       h.cfg().NginxLog.Enabled,
-		"Retention":             retentionView,
-		"VacuumCard":            vacuumCard,
+		"ListenSockGroup":         h.cfg().Server.SocketGroup,
+		"EventsRetentionDays":     h.cfg().EventsRetentionDays,
+		"AuditLogRetentionDays":   h.cfg().AuditLogRetentionDays,
+		"NoticeRetentionDays":     h.cfg().NoticeRetentionDays,
+		"AskHistoryRetentionDays": h.cfg().AskHistoryRetentionDays,
+		"EventsBatchSize":         h.cfg().EventsBatchSize,
+		"EventsBatchIntervalMs":   h.cfg().EventsBatchIntervalMs,
+		"EventsDropped":           events.GlobalFlusherDropped(),
+		"NginxLogEnabled":         h.cfg().NginxLog.Enabled,
+		"Retention":               retentionView,
+		"VacuumCard":              vacuumCard,
 		// Container gateway (settings > Gateway).  The tab exists only while
 		// a gateway is configured; the certificate probe dials the gateway's
 		// :443 and is done only when that tab is open.
@@ -1916,11 +1917,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			}
 			cur.EventsRetentionDays = v
 		}
-		// The audit log's and the notification list's: 0 = kept, the
-		// default for both; the same cap.
+		// The audit log's, the notification list's and the ask history's: 0 =
+		// kept, the default for all three; the same cap.
 		for name, dst := range map[string]*int{
-			"audit_log_retention_days": &cur.AuditLogRetentionDays,
-			"notice_retention_days":    &cur.NoticeRetentionDays,
+			"audit_log_retention_days":   &cur.AuditLogRetentionDays,
+			"notice_retention_days":      &cur.NoticeRetentionDays,
+			"ask_history_retention_days": &cur.AskHistoryRetentionDays,
 		} {
 			if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue(name))); err == nil {
 				if v < 0 {

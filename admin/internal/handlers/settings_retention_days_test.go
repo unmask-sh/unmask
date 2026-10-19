@@ -34,9 +34,10 @@ func TestRetentionTabSavesTheAuditAndNoticeDays(t *testing.T) {
 		t.Fatalf("defaults: audit %d notice %d, want 0 and 0 (kept)", c.AuditLogRetentionDays, c.NoticeRetentionDays)
 	}
 	form := url.Values{
-		"events_retention_days":    {"7"},
-		"audit_log_retention_days": {"30"},
-		"notice_retention_days":    {"4000"}, // over the cap
+		"events_retention_days":      {"7"},
+		"audit_log_retention_days":   {"30"},
+		"notice_retention_days":      {"4000"}, // over the cap
+		"ask_history_retention_days": {"60"},
 	}
 	req := asRole(httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/save?section=retention", strings.NewReader(form.Encode())), user.RoleSuperadmin)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -45,7 +46,7 @@ func TestRetentionTabSavesTheAuditAndNoticeDays(t *testing.T) {
 	if rr.Code != http.StatusFound && rr.Code != http.StatusSeeOther {
 		t.Fatalf("save: %d %s", rr.Code, rr.Body.String())
 	}
-	if c := h.cfg(); c.AuditLogRetentionDays != 30 || c.NoticeRetentionDays != 3650 || c.EventsRetentionDays != 7 {
+	if c := h.cfg(); c.AuditLogRetentionDays != 30 || c.NoticeRetentionDays != 3650 || c.EventsRetentionDays != 7 || c.AskHistoryRetentionDays != 60 {
 		t.Errorf("after the save: audit %d notice %d events %d (location %q, cookies %q)",
 			c.AuditLogRetentionDays, c.NoticeRetentionDays, c.EventsRetentionDays, rr.Header().Get("Location"), rr.Header()["Set-Cookie"])
 	}
@@ -53,7 +54,7 @@ func TestRetentionTabSavesTheAuditAndNoticeDays(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"audit_log_retention_days: 30", "notice_retention_days: 3650"} {
+	for _, want := range []string{"audit_log_retention_days: 30", "notice_retention_days: 3650", "ask_history_retention_days: 60"} {
 		if !strings.Contains(string(raw), want) {
 			t.Errorf("config.yml lacks %q", want)
 		}
