@@ -196,6 +196,12 @@ build-module: $(NGINX_SRC)/configure
 # 1.14+ build with --with-compat (stronger ABI compat).
 PLUGIN_NGINX_VERSIONS ?= 1.10.3 1.12.2 1.14.1 1.14.2 1.16.1 1.18.0 1.20.1 1.20.2 1.22.1 1.24.0 1.26.2 1.26.3 1.28.3 1.30.0
 
+# A cached .so is only good for the module source it was built from.  Every
+# cache dir carries tools/module-src-hash.sh's value in .src-hash, written when
+# the .so is saved; a .so whose stamp differs (or is missing) is rebuilt.  The
+# release tooling checks the same stamp before it packages a cache.
+MODULE_SRC_HASH := $(shell $(CURDIR)/tools/module-src-hash.sh)
+
 # multi-modules output dir.  amd64 keeps the existing dist/multi-modules/
 # (compat); arm64 etc. coexist as dist/multi-modules-<arch>/.
 # package-plugin-nginx-fat switches the scan target based on GOARCH.
@@ -213,10 +219,14 @@ build-module-multi:
 		echo "=== nginx $$v ==="; \
 		out=$(MULTI_DIR)/$$v/ngx_http_unmask_module.so; \
 		mkdir -p $$(dirname $$out); \
-		if [ -f $$out ]; then \
-			echo "  cached: $$out (rm to rebuild)"; \
+		stamp=$$(dirname $$out)/.src-hash; \
+		if [ -f $$out ] && [ "$$(cat $$stamp 2>/dev/null)" = "$(MODULE_SRC_HASH)" ]; then \
+			echo "  cached: $$out (module source unchanged)"; \
 			continue; \
 		fi; \
+		[ ! -f $$out ] || echo "  stale: $$out (module source changed), rebuilding"; \
+		rm -f $$out $$stamp; \
+		mkdir -p $$(dirname $$out); \
 		compat=1; \
 		case "$$v" in 1.10.*|1.11.[0-4]) compat=0 ;; esac; \
 		$(MAKE) build-module NGINX_VERSION=$$v NGINX_WITH_COMPAT=$$compat || { \
@@ -225,6 +235,7 @@ build-module-multi:
 		}; \
 		cp $(DIST)/ngx_http_unmask_module-linux-$(GOARCH).so $$out; \
 		echo "  saved: $$out"; \
+		echo "$(MODULE_SRC_HASH)" > $$stamp; \
 	done
 	@echo ""
 	@echo ">>> built modules:"
@@ -259,14 +270,19 @@ build-module-multi-openssl11:
 		echo ""; \
 		echo "=== nginx $$v (OpenSSL 1.1) ==="; \
 		out=$(MULTI_OPENSSL11_DIR)/$$v/ngx_http_unmask_module.so; \
-		if [ -f $$out ]; then \
-			echo "  cached: $$out (rm to rebuild)"; \
+		stamp=$$(dirname $$out)/.src-hash; \
+		if [ -f $$out ] && [ "$$(cat $$stamp 2>/dev/null)" = "$(MODULE_SRC_HASH)" ]; then \
+			echo "  cached: $$out (module source unchanged)"; \
 			continue; \
 		fi; \
+		[ ! -f $$out ] || echo "  stale: $$out (module source changed), rebuilding"; \
+		rm -f $$out $$stamp; \
+		mkdir -p $$(dirname $$out); \
 		docker run --rm --platform=linux/$(GOARCH) -v "$$(pwd):/work" $(BUILDER_OPENSSL11) $$v || { \
 			echo "!!! build failed for nginx $$v (continuing)"; \
 			continue; \
 		}; \
+		echo "$(MODULE_SRC_HASH)" > $$stamp; \
 	done
 	@# The builder runs as root, so the bind-mounted outputs land root-owned and
 	@# a later `make clean` cannot delete them.  Hand them back to the invoking
@@ -300,14 +316,19 @@ build-module-multi-openssl10:
 		echo ""; \
 		echo "=== nginx $$v (OpenSSL 1.0) ==="; \
 		out=$(MULTI_OPENSSL10_DIR)/$$v/ngx_http_unmask_module.so; \
-		if [ -f $$out ]; then \
-			echo "  cached: $$out (rm to rebuild)"; \
+		stamp=$$(dirname $$out)/.src-hash; \
+		if [ -f $$out ] && [ "$$(cat $$stamp 2>/dev/null)" = "$(MODULE_SRC_HASH)" ]; then \
+			echo "  cached: $$out (module source unchanged)"; \
 			continue; \
 		fi; \
+		[ ! -f $$out ] || echo "  stale: $$out (module source changed), rebuilding"; \
+		rm -f $$out $$stamp; \
+		mkdir -p $$(dirname $$out); \
 		docker run --rm -v "$$(pwd):/work" unmask-builder-openssl10 $$v || { \
 			echo "!!! build failed for nginx $$v (continuing)"; \
 			continue; \
 		}; \
+		echo "$(MODULE_SRC_HASH)" > $$stamp; \
 	done
 	@# Hand the root-owned bind-mount outputs back to the invoking user (see
 	@# the openssl11 target).
@@ -340,14 +361,19 @@ build-module-multi-glibc212:
 		echo ""; \
 		echo "=== nginx $$v (glibc 2.12 / OpenSSL 1.0) ==="; \
 		out=$(MULTI_GLIBC212_DIR)/$$v/ngx_http_unmask_module.so; \
-		if [ -f $$out ]; then \
-			echo "  cached: $$out (rm to rebuild)"; \
+		stamp=$$(dirname $$out)/.src-hash; \
+		if [ -f $$out ] && [ "$$(cat $$stamp 2>/dev/null)" = "$(MODULE_SRC_HASH)" ]; then \
+			echo "  cached: $$out (module source unchanged)"; \
 			continue; \
 		fi; \
+		[ ! -f $$out ] || echo "  stale: $$out (module source changed), rebuilding"; \
+		rm -f $$out $$stamp; \
+		mkdir -p $$(dirname $$out); \
 		docker run --rm -v "$$(pwd):/work" unmask-builder-centos6 $$v || { \
 			echo "!!! build failed for nginx $$v (continuing)"; \
 			continue; \
 		}; \
+		echo "$(MODULE_SRC_HASH)" > $$stamp; \
 	done
 	@# Hand the root-owned bind-mount outputs back to the invoking user (see
 	@# the openssl11 target).
