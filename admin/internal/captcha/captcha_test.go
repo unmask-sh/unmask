@@ -282,7 +282,8 @@ func TestVerifyToken(t *testing.T) {
 	}
 	// Two tokens issued in the same second differ: the nonce is what lets the
 	// used set tell them apart.
-	if IssueToken(base) == IssueToken(base) {
+	first, second := IssueToken(base), IssueToken(base)
+	if first == second {
 		t.Error("consecutive tokens must differ")
 	}
 }
