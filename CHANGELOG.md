@@ -12,9 +12,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.53-rc1] - 2026-10-19 (testing build)
 
 ### Added
+
 - (2026-10-19) **A budget for requests passed on a crawler's name alone.**  A crawler whose vendor publishes no address range passes on its User-Agent string, which anyone can write.  A new per-address budget (UA filter tab, 30 requests a minute by default) counts those requests; over it the request meets a CAPTCHA like any rate limit, so the name buys nothing further from that address.
 
 - (2026-10-19) **The UA filter shows what each crawler name let through.**  Each crawler's Detail row reads "passed by name, 24h: n requests / m addresses" when the last day let anything through on its name alone, and `unmask doctor` reports the day's total and warns past a few hundred, so a name being abused is visible where it is set to normal checks or stopped.
@@ -22,6 +23,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-10-19) **A pass cookie follows a relay's published egress range.**  Inside a range from the relay egress list, nginx's new `$unmask_bind_key` names the range, the daemon issues the cookie and the PoW seed against it, and the plugin verifies with the same variable, so a relay that moves the visitor's address within the range no longer re-challenges.  Update the plugin together with the daemon.
 
 ### Changed
+
 - (2026-10-19) **A crawler known only by its name no longer slips past the traps and the limits.**  Such a crawler used to be exempt from everything; now its name clears only the challenge a browser would get.  A honeypot it trips, a community listing, a country, network or custom rule, a protected path, a deny and every rate limit apply to it as to anyone, and the name counts only for a GET or HEAD.  Crawlers verified by a published range keep the full exemption.
 
 - (2026-10-19) **The CAPTCHA's failure text says what failed.**  A verify whose request never completed reads E-NET, one answered with something other than JSON carries the status (E-503, a block page or a daemon that is down), and an external widget's failure E-WIDGET.  Each also leaves an error beacon with the same classification, so the hunt page shows what the visitor saw.
@@ -31,6 +33,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-10-19) **Silent re-binding allows ten moves an hour, up from four.**  A phone roaming between networks rarely needed more, but a two-exit NAT or a relay that moves its egress now and then does.  The lifetime cap of sixteen re-binds per solve is unchanged, so one solve still cannot be stretched across a proxy pool.
 
 ### Fixed
+
 - (2026-10-19) **A request a rate limit refused no longer counts as passed.**  The access-log feed marked a request the rate route answered -- a CAPTCHA or a deny page -- as a pass, because the challenge decision itself had been zero; the composition card, the live strip and the crawler drill-down counted a refused request among the passes.  It now counts as served, like a challenge.
 
 - (2026-10-19) **A visitor whose requests leave through more than one address can solve the CAPTCHA again.**  The proof-of-load, arithmetic and beacon tokens were bound to the client address, so a two-uplink NAT or a relay that changes its egress between requests failed every attempt, and the arithmetic fallback with it.  They are now time-bound and single-use instead; the pass cookie itself stays bound as before.
