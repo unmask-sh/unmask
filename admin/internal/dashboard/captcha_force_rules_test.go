@@ -10,9 +10,10 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// The custom_rule row's breakdown by rule: the aggregate path reads the
-// same rows as the scan, busiest rule first; a load that named no rule (an
-// older challenge page) is in the card's custom_rule count and in no rule's.
+// The breakdown of each reason by the entry that fired: the aggregate path
+// reads the same rows as the scan, by reason and busiest entry first; a load
+// that named no entry (an older challenge page) is in the card's count for
+// its reason and under no entry.
 func TestCaptchaForceRules_AggMatchesScan(t *testing.T) {
 	tmp, _ := os.MkdirTemp("", "cfrtest-*")
 	defer os.RemoveAll(tmp)
@@ -28,8 +29,10 @@ func TestCaptchaForceRules_AggMatchesScan(t *testing.T) {
 		{"2.2.2.2", `{"force_reason":"custom_rule","force_rule":"cr1"}`},
 		{"2.2.2.2", `{"force_reason":"custom_rule","force_rule":"cr1"}`}, // the same address again
 		{"3.3.3.3", `{"force_reason":"custom_rule","force_rule":"cr2"}`},
-		{"4.4.4.4", `{"force_reason":"custom_rule"}`},                 // an older page: no rule
-		{"5.5.5.5", `{"force_reason":"honeypot","force_rule":"cr1"}`}, // not a rule's challenge
+		{"4.4.4.4", `{"force_reason":"custom_rule"}`},                      // an older page: no entry
+		{"5.5.5.5", `{"force_reason":"honeypot","force_rule":"the trap"}`}, // under its own reason
+		{"6.6.6.6", `{"force_reason":"ua_target","force_rule":"own:a|b"}`}, // an entry holding the key's separator
+		{"7.7.7.7", `{"force_reason":"bogus_value","force_rule":"x"}`},     // an unknown reason: not counted
 	}
 	for i, s := range seed {
 		if _, err := d.Exec(
@@ -54,13 +57,13 @@ func TestCaptchaForceRules_AggMatchesScan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("agg: %v", err)
 	}
-	want := []CaptchaForceRuleRow{{Rule: "cr1", Count: 3, UniqIP: 2}, {Rule: "cr2", Count: 1, UniqIP: 1}}
+	want := []CaptchaForceRuleRow{{Kind: "custom_rule", Rule: "cr1", Count: 3, UniqIP: 2}, {Kind: "custom_rule", Rule: "cr2", Count: 1, UniqIP: 1}, {Kind: "honeypot", Rule: "the trap", Count: 1, UniqIP: 1}, {Kind: "ua_target", Rule: "own:a|b", Count: 1, UniqIP: 1}}
 	for name, got := range map[string][]CaptchaForceRuleRow{"scan": scan, "agg": agg} {
 		if len(got) != len(want) {
 			t.Fatalf("%s: rows %+v, want %+v", name, got, want)
 		}
 		for i := range want {
-			if got[i].Rule != want[i].Rule || got[i].Count != want[i].Count {
+			if got[i].Kind != want[i].Kind || got[i].Rule != want[i].Rule || got[i].Count != want[i].Count {
 				t.Errorf("%s[%d]: %+v, want %+v", name, i, got[i], want[i])
 			}
 			if diff := got[i].UniqIP - want[i].UniqIP; diff > 1 || diff < -1 {

@@ -1809,21 +1809,24 @@ func captchaForceSQLList() string {
 	return strings.Join(q, ",")
 }
 
-// CaptchaForceRuleRow: one custom rule's share of the card's custom_rule row:
-// the rule's id, how many challenge pages loaded under it and from how many
-// addresses.  Rows carry the id; the handler names the rule.
+// CaptchaForceRuleRow: one entry's share of a reason's row on the stats
+// card -- the reason, the entry as the serve named it (payload force_rule:
+// a rule id, a preset, a country code...), how many challenge pages loaded
+// under it and from how many addresses.  Rows carry the entry; the handler
+// names it.
 type CaptchaForceRuleRow struct {
+	Kind   string
 	Rule   string
 	Count  int
 	UniqIP int
 }
 
-// CaptchaForceRules breaks the card's custom_rule row down by the rule that
-// raised the challenge: payload force_rule, which the page echoes on its
-// beacons the way it echoes force_reason.  The same two paths and the same
-// window as CaptchaForceBreakdown, so the rows sum to at most that card's
-// custom_rule count: a load the page beaconed without a rule id (an older
-// challenge page) counts there and not here.  Busiest first.
+// CaptchaForceRules breaks each reason's row on the card down by the entry
+// that raised the challenge: payload force_rule, which the page echoes on
+// its beacons the way it echoes force_reason.  The same two paths and the
+// same window as CaptchaForceBreakdown, so a reason's rows sum to at most
+// its count there: a load the page beaconed without an entry (an older
+// challenge page) counts there and not here.  Busiest first within a reason.
 func CaptchaForceRules(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]CaptchaForceRuleRow, error) {
 	if site == "" && len(hosts) == 0 && hourlyAggUsable(ctx, hours) {
 		return captchaForceRulesAgg(ctx, d, hours)
@@ -1835,9 +1838,9 @@ func captchaForceRulesScan(ctx context.Context, d *db.DB, site string, hosts []s
 	reasonExpr := jsonExtract(d, "payload_json", "$.force_reason")
 	ruleExpr := jsonExtract(d, "payload_json", "$.force_rule")
 	stmt := fmt.Sprintf(`
-        SELECT %s AS rule, COUNT(*) AS n, COUNT(DISTINCT ip_address) AS uniq
-        FROM unmask_event WHERE %s%s AND phase='load' AND %s = 'custom_rule' AND %s IS NOT NULL AND %s <> ''
-        GROUP BY rule`, ruleExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), reasonExpr, ruleExpr, ruleExpr)
+        SELECT %s AS kind, %s AS rule, COUNT(*) AS n, COUNT(DISTINCT ip_address) AS uniq
+        FROM unmask_event WHERE %s%s AND phase='load' AND %s IN (%s) AND %s IS NOT NULL AND %s <> ''
+        GROUP BY kind, rule`, reasonExpr, ruleExpr, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), reasonExpr, captchaForceSQLList(), ruleExpr, ruleExpr)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err
@@ -1846,7 +1849,7 @@ func captchaForceRulesScan(ctx context.Context, d *db.DB, site string, hosts []s
 	var out []CaptchaForceRuleRow
 	for rows.Next() {
 		var v CaptchaForceRuleRow
-		if err := rows.Scan(&v.Rule, &v.Count, &v.UniqIP); err != nil {
+		if err := rows.Scan(&v.Kind, &v.Rule, &v.Count, &v.UniqIP); err != nil {
 			return nil, err
 		}
 		out = append(out, v)
@@ -1856,6 +1859,11 @@ func captchaForceRulesScan(ctx context.Context, d *db.DB, site string, hosts []s
 
 func captchaForceRulesAgg(ctx context.Context, d *db.DB, hours int) ([]CaptchaForceRuleRow, error) {
 	by := map[string]CaptchaForceRuleRow{}
+	// The bucket key is '<reason>|<entry>'; the entry may hold '|' itself (a
+	// UA pattern), so it is cut at the first.
+	split := func(key string) (string, string, bool) {
+		return strings.Cut(key, "|")
+	}
 	cRows, err := d.QueryContext(ctx, `
         SELECT bucket_key, SUM(cnt) FROM unmask_aggregate_hourly
         WHERE bucket_kind = '`+hkCaptchaForceRule+`' AND `+hourWindow(ctx, hours, "bucket_hour")+`
@@ -1864,13 +1872,15 @@ func captchaForceRulesAgg(ctx context.Context, d *db.DB, hours int) ([]CaptchaFo
 		return nil, err
 	}
 	for cRows.Next() {
-		var rule string
+		var key string
 		var n int64
-		if err := cRows.Scan(&rule, &n); err != nil {
+		if err := cRows.Scan(&key, &n); err != nil {
 			cRows.Close()
 			return nil, err
 		}
-		by[rule] = CaptchaForceRuleRow{Rule: rule, Count: int(n)}
+		if kind, rule, ok := split(key); ok {
+			by[key] = CaptchaForceRuleRow{Kind: kind, Rule: rule, Count: int(n)}
+		}
 	}
 	if err := cRows.Err(); err != nil {
 		cRows.Close()
@@ -1887,17 +1897,20 @@ func captchaForceRulesAgg(ctx context.Context, d *db.DB, hours int) ([]CaptchaFo
 	}
 	sketches := map[string]*hll{}
 	for sRows.Next() {
-		var rule string
+		var key string
 		var blob []byte
-		if err := sRows.Scan(&rule, &blob); err != nil {
+		if err := sRows.Scan(&key, &blob); err != nil {
 			sRows.Close()
 			return nil, err
 		}
+		if _, _, ok := split(key); !ok {
+			continue
+		}
 		h := loadHLL(blob)
-		if existing, ok := sketches[rule]; ok {
+		if existing, ok := sketches[key]; ok {
 			existing.merge(h)
 		} else {
-			sketches[rule] = h
+			sketches[key] = h
 		}
 	}
 	if err := sRows.Err(); err != nil {
@@ -1905,11 +1918,11 @@ func captchaForceRulesAgg(ctx context.Context, d *db.DB, hours int) ([]CaptchaFo
 		return nil, err
 	}
 	sRows.Close()
-	for rule, h := range sketches {
-		r := by[rule]
-		r.Rule = rule
+	for key, h := range sketches {
+		r := by[key]
+		r.Kind, r.Rule, _ = split(key)
 		r.UniqIP = int(h.estimate())
-		by[rule] = r
+		by[key] = r
 	}
 	out := make([]CaptchaForceRuleRow, 0, len(by))
 	for _, r := range by {
@@ -1918,10 +1931,13 @@ func captchaForceRulesAgg(ctx context.Context, d *db.DB, hours int) ([]CaptchaFo
 	return orderCaptchaForceRuleRows(out), nil
 }
 
-// orderCaptchaForceRuleRows: busiest first, ties by id, so the rows hold
-// still between readings.
+// orderCaptchaForceRuleRows: by reason, busiest first within it, ties by
+// entry, so the rows hold still between readings.
 func orderCaptchaForceRuleRows(rows []CaptchaForceRuleRow) []CaptchaForceRuleRow {
 	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Kind != rows[j].Kind {
+			return rows[i].Kind < rows[j].Kind
+		}
 		if rows[i].Count != rows[j].Count {
 			return rows[i].Count > rows[j].Count
 		}
@@ -2571,8 +2587,8 @@ type CaptchaPassRow struct {
 	Ref         string
 	Phase       string
 	ForceReason string // "$.force_reason": axis that raised the challenge (none = normal path)
-	Rule        string // "$.force_rule": the custom rule behind a custom_rule challenge
-	RuleName    string // what the page calls Rule (its label); filled by the handler
+	Rule        string // "$.force_rule": the entry behind the reason (a rule id, a preset, a country code...)
+	RuleName    string // what the page calls Rule; filled by the handler
 	IsBot       bool   // filled by the handler from the verdict->action map
 	CountryCode string // filled by the handler from IP-geo
 	// Which host the path was requested on, and how to reach it.  Without

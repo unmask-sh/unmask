@@ -18,7 +18,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-20) **The ask page can stop a question.**  While a question is out, the send button gives way to a stop button.  Stopping ends the request, and with it the daemon's call to the provider, so no more tokens go to a question the operator has given up on.  The turn reads "stopped", the question comes back to the field, and the history keeps the turn with a retry.
 
-- (2026-10-20) **The stats page names the custom rule behind each challenge.**  The forced-challenge card's custom_rule row now breaks down by rule: which rule raised how many challenge pages and from how many addresses, each name opening the rule.  The challenge page echoes the rule on its beacons, so the CAPTCHA-pass list and the hunt rows name it too.  Loads from an older challenge page count as "rule not recorded".
+- (2026-10-20) **The stats page names what fired behind each challenge reason.**  The forced-challenge card breaks every reason down by the entry that raised it: the custom rule, the UA filter row, the ASN or country rule, the trap, the protected path, the stale browser, the ban's source, the JA4 verdict.  Each name opens where it is set.  The hunt rows and the CAPTCHA-pass list name the entry too.
 
 ### Fixed
 

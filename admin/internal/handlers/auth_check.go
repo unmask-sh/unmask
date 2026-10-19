@@ -1253,23 +1253,24 @@ func staleBrowserFiresForServe(r *http.Request, g settings.GlobalConfig) bool {
 // attributed correctly and then served whatever the default chain was.  One
 // lookup cannot drift between the two, and it costs one mmdb read rather than
 // two.
-func (h *Handler) netChallengeReason(ip string, cfg settings.Settings) (reason, chMode string) {
+func (h *Handler) netChallengeReason(ip string, cfg settings.Settings) (reason, chMode, entry string) {
 	if h.IPGeo == nil || ip == "" {
-		return "", ""
+		return "", "", ""
 	}
 	info := h.IPGeo.LookupInfo(ip)
 	if h.IPGeo.ASNLoaded() {
-		if d, _, rate, ok := asnResolve(info.ASN, info.ASNOrg, cfg.Nginx.Asn); ok && d.sev != sevPass && rate == 0 {
-			return "asn", d.chMode
+		if d, netKey, rate, ok := asnResolve(info.ASN, info.ASNOrg, cfg.Nginx.Asn); ok && d.sev != sevPass && rate == 0 {
+			// The entry: the rule's AS number, or an org rule's substring.
+			return "asn", d.chMode, strings.TrimPrefix(netKey, "asn:")
 		}
 	}
 	if h.IPGeo.Loaded() {
 		cc := strings.ToUpper(strings.TrimSpace(info.Country))
 		if d, rate, ok := geoDecideForCountry(cc, cfg.Nginx.Geo); ok && d.sev != sevPass && rate == 0 {
-			return "geo", d.chMode
+			return "geo", d.chMode, cc
 		}
 	}
-	return "", ""
+	return "", "", ""
 }
 
 // ja4Decide returns a challenge decision when the JA4 verdict says "bot".

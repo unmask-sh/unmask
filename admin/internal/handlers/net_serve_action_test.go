@@ -49,7 +49,7 @@ func TestNetChallengeReasonCarriesTheRulesChain(t *testing.T) {
 		{"a client no rule matches escalates nothing", "192.0.2.5", "", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			reason, chain := h.netChallengeReason(tc.ip, cfg)
+			reason, chain, _ := h.netChallengeReason(tc.ip, cfg)
 			if reason != tc.wantReason {
 				t.Errorf("reason = %q, want %q", reason, tc.wantReason)
 			}
@@ -73,7 +73,7 @@ func TestNetChallengeReasonLeavesRateRulesAlone(t *testing.T) {
 			{ASN: 132203, Action: settings.RateChallengeCaptchaOnly, RatePerMin: &r60, Enabled: true},
 		},
 	}
-	if reason, chain := h.netChallengeReason("203.0.113.10", cfg); reason != "" || chain != "" {
+	if reason, chain, _ := h.netChallengeReason("203.0.113.10", cfg); reason != "" || chain != "" {
 		t.Errorf("a rate-mode rule was attributed to the direct path: reason=%q chain=%q", reason, chain)
 	}
 }

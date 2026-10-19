@@ -135,13 +135,15 @@ const (
 	hkTrafficBlockedAll = "tblkall" // hourly bucket, key '<ipc|ipp>' install-wide distinct-IP sketch (overview non-human-% source)
 )
 
-// The custom rule behind a custom_rule challenge: CaptchaForceRules breaks
-// the card's custom_rule row down by it.  Keyed by the rule's id, which a
-// load beacon carries only when the serve named one (and DebugBeacon keeps
-// only an id this install has, so the key space is the operator's rules).
+// The entry behind a force reason -- the rule, preset, country, verdict
+// that fired (payload force_rule): CaptchaForceRules breaks each reason's
+// row on the stats card down by it.  Keyed '<force_reason>|<entry>'; a
+// load beacon carries the entry only when the serve named one, and the
+// beacon handler keeps only what it can vouch for, so the key space is the
+// settings'.
 const (
-	hkCaptchaForceRule   = "cfr"   // hourly bucket, key '<rule id>' count, phase=load, force_reason=custom_rule
-	hkCaptchaForceRuleIP = "cfrip" // hourly bucket, key '<rule id>' distinct IP, the same rows
+	hkCaptchaForceRule   = "cfr"   // hourly bucket, key '<force_reason>|<entry>' count, phase=load
+	hkCaptchaForceRuleIP = "cfrip" // hourly bucket, key '<force_reason>|<entry>' distinct IP, the same rows
 )
 
 const (
@@ -666,11 +668,11 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 			fr := normalizeForceReason(frRaw)
 			batch.counts[hourlyKey{hour, hkCaptchaForce, fr}]++
 			batch.sketch(hllKey{hour, hkCaptchaForceIP, fr}).add(ip)
-			// CaptchaForceRules: the custom rule behind the custom_rule row.
-			if fr == "custom_rule" {
+			// CaptchaForceRules: the entry behind the reason, under the reason.
+			if fr != "unknown" {
 				if rule := payloadStringField(payload.String, "force_rule"); rule != "" {
-					batch.counts[hourlyKey{hour, hkCaptchaForceRule, rule}]++
-					batch.sketch(hllKey{hour, hkCaptchaForceRuleIP, rule}).add(ip)
+					batch.counts[hourlyKey{hour, hkCaptchaForceRule, fr + "|" + rule}]++
+					batch.sketch(hllKey{hour, hkCaptchaForceRuleIP, fr + "|" + rule}).add(ip)
 				}
 			}
 			// FlagsDistribution: per-flags count + distinct IP.  flags is a

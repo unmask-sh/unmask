@@ -9,10 +9,10 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// The stats card's custom_rule row is broken down by rule: a rule on the
+// The stats card breaks a reason down by what fired: a custom rule on the
 // list by its name, linking to it; a rule since deleted by its id, marked;
-// and the loads whose page named no rule as the remainder, without an
-// address count.
+// a UA preset by its label, linking to the tab; and the loads whose page
+// named no entry as the remainder, without an address count.
 func TestStatsCardNamesTheCustomRules(t *testing.T) {
 	h := newTestHandler(t)
 	cur := h.snapshotSettings()
@@ -24,6 +24,7 @@ func TestStatsCardNamesTheCustomRules(t *testing.T) {
 		{"2.2.2.2", `{"force_reason":"custom_rule","force_rule":"cr1"}`},
 		{"3.3.3.3", `{"force_reason":"custom_rule","force_rule":"cr2"}`},
 		{"4.4.4.4", `{"force_reason":"custom_rule"}`},
+		{"5.5.5.5", `{"force_reason":"ua_target","force_rule":"preset:empty"}`},
 	} {
 		if _, err := h.DB.Exec(`INSERT INTO unmask_event
 			(site, host, scheme, port, ip_address, user_agent, ja4, ja4_verdict, ja4_verdict_id,
@@ -40,14 +41,16 @@ func TestStatsCardNamesTheCustomRules(t *testing.T) {
 		t.Fatalf("stats page status %d", rr.Code)
 	}
 	body := rr.Body.String()
-	if n := strings.Count(body, `class="cf-rule"`); n != 3 {
-		t.Errorf("rule rows under custom_rule: %d, want 3 (two rules and the remainder)", n)
+	if n := strings.Count(body, `class="cf-rule"`); n != 4 {
+		t.Errorf("entry rows: %d, want 4 (two rules and the remainder under custom_rule, the preset under ua_target)", n)
 	}
 	for _, want := range []string{
 		`<a href="/unmask/admin/settings/custom-rules/#rule-cr1">the scraper</a>`,
 		`└ cr2 <span class="muted">(削除済み)</span>`,
-		`└ ルールの記録なし</span>`,
+		`└ 項目の記録なし</span>`,
 		`カスタムルール「the scraper」の条件に当たり`,
+		`<a href="/unmask/admin/settings/ua-filter/">Empty UA / extremely short UA (5 chars or fewer)</a>`,
+		`UA フィルタの「Empty UA / extremely short UA (5 chars or fewer)」に当たった訪問者`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("the card lacks %q", want)

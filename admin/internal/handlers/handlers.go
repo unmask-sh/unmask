@@ -1439,7 +1439,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			forceReason = "stale"
 		}
 		if forceReason == "none" {
-			if reason, act := h.netChallengeReason(adminClientIP(r, *h.cfg()), *h.cfg()); reason != "" {
+			if reason, act, _ := h.netChallengeReason(adminClientIP(r, *h.cfg()), *h.cfg()); reason != "" {
 				forceReason = reason
 				netChMode = act
 			}
@@ -1472,14 +1472,21 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			recordReason = "custom_rule"
 		}
 	}
-	// recordRule: the rule behind a custom_rule serve, as nginx names it on
-	// the rewrite (X-Unmask-Rule).  The page echoes it on every beacon the
-	// way it echoes force_reason, so the stats page can say which rule raised
-	// the challenge, not only that one did.
-	recordRule := ""
-	if recordReason == "custom_rule" {
-		recordRule = customRuleIDOrEmpty(r.Header.Get("X-Unmask-Rule"))
+	// recordRule: the entry behind the reason -- the rule, preset, country,
+	// verdict that fired (forceEntry).  The page echoes it on every beacon
+	// the way it echoes force_reason, so the stats page can say which one
+	// raised the challenge, not only which axis.
+	// The URI the visitor asked for, as the honeypot and protected entries
+	// are matched on it: the same lookups the protected block above and the
+	// orig_path below make.
+	entryURI := r.URL.Query().Get("_orig")
+	if entryURI == "" {
+		entryURI = protectedOrigURI(r, h.basePath())
 	}
+	if entryURI == "" {
+		entryURI = rlOrigURI
+	}
+	recordRule := h.forceEntry(r, recordReason, verdict, ja4, entryURI, site)
 
 	body, err := h.loadChallengeHTML()
 	if err != nil {
@@ -2029,7 +2036,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			// ref: the same id printed in the page footer (support correlation).
 			"ref": ref,
 		}
-		// force_rule: which custom rule, when one raised the challenge.
+		// force_rule: the entry behind the reason, when it has one.
 		if recordRule != "" {
 			payload["force_rule"] = recordRule
 		}
@@ -3141,13 +3148,16 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 	// Save the payload too.  Decode raw JSON into a map (keep every field as-is).
 	var raw map[string]any
 	_ = json.Unmarshal(body, &raw)
-	// force_rule: the custom rule the serve named, echoed by the page the way
+	// force_rule: the entry behind the reason, echoed by the page the way
 	// force_reason is.  The page is the client's to rewrite, and the hourly
-	// aggregate keys a bucket by the id, so only a rule this install has is
-	// kept; anything else goes, as if the page had named none.
+	// aggregate keys a bucket by the value, so it is kept only as
+	// beaconForceEntry can vouch for it; anything else goes, as if the page
+	// had named none.
 	if raw != nil {
-		if s, _ := raw["force_rule"].(string); !h.knownCustomRuleID(s) {
+		if e := h.beaconForceEntry(r, raw, ja4, site); e == "" {
 			delete(raw, "force_rule")
+		} else {
+			raw["force_rule"] = e
 		}
 	}
 

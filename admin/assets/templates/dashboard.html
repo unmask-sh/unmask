@@ -621,16 +621,17 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
         <td class="bcd-num">{{comma .UniqIP}}</td>
         <td class="muted" style="font-size:.85rem">{{ t $.Lang (printf "captcha_force.kind.%s" .Kind) }}</td>
       </tr>
-      {{/* Under custom_rule: which rule, busiest first.  The name opens the
-           rule; a rule since deleted keeps its id.  The last row, when the
-           rules fall short of the count, is loads whose page named no rule
+      {{/* Under a reason: the entries that fired (a rule, a preset, a country,
+           a verdict), busiest first, each name opening where it is set; a
+           custom rule since deleted keeps its id.  The last row, when the
+           entries fall short of the count, is loads whose page named none
            (an older challenge page): no address count for those. */}}
-      {{ if eq .Kind "custom_rule" }}{{ range $.HitRules }}
+      {{ $kind := .Kind }}{{ with index $.HitRules .Kind }}{{ range . }}
       <tr class="cf-rule">
-        <td style="padding-left:1.5rem">{{ if .Rest }}<span class="muted">└ {{ t $.Lang "captcha_force.rule_rest" }}</span>{{ else if .Known }}└ <a href="{{ $.BasePath }}/admin/settings/custom-rules/#rule-{{ .ID }}">{{ .Label }}</a>{{ else }}└ {{ .Label }} <span class="muted">{{ t $.Lang "captcha_force.rule_deleted" }}</span>{{ end }}</td>
+        <td style="padding-left:1.5rem">{{ if .Rest }}<span class="muted">└ {{ t $.Lang "captcha_force.rule_rest" }}</span>{{ else if .Link }}└ <a href="{{ .Link }}">{{ .Label }}</a>{{ else }}└ {{ .Label }}{{ end }}{{ if .Gone }} <span class="muted">{{ t $.Lang "captcha_force.rule_deleted" }}</span>{{ end }}</td>
         <td class="bcd-num">{{ comma .Count }}</td>
         <td class="bcd-num">{{ if .Rest }}<span class="muted">-</span>{{ else }}{{ comma .UniqIP }}{{ end }}</td>
-        <td class="muted" style="font-size:.85rem">{{ if .Rest }}{{ t $.Lang "captcha_force.rule_rest_meaning" }}{{ else }}{{ tf $.Lang "captcha_force.rule_meaning" .Label }}{{ end }}</td>
+        <td class="muted" style="font-size:.85rem">{{ if .Rest }}{{ t $.Lang "captcha_force.rule_rest_meaning" }}{{ else }}{{ tf $.Lang (printf "captcha_force.entry.%s" $kind) .Label }}{{ end }}</td>
       </tr>
       {{ end }}{{ end }}
       {{end}}
