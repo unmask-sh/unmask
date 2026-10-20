@@ -81,7 +81,7 @@ for i in range(${n}):
   if (first.missing) {
     ok(false, 'the live strip is not on the dashboard');
   } else {
-    ok(first.tiles.join(',') === 'requests,pass,serve,deny,solve,blocked,rate_limit,bypass',
+    ok(first.tiles.join(',') === 'requests,pass,serve,blocked,solve,deny,rate_limit,bypass',
       'tiles are not the eight figures in order: ' + first.tiles.join(','));
     ok(/^\d{2}:\d{2}:\d{2}$/.test(first.at || ''), 'the reading clock is not HH:MM:SS: ' + first.at);
     ok(/ON|on/.test(first.toggle || ''), 'auto-refresh is not on by default: ' + first.toggle);

@@ -16,7 +16,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- (2026-10-20) **The realtime strip opens on how the judged requests split.**  The tiles now run requests, passed on a cookie, challenges served, refused, solved, blocked, rate-limited, bypassed: the first four the split of the judged requests, in the order the requests tile's help spells it; then what the challenges and refusals became, the blocked figure after the terms it is taken from; the bypassed last.
+- (2026-10-20) **The realtime strip opens on how the judged requests split.**  The tiles now run requests, passed on a cookie, challenges served, blocked, solved, refused, rate-limited, bypassed: the passed beside the requests they are the largest share of, the blocked figure right after the serves it is taken from, the refused beside the rate limit, and the bypassed last, the one figure the judged scope leaves out of the requests.
 
 ## [0.1.53-rc4] - 2026-10-20 (testing build)
 

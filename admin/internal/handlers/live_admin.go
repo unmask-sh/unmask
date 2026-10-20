@@ -48,16 +48,15 @@ type liveView struct {
 
 // liveTiles lists the tiles in display order with their colours: the kind
 // colours of the stats page's stacked charts (KIND_COLOR) where one exists,
-// the map legend's blocked colour for the blocked tile.  The order is the
-// arithmetic of the figures, read left to right.  First how the judged
-// requests split, in the order the requests tile's help spells it: passed
-// on a cookie, served a challenge, refused (the benign crawlers and the rest
-// have no tile).  Then what the challenges and refusals became: the solved,
-// and the blocked figure -- served + refused − solved − abandoned -- after
-// the terms it is taken from; the rate limit, a slice of the serves and
-// refusals by cause; and last the bypassed, the one figure the judged scope
-// leaves out of the requests.  Two rows of four on a laptop: the first row
-// the split, the second what became of it.
+// the map legend's blocked colour for the blocked tile.  The requests first,
+// then the passed on a cookie -- the largest share of them on an ordinary
+// install -- then the challenges and what became of them: served, the
+// blocked figure (served + refused − solved − abandoned) right after the
+// serves it is taken from, the solved; then the refusals, refused and
+// rate-limited side by side; and last the bypassed, the one figure the judged
+// scope leaves out of the requests.  Two rows of four on a laptop: the first
+// row what came, what passed, what was challenged and what was blocked; the
+// second the detail.
 var liveTiles = []struct {
 	key   string // live.Names entry or live.BlockedName: the JSON key, the i18n key's tail
 	color string
@@ -65,9 +64,9 @@ var liveTiles = []struct {
 	{live.Names[live.Requests], "#0f172a"},
 	{live.Names[live.Pass], "#94a3b8"},
 	{live.Names[live.Serve], "#dc2626"},
-	{live.Names[live.Deny], "#7f1d1d"},
-	{live.Names[live.Solve], "#0ea5e9"},
 	{live.BlockedName, "#f87171"},
+	{live.Names[live.Solve], "#0ea5e9"},
+	{live.Names[live.Deny], "#7f1d1d"},
 	{live.Names[live.RateLimit], "#f59e0b"},
 	{live.Names[live.Bypass], "#c7d2fe"},
 }
