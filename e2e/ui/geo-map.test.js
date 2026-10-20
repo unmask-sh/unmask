@@ -133,15 +133,17 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const pop = await page.evaluate(() => {
       const p = document.getElementById('geo-pop');
       const img = p.querySelector('img');
-      return { hidden: p.hidden, text: p.textContent.replace(/\s+/g, ' '), cells: Array.from(p.querySelectorAll('td.n')).map(td => td.textContent.trim()).join(','), img: img ? img.getAttribute('src') : '', cursor: getComputedStyle(document.getElementById('geo')).cursor };
+      return { hidden: p.hidden, text: p.textContent.replace(/\s+/g, ' '), cells: Array.from(p.querySelectorAll('td.n')).map(td => td.textContent.trim()).join(','), labels: Array.from(p.querySelectorAll('td:first-child')).map(td => td.textContent.trim()).join('|'), img: img ? img.getAttribute('src') : '', cursor: getComputedStyle(document.getElementById('geo')).cursor };
     });
     ok(!pop.hidden, 'no popover on the US source');
     ok(/United States/.test(pop.text), 'the popover lacks the full name: ' + pop.text);
     ok(/us\.png$/.test(pop.img), 'the popover lacks the flag: ' + pop.img);
     // Every request of the source and the whole split, though the map draws
     // only the blocked: requests, last minute, then blocked / solved or left
-    // / passed on a cookie / bypassed / benign crawlers.
+    // / passed on a cookie / benign crawlers / bypassed -- the legend's order,
+    // the bypassed last (10-20).
     ok(pop.cells === '31,9,8,13,10,0,0', 'the popover figures are not the whole split: ' + pop.cells);
+    ok(/\|benign crawlers\|bypassed$/.test(pop.labels), 'the popover rows do not end on the crawlers, then the bypassed: ' + pop.labels);
     ok(pop.text.indexOf('17%') >= 0, 'the popover lacks the share: ' + pop.text);
     ok(pop.cursor === 'pointer', 'the source does not signal it is interactive: ' + pop.cursor);
     // The sea west of Africa: nothing there.

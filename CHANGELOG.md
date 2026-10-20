@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-10-20) **The realtime strip reads from the challenges to the bypassed.**  The tiles run requests, challenges served, blocked, passed on a cookie, solved, refused, rate-limited, bypassed: the blocked after the challenges it is taken from, stopped beside let through, and the bypassed last, the one figure the judged scope leaves out of the requests.  The map's legend ends on the bypassed too.
+
 ## [0.1.53-rc3] - 2026-10-20 (testing build)
 
 ### Since rc2

@@ -61,7 +61,7 @@ func TestLiveRequestsTileJudged(t *testing.T) {
 	if r := jud.Tiles[0]; r.Last != 4 || r.Last30 != 4 || r.LabelKey != "overview.live.requests_judged" || r.TPS != "0.8" || r.Crawler30 != 1 {
 		t.Errorf("judged: %+v", r)
 	}
-	if b := jud.Tiles[3]; b.Key != "bypass" || b.Last30 != 2 {
+	if b := jud.Tiles[7]; b.Key != "bypass" || b.Last30 != 2 { // the last tile
 		t.Errorf("the bypass tile should still count the bypassed requests: %+v", b)
 	}
 }
