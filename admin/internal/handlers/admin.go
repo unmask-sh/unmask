@@ -1997,7 +1997,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	}
 	for i := range cpRecent {
 		cpRecent[i].IsBot = isBotVerdict(cpRecent[i].Verdict)
-		cpRecent[i].RuleName = h.forceEntryName(i18n.Lang(i18n.Resolve(r)), cpRecent[i].ForceReason, cpRecent[i].Rule)
+		cpRecent[i].RuleNote = h.forceEntryNote(i18n.Lang(i18n.Resolve(r)), cpRecent[i].ForceReason, cpRecent[i].Rule)
 		cpRecent[i].CountryCode = lookupCC(cpRecent[i].IP)
 	}
 	// Which axis raised each solved CAPTCHA (force_reason breakdown), most-passed

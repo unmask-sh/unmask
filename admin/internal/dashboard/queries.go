@@ -9,6 +9,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"html/template"
 	"log"
 	"net"
 	"regexp"
@@ -2586,11 +2587,11 @@ type CaptchaPassRow struct {
 	Path        string
 	Ref         string
 	Phase       string
-	ForceReason string // "$.force_reason": axis that raised the challenge (none = normal path)
-	Rule        string // "$.force_rule": the entry behind the reason (a rule id, a preset, a country code...)
-	RuleName    string // what the page calls Rule; filled by the handler
-	IsBot       bool   // filled by the handler from the verdict->action map
-	CountryCode string // filled by the handler from IP-geo
+	ForceReason string        // "$.force_reason": axis that raised the challenge (none = normal path)
+	Rule        string        // "$.force_rule": the entry behind the reason (a rule id, a preset, a country code...)
+	RuleNote    template.HTML // the popover behind the reason badge (Rule by name, linked); filled by the handler
+	IsBot       bool          // filled by the handler from the verdict->action map
+	CountryCode string        // filled by the handler from IP-geo
 	// Which host the path was requested on, and how to reach it.  Without
 	// these the path column names a path and nothing else -- on the default
 	// view, which spans every site, that is not enough to know where to look.

@@ -529,6 +529,20 @@ for ipb, bt, chain in [
              phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
             VALUES ('','','https',443,?,'UI-E2E-referer','t13d_ref','',0,?,0,0,'','',?,?)""",
             (ipb, phase, body, _ref_at(off)))
+# A reason badge with an entry behind it: a serve under a UA-filter preset
+# (the hunt's badge) and a CAPTCHA pass under it (the stats page's pass list).
+# force-badge-popover.test.js hovers both.  A preset, not a custom rule: the
+# preset's name comes from the shipped list, while the custom-rules tab's
+# tests own that list and start it empty.  Its own address (the test filters
+# the hunt to it) and two minutes back, so no other test's row selection
+# moves.
+for phase, ago in [("serve", 120), ("bv_captcha_only", 100)]:
+    c.execute("""INSERT INTO unmask_event
+        (site,host,scheme,port,ip_address,user_agent,ja4,ja4_verdict,ja4_verdict_id,
+         phase,flags,reload_count,cookie_bv,cookie_br,payload_json,date_created)
+        VALUES ('','','https',443,x'7f00002a','UI-E2E-frnote','','',0,?,0,0,'','',
+                '{"bt":"uiFrNote","force_reason":"ua_target","force_rule":"preset:empty","orig_path":"/frnote"}',
+                datetime('now', '-' || ? || ' seconds'))""", (phase, ago))
 c.commit()
 PY
 

@@ -79,6 +79,11 @@ func (h *Handler) AdminLive(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("live recent: %v", err)
 	}
+	// The reason badge's popover: the entry behind the reason, as on the hunt.
+	liveLang := i18n.Lang(i18n.Resolve(r))
+	for i := range recent {
+		recent[i].RuleNote = h.forceEntryNote(liveLang, recent[i].ForceReason, recent[i].Rule)
+	}
 	uaList := make([]string, len(recent))
 	sites := make([]string, 0, len(recent))
 	for i, row := range recent {

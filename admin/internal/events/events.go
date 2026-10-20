@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"log"
 	"net"
 	"sort"
@@ -694,9 +695,10 @@ type Row struct {
 	// raised; every beacon echoes it like force_reason) or "deny_rule" (the
 	// entry a deny axis matched: an AS number, a country code, a rule id).
 	Rule string `json:"rule,omitempty"`
-	// RuleName: what the page calls Rule -- a custom rule's label, filled by
-	// the handler that knows the rules; not part of the record.
-	RuleName string `json:"-"`
+	// RuleNote: the popover behind the reason badge -- Rule by the name the
+	// page gives it, linking to where it is set; filled by the handler that
+	// knows the rules; not part of the record.
+	RuleNote template.HTML `json:"-"`
 	// ServeJA4: the JA4 the challenge was SERVED to, echoed back by every
 	// beacon (payload "serve_ja4") the way force_reason travels.  Beacons
 	// arrive on their own TLS connection, and the same device can present a

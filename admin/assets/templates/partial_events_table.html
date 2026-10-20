@@ -270,6 +270,9 @@
 .session-lead,.session-tssrc,.session-total,.session-notes{max-width:28rem}
 /* force_reason badge: which axis (header / stale / asn / ...) raised this challenge */
 .fr-badge{display:inline-block;padding:.05rem .35rem;margin-left:.25rem;border-radius:.2rem;font-size:.68rem;font-weight:700;background:#ddd6fe;color:#5b21b6;vertical-align:baseline}
+/* a badge with an entry behind it opens a popover (the dotted rule is the shared "more on hover" mark) */
+.fr-badge[data-fr-note]{cursor:help;border-bottom:1px dotted #94a3b8}
+.fr-note-pop{font-size:.8rem;line-height:1.55;color:#334155;max-width:24rem}
 /* phase pill: inline here so EVERY host page that renders this partial styles the
    pills, instead of each carrying its own copy (overview.html drifted and lost the
    bv_rebind / bv_rebind_reject colours before this was colocated -- the exact
@@ -1536,7 +1539,11 @@ if (document.readyState === 'loading') {
            dedicated column -- keep the two views consistent.  Same value on
            every phase row of a visit (challenge.js propagates force_reason),
            so the session-collapse rep row shows it too, unmodified. */}}
-      <td>{{ if and .ForceReason (ne .ForceReason "none") }}<span class="fr-badge" title="{{ t $.Lang "hunt.force_reason_title" }}">{{ .ForceReason }}{{ if .RuleName }} · {{ .RuleName }}{{ end }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+      {{/* The badge is the reason alone; the entry behind it (the rule, the
+           preset, the country... by name, linked to where it is set) rides in
+           the hidden .fr-note next to it and opens as a popover (cellpop_js).
+           A rule's name can run to a sentence, too long for a cell. */}}
+      <td>{{ if and .ForceReason (ne .ForceReason "none") }}<span class="fr-badge"{{ if .RuleNote }} data-fr-note{{ end }}>{{ .ForceReason }}</span>{{ if .RuleNote }}<span class="fr-note" hidden>{{ .RuleNote }}</span>{{ end }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       <td class="url mono{{ if .Path }} cellpop{{ end }}">{{ if .Path }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
       {{/* Browser UAs show as "<platform> · <browser> <major>": the raw string
            is ~740px wide and every human visitor's opens with the same
@@ -1807,6 +1814,36 @@ if (document.readyState === 'loading') {
   }
   wire(document);
   (window.unmaskRewire = window.unmaskRewire || []).push(wire);
+
+  // Escalation badge popover.  The badge names the reason alone; the entry
+  // behind it -- the rule, the preset, the country, by name and linked to
+  // where it is set -- is rendered server-side into the hidden .fr-note right
+  // after the badge, and hover / click opens it here.  Rows a page swaps in
+  // later come through the same window.unmaskRewire hook as the cells above.
+  function wireBadges(root){
+    root.querySelectorAll('.fr-badge[data-fr-note]').forEach(function(el){
+      if (el.dataset.frWired) return;
+      el.dataset.frWired = '1';
+      var note = el.nextElementSibling;
+      if (!note || !note.classList.contains('fr-note')) return;
+      var html = '<div class="fr-note-pop">' + note.innerHTML + '</div>';
+      el.addEventListener('mouseenter', function(e){
+        clearTimeout(timer);
+        if (pin.hasPinFor(el)) return;
+        var x = e.pageX, y = e.pageY;
+        timer = setTimeout(function(){ pin.showHover(html, x, y, el); }, 150);
+      });
+      el.addEventListener('mouseleave', function(){ clearTimeout(timer); pin.hideHover(); });
+      el.addEventListener('click', function(e){
+        e.preventDefault();
+        e.stopPropagation();
+        clearTimeout(timer);
+        pin.handleClick(html, e.pageX, e.pageY, el);
+      });
+    });
+  }
+  wireBadges(document);
+  window.unmaskRewire.push(wireBadges);
 
   // Datetime popover.  The 'at' column shows a compact date to save width, but
   // a support correlation needs the exact moment + the Ref ID the visitor

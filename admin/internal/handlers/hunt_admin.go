@@ -479,7 +479,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 			CountryCode: ipCC[e.IP],
 			Banned:      ipBan[e.IP],
 		}
-		row.RuleName = h.forceEntryName(huntLang, e.ForceReason, e.Rule)
+		row.RuleNote = h.forceEntryNote(huntLang, e.ForceReason, e.Rule)
 		if row.Banned {
 			if be, ok := banByIP[e.IP]; ok {
 				expires := ""

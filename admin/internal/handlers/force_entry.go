@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"html/template"
 	"net/http"
 	"regexp"
 	"strconv"
@@ -17,7 +18,9 @@ import (
 // The entry behind a force reason: the row of the settings that fired, as
 // payload force_rule names it on the serve and on every beacon (the page
 // echoes it beside force_reason).  The stats card breaks each reason down by
-// it, and the hunt names it on the badge.  Every entry is one of a set the
+// it; the hunt rows and the CAPTCHA-pass list open it in a popover behind the
+// reason badge (the badge itself stays the reason, as a rule's name can run to
+// a sentence).  Every entry is one of a set the
 // settings bound -- the operator's rules, the presets, a verdict, a country
 // code -- since the hourly aggregate keys a bucket by it:
 //
@@ -295,6 +298,49 @@ func (h *Handler) forceEntryName(lang i18n.Lang, reason, entry string) string {
 	return entry
 }
 
+// forceEntryLink: where the entry is set -- a custom rule on the list by its
+// anchor, every other reason its settings page.  gone is a custom rule since
+// deleted (no link; the page shows its id, marked).
+func (h *Handler) forceEntryLink(reason, entry string) (link string, gone bool) {
+	base := h.cfg().Server.BasePath
+	if reason == "custom_rule" {
+		if h.knownCustomRuleID(entry) {
+			return base + "/admin/settings/custom-rules/#rule-" + entry, false
+		}
+		return "", true
+	}
+	if t, ok := overviewReasonSettings[reason]; ok {
+		return base + "/admin/" + t.path, false
+	}
+	return "", false
+}
+
+// forceEntryNote: the popover behind a reason badge -- the stats card's
+// sentence for the entry (captcha_force.entry.<reason>), with the entry's
+// name in bold and linking to where it is set; a custom rule since deleted by
+// its id, marked.  "" when the reason has no entry, or none was recorded.
+func (h *Handler) forceEntryNote(lang i18n.Lang, reason, entry string) template.HTML {
+	name := h.forceEntryName(lang, reason, entry)
+	if name == "" {
+		return ""
+	}
+	key := "captcha_force.entry." + reason
+	sentence := i18n.T(lang, key)
+	if sentence == key || !strings.Contains(sentence, "%s") {
+		return ""
+	}
+	label := "<b>" + template.HTMLEscapeString(name) + "</b>"
+	link, gone := h.forceEntryLink(reason, entry)
+	if link != "" {
+		label = `<a href="` + template.HTMLEscapeString(link) + `">` + label + `</a>`
+	}
+	body := strings.Replace(template.HTMLEscapeString(sentence), "%s", label, 1)
+	if gone {
+		body += ` <span class="muted">` + template.HTMLEscapeString(i18n.T(lang, "captcha_force.rule_deleted")) + `</span>`
+	}
+	return template.HTML(body)
+}
+
 // captchaForceRuleView is one row under a reason's row on the stats card:
 // the entry by name, linking to where it is set; how many challenge pages
 // loaded under it and from how many addresses.  The last row of a reason,
@@ -318,20 +364,11 @@ func (h *Handler) captchaForceRuleViews(lang i18n.Lang, rules []dashboard.Captch
 	if len(rules) == 0 {
 		return nil
 	}
-	base := h.cfg().Server.BasePath
 	out := map[string][]captchaForceRuleView{}
 	sum := map[string]int{}
 	for _, r := range rules {
 		v := captchaForceRuleView{Entry: r.Rule, Label: h.forceEntryName(lang, r.Kind, r.Rule), Count: r.Count, UniqIP: r.UniqIP}
-		if r.Kind == "custom_rule" {
-			if h.knownCustomRuleID(r.Rule) {
-				v.Link = base + "/admin/settings/custom-rules/#rule-" + r.Rule
-			} else {
-				v.Gone = true
-			}
-		} else if t, ok := overviewReasonSettings[r.Kind]; ok {
-			v.Link = base + "/admin/" + t.path
-		}
+		v.Link, v.Gone = h.forceEntryLink(r.Kind, r.Rule)
 		sum[r.Kind] += r.Count
 		out[r.Kind] = append(out[r.Kind], v)
 	}

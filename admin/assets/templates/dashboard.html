@@ -434,7 +434,11 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
         <td class="bcd-mono"><time class="js-datetime" data-ts="{{ .TS }}">{{ .Date }}</time></td>
         <td class="bcd-mono ipclick" data-ip="{{ .IP }}"><img class="flag" src="{{ $.BasePath }}/static/flags/{{ ccImg .CountryCode }}.png" alt="{{ ccLabel .CountryCode }}" title="{{ ccLabel .CountryCode }}" loading="lazy"> {{ .IP }}</td>
         <td>{{ if .Verdict }}<span class="help-dotted cp-verdict{{ if .IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ .Verdict }}">{{ .Verdict }}</span>{{ else }}<span class="muted">(none)</span>{{ end }}</td>
-        <td>{{ if and .ForceReason (ne .ForceReason "none") }}<span class="cp-fr help-dotted" data-help-key="captcha_force.kind.{{ .ForceReason }}">{{ .ForceReason }}{{ if .RuleName }} · {{ .RuleName }}{{ end }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+        {{/* The badge is the reason alone; the entry behind it (a rule by
+             name, linked to where it is set) rides in the hidden .help-note
+             next to it, which the help popover appends under the reason's
+             text -- a rule's name can run to a sentence, too long for a cell. */}}
+        <td>{{ if and .ForceReason (ne .ForceReason "none") }}<span class="cp-fr help-dotted" data-help-key="captcha_force.kind.{{ .ForceReason }}">{{ .ForceReason }}</span>{{ if .RuleNote }}<span class="help-note" hidden>{{ .RuleNote }}</span>{{ end }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         {{/* The site rides with the path: this table's default view spans
              every site (site="default" means "no filter"), so a bare
              "/article/detail/1" names a path on nobody's server.  The badge
@@ -1452,8 +1456,17 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
   var pop = document.getElementById('help-popover');
   var pin = window.popoverPin.install(pop);
   var timer = null;
+  // noteFor: the hidden .help-note right after a trigger -- what the page
+  // says about this element in particular (the entry behind a reason badge),
+  // shown under the key's text.
+  function noteFor(el){
+    var n = el.nextElementSibling;
+    return (n && n.classList.contains('help-note')) ? n.innerHTML : '';
+  }
   function attach(el, key){
-    var html = HELP[key];
+    var html = HELP[key] || '';
+    var note = noteFor(el);
+    if (note) html = html ? html + '<div class="cellpop-note">' + note + '</div>' : note;
     if (!html) return;
     el.setAttribute('data-help', '1'); // for CSS cursor:help / underline
     el.addEventListener('mouseenter', function(e){
