@@ -102,3 +102,35 @@ func TestIngest(t *testing.T) {
 		t.Errorf("an empty dir: %v, %+v", err, Current())
 	}
 }
+
+// A relay listed without countries and bound as a whole (a cloud proxy):
+// its ranges answer with the relay and no country, their key is the relay's
+// id, and a key that could not travel as a geo value falls back to the range.
+func TestRangesBoundAsRelay(t *testing.T) {
+	tb, err := Parse([]byte(`{"schemaVersion":1,"generatedAt":"2026-10-20T00:00:00Z","relays":{
+		"zscaler":{"name":"Zscaler","source":"test","bind":"relay","ranges":["165.225.96.0/23","2400:7aa0:1e00::/40","bad"]},
+		"bad id":{"name":"x","source":"test","bind":"relay","ranges":["192.0.2.0/24"]},
+		"apple-private-relay":{"name":"a","source":"test","countries":{"JP":["172.224.226.0/27"]}}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tb.Prefixes != 4 || tb.Countries != 1 {
+		t.Errorf("prefixes %d countries %d, want 4 and 1", tb.Prefixes, tb.Countries)
+	}
+	for _, c := range []struct {
+		ip, relay, cc, key string
+	}{
+		{"165.225.97.8", "zscaler", "", "zscaler"},
+		{"2400:7aa0:1e00::1", "zscaler", "", "zscaler"},
+		{"192.0.2.9", "bad id", "", ""},
+		{"172.224.226.1", "apple-private-relay", "JP", ""},
+	} {
+		h, ok := tb.Lookup(netip.MustParseAddr(c.ip))
+		if !ok || h.Relay != c.relay || h.Country != c.cc || h.Key != c.key {
+			t.Errorf("%s -> %+v (ok %v), want relay %q country %q key %q", c.ip, h, ok, c.relay, c.cc, c.key)
+		}
+	}
+	if Name("zscaler") != "Zscaler" {
+		t.Errorf("Name(zscaler) = %q", Name("zscaler"))
+	}
+}

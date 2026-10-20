@@ -1936,14 +1936,19 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		// see the WARN in `unmask doctor` (= mmdb path check).
 	}
 	// Relay egress ranges -> the $unmask_bind_key geo block, one line per
-	// published prefix valued with the prefix itself, so the key is the range
-	// in canonical text on both sides of the cookie (the plugin reads the
-	// variable, the daemon receives it as X-Unmask-Bind-Key).
+	// published prefix valued with the prefix itself -- or with the relay's
+	// id for a relay bound as a whole -- so the key is the same text on both
+	// sides of the cookie (the plugin reads the variable, the daemon receives
+	// it as X-Unmask-Bind-Key).
 	if t := relay.Active(); t != nil {
 		var sb strings.Builder
-		t.Each(func(p netip.Prefix, _ relay.Hit) {
+		t.Each(func(p netip.Prefix, h relay.Hit) {
 			m := p.Masked().String()
-			fmt.Fprintf(&sb, "    %s \"%s\";\n", m, m)
+			v := h.Key
+			if v == "" {
+				v = m
+			}
+			fmt.Fprintf(&sb, "    %s \"%s\";\n", m, v)
 		})
 		d.BindKeyCIDRs = sb.String()
 	}

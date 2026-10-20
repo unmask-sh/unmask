@@ -264,7 +264,9 @@ func withRelay(ip string, info Info) Info {
 		return info
 	}
 	info.Relay = h.Relay
-	if info.Country != h.Country {
+	// A relay that gives no country (a cloud proxy whose addresses sit where
+	// the database says) only names itself; the database's answer stands.
+	if h.Country != "" && info.Country != h.Country {
 		info.CountryDB = info.Country
 		info.Country = h.Country
 		info.CountryName = CountryName(h.Country)

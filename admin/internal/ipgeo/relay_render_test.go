@@ -141,3 +141,22 @@ func TestLookupInfoRelay(t *testing.T) {
 		t.Errorf("switched off, the relay still answers: %+v", off)
 	}
 }
+
+// TestLookupInfoRelayRanges: a relay listed without countries (a cloud proxy
+// whose addresses sit where the database says) names itself and leaves the
+// database's answer alone.
+func TestLookupInfoRelayRanges(t *testing.T) {
+	path := realMMDB(t, "/var/lib/unmask/ipgeo/dbip-country.mmdb", "/usr/share/GeoIP/GeoLite2-Country.mmdb", "/usr/share/GeoIP/GeoLite2-City.mmdb")
+	r := Open(path, "")
+	defer r.Close()
+	tb, err := relay.Parse([]byte(`{"schemaVersion":1,"generatedAt":"2026-10-20T00:00:00Z","relays":{"zscaler":{"name":"Zscaler","source":"test","bind":"relay","ranges":["8.8.8.0/27"]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	relay.Set(tb)
+	defer relay.Set(nil)
+	got := r.LookupInfo("8.8.8.8")
+	if got.Country != "US" || got.CountryDB != "" || got.Relay != "zscaler" {
+		t.Errorf("8.8.8.8 = %+v, want the database's US, no CountryDB, relay zscaler", got)
+	}
+}

@@ -33,6 +33,23 @@ func TestBindKeyRender(t *testing.T) {
 		t.Error("server.inc does not forward $unmask_bind_key to the daemon")
 	}
 
+	// A relay bound as a whole: every one of its ranges is valued with the
+	// relay's id, so a cookie issued inside one range verifies inside another.
+	tb, err = relay.Parse([]byte(`{"schemaVersion":1,"generatedAt":"2026-10-20T00:00:00Z","relays":{"zscaler":{"name":"Zscaler","source":"test","bind":"relay","ranges":["165.225.96.0/23","136.226.238.0/23"]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	relay.Set(tb)
+	httpInc, _, _ = renderIncs(t, nil)
+	for _, want := range []string{
+		`    136.226.238.0/23 "zscaler";`,
+		`    165.225.96.0/23 "zscaler";`,
+	} {
+		if !strings.Contains(httpInc, want) {
+			t.Errorf("http.inc lacks %q", want)
+		}
+	}
+
 	// Without a relay list the block still defines the variable, empty, so the
 	// header in server.inc always resolves.
 	relay.Set(nil)

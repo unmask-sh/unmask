@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- (2026-10-20) **The relay list names Zscaler's cloud proxies.**  Behind Zscaler, the page a visitor reads and the form they post from it can leave by different addresses of one data centre, and a pass cookie bound to the address fell off between them.  Inside Zscaler's published ranges, listed by unmask.sh beside iCloud Private Relay, the cookie now follows the visitor across the proxy as a whole.
+
 ### Changed
 
 - (2026-10-20) **The realtime strip reads from the challenges to the bypassed.**  The tiles run requests, challenges served, blocked, passed on a cookie, solved, refused, rate-limited, bypassed: the blocked after the challenges it is taken from, stopped beside let through, and the bypassed last, the one figure the judged scope leaves out of the requests.  The map's legend ends on the bypassed too.

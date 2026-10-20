@@ -544,7 +544,7 @@ func GeoCIDRsForCountries(path string, codes []string) (string, error) {
 			continue
 		}
 		cc := rec.Country.ISOCode
-		if sp, h, ok := relayOwner(t, cidr); ok {
+		if sp, h, ok := relayOwner(t, cidr); ok && h.Country != "" {
 			if wanted[cc] {
 				innerRuled[sp] = true
 			}
@@ -682,7 +682,7 @@ func CIDRsForASNTargets(path string, targets []ASNTarget) (string, error) {
 		// A relay's addresses are not the network's to judge (relay package):
 		// a network inside a relay prefix is left out, and a relay prefix
 		// inside a network that is written gets the empty value after the walk.
-		if _, _, ok := relayOwner(t, cidr); ok {
+		if _, h, ok := relayOwner(t, cidr); ok && h.Country != "" {
 			continue
 		}
 		b.WriteString(geoLine(cidr.String(), val))
@@ -766,7 +766,7 @@ func ASNRateCIDRs(path string, targets []ASNTarget) (string, error) {
 		if !match {
 			continue
 		}
-		if _, _, ok := relayOwner(t, cidr); ok {
+		if _, h, ok := relayOwner(t, cidr); ok && h.Country != "" {
 			continue // a relay's addresses are not the network's to throttle
 		}
 		b.WriteString("    ")

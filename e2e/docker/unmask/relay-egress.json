@@ -1,1 +1,1 @@
-{"schemaVersion":1,"generatedAt":"2026-10-19T00:00:00Z","relays":{"e2e-relay":{"name":"e2e relay","source":"fixture","countries":{"JP":["192.0.2.192/26"]}}}}
+{"schemaVersion":1,"generatedAt":"2026-10-20T00:00:00Z","relays":{"e2e-relay":{"name":"e2e relay","source":"fixture","countries":{"JP":["192.0.2.192/26"]}},"e2e-cloud":{"name":"e2e cloud proxy","source":"fixture","bind":"relay","ranges":["192.0.2.128/27","192.0.2.160/27"]}}}

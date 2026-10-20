@@ -1,6 +1,6 @@
 // Package relay knows the addresses that shared-egress relays -- Apple's
-// iCloud Private Relay today -- send their users' traffic from, and the
-// country each relay says those addresses serve.
+// iCloud Private Relay, Zscaler's cloud proxies -- send their users' traffic
+// from, and, for a relay that says so, the country those addresses serve.
 //
 // Country databases place many relay addresses in the wrong country: one
 // address carries a whole region's users and the relay moves its addresses
@@ -11,6 +11,13 @@
 // relay's word for those addresses, and the network rules leave them alone:
 // a relay address is shared by many people, not run by the network it sits
 // in.
+//
+// A cloud proxy such as Zscaler is the other shape: its addresses sit where
+// the databases say they do, but one user's requests leave from several of
+// them, and a pass cookie bound to one address dropped off between a page and
+// the form posted from it.  Such a relay lists its ranges with no country and
+// asks to be bound as a whole: the cookie then follows the user across the
+// proxy's addresses, and nothing else about the lookups changes.
 //
 // The list comes from the unmask.sh hub (relay-egress.json, signed like the
 // bypass-IP aggregate, pulled by the same sync), which builds it once a day
@@ -45,7 +52,11 @@ const MinRetention = 0.5
 // carry others; they still apply, shown under their id.
 var Names = map[string]string{
 	"apple-private-relay": "iCloud Private Relay",
+	"zscaler":             "Zscaler",
 }
+
+// BindRelay: the Entry.Bind value of a relay bound as a whole.
+const BindRelay = "relay"
 
 // Doc: the hub document.
 type Doc struct {
@@ -54,17 +65,28 @@ type Doc struct {
 	Relays        map[string]Entry `json:"relays"`
 }
 
-// Entry: one relay's egress, by country.
+// Entry: one relay's egress.  Countries holds the ranges the relay places in
+// a country (the lookups take that country over the database's); Ranges the
+// ones it does not place -- a proxy whose addresses sit where the database
+// says, listed only so a pass cookie can follow its users between them.  Bind
+// says what a cookie issued inside one of its ranges is bound to: the listed
+// range (empty), or the relay as a whole (BindRelay) for a proxy that sends
+// one visitor's requests from several of its ranges.
 type Entry struct {
 	Name      string              `json:"name"`
 	Source    string              `json:"source"`
 	Countries map[string][]string `json:"countries"`
+	Ranges    []string            `json:"ranges,omitempty"`
+	Bind      string              `json:"bind,omitempty"`
 }
 
 // Hit: what the table knows about an address.
 type Hit struct {
 	Relay   string // relay id, e.g. "apple-private-relay"
-	Country string // ISO 3166-1 alpha-2 the relay gives the address
+	Country string // ISO 3166-1 alpha-2 the relay gives the address; "" when it gives none
+	// Key: what a pass cookie from the range is bound to when that is not
+	// the range itself -- the relay's id, for a relay bound as a whole.
+	Key string
 }
 
 type span struct {
@@ -84,7 +106,10 @@ type Table struct {
 
 // Compile builds the table.  Prefixes that do not parse, and country codes
 // that are not two letters, are skipped -- one bad row must not cost the
-// rest; overlaps keep the first span (the hub never emits them).
+// rest; overlaps keep the first span (the hub never emits them).  A relay
+// bound as a whole gets its id as the key, if the id can travel as an nginx
+// geo value and a header (letters, digits, ".", "_", "-"); otherwise its
+// ranges are bound one by one like any other.
 func Compile(doc Doc) (*Table, error) {
 	if doc.SchemaVersion != SchemaVersion {
 		return nil, fmt.Errorf("unsupported schemaVersion %d", doc.SchemaVersion)
@@ -95,21 +120,33 @@ func Compile(doc Doc) (*Table, error) {
 	}
 	seen := map[string]bool{}
 	for id, e := range doc.Relays {
+		key := ""
+		if e.Bind == BindRelay && validKey(id) {
+			key = id
+		}
+		add := func(raw, cc string) {
+			p, err := netip.ParsePrefix(raw)
+			if err != nil {
+				return
+			}
+			p = p.Masked()
+			t.spans = append(t.spans, span{p: p, lo: p.Addr(), hi: lastAddr(p), hit: Hit{Relay: id, Country: cc, Key: key}})
+			t.Prefixes++
+			if cc != "" {
+				seen[cc] = true
+			}
+		}
 		for cc, ps := range e.Countries {
 			cc = strings.ToUpper(strings.TrimSpace(cc))
 			if len(cc) != 2 || cc[0] < 'A' || cc[0] > 'Z' || cc[1] < 'A' || cc[1] > 'Z' {
 				continue
 			}
 			for _, raw := range ps {
-				p, err := netip.ParsePrefix(raw)
-				if err != nil {
-					continue
-				}
-				p = p.Masked()
-				t.spans = append(t.spans, span{p: p, lo: p.Addr(), hi: lastAddr(p), hit: Hit{Relay: id, Country: cc}})
-				t.Prefixes++
-				seen[cc] = true
+				add(raw, cc)
 			}
+		}
+		for _, raw := range e.Ranges {
+			add(raw, "")
 		}
 	}
 	t.Countries = len(seen)
@@ -127,6 +164,21 @@ func Compile(doc Doc) (*Table, error) {
 		return nil, fmt.Errorf("no usable prefixes")
 	}
 	return t, nil
+}
+
+// validKey reports whether id can stand as a bind key: 1-64 of the
+// characters that pass through an nginx geo value and an HTTP header verbatim.
+func validKey(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	for i := 0; i < len(id); i++ {
+		c := id[i]
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '_' || c == '-') {
+			return false
+		}
+	}
+	return true
 }
 
 // lastAddr is the highest address in p.

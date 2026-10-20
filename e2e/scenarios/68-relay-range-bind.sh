@@ -14,6 +14,9 @@
 #   2. the cookie passes from another address in the range, and not from outside
 #   3. the same for a PoW pass (the seed is bound to the range too)
 #   4. the rendered http.inc carries the range
+#   5. a relay bound as a whole (bind "relay", ranges with no country: the
+#      shape of a cloud proxy such as Zscaler) -- the fixture's e2e-cloud lists
+#      two ranges, and a pass solved inside one is good inside the other
 set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/env.sh"
@@ -81,4 +84,34 @@ if [ -z "$line" ]; then
     log_skip "bind-key geo check: could not read http.inc in the nginx container"
 else
     log_pass "http.inc binds 192.0.2.192/26 to itself: $line"
+fi
+
+# 5. A relay bound as a whole: the fixture's e2e-cloud (192.0.2.128/27 and
+#    192.0.2.160/27, no country).  A PoW solved from the first range passes
+#    from the second -- the key is the relay, not the range -- and not from
+#    outside; http.inc values both ranges with the relay's id.
+IP_C1=192.0.2.130
+IP_C2=192.0.2.170
+ch=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $IP_C1" "${BASE_URL}/unmask/challenge/")
+seed=$(printf '%s' "$ch" | grep -oE '__POW_SEED__\*/"[0-9a-f]+' | grep -oE '[0-9a-f]{40}' | head -1)
+issued=$(printf '%s' "$ch" | grep -oE '__ISSUED_AT__\*/[0-9]+' | grep -oE '[0-9]{6,}' | head -1)
+diff=$(printf '%s' "$ch" | grep -oE '__POW_DIFFICULTY__\*/[0-9]+' | grep -oE '[0-9]+$' | head -1)
+if [ -n "$seed" ] && [ -n "$issued" ]; then
+    pow=$(python3 "$DIR/lib/powsolve.py" "$seed" "$issued" "${diff:-18}")
+    if [ -n "$pow" ]; then
+        assert_eq 200 "$(code "$IP_C1" "$pow")" "a PoW solved inside the cloud proxy's first range passes there (200)"
+        assert_eq 200 "$(code "$IP_C2" "$pow")" "the pass is good from the proxy's other range (200: bound to the relay as a whole)"
+        assert_eq 403 "$(code "$IP_OUT" "$pow")" "the pass is refused outside the proxy (403)"
+    else
+        log_fail "PoW solve inside the cloud proxy produced no _bv"
+    fi
+else
+    log_fail "the challenge page carried no PoW seed for the cloud proxy's address"
+fi
+line=$(docker compose -f "$COMPOSE" exec -T nginx \
+    sh -c "grep -h '192.0.2.160/27 \"e2e-cloud\"' /etc/unmask/http.inc 2>/dev/null | head -1" 2>/dev/null | tr -d '\r')
+if [ -z "$line" ]; then
+    log_skip "bind-key geo check: could not read the relay-level line in http.inc"
+else
+    log_pass "http.inc binds the cloud proxy's range to the relay: $line"
 fi

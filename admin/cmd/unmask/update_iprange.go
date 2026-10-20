@@ -33,7 +33,7 @@ func cmdUpdateIPRange(args []string) error {
 	file := fs.String("file", "",
 		"read the aggregated doc from a local file instead of the hub (for hosts that cannot verify the hub TLS certificate; transfer bypass-iprange-all.json out of band)")
 	relayFile := fs.String("relay-file", "",
-		"read the relay egress list (relay-egress.json, with its .sig beside it) from a local file -- the -file path for the iCloud Private Relay list; may be given alone")
+		"read the relay egress list (relay-egress.json, with its .sig beside it) from a local file -- the -file path for the relay list (iCloud Private Relay, Zscaler); may be given alone")
 	insecure := fs.Bool("insecure-tls", false,
 		"skip transport certificate verification; the feed's detached signature then becomes REQUIRED (unsigned documents are refused)")
 	requireSig := fs.Bool("require-signature", false,

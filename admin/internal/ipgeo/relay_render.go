@@ -67,8 +67,8 @@ func enclosing(db *maxminddb.Reader, p netip.Prefix, rec any) bool {
 // walk has not written already.
 func relayCountryLines(b *strings.Builder, db *maxminddb.Reader, t *relay.Table, wanted map[string]bool, written map[netip.Prefix]bool, innerRuled map[netip.Prefix]bool) {
 	t.Each(func(p netip.Prefix, h relay.Hit) {
-		if written[p] {
-			return
+		if written[p] || h.Country == "" {
+			return // a relay that gives no country has nothing to add here
 		}
 		ruled := wanted[h.Country] || innerRuled[p]
 		if !ruled {
@@ -87,9 +87,14 @@ func relayCountryLines(b *strings.Builder, db *maxminddb.Reader, t *relay.Table,
 
 // relayASNLines finishes an ASN walk: every relay prefix inside a network the
 // walk wrote gets the empty value, which no rule names -- so the address is
-// judged as an unlisted network, not as the network the relay sits in.
+// judged as an unlisted network, not as the network the relay sits in.  A
+// relay that gives no country is its own network (a cloud proxy's ranges are
+// the proxy's), so a rule naming that network applies as written.
 func relayASNLines(b *strings.Builder, db *maxminddb.Reader, t *relay.Table, matched func(asn uint, org string) bool) {
-	t.Each(func(p netip.Prefix, _ relay.Hit) {
+	t.Each(func(p netip.Prefix, h relay.Hit) {
+		if h.Country == "" {
+			return
+		}
 		var rec struct {
 			ASN uint   `maxminddb:"autonomous_system_number"`
 			Org string `maxminddb:"autonomous_system_organization"`
