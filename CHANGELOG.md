@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [0.1.53-rc6] - 2026-10-21 (testing build)
+
+### Since rc5
+
+- The realtime strip's blocked tile returns beside the challenges it is taken from and the refused beside the rate limit; the passed stays beside the requests.
+
 ## [0.1.53-rc5] - 2026-10-20 (testing build)
 
 ### Changed
