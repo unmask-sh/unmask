@@ -658,6 +658,29 @@ func (h *Handler) ServeChallengeOrJSON(w http.ResponseWriter, r *http.Request) {
 			r = withReuseCap(r)
 		}
 	}
+	// A request that carries a body -- a form posted, a fetch -- cannot take
+	// the page's silent rebind: the bounce comes back as a GET and the body
+	// is gone with it, which is how a form posted through a proxy that moves
+	// the visitor's address between requests ended as a JSON error with the
+	// input lost.  So the roaming gates run here, in place: passed, the
+	// cookie is re-bound and the same request is sent again (307); refused,
+	// a browser's form goes back to the page it was posted from (303) rather
+	// than to a challenge for a page that is not there, and a fetch gets the
+	// JSON below as before.  A forced reason keeps its challenge.
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		site := siteFromRequest(r, h.snapshotSettings())
+		if h.bodyRebindEligible(r, site) {
+			if h.rebindBody(w, r, site) {
+				return
+			}
+			if isHTMLNavigation(r) {
+				if back := sameOriginReferer(r, h.basePath()); back != "" {
+					h.serveBackToReferer(w, back)
+					return
+				}
+			}
+		}
+	}
 	if isHTMLNavigation(r) {
 		h.ServeChallenge(w, r)
 		return

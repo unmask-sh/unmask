@@ -19,17 +19,26 @@
 // Anubis dropped IP binding entirely after it broke roaming clients (their PR
 // #365), trading replay resistance for UX.  This keeps the binding and narrows
 // the re-challenge to genuinely new clients instead.
+//
+// A request that carries a body (a form posted, a fetch) cannot take the
+// bounce page: the bounce comes back as a GET and the body is gone with it.
+// rebindBody runs the same gates and answers with a 307 to the original URL
+// instead, so the browser repeats the request -- body and all -- with the
+// re-bound cookie (the case of a proxy that sends one visitor's requests from
+// several addresses: the page from one, its form post from another).
 package handlers
 
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/cookies"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 )
 
 // rebindWindowSeconds: the _bvj validity window for site -- the larger of the
@@ -207,11 +216,13 @@ func (h *Handler) IssueBVJ(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 }
 
-// tryRebind: attempt the silent rebind on the challenge route.  Returns true
-// when it handled the response (cookie + bounce page written).  The caller
-// must skip it for every forced path (ja4_bot / honeypot / banned / protected
-// / rate-limit / test): those are deliberate challenges, not roaming.
-func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site, bt string) bool {
+// rebind runs the silent rebind's gates for the request; when they pass it
+// issues the re-bound _bv entry, records the bv_rebind event and returns true,
+// leaving the answer to the caller: the bounce page for a page (tryRebind),
+// a 307 for a request carrying a body (rebindBody).  The caller must skip it
+// for every forced path (ja4_bot / honeypot / banned / protected / rate-limit
+// / test): those are deliberate challenges, not roaming.
+func (h *Handler) rebind(w http.ResponseWriter, r *http.Request, site, bt string) bool {
 	cfg := h.cfg()
 	if !cfg.Rebind.RebindEnabled() {
 		return false
@@ -341,6 +352,7 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site, bt str
 			"asn_veto":  asnVeto,
 			"orig_path": origPath,
 			"reason":    reason,
+			"method":    r.Method,
 			// Same session token the serve would have used.  A successful
 			// rebind serves no challenge page, so this row is a session of
 			// one -- carried anyway so every row this request writes is
@@ -370,8 +382,130 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site, bt str
 		})
 	}
 
+	return true
+}
+
+// tryRebind: the silent rebind on the challenge route.  Returns true when it
+// handled the response (cookie + bounce page written).
+func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site, bt string) bool {
+	if !h.rebind(w, r, site, bt) {
+		return false
+	}
+	origPath := truncateAt(r.URL.Query().Get("_orig"), 200)
+	if !isLocalRedirect(origPath) {
+		origPath = "" // client-supplied; never bounce off-site
+	}
 	h.serveRebindRedirect(w, origPath)
 	return true
+}
+
+// bodyRebindEligible reports whether a request carrying a body may be
+// re-bound in place: the plain path only, as the page's rebind is.  Mirrors
+// the reasons the head of ServeChallenge names before it tries the page's
+// rebind -- a JA4 bot verdict, a trap, a ban, a protected path (the header,
+// or the rule resolved from the original URI), a community-list hit, the rate
+// path, the reuse cap, a test or preview -- and, on top, a custom rule nginx
+// named for the request: each of those is a challenge meant for this visitor,
+// not roaming.
+func (h *Handler) bodyRebindEligible(r *http.Request, site string) bool {
+	if strings.Contains(r.URL.Path, "/_rl/") || strings.Contains(r.URL.Path, "/admin/test/") {
+		return false
+	}
+	q := r.URL.Query()
+	if strings.TrimSpace(q.Get("_force")) != "" || q.Get("_test_ja4") == "1" || strings.TrimSpace(q.Get("_preview")) == "1" {
+		return false
+	}
+	if r.Header.Get("X-Honeypot-Hit") == "1" || r.Header.Get("X-Banned") == "1" {
+		return false
+	}
+	switch strings.TrimSpace(r.Header.Get("X-Protected-Mode")) {
+	case nginxconf.ProtectedModePoW, nginxconf.ProtectedModeCaptcha, nginxconf.ProtectedModePoWThenCaptcha:
+		return false
+	}
+	if strings.TrimSpace(r.Header.Get("X-Unmask-Rule")) != "" {
+		return false
+	}
+	cfg := h.cfg()
+	ja4 := strings.TrimSpace(r.Header.Get("X-Client-JA4"))
+	action := strings.TrimSpace(r.Header.Get("X-JA4-Action"))
+	if action == "" && ja4 != "" {
+		if _, a := matchJA4(ja4, cfg.Nginx); a != "" {
+			action = a
+		}
+	}
+	if action == "bot" {
+		return false
+	}
+	if protectedModeForOrig(cfg.Nginx, site, q.Get("_orig")) != "" {
+		return false
+	}
+	if h.CommunityBans != nil && cfg.CommunityBans.ApplyActive() {
+		if _, ok := h.CommunityBans.Matcher().Hit(clientIP(r), ja4); ok {
+			return false
+		}
+	}
+	return !reuseCapped(r)
+}
+
+// rebindBody answers a request carrying a body whose pass cookie is bound to
+// another address.  When the roaming gates pass, the cookie is re-bound and
+// the answer is a 307 to the original URL: the browser repeats the same
+// request, body and all, now with the re-bound cookie, and the visitor sees
+// nothing but the page they asked for.  false when the gates refused or there
+// is no local URL to send the request back to.
+func (h *Handler) rebindBody(w http.ResponseWriter, r *http.Request, site string) bool {
+	orig := r.URL.Query().Get("_orig")
+	if !isLocalRedirect(orig) {
+		return false
+	}
+	if !h.rebind(w, r, site, "") {
+		return false
+	}
+	w.Header().Set("Location", orig)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	w.Header().Set("X-Unmask-Mode", "rebind")
+	w.WriteHeader(http.StatusTemporaryRedirect)
+	return true
+}
+
+// sameOriginReferer is the path and query of the Referer when it names the
+// requested host and is not the challenge route itself; "" otherwise.  The
+// page a form was posted from is the one address a refused post can be sent
+// back to, and only the browser knows it.
+func sameOriginReferer(r *http.Request, basePath string) string {
+	ref := strings.TrimSpace(r.Header.Get("Referer"))
+	if ref == "" {
+		return ""
+	}
+	u, err := url.Parse(ref)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || strings.ToLower(u.Hostname()) != requestHost(r) {
+		return ""
+	}
+	p := u.EscapedPath()
+	if p == "" {
+		p = "/"
+	}
+	if u.RawQuery != "" {
+		p += "?" + u.RawQuery
+	}
+	if !isLocalRedirect(p) || strings.HasPrefix(p, basePath+"/challenge") || strings.HasPrefix(p, basePath+"/_rl/") {
+		return ""
+	}
+	return p
+}
+
+// serveBackToReferer sends a form post the gates refused back to the page it
+// was posted from (303: the browser fetches that page with a GET), where the
+// ordinary challenge -- transparent for most visitors -- runs on a page that
+// exists, instead of on the address the form was posted to.  The input is
+// lost either way; this way the visitor lands on the form, not on a JSON body.
+func (h *Handler) serveBackToReferer(w http.ResponseWriter, back string) {
+	w.Header().Set("Location", back)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+	w.Header().Set("X-Unmask-Mode", "back")
+	w.WriteHeader(http.StatusSeeOther)
 }
 
 // logRebindReject records a silent rebind refusal under PhaseBVRebindReject with a
@@ -416,6 +550,7 @@ func (h *Handler) logRebindReject(r *http.Request, site, ip, ja4, reason, lineag
 			"cur_asn":   curASN,
 			"reason":    reason,
 			"orig_path": origPath,
+			"method":    r.Method,
 			// Same session token as the serve this refusal falls through to
 			// (both happen in one request), so the hunt log shows them as one
 			// chain: "bv_rebind_reject(no_bvj) -> serve -> ...".  Read on its

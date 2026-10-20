@@ -22,6 +22,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-20) **The realtime strip reads from the challenges to the bypassed.**  The tiles run requests, challenges served, blocked, passed on a cookie, solved, refused, rate-limited, bypassed: the blocked after the challenges it is taken from, stopped beside let through, and the bypassed last, the one figure the judged scope leaves out of the requests.  The map's legend ends on the bypassed too.
 
+- (2026-10-20) **A form posted from a new address goes through.**  A request with a body could not take the silent re-bind, whose bounce returns as a GET: a visitor whose address changed between the page and the post got a JSON error and lost their input.  The route re-binds it in place and answers 307, so the browser sends the request again.  A refused post goes back to its form page.
+
 ## [0.1.53-rc3] - 2026-10-20 (testing build)
 
 ### Since rc2
