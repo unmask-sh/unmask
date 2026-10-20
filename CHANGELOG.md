@@ -12,7 +12,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.53-rc4] - 2026-10-20 (testing build)
+
+### Since rc3
+
+- The reason badge on the hunt rows, the CAPTCHA-pass list and the realtime page names the reason alone; the entry behind it, which rc3 appended to the badge by name, opens in a popover linked to where it is set.
 
 ### Added
 
