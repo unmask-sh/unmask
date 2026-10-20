@@ -157,23 +157,24 @@ func TestLiveViewTiles(t *testing.T) {
 	if req.TPS != "0.2" || req.Points == "" || !strings.HasPrefix(req.Points, "0.0,") {
 		t.Errorf("requests tile tps=%q points=%q", req.TPS, req.Points[:20])
 	}
-	// The order: the challenges served right after the requests, then the
-	// blocked figure they feed, the passed beside it, the solved, the
-	// refusals beside the rate limit, and the bypassed last (10-20).
+	// The order: how the judged requests split (passed on a cookie, served,
+	// refused), then what became of the challenges (solved, then the blocked
+	// figure after the terms it is taken from), the rate limit, and the
+	// bypassed last (10-20).
 	keys := make([]string, len(v.Tiles))
 	for i, tile := range v.Tiles {
 		keys[i] = tile.Key
 	}
-	if got := strings.Join(keys, ","); got != "requests,serve,blocked,pass,solve,deny,rate_limit,bypass" {
+	if got := strings.Join(keys, ","); got != "requests,pass,serve,deny,solve,blocked,rate_limit,bypass" {
 		t.Errorf("tile order = %s", got)
 	}
-	deny := v.Tiles[5]
+	deny := v.Tiles[3]
 	if deny.Key != "deny" || deny.Last != 1 {
 		t.Errorf("deny tile = %+v", deny)
 	}
-	// The blocked tile follows the challenges served, in the map legend's
-	// colour; the deny above is its whole figure here.
-	blocked := v.Tiles[2]
+	// The blocked tile follows the solved, the last term it subtracts, in the
+	// map legend's colour; the deny above is its whole figure here.
+	blocked := v.Tiles[5]
 	if blocked.Key != "blocked" || blocked.Last != 1 || blocked.Last30 != 1 || blocked.Color != "#f87171" ||
 		blocked.LabelKey != "overview.live.blocked" || blocked.HelpKey != "overview.live.blocked_help" || len(blocked.Bars) != live.Minutes {
 		t.Errorf("blocked tile = %+v", blocked)

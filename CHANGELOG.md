@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-10-20) **The realtime strip opens on how the judged requests split.**  The tiles now run requests, passed on a cookie, challenges served, refused, solved, blocked, rate-limited, bypassed: the first four the split of the judged requests, in the order the requests tile's help spells it; then what the challenges and refusals became, the blocked figure after the terms it is taken from; the bypassed last.
+
 ## [0.1.53-rc4] - 2026-10-20 (testing build)
 
 ### Since rc3
