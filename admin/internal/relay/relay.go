@@ -1,6 +1,7 @@
 // Package relay knows the addresses that shared-egress relays -- Apple's
-// iCloud Private Relay, Zscaler's cloud proxies -- send their users' traffic
-// from, and, for a relay that says so, the country those addresses serve.
+// iCloud Private Relay, the cloud proxies of Zscaler, Netskope, Cato Networks
+// and Cisco Umbrella -- send their users' traffic from, and, for a relay that
+// says so, the country those addresses serve.
 //
 // Country databases place many relay addresses in the wrong country: one
 // address carries a whole region's users and the relay moves its addresses
@@ -53,6 +54,9 @@ const MinRetention = 0.5
 var Names = map[string]string{
 	"apple-private-relay": "iCloud Private Relay",
 	"zscaler":             "Zscaler",
+	"netskope":            "Netskope",
+	"cato-networks":       "Cato Networks",
+	"cisco-umbrella":      "Cisco Umbrella",
 }
 
 // BindRelay: the Entry.Bind value of a relay bound as a whole.

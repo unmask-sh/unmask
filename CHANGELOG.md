@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- (2026-10-21) **The relay list names Netskope, Cato Networks and Cisco Umbrella.**  Their cloud proxies, like Zscaler's, send one visitor's requests from several addresses, so a pass cookie bound to one address fell off between a page and the next.  Inside the ranges each publishes, gathered by unmask.sh, the cookie now follows the visitor across the proxy as a whole.
+
 ### Security
 
 - (2026-10-21) **A POST to robots.txt and the other fetched-file presets is judged.**  The default-on bypass presets (static files, `/.well-known/`, browser metadata, health checks) passed every method, so anyone could send a request body past the challenge; on a site that routes unknown paths to one script, that script parsed it.  They now pass GET, HEAD and OPTIONS only; your own bypass paths still pass every method.
