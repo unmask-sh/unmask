@@ -17,6 +17,12 @@
 #   5. a relay bound as a whole (bind "relay", ranges with no country: the
 #      shape of a cloud proxy such as Zscaler) -- the fixture's e2e-cloud lists
 #      two ranges, and a pass solved inside one is good inside the other
+#   6. the roaming credential (_bvj) challenge.js asks for after a solve is
+#      issued for a pass bound to the relay: the daemon checks the pass with
+#      the relay's key, as the plugin does (0.1.53-rc6 checked it with the
+#      address and refused every such pass, 403 no_valid_bv)
+#   7. with it, a visitor the relay moves out of the listed range, within the
+#      same network, is re-bound there without a challenge
 set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/env.sh"
@@ -27,7 +33,11 @@ IP_B=192.0.2.201     # another address in the same range
 IP_OUT=192.0.2.100   # outside it
 
 ck=$(mktemp)
-trap 'rm -f "$ck"' EXIT
+# Clean up AND keep assert.sh's exit guard: a bare `trap ... EXIT` here would
+# replace _e2e_exit_guard, and a FAIL with no explicit `exit 1` would report
+# the scenario as passed.
+cleanup() { rc=$?; rm -f "$ck"; [ "$rc" -eq 0 ] && [ "${_E2E_FAILS:-0}" -gt 0 ] && exit 1; exit "$rc"; }
+trap cleanup EXIT
 
 # code <client-ip> <bv-cookie-value> -> HTTP status of a challenged path.
 code() {
@@ -59,6 +69,7 @@ assert_eq 403 "$(code "$IP_OUT" "$bv")" "the cookie is refused outside the range
 
 # 3. A PoW pass is bound to the range the same way: the seed the challenge page
 #    hands out from IP-A verifies from IP-B.
+pow_range=""
 ch=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $IP_A" "${BASE_URL}/unmask/challenge/")
 seed=$(printf '%s' "$ch" | grep -oE '__POW_SEED__\*/"[0-9a-f]+' | grep -oE '[0-9a-f]{40}' | head -1)
 issued=$(printf '%s' "$ch" | grep -oE '__ISSUED_AT__\*/[0-9]+' | grep -oE '[0-9]{6,}' | head -1)
@@ -69,6 +80,7 @@ if [ -n "$seed" ] && [ -n "$issued" ]; then
         assert_eq 200 "$(code "$IP_A" "$pow")" "a PoW solved from IP-A passes from IP-A (200)"
         assert_eq 200 "$(code "$IP_B" "$pow")" "the PoW pass is good from another address in the range (200)"
         assert_eq 403 "$(code "$IP_OUT" "$pow")" "the PoW pass is refused outside the range (403)"
+        pow_range=$pow
     else
         log_fail "PoW solve produced no _bv"
     fi
@@ -92,6 +104,7 @@ fi
 #    outside; http.inc values both ranges with the relay's id.
 IP_C1=192.0.2.130
 IP_C2=192.0.2.170
+pow_cloud=""
 ch=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $IP_C1" "${BASE_URL}/unmask/challenge/")
 seed=$(printf '%s' "$ch" | grep -oE '__POW_SEED__\*/"[0-9a-f]+' | grep -oE '[0-9a-f]{40}' | head -1)
 issued=$(printf '%s' "$ch" | grep -oE '__ISSUED_AT__\*/[0-9]+' | grep -oE '[0-9]{6,}' | head -1)
@@ -102,6 +115,7 @@ if [ -n "$seed" ] && [ -n "$issued" ]; then
         assert_eq 200 "$(code "$IP_C1" "$pow")" "a PoW solved inside the cloud proxy's first range passes there (200)"
         assert_eq 200 "$(code "$IP_C2" "$pow")" "the pass is good from the proxy's other range (200: bound to the relay as a whole)"
         assert_eq 403 "$(code "$IP_OUT" "$pow")" "the pass is refused outside the proxy (403)"
+        pow_cloud=$pow
     else
         log_fail "PoW solve inside the cloud proxy produced no _bv"
     fi
@@ -114,4 +128,47 @@ if [ -z "$line" ]; then
     log_skip "bind-key geo check: could not read the relay-level line in http.inc"
 else
     log_pass "http.inc binds the cloud proxy's range to the relay: $line"
+fi
+
+# bvj_for <client-ip> <pass> -> the _bvj /unmask/api/bvj sets for the pass, as
+# challenge.js asks for it right after a solve; empty when refused.  The curl
+# UA, which "/" challenges with no forced reason (scenario 36), so the rebind
+# below is reached with the same fingerprint.
+bvj_for() {
+    curl -sk -D - -o /dev/null -X POST -A "$UA_CURL" -H "X-Forwarded-For: $1" \
+        -H "Cookie: _bv=$2" "${BASE_URL}/unmask/api/bvj" \
+        | sed -n 's/^[Ss]et-[Cc]ookie: _bvj=\([^;]*\).*/\1/p' | head -1
+}
+
+# 6. The _bvj for the cloud proxy's pass, posted from the proxy's other range
+#    -- a proxy sends the request after a page from another of its addresses.
+if [ -n "$pow_cloud" ]; then
+    [ -n "$(bvj_for "$IP_C2" "$pow_cloud")" ] \
+        && log_pass "/api/bvj issues the roaming credential for a pass bound to the relay as a whole" \
+        || log_fail "/api/bvj refused a pass bound to the cloud proxy"
+else
+    log_fail "no pass from the cloud proxy to ask a _bvj for"
+fi
+
+# 7. The same for a pass bound to a range, and what the _bvj is for: the relay
+#    moves the visitor out of the listed range, to an address of the same
+#    network (the e2e geo override gives IP-B and IP_MOVED one ASN, so the
+#    roaming ASN gate passes, as it does for a relay that moves its visitors
+#    within one provider).  The stale pass fails the plugin there, and the
+#    _bvj re-binds it: the bounce, no challenge.
+IP_MOVED=198.51.100.69   # outside every fixture range, same ASN as IP-B
+if [ -n "$pow_range" ]; then
+    bvj=$(bvj_for "$IP_B" "$pow_range")
+    if [ -n "$bvj" ]; then
+        log_pass "/api/bvj issues the roaming credential for a pass bound to the relay's range"
+        resp=$(curl -sk -D - -o /dev/null -A "$UA_CURL" -H "X-Forwarded-For: $IP_MOVED" \
+            -H "Cookie: _bv=$pow_range; _bvj=$bvj" "${BASE_URL}/")
+        printf '%s' "$resp" | grep -qi '^x-unmask-mode: rebind' \
+            && log_pass "moved out of the range, the pass is re-bound without a challenge (X-Unmask-Mode: rebind)" \
+            || log_fail "moved out of the range, the pass was not re-bound: $(printf '%s' "$resp" | head -1 | tr -d '\r')"
+    else
+        log_fail "/api/bvj refused a pass bound to the relay's range"
+    fi
+else
+    log_fail "no pass from the relay's range to ask a _bvj for"
 fi

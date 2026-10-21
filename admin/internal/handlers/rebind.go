@@ -157,17 +157,24 @@ func strongerGrade(a, b string) string {
 // Companion endpoint for the JS PoW path, which mints its _bv client-side and
 // never passes through VerifyJSON: after setting _bv, challenge.js calls here
 // once so the solve also yields a _bvj.  Gated on a _bv that verifies for the
-// CURRENT ip+host (only a client that is passed right now can obtain one) and
-// on that entry being a real solve: a kind="rebind" entry must not seed a
-// fresh lineage, or every rebound hop would refill its own budget and the cap
-// would never accumulate.
+// CURRENT bind key + host (only a client that is passed right now can obtain
+// one) and on that entry being a real solve: a kind="rebind" entry must not
+// seed a fresh lineage, or every rebound hop would refill its own budget and
+// the cap would never accumulate.
+//
+// The bind key is the one the plugin verifies with (bindKeyFor: a relay's
+// range, or the relay as a whole, for a client inside one; the address for
+// everyone else).  Checked against the address instead, every pass issued
+// inside a relay failed here, and its holder had no _bvj to rebind with when
+// the relay moved it to another range or the visitor left the relay.
 func (h *Handler) IssueBVJ(w http.ResponseWriter, r *http.Request) {
 	cfg := h.cfg()
 	if !cfg.Rebind.RebindEnabled() {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": 0, "skip": "disabled"})
 		return
 	}
-	ip := clientIP(r)
+	ip := clientIP(r) // the _bvj's solve-time ASN is the address's
+	key := bindKeyFor(r)
 	host := requestHost(r)
 	site := siteFromRequest(r, *cfg)
 	ch := cfg.Challenge.Resolve(site)
@@ -176,7 +183,7 @@ func (h *Handler) IssueBVJ(w http.ResponseWriter, r *http.Request) {
 		if c.Name != "_bv" || c.Value == "" || len(c.Value) > 1024 {
 			continue
 		}
-		if k, m := cookies.MatchingEntryKind(c.Value, cfg.Secret.BVSecret, ip, host,
+		if k, m := cookies.MatchingEntryKind(c.Value, cfg.Secret.BVSecret, key, host,
 			ch.PowCookieValidSecondsResolved(),
 			ch.CaptchaCookieValidSecondsResolved(),
 			ch.ResolvedPowDifficulty()); m {
