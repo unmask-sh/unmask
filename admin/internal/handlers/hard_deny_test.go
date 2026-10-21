@@ -229,8 +229,13 @@ func TestHardDenyHasTheSamePlaceOnBothWires(t *testing.T) {
 	// The rescues must be re-checked in the case itself.  Every case that grants
 	// them sits BELOW the cookie, so a deny placed above the cookie skips them
 	// unless it asks again.
+	// (bypassPath is the bypass-path match, both the operator's rows and the
+	// presets for fetched files on a fetch.)
 	caseSrc := src[fDeny:fWBA]
-	for _, want := range []string{"isSearchBotUA(", "matchers.ipBypass.Match(", "matchers.bypass"} {
+	if !strings.Contains(src, "bypassPath := matchPath(uri, matchers.bypass)") {
+		t.Error("forward-auth's bypassPath no longer reads matchers.bypass")
+	}
+	for _, want := range []string{"isSearchBotUA(", "matchers.ipBypass.Match(", "bypassPath"} {
 		if !strings.Contains(caseSrc, want) {
 			t.Errorf("the forward-auth deny does not re-check %s; an exemption the operator "+
 				"set on purpose would be overridden", want)

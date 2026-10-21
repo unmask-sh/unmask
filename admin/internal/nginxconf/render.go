@@ -702,12 +702,15 @@ type renderData struct {
 	ProtectedPathsPerHost []ProtectedPathHostMaps // one entry per unique non-empty Site
 	BypassPaths           []BypassPathRule        // whitelist paths {Pattern, Site} (= source-of-truth list)
 	// BypassPathsGlobal / BypassPathsPerHost are the rendered split:
-	// global rules feed a `map $request_uri ...` block directly, while per-host
+	// global rules feed a `map $uri ...` block directly, while per-host
 	// rules group by Site and are emitted as separate path-only maps + a host
 	// dispatcher map.  Both keep the original Pattern (= `^/api/` form) intact;
 	// no anchor stripping needed because no map ever concatenates host + uri.
-	BypassPathsGlobal  []string             // patterns from rules with Site == ""
+	BypassPathsGlobal  []string             // patterns from rules with Site == "" (any method)
 	BypassPathsPerHost []BypassPathHostMaps // one entry per unique non-empty Site
+	// BypassPathsGlobalSafe: patterns of the SafeMethodsOnly presets, which
+	// pass GET / HEAD / OPTIONS only (their own map, ANDed with the method).
+	BypassPathsGlobalSafe []string
 	// GeoExemptPaths* / AsnExemptPaths*: per-axis path exemptions (RSS/Atom
 	// feeds etc.).  Same global + per-host split as bypass paths, but each
 	// feeds its own signal ($is_geo_exempt_path / $is_asn_exempt_path), which
@@ -1540,7 +1543,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// Whitelist paths: enabled presets + extras (= skip ExtraDisabled[i]=true).
 	//
 	// Patterns are stored as path-anchored PCRE (e.g., `^/api/`) and are
-	// evaluated against `$request_uri` in the rendered nginx map -- no host
+	// evaluated against `$uri` in the rendered nginx map -- no host
 	// concatenation, so `^` keeps its natural "start of path" meaning.  Per-host
 	// rules are split off into separate maps below; the host is selected by a
 	// dispatcher map, never embedded in the path pattern.
@@ -1549,8 +1552,13 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// deviations (enabled_presets / disabled_presets), via the shared
 	// EffectiveBypassPathPresets so this render agrees with the forward-auth
 	// matcher and the settings UI.
+	//
+	// A SafeMethodsOnly preset's rules are marked SafeOnly and rendered into
+	// their own map, which passes GET / HEAD / OPTIONS only.  An operator's row
+	// for the same pattern lifts the mark: the row is the operator saying the
+	// path passes, whatever the method.
 	bp := []BypassPathRule{}
-	bpSeen := map[string]bool{}
+	bpSeen := map[string]int{} // Site|Pattern -> index in bp
 	enabledBPath := EffectiveBypassPathPresets(s.Nginx.BypassPaths.EnabledPresets, s.Nginx.BypassPaths.DisabledPresets)
 	for _, g := range BypassPathPresetGroups {
 		if !enabledBPath[g.ID] {
@@ -1558,11 +1566,13 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		}
 		for _, r := range g.Rules {
 			key := r.Site + "|" + r.Pattern
-			if bpSeen[key] {
+			if i, ok := bpSeen[key]; ok {
+				// Two presets sharing a pattern: the wider one wins.
+				bp[i].SafeOnly = bp[i].SafeOnly && g.SafeMethodsOnly
 				continue
 			}
-			bpSeen[key] = true
-			bp = append(bp, BypassPathRule{Pattern: r.Pattern, Site: r.Site})
+			bpSeen[key] = len(bp)
+			bp = append(bp, BypassPathRule{Pattern: r.Pattern, Site: r.Site, SafeOnly: g.SafeMethodsOnly})
 		}
 	}
 	// Custom rows: per-row Site filter is already part of BypassPath, so
@@ -1579,10 +1589,11 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		}
 		site := trimSpaceAndQuotes(r.Site)
 		key := site + "|" + p
-		if bpSeen[key] {
+		if i, ok := bpSeen[key]; ok {
+			bp[i].SafeOnly = false
 			continue
 		}
-		bpSeen[key] = true
+		bpSeen[key] = len(bp)
 		bp = append(bp, BypassPathRule{Pattern: p, Site: site})
 	}
 	sort.Slice(bp, func(i, j int) bool {
@@ -1594,10 +1605,20 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	d.BypassPaths = bp
 
 	// Split into the render-friendly form used by http.conf.tmpl: a single
-	// global map keyed on $request_uri + one path-only map per unique host
-	// + a host dispatcher map.  Keeping the path patterns alone in each map
-	// means `^/api/` is honored literally with no double-anchor wart.
-	d.BypassPathsGlobal, d.BypassPathsPerHost = splitBypassPathsForRender(bp)
+	// global map keyed on $uri + one path-only map per unique host + a host
+	// dispatcher map.  Keeping the path patterns alone in each map means
+	// `^/api/` is honored literally with no double-anchor wart.  The
+	// safe-method rules (presets, so global) go to a map of their own.
+	bpAny := make([]BypassPathRule, 0, len(bp))
+	d.BypassPathsGlobalSafe = nil
+	for _, r := range bp {
+		if r.SafeOnly && r.Site == "" {
+			d.BypassPathsGlobalSafe = append(d.BypassPathsGlobalSafe, r.Pattern)
+			continue
+		}
+		bpAny = append(bpAny, r)
+	}
+	d.BypassPathsGlobal, d.BypassPathsPerHost = splitBypassPathsForRender(bpAny)
 
 	// Per-axis exempt paths: same render machinery (global + per-host maps) as
 	// bypass paths, but no presets.  Each feeds its own signal so a matched

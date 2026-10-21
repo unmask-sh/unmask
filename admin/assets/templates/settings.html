@@ -1877,7 +1877,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
         <input type="checkbox" name="bypass_path_preset_enabled" value="{{ .ID }}" {{ if .Enabled }}checked{{ end }} id="bp-{{ .ID }}">
         <label for="bp-{{ .ID }}" class="lbl">
-          <div class="ttl">{{ .Label }}{{ if .DefaultOn }}<span class="added">{{ t $.Lang "settings.bypass_paths.preset_default_on" }}</span>{{ end }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .UpdatedIn }}<span class="added">{{ tf $.Lang "settings.ua.updated_in" .UpdatedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
+          <div class="ttl">{{ .Label }}{{ if .DefaultOn }}<span class="added">{{ t $.Lang "settings.bypass_paths.preset_default_on" }}</span>{{ end }}{{ if .SafeMethodsOnly }}<span class="added">{{ t $.Lang "settings.bypass_paths.preset_safe_methods" }}</span>{{ end }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .UpdatedIn }}<span class="added">{{ tf $.Lang "settings.ua.updated_in" .UpdatedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
           <div class="pat">{{ template "presetPats" (dict "Lang" $.Lang "Mode" .Mode "Pats" .Patterns) }}</div>
         </label>
       </div>

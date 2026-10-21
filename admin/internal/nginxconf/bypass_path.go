@@ -7,11 +7,22 @@
 // Per-site restriction: each rule has a site column.  Empty = all sites.
 // Non-empty = only hits when $host equals that value.
 //
-// Render layout (= http.conf.tmpl): patterns are evaluated against
-// `$request_uri` directly, never a `$host:$request_uri` concatenation, so a
+// Render layout (= http.conf.tmpl): patterns are evaluated against `$uri`
+// (the normalized path) directly, never a `$host:$uri` concatenation, so a
 // natural `^/api/` regex keeps its "start of path" meaning.  Per-site rules
 // are emitted as one extra path-only map per unique host plus a host
 // dispatcher map that selects the right per-host result.
+//
+// Methods: a path the operator lists passes whatever the method -- an API
+// takes its POSTs.  The default-on presets name files that are only ever
+// fetched (robots.txt, a favicon, an ACME token, a health check), so they
+// pass GET, HEAD and OPTIONS only; anything else on them is judged like any
+// other request.  Without that, a POST to /robots.txt passed unjudged, and on
+// a site that hands every path it has no file for to one script (a PHP front
+// controller), the body reached that script's request parser: the exemption
+// decided for /robots.txt still holds after try_files moves the request to
+// /index.php, because nginx keeps a request's cached variables across an
+// internal redirect.
 package nginxconf
 
 import (
@@ -37,22 +48,47 @@ type BypassPathGroup struct {
 	// stores deviations, so a new preset's default reaches existing installs
 	// too.
 	DefaultOn bool
+	// SafeMethodsOnly: the group's paths pass GET, HEAD and OPTIONS only
+	// (SafeMethods); another method on them is judged as usual.  Set on the
+	// presets for files that are only ever fetched; an API or Git preset
+	// takes POSTs and leaves it false.  Preset rules carry no Site, so the
+	// render keeps them in the global map.
+	SafeMethodsOnly bool
+}
+
+// SafeMethods: the methods a SafeMethodsOnly preset passes -- the ones that
+// fetch rather than send.  OPTIONS stays, for a CORS preflight; no server
+// parses a request body for any of the three.
+var SafeMethods = []string{"GET", "HEAD", "OPTIONS"}
+
+// IsSafeMethod reports whether m is one of SafeMethods (case-insensitive,
+// as nginx's map compares it).
+func IsSafeMethod(m string) bool {
+	for _, s := range SafeMethods {
+		if strings.EqualFold(m, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // BypassPathRule: a single entry.  Empty Site = all sites.
 //
 // Pattern convention: a **path-anchored** PCRE regex evaluated against
-// `$request_uri` (= just the path, NOT host:request_uri).  Operators write
+// `$uri` (= just the normalized path, NOT host:uri).  Operators write
 // `^/api/` as they would for any path-matching regex; both the in-memory
 // matcher in auth_check.go and the nginx render in http.conf.tmpl feed the
-// pattern into a `map $request_uri ...` directive (= per-site rules go
-// through a host dispatcher map; pattern itself never carries host info).
+// pattern into a `map $uri ...` directive (= per-site rules go through a
+// host dispatcher map; pattern itself never carries host info).
 //
 // Empty Site selects the rule for the global path map; non-empty Site
 // routes the rule into the per-host map for that exact host string.
 type BypassPathRule struct {
 	Pattern string // path-anchored PCRE (e.g., "^/api/", "/static/", "/foo$")
 	Site    string // empty = global (= every host); else exact host match
+	// SafeOnly: pass only SafeMethods (from a SafeMethodsOnly preset; the
+	// render fills it).  An operator's row never sets it.
+	SafeOnly bool
 }
 
 // BypassPathPresetGroups: presets for typical bypass paths.  Each group
@@ -61,10 +97,11 @@ type BypassPathRule struct {
 // against those defaults.
 var BypassPathPresetGroups = []BypassPathGroup{
 	{
-		ID:        "static-assets",
-		DefaultOn: true, // robots.txt / sitemap.xml behind a challenge = SEO incident
-		UpdatedIn: "v0.1.2",
-		Label:     "Static assets (= /static/ /assets/ /favicon.ico /robots.txt /sitemap.xml /ads.txt etc.)",
+		ID:              "static-assets",
+		DefaultOn:       true,      // robots.txt / sitemap.xml behind a challenge = SEO incident
+		UpdatedIn:       "v0.1.53", // GET / HEAD / OPTIONS only
+		SafeMethodsOnly: true,
+		Label:           "Static assets (= /static/ /assets/ /favicon.ico /robots.txt /sitemap.xml /ads.txt etc.)",
 		Rules: []BypassPathRule{
 			{Pattern: `^/static/`},
 			{Pattern: `^/assets/`},
@@ -79,19 +116,21 @@ var BypassPathPresetGroups = []BypassPathGroup{
 		},
 	},
 	{
-		ID:        "well-known",
-		DefaultOn: true, // a challenged ACME HTTP-01 = failed cert renewal, noticed on expiry day
-		UpdatedIn: "v0.1.2",
-		Label:     "/.well-known/ (= ACME / OIDC discovery / security.txt etc.)",
+		ID:              "well-known",
+		DefaultOn:       true,      // a challenged ACME HTTP-01 = failed cert renewal, noticed on expiry day
+		UpdatedIn:       "v0.1.53", // GET / HEAD / OPTIONS only
+		SafeMethodsOnly: true,
+		Label:           "/.well-known/ (= ACME / OIDC discovery / security.txt etc.)",
 		Rules: []BypassPathRule{
 			{Pattern: `^/\.well-known/`},
 		},
 	},
 	{
-		ID:        "browser-metadata",
-		DefaultOn: true, // browsers fetch these cookie-less without user action; a challenge page breaks them silently
-		UpdatedIn: "v0.1.2",
-		Label:     "Browser metadata (= manifest / browserconfig / apple-touch-icon / service worker -- browsers fetch these without user action)",
+		ID:              "browser-metadata",
+		DefaultOn:       true,      // browsers fetch these cookie-less without user action; a challenge page breaks them silently
+		UpdatedIn:       "v0.1.53", // GET / HEAD / OPTIONS only
+		SafeMethodsOnly: true,
+		Label:           "Browser metadata (= manifest / browserconfig / apple-touch-icon / service worker -- browsers fetch these without user action)",
 		Rules: []BypassPathRule{
 			// PWA manifests (= both naming conventions).
 			{Pattern: `^/manifest\.json$`},
@@ -110,10 +149,11 @@ var BypassPathPresetGroups = []BypassPathGroup{
 		AddedIn: "v0.1.0",
 	},
 	{
-		ID:        "health",
-		DefaultOn: true, // a challenged health check = LB marks the node unhealthy
-		UpdatedIn: "v0.1.2",
-		Label:     "Health checks (= /healthz / /readyz / /api/health)",
+		ID:              "health",
+		DefaultOn:       true,      // a challenged health check = LB marks the node unhealthy
+		UpdatedIn:       "v0.1.53", // GET / HEAD / OPTIONS only
+		SafeMethodsOnly: true,
+		Label:           "Health checks (= /healthz / /readyz / /api/health)",
 		Rules: []BypassPathRule{
 			{Pattern: `^/healthz$`},
 			{Pattern: `^/readyz$`},

@@ -67,6 +67,9 @@ function handle_request(r)
             ["X-Original-IP"]   = r.useragent_ip or "",
             ["X-Original-UA"]   = r.headers_in["User-Agent"] or "",
             ["X-Original-Host"] = r.headers_in["Host"] or r.hostname or "",
+            -- The client's method: the bypass-path presets for fetched files
+            -- pass GET / HEAD / OPTIONS only.
+            ["X-Original-Method"] = r.method or "",
             ["Cookie"]          = r.headers_in["Cookie"] or "",
             -- Client JA4 (forward-auth mode). Apache cannot read the TLS
             -- handshake, so this carries a value only when a JA4-aware layer

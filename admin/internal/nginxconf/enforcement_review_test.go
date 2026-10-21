@@ -100,7 +100,7 @@ func TestRenderHoldsNewTighteningButNeverRescue(t *testing.T) {
 				verdict = true
 			}
 		}
-		for _, p := range d.BypassPathsGlobal {
+		for _, p := range append(append([]string{}, d.BypassPathsGlobal...), d.BypassPathsGlobalSafe...) {
 			if p == `^/robots\.txt$` { // a default-on rescue preset pattern
 				rescue = true
 			}

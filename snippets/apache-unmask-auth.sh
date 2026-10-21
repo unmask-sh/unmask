@@ -33,6 +33,9 @@ IP="${REMOTE_ADDR:-}"
 UA="${HTTP_USER_AGENT:-}"
 HOST="${HTTP_HOST:-}"
 COOKIE="${HTTP_COOKIE:-}"
+# The client's method, when Apache exports it: the bypass-path presets for
+# fetched files pass GET / HEAD / OPTIONS only.  Unset, they pass every method.
+METHOD="${REQUEST_METHOD:-}"
 # Client JA4 (forward-auth mode). Apache exports request headers as HTTP_*
 # env vars, so X-Client-JA4 -> HTTP_X_CLIENT_JA4. Carries a value only when a
 # JA4-aware front layer (LB / CDN) set it. The daemon honors it ONLY when the
@@ -53,6 +56,7 @@ RESP=$(curl -sS -o /dev/null -w "%{http_code}|%header{x-unmask-action}|%header{x
     -H "X-Original-IP: $IP" \
     -H "X-Original-UA: $UA" \
     -H "X-Original-Host: $HOST" \
+    -H "X-Original-Method: $METHOD" \
     -H "X-Client-JA4: $JA4" \
     -H "X-Unmask-Conn-Peer: $CONN_PEER" \
     -H "Cookie: $COOKIE" \

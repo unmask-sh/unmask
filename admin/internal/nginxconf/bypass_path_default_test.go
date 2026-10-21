@@ -96,7 +96,10 @@ func TestEffectiveBypassPathPresets(t *testing.T) {
 // The renderer applies the defaults: an empty config renders the default-ON
 // presets' patterns, keeps api-paths out, and honours disabled_presets.
 func TestRenderAppliesPresetDefaults(t *testing.T) {
-	joined := func(d renderData) string { return strings.Join(d.BypassPathsGlobal, "\n") }
+	// Both global lists: the default-ON presets render into the safe-method one.
+	joined := func(d renderData) string {
+		return strings.Join(append(append([]string{}, d.BypassPathsGlobal...), d.BypassPathsGlobalSafe...), "\n")
+	}
 
 	// Empty config -> default-ON patterns present, default-OFF absent.
 	s := settings.Settings{}

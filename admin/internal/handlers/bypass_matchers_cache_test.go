@@ -20,17 +20,19 @@ func TestBypassMatchersCacheHits(t *testing.T) {
 	a := h.bypassMatchers(snap, "site-a")
 	b := h.bypassMatchers(snap, "site-a")
 	// A cache hit returns the identical pathMatchers value; slice headers
-	// compare by data pointer, so same backing array = not rebuilt.
-	if len(a.bypass) == 0 || len(b.bypass) == 0 {
+	// compare by data pointer, so same backing array = not rebuilt.  (The
+	// well-known preset passes GET / HEAD / OPTIONS only, so it compiles into
+	// bypassSafe.)
+	if len(a.bypassSafe) == 0 || len(b.bypassSafe) == 0 {
 		t.Fatal("expected non-empty bypass matchers from the well-known preset")
 	}
-	if &a.bypass[0] != &b.bypass[0] {
+	if &a.bypassSafe[0] != &b.bypassSafe[0] {
 		t.Error("same snapshot pointer + site must hit the cache (matchers were rebuilt)")
 	}
 
 	// Different site with the same snapshot: rebuild.
 	c := h.bypassMatchers(snap, "site-b")
-	if len(c.bypass) > 0 && &a.bypass[0] == &c.bypass[0] {
+	if len(c.bypassSafe) > 0 && &a.bypassSafe[0] == &c.bypassSafe[0] {
 		t.Error("different site must not reuse the cached matchers")
 	}
 
@@ -38,7 +40,7 @@ func TestBypassMatchersCacheHits(t *testing.T) {
 	snap2 := &settings.Settings{}
 	snap2.Nginx = snap.Nginx
 	d := h.bypassMatchers(snap2, "site-a")
-	if len(d.bypass) > 0 && &a.bypass[0] == &d.bypass[0] {
+	if len(d.bypassSafe) > 0 && &a.bypassSafe[0] == &d.bypassSafe[0] {
 		t.Error("a new snapshot pointer must rebuild the matchers")
 	}
 }

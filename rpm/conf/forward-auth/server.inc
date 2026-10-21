@@ -245,6 +245,9 @@ location = /_unmask/check {
     proxy_set_header X-Original-IP    $remote_addr;
     proxy_set_header X-Original-UA    $http_user_agent;
     proxy_set_header X-Original-Host  $host;
+    # The client's method ($request_method reads the main request): the
+    # bypass-path presets for fetched files pass GET / HEAD / OPTIONS only.
+    proxy_set_header X-Original-Method $request_method;
     proxy_set_header Cookie           $http_cookie;
     # Verdict-header strip: the subrequest inherits the client's headers, so
     # blank the spoofable verdict set (see /unmask/admin/ above).  X-Client-JA4

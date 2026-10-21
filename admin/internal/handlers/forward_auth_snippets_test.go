@@ -111,6 +111,12 @@ func TestForwardAuthSnippetsMatchHandlerContract(t *testing.T) {
 			"127.0.0.1:9477",                 // admin upstream
 			"$upstream_http_x_unmask_action", // reads back the verdict header
 			"@unmask_challenge",              // 401 -> challenge handoff
+			// the client's method: the fetched-file bypass presets pass
+			// GET / HEAD / OPTIONS only
+			"X-Original-Method $request_method",
+		}},
+		{"apache-unmask.lua", []string{
+			`["X-Original-Method"] = r.method`,
 		}},
 	}
 	for _, c := range cases {

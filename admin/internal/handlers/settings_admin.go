@@ -234,6 +234,8 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 			"UpdatedIn": g.UpdatedIn,
 			"IsNew":     isNew,
 			"DefaultOn": g.DefaultOn,
+			// SafeMethodsOnly: the group passes GET / HEAD / OPTIONS only.
+			"SafeMethodsOnly": g.SafeMethodsOnly,
 		})
 	}
 

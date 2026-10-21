@@ -1144,10 +1144,31 @@ map $uri $unmask_bp_global {
 {{- end }}
 }
 
+# Stage A2: the presets for files that are only ever fetched (robots.txt, a
+# favicon, an ACME token, a health check) pass GET / HEAD / OPTIONS only.  A
+# POST to one of them is judged like any other request: passed unjudged, its
+# body reached whatever serves the path -- on a site that hands every path it
+# has no file for to one script (try_files ... /index.php), that script's
+# request parser, since the exemption decided here still holds after the
+# internal redirect (nginx keeps a request's cached variables across it).
+# Rendered even when empty, so $is_bypass_path below always has the variable.
+map $uri $unmask_bp_safe_path {
+    default "0";
+{{- range .BypassPathsGlobalSafe }}
+    "~{{ rx . }}" "1";
+{{- end }}
+}
+map "$request_method:$unmask_bp_safe_path" $unmask_bp_safe {
+    default   "0";
+    "GET:1"     "1";
+    "HEAD:1"    "1";
+    "OPTIONS:1" "1";
+}
+
 {{- if .BypassPathsPerHost }}
 
 # Stage B: per-host rules.  One map per unique host string; pattern stays in
-# the same path-anchored form because the map is keyed on $request_uri.
+# the same path-anchored form because the map is keyed on $uri.
 {{- range .BypassPathsPerHost }}
 map $uri $unmask_bp_host_{{ .VarName }} {
     default "0";
@@ -1166,17 +1187,18 @@ map $host $unmask_bp_per_host {
 {{- end }}
 }
 
-# Stage D: OR-combine global + per-host into the canonical signal.
-map "$unmask_bp_global$unmask_bp_per_host" $is_bypass_path {
+# Stage D: OR-combine global + safe-method + per-host into the canonical signal.
+map "$unmask_bp_global$unmask_bp_safe$unmask_bp_per_host" $is_bypass_path {
     default "0";
     "~1" "1";
 }
 {{- else }}
 
-# No per-host rules configured -- global map is the canonical signal directly.
-map $unmask_bp_global $is_bypass_path {
+# No per-host rules configured -- the global and safe-method maps make the
+# canonical signal.
+map "$unmask_bp_global$unmask_bp_safe" $is_bypass_path {
     default "0";
-    "1" "1";
+    "~1" "1";
 }
 {{- end }}
 

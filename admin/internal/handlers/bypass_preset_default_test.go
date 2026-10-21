@@ -3,6 +3,7 @@ package handlers
 import (
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -90,9 +91,11 @@ func TestBypassPresetSaveIgnoresSeenVersion(t *testing.T) {
 func TestBypassMatchersApplyPresetDefaults(t *testing.T) {
 	h := newTestHandler(t)
 
+	// A fetch: the default-ON presets pass GET / HEAD / OPTIONS, so they
+	// compile into bypassSafe.
 	match := func(n settings.Nginx, uri string) bool {
 		pm := h.bypassMatchers(&settings.Settings{Nginx: n}, "example.test")
-		for _, re := range pm.bypass {
+		for _, re := range append(append([]*regexp.Regexp{}, pm.bypass...), pm.bypassSafe...) {
 			if re.MatchString(uri) {
 				return true
 			}

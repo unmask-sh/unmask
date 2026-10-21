@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Security
+
+- (2026-10-21) **A POST to robots.txt and the other fetched-file presets is judged.**  The default-on bypass presets (static files, `/.well-known/`, browser metadata, health checks) passed every method, so anyone could send a request body past the challenge; on a site that routes unknown paths to one script, that script parsed it.  They now pass GET, HEAD and OPTIONS only; your own bypass paths still pass every method.
+
 ## [0.1.53-rc6] - 2026-10-21 (testing build)
 
 ### Since rc5

@@ -265,6 +265,14 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	ja4 := resolveForwardedJA4(r, cfg)
 
 	matchers := h.bypassMatchers(snap, site)
+	// A bypass path: an operator's row passes every method; a preset for
+	// files that are only ever fetched passes GET / HEAD / OPTIONS only, as
+	// native renders it.  The method rides X-Original-Method (the shipped
+	// snippets send it); a snippet from before that sends none, and the
+	// presets then pass every method, as they did.
+	origMethod := strings.TrimSpace(r.Header.Get("X-Original-Method"))
+	bypassPath := matchPath(uri, matchers.bypass) ||
+		((origMethod == "" || nginxconf.IsSafeMethod(origMethod)) && matchPath(uri, matchers.bypassSafe))
 	ja4Verdict, ja4Action := matchJA4(ja4, cfg.Nginx)
 
 	// Fail-open defaults: the decision pipeline below reassigns these on every
@@ -408,7 +416,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		// address must still pass.  Same set native folds into $unmask_deny_now.
 		case hardDenyUA(ua, cfg.Nginx) &&
 			!isSearchBotUA(ua, ja4Action, cfg.Nginx, matchers.rangeVerifiedUA) &&
-			!matchers.ipBypass.Match(ip) && !matchPath(uri, matchers.bypass):
+			!matchers.ipBypass.Match(ip) && !bypassPath:
 			action, reason, status = "block", "ua:deny", http.StatusForbidden
 		// (2) Veto-passes, in native order.  Each is a hard pass that wins over
 		// the gating axes below.
@@ -455,7 +463,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			action, reason, status = "pass", "ua:search_ai", http.StatusOK
 		case matchers.ipBypass.Match(ip):
 			action, reason, status = "pass", "bypass:ip", http.StatusOK
-		case matchPath(uri, matchers.bypass):
+		case bypassPath:
 			action, reason, status = "pass", "bypass:path", http.StatusOK
 		default:
 			// (3) Gating axes: collect, take max severity (ban already handled).
@@ -1719,12 +1727,15 @@ func detectLBHeaderWarning(r *http.Request, cfg settings.Settings) string {
 // --- Regex matcher cache (= recompile only when settings change) ---
 
 type pathMatchers struct {
-	bypass    []*regexp.Regexp
-	geoExempt []*regexp.Regexp // country-axis-only exemption (RSS/Atom feeds etc.); asn/ja4/honeypot/ua still run
-	asnExempt []*regexp.Regexp // ASN-axis-only exemption; geo/ja4/honeypot/ua still run
-	honeypot  []honeypotRule
-	protected []*regexp.Regexp
-	ipBypass  *nginxconf.IPBypassMatcher
+	bypass []*regexp.Regexp
+	// bypassSafe: the SafeMethodsOnly presets' patterns, which pass GET /
+	// HEAD / OPTIONS only.
+	bypassSafe []*regexp.Regexp
+	geoExempt  []*regexp.Regexp // country-axis-only exemption (RSS/Atom feeds etc.); asn/ja4/honeypot/ua still run
+	asnExempt  []*regexp.Regexp // ASN-axis-only exemption; geo/ja4/honeypot/ua still run
+	honeypot   []honeypotRule
+	protected  []*regexp.Regexp
+	ipBypass   *nginxconf.IPBypassMatcher
 	// rangeVerifiedUA: alternation over the crawler UA patterns whose rescue
 	// rides the enabled IP-range presets instead of the UA string (see
 	// nginxconf/uarange.go).  A UA matching this is NOT rescued as search_ai;
@@ -1870,7 +1881,11 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 			// block lists below use "~*" on both wires -- see the pass-list
 			// note on compileExemptRows).
 			if re := compileCachedRe(r.Pattern); re != nil {
-				pm.bypass = append(pm.bypass, re)
+				if g.SafeMethodsOnly {
+					pm.bypassSafe = append(pm.bypassSafe, re)
+				} else {
+					pm.bypass = append(pm.bypass, re)
+				}
 			}
 		}
 	}

@@ -46,10 +46,14 @@ func TestPresetRowsSayModeAndVersions(t *testing.T) {
 		t.Error("the WordPress preset: an updated label it has no release for, or no mode chip")
 	}
 
-	// The machine-access path presets went on by default in v0.1.2.
+	// The machine-access path presets went on by default in v0.1.2 and pass
+	// GET / HEAD / OPTIONS only since v0.1.53, which the row says.
 	bp := renderTab(t, h, "bypass-paths", user.RoleSuperadmin, "en")
-	if r := row(bp, `value="static-assets"`); !strings.Contains(r, updated("v0.1.2")) || !strings.Contains(r, regexChip) {
-		t.Error("the static-assets preset row lacks its updated label or its mode chip")
+	if r := row(bp, `value="static-assets"`); !strings.Contains(r, updated("v0.1.53")) || !strings.Contains(r, regexChip) || !strings.Contains(r, "GET, HEAD, OPTIONS only") {
+		t.Error("the static-assets preset row lacks its updated label, its mode chip or its methods")
+	}
+	if r := row(bp, `value="api-paths"`); strings.Contains(r, "GET, HEAD, OPTIONS only") {
+		t.Error("the api-paths preset passes every method; its row must not say otherwise")
 	}
 	if r := row(renderTab(t, h, "protected", user.RoleSuperadmin, "en"), `value="unmask"`); !strings.Contains(r, updated("v0.1.28")) || !strings.Contains(r, regexChip) {
 		t.Error("the unmask protected-path preset row lacks its updated label or its mode chip")
