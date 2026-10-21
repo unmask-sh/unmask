@@ -12,7 +12,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.53-rc7] - 2026-10-21 (testing build)
+
+### Since rc6
+
+- A pass bound to a relay (iCloud Private Relay, a cloud proxy) now earns the roaming credential that re-binds it on the next network; the earlier 0.1.53 testing builds refused it, so such a visitor solved again once the relay moved them to another range or they left it.
 
 ### Added
 
