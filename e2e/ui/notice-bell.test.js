@@ -188,7 +188,8 @@ c.commit()
   }));
   ok(pageInfo.rows >= 3, 'the page lists ' + pageInfo.rows + ' rows');
   ok(pageInfo.h1 === '通知', 'the page title: ' + pageInfo.h1);
-  ok(pageInfo.filters.length === 5 && pageInfo.filters[0] === 'すべて', 'the kind filter: ' + pageInfo.filters.join(','));
+  // "all" + the five kinds: bans, challenge burst, link previews stopped, over-block, AI advisor.
+  ok(pageInfo.filters.length === 6 && pageInfo.filters[0] === 'すべて', 'the kind filter: ' + pageInfo.filters.join(','));
   ok(/ログ管理/.test(pageInfo.meta), 'the retention line is missing');
   ok(pageInfo.newTags === 0, 'rows read from the panel are marked new on the page: ' + pageInfo.newTags);
   if (SHOTS) {
