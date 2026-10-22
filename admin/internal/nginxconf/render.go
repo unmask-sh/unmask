@@ -890,6 +890,11 @@ type renderData struct {
 	AsnCIDRs         string
 	AsnRules         []AsnRuleRender
 	AsnDefaultAction string
+	// PreviewVerify: the link-preview fetchers the country and ASN axes leave
+	// alone when the fetcher's name and the calling network agree
+	// (previewverify.go).  Nil when the check is inert; the template then
+	// renders $unmask_preview_verified as the constant 0.
+	PreviewVerify *PreviewVerifyRender
 	// GeoRateZones: one limit_req zone per RatePerMin>0 country rule (the
 	// by-country twin of AsnRateZones; keyed on $unmask_country).
 	GeoRateZones []GeoRateZoneRender
@@ -2050,6 +2055,11 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			// action.  doctor's mmdb path check surfaces a missing/broken db.
 		}
 	}
+
+	// Verified link-preview fetchers (previewverify.go): the pair of the
+	// fetcher's name and the vendor's network clears the country and ASN
+	// axes.  After both axes, which decide whether the walk is worth paying.
+	d.PreviewVerify = previewVerify(s, &d)
 
 	// Can anything on this install deny?  Seeded here, where the geo / ASN rules
 	// have just been resolved; the community-feed term is added at the end of

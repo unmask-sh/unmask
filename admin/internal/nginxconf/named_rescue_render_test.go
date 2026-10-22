@@ -29,7 +29,7 @@ func TestNamedRescueRender(t *testing.T) {
 		`map "$bv_any_valid:$is_bypass_ip:$is_bypass_path" $rate_limit_key {`,
 		`map "$is_bypass_ip:$is_bypass_path" $rate_limit_key_deny {`,
 		// its own budget, per address
-		`map "$is_search_bot:$bv_any_valid:$is_bypass_ip:$is_bypass_path" $unmask_named_rate_key {`,
+		`map "$is_search_bot:$bv_any_valid:$is_bypass_ip:$is_bypass_path:$unmask_preview_verified" $unmask_named_rate_key {`,
 		`limit_req_zone $unmask_named_rate_key zone=unmask_named_rate:10m rate=30r/m;`,
 		// the log carries the claim ...
 		` sb=$is_search_bot ua=$http_user_agent'`,

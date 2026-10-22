@@ -449,12 +449,12 @@ map "$unmask_ua_needs_captcha$unmask_cr_captcha" $unmask_ua_captcha_eff {
 # gate's rate==0 condition.  The JA4 verdict axis joins them below
 # ($unmask_ja4_captcha) for the same reason: a fingerprint row saying CAPTCHA
 # used to stop only bare addresses.
-map "$is_geo_exempt_path:$unmask_geo_action" $unmask_geo_captcha {
+map "$unmask_geo_exempt:$unmask_geo_action" $unmask_geo_captcha {
     default              0;
     "0:captcha_only"     1;
     "0:pow_then_captcha" 1;
 }
-map "$is_asn_exempt_path:$unmask_asn_action" $unmask_asn_captcha {
+map "$unmask_asn_exempt:$unmask_asn_action" $unmask_asn_captcha {
     default              0;
     "0:captcha_only"     1;
     "0:pow_then_captcha" 1;
@@ -761,6 +761,41 @@ map $unmask_asn_action $is_asn_challenge {
 }
 
 # -----------------------------------------------------------------------------
+# Verified link-preview fetchers ($unmask_preview_verified)
+# -----------------------------------------------------------------------------
+# A social network's link-preview fetcher (X, Facebook, LINE) publishes no
+# address list, so it is passed on its name -- and a country or ASN rule
+# written against the world's scrapers takes it down with them, since it calls
+# from abroad.  The vendor does run its fetchers from its own autonomous
+# system, which nobody else can send from, so the name and the calling network
+# together are the check the address list would have been.  The pair clears
+# the country and ASN axes only (challenge, deny and the CAPTCHA grade), the
+# way an axis-exempt path does; a custom rule, a protected path, a trap and
+# every rate limit apply as to a named crawler.  Rendered when a fetcher's name
+# is on the UA whitelist, an ASN mmdb is there to walk and an axis can fire;
+# otherwise the variable is the constant 0 (previewverify.go).
+{{- if .PreviewVerify }}
+geo $remote_addr $unmask_preview_asn {
+    default "";
+{{ .PreviewVerify.CIDRs }}
+}
+map $http_user_agent $unmask_preview_ua {
+    default "";
+{{- range .PreviewVerify.UAs }}
+    "~*{{ rx .Pattern }}" "{{ .Token }}";
+{{- end }}
+}
+map "$unmask_preview_ua:$unmask_preview_asn" $unmask_preview_verified {
+    default 0;
+{{- range .PreviewVerify.Pairs }}
+    "{{ . }}" 1;
+{{- end }}
+}
+{{- else }}
+map "" $unmask_preview_verified { default 0; }
+{{- end }}
+
+# -----------------------------------------------------------------------------
 # Per-axis exempt paths ($is_geo_exempt_path / $is_asn_exempt_path)
 # -----------------------------------------------------------------------------
 # Scope: a matching request skips ONE axis only -- geo-exempt paths skip the
@@ -916,15 +951,27 @@ map $unmask_cr_action $unmask_cr_deny {
     "deny"  1;
 }
 
-map "$is_geo_challenge:$is_geo_exempt_path" $geo_challenge_eff {
+# What each axis leaves alone: a request on one of its exempt paths, and a
+# verified link-preview fetcher ($unmask_preview_verified).  One variable per
+# axis, read by the three places the axis acts -- its challenge here, its deny
+# and its CAPTCHA grade -- so the exemption cannot hold in one and not another.
+map "$is_geo_exempt_path$unmask_preview_verified" $unmask_geo_exempt {
+    default 1;
+    "00"    0;
+}
+map "$is_asn_exempt_path$unmask_preview_verified" $unmask_asn_exempt {
+    default 1;
+    "00"    0;
+}
+map "$is_geo_challenge:$unmask_geo_exempt" $geo_challenge_eff {
     default 1;
     "~^0:"  0;  # country axis not firing
-    "~:1$"  0;  # path exempted from the country axis
+    "~:1$"  0;  # exempted from the country axis
 }
-map "$is_asn_challenge:$is_asn_exempt_path" $asn_challenge_eff {
+map "$is_asn_challenge:$unmask_asn_exempt" $asn_challenge_eff {
     default 1;
     "~^0:"  0;  # ASN axis not firing
-    "~:1$"  0;  # path exempted from the ASN axis
+    "~:1$"  0;  # exempted from the ASN axis
 }
 
 # Network-level veto = geo OR asn (each after its own path exemption).  Folded
@@ -971,15 +1018,16 @@ map $http_user_agent $unmask_ua_deny {
 {{- end }}
 }
 
-# Each network axis denies only where its OWN exempt-path list does not apply --
-# the same guard $geo_challenge_eff / $asn_challenge_eff apply above.  Without
-# it, turning a country rule into a deny would start blocking the paths the
-# operator had explicitly exempted from that very rule.
-map "$is_geo_exempt_path:$unmask_geo_action" $geo_deny_eff {
+# Each network axis denies only where nothing exempts the request from it (its
+# OWN exempt-path list, a verified link-preview fetcher) -- the same guard
+# $geo_challenge_eff / $asn_challenge_eff apply above.  Without it, turning a
+# country rule into a deny would start blocking the paths the operator had
+# explicitly exempted from that very rule.
+map "$unmask_geo_exempt:$unmask_geo_action" $geo_deny_eff {
     default    0;
     "~^0:deny$" 1;
 }
-map "$is_asn_exempt_path:$unmask_asn_action" $asn_deny_eff {
+map "$unmask_asn_exempt:$unmask_asn_action" $asn_deny_eff {
     default    0;
     "~^0:deny$" 1;
 }
@@ -1657,10 +1705,11 @@ limit_req_zone $rate_limit_key_reuse zone={{ .Name }}:10m rate={{ .RequestsPerMi
 # the name takes hundreds.  Over the budget the request takes the rate route
 # like any zone (the daemon answers with a CAPTCHA, which a fetcher does not
 # solve), so the name buys nothing further from that address until the bucket
-# drains.  protect.inc applies the zone next to the others.
-map "$is_search_bot:$bv_any_valid:$is_bypass_ip:$is_bypass_path" $unmask_named_rate_key {
-    default   "";
-    "1:0:0:0" {{ .KeyExpr }};
+# drains.  protect.inc applies the zone next to the others.  A verified
+# link-preview fetcher is not on the name alone, so it is not budgeted here.
+map "$is_search_bot:$bv_any_valid:$is_bypass_ip:$is_bypass_path:$unmask_preview_verified" $unmask_named_rate_key {
+    default     "";
+    "1:0:0:0:0" {{ .KeyExpr }};
 }
 limit_req_zone $unmask_named_rate_key zone={{ .Name }}:10m rate={{ .RequestsPerMin }}r/m;
 {{- end }}
@@ -1886,7 +1935,7 @@ map $unmask_gated $unmask_bp_log {
 # can tell a render nginx has not been reloaded into and say so at the top
 # of the admin pages.  Optional to the parser, like bp.
 {{- end }}
-log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} sb=$is_search_bot ua=$http_user_agent';
+log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} pv=$unmask_preview_verified sb=$is_search_bot ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed.
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;

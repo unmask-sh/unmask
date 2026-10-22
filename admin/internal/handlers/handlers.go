@@ -2141,6 +2141,15 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 
 	// Burst notification (one webhook when count exceeds N in the last 5 min).  Aggregated by the notifier.
 	h.Notifier.ChallengeServed()
+	// A link-preview fetcher the country or ASN axis stopped is a card that
+	// did not render: the notifier tells the admin's list (notifier/preview.go).
+	// Only a fetcher passed on its name gets here from those axes -- one the
+	// pair verified never meets them.
+	if (forceReason == "geo" || forceReason == "asn") && namedRescueClaim(r) {
+		if name, tag := classify.LookupCrawler(r.Header.Get("User-Agent")); tag == "social-preview" {
+			h.Notifier.PreviewChallenged(name, forceReason)
+		}
+	}
 }
 
 // isLocalRedirect reports whether s is safe as a redirect target: a local

@@ -40,6 +40,7 @@ const (
 	KindBurst     = "challenge_burst"
 	KindOverBlock = "over_block"
 	KindAdvisor   = "advisor_digest"
+	KindPreview   = "preview_challenged"
 )
 
 // How a row is marked.
@@ -188,6 +189,8 @@ func fromEvent(event string, fields map[string]any) Entry {
 			e.Severity = SeverityCrit
 		}
 	case KindAdvisor:
+	case KindPreview:
+		e.Severity = SeverityWarn
 	default:
 		return Entry{}
 	}

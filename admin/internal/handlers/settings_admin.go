@@ -144,6 +144,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// set, and the vendor-range badges (ua_upstream_view.go).
 	upstream := buildUpstreamView(cur)
 	h.fillNamedRescue(r.Context(), &upstream)
+	fillPreviewVerify(&upstream, h.snapshotSettings())
 
 	// JA4 verdicts: same shape
 	disabledV := toSet(cur.JA4Verdicts.DisabledPresets)

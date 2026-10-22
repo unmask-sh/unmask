@@ -20,8 +20,10 @@ func TestAxisExemptPathRender(t *testing.T) {
 		"map $uri $unmask_ax_global",
 		"$is_geo_exempt_path {",
 		"$is_asn_exempt_path {",
-		`map "$is_geo_challenge:$is_geo_exempt_path" $geo_challenge_eff`,
-		`map "$is_asn_challenge:$is_asn_exempt_path" $asn_challenge_eff`,
+		`map "$is_geo_exempt_path$unmask_preview_verified" $unmask_geo_exempt`,
+		`map "$is_asn_exempt_path$unmask_preview_verified" $unmask_asn_exempt`,
+		`map "$is_geo_challenge:$unmask_geo_exempt" $geo_challenge_eff`,
+		`map "$is_asn_challenge:$unmask_asn_exempt" $asn_challenge_eff`,
 		`map "$geo_challenge_eff:$asn_challenge_eff:$unmask_cr_challenge" $is_net_challenge`,
 	} {
 		if !strings.Contains(off, want) {

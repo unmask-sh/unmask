@@ -1552,6 +1552,10 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminCustomRuleDraftCard)))
 	mux.HandleFunc("GET "+base+"/admin/settings/asn/suggest",
 		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminASNSuggest)))
+	// The country tab's estimate of the link-preview fetchers a proposed rule
+	// set would stop (geo_preview_impact.go).  Read-only; the tab's role.
+	mux.HandleFunc("GET "+base+"/admin/settings/geo/preview-impact",
+		h.AuthMiddleware(h.RequireRole(user.RoleAdmin, h.AdminGeoPreviewImpact)))
 	// per-site card endpoints for the Branding / Challenge tabs (= v2
 	// scalar override surface).  Each writes one Sites[<host>] entry.
 	mux.HandleFunc("POST "+base+"/admin/settings/branding/site/save",

@@ -2128,7 +2128,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             </select>
             {{/* The badge reports the preset's state only, so it never repaints
                  from this row's setting -- see nginxconf.UpstreamRangeActive. */}}
-            <span><code>{{ .Pattern }}</code>{{ if .RangeBacked }}<span class="upstream-rv {{ if .RangeActive }}rv-on{{ else }}rv-off{{ end }}">{{ t $.Lang "settings.ua.upstream.rv_badge" }}</span>{{ end }}{{ if .NamedDay }}<span class="upstream-named" title="{{ t $.Lang "settings.ua.upstream.named_day_title" }}">{{ printf (t $.Lang "settings.ua.upstream.named_day") .NamedDay .NamedIPs }}</span>{{ end }}{{ if .Description }}<span class="upstream-desc">{{ .Description }}</span>{{ end }}</span>
+            <span><code>{{ .Pattern }}</code>{{ if .RangeBacked }}<span class="upstream-rv {{ if .RangeActive }}rv-on{{ else }}rv-off{{ end }}">{{ t $.Lang "settings.ua.upstream.rv_badge" }}</span>{{ end }}{{ if .PreviewASNs }}<span class="upstream-rv {{ if .PreviewActive }}rv-on{{ else }}rv-off{{ end }}" title="{{ t $.Lang "settings.ua.upstream.pv_badge_title" }}">{{ t $.Lang "settings.ua.upstream.pv_badge" }} {{ .PreviewASNs }}</span>{{ end }}{{ if .NamedDay }}<span class="upstream-named" title="{{ t $.Lang "settings.ua.upstream.named_day_title" }}">{{ printf (t $.Lang "settings.ua.upstream.named_day") .NamedDay .NamedIPs }}</span>{{ end }}{{ if .Description }}<span class="upstream-desc">{{ .Description }}</span>{{ end }}</span>
             <span class="upstream-since">{{ if .Since }}{{ .Since }}{{ else }}—{{ end }}</span>
           </div>
           {{ end }}
@@ -4229,8 +4229,22 @@ function secToHuman(s){
       </div>
     </div>
 
+    <div class="note" style="margin:0 0 1rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.geo.preview_note") }} {{ if .AsnMmdbLoaded }}{{ t .Lang "settings.geo.preview_asn_ok" }}{{ else }}{{ safeHTML (t .Lang "settings.geo.preview_asn_missing") }}{{ end }}</div>
+
     <h3 style="font-size:.95rem;margin:1rem 0 .4rem">{{ t .Lang "settings.geo.default_h" }}</h3>
     <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.geo.default_help") }}</div>
+    {{/* What the rules being edited would stop among the link-preview
+         fetchers, from the last day's name-only passes: filled by the
+         script at the end of the tab from /admin/settings/geo/preview-impact,
+         again on every change, so the answer is there before the save. */}}
+    <div id="geo-preview-impact" class="note" style="margin-bottom:.6rem;font-size:.8rem;background:#fffbeb;border:1px solid #fcd34d"
+         data-url="{{ .BasePath }}/admin/settings/geo/preview-impact"
+         data-loading="{{ t .Lang "settings.geo.preview_impact_loading" }}"
+         data-none="{{ t .Lang "settings.geo.preview_impact_none" }}"
+         data-some="{{ t .Lang "settings.geo.preview_impact_some" }}"
+         data-unit="{{ t .Lang "settings.geo.preview_impact_unit" }}"
+         data-verified="{{ t .Lang "settings.geo.preview_impact_verified" }}"
+         data-noasn="{{ t .Lang "settings.geo.preview_impact_noasn" }}">{{ t .Lang "settings.geo.preview_impact_loading" }}</div>
 
     {{ $gda := .Nginx.Geo.DefaultAction }}{{ if eq $gda "" }}{{ $gda = "skip" }}{{ end }}
     <div class="field" style="display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;margin-bottom:.6rem">
@@ -4424,6 +4438,60 @@ function secToHuman(s){
   if (defRate) defRate.addEventListener('input', refreshRate);
 })();
 </script>
+<script>
+// The link-preview fetchers the rules being edited would stop, from the last
+// day's name-only passes (geo_preview_impact.go).  Asked on load and after
+// every change to the default actions and the rule rows, debounced, so the
+// answer sits next to the rules before they are saved.
+(function(){
+  var box = document.getElementById('geo-preview-impact');
+  var form = box && box.closest('form');
+  if (!box || !form) return;
+  var timer = null, seq = 0;
+  function collect(){
+    var def = form.querySelector('select[name="geo_default_action"]');
+    var rd = form.querySelector('select[name="geo_default_rule_action"]');
+    var rules = [];
+    form.querySelectorAll('.rule-list[data-rule-name="geo_country"] .rule-row').forEach(function(row){
+      var cc = row.querySelector('input[name="geo_country"]');
+      var act = row.querySelector('select[name="geo_action"]');
+      var en = row.querySelector('input[name="geo_enabled"]');
+      if (!cc || !cc.value.trim() || (en && en.value === '0')) return;
+      rules.push(cc.value.trim().toUpperCase() + ':' + (act ? act.value : ''));
+    });
+    return 'default=' + encodeURIComponent(def ? def.value : '') +
+      '&rule_default=' + encodeURIComponent(rd ? rd.value : '') +
+      '&rules=' + encodeURIComponent(rules.join(','));
+  }
+  function render(j){
+    var text;
+    if (!j.rows || !j.rows.length) {
+      text = box.dataset.none;
+    } else {
+      var parts = j.rows.map(function(r){ return box.dataset.unit.replace('%s', r.crawler).replace('%d', String(r.requests)); });
+      text = box.dataset.some.replace('%s', parts.join(' / '));
+    }
+    if (j.asn_mmdb) {
+      if (j.verified && j.verified.length) text += ' ' + box.dataset.verified.replace('%s', j.verified.join(' / '));
+    } else {
+      text += ' ' + box.dataset.noasn;
+    }
+    box.textContent = text;
+  }
+  function refresh(){
+    var mine = ++seq;
+    fetch(box.dataset.url + '?' + collect(), {credentials: 'same-origin', headers: {'Accept': 'application/json'}})
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(j){ if (j && mine === seq) render(j); })
+      .catch(function(){});
+  }
+  function later(){ clearTimeout(timer); timer = setTimeout(refresh, 350); }
+  form.addEventListener('change', later);
+  form.addEventListener('input', later);
+  form.addEventListener('click', function(e){ if (e.target.closest('button')) later(); });
+  refresh();
+})();
+</script>
 
 {{ end }}
 
@@ -4442,6 +4510,8 @@ function secToHuman(s){
         {{ end }}
       </div>
     </div>
+
+    <div class="note" style="margin:0 0 1rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.geo.preview_note") }} {{ if .AsnMmdbLoaded }}{{ t .Lang "settings.geo.preview_asn_ok" }}{{ else }}{{ safeHTML (t .Lang "settings.geo.preview_asn_missing") }}{{ end }}</div>
 
     <h3 style="font-size:.95rem;margin:1rem 0 .4rem">{{ t .Lang "settings.asn.default_h" }}</h3>
     <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.asn.default_help") }}</div>

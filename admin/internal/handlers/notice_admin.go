@@ -28,7 +28,7 @@ const (
 )
 
 // noticeKinds is the order the page's filter lists the kinds in.
-var noticeKinds = []string{notice.KindBan, notice.KindBurst, notice.KindOverBlock, notice.KindAdvisor}
+var noticeKinds = []string{notice.KindBan, notice.KindBurst, notice.KindPreview, notice.KindOverBlock, notice.KindAdvisor}
 
 // noticeRow is one line of the list as the templates render it.
 type noticeRow struct {
@@ -273,6 +273,14 @@ func noticeText(e notice.Entry, lang i18n.Lang, base string) (title, body, href 
 			title = i18n.T(lang, "mail.overblock.title_cleared")
 			body = i18n.Tf(lang, "mail.overblock.summary_cleared", minutes, stuck, loaders, pct, e.Int("min_stuck"), e.Int("min_percent"))
 		}
+	case notice.KindPreview:
+		// The rule that stopped them is on the country tab, or the ASN tab.
+		href = base + "/admin/settings/geo/"
+		if e.Str("axis") == "asn" {
+			href = base + "/admin/settings/asn/"
+		}
+		title = i18n.Tf(lang, "notice.preview.title", e.Int("count"))
+		body = i18n.Tf(lang, "notice.preview.body", e.Str("crawlers"))
 	case notice.KindAdvisor:
 		href = base + "/admin/advisor/"
 		title = i18n.Tf(lang, "notice.advisor.title", e.Int("new_candidates"))

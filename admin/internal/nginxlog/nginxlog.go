@@ -339,6 +339,10 @@ type crawlerDetailKey struct {
 type namedKey struct {
 	hour    int64
 	crawler string
+	// country: where the address is (the ipgeo reader), "" when unknown.
+	// The country tab reads the split to say, before a rule is saved, which
+	// named crawlers the last day's traffic says it would stop.
+	country string
 }
 
 type namedBucket struct {
@@ -602,7 +606,7 @@ var lineRE = regexp.MustCompile(
 		// bp and scheme are optional: the binary is deployed before the config
 		// that emits them, so both shapes have to parse for the length of that
 		// window.
-		`(?: bp=([01]))?(?: scheme=(\S*))?(?: cr=(\S*))?(?: ob=([01]))?(?: rv=([0-9a-f]{12}))?(?: sb=([01]))?(?: ua=(.*))?`)
+		`(?: bp=([01]))?(?: scheme=(\S*))?(?: cr=(\S*))?(?: ob=([01]))?(?: rv=([0-9a-f]{12}))?(?: pv=([01]))?(?: sb=([01]))?(?: ua=(.*))?`)
 
 // parsed: struct holding the regex match result.
 type parsed struct {
@@ -641,6 +645,11 @@ type parsed struct {
 	// request that went through on the claim.  Absent on a line from a
 	// configuration that predates the field.
 	sb bool
+	// pv: the configuration verified this request as a link-preview fetcher
+	// by its name and the network it called from (http.inc
+	// $unmask_preview_verified), so it did not go through on the name alone.
+	// Absent on a line from a configuration that predates the field.
+	pv bool
 	ua string
 }
 
@@ -694,8 +703,9 @@ func (r *Reader) parse(line string) (parsed, bool) {
 		cr:       strings.TrimSuffix(m[11], "-"),
 		observe:  m[12] == "1",
 		rv:       m[13],
-		sb:       m[14] == "1",
-		ua:       m[15],
+		pv:       m[14] == "1",
+		sb:       m[15] == "1",
+		ua:       m[16],
 	}, true
 }
 
@@ -805,7 +815,7 @@ func (r *Reader) onLine(line string) {
 	// is served).
 	// A line with sb=1 and nothing else passing it -- no challenge, no cookie,
 	// no bypass -- went through on the crawler's name alone.
-	r.bumpCrawler(p.ua, p.fc && !p.observe, p.sb && !p.fc && !p.bypassed && p.kind == "", p.ip)
+	r.bumpCrawler(p.ua, p.fc && !p.observe, p.sb && !p.pv && !p.fc && !p.bypassed && p.kind == "", p.ip)
 	// Native rDNS post-pass: verify a crawler-claiming visitor and auto-ban a
 	// forgery.  Cheap for the common (non-crawler) UA -- the callback short-
 	// circuits before any DNS or lock.
@@ -1011,6 +1021,12 @@ func (r *Reader) bumpCrawler(ua string, served, named bool, ip string) {
 	}
 	now := time.Now().Unix()
 	key := crawlerKey{minute: now / 60, category: cat}
+	// Where a name-only request came from, for the country tab's estimate
+	// (outside the lock: the mmdb lookup).
+	cc := ""
+	if named && r.geo != nil && ip != "" {
+		cc = r.geo.Lookup(ip)
+	}
 	// Resolve the individual crawler within the category (= the drill-down
 	// dimension) outside the lock -- regex matching must not hold r.mu.  Empty
 	// when the namer is unwired (= only per-category aggregation runs).
@@ -1049,7 +1065,7 @@ func (r *Reader) bumpCrawler(ua string, served, named bool, ip string) {
 			if r.namedBuckets == nil {
 				r.namedBuckets = map[namedKey]*namedBucket{}
 			}
-			nk := namedKey{hour: dkey.hour, crawler: dkey.crawler}
+			nk := namedKey{hour: dkey.hour, crawler: dkey.crawler, country: cc}
 			nb := r.namedBuckets[nk]
 			if nb == nil {
 				nb = &namedBucket{}
@@ -1482,13 +1498,13 @@ func (r *Reader) flushOnce(final bool) {
 	for _, e := range namedReady {
 		var prev []byte
 		row := tx.QueryRowContext(ctx,
-			`SELECT ips FROM unmask_crawler_named_hourly WHERE bucket_hour = ? AND crawler = ?`,
-			e.key.hour, e.key.crawler)
+			`SELECT ips FROM unmask_crawler_named_hourly WHERE bucket_hour = ? AND crawler = ? AND country = ?`,
+			e.key.hour, e.key.crawler, e.key.country)
 		if err := row.Scan(&prev); err == nil && len(prev) > 0 {
 			e.b.ips.Merge(hll.Load(prev))
 		}
 		if _, err := tx.ExecContext(ctx, stmtNamed,
-			e.key.hour, e.key.crawler, e.b.cnt, e.b.ips.Bytes()); err != nil {
+			e.key.hour, e.key.crawler, e.key.country, e.b.cnt, e.b.ips.Bytes()); err != nil {
 			log.Printf("nginxlog: flush exec(named %s): %v", e.key.crawler, err)
 			return
 		}
@@ -1582,18 +1598,18 @@ func crawlerDetailUpsertStmt(drv db.Driver) string {
 			total = total + VALUES(total), served = served + VALUES(served)`
 }
 
-// namedUpsertStmt: accumulate cnt with (bucket_hour, crawler) as the unique
-// key, into unmask_crawler_named_hourly; ips takes the merged sketch the
-// caller computed (read-merge-write), so it is replaced, not added.
+// namedUpsertStmt: accumulate cnt with (bucket_hour, crawler, country) as the
+// unique key, into unmask_crawler_named_hourly; ips takes the merged sketch
+// the caller computed (read-merge-write), so it is replaced, not added.
 func namedUpsertStmt(drv db.Driver) string {
 	if drv == db.DriverSQLite {
-		return `INSERT INTO unmask_crawler_named_hourly (bucket_hour, crawler, cnt, ips)
-			VALUES (?, ?, ?, ?)
-			ON CONFLICT(bucket_hour, crawler) DO UPDATE SET
+		return `INSERT INTO unmask_crawler_named_hourly (bucket_hour, crawler, country, cnt, ips)
+			VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT(bucket_hour, crawler, country) DO UPDATE SET
 				cnt = cnt + excluded.cnt, ips = excluded.ips`
 	}
-	return `INSERT INTO unmask_crawler_named_hourly (bucket_hour, crawler, cnt, ips)
-		VALUES (?, ?, ?, ?)
+	return `INSERT INTO unmask_crawler_named_hourly (bucket_hour, crawler, country, cnt, ips)
+		VALUES (?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE
 			cnt = cnt + VALUES(cnt), ips = VALUES(ips)`
 }

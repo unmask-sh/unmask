@@ -48,7 +48,7 @@ func TestAxisCaptchaRulesArmTheGradeGate(t *testing.T) {
 			t.Fatal("the grade requirement key does not consult the network + fingerprint axes")
 		}
 		// Exempt-awareness: the signal keys on the axis's own exempt-path map.
-		if !strings.Contains(out, `"$is_asn_exempt_path:$unmask_asn_action" $unmask_asn_captcha`) {
+		if !strings.Contains(out, `"$unmask_asn_exempt:$unmask_asn_action" $unmask_asn_captcha`) {
 			t.Error("the ASN grade signal ignores asn-exempt paths")
 		}
 	})
@@ -71,7 +71,7 @@ func TestAxisCaptchaRulesArmTheGradeGate(t *testing.T) {
 		noPresets(&s)
 		s.Nginx.Geo.Rules = []settings.GeoRule{{Country: "CN", Action: settings.GeoActionCaptchaOnly, Enabled: true}}
 		out := render(s)
-		if !strings.Contains(out, `"$is_geo_exempt_path:$unmask_geo_action" $unmask_geo_captcha`) {
+		if !strings.Contains(out, `"$unmask_geo_exempt:$unmask_geo_action" $unmask_geo_captcha`) {
 			t.Fatal("the geo grade signal was not emitted")
 		}
 	})

@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+
+- (2026-10-22) **Link-preview fetchers are verified by name and calling network.**  A country or ASN rule challenged the X, Facebook and LINE fetchers like any crawler passed on its name, and shared links lost their cards.  The name together with the network they call from now clears those two axes; the country tab shows what a rule would stop before the save, and the notification list says when previews meet the challenge.
+
 ## [0.1.53-rc7] - 2026-10-21 (testing build)
 
 ### Since rc6

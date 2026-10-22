@@ -429,6 +429,8 @@ func cmdDoctor(args []string) error {
 			r.Close()
 		}
 	}
+	// The link-preview fetchers' second check rides the ASN mmdb.
+	checkPreviewVerify(s, addOK, addWarn)
 
 	// 4.5. Geo rule sanity: every rule's country must be a known ISO code
 	// (= ipgeo master).  Catches typos like "JA" instead of "JP" silently
@@ -2225,4 +2227,34 @@ func checkNamedRescue(conn *db.DB, addOK, addWarn func(t, m string)) {
 		return
 	}
 	addOK(title, msg)
+}
+
+// checkPreviewVerify: whether the social networks' link-preview fetchers are
+// verified by the network they call from (nginxconf/previewverify.go), which
+// is what keeps a country or ASN rule from stopping them -- the fetchers are
+// named crawlers calling from abroad, and a rule written against the world's
+// scrapers takes them down with them.
+func checkPreviewVerify(s settings.Settings, addOK, addWarn func(t, m string)) {
+	const title = "link-preview fetchers"
+	live := nginxconf.PreviewVerifiedPatterns(s.Nginx)
+	if len(live) == 0 {
+		addOK(title, "none passed on its name (the social-preview group is not white); nothing to verify")
+		return
+	}
+	var names []string
+	for _, f := range nginxconf.PreviewFetchers {
+		if _, ok := live[f.Pattern]; ok {
+			names = append(names, f.Pattern+" ("+f.ASNList()+")")
+		}
+	}
+	who := strings.Join(names, ", ")
+	if !nginxconf.NetAxisConfigured(s.Nginx) {
+		addOK(title, who+" pass on their name; no country or ASN rule is set that could stop them")
+		return
+	}
+	if strings.TrimSpace(s.IPGeo.MMDBASNPath) == "" {
+		addWarn(title, who+" cannot be verified by their network: no ASN mmdb (ipgeo.mmdb_asn_path), so the country / ASN rules challenge them like any named crawler and shared links lose their previews -- set the ASN mmdb on the Network tab")
+		return
+	}
+	addOK(title, who+" are verified by name and calling network (ASN mmdb) and exempt from the country / ASN rules")
 }

@@ -61,6 +61,11 @@ type upstreamRowView struct {
 	Name     string
 	NamedDay int
 	NamedIPs int
+	// PreviewASNs: the networks the name-and-network pair verifies this
+	// link-preview fetcher by ("AS13414"), "" for a crawler the pair does not
+	// know; PreviewActive: the check is live for it (fillPreviewVerify).
+	PreviewASNs   string
+	PreviewActive bool
 }
 
 type upstreamOrphanView struct {

@@ -10,6 +10,7 @@
 //   - Notification event kinds:
 //     ban_created     : auto-BAN from a honeypot trip, or admin manual BAN
 //     challenge_burst : five minutes of challenges far above the hour before (burst.go)
+//     preview_challenged : an hour's link-preview fetches stopped by a country or ASN rule (preview.go)
 //   - A third channel, the admin's own notification list (Inbox, the notice
 //     package), gets every event whatever the switches below say: they are
 //     about how much mail and webhook traffic the operator wants, and the
@@ -95,6 +96,9 @@ type Notifier struct {
 	// them (burst.go).
 	mu    sync.Mutex
 	burst burstState
+	// preview_challenged: the hour's link-preview fetches a country or ASN
+	// rule stopped (preview.go).
+	preview previewState
 	// now is the clock the burst count reads; nil is time.Now (a test sets it).
 	now func() time.Time
 
