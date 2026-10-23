@@ -10,11 +10,14 @@
 // secret involved.  The privately verifiable type 0x0001 (VOPRF) needs the
 // issuer's key and is intentionally out of scope.
 //
-// Phase A (this file): token parsing + RSASSA-PSS verification + challenge
-// binding, against a caller-supplied set of trusted issuer keys.  Issuer-key
-// discovery (a key-directory fetch/cache like the webbotauth verifier), the
-// WWW-Authenticate challenge emission, spent-nonce replay tracking, and the
-// auth_check / native-mode wiring land in later phases.
+// This file is the whole origin side: token parsing + RSASSA-PSS verification
+// + challenge binding, issuer-key discovery (a key-directory fetch/cache with
+// an embedded snapshot as fallback, like the webbotauth verifier), the
+// WWW-Authenticate challenge emission, and spent-nonce replay rejection -- the
+// double-spend check the Privacy Pass architecture (RFC 9576) leaves to the
+// origin, since a token's nonce is its only identity and one the origin has
+// already accepted is a replay.  The auth_check wiring lives in the handlers
+// package.
 package privacypass
 
 import (
@@ -69,8 +72,9 @@ type Token struct {
 	Authenticator   []byte // Nk = 256 bytes
 }
 
-// Result is the verification outcome.  Nonce is exposed so a later phase can
-// reject a replayed token (spent-nonce tracking).
+// Result is the verification outcome.  Nonce is the token's nonce -- the
+// identity the spent-nonce record is keyed on -- surfaced for logging and
+// tests.
 type Result struct {
 	OK     bool
 	Issuer string
@@ -83,7 +87,29 @@ type Result struct {
 // Fastly ~weekly).
 const DefaultDirCacheTTL = time.Hour
 
-// Verifier holds the trusted issuer keys.  Safe for concurrent use.
+// NonceGCInterval: how often the spent-nonce record is swept for entries past
+// their horizon.  The sweep runs inline on the verify path, throttled so most
+// calls pay only a map lookup + insert (same shape as webbotauth).
+const NonceGCInterval = time.Minute
+
+// NonceHorizon: how long an accepted token's nonce stays on record.  A Privacy
+// Pass token carries no expiry of its own -- it verifies for as long as its
+// issuer key is trusted -- so unlike Web Bot Auth there is no per-token
+// deadline to tie retention to, and the record is bounded by a fixed horizon
+// instead.  24h matches webbotauth's NonceFallbackHorizon and is on the order
+// of the fastest preset issuer's key rotation, so a token forgotten here is
+// close to unverifiable anyway.
+const NonceHorizon = 24 * time.Hour
+
+// MaxSpentNonces caps the record so a flood of distinct valid tokens cannot
+// grow memory without bound (an entry is a 32-byte nonce + a deadline, so the
+// full record is on the order of 10 MB).  Only tokens that verified are
+// recorded, and each of those cost the client an attested issuance, so the cap
+// is a safety belt rather than a level ordinary traffic approaches.
+const MaxSpentNonces = 100_000
+
+// Verifier holds the trusted issuer keys and the spent-nonce record.  Safe for
+// concurrent use.
 type Verifier struct {
 	mu       sync.RWMutex
 	keys     []IssuerKey           // static keys (SetIssuerKeys path; unused when load != nil)
@@ -92,6 +118,19 @@ type Verifier struct {
 	httpc    *http.Client
 	ttl      time.Duration
 	clock    func() time.Time // injectable for tests; nil = time.Now
+
+	// nonceMu guards both seenNonces and lastNonceGC, separate from mu so a
+	// directory fetch holding mu never stalls the replay check.  The record
+	// is process-local, like webbotauth's: it starts empty on every restart
+	// and is not shared between daemons, so in a multi-admin (= shared
+	// MariaDB) deployment each host has its own map and a determined
+	// attacker could replay a captured token once against each sibling host
+	// (and once more after a restart) within the horizon; cross-host nonce
+	// sharing is v0.3+ work, same as there.
+	nonceMu     sync.Mutex
+	seenNonces  map[[nonceLen]byte]int64 // key=token nonce, value=forget-after unix sec
+	lastNonceGC time.Time
+	nonceCap    int // injectable for tests; 0 = MaxSpentNonces
 }
 
 type cachedDir struct {
@@ -475,10 +514,67 @@ func (v *Verifier) verifyTokenWithKey(t Token, key IssuerKey, expectedDigest [di
 		res.Reason = "bad authenticator"
 		return res
 	}
+	// The signature proves the token was issued, not that it is being
+	// presented for the first time: a token lifted off a real client replays
+	// from any address until its issuer key rotates, and nothing above binds
+	// it to the connection it arrived on.  The nonce is spent only now, after
+	// the signature held, so a forged or mis-bound presentation cannot burn a
+	// nonce the genuine token has yet to use.
+	if ok, reason := v.recordNonce(t.Nonce); !ok {
+		res.Reason = reason
+		return res
+	}
 	res.OK = true
 	res.Issuer = key.Name
 	res.Reason = "ok"
 	return res
+}
+
+// recordNonce marks nonce as spent and reports whether this is its first use
+// within NonceHorizon; a false return carries the Result reason.  The record
+// is swept inline at most once per NonceGCInterval so the common call pays one
+// lookup + insert.
+//
+// A full record refuses the token ("nonce record full") rather than evicting
+// its oldest entries.  Eviction would let a flood of fresh tokens push earlier
+// ones out of the record and make them replayable again, i.e. whoever can fill
+// the map would reopen the hole it exists to close.  Refusing only withdraws
+// the PAT shortcut: auth_check treats a non-OK result as "no token" and runs
+// the normal axes, so the visitor is challenged, not blocked, and room comes
+// back as entries pass the horizon.  Those leave at the next sweep, so the cap
+// can over-refuse for up to NonceGCInterval; that beats an O(n) sweep on every
+// call once a flood has filled the map.
+func (v *Verifier) recordNonce(nonce [nonceLen]byte) (ok bool, reason string) {
+	v.nonceMu.Lock()
+	defer v.nonceMu.Unlock()
+
+	if v.seenNonces == nil {
+		v.seenNonces = map[[nonceLen]byte]int64{}
+	}
+
+	now := v.now()
+	if now.Sub(v.lastNonceGC) >= NonceGCInterval {
+		v.lastNonceGC = now
+		nowU := now.Unix()
+		for n, exp := range v.seenNonces {
+			if exp <= nowU {
+				delete(v.seenNonces, n)
+			}
+		}
+	}
+
+	if _, dup := v.seenNonces[nonce]; dup {
+		return false, "nonce replay"
+	}
+	limit := v.nonceCap
+	if limit <= 0 {
+		limit = MaxSpentNonces
+	}
+	if len(v.seenNonces) >= limit {
+		return false, "nonce record full"
+	}
+	v.seenNonces[nonce] = now.Add(NonceHorizon).Unix()
+	return true, ""
 }
 
 func (v *Verifier) keyByID(id [keyIDLen]byte) (IssuerKey, bool) {

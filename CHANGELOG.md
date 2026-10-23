@@ -38,6 +38,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-23) **A request with many `_bv` cookies no longer costs the worker a hash per entry.**  The sixteen-entry cap applied to each `_bv` value, and a client could send any number of values, so a few kilobytes of Cookie header bought an HMAC and a SHA-256 per 35 bytes, repeated as the templates read the variable.  The budget is per request now, in the module and the daemon alike.
 
+- (2026-10-23) **A Privacy Pass token is accepted once.**  The verifier kept no record of the tokens it had passed, so one token lifted from a client that holds a genuine one passed again from any address, for as long as the issuer's key stayed trusted -- ahead of the CAPTCHA-grade rules, since the token path is a veto pass.  Each token's nonce is now remembered for a day in the daemon's memory; a second presentation is refused and the visitor meets the ordinary challenge.  Privacy Pass is opt-in.
+
 - (2026-10-23) **Two bans placed in the same second both take effect.**  The module reloaded its ban file only when the modification time changed, at one-second resolution, while the daemon flushes the file on every ban it places: the second ban in a second was not applied until a later write landed in a different second.  The file's size and inode are compared as well.
 
 ## [0.1.53-rc8] - 2026-10-23 (testing build)

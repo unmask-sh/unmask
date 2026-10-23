@@ -56,8 +56,9 @@ func presetVerify(t *testing.T, v *Verifier, ti testIssuer, host string) Result 
 	if err != nil {
 		t.Fatal(err)
 	}
-	var nonce [nonceLen]byte
-	return v.VerifyForOrigin(authzHeader(ti.mint(t, TokenTypeBlindRSA, nonce, digest)), host)
+	// A fresh nonce per call: the same verifier is asked repeatedly, and a
+	// repeated nonce would be refused as a replay rather than exercise the cache.
+	return v.VerifyForOrigin(authzHeader(ti.mint(t, TokenTypeBlindRSA, randomNonce(t), digest)), host)
 }
 
 // A preset issuer's keys come from its directory: a token minted with the key

@@ -14,6 +14,7 @@ import (
 	"math/big"
 	"strings"
 	"testing"
+	"time"
 )
 
 // --- test issuer: build a token-key SPKI + mint type-0x0002 tokens, acting as
@@ -92,6 +93,36 @@ func (ti testIssuer) mint(t *testing.T, tokenType uint16, nonce [nonceLen]byte, 
 
 func authzHeader(tok []byte) string {
 	return `PrivateToken token="` + base64.RawURLEncoding.EncodeToString(tok) + `"`
+}
+
+// randomNonce returns a fresh client nonce, as a real client would, so tokens
+// minted in sequence against one verifier are distinct in its spent-nonce
+// record.
+func randomNonce(t *testing.T) [nonceLen]byte {
+	t.Helper()
+	var n [nonceLen]byte
+	if _, err := rand.Read(n[:]); err != nil {
+		t.Fatalf("nonce: %v", err)
+	}
+	return n
+}
+
+// originDigest is the challenge digest VerifyForOrigin recomputes for
+// "issuer.example" at host.
+func originDigest(t *testing.T, host string) [digestLen]byte {
+	t.Helper()
+	d, err := TokenChallenge{TokenType: TokenTypeBlindRSA, IssuerName: "issuer.example", OriginInfo: host}.Digest()
+	if err != nil {
+		t.Fatalf("challenge digest: %v", err)
+	}
+	return d
+}
+
+// originVerifier trusts the test issuer under the name originDigest binds to.
+func originVerifier(ti testIssuer) *Verifier {
+	v := New()
+	v.SetIssuerKeys([]IssuerKey{{Name: "issuer.example", KeyID: ti.keyID, Pub: &ti.priv.PublicKey}})
+	return v
 }
 
 func testChallengeDigest(t *testing.T) [digestLen]byte {
@@ -257,6 +288,142 @@ func TestVerify_UnsupportedTokenType(t *testing.T) {
 		t.Fatal("unsupported token type passed")
 	} else if res.Reason != "unsupported token type" {
 		t.Errorf("reason = %q, want unsupported token type", res.Reason)
+	}
+}
+
+// ----- spent-nonce replay defence -----
+
+// A token is good once: its second presentation, from wherever, is refused as
+// a replay, while a fresh token from the same issuer still passes and the
+// spent one stays spent.
+func TestVerifyForOrigin_NonceReplay(t *testing.T) {
+	ti := newTestIssuer(t)
+	v := originVerifier(ti)
+	const host = "site.example"
+	digest := originDigest(t, host)
+
+	tok := ti.mint(t, TokenTypeBlindRSA, randomNonce(t), digest)
+	if res := v.VerifyForOrigin(authzHeader(tok), host); !res.OK {
+		t.Fatalf("first use failed: %q", res.Reason)
+	}
+	res := v.VerifyForOrigin(authzHeader(tok), host)
+	if res.OK {
+		t.Fatal("replayed token passed")
+	}
+	if res.Reason != "nonce replay" {
+		t.Errorf("reason = %q, want nonce replay", res.Reason)
+	}
+	if res := v.VerifyForOrigin(authzHeader(ti.mint(t, TokenTypeBlindRSA, randomNonce(t), digest)), host); !res.OK {
+		t.Errorf("fresh token refused: %q", res.Reason)
+	}
+	if res := v.VerifyForOrigin(authzHeader(tok), host); res.OK {
+		t.Error("replayed token passed after an unrelated token was accepted")
+	}
+}
+
+// The static-digest Verify path shares the record, so a replay is refused
+// there too.
+func TestVerify_NonceReplay(t *testing.T) {
+	ti := newTestIssuer(t)
+	v := verifierWith(ti)
+	digest := testChallengeDigest(t)
+	tok := ti.mint(t, TokenTypeBlindRSA, randomNonce(t), digest)
+
+	if res := v.Verify(authzHeader(tok), digest); !res.OK {
+		t.Fatalf("first use failed: %q", res.Reason)
+	}
+	if res := v.Verify(authzHeader(tok), digest); res.OK || res.Reason != "nonce replay" {
+		t.Errorf("second use: ok=%v reason=%q, want nonce replay", res.OK, res.Reason)
+	}
+}
+
+// Only a token that verified spends its nonce: a forged token carrying the
+// nonce is refused without burning it, and a presentation at the wrong origin
+// does not count as a use either, so the genuine token still passes afterwards.
+func TestVerifyForOrigin_RejectedTokenDoesNotSpendNonce(t *testing.T) {
+	ti := newTestIssuer(t)
+	v := originVerifier(ti)
+	const host = "site.example"
+	tok := ti.mint(t, TokenTypeBlindRSA, randomNonce(t), originDigest(t, host))
+
+	forged := append([]byte(nil), tok...)
+	forged[len(forged)-1] ^= 0xff
+	if res := v.VerifyForOrigin(authzHeader(forged), host); res.OK {
+		t.Fatal("forged token passed")
+	}
+	if res := v.VerifyForOrigin(authzHeader(tok), "evil.example"); res.OK {
+		t.Fatal("token passed at the wrong origin")
+	}
+	if res := v.VerifyForOrigin(authzHeader(tok), host); !res.OK {
+		t.Fatalf("genuine token refused after rejected presentations: %q", res.Reason)
+	}
+}
+
+// The record forgets a nonce once NonceHorizon has passed, so a long-running
+// daemon's memory stays bounded; inside the horizon the sweep leaves it alone.
+func TestVerifyForOrigin_SpentNonceForgottenAfterHorizon(t *testing.T) {
+	ti := newTestIssuer(t)
+	v := originVerifier(ti)
+	now := time.Unix(1_700_000_000, 0)
+	v.clock = func() time.Time { return now }
+	const host = "site.example"
+	tok := ti.mint(t, TokenTypeBlindRSA, randomNonce(t), originDigest(t, host))
+
+	if res := v.VerifyForOrigin(authzHeader(tok), host); !res.OK {
+		t.Fatalf("first use failed: %q", res.Reason)
+	}
+	// Still inside the horizon: the sweep has run (past NonceGCInterval) but
+	// the entry is not due yet.
+	now = now.Add(NonceHorizon - time.Minute)
+	if res := v.VerifyForOrigin(authzHeader(tok), host); res.OK {
+		t.Fatal("replay passed inside the horizon")
+	}
+	// Past the horizon and past the next sweep: the entry is gone, and the
+	// token reads as a first use again (its issuer key, not this record, is
+	// what refuses a token that old in practice).
+	now = now.Add(time.Minute + NonceGCInterval)
+	if res := v.VerifyForOrigin(authzHeader(tok), host); !res.OK {
+		t.Errorf("token still refused past the horizon: %q", res.Reason)
+	}
+	v.nonceMu.Lock()
+	n := len(v.seenNonces)
+	v.nonceMu.Unlock()
+	if n != 1 {
+		t.Errorf("record holds %d entries after the sweep, want 1 (the re-recorded nonce)", n)
+	}
+}
+
+// The record is capped and fails closed: once full, a further fresh token is
+// refused as "nonce record full" rather than evicting an earlier nonce, a
+// replay is still named a replay, and room returns once entries pass the
+// horizon -- at which point the refused token, never having been accepted,
+// counts as a first use.
+func TestVerifyForOrigin_SpentNonceCapFailsClosed(t *testing.T) {
+	ti := newTestIssuer(t)
+	v := originVerifier(ti)
+	v.nonceCap = 2
+	now := time.Unix(1_700_000_000, 0)
+	v.clock = func() time.Time { return now }
+	const host = "site.example"
+	digest := originDigest(t, host)
+
+	first := ti.mint(t, TokenTypeBlindRSA, randomNonce(t), digest)
+	second := ti.mint(t, TokenTypeBlindRSA, randomNonce(t), digest)
+	for i, tok := range [][]byte{first, second} {
+		if res := v.VerifyForOrigin(authzHeader(tok), host); !res.OK {
+			t.Fatalf("token %d failed: %q", i, res.Reason)
+		}
+	}
+	third := ti.mint(t, TokenTypeBlindRSA, randomNonce(t), digest)
+	if res := v.VerifyForOrigin(authzHeader(third), host); res.OK || res.Reason != "nonce record full" {
+		t.Errorf("at cap: ok=%v reason=%q, want nonce record full", res.OK, res.Reason)
+	}
+	if res := v.VerifyForOrigin(authzHeader(first), host); res.OK || res.Reason != "nonce replay" {
+		t.Errorf("replay at cap: ok=%v reason=%q, want nonce replay", res.OK, res.Reason)
+	}
+	now = now.Add(NonceHorizon + NonceGCInterval)
+	if res := v.VerifyForOrigin(authzHeader(third), host); !res.OK {
+		t.Errorf("after the horizon freed the record: %q", res.Reason)
 	}
 }
 
