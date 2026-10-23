@@ -8,7 +8,11 @@
 // scanner hits on the bare IP sat in the log with nothing naming the Host,
 // under a setting labelled "display only the listed sites".
 //
-// run.sh seeds one record for an undeclared Host (203.0.113.77).
+// run.sh seeds one record for an undeclared Host (203.0.113.77) under a
+// User-Agent of its own (UI-E2E-ghost).  The checks that run before this one
+// leave rows of their own in the log, and the unfiltered page shows only the
+// newest 100, so the seeded row is read through the UA filter; the unfiltered
+// page serves the second check.
 const puppeteer = require('puppeteer-core');
 
 const BASE = process.env.UI_E2E_BASE || 'http://127.0.0.1:9815/unmask';
@@ -33,8 +37,8 @@ const ok = (c, m) => { if (!c) fails.push(m); };
     page.click('button[type="submit"], input[type="submit"]'),
   ]);
 
-  const resp = await page.goto(BASE + '/admin/hunt/?range=24h', { waitUntil: 'networkidle2' });
-  ok(resp.status() === 200, `/admin/hunt/ status ${resp.status()}`);
+  const ghost = await page.goto(BASE + '/admin/hunt/?range=24h&ua=UI-E2E-ghost', { waitUntil: 'networkidle2' });
+  ok(ghost.status() === 200, `/admin/hunt/?ua=UI-E2E-ghost status ${ghost.status()}`);
 
   const res = await page.evaluate(() => {
     const row = document.querySelector('table.events tbody tr[data-site="203.0.113.77"]');
@@ -47,7 +51,7 @@ const ok = (c, m) => { if (!c) fails.push(m); };
   });
 
   if (res.missing) {
-    ok(false, 'the seeded undeclared-Host row is not on the page (seeding or range changed)');
+    ok(false, 'the seeded undeclared-Host row is not on the page (seeding, the range or the UA filter changed)');
   } else {
     ok(res.text === '203.0.113.77',
        `an undeclared Host must be named on its row, got ${JSON.stringify(res.text)}`);
@@ -55,9 +59,11 @@ const ok = (c, m) => { if (!c) fails.push(m); };
   }
 
   // The badge is no longer gated on "several sites": a row that carries a
-  // site names it, on a single-site install too.  Every visible row with a
-  // non-empty data-site must have one -- the ghost case above is just the
-  // styled variant.
+  // site names it, on a single-site install too.  Every visible row of the
+  // unfiltered log with a non-empty data-site must have one -- the ghost case
+  // above is just the styled variant.
+  const resp = await page.goto(BASE + '/admin/hunt/?range=24h', { waitUntil: 'networkidle2' });
+  ok(resp.status() === 200, `/admin/hunt/ status ${resp.status()}`);
   const univ = await page.evaluate(() => {
     const rows = Array.from(document.querySelectorAll('table.events tbody tr'))
       .filter(r => r.style.display !== 'none' && (r.getAttribute('data-site') || '') !== '');

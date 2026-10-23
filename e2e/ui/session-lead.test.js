@@ -42,8 +42,13 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     page.click('button[type="submit"], input[type="submit"]'),
   ]);
 
-  const resp = await page.goto(BASE + '/admin/hunt/?range=24h', { waitUntil: 'networkidle2' });
-  ok(resp.status() === 200, `/admin/hunt/ status ${resp.status()}`);
+  // Each seeded session is read through the UA filter (run.sh gives each one
+  // a User-Agent of its own): the checks that ran before this one leave rows
+  // of their own in the log, and the unfiltered page shows only the newest 100.
+  const show = async (ua) => {
+    const resp = await page.goto(BASE + '/admin/hunt/?range=24h&ua=' + ua, { waitUntil: 'networkidle2' });
+    ok(resp.status() === 200, `/admin/hunt/?ua=${ua} status ${resp.status()}`);
+  };
 
   // Open a session's popover and read its lead line.
   const leadOf = (bt) => page.evaluate(async (bt) => {
@@ -71,6 +76,7 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     };
   }, bt);
 
+  await show('UI-E2E-race');
   const plan = await leadOf('uiRace');
   if (plan.missing) {
     ok(false, 'the pow_then_captcha session is not on the page -- run.sh seeding changed');
@@ -87,6 +93,7 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
       `a session that ran exactly as served is reported as a divergence: ${plan.lead}`);
   }
 
+  await show('UI-E2E-esc');
   const esc = await leadOf('uiEsc');
   if (esc.missing) {
     ok(false, 'the escalated session is not on the page -- run.sh seeding changed');
