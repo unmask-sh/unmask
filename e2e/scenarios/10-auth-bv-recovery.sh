@@ -44,8 +44,10 @@ assert_eq 401 "$code" "step 1: curl UA without _bv → 401" || fails=$((fails+1)
 assert_eq challenge "$action" "step 1: action=challenge" || fails=$((fails+1))
 
 # 2. solve math captcha (= run from the same client IP so the cookie HMAC matches).
+pct=$(captcha_page_ct "${ADMIN_URL}/unmask/challenge/" -H "X-Forwarded-For: $CLIENT_IP")
+[ -n "$pct" ] || { log_fail "the challenge page carried no ct"; exit 1; }
 new=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" \
-    "${ADMIN_URL}/unmask/api/captcha/new")
+    "${ADMIN_URL}/unmask/api/captcha/new?ct=$pct")
 a=$(echo "$new" | grep -oE '"a":[0-9]+' | grep -oE '[0-9]+')
 b=$(echo "$new" | grep -oE '"b":[0-9]+' | grep -oE '[0-9]+')
 token=$(echo "$new" | grep -oE '"token":"[^"]+"' | sed -E 's/.*"token":"([^"]+)".*/\1/')

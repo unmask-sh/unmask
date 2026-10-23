@@ -839,7 +839,11 @@
   // A fresh question (and the proof-of-load token that goes with it).  Shared
   // by the first fall-back and by every retry after a wrong answer.
   function fetchMath(focus){
-    fetch(API_BASE + '/captcha/new').then(parseJSON).then(function(res){
+    // The page's own proof-of-load token goes along: the daemon hands a
+    // question only to a client that loaded a challenge page, and hands the
+    // same token back as the one the answer will consume.
+    var pageCt = (window.UNMASK && window.UNMASK.ct) || '';
+    fetch(API_BASE + '/captcha/new?ct=' + encodeURIComponent(pageCt)).then(parseJSON).then(function(res){
       var data = res.data;
       captchaToken = data.token;
       captchaCt = data.ct || '';

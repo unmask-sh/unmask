@@ -5,11 +5,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
-<!-- Warm the Turnstile connection during parse so the external CAPTCHA widget
-     renders sooner (the provider script + challenge fetch is the bulk of the
-     wait).  Harmless on non-Turnstile pages: an unused warm connection. -->
-<link rel="dns-prefetch" href="https://challenges.cloudflare.com">
-<link rel="preconnect" href="https://challenges.cloudflare.com" crossorigin>
+<!-- The external CAPTCHA provider's warm-up links, when the page will use
+     one (the daemon fills this in at serve time; nothing for the built-in
+     CAPTCHA, which loads nothing external). -->
+<!--__CAPTCHA_PRECONNECT__-->
 <title>Security check</title>
 <script>
 // Challenge display style, applied BEFORE first paint: this inline script runs

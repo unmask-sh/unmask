@@ -53,7 +53,10 @@ const (
 	forceRulePlaceholder = `/*__FORCE_RULE__*/""`
 	challengeProbe       = "<!--__SUBFILTER_PROBE__-->"
 	captchaPlaceholder   = "/*__CAPTCHA__*/null"
-	themePlaceholder     = `/*__THEME__*/"auto"`
+	// captchaPreconnectPlaceholder: where the challenge page's <head> takes
+	// the external CAPTCHA provider's warm-up links, when there is one.
+	captchaPreconnectPlaceholder = "<!--__CAPTCHA_PRECONNECT__-->"
+	themePlaceholder             = `/*__THEME__*/"auto"`
 	// customColors / customAutoColors: the per-theme recolor pair.  For a named
 	// theme it is {bg,text}; for "auto" the OS-resolved palette is client-side so
 	// customAutoColors carries {light:{bg,text},dark:{bg,text}} and the inline
@@ -283,6 +286,18 @@ func captchaSecretFor(c settings.Captcha) string {
 		return c.RecaptchaSecretKey
 	}
 	return ""
+}
+
+// captchaPreconnect: the <head> links that warm the external CAPTCHA
+// provider's connection during parse, for the provider the page will use.
+// Only Turnstile has a known host worth warming; nothing for the built-in
+// CAPTCHA, which loads nothing external.
+func captchaPreconnect(c settings.Captcha) string {
+	if captchaInjectJSON(c) == "null" || c.Provider != "turnstile" {
+		return ""
+	}
+	return `<link rel="dns-prefetch" href="https://challenges.cloudflare.com">` + "\n" +
+		`<link rel="preconnect" href="https://challenges.cloudflare.com" crossorigin>`
 }
 
 // captchaInjectJSON returns the JSON embedded into window.UNMASK.captcha
@@ -1547,6 +1562,11 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	br := h.cfg().Branding.Resolve(cfgSite)
 	body = bytes.ReplaceAll(body, []byte(captchaPlaceholder),
 		[]byte("/*__CAPTCHA__*/"+captchaInjectJSON(ch.CaptchaProvider)))
+	// The Turnstile warm-up links only when Turnstile will render: the page
+	// used to open a connection to the provider for every visitor of every
+	// install, whether or not the operator had chosen that provider.
+	body = bytes.ReplaceAll(body, []byte(captchaPreconnectPlaceholder),
+		[]byte(captchaPreconnect(ch.CaptchaProvider)))
 	theme := pickChallengeTheme(r, br.Theme)
 	body = bytes.ReplaceAll(body, []byte(themePlaceholder),
 		[]byte(`/*__THEME__*/"`+theme+`"`))
@@ -3131,13 +3151,30 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "wrong"})
 }
 
-// CaptchaNew: GET {base}/api/captcha/new
+// CaptchaNew: GET {base}/api/captcha/new?ct=<the page's proof-of-load token>
+//
+// The question comes only to a client that loaded a challenge page: the
+// page's ct (time-bound, single-use, issued with the page) has to be
+// presented, and it is handed back as the ct the /verify math path will
+// consume, so one page load buys one answered question.  The endpoint used
+// to issue a fresh ct of its own with no precondition, which made the
+// arithmetic fallback a two-request script: GET a question, POST the sum,
+// collect a CAPTCHA-grade cookie, with no page ever served and nothing in
+// the hunt to show for it.  A per-address budget, the beacon's, bounds the
+// questions one address may draw in five minutes.
 func (h *Handler) CaptchaNew(w http.ResponseWriter, r *http.Request) {
+	ct := r.URL.Query().Get("ct")
+	if !captcha.VerifyToken(ct, h.cfg().Secret.CaptchaSecretBase, captcha.TokenValidSeconds) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
+		return
+	}
+	site := siteFromRequest(r, h.snapshotSettings())
+	limit := h.cfg().Challenge.Resolve(site).DebugRateLimitPer5Min
+	if !h.passTrace.takeQuiet("captcha-new|"+clientIP(r), limit, time.Now()) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"ok": 0, "error": "rate_limit"})
+		return
+	}
 	a, b, token := captcha.MathChallenge(h.cfg().Secret.CaptchaSecretBase)
-	// ct: time-bound, single-use proof-of-load, returned with the math
-	// challenge and required on the /verify math path -- so the answer/token
-	// can't be harvested once and blind-replayed forever.
-	ct := captcha.IssueToken(h.cfg().Secret.CaptchaSecretBase)
 	writeJSON(w, http.StatusOK, map[string]any{"a": a, "b": b, "token": token, "ct": ct})
 }
 

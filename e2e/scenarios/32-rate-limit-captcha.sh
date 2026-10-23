@@ -27,7 +27,9 @@ if [ "$denied" -lt 1 ]; then
 fi
 
 # 2. solve the math CAPTCHA (the escape hatch) for this IP.
-new=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" "${BASE_URL}/unmask/api/captcha/new")
+pct=$(captcha_page_ct "${BASE_URL}/unmask/challenge/" -H "X-Forwarded-For: $CLIENT_IP")
+[ -n "$pct" ] || { log_fail "the challenge page carried no ct"; exit 1; }
+new=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" "${BASE_URL}/unmask/api/captcha/new?ct=$pct")
 a=$(echo "$new" | grep -oE '"a":[0-9]+' | grep -oE '[0-9]+')
 b=$(echo "$new" | grep -oE '"b":[0-9]+' | grep -oE '[0-9]+')
 token=$(echo "$new" | grep -oE '"token":"[^"]+"' | sed -E 's/.*"token":"([^"]+)".*/\1/')

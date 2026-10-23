@@ -304,11 +304,22 @@ func TestDebugBeacon(t *testing.T) {
 // CaptchaNew: a, b in [1,20], token is 64 hex chars.
 func TestCaptchaNew(t *testing.T) {
 	h := newTestHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/unmask/api/captcha/new", nil)
+	// Without a page's proof-of-load token there is no question: the
+	// arithmetic fallback used to be a two-request script.
+	bare := httptest.NewRecorder()
+	h.CaptchaNew(bare, httptest.NewRequest(http.MethodGet, "/unmask/api/captcha/new", nil))
+	if bare.Code != http.StatusForbidden {
+		t.Fatalf("captcha/new without ct expected 403, got %d", bare.Code)
+	}
+	ct := captcha.IssueToken(h.cfg().Secret.CaptchaSecretBase)
+	req := httptest.NewRequest(http.MethodGet, "/unmask/api/captcha/new?ct="+ct, nil)
 	rr := httptest.NewRecorder()
 	h.CaptchaNew(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("captcha/new expected 200, got %d", rr.Code)
+	}
+	if !strings.Contains(rr.Body.String(), `"ct":"`+ct+`"`) {
+		t.Errorf("captcha/new did not hand the page's token back: %s", rr.Body.String())
 	}
 	var resp struct {
 		A, B  int

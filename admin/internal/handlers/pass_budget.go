@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"net/netip"
 	"strconv"
 	"sync"
 	"time"
@@ -89,13 +90,16 @@ func (b *solveBudget) markBanned(key string) bool {
 	return true
 }
 
-// countPass counts one recorded proof-of-work pass for the client and bans
-// it when it is over the pass budget.  Called once per pass: for the beacon
+// countPass counts one recorded challenge pass for the client and bans it
+// when it is over the pass budget.  Called once per pass: for the beacon
 // kept, or for the /bvj issue's record when the beacon never came
 // (pass_trace.go).  An address on the bypass list, with the crawler ranges
-// it carries, is not counted; a CAPTCHA pass is not a proof-of-work pass.
+// it carries, is not counted.  A CAPTCHA pass counts like a proof-of-work
+// pass: the built-in CAPTCHA is answered by a script in two requests, and
+// a client that answers it on every page is the client this budget is for.
+// Five hundred solves of either kind in a day is not a person.
 func (h *Handler) countPass(ip, ja4, site, kind string) {
-	if kind != "pow2" || ip == "" || h.BanMgr == nil {
+	if (kind != "pow2" && kind != "captcha") || ip == "" || h.BanMgr == nil {
 		return
 	}
 	cfg := h.cfg()
@@ -110,7 +114,7 @@ func (h *Handler) countPass(ip, ja4, site, kind string) {
 	def := cfg.Challenge.Default
 	sig := cfg.Secret.BVSecret + "|" + strconv.Itoa(def.ResolvedPowDifficulty()) + "|" + strconv.Itoa(def.PowCookieValidSecondsResolved())
 	pb := cfg.RateLimit.PassBudget
-	key := ip + "|" + ja4
+	key := budgetAddr(ip) + "|" + ja4
 	n, settling := h.solveBudget.add(key, sig, time.Now())
 	if settling || n <= pb.ResolvedPerDay() || !h.solveBudget.markBanned(key) {
 		return
@@ -119,10 +123,22 @@ func (h *Handler) countPass(ip, ja4, site, kind string) {
 	if ja4 == "" {
 		scope = ban.ScopeIPOnly
 	}
-	reason := fmt.Sprintf("pass budget: %d proof-of-work passes in a day (budget %d)", n, pb.ResolvedPerDay())
+	reason := fmt.Sprintf("pass budget: %d challenge passes in a day (budget %d)", n, pb.ResolvedPerDay())
 	if site != "" {
 		reason += " on " + site
 	}
 	h.BanMgr.AddAuto(context.Background(), ip, ja4, scope, ban.SourceRateLimitAbuse, reason,
 		pb.ResolvedAction(), int64(pb.ResolvedBanHours())*3600)
+}
+
+// budgetAddr is the address the pass budget counts under.  An IPv6 client
+// holds a /64 at the least and a VPS a /48, so counting per address let one
+// machine draw on sixty-five thousand budgets; the pass cookie is bound to
+// the /64, and the budget folds further to the /48.  IPv4 is itself.
+func budgetAddr(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil || !a.Is6() || a.Is4In6() {
+		return ip
+	}
+	return netip.PrefixFrom(a, 48).Masked().Addr().String()
 }

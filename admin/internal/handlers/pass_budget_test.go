@@ -70,12 +70,21 @@ func TestPassBudgetBansAPageByPageSolver(t *testing.T) {
 	}
 	solve(bot, 5) // still banned, no second ban, no error
 
-	// A CAPTCHA pass is not a proof-of-work pass.
-	for i := 0; i < 10; i++ {
+	// A CAPTCHA pass counts like a proof-of-work pass (the built-in CAPTCHA
+	// is answered by a script in two requests, so a run of them is the same
+	// client this budget exists for).
+	for i := 0; i < 4; i++ {
 		h.countPass("198.51.100.52", ja4, "", "captcha")
 	}
-	if _, _, b := banned("198.51.100.52"); b {
-		t.Error("CAPTCHA passes were counted")
+	if _, _, b := banned("198.51.100.52"); !b {
+		t.Error("CAPTCHA passes were not counted")
+	}
+	// A re-bound pass is not a solve.
+	for i := 0; i < 10; i++ {
+		h.countPass("198.51.100.54", ja4, "", "rebind")
+	}
+	if _, _, b := banned("198.51.100.54"); b {
+		t.Error("re-bound passes were counted")
 	}
 
 	// A bypass address is not counted.

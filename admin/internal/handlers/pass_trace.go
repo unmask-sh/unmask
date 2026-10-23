@@ -99,6 +99,26 @@ func (p *passTrace) take(addr string, limit int, now time.Time) bool {
 	return true
 }
 
+// takeQuiet is take for a budget that is not a beacon's: the refusal is
+// counted against the key like any other, but not recorded as a dropped
+// beacon of the address (the hunt would otherwise report questions a
+// script drew as beacons it lost).
+func (p *passTrace) takeQuiet(key string, limit int, now time.Time) bool {
+	if limit <= 0 {
+		limit = passTraceDefaultLimit
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.budget == nil || now.Sub(p.budgetSince) > passTraceWindow || len(p.budget) >= passTraceAddrsMax {
+		p.budget, p.budgetSince = map[string]int{}, now
+	}
+	if p.budget[key] >= limit {
+		return false
+	}
+	p.budget[key]++
+	return true
+}
+
 // drop counts a refused beacon from addr.  The caller holds the lock.
 func (p *passTrace) drop(addr string, now time.Time) {
 	if p.dropped == nil || len(p.dropped) >= passTraceAddrsMax {

@@ -76,3 +76,13 @@ assert_not_in() {
     log_pass "$desc (= does not contain '$needle')"
     return 0
 }
+
+# captcha_page_ct <challenge page URL> [curl args...] -- the proof-of-load
+# token (window.UNMASK.ct) of a challenge page fetched as a browser.  The
+# daemon hands out a math question only against a page's token, and hands the
+# same token back as the ct /verify consumes, so one page load buys one
+# answered question; every math-CAPTCHA flow starts here.
+captcha_page_ct() {
+    local url=$1; shift
+    curl -sk -A "$UA_BROWSER" "$@" "$url" | grep -oE '__CT__\*/"[^"]+"' | head -1 | sed -E 's/.*"([^"]+)"/\1/'
+}
