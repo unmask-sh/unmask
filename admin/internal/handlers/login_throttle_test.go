@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -115,5 +116,49 @@ func TestForgotPasswordCapsRequestsPerAddress(t *testing.T) {
 	// touched the same address's login state.
 	if d := tr.note(loginKey("x"), now, tr.failLimit, tr.failWindow, tr.lockFor); d != 0 {
 		t.Error("forgot-password requests leaked into the login-failure count")
+	}
+}
+
+// An IPv6 client has a whole /64 to send from, so counted by the full address
+// it had a fresh counter for every attempt.  The key is the /64; an IPv4
+// address (also when written as IPv6) stays the address, so IPv4 counting is
+// as it was.
+func TestLoginThrottleCountsIPv6ByPrefix(t *testing.T) {
+	tr := newLoginThrottle()
+	now := time.Unix(1_800_000_000, 0)
+
+	for i := 0; i < tr.failLimit-1; i++ {
+		addr := fmt.Sprintf("2001:db8:1:2::%x", i+1)
+		if d := tr.note(loginKey(addr), now, tr.failLimit, tr.failWindow, tr.lockFor); d != 0 {
+			t.Fatalf("failure %d (from %s) already locked", i+1, addr)
+		}
+	}
+	if d := tr.note(loginKey("2001:db8:1:2:ffff:ffff:ffff:ffff"), now, tr.failLimit, tr.failWindow, tr.lockFor); d != tr.lockFor {
+		t.Fatalf("the %dth failure from the same /64 should trip the lock, got %v", tr.failLimit, d)
+	}
+	if d := tr.lockedFor(loginKey("2001:db8:1:2::abcd"), now); d <= 0 {
+		t.Error("another address in the locked /64 is not locked")
+	}
+	if d := tr.lockedFor(loginKey("2001:db8:1:3::1"), now); d != 0 {
+		t.Error("the next /64 over got locked")
+	}
+	if d := tr.lockedFor(forgotKey("2001:db8:1:2::1"), now); d != 0 {
+		t.Error("login failures leaked into the /64's forgot-password count")
+	}
+
+	if loginKey("203.0.113.7") != loginKey("::ffff:203.0.113.7") {
+		t.Error("an IPv4 address written as IPv6 got its own counter")
+	}
+	for in, want := range map[string]string{
+		"203.0.113.7":         "203.0.113.7",
+		"2001:db8:1:2::5":     "2001:db8:1:2::/64",
+		"fe80::1%eth0":        "fe80::/64",
+		"not-an-address":      "not-an-address",
+		"":                    "",
+		"::ffff:198.51.100.9": "198.51.100.9",
+	} {
+		if got := throttleAddr(in); got != want {
+			t.Errorf("throttleAddr(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

@@ -9,6 +9,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -138,6 +139,12 @@ func (h *Handler) AdminProfileSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := user.CheckPassword(me.PasswordHash, cur); err != nil {
+			if errors.Is(err, user.ErrBusy) {
+				// Not checked at all (the hashing slots stayed full), so not
+				// "the current password is wrong" either.
+				passwordCheckBusy(w)
+				return
+			}
 			redir("profile.err.current")
 			return
 		}
@@ -145,6 +152,10 @@ func (h *Handler) AdminProfileSave(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "set password: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
+		// SetPassword ended the account's sessions; keep this one, which is
+		// the operator making the change, on a cookie under the new
+		// generation.  Every other device of theirs is signed out.
+		h.reissueSessionAfterPasswordChange(w, r, me.ID)
 		h.UserRepo.Record(r.Context(), pay.UserID, me.Username, "user_change_own_password", me.Username, "")
 		log.Printf("user changed own password: %d %s", me.ID, me.Username)
 		redir("")

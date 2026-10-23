@@ -246,9 +246,14 @@ func (h *Handler) setupSuperadmin(r *http.Request) *SessionPayload {
 		return nil
 	}
 	// Honor the CURRENT DB role so a demoted account can't reconfigure on a
-	// frozen cookie (mirrors AuthMiddleware).
+	// frozen cookie, and refuse a cookie whose session generation the account
+	// has moved past -- a password change or a suspension revoked it (mirrors
+	// AuthMiddleware).
 	if h.UserRepo != nil {
 		if u, uerr := h.UserRepo.GetByID(r.Context(), pay.UserID); uerr == nil && u != nil {
+			if u.Disabled || u.SessionGen != pay.Gen {
+				return nil
+			}
 			pay.Role = u.Role
 		}
 	}

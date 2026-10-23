@@ -101,12 +101,15 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 	// /metrics is registered with no middleware and the rendered nginx proxies
 	// all of /unmask/ to the admin with no allow/deny, so without an app-layer
 	// gate any internet client could read traffic/verdict stats.  Default to
-	// loopback-only; metrics_allow_from widens it.
+	// loopback-only; metrics_allow_from widens it.  The address is resolved
+	// the way the admin gate resolves it (adminClientIP): the forwarded
+	// headers count only off a trusted proxy, so a client that reaches the
+	// daemon directly cannot name a loopback address in X-Real-IP and read.
 	allow := settings.EnabledValues(h.cfg().Nginx.MetricsAllowFrom, h.cfg().Nginx.MetricsAllowFromDisabled)
 	if len(allow) == 0 {
 		allow = []string{"127.0.0.0/8", "::1/128"}
 	}
-	if !ipAllowed(clientIP(r), allow) {
+	if !ipAllowed(adminClientIP(r, *h.cfg()), allow) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}

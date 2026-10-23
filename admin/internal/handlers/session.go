@@ -1,12 +1,18 @@
 // Session cookie for the admin dashboard.
 //
-// Format: "<user_id>.<role>.<exp_unix>.<remember>.<sig16>"
+// Format: "<user_id>.<role>.<exp_unix>.<remember>.<gen>.<sig>"
 //
 //	user_id  = unmask_user.id (= int64)
 //	role     = "superadmin" | "admin" | "viewer"
 //	exp_unix = expiry, unix seconds
 //	remember = "1" (= auto-login) / "0".  Decides refresh extension width.
-//	sig16    = HMAC-SHA256(secret, "<user_id>.<role>.<exp>.<remember>") hex[:16]
+//	gen      = unmask_user.session_gen at issue.  AuthMiddleware refuses the
+//	           cookie once the account's value differs: a password change and
+//	           a suspension advance it, which is how a cookie with no server-
+//	           side row gets revoked.  Added 2026-10 -- a cookie issued before
+//	           then has one field fewer and fails verification, so the upgrade
+//	           signs every operator out once.
+//	sig      = HMAC-SHA256(secret, "<user_id>.<role>.<exp>.<remember>.<gen>") hex[:32]
 //
 // Reuses settings.Secret.BVSecret as the secret (= rotating it invalidates all sessions).
 // admin_token has been removed.  Since the user identifier is in the cookie,
@@ -38,6 +44,9 @@ type SessionPayload struct {
 	Role     string
 	Exp      int64
 	Remember bool
+	// Gen: the account's session generation the cookie was issued under
+	// (user.User.SessionGen).
+	Gen int64
 }
 
 // sessionNeedsRefresh: true when less than half the TTL remains.
@@ -52,7 +61,9 @@ func sessionNeedsRefresh(pay *SessionPayload) bool {
 
 // issueSessionCookie returns a Cookie carrying a fresh signed session for the user.
 // remember=true (= "remember me" on the login form) extends TTL to 30 days.
-func issueSessionCookie(secret string, userID int64, role string, secure, remember bool) *http.Cookie {
+// gen is the account's current session generation; the cookie is good only
+// while the account keeps it.
+func issueSessionCookie(secret string, userID int64, role string, secure, remember bool, gen int64) *http.Cookie {
 	ttl := sessionTTL
 	rememberFlag := "0"
 	if remember {
@@ -60,7 +71,7 @@ func issueSessionCookie(secret string, userID int64, role string, secure, rememb
 		rememberFlag = "1"
 	}
 	exp := time.Now().Add(ttl)
-	body := strconv.FormatInt(userID, 10) + "." + role + "." + strconv.FormatInt(exp.Unix(), 10) + "." + rememberFlag
+	body := strconv.FormatInt(userID, 10) + "." + role + "." + strconv.FormatInt(exp.Unix(), 10) + "." + rememberFlag + "." + strconv.FormatInt(gen, 10)
 	value := body + "." + sessionSign(secret, body)
 	return &http.Cookie{
 		Name:     sessionCookieName,
@@ -88,12 +99,13 @@ func clearSessionCookie(secure bool) *http.Cookie {
 }
 
 // verifySessionCookie: verify signature + check expiry.
-// Returns the payload on success, nil on failure.
+// Returns the payload on success, nil on failure.  The generation is NOT
+// checked here -- that takes the account's row, which AuthMiddleware reads.
 func verifySessionCookie(secret, value string) *SessionPayload {
 	if secret == "" || value == "" {
 		return nil
 	}
-	// rsplit "<userID>.<role>.<exp>.<remember>.<sig16>" (= each field is assumed to contain no ".")
+	// rsplit "<userID>.<role>.<exp>.<remember>.<gen>.<sig>" (= each field is assumed to contain no ".")
 	idx := strings.LastIndexByte(value, '.')
 	if idx <= 0 || idx >= len(value)-1 {
 		return nil
@@ -111,7 +123,7 @@ func verifySessionCookie(secret, value string) *SessionPayload {
 		return nil
 	}
 	parts := strings.Split(body, ".")
-	if len(parts) != 4 {
+	if len(parts) != 5 {
 		return nil
 	}
 	uid, err := strconv.ParseInt(parts[0], 10, 64)
@@ -129,7 +141,11 @@ func verifySessionCookie(secret, value string) *SessionPayload {
 	if time.Now().Unix() > exp {
 		return nil
 	}
-	return &SessionPayload{UserID: uid, Role: role, Exp: exp, Remember: parts[3] == "1"}
+	gen, err := strconv.ParseInt(parts[4], 10, 64)
+	if err != nil || gen < 0 {
+		return nil
+	}
+	return &SessionPayload{UserID: uid, Role: role, Exp: exp, Remember: parts[3] == "1", Gen: gen}
 }
 
 func sessionSign(secret, body string) string {
@@ -140,4 +156,23 @@ func sessionSign(secret, body string) string {
 	// here, so any in-flight 64-bit cookie simply fails verification and the
 	// operator re-logs in (acceptable pre-GA: single operator, no compat burden).
 	return hex.EncodeToString(h.Sum(nil))[:32]
+}
+
+// reissueSessionAfterPasswordChange hands the session that just changed
+// userID's password a cookie under the account's new generation.  SetPassword
+// advanced the generation, which ends every session the account holds -- the
+// point of it -- but the one that made the change would otherwise be sent to
+// the login page by its own save.  Only that session gets a new cookie
+// (the request's session must be the account's); the others end.
+func (h *Handler) reissueSessionAfterPasswordChange(w http.ResponseWriter, r *http.Request, userID int64) {
+	pay := SessionFromContext(r)
+	if pay == nil || pay.UserID != userID || h.UserRepo == nil {
+		return
+	}
+	u, err := h.UserRepo.GetByID(r.Context(), userID)
+	if err != nil {
+		return
+	}
+	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+	http.SetCookie(w, issueSessionCookie(h.cfg().Secret.BVSecret, u.ID, u.Role, secure, pay.Remember, u.SessionGen))
 }

@@ -1010,6 +1010,7 @@ CREATE TABLE IF NOT EXISTS unmask_user (
     created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,  -- account creation time (UTC)
     last_login               DATETIME                                     -- last successful login time (UTC)
     -- NOTE: password_locked is added by migration 0041, not here (same reason).
+    -- NOTE: session_gen is added by migration 0046, not here (same reason).
     -- NOTE: ui_lang is added by migration 0035, not here (see
     -- unmask_user_audit for why).
 );
@@ -1143,7 +1144,7 @@ CREATE TABLE IF NOT EXISTS unmask_user (
     created_at               DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT 'account creation time (UTC)',
     last_login               DATETIME COMMENT 'last successful login time (UTC)',
     -- ui_lang is added by migration 0035 (see the SQLite schema for why),
-    -- password_locked by 0041.
+    -- password_locked by 0041, session_gen by 0046.
     PRIMARY KEY (id),
     UNIQUE KEY uk_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Dashboard admin accounts';

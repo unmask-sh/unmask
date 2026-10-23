@@ -162,14 +162,17 @@ func (AdvisorResult) TableName() string { return "unmask_advisor_result" }
 // autoCreateTime:false so GORM never tries to assign its own zero value when
 // the column is omitted.
 type User struct {
-	ID                  int64      `gorm:"primaryKey;autoIncrement"`
-	Username            string     `gorm:"column:username;not null;uniqueIndex"`
-	PasswordHash        string     `gorm:"column:password_hash;not null"`
-	Role                string     `gorm:"column:role;not null"`
-	Email               *string    `gorm:"column:email"`
-	AlertOptOut         int        `gorm:"column:alert_opt_out;not null;default:0"`
-	Disabled            int        `gorm:"column:disabled;not null;default:0"`
-	PasswordLocked      int        `gorm:"column:password_locked;not null;default:0"`
+	ID             int64   `gorm:"primaryKey;autoIncrement"`
+	Username       string  `gorm:"column:username;not null;uniqueIndex"`
+	PasswordHash   string  `gorm:"column:password_hash;not null"`
+	Role           string  `gorm:"column:role;not null"`
+	Email          *string `gorm:"column:email"`
+	AlertOptOut    int     `gorm:"column:alert_opt_out;not null;default:0"`
+	Disabled       int     `gorm:"column:disabled;not null;default:0"`
+	PasswordLocked int     `gorm:"column:password_locked;not null;default:0"`
+	// SessionGen: a session cookie is refused unless it carries this value;
+	// a password change and a suspension advance it (migration 0046).
+	SessionGen          int64      `gorm:"column:session_gen;not null;default:0"`
 	ResetToken          *string    `gorm:"column:reset_token"`
 	ResetTokenExpiresAt *int64     `gorm:"column:reset_token_expires_at"`
 	CreatedAt           time.Time  `gorm:"column:created_at;not null;autoCreateTime:false"`

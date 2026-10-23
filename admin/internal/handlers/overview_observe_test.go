@@ -57,7 +57,7 @@ func observeHandler(t *testing.T, observe bool, judged int) *Handler {
 func renderOverview(t *testing.T, h *Handler) string {
 	t.Helper()
 	r := httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil)
-	r.AddCookie(issueSessionCookie(h.cfg().Secret.BVSecret, 1, "superadmin", false, false))
+	r.AddCookie(issueSessionCookie(h.cfg().Secret.BVSecret, 1, "superadmin", false, false, 0))
 	// The handler is called without AuthMiddleware, so the account goes
 	// into the context here: the reasons card draws its links to bot hunt
 	// and the settings for an administrator only.

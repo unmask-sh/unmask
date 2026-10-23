@@ -82,7 +82,7 @@ func TestCSRFCookieSameSiteLax(t *testing.T) {
 	if c := clearCSRFCookie(true); c.SameSite != http.SameSiteLaxMode {
 		t.Errorf("clearCSRFCookie SameSite = %v; want Lax", c.SameSite)
 	}
-	if s := issueSessionCookie("sec", 1, "admin", true, true); s.SameSite != http.SameSiteLaxMode {
+	if s := issueSessionCookie("sec", 1, "admin", true, true, 0); s.SameSite != http.SameSiteLaxMode {
 		t.Errorf("session cookie SameSite = %v; the CSRF cookie is documented to match it", s.SameSite)
 	}
 }

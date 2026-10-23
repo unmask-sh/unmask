@@ -22,7 +22,6 @@ import (
 	"strings"
 
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
-	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 )
 
@@ -49,9 +48,12 @@ func (h *Handler) sendSetupLinkMail(r *http.Request, u *user.User) error {
 	if err := h.UserRepo.IssueResetToken(r.Context(), u.ID, tok, inviteTokenTTLSec); err != nil {
 		return err
 	}
-	base := h.cfg().Server.BasePath
-	setupURL := buildResetURL(r, base, tok,
-		settings.EnabledValues(h.snapshotSettings().Nginx.AdminAllowedHosts, h.snapshotSettings().Nginx.AdminAllowedHostsDisabled))
+	setupURL := buildResetURL(r, h.snapshotSettings(), tok)
+	if setupURL == "" {
+		// No host the link can safely be built on (resetLinkHost); the
+		// operator sees this on the users page.
+		return errors.New("no host to build the setup link on: admin_allowed_hosts names no host")
+	}
 	subject := "[unmask] account setup link"
 	body := "An unmask admin account is ready for you.\n\n" +
 		"Use the following link to set your password (valid for 72 hours):\n" +
@@ -266,6 +268,9 @@ func (h *Handler) AdminUsersSave(w http.ResponseWriter, r *http.Request) {
 				redir("reset password: " + err.Error())
 				return
 			}
+			// SetPassword ended the account's sessions.  A superadmin editing
+			// their own row keeps this one (no-op for anyone else's).
+			h.reissueSessionAfterPasswordChange(w, r, uid)
 			passChanged = true
 		}
 		targetUsername := current.Username
@@ -449,6 +454,9 @@ func (h *Handler) AdminUsersSave(w http.ResponseWriter, r *http.Request) {
 			redir("reset: " + err.Error())
 			return
 		}
+		// SetPassword ended the account's sessions; a superadmin resetting
+		// their own password keeps this one (no-op for anyone else's).
+		h.reissueSessionAfterPasswordChange(w, r, uid)
 		targetUsername := ""
 		if u, err := h.UserRepo.GetByID(r.Context(), uid); err == nil {
 			targetUsername = u.Username

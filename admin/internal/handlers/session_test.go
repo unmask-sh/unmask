@@ -12,7 +12,7 @@ import (
 // gate stayed at 16, rejecting every cookie and breaking admin login.
 func TestSessionCookieRoundtrip(t *testing.T) {
 	const secret = "roundtrip-secret"
-	c := issueSessionCookie(secret, 42, user.RoleSuperadmin, false, false)
+	c := issueSessionCookie(secret, 42, user.RoleSuperadmin, false, false, 0)
 	pay := verifySessionCookie(secret, c.Value)
 	if pay == nil {
 		t.Fatal("a freshly issued session cookie must verify")

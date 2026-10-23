@@ -57,7 +57,7 @@ func TestAuthMiddlewarePutsClientIPInContext(t *testing.T) {
 	// AuthMiddleware redirects an unauthenticated request to the login page
 	// before reaching the wrapped handler, so the assertion needs a session --
 	// which is also the case that matters: every audited action is authenticated.
-	r.AddCookie(issueSessionCookie(h.cfg().Secret.BVSecret, 1, "superadmin", false, false))
+	r.AddCookie(issueSessionCookie(h.cfg().Secret.BVSecret, 1, "superadmin", false, false, 0))
 	r.RemoteAddr = "127.0.0.1:5555"
 	r.Header.Set("X-Real-IP", "203.0.113.9")
 	h.AuthMiddleware(next)(httptest.NewRecorder(), r)

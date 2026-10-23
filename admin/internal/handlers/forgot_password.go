@@ -133,16 +133,21 @@ func (h *Handler) AdminForgotPasswordPost(w http.ResponseWriter, r *http.Request
 	}
 
 	// 3) Send mail.  The URL prefix uses the client-visible Host (= built
-	//    from the target site and the admin base_path).
-	resetURL := buildResetURL(r, base, tok, settings.EnabledValues(h.snapshotSettings().Nginx.AdminAllowedHosts, h.snapshotSettings().Nginx.AdminAllowedHostsDisabled))
-	subject := "[unmask] password reset link"
-	body := "A password reset was requested for unmask.\n\n" +
-		"Use the following link to set a new password (valid for 1 hour):\n" +
-		resetURL + "\n\n" +
-		"If you did not request this, ignore this email.\n" +
-		"username: " + u.Username + "\n"
-	if err := h.Mailer.Send(u.Email.String, subject, body); err != nil {
-		log.Printf("forgot password: mail send to %s: %v", u.Email.String, err)
+	//    from the target site and the admin base_path).  No host the link
+	//    can safely be built on -> no mail; the token expires unused.
+	resetURL := buildResetURL(r, h.snapshotSettings(), tok)
+	if resetURL == "" {
+		log.Printf("forgot password: no host to build the reset link on (admin_allowed_hosts names none; request host %q); mail not sent", LogSafe(r.Host))
+	} else {
+		subject := "[unmask] password reset link"
+		body := "A password reset was requested for unmask.\n\n" +
+			"Use the following link to set a new password (valid for 1 hour):\n" +
+			resetURL + "\n\n" +
+			"If you did not request this, ignore this email.\n" +
+			"username: " + u.Username + "\n"
+		if err := h.Mailer.Send(u.Email.String, subject, body); err != nil {
+			log.Printf("forgot password: mail send to %s: %v", u.Email.String, err)
+		}
 	}
 
 	// audit (= record both successes and failures for audit).
@@ -227,41 +232,85 @@ func newResetToken() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-// buildResetURL: build the client-visible URL.  Trust X-Forwarded-Proto /
-// -Host (= behind a reverse proxy).  Fall back to r.Host + inferred scheme.
-func buildResetURL(r *http.Request, base, token string, allowedHosts []string) string {
-	scheme := "https"
-	if v := r.Header.Get("X-Forwarded-Proto"); v != "" {
-		scheme = v
-	} else if r.TLS == nil {
-		scheme = "http"
-	}
-	host := r.Header.Get("X-Forwarded-Host")
+// buildResetURL: the client-visible reset / setup link, or "" when there is
+// no host it can safely be built on (resetLinkHost).
+//
+// On internal-IP access, host becomes localhost / 127.0.0.1.  The flow
+// still works, but the link inside the mail won't be reachable
+// externally.  That's an operator responsibility (= reverse-proxy setup).
+func buildResetURL(r *http.Request, cfg settings.Settings, token string) string {
+	host := resetLinkHost(r, cfg)
 	if host == "" {
-		host = r.Host
+		return ""
 	}
-	// Reset-link poisoning guard: the email is sent to the victim, so a
-	// client-supplied Host / X-Forwarded-Host of `attacker.com` would yield
-	// a body saying "click https://attacker.com/admin/reset-password?token=XXX"
-	// and a one-click leak of the token (= account takeover).  When the
-	// operator has configured an AdminAllowedHosts allowlist, only honor
-	// hosts inside it; otherwise pin to the first entry.  An empty
-	// allowlist means "single-admin install, trust r.Host" (= preserves the
-	// current behavior on default installs).
-	if len(allowedHosts) > 0 {
-		ok := false
-		for _, a := range allowedHosts {
-			if strings.EqualFold(host, strings.TrimSpace(a)) {
-				ok = true
-				break
-			}
-		}
-		if !ok {
-			host = strings.TrimSpace(allowedHosts[0])
+	return resetLinkScheme(r, cfg) + "://" + host + cfg.Server.BasePath + "/admin/reset-password?token=" + token
+}
+
+// resetLinkHost is the host the reset link is built on, "" when none can be
+// trusted.
+//
+// The mail goes to the account's own address, so a link built on a host the
+// client named is a one-click leak of the token to that host: a visitor who
+// sends "Host: attacker.example" (or X-Forwarded-Host) for the victim's
+// username would have the victim deliver their own token.  So:
+//   - X-Forwarded-Host is read off a trusted proxy only (adminClientHost, the
+//     same reading admin_allowed_hosts is enforced with); from anyone else the
+//     host is what the connection's own Host header says.
+//   - With admin_allowed_hosts set, the host has to match it the way the admin
+//     gate matches (hostMatchesPattern: exact:, subdomain:, anchored regex).
+//     This used to compare the raw entries, so a list saved by the settings
+//     page -- whose rows carry a mode marker -- never matched, and the link
+//     was then built on the literal first entry, "exact:admin.example.com".
+//   - A host outside the list is replaced by the first entry that names a
+//     host (literalHost).  A list of patterns alone names none, and then
+//     there is no safe host and no link: the caller logs it and sends no
+//     mail.
+//   - An empty list (the default) keeps trusting the request host: a single-
+//     admin install, where the name the operator reached the admin by is the
+//     name the link should carry.
+func resetLinkHost(r *http.Request, cfg settings.Settings) string {
+	host := strings.TrimSpace(adminClientHost(r, cfg))
+	allowed := settings.EnabledValues(cfg.Nginx.AdminAllowedHosts, cfg.Nginx.AdminAllowedHostsDisabled)
+	if host != "" && hostAllowed(host, allowed) {
+		return host
+	}
+	for _, entry := range allowed {
+		if lit := literalHost(strings.TrimSpace(entry)); lit != "" {
+			return lit
 		}
 	}
-	// On internal-IP access, host becomes localhost / 127.0.0.1.  The flow
-	// still works, but the link inside the mail won't be reachable
-	// externally.  That's an operator responsibility (= reverse-proxy setup).
-	return scheme + "://" + host + base + "/admin/reset-password?token=" + token
+	return ""
+}
+
+// literalHost is the host an allowlist entry names, "" for a pattern.  An
+// exact: entry names its text, a subdomain: entry names the domain itself,
+// and a bare entry that is a plain dotted name (plainHostRE, over_block.go)
+// names that -- entries from before the mode markers existed are bare, and a
+// name matches itself as a regex too.  A bare entry with any regex syntax in
+// it names nothing.  Also what adminURL builds an alert's links from.
+func literalHost(entry string) string {
+	switch settings.PatternModeOf(entry) {
+	case settings.ModeExact, settings.ModeContains, settings.ModeSubdomain:
+		return strings.TrimSpace(settings.PatternText(entry))
+	}
+	if plainHostRE.MatchString(entry) {
+		return entry
+	}
+	return ""
+}
+
+// resetLinkScheme: the scheme the link is built with.  X-Forwarded-Proto is
+// read off a trusted proxy only, as the host is: a link downgraded to http
+// would carry the token over the wire in the clear when the mail is opened.
+// Direct to the daemon, the connection itself says.
+func resetLinkScheme(r *http.Request, cfg settings.Settings) string {
+	if peerIsTrustedProxy(r.RemoteAddr, forwardAuthTrustedPeers(cfg)) || peerIsUnixSocket(r.RemoteAddr) {
+		if v := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto"))); v == "http" || v == "https" {
+			return v
+		}
+	}
+	if r.TLS != nil {
+		return "https"
+	}
+	return "http"
 }

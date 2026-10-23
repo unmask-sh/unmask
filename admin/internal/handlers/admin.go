@@ -589,6 +589,16 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 							http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/login", http.StatusFound)
 							return
 						}
+						if u.SessionGen != pay.Gen {
+							// The account's session generation moved on since
+							// this cookie was issued -- its password was changed
+							// or reset, or it was suspended and re-enabled -- so
+							// the cookie is revoked, however long it had left.
+							sec := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+							http.SetCookie(w, clearSessionCookie(sec))
+							http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/login", http.StatusFound)
+							return
+						}
 						pay.Role = u.Role
 						h.rememberUILang(r, u)
 					} else if errors.Is(uerr, user.ErrNotFound) {
@@ -601,7 +611,7 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 				// Sliding extension on each request: refresh when remaining lifetime drops below half of TTL.
 				secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 				if sessionNeedsRefresh(pay) {
-					http.SetCookie(w, issueSessionCookie(secret, pay.UserID, pay.Role, secure, pay.Remember))
+					http.SetCookie(w, issueSessionCookie(secret, pay.UserID, pay.Role, secure, pay.Remember, pay.Gen))
 					// Slide the CSRF cookie WITH the session (same value, fresh
 					// expiry).  Minted only at login, it used to expire ~30 days
 					// in while the session slid on forever -- the state that fed
@@ -1227,11 +1237,21 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Equalize timing: a non-existent username must cost the same as a real
 		// one (which runs argon2id below) so response time can't enumerate users.
-		user.DummyCheckPassword(password)
+		if err := user.DummyCheckPassword(password); err != nil {
+			passwordCheckBusy(w)
+			return
+		}
 		rejectInvalid()
 		return
 	}
 	if err := user.CheckPassword(u.PasswordHash, password); err != nil {
+		if errors.Is(err, user.ErrBusy) {
+			// The hashing slots stayed full (user.hashSlots): the password
+			// was not checked, so this is neither a failure for the lockout
+			// nor an answer about the password.  503 says come back.
+			passwordCheckBusy(w)
+			return
+		}
 		rejectInvalid()
 		return
 	}
@@ -1247,8 +1267,11 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 	// must not block an otherwise-valid login.
 	// Not while a schema update holds the writes: the write would wait out
 	// the busy timeout on the way in, and the next sign-in does it anyway.
+	// RehashPassword, not SetPassword: the password is the same, so the
+	// account's sessions elsewhere stay, and the cookie issued below is good
+	// under the generation u was read with.
 	if user.NeedsRehash(u.PasswordHash) && !h.DB.WritesHeld() {
-		if err := h.UserRepo.SetPassword(r.Context(), u.ID, password); err != nil {
+		if err := h.UserRepo.RehashPassword(r.Context(), u.ID, password); err != nil {
 			log.Printf("password rehash on login (user %d): %v", u.ID, err)
 		}
 	}
@@ -1257,7 +1280,7 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 	h.UserRepo.Record(r.Context(), u.ID, u.Username, "login", "", "")
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	remember := r.FormValue("remember") != ""
-	http.SetCookie(w, issueSessionCookie(h.cfg().Secret.BVSecret, u.ID, u.Role, secure, remember))
+	http.SetCookie(w, issueSessionCookie(h.cfg().Secret.BVSecret, u.ID, u.Role, secure, remember, u.SessionGen))
 	// Pair the session with a fresh CSRF token (= double-submit cookie).
 	// A token failure here is logged but not fatal: an operator can
 	// still navigate to GET pages, and the templates' AuthMiddleware

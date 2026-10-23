@@ -23,10 +23,12 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"time"
 
 	"golang.org/x/crypto/argon2"
+	"gorm.io/gorm"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 )
@@ -73,6 +75,13 @@ type User struct {
 	// users page (and the CLI) still set the password, and a setup link an
 	// administrator sends still works.
 	PasswordLocked bool
+	// SessionGen: the account's session generation.  A session cookie
+	// carries the value it was issued under and is refused once the two
+	// differ, which is how a stateless cookie gets revoked: SetPassword and
+	// a suspension advance it, so a password change or a suspension ends
+	// every session the account has.  Signing out does not advance it --
+	// that would end the account's sessions on every other device too.
+	SessionGen int64
 	// ResetToken / ResetTokenExpiresAt: for the password reset link.  Expires is unix-sec.
 	ResetToken          sql.NullString
 	ResetTokenExpiresAt sql.NullInt64
@@ -110,6 +119,58 @@ const (
 	MaxPasswordLen = 1024
 )
 
+// Every argon2id run holds argon2Memory (64 MiB) for as long as it computes,
+// and nothing else bounds how many run at once: the login lockout counts a
+// failure only after its hash has been checked, so a burst of parallel login
+// POSTs from one address had the daemon allocate the burst's size times
+// 64 MiB (a few dozen requests was gigabytes).  The runs share hashSlots
+// instead -- a few at once, which is all a login endpoint ever needs -- and a
+// caller that gets no slot within hashWait is told ErrBusy without having
+// spent the memory.
+var hashSlots = make(chan struct{}, hashParallelism())
+
+// hashWait bounds how long a caller waits for a slot.  A variable so a test
+// can shorten it.
+var hashWait = 10 * time.Second
+
+// ErrBusy: every hashing slot stayed taken for hashWait.  The password was
+// NOT checked, so the caller answers "try again shortly", not "wrong
+// password" -- and does not count the attempt as a failure.
+var ErrBusy = errors.New("password hashing is busy; try again shortly")
+
+// hashParallelism: how many argon2id runs may be in flight at once.  Four at
+// most (= 256 MiB), fewer on a box with fewer cores -- each run is single-
+// threaded (argon2Threads), so more slots than cores only adds memory.
+func hashParallelism() int {
+	n := runtime.NumCPU()
+	if n > 4 {
+		n = 4
+	}
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+// acquireHashSlot takes a slot, waiting up to hashWait for one.  Pair with
+// releaseHashSlot.
+func acquireHashSlot() error {
+	timer := time.NewTimer(hashWait)
+	defer timer.Stop()
+	select {
+	case hashSlots <- struct{}{}:
+		return nil
+	case <-timer.C:
+		return ErrBusy
+	}
+}
+
+func releaseHashSlot() { <-hashSlots }
+
+// argon2Key is the key derivation the hashing and the check run under a slot.
+// A variable so a test can stand in for it and watch how many run at once.
+var argon2Key = argon2.IDKey
+
 // MinPasswordLen is the minimum length for a new admin password.  Shared by the
 // setup wizard and the `user` CLI so the CLI (which can create the first
 // superadmin) cannot mint a weaker account than the wizard allows.
@@ -141,15 +202,25 @@ func HashPassword(plain string) (string, error) {
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	key := argon2.IDKey([]byte(plain), salt, argon2Time, argon2Memory, argon2Threads, argon2KeyLen)
+	if err := acquireHashSlot(); err != nil {
+		return "", err
+	}
+	defer releaseHashSlot()
+	key := argon2Key([]byte(plain), salt, argon2Time, argon2Memory, argon2Threads, argon2KeyLen)
 	enc := base64.RawStdEncoding.EncodeToString
 	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
 		argon2.Version, argon2Memory, argon2Time, argon2Threads,
 		enc(salt), enc(key)), nil
 }
 
-// CheckPassword: verify against an argon2id PHC string.  Returns nil on match.
+// CheckPassword: verify against an argon2id PHC string.  Returns nil on match,
+// ErrBusy when no hashing slot came free in time (the password was not
+// checked), any other error on a mismatch.
 func CheckPassword(hash, plain string) error {
+	if err := acquireHashSlot(); err != nil {
+		return err
+	}
+	defer releaseHashSlot()
 	return checkArgon2id(hash, plain)
 }
 
@@ -203,7 +274,7 @@ func checkArgon2id(encoded, plain string) error {
 	if keyLen == 0 {
 		return errBadHash
 	}
-	actual := argon2.IDKey([]byte(plain), salt, time, memory, threads, keyLen)
+	actual := argon2Key([]byte(plain), salt, time, memory, threads, keyLen)
 	if subtle.ConstantTimeCompare(expected, actual) != 1 {
 		return errBadHash
 	}
@@ -218,8 +289,15 @@ var dummyHash, _ = HashPassword("unmask-login-timing-equalizer")
 
 // DummyCheckPassword runs a verify against the fixed dummy hash and discards the
 // result.  Call it on the user-not-found login path to match the cost of a real
-// CheckPassword.
-func DummyCheckPassword(plain string) { _ = CheckPassword(dummyHash, plain) }
+// CheckPassword.  It waits for a hashing slot like the real check and returns
+// ErrBusy the same way, so a busy daemon answers the two paths alike; nil
+// otherwise.
+func DummyCheckPassword(plain string) error {
+	if err := CheckPassword(dummyHash, plain); errors.Is(err, ErrBusy) {
+		return err
+	}
+	return nil
+}
 
 // Repository: thin CRUD wrapper for the unmask_user table.
 type Repository struct {
@@ -280,7 +358,7 @@ func (r *Repository) CreateWithHash(ctx context.Context, username, passwordHash,
 // GetByUsername: primary lookup used during authentication.
 func (r *Repository) GetByUsername(ctx context.Context, username string) (*User, error) {
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, password_locked, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, password_locked, reset_token, reset_token_expires_at, created_at, last_login, ui_lang, session_gen
 		 FROM unmask_user WHERE username = ?`, username)
 	return scanUser(row)
 }
@@ -288,7 +366,7 @@ func (r *Repository) GetByUsername(ctx context.Context, username string) (*User,
 // GetByID: load the user from the session cookie payload (= user_id).
 func (r *Repository) GetByID(ctx context.Context, id int64) (*User, error) {
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, password_locked, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, password_locked, reset_token, reset_token_expires_at, created_at, last_login, ui_lang, session_gen
 		 FROM unmask_user WHERE id = ?`, id)
 	return scanUser(row)
 }
@@ -296,7 +374,7 @@ func (r *Repository) GetByID(ctx context.Context, id int64) (*User, error) {
 // List: for the superadmin user-management UI.  Ascending by username.
 func (r *Repository) List(ctx context.Context) ([]*User, error) {
 	rows, err := r.DB.QueryContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, password_locked, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, password_locked, reset_token, reset_token_expires_at, created_at, last_login, ui_lang, session_gen
 		 FROM unmask_user ORDER BY username`)
 	if err != nil {
 		return nil, err
@@ -313,8 +391,35 @@ func (r *Repository) List(ctx context.Context) ([]*User, error) {
 	return out, rows.Err()
 }
 
-// SetPassword: password reset.  Shared by CLI / admin UI.
+// SetPassword: password reset.  Shared by CLI / admin UI.  Advances the
+// session generation in the same statement, so every session the account
+// holds -- on every device, however long its cookie had left -- ends with the
+// old password; the one that made the change gets a fresh cookie from its
+// handler.  Done here rather than at the callers so no path that sets a
+// password (profile page, users page, reset link, CLI) can forget to.
 func (r *Repository) SetPassword(ctx context.Context, userID int64, plainPassword string) error {
+	hash, err := HashPassword(plainPassword)
+	if err != nil {
+		return err
+	}
+	res := r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
+		Updates(map[string]any{"password_hash": hash, "session_gen": gorm.Expr("session_gen + 1")})
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// RehashPassword stores the SAME password under the current cost parameters
+// (the transparent upgrade a successful login does, NeedsRehash).  Unlike
+// SetPassword it leaves the session generation alone: the password did not
+// change, so the account's sessions elsewhere have no reason to end -- and
+// the login that triggered it is about to issue a cookie under the
+// generation it just read.
+func (r *Repository) RehashPassword(ctx context.Context, userID int64, plainPassword string) error {
 	hash, err := HashPassword(plainPassword)
 	if err != nil {
 		return err
@@ -382,12 +487,15 @@ func (r *Repository) SetDisabled(ctx context.Context, userID int64, disabled boo
 			return ErrLastSuperadmin
 		}
 	}
-	v := 0
+	values := map[string]any{"disabled": 0}
 	if disabled {
-		v = 1
+		// Suspension also advances the session generation: the middleware
+		// already turns a suspended account away on its next request, and
+		// this keeps the cookies it held from coming back to life when the
+		// account is re-enabled -- re-enabling means signing in again.
+		values = map[string]any{"disabled": 1, "session_gen": gorm.Expr("session_gen + 1")}
 	}
-	res := r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
-		Update("disabled", v)
+	res := r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).Updates(values)
 	if res.Error != nil {
 		return res.Error
 	}
@@ -435,7 +543,7 @@ func scanUser(r interface {
 }) (*User, error) {
 	var u User
 	var optOut, disabled, locked int64
-	err := r.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.Email, &optOut, &disabled, &locked, &u.ResetToken, &u.ResetTokenExpiresAt, &u.CreatedAt, &u.LastLogin, &u.UILang)
+	err := r.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &u.Email, &optOut, &disabled, &locked, &u.ResetToken, &u.ResetTokenExpiresAt, &u.CreatedAt, &u.LastLogin, &u.UILang, &u.SessionGen)
 	if err == sql.ErrNoRows {
 		return nil, ErrNotFound
 	}
@@ -539,7 +647,7 @@ func (r *Repository) ConsumeResetToken(ctx context.Context, token string) (*User
 		return nil, ErrNotFound
 	}
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, password_locked, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, password_locked, reset_token, reset_token_expires_at, created_at, last_login, ui_lang, session_gen
 		 FROM unmask_user WHERE reset_token = ?`, token)
 	u, err := scanUser(row)
 	if err != nil {
@@ -580,7 +688,7 @@ func (r *Repository) GetByEmail(ctx context.Context, email string) (*User, error
 		return nil, ErrNotFound
 	}
 	row := r.DB.QueryRowContext(ctx,
-		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, password_locked, reset_token, reset_token_expires_at, created_at, last_login, ui_lang
+		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, password_locked, reset_token, reset_token_expires_at, created_at, last_login, ui_lang, session_gen
 		 FROM unmask_user WHERE email = ? ORDER BY id LIMIT 1`, email)
 	return scanUser(row)
 }

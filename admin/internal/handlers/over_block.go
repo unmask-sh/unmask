@@ -149,23 +149,18 @@ func overBlockReport(tripped bool, r events.StuckReport, minStuck, minPct int, a
 // alert.
 func adminURL(s settings.Settings) string {
 	for _, e := range settings.EnabledValues(s.Nginx.AdminAllowedHosts, s.Nginx.AdminAllowedHostsDisabled) {
-		e = strings.TrimSpace(e)
-		host := ""
-		switch settings.PatternModeOf(e) {
-		case settings.ModeExact, settings.ModeContains, settings.ModeSubdomain:
-			host = settings.PatternText(e)
-		default: // a regex that spells out one host
-			if plainHostRE.MatchString(e) {
-				host = e
-			}
-		}
-		if plainHostRE.MatchString(host) {
+		// literalHost reads the entry the way the reset link's fallback does
+		// (forgot_password.go); the extra match here keeps a host:port or a
+		// single-label name out of an alert's link.
+		if host := literalHost(strings.TrimSpace(e)); plainHostRE.MatchString(host) {
 			return "https://" + strings.ToLower(host) + s.Server.BasePath
 		}
 	}
 	return ""
 }
 
+// plainHostRE: a dotted host name and nothing else -- no port, no regex
+// metacharacter.  Shared with literalHost (forgot_password.go).
 var plainHostRE = regexp.MustCompile(`^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$`)
 
 // overBlockPassthrough reports whether the breaker is tripped AND configured to

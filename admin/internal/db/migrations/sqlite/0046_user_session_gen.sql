@@ -1,0 +1,16 @@
+-- 0046 user session generation: a number a session cookie is issued under
+-- and refused without.
+--
+-- The admin session is a signed cookie with nothing on the server to revoke,
+-- so a cookie stayed good for the rest of its life -- up to 30 days with
+-- "remember me" -- after the account's password was changed or reset, or the
+-- account suspended.  Each cookie now carries the account's generation at
+-- issue and the middleware compares it on every request; a password change
+-- (profile page, users page, reset link, CLI) and a suspension advance it,
+-- which ends every session the account holds.  Signing out does not: that
+-- would also end the account's sessions on its other devices.
+--
+-- Not in migrate.go's base schema, which runs before the numbered
+-- migrations: SQLite has no ADD COLUMN IF NOT EXISTS, so a column declared
+-- in both places fails here on every fresh install (see 0035).
+ALTER TABLE unmask_user ADD COLUMN session_gen INTEGER NOT NULL DEFAULT 0; -- session generation: a session cookie is refused unless it carries this value; advanced by a password change and by a suspension

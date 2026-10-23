@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"net/http"
+	"net/netip"
 	"strconv"
 	"sync"
 	"time"
@@ -125,8 +126,34 @@ func (t *loginThrottle) pruneLocked(now time.Time) {
 
 // loginKey / forgotKey namespace the two axes inside one cell map, so a flood
 // of forgot-password requests cannot age out login-failure history.
-func loginKey(ip string) string  { return "l|" + ip }
-func forgotKey(ip string) string { return "f|" + ip }
+func loginKey(ip string) string  { return "l|" + throttleAddr(ip) }
+func forgotKey(ip string) string { return "f|" + throttleAddr(ip) }
+
+// throttleAddr is the address the counters are kept by: an IPv4 address as
+// it is, an IPv6 address as its /64.  A /64 is the smallest block a
+// subscriber is handed and the client in it can send from any of its 2^64
+// addresses, so counted by the full address an IPv6 attacker had a fresh
+// counter for every attempt.  Anything that does not parse (the tests' bare
+// names, an empty peer) is kept as it is.
+//
+// cookies.bindIP folds the same way for the _bv seed, but that one is a
+// wire format shared with the nginx plugin (the prefix as hex, bind keys
+// passed through); the throttle keeps its own reading rather than take on
+// that contract for a key nothing else ever sees.
+func throttleAddr(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil {
+		return ip
+	}
+	if a.Is4() || a.Is4In6() {
+		return a.Unmap().String()
+	}
+	p, err := a.WithZone("").Prefix(64)
+	if err != nil {
+		return ip
+	}
+	return p.String()
+}
 
 // tooManyLoginAttempts answers a locked address: 429 with Retry-After, no
 // redirect (a locked client has nothing useful to render) and no i18n (this
@@ -138,6 +165,15 @@ func tooManyLoginAttempts(w http.ResponseWriter, d time.Duration) {
 	}
 	w.Header().Set("Retry-After", strconv.Itoa(secs))
 	http.Error(w, "too many attempts; try again later", http.StatusTooManyRequests)
+}
+
+// passwordCheckBusy answers a login the daemon could not check because every
+// password-hashing slot stayed taken (user.ErrBusy): 503 with Retry-After.
+// Not a failure for the lockout -- the password was never looked at -- and
+// not the invalid-login redirect, which would read as "wrong password".
+func passwordCheckBusy(w http.ResponseWriter) {
+	w.Header().Set("Retry-After", "10")
+	http.Error(w, "the server is busy checking other sign-ins; try again shortly", http.StatusServiceUnavailable)
 }
 
 // throttle returns the Handler's lazily-built loginThrottle.  Lazy because

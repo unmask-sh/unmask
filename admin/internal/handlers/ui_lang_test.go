@@ -32,7 +32,7 @@ func TestAccountLanguageIsRemembered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cookie := issueSessionCookie(h.cfg().Secret.BVSecret, eve.ID, eve.Role, false, false)
+	cookie := issueSessionCookie(h.cfg().Secret.BVSecret, eve.ID, eve.Role, false, false, 0)
 	visit := func(locale, acceptLang string) {
 		t.Helper()
 		mw := h.AuthMiddleware(func(w http.ResponseWriter, r *http.Request) {})
