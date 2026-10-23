@@ -70,10 +70,59 @@ func humanSize(n int64) string {
 }
 
 // settingsMu serializes settings writers (the read-modify-publish sequences in
-// the save handlers, updateSettingsInMemory and UpdateSettings) so concurrent
-// saves don't interleave.  Readers don't take it: they Load the atomic pointer
-// via Handler.cfg() and get a race-free, consistent snapshot.
+// mutateSettings, which every handler that writes config.yml goes through,
+// and updateSettingsInMemory) so concurrent saves don't interleave.  Readers
+// don't take it: they Load the atomic pointer via Handler.cfg() and get a
+// race-free, consistent snapshot.
 var settingsMu sync.Mutex
+
+// errSettingsAnswered is returned by a mutateSettings callback that has
+// already answered the request (the flash and redirect, or the JSON error)
+// so the caller returns without saying anything more.  Nothing was saved.
+var errSettingsAnswered = errors.New("settings: the mutator answered the request")
+
+// mutateSettings is the one write path for config.yml.  Under settingsMu it
+// loads the file, runs fn on the result, saves it and publishes the saved
+// copy as the live settings, then hands that copy back for the caller to
+// render or hot-swap from.  The load and the save used to run outside the
+// lock in most handlers (the lock guarded only the publish), so two writers
+// that overlapped -- the hub's token write-back and an operator's save, or
+// two operators -- each saved their own copy of what they had read, and the
+// one that saved first lost its change.
+//
+// fn returning an error saves nothing, and the error comes back as it was
+// given, so a caller can tell its own (errSettingsAnswered, a "nothing to
+// do") from a load or save failure, which carry a "load: " / "save: "
+// prefix.  fn runs under the lock: it must not call UpdateSettings or
+// mutateSettings again (a deadlock), and it should not wait on the network.
+func (h *Handler) mutateSettings(fn func(*settings.Settings) error) (settings.Settings, error) {
+	settingsMu.Lock()
+	defer settingsMu.Unlock()
+	cur, err := settings.Load(h.ConfigPath)
+	if err != nil {
+		return cur, fmt.Errorf("load: %w", err)
+	}
+	if err := fn(&cur); err != nil {
+		return cur, err
+	}
+	if err := settings.Save(cur, h.ConfigPath); err != nil {
+		return cur, fmt.Errorf("save: %w", err)
+	}
+	// cur is this call's own copy and nothing else holds its address, so the
+	// pointer published here is never written to afterwards; the caller gets
+	// a further copy.
+	h.settingsPtr.Store(&cur)
+	return cur, nil
+}
+
+// patternBreaksLine: does this path pattern carry a line break or a NUL?
+// The renderer drops control characters from a map key (nginxQuote), so
+// such a pattern would not break the config; it would be saved as typed
+// and render as a different expression, matching paths the operator did
+// not name.  Refused here, by name, as the UA and JA4 lists refuse theirs.
+// (The quote and the backslash those lists also refuse in a regex are not
+// refused for a path: the renderer escapes both since 0.1.53.)
+func patternBreaksLine(p string) bool { return strings.ContainsAny(p, "\x00\r\n") }
 
 // AdminSettingsIndex: GET {base}/admin/settings/{tab}/ — renders the tabbed UI.
 //
@@ -1476,530 +1525,537 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = sectionErr
 
-	// fresh load (= stays consistent even if another process touches the file)
-	cur, err := settings.Load(h.ConfigPath)
-	if err != nil {
-		redirBack("load: " + err.Error())
-		return
-	}
-	// Snapshot the pre-mutation yaml for the audit log, secrets redacted
-	// (auditSnapshotYAML).  Captured here, not after Save, so a partial /
-	// failing apply does not leave a misleading diff in the audit.  Marshal
-	// failures fall through to an empty snapshot (= the audit row is still
-	// written, just without rollback data).
-	beforeYAML, _ := auditSnapshotYAML(cur)
+	// The whole read-modify-write runs under the settings lock
+	// (mutateSettings): a save that overlapped another writer's -- the hub's
+	// token write-back, a second operator -- used to overwrite that write with
+	// this request's copy of the file.  A rejected form is answered inside the
+	// callback as before (the draft, the flash, the redirect or the JSON error),
+	// which then returns errSettingsAnswered so nothing is saved.
+	var beforeYAML string
+	cur, err := h.mutateSettings(func(cur *settings.Settings) error {
+		// Snapshot the pre-mutation yaml for the audit log, secrets redacted
+		// (auditSnapshotYAML).  Captured here, not after Save, so a partial /
+		// failing apply does not leave a misleading diff in the audit.  Marshal
+		// failures fall through to an empty snapshot (= the audit row is still
+		// written, just without rollback data).
+		beforeYAML, _ = auditSnapshotYAML(*cur)
 
-	// Snapshot the rendered nginx conf before the form apply.  The renderer is
-	// deterministic (= all map outputs sorted), so an unchanged conf yields a
-	// byte-identical signature -- letting us reload-prompt ONLY when the save
-	// actually altered the conf, automatically across every section / field.
-	// A signature error falls back to a conservative "assume reload needed".
-	beforeSig, beforeSigErr := nginxconf.RenderSignature(cur, "", h.Version)
+		// Snapshot the rendered nginx conf before the form apply.  The renderer is
+		// deterministic (= all map outputs sorted), so an unchanged conf yields a
+		// byte-identical signature -- letting us reload-prompt ONLY when the save
+		// actually altered the conf, automatically across every section / field.
+		// A signature error falls back to a conservative "assume reload needed".
+		beforeSig, beforeSigErr := nginxconf.RenderSignature(*cur, "", h.Version)
 
-	lang := i18n.Resolve(r)
-	// Snapshot listen-side config before the apply so we can detect a change that
-	// needs a unmask restart (Server is all scalar fields, so a value compare of
-	// the whole struct catches bind / port / socket_mode / socket_group / base_path).
-	beforeServer := cur.Server
-	// The SQLite memory budget is baked into the DSN when the pool opens, so a
-	// change here is start-only exactly like the listen settings above.
-	beforeDB := cur.DB
-	switch section {
-	case "global":
-		// Monitor mode lives on the challenge record (it is resolved per site by
-		// both deploy paths), but the operator meets it here, on the
-		// operating-mode tab.
-		cur.Challenge.Default.ObserveOnly = settings.BoolPtr(r.FormValue("global_observe_only") == "1")
-		validBucket := func(v string) string {
-			v = strings.TrimSpace(v)
-			if v == "pass" || settings.IsValidRateChallengeMode(v) {
-				return v
+		lang := i18n.Resolve(r)
+		// Snapshot listen-side config before the apply so we can detect a change that
+		// needs a unmask restart (Server is all scalar fields, so a value compare of
+		// the whole struct catches bind / port / socket_mode / socket_group / base_path).
+		beforeServer := cur.Server
+		// The SQLite memory budget is baked into the DSN when the pool opens, so a
+		// change here is start-only exactly like the listen settings above.
+		beforeDB := cur.DB
+		switch section {
+		case "global":
+			// Monitor mode lives on the challenge record (it is resolved per site by
+			// both deploy paths), but the operator meets it here, on the
+			// operating-mode tab.
+			cur.Challenge.Default.ObserveOnly = settings.BoolPtr(r.FormValue("global_observe_only") == "1")
+			validBucket := func(v string) string {
+				v = strings.TrimSpace(v)
+				if v == "pass" || settings.IsValidRateChallengeMode(v) {
+					return v
+				}
+				// Unset/garbage stores "" = the strict built-in default
+				// (pow_only).  The old fallback was "pass", which turned a
+				// malformed POST into a fail-open wave-through.
+				return ""
 			}
-			// Unset/garbage stores "" = the strict built-in default
-			// (pow_only).  The old fallback was "pass", which turned a
-			// malformed POST into a fail-open wave-through.
-			return ""
-		}
-		cur.Global.KnownBrowserAction = validBucket(r.FormValue("global_known_browser_action"))
-		cur.Global.UnknownUAAction = validBucket(r.FormValue("global_unknown_ua_action"))
-	case "network":
-		// A rejected save on this tab must not throw away what the operator
-		// typed: the allowlist widgets are the ones that error (a bad regex, a
-		// self-lockout), and losing the row you were fixing on every mistake is
-		// how a five-entry list gets rebuilt from memory.  Stash the submitted
-		// values so the GET the redirect lands on can render them back with the
-		// error, instead of reloading the last-saved list.
-		//
-		// Focus = the rows the operator actually added or changed (submitted
-		// values absent from the stored list, captured here before any apply
-		// mutates cur).  Only those open for editing on the error page; the
-		// rows that were already saved stay confirmed, so a rejected save opens
-		// the one row being worked on, not the whole list.
-		netFocus := changedListValues(map[string][]string{
-			"admin_allowed_hosts": cur.Nginx.AdminAllowedHosts,
-			"admin_allowed_ips":   cur.Nginx.AdminAllowedIPs,
-			"metrics_allow_from":  cur.Nginx.MetricsAllowFrom,
-		}, r.Form)
-		netErr := func(err error) {
-			// A typed field error points the UI at the exact row; anything else
-			// (listen/ipgeo/redirect validation) still shows in the top banner.
-			var lfe *listFieldError
-			field, value := "", ""
-			if errors.As(err, &lfe) {
-				field, value = lfe.Field, lfe.Value
+			cur.Global.KnownBrowserAction = validBucket(r.FormValue("global_known_browser_action"))
+			cur.Global.UnknownUAAction = validBucket(r.FormValue("global_unknown_ua_action"))
+		case "network":
+			// A rejected save on this tab must not throw away what the operator
+			// typed: the allowlist widgets are the ones that error (a bad regex, a
+			// self-lockout), and losing the row you were fixing on every mistake is
+			// how a five-entry list gets rebuilt from memory.  Stash the submitted
+			// values so the GET the redirect lands on can render them back with the
+			// error, instead of reloading the last-saved list.
+			//
+			// Focus = the rows the operator actually added or changed (submitted
+			// values absent from the stored list, captured here before any apply
+			// mutates cur).  Only those open for editing on the error page; the
+			// rows that were already saved stay confirmed, so a rejected save opens
+			// the one row being worked on, not the whole list.
+			netFocus := changedListValues(map[string][]string{
+				"admin_allowed_hosts": cur.Nginx.AdminAllowedHosts,
+				"admin_allowed_ips":   cur.Nginx.AdminAllowedIPs,
+				"metrics_allow_from":  cur.Nginx.MetricsAllowFrom,
+			}, r.Form)
+			netErr := func(err error) {
+				// A typed field error points the UI at the exact row; anything else
+				// (listen/ipgeo/redirect validation) still shows in the top banner.
+				var lfe *listFieldError
+				field, value := "", ""
+				if errors.As(err, &lfe) {
+					field, value = lfe.Field, lfe.Value
+				}
+				setSectionDraft(w, r, base, "network", r.Form, netFocus, field, value, err.Error())
+				redirBack(err.Error())
 			}
-			setSectionDraft(w, r, base, "network", r.Form, netFocus, field, value, err.Error())
-			redirBack(err.Error())
-		}
-		if err := applyNetworkForm(&cur.Nginx, r, lang, adminClientIP(r, h.snapshotSettings()), r.Host); err != nil {
-			netErr(err)
-			return
-		}
-		if err := applyServerListenForm(&cur.Server, r, lang); err != nil {
-			netErr(err)
-			return
-		}
-		if err := applyIPGeoForm(&cur.IPGeo, r, lang); err != nil {
-			netErr(err)
-			return
-		}
-		applyTrustedLBForm(&cur.Nginx, r)
-		// HTTP->HTTPS redirect toggle (emitted at the top of server.inc).
-		cur.Nginx.HTTPSRedirect = r.FormValue("https_redirect") == "1"
-		if err := applyRedirectExemptForm(&cur.Nginx, r, lang); err != nil {
-			netErr(err)
-			return
-		}
-	case "ua-filter":
-		uaFocus := changedListValues(map[string][]string{
-			"white_extra": cur.Nginx.SearchBots.Extra,
-			"black_extra": cur.Nginx.ChallengeTargets.Extra,
-		}, r.Form)
-		if err := applyUAFilterForm(&cur.Nginx, r, lang); err != nil {
-			var lfe *listFieldError
-			field, value := "", ""
-			if errors.As(err, &lfe) {
-				field, value = lfe.Field, lfe.Value
+			if err := applyNetworkForm(&cur.Nginx, r, lang, adminClientIP(r, h.snapshotSettings()), r.Host); err != nil {
+				netErr(err)
+				return errSettingsAnswered
 			}
-			setSectionDraft(w, r, base, "ua-filter", r.Form, uaFocus, field, value, err.Error())
-			redirBack(err.Error())
-			return
-		}
-		// Stale-browser tier (lives on the UA-filter tab: it is a UA-string rule
-		// — old Chrome version → challenge — a sibling to the challenge-target
-		// blacklist).  The fields persist in Global; the tab is only a UI home.
-		// A blank/invalid current-major stores 0, which resolves to the shipped
-		// DefaultCurrentChromeMajor at render/serve time (CurrentChromeMajorResolved)
-		// — so the toggle alone works out of the box; the field is an optional
-		// override.  Action restricted to real screens; anything else falls back
-		// to the pow_then_captcha default via StaleBrowserResolvedAction.
-		cur.Global.StaleBrowserChallenge = r.FormValue("stale_browser_challenge") == "1"
-		// Header-integrity axis: toggle + optional action (pow_only / captcha_only
-		// / pow_then_captcha -- deny is never accepted here; a blank / anything else
-		// stores unset so HeaderIntegrityResolvedAction applies its
-		// pow_then_captcha default).
-		cur.Global.HeaderIntegrity = r.FormValue("header_integrity") == "1"
-		switch strings.TrimSpace(r.FormValue("header_integrity_action")) {
-		case settings.RateChallengePoWOnly, settings.RateChallengeCaptchaOnly, settings.RateChallengePoWThenCaptcha:
-			cur.Global.HeaderIntegrityAction = strings.TrimSpace(r.FormValue("header_integrity_action"))
-		default:
-			cur.Global.HeaderIntegrityAction = ""
-		}
-		// UA-TLS consistency tier: on by default, so the checkbox stores its
-		// inverse; the action as the header tier's, blank meaning the
-		// captcha_only default (UATLSResolvedAction), deny never accepted.
-		cur.Global.UATLSConsistencyDisabled = r.FormValue("ua_tls_consistency") != "1"
-		switch a := strings.TrimSpace(r.FormValue("ua_tls_consistency_action")); a {
-		case settings.RateChallengePoWOnly, settings.RateChallengeCaptchaOnly, settings.RateChallengePoWThenCaptcha:
-			cur.Global.UATLSConsistencyAction = a
-		default:
-			cur.Global.UATLSConsistencyAction = ""
-		}
-		parseIntInRange := func(v string, lo, hi int) int {
-			n, err := strconv.Atoi(strings.TrimSpace(v))
-			if err != nil || n < lo || n > hi {
-				return 0
+			if err := applyServerListenForm(&cur.Server, r, lang); err != nil {
+				netErr(err)
+				return errSettingsAnswered
 			}
-			return n
-		}
-		cur.Global.CurrentChromeMajor = parseIntInRange(r.FormValue("current_chrome_major"), 1, 999)
-		cur.Global.CurrentFirefoxMajor = parseIntInRange(r.FormValue("current_firefox_major"), 1, 999)
-		// Lags follow the same auto/manual convention as the currents: the
-		// number input is disabled (= not submitted) on "auto", so a blank
-		// stores 0 -- Chrome resolves to the built-in default, Firefox follows
-		// the Chrome-side lag (FirefoxStaleLagN).
-		cur.Global.StaleBrowserLag = parseIntInRange(r.FormValue("stale_browser_lag"), 1, 99)
-		cur.Global.StaleBrowserLagFirefox = parseIntInRange(r.FormValue("stale_browser_lag_firefox"), 1, 99)
-		if a := strings.TrimSpace(r.FormValue("stale_browser_action")); settings.IsValidRateChallengeMode(a) && a != "pass" {
-			cur.Global.StaleBrowserAction = a
-		} else {
-			cur.Global.StaleBrowserAction = ""
-		}
-		// Black-list default action (= independent of rate-limit chain).  A
-		// blank/invalid value RESETS to unset so the picker's "(unset)" option
-		// round-trips: a tab save without an explicit choice must not pin the
-		// displayed fallback (that pin is how every fleet node ended up with
-		// pow_then_captcha here).
-		if v := strings.TrimSpace(r.FormValue("ua_black_action")); settings.IsValidRateChallengeMode(v) {
-			cur.Nginx.ChallengeTargets.DefaultAction = v
-		} else {
-			cur.Nginx.ChallengeTargets.DefaultAction = ""
-		}
-	case "ja4-verdicts":
-		ja4Patterns := make([]string, len(cur.Nginx.JA4Verdicts.Extra))
-		for i, e := range cur.Nginx.JA4Verdicts.Extra {
-			ja4Patterns[i] = e.Pattern
-		}
-		if sectionErr("ja4-verdicts", map[string][]string{"ja4_extra_pat": ja4Patterns}, applyJA4VerdictsForm(&cur.Nginx, r, lang)) {
-			return
-		}
-	case "honeypot":
-		if sectionErr("honeypot", map[string][]string{"honeypot_url_path": pathsOfHoneypot(cur.Nginx.Honeypot.URLs)}, applyHoneypotForm(&cur.Nginx, r, lang)) {
-			return
-		}
-	case "bypass-ips":
-		bypFocus := changedListValues(map[string][]string{
-			"bypass_ip":         cur.Nginx.BypassIPs,
-			"stats_exclude_ips": cur.Nginx.StatsExcludeIPs,
-		}, r.Form)
-		if err := applyBypassIPsForm(&cur.Nginx, r, lang); err != nil {
-			var lfe *listFieldError
-			field, value := "", ""
-			if errors.As(err, &lfe) {
-				field, value = lfe.Field, lfe.Value
+			if err := applyIPGeoForm(&cur.IPGeo, r, lang); err != nil {
+				netErr(err)
+				return errSettingsAnswered
 			}
-			setSectionDraft(w, r, base, "bypass-ips", r.Form, bypFocus, field, value, err.Error())
-			redirBack(err.Error())
-			return
-		}
-	case "protected":
-		if sectionErr("protected", map[string][]string{"protected_path": pathsOfProtected(cur.Nginx.ProtectedPaths.Paths)}, applyProtectedForm(&cur.Nginx, r, lang)) {
-			return
-		}
-	case "bypass-paths":
-		if sectionErr("bypass-paths", map[string][]string{"bp_path": pathsOfBypass(cur.Nginx.BypassPaths.Paths)}, applyBypassPathsForm(&cur.Nginx, r, lang)) {
-			return
-		}
-	case "captcha":
-		// CAPTCHA provider edits target the Default record; per-site CAPTCHA
-		// overrides ride the per-site card endpoints (see add/edit/delete
-		// routes below).
-		if err := applyCaptchaForm(&cur.Challenge.Default.CaptchaProvider, r); err != nil {
-			redirBack(err.Error())
-			return
-		}
-	case "challenge":
-		// Challenge tab save: applyChallengeFormV2 updates Default + Sites
-		// from the same form payload (= one click writes both blocks).
-		if err := applyChallengeFormV2(&cur.Challenge, r); err != nil {
-			redirBack(err.Error())
-			return
-		}
-		// Roaming: how many networks one _bv pass cookie stays valid on, and the
-		// new-IP rebind policy (strict / asn / any).  Both live on cur.Rebind.
-		if raw := strings.TrimSpace(r.FormValue("roaming_cap")); raw == "" {
-			// Blank field = unset: track MaxEntriesResolved's ceiling default.
-			cur.Rebind.MaxEntries = 0
-		} else if v, err := strconv.Atoi(raw); err == nil {
-			if v < 1 {
-				v = 1
-			} else if v > 16 {
-				v = 16
+			applyTrustedLBForm(&cur.Nginx, r)
+			// HTTP->HTTPS redirect toggle (emitted at the top of server.inc).
+			cur.Nginx.HTTPSRedirect = r.FormValue("https_redirect") == "1"
+			if err := applyRedirectExemptForm(&cur.Nginx, r, lang); err != nil {
+				netErr(err)
+				return errSettingsAnswered
 			}
-			cur.Rebind.MaxEntries = v
-		}
-		if m := strings.TrimSpace(r.FormValue("rebind_mode")); m != "" {
-			cur.Rebind.SetRebindMode(m)
-		}
-	case "rate_limit":
-		if err := applyRateLimitForm(&cur.RateLimit, r); err != nil {
-			redirBack(err.Error())
-			return
-		}
-	case "gateway":
-		// The container gateway's hostname + certificate source.  A pasted
-		// certificate is validated and stored under the render directory
-		// here, before the config is saved, so a bad paste leaves both the
-		// files and the config as they were.
-		if err := applyGatewayForm(&cur.Gateway, r, nginxOutDir(cur)); err != nil {
-			redirBack(err.Error())
-			return
-		}
-	case "custom-rules":
-		if err := applyCustomRulesForm(&cur.Nginx.CustomRules, r); err != nil {
-			redirBack(err.Error())
-			return
-		}
-	case "custom-rules-add":
-		// The form is one card, read as the tab reads its list; the rule
-		// joins the end of the list as the tab's draft card would.
-		var add []settings.CustomRule
-		if err := applyCustomRulesForm(&add, r); err != nil {
-			redirBack(err.Error())
-			return
-		}
-		if len(add) != 1 {
-			redirBack("one rule expected")
-			return
-		}
-		add[0].ID = freeCustomRuleID(cur.Nginx.CustomRules, add[0].ID)
-		cur.Nginx.CustomRules = append(cur.Nginx.CustomRules, add[0])
-		addedRule = &add[0]
-	case "geo":
-		geoStored := map[string][]string{
-			"geo_country": countriesOfGeo(cur.Nginx.Geo.Rules),
-			"gx_path":     pathsOfBypass(cur.Nginx.Geo.ExemptPaths),
-		}
-		if sectionErr("geo", geoStored, applyGeoForm(&cur.Nginx.Geo, r)) {
-			return
-		}
-		// Country-axis exempt paths (RSS feeds etc.) live on the geo tab.
-		if sectionErr("geo", geoStored, applyExemptPathsForm(&cur.Nginx.Geo.ExemptPaths, "gx", r, lang)) {
-			return
-		}
-	case "asn":
-		asnStored := map[string][]string{
-			"asn_number": valuesOfAsn(cur.Nginx.Asn.Rules),
-			"ax_path":    pathsOfBypass(cur.Nginx.Asn.ExemptPaths),
-		}
-		if sectionErr("asn", asnStored, applyAsnForm(&cur.Nginx.Asn, r, lang)) {
-			return
-		}
-		// ASN-axis exempt paths (RSS feeds etc.) live on the ASN tab.
-		if sectionErr("asn", asnStored, applyExemptPathsForm(&cur.Nginx.Asn.ExemptPaths, "ax", r, lang)) {
-			return
-		}
-	case "theme":
-		// Challenge-page theme.  Targets the Default record; per-site theme
-		// override lives on the per-site card on the challenge tab.  Keep
-		// the allowlist in sync with handlers.go challengeThemes ("light"
-		// / "cat" / ...); invalid values snap to "auto".
-		t := strings.TrimSpace(r.FormValue("theme"))
-		if !challengeThemes[t] {
-			t = "auto"
-		}
-		cur.Branding.Default.Theme = t
-		cur.Branding.Default.CustomColors = parseChallengeCustomColors(r)
-	case "branding":
-		// Branding tab save: applyBrandingFormV2 updates Default + Sites
-		// from the same form payload.  See settings.Branding for the data
-		// shape and handlers.go ServeBrandingLogo for the logo serve path.
-		if err := applyBrandingFormV2(&cur.Branding, r); err != nil {
-			redirBack(err.Error())
-			return
-		}
-	case "appearance":
-		// Combined save for the theme tab: branding identity + copy preset
-		// + theme card + "show credit" badge.  Multiple forms with multiple
-		// save buttons on the same page confused operators; appearance
-		// dispatches them all from one button press.  All operate on the
-		// Default record.
-		if err := applyBrandingFormV2(&cur.Branding, r); err != nil {
-			redirBack(err.Error())
-			return
-		}
-		t := strings.TrimSpace(r.FormValue("theme"))
-		if !challengeThemes[t] {
-			t = "auto"
-		}
-		cur.Branding.Default.Theme = t
-		cur.Branding.Default.CustomColors = parseChallengeCustomColors(r)
-		// show_credit was previously on the challenge tab; now lives next
-		// to the theme cards so the operator sees the live preview toggle
-		// alongside it.  Plain checkbox -> bool.
-		cur.Branding.Default.ShowCredit = settings.BoolPtr(r.FormValue("show_credit") == "1")
-	case "notifications":
-		// One tab, one form: the channel fields and the SMTP-server card
-		// submit together.  There is no separate smtp section.
-		applyNotificationsForm(&cur.Notifications, r)
-		if applySMTPForm(&cur.SMTP, r) {
-			credentialCleared = "smtp_password"
-		}
-	case "web-bot-auth":
-		applyWebBotAuthForm(&cur.Nginx.WebBotAuth, r)
-	case "privacy-pass":
-		applyPrivacyPassForm(&cur.Nginx.PrivacyPass, r)
-	case "ai-advisor":
-		if applyAIAdvisorForm(&cur.AIAdvisor, r) {
-			credentialCleared = "ai_api_key"
-		}
-	case "community-bans":
-		// Snapshot the pre-apply subscribe state.  When the operator flips
-		// subscribe from off to fetch / fetch_apply they expect the "共有 BAN"
-		// browse list to populate right away, so an off -> on transition kicks
-		// an immediate pull below instead of waiting up to an hour for the
-		// next periodic tick.
-		wasSubscribing := cur.CommunityBans.SubscribeActive()
-		if sectionErr("community-bans", map[string][]string{}, applyCommunityBansForm(&cur.CommunityBans, r, lang)) {
-			return
-		}
-		communityPullNeeded = !wasSubscribing && cur.CommunityBans.SubscribeActive()
-		// The shared-BAN fallback action is not edited from the UI: the
-		// "auto-BAN action" select writes a concrete action onto every
-		// auto-applied row, so a separate fallback rarely matters.  The
-		// yaml field (Nginx.Bans.CommunityBansDefaultAction) is still
-		// honored at runtime for operators who set it manually.
-	case "sites":
-		// The Sites / Hosts tab is one form: site acceptance + this host's id.
-		// A row that is not a bare hostname is refused by name (kept in the
-		// form, highlighted) rather than folded by normalizeSite.
-		if sectionErr("sites", map[string][]string{"site_defined": cur.Sites.Defined}, siteDefinedFormError(r, lang)) {
-			return
-		}
-		applySitesForm(&cur.Sites, r)
-		// Two hosts that fold to one nginx variable name would render two
-		// map blocks for one variable and nginx would refuse the whole
-		// config; refuse the form instead, naming both.
-		if a, b, seg, clash := nginxconf.SiteVarNameClash(cur.Sites.Defined); clash {
-			redirBack(fmt.Sprintf("sites %s and %s would share the nginx variable name %s -- rename one of them", a, b, seg))
-			return
-		}
-		// host id: "hostname" mode clears it so the OS hostname fallback
-		// applies; "custom" stores the charset-guarded value.  Takes effect on
-		// the next admin restart (h.HostID is resolved at startup).
-		if r.FormValue("host_id_mode") == "custom" {
-			hid := strings.TrimSpace(r.FormValue("host_id"))
-			if hid != "" && !hostIDRE.MatchString(hid) {
-				redirBack("invalid host id (allowed: letters, digits, dot, underscore, hyphen)")
-				return
+		case "ua-filter":
+			uaFocus := changedListValues(map[string][]string{
+				"white_extra": cur.Nginx.SearchBots.Extra,
+				"black_extra": cur.Nginx.ChallengeTargets.Extra,
+			}, r.Form)
+			if err := applyUAFilterForm(&cur.Nginx, r, lang); err != nil {
+				var lfe *listFieldError
+				field, value := "", ""
+				if errors.As(err, &lfe) {
+					field, value = lfe.Field, lfe.Value
+				}
+				setSectionDraft(w, r, base, "ua-filter", r.Form, uaFocus, field, value, err.Error())
+				redirBack(err.Error())
+				return errSettingsAnswered
 			}
-			cur.Server.HostID = hid
-		} else {
-			cur.Server.HostID = ""
-		}
-	case "about":
-		// version_check checkbox: present (= ticked) means enabled; an absent
-		// field (unticked) disables the update check entirely.
-		cur.VersionCheckDisabled = r.FormValue("version_check") == ""
-		// feed_sync: same shape -- unticked stops the scheduled pulls of the
-		// crawler IP ranges and the browser version baselines.  (The IP-geo
-		// downloads and Community Bans have their own switches, on the
-		// Network and Community Bans tabs.)
-		cur.Nginx.SyncDisabled = r.FormValue("feed_sync") == ""
-		// Advanced master reveal-gate, co-located with the version-check toggle
-		// (both install-level opt-ins).  Off hides the Web Bot Auth + Privacy
-		// Pass tabs and makes both inert (WebBotAuthActive/PrivacyPassActive AND
-		// on this), without disturbing their per-feature config.  Submitted in
-		// the same form as version_check, so it's always present here.
-		cur.Nginx.AdvancedEnabled = r.FormValue("advanced_enabled") == "1"
-	case "performance":
-		// Resource dials.  The DB knobs are baked into the DSN when the pool
-		// opens, so a change there is start-only (beforeDB comparison below sets
-		// the restart flag); the event-flusher knobs hot-reload.
-		if v := strings.TrimSpace(r.FormValue("perf_profile")); v != "" {
-			switch v {
-			case settings.PerfProfileConservative, settings.PerfProfileStandard,
-				settings.PerfProfileGenerous, settings.PerfProfileCustom:
-				cur.DB.PerfProfile = v
+			// Stale-browser tier (lives on the UA-filter tab: it is a UA-string rule
+			// — old Chrome version → challenge — a sibling to the challenge-target
+			// blacklist).  The fields persist in Global; the tab is only a UI home.
+			// A blank/invalid current-major stores 0, which resolves to the shipped
+			// DefaultCurrentChromeMajor at render/serve time (CurrentChromeMajorResolved)
+			// — so the toggle alone works out of the box; the field is an optional
+			// override.  Action restricted to real screens; anything else falls back
+			// to the pow_then_captcha default via StaleBrowserResolvedAction.
+			cur.Global.StaleBrowserChallenge = r.FormValue("stale_browser_challenge") == "1"
+			// Header-integrity axis: toggle + optional action (pow_only / captcha_only
+			// / pow_then_captcha -- deny is never accepted here; a blank / anything else
+			// stores unset so HeaderIntegrityResolvedAction applies its
+			// pow_then_captcha default).
+			cur.Global.HeaderIntegrity = r.FormValue("header_integrity") == "1"
+			switch strings.TrimSpace(r.FormValue("header_integrity_action")) {
+			case settings.RateChallengePoWOnly, settings.RateChallengeCaptchaOnly, settings.RateChallengePoWThenCaptcha:
+				cur.Global.HeaderIntegrityAction = strings.TrimSpace(r.FormValue("header_integrity_action"))
+			default:
+				cur.Global.HeaderIntegrityAction = ""
 			}
-		}
-		// Custom-only fields.  Parsed whenever present so switching profile and
-		// editing the numbers in one save works, but they only take effect under
-		// the custom profile (see db.sqlitePerConnBytesFor).
-		if _, present := r.Form["sqlite_cache_mb"]; present {
-			v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("sqlite_cache_mb")))
-			if err != nil || v < 0 {
-				v = 0 // blank / garbage -> fall back to the derived budget
-			} else if v > 2048 {
-				v = 2048
+			// UA-TLS consistency tier: on by default, so the checkbox stores its
+			// inverse; the action as the header tier's, blank meaning the
+			// captcha_only default (UATLSResolvedAction), deny never accepted.
+			cur.Global.UATLSConsistencyDisabled = r.FormValue("ua_tls_consistency") != "1"
+			cur.Global.UATLSReverseCheck = r.FormValue("ua_tls_reverse") == "1"
+			switch a := strings.TrimSpace(r.FormValue("ua_tls_consistency_action")); a {
+			case settings.RateChallengePoWOnly, settings.RateChallengeCaptchaOnly, settings.RateChallengePoWThenCaptcha:
+				cur.Global.UATLSConsistencyAction = a
+			default:
+				cur.Global.UATLSConsistencyAction = ""
 			}
-			cur.DB.SQLiteCacheMB = v
-		}
-		if _, present := r.Form["db_max_conns"]; present {
-			v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("db_max_conns")))
-			if err != nil || v < 0 {
-				v = 0 // blank -> derive from CPUs
-			} else if v > 32 {
-				v = 32
+			parseIntInRange := func(v string, lo, hi int) int {
+				n, err := strconv.Atoi(strings.TrimSpace(v))
+				if err != nil || n < lo || n > hi {
+					return 0
+				}
+				return n
 			}
-			cur.DB.MaxConns = v
-		}
-		// events_batch_size: clamp to 1..1000.
-		if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("events_batch_size"))); err == nil {
-			if v < 1 {
-				v = 1
-			} else if v > 1000 {
-				v = 1000
+			cur.Global.CurrentChromeMajor = parseIntInRange(r.FormValue("current_chrome_major"), 1, 999)
+			cur.Global.CurrentFirefoxMajor = parseIntInRange(r.FormValue("current_firefox_major"), 1, 999)
+			// Lags follow the same auto/manual convention as the currents: the
+			// number input is disabled (= not submitted) on "auto", so a blank
+			// stores 0 -- Chrome resolves to the built-in default, Firefox follows
+			// the Chrome-side lag (FirefoxStaleLagN).
+			cur.Global.StaleBrowserLag = parseIntInRange(r.FormValue("stale_browser_lag"), 1, 99)
+			cur.Global.StaleBrowserLagFirefox = parseIntInRange(r.FormValue("stale_browser_lag_firefox"), 1, 99)
+			if a := strings.TrimSpace(r.FormValue("stale_browser_action")); settings.IsValidRateChallengeMode(a) && a != "pass" {
+				cur.Global.StaleBrowserAction = a
+			} else {
+				cur.Global.StaleBrowserAction = ""
 			}
-			cur.EventsBatchSize = v
-		}
-		// events_batch_interval_ms: clamp to 50..60000 (= 1 min).
-		if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("events_batch_interval_ms"))); err == nil {
-			if v < 50 {
-				v = 50
-			} else if v > 60000 {
-				v = 60000
+			// Black-list default action (= independent of rate-limit chain).  A
+			// blank/invalid value RESETS to unset so the picker's "(unset)" option
+			// round-trips: a tab save without an explicit choice must not pin the
+			// displayed fallback (that pin is how every fleet node ended up with
+			// pow_then_captcha here).
+			if v := strings.TrimSpace(r.FormValue("ua_black_action")); settings.IsValidRateChallengeMode(v) {
+				cur.Nginx.ChallengeTargets.DefaultAction = v
+			} else {
+				cur.Nginx.ChallengeTargets.DefaultAction = ""
 			}
-			cur.EventsBatchIntervalMs = v
-		}
-		// Hot-reload the flusher (= runs with the new values from the next cycle).
-		events.GlobalFlusherSetConfig(cur.EventsBatchSize, cur.EventsBatchIntervalMs)
+		case "ja4-verdicts":
+			ja4Patterns := make([]string, len(cur.Nginx.JA4Verdicts.Extra))
+			for i, e := range cur.Nginx.JA4Verdicts.Extra {
+				ja4Patterns[i] = e.Pattern
+			}
+			if sectionErr("ja4-verdicts", map[string][]string{"ja4_extra_pat": ja4Patterns}, applyJA4VerdictsForm(&cur.Nginx, r, lang)) {
+				return errSettingsAnswered
+			}
+		case "honeypot":
+			if sectionErr("honeypot", map[string][]string{"honeypot_url_path": pathsOfHoneypot(cur.Nginx.Honeypot.URLs)}, applyHoneypotForm(&cur.Nginx, r, lang)) {
+				return errSettingsAnswered
+			}
+		case "bypass-ips":
+			bypFocus := changedListValues(map[string][]string{
+				"bypass_ip":         cur.Nginx.BypassIPs,
+				"stats_exclude_ips": cur.Nginx.StatsExcludeIPs,
+			}, r.Form)
+			if err := applyBypassIPsForm(&cur.Nginx, r, lang); err != nil {
+				var lfe *listFieldError
+				field, value := "", ""
+				if errors.As(err, &lfe) {
+					field, value = lfe.Field, lfe.Value
+				}
+				setSectionDraft(w, r, base, "bypass-ips", r.Form, bypFocus, field, value, err.Error())
+				redirBack(err.Error())
+				return errSettingsAnswered
+			}
+		case "protected":
+			if sectionErr("protected", map[string][]string{"protected_path": pathsOfProtected(cur.Nginx.ProtectedPaths.Paths)}, applyProtectedForm(&cur.Nginx, r, lang)) {
+				return errSettingsAnswered
+			}
+		case "bypass-paths":
+			if sectionErr("bypass-paths", map[string][]string{"bp_path": pathsOfBypass(cur.Nginx.BypassPaths.Paths)}, applyBypassPathsForm(&cur.Nginx, r, lang)) {
+				return errSettingsAnswered
+			}
+		case "captcha":
+			// CAPTCHA provider edits target the Default record; per-site CAPTCHA
+			// overrides ride the per-site card endpoints (see add/edit/delete
+			// routes below).
+			if err := applyCaptchaForm(&cur.Challenge.Default.CaptchaProvider, r); err != nil {
+				redirBack(err.Error())
+				return errSettingsAnswered
+			}
+		case "challenge":
+			// Challenge tab save: applyChallengeFormV2 updates Default + Sites
+			// from the same form payload (= one click writes both blocks).
+			if err := applyChallengeFormV2(&cur.Challenge, r); err != nil {
+				redirBack(err.Error())
+				return errSettingsAnswered
+			}
+			// Roaming: how many networks one _bv pass cookie stays valid on, and the
+			// new-IP rebind policy (strict / asn / any).  Both live on cur.Rebind.
+			if raw := strings.TrimSpace(r.FormValue("roaming_cap")); raw == "" {
+				// Blank field = unset: track MaxEntriesResolved's ceiling default.
+				cur.Rebind.MaxEntries = 0
+			} else if v, err := strconv.Atoi(raw); err == nil {
+				if v < 1 {
+					v = 1
+				} else if v > 16 {
+					v = 16
+				}
+				cur.Rebind.MaxEntries = v
+			}
+			if m := strings.TrimSpace(r.FormValue("rebind_mode")); m != "" {
+				cur.Rebind.SetRebindMode(m)
+			}
+		case "rate_limit":
+			if err := applyRateLimitForm(&cur.RateLimit, r); err != nil {
+				redirBack(err.Error())
+				return errSettingsAnswered
+			}
+		case "gateway":
+			// The container gateway's hostname + certificate source.  A pasted
+			// certificate is validated and stored under the render directory
+			// here, before the config is saved, so a bad paste leaves both the
+			// files and the config as they were.
+			if err := applyGatewayForm(&cur.Gateway, r, nginxOutDir(*cur)); err != nil {
+				redirBack(err.Error())
+				return errSettingsAnswered
+			}
+		case "custom-rules":
+			if err := applyCustomRulesForm(&cur.Nginx.CustomRules, r); err != nil {
+				redirBack(err.Error())
+				return errSettingsAnswered
+			}
+		case "custom-rules-add":
+			// The form is one card, read as the tab reads its list; the rule
+			// joins the end of the list as the tab's draft card would.
+			var add []settings.CustomRule
+			if err := applyCustomRulesForm(&add, r); err != nil {
+				redirBack(err.Error())
+				return errSettingsAnswered
+			}
+			if len(add) != 1 {
+				redirBack("one rule expected")
+				return errSettingsAnswered
+			}
+			add[0].ID = freeCustomRuleID(cur.Nginx.CustomRules, add[0].ID)
+			cur.Nginx.CustomRules = append(cur.Nginx.CustomRules, add[0])
+			addedRule = &add[0]
+		case "geo":
+			geoStored := map[string][]string{
+				"geo_country": countriesOfGeo(cur.Nginx.Geo.Rules),
+				"gx_path":     pathsOfBypass(cur.Nginx.Geo.ExemptPaths),
+			}
+			if sectionErr("geo", geoStored, applyGeoForm(&cur.Nginx.Geo, r)) {
+				return errSettingsAnswered
+			}
+			// Country-axis exempt paths (RSS feeds etc.) live on the geo tab.
+			if sectionErr("geo", geoStored, applyExemptPathsForm(&cur.Nginx.Geo.ExemptPaths, "gx", r, lang)) {
+				return errSettingsAnswered
+			}
+		case "asn":
+			asnStored := map[string][]string{
+				"asn_number": valuesOfAsn(cur.Nginx.Asn.Rules),
+				"ax_path":    pathsOfBypass(cur.Nginx.Asn.ExemptPaths),
+			}
+			if sectionErr("asn", asnStored, applyAsnForm(&cur.Nginx.Asn, r, lang)) {
+				return errSettingsAnswered
+			}
+			// ASN-axis exempt paths (RSS feeds etc.) live on the ASN tab.
+			if sectionErr("asn", asnStored, applyExemptPathsForm(&cur.Nginx.Asn.ExemptPaths, "ax", r, lang)) {
+				return errSettingsAnswered
+			}
+		case "theme":
+			// Challenge-page theme.  Targets the Default record; per-site theme
+			// override lives on the per-site card on the challenge tab.  Keep
+			// the allowlist in sync with handlers.go challengeThemes ("light"
+			// / "cat" / ...); invalid values snap to "auto".
+			t := strings.TrimSpace(r.FormValue("theme"))
+			if !challengeThemes[t] {
+				t = "auto"
+			}
+			cur.Branding.Default.Theme = t
+			cur.Branding.Default.CustomColors = parseChallengeCustomColors(r)
+		case "branding":
+			// Branding tab save: applyBrandingFormV2 updates Default + Sites
+			// from the same form payload.  See settings.Branding for the data
+			// shape and handlers.go ServeBrandingLogo for the logo serve path.
+			if err := applyBrandingFormV2(&cur.Branding, r); err != nil {
+				redirBack(err.Error())
+				return errSettingsAnswered
+			}
+		case "appearance":
+			// Combined save for the theme tab: branding identity + copy preset
+			// + theme card + "show credit" badge.  Multiple forms with multiple
+			// save buttons on the same page confused operators; appearance
+			// dispatches them all from one button press.  All operate on the
+			// Default record.
+			if err := applyBrandingFormV2(&cur.Branding, r); err != nil {
+				redirBack(err.Error())
+				return errSettingsAnswered
+			}
+			t := strings.TrimSpace(r.FormValue("theme"))
+			if !challengeThemes[t] {
+				t = "auto"
+			}
+			cur.Branding.Default.Theme = t
+			cur.Branding.Default.CustomColors = parseChallengeCustomColors(r)
+			// show_credit was previously on the challenge tab; now lives next
+			// to the theme cards so the operator sees the live preview toggle
+			// alongside it.  Plain checkbox -> bool.
+			cur.Branding.Default.ShowCredit = settings.BoolPtr(r.FormValue("show_credit") == "1")
+		case "notifications":
+			// One tab, one form: the channel fields and the SMTP-server card
+			// submit together.  There is no separate smtp section.
+			applyNotificationsForm(&cur.Notifications, r)
+			if applySMTPForm(&cur.SMTP, r) {
+				credentialCleared = "smtp_password"
+			}
+		case "web-bot-auth":
+			applyWebBotAuthForm(&cur.Nginx.WebBotAuth, r)
+		case "privacy-pass":
+			applyPrivacyPassForm(&cur.Nginx.PrivacyPass, r)
+		case "ai-advisor":
+			if applyAIAdvisorForm(&cur.AIAdvisor, r) {
+				credentialCleared = "ai_api_key"
+			}
+		case "community-bans":
+			// Snapshot the pre-apply subscribe state.  When the operator flips
+			// subscribe from off to fetch / fetch_apply they expect the "共有 BAN"
+			// browse list to populate right away, so an off -> on transition kicks
+			// an immediate pull below instead of waiting up to an hour for the
+			// next periodic tick.
+			wasSubscribing := cur.CommunityBans.SubscribeActive()
+			if sectionErr("community-bans", map[string][]string{}, applyCommunityBansForm(&cur.CommunityBans, r, lang)) {
+				return errSettingsAnswered
+			}
+			communityPullNeeded = !wasSubscribing && cur.CommunityBans.SubscribeActive()
+			// The shared-BAN fallback action is not edited from the UI: the
+			// "auto-BAN action" select writes a concrete action onto every
+			// auto-applied row, so a separate fallback rarely matters.  The
+			// yaml field (Nginx.Bans.CommunityBansDefaultAction) is still
+			// honored at runtime for operators who set it manually.
+		case "sites":
+			// The Sites / Hosts tab is one form: site acceptance + this host's id.
+			// A row that is not a bare hostname is refused by name (kept in the
+			// form, highlighted) rather than folded by normalizeSite.
+			if sectionErr("sites", map[string][]string{"site_defined": cur.Sites.Defined}, siteDefinedFormError(r, lang)) {
+				return errSettingsAnswered
+			}
+			applySitesForm(&cur.Sites, r)
+			// Two hosts that fold to one nginx variable name would render two
+			// map blocks for one variable and nginx would refuse the whole
+			// config; refuse the form instead, naming both.
+			if a, b, seg, clash := nginxconf.SiteVarNameClash(cur.Sites.Defined); clash {
+				redirBack(fmt.Sprintf("sites %s and %s would share the nginx variable name %s -- rename one of them", a, b, seg))
+				return errSettingsAnswered
+			}
+			// host id: "hostname" mode clears it so the OS hostname fallback
+			// applies; "custom" stores the charset-guarded value.  Takes effect on
+			// the next admin restart (h.HostID is resolved at startup).
+			if r.FormValue("host_id_mode") == "custom" {
+				hid := strings.TrimSpace(r.FormValue("host_id"))
+				if hid != "" && !hostIDRE.MatchString(hid) {
+					redirBack("invalid host id (allowed: letters, digits, dot, underscore, hyphen)")
+					return errSettingsAnswered
+				}
+				cur.Server.HostID = hid
+			} else {
+				cur.Server.HostID = ""
+			}
+		case "about":
+			// version_check checkbox: present (= ticked) means enabled; an absent
+			// field (unticked) disables the update check entirely.
+			cur.VersionCheckDisabled = r.FormValue("version_check") == ""
+			// feed_sync: same shape -- unticked stops the scheduled pulls of the
+			// crawler IP ranges and the browser version baselines.  (The IP-geo
+			// downloads and Community Bans have their own switches, on the
+			// Network and Community Bans tabs.)
+			cur.Nginx.SyncDisabled = r.FormValue("feed_sync") == ""
+			// Advanced master reveal-gate, co-located with the version-check toggle
+			// (both install-level opt-ins).  Off hides the Web Bot Auth + Privacy
+			// Pass tabs and makes both inert (WebBotAuthActive/PrivacyPassActive AND
+			// on this), without disturbing their per-feature config.  Submitted in
+			// the same form as version_check, so it's always present here.
+			cur.Nginx.AdvancedEnabled = r.FormValue("advanced_enabled") == "1"
+		case "performance":
+			// Resource dials.  The DB knobs are baked into the DSN when the pool
+			// opens, so a change there is start-only (beforeDB comparison below sets
+			// the restart flag); the event-flusher knobs hot-reload.
+			if v := strings.TrimSpace(r.FormValue("perf_profile")); v != "" {
+				switch v {
+				case settings.PerfProfileConservative, settings.PerfProfileStandard,
+					settings.PerfProfileGenerous, settings.PerfProfileCustom:
+					cur.DB.PerfProfile = v
+				}
+			}
+			// Custom-only fields.  Parsed whenever present so switching profile and
+			// editing the numbers in one save works, but they only take effect under
+			// the custom profile (see db.sqlitePerConnBytesFor).
+			if _, present := r.Form["sqlite_cache_mb"]; present {
+				v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("sqlite_cache_mb")))
+				if err != nil || v < 0 {
+					v = 0 // blank / garbage -> fall back to the derived budget
+				} else if v > 2048 {
+					v = 2048
+				}
+				cur.DB.SQLiteCacheMB = v
+			}
+			if _, present := r.Form["db_max_conns"]; present {
+				v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("db_max_conns")))
+				if err != nil || v < 0 {
+					v = 0 // blank -> derive from CPUs
+				} else if v > 32 {
+					v = 32
+				}
+				cur.DB.MaxConns = v
+			}
+			// events_batch_size: clamp to 1..1000.
+			if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("events_batch_size"))); err == nil {
+				if v < 1 {
+					v = 1
+				} else if v > 1000 {
+					v = 1000
+				}
+				cur.EventsBatchSize = v
+			}
+			// events_batch_interval_ms: clamp to 50..60000 (= 1 min).
+			if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("events_batch_interval_ms"))); err == nil {
+				if v < 50 {
+					v = 50
+				} else if v > 60000 {
+					v = 60000
+				}
+				cur.EventsBatchIntervalMs = v
+			}
+			// Hot-reload the flusher (= runs with the new values from the next cycle).
+			events.GlobalFlusherSetConfig(cur.EventsBatchSize, cur.EventsBatchIntervalMs)
 
-	case "retention":
-		// events_retention_days: 0 = retain forever; sanity-capped at 3650 (= 10 years).
-		// No need to restart the goroutine on change (= EventsRetentionDays is
-		// read via h.cfg(), so the published swap takes effect from the next tick).
-		if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("events_retention_days"))); err == nil {
-			if v < 0 {
-				v = 0
-			} else if v > 3650 {
-				v = 3650
-			}
-			cur.EventsRetentionDays = v
-		}
-		// The audit log's, the notification list's and the ask history's: 0 =
-		// kept, the default for all three; the same cap.
-		for name, dst := range map[string]*int{
-			"audit_log_retention_days":   &cur.AuditLogRetentionDays,
-			"notice_retention_days":      &cur.NoticeRetentionDays,
-			"ask_history_retention_days": &cur.AskHistoryRetentionDays,
-		} {
-			if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue(name))); err == nil {
+		case "retention":
+			// events_retention_days: 0 = retain forever; sanity-capped at 3650 (= 10 years).
+			// No need to restart the goroutine on change (= EventsRetentionDays is
+			// read via h.cfg(), so the published swap takes effect from the next tick).
+			if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("events_retention_days"))); err == nil {
 				if v < 0 {
 					v = 0
 				} else if v > 3650 {
 					v = 3650
 				}
-				*dst = v
+				cur.EventsRetentionDays = v
 			}
+			// The audit log's, the notification list's and the ask history's: 0 =
+			// kept, the default for all three; the same cap.
+			for name, dst := range map[string]*int{
+				"audit_log_retention_days":   &cur.AuditLogRetentionDays,
+				"notice_retention_days":      &cur.NoticeRetentionDays,
+				"ask_history_retention_days": &cur.AskHistoryRetentionDays,
+			} {
+				if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue(name))); err == nil {
+					if v < 0 {
+						v = 0
+					} else if v > 3650 {
+						v = 3650
+					}
+					*dst = v
+				}
+			}
+
+			// nginx_log_enabled toggle. To apply, the next render-nginx + nginx
+			// reload + admin service restart (= socket bind close/reopen) is
+			// required. We don't toggle this on the fly (= the recvLoop goroutine's
+			// running state is not changed by design).
+			cur.NginxLog.Enabled = r.FormValue("nginx_log_enabled") == "1"
 		}
 
-		// nginx_log_enabled toggle. To apply, the next render-nginx + nginx
-		// reload + admin service restart (= socket bind close/reopen) is
-		// required. We don't toggle this on the fly (= the recvLoop goroutine's
-		// running state is not changed by design).
-		cur.NginxLog.Enabled = r.FormValue("nginx_log_enabled") == "1"
-	}
+		// Record the admin version at the moment the user saves the settings page.
+		// On the next render, presets with AddedIn newer than this are treated as
+		// new (= forced OFF + NEW badge).  A dev / RC build carries a
+		// "MAJOR.MINOR.PATCH-<git-hash>" Version; parseVer strips the suffix, so it
+		// stamps and orders by its release number (reviewing that release's presets
+		// while still badging a later release's).  A bare-git-hash build stays
+		// unparseable and keeps the previous SeenVersion.
+		if v := "v" + h.Version; nginxconf.VersionParseable(v) {
+			cur.Nginx.SeenVersion = v
+		}
 
-	// Record the admin version at the moment the user saves the settings page.
-	// On the next render, presets with AddedIn newer than this are treated as
-	// new (= forced OFF + NEW badge).  A dev / RC build carries a
-	// "MAJOR.MINOR.PATCH-<git-hash>" Version; parseVer strips the suffix, so it
-	// stamps and orders by its release number (reviewing that release's presets
-	// while still badging a later release's).  A bare-git-hash build stays
-	// unparseable and keeps the previous SeenVersion.
-	if v := "v" + h.Version; nginxconf.VersionParseable(v) {
-		cur.Nginx.SeenVersion = v
-	}
+		// Conf diff: reload-prompt only when the rendered conf actually changed.
+		// Errors on either side conservatively assume a reload is needed.
+		if beforeSigErr != nil {
+			nginxReloadNeeded = true
+		} else if afterSig, sigErr := nginxconf.RenderSignature(*cur, "", h.Version); sigErr != nil {
+			nginxReloadNeeded = true
+		} else {
+			nginxReloadNeeded = afterSig != beforeSig
+		}
+		// Listen-side settings are read only at serve start, so a change there needs
+		// `systemctl restart unmask`, independent of the nginx-conf reload signal.
+		// OR, never assign: a section handler above may already have flagged its own
+		// start-only change (the SQLite memory budget is baked into the DSN when the
+		// pool opens), and a plain assignment here would silently drop that.
+		unmaskRestartNeeded = cur.Server != beforeServer || cur.DB != beforeDB
 
-	// Conf diff: reload-prompt only when the rendered conf actually changed.
-	// Errors on either side conservatively assume a reload is needed.
-	if beforeSigErr != nil {
-		nginxReloadNeeded = true
-	} else if afterSig, sigErr := nginxconf.RenderSignature(cur, "", h.Version); sigErr != nil {
-		nginxReloadNeeded = true
-	} else {
-		nginxReloadNeeded = afterSig != beforeSig
-	}
-	// Listen-side settings are read only at serve start, so a change there needs
-	// `systemctl restart unmask`, independent of the nginx-conf reload signal.
-	// OR, never assign: a section handler above may already have flagged its own
-	// start-only change (the SQLite memory budget is baked into the DSN when the
-	// pool opens), and a plain assignment here would silently drop that.
-	unmaskRestartNeeded = cur.Server != beforeServer || cur.DB != beforeDB
-
-	if err := settings.Save(cur, h.ConfigPath); err != nil {
-		redirBack("save: " + err.Error())
+		return nil
+	})
+	if err != nil {
+		if !errors.Is(err, errSettingsAnswered) {
+			redirBack(err.Error())
+		}
 		return
 	}
 	if err := nginxconf.RenderFor(cur, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderBySettings, Detail: section}); err != nil {
@@ -2009,11 +2065,6 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		redirBack("save ok / render failed: " + err.Error())
 		return
 	}
-
-	// in-memory swap (= the next GET sees the new values)
-	settingsMu.Lock()
-	h.settingsPtr.Store(&cur)
-	settingsMu.Unlock()
 
 	// ipgeo hot-swap (= picks up mmdb path changes immediately, no restart)
 	if h.IPGeo != nil {
@@ -2153,18 +2204,11 @@ func (h *Handler) UpdateSettings(mutate func(*settings.Settings)) error {
 	if mutate == nil {
 		return nil
 	}
-	settingsMu.Lock()
-	defer settingsMu.Unlock()
-	cur, err := settings.Load(h.ConfigPath)
-	if err != nil {
-		return err
-	}
-	mutate(&cur)
-	if err := settings.Save(cur, h.ConfigPath); err != nil {
-		return err
-	}
-	h.settingsPtr.Store(&cur)
-	return nil
+	_, err := h.mutateSettings(func(s *settings.Settings) error {
+		mutate(s)
+		return nil
+	})
+	return err
 }
 
 // ErrNoConfigPath: sentinel returned by UpdateSettings when Handler.ConfigPath is empty.
@@ -3790,6 +3834,9 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 		if p == "" {
 			continue
 		}
+		if patternBreaksLine(p) {
+			return &listFieldError{Field: "honeypot_url_path", Value: p, Msg: i18n.Tf(lang, "err.pattern_line_break", p)}
+		}
 		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: "honeypot_url_path", Value: p, Msg: i18n.Tf(lang, "err.honeypot_regex", p, err)}
 		}
@@ -4224,6 +4271,9 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		if p == "" {
 			continue
 		}
+		if patternBreaksLine(p) {
+			return &listFieldError{Field: "protected_path", Value: p, Msg: i18n.Tf(lang, "err.pattern_line_break", p)}
+		}
 		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: "protected_path", Value: p, Msg: i18n.Tf(lang, "err.protected_regex", p, err)}
 		}
@@ -4452,6 +4502,9 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		if p == "" {
 			continue
 		}
+		if patternBreaksLine(p) {
+			return &listFieldError{Field: "bp_path", Value: p, Msg: i18n.Tf(lang, "err.pattern_line_break", p)}
+		}
 		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: "bp_path", Value: p, Msg: i18n.Tf(lang, "err.bypass_path_regex", p, err)}
 		}
@@ -4516,6 +4569,9 @@ func applyExemptPathsForm(dst *[]settings.BypassPath, prefix string, r *http.Req
 		}
 		if p == "" {
 			continue
+		}
+		if patternBreaksLine(p) {
+			return &listFieldError{Field: prefix + "_path", Value: p, Msg: i18n.Tf(lang, "err.pattern_line_break", p)}
 		}
 		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: prefix + "_path", Value: p, Msg: i18n.Tf(lang, "err.bypass_path_regex", p, err)}
@@ -4598,6 +4654,9 @@ func applyRedirectExemptForm(n *settings.Nginx, r *http.Request, lang i18n.Lang)
 		}
 		if p == "" {
 			continue
+		}
+		if patternBreaksLine(p) {
+			return fmt.Errorf("%s", i18n.Tf(lang, "err.pattern_line_break", p))
 		}
 		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.redirect_exempt_regex", p, err))
@@ -5010,7 +5069,7 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 		zoneNamesSeen[name] = true
 		if name == c.Default.Name || name == settings.JA4LimitZoneName ||
 			name == settings.IPLimitZoneName || name == settings.IPJA4LimitZoneName ||
-			name == settings.ReuseZoneName {
+			name == settings.ReuseZoneName || name == settings.ReuseZoneName+"_captcha" {
 			return fmt.Errorf("zone name %q is reserved", name)
 		}
 		// validation: alnum + "_" only.
@@ -6884,22 +6943,10 @@ func (h *Handler) adminScalarSiteApply(w http.ResponseWriter, r *http.Request, t
 		redirBack("site is required", "")
 		return
 	}
-	settingsMu.Lock()
-	defer settingsMu.Unlock()
-	cur, err := settings.Load(h.ConfigPath)
-	if err != nil {
-		redirBack("load: "+err.Error(), site)
-		return
-	}
-	if err := mutate(&cur, site); err != nil {
+	if _, err := h.mutateSettings(func(cur *settings.Settings) error { return mutate(cur, site) }); err != nil {
 		redirBack(err.Error(), site)
 		return
 	}
-	if err := settings.Save(cur, h.ConfigPath); err != nil {
-		redirBack("save: "+err.Error(), site)
-		return
-	}
-	h.settingsPtr.Store(&cur)
 	// Stay on the just-saved scope even when the save dropped the entry
 	// (= operator unchecked "override on" + saved).  The redirect target is
 	// still ?scope=<host>, where the picker keeps the host selected and the

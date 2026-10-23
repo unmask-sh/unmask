@@ -52,6 +52,8 @@ limit_req zone={{ .ZoneName }} burst={{ .Burst }} nodelay;
 # carries a valid _bv (see http.inc), so it counts exactly what every limit
 # above lets through.
 limit_req zone={{ .Name }} burst={{ .Burst }} nodelay;
+# ... and the solved CAPTCHA's own budget, five times the cap (http.inc).
+limit_req zone={{ .Name }}_captcha burst={{ .CaptchaBurst }} nodelay;
 {{- end }}
 # JA4-verdict bot / honeypot hit / protected path / persistently-banned client:
 # force challenge.  The original URI is passed to the challenge handler via the

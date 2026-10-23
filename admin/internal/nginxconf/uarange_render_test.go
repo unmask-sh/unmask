@@ -20,7 +20,7 @@ func TestRangeVerifiedUAInversionRender(t *testing.T) {
 
 	// No range presets: pure UA rescue, note absent.
 	off := renderHTTPInc(t, nil)
-	for _, want := range []string{`"~*Googlebot\/" 1;`, `"~*bingbot" 1;`, `"~*GPTBot" 1;`} {
+	for _, want := range []string{`"~*Googlebot\\/" 1;`, `"~*bingbot" 1;`, `"~*GPTBot" 1;`} {
 		if !strings.Contains(off, want) {
 			t.Errorf("no presets: expected %q in $is_search_bot", want)
 		}
@@ -35,7 +35,7 @@ func TestRangeVerifiedUAInversionRender(t *testing.T) {
 		s.Nginx.BypassIPEnabledPresets = allOn
 		s.Nginx.SeenVersion = "v0.1.7"
 	})
-	for _, gone := range []string{`"~*Googlebot\/" 1;`, `"~*bingbot" 1;`, `"~*GPTBot" 1;`, `"~*Amazonbot" 1;`, `"~*DuckAssistBot" 1;`, `"~*Applebot" 1;`, `"~*[cC]laude[bB]ot" 1;`, `"~*Claude-User" 1;`, `"~*Claude-Web" 1;`} {
+	for _, gone := range []string{`"~*Googlebot\\/" 1;`, `"~*bingbot" 1;`, `"~*GPTBot" 1;`, `"~*Amazonbot" 1;`, `"~*DuckAssistBot" 1;`, `"~*Applebot" 1;`, `"~*[cC]laude[bB]ot" 1;`, `"~*Claude-User" 1;`, `"~*Claude-Web" 1;`} {
 		if strings.Contains(on, gone) {
 			t.Errorf("all presets on: %q must be dropped from $is_search_bot", gone)
 		}
@@ -70,7 +70,7 @@ func TestRangeVerifiedUAInversionRender(t *testing.T) {
 		s.Nginx.BypassIPEnabledPresets = partial
 		s.Nginx.SeenVersion = "v0.1.7"
 	})
-	if !strings.Contains(mixed, `"~*Googlebot\/" 1;`) {
+	if !strings.Contains(mixed, `"~*Googlebot\\/" 1;`) {
 		t.Error("google-special off: Googlebot must fall back to the UA map")
 	}
 	if strings.Contains(mixed, `"~*bingbot" 1;`) {
@@ -88,7 +88,7 @@ func TestRangeVerifiedUAInversionRender(t *testing.T) {
 	if strings.Contains(stale, `"~*Amazonbot" 1;`) {
 		t.Error("seenVer v0.1.6: Amazonbot must be inverted like any active preset (gate removed)")
 	}
-	if strings.Contains(stale, `"~*Googlebot\/" 1;`) {
+	if strings.Contains(stale, `"~*Googlebot\\/" 1;`) {
 		t.Error("seenVer v0.1.6: Googlebot must be inverted")
 	}
 
@@ -102,7 +102,7 @@ func TestRangeVerifiedUAInversionRender(t *testing.T) {
 		s.Nginx.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
 		s.Nginx.SearchBots.UpstreamPatternMode = map[string]string{`bingbot`: "none"}
 	})
-	if !strings.Contains(policyOff, `"~*Googlebot\/" 1;`) {
+	if !strings.Contains(policyOff, `"~*Googlebot\\/" 1;`) {
 		t.Error("policy off: Googlebot, set to pass by its group, must keep its UA line (OR state)")
 	}
 	if strings.Contains(policyOff, `"~*bingbot" 1;`) {
@@ -112,7 +112,7 @@ func TestRangeVerifiedUAInversionRender(t *testing.T) {
 		s.Nginx.SeenVersion = "v0.1.7"
 		s.Nginx.SearchBots.UpstreamPatternMode = map[string]string{`Googlebot\/`: "none"}
 	})
-	if strings.Contains(explicitOff, `"~*Googlebot\/" 1;`) {
+	if strings.Contains(explicitOff, `"~*Googlebot\\/" 1;`) {
 		t.Error("set to normal checks + presets off: Googlebot must NOT fall back to the UA map")
 	}
 }

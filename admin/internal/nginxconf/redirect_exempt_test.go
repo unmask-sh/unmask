@@ -19,7 +19,7 @@ func TestRedirectExemptDefaults(t *testing.T) {
 	if redir < 0 {
 		t.Fatalf("redirect missing:\n%s", got)
 	}
-	acme := strings.Index(got, `if ($request_uri ~ "^/\.well-known/acme-challenge/") { break; }`)
+	acme := strings.Index(got, `if ($request_uri ~ "^/\\.well-known/acme-challenge/") { break; }`)
 	if acme < 0 || acme > redir {
 		t.Errorf("ACME path break must render before the 301 (acme=%d redir=%d):\n%s", acme, redir, got)
 	}
@@ -58,7 +58,7 @@ func TestRedirectExemptDisablePreset(t *testing.T) {
 	})
 	// Check for the break DIRECTIVE, not the substring (a template comment also
 	// mentions acme-challenge).
-	if strings.Contains(got, `if ($request_uri ~ "^/\.well-known/acme-challenge/") { break; }`) {
+	if strings.Contains(got, `if ($request_uri ~ "^/\\.well-known/acme-challenge/") { break; }`) {
 		t.Errorf("disabled acme preset must not render its break:\n%s", got)
 	}
 	if !strings.Contains(got, "GoogleHC") {
@@ -130,8 +130,8 @@ func TestRedirectExemptCustomRulesResolveMarkers(t *testing.T) {
 		}
 	})
 	for _, want := range []string{
-		`if ($request_uri ~ "/\.well-known/") { break; }`,
-		`if ($http_user_agent ~* "^MyMonitor/1\.0$") { break; }`,
+		`if ($request_uri ~ "/\\.well-known/") { break; }`,
+		`if ($http_user_agent ~* "^MyMonitor/1\\.0$") { break; }`,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("want %s in:\n%s", want, got)

@@ -70,9 +70,9 @@ func TestUATLSRenderOn(t *testing.T) {
 		`"~^t13d[0-9]+h[12]_8daaf6152771_" 1;`,
 		`map $http_user_agent $unmask_ua_tls_family {`,
 		`map "$unmask_ua_tls_family:$http_user_agent" $unmask_ua_pre_tls13 {`,
-		`map "$unmask_ja4_chromium:$unmask_ua_tls_family:$unmask_ja4_t13:$unmask_ua_pre_tls13" $unmask_ua_tls_mismatch {`,
+		`map "$unmask_ja4_chromium:$unmask_ua_tls_family:$unmask_ja4_t13:$unmask_ua_pre_tls13:$unmask_ua_tls_reverse" $unmask_ua_tls_mismatch {`,
 		`"~^1:[fs]:" family;`,
-		`"~^[01]:[cfs]:1:1$" version;`,
+		`"~^[01]:[cfs]:1:1:" version;`,
 		`:$unmask_header_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" $fc_after_header {`,
 		`map "$fc_after_header:$unmask_ua_tls_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" $final_challenge {`,
 		`default               $fc_after_header;`,
@@ -137,7 +137,7 @@ func TestUATLSMapSemantics(t *testing.T) {
 	chromium := pat(`map $effective_ja4 $unmask_ja4_chromium {`)
 	family := pat(`map $http_user_agent $unmask_ua_tls_family {`)
 	pre := pat(`map "$unmask_ua_tls_family:$http_user_agent" $unmask_ua_pre_tls13 {`)
-	verdict := pat(`map "$unmask_ja4_chromium:$unmask_ua_tls_family:$unmask_ja4_t13:$unmask_ua_pre_tls13" $unmask_ua_tls_mismatch {`)
+	verdict := pat(`map "$unmask_ja4_chromium:$unmask_ua_tls_family:$unmask_ja4_t13:$unmask_ua_pre_tls13:$unmask_ua_tls_reverse" $unmask_ua_tls_mismatch {`)
 	bit := func(v string) string {
 		if v == "" {
 			return "0"
@@ -146,7 +146,7 @@ func TestUATLSMapSemantics(t *testing.T) {
 	}
 	decide := func(ja4, ua string) string {
 		fam := first(family, ua)
-		key := bit(first(chromium, ja4)) + ":" + fam + ":" + bit(first(t13, ja4)) + ":" + bit(first(pre, fam+":"+ua))
+		key := bit(first(chromium, ja4)) + ":" + fam + ":" + bit(first(t13, ja4)) + ":" + bit(first(pre, fam+":"+ua)) + ":0"
 		return first(verdict, key)
 	}
 	const chromeJA4 = "t13d1517h2_8daaf6152771_dcad5a053991"   // Chromium, TLS 1.3
@@ -189,5 +189,68 @@ func TestUATLSMapSemantics(t *testing.T) {
 		if got := decide(c.ja4, c.ua); got != c.want {
 			t.Errorf("%s: mismatch = %q, want %q", c.name, got, c.want)
 		}
+	}
+}
+
+// TestUATLSReverseSemantics: the opt-in reverse check names a Chromium
+// browser over a fingerprint that is not Chromium's, on a TCP TLS 1.3
+// session only, and never Chrome on iOS; off, the key's fifth field is 0.
+func TestUATLSReverseSemantics(t *testing.T) {
+	render := func(on bool) string {
+		return renderHTTPInc(t, func(s *settings.Settings) { s.Global.UATLSReverseCheck = on })
+	}
+	pat := func(inc, mapHeader string) []string {
+		i := strings.Index(inc, mapHeader)
+		if i < 0 {
+			t.Fatalf("map %q not rendered", mapHeader)
+		}
+		body := inc[i:]
+		body = body[:strings.Index(body, "\n}")]
+		var out []string
+		for _, m := range regexp.MustCompile(`(?m)^\s*"~([^"]+)"\s+(\S+);`).FindAllStringSubmatch(body, -1) {
+			out = append(out, m[1]+"\x00"+m[2])
+		}
+		return out
+	}
+	first := func(entries []string, in string) string {
+		for _, e := range entries {
+			re, val, _ := strings.Cut(e, "\x00")
+			if regexp.MustCompile(re).MatchString(in) {
+				return val
+			}
+		}
+		return "0"
+	}
+	const chromeJA4 = "t13d1517h2_8daaf6152771_dcad5a053991"
+	const goJA4 = "t13d1312h2_e8f1e7e78f70_bd3ad4a5b2e4"
+	const quicJA4 = "q13d0312h3_55b375c5d22e_cd85d2d88918"
+	const chromeUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
+	const criosUA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/141.0.0.0 Mobile/15E148 Safari/604.1"
+	const firefoxUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0"
+	for _, on := range []bool{true, false} {
+		inc := render(on)
+		chromium := pat(inc, `map $effective_ja4 $unmask_ja4_chromium {`)
+		name := pat(inc, `map $http_user_agent $unmask_chromium_named {`)
+		reverse := pat(inc, `map "$effective_ja4:$unmask_ja4_chromium:$unmask_chromium_named" $unmask_ua_tls_reverse {`)
+		decide := func(ja4, ua string) string {
+			return first(reverse, ja4+":"+first(chromium, ja4)+":"+first(name, ua))
+		}
+		want := func(ja4, ua, exp, why string) {
+			if got := decide(ja4, ua); got != exp {
+				t.Errorf("reverse on=%v: %s: got %q, want %q", on, why, got, exp)
+			}
+		}
+		if !on {
+			want(goJA4, chromeUA, "0", "the check is off")
+			continue
+		}
+		want(goJA4, chromeUA, "1", "a Chrome name over a Go fingerprint")
+		want(chromeJA4, chromeUA, "0", "Chrome on Chrome's fingerprint")
+		want(goJA4, criosUA, "0", "Chrome on iOS is WebKit")
+		want(goJA4, firefoxUA, "0", "a Firefox name is the family check's business")
+		want(quicJA4, chromeUA, "0", "a QUIC session is not judged")
+	}
+	if !strings.Contains(render(true), `"~^0:c:1:0:1$" reverse;`) {
+		t.Error("the tier's map does not name the reverse contradiction")
 	}
 }

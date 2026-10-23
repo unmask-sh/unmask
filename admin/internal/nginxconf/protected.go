@@ -168,7 +168,7 @@ func EffectiveProtectedPathRules(s settings.Settings) []ProtectedPathRule {
 			override = m
 		}
 		for _, r := range g.Rules {
-			pat := trimSpaceAndQuotes(r.Pattern)
+			pat := trimPattern(r.Pattern)
 			if pat == "" {
 				continue
 			}
@@ -193,7 +193,7 @@ func EffectiveProtectedPathRules(s settings.Settings) []ProtectedPathRule {
 		if r.Disabled {
 			continue
 		}
-		p := trimSpaceAndQuotes(r.Path)
+		p := trimPattern(r.Path)
 		site := trimSpaceAndQuotes(r.Site)
 		key := site + "|" + p
 		if p == "" || ppSeen[key] {

@@ -49,12 +49,23 @@ variables_hash_bucket_size 128;
 # -----------------------------------------------------------------------------
 # unmask module main directives (secret + cookie validity period + ban file)
 # -----------------------------------------------------------------------------
-unmask_bv_secret                "{{ .BVSecret }}";
+unmask_bv_secret                "{{ nq .BVSecret }}";
 unmask_bv_pow_valid_seconds     {{ .BVPowValidSeconds }};
 unmask_bv_captcha_valid_seconds {{ .BVCaptchaValidSeconds }};
 unmask_bv_pow_difficulty        {{ .PowDifficulty }};
+# Per-host PoW difficulty (settings.challenge.sites.<host>.pow_difficulty).
+# The module verifies a PoW cookie against $unmask_pow_difficulty for the
+# host it arrived on, the number the challenge page served that host; a site
+# set below the directive's value used to loop its visitors on a PoW the
+# verifier rejected.  Hosts not listed take the directive's value.
+map $host $unmask_pow_difficulty {
+    default {{ .PowDifficulty }};
+{{- range .PowDifficultyHosts }}
+    "{{ nq .Host }}" {{ .Difficulty }};
+{{- end }}
+}
 {{- if .BanFilePath }}
-unmask_ban_file "{{ .BanFilePath }}";
+unmask_ban_file "{{ nq .BanFilePath }}";
 {{- end }}
 
 # -----------------------------------------------------------------------------
@@ -1431,7 +1442,7 @@ map "{{ if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base
 # empty and the tier is silent.
 map $effective_ja4 $unmask_ja4_t13 {
     default 0;
-    "~^t13" 1;   # the session negotiated TLS 1.3
+    "~^[tq]13" 1;   # the session negotiated TLS 1.3 (q: over QUIC, where HTTP/3 lives)
 }
 map $effective_ja4 $unmask_ja4_chromium {
     default 0;
@@ -1455,13 +1466,34 @@ map "$unmask_ua_tls_family:$http_user_agent" $unmask_ua_pre_tls13 {
     "~^f:.*Firefox/(?:[1-9]|[1-5][0-9])\." 1;                 # Firefox < 60
     "~^s:.*Version/(?:[1-9]|1[01])\.[0-9.]* .*Safari/" 1;     # Safari < 12
 }
+# The reverse contradiction (settings.ua_tls_reverse_check, off by default): a
+# Chromium name -- Chrome, Chromium, Edge, Opera, Brave, Electron, but not
+# Chrome on iOS, which is WebKit underneath -- over a TLS 1.3 session whose
+# fingerprint is not Chromium's.  Over QUIC Chromium's cipher list is another,
+# so only a TCP session ("t") is judged.  Off by default because antivirus
+# and corporate TLS proxies re-originate the session with a stack of their
+# own under the browser's unchanged name.  The map is always there (0 when
+# the check is off) so the tier's key keeps one shape.
+map $http_user_agent $unmask_chromium_named {
+    default 0;
+    "~CriOS/" 0;   # Chrome on iOS is WebKit underneath: Apple's TLS, by design (first match wins)
+    "~(?:Chrome|Chromium|Edg|OPR|HeadlessChrome)/" 1;
+}
+map "$effective_ja4:$unmask_ja4_chromium:$unmask_chromium_named" $unmask_ua_tls_reverse {
+    default 0;
+{{- if .UATLSReverse }}
+    "~^t13[^:]*:0:1$" 1;
+{{- end }}
+}
 # The contradiction, named: family (a Chromium fingerprint under another
-# browser's name) or version (TLS 1.3 under a pre-TLS 1.3 version); "" when
+# browser's name), version (TLS 1.3 under a pre-TLS 1.3 version) or reverse
+# (a Chromium name over another fingerprint, when that check is on); "" when
 # the two agree.  Forwarded to the daemon as the serve's entry (server.inc).
-map "$unmask_ja4_chromium:$unmask_ua_tls_family:$unmask_ja4_t13:$unmask_ua_pre_tls13" $unmask_ua_tls_mismatch {
+map "$unmask_ja4_chromium:$unmask_ua_tls_family:$unmask_ja4_t13:$unmask_ua_pre_tls13:$unmask_ua_tls_reverse" $unmask_ua_tls_mismatch {
     default "";
     "~^1:[fs]:" family;
-    "~^[01]:[cfs]:1:1$" version;
+    "~^[01]:[cfs]:1:1:" version;
+    "~^0:c:1:0:1$" reverse;
 }
 # Escalate a would-pass, not-otherwise-exempt request that contradicts itself.
 # Key: prev : mismatch : search_bot : bypass_ip : bypass_path : bv_valid.
@@ -1727,10 +1759,11 @@ limit_req_zone {{ .KeyVar }} zone={{ .Name }}:10m rate={{ .RequestsPerMin }}r/m;
 # the per-day budget; over it, the request takes the rate route, and the daemon
 # serves a CAPTCHA or the deny page (settings.rate_limit.reuse.action).
 #
-# A solved CAPTCHA is not counted: that CAPTCHA is the cap's own way out.
-# Counted, it would be served again on the next request from the same address,
-# and a person behind a busy one (an office proxy, a carrier NAT) could never
-# get through.  Every other pass is counted -- a PoW, a re-bound one, one handed
+# A solved CAPTCHA is not counted here: that CAPTCHA is the cap's own way out,
+# and counted at this rate it would be served again on the next request from
+# the same address, so a person behind a busy one (an office proxy, a carrier
+# NAT) could never get through.  It has a budget of its own below, five times
+# this one.  Every other pass is counted -- a PoW, a re-bound one, one handed
 # out while enforcement was suspended -- since nobody solved anything for it
 # here.  The plugin reports the kind of the entry that matched this address,
 # and a CAPTCHA solve puts its entry first, so the solver's next request reads
@@ -1753,6 +1786,31 @@ map "$bv_reuse_counted:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse {
 }
 {{- end }}
 limit_req_zone $rate_limit_key_reuse zone={{ .Name }}:10m rate={{ .RequestsPerMin }}r/m;
+
+# A solved CAPTCHA draws on its own budget, five times the cap.  Left
+# unmetered, one answer to the built-in CAPTCHA -- which a script gives in a
+# few requests -- bought fourteen days of unlimited requests per address.
+# Five times the cap is still more than an office proxy or a carrier NAT
+# takes in a day; a client over it takes the rate route like any zone, and
+# the daemon serves the reuse cap's answer (its holder has a pass).
+map $unmask_bv_kind $bv_reuse_captcha { default 0;  "captcha" 1; }
+{{- if $.MonitorMode }}
+map "$unmask_observe:$bv_reuse_captcha:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse_captcha {
+    default       "";
+    "~^1:"        "";
+    "~^.:.:1:"    "";
+    "~^.:.:.:1$"  "";
+    "~^0:1:"      {{ .KeyExpr }};
+}
+{{- else }}
+map "$bv_reuse_captcha:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse_captcha {
+    default     "";
+    "~^.:1:"    "";
+    "~^.:.:1$"  "";
+    "~^1:"      {{ .KeyExpr }};
+}
+{{- end }}
+limit_req_zone $rate_limit_key_reuse_captcha zone={{ .Name }}_captcha:10m rate={{ .CaptchaRequestsPerMin }}r/m;
 {{- end }}
 {{- with .NamedRescueZone }}
 
@@ -1993,7 +2051,27 @@ map $unmask_gated $unmask_bp_log {
 # can tell a render nginx has not been reloaded into and say so at the top
 # of the admin pages.  Optional to the parser, like bp.
 {{- end }}
-log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} pv=$unmask_preview_verified sb=$is_search_bot ua=$http_user_agent';
+# What the honeypot ban reads to tell a scanner's trip from one a page caused
+# (nginxlog.TripBannable): Sec-Fetch-Site and Sec-Fetch-Dest as the browser
+# sent them, and the host the Referer names.  Each goes through a map that
+# admits only the token's own alphabet, so a client-written header cannot
+# write a field of its own into the line.
+map $http_sec_fetch_site $unmask_sfs_log {
+    default       "";
+    "none"        none;
+    "same-origin" same-origin;
+    "same-site"   same-site;
+    "cross-site"  cross-site;
+}
+map $http_sec_fetch_dest $unmask_sfd_log {
+    default           "";
+    "~^[a-z]{1,16}$"  $http_sec_fetch_dest;
+}
+map $http_referer $unmask_ref_host {
+    default                                             "";
+    "~*^https?://(?<ref_host_log>[A-Za-z0-9.:-]{1,253})"  $ref_host_log;
+}
+log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} pv=$unmask_preview_verified sb=$is_search_bot sfs=$unmask_sfs_log sfd=$unmask_sfd_log rh=$unmask_ref_host ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed.
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;

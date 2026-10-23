@@ -105,11 +105,12 @@ func TestRequireRangeVerificationDropsPatternFromRenderedWhitelist(t *testing.T)
 	}
 }
 
-// containsPattern looks for pat as a rendered map entry ("~*<pat>" 1;) rather
-// than anywhere in the file: the pattern also appears in generated comments,
-// which say nothing about whether the UA actually passes.
+// containsPattern looks for pat as a rendered map entry ("~*<pat>" 1;, the
+// pattern quoted for the key as the renderer writes it) rather than anywhere
+// in the file: the pattern also appears in generated comments, which say
+// nothing about whether the UA actually passes.
 func containsPattern(conf, pat string) bool {
-	return strings.Contains(conf, `"~*`+pat+`" 1;`)
+	return strings.Contains(conf, `"~*`+nginxQuote(pat)+`" 1;`)
 }
 
 // The policy closes the UA path only where there is an address list to verify

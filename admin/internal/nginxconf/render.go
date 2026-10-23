@@ -67,10 +67,16 @@ type ObserveHostRow struct {
 
 // tmplFuncs: what the config template may call.  "rx" resolves an operator
 // pattern to the expression the map should match on -- a literal pattern means
-// itself and is escaped here, at the one point where it becomes a regex.  The
-// admin's own matcher resolves it through the same helper, so the two wires
-// cannot read a pattern differently.
-var tmplFuncs = template.FuncMap{"rx": settings.PatternRegex}
+// itself and is escaped as a regex (settings.PatternRegex; the admin's own
+// matcher resolves it through the same helper, so the two wires cannot read a
+// pattern differently) -- and then quotes it for the double-quoted key the
+// template puts it in (nginxQuote), whatever its mode.  A regex pattern used
+// to be written as typed: the path, honeypot and redirect-exemption forms
+// accept a `"` in one (it is a valid regex), and that quote closed the key
+// and handed the rest of the pattern to nginx as directives, in a file it
+// loads as root.  Quoting every mode here rather than in PatternRegex keeps
+// the escape nginx's reader needs at the one place that writes nginx config.
+var tmplFuncs = template.FuncMap{"nq": nginxQuote, "rx": func(p string) string { return nginxQuote(settings.PatternRegex(p)) }}
 
 // Render renders with no cause named: RenderFor with the zero RenderCause,
 // for a dry run or a caller that has nothing to say about why.
@@ -623,6 +629,9 @@ type renderData struct {
 	BVPowValidSeconds     int // unmask_bv_pow_valid_seconds     (= per-kind seconds)
 	BVCaptchaValidSeconds int // unmask_bv_captcha_valid_seconds (= per-kind seconds)
 	PowDifficulty         int
+	// PowDifficultyHosts: the sites whose own pow_difficulty differs from the
+	// default, for the $unmask_pow_difficulty map the module verifies against.
+	PowDifficultyHosts []PowDifficultyHost
 	// RenderID: this render's id, logged on every access-log line (rv=) so
 	// the daemon can tell whether nginx runs it.  See renderIDOf.  Empty
 	// while the id itself is being computed, and in RenderSignature.
@@ -670,6 +679,9 @@ type renderData struct {
 	// name, or a TLS 1.3 session under a browser version from before TLS 1.3.
 	// Off, its maps are not emitted.
 	UATLSEnabled bool
+	// UATLSReverse: the opt-in reverse check (settings.ua_tls_reverse_check)
+	// joins the tier's key.
+	UATLSReverse bool
 	UpstreamAddr string
 	// UpstreamServer: value to write for `server XXX;` in upstream.conf.
 	// Switches based on the bind format:
@@ -1033,6 +1045,44 @@ type ReuseZoneRender struct {
 	RequestsPerMin int
 	Burst          int
 	KeyExpr        string
+	// CaptchaRequestsPerMin / CaptchaBurst: the budget a solved CAPTCHA's
+	// holder draws on, reuseCaptchaFactor times the cap (zone "<Name>_captcha").
+	CaptchaRequestsPerMin int
+	CaptchaBurst          int
+}
+
+// reuseCaptchaFactor: a solved CAPTCHA's budget, as a multiple of the reuse
+// cap.  Not counting it at all was the cap's own way out, and the right one
+// for a person behind a busy address -- but a client that answers the
+// built-in CAPTCHA by script earned fourteen days of unmetered requests per
+// address for one answer.  Five times the cap keeps an office proxy or a
+// carrier NAT from meeting the CAPTCHA again in a day.
+const reuseCaptchaFactor = 5
+
+// PowDifficultyHost: one row of the $unmask_pow_difficulty map.
+type PowDifficultyHost struct {
+	Host       string
+	Difficulty int
+}
+
+// powDifficultyHosts lists the sites whose resolved PoW difficulty differs
+// from the default's, as the hosts they are keyed by.  The challenge page
+// already served each site its own number (Challenge.Resolve); the module
+// verified every cookie against the directive's, so a site set below the
+// default produced a PoW the verifier rejected, and its visitors looped.
+func powDifficultyHosts(s settings.Settings) []PowDifficultyHost {
+	def := s.Challenge.Default.ResolvedPowDifficulty()
+	var out []PowDifficultyHost
+	for site, v := range s.Challenge.Sites {
+		if v.Disabled || site == "" || site == "default" {
+			continue
+		}
+		if d := s.Challenge.Resolve(site).ResolvedPowDifficulty(); d != def {
+			out = append(out, PowDifficultyHost{Host: site, Difficulty: d})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Host < out[j].Host })
+	return out
 }
 
 // RateKeyVariantRender: one $rate_limit_key_<suffix> map (per-zone key kinds).
@@ -1306,6 +1356,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		BVPowValidSeconds:     s.Challenge.Default.PowCookieValidSecondsResolved(),
 		BVCaptchaValidSeconds: s.Challenge.Default.CaptchaCookieValidSecondsResolved(),
 		PowDifficulty:         s.Challenge.Default.ResolvedPowDifficulty(),
+		PowDifficultyHosts:    powDifficultyHosts(s),
 		KnownBrowserAction:    resolveGlobalAction(s.Global.KnownBrowserAction),
 		UnknownUAAction:       resolveGlobalAction(s.Global.UnknownUAAction),
 		UpstreamAddr:          defStr(s.Nginx.UpstreamAddr, "127.0.0.1:9477"),
@@ -1331,7 +1382,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		if i < len(s.Nginx.SearchBots.ExtraDisabled) && s.Nginx.SearchBots.ExtraDisabled[i] {
 			continue
 		}
-		if p = trimSpaceAndQuotes(p); p != "" {
+		if p = trimPattern(p); p != "" {
 			d.SearchBotPatterns = append(d.SearchBotPatterns, p)
 		}
 	}
@@ -1368,6 +1419,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	d.HeaderIntegrityEnabled = s.Global.HeaderIntegrity
 	d.HeaderIntegrityLBFronted = len(d.LBIPRanges) > 0
 	d.UATLSEnabled = UATLSActive(s)
+	d.UATLSReverse = d.UATLSEnabled && s.Global.UATLSReverseCheck
 
 	// Monitor mode: rendered only while some site is in it, so the usual
 	// template is untouched otherwise.  The per-site rows carry only the
@@ -1425,7 +1477,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			if i < len(s.Nginx.ChallengeTargets.ExtraDisabled) && s.Nginx.ChallengeTargets.ExtraDisabled[i] {
 				continue
 			}
-			if p = trimSpaceAndQuotes(p); p != "" && !seen[p] {
+			if p = trimPattern(p); p != "" && !seen[p] {
 				seen[p] = true
 				d.ChallengeTargetPatterns = append(d.ChallengeTargetPatterns, p)
 			}
@@ -1541,7 +1593,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		if u.Disabled {
 			continue
 		}
-		p := trimSpaceAndQuotes(u.Path)
+		p := trimPattern(u.Path)
 		if p == "" {
 			continue
 		}
@@ -1623,7 +1675,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		if r.Disabled {
 			continue
 		}
-		p := trimSpaceAndQuotes(r.Path)
+		p := trimPattern(r.Path)
 		if p == "" {
 			continue
 		}
@@ -1670,7 +1722,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			if r.Disabled {
 				continue
 			}
-			p := trimSpaceAndQuotes(r.Path)
+			p := trimPattern(r.Path)
 			if p == "" {
 				continue
 			}
@@ -1928,10 +1980,12 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		// the address it was issued on, and the cap is about how much one
 		// holder takes.
 		d.ReuseZone = &ReuseZoneRender{
-			Name:           settings.ReuseZoneName,
-			RequestsPerMin: ru.RatePerMin(),
-			Burst:          ru.ResolvedBurst(),
-			KeyExpr:        "$unmask_client_net",
+			Name:                  settings.ReuseZoneName,
+			RequestsPerMin:        ru.RatePerMin(),
+			Burst:                 ru.ResolvedBurst(),
+			KeyExpr:               "$unmask_client_net",
+			CaptchaRequestsPerMin: ru.RatePerMin() * reuseCaptchaFactor,
+			CaptchaBurst:          ru.ResolvedBurst() * reuseCaptchaFactor,
 		}
 	}
 
@@ -2445,7 +2499,7 @@ func uaPatternsWhereAction(s settings.Settings, upstreamBlack []string, want fun
 	out := []string{}
 	seen := map[string]bool{}
 	add := func(p string) {
-		if p = trimSpaceAndQuotes(p); p != "" && !seen[p] {
+		if p = trimPattern(p); p != "" && !seen[p] {
 			seen[p] = true
 			out = append(out, p)
 		}
@@ -2719,6 +2773,23 @@ func staleMajorAlternation(threshold int, exempt []int) string {
 }
 
 var controlChars = regexp.MustCompile(`[\x00-\x1f"]`)
+
+// patternControlChars: what still drops a pattern (trimPattern).
+var patternControlChars = regexp.MustCompile(`[\x00-\x1f]`)
+
+// trimPattern is trimSpaceAndQuotes for a pattern the template renders
+// through rx: the quote stays, as the key it is written in is quoted for it
+// (nginxQuote), so a pattern with one in it renders instead of vanishing
+// here under a green "saved" -- which is what happened to a literal UA with
+// a quote.  A control character, which no key has a use for, still drops
+// the pattern whole rather than rendering a different one.
+func trimPattern(s string) string {
+	s = strings.TrimRight(strings.TrimLeft(s, " \t"), " \t\r")
+	if patternControlChars.MatchString(s) {
+		return ""
+	}
+	return s
+}
 
 func trimSpaceAndQuotes(s string) string {
 	for len(s) > 0 && (s[0] == ' ' || s[0] == '\t') {

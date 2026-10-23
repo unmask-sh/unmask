@@ -36,13 +36,9 @@ func TestLiteralPatternMatchesTheTextItWasMadeFrom(t *testing.T) {
 		if !re.MatchString(text) {
 			t.Errorf("%q -> %q: the escaped form does not match the text it came from", text, rx)
 		}
-		// It must not close the string it is rendered inside in an nginx map.
-		for i := 0; i < len(rx); i++ {
-			if rx[i] == '"' && (i == 0 || rx[i-1] != '\\') {
-				t.Errorf("%q -> %q: carries an unescaped quote at %d", text, rx, i)
-				break
-			}
-		}
+		// The quote is not escaped here: the nginx map key it is rendered
+		// inside is quoted by the renderer (nginxconf's rx template func),
+		// which TestPatternsRenderQuotedInEveryList covers.
 	}
 	// A pattern without the marker is a regex and passes through untouched --
 	// existing rules keep meaning exactly what they meant.

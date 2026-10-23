@@ -89,7 +89,7 @@ func TestBypassSafeMethodRender(t *testing.T) {
 		inc := renderHTTPInc(t, mutate)
 		for _, want := range []string{
 			"map $uri $unmask_bp_safe_path {",
-			`"~^/robots\.txt$" "1";`,
+			`"~^/robots\\.txt$" "1";`,
 			`map "$request_method:$unmask_bp_safe_path" $unmask_bp_safe {`,
 			`"GET:1"     "1";`,
 			`"HEAD:1"    "1";`,

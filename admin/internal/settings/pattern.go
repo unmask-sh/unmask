@@ -75,15 +75,17 @@ func PatternText(p string) string {
 //
 // Escaping is by backslash (regexp.QuoteMeta), which is safe here in a way it
 // is not in operator input: this output is generated, so it cannot carry the
-// unbalanced backslash the input validator exists to reject.  The one thing
-// QuoteMeta does not cover is the double quote, which would close the string
-// the pattern is rendered inside in an nginx map.
+// unbalanced backslash the input validator exists to reject.  What the
+// nginx config needs on top -- the quote and the backslash escaped for the
+// double-quoted map key -- is the renderer's (nginxconf's "rx" template
+// func), applied to every mode alike: this is a regex for both engines and
+// does not know what it is written inside.
 func PatternRegex(p string) string {
 	mode := PatternModeOf(p)
 	if mode == ModeRegex {
 		return p
 	}
-	q := strings.ReplaceAll(regexp.QuoteMeta(PatternText(p)), `"`, `\"`)
+	q := regexp.QuoteMeta(PatternText(p))
 	if mode == ModeExact {
 		return "^" + q + "$"
 	}

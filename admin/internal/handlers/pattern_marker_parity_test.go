@@ -48,8 +48,9 @@ func TestMarkerPatternsMeanTheSameOnBothWires(t *testing.T) {
 	}
 	httpInc := string(b)
 	// The path maps are case-sensitive ("~"), the protected / honeypot maps
-	// case-insensitive ("~*"); either way the marker is resolved.
-	for _, want := range []string{`"~/feed/"`, `"~^/rss\.xml$"`, `"~/atom"`, `"~*/wp-admin"`, `"~*^/trap$"`} {
+	// case-insensitive ("~*"); either way the marker is resolved.  The
+	// escaped dot is written `\\.`, which nginx's reader hands PCRE as `\.`.
+	for _, want := range []string{`"~/feed/"`, `"~^/rss\\.xml$"`, `"~/atom"`, `"~*/wp-admin"`, `"~*^/trap$"`} {
 		if !strings.Contains(httpInc, want) {
 			t.Errorf("rendered http.inc lacks %s", want)
 		}
