@@ -891,31 +891,7 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 			// that subsequent shares are enabled (= the user can revoke from
 			// the settings tab).
 			if strings.TrimSpace(r.FormValue("accept_terms")) == "1" {
-				if cur, err := settings.Load(h.ConfigPath); err == nil {
-					if !cur.CommunityBans.SubmitActive() {
-						cur.CommunityBans.SubmitEnabled = true
-						if cur.CommunityBans.TermsAcceptedAt == 0 {
-							cur.CommunityBans.TermsAcceptedAt = time.Now().Unix()
-						}
-						// Stamp the version so SubmitActive()'s version gate is
-						// satisfied (= same as the settings-tab clickwrap path).
-						cur.CommunityBans.TermsAcceptedVersion = settings.CurrentCommunityBansTermsVersion
-						cur.Nginx.SeenVersion = "v" + h.Version
-						if err := settings.Save(cur, h.ConfigPath); err != nil {
-							log.Printf("communitybans: accept_terms save: %v", err)
-						} else {
-							settingsMu.Lock()
-							h.settingsPtr.Store(&cur)
-							settingsMu.Unlock()
-							if h.UserRepo != nil {
-								h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "community_bans_accept_terms",
-									"", `{"from":"hunt_ban_dialog"}`)
-							}
-						}
-					}
-				} else {
-					log.Printf("communitybans: accept_terms load: %v", err)
-				}
+				h.acceptCommunityTermsFrom(r, pay.UserID, meUsername, "hunt_ban_dialog")
 			}
 			go func(ip, ja4, reason, comment string) {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1011,29 +987,7 @@ func (h *Handler) AdminHuntAction(w http.ResponseWriter, r *http.Request) {
 			// accept_terms=1: mirror the op=ban path so opting in via the JA4
 			// ranking dialog also activates community submit for future BANs.
 			if strings.TrimSpace(r.FormValue("accept_terms")) == "1" {
-				if cur, err := settings.Load(h.ConfigPath); err == nil {
-					if !cur.CommunityBans.SubmitActive() {
-						cur.CommunityBans.SubmitEnabled = true
-						if cur.CommunityBans.TermsAcceptedAt == 0 {
-							cur.CommunityBans.TermsAcceptedAt = time.Now().Unix()
-						}
-						cur.CommunityBans.TermsAcceptedVersion = settings.CurrentCommunityBansTermsVersion
-						cur.Nginx.SeenVersion = "v" + h.Version
-						if err := settings.Save(cur, h.ConfigPath); err != nil {
-							log.Printf("communitybans: accept_terms save: %v", err)
-						} else {
-							settingsMu.Lock()
-							h.settingsPtr.Store(&cur)
-							settingsMu.Unlock()
-							if h.UserRepo != nil {
-								h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "community_bans_accept_terms",
-									"", `{"from":"hunt_ja4_ranking_dialog"}`)
-							}
-						}
-					}
-				} else {
-					log.Printf("communitybans: accept_terms load: %v", err)
-				}
+				h.acceptCommunityTermsFrom(r, pay.UserID, meUsername, "hunt_ja4_ranking_dialog")
 			}
 			go func(ip, ja4, reason, comment string) {
 				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1127,6 +1081,39 @@ func validUAPattern(pattern string) error {
 	return nil
 }
 
+// acceptCommunityTermsFrom turns community submit on for an operator who
+// accepted the terms inside a hunt dialog (accept_terms=1), as the settings
+// tab's clickwrap does, and records who did and from where.  Already
+// active: nothing is written or recorded.  A failure is logged and no more,
+// as the BAN the dialog was about still goes through.
+func (h *Handler) acceptCommunityTermsFrom(r *http.Request, userID int64, username, from string) {
+	errActive := errors.New("community submit is already active")
+	_, err := h.mutateSettings(func(cur *settings.Settings) error {
+		if cur.CommunityBans.SubmitActive() {
+			return errActive
+		}
+		cur.CommunityBans.SubmitEnabled = true
+		if cur.CommunityBans.TermsAcceptedAt == 0 {
+			cur.CommunityBans.TermsAcceptedAt = time.Now().Unix()
+		}
+		// Stamp the version so SubmitActive()'s version gate is satisfied
+		// (= same as the settings-tab clickwrap path).
+		cur.CommunityBans.TermsAcceptedVersion = settings.CurrentCommunityBansTermsVersion
+		cur.Nginx.SeenVersion = "v" + h.Version
+		return nil
+	})
+	switch {
+	case err == nil:
+		if h.UserRepo != nil {
+			h.UserRepo.Record(r.Context(), userID, username, "community_bans_accept_terms",
+				"", `{"from":"`+from+`"}`)
+		}
+	case errors.Is(err, errActive):
+	default:
+		log.Printf("communitybans: accept_terms: %v", err)
+	}
+}
+
 // appendASNRule: add an exact-ASN rule to Nginx.Asn.Rules.  Mirrors
 // appendUABlacklist -- load, append, save, render -- and takes the same shape
 // the settings tab writes so a rule added here is indistinguishable from one
@@ -1136,15 +1123,6 @@ func (h *Handler) appendASNRule(r *http.Request, asn uint, label, action, userna
 	if action != "" && !settings.IsValidGeoAction(action) {
 		return fmt.Errorf("unknown action %q", action)
 	}
-	cur, err := settings.Load(h.ConfigPath)
-	if err != nil {
-		return err
-	}
-	for i := range cur.Nginx.Asn.Rules {
-		if cur.Nginx.Asn.Rules[i].ASN == asn {
-			return fmt.Errorf("AS%d already has a rule", asn)
-		}
-	}
 	label = strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/").Replace(strings.TrimSpace(label))
 	// Refused with the limit, as the dialog refuses it while typing; this is
 	// for a request that did not come through the dialog.  In characters: a
@@ -1152,19 +1130,24 @@ func (h *Handler) appendASNRule(r *http.Request, asn uint, label, action, userna
 	if utf8.RuneCountInString(label) > labelMax {
 		return errors.New(i18n.Tf(i18n.Resolve(r), "err.value_long", labelMax))
 	}
-	cur.Nginx.Asn.Rules = append(cur.Nginx.Asn.Rules, settings.AsnRule{
-		ASN: asn, Label: label, Action: action, Enabled: true, CreatedAt: nowUnix(),
+	cur, err := h.mutateSettings(func(cur *settings.Settings) error {
+		for i := range cur.Nginx.Asn.Rules {
+			if cur.Nginx.Asn.Rules[i].ASN == asn {
+				return fmt.Errorf("AS%d already has a rule", asn)
+			}
+		}
+		cur.Nginx.Asn.Rules = append(cur.Nginx.Asn.Rules, settings.AsnRule{
+			ASN: asn, Label: label, Action: action, Enabled: true, CreatedAt: nowUnix(),
+		})
+		cur.Nginx.SeenVersion = "v" + h.Version
+		return nil
 	})
-	cur.Nginx.SeenVersion = "v" + h.Version
-	if err := settings.Save(cur, h.ConfigPath); err != nil {
+	if err != nil {
 		return err
 	}
 	if err := nginxconf.RenderFor(cur, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderBySettings, Detail: "asn"}); err != nil {
 		return err
 	}
-	settingsMu.Lock()
-	h.settingsPtr.Store(&cur)
-	settingsMu.Unlock()
 	if h.UserRepo != nil {
 		h.UserRepo.Record(r.Context(), userID, username, "hunt_asn_rule",
 			fmt.Sprintf("AS%d", asn), fmt.Sprintf(`{"label":%q,"action":%q}`, label, action))
@@ -1203,37 +1186,33 @@ func (h *Handler) appendUABlacklist(r *http.Request, pattern, title, action, use
 	if action != "" && !settings.IsValidRateChallengeMode(action) {
 		return fmt.Errorf("unknown action %q", action)
 	}
-	cur, err := settings.Load(h.ConfigPath)
-	if err != nil {
-		return err
-	}
 	t := strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/").Replace(title)
-	// Every parallel column is fitted to the rows before this one takes its
-	// entry, or the entry lands on another row: the action column has to grow
-	// with the list even when this row inherits, and a title column that
-	// stopped short (rows added in config.yml) or ran long (a row removed
-	// there) put the new row's title on someone else's.
-	ct := &cur.Nginx.ChallengeTargets
-	rows := len(ct.Extra)
-	ct.Extra = append(ct.Extra, pattern)
-	ct.ExtraTitle = append(fitColumn(ct.ExtraTitle, rows), t)
-	ct.ExtraDisabled = append(fitColumn(ct.ExtraDisabled, rows), false)
-	// CreatedAt, not UpdatedAt: the row is new.  Stamping the edit date on a
-	// row that has never been edited reads as "changed, origin unknown" in
-	// the settings list, which is the opposite of what happened.
-	ct.ExtraCreatedAt = append(fitColumn(ct.ExtraCreatedAt, rows), nowUnix())
-	ct.ExtraUpdatedAt = append(fitColumn(ct.ExtraUpdatedAt, rows), 0)
-	ct.ExtraAction = append(fitColumn(ct.ExtraAction, rows), action)
-	cur.Nginx.SeenVersion = "v" + h.Version
-	if err := settings.Save(cur, h.ConfigPath); err != nil {
+	cur, err := h.mutateSettings(func(cur *settings.Settings) error {
+		// Every parallel column is fitted to the rows before this one takes its
+		// entry, or the entry lands on another row: the action column has to grow
+		// with the list even when this row inherits, and a title column that
+		// stopped short (rows added in config.yml) or ran long (a row removed
+		// there) put the new row's title on someone else's.
+		ct := &cur.Nginx.ChallengeTargets
+		rows := len(ct.Extra)
+		ct.Extra = append(ct.Extra, pattern)
+		ct.ExtraTitle = append(fitColumn(ct.ExtraTitle, rows), t)
+		ct.ExtraDisabled = append(fitColumn(ct.ExtraDisabled, rows), false)
+		// CreatedAt, not UpdatedAt: the row is new.  Stamping the edit date on a
+		// row that has never been edited reads as "changed, origin unknown" in
+		// the settings list, which is the opposite of what happened.
+		ct.ExtraCreatedAt = append(fitColumn(ct.ExtraCreatedAt, rows), nowUnix())
+		ct.ExtraUpdatedAt = append(fitColumn(ct.ExtraUpdatedAt, rows), 0)
+		ct.ExtraAction = append(fitColumn(ct.ExtraAction, rows), action)
+		cur.Nginx.SeenVersion = "v" + h.Version
+		return nil
+	})
+	if err != nil {
 		return err
 	}
 	if err := nginxconf.RenderFor(cur, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderBySettings, Detail: "ua-filter"}); err != nil {
 		return err
 	}
-	settingsMu.Lock()
-	h.settingsPtr.Store(&cur)
-	settingsMu.Unlock()
 	if h.UserRepo != nil {
 		h.UserRepo.Record(r.Context(), userID, username, "hunt_ua_blacklist",
 			pattern, fmt.Sprintf(`{"title":%q,"action":%q}`, t, action))
@@ -1255,36 +1234,32 @@ func (h *Handler) appendJA4Bot(r *http.Request, pattern, title, username string,
 	if _, err := regexp.Compile(pattern); err != nil {
 		return fmt.Errorf("invalid JA4 pattern regex: %w", err)
 	}
-	cur, err := settings.Load(h.ConfigPath)
-	if err != nil {
-		return err
-	}
 	t := strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/").Replace(title)
 	verdict := "hunt_" + strings.ReplaceAll(strings.ReplaceAll(pattern, "_", ""), "[", "")
 	if len(verdict) > 40 {
 		verdict = verdict[:40]
 	}
-	// See appendUABlacklist: the columns are fitted to the rows first, and a
-	// new row carries its creation date, not an edit.
-	jv := &cur.Nginx.JA4Verdicts
-	rows := len(jv.Extra)
-	jv.Extra = append(jv.Extra,
-		settings.JA4VerdictExtraRule{Pattern: pattern, Verdict: verdict, Action: nginxconf.JA4ActionBot})
-	jv.ExtraTitle = append(fitColumn(jv.ExtraTitle, rows), t)
-	jv.ExtraDisabled = append(fitColumn(jv.ExtraDisabled, rows), false)
-	jv.ExtraCreatedAt = append(fitColumn(jv.ExtraCreatedAt, rows), nowUnix())
-	jv.ExtraUpdatedAt = append(fitColumn(jv.ExtraUpdatedAt, rows), 0)
-	settings.BackfillExtraVerdictIDs(&cur) // ID-0 entries were just appended, so assign them now.
-	cur.Nginx.SeenVersion = "v" + h.Version
-	if err := settings.Save(cur, h.ConfigPath); err != nil {
+	cur, err := h.mutateSettings(func(cur *settings.Settings) error {
+		// See appendUABlacklist: the columns are fitted to the rows first, and a
+		// new row carries its creation date, not an edit.
+		jv := &cur.Nginx.JA4Verdicts
+		rows := len(jv.Extra)
+		jv.Extra = append(jv.Extra,
+			settings.JA4VerdictExtraRule{Pattern: pattern, Verdict: verdict, Action: nginxconf.JA4ActionBot})
+		jv.ExtraTitle = append(fitColumn(jv.ExtraTitle, rows), t)
+		jv.ExtraDisabled = append(fitColumn(jv.ExtraDisabled, rows), false)
+		jv.ExtraCreatedAt = append(fitColumn(jv.ExtraCreatedAt, rows), nowUnix())
+		jv.ExtraUpdatedAt = append(fitColumn(jv.ExtraUpdatedAt, rows), 0)
+		settings.BackfillExtraVerdictIDs(cur) // ID-0 entries were just appended, so assign them now.
+		cur.Nginx.SeenVersion = "v" + h.Version
+		return nil
+	})
+	if err != nil {
 		return err
 	}
 	if err := nginxconf.RenderFor(cur, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderBySettings, Detail: "ja4-verdicts"}); err != nil {
 		return err
 	}
-	settingsMu.Lock()
-	h.settingsPtr.Store(&cur)
-	settingsMu.Unlock()
 	if h.UserRepo != nil {
 		h.UserRepo.Record(r.Context(), userID, username, "hunt_ja4_bot",
 			pattern, fmt.Sprintf(`{"title":%q,"verdict":%q}`, t, verdict))

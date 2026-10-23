@@ -633,36 +633,31 @@ func (h *Handler) AdminCommunityBansMuteToggle(w http.ResponseWriter, r *http.Re
 		return
 	}
 	base := h.cfg().Server.BasePath
-	cur, err := settings.Load(h.ConfigPath)
+	_, err := h.mutateSettings(func(cur *settings.Settings) error {
+		mutes := cur.CommunityBans.LocalMutes
+		seen := make(map[string]bool, len(mutes))
+		out := mutes[:0]
+		for _, m := range mutes {
+			m = strings.TrimSpace(m)
+			if m == "" || seen[m] {
+				continue
+			}
+			if m == key && action == "unmute" {
+				continue // drop this entry
+			}
+			seen[m] = true
+			out = append(out, m)
+		}
+		if action == "mute" && !seen[key] {
+			out = append(out, key)
+		}
+		cur.CommunityBans.LocalMutes = out
+		return nil
+	})
 	if err != nil {
-		http.Error(w, "load: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	mutes := cur.CommunityBans.LocalMutes
-	seen := make(map[string]bool, len(mutes))
-	out := mutes[:0]
-	for _, m := range mutes {
-		m = strings.TrimSpace(m)
-		if m == "" || seen[m] {
-			continue
-		}
-		if m == key && action == "unmute" {
-			continue // drop this entry
-		}
-		seen[m] = true
-		out = append(out, m)
-	}
-	if action == "mute" && !seen[key] {
-		out = append(out, key)
-	}
-	cur.CommunityBans.LocalMutes = out
-	if err := settings.Save(cur, h.ConfigPath); err != nil {
-		http.Error(w, "save: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	settingsMu.Lock()
-	h.settingsPtr.Store(&cur)
-	settingsMu.Unlock()
 	if h.UserRepo != nil {
 		username := ""
 		if u, err := h.UserRepo.GetByID(r.Context(), pay.UserID); err == nil {
@@ -912,23 +907,17 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		// (= /admin/settings/community-bans/) to keep all shared-bans
 		// preferences in one place.
 		manualAct := strings.TrimSpace(r.FormValue("bans_manual_default_action"))
-		cur, err := settings.Load(h.ConfigPath)
-		if err != nil {
-			redir("load: " + err.Error())
-			return
-		}
 		if manualAct != "" && !settings.IsValidRateChallengeMode(manualAct) {
 			manualAct = ""
 		}
-		cur.Nginx.Bans.ManualDefaultAction = manualAct
-		cur.Nginx.SeenVersion = "v" + h.Version
-		if err := settings.Save(cur, h.ConfigPath); err != nil {
-			redir("save: " + err.Error())
+		if _, err := h.mutateSettings(func(cur *settings.Settings) error {
+			cur.Nginx.Bans.ManualDefaultAction = manualAct
+			cur.Nginx.SeenVersion = "v" + h.Version
+			return nil
+		}); err != nil {
+			redir(err.Error())
 			return
 		}
-		settingsMu.Lock()
-		h.settingsPtr.Store(&cur)
-		settingsMu.Unlock()
 		if h.UserRepo != nil {
 			h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "bans_save_defaults",
 				"", fmt.Sprintf(`{"manual":%q}`, manualAct))
@@ -946,20 +935,15 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		default:
 			modeVal = settings.SubscribeOff
 		}
-		cur, err := settings.Load(h.ConfigPath)
+		cur, err := h.mutateSettings(func(cur *settings.Settings) error {
+			cur.CommunityBans.SubscribeMode = modeVal
+			cur.Nginx.SeenVersion = "v" + h.Version
+			return nil
+		})
 		if err != nil {
-			redir("load: " + err.Error())
+			redir(err.Error())
 			return
 		}
-		cur.CommunityBans.SubscribeMode = modeVal
-		cur.Nginx.SeenVersion = "v" + h.Version
-		if err := settings.Save(cur, h.ConfigPath); err != nil {
-			redir("save: " + err.Error())
-			return
-		}
-		settingsMu.Lock()
-		h.settingsPtr.Store(&cur)
-		settingsMu.Unlock()
 
 		// To keep the first pull right after turning this ON from hitting "no
 		// token", trigger register asynchronously if no token is set yet

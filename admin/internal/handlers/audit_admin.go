@@ -306,21 +306,24 @@ func (h *Handler) AdminAuditRestore(w http.ResponseWriter, r *http.Request) {
 	// write; the marker would otherwise replace the real key -- bv_secret
 	// first of all, which logs every admin out.  A row from before the
 	// redaction holds the key itself and restores as it always did.
-	live := h.snapshotSettings()
-	restored = restored.WithSecretsFrom(live)
-	// Capture current state for the new audit row (= "restore" is itself a save).
-	curBefore, _ := auditSnapshotYAML(live)
-	if err := settings.Save(restored, h.ConfigPath); err != nil {
-		redir("save: " + err.Error())
+	// The live values are taken under the settings lock, from the file this
+	// restore replaces, so a save that lands between reading them and writing
+	// the snapshot is not what gets overwritten, and no secret of it is lost.
+	var curBefore string
+	restored, err = h.mutateSettings(func(live *settings.Settings) error {
+		// Capture current state for the new audit row (= "restore" is itself a save).
+		curBefore, _ = auditSnapshotYAML(*live)
+		*live = restored.WithSecretsFrom(*live)
+		return nil
+	})
+	if err != nil {
+		redir(err.Error())
 		return
 	}
 	if err := nginxconf.RenderFor(restored, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderByRestore}); err != nil {
 		redir("save ok / render failed: " + err.Error())
 		return
 	}
-	settingsMu.Lock()
-	h.settingsPtr.Store(&restored)
-	settingsMu.Unlock()
 	if h.IPGeo != nil {
 		h.IPGeo.Reload(restored.IPGeo.MMDBPath, restored.IPGeo.MMDBASNPath)
 	}

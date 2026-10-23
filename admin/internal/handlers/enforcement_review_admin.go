@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
@@ -21,44 +22,46 @@ func (h *Handler) AdminUpgradeReviewApply(w http.ResponseWriter, r *http.Request
 		http.Redirect(w, r, dash, http.StatusFound)
 		return
 	}
-	cur, err := settings.Load(h.ConfigPath)
-	if err != nil {
-		setFlash(w, r, base, "err", "load: "+err.Error())
-		http.Redirect(w, r, dash, http.StatusFound)
-		return
-	}
-	held := nginxconf.HeldEnforcementPresets(cur)
-	if len(held) == 0 {
-		http.Redirect(w, r, dash, http.StatusFound) // nothing to acknowledge
-		return
-	}
-
+	// Nothing held (already acknowledged, or the policy is "apply") is not a
+	// failure: this error tells it apart, and it saves nothing.
+	errNothingHeld := errors.New("nothing held")
+	var held []nginxconf.HeldPreset
 	// reload-prompt only when the rendered conf actually changed (it will, since
 	// held presets become active); errors conservatively assume a reload.
 	reloadNeeded := true
-	if beforeSig, beforeErr := nginxconf.RenderSignature(cur, "", h.Version); beforeErr == nil {
-		cur.Nginx.EnforcementReviewedVersion = "v" + h.Version
-		if afterSig, afterErr := nginxconf.RenderSignature(cur, "", h.Version); afterErr == nil {
-			reloadNeeded = afterSig != beforeSig
+	cur, err := h.mutateSettings(func(cur *settings.Settings) error {
+		held = nginxconf.HeldEnforcementPresets(*cur)
+		if len(held) == 0 {
+			return errNothingHeld
 		}
-	} else {
-		cur.Nginx.EnforcementReviewedVersion = "v" + h.Version
+		if beforeSig, beforeErr := nginxconf.RenderSignature(*cur, "", h.Version); beforeErr == nil {
+			cur.Nginx.EnforcementReviewedVersion = "v" + h.Version
+			if afterSig, afterErr := nginxconf.RenderSignature(*cur, "", h.Version); afterErr == nil {
+				reloadNeeded = afterSig != beforeSig
+			}
+		} else {
+			cur.Nginx.EnforcementReviewedVersion = "v" + h.Version
+		}
+		return nil
+	})
+	if errors.Is(err, errNothingHeld) {
+		http.Redirect(w, r, dash, http.StatusFound) // nothing to acknowledge
+		return
 	}
-
-	if err := settings.Save(cur, h.ConfigPath); err != nil {
-		setFlash(w, r, base, "err", "save: "+err.Error())
+	if err != nil {
+		setFlash(w, r, base, "err", err.Error())
 		http.Redirect(w, r, dash, http.StatusFound)
 		return
 	}
+	// The saved copy is the running config already (mutateSettings publishes
+	// it) -- without that the in-memory snapshot stays stale, so the banner
+	// would persist and the forward-auth matcher would keep holding the
+	// presets until a restart.
 	if err := nginxconf.RenderFor(cur, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderByReview}); err != nil {
 		setFlash(w, r, base, "err", "saved, but nginx render failed: "+err.Error())
 		http.Redirect(w, r, dash, http.StatusFound)
 		return
 	}
-	// Publish to the running config, exactly as AdminSettingsSave does -- without
-	// this the in-memory snapshot stays stale, so the banner would persist and
-	// the forward-auth matcher would keep holding the presets until a restart.
-	h.SetSettings(cur)
 
 	if pay := SessionFromContext(r); pay != nil && h.UserRepo != nil {
 		username := ""
