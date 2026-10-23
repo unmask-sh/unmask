@@ -46,7 +46,9 @@ code() {
 }
 
 # 1. Solve the math CAPTCHA from IP-A (scenario 04's flow).
-new=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $IP_A" "${BASE_URL}/unmask/api/captcha/new")
+pct=$(captcha_page_ct "${BASE_URL}/unmask/challenge/" -H "X-Forwarded-For: $IP_A")
+[ -n "$pct" ] || { log_fail "the challenge page carried no ct"; exit 1; }
+new=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $IP_A" "${BASE_URL}/unmask/api/captcha/new?ct=$pct")
 a=$(printf '%s' "$new" | grep -oE '"a":[0-9]+' | grep -oE '[0-9]+')
 b=$(printf '%s' "$new" | grep -oE '"b":[0-9]+' | grep -oE '[0-9]+')
 token=$(printf '%s' "$new" | grep -oE '"token":"[^"]+"' | sed -E 's/.*"token":"([^"]+)".*/\1/')

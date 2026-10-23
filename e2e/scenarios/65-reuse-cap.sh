@@ -191,7 +191,9 @@ fi
 # still over.  Solve it the way a browser over the cap does -- carrying the
 # PoW pass, which the solve's entry goes in front of -- through the math
 # CAPTCHA's API (scenario 04).
-new=$(curl -sk --max-time 8 -A "$UA_BROWSER" -H "X-Forwarded-For: $IP1" "${BASE_URL}/unmask/api/captcha/new")
+pct=$(captcha_page_ct "${BASE_URL}/unmask/challenge/" --max-time 8 -H "X-Forwarded-For: $IP1")
+[ -n "$pct" ] || { log_fail "the challenge page carried no ct"; exit 1; }
+new=$(curl -sk --max-time 8 -A "$UA_BROWSER" -H "X-Forwarded-For: $IP1" "${BASE_URL}/unmask/api/captcha/new?ct=$pct")
 a=$(printf '%s' "$new" | grep -oE '"a":[0-9]+' | grep -oE '[0-9]+')
 b=$(printf '%s' "$new" | grep -oE '"b":[0-9]+' | grep -oE '[0-9]+')
 token=$(printf '%s' "$new" | grep -oE '"token":"[^"]+"' | sed -E 's/.*"token":"([^"]+)".*/\1/')
