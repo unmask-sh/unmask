@@ -95,7 +95,7 @@ var headerCheckNames = map[string]bool{"no_sch_ua": true}
 // uaTLSCheckNames: the contradictions the UA-TLS consistency tier names
 // (http.inc's $unmask_ua_tls_mismatch): a Chromium fingerprint under a
 // Firefox / Safari name, or a TLS 1.3 session under a pre-TLS 1.3 version.
-var uaTLSCheckNames = map[string]bool{"family": true, "version": true}
+var uaTLSCheckNames = map[string]bool{"family": true, "version": true, "reverse": true}
 
 // uaTLSFiresForServe reports whether the UA-TLS consistency tier escalated
 // this challenge serve: the tier is in force (on, and not held by the upgrade

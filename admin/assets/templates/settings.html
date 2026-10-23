@@ -2404,6 +2404,13 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </label>
       <div class="note" style="margin-top:.55rem;color:#1e40af;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.uatls_help") }}</div>
     </div>
+    <div class="field" style="margin:1rem 0 .4rem">
+      <label style="display:flex;align-items:center;gap:.5rem;font-weight:600;color:#0f172a;margin:0">
+        <input type="checkbox" name="ua_tls_reverse" value="1" {{ if .Global.UATLSReverseCheck }}checked{{ end }}>
+        {{ t .Lang "settings.ua.uatls_reverse_toggle" }}
+      </label>
+      <div class="note" style="margin-top:.55rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.uatls_reverse_help") }}</div>
+    </div>
     <div class="field" style="margin:1.2rem 0 .4rem">
       <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.uatls_action_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.uatls_action_help") }}</div>
