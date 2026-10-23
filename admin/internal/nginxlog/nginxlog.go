@@ -127,6 +127,12 @@ type Reader struct {
 	// attacker can <img src="victim/<honeypot>"> to ban victims' visitors.
 	// nil-safe (no exemption when unset).
 	isSearchBot func(ua string) bool
+	// rangeVerifiedUA: UA -> true when the crawler it names is one the
+	// configuration verifies against its vendor's published ranges.  For
+	// such a name the search-bot exemption above holds only when the
+	// request was in fact passed on that range (bp=1): the name alone is
+	// what a scanner wears.  nil-safe (every rescued name stays exempt).
+	rangeVerifiedUA func(ua string) bool
 
 	// httpsRedirectOn: live "is nginx.https_redirect on?" probe.  Wired by main
 	// to the settings snapshot.  A JA4-less line means the request carried no TLS
@@ -194,6 +200,15 @@ func (r *Reader) SetSearchBotCheck(f func(ua string) bool) {
 	r.isSearchBot = f
 }
 
+// SetRangeVerifiedCheck registers the UA -> "this crawler's vendor publishes
+// ranges" function (see rangeVerifiedUA).
+func (r *Reader) SetRangeVerifiedCheck(f func(ua string) bool) {
+	if r == nil {
+		return
+	}
+	r.rangeVerifiedUA = f
+}
+
 // SetHTTPSRedirectCheck: register the live nginx.https_redirect probe that
 // suppresses a honeypot auto-ban for a request nginx answered with a 301 (see
 // the httpsRedirectOn field).
@@ -209,12 +224,49 @@ func (r *Reader) SetHTTPSRedirectCheck(f func() bool) {
 // veto-pass -- sees only the URI match, never the decision that was taken.
 func (r *Reader) honeypotBanAllowed(p parsed) bool {
 	if r.isSearchBot != nil && r.isSearchBot(p.ua) {
-		return false // rescued search / AI crawler: banning it is a ranking accident
+		// A rescued search / AI crawler: banning it is a ranking accident.
+		// Except a name the configuration can check against its vendor's
+		// ranges that was NOT passed on that range: that is a scanner
+		// wearing "Googlebot", and the name used to buy it immunity from
+		// the trap it had just walked into.
+		if r.rangeVerifiedUA == nil || !r.rangeVerifiedUA(p.ua) || p.bypassed {
+			return false
+		}
 	}
 	if r.httpsRedirectOn != nil && r.httpsRedirectOn() && p.plaintext() {
 		return false // plaintext request we 301-ed: bounced, not served
 	}
-	return true
+	return TripBannable(p.sfs, p.sfd, p.rh)
+}
+
+// TripBannable reports whether a honeypot trip may ban the client that made
+// it, from the request's Sec-Fetch-Site, Sec-Fetch-Dest and the host its
+// Referer names.  The trip itself is always answered as the trap says; the
+// question here is only whether the (address, fingerprint) behind it gets
+// the day-long ban.
+//
+// A trap URL is a string anyone can put on a page: an <img src> on a third
+// party's site, a link in a forum post on this one.  The browser that loads
+// such a page then trips the trap on its owner's behalf, and until now that
+// banned the owner -- a cross-site denial of service against any visitor
+// the attacker could get to view a page, with no way out, since a ban
+// precedes every cookie.  So a trip that a page could have caused -- a
+// subresource fetch, or a navigation that arrived from somewhere (any
+// Sec-Fetch-Site but "none", or a Referer at all) -- bans nobody.  A scanner
+// types the URL or sends none of these headers: it is banned as before.  A
+// scanner that fakes a Referer escapes the ban and still meets the trap's
+// answer on every trip; that trade is the right way round.
+func TripBannable(sfs, sfd, refHost string) bool {
+	switch sfs {
+	case "cross-site", "same-site", "same-origin":
+		return false
+	}
+	switch sfd {
+	case "", "document", "empty":
+	default:
+		return false // image, script, style, iframe, ...: fetched by a page
+	}
+	return refHost == ""
 }
 
 // SetCrawlerClassifier: register the UA -> crawler-tag function (=
@@ -611,7 +663,12 @@ var lineRE = regexp.MustCompile(
 		// bp and scheme are optional: the binary is deployed before the config
 		// that emits them, so both shapes have to parse for the length of that
 		// window.
-		`(?: bp=([01]))?(?: scheme=(\S*))?(?: cr=(\S*))?(?: ob=([01]))?(?: rv=([0-9a-f]{12}))?(?: pv=([01]))?(?: sb=([01]))?(?: ua=(.*))?`)
+		`(?: bp=([01]))?(?: scheme=(\S*))?(?: cr=(\S*))?(?: ob=([01]))?(?: rv=([0-9a-f]{12}))?(?: pv=([01]))?(?: sb=([01]))?` +
+		// sfs / sfd / rh: what the configuration logs of Sec-Fetch-Site,
+		// Sec-Fetch-Dest and the Referer's host, each passed through a map
+		// that admits only the known tokens (a client-written value cannot
+		// smuggle a field into the line).  Absent from older configurations.
+		`(?: sfs=([a-z-]*))?(?: sfd=([a-z]*))?(?: rh=([A-Za-z0-9.:-]*))?(?: ua=(.*))?`)
 
 // parsed: struct holding the regex match result.
 type parsed struct {
@@ -655,7 +712,15 @@ type parsed struct {
 	// $unmask_preview_verified), so it did not go through on the name alone.
 	// Absent on a line from a configuration that predates the field.
 	pv bool
-	ua string
+	// sfs / sfd / rh: the request's Sec-Fetch-Site and Sec-Fetch-Dest (known
+	// tokens only) and the host its Referer names (hostname characters
+	// only), as the configuration logged them; "" when absent or from a
+	// configuration that predates the fields.  The honeypot ban reads them
+	// (TripBannable).
+	sfs string
+	sfd string
+	rh  string
+	ua  string
 }
 
 // plaintext reports whether the request came over the plaintext port.  The
@@ -710,7 +775,10 @@ func (r *Reader) parse(line string) (parsed, bool) {
 		rv:       m[13],
 		pv:       m[14] == "1",
 		sb:       m[15] == "1",
-		ua:       m[16],
+		sfs:      m[16],
+		sfd:      m[17],
+		rh:       m[18],
+		ua:       m[19],
 	}, true
 }
 

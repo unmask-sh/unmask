@@ -60,6 +60,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/crawlerverify"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/nginxlog"
 	"github.com/unmask-sh/unmask/admin/internal/privacypass"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -488,7 +489,8 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 					decisions = append(decisions, d)
 				}
 			}
-			if d, ok := honeypotDecide(r.Context(), uri, matchers, cfg, h.BanMgr, ip, host, scheme); ok {
+			if d, ok := honeypotDecide(r.Context(), uri, matchers, cfg, h.BanMgr, ip, host, scheme,
+				nginxlog.TripBannable(r.Header.Get("Sec-Fetch-Site"), r.Header.Get("Sec-Fetch-Dest"), refererHost(r.Header.Get("Referer")))); ok {
 				decisions = append(decisions, d)
 			}
 			if d, ok := protectedDecide(uri, matchers, cfg, site); ok {
@@ -951,18 +953,36 @@ func asnDecideFor(asn uint, org string, cfg settings.AsnConfig) (axisDecision, b
 	return d, ok
 }
 
+// refererHost: the host a Referer names, "" for none or for one that does
+// not parse.  Only its presence matters to the honeypot ban (TripBannable).
+func refererHost(ref string) string {
+	if ref == "" {
+		return ""
+	}
+	u, err := url.Parse(ref)
+	if err != nil {
+		return ""
+	}
+	return u.Host
+}
+
 // honeypotDecide returns a decision when the URI matches a honeypot path.
 // Side effect: adds an entry to the persistent BAN list (= regardless of
 // whether honeypot wins the max — the trap counts even if a stronger axis
 // is the visible verdict).  scheme is the visitor's (X-Original-Scheme), for
 // the URL in the ban's reason.
 func honeypotDecide(ctx context.Context, uri string, matchers pathMatchers, cfg settings.Settings,
-	banMgr *ban.Manager, ip, host, scheme string) (axisDecision, bool) {
+	banMgr *ban.Manager, ip, host, scheme string, bannable bool) (axisDecision, bool) {
 	presetAct, rule, ok := matchHoneypot(uri, matchers.honeypot)
 	if !ok {
 		return axisDecision{}, false
 	}
-	if banMgr != nil {
+	// bannable: whether this trip may ban its client at all
+	// (nginxlog.TripBannable, from the request's Sec-Fetch-Site, Sec-Fetch-Dest
+	// and Referer).  A trip a page caused -- a subresource, a navigation from
+	// elsewhere -- is answered as the trap says but bans nobody, or an <img>
+	// on a third party's page could ban every visitor who saw it.
+	if banMgr != nil && bannable {
 		// Persist the RAW per-preset/per-URL override ("" = inherit) as the ban's
 		// action column so every subsequent request -- native (ban-file read) and
 		// forward-auth (banDecide rowAction) alike -- enforces the operator's

@@ -371,7 +371,7 @@ func TestHoneypotDecidePerPreset(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			m := pathMatchers{honeypot: c.rules}
-			d, ok := honeypotDecide(context.Background(), c.uri, m, c.cfg, nil, "203.0.113.9", "example.test", "https")
+			d, ok := honeypotDecide(context.Background(), c.uri, m, c.cfg, nil, "203.0.113.9", "example.test", "https", true)
 			if ok != c.wantOK {
 				t.Fatalf("ok=%v, want %v (decision=%+v)", ok, c.wantOK, d)
 			}

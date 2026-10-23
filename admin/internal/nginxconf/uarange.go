@@ -26,6 +26,7 @@
 package nginxconf
 
 import (
+	"regexp"
 	"sort"
 
 	"github.com/unmask-sh/unmask/admin/internal/classify"
@@ -184,6 +185,32 @@ func RangeVerifiedUA(n settings.Nginx) map[string]bool {
 		}
 	}
 	return out
+}
+
+// uaRangeRE: the UARangePresets patterns compiled once.  They are written
+// for nginx's PCRE and stay inside the subset Go's regexp shares with it.
+var uaRangeRE = func() map[string]*regexp.Regexp {
+	out := make(map[string]*regexp.Regexp, len(UARangePresets))
+	for pat := range UARangePresets {
+		if re, err := regexp.Compile(pat); err == nil {
+			out[pat] = re
+		}
+	}
+	return out
+}()
+
+// RangeVerifiedUAMatch reports whether ua names a crawler the configuration
+// verifies against its vendor's published ranges (RangeVerifiedUA).  The
+// honeypot ban asks: such a name is exempt from the ban only on a request
+// that was passed on the range, since the name alone is what a scanner
+// wears.
+func RangeVerifiedUAMatch(n settings.Nginx, ua string) bool {
+	for pat := range RangeVerifiedUA(n) {
+		if re := uaRangeRE[pat]; re != nil && re.MatchString(ua) {
+			return true
+		}
+	}
+	return false
 }
 
 // UpstreamUnrescued: the crawlers the operator set one by one to "none" or
