@@ -12,6 +12,56 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+
+- (2026-10-24) **An opt-in reverse check for the UA-TLS tier: a Chromium name over a fingerprint that is not Chromium's.**  A script wearing a Chrome name over Go, Python or curl trips it.  Off by default, because antivirus software and corporate proxies that inspect TLS re-originate the session with a stack of their own under the browser's unchanged name, and everyone behind one would meet the screen.  Settings → UA filter.
+
+- (2026-10-24) **`unmask backup` writes an archive of config.yml and the database.**  Going back to an older version needs the database from before the upgrade, and nothing produced that copy.  The new command archives config.yml and, on SQLite, a consistent snapshot taken with VACUUM INTO while the daemon keeps running; on MariaDB it takes config.yml and points at mysqldump.  `unmask backup -h` has the restore steps.
+
+### Changed
+
+- (2026-10-24) **The module says what it could not do.**  It used to be silent: a ban file nginx could not read enforced no ban, an empty cookie secret rejected every cookie, a ClientHello the parser declined left its connection without a JA4, and the error log said nothing.  Each condition now writes one line, at most once a minute per worker.
+
+- (2026-10-24) **The pass budget counts an IPv6 client by its /48.**  A client holds a /64 at the least and a server a /48, so counting per address let one machine draw on tens of thousands of budgets; the pass cookie is bound to the /64 already, and the budget folds to the /48.
+
+- (2026-10-24) **The challenge page warms the CAPTCHA provider's connection only when it will use one.**  Every challenge page opened a connection to `challenges.cloudflare.com`, whether or not Turnstile was the configured provider.  The warm-up links are written in at serve time, for Turnstile only.
+
+- (2026-10-24) **The CSRF token no longer rides in a form's query string.**  The admin's upload forms mirrored the token into their action URL, which put it in the request line and so in every access log along the way.  The server reads it from the multipart body, so the mirror and the query-string acceptance are gone; the header and the hidden field remain the two ways in.
+
+- (2026-10-24) **The repository's own documents and package descriptions say what ships today.**  The README opens with a quick start -- the release package, the three nginx packages, the include and the setup wizard -- and names Apache as the frozen forward-auth path; `UPGRADING.md` lists, release by release since 0.1.50, the nginx restarts, sign-outs, removed settings keys and schema updates an upgrade asks for.  The package descriptions no longer call forward-auth the default, and the third-party notices match `admin/go.mod`.
+
+### Fixed
+
+- (2026-10-24) **A site's own proof-of-work difficulty is what the module verifies.**  The challenge page served each site the difficulty it configured, while the module held every cookie to the install-wide default: a site set below it looped its visitors on a proof-of-work the verifier rejected.  The daemon now renders a per-host map of the values that differ, and the module reads it before the directive.
+
+- (2026-10-24) **The JA4 of a hello with no ciphers or no extensions follows the specification.**  An empty cipher list, or an extension list that is empty once SNI and ALPN are set aside, is twelve zeros in the JA4 specification, and a signature_algorithms extension with no algorithm adds no underscore; the module hashed the empty string instead, a fingerprint no other implementation produces, so a shared ban keyed on one never matched.
+
+- (2026-10-24) **The ban file loads in sorted order whatever its size, and the gate reads its fail-open flag by name.**  The loader's insertion sort walked a large unsorted file for seconds inside a request, and its out-of-memory fallback could leave an action beside the wrong key; the compose gate took any value longer than two characters as "daemon down".  Rows now sort together, and the gate reads the field after the colon.
+
+- (2026-10-24) **The UA-TLS consistency tier's version check reads a QUIC session too.**  Over HTTP/3 the fingerprint carries a `q` prefix where a TCP session has `t`, and the "TLS 1.3 under a pre-TLS 1.3 version" check matched only `t13`, so the contradiction went unseen on HTTP/3.
+
+- (2026-10-24) **Two settings writes at the same moment could lose one.**  Most handlers loaded config.yml, changed their copy and saved it with only the publish under the lock, so a save that overlapped another writer's -- the hub's token write-back, a second operator -- overwrote it with an older copy.  Every write now loads, changes and saves under one lock, and the saved copy is what the daemon runs.
+
+### Security
+
+- (2026-10-24) **The module verifies a request's cookies once.**  Every `$unmask_bv_*` variable is read by several maps across nginx's phases, and each read walked the Cookie header and ran its HMACs again with a fresh sixteen-entry budget, so one request cost up to seven times what the budget was meant to bound.  The cookie's kind, the entry that matched and the ban-file lookup are now computed once per request and kept in the request's context.
+
+- (2026-10-24) **The arithmetic CAPTCHA hands out a question only to a client that loaded the page.**  `/api/captcha/new` issued a question and a proof-of-load token to anyone, so a script cleared the built-in CAPTCHA in two requests and collected a fourteen-day pass with no page ever served.  The question now requires the page's own token and hands it back for the answer, and one address draws at most the beacon limit of questions in five minutes.
+
+- (2026-10-24) **A solved CAPTCHA counts toward the pass budget and draws on a reuse budget of its own.**  The reuse cap did not count a CAPTCHA pass at all, so one scripted answer bought unmetered requests for fourteen days, and the pass budget counted proof-of-work solves only.  A CAPTCHA pass now counts as a solve, and its holder's requests draw on a budget of five times the reuse cap (zone `unmask_reuse_captcha`).
+
+- (2026-10-24) **A honeypot trip a page could have caused bans nobody.**  A trap URL is a string anyone can put in an `<img>` on another site or in a link in a post, and the browser that loaded it was banned for a day with no way out, since a ban precedes every cookie.  A trip arriving as a subresource, from a cross-site navigation or with a Referer is answered as the trap says and bans nobody; a scanner's bare request is banned as before.
+
+- (2026-10-24) **A crawler name the configuration verifies by its vendor's range keeps the honeypot exemption only when that range passed it.**  A scanner wearing "Googlebot" from any address was never banned for a trap it walked into, because the exemption read the name alone.  For a name with a published range the request must have been passed on that range; a name without range data keeps the exemption, as banning it could cost a ranking.
+
+- (2026-10-24) **A run of fingerprints banned from one address bans the address.**  An automatic ban is scoped to the address and JA4 pair, and a client that varied its TLS ClientHello per connection arrived with a fresh pair, a fresh budget and a fresh ban every time.  Three fingerprints banned from one address within a day now place an ip-only ban, and the daemon's own ban check matches ip-only and JA4-only rows as the module does.
+
+- (2026-10-24) **A regex pattern with a quote could end its nginx map key.**  Path, honeypot and redirect-exemption patterns were written into the rendered config as typed, so a regex containing `"` closed the quoted key and nginx read the rest as directives, while a backslash reached PCRE one short.  Every pattern in every list is now escaped for nginx's reader, a pattern with a line break is refused on save, and the rendered files change once, so the reload notice shows after the update.
+
+- (2026-10-24) **The admin session is signed with a key derived from bv_secret, not bv_secret itself.**  The same value is written into http.inc for nginx's workers, so anyone able to read that file could forge a superadmin session.  The session key is now derived from bv_secret (HKDF-SHA256) and signs nothing else; config.yml is unchanged.  Every operator signs in once more after the update.
+
 ## [0.1.53-rc10] - 2026-10-24 (testing build)
 
 ### Added
