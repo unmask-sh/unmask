@@ -34,6 +34,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-23) **A custom rule's pattern and a trusted-LB label stay inside their quoted key and comment line.**  The pattern escaping doubled no backslash, so a regex ending in `\"` closed its key early and nginx read the rest of the pattern as directives, as root; a line break in a custom LB label did the same from its comment line.  Both took the admin role.  The renderer escapes the backslash first and keeps the label to one line.
 
+- (2026-10-23) **The forward-auth snippets set the client address and the cookie's binding key themselves.**  Behind the shipped Apache snippet a client-sent `X-Real-IP` reached the daemon as the visitor's address, so the admin IP allowlist, the login lockout and the `/metrics` allowlist read what the client wrote; both snippets also passed a client-sent `X-Unmask-Bind-Key`, the key an issued pass cookie is bound to.  Apache now sets `X-Real-IP` from the connection, and both snippets clear the key.
+
 - (2026-10-23) **A request with many `_bv` cookies no longer costs the worker a hash per entry.**  The sixteen-entry cap applied to each `_bv` value, and a client could send any number of values, so a few kilobytes of Cookie header bought an HMAC and a SHA-256 per 35 bytes, repeated as the templates read the variable.  The budget is per request now, in the module and the daemon alike.
 
 - (2026-10-23) **Two bans placed in the same second both take effect.**  The module reloaded its ban file only when the modification time changed, at one-second resolution, while the daemon flushes the file on every ban it places: the second ban in a second was not applied until a later write landed in a different second.  The file's size and inode are compared as well.
