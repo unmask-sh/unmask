@@ -386,6 +386,9 @@ func (m *Manager) AddWithSourceAction(ctx context.Context, ip, ja4, source, reas
 	if m.OnCreated != nil {
 		m.OnCreated(ip, ja4, source, reason, bannedBy)
 	}
+	if bannedBy == "" && ja4 != "" {
+		m.escalateIP(ctx, ip, source, strings.TrimSpace(action), now, expires)
+	}
 }
 
 // AddAuto places a ban the daemon decided -- the proof-of-work pass budget's
@@ -436,6 +439,9 @@ func (m *Manager) AddAuto(ctx context.Context, ip, ja4, scope, source, reason, a
 	}
 	if m.OnCreated != nil {
 		m.OnCreated(ip, ja4, source, reason, "")
+	}
+	if scope == ScopeIPJA4 && ja4 != "" {
+		m.escalateIP(ctx, ip, source, action, now, expires)
 	}
 }
 
@@ -743,7 +749,13 @@ func (m *Manager) heldMatch(ip, ja4 string) (action, source string, ok bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, h := range m.held {
-		if h.ip != ip || (ja4 != "" && h.ja4 != ja4) {
+		// The same three shapes as the table lookup: the tuple, the
+		// address alone (an ip_only ban), the fingerprint alone.
+		match := h.ip == ip
+		if ja4 != "" {
+			match = (h.ip == ip && (h.ja4 == ja4 || h.ja4 == "")) || (h.ip == "" && h.ja4 == ja4)
+		}
+		if !match {
 			continue
 		}
 		if h.expiresAt != 0 && h.expiresAt <= now {
@@ -900,11 +912,17 @@ func (m *Manager) IsBannedActionSource(ctx context.Context, ip, ja4 string) (act
 		err  error
 	)
 	if ja4 != "" {
-		// full tuple match
+		// The tuple, then the two wider shapes the module also tries: an
+		// ip_only row ("<ip>|", every fingerprint from the address) and a
+		// ja4_only row ("|<ja4>", the fingerprint from every address).  The
+		// check used to take the tuple alone, so a ban placed on the address
+		// itself -- by hand, or by the escalation above -- held in nginx and
+		// not on this wire.
 		rows, err = m.DB.QueryContext(ctx,
 			`SELECT id, action, source FROM unmask_ban
-			 WHERE ip = ? AND ja4 = ? AND (expires_at = 0 OR expires_at > ?)
-			 ORDER BY id`, ip, ja4, now)
+			 WHERE ((ip = ? AND ja4 = ?) OR (ip = ? AND ja4 = '') OR (ip = '' AND ja4 = ?))
+			   AND (expires_at = 0 OR expires_at > ?)
+			 ORDER BY id`, ip, ja4, ip, ja4, now)
 	} else {
 		// JA4 absent (= e.g. forward-auth mode): decide by IP only.
 		rows, err = m.DB.QueryContext(ctx,
@@ -1239,4 +1257,51 @@ func (m *Manager) flush() error {
 	m.dirty = false
 	m.mu.Unlock()
 	return nil
+}
+
+// escalateIP widens a run of automatic bans on one address to the address
+// itself.  An automatic ban is scoped to the (address, JA4) pair, and a
+// client that varies its ClientHello from one connection to the next -- a
+// few lines of TLS client configuration -- arrived with a fresh fingerprint,
+// a fresh pass budget and a fresh ban each time, so the bans never caught
+// up with it.  Three distinct fingerprints banned from one address inside a
+// day is not a household behind a NAT; from then on the address is banned
+// whatever it presents, for as long as the ban that tipped it.
+const (
+	ipEscalateMinJA4 = 3
+	ipEscalateWindow = 24 * time.Hour
+)
+
+func (m *Manager) escalateIP(ctx context.Context, ip, source, action string, now, expires int64) {
+	if ip == "" || m.DB == nil || m.DB.Gorm == nil {
+		return
+	}
+	var n int64
+	err := m.DB.Gorm.WithContext(ctx).Raw(
+		`SELECT COUNT(DISTINCT ja4) FROM unmask_ban
+		  WHERE ip = ? AND ja4 <> '' AND scope = ? AND banned_by = ''
+		    AND banned_at >= ? AND (expires_at = 0 OR expires_at > ?)`,
+		ip, ScopeIPJA4, now-int64(ipEscalateWindow/time.Second), now).Scan(&n).Error
+	if err != nil || n < ipEscalateMinJA4 {
+		return
+	}
+	var have int64
+	err = m.DB.Gorm.WithContext(ctx).Raw(
+		`SELECT COUNT(*) FROM unmask_ban
+		  WHERE ip = ? AND ja4 = '' AND scope = ? AND (expires_at = 0 OR expires_at > ?)`,
+		ip, ScopeIPOnly, now).Scan(&have).Error
+	if err != nil || have > 0 {
+		return
+	}
+	reason := fmt.Sprintf("escalated: %d fingerprints from this address were banned within a day", n)
+	if err := m.upsertWithin(ctx, autoBanWriteWithin, ip, "", source, reason, now, expires, "", action, ScopeIPOnly); err != nil {
+		return
+	}
+	m.markDirty()
+	if m.filePath != "" {
+		_ = m.flush()
+	}
+	if m.OnCreated != nil {
+		m.OnCreated(ip, "", source, reason, "")
+	}
 }
