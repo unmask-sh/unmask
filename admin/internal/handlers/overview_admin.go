@@ -10,6 +10,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -61,6 +62,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		budget = 8 * time.Second
 	}
 	winMinutes := winHours * 60
+	t0 := time.Now()
 	ctx, cancel := context.WithTimeout(r.Context(), budget)
 	// While a schema update or a compaction holds the database -- an index
 	// build on a slow disk reads it flat out for hours -- the section's
@@ -160,6 +162,23 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// What sent visitors to a challenge or a deny page today, by reason.
 	launch(func() { reasons, reasonsOK = dashboard.ServeReasons(ctx, h.DB, site, hosts, winHours) })
 	wg.Wait()
+	// One line when the section ran past its budget: the window, the filters,
+	// whether the rollup was readable -- so whether the cards read it or
+	// scanned unmask_event -- and the time waited.  The cards above each log
+	// the one query that missed; this names what they shared, which is what
+	// decided their path: a site or host filter, or a rollup not yet caught
+	// up, sends every card to a scan.  A report of eight cards timing out was
+	// read against the wrong browser's filter for a day without it
+	// (2026-10-23).  A held database cancels the context instead, and says so
+	// on the page.
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		path := "rollup"
+		if site != "" || len(hosts) > 0 || !dashboard.HourlyAggReady() {
+			path = "scan"
+		}
+		log.Printf("overview: the %dh section ran past its %v budget after %v (partial=%q site=%q hosts=%v aggReady=%v path=%s)",
+			winHours, budget, time.Since(t0).Round(time.Millisecond), partial, site, hosts, dashboard.HourlyAggReady(), path)
+	}
 
 	// "Blocked" for the hero: challenges fired that produced no pass, minus the
 	// visitors who loaded the challenge and left.  Someone who walked away was

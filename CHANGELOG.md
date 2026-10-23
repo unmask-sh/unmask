@@ -12,6 +12,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-10-23) **A landing-page section that runs past its budget logs one line saying why.**  Next to the per-card lines it already wrote, the log now carries the window, the site and host filters, whether the hourly rollup was readable -- and so whether the cards read it or scanned the event table -- and the time waited.  That is what decides the cards' path, and what a timeout report was missing.
+
+### Fixed
+
+- (2026-10-23) **The landing page's request-count card no longer walks the whole minute table.**  Its read of the unsettled hours had no upper bound, and on a database without planner statistics SQLite answered it by walking every row of the per-minute table through the kind index: tens of seconds from a cold disk, and the card timed out on every open.  The read is bounded now and goes through the primary key.
+
+- (2026-10-23) **`unmask doctor` and the stats page read the event table's id range in two seeks.**  `SELECT MIN(id), MAX(id)` in one statement is outside SQLite's min/max optimization and scanned the whole id index: the doctor's "could not read the rollup cursor" on a large database, and the same read behind the stats page's raw-scan check and the AI advisor's event-count guard.  Each end is its own statement now.
+
 ## [0.1.53-rc8] - 2026-10-23 (testing build)
 
 ### Added

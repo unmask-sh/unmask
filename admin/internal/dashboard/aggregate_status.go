@@ -37,7 +37,21 @@ const aggregateCaughtUpRows = hourlyBatch
 // CaughtUp: the rollup is within one tick of the newest event.
 func (a AggregateStatus) CaughtUp() bool { return a.HasCursor && a.Backlog <= aggregateCaughtUpRows }
 
-// ReadAggregateStatus reads the hourly cursor and the event table's id span.
+// eventIDMinStmt and eventIDMaxStmt read the two ends of unmask_event's id
+// range, one statement each.  SQLite's min/max optimization -- one seek down
+// the index -- applies to a lone aggregate only: `SELECT MIN(id), MAX(id)` in
+// one statement walks the whole covering index instead, every entry of the
+// largest table.  That was `unmask doctor`'s "could not read the rollup cursor
+// (context deadline exceeded)" on a large database (2026-10-23), from a check
+// described as two rowid seeks.  settings_admin's row estimate learned the
+// same lesson earlier; TestReadAggregateStatusSeeksTheIdEnds keeps this one.
+const (
+	eventIDMinStmt = `SELECT MIN(id) FROM unmask_event`
+	eventIDMaxStmt = `SELECT MAX(id) FROM unmask_event`
+)
+
+// ReadAggregateStatus reads the hourly cursor and the event table's id span
+// (two index seeks).
 func ReadAggregateStatus(ctx context.Context, d *db.DB) (AggregateStatus, error) {
 	var a AggregateStatus
 	var updated sql.NullString
@@ -61,7 +75,10 @@ func ReadAggregateStatus(ctx context.Context, d *db.DB) (AggregateStatus, error)
 		}
 	}
 	var minID, maxID sql.NullInt64
-	if err := d.QueryRowContext(ctx, `SELECT MIN(id), MAX(id) FROM unmask_event`).Scan(&minID, &maxID); err != nil {
+	if err := d.QueryRowContext(ctx, eventIDMinStmt).Scan(&minID); err != nil {
+		return a, err
+	}
+	if err := d.QueryRowContext(ctx, eventIDMaxStmt).Scan(&maxID); err != nil {
 		return a, err
 	}
 	if maxID.Valid {

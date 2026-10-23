@@ -168,7 +168,13 @@ func WindowRows(ctx context.Context, d *db.DB, sinceMin int) (int64, error) {
 	win := dateCreatedWindow(ctx, d, sinceMin)
 	var first, last sql.NullInt64
 	if win == "" {
-		if err := d.QueryRowContext(ctx, "SELECT MIN(id), MAX(id) FROM unmask_event").Scan(&first, &last); err != nil {
+		// One statement each: SQLite seeks an index end for a lone MIN or
+		// MAX only; `SELECT MIN(id), MAX(id)` together walks the whole index
+		// (TestWindowRowsSeeksTheIdEnds).
+		if err := d.QueryRowContext(ctx, "SELECT MIN(id) FROM unmask_event").Scan(&first); err != nil {
+			return 0, err
+		}
+		if err := d.QueryRowContext(ctx, "SELECT MAX(id) FROM unmask_event").Scan(&last); err != nil {
 			return 0, err
 		}
 	} else {

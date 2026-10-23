@@ -4692,13 +4692,26 @@ func TrafficRequests(ctx context.Context, d *db.DB, minutes int, site string) (T
 	return trafficRequestsFrom(ctx, d, untilMin-int64(minutes), untilMin, site)
 }
 
+// cookieMinuteTailSlack bounds the minute reads a day past the clock.  A row
+// stamped ahead of it still counts, as it always did; what the bound buys is
+// the plan.  With no statistics for the table -- the state of a large
+// database, which never gets an ANALYZE on its own and loses the one it had
+// when a migration rebuilds the table -- SQLite served the open-ended
+// `bucket_min >= ?` of the request-count card by walking the WHOLE table
+// through its kind index, a row lookup per entry: every page of a month of
+// minutes, from a cold disk, on each open of the landing page (an operator's
+// card timed out on three opens in a row, 2026-10-23).  Bounded on both ends
+// the read goes through the primary key whatever the statistics say
+// (TestCookieMinuteTailReadsTheKeyRange).
+const cookieMinuteTailSlack = 24 * 60
+
 // trafficRequestsFrom is TrafficRequests over the minutes from cutoffMin on.
-// The minute reads stay open-ended past untilMin, as the scan always was (a
-// row stamped ahead of the clock still counts); untilMin only keeps the
-// current hour out of the rollup read.
+// untilMin keeps the current hour out of the rollup read; the minute reads run
+// to cookieMinuteTailSlack past it.
 func trafficRequestsFrom(ctx context.Context, d *db.DB, cutoffMin, untilMin int64, site string) (TrafficComposition, error) {
 	var c TrafficComposition
 	liveFrom := cutoffMin
+	tailTo := untilMin + cookieMinuteTailSlack
 	if site == "" {
 		cursor, err := stateCursor(ctx, d, installWideState)
 		if err != nil {
@@ -4722,7 +4735,7 @@ func trafficRequestsFrom(ctx context.Context, d *db.DB, cutoffMin, untilMin int6
 			liveFrom = (cursor + 1) * 60
 		}
 	}
-	if err := c.addCookieMinutes(ctx, d, liveFrom, 0, site); err != nil {
+	if err := c.addCookieMinutes(ctx, d, liveFrom, tailTo, site); err != nil {
 		return TrafficComposition{}, err
 	}
 	c.Passed = c.PowPass + c.CaptchaPass
@@ -4760,8 +4773,17 @@ func (c *TrafficComposition) addKind(kind string, n int) {
 }
 
 // addCookieMinutes adds the minute table's counts from fromMin up to but not
-// including toMin (open-ended when toMin is 0), for one site or every site.
+// including toMin, for one site or every site.  Callers pass a bound (see
+// cookieMinuteTailSlack); 0 leaves the read open-ended, which only a test
+// should want.
 func (c *TrafficComposition) addCookieMinutes(ctx context.Context, d *db.DB, fromMin, toMin int64, site string) error {
+	stmt, args := cookieMinutesStmt(fromMin, toMin, site)
+	return c.addRows(ctx, d, stmt, args...)
+}
+
+// cookieMinutesStmt is addCookieMinutes's statement, on its own so a test can
+// ask the planner about it.
+func cookieMinutesStmt(fromMin, toMin int64, site string) (string, []any) {
 	stmt := `SELECT kind, COALESCE(SUM(cnt), 0) FROM unmask_cookie_minute WHERE bucket_min >= ?`
 	args := []any{fromMin}
 	if toMin > 0 {
@@ -4772,7 +4794,7 @@ func (c *TrafficComposition) addCookieMinutes(ctx context.Context, d *db.DB, fro
 		stmt += ` AND site = ?`
 		args = append(args, site)
 	}
-	return c.addRows(ctx, d, stmt+` GROUP BY kind`, args...)
+	return stmt + ` GROUP BY kind`, args
 }
 
 // addCookieHours adds the install-wide hourly rollup's counts for the hours
