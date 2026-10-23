@@ -12,15 +12,17 @@
 //	           side row gets revoked.  Added 2026-10 -- a cookie issued before
 //	           then has one field fewer and fails verification, so the upgrade
 //	           signs every operator out once.
-//	sig      = HMAC-SHA256(secret, "<user_id>.<role>.<exp>.<remember>.<gen>") hex[:32]
+//	sig      = HMAC-SHA256(sessionKey(bv_secret), "<user_id>.<role>.<exp>.<remember>.<gen>") hex[:32]
 //
-// Reuses settings.Secret.BVSecret as the secret (= rotating it invalidates all sessions).
+// The key is derived from settings.Secret.BVSecret (sessionKey), so rotating
+// bv_secret invalidates all sessions; bv_secret itself signs nothing here.
 // admin_token has been removed.  Since the user identifier is in the cookie,
 // role changes and user deletion are reflected on the next access via DB lookup
 // (= cookie content is a snapshot at issue time; acceptable for short-lived cookies).
 package handlers
 
 import (
+	"crypto/hkdf"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -148,8 +150,33 @@ func verifySessionCookie(secret, value string) *SessionPayload {
 	return &SessionPayload{UserID: uid, Role: role, Exp: exp, Remember: parts[3] == "1", Gen: gen}
 }
 
+// sessionKeyInfo labels the admin-session key among the keys derived from
+// bv_secret; a key for another use takes another label.
+const sessionKeyInfo = "unmask admin session v1"
+
+// sessionKey derives the session-signing key from bv_secret (HKDF-SHA256,
+// RFC 5869) instead of signing with bv_secret itself.  bv_secret is also
+// written into http.inc, which nginx's workers read (0640, the nginx group),
+// so until 0.1.53 whoever could read that file -- a process in the nginx
+// group, a copy of /var/lib/unmask -- could sign a superadmin session with
+// it.  The derivation is one way: the derived key signs sessions and nothing
+// else, and holding it tells nothing about bv_secret or the _bv cookies.
+// Derived on every call (three hashes) rather than cached, so a rotated
+// bv_secret takes effect on the next request as before; a cookie signed
+// under the old scheme fails verification once, like one from before the
+// generation field.
+func sessionKey(secret string) []byte {
+	key, err := hkdf.Key(sha256.New, []byte(secret), nil, sessionKeyInfo, sha256.Size)
+	if err != nil {
+		// Only a length over 255 hashes fails, and this one is fixed; an
+		// empty key still signs and verifies alike, so nobody is locked out.
+		return nil
+	}
+	return key
+}
+
 func sessionSign(secret, body string) string {
-	h := hmac.New(sha256.New, []byte(secret))
+	h := hmac.New(sha256.New, sessionKey(secret))
 	h.Write([]byte(body))
 	// 128-bit signature (32 hex chars).  Was 64-bit ([:16]); widened so a forged
 	// session id resists offline brute force.  Both sign and verify route through

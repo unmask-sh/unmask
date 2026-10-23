@@ -2893,6 +2893,15 @@ type GlobalConfig struct {
 	// script.  pow_only / pow_then_captcha are honoured; deny is refused on
 	// save (UATLSResolvedAction).
 	UATLSConsistencyAction string `yaml:"ua_tls_consistency_action,omitempty"`
+	// UATLSReverseCheck adds the reverse contradiction to the tier: a
+	// User-Agent that names Chrome, Edge or another Chromium browser over a
+	// TLS 1.3 fingerprint that is not Chromium's.  Off by default, because a
+	// population exists for it that is not a bot: antivirus and corporate
+	// proxies that terminate TLS re-originate the session with a stack of
+	// their own under the browser's unchanged name, and every person behind
+	// one would meet the screen.  An operator whose audience has none of
+	// those turns it on.
+	UATLSReverseCheck bool `yaml:"ua_tls_reverse_check,omitempty"`
 	// StaleBrowserChallenge enables the stale-browser tier: a UA advertising a
 	// Chromium-family major version far behind the current stable is escalated
 	// to a CAPTCHA even when it would otherwise pass or only face PoW.  Off by
@@ -5105,14 +5114,14 @@ const redactedSecret = "***REDACTED***"
 // challengeSecretFields, keyed by site, so a snapshot's record can be paired
 // with the live record of the same site.
 //
-// What counts: bv_secret is the admin session-signing key (session.go), so
-// a copy of it lets an admin-role reader forge a superadmin session and mint
-// _bv bypass cookies for every site; the rest are credentials for other
-// systems (the DB, the mail relay, the hub, the model provider), where a
-// chat webhook URL is the credential (anyone holding it can post to the
-// channel) and the test-page password gates pages the operator chose to
-// expose.  Public site keys, key file PATHS and the hub's token-file path
-// are not secrets and stay.
+// What counts: bv_secret is what the admin session-signing key is derived
+// from (session.go) and what signs the _bv cookies, so a copy of it lets an
+// admin-role reader forge a superadmin session and mint _bv bypass cookies
+// for every site; the rest are credentials for other systems (the DB, the
+// mail relay, the hub, the model provider), where a chat webhook URL is the
+// credential (anyone holding it can post to the channel) and the test-page
+// password gates pages the operator chose to expose.  Public site keys, key
+// file PATHS and the hub's token-file path are not secrets and stay.
 func secretFields(s *Settings) []*string {
 	out := []*string{
 		&s.Secret.BVSecret,
