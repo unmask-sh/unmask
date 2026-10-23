@@ -44,8 +44,11 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     page.click('button[type="submit"], input[type="submit"]'),
   ]);
 
-  const resp = await page.goto(BASE + '/admin/hunt/?range=24h', { waitUntil: 'networkidle2' });
-  ok(resp.status() === 200, `/admin/hunt/ status ${resp.status()}`);
+  // Each seeded session is read through the UA filter (run.sh gives each one
+  // a User-Agent of its own): the checks that ran before this one leave rows
+  // of their own in the log, and the unfiltered page shows only the newest 100.
+  const resp = await page.goto(BASE + '/admin/hunt/?range=24h&ua=UI-E2E-race', { waitUntil: 'networkidle2' });
+  ok(resp.status() === 200, `/admin/hunt/?ua=UI-E2E-race status ${resp.status()}`);
 
   const res = await page.evaluate(() => {
     const rows = Array.from(document.querySelectorAll('table.events tbody tr[data-bt="uiRace"]'));
@@ -169,6 +172,8 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   // share a phase and so share a weight, and a weight cannot say which of two
   // identical phases came after the failure between them.  Only the browser's
   // sequence can, which makes this the case that fails if seq is dropped.
+  const rresp = await page.goto(BASE + '/admin/hunt/?range=24h&ua=UI-E2E-retry', { waitUntil: 'networkidle2' });
+  ok(rresp.status() === 200, `/admin/hunt/?ua=UI-E2E-retry status ${rresp.status()}`);
   const retry = await page.evaluate(() => {
     const rows = Array.from(document.querySelectorAll('table.events tbody tr[data-bt="uiRetry"]'));
     if (!rows.length) return { missing: true };

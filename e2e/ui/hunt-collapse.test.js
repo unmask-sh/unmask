@@ -41,8 +41,12 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
     page.click('button[type="submit"], input[type="submit"]'),
   ]);
 
-  const resp = await page.goto(BASE + '/admin/hunt/?range=24h', { waitUntil: 'networkidle2' });
-  ok(resp.status() === 200, `/admin/hunt/ status ${resp.status()}`);
+  // The seeded session is read through the UA filter, with its address: the
+  // checks that ran before this one leave rows of their own in the log, and
+  // the unfiltered page shows only the newest 100.  Its User-Agent (UI-E2E) is
+  // the prefix of every other seed's, so the address narrows it down.
+  const resp = await page.goto(BASE + '/admin/hunt/?range=24h&ip=127.0.0.1&ua=UI-E2E', { waitUntil: 'networkidle2' });
+  ok(resp.status() === 200, `/admin/hunt/?ip=127.0.0.1&ua=UI-E2E status ${resp.status()}`);
 
   const res = await page.evaluate(() => {
     const rows = Array.from(document.querySelectorAll('table.events tbody tr[data-bt="uiCollapse"]'));

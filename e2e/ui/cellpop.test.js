@@ -69,8 +69,12 @@ async function hoverOpens(page, sel, expect) {
     page.click('button[type="submit"], input[type="submit"]'),
   ]);
 
-  const resp = await page.goto(BASE + '/admin/hunt/?range=24h', { waitUntil: 'networkidle2' });
-  ok(resp.status() === 200, `/admin/hunt/ status ${resp.status()}`);
+  // The seeded row is read through the UA filter (run.sh gives it a
+  // User-Agent of its own): the checks that ran before this one leave rows of
+  // their own in the log, and the unfiltered page shows only the newest 100.
+  // The table's layout is fixed, so what clips does not depend on the rows.
+  const resp = await page.goto(BASE + '/admin/hunt/?range=24h&ua=UI-E2E-longua', { waitUntil: 'networkidle2' });
+  ok(resp.status() === 200, `/admin/hunt/?ua=UI-E2E-longua status ${resp.status()}`);
 
   // (1) Summarised value: the cell shows "Windows · Chrome", the raw UA lives
   // in data-full-value, so the popover is the only route to it.
