@@ -28,6 +28,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-23) **A proof-of-work seed no longer passes as a signed cookie.**  The seed the challenge page hands every visitor is signed over the same message as a pass cookie, with the word `pow_seed` where the cookie carries its kind, so its first sixteen digits verified as a pass of an unknown kind: a client could present it without hashing once, for the CAPTCHA cookie's window.  Both verifiers now accept only the kinds the daemon issues.
 
+- (2026-10-23) **A configured third-party CAPTCHA is the only way through the verify endpoint.**  With a provider set, a client that left the provider's token out of its request was judged by the built-in behavioral score or the math fallback instead -- what the operator had chosen the provider to replace.  Such a request is refused now; a provider whose site key is unset still falls back to built-in, as the page does.
+
 - (2026-10-23) **A request with many `_bv` cookies no longer costs the worker a hash per entry.**  The sixteen-entry cap applied to each `_bv` value, and a client could send any number of values, so a few kilobytes of Cookie header bought an HMAC and a SHA-256 per 35 bytes, repeated as the templates read the variable.  The budget is per request now, in the module and the daemon alike.
 
 - (2026-10-23) **Two bans placed in the same second both take effect.**  The module reloaded its ban file only when the modification time changed, at one-second resolution, while the daemon flushes the file on every ban it places: the second ban in a second was not applied until a later write landed in a different second.  The file's size and inode are compared as well.

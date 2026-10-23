@@ -2965,10 +2965,18 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	// multi-site-handoff.md.
 	kind := "captcha"
 
-	// If a 3rd-party CAPTCHA provider is configured, verify with highest
-	// priority (behavioral signal becomes supplementary).  For builtin,
-	// proceed with the normal flow.
-	if cc := ch.CaptchaProvider; cc.Provider != "" && cc.Provider != "builtin" && payload.ProviderToken != "" {
+	// A configured 3rd-party CAPTCHA provider is the only way through this
+	// handler.  The page shows that provider's widget exactly when
+	// captchaInjectJSON hands it a site key, so the same test decides here;
+	// a provider without its site key falls back to builtin on both sides.
+	// This used to be gated on the token being PRESENT, which let a client
+	// simply omit it and walk the builtin behavioral / math paths below --
+	// the ones the operator picked a provider to replace.
+	if cc := ch.CaptchaProvider; captchaInjectJSON(cc) != "null" {
+		if payload.ProviderToken == "" {
+			writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "provider_required", "provider": cc.Provider})
+			return
+		}
 		secret := captchaSecretFor(cc)
 		res, err := captcha.VerifyExternal(r.Context(), cc.Provider, secret, payload.ProviderToken, ip)
 		if err != nil {
