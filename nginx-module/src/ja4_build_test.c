@@ -44,7 +44,8 @@ int main(void) {
     char out[JA4_STRING_MAX];
 
     /* V1: TLS 1.2, ciphers 1301+1302, SNI host_name present, ALPN "h2",
-     * no signature_algorithms.  a="t12d0202h2". */
+     * no signature_algorithms.  a="t12d0202h2".  c: SNI and ALPN are set
+     * aside and nothing is left, which the spec writes as twelve zeros. */
     zero(&p);
     p.legacy_version = 0x0303;
     p.ciphers[0] = 0x1301; p.ciphers[1] = 0x1302; p.ncipher = 2;
@@ -52,14 +53,14 @@ int main(void) {
     p.sni_present_domain = 1;
     p.alpn_first = 'h'; p.alpn_last = '2';
     ja4_build_string(&p, out, sizeof(out));
-    CHECK_STR(out, "t12d0202h2_62ed6f6ca7ad_e3b0c44298fc", "V1 typical TLS1.2");
+    CHECK_STR(out, "t12d0202h2_62ed6f6ca7ad_000000000000", "V1 typical TLS1.2");
 
     /* V2: TLS 1.2, single cipher 1301, no SNI / exts / ALPN.  a="t12i010000". */
     zero(&p);
     p.legacy_version = 0x0303;
     p.ciphers[0] = 0x1301; p.ncipher = 1;
     ja4_build_string(&p, out, sizeof(out));
-    CHECK_STR(out, "t12i010000_0f2cb44170f4_e3b0c44298fc", "V2 ciphers only");
+    CHECK_STR(out, "t12i010000_0f2cb44170f4_000000000000", "V2 ciphers only");
 
     /* V3: TLS 1.3 via supported_versions, cipher 1301, exts 43+13 (kept,
      * sorted -> 000d,002b), signature_algorithms 0403+0804 appended after
@@ -75,10 +76,33 @@ int main(void) {
     CHECK_STR(out, "t13i010200_0f2cb44170f4_ef5f37ab036a", "V3 sig_algs path");
 
     /* V4: completely empty ClientHello (unknown version, nothing present).
-     * version code falls back to "00"; both hashes are sha12(""). */
+     * version code falls back to "00"; an empty cipher list and an empty
+     * extension list are each twelve zeros per the spec, never sha12(""). */
     zero(&p);
     ja4_build_string(&p, out, sizeof(out));
-    CHECK_STR(out, "t00i000000_e3b0c44298fc_e3b0c44298fc", "V4 empty");
+    CHECK_STR(out, "t00i000000_000000000000_000000000000", "V4 empty");
+
+    /* V5: signature_algorithms (ext 13) present but carrying no algorithm:
+     * the spec appends "_" + algorithms only when there are some, so c is
+     * sha12("000d,002b") with no underscore.  a="t13i010200". */
+    zero(&p);
+    p.legacy_version = 0x0303;
+    p.supported_versions_max = 0x0304;
+    p.ciphers[0] = 0x1301; p.ncipher = 1;
+    p.extensions[0] = 43; p.extensions[1] = 13; p.nexts = 2;
+    p.has_sig_algs = 1; p.nsig_algs = 0;
+    ja4_build_string(&p, out, sizeof(out));
+    CHECK_STR(out, "t13i010200_0f2cb44170f4_90f4629a5905", "V5 empty sig_algs");
+
+    /* V6: no ciphers at all, one extension (13, empty): b is twelve zeros
+     * while c is the hash of the extension that is there.  a="t13i000100". */
+    zero(&p);
+    p.legacy_version = 0x0303;
+    p.supported_versions_max = 0x0304;
+    p.extensions[0] = 13; p.nexts = 1;
+    p.has_sig_algs = 1; p.nsig_algs = 0;
+    ja4_build_string(&p, out, sizeof(out));
+    CHECK_STR(out, "t13i000100_000000000000_06540eb5c95f", "V6 no ciphers");
 
     printf("ja4_build_test: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

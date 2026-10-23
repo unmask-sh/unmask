@@ -10,7 +10,7 @@
 #   make clean              remove dist/, build/
 #
 # Environment variables:
-#   UNMASK_VERSION   (default: 0.1.5)  package version
+#   UNMASK_VERSION   (default: the UNMASK_VERSION set below, the current release)  package version
 #   GOOS             (default: linux)
 #   GOARCH           (default: detected host arch.  amd64 / arm64 / 386 / etc.)
 #   NGINX_VERSION    (default: 1.26.2) nginx source version (for module build)
@@ -915,6 +915,23 @@ test-plugin-parser:
 		nginx-module/src/ja4_build_test.c \
 		-lcrypto -o $(DIST)/ja4_build_test
 	$(DIST)/ja4_build_test
+
+## test-plugin-parser-san - the same unit tests under ASan/UBSan.  The fuzzers
+## run sanitized, the unit tests did not, and a memcpy from NULL in a test
+## fixture went unnoticed for months; a sanitized run of the fixed inputs is
+## cheap and catches that class on the next change.
+test-plugin-parser-san:
+	mkdir -p $(DIST)
+	$(FUZZ_CC) -std=gnu99 -Wall -Wextra $(FUZZ_FLAGS) \
+		nginx-module/src/ja4_parser.c \
+		nginx-module/src/ja4_parser_test.c \
+		-o $(DIST)/ja4_parser_test_san
+	$(DIST)/ja4_parser_test_san
+	$(FUZZ_CC) -std=gnu99 -Wall -Wextra $(FUZZ_FLAGS) \
+		nginx-module/src/ja4_build.c \
+		nginx-module/src/ja4_build_test.c \
+		-lcrypto -o $(DIST)/ja4_build_test_san
+	$(DIST)/ja4_build_test_san
 
 ## fuzz-plugin  - ASan/UBSan fuzz of the ClientHello parser, JA4 builder + _bv cookie parser.
 ## Both handle fully untrusted input (raw TLS bytes / a client-set cookie).

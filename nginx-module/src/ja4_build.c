@@ -118,8 +118,13 @@ size_t ja4_build_string(const ja4_parsed_t *parsed, char *out, size_t outlen) {
             ja4_hex4(bp, sorted[i]);
             bp += 4;
         }
+        ja4_sha12(buf, (size_t)(bp - buf), ja4_b);
+    } else {
+        /* JA4 spec: an empty cipher list is twelve zeros, not the hash of
+         * the empty string.  Hashing "" here produced a fingerprint no other
+         * implementation would, so a shared ban on such a hello never hit. */
+        memcpy(ja4_b, "000000000000", 12);
     }
-    ja4_sha12(buf, (size_t)(bp - buf), ja4_b);
     ja4_b[12] = '\0';
 
     /* === JA4_c: sorted extensions (excluding SNI=0, ALPN=16), then "_"
@@ -136,10 +141,12 @@ size_t ja4_build_string(const ja4_parsed_t *parsed, char *out, size_t outlen) {
         ja4_hex4(bp, sorted_e[i]);
         bp += 4;
     }
-    if (parsed->has_sig_algs) {
-        /* JA4 spec: append "_" + sig_algs only if ext 13 was present in the
-         * ClientHello.  The "_" itself is emitted even when sig_algs is empty
-         * (= matches the prior implementation). */
+    if (nsig_algs > 0) {
+        /* JA4 spec: "_" + the signature algorithms in presentation order
+         * follows the extensions; with no signature algorithms the string
+         * ends without the underscore and is hashed as it stands.  An ext 13
+         * that carries no algorithms counts as none (it used to earn the
+         * underscore, which no other implementation emits). */
         *bp++ = '_';
         for (i = 0; i < nsig_algs; i++) {
             if (i) *bp++ = ',';
@@ -147,7 +154,13 @@ size_t ja4_build_string(const ja4_parsed_t *parsed, char *out, size_t outlen) {
             bp += 4;
         }
     }
-    ja4_sha12(buf, (size_t)(bp - buf), ja4_c);
+    if (nexts_c > 0) {
+        ja4_sha12(buf, (size_t)(bp - buf), ja4_c);
+    } else {
+        /* JA4 spec: no extensions (after SNI and ALPN are set aside) is
+         * twelve zeros, as for the cipher list. */
+        memcpy(ja4_c, "000000000000", 12);
+    }
     ja4_c[12] = '\0';
 
     /* === Final JA4 === */

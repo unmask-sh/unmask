@@ -100,7 +100,9 @@ static size_t build_ch(unsigned char *out, size_t cap,
             *p++ = exts[j].type & 0xFF;
             *p++ = (exts[j].body_len >> 8) & 0xFF;
             *p++ = exts[j].body_len & 0xFF;
-            memcpy(p, exts[j].body, exts[j].body_len);
+            if (exts[j].body_len > 0) {   /* memcpy from NULL is UB even for 0 bytes */
+                memcpy(p, exts[j].body, exts[j].body_len);
+            }
             p += exts[j].body_len;
         }
         ext_block_len = (size_t)(p - ext_block_start);

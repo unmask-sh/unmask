@@ -81,6 +81,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: test JA4 parser
         run: make test-plugin-parser
+      - name: test JA4 parser (ASan/UBSan)
+        run: make test-plugin-parser-san
       - name: fuzz JA4 + _bv parsers (ASan/UBSan)
         run: make fuzz-plugin FUZZ_ITERS=3000000
 
