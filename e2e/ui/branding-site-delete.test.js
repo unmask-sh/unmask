@@ -91,7 +91,10 @@ const ok = (c, m) => { if (!c) fails.push(m); };
     const del = posts.find(p => /branding\/site\/delete/.test(p.url));
     ok(!!del, 'the delete POST was sent, posts: ' + JSON.stringify(posts));
     ok(del && del.status !== 403, 'reset to default must not be a csrf mismatch, got ' + JSON.stringify(del));
-    ok(del && /_csrf=/.test(del.url), 'the shim must decorate the button formaction with the token, got ' + (del && del.url));
+    // The token rides in the multipart body and the server reads it there;
+    // the shim no longer mirrors it into the formaction query (a token in the
+    // request line is a token in every access log on the way).
+    ok(del && !/_csrf=/.test(del.url), 'the formaction query must not carry the token, got ' + (del && del.url));
     const body = await page.evaluate(() => document.body.innerText);
     ok(!/csrf token mismatch/i.test(body), 'page must not show the csrf error');
     await page.goto(BASE + '/admin/settings/theme/?scope=' + SITE, { waitUntil: 'networkidle2' });

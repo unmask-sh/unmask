@@ -37,8 +37,8 @@
 
   Coverage:
     - native form posts  -> hidden _csrf field injected on submit
-                            (+ mirrored into the action query for multipart,
-                             whose body the server's ParseForm does not read)
+                            (an upload form's field rides in the multipart
+                             body, which the server reads for the check)
     - fetch / XHR        -> X-CSRF-Token header added for same-origin mutating
                             requests (covers /admin/api/* JSON endpoints)
 
@@ -75,23 +75,10 @@
       form.appendChild(input);
     }
     input.value = tok;
-    // multipart: the body field is invisible to the server's ParseForm, so
-    // also park the token in the action query where it reads parse-free.
-    // A submit button with its own formaction posts to THAT url, not the
-    // form's action, so the mirror rides on the button too (the per-site
-    // "reset to default" buttons on the branding tab are exactly that).
-    var withTok = function(url){
-      url = url.replace(/([?&])_csrf=[^&]*/,'$1').replace(/[?&]$/,'');
-      return url + (url.indexOf('?') >= 0 ? '&' : '?') + FIELD + '=' + encodeURIComponent(tok);
-    };
-    var sub = e.submitter;
-    var enc = ((sub && sub.getAttribute && sub.getAttribute('formenctype')) || form.getAttribute('enctype') || '').toLowerCase();
-    if (enc === 'multipart/form-data') {
-      form.setAttribute('action', withTok(form.getAttribute('action') || (location.pathname + location.search)));
-      if (sub && sub.getAttribute && sub.hasAttribute('formaction')) {
-        sub.setAttribute('formaction', withTok(sub.getAttribute('formaction')));
-      }
-    }
+    // An upload form (multipart) carries the field in its body like any
+    // other form, and the server reads it from there.  It used to be
+    // mirrored into the action query as well, which put the token in the
+    // request line -- and so in every access log on the way.
   }, true);
 
   // 2) fetch(): add X-CSRF-Token for same-origin mutating requests.

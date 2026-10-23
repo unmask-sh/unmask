@@ -126,11 +126,13 @@ func CSRFTokenFromRequest(r *http.Request) string {
 const csrfHeaderName = "X-CSRF-Token"
 
 // verifyCSRF returns true when the request echoes the CSRF cookie back via
-// any accepted channel: the X-CSRF-Token header (fetch / XHR), the _csrf
-// form field (url-encoded native forms), or the _csrf URL query param
-// (multipart native forms, whose body ParseForm does not read).  Missing
-// cookie / missing echo / mismatch all collapse to one rejection so the
-// response leaks nothing.
+// an accepted channel: the X-CSRF-Token header (fetch / XHR) or the _csrf
+// form field (native forms; read from the multipart body for an upload
+// form, whose body ParseForm does not read).  The URL query is not one: the
+// shim used to mirror the field into a multipart form's action query, and a
+// token in the request line is a token in every access log and Referer on
+// the way.  Missing cookie / missing echo / mismatch all collapse to one
+// rejection so the response leaks nothing.
 func verifyCSRF(r *http.Request) bool {
 	cookieTok := CSRFTokenFromRequest(r)
 	if cookieTok == "" {
@@ -142,17 +144,10 @@ func verifyCSRF(r *http.Request) bool {
 	if echo == "" {
 		echo = strings.TrimSpace(r.PostFormValue(csrfFieldName))
 	}
-	if echo == "" {
-		// Multipart native forms: the field rides in the multipart body
-		// (which ParseForm skips), so the shim mirrors it into the action
-		// query where it is parse-free to read here.
-		echo = strings.TrimSpace(r.URL.Query().Get(csrfFieldName))
-	}
 	if echo == "" && strings.HasPrefix(strings.ToLower(r.Header.Get("Content-Type")), "multipart/form-data") {
-		// The mirror missed (a submit button with its own formaction posted
-		// to a url the shim had not decorated, 0.1.25..0.1.40), so read the
-		// field from the body after all.  Same memory bound the upload
-		// handlers use; a later ParseMultipartForm is a no-op.
+		// Multipart native forms: the field rides in the multipart body,
+		// which ParseForm skips, so parse that here.  Same memory bound the
+		// upload handlers use; their later ParseMultipartForm is a no-op.
 		if err := r.ParseMultipartForm(4 << 20); err == nil {
 			echo = strings.TrimSpace(r.PostForm.Get(csrfFieldName))
 		}
