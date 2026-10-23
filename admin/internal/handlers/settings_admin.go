@@ -3225,7 +3225,9 @@ func applyTrustedLBForm(n *settings.Nginx, r *http.Request) {
 			h = strings.TrimSpace(hdrs[i])
 		}
 		if i < len(labels) {
-			label = strings.TrimSpace(labels[i])
+			// The label is written on a comment line of the rendered config;
+			// a newline in it would end the comment and start a directive.
+			label = strings.TrimSpace(nginxconf.OneLine(labels[i]))
 		}
 		if i < len(ens) {
 			off = ens[i] == "0"

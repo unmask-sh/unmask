@@ -170,11 +170,16 @@ func effectiveLBs(enabledIDs []string, extras []settings.TrustedLBExtra) []LBIPR
 		if e.ID == "" || len(e.CIDRs) == 0 || e.Disabled {
 			continue
 		}
+		// The header is an nginx variable name the templates place unquoted
+		// in a map, and the label goes on a comment line.  The form checks
+		// both, but a hand-edited config reaches here too, and this is the
+		// one place every path passes through on its way into a file nginx
+		// loads as root.
 		hdr := e.Header
-		if hdr == "" {
+		if hdr == "" || !httpHeaderVarRE.MatchString(hdr) {
 			hdr = "$http_x_client_ja4"
 		}
-		label := e.Label
+		label := strings.TrimSpace(OneLine(e.Label))
 		if label == "" {
 			label = e.ID
 		}

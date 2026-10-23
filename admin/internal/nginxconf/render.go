@@ -1138,10 +1138,39 @@ type CustomRuleRateZoneRender struct {
 }
 
 // nginxQuote makes a value safe inside a double-quoted nginx map key.
+//
+// nginx's config reader treats a backslash inside quotes as an escape: `\"`
+// is a literal quote, `\\` a literal backslash, and any other pair is kept
+// as written.  So the backslash has to be doubled BEFORE the quote is
+// escaped.  Escaping the quote alone turned a pattern ending in `\"` (a
+// literal quote in RE2, which the form's regex check accepts) into `\\"`:
+// nginx read `\\` as one backslash and the `"` closed the key, and whatever
+// followed in the pattern was parsed as directives, in a file nginx loads as
+// root.  Control characters are dropped rather than escaped; a key has no
+// use for them.
 func nginxQuote(v string) string {
-	v = strings.ReplaceAll(v, "\n", "")
-	v = strings.ReplaceAll(v, "\r", "")
+	v = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, v)
+	v = strings.ReplaceAll(v, `\`, `\\`)
 	return strings.ReplaceAll(v, `"`, `\"`)
+}
+
+// OneLine makes an operator-supplied string safe on a `# ...` comment line of
+// the rendered config: a newline would end the comment and hand the rest of
+// the string to nginx as directives.  Other control characters go too.  The
+// settings form runs it on the way in and the renderer on the way out, so a
+// hand-edited config gets the same treatment.
+func OneLine(v string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, v)
 }
 
 // customRulesRender lays the enabled rules out for the templates and

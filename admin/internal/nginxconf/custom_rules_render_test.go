@@ -71,7 +71,9 @@ func TestCustomRulesRender(t *testing.T) {
 	for _, want := range []string{
 		"map $effective_ja4 $unmask_cr_1_c1 {\n    default 0;\n    \"t13d1516h2_8daaf6152771_b0da82dd1658\" 1;\n    \"~^t13d\" 1;\n}",
 		"map $http_user_agent $unmask_cr_1_c2 {\n    default 0;\n    \"~*python-requests|scrapy\" 1;\n}",
-		"map $request_uri $unmask_cr_1_c3 {\n    default 0;\n    \"~^/search\\?\" 1;\n}",
+		// The pattern's backslash is doubled: nginx's reader unescapes `\\` to
+		// one backslash, so PCRE still sees `\?` (nginxQuote).
+		"map $request_uri $unmask_cr_1_c3 {\n    default 0;\n    \"~^/search\\\\?\" 1;\n}",
 		"map $host $unmask_cr_1_c4 {\n    default 0;\n    \"shop.example.jp\" 1;\n}",
 		"map \"$unmask_cr_1_c1:$unmask_cr_1_c2:$unmask_cr_1_c3:$unmask_cr_1_c4\" $unmask_cr_1 {\n    default 0;\n    \"1:1:1:1\" 1;\n}",
 		"map $unmask_cr_1 $unmask_cr_1_pick {\n    default $unmask_cr_2_pick;\n    \"1\"     \"cr1\";\n}",
