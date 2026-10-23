@@ -664,11 +664,15 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// SavedRestart: a listen-side change (Server.*) was saved; it takes effect
 		// only on `systemctl restart unmask` (serve reads these at start, not on
 		// reload).  Independent of SavedReload -- a TCP<->socket switch needs both.
-		"SavedRestart":   r.URL.Query().Get("restart") == "1",
-		"Error":          readFlash(w, r, h.cfg().Server.BasePath, "err"),
-		"Cur":            cur,
-		"AIAdvisor":      maskedAIAdvisor(h.snapshotSettings().AIAdvisor),
-		"AIModelPresets": advisor.ModelPresets,
+		"SavedRestart": r.URL.Query().Get("restart") == "1",
+		// CredentialCleared: the stored credential the save just dropped
+		// because its destination changed ("smtp_password" / "ai_api_key");
+		// the banner asks for the new one.  Empty on every other save.
+		"CredentialCleared": r.URL.Query().Get("credential_cleared"),
+		"Error":             readFlash(w, r, h.cfg().Server.BasePath, "err"),
+		"Cur":               cur,
+		"AIAdvisor":         maskedAIAdvisor(h.snapshotSettings().AIAdvisor),
+		"AIModelPresets":    advisor.ModelPresets,
 		// The list fetched last time, when it is the saved provider's: the
 		// picker opens on it instead of the presets.
 		"AIModelCache": h.loadModelCache(),
@@ -1406,6 +1410,11 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	// off -> on, so we kick an immediate feed pull after save (= populate the
 	// browse list now instead of waiting for the next hourly tick).
 	communityPullNeeded := false
+	// credentialCleared names a stored credential the apply dropped because
+	// its destination changed (the SMTP host, the AI provider / endpoint
+	// host) and no new one was typed -- see applySMTPForm / applyAIAdvisorForm.
+	// Carried to the tab so the banner tells the operator to enter it.
+	credentialCleared := ""
 	// custom-rules-add is the ask page's modal: one rule added after the
 	// list's own, answered in JSON for the page's script (a plain post
 	// lands on the tab like any other save).
@@ -1436,6 +1445,9 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 			}
 			if unmaskRestartNeeded {
 				dst += "&restart=1"
+			}
+			if credentialCleared != "" {
+				dst += "&credential_cleared=" + credentialCleared
 			}
 		} else {
 			// Carry the error text in a flash cookie rather than the URL
@@ -1470,11 +1482,12 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		redirBack("load: " + err.Error())
 		return
 	}
-	// Snapshot the pre-mutation yaml for the audit log.  Captured here, not
-	// after Save, so a partial / failing apply does not leave a misleading
-	// diff in the audit.  MarshalYAML failures fall through to an empty
-	// snapshot (= the audit row is still written, just without rollback data).
-	beforeYAML, _ := settings.MarshalYAML(cur)
+	// Snapshot the pre-mutation yaml for the audit log, secrets redacted
+	// (auditSnapshotYAML).  Captured here, not after Save, so a partial /
+	// failing apply does not leave a misleading diff in the audit.  Marshal
+	// failures fall through to an empty snapshot (= the audit row is still
+	// written, just without rollback data).
+	beforeYAML, _ := auditSnapshotYAML(cur)
 
 	// Snapshot the rendered nginx conf before the form apply.  The renderer is
 	// deterministic (= all map outputs sorted), so an unchanged conf yields a
@@ -1789,13 +1802,17 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		// One tab, one form: the channel fields and the SMTP-server card
 		// submit together.  There is no separate smtp section.
 		applyNotificationsForm(&cur.Notifications, r)
-		applySMTPForm(&cur.SMTP, r)
+		if applySMTPForm(&cur.SMTP, r) {
+			credentialCleared = "smtp_password"
+		}
 	case "web-bot-auth":
 		applyWebBotAuthForm(&cur.Nginx.WebBotAuth, r)
 	case "privacy-pass":
 		applyPrivacyPassForm(&cur.Nginx.PrivacyPass, r)
 	case "ai-advisor":
-		applyAIAdvisorForm(&cur.AIAdvisor, r)
+		if applyAIAdvisorForm(&cur.AIAdvisor, r) {
+			credentialCleared = "ai_api_key"
+		}
 	case "community-bans":
 		// Snapshot the pre-apply subscribe state.  When the operator flips
 		// subscribe from off to fetch / fetch_apply they expect the "共有 BAN"
@@ -2044,16 +2061,16 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// audit log: who / what / before-after diff.  detail is a JSON blob with
-	// both yaml snapshots so the audit UI can show a unified diff and offer
-	// 1-click rollback to the captured `before`.  Marshal failure (= huge
-	// yaml etc.) downgrades silently to an empty detail; the audit row is
-	// still written.
+	// both yaml snapshots (secrets redacted) so the audit UI can show a
+	// unified diff and offer 1-click rollback to the captured `before`.
+	// Marshal failure (= huge yaml etc.) downgrades silently to an empty
+	// detail; the audit row is still written.
 	if pay := SessionFromContext(r); pay != nil && h.UserRepo != nil {
 		username := ""
 		if u, err := h.UserRepo.GetByID(r.Context(), pay.UserID); err == nil {
 			username = u.Username
 		}
-		afterYAML, _ := settings.MarshalYAML(cur)
+		afterYAML, _ := auditSnapshotYAML(cur)
 		auditWriteSettingsSave(r.Context(), h, pay.UserID, username, section, beforeYAML, afterYAML)
 	}
 
@@ -5731,8 +5748,13 @@ func hnOverrideValue(in string) (hn string, ok bool) {
 
 // applySMTPForm receives the SMTP card of the notifications form.  An empty
 // password submit preserves the current value (= the "***" placeholder UX
-// where the value is untouched).  Port: 0 / invalid -> 587.
-func applySMTPForm(c *settings.SMTP, r *http.Request) {
+// where the value is untouched) -- unless the host changed: the stored
+// password was given for the old relay, and keeping it would hand it to
+// whatever host was typed on the next mail, so a new host takes a new
+// password.  Reports that drop, so the save banner can ask for it.  Port:
+// 0 / invalid -> 587.
+func applySMTPForm(c *settings.SMTP, r *http.Request) (passwordCleared bool) {
+	prevHost := c.Host
 	c.Host = strings.TrimSpace(r.FormValue("host"))
 	if v, err := strconv.Atoi(strings.TrimSpace(r.FormValue("port"))); err == nil && v >= 0 && v <= 65535 {
 		c.Port = v
@@ -5743,18 +5765,37 @@ func applySMTPForm(c *settings.SMTP, r *http.Request) {
 	c.Username = strings.TrimSpace(r.FormValue("username"))
 	if v := strings.TrimSpace(r.FormValue("password")); v != "" {
 		c.Password = v
+	} else if c.Password != "" && !strings.EqualFold(c.Host, prevHost) {
+		c.Password = ""
+		passwordCleared = true
 	}
 	c.FromAddress = strings.TrimSpace(r.FormValue("from_address"))
 	c.FromName = strings.TrimSpace(r.FormValue("from_name"))
 	c.StartTLS = r.FormValue("starttls") == "1"
 	c.InsecureSkipVerify = r.FormValue("insecure_skip_verify") == "1"
+	return passwordCleared
+}
+
+// smtpSameServer reports whether host / port / username name the saved SMTP
+// relay -- the only server the saved password may be sent to.  The host
+// compares case-insensitively, as names do; a saved port of 0 is 587, as the
+// mailer reads it.
+func smtpSameServer(saved settings.SMTP, host string, port int, username string) bool {
+	savedPort := saved.Port
+	if savedPort <= 0 {
+		savedPort = 587
+	}
+	return strings.EqualFold(host, saved.Host) && port == savedPort && username == saved.Username
 }
 
 // AdminSMTPTest: POST {base}/admin/api/smtp/test — send a test mail.
 //
 // To try in-flight values immediately, read from the form and send via a
-// one-shot mailer. If password is empty, use the current Mailer's password
-// (= avoids forcing "save → test" in the UI).
+// one-shot mailer.  An empty password means the saved one (= avoids forcing
+// "save → test" in the UI), but only toward the saved relay: host, port and
+// username as stored.  With any of them changed the form answers
+// password_required instead -- an admin-role user who typed a host of their
+// own would otherwise read the saved password off their server.
 func (h *Handler) AdminSMTPTest(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0, "error": "bad_form"})
@@ -5776,9 +5817,12 @@ func (h *Handler) AdminSMTPTest(w http.ResponseWriter, r *http.Request) {
 	}
 	username := strings.TrimSpace(r.FormValue("username"))
 	password := strings.TrimSpace(r.FormValue("password"))
-	if password == "" {
-		// Empty → use the current settings password (= can test without "save → test").
-		password = h.snapshotSettings().SMTP.Password
+	if saved := h.snapshotSettings().SMTP; password == "" && saved.Password != "" {
+		if !smtpSameServer(saved, host, port, username) {
+			writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0, "error": "password_required"})
+			return
+		}
+		password = saved.Password
 	}
 	tmp := mail.New(mail.Config{
 		Host:        host,
@@ -6954,11 +6998,31 @@ func (h *Handler) AdminIPRangeSync(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// aiEndpointHost is the host (port included) an advisor endpoint sends the
+// key to: "" for the provider's own, lower-cased so a change of case is not a
+// change of host.  A value that does not parse as a URL is taken whole --
+// it is still where the key would go.
+func aiEndpointHost(endpoint string) string {
+	e := strings.TrimSpace(endpoint)
+	if e == "" {
+		return ""
+	}
+	if u, err := url.Parse(e); err == nil && u.Host != "" {
+		return strings.ToLower(u.Host)
+	}
+	return strings.ToLower(e)
+}
+
 // applyAIAdvisorForm reads the AI-advisor tab.  The API key field is
 // write-only in the UI: it renders empty and an empty submit keeps the stored
 // key, so saving an unrelated field on the tab never wipes the credential.
-// Submitting the literal "-" clears it.
-func applyAIAdvisorForm(c *settings.AIAdvisorConfig, r *http.Request) {
+// Submitting the literal "-" clears it.  So does moving the key: the stored
+// one was issued for one destination, so when the provider or the endpoint's
+// host changes (set, replaced, or dropped back to the provider's own)
+// without a new key typed, it is dropped rather than sent where it was never
+// meant to go.  Reports that drop, so the save banner can ask for the key.
+func applyAIAdvisorForm(c *settings.AIAdvisorConfig, r *http.Request) (keyCleared bool) {
+	prevProvider, prevHost := c.ResolvedProvider(), aiEndpointHost(c.Endpoint)
 	c.Enabled = r.FormValue("ai_enabled") == "1"
 	switch v := strings.TrimSpace(r.FormValue("ai_provider")); v {
 	case "anthropic", "openai", "ollama":
@@ -6979,7 +7043,11 @@ func applyAIAdvisorForm(c *settings.AIAdvisorConfig, r *http.Request) {
 		} else {
 			c.APIKey = k
 		}
+	} else if c.APIKey != "" && (c.ResolvedProvider() != prevProvider || aiEndpointHost(c.Endpoint) != prevHost) {
+		c.APIKey = ""
+		keyCleared = true
 	}
+	return keyCleared
 }
 
 // retentionWALLarge is the write-ahead log size the retention tab warns

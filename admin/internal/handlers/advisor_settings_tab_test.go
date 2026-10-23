@@ -188,8 +188,10 @@ func TestAIAdvisorSettingsSaveRoundTrip(t *testing.T) {
 		!ai.NotifyEnabled || ai.NotifyIntervalHours != 12 || ai.NotifyMinScore != 7 {
 		t.Fatalf("the saved section did not persist: %+v", ai)
 	}
-	// An empty key field keeps the stored key; "-" clears it.
-	if code := post(url.Values{"ai_enabled": {"1"}, "ai_provider": {"anthropic"}, "ai_api_key": {""}}); code >= 400 {
+	// An empty key field keeps the stored key; "-" clears it.  The endpoint
+	// rides along as on every real submit: a key only stays with the
+	// destination it was saved for (applyAIAdvisorForm).
+	if code := post(url.Values{"ai_enabled": {"1"}, "ai_provider": {"anthropic"}, "ai_endpoint": {"http://127.0.0.1:9"}, "ai_api_key": {""}}); code >= 400 {
 		t.Fatalf("second save: HTTP %d", code)
 	}
 	if got, _ = settings.Load(cfgPath); got.AIAdvisor.APIKey != "k-round-trip" {

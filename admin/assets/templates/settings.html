@@ -173,6 +173,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .banner{padding:.65rem 1rem;border-radius:.4rem;margin-bottom:1rem;font-size:.9rem;border:1px solid}
 .banner.ok{background:#dcfce7;border-color:#16a34a;color:#14532d}
 .banner.bad{background:#fee2e2;border-color:#dc2626;color:#7f1d1d}
+.banner.warn{background:#fffbeb;border-color:#f59e0b;color:#78350f}
 .banner code{background:rgba(255,255,255,.6);padding:.05em .35em;border-radius:.2rem}
 
 .field{display:block;margin:.75rem 0}
@@ -804,6 +805,14 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 <div class="banner ok">{{ safeHTML (t .Lang "settings.saved_banner") }}</div>
 {{ else }}
 <div class="banner ok">{{ safeHTML (t .Lang "settings.saved_banner_noop") }}</div>
+{{ end }}
+{{/* A stored credential the save dropped because its destination changed
+     (applySMTPForm / applyAIAdvisorForm): the operator has to enter the
+     one for the new destination, and nothing else on the tab says so. */}}
+{{ if eq .CredentialCleared "smtp_password" }}
+<div class="banner warn">{{ t .Lang "settings.saved_banner_smtp_pw_cleared" }}</div>
+{{ else if eq .CredentialCleared "ai_api_key" }}
+<div class="banner warn">{{ t .Lang "settings.saved_banner_ai_key_cleared" }}</div>
 {{ end }}
 {{ end }}
 {{ if .Error }}
@@ -6565,6 +6574,11 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       if (res.data.ok === 1) {
         result.textContent = '{{ t .Lang "settings.smtp.test_ok" }}';
         result.style.color = '#15803d';
+      } else if (res.data.error === 'password_required') {
+        // The saved password only goes to the saved relay; another host,
+        // port or username needs the password typed in.
+        result.textContent = '{{ t .Lang "settings.smtp.test_ng" }}: {{ t .Lang "settings.smtp.test_password_required" }}';
+        result.style.color = '#b91c1c';
       } else {
         result.textContent = '{{ t .Lang "settings.smtp.test_ng" }}: ' + (res.data.error || res.status);
         result.style.color = '#b91c1c';

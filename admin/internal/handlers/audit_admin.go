@@ -3,10 +3,11 @@
 // Display: reverse chronological. 5 columns (user / action / target / detail / at).  paging via ?offset=N.
 //
 // Settings-save rows carry a JSON payload in `detail` (= before/after yaml
-// snapshots + computed unified diff).  The template renders an expandable
-// diff block per row plus a "restore" form to re-apply the captured `before`
-// snapshot.  Limit: only the last 7 days are retained for rollback purposes
-// (= pruned by PruneOldAudit on a daily schedule, configured elsewhere).
+// snapshots, secrets redacted, + computed unified diff).  The template
+// renders an expandable diff block per row plus a "restore" form to re-apply
+// the captured `before` snapshot (with the live secrets put back).  Limit:
+// only the last 7 days are retained for rollback purposes (= pruned by
+// PruneOldAudit on a daily schedule, configured elsewhere).
 package handlers
 
 import (
@@ -30,9 +31,22 @@ const auditPageSize = 100
 // AuditSettingsDetail is the JSON payload stored on settings_save audit rows.
 type AuditSettingsDetail struct {
 	Section string `json:"section"`
-	Before  string `json:"before,omitempty"` // full yaml snapshot pre-save
-	After   string `json:"after,omitempty"`  // full yaml snapshot post-save
+	Before  string `json:"before,omitempty"` // full yaml snapshot pre-save, secrets redacted (auditSnapshotYAML)
+	After   string `json:"after,omitempty"`  // full yaml snapshot post-save, likewise
 	Diff    string `json:"diff,omitempty"`   // unified-diff-ish text (changed lines only)
+}
+
+// auditSnapshotYAML is the yaml an audit row stores for a Settings: the
+// canonical form (settings.MarshalYAML) with every credential replaced by
+// the redaction marker.  A row is kept for the retention window and shown,
+// diffed, to the admin role, so a key that passed through one in the clear
+// would outlive its rotation there -- bv_secret among them, which signs the
+// admin sessions.  AdminAuditRestore puts the live values back where the
+// marker is (Settings.WithSecretsFrom).  One consequence to know: a rotated
+// secret redacts to the same marker on both sides, so the row's diff does
+// not show that it changed.
+func auditSnapshotYAML(s settings.Settings) (string, error) {
+	return settings.MarshalYAML(s.WithSecretsRedacted())
 }
 
 // auditEnriched: row + parsed detail (= the template renders Diff inline and
@@ -188,7 +202,7 @@ func (h *Handler) AdminSettingsSnapshot(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, i18n.Tf(i18n.Resolve(r), "err.value_long", snapshotNameMax), http.StatusBadRequest)
 		return
 	}
-	curYAML, err := settings.MarshalYAML(h.snapshotSettings())
+	curYAML, err := auditSnapshotYAML(h.snapshotSettings())
 	if err != nil {
 		http.Error(w, "marshal: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -287,8 +301,15 @@ func (h *Handler) AdminAuditRestore(w http.ResponseWriter, r *http.Request) {
 		redir("snapshot parse: " + err.Error())
 		return
 	}
+	// The snapshot carries the redaction marker where a secret was
+	// (auditSnapshotYAML), so each takes its live value back before the
+	// write; the marker would otherwise replace the real key -- bv_secret
+	// first of all, which logs every admin out.  A row from before the
+	// redaction holds the key itself and restores as it always did.
+	live := h.snapshotSettings()
+	restored = restored.WithSecretsFrom(live)
 	// Capture current state for the new audit row (= "restore" is itself a save).
-	curBefore, _ := settings.MarshalYAML(h.snapshotSettings())
+	curBefore, _ := auditSnapshotYAML(live)
 	if err := settings.Save(restored, h.ConfigPath); err != nil {
 		redir("save: " + err.Error())
 		return
@@ -306,7 +327,7 @@ func (h *Handler) AdminAuditRestore(w http.ResponseWriter, r *http.Request) {
 
 	// New audit row documenting the restore: target = source-row id;
 	// detail = the diff from current state back to the restored snapshot.
-	curAfter, _ := settings.MarshalYAML(restored)
+	curAfter, _ := auditSnapshotYAML(restored)
 	det := AuditSettingsDetail{
 		Section: "_restore",
 		Before:  curBefore,
@@ -392,7 +413,9 @@ func UnifiedDiff(before, after string) string {
 
 // auditWriteSettingsSave: shared between AdminSettingsSave and any other
 // caller that needs to record a settings_save audit with before/after diff.
-// Pass nil ctx to fall back to context.Background.
+// beforeYAML / afterYAML come from auditSnapshotYAML -- the row stores and
+// diffs exactly what it is given, so a raw settings.MarshalYAML here would
+// put the secrets back in.  Pass nil ctx to fall back to context.Background.
 func auditWriteSettingsSave(ctx context.Context, h *Handler, userID int64,
 	username, section, beforeYAML, afterYAML string) {
 	if h.UserRepo == nil {

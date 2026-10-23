@@ -4884,15 +4884,6 @@ func BackfillExtraVerdictIDs(s *Settings) {
 	}
 }
 
-// Save writes the settings to path atomically. Existing file comments are
-// lost (= yaml.v3 marshal does not preserve comments). To compensate, prepend
-// a header stating "managed by the web UI".
-//
-// atomic write: write to a temp file in the same dir → fsync → rename
-// (= POSIX atomic). Permission is 0600 (= secrets are included).
-// WithSecretsRedacted returns a copy with secret fields blanked, for the
-// settings EXPORT / audit display.  bv_secret is the admin session-signing key
-// (session.go), so an unredacted export lets an admin-role downloader forge a
 // AIAdvisorConfig: the optional LLM layer of the ban advisor (Phase 2 of the
 // advisor design).  OFF by default and inert without a key -- the deterministic
 // candidate engine is what every install gets.  When it is on, unmask sends a
@@ -4993,22 +4984,127 @@ func (c AIAdvisorConfig) ResolvedModel() string {
 	}
 }
 
-// superadmin session and mint _bv bypass cookies for every site; the rest are
-// credentials.  Only scalar string fields are touched, so the value-receiver
-// copy fully isolates the original.  Keep in sync with the index page masks.
+// redactedSecret stands in for a secret in a redacted copy (WithSecretsRedacted).
+// WithSecretsFrom recognises it, so a redacted snapshot can be re-applied
+// without the marker overwriting the real key.
+const redactedSecret = "***REDACTED***"
+
+// secretFields lists every credential a Settings carries outside the per-site
+// challenge records, as pointers into s: the ONE list WithSecretsRedacted
+// blanks and WithSecretsFrom refills, so a field added to one cannot be
+// missed by the other.  The per-site records go through
+// challengeSecretFields, keyed by site, so a snapshot's record can be paired
+// with the live record of the same site.
+//
+// What counts: bv_secret is the admin session-signing key (session.go), so
+// a copy of it lets an admin-role reader forge a superadmin session and mint
+// _bv bypass cookies for every site; the rest are credentials for other
+// systems (the DB, the mail relay, the hub, the model provider), where a
+// chat webhook URL is the credential (anyone holding it can post to the
+// channel) and the test-page password gates pages the operator chose to
+// expose.  Public site keys, key file PATHS and the hub's token-file path
+// are not secrets and stay.
+func secretFields(s *Settings) []*string {
+	out := []*string{
+		&s.Secret.BVSecret,
+		&s.Secret.CaptchaSecretBase,
+		&s.DB.MariaDB.Password,
+		&s.SMTP.Password,
+		&s.CommunityBans.Token,
+		&s.AIAdvisor.APIKey,
+		&s.Notifications.URL,
+	}
+	return append(out, challengeSecretFields(&s.Challenge.Default)...)
+}
+
+// challengeSecretFields: the credentials of one challenge record -- the
+// CAPTCHA provider's secret keys (the site keys are public, they are in the
+// page) and the test-page password.
+func challengeSecretFields(v *ChallengeValues) []*string {
+	c := &v.CaptchaProvider
+	return []*string{
+		&c.TurnstileSecretKey,
+		&c.HCaptchaSecretKey,
+		&c.RecaptchaSecretKey,
+		&v.PublicTestPagesPassword,
+	}
+}
+
+// mapChallengeSites returns a copy of sites with fn applied to each record.
+// The map is the one thing a value copy of Settings shares with the
+// original, so it is rebuilt rather than written through; nil stays nil so
+// the yaml of an install without site records does not change.
+func mapChallengeSites(sites map[string]ChallengeValues, fn func(name string, v *ChallengeValues)) map[string]ChallengeValues {
+	if sites == nil {
+		return nil
+	}
+	out := make(map[string]ChallengeValues, len(sites))
+	for name, v := range sites {
+		fn(name, &v)
+		out[name] = v
+	}
+	return out
+}
+
+// WithSecretsRedacted returns a copy with every secret (secretFields, plus
+// the per-site challenge records) replaced by redactedSecret, for the
+// settings EXPORT, the audit rows and anything else that leaves the process
+// or outlives the value.  An empty secret stays empty, so the copy still
+// says which credentials are configured.  Only scalar string fields are
+// written and the site map is rebuilt, so the receiver's copy fully
+// isolates the original.
+//
+// The settings UI masks the same credentials where it shows a field for
+// them (the SMTP password, the hub token, the AI key and the CAPTCHA secret
+// keys render blank / as a placeholder; bv_secret, captcha_secret_base and
+// the DB password have no field).  The webhook URL and the test-page
+// password are the exception: the operator edits them in place, and an
+// admin-role viewer of the live tab can already change them -- what this
+// copy guards against is a key leaving in a file or sitting in a retained
+// audit row past its rotation.
 func (s Settings) WithSecretsRedacted() Settings {
-	const r = "***REDACTED***"
 	redact := func(p *string) {
 		if *p != "" {
-			*p = r
+			*p = redactedSecret
 		}
 	}
-	redact(&s.Secret.BVSecret)
-	redact(&s.Secret.CaptchaSecretBase)
-	redact(&s.DB.MariaDB.Password)
-	redact(&s.SMTP.Password)
-	redact(&s.CommunityBans.Token)
-	redact(&s.AIAdvisor.APIKey)
+	for _, p := range secretFields(&s) {
+		redact(p)
+	}
+	s.Challenge.Sites = mapChallengeSites(s.Challenge.Sites, func(_ string, v *ChallengeValues) {
+		for _, p := range challengeSecretFields(v) {
+			redact(p)
+		}
+	})
+	return s
+}
+
+// WithSecretsFrom returns a copy of s in which every secret that holds the
+// redaction marker is replaced by live's value for the same field: the
+// inverse of WithSecretsRedacted for the audit-restore path, which re-applies
+// a stored snapshot as the live settings and would otherwise write the
+// marker over a real key.  A secret the snapshot holds in the clear (a row
+// written before the redaction) or empty is applied as it is.  A site record
+// whose site no longer exists in live has nothing to take the value from and
+// gets an empty one: the record still names its provider, and the key is
+// the operator's to enter again.
+func (s Settings) WithSecretsFrom(live Settings) Settings {
+	refill := func(p *string, from string) {
+		if *p == redactedSecret {
+			*p = from
+		}
+	}
+	liveFields := secretFields(&live)
+	for i, p := range secretFields(&s) {
+		refill(p, *liveFields[i])
+	}
+	s.Challenge.Sites = mapChallengeSites(s.Challenge.Sites, func(name string, v *ChallengeValues) {
+		liveSite := live.Challenge.Sites[name]
+		liveFields := challengeSecretFields(&liveSite)
+		for i, p := range challengeSecretFields(v) {
+			refill(p, *liveFields[i])
+		}
+	})
 	return s
 }
 
@@ -5104,6 +5200,12 @@ func preservedUnknownYAML(path string) []byte {
 	return b
 }
 
+// Save writes the settings to path atomically. Existing file comments are
+// lost (= yaml.v3 marshal does not preserve comments). To compensate, prepend
+// a header stating "managed by the web UI".
+//
+// atomic write: write to a temp file in the same dir → fsync → rename
+// (= POSIX atomic). Permission is 0600 (= secrets are included).
 func Save(s Settings, path string) error {
 	// An explicit false on a Default record is the same as unset (nothing sits
 	// above Default to inherit from), and persisting it would rewrite the file
