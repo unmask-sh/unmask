@@ -97,7 +97,14 @@ typedef struct {
     char   **keys;      /* pointers into buf */
     char   **actions;   /* parallel array, same length as keys */
     size_t   nkeys;
-    time_t   mtime;     /* last seen mtime to skip reloads */
+    /* Identity of the file last loaded, to skip reloads.  mtime alone is a
+     * whole second, and the admin flushes the file on every ban it places
+     * (tmp + rename, so a new inode each time): two bans in the same second
+     * left the second one unapplied until some later write landed in a
+     * different second.  Size and inode tell those apart. */
+    time_t   mtime;
+    off_t    size;
+    ino_t    ino;
 } ngx_unmask_banlist_t;
 
 /* per-worker ban list. Reloaded lazily on every variable evaluation if mtime changed. */
@@ -959,8 +966,22 @@ ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
  *   UNMASK_BV_KIND_PASSTHROUGH : 3-segment HMAC OK, kind "passthrough" (= handed out while
  *                            monitoring mode / the over-block breaker suspended enforcement;
  *                            nobody proved anything for it)
- *   UNMASK_BV_KIND_OTHER   : 3-segment HMAC OK, a kind this plugin does not know
- *   UNMASK_BV_KIND_POW     : 4-segment djb2 verification OK (= PoW-passed repeat visitor)
+ *   UNMASK_BV_KIND_POW     : 4-segment SHA-256 PoW verification OK (= PoW-passed repeat
+ *                            visitor), or the 3-segment kind "pow" the admin signs for the
+ *                            math fallback's downgraded pass
+ *
+ * A 3-segment entry whose kind is none of those does NOT verify, even with a
+ * genuine signature.  The kind segment is the tail of the HMAC input, and one
+ * other message this secret signs has exactly that shape: the PoW seed is
+ * HMAC(secret, "<issued>:<ip>:<host>:pow_seed"), and the challenge page hands
+ * it to every visitor in the clear.  Read as a kind, the seed's first 16 hex
+ * digits were a valid signature of kind "pow_seed" -- a pass with no hashing
+ * done, for the CAPTCHA validity window.  Refusing unknown kinds closes that
+ * without touching the seed derivation (which the admin would have to change
+ * in the same breath, and a daemon upgraded ahead of an nginx reload would
+ * then mint seeds the running plugin cannot verify).  The admin's verifier
+ * (cookies.issuedKinds) keeps the same list; a new kind goes into both or
+ * neither.
  *
  * The 3-segment forms are told apart by the kind segment the admin signed
  * into the cookie, because the difference is not cosmetic: a rebind entry
@@ -987,7 +1008,6 @@ typedef enum {
     UNMASK_BV_KIND_POW         = 2,
     UNMASK_BV_KIND_REBIND      = 3,
     UNMASK_BV_KIND_PASSTHROUGH = 4,
-    UNMASK_BV_KIND_OTHER       = 5,
 } ngx_unmask_bv_kind_t;
 
 /* Compare the parsed kind segment against a literal.  The segment is bounded
@@ -1178,17 +1198,17 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
          * invalidating the signature.  Read it rather than assuming CAPTCHA;
          * see the enum for what that assumption cost.
          *
-         * A kind this plugin does not know reads as "other", never as
-         * "captcha".  That is the whole lesson of the previous shape: treating
-         * an unrecognized kind as a CAPTCHA pass is what made "rebind"
-         * invisible, and it fails in the unsafe direction every time the admin
-         * gains a kind the plugin has not learned yet.  "other" is honest
-         * (something verified, we cannot say what) and it satisfies no
-         * grade requirement. */
+         * A kind this plugin does not know does not verify at all.  An
+         * earlier shape read it as "other" (verified, grade unknown), which
+         * was honest about the grade but still a pass -- and the PoW seed,
+         * signed over the same message shape with "pow_seed" in the kind
+         * slot, is exactly such an unknown kind (see the enum comment).  The
+         * list below is the admin's issuing vocabulary; it refuses the rest. */
         if (UNMASK_TAIL_IS(fields, cookie, "rebind"))      return UNMASK_BV_KIND_REBIND;
         if (UNMASK_TAIL_IS(fields, cookie, "passthrough")) return UNMASK_BV_KIND_PASSTHROUGH;
         if (UNMASK_TAIL_IS(fields, cookie, "captcha"))     return UNMASK_BV_KIND_CAPTCHA;
-        return UNMASK_BV_KIND_OTHER;
+        if (UNMASK_TAIL_IS(fields, cookie, "pow"))         return UNMASK_BV_KIND_POW;
+        return UNMASK_BV_KIND_NONE;
     }
     return UNMASK_BV_KIND_NONE;
 }
@@ -1197,30 +1217,35 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
  * MaxBVEntries per-IP signatures (= a roaming client accumulates one per
  * network it solved on, so 5G<->wifi switching doesn't re-challenge).  Splits
  * on '~' and returns the first entry whose kind verifies for the current IP;
- * the per-entry 80-byte / format / HMAC / PoW checks live in verify_one.  Caps
- * inspected entries so an oversized hostile cookie can't force unbounded
- * hashing.  MUST mirror cookies.Verify's any-match in the Go package. */
+ * the per-entry 80-byte / format / HMAC / PoW checks live in verify_one.
+ * `budget` is how many entries this REQUEST may still verify, shared across
+ * every `_bv=` pair the client sent (kind_compute below): the cap used to be
+ * per value, and the number of values was unbounded, so a Cookie header of
+ * a few KB of `_bv=` pairs cost the worker one HMAC and SHA-256 per 35 bytes,
+ * two or three times per request as the templates read the variable.  MUST
+ * mirror cookies.Verify's any-match in the Go package. */
+#define UNMASK_BV_VERIFY_BUDGET 16
+
 static ngx_unmask_bv_kind_t
 ngx_unmask_bv_verify_value(ngx_http_request_t *r,
                            ngx_http_ja4_main_conf_t *mcf,
-                           ngx_str_t value)
+                           ngx_str_t value, int *budget)
 {
     u_char *p   = value.data;
     u_char *end = value.data + value.len;
-    int     n   = 0;
 
-    while (p < end && n < 16) {
+    while (p < end && *budget > 0) {
         u_char   *tilde = ngx_strlchr(p, end, '~');
         ngx_str_t entry;
         entry.data = p;
         entry.len  = (size_t)((tilde ? tilde : end) - p);
+        (*budget)--;
         ngx_unmask_bv_kind_t k = ngx_unmask_bv_verify_one(r, mcf, entry);
         if (k != UNMASK_BV_KIND_NONE) {
             return k;
         }
         if (tilde == NULL) break;
         p = tilde + 1;
-        n++;
     }
     return UNMASK_BV_KIND_NONE;
 }
@@ -1257,8 +1282,9 @@ ngx_unmask_bv_kind_compute(ngx_http_request_t *r)
 
     size_t off = 0;
     ngx_str_t cookie;
-    while (ngx_unmask_next_bv_value(header, &off, &cookie)) {
-        ngx_unmask_bv_kind_t k = ngx_unmask_bv_verify_value(r, mcf, cookie);
+    int budget = UNMASK_BV_VERIFY_BUDGET;
+    while (budget > 0 && ngx_unmask_next_bv_value(header, &off, &cookie)) {
+        ngx_unmask_bv_kind_t k = ngx_unmask_bv_verify_value(r, mcf, cookie, &budget);
         if (k != UNMASK_BV_KIND_NONE) {
             return k;
         }
@@ -1277,7 +1303,6 @@ ngx_http_unmask_bv_kind_variable(ngx_http_request_t *r,
     static const u_char pow[]     = "pow";
     static const u_char rebind[]  = "rebind";
     static const u_char passth[]  = "passthrough";
-    static const u_char other[]   = "other";
     static const u_char empty[]   = "";
 
     v->valid = 1;
@@ -1300,10 +1325,6 @@ ngx_http_unmask_bv_kind_variable(ngx_http_request_t *r,
     case UNMASK_BV_KIND_PASSTHROUGH:
         v->data = (u_char *)passth;
         v->len  = sizeof(passth) - 1;
-        break;
-    case UNMASK_BV_KIND_OTHER:
-        v->data = (u_char *)other;
-        v->len  = sizeof(other) - 1;
         break;
     default:
         v->data = (u_char *)empty;
@@ -1539,12 +1560,20 @@ static void ngx_unmask_maybe_reload_banlist(const char *path) {
             ngx_unmask_banlist.actions = NULL;
             ngx_unmask_banlist.nkeys = 0;
             ngx_unmask_banlist.mtime = 0;
+            ngx_unmask_banlist.size = 0;
+            ngx_unmask_banlist.ino = 0;
         }
         return;
     }
-    if (st.st_mtime == ngx_unmask_banlist.mtime) return;
+    if (st.st_mtime == ngx_unmask_banlist.mtime
+        && st.st_size == ngx_unmask_banlist.size
+        && st.st_ino == ngx_unmask_banlist.ino) {
+        return;
+    }
     if (ngx_unmask_load_banlist(path) == 0) {
         ngx_unmask_banlist.mtime = st.st_mtime;
+        ngx_unmask_banlist.size = st.st_size;
+        ngx_unmask_banlist.ino = st.st_ino;
     }
 }
 

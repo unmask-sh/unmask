@@ -161,3 +161,37 @@ func TestPowSeedRoundTrip(t *testing.T) {
 		t.Fatal("PoW cookie must NOT verify under a different secret (offline precompute)")
 	}
 }
+
+// The PoW seed is HMAC(secret, "<issued>:<ip>:<host>:pow_seed") and the
+// challenge page hands it to every visitor, so its first 16 hex digits used to
+// verify as a 3-segment entry of kind "pow_seed" -- a pass with no hashing at
+// all.  The kind segment is now an allowlist of what the admin issues.
+func TestVerifyRejectsPowSeedAsSignature(t *testing.T) {
+	const secret = "test-secret-please-change"
+	issued := nowUnix()
+	seed := PowSeed(secret, "1.2.3.4", host, issued)
+	forged := strconv.FormatInt(issued, 10) + "." + seed[:16] + ".pow_seed"
+	if Verify(forged, secret, "1.2.3.4", host, threeDays, threeDays, 18) {
+		t.Fatalf("PoW seed accepted as a cookie signature: %s", forged)
+	}
+	if _, ok := MatchingEntryKind(forged, secret, "1.2.3.4", host, threeDays, threeDays, 18); ok {
+		t.Fatalf("MatchingEntryKind accepted the forged pow_seed entry")
+	}
+	// The words the admin does issue still verify.
+	for _, kind := range []string{"captcha", "rebind", "passthrough", "pow"} {
+		v := IssueValue(secret, "1.2.3.4", host, kind)
+		if !Verify(v, secret, "1.2.3.4", host, threeDays, threeDays, 18) {
+			t.Fatalf("issued kind %q no longer verifies", kind)
+		}
+	}
+}
+
+// A kind the admin never mints is refused even with a genuine signature, so a
+// future kind has to be added on both the issuer and the verifier at once.
+func TestVerifyRejectsUnknownKind(t *testing.T) {
+	const secret = "test-secret-please-change"
+	v := IssueValue(secret, "1.2.3.4", host, "webauthn")
+	if Verify(v, secret, "1.2.3.4", host, threeDays, threeDays, 18) {
+		t.Fatalf("unknown kind verified: %s", v)
+	}
+}

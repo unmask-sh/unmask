@@ -2269,10 +2269,21 @@ func hardDenyUA(ua string, n settings.Nginx) bool {
 func pickValidBV(r *http.Request, cfg settings.Settings, ip, site string) (string, string) {
 	ch := cfg.Challenge.Resolve(site)
 	host := requestHost(r) // must match the host the cookie was issued for
+	// How many `_bv` values this request may still verify.  MatchingEntryKind
+	// caps the entries inside one value (cookies.maxVerifyEntries), but a
+	// client can send any number of `_bv=` pairs, and each one costs an HMAC
+	// and a SHA-256 per entry; the native plugin bounds the same work with one
+	// per-request budget.  Four values is more than a browser carrying a stale
+	// cookie beside the fresh one ever presents.
+	budget := 4
 	for _, c := range r.Cookies() {
 		if c.Name != "_bv" {
 			continue
 		}
+		if budget == 0 {
+			break
+		}
+		budget--
 		// Upper bound generous enough for a full 16-entry "~"-list of per-IP
 		// signatures (~35 bytes each); MatchingEntryKind any-matches the entries.
 		if c.Value == "" || len(c.Value) > 1024 {

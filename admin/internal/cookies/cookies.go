@@ -246,6 +246,9 @@ func verifyOne(value, bvSecret, remoteIP, host string, powValidSeconds, captchaV
 		return false
 	}
 	kind := parts[2]
+	if !issuedKinds[kind] {
+		return false
+	}
 	if !withinWindow(issued, captchaValidSeconds) {
 		return false
 	}
@@ -253,6 +256,27 @@ func verifyOne(value, bvSecret, remoteIP, host string, powValidSeconds, captchaV
 	// reproduces the signature only if the cookie was minted for this same host.
 	expected := issueValueAt(bvSecret, remoteIP, host, kind, issued)
 	return hmac.Equal([]byte(expected), []byte(value))
+}
+
+// issuedKinds are the words the admin actually signs into the kind segment of
+// a 3-segment entry.  The verifier accepts no other word there, and the reason
+// is not tidiness: the kind is the tail of the HMAC input, and one other
+// message this secret signs has the same shape.  The PoW seed is
+// HMAC(secret, "<issued>:<ip>:<host>:pow_seed") -- the string the challenge
+// page hands every visitor in the clear -- so its first 16 hex digits WERE a
+// valid signature of kind "pow_seed", and a client could present
+// "<issued>.<seed[:16]>.pow_seed" as a pass without hashing once, for the
+// CAPTCHA window rather than the PoW one.  Listing the kinds closes that
+// without changing the seed derivation, which the C plugin would have to
+// change in the same breath (a daemon upgraded ahead of an nginx reload would
+// otherwise mint seeds the running plugin cannot verify).  MUST stay in step
+// with the plugin's kind switch in ngx_unmask_bv_verify_one, which refuses an
+// unknown kind for the same reason; add a kind in both places or nowhere.
+var issuedKinds = map[string]bool{
+	"captcha":     true,
+	"rebind":      true,
+	"passthrough": true,
+	"pow":         true, // the math fallback's downgraded pass (handlers.VerifyJSON)
 }
 
 // withinWindow: true iff issued is no further in the future than the small
