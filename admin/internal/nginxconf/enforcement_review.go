@@ -104,6 +104,18 @@ func HeldEnforcementPresets(s settings.Settings) []HeldPreset {
 			Label: "Pass-cookie reuse cap", AddedIn: settings.ReuseAddedIn})
 	}
 
+	// The proof-of-work pass budget: default-on since PassBudgetAddedIn.
+	if !s.RateLimit.PassBudget.Disabled && EnforcementHeld(n, settings.PassBudgetAddedIn) {
+		out = append(out, HeldPreset{Category: "rate-limit", ID: "pass_budget",
+			Label: "Proof-of-work pass budget", AddedIn: settings.PassBudgetAddedIn})
+	}
+
+	// The UA-TLS consistency tier: default-on since UATLSAddedIn.
+	if s.Global.UATLSEnabled() && EnforcementHeld(n, settings.UATLSAddedIn) {
+		out = append(out, HeldPreset{Category: "ua", ID: "ua_tls_consistency",
+			Label: "UA-TLS consistency check", AddedIn: settings.UATLSAddedIn})
+	}
+
 	// Honeypot: only the default-on (non-opt-in) groups.  An opt-in group is
 	// active only when the operator listed it -- that is consent, not a surprise.
 	disH := toSet(n.Honeypot.DisabledPresets)
@@ -129,4 +141,17 @@ func HeldEnforcementPresets(s settings.Settings) []HeldPreset {
 // rate route both ask this, so the two wires cannot disagree.
 func ReuseCapActive(s settings.Settings) bool {
 	return !s.RateLimit.Reuse.Disabled && !EnforcementHeld(s.Nginx, settings.ReuseAddedIn)
+}
+
+// UATLSActive: whether the UA-TLS consistency tier is in force -- on (the
+// default) and not held by the upgrade review.  The render and the daemon's
+// serve both ask this, so the two wires cannot disagree.
+func UATLSActive(s settings.Settings) bool {
+	return s.Global.UATLSEnabled() && !EnforcementHeld(s.Nginx, settings.UATLSAddedIn)
+}
+
+// PassBudgetActive: whether the proof-of-work pass budget is in force -- on
+// (the default) and not held by the upgrade review.
+func PassBudgetActive(s settings.Settings) bool {
+	return !s.RateLimit.PassBudget.Disabled && !EnforcementHeld(s.Nginx, settings.PassBudgetAddedIn)
 }

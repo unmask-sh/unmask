@@ -26,6 +26,9 @@ func TestHeaderIntegrityRenderOff(t *testing.T) {
 func TestHeaderIntegrityRenderOn(t *testing.T) {
 	on := renderHTTPInc(t, func(s *settings.Settings) {
 		s.Global.HeaderIntegrity = true
+		// The UA-TLS tier (on by default) would consume this tier's result;
+		// off, the header tier is the last and writes $final_challenge.
+		s.Global.UATLSConsistencyDisabled = true
 	})
 	for _, want := range []string{
 		`map $http_user_agent $unmask_ua_chromium {`,

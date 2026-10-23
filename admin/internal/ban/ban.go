@@ -388,6 +388,57 @@ func (m *Manager) AddWithSourceAction(ctx context.Context, ip, ja4, source, reas
 	}
 }
 
+// AddAuto places a ban the daemon decided -- the proof-of-work pass budget's
+// -- with an explicit scope, action and lifetime under its own source.  The
+// bypass allowlist is honoured as everywhere; the write goes the way an
+// automatic ban's does (kept and enforced when the database cannot take it
+// at once); the row's action is pinned, since these sources have no default
+// of their own and the fallback would be a hard deny.
+func (m *Manager) AddAuto(ctx context.Context, ip, ja4, scope, source, reason, action string, expiresSec int64) {
+	if m == nil {
+		return
+	}
+	ip, ja4 = strings.TrimSpace(ip), strings.TrimSpace(ja4)
+	if ip == "" || m.isWhitelisted(ip) || validateBanKey(ip, ja4) != nil {
+		return
+	}
+	if scope == "" || (ja4 == "" && (scope == ScopeIPJA4 || scope == ScopeJA4Only)) {
+		scope = DeriveScope(ip, ja4)
+	} else {
+		scope = ValidateScope(scope)
+	}
+	action = strings.TrimSpace(action)
+	now := time.Now().Unix()
+	var expires int64
+	if expiresSec > 0 {
+		expires = now + expiresSec
+	}
+	keep := func() {
+		m.hold(heldBan{ip: ip, ja4: ja4, source: source, reason: reason,
+			action: action, scope: scope, bannedAt: now, expiresAt: expires})
+		m.markDirty()
+		if m.filePath != "" {
+			_ = m.flush()
+		}
+	}
+	if m.DB.WritesHeld() {
+		keep()
+		return
+	}
+	if err := m.upsertWithin(ctx, autoBanWriteWithin, ip, ja4, source, reason, now, expires, "", action, scope); err != nil {
+		keep()
+		m.wakeLoop()
+		return
+	}
+	m.markDirty()
+	if m.filePath != "" {
+		_ = m.flush()
+	}
+	if m.OnCreated != nil {
+		m.OnCreated(ip, ja4, source, reason, "")
+	}
+}
+
 // AddManual: manual BAN from the admin / CLI.  expiresSec=0 -> permanent.
 // action="" defers to settings.Bans.ManualDefaultAction at flush time;
 // pass a valid chain mode (= deny / pow_only / pow_then_captcha /

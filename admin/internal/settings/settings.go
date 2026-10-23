@@ -2875,6 +2875,24 @@ type GlobalConfig struct {
 	// and captcha_only are also honoured; deny is rejected on save so this axis
 	// can never hard-block.
 	HeaderIntegrityAction string `yaml:"header_integrity_action,omitempty"`
+	// UATLSConsistencyDisabled turns the UA-TLS consistency tier off.  On by
+	// default (a tightening added in UATLSAddedIn, held for review on an
+	// install that reviews its upgrades): a request whose TLS fingerprint
+	// says Chromium while its User-Agent names Firefox or Safari, or whose
+	// TLS session is 1.3 while the User-Agent names a browser version from
+	// before TLS 1.3, contradicts itself, and is escalated to a challenge when
+	// it would otherwise pass.  A contradiction, not a missing header: it
+	// does not reach the old browsers and stripping proxies the header tier
+	// spares.  A proxy that rewrites the User-Agent is the one population
+	// that can trip it, and is answered with a screen it can clear, never a
+	// deny.
+	UATLSConsistencyDisabled bool `yaml:"ua_tls_consistency_disabled,omitempty"`
+	// UATLSConsistencyAction: the chain the contradiction gets.  Empty ->
+	// captcha_only: the tier is for the client that solves the proof-of-work
+	// on every page under a borrowed name, so the screen is the one it cannot
+	// script.  pow_only / pow_then_captcha are honoured; deny is refused on
+	// save (UATLSResolvedAction).
+	UATLSConsistencyAction string `yaml:"ua_tls_consistency_action,omitempty"`
 	// StaleBrowserChallenge enables the stale-browser tier: a UA advertising a
 	// Chromium-family major version far behind the current stable is escalated
 	// to a CAPTCHA even when it would otherwise pass or only face PoW.  Off by
@@ -3171,6 +3189,26 @@ func (g GlobalConfig) HeaderIntegrityResolvedAction() string {
 		return g.HeaderIntegrityAction
 	default:
 		return RateChallengePoWThenCaptcha
+	}
+}
+
+// UATLSAddedIn: the release that turned the UA-TLS consistency tier on, for
+// the upgrade review.
+const UATLSAddedIn = "v0.1.53"
+
+// UATLSEnabled: the UA-TLS consistency tier is on (the default).  Whether it
+// is in force also depends on the upgrade review: nginxconf.UATLSActive.
+func (g GlobalConfig) UATLSEnabled() bool { return !g.UATLSConsistencyDisabled }
+
+// UATLSResolvedAction: the chain a UA-TLS contradiction gets.  Clamped to the
+// three challenge chains, deny never honoured; empty / anything else ->
+// captcha_only.
+func (g GlobalConfig) UATLSResolvedAction() string {
+	switch g.UATLSConsistencyAction {
+	case RateChallengePoWOnly, RateChallengeCaptchaOnly, RateChallengePoWThenCaptcha:
+		return g.UATLSConsistencyAction
+	default:
+		return RateChallengeCaptchaOnly
 	}
 }
 
@@ -3798,6 +3836,11 @@ type RateLimitConfig struct {
 	// only requests WITH a valid _bv, per client address, at volumes no
 	// person reaches.  On unless disabled.
 	Reuse ReuseLimitConfig `yaml:"reuse,omitempty"`
+	// PassBudget: the proof-of-work pass budget.  Reuse counts the requests
+	// a pass is used for; this counts the passes themselves, per address and
+	// fingerprint, and bans a client that solves far more often in a day
+	// than a person does.  On unless disabled.
+	PassBudget PassBudgetConfig `yaml:"pass_budget,omitempty"`
 	// Key: which fingerprint to count requests against.
 	//   "ip"     : $binary_remote_addr only (= default; behaves like classic limit_req)
 	//   "ja4"    : $effective_ja4 only (= one bucket per TLS fingerprint; catches
@@ -4009,6 +4052,72 @@ func (c ReuseLimitConfig) RatePerMin() int {
 		n = 1
 	}
 	return n
+}
+
+// PassBudgetConfig: the proof-of-work pass budget (RateLimitConfig.PassBudget).
+//
+// The reuse cap counts the requests a pass is used for.  This counts the
+// passes themselves: how many times one client -- an address and a TLS
+// fingerprint -- solves the proof-of-work in a day.  A person solves it once
+// per cookie lifetime on each network they use; a client that solves it on
+// every page, carrying no cookie from one to the next, solves hundreds of
+// times a day, and the reuse cap never sees it reuse anything.  Over the
+// budget the client is banned for BanHours (source rate_limit_abuse, the
+// address and the fingerprint together) under Action: captcha_only by
+// default, so a pass no longer passes and a CAPTCHA does; deny for the deny
+// page.  Counted from the passes the daemon records (pass_trace.go): an
+// address on the bypass list and a crawler verified by its range are never
+// counted, and a CAPTCHA pass is not a proof-of-work pass.  The seed sits
+// above what a shared address produces -- an office or carrier NAT whose
+// users run one browser build share a key, and each solves once per cookie
+// lifetime -- and far below a page-by-page solver.
+//
+// On by default -- a tightening added in PassBudgetAddedIn, held on the
+// "review" upgrade policy until acknowledged (nginxconf.PassBudgetActive).
+type PassBudgetConfig struct {
+	Disabled bool   `yaml:"disabled,omitempty"`
+	PerDay   int    `yaml:"per_day,omitempty"`   // 0 -> PassBudgetSeedPerDay
+	Action   string `yaml:"action,omitempty"`    // captcha_only (default) | deny
+	BanHours int    `yaml:"ban_hours,omitempty"` // 0 -> PassBudgetSeedBanHours
+}
+
+// PassBudgetSeedPerDay / PassBudgetSeedBanHours: the defaults (see
+// PassBudgetConfig).  PassBudgetAddedIn: the release that turned it on, for
+// the upgrade review.
+const (
+	PassBudgetAddedIn      = "v0.1.53"
+	PassBudgetSeedPerDay   = 500
+	PassBudgetMinPerDay    = 20
+	PassBudgetMaxPerDay    = 1000000
+	PassBudgetSeedBanHours = 24
+	PassBudgetMaxBanHours  = 24 * 30
+)
+
+// IsZero lets yaml.v3 honour omitempty: an untouched budget writes no key.
+func (c PassBudgetConfig) IsZero() bool { return c == PassBudgetConfig{} }
+
+// ResolvedPerDay / ResolvedBanHours: the stored value, or the seed when unset.
+func (c PassBudgetConfig) ResolvedPerDay() int {
+	if c.PerDay <= 0 {
+		return PassBudgetSeedPerDay
+	}
+	return c.PerDay
+}
+
+func (c PassBudgetConfig) ResolvedBanHours() int {
+	if c.BanHours <= 0 {
+		return PassBudgetSeedBanHours
+	}
+	return c.BanHours
+}
+
+// ResolvedAction: deny when set so, else captcha_only -- as the reuse cap's,
+// the two that mean anything to a client that solves the proof-of-work.
+func (c PassBudgetConfig) ResolvedAction() string {
+	if c.Action == RateChallengeDeny {
+		return RateChallengeDeny
+	}
+	return RateChallengeCaptchaOnly
 }
 
 // IsValidReuseAction: the actions the reuse cap accepts.

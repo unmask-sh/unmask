@@ -211,6 +211,9 @@ type Handler struct {
 	// passTrace is the beacon's per-address limit, the passes recorded and
 	// the beacons the limit dropped, all in memory (pass_trace.go).
 	passTrace passTrace
+	// solveBudget counts each client's proof-of-work passes for the pass
+	// budget (pass_budget.go).
+	solveBudget solveBudget
 	// usedCT remembers the proof-of-load tokens that already earned a pass,
 	// so one fetch of a challenge earns one pass (captcha.UsedSet).
 	usedCT captcha.UsedSet
@@ -1289,6 +1292,9 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	//	"ua_target"  : the UA matched the black list (ua-filter tab).  Resolved
 	//	               here rather than forwarded: native nginx fires this
 	//	               challenge off $is_challenge_target and sends no header.
+	//	"ua_tls"     : the User-Agent contradicts the TLS fingerprint (the
+	//	               UA-TLS consistency tier; X-UA-TLS-Mismatch names the
+	//	               contradiction, family or version)
 	//	"test"       : debug paths `?_test_ja4=1` / `?_force=captcha`
 	//
 	// Priority is determined by overwrite order (last writer wins).
@@ -1448,14 +1454,18 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// (header-integrity, stale-browser, ASN / country), so it lands in the
 	// CAPTCHA-force breakdown instead of folding into "none".  Gated on
 	// forceReason=="none" so a stronger reason (ja4_bot / honeypot / banned /
-	// protected / rate_limit) keeps its attribution; among these, header wins
-	// over stale wins over the network axis (most-specific first).  Placed
+	// protected / rate_limit) keeps its attribution; among these, ua_tls wins
+	// over header wins over stale wins over the network axis (most-specific
+	// first: a contradiction over an absence over an age).  Placed
 	// AFTER the rebind gate (so a roamed _bv holder is still re-bound silently,
 	// not re-challenged) and BEFORE the __CAPTCHA_FORCE__ marker below carries
 	// force_reason into the page.
 	if forceReason == "none" {
 		g := h.cfg().Global
-		if headerAxisFiresForServe(r, g) {
+		if uaTLSFiresForServe(r, *h.cfg()) {
+			forceReason = "ua_tls"
+		}
+		if forceReason == "none" && headerAxisFiresForServe(r, g) {
 			forceReason = "header"
 		}
 		if forceReason == "none" && staleBrowserFiresForServe(r, g) {
@@ -1838,6 +1848,13 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// only augments the native serve (a direct hit re-checks cheaply).
 	if g := h.cfg().Global; chMode != settings.RateChallengeDeny && headerAxisFiresForServe(r, g) {
 		chMode = g.HeaderIntegrityResolvedAction()
+	}
+	// UA-TLS consistency (native): the nginx tier named a contradiction between
+	// the User-Agent and the TLS fingerprint; the screen is the tier's own
+	// (default CAPTCHA), never softening a deny, and it wins over the header
+	// tier's as the attribution does.
+	if cfg := h.cfg(); chMode != settings.RateChallengeDeny && uaTLSFiresForServe(r, *cfg) {
+		chMode = cfg.Global.UATLSResolvedAction()
 	}
 	// A custom rule's own chain (native): the conf decided the request by
 	// one of the operator's rules and names its action on the internal
@@ -3245,6 +3262,9 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 		events.InsertAsync(h.DB, beacon)
 	} else if err := events.Insert(r.Context(), h.DB, beacon); err != nil && r.Context().Err() == nil {
 		events.InsertAsync(h.DB, beacon)
+	}
+	if kept {
+		h.countPass(ip, ja4, site, passKind) // the pass budget's count, once per pass
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 }

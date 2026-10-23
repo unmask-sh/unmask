@@ -32,6 +32,7 @@ import (
 //	protected       the path's pattern
 //	stale           chrome <major> / firefox <major>
 //	header          the check (no_sch_ua)
+//	ua_tls          the contradiction (family / version)
 //	banned          the ban's source
 //	community_bans  what matched (ip / ja4 / ip_ja4)
 //	ja4_bot         the verdict
@@ -64,6 +65,10 @@ func (h *Handler) forceEntry(r *http.Request, reason, verdict, ja4, origPath, si
 		if d, ok := headerDecideForServe(r, cfg.Global); ok {
 			return strings.TrimPrefix(d.reason, "header:")
 		}
+	case "ua_tls":
+		if e := strings.TrimSpace(r.Header.Get("X-UA-TLS-Mismatch")); uaTLSCheckNames[e] {
+			return e
+		}
 	case "banned":
 		if h.BanMgr != nil {
 			if src, ok := h.BanMgr.IsBannedSource(r.Context(), clientIP(r), ja4); ok {
@@ -87,6 +92,23 @@ func (h *Handler) forceEntry(r *http.Request, reason, verdict, ja4, origPath, si
 // not the page load's, so the check cannot be run again on it).
 var headerCheckNames = map[string]bool{"no_sch_ua": true}
 
+// uaTLSCheckNames: the contradictions the UA-TLS consistency tier names
+// (http.inc's $unmask_ua_tls_mismatch): a Chromium fingerprint under a
+// Firefox / Safari name, or a TLS 1.3 session under a pre-TLS 1.3 version.
+var uaTLSCheckNames = map[string]bool{"family": true, "version": true}
+
+// uaTLSFiresForServe reports whether the UA-TLS consistency tier escalated
+// this challenge serve: the tier is in force (on, and not held by the upgrade
+// review) and nginx named a contradiction on the internal rewrite
+// (X-UA-TLS-Mismatch; proxy_set_header overwrites a client's value).  Native
+// only: the forward-auth path is frozen and gets no new axis.
+func uaTLSFiresForServe(r *http.Request, s settings.Settings) bool {
+	if !nginxconf.UATLSActive(s) {
+		return false
+	}
+	return uaTLSCheckNames[strings.TrimSpace(r.Header.Get("X-UA-TLS-Mismatch"))]
+}
+
 // beaconForceEntry: the entry a beacon keeps for its force_reason, or "".
 // The page is the client's to rewrite, so the echoed value is kept only when
 // the daemon gets the same one again from what the beacon itself brings
@@ -106,6 +128,8 @@ func (h *Handler) beaconForceEntry(r *http.Request, raw map[string]any, ja4, sit
 		ok = h.VerdictNameToID(echoed) > 0
 	case "header":
 		ok = headerCheckNames[echoed]
+	case "ua_tls":
+		ok = uaTLSCheckNames[echoed]
 	case "honeypot":
 		ok = h.knownHoneypotRule(echoed)
 	case "protected":
@@ -293,6 +317,10 @@ func (h *Handler) forceEntryName(lang i18n.Lang, reason, entry string) string {
 	case "header":
 		if entry == "no_sch_ua" {
 			return i18n.T(lang, "captcha_force.header.no_sch_ua")
+		}
+	case "ua_tls":
+		if uaTLSCheckNames[entry] {
+			return i18n.T(lang, "captcha_force.ua_tls."+entry)
 		}
 	}
 	return entry

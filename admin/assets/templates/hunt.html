@@ -678,6 +678,7 @@ function dismissHuntTip(id){
     <select name="force_reason" title="{{ t .Lang "hunt.filter.force_reason_title" }}">
       <option value="">{{ t .Lang "hunt.filter.all_reason" }}</option>
       <option value="header"     {{ if eq .ForceReason "header"     }}selected{{ end }}>header</option>
+      <option value="ua_tls"     {{ if eq .ForceReason "ua_tls"     }}selected{{ end }}>ua_tls</option>
       <option value="stale"      {{ if eq .ForceReason "stale"      }}selected{{ end }}>stale</option>
       <option value="asn"        {{ if eq .ForceReason "asn"        }}selected{{ end }}>asn</option>
       <option value="geo"        {{ if eq .ForceReason "geo"        }}selected{{ end }}>geo</option>

@@ -1285,7 +1285,7 @@ map "$unmask_bp_global$unmask_bp_safe" $is_bypass_path {
 #   9. everything else                -> the Global axis's call
 #                                        ($unmatched_should_challenge: the
 #                                        known/unknown-UA bucket actions)
-map "{{ if .GradeCheckedPass }}$bv_pass_ok{{ else }}$bv_any_valid{{ end }}:$is_search_bot:$is_bypass_ip:$is_bypass_path:$unmask_cb_challenge:$is_net_challenge:$protected_mode:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if or .StaleBrowserEnabled .HeaderIntegrityEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
+map "{{ if .GradeCheckedPass }}$bv_pass_ok{{ else }}$bv_any_valid{{ end }}:$is_search_bot:$is_bypass_ip:$is_bypass_path:$unmask_cb_challenge:$is_net_challenge:$protected_mode:$is_challenge_target:$ja4_action:$serve_bot_challenge" {{ if or .StaleBrowserEnabled .HeaderIntegrityEnabled .UATLSEnabled }}$final_challenge_base{{ else }}$final_challenge{{ end }} {
     default 0;
     "~^1:"                            0;  # _bv valid (CAPTCHA or PoW pass, grade-checked) -> exempt
     # A crawler known by its name alone (the UA list, no vendor range): the
@@ -1336,9 +1336,10 @@ map $http_user_agent $unmask_stale_browser {
 }
 # Escalate only a not-otherwise-exempt, would-pass request (base=0) that is
 # stale.  Key: base : stale : search_bot : bypass_ip : bypass_path : bv_valid.
-# When the header-integrity tier also runs it consumes this result next, so
-# emit into an intermediate; otherwise this IS the final decision.
-map "$final_challenge_base:$unmask_stale_browser:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" {{ if .HeaderIntegrityEnabled }}$fc_after_stale{{ else }}$final_challenge{{ end }} {
+# When a later tier (header-integrity, UA-TLS consistency) also runs it
+# consumes this result next, so emit into an intermediate; otherwise this IS
+# the final decision.
+map "$final_challenge_base:$unmask_stale_browser:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" {{ if or .HeaderIntegrityEnabled .UATLSEnabled }}$fc_after_stale{{ else }}$final_challenge{{ end }} {
     default              $final_challenge_base;  # keep base decision (incl. all base=1 challenges)
     "~^0:1:0:0:0:0$"     1;                       # stale + no exemption + would-pass -> challenge
 }
@@ -1407,9 +1408,66 @@ map "$unmask_ua_chromium:$scheme:$unmask_http_modern:$http_sec_ch_ua" $unmask_he
 {{- end }}
 # Escalate a would-pass ({{ if .StaleBrowserEnabled }}post-stale{{ else }}base{{ end }}), not-otherwise-exempt request that mismatches.
 # Key: prev : mismatch : search_bot : bypass_ip : bypass_path : bv_valid.
-map "{{ if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base{{ end }}:$unmask_header_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" $final_challenge {
+map "{{ if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base{{ end }}:$unmask_header_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" {{ if .UATLSEnabled }}$fc_after_header{{ else }}$final_challenge{{ end }} {
     default          {{ if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base{{ end }};
     "~^0:1:0:0:0:0$" 1;   # mismatch + no exemption + would-pass -> challenge
+}
+{{- end }}
+{{- if .UATLSEnabled }}
+
+# -----------------------------------------------------------------------------
+# UA-TLS consistency tier (Global.UATLSConsistency)
+# -----------------------------------------------------------------------------
+# A User-Agent is a string anyone writes; the TLS fingerprint is what the
+# client's TLS library actually sent.  Two contradictions between them are
+# unambiguous: a Chromium fingerprint (TLS 1.3, Chrome's cipher list) under a
+# Firefox or Safari name, and a TLS 1.3 session under a browser version from
+# before TLS 1.3 (Chrome before 65, Firefox before 60, Safari before 12).
+# Neither has an innocent population of any size -- a proxy that rewrites the
+# User-Agent is the one that can trip it, and a person behind one clears the
+# screen.  Like the tiers above it only ESCALATES a not-otherwise-exempt,
+# would-pass request; the SCREEN is the operator's (default CAPTCHA), chosen
+# daemon-side, never deny.  Behind a TLS-terminating LB the fingerprint is
+# empty and the tier is silent.
+map $effective_ja4 $unmask_ja4_t13 {
+    default 0;
+    "~^t13" 1;   # the session negotiated TLS 1.3
+}
+map $effective_ja4 $unmask_ja4_chromium {
+    default 0;
+    # Chrome's cipher list on TLS 1.3, with h2 or h1 ALPN: Chrome, Edge, Opera,
+    # Brave, Electron -- everything that ships Chromium's TLS stack.
+    "~^t13d[0-9]+h[12]_8daaf6152771_" 1;
+}
+# The browser family the User-Agent names.  Chromium first: its string also
+# carries "Safari/", and a WebView's carries "Version/" too.
+map $http_user_agent $unmask_ua_tls_family {
+    default "";
+    "~(?:Chrome|Chromium|CriOS|Edg|OPR|HeadlessChrome)/" c;
+    "~(?:Firefox|FxiOS)/" f;
+    "~Version/[0-9][0-9.]* .*Safari/" s;
+}
+# A version from before the family spoke TLS 1.3, read against the family so
+# a WebView's "Version/4.0 ... Chrome/120" is Chrome 120, not Safari 4.
+map "$unmask_ua_tls_family:$http_user_agent" $unmask_ua_pre_tls13 {
+    default 0;
+    "~^c:.*Chrome/(?:[1-9]|[1-5][0-9]|6[0-4])\." 1;          # Chrome < 65
+    "~^f:.*Firefox/(?:[1-9]|[1-5][0-9])\." 1;                 # Firefox < 60
+    "~^s:.*Version/(?:[1-9]|1[01])\.[0-9.]* .*Safari/" 1;     # Safari < 12
+}
+# The contradiction, named: family (a Chromium fingerprint under another
+# browser's name) or version (TLS 1.3 under a pre-TLS 1.3 version); "" when
+# the two agree.  Forwarded to the daemon as the serve's entry (server.inc).
+map "$unmask_ja4_chromium:$unmask_ua_tls_family:$unmask_ja4_t13:$unmask_ua_pre_tls13" $unmask_ua_tls_mismatch {
+    default "";
+    "~^1:[fs]:" family;
+    "~^[01]:[cfs]:1:1$" version;
+}
+# Escalate a would-pass, not-otherwise-exempt request that contradicts itself.
+# Key: prev : mismatch : search_bot : bypass_ip : bypass_path : bv_valid.
+map "{{ if .HeaderIntegrityEnabled }}$fc_after_header{{ else if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base{{ end }}:$unmask_ua_tls_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" $final_challenge {
+    default               {{ if .HeaderIntegrityEnabled }}$fc_after_header{{ else if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base{{ end }};
+    "~^0:[a-z]+:0:0:0:0$" 1;   # a contradiction + no exemption + would-pass -> challenge
 }
 {{- end }}
 {{ if or .WebBotAuthEnabled .PrivacyPassEnabled }}

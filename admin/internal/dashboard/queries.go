@@ -1771,7 +1771,7 @@ func orderFlagsRows(by map[int]FlagsRow) []FlagsRow {
 //	"rate_limit" rate-limit redirect (= /_rl/...)
 //	"reuse_limit" the pass-cookie reuse cap's redirect (a valid pass over its budget)
 //	"test"       debug path (_test_ja4 / _force=captcha)
-//	"stale" / "header" / "ua_target" / "asn" / "geo"  the page-side axes
+//	"stale" / "header" / "ua_tls" / "ua_target" / "asn" / "geo"  the page-side axes
 //	"custom_rule" one of the operator's custom rules picked the challenge
 //	"unknown"    flag not recorded (= old challenge.html etc.; normally absent)
 type CaptchaForceRow struct {
@@ -1786,7 +1786,7 @@ type CaptchaForceRow struct {
 // so a reason added here is counted under its own name on both paths.  (The
 // two used to carry copies of their own, and the reasons added since --
 // community_bans, ua_target, custom_rule -- were counted as "unknown".)
-var captchaForceKinds = []string{"none", "ja4_bot", "honeypot", "banned", "community_bans", "protected", "rate_limit", "reuse_limit", "test", "stale", "header", "ua_target", "asn", "geo", "custom_rule", "unknown"}
+var captchaForceKinds = []string{"none", "ja4_bot", "honeypot", "banned", "community_bans", "protected", "rate_limit", "reuse_limit", "test", "stale", "header", "ua_tls", "ua_target", "asn", "geo", "custom_rule", "unknown"}
 
 // captchaForceNamed: captchaForceKinds without the "unknown" fallback.
 var captchaForceNamed = func() map[string]bool {

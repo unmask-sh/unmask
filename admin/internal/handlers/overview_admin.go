@@ -1209,7 +1209,7 @@ func resolveCompSegs(r *http.Request) map[string]bool {
 // daemon writes that is not here still gets a row, under its raw value.
 var overviewReasonOrder = []string{
 	"ja4_bot", "ua_target", "custom_rule", "protected", "honeypot", "banned", "community_bans",
-	"header", "stale", "asn", "geo", "rate_limit", "reuse_limit",
+	"ua_tls", "header", "stale", "asn", "geo", "rate_limit", "reuse_limit",
 	"ua_deny", "ja4_deny", "asn_deny", "geo_deny", "community_deny", "axis_deny",
 	"none", "test",
 }
@@ -1226,6 +1226,7 @@ var overviewReasonSettings = map[string]struct{ path, name string }{
 	"ua_target":      {"settings/ua-filter/", "settings.tab.ua_filter"},
 	"ua_deny":        {"settings/ua-filter/", "settings.tab.ua_filter"},
 	"header":         {"settings/ua-filter/#ua-header", "settings.tab.ua_filter"},
+	"ua_tls":         {"settings/ua-filter/#ua-tls", "settings.tab.ua_filter"},
 	"stale":          {"settings/ua-filter/#ua-stale", "settings.tab.ua_filter"},
 	"custom_rule":    {"settings/custom-rules/", "settings.tab.custom_rules"},
 	"protected":      {"settings/protected/", "settings.tab.protected"},

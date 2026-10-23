@@ -357,6 +357,12 @@ location @unmask_rate_challenge {
     # daemon re-deriving a decision it cannot see behind a TLS-terminating LB.
     proxy_set_header   X-Header-Mismatch $unmask_header_mismatch;
 {{- end }}
+{{- if .UATLSEnabled }}
+    # UA-TLS consistency tier (native): the nginx maps named the contradiction
+    # (family / version); hand it to ServeChallenge so the serve is attributed
+    # force_reason="ua_tls" with that entry and gets the tier's screen.
+    proxy_set_header   X-UA-TLS-Mismatch $unmask_ua_tls_mismatch;
+{{- end }}
     # Strip every X-Original-* / X-Forwarded-Host / X-Unmask-Site so a visitor
     # can't smuggle a lenient site's identity through a header (= would reach
     # handlers.go siteFromRequest's fallback chain and resolve a different

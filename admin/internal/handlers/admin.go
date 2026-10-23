@@ -359,6 +359,9 @@ func loadDashboardTemplate() (*template.Template, error) {
 			// enabled with blank fields).
 			"reuseSeedPerDay": func() int { return settings.ReuseSeedPerDay },
 			"reuseSeedBurst":  func() int { return settings.ReuseSeedBurst },
+			// The proof-of-work pass budget's seeds, as placeholders.
+			"passBudgetSeedPerDay":   func() int { return settings.PassBudgetSeedPerDay },
+			"passBudgetSeedBanHours": func() int { return settings.PassBudgetSeedBanHours },
 			"uaSummaryBrowser": func(sum string) string {
 				_, b := classify.UASummaryParts(sum)
 				return b

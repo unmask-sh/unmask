@@ -1605,6 +1605,16 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		default:
 			cur.Global.HeaderIntegrityAction = ""
 		}
+		// UA-TLS consistency tier: on by default, so the checkbox stores its
+		// inverse; the action as the header tier's, blank meaning the
+		// captcha_only default (UATLSResolvedAction), deny never accepted.
+		cur.Global.UATLSConsistencyDisabled = r.FormValue("ua_tls_consistency") != "1"
+		switch a := strings.TrimSpace(r.FormValue("ua_tls_consistency_action")); a {
+		case settings.RateChallengePoWOnly, settings.RateChallengeCaptchaOnly, settings.RateChallengePoWThenCaptcha:
+			cur.Global.UATLSConsistencyAction = a
+		default:
+			cur.Global.UATLSConsistencyAction = ""
+		}
 		parseIntInRange := func(v string, lo, hi int) int {
 			n, err := strconv.Atoi(strings.TrimSpace(v))
 			if err != nil || n < lo || n > hi {
@@ -5076,7 +5086,48 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 		})
 	}
 	c.Zones = zones
-	return applyReuseForm(&c.Reuse, r)
+	if err := applyReuseForm(&c.Reuse, r); err != nil {
+		return err
+	}
+	return applyPassBudgetForm(&c.PassBudget, r)
+}
+
+// applyPassBudgetForm reads the proof-of-work pass budget's fields the way
+// applyReuseForm reads the reuse cap's: a blank number keeps the seed (stored
+// as 0), captcha_only is stored as "", on is the default, and a form without
+// the fields leaves it as stored.
+func applyPassBudgetForm(pb *settings.PassBudgetConfig, r *http.Request) error {
+	if _, ok := r.Form["pass_budget_action"]; !ok {
+		return nil
+	}
+	next := settings.PassBudgetConfig{Disabled: r.FormValue("pass_budget_enabled") == ""}
+	readInt := func(field string, minV, maxV int) (int, error) {
+		v := strings.TrimSpace(r.FormValue(field))
+		if v == "" {
+			return 0, nil
+		}
+		n, err := strconv.Atoi(v)
+		if err != nil || n < minV || n > maxV {
+			return 0, fmt.Errorf("%s must be an integer in %d-%d (got %q)", field, minV, maxV, v)
+		}
+		return n, nil
+	}
+	var err error
+	if next.PerDay, err = readInt("pass_budget_per_day", settings.PassBudgetMinPerDay, settings.PassBudgetMaxPerDay); err != nil {
+		return err
+	}
+	if next.BanHours, err = readInt("pass_budget_ban_hours", 1, settings.PassBudgetMaxBanHours); err != nil {
+		return err
+	}
+	switch a := strings.TrimSpace(r.FormValue("pass_budget_action")); a {
+	case "", settings.RateChallengeCaptchaOnly:
+	case settings.RateChallengeDeny:
+		next.Action = a
+	default:
+		return fmt.Errorf("pass_budget_action must be captcha_only or deny (got %q)", a)
+	}
+	*pb = next
+	return nil
 }
 
 // applyReuseForm reads the pass-cookie reuse cap's fields.  A blank number

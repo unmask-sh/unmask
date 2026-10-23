@@ -304,7 +304,7 @@ func assembleFunnelPseudoRow(label string, phase map[string]int, stealth int) Fu
 // the single source of truth: the rollup filter (forceReasonFunnelKindSet) and
 // the scan-path SQL IN() are both derived from it, so a new kind is added in one
 // place.
-var forceReasonFunnelKinds = []string{"honeypot", "banned", "protected", "stale", "header", "asn", "geo"}
+var forceReasonFunnelKinds = []string{"honeypot", "banned", "protected", "stale", "header", "ua_tls", "asn", "geo"}
 
 // forceReasonFunnelKindSet is the O(1) membership form of forceReasonFunnelKinds
 // for the per-event hourly rollup hot path.

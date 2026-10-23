@@ -2389,6 +2389,37 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </script>
   </div>
 
+  {{/* UA-TLS consistency: the User-Agent against the TLS fingerprint.  Its id
+       is where the detections-by-reason card sends "ua_tls". */}}
+  <div class="bcd-card" id="ua-tls">
+    <h2 style="display:flex;align-items:center;gap:.6rem">
+      {{ t .Lang "settings.ua.uatls_h" }}
+      <button type="button" class="ua-help-trigger" data-help-target="ua-tls-help" aria-label="?">?</button>
+    </h2>
+    {{ $uta := .Global.UATLSConsistencyAction }}
+    <div class="field" style="padding:.75rem .9rem;background:#eff6ff;border:1px solid #93c5fd;border-radius:.3rem">
+      <label style="display:flex;align-items:center;gap:.5rem;font-weight:600;color:#1e40af;margin:0">
+        <input type="checkbox" name="ua_tls_consistency" value="1" {{ if not .Global.UATLSConsistencyDisabled }}checked{{ end }}>
+        {{ t .Lang "settings.ua.uatls_toggle" }}
+      </label>
+      <div class="note" style="margin-top:.55rem;color:#1e40af;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.uatls_help") }}</div>
+    </div>
+    <div class="field" style="margin:1.2rem 0 .4rem">
+      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.uatls_action_h" }}</label>
+      <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.uatls_action_help") }}</div>
+      <select name="ua_tls_consistency_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+        <option value=""                 {{ if eq $uta "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "captcha_only" }}</option>
+        <option value="captcha_only"     {{ if eq $uta "captcha_only" }}selected{{ end }}>captcha_only</option>
+        <option value="pow_then_captcha" {{ if eq $uta "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
+        <option value="pow_only"         {{ if eq $uta "pow_only" }}selected{{ end }}>pow_only</option>
+      </select>
+    </div>
+    <script type="text/html" id="ua-tls-help">
+      <div><strong>{{ t .Lang "settings.ua.uatls_h" }}</strong></div>
+      <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.ua.uatls_help") }}</p>
+    </script>
+  </div>
+
   <div class="bcd-card" id="ua-stale">
     <h2 style="display:flex;align-items:center;gap:.6rem">
       {{ t .Lang "settings.ua.stale_h" }}
@@ -3856,6 +3887,30 @@ function secToHuman(s){
         </select></label>
     </div>
     <script type="text/html" id="rl-reuse-help">{{ safeHTML (t .Lang "settings.rate_limit.reuse_help") }}</script>
+
+    {{/* The proof-of-work pass budget (settings.rate_limit.pass_budget): the
+         reuse cap counts what a pass is used for; this counts the passes, for
+         the client that solves again on every page and carries no cookie for
+         the cap to count.  Over it, a ban (source rate_limit_abuse, address
+         and fingerprint together) for a day. */}}
+    {{ $pb := .RateLimit.PassBudget }}
+    <h3 id="rl-pass-budget-h" style="font-size:1rem;margin:1.5rem 0 .4rem;display:flex;align-items:center;gap:.45rem">{{ t .Lang "settings.rate_limit.pass_budget_h" }}
+      <button type="button" class="ua-help-trigger" data-help-target="rl-pass-budget-help" aria-label="?">?</button>
+    </h3>
+    <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.rate_limit.pass_budget_desc") }}</div>
+    <div id="rl-pass-budget" style="display:flex;flex-wrap:wrap;align-items:center;gap:.6rem 1.4rem">
+      <label style="display:flex;align-items:center;gap:.45rem;margin:0;cursor:pointer"><input type="checkbox" name="pass_budget_enabled" value="1" {{ if not $pb.Disabled }}checked{{ end }}> {{ t .Lang "settings.rate_limit.pass_budget_enabled" }}</label>
+      <label style="display:flex;align-items:center;gap:.45rem;margin:0">{{ t .Lang "settings.rate_limit.pass_budget_per_day" }}
+        <input type="number" name="pass_budget_per_day" min="20" max="1000000" step="1" placeholder="{{ passBudgetSeedPerDay }}" value="{{ if gt $pb.PerDay 0 }}{{ $pb.PerDay }}{{ end }}" style="width:6rem"></label>
+      <label style="display:flex;align-items:center;gap:.45rem;margin:0">{{ t .Lang "settings.rate_limit.pass_budget_action" }}
+        <select name="pass_budget_action" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
+          <option value="captcha_only" {{ if eq $pb.ResolvedAction "captcha_only" }}selected{{ end }}>captcha_only</option>
+          <option value="deny"         {{ if eq $pb.ResolvedAction "deny" }}selected{{ end }}>deny</option>
+        </select></label>
+      <label style="display:flex;align-items:center;gap:.45rem;margin:0">{{ t .Lang "settings.rate_limit.pass_budget_ban_hours" }}
+        <input type="number" name="pass_budget_ban_hours" min="1" max="720" step="1" placeholder="{{ passBudgetSeedBanHours }}" value="{{ if gt $pb.BanHours 0 }}{{ $pb.BanHours }}{{ end }}" style="width:5rem"></label>
+    </div>
+    <script type="text/html" id="rl-pass-budget-help">{{ safeHTML (t .Lang "settings.rate_limit.pass_budget_help") }}</script>
 
     <h3 style="font-size:1rem;margin:1.5rem 0 .4rem;display:flex;align-items:center;gap:.45rem">{{ t .Lang "settings.rate_limit.zones_h" }}
       <button type="button" class="ua-help-trigger" data-help-target="rl-zones-help" aria-label="?">?</button>

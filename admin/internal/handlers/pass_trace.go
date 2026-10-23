@@ -246,9 +246,11 @@ func (h *Handler) recordBVJPass(r *http.Request, site, key, kind string) {
 	if ev == nil || !h.passTrace.bvjPass(key, time.Now()) {
 		return
 	}
+	ip := clientIP(r)
 	time.AfterFunc(passTraceGrace, func() {
 		if h.passTrace.bvjFire(key) {
 			events.InsertAsync(h.DB, ev)
+			h.countPass(ip, ev.JA4, site, kind) // the beacon never came: this is the pass's one count
 		}
 	})
 }

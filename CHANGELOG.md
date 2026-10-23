@@ -14,6 +14,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- (2026-10-23) **A client that solves the proof-of-work far more often than a person is banned for a day.**  The reuse cap counts the requests a pass is used for, so a client that solves again on every page and carries no cookie never reaches it.  A new pass budget on the rate-limit tab counts the solves per address and JA4 fingerprint; over 500 a day the pair is banned for 24 hours with a CAPTCHA-only action (source rate_limit_abuse), announced like every ban.  On by default, held for review on an install that reviews its upgrades.
+
+- (2026-10-23) **A User-Agent that contradicts the TLS fingerprint is escalated to a CAPTCHA.**  A Chromium fingerprint under a Firefox or Safari name, or a TLS 1.3 session under a browser version from before TLS 1.3 (Chrome before 65, Firefox before 60, Safari before 12), is a contradiction no genuine browser produces.  The new UA-TLS consistency tier on the UA-filter tab challenges such a request when it would otherwise pass, never denies, and is on by default (held for review on an install that reviews its upgrades).
+
 ### Changed
 
 - (2026-10-23) **The cookie-reuse ranking counts what the reuse cap counts, and says how often the cap fired.**  Its count was every logged request carrying the cookie, static files and the challenge page's own parts included, and read against the cap it ran several times past it.  A "judged" column, the requests the gate judged, now leads and orders the ranking; the whole stands beside it, and an "over the cap" column counts the CAPTCHAs the cap raised for the address.

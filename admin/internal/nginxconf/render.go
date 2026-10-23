@@ -665,7 +665,12 @@ type renderData struct {
 	// modern context -- without this the h2/h3 precondition is unsatisfiable
 	// behind a TLS-terminating LB and the axis never fires.
 	HeaderIntegrityLBFronted bool
-	UpstreamAddr             string
+	// UATLSEnabled (UATLSActive): fold the UA-TLS consistency tier into
+	// $final_challenge -- a Chromium fingerprint under a Firefox / Safari
+	// name, or a TLS 1.3 session under a browser version from before TLS 1.3.
+	// Off, its maps are not emitted.
+	UATLSEnabled bool
+	UpstreamAddr string
 	// UpstreamServer: value to write for `server XXX;` in upstream.conf.
 	// Switches based on the bind format:
 	//   TCP    : "127.0.0.1:9477"
@@ -1362,6 +1367,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	}
 	d.HeaderIntegrityEnabled = s.Global.HeaderIntegrity
 	d.HeaderIntegrityLBFronted = len(d.LBIPRanges) > 0
+	d.UATLSEnabled = UATLSActive(s)
 
 	// Monitor mode: rendered only while some site is in it, so the usual
 	// template is untouched otherwise.  The per-site rows carry only the

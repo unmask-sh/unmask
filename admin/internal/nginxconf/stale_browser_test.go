@@ -66,7 +66,9 @@ func TestStaleBrowserPattern(t *testing.T) {
 // any stale wiring (zero-diff on upgrade) and $final_challenge stays the base
 // map output directly.
 func TestStaleBrowserRenderOffByDefault(t *testing.T) {
-	off := renderHTTPInc(t, nil)
+	// The UA-TLS tier is on by default and, as a later tier, makes the base
+	// map write the intermediate; off, the stale tier alone decides the name.
+	off := renderHTTPInc(t, func(s *settings.Settings) { s.Global.UATLSConsistencyDisabled = true })
 	for _, absent := range []string{"unmask_stale_browser", "final_challenge_base", "Stale-browser tier"} {
 		if strings.Contains(off, absent) {
 			t.Errorf("tier off: %q must not render", absent)
