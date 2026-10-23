@@ -16,6 +16,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- (2026-10-23) **The cookie-reuse ranking counts what the reuse cap counts, and says how often the cap fired.**  Its count was every logged request carrying the cookie, static files and the challenge page's own parts included, and read against the cap it ran several times past it.  A "judged" column, the requests the gate judged, now leads and orders the ranking; the whole stands beside it, and an "over the cap" column counts the CAPTCHAs the cap raised for the address.
+
 - (2026-10-23) **A landing-page section that runs past its budget logs one line saying why.**  Next to the per-card lines it already wrote, the log now carries the window, the site and host filters, whether the hourly rollup was readable -- and so whether the cards read it or scanned the event table -- and the time waited.  That is what decides the cards' path, and what a timeout report was missing.
 
 ### Fixed

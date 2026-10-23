@@ -21,6 +21,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -2828,8 +2829,20 @@ type CookieReuseRow struct {
 	UAFull  string
 	// JA4Count: distinct JA4s seen for this IP in the window.  1 alongside a
 	// high request count means a single client; many means shared egress.
-	JA4Count    int
-	Requests    int
+	JA4Count int
+	// Requests is every access-log line carrying the cookie: the pages, the
+	// static files outside the protected locations, the challenge page's own
+	// parts under /unmask/.  Judged is the lines the gate judged (inside a
+	// protected location, not a bypass address or path): the reuse cap's own
+	// universe, and the figure the ranking orders by.  An operator who read
+	// Requests against the cap saw it run several times past it.
+	Requests int
+	Judged   int
+	// Capped is the challenges the reuse cap raised for the address in the
+	// window (serve rows with force_reason reuse_limit), filled by
+	// FillReuseCapHits; 0 for the CAPTCHA section, whose cookies the cap
+	// does not count.
+	Capped      int
 	LastSeen    string
 	LastSeenTS  int64
 	IsBot       bool   // filled by the handler by classifying JA4 -> verdict action
@@ -2850,17 +2863,20 @@ func CookieReuseTopIPs(ctx context.Context, d *db.DB, site, kind string, hosts [
 	// The row keeps one ja4 per (minute, ip), so COUNT(DISTINCT ja4) over the
 	// window is a lower bound on the fingerprints behind the IP -- enough to
 	// tell "one client" from "shared egress", which is all the column claims.
+	// Ordered by the judged count, the figure the cap counts; the whole
+	// breaks ties, and carries the rows from before the column existed.
 	stmt := fmt.Sprintf(`
         SELECT ip,
                MAX(ja4)                 AS ja4,
                MAX(ua)                  AS ua,
                COUNT(DISTINCT ja4)      AS ja4n,
                COALESCE(SUM(cnt), 0)    AS reqs,
+               COALESCE(SUM(judged), 0) AS judged,
                MAX(last_seen)           AS last_seen
         FROM unmask_cookie_ip_minute
         WHERE %s%s AND kind = ?
         GROUP BY ip
-        ORDER BY reqs DESC, last_seen DESC LIMIT ?`, minWindow(ctx, hours, "bucket_min"), cond)
+        ORDER BY judged DESC, reqs DESC, last_seen DESC LIMIT ?`, minWindow(ctx, hours, "bucket_min"), cond)
 	rows, err := d.QueryContext(ctx, stmt, kind, limit)
 	if err != nil {
 		return nil, err
@@ -2869,19 +2885,70 @@ func CookieReuseTopIPs(ctx context.Context, d *db.DB, site, kind string, hosts [
 	var out []CookieReuseRow
 	for rows.Next() {
 		var raw []byte
-		var ja4n, reqs int
+		var ja4n, reqs, judged int
 		var ja4, ua, ls sql.NullString
-		if err := rows.Scan(&raw, &ja4, &ua, &ja4n, &reqs, &ls); err != nil {
+		if err := rows.Scan(&raw, &ja4, &ua, &ja4n, &reqs, &judged, &ls); err != nil {
 			return nil, err
 		}
 		out = append(out, CookieReuseRow{
 			IP: ipFromBytes(raw), JA4: ja4.String,
 			UA: truncate(ua.String, 80), UAFull: ua.String,
-			JA4Count: ja4n, Requests: reqs,
+			JA4Count: ja4n, Requests: reqs, Judged: judged,
 			LastSeen: ls.String, LastSeenTS: parseDateTimeToUnix(ls.String),
 		})
 	}
 	return out, rows.Err()
+}
+
+// FillReuseCapHits sets each row's Capped: the challenges the pass-cookie
+// reuse cap raised for its address in the window, the serve rows whose
+// force_reason is reuse_limit.  Beside the judged count it answers the
+// question the ranking raises -- is this address over the cap, or merely
+// busy -- from the record.  The rows' addresses are listed in the query, so
+// it reads the address index (ip_address, date_created) for them alone.
+func FillReuseCapHits(ctx context.Context, d *db.DB, site string, hosts []string, hours int, rows []CookieReuseRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	args := make([]any, 0, len(rows))
+	marks := make([]string, 0, len(rows))
+	for _, r := range rows {
+		if p := events.PackIP(r.IP); p != nil {
+			args = append(args, p)
+			marks = append(marks, "?")
+		}
+	}
+	if len(args) == 0 {
+		return nil
+	}
+	stmt := fmt.Sprintf(`
+        SELECT ip_address, COUNT(*)
+        FROM unmask_event
+        WHERE ip_address IN (%s) AND %s%s AND phase = 'serve' AND %s = 'reuse_limit'
+        GROUP BY ip_address`,
+		strings.Join(marks, ","), tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts),
+		jsonExtract(d, "payload_json", "$.force_reason"))
+	res, err := d.QueryContext(ctx, stmt, args...)
+	if err != nil {
+		return err
+	}
+	defer res.Close()
+	hits := map[string]int{}
+	for res.Next() {
+		var raw []byte
+		var n int
+		if err := res.Scan(&raw, &n); err != nil {
+			return err
+		}
+		hits[ipFromBytes(raw)] = n
+	}
+	if err := res.Err(); err != nil {
+		return err
+	}
+	for i := range rows {
+		rows[i].Capped = hits[rows[i].IP]
+	}
+	return nil
 }
 
 func RateLimitPaths(ctx context.Context, d *db.DB, site string, hosts []string, hours, limit int) ([]RLPathRow, error) {

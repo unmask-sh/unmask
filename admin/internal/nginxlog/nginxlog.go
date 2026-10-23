@@ -385,7 +385,12 @@ type cookieIPKey struct {
 }
 
 type cookieIPBucket struct {
-	cnt      int
+	cnt int
+	// judged: the requests among cnt the gate judged (inside a protected
+	// location, not a bypass address or path): what the reuse cap counts.
+	// cnt is every line, the static files and the challenge page's own
+	// parts among them.
+	judged   int
 	ja4      string // latest JA4 fingerprint seen for this IP in the bucket
 	ua       string // latest User-Agent seen for this IP in the bucket
 	lastSeen int64  // latest request time (unix sec, UTC)
@@ -807,8 +812,10 @@ func (r *Reader) onLine(line string) {
 	// (kind="captcha" / "pow") are recorded; bumpCookieIP no-ops for every other
 	// kind, so this is at most two string compares on the common path.  Uses the
 	// raw p.kind (not the challenge_served alias) so only genuine reuse is
-	// counted, mirroring bumpTrafficHLL's pass detection.
-	r.bumpCookieIP(p.site, p.ip, p.ja4, p.ua, p.kind)
+	// counted, mirroring bumpTrafficHLL's pass detection.  A line the gate
+	// judged (bp=0) is what the reuse cap counts; the ranking shows that
+	// figure beside the whole.
+	r.bumpCookieIP(p.site, p.ip, p.ja4, p.ua, p.kind, !p.bypassed)
 	// Crawler funnel: every request carries a UA.  fc=1 (= a challenge was the
 	// final action) counts as "served"; otherwise the request passed straight
 	// through (rescued / valid cookie / a site in monitor mode, where nothing
@@ -1174,7 +1181,7 @@ func cookieIPKinds(kind string) bool {
 //
 // nil-safe (= no-op when the Reader isn't running).  ip="" (= log line carried
 // no ip= field) is a no-op since there is no client to rank.
-func (r *Reader) bumpCookieIP(site, ip, ja4, ua, kind string) {
+func (r *Reader) bumpCookieIP(site, ip, ja4, ua, kind string, judged bool) {
 	if r == nil || r.d == nil || !cookieIPKinds(kind) || ip == "" {
 		return
 	}
@@ -1197,6 +1204,9 @@ func (r *Reader) bumpCookieIP(site, ip, ja4, ua, kind string) {
 		r.cookieIPBuckets[key] = b
 	}
 	b.cnt++
+	if judged {
+		b.judged++
+	}
 	b.ja4 = ja4
 	b.ua = ua
 	b.lastSeen = now
@@ -1212,12 +1222,13 @@ const cookieIPBucketsMax = 200000
 
 // BumpCookieIP: exported entry point for forward-auth mode (= /api/check sees
 // the reuse request but emits no access-log line of its own, so without this the
-// cookie-reuse card stays empty in forward-auth).  nil-safe.
+// cookie-reuse card stays empty in forward-auth).  Every request that reaches
+// /api/check was judged.  nil-safe.
 func (r *Reader) BumpCookieIP(site, ip, ja4, ua, kind string) {
 	if r == nil {
 		return
 	}
-	r.bumpCookieIP(site, ip, ja4, ua, kind)
+	r.bumpCookieIP(site, ip, ja4, ua, kind, true)
 }
 
 // flushOnce: UPSERT buckets "older than the current minute" into the DB.
@@ -1403,6 +1414,7 @@ func (r *Reader) flushOnce(final bool) {
 		for _, e := range cookieIPReady {
 			if b, ok := r.cookieIPBuckets[e.key]; ok {
 				b.cnt += e.b.cnt
+				b.judged += e.b.judged
 				// keep the most recent ja4 / ua for the IP-minute
 				if e.b.lastSeen >= b.lastSeen {
 					b.lastSeen = e.b.lastSeen
@@ -1540,7 +1552,7 @@ func (r *Reader) flushOnce(final bool) {
 		}
 		lastSeen := time.Unix(e.b.lastSeen, 0).UTC().Format("2006-01-02 15:04:05.000")
 		if _, err := tx.ExecContext(ctx, stmtCookieIP,
-			e.key.minute, e.key.site, ipb, e.key.kind, e.b.ja4, e.b.ua, e.b.cnt, lastSeen); err != nil {
+			e.key.minute, e.key.site, ipb, e.key.kind, e.b.ja4, e.b.ua, e.b.cnt, e.b.judged, lastSeen); err != nil {
 			log.Printf("nginxlog: flush exec(cookie-ip): %v", err)
 			return
 		}
@@ -1636,16 +1648,16 @@ func countryHourlyUpsertStmt(drv db.Driver) string {
 // read side a representative fingerprint + last-activity timestamp per IP.
 func cookieIPUpsertStmt(drv db.Driver) string {
 	if drv == db.DriverSQLite {
-		return `INSERT INTO unmask_cookie_ip_minute (bucket_min, site, ip, kind, ja4, ua, cnt, last_seen)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		return `INSERT INTO unmask_cookie_ip_minute (bucket_min, site, ip, kind, ja4, ua, cnt, judged, last_seen)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 			ON CONFLICT(bucket_min, site, ip, kind) DO UPDATE SET
-				cnt = cnt + excluded.cnt,
+				cnt = cnt + excluded.cnt, judged = judged + excluded.judged,
 				ja4 = excluded.ja4, ua = excluded.ua, last_seen = excluded.last_seen`
 	}
-	return `INSERT INTO unmask_cookie_ip_minute (bucket_min, site, ip, kind, ja4, ua, cnt, last_seen)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	return `INSERT INTO unmask_cookie_ip_minute (bucket_min, site, ip, kind, ja4, ua, cnt, judged, last_seen)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE
-			cnt = cnt + VALUES(cnt),
+			cnt = cnt + VALUES(cnt), judged = judged + VALUES(judged),
 			ja4 = VALUES(ja4), ua = VALUES(ua), last_seen = VALUES(last_seen)`
 }
 

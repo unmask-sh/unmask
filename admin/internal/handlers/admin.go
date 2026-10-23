@@ -1776,14 +1776,20 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		rebindLineages, e = events.RankByRebindLineage(ctx, h.DB, hours*60, 30)
 		return e
 	})
+	// The two kinds the reuse cap counts carry its hits beside the judged
+	// count (the CAPTCHA kind is exempt from the cap).
 	run("RebindReuse", func() error {
 		var e error
-		rebindReuse, e = dashboard.CookieReuseTopIPs(ctx, h.DB, site, "rebind", hosts, hours, 30)
+		if rebindReuse, e = dashboard.CookieReuseTopIPs(ctx, h.DB, site, "rebind", hosts, hours, 30); e == nil {
+			e = dashboard.FillReuseCapHits(ctx, h.DB, site, hosts, hours, rebindReuse)
+		}
 		return e
 	})
 	run("PowReuse", func() error {
 		var e error
-		powReuse, e = dashboard.CookieReuseTopIPs(ctx, h.DB, site, "pow", hosts, hours, 30)
+		if powReuse, e = dashboard.CookieReuseTopIPs(ctx, h.DB, site, "pow", hosts, hours, 30); e == nil {
+			e = dashboard.FillReuseCapHits(ctx, h.DB, site, hosts, hours, powReuse)
+		}
 		return e
 	})
 	run("AITrafficBreakdown", func() error {

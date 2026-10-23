@@ -1,0 +1,12 @@
+-- 0047 cookie-reuse ranking: the requests the gate judged.
+--
+-- The ranking counts every access-log line that carries a valid pass cookie,
+-- and the log carries every request of the vhost: the pages, the static
+-- files outside the protected locations, the challenge page's own parts
+-- under /unmask/.  The pass-cookie reuse cap counts only what the gate
+-- judged, so an operator comparing the two saw the ranking run several times
+-- past the cap and read the cap as not in force.  judged counts the lines
+-- the gate judged (bp=0: inside a protected location, not a bypass address
+-- or path), which is the cap's own universe; cnt stays the whole.  Rows from
+-- before this column count as judged 0.
+ALTER TABLE unmask_cookie_ip_minute ADD COLUMN judged INTEGER NOT NULL DEFAULT 0; -- requests among cnt the gate judged (inside a protected location, not bypassed): what the reuse cap counts
