@@ -11,7 +11,8 @@
 //     as the baseline (= run nothing).
 //  4. Apply pending SQL by ascending version.  Stop on failure (= don't
 //     proceed to subsequent migrations).
-//  5. Forward-only.  Downgrade is handled via backup → restore.
+//  5. Forward-only.  To go back, restore the copy `unmask backup` took
+//     before the upgrade (cmd/unmask/backup.go), on the older version.
 //
 // Operating procedure when a feature requires a schema change:
 //

@@ -138,6 +138,8 @@ func main() {
 		err = cmdDBVacuum(args)
 	case "db-prune":
 		err = cmdDBPrune(args)
+	case "backup":
+		err = cmdBackup(args)
 	case "user":
 		err = cmdUser(args)
 	case "doctor":
@@ -184,6 +186,7 @@ usage:
   unmask db-analyze [-config PATH] [-timeout 10m]
   unmask db-vacuum [-config PATH] [-plan] [-force] [-skip-space-check]
   unmask db-prune [-config PATH] [-retention-days N] [-mode delete|rebuild] [-vacuum] [-analyze] [-force]
+  unmask backup [-config PATH] [-out DIR]
   unmask user list [-config PATH]
   unmask user create <username> [-role superadmin|admin|viewer] [-password PASS]
   unmask user reset-password <username> [-password PASS]
@@ -707,6 +710,12 @@ func cmdServe(args []string) error {
 			})
 			nlog.SetHTTPSRedirectCheck(func() bool {
 				return h.SnapshotSettings().Nginx.HTTPSRedirect
+			})
+			// A crawler name the configuration verifies against its vendor's
+			// ranges keeps the honeypot exemption only on a request that range
+			// passed; the name alone is what a scanner wears (nginxlog).
+			nlog.SetRangeVerifiedCheck(func(ua string) bool {
+				return nginxconf.RangeVerifiedUAMatch(h.SnapshotSettings().Nginx, ua)
 			})
 			nlog.SetHoneypotCallback(func(ip, ja4, uri, site, scheme string) {
 				// site is $host from the access line, so the reason can name the
