@@ -178,16 +178,16 @@ func (h *Handler) IssueBVJ(w http.ResponseWriter, r *http.Request) {
 	host := requestHost(r)
 	site := siteFromRequest(r, *cfg)
 	ch := cfg.Challenge.Resolve(site)
-	kind, ok := "", false
+	entry, kind, issued, ok := "", "", int64(0), false
 	for _, c := range r.Cookies() {
 		if c.Name != "_bv" || c.Value == "" || len(c.Value) > 1024 {
 			continue
 		}
-		if k, m := cookies.MatchingEntryKind(c.Value, cfg.Secret.BVSecret, key, host,
+		if e, k, at, m := cookies.MatchingEntry(c.Value, cfg.Secret.BVSecret, key, host,
 			ch.PowCookieValidSecondsResolved(),
 			ch.CaptchaCookieValidSecondsResolved(),
 			ch.ResolvedPowDifficulty()); m {
-			kind, ok = k, true
+			entry, kind, issued, ok = e, k, at, true
 			break
 		}
 	}
@@ -198,6 +198,12 @@ func (h *Handler) IssueBVJ(w http.ResponseWriter, r *http.Request) {
 	if kind == "rebind" {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": 0, "skip": "rebound_entry"})
 		return
+	}
+	// The solve's record, should the page's own beacon not arrive
+	// (pass_trace.go).  A fresh entry only: an old pass re-posting here is
+	// no solve of this page.
+	if age := time.Now().Unix() - issued; age <= int64(passTraceFresh/time.Second) && age >= -60 {
+		h.recordBVJPass(r, site, key+"|"+entry, kind)
 	}
 	if claims, has := h.validBVJ(r, host, site); has {
 		// Re-POSTing with a still-valid _bvj is normally a no-op, so the endpoint

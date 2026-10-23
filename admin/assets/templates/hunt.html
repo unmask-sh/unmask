@@ -715,6 +715,9 @@ function dismissHuntTip(id){
     {{ if or .IPFilter .JA4Filter .UAFilter .Phase .ForceReason .HostSelected .ASNFilter }}
     <a href="?range={{ .Range }}" class="rank-act reset">{{ t .Lang "hunt.filter.reset" }}</a>
     {{ end }}
+    {{/* The beacons the per-address limit refused from the filtered address:
+         rows the log never got, said here so a thin trail reads as thin. */}}
+    {{ if .BeaconDropped }}<span class="muted" style="font-size:.8rem">{{ tf .Lang "hunt.filter.beacons_dropped" .BeaconDropped .BeaconDroppedAgo }}</span>{{ end }}
     {{/* The way to a custom rule: the active filters are its conditions,
          one line each, and the rows below are what it would catch.  A
          ranking row has one key, and a rule of one condition is what BAN

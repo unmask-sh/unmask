@@ -20,6 +20,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- (2026-10-23) **The challenge page's pass reports are no longer dropped from a busy address.**  The beacon's per-address limit counted the daemon's own serve rows, so an address challenged twenty times in five minutes could report nothing, and a client re-solving the proof-of-work on every page was all but invisible to the hunt and the funnels.  The limit now counts beacons only, a pass the request's own cookie vouches for is outside it, the /bvj issue records a pass whose beacon never arrived, and the hunt shows how many beacons an address lost.
+
 - (2026-10-23) **The landing page's request-count card no longer walks the whole minute table.**  Its read of the unsettled hours had no upper bound, and on a database without planner statistics SQLite answered it by walking every row of the per-minute table through the kind index: tens of seconds from a cold disk, and the card timed out on every open.  The read is bounded now and goes through the primary key.
 
 - (2026-10-23) **`unmask doctor` and the stats page read the event table's id range in two seeks.**  `SELECT MIN(id), MAX(id)` in one statement is outside SQLite's min/max optimization and scanned the whole id index: the doctor's "could not read the rollup cursor" on a large database, and the same read behind the stats page's raw-scan check and the AI advisor's event-count guard.  Each end is its own statement now.

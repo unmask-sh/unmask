@@ -13,24 +13,28 @@ import (
 	"sync"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/events"
+	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/relay"
 )
 
 type myipResponse struct {
-	IP              string   `json:"ip"`
-	Family          string   `json:"family"` // "v4" / "v6"
-	IsPrivate       bool     `json:"is_private"`
-	IsLoopback      bool     `json:"is_loopback"`
-	ReverseDNS      []string `json:"reverse_dns,omitempty"`
-	ReverseDNSError string   `json:"reverse_dns_error,omitempty"` // resolver errors etc.  Other fields are still populated.
-	Country         string   `json:"country,omitempty"`           // ISO code (e.g. "JP")
-	CountryName     string   `json:"country_name,omitempty"`      // English name (e.g. "Japan")
-	City            string   `json:"city,omitempty"`              // English city name (e.g. "Tokyo")
-	ASN             uint     `json:"asn,omitempty"`               // e.g. 4713
-	ASNOrg          string   `json:"asn_org,omitempty"`           // e.g. "NTT Communications"
-	Relay           string   `json:"relay,omitempty"`             // a privacy relay's shared address, by name (relay package)
-	CountryDB       string   `json:"country_db,omitempty"`        // the database's country when the relay's differs
-	Error           string   `json:"error,omitempty"`             // fatal error (= invalid IP / missing required param)
+	IP                string   `json:"ip"`
+	Family            string   `json:"family"` // "v4" / "v6"
+	IsPrivate         bool     `json:"is_private"`
+	IsLoopback        bool     `json:"is_loopback"`
+	ReverseDNS        []string `json:"reverse_dns,omitempty"`
+	ReverseDNSError   string   `json:"reverse_dns_error,omitempty"`   // resolver errors etc.  Other fields are still populated.
+	Country           string   `json:"country,omitempty"`             // ISO code (e.g. "JP")
+	CountryName       string   `json:"country_name,omitempty"`        // English name (e.g. "Japan")
+	City              string   `json:"city,omitempty"`                // English city name (e.g. "Tokyo")
+	ASN               uint     `json:"asn,omitempty"`                 // e.g. 4713
+	ASNOrg            string   `json:"asn_org,omitempty"`             // e.g. "NTT Communications"
+	Relay             string   `json:"relay,omitempty"`               // a privacy relay's shared address, by name (relay package)
+	CountryDB         string   `json:"country_db,omitempty"`          // the database's country when the relay's differs
+	BeaconsDropped    int      `json:"beacons_dropped,omitempty"`     // beacons the per-address limit refused (pass_trace.go), for a day past the last
+	BeaconsDroppedAgo string   `json:"beacons_dropped_ago,omitempty"` // when the last was, as a relative age
+	Error             string   `json:"error,omitempty"`               // fatal error (= invalid IP / missing required param)
 }
 
 // In-memory cache for rDNS lookups.
@@ -125,6 +129,15 @@ func (h *Handler) AdminMyIP(w http.ResponseWriter, r *http.Request) {
 		if info.Relay != "" {
 			resp.Relay = relay.Name(info.Relay)
 			resp.CountryDB = info.CountryDB
+		}
+	}
+
+	// The beacons the per-address limit refused: what the log cannot show
+	// about a busy address.
+	if pkt := events.PackIP(ip.String()); pkt != nil {
+		if n, last := h.passTrace.droppedFor(string(pkt), time.Now()); n > 0 {
+			resp.BeaconsDropped = n
+			resp.BeaconsDroppedAgo = i18n.Ago(i18n.Resolve(r), time.Since(last))
 		}
 	}
 

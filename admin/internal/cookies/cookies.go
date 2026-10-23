@@ -157,23 +157,35 @@ func Verify(value, bvSecret, remoteIP, host string, powValidSeconds, captchaVali
 // without that check, every rebound node could mint a fresh lineage at its new
 // IP and the per-lineage cap would never accumulate.
 func MatchingEntryKind(value, bvSecret, remoteIP, host string, powValidSeconds, captchaValidSeconds, powDifficulty int) (string, bool) {
+	_, kind, _, ok := MatchingEntry(value, bvSecret, remoteIP, host, powValidSeconds, captchaValidSeconds, powDifficulty)
+	return kind, ok
+}
+
+// MatchingEntry is MatchingEntryKind with the entry itself and its issue time
+// (unix seconds; the server-supplied issued_at the entry carries, so the
+// client's clock has no say in it).  The daemon keeps one record per pass,
+// and the entry is what names one: a client that solves the proof-of-work
+// again writes a new entry each time, a page that reports the same pass twice
+// sends the same one.
+func MatchingEntry(value, bvSecret, remoteIP, host string, powValidSeconds, captchaValidSeconds, powDifficulty int) (entry, kind string, issued int64, ok bool) {
 	if value == "" {
-		return "", false
+		return "", "", 0, false
 	}
-	for i, entry := range strings.Split(value, "~") {
+	for i, e := range strings.Split(value, "~") {
 		if i >= maxVerifyEntries {
 			break
 		}
-		if !verifyOne(entry, bvSecret, remoteIP, host, powValidSeconds, captchaValidSeconds, powDifficulty) {
+		if !verifyOne(e, bvSecret, remoteIP, host, powValidSeconds, captchaValidSeconds, powDifficulty) {
 			continue
 		}
-		parts := strings.Split(entry, ".")
+		parts := strings.Split(e, ".")
+		issued, _ = strconv.ParseInt(parts[0], 10, 64) // verifyOne accepted it, so it parses
 		if len(parts) == 4 {
-			return "pow2", true
+			return e, "pow2", issued, true
 		}
-		return parts[2], true
+		return e, parts[2], issued, true
 	}
-	return "", false
+	return "", "", 0, false
 }
 
 // AppendEntry prepends entry to the "~"-delimited _bv list, keeping at most

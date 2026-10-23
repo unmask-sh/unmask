@@ -208,9 +208,9 @@ type Handler struct {
 	// schema is what the daemon knows about the schema updates left for the
 	// operator and the run that applies them.  See schema_update.go.
 	schema schemaUpdater
-	// heldBeacons counts the beacons accepted while the database's writes
-	// were held, for the beacon's per-address limit (schema_update.go).
-	heldBeacons heldBeaconCounts
+	// passTrace is the beacon's per-address limit, the passes recorded and
+	// the beacons the limit dropped, all in memory (pass_trace.go).
+	passTrace passTrace
 	// usedCT remembers the proof-of-load tokens that already earned a pass,
 	// so one fetch of a challenge earns one pass (captcha.UsedSet).
 	usedCT captcha.UsedSet
@@ -3164,20 +3164,26 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// per-IP rate limit (default 20 entries per 5 minutes).  The rows count
-	// what has been written; while a schema update holds the writes, what
-	// was accepted meanwhile is counted in memory too.
-	cnt, err := events.CountRecentByIP(r.Context(), h.DB, pkt, 5)
-	held := h.DB.WritesHeld()
-	if held {
-		cnt += h.heldBeacons.count(string(pkt))
+	// The per-address limit (default 20 beacons per 5 minutes) is counted in
+	// memory, beacons only (passTrace): the rows used to be counted, the
+	// serve rows among them, and an address challenged often enough could
+	// send no beacon at all.  A pass beacon the request's own cookie vouches
+	// for is outside the limit and kept once: the same pass reported again,
+	// or written already off the /bvj issue, is answered and not written.
+	now := time.Now()
+	limit := h.cfg().Challenge.Resolve(site).DebugRateLimitPer5Min
+	passKey, passKind := "", ""
+	if isPassPhase(p.Phase) {
+		passKey, passKind = h.vouchedPass(r, site, now)
 	}
-	if err == nil && cnt >= h.cfg().Challenge.Resolve(site).DebugRateLimitPer5Min {
+	kept := passKey != "" && h.passTrace.beaconPass(passKey, now)
+	if !kept && !h.passTrace.take(string(pkt), limit, now) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"ok": 0, "error": "rate_limit"})
 		return
 	}
-	if held {
-		h.heldBeacons.add(string(pkt))
+	if passKey != "" && !kept {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "dup": 1})
+		return
 	}
 
 	cookieBV := readCookieMax(r, "_bv", 1024) // wide enough for a full 16-entry "~"-list
@@ -3198,6 +3204,14 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 			delete(raw, "force_rule")
 		} else {
 			raw["force_rule"] = e
+		}
+		// trace and pass_verified are the daemon's own marks (passEvent, the
+		// vouched pass); the page's word for them goes.
+		delete(raw, "trace")
+		delete(raw, "pass_verified")
+		if passKey != "" {
+			raw["pass_verified"] = 1
+			raw["pass_kind"] = passKind
 		}
 	}
 

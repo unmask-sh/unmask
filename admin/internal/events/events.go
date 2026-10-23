@@ -1986,19 +1986,6 @@ func unpackIP(b []byte) string {
 	return ""
 }
 
-// CountRecentByIP returns how many events from `ipPacked` happened in the
-// last `minutes` minutes.  Used to enforce per-IP debug rate limit.
-func CountRecentByIP(ctx context.Context, d *db.DB, ipPacked []byte, minutes int) (int, error) {
-	stmt := `SELECT COUNT(*) FROM unmask_event WHERE ip_address = ? AND date_created > ` +
-		d.NowMinusMinutes(minutes)
-	row := d.QueryRowContext(ctx, stmt, ipPacked)
-	var n int
-	if err := row.Scan(&n); err != nil {
-		return 0, err
-	}
-	return n, nil
-}
-
 func truncate(s string, n int) string {
 	if len(s) > n {
 		return s[:n]

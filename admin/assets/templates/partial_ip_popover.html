@@ -102,6 +102,13 @@
 
     }
 
+    // beacons the per-address limit dropped (pass_trace.go): rows the log
+    // never got from a busy address, so a thin trail reads as thin
+    if (d.beacons_dropped) {
+      h += '<dt>beacons</dt><dd>' + esc(d.beacons_dropped) + ' dropped by the limit' +
+           (d.beacons_dropped_ago ? ' <span class="muted">(' + esc(d.beacons_dropped_ago) + ')</span>' : '') + '</dd>';
+    }
+
     h += '</dl>';
     return h;
   }

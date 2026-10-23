@@ -268,6 +268,14 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		huntCtx = events.WithIPSet(huntCtx, nil)
 	}
 	rows, windowStart, err := events.FetchPagedWithBleed(huntCtx, h.DB, ipFilter, ja4Filter, uaFilter, refFilter, phaseFilter, forceReasonFilter, siteFilter, hostFilters, sinceMin, pageSize, offset)
+	beaconDropped, beaconDroppedAgo := 0, ""
+	if ipFilter != "" {
+		if pkt := events.PackIP(ipFilter); pkt != nil {
+			if n, last := h.passTrace.droppedFor(string(pkt), time.Now()); n > 0 {
+				beaconDropped, beaconDroppedAgo = n, i18n.Ago(i18n.Resolve(r), time.Since(last))
+			}
+		}
+	}
 	if err != nil {
 		log.Printf("hunt fetch: %v", err)
 		http.Error(w, "db error", http.StatusInternalServerError)
@@ -624,11 +632,15 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		"Range":       rng,
 		"SinceMin":    sinceMin,
 		"IPFilter":    ipFilter,
-		"JA4Filter":   ja4Filter,
-		"UAFilter":    uaFilter,
-		"RefFilter":   refFilter,
-		"Phase":       phaseFilter,
-		"ForceReason": forceReasonFilter,
+		// The beacons the per-address limit refused from the filtered address
+		// (pass_trace.go): what the rows below cannot show about it.
+		"BeaconDropped":    beaconDropped,
+		"BeaconDroppedAgo": beaconDroppedAgo,
+		"JA4Filter":        ja4Filter,
+		"UAFilter":         uaFilter,
+		"RefFilter":        refFilter,
+		"Phase":            phaseFilter,
+		"ForceReason":      forceReasonFilter,
 		// Filtering hides the IP/JA4/UA rankings on page 1 when a value
 		// filter is active (host scope alone doesn't count -- rankings stay
 		// useful when narrowed to one host). The raw-log table still shows.

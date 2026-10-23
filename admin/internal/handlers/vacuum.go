@@ -236,7 +236,6 @@ func (h *Handler) VacuumRefresh(ctx context.Context) {
 		// The run is over: what was kept meanwhile can be written.  The
 		// event flusher and the ban manager see the hold lifted by
 		// themselves; these two are written here.
-		h.heldBeacons.reset()
 		if h.UserRepo != nil {
 			h.UserRepo.FlushHeld(ctx)
 		}

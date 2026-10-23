@@ -233,7 +233,6 @@ func (h *Handler) SchemaRefresh(ctx context.Context) {
 		if err := h.DB.RefreshIndexes(ctx); err != nil {
 			log.Printf("schema update: re-reading the index list: %v", err)
 		}
-		h.heldBeacons.reset()
 		if h.UserRepo != nil {
 			h.UserRepo.FlushHeld(ctx)
 		}
@@ -920,53 +919,4 @@ func (h *Handler) respondWritesHeld(w http.ResponseWriter, r *http.Request) {
 		`<div style="max-width:36rem;margin:0 auto;background:#fff;border:1px solid #e2e8f0;border-radius:.4rem;padding:1.25rem 1.5rem;line-height:1.6">`+
 		`<p style="margin:0 0 1rem">%s</p><p style="margin:0"><a href="%s">%s</a></p></div></body></html>`,
 		html.EscapeString(string(lang)), html.EscapeString(msg), html.EscapeString(back), html.EscapeString(i18n.T(lang, "schema_update.back")))
-}
-
-// heldBeaconCounts counts the beacons each address sent while the database's
-// writes were held.  The beacon's per-address limit counts the rows already
-// written, and a beacon accepted during a hold is not written until it ends:
-// without these counts one token could send without limit, and push the
-// visitors' own events out of the kept list, which is bounded.
-type heldBeaconCounts struct {
-	mu    sync.Mutex
-	since time.Time
-	n     map[string]int
-}
-
-// heldBeaconWindow matches the beacon limit's window (five minutes).
-const heldBeaconWindow = 5 * time.Minute
-
-// heldBeaconAddrsMax bounds the addresses counted; past it the counts start
-// over, which errs on the side of letting a beacon through.
-const heldBeaconAddrsMax = 100000
-
-// add counts one beacon from key and returns how many it has sent in the
-// window, this one included.
-func (c *heldBeaconCounts) add(key string) int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	now := time.Now()
-	if c.n == nil || now.Sub(c.since) > heldBeaconWindow || len(c.n) >= heldBeaconAddrsMax {
-		c.n, c.since = map[string]int{}, now
-	}
-	c.n[key]++
-	return c.n[key]
-}
-
-// count is how many beacons key has sent in the window.
-func (c *heldBeaconCounts) count(key string) int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.n == nil || time.Since(c.since) > heldBeaconWindow {
-		return 0
-	}
-	return c.n[key]
-}
-
-// reset forgets the counts: the kept beacons are written now, and the rows
-// count them.
-func (c *heldBeaconCounts) reset() {
-	c.mu.Lock()
-	c.n = nil
-	c.mu.Unlock()
 }
