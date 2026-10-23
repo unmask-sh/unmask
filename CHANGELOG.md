@@ -30,6 +30,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-23) **A configured third-party CAPTCHA is the only way through the verify endpoint.**  With a provider set, a client that left the provider's token out of its request was judged by the built-in behavioral score or the math fallback instead -- what the operator had chosen the provider to replace.  Such a request is refused now; a provider whose site key is unset still falls back to built-in, as the page does.
 
+- (2026-10-23) **Community Bans entries are shape-checked before they become nginx map keys.**  The pulled feed's addresses and JA4 strings were quoted and written as keys, and inside quotes `default`, `~` and `include` keep their meaning to nginx: a feed carrying them would have challenged everyone, or stopped nginx from starting, on every subscribed install at once.  An entry is written only as a parsed address and a JA4 of the expected shape.
+
 - (2026-10-23) **A request with many `_bv` cookies no longer costs the worker a hash per entry.**  The sixteen-entry cap applied to each `_bv` value, and a client could send any number of values, so a few kilobytes of Cookie header bought an HMAC and a SHA-256 per 35 bytes, repeated as the templates read the variable.  The budget is per request now, in the module and the daemon alike.
 
 - (2026-10-23) **Two bans placed in the same second both take effect.**  The module reloaded its ban file only when the modification time changed, at one-second resolution, while the daemon flushes the file on every ban it places: the second ban in a second was not applied until a later write landed in a different second.  The file's size and inode are compared as well.
