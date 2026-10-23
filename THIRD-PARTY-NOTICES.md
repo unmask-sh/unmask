@@ -12,36 +12,57 @@ requires reproduction.
 
 ## Go runtime dependencies (= compiled into `unmask`)
 
+The list follows `admin/go.mod`; the versions are those of the current tree.
+Keep both tables in step with it when a dependency changes.
+
 ### Direct
 
 | Module | Version | License |
 |---|---|---|
-| github.com/go-sql-driver/mysql | v1.8.1 | MPL-2.0 |
+| github.com/glebarez/sqlite | v1.11.0 | MIT |
+| github.com/go-sql-driver/mysql | v1.10.0 | MPL-2.0 |
 | github.com/oschwald/maxminddb-golang | v1.13.1 | ISC |
+| golang.org/x/crypto | v0.55.0 | BSD-3-Clause |
+| golang.org/x/net | v0.57.0 | BSD-3-Clause |
+| golang.org/x/term | v0.45.0 | BSD-3-Clause |
 | gopkg.in/yaml.v3 | v3.0.1 | MIT + Apache-2.0 |
-| modernc.org/sqlite | v1.34.5 | BSD-3-Clause |
+| gorm.io/driver/mysql | v1.6.0 | MIT |
+| gorm.io/gorm | v1.31.2 | MIT |
+| modernc.org/libc | v1.77.1 | BSD-3-Clause |
+| modernc.org/sqlite | v1.60.1 | BSD-3-Clause |
+
+modernc.org/sqlite is the SQLite library transpiled to Go.  SQLite itself is
+public domain (`LICENSE-SQLITE` in the module), and both it and
+modernc.org/libc carry a `LICENSE-3RD-PARTY.md` naming the other C code they
+embed (parts of musl libc among them).
+
+github.com/glebarez/sqlite is the GORM SQLite dialector.  The driver it
+imports, github.com/glebarez/go-sqlite, is replaced in `admin/go.mod` by
+`admin/sqliteshim`, a small stand-in of our own that registers
+modernc.org/sqlite's driver, so the fork's own code is not compiled in.
 
 ### Indirect (= pulled in by the modules above)
 
 | Module | Version | License |
 |---|---|---|
-| filippo.io/edwards25519 | v1.1.0 | BSD-3-Clause |
+| filippo.io/edwards25519 | v1.2.0 | BSD-3-Clause |
 | github.com/dustin/go-humanize | v1.0.1 | MIT |
 | github.com/google/uuid | v1.6.0 | BSD-3-Clause |
-| github.com/mattn/go-isatty | v0.0.20 | MIT |
-| github.com/ncruces/go-strftime | v0.1.9 | MIT |
-| github.com/remyoudompheng/bigfft | (commit) | BSD-3-Clause |
-| golang.org/x/crypto | v0.50.0 | BSD-3-Clause |
-| golang.org/x/exp | (pre-release) | BSD-3-Clause |
-| golang.org/x/sys | v0.43.0 | BSD-3-Clause |
-| golang.org/x/term | v0.42.0 | BSD-3-Clause |
-| modernc.org/libc | v1.61.4 | BSD-3-Clause |
-| modernc.org/mathutil | v1.6.0 | BSD-3-Clause |
-| modernc.org/memory | v1.8.0 | BSD-3-Clause |
+| github.com/jinzhu/inflection | v1.0.0 | MIT |
+| github.com/jinzhu/now | v1.1.5 | MIT |
+| github.com/mattn/go-isatty | v0.0.24 | MIT |
+| github.com/ncruces/go-strftime | v1.0.0 | MIT |
+| github.com/remyoudompheng/bigfft | (commit 24d4a6f, 2023-01-29) | BSD-3-Clause |
+| golang.org/x/sys | v0.48.0 | BSD-3-Clause |
+| golang.org/x/text | v0.41.0 | BSD-3-Clause |
+| modernc.org/mathutil | v1.7.1 | BSD-3-Clause |
+| modernc.org/memory | v1.12.1 | BSD-3-Clause |
 
-Run `go mod download && go mod why <module>` inside `admin/` for the live tree,
-and `cat $(go env GOMODCACHE)/<module>@<ver>/LICENSE` for the verbatim license
-text of any specific module.
+Run `go mod why <module>` inside `admin/` for the live tree, and read
+`$(go env GOMODCACHE)/<module>@<ver>/LICENSE` (a few modules spell it
+`License`) for the verbatim license text of any specific module.  Every GitHub
+release also attaches a CycloneDX SBOM with license data
+(`unmask-X.Y.Z.cdx.json` / `.xml`), generated from the same `go.mod`.
 
 ----
 

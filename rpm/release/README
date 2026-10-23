@@ -18,11 +18,12 @@ Files installed:
     /etc/apk/keys/oss@unmask.sh-260509.rsa.pub      RSA public signing key
     /etc/apk/repositories                           apk repository (one line appended)
 
-After installing this package you can install unmask with:
+After installing this package you can install unmask -- the daemon, the
+nginx module and the nginx snippets -- with:
 
-    dnf install unmask                            # RHEL/Rocky/AlmaLinux
-    apt update && apt install unmask              # Debian/Ubuntu
-    apk update && apk add unmask                  # Alpine
+    dnf install unmask unmask-plugin-nginx unmask-web-nginx                 # RHEL/Rocky/AlmaLinux
+    apt update && apt install unmask unmask-plugin-nginx unmask-web-nginx   # Debian/Ubuntu
+    apk update && apk add unmask unmask-plugin-nginx unmask-web-nginx       # Alpine
 
 To verify the key fingerprint outside of this package, see:
     https://unmask.sh/keys/

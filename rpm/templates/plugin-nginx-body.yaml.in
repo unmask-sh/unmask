@@ -15,9 +15,11 @@
 #   make package-plugin-nginx UNMASK_VERSION=0.1.0 NGINX_VERSION=1.18.0
 
 description: |
-  unmask nginx native module (= ngx_http_unmask_module.so).
-  Provides JA4 TLS fingerprint extraction and full native-mode features.
-  Requires the unmask main package and matching nginx version.
+  unmask nginx dynamic module (ngx_http_unmask_module.so).
+  Computes the JA4 TLS fingerprint and verifies the pass cookie inside
+  nginx; the recommended native setup runs on it.
+  Requires the unmask package of the same version and a matching nginx
+  version.
 
 depends:
   - unmask

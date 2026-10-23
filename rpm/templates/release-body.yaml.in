@@ -24,11 +24,12 @@
 description: |
   unmask repository configuration + GPG public key.
   Installing this package adds the unmask package repository and the GPG
-  signing key to your system.  After this you can install unmask itself with:
+  signing key to your system.  After this you can install unmask itself --
+  the daemon, the nginx module and the nginx snippets -- with:
 
-    dnf install unmask          # RHEL/Rocky/AlmaLinux
-    apt install unmask          # Debian/Ubuntu
-    apk add unmask              # Alpine
+    dnf install unmask unmask-plugin-nginx unmask-web-nginx   # RHEL/Rocky/AlmaLinux
+    apt install unmask unmask-plugin-nginx unmask-web-nginx   # Debian/Ubuntu
+    apk add unmask unmask-plugin-nginx unmask-web-nginx       # Alpine
 
 contents:
   # GPG / signing key (= one OpenPGP public key shared by rpm / deb / apk)

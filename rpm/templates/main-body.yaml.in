@@ -11,10 +11,13 @@
 
 description: |
   unmask — JA4 TLS-fingerprint based bot challenge.
-  Admin server (Go static binary), challenge HTML/JS, configuration UI,
-  and integration snippets for nginx / Apache.
-  By default operates in forward-auth mode (= HTTP-server-agnostic).
-  Install unmask-plugin-nginx for nginx native module + JA4 fingerprint.
+  The daemon (Go static binary): admin UI and setup wizard, challenge page
+  and verification, nginx configuration rendering, ban list, statistics.
+  Install it with unmask-plugin-nginx (the nginx dynamic module, where the
+  JA4 fingerprint comes from) and unmask-web-nginx (the nginx snippets);
+  that is the recommended setup.  The forward-auth snippets bundled under
+  /usr/share/unmask/snippets/ (nginx auth_request, Apache mod_lua) are a
+  frozen path: bug and security fixes only, and no JA4.
 
 contents:
   # admin server

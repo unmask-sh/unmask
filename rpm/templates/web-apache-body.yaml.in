@@ -7,10 +7,13 @@
 # full spec.
 
 description: |
-  Apache HTTP Server web integration for unmask.
-  Drops a config in /etc/httpd/conf.d/ so /unmask/admin/, /unmask/challenge/
-  and the forward-auth gateway are reachable through your existing httpd.
-  After install, restart httpd and open https://your-host/unmask/admin/.
+  Apache HTTP Server integration for unmask (forward-auth through mod_lua).
+  Drops a config in /etc/httpd/conf.d/ (conf-available/ on Debian) so
+  /unmask/admin/, /unmask/challenge/ and the forward-auth check are reachable
+  through your existing httpd.  This path is frozen: bug and security fixes
+  only, and no JA4 fingerprint, which needs the TLS handshake only the nginx
+  module sees.  After install, restart httpd and open
+  https://your-host/unmask/admin/.
 
 depends:
   - unmask

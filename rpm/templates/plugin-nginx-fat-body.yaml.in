@@ -10,11 +10,13 @@
 # `make build-module-multi` to build them all first, then package.
 
 description: |
-  unmask nginx native module (= ngx_http_unmask_module.so).
-  Provides JA4 TLS fingerprint extraction and full native-mode features.
+  unmask nginx dynamic module (ngx_http_unmask_module.so).
+  Computes the JA4 TLS fingerprint and verifies the pass cookie inside
+  nginx; the recommended native setup runs on it.
   Bundles modules for multiple nginx versions; postinstall picks the one
   matching the host nginx automatically.
-  Requires the unmask main package and a host nginx with --with-compat.
+  Requires the unmask package of the same version and a host nginx built
+  with --with-compat.
 
 depends:
   - unmask

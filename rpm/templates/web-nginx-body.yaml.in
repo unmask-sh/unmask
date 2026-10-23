@@ -15,10 +15,13 @@
 # provides the proxy / location definitions shared by both modes.
 
 description: |
-  nginx web integration for unmask (= conf.d snippet).
-  Drops a config in /etc/nginx/conf.d/ so /unmask/admin/, /unmask/challenge/
-  and the forward-auth gateway are reachable through your existing nginx.
-  After install, reload nginx and open https://your-host/unmask/admin/.
+  nginx web integration for unmask (conf.d snippets).
+  Wires nginx to the daemon: the upstream, and the includes that carry the
+  /unmask/ locations (admin UI, setup wizard, challenge page) for both
+  setups -- the native module (recommended; install unmask-plugin-nginx)
+  and the frozen forward-auth mode (auth_request, no JA4, fixes only).
+  After install, add the server.inc include to your server block, reload
+  nginx and open https://your-host/unmask/admin/setup/.
 
 depends:
   - unmask

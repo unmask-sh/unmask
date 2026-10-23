@@ -49,6 +49,17 @@ End-to-end tests live in `e2e/` and run against the dockerized stack.
   the nginx module path (the `nginxconf` templates and the module); it needs no
   forward-auth counterpart.
 
+## Clean-room reimplementation
+
+The JA4 parser in `nginx-module/` is implemented from the public JA4
+specification (https://github.com/FoxIO-LLC/ja4/blob/main/technical_details/JA4.md)
+alone.  FoxIO's reference nginx module is published under the Business
+Source License: do not consult its source while working on the parser, and
+do not copy from it.  A PR that lifts code from it is not merged.
+`THIRD-PARTY-NOTICES.md` records what the tree does bundle and the license
+of each piece; keep it, and `NOTICE`, in step with `admin/go.mod` when a
+dependency changes.
+
 ## Commit messages
 
 - Subject line: imperative, under ~70 chars, prefixed by area

@@ -4,14 +4,26 @@ Copyright 2026 Hidenori Umino
 Licensed under the Apache License, Version 2.0 (the "License").
 You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0
 
-This product bundles the following third-party Go modules:
+This product bundles the following third-party Go modules (the direct
+dependencies of admin/go.mod; THIRD-PARTY-NOTICES.md lists the indirect ones):
 
-- modernc.org/sqlite (BSD-3-Clause)
+- gorm.io/gorm (MIT)
+  https://github.com/go-gorm/gorm
+- gorm.io/driver/mysql (MIT)
+  https://github.com/go-gorm/mysql
+- github.com/glebarez/sqlite (MIT)
+  https://github.com/glebarez/sqlite
+- modernc.org/sqlite (BSD-3-Clause; SQLite itself is public domain)
   https://gitlab.com/cznic/sqlite
+- modernc.org/libc (BSD-3-Clause)
+  https://gitlab.com/cznic/libc
 - github.com/go-sql-driver/mysql (Mozilla Public License 2.0)
   https://github.com/go-sql-driver/mysql
 - github.com/oschwald/maxminddb-golang (ISC)
   https://github.com/oschwald/maxminddb-golang
+- golang.org/x/crypto, golang.org/x/net, golang.org/x/term (BSD-3-Clause)
+  https://go.googlesource.com/crypto, https://go.googlesource.com/net,
+  https://go.googlesource.com/term
 - gopkg.in/yaml.v3 (MIT and Apache-2.0)
   https://gopkg.in/yaml.v3
 

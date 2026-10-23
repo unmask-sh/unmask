@@ -4,7 +4,7 @@
 //
 //	claude mcp add unmask -- ssh <host> unmask mcp
 //
-// Design (doc/DESIGN-mcp-server.md): v1 is READ-ONLY and speaks the tools-only
+// Design: v1 is READ-ONLY and speaks the tools-only
 // subset of MCP (initialize / tools/list / tools/call over newline-delimited
 // JSON-RPC 2.0).  unmask itself never calls an LLM — this is a socket for the
 // operator's assistant, and the trust boundary is "whoever can run the unmask
