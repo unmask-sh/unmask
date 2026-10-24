@@ -6,6 +6,8 @@
   Replaces maxlength, which stops the typing without a word, and a server
   that cut the value after the fact.  Counted in characters (code points), as
   the server counts them.
+  The note also says how long the value is now (err.value_now), so the
+  operator knows how much to cut.
 
     <input data-maxchars="80" data-maxchars-msg="At most 80 characters.">
     <input pattern="..." data-invalid-msg="3-32 characters, ...">
@@ -31,10 +33,17 @@ input[data-maxchars]:invalid,textarea[data-maxchars]:invalid,input[data-invalid-
 <script>
 (function(){
   var SEL = 'input[data-maxchars],textarea[data-maxchars],input[data-invalid-msg]';
+  // The note's second sentence: how long the value is now, so the operator
+  // knows how much to cut rather than only that it is too much.
+  var NOW = {{ t .Lang "err.value_now" }};
   function check(el){
     var max = parseInt(el.getAttribute('data-maxchars') || '', 10);
     var msg = '';
-    if (max && Array.from(el.value).length > max) msg = el.getAttribute('data-maxchars-msg') || '';
+    var n = Array.from(el.value).length;
+    if (max && n > max) {
+      msg = el.getAttribute('data-maxchars-msg') || '';
+      if (NOW) msg += (msg ? ' ' : '') + NOW.replace('%d', String(n));
+    }
     el.setCustomValidity(msg);
     if (!msg && el.hasAttribute('data-invalid-msg') && !el.validity.valid) {
       // A pattern field: the browser's own check, in our words.

@@ -32,7 +32,7 @@ import (
 // suggestions are carried out by the operator in the admin.
 
 const (
-	askQuestionMax = 2000             // runes
+	askQuestionMax = 10000            // runes: room for a pasted log or report
 	askHistoryShow = 50               // turns per page of the history tab
 	askTimeout     = 6 * time.Minute  // a question's whole budget, tools and rounds included
 	askLongTimeout = 20 * time.Minute // the same at effort xhigh or max (advisor.ThinksLong)
@@ -633,7 +633,7 @@ func (h *Handler) AdminAskSend(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if utf8.RuneCountInString(q) > askQuestionMax {
-		fail(http.StatusBadRequest, i18n.Tf(lang, "err.value_long", askQuestionMax))
+		fail(http.StatusBadRequest, i18n.Tf(lang, "err.value_long", askQuestionMax)+" "+i18n.Tf(lang, "err.value_now", utf8.RuneCountInString(q)))
 		return
 	}
 	// The page's picks for this question: a model from the provider's list

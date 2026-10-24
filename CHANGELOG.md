@@ -16,6 +16,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- (2026-10-24) **The ask page takes a question of up to 10,000 characters, and a field over its limit says how long it is.**  The question was capped at 2,000 characters, short of a pasted log or report.  Every field with a character limit now adds the current count to its note ("At most 2,000 characters. Now 2,345 characters."), so the operator knows how much to cut.
+
 - (2026-10-24) **Every place that names a site marks a host that is not a defined site.**  The bot hunt's log rows coloured such a host amber; the stats page's path tables and heading, the site list, the notices and the hunt's live rows now do the same, so a spoofed Host or an unregistered vhost stands out wherever it appears, not only in the raw log.
 
 - (2026-10-24) **The commands the admin tells you to run have a copy button.**  Beside `sudo nginx -t && sudo nginx -s reload` in the saved banners, the rule dialogs, the upgrade review and the reload notice's help, beside the restart hint, the About tab's update command and the setup page's token command, a ❐ puts the command on the clipboard, so it need not be selected by hand.

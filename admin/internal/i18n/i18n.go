@@ -2614,6 +2614,7 @@ var dict = map[Lang]map[string]string{
 		"err.honeypot_regex":                            "honeypot pattern %q が不正な regex: %v",
 		"err.honeypot_title_long":                       "title は %d 文字までです。この rule で作られる BAN の理由の先頭に title が入ります。",
 		"err.value_long":                                "%d 文字までです。",
+		"err.value_now":                                 "現在 %d 文字です。",
 		"err.hn_override_format":                        "3〜32 文字の半角英数と - _ だけです (先頭と末尾は英数)。",
 
 		// docs
@@ -5419,6 +5420,7 @@ Matching requests are <strong>added to the BAN list</strong>; what happens after
 		"err.honeypot_regex":                            "Honeypot pattern %q is invalid regex: %v",
 		"err.honeypot_title_long":                       "The title can be at most %d characters: it leads the reason of every ban this rule creates.",
 		"err.value_long":                                "At most %d characters.",
+		"err.value_now":                                 "Now %d characters.",
 		"err.hn_override_format":                        "3-32 characters: letters, digits, - and _ only, starting and ending with a letter or digit.",
 
 		"docs.title":         "Documentation",

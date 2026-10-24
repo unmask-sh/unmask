@@ -94,7 +94,7 @@ func TestAskPageAndSend(t *testing.T) {
 	body = rec.Body.String()
 	// A fresh page is the composer alone: no turn and no empty note (the
 	// note is the history tab's).
-	for _, want := range []string{`id="ask-form"`, `data-maxchars="2000"`, `<select name="model" id="ask-model" class="pick-sel"><option value="m" data-effort-default="既定 (モデル任せ)" selected>m</option></select>`, `<select name="effort" id="ask-effort" class="pick-sel"><option value="">既定 (モデル任せ)</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select>`, `id="ask-suggest"`, `rows="1"`} {
+	for _, want := range []string{`id="ask-form"`, `data-maxchars="` + strconv.Itoa(askQuestionMax) + `"`, `<select name="model" id="ask-model" class="pick-sel"><option value="m" data-effort-default="既定 (モデル任せ)" selected>m</option></select>`, `<select name="effort" id="ask-effort" class="pick-sel"><option value="">既定 (モデル任せ)</option><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select>`, `id="ask-suggest"`, `rows="1"`} {
 		if !strings.Contains(body, want) {
 			t.Errorf("page lacks %q", want)
 		}
@@ -186,7 +186,7 @@ func TestAskPageAndSend(t *testing.T) {
 	}
 	rec = httptest.NewRecorder()
 	h.AdminAskSend(rec, askReq("POST", "/unmask/admin/ask/send", url.Values{"q": {strings.Repeat("あ", askQuestionMax+1)}}.Encode(), "admin"))
-	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "2000") {
+	if rec.Code != 400 || !strings.Contains(rec.Body.String(), strconv.Itoa(askQuestionMax)) || !strings.Contains(rec.Body.String(), strconv.Itoa(askQuestionMax+1)) {
 		t.Errorf("long question: %d %s", rec.Code, rec.Body.String())
 	}
 	// Clear: the account's rows go, the page returns.

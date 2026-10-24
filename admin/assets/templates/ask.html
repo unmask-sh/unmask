@@ -214,7 +214,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
     <div class="composer-row">
       <select id="ask-suggest" class="pick-sel" aria-label="{{ t .Lang "ask.suggest_pick" }}"><option value="">{{ t .Lang "ask.suggest_pick" }}</option>{{ range .Suggests }}<option value="{{ . }}">{{ . }}</option>{{ end }}</select>
-      <textarea name="q" id="ask-q" rows="1" placeholder="{{ t .Lang "ask.placeholder" }}" data-maxchars="{{ .QuestionMax }}" data-maxchars-msg="{{ tf .Lang "err.value_long" .QuestionMax }}"></textarea>
+      <textarea name="q" id="ask-q" rows="1" placeholder="{{ t .Lang "ask.placeholder" }}" data-maxchars="{{ .QuestionMax }}" data-maxchars-msg="{{ tf .Lang "err.value_long" .QuestionMax }}" data-maxchars-anchor=".composer-row"></textarea>
       <button type="submit" class="btn" id="ask-send" aria-label="{{ t .Lang "ask.send" }}">➤</button>
       <button type="button" class="btn" id="ask-stop" aria-label="{{ t .Lang "ask.stop" }}" hidden>■</button>
     </div>
