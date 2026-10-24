@@ -207,8 +207,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await page.evaluate(() => { const v = document.querySelector('#cr-modal .cc-values'); v.value = '203.0.113.0/24'; v.dispatchEvent(new Event('input', { bubbles: true })); });
     await page.click('#cr-modal-save');
     await page.waitForSelector('#cr-modal-msg.ok', { timeout: 5000 }).catch(() => {});
-    const saved = await page.evaluate(() => ({ msg: (document.getElementById('cr-modal-msg') || {}).textContent || '', added: !!document.querySelector('#turns a.ask-rule.added'), saveHidden: document.getElementById('cr-modal-save').hidden }));
+    const saved = await page.evaluate(() => ({ msg: (document.getElementById('cr-modal-msg') || {}).textContent || '', added: !!document.querySelector('#turns a.ask-rule.added'), saveHidden: document.getElementById('cr-modal-save').hidden, cmdCopy: !!document.querySelector('#cr-modal-msg code.cmd + button.cmd-copy') }));
     ok(/nginx/.test(saved.msg) && saved.added && saved.saveHidden, 'the add did not report, or the button did not change: ' + JSON.stringify(saved));
+    // The note arrives by innerHTML after the page loaded; the reload command in it still gets its copy button.
+    ok(saved.cmdCopy, 'the saved note has no copy button beside the reload command');
     const made = await page.evaluate(() => { const a = document.querySelector('#turns a.ask-rule.added'); return a ? { text: a.textContent.trim(), href: a.getAttribute('href'), tab: document.getElementById('cr-modal-tab').getAttribute('href') } : null; });
     ok(!!made && made.text.indexOf('e2e rule from ask') >= 0 && made.text.indexOf('\u2197') >= 0 && /\/admin\/settings\/custom-rules\/#rule-[a-z0-9]+$/.test(made.href) && made.tab === made.href, 'the button does not name and open the added rule: ' + JSON.stringify(made));
     await page.click('#cr-modal-cancel');

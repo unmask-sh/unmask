@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-10-24) **The commands the admin tells you to run have a copy button.**  Beside `sudo nginx -t && sudo nginx -s reload` in the saved banners, the rule dialogs, the upgrade review and the reload notice's help, beside the restart hint, the About tab's update command and the setup page's token command, a ❐ puts the command on the clipboard, so it need not be selected by hand.
+
 ## [0.1.53-rc11] - 2026-10-24 (testing build)
 
 ### Added

@@ -331,6 +331,8 @@ window.popoverPin = window.popoverPin || (function(){
   }
   // Exposed for the info-tip flavor below.
   window._popoverCopyCloneBody = copyCloneBody;
+  // Exposed for the command copy button below (= the same clipboard fallback).
+  window._popoverLegacyCopy = legacyCopy;
   // Exposed so installInfoTipPinning can reuse the same drag wiring.
   window._popoverAttachDragToBar = attachDragToBar;
 
@@ -997,8 +999,86 @@ window.installInfoPopupEdgeFlip = window.installInfoPopupEdgeFlip || function(){
   });
 };
 
-// auto-wire on DOMContentLoaded (= any page with an info-tip becomes pinnable automatically).
+// Command copy: a ❐ beside each <code class="cmd">, the one-line shell command
+// a page tells the operator to run -- `sudo nginx -t && sudo nginx -s reload`
+// in the settings' saved banner and footer, the hunt page's rule dialogs, the
+// overview's upgrade review and the reload notice's help.  A click puts the
+// command alone on the clipboard and turns the glyph into a green ✓ for a
+// moment, as the pinned popover's copy button does.  The button is added here
+// rather than written into the i18n strings, so a page without this script
+// shows the plain command and no dead button.
+//
+// installCommandCopy(root) wires the <code class="cmd"> under root.  The
+// page-load auto-wire below covers the server-rendered ones, and a
+// MutationObserver on <body> covers markup that arrives later -- the help
+// popovers the settings page fills from <script type="text/html"> blocks,
+// the ask page's rule modal, a pinned popover's clone -- so a page needs no
+// call of its own.  The click is one delegated listener on the document, so
+// a button that travelled into a clone (cloneNode carries no listeners)
+// works the same.
+window.installCommandCopy = window.installCommandCopy || function(root){
+  root = root || document;
+  if (!root.querySelectorAll) return;
+  function wire(code){
+    var next = code.nextElementSibling;
+    if (next && next.classList && next.classList.contains('cmd-copy')) return;
+    if (!code.parentNode) return;
+    var b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'cmd-copy';
+    b.setAttribute('aria-label', 'copy');
+    b.textContent = '❐';
+    code.parentNode.insertBefore(b, code.nextSibling);
+  }
+  // The root itself too: a MutationObserver hands over each added node, and
+  // a <code class="cmd"> written straight into a help text is such a node
+  // (querySelectorAll looks at descendants only).
+  if (root.matches && root.matches('code.cmd')) wire(root);
+  root.querySelectorAll('code.cmd').forEach(wire);
+};
+document.addEventListener('click', function(e){
+  var btn = e.target && e.target.closest ? e.target.closest('button.cmd-copy') : null;
+  if (!btn) return;
+  e.preventDefault();
+  var code = btn.previousElementSibling;
+  if (!code || !code.classList || !code.classList.contains('cmd')) return;
+  var text = (code.textContent || '').trim();
+  if (!text) return;
+  function ok(){
+    if (btn._cmdCopyTimer) clearTimeout(btn._cmdCopyTimer);
+    btn.textContent = '✓';
+    btn.classList.add('is-ok');
+    btn._cmdCopyTimer = setTimeout(function(){
+      btn.textContent = '❐';
+      btn.classList.remove('is-ok');
+      btn._cmdCopyTimer = null;
+    }, 900);
+  }
+  function legacy(){
+    if (typeof window._popoverLegacyCopy === 'function') window._popoverLegacyCopy(text, ok);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(ok, legacy);
+    return;
+  }
+  legacy();
+});
+
+// auto-wire on DOMContentLoaded (= any page with an info-tip becomes pinnable automatically,
+// and every <code class="cmd"> gets its copy button).
 document.addEventListener('DOMContentLoaded', function(){
+  if (window.installCommandCopy){
+    window.installCommandCopy(document);
+    if (window.MutationObserver && document.body){
+      new MutationObserver(function(records){
+        records.forEach(function(r){
+          r.addedNodes.forEach(function(n){
+            if (n.nodeType === 1) window.installCommandCopy(n);
+          });
+        });
+      }).observe(document.body, { childList: true, subtree: true });
+    }
+  }
   if (window.installInfoTipPinning) window.installInfoTipPinning(document, { skipInDialog: true });
   if (window.installInfoPopupEdgeFlip) window.installInfoPopupEdgeFlip();
 });

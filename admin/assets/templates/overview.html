@@ -320,7 +320,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 </nav>
 {{ if .UpgradeApplied }}
 <div role="alert" style="margin:1rem 0;padding:.7rem 1rem;border:1px solid #16a34a;background:#f0fdf4;border-radius:.4rem;color:#166534;line-height:1.5">
-  &#10003; {{ t .Lang "overview.upgrade_review.applied" }}{{ if .UpgradeReloadNeeded }} <strong>{{ t .Lang "overview.upgrade_review.reload_hint" }}</strong>{{ end }}
+  &#10003; {{ t .Lang "overview.upgrade_review.applied" }}{{ if .UpgradeReloadNeeded }} <strong>{{ safeHTML (t .Lang "overview.upgrade_review.reload_hint") }}</strong>{{ end }}
 </div>
 {{ end }}
 {{ if .UpgradeHeld }}

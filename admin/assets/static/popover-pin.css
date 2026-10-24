@@ -180,6 +180,14 @@
 .popover-tools .popover-copy.popover-copy-ok,
 .popover-tools .popover-copy.popover-copy-ok:hover{background:#16a34a;color:#fff;border-color:#16a34a}
 
+/* The ❐ beside a one-line command (<code class="cmd">; popover-pin.js adds the
+ * button).  A chip like the title-bar buttons, sized in em so it follows the
+ * text it sits in -- a .9rem banner, a .8rem help popup, a .76rem dialog note.
+ * .is-ok is the 900ms green ✓ after a successful copy. */
+.cmd-copy{display:inline-flex;align-items:center;justify-content:center;width:1.3em;height:1.3em;margin-left:.3em;padding:0;vertical-align:-.25em;background:#fff;color:#1e293b;border:1px solid #94a3b8;border-radius:.2rem;font:inherit;font-size:.9em;font-weight:700;line-height:1;cursor:pointer}
+.cmd-copy:hover{background:#f8fafc;color:#0f172a;border-color:#475569}
+.cmd-copy.is-ok,.cmd-copy.is-ok:hover{background:#16a34a;color:#fff;border-color:#16a34a}
+
 /* "copied" chip that floats just below the title bar after a successful copy,
  * complementing the ⧉ → ✓ icon swap with plain-language confirmation.  The
  * pill fades in via .is-visible (= JS toggles it next frame) and fades out at

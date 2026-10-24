@@ -220,6 +220,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 .about-sub{margin:.5rem 0 .25rem;font-weight:600;font-size:.8rem;color:#475569}
 .about-sub:first-child{margin-top:0}
 .about-cmd{margin:0;padding:.5rem .7rem;background:#0f172a;color:#e2e8f0;border-radius:.3rem;font-size:.82rem;overflow-x:auto}
+.about-cmd code{background:transparent;color:inherit;padding:0;border-radius:0;font:inherit}
 .about-note{margin:.35rem 0 0;font-size:.75rem;color:#94a3b8}
 .about-history{margin:.3rem 0 0;padding-left:1.1rem;font-size:.82rem}
 .about-history li{margin:.3rem 0}
@@ -897,7 +898,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <div class="about-update">
     {{ if .VersionStatus.UpdateCommand }}
     <p class="about-sub">{{ t .Lang "settings.about.update_cmd" }}</p>
-    <pre class="about-cmd">{{ .VersionStatus.UpdateCommand }}</pre>
+    <pre class="about-cmd"><code class="cmd">{{ .VersionStatus.UpdateCommand }}</code></pre>
     {{ else if .VersionStatus.ManualInstall }}
     <p class="about-note">{{ safeHTML (t .Lang "settings.about.manual") }}</p>
     {{ end }}

@@ -133,6 +133,7 @@ function send(line) {
         selectable: !!body && getComputedStyle(body).userSelect !== 'none',
         title: c ? (c.querySelector('.popover-title') || {}).textContent || '' : '',
         copy: !!(c && c.querySelector('button.popover-copy')),
+        cmdCopy: !!(c && c.querySelector('.popover-body button.cmd-copy')),
         close: !!(c && c.querySelector('button.popover-close')),
       };
     });
@@ -164,6 +165,23 @@ function send(line) {
     if (SHOT && path === '/admin/users/') {
       await page.screenshot({ path: SHOT + '/reload-notice-pinned.png' });
     }
+
+    // 2b. the command's own copy button travelled into the window (the clone
+    //     carries the markup; the click is handled for the document): a click
+    //     copies the command alone, answers with a green ✓ for a moment, and
+    //     leaves the window pinned.
+    ok(pinned.cmdCopy, `${path}: the pinned help has no copy button beside the command`);
+    await page.click('body > .info-popup-pinned.popover-clone .popover-body button.cmd-copy');
+    await sleep(150);
+    const copied = await page.evaluate(() => {
+      const b = document.querySelector('body > .info-popup-pinned.popover-clone .popover-body button.cmd-copy');
+      return {
+        ok: !!b && b.classList.contains('is-ok') && b.textContent === '✓',
+        clones: document.querySelectorAll('body > .info-popup-pinned.popover-clone').length,
+      };
+    });
+    ok(copied.ok, `${path}: the command's copy button gave no ✓ after a click`);
+    ok(copied.clones === 1, `${path}: ${copied.clones} pinned windows after the command copy, expected 1`);
 
     // 3. its close button takes it down and hands the "?" back to hover.
     await page.click('body > .info-popup-pinned.popover-clone button.popover-close');
