@@ -120,6 +120,24 @@ func IsBotAction(a string) bool {
 	return a == JA4ActionBot || a == JA4ActionSuspect
 }
 
+// ChromiumJA4C are the JA4_c hashes (extensions + signature algorithms,
+// sorted, so Chrome's per-connection extension shuffle does not matter) that
+// Chromium's TLS stack has sent, read from traffic in 2026-10.  The UA-TLS
+// tier's family check names a fingerprint Chromium's only when its ciphers
+// are Chrome's AND its JA4_c is here: the cipher hash (8daaf6152771) stopped
+// naming Chromium by itself when Firefox 158 dropped its two CBC suites and
+// began sending the same fifteen.  Add a value when a Chrome release changes
+// its extensions (the family check misses Chrome-shaped spoofs until then,
+// which is the safe direction); never a Firefox or Safari value.
+var ChromiumJA4C = []string{
+	"cb7bf5808d99", // Chrome 15x, seventeen extensions (the bulk in 2026-10)
+	"806a8c22fdea", // Chrome 15x, sixteen extensions
+	"02713d6af862", // Chrome 1xx (in FoxIO's JA4 examples)
+	"d8a2da3f94cd", // Chrome 15x on Linux and Android
+	"dcad5a053991", // the solver of 2026-10-23, replaying a Chrome ClientHello
+	"b0da82dd1658", // Chrome 12x (the JA4 README's example)
+}
+
 // ID numbering rules: built-ins use rule-by-rule sequential numbers
 // from 1-99.  Numbers are **never reused** on rule add/remove
 // (= deleted IDs stay as gaps).  Renaming keeps the ID and only

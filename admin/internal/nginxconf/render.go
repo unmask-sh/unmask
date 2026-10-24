@@ -682,6 +682,9 @@ type renderData struct {
 	// UATLSReverse: the opt-in reverse check (settings.ua_tls_reverse_check)
 	// joins the tier's key.
 	UATLSReverse bool
+	// ChromiumJA4C: nginxconf.ChromiumJA4C as a regex alternation, the
+	// extension hashes a Chromium fingerprint must carry for the family check.
+	ChromiumJA4C string
 	UpstreamAddr string
 	// UpstreamServer: value to write for `server XXX;` in upstream.conf.
 	// Switches based on the bind format:
@@ -1427,6 +1430,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	d.HeaderIntegrityLBFronted = len(d.LBIPRanges) > 0
 	d.UATLSEnabled = UATLSActive(s)
 	d.UATLSReverse = d.UATLSEnabled && s.Global.UATLSReverseCheck
+	d.ChromiumJA4C = strings.Join(ChromiumJA4C, "|")
 
 	// Monitor mode: rendered only while some site is in it, so the usual
 	// template is untouched otherwise.  The per-site rows carry only the

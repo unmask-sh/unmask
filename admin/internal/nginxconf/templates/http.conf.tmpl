@@ -1470,11 +1470,27 @@ map $effective_ja4 $unmask_ja4_t13 {
     default 0;
     "~^[tq]13" 1;   # the session negotiated TLS 1.3 (q: over QUIC, where HTTP/3 lives)
 }
+map $effective_ja4 $unmask_ja4_chromium_ciphers {
+    default 0;
+    # Chrome's cipher list on TLS 1.3, with h2 or h1 ALPN.  It named Chromium's
+    # stack by itself until Firefox 158 (2026-10) dropped its two CBC suites
+    # and sends the same fifteen -- the hash is of the sorted list, so the two
+    # are one now.  The reverse check reads this (a Chromium name over ciphers
+    # that are not even Chrome's); the family check needs the extensions too.
+    "~^t13d[0-9]+h[12]_8daaf6152771_" 1;
+}
 map $effective_ja4 $unmask_ja4_chromium {
     default 0;
-    # Chrome's cipher list on TLS 1.3, with h2 or h1 ALPN: Chrome, Edge, Opera,
-    # Brave, Electron -- everything that ships Chromium's TLS stack.
-    "~^t13d[0-9]+h[12]_8daaf6152771_" 1;
+    # Chromium's TLS stack: Chrome's ciphers AND one of the extension /
+    # signature-algorithm hashes Chromium builds send (Chrome, Edge, Opera,
+    # Brave, Electron share them; a bot that replays Chrome's ClientHello
+    # reproduces one).  The list is nginxconf.ChromiumJA4C.  A Chrome release
+    # that changes its extensions drops out until the list catches up, and the
+    # family check misses a Chrome-shaped spoof meanwhile -- the safe
+    # direction: a real browser is never contradicted, its extensions being
+    # its own (Firefox has kept 3cbfd9057e0d across versions while its
+    # ciphers met Chrome's).
+    "~^t13d[0-9]+h[12]_8daaf6152771_({{ .ChromiumJA4C }})$" 1;
 }
 # The browser family the User-Agent names.  Chromium first: its string also
 # carries "Safari/", and a WebView's carries "Version/" too.
@@ -1495,7 +1511,8 @@ map "$unmask_ua_tls_family:$http_user_agent" $unmask_ua_pre_tls13 {
 # The reverse contradiction (settings.ua_tls_reverse_check, off by default): a
 # Chromium name -- Chrome, Chromium, Edge, Opera, Brave, Electron, but not
 # Chrome on iOS, which is WebKit underneath -- over a TLS 1.3 session whose
-# fingerprint is not Chromium's.  Over QUIC Chromium's cipher list is another,
+# ciphers are not even Chrome's (the cipher hash alone, so a Chrome release
+# ahead of the extension list is not turned into a spoof).  Over QUIC Chromium's cipher list is another,
 # so only a TCP session ("t") is judged.  Off by default because antivirus
 # and corporate TLS proxies re-originate the session with a stack of their
 # own under the browser's unchanged name.  The map is always there (0 when
@@ -1505,7 +1522,7 @@ map $http_user_agent $unmask_chromium_named {
     "~CriOS/" 0;   # Chrome on iOS is WebKit underneath: Apple's TLS, by design (first match wins)
     "~(?:Chrome|Chromium|Edg|OPR|HeadlessChrome)/" 1;
 }
-map "$effective_ja4:$unmask_ja4_chromium:$unmask_chromium_named" $unmask_ua_tls_reverse {
+map "$effective_ja4:$unmask_ja4_chromium_ciphers:$unmask_chromium_named" $unmask_ua_tls_reverse {
     default 0;
 {{- if .UATLSReverse }}
     "~^t13[^:]*:0:1$" 1;

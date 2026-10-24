@@ -67,7 +67,9 @@ func TestUATLSRenderOn(t *testing.T) {
 	for _, want := range []string{
 		`map $effective_ja4 $unmask_ja4_t13 {`,
 		`map $effective_ja4 $unmask_ja4_chromium {`,
+		`map $effective_ja4 $unmask_ja4_chromium_ciphers {`,
 		`"~^t13d[0-9]+h[12]_8daaf6152771_" 1;`,
+		`"~^t13d[0-9]+h[12]_8daaf6152771_(cb7bf5808d99|`,
 		`map $http_user_agent $unmask_ua_tls_family {`,
 		`map "$unmask_ua_tls_family:$http_user_agent" $unmask_ua_pre_tls13 {`,
 		`map "$unmask_ja4_chromium:$unmask_ua_tls_family:$unmask_ja4_t13:$unmask_ua_pre_tls13:$unmask_ua_tls_reverse" $unmask_ua_tls_mismatch {`,
@@ -163,6 +165,14 @@ func TestUATLSMapSemantics(t *testing.T) {
 		{"chrome47 on tls1.3", chromeJA4, "Mozilla/5.0 (Windows NT 6.1; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/47.0.2526.111 Safari/537.36", "version"},
 		{"firefox on chromium", chromeJA4, "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0", "family"},
 		{"firefox on chromium h1", chromeH1JA4, "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/115.0", "family"},
+		{"safari name over chrome's whole fingerprint", "t13d1516h2_8daaf6152771_02713d6af862", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15", "family"},
+		// Firefox 158 sends Chrome's fifteen ciphers under Firefox's own
+		// extensions: the ciphers alone contradict nothing (before this,
+		// 2026-10, every Firefox 158 user was sent to the CAPTCHA).
+		{"firefox 158 on its own stack", "t13d1517h2_8daaf6152771_3cbfd9057e0d", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:158.0) Gecko/20100101 Firefox/158.0", ""},
+		// Chrome's ciphers under an extension hash the list does not know:
+		// not judged -- a Chrome release ahead of the list fails open.
+		{"firefox name over unlisted extensions", "t13d1516h2_8daaf6152771_0c27189014cf", "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:158.0) Gecko/20100101 Firefox/158.0", ""},
 		{"old firefox on tls1.3", ffJA4, "Mozilla/5.0 (Windows NT 6.1; rv:52.0) Gecko/20100101 Firefox/52.0", "version"},
 		{"ios11 safari on tls1.3", appleJA4, "Mozilla/5.0 (iPhone; CPU iPhone OS 11_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/11.0 Mobile/15E148 Safari/604.1", "version"},
 		// Consistent clients, left alone.
@@ -229,9 +239,11 @@ func TestUATLSReverseSemantics(t *testing.T) {
 	const firefoxUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:141.0) Gecko/20100101 Firefox/141.0"
 	for _, on := range []bool{true, false} {
 		inc := render(on)
-		chromium := pat(inc, `map $effective_ja4 $unmask_ja4_chromium {`)
+		// The reverse check reads the ciphers alone: a Chrome whose extensions
+		// the family list does not know yet must not become a spoof.
+		chromium := pat(inc, `map $effective_ja4 $unmask_ja4_chromium_ciphers {`)
 		name := pat(inc, `map $http_user_agent $unmask_chromium_named {`)
-		reverse := pat(inc, `map "$effective_ja4:$unmask_ja4_chromium:$unmask_chromium_named" $unmask_ua_tls_reverse {`)
+		reverse := pat(inc, `map "$effective_ja4:$unmask_ja4_chromium_ciphers:$unmask_chromium_named" $unmask_ua_tls_reverse {`)
 		decide := func(ja4, ua string) string {
 			return first(reverse, ja4+":"+first(chromium, ja4)+":"+first(name, ua))
 		}
@@ -246,11 +258,33 @@ func TestUATLSReverseSemantics(t *testing.T) {
 		}
 		want(goJA4, chromeUA, "1", "a Chrome name over a Go fingerprint")
 		want(chromeJA4, chromeUA, "0", "Chrome on Chrome's fingerprint")
+		want("t13d1516h2_8daaf6152771_0c27189014cf", chromeUA, "0", "Chrome's ciphers under extensions the family list does not know")
 		want(goJA4, criosUA, "0", "Chrome on iOS is WebKit")
 		want(goJA4, firefoxUA, "0", "a Firefox name is the family check's business")
 		want(quicJA4, chromeUA, "0", "a QUIC session is not judged")
 	}
 	if !strings.Contains(render(true), `"~^0:c:1:0:1$" reverse;`) {
 		t.Error("the tier's map does not name the reverse contradiction")
+	}
+}
+
+// TestChromiumJA4CList: every entry is a JA4_c (twelve hex digits), none
+// repeats, and the family map carries them all -- the hash alone would judge
+// Firefox 158, whose ciphers are Chrome's.
+func TestChromiumJA4CList(t *testing.T) {
+	seen := map[string]bool{}
+	for _, c := range ChromiumJA4C {
+		if !regexp.MustCompile(`^[0-9a-f]{12}$`).MatchString(c) {
+			t.Errorf("ChromiumJA4C entry %q is not a JA4_c", c)
+		}
+		if seen[c] {
+			t.Errorf("ChromiumJA4C repeats %q", c)
+		}
+		seen[c] = true
+	}
+	inc := renderHTTPInc(t, nil)
+	want := `"~^t13d[0-9]+h[12]_8daaf6152771_(` + strings.Join(ChromiumJA4C, "|") + `)$" 1;`
+	if !strings.Contains(inc, want) {
+		t.Errorf("the family map does not carry the list: want %s", want)
 	}
 }

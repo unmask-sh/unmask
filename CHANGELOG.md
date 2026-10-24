@@ -12,6 +12,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+
+- (2026-10-25) **A module for nginx 1.30.6.**  The plugin package carries the module built for nginx 1.30.6 beside the one for 1.30.0.  nginx loads a module only for its own exact version, so a host that moves to 1.30.6 before it takes this package starts nginx without the module, through the placer's fail-safe, until it does.
+
+### Fixed
+
+- (2026-10-25) **Firefox 158 is no longer challenged as a Chrome in disguise.**  Firefox 158 sends the same fifteen cipher suites as Chrome, and the UA-TLS tier's family check, which knew Chromium's stack by its cipher hash alone, contradicted every Firefox 158 user and sent them to the CAPTCHA.  The check now needs one of Chromium's extension hashes as well; a Firefox keeps its own.
+
 ## [0.1.53-rc15] - 2026-10-25 (testing build)
 
 ### Changed
