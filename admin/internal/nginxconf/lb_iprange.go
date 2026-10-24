@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/unmask-sh/unmask/admin/internal/cdn"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -161,7 +162,11 @@ func effectiveLBs(enabledIDs []string, extras []settings.TrustedLBExtra) []LBIPR
 	}
 	out := make([]LBIPRange, 0, len(enabledIDs)+len(extras))
 	for _, p := range LBIPRanges {
-		if !on[p.ID] || len(p.CIDRs) == 0 {
+		if !on[p.ID] {
+			continue
+		}
+		p = withCDNRanges(p)
+		if len(p.CIDRs) == 0 {
 			continue
 		}
 		out = append(out, p)
@@ -200,6 +205,19 @@ func effectiveLBs(enabledIDs []string, extras []settings.TrustedLBExtra) []LBIPR
 	return out
 }
 
+// withCDNRanges: a preset that follows a CDN's published list takes the
+// cdn table's ranges for that vendor (the hub's document, else the snapshot
+// built into the binary); its own CIDRs, if any, are the fallback.
+func withCDNRanges(p LBIPRange) LBIPRange {
+	if p.FromCDN == "" {
+		return p
+	}
+	if rs := cdn.Active().Ranges(p.FromCDN); len(rs) > 0 {
+		p.CIDRs = rs
+	}
+	return p
+}
+
 // LBIPRange: trusted LB IP ranges for one vendor.
 type LBIPRange struct {
 	ID     string   // internal ID (= "gcp" / "cloudflare" etc.).  Becomes the value of $unmask_lb_vendor.
@@ -214,7 +232,16 @@ type LBIPRange struct {
 	// own refreshes do not count.
 	AddedIn   string
 	UpdatedIn string
+	// FromCDN: the cdn package's vendor id whose listed ranges stand in for
+	// CIDRs when the table carries it (the hub's list, else the built-in
+	// snapshot), so the preset follows the vendor's published list.
+	FromCDN string
 }
+
+// NoJA4HeaderVar: the nginx variable http.inc declares empty, for a trusted
+// LB that forwards no JA4 (CloudFront).  Naming a client-settable header
+// there would hand the fingerprint to the client.
+const NoJA4HeaderVar = "$unmask_lb_no_ja4"
 
 // LBIPRanges: per-vendor IP range snapshots.  Add to this list by appending.
 //
@@ -249,6 +276,25 @@ var LBIPRanges = []LBIPRange{
 			"2600:2d00:1:1::/64",
 			"2600:2d00:1:b029::/64",
 		},
+	},
+	{
+		// Amazon CloudFront: the origin-facing addresses it fetches from
+		// origins with, kept current by the cdn package (the hub's list, or
+		// the snapshot built into the binary; see effectiveLBs).  CloudFront
+		// forwards no JA4 -- and forwards any header a client sends, so the
+		// generic X-Client-JA4 convention would let a client through
+		// CloudFront choose its own fingerprint: the header is the empty
+		// variable http.inc declares for this, and the module's own JA4 (the
+		// CloudFront-to-origin handshake) stands.  What the preset is for is
+		// the trust itself: with Nginx.TrustedLBRealIP the visitor's address
+		// comes out of X-Forwarded-For, and the forward-auth peer check and
+		// the gateway's real_ip ranges read the same set.
+		ID:      "cloudfront",
+		Label:   "Amazon CloudFront (CDN, origin-facing)",
+		Source:  "https://ip-ranges.amazonaws.com/ip-ranges.json (CLOUDFRONT_ORIGIN_FACING)",
+		Header:  NoJA4HeaderVar,
+		FromCDN: "cloudfront",
+		AddedIn: "v0.1.53",
 	},
 	{
 		ID:     "cloudflare",

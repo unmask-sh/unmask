@@ -1035,6 +1035,32 @@ type Nginx struct {
 	//       header: "$http_x_client_ja4"
 	TrustedLBExtra []TrustedLBExtra `yaml:"trusted_lb_extra,omitempty"`
 
+	// TrustedLBRealIP: on native nginx, take the visitor's address from the
+	// X-Forwarded-For the trusted LB / CDN set appends, the way the gateway
+	// container does: http.inc then carries set_real_ip_from for every range
+	// of the set, real_ip_header X-Forwarded-For and real_ip_recursive on, so
+	// $remote_addr -- the bans, the rate limits, the cookies' binding, the
+	// log -- is the visitor behind CloudFront and not CloudFront.  Off by
+	// default: it changes nginx for every server block, and an operator who
+	// already sets real_ip_header in nginx.conf keeps their own (a second one
+	// in http{} is a duplicate-directive error; the render leaves ours out
+	// and says so when it finds theirs).
+	TrustedLBRealIP bool `yaml:"trusted_lb_realip,omitempty"`
+
+	// CDNEgressExtra: origin-facing ranges of a CDN the hub list does not
+	// carry (an Akamai SiteShield map of the operator's own), CIDR or
+	// address.  Treated like the listed vendors: an automatic ban is not
+	// placed on them (cdn package).
+	CDNEgressExtra []string `yaml:"cdn_egress_extra,omitempty"`
+
+	// CDNEgressBan: place automatic bans on a CDN's origin-facing address
+	// after all.  Off by default, i.e. such an address is not banned: it is
+	// shared by every customer of the CDN, and a site behind one loses its
+	// own images and scripts when its CDN is banned.  A site that is behind
+	// no CDN may turn this on: a scan arriving through someone's CDN then
+	// costs that CDN address a ban, which costs this site nothing.
+	CDNEgressBan bool `yaml:"cdn_egress_ban,omitempty"`
+
 	SearchBots       SearchBotsConfig       `yaml:"search_bots"`
 	JA4Verdicts      JA4VerdictsConfig      `yaml:"ja4_verdicts"`
 	ChallengeTargets ChallengeTargetsConfig `yaml:"challenge_targets"`

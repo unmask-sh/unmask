@@ -1421,6 +1421,31 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <button type="button" class="rule-add-bottom" data-target-list="lb_extra">{{ t .Lang "settings.ua.add_new" }}</button>
       <p class="note rule-order-note">{{ t .Lang "settings.rule.order_note" }}</p>
     </div>
+
+    {{/* The visitor's address behind the set (native real_ip block in
+         http.inc).  Off by default; a host nginx.conf that already sets
+         real_ip_header keeps its own, and the card says so. */}}
+    <div class="ua-section" style="border-top:1px dashed #e2e8f0;padding-top:.6rem">
+      <label class="ck"><input type="checkbox" name="trusted_lb_realip" value="1" {{ if .LBRealIP }}checked{{ end }}> {{ t .Lang "settings.network.lb_realip_label" }}</label>
+      <p class="desc" style="font-size:.78rem;color:#64748b;margin:.3rem 0 0">{{ safeHTML (t .Lang "settings.network.lb_realip_hint") }}</p>
+      {{ if .LBRealIPHost }}<p class="desc" style="font-size:.78rem;color:#92400e;margin:.3rem 0 0">{{ safeHTML (t .Lang "settings.network.lb_realip_host_warn") }}</p>{{ end }}
+    </div>
+  </div>
+
+  {{/* CDN egress: the origin-facing addresses of CloudFront, Cloudflare and
+       Fastly (cdn package: the hub's list, else the snapshot built into the
+       binary), plus the operator's own.  No automatic ban lands on them
+       unless the switch below says so. */}}
+  <div class="bcd-card">
+    <h2>{{ t .Lang "settings.network.cdn_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.cdn_desc") }}</span></span></h2>
+    {{ with .CDNEgress }}
+    <p class="desc" style="font-size:.78rem;color:#64748b;margin:0 0 .5rem">{{ range $i, $v := .Vendors }}{{ if $i }} · {{ end }}{{ $v.Name }} {{ $v.Prefixes }}{{ end }}{{ if .Snapshot }} — {{ t $.Lang "settings.network.cdn_snapshot" }}{{ else if .Generated }} — {{ t $.Lang "settings.network.cdn_hub" }} <time class="js-datetime" data-ts="{{ .Generated }}"></time>{{ end }}</p>
+    <label class="field-label" style="display:block;font-size:.82rem;margin:.4rem 0 .2rem">{{ t $.Lang "settings.network.cdn_extra_label" }}</label>
+    <textarea name="cdn_egress_extra" rows="3" style="width:100%;max-width:32rem;font-family:ui-monospace,Menlo,monospace;font-size:.82rem" placeholder="{{ t $.Lang "settings.network.cdn_extra_ph" }}">{{ .Extra }}</textarea>
+    <p class="desc" style="font-size:.78rem;color:#64748b;margin:.2rem 0 .6rem">{{ t $.Lang "settings.network.cdn_extra_hint" }}</p>
+    <label class="ck"><input type="checkbox" name="cdn_egress_ban" value="1" {{ if .Ban }}checked{{ end }}> {{ t $.Lang "settings.network.cdn_ban_label" }}</label>
+    <p class="desc" style="font-size:.78rem;color:#64748b;margin:.3rem 0 0">{{ t $.Lang "settings.network.cdn_ban_hint" }}</p>
+    {{ end }}
   </div>
 
   <div class="bcd-card">

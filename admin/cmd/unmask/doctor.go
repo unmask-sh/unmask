@@ -41,6 +41,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/assets"
 	"github.com/unmask-sh/unmask/admin/internal/banfile"
 	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
+	"github.com/unmask-sh/unmask/admin/internal/cdn"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/db"
@@ -341,6 +342,7 @@ func cmdDoctor(args []string) error {
 				missing = append(missing, tn)
 			}
 		}
+		checkBansOnCDNEgress(conn, s, addOK, addWarn)
 		if len(missing) > 0 {
 			addErr("DB table check", fmt.Sprintf("missing: %s (= run unmask migrate)", strings.Join(missing, ", ")))
 		} else {
@@ -1921,6 +1923,57 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// checkBansOnCDNEgress: automatic bans that sit on a CDN's origin-facing
+// address (cdn package: CloudFront, Cloudflare, Fastly, the operator's own
+// ranges).  Such an address is every customer of the CDN's -- a site behind
+// it fetches its own images and scripts from there -- so the daemon leaves
+// these bans out of nginx's file and its own check, and says here that it
+// did; a scan that arrived through the CDN is not banned by address.
+func checkBansOnCDNEgress(conn *db.DB, s settings.Settings, addOK, addWarn func(t, m string)) {
+	if conn == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	rows, err := conn.QueryContext(ctx,
+		`SELECT ip, COALESCE(source,'') FROM unmask_ban
+		  WHERE ip <> '' AND COALESCE(banned_by,'') = '' AND (expires_at = 0 OR expires_at > ?)`, time.Now().Unix())
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	extra := cdn.ParsePrefixes(s.Nginx.CDNEgressExtra)
+	byCDN := map[string]int{}
+	total := 0
+	for rows.Next() {
+		var ip, source string
+		if err := rows.Scan(&ip, &source); err != nil {
+			return
+		}
+		if v, ok := cdn.Match(ip, extra); ok {
+			byCDN[cdn.Name(v)]++
+			total++
+		}
+	}
+	if total == 0 {
+		addOK("bans on CDN egress", "none of the active automatic bans sits on a CDN's origin-facing address")
+		return
+	}
+	parts := make([]string, 0, len(byCDN))
+	for name, n := range byCDN {
+		parts = append(parts, fmt.Sprintf("%s %d", name, n))
+	}
+	sort.Strings(parts)
+	if s.Nginx.CDNEgressBan {
+		addWarn("bans on CDN egress", fmt.Sprintf("%d automatic ban(s) sit on a CDN's origin-facing address (%s) and are enforced, since settings > Network says to ban CDN egress; "+
+			"a site behind that CDN fetches its images and scripts from the same address", total, strings.Join(parts, ", ")))
+		return
+	}
+	addWarn("bans on CDN egress", fmt.Sprintf("%d automatic ban(s) sit on a CDN's origin-facing address (%s): left out of nginx's ban file and the daemon's check, "+
+		"so the scans that placed them are not banned by address -- their requests still meet the honeypot's answer and the challenge. "+
+		"Behind a CDN, trusted_lb_realip (settings > Network) makes the bans land on the visitor instead", total, strings.Join(parts, ", ")))
 }
 
 // checkBanFileWorkerRead: can nginx's worker -- nginx.conf's `user`, with

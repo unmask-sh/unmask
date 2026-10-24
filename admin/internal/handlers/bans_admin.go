@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/ban"
+	"github.com/unmask-sh/unmask/admin/internal/cdn"
 	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -57,7 +58,23 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		// in the list view so "(default)" rows still tell the operator
 		// what's going to happen.
 		ResolvedAction string
+		// CDN: the CDN whose origin-facing address an automatic ban sits
+		// on (cdn package) -- shown as such, and not written to nginx's
+		// file nor held by the daemon's check.  "" otherwise.
+		CDN string
 	}
+	cdnExtra := cdn.ParsePrefixes(h.cfg().Nginx.CDNEgressExtra)
+	cdnBanned := h.cfg().Nginx.CDNEgressBan
+	cdnOf := func(e ban.Entry) string {
+		if cdnBanned || e.BannedBy != "" || e.IP == "" {
+			return ""
+		}
+		if v, ok := cdn.Match(e.IP, cdnExtra); ok {
+			return cdn.Name(v)
+		}
+		return ""
+	}
+	cdnRows := 0
 	ipCC := map[string]string{}
 	lookupCC := func(ip string) string {
 		// Asked with or without a database: a local address is ipgeo.Local
@@ -80,7 +97,11 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		if resolved == "" {
 			resolved = bansCfg.ResolveAction(e.Source, honeyDefault)
 		}
-		banRows = append(banRows, banRow{Entry: e, CountryCode: lookupCC(e.IP), ResolvedAction: resolved})
+		row := banRow{Entry: e, CountryCode: lookupCC(e.IP), ResolvedAction: resolved, CDN: cdnOf(e)}
+		if row.CDN != "" {
+			cdnRows++
+		}
+		banRows = append(banRows, row)
 	}
 
 	// === community-bans browse: migrated from /admin/community-bans/ ===
@@ -180,6 +201,7 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		"BasePath":                  h.cfg().Server.BasePath,
 		"Version":                   h.Version,
 		"Entries":                   banRows,
+		"CDNRows":                   cdnRows,
 		"BanFilePath":               h.cfg().Nginx.Honeypot.BanFilePath,
 		"Bans":                      h.cfg().Nginx.Bans,
 		"Saved":                     r.URL.Query().Get("saved") != "",

@@ -32,6 +32,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/ban"
 	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
+	"github.com/unmask-sh/unmask/admin/internal/cdn"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/crawlerverify"
@@ -595,6 +596,12 @@ func cmdServe(args []string) error {
 	if err := relay.LoadDir(nginxconf.SyncDefaultDir); err != nil {
 		log.Printf("relay list: %v", err)
 	}
+	// The CDN egress list (cdn package): the copy the sync keeps, over the
+	// list built into the binary.  The CloudFront preset's ranges and the
+	// ban manager's exemption read it.
+	if err := cdn.LoadDir(nginxconf.SyncDefaultDir); err != nil {
+		log.Printf("cdn list: %v", err)
+	}
 
 	// renderOutDir: where nginx's configuration is rendered (Render's own
 	// default when the setting is empty).
@@ -678,6 +685,19 @@ func cmdServe(args []string) error {
 		// replaces saw only literal operator IPs, not presets or CIDRs.
 		banMgr.SetWhitelist(func(ip string) bool {
 			return nginxconf.NewIPBypassMatcher(h.SnapshotSettings().Nginx).Match(ip)
+		})
+		// A CDN's origin-facing address (cdn package: the hub's list or the
+		// built-in snapshot, plus the operator's own ranges) gets no
+		// automatic ban: it is every customer of the CDN's, and a site
+		// behind the CDN loses its own images and scripts when it is banned.
+		// Read live, so the switch and the ranges in settings > Network
+		// apply without a restart.
+		banMgr.SetEgress(func(ip string) (string, bool) {
+			n := h.SnapshotSettings().Nginx
+			if n.CDNEgressBan {
+				return "", false
+			}
+			return cdn.Match(ip, cdn.ParsePrefixes(n.CDNEgressExtra))
 		})
 		// Native-mode honeypot auto-ban: record which trap URL was hit (= hpuri
 		// from the access-log line) as the reason, AND resolve the matched rule's
@@ -812,6 +832,7 @@ func cmdServe(args []string) error {
 		return renderNow(nginxconf.RenderCause{Kind: nginxconf.RenderByIPRange, Detail: detail})
 	}
 	ipSync.PullRelay = true
+	ipSync.PullCDN = true
 	h.IPRangeSync = ipSync
 	go ipSync.Start(context.Background())
 

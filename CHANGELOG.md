@@ -12,6 +12,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+
+- (2026-10-24) **No automatic ban lands on a CDN's origin-facing address.**  A scan sent to a CDN hostname reaches the origin from a CloudFront address and trips the honeypot, and the ban then stops every fetch the site's own CDN makes from that address.  The addresses CloudFront, Cloudflare and Fastly fetch with get no honeypot, pass-budget or address-wide ban; bans already on them are left out and marked.
+
+- (2026-10-24) **A CloudFront preset, and on native nginx the visitor's address from X-Forwarded-For.**  With CloudFront in the trusted LB / CDN set and the new switch on, http.inc carries set_real_ip_from, real_ip_header X-Forwarded-For and real_ip_recursive on, as the gateway container does: the bans, the rate limits, the cookies and the log see the visitor behind the CDN, and a scan through it is banned on its own address.
+
 ## [0.1.53-rc13] - 2026-10-24 (testing build)
 
 ### Security

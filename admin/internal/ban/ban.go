@@ -135,10 +135,22 @@ type Manager struct {
 	// goroutine via AddWithSource) read it while AdminSettingsSave swaps it.
 	whitelistFn func(ip string) bool
 	wlMu        sync.RWMutex
-	mu          sync.Mutex
-	dirty       bool
-	stopCh      chan struct{}
-	doneCh      chan struct{}
+	// egressFn names the CDN an address is the origin-facing egress of
+	// (cdn package: CloudFront, Cloudflare, Fastly, the operator's own), or
+	// "" and false.  Such an address is shared by every customer of the
+	// CDN, so no automatic ban is placed on it (AddWithSourceAction, AddAuto,
+	// escalateIP), and one that is there -- from before, or placed by hand
+	// elsewhere -- is left out of the file and the checks unless an
+	// operator put it there (banned_by).  Injected by the admin like
+	// whitelistFn, reading the live settings; nil = no address is one.
+	egressFn func(ip string) (string, bool)
+	// egressSkipped: the active rows the last flush left out of the file
+	// for sitting on a CDN egress (EgressSkipped, for the pages).
+	egressSkipped int
+	mu            sync.Mutex
+	dirty         bool
+	stopCh        chan struct{}
+	doneCh        chan struct{}
 
 	// actionResolver: per-source action picker injected by the admin.
 	// Read on every flush() so a settings change reflects on the next
@@ -176,7 +188,8 @@ type Manager struct {
 	wake chan struct{}
 	// keptLoggedAt: when a ban kept for the loop was last logged (one line
 	// a minute, not one a hit).  Under mu.
-	keptLoggedAt time.Time
+	keptLoggedAt   time.Time
+	egressLoggedAt time.Time
 }
 
 // autoBanWriteWithin bounds the write of an automatic ban on the access log's
@@ -224,6 +237,55 @@ func (m *Manager) SetWhitelist(fn func(ip string) bool) {
 	m.wlMu.Lock()
 	m.whitelistFn = fn
 	m.wlMu.Unlock()
+}
+
+// SetEgress installs the CDN-egress lookup (see egressFn).  Swapped on a
+// settings save like the whitelist; nil clears it.
+func (m *Manager) SetEgress(fn func(ip string) (string, bool)) {
+	if m == nil {
+		return
+	}
+	m.wlMu.Lock()
+	m.egressFn = fn
+	m.wlMu.Unlock()
+}
+
+// isEgress: the CDN ip is the egress of, if any.
+func (m *Manager) isEgress(ip string) (string, bool) {
+	if m == nil || ip == "" {
+		return "", false
+	}
+	m.wlMu.RLock()
+	fn := m.egressFn
+	m.wlMu.RUnlock()
+	if fn == nil {
+		return "", false
+	}
+	return fn(ip)
+}
+
+// EgressSkipped: how many active bans the last flush left out of the file
+// for sitting on a CDN's egress.
+func (m *Manager) EgressSkipped() int {
+	if m == nil {
+		return 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.egressSkipped
+}
+
+// egressLog says once a minute that an automatic ban was withheld.
+func (m *Manager) egressLog(ip, vendor, what string) {
+	m.mu.Lock()
+	say := time.Since(m.egressLoggedAt) > time.Minute
+	if say {
+		m.egressLoggedAt = time.Now()
+	}
+	m.mu.Unlock()
+	if say {
+		log.Printf("ban: %s is %s's origin-facing address, shared by every site behind that CDN: %s not placed (settings > Network: CDN egress)", ip, vendor, what)
+	}
 }
 
 // isWhitelisted reports whether ip is on the bypass allowlist.  An empty ip or
@@ -336,6 +398,12 @@ func (m *Manager) AddWithSourceAction(ctx context.Context, ip, ja4, source, reas
 	if m.isWhitelisted(ip) {
 		return
 	}
+	if bannedBy == "" {
+		if vendor, ok := m.isEgress(ip); ok {
+			m.egressLog(ip, vendor, "the "+source+" ban")
+			return
+		}
+	}
 	now := time.Now().Unix()
 	var expires int64
 	// For manual permanent bans (= the caller manages duration separately),
@@ -405,6 +473,10 @@ func (m *Manager) AddAuto(ctx context.Context, ip, ja4, scope, source, reason, a
 	}
 	ip, ja4 = strings.TrimSpace(ip), strings.TrimSpace(ja4)
 	if ip == "" || m.isWhitelisted(ip) || validateBanKey(ip, ja4) != nil {
+		return
+	}
+	if vendor, ok := m.isEgress(ip); ok {
+		m.egressLog(ip, vendor, "the "+source+" ban")
 		return
 	}
 	if scope == "" || (ja4 == "" && (scope == ScopeIPJA4 || scope == ScopeJA4Only)) {
@@ -921,14 +993,14 @@ func (m *Manager) IsBannedActionSource(ctx context.Context, ip, ja4 string) (act
 		// itself -- by hand, or by the escalation above -- held in nginx and
 		// not on this wire.
 		rows, err = m.DB.QueryContext(ctx,
-			`SELECT id, action, source FROM unmask_ban
+			`SELECT id, action, source, COALESCE(banned_by,''), ip FROM unmask_ban
 			 WHERE ((ip = ? AND ja4 = ?) OR (ip = ? AND ja4 = '') OR (ip = '' AND ja4 = ?))
 			   AND (expires_at = 0 OR expires_at > ?)
 			 ORDER BY id`, ip, ja4, ip, ja4, now)
 	} else {
 		// JA4 absent (= e.g. forward-auth mode): decide by IP only.
 		rows, err = m.DB.QueryContext(ctx,
-			`SELECT id, action, source FROM unmask_ban
+			`SELECT id, action, source, COALESCE(banned_by,''), ip FROM unmask_ban
 			 WHERE ip = ? AND (expires_at = 0 OR expires_at > ?)
 			 ORDER BY id`, ip, now)
 	}
@@ -946,12 +1018,21 @@ func (m *Manager) IsBannedActionSource(ctx context.Context, ip, ja4 string) (act
 	lifted := m.liftedIDs()
 	for rows.Next() {
 		var id int64
-		if err := rows.Scan(&id, &action, &source); err != nil {
+		var bannedBy, rowIP string
+		if err := rows.Scan(&id, &action, &source, &bannedBy, &rowIP); err != nil {
 			log.Printf("ban: IsBannedActionSource scan failed, treating as not-banned: %v", err)
 			return "", "", false
 		}
 		if lifted[id] {
 			continue
+		}
+		// An automatic ban on a CDN's egress does not hold here either (it
+		// is left out of nginx's file the same way): the address is every
+		// customer's.  An operator's own does.
+		if bannedBy == "" && rowIP != "" {
+			if _, ok := m.isEgress(rowIP); ok {
+				continue
+			}
 		}
 		return action, source, true
 	}
@@ -1120,18 +1201,18 @@ func (m *Manager) flush() error {
 	lifted := m.liftedIDs()
 	now := time.Now().Unix()
 	rows, err := m.DB.QueryContext(context.Background(),
-		`SELECT id, ip, ja4, source, action, scope FROM unmask_ban
+		`SELECT id, ip, ja4, source, action, scope, COALESCE(banned_by,'') FROM unmask_ban
 		 WHERE expires_at = 0 OR expires_at > ?
 		 ORDER BY ip, ja4`, now)
 	if err != nil {
 		return err
 	}
-	type k struct{ ip, ja4, source, action, scope string }
+	type k struct{ ip, ja4, source, action, scope, bannedBy string }
 	keys := []k{}
 	for rows.Next() {
 		var e k
 		var id int64
-		if err := rows.Scan(&id, &e.ip, &e.ja4, &e.source, &e.action, &e.scope); err != nil {
+		if err := rows.Scan(&id, &e.ip, &e.ja4, &e.source, &e.action, &e.scope, &e.bannedBy); err != nil {
 			rows.Close()
 			return err
 		}
@@ -1167,7 +1248,7 @@ func (m *Manager) flush() error {
 		if h.expiresAt != 0 && h.expiresAt <= now {
 			continue
 		}
-		e := k{ip: h.ip, ja4: h.ja4, source: h.source, action: h.action, scope: h.scope}
+		e := k{ip: h.ip, ja4: h.ja4, source: h.source, action: h.action, scope: h.scope, bannedBy: h.bannedBy}
 		if strings.TrimSpace(e.action) == "" && resolver != nil {
 			e.action = resolver(e.source)
 		}
@@ -1181,6 +1262,28 @@ func (m *Manager) flush() error {
 	}
 	m.mu.Unlock()
 	keys = append(kept, keys...)
+
+	// An automatic ban on a CDN's origin-facing address is kept in the table
+	// (it says what happened) and left out of the file (it must not hold):
+	// the address is every customer's.  An operator's own ban on such an
+	// address holds -- it is their call.
+	skipped := 0
+	if m.egressFn != nil {
+		filtered := keys[:0]
+		for _, e := range keys {
+			if e.bannedBy == "" && e.ip != "" {
+				if _, ok := m.isEgress(e.ip); ok {
+					skipped++
+					continue
+				}
+			}
+			filtered = append(filtered, e)
+		}
+		keys = filtered
+	}
+	m.mu.Lock()
+	m.egressSkipped = skipped
+	m.mu.Unlock()
 
 	// File-line shape per scope.  DB always carries both ip + ja4 so the
 	// operator never loses the captured context; the file only carries
@@ -1324,6 +1427,12 @@ const (
 
 func (m *Manager) escalateIP(ctx context.Context, ip, source, action string, now, expires int64) {
 	if ip == "" || m.DB == nil || m.DB.Gorm == nil {
+		return
+	}
+	// A CDN's egress carries every customer's traffic and more than one
+	// fingerprint of the CDN's own: never the address as a whole.
+	if vendor, ok := m.isEgress(ip); ok {
+		m.egressLog(ip, vendor, "the address-wide ban")
 		return
 	}
 	var n int64

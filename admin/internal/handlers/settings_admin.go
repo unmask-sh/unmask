@@ -37,6 +37,7 @@ import (
 
 	"github.com/oschwald/maxminddb-golang"
 	"github.com/unmask-sh/unmask/admin/internal/advisor"
+	"github.com/unmask-sh/unmask/admin/internal/cdn"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/crawlerverify"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
@@ -842,6 +843,9 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		}(),
 		"LBPresets":       buildLBPresetView(cur),
 		"LBExtras":        buildLBExtraView(cur),
+		"LBRealIP":        cur.TrustedLBRealIP,
+		"LBRealIPHost":    nginxconf.HostDeclaresRealIPHeader(*h.cfg()),
+		"CDNEgress":       buildCDNEgressView(cur),
 		"SearchBotsRules": pairRules(cur.SearchBots.Extra, cur.SearchBots.ExtraTitle, cur.SearchBots.ExtraDisabled, cur.SearchBots.ExtraCreatedAt, cur.SearchBots.ExtraUpdatedAt, nil),
 		"Upstream":        upstream,
 		"JA4Groups":       ja4Groups,
@@ -1615,6 +1619,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 				return errSettingsAnswered
 			}
 			applyTrustedLBForm(&cur.Nginx, r)
+			if err := applyCDNEgressForm(&cur.Nginx, r, lang); err != nil {
+				netErr(err)
+				return errSettingsAnswered
+			}
 			// HTTP->HTTPS redirect toggle (emitted at the top of server.inc).
 			cur.Nginx.HTTPSRedirect = r.FormValue("https_redirect") == "1"
 			if err := applyRedirectExemptForm(&cur.Nginx, r, lang); err != nil {
@@ -3251,6 +3259,54 @@ func buildLBExtraView(n settings.Nginx) []LBExtraView {
 	return out
 }
 
+// CDNEgressView: the CDN egress card of the network tab (cdn package).
+type CDNEgressView struct {
+	Vendors   []CDNVendorView
+	Prefixes  int
+	Snapshot  bool   // the list built into the binary, no hub document yet
+	Generated int64  // unix seconds the list in use was generated, 0 unknown
+	Extra     string // the operator's own ranges, one per line
+	Ban       bool   // ban such addresses after all
+}
+
+// CDNVendorView: one CDN of the list, for the card.
+type CDNVendorView struct {
+	Name     string
+	Prefixes int
+}
+
+func buildCDNEgressView(n settings.Nginx) CDNEgressView {
+	t := cdn.Active()
+	v := CDNEgressView{Prefixes: t.Prefixes, Snapshot: t.Snapshot, Extra: strings.Join(n.CDNEgressExtra, "\n"), Ban: n.CDNEgressBan}
+	if !t.GeneratedAt.IsZero() {
+		v.Generated = t.GeneratedAt.Unix()
+	}
+	for _, id := range t.VendorIDs() {
+		v.Vendors = append(v.Vendors, CDNVendorView{Name: cdn.Name(id), Prefixes: len(t.Ranges(id))})
+	}
+	return v
+}
+
+// applyCDNEgressForm: the CDN egress card -- the operator's own ranges (one
+// CIDR or address per line) and the switch that bans such addresses after
+// all.  A line that is neither a CIDR nor an address is refused by name.
+func applyCDNEgressForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
+	n.CDNEgressBan = r.FormValue("cdn_egress_ban") == "1"
+	var extra []string
+	for _, line := range strings.Split(r.FormValue("cdn_egress_extra"), "\n") {
+		line = strings.TrimSpace(strings.TrimSuffix(line, "\r"))
+		if line == "" {
+			continue
+		}
+		if len(cdn.ParsePrefixes([]string{line})) == 0 {
+			return fmt.Errorf("%s", i18n.Tf(lang, "settings.network.cdn_extra_invalid", line))
+		}
+		extra = append(extra, line)
+	}
+	n.CDNEgressExtra = extra
+	return nil
+}
+
 // lbExtraIDRE constrains a custom trusted-LB id to an nginx-safe identifier.
 // The id is emitted into the rendered config (geo var name + quoted map key),
 // so a '"' or whitespace would break out; only [A-Za-z0-9_-] is allowed.
@@ -3264,6 +3320,9 @@ func applyTrustedLBForm(n *settings.Nginx, r *http.Request) {
 	// mode (http.inc geo) and forward-auth (forward-auth-lbtrust.conf gate +
 	// the resolveForwardedJA4 peer check), so there is no separate "trust
 	// forwarded JA4" toggle to apply here.
+	// The visitor's address from X-Forwarded-For behind the set (native
+	// real_ip block): a checkbox beside the presets.
+	n.TrustedLBRealIP = r.FormValue("trusted_lb_realip") == "1"
 	n.TrustedLBPresets = nil
 	for _, id := range r.Form["trusted_lb_preset"] {
 		id = strings.TrimSpace(id)

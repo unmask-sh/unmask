@@ -131,6 +131,11 @@ type Sync struct {
 	// refresh of the embed source does not, so the list is never compiled
 	// in -- it is only as good as it is fresh.
 	PullRelay bool
+	// PullCDN: pull the CDN egress list (cdn package) from beside the hub
+	// document, the way PullRelay does.  Its failure is only logged: the
+	// list in use -- the hub's last, or the one built into the binary --
+	// stays.
+	PullCDN bool
 
 	// RenderFunc: called after a successful pull writes at least one file,
 	// with what was written ("relay" for the relay egress list, "sources:<n>"
@@ -338,6 +343,19 @@ func (s *Sync) PullOnce(ctx context.Context) error {
 		case installed && s.RenderFunc != nil:
 			if ferr := s.RenderFunc("relay"); ferr != nil {
 				s.logf("relay list: render after pull failed: %v", ferr)
+			}
+		}
+	}
+	if s.PullCDN {
+		// The CloudFront preset and the real_ip ranges read the list, so a
+		// new one is rendered like the relay list's.
+		installed, cerr := s.pullCDN(ctx)
+		switch {
+		case cerr != nil:
+			s.logf("cdn list: %v", cerr)
+		case installed && s.RenderFunc != nil:
+			if ferr := s.RenderFunc("cdn"); ferr != nil {
+				s.logf("cdn list: render after pull failed: %v", ferr)
 			}
 		}
 	}

@@ -123,6 +123,8 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
 .score-1{background:#f1f5f9;color:#475569}
 .score-0{color:#94a3b8;font-size:.85rem}
 .reports-badge{display:inline-flex;align-items:center;gap:.2rem;padding:.05rem .35rem;border-radius:.2rem;font-size:.7rem;color:#475569;background:#f1f5f9;margin-left:.35rem;font-family:ui-monospace,Menlo,monospace;cursor:help}
+/* an automatic ban on a CDN's origin-facing address: shown, not enforced (cdn package) */
+.reports-badge.cdn-egress{background:#fef3c7;color:#92400e}
 .votes-cell{display:inline-flex;gap:.5rem;font-size:.78rem;color:#475569;font-family:ui-monospace,Menlo,monospace}
 .votes-cell .like{color:#15803d}
 .votes-cell .bad{color:#b91c1c}
@@ -208,6 +210,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
 
 {{ if .Saved }}<div class="banner ok">{{ t .Lang "bans.saved" }}</div>{{ end }}
 {{ if .Error }}<div class="banner bad">{{ t .Lang "bans.error_prefix" }}{{ .Error }}</div>{{ end }}
+{{ if .CDNRows }}<div class="banner" style="background:#fffbeb;border:1px solid #fcd34d;color:#78350f">{{ safeHTML (tf .Lang "bans.cdn_note" .CDNRows) }}</div>{{ end }}
 
 <div class="bcd-card">
   <h2 style="display:flex;align-items:center;gap:.6rem">
@@ -249,7 +252,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
             {{ if eq .Scope "ip_only" }}<span class="muted" style="text-decoration:line-through" title="{{ t $.Lang "bans.scope.ignored_for_match" }}">{{ .JA4 }}</span>{{ else }}{{ .JA4 }}{{ end }}
           {{ else }}<span class="muted">(any)</span>{{ end }}
         </td>
-        <td><span class="source-pill src-{{ .Source }}">{{ .Source }}</span>{{ if .Held }} <span class="reports-badge" title="{{ t $.Lang "bans.held_tip" }}">{{ t $.Lang "bans.held" }}</span>{{ end }}</td>
+        <td><span class="source-pill src-{{ .Source }}">{{ .Source }}</span>{{ if .Held }} <span class="reports-badge" title="{{ t $.Lang "bans.held_tip" }}">{{ t $.Lang "bans.held" }}</span>{{ end }}{{ if .CDN }} <span class="reports-badge cdn-egress" title="{{ tf $.Lang "bans.cdn_tip" .CDN }}">{{ tf $.Lang "bans.cdn_tag" .CDN }}</span>{{ end }}</td>
         <td>
           {{ if .Action }}
             <code>{{ .Action }}</code>

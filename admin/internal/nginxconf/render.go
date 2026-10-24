@@ -821,6 +821,12 @@ type renderData struct {
 	// which no template ever read — removed so the data flow matches reality.
 
 	LBIPRanges []LBIPRange // per-vendor LB IP range presets (= expand as geo $unmask_lb_<id>)
+	// TrustedLBRealIP: emit set_real_ip_from for the set's ranges +
+	// real_ip_header X-Forwarded-For + real_ip_recursive on (settings >
+	// Network, trusted_lb_realip), unless the host nginx.conf declares a
+	// real_ip_header of its own (a second one in http{} is a fatal
+	// duplicate; see realIPEmission).
+	TrustedLBRealIP bool
 
 	// RateZones: derived from settings.RateLimit.  Render limit_req_zone into http {}.
 	// [0] is the default zone (= when there's no name, use "unmask_rate").
@@ -1367,6 +1373,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		NginxLogSocket:        s.NginxLog.SocketPath,
 		NginxLogEnabled:       s.NginxLog.Enabled && s.NginxLog.SocketPath != "",
 		LBIPRanges:            effectiveLBs(s.Nginx.TrustedLBPresets, s.Nginx.TrustedLBExtra),
+		TrustedLBRealIP:       realIPEmission(s),
 		WebBotAuthEnabled:     s.Nginx.WebBotAuthActive(),
 		PrivacyPassEnabled:    s.Nginx.PrivacyPassActive(),
 	}
@@ -2341,6 +2348,42 @@ func hostConfContents(s settings.Settings) []string {
 		}
 	}
 	return out
+}
+
+// realIPEmission: whether http.inc carries the real_ip block for the
+// trusted LB / CDN set.  The operator asked for it (Nginx.TrustedLBRealIP),
+// the set is not empty, and the host nginx.conf (with its one-level
+// includes, excluding unmask's own output) declares no real_ip_header: that
+// directive may appear once in http{}, and an operator who set it keeps
+// theirs -- said in the log, since nginx would otherwise refuse the config.
+func realIPEmission(s settings.Settings) bool {
+	if !s.Nginx.TrustedLBRealIP || len(effectiveLBs(s.Nginx.TrustedLBPresets, s.Nginx.TrustedLBExtra)) == 0 {
+		return false
+	}
+	if HostDeclaresRealIPHeader(s) {
+		log.Printf("render: trusted_lb_realip is on, but the host nginx configuration already sets real_ip_header; " +
+			"unmask leaves its own real_ip block out (keep yours, with set_real_ip_from for the trusted LB / CDN ranges)")
+		return false
+	}
+	return true
+}
+
+// HostDeclaresRealIPHeader reports whether the host nginx.conf, or a file it
+// includes one level down, sets real_ip_header outside a comment.  For the
+// render and the settings page.
+func HostDeclaresRealIPHeader(s settings.Settings) bool {
+	for _, body := range hostConfContents(s) {
+		for _, line := range strings.Split(body, "\n") {
+			if i := strings.IndexByte(line, '#'); i >= 0 {
+				line = line[:i]
+			}
+			f := strings.Fields(line)
+			if len(f) > 0 && f[0] == "real_ip_header" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // resolveMapHash probes the host nginx.conf (Nginx.ConfPath, default
