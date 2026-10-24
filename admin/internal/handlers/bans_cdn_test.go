@@ -33,15 +33,17 @@ func TestBansPageMarksCDNEgress(t *testing.T) {
 	}
 
 	body := renderAs(t, h.AdminBansIndex, "/unmask/admin/bans/", user.RoleSuperadmin, "en")
-	if strings.Count(body, "CDN egress (Amazon CloudFront)") != 1 {
-		t.Errorf("the CloudFront automatic ban is not marked once: %d marks", strings.Count(body, "CDN egress (Amazon CloudFront)"))
+	// The mark is one word (the table must stay one line wide); the vendor
+	// is in its tooltip.
+	if n := strings.Count(body, `class="reports-badge cdn-egress" title="An address Amazon CloudFront fetches`); n != 1 || !strings.Contains(body, `">CDN</span>`) {
+		t.Errorf("the CloudFront automatic ban is not marked once with the vendor in the tooltip: %d marks", n)
 	}
 	if !strings.Contains(body, "1 of these are automatic bans on a CDN") {
 		t.Error("the note does not count the one CDN ban")
 	}
 	ja := renderAs(t, h.AdminBansIndex, "/unmask/admin/bans/", user.RoleSuperadmin, "ja")
-	if !strings.Contains(ja, "CDN の出口 (Amazon CloudFront)") {
-		t.Error("ja: the mark is not in Japanese")
+	if !strings.Contains(ja, "Amazon CloudFront が origin へ取りに来るアドレス") || !strings.Contains(ja, "攻撃者は CDN を代理にして") {
+		t.Error("ja: the mark's tooltip or the note's help is not in Japanese")
 	}
 
 	// With the switch that bans CDN egress, nothing is marked.
@@ -49,7 +51,7 @@ func TestBansPageMarksCDNEgress(t *testing.T) {
 	s.Nginx.CDNEgressBan = true
 	h.SetSettings(s)
 	body = renderAs(t, h.AdminBansIndex, "/unmask/admin/bans/", user.RoleSuperadmin, "en")
-	if strings.Contains(body, "CDN egress (") {
+	if strings.Contains(body, `class="reports-badge cdn-egress"`) {
 		t.Error("a ban is marked although CDN egress is banned by the switch")
 	}
 }

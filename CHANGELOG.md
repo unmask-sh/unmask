@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-10-25) **The bans table fits a laptop window.**  Its columns do not wrap, and they added up to more than a 1440-pixel window holds, so the table scrolled sideways.  The edit and unban buttons are icons with a hover label, the dates drop the year, the operator who placed a manual ban sits beside its source pill, and a ban on its source's default action carries a mark in place of the word.
+
 ## [0.1.53-rc14] - 2026-10-24 (testing build)
 
 ### Added

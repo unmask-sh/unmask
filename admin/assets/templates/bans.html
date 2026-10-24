@@ -1,3 +1,5 @@
+{{ define "bans_icon_edit" }}<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>{{ end }}
+{{ define "bans_icon_unban" }}<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg>{{ end }}
 <!DOCTYPE html>
 <html lang="{{ .Lang }}">
 <head>
@@ -174,6 +176,22 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
 .file-meta[open] summary::before{content:"▾ "}
 .file-meta summary code{background:#f1f5f9;color:#64748b;padding:.05em .35em;border-radius:.2rem;font-family:ui-monospace,Menlo,monospace;font-size:.78rem;margin-left:.3rem}
 .row-actions form{display:inline-block;margin:0}
+/* The row's actions as icons with a hover popover (the ask page's a-copy /
+   a-del flavour): two labelled buttons were the widest thing in a row that
+   must stay one line, and the table scrolled sideways on a laptop. */
+.row-actions .ib-wrap{position:relative;display:inline-flex;vertical-align:middle}
+.row-actions .ib{display:inline-flex;align-items:center;justify-content:center;width:1.6rem;height:1.6rem;border:1px solid #cbd5e1;border-radius:.3rem;background:#fff;color:#64748b;padding:0;cursor:pointer}
+.row-actions .ib:hover,.row-actions .ib:focus{background:#f1f5f9;color:#0f172a}
+.row-actions .ib.ib-danger:hover,.row-actions .ib.ib-danger:focus{color:#b91c1c;background:#fef2f2;border-color:#fca5a5}
+.row-actions .ib svg{width:1rem;height:1rem;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.row-actions .ib-pop{display:none;position:absolute;bottom:calc(100% + .35rem);left:50%;transform:translateX(-50%);white-space:nowrap;background:#0f172a;color:#f8fafc;font-size:.72rem;padding:.25rem .55rem;border-radius:.3rem;pointer-events:none;z-index:20}
+.row-actions .ib-wrap:hover .ib-pop,.row-actions .ib-wrap:focus-within .ib-pop{display:block}
+/* The source's default action applies: a mark, its meaning on hover and in
+   the heading's help.  "(default)" in words widened every automatic row. */
+.dflt{font-size:.9em;cursor:help;margin-left:.1em}
+/* The operator who placed a manual ban, beside its pill (a column of its
+   own was empty on every automatic row). */
+.by{font-size:.78em}
 .user-menu{position:relative;display:inline-flex;outline:none;user-select:none}
 .user-menu-trigger{display:inline-flex;align-items:center;gap:.4rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;transition:background .1s;cursor:pointer}
 .user-menu.open .user-menu-trigger{background:#1e293b;color:#fff}
@@ -210,7 +228,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
 
 {{ if .Saved }}<div class="banner ok">{{ t .Lang "bans.saved" }}</div>{{ end }}
 {{ if .Error }}<div class="banner bad">{{ t .Lang "bans.error_prefix" }}{{ .Error }}</div>{{ end }}
-{{ if .CDNRows }}<div class="banner" style="background:#fffbeb;border:1px solid #fcd34d;color:#78350f">{{ safeHTML (tf .Lang "bans.cdn_note" .CDNRows) }}</div>{{ end }}
+{{ if .CDNRows }}<div class="banner" style="background:#fffbeb;border:1px solid #fcd34d;color:#78350f">{{ safeHTML (tf .Lang "bans.cdn_note" .CDNRows) }} <span class="info-tip" tabindex="0" aria-label="help" data-pin-title="{{ t .Lang "bans.cdn_note_title" }}" style="margin-left:.2rem">?<span class="info-popup">{{ safeHTML (t .Lang "bans.cdn_note_help") }}</span></span></div>{{ end }}
 
 <div class="bcd-card">
   <h2 style="display:flex;align-items:center;gap:.6rem">
@@ -230,7 +248,6 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
         <th>{{ t .Lang "bans.col.reason" }}</th>
         <th>{{ t .Lang "bans.col.banned_at" }}</th>
         <th>{{ t .Lang "bans.col.expires" }}</th>
-        <th>{{ t .Lang "bans.col.banned_by" }}</th>
         <th>{{ t .Lang "bans.col.actions" }}</th>
       </tr>
     </thead>
@@ -252,34 +269,27 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
             {{ if eq .Scope "ip_only" }}<span class="muted" style="text-decoration:line-through" title="{{ t $.Lang "bans.scope.ignored_for_match" }}">{{ .JA4 }}</span>{{ else }}{{ .JA4 }}{{ end }}
           {{ else }}<span class="muted">(any)</span>{{ end }}
         </td>
-        <td><span class="source-pill src-{{ .Source }}">{{ .Source }}</span>{{ if .Held }} <span class="reports-badge" title="{{ t $.Lang "bans.held_tip" }}">{{ t $.Lang "bans.held" }}</span>{{ end }}{{ if .CDN }} <span class="reports-badge cdn-egress" title="{{ tf $.Lang "bans.cdn_tip" .CDN }}">{{ tf $.Lang "bans.cdn_tag" .CDN }}</span>{{ end }}</td>
+        <td><span class="source-pill src-{{ .Source }}">{{ .Source }}</span>{{ if .BannedBy }} <span class="muted by">· {{ .BannedBy }}</span>{{ end }}{{ if .Held }} <span class="reports-badge" title="{{ t $.Lang "bans.held_tip" }}">{{ t $.Lang "bans.held" }}</span>{{ end }}{{ if .CDN }} <span class="reports-badge cdn-egress" title="{{ tf $.Lang "bans.cdn_tip" .CDN }}">{{ t $.Lang "bans.cdn_tag" }}</span>{{ end }}</td>
         <td>
           {{ if .Action }}
             <code>{{ .Action }}</code>
           {{ else }}
             <code>{{ .ResolvedAction }}</code>
-            <span class="muted" title="{{ t $.Lang "bans.action.default_tooltip" }}" style="font-size:.78em">(default)</span>
+            <span class="muted dflt" title="{{ t $.Lang "bans.action.default_tooltip" }}">*</span>
           {{ end }}
         </td>
         <td>{{ if .Reason }}<span class="clamp-v" data-full="{{ .Reason }}">{{ .Reason }}</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
-        <td><time class="js-datetime js-datetime-notz" data-ts="{{ .BannedAt.Unix }}">{{ .BannedAt.Format "2006-01-02 15:04" }}</time></td>
+        <td><time class="js-datetime js-datetime-short" data-ts="{{ .BannedAt.Unix }}">{{ .BannedAt.Format "01/02 15:04" }}</time></td>
         <td>
           {{ if .ExpiresAt.IsZero }}
             <span style="color:#b91c1c;font-weight:600">{{ t $.Lang "bans.forever" }}</span>
           {{ else }}
-            <time class="js-datetime js-datetime-notz" data-ts="{{ .ExpiresAt.Unix }}">{{ .ExpiresAt.Format "2006-01-02 15:04" }}</time>
+            <time class="js-datetime js-datetime-short" data-ts="{{ .ExpiresAt.Unix }}">{{ .ExpiresAt.Format "01/02 15:04" }}</time>
           {{ end }}
         </td>
-        <td>{{ if .BannedBy }}{{ .BannedBy }}{{ else }}<span class="muted">(auto)</span>{{ end }}</td>
         <td class="row-actions">
           {{ if and (eq .Source "manual") (not .Held) }}
-          <button type="button" class="btn js-ban-edit"
-                  data-id="{{ .ID }}"
-                  data-ip="{{ .IP }}"
-                  data-ja4="{{ .JA4 }}"
-                  data-scope="{{ .Scope }}"
-                  data-reason="{{ .Reason }}"
-                  data-action="{{ .Action }}">{{ t $.Lang "bans.btn.edit" }}</button>
+          <span class="ib-wrap"><button type="button" class="ib js-ban-edit" aria-label="{{ t $.Lang "bans.btn.edit" }}" data-id="{{ .ID }}" data-ip="{{ .IP }}">{{ template "bans_icon_edit" }}</button><span class="ib-pop">{{ t $.Lang "bans.btn.edit" }}</span></span>
           {{ end }}
           <form method="POST" action="{{ $.BasePath }}/admin/bans/save" style="display:inline"
                 data-confirm-title="{{ tf $.Lang "bans.unban_confirm" (printf "%s%s%s" .IP (or (and .IP .JA4 " · ") "") .JA4) }}"
@@ -287,12 +297,12 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
             <input type="hidden" name="op" value="delete">
             {{ if .Held }}<input type="hidden" name="held" value="1"><input type="hidden" name="ip" value="{{ .IP }}"><input type="hidden" name="ja4" value="{{ .JA4 }}"><input type="hidden" name="scope" value="{{ .Scope }}">{{ else }}<input type="hidden" name="id" value="{{ .ID }}">{{ end }}
-            <button type="submit" class="btn danger">{{ t $.Lang "bans.btn.unban" }}</button>
+            <span class="ib-wrap"><button type="submit" class="ib ib-danger" aria-label="{{ t $.Lang "bans.btn.unban" }}">{{ template "bans_icon_unban" }}</button><span class="ib-pop">{{ t $.Lang "bans.btn.unban" }}</span></span>
           </form>
         </td>
       </tr>
       {{ else }}
-      <tr><td colspan="9" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "bans.empty" }}</td></tr>
+      <tr><td colspan="8" class="muted" style="text-align:center;padding:1rem">{{ t .Lang "bans.empty" }}</td></tr>
       {{ end }}
     </tbody>
   </table>
