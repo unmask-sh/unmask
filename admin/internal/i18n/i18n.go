@@ -2994,7 +2994,7 @@ var dict = map[Lang]map[string]string{
 		"ask.tab_history":                             "History",
 		"ask.history_empty":                           "No history yet.",
 		"ask.history_note":                            "Newest first.  A question's context is the conversation on the ask tab since it was opened (the newest ten turns); the history here is not sent.",
-		"ask.show_full":                               "Show the whole answer",
+		"ask.show_full":                               "Show in full",
 		"ask.fold":                                    "Fold",
 		"ask.copy":                                    "Copy question and answer",
 		"ask.create_rule":                             "Create this rule",

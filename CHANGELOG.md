@@ -16,6 +16,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- (2026-10-25) **The ask history folds a long question too.**  A pasted log or configuration made the history one question tall.  It now opens on its first lines the way a long answer does, and the turn's one button shows the whole of whichever is folded and folds it back.
+
 - (2026-10-25) **The bans table fits a laptop window.**  Its columns do not wrap, and they added up to more than a 1440-pixel window holds, so the table scrolled sideways.  The edit and unban buttons are icons with a hover label, the dates drop the year, the operator who placed a manual ban sits beside its source pill, and a ban on its source's default action carries a mark in place of the word.
 
 ## [0.1.53-rc14] - 2026-10-24 (testing build)

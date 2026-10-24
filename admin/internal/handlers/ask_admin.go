@@ -69,10 +69,20 @@ type askView struct {
 	// Cost: the answer's estimated cost ("$0.007"), or "" (askCostOf).
 	Cost string
 	// Folded: on the history tab a long answer opens on its first lines;
-	// the ask tab's latest turn and short answers stay whole.
-	Folded bool
+	// the ask tab's latest turn and short answers stay whole.  QFolded is
+	// the same for the question (an operator pastes a log or a config in,
+	// and the history is then one question tall).  The turn's one button
+	// opens whichever of the two is folded.
+	Folded  bool
+	QFolded bool
 	// QuestionHead names the turn in the delete confirmation.
 	QuestionHead string
+}
+
+// askLong says whether the history folds a text: more than a couple of
+// lines, or longer than a short paragraph.
+func askLong(s string) bool {
+	return len([]rune(s)) > 160 || strings.Count(s, "\n") > 1
 }
 
 // askToolChip is one tool on an answer's meta line.  A tool the model
@@ -437,7 +447,8 @@ func askViews(rows []db.AIChat, fold bool, rules []settings.CustomRule) []askVie
 			_ = json.Unmarshal([]byte(r.Tools), &calls)
 			v.Tools = askToolChips(calls)
 		}
-		v.Folded = fold && r.Err == "" && (len([]rune(r.Answer)) > 160 || strings.Count(r.Answer, "\n") > 1)
+		v.Folded = fold && r.Err == "" && askLong(r.Answer)
+		v.QFolded = fold && askLong(r.Question)
 		q := []rune(strings.Join(strings.Fields(r.Question), " "))
 		if len(q) > 40 {
 			q = append(q[:40], '…')

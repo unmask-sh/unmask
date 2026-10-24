@@ -299,6 +299,7 @@ func TestAskDeleteOwnTurn(t *testing.T) {
 	h.SetSettings(s)
 	now := time.Now().Unix()
 	mine := []db.AIChat{
+		{UserID: 7, AskedAt: now - 30, Question: "zeroth, a pasted log\nline 2\nline 3\nline 4", Answer: "短い"},
 		{UserID: 7, AskedAt: now - 20, Question: "first, long", Answer: strings.Repeat("長い答え ", 60)},
 		{UserID: 7, AskedAt: now - 10, Question: "second, short", Answer: "短い"},
 	}
@@ -316,16 +317,25 @@ func TestAskDeleteOwnTurn(t *testing.T) {
 	body := rec.Body.String()
 	// (the page's script carries the copy button's markup once more, so the
 	// turns are counted by their ids.)
-	if strings.Count(body, `data-id="`) != 2 || strings.Count(body, `class="a-copy ib"`) < 2 || strings.Count(body, `class="a folded"`) != 1 || strings.Contains(body, "theirs") {
+	if strings.Count(body, `data-id="`) != 3 || strings.Count(body, `class="a-copy ib"`) < 3 || strings.Count(body, `class="a folded"`) != 1 || strings.Contains(body, "theirs") {
 		t.Errorf("history: turns=%d copies=%d folded=%d theirs=%v", strings.Count(body, `data-id="`), strings.Count(body, `class="a-copy ib"`), strings.Count(body, `class="a folded"`), strings.Contains(body, "theirs"))
 	}
 	if strings.Index(body, "second, short") > strings.Index(body, "first, long") {
 		t.Error("the history must read newest first")
 	}
+	// The pasted-log question folds on its own (its answer is short and
+	// stays whole); the turn's one button says it opens the question.
+	// The two other questions are a line each and do not fold.
+	if strings.Count(body, `class="q-row folded"`) != 1 || !strings.Contains(body, `class="a-toggle" data-fold-q="1"`) || strings.Contains(body, `data-fold-a="1" data-fold-q="1"`) {
+		t.Errorf("history: question folds=%d toggle-q=%v both=%v", strings.Count(body, `class="q-row folded"`), strings.Contains(body, `class="a-toggle" data-fold-q="1"`), strings.Contains(body, `data-fold-a="1" data-fold-q="1"`))
+	}
+	if i := strings.Index(body, `class="q-row folded"`); i < 0 || !strings.Contains(body[i:i+400], "zeroth, a pasted log") {
+		t.Error("the folded question is not the pasted log")
+	}
 	// The ask tab: no turn at all, and the history count.
 	rec = httptest.NewRecorder()
 	h.AdminAsk(rec, askReq("GET", "/unmask/admin/ask/", "", "admin"))
-	if body = rec.Body.String(); strings.Contains(body, "first, long") || strings.Contains(body, "second, short") || !strings.Contains(body, `class="cnt">2<`) {
+	if body = rec.Body.String(); strings.Contains(body, "first, long") || strings.Contains(body, "second, short") || !strings.Contains(body, `class="cnt">3<`) {
 		t.Error("the ask tab must open on the composer alone, with the history count")
 	}
 	// Delete the first; another account's id is a no-op.
@@ -337,7 +347,7 @@ func TestAskDeleteOwnTurn(t *testing.T) {
 	rec = httptest.NewRecorder()
 	h.AdminAskDelete(rec, askReq("POST", "/unmask/admin/ask/delete", "id="+strconv.FormatInt(other.ID, 10), "admin"))
 	var rows []db.AIChat
-	if err := h.DB.Gorm.Order("id").Find(&rows).Error; err != nil || len(rows) != 2 || rows[0].ID != mine[1].ID || rows[1].ID != other.ID {
+	if err := h.DB.Gorm.Order("id").Find(&rows).Error; err != nil || len(rows) != 3 || rows[0].ID != mine[1].ID || rows[1].ID != mine[2].ID || rows[2].ID != other.ID {
 		t.Errorf("rows after the deletes: %v %+v", err, rows)
 	}
 }
