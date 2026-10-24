@@ -980,6 +980,12 @@ function dismissHuntTip(id){
   // host / site badges are shown only when there is more than one candidate
   // (= matches the static table; a single-host / single-site deploy hides them).
   var MULTI_HOST = {{ if gt (len .Hosts) 1 }}true{{ else }}false{{ end }};
+  // The defined site list (defined mode), so a live row's site badge is
+  // coloured as the server-rendered rows are: amber for a host outside it.
+  var SITE_BADGE = {{ json .SiteBadge }};
+  function siteGhost(site){
+    return !!(SITE_BADGE && SITE_BADGE.definedMode && SITE_BADGE.defined.indexOf(site) < 0);
+  }
 
 
   // one event -> DOM element.  Setting innerHTML once is cheaper than concatenating strings.
@@ -995,7 +1001,7 @@ function dismissHuntTip(id){
     var siteHtml = '';
     // Same rule as the server-rendered rows: a row that carries a site names
     // it, single-site installs included.
-    if (ev.site) siteHtml = '<span class="site-badge cellpop">' + escapeText(ev.site) + '</span> ';
+    if (ev.site) siteHtml = '<span class="site-badge cellpop' + (siteGhost(ev.site) ? ' site-ghost' : '') + '">' + escapeText(ev.site) + '</span> ';
     // Flag: the same PNG the static rows use, keyed on the country the
     // stream resolved (cc).  No / unknown country draws the unknown flag
     // rather than nothing, so a row without geo still lines up.

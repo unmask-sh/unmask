@@ -21,10 +21,12 @@ func TestStatsPathCellsCarryTheirHost(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	render := func(site string) string {
+	render := func(site string, ghost bool) string {
 		var buf bytes.Buffer
 		data := map[string]any{
 			"Lang": i18n.LangJA, "Site": site, "BasePath": "/unmask",
+			// The page's ghost set: the host is a ghost when the test says so.
+			"GhostSites": map[string]bool{"codezine.jp": ghost},
 			"CaptchaReport": map[string]any{
 				"Total": 1, "Bot": 1, "Ok": 0, "TopIPs": []any{}, "ByReason": []any{},
 				"Recent": []dashboard.CaptchaPassRow{{
@@ -44,7 +46,7 @@ func TestStatsPathCellsCarryTheirHost(t *testing.T) {
 	// actually passes -- the "default" in the URL path is not the value the
 	// template sees, and comparing against it silently hid the badge on every
 	// row of the view that needs it most.
-	out := render("")
+	out := render("", false)
 	for _, want := range []string{
 		`data-site="codezine.jp"`,       // the host the request was made on
 		`data-scheme="https"`,           // and how to reach it
@@ -61,11 +63,18 @@ func TestStatsPathCellsCarryTheirHost(t *testing.T) {
 
 	// Narrowed to one site, the badge would repeat the page heading on every
 	// row.  The data attributes stay -- the popover still builds the URL.
-	out = render("codezine.jp")
+	out = render("codezine.jp", false)
 	if strings.Contains(out, `class="cp-site"`) {
 		t.Error("a single-site view must not repeat the host on every row")
 	}
 	if !strings.Contains(out, `data-site="codezine.jp"`) {
 		t.Error("the row must still carry its host, or the popover cannot build a URL")
+	}
+
+	// A host that is not a defined site is coloured as the hunt's rows colour
+	// it, so a spoofed Host or an unregistered vhost stands out here too.
+	out = render("", true)
+	if !strings.Contains(out, `class="cp-site cp-ghost">codezine.jp<`) {
+		t.Error("a ghost host must carry the cp-ghost class on its badge")
 	}
 }

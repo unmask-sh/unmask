@@ -39,6 +39,8 @@ tr[data-unread] .ntitle{font-weight:700}
 .ntitle:hover{text-decoration:underline}
 .nbody{display:block;color:#475569;font-size:.82rem;margin-top:.1rem}
 .nsite{color:#94a3b8;font-size:.78rem;margin-left:.4rem}
+/* a host that is not a defined site: the amber the hunt's site badge uses for a ghost */
+.nsite.nsite-ghost{background:#fef3c7;color:#92400e}
 .sev{display:inline-block;width:.55rem;height:.55rem;border-radius:50%;background:#94a3b8;margin-right:.4rem;vertical-align:middle}
 .sev-warn{background:#f59e0b}
 .sev-crit{background:#ef4444}
@@ -105,7 +107,7 @@ tr[data-unread] .ntitle{font-weight:700}
         <td class="at"><time class="js-datetime" data-ts="{{ .At }}">{{ .AtText }}</time></td>
         <td class="kind"><span class="sev sev-{{ .Severity }}" aria-hidden="true"></span>{{ .KindLabel }}</td>
         <td class="what">
-          <a class="ntitle" href="{{ .Href }}">{{ .Title }}</a>{{ if .Unread }}<span class="ntag ntag-new">{{ t $.Lang "notice.new" }}</span>{{ end }}{{ if .Personal }}<span class="ntag ntag-you">{{ t $.Lang "notice.personal" }}</span>{{ end }}{{ if .Site }}<span class="nsite">{{ .Site }}</span>{{ end }}
+          <a class="ntitle" href="{{ .Href }}">{{ .Title }}</a>{{ if .Unread }}<span class="ntag ntag-new">{{ t $.Lang "notice.new" }}</span>{{ end }}{{ if .Personal }}<span class="ntag ntag-you">{{ t $.Lang "notice.personal" }}</span>{{ end }}{{ if .Site }}<span class="nsite{{ if and $.GhostSites (index $.GhostSites .Site) }} nsite-ghost{{ end }}">{{ .Site }}</span>{{ end }}
           {{ if .Body }}<span class="nbody">{{ .Body }}</span>{{ end }}
         </td>
       </tr>

@@ -65,7 +65,7 @@ func TestNoticeBellOnEveryPage(t *testing.T) {
 		"challenge を通れるようになりました", // the over-block clearing, in Japanese
 		"5 分間に challenge 600 回", "直前 1 時間は 5 分あたり平均 60 回でした。",
 		"BAN 2 件", "honeypot 1 / manual 1 · 最新 203.0.113.8 (scraper)",
-		`data-ts="`, " · BAN · blog",
+		`data-ts="`, ` · BAN · <span class="nbell-site">blog</span>`, // the site, in the span the ghost colouring hangs on
 	} {
 		if !strings.Contains(panel, want) {
 			t.Errorf("panel lacks %q:\n%s", want, panel)

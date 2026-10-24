@@ -33,6 +33,8 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .site-card:hover{border-color:#3b82f6}
 .site-card h3{margin:0 0 .4rem;font-size:1.2rem;font-family:ui-monospace,Menlo,monospace}
 .site-card h3 .badge{display:inline-block;background:#0f172a;color:#fff;font-size:.7em;padding:.1em .5em;border-radius:1em;vertical-align:middle;margin-left:.4em;font-family:inherit}
+/* a host that is not a defined site: the amber the hunt's site badge uses for a ghost */
+.site-card h3 .badge.ghost{background:#fef3c7;color:#92400e}
 .site-card dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:.2rem .8rem;font-size:.95rem}
 .site-card dt{color:#64748b}
 .site-card dd{margin:0;font-variant-numeric:tabular-nums;text-align:right}
@@ -85,6 +87,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     <h3>
       {{.Site}}
       {{if eq .Site "default"}}<span class="badge">default</span>{{end}}
+      {{ if and $.GhostSites (index $.GhostSites .Site) }}<span class="badge ghost">{{ t $.Lang "hunt.filter.site_ghost" }}</span>{{ end }}
     </h3>
     <dl>
       <dt>{{ t $.Lang "site_list.events" }}</dt><dd>{{.Events}}</dd>

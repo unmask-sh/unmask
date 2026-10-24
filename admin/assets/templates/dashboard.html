@@ -101,6 +101,9 @@ table.cp-expanded tr.cp-row-extra{display:table-row}
    cursor change the operator has to discover. */
 /* td.cellpop.url underline: superseded by the shared .cellpop-active marker in popover-pin.css */
 .cp-site{display:inline-block;margin-right:.4rem;padding:0 .3em;border-radius:.2rem;background:#eef2ff;color:#4338ca;font-size:.72rem;font-weight:600;vertical-align:1px}
+/* A host that is not a defined site (a spoofed Host, an unregistered vhost): the
+   amber the hunt's site badge uses for a ghost. */
+.cp-site.cp-ghost{background:#fef3c7;color:#92400e}
 .cp-more{margin:.4rem 0 0;padding:.25rem .8rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#f8fafc;color:#334155;font-size:.78rem;font-weight:600;cursor:pointer}
 .cp-more:hover{background:#e2e8f0}
 /* description inside a card (= equivalent to <p style="font-size:11px;color:#64748b">) */
@@ -260,7 +263,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 
 <h1>{{ t .Lang "dashboard.title" }}
   {{- if .Site }}
-  <span style="font-size:.85rem;color:#64748b;font-weight:normal">— <b style="font-family:ui-monospace,Menlo,monospace">{{.Site}}</b></span>
+  <span style="font-size:.85rem;color:#64748b;font-weight:normal">— <b style="font-family:ui-monospace,Menlo,monospace">{{.Site}}</b>{{ if and .GhostSites (index .GhostSites .Site) }} <span class="cp-site cp-ghost" style="margin-right:0">{{ t .Lang "hunt.filter.site_ghost" }}</span>{{ end }}</span>
   {{- end }}
 </h1>
 <p class="meta">{{ tf .Lang "dashboard.range_prefix" .Range }}<time class="js-datetime" data-ts="{{.RangeStartTS}}">{{.RangeStartFallback}}</time>{{ t .Lang "dashboard.range_suffix" }}</p>
@@ -444,7 +447,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
              "/article/detail/1" names a path on nobody's server.  The badge
              is dropped when the page is already narrowed to one site -- there
              it would repeat the heading on every row. */}}
-        <td class="bcd-mono bcd-clip cellpop url"{{ if .Path }} data-path="{{ .Path }}"{{ end }}>{{ if .Path }}{{ if and .Site (not $.Site) }}<span class="cp-site">{{ .Site }}</span>{{ end }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="bcd-mono bcd-clip cellpop url"{{ if .Path }} data-path="{{ .Path }}"{{ end }}>{{ if .Path }}{{ if and .Site (not $.Site) }}<span class="cp-site{{ if and $.GhostSites (index $.GhostSites .Site) }} cp-ghost{{ end }}">{{ .Site }}</span>{{ end }}{{ .Path }}{{ else }}<span class="muted">-</span>{{ end }}</td>
         <td class="bcd-ua{{ if .UAFull }} cellpop{{ end }}"{{ if uaSummary .UAFull }} data-full-value="{{ .UAFull }}"{{ end }}{{ with uaOldNote $.Lang .UAFull }} data-note="{{ . }}"{{ end }}>{{ template "ua_cell" .UAFull }}</td>
       </tr>
       {{ end }}
@@ -770,7 +773,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
         <tbody>
           {{range $i, $r := .RLPaths}}
           <tr class="{{ if ge $i 10 }}cp-row-extra{{ end }}">
-            <td class="bcd-mono rl-path-cell cellpop url" data-path="{{$r.Path}}" data-site="{{$r.Site}}" data-scheme="{{$r.Scheme}}" data-port="{{$r.Port}}">{{ if and $r.Site (not $.Site) }}<span class="cp-site">{{$r.Site}}</span>{{ end }}{{$r.Path}}</td>
+            <td class="bcd-mono rl-path-cell cellpop url" data-path="{{$r.Path}}" data-site="{{$r.Site}}" data-scheme="{{$r.Scheme}}" data-port="{{$r.Port}}">{{ if and $r.Site (not $.Site) }}<span class="cp-site{{ if and $.GhostSites (index $.GhostSites $r.Site) }} cp-ghost{{ end }}">{{$r.Site}}</span>{{ end }}{{$r.Path}}</td>
             <td class="bcd-num">{{comma $r.Count}}</td>
           </tr>
           {{else}}

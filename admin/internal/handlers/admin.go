@@ -1364,11 +1364,18 @@ func (h *Handler) AdminSiteList(w http.ResponseWriter, r *http.Request) {
 	loc := resolveLocation(r)
 	dashboard.ApplyDisplayLoc(sites, loc)
 	now := time.Now()
+	// The listed sites, for the ghost tag on a card whose host is not a
+	// defined site.
+	siteNames := make([]string, 0, len(sites))
+	for _, st := range sites {
+		siteNames = append(siteNames, st.Site)
+	}
 	rangeStart := now.Add(-time.Duration(hours) * time.Hour)
 	data := map[string]any{
-		"Lang":  i18n.Resolve(r),
-		"TZ":    resolveTZ(r),
-		"Range": rng,
+		"Lang":       i18n.Resolve(r),
+		"TZ":         resolveTZ(r),
+		"Range":      rng,
+		"GhostSites": h.ghostSiteSet(siteNames),
 		// RangeStartTS = epoch sec UTC.  Emit in the template as <time class="js-datetime"
 		// data-ts="...">; JS reformats in the browser TZ.
 		"RangeStartTS":       rangeStart.Unix(),
@@ -2205,11 +2212,22 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		customTo = rangeEnd.In(loc).Format("2006-01-02")
 	}
 
+	// The sites the page names -- the heading's, the rate-limit paths' and the
+	// CAPTCHA report's -- for the amber colouring of a host that is not a
+	// defined site, as the hunt's rows have it.
+	ghostNames := []string{site}
+	for _, p := range rlPaths {
+		ghostNames = append(ghostNames, p.Site)
+	}
+	for _, c := range cpRecent {
+		ghostNames = append(ghostNames, c.Site)
+	}
 	data := map[string]any{
-		"Lang":  i18n.Resolve(r),
-		"TZ":    resolveTZ(r),
-		"Site":  site,
-		"Range": rng,
+		"Lang":       i18n.Resolve(r),
+		"TZ":         resolveTZ(r),
+		"Site":       site,
+		"GhostSites": h.ghostSiteSet(ghostNames),
+		"Range":      rng,
 		// RangeStartTS = epoch sec UTC.  JS reformats in the browser TZ.
 		"RangeStartTS":       rangeStart.Unix(),
 		"RangeStartFallback": rangeStart.In(resolveLocation(r)).Format("2006-01-02 15:04 MST"),

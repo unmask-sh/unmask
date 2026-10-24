@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -658,6 +659,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 		"UABotNote":      uaBotNoteByUA(rowUAList, cur),
 		"Rows":           enriched,
 		"RowsGhostSites": huntGhostSites,
+		"SiteBadge":      siteBadgeForJS(h.snapshotSettings()),
 		"RankFailed":     rankFailed,
 		"RankTimeout":    int(rankQueryTimeout / time.Second),
 		"IPRank":         ipRank,
@@ -1043,6 +1045,50 @@ func siteBadgeState(sites []string, cfg settings.Settings) (multi bool, ghosts m
 		}
 	}
 	return multi, ghosts
+}
+
+// ghostSiteSet: the ghosts among the sites a page names -- a site not in the
+// defined list, in defined mode -- for the template that colours its label
+// amber the way the hunt's rows are.  Every page that prints a site name
+// reads such a map (RowsGhostSites on the events partial, GhostSites
+// elsewhere), so a spoofed Host or an unregistered vhost looks the same
+// wherever it appears.
+func (h *Handler) ghostSiteSet(names []string) map[string]bool {
+	// "default" is the all-sites sentinel the site list always carries as a
+	// row (dashboard.Sites synthesizes it); no vhost normalizes to it, and it
+	// is nobody's spoofed Host.
+	real := make([]string, 0, len(names))
+	for _, n := range names {
+		if n != "default" {
+			real = append(real, n)
+		}
+	}
+	_, ghosts := siteBadgeState(real, h.snapshotSettings())
+	return ghosts
+}
+
+// siteBadgeJS: what the hunt page's script needs to colour the site badge of
+// a row it builds itself (the live tail) as the server-rendered rows are
+// coloured.  A row that arrives live may name a site the page had not seen
+// when it was rendered, so the script gets the defined list rather than the
+// ghost list: in defined mode a site outside it is a ghost; in any other
+// mode nothing is.
+type siteBadgeJS struct {
+	DefinedMode bool     `json:"definedMode"`
+	Defined     []string `json:"defined"`
+}
+
+func siteBadgeForJS(cfg settings.Settings) siteBadgeJS {
+	out := siteBadgeJS{Defined: []string{}}
+	if cfg.Sites.ResolvedMode() != settings.SiteModeDefined {
+		return out
+	}
+	out.DefinedMode = true
+	for s := range cfg.Sites.DefinedSet() {
+		out.Defined = append(out.Defined, s)
+	}
+	sort.Strings(out.Defined)
+	return out
 }
 
 // resolvedUABlacklistAction: the chain a black-listed UA actually walks into.

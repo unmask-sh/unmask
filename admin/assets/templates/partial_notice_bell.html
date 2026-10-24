@@ -47,6 +47,9 @@
 .nbell-tag{display:inline-block;margin-left:.35rem;padding:0 .35rem;border-radius:.2rem;background:#1d4ed8;color:#dbeafe;font-size:.65rem;font-weight:600;vertical-align:.1em}
 .nbell-tag-new{background:#7f1d1d;color:#fecaca}
 .nbell-empty,.nbell-loading{display:block;padding:.6rem .7rem;color:#94a3b8}
+/* the site in the meta line; a host that is not a defined site gets the amber the
+   hunt's site badge uses for a ghost */
+.nbell-site-ghost{background:#fef3c7;color:#92400e;padding:0 .3em;border-radius:.2rem}
 </style>
 <div class="nbell" id="nbell" data-api="{{ .BasePath }}/admin/notices/panel"
      data-l-loading="{{ t .Lang "notice.loading" }}" data-l-failed="{{ t .Lang "notice.load_failed" }}">
@@ -107,5 +110,5 @@
 <a class="nbell-item sev-{{ .Severity }}{{ if .Unread }} unread{{ end }}" href="{{ .Href }}" data-id="{{ .ID }}" data-kind="{{ .Kind }}">
   <span class="nbell-title">{{ .Title }}{{ if .Unread }}<span class="nbell-tag nbell-tag-new">{{ t $.Lang "notice.new" }}</span>{{ end }}{{ if .Personal }}<span class="nbell-tag">{{ t $.Lang "notice.personal" }}</span>{{ end }}</span>
   {{ if .Body }}<span class="nbell-body">{{ .Body }}</span>{{ end }}
-  <span class="nbell-meta"><time class="js-datetime" data-ts="{{ .At }}">{{ .AtText }}</time> · {{ .KindLabel }}{{ if .Site }} · {{ .Site }}{{ end }}</span>
+  <span class="nbell-meta"><time class="js-datetime" data-ts="{{ .At }}">{{ .AtText }}</time> · {{ .KindLabel }}{{ if .Site }} · <span class="nbell-site{{ if and $.GhostSites (index $.GhostSites .Site) }} nbell-site-ghost{{ end }}">{{ .Site }}</span>{{ end }}</span>
 </a>{{ end }}{{ end }}

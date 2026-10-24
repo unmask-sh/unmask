@@ -119,6 +119,7 @@ func (h *Handler) AdminNoticesIndex(w http.ResponseWriter, r *http.Request) {
 		"BasePath":     base,
 		"Version":      h.Version,
 		"Rows":         rows,
+		"GhostSites":   h.ghostSiteSet(noticeSites(rows)),
 		"Kind":         kind,
 		"Kinds":        kinds,
 		"Total":        total,
@@ -169,7 +170,7 @@ func (h *Handler) AdminNoticesPanel(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	if err := tmpl.ExecuteTemplate(w, "notice_panel", map[string]any{"Lang": lang, "BasePath": base, "Rows": rows}); err != nil {
+	if err := tmpl.ExecuteTemplate(w, "notice_panel", map[string]any{"Lang": lang, "BasePath": base, "Rows": rows, "GhostSites": h.ghostSiteSet(noticeSites(rows))}); err != nil {
 		log.Printf("notice panel render: %v", err)
 	}
 }
@@ -289,4 +290,14 @@ func noticeText(e notice.Entry, lang i18n.Lang, base string) (title, body, href 
 		title = e.Kind
 	}
 	return
+}
+
+// noticeSites: the sites the listed notices name, for the ghost colouring
+// of the site in a notice's meta line (a host not in the defined list).
+func noticeSites(rows []noticeRow) []string {
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, row.Site)
+	}
+	return out
 }

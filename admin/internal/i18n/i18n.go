@@ -1232,7 +1232,7 @@ var dict = map[Lang]map[string]string{
 		"th.answered":                        "解答",
 		"th.abandon":                         "離脱",
 		"dashboard.card.captcha_report":      "CAPTCHA 突破レポート",
-		"dashboard.captcha_report.desc":      "CAPTCHA を通過して再利用可能な _bv cookie を取得したクライアント (bv_captcha_only / bv_pow_then_captcha)。<br><strong>bot-JA4 比率</strong>が高いほど、人間でない client が CAPTCHA を解いて cookie を取得し、その cookie でアクセスを続けている疑いが強い (本物のブラウザの TLS fingerprint には bot 判定が付かない)。<br>反復通過ランキングは同一 IP が CAPTCHA を解き直した回数、最新リストは個別の通過クライアント。",
+		"dashboard.captcha_report.desc":      "CAPTCHA を通過して再利用可能な _bv cookie を取得したクライアント (bv_captcha_only / bv_pow_then_captcha)。<br><strong>bot-JA4 比率</strong>が高いほど、人間でない client が CAPTCHA を解いて cookie を取得し、その cookie でアクセスを続けている疑いが強い (本物のブラウザの TLS fingerprint には bot 判定が付かない)。<br>反復通過ランキングは同一 IP が CAPTCHA を解き直した回数、最新リストは個別の通過クライアント。<br>path の前のホスト名が琥珀色なら、Sites に登録のないホスト (ゴースト) です。",
 		"captcha_report.total":               "通過総数",
 		"captcha_report.bot":                 "bot-JA4",
 		"captcha_report.ok":                  "ok-JA4 (ブラウザ相当 TLS)",
@@ -1458,7 +1458,7 @@ var dict = map[Lang]map[string]string{
 		"help.rl.count":      "この IP が rate-limit 経由で challenge を受けた回数",
 		"help.rl.ua":         "最後に観測された User-Agent",
 		"help.rl.last_seen":  "最後に rate-limit に hit した時刻",
-		"help.rl.path":       "rate-limit に hit した元の path",
+		"help.rl.path":       "rate-limit に hit した元の path。ホスト名が琥珀色なら、Sites に登録のないホスト (ゴースト) です",
 		"help.rl.path_count": "この path で rate-limit に hit した回数",
 
 		// CookieStatus row label / description (= dashboard 内 cookie 通過状況 card)
@@ -2667,7 +2667,7 @@ var dict = map[Lang]map[string]string{
 
 		// site_list
 		"site_list.title":     "サイト一覧",
-		"site_list.subtitle":  "観測された site の集計です。クリックで dashboard へ。",
+		"site_list.subtitle":  "観測された site の集計です。クリックで dashboard へ。琥珀色の「ゴースト」は Sites に登録のないホストです。",
 		"site_list.events":    "events (total)",
 		"site_list.serve":     "serve",
 		"site_list.verify":    "認証通過",
@@ -4044,7 +4044,7 @@ var dict = map[Lang]map[string]string{
 		"th.answered":                        "answered",
 		"th.abandon":                         "abandoned",
 		"dashboard.card.captcha_report":      "CAPTCHA passes",
-		"dashboard.captcha_report.desc":      "Clients that completed a CAPTCHA and obtained a reusable _bv cookie (bv_captcha_only / bv_pow_then_captcha).<br>A high <strong>bot-JA4 share</strong> means non-human clients are solving the CAPTCHA and reusing the cookie to keep accessing the site -- a real browser's TLS fingerprint matches no bot rule.<br>The ranking shows how many times each IP re-solved the CAPTCHA; the recent list shows individual passers.",
+		"dashboard.captcha_report.desc":      "Clients that completed a CAPTCHA and obtained a reusable _bv cookie (bv_captcha_only / bv_pow_then_captcha).<br>A high <strong>bot-JA4 share</strong> means non-human clients are solving the CAPTCHA and reusing the cookie to keep accessing the site -- a real browser's TLS fingerprint matches no bot rule.<br>The ranking shows how many times each IP re-solved the CAPTCHA; the recent list shows individual passers.<br>A host in amber before a path is not in the defined site list (a ghost).",
 		"captcha_report.total":               "passes",
 		"captcha_report.bot":                 "bot-JA4",
 		"captcha_report.ok":                  "ok-JA4 (browser-grade TLS)",
@@ -4266,7 +4266,7 @@ Excluded: clients passed CAPTCHA in last 3 days / search bot UA / bypass IPs.`,
 		"help.rl.count":      "Number of times this IP was challenged via the rate limit",
 		"help.rl.ua":         "Last observed User-Agent",
 		"help.rl.last_seen":  "Time of the most recent rate-limit hit",
-		"help.rl.path":       "Original path that triggered the rate limit",
+		"help.rl.path":       "Original path that triggered the rate limit. A host in amber is not in the defined site list (a ghost)",
 		"help.rl.path_count": "Number of rate-limit hits on this path",
 
 		"cookie.row.total":           "total",
@@ -5470,7 +5470,7 @@ Referenced as the highest-priority case (<code>"~^1:" → 0</code>) in the <code
 		"docs.note6.dd": `JA4 action is classified as bot → web server internal rewrite serves <code>/unmask/challenge/</code>. The admin rewrites the placeholder <code>/*__JA4_HIT__*/0</code> in the HTML to <code>/*__JA4_HIT__*/1</code> on response. JS reads the placeholder and decides immediately (action=bot → skip PoW → straight to CAPTCHA).<br><br>The status code is <b>403</b> (= matches Cloudflare). 5xx is avoided to keep site-health metrics clean.`,
 
 		"site_list.title":     "Sites",
-		"site_list.subtitle":  "Aggregation of observed sites. Click to open dashboard.",
+		"site_list.subtitle":  "Aggregation of observed sites. Click to open dashboard. An amber ghost tag marks a host that is not in the defined site list.",
 		"site_list.events":    "events (total)",
 		"site_list.serve":     "serve",
 		"site_list.verify":    "passed",
