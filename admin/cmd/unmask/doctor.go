@@ -39,6 +39,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/assets"
+	"github.com/unmask-sh/unmask/admin/internal/banfile"
 	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
@@ -506,6 +507,12 @@ func cmdDoctor(args []string) error {
 	} else {
 		addWarn("ban file path", "not set (= honeypot persistent BAN feature disabled)")
 	}
+	// 5b. ban file readable by nginx's worker.  The module reads the list
+	// from the worker, which runs as nginx.conf's `user`, not as the
+	// daemon; through 0.1.53-rc12 the package's 0750 data directory stopped
+	// it there, and nginx enforced no ban while the admin showed every ban
+	// as in force.
+	checkBanFileWorkerRead(s, addOK, addWarn, addErr)
 
 	// 6. challenge html override (= optional).  Doctor reports the global
 	// default only; per-site challenge_html_path overrides are surfaced in
@@ -1914,6 +1921,32 @@ func plural(n int, one, many string) string {
 		return one
 	}
 	return many
+}
+
+// checkBanFileWorkerRead: can nginx's worker -- nginx.conf's `user`, with
+// its groups and any ACL on the path -- pass through every directory above
+// the ban list and read it?  Nothing to say without a list (no ban yet) or
+// without nginx on this host.
+func checkBanFileWorkerRead(s settings.Settings, addOK, addWarn, addErr func(t, m string)) {
+	p := s.Nginx.Honeypot.BanFilePath
+	if p == "" {
+		return
+	}
+	if _, err := os.Stat(p); err != nil {
+		return
+	}
+	v := banfile.Check(p, s.Nginx.ConfPath)
+	switch {
+	case errors.Is(v.Err, banfile.ErrNoNginx):
+		return
+	case v.Err != nil:
+		addWarn("ban file worker read", v.Err.Error()+" — cannot tell whether nginx's worker reads "+p)
+	case v.OK:
+		addOK("ban file worker read", banfile.Describe(v))
+	default:
+		addErr("ban file worker read", banfile.Describe(v)+". Fix: `"+strings.Join(banfile.FixCommands(v), "; ")+
+			"` (the package sets this from 0.1.53-rc13 on); nginx reads the list again on the next request, no reload needed.")
+	}
 }
 
 func writableDir(p string) error {

@@ -74,11 +74,17 @@ contents:
     file_info:
       mode: 0755
 
-  # state directories
+  # state directories.  0751, not 0750: nginx's worker reads the ban list
+  # (nginx/banned.txt) on every request and runs as nginx.conf's `user`,
+  # not as unmask, so it needs to pass through here (x; no listing).  At
+  # 0750 (through 0.1.53-rc12) that stat() failed with EACCES on every
+  # install whose worker is another user, and nginx enforced no ban.  What
+  # is inside keeps its own mode: the database 0640, http.inc 0640, the
+  # setup token 0600.
   - dst: /var/lib/unmask
     type: dir
     file_info:
-      mode: 0750
+      mode: 0751
       owner: unmask
       group: unmask
   # mmdb dir (= where `unmask install-ipgeo` writes DB-IP Country Lite)

@@ -122,6 +122,23 @@ fi
 # never produced and made `nginx -t` fail on every install.  Matches
 # postinstall-plugin-nginx-fat.sh, which has no such block.
 
+# The module reads the ban list (/var/lib/unmask/nginx/banned.txt, or
+# nginx.honeypot.ban_file_path) from the WORKER, which runs as nginx.conf's
+# `user`.  When that user cannot read it, nginx enforces no ban -- and says so
+# only in error.log, once a minute per worker.  Say it here too.
+BAN_LIST=/var/lib/unmask/nginx/banned.txt
+if [ -e "$BAN_LIST" ]; then
+    wu=$(sed -n 's/^[[:space:]]*user[[:space:]]\{1,\}\([^[:space:];]\{1,\}\).*/\1/p' "$NGINX_CONF" 2>/dev/null | head -1)
+    [ -n "$wu" ] || wu=$(nginx -V 2>&1 | sed -n 's/.*--user=\([^[:space:]]*\).*/\1/p' | head -1)
+    [ -n "$wu" ] || wu=nobody
+    if ! su -s /bin/sh "$wu" -c "test -r '$BAN_LIST'" 2>/dev/null; then
+        echo ""
+        echo "  WARNING: nginx's worker user '$wu' cannot read $BAN_LIST, so nginx enforces no ban."
+        echo "           Let it pass through every directory on the path (x) and read the file (r);"
+        echo "           \`unmask doctor\` names the one in the way (the unmask package from 0.1.53-rc13 sets this)."
+    fi
+fi
+
 echo ""
 echo "next steps:"
 echo "  sudo dnf install unmask-web-nginx       (= installs the /unmask/* proxy + upstream)"

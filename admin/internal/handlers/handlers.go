@@ -24,6 +24,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/assets"
 	"github.com/unmask-sh/unmask/admin/internal/ban"
+	"github.com/unmask-sh/unmask/admin/internal/banfile"
 	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
 	"github.com/unmask-sh/unmask/admin/internal/captcha"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
@@ -158,6 +159,13 @@ type Handler struct {
 	Live          *live.Counter           // optional, may be nil: the dashboard's "right now" strip then stays off
 	RuleHits      *rulehits.Counter       // optional, may be nil: the custom-rules tab then shows no counts
 	RenderWatch   *renderwatch.Watch      // optional, may be nil: no "nginx has not reloaded" notice then
+	// BanFileCheck: whether nginx's worker reads the ban list, for the notice
+	// bar (ban_file_notice.go).  nil means the install's own list and
+	// nginx.conf; a test sets a verdict of its own.
+	BanFileCheck func() banfile.Verdict
+	banFileMu    sync.Mutex
+	banFileAt    time.Time
+	banFileLast  *BanFileNotice
 	// mapAuto: the server's own position worked out for the dashboard's map
 	// (map_admin.go autoMapLocation), kept for an hour.
 	mapAutoMu sync.Mutex

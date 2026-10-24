@@ -110,11 +110,13 @@ run_case systemd 0 "" 1
 check "systemd, rpm fresh install: started once" 1 "$(starts)"
 check "systemd, rpm fresh install: enabled for boot" 1 "$(called '^systemctl enable unmask.service$')"
 check "systemd, rpm fresh install: a restart, which also starts a stopped unit" 1 "$(called '^systemctl restart unmask.service$')"
+check "the data directory lets nginx's worker pass through (0751)" 1 "$(called "^chmod 0751 $T/var/lib/unmask$")"
 rm -rf "$T"
 
 run_case systemd 0 "" 2
 check "systemd, rpm upgrade: started once" 1 "$(starts)"
 check "systemd, rpm upgrade: not re-enabled (the operator may have disabled it)" 0 "$(called '^systemctl enable')"
+check "systemd, rpm upgrade: the data directory is made passable too" 1 "$(called "^chmod 0751 $T/var/lib/unmask$")"
 rm -rf "$T"
 
 run_case systemd 0 "" configure

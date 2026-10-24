@@ -1045,6 +1045,12 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 		if _, ok := data["ReloadNotice"]; !ok {
 			data["ReloadNotice"] = h.reloadNotice(i18n.Lang(i18n.Resolve(r)))
 		}
+		// The ban-list notice (partial_ban_file_notice.html, under the reload
+		// one): nil unless nginx's worker cannot read the list the daemon
+		// writes, in which case nginx enforces no ban.
+		if _, ok := data["BanFileNotice"]; !ok {
+			data["BanFileNotice"] = h.banFileNotice()
+		}
 		// The bell (partial_notice_bell.html): how many notices the account
 		// has not opened the list to.  One indexed count; a database that
 		// cannot answer in time shows no badge rather than holding the page.

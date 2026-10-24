@@ -33,6 +33,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"gorm.io/gorm"
@@ -124,6 +125,7 @@ type ActionResolver func(source string) string
 type Manager struct {
 	DB       *db.DB
 	filePath string
+	flushed  bool          // the list has been written since start (see Flushed)
 	duration time.Duration // default TTL for honeypot/auto bans.  0 = permanent
 	// whitelistFn reports whether an IP is on the bypass allowlist (= preset
 	// crawler ranges + operator bypass_ips, CIDR-aware).  Injected by the admin
@@ -1253,10 +1255,58 @@ func (m *Manager) flush() error {
 	if err := os.Rename(tmp, m.filePath); err != nil {
 		return err
 	}
+	m.ensureReadable()
 	m.mu.Lock()
 	m.dirty = false
+	m.flushed = true
 	m.mu.Unlock()
 	return nil
+}
+
+// ensureReadable: the list is read by nginx's WORKER, which runs as
+// nginx.conf's `user`, not as the daemon.  The file is 0644 whatever the
+// daemon's umask (the unit's UMask=0027 would make it 0640), and every
+// directory above it that the daemon owns lets others pass through (x: the
+// package shipped /var/lib/unmask as 0750 through 0.1.53-rc12, and nginx
+// enforced no ban on any install whose worker is another user).  Only the
+// x bit is added, and only on the daemon's own directories; what else is
+// in them keeps its own mode (the database 0640, http.inc 0640).
+func (m *Manager) ensureReadable() {
+	if err := os.Chmod(m.filePath, 0o644); err != nil {
+		log.Printf("ban: %s: chmod 0644: %v", m.filePath, err)
+	}
+	uid := uint32(os.Getuid())
+	for d := filepath.Dir(m.filePath); d != "" && d != "." && d != filepath.Dir(d); d = filepath.Dir(d) {
+		fi, err := os.Stat(d)
+		if err != nil {
+			return
+		}
+		st, ok := fi.Sys().(*syscall.Stat_t)
+		if !ok || st.Uid != uid {
+			return // not ours to change: the package or the operator owns it
+		}
+		if perm := fi.Mode().Perm(); perm&0o001 == 0 {
+			if err := os.Chmod(d, perm|0o001); err != nil {
+				log.Printf("ban: %s: chmod o+x (so nginx's worker can reach the ban list): %v", d, err)
+				return
+			}
+			log.Printf("ban: %s: %#o -> %#o so nginx's worker can reach the ban list", d, perm, perm|0o001)
+		}
+	}
+}
+
+// Flushed: whether the list has been written since the daemon started.
+// The admin's notice about a worker that cannot read the list waits for
+// this: a list the daemon could not write is another problem (the doctor's
+// "ban file dir"), and a test instance writing nowhere has no list to
+// speak of.
+func (m *Manager) Flushed() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.flushed
 }
 
 // escalateIP widens a run of automatic bans on one address to the address

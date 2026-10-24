@@ -1,0 +1,43 @@
+{{- /*
+  ban_file_notice: nginx's worker cannot read the ban list the daemon
+  writes, so nginx enforces no ban (handlers/ban_file_notice.go,
+  internal/banfile).  The module reads the list from the worker, which runs
+  as nginx.conf's `user`, not as the daemon; through 0.1.53-rc12 the
+  package's 0750 data directory stopped it there, and the admin went on
+  showing every ban as in force and announcing each new one.
+
+  Part of header_tools after the reload notice, so it is on every signed-in
+  page, and moved under the page's <header> (below the reload notice when
+  that one is there) by its script.  .BanFileNotice is nil -- nothing is
+  rendered -- while the worker reads the list, and where there is nothing
+  to say (no list written yet, no nginx on this host).
+
+  One line: who cannot read what, and the consequence.  The cause (which
+  directory or file, and the missing bit), the commands that fix it (each
+  with its copy button) and what happens then sit behind the pages' shared
+  help tip, like the reload notice's.
+*/ -}}
+{{ define "ban_file_notice" }}{{ with .BanFileNotice }}
+<style>
+.bfnote{display:flex;align-items:center;gap:.5rem;padding:.35rem 1.5rem;font-size:.85rem;line-height:1.45;border-bottom:1px solid #fca5a5;background:#fef2f2;color:#7f1d1d}
+.bfnote[hidden]{display:none}
+.bfnote-msg{min-width:0}
+.bfnote .info-tip{margin-left:0;background:#d98b8b}
+.bfnote .info-tip:hover,.bfnote .info-tip:focus{background:#7f1d1d}
+.bfnote .info-tip.pinned{background:#3b82f6}
+</style>
+<div id="bfnote" class="bfnote" role="alert" hidden>
+  <span class="bfnote-msg">{{ tf $.Lang "ban_file_notice.msg" .User .Path }}</span>
+  <span class="info-tip" tabindex="0" aria-label="help" data-pin-title="{{ t $.Lang "ban_file_notice.title" }}">?<span class="info-popup">{{ if eq .Need "r" }}{{ tf $.Lang "ban_file_notice.cause_r" .Blocker }}{{ else }}{{ tf $.Lang "ban_file_notice.cause_x" .Blocker }}{{ end }}<br>{{ t $.Lang "ban_file_notice.fix" }}{{ range .Fix }} <code class="cmd">{{ . }}</code>{{ end }}<br>{{ safeHTML (t $.Lang "ban_file_notice.after") }}</span></span>
+</div>
+<script>
+(function(){
+  var el = document.getElementById('bfnote');
+  if (!el) return;
+  // Under the header, below the reload notice when that one is there.
+  var anchor = document.getElementById('rlnote') || document.querySelector('header.unmask-header') || document.querySelector('header');
+  if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(el, anchor.nextSibling);
+  el.hidden = false;
+})();
+</script>
+{{ end }}{{ end }}

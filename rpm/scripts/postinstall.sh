@@ -118,6 +118,36 @@ chmod 0644 "$RENDER_DIR"/*.inc 2>/dev/null || true
 # as root, so 0640 unmask:unmask is sufficient.
 chmod 0640 "$RENDER_DIR"/http.inc 2>/dev/null || true
 
+# The ban list ($RENDER_DIR/banned.txt) is read by nginx's WORKER on every
+# request, and the worker runs as nginx.conf's `user` (nginx, www-data), not
+# as unmask: it has to pass through /var/lib/unmask (x -- no listing) and read
+# the file (r).  The directory was 0750 through 0.1.53-rc12, so on every
+# install whose worker is another user the module's stat() failed and nginx
+# enforced no ban, while the admin showed every ban as in force.  0751 lets
+# the worker through; what is inside keeps its own mode -- and the database,
+# which a 022 umask may have left 0644, goes to 0640 now that others get
+# this far (the daemon does the same on every start).  The ban list itself
+# is 0644 (the daemon rewrites it so after every change).
+chmod 0751 /var/lib/unmask 2>/dev/null || true
+for f in /var/lib/unmask/*.sqlite /var/lib/unmask/*.sqlite-wal /var/lib/unmask/*.sqlite-shm; do
+    [ -e "$f" ] && chmod 0640 "$f" 2>/dev/null || true
+done
+[ -e "$RENDER_DIR/banned.txt" ] && chmod 0644 "$RENDER_DIR/banned.txt" 2>/dev/null || true
+
+# Say so when the worker still cannot read the list (a user with no account
+# here, an ACL that shuts it out, a custom path): until it can, nginx
+# enforces no ban.  `unmask doctor` reports the same, with the path in the
+# way, and the admin shows a notice on every page.
+if command -v nginx >/dev/null 2>&1 && [ -e "$RENDER_DIR/banned.txt" ]; then
+    wu=$(sed -n 's/^[[:space:]]*user[[:space:]]\{1,\}\([^[:space:];]\{1,\}\).*/\1/p' /etc/nginx/nginx.conf 2>/dev/null | head -1)
+    [ -n "$wu" ] || wu=$(nginx -V 2>&1 | sed -n 's/.*--user=\([^[:space:]]*\).*/\1/p' | head -1)
+    [ -n "$wu" ] || wu=nobody
+    if ! su -s /bin/sh "$wu" -c "test -r '$RENDER_DIR/banned.txt'" 2>/dev/null; then
+        echo "unmask: WARNING: nginx's worker user '$wu' cannot read $RENDER_DIR/banned.txt, so nginx enforces no ban."
+        echo "        Let it pass through every directory on the path (x) and read the file (r); \`unmask doctor\` names the one in the way."
+    fi
+fi
+
 # A schema update the new daemon will leave for the operator (= an index
 # build over a large events table, which it does not run at startup because
 # it would be gone for that long; see internal/db/migrator.go).  Worked out

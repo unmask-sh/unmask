@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Security
+
+- (2026-10-24) **nginx enforced no ban where its worker is not the unmask user.**  The module reads the ban list from nginx's worker, which runs as nginx.conf's `user`; the data directory was 0750, so the worker never reached the list and every ban stayed on paper.  The directory is 0751 now, and the doctor, the install and every admin page say when the worker still cannot read the list.
+
 ## [0.1.53-rc12] - 2026-10-24 (testing build)
 
 ### Changed

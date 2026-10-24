@@ -467,6 +467,7 @@ func open(s settings.DB, maintenance bool) (*DB, error) {
 	out := &DB{DB: conn, Gorm: gdb, Driver: driver}
 	if driver == DriverSQLite {
 		out.SQLitePath = s.SQLitePath
+		tightenSQLiteModes(s.SQLitePath)
 	}
 	out.guardWrites()
 	// Which indexes exist, for the hints (HasIndex).  Best effort: a failure
@@ -863,4 +864,27 @@ func DirFree(path string) (int64, error) {
 		return 0, err
 	}
 	return int64(st.Bavail) * int64(st.Bsize), nil
+}
+
+// tightenSQLiteModes: the database and its WAL and shared-memory files are
+// readable by their owner and group alone.  The data directory lets others
+// pass through (x) so that nginx's worker reaches the ban list beside it,
+// and a database created under a 022 umask (SysVinit, a CLI run) was
+// 0644, that is readable by any local account: the events, the admin
+// accounts, every settings snapshot.  Best effort: a file that is not ours
+// is left as it is.  SQLite gives a -wal or -shm it creates later the
+// database file's own mode, so the first chmod carries forward.
+func tightenSQLiteModes(path string) {
+	if path == "" {
+		return
+	}
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		fi, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		if perm := fi.Mode().Perm(); perm&0o037 != 0 {
+			_ = os.Chmod(p, perm&^0o037)
+		}
+	}
 }
