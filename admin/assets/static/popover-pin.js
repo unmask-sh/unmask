@@ -190,7 +190,8 @@ window.popoverPin = window.popoverPin || (function(){
       if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
       var toast = clone.ownerDocument.createElement('span');
       toast.className = 'popover-copied-toast';
-      toast.textContent = 'copied';
+      // The same word the command's ❐ uses (cmd.copied, in the page's language).
+      toast.textContent = (window._cmdCopyText && window._cmdCopyText.copied) || 'copied';
       clone.appendChild(toast);
       requestAnimationFrame(function(){ toast.classList.add('is-visible'); });
       setTimeout(function(){

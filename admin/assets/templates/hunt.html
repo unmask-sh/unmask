@@ -347,7 +347,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 {{/* A BAN is live the moment it is written (the module re-reads the ban file
      by mtime); a UA / ASN / JA4 rule is a line in the nginx config and is not.
      Saying "applied" for both was true only for the first. */}}
-{{ if .Saved }}<div class="banner ok">{{ if .SavedReload }}{{ safeHTML (t .Lang "hunt.saved_reload") }}{{ else }}{{ t .Lang "hunt.saved" }}{{ end }}</div>{{ end }}
+{{ if .Saved }}<div class="banner ok">{{ if .SavedReload }}{{ if .GatewayActive }}{{ safeHTML (t .Lang "hunt.saved_reload_gateway") }}{{ else }}{{ safeHTML (t .Lang "hunt.saved_reload") }}{{ end }}{{ else }}{{ t .Lang "hunt.saved" }}{{ end }}</div>{{ end }}
 {{ if .Error }}<div class="banner bad">{{ t .Lang "hunt.error_prefix" }}{{ .Error }}</div>{{ end }}
 
 <div class="range-bar">
@@ -775,7 +775,7 @@ function dismissHuntTip(id){
         <option value="deny">deny</option>
       </select>
     </div>
-    <p class="rule-dialog-warn">{{ safeHTML (t .Lang "hunt.rule.reload_note") }}</p>
+    <p class="rule-dialog-warn">{{ if .GatewayActive }}{{ safeHTML (t .Lang "hunt.rule.reload_note_gateway") }}{{ else }}{{ safeHTML (t .Lang "hunt.rule.reload_note") }}{{ end }}</p>
     <div class="ban-dialog-actions">
       <button type="submit" value="cancel" class="rank-act" formnovalidate>{{ t .Lang "hunt.ban.cancel" }}</button>
       <button type="submit" value="ok" class="rank-act" id="ua-dialog-ok">{{ t .Lang "hunt.rule.add" }}</button>
@@ -806,7 +806,7 @@ function dismissHuntTip(id){
     </div>
     <p class="rule-dialog-hint">{{ t .Lang "hunt.rule.asn_more" }}
       <a href="{{ .BasePath }}/admin/settings/asn/">{{ t .Lang "hunt.rule.open_tab" }}</a></p>
-    <p class="rule-dialog-warn">{{ safeHTML (t .Lang "hunt.rule.reload_note") }}</p>
+    <p class="rule-dialog-warn">{{ if .GatewayActive }}{{ safeHTML (t .Lang "hunt.rule.reload_note_gateway") }}{{ else }}{{ safeHTML (t .Lang "hunt.rule.reload_note") }}{{ end }}</p>
     <div class="ban-dialog-actions">
       <button type="submit" value="cancel" class="rank-act" formnovalidate>{{ t .Lang "hunt.ban.cancel" }}</button>
       <button type="submit" value="ok" class="rank-act" id="asn-dialog-ok">{{ t .Lang "hunt.rule.add" }}</button>

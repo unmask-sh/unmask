@@ -1022,6 +1022,12 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 	if _, ok := data["CSRFToken"]; !ok {
 		data["CSRFToken"] = CSRFTokenFromRequest(r)
 	}
+	// GatewayActive: this install is the gateway container, whose nginx
+	// reloads itself when the admin writes a configuration -- the "saved"
+	// banners then say so instead of handing over the reload command.
+	if _, ok := data["GatewayActive"]; !ok {
+		data["GatewayActive"] = h.cfg().Gateway.Active()
+	}
 	if pay := SessionFromContext(r); pay != nil {
 		data["Me"] = pay
 		if h.UserRepo != nil {

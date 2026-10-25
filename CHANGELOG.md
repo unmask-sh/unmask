@@ -17,6 +17,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 ### Changed
 
 
+- (2026-10-25) **On the gateway container, a saved setting no longer hands you a reload command.**  The banners after a save, a rule added from the hunt, an upgrade review applied and a rule saved from the ask page said to run nginx's reload, with the container's self-reload in brackets.  On the container they now say that its nginx reloads itself within seconds, and nothing else.
 
 - (2026-10-25) **The copy button lives inside the command's box and says what it does.**  The ❐ next to a command the admin asks you to run now sits at the end of the command's own chip, level with the text, as a quiet glyph.  Hovering it shows "Copy this command", and after a click the label says the copy happened beside the green tick.
 

@@ -256,7 +256,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
     <h3 id="cr-modal-title">{{ t .Lang "ask.rule_title" }}</h3>
     <div id="cr-modal-body"></div>
     <div class="cr-modal-msg" id="cr-modal-msg" hidden></div>
-    <template id="cr-modal-saved-reload">{{ safeHTML (t .Lang "hunt.saved_reload") }}</template>
+    <template id="cr-modal-saved-reload">{{ if .GatewayActive }}{{ safeHTML (t .Lang "hunt.saved_reload_gateway") }}{{ else }}{{ safeHTML (t .Lang "hunt.saved_reload") }}{{ end }}</template>
     <template id="cr-modal-saved-noop">{{ safeHTML (t .Lang "settings.saved_banner_noop") }}</template>
     <div class="cr-modal-actions">
       <a class="cr-modal-tab" id="cr-modal-tab" href="{{ .BasePath }}/admin/settings/custom-rules/" target="_blank" rel="noopener">{{ t .Lang "ask.rule_open_tab" }} ↗</a>
