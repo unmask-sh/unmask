@@ -22,7 +22,7 @@
 # runtime image, with --with-compat, so the signature matches the official
 # binary.  NGINX_VERSION must be a tag that exists at nginx.org AND on Docker
 # Hub.  Multi-arch: docker buildx build --platform linux/amd64,linux/arm64 .
-ARG NGINX_VERSION=1.28.3
+ARG NGINX_VERSION=1.30.6
 
 # -------------------------------------------------------------------------
 # build stage: the Go static binary

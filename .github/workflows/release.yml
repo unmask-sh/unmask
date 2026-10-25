@@ -90,7 +90,7 @@ jobs:
         include:
           - name: unmask
             dockerfile: Dockerfile
-            build-args: NGINX_VERSION=1.28.3
+            build-args: NGINX_VERSION=1.30.6
             tags: |
               ghcr.io/unmask-sh/unmask:VERSION
               ghcr.io/unmask-sh/unmask:latest

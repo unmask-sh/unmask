@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Security
+
+- (2026-10-25) **The container image runs nginx 1.30.6.**  It ran 1.28.3, and the 1.28 branch has no fix for most of this year's nginx advisories, among them CVE-2026-42945 and CVE-2026-9256 in rewrite and CVE-2026-42533 in map with a regex, both of which the gateway uses on every request.  0.1.53 closes it; the host packages, which load into your own nginx, are unchanged.
+
 ## [0.1.53-rc16] - 2026-10-25 (testing build)
 
 ### Added

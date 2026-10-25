@@ -772,7 +772,7 @@ package-all:
 #                 module, built against DOCKER_NGINX_VERSION) plus the daemon.
 #                 tag: unmask.sh/unmask:$(UNMASK_VERSION)
 DOCKER_IMAGE_UNMASK ?= unmask.sh/unmask
-DOCKER_NGINX_VERSION ?= 1.28.3
+DOCKER_NGINX_VERSION ?= 1.30.6
 docker:
 	docker build -t $(DOCKER_IMAGE_UNMASK):$(UNMASK_VERSION) -t $(DOCKER_IMAGE_UNMASK):latest \
 		--build-arg UNMASK_VERSION=$(UNMASK_VERSION) --build-arg NGINX_VERSION=$(DOCKER_NGINX_VERSION) .

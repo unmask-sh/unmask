@@ -217,7 +217,7 @@ jobs:
           context: .
           push: false
           load: true
-          build-args: NGINX_VERSION=1.28.3
+          build-args: NGINX_VERSION=1.30.6
           tags: unmask-ci/unmask:test
       - name: module loads in the official nginx, and the daemon is there
         run: |
@@ -231,7 +231,7 @@ jobs:
       # expects are all in that include, and nothing else exercises them.
       - name: static registry layout pulls with docker
         run: |
-          docker buildx build --output type=oci,dest=/tmp/unmask.oci.tar --build-arg UNMASK_VERSION=ci --build-arg NGINX_VERSION=1.28.3 .
+          docker buildx build --output type=oci,dest=/tmp/unmask.oci.tar --build-arg UNMASK_VERSION=ci --build-arg NGINX_VERSION=1.30.6 .
           mkdir -p /tmp/unmask-layout && tar -xf /tmp/unmask.oci.tar -C /tmp/unmask-layout
           python3 tools/oci-static-registry.py --layout /tmp/unmask-layout --name unmask --tag ci --tag latest --out /tmp/registry
           docker run -d --name oci-static -p 127.0.0.1:5999:80 \
