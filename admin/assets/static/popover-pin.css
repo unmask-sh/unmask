@@ -183,10 +183,26 @@
 /* The ❐ beside a one-line command (<code class="cmd">; popover-pin.js adds the
  * button).  A chip like the title-bar buttons, sized in em so it follows the
  * text it sits in -- a .9rem banner, a .8rem help popup, a .76rem dialog note.
- * .is-ok is the 900ms green ✓ after a successful copy. */
-.cmd-copy{display:inline-flex;align-items:center;justify-content:center;width:1.3em;height:1.3em;margin-left:.3em;padding:0;vertical-align:-.25em;background:#fff;color:#1e293b;border:1px solid #94a3b8;border-radius:.2rem;font:inherit;font-size:.9em;font-weight:700;line-height:1;cursor:pointer}
-.cmd-copy:hover{background:#f8fafc;color:#0f172a;border-color:#475569}
-.cmd-copy.is-ok,.cmd-copy.is-ok:hover{background:#16a34a;color:#fff;border-color:#16a34a}
+ * .is-ok is the 900ms green ✓ after a successful copy.
+ * The button is the last child of the <code>, so the command's box
+ * encloses both and they read as one chip: a muted glyph with no frame of
+ * its own, darker on hover, green while .is-ok.  The page's font, not the
+ * code's monospace (which has no ❐ of its own), and currentColor at .6
+ * opacity so it reads on a light chip and on the dark about bar alike.
+ * inline-block, not inline-flex: a drag over the command then serialises
+ * without a line break for the button.  vertical-align:middle
+ * puts it on the text's x-height centre at any font size (a fixed -.25em
+ * sat a quarter of an em low in the .9rem banner); user-select:none keeps
+ * it out of a drag over the command.
+ * The label (.cmd-copy-pop) says what a click copies, on hover and on focus;
+ * while .is-ok it stays up and says the copy happened.  It lives inside
+ * the button so a pinned popover's cloneNode carries it along. */
+.cmd-copy{position:relative;display:inline-block;width:1.25em;height:1.25em;margin-left:.3em;padding:0;vertical-align:middle;text-align:center;background:transparent;color:currentColor;opacity:.6;border:0;border-radius:.2rem;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;font-size:1em;font-weight:700;line-height:1.25em;cursor:pointer;user-select:none;-webkit-user-select:none}
+.cmd-copy-glyph{display:inline;line-height:1}
+.cmd-copy-pop{display:none;position:absolute;bottom:calc(100% + .35rem);left:50%;transform:translateX(-50%);white-space:nowrap;background:#0f172a;color:#f8fafc;font-size:.72rem;font-weight:400;line-height:1.3;padding:.25rem .55rem;border-radius:.3rem;pointer-events:none;z-index:20}
+.cmd-copy:hover .cmd-copy-pop,.cmd-copy:focus-visible .cmd-copy-pop,.cmd-copy.is-ok .cmd-copy-pop{display:block}
+.cmd-copy:hover,.cmd-copy:focus-visible{background:rgba(127,127,127,.18);opacity:1}
+.cmd-copy.is-ok,.cmd-copy.is-ok:hover{background:#16a34a;color:#fff;opacity:1}
 
 /* "copied" chip that floats just below the title bar after a successful copy,
  * complementing the ⧉ → ✓ icon swap with plain-language confirmation.  The

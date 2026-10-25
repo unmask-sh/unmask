@@ -176,11 +176,15 @@ function send(line) {
     const copied = await page.evaluate(() => {
       const b = document.querySelector('body > .info-popup-pinned.popover-clone .popover-body button.cmd-copy');
       return {
-        ok: !!b && b.classList.contains('is-ok') && b.textContent === '✓',
+        ok: !!b && b.classList.contains('is-ok') && b.querySelector('.cmd-copy-glyph').textContent === '✓',
+        // the label inside the button: shown while the ✓ is up, and it says
+        // the copy happened rather than what a click would copy.
+        label: (function(){ const p = b && b.querySelector('.cmd-copy-pop'); return p ? { shown: getComputedStyle(p).display === 'block', text: p.textContent } : null; })(),
         clones: document.querySelectorAll('body > .info-popup-pinned.popover-clone').length,
       };
     });
     ok(copied.ok, `${path}: the command's copy button gave no ✓ after a click`);
+    ok(copied.label && copied.label.shown && /コピーしました|Copied/.test(copied.label.text), `${path}: the copy button's label after a click is not the 'copied' word: ${JSON.stringify(copied.label)}`);
     ok(copied.clones === 1, `${path}: ${copied.clones} pinned windows after the command copy, expected 1`);
 
     // 3. its close button takes it down and hands the "?" back to hover.

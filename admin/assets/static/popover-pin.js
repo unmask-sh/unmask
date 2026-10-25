@@ -1016,19 +1016,33 @@ window.installInfoPopupEdgeFlip = window.installInfoPopupEdgeFlip || function(){
 // call of its own.  The click is one delegated listener on the document, so
 // a button that travelled into a clone (cloneNode carries no listeners)
 // works the same.
+// The label's words, in the page's language: the partial that loads this
+// script puts them on its <script> tag (data-txt-copy / data-txt-copied), so
+// the strings stay in the server's dictionary.  document.currentScript is
+// that tag while a classic script runs at parse time.
+window._cmdCopyText = window._cmdCopyText || (function(){
+  var s = document.currentScript, d = (s && s.dataset) || {};
+  return { copy: d.txtCopy || 'Copy this command', copied: d.txtCopied || 'Copied' };
+})();
 window.installCommandCopy = window.installCommandCopy || function(root){
   root = root || document;
   if (!root.querySelectorAll) return;
   function wire(code){
-    var next = code.nextElementSibling;
-    if (next && next.classList && next.classList.contains('cmd-copy')) return;
-    if (!code.parentNode) return;
+    for (var i = 0; i < code.children.length; i++){
+      if (code.children[i].classList.contains('cmd-copy')) return;
+    }
+    var t = window._cmdCopyText;
     var b = document.createElement('button');
     b.type = 'button';
     b.className = 'cmd-copy';
-    b.setAttribute('aria-label', 'copy');
-    b.textContent = '❐';
-    code.parentNode.insertBefore(b, code.nextSibling);
+    b.setAttribute('aria-label', t.copy);
+    var g = document.createElement('span'); g.className = 'cmd-copy-glyph'; g.textContent = '❐';
+    var p = document.createElement('span'); p.className = 'cmd-copy-pop'; p.textContent = t.copy;
+    b.appendChild(g); b.appendChild(p);
+    // Inside the <code>, at its end: the command and its button are one
+    // chip (the box encloses both, and a wrapped command keeps the button
+    // on its last word).  The click reads the code's text around the button.
+    code.appendChild(b);
   }
   // The root itself too: a MutationObserver hands over each added node, and
   // a <code class="cmd"> written straight into a help text is such a node
@@ -1040,16 +1054,25 @@ document.addEventListener('click', function(e){
   var btn = e.target && e.target.closest ? e.target.closest('button.cmd-copy') : null;
   if (!btn) return;
   e.preventDefault();
-  var code = btn.previousElementSibling;
+  var code = btn.parentNode;
   if (!code || !code.classList || !code.classList.contains('cmd')) return;
-  var text = (code.textContent || '').trim();
+  // The command alone: the button's glyph and label are children too.
+  var text = '';
+  for (var n = code.firstChild; n; n = n.nextSibling){
+    if (n.nodeType === 3) text += n.nodeValue;
+    else if (n.nodeType === 1 && !(n.classList && n.classList.contains('cmd-copy'))) text += n.textContent;
+  }
+  text = text.trim();
   if (!text) return;
   function ok(){
+    var t = window._cmdCopyText, g = btn.querySelector('.cmd-copy-glyph'), p = btn.querySelector('.cmd-copy-pop');
     if (btn._cmdCopyTimer) clearTimeout(btn._cmdCopyTimer);
-    btn.textContent = '✓';
+    if (g) g.textContent = '✓';
+    if (p) p.textContent = t.copied;
     btn.classList.add('is-ok');
     btn._cmdCopyTimer = setTimeout(function(){
-      btn.textContent = '❐';
+      if (g) g.textContent = '❐';
+      if (p) p.textContent = t.copy;
       btn.classList.remove('is-ok');
       btn._cmdCopyTimer = null;
     }, 900);

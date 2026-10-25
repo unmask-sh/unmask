@@ -14,6 +14,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+
+
+- (2026-10-25) **The copy button lives inside the command's box and says what it does.**  The ❐ next to a command the admin asks you to run now sits at the end of the command's own chip, level with the text, as a quiet glyph.  Hovering it shows "Copy this command", and after a click the label says the copy happened beside the green tick.
+
 ### Security
 
 - (2026-10-25) **The container image runs nginx 1.30.6.**  It ran 1.28.3, and the 1.28 branch has no fix for most of this year's nginx advisories, among them CVE-2026-42945 and CVE-2026-9256 in rewrite and CVE-2026-42533 in map with a regex, both of which the gateway uses on every request.  0.1.53 closes it; the host packages, which load into your own nginx, are unchanged.

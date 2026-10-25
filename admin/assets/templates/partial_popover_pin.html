@@ -12,5 +12,5 @@
 */ -}}
 {{ define "popover_pin_assets" -}}
 <link rel="stylesheet" href="{{ .BasePath }}/static/popover-pin.css?v={{ assetv }}">
-<script src="{{ .BasePath }}/static/popover-pin.js?v={{ assetv }}"></script>
+<script src="{{ .BasePath }}/static/popover-pin.js?v={{ assetv }}" data-txt-copy="{{ t .Lang "cmd.copy" }}" data-txt-copied="{{ t .Lang "cmd.copied" }}"></script>
 {{- end }}
