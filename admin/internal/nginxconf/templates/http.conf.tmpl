@@ -1944,8 +1944,8 @@ map $args $rl_hit {
 {{ if .ComposeMode }}
 # Compose-mode fail-open recovery maps (host nginx >= 1.17.6).  In compose mode the
 # plugin's ACCESS-phase handler does the challenge / rate redirect via
-# ngx_http_internal_redirect, which restarts the phase engine from POST_READ --
-# re-running server.inc's SERVER_REWRITE `set $unmask_orig_path ""`, clearing the
+# ngx_http_internal_redirect, which restarts the phase engine at SERVER_REWRITE --
+# re-running server.inc's `set $unmask_orig_path ""`, clearing the
 # saved original before @unmask_daemon_down's fail-open replay can read it.  (The
 # classic `rewrite ... last` jumps to FIND_CONFIG, skipping SERVER_REWRITE, so it
 # survives there.)  So @unmask_daemon_down instead recovers the original from what
@@ -2036,6 +2036,19 @@ log_format unmask '$remote_addr [$time_local] "$request" $status '
 map "$is_bypass_ip$is_bypass_path" $unmask_bypassed {
     default 1;
     "00"    0;
+}
+
+# $unmask_failopen: "1" once server.inc's @unmask_daemon_down replays a request
+# the daemon could not answer, so protect.inc's gate lets the replay through.
+# Only its empty default lives here, as a map -- the idiom $unmask_gated below
+# uses: `set` overrides it for the request, and the value survives an internal
+# redirect.  The default used to be a `set` in server.inc's rewrite phase, but
+# nginx runs that phase again on every internal redirect, so the replay of a
+# directory URL (index file) or of a try_files URI fallback lost the mark on
+# its next hop, was gated again and sent back to the dead daemon -- a raw 502,
+# the one answer fail-open is there to prevent.
+map $remote_addr $unmask_failopen {
+    default "";
 }
 
 # fc= and bp= say what a gate did, not what it would have done.  The judgement

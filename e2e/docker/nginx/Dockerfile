@@ -48,6 +48,11 @@ COPY admin/assets/static/challenge.html admin/assets/static/challenge.js /usr/sh
 COPY e2e/docker/nginx/nginx.conf /etc/nginx/nginx.conf
 # Stock config for the comparison service (scenario 55): same binary, no module.
 COPY e2e/docker/nginx/stock.conf /etc/nginx/stock.conf
+# Static content for /fo-dir/ and /fo-app/ (scenarios 35 / 62): a directory
+# with an index file and a try_files fallback page.
+RUN mkdir -p /srv/e2e/fo-dir /srv/e2e/fo-app \
+    && printf '[unmask e2e index]\n' > /srv/e2e/fo-dir/index.html \
+    && printf '[unmask e2e fallback]\n' > /srv/e2e/fo-app/fallback.html
 
 # self-signed cert (= e2e only.  Clients are expected to skip verification with --insecure / -k)
 RUN openssl req -x509 -nodes -newkey rsa:2048 -days 365 \

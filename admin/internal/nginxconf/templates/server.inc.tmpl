@@ -43,20 +43,27 @@ access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_lo
 {{- end }}
 
 # Daemon-down fail-open scaffolding (consumed by @unmask_daemon_down below
-# and by protect.inc's challenge gate).  Initialized here -- server rewrite
-# phase, which runs exactly once per request -- so the variables always exist
-# before any location-level logic reads them.  Emitted before the HTTPS
-# redirect block on purpose: its exemptions are rewrite-phase `break`s, and a
-# `break` ends the server rewrite phase, so anything set after it never runs
-# for an exempt request -- a load-balancer health check that goes on to a
-# protected location (the gateway's does) then reads these uninitialized and
-# nginx logs a [warn] per probe.
-#   $unmask_failopen  : "1" after @unmask_daemon_down replays a request,
-#                       suppressing the challenge gate on the replay pass.
+# and by protect.inc's challenge gate).  Initialized here, in the server
+# rewrite phase, so the variables exist before any location-level logic
+# reads them.  nginx runs this phase again on every internal redirect (an
+# index file, a try_files URI fallback, an error_page URI, the plugin's
+# compose-mode redirect into /unmask/), so these start empty on each pass:
+# the classic gates save them right before a `rewrite ... last`, which does
+# not come back through here, and compose mode recovers them in
+# @unmask_daemon_down.  Emitted before the HTTPS redirect block on purpose:
+# its exemptions are rewrite-phase `break`s, and a `break` ends the server
+# rewrite phase, so anything set after it never runs for an exempt request
+# -- a load-balancer health check that goes on to a protected location (the
+# gateway's does) then reads these uninitialized and nginx logs a [warn] per
+# probe.
 #   $unmask_orig_path : pre-challenge $uri, saved by the gates that rewrite
 #                       into /unmask/*; empty for direct /unmask/* requests.
 #   $unmask_orig_args : pre-challenge $args, restored on replay.
-set $unmask_failopen  "";
+# $unmask_failopen ("1" once @unmask_daemon_down replays a request) is not
+# initialized here: the replay has to keep it through its own internal
+# redirects, so its empty default is a map in http.inc.  Cleared here, a
+# replayed directory URL lost it on the hop to its index file, was gated
+# again and sent back to the dead daemon -- a raw 502.
 set $unmask_orig_path "";
 set $unmask_orig_args "";
 
@@ -458,8 +465,10 @@ location ^~ /unmask/ {
 #     @unmask_rate_challenge saved the original URI): replay the original
 #     request through the vhost's own locations.  The visitor gets the page
 #     they asked for -- the same behavior as not having unmask installed.
-#     $unmask_failopen suppresses the challenge gate on the replay pass, so
-#     the replay cannot loop back here.
+#     $unmask_failopen suppresses the challenge gate for the rest of the
+#     request -- the replay pass and any internal redirect it goes on to (an
+#     index file, a try_files fallback) -- so the replay cannot loop back
+#     here.
 #   - A direct /unmask/* request (challenge assets mid-flow, admin UI):
 #     nothing to replay; answer 503 + Retry-After.
 # BAN enforcement still holds during an outage: deny entries return 403

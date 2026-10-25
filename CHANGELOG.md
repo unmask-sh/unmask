@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-10-26) **A directory URL no longer gets a raw 502 while the daemon is down.**  The fail-open replay of the original page lost its mark on any further internal redirect -- a directory's index file, a try_files fallback -- and was challenged into the stopped daemon again.  The mark now lasts the whole request, from the next nginx reload.
+
 ## [0.1.53-rc19] - 2026-10-25 (testing build)
 
 ### Changed

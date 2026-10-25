@@ -9,12 +9,16 @@
 # and its keepalive connections mid-request, the new one not yet listening.
 # Motivation: one raw 502 on the production host at the exact second of a
 # fleet restart (2026-09-10), not reproduced here -- this pins that the
-# rendered config keeps it that way.
+# rendered config keeps it that way.  Another (2026-10-25) was a directory
+# URL: its replay went on to the index file through an internal redirect,
+# which cleared the fail-open mark, so the window also asks for /fo-dir/
+# and a try_files fallback, not just /.
 #
 # Flow:
 #   1. baseline (admin up): curl UA is challenged (403).
-#   2. hammer GET / (curl UA, rotating XFF so no rate zone fills) for ~8 s
-#      while `docker compose restart unmask` runs in the middle.
+#   2. hammer GET /, /fo-dir/ and /fo-app/missing in turn (curl UA, rotating
+#      XFF so no rate zone fills) for ~8 s while `docker compose restart
+#      unmask` runs in the middle.
 #   3. assert: no 5xx at all; every answer is 403 or 200.
 #   4. healthz back to 200; curl UA challenged again.
 #
@@ -97,12 +101,13 @@ assert_eq 403 "$bcode" "baseline (admin up): the deny-banned address is refused 
 #    every tenth one the banned address, so the window holds banned clients
 #    too.
 OUT=$(mktemp)
+PATHS=(/ /fo-dir/ /fo-app/missing)
 (
     for i in $(seq 1 200); do
         xff="203.0.113.$((10 + i % 200))"
         [ $((i % 10)) -eq 0 ] && xff="$BAN_IP"
         curl -sk -o /dev/null -w '%{http_code}\n' --max-time 6 \
-            -A "$UA_CURL" -H "X-Forwarded-For: $xff" "${BASE_URL}/" >> "$OUT" 2>&1
+            -A "$UA_CURL" -H "X-Forwarded-For: $xff" "${BASE_URL}${PATHS[$((i % 3))]}" >> "$OUT" 2>&1
         sleep 0.04
     done
 ) &

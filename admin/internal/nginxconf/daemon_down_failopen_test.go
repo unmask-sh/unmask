@@ -15,16 +15,31 @@ import (
 func TestDaemonDownFailOpenRendered(t *testing.T) {
 	server := renderWBA(t, false, "server.inc")
 	protect := renderWBA(t, false, "protect.inc")
+	httpInc := renderWBA(t, false, "http.inc")
 
 	t.Run("server_inc_scaffolding", func(t *testing.T) {
 		for _, want := range []string{
-			`set $unmask_failopen  "";`,
 			`set $unmask_orig_path "";`,
 			`set $unmask_orig_args "";`,
 		} {
 			if !strings.Contains(server, want) {
 				t.Errorf("server.inc missing init %q", want)
 			}
+		}
+	})
+
+	t.Run("failopen_mark_survives_internal_redirects", func(t *testing.T) {
+		// nginx runs the server rewrite phase again on every internal
+		// redirect.  A reset there wiped the mark as soon as the replayed
+		// page went on to its index file or a try_files URI fallback: that
+		// pass was gated again, sent back to the dead daemon, and the second
+		// 502 surfaced raw.  The only set is the "1"; the empty default is a
+		// map, which a set overrides for the rest of the request.
+		if n := directives(server, "set $unmask_failopen"); n != 1 || !strings.Contains(server, `set $unmask_failopen "1";`) {
+			t.Errorf("server.inc must set $unmask_failopen once, to \"1\" in @unmask_daemon_down (found %d sets)", n)
+		}
+		if !strings.Contains(httpInc, "map $remote_addr $unmask_failopen {\n    default \"\";\n}") {
+			t.Error("http.inc must give $unmask_failopen its empty default as a map")
 		}
 	})
 

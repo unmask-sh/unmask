@@ -9,14 +9,20 @@
 #     @unmask_daemon_down, which replays the saved original URI through the
 #     vhost's own locations ($unmask_failopen suppresses the gate on the
 #     replay pass, so it cannot loop).
+#   - the mark lasts the whole request: a replayed page that nginx answers
+#     through another internal redirect (an index file, a try_files URI
+#     fallback) is not gated again on that hop.
 #   - direct /unmask/* hits have nothing to replay -> 503 + Retry-After.
 #
 # Flow:
-#   1. baseline (admin up): curl UA is challenged (403).
+#   1. baseline (admin up): curl UA is challenged (403), on / and on the
+#      internal-redirect locations /fo-dir/ and /fo-app/.
 #   2. docker compose stop unmask.
 #   3. curl UA GET /            -> 200 + the @echo marker (= original content,
 #                                  no PoW / CAPTCHA, not a raw 502).
 #   4. curl UA GET /?q=1        -> 200 (query string survives the replay).
+#   4b. curl UA GET /fo-dir/    -> 200 + its index file; GET /fo-app/missing
+#                                  -> 200 + the try_files fallback.
 #   5. GET /unmask/admin/       -> 503 with Retry-After (no replay target).
 #   6. docker compose start unmask, wait for healthz.
 #   7. curl UA GET /            -> 403 again (= protection resumed).
@@ -41,6 +47,8 @@ fi
 IP_BASE=203.0.113.71
 IP_QUERY=203.0.113.72
 IP_AFTER=203.0.113.73
+IP_DIR=203.0.113.76
+IP_APP=203.0.113.78
 
 healthz() {
     curl -sk -o /dev/null -w '%{http_code}' --max-time 3 "${BASE_URL}/unmask/healthz"
@@ -97,6 +105,11 @@ trap cleanup EXIT
 # 1. baseline: with the daemon up, a curl UA gets the challenge.
 c0=$(http_get / -A "$UA_CURL" -H "X-Forwarded-For: $IP_BASE")
 assert_eq 403 "$c0" "baseline (admin up): curl UA is challenged on / (403)" || exit 1
+# 1a. the internal-redirect locations are protected the same way.
+c0=$(http_get /fo-dir/ -A "$UA_CURL" -H "X-Forwarded-For: $IP_DIR")
+assert_eq 403 "$c0" "baseline (admin up): curl UA is challenged on a directory URL (403)" || exit 1
+c0=$(http_get /fo-app/missing -A "$UA_CURL" -H "X-Forwarded-For: $IP_APP")
+assert_eq 403 "$c0" "baseline (admin up): curl UA is challenged on a try_files fallback (403)" || exit 1
 
 # 1b. a deny ban on BAN_IP, seen by the plugin before the daemon goes down.
 bcode=000
@@ -136,6 +149,20 @@ assert_eq 403 "$code" "daemon down: a deny-banned client still gets 403 (fails c
 # 4. the query string survives the save/replay round-trip.
 code=$(http_get "/?q=1&x=y" -A "$UA_CURL" -H "X-Forwarded-For: $IP_QUERY")
 assert_eq 200 "$code" "daemon down: query-string request also passes (200)"
+
+# 4b. content nginx answers through a second internal redirect.  The server
+#     rewrite phase runs again on that hop; until the mark's default moved
+#     out of it (a map in http.inc), the hop cleared the mark, the request
+#     was challenged into the dead daemon again, and the second 502 surfaced
+#     raw -- error_page does not recurse.
+body=$(curl -sk -A "$UA_CURL" -H "X-Forwarded-For: $IP_DIR" "${BASE_URL}/fo-dir/")
+code=$(http_get /fo-dir/ -A "$UA_CURL" -H "X-Forwarded-For: $IP_DIR")
+assert_eq 200 "$code" "daemon down: a directory URL is served by its index file (200, not a raw 502)"
+assert_in "[unmask e2e index]" "$body" "daemon down: the directory URL returns its index file"
+body=$(curl -sk -A "$UA_CURL" -H "X-Forwarded-For: $IP_APP" "${BASE_URL}/fo-app/missing")
+code=$(http_get /fo-app/missing -A "$UA_CURL" -H "X-Forwarded-For: $IP_APP")
+assert_eq 200 "$code" "daemon down: a try_files URI fallback is served (200, not a raw 502)"
+assert_in "[unmask e2e fallback]" "$body" "daemon down: the fallback returns its page"
 
 # 5. a direct /unmask/* hit has no original URI to replay -> 503 + Retry-After.
 hdrs=$(curl -sk -D- -o /dev/null -A "$UA_CURL" -H "X-Forwarded-For: $IP_BASE" "${BASE_URL}/unmask/admin/")
