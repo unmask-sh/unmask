@@ -7438,7 +7438,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
   // POST via fetch then reload; type=button so they never submit the form.
   var BASE = '{{ .BasePath }}';
   function instant(btn, path, params){
-    btn.disabled = true;
+    unmaskBusy.on(btn);
     fetch(BASE + path, {
       method: 'POST',
       headers: {'Content-Type': 'application/x-www-form-urlencoded'},
@@ -7875,7 +7875,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     unmaskDialog.confirm({title: T.confirm.replace('%s', btn.getAttribute('data-target') || ''), ok: T.del, danger: true}).then(function(ok){
       if (!ok) return;
       var id = btn.getAttribute('data-id');
-      btn.disabled = true;
+      unmaskBusy.on(btn);
       fetch(BASE + "/admin/api/community-bans/submission/" + encodeURIComponent(id),
             {method: 'DELETE', credentials:'same-origin'})
         .then(function(r){
@@ -7883,7 +7883,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
           loaded = false; load();
         })
         .catch(function(err){
-          btn.disabled = false;
+          unmaskBusy.off(btn);
           unmaskDialog.error((T.err || 'error') + ': ' + (err.message || err));
         });
     });

@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-10-25) **A save button shows it was pressed.**  Once a form posts, the button that sent it spins and every button of that form is disabled until the next page loads, so a save that takes a few seconds no longer looks ignored and a second click cannot send it twice.  The saves that stay on the page, such as the map's home point, spin the same way.
+
 ## [0.1.53-rc18] - 2026-10-25 (testing build)
 
 ### Changed

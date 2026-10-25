@@ -1345,7 +1345,7 @@ function dismissHuntTip(id){
     var aIn = form.querySelector('input[name=action]');
     if (aIn) aIn.value = actEl ? actEl.value : '';
     form.dataset.confirmed = '1';
-    form.submit();
+    unmaskBusy.submit(form);
   });
   document.querySelectorAll('form.js-ua-form').forEach(function(form){
     form.addEventListener('submit', function(ev){
@@ -1390,7 +1390,7 @@ function dismissHuntTip(id){
     form.querySelector('input[name=label]').value = lblEl.value.trim();
     form.querySelector('input[name=action]').value = actEl.value;
     form.dataset.confirmed = '1';
-    form.submit();
+    unmaskBusy.submit(form);
   });
   document.querySelectorAll('form.js-asn-form').forEach(function(form){
     form.addEventListener('submit', function(ev){

@@ -236,7 +236,7 @@
     if (aIn) aIn.value = (!feedActive && sharing) ? '1' : '';
     // re-submit (= bypass the js-ban-form intercept)
     form.dataset.confirmed = '1';
-    form.submit();
+    unmaskBusy.submit(form);
   });
 
 

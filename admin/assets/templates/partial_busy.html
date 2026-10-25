@@ -1,0 +1,114 @@
+{{- /*
+  init_busy: a button that sent a form says so.  Once a post goes out, the
+  button that sent it spins and is disabled, and so is every other button
+  that could send the same form, until the next page takes over
+  (2026-10-25: a save that takes a few seconds -- a render, a reload check --
+  showed no sign it was under way, and a second click posted it again).
+
+  Only a post that actually leaves: a submit some handler cancelled -- a save
+  done with fetch, a confirm still open, a field that failed its check -- is
+  left alone, so the buttons are taken once the submit event has run its
+  course.  That is also after the browser has gathered the form: a button
+  disabled any earlier would drop its own name=value from the post.  GET
+  forms (filters, search) are not touched.  A page that comes back from the
+  back/forward cache gets its buttons back.
+
+  The listener sits on window, capture phase, ahead of every other: a post
+  already on its way is stopped there, before the confirm shim could ask
+  about it a second time.
+
+  Script, for a button whose save goes through fetch:
+    unmaskBusy.on(button)    spins and disables it
+    unmaskBusy.off(button)   gives it back (re-enabled only if on() disabled it)
+  and for a form a script held back behind its own dialog:
+    unmaskBusy.submit(form)  posts it with form.submit(), which fires no
+                             submit event, its button spinning as for a click
+  A button with nothing but an icon shows the spinner in the icon's place.
+
+  Rides on header_tools; the pages without it that post a form (login, setup,
+  password reset, removal requests) include it themselves.  A second include
+  is a no-op.  The styles are here because the classes are added by this
+  script.
+*/ -}}
+{{ define "init_busy" }}
+<style>
+.ux-busy{cursor:progress!important}
+.ux-busy::before{content:"";display:inline-block;box-sizing:border-box;width:.9em;height:.9em;margin-right:.4em;vertical-align:-.15em;border:.15em solid currentColor;border-top-color:transparent;border-radius:50%;animation:ux-busy-spin .8s linear infinite}
+.ux-busy-solo::before{margin-right:0}
+.ux-busy-solo>svg,.ux-busy-solo>img{display:none}
+@keyframes ux-busy-spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.ux-busy::before{animation-duration:2.4s}}
+</style>
+<script>
+window.unmaskBusy = window.unmaskBusy || (function(){
+  var held = [];   // buttons this script disabled, to give back
+  function hold(b){
+    if (!b || b.disabled) return;
+    // Firefox restores a control's disabled state with the page on Back
+    // (without the cache); autocomplete=off keeps it from saving that.
+    b.setAttribute('autocomplete', 'off');
+    b.disabled = true;
+    held.push(b);
+  }
+  function on(b){
+    if (!b) return;
+    b.classList.add('ux-busy');
+    if (!b.textContent.trim()) b.classList.add('ux-busy-solo');
+    b.setAttribute('aria-busy', 'true');
+    hold(b);
+  }
+  function off(b){
+    if (!b) return;
+    b.classList.remove('ux-busy', 'ux-busy-solo');
+    b.removeAttribute('aria-busy');
+    var i = held.indexOf(b);
+    if (i >= 0) { held.splice(i, 1); b.disabled = false; }
+  }
+  // Every button that could send the form again is held; the one that sent
+  // it (or, sent by a script, the form's first) spins.
+  function mark(f, sub){
+    f.__uxBusy = true;
+    var first = null;
+    for (var i = 0; i < f.elements.length; i++) {
+      var el = f.elements[i];
+      if ((el.tagName === 'BUTTON' || el.tagName === 'INPUT') && (el.type === 'submit' || el.type === 'image')) {
+        if (!first && el.tagName === 'BUTTON') first = el;
+        hold(el);
+      }
+    }
+    on(sub && sub.tagName === 'BUTTON' ? sub : first);
+  }
+  // form.submit() sends no button's name=value, so holding them first is safe.
+  function submit(f){
+    mark(f, null);
+    f.submit();
+  }
+  // The button's own formmethod / formtarget win over the form's.
+  function attr(sub, f, own, name){
+    return ((sub && sub.getAttribute(own)) || f.getAttribute(name) || '').toLowerCase();
+  }
+  window.addEventListener('submit', function(e){
+    var f = e.target;
+    if (!f || f.tagName !== 'FORM') return;
+    var sub = e.submitter;
+    if (attr(sub, f, 'formmethod', 'method') !== 'post') return;
+    // Already on its way (Enter in a form without a button, a script's
+    // requestSubmit): the first post stands.
+    if (f.__uxBusy) { e.preventDefault(); e.stopImmediatePropagation(); return; }
+    setTimeout(function(){
+      if (e.defaultPrevented) return;
+      var t = attr(sub, f, 'formtarget', 'target');
+      if (t && t !== '_self') return;
+      mark(f, sub);
+    }, 0);
+  }, true);
+  window.addEventListener('pageshow', function(e){
+    if (!e.persisted) return;
+    held.slice().forEach(off);
+    document.querySelectorAll('.ux-busy').forEach(off);
+    for (var i = 0; i < document.forms.length; i++) document.forms[i].__uxBusy = false;
+  });
+  return {on: on, off: off, submit: submit};
+})();
+</script>
+{{ end }}

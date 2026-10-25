@@ -1212,7 +1212,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       el.textContent = loc.set ? loc.label + (card.dataset.auto === '1' ? ' · ' + card.dataset.txtAutoSuffix : '') : card.dataset.txtNone;
     }
     probeBtn.addEventListener('click', function(){
-      probeBtn.disabled = true; err.hidden = true;
+      unmaskBusy.on(probeBtn); err.hidden = true;
       fetch(card.dataset.probe, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
         .then(function(r){ return r.json().then(function(j){ if (!r.ok || !j.ok) throw new Error(j.error || r.status); return j; }); })
         .then(function(j){
@@ -1224,7 +1224,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
           if (card.dataset.auto === '1' || !loc.set) applySaved(j);
         })
         .catch(function(e){ err.textContent = e && e.message ? e.message : String(e); err.hidden = false; })
-        .then(function(){ probeBtn.disabled = false; });
+        .then(function(){ unmaskBusy.off(probeBtn); });
     });
     btn.addEventListener('click', function(){
       renderAuto();
@@ -1248,12 +1248,12 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       } else {
         body.set('lat', ''); body.set('lon', ''); body.set('label', '');
       }
-      document.getElementById('geo-save').disabled = true;
+      unmaskBusy.on(document.getElementById('geo-save'));
       fetch(card.dataset.save, { method: 'POST', credentials: 'same-origin', headers: { 'Accept': 'application/json' }, body: body })
         .then(function(r){ return r.json().then(function(j){ if (!r.ok || !j.ok) throw new Error(j.error || r.status); return j; }); })
         .then(function(j){ dlg.close(); applySaved(j); })
         .catch(function(e){ err.textContent = e && e.message ? e.message : String(e); err.hidden = false; })
-        .then(function(){ document.getElementById('geo-save').disabled = false; });
+        .then(function(){ unmaskBusy.off(document.getElementById('geo-save')); });
     });
   }
 
