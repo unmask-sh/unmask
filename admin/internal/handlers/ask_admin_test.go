@@ -324,10 +324,11 @@ func TestAskDeleteOwnTurn(t *testing.T) {
 		t.Error("the history must read newest first")
 	}
 	// The pasted-log question folds on its own (its answer is short and
-	// stays whole); the turn's one button says it opens the question.
-	// The two other questions are a line each and do not fold.
-	if strings.Count(body, `class="q-row folded"`) != 1 || !strings.Contains(body, `class="a-toggle" data-fold-q="1"`) || strings.Contains(body, `data-fold-a="1" data-fold-q="1"`) {
-		t.Errorf("history: question folds=%d toggle-q=%v both=%v", strings.Count(body, `class="q-row folded"`), strings.Contains(body, `class="a-toggle" data-fold-q="1"`), strings.Contains(body, `data-fold-a="1" data-fold-q="1"`))
+	// stays whole) with its own button under the bubble; the long answer
+	// has its own in the action row.  The two other questions are a line
+	// each and do not fold.
+	if strings.Count(body, `class="q-row folded"`) != 1 || strings.Count(body, `class="q-toggle"`) != 1 || strings.Count(body, `class="a-toggle"`) != 1 || !strings.Contains(body, `data-txt-rest="あと %d 行"`) {
+		t.Errorf("history: question folds=%d q-toggles=%d a-toggles=%d rest=%v", strings.Count(body, `class="q-row folded"`), strings.Count(body, `class="q-toggle"`), strings.Count(body, `class="a-toggle"`), strings.Contains(body, `data-txt-rest="あと %d 行"`))
 	}
 	if i := strings.Index(body, `class="q-row folded"`); i < 0 || !strings.Contains(body[i:i+400], "zeroth, a pasted log") {
 		t.Error("the folded question is not the pasted log")

@@ -266,9 +266,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   ok(hist.text.indexOf('E2E-ANSWER') >= 0 && hist.pre && hist.link === '/unmask/admin/bans/' && hist.copy, 'the server-rendered turn is not as expected: ' + JSON.stringify({ pre: hist.pre, link: hist.link, copy: hist.copy }));
   ok(hist.metaHidden === true, 'a folded answer still shows its meta line');
   ok(hist.chips.join(',') === 'bans ×2', 'the history tab\'s tool chips: ' + hist.chips.join(','));
+  // The folded answer's button says how many lines are hidden (from the
+  // rendered overflow); opened, it offers to fold again, with no count.
+  const foldedLabel = await page.evaluate(() => document.querySelector('#turns .a .a-toggle').textContent);
+  ok(/\(.*[1-9][0-9]*.*\)$/.test(foldedLabel), 'the folded answer\'s button does not count the hidden lines: ' + JSON.stringify(foldedLabel));
   await page.click('#turns .a .a-toggle');
   const opened = await page.evaluate(() => ({ folded: !!document.querySelector('#turns .a.folded'), label: document.querySelector('#turns .a .a-toggle').textContent }));
-  ok(!opened.folded && opened.label !== '', 'the toggle did not open the answer: ' + JSON.stringify(opened));
+  ok(!opened.folded && opened.label !== '' && !/\d/.test(opened.label), 'the toggle did not open the answer: ' + JSON.stringify(opened));
   // A headless page is not focused, so the clipboard refuses writes; the
   // write is captured instead and the text checked.
   await page.evaluate(() => { navigator.clipboard.writeText = function(t){ window.__copied = t; return Promise.resolve(); }; });

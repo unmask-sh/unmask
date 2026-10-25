@@ -16,6 +16,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- (2026-10-25) **On the ask history, a folded question and a folded answer open on their own, and each button says how many lines it hides.**  One button used to open both; now the question has its own under its bubble and the answer keeps its own, and a folded one reads "Show in full (12 more lines)", counted from the lines as rendered, so it follows the window's width.
 
 - (2026-10-25) **On the gateway container, a saved setting no longer hands you a reload command.**  The banners after a save, a rule added from the hunt, an upgrade review applied and a rule saved from the ask page said to run nginx's reload, with the container's self-reload in brackets.  On the container they now say that its nginx reloads itself within seconds, and nothing else.
 
