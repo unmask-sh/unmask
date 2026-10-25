@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-10-26) **With protect.inc at server scope, visitors not yet passed no longer get a 503 while the daemon is down.**  In compose mode, protect.inc ran again on the way into the challenge and cleared the flag that the replay of the original page keyed on, so nothing was replayed.  The replay now keys on a mark only a protected pass sets; bans still hold during an outage.
+
 ## [0.1.53-rc20] - 2026-10-26 (testing build)
 
 ### Fixed

@@ -486,9 +486,10 @@ location @unmask_daemon_down {
     # http.inc's maps: the _orig arg for the challenge route, the /unmask/_rl URI
     # suffix for the rate route.  Both only fire while $unmask_orig_path is empty,
     # so a classic save (when present) is never overwritten.  The source maps are
-    # gated on $unmask_compose=1 (http.inc), so a banned client's crafted _orig /
-    # a direct /unmask/_rl hit cannot smuggle a replay target past the ban -- they
-    # leave $unmask_orig_path empty and fall through to the 503 below.
+    # gated on $unmask_co_armed (http.inc), which only a protected pass through
+    # protect.inc arms, so a banned client's crafted _orig / a direct /unmask/_rl
+    # hit cannot smuggle a replay target past the ban -- they leave
+    # $unmask_orig_path empty and fall through to the 503 below.
     if ($unmask_orig_path = "") {
         set $unmask_orig_path $unmask_orig_arg_path;
         set $unmask_orig_args $unmask_orig_arg_args;

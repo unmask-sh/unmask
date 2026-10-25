@@ -13,16 +13,25 @@
 #     through another internal redirect (an index file, a try_files URI
 #     fallback) is not gated again on that hop.
 #   - direct /unmask/* hits have nothing to replay -> 503 + Retry-After.
+#   - with protect.inc at SERVER scope (the :8444 vhost) the replay works
+#     too: the compose recovery keys on $unmask_co_armed, which the redirect
+#     pass into /unmask/ cannot clear (it keyed on $unmask_compose, which
+#     that pass sets to 0, and every visitor got the 503).
+#   - bans hold on both vhosts: a deny ban answers 403, and a captcha_only
+#     ban answers 503 even with a crafted ?_orig=.
 #
 # Flow:
 #   1. baseline (admin up): curl UA is challenged (403), on / and on the
-#      internal-redirect locations /fo-dir/ and /fo-app/.
+#      internal-redirect locations /fo-dir/ and /fo-app/, and on :8444.
 #   2. docker compose stop unmask.
 #   3. curl UA GET /            -> 200 + the @echo marker (= original content,
 #                                  no PoW / CAPTCHA, not a raw 502).
 #   4. curl UA GET /?q=1        -> 200 (query string survives the replay).
 #   4b. curl UA GET /fo-dir/    -> 200 + its index file; GET /fo-app/missing
 #                                  -> 200 + the try_files fallback.
+#   4c. :8444 GET /             -> 200 + its own marker; deny-banned -> 403;
+#       captcha_only-banned GET /?_orig=/ -> 503 on both vhosts;
+#       :8444 GET /unmask/challenge/?_orig=/ -> 503.
 #   5. GET /unmask/admin/       -> 503 with Retry-After (no replay target).
 #   6. docker compose start unmask, wait for healthz.
 #   7. curl UA GET /            -> 403 again (= protection resumed).
@@ -49,6 +58,13 @@ IP_QUERY=203.0.113.72
 IP_AFTER=203.0.113.73
 IP_DIR=203.0.113.76
 IP_APP=203.0.113.78
+IP_SRV=203.0.113.79
+
+srv_get() {
+    # srv_get PATH CURL_ARGS... -- http_get against the server-scope vhost.
+    local path="$1"; shift
+    curl -sk -o /dev/null -w '%{http_code}' "$@" "${SRV_SCOPE_URL}${path}"
+}
 
 healthz() {
     curl -sk -o /dev/null -w '%{http_code}' --max-time 3 "${BASE_URL}/unmask/healthz"
@@ -69,17 +85,22 @@ wait_healthz_eq() {
 # (a bare `trap ... EXIT` here would overwrite the guard installed by
 # assert.sh, silently swallowing mid-scenario assertion failures).
 # A deny-banned address, to prove the ban holds while the daemon is down (a
-# bare 403, never the fail-open handler's 503).  The ban file is driven
-# directly, as 40-ban-deny does; the plugin re-reads it on mtime change.
+# bare 403, never the fail-open handler's 503), and a captcha_only-banned one,
+# whose challenge rewrite has to keep failing closed (503) with a crafted
+# ?_orig= -- the replay target a banned client would try to smuggle through
+# the outage.  Both rows go in one write, so the deny row answering 403 also
+# says the plugin has the captcha_only one.  The ban file is driven directly,
+# as 40-ban-deny does; the plugin re-reads it on mtime change.
 BAN_IP=203.0.113.235
+BAN2_IP=203.0.113.237
 BAN_FILE_C=/var/lib/unmask/nginx/banned.txt
 ban_write() {
     docker compose -f "$COMPOSE" exec -T --user root nginx sh -c \
-        "mkdir -p /var/lib/unmask/nginx && printf '%s\n' '${BAN_IP}||manual|deny' >> '$BAN_FILE_C'" >/dev/null 2>&1
+        "mkdir -p /var/lib/unmask/nginx && printf '%s\n' '${BAN_IP}||manual|deny' '${BAN2_IP}||manual|captcha_only' >> '$BAN_FILE_C'" >/dev/null 2>&1
 }
 ban_clear() {
     docker compose -f "$COMPOSE" exec -T --user root nginx sh -c \
-        "[ -f '$BAN_FILE_C' ] && grep -v '^${BAN_IP}|' '$BAN_FILE_C' > '${BAN_FILE_C}.t' 2>/dev/null && mv '${BAN_FILE_C}.t' '$BAN_FILE_C'" >/dev/null 2>&1 || true
+        "[ -f '$BAN_FILE_C' ] && grep -v -e '^${BAN_IP}|' -e '^${BAN2_IP}|' '$BAN_FILE_C' > '${BAN_FILE_C}.t' 2>/dev/null && mv '${BAN_FILE_C}.t' '$BAN_FILE_C'" >/dev/null 2>&1 || true
 }
 ADMIN_STOPPED=0
 cleanup() {
@@ -110,6 +131,8 @@ c0=$(http_get /fo-dir/ -A "$UA_CURL" -H "X-Forwarded-For: $IP_DIR")
 assert_eq 403 "$c0" "baseline (admin up): curl UA is challenged on a directory URL (403)" || exit 1
 c0=$(http_get /fo-app/missing -A "$UA_CURL" -H "X-Forwarded-For: $IP_APP")
 assert_eq 403 "$c0" "baseline (admin up): curl UA is challenged on a try_files fallback (403)" || exit 1
+c0=$(srv_get / -A "$UA_CURL" -H "X-Forwarded-For: $IP_SRV")
+assert_eq 403 "$c0" "baseline (admin up): curl UA is challenged on the server-scope vhost (403)" || exit 1
 
 # 1b. a deny ban on BAN_IP, seen by the plugin before the daemon goes down.
 bcode=000
@@ -163,6 +186,27 @@ body=$(curl -sk -A "$UA_CURL" -H "X-Forwarded-For: $IP_APP" "${BASE_URL}/fo-app/
 code=$(http_get /fo-app/missing -A "$UA_CURL" -H "X-Forwarded-For: $IP_APP")
 assert_eq 200 "$code" "daemon down: a try_files URI fallback is served (200, not a raw 502)"
 assert_in "[unmask e2e fallback]" "$body" "daemon down: the fallback returns its page"
+
+# 4c. protect.inc at SERVER scope.  The module's redirect into /unmask/ runs
+#     the server rewrite phase again, and protect.inc with it: its machinery
+#     bypass clears $unmask_compose there, so a recovery keyed on that flag
+#     had nothing to replay and answered 503 to every visitor not yet passed.
+body=$(curl -sk -A "$UA_CURL" -H "X-Forwarded-For: $IP_SRV" "${SRV_SCOPE_URL}/")
+code=$(srv_get / -A "$UA_CURL" -H "X-Forwarded-For: $IP_SRV")
+assert_eq 200 "$code" "daemon down: the server-scope vhost serves the original page (200, not 503)"
+assert_in "[unmask e2e srv-scope]" "$body" "daemon down: the server-scope vhost returns its own content"
+code=$(srv_get / -A "$UA_CURL" -H "X-Forwarded-For: $BAN_IP")
+assert_eq 403 "$code" "daemon down: a deny-banned client still gets 403 on the server-scope vhost"
+#     The recovery's gate: a challenge-type ban rewrites to /unmask/challenge/
+#     with the client's own args, so ?_orig= is the client's choice.  It must
+#     not become a replay target on either vhost, and neither may a direct
+#     hit on the challenge URL.
+code=$(srv_get "/?_orig=/" -A "$UA_CURL" -H "X-Forwarded-For: $BAN2_IP")
+assert_eq 503 "$code" "daemon down: a captcha_only-banned client with a crafted _orig gets 503 on the server-scope vhost"
+code=$(http_get "/?_orig=/" -A "$UA_CURL" -H "X-Forwarded-For: $BAN2_IP")
+assert_eq 503 "$code" "daemon down: a captcha_only-banned client with a crafted _orig gets 503 on the location-scope vhost"
+code=$(srv_get "/unmask/challenge/?_orig=/" -A "$UA_CURL" -H "X-Forwarded-For: $IP_SRV")
+assert_eq 503 "$code" "daemon down: a direct challenge URL with _orig is not replayed on the server-scope vhost (503)"
 
 # 5. a direct /unmask/* hit has no original URI to replay -> 503 + Retry-After.
 hdrs=$(curl -sk -D- -o /dev/null -A "$UA_CURL" -H "X-Forwarded-For: $IP_BASE" "${BASE_URL}/unmask/admin/")

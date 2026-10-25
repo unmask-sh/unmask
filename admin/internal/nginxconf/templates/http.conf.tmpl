@@ -1956,17 +1956,30 @@ map $args $rl_hit {
 #   - rate route: the original is the /unmask/_rl URI suffix ($uri minus the
 #     prefix); its args ride along in $args.
 #
-# SECURITY: gated on $unmask_compose=1, which only protect.inc's compose branch
-# sets (and which survives to @unmask_daemon_down -- nothing resets it at server
-# scope).  A server-scope BAN rewrite (-> /unmask/challenge/, preserving the
-# client's raw args) and a direct /unmask/_rl hit both leave $unmask_compose
-# UNSET, so a client-supplied `?_orig=` or a crafted /unmask/_rl/<path> is NOT
-# honored -- those keep landing in the 503 branch, preserving the "bans hold
+# SECURITY: gated on $unmask_co_armed holding a "1".  protect.inc's compose
+# branch appends its $unmask_compose there on every pass it runs: "1" on a
+# protected URI, "0" on /unmask/ machinery.  A `set` value outlives the internal
+# redirect, so the "1" of the pass the handler redirected from is still there
+# in @unmask_daemon_down.  A server-scope BAN rewrite (-> /unmask/challenge/,
+# preserving the client's raw args) runs in server.inc, ahead of protect.inc, and
+# its `last` ends the phase before protect.inc's lines; a direct /unmask/_rl or
+# /unmask/challenge/ hit is machinery ("0", or protect.inc never runs).  Neither
+# leaves a "1", so a client-supplied `?_orig=` or a crafted /unmask/_rl/<path> is
+# NOT honored -- those keep landing in the 503 branch, preserving the "bans hold
 # during a daemon outage" contract.  Without the gate a banned client could
 # craft `?_orig=/wherever` and have the outage replay smuggle them past the ban.
-map $unmask_compose $unmask_co_orig {
+# The gate used to be $unmask_compose=1 itself, which with protect.inc at SERVER
+# scope does not survive: this file's machinery bypass sets it to 0 on the
+# redirect pass into /unmask/, so the recovery found nothing and every visitor
+# not yet passed got the 503 for as long as the daemon was down.  Only the empty
+# default lives here, as a map, so a request that never ran protect.inc reads ""
+# instead of an uninitialized variable.
+map $remote_addr $unmask_co_armed {
     default "";
-    "1" $arg__orig;                 # expose the carried _orig only for compose
+}
+map $unmask_co_armed $unmask_co_orig {
+    default "";
+    "~1" $arg__orig;                # expose the carried _orig only after a protected pass
 }
 map $unmask_co_orig $unmask_orig_arg_path {
     default $unmask_co_orig;        # no query -> the whole arg is the path
@@ -1976,9 +1989,9 @@ map $unmask_co_orig $unmask_orig_arg_args {
     default "";
     "~^[^?]*\?(?<__oa>.*)$" $__oa;  # everything after the first ?
 }
-map $unmask_compose $unmask_co_uri {
+map $unmask_co_armed $unmask_co_uri {
     default "";
-    "1" $uri;                       # expose $uri to the rate-route strip only for compose
+    "~1" $uri;                      # expose $uri to the rate-route strip only after a protected pass
 }
 map $unmask_co_uri $unmask_rl_orig {
     default "";

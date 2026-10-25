@@ -84,7 +84,7 @@ func renderDefaultDeny(t *testing.T, mode, file string) string {
 func TestComposeFromGlobalDenyDefault(t *testing.T) {
 	httpInc := renderDefaultDeny(t, "always", "http.inc")
 	protect := renderDefaultDeny(t, "always", "protect.inc")
-	if !strings.Contains(httpInc, "map $unmask_compose $unmask_co_orig {") {
+	if !strings.Contains(httpInc, "map $unmask_co_armed $unmask_co_orig {") {
 		t.Error("a deny DEFAULT zone must render the compose-gated recovery maps")
 	}
 	if !strings.Contains(protect, "set $unmask_compose 1;") {
@@ -119,17 +119,19 @@ func TestComposeFailOpenRecovery(t *testing.T) {
 
 	t.Run("recovery_is_compose_gated", func(t *testing.T) {
 		// SECURITY: the carried _orig / _uri are exposed to the recovery ONLY
-		// through $unmask_compose, which only protect.inc's compose branch sets
-		// (and which survives to @unmask_daemon_down -- nothing resets it at
-		// server scope).  A server-scope ban rewrite and a direct /unmask/_rl
-		// hit both leave it unset, so a banned client can't smuggle a crafted
-		// ?_orig=/wherever past the "bans hold during an outage" contract.
+		// through $unmask_co_armed, which holds a "1" once protect.inc's
+		// compose branch has run on a protected URI.  A server-scope ban
+		// rewrite ends the phase before protect.inc's lines, and a direct
+		// /unmask/_rl hit is machinery, so neither arms it and a banned
+		// client can't smuggle a crafted ?_orig=/wherever past the "bans hold
+		// during an outage" contract.
 		for _, want := range []string{
-			"map $unmask_compose $unmask_co_orig {",
-			"map $unmask_compose $unmask_co_uri {",
+			"map $remote_addr $unmask_co_armed {\n    default \"\";\n}",
+			"map $unmask_co_armed $unmask_co_orig {\n    default \"\";\n    \"~1\" $arg__orig;",
+			"map $unmask_co_armed $unmask_co_uri {\n    default \"\";\n    \"~1\" $uri;",
 		} {
 			if !strings.Contains(httpInc, want) {
-				t.Errorf("http.inc (compose) missing the $unmask_compose gate %q", want)
+				t.Errorf("http.inc (compose) missing the $unmask_co_armed gate %q", want)
 			}
 		}
 		// The split maps must key off the GATED variable, never $arg__orig /
@@ -175,6 +177,24 @@ func TestComposeFailOpenRecovery(t *testing.T) {
 		}
 		if strings.Contains(protect, "error_page 429") {
 			t.Error("protect.inc (compose) must not arm the classic error_page-429 gate")
+		}
+	})
+
+	t.Run("protect_inc_arms_the_recovery", func(t *testing.T) {
+		// Appended after the machinery bypass, so a pass into /unmask/ adds a
+		// "0": with protect.inc at SERVER scope the redirect pass runs it
+		// again, and keying the recovery on $unmask_compose itself (cleared
+		// by that bypass) answered every outage request with a 503.
+		bypass := strings.Index(protect, "    set $unmask_compose 0;\n}")
+		arm := strings.Index(protect, `set $unmask_co_armed "${unmask_co_armed}${unmask_compose}";`)
+		if bypass < 0 || arm < 0 || arm < bypass {
+			t.Errorf("protect.inc (compose) must append $unmask_compose to $unmask_co_armed after the machinery bypass (bypass=%d arm=%d)", bypass, arm)
+		}
+		// No `if` on the flag: inside a location an `if` that matches swaps
+		// in its own configuration and drops the location's try_files, and
+		// this one would match every protected request.
+		if strings.Contains(protect, "if ($unmask_compose") {
+			t.Error("protect.inc (compose) must not branch on $unmask_compose: a matching `if` in a location drops its try_files")
 		}
 	})
 }

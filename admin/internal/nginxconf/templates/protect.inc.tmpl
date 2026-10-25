@@ -108,6 +108,15 @@ set $unmask_compose 1;
 if ($uri ~ "^/unmask/(?!admin(/|$))") {
     set $unmask_compose 0;
 }
+# Arm the fail-open recovery (http.inc, $unmask_co_armed): append what this
+# pass decided -- "1" on a protected URI, "0" on /unmask/ machinery.  A `set`
+# value outlives the internal redirect, so once a protected pass has run the
+# value holds a "1", and that is what lets @unmask_daemon_down replay the
+# original.  Not $unmask_compose itself: at SERVER scope this file runs again
+# on the redirect pass into /unmask/, whose bypass above sets it to 0.  Not an
+# `if` either: inside a location, an `if` that matches swaps in a
+# configuration of its own, which drops the location's try_files.
+set $unmask_co_armed "${unmask_co_armed}${unmask_compose}";
 # Fail-open replay: we do NOT save $unmask_orig_path here.  The ACCESS-phase
 # handler redirects via ngx_http_internal_redirect, which restarts the phase
 # engine at SERVER_REWRITE -- re-running server.inc's `set
