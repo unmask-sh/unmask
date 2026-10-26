@@ -1,0 +1,22 @@
+# unmask-nginx-reload.timer -- every five minutes, reload nginx if the daemon
+# rendered a changed configuration (unmask-nginx-reload.service).
+#
+# Installed DISABLED: unmask leaves the running nginx to the operator, and
+# this timer is the operator's explicit choice to automate that reload --
+# `systemctl enable --now unmask-nginx-reload.timer`.  The service it runs
+# reloads only after `nginx -t` passes, at most once per ten minutes, and
+# never restarts nginx.
+[Unit]
+Description=Reload nginx every 5 minutes when unmask rendered a changed configuration
+Documentation=https://github.com/unmask-sh/unmask
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+AccuracySec=1min
+# A run missed while the host was down is not made up: a boot starts nginx
+# on the configuration on disk, so nothing is waiting then.
+Persistent=false
+
+[Install]
+WantedBy=timers.target

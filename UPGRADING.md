@@ -17,6 +17,13 @@ the changelog's "Upgrade note" paragraphs.
   the plugin package's output says either "module unchanged -- left in
   place; nginx does not need a restart" or "The module file changed: restart
   nginx".  A testing-channel (rc) build prints the same.
+  unmask never reloads a running nginx by itself.  To automate that reload
+  (after an upgrade or a settings save alike): `systemctl enable --now
+  unmask-nginx-reload.timer`.  The timer ships disabled with
+  `unmask-web-nginx`; every five minutes it reloads nginx when a render
+  changed the configuration and `nginx -t` passes, at most once per ten
+  minutes, and never restarts it.  Without systemd, run
+  `/usr/share/unmask/nginx-reload-if-stale.sh` from cron.
 - Schema: the daemon applies a short schema update when it starts.  An index
   build that would take long is left for the operator: the package output,
   the admin and `unmask doctor` announce it, and `unmask migrate` runs it

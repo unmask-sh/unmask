@@ -40,6 +40,25 @@ contents:
     type: config|noreplace
     file_info:
       mode: 0644
+  # The nginx reload timer -- OPT-IN.  unmask never reloads a running nginx on
+  # its own; an operator who wants the reload automated runs
+  # `systemctl enable --now unmask-nginx-reload.timer`.  Shipped disabled and
+  # left alone by every package script: the postinstall neither enables nor
+  # starts it.  The service runs the script below every five minutes: with a
+  # .reload-needed flag from the daemon's render and a passing `nginx -t`, it
+  # reloads (never restarts) nginx, at most once per ten minutes.
+  - src: ./unmask-nginx-reload.service
+    dst: /usr/lib/systemd/system/unmask-nginx-reload.service
+    file_info:
+      mode: 0644
+  - src: ./unmask-nginx-reload.timer
+    dst: /usr/lib/systemd/system/unmask-nginx-reload.timer
+    file_info:
+      mode: 0644
+  - src: ./scripts/nginx-reload-if-stale.sh
+    dst: /usr/share/unmask/nginx-reload-if-stale.sh
+    file_info:
+      mode: 0755
   # Note: the shipped server block (= the old unmask-web.conf default_server)
   # has been removed.  Users add `include /etc/unmask/{native,forward-auth}/server.inc;`
   # to their own vhost as a one-liner.  The upstream block (= resolves

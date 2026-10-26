@@ -1,0 +1,20 @@
+# unmask-nginx-reload.service -- one run of nginx-reload-if-stale.sh: reload
+# nginx when the daemon rendered a changed configuration that nginx has not
+# loaded yet.  Driven by unmask-nginx-reload.timer.
+#
+# unmask does not reload a running nginx by itself (a settings save renders
+# the configuration and the admin shows a notice until the operator
+# reloads): touching the web server is the operator's call.  This pair is
+# that call made standing: the package installs both DISABLED and never
+# enables them; `systemctl enable --now unmask-nginx-reload.timer` opts in.
+# The script runs `nginx -t` first, reloads only when that passes, and never
+# restarts nginx (a changed module needs a restart, by hand).
+[Unit]
+Description=Reload nginx when unmask rendered a changed configuration
+Documentation=https://github.com/unmask-sh/unmask
+After=nginx.service unmask.service
+ConditionPathExists=/usr/share/unmask/nginx-reload-if-stale.sh
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh /usr/share/unmask/nginx-reload-if-stale.sh

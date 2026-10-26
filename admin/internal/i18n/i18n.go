@@ -2774,7 +2774,7 @@ var dict = map[Lang]map[string]string{
 		"reset.err_set":          "password の更新に失敗しました。時間をおいて再試行してください。",
 		// nginx has not reloaded (partial_reload_notice.html)
 		"reload_notice.msg":                  "nginx がまだ前の設定で動いています。%s に書き出した設定は reload まで効きません。",
-		"reload_notice.sub":                  "反映するには <code class=\"cmd\">sudo nginx -t &amp;&amp; sudo nginx -s reload</code>。nginx が送るアクセスログで判断しているので、reload の後の最初のリクエストで消えます。",
+		"reload_notice.sub":                  "反映するには <code class=\"cmd\">sudo nginx -t &amp;&amp; sudo nginx -s reload</code>。nginx が送るアクセスログで判断しているので、reload の後の最初のリクエストで消えます。<br>自動化するなら <code class=\"cmd\">sudo systemctl enable --now unmask-nginx-reload.timer</code> (5 分ごとに nginx -t を通してから reload。restart はしません)。",
 		"reload_notice.sub_gateway":          "コンテナは設定が書き出されると自分で nginx を reload しますが、それが済んでいません。コンテナのログで <code>nginx -t</code> のエラーを確かめてください。アクセスログで判断しているので、reload の後の最初のリクエストで消えます。",
 		"reload_notice.title":                "nginx がまだ前の設定で動いています",
 		"ban_file_notice.msg":                "nginx の worker (user %s) が BAN 一覧 %s を読めないため、nginx では BAN が効いていません。",
@@ -5643,7 +5643,7 @@ where <code>&lt;site-id&gt;</code> is any <code>[a-z0-9-]{1,32}</code>. Omit to 
 		"reset.err_set":          "Failed to update the password. Please try again in a moment.",
 		// nginx has not reloaded (partial_reload_notice.html)
 		"reload_notice.msg":                  "nginx is still running the previous configuration: the one written at %s takes effect once nginx reloads.",
-		"reload_notice.sub":                  "To apply it: <code class=\"cmd\">sudo nginx -t &amp;&amp; sudo nginx -s reload</code>. This is read from the access log nginx sends, so it clears with the first request after the reload.",
+		"reload_notice.sub":                  "To apply it: <code class=\"cmd\">sudo nginx -t &amp;&amp; sudo nginx -s reload</code>. This is read from the access log nginx sends, so it clears with the first request after the reload.<br>To automate it: <code class=\"cmd\">sudo systemctl enable --now unmask-nginx-reload.timer</code> (every 5 minutes, a reload after nginx -t passes; never a restart).",
 		"reload_notice.sub_gateway":          "The container reloads nginx by itself when the configuration is written, and that reload has not happened. Check the container's log for an <code>nginx -t</code> error. This is read from the access log, so it clears with the first request after the reload.",
 		"reload_notice.title":                "nginx is still running the previous configuration",
 		"ban_file_notice.msg":                "nginx's worker (user %s) cannot read the ban list %s, so nginx enforces no ban.",
