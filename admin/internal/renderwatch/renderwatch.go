@@ -287,11 +287,14 @@ func (w *Watch) markDirty() {
 }
 
 // Load takes back what an earlier run saved, so a restart does not forget
-// that nginx was behind.  Lines seen since win over the file.
+// that nginx was behind.  Lines seen since win over the file.  The render
+// record beside it is brought up to the current rules on the way
+// (nginxconf.ScrubRenderRecord): once per start, before any page reads it.
 func (w *Watch) Load() {
 	if w == nil || w.dir == nil {
 		return
 	}
+	nginxconf.ScrubRenderRecord(w.dir())
 	seen, err := LoadSeen(w.dir())
 	if err != nil {
 		return

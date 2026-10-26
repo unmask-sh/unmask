@@ -49,6 +49,10 @@ type RenderRecord struct {
 // the render watch's state: not a file nginx includes.
 const renderCauseFile = ".render-cause"
 
+// renderCausePerm: the record names blocks of http.inc, which carries
+// bv_secret and is itself 0640 (the nginx group); so is the record.
+const renderCausePerm = 0o640
+
 func writeRenderRecord(outDir string, rec RenderRecord) {
 	b, err := json.Marshal(rec)
 	if err != nil {
@@ -56,7 +60,42 @@ func writeRenderRecord(outDir string, rec RenderRecord) {
 	}
 	// Best effort, like the substantive-render marker: a record that could
 	// not be written leaves the notice saying only when, which is still true.
-	_ = os.WriteFile(filepath.Join(outDir, renderCauseFile), append(b, '\n'), 0o644)
+	// The chmod reaches a record written 0644 before 0.1.53 (WriteFile keeps
+	// an existing file's mode).
+	path := filepath.Join(outDir, renderCauseFile)
+	_ = os.WriteFile(path, append(b, '\n'), renderCausePerm)
+	_ = os.Chmod(path, renderCausePerm)
+}
+
+// ScrubRenderRecord rewrites the record kept in dir under the current rules
+// -- blockKey, which stops at a quoted field, and renderCausePerm.  Until
+// 0.1.53 a block was keyed by its first three words up to 60 characters,
+// which for the `unmask_bv_secret "<hex>";` line of http.inc was the
+// directive and the secret's first 42 digits, written 0644 and shown in the
+// reload notice to every operator, viewers included, whenever the line
+// changed (the first render, a key rotation).  Run once at start
+// (renderwatch.Watch.Load); a record this process writes is clean already.
+func ScrubRenderRecord(dir string) {
+	path := filepath.Join(dir, renderCauseFile)
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var rec RenderRecord
+	if json.Unmarshal(b, &rec) == nil {
+		changed := false
+		for i := range rec.Changes {
+			if k := blockKey(rec.Changes[i].Block); k != rec.Changes[i].Block {
+				rec.Changes[i].Block = k
+				changed = true
+			}
+		}
+		if changed {
+			writeRenderRecord(dir, rec)
+			return
+		}
+	}
+	_ = os.Chmod(path, renderCausePerm)
 }
 
 // ReadRenderRecord: the record of the last render that changed a file in
@@ -193,9 +232,14 @@ func diffLines(prev, next *blockLines) (RenderChange, bool) {
 }
 
 // blockKey names a top-level line: a map or geo by the variable it sets, a
-// zone by its name, anything else by its first words.
+// zone by its name, a block it opens ("{") by its first three words, a
+// plain directive by its first two -- and never a quoted field, where a
+// value sits: `unmask_bv_secret "<hex>";` is keyed by the directive alone
+// (ScrubRenderRecord says what the key used to carry).
 func blockKey(line string) string {
-	t := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(strings.TrimSuffix(line, "{")), ";"))
+	t := strings.TrimSpace(line)
+	opens := strings.HasSuffix(t, "{")
+	t = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(strings.TrimSuffix(t, "{")), ";"))
 	f := strings.Fields(t)
 	if len(f) == 0 {
 		return ""
@@ -210,9 +254,18 @@ func blockKey(line string) string {
 			}
 		}
 	}
-	n := 3
+	n := 2
+	if opens {
+		n = 3
+	}
 	if len(f) < n {
 		n = len(f)
+	}
+	for i, w := range f[:n] {
+		if w[0] == '"' || w[0] == '\'' {
+			n = i
+			break
+		}
 	}
 	k := strings.Join(f[:n], " ")
 	if len(k) > 60 {
@@ -235,6 +288,8 @@ func BlockLabelKey(key string) string {
 		return "log_format"
 	case "upstream":
 		return "upstream"
+	case "unmask_bv_secret":
+		return "secret"
 	}
 	if f[0] != "map" && f[0] != "geo" || len(f) < 2 {
 		return ""

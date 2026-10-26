@@ -2847,6 +2847,7 @@ var dict = map[Lang]map[string]string{
 		"reload_notice.block.rate_zones":     "レート制限のゾーン",
 		"reload_notice.block.log_format":     "アクセスログの書式",
 		"reload_notice.block.upstream":       "daemon への接続",
+		"reload_notice.block.secret":         "秘密鍵",
 		// The two rows of a country ranking that are not a country.  The row
 		// shows a two-letter code like the rest ("??", ipgeo.Local), so the
 		// bars start on one line; the popover names the row and says what it
@@ -5743,6 +5744,7 @@ where <code>&lt;site-id&gt;</code> is any <code>[a-z0-9-]{1,32}</code>. Omit to 
 		"reload_notice.block.rate_zones":     "rate-limit zones",
 		"reload_notice.block.log_format":     "access log format",
 		"reload_notice.block.upstream":       "daemon upstream",
+		"reload_notice.block.secret":         "secret key",
 		"country.unknown":                    "Country unknown",
 		"country.unknown_desc":               "Requests from addresses the IP-geo database could not place. Hours when the daemon had no database loaded land here too.",
 		"country.local":                      "Local address",
