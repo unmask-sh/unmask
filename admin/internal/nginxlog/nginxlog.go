@@ -64,6 +64,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
@@ -179,7 +180,47 @@ type Reader struct {
 	readyOnce sync.Once
 	doneA     chan struct{} // recv goroutine completion signal
 	doneB     chan struct{} // flush goroutine completion signal
+	doneC     chan struct{} // work goroutine completion signal
+
+	// lines carries what the receive goroutine read to the work goroutine
+	// that handles it (recvLoop / workLoop).  The receiver closes it when
+	// it ends; the worker handles what is left and ends after it.
+	lines chan string
+	// droppedLines counts the lines the receiver let go because the queue
+	// was full (DroppedLines).  dropSaid is when the log last said so; the
+	// receive goroutine's own.
+	droppedLines atomic.Uint64
+	dropSaid     time.Time
+
+	// siteKnown answers whether a Host is a site to count on its own
+	// (SetSiteCheck); nil accepts every Host.  Set before Receive, read
+	// unlocked.
+	siteKnown func(site string) bool
+	// sitesSeen is the set of distinct sites counted in the minute
+	// sitesMinute, for the cap in aggSite.  Under mu.
+	sitesSeen   map[string]struct{}
+	sitesMinute int64
 }
+
+// recvQueueSize is how many lines may wait between the receive goroutine
+// and the work goroutine.  A line is handled in microseconds; a honeypot
+// trip, which writes a ban and the ban file, in milliseconds -- the queue
+// covers a burst of those.  A variable so a test can make it small.
+var recvQueueSize = 8192
+
+// OtherSite is the site the minute buckets file a request under when its
+// Host is not one to count on its own: past siteCapPerMinute distinct hosts
+// in a minute, or, with the site list in "defined" mode, a host that is
+// not on it.  A catch-all vhost takes any Host a client sends, and every
+// distinct one used to cost its own buckets (three 1 KiB sketches a minute)
+// and its own rows in every per-site table, for as long as the client
+// cared to vary it.  The parentheses keep it apart from any hostname.  No
+// page shows it: the site lists come from the event table, and these
+// tables are read by a picked site or as a whole.
+const OtherSite = "(other)"
+
+// siteCapPerMinute bounds the distinct sites the minute buckets hold.
+const siteCapPerMinute = 256
 
 // SetHoneypotCallback: register a callback invoked on hp=1 lines (ip, ja4, trip
 // URI, the request's site/$host for per-site action resolution, and its
@@ -354,6 +395,47 @@ func (r *Reader) SetRenderSeen(f func(id string)) {
 	r.mu.Unlock()
 }
 
+// SetSiteCheck registers whether a Host is a site to count on its own: with
+// the site list in "defined" mode, one on the list.  A Host f refuses is
+// filed under OtherSite at once, without a bucket of its own.  Unset, every
+// Host is counted, as "auto" mode has it (the per-minute cap still holds).
+// Call before Receive.
+func (r *Reader) SetSiteCheck(f func(site string) bool) {
+	if r == nil {
+		return
+	}
+	r.siteKnown = f
+}
+
+// aggSite is the site a line's buckets are keyed by: the Host as logged,
+// or OtherSite when that Host is off the defined list (siteKnown) or is
+// past the siteCapPerMinute-th distinct one this minute.  "default" (a
+// line with no Host) is always its own.  The honeypot callback is given
+// the Host as logged, not this: its per-site rule is the operator's.
+func (r *Reader) aggSite(site string) string {
+	if site == "" || site == "default" {
+		return site
+	}
+	if f := r.siteKnown; f != nil && !f(site) {
+		return OtherSite
+	}
+	minute := time.Now().Unix() / 60
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.sitesMinute != minute || r.sitesSeen == nil {
+		r.sitesMinute = minute
+		r.sitesSeen = map[string]struct{}{} // a Reader a test made by hand has none
+	}
+	if _, ok := r.sitesSeen[site]; ok {
+		return site
+	}
+	if len(r.sitesSeen) >= siteCapPerMinute {
+		return OtherSite
+	}
+	r.sitesSeen[site] = struct{}{}
+	return site
+}
+
 type bucketKey struct {
 	minute int64  // unix sec / 60
 	site   string // "" is equivalent to "default"
@@ -489,12 +571,15 @@ func Start(socketPath string, d *db.DB) *Reader {
 		cookieIPBuckets:      map[cookieIPKey]*cookieIPBucket{},
 		stop:                 make(chan struct{}),
 		ready:                make(chan struct{}),
+		lines:                make(chan string, recvQueueSize),
 		doneA:                make(chan struct{}),
 		doneB:                make(chan struct{}),
+		doneC:                make(chan struct{}),
 	}
 	if d == nil {
 		close(r.doneA)
 		close(r.doneB)
+		close(r.doneC)
 		return r
 	}
 	// Even when socket path is unset (= forward-auth mode etc.), run
@@ -505,6 +590,7 @@ func Start(socketPath string, d *db.DB) *Reader {
 		// is not wanted now: let it go, or nginx would log into it unread.
 		Release()
 		close(r.doneA) // no recv
+		close(r.doneC) // and nothing to work off
 		go r.flushLoop()
 		return r
 	}
@@ -515,6 +601,7 @@ func Start(socketPath string, d *db.DB) *Reader {
 		r.conn, r.stored = conn, true
 		log.Printf("nginxlog: listening on unix:%s (kept over the restart)", socketPath)
 		go r.recvLoop()
+		go r.workLoop()
 		go r.flushLoop()
 		return r
 	}
@@ -550,8 +637,14 @@ func Start(socketPath string, d *db.DB) *Reader {
 		forget() // nothing bound to replace what the store may hold (handover.go)
 		close(r.doneA)
 		close(r.doneB)
+		close(r.doneC)
 		return r
 	}
+	// No SetReadBuffer: on a unix datagram socket SO_RCVBUF does not bound
+	// what waits to be read (unix(7)); net.unix.max_dgram_qlen does, as a
+	// count of datagrams, and past it nginx's worker gets EAGAIN and drops
+	// the line.  What keeps that queue short is a receiver that never waits
+	// on a line: recvLoop hands each one to workLoop and reads on.
 	// Loosen the mode so the nginx worker can write (= 0666).  In
 	// production, group-based ownership is recommended.
 	if err := os.Chmod(socketPath, 0o666); err != nil {
@@ -571,6 +664,7 @@ func Start(socketPath string, d *db.DB) *Reader {
 	}
 
 	go r.recvLoop()
+	go r.workLoop()
 	go r.flushLoop()
 	return r
 }
@@ -605,6 +699,7 @@ func (r *Reader) Close() {
 		_ = r.conn.SetReadDeadline(time.Unix(1, 0))
 	}
 	<-r.doneA
+	<-r.doneC
 	<-r.doneB
 	r.flushOnce(true)
 	if r.conn != nil {
@@ -799,8 +894,12 @@ func (r *Reader) onLine(line string) {
 	// Honeypot ban -- subject to the vetoes in honeypotBanAllowed (rescued
 	// search/AI crawler; a plaintext request we answered with a 301).
 	if p.hp && r.onHoneypot != nil && p.ip != "" && r.honeypotBanAllowed(p) {
+		// The Host as logged: the trap's per-site rule is resolved by it.
 		r.onHoneypot(p.ip, p.ja4, p.hpuri, p.site, p.scheme)
 	}
+	// From here on the line counts under the site the buckets may hold
+	// (OtherSite past the cap, or off the defined list).
+	site := r.aggSite(p.site)
 	kind := p.kind
 	if kind == "" && p.fc {
 		kind = "challenge_served"
@@ -811,7 +910,7 @@ func (r *Reader) onLine(line string) {
 			kind = "observe_pass"
 		}
 	}
-	r.bumpLine(p.site, kind)
+	r.bumpLine(site, kind)
 	// crawler_pass / bypass_pass are shares of the same total the composition
 	// card divides up, so exactly one of them may fire per request -- and
 	// neither may fire for a request that already counted as a pass cookie
@@ -851,9 +950,9 @@ func (r *Reader) onLine(line string) {
 		// counted above as "challenge_served" (or "observe_pass" on a site in
 		// monitor mode).
 	case isCrawler:
-		r.bumpKind(p.site, "crawler_pass")
+		r.bumpKind(site, "crawler_pass")
 	case p.bypassed:
-		r.bumpKind(p.site, "bypass_pass")
+		r.bumpKind(site, "bypass_pass")
 	}
 	r.liveHit(p, isCrawler)
 	if r.renderSeen != nil {
@@ -870,12 +969,12 @@ func (r *Reader) onLine(line string) {
 	// Fold the client IP into the per-minute HLL sketches (= unique-client
 	// stats).  Uses the raw bv_kind (p.kind), not the "challenge_served"
 	// alias, so ipPass only counts a genuine pow/captcha cookie.
-	r.bumpTrafficHLL(p.site, p.ip, p.fc, p.kind, p.ua)
+	r.bumpTrafficHLL(site, p.ip, p.fc, p.kind, p.ua)
 	// Country-hourly aggregation for the 30-day chart's country breakdown.
 	// The kind passed here matches the unmask_cookie_minute kind: "" / pow /
 	// captcha / challenge_served — keep the catalogue aligned so the two
 	// tables can be compared 1:1.
-	r.bumpCountryHourly(p.site, p.ip, kind)
+	r.bumpCountryHourly(site, p.ip, kind)
 	// Per-IP cookie-reuse ranking: only lines carrying a valid _bv cookie
 	// (kind="captcha" / "pow") are recorded; bumpCookieIP no-ops for every other
 	// kind, so this is at most two string compares on the common path.  Uses the
@@ -883,7 +982,7 @@ func (r *Reader) onLine(line string) {
 	// counted, mirroring bumpTrafficHLL's pass detection.  A line the gate
 	// judged (bp=0) is what the reuse cap counts; the ranking shows that
 	// figure beside the whole.
-	r.bumpCookieIP(p.site, p.ip, p.ja4, p.ua, p.kind, !p.bypassed)
+	r.bumpCookieIP(site, p.ip, p.ja4, p.ua, p.kind, !p.bypassed)
 	// Crawler funnel: every request carries a UA.  fc=1 (= a challenge was the
 	// final action) counts as "served"; otherwise the request passed straight
 	// through (rescued / valid cookie / a site in monitor mode, where nothing
@@ -1759,10 +1858,18 @@ func (r *Reader) flushLoop() {
 	}
 }
 
-// recvLoop: read from the Unix datagram socket and parse.
-// 1 datagram = 1 line (= one line of access_log unmask_minimal).
+// recvLoop: read from the Unix datagram socket and queue each datagram (=
+// one line of access_log unmask_minimal) for workLoop.  Reading is all it
+// does: a line is handled by the worker, so a slow one -- a honeypot trip
+// writing a ban, a database that is busy -- does not hold the socket's
+// queue, where nginx's worker drops lines once it is full.  A line that
+// finds the queue between the two full is dropped here instead, counted
+// (DroppedLines) and said once a minute: that is the daemon falling behind
+// the log, which the socket would otherwise hide.
 func (r *Reader) recvLoop() {
 	defer close(r.doneA)
+	// The worker ends when the queue is closed, after what is in it.
+	defer close(r.lines)
 	// Nothing is read until the callbacks are in place (Receive); what
 	// arrives meanwhile waits in the socket.
 	select {
@@ -1797,9 +1904,43 @@ func (r *Reader) recvLoop() {
 		if len(line) > 0 && line[n-1] == '\n' {
 			line = line[:n-1]
 		}
+		select {
+		case r.lines <- string(line):
+		default:
+			r.dropLine()
+		}
+	}
+}
+
+// dropLine counts a line let go for a full queue and logs it at most once
+// a minute.  Called on the receive goroutine only.
+func (r *Reader) dropLine() {
+	n := r.droppedLines.Add(1)
+	if now := time.Now(); now.Sub(r.dropSaid) >= time.Minute {
+		r.dropSaid = now
+		log.Printf("nginxlog: the line queue is full (%d lines waiting): %d line(s) dropped so far -- the lines are handled slower than nginx logs them", cap(r.lines), n)
+	}
+}
+
+// DroppedLines is how many lines the receiver let go for a full queue
+// (recvLoop), since the start.  nil-safe.
+func (r *Reader) DroppedLines() uint64 {
+	if r == nil {
+		return 0
+	}
+	return r.droppedLines.Load()
+}
+
+// workLoop handles the lines recvLoop queued, one at a time and in the
+// order they were read: the parse, the classifier, the country lookup, the
+// custom-rule counter and the honeypot ban all run here.  Ends when the
+// receiver has closed the queue and what was in it is handled, so a line
+// read before a stop still reaches the final flush.
+func (r *Reader) workLoop() {
+	defer close(r.doneC)
+	for ls := range r.lines {
 		// Per-line recovery: a malformed/attacker-influenced log line that
 		// panics onLine must not kill the whole reader (and the daemon).
-		ls := string(line)
 		safe.Run("nginxlog-line", func() { r.onLine(ls) })
 	}
 }

@@ -34,7 +34,7 @@ func TestKindCountersAreMutuallyExclusive(t *testing.T) {
 	if end := strings.Index(seg, "\n\t}"); end > 0 {
 		seg = seg[:end]
 	}
-	for _, want := range []string{`case p.kind != "":`, `bumpKind(p.site, "bypass_pass")`, `bumpKind(p.site, "crawler_pass")`} {
+	for _, want := range []string{`case p.kind != "":`, `bumpKind(site, "bypass_pass")`, `bumpKind(site, "crawler_pass")`} {
 		if !strings.Contains(seg, want) {
 			t.Errorf("the classification switch does not contain %q", want)
 		}

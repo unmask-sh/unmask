@@ -731,6 +731,13 @@ func cmdServe(args []string) error {
 			nlog.SetHTTPSRedirectCheck(func() bool {
 				return h.SnapshotSettings().Nginx.HTTPSRedirect
 			})
+			// With the site list in "defined" mode, a Host off the list
+			// is filed under nginxlog.OtherSite rather than given minute
+			// buckets and rows of its own.  Live settings, so a change of
+			// mode or of the list applies without a restart.
+			nlog.SetSiteCheck(func(site string) bool {
+				return !h.SnapshotSettings().Sites.IsGhost(site)
+			})
 			// A crawler name the configuration verifies against its vendor's
 			// ranges keeps the honeypot exemption only on a request that range
 			// passed; the name alone is what a scanner wears (nginxlog).
