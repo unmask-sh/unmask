@@ -12,6 +12,78 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+
+- (2026-10-26) **The setup wizard has a first-run options step.**  Before finishing it lists the communication with unmask.sh (the shared ban feed and its install token, the reporter's country, the GeoIP downloads, the daily crawler-range sync, the update check), each on by default with a switch, prefills the admin hostname as an allowlist entry, and offers to start in monitor mode.  Scripted installs keep the defaults.
+
+- (2026-10-26) **A disabled nginx reload timer ships with unmask-web-nginx.**  unmask still never reloads a running nginx by itself.  An operator who wants it automated runs `systemctl enable --now unmask-nginx-reload.timer`: every five minutes it reloads nginx when a render changed the configuration and `nginx -t` passes, at most once per ten minutes, and never restarts it.  The reload notice and UPGRADING.md name it.
+
+- (2026-10-26) **Every admin route is checked for its authorization by a test.**  A new test walks the routes registered under `/admin/` and drives each through the real middleware: without a session every one answers the login page, 401 or 403, and with a viewer's session every POST, PUT, PATCH and DELETE is refused, apart from signing out, the own profile and the playground evaluation.
+
+- (2026-10-26) **A reload marker beside the rendered files.**  Every render that changes a file writes `.reload-needed` with its render id, and the daemon removes it once nginx's access log shows that render running.  Tooling that applies reloads can watch the file, and `unmask_nginx_config_stale` on /unmask/metrics reads it.  Written only where the access log reaches the daemon.
+
+- (2026-10-26) **The notification list reports the fail-safe, and /unmask/metrics exposes the nginx state.**  The bell gets a row when the plugin's fail-safe strips the module, with the cause place-module recorded, and one when it is back.  Three gauges join the metrics for alert rules: `unmask_native_failsafe_active`, `unmask_nginx_config_stale` and `unmask_ban_file_worker_readable`, the check behind the admin's ban-list bar.
+
+- (2026-10-26) **doctor warns when HTTP/3 connections get no JA4.**  HTTP/3 needs nginx 1.29.0 or newer built with OpenSSL 3.5.1 or newer, or quictls, for the module to see the handshake; otherwise nginx's QUIC compatibility layer replaces the callback the module reads and JA4 decisions do not apply there.  doctor names the `listen ... quic` sockets and the fix.
+
+- (2026-10-26) **IPv6 bans widen to the /64; the ban file carries prefix rows.**  Three automatic bans on distinct addresses of one IPv6 /64 within a day add an ip-only ban on the /64, with the tipping ban's action and lifetime, unless a bypass range overlaps it.  An operator can ban a prefix under the ip-only scope too: the module matches such rows by mask after the exact ones.
+
+- (2026-10-26) **Shared bans: limits on what one pull can switch on.**  A ja4_only entry on a fingerprint current browsers send is never applied, a new ja4_only entry waits a day after it is first seen promoted, and one pull applies at most 200 new entries.  The shared-bans page shows what is held back and why.
+
+- (2026-10-26) **/unmask/metrics counts what the ingest let go.**  Three counters join the page for alert rules: access-log lines the receiver dropped at a full queue, event rows a batch write dropped because the database refused their data, and events the batch writer's backlog cap dropped.
+
+### Changed
+
+- (2026-10-26) **The module says at the error level when it enforces nothing.**  An unreadable ban file and an empty `unmask_bv_secret` were warnings, which the nginx.conf most distributions ship does not record.  They are errors now, each worker checks the ban file once at start, and an HTTP/3 request without a JA4 is reported once a minute (nginx's QUIC compatibility layer hides the handshake from the module).
+
+- (2026-10-26) **The container build verifies the nginx source, and the release tools are pinned.**  The image's module stage checks the nginx tarball against the sha256 pinned in `nginx-module/nginx-sha256sums.txt` before unpacking it, as the plugin build already did.  The Makefile names the nfpm version the packages are built with, and the compose example starts with `TZ: UTC`.
+
+- (2026-10-26) **`unmask backup` includes the uploaded logos.**  The archive now carries the logos uploaded on the page-design tab under `branding/` (every file in `/var/lib/unmask/branding`, plus a logo the config names elsewhere), so a restore brings the challenge page back as it looked.  The usage text lists them and the restore steps put them back.
+
+- (2026-10-26) **Third-party notices name FlagKit.**  The country flags the admin shows are FlagKit's PNG assets (madebybowtie/FlagKit, MIT, Copyright 2016 Bowtie AB): 255 of the 261 files are the upstream set byte for byte and six were drawn here.  THIRD-PARTY-NOTICES.md carries the license text and NOTICE names the source.
+
+- (2026-10-26) **Ban checks answer from memory; repeated trips cost nothing.**  The daemon keeps the live ban list in memory, rebuilt on every write of the ban file, so the per-line check no longer queries the database.  A client already banned the same way is not rewritten, re-flushed or re-announced on every trap hit, and writes within 200 ms become one write of the ban file.
+
+- (2026-10-26) **A request that asks for neither language is served in English.**  The challenge, deny and admin pages fell back to Japanese when the browser's Accept-Language named neither ja nor en; the fallback is English now.  A chosen language, the cookie or ja in Accept-Language, is unchanged.
+
+### Fixed
+
+- (2026-10-26) **A reload after removing the nginx module no longer crashes the new workers.**  The module registered a free callback with OpenSSL for its per-connection JA4 data; once `load_module` was removed and nginx reloaded, as the package's removal advice says, the callback pointed into unmapped memory and every new worker died on its first TLS close.  The data now lives in the connection pool and no callback is registered.
+
+- (2026-10-26) **JA4 follows the specification for an empty SNI extension and for very long cipher or extension lists.**  The indicator was `i` for a server_name extension that carried no host_name entry, and a hello with more than 256 ciphers or extensions hashed differently from other implementations; the lists now hold 1024 entries and 256 signature algorithms.  Real browsers' fingerprints do not change.
+
+- (2026-10-26) **The native fail-safe renders a configuration without the module instead of dropping http.inc.**  A vhost that includes server.inc could not start nginx after the fail-safe, since server.inc names a log format from http.inc.  When place-module.sh strips the module it now re-renders the configuration without it: nginx starts, the admin UI stays reachable, every file carries a banner, and protection is off until the module is back.
+
+- (2026-10-26) **Ban addresses are stored the way nginx spells them.**  An IPv6 address typed or stored in another spelling (upper case, expanded zeros, a v4-mapped form) never matched nginx's `$remote_addr`.  Every entry point now normalises the address the way inet_ntop prints it, and the daemon rewrites stored rows once at start, dropping a duplicate whose fixed spelling another row already has.
+
+- (2026-10-26) **Admin cookies no longer ride to the protected site.**  The session and CSRF cookies were issued on Path=/, so every request to the site on the same origin carried the admin's session to the upstream application.  They are scoped to the base path now (`/unmask`), where every request is the daemon's own.  Reachable by anyone able to read the application's request logs.
+
+- (2026-10-26) **The CSRF token is derived from the session.**  The check was a double-submit cookie compared with the form field, which a cookie planted from a sibling hostname could satisfy for a signed-in operator.  The token is now an HMAC over the session's signature under a key derived from bv_secret, and the cookie only carries it to the page.  Needs a sibling host under the same registrable domain.
+
+- (2026-10-26) **Logout ends every session of the account.**  Logging out only asked the browser to drop its cookie; a copy of it stayed valid for the rest of its life, thirty days with "remember me".  Logout now advances the account's session generation, so the cookie is refused everywhere from then on, and the audit row is recorded again (it was lost on this route).
+
+- (2026-10-26) **admin_allowed_hosts guards every admin page.**  The Host allowlist was read only by the pages before a session exists (login, password reset); an authenticated session reached every page under any name nginx proxies through.  AuthMiddleware applies the same check, so the list means what its description says.
+
+- (2026-10-26) **Password-reset links are built on a configured address, never on the request's Host.**  With admin_allowed_hosts empty, the reset link took the Host header of whoever asked, so a forged request could have a victim deliver the token elsewhere.  The new nginx.admin_public_url names the admin's address; without it the first allowed hostname stands in, else the mail carries only the path.  Tokens are stored hashed; unused links must be re-sent.
+
+- (2026-10-26) **The settings file is written under a lock.**  A save from the admin and `unmask upgrade-review --apply` could write the same fixed temp file at once and leave a torn config.yml.  The daemon and the CLI now serialize on config.yml.lock, write through a temp file of their own name, and fsync the directory after the rename.
+
+- (2026-10-26) **The render record no longer carries the secret.**  The record of what a render changed (`.render-cause`, behind the "nginx has not reloaded" notice) keyed each block by its first words, so a change of the unmask_bv_secret line put the key's first 42 digits into a world-readable file and into the notice.  The block is named by the directive alone now, old records are cleaned at start, the file is 0640.
+
+- (2026-10-26) **The webhook URL is hidden from the AI assistant's settings outline.**  The outline the assistant reads masked fields by the look of their name, while the settings export kept its own list of credentials; the notification webhook URL was only on the latter and went to the model with the notifications tab.  Both read one table now.
+
+- (2026-10-26) **Event writes no longer lose a batch to one over-long value.**  Every string column is cut to its width and made valid UTF-8: MariaDB's strict mode refused a long `_bv` cookie and rolled back the whole batch, which was retried with the row still in it.  A batch refused for one row's data is written row by row, dropping only that row.  Migration 0048 widens `cookie_bv` on MariaDB.
+
+- (2026-10-26) **The access-log receiver no longer falls behind nginx.**  One goroutine read the log socket and handled each line, including a honeypot trip's ban write; while it was busy the socket's queue (bounded by `net.unix.max_dgram_qlen`, not SO_RCVBUF) filled and nginx dropped lines.  The receiver now only reads and queues; a worker handles the lines in order.  Dropped lines are counted and logged.
+
+- (2026-10-26) **Varying the Host header no longer grows the per-site tables without limit.**  The minute buckets were keyed by `$host` as logged, so on a catch-all vhost each distinct value cost sketches and rows of its own.  Past 256 distinct sites in a minute the rest count under `(other)`, and in "defined" mode a Host off the list counts there at once.
+
+- (2026-10-26) **The stats page no longer reads a card's result while a late card writes it.**  The page waits for its cards against a deadline and renders what came back; a card still running past it wrote its result into the slices the template was reading.  Results go into one struct under a lock now, and the page renders from a copy taken after the wait.
+
+- (2026-10-26) **The mmdb auto-update and WAL watch loops survive a panic in one pass.**  Both wrapped the whole goroutine in a single recovery, so the first panic ended the loop for the rest of the daemon's life with one log line to say so.  Each pass recovers on its own now: the panic is logged and the next pass runs.
+
 ## [0.1.53-rc21] - 2026-10-26 (testing build)
 
 ### Fixed
