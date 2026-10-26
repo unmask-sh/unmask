@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
@@ -17,16 +18,19 @@ import (
 )
 
 // cmdBackup: `unmask backup` -- one archive of what an install cannot get
-// back any other way: config.yml and, on SQLite, the database.
+// back any other way: config.yml, the uploaded logos and, on SQLite, the
+// database.
 //
 // The database copy is taken with VACUUM INTO: one read transaction writes
 // a consistent snapshot while the daemon keeps running, the pages still in
 // the write-ahead log included -- which a copy of unmask.sqlite made by hand
-// lacks, so it opens with its last minutes missing or not at all.  Nothing
+// lacks, so it opens with its last minutes missing or not at all.  The
+// logos uploaded on the Page design tab (settings.DefaultBrandingLogoDir,
+// named by the config's logo_path entries) go in under branding/.  Nothing
 // else under /var/lib/unmask needs keeping: the nginx snippets come back
 // from `unmask render-nginx`, the GeoIP and IP range files from their update
 // commands.  A MariaDB install backs its database up with mysqldump, and
-// the archive then holds config.yml alone.
+// the archive then holds config.yml and the logos alone.
 //
 // Taken before a package upgrade, the archive is what a downgrade restores.
 // The schema only moves forward (internal/db/migrator.go), so the older
@@ -52,13 +56,14 @@ func cmdBackup(args []string) error {
 
 const backupUsage = `usage: unmask backup [-config PATH] [-out DIR]
 
-Writes DIR/unmask-backup-<yyyymmdd-hhmmss, UTC>.tar.gz holding config.yml
-and, on SQLite, a consistent copy of the database, taken with VACUUM INTO
-while the daemon keeps running (what is still in the write-ahead log is in
-the copy).  On MariaDB the archive holds config.yml alone: back the database
-up with mysqldump.  Take one before a package upgrade -- the schema only
-moves forward, so going back to the older version needs the database from
-before it.
+Writes DIR/unmask-backup-<yyyymmdd-hhmmss, UTC>.tar.gz holding config.yml,
+the logos uploaded on the Page design tab (branding/, from
+/var/lib/unmask/branding) and, on SQLite, a consistent copy of the database,
+taken with VACUUM INTO while the daemon keeps running (what is still in the
+write-ahead log is in the copy).  On MariaDB the archive holds config.yml
+and the logos alone: back the database up with mysqldump.  Take one before
+a package upgrade -- the schema only moves forward, so going back to the
+older version needs the database from before it.
 
 Restore:
   1. stop the daemon           systemctl stop unmask   (rc-service unmask stop)
@@ -67,7 +72,8 @@ Restore:
   3. put the files back        config.yml to /etc/unmask/config.yml; the database
                                file to db.sqlite_path from that config, after
                                removing the -wal and -shm files next to it;
-                               chown both to the daemon's user (unmask)
+                               the branding/ files to /var/lib/unmask/branding/;
+                               chown all of them to the daemon's user (unmask)
   4. start the daemon          systemctl start unmask  (rc-service unmask start)
 To return to an older version, install that version between steps 3 and 4.
 
@@ -124,6 +130,19 @@ func runBackup(ctx context.Context, configPath, outDir string, now time.Time, sa
 	}
 	say("config.yml  %s  (%s)", humanBytesCLI(n), resolved)
 
+	logos := brandingLogoFiles(s)
+	if len(logos) == 0 {
+		say("branding: no uploaded logo; nothing to copy")
+	}
+	for _, p := range logos {
+		name := "branding/" + filepath.Base(p)
+		n, err := addFileToTar(tw, p, name, now)
+		if err != nil {
+			return "", fmt.Errorf("%s: %w", name, err)
+		}
+		say("%s  %s  (%s)", name, humanBytesCLI(n), p)
+	}
+
 	switch {
 	case !sqlite:
 		say("database: %s is not in the archive; back it up with mysqldump", s.DB.Driver)
@@ -163,6 +182,44 @@ func runBackup(ctx context.Context, configPath, outDir string, now time.Time, sa
 	}
 	done = true
 	return path, nil
+}
+
+// backupBrandingDir: where the uploaded logos are; a var for the test.
+var backupBrandingDir = settings.DefaultBrandingLogoDir
+
+// brandingLogoFiles: the logo files to archive -- every regular file in the
+// branding directory, and any logo_path in the config that lives elsewhere
+// (a logo from before the directory existed), each once, in a fixed order.
+// A path that does not exist is skipped: a logo_path left behind by a
+// removed file is not a reason to fail the backup.
+func brandingLogoFiles(s settings.Settings) []string {
+	seen := map[string]bool{}
+	var out []string
+	add := func(p string) {
+		if p == "" || seen[p] {
+			return
+		}
+		if st, err := os.Stat(p); err != nil || !st.Mode().IsRegular() {
+			return
+		}
+		seen[p] = true
+		out = append(out, p)
+	}
+	if ents, err := os.ReadDir(backupBrandingDir); err == nil {
+		for _, e := range ents {
+			add(filepath.Join(backupBrandingDir, e.Name()))
+		}
+	}
+	add(s.Branding.Default.LogoPath)
+	sites := make([]string, 0, len(s.Branding.Sites))
+	for site := range s.Branding.Sites {
+		sites = append(sites, site)
+	}
+	sort.Strings(sites)
+	for _, site := range sites {
+		add(s.Branding.Sites[site].LogoPath)
+	}
+	return out
 }
 
 // sqliteSnapshot writes a consistent copy of the database to dst with

@@ -450,6 +450,12 @@ type Branding struct {
 	Sites   map[string]BrandingValues `yaml:"sites,omitempty"`
 }
 
+// DefaultBrandingLogoDir: where the admin stores uploaded logos (the
+// LogoPath of each record points into it), and where `unmask backup`
+// collects them from.  Variable data under /var/lib (FHS), never beside
+// config.yml.  Not configurable.
+const DefaultBrandingLogoDir = "/var/lib/unmask/branding"
+
 // Resolve returns the BrandingValues for the given site.  When site has an
 // entry in Sites the entry is returned verbatim (no merge with Default).
 // Otherwise Default is returned verbatim.

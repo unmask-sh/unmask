@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"database/sql"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -160,6 +161,59 @@ func TestBackupMariaDBHoldsConfigAlone(t *testing.T) {
 	}
 	if !strings.Contains(strings.Join(said, "\n"), "mysqldump") {
 		t.Errorf("the run must say the database is mysqldump's to back up: %v", said)
+	}
+}
+
+// The uploaded logos go in under branding/: every file in the branding
+// directory, plus a logo the config names elsewhere; a logo_path to a file
+// that is gone is skipped, and the same file is never archived twice.
+func TestBackupArchivesBrandingLogos(t *testing.T) {
+	dir := t.TempDir()
+	branding := filepath.Join(dir, "branding")
+	if err := os.MkdirAll(branding, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	old := backupBrandingDir
+	backupBrandingDir = branding
+	t.Cleanup(func() { backupBrandingDir = old })
+	for name, body := range map[string]string{"logo.png": "PNG-default", "logo.shop.example.svg": "<svg/>"} {
+		if err := os.WriteFile(filepath.Join(branding, name), []byte(body), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	elsewhere := filepath.Join(dir, "old-logo.jpg")
+	if err := os.WriteFile(elsewhere, []byte("JPEG-elsewhere"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	config := filepath.Join(dir, "config.yml")
+	body := "db:\n  driver: mariadb\n  mariadb:\n    host: db.example\n    port: 3306\n" +
+		"secret:\n  bv_secret: 0123456789abcdef0123456789abcdef\n" +
+		"branding:\n  default:\n    logo_path: " + filepath.Join(branding, "logo.png") + "\n" +
+		"  sites:\n    shop.example:\n      logo_path: " + elsewhere + "\n" +
+		"    gone.example:\n      logo_path: " + filepath.Join(dir, "missing.png") + "\n"
+	if err := os.WriteFile(config, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var said []string
+	path, err := runBackup(context.Background(), config, dir, time.Now(), func(f string, a ...any) { said = append(said, fmt.Sprintf(f, a...)) })
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := readTarGz(t, path)
+	for name, want := range map[string]string{
+		"branding/logo.png":              "PNG-default",
+		"branding/logo.shop.example.svg": "<svg/>",
+		"branding/old-logo.jpg":          "JPEG-elsewhere",
+	} {
+		if string(entries[name]) != want {
+			t.Errorf("%s in the archive = %q, want %q", name, entries[name], want)
+		}
+	}
+	if len(entries) != 4 {
+		t.Errorf("entries %v, want config.yml and the three logos", keysOf(entries))
+	}
+	if !strings.Contains(strings.Join(said, "\n"), "branding/logo.png") {
+		t.Errorf("the run must name each logo it copied: %v", said)
 	}
 }
 

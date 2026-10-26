@@ -6580,7 +6580,7 @@ var (
 // point it at a temp dir.  Configs from before this move keep working: the
 // serve path reads the absolute LogoPath stored in the config, and the next
 // upload writes here and removes the old file wherever it was.
-var brandingLogoDir = "/var/lib/unmask/branding"
+var brandingLogoDir = settings.DefaultBrandingLogoDir
 
 // brandingLogoName: per-scope logo file name.  The Default record and every
 // per-site override MUST land on distinct files — a single shared "logo.<ext>"
