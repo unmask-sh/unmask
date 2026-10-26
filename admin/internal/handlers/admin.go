@@ -1551,7 +1551,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	hosts := h.dashboardHosts(r)
 
 	// Overall dashboard timeout (each query carries its own shorter ctx deadline).
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), statsOverallTimeout)
 	defer cancel()
 	// A custom range overrides the trailing-`hours` window every dashboard query
 	// would otherwise compute from now.  Presets leave ctx unset so the queries
@@ -1594,46 +1594,9 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	// degrading linearly as the event table grew.  Run them in parallel using
 	// WAL + conn pool.  A semaphore caps concurrency at 6, leaving conn pool
 	// headroom (max 8) for challenge writes.
-	var (
-		funnel                  []dashboard.FunnelRow
-		funnelErr               error
-		cookieRows              []dashboard.CookieStatusRow
-		rlSummary               dashboard.RLSummary
-		rlIPs                   []dashboard.RLIPRow
-		rlPaths                 []dashboard.RLPathRow
-		rlPathQueries           map[string][]dashboard.RLQueryCount
-		flagsRows               []dashboard.FlagsRow
-		verdictDist             []dashboard.VerdictCount
-		hitRows                 []dashboard.CaptchaForceRow
-		hitRules                []dashboard.CaptchaForceRuleRow
-		loopRows                []dashboard.ReloadLoopRow
-		verifyNG                []dashboard.VerifyNGRow
-		cookieFails             []dashboard.CookieFailRow
-		stealth                 []dashboard.StealthRow
-		jsErrs                  []dashboard.JSErrorRow
-		jsForeign               []dashboard.JSErrorRow
-		jsForeignCount          int
-		cpVerdictCounts         map[string]int
-		cpForceReasonCounts     map[string]int
-		cpFailForceReasonCounts map[string]int
-		cpTopIPs                []dashboard.CaptchaPassIPRow
-		cpRecent                []dashboard.CaptchaPassRow
-		cpReuse                 []dashboard.CookieReuseRow
-		powReuse                []dashboard.CookieReuseRow
-		rebindReuse             []dashboard.CookieReuseRow
-		rebindLineages          []events.RebindLineageRow
-		aiTraffic               []dashboard.AITrafficRow
-		aiTrafficAll            []AITrafficRow
-		aiTrafficDetail         map[string][]AICrawlerRow
-		dailyKind               []dashboard.DailyKindBucket
-		dailyTotal              []dashboard.DailyTotal
-		dailyServeKind          []dashboard.DailyKindBucket
-		dailyServeTotal         []dashboard.DailyTotal
-		dailyBlocked            []dashboard.DailyBlockedDay
-		countries               []dashboard.CountryRow
-		dailyCountry            []dashboard.DailyCountryBucket
-		dailyUniq               []dashboard.DailyUniq
-	)
+	// The cards' results: written only through run, under cardMu, and read
+	// from a copy taken after the wait (statsCards).
+	var res statsCards
 	qStart := time.Now()
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 6)
@@ -1644,7 +1607,10 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		failedCards = append(failedCards, name)
 		cardMu.Unlock()
 	}
-	run := func(name string, fn func() error) {
+	// run runs one card on its own goroutine.  fn returns what the card
+	// found as a commit, which run applies to res under cardMu: the only
+	// way a result gets in, so none is written while the page reads.
+	run := func(name string, fn func() (func(*statsCards), error)) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -1661,8 +1627,17 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 			}()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			if statsCardHook != nil {
+				statsCardHook(name)
+			}
 			t0 := time.Now()
-			if err := fn(); err != nil {
+			commit, err := fn()
+			if commit != nil {
+				cardMu.Lock()
+				commit(&res)
+				cardMu.Unlock()
+			}
+			if err != nil {
 				// The client has gone -- a reload, a navigation, a closed tab
 				// -- so the response is discarded and a card cut off by that
 				// is the browser's doing, not the query's.  The five 30-day
@@ -1680,16 +1655,15 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 			}
 		}()
 	}
-	run("funnel", func() error {
+	run("funnel", func() (func(*statsCards), error) {
 		fctx, fcancel := queryCtx(funnelQueryTimeout)
 		defer fcancel()
-		funnel, funnelErr = dashboard.Funnel(fctx, h.DB, site, hosts, hours, botVerdicts, h.VerdictRegistry(), site != "" && h.cfg().Sites.DefinedSet()[site])
-		return funnelErr
+		rows, e := dashboard.Funnel(fctx, h.DB, site, hosts, hours, botVerdicts, h.VerdictRegistry(), site != "" && h.cfg().Sites.DefinedSet()[site])
+		return func(c *statsCards) { c.funnel, c.funnelErr = rows, e }, e
 	})
-	run("CookieStatus", func() error {
-		var e error
-		cookieRows, e = dashboard.CookieStatus(ctx, h.DB, site, hosts, hours)
-		return e
+	run("CookieStatus", func() (func(*statsCards), error) {
+		v, e := dashboard.CookieStatus(ctx, h.DB, site, hosts, hours)
+		return func(c *statsCards) { c.cookieRows = v }, e
 	})
 	// Pre-gate the rate-limit cards on the aggregate's serve-rl count.  On
 	// any operator install where rate_limit is rare (= the common case),
@@ -1702,122 +1676,106 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		// One card, one pass: RateLimitAll scans the rl=1 serve window once and
 		// aggregates all four breakdowns, instead of four cards each re-scanning
 		// it (4x the I/O + page-cache contention on a large cold DB).
-		run("RateLimitAll", func() error {
-			var e error
-			rlSummary, rlIPs, rlPaths, rlPathQueries, e = dashboard.RateLimitAll(ctx, h.DB, site, hosts, hours, 30, 30, 5)
-			return e
+		run("RateLimitAll", func() (func(*statsCards), error) {
+			sum, ips, paths, queries, e := dashboard.RateLimitAll(ctx, h.DB, site, hosts, hours, 30, 30, 5)
+			return func(c *statsCards) { c.rlSummary, c.rlIPs, c.rlPaths, c.rlPathQueries = sum, ips, paths, queries }, e
 		})
 	}
-	run("FlagsDistribution", func() error {
-		var e error
-		flagsRows, e = dashboard.FlagsDistribution(ctx, h.DB, site, hosts, hours)
-		return e
+	run("FlagsDistribution", func() (func(*statsCards), error) {
+		v, e := dashboard.FlagsDistribution(ctx, h.DB, site, hosts, hours)
+		return func(c *statsCards) { c.flagsRows = v }, e
 	})
-	run("VerdictDistribution", func() error {
-		var e error
-		verdictDist, e = dashboard.VerdictDistribution(ctx, h.DB, site, hosts, hours)
-		return e
+	run("VerdictDistribution", func() (func(*statsCards), error) {
+		v, e := dashboard.VerdictDistribution(ctx, h.DB, site, hosts, hours)
+		return func(c *statsCards) { c.verdictDist = v }, e
 	})
-	run("CaptchaForceBreakdown", func() error {
-		var e error
-		hitRows, e = dashboard.CaptchaForceBreakdown(ctx, h.DB, site, hosts, hours)
-		return e
+	run("CaptchaForceBreakdown", func() (func(*statsCards), error) {
+		v, e := dashboard.CaptchaForceBreakdown(ctx, h.DB, site, hosts, hours)
+		return func(c *statsCards) { c.hitRows = v }, e
 	})
-	run("CaptchaForceRules", func() error {
-		var e error
-		hitRules, e = dashboard.CaptchaForceRules(ctx, h.DB, site, hosts, hours)
-		return e
+	run("CaptchaForceRules", func() (func(*statsCards), error) {
+		v, e := dashboard.CaptchaForceRules(ctx, h.DB, site, hosts, hours)
+		return func(c *statsCards) { c.hitRules = v }, e
 	})
-	run("ReloadLoops", func() error {
-		var e error
-		loopRows, e = dashboard.ReloadLoops(ctx, h.DB, site, hosts, hours)
-		return e
+	run("ReloadLoops", func() (func(*statsCards), error) {
+		v, e := dashboard.ReloadLoops(ctx, h.DB, site, hosts, hours)
+		return func(c *statsCards) { c.loopRows = v }, e
 	})
-	run("VerifyNGRanking", func() error {
-		var e error
-		verifyNG, e = dashboard.VerifyNGRanking(ctx, h.DB, site, hosts, hours, 30)
-		return e
+	run("VerifyNGRanking", func() (func(*statsCards), error) {
+		v, e := dashboard.VerifyNGRanking(ctx, h.DB, site, hosts, hours, 30)
+		return func(c *statsCards) { c.verifyNG = v }, e
 	})
-	run("CookieSetFails", func() error {
-		var e error
-		cookieFails, e = dashboard.CookieSetFails(ctx, h.DB, site, hosts, hours)
-		return e
+	run("CookieSetFails", func() (func(*statsCards), error) {
+		v, e := dashboard.CookieSetFails(ctx, h.DB, site, hosts, hours)
+		return func(c *statsCards) { c.cookieFails = v }, e
 	})
-	run("StealthPassed", func() error {
-		var e error
-		stealth, e = dashboard.StealthPassed(ctx, h.DB, site, hosts, hours, botVerdicts)
-		return e
+	run("StealthPassed", func() (func(*statsCards), error) {
+		v, e := dashboard.StealthPassed(ctx, h.DB, site, hosts, hours, botVerdicts)
+		return func(c *statsCards) { c.stealth = v }, e
 	})
-	run("JSErrors", func() error { var e error; jsErrs, e = dashboard.JSErrors(ctx, h.DB, site, hosts, hours); return e })
-	run("JSForeignErrors", func() error {
-		var e error
-		jsForeign, e = dashboard.JSForeignErrors(ctx, h.DB, site, hosts, hours)
-		return e
+	run("JSErrors", func() (func(*statsCards), error) {
+		v, e := dashboard.JSErrors(ctx, h.DB, site, hosts, hours)
+		return func(c *statsCards) { c.jsErrs = v }, e
 	})
-	run("JSForeignErrorCount", func() error {
-		var e error
-		jsForeignCount, e = dashboard.JSForeignErrorCount(ctx, h.DB, site, hosts, hours)
-		return e
+	run("JSForeignErrors", func() (func(*statsCards), error) {
+		v, e := dashboard.JSForeignErrors(ctx, h.DB, site, hosts, hours)
+		return func(c *statsCards) { c.jsForeign = v }, e
 	})
-	run("CaptchaPassVerdicts", func() error {
-		var e error
-		cpVerdictCounts, e = dashboard.CaptchaPassVerdictCounts(ctx, h.DB, site, hosts, hours)
-		return e
+	run("JSForeignErrorCount", func() (func(*statsCards), error) {
+		v, e := dashboard.JSForeignErrorCount(ctx, h.DB, site, hosts, hours)
+		return func(c *statsCards) { c.jsForeignCount = v }, e
 	})
-	run("CaptchaPassForceReasons", func() error {
-		var e error
-		cpForceReasonCounts, e = dashboard.CaptchaPassForceReasonCounts(ctx, h.DB, site, hosts, hours)
-		return e
+	run("CaptchaPassVerdicts", func() (func(*statsCards), error) {
+		v, e := dashboard.CaptchaPassVerdictCounts(ctx, h.DB, site, hosts, hours)
+		return func(c *statsCards) { c.cpVerdictCounts = v }, e
 	})
-	run("CaptchaFailForceReasons", func() error {
-		var e error
-		cpFailForceReasonCounts, e = dashboard.CaptchaFailForceReasonCounts(ctx, h.DB, site, hosts, hours)
-		return e
+	run("CaptchaPassForceReasons", func() (func(*statsCards), error) {
+		v, e := dashboard.CaptchaPassForceReasonCounts(ctx, h.DB, site, hosts, hours)
+		return func(c *statsCards) { c.cpForceReasonCounts = v }, e
 	})
-	run("CaptchaPassTopIPs", func() error {
-		var e error
-		cpTopIPs, e = dashboard.CaptchaPassTopIPs(ctx, h.DB, site, hosts, hours, 30)
-		return e
+	run("CaptchaFailForceReasons", func() (func(*statsCards), error) {
+		v, e := dashboard.CaptchaFailForceReasonCounts(ctx, h.DB, site, hosts, hours)
+		return func(c *statsCards) { c.cpFailForceReasonCounts = v }, e
 	})
-	run("CaptchaPassRecent", func() error {
-		var e error
-		cpRecent, e = dashboard.CaptchaPassRecent(ctx, h.DB, site, hosts, hours, 10)
-		return e
+	run("CaptchaPassTopIPs", func() (func(*statsCards), error) {
+		v, e := dashboard.CaptchaPassTopIPs(ctx, h.DB, site, hosts, hours, 30)
+		return func(c *statsCards) { c.cpTopIPs = v }, e
 	})
-	run("CaptchaReuse", func() error {
-		var e error
-		cpReuse, e = dashboard.CookieReuseTopIPs(ctx, h.DB, site, "captcha", hosts, hours, 30)
-		return e
+	run("CaptchaPassRecent", func() (func(*statsCards), error) {
+		v, e := dashboard.CaptchaPassRecent(ctx, h.DB, site, hosts, hours, 10)
+		return func(c *statsCards) { c.cpRecent = v }, e
+	})
+	run("CaptchaReuse", func() (func(*statsCards), error) {
+		v, e := dashboard.CookieReuseTopIPs(ctx, h.DB, site, "captcha", hosts, hours, 30)
+		return func(c *statsCards) { c.cpReuse = v }, e
 	})
 	// Lineage travel: one solve, and how many addresses it has been carried
 	// to.  Sits with the reuse rankings because it is the same question along
 	// the other axis -- they are read together or not at all.  30 rows to
 	// match the rankings beside it: ten shown, the rest behind "show more".
-	run("RebindLineages", func() error {
-		var e error
-		rebindLineages, e = events.RankByRebindLineage(ctx, h.DB, hours*60, 30)
-		return e
+	run("RebindLineages", func() (func(*statsCards), error) {
+		v, e := events.RankByRebindLineage(ctx, h.DB, hours*60, 30)
+		return func(c *statsCards) { c.rebindLineages = v }, e
 	})
 	// The two kinds the reuse cap counts carry its hits beside the judged
 	// count (the CAPTCHA kind is exempt from the cap).
-	run("RebindReuse", func() error {
-		var e error
-		if rebindReuse, e = dashboard.CookieReuseTopIPs(ctx, h.DB, site, "rebind", hosts, hours, 30); e == nil {
-			e = dashboard.FillReuseCapHits(ctx, h.DB, site, hosts, hours, rebindReuse)
+	run("RebindReuse", func() (func(*statsCards), error) {
+		v, e := dashboard.CookieReuseTopIPs(ctx, h.DB, site, "rebind", hosts, hours, 30)
+		if e == nil {
+			e = dashboard.FillReuseCapHits(ctx, h.DB, site, hosts, hours, v)
 		}
-		return e
+		return func(c *statsCards) { c.rebindReuse = v }, e
 	})
-	run("PowReuse", func() error {
-		var e error
-		if powReuse, e = dashboard.CookieReuseTopIPs(ctx, h.DB, site, "pow", hosts, hours, 30); e == nil {
-			e = dashboard.FillReuseCapHits(ctx, h.DB, site, hosts, hours, powReuse)
+	run("PowReuse", func() (func(*statsCards), error) {
+		v, e := dashboard.CookieReuseTopIPs(ctx, h.DB, site, "pow", hosts, hours, 30)
+		if e == nil {
+			e = dashboard.FillReuseCapHits(ctx, h.DB, site, hosts, hours, v)
 		}
-		return e
+		return func(c *statsCards) { c.powReuse = v }, e
 	})
-	run("AITrafficBreakdown", func() error {
-		var e error
-		aiTraffic, e = dashboard.AITrafficBreakdown(ctx, h.DB, site, hosts, hours)
-		return e
+	run("AITrafficBreakdown", func() (func(*statsCards), error) {
+		v, e := dashboard.AITrafficBreakdown(ctx, h.DB, site, hosts, hours)
+		return func(c *statsCards) { c.aiTraffic = v }, e
 	})
 	// All-traffic view (= access-log pipeline, includes rescued/bypassed
 	// crawlers).  unmask_crawler_minute is install-wide; the site filter
@@ -1827,19 +1785,24 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	// their query error internally and just yield zero rows, so without this a
 	// deadline-exceeded would leave the AI card silently empty instead of
 	// joining the FailedCards banner like every other card on this dashboard.
-	run("AITrafficAll", func() error { aiTrafficAll = aiTrafficSummary(ctx, h, hours*60); return ctx.Err() })
+	run("AITrafficAll", func() (func(*statsCards), error) {
+		v := aiTrafficSummary(ctx, h, hours*60)
+		return func(c *statsCards) { c.aiTrafficAll = v }, ctx.Err()
+	})
 	// Per-crawler drill-down for the "all" tab's popover (= same window as
 	// AITrafficAll, resolved category -> individual crawler).
-	run("AITrafficDetail", func() error { aiTrafficDetail = aiTrafficDrilldown(ctx, h, hours*60); return ctx.Err() })
+	run("AITrafficDetail", func() (func(*statsCards), error) {
+		v := aiTrafficDrilldown(ctx, h, hours*60)
+		return func(c *statsCards) { c.aiTrafficDetail = v }, ctx.Err()
+	})
 	// 30-day trend chart 1: aggregate all nginx requests from unmask_cookie_minute
 	// into a stacked bar with 3 categories: white / PoW / not pass (only
 	// available when the nginx access_log includes the rendered conf).
-	run("DailyPassByDay", func() error {
+	run("DailyPassByDay", func() (func(*statsCards), error) {
 		dctx, dcancel := queryCtx(15 * time.Second)
 		defer dcancel()
-		var derr error
-		dailyKind, dailyTotal, derr = dashboard.DailyPassByDay(dctx, h.DB, site, hosts, 30, loc)
-		return derr
+		v0, v1, e := dashboard.DailyPassByDay(dctx, h.DB, site, hosts, 30, loc)
+		return func(c *statsCards) { c.dailyKind, c.dailyTotal = v0, v1 }, e
 	})
 	// The two serve cards read the hourly rollup once a pass has completed
 	// and scan 30 days of unmask_event until then.  On a table past the raw
@@ -1859,17 +1822,15 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	// High cardinality (tens of thousands of distinct UA x verdict x IP).
 	// Separate ctx with a longer deadline.
 	if !aggregating {
-		run("DailyServeByKind", func() error {
+		run("DailyServeByKind", func() (func(*statsCards), error) {
 			dskCtx, dskCancel := queryCtx(15 * time.Second)
 			defer dskCancel()
-			var derr error
-			dailyServeKind, dailyServeTotal, derr = dashboard.DailyServeByKind(dskCtx, h.DB, site, hosts, 30, botVerdicts, loc)
-			return derr
+			v0, v1, e := dashboard.DailyServeByKind(dskCtx, h.DB, site, hosts, 30, botVerdicts, loc)
+			return func(c *statsCards) { c.dailyServeKind, c.dailyServeTotal = v0, v1 }, e
 		})
-		run("CountriesByServe", func() error {
-			var e error
-			countries, e = dashboard.CountriesByServe(ctx, h.DB, h.IPGeo, site, hosts, 30, 15)
-			return e
+		run("CountriesByServe", func() (func(*statsCards), error) {
+			v, e := dashboard.CountriesByServe(ctx, h.DB, h.IPGeo, site, hosts, 30, 15)
+			return func(c *statsCards) { c.countries = v }, e
 		})
 		// 30-day trend chart 3: the bot requests unmask stopped, per day, by
 		// the landing page's definition (challenges fired − PoW/CAPTCHA
@@ -1878,31 +1839,28 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		// "fired" ruler when the log feed is on, the serves when it is not --
 		// combined below, once both have answered.  Same gate as the other
 		// serve cards: a raw scan past the ceiling is not attempted.
-		run("DailyBlockedByDay", func() error {
+		run("DailyBlockedByDay", func() (func(*statsCards), error) {
 			dbCtx, dbCancel := queryCtx(15 * time.Second)
 			defer dbCancel()
-			var derr error
-			dailyBlocked, derr = dashboard.DailyBlockedByDay(dbCtx, h.DB, site, hosts, 30, loc)
-			return derr
+			v0, e := dashboard.DailyBlockedByDay(dbCtx, h.DB, site, hosts, 30, loc)
+			return func(c *statsCards) { c.dailyBlocked = v0 }, e
 		})
 	}
 	// 30-day country breakdown of ALL requests (= same source as DailyPassByDay,
 	// rolled up with a country dimension).  Empty when nginxlog or ipgeo is off.
-	run("DailyPassByCountry", func() error {
+	run("DailyPassByCountry", func() (func(*statsCards), error) {
 		dcctx, dccancel := queryCtx(15 * time.Second)
 		defer dccancel()
-		var derr error
-		dailyCountry, derr = dashboard.DailyPassByCountry(dcctx, h.DB, site, 30, loc)
-		return derr
+		v0, e := dashboard.DailyPassByCountry(dcctx, h.DB, site, 30, loc)
+		return func(c *statsCards) { c.dailyCountry = v0 }, e
 	})
 	// Per-day unique-IP estimate over the same 30-day window (= HLL merge of
 	// unmask_traffic_hll(kind='ip')).  Empty when nginxlog is off.
-	run("DailyUniqueIPs", func() error {
+	run("DailyUniqueIPs", func() (func(*statsCards), error) {
 		dunCtx, dunCancel := queryCtx(15 * time.Second)
 		defer dunCancel()
-		var derr error
-		dailyUniq, derr = dashboard.DailyUniqueIPs(dunCtx, h.DB, site, 30, loc)
-		return derr
+		v0, e := dashboard.DailyUniqueIPs(dunCtx, h.DB, site, 30, loc)
+		return func(c *statsCards) { c.dailyUniq = v0 }, e
 	})
 	// Race wg.Wait against the overall deadline so a slow card (e.g. one of
 	// the 30-day raw scans on a big operator DB) doesn't pin the whole
@@ -1921,6 +1879,26 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	case <-ctx.Done():
 		log.Printf("dashboard: overall deadline reached, rendering partial (site=%s hosts=%v range=%s)", LogSafe(site), LogSafeAll(hosts), LogSafe(rng))
 	}
+	// What the cards have returned by now, copied under the lock they
+	// write under.  A card still running past the deadline commits to res
+	// after this; the page below reads the copy and never res again.
+	cardMu.Lock()
+	snap := res
+	cardMu.Unlock()
+	funnel, funnelErr := snap.funnel, snap.funnelErr
+	cookieRows := snap.cookieRows
+	rlSummary, rlIPs, rlPaths, rlPathQueries := snap.rlSummary, snap.rlIPs, snap.rlPaths, snap.rlPathQueries
+	flagsRows, verdictDist := snap.flagsRows, snap.verdictDist
+	hitRows, hitRules := snap.hitRows, snap.hitRules
+	loopRows, verifyNG, cookieFails, stealth := snap.loopRows, snap.verifyNG, snap.cookieFails, snap.stealth
+	jsErrs, jsForeign, jsForeignCount := snap.jsErrs, snap.jsForeign, snap.jsForeignCount
+	cpVerdictCounts, cpForceReasonCounts, cpFailForceReasonCounts := snap.cpVerdictCounts, snap.cpForceReasonCounts, snap.cpFailForceReasonCounts
+	cpTopIPs, cpRecent, cpReuse := snap.cpTopIPs, snap.cpRecent, snap.cpReuse
+	powReuse, rebindReuse, rebindLineages := snap.powReuse, snap.rebindReuse, snap.rebindLineages
+	aiTraffic, aiTrafficAll, aiTrafficDetail := snap.aiTraffic, snap.aiTrafficAll, snap.aiTrafficDetail
+	dailyKind, dailyTotal := snap.dailyKind, snap.dailyTotal
+	dailyServeKind, dailyServeTotal, dailyBlocked := snap.dailyServeKind, snap.dailyServeTotal, snap.dailyBlocked
+	countries, dailyCountry, dailyUniq := snap.countries, snap.dailyCountry, snap.dailyUniq
 	// Nobody to render for: the request was abandoned while the cards ran.
 	// One line, with how long the page had taken by then -- the number that
 	// says whether it was the operator's patience or the page.
