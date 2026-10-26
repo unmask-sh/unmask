@@ -125,6 +125,20 @@ func (w *Watch) State() State {
 	return Evaluate(w.diskID, w.diskWritten, w.seen)
 }
 
+// Settle is State, and the consequence: once nginx has logged the
+// configuration on disk, the reload marker the render left for it
+// (nginxconf.ReloadNeededMarker) is removed -- for the id the marker names
+// only, so a newer render's marker, written since the files were last looked
+// at, stays.  The admin pages call it on every render of the reload notice,
+// and the daemon every half minute, so the marker goes without a page view.
+func (w *Watch) Settle() State {
+	st := w.State()
+	if st.Fresh() && w != nil && w.dir != nil {
+		nginxconf.ClearReloadNeeded(w.dir(), st.Current)
+	}
+	return st
+}
+
 // refreshDisk reads the id of the configuration on disk when http.inc
 // changed since the last look.  Outside the lock: it reads a file, and the
 // access-log reader must not wait on that.

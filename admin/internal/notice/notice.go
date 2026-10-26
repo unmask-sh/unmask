@@ -41,6 +41,11 @@ const (
 	KindOverBlock = "over_block"
 	KindAdvisor   = "advisor_digest"
 	KindPreview   = "preview_challenged"
+	// KindFailsafe: the plugin's fail-safe stripped the nginx module and the
+	// configuration is rendered without it (handlers.RunNativeFailsafeWatch
+	// writes the row when the marker appears, and one when it goes).  Not a
+	// webhook event: the daemon's own observation, written with Put.
+	KindFailsafe = "native_failsafe"
 )
 
 // How a row is marked.

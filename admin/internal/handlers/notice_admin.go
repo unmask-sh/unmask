@@ -28,7 +28,7 @@ const (
 )
 
 // noticeKinds is the order the page's filter lists the kinds in.
-var noticeKinds = []string{notice.KindBan, notice.KindBurst, notice.KindPreview, notice.KindOverBlock, notice.KindAdvisor}
+var noticeKinds = []string{notice.KindBan, notice.KindBurst, notice.KindPreview, notice.KindOverBlock, notice.KindFailsafe, notice.KindAdvisor}
 
 // noticeRow is one line of the list as the templates render it.
 type noticeRow struct {
@@ -282,6 +282,21 @@ func noticeText(e notice.Entry, lang i18n.Lang, base string) (title, body, href 
 		}
 		title = i18n.Tf(lang, "notice.preview.title", e.Int("count"))
 		body = i18n.Tf(lang, "notice.preview.body", e.Str("crawlers"))
+	case notice.KindFailsafe:
+		// The About tab carries the version and the update commands, the
+		// nearest thing to the host's package state; `unmask doctor` has
+		// the cause.
+		href = base + "/admin/settings/about/"
+		if e.Bool("active") {
+			title = i18n.T(lang, "notice.failsafe.title_active")
+			body = i18n.T(lang, "notice.failsafe.body_active")
+			if reason := e.Str("reason"); reason != "" {
+				body += " " + i18n.Tf(lang, "notice.failsafe.reason", reason)
+			}
+		} else {
+			title = i18n.T(lang, "notice.failsafe.title_cleared")
+			body = i18n.T(lang, "notice.failsafe.body_cleared")
+		}
 	case notice.KindAdvisor:
 		href = base + "/admin/advisor/"
 		title = i18n.Tf(lang, "notice.advisor.title", e.Int("new_candidates"))

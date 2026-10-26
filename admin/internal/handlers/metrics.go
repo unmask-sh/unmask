@@ -7,6 +7,9 @@
 //	unmask_verify_score_sum                        score histogram (sum)
 //	unmask_verify_score_bucket{le=...}             score histogram (bucket)
 //	unmask_db_query_seconds{op=...} (sum/count)    DB query latency (Counter pair)
+//	unmask_native_failsafe_active                  1 while the plugin's fail-safe has the module stripped (gauge)
+//	unmask_nginx_config_stale                      1 while a render waits for its reload (gauge)
+//	unmask_ban_file_worker_readable                0 when nginx's worker cannot read the ban list (gauge)
 //
 // challenge phases are counted by events.Insert on each admin request, so the
 // /metrics handler reads them by GROUP BY directly from the DB on invocation
@@ -25,6 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -161,6 +165,22 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintln(w, "unmask_schema_update_running 0")
 	}
 
+	// The nginx side, for an alert rule: the plugin's fail-safe (the module
+	// stripped and the configuration rendered without it: protection off),
+	// a render nginx has not loaded, and a ban list nginx's worker cannot
+	// read.  All three are read from disk on each scrape -- a stat each.
+	dir := h.renderOutDir()
+	fmt.Fprintln(w, "# HELP unmask_native_failsafe_active 1 while the plugin's fail-safe has the nginx module stripped and the configuration rendered without it (protection off; see `unmask doctor`)")
+	fmt.Fprintln(w, "# TYPE unmask_native_failsafe_active gauge")
+	fmt.Fprintf(w, "unmask_native_failsafe_active %d\n", gaugeBit(nginxconf.FailsafeActive(dir)))
+	_, stale := nginxconf.ReloadNeeded(dir)
+	fmt.Fprintln(w, "# HELP unmask_nginx_config_stale 1 while a rendered nginx configuration waits for a reload (cleared once the access log shows nginx running it)")
+	fmt.Fprintln(w, "# TYPE unmask_nginx_config_stale gauge")
+	fmt.Fprintf(w, "unmask_nginx_config_stale %d\n", gaugeBit(stale))
+	fmt.Fprintln(w, "# HELP unmask_ban_file_worker_readable 0 when nginx's worker cannot read the ban list the daemon writes (nginx then enforces no ban); 1 otherwise, including when there is no list to read")
+	fmt.Fprintln(w, "# TYPE unmask_ban_file_worker_readable gauge")
+	fmt.Fprintf(w, "unmask_ban_file_worker_readable %d\n", gaugeBit(h.banFileNotice() == nil))
+
 	// DB latency
 	fmt.Fprintln(w, "# HELP unmask_db_query_seconds DB query latency (sum & count, per op)")
 	fmt.Fprintln(w, "# TYPE unmask_db_query_seconds counter")
@@ -225,4 +245,12 @@ func (m *metricsState) snapshot(ctx context.Context, h *Handler) *metricsSnapsho
 	m.cache = snap
 	m.cacheUntil = time.Now().Add(30 * time.Second)
 	return snap
+}
+
+// gaugeBit is a state as a gauge reads it.
+func gaugeBit(on bool) int {
+	if on {
+		return 1
+	}
+	return 0
 }

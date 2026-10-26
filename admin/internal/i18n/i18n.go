@@ -1180,6 +1180,12 @@ var dict = map[Lang]map[string]string{
 		"notice.preview.body":                 "%s。国・ASN のルールは名乗りで通るクローラーにも効くので、共有されたリンクの画像や題名が出ていません。ルールを見直すか、取得元を素通し IP に入れてください。",
 		"notice.advisor.title":                "AI advisor: 新しい BAN 候補 %d 件",
 		"notice.advisor.body":                 "候補は全部で %d 件です。",
+		"notice.kind.native_failsafe":         "nginx モジュールの停止",
+		"notice.failsafe.title_active":        "nginx の unmask モジュールが外れ、保護が止まっています",
+		"notice.failsafe.body_active":         "この nginx に合うモジュールが無いか、nginx -t が unmask の設定で失敗したため、プラグインの fail-safe がモジュールを外しました。設定はモジュール無しで書き出し直してあるので nginx は起動し、この管理画面も開けますが、challenge・BAN・rate limit は効いていません。unmask doctor で原因を確かめてください。",
+		"notice.failsafe.reason":              "原因: %s",
+		"notice.failsafe.title_cleared":       "nginx の unmask モジュールが戻り、保護が再開します",
+		"notice.failsafe.body_cleared":        "nginx -t がモジュール込みで通ったので、通常の設定を書き出し直しました。nginx を reload すると効きます (モジュールのファイルが変わったときは restart)。",
 		"audit.export_desc":                   "現在の設定を <code>unmask-config.yml</code> として download します。server 内には何も残らず、audit log にも記録されません。別環境への移送や、git でのバージョン管理に使えます。",
 
 		// crumb (= header 直下の breadcrumb)
@@ -4067,6 +4073,12 @@ var dict = map[Lang]map[string]string{
 		"notice.preview.body":                 "%s. A country or ASN rule applies to crawlers passed on their name, so shared links are going out without their image and title. Revisit the rule, or add the fetchers' addresses to the bypass IPs.",
 		"notice.advisor.title":                "AI advisor: %d new ban candidate(s)",
 		"notice.advisor.body":                 "%d candidates in all.",
+		"notice.kind.native_failsafe":         "nginx module off",
+		"notice.failsafe.title_active":        "The unmask nginx module is not loaded; protection is off",
+		"notice.failsafe.body_active":         "The plugin's fail-safe stripped the module: no bundled module matches this nginx, or nginx -t failed on unmask's configuration. The configuration was rendered again without the module, so nginx starts and this admin stays reachable, but nothing is challenged, banned or rate-limited. Run unmask doctor for the cause.",
+		"notice.failsafe.reason":              "Cause: %s",
+		"notice.failsafe.title_cleared":       "The unmask nginx module is back; protection resumes",
+		"notice.failsafe.body_cleared":        "nginx -t passed with the module wired again, so the full configuration was rendered. It takes effect once nginx reloads (restarts, when the module file changed).",
 		"audit.export_desc":                   "Downloads the current config as <code>unmask-config.yml</code>.  No record is kept on the server (= not audited).  Use for migrating to another host or committing to git.",
 
 		"dashboard.title":           "Site stats",

@@ -631,6 +631,10 @@ func cmdServe(args []string) error {
 	renderWatch := renderwatch.New(renderOutDir)
 	renderWatch.Load()
 	h.RenderWatch = renderWatch
+	// The markers beside the rendered files: the render's reload marker
+	// settles once nginx logs the render, and the plugin's fail-safe marker
+	// is a notice when it comes and when it goes (handlers/failsafe_watch.go).
+	go h.RunNativeFailsafeWatch(context.Background())
 
 	// Keep a managed mmdb current.  Checked DAILY against the snapshot's own
 	// build date rather than run monthly on a fixed day: DB-IP publishes

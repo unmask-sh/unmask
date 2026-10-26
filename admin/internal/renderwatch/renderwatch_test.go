@@ -165,3 +165,56 @@ func TestSawIsBounded(t *testing.T) {
 		t.Error("the newest id was dropped")
 	}
 }
+
+// TestSettleClearsTheReloadMarker: the render leaves a marker naming the id
+// it wrote; Settle removes it once a line carries that id after the write --
+// and not before, and not for an id the marker does not name.
+func TestSettleClearsTheReloadMarker(t *testing.T) {
+	dir := t.TempDir()
+	renderTo(t, dir, false)
+	id, written := nginxconf.RenderIDOnDisk(dir)
+	if got, ok := nginxconf.ReloadNeeded(dir); !ok || got != id {
+		t.Fatalf("the render left marker=%q ok=%v, want %q", got, ok, id)
+	}
+	w := New(func() string { return dir })
+
+	// No line yet: nothing is known, the marker stays.
+	if st := w.Settle(); st.Fresh() {
+		t.Fatalf("fresh with no line seen: %+v", st)
+	}
+	if _, ok := nginxconf.ReloadNeeded(dir); !ok {
+		t.Fatal("the marker went before nginx logged the render")
+	}
+	// nginx still logs the older configuration: the marker stays.
+	w.Saw("000000000000", written.Add(2*time.Minute))
+	if st := w.Settle(); !st.Pending {
+		t.Fatalf("an older id after the grace: want pending, got %+v", st)
+	}
+	if _, ok := nginxconf.ReloadNeeded(dir); !ok {
+		t.Fatal("the marker went while nginx logged an older render")
+	}
+	// nginx logs the render: the marker goes.
+	w.Saw(id, written.Add(3*time.Minute))
+	if st := w.Settle(); !st.Fresh() {
+		t.Fatalf("the current id since the write: want fresh, got %+v", st)
+	}
+	if _, ok := nginxconf.ReloadNeeded(dir); ok {
+		t.Fatal("the marker stayed after nginx logged the render")
+	}
+
+	// A newer render's marker is not this verdict's to clear: the watch
+	// still holds the old id as current until it looks at the file again.
+	time.Sleep(20 * time.Millisecond)
+	renderTo(t, dir, true)
+	id2, _ := nginxconf.RenderIDOnDisk(dir)
+	if id2 == id {
+		t.Fatal("a changed configuration kept its id")
+	}
+	w.mu.Lock()
+	w.statAt = time.Now() // as if the file had just been looked at, before the render
+	w.mu.Unlock()
+	w.Settle()
+	if got, ok := nginxconf.ReloadNeeded(dir); !ok || got != id2 {
+		t.Fatalf("the new render's marker: %q ok=%v, want %q kept", got, ok, id2)
+	}
+}

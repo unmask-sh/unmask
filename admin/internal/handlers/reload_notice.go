@@ -38,7 +38,9 @@ func (h *Handler) reloadNotice(lang i18n.Lang) *ReloadNotice {
 	if h == nil || h.RenderWatch == nil {
 		return nil
 	}
-	st := h.RenderWatch.State()
+	// Settle, not State: a page render is also when the reload marker the
+	// render left is removed, once nginx is seen running the render.
+	st := h.RenderWatch.Settle()
 	if !st.Pending {
 		return nil
 	}

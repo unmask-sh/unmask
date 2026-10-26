@@ -166,6 +166,9 @@ type Handler struct {
 	banFileMu    sync.Mutex
 	banFileAt    time.Time
 	banFileLast  *BanFileNotice
+	// failsafe: the last look at the plugin's fail-safe marker, for the
+	// notice written when it comes and when it goes (failsafe_watch.go).
+	failsafe failsafeSeen
 	// mapAuto: the server's own position worked out for the dashboard's map
 	// (map_admin.go autoMapLocation), kept for an hour.
 	mapAutoMu sync.Mutex
