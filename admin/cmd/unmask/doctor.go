@@ -154,6 +154,14 @@ func cmdDoctor(args []string) error {
 		addErr("nginx-rendered.conf render", terr.Error())
 	} else {
 		defer os.RemoveAll(tmpDir)
+		// Under the plugin's fail-safe the live files are the degraded
+		// render (no module); render the dry run the same way, or the
+		// freshness check below reads the difference as a stale config.
+		if liveDir := strings.TrimSpace(s.Nginx.OutputDir); liveDir != "" {
+			if b, rerr := os.ReadFile(filepath.Join(liveDir, nginxconf.FailsafeMarker)); rerr == nil {
+				_ = os.WriteFile(filepath.Join(tmpDir, nginxconf.FailsafeMarker), b, 0o600)
+			}
+		}
 		if err := nginxconf.Render(s, tmpDir, Version); err != nil {
 			addErr("nginx-rendered.conf render", err.Error())
 		} else {
@@ -609,12 +617,13 @@ func cmdDoctor(args []string) error {
 	checkAdminBind(s, addOK, addWarn)
 	checkRealIP(conn, s, addOK, addWarn, addErr)
 	checkApacheConnPeer(addWarn)
-	checkNativeFailsafe(addWarn)
+	checkNativeFailsafe(s.Nginx.OutputDir, addWarn)
 	checkNginxConfTest(addOK, addWarn, addErr)
 	checkNginxStaleLibs(addWarn)
 	checkNginxErrorLog(addOK, addWarn)
 	checkNginxReloadLag(s, addOK, addWarn)
 	checkNginxProtectScope(addWarn)
+	checkHTTP3JA4(addWarn)
 	checkHTTPSRedirectApplied(s, addOK, addWarn)
 	checkHTTPSRedirectHealthCheck(s, addOK, addWarn)
 	checkBVSecretSync(s, addOK, addWarn)
@@ -1399,31 +1408,48 @@ func nginxErrLine(out string) string {
 	return last
 }
 
-// checkNativeFailsafe warns when the plugin's place-module fail-safe stripped the
-// native nginx wiring (nginx -t failed referencing unmask) and left a breadcrumb
-// at /var/lib/unmask/nginx/.native-failsafe.  In that state nginx starts fine but
-// unmask's native protection is silently OFF -- exactly what the 2026-06-28
-// map_hash regression caused (a conf.d ordering bug tripped nginx -t, the
-// fail-safe stripped the .so + http.inc, and the site served unprotected with no
-// obvious symptom).  place-module clears the marker on the next successful
-// `nginx -t`, so its presence means native is still disabled now.
-func checkNativeFailsafe(addWarn func(t, m string)) {
-	b, err := os.ReadFile("/var/lib/unmask/nginx/.native-failsafe")
-	if err != nil {
-		return // no breadcrumb -> native not fail-safe-disabled (or forward-auth mode)
+// checkNativeFailsafe warns when the plugin's place-module fail-safe stripped
+// the nginx module (no bundled module matches the host nginx, or `nginx -t`
+// failed referencing unmask) and left its marker (nginxconf.FailsafeMarker)
+// beside the rendered files.  In that state nginx starts and the admin UI is
+// reachable, but protection is OFF -- the configuration is rendered DEGRADED,
+// without the module's directives and gates (what the 2026-06-28 map_hash
+// regression left behind, with no symptom an operator would notice).
+// place-module clears the marker on the next `nginx -t` that passes with the
+// module wired, and renders the full configuration again; its presence means
+// the module is still out now.  The marker is read from the render dir, and
+// from the package default where place-module writes it when the two differ.
+func checkNativeFailsafe(outputDir string, addWarn func(t, m string)) {
+	const packageDir = "/var/lib/unmask/nginx"
+	dir := strings.TrimSpace(outputDir)
+	if dir == "" {
+		dir = packageDir
 	}
-	reason := ""
-	for _, ln := range strings.Split(string(b), "\n") {
-		if strings.HasPrefix(ln, "reason:") {
-			reason = strings.TrimSpace(strings.TrimPrefix(ln, "reason:"))
-			break
-		}
+	active, reason, since := nginxconf.FailsafeState(dir)
+	if !active && dir != packageDir {
+		active, reason, since = nginxconf.FailsafeState(packageDir)
 	}
-	msg := "the plugin's place-module fail-safe stripped the native nginx wiring (`nginx -t` failed referencing unmask), so native protection is OFF until fixed."
+	if !active {
+		return // no marker: the module is wired (or this is a forward-auth install)
+	}
+	// Is the configuration on disk the degraded one?  A render that failed
+	// under the fail-safe leaves the full files, which nginx cannot load
+	// without the module; place-module then leaves http.inc out of nginx.
+	degraded := false
+	if b, err := os.ReadFile(filepath.Join(dir, "http.inc")); err == nil {
+		degraded = strings.Contains(string(b), "NATIVE FAIL-SAFE ACTIVE")
+	}
+	msg := fmt.Sprintf("the plugin's place-module fail-safe stripped the nginx module (marker written %s", since.Format("2006-01-02 15:04:05"))
 	if reason != "" {
-		msg += " cause: " + reason + "."
+		msg += ", cause: " + reason
 	}
-	msg += " Fix the nginx config, run `unmask render-nginx`, then `nginx -t` (or reinstall unmask-plugin-nginx); the marker clears once nginx -t passes."
+	msg += ")."
+	if degraded {
+		msg += " The configuration is rendered DEGRADED (module not loaded): nginx starts and the admin UI is reachable, but nothing is challenged, banned or rate-limited."
+	} else {
+		msg += " The rendered configuration is NOT the degraded one (the re-render under the fail-safe failed), so http.inc is left out of nginx; run `unmask render-nginx` and `nginx -t`."
+	}
+	msg += " Fix the cause (an nginx the plugin has no module for: install a plugin build that has one, or build the module for it; a config error: fix it), then run `sh /usr/share/unmask/plugin/place-module.sh` or restart nginx (systemd runs it before each start): once `nginx -t` passes with the module wired, the marker clears and the full configuration is rendered."
 	addWarn("native module disabled (fail-safe)", msg)
 }
 
