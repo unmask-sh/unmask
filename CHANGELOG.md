@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-10-26) **A pass now ends when its solve does, re-binds included.**  The credential that carries a pass to a new address was honoured for the longer of the two solve windows, and each re-bound pass got a fresh CAPTCHA window, so a seven-day proof-of-work kept a browser passing for up to four weeks, even on the address it was solved from.  Both now end with the solve.
+
 ## [0.1.53-rc24] - 2026-10-27 (testing build)
 
 ### Fixed

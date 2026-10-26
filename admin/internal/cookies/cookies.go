@@ -100,6 +100,15 @@ func IssueValue(bvSecret, remoteIP, host, kind string) string {
 	return issueValueAt(bvSecret, remoteIP, host, kind, nowUnix())
 }
 
+// IssueValueAt is IssueValue carrying the given issue time instead of now.  A
+// 3-segment entry is honoured for the CAPTCHA window counted from the time it
+// carries -- here and in the C plugin alike -- so the time is how its issuer
+// decides when it stops being honoured: the re-bound entry uses it to end
+// where the solve it stands for ends.
+func IssueValueAt(bvSecret, remoteIP, host, kind string, issued int64) string {
+	return issueValueAt(bvSecret, remoteIP, host, kind, issued)
+}
+
 func issueValueAt(bvSecret, remoteIP, host, kind string, issued int64) string {
 	if kind == "" {
 		kind = "captcha"
@@ -501,6 +510,12 @@ func NewLineage() (string, error) {
 // unknown / no ASN db).  Mirrors IssueValue's host binding.
 func IssueJValue(bvSecret, ja4Hash, uaHash, lineage string, asn uint, host, kind string) string {
 	return issueJValueAt(bvSecret, ja4Hash, uaHash, lineage, asn, host, kind, nowUnix())
+}
+
+// IssueJValueAt is IssueJValue dated at issued: the time of the solve the
+// credential records, so its window is that solve's window.
+func IssueJValueAt(bvSecret, ja4Hash, uaHash, lineage string, asn uint, host, kind string, issued int64) string {
+	return issueJValueAt(bvSecret, ja4Hash, uaHash, lineage, asn, host, kind, issued)
 }
 
 func issueJValueAt(bvSecret, ja4Hash, uaHash, lineage string, asn uint, host, kind string, issued int64) string {

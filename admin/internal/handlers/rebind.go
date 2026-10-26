@@ -41,9 +41,9 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 )
 
-// rebindWindowSeconds: the _bvj validity window for site -- the larger of the
-// two _bv solve windows, so a _bvj lives exactly as long as the longest-lived
-// solve it could vouch for.
+// rebindWindowSeconds: the widest window any _bvj can be valid for on site --
+// the larger of the two _bv solve windows.  validBVJ parses with it, then holds
+// each credential to the window of the solve it records (bvjWindowSeconds).
 func (h *Handler) rebindWindowSeconds(site string) int {
 	ch := h.cfg().Challenge.Resolve(site)
 	p, c := ch.PowCookieValidSecondsResolved(), ch.CaptchaCookieValidSecondsResolved()
@@ -53,18 +53,47 @@ func (h *Handler) rebindWindowSeconds(site string) int {
 	return c
 }
 
+// bvjWindowSeconds: how long a _bvj of grade vouches for the solve it records
+// -- that solve's own window.  A lineage that has cleared a CAPTCHA gets the
+// CAPTCHA window; every other grade (the proof-of-work, and the math
+// fallback's downgraded pass) the proof-of-work one.  Every credential used to
+// get the larger of the two, so a proof-of-work solve kept re-binding for the
+// CAPTCHA window: on the default settings, fourteen days instead of seven.
+func (h *Handler) bvjWindowSeconds(site, grade string) int {
+	ch := h.cfg().Challenge.Resolve(site)
+	if grade == "captcha" {
+		return ch.CaptchaCookieValidSecondsResolved()
+	}
+	return ch.PowCookieValidSecondsResolved()
+}
+
+// reboundIssuedAt: the issue time a re-bound entry carries so that entryWindow
+// counted from it ends at solveEnds.  Never later than now -- a future-dated
+// entry fails both verifiers -- so when the solve's window is the longer one,
+// the entry simply lives entryWindow from now.
+func reboundIssuedAt(now, solveEnds int64, entryWindow int) int64 {
+	if t := solveEnds - int64(entryWindow); t < now {
+		return t
+	}
+	return now
+}
+
 // validBVJ returns the claims of the first _bvj cookie on r that verifies for
-// host; ok=false when none do.  Iterates duplicates the same way pickValidBV
-// does for _bv (a stale cookie at another path/domain can shadow the fresh one).
+// host and is still inside its solve's window; ok=false when none do.  Iterates
+// duplicates the same way pickValidBV does for _bv (a stale cookie at another
+// path/domain can shadow the fresh one).
 func (h *Handler) validBVJ(r *http.Request, host, site string) (cookies.JClaims, bool) {
 	window := h.rebindWindowSeconds(site)
+	now := time.Now().Unix()
 	for _, c := range r.Cookies() {
 		if c.Name != "_bvj" || c.Value == "" || len(c.Value) > 160 {
 			continue
 		}
-		if cl, ok := cookies.ParseJValue(c.Value, h.cfg().Secret.BVSecret, host, window); ok {
-			return cl, true
+		cl, ok := cookies.ParseJValue(c.Value, h.cfg().Secret.BVSecret, host, window)
+		if !ok || now-cl.Issued > int64(h.bvjWindowSeconds(site, cl.Kind)) {
+			continue
 		}
+		return cl, true
 	}
 	return cookies.JClaims{}, false
 }
@@ -76,8 +105,9 @@ func (h *Handler) validBVJ(r *http.Request, host, site string) (cookies.JClaims,
 const maxBVJJA4Hashes = 3
 
 // writeBVJ signs and sets the _bvj cookie.  ja4Set is the "~"-joined fingerprint
-// set (see cookies.JClaims); a single hash is the common case.
-func (h *Handler) writeBVJ(w http.ResponseWriter, r *http.Request, host, ja4Set, uaHash, lineage string, asn uint, grade string) {
+// set (see cookies.JClaims); a single hash is the common case.  issued is the
+// time of the solve the credential records, which its window counts from.
+func (h *Handler) writeBVJ(w http.ResponseWriter, r *http.Request, host, ja4Set, uaHash, lineage string, asn uint, grade string, issued int64) {
 	// grade records HOW the solve that owns this lineage was earned.  It used
 	// to be hardcoded "captcha" for every path, including a transparent
 	// proof-of-work -- so the credential could not say what it had actually
@@ -87,7 +117,7 @@ func (h *Handler) writeBVJ(w http.ResponseWriter, r *http.Request, host, ja4Set,
 	if grade == "" {
 		grade = "captcha"
 	}
-	val := cookies.IssueJValue(h.cfg().Secret.BVSecret, ja4Set, uaHash, lineage, asn, host, grade)
+	val := cookies.IssueJValueAt(h.cfg().Secret.BVSecret, ja4Set, uaHash, lineage, asn, host, grade, issued)
 	http.SetCookie(w, &http.Cookie{
 		Name:   "_bvj",
 		Value:  val,
@@ -106,7 +136,14 @@ func (h *Handler) writeBVJ(w http.ResponseWriter, r *http.Request, host, ja4Set,
 // is a fresh rebind budget, so it must always be paid for by a real solve.  The
 // stored JA4 set starts as the single fingerprint seen at this solve; a re-solve
 // under a new transport extends it via remintBVJAppend (keeping the lineage).
+// Dated now: the VerifyJSON paths call it in the same breath as they issue the
+// _bv it records.
 func (h *Handler) mintBVJ(w http.ResponseWriter, r *http.Request, ip, host, grade string) {
+	h.mintBVJAt(w, r, ip, host, grade, time.Now().Unix())
+}
+
+// mintBVJAt is mintBVJ dated at issued, the time of the solve it records.
+func (h *Handler) mintBVJAt(w http.ResponseWriter, r *http.Request, ip, host, grade string, issued int64) {
 	lineage, err := cookies.NewLineage()
 	if err != nil {
 		return // no entropy; the solve itself already passed, just skip the rebind credential
@@ -117,7 +154,7 @@ func (h *Handler) mintBVJ(w http.ResponseWriter, r *http.Request, ip, host, grad
 	}
 	ja4 := safeJA4(strings.TrimSpace(r.Header.Get("X-Client-JA4")))
 	h.writeBVJ(w, r, host, cookies.FingerprintHash(ja4),
-		cookies.FingerprintHash(r.Header.Get("User-Agent")), lineage, asn, grade)
+		cookies.FingerprintHash(r.Header.Get("User-Agent")), lineage, asn, grade, issued)
 }
 
 // remintBVJAppend re-issues the _bvj for the SAME lineage as prior, adding this
@@ -125,8 +162,9 @@ func (h *Handler) mintBVJ(w http.ResponseWriter, r *http.Request, ip, host, grad
 // on the IssueBVJ re-solve path so a device that re-solves under a new transport
 // (h2 vs h3 produce different JA4s) keeps every fingerprint it has proven AND
 // its existing rebind budget, instead of spawning a fresh lineage each time its
-// JA4 changes.
-func (h *Handler) remintBVJAppend(w http.ResponseWriter, r *http.Request, ip, host string, prior cookies.JClaims, grade string) {
+// JA4 changes.  issued is the time of the solve behind this re-issue; the
+// credential keeps the later of it and its own, the newest solve it records.
+func (h *Handler) remintBVJAppend(w http.ResponseWriter, r *http.Request, ip, host string, prior cookies.JClaims, grade string, issued int64) {
 	var asn uint
 	if h.IPGeo != nil {
 		asn = h.IPGeo.LookupInfo(ip).ASN
@@ -135,7 +173,7 @@ func (h *Handler) remintBVJAppend(w http.ResponseWriter, r *http.Request, ip, ho
 	set := cookies.AppendJA4Hash(prior.JA4Hash, cookies.FingerprintHash(ja4), maxBVJJA4Hashes)
 	h.writeBVJ(w, r, host, set,
 		cookies.FingerprintHash(r.Header.Get("User-Agent")), prior.Lineage, asn,
-		strongerGrade(prior.Kind, grade))
+		strongerGrade(prior.Kind, grade), max(prior.Issued, issued))
 }
 
 // strongerGrade keeps the best thing a lineage has ever proven.  A device that
@@ -221,11 +259,14 @@ func (h *Handler) IssueBVJ(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 0, "skip": "present"})
 			return
 		}
-		h.remintBVJAppend(w, r, ip, host, claims, normalizeBVKind(kind))
+		h.remintBVJAppend(w, r, ip, host, claims, normalizeBVKind(kind), issued)
 		writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 		return
 	}
-	h.mintBVJ(w, r, ip, host, normalizeBVKind(kind))
+	// Dated by the pass this POST presents, not by the POST: the credential
+	// must end with that solve.  Dated now, re-posting an old pass (a changed
+	// User-Agent is enough to force the re-issue above) restarted the window.
+	h.mintBVJAt(w, r, ip, host, normalizeBVKind(kind), issued)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 }
 
@@ -339,7 +380,21 @@ func (h *Handler) rebind(w http.ResponseWriter, r *http.Request, site, bt string
 	// everywhere (the kind segment is free-form and HMAC-bound; the C plugin
 	// recomputes it verbatim), but IssueBVJ refuses to seed a fresh lineage off
 	// a rebound entry.
-	h.setBVCookie(w, r, cookies.IssueValue(cfg.Secret.BVSecret, bindKeyFor(r), host, "rebind"))
+	//
+	// It ends where the solve it stands for ends.  Both verifiers honour a
+	// 3-segment entry for the CAPTCHA window counted from the time it carries
+	// -- the plugin with the default window it was rendered with, this daemon
+	// and forward-auth with the site's -- so it carries the time that puts the
+	// end of the longer of the two at the end of the solve's own window.
+	// Dated now, every roam gave a proof-of-work pass a fresh CAPTCHA window:
+	// on the default settings, seven days became up to four weeks.
+	entryWindow := cfg.Challenge.Default.CaptchaCookieValidSecondsResolved()
+	if sw := cfg.Challenge.Resolve(site).CaptchaCookieValidSecondsResolved(); sw > entryWindow {
+		entryWindow = sw
+	}
+	solveEnds := claims.Issued + int64(h.bvjWindowSeconds(site, claims.Kind))
+	h.setBVCookie(w, r, cookies.IssueValueAt(cfg.Secret.BVSecret, bindKeyFor(r), host, "rebind",
+		reboundIssuedAt(time.Now().Unix(), solveEnds, entryWindow)))
 
 	origPath := truncateAt(r.URL.Query().Get("_orig"), 200)
 	if !isLocalRedirect(origPath) {
