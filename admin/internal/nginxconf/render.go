@@ -57,6 +57,10 @@ var templatesFS embed.FS
 //
 // If outDir is empty, settings.Nginx.OutputDir is used (= default /var/lib/unmask/nginx).
 // version is for display (= written in the header of the generated file).
+//
+// When outDir carries the plugin's fail-safe marker (FailsafeMarker), the
+// files are rendered for a host whose module is not loaded: see
+// renderData.Degraded.
 
 // ObserveHostRow is one site whose monitor-mode answer differs from the
 // default record's: Value is 1 (the site is being watched) or 0 (enforcing).
@@ -215,6 +219,14 @@ func RenderFor(s settings.Settings, outDir, version string, cause RenderCause) e
 			[]byte(now.UTC().Format(time.RFC3339)+"\n"), 0o644)
 		// Why, and what moved: the reload notice names both.
 		writeRenderRecord(outDir, RenderRecord{At: now.Unix(), Cause: cause, Changes: changes})
+		// And that nginx has yet to load this render (cleared by the render
+		// watch once the access log names its id).  A switch into or out of
+		// the degraded render is a change like any other.  Only where that
+		// log reaches the daemon: an install that sends none (forward-auth)
+		// could never clear it, and a marker nothing clears says nothing.
+		if data.NginxLogEnabled {
+			writeReloadNeeded(outDir, id)
+		}
 	}
 	return nil
 }
@@ -621,10 +633,18 @@ var gatewayTemplates = [][2]string{
 
 // renderData: flat struct passed to text/template.
 type renderData struct {
-	Gateway               gatewayRender
-	GeneratedAt           string
-	Version               string
-	OutputDir             string
+	Gateway     gatewayRender
+	GeneratedAt string
+	Version     string
+	OutputDir   string
+	// Degraded: the plugin's fail-safe marker (FailsafeMarker) sits in the
+	// output dir, so the module is NOT loaded.  The templates then leave out
+	// its directives, define the variables the render reads from it as
+	// empty maps, and leave out every gate that enforces -- nginx starts,
+	// the admin UI is reachable through server.inc's proxy, and protection
+	// is off until place-module clears the marker and renders again.  Each
+	// file says so in a banner at its top.
+	Degraded              bool
 	BVSecret              string
 	BVPowValidSeconds     int // unmask_bv_pow_valid_seconds     (= per-kind seconds)
 	BVCaptchaValidSeconds int // unmask_bv_captcha_valid_seconds (= per-kind seconds)
@@ -1357,6 +1377,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		GeneratedAt: time.Now().UTC().Format(time.RFC3339),
 		Version:     version,
 		OutputDir:   sanitizeConfPath(outDir),
+		Degraded:    FailsafeActive(outDir),
 		BVSecret:    s.Secret.BVSecret,
 		// _bv HMAC validation runs in nginx with one shared secret + cookie
 		// window; per-site challenge fields (PowDifficulty, theme, branding

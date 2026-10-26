@@ -13,6 +13,16 @@
 #
 #  generated_at: {{ .GeneratedAt }}
 #  unmask_version: {{ .Version }}
+{{- if .Degraded }}
+#
+# unmask: NATIVE FAIL-SAFE ACTIVE -- the nginx module is not loaded, protection
+# is off; run 'unmask doctor'.  This file is inert: the rate limits and the
+# challenge gate are left out, because the module that composes the rate
+# decision and verifies the pass cookie is not there to act on them.  Every
+# location that includes it serves its content as if unmask were not
+# installed.  Once `nginx -t` passes with the module wired again, place-module
+# clears {{ .OutputDir }}/.native-failsafe and renders the full file.
+{{- else }}
 
 # rate-limit.  The zone itself is declared via `limit_req_zone` in http.inc
 # (http {} scope).  The over-limit trigger differs by mode (see below):
@@ -152,3 +162,4 @@ if ($unmask_gate = "1:") {
     rewrite ^ /unmask/challenge/?_orig=$request_uri last;
 }
 {{ end }}
+{{- end }}

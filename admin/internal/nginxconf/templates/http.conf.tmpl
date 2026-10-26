@@ -17,6 +17,17 @@
 #
 #  Also load the ja4 module separately (main scope):
 #      load_module /usr/lib/nginx/modules/ngx_http_unmask_module.so;
+{{- if .Degraded }}
+#
+# unmask: NATIVE FAIL-SAFE ACTIVE -- the nginx module is not loaded, protection
+# is off; run 'unmask doctor'.  The plugin's place-module.sh found no module
+# for this nginx (or `nginx -t` failed on unmask's wiring) and left the marker
+# {{ .OutputDir }}/.native-failsafe; this file was then rendered WITHOUT the
+# module's directives, and with its variables defined empty, so nginx starts
+# and the admin UI stays reachable.  Nothing here challenges, bans or
+# rate-limits.  Once `nginx -t` passes with the module wired again,
+# place-module clears the marker and renders the full configuration.
+{{- end }}
 
 # -----------------------------------------------------------------------------
 # Map hash sizing for the community-bans maps.  The widest key is the ipja4
@@ -49,10 +60,25 @@ variables_hash_bucket_size 128;
 # -----------------------------------------------------------------------------
 # unmask module main directives (secret + cookie validity period + ban file)
 # -----------------------------------------------------------------------------
+{{- if .Degraded }}
+# NATIVE FAIL-SAFE ACTIVE: the module is not loaded, so its directives are left
+# out, and the variables only it computes are defined here as constants -- the
+# empty fingerprint, no pass cookie, not banned, no signed agent, an empty
+# rate key (a zone keyed on "" counts nothing) -- so every map below that reads
+# them resolves, and nothing they decide fires.  The `map "" $x` form is what
+# lets the undefined-variable guard read this file.
+map "" $client_ja4              { default ""; }
+map "" $unmask_bv_kind          { default ""; }
+map "" $unmask_banned           { default "0"; }
+map "" $unmask_ban_action       { default ""; }
+map "" $unmask_has_signed_agent { default "0"; }
+map "" $unmask_client_net       { default ""; }
+{{- else }}
 unmask_bv_secret                "{{ nq .BVSecret }}";
 unmask_bv_pow_valid_seconds     {{ .BVPowValidSeconds }};
 unmask_bv_captcha_valid_seconds {{ .BVCaptchaValidSeconds }};
 unmask_bv_pow_difficulty        {{ .PowDifficulty }};
+{{- end }}
 # Per-host PoW difficulty (settings.challenge.sites.<host>.pow_difficulty).
 # The module verifies a PoW cookie against $unmask_pow_difficulty for the
 # host it arrived on, the number the challenge page served that host; a site
@@ -64,7 +90,7 @@ map $host $unmask_pow_difficulty {
     "{{ nq .Host }}" {{ .Difficulty }};
 {{- end }}
 }
-{{- if .BanFilePath }}
+{{- if and .BanFilePath (not .Degraded) }}
 unmask_ban_file "{{ nq .BanFilePath }}";
 {{- end }}
 

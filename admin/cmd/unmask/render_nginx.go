@@ -121,6 +121,9 @@ func cmdRenderNginx(args []string) error {
 	if dst == "" {
 		dst = s.Nginx.OutputDir
 	}
+	if dst == "" {
+		dst = "/var/lib/unmask/nginx" // Render's own default
+	}
 	// Read the PoW difficulty the running nginx is still enforcing BEFORE the
 	// render overwrites it, so the warning below can compare the two.
 	prevDiff := renderedPowDifficulty(filepath.Join(dst, "http.inc"))
@@ -130,6 +133,15 @@ func cmdRenderNginx(args []string) error {
 	}
 	for _, name := range renderedFiles {
 		fmt.Fprintf(os.Stderr, "rendered: %s\n", filepath.Join(dst, name))
+	}
+	// The plugin's fail-safe marker makes this the degraded render (no
+	// module): say so, since the files look complete and nginx loads them.
+	if nginxconf.FailsafeActive(dst) {
+		fmt.Fprintln(os.Stderr, "")
+		fmt.Fprintf(os.Stderr, "NOTE: %s/%s is present: the plugin's fail-safe stripped the nginx module, so this\n", dst, nginxconf.FailsafeMarker)
+		fmt.Fprintln(os.Stderr, "      render leaves the module out (nginx starts, the admin UI is reachable, protection is OFF).")
+		fmt.Fprintln(os.Stderr, "      Run `unmask doctor` for the cause; place-module.sh renders the full configuration once")
+		fmt.Fprintln(os.Stderr, "      nginx -t passes with the module wired again.")
 	}
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "To apply:  sudo nginx -s reload")

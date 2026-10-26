@@ -34,6 +34,14 @@
 #
 # The log_format unmask_minimal definition and the bind to {{ .NginxLogSocket }}
 # are declared by admin at /var/lib/unmask/nginx/http.inc (= http scope).
+{{- if .Degraded }}
+#
+# unmask: NATIVE FAIL-SAFE ACTIVE -- the nginx module is not loaded, protection
+# is off; run 'unmask doctor'.  Rendered without the ban, deny and signed-agent
+# gates (they act on what only the module computes); the access log, the
+# /unmask/ proxy to the admin daemon and its header hygiene stay, so the admin
+# UI is reachable and reports what happened.  See the banner in http.inc.
+{{- end }}
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed
 # ($unmask_log_keep is defined in http.inc, http scope).
@@ -95,6 +103,7 @@ if ($unmask_forwarded_proto = "http") {
 }
 
 {{ end -}}
+{{ if not .Degraded -}}
 # Persistent BAN application.  The native plugin reads the ban file and the
 # http-scope map ($unmask_ban_action_effective / $unmask_banned_effective in
 # http.inc) blanks out /unmask/* so the challenge HTML still loads.
@@ -132,6 +141,10 @@ if ($unmask_deny_now = "1") {
     rewrite ^ /unmask/_deny$request_uri last;
 }
 {{- end }}
+{{- else }}
+# NATIVE FAIL-SAFE ACTIVE: no ban or deny rewrite -- the module that reads the
+# ban list is not loaded, and nothing here may answer for it.
+{{- end }}
 
 {{ if .WebBotAuthEnabled }}
 # Web Bot Auth (RFC 9421 HTTP Message Signatures).  The native plugin only
@@ -146,9 +159,11 @@ if ($unmask_deny_now = "1") {
 # overhead.  The ban if-blocks above run first, so a banned client never
 # reaches this gate.  Server-scope rewrites run once per request (internal
 # redirects re-enter at location search), so the re-entry below cannot loop.
+{{- if not .Degraded }}
 if ($unmask_signed_gate = "1") {
     rewrite ^ /_unmask/_signed_route$request_uri last;
 }
+{{- end }}
 
 # Verification detour.  The auth_request consults admin /_unmask/check; its
 # X-Unmask-Action answer is captured into $unmask_signed_action.  EVERY
@@ -227,9 +242,11 @@ location = /_unmask/_signed_verify {
 # auth_request below.  $unmask_pat_gate fires only for a PrivateToken MAIN
 # request about to be challenged and not already on an unmask mount; the ban
 # if-blocks above run first, so a banned client never reaches this gate.
+{{- if not .Degraded }}
 if ($unmask_pat_gate = "1") {
     rewrite ^ /_unmask/_pat_route$request_uri last;
 }
+{{- end }}
 
 # Verification detour.  auth_request consults admin /_unmask/check; its
 # X-Unmask-Action answer is captured into $unmask_pat_action.  Every outcome

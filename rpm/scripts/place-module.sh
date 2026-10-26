@@ -23,7 +23,8 @@
 #   3. Find /usr/share/unmask/plugin/{openssl11,openssl3}/ngx_http_unmask_module-X.Y.Z.so:
 #      (a) exact match (= e.g. host 1.18.0 -> -1.18.0.so under the matching ABI dir)
 #      (b) closest within the same minor branch (= host 1.18.4 -> -1.18.0.so, assuming patch ABI compatibility)
-#      (c) none -> disable_unmask_module (= strip wiring so nginx still starts) + exit 0
+#      (c) none -> disable_unmask_module (= strip the module, re-render the
+#          configuration without it so nginx still starts) + exit 0
 #   4. Extract --modules-path= from `nginx -V`.
 #   5. Copy the chosen .so to $modules_path/ngx_http_unmask_module.so —
 #      or, when the modules path is unwritable (immutable /usr, ostree-style
@@ -37,25 +38,38 @@ SO_NAME=ngx_http_unmask_module.so
 # still preferred when writable: it inherits the right SELinux label and
 # matches what nginx tooling expects.
 FALLBACK_SO_DIR=/var/lib/unmask/plugin
-# Breadcrumb dropped when the fail-safe strips the native wiring (nginx -t failed
-# referencing unmask).  `unmask doctor` surfaces it so an operator sees native
-# protection is silently OFF rather than assuming install-and-go worked.  Cleared
-# on the next successful `nginx -t`.
+# Breadcrumb dropped when the fail-safe strips the module (no bundled .so for
+# the host nginx, or nginx -t failed referencing unmask).  Two readers: `unmask
+# doctor` surfaces it so an operator sees protection is OFF rather than assuming
+# install-and-go worked, and `unmask render-nginx` renders the DEGRADED
+# configuration while it exists -- http.inc without the module's directives
+# (its variables defined empty), server.inc without the ban and deny gates,
+# protect.inc inert -- so a vhost that includes server.inc still starts and the
+# admin UI stays reachable.  Cleared on the next successful `nginx -t` with the
+# module wired, which also renders the full configuration again.
 FAILSAFE_MARKER=/var/lib/unmask/nginx/.native-failsafe
+# The http.inc auto-load symlink the two postinstalls create (= see the wiring
+# step below for the http.d variant).
+HTTP_INC_LINKS="/etc/nginx/conf.d/00-unmask.conf /etc/nginx/http.d/00-unmask.conf"
 
-# disable_unmask_module: strip every piece of unmask nginx wiring so a stock
-# nginx still starts.  Used when no bundled .so matches the host nginx (= the
-# host upgraded nginx to a version we don't ship a module for).  Leaving the old
-# load_module + http.inc + an ABI-incompatible .so in place makes nginx fail to
-# start ENTIRELY -- the "host-nginx-upgrade orphan" outage.  Coming up WITHOUT
-# native protection (degraded; forward-auth still works) beats a dead web
-# server.  The bundled .so files stay under $PLUGIN_BASE for a later re-pick.
-disable_unmask_module() {
+# Hooks the unit test (place-module_test.sh) overrides; the defaults are the
+# real thing.
+#   _pm_render        : `unmask render-nginx`, quietly.  Non-zero when there is
+#                       no unmask binary or the render failed.  Reads the marker
+#                       itself: degraded while it exists, full once it is gone.
+#   _pm_nginx_t       : `nginx -t`, output on stdout.
+#   _pm_strip_module  : remove the load_module wiring and the .so.
+#   _pm_module_wired  : 0 when a module .so is in place for nginx to load.
+_pm_render() {
+    [ -x /usr/sbin/unmask ] || return 1
+    /usr/sbin/unmask render-nginx >/dev/null 2>&1
+}
+_pm_nginx_t() { nginx -t 2>&1; }
+_pm_strip_module() {
     mp=$(nginx -V 2>&1 | tr ' ' '\n' | sed -n 's|^--modules-path=||p' | head -1)
     rm -f /etc/nginx/modules-enabled/50-mod-unmask.conf \
           /etc/nginx/modules.d/50-mod-unmask.conf \
           /usr/share/nginx/modules/50-mod-unmask.conf 2>/dev/null
-    rm -f /etc/nginx/conf.d/00-unmask.conf /etc/nginx/http.d/00-unmask.conf 2>/dev/null
     [ -n "$mp" ] && rm -f "$mp/$SO_NAME" 2>/dev/null
     rm -f "$FALLBACK_SO_DIR/$SO_NAME" 2>/dev/null
     if [ -w /etc/nginx/nginx.conf ] && grep -q 'load_module.*ngx_http_unmask_module' /etc/nginx/nginx.conf 2>/dev/null; then
@@ -66,15 +80,70 @@ disable_unmask_module() {
             rm -f "$t"
         fi
     fi
-    echo "  fail-safe: stripped unmask nginx wiring (load_module + http.inc + .so) so nginx still starts without the module."
-    mkdir -p /var/lib/unmask/nginx 2>/dev/null
+}
+_pm_module_wired() {
+    mp=$(nginx -V 2>&1 | tr ' ' '\n' | sed -n 's|^--modules-path=||p' | head -1)
+    { [ -n "$mp" ] && [ -e "$mp/$SO_NAME" ]; } || [ -e "$FALLBACK_SO_DIR/$SO_NAME" ]
+}
+
+# unmask_error <nginx -t output>: 0 when the failure is about OUR OWN wiring
+# artifacts: the module itself (ngx_http_unmask...), our autoload/symlink confs
+# (00-unmask*, 50-mod-unmask) and the render output (/var/lib/unmask/nginx/).
+# A bare "unmask" match is too broad: an OPERATOR conf that includes a shipped
+# forward-auth snippet (/etc/unmask/forward-auth/server.inc, per the web-nginx
+# install instructions) mentions an unmask path too -- and when that file is
+# transiently absent (mid-transaction on a reinstall: this runs from the plugin
+# postinstall BEFORE web-nginx lays its files down), the broad match stripped a
+# perfectly healthy native module.  Stripping can never fix those errors anyway
+# (we don't touch operator vhosts), so leave them to the operator / the rest of
+# the transaction.
+unmask_error() {
+    printf '%s\n' "$1" | grep -qiE 'ngx_http_unmask|00-unmask|50-mod-unmask|/var/lib/unmask/nginx/'
+}
+unmask_error_line() {
+    printf '%s\n' "$1" | grep -iE 'ngx_http_unmask|00-unmask|50-mod-unmask|map_hash|/var/lib/unmask/nginx/' | head -1
+}
+
+# disable_unmask_module: take the module out so a stock nginx still starts.
+# Used when no bundled .so matches the host nginx (= the host upgraded nginx to
+# a version we don't ship a module for) and when `nginx -t` fails on unmask's
+# wiring.  Leaving the old load_module + an ABI-incompatible .so in place makes
+# nginx fail to start ENTIRELY -- the "host-nginx-upgrade orphan" outage.
+# Coming up WITHOUT protection (degraded) beats a dead web server.
+#
+# The configuration is then re-rendered without the module (the marker written
+# first is what tells `unmask render-nginx` to): http.inc stays included, because
+# a vhost that includes server.inc -- the README's setup -- names http.inc's
+# log_format and cannot start without it.  Before this re-render the fail-safe
+# dropped http.inc instead, and such a host could not start nginx at all
+# (`unknown log format "unmask_minimal"`).  Only when unmask cannot render --
+# no binary, a config it cannot read -- is http.inc dropped from nginx as before.
+# The bundled .so files stay under $PLUGIN_BASE for a later re-pick.
+disable_unmask_module() {
+    _pm_strip_module
+    mkdir -p "$(dirname "$FAILSAFE_MARKER")" 2>/dev/null
     { echo "native wiring stripped by place-module fail-safe ($(date 2>/dev/null))"
       [ -n "${1:-}" ] && echo "reason: $1"
     } > "$FAILSAFE_MARKER" 2>/dev/null || true
+    if _pm_render; then
+        echo "  fail-safe: stripped the unmask module (load_module + .so) and re-rendered the configuration WITHOUT it:"
+        echo "             nginx starts and the admin UI stays reachable, protection is OFF until the module is back."
+    else
+        for f in $HTTP_INC_LINKS; do rm -f "$f" 2>/dev/null; done
+        echo "  fail-safe: stripped unmask nginx wiring (load_module + http.inc + .so) so nginx still starts without the module"
+        echo "             (unmask could not re-render the configuration; run 'unmask render-nginx' once it can)."
+    fi
+    if err=$(_pm_nginx_t); then
+        echo "  nginx -t passes without the module.  'unmask doctor' names the cause; the marker $FAILSAFE_MARKER"
+        echo "  clears, and the full configuration is rendered again, once nginx -t passes with the module wired."
+    else
+        echo "  nginx -t still fails without the module:"
+        printf '%s\n' "$err" | sed 's/^/       /'
+    fi
 }
 
-# verify_or_disable: run `nginx -t` and, if it fails *because of unmask*, strip
-# the wiring (disable_unmask_module) so nginx still starts.  A failure whose
+# verify_or_disable: run `nginx -t` and, if it fails *because of unmask*, take
+# the module out (disable_unmask_module) so nginx still starts.  A failure whose
 # error does NOT reference unmask is a pre-existing host config error -- leave
 # unmask alone and let the operator fix it (never mask their own bug).  This is
 # the catch-all for a bad render: a missing community-bans map, a stale http.inc,
@@ -82,27 +151,41 @@ disable_unmask_module() {
 # start/reload after install.  Called at the end of the picker's own flow and,
 # via `--verify`, by the web-nginx postinstall, so whichever wires last runs the
 # final check.
+#
+# The way back: when the marker is there and nginx -t passes with a module in
+# place, the marker goes and the full configuration is rendered -- which must
+# load too, so it is checked once more, and stripped again if it does not (that
+# strip renders the degraded configuration again, so this cannot loop).  With
+# no module in place the degraded configuration is left as it is: nginx -t
+# passing without a module says nothing about the module.
 verify_or_disable() {
     command -v nginx >/dev/null 2>&1 || return 0
-    if err=$(nginx -t 2>&1); then
-        rm -f "$FAILSAFE_MARKER" 2>/dev/null   # wiring is healthy now -> clear any stale breadcrumb
+    if err=$(_pm_nginx_t); then
+        if [ -e "$FAILSAFE_MARKER" ]; then
+            if _pm_module_wired; then
+                rm -f "$FAILSAFE_MARKER" 2>/dev/null
+                echo "  fail-safe cleared: nginx -t passes with the module wired; rendering the full configuration again."
+                _pm_render || echo "  WARNING: 'unmask render-nginx' failed -- run it by hand, then nginx -t."
+                if ! err=$(_pm_nginx_t); then
+                    if unmask_error "$err"; then
+                        echo "  !! nginx -t fails on the full configuration -- taking the module out again (fail-safe):"
+                        printf '%s\n' "$err" | sed 's/^/       /'
+                        disable_unmask_module "$(unmask_error_line "$err")"
+                    else
+                        echo "  nginx -t failed on the full configuration, but the error does NOT reference unmask (= host config error). Leaving unmask in place:"
+                        printf '%s\n' "$err" | sed 's/^/       /'
+                    fi
+                fi
+            else
+                echo "  fail-safe still active ($FAILSAFE_MARKER): no module in place for nginx to load; the configuration stays rendered without it."
+            fi
+        fi
         return 0
     fi
-    # Classify by OUR OWN wiring artifacts only: the module itself
-    # (ngx_http_unmask...), our autoload/symlink confs (00-unmask*,
-    # 50-mod-unmask) and the render output (/var/lib/unmask/nginx/).  A bare
-    # "unmask" match is too broad: an OPERATOR conf that includes a shipped
-    # forward-auth snippet (/etc/unmask/forward-auth/server.inc, per the
-    # web-nginx install instructions) mentions an unmask path too -- and when
-    # that file is transiently absent (mid-transaction on a reinstall: this
-    # runs from the plugin postinstall BEFORE web-nginx lays its files down),
-    # the broad match stripped a perfectly healthy native module.  Stripping
-    # can never fix those errors anyway (we don't touch operator vhosts), so
-    # leave them to the operator / the rest of the transaction.
-    if printf '%s\n' "$err" | grep -qiE 'ngx_http_unmask|00-unmask|50-mod-unmask|/var/lib/unmask/nginx/'; then
-        echo "  !! nginx -t failed and the error references unmask -- disabling unmask wiring (fail-safe) so nginx still starts:"
+    if unmask_error "$err"; then
+        echo "  !! nginx -t failed and the error references unmask -- disabling the module (fail-safe) so nginx still starts:"
         printf '%s\n' "$err" | sed 's/^/       /'
-        disable_unmask_module "$(printf '%s\n' "$err" | grep -iE 'ngx_http_unmask|00-unmask|50-mod-unmask|map_hash|/var/lib/unmask/nginx/' | head -1)"
+        disable_unmask_module "$(unmask_error_line "$err")"
     else
         echo "  nginx -t failed, but the error does NOT reference unmask (= pre-existing host config error). Leaving unmask in place:"
         printf '%s\n' "$err" | sed 's/^/       /'

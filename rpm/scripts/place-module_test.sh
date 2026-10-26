@@ -117,6 +117,102 @@ check "the replacement is a new inode (nginx restart territory)" "new" "$r"
 so_in_place "$T/src.so" "$T/empty1" "$T/empty2" >/dev/null; rc=$?
 check "so_in_place with no module installed" "1" "$rc"
 
+# --- case 7: the fail-safe, in and out (hooks overridden: nothing on the host is touched) ---
+# The marker drives `unmask render-nginx`: while it exists the render is the
+# degraded one (no module), and http.inc stays linked so a vhost that includes
+# server.inc still starts.  On the way back the full render is checked once
+# more and stripped again if it does not load, which cannot loop.
+FAILSAFE_MARKER="$T/fs/.native-failsafe"
+HTTP_INC_LINKS="$T/confd/00-unmask.conf"
+mkdir -p "$T/confd"
+_pm_strip_module() { STRIPPED=$((STRIPPED+1)); }
+_pm_render() {
+    RENDERS=$((RENDERS+1))
+    if [ -e "$FAILSAFE_MARKER" ]; then RENDER_MODES="$RENDER_MODES degraded"; else RENDER_MODES="$RENDER_MODES full"; fi
+    return "$RENDER_RC"
+}
+# nginx -t answers one return code per call, in the order ngx_seq lists them.
+# The script reads it through `$(...)`, a subshell, so the sequence and the
+# call count live in files rather than variables.
+_pm_nginx_t() {
+    _rc=$(head -1 "$T/ngx_seq" 2>/dev/null); _rc=${_rc:-0}
+    sed -i '1d' "$T/ngx_seq" 2>/dev/null
+    echo call >> "$T/ngx_calls"
+    printf '%s\n' "$NGINX_T_OUT"
+    return "$_rc"
+}
+ngx_seq() { printf '%s\n' "$@" > "$T/ngx_seq"; : > "$T/ngx_calls"; }
+ngx_calls() { wc -l < "$T/ngx_calls" | tr -d ' '; }
+_pm_module_wired() { [ "$WIRED" = 1 ]; }
+fs_reset() {
+    STRIPPED=0; RENDERS=0; RENDER_MODES=""; RENDER_RC=0; WIRED=1
+    : > "$T/ngx_seq"; : > "$T/ngx_calls"
+    rm -f "$FAILSAFE_MARKER"; : > "$T/confd/00-unmask.conf"
+}
+linked() { [ -e "$T/confd/00-unmask.conf" ] && echo linked || echo dropped; }
+
+# 7a: nginx -t fails on unmask's own wiring -> the module is stripped, the
+# marker names the cause, the configuration is rendered degraded, http.inc
+# stays linked, and nginx -t is run again to report.
+fs_reset
+ngx_seq 1 0; NGINX_T_OUT='nginx: [emerg] unknown directive "unmask_bv_secret" in /var/lib/unmask/nginx/http.inc:52'
+verify_or_disable >/dev/null
+check "7a strips the module once" "1" "$STRIPPED"
+check "7a writes the marker with the cause" 'reason: nginx: [emerg] unknown directive "unmask_bv_secret" in /var/lib/unmask/nginx/http.inc:52' "$(grep '^reason:' "$FAILSAFE_MARKER")"
+check "7a renders once, degraded (the marker is there first)" "1 degraded" "$RENDERS$RENDER_MODES"
+check "7a keeps http.inc linked" "linked" "$(linked)"
+check "7a re-tests after the render" "2" "$(ngx_calls)"
+
+# 7b: nginx -t fails on the operator's own config -> nothing of unmask's is touched.
+fs_reset
+ngx_seq 1; NGINX_T_OUT='nginx: [emerg] unknown directive "foo" in /etc/nginx/conf.d/site.conf:3'
+verify_or_disable >/dev/null
+check "7b leaves the module alone" "0" "$STRIPPED"
+check "7b writes no marker" "absent" "$([ -e "$FAILSAFE_MARKER" ] && echo present || echo absent)"
+check "7b renders nothing" "0" "$RENDERS"
+
+# 7c: no bundled module (the picker's own path) and unmask cannot render ->
+# http.inc is dropped from nginx as before, so nginx still starts.
+fs_reset; RENDER_RC=1
+ngx_seq 0; NGINX_T_OUT=""
+disable_unmask_module "no bundled module for host nginx 1.99.0" >/dev/null
+check "7c strips the module" "1" "$STRIPPED"
+check "7c writes the marker" "reason: no bundled module for host nginx 1.99.0" "$(grep '^reason:' "$FAILSAFE_MARKER")"
+check "7c drops http.inc when it cannot render" "dropped" "$(linked)"
+
+# 7d: the way back: the marker is there, a module is in place and nginx -t
+# passes -> the marker goes, the full configuration is rendered and checked.
+fs_reset
+: > "$FAILSAFE_MARKER"
+ngx_seq 0 0; NGINX_T_OUT=""
+verify_or_disable >/dev/null
+check "7d clears the marker" "absent" "$([ -e "$FAILSAFE_MARKER" ] && echo present || echo absent)"
+check "7d renders once, full (the marker is gone first)" "1 full" "$RENDERS$RENDER_MODES"
+check "7d checks the full configuration" "2" "$(ngx_calls)"
+check "7d strips nothing" "0" "$STRIPPED"
+
+# 7e: the marker is there and nginx -t passes, but no module is in place
+# (the web-nginx postinstall's --verify on a host whose module is gone): the
+# degraded configuration stays, nothing is rendered.
+fs_reset; WIRED=0
+: > "$FAILSAFE_MARKER"
+ngx_seq 0; NGINX_T_OUT=""
+verify_or_disable >/dev/null
+check "7e keeps the marker without a module" "present" "$([ -e "$FAILSAFE_MARKER" ] && echo present || echo absent)"
+check "7e renders nothing" "0" "$RENDERS"
+
+# 7f: the way back, but the full configuration does not load (the cause is
+# still there): stripped again, the marker is back, the degraded configuration
+# is rendered again -- and the check is not repeated (no loop).
+fs_reset
+: > "$FAILSAFE_MARKER"
+ngx_seq 0 1 0; NGINX_T_OUT='nginx: [emerg] "map_hash_bucket_size" directive is duplicate in /var/lib/unmask/nginx/http.inc:30'
+verify_or_disable >/dev/null
+check "7f strips again" "1" "$STRIPPED"
+check "7f marker is back with the cause" 'reason: nginx: [emerg] "map_hash_bucket_size" directive is duplicate in /var/lib/unmask/nginx/http.inc:30' "$(grep '^reason:' "$FAILSAFE_MARKER")"
+check "7f renders full, then degraded" "2 full degraded" "$RENDERS$RENDER_MODES"
+check "7f runs nginx -t three times, no more" "3" "$(ngx_calls)"
+
 echo "----"
 [ "$fails" -eq 0 ] && echo "ALL PASS" || echo "$fails FAILED"
 exit "$fails"
