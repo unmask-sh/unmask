@@ -57,6 +57,11 @@ func renderTo(t *testing.T, dir string, observe bool) {
 	var s settings.Settings
 	s.Nginx.OutputDir = dir
 	s.Nginx.ConfPath = conf
+	// The access log reaches the daemon on this install: the render then
+	// leaves the reload marker (an install without the log could never
+	// clear it, so the render writes none there).
+	s.NginxLog.Enabled = true
+	s.NginxLog.SocketPath = "/run/unmask/log.sock"
 	if observe {
 		s.Challenge.Default.ObserveOnly = settings.BoolPtr(true)
 	}
