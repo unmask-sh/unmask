@@ -5168,29 +5168,85 @@ const redactedSecret = "***REDACTED***"
 // password gates pages the operator chose to expose.  Public site keys, key
 // file PATHS and the hub's token-file path are not secrets and stay.
 func secretFields(s *Settings) []*string {
-	out := []*string{
-		&s.Secret.BVSecret,
-		&s.Secret.CaptchaSecretBase,
-		&s.DB.MariaDB.Password,
-		&s.SMTP.Password,
-		&s.CommunityBans.Token,
-		&s.AIAdvisor.APIKey,
-		&s.Notifications.URL,
+	out := make([]*string, 0, len(secretFieldList)+len(challengeSecretFieldList))
+	for _, f := range secretFieldList {
+		out = append(out, f.ptr(s))
 	}
 	return append(out, challengeSecretFields(&s.Challenge.Default)...)
 }
 
-// challengeSecretFields: the credentials of one challenge record -- the
+// secretFieldList: the credentials outside the challenge records, each
+// with its yaml path -- the one table secretFields and IsSecretField read.
+var secretFieldList = []struct {
+	path string
+	ptr  func(*Settings) *string
+}{
+	{"secret.bv_secret", func(s *Settings) *string { return &s.Secret.BVSecret }},
+	{"secret.captcha_secret_base", func(s *Settings) *string { return &s.Secret.CaptchaSecretBase }},
+	{"db.mariadb.password", func(s *Settings) *string { return &s.DB.MariaDB.Password }},
+	{"smtp.password", func(s *Settings) *string { return &s.SMTP.Password }},
+	{"community_bans.token", func(s *Settings) *string { return &s.CommunityBans.Token }},
+	{"ai_advisor.api_key", func(s *Settings) *string { return &s.AIAdvisor.APIKey }},
+	{"notifications.url", func(s *Settings) *string { return &s.Notifications.URL }},
+}
+
+// challengeSecretFieldList: the credentials of one challenge record -- the
 // CAPTCHA provider's secret keys (the site keys are public, they are in the
-// page) and the test-page password.
+// page) and the test-page password -- with their paths under the record.
+var challengeSecretFieldList = []struct {
+	path string
+	ptr  func(*ChallengeValues) *string
+}{
+	{"captcha_provider.turnstile_secret_key", func(v *ChallengeValues) *string { return &v.CaptchaProvider.TurnstileSecretKey }},
+	{"captcha_provider.hcaptcha_secret_key", func(v *ChallengeValues) *string { return &v.CaptchaProvider.HCaptchaSecretKey }},
+	{"captcha_provider.recaptcha_secret_key", func(v *ChallengeValues) *string { return &v.CaptchaProvider.RecaptchaSecretKey }},
+	{"public_test_pages_password", func(v *ChallengeValues) *string { return &v.PublicTestPagesPassword }},
+}
+
+// challengeSecretFields: the credentials of one challenge record
+// (challengeSecretFieldList), as pointers into v.
 func challengeSecretFields(v *ChallengeValues) []*string {
-	c := &v.CaptchaProvider
-	return []*string{
-		&c.TurnstileSecretKey,
-		&c.HCaptchaSecretKey,
-		&c.RecaptchaSecretKey,
-		&v.PublicTestPagesPassword,
+	out := make([]*string, 0, len(challengeSecretFieldList))
+	for _, f := range challengeSecretFieldList {
+		out = append(out, f.ptr(v))
 	}
+	return out
+}
+
+// IsSecretField reports whether a settings field holds a credential, by
+// its yaml path ("notifications.url"; a challenge record's under
+// "challenge.default." or "challenge.sites.<site>.") or by the field's own
+// name alone ("url"), for a caller that knows a form field and not its
+// section.  The same table WithSecretsRedacted blanks, so what the settings
+// export hides, the assistant's outline of a tab hides too: until 0.1.53
+// the outline had a list of its own, which the webhook URL was not on, and
+// the URL -- the credential for posting to the channel -- went to the
+// model with the tab.
+func IsSecretField(path string) bool {
+	path = strings.ToLower(strings.TrimSpace(path))
+	if path == "" {
+		return false
+	}
+	match := func(full string) bool {
+		if path == full {
+			return true
+		}
+		if i := strings.LastIndexByte(full, '.'); i >= 0 && path == full[i+1:] {
+			return true
+		}
+		return false
+	}
+	for _, f := range secretFieldList {
+		if match(f.path) {
+			return true
+		}
+	}
+	for _, f := range challengeSecretFieldList {
+		if match(f.path) || strings.HasSuffix(path, "."+f.path) {
+			return true
+		}
+	}
+	return false
 }
 
 // mapChallengeSites returns a copy of sites with fn applied to each record.

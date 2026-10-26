@@ -13,6 +13,7 @@ import (
 	"golang.org/x/net/html"
 
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
 // The settings outline: what the ask page's assistant reads to say where a
@@ -97,7 +98,15 @@ func settingsOutlineLite(r *http.Request) bool {
 	return v
 }
 
+// secretFieldRE names a field whose value is only said to be set, by the
+// look of its name; settings.IsSecretField names the rest -- the one table
+// the settings export redacts, so a credential whose name does not look
+// like one (the webhook URL) is hidden here as there.
 var secretFieldRE = regexp.MustCompile(`(?i)(secret|password|passwd|token|api_key|apikey|_key$|^key$|dsn)`)
+
+func secretField(name string) bool {
+	return secretFieldRE.MatchString(name) || settings.IsSecretField(name)
+}
 
 // SettingsTabOutline renders one tab for the operator in ctx (their session
 // and language) and reduces it to its outline.
@@ -372,7 +381,7 @@ func fieldOf(n *html.Node, labels map[string]string) (SettingsField, bool) {
 	default:
 		f.Value = clip(attr(n, "value"), 160)
 	}
-	if (typ == "password" || secretFieldRE.MatchString(name)) && f.Value != "" && f.Value != "on" && f.Value != "off" {
+	if (typ == "password" || secretField(name)) && f.Value != "" && f.Value != "on" && f.Value != "off" {
 		f.Value = "(set; not shown)"
 	}
 	return f, true

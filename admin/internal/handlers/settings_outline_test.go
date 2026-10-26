@@ -112,6 +112,39 @@ func TestSettingsOutlineAndFind(t *testing.T) {
 	}
 }
 
+// The webhook URL is the credential for posting to the channel; its field
+// name does not look like one, so the outline takes the settings package's
+// word for it (settings.IsSecretField) and says only that it is set.
+func TestSettingsOutlineHidesTheWebhookURL(t *testing.T) {
+	h := newTestHandler(t)
+	s := h.snapshotSettings()
+	s.Server.BasePath = "/unmask"
+	s.Notifications.URL = "https://hooks.example/services/T0/B0/very-secret-webhook"
+	h.SetSettings(s)
+	ctx := context.WithValue(context.Background(), sessionCtxKey{}, &SessionPayload{UserID: 1, Role: "admin", Exp: time.Now().Add(time.Hour).Unix()})
+	o, err := h.SettingsTabOutline(ctx, "en", "notifications")
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := false
+	for _, sec := range o.Sections {
+		for _, f := range sec.Fields {
+			if strings.Contains(f.Value, "very-secret") || strings.Contains(f.Value, "hooks.example") {
+				t.Errorf("the webhook URL leaked: %+v", f)
+			}
+			if f.Name == "url" {
+				seen = true
+				if f.Value != "(set; not shown)" {
+					t.Errorf("the webhook URL field: %+v", f)
+				}
+			}
+		}
+	}
+	if !seen {
+		t.Error("the notifications tab has no url field in its outline")
+	}
+}
+
 func TestSearchTerms(t *testing.T) {
 	got := strings.Join(searchTerms("GCP の LB はどこで設定する？ (real_ip)"), "|")
 	if got != "gcp|lb|はどこで設定する|real_ip" {
