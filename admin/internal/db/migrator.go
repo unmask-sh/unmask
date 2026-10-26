@@ -39,6 +39,18 @@
 // depend on one being there (see DB.HasIndex for the one place code names an
 // index).  TestDeferrableMigrationsAreIndexOnly holds every marked file to it.
 //
+// A second kind may be deferred on the same footing: a migration that ONLY
+// widens VARCHAR columns, marked
+//
+//	-- unmask:deferrable table=unmask_event kind=widen
+//
+// A wider column changes nothing a query returns either, and the writer
+// cuts its values to the width the column has (events.LoadColumnWidths
+// reads it from the catalog), so the daemon runs with the column at either
+// width.  TestDeferrableMigrationsAreIndexOnly holds a marked file to its
+// kind.  On MariaDB only: SQLite enforces no declared width, and its file of
+// the version is the no-op marker.
+//
 // Because a deferred migration leaves a gap below later versions, "applied"
 // is the SET of recorded versions, not everything up to the highest one.
 package db
@@ -187,6 +199,9 @@ type PendingMigration struct {
 	Table   string
 	Rows    int64
 	Indexes []string
+	// Columns are the columns a widening migration (kind=widen) has still
+	// to widen, as "name(width)".  Deferrable migrations only.
+	Columns []string
 	// EstLow / EstHigh bound the expected build time.  Both zero when there
 	// is nothing to build (every index exists, or the table is empty).
 	EstLow, EstHigh time.Duration
@@ -334,6 +349,9 @@ func (m PendingMigration) describe() string {
 	if !m.Deferrable {
 		return "schema change"
 	}
+	if len(m.Columns) > 0 {
+		return fmt.Sprintf("column change on %s (%s), about %d rows, estimated %s", m.Table, strings.Join(m.Columns, ", "), m.Rows, EstimateRange(m.EstLow, m.EstHigh))
+	}
 	if len(m.Indexes) == 0 {
 		return "index on " + m.Table + ", nothing left to build"
 	}
@@ -342,6 +360,11 @@ func (m PendingMigration) describe() string {
 
 // Describe is describe for callers outside the package.
 func (m PendingMigration) Describe() string { return m.describe() }
+
+// Builds reports whether applying the migration works over the table's rows
+// -- an index to build, a column to widen -- as opposed to one that has
+// nothing left to do and only waits to keep its place in the order.
+func (m PendingMigration) Builds() bool { return len(m.Indexes) > 0 || len(m.Columns) > 0 }
 
 // EstimateRange words a build-time estimate the way an operator plans by:
 // "under 10 s", "20-50 s", "4-10 min".  A range, because the same table builds
@@ -443,7 +466,7 @@ func pendingFrom(ctx context.Context, conn *DB, applied map[int]bool, cold bool)
 			Version: m.version, Name: m.name, Deferrable: m.deferrable, Table: m.table,
 		}}
 		if m.deferrable {
-			if err := estimateIndexMigration(ctx, conn, m, &p.PendingMigration, planned, rates); err != nil {
+			if err := estimateDeferrable(ctx, conn, m, &p.PendingMigration, planned, rates); err != nil {
 				p.Deferrable, p.estimateErr = false, err
 			}
 		}
@@ -476,6 +499,34 @@ func indexOnly(body string) bool {
 	return n > 0
 }
 
+// widenRE picks the column and the width out of the one statement a
+// widening migration may hold: ALTER TABLE t MODIFY [COLUMN] c VARCHAR(n) ...
+var widenRE = regexp.MustCompile("(?is)^\\s*ALTER\\s+TABLE\\s+[`\"]?([A-Za-z0-9_]+)[`\"]?\\s+MODIFY\\s+(?:COLUMN\\s+)?[`\"]?([A-Za-z0-9_]+)[`\"]?\\s+VARCHAR\\s*\\(\\s*([0-9]+)\\s*\\)")
+
+// widenOnly reports whether every statement of a migration widens a VARCHAR
+// column of table.  Any other change to a column -- its type, NULL, a
+// default -- is a change to what the table may hold, and does not count.
+func widenOnly(body, table string) bool {
+	n := 0
+	for _, stmt := range splitStatements(body) {
+		if strings.TrimSpace(stmt) == "" {
+			continue
+		}
+		sm := widenRE.FindStringSubmatch(stmt)
+		if sm == nil || sm[1] != table {
+			return false
+		}
+		n++
+	}
+	return n > 0
+}
+
+// The kinds of deferrable migration (migrationEntry.kind).
+const (
+	deferIndex = "index"
+	deferWiden = "widen"
+)
+
 // buildRates is what an estimate is made from: this host's measured rate
 // (microseconds per row) when it has one, the built-in range otherwise.
 type buildRates struct {
@@ -483,9 +534,9 @@ type buildRates struct {
 	fast, slow time.Duration
 }
 
-// estimateIndexMigration fills in what a deferrable migration would build and
-// how long that is expected to take.
-func estimateIndexMigration(ctx context.Context, conn *DB, m migrationEntry, p *PendingMigration, planned map[string]bool, rates buildRates) error {
+// estimateDeferrable fills in what a deferrable migration would build or
+// change and how long that is expected to take.
+func estimateDeferrable(ctx context.Context, conn *DB, m migrationEntry, p *PendingMigration, planned map[string]bool, rates buildRates) error {
 	body, err := fs.ReadFile(migrationFS, m.path)
 	if err != nil {
 		return err
@@ -498,6 +549,23 @@ func estimateIndexMigration(ctx context.Context, conn *DB, m migrationEntry, p *
 		return nil
 	}
 	for _, stmt := range splitStatements(string(body)) {
+		if m.kind == deferWiden {
+			sm := widenRE.FindStringSubmatch(stmt)
+			if sm == nil {
+				continue
+			}
+			col := sm[2]
+			width, _ := strconv.Atoi(sm[3])
+			// A column already at the width (a development binary ran an
+			// earlier form of the change) leaves nothing to do.
+			if cur, ok, err := conn.ColumnCharLength(ctx, m.table, col); err != nil {
+				return err
+			} else if ok && cur >= width {
+				continue
+			}
+			p.Columns = append(p.Columns, fmt.Sprintf("%s(%d)", col, width))
+			continue
+		}
 		sm := createIndexRE.FindStringSubmatch(stmt)
 		if sm == nil {
 			continue
@@ -516,7 +584,7 @@ func estimateIndexMigration(ctx context.Context, conn *DB, m migrationEntry, p *
 		planned[name] = true
 		p.Indexes = append(p.Indexes, name)
 	}
-	if len(p.Indexes) == 0 {
+	if len(p.Indexes)+len(p.Columns) == 0 {
 		return nil
 	}
 	rows, err := approxRows(ctx, conn, m.table)
@@ -524,7 +592,11 @@ func estimateIndexMigration(ctx context.Context, conn *DB, m migrationEntry, p *
 		return err
 	}
 	p.Rows = rows
-	n := time.Duration(rows) * time.Duration(len(p.Indexes))
+	// A column change is estimated as an index build over the table: an
+	// engine that copies the table reads and writes every row, of the same
+	// order; one that widens in place is over at once, and the estimate
+	// errs on the long side.
+	n := time.Duration(rows) * time.Duration(len(p.Indexes)+len(p.Columns))
 	if rates.host > 0 {
 		// This host has built one: its own rate, with room either side.
 		per := time.Duration(rates.host * float64(time.Microsecond))
@@ -843,13 +915,15 @@ type migrationEntry struct {
 	version int
 	name    string
 	path    string
-	// deferrable / table: the file's "-- unmask:deferrable table=<t>" marker.
+	// deferrable / table / kind: the file's "-- unmask:deferrable table=<t>
+	// [kind=widen]" marker; kind is deferIndex or deferWiden.
 	deferrable bool
 	table      string
+	kind       string
 }
 
 // deferMarkerRE matches the marker line of a deferrable migration.
-var deferMarkerRE = regexp.MustCompile(`(?m)^--\s*unmask:deferrable\s+table=([a-z_][a-z0-9_]*)\s*$`)
+var deferMarkerRE = regexp.MustCompile(`(?m)^--\s*unmask:deferrable\s+table=([a-z_][a-z0-9_]*)(?:\s+kind=(widen))?\s*$`)
 
 // listMigrations: every migration in the driver's embed FS, in ascending
 // version order.
@@ -884,8 +958,13 @@ func listMigrations(driver string) ([]migrationEntry, error) {
 		// The marker only counts on a file that keeps to the rule; one that
 		// does not is applied in place like any other (and fails the test
 		// that holds marked files to it).
-		if dm := deferMarkerRE.FindSubmatch(body); dm != nil && indexOnly(string(body)) {
-			ent.deferrable, ent.table = true, string(dm[1])
+		if dm := deferMarkerRE.FindSubmatch(body); dm != nil {
+			switch table, kind := string(dm[1]), string(dm[2]); {
+			case kind == "" && indexOnly(string(body)):
+				ent.deferrable, ent.table, ent.kind = true, table, deferIndex
+			case kind == deferWiden && widenOnly(string(body), table):
+				ent.deferrable, ent.table, ent.kind = true, table, deferWiden
+			}
 		}
 		migs = append(migs, ent)
 	}

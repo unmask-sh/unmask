@@ -83,11 +83,14 @@ func names(ps []PendingMigration) string {
 // TestDeferrableMigrationsAreIndexOnly: the marker is a promise that the
 // daemon can run without the migration.  That holds for an index -- it changes
 // how fast a read is, never what it returns -- and for nothing else, so a
-// marked file may hold CREATE INDEX and DROP INDEX and that is all.  Both
-// drivers must mark the same versions, or one of them would wait for an
-// operator the other never asks for -- unless the other driver's file of that
-// version does nothing (the no-op marker): an index one engine cannot have,
-// such as 0037's partial indexes, leaves the other nothing to wait for.
+// marked file may hold CREATE INDEX and DROP INDEX and that is all; a file
+// marked kind=widen may widen VARCHAR columns of its table and that is all
+// (a wider column changes nothing a query returns, and the writer cuts to
+// the width the column has).  Both drivers must mark the same versions, or
+// one of them would wait for an operator the other never asks for -- unless
+// the other driver's file of that version does nothing (the no-op marker):
+// an index one engine cannot have, such as 0037's partial indexes, or a
+// width SQLite does not enforce (0048), leaves the other nothing to wait for.
 func TestDeferrableMigrationsAreIndexOnly(t *testing.T) {
 	marked := map[string]map[int]bool{}
 	noop := map[string]map[int]bool{}
@@ -119,9 +122,20 @@ func TestDeferrableMigrationsAreIndexOnly(t *testing.T) {
 				}
 				continue
 			}
-			if !indexOnly(string(body)) {
-				t.Errorf("%s/%s is marked deferrable and holds a statement that is not CREATE INDEX / DROP INDEX: "+
-					"a deferred migration may be absent for weeks, and only an index can be", driver, e.Name())
+			switch string(dm[2]) {
+			case "":
+				if !indexOnly(string(body)) {
+					t.Errorf("%s/%s is marked deferrable and holds a statement that is not CREATE INDEX / DROP INDEX: "+
+						"a deferred migration may be absent for weeks, and only an index can be", driver, e.Name())
+				}
+			case deferWiden:
+				if !widenOnly(string(body), string(dm[1])) {
+					t.Errorf("%s/%s is marked deferrable kind=widen and holds a statement that is not ALTER TABLE %s MODIFY ... VARCHAR(n): "+
+						"a deferred migration may be absent for weeks, and only a wider column can be", driver, e.Name(), dm[1])
+				}
+				if driver != "mariadb" {
+					t.Errorf("%s/%s: kind=widen is for MariaDB; SQLite enforces no width and its file is the no-op marker", driver, e.Name())
+				}
 			}
 			// The tables approxRows is known to size: unmask_event by its id
 			// span; unmask_aggregate_hourly, which has no id, by its rowid span
@@ -173,6 +187,36 @@ func isNoopMigration(body string) bool {
 		}
 	}
 	return len(stmts) == 1 && strings.TrimSuffix(stmts[0], ";") == "SELECT 1 WHERE 0"
+}
+
+func TestWidenOnly(t *testing.T) {
+	for body, want := range map[string]bool{
+		"ALTER TABLE t MODIFY COLUMN c VARCHAR(1024) COMMENT 'x';":                 true,
+		"ALTER TABLE t MODIFY c VARCHAR(100);\nALTER TABLE t MODIFY d VARCHAR(8);": true,
+		"-- a comment\nALTER TABLE `t` MODIFY COLUMN `c` VARCHAR( 64 );":           true,
+		"ALTER TABLE other MODIFY COLUMN c VARCHAR(64);":                           false, // another table
+		"ALTER TABLE t MODIFY COLUMN c TEXT;":                                      false, // a type change
+		"ALTER TABLE t MODIFY COLUMN c INT;":                                       false,
+		"ALTER TABLE t ADD COLUMN c VARCHAR(64);":                                  false,
+		"ALTER TABLE t MODIFY COLUMN c VARCHAR(64);\nDELETE FROM t;":               false,
+		"CREATE INDEX i ON t(a);":                                                  false,
+		"-- only a comment":                                                        false,
+	} {
+		if got := widenOnly(body, "t"); got != want {
+			t.Errorf("widenOnly(%q) = %v, want %v", body, got, want)
+		}
+	}
+	// The marker with the kind parses; the kind is the second group.
+	dm := deferMarkerRE.FindStringSubmatch("-- unmask:deferrable table=unmask_event kind=widen\n")
+	if dm == nil || dm[1] != "unmask_event" || dm[2] != deferWiden {
+		t.Errorf("marker with kind=widen parsed as %q", dm)
+	}
+	if dm := deferMarkerRE.FindStringSubmatch("-- unmask:deferrable table=unmask_event\n"); dm == nil || dm[2] != "" {
+		t.Errorf("marker without a kind parsed as %q", dm)
+	}
+	if deferMarkerRE.MatchString("-- unmask:deferrable table=unmask_event kind=other\n") {
+		t.Error("an unknown kind must not parse as the marker")
+	}
 }
 
 func TestIndexOnly(t *testing.T) {

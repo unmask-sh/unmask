@@ -843,6 +843,29 @@ func hasColumn(conn *DB, table, col string) (bool, error) {
 	return n > 0, nil
 }
 
+// ColumnCharLength is the width, in characters, the database enforces on a
+// string column: what a writer cuts its values to.  ok is false where none
+// is enforced -- on SQLite, whose declared widths are informational, and on
+// a column without one (TEXT) -- and err reports a catalog that could not
+// be read.
+func (d *DB) ColumnCharLength(ctx context.Context, table, column string) (n int, ok bool, err error) {
+	if d.Driver != DriverMariaDB {
+		return 0, false, nil
+	}
+	var v sql.NullInt64
+	err = d.QueryRowContext(ctx,
+		`SELECT CHARACTER_MAXIMUM_LENGTH FROM INFORMATION_SCHEMA.COLUMNS
+		 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?`,
+		table, column).Scan(&v)
+	if err != nil {
+		return 0, false, err
+	}
+	if !v.Valid || v.Int64 <= 0 {
+		return 0, false, nil
+	}
+	return int(v.Int64), true, nil
+}
+
 // splitStatements: simple ; splitter.  Drops -- comment lines and blank lines.
 func splitStatements(sql string) []string {
 	var lines []string
@@ -909,7 +932,7 @@ CREATE TABLE IF NOT EXISTS unmask_event (
     phase           VARCHAR(32) NOT NULL,                        -- pipeline phase the event was emitted at (e.g. challenge, bv_pow)
     flags           INTEGER NOT NULL DEFAULT 0,                  -- bitmask of behavioral / detection flags
     reload_count    INTEGER NOT NULL DEFAULT 0,                  -- times the challenge page was reloaded in this flow
-    cookie_bv       VARCHAR(80),                                 -- the _bv cookie value carried on the request, if any
+    cookie_bv       VARCHAR(1024),                               -- the _bv cookie value carried on the request, if any (as the beacon reads it, up to 1024 bytes)
     cookie_br       VARCHAR(8),                                  -- short branch/route marker cookie
     payload_json    TEXT,                                        -- extra structured event data (JSON)
     date_created    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP  -- event timestamp (UTC)
@@ -1064,7 +1087,7 @@ CREATE TABLE IF NOT EXISTS unmask_event (
     phase           VARCHAR(32) NOT NULL COMMENT 'pipeline phase the event was emitted at (e.g. challenge, bv_pow)',
     flags           INT NOT NULL DEFAULT 0 COMMENT 'bitmask of behavioral / detection flags',
     reload_count    INT NOT NULL DEFAULT 0 COMMENT 'times the challenge page was reloaded in this flow',
-    cookie_bv       VARCHAR(80) COMMENT 'the _bv cookie value carried on the request, if any',
+    cookie_bv       VARCHAR(1024) COMMENT 'the _bv cookie value carried on the request, if any (as the beacon reads it, up to 1024 bytes)',
     cookie_br       VARCHAR(8) COMMENT 'short branch/route marker cookie',
     payload_json    LONGTEXT COMMENT 'extra structured event data (JSON)',
     date_created    DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) COMMENT 'event timestamp (UTC)',

@@ -20,10 +20,12 @@ import (
 	"context"
 	"errors"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/safe"
 )
@@ -46,6 +48,10 @@ type Flusher struct {
 	// metrics (= dropped etc.  For future dashboard visualization).
 	dropped        atomic.Uint64 // queue-full drops (Submit on a full channel)
 	droppedOnError atomic.Uint64 // overflow drops after a DB-error retry backlog
+	// droppedBadRows: rows the database refused for what they carried
+	// (insertRows) -- a value no cut made fit, a constraint -- and that
+	// were let go so the rest of their batch could be written.
+	droppedBadRows atomic.Uint64
 	// kept: the events held in memory while the database's writes are held,
 	// as of the last tick -- what the admin UI shows during a long run.
 	kept atomic.Int64
@@ -67,10 +73,21 @@ func NewFlusher(d *db.DB, batchSize int, intervalMs int) *Flusher {
 	}
 	f.batchSize.Store(int32(batchSize))
 	f.flushInterval.Store(int64(time.Duration(intervalMs) * time.Millisecond))
+	// The widths the rows are cut to (events.go): read before the first
+	// write, so that none is refused for a width the catalog could have
+	// told.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	LoadColumnWidths(ctx, d)
+	cancel()
 	f.wg.Add(1)
 	go f.run()
 	return f
 }
+
+// columnWidthsEvery is how often the running flusher re-reads the column
+// widths (LoadColumnWidths): an operator applying migration 0048 while
+// the daemon runs is noticed within this.
+const columnWidthsEvery = 10 * time.Minute
 
 // Submit: non-blocking enqueue.  On a full queue, drop + warn (= bump the dropped counter).
 func (f *Flusher) Submit(e *Event) {
@@ -173,6 +190,26 @@ func (f *Flusher) DroppedOnErrorCount() uint64 {
 	return f.droppedOnError.Load()
 }
 
+// DroppedBadRowsCount: cumulative rows the database refused for their own
+// data and that were let go so the rest of their batch could be written
+// (insertRows).  A third failure mode, apart from the two above: the row,
+// not the queue or the database, was the problem.
+func (f *Flusher) DroppedBadRowsCount() uint64 {
+	if f == nil {
+		return 0
+	}
+	return f.droppedBadRows.Load()
+}
+
+// GlobalFlusherDroppedBadRows is DroppedBadRowsCount of the process's
+// flusher.  Used by metrics / status.
+func GlobalFlusherDroppedBadRows() uint64 {
+	if f := globalFlusher.Load(); f != nil {
+		return f.DroppedBadRowsCount()
+	}
+	return 0
+}
+
 func (f *Flusher) run() {
 	defer f.wg.Done()
 	defer safe.Recover("events-flusher") // a panic here must not crash the daemon
@@ -183,6 +220,7 @@ func (f *Flusher) run() {
 	t := time.NewTicker(100 * time.Millisecond)
 	defer t.Stop()
 	lastFlush := time.Now()
+	widthsRead := time.Now()
 	holding := false
 	// kept: buf holds events kept through a hold, not yet all written.
 	kept := false
@@ -224,12 +262,25 @@ func (f *Flusher) run() {
 		for len(buf) > 0 {
 			n := min(len(buf), flushChunk)
 			ctx, cancel := context.WithDeadline(context.Background(), deadline)
+			consumed := 0
 			err := insertBulk(ctx, f.d, buf[:n])
+			switch {
+			case err == nil:
+				consumed = n
+			case isDataError(err):
+				// The chunk holds a row the database refuses for what it
+				// carries.  Written again row by row, so that the row is
+				// what is lost and not the chunk -- which, kept and
+				// retried whole, would have failed on it every time.
+				consumed, err = f.insertRows(ctx, buf[:n], err)
+			}
 			cancel()
+			if consumed > 0 {
+				buf = append(buf[:0], buf[consumed:]...)
+			}
 			if err != nil {
 				return err
 			}
-			buf = append(buf[:0], buf[n:]...)
 			drain()
 			if kept && len(buf) > 0 {
 				time.Sleep(backlogPause)
@@ -321,6 +372,12 @@ func (f *Flusher) run() {
 			if time.Since(lastFlush) >= interval || (holding && len(buf) > heldMax) {
 				flush(false)
 			}
+			if time.Since(widthsRead) >= columnWidthsEvery {
+				widthsRead = time.Now()
+				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				LoadColumnWidths(ctx, f.d)
+				cancel()
+			}
 		case <-f.done:
 			// Drain what is queued and write it all, the hold or not: this
 			// is the last chance, and a run that held the lock has been
@@ -364,6 +421,71 @@ func insertBulk(ctx context.Context, d *db.DB, events []*Event) error {
 		}
 	}
 	return tx.Commit()
+}
+
+// isDataError reports whether a write failed for what a row carries -- a
+// value longer than its column, one that is not valid UTF-8, one out of
+// range -- rather than for the state of the database (locked, down, full),
+// which a retry of the same rows can cure.  MariaDB's own codes, and the
+// messages for an error the driver did not type.
+func isDataError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var me *mysql.MySQLError
+	if errors.As(err, &me) {
+		switch me.Number {
+		case 1406, // data too long for column
+			1366, // incorrect string value
+			1265, // data truncated for column
+			1264: // out of range value for column
+			return true
+		}
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "Data too long") || strings.Contains(msg, "Incorrect string value")
+}
+
+// insertRows writes events one row at a time, each its own transaction,
+// after insertBulk refused the chunk for a row's data (cause).  A row the
+// database refuses for its data is let go and counted (DroppedBadRowsCount);
+// a failure of any other kind ends the pass, and the row and those after
+// it stay for the retry.  Returns how many rows were consumed -- written or
+// let go -- and that other failure, if one ended the pass.
+func (f *Flusher) insertRows(ctx context.Context, events []*Event, cause error) (consumed int, err error) {
+	bad := 0
+	var first error
+	defer func() {
+		if bad > 0 {
+			f.droppedBadRows.Add(uint64(bad))
+			log.Printf("events batch flush: the database refused %d row(s) of %d for their data, which were dropped (first: %v); the rest of the batch was written row by row", bad, len(events), first)
+		}
+	}()
+	for _, e := range events {
+		args := prepareInsertArgs(e)
+		if args == nil {
+			consumed++
+			continue
+		}
+		if _, err := f.d.ExecContext(ctx, insertStmt, args...); err != nil {
+			if !isDataError(err) {
+				return consumed, err
+			}
+			if first == nil {
+				first = err
+			}
+			bad++
+		}
+		consumed++
+	}
+	if bad == 0 {
+		// Every row went in on its own: the chunk failed as a whole for a
+		// reason the pass did not meet again.  Said, since the cause named
+		// a row and none was found.
+		log.Printf("events batch flush: the batch was refused (%v) but every row of it was written on its own", cause)
+	}
+	return consumed, nil
 }
 
 // HeldEvents is how many events the flusher keeps in memory while the

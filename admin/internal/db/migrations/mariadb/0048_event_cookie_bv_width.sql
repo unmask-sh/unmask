@@ -1,0 +1,26 @@
+-- unmask:deferrable table=unmask_event kind=widen
+--
+-- Widens one column and nothing else, so the daemon may leave it for the
+-- operator when the table is large (see the package doc of
+-- internal/db/migrator.go): the writer cuts the value to the width the
+-- column has (events.LoadColumnWidths), so it runs with or without this.
+--
+-- 0048 event cookie_bv width: the pass cookie as the beacon reads it.
+--
+-- The column was sized for the cookie of one network: a day, a signature
+-- and a counter.  The cookie now carries an entry for each network the
+-- visitor has passed from, and the beacon reads up to 1024 bytes of it.
+-- Under the default sql_mode (STRICT_TRANS_TABLES) a value longer than the
+-- column is an error (1406) that rolled back the whole batch the row was
+-- in -- and the batch was kept and retried with the row still in it.  The
+-- writer now cuts the value to the column's width; this makes the column
+-- wide enough to keep what the beacon reads.  SQLite enforces no declared
+-- width and has nothing to change (see its counterpart).
+--
+-- A VARCHAR extension that keeps the column's length prefix at two bytes
+-- (utf8mb4: 80 and 1024 characters both take two) is done in place by
+-- InnoDB without copying the table.  An engine that must copy it reads and
+-- writes every row, which on a large table is why this may be left for the
+-- operator.
+ALTER TABLE unmask_event
+    MODIFY COLUMN cookie_bv VARCHAR(1024) COMMENT 'the _bv cookie value carried on the request, if any (as the beacon reads it, up to 1024 bytes)';

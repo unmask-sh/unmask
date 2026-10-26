@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 )
@@ -489,6 +490,91 @@ func pruneCheckpointWAL(ctx context.Context, d *db.DB, deleted int64) {
 	}
 }
 
+// The widths, in characters, of unmask_event's string columns (the schema
+// in db/migrate.go).  A value is cut to its column's width before the write
+// (prepareInsertArgs, fit): under MariaDB's default sql_mode
+// (STRICT_TRANS_TABLES) a longer value is an error (1406), and so is one
+// with invalid UTF-8 (1366) -- and either rolled back the whole batch the
+// row was in, which was then kept and retried with the row still in it
+// (batch.go).  SQLite enforces no width; the cut is the same on both, so a
+// row reads the same whichever holds it.  These values come from the client
+// -- a header, a cookie -- not from an operator's form: the rule that
+// operator input is validated rather than cut short does not apply.
+const (
+	widthSite      = 64
+	widthHost      = 64
+	widthUserAgent = 255
+	widthJA4       = 40
+	widthVerdict   = 40
+	widthCookieBR  = 8
+
+	// CookieBVWidth is cookie_bv's width since migration 0048: the most
+	// the beacon reads of the cookie (handlers.readCookieMax).
+	CookieBVWidth = 1024
+	// cookieBVWidthShipped is the width the column had before 0048, which
+	// a MariaDB database may still have: the migration may be left for
+	// the operator (db/migrator.go).
+	cookieBVWidthShipped = 80
+)
+
+// cookieBVWidth is cookie_bv's width in the database this process writes:
+// the catalog's on MariaDB (LoadColumnWidths), CookieBVWidth otherwise.
+// cookieBVWidthRead: a read of the catalog has succeeded, so the width is
+// the database's own and a read that fails later does not replace it.
+var (
+	cookieBVWidth     atomic.Int32
+	cookieBVWidthRead atomic.Bool
+)
+
+func init() { cookieBVWidth.Store(CookieBVWidth) }
+
+// LoadColumnWidths reads the width the database enforces on cookie_bv, the
+// one column whose width differs between a MariaDB database that has
+// applied migration 0048 and one where it waits for the operator.  Read at
+// the flusher's start and again now and then while it runs, so that an
+// applied 0048 is noticed without a restart.  A catalog that has never been
+// read puts the shipped width in force: a cut too short loses the tail of a
+// cookie's record; one too long loses the row.
+func LoadColumnWidths(ctx context.Context, d *db.DB) {
+	if d == nil || d.Driver != db.DriverMariaDB {
+		cookieBVWidth.Store(CookieBVWidth)
+		return
+	}
+	n, ok, err := d.ColumnCharLength(ctx, "unmask_event", "cookie_bv")
+	switch {
+	case err != nil:
+		if !cookieBVWidthRead.Load() && cookieBVWidth.Swap(cookieBVWidthShipped) != cookieBVWidthShipped {
+			log.Printf("events: could not read cookie_bv's width (%v); values are cut to %d characters until it can be read", err, cookieBVWidthShipped)
+		}
+	case !ok:
+		cookieBVWidth.Store(CookieBVWidth) // no width enforced: nothing to cut to
+		cookieBVWidthRead.Store(true)
+	default:
+		cookieBVWidth.Store(int32(min(n, CookieBVWidth)))
+		cookieBVWidthRead.Store(true)
+	}
+}
+
+// fit makes s fit a column of n characters: bytes that are not valid UTF-8
+// are dropped (a utf8mb4 column refuses them) and what lies past n runes
+// is cut.  n <= 0 means no width.
+func fit(s string, n int) string {
+	if !utf8.ValidString(s) {
+		s = strings.ToValidUTF8(s, "")
+	}
+	if n <= 0 || len(s) <= n {
+		return s // bytes >= runes: within n bytes is within n runes
+	}
+	runes := 0
+	for i := range s {
+		if runes == n {
+			return s[:i]
+		}
+		runes++
+	}
+	return s
+}
+
 // insertStmt is shared between batch and single-row inserts.
 const insertStmt = `INSERT INTO unmask_event
         (site, host, scheme, port, ip_address, user_agent, ja4, ja4_verdict, ja4_verdict_id, phase, flags, reload_count,
@@ -502,14 +588,14 @@ func prepareInsertArgs(e *Event) []any {
 	if e == nil || !IsValidPhase(e.Phase) {
 		return nil
 	}
-	ua := truncate(e.UserAgent, 255)
-	ja4 := nullIfEmpty(e.JA4)
-	// ja4_verdict is VARCHAR(40) and comes from the X-JA4-Verdict header on the
-	// beacon path; cap it so an over-long value can't raise MariaDB error 1406
-	// and roll back the entire (default 100-event) batch insert.
-	verdict := nullIfEmpty(truncate(e.JA4Verdict, 40))
-	cookieBV := nullIfEmpty(e.CookieBV)
-	cookieBR := nullIfEmpty(e.CookieBR)
+	// Every string column is cut to its width (see the widths above): the
+	// user agent and the verdict come from headers, the cookies from the
+	// request, and a value past the column rolled back the batch.
+	ua := fit(e.UserAgent, widthUserAgent)
+	ja4 := nullIfEmpty(fit(e.JA4, widthJA4))
+	verdict := nullIfEmpty(fit(e.JA4Verdict, widthVerdict))
+	cookieBV := nullIfEmpty(fit(e.CookieBV, int(cookieBVWidth.Load())))
+	cookieBR := nullIfEmpty(fit(e.CookieBR, widthCookieBR))
 
 	var payloadText sql.NullString
 	// ref_id is a plain column the writer fills, indexed so the support lookup
@@ -539,11 +625,12 @@ func prepareInsertArgs(e *Event) []any {
 	}
 	// Safety net: site is the visitor Host (handler-normalized), but cap it at
 	// the unmask_event.site column width in case an unnormalized value slips in.
-	site = truncate(site, 64)
+	site = fit(site, widthSite)
 	host := e.Host
 	if host == "" {
 		host = "default"
 	}
+	host = fit(host, widthHost)
 
 	var verdictID sql.NullInt64
 	if e.JA4VerdictID > 0 {
@@ -1984,13 +2071,6 @@ func unpackIP(b []byte) string {
 		return net.IP(b).To16().String()
 	}
 	return ""
-}
-
-func truncate(s string, n int) string {
-	if len(s) > n {
-		return s[:n]
-	}
-	return s
 }
 
 func nullIfEmpty(s string) sql.NullString {

@@ -203,7 +203,7 @@ func ApplySchemaUpdate(ctx context.Context, conn *DB, opt SchemaUpdateOptions) (
 		buildRows += m.Rows * int64(len(m.Indexes))
 		// The plan names what takes time.  A new install applies every
 		// migration there is, each in a moment, and has nothing to be told.
-		if len(m.Indexes) > 0 && m.EstHigh >= time.Second {
+		if m.Builds() && m.EstHigh >= time.Second {
 			logf("%s: %s", m.Name, m.describe())
 		}
 	}
@@ -277,7 +277,7 @@ func ApplySchemaUpdate(ctx context.Context, conn *DB, opt SchemaUpdateOptions) (
 		}
 		// The terminal hears about what takes time, as the plan above: a
 		// new install's index migrations are each over in a moment.
-		says := len(m.Indexes) > 0 && m.EstHigh >= time.Second
+		says := m.Builds() && m.EstHigh >= time.Second
 		announced = announced || says
 		if says {
 			stage(SchemaStageIndex, m.Name, i, "%s: building (%d of %d)", m.Name, i+1, len(pending))

@@ -328,7 +328,7 @@ func scatterNote(pending []db.PendingMigration, sp *db.SQLiteSpace, indent strin
 	}
 	builds := false
 	for _, m := range pending {
-		builds = builds || len(m.Indexes) > 0
+		builds = builds || m.Builds()
 	}
 	if !builds {
 		return ""
@@ -351,7 +351,7 @@ func schemaNotice(left []db.PendingMigration, holdsWrites bool, shell string, sp
 	b.WriteString("unmask: a database update is waiting and was NOT applied automatically:\n")
 	for _, m := range left {
 		low, high = low+m.EstLow, high+m.EstHigh
-		if len(m.Indexes) == 0 {
+		if !m.Builds() {
 			continue // nothing to build; it only waits to keep its place in the order
 		}
 		fmt.Fprintf(&b, "          %s  (%s)\n", m.Name, m.Describe())

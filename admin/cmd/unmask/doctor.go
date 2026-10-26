@@ -927,7 +927,7 @@ func schemaVerdict(pending, left []db.PendingMigration, rec db.SchemaUpdateRecor
 	var names []string
 	for _, m := range left {
 		low, high = low+m.EstLow, high+m.EstHigh
-		if len(m.Indexes) > 0 {
+		if m.Builds() {
 			names = append(names, m.Name)
 		}
 	}
