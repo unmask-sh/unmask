@@ -58,7 +58,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential libssl-dev libpcre2-dev zlib1g-dev curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
-RUN curl -fsSL "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz" | tar -xz
+# The tarball is checked against the sha256 pinned in the repo (the same file
+# the Makefile's module build verifies) before it is unpacked: a version with
+# no pin fails the build, so does a tarball that does not match.
+COPY nginx-module/nginx-sha256sums.txt /src/nginx-sha256sums.txt
+RUN curl -fsSL -o "nginx-${NGINX_VERSION}.tar.gz" "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz" \
+    && grep -E "^[0-9a-f]{64}  nginx-${NGINX_VERSION}\.tar\.gz$" nginx-sha256sums.txt | sha256sum -c - \
+    && tar -xzf "nginx-${NGINX_VERSION}.tar.gz" \
+    && rm "nginx-${NGINX_VERSION}.tar.gz"
 COPY nginx-module/ /src/nginx-module/
 RUN cd "nginx-${NGINX_VERSION}" \
     && ./configure --with-compat \

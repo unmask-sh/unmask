@@ -21,7 +21,7 @@
 # Required external tools:
 #   - go              (admin binary build)
 #   - gcc / make      (nginx module build)
-#   - nfpm            (rpm/deb/apk: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest)
+#   - nfpm            (rpm/deb/apk: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.46.3)
 #   - envsubst        (env expansion for nfpm yml; bundled with coreutils / gettext-base)
 #   - docker          (docker / docker-buildx target; optional)
 #   - aarch64-linux-gnu-gcc (cross compile of arm64 nginx module; optional)

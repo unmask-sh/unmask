@@ -30,7 +30,7 @@ services:
     container_name: unmask
     restart: unless-stopped
     environment:
-      TZ: Asia/Tokyo
+      TZ: UTC                           # the container's clock, for its logs; set your own zone
       # Everything about the gateway lives in the admin UI, Settings >
       # Gateway: the upstream, the hostnames it answers for, and the
       # certificates.  The variables below only seed that tab on the first

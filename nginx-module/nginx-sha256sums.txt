@@ -2,7 +2,9 @@
 #
 # The Makefile verifies every nginx-<ver>.tar.gz it downloads from nginx.org
 # against the matching line here before extracting + compiling, so a tampered
-# CDN / MITM / mirror cannot slip a backdoored nginx into the built .so.
+# CDN / MITM / mirror cannot slip a backdoored nginx into the built .so.  The
+# Dockerfile's module stage checks its tarball (NGINX_VERSION, the runtime
+# image's version) against the same lines.
 #
 # Pins were taken over HTTPS from https://nginx.org/download/.  To add a new
 # version: download it, `sha256sum nginx-<ver>.tar.gz`, and add the line below
@@ -22,3 +24,4 @@ e462e11533d5c30baa05df7652160ff5979591d291736cfa5edb9fd2edb48c49  nginx-1.20.1.t
 69ee2b237744036e61d24b836668aad3040dda461fe6f570f1787eab570c75aa  nginx-1.26.3.tar.gz
 2c96a946bfb0882a21744ed429770a2123ae1828c7c48665092993ddee91a918  nginx-1.28.3.tar.gz
 058188c64bf22baecaa72b809a6318a4f9ba623889c554feab03f7cb853ab31b  nginx-1.30.0.tar.gz
+3cf46f5ed7504d460125866b7bea99fb357f31d887e2e63b35503310e9b8b6c8  nginx-1.30.6.tar.gz
