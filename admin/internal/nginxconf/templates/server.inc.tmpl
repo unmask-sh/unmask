@@ -424,7 +424,16 @@ location @unmask_rate_challenge {
 # daemon location includes this right after the proxy template.
 {{ define "unmask_daemon_failopen" }}
     # Daemon unreachable -> fail open via @unmask_daemon_down (replays orig).
-    proxy_intercept_errors on;
+    # "Unreachable" is nginx's own 502/504 -- no connection, a timeout, a
+    # connection closed mid-answer -- which error_page catches without any
+    # intercept.  A 5xx the daemon itself sends is an answer and goes to the
+    # client as it is: with proxy_intercept_errors on, the 502 + JSON a
+    # webhook test returns when the webhook refuses (its reason inside) came
+    # back as "unmask admin temporarily unavailable", and the settings page
+    # could not even parse it.  Written out rather than left to the default
+    # so a vhost-level "proxy_intercept_errors on" (custom error pages) is not
+    # inherited here.
+    proxy_intercept_errors off;
     error_page 502 503 504 = @unmask_daemon_down;
 {{ end }}
 

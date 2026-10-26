@@ -50,6 +50,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- (2026-10-26) **A failed webhook test says why.**  The notification tab's webhook and mail tests showed a JSON parse error on failure: nginx's daemon-down hook swapped the daemon's answer, reason and all, for its own 503.  After the next nginx reload the daemon's answers reach the page, and a failed test or alert names what the webhook answered, without the hook's URL, which carries its secret, in the page or the log.
+
 - (2026-10-26) **A reload after removing the nginx module no longer crashes the new workers.**  The module registered a free callback with OpenSSL for its per-connection JA4 data; once `load_module` was removed and nginx reloaded, as the package's removal advice says, the callback pointed into unmapped memory and every new worker died on its first TLS close.  The data now lives in the connection pool and no callback is registered.
 
 - (2026-10-26) **JA4 follows the specification for an empty SNI extension and for very long cipher or extension lists.**  The indicator was `i` for a server_name extension that carried no host_name entry, and a hello with more than 256 ciphers or extensions hashed differently from other implementations; the lists now hold 1024 entries and 256 signature algorithms.  Real browsers' fingerprints do not change.

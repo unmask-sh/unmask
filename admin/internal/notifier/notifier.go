@@ -21,9 +21,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -314,13 +317,38 @@ func (n *Notifier) TestSend(ctx context.Context) error {
 	req.Header.Set("User-Agent", "unmask/0.1 (+webhook)")
 	resp, err := n.client.Do(req)
 	if err != nil {
-		return err
+		return withoutURL(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		return fmt.Errorf("webhook returned HTTP %d", resp.StatusCode)
+		return fmt.Errorf("webhook returned HTTP %d%s", resp.StatusCode, bodyHint(resp.Body))
 	}
 	return nil
+}
+
+// withoutURL drops the request URL from a client error.  A webhook URL is its
+// own secret (a Slack or Discord hook's token is in the path), and these
+// errors reach the settings page and the daemon log.  What remains says what
+// went wrong: "Post: dial tcp: lookup hooks.example: no such host".
+func withoutURL(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		return fmt.Errorf("%s: %w", ue.Op, ue.Err)
+	}
+	return err
+}
+
+// bodyHint: the start of a refusing webhook's answer, as ": <text>" for the
+// error, or "" when it sent none.  The body says more than the status -- a
+// Slack hook answers 404 "no_service" for one that was removed and 403
+// "invalid_token" for a wrong token.  One line, at most 200 bytes.
+func bodyHint(r io.Reader) string {
+	b, _ := io.ReadAll(io.LimitReader(r, 200))
+	s := strings.Join(strings.Fields(strings.ToValidUTF8(string(b), "")), " ")
+	if s == "" {
+		return ""
+	}
+	return ": " + s
 }
 
 func (n *Notifier) send(cfg Config, event string, fields map[string]any, text string) {
@@ -336,12 +364,12 @@ func (n *Notifier) send(cfg Config, event string, fields map[string]any, text st
 	req.Header.Set("User-Agent", "unmask/0.1 (+webhook)")
 	resp, err := n.client.Do(req)
 	if err != nil {
-		log.Printf("notifier %s POST: %v", event, err)
+		log.Printf("notifier %s POST: %v", event, withoutURL(err))
 		return
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
-		log.Printf("notifier %s response: HTTP %d", event, resp.StatusCode)
+		log.Printf("notifier %s response: HTTP %d%s", event, resp.StatusCode, bodyHint(resp.Body))
 	}
 }
 

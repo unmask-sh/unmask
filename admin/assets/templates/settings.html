@@ -6513,13 +6513,17 @@ document.getElementById('notify-test-btn').addEventListener('click', function(){
   fd.set('format', form.querySelector('[name=format]').value);
   fd.set('site_label', form.querySelector('[name=site_label]').value);
   fetch('{{ .BasePath }}/admin/api/notify/test', { method:'POST', body: new URLSearchParams(fd) })
-    .then(r => r.json().then(d => ({ status: r.status, data: d })))
+    // Read as text: an answer that is not ours (a proxy's error page, nginx's
+    // 503 while the daemon restarts) shows as its status and first words,
+    // not as a JSON parse error.
+    .then(r => r.text().then(t => { var d = null; try { d = JSON.parse(t); } catch (_) {} return { status: r.status, data: d || {}, text: t }; }))
     .then(res => {
       if (res.data.ok === 1) {
         result.textContent = '{{ t .Lang "settings.notify.test_ok" }}';
         result.style.color = '#15803d';
       } else {
-        result.textContent = '{{ t .Lang "settings.notify.test_ng" }}: ' + (res.data.error || res.status);
+        var said = res.text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+        result.textContent = '{{ t .Lang "settings.notify.test_ng" }}: ' + (res.data.error || ('HTTP ' + res.status + (said ? ' ' + said : '')));
         result.style.color = '#b91c1c';
       }
     })
@@ -6661,7 +6665,8 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
   fd.set('insecure_skip_verify', form.querySelector('[name=insecure_skip_verify]').checked ? '1' : '0');
   fd.set('to', document.getElementById('smtp-test-to').value);
   fetch('{{ .BasePath }}/admin/api/smtp/test', { method:'POST', body: new URLSearchParams(fd) })
-    .then(r => r.json().then(d => ({ status: r.status, data: d })))
+    // As the webhook test: an answer that is not JSON shows its status.
+    .then(r => r.text().then(t => { var d = null; try { d = JSON.parse(t); } catch (_) {} return { status: r.status, data: d || {}, text: t }; }))
     .then(res => {
       if (res.data.ok === 1) {
         result.textContent = '{{ t .Lang "settings.smtp.test_ok" }}';
@@ -6672,7 +6677,8 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         result.textContent = '{{ t .Lang "settings.smtp.test_ng" }}: {{ t .Lang "settings.smtp.test_password_required" }}';
         result.style.color = '#b91c1c';
       } else {
-        result.textContent = '{{ t .Lang "settings.smtp.test_ng" }}: ' + (res.data.error || res.status);
+        var said = res.text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+        result.textContent = '{{ t .Lang "settings.smtp.test_ng" }}: ' + (res.data.error || ('HTTP ' + res.status + (said ? ' ' + said : '')));
         result.style.color = '#b91c1c';
       }
     })

@@ -48,8 +48,16 @@ func TestDaemonDownFailOpenRendered(t *testing.T) {
 		if got := strings.Count(server, "error_page 502 503 504 = @unmask_daemon_down;"); got != 2 {
 			t.Errorf("the admin and /unmask/ proxies must hook 502/503/504 into @unmask_daemon_down, found %d", got)
 		}
-		if !strings.Contains(server, "proxy_intercept_errors on;") {
-			t.Error("daemon proxy locations must set proxy_intercept_errors on")
+		// ...for nginx's own 502/504 only.  A 5xx the daemon sends is its
+		// answer: intercepted, the webhook test's 502 + JSON reached the
+		// settings page as the fail-open 503's text.  Both hooks carry the
+		// off (written out, so a vhost-level "on" is not inherited); the ban
+		// location keeps its own "on", checked below.
+		for _, loc := range []string{"location ^~ /unmask/admin/ {", "location ^~ /unmask/ {"} {
+			block := locationBlock(t, server, loc)
+			if !strings.Contains(block, "proxy_intercept_errors off;") || strings.Contains(block, "proxy_intercept_errors on;") {
+				t.Errorf("%s must pass the daemon's own 5xx through (proxy_intercept_errors off)", loc)
+			}
 		}
 	})
 
@@ -121,4 +129,21 @@ func TestDaemonDownFailOpenRendered(t *testing.T) {
 			}
 		}
 	})
+}
+
+// locationBlock returns the rendered block that opens with marker (a whole
+// "location ... {" line) up to its closing brace at the start of a line, or
+// fails the test if the block is absent.
+func locationBlock(t *testing.T, conf, marker string) string {
+	t.Helper()
+	start := strings.Index(conf, marker)
+	if start < 0 {
+		t.Fatalf("rendered server.inc has no %q block", marker)
+	}
+	rest := conf[start:]
+	end := strings.Index(rest, "\n}")
+	if end < 0 {
+		t.Fatalf("%q block is not closed", marker)
+	}
+	return rest[:end]
 }

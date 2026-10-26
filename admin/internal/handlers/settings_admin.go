@@ -5825,6 +5825,9 @@ func (h *Handler) AdminNotifyTest(w http.ResponseWriter, r *http.Request) {
 		BanEvents: true,
 	})
 	if err := tmp.TestSend(r.Context()); err != nil {
+		// Logged as well as answered: the reason must not depend on the
+		// answer arriving -- a proxy can still swap it out.
+		log.Printf("notify test: %v", err)
 		writeJSON(w, http.StatusBadGateway, map[string]any{"ok": 0, "error": err.Error()})
 		return
 	}
