@@ -2,8 +2,10 @@
  * ngx_http_unmask_module: nginx dynamic module that exposes:
  *
  *   $client_ja4         - JA4 fingerprint computed from TLS ClientHello
- *   $unmask_bv_valid    - "1" if the request's _bv cookie HMAC matches and
- *                         is within the validity window, else "0".
+ *   $unmask_bv_kind     - the kind of the request's valid _bv cookie ("" when
+ *                         none verifies); $unmask_bv_pow_valid /
+ *                         $unmask_bv_captcha_valid ("1"/"0") and
+ *                         $unmask_bv_sig (the matched signature) derive from it.
  *   $unmask_banned      - "1" if (remote_addr, client_ja4) is in the ban file,
  *                         else "0".  ban file is mtime-watched (= reload-free).
  *
@@ -53,17 +55,24 @@
 
 /* Per-connection JA4 storage.
  *
- * The JA4 string lives in a fixed buffer inside the ctx (= a single
- * OPENSSL_malloc covers everything, just for the ctx).  Because the
- * free_cb never frees `ja4.data` independently, the cleanup race that
- * occurs on early-abort handshake paths (= self-signed cert / cert
- * untrusted etc.) cannot produce double-free / heap corruption. */
+ * The ctx is allocated from the connection's pool and hangs off the SSL
+ * object through an ex_data slot.  nginx frees the SSL object (ngx_ssl_shutdown)
+ * before it destroys the connection pool, so the slot is registered with NO
+ * callbacks: a free callback would live in this module's text, and OpenSSL
+ * keeps a registered callback for the life of the process and calls it on
+ * every SSL_free -- after a reload that dropped load_module (the package's
+ * own removal advice) the pointer would dangle and every new worker would
+ * crash on its first TLS close.  The JA4 string lives in a fixed buffer
+ * inside the ctx, so nothing is ever freed by hand. */
 typedef struct {
     u_char     ja4_buf[NGX_JA4_MAX]; /* full string; ngx_str_t.data points here */
     ngx_str_t  ja4;                  /* {data: ja4_buf, len: measured value}.  data is never freed */
 } ngx_http_ja4_ctx_t;
 
-/* ex_data index for storing JA4 string on SSL object */
+/* ex_data index for storing the JA4 ctx on the SSL object.  Registered once
+ * per process (OpenSSL never unregisters an index); the static resets only
+ * when the module is mapped afresh, which registers a new, equally
+ * callback-free index. */
 static int ngx_http_ja4_ssl_ex_data_idx = -1;
 
 /* Rate-limited error_log line: at most one per message slot per minute per
@@ -94,10 +103,12 @@ enum {
     UNMASK_LOG_BAN_STAT,
     UNMASK_LOG_BAN_LOAD,
     UNMASK_LOG_JA4_PARSE,
-    UNMASK_LOG_JA4_ALLOC
+    UNMASK_LOG_JA4_ALLOC,
+    UNMASK_LOG_BAN_MISSING,
+    UNMASK_LOG_H3_NOJA4
 };
 
-/* Per-http main config: shared BV secret for $unmask_bv_valid */
+/* Per-http main config: shared BV secret for the _bv cookie variables */
 typedef struct {
     ngx_str_t   bv_secret;
     /* Validity window in SECONDS applied to PoW-issued cookies (= 4-segment
@@ -123,11 +134,21 @@ typedef struct {
  * keys[i] points at "ip|ja4" (= NUL-terminated in-place where '|' before
  * source used to be).  actions[i] points at the action token after that
  * NUL ("deny" / "pow_only" / "pow_then_captcha" / "captcha_only"). */
+/* A prefix ban: an ip-only line whose address carries a /len (the daemon's
+ * /64 escalation of IPv6 bans; an operator's CIDR).  Kept apart from the
+ * exact keys and matched after them, so a more specific line wins. */
+typedef struct {
+    ngx_cidr_t  cidr;
+    char       *action;
+} ngx_unmask_ban_cidr_t;
+
 typedef struct {
     char    *buf;       /* malloc'd, contains keys + NULs */
     char   **keys;      /* pointers into buf */
     char   **actions;   /* parallel array, same length as keys */
     size_t   nkeys;
+    ngx_unmask_ban_cidr_t *cidrs;   /* prefix rows, in file order */
+    size_t   ncidrs;
     /* Identity of the file last loaded, to skip reloads.  mtime alone is a
      * whole second, and the admin flushes the file on every ban it places
      * (tmp + rename, so a new inode each time): two bans in the same second
@@ -145,6 +166,7 @@ typedef struct {
 static ngx_unmask_banlist_t ngx_unmask_banlist;
 
 static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf);
+static ngx_int_t ngx_http_unmask_init_process(ngx_cycle_t *cycle);
 static void *ngx_http_ja4_create_main_conf(ngx_conf_t *cf);
 static char *ngx_http_ja4_init_main_conf(ngx_conf_t *cf, void *conf);
 static ngx_int_t ngx_http_ja4_variable(ngx_http_request_t *r,
@@ -217,7 +239,10 @@ ngx_module_t ngx_http_unmask_module = {
     &ngx_http_unmask_module_ctx,
     ngx_http_ja4_commands,
     NGX_HTTP_MODULE,
-    NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    NULL,                              /* init master */
+    NULL,                              /* init module */
+    ngx_http_unmask_init_process,      /* init process */
+    NULL, NULL, NULL, NULL,
     NGX_MODULE_V1_PADDING
 };
 
@@ -315,6 +340,7 @@ static ngx_http_variable_t ngx_http_ja4_vars[] = {
  */
 static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
     ngx_http_ja4_ctx_t *ctx;
+    ngx_connection_t   *c;
 
     if (ngx_http_ja4_ssl_ex_data_idx < 0) return;
 
@@ -325,22 +351,24 @@ static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
         return;
     }
 
-    ctx = OPENSSL_malloc(sizeof(*ctx));
-    if (!ctx) {
-        ngx_connection_t *c = ngx_ssl_get_connection(ssl);
-        if (c != NULL && ngx_unmask_log_due(UNMASK_LOG_JA4_ALLOC)) {
-            ngx_log_error(NGX_LOG_WARN, c->log, 0,
+    /* Pool memory: freed with the connection, after nginx freed the SSL
+     * object, so the ex_data slot needs no free callback (see the ctx
+     * comment above). */
+    c = ngx_ssl_get_connection(ssl);
+    if (c == NULL) return;
+    ctx = ngx_pcalloc(c->pool, sizeof(*ctx));
+    if (ctx == NULL) {
+        if (ngx_unmask_log_due(UNMASK_LOG_JA4_ALLOC)) {
+            ngx_log_error(NGX_LOG_ERR, c->log, 0,
                           "unmask: no memory for the JA4 fingerprint; "
                           "the connection gets none");
         }
         return;
     }
-    ngx_memzero(ctx, sizeof(*ctx));
 
-    /* Build the JA4 string directly into ctx's fixed buffer (= no separate
-     * OPENSSL_malloc; eliminates the double-free window).  The assembly logic
-     * lives in ja4_build.c so it is unit-tested + ASan/UBSan fuzzed without
-     * nginx / SSL; this function keeps only the ex_data storage. */
+    /* Build the JA4 string directly into ctx's fixed buffer.  The assembly
+     * logic lives in ja4_build.c so it is unit-tested + ASan/UBSan fuzzed
+     * without nginx / SSL; this function keeps only the ex_data storage. */
     ctx->ja4.len  = ja4_build_string(parsed, (char *)ctx->ja4_buf, NGX_JA4_MAX);
     ctx->ja4.data = ctx->ja4_buf;
 
@@ -395,17 +423,6 @@ static void ngx_ja4_msg_cb(int write_p, int version, int content_type,
     ngx_ja4_compute_and_store(ssl, &parsed);
 }
 
-/* Free callback for ex_data.
- *
- * ctx is a single OPENSSL_malloc, single allocation. The JA4 string lives
- * in the ctx's fixed buffer, so it is never freed independently
- * (= eliminates the double-free window). */
-static void ngx_ja4_ssl_free_cb(void *parent, void *ptr, CRYPTO_EX_DATA *ad,
-                                int idx, long argl, void *argp) {
-    (void)parent; (void)ad; (void)idx; (void)argl; (void)argp;
-    if (ptr) OPENSSL_free(ptr);
-}
-
 /*
  * JA4 transport prefix.  ja4_build emits 't' (TCP/TLS); HTTP/3 requests get 'q'.
  *
@@ -458,6 +475,23 @@ static ngx_int_t ngx_http_ja4_variable(ngx_http_request_t *r,
     ngx_http_ja4_ctx_t *ctx = SSL_get_ex_data(ssl_obj,
                                               ngx_http_ja4_ssl_ex_data_idx);
     if (!ctx || ctx->ja4.len == 0) {
+#if (nginx_version >= 1025000) && (NGX_QUIC || NGX_COMPAT)
+        /* nginx's QUIC compatibility layer (OpenSSL older than 3.5) sets its
+         * own message callback on every QUIC SSL object, over the one this
+         * module put on the SSL_CTX, so no ClientHello reaches the parser:
+         * every HTTP/3 request then runs without a JA4 and the JA4 axis
+         * and the ip|ja4 bans never see it.  Said once a minute. */
+        if (r->connection->quic != NULL
+            && ngx_unmask_log_due(UNMASK_LOG_H3_NOJA4))
+        {
+            ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                          "unmask: no JA4 for an HTTP/3 connection; with "
+                          "OpenSSL older than 3.5 nginx's QUIC compatibility "
+                          "layer replaces the TLS message callback, so "
+                          "JA4-based decisions do not apply to HTTP/3 "
+                          "(build nginx with OpenSSL 3.5 or newer, or QuicTLS)");
+        }
+#endif
         v->not_found = 1;
         return NGX_OK;
     }
@@ -817,6 +851,44 @@ ngx_http_unmask_ratedeny_handler(ngx_http_request_t *r)
     return NGX_DECLINED;                /* within cap, no challenge -> pass */
 }
 
+/* Worker start: the two conditions under which the module enforces nothing
+ * are checked once, as the worker user, and said at the "error" level the
+ * distributions' nginx.conf ships with.  The per-request paths repeat them
+ * once a minute; this is the line an operator finds after a restart. */
+static ngx_int_t ngx_http_unmask_init_process(ngx_cycle_t *cycle)
+{
+    ngx_http_ja4_main_conf_t *mcf;
+    char path[1024];
+
+    mcf = ngx_http_cycle_get_module_main_conf(cycle, ngx_http_unmask_module);
+    if (mcf == NULL) {
+        return NGX_OK;
+    }
+    if (mcf->bv_secret.len == 0) {
+        ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
+                      "unmask: unmask_bv_secret is empty; every _bv cookie "
+                      "is rejected and every visitor is challenged again");
+    }
+    if (mcf->ban_file_path.len > 0 && mcf->ban_file_path.len < sizeof(path)) {
+        ngx_memcpy(path, mcf->ban_file_path.data, mcf->ban_file_path.len);
+        path[mcf->ban_file_path.len] = '\0';
+        if (access(path, R_OK) != 0) {
+            int err = errno;
+            if (err == ENOENT) {
+                ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
+                              "unmask: ban file \"%s\" does not exist; no ban "
+                              "is enforced until the daemon writes it", path);
+            } else {
+                ngx_log_error(NGX_LOG_ERR, cycle->log, err,
+                              "unmask: ban file \"%s\" is not readable by this "
+                              "worker; no ban is enforced (check the directory "
+                              "and file permissions: unmask doctor)", path);
+            }
+        }
+    }
+    return NGX_OK;
+}
+
 static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
     /* Register $client_ja4 variable */
     for (ngx_http_variable_t *v = ngx_http_ja4_vars; v->name.len; v++) {
@@ -842,10 +914,12 @@ static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
         }
     }
 
-    /* Register ex_data slot once */
+    /* Register the ex_data slot once, with no callbacks (see the ctx
+     * comment: a callback in module text outlives the module).  nginx
+     * registers its own slots the same way (ngx_ssl_connection_index). */
     if (ngx_http_ja4_ssl_ex_data_idx < 0) {
         ngx_http_ja4_ssl_ex_data_idx = SSL_get_ex_new_index(
-            0, (void *)"ja4", NULL, NULL, ngx_ja4_ssl_free_cb);
+            0, NULL, NULL, NULL, NULL);
         if (ngx_http_ja4_ssl_ex_data_idx < 0) return NGX_ERROR;
     }
 
@@ -934,14 +1008,17 @@ ngx_http_ja4_init_main_conf(ngx_conf_t *cf, void *conf)
 #define UNMASK_BV_FUTURE_SKEW_SECONDS 60
 
 /* ----------------------------------------------------------------------
- * $unmask_bv_valid: parse _bv cookie and verify HMAC-SHA1 signature.
+ * $unmask_bv_kind and the variables derived from it: parse the _bv cookie
+ * (a "~"-separated list of entries) and verify each entry's HMAC-SHA1.
  *
- * Cookie value form: "<day>.<sig16>.<kind>"
- *   sig16 = HMAC-SHA1("<day>:<remote_addr>:<host>:<kind>", BV_SECRET) hex[:16]
- *   (JA4 is NOT in the input -- it diverges across an LB; host binds the vhost.)
+ * Entry form: "<issued_unix>.<sig16>.<kind>"
+ *   sig16 = HMAC-SHA1("<issued_unix>:<bind key>:<host>:<kind>", BV_SECRET) hex[:16]
+ *   (JA4 is NOT in the input -- it diverges across an LB; host binds the vhost;
+ *   the bind key is the client address, /64 for IPv6, or a relay-wide key.)
  *
- * Returns "1" if signature matches and day is within [today-bv_valid_days, today],
- * otherwise "0". Also returns "0" if bv_secret was not configured.
+ * An entry verifies when its signature matches and issued_unix lies within
+ * the kind's validity window (pow / captcha seconds from the main conf, plus
+ * a small forward skew).  Nothing verifies when bv_secret is empty.
  * -------------------------------------------------------------------- */
 
 /* Decimal day / unix parsing lives in bv_parser.c as bv_atoll() so the
@@ -1431,9 +1508,10 @@ ngx_unmask_bv_kind_compute(ngx_http_request_t *r, ngx_str_t *sig_out)
          * every cookie in silence, and the only symptom was a challenge
          * loop. */
         if (ngx_unmask_log_due(UNMASK_LOG_SECRET_EMPTY)) {
-            ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                           "unmask: unmask_bv_secret is empty; "
-                          "every _bv cookie is rejected");
+                          "every _bv cookie is rejected and every visitor "
+                          "is challenged again");
         }
         return UNMASK_BV_KIND_NONE;
     }
@@ -1659,11 +1737,16 @@ static int ngx_unmask_load_banlist(const char *path) {
     if (!keys) { free(buf); return -1; }
     char **actions = (char **)malloc((maxk + 1) * sizeof(char *));
     if (!actions) { free(keys); free(buf); return -1; }
+    ngx_unmask_ban_cidr_t *cidrs =
+        (ngx_unmask_ban_cidr_t *)malloc((maxk + 1) * sizeof(*cidrs));
+    if (!cidrs) { free(actions); free(keys); free(buf); return -1; }
+    size_t ncidr = 0;
     cap = maxk;
     (void)cap;
 
     /* split by '\n' in-place */
     size_t nk = 0;
+    int sorted = 1;
     char *p = buf;
     char *end = buf + size;
     while (p < end) {
@@ -1682,8 +1765,9 @@ static int ngx_unmask_load_banlist(const char *path) {
              * lines (= ip|ja4) flush as action="deny" (= safe default). */
             char *p1 = (char *)memchr(ln_start, '|', (size_t)(ln_end - ln_start));
             const char *act = "deny";
+            char *p2 = NULL;
             if (p1 != NULL) {
-                char *p2 = (char *)memchr(p1 + 1, '|', (size_t)(ln_end - (p1 + 1)));
+                p2 = (char *)memchr(p1 + 1, '|', (size_t)(ln_end - (p1 + 1)));
                 if (p2 != NULL) {
                     *p2 = '\0';
                     char *p3 = (char *)memchr(p2 + 1, '|', (size_t)(ln_end - (p2 + 1)));
@@ -1692,9 +1776,31 @@ static int ngx_unmask_load_banlist(const char *path) {
                     }
                 }
             }
-            keys[nk] = ln_start;
-            actions[nk] = (char *)act;
-            nk++;
+            /* An ip-only line whose address carries a prefix length
+             * ("2001:db8:1:2::/64|", "203.0.113.0/24|") is a prefix ban:
+             * parsed once here, matched by mask after the exact keys.  A
+             * line that does not parse is skipped rather than kept as a
+             * key no address could ever equal. */
+            if (p1 != NULL && memchr(ln_start, '/', (size_t)(p1 - ln_start)) != NULL
+                && (p2 == NULL ? (p1 + 1 == ln_end) : (p2 == p1 + 1)))
+            {
+                ngx_str_t  txt;
+                ngx_int_t  rc;
+                txt.data = (u_char *)ln_start;
+                txt.len  = (size_t)(p1 - ln_start);
+                rc = ngx_ptocidr(&txt, &cidrs[ncidr].cidr);
+                if (rc == NGX_OK || rc == NGX_DONE) {
+                    cidrs[ncidr].action = (char *)act;
+                    ncidr++;
+                }
+            } else {
+                keys[nk] = ln_start;
+                actions[nk] = (char *)act;
+                if (nk > 0 && sorted && strcmp(keys[nk - 1], keys[nk]) > 0) {
+                    sorted = 0;
+                }
+                nk++;
+            }
         }
         if (nl == NULL) break;
         p = nl + 1;
@@ -1704,11 +1810,11 @@ static int ngx_unmask_load_banlist(const char *path) {
      * not, and the insertion sort this replaces walked a few ten thousand
      * unsorted lines for seconds, inside a request, on every worker; its
      * out-of-memory fallback sorted keys[] alone and left actions[] behind. */
-    if (nk > 1) {
+    if (nk > 1 && !sorted) {
         ngx_unmask_ban_row_t *rows =
             (ngx_unmask_ban_row_t *)malloc(nk * sizeof(*rows));
         if (rows == NULL) {
-            free(keys); free(actions); free(buf);
+            free(cidrs); free(keys); free(actions); free(buf);
             return -1;
         }
         for (size_t i = 0; i < nk; i++) {
@@ -1727,13 +1833,58 @@ static int ngx_unmask_load_banlist(const char *path) {
     char *old_buf = ngx_unmask_banlist.buf;
     char **old_keys = ngx_unmask_banlist.keys;
     char **old_actions = ngx_unmask_banlist.actions;
+    ngx_unmask_ban_cidr_t *old_cidrs = ngx_unmask_banlist.cidrs;
     ngx_unmask_banlist.buf = buf;
     ngx_unmask_banlist.keys = keys;
     ngx_unmask_banlist.actions = actions;
     ngx_unmask_banlist.nkeys = nk;
+    ngx_unmask_banlist.cidrs = cidrs;
+    ngx_unmask_banlist.ncidrs = ncidr;
     free(old_buf);
     free(old_keys);
     free(old_actions);
+    free(old_cidrs);
+    return 0;
+}
+
+/* Prefix bans: the client's address against every /len row.  Linear, but
+ * the rows are the daemon's escalations and an operator's CIDRs, a handful
+ * at most, and this runs once per request after the exact lookups missed. */
+static int ngx_unmask_banlist_cidr_lookup(struct sockaddr *sa,
+                                          const char **action_out)
+{
+    size_t i;
+
+    if (sa == NULL) return 0;
+    for (i = 0; i < ngx_unmask_banlist.ncidrs; i++) {
+        ngx_unmask_ban_cidr_t *e = &ngx_unmask_banlist.cidrs[i];
+        if (e->cidr.family != (ngx_uint_t) sa->sa_family) continue;
+#if (NGX_HAVE_INET6)
+        if (sa->sa_family == AF_INET6) {
+            u_char *a = ((struct sockaddr_in6 *) sa)->sin6_addr.s6_addr;
+            ngx_uint_t n;
+            for (n = 0; n < 16; n++) {
+                if ((a[n] & e->cidr.u.in6.mask.s6_addr[n])
+                    != e->cidr.u.in6.addr.s6_addr[n])
+                {
+                    break;
+                }
+            }
+            if (n == 16) {
+                if (action_out) *action_out = e->action;
+                return 1;
+            }
+            continue;
+        }
+#endif
+        if (sa->sa_family == AF_INET) {
+            in_addr_t a = ((struct sockaddr_in *) sa)->sin_addr.s_addr;
+            if ((a & e->cidr.u.in.mask) == e->cidr.u.in.addr) {
+                if (action_out) *action_out = e->action;
+                return 1;
+            }
+        }
+    }
     return 0;
 }
 
@@ -1767,19 +1918,33 @@ static void ngx_unmask_maybe_reload_banlist(const char *path, ngx_log_t *log) {
         /* file gone -> empty list.  Said when it is not merely absent: a
          * permission or label change leaves every ban unenforced, and that
          * is invisible from a module that stays silent. */
-        if (err != ENOENT && ngx_unmask_log_due(UNMASK_LOG_BAN_STAT)) {
-            ngx_log_error(NGX_LOG_WARN, log, err,
-                          "unmask: ban file \"%s\" cannot be read; "
-                          "no ban is enforced", path);
+        if (err == ENOENT) {
+            /* Absent is normal only before the daemon's first write; an
+             * operator reads this at the "error" level the distributions
+             * ship, so it says what is (not) enforced. */
+            if (ngx_unmask_log_due(UNMASK_LOG_BAN_MISSING)) {
+                ngx_log_error(NGX_LOG_NOTICE, log, 0,
+                              "unmask: ban file \"%s\" does not exist; "
+                              "no ban is enforced until the daemon writes it",
+                              path);
+            }
+        } else if (ngx_unmask_log_due(UNMASK_LOG_BAN_STAT)) {
+            ngx_log_error(NGX_LOG_ERR, log, err,
+                          "unmask: ban file \"%s\" cannot be read by this "
+                          "worker; no ban is enforced (check the directory "
+                          "and file permissions: unmask doctor)", path);
         }
-        if (ngx_unmask_banlist.nkeys != 0) {
+        if (ngx_unmask_banlist.nkeys != 0 || ngx_unmask_banlist.ncidrs != 0) {
             free(ngx_unmask_banlist.buf);
             free(ngx_unmask_banlist.keys);
             free(ngx_unmask_banlist.actions);
+            free(ngx_unmask_banlist.cidrs);
             ngx_unmask_banlist.buf = NULL;
             ngx_unmask_banlist.keys = NULL;
             ngx_unmask_banlist.actions = NULL;
+            ngx_unmask_banlist.cidrs = NULL;
             ngx_unmask_banlist.nkeys = 0;
+            ngx_unmask_banlist.ncidrs = 0;
             ngx_unmask_banlist.mtime = 0;
             ngx_unmask_banlist.size = 0;
             ngx_unmask_banlist.ino = 0;
@@ -1796,7 +1961,7 @@ static void ngx_unmask_maybe_reload_banlist(const char *path, ngx_log_t *log) {
         ngx_unmask_banlist.size = st.st_size;
         ngx_unmask_banlist.ino = st.st_ino;
     } else if (ngx_unmask_log_due(UNMASK_LOG_BAN_LOAD)) {
-        ngx_log_error(NGX_LOG_WARN, log, errno,
+        ngx_log_error(NGX_LOG_ERR, log, errno,
                       "unmask: ban file \"%s\" could not be loaded; "
                       "the previous list stays in force", path);
     }
@@ -1843,7 +2008,7 @@ ngx_unmask_ban_lookup_req(ngx_http_request_t *r, int *hit, ngx_str_t *action)
     path[mcf->ban_file_path.len] = '\0';
 
     ngx_unmask_maybe_reload_banlist(path, r->connection->log);
-    if (ngx_unmask_banlist.nkeys == 0) {
+    if (ngx_unmask_banlist.nkeys == 0 && ngx_unmask_banlist.ncidrs == 0) {
         goto done;
     }
 
@@ -1852,7 +2017,7 @@ ngx_unmask_ban_lookup_req(ngx_http_request_t *r, int *hit, ngx_str_t *action)
     if (iplen == 0 || iplen > 80) {
         goto done;
     }
-    /* fetch ja4 string (= same pattern as $unmask_bv_valid). */
+    /* fetch ja4 string (= same pattern as $unmask_bv_kind). */
     if (r->connection->ssl) {
         SSL *ssl_obj = r->connection->ssl->connection;
         if (ssl_obj && ngx_http_ja4_ssl_ex_data_idx >= 0) {
@@ -1884,6 +2049,9 @@ ngx_unmask_ban_lookup_req(ngx_http_request_t *r, int *hit, ngx_str_t *action)
         key[iplen] = '|';
         key[iplen + 1] = '\0';
         found = ngx_unmask_banlist_lookup(key, &act);
+    }
+    if (!found && ngx_unmask_banlist.ncidrs > 0) {
+        found = ngx_unmask_banlist_cidr_lookup(r->connection->sockaddr, &act);
     }
     if (found) {
         *hit = 1;
