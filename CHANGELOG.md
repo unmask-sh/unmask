@@ -14,6 +14,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- (2026-10-26) **A pass now ends when its solve does, re-binds included.**  The credential that carries a pass to a new address was honoured for the longer of the two solve windows, and each re-bound pass got a fresh CAPTCHA window, so a seven-day proof-of-work kept a browser passing for up to four weeks, even on the address it was solved from.  Both now end with the solve.
+
+## [0.1.53-rc22] - 2026-10-26 (testing build)
+
 ### Added
 
 - (2026-10-26) **The setup wizard has a first-run options step.**  Before finishing it lists the communication with unmask.sh (the shared ban feed and its install token, the reporter's country, the GeoIP downloads, the daily crawler-range sync, the update check), each on by default with a switch, prefills the admin hostname as an allowlist entry, and offers to start in monitor mode.  Scripted installs keep the defaults.
