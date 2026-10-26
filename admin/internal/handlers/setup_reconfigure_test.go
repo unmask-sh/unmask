@@ -186,11 +186,27 @@ func TestSetupGate_BootstrapForcesSetup(t *testing.T) {
 
 func TestWizardStep_UserSkippedAdvancesToReview(t *testing.T) {
 	s := &wizardState{DBSet: true, UserSkipped: true}
-	if got := s.step(); got != "review" {
+	if got := s.step(true); got != "review" {
 		t.Errorf("skipped user step should advance to review, got %q", got)
 	}
 	s2 := &wizardState{DBSet: true}
-	if got := s2.step(); got != "user" {
+	if got := s2.step(true); got != "user" {
 		t.Errorf("un-set, un-skipped user should stay on user step, got %q", got)
+	}
+}
+
+// The options step is the first run's: after the user step a bootstrap
+// wizard goes there, a reconfiguring superadmin straight to the review.
+func TestWizardStep_OptionsOnlyOnTheFirstRun(t *testing.T) {
+	s := &wizardState{DBSet: true, UserSet: true}
+	if got := s.step(false); got != "options" {
+		t.Errorf("bootstrap after the user step: got %q, want options", got)
+	}
+	if got := s.step(true); got != "review" {
+		t.Errorf("reconfigure after the user step: got %q, want review (no options step)", got)
+	}
+	s.OptionsSet = true
+	if got := s.step(false); got != "review" {
+		t.Errorf("bootstrap after the options step: got %q, want review", got)
 	}
 }

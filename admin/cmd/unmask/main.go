@@ -1507,6 +1507,7 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux.HandleFunc("POST "+base+"/admin/setup/token", h.SetupGate(h.AdminSetupSaveToken))
 	mux.HandleFunc("POST "+base+"/admin/setup/db", h.SetupGate(h.AdminSetupSaveDB))
 	mux.HandleFunc("POST "+base+"/admin/setup/user", h.SetupGate(h.AdminSetupSaveUser))
+	mux.HandleFunc("POST "+base+"/admin/setup/options", h.SetupGate(h.AdminSetupSaveOptions))
 	mux.HandleFunc("POST "+base+"/admin/setup/install", h.SetupGate(h.AdminSetupInstall))
 	mux.HandleFunc("GET "+base+"/admin/setup/done", h.AdminSetupDone)
 	// admin: /admin/ renders the top dashboard (summary).

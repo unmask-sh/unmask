@@ -58,7 +58,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
 p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
 .actions{display:flex;justify-content:space-between;align-items:center;margin-top:1.5rem;padding-top:1.2rem;border-top:.0625rem solid #e2e8f0}
 .row-2{display:grid;grid-template-columns:2fr 1fr;gap:.6rem}
-/* mode picker: 3 cards stacked on narrow, side-by-side on wide */
+/* options step: a heading per group, one row per switch */
+.wizard-body h3{font-size:.95rem;margin:1.3rem 0 .5rem;color:#0f172a}
+.wizard-body h3:first-of-type{margin-top:.2rem}
+.opt{display:flex;gap:.6rem;align-items:flex-start;padding:.5rem .6rem;border:.0625rem solid #e2e8f0;border-radius:.3rem;margin-bottom:.4rem;cursor:pointer}
+.opt:hover{background:#f8fafc}
+.opt input{margin:.2rem 0 0;flex:none}
+.opt strong{display:block;font-size:.9rem;color:#0f172a}
+.opt .desc{display:block;font-size:.78rem;color:#64748b;line-height:1.5}
+.opt .desc code{font-family:ui-monospace,monospace;font-size:.95em}
 </style>
 {{ template "popover_pin_assets" . }}
 </head>
@@ -78,10 +86,11 @@ p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
     </h1>
     <div class="wizard-steps">
       <div class="s {{ if eq .Step "token" }}active{{ else }}done{{ end }}">1. {{ t .Lang "setup.step.token" }}</div>
-      <div class="s {{ if eq .Step "db" }}active{{ else if or (eq .Step "user") (eq .Step "review") (eq .Step "done") }}done{{ end }}">2. {{ t .Lang "setup.step.db" }}</div>
-      <div class="s {{ if eq .Step "user" }}active{{ else if or (eq .Step "review") (eq .Step "done") }}done{{ end }}">3. {{ t .Lang "setup.step.user" }}</div>
-      <div class="s {{ if eq .Step "review" }}active{{ else if eq .Step "done" }}done{{ end }}">4. {{ t .Lang "setup.step.review" }}</div>
-      <div class="s {{ if eq .Step "done" }}active{{ end }}">5. {{ t .Lang "setup.step.done" }}</div>
+      <div class="s {{ if eq .Step "db" }}active{{ else if or (eq .Step "user") (eq .Step "options") (eq .Step "review") (eq .Step "done") }}done{{ end }}">2. {{ t .Lang "setup.step.db" }}</div>
+      <div class="s {{ if eq .Step "user" }}active{{ else if or (eq .Step "options") (eq .Step "review") (eq .Step "done") }}done{{ end }}">3. {{ t .Lang "setup.step.user" }}</div>
+      {{ if not .Reconfigure }}<div class="s {{ if eq .Step "options" }}active{{ else if or (eq .Step "review") (eq .Step "done") }}done{{ end }}">4. {{ t .Lang "setup.step.options" }}</div>{{ end }}
+      <div class="s {{ if eq .Step "review" }}active{{ else if eq .Step "done" }}done{{ end }}">{{ if .Reconfigure }}4{{ else }}5{{ end }}. {{ t .Lang "setup.step.review" }}</div>
+      <div class="s {{ if eq .Step "done" }}active{{ end }}">{{ if .Reconfigure }}5{{ else }}6{{ end }}. {{ t .Lang "setup.step.done" }}</div>
     </div>
   </div>
   <div class="wizard-body">
@@ -227,6 +236,37 @@ p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
     </script>
     {{ end }}
 
+    {{ if eq .Step "options" }}
+    <h2>{{ t .Lang "setup.options.h" }}</h2>
+    <p class="lead">{{ safeHTML (t .Lang "setup.options.lead") }}</p>
+    <form method="post" action="{{ .BasePath }}/admin/setup/options">
+  <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
+      <h3>{{ t .Lang "setup.options.comm_h" }}</h3>
+      <p class="hint" style="margin:0 0 .6rem">{{ safeHTML (tf .Lang "setup.options.comm_lead" .PrivacyURL) }}</p>
+      <label class="opt"><input type="checkbox" name="comm_feed" value="1" {{ if .Options.Feed }}checked{{ end }}><span><strong>{{ t .Lang "setup.options.comm_feed" }}</strong><span class="desc">{{ safeHTML (t .Lang "setup.options.comm_feed_desc") }}</span></span></label>
+      <label class="opt"><input type="checkbox" name="comm_liveness" value="1" {{ if .Options.Liveness }}checked{{ end }}><span><strong>{{ t .Lang "setup.options.comm_liveness" }}</strong><span class="desc">{{ safeHTML (t .Lang "setup.options.comm_liveness_desc") }}</span></span></label>
+      <label class="opt"><input type="checkbox" name="comm_country" value="1" {{ if .Options.Country }}checked{{ end }}><span><strong>{{ t .Lang "setup.options.comm_country" }}</strong><span class="desc">{{ safeHTML (t .Lang "setup.options.comm_country_desc") }}</span></span></label>
+      <label class="opt"><input type="checkbox" name="comm_geoip" value="1" {{ if .Options.GeoIP }}checked{{ end }}><span><strong>{{ t .Lang "setup.options.comm_geoip" }}</strong><span class="desc">{{ safeHTML (t .Lang "setup.options.comm_geoip_desc") }}</span></span></label>
+      <label class="opt"><input type="checkbox" name="comm_sync" value="1" {{ if .Options.Sync }}checked{{ end }}><span><strong>{{ t .Lang "setup.options.comm_sync" }}</strong><span class="desc">{{ safeHTML (t .Lang "setup.options.comm_sync_desc") }}</span></span></label>
+      <label class="opt"><input type="checkbox" name="comm_version" value="1" {{ if .Options.VersionCheck }}checked{{ end }}><span><strong>{{ t .Lang "setup.options.comm_version" }}</strong><span class="desc">{{ safeHTML (t .Lang "setup.options.comm_version_desc") }}</span></span></label>
+
+      <h3>{{ t .Lang "setup.options.host_h" }}</h3>
+      <div class="field">
+        <label>{{ t .Lang "setup.options.host_label" }}</label>
+        <input type="text" name="admin_host" value="{{ .AdminHostText }}" placeholder="admin.example.com" autocomplete="off" spellcheck="false">
+        <div class="hint">{{ safeHTML (t .Lang "setup.options.host_hint") }}{{ if .ReachedHostIsIP }}<br>{{ tf .Lang "setup.options.host_ip" .ReachedHost }}{{ end }}</div>
+      </div>
+
+      <h3>{{ t .Lang "setup.options.mode_h" }}</h3>
+      <label class="opt"><input type="checkbox" name="observe_only" value="1" {{ if .Options.ObserveOnly }}checked{{ end }}><span><strong>{{ t .Lang "setup.options.observe_label" }}</strong><span class="desc">{{ safeHTML (t .Lang "setup.options.observe_desc") }}</span></span></label>
+
+      <div class="actions">
+        <a href="?step=user" class="btn btn-secondary">← {{ t .Lang "setup.btn.back_to_user" }}</a>
+        <button type="submit" class="btn">{{ t .Lang "setup.btn.next" }}</button>
+      </div>
+    </form>
+    {{ end }}
+
     {{ if eq .Step "review" }}
     <h2>{{ t .Lang "setup.review.h" }}</h2>
     <p class="lead">{{ safeHTML (t .Lang "setup.review.lead") }}</p>
@@ -235,6 +275,14 @@ p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
           <td>{{ if eq .ReviewDriver "sqlite" }}SQLite — <code>{{ .ReviewSQLitePath }}</code>{{ else }}MariaDB / MySQL — {{ .ReviewMariaDBUser }}@{{ .ReviewMariaDBHost }}:{{ .ReviewMariaDBPort }}/{{ .ReviewMariaDBDB }}{{ end }}</td></tr>
       <tr><th>{{ t .Lang "setup.review.admin" }}</th>
           <td>{{ if .ReviewUsername }}<code>{{ .ReviewUsername }}</code> ({{ t .Lang "setup.review.role_superadmin" }}){{ else }}<em>{{ t .Lang "setup.review.keep_existing" }}</em>{{ end }}</td></tr>
+      {{ if .ReviewOptions }}
+      <tr><th>{{ t .Lang "setup.review.comm" }}</th>
+          <td>{{ if .ReviewCommOff }}{{ t .Lang "setup.review.comm_off" }}: {{ range $i, $l := .ReviewCommOff }}{{ if $i }}{{ t $.Lang "setup.review.comm_sep" }}{{ end }}{{ $l }}{{ end }}{{ else }}{{ t .Lang "setup.review.comm_all" }}{{ end }}</td></tr>
+      <tr><th>{{ t .Lang "setup.review.host" }}</th>
+          <td>{{ if .ReviewAdminHost }}<code>{{ .ReviewAdminHost }}</code>{{ else }}<em>{{ t .Lang "setup.review.host_any" }}</em>{{ end }}</td></tr>
+      <tr><th>{{ t .Lang "setup.review.mode" }}</th>
+          <td>{{ if .ReviewOptions.ObserveOnly }}{{ t .Lang "setup.review.mode_observe" }}{{ else }}{{ t .Lang "setup.review.mode_enforce" }}{{ end }}</td></tr>
+      {{ end }}
     </table>
     {{ if .Reconfigure }}{{ if .TargetHasData }}<p class="hint" style="background:#3b2f1e;border:1px solid #6b4f1e;border-radius:.4rem;padding:.6rem .8rem;margin:.2rem 0 1rem;color:#fcd34d;font-size:.82rem">{{ safeHTML (tf .Lang "setup.reconfigure.target_has_data" .TargetUsers .TargetEvents) }}</p>{{ else }}<p class="hint" style="background:#16321e;border:1px solid #2f6b3e;border-radius:.4rem;padding:.6rem .8rem;margin:.2rem 0 1rem;color:#86efac;font-size:.82rem">{{ safeHTML (t .Lang "setup.reconfigure.target_empty") }}</p>{{ end }}{{ end }}
     {{ if .NoChange }}
@@ -247,7 +295,7 @@ p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
     <form method="post" action="{{ .BasePath }}/admin/setup/install">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
       <div class="actions">
-        <a href="?step=user" class="btn btn-secondary">← {{ t .Lang "setup.btn.back_to_user" }}</a>
+        {{ if .Reconfigure }}<a href="?step=user" class="btn btn-secondary">← {{ t .Lang "setup.btn.back_to_user" }}</a>{{ else }}<a href="?step=options" class="btn btn-secondary">← {{ t .Lang "setup.btn.back_to_options" }}</a>{{ end }}
         <button type="submit" class="btn">{{ t .Lang "setup.btn.install" }}</button>
       </div>
     </form>

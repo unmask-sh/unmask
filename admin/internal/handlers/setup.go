@@ -8,7 +8,9 @@
 //  1. welcome
 //  2. choose DB driver (sqlite / mariadb) + connection test + save config.yml + migration
 //  3. create administrator account (= the first row in unmask_user)
-//  4. done -> on to login
+//  4. options (first run only): communication with unmask.sh, admin hostname,
+//     monitor mode (setup_options.go)
+//  5. done -> on to login
 //
 // setupNeeded() returns true when any of:
 //   - h.DB == nil                (= initial start failed to connect)
@@ -177,7 +179,7 @@ func (h *Handler) SetupNeeded(r *http.Request) (needed bool, step string) {
 		if s == nil {
 			return true, "token"
 		}
-		return true, s.step()
+		return true, s.step(false)
 	}
 	// Post-install fallback: anything that genuinely needs setup attention
 	// (= no DB connection, no admin user) routes back to the wizard.  In
@@ -448,7 +450,7 @@ func (h *Handler) reconfigureNoOp(s *wizardState) bool {
 
 // AdminSetupIndex: GET {base}/admin/setup/  — render the current step.
 //
-// step order: token -> db -> user -> done.
+// step order: token -> db -> user -> options -> review -> done.
 // token only fires when the file exists AND the cookie isn't verified
 // yet.  When the file is absent (= dev/docker), skip token and go
 // straight to the db step.
@@ -543,7 +545,7 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 	var step string
 	if reconfigure {
 		if ws := h.getWizardState(r); ws != nil {
-			step = ws.step()
+			step = ws.step(true)
 		} else {
 			step = "db"
 		}
@@ -559,8 +561,10 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 	// step they've already passed (= fixing a typo in admin username after
 	// reaching the mode step etc.). Only honored when the requested step
 	// is strictly earlier than the natural one (= can't skip forward).
-	if req := r.URL.Query().Get("step"); req != "" {
-		order := map[string]int{"token": 0, "db": 1, "user": 2, "review": 3, "done": 4}
+	// The options step is not a reconfigure step (wizardState.step), so a
+	// ?step=options there is ignored like a forward jump.
+	if req := r.URL.Query().Get("step"); req != "" && !(reconfigure && req == "options") {
+		order := map[string]int{"token": 0, "db": 1, "user": 2, "options": 3, "review": 4, "done": 5}
 		if order[req] < order[step] && (reconfigure || hasValidSetupToken(r)) {
 			step = req
 		}
@@ -670,10 +674,39 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 		data["TargetHasUser"] = u > 0
 		data["TargetUsers"] = u
 	}
+	if step == "options" {
+		// The form shows the options as the config has them now -- the
+		// defaults on a fresh install, or what the operator submitted on a
+		// pass through this step before -- so what is ticked is what install
+		// keeps.  The hostname is the one this request arrived on, unless the
+		// operator already typed one.
+		opts := wizardOptionsFromSettings(h.snapshotSettings())
+		reached, reachedIsIP := wizardReachedHost(r, h.snapshotSettings())
+		hostText := ""
+		if !reachedIsIP {
+			hostText = reached
+		}
+		if wstate != nil && wstate.OptionsSet {
+			opts = wstate.Options
+			hostText = settings.PatternText(opts.AdminHost)
+		}
+		if v := q.Get("admin_host"); v != "" {
+			hostText = v
+		}
+		data["Options"] = opts
+		data["AdminHostText"] = hostText
+		data["ReachedHost"] = reached
+		data["ReachedHostIsIP"] = reachedIsIP
+		data["PrivacyURL"] = feedPrivacyURL(i18n.Resolve(r))
+	}
 	if step == "review" && wstate != nil {
-		// Final summary screen renders driver + admin for confirmation.
-		// Bot-detection posture is configured later in the Operating mode tab so
-		// the wizard stays narrowly focused on "make admin reachable".
+		// Final summary screen renders driver + admin for confirmation, and
+		// on the first run the options step's choices.
+		if !reconfigure && wstate.OptionsSet {
+			data["ReviewOptions"] = wstate.Options
+			data["ReviewAdminHost"] = settings.PatternText(wstate.Options.AdminHost)
+			data["ReviewCommOff"] = wizardCommOffLabels(i18n.Resolve(r), wstate.Options)
+		}
 		data["ReviewDriver"] = wstate.DB.Driver
 		data["ReviewSQLitePath"] = wstate.DB.SQLitePath
 		data["ReviewMariaDBHost"] = wstate.DB.MariaDB.Host
@@ -1118,6 +1151,13 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 	cur.DB = s.DB
 	cur.DB.PerfProfile, cur.DB.SQLiteCacheMB, cur.DB.MaxConns = tuned.PerfProfile, tuned.SQLiteCacheMB, tuned.MaxConns
 	cur.DB.SchemaUpdateDeferSeconds = tuned.SchemaUpdateDeferSeconds
+	// The options step (first run only): the communication with unmask.sh,
+	// the admin hostname and monitor mode as the operator chose them.  A
+	// wizard that never submitted the step leaves them as the config has
+	// them.
+	if !reconfigure && s.OptionsSet {
+		applyWizardOptions(&cur, s.Options)
+	}
 	// Completing the wizard means the operator is looking at THIS release, so
 	// stamp it as seen: this baselines the settings UI's "NEW since your last
 	// save" badge to this version, so only what later releases add is badged.
@@ -1156,6 +1196,11 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 		// Setup wizard only touches the global Default record (= per-site
 		// overrides are introduced later via the settings tab).
 		live.Challenge.Default.ObserveOnly = cur.Challenge.Default.ObserveOnly
+		// The options step's choices, for the loops that read the live
+		// settings each pass (the GeoIP update, the feed pull).
+		if !reconfigure && s.OptionsSet {
+			applyWizardOptions(live, s.Options)
+		}
 	})
 	if old != nil && old != conn {
 		_ = old.Close()
