@@ -54,6 +54,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/privacypass"
@@ -5362,20 +5363,77 @@ func preservedUnknownYAML(path string) []byte {
 	return b
 }
 
-// Save writes the settings to path atomically. Existing file comments are
-// lost (= yaml.v3 marshal does not preserve comments). To compensate, prepend
-// a header stating "managed by the web UI".
+// Save writes the settings to path.  Existing file comments are lost (=
+// yaml.v3 marshal does not preserve comments); a header stating "managed by
+// the web UI" is prepended instead.
 //
-// atomic write: write to a temp file in the same dir → fsync → rename
-// (= POSIX atomic). Permission is 0600 (= secrets are included).
+// The write: a temp file in the same dir (os.CreateTemp, 0600 -- secrets
+// are included), fsync, rename over path (POSIX atomic), fsync of the dir
+// so the rename itself is on disk.  Under the config file's lock
+// (lockConfig): until 0.1.53 the temp name was fixed ("<path>.tmp") and
+// nothing serialized the writers, so the daemon's save and the CLI's
+// upgrade-review could write the same temp file at once.
 func Save(s Settings, path string) error {
+	if path == "" {
+		return fmt.Errorf("save: path is empty")
+	}
+	unlock, err := lockConfig(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return saveLocked(s, path)
+}
+
+// Update applies fn to the settings in path and saves them, under the lock
+// for the whole read-modify-write: a writer that loads, changes and saves
+// without it -- the CLI's upgrade-review beside the daemon's save -- drops
+// whatever the other wrote in between.
+func Update(path string, fn func(*Settings) error) error {
+	if path == "" {
+		return fmt.Errorf("update: path is empty")
+	}
+	unlock, err := lockConfig(path)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	s, err := Load(path)
+	if err != nil {
+		return err
+	}
+	if err := fn(&s); err != nil {
+		return err
+	}
+	return saveLocked(s, path)
+}
+
+// lockConfig takes the config file's write lock -- flock(LOCK_EX) on
+// "<path>.lock", an empty file beside the config that stays; not the config
+// itself, which the rename replaces under the holder's feet -- and returns
+// what releases it.  Across processes (the daemon, the CLI) and within one:
+// every call opens its own descriptor, so a second Save waits for the first.
+func lockConfig(path string) (func(), error) {
+	f, err := os.OpenFile(path+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, fmt.Errorf("open %s.lock: %w", path, err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		_ = f.Close()
+		return nil, fmt.Errorf("lock %s.lock: %w", path, err)
+	}
+	return func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = f.Close()
+	}, nil
+}
+
+// saveLocked is Save's write; the caller holds the lock.
+func saveLocked(s Settings, path string) error {
 	// An explicit false on a Default record is the same as unset (nothing sits
 	// above Default to inherit from), and persisting it would rewrite the file
 	// on every save.
 	normalizeDefaults(&s)
-	if path == "" {
-		return fmt.Errorf("save: path is empty")
-	}
 	body, err := yaml.Marshal(&s)
 	if err != nil {
 		return fmt.Errorf("marshal yaml: %w", err)
@@ -5394,11 +5452,12 @@ func Save(s Settings, path string) error {
 		body = append(body, extra...)
 	}
 
-	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	dir := filepath.Dir(path)
+	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp") // 0600
 	if err != nil {
 		return fmt.Errorf("open temp: %w", err)
 	}
+	tmp := f.Name()
 	if _, err := f.Write(body); err != nil {
 		_ = f.Close()
 		_ = os.Remove(tmp)
@@ -5416,6 +5475,13 @@ func Save(s Settings, path string) error {
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("rename: %w", err)
+	}
+	// The rename lives in the dir's entries: without this a crash right
+	// after could come back with the old file, or none.  Best effort -- the
+	// data is on disk either way.
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
 	}
 	return nil
 }

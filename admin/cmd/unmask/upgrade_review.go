@@ -29,21 +29,26 @@ func cmdUpgradeReview(args []string) error {
 		return fmt.Errorf("load config %s: %w", resolved, err)
 	}
 
-	// --policy: set and persist.
+	// --policy: set and persist.  settings.Update reads and writes the file
+	// under its lock, so a save by the running daemon in between is not
+	// overwritten with this process's older copy.
 	if *policy != "" {
 		switch *policy {
 		case settings.UpgradeReviewApply, settings.UpgradeReviewReview:
 		default:
 			return fmt.Errorf("invalid -policy %q (want %q or %q)", *policy, settings.UpgradeReviewReview, settings.UpgradeReviewApply)
 		}
-		s.Nginx.UpgradeReviewPolicy = *policy
-		// Switching TO review with no baseline would hold nothing until a later
-		// ack; stamp the current version so review protects upgrades from here on
-		// (a no-op for "apply", and it never overwrites an existing baseline).
-		if *policy == settings.UpgradeReviewReview && !nginxconf.VersionParseable(s.Nginx.EnforcementReviewedVersion) {
-			s.Nginx.EnforcementReviewedVersion = "v" + Version
-		}
-		if err := settings.Save(s, resolved); err != nil {
+		err := settings.Update(resolved, func(s *settings.Settings) error {
+			s.Nginx.UpgradeReviewPolicy = *policy
+			// Switching TO review with no baseline would hold nothing until a later
+			// ack; stamp the current version so review protects upgrades from here on
+			// (a no-op for "apply", and it never overwrites an existing baseline).
+			if *policy == settings.UpgradeReviewReview && !nginxconf.VersionParseable(s.Nginx.EnforcementReviewedVersion) {
+				s.Nginx.EnforcementReviewedVersion = "v" + Version
+			}
+			return nil
+		})
+		if err != nil {
 			return fmt.Errorf("save config: %w", err)
 		}
 		fmt.Printf("upgrade-review policy set to %q in %s\n", *policy, resolved)
@@ -64,8 +69,12 @@ func cmdUpgradeReview(args []string) error {
 			fmt.Println("no held enforcement presets; nothing to acknowledge.")
 			return nil
 		}
-		s.Nginx.EnforcementReviewedVersion = "v" + Version
-		if err := settings.Save(s, resolved); err != nil {
+		err := settings.Update(resolved, func(s *settings.Settings) error {
+			held = nginxconf.HeldEnforcementPresets(*s) // the file as it is under the lock
+			s.Nginx.EnforcementReviewedVersion = "v" + Version
+			return nil
+		})
+		if err != nil {
 			return fmt.Errorf("save config: %w", err)
 		}
 		fmt.Printf("acknowledged %d enforcement preset(s), reviewed up to v%s:\n", len(held), Version)
