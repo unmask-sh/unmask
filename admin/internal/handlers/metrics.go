@@ -10,6 +10,9 @@
 //	unmask_native_failsafe_active                  1 while the plugin's fail-safe has the module stripped (gauge)
 //	unmask_nginx_config_stale                      1 while a render waits for its reload (gauge)
 //	unmask_ban_file_worker_readable                0 when nginx's worker cannot read the ban list (gauge)
+//	unmask_nginxlog_dropped_total                  access-log lines dropped at a full receiver queue (counter)
+//	unmask_events_bad_rows_total                   event rows dropped because the database refused their data (counter)
+//	unmask_events_dropped_total                    events dropped by the batch writer's backlog cap (counter)
 //
 // challenge phases are counted by events.Insert on each admin request, so the
 // /metrics handler reads them by GROUP BY directly from the DB on invocation
@@ -22,6 +25,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"github.com/unmask-sh/unmask/admin/internal/events"
 	"net/http"
 	"sort"
 	"sync"
@@ -180,6 +184,20 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "# HELP unmask_ban_file_worker_readable 0 when nginx's worker cannot read the ban list the daemon writes (nginx then enforces no ban); 1 otherwise, including when there is no list to read")
 	fmt.Fprintln(w, "# TYPE unmask_ban_file_worker_readable gauge")
 	fmt.Fprintf(w, "unmask_ban_file_worker_readable %d\n", gaugeBit(h.banFileNotice() == nil))
+
+	// What the ingest let go, since the daemon started: lines the access-log
+	// receiver dropped at a full queue (nginx then counts them as sent), event
+	// rows a batch write dropped because the database refused their data, and
+	// events the batch writer's backlog cap dropped.
+	fmt.Fprintln(w, "# HELP unmask_nginxlog_dropped_total access-log lines the receiver dropped at a full queue since the daemon started")
+	fmt.Fprintln(w, "# TYPE unmask_nginxlog_dropped_total counter")
+	fmt.Fprintf(w, "unmask_nginxlog_dropped_total %d\n", h.NginxLog.DroppedLines())
+	fmt.Fprintln(w, "# HELP unmask_events_bad_rows_total event rows a batch write dropped because the database refused their data, since the daemon started")
+	fmt.Fprintln(w, "# TYPE unmask_events_bad_rows_total counter")
+	fmt.Fprintf(w, "unmask_events_bad_rows_total %d\n", events.GlobalFlusherDroppedBadRows())
+	fmt.Fprintln(w, "# HELP unmask_events_dropped_total events the batch writer dropped at its backlog cap since the daemon started")
+	fmt.Fprintln(w, "# TYPE unmask_events_dropped_total counter")
+	fmt.Fprintf(w, "unmask_events_dropped_total %d\n", events.GlobalFlusherDropped())
 
 	// DB latency
 	fmt.Fprintln(w, "# HELP unmask_db_query_seconds DB query latency (sum & count, per op)")

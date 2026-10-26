@@ -157,7 +157,10 @@ func TestMetricsStateGauges(t *testing.T) {
 	want(body,
 		"# TYPE unmask_native_failsafe_active gauge", "unmask_native_failsafe_active 0",
 		"# TYPE unmask_nginx_config_stale gauge", "unmask_nginx_config_stale 0",
-		"# TYPE unmask_ban_file_worker_readable gauge", "unmask_ban_file_worker_readable 1")
+		"# TYPE unmask_ban_file_worker_readable gauge", "unmask_ban_file_worker_readable 1",
+		"# TYPE unmask_nginxlog_dropped_total counter", "unmask_nginxlog_dropped_total 0",
+		"# TYPE unmask_events_bad_rows_total counter", "unmask_events_bad_rows_total 0",
+		"# TYPE unmask_events_dropped_total counter", "unmask_events_dropped_total 0")
 
 	if err := os.WriteFile(filepath.Join(dir, nginxconf.FailsafeMarker), []byte("reason: test\n"), 0o644); err != nil {
 		t.Fatal(err)
