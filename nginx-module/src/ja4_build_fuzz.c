@@ -106,6 +106,53 @@ static void fuzz_tiny_out(void) {
     }
 }
 
+
+/* A TLS 1.3-style ClientHello as browsers send it: GREASE in the cipher and
+ * extension lists, SNI, supported_versions, signature_algorithms, ALPN and
+ * a key_share.  The seed for the mutation fuzz below: random bytes almost
+ * never pass the handshake header, so they never reach the extension
+ * parsing; a seed mutated by a few bytes does. */
+static const uint8_t seed_hello[] = {
+    0x01, 0x00, 0x00, 0xa4,                         /* ClientHello, len=164 */
+    0x03, 0x03,                                     /* legacy_version TLS 1.2 */
+    0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0, /* random */
+    0x00,                                           /* session_id_length */
+    0x00, 0x0a, 0x2a, 0x2a, 0x13, 0x01, 0x13, 0x02, 0x13, 0x03, 0xc0, 0x2b, /* ciphers: GREASE + 4 */
+    0x01, 0x00,                                     /* compression: null */
+    0x00, 0x71,                                     /* extensions length = 113 */
+    0x3a, 0x3a, 0x00, 0x00,                         /* GREASE ext, empty */
+    0x00, 0x00, 0x00, 0x10, 0x00, 0x0e, 0x00, 0x00, 0x0b,
+    'e','x','a','m','p','l','e','.','c','o','m',    /* SNI example.com */
+    0x00, 0x2b, 0x00, 0x05, 0x04, 0x03, 0x04, 0x03, 0x03, /* supported_versions 1.3, 1.2 */
+    0x00, 0x0d, 0x00, 0x08, 0x00, 0x06, 0x04, 0x03, 0x08, 0x04, 0x04, 0x01, /* sigalgs */
+    0x00, 0x10, 0x00, 0x0e, 0x00, 0x0c, 0x02, 'h', '2', 0x05, 'h','t','t','p','/','1','.','1', /* ALPN */
+    0x00, 0x33, 0x00, 0x26, 0x00, 0x24, 0x00, 0x1d, 0x00, 0x20, /* key_share x25519 */
+    1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,
+    0x00, 0x0a, 0x00, 0x04, 0x00, 0x02, 0x00, 0x1d  /* supported_groups */
+};
+
+/* Mutated seeds through parse -> build (the random pass rarely parses, so
+ * it exercises the builder on an empty struct only). */
+static size_t fuzz_mutated_parse_build(size_t iters) {
+    uint8_t buf[sizeof(seed_hello) + 64];
+    char out_str[128];
+    ja4_parsed_t parsed;
+    size_t accepted = 0;
+    for (size_t i = 0; i < iters; i++) {
+        size_t n = sizeof(seed_hello);
+        memcpy(buf, seed_hello, n);
+        unsigned int k = 1 + rng_next() % 8;
+        for (unsigned int j = 0; j < k; j++) buf[rng_next() % n] = (uint8_t)rng_next();
+        if ((rng_next() & 3) == 0) n = rng_next() % (n + 1);
+        if (ja4_parse_client_hello(buf, n, &parsed) == 0) {
+            accepted++;
+            (void)ja4_build_string(&parsed, out_str, sizeof(out_str));
+            (void)ja4_build_string(&parsed, out_str, 1 + rng_next() % sizeof(out_str));
+        }
+    }
+    return accepted;
+}
+
 int main(int argc, char **argv) {
     size_t iters = (argc > 1) ? (size_t)strtoul(argv[1], NULL, 10) : 1000000;
     rng_state = (uint32_t)time(NULL) | 1u;
@@ -113,8 +160,10 @@ int main(int argc, char **argv) {
     fuzz_tiny_out();
     fuzz_random_struct(iters);
     fuzz_parse_then_build(iters);
-
-    printf("ja4_build_fuzz: %zu struct + %zu parse-build iters + tiny-out sweep — no crash\n",
-           iters, iters);
+    {
+        size_t accepted = fuzz_mutated_parse_build(iters);
+        printf("ja4_build_fuzz: %zu struct + %zu parse-build + %zu mutated (%zu accepted) iters "
+               "+ tiny-out sweep, no crash\n", iters, iters, iters, accepted);
+    }
     return 0;
 }

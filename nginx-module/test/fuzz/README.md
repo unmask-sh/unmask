@@ -146,11 +146,11 @@ better fit for the in-CI 60 s gate because of its low setup cost.
 
 ## Known limitations
 
-- The harness exercises **only** `ja4_parse_client_hello`.  The downstream
-  JA4 string construction inside `ngx_http_unmask_module.c` is reached
-  via a different code path and is **not** fuzzed here.  It uses fixed
-  output buffers and is covered by `make test-plugin-parser` plus the
-  e2e tests; if that code is modified, add a separate harness.
+- This harness exercises `ja4_parse_client_hello` only.  The JA4 string
+  construction (`ja4_build.c`) has its own ASan/UBSan driver,
+  `ja4_build_fuzz.c`, run by `make fuzz-plugin` in CI; both CI drivers
+  mutate a browser-like seed ClientHello in addition to pure random bytes,
+  so the extension parsing is reached.
 - Sanitizers slow the parser ~5-10x; perf numbers from this harness are
   not representative of production throughput.
 - `-max_len=65600` is sized for the largest seed.  Inputs bigger than
