@@ -9,7 +9,10 @@
 //   - The presets are updated with each admin release.
 package nginxconf
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 // init: when AddedIn is empty on a preset group, default it to "v0.1.0".
 //
@@ -136,6 +139,23 @@ var ChromiumJA4C = []string{
 	"d8a2da3f94cd", // Chrome 15x on Linux and Android
 	"dcad5a053991", // the solver of 2026-10-23, replaying a Chrome ClientHello
 	"b0da82dd1658", // Chrome 12x (the JA4 README's example)
+}
+
+// majorBrowserJA4RE is the shape of a fingerprint Chromium's TLS stack sends
+// today: Chrome's ciphers and one of the JA4_c values above, over h2 or h1 --
+// the family check's own pattern (http.conf.tmpl, $unmask_ja4_chromium).
+var majorBrowserJA4RE = regexp.MustCompile(`^t13d[0-9]+h[12]_8daaf6152771_(` + strings.Join(ChromiumJA4C, "|") + `)$`)
+
+// MajorBrowserJA4 reports whether ja4 is a fingerprint a current major
+// browser sends -- today, Chromium's (Chrome, Edge, Brave, Opera, Samsung
+// Internet and the rest of the family), the bulk of browsing.  A shared-ban
+// feed entry on such a fingerprint alone would challenge every visitor on
+// that browser, so the community-bans client never applies one.  Firefox and
+// Safari fingerprints are not catalogued here yet: a feed entry on one of
+// those is held by the other guards (the grace period, the per-pull cap),
+// not by this one.
+func MajorBrowserJA4(ja4 string) bool {
+	return majorBrowserJA4RE.MatchString(strings.TrimSpace(ja4))
 }
 
 // ID numbering rules: built-ins use rule-by-rule sequential numbers

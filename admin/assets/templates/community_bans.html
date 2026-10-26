@@ -168,7 +168,7 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
  * can still read "適用中 / 配信対象 / 報告のみ / 適用外" on hover.  The colour
  * still carries the meaning at a glance: green=enforced, blue=propagated,
  * grey=reports-only, amber=bypassed-allowlist. */
-.enforced-badge,.promoted-badge,.reports-only-badge,.not-applied-badge,.bypassed-badge,.muted-badge{display:inline-block;padding:0 .35rem;border-radius:.2rem;font-size:.78rem;line-height:1.2;cursor:help;vertical-align:baseline}
+.enforced-badge,.promoted-badge,.reports-only-badge,.not-applied-badge,.bypassed-badge,.muted-badge,.pending-badge{display:inline-block;padding:0 .35rem;border-radius:.2rem;font-size:.78rem;line-height:1.2;cursor:help;vertical-align:baseline}
 .muted-badge{background:#fee2e2;color:#991b1b}
 /* mute-toggle-btn-badge: strip <button> chrome so it looks like the surrounding
    span badges, but keep it interactive (cursor:pointer, focus ring). */
@@ -180,6 +180,7 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
 .promoted-badge{background:#dbeafe;color:#1e40af}
 .reports-only-badge{background:#f1f5f9;color:#64748b}
 .bypassed-badge{background:#fef9c3;color:#854d0e}
+.pending-badge{background:#e0e7ff;color:#3730a3}
 .detail-toggle{background:none;border:none;color:#94a3b8;cursor:pointer;padding:0 .2rem;font-size:.9rem;line-height:1;transition:transform .12s,color .12s}
 .detail-toggle:hover{color:#0f172a}
 .detail-toggle.open{transform:rotate(90deg);color:#0f172a}
@@ -301,6 +302,15 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
       <span class="impact-num">{{ comma .CommunityBansFromHub }}</span> 行
     </span>
     {{ end }}
+    {{- /* Held back by the client's own limits (communitybans guard.go):
+          promoted rows this install does not enforce yet, and why. */ -}}
+    {{ if gt .CommunityBansPending.Total 0 }}
+    <span class="impact-stat" data-info="{{ t .Lang "community_bans.pending_tip" }}">
+      ⏳ <strong>{{ t .Lang "community_bans.pending_label" }}</strong>
+      <span class="impact-num">{{ comma .CommunityBansPending.Total }}</span>
+      <span class="impact-sub">({{ tf .Lang "community_bans.pending_summary" .CommunityBansPending.Majors .CommunityBansPending.Grace .CommunityBansPending.Capped }})</span>
+    </span>
+    {{ end }}
   </div>
 
   <form method="GET" class="filter-bar">
@@ -375,7 +385,7 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
               ★  bypassed (= whitelisted -- never enforced regardless of score)
               ✓  enforced (= fetch_apply + Promoted (= score >= 3 hub-side))
               ○  everything else (= "not applied": reports-only or fetch-only). */ -}}
-      {{- $enforced := and (eq $.SubscribeMode "fetch_apply") .Promoted -}}
+      {{- $enforced := and (eq $.SubscribeMode "fetch_apply") .Promoted (not .Pending) -}}
       <tr class="feed-row {{ if .Bypassed }}row-bypassed{{ else if $enforced }}row-enforced{{ else if not .Promoted }}row-reports not-promoted{{ else }}row-reports{{ end }}" data-ip="{{ .IP }}" data-ja4="{{ .JA4 }}">
         <td><button class="detail-toggle" type="button" aria-label="{{ t $.Lang "community_bans.detail.toggle_label" }}">▶</button></td>
         <td>
@@ -411,6 +421,7 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
                  status-color styling (.enforced-badge / .muted-badge) and
                  reuses .mute-toggle-btn-badge to strip <button> chrome. */ -}}
           {{ if .Bypassed }}<span class="bypassed-badge" data-info="{{ t $.Lang "community_bans.bypassed_label" }} — {{ t $.Lang "community_bans.bypassed_title" }}">🛡</span>
+          {{- else if .Pending }}<span class="pending-badge" data-info="{{ t $.Lang "community_bans.pending_label" }} — {{ t $.Lang (printf "community_bans.pending.%s" .Pending) }}">⏳</span>
           {{- else if and $isMuted $muteKey }}<button type="button" class="mute-toggle-btn-badge muted-badge" data-mute-key="{{ $muteKey }}" data-mute-action="unmute" aria-label="{{ t $.Lang "community_bans.unmute_action" }}" data-info="{{ t $.Lang "community_bans.muted_label" }} — {{ t $.Lang "community_bans.muted_title" }}<br>{{ t $.Lang "community_bans.muted_action_hint" }}" data-info-after="{{ t $.Lang "community_bans.enforced_label" }} — {{ t $.Lang "community_bans.enforced_title" }}<br>{{ t $.Lang "community_bans.enforced_action_hint" }}" data-aria-after="{{ t $.Lang "community_bans.mute_action" }}">❗</button>
           {{- else if and $enforced $muteKey }}<button type="button" class="mute-toggle-btn-badge enforced-badge" data-mute-key="{{ $muteKey }}" data-mute-action="mute" aria-label="{{ t $.Lang "community_bans.mute_action" }}" data-info="{{ t $.Lang "community_bans.enforced_label" }} — {{ t $.Lang "community_bans.enforced_title" }}<br>{{ t $.Lang "community_bans.enforced_action_hint" }}" data-info-after="{{ t $.Lang "community_bans.muted_label" }} — {{ t $.Lang "community_bans.muted_title" }}<br>{{ t $.Lang "community_bans.muted_action_hint" }}" data-aria-after="{{ t $.Lang "community_bans.unmute_action" }}">✓</button>
           {{- else if $enforced }}<span class="enforced-badge" data-info="{{ t $.Lang "community_bans.enforced_label" }} — {{ t $.Lang "community_bans.enforced_title" }}">✓</span>

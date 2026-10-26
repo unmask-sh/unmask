@@ -278,8 +278,13 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 		communitybans.FeedEntry
 		CountryCode string
 		Bypassed    bool // IP sits in a bypass range -> exempt from enforcement
+		// Pending: held back by the client's own limits (communitybans
+		// guard.go) -- PendingMajors / PendingGrace / PendingCapped -- so
+		// the row is not enforced yet although promoted; "" otherwise.
+		Pending string
 	}
 	bypass := communitybans.NewBypassMatcher(cur)
+	pendingKinds := h.CommunityBans.PendingKinds()
 	filtered := make([]feedRow, 0, len(doc.Entries))
 	for _, e := range doc.Entries {
 		if match != "" && string(e.Match) != match {
@@ -294,7 +299,8 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 				continue
 			}
 		}
-		filtered = append(filtered, feedRow{FeedEntry: e, CountryCode: lookupCC(e.IP), Bypassed: bypass.Match(e.IP)})
+		filtered = append(filtered, feedRow{FeedEntry: e, CountryCode: lookupCC(e.IP), Bypassed: bypass.Match(e.IP),
+			Pending: pendingKinds[communitybans.MuteKey(e)]})
 	}
 
 	var countIPJA4, countJA4, countIP int
@@ -438,18 +444,21 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 		// the page does not poll.
 		"CommunityBansHitsUnavailable": hitsUnavailable,
 		"CommunityBansFromHub":         hitsFromHub,
-		"CommunityBansMatch":           match,
-		"CommunityBansQuery":           q,
-		"CommunityBansMapDir":          mapDir,
-		"CommunityBansSort":            sortKey,
-		"CommunityBansOrder":           orderParam,
-		"Page":                         page,
-		"PageNext":                     page + 1,
-		"PagePrev":                     page - 1,
-		"TotalPages":                   totalPages,
-		"PerPage":                      perPage,
-		"PageStart":                    start + 1,
-		"PageEnd":                      end,
+		// Pending: what the last pull held back (a current browser's JA4,
+		// the day's grace for a new ja4_only entry, the per-pull cap).
+		"CommunityBansPending": h.CommunityBans.Pending(),
+		"CommunityBansMatch":   match,
+		"CommunityBansQuery":   q,
+		"CommunityBansMapDir":  mapDir,
+		"CommunityBansSort":    sortKey,
+		"CommunityBansOrder":   orderParam,
+		"Page":                 page,
+		"PageNext":             page + 1,
+		"PagePrev":             page - 1,
+		"TotalPages":           totalPages,
+		"PerPage":              perPage,
+		"PageStart":            start + 1,
+		"PageEnd":              end,
 		"Pager": buildPagerData(
 			i18n.Resolve(r),
 			page, totalPages, perPage, total,

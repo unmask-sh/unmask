@@ -84,6 +84,13 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 	// start is acceptable; the hub is back within the hour anyway).
 	c.setCachedDoc(doc)
 
+	// The clocks of guard.go run from the first sight of a promoted entry,
+	// whether or not this install enforces yet: an entry promoted a day ago
+	// is applied the moment enforcement is switched on.
+	now := time.Now()
+	st := c.guardStateFor(cur)
+	observePromoted(doc.Entries, st, now)
+
 	// Enforcement is fetch_apply-only.  In "fetch" mode the maps are written
 	// empty so nginx sees the entries for browsing (via the doc) but never
 	// challenges traffic, and a previous fetch_apply's maps are cleared.
@@ -114,11 +121,27 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 			enforce.Entries = kept
 			c.logf("communitybans: muted %d entr(ies) per LocalMutes", skipped)
 		}
+		// Last, the limits on what one pull may switch on (guard.go): a
+		// current browser's fingerprint never, a new ja4_only entry after a
+		// day, and at most ApplyCap entries new to this install per pull.
+		kept, held, pend := guardEntries(enforce.Entries, st, now)
+		enforce.Entries = kept
+		c.setPending(pend, held)
+		c.saveGuardState(cur)
+		if pend.Total() > 0 {
+			c.logf("communitybans: %d promoted entr(ies) held back: %d on a current browser's JA4, %d in the %s grace for a new ja4_only entry, %d over the cap of %d new entries per pull",
+				pend.Total(), pend.Majors, pend.Grace, GraceJA4, pend.Capped, ApplyCap)
+		}
 		if err := WriteMapFiles(enforce, mapDir); err != nil {
 			return doc, fmt.Errorf("write map files: %w", err)
 		}
 		c.reloadMatcher(mapDir)
 	} else {
+		// Nothing is applied: the next switch to fetch_apply starts from
+		// nothing, under the cap.
+		st.Applied = map[string]int64{}
+		c.setPending(Pending{}, nil)
+		c.saveGuardState(cur)
 		empty := FeedDocument{GeneratedAt: time.Now().Unix(), Version: doc.Version}
 		if err := WriteMapFiles(empty, mapDir); err != nil {
 			return doc, fmt.Errorf("clear map files: %w", err)
@@ -126,10 +149,9 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 		c.reloadMatcher(mapDir)
 	}
 
-	now := time.Now().Unix()
 	cnt := len(doc.Entries)
 	if err := c.SettingsUpdate(func(s *settings.Settings) {
-		s.CommunityBans.LastPulledAt = now
+		s.CommunityBans.LastPulledAt = now.Unix()
 		s.CommunityBans.Entries = cnt
 	}); err != nil {
 		c.logf("communitybans: persist pull state: %v", err)

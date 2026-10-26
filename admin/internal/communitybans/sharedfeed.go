@@ -3,6 +3,7 @@ package communitybans
 import (
 	"log"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,6 +33,10 @@ type Client struct {
 	// MapDir: output dir for community-bans-*.map.  Empty → settings.Nginx.OutputDir.
 	MapDir string
 
+	// StatePath: the guard's state file (guard.go: what was seen when, what
+	// is applied).  Empty → community-bans-state.json beside the map files.
+	StatePath string
+
 	// Logger: optional.  nil → log package default.
 	Logger *log.Logger
 
@@ -51,6 +56,81 @@ type Client struct {
 	// Refreshed whenever those files are rewritten, and once at Run() start
 	// so a cold boot with an unreachable hub still enforces the last pull.
 	matcher atomic.Pointer[Matcher]
+
+	// guard: the state the limits of guard.go keep between pulls; loaded on
+	// the first pull.  Used under mu.  pending / heldKeys: what the last
+	// pull held back, for the page; under guardMu, read by the handlers.
+	guard    *guardState
+	guardMu  sync.Mutex
+	pending  Pending
+	heldKeys map[string]string
+}
+
+// statePath is where the guard's state lives for this install.
+func (c *Client) statePath(cur settings.Settings) string {
+	if c.StatePath != "" {
+		return c.StatePath
+	}
+	return filepath.Join(c.resolveMapDir(cur), "community-bans-state.json")
+}
+
+// guardStateFor returns the guard's state, loaded from disk on first use.
+// Under mu (Pull).
+func (c *Client) guardStateFor(cur settings.Settings) *guardState {
+	if c.guard != nil {
+		return c.guard
+	}
+	st, err := loadGuardState(c.statePath(cur))
+	if err != nil {
+		c.logf("communitybans: guard state %s: %v (starting over)", c.statePath(cur), err)
+	}
+	c.guard = st
+	return st
+}
+
+// saveGuardState writes the guard's state; a failure is logged, and the
+// clocks run from memory until the daemon restarts.  Under mu (Pull).
+func (c *Client) saveGuardState(cur settings.Settings) {
+	if c.guard == nil {
+		return
+	}
+	if err := saveGuardState(c.statePath(cur), c.guard); err != nil {
+		c.logf("communitybans: guard state %s: %v", c.statePath(cur), err)
+	}
+}
+
+// setPending records what the last pull held back.
+func (c *Client) setPending(p Pending, held map[string]string) {
+	c.guardMu.Lock()
+	c.pending = p
+	c.heldKeys = held
+	c.guardMu.Unlock()
+}
+
+// Pending reports what the last pull held back, and why (guard.go).
+func (c *Client) Pending() Pending {
+	if c == nil {
+		return Pending{}
+	}
+	c.guardMu.Lock()
+	defer c.guardMu.Unlock()
+	return c.pending
+}
+
+// PendingKinds returns the entries the last pull held back, by MuteKey, with
+// the reason (PendingMajors / PendingGrace / PendingCapped), for the page's
+// badges.  A copy.
+func (c *Client) PendingKinds() map[string]string {
+	if c == nil {
+		return nil
+	}
+	c.guardMu.Lock()
+	defer c.guardMu.Unlock()
+	out := make(map[string]string, len(c.heldKeys))
+	for k, v := range c.heldKeys {
+		out[k] = v
+	}
+	return out
 }
 
 // resolveMapDir returns the directory holding community-bans-*.map for this
