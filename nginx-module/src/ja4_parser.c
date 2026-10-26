@@ -140,18 +140,11 @@ int ja4_parse_client_hello(const unsigned char *msg, size_t len,
 
         switch (etype) {
 
-        case 0: /* server_name (= SNI).
-                 * Layout: u16 list_total_len, [u8 name_type, u16 host_len, bytes]*.
-                 * At least one host_name (= name_type 0) means a domain
-                 * is present. */
-            if (elen >= 5) {
-                unsigned int list_len = rd_u16(eptr);
-                if (list_len + 2 <= elen && list_len >= 3) {
-                    if (eptr[2] == 0 /* host_name */) {
-                        out->sni_present_domain = 1;
-                    }
-                }
-            }
+        case 0: /* server_name (= SNI).  The JA4 spec keys the 'd' / 'i'
+                 * indicator on the presence of the extension, not on what
+                 * it carries: an empty or malformed server_name is still a
+                 * client that sent SNI, and the spec says "d". */
+            out->sni_present_domain = 1;
             break;
 
         case 13: /* signature_algorithms.

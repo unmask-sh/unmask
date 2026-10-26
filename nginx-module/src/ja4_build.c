@@ -63,7 +63,11 @@ size_t ja4_build_string(const ja4_parsed_t *parsed, char *out, size_t outlen) {
     char ja4_a[16];
     char ja4_b[13];
     char ja4_c[13];
-    char buf[2048];
+    /* The hex lists: "xxxx," per entry, the extension list then "_" then
+     * the signature algorithms for JA4_c.  Sized from the parser caps so a
+     * cap raised there cannot overflow here (a stack write the mutation
+     * fuzz caught when the caps went from 256 to 1024). */
+    char buf[(JA4_MAX_EXTENSIONS + JA4_MAX_SIG_ALGS) * 5 + 8];
     char *bp;
     int  i, nexts_c;
     int  tlsver, cipher_count_disp, ext_count_disp, n;

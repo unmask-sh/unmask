@@ -235,6 +235,26 @@ static void test_no_sni(void) {
 }
 
 /* ====================================================================
+ * Test case 2b: an empty server_name extension still counts as SNI present.
+ *               The JA4 spec keys 'd' on the extension, not on a host_name.
+ * ==================================================================== */
+static void test_empty_sni_ext(void) {
+    unsigned char buf[1024];
+    ja4_parsed_t out;
+    size_t total;
+
+    unsigned int ciphers[] = {0x1301};
+    ext_def_t exts[] = {
+        {0, (const unsigned char *)"", 0},              /* server_name, empty body */
+        {43, (const unsigned char *)"\x02\x03\x04", 3}, /* sup_ver: TLS 1.3 only */
+    };
+
+    total = build_ch(buf, sizeof(buf), 0x0303, ciphers, 1, exts, 2);
+    CHECK(ja4_parse_client_hello(buf, total, &out) == 0, "parse should succeed");
+    CHECK(out.sni_present_domain == 1, "empty SNI extension -> flag=1 (spec: 'd')");
+}
+
+/* ====================================================================
  * Test case 3: TLS 1.2 ClientHello (= no supported_versions ext)
  *              -> legacy_version is used as-is
  * ==================================================================== */
@@ -338,6 +358,7 @@ static void test_no_extensions_block(void) {
 int main(void) {
     test_basic_tls13_with_sni_and_alpn();
     test_no_sni();
+    test_empty_sni_ext();
     test_tls12_no_supported_versions();
     test_malformed_rejected();
     test_no_extensions_block();

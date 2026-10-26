@@ -19,9 +19,14 @@
 
 #include <stddef.h>
 
-#define JA4_MAX_CIPHERS    256
-#define JA4_MAX_EXTENSIONS 256
-#define JA4_MAX_SIG_ALGS   64
+/* Capacity of the parsed lists.  The JA4 spec sets no limit on the lists
+ * it hashes; a ClientHello past these is not a real client (the largest
+ * browsers send about 20 ciphers and 20 extensions), and the fingerprint
+ * of such a hello is the only thing that differs.  Kept on the stack of
+ * the TLS message callback, so sized in the low kilobytes. */
+#define JA4_MAX_CIPHERS    1024
+#define JA4_MAX_EXTENSIONS 1024
+#define JA4_MAX_SIG_ALGS   256
 
 typedef struct {
     /* legacy_version field (= ClientHello.legacy_version).
@@ -35,7 +40,7 @@ typedef struct {
     unsigned int  supported_versions_max;
 
     /* cipher_suites in presentation order with GREASE excluded.
-     * Truncated past 256 entries. */
+     * Truncated past JA4_MAX_CIPHERS entries. */
     unsigned int  ciphers[JA4_MAX_CIPHERS];
     int           ncipher;
 
@@ -50,8 +55,9 @@ typedef struct {
     int           nsig_algs;
     int           has_sig_algs;       /* set if ext 13 itself was present */
 
-    /* SNI (= ext 0): 1 if at least one host_name entry (name_type=0)
-     * is present. */
+    /* SNI (= ext 0): 1 if the server_name extension is present.  The JA4
+     * spec keys the 'd' / 'i' indicator on the extension itself, whatever
+     * it carries. */
     int           sni_present_domain;
 
     /* ALPN (= ext 16) first and last character of the first proto.
