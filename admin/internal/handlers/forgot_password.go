@@ -23,8 +23,9 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
-
+	"github.com/unmask-sh/unmask/admin/internal/safe"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
+	"github.com/unmask-sh/unmask/admin/internal/user"
 )
 
 const (
@@ -132,23 +133,19 @@ func (h *Handler) AdminForgotPasswordPost(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	// 3) Send mail.  The URL prefix uses the client-visible Host (= built
-	//    from the target site and the admin base_path).  No host the link
-	//    can safely be built on -> no mail; the token expires unused.
-	resetURL := buildResetURL(r, h.snapshotSettings(), tok)
-	if resetURL == "" {
-		log.Printf("forgot password: no host to build the reset link on (admin_allowed_hosts names none; request host %q); mail not sent", LogSafe(r.Host))
-	} else {
-		subject := "[unmask] password reset link"
-		body := "A password reset was requested for unmask.\n\n" +
-			"Use the following link to set a new password (valid for 1 hour):\n" +
-			resetURL + "\n\n" +
-			"If you did not request this, ignore this email.\n" +
-			"username: " + u.Username + "\n"
-		if err := h.Mailer.Send(u.Email.String, subject, body); err != nil {
-			log.Printf("forgot password: mail send to %s: %v", u.Email.String, err)
+	// 3) Send mail, off the request: the send is an SMTP round trip
+	//    (seconds against a slow relay), and until 0.1.53 it ran only for
+	//    an account that exists -- the response time said which names were
+	//    accounts, whatever the page said.  The mail carries the link, or
+	//    the path alone when no host can be trusted to build it on
+	//    (resetMail).
+	to := u.Email.String
+	subject, body := h.resetMail(r, mailLang(u, r), false, tok, u.Username)
+	safe.Go("forgot-password mail", func() {
+		if err := h.Mailer.Send(to, subject, body); err != nil {
+			log.Printf("forgot password: mail send to %s: %v", to, err)
 		}
-	}
+	})
 
 	// audit (= record both successes and failures for audit).
 	h.UserRepo.Record(ctx, u.ID, u.Username, "forgot_password_request", u.Username, "")
@@ -233,53 +230,92 @@ func newResetToken() (string, error) {
 }
 
 // buildResetURL: the client-visible reset / setup link, or "" when there is
-// no host it can safely be built on (resetLinkHost).
-//
-// On internal-IP access, host becomes localhost / 127.0.0.1.  The flow
-// still works, but the link inside the mail won't be reachable
-// externally.  That's an operator responsibility (= reverse-proxy setup).
+// no host it can safely be built on.  nginx.admin_public_url first (the
+// address the operator says the admin is at, base path included); else the
+// host resetLinkHost finds, with the scheme the request came in on.
 func buildResetURL(r *http.Request, cfg settings.Settings, token string) string {
+	if u := strings.TrimSpace(cfg.Nginx.AdminPublicURL); u != "" {
+		return u + "/admin/reset-password?token=" + token
+	}
 	host := resetLinkHost(r, cfg)
 	if host == "" {
 		return ""
 	}
-	return resetLinkScheme(r, cfg) + "://" + host + cfg.Server.BasePath + "/admin/reset-password?token=" + token
+	return resetLinkScheme(r, cfg) + "://" + host + resetLinkPath(cfg, token)
 }
 
-// resetLinkHost is the host the reset link is built on, "" when none can be
-// trusted.
+// resetLinkPath: the link's path alone, for a mail with no host to build the
+// link on -- the reader opens it at the admin address they always use.
+func resetLinkPath(cfg settings.Settings, token string) string {
+	return cfg.Server.BasePath + "/admin/reset-password?token=" + token
+}
+
+// resetLinkHost is the host the reset link is built on when no public
+// address is configured, "" when none can be trusted.
 //
 // The mail goes to the account's own address, so a link built on a host the
 // client named is a one-click leak of the token to that host: a visitor who
 // sends "Host: attacker.example" (or X-Forwarded-Host) for the victim's
 // username would have the victim deliver their own token.  So:
-//   - X-Forwarded-Host is read off a trusted proxy only (adminClientHost, the
-//     same reading admin_allowed_hosts is enforced with); from anyone else the
-//     host is what the connection's own Host header says.
-//   - With admin_allowed_hosts set, the host has to match it the way the admin
-//     gate matches (hostMatchesPattern: exact:, subdomain:, anchored regex).
-//     This used to compare the raw entries, so a list saved by the settings
-//     page -- whose rows carry a mode marker -- never matched, and the link
-//     was then built on the literal first entry, "exact:admin.example.com".
-//   - A host outside the list is replaced by the first entry that names a
-//     host (literalHost).  A list of patterns alone names none, and then
-//     there is no safe host and no link: the caller logs it and sends no
-//     mail.
-//   - An empty list (the default) keeps trusting the request host: a single-
-//     admin install, where the name the operator reached the admin by is the
-//     name the link should carry.
+//   - The first entry of admin_allowed_hosts that names a host (literalHost)
+//     is the host: the operator wrote it.
+//   - Else the request's host, when admin_allowed_hosts admits it the way
+//     the admin gate matches (hostMatchesPattern: exact:, subdomain:,
+//     anchored regex) -- a list of patterns alone names no host, and a
+//     pattern admits what the operator spelled out.  X-Forwarded-Host is
+//     read off a trusted proxy only (adminClientHost, the same reading the
+//     gate uses); from anyone else the host is what the connection's own
+//     Host header says.
+//   - An empty list (the default) admits nothing here.  Until 0.1.53 it
+//     kept trusting the request host, and so every default install built
+//     the link on whatever Host the requester sent.  With no host the mail
+//     carries the path alone (resetLinkPath).
 func resetLinkHost(r *http.Request, cfg settings.Settings) string {
-	host := strings.TrimSpace(adminClientHost(r, cfg))
 	allowed := settings.EnabledValues(cfg.Nginx.AdminAllowedHosts, cfg.Nginx.AdminAllowedHostsDisabled)
-	if host != "" && hostAllowed(host, allowed) {
-		return host
-	}
 	for _, entry := range allowed {
 		if lit := literalHost(strings.TrimSpace(entry)); lit != "" {
 			return lit
 		}
 	}
+	host := strings.TrimSpace(adminClientHost(r, cfg))
+	if host != "" && len(allowed) > 0 && hostAllowed(host, allowed) {
+		return host
+	}
 	return ""
+}
+
+// mailLang: the language a mail to u is written in -- the one the account
+// last saw the admin in, else the request's.
+func mailLang(u *user.User, r *http.Request) i18n.Lang {
+	if u != nil && u.UILang != "" {
+		return i18n.Lang(u.UILang)
+	}
+	return i18n.Resolve(r)
+}
+
+// resetMail: the subject and body of a password-reset (invite=false) or
+// account-setup (invite=true) mail for token, in lang.  With a host to
+// build the link on (buildResetURL) the mail carries the link; without one
+// it carries the path and says to open it at the admin address the reader
+// always uses -- a mail with the path still lets the account in, a mail not
+// sent does not.
+func (h *Handler) resetMail(r *http.Request, lang i18n.Lang, invite bool, token, username string) (subject, body string) {
+	cfg := h.snapshotSettings()
+	kind := "reset"
+	if invite {
+		kind = "invite"
+	}
+	lines := []string{i18n.T(lang, "mail."+kind+".intro"), ""}
+	if link := buildResetURL(r, cfg, token); link != "" {
+		lines = append(lines, i18n.T(lang, "mail."+kind+".link"), link, "")
+	} else {
+		lines = append(lines, i18n.T(lang, "mail."+kind+".path"), resetLinkPath(cfg, token), "")
+	}
+	if !invite {
+		lines = append(lines, i18n.T(lang, "mail.reset.ignore"))
+	}
+	lines = append(lines, i18n.Tf(lang, "mail.reset.username", username), "")
+	return i18n.T(lang, "mail."+kind+".subject"), strings.Join(lines, "\n")
 }
 
 // literalHost is the host an allowlist entry names, "" for a pattern.  An

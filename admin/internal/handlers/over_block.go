@@ -142,12 +142,15 @@ func overBlockReport(tripped bool, r events.StuckReport, minStuck, minPct int, a
 	return out
 }
 
-// adminURL is the admin's address for the links an alert carries: the first
-// host nginx.admin_allowed_hosts names, and the base path.  "" when the list
-// names no single host -- the mail then says where to look.  Not a request's
-// Host header, as a password-reset link uses: there is no request behind an
-// alert.
+// adminURL is the admin's address for the links an alert carries:
+// nginx.admin_public_url, else the first host nginx.admin_allowed_hosts
+// names with the base path.  "" when neither names a host -- the mail then
+// says where to look.  Never a request's Host header: there is no request
+// behind an alert.
 func adminURL(s settings.Settings) string {
+	if u := strings.TrimSpace(s.Nginx.AdminPublicURL); u != "" {
+		return u
+	}
 	for _, e := range settings.EnabledValues(s.Nginx.AdminAllowedHosts, s.Nginx.AdminAllowedHostsDisabled) {
 		// literalHost reads the entry the way the reset link's fallback does
 		// (forgot_password.go); the extra match here keeps a host:port or a

@@ -377,11 +377,15 @@ func (h *Handler) RunAdvisorSchedule(ctx context.Context) {
 	})
 }
 
-// advisorPageURL builds the link carried in the digest.  The daemon does not
-// know the name visitors reach it by, so it uses the first configured admin
-// hostname when there is one and leaves the link out otherwise -- a wrong URL
-// in an alert is worse than none.
+// advisorPageURL builds the link carried in the digest: nginx.admin_public_url
+// when the operator set it, else the first configured admin hostname.  The
+// daemon does not otherwise know the name visitors reach it by, so with
+// neither it leaves the link out -- a wrong URL in an alert is worse than
+// none.
 func (h *Handler) advisorPageURL() string {
+	if u := strings.TrimSpace(h.cfg().Nginx.AdminPublicURL); u != "" {
+		return u + "/admin/advisor/"
+	}
 	hosts := settings.EnabledValues(h.cfg().Nginx.AdminAllowedHosts, h.cfg().Nginx.AdminAllowedHostsDisabled)
 	if len(hosts) == 0 {
 		return ""

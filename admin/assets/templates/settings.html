@@ -1014,6 +1014,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <label>{{ t .Lang "settings.network.admin_hosts_label" }}</label>
       {{ template "valueRuleList" (dict "Name" "admin_allowed_hosts" "Values" .Cur.AdminAllowedHosts "Titles" .Cur.AdminAllowedHostsTitle "Disabled" .Cur.AdminAllowedHostsDisabled "Created" .Cur.AdminAllowedHostsCreatedAt "Updated" .Cur.AdminAllowedHostsUpdatedAt "Placeholder" "admin.example.com" "ModeSet" "host" "FocusSet" .SecFocusSet "Lang" .Lang "ErrField" .SecErrField "ErrValue" .SecErrValue "ErrMsg" .SecErrMsg) }}
     </div>
+    <div class="field">
+      <label for="admin_public_url">{{ t .Lang "settings.network.admin_public_url_label" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.admin_public_url_desc") }}</span></span></label>
+      <input type="url" id="admin_public_url" name="admin_public_url" value="{{ .Cur.AdminPublicURL }}" placeholder="https://admin.example.com{{ .BasePath }}" style="width:100%;font-family:ui-monospace,monospace">
+    </div>
   </div>
   <style>
   .admin-acl-state{font-size:.78rem;color:#475569;margin:.1rem 0 .5rem}

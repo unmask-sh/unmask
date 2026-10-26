@@ -2382,6 +2382,14 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 	n.AdminAllowedHostsUpdatedAt = hostsUp
 	n.AdminAllowedHostsDisabled = hostDis
 
+	// The admin's public address, which the links in mail are built on
+	// (settings.ParseAdminPublicURL says what it may be).
+	pub, err := settings.ParseAdminPublicURL(r.FormValue("admin_public_url"))
+	if err != nil {
+		return fmt.Errorf("%s", i18n.Tf(lang, "err.admin_public_url_invalid", strings.TrimSpace(r.FormValue("admin_public_url"))))
+	}
+	n.AdminPublicURL = pub
+
 	mallow, mallowNotes, mallowDis, mallowCr, mallowUp := formListWithNotesEnabled(r.Form["metrics_allow_from"], r.Form["metrics_allow_from_title"], r.Form["metrics_allow_from_enabled"], r.Form["metrics_allow_from_created_at"], r.Form["metrics_allow_from_updated_at"])
 	for _, a := range mallow {
 		if !ipOrCIDRRE.MatchString(a) {

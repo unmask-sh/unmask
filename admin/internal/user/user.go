@@ -18,9 +18,11 @@ package user
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"runtime"
@@ -640,13 +642,28 @@ func (r *Repository) CreateWithProfile(ctx context.Context, username, plainPassw
 	return u, nil
 }
 
-// IssueResetToken: generate a token (= 32-byte hex) and persist it.
-// Expires after ttlSec.  Returns the generated token.  Overwrites any
-// existing token (= the previous reset's token becomes invalid).
+// resetTokenHash: what the reset_token column holds for a token -- its
+// SHA-256, hex.  The token itself goes out in a mail and sits in the
+// reader's browser history; until 0.1.53 the column held it in the clear,
+// so a copy of the database (a backup, a read of the users table) carried
+// every outstanding reset and setup link and could set those accounts'
+// passwords.  The hash cannot be turned back into the token, and a guess
+// has 256 bits to cover.  "" stays "" (= no token).
+func resetTokenHash(token string) string {
+	if token == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+// IssueResetToken persists the hash of token (resetTokenHash) for the
+// account, expiring after ttlSec.  Overwrites any existing token (= the
+// previous reset's token becomes invalid).
 func (r *Repository) IssueResetToken(ctx context.Context, userID int64, token string, ttlSec int64) error {
 	expires := time.Now().Unix() + ttlSec
 	res := r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
-		Updates(map[string]any{"reset_token": token, "reset_token_expires_at": expires})
+		Updates(map[string]any{"reset_token": resetTokenHash(token), "reset_token_expires_at": expires})
 	if res.Error != nil {
 		return res.Error
 	}
@@ -656,16 +673,18 @@ func (r *Repository) IssueResetToken(ctx context.Context, userID int64, token st
 	return nil
 }
 
-// ConsumeResetToken: if the token is valid, return the user and consume
-// the token (= NULL out the column).  Expired / mismatched token / user
-// not found all return ErrNotFound.
+// ConsumeResetToken: if the token is valid (its hash is an account's,
+// unexpired), return the user and consume the token (= NULL out the
+// column).  Expired / mismatched token / user not found all return
+// ErrNotFound.
 func (r *Repository) ConsumeResetToken(ctx context.Context, token string) (*User, error) {
 	if token == "" {
 		return nil, ErrNotFound
 	}
+	hash := resetTokenHash(token)
 	row := r.DB.QueryRowContext(ctx,
 		`SELECT id, username, password_hash, role, email, alert_opt_out, disabled, password_locked, reset_token, reset_token_expires_at, created_at, last_login, ui_lang, session_gen
-		 FROM unmask_user WHERE reset_token = ?`, token)
+		 FROM unmask_user WHERE reset_token = ?`, hash)
 	u, err := scanUser(row)
 	if err != nil {
 		return nil, err
@@ -679,7 +698,7 @@ func (r *Repository) ConsumeResetToken(ctx context.Context, token string) (*User
 	// concurrent redeem of the same token updates 0 rows, so the token is truly
 	// one-shot even under the SELECT-then-UPDATE race (DB-7).
 	res := r.DB.Gorm.WithContext(ctx).Model(&db.User{}).
-		Where("id = ? AND reset_token = ?", u.ID, token).
+		Where("id = ? AND reset_token = ?", u.ID, hash).
 		Updates(map[string]any{"reset_token": nil, "reset_token_expires_at": nil})
 	if res.Error != nil {
 		return nil, res.Error

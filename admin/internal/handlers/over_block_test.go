@@ -70,4 +70,9 @@ func TestAdminURL(t *testing.T) {
 	if got := adminURL(s); got != "https://example.org/unmask" {
 		t.Errorf("with the exact entry switched off: %q", got)
 	}
+	// The operator's own address comes first, base path included.
+	s.Nginx.AdminPublicURL = "https://ops.example.net/u"
+	if got := adminURL(s); got != "https://ops.example.net/u" {
+		t.Errorf("with admin_public_url set: %q", got)
+	}
 }

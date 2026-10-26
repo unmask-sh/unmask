@@ -10,12 +10,12 @@ import (
 
 // The password-reset / account-setup link is mailed to the account's own
 // address, so the host it is built on decides who the token reaches.  The
-// link's host comes from the request only when admin_allowed_hosts admits it
-// -- read with the gate's own exact: / subdomain: / regex reading, which this
-// used to ignore (and then built the link on the literal first entry,
-// "exact:admin.example.com") -- or, outside the list, from the first entry
-// that names a host.  X-Forwarded-Host and -Proto count only off a trusted
-// proxy.
+// host is nginx.admin_public_url, else the first entry of
+// admin_allowed_hosts that names a host, else the request's host when the
+// list admits it -- read with the gate's own exact: / subdomain: / regex
+// reading.  An empty list admits nothing: until 0.1.53 it trusted the
+// request's Host header, which is the requester's to set.  X-Forwarded-Host
+// and -Proto count only off a trusted proxy.
 func TestBuildResetURL(t *testing.T) {
 	const tok = "0123456789abcdef"
 	type req struct {
@@ -41,25 +41,25 @@ func TestBuildResetURL(t *testing.T) {
 		cfg  settings.Settings
 		want string
 	}{
-		{"empty list trusts the Host header",
-			direct("admin.example.com"), cfg(nil, nil), link("http", "admin.example.com")},
-		{"empty list, X-Forwarded-Host off a trusted proxy",
-			viaProxy("127.0.0.1:9477", "admin.example.com"), cfg(nil, nil), link("http", "admin.example.com")},
-		{"empty list, X-Forwarded-Host off an untrusted peer is ignored",
-			req{peer: "203.0.113.9:5555", host: "unmask.example.com", fwdHost: "attacker.example"}, cfg(nil, nil),
-			link("http", "unmask.example.com")},
-		{"exact: entry admits its host",
+		{"empty list does not trust the Host header",
+			direct("admin.example.com"), cfg(nil, nil), ""},
+		{"empty list, X-Forwarded-Host off a trusted proxy is not trusted either",
+			viaProxy("127.0.0.1:9477", "admin.example.com"), cfg(nil, nil), ""},
+		{"exact: entry names the host, whatever the request says",
 			direct("admin.example.com"), cfg([]string{"exact:admin.example.com"}, nil), link("http", "admin.example.com")},
-		{"exact: entry, case and port aside",
-			direct("Admin.Example.com:8443"), cfg([]string{"exact:admin.example.com"}, nil), link("http", "Admin.Example.com:8443")},
+		{"exact: entry, the request's case and port aside",
+			direct("Admin.Example.com:8443"), cfg([]string{"exact:admin.example.com"}, nil), link("http", "admin.example.com")},
 		{"exact: entry stands in for a host outside the list",
 			direct("attacker.example"), cfg([]string{"exact:admin.example.com"}, nil), link("http", "admin.example.com")},
-		{"subdomain: entry admits a subdomain",
-			direct("ops.example.com"), cfg([]string{"subdomain:example.com"}, nil), link("http", "ops.example.com")},
+		{"subdomain: entry names the domain itself before an admitted subdomain",
+			direct("ops.example.com"), cfg([]string{"subdomain:example.com"}, nil), link("http", "example.com")},
 		{"subdomain: entry stands in with the domain itself",
 			direct("example.com.attacker.example"), cfg([]string{"subdomain:example.com"}, nil), link("http", "example.com")},
 		{"regex entry admits what it spells out",
 			direct("web1-jp.example.com"), cfg([]string{`web\d+-[a-z]+\.example\.com`}, nil), link("http", "web1-jp.example.com")},
+		{"regex entry, X-Forwarded-Host off an untrusted peer is ignored",
+			req{peer: "203.0.113.9:5555", host: "web1-jp.example.com", fwdHost: "attacker.example"}, cfg([]string{`web\d+-[a-z]+\.example\.com`}, nil),
+			link("http", "web1-jp.example.com")},
 		{"a list of patterns alone names no host to stand in",
 			direct("attacker.example"), cfg([]string{`web\d+-[a-z]+\.example\.com`}, nil), ""},
 		{"the first entry that names a host stands in, patterns skipped",
@@ -72,9 +72,9 @@ func TestBuildResetURL(t *testing.T) {
 		{"X-Forwarded-Host off a trusted proxy is matched against the list",
 			viaProxy("127.0.0.1:9477", "admin.example.com"), cfg([]string{"exact:admin.example.com"}, nil), link("http", "admin.example.com")},
 		{"X-Forwarded-Proto off a trusted proxy sets the scheme",
-			req{peer: "127.0.0.1:41234", host: "admin.example.com", fwdProto: "https"}, cfg(nil, nil), link("https", "admin.example.com")},
+			req{peer: "127.0.0.1:41234", host: "admin.example.com", fwdProto: "https"}, cfg([]string{"exact:admin.example.com"}, nil), link("https", "admin.example.com")},
 		{"X-Forwarded-Proto off an untrusted peer is ignored",
-			req{peer: "203.0.113.9:5555", host: "admin.example.com", fwdProto: "https"}, cfg(nil, nil), link("http", "admin.example.com")},
+			req{peer: "203.0.113.9:5555", host: "admin.example.com", fwdProto: "https"}, cfg([]string{"exact:admin.example.com"}, nil), link("http", "admin.example.com")},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -100,7 +100,28 @@ func TestBuildResetURLSchemeFromTLS(t *testing.T) {
 	r.RemoteAddr = "203.0.113.9:5555"
 	var s settings.Settings
 	s.Server.BasePath = "/unmask"
+	s.Nginx.AdminAllowedHosts = []string{"exact:admin.example.com"}
 	if got, want := buildResetURL(r, s, "t"), "https://admin.example.com/unmask/admin/reset-password?token=t"; got != want {
 		t.Errorf("buildResetURL = %q, want %q", got, want)
+	}
+}
+
+// nginx.admin_public_url is the link's whole prefix -- scheme, host and base
+// path as the operator wrote them -- before anything the request or the
+// allowlist says; and with no host at all the path alone is what a mail
+// carries.
+func TestBuildResetURLPublicAddress(t *testing.T) {
+	r := httptest.NewRequest(http.MethodPost, "/unmask/admin/forgot-password", nil)
+	r.RemoteAddr = "203.0.113.9:5555"
+	r.Host = "attacker.example"
+	var s settings.Settings
+	s.Server.BasePath = "/unmask"
+	s.Nginx.AdminAllowedHosts = []string{"exact:admin.example.com"}
+	s.Nginx.AdminPublicURL = "https://ops.example.net"
+	if got, want := buildResetURL(r, s, "t"), "https://ops.example.net/admin/reset-password?token=t"; got != want {
+		t.Errorf("buildResetURL = %q, want %q", got, want)
+	}
+	if got, want := resetLinkPath(s, "t"), "/unmask/admin/reset-password?token=t"; got != want {
+		t.Errorf("resetLinkPath = %q, want %q", got, want)
 	}
 }

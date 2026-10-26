@@ -1006,6 +1006,18 @@ type Nginx struct {
 	//     /unmask/* to admin unchanged (= no nginx config involvement).
 	AdminAllowedHosts []string `yaml:"admin_allowed_hosts,omitempty"`
 
+	// AdminPublicURL: the address operators open the admin UI at -- scheme,
+	// host, and the base path when nginx serves unmask under one
+	// ("https://admin.example.com/unmask"; "/admin" is appended) -- for the
+	// links the daemon puts in mail: a password-reset or account-setup link,
+	// an alert's link to the admin.  The daemon does not otherwise know the
+	// name visitors reach it by, and a request's Host header is the client's
+	// to set: a reset link built on it would hand the token to whatever host
+	// the requester named.  Empty: the first host AdminAllowedHosts names
+	// stands in, and when none does a reset mail carries the path alone.
+	// Validated by ParseAdminPublicURL.
+	AdminPublicURL string `yaml:"admin_public_url,omitempty"`
+
 	// TrustForwardedSite: in forward-auth mode the admin can derive the site
 	// (= which vhost's policy applies) from an X-Unmask-Site header the proxy
 	// sets, but nginx's default proxy_pass_request_headers forwards a
@@ -5406,6 +5418,31 @@ func Save(s Settings, path string) error {
 		return fmt.Errorf("rename: %w", err)
 	}
 	return nil
+}
+
+// ParseAdminPublicURL normalizes an admin_public_url: "scheme://host" with
+// an optional base path and no trailing slash, or "" for an empty value.
+// Refused: a scheme other than http / https, no host, credentials, a query
+// or fragment, and a path ending in /admin -- the daemon appends that itself,
+// and the links would otherwise land on /admin/admin/.
+func ParseAdminPublicURL(v string) (string, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "", nil
+	}
+	u, err := url.Parse(v)
+	if err != nil {
+		return "", err
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.Opaque != "" || u.User != nil ||
+		u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return "", fmt.Errorf("admin_public_url %q: want scheme://host[/base]", v)
+	}
+	path := strings.TrimRight(u.EscapedPath(), "/")
+	if path == "/admin" || strings.HasSuffix(path, "/admin") {
+		return "", fmt.Errorf("admin_public_url %q: give the address without /admin", v)
+	}
+	return u.Scheme + "://" + u.Host + path, nil
 }
 
 func randomHex(n int) string {

@@ -33,7 +33,9 @@ const inviteTokenTTLSec = 72 * 3600
 // sendSetupLinkMail issues a fresh password-setup token for u (72h, replacing
 // any previous token) and mails the setup link.  The mail carries only the
 // link — never a password, not even a temporary one: the invitee's password
-// exists nowhere until they choose it through the link.
+// exists nowhere until they choose it through the link.  With no host to
+// build the link on, the path alone (resetMail), in the invitee's language
+// or the inviting operator's.
 func (h *Handler) sendSetupLinkMail(r *http.Request, u *user.User) error {
 	if h.Mailer == nil || !h.Mailer.Enabled() {
 		return errors.New("SMTP is not configured (Settings → Notifications)")
@@ -48,17 +50,7 @@ func (h *Handler) sendSetupLinkMail(r *http.Request, u *user.User) error {
 	if err := h.UserRepo.IssueResetToken(r.Context(), u.ID, tok, inviteTokenTTLSec); err != nil {
 		return err
 	}
-	setupURL := buildResetURL(r, h.snapshotSettings(), tok)
-	if setupURL == "" {
-		// No host the link can safely be built on (resetLinkHost); the
-		// operator sees this on the users page.
-		return errors.New("no host to build the setup link on: admin_allowed_hosts names no host")
-	}
-	subject := "[unmask] account setup link"
-	body := "An unmask admin account is ready for you.\n\n" +
-		"Use the following link to set your password (valid for 72 hours):\n" +
-		setupURL + "\n\n" +
-		"username: " + u.Username + "\n"
+	subject, body := h.resetMail(r, mailLang(u, r), true, tok, u.Username)
 	return h.Mailer.Send(u.Email.String, subject, body)
 }
 
