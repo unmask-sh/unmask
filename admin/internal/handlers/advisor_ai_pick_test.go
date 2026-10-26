@@ -24,7 +24,7 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	cur := h.snapshotSettings()
 	cur.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k", Endpoint: "http://127.0.0.1:9"}
 	h.settingsPtr.Store(&cur)
-	key := advisor.ResultKey(cur.AIAdvisor, 24*60, string(i18n.Resolve(httptest.NewRequest(http.MethodGet, "/", nil))))
+	key := advisor.ResultKey(cur.AIAdvisor, 24*60, string(i18n.Resolve(jaRequest(http.MethodGet, "/", nil))))
 	pick := func(ip string, passes, serves, requests int) advisor.Candidate {
 		return advisor.Candidate{Type: "ip", Target: ip, Scope: "ip_only", Nominated: true, Contained: passes == 0,
 			Passes: passes, Serves: serves, Requests: requests, UA: "Mozilla/5.0",
@@ -84,7 +84,7 @@ func TestAdvisorStoredContainedPickIsHidden(t *testing.T) {
 	// A pick stored before the counts, with requests in the window: the
 	// page reads its user agents and reasons the way an engine row's are.
 	seedEvents(t, h, "198.51.100.24", "Mozilla/5.0", "serve", `{"force_reason":"geo"}`, 3)
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
 	rr := httptest.NewRecorder()
 	h.AdminAdvisorIndex(rr, req)
 	body := rr.Body.String()
@@ -201,7 +201,7 @@ func TestAdvisorNearlyContainedRowSaysSo(t *testing.T) {
 	cur := h.snapshotSettings()
 	cur.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k", Endpoint: "http://127.0.0.1:9"}
 	h.settingsPtr.Store(&cur)
-	key := advisor.ResultKey(cur.AIAdvisor, 24*60, string(i18n.Resolve(httptest.NewRequest(http.MethodGet, "/", nil))))
+	key := advisor.ResultKey(cur.AIAdvisor, 24*60, string(i18n.Resolve(jaRequest(http.MethodGet, "/", nil))))
 	row := func(ip string, passes, serves, requests int) advisor.Candidate {
 		return advisor.Candidate{Type: "ip", Target: ip, Scope: "ip_only", Nominated: true, Contained: passes == 0,
 			Passes: passes, Serves: serves, Requests: requests, UA: "curl/8",
@@ -218,7 +218,7 @@ func TestAdvisorNearlyContainedRowSaysSo(t *testing.T) {
 			row("198.51.100.30", 9, 18316, 20551),
 			row("198.51.100.32", 4000, 18316, 20551),
 		}})
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
 	rr := httptest.NewRecorder()
 	h.AdminAdvisorIndex(rr, req)
 	body := rr.Body.String()
@@ -246,7 +246,7 @@ func TestAdvisorBarCarriesTheUpToDateWording(t *testing.T) {
 	cur := h.snapshotSettings()
 	cur.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k", Endpoint: "http://127.0.0.1:9"}
 	h.settingsPtr.Store(&cur)
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
 	rr := httptest.NewRecorder()
 	h.AdminAdvisorIndex(rr, req)
 	body := rr.Body.String()

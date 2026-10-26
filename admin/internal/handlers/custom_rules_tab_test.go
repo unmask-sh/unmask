@@ -40,7 +40,7 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 	h.RuleHits.Hit("crold", time.Now())
 
 	tab := func() string {
-		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/", nil)
+		req := jaRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/", nil)
 		req.SetPathValue("tab", "custom-rules")
 		req.Header.Set("Cookie", "unmask_lang=ja")
 		rr := httptest.NewRecorder()
@@ -64,7 +64,7 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 	// post answers the status and whether the save was refused (the error
 	// travels as a flash cookie to the redirect's target).
 	post := func(form url.Values) (int, string) {
-		pr := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/save?section=custom-rules", strings.NewReader(form.Encode()))
+		pr := jaRequest(http.MethodPost, "/unmask/admin/settings/save?section=custom-rules", strings.NewReader(form.Encode()))
 		pr.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		pr.Header.Set("Cookie", "unmask_lang=ja")
 		prr := httptest.NewRecorder()
@@ -151,7 +151,7 @@ func TestCustomRulesTabRoundTrip(t *testing.T) {
 // there.
 func TestCustomRulesTabDraft(t *testing.T) {
 	h := newTestHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/?new=1&label=scraper&c=ip%3A203.0.113.0%2F24%2C198.51.100.7&c=ja4%3At13d%2A&c=asn%3AAS4134&c=ua%3Apython-requests&action=deny&rate=30&rate_action=captcha_only", nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/?new=1&label=scraper&c=ip%3A203.0.113.0%2F24%2C198.51.100.7&c=ja4%3At13d%2A&c=asn%3AAS4134&c=ua%3Apython-requests&action=deny&rate=30&rate_action=captcha_only", nil)
 	req.SetPathValue("tab", "custom-rules")
 	req.Header.Set("Cookie", "unmask_lang=ja")
 	rr := httptest.NewRecorder()
@@ -186,14 +186,14 @@ func TestCustomRulesTabDraft(t *testing.T) {
 		t.Errorf("viewing a draft saved it: %+v", n)
 	}
 	// An unknown action falls back to CAPTCHA; without ?new=1 there is no draft.
-	req = httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/?new=1&c=ip%3A203.0.113.1&action=ban", nil)
+	req = jaRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/?new=1&c=ip%3A203.0.113.1&action=ban", nil)
 	req.SetPathValue("tab", "custom-rules")
 	rr = httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
 	if body := rr.Body.String(); !strings.Contains(body[strings.Index(body, `id="cr-draft"`):strings.Index(body, `id="cr-template"`)], `<option value="captcha_only" selected>`) {
 		t.Error("an unknown action did not fall back to captcha_only")
 	}
-	req = httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/?c=ip%3A203.0.113.1", nil)
+	req = jaRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/?c=ip%3A203.0.113.1", nil)
 	req.SetPathValue("tab", "custom-rules")
 	rr = httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
@@ -216,7 +216,7 @@ func TestCustomRulesTabRateDefaultNamesTheMode(t *testing.T) {
 		s := h.snapshotSettings()
 		s.RateLimit.Default.ChallengeMode = mode
 		h.SetSettings(s)
-		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/", nil)
+		req := jaRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/", nil)
 		req.SetPathValue("tab", "custom-rules")
 		req.Header.Set("Cookie", "unmask_lang=ja")
 		rr := httptest.NewRecorder()
@@ -253,7 +253,7 @@ func TestCustomRulesTabActionTicks(t *testing.T) {
 	h.ConfigPath = cfgPath
 	loaded, _ := settings.Load(cfgPath)
 	h.SetSettings(loaded)
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/", nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/settings/custom-rules/", nil)
 	req.SetPathValue("tab", "custom-rules")
 	req.Header.Set("Cookie", "unmask_lang=ja")
 	rr := httptest.NewRecorder()

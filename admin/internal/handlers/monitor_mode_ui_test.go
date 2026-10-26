@@ -72,7 +72,7 @@ func TestMonitorModeSaves(t *testing.T) {
 		if on {
 			form.Set("global_observe_only", "1")
 		}
-		r := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/save?section=global",
+		r := jaRequest(http.MethodPost, "/unmask/admin/settings/save?section=global",
 			strings.NewReader(form.Encode()))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		h.AdminSettingsSave(httptest.NewRecorder(), r)

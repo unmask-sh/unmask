@@ -16,7 +16,7 @@ import (
 // database.
 func TestStatsFailedCardShowsDashNotZero(t *testing.T) {
 	h := newTestHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/stats/default/?range=24h", nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/stats/default/?range=24h", nil)
 	req.SetPathValue("site", "default")
 	rr := httptest.NewRecorder()
 	h.AdminStats(rr, req)
@@ -60,7 +60,7 @@ func TestStatsClientGoneRendersNothing(t *testing.T) {
 	h := newTestHandler(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/stats/default/?range=24h", nil).WithContext(ctx)
+	req := jaRequest(http.MethodGet, "/unmask/admin/stats/default/?range=24h", nil).WithContext(ctx)
 	req.SetPathValue("site", "default")
 	rr := httptest.NewRecorder()
 	h.AdminStats(rr, req)

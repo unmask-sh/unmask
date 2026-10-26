@@ -57,7 +57,7 @@ func TestHuntBadgeCarriesTheEntryNote(t *testing.T) {
 			t.Fatalf("seed[%d]: %v", i, err)
 		}
 	}
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/hunt/?range=1h", nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/hunt/?range=1h", nil)
 	rr := httptest.NewRecorder()
 	h.AdminHuntIndex(rr, req)
 	if rr.Code != http.StatusOK {
@@ -92,7 +92,7 @@ func TestStatsPassListCarriesTheEntryNote(t *testing.T) {
 		[]byte{1, 1, 1, 1}, `{"force_reason":"custom_rule","force_rule":"cr1","orig_path":"/x"}`); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/stats/default/?range=24h", nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/stats/default/?range=24h", nil)
 	req.SetPathValue("site", "default")
 	rr := httptest.NewRecorder()
 	h.AdminStats(rr, req)

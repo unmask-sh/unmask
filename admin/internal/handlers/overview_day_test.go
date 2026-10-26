@@ -24,7 +24,7 @@ func TestOverviewDaySection(t *testing.T) {
 
 	get := func(target string) string {
 		rr := httptest.NewRecorder()
-		h.AdminTopOverview(rr, httptest.NewRequest(http.MethodGet, target, nil))
+		h.AdminTopOverview(rr, jaRequest(http.MethodGet, target, nil))
 		if rr.Code != http.StatusOK {
 			t.Fatalf("%s: %d", target, rr.Code)
 		}
@@ -70,7 +70,7 @@ func TestOverviewDaySection(t *testing.T) {
 		}
 	}
 	rr := httptest.NewRecorder()
-	h.AdminTopOverview(rr, httptest.NewRequest(http.MethodGet, "/unmask/admin/?partial=day", nil))
+	h.AdminTopOverview(rr, jaRequest(http.MethodGet, "/unmask/admin/?partial=day", nil))
 	if rr.Header().Get("Cache-Control") != "no-store" {
 		t.Errorf("the partial must not be cached: %q", rr.Header().Get("Cache-Control"))
 	}
@@ -85,7 +85,7 @@ func TestLiveRecentPartial(t *testing.T) {
 	s.Server.BasePath = "/unmask"
 	h.SetSettings(s)
 	rr := httptest.NewRecorder()
-	h.AdminLive(rr, httptest.NewRequest(http.MethodGet, "/unmask/admin/live/?partial=recent", nil))
+	h.AdminLive(rr, jaRequest(http.MethodGet, "/unmask/admin/live/?partial=recent", nil))
 	if rr.Code != http.StatusOK || rr.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status %d cache-control %q", rr.Code, rr.Header().Get("Cache-Control"))
 	}
@@ -100,7 +100,7 @@ func TestLiveRecentPartial(t *testing.T) {
 	}
 	// The page itself carries the card with its live note and the redraw hook.
 	rr = httptest.NewRecorder()
-	h.AdminLive(rr, httptest.NewRequest(http.MethodGet, "/unmask/admin/live/", nil))
+	h.AdminLive(rr, jaRequest(http.MethodGet, "/unmask/admin/live/", nil))
 	page := rr.Body.String()
 	for _, want := range []string{`id="recent-card"`, `id="recent-section"`, `data-src="/unmask/admin/live/?partial=recent"`, `window.unmaskRefreshRecent = function`, `function unmaskWireEventsTable(root)`, `function wireDt(root)`} {
 		if !strings.Contains(page, want) {
@@ -136,7 +136,7 @@ func TestDaySectionHasNoTimer(t *testing.T) {
 func TestOverviewWeekTab(t *testing.T) {
 	h := navHandler(t)
 	get := func(target string) string {
-		req := httptest.NewRequest(http.MethodGet, target, nil)
+		req := jaRequest(http.MethodGet, target, nil)
 		req.AddCookie(&http.Cookie{Name: "unmask_locale", Value: "ja"})
 		rr := httptest.NewRecorder()
 		h.AdminTopOverview(rr, req)

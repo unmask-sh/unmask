@@ -15,7 +15,7 @@ import (
 // renderSettingsTab renders one settings tab and returns the body.
 func renderSettingsTab(t *testing.T, h *Handler, tab string) string {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab="+tab, nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/settings/?tab="+tab, nil)
 	req.SetPathValue("tab", tab)
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
@@ -131,7 +131,7 @@ func TestNotificationsSaveCarriesBothCards(t *testing.T) {
 		"starttls":      {"1"},
 		"from_address":  {"notify@example.com"},
 	}
-	req := httptest.NewRequest(http.MethodPost,
+	req := jaRequest(http.MethodPost,
 		"/unmask/admin/settings/save?section=notifications",
 		strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

@@ -164,7 +164,7 @@ func TestAdvisorAIRunStoresAndShows(t *testing.T) {
 	seed("198.51.100.7", "bv_pow_only", "{}", 6)
 
 	get := func(q string) string {
-		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24"+q, nil)
+		req := jaRequest(http.MethodGet, "/unmask/admin/advisor/?window=24"+q, nil)
 		rr := httptest.NewRecorder()
 		h.AdminAdvisorIndex(rr, req)
 		if rr.Code != http.StatusOK {
@@ -173,7 +173,7 @@ func TestAdvisorAIRunStoresAndShows(t *testing.T) {
 		return rr.Body.String()
 	}
 	status := func() string {
-		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/ai-status?window=24", nil)
+		req := jaRequest(http.MethodGet, "/unmask/admin/advisor/ai-status?window=24", nil)
 		rr := httptest.NewRecorder()
 		h.AdminAdvisorAIStatus(rr, req)
 		if rr.Code != http.StatusOK {
@@ -183,7 +183,7 @@ func TestAdvisorAIRunStoresAndShows(t *testing.T) {
 	}
 	post := func(json bool) *httptest.ResponseRecorder {
 		form := url.Values{"window": {"24"}}
-		req := httptest.NewRequest(http.MethodPost, "/unmask/admin/advisor/ai-run", strings.NewReader(form.Encode()))
+		req := jaRequest(http.MethodPost, "/unmask/admin/advisor/ai-run", strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		if json {
 			req.Header.Set("Accept", "application/json")
@@ -192,7 +192,7 @@ func TestAdvisorAIRunStoresAndShows(t *testing.T) {
 		h.AdminAdvisorAIRun(rr, req)
 		return rr
 	}
-	key := advisor.ResultKey(cur.AIAdvisor, 24*60, string(i18n.Resolve(httptest.NewRequest(http.MethodGet, "/", nil))))
+	key := advisor.ResultKey(cur.AIAdvisor, 24*60, string(i18n.Resolve(jaRequest(http.MethodGet, "/", nil))))
 	waitDone := func() { waitAdvisorRun(t, key) }
 	waitCalls := func(n int32) {
 		waitAdvisor(t, fmt.Sprintf("the provider to be called %d time(s)", n), func() bool { return atomic.LoadInt32(&calls) >= n })
@@ -410,7 +410,7 @@ func TestAdvisorAIRunFailureIsShown(t *testing.T) {
 	h.settingsPtr.Store(&cur)
 	seedEvents(t, h, "203.0.113.10", "curl/8", "serve", `{"path":"/.env"}`, advisor.ContainedVolumeServes)
 	form := url.Values{"window": {"24"}}
-	req := httptest.NewRequest(http.MethodPost, "/unmask/admin/advisor/ai-run", strings.NewReader(form.Encode()))
+	req := jaRequest(http.MethodPost, "/unmask/admin/advisor/ai-run", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 	rr := httptest.NewRecorder()
@@ -418,15 +418,15 @@ func TestAdvisorAIRunFailureIsShown(t *testing.T) {
 	if rr.Code != http.StatusAccepted {
 		t.Fatalf("ai-run: %d", rr.Code)
 	}
-	key := advisor.ResultKey(cur.AIAdvisor, 24*60, string(i18n.Resolve(httptest.NewRequest(http.MethodGet, "/", nil))))
+	key := advisor.ResultKey(cur.AIAdvisor, 24*60, string(i18n.Resolve(jaRequest(http.MethodGet, "/", nil))))
 	waitAdvisorRun(t, key)
-	sreq := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/ai-status?window=24", nil)
+	sreq := jaRequest(http.MethodGet, "/unmask/admin/advisor/ai-status?window=24", nil)
 	srr := httptest.NewRecorder()
 	h.AdminAdvisorAIStatus(srr, sreq)
 	if st := srr.Body.String(); !strings.Contains(st, `"have":false`) || !strings.Contains(st, `"error":`) {
 		t.Fatalf("status after a failed run: %s", st)
 	}
-	preq := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
+	preq := jaRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
 	prr := httptest.NewRecorder()
 	h.AdminAdvisorIndex(prr, preq)
 	body := prr.Body.String()
@@ -456,14 +456,14 @@ func TestAdvisorAIFailureKeepsLastAnswer(t *testing.T) {
 	cur.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k", Endpoint: stub.URL}
 	h.settingsPtr.Store(&cur)
 	seedEvents(t, h, "203.0.113.10", "curl/8", "serve", `{"path":"/.env"}`, advisor.ContainedVolumeServes)
-	lang := string(i18n.Resolve(httptest.NewRequest(http.MethodGet, "/", nil)))
+	lang := string(i18n.Resolve(jaRequest(http.MethodGet, "/", nil)))
 	key := advisor.ResultKey(cur.AIAdvisor, 24*60, lang)
 	answered := time.Now().Add(-2 * time.Hour).Truncate(time.Second)
 	advisor.StoreLast(h.DB, key, advisor.Stored{At: answered, Model: cur.AIAdvisor.ResolvedModel(), Reviewed: 1,
 		Reviews: map[string]advisor.Review{"203.0.113.10": {Target: "203.0.113.10", Priority: "high", Reasoning: "kept-after-failure"}}})
 
 	form := url.Values{"window": {"24"}}
-	req := httptest.NewRequest(http.MethodPost, "/unmask/admin/advisor/ai-run", strings.NewReader(form.Encode()))
+	req := jaRequest(http.MethodPost, "/unmask/admin/advisor/ai-run", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 	rr := httptest.NewRecorder()
@@ -476,13 +476,13 @@ func TestAdvisorAIFailureKeepsLastAnswer(t *testing.T) {
 	if !ok || st.Err == "" || !st.At.Equal(answered) || st.Reviews["203.0.113.10"].Reasoning != "kept-after-failure" || !st.ErrAt.After(answered) {
 		t.Fatalf("the failure must sit beside the kept answer: ok=%v %+v", ok, st)
 	}
-	sreq := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/ai-status?window=24", nil)
+	sreq := jaRequest(http.MethodGet, "/unmask/admin/advisor/ai-status?window=24", nil)
 	srr := httptest.NewRecorder()
 	h.AdminAdvisorAIStatus(srr, sreq)
 	if s := srr.Body.String(); !strings.Contains(s, `"have":true`) || !strings.Contains(s, `"error":`) {
 		t.Fatalf("status after a failed attempt over an answer: %s", s)
 	}
-	preq := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
+	preq := jaRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
 	prr := httptest.NewRecorder()
 	h.AdminAdvisorIndex(prr, preq)
 	body := prr.Body.String()
@@ -501,7 +501,7 @@ func TestAdvisorDismissedFilterAndUndismiss(t *testing.T) {
 	h := newTestHandler(t)
 	seedEvents(t, h, "203.0.113.10", "curl/8", "serve", `{"orig_path":"/.env"}`, advisor.ContainedVolumeServes)
 	get := func(q string) string {
-		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24"+q, nil)
+		req := jaRequest(http.MethodGet, "/unmask/admin/advisor/?window=24"+q, nil)
 		rr := httptest.NewRecorder()
 		h.AdminAdvisorIndex(rr, req)
 		if rr.Code != http.StatusOK {
@@ -510,7 +510,7 @@ func TestAdvisorDismissedFilterAndUndismiss(t *testing.T) {
 		return rr.Body.String()
 	}
 	post := func(path string, form url.Values, fn func(http.ResponseWriter, *http.Request)) string {
-		req := httptest.NewRequest(http.MethodPost, "/unmask/admin/advisor/"+path, strings.NewReader(form.Encode()))
+		req := jaRequest(http.MethodPost, "/unmask/admin/advisor/"+path, strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rr := httptest.NewRecorder()
 		fn(rr, req)
@@ -549,7 +549,7 @@ func TestAdvisorMidRunShowsPlan(t *testing.T) {
 	for _, ip := range []string{"203.0.113.10", "203.0.113.11"} {
 		seedEvents(t, h, ip, "curl/8", "serve", `{"orig_path":"/.env"}`, advisor.ContainedVolumeServes)
 	}
-	key := advisor.ResultKey(cur.AIAdvisor, 24*60, string(i18n.Resolve(httptest.NewRequest(http.MethodGet, "/", nil))))
+	key := advisor.ResultKey(cur.AIAdvisor, 24*60, string(i18n.Resolve(jaRequest(http.MethodGet, "/", nil))))
 	// .10 keeps its review (evidence unchanged); .11 is re-sent and ALSO has
 	// a stored review from the last run -- the one the refresh must not blank.
 	advisor.StoreLast(h.DB, key, advisor.Stored{At: time.Now(), Model: "m", Reviews: map[string]advisor.Review{
@@ -568,7 +568,7 @@ func TestAdvisorMidRunShowsPlan(t *testing.T) {
 		<-release
 		return advisor.Stored{At: time.Now(), Model: "m"}
 	})
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
 	rr := httptest.NewRecorder()
 	h.AdminAdvisorIndex(rr, req)
 	body := rr.Body.String()
@@ -602,7 +602,7 @@ func TestAdvisorMidRunShowsPlan(t *testing.T) {
 	if !strings.Contains(segB, "再解析中") {
 		t.Error("a refresh says it is a refresh, not a first analysis")
 	}
-	sreq := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/ai-status?window=24", nil)
+	sreq := jaRequest(http.MethodGet, "/unmask/admin/advisor/ai-status?window=24", nil)
 	srr := httptest.NewRecorder()
 	h.AdminAdvisorAIStatus(srr, sreq)
 	if st := srr.Body.String(); !strings.Contains(st, `"sent":["203.0.113.11"]`) || !strings.Contains(st, `"kept":["203.0.113.10"]`) {
@@ -621,7 +621,7 @@ func TestAdminJA4Collateral(t *testing.T) {
 		}
 	}
 	get := func(q string) (int, string) {
-		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/api/ja4-collateral"+q, nil)
+		req := jaRequest(http.MethodGet, "/unmask/admin/api/ja4-collateral"+q, nil)
 		rr := httptest.NewRecorder()
 		h.AdminJA4Collateral(rr, req)
 		return rr.Code, rr.Body.String()
@@ -644,7 +644,7 @@ func TestAdvisorMonthTotalsShown(t *testing.T) {
 	cur := h.snapshotSettings()
 	cur.AIAdvisor = settings.AIAdvisorConfig{Enabled: true, Provider: "anthropic", APIKey: "k"}
 	h.settingsPtr.Store(&cur)
-	preq := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
+	preq := jaRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
 	prr := httptest.NewRecorder()
 	h.AdminAdvisorIndex(prr, preq)
 	if strings.Contains(prr.Body.String(), `class="kv ai-delta ai-month"`) {
@@ -654,7 +654,7 @@ func TestAdvisorMonthTotalsShown(t *testing.T) {
 	advisor.StoreLast(h.DB, advisor.ResultKey(cur.AIAdvisor, 6*60, lang), advisor.Stored{At: time.Now(), Model: "claude-opus-5", Reviewed: 2, InTokens: 12345, OutTokens: 678,
 		Reviews: map[string]advisor.Review{"203.0.113.10": {Target: "203.0.113.10", Priority: "low", Reasoning: "r"}}})
 	prr = httptest.NewRecorder()
-	h.AdminAdvisorIndex(prr, httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil))
+	h.AdminAdvisorIndex(prr, jaRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil))
 	body := prr.Body.String()
 	// The harness resolves the UI language to Japanese.
 	if !strings.Contains(body, `class="kv ai-delta ai-month"`) || !strings.Contains(body, "直近 30 日: 1 回相談、tokens 入力 12,345 / 出力 678") {
@@ -724,7 +724,7 @@ func TestAdvisorAIOffShowsSetupHint(t *testing.T) {
 	h := newTestHandler(t)
 	get := func() string {
 		rr := httptest.NewRecorder()
-		h.AdminAdvisorIndex(rr, httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil))
+		h.AdminAdvisorIndex(rr, jaRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil))
 		if rr.Code != http.StatusOK {
 			t.Fatalf("advisor page: %d", rr.Code)
 		}

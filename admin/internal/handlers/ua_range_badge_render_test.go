@@ -27,7 +27,7 @@ func TestSettingsUAFilterTabRendersRangeBadges(t *testing.T) {
 		s.Nginx.SeenVersion = "v0.1.7"
 		s.Nginx.SearchBots.UpstreamPatternMode = map[string]string{`bingbot`: "white", `MJ12bot`: "black"}
 	})
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=ua-filter", nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/settings/?tab=ua-filter", nil)
 	req.SetPathValue("tab", "ua-filter")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
@@ -107,7 +107,7 @@ func TestBadgeStaysGreenForARowThatAlsoPassesOnItsUA(t *testing.T) {
 		s.Nginx.SearchBots.RequireRangeVerification = settings.BoolPtr(false)
 		s.Nginx.SearchBots.UpstreamPatternMode = map[string]string{`bingbot`: "white"}
 	})
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=ua-filter", nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/settings/?tab=ua-filter", nil)
 	req.SetPathValue("tab", "ua-filter")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)

@@ -126,7 +126,7 @@ func TestScopeDeleteActuallyRemoves(t *testing.T) {
 	post := func(path string) {
 		t.Helper()
 		form := url.Values{"site": {"shop.example.com"}, "use_site_override": {"1"}}
-		r := httptest.NewRequest(http.MethodPost, path+"?site=shop.example.com",
+		r := jaRequest(http.MethodPost, path+"?site=shop.example.com",
 			strings.NewReader(form.Encode()))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rr := httptest.NewRecorder()
@@ -177,7 +177,7 @@ func TestScopeDeleteRemovesHostFromPicker(t *testing.T) {
 	del := func(tab string) string {
 		t.Helper()
 		form := url.Values{"site": {"shop.example.com"}, "use_site_override": {"1"}}
-		r := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/"+tab+"/site/delete?site=shop.example.com", strings.NewReader(form.Encode()))
+		r := jaRequest(http.MethodPost, "/unmask/admin/settings/"+tab+"/site/delete?site=shop.example.com", strings.NewReader(form.Encode()))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rr := httptest.NewRecorder()
 		if tab == "branding" {
@@ -217,7 +217,7 @@ func TestScopeDeleteBannerNamesTheSite(t *testing.T) {
 
 	for _, c := range []struct{ tab, page string }{{"branding", "theme"}, {"challenge", "challenge"}} {
 		form := url.Values{"site": {"shop.example.com"}}
-		r := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/"+c.tab+"/site/delete?site=shop.example.com", strings.NewReader(form.Encode()))
+		r := jaRequest(http.MethodPost, "/unmask/admin/settings/"+c.tab+"/site/delete?site=shop.example.com", strings.NewReader(form.Encode()))
 		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rr := httptest.NewRecorder()
 		if c.tab == "branding" {

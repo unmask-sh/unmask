@@ -22,7 +22,7 @@ import (
 func TestServeWorldMap(t *testing.T) {
 	h := &Handler{}
 	rec := httptest.NewRecorder()
-	h.ServeWorldMap(rec, httptest.NewRequest("GET", "/unmask/static/world-110m.json", nil))
+	h.ServeWorldMap(rec, jaRequest("GET", "/unmask/static/world-110m.json", nil))
 	if rec.Code != 200 || !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") {
 		t.Fatalf("status %d type %q", rec.Code, rec.Header().Get("Content-Type"))
 	}
@@ -52,7 +52,7 @@ func TestAdminMapLocationSave(t *testing.T) {
 		t.Fatal(err)
 	}
 	post := func(form url.Values) (int, map[string]any) {
-		req := httptest.NewRequest("POST", "/unmask/admin/api/map-location", strings.NewReader(form.Encode()))
+		req := jaRequest("POST", "/unmask/admin/api/map-location", strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.Header.Set("Cookie", "unmask_lang=ja")
 		rec := httptest.NewRecorder()
@@ -104,7 +104,7 @@ func TestOverviewMapCard(t *testing.T) {
 	s.Server.BasePath = "/unmask"
 	h.SetSettings(s)
 	get := func(role string) string {
-		req := httptest.NewRequest("GET", "/unmask/admin/live/", nil)
+		req := jaRequest("GET", "/unmask/admin/live/", nil)
 		if role != "" {
 			req = req.WithContext(context.WithValue(req.Context(), sessionCtxKey{}, &SessionPayload{UserID: 1, Role: role, Exp: time.Now().Add(time.Hour).Unix()}))
 		}
@@ -227,7 +227,7 @@ func TestAutoMapLocation(t *testing.T) {
 	h.Live = live.New()
 	s.Server.BasePath = "/unmask"
 	h.SetSettings(s)
-	req := httptest.NewRequest("GET", "/unmask/admin/live/", nil)
+	req := jaRequest("GET", "/unmask/admin/live/", nil)
 	req.Header.Set("Cookie", "unmask_lang=ja")
 	req = req.WithContext(context.WithValue(req.Context(), sessionCtxKey{}, &SessionPayload{UserID: 1, Role: "admin", Exp: time.Now().Add(time.Hour).Unix()}))
 	rec := httptest.NewRecorder()
@@ -245,7 +245,7 @@ func TestAutoMapLocation(t *testing.T) {
 	if err := os.WriteFile(h.ConfigPath, []byte("server:\n  base_path: /unmask\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	req = httptest.NewRequest("POST", "/unmask/admin/api/map-location", strings.NewReader("lat=&lon=&label="))
+	req = jaRequest("POST", "/unmask/admin/api/map-location", strings.NewReader("lat=&lon=&label="))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Cookie", "unmask_lang=ja")
 	rec = httptest.NewRecorder()
@@ -294,7 +294,7 @@ func TestProbePublicIP(t *testing.T) {
 		t.Errorf("before the button: %q, %d calls", v, calls)
 	}
 	// The button.
-	req := httptest.NewRequest("POST", "/unmask/admin/api/map-location/probe", nil)
+	req := jaRequest("POST", "/unmask/admin/api/map-location/probe", nil)
 	req.Header.Set("Cookie", "unmask_lang=ja")
 	req = req.WithContext(context.WithValue(req.Context(), sessionCtxKey{}, &SessionPayload{UserID: 1, Role: "admin", Exp: time.Now().Add(time.Hour).Unix()}))
 	rec := httptest.NewRecorder()

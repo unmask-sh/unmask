@@ -31,7 +31,7 @@ func TestHuntRefererInDatetimePopover(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/hunt/", nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/hunt/", nil)
 	rr := httptest.NewRecorder()
 	h.AdminHuntIndex(rr, req)
 	if rr.Code != http.StatusOK {
@@ -77,7 +77,7 @@ func TestHuntRefererSurvivesPhaseFilter(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	req := httptest.NewRequest(http.MethodGet,
+	req := jaRequest(http.MethodGet,
 		"/unmask/admin/hunt/?range=1h&phase=bv_pow_only%2Cbv_captcha_only%2Cbv_pow_then_captcha%2Cbv_rebind", nil)
 	rr := httptest.NewRecorder()
 	h.AdminHuntIndex(rr, req)
@@ -132,7 +132,7 @@ func TestDumpHuntRefererHTML(t *testing.T) {
 		[]byte{192, 0, 2, 9}, `{"bt":"s1","orig_path":"/members/","referer":"https://news.example.com/thread/42","local_port":80}`); err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/hunt/", nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/hunt/", nil)
 	rr := httptest.NewRecorder()
 	h.AdminHuntIndex(rr, req)
 	if err := os.WriteFile(out, rr.Body.Bytes(), 0o644); err != nil {
@@ -158,7 +158,7 @@ func TestHuntLocalPortSecondTier(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/hunt/", nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/hunt/", nil)
 	rr := httptest.NewRecorder()
 	h.AdminHuntIndex(rr, req)
 	if rr.Code != http.StatusOK {

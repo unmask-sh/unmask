@@ -28,7 +28,7 @@ var perfCardRE = regexp.MustCompile(`(?s)value="(conservative|standard|generous)
 //     the budget rule the daemon actually applies.
 func TestPerformanceTabProfiles(t *testing.T) {
 	h := newTestHandler(t)
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab=performance", nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/settings/?tab=performance", nil)
 	req.SetPathValue("tab", "performance")
 	rr := httptest.NewRecorder()
 	h.AdminSettingsIndex(rr, req)
@@ -112,7 +112,7 @@ func TestPerformanceTabSave(t *testing.T) {
 
 	post := func(v url.Values) settings.Settings {
 		t.Helper()
-		req := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/?section=performance", strings.NewReader(v.Encode()))
+		req := jaRequest(http.MethodPost, "/unmask/admin/settings/?section=performance", strings.NewReader(v.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rr := httptest.NewRecorder()
 		h.AdminSettingsSave(rr, req)
@@ -162,7 +162,7 @@ func TestPerformanceTabSave(t *testing.T) {
 func TestSettingsTabsFullyWired(t *testing.T) {
 	h := newTestHandler(t)
 	get := func(tab string) string {
-		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/settings/?tab="+tab, nil)
+		req := jaRequest(http.MethodGet, "/unmask/admin/settings/?tab="+tab, nil)
 		req.SetPathValue("tab", tab)
 		rr := httptest.NewRecorder()
 		h.AdminSettingsIndex(rr, req)

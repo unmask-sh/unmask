@@ -21,10 +21,10 @@ import (
 func askReq(method, target, body string, role string) *http.Request {
 	var req *http.Request
 	if body != "" {
-		req = httptest.NewRequest(method, target, strings.NewReader(body))
+		req = jaRequest(method, target, strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	} else {
-		req = httptest.NewRequest(method, target, nil)
+		req = jaRequest(method, target, nil)
 	}
 	req.Header.Set("Cookie", "unmask_lang=ja")
 	if role != "" {

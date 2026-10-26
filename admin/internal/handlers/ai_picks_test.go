@@ -105,7 +105,7 @@ func TestAIPicksNameTheDefault(t *testing.T) {
 func TestAdvisorPicks(t *testing.T) {
 	h := pickTestHandler(t)
 	page := func(cookie string) string {
-		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
+		req := jaRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
 		req.Header.Set("Cookie", "unmask_lang=ja; "+cookie)
 		rr := httptest.NewRecorder()
 		h.AdminAdvisorIndex(rr, req)
@@ -125,7 +125,7 @@ func TestAdvisorPicks(t *testing.T) {
 	cfg.Model = "claude-opus-5-5"
 	advisor.StoreLast(h.DB, advisor.ResultKey(cfg, 24*60, "ja"), advisor.Stored{At: time.Now(), Model: "claude-opus-5-5", Reviewed: 1})
 	status := func(cookie string) map[string]any {
-		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/ai-status?window=24", nil)
+		req := jaRequest(http.MethodGet, "/unmask/admin/advisor/ai-status?window=24", nil)
 		req.Header.Set("Cookie", "unmask_lang=ja; "+cookie)
 		rr := httptest.NewRecorder()
 		h.AdminAdvisorAIStatus(rr, req)
@@ -141,7 +141,7 @@ func TestAdvisorPicks(t *testing.T) {
 	}
 
 	// A run asked with a model off the list does not start.
-	req := httptest.NewRequest(http.MethodPost, "/unmask/admin/advisor/ai-run", strings.NewReader("window=24&model=claude-opus-9"))
+	req := jaRequest(http.MethodPost, "/unmask/admin/advisor/ai-run", strings.NewReader("window=24&model=claude-opus-9"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Cookie", "unmask_lang=ja")
@@ -175,7 +175,7 @@ func TestAdvisorCost(t *testing.T) {
 	if tot.PricedRuns != 2 || tot.CostUSD < 0.6070 || tot.CostUSD > 0.6071 {
 		t.Errorf("totals: %+v", tot)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
+	req := jaRequest(http.MethodGet, "/unmask/admin/advisor/?window=24", nil)
 	req.Header.Set("Cookie", "unmask_lang=ja")
 	rr := httptest.NewRecorder()
 	h.AdminAdvisorIndex(rr, req)

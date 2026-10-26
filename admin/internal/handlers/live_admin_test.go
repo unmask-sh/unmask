@@ -23,7 +23,7 @@ func TestAdminNowJSON(t *testing.T) {
 	h.Live.ObserveEvent(now, "serve", "", map[string]any{"rl": 1})
 	h.Live.ObserveEvent(now, "serve", "", map[string]any{"deny": 1, "force_reason": "asn_deny", "deny_rule": "AS16509"})
 
-	req := httptest.NewRequest("GET", "/unmask/admin/api/now", nil)
+	req := jaRequest("GET", "/unmask/admin/api/now", nil)
 	rec := httptest.NewRecorder()
 	h.AdminNowJSON(rec, req)
 	if rec.Code != 200 || !strings.HasPrefix(rec.Header().Get("Content-Type"), "application/json") {
@@ -130,7 +130,7 @@ func TestAdminNowJSON(t *testing.T) {
 func TestAdminNowJSONWithoutCounter(t *testing.T) {
 	h := &Handler{}
 	rec := httptest.NewRecorder()
-	h.AdminNowJSON(rec, httptest.NewRequest("GET", "/unmask/admin/api/now", nil))
+	h.AdminNowJSON(rec, jaRequest("GET", "/unmask/admin/api/now", nil))
 	var out map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil || out["available"] != false {
 		t.Fatalf("code=%d body=%s err=%v", rec.Code, rec.Body.String(), err)
@@ -199,7 +199,7 @@ func TestLivePageRendersStrip(t *testing.T) {
 	h.SetSettings(s)
 	h.Live = live.New()
 	h.Live.Hit(time.Now(), "JP", live.Of(live.Requests, live.Serve))
-	req := httptest.NewRequest("GET", "/unmask/admin/live/", nil)
+	req := jaRequest("GET", "/unmask/admin/live/", nil)
 	rec := httptest.NewRecorder()
 	h.AdminLive(rec, req)
 	if rec.Code != http.StatusOK {
@@ -223,7 +223,7 @@ func TestLivePageRendersStrip(t *testing.T) {
 	// The dashboard has no strip, map, recent card or line of now any more:
 	// the realtime tab holds the figures of now, and the tab bar points there.
 	rec = httptest.NewRecorder()
-	h.AdminTopOverview(rec, httptest.NewRequest("GET", "/unmask/admin/", nil))
+	h.AdminTopOverview(rec, jaRequest("GET", "/unmask/admin/", nil))
 	page := rec.Body.String()
 	for _, gone := range []string{`id="live-grid"`, `id="geo-card"`, `id="recent-card"`} {
 		if strings.Contains(page, gone) {
@@ -241,18 +241,18 @@ func TestLivePageRendersStrip(t *testing.T) {
 		t.Error("the realtime tab's bar lacks the day or the week entry")
 	}
 	rec = httptest.NewRecorder()
-	h.AdminTopOverview(rec, httptest.NewRequest("GET", "/unmask/admin/?partial=day", nil))
+	h.AdminTopOverview(rec, jaRequest("GET", "/unmask/admin/?partial=day", nil))
 	if strings.Contains(rec.Body.String(), `class="now-line"`) {
 		t.Error("the day partial still carries the line of now")
 	}
 	h.Live = nil
 	rec = httptest.NewRecorder()
-	h.AdminLive(rec, httptest.NewRequest("GET", "/unmask/admin/live/", nil))
+	h.AdminLive(rec, jaRequest("GET", "/unmask/admin/live/", nil))
 	if b := rec.Body.String(); strings.Contains(b, `id="live-grid"`) || !strings.Contains(b, "リアルタイム計測") {
 		t.Error("without a counter the realtime page must say so and show no strip")
 	}
 	rec = httptest.NewRecorder()
-	h.AdminTopOverview(rec, httptest.NewRequest("GET", "/unmask/admin/", nil))
+	h.AdminTopOverview(rec, jaRequest("GET", "/unmask/admin/", nil))
 	if strings.Contains(rec.Body.String(), `class="now-line"`) {
 		t.Error("the line of now rendered without a counter")
 	}

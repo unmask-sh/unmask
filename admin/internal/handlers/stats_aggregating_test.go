@@ -28,7 +28,7 @@ func TestStatsAggregatingShortCircuit(t *testing.T) {
 
 	get := func() (string, time.Duration) {
 		t0 := time.Now()
-		req := httptest.NewRequest(http.MethodGet, "/unmask/admin/stats/default/?range=24h", nil)
+		req := jaRequest(http.MethodGet, "/unmask/admin/stats/default/?range=24h", nil)
 		req.SetPathValue("site", "default")
 		rr := httptest.NewRecorder()
 		h.AdminStats(rr, req)

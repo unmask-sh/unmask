@@ -38,7 +38,7 @@ func TestOverviewKPIRowIsRequestsAndSaysWhatItCovers(t *testing.T) {
 	seed("abandon", 3)
 
 	rr := httptest.NewRecorder()
-	h.AdminTopOverview(rr, httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil))
+	h.AdminTopOverview(rr, jaRequest(http.MethodGet, "/unmask/admin/", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("overview: %d", rr.Code)
 	}
