@@ -654,15 +654,20 @@ func cmdServe(args []string) error {
 			// -old file is not urgent.
 			time.Sleep(10 * time.Minute)
 			for {
-				// Re-read settings each pass so a toggle in the web UI takes
-				// effect without a restart (same pattern as the other loops).
-				cur := h.SnapshotSettings()
-				if cur.IPGeo.AutoUpdate || cur.IPGeo.AutoUpdateASN {
-					if ipgeo.AutoUpdateStaleKinds(cur.IPGeo.MMDBPath, cur.IPGeo.MMDBASNPath,
-						cur.IPGeo.AutoUpdate, cur.IPGeo.AutoUpdateASN, gip, staleAfter, time.Time{}) > 0 {
-						renderAfterGeoUpdate(func() error { return renderNow(nginxconf.RenderCause{Kind: nginxconf.RenderByGeoIP}) }, renderOutDir())
+				// One pass under its own recovery (safe.Run): a panic in
+				// a pass is logged and the next pass runs, where one in
+				// the loop would have ended the checks for good.
+				safe.Run("ipgeo-auto-update", func() {
+					// Re-read settings each pass so a toggle in the web UI takes
+					// effect without a restart (same pattern as the other loops).
+					cur := h.SnapshotSettings()
+					if cur.IPGeo.AutoUpdate || cur.IPGeo.AutoUpdateASN {
+						if ipgeo.AutoUpdateStaleKinds(cur.IPGeo.MMDBPath, cur.IPGeo.MMDBASNPath,
+							cur.IPGeo.AutoUpdate, cur.IPGeo.AutoUpdateASN, gip, staleAfter, time.Time{}) > 0 {
+							renderAfterGeoUpdate(func() error { return renderNow(nginxconf.RenderCause{Kind: nginxconf.RenderByGeoIP}) }, renderOutDir())
+						}
 					}
-				}
+				})
 				time.Sleep(checkEvery)
 			}
 		}()
@@ -990,38 +995,43 @@ func cmdServe(args []string) error {
 			var lastSaid time.Time
 			t := time.NewTicker(5 * time.Minute)
 			defer t.Stop()
+			// One tick under its own recovery (safe.Run): a panic in a
+			// tick is logged and the watch goes on, where one in the loop
+			// would have ended it for good.
 			for range t.C {
-				sz := conn.WALSize()
-				if sz < db.WALLargeBytes {
-					continue
-				}
-				// A schema update writes its index into the log and holds
-				// the lock until it is done: large, not shrinking, and as
-				// intended.  It checkpoints the log itself when it ends.
-				if conn.WritesHeld() {
-					continue
-				}
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-				tr, err := conn.TrimWAL(ctx)
-				cancel()
-				if err != nil {
-					log.Printf("wal: %s, trim: %v", humanBytesCLI(sz), err)
-					continue
-				}
-				if tr.After < db.WALLargeBytes {
-					log.Printf("wal: trimmed from %s to %s", humanBytesCLI(tr.Before), humanBytesCLI(tr.After))
-					lastSaid = time.Time{}
-					continue
-				}
-				if time.Since(lastSaid) < time.Hour {
-					continue
-				}
-				lastSaid = time.Now()
-				held := "a reader holds an older snapshot"
-				if tr.Blocked {
-					held = "a reader is still on the log"
-				}
-				log.Printf("wal: %s and not shrinking (checkpoint copied %d of %d frames; %s) -- long-running queries keep it; a stop that is killed leaves it for the next start to replay", humanBytesCLI(tr.After), tr.Passive.Checkpointed, tr.Passive.LogFrames, held)
+				safe.Run("wal-watch", func() {
+					sz := conn.WALSize()
+					if sz < db.WALLargeBytes {
+						return
+					}
+					// A schema update writes its index into the log and holds
+					// the lock until it is done: large, not shrinking, and as
+					// intended.  It checkpoints the log itself when it ends.
+					if conn.WritesHeld() {
+						return
+					}
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+					tr, err := conn.TrimWAL(ctx)
+					cancel()
+					if err != nil {
+						log.Printf("wal: %s, trim: %v", humanBytesCLI(sz), err)
+						return
+					}
+					if tr.After < db.WALLargeBytes {
+						log.Printf("wal: trimmed from %s to %s", humanBytesCLI(tr.Before), humanBytesCLI(tr.After))
+						lastSaid = time.Time{}
+						return
+					}
+					if time.Since(lastSaid) < time.Hour {
+						return
+					}
+					lastSaid = time.Now()
+					held := "a reader holds an older snapshot"
+					if tr.Blocked {
+						held = "a reader is still on the log"
+					}
+					log.Printf("wal: %s and not shrinking (checkpoint copied %d of %d frames; %s) -- long-running queries keep it; a stop that is killed leaves it for the next start to replay", humanBytesCLI(tr.After), tr.Passive.Checkpointed, tr.Passive.LogFrames, held)
+				})
 			}
 		}()
 	}
