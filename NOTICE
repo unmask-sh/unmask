@@ -31,3 +31,8 @@ This product also bundles a list of crawler User-Agent patterns derived from:
 
 - monperrus/crawler-user-agents (MIT)
   https://github.com/monperrus/crawler-user-agents
+
+and the country flag images of:
+
+- madebybowtie/FlagKit (MIT; Copyright (c) 2016 Bowtie AB)
+  https://github.com/madebybowtie/FlagKit
