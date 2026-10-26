@@ -16,6 +16,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
+	"github.com/unmask-sh/unmask/admin/internal/testutil"
 )
 
 // fakeManager stands in for systemd's notification socket: it collects what
@@ -24,7 +25,7 @@ type fakeManager struct{ conn *net.UnixConn }
 
 func newFakeManager(t *testing.T) *fakeManager {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "notify")
+	path := filepath.Join(testutil.SocketDir(t), "notify")
 	c, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: path, Net: "unixgram"})
 	if err != nil {
 		t.Fatal(err)
@@ -68,15 +69,11 @@ func handoverDB(t *testing.T) *db.DB {
 	return d
 }
 
-// A unix socket path short enough for sun_path wherever the test runs.
+// A unix socket path short enough for sun_path wherever the test runs
+// (testutil.SocketDir: the temporary directory can be too deep for one).
 func sockPath(t *testing.T, name string) string {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "nlh")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { os.RemoveAll(dir) })
-	return filepath.Join(dir, name)
+	return filepath.Join(testutil.SocketDir(t), name)
 }
 
 func boundPath(t *testing.T, f *os.File) string {

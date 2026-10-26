@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/nginxlog"
+	"github.com/unmask-sh/unmask/admin/internal/testutil"
 )
 
 // A serve that cannot load its config ends before the log receiver is up.  On
@@ -16,7 +17,7 @@ import (
 // retry otherwise, and nginx would log into it unread for as long as the
 // retries fail.
 func TestServeThatFailsEarlyLeavesNoKeptSocket(t *testing.T) {
-	dir := t.TempDir()
+	dir := testutil.SocketDir(t) // short enough for a socket path
 	notify := filepath.Join(dir, "notify")
 	mgr, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: notify, Net: "unixgram"})
 	if err != nil {

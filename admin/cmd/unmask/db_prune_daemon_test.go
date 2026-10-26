@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/unmask-sh/unmask/admin/internal/settings"
+	"github.com/unmask-sh/unmask/admin/internal/testutil"
 )
 
 // The maintenance commands ask whether the daemon is running by connecting
@@ -15,7 +16,7 @@ import (
 // unix:/path`, the form the daemon itself takes) must be found like one on
 // TCP -- missing it runs the heavy work against a live daemon.
 func TestDaemonAnswersOnAUnixSocket(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "http.sock")
+	path := filepath.Join(testutil.SocketDir(t), "http.sock")
 	srv := settings.Server{Bind: "unix:" + path, Port: 9477, SocketMode: "0660"}
 	if daemonAnswers(srv) {
 		t.Fatal("a daemon answered on a socket nobody listens on")

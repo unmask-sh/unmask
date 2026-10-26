@@ -5,6 +5,8 @@ import (
 	"net"
 	"path/filepath"
 	"testing"
+
+	"github.com/unmask-sh/unmask/admin/internal/testutil"
 )
 
 // The socket's context is this process's with the type swapped, its file's an
@@ -40,7 +42,7 @@ func TestWebServerContexts(t *testing.T) {
 // With or without SELinux, the socket is made and create's own result comes
 // back: the label is an extra, never a condition.
 func TestForWebServerRunsCreate(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "s.sock")
+	path := filepath.Join(testutil.SocketDir(t), "s.sock")
 	var conn *net.UnixConn
 	_, err := ForWebServer(func() error {
 		c, err := net.ListenUnixgram("unixgram", &net.UnixAddr{Name: path, Net: "unixgram"})

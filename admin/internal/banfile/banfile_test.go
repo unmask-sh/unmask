@@ -14,10 +14,15 @@ import (
 // here and sits in no group of these files, like nginx's worker.
 func TestAccessAsOtherUser(t *testing.T) {
 	// Not t.TempDir(): its parent is 0700, which would stop the stranger
-	// before the directories under test.
-	root, err := os.MkdirTemp("", "banfile")
+	// before the directories under test.  Under /tmp, whose own parents
+	// every user may pass, rather than TMPDIR, which may point somewhere
+	// only this user may enter; and skipped, not failed, where even that
+	// does not hold.
+	root, err := os.MkdirTemp("/tmp", "banfile")
 	if err != nil {
-		t.Fatal(err)
+		if root, err = os.MkdirTemp("", "banfile"); err != nil {
+			t.Fatal(err)
+		}
 	}
 	defer os.RemoveAll(root)
 	data := filepath.Join(root, "unmask")
@@ -34,6 +39,14 @@ func TestAccessAsOtherUser(t *testing.T) {
 	}
 	const stranger = 65534
 	var noGroups []uint32
+	// The directories above root are the environment's, not the test's: one
+	// the stranger cannot pass would be reported in place of what is under
+	// test.
+	if blocker, _, err := AccessAs(root, stranger, noGroups); err != nil {
+		t.Fatal(err)
+	} else if blocker != "" {
+		t.Skipf("%s cannot be passed by other users; the test needs a temporary directory every user may reach", blocker)
+	}
 
 	if err := os.Chmod(data, 0o750); err != nil {
 		t.Fatal(err)
