@@ -262,15 +262,18 @@ func TestBothWiresRecordTheSameBuckets(t *testing.T) {
 	// Every kind onLine can write, forward-auth must be able to write too.
 	// Checked through the exported bump method rather than the kind string,
 	// because that is the only route the other wire has -- and both halves are
-	// asserted, so renaming the method without wiring it still fails.
-	for kind, method := range map[string]string{
-		"crawler_pass": "BumpCrawlerPass",
-		"bypass_pass":  "BumpBypass",
+	// asserted, so renaming the method without wiring it still fails.  The
+	// native half is onLine's own switch arm (it counts under the site the
+	// buckets hold, aggSite's, not the Host as logged).
+	for kind, w := range map[string]struct{ method, arm string }{
+		"crawler_pass": {"BumpCrawlerPass", "case isCrawler:\n\t\tr.bumpKind(site, \"crawler_pass\")"},
+		"bypass_pass":  {"BumpBypass", "case p.bypassed:\n\t\tr.bumpKind(site, \"bypass_pass\")"},
 	} {
+		method := w.method
 		if !strings.Contains(string(nat), `bumpKind(site, "`+kind+`")`) {
 			t.Errorf("%s does not write %s; the two wires cannot agree through it", method, kind)
 		}
-		if !strings.Contains(string(nat), `r.bumpKind(p.site, "`+kind+`")`) {
+		if !strings.Contains(string(nat), w.arm) {
 			t.Errorf("onLine no longer writes %s natively; update this test with it", kind)
 		}
 		if !strings.Contains(string(fa), "h.NginxLog."+method+"(") {
