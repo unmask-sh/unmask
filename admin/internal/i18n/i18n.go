@@ -5938,11 +5938,14 @@ func HelpJSON(lang Lang) string {
 	return string(body)
 }
 
-// Resolve: HTTP request から lang を決める.  優先度:
+// Resolve decides the language of a request, in order:
 //
-//  1. cookie unmask_locale (= picker UI が書く)
-//  2. Accept-Language header (= 最初に match した supported lang)
-//  3. default = ja
+//  1. the unmask_locale cookie (= what the picker UI writes)
+//  2. the Accept-Language header (= the first supported language in it)
+//  3. English.  The admin pages and the challenge / deny pages resolve
+//     alike, and a visitor whose browser asks for neither of the supported
+//     languages is far more often served by English than by Japanese
+//     (the default until 0.1.53).
 func Resolve(r *http.Request) Lang {
 	if r != nil {
 		if c, err := r.Cookie(CookieName); err == nil && c != nil {
@@ -5967,7 +5970,7 @@ func Resolve(r *http.Request) Lang {
 			}
 		}
 	}
-	return LangJA
+	return LangEN
 }
 
 func isSupported(l Lang) bool {
