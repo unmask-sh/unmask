@@ -70,7 +70,7 @@ func TestTestSiteOverrideGate(t *testing.T) {
 
 	// Admin session: granted regardless of the public flags.
 	h.SetSettings(pickerSettings(h))
-	c := issueSessionCookie(h.cfg().Secret.BVSecret, 1, "admin", false, false, 0)
+	c := issueSessionCookie(h.cfg().Secret.BVSecret, "/unmask/admin", 1, "admin", false, false, 0)
 	r.AddCookie(c)
 	if got, ok := h.testSiteOverride(r); !ok || got != "shop.example.jp" {
 		t.Fatalf("admin session: want (shop.example.jp,true), got (%q,%v)", got, ok)
@@ -147,7 +147,7 @@ func TestServeChallengeSiteOverrideValues(t *testing.T) {
 		r.Header.Set("User-Agent", uaCurrentChrome)
 		r.SetPathValue("site", "shop.example.jp")
 		if withSession {
-			r.AddCookie(issueSessionCookie(h.cfg().Secret.BVSecret, 1, "admin", false, false, 0))
+			r.AddCookie(issueSessionCookie(h.cfg().Secret.BVSecret, "/unmask/admin", 1, "admin", false, false, 0))
 		}
 		w := httptest.NewRecorder()
 		h.ServeChallenge(w, r)
@@ -198,7 +198,7 @@ func TestServeBrandingLogoSiteScoped(t *testing.T) {
 		r := httptest.NewRequest("GET", "/unmask/branding/shop.example.jp/logo", nil)
 		r.SetPathValue("site", "shop.example.jp")
 		if withSession {
-			r.AddCookie(issueSessionCookie(h.cfg().Secret.BVSecret, 1, "admin", false, false, 0))
+			r.AddCookie(issueSessionCookie(h.cfg().Secret.BVSecret, "/unmask/admin", 1, "admin", false, false, 0))
 		}
 		w := httptest.NewRecorder()
 		h.ServeBrandingLogo(w, r)

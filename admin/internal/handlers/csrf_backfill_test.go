@@ -76,31 +76,34 @@ func TestCSRFBackfillPostStill403s(t *testing.T) {
 // hop of a cross-site-initiated redirect chain while still sending the Lax
 // session cookie -- exactly the skew that fed the redirect loop.
 func TestCSRFCookieSameSiteLax(t *testing.T) {
-	if c := issueCSRFCookie("tok", true, true); c.SameSite != http.SameSiteLaxMode {
+	if c := issueCSRFCookie("tok", "/unmask/admin", true, true); c.SameSite != http.SameSiteLaxMode {
 		t.Errorf("issueCSRFCookie SameSite = %v; want Lax (match the session cookie)", c.SameSite)
 	}
-	if c := clearCSRFCookie(true); c.SameSite != http.SameSiteLaxMode {
+	if c := clearCSRFCookie("/unmask/admin", true); c.SameSite != http.SameSiteLaxMode {
 		t.Errorf("clearCSRFCookie SameSite = %v; want Lax", c.SameSite)
 	}
-	if s := issueSessionCookie("sec", 1, "admin", true, true, 0); s.SameSite != http.SameSiteLaxMode {
+	if s := issueSessionCookie("sec", "/unmask/admin", 1, "admin", true, true, 0); s.SameSite != http.SameSiteLaxMode {
 		t.Errorf("session cookie SameSite = %v; the CSRF cookie is documented to match it", s.SameSite)
 	}
 }
 
-// TestCSRFTokenFromRequestPrefersCookie: when the request DOES carry the cookie,
-// the context fallback must not shadow it -- verifyCSRF compares the submitted
-// field against the client's live cookie value.
-func TestCSRFTokenFromRequestPrefersCookie(t *testing.T) {
+// TestCSRFTokenFromRequestPrefersIssued: the token AuthMiddleware derived
+// for the request names the session the client holds after this response
+// -- the refreshed one, when the session slid just now -- so it wins over a
+// CSRF cookie the request carried, which may be the previous session's.
+// The cookie is the fallback for a page outside AuthMiddleware.
+func TestCSRFTokenFromRequestPrefersIssued(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/admin/", nil)
 	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "cookie-tok"})
 	req = withIssuedCSRFToken(req, "issued-tok")
-	if got := CSRFTokenFromRequest(req); got != "cookie-tok" {
-		t.Errorf("cookie must win over the issued-token fallback, got %q", got)
+	if got := CSRFTokenFromRequest(req); got != "issued-tok" {
+		t.Errorf("the issued token must win over the cookie, got %q", got)
 	}
 
-	bare := httptest.NewRequest(http.MethodGet, "/admin/", nil)
-	if got := CSRFTokenFromRequest(withIssuedCSRFToken(bare, "issued-tok")); got != "issued-tok" {
-		t.Errorf("without a cookie the issued token must be used, got %q", got)
+	withCookie := httptest.NewRequest(http.MethodGet, "/admin/", nil)
+	withCookie.AddCookie(&http.Cookie{Name: csrfCookieName, Value: "cookie-tok"})
+	if got := CSRFTokenFromRequest(withCookie); got != "cookie-tok" {
+		t.Errorf("without an issued token the cookie must be used, got %q", got)
 	}
 	if got := CSRFTokenFromRequest(httptest.NewRequest(http.MethodGet, "/admin/", nil)); got != "" {
 		t.Errorf("no cookie and no issued token must yield \"\", got %q", got)

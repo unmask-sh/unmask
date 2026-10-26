@@ -32,15 +32,17 @@ func multipartPost(t *testing.T, path string, fields map[string]string) *http.Re
 // button posts to its own formaction, which the shim did not decorate, and
 // every such click was refused as a csrf mismatch (0.1.25..0.1.40).
 func TestVerifyCSRF_MultipartBodyField(t *testing.T) {
-	const tok = "tok-multipart-1"
+	const secret = "test-secret"
+	session := issueSessionCookie(secret, "/unmask/admin", 1, "admin", false, false, 0)
+	tok := csrfTokenFor(secret, session.Value)
 	req := multipartPost(t, "/unmask/admin/settings/branding/site/delete?site=shop.example.com", map[string]string{"_csrf": tok, "site": "shop.example.com"})
-	req.AddCookie(&http.Cookie{Name: csrfCookieName, Value: tok})
+	req.AddCookie(session)
 	// The middleware runs ParseForm before verifyCSRF; for multipart that
 	// reads nothing from the body -- exactly the state the fallback must cope with.
 	if err := req.ParseForm(); err != nil {
 		t.Fatal(err)
 	}
-	if !verifyCSRF(req) {
+	if !verifyCSRF(secret, req) {
 		t.Fatal("a token carried only in the multipart body must verify")
 	}
 	// The upload handler's own parse afterwards must still see the fields.
@@ -52,15 +54,15 @@ func TestVerifyCSRF_MultipartBodyField(t *testing.T) {
 	}
 
 	wrong := multipartPost(t, "/unmask/admin/settings/branding/site/delete?site=shop.example.com", map[string]string{"_csrf": "other"})
-	wrong.AddCookie(&http.Cookie{Name: csrfCookieName, Value: tok})
+	wrong.AddCookie(session)
 	_ = wrong.ParseForm()
-	if verifyCSRF(wrong) {
-		t.Fatal("a body token that does not match the cookie must not verify")
+	if verifyCSRF(secret, wrong) {
+		t.Fatal("a body token that is not the session's must not verify")
 	}
 	none := multipartPost(t, "/unmask/admin/settings/branding/site/delete?site=shop.example.com", map[string]string{"site": "shop.example.com"})
-	none.AddCookie(&http.Cookie{Name: csrfCookieName, Value: tok})
+	none.AddCookie(session)
 	_ = none.ParseForm()
-	if verifyCSRF(none) {
+	if verifyCSRF(secret, none) {
 		t.Fatal("a multipart body without the field must not verify")
 	}
 }

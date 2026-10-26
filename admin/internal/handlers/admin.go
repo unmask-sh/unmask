@@ -567,12 +567,24 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			adminIPForbidden(w, ip)
 			return
 		}
+		// And the Host against admin_allowed_hosts, as the login gate does
+		// (AdminIPAllowMiddleware): the list is described as the names the
+		// admin UI is exposed under, and until 0.1.53 only the pages before
+		// a session existed read it -- a session cookie reached every page
+		// under any name nginx proxies through.
+		host := adminClientHost(r, h.snapshotSettings())
+		if allowHosts := settings.EnabledValues(h.cfg().Nginx.AdminAllowedHosts, h.cfg().Nginx.AdminAllowedHostsDisabled); !hostAllowed(host, allowHosts) {
+			log.Printf("admin host denied: host=%s path=%s allowed_hosts=%v", LogSafe(host), LogSafe(r.URL.Path), LogSafeAll(allowHosts))
+			adminHostForbidden(w, host)
+			return
+		}
 		// Carry the resolved client address to the audit log.  Done here rather
 		// than at each of Record's ~30 call sites: this is the one place that
 		// already knows the real address behind the proxy, and a call site added
 		// later inherits it instead of quietly logging an action from nowhere.
 		r = r.WithContext(user.WithClientIP(r.Context(), ip))
 		secret := h.cfg().Secret.BVSecret
+		cookiePath := adminCookiePath(h.cfg().Server.BasePath)
 		if c, err := r.Cookie(sessionCookieName); err == nil {
 			if pay := verifySessionCookie(secret, c.Value); pay != nil {
 				// Re-check the user against the DB so a deleted or demoted account
@@ -588,7 +600,7 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 							// This immediacy is the point of disabling: it cuts
 							// access faster than a password change ever could.
 							sec := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-							http.SetCookie(w, clearSessionCookie(sec))
+							http.SetCookie(w, clearSessionCookie(cookiePath, sec))
 							http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/login", http.StatusFound)
 							return
 						}
@@ -598,7 +610,7 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 							// or reset, or it was suspended and re-enabled -- so
 							// the cookie is revoked, however long it had left.
 							sec := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-							http.SetCookie(w, clearSessionCookie(sec))
+							http.SetCookie(w, clearSessionCookie(cookiePath, sec))
 							http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/login", http.StatusFound)
 							return
 						}
@@ -606,59 +618,56 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 						h.rememberUILang(r, u)
 					} else if errors.Is(uerr, user.ErrNotFound) {
 						sec := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-						http.SetCookie(w, clearSessionCookie(sec))
+						http.SetCookie(w, clearSessionCookie(cookiePath, sec))
 						http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/login", http.StatusFound)
 						return
 					}
 				}
 				// Sliding extension on each request: refresh when remaining lifetime drops below half of TTL.
 				secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+				// The session cookie the client holds after this response:
+				// the one it sent, or the refreshed one.
+				sessionValue := c.Value
 				if sessionNeedsRefresh(pay) {
-					http.SetCookie(w, issueSessionCookie(secret, pay.UserID, pay.Role, secure, pay.Remember, pay.Gen))
-					// Slide the CSRF cookie WITH the session (same value, fresh
-					// expiry).  Minted only at login, it used to expire ~30 days
-					// in while the session slid on forever -- the state that fed
-					// the backfill below on every operator, every TTL period.
-					if tok := CSRFTokenFromRequest(r); tok != "" {
-						http.SetCookie(w, issueCSRFCookie(tok, secure, pay.Remember))
-					}
+					fresh := issueSessionCookie(secret, cookiePath, pay.UserID, pay.Role, secure, pay.Remember, pay.Gen)
+					http.SetCookie(w, fresh)
+					sessionValue = fresh.Value
 				}
-				// Backfill the CSRF cookie when the session outlived it (the
-				// session slides forward on every request, the CSRF cookie is
-				// only minted at login -- so ~30 days after login it expires
-				// alone) or for sessions issued before the CSRF roll-out.
-				// Issue the cookie AND hand the token to this same request
-				// (withIssuedCSRFToken), so the page renders its forms with
-				// the value whose Set-Cookie is on this response.  Never
-				// self-redirect to "pick the cookie up": a client that does
+				// The CSRF token is derived from that session cookie
+				// (csrf.go), so it is known here without a round trip: the
+				// page renders its forms with it (withIssuedCSRFToken), and
+				// the JS-readable cookie that carries it for the shim is
+				// issued whenever the request's does not hold it -- a
+				// session from before the cookie existed, a cookie that
+				// expired alone (it used to be minted at login only, while
+				// the session slid on), a session refreshed just now.  Never
+				// a self-redirect to "pick the cookie up": a client that does
 				// not return it -- Chrome withholds SameSite=Strict cookies
 				// for an entire cross-site-initiated redirect chain, and did
 				// so here while the cookie was still Strict -- turns that
 				// into an infinite 303 loop (ERR_TOO_MANY_REDIRECTS on
-				// /unmask/admin/, web1-jp 2026-07-10).  A POST in this state
-				// still 403s: its form was rendered under the old, expired
-				// token (= the operator reloads, picks up the cookie, retries).
-				if CSRFTokenFromRequest(r) == "" {
-					if tok, terr := newCSRFToken(); terr == nil {
-						http.SetCookie(w, issueCSRFCookie(tok, secure, pay.Remember))
-						if r.Method == http.MethodGet || r.Method == http.MethodHead {
-							r = withIssuedCSRFToken(r, tok)
-						}
-					}
+				// /unmask/admin/, web1-jp 2026-07-10).  A POST whose form was
+				// rendered under an older session's token still 403s (= the
+				// operator reloads and retries).
+				tok := csrfTokenFor(secret, sessionValue)
+				if cc, cerr := r.Cookie(csrfCookieName); cerr != nil || cc.Value != tok {
+					http.SetCookie(w, issueCSRFCookie(tok, cookiePath, secure, pay.Remember))
 				}
+				r = withIssuedCSRFToken(r, tok)
 				// CSRF: every state-changing method that flows through
 				// AuthMiddleware (= POST / PUT / PATCH / DELETE) must
-				// carry a token matching the cookie.  GET / HEAD /
-				// OPTIONS pass through untouched -- they don't mutate
-				// state; the protection is the double-submit echo (a
-				// hidden field cross-origin JS cannot read), not the
-				// cookie's SameSite mode (Lax, matching the session).
+				// carry the token derived from the session cookie it was
+				// sent with (verifyCSRF).  GET / HEAD / OPTIONS pass through
+				// untouched -- they don't mutate state; the protection is
+				// the echoed token (a value cross-origin JS cannot read or
+				// compute), not the cookie's SameSite mode (Lax, matching
+				// the session).
 				if r.Method == http.MethodPost || r.Method == http.MethodPut || r.Method == http.MethodPatch || r.Method == http.MethodDelete {
 					if err := r.ParseForm(); err != nil {
 						http.Error(w, "form parse error", http.StatusBadRequest)
 						return
 					}
-					if !verifyCSRF(r) {
+					if !verifyCSRF(secret, r) {
 						if strings.HasPrefix(r.URL.Path, h.cfg().Server.BasePath+"/admin/api/") {
 							writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "csrf"})
 							return
@@ -1295,31 +1304,48 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 	h.UserRepo.Record(r.Context(), u.ID, u.Username, "login", "", "")
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	remember := r.FormValue("remember") != ""
-	http.SetCookie(w, issueSessionCookie(h.cfg().Secret.BVSecret, u.ID, u.Role, secure, remember, u.SessionGen))
-	// Pair the session with a fresh CSRF token (= double-submit cookie).
-	// A token failure here is logged but not fatal: an operator can
-	// still navigate to GET pages, and the templates' AuthMiddleware
-	// path will issue one on the next request.
-	if tok, err := newCSRFToken(); err == nil {
-		http.SetCookie(w, issueCSRFCookie(tok, secure, remember))
-	} else {
-		log.Printf("csrf token generate: %v", err)
-	}
+	secret := h.cfg().Secret.BVSecret
+	cookiePath := adminCookiePath(base)
+	sc := issueSessionCookie(secret, cookiePath, u.ID, u.Role, secure, remember, u.SessionGen)
+	http.SetCookie(w, sc)
+	// The CSRF token is derived from the session (csrf.go); its cookie
+	// carries the value to the page's shim.
+	http.SetCookie(w, issueCSRFCookie(csrfTokenFor(secret, sc.Value), cookiePath, secure, remember))
 	http.Redirect(w, r, ret, http.StatusFound)
 }
 
-// AdminLogout: POST or GET {base}/admin/logout — invalidate the session cookie.
+// AdminLogout: POST {base}/admin/logout -- end the session.  The route sits
+// outside AuthMiddleware (RequireCSRF checks the token against the session
+// cookie), so the session is read off the cookie here.  The account's
+// session generation is advanced (BumpSessionGen), which ends every session
+// the account holds, on every device: a stateless cookie cannot be revoked
+// any other way, and until 0.1.53 a logout only asked the browser to drop
+// its copy -- a cookie copied out of it stayed good for the rest of its
+// life.  The cookies are cleared on their path and on "/", where they lived
+// until 0.1.53, so an upgrade's leftover stops riding to the site.
 func (h *Handler) AdminLogout(w http.ResponseWriter, r *http.Request) {
-	if pay := SessionFromContext(r); pay != nil && h.UserRepo != nil {
-		username := ""
-		if u, err := h.UserRepo.GetByID(r.Context(), pay.UserID); err == nil {
-			username = u.Username
+	ctx := r.Context()
+	if c, err := r.Cookie(sessionCookieName); err == nil && h.UserRepo != nil {
+		if pay := verifySessionCookie(h.cfg().Secret.BVSecret, c.Value); pay != nil {
+			username := ""
+			if u, err := h.UserRepo.GetByID(ctx, pay.UserID); err == nil {
+				username = u.Username
+			}
+			// Not while a schema update holds the writes: the cookie is
+			// cleared either way, and the next sign-out does the rest.
+			if h.DB == nil || !h.DB.WritesHeld() {
+				if err := h.UserRepo.BumpSessionGen(ctx, pay.UserID); err != nil {
+					log.Printf("logout: end the sessions of user %d: %v", pay.UserID, err)
+				}
+			}
+			h.UserRepo.Record(ctx, pay.UserID, username, "logout", "", "")
 		}
-		h.UserRepo.Record(r.Context(), pay.UserID, username, "logout", "", "")
 	}
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-	http.SetCookie(w, clearSessionCookie(secure))
-	http.SetCookie(w, clearCSRFCookie(secure))
+	for _, p := range []string{adminCookiePath(h.cfg().Server.BasePath), "/"} {
+		http.SetCookie(w, clearSessionCookie(p, secure))
+		http.SetCookie(w, clearCSRFCookie(p, secure))
+	}
 	http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/login", http.StatusFound)
 }
 

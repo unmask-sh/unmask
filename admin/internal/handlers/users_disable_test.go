@@ -104,7 +104,7 @@ func TestDisabledAccountLosesSessionImmediately(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cookie := issueSessionCookie(h.cfg().Secret.BVSecret, eve.ID, eve.Role, false, false, 0)
+	cookie := issueSessionCookie(h.cfg().Secret.BVSecret, "/unmask/admin", eve.ID, eve.Role, false, false, 0)
 
 	serve := func() (*httptest.ResponseRecorder, bool) {
 		called := false

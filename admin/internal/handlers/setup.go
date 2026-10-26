@@ -272,7 +272,7 @@ func (h *Handler) setupSuperadmin(r *http.Request) *SessionPayload {
 // setup token, so they skip the check.  ParseForm must have run for url-encoded
 // bodies.  Writes 403 and returns false on failure.
 func (h *Handler) setupCSRFOK(w http.ResponseWriter, r *http.Request) bool {
-	if h.setupSuperadmin(r) != nil && !verifyCSRF(r) {
+	if h.setupSuperadmin(r) != nil && !verifyCSRF(h.cfg().Secret.BVSecret, r) {
 		http.Error(w, "forbidden (csrf)", http.StatusForbidden)
 		return false
 	}

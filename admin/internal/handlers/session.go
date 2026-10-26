@@ -61,11 +61,27 @@ func sessionNeedsRefresh(pay *SessionPayload) bool {
 	return time.Until(time.Unix(pay.Exp, 0)) < ttl/2
 }
 
-// issueSessionCookie returns a Cookie carrying a fresh signed session for the user.
+// adminCookiePath: the Path the admin's cookies (the session, the CSRF
+// token) are scoped to -- "{base_path}/admin", no trailing slash.  The admin
+// UI shares its origin with the protected site, so a cookie on "/" (the
+// path until 0.1.53) rode on every request to the site and reached the
+// upstream application with it: the admin's session in the application's
+// logs and in whatever it keeps of its request headers.  By RFC 6265's
+// path-match a cookie on "/unmask/admin" goes to "/unmask/admin" itself and
+// to "/unmask/admin/...", not to "/unmask/administrator".  The cookie-name
+// prefixes are deliberately not used: "__Host-" requires Path=/, the thing
+// being avoided, and "__Secure-" requires HTTPS, which an admin reached as
+// plain http over an SSH tunnel -- a real deployment -- is not.
+func adminCookiePath(basePath string) string {
+	return basePath + "/admin"
+}
+
+// issueSessionCookie returns a Cookie carrying a fresh signed session for the user,
+// on path (adminCookiePath).
 // remember=true (= "remember me" on the login form) extends TTL to 30 days.
 // gen is the account's current session generation; the cookie is good only
 // while the account keeps it.
-func issueSessionCookie(secret string, userID int64, role string, secure, remember bool, gen int64) *http.Cookie {
+func issueSessionCookie(secret, path string, userID int64, role string, secure, remember bool, gen int64) *http.Cookie {
 	ttl := sessionTTL
 	rememberFlag := "0"
 	if remember {
@@ -78,7 +94,7 @@ func issueSessionCookie(secret string, userID int64, role string, secure, rememb
 	return &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    value,
-		Path:     "/",
+		Path:     path,
 		Expires:  exp,
 		MaxAge:   int(ttl.Seconds()),
 		HttpOnly: true,
@@ -87,12 +103,13 @@ func issueSessionCookie(secret string, userID int64, role string, secure, rememb
 	}
 }
 
-// clearSessionCookie returns a Cookie expiring the session.
-func clearSessionCookie(secure bool) *http.Cookie {
+// clearSessionCookie returns a Cookie expiring the session on path: a
+// browser replaces a cookie only with one of the same name AND path.
+func clearSessionCookie(path string, secure bool) *http.Cookie {
 	return &http.Cookie{
 		Name:     sessionCookieName,
 		Value:    "",
-		Path:     "/",
+		Path:     path,
 		MaxAge:   -1,
 		HttpOnly: true,
 		Secure:   secure,
@@ -190,7 +207,9 @@ func sessionSign(secret, body string) string {
 // advanced the generation, which ends every session the account holds -- the
 // point of it -- but the one that made the change would otherwise be sent to
 // the login page by its own save.  Only that session gets a new cookie
-// (the request's session must be the account's); the others end.
+// (the request's session must be the account's); the others end.  The CSRF
+// token follows the session it is derived from (csrf.go), so its cookie is
+// reissued with it, or the next save would be refused once.
 func (h *Handler) reissueSessionAfterPasswordChange(w http.ResponseWriter, r *http.Request, userID int64) {
 	pay := SessionFromContext(r)
 	if pay == nil || pay.UserID != userID || h.UserRepo == nil {
@@ -201,5 +220,9 @@ func (h *Handler) reissueSessionAfterPasswordChange(w http.ResponseWriter, r *ht
 		return
 	}
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-	http.SetCookie(w, issueSessionCookie(h.cfg().Secret.BVSecret, u.ID, u.Role, secure, pay.Remember, u.SessionGen))
+	secret := h.cfg().Secret.BVSecret
+	path := adminCookiePath(h.cfg().Server.BasePath)
+	sc := issueSessionCookie(secret, path, u.ID, u.Role, secure, pay.Remember, u.SessionGen)
+	http.SetCookie(w, sc)
+	http.SetCookie(w, issueCSRFCookie(csrfTokenFor(secret, sc.Value), path, secure, pay.Remember))
 }

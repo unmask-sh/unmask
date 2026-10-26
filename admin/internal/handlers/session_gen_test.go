@@ -66,7 +66,7 @@ func TestPasswordChangeEndsExistingSessions(t *testing.T) {
 		t.Fatal(err)
 	}
 	secret := h.cfg().Secret.BVSecret
-	old := issueSessionCookie(secret, eve.ID, eve.Role, false, true, eve.SessionGen)
+	old := issueSessionCookie(secret, "/unmask/admin", eve.ID, eve.Role, false, true, eve.SessionGen)
 	if rr, called := serveWithSession(h, old); !called {
 		t.Fatalf("a current session must pass (code=%d loc=%q)", rr.Code, rr.Header().Get("Location"))
 	}
@@ -123,7 +123,7 @@ func TestSuspensionEndsSessionsForGood(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := issueSessionCookie(h.cfg().Secret.BVSecret, eve.ID, eve.Role, false, false, eve.SessionGen)
+	c := issueSessionCookie(h.cfg().Secret.BVSecret, "/unmask/admin", eve.ID, eve.Role, false, false, eve.SessionGen)
 	if err := h.UserRepo.SetDisabled(ctx, eve.ID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestOwnPasswordChangeKeepsTheChangersSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	secret := h.cfg().Secret.BVSecret
-	otherDevice := issueSessionCookie(secret, eve.ID, eve.Role, false, true, eve.SessionGen)
+	otherDevice := issueSessionCookie(secret, "/unmask/admin", eve.ID, eve.Role, false, true, eve.SessionGen)
 
 	form := url.Values{
 		"op":               {"password"},
@@ -204,7 +204,7 @@ func TestPreGenerationCookieIsRefused(t *testing.T) {
 	if verifySessionCookie(secret, body+"."+sessionSign(secret, body)) != nil {
 		t.Error("a cookie without the generation field verified")
 	}
-	if verifySessionCookie(secret, issueSessionCookie(secret, 1, user.RoleAdmin, false, false, 7).Value).Gen != 7 {
+	if verifySessionCookie(secret, issueSessionCookie(secret, "/unmask/admin", 1, user.RoleAdmin, false, false, 7).Value).Gen != 7 {
 		t.Error("the generation did not round-trip through the cookie")
 	}
 }

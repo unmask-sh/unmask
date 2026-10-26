@@ -413,6 +413,23 @@ func (r *Repository) SetPassword(ctx context.Context, userID int64, plainPasswor
 	return nil
 }
 
+// BumpSessionGen advances the account's session generation and nothing
+// else: every session cookie the account holds stops verifying
+// (AuthMiddleware compares the generation), on every device.  What a logout
+// does -- the cookie the browser drops could have been copied, and the
+// account's other devices end with it, which is the intent of "log out".
+func (r *Repository) BumpSessionGen(ctx context.Context, userID int64) error {
+	res := r.DB.Gorm.WithContext(ctx).Model(&db.User{}).Where("id = ?", userID).
+		Update("session_gen", gorm.Expr("session_gen + 1"))
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // RehashPassword stores the SAME password under the current cost parameters
 // (the transparent upgrade a successful login does, NeedsRehash).  Unlike
 // SetPassword it leaves the session generation alone: the password did not
