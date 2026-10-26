@@ -2,6 +2,7 @@ package nginxconf
 
 import (
 	"net"
+	"net/netip"
 	"strings"
 
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -40,10 +41,21 @@ func NewChallengeBypassMatcher(n settings.Nginx) *IPBypassMatcher {
 }
 
 // Match reports whether ip is allowlisted.  An empty or unparseable ip is never
-// a match (= ja4_only feed entries and garbage both fall through).
+// a match (= ja4_only feed entries and garbage both fall through).  A prefix
+// ("2001:db8:1:2::/64", an address-wide ban's key) matches when it overlaps
+// any allowlisted range or address (Overlaps): a ban on it would take the
+// allowlisted addresses with it, since the module reads the ban list before
+// the bypass.
 func (m *IPBypassMatcher) Match(ip string) bool {
 	if m == nil || ip == "" {
 		return false
+	}
+	if strings.IndexByte(ip, '/') >= 0 {
+		p, err := netip.ParsePrefix(strings.TrimSpace(ip))
+		if err != nil {
+			return false
+		}
+		return m.Overlaps(p)
 	}
 	pip := net.ParseIP(ip)
 	if pip == nil {
@@ -58,6 +70,44 @@ func (m *IPBypassMatcher) Match(ip string) bool {
 		}
 	}
 	return false
+}
+
+// Overlaps reports whether p shares an address with any allowlisted range or
+// address: a range inside p, p inside a range, or an allowlisted address in p.
+func (m *IPBypassMatcher) Overlaps(p netip.Prefix) bool {
+	if m == nil || !p.IsValid() {
+		return false
+	}
+	p = unmapPrefix(p)
+	for _, nw := range m.nets {
+		q, err := netip.ParsePrefix(nw.String())
+		if err != nil {
+			continue
+		}
+		if p.Overlaps(unmapPrefix(q)) {
+			return true
+		}
+	}
+	for ip := range m.ips {
+		a, err := netip.ParseAddr(ip)
+		if err != nil {
+			continue
+		}
+		if p.Contains(a.Unmap()) {
+			return true
+		}
+	}
+	return false
+}
+
+// unmapPrefix turns a v4-mapped prefix ("::ffff:198.51.100.0/120") into the
+// IPv4 one it spells, so it compares with the IPv4 ranges; others are only
+// masked.
+func unmapPrefix(p netip.Prefix) netip.Prefix {
+	if a := p.Addr(); a.Is4In6() && p.Bits() >= 96 {
+		return netip.PrefixFrom(a.Unmap(), p.Bits()-96).Masked()
+	}
+	return p.Masked()
 }
 
 // Empty reports whether the matcher holds no ranges (= bypass disabled).

@@ -190,6 +190,7 @@ type Manager struct {
 	// a minute, not one a hit).  Under mu.
 	keptLoggedAt   time.Time
 	egressLoggedAt time.Time
+	skip64LoggedAt time.Time // escalate64: a /64 withheld for a bypass range, once a minute
 
 	// mirror: the table's live bans in memory, what the checks read (see
 	// mirror.go).  mirrorMu guards it; loadMu makes one load at a time.

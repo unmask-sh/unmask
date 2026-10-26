@@ -123,3 +123,40 @@ func TestIPBypassMatcherExcludesStatsExcludeFromBanGuard(t *testing.T) {
 		t.Error("an enabled bypass_ips row must be ban-whitelisted")
 	}
 }
+
+// A prefix matches when it shares an address with the allowlist -- a range
+// inside it, a range around it, or a single allowlisted address in it -- so
+// an address-wide ban (a /64 the daemon widens to, a prefix typed by hand)
+// is never placed over the operator's own hosts.
+func TestIPBypassMatcherPrefixOverlap(t *testing.T) {
+	var n settings.Nginx
+	n.BypassIPs = []string{"2001:db8:1:2::9", "198.51.100.0/24", "203.0.113.64/26"}
+	m := NewIPBypassMatcher(n)
+	for _, c := range []struct {
+		prefix string
+		want   bool
+	}{
+		{"2001:db8:1:2::/64", true},       // the allowlisted host is inside
+		{"2001:db8:1:3::/64", false},      // the next /64
+		{"198.51.100.128/25", true},       // inside an allowlisted range
+		{"198.51.0.0/16", true},           // around an allowlisted range
+		{"198.51.101.0/24", false},        // beside it
+		{"203.0.113.0/24", true},          // around the /26
+		{"203.0.113.0/26", false},         // the other quarter
+		{"::ffff:198.51.100.0/120", true}, // v4-mapped spelling of the range
+		{"not-a-prefix/64", false},
+		{"", false},
+	} {
+		if got := m.Match(c.prefix); got != c.want {
+			t.Errorf("Match(%q) = %v, want %v", c.prefix, got, c.want)
+		}
+	}
+	// A single address still matches as before, and nothing matches an
+	// empty allowlist.
+	if !m.Match("2001:db8:1:2::9") || m.Match("2001:db8:1:2::a") {
+		t.Error("single-address matching changed")
+	}
+	if NewIPBypassMatcher(settings.Nginx{}).Match("2001:db8:1:2::/64") {
+		t.Error("an empty allowlist overlaps a prefix")
+	}
+}

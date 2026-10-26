@@ -465,6 +465,21 @@ func (m *Manager) escalate64(ctx context.Context, ip, source, action string, now
 	if have || len(addrs) < prefix64EscalateMin {
 		return
 	}
+	// The module reads the ban list before the bypass: a /64 that shares
+	// an address with the operator's allowlist would take that address
+	// with it.  The allowlist test reads a prefix as "overlaps any range".
+	if m.isWhitelisted(key) {
+		m.mu.Lock()
+		say := time.Since(m.skip64LoggedAt) > time.Minute
+		if say {
+			m.skip64LoggedAt = time.Now()
+		}
+		m.mu.Unlock()
+		if say {
+			log.Printf("ban: /64 escalation of %s skipped: overlaps a bypass range", key)
+		}
+		return
+	}
 	reason := fmt.Sprintf("escalated: %d addresses in the same /64 were banned within a day", len(addrs))
 	if err := m.upsertWithin(ctx, autoBanWriteWithin, key, "", source, reason, now, expires, "", action, ScopeIPOnly); err != nil {
 		return

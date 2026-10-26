@@ -5,6 +5,9 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
 // Three automatic bans on distinct addresses of one IPv6 /64 inside a day
@@ -133,5 +136,52 @@ func TestManualPrefixBan(t *testing.T) {
 	}
 	if !mgr.IsBanned(ctx, "198.51.100.200", "t13d_a") || mgr.IsBanned(ctx, "198.51.101.1", "t13d_a") {
 		t.Error("the kept prefix ban is not matched by containment")
+	}
+}
+
+// A /64 that shares an address with the operator's allowlist is never banned
+// as a whole: the module reads the ban list before the bypass, so the row
+// would take the allowlisted address with it.  The addresses themselves are
+// still banned one by one, and a /64 elsewhere still widens.
+func TestNo64EscalationOverABypassRange(t *testing.T) {
+	_, mgr, _ := openMirrorTest(t)
+	ctx := context.Background()
+	var n settings.Nginx
+	n.BypassIPs = []string{"2001:db8:1:2::9", "198.51.100.0/24"} // the operator's own host inside the first /64
+	mgr.SetWhitelist(func(ip string) bool { return nginxconf.NewIPBypassMatcher(n).Match(ip) })
+	created := []string{}
+	mgr.OnCreated = func(ip, ja4, source, reason, bannedBy string) { created = append(created, ip) }
+
+	for _, ip := range []string{"2001:db8:1:2::a", "2001:db8:1:2::b", "2001:db8:1:2::c", "2001:db8:1:2::d"} {
+		mgr.AddWithSourceAction(ctx, ip, "", SourceHoneypot, "trap", "", "captcha_only")
+		if !mgr.IsBanned(ctx, ip, "") {
+			t.Errorf("%s itself is not banned", ip)
+		}
+	}
+	if _, _, b := mgr.IsBannedActionSource(ctx, "2001:db8:1:2::9", "t13d_zzz"); b {
+		t.Error("the operator's allowlisted host was banned through its /64")
+	}
+	if _, _, b := mgr.IsBannedActionSource(ctx, "2001:db8:1:2::ffff", "t13d_zzz"); b {
+		t.Error("the /64 was widened over a bypass range")
+	}
+	for _, c := range created {
+		if strings.Contains(c, "/") {
+			t.Errorf("a prefix ban was announced: %s", c)
+		}
+	}
+	// Another /64, clear of the allowlist, widens as before.
+	for _, ip := range []string{"2001:db8:1:3::a", "2001:db8:1:3::b", "2001:db8:1:3::c"} {
+		mgr.AddWithSourceAction(ctx, ip, "", SourceHoneypot, "trap", "", "captcha_only")
+	}
+	if _, _, b := mgr.IsBannedActionSource(ctx, "2001:db8:1:3::ffff", "t13d_zzz"); !b {
+		t.Error("a /64 clear of the allowlist did not widen")
+	}
+	// An operator's prefix ban that overlaps the allowlist is refused the way
+	// a single allowlisted address is.
+	if err := mgr.AddManualWithScope(ctx, "198.51.0.0/16", "", ScopeIPOnly, "x", "op", "deny", 0); err == nil {
+		t.Error("a prefix ban over an allowlisted range was accepted")
+	}
+	if err := mgr.AddManualWithScope(ctx, "203.0.113.0/24", "", ScopeIPOnly, "x", "op", "deny", 0); err != nil {
+		t.Errorf("a prefix ban clear of the allowlist was refused: %v", err)
 	}
 }
