@@ -1417,18 +1417,14 @@ func nginxErrLine(out string) string {
 // regression left behind, with no symptom an operator would notice).
 // place-module clears the marker on the next `nginx -t` that passes with the
 // module wired, and renders the full configuration again; its presence means
-// the module is still out now.  The marker is read from the render dir, and
-// from the package default where place-module writes it when the two differ.
+// the module is still out now.  The marker counts from the render dir and
+// from the package dir place-module writes to (nginxconf.FailsafeState).
 func checkNativeFailsafe(outputDir string, addWarn func(t, m string)) {
-	const packageDir = "/var/lib/unmask/nginx"
 	dir := strings.TrimSpace(outputDir)
 	if dir == "" {
-		dir = packageDir
+		dir = nginxconf.FailsafePackageDir
 	}
 	active, reason, since := nginxconf.FailsafeState(dir)
-	if !active && dir != packageDir {
-		active, reason, since = nginxconf.FailsafeState(packageDir)
-	}
 	if !active {
 		return // no marker: the module is wired (or this is a forward-auth install)
 	}

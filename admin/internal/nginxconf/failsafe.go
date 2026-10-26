@@ -16,22 +16,44 @@ import (
 // `nginx -t` that passes with the module wired, and renders again.
 const FailsafeMarker = ".native-failsafe"
 
-// FailsafeActive reports whether dir carries the fail-safe marker.
-func FailsafeActive(dir string) bool {
-	if dir == "" {
-		return false
+// FailsafePackageDir is where place-module.sh writes the marker: the
+// package's render dir.  place-module reads no config.yml, so an install
+// rendering elsewhere (nginx.output_dir) is still told through this path --
+// the marker counts from either dir.  A variable so a test can point it at a
+// scratch dir (the TestMains of the packages that render do, so a marker
+// left on the test host cannot turn every render degraded).
+var FailsafePackageDir = "/var/lib/unmask/nginx"
+
+// failsafeMarkerPath is the marker that applies to a render into dir: the
+// one in dir, else the one in FailsafePackageDir.
+func failsafeMarkerPath(dir string) (string, bool) {
+	for _, d := range []string{dir, FailsafePackageDir} {
+		if d == "" {
+			continue
+		}
+		p := filepath.Join(d, FailsafeMarker)
+		if _, err := os.Stat(p); err == nil {
+			return p, true
+		}
 	}
-	_, err := os.Stat(filepath.Join(dir, FailsafeMarker))
-	return err == nil
+	return "", false
 }
 
-// FailsafeState reads the marker in dir: whether it is there, the reason
-// place-module wrote ("" when it gave none), and when it was written.
+// FailsafeActive reports whether a render into dir is under the fail-safe:
+// the marker is in dir, or in the package dir place-module writes to.
+func FailsafeActive(dir string) bool {
+	_, ok := failsafeMarkerPath(dir)
+	return ok
+}
+
+// FailsafeState reads the marker that applies to dir (see FailsafeActive):
+// whether there is one, the reason place-module wrote ("" when it gave
+// none), and when it was written.
 func FailsafeState(dir string) (active bool, reason string, since time.Time) {
-	if dir == "" {
+	p, ok := failsafeMarkerPath(dir)
+	if !ok {
 		return false, "", time.Time{}
 	}
-	p := filepath.Join(dir, FailsafeMarker)
 	fi, err := os.Stat(p)
 	if err != nil {
 		return false, "", time.Time{}

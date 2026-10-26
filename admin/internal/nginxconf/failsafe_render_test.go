@@ -343,3 +343,47 @@ func TestReloadNeededMarker(t *testing.T) {
 		t.Error("a render with no access log to the daemon left a reload marker")
 	}
 }
+
+// place-module.sh writes the marker to the package's render dir without
+// reading config.yml, so an install that renders into another dir
+// (nginx.output_dir) is told through that path: a marker there, and none in
+// the output dir, is the degraded render too -- and the full one again once
+// it goes.
+func TestFailsafeMarkerInThePackageDirCountsToo(t *testing.T) {
+	pkgDir := t.TempDir()
+	prev := FailsafePackageDir
+	FailsafePackageDir = pkgDir
+	t.Cleanup(func() { FailsafePackageDir = prev })
+
+	dir := t.TempDir()
+	marker := filepath.Join(pkgDir, FailsafeMarker)
+	if err := os.WriteFile(marker, []byte("reason: no bundled module for host nginx 1.99.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if active, reason, _ := FailsafeState(dir); !active || reason != "no bundled module for host nginx 1.99.0" {
+		t.Fatalf("FailsafeState(%s) with the marker in the package dir: active=%v reason=%q", dir, active, reason)
+	}
+	renderInto(t, dir, "test", withLogAndBans)
+	inc, err := os.ReadFile(filepath.Join(dir, "http.inc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(inc), "NATIVE FAIL-SAFE ACTIVE") || directives(string(inc), "unmask_bv_secret") != 0 {
+		t.Error("a marker in the package dir alone did not make the render degraded")
+	}
+
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	if FailsafeActive(dir) {
+		t.Fatal("FailsafeActive still reports the removed marker")
+	}
+	renderInto(t, dir, "test", withLogAndBans)
+	inc, err = os.ReadFile(filepath.Join(dir, "http.inc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(inc), "NATIVE FAIL-SAFE ACTIVE") || directives(string(inc), "unmask_bv_secret") != 1 {
+		t.Error("the full render did not come back once the marker went")
+	}
+}

@@ -27,7 +27,15 @@ func TestMain(m *testing.M) {
 	// instead.  The tests wait for the list; the one test of the notice
 	// sets the wait to zero itself.
 	restoreWait := advisor.SetComputeWaitForTest(2 * time.Minute)
+	// The renders here read the fail-safe marker from the package's render
+	// dir as well as their own; the test host's must stay out of it.
+	pkgDir, err := os.MkdirTemp("", "unmask-failsafe-")
+	if err != nil {
+		panic(err)
+	}
+	nginxconf.FailsafePackageDir = pkgDir
 	code := m.Run()
+	_ = os.RemoveAll(pkgDir)
 	restoreWait()
 	restore()
 	os.Exit(code)

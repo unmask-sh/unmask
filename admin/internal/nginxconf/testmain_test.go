@@ -14,7 +14,16 @@ import (
 // itself ~30 days after each embed refresh.
 func TestMain(m *testing.M) {
 	restore := SetSnapshotDataAtForTests(func() time.Time { return time.Time{} })
+	// The fail-safe marker counts from the package's render dir as well as
+	// the render's own; a marker left on the test host must not make every
+	// render in the suite the degraded one.
+	pkgDir, err := os.MkdirTemp("", "unmask-failsafe-")
+	if err != nil {
+		panic(err)
+	}
+	FailsafePackageDir = pkgDir
 	code := m.Run()
+	_ = os.RemoveAll(pkgDir)
 	restore()
 	os.Exit(code)
 }
