@@ -76,13 +76,13 @@ func TestCSRFBackfillPostStill403s(t *testing.T) {
 // hop of a cross-site-initiated redirect chain while still sending the Lax
 // session cookie -- exactly the skew that fed the redirect loop.
 func TestCSRFCookieSameSiteLax(t *testing.T) {
-	if c := issueCSRFCookie("tok", "/unmask/admin", true, true); c.SameSite != http.SameSiteLaxMode {
+	if c := issueCSRFCookie("tok", "/unmask", true, true); c.SameSite != http.SameSiteLaxMode {
 		t.Errorf("issueCSRFCookie SameSite = %v; want Lax (match the session cookie)", c.SameSite)
 	}
-	if c := clearCSRFCookie("/unmask/admin", true); c.SameSite != http.SameSiteLaxMode {
+	if c := clearCSRFCookie("/unmask", true); c.SameSite != http.SameSiteLaxMode {
 		t.Errorf("clearCSRFCookie SameSite = %v; want Lax", c.SameSite)
 	}
-	if s := issueSessionCookie("sec", "/unmask/admin", 1, "admin", true, true, 0); s.SameSite != http.SameSiteLaxMode {
+	if s := issueSessionCookie("sec", "/unmask", 1, "admin", true, true, 0); s.SameSite != http.SameSiteLaxMode {
 		t.Errorf("session cookie SameSite = %v; the CSRF cookie is documented to match it", s.SameSite)
 	}
 }

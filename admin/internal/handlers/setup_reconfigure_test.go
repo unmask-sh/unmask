@@ -50,7 +50,7 @@ func reconfHandler(t *testing.T, withAdmin bool) (*Handler, int64) {
 }
 
 func superadminCookie(uid int64) *http.Cookie {
-	return issueSessionCookie("test-secret", "/admin", uid, user.RoleSuperadmin, false, false, 0)
+	return issueSessionCookie("test-secret", "/", uid, user.RoleSuperadmin, false, false, 0)
 }
 
 // --- setupSuperadmin auth matrix ---
@@ -73,7 +73,7 @@ func TestSetupSuperadmin_RejectsNonSuperadmin(t *testing.T) {
 		t.Fatalf("create viewer: %v", err)
 	}
 	req := httptest.NewRequest("GET", "/admin/setup/", nil)
-	req.AddCookie(issueSessionCookie("test-secret", "/admin", v.ID, user.RoleViewer, false, false, 0))
+	req.AddCookie(issueSessionCookie("test-secret", "/", v.ID, user.RoleViewer, false, false, 0))
 	if h.setupSuperadmin(req) != nil {
 		t.Error("a viewer must not pass the superadmin gate")
 	}

@@ -747,7 +747,7 @@ func changesWaitWhileWritesAreHeld(t *testing.T, basePath string) {
 	do := func(method, path string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, nil)
 		r.RemoteAddr = "127.0.0.1:5555"
-		session := issueSessionCookie(h.cfg().Secret.BVSecret, "/unmask/admin", 1, "superadmin", false, false, 0)
+		session := issueSessionCookie(h.cfg().Secret.BVSecret, "/unmask", 1, "superadmin", false, false, 0)
 		r.AddCookie(session)
 		r.Header.Set("X-CSRF-Token", csrfTokenFor(h.cfg().Secret.BVSecret, session.Value))
 		r.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})

@@ -43,7 +43,7 @@ func TestUpgradeReviewApplyAdvancesReviewedVersion(t *testing.T) {
 	}
 
 	req := httptest.NewRequest(http.MethodPost, "/unmask/admin/upgrade-review/apply", nil)
-	req.AddCookie(issueSessionCookie(h.cfg().Secret.BVSecret, "/unmask/admin", 1, "superadmin", false, false, 0))
+	req.AddCookie(issueSessionCookie(h.cfg().Secret.BVSecret, "/unmask", 1, "superadmin", false, false, 0))
 	rr := httptest.NewRecorder()
 	h.AdminUpgradeReviewApply(rr, req)
 	if rr.Code != http.StatusFound {

@@ -62,18 +62,29 @@ func sessionNeedsRefresh(pay *SessionPayload) bool {
 }
 
 // adminCookiePath: the Path the admin's cookies (the session, the CSRF
-// token) are scoped to -- "{base_path}/admin", no trailing slash.  The admin
-// UI shares its origin with the protected site, so a cookie on "/" (the
-// path until 0.1.53) rode on every request to the site and reached the
-// upstream application with it: the admin's session in the application's
-// logs and in whatever it keeps of its request headers.  By RFC 6265's
-// path-match a cookie on "/unmask/admin" goes to "/unmask/admin" itself and
-// to "/unmask/admin/...", not to "/unmask/administrator".  The cookie-name
-// prefixes are deliberately not used: "__Host-" requires Path=/, the thing
-// being avoided, and "__Secure-" requires HTTPS, which an admin reached as
-// plain http over an SSH tunnel -- a real deployment -- is not.
+// token) are scoped to -- the base path nginx proxies to the daemon
+// ("/unmask"), no trailing slash; "/" when the daemon is reached on an
+// origin of its own (base_path empty: a tunnel, a direct port), where no
+// application shares the origin.  The admin UI shares its origin with the
+// protected site, so a cookie on "/" (the path until 0.1.53) rode on every
+// request to the site and reached the upstream application with it: the
+// admin's session in the application's logs and in whatever it keeps of
+// its request headers.  Under the base path every request is the daemon's
+// own (nginx's `location ^~ /unmask/`), and by RFC 6265's path-match a
+// cookie on "/unmask" goes to "/unmask" and "/unmask/...", not to
+// "/unmask-shop".  Not "{base}/admin": the site-scoped preview routes the
+// admin's test page and the settings previews use (/unmask/test/site/{site}/,
+// /unmask/api/{site}/verify) read the session to honor the operator's pick
+// of a site (testSiteOverride), and a cookie on the admin path would not
+// reach them.  The cookie-name prefixes are deliberately not used: "__Host-"
+// requires Path=/, the thing being avoided, and "__Secure-" requires HTTPS,
+// which an admin reached as plain http over an SSH tunnel -- a real
+// deployment -- is not.
 func adminCookiePath(basePath string) string {
-	return basePath + "/admin"
+	if basePath == "" {
+		return "/"
+	}
+	return basePath
 }
 
 // issueSessionCookie returns a Cookie carrying a fresh signed session for the user,

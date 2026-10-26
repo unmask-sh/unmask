@@ -15,8 +15,8 @@ import (
 // value with no signature part has none.
 func TestCSRFTokenDerivedFromSession(t *testing.T) {
 	const secret = "test-secret"
-	a := issueSessionCookie(secret, "/admin", 1, user.RoleAdmin, false, false, 0)
-	b := issueSessionCookie(secret, "/admin", 2, user.RoleAdmin, false, false, 0)
+	a := issueSessionCookie(secret, "/unmask", 1, user.RoleAdmin, false, false, 0)
+	b := issueSessionCookie(secret, "/unmask", 2, user.RoleAdmin, false, false, 0)
 	ta, tb := csrfTokenFor(secret, a.Value), csrfTokenFor(secret, b.Value)
 	if len(ta) != 64 || ta == tb {
 		t.Fatalf("tokens: %q / %q", ta, tb)
@@ -54,8 +54,8 @@ func csrfPost(path string, cookies []*http.Cookie, tok string) *http.Request {
 // the same value in the field -- since the cookie is not read.
 func TestVerifyCSRFTakesOnlyTheSessionsToken(t *testing.T) {
 	const secret = "test-secret"
-	victim := issueSessionCookie(secret, "/admin", 1, user.RoleAdmin, false, false, 0)
-	other := issueSessionCookie(secret, "/admin", 2, user.RoleAdmin, false, false, 0)
+	victim := issueSessionCookie(secret, "/unmask", 1, user.RoleAdmin, false, false, 0)
+	other := issueSessionCookie(secret, "/unmask", 2, user.RoleAdmin, false, false, 0)
 	tok := csrfTokenFor(secret, victim.Value)
 	cookie := func(v string) *http.Cookie { return &http.Cookie{Name: csrfCookieName, Value: v} }
 
@@ -104,6 +104,7 @@ func cookieNamed(rec *httptest.ResponseRecorder, name string) *http.Cookie {
 // other.
 func TestAuthMiddlewareIssuesTheSessionsToken(t *testing.T) {
 	h, uid := reconfHandler(t, true)
+	withBasePath(h, "/unmask")
 	session := superadminCookie(uid)
 	tok := csrfTokenFor("test-secret", session.Value)
 
@@ -128,7 +129,7 @@ func TestAuthMiddlewareIssuesTheSessionsToken(t *testing.T) {
 	if rec.Code != http.StatusOK || seen != tok {
 		t.Fatalf("GET without the cookie: code=%d token=%q want %q", rec.Code, seen, tok)
 	}
-	if c := cookieNamed(rec, csrfCookieName); c == nil || c.Value != tok || c.Path != "/admin" {
+	if c := cookieNamed(rec, csrfCookieName); c == nil || c.Value != tok || c.Path != "/unmask" {
 		t.Fatalf("the issued CSRF cookie: %+v", c)
 	}
 	rec = get(&http.Cookie{Name: csrfCookieName, Value: tok})
@@ -148,39 +149,48 @@ func TestAuthMiddlewareIssuesTheSessionsToken(t *testing.T) {
 	}
 	called = false
 	rec = httptest.NewRecorder()
-	otherTok := csrfTokenFor("test-secret", issueSessionCookie("test-secret", "/admin", uid+1, user.RoleAdmin, false, false, 0).Value)
+	otherTok := csrfTokenFor("test-secret", issueSessionCookie("test-secret", "/unmask", uid+1, user.RoleAdmin, false, false, 0).Value)
 	h.AuthMiddleware(inner)(rec, csrfPost("/admin/settings/save", []*http.Cookie{session, {Name: csrfCookieName, Value: otherTok}}, otherTok))
 	if rec.Code != http.StatusForbidden || called {
 		t.Errorf("a POST with another session's token (and a matching cookie): code=%d called=%v", rec.Code, called)
 	}
 }
 
-// The admin's cookies live on {base_path}/admin, not on /: the protected
-// site shares the origin, and a cookie on / went to the upstream
-// application with every request.  Login issues both there, the middleware
-// clears a refused session there, and logout clears both paths -- the
-// admin's and /, where they lived before.
-func TestAdminCookiesScopedToAdminPath(t *testing.T) {
-	if got := adminCookiePath("/unmask"); got != "/unmask/admin" {
+// withBasePath gives h's settings a base path, as a native install has.
+func withBasePath(h *Handler, base string) {
+	s := h.snapshotSettings()
+	s.Server.BasePath = base
+	h.SetSettings(s)
+}
+
+// The admin's cookies live on the base path, not on /: the protected site
+// shares the origin, and a cookie on / went to the upstream application
+// with every request, while everything under the base path is the daemon's
+// own.  Login issues both there, the middleware clears a refused session
+// there, and logout clears both paths -- the base path and /, where they
+// lived before.
+func TestAdminCookiesScopedToBasePath(t *testing.T) {
+	if got := adminCookiePath("/unmask"); got != "/unmask" {
 		t.Fatalf("adminCookiePath = %q", got)
 	}
-	if got := adminCookiePath(""); got != "/admin" {
+	if got := adminCookiePath(""); got != "/" {
 		t.Fatalf("adminCookiePath(\"\") = %q", got)
 	}
 	for _, c := range []*http.Cookie{
-		issueSessionCookie("s", "/unmask/admin", 1, user.RoleAdmin, true, false, 0),
-		clearSessionCookie("/unmask/admin", true),
-		issueCSRFCookie("tok", "/unmask/admin", true, false),
-		clearCSRFCookie("/unmask/admin", true),
+		issueSessionCookie("s", "/unmask", 1, user.RoleAdmin, true, false, 0),
+		clearSessionCookie("/unmask", true),
+		issueCSRFCookie("tok", "/unmask", true, false),
+		clearCSRFCookie("/unmask", true),
 	} {
-		if c.Path != "/unmask/admin" {
+		if c.Path != "/unmask" {
 			t.Errorf("%s: Path = %q", c.Name, c.Path)
 		}
 	}
 
 	h, _ := reconfHandler(t, true)
+	withBasePath(h, "/unmask")
 	form := url.Values{"username": {"admin"}, "password": {"correct-horse-battery"}}
-	req := httptest.NewRequest(http.MethodPost, "/admin/login", strings.NewReader(form.Encode()))
+	req := httptest.NewRequest(http.MethodPost, "/unmask/admin/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rec := httptest.NewRecorder()
 	h.AdminLoginPost(rec, req)
@@ -188,20 +198,20 @@ func TestAdminCookiesScopedToAdminPath(t *testing.T) {
 		t.Fatalf("login: %d %s", rec.Code, rec.Body.String())
 	}
 	session, csrf := cookieNamed(rec, sessionCookieName), cookieNamed(rec, csrfCookieName)
-	if session == nil || session.Path != "/admin" || !session.HttpOnly {
+	if session == nil || session.Path != "/unmask" || !session.HttpOnly {
 		t.Fatalf("the session cookie login set: %+v", session)
 	}
-	if csrf == nil || csrf.Path != "/admin" || csrf.Value != csrfTokenFor("test-secret", session.Value) {
+	if csrf == nil || csrf.Path != "/unmask" || csrf.Value != csrfTokenFor("test-secret", session.Value) {
 		t.Fatalf("the CSRF cookie login set: %+v", csrf)
 	}
 
 	// A session the middleware refuses is cleared on the same path.
-	gone := issueSessionCookie("test-secret", "/admin", 999, user.RoleAdmin, false, false, 0)
-	req = httptest.NewRequest(http.MethodGet, "/admin/", nil)
+	gone := issueSessionCookie("test-secret", "/unmask", 999, user.RoleAdmin, false, false, 0)
+	req = httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil)
 	req.AddCookie(gone)
 	rec = httptest.NewRecorder()
 	h.AuthMiddleware(func(http.ResponseWriter, *http.Request) { t.Error("a session of no account reached the handler") })(rec, req)
-	if c := cookieNamed(rec, sessionCookieName); c == nil || c.MaxAge != -1 || c.Path != "/admin" {
+	if c := cookieNamed(rec, sessionCookieName); c == nil || c.MaxAge != -1 || c.Path != "/unmask" {
 		t.Errorf("the refused session's clear: %+v", c)
 	}
 }
@@ -211,13 +221,14 @@ func TestAdminCookiesScopedToAdminPath(t *testing.T) {
 // -- is refused from then on.  The clear reaches the admin path and /.
 func TestLogoutEndsTheAccountsSessions(t *testing.T) {
 	h, uid := reconfHandler(t, true)
+	withBasePath(h, "/unmask")
 	session := superadminCookie(uid)
 	tok := csrfTokenFor("test-secret", session.Value)
 	logout := h.AdminIPAllowMiddleware(h.RequireCSRFFunc(h.AdminLogout))
 
 	called := false
 	page := h.AuthMiddleware(func(http.ResponseWriter, *http.Request) { called = true })
-	req := httptest.NewRequest(http.MethodGet, "/admin/", nil)
+	req := httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil)
 	req.AddCookie(session)
 	page(httptest.NewRecorder(), req)
 	if !called {
@@ -225,13 +236,13 @@ func TestLogoutEndsTheAccountsSessions(t *testing.T) {
 	}
 
 	rec := httptest.NewRecorder()
-	logout(rec, csrfPost("/admin/logout", []*http.Cookie{session}, "not-the-token"))
+	logout(rec, csrfPost("/unmask/admin/logout", []*http.Cookie{session}, "not-the-token"))
 	if rec.Code != http.StatusForbidden {
 		t.Fatalf("a logout without the session's token (a forced logout from another site): %d", rec.Code)
 	}
 	rec = httptest.NewRecorder()
-	logout(rec, csrfPost("/admin/logout", []*http.Cookie{session}, tok))
-	if rec.Code != http.StatusFound || !strings.HasSuffix(rec.Header().Get("Location"), "/admin/login") {
+	logout(rec, csrfPost("/unmask/admin/logout", []*http.Cookie{session}, tok))
+	if rec.Code != http.StatusFound || !strings.HasSuffix(rec.Header().Get("Location"), "/unmask/admin/login") {
 		t.Fatalf("logout: %d %q", rec.Code, rec.Header().Get("Location"))
 	}
 	paths := map[string]map[string]bool{}
@@ -245,13 +256,13 @@ func TestLogoutEndsTheAccountsSessions(t *testing.T) {
 		paths[c.Name][c.Path] = true
 	}
 	for _, name := range []string{sessionCookieName, csrfCookieName} {
-		if !paths[name]["/admin"] || !paths[name]["/"] {
-			t.Errorf("%s is not cleared on both /admin and /: %v", name, paths[name])
+		if !paths[name]["/unmask"] || !paths[name]["/"] {
+			t.Errorf("%s is not cleared on both /unmask and /: %v", name, paths[name])
 		}
 	}
 
 	called = false
-	req = httptest.NewRequest(http.MethodGet, "/admin/", nil)
+	req = httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil)
 	req.AddCookie(session)
 	rec = httptest.NewRecorder()
 	page(rec, req)

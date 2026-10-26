@@ -1342,7 +1342,11 @@ func (h *Handler) AdminLogout(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-	for _, p := range []string{adminCookiePath(h.cfg().Server.BasePath), "/"} {
+	paths := []string{adminCookiePath(h.cfg().Server.BasePath)}
+	if paths[0] != "/" {
+		paths = append(paths, "/")
+	}
+	for _, p := range paths {
 		http.SetCookie(w, clearSessionCookie(p, secure))
 		http.SetCookie(w, clearCSRFCookie(p, secure))
 	}

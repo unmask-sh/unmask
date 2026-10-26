@@ -33,7 +33,7 @@ func multipartPost(t *testing.T, path string, fields map[string]string) *http.Re
 // every such click was refused as a csrf mismatch (0.1.25..0.1.40).
 func TestVerifyCSRF_MultipartBodyField(t *testing.T) {
 	const secret = "test-secret"
-	session := issueSessionCookie(secret, "/unmask/admin", 1, "admin", false, false, 0)
+	session := issueSessionCookie(secret, "/unmask", 1, "admin", false, false, 0)
 	tok := csrfTokenFor(secret, session.Value)
 	req := multipartPost(t, "/unmask/admin/settings/branding/site/delete?site=shop.example.com", map[string]string{"_csrf": tok, "site": "shop.example.com"})
 	req.AddCookie(session)
