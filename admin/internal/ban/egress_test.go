@@ -59,6 +59,7 @@ func TestEgressGetsNoAutomaticBan(t *testing.T) {
 	if _, src, b := mgr.IsBannedActionSource(ctx, cdnIP, ja4); !b || src != "manual" {
 		t.Fatalf("the operator's ban on the CDN address: banned=%v source=%q", b, src)
 	}
+	mgr.settle()
 	buf, _ := os.ReadFile(banFile)
 	if !strings.Contains(string(buf), cdnIP+"|"+ja4+"|manual|deny") {
 		t.Errorf("the operator's ban is not in the file:\n%s", buf)
@@ -76,6 +77,7 @@ func TestEgressRowsLeaveTheFile(t *testing.T) {
 	mgr.SetEgress(nil)
 	mgr.Add(cdnIP, ja4)
 	mgr.Add(cdnIP, "t13d230800_bfd000000000_000000000000")
+	mgr.settle()
 	buf, _ := os.ReadFile(banFile)
 	if !strings.Contains(string(buf), cdnIP+"|"+ja4) {
 		t.Fatalf("the ban is not in the file before the list knows the address:\n%s", buf)

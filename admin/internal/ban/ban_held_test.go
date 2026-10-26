@@ -131,6 +131,7 @@ func TestKeptBansAreEnforcedAtOnce(t *testing.T) {
 	if action, source, ok := mgr.IsBannedActionSource(ctx, "203.0.113.41", ""); !ok || action != "deny" || source != SourceHoneypot {
 		t.Errorf("the check's answer for a kept ban = %q %q %v", action, source, ok)
 	}
+	mgr.settle()
 	file, _ := os.ReadFile(banFile)
 	for _, want := range []string{"203.0.113.40|t13d_y|honeypot|", "203.0.113.41||honeypot|deny"} {
 		if !strings.Contains(string(file), want) {
@@ -356,6 +357,7 @@ func TestLiftingABanDuringAHold(t *testing.T) {
 	if _, _, banned := mgr.IsBannedActionSource(ctx, "203.0.113.60", "t13d_z"); banned {
 		t.Error("a lifted ban is still answered by IsBannedActionSource")
 	}
+	mgr.settle()
 	if file, _ := os.ReadFile(banFile); strings.Contains(string(file), "203.0.113.60|t13d_z") {
 		t.Errorf("the ban file still carries the lifted ban:\n%s", file)
 	}
@@ -415,6 +417,7 @@ func TestDropHeld(t *testing.T) {
 	if mgr.IsBanned(ctx, "203.0.113.70", "") {
 		t.Error("a dropped ban is still enforced")
 	}
+	mgr.settle()
 	if file, _ := os.ReadFile(banFile); strings.Contains(string(file), "203.0.113.70") {
 		t.Errorf("the ban file still carries the dropped ban:\n%s", file)
 	}

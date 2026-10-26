@@ -70,6 +70,7 @@ func TestAddWithSourceActionPersistsAction(t *testing.T) {
 	// empty action -> inherits the resolver default (same as AddWithSource).
 	mgr.AddWithSourceAction(ctx, "203.0.113.22", "", SourceHoneypot, "trap", "", "")
 
+	mgr.settle()
 	file := func() string { b, _ := os.ReadFile(banFile); return string(b) }()
 	if !strings.Contains(file, "|honeypot|captcha_only") {
 		t.Errorf("explicit per-row action not persisted to the action column\n---file---\n%s", file)

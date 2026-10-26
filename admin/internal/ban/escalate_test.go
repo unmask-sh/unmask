@@ -41,6 +41,7 @@ func TestAutoBansEscalateToTheAddress(t *testing.T) {
 	if !b || src != SourceRateLimitAbuse || act != "captcha_only" {
 		t.Fatalf("after three fingerprints: banned=%v source=%q action=%q, want an ip_only rate_limit_abuse captcha_only ban", b, src, act)
 	}
+	mgr.settle()
 	buf, _ := os.ReadFile(banFile)
 	if !strings.Contains(string(buf), ip+"||"+SourceRateLimitAbuse+"|captcha_only") {
 		t.Errorf("the ban file carries no ip-only line for %s:\n%s", ip, buf)

@@ -190,7 +190,30 @@ type Manager struct {
 	// a minute, not one a hit).  Under mu.
 	keptLoggedAt   time.Time
 	egressLoggedAt time.Time
+
+	// mirror: the table's live bans in memory, what the checks read (see
+	// mirror.go).  mirrorMu guards it; loadMu makes one load at a time.
+	mirror   *mirror
+	mirrorMu sync.RWMutex
+	loadMu   sync.Mutex
+	// flushTimer: a write of the file due at the end of the debounce window
+	// (requestFlush).  lastFlushAt: when the file was last written; flushes:
+	// how many times (the tests).  repeatTrips: automatic bans asked for on
+	// a client already banned the same way (RepeatedTrips).  All under mu.
+	flushTimer  *time.Timer
+	lastFlushAt time.Time
+	flushes     int
+	repeatTrips uint64
 }
+
+// flushDebounce is the window within which requests to write the file are
+// made one write: a burst of bans from the access log -- a scanner walking
+// a subnet, a backlog after a hold -- wrote the whole file, with an fsync,
+// once per ban.  The first request of a quiet period writes at once, so a
+// lone ban reaches nginx without the wait; the rest of the window is one
+// write at its end.  The checks do not wait for it: a ban is in the mirror
+// (or kept) the moment it is placed.
+const flushDebounce = 200 * time.Millisecond
 
 // autoBanWriteWithin bounds the write of an automatic ban on the access log's
 // receive loop.  Against another writer's transaction -- a backlog being
@@ -334,12 +357,75 @@ func (m *Manager) Start() {
 	if res := m.DB.Gorm.Exec(`DELETE FROM unmask_ban WHERE source = ?`, "community_bans"); res.Error == nil && res.RowsAffected > 0 {
 		log.Printf("ban: cleaned up %d legacy community_bans rows (= now map-only)", res.RowsAffected)
 	}
+	m.normalizeStoredIPs()
 	if m.filePath != "" {
 		if err := m.flush(); err != nil {
 			log.Printf("ban: initial flush: %v", err)
 		}
+	} else {
+		m.ensureMirror()
 	}
 	go m.loop()
+}
+
+// normalizeStoredIPs rewrites, once at start, the rows whose address is not
+// in the spelling the request carries (normalizeIP): typed into a ban as
+// "2001:DB8::1" or "2001:0db8::1" before the door fixed it, such a row
+// matched nothing in nginx and nothing here.  A row whose fixed spelling
+// another row already has is dropped for that row.  Few rows, so one at a
+// time, on either database.
+func (m *Manager) normalizeStoredIPs() {
+	if m.DB == nil || m.DB.WritesHeld() {
+		return
+	}
+	type row struct {
+		id             int64
+		ip, ja4, scope string
+	}
+	var fix []row
+	rows, err := m.DB.QueryContext(context.Background(), `SELECT id, ip, ja4, scope FROM unmask_ban WHERE ip <> ''`)
+	if err != nil {
+		log.Printf("ban: reading the list to fix address spellings: %v", err)
+		return
+	}
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.ip, &r.ja4, &r.scope); err != nil {
+			rows.Close()
+			log.Printf("ban: reading the list to fix address spellings: %v", err)
+			return
+		}
+		if normalizeIP(r.ip) != r.ip {
+			fix = append(fix, r)
+		}
+	}
+	rows.Close()
+	fixed, dropped := 0, 0
+	for _, r := range fix {
+		want := normalizeIP(r.ip)
+		var dup int64
+		if err := m.DB.Gorm.Model(&db.Ban{}).Where("ip = ? AND ja4 = ? AND scope = ? AND id <> ?", want, r.ja4, r.scope, r.id).Count(&dup).Error; err != nil {
+			log.Printf("ban: fixing the spelling of %q: %v", r.ip, err)
+			continue
+		}
+		if dup > 0 {
+			if err := m.DB.Gorm.Where("id = ?", r.id).Delete(&db.Ban{}).Error; err != nil {
+				log.Printf("ban: dropping the duplicate row for %q: %v", r.ip, err)
+				continue
+			}
+			dropped++
+			continue
+		}
+		if err := m.DB.Gorm.Model(&db.Ban{}).Where("id = ?", r.id).Update("ip", want).Error; err != nil {
+			log.Printf("ban: fixing the spelling of %q: %v", r.ip, err)
+			continue
+		}
+		fixed++
+	}
+	if fixed > 0 || dropped > 0 {
+		log.Printf("ban: %d address(es) rewritten in the spelling requests carry, %d duplicate row(s) dropped", fixed, dropped)
+		m.markDirty()
+	}
 }
 
 // Close: stop the goroutine + final flush.
@@ -354,6 +440,12 @@ func (m *Manager) Close() {
 		close(m.stopCh)
 	}
 	<-m.doneCh
+	m.mu.Lock()
+	if m.flushTimer != nil {
+		m.flushTimer.Stop()
+		m.flushTimer = nil
+	}
+	m.mu.Unlock()
 	if m.filePath != "" {
 		_ = m.flush()
 	}
@@ -390,8 +482,9 @@ func (m *Manager) AddWithSourceAction(ctx context.Context, ip, ja4, source, reas
 	if m == nil {
 		return
 	}
-	ip = strings.TrimSpace(ip)
+	ip = normalizeIP(ip)
 	ja4 = strings.TrimSpace(ja4)
+	action = strings.TrimSpace(action)
 	if ip == "" {
 		return
 	}
@@ -405,6 +498,14 @@ func (m *Manager) AddWithSourceAction(ctx context.Context, ip, ja4, source, reas
 		}
 	}
 	now := time.Now().Unix()
+	// The client is banned this way already, and recently: nothing to
+	// write, write out or announce (recentlyPlaced).
+	if bannedBy == "" && m.recentlyPlaced(ip, ja4, source, action, now) {
+		m.mu.Lock()
+		m.repeatTrips++
+		m.mu.Unlock()
+		return
+	}
 	var expires int64
 	// For manual permanent bans (= the caller manages duration separately),
 	// use AddPermanent (provided separately).
@@ -420,21 +521,19 @@ func (m *Manager) AddWithSourceAction(ctx context.Context, ip, ja4, source, reas
 		// written from the database and the kept bans (reading goes on
 		// under the hold), and the checks look at both.
 		m.hold(heldBan{ip: ip, ja4: ja4, source: source, reason: reason, bannedBy: bannedBy,
-			action: strings.TrimSpace(action), scope: DeriveScope(ip, ja4), bannedAt: now, expiresAt: expires})
+			action: action, scope: DeriveScope(ip, ja4), bannedAt: now, expiresAt: expires})
 		m.markDirty()
-		if m.filePath != "" {
-			_ = m.flush()
-		}
+		m.requestFlush()
 		return
 	}
 	// The write, within a bound (autoBanWriteWithin): this runs on the
 	// access log's receive loop.  A write that cannot be made at once is
 	// kept the way a hold keeps it -- in force from the file and the checks
 	// -- and the loop writes it the moment it can.
-	err := m.upsertWithin(ctx, autoBanWriteWithin, ip, ja4, source, reason, now, expires, bannedBy, strings.TrimSpace(action), DeriveScope(ip, ja4))
+	err := m.upsertWithin(ctx, autoBanWriteWithin, ip, ja4, source, reason, now, expires, bannedBy, action, DeriveScope(ip, ja4))
 	if err != nil {
 		m.hold(heldBan{ip: ip, ja4: ja4, source: source, reason: reason, bannedBy: bannedBy,
-			action: strings.TrimSpace(action), scope: DeriveScope(ip, ja4), bannedAt: now, expiresAt: expires})
+			action: action, scope: DeriveScope(ip, ja4), bannedAt: now, expiresAt: expires})
 		m.markDirty()
 		m.mu.Lock()
 		say := time.Since(m.keptLoggedAt) > time.Minute
@@ -448,16 +547,18 @@ func (m *Manager) AddWithSourceAction(ctx context.Context, ip, ja4, source, reas
 		m.wakeLoop()
 		return
 	}
+	m.mirrorPut(mirrorEntry{ip: ip, ja4: ja4, scope: DeriveScope(ip, ja4), source: source, action: action,
+		bannedBy: bannedBy, bannedAt: now, expiresAt: expires})
 	m.markDirty()
-	if m.filePath != "" {
-		// Flush on new additions so the propagation delay is minimal.
-		_ = m.flush()
-	}
+	m.requestFlush()
 	if m.OnCreated != nil {
 		m.OnCreated(ip, ja4, source, reason, bannedBy)
 	}
-	if bannedBy == "" && ja4 != "" {
-		m.escalateIP(ctx, ip, source, strings.TrimSpace(action), now, expires)
+	if bannedBy == "" {
+		if ja4 != "" {
+			m.escalateIP(ctx, ip, source, action, now, expires)
+		}
+		m.escalate64(ctx, ip, source, action, now, expires)
 	}
 }
 
@@ -471,7 +572,7 @@ func (m *Manager) AddAuto(ctx context.Context, ip, ja4, scope, source, reason, a
 	if m == nil {
 		return
 	}
-	ip, ja4 = strings.TrimSpace(ip), strings.TrimSpace(ja4)
+	ip, ja4 = normalizeIP(ip), strings.TrimSpace(ja4)
 	if ip == "" || m.isWhitelisted(ip) || validateBanKey(ip, ja4) != nil {
 		return
 	}
@@ -494,9 +595,7 @@ func (m *Manager) AddAuto(ctx context.Context, ip, ja4, scope, source, reason, a
 		m.hold(heldBan{ip: ip, ja4: ja4, source: source, reason: reason,
 			action: action, scope: scope, bannedAt: now, expiresAt: expires})
 		m.markDirty()
-		if m.filePath != "" {
-			_ = m.flush()
-		}
+		m.requestFlush()
 	}
 	if m.DB.WritesHeld() {
 		keep()
@@ -507,16 +606,16 @@ func (m *Manager) AddAuto(ctx context.Context, ip, ja4, scope, source, reason, a
 		m.wakeLoop()
 		return
 	}
+	m.mirrorPut(mirrorEntry{ip: ip, ja4: ja4, scope: scope, source: source, action: action, bannedAt: now, expiresAt: expires})
 	m.markDirty()
-	if m.filePath != "" {
-		_ = m.flush()
-	}
+	m.requestFlush()
 	if m.OnCreated != nil {
 		m.OnCreated(ip, ja4, source, reason, "")
 	}
 	if scope == ScopeIPJA4 && ja4 != "" {
 		m.escalateIP(ctx, ip, source, action, now, expires)
 	}
+	m.escalate64(ctx, ip, source, action, now, expires)
 }
 
 // AddManual: manual BAN from the admin / CLI.  expiresSec=0 -> permanent.
@@ -546,7 +645,7 @@ func (m *Manager) AddManualWithScope(ctx context.Context, ip, ja4, scope, reason
 	if m == nil {
 		return errors.New("manager nil")
 	}
-	ip = strings.TrimSpace(ip)
+	ip = normalizeIP(ip)
 	ja4 = strings.TrimSpace(ja4)
 	if ip == "" && ja4 == "" {
 		return errors.New("ip or ja4 is required")
@@ -562,14 +661,8 @@ func (m *Manager) AddManualWithScope(ctx context.Context, ip, ja4, scope, reason
 	} else {
 		scope = ValidateScope(scope)
 	}
-	if scope == ScopeIPJA4 && (ip == "" || ja4 == "") {
-		return errors.New("ip_ja4 scope requires both ip and ja4")
-	}
-	if scope == ScopeJA4Only && ja4 == "" {
-		return errors.New("ja4_only scope requires ja4")
-	}
-	if scope == ScopeIPOnly && ip == "" {
-		return errors.New("ip_only scope requires ip")
+	if err := validateScopeKey(ip, ja4, scope); err != nil {
+		return err
 	}
 	now := time.Now().Unix()
 	var expiresAt int64
@@ -588,9 +681,7 @@ func (m *Manager) AddManualWithScope(ctx context.Context, ip, ja4, scope, reason
 			return ErrHeldFull
 		}
 		m.markDirty()
-		if m.filePath != "" {
-			_ = m.flush()
-		}
+		m.requestFlush()
 		if m.OnCreated != nil {
 			m.OnCreated(ip, ja4, SourceManual, reason, bannedBy)
 		}
@@ -599,12 +690,37 @@ func (m *Manager) AddManualWithScope(ctx context.Context, ip, ja4, scope, reason
 	if err := m.upsert(ctx, ip, ja4, SourceManual, reason, now, expiresAt, bannedBy, strings.TrimSpace(action), scope); err != nil {
 		return err
 	}
+	m.mirrorPut(mirrorEntry{ip: ip, ja4: ja4, scope: scope, source: SourceManual, action: strings.TrimSpace(action),
+		bannedBy: bannedBy, bannedAt: now, expiresAt: expiresAt})
 	m.markDirty()
-	if m.filePath != "" {
-		_ = m.flush()
-	}
+	m.requestFlush()
 	if m.OnCreated != nil {
 		m.OnCreated(ip, ja4, SourceManual, reason, bannedBy)
+	}
+	return nil
+}
+
+// validateScopeKey checks that the key fields a scope matches on are there,
+// and that a prefix ("203.0.113.0/24", "2001:db8:1:2::/64") is used only as
+// an address-wide ban: the module matches a prefix row against the address
+// alone, so a fingerprint beside it would be a condition it never reads.
+func validateScopeKey(ip, ja4, scope string) error {
+	if scope == ScopeIPJA4 && (ip == "" || ja4 == "") {
+		return errors.New("ip_ja4 scope requires both ip and ja4")
+	}
+	if scope == ScopeJA4Only && ja4 == "" {
+		return errors.New("ja4_only scope requires ja4")
+	}
+	if scope == ScopeIPOnly && ip == "" {
+		return errors.New("ip_only scope requires ip")
+	}
+	if strings.IndexByte(ip, '/') >= 0 {
+		if _, ok := parsePrefixKey(ip); !ok {
+			return errors.New("ip is neither an address nor a prefix (CIDR)")
+		}
+		if scope != ScopeIPOnly {
+			return errors.New("a prefix (CIDR) bans the addresses in it: use the ip_only scope")
+		}
 	}
 	return nil
 }
@@ -626,7 +742,7 @@ func (m *Manager) UpdateManual(ctx context.Context, id int64, ip, ja4, scope, re
 		// page says why and when to come back.
 		return db.ErrWritesHeld
 	}
-	ip = strings.TrimSpace(ip)
+	ip = normalizeIP(ip)
 	ja4 = strings.TrimSpace(ja4)
 	if ip == "" && ja4 == "" {
 		return errors.New("ip or ja4 is required")
@@ -642,14 +758,8 @@ func (m *Manager) UpdateManual(ctx context.Context, id int64, ip, ja4, scope, re
 	} else {
 		scope = ValidateScope(scope)
 	}
-	if scope == ScopeIPJA4 && (ip == "" || ja4 == "") {
-		return errors.New("ip_ja4 scope requires both ip and ja4")
-	}
-	if scope == ScopeJA4Only && ja4 == "" {
-		return errors.New("ja4_only scope requires ja4")
-	}
-	if scope == ScopeIPOnly && ip == "" {
-		return errors.New("ip_only scope requires ip")
+	if err := validateScopeKey(ip, ja4, scope); err != nil {
+		return err
 	}
 	var expiresAt int64
 	if expiresSec > 0 {
@@ -682,10 +792,9 @@ func (m *Manager) UpdateManual(ctx context.Context, id int64, ip, ja4, scope, re
 	if res.RowsAffected == 0 {
 		return errors.New("not found or row is not editable (= non-manual source)")
 	}
+	m.reloadMirror()
 	m.markDirty()
-	if m.filePath != "" {
-		_ = m.flush()
-	}
+	m.requestFlush()
 	return nil
 }
 
@@ -712,9 +821,7 @@ func (m *Manager) Remove(ctx context.Context, id int64) error {
 		m.lifted[id] = true
 		m.mu.Unlock()
 		m.markDirty()
-		if m.filePath != "" {
-			_ = m.flush()
-		}
+		m.requestFlush()
 		return nil
 	}
 	res := m.DB.Gorm.WithContext(ctx).Where("id = ?", id).Delete(&db.Ban{})
@@ -724,10 +831,9 @@ func (m *Manager) Remove(ctx context.Context, id int64) error {
 	if res.RowsAffected == 0 {
 		return errors.New("not found")
 	}
+	m.reloadMirror()
 	m.markDirty()
-	if m.filePath != "" {
-		_ = m.flush()
-	}
+	m.requestFlush()
 	return nil
 }
 
@@ -750,7 +856,7 @@ func (m *Manager) DropHeld(ip, ja4, scope string) bool {
 	if m == nil {
 		return false
 	}
-	ip, ja4 = strings.TrimSpace(ip), strings.TrimSpace(ja4)
+	ip, ja4 = normalizeIP(ip), strings.TrimSpace(ja4)
 	if scope == "" {
 		scope = DeriveScope(ip, ja4)
 	}
@@ -768,9 +874,7 @@ func (m *Manager) DropHeld(ip, ja4, scope string) bool {
 	m.mu.Unlock()
 	if found {
 		m.markDirty()
-		if m.filePath != "" {
-			_ = m.flush()
-		}
+		m.requestFlush()
 	}
 	return found
 }
@@ -816,28 +920,43 @@ func (m *Manager) FlushHeld() {
 	m.writeHeld()
 }
 
-// heldMatch reports a kept ban that matches (ip, ja4) the way the table's
-// lookups do: ja4 == "" matches on the address alone.
+// heldMatch reports a kept ban that matches (ip, ja4) the way the mirror
+// does: by the shape the ban's scope gives it, with ja4 == "" matching any
+// ban naming the address.
 func (m *Manager) heldMatch(ip, ja4 string) (action, source string, ok bool) {
 	now := time.Now().Unix()
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, h := range m.held {
-		// The same three shapes as the table lookup: the tuple, the
-		// address alone (an ip_only ban), the fingerprint alone.
-		match := h.ip == ip
-		if ja4 != "" {
-			match = (h.ip == ip && (h.ja4 == ja4 || h.ja4 == "")) || (h.ip == "" && h.ja4 == ja4)
-		}
-		if !match {
-			continue
-		}
 		if h.expiresAt != 0 && h.expiresAt <= now {
 			continue
 		}
-		return h.action, h.source, true
+		if heldMatches(h, ip, ja4) {
+			return h.action, h.source, true
+		}
 	}
 	return "", "", false
+}
+
+// heldMatches: whether the kept ban h holds on a request from (ip, ja4).
+func heldMatches(h heldBan, ip, ja4 string) bool {
+	onAddress := func() bool {
+		if p, ok := parsePrefixKey(h.ip); ok {
+			return addrInPrefix(p, ip)
+		}
+		return h.ip != "" && h.ip == ip
+	}
+	if ja4 == "" {
+		return onAddress()
+	}
+	switch effectiveScope(h.ip, h.ja4, h.scope) {
+	case ScopeJA4Only:
+		return h.ja4 == ja4
+	case ScopeIPOnly:
+		return onAddress()
+	default:
+		return h.ip == ip && h.ja4 == ja4
+	}
 }
 
 // writeHeld writes the bans kept while writes were held.  Called from loop
@@ -881,6 +1000,11 @@ func (m *Manager) writeHeld() {
 			m.OnCreated(b.ip, b.ja4, b.source, b.reason, b.bannedBy)
 		}
 	}
+	// The mirror reads the rows back before the kept bans leave the list:
+	// a check in between must find each ban in one or the other.
+	if n > 0 || deleted > 0 {
+		m.reloadMirror()
+	}
 	// Off the list only now that the rows are written: until then the file
 	// has them from here, and a flush in the meantime -- an addition's --
 	// must not write it without them.  One kept or refreshed since the copy
@@ -901,6 +1025,7 @@ func (m *Manager) writeHeld() {
 	log.Printf("ban: wrote %d of %d ban(s) kept and deleted %d of %d lifted during the schema update", n, len(held), deleted, len(lifted))
 	if n > 0 || deleted > 0 {
 		m.markDirty()
+		m.requestFlush()
 	}
 }
 
@@ -977,8 +1102,17 @@ func (m *Manager) IsBannedActionSource(ctx context.Context, ip, ja4 string) (act
 	if m == nil || ip == "" {
 		return "", "", false
 	}
+	ip = normalizeIP(ip)
 	if action, source, ok := m.heldMatch(ip, ja4); ok {
 		return action, source, true
+	}
+	// The mirror answers; the table is asked only while there is none (it
+	// could not be read), one line at a time as before.
+	if e, found, loaded := m.mirrorMatch(ip, ja4); loaded {
+		if found {
+			return e.action, e.source, true
+		}
+		return "", "", false
 	}
 	now := time.Now().Unix()
 	var (
@@ -1188,8 +1322,62 @@ func (m *Manager) shouldFlush() bool {
 	return m.dirty
 }
 
-// flush: atomic-write the current DB contents to the ban file.
-func (m *Manager) flush() error {
+// requestFlush asks for the file to be written: at once when none was
+// written within flushDebounce, else once at the end of the window for every
+// request made meanwhile.  Nothing to do without a file.
+func (m *Manager) requestFlush() {
+	if m.filePath == "" {
+		return
+	}
+	m.mu.Lock()
+	if m.flushTimer != nil {
+		m.mu.Unlock()
+		return // one is due, and writes the list as it is then
+	}
+	wait := flushDebounce - time.Since(m.lastFlushAt)
+	if wait <= 0 {
+		m.mu.Unlock()
+		if err := m.flush(); err != nil {
+			log.Printf("ban: writing the ban file: %v", err)
+		}
+		return
+	}
+	m.flushTimer = time.AfterFunc(wait, func() {
+		m.mu.Lock()
+		m.flushTimer = nil
+		m.mu.Unlock()
+		if err := m.flush(); err != nil {
+			log.Printf("ban: writing the ban file: %v", err)
+		}
+	})
+	m.mu.Unlock()
+}
+
+// settle writes a write that is due now rather than at the end of the
+// window.  For the tests, which read the file right after a burst.
+func (m *Manager) settle() {
+	m.mu.Lock()
+	t := m.flushTimer
+	m.flushTimer = nil
+	m.mu.Unlock()
+	if t != nil {
+		t.Stop()
+	}
+	if m.filePath != "" {
+		_ = m.flush()
+	}
+}
+
+// flushCount is how many times the file was written (the tests).
+func (m *Manager) flushCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.flushes
+}
+
+// flush: atomic-write the current DB contents to the ban file.  The mirror
+// is rebuilt from the same read.
+func (m *Manager) flush() (err error) {
 	if m.filePath == "" {
 		return nil
 	}
@@ -1197,28 +1385,22 @@ func (m *Manager) flush() error {
 	defer m.flushMu.Unlock()
 	m.mu.Lock()
 	resolver := m.actionResolver
+	// A change from here on belongs to the next write: the loop's tick
+	// writes again if one comes in while this write is under way.
+	m.dirty = false
 	m.mu.Unlock()
-	lifted := m.liftedIDs()
+	defer func() {
+		if err != nil {
+			m.markDirty()
+		}
+	}()
 	now := time.Now().Unix()
-	rows, err := m.DB.QueryContext(context.Background(),
-		`SELECT id, ip, ja4, source, action, scope, COALESCE(banned_by,'') FROM unmask_ban
-		 WHERE expires_at = 0 OR expires_at > ?
-		 ORDER BY ip, ja4`, now)
+	rows, err := m.loadMirror()
 	if err != nil {
 		return err
 	}
 	type k struct{ ip, ja4, source, action, scope, bannedBy string }
-	keys := []k{}
-	for rows.Next() {
-		var e k
-		var id int64
-		if err := rows.Scan(&id, &e.ip, &e.ja4, &e.source, &e.action, &e.scope, &e.bannedBy); err != nil {
-			rows.Close()
-			return err
-		}
-		if lifted[id] {
-			continue // unbanned during a hold: out of the file from now
-		}
+	resolve := func(e k) k {
 		// Per-row action wins; fall back to the source's default action
 		// via the resolver (= settings.Bans.ResolveAction).  Empty after
 		// both lookups means "deny" -- the safest hard ban.
@@ -1231,37 +1413,24 @@ func (m *Manager) flush() error {
 		if strings.TrimSpace(e.source) == "" {
 			e.source = "manual"
 		}
-		// Legacy rows without scope (= pre-migration) fall back to inferred.
-		if e.scope == "" {
-			e.scope = DeriveScope(e.ip, e.ja4)
-		}
-		keys = append(keys, e)
+		return e
 	}
-	rows.Close()
 	// The bans kept while a schema update holds the writes: enforced now,
 	// written to the table when the lock is free.  Ahead of the table's
 	// rows, so that a kept ban -- the newer -- wins over the row it will
 	// replace (the file keeps the first line of a key).
-	var kept []k
+	keys := make([]k, 0, len(rows)+8)
 	m.mu.Lock()
 	for _, h := range m.held {
 		if h.expiresAt != 0 && h.expiresAt <= now {
 			continue
 		}
-		e := k{ip: h.ip, ja4: h.ja4, source: h.source, action: h.action, scope: h.scope, bannedBy: h.bannedBy}
-		if strings.TrimSpace(e.action) == "" && resolver != nil {
-			e.action = resolver(e.source)
-		}
-		if strings.TrimSpace(e.action) == "" {
-			e.action = "deny"
-		}
-		if strings.TrimSpace(e.source) == "" {
-			e.source = "manual"
-		}
-		kept = append(kept, e)
+		keys = append(keys, resolve(k{ip: h.ip, ja4: h.ja4, source: h.source, action: h.action, scope: h.scope, bannedBy: h.bannedBy}))
 	}
 	m.mu.Unlock()
-	keys = append(kept, keys...)
+	for _, e := range rows {
+		keys = append(keys, resolve(k{ip: e.ip, ja4: e.ja4, source: e.source, action: e.action, scope: e.scope, bannedBy: e.bannedBy}))
+	}
 
 	// An automatic ban on a CDN's origin-facing address is kept in the table
 	// (it says what happened) and left out of the file (it must not hold):
@@ -1285,26 +1454,22 @@ func (m *Manager) flush() error {
 	m.egressSkipped = skipped
 	m.mu.Unlock()
 
-	// File-line shape per scope.  DB always carries both ip + ja4 so the
-	// operator never loses the captured context; the file only carries
-	// what the C plugin's bsearch needs to match against.
+	// File-line shape per scope (banKey).  DB always carries both ip + ja4
+	// so the operator never loses the captured context; the file only
+	// carries what the C plugin's bsearch needs to match against.
 	//
 	//   ip_ja4   -> "<ip>|<ja4>|src|act"   (= exact tuple, the legacy default)
 	//   ja4_only -> "|<ja4>|src|act"       (= IP omitted; plugin pass 2 hits)
 	//   ip_only  -> "<ip>||src|act"        (= JA4 omitted; plugin pass 3 hits)
+	//
+	// An ip_only row on a prefix is "<addr>/<len>||src|act": the plugin keeps
+	// the keys with a '/' before the '|' apart and tries them by prefix after
+	// the exact passes.
 	type line struct{ key, action, source string }
 	lines := make([]line, 0, len(keys))
 	seen := make(map[string]bool, len(keys))
 	for _, e := range keys {
-		var key string
-		switch e.scope {
-		case ScopeJA4Only:
-			key = "|" + e.ja4
-		case ScopeIPOnly:
-			key = e.ip + "|"
-		default: // ScopeIPJA4
-			key = e.ip + "|" + e.ja4
-		}
+		key := banKey(e.ip, e.ja4, e.scope)
 		if seen[key] {
 			continue // a kept ban the table already has
 		}
@@ -1321,7 +1486,7 @@ func (m *Manager) flush() error {
 	var buf strings.Builder
 	buf.WriteString("# unmask ban list (= managed by unmask; do not edit)\n")
 	buf.WriteString("# format: <key>|<source>|<action> per line; key is one of\n")
-	buf.WriteString("#         <ip>|<ja4>  (exact tuple),  |<ja4>  (ja4-only),  <ip>|  (ip-only)\n")
+	buf.WriteString("#         <ip>|<ja4>  (exact tuple),  |<ja4>  (ja4-only),  <ip>|  (ip-only; <addr>/<len>| for a prefix)\n")
 	fmt.Fprintf(&buf, "# count: %d\n", len(lines))
 	fmt.Fprintf(&buf, "# generated_at: %s\n\n", time.Now().UTC().Format(time.RFC3339))
 	for _, e := range lines {
@@ -1360,8 +1525,9 @@ func (m *Manager) flush() error {
 	}
 	m.ensureReadable()
 	m.mu.Lock()
-	m.dirty = false
 	m.flushed = true
+	m.lastFlushAt = time.Now()
+	m.flushes++
 	m.mu.Unlock()
 	return nil
 }
@@ -1435,31 +1601,39 @@ func (m *Manager) escalateIP(ctx context.Context, ip, source, action string, now
 		m.egressLog(ip, vendor, "the address-wide ban")
 		return
 	}
-	var n int64
-	err := m.DB.Gorm.WithContext(ctx).Raw(
-		`SELECT COUNT(DISTINCT ja4) FROM unmask_ban
-		  WHERE ip = ? AND ja4 <> '' AND scope = ? AND banned_by = ''
-		    AND banned_at >= ? AND (expires_at = 0 OR expires_at > ?)`,
-		ip, ScopeIPJA4, now-int64(ipEscalateWindow/time.Second), now).Scan(&n).Error
-	if err != nil || n < ipEscalateMinJA4 {
+	// Counted from the mirror: the automatic (address, JA4) bans on the
+	// address inside the window, and whether an address-wide ban is there.
+	since := now - int64(ipEscalateWindow/time.Second)
+	have := false
+	ja4s := map[string]bool{}
+	m.mirrorMu.RLock()
+	if m.mirror != nil {
+		for i := range m.mirror.byIP[ip] {
+			e := &m.mirror.byIP[ip][i]
+			if !e.live(now) {
+				continue
+			}
+			switch e.scope {
+			case ScopeIPOnly:
+				have = true
+			case ScopeIPJA4:
+				if e.ja4 != "" && e.bannedBy == "" && e.bannedAt >= since {
+					ja4s[e.ja4] = true
+				}
+			}
+		}
+	}
+	m.mirrorMu.RUnlock()
+	if have || len(ja4s) < ipEscalateMinJA4 {
 		return
 	}
-	var have int64
-	err = m.DB.Gorm.WithContext(ctx).Raw(
-		`SELECT COUNT(*) FROM unmask_ban
-		  WHERE ip = ? AND ja4 = '' AND scope = ? AND (expires_at = 0 OR expires_at > ?)`,
-		ip, ScopeIPOnly, now).Scan(&have).Error
-	if err != nil || have > 0 {
-		return
-	}
-	reason := fmt.Sprintf("escalated: %d fingerprints from this address were banned within a day", n)
+	reason := fmt.Sprintf("escalated: %d fingerprints from this address were banned within a day", len(ja4s))
 	if err := m.upsertWithin(ctx, autoBanWriteWithin, ip, "", source, reason, now, expires, "", action, ScopeIPOnly); err != nil {
 		return
 	}
+	m.mirrorPut(mirrorEntry{ip: ip, scope: ScopeIPOnly, source: source, action: action, bannedAt: now, expiresAt: expires})
 	m.markDirty()
-	if m.filePath != "" {
-		_ = m.flush()
-	}
+	m.requestFlush()
 	if m.OnCreated != nil {
 		m.OnCreated(ip, "", source, reason, "")
 	}
