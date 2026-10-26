@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<meta name="color-scheme" content="light dark">
+<title></title>
+<script>
+// The relay of challenge.js's returnToArrival.  The challenge page pushed a
+// copy of the entry the visitor arrived on and replaced the copy with this
+// page; one step back brings the browser to that arrival entry, which it
+// fetches again -- the pass cookie now set -- with the referrer it was first
+// fetched with.  Step back only when the previous entry is that page; else go
+// to the page directly, the way a pass always left before.
+(function () {
+  var to = '/', mark = null;
+  try { mark = JSON.parse(sessionStorage.getItem('unmask_back') || 'null'); } catch (e) {}
+  if (mark && typeof mark.to === 'string') {
+    // Resolve against this origin and compare origins: the only check that
+    // holds against what the URL parser does with the string (see
+    // challenge.js's _test_redirect).
+    try {
+      var u = new URL(mark.to, location.origin);
+      if (u.origin === location.origin) to = u.pathname + u.search;
+    } catch (e) {}
+  }
+  var back = !!mark && Date.now() - mark.t < 60000;
+  // The Navigation API lists the same-origin entries around this one, so the
+  // previous entry can be checked rather than assumed: a browser that turned
+  // the push into a replace would otherwise send the visitor back to the site
+  // they came from.
+  try {
+    var nav = window.navigation;
+    if (nav && nav.currentEntry && nav.entries) {
+      var prev = nav.entries()[nav.currentEntry.index - 1];
+      var pu = prev && prev.url ? new URL(prev.url) : null;
+      back = !!pu && pu.origin === location.origin && pu.pathname + pu.search === to;
+    }
+  } catch (e) {}
+  if (back) history.back(); else location.replace(to);
+})();
+// Brought back from the back/forward cache by the Forward button: step back
+// again, to the page.
+addEventListener('pageshow', function (e) { if (e.persisted) history.back(); });
+</script>
+</head>
+<body></body>
+</html>

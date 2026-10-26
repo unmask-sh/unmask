@@ -1421,6 +1421,9 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	// /static/challenge.js stays GET-only -- a real asset, not a challenge
 	// response.  A POST to a static file legitimately deserves a 405.
 	mux.HandleFunc("GET "+base+"/static/challenge.js", h.ServeChallengeJS)
+	// The relay a passed challenge steps through to return to the visitor's
+	// arrival entry with its referrer (challenge.js returnToArrival).
+	mux.HandleFunc("GET "+base+"/static/back.html", h.ServeBackRelay)
 	// Country-flag PNGs for the country chart (251 countries embedded).  ISO
 	// 3166-1 alpha-2 + special (unknown).  No auth, same as challenge.js
 	// (static images).

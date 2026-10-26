@@ -16,7 +16,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
-- (2026-10-26) **A pass now ends when its solve does, re-binds included.**  The credential that carries a pass to a new address was honoured for the longer of the two solve windows, and each re-bound pass got a fresh CAPTCHA window, so a seven-day proof-of-work kept a browser passing for up to four weeks, even on the address it was solved from.  Both now end with the solve.
+- (2026-10-26) **A visit that passes a challenge keeps where it came from.**  The challenge page left with a script navigation, which made itself the referrer of the page it loaded: analytics counted a search or a link from another site as a direct visit, and the site's log lost the source.  It now steps back to the history entry the visitor arrived on, which the browser fetches again with the original referrer.
 
 ## [0.1.53-rc22] - 2026-10-26 (testing build)
 

@@ -746,8 +746,88 @@
         } catch (e) { /* unparseable -> "/" */ }
       }
       location.replace(target);
-    } else {
+    } else if (!returnToArrival(u.pathname+u.search)) {
       location.replace(u.pathname+u.search);
+    }
+  }
+
+  // Leave a passed challenge by stepping BACK to the history entry the visitor
+  // arrived on, so the page they asked for keeps where they came from.
+  //
+  // location.replace makes this page the referrer of the page it loads: the
+  // site's analytics read a referral from the site itself and count a search
+  // or a link from another site as a direct visit, and the site's own log
+  // loses the source too.  No page can hand another site's referrer to a
+  // navigation, but a history entry keeps the one it was fetched with, and the
+  // browser fetches an entry whose page is gone again with it.  So: push a copy
+  // of this entry (pushState shares its record, stored referrer included),
+  // replace the copy with the relay page, and the relay steps back -- to the
+  // arrival entry, now fetched with the pass cookie and the visitor's original
+  // Referer, and document.referrer to match.
+  //
+  // The cost: one extra short request, and the page lands as a back/forward
+  // navigation.  Chromium also counts a page that adds history without a click
+  // as one that may trap the Back button, so until the visitor clicks, taps
+  // or types on the landing page, its entry is skipped when they press Back
+  // from a LATER page reached without a click (address bar, bookmark).  Back
+  // from the landing page itself works as before.
+  //
+  // Only where it keeps something and is safe; anything else leaves the old
+  // way (returns false):
+  //   - the referrer is another site's: an own-site or empty referrer is not
+  //     a source to keep, and a visitor moving within the site keeps the
+  //     plain path;
+  //   - UNMASK.step_back: the server saw a GET of a page it knows (going back
+  //     to a POST entry asks to resend the form; forward-auth never sets it);
+  //   - the page itself is unchanged by the test parameters dropped above,
+  //     which the re-fetched entry would still carry;
+  //   - a fresh navigation ("navigate"), at the top level, not prerendering:
+  //     a reloaded or revisited entry may have entries after it, and a
+  //     prerendered page has a single one, so the push could not be checked;
+  //   - pushState, sessionStorage, and room under the 50-entry history cap;
+  //   - no step back for this URL in the last minute.  A challenge that comes
+  //     back after a step back (a cached copy, a pass the server did not take)
+  //     is already stopped twice: it loaded as "back_forward", and the relay
+  //     is still ahead of it in history, so a push adds no entry.  The mark
+  //     is the last stop, for a browser that gets both of those wrong.
+  function returnToArrival(to){
+    try {
+      if (!window.UNMASK || window.UNMASK.step_back !== 1) return false;
+      if (to !== location.pathname + location.search) return false;
+      if (window.top !== window || document.prerendering) return false;
+      var ref = document.referrer;
+      if (!ref || new URL(ref).origin === location.origin) return false;
+      var nav = performance.getEntriesByType && performance.getEntriesByType('navigation')[0];
+      if (!nav || nav.type !== 'navigate') return false;
+      if (!history.pushState || history.length >= 50) return false;
+      var KEY = 'unmask_back';
+      var last = null;
+      try { last = JSON.parse(sessionStorage.getItem(KEY) || 'null'); } catch (_) {}
+      if (last && last.to === to && Date.now() - last.t < 60000) {
+        sessionStorage.removeItem(KEY);
+        return false;
+      }
+      // Kept after the step back on purpose: it is what tells a challenge
+      // that comes back within the minute not to step back again.
+      sessionStorage.setItem(KEY, JSON.stringify({ to: to, t: Date.now() }));
+      var before = history.length;
+      history.pushState(history.state, '', location.href);
+      if (history.length !== before + 1) {
+        // No new entry: nothing to step back past.  The caller's replace
+        // takes the same URL, so a copy that did land is overwritten.
+        sessionStorage.removeItem(KEY);
+        return false;
+      }
+      // Back here from the back/forward cache instead of re-fetched (a
+      // browser that keeps a no-store page whose cookies changed): go on to
+      // the page as before.
+      window.addEventListener('pageshow', function(e){
+        if (e.persisted) location.replace(to);
+      });
+      location.replace('/unmask/static/back.html');
+      return true;
+    } catch (_) {
+      return false;
     }
   }
 

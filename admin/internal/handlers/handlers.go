@@ -92,6 +92,11 @@ const (
 	powSeedPlaceholder      = `/*__POW_SEED__*/""`
 	ctTokenPlaceholder      = `/*__CT__*/""`
 	bvMaxEntriesPlaceholder = `/*__BV_MAX_ENTRIES__*/8`
+	// stepBackPlaceholder: 1 when the visitor may leave a passed challenge by
+	// stepping back to the history entry they arrived on (challenge.js
+	// returnToArrival), which keeps their original referrer.  The HTML's own 0
+	// leaves the old way.
+	stepBackPlaceholder = `/*__STEP_BACK__*/0`
 	// refPlaceholder marks where challenge.html's footer prints the support
 	// correlation id.  Unlike the JS-literal placeholders above this sits in the
 	// HTML body as a comment, so an un-substituted build (or a stripped footer)
@@ -2033,6 +2038,17 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	body = bytes.ReplaceAll(body, []byte(origPathPlaceholder),
 		append([]byte(`/*__ORIG_PATH__*/`), origPathJSON...))
 
+	// Stepping back re-fetches the arrival entry the way it was first fetched,
+	// so only a GET may take it -- a POST entry would ask to resend the form --
+	// and only a page whose original the server knows: the module routes all
+	// name one (_orig, the rate route, the probed URL of a challenge ban).
+	// Forward-auth is frozen and stays out without a branch of its own: nginx
+	// forward-auth serves the page with no original, and Apache's redirects
+	// the visitor to /unmask/challenge/, which never steps back.
+	if r.Method == http.MethodGet && origPath != "" {
+		body = bytes.ReplaceAll(body, []byte(stepBackPlaceholder), []byte(`/*__STEP_BACK__*/1`))
+	}
+
 	// beacon token: a short-lived signed token that challenge.js echoes back
 	// in _bcDebug payload.bt.  DebugBeacon validates it to reject blind POSTs
 	// / replays to /api/debug.  Also embedded in the serve event's payload
@@ -2918,6 +2934,26 @@ func (h *Handler) ServePopoverPinCSS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeCSS(w, b)
+}
+
+// ServeBackRelay: GET {base}/static/back.html -- the page a passed challenge
+// steps through on its way back to the entry the visitor arrived on
+// (challenge.js returnToArrival), so the browser fetches that entry again with
+// its original referrer.  Under /static/ because every install already routes
+// it to the daemon without the challenge gate: native's /unmask/ catch-all,
+// and the forward-auth confs, which leave auth_request off /static/.
+// no-store: the page decides from the tab's state each time it loads.
+func (h *Handler) ServeBackRelay(w http.ResponseWriter, r *http.Request) {
+	b, err := assets.Static.ReadFile("static/back.html")
+	if err != nil {
+		http.Error(w, "back.html unavailable", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	_, _ = w.Write(b)
 }
 
 // ServeIcon: GET {base}/static/icon.png — for the admin web UI + favicon.
