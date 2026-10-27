@@ -700,8 +700,13 @@
     var sub=document.getElementById('captchaBusySub');
     if(sub){ sub.textContent=(t.connecting||'Connecting to the site…'); sub.style.display=''; }
     var u=new URL(location.href);
-    u.searchParams.delete('_test_bot');
-    u.searchParams.delete('_test_ja4');
+    // Only when a test parameter is there: URLSearchParams writes the whole
+    // query back on any delete, an absent name included (%20 becomes +, /
+    // becomes %2F, a bare "flag" gains "="), and the page would then load at
+    // a URL the link never had -- one that no longer matches this page, so
+    // returnToArrival would not step back either.
+    if (u.searchParams.has('_test_bot')) u.searchParams.delete('_test_bot');
+    if (u.searchParams.has('_test_ja4')) u.searchParams.delete('_test_ja4');
     // the following paths have no "original page" (= test or direct access), so redirect to "/".
     //   - /unmask/challenge.html / /unmask/challenge/   direct challenge access
     //   - /unmask/(admin/)?test/...                     the WHOLE test subtree:
@@ -772,6 +777,10 @@
   // from a LATER page reached without a click (address bar, bookmark).  Back
   // from the landing page itself works as before.
   //
+  // The relay is a page of its own, on screen until the site answers.  Blank,
+  // it took away the "loading" this page shows for that whole wait -- seconds
+  // on a slow site -- so it paints what this page was showing (lookNow).
+  //
   // Only where it keeps something and is safe; anything else leaves the old
   // way (returns false):
   //   - the referrer is another site's: an own-site or empty referrer is not
@@ -809,7 +818,7 @@
       }
       // Kept after the step back on purpose: it is what tells a challenge
       // that comes back within the minute not to step back again.
-      sessionStorage.setItem(KEY, JSON.stringify({ to: to, t: Date.now() }));
+      sessionStorage.setItem(KEY, JSON.stringify({ to: to, t: Date.now(), look: lookNow() }));
       var before = history.length;
       history.pushState(history.state, '', location.href);
       if (history.length !== before + 1) {
@@ -828,6 +837,92 @@
       return true;
     } catch (_) {
       return false;
+    }
+  }
+
+  // What the visitor is looking at as this page leaves, for the relay to
+  // paint in the same places (back.html): the background, and the CAPTCHA
+  // card, spinner, logo, progress bar and lines of text that are on screen,
+  // each with its box and its computed style.  Computed, so the theme and the
+  // operator's colours and branding come along without the relay knowing any
+  // of them; on screen only, so an invisible-style pass hands over the bare
+  // background it showed.  null on any failure: the relay then stays blank,
+  // as before.
+  function lookNow(){
+    try {
+      var shown = function(el){
+        if (!el || !el.getClientRects().length) return false;
+        for (var e = el; e && e.nodeType === 1; e = e.parentElement) {
+          var cs = getComputedStyle(e);
+          if (cs.visibility === 'hidden' || parseFloat(cs.opacity) === 0) return false;
+        }
+        return true;
+      };
+      // Whole pixels that cover the element: a width rounded down by a
+      // fraction of a pixel wraps a line that fit.
+      var box = function(el){
+        var r = el.getBoundingClientRect(), x = Math.floor(r.left), y = Math.floor(r.top);
+        return { x: x, y: y, w: Math.ceil(r.right) - x, h: Math.ceil(r.bottom) - y };
+      };
+      var parts = [];
+      // The CAPTCHA's card first: the spinner and the lines sit on it.
+      var card = document.getElementById('captcha');
+      if (shown(card)) {
+        var cc = getComputedStyle(card), k = box(card);
+        k.k = 'box'; k.c = cc.backgroundColor; k.br = cc.borderRadius; k.sh = cc.boxShadow;
+        k.bw = cc.borderTopWidth; k.bs = cc.borderTopStyle; k.bc = cc.borderTopColor;
+        parts.push(k);
+      }
+      // The spinner is mid-turn: its client rect is the turned square's
+      // bounding box, so take the layout size around the same centre, and the
+      // angle it has reached, for the relay to turn on from.
+      var sp = document.querySelectorAll('.spinner');
+      for (var i = 0; i < sp.length; i++) {
+        var ss = getComputedStyle(sp[i]);
+        if (!shown(sp[i]) || !(parseFloat(ss.borderTopWidth) > 0)) continue;
+        var sr = sp[i].getBoundingClientRect(), sw = sp[i].offsetWidth, sh = sp[i].offsetHeight;
+        var m = /^matrix\(([-\d.e]+),\s*([-\d.e]+)/.exec(ss.transform || '');
+        parts.push({ k: 'spin', x: Math.round(sr.left + sr.width / 2 - sw / 2), y: Math.round(sr.top + sr.height / 2 - sh / 2),
+                     w: sw, h: sh, c: ss.borderTopColor, r: ss.borderRightColor, bw: ss.borderTopWidth,
+                     a: m ? Math.round(Math.atan2(+m[2], +m[1]) * 180 / Math.PI) : 0 });
+        break;
+      }
+      var logo = document.getElementById('brand-logo');
+      if (shown(logo) && /^https?:/i.test(logo.currentSrc || logo.src)) {
+        var g = box(logo);
+        g.k = 'img'; g.src = logo.currentSrc || logo.src;
+        parts.push(g);
+      }
+      var bar = document.getElementById('powProgress'), fill = document.getElementById('powProgressFill');
+      if (shown(bar) && fill) {
+        var bs = getComputedStyle(bar), fs = getComputedStyle(fill), a = box(bar);
+        // The fill's own width, which a pass has just set to 100%: its box is
+        // still on the way there.
+        a.k = 'bar'; a.c = bs.backgroundColor; a.br = bs.borderRadius;
+        a.fc = fs.backgroundColor; a.fp = parseFloat(fill.style.width) || 0;
+        parts.push(a);
+      }
+      // The type, which way it runs, and how it breaks: Japanese and Korean
+      // lines break only at phrases (word-break: keep-all), and the same width
+      // wraps elsewhere without it.  back.html applies the same list and
+      // nothing else.
+      var TEXT = ['color', 'fontSize', 'lineHeight', 'fontWeight', 'fontStyle', 'fontFamily',
+                  'letterSpacing', 'textAlign', 'textTransform', 'whiteSpace', 'wordBreak',
+                  'overflowWrap', 'lineBreak', 'textWrap', 'direction'];
+      ['#captchaTitle', '#captchaDesc', '#captchaNote', '#msg', '#captchaBusyMsg', '#captchaBusySub',
+       '#brand-foot', '.unmask-ref'].forEach(function(sel){
+        var el = document.querySelector(sel);
+        if (!shown(el) || !el.textContent) return;
+        var cs = getComputedStyle(el), q = box(el);
+        q.k = 'text'; q.t = el.textContent; q.st = {};
+        TEXT.forEach(function(n){ if (typeof cs[n] === 'string' && cs[n]) q.st[n] = cs[n]; });
+        parts.push(q);
+      });
+      var b = getComputedStyle(document.body);
+      return { bg: b.backgroundColor, bgi: b.backgroundImage, title: document.title,
+               lang: document.documentElement.lang, dir: document.documentElement.dir, parts: parts };
+    } catch (_) {
+      return null;
     }
   }
 

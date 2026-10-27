@@ -4,7 +4,14 @@
 <meta charset="utf-8">
 <meta name="robots" content="noindex">
 <meta name="color-scheme" content="light dark">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title></title>
+<style>
+body{margin:0}
+@keyframes unmask-spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
 <script>
 // The relay of challenge.js's returnToArrival.  The challenge page pushed a
 // copy of the entry the visitor arrived on and replaced the copy with this
@@ -24,6 +31,7 @@
       if (u.origin === location.origin) to = u.pathname + u.search;
     } catch (e) {}
   }
+  try { paint(mark && mark.look); } catch (e) {}
   var back = !!mark && Date.now() - mark.t < 60000;
   // The Navigation API lists the same-origin entries around this one, so the
   // previous entry can be checked rather than assumed: a browser that turned
@@ -38,11 +46,94 @@
     }
   } catch (e) {}
   if (back) history.back(); else location.replace(to);
+
+  // This page stays on screen until the site answers, so it shows what the
+  // challenge page was showing (challenge.js lookNow), in the same places:
+  // blank, it would take the "loading" away for that whole wait.  The values
+  // come from this origin's own page; text goes in as text, and a value that
+  // would fetch something (a url() in a style, an image that is not http) is
+  // left out.
+  function paint(look) {
+    if (!look || typeof look !== 'object') return;
+    var str = function (v) { return typeof v === 'string' && v.length < 300 && !/url\(/i.test(v) ? v : ''; };
+    // The type properties a line may carry: the list challenge.js reads.
+    var TEXT = ['color', 'fontSize', 'lineHeight', 'fontWeight', 'fontStyle', 'fontFamily',
+                'letterSpacing', 'textAlign', 'textTransform', 'whiteSpace', 'wordBreak',
+                'overflowWrap', 'lineBreak', 'textWrap', 'direction'];
+    var px = function (v) { return (isFinite(v) ? Math.round(v) : 0) + 'px'; };
+    var bs = document.body.style;
+    bs.backgroundColor = str(look.bg);
+    bs.backgroundImage = str(look.bgi);
+    bs.minHeight = '100vh';
+    if (typeof look.title === 'string') document.title = look.title.slice(0, 200);
+    if (/^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$/.test(look.lang || '')) document.documentElement.lang = look.lang;
+    if (look.dir === 'rtl' || look.dir === 'ltr') document.documentElement.dir = look.dir;
+    var parts = Array.isArray(look.parts) ? look.parts.slice(0, 12) : [];
+    for (var i = 0; i < parts.length; i++) {
+      var p = parts[i];
+      if (!p || typeof p !== 'object') continue;
+      var el;
+      if (p.k === 'img') {
+        if (typeof p.src !== 'string' || !/^https?:/i.test(p.src)) continue;
+        el = document.createElement('img');
+        el.alt = '';
+        el.src = p.src;
+      } else {
+        el = document.createElement('div');
+      }
+      var s = el.style;
+      s.position = 'absolute';
+      s.boxSizing = 'border-box';
+      s.margin = '0';
+      s.left = px(p.x);
+      s.top = px(p.y);
+      s.width = px(p.w);
+      if (p.k === 'spin') {
+        s.height = px(p.h);
+        s.borderRadius = '50%';
+        s.borderStyle = 'solid';
+        s.borderWidth = str(p.bw) || '4px';
+        s.borderColor = str(p.r);
+        s.borderTopColor = str(p.c);
+        s.animation = 'unmask-spin 1s linear infinite';
+        // On from the angle the challenge page's spinner had reached.
+        if (isFinite(p.a)) s.animationDelay = (-(((+p.a % 360) + 360) % 360) / 360).toFixed(3) + 's';
+      } else if (p.k === 'bar') {
+        s.height = px(p.h);
+        s.overflow = 'hidden';
+        s.backgroundColor = str(p.c);
+        s.borderRadius = str(p.br);
+        var f = document.createElement('div');
+        f.style.cssText = 'height:100%';
+        f.style.width = (isFinite(p.fp) ? Math.max(0, Math.min(100, +p.fp)) : 0) + '%';
+        f.style.backgroundColor = str(p.fc);
+        el.appendChild(f);
+      } else if (p.k === 'img') {
+        s.height = px(p.h);
+      } else if (p.k === 'box') {
+        s.height = px(p.h);
+        s.backgroundColor = str(p.c);
+        s.borderRadius = str(p.br);
+        s.boxShadow = str(p.sh);
+        s.borderStyle = str(p.bs);
+        s.borderWidth = str(p.bw);
+        s.borderColor = str(p.bc);
+      } else if (p.k === 'text' && typeof p.t === 'string') {
+        el.textContent = p.t.slice(0, 500);
+        var st = p.st && typeof p.st === 'object' ? p.st : {};
+        for (var j = 0; j < TEXT.length; j++) {
+          if (typeof st[TEXT[j]] === 'string') s[TEXT[j]] = str(st[TEXT[j]]);
+        }
+      } else {
+        continue;
+      }
+      document.body.appendChild(el);
+    }
+  }
 })();
 // Brought back from the back/forward cache by the Forward button: step back
 // again, to the page.
 addEventListener('pageshow', function (e) { if (e.persisted) history.back(); });
 </script>
-</head>
-<body></body>
+</body>
 </html>

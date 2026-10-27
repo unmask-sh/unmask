@@ -12,6 +12,14 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-10-27) **A link's query reaches the page as written after a challenge.**  After a pass, the page was asked for with its query rewritten -- a space as +, a slash as %2F, a bare flag given = -- so a campaign link with such a query also lost the visitor's referrer.  The query is now left exactly as the link had it.
+
+- (2026-10-27) **The step back to the page keeps the loading screen up.**  Keeping the visitor's referrer goes through a relay page, which stayed blank until the site answered -- seconds on a slow site -- where the challenge page's loading screen used to stay.  The relay now paints that screen as it was -- background, CAPTCHA card, spinner, logo, progress bar and text -- in the same places.
+
 ## [0.1.53-rc23] - 2026-10-27 (testing build)
 
 ### Fixed
