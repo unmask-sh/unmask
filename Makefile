@@ -194,7 +194,7 @@ build-module: $(NGINX_SRC)/configure
 #
 # 1.10/1.12 series do not support --with-compat, so build with NGINX_WITH_COMPAT=0.
 # 1.14+ build with --with-compat (stronger ABI compat).
-PLUGIN_NGINX_VERSIONS ?= 1.10.3 1.12.2 1.14.1 1.14.2 1.16.1 1.18.0 1.20.1 1.20.2 1.22.1 1.24.0 1.26.2 1.26.3 1.28.3 1.30.0
+PLUGIN_NGINX_VERSIONS ?= 1.10.3 1.12.2 1.14.1 1.14.2 1.16.1 1.18.0 1.20.1 1.20.2 1.22.1 1.24.0 1.26.2 1.26.3 1.28.3 1.30.0 1.30.6
 
 # A cached .so is only good for the module source it was built from.  Every
 # cache dir carries tools/module-src-hash.sh's value in .src-hash, written when
