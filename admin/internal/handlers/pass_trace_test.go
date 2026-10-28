@@ -197,7 +197,11 @@ func TestBVJIssueRecordsAPassTheBeaconMissed(t *testing.T) {
 	}
 
 	// The issue arrives first and the beacon within the grace: the beacon is
-	// kept, the issue's record is not written.
+	// kept, the issue's record is not written.  This step runs on a grace of
+	// two seconds: the beacon has to land inside it, and on a loaded CI
+	// runner 300 ms has not always covered the gap between two requests.
+	// settle() then waits out the issue's timer at the same length.
+	passTraceGrace = 2 * time.Second
 	bv3 := powPass(t, secret, ip, host)
 	post(bv3)
 	if rr := passBeacon(h, ip, host, "bv_pow_only", bv3); rr.Code != http.StatusOK || strings.Contains(rr.Body.String(), "dup") {
@@ -211,6 +215,7 @@ func TestBVJIssueRecordsAPassTheBeaconMissed(t *testing.T) {
 	if n := allRows(); n != 3 {
 		t.Errorf("%d pass rows in all, want 3 (one per solve)", n)
 	}
+	passTraceGrace = 300 * time.Millisecond
 
 	// A pass from twenty minutes ago is valid for the credential, and no
 	// solve of this page: no record.
