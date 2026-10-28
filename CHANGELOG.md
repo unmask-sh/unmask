@@ -12,7 +12,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.53-rc26] - 2026-10-28 (testing build)
+
+### Since rc25
+
+- The Apache forward-auth snippet sets X-Real-IP in a form httpd 2.4.6 reads; the expr= form it used needs 2.4.10 and failed httpd -t on CentOS 7.
 
 ### Added
 
