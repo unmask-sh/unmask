@@ -31,16 +31,17 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"gorm.io/gorm/clause"
 )
 
 // The kinds, as the webhook names the events.
 const (
-	KindBan       = "ban_created"
-	KindBurst     = "challenge_burst"
-	KindOverBlock = "over_block"
-	KindAdvisor   = "advisor_digest"
-	KindPreview   = "preview_challenged"
+	KindBan       = notifier.EventBanCreated
+	KindBurst     = notifier.EventChallengeBurst
+	KindOverBlock = notifier.EventOverBlock
+	KindAdvisor   = notifier.EventAdvisorDigest
+	KindPreview   = notifier.EventPreviewChallenged
 	// KindFailsafe: the plugin's fail-safe stripped the nginx module and the
 	// configuration is rendered without it (handlers.RunNativeFailsafeWatch
 	// writes the row when the marker appears, and one when it goes).  Not a
@@ -48,11 +49,12 @@ const (
 	KindFailsafe = "native_failsafe"
 )
 
-// How a row is marked.
+// How a row is marked: the notifier's table (notifier.Severity), one answer
+// for the list and for the choice of webhook.
 const (
-	SeverityInfo = "info"
-	SeverityWarn = "warn"
-	SeverityCrit = "crit"
+	SeverityInfo = notifier.SeverityInfo
+	SeverityWarn = notifier.SeverityWarn
+	SeverityCrit = notifier.SeverityCrit
 )
 
 // banIPsKept is how many of an hour's banned addresses the folded row names.
@@ -184,25 +186,17 @@ func (s *Store) RetryHeld() int {
 // fromEvent turns a webhook payload into a row: event, site and ts become
 // columns, the rest is the detail.
 func fromEvent(event string, fields map[string]any) Entry {
-	e := Entry{Kind: event, Severity: SeverityInfo, Detail: map[string]any{}}
 	switch event {
-	case KindBan:
-	case KindBurst:
-		e.Severity = SeverityWarn
-	case KindOverBlock:
-		if tripped, _ := fields["tripped"].(bool); tripped {
-			e.Severity = SeverityCrit
-		}
-	case KindAdvisor:
-	case KindPreview:
-		e.Severity = SeverityWarn
+	case KindBan, KindBurst, KindOverBlock, KindAdvisor, KindPreview:
 	default:
 		return Entry{}
 	}
+	e := Entry{Kind: event, Severity: notifier.Severity(event, fields), Detail: map[string]any{}}
 	e.CreatedAt = time.Now().Unix()
 	for k, v := range fields {
 		switch k {
 		case "event":
+		case "severity": // the payload's copy of the mark; the row has its column
 		case "site":
 			e.Site, _ = v.(string)
 		case "ts":

@@ -84,6 +84,7 @@ func (n *Notifier) PreviewChallenged(crawler, axis string) {
 		"site":     cfg.Sites,
 		"ts":       now.Unix(),
 	}
+	fields["severity"] = Severity(EventPreviewChallenged, fields)
 	n.toInbox(EventPreviewChallenged, fields)
 	if cfg.Disabled || !cfg.ChallengeBurst {
 		return
@@ -93,8 +94,8 @@ func (n *Notifier) PreviewChallenged(crawler, axis string) {
 		rule = "network"
 	}
 	text := fmt.Sprintf("[WARN] %d link-preview fetches this hour met a %s rule's challenge (%s); those previews did not render%s", total, rule, crawlers, siteSuffix(cfg.Sites))
-	if cfg.URL != "" && !cfg.WebhookDisabled {
-		go n.send(cfg, EventPreviewChallenged, fields, text)
+	if u := cfg.hookFor(EventPreviewChallenged, fields); u != "" {
+		go n.send(u, cfg.Format, EventPreviewChallenged, fields, text)
 	}
 	subject := fmt.Sprintf("[unmask] link previews challenged: %d this hour", total)
 	if cfg.Sites != "" {

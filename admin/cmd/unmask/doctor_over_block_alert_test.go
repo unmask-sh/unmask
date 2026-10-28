@@ -18,6 +18,7 @@ func TestOverBlockAlertRoute(t *testing.T) {
 	}{
 		{"nothing configured", func(s *settings.Settings) {}, ""},
 		{"webhook only", func(s *settings.Settings) { s.Notifications.URL = "https://hooks.example/x" }, "webhook"},
+		{"critical hook only", func(s *settings.Settings) { s.Notifications.CriticalURL = "https://hooks.example/crit" }, "webhook"},
 		{"mail only", func(s *settings.Settings) { s.SMTP.Host = "smtp.example.com" }, "mail"},
 		{"both", func(s *settings.Settings) {
 			s.Notifications.URL = "https://hooks.example/x"

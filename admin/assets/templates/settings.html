@@ -6497,41 +6497,79 @@ function secToHuman(s){
       </select>
     </div>
 
-    <div class="field" style="display:flex;gap:.6rem;align-items:center;margin-bottom:0">
+    <div class="field" style="display:flex;gap:.6rem;align-items:center">
       <button type="button" class="btn" id="notify-test-btn" style="background:#475569">{{ t .Lang "settings.notify.test_send" }}</button>
       <span id="notify-test-result" style="font-size:.875rem"></span>
     </div>
+
+    {{/* A second hook, for the critical alerts: an operator who keeps one
+         channel for what needs a person now and one for the record.  The
+         severity is the notification list's (notifier.Severity), so what the
+         bell marks critical is what lands here; left empty, the hook above
+         takes everything, as it did before this one existed.  Format and the
+         pause above are shared. */}}
+    <div class="field" style="margin-top:1rem;padding-top:1rem;border-top:1px solid #e2e8f0">
+      <div class="field-label field-label-row">
+        <span>{{ t .Lang "settings.notify.critical_url" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="notify-critical-url-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="notify-critical-url-help">{{ t .Lang "settings.notify.critical_url_desc" }}</script>
+      <input type="url" name="critical_url" value="{{ .Notifications.CriticalURL }}" placeholder="https://hooks.slack.com/services/T.../B.../..." style="width:100%;font-family:ui-monospace,monospace">
+    </div>
+    <div class="field">
+      <div class="field-label field-label-row">
+        <span>{{ t .Lang "settings.notify.critical_from" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="notify-critical-from-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="notify-critical-from-help">{{ t .Lang "settings.notify.critical_from_desc" }}</script>
+      <select name="critical_min_severity">
+        <option value=""{{ if ne .Notifications.CriticalMinSeverity "warn" }} selected{{ end }}>{{ t .Lang "settings.notify.critical_from_crit" }}</option>
+        <option value="warn"{{ if eq .Notifications.CriticalMinSeverity "warn" }} selected{{ end }}>{{ t .Lang "settings.notify.critical_from_warn" }}</option>
+      </select>
+    </div>
+    <div class="field" style="display:flex;gap:.6rem;align-items:center;margin-bottom:0">
+      <button type="button" class="btn" id="notify-test-crit-btn" style="background:#475569">{{ t .Lang "settings.notify.test_send" }}</button>
+      <span id="notify-test-crit-result" style="font-size:.875rem"></span>
+    </div>
   </div>
 <script>
-document.getElementById('notify-test-btn').addEventListener('click', function(){
-  var form = document.getElementById('notify-form');
-  var result = document.getElementById('notify-test-result');
-  result.textContent = '...';
-  result.style.color = '#64748b';
-  var fd = new FormData();
-  fd.set('url', form.querySelector('[name=url]').value);
-  fd.set('format', form.querySelector('[name=format]').value);
-  fd.set('site_label', form.querySelector('[name=site_label]').value);
-  fetch('{{ .BasePath }}/admin/api/notify/test', { method:'POST', body: new URLSearchParams(fd) })
-    // Read as text: an answer that is not ours (a proxy's error page, nginx's
-    // 503 while the daemon restarts) shows as its status and first words,
-    // not as a JSON parse error.
-    .then(r => r.text().then(t => { var d = null; try { d = JSON.parse(t); } catch (_) {} return { status: r.status, data: d || {}, text: t }; }))
-    .then(res => {
-      if (res.data.ok === 1) {
-        result.textContent = '{{ t .Lang "settings.notify.test_ok" }}';
-        result.style.color = '#15803d';
-      } else {
-        var said = res.text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
-        result.textContent = '{{ t .Lang "settings.notify.test_ng" }}: ' + (res.data.error || ('HTTP ' + res.status + (said ? ' ' + said : '')));
-        result.style.color = '#b91c1c';
-      }
-    })
-    .catch(e => {
-      result.textContent = '{{ t .Lang "settings.notify.test_ng" }}: ' + String(e);
-      result.style.color = '#b91c1c';
+(function(){
+  // Each test button posts its own hook's URL with the form's format and
+  // label, and the answer lands beside the button that asked.
+  function wire(btnId, outId, urlName){
+    document.getElementById(btnId).addEventListener('click', function(){
+      var form = document.getElementById('notify-form');
+      var result = document.getElementById(outId);
+      result.textContent = '...';
+      result.style.color = '#64748b';
+      var fd = new FormData();
+      fd.set('url', form.querySelector('[name=' + urlName + ']').value);
+      fd.set('format', form.querySelector('[name=format]').value);
+      fd.set('site_label', form.querySelector('[name=site_label]').value);
+      fetch('{{ .BasePath }}/admin/api/notify/test', { method:'POST', body: new URLSearchParams(fd) })
+        // Read as text: an answer that is not ours (a proxy's error page, nginx's
+        // 503 while the daemon restarts) shows as its status and first words,
+        // not as a JSON parse error.
+        .then(r => r.text().then(t => { var d = null; try { d = JSON.parse(t); } catch (_) {} return { status: r.status, data: d || {}, text: t }; }))
+        .then(res => {
+          if (res.data.ok === 1) {
+            result.textContent = '{{ t .Lang "settings.notify.test_ok" }}';
+            result.style.color = '#15803d';
+          } else {
+            var said = res.text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+            result.textContent = '{{ t .Lang "settings.notify.test_ng" }}: ' + (res.data.error || ('HTTP ' + res.status + (said ? ' ' + said : '')));
+            result.style.color = '#b91c1c';
+          }
+        })
+        .catch(e => {
+          result.textContent = '{{ t .Lang "settings.notify.test_ng" }}: ' + String(e);
+          result.style.color = '#b91c1c';
+        });
     });
-});
+  }
+  wire('notify-test-btn', 'notify-test-result', 'url');
+  wire('notify-test-crit-btn', 'notify-test-crit-result', 'critical_url');
+})();
 </script>
 
   {{/* Channel 2: mail.  The pause and the recipients belong here, beside the

@@ -124,13 +124,14 @@ func (n *Notifier) ChallengeServed() {
 		"site":            cfg.Sites,
 		"ts":              now.Unix(),
 	}
+	fields["severity"] = Severity(EventChallengeBurst, fields)
 	n.toInbox(EventChallengeBurst, fields)
 	if cfg.Disabled || !cfg.ChallengeBurst {
 		return
 	}
 	text := fmt.Sprintf("[WARN] %d challenges within 5 minutes; the hour before averaged %d per 5 minutes%s", count, baseline, siteSuffix(cfg.Sites))
-	if cfg.URL != "" && !cfg.WebhookDisabled {
-		go n.send(cfg, EventChallengeBurst, fields, text)
+	if u := cfg.hookFor(EventChallengeBurst, fields); u != "" {
+		go n.send(u, cfg.Format, EventChallengeBurst, fields, text)
 	}
 	subject := fmt.Sprintf("[unmask] challenge burst: %d/5min", count)
 	if cfg.Sites != "" {

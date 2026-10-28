@@ -7,6 +7,9 @@
 //     discord   : { content, embeds }
 //     generic   : POST a straightforward JSON { event, ip, ja4, ua, ts, ... }
 //   - Send failures are logged only (= ban / challenge is not blocked).  No retry.
+//   - Two hooks at most: URL, and CriticalURL for the alerts whose severity
+//     reaches a floor (severity.go), so one channel can hold what needs a
+//     person now.
 //   - Notification event kinds:
 //     ban_created     : auto-BAN from a honeypot trip, or admin manual BAN
 //     challenge_burst : five minutes of challenges far above the hour before (burst.go)
@@ -46,11 +49,15 @@ const (
 
 // Config: notification settings.  Disabled mutes both channels; the
 // per-channel flags mute one transport while its settings stay intact.
-// A webhook also needs a non-empty URL, mail a configured Mailer.
+// A webhook also needs a non-empty URL, mail a configured Mailer.  A second
+// hook, CriticalURL, takes the alerts of severity CriticalMinSeverity and
+// above when it is set (severity.go).
 type Config struct {
 	Disabled            bool
 	URL                 string
 	Format              string
+	CriticalURL         string   // the hook for the critical alerts; "" = URL takes every alert
+	CriticalMinSeverity string   // the lowest severity CriticalURL takes: "crit" (default) or "warn"
 	Sites               string   // label to show in notification messages (= arbitrary operator-defined site name)
 	BanEvents           bool     // send ban_created (= honeypot / manual)
 	ChallengeBurst      bool     // send challenge_burst
@@ -232,13 +239,14 @@ func (n *Notifier) BanCreated(ip, ja4, source, reason, bannedBy string) {
 		"site":      cfg.Sites,
 		"ts":        time.Now().Unix(),
 	}
+	fields["severity"] = Severity(EventBanCreated, fields)
 	n.toInbox(EventBanCreated, fields)
 	if cfg.Disabled || !cfg.BanEvents {
 		return
 	}
 	text := formatBanText(ip, ja4, source, reason, bannedBy, cfg.Sites)
-	if cfg.URL != "" && !cfg.WebhookDisabled {
-		go n.send(cfg, EventBanCreated, fields, text)
+	if u := cfg.hookFor(EventBanCreated, fields); u != "" {
+		go n.send(u, cfg.Format, EventBanCreated, fields, text)
 	}
 	subject := "[unmask] BAN: " + ip
 	if cfg.Sites != "" {
@@ -351,11 +359,13 @@ func bodyHint(r io.Reader) string {
 	return ": " + s
 }
 
-func (n *Notifier) send(cfg Config, event string, fields map[string]any, text string) {
-	body, contentType := buildPayload(cfg.Format, event, fields, text)
+// send posts one alert to the hook at hook, in format.  The caller chose the
+// hook (Config.hookFor) and runs this off its own path.
+func (n *Notifier) send(hook, format, event string, fields map[string]any, text string) {
+	body, contentType := buildPayload(format, event, fields, text)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, cfg.URL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, hook, bytes.NewReader(body))
 	if err != nil {
 		log.Printf("notifier %s build request: %v", event, err)
 		return

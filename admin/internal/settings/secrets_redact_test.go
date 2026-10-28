@@ -19,6 +19,7 @@ func secretSettings() Settings {
 	s.CommunityBans.Token = "LEAK-hub"
 	s.AIAdvisor.APIKey = "LEAK-ai"
 	s.Notifications.URL = "https://hooks.example/services/LEAK-webhook"
+	s.Notifications.CriticalURL = "https://hooks.example/services/LEAK-critical-webhook"
 	s.Challenge.Default.PublicTestPagesPassword = "LEAK-testpages"
 	s.Challenge.Default.CaptchaProvider = Captcha{
 		Provider:           "turnstile",

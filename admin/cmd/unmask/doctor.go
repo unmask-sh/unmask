@@ -694,7 +694,9 @@ func overBlockAlertRoute(s settings.Settings) string {
 		return ""
 	}
 	via := ""
-	if s.Notifications.URL != "" && !s.Notifications.WebhookDisabled {
+	// The breaker's alert goes to the critical hook when there is one and to
+	// the first otherwise, so either is a route.
+	if (s.Notifications.URL != "" || s.Notifications.CriticalURL != "") && !s.Notifications.WebhookDisabled {
 		via = "webhook"
 	}
 	if s.SMTP.Host != "" && !s.Notifications.MailDisabled {

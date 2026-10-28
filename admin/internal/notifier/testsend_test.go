@@ -62,7 +62,7 @@ func TestSendLogsWithoutTheURL(t *testing.T) {
 	log.SetOutput(&buf)
 	defer log.SetOutput(orig)
 	cfg := Config{URL: deadHookURL(t), Format: "slack"}
-	New(cfg).send(cfg, "test_event", map[string]any{}, "x")
+	New(cfg).send(cfg.URL, cfg.Format, "test_event", map[string]any{}, "x")
 	out := buf.String()
 	if !strings.Contains(out, "notifier test_event POST:") || !strings.Contains(out, "connection refused") {
 		t.Fatalf("the failure was not logged with its reason: %q", out)

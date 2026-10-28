@@ -5771,6 +5771,12 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request, lang i18n.Lang) error 
 func applyNotificationsForm(c *settings.Notifications, r *http.Request) {
 	c.Disabled = r.FormValue("disabled") == "1"
 	c.URL = strings.TrimSpace(r.FormValue("url"))
+	c.CriticalURL = strings.TrimSpace(r.FormValue("critical_url"))
+	// "crit" is the default and is stored as no value, like the mail language.
+	c.CriticalMinSeverity = ""
+	if r.FormValue("critical_min_severity") == "warn" {
+		c.CriticalMinSeverity = "warn"
+	}
 	format := strings.TrimSpace(r.FormValue("format"))
 	switch format {
 	case "slack", "discord", "generic":

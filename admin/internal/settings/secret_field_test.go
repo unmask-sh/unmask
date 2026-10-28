@@ -7,6 +7,7 @@ import "testing"
 func TestIsSecretField(t *testing.T) {
 	for _, p := range []string{
 		"notifications.url", "url", "URL",
+		"notifications.critical_url", "critical_url",
 		"secret.bv_secret", "bv_secret",
 		"smtp.password", "password",
 		"community_bans.token", "token",

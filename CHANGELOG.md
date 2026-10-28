@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+
+- (2026-10-28) **Alerts can go to two webhooks by severity.**  A second webhook URL on the notifications tab takes the alerts whose severity reaches a floor -- the over-block breaker by default, or the warnings too -- and the first keeps the rest, so one Slack channel holds what needs a person now and another the record.  Empty, nothing changes.  The generic payload carries the severity.
+
 ## [0.1.53-rc25] - 2026-10-28 (testing build)
 
 ### Fixed

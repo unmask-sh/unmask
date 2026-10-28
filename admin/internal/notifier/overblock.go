@@ -67,13 +67,14 @@ func (n *Notifier) OverBlock(r OverBlockReport) {
 		"site":        cfg.Sites,
 		"ts":          time.Now().Unix(),
 	}
+	fields["severity"] = Severity(EventOverBlock, fields)
 	n.toInbox(EventOverBlock, fields)
 	if cfg.Disabled {
 		return
 	}
-	if cfg.URL != "" && !cfg.WebhookDisabled {
+	if u := cfg.hookFor(EventOverBlock, fields); u != "" {
 		lang := i18n.Lang(cfg.mailLang())
-		go n.send(cfg, EventOverBlock, fields, overBlockLine(r, lang, cfg.Sites))
+		go n.send(u, cfg.Format, EventOverBlock, fields, overBlockLine(r, lang, cfg.Sites))
 	}
 	go n.sendMailLocalized(func(lang string) (string, string, string) {
 		return renderOverBlock(r, i18n.Lang(lang), cfg.Sites, r.AdminURL)

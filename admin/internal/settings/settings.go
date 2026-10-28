@@ -3797,6 +3797,13 @@ type Notifications struct {
 	// account gets it in the language it last saw the admin in.  Other alert
 	// mail is English.
 	Lang string `yaml:"lang,omitempty"`
+	// CriticalURL: a second webhook, for the alerts whose severity reaches
+	// CriticalMinSeverity -- "crit" (the default: the over-block breaker) or
+	// "warn" (the challenge burst and link previews stopped as well); the
+	// rest go to URL.  Empty: URL takes every alert.  Format and the pause
+	// are shared.  A credential like URL (secretFieldList).
+	CriticalURL         string `yaml:"critical_url,omitempty"`
+	CriticalMinSeverity string `yaml:"critical_min_severity,omitempty"`
 }
 
 // LangResolved returns Lang when it is a language the mail is written in,
@@ -3807,6 +3814,15 @@ func (n Notifications) LangResolved() string {
 		return n.Lang
 	}
 	return "en"
+}
+
+// CriticalMinSeverityResolved is the lowest severity the critical webhook
+// takes: "warn" when set so, "crit" otherwise.
+func (n Notifications) CriticalMinSeverityResolved() string {
+	if n.CriticalMinSeverity == "warn" {
+		return "warn"
+	}
+	return "crit"
 }
 
 // MailToResolved splits MailTo into clean addresses (comma-separated, blanks
@@ -5188,6 +5204,7 @@ var secretFieldList = []struct {
 	{"community_bans.token", func(s *Settings) *string { return &s.CommunityBans.Token }},
 	{"ai_advisor.api_key", func(s *Settings) *string { return &s.AIAdvisor.APIKey }},
 	{"notifications.url", func(s *Settings) *string { return &s.Notifications.URL }},
+	{"notifications.critical_url", func(s *Settings) *string { return &s.Notifications.CriticalURL }},
 }
 
 // challengeSecretFieldList: the credentials of one challenge record -- the

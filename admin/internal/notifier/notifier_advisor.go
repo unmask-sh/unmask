@@ -27,6 +27,7 @@ func (n *Notifier) AdvisorDigest(newCount, total int, body string) {
 		"site":             cfg.Sites,
 		"ts":               time.Now().Unix(),
 	}
+	fields["severity"] = Severity(EventAdvisorDigest, fields)
 	n.toInbox(EventAdvisorDigest, fields)
 	if cfg.Disabled || !cfg.BanEvents {
 		return
@@ -35,8 +36,8 @@ func (n *Notifier) AdvisorDigest(newCount, total int, body string) {
 	if cfg.Sites != "" {
 		subject = fmt.Sprintf("[unmask %s] %d new ban candidate(s)", cfg.Sites, newCount)
 	}
-	if cfg.URL != "" && !cfg.WebhookDisabled {
-		n.send(cfg, EventAdvisorDigest, fields, body)
+	if u := cfg.hookFor(EventAdvisorDigest, fields); u != "" {
+		n.send(u, cfg.Format, EventAdvisorDigest, fields, body)
 	}
 	n.sendMail(subject, body)
 }
