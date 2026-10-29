@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- (2026-10-29) **A rejected admin request reads a bare 403.**  The admin IP and Host allowlists answered a visitor they turned away with the address they had taken them for and the setting that would admit them; the echoed address let anyone test which forwarded header the daemon trusts.  The body is now just Forbidden, and the daemon log keeps the address, the path and the way back in after a self-lockout.
+
 ## [0.1.53-rc28] - 2026-10-30 (testing build)
 
 ### Added

@@ -563,8 +563,8 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// still get the restriction).
 		ip := adminClientIP(r, h.snapshotSettings())
 		if allowIPs := settings.EnabledValues(h.cfg().Nginx.AdminAllowedIPs, h.cfg().Nginx.AdminAllowedIPsDisabled); !ipAllowed(ip, allowIPs) {
-			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", LogSafe(ip), LogSafe(r.URL.Path), LogSafeAll(allowIPs))
-			adminIPForbidden(w, ip)
+			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v"+adminLockoutHint, LogSafe(ip), LogSafe(r.URL.Path), LogSafeAll(allowIPs), "admin_allowed_ips")
+			adminForbidden(w)
 			return
 		}
 		// And the Host against admin_allowed_hosts, as the login gate does
@@ -574,8 +574,8 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// under any name nginx proxies through.
 		host := adminClientHost(r, h.snapshotSettings())
 		if allowHosts := settings.EnabledValues(h.cfg().Nginx.AdminAllowedHosts, h.cfg().Nginx.AdminAllowedHostsDisabled); !hostAllowed(host, allowHosts) {
-			log.Printf("admin host denied: host=%s path=%s allowed_hosts=%v", LogSafe(host), LogSafe(r.URL.Path), LogSafeAll(allowHosts))
-			adminHostForbidden(w, host)
+			log.Printf("admin host denied: host=%s path=%s allowed_hosts=%v"+adminLockoutHint, LogSafe(host), LogSafe(r.URL.Path), LogSafeAll(allowHosts), "admin_allowed_hosts")
+			adminForbidden(w)
 			return
 		}
 		// Carry the resolved client address to the audit log.  Done here rather
@@ -836,14 +836,14 @@ func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc
 		}
 		ip := adminClientIP(r, h.snapshotSettings())
 		if allowIPs := settings.EnabledValues(h.cfg().Nginx.AdminAllowedIPs, h.cfg().Nginx.AdminAllowedIPsDisabled); !ipAllowed(ip, allowIPs) {
-			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v", LogSafe(ip), LogSafe(r.URL.Path), LogSafeAll(allowIPs))
-			adminIPForbidden(w, ip)
+			log.Printf("admin IP denied: ip=%s path=%s allow_from=%v"+adminLockoutHint, LogSafe(ip), LogSafe(r.URL.Path), LogSafeAll(allowIPs), "admin_allowed_ips")
+			adminForbidden(w)
 			return
 		}
 		host := adminClientHost(r, h.snapshotSettings())
 		if allowHosts := settings.EnabledValues(h.cfg().Nginx.AdminAllowedHosts, h.cfg().Nginx.AdminAllowedHostsDisabled); !hostAllowed(host, allowHosts) {
-			log.Printf("admin host denied: host=%s path=%s allowed_hosts=%v", LogSafe(host), LogSafe(r.URL.Path), LogSafeAll(allowHosts))
-			adminHostForbidden(w, host)
+			log.Printf("admin host denied: host=%s path=%s allowed_hosts=%v"+adminLockoutHint, LogSafe(host), LogSafe(r.URL.Path), LogSafeAll(allowHosts), "admin_allowed_hosts")
+			adminForbidden(w)
 			return
 		}
 		// Login and password-reset attempts are audited before any session
@@ -852,20 +852,21 @@ func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc
 	}
 }
 
-// adminIPForbidden / adminHostForbidden write a 403 with an operator hint: the
-// offending IP/Host (which the caller already knows about itself) + how to fix a
-// self-lockout.  Deliberately does NOT reveal the allowed list -- that would tell
-// an unauthorized visitor which IPs / Hosts are trusted.
-func adminIPForbidden(w http.ResponseWriter, ip string) {
-	http.Error(w, "Forbidden: your IP ("+ip+") is not allowed to reach the admin UI.\n"+
-		"If you locked yourself out, add this IP/CIDR to admin_allowed_ips in /etc/unmask/config.yml and "+
-		"restart unmask -- or edit it under Settings -> Network from an already-allowed IP.", http.StatusForbidden)
-}
+// adminLockoutHint ends the denial log lines of both admin middlewares, IP and
+// Host alike (%s = the setting that admits the entry).  The operator who locked
+// themselves out reads the journal, and that is where the way back in belongs:
+// the response body goes to the party that was turned away.
+const adminLockoutHint = " (locked out? add the entry under Settings -> Network from an allowed origin, or to %s in /etc/unmask/config.yml and restart unmask)"
 
-func adminHostForbidden(w http.ResponseWriter, host string) {
-	http.Error(w, "Forbidden: this Host ("+host+") is not allowed to reach the admin UI.\n"+
-		"If you locked yourself out, add this Host to admin_allowed_hosts in /etc/unmask/config.yml and "+
-		"restart unmask -- or edit it under Settings -> Network from an already-allowed Host.", http.StatusForbidden)
+// adminForbidden answers a request the admin allowlists reject.  The body is a
+// bare 403 on purpose: whoever reads it is, by definition, not allowed in.  The
+// earlier wording named the address the daemon had taken the visitor for and the
+// setting that admits it -- the echoed address let anyone test which forwarded
+// header the daemon trusts by watching it change -- and the allowed list itself
+// was never shown.  The log line above carries the address, the path, the list
+// and the hint; the install docs say what a 403 here means.
+func adminForbidden(w http.ResponseWriter) {
+	http.Error(w, "Forbidden", http.StatusForbidden)
 }
 
 // ruleRowSt is what ruleRowState hands a rule-list template for one row:
