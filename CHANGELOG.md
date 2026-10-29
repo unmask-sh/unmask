@@ -14,6 +14,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.53-rc28] - 2026-10-30 (testing build)
+
 ### Added
 
 - (2026-10-30) **Each ranking in the reuse card explains itself.**  The five tables of the cookie reuse card -- requests on CAPTCHA, PoW and re-bound cookies, the passes behind each address and the busiest hour of one -- each carry a "?" beside the heading saying what the table counts and how to read its rows, so the card's one explainer no longer has to cover them all.
