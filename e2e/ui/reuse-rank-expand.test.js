@@ -43,8 +43,11 @@ const ok = (cond, msg) => { if (!cond) fails.push(msg); };
   const state = async () => page.evaluate(() => {
     const vis = el => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
     const heads = Array.from(document.querySelectorAll('.bcd-card h6.cp-h'));
-    const h = heads.find(x => /PoW/.test(x.textContent));
-    if (!h) return { found: false, heads: heads.map(x => x.textContent.trim()) };
+    // The heading's own label: its first text node.  The "?" beside it holds
+    // the section's explainer, and the CAPTCHA one mentions PoW too.
+    const label = x => (x.firstChild && x.firstChild.nodeType === 3) ? x.firstChild.textContent : x.textContent;
+    const h = heads.find(x => /PoW/.test(label(x)));
+    if (!h) return { found: false, heads: heads.map(x => label(x).trim()) };
     let tbl = null, btn = null;
     for (let el = h.nextElementSibling; el && !el.matches('h6.cp-h'); el = el.nextElementSibling) {
       if (!tbl) tbl = el.matches('table.cp-rankable') ? el : el.querySelector('table.cp-rankable');

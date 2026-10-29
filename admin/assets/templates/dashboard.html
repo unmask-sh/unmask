@@ -470,7 +470,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
      the cap counts, and the whole (every logged line, static files and the
      challenge page's own parts included) stands beside it. */}}
 {{ define "cookie_reuse_section" }}
-  <h6 class="cp-h">{{ .Heading }} {{ if .Rows }}<span class="cp-count">{{ len .Rows }}</span>{{ end }}</h6>
+  <h6 class="cp-h">{{ .Heading }}{{ if .Help }} <span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML .Help }}</span></span>{{ end }} {{ if .Rows }}<span class="cp-count">{{ len .Rows }}</span>{{ end }}</h6>
   {{ if .Rows }}
   <div class="bcd-cliptable-scroll">
   <table class="bcd-table bcd-cliptable cp-rankable" data-no-zero-toggle>
@@ -505,7 +505,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
   {{/* The passes behind the reuse (unmask_pass_ip_day): per address, the
        distinct cookies presented in a day and the busiest hour of one.  Same
        row type and decoration as the reuse sections above; its own columns. */}}
-  <h6 class="cp-h">{{ .Heading }} {{ if .Rows }}<span class="cp-count">{{ len .Rows }}</span>{{ end }}</h6>
+  <h6 class="cp-h">{{ .Heading }}{{ if .Help }} <span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML .Help }}</span></span>{{ end }} {{ if .Rows }}<span class="cp-count">{{ len .Rows }}</span>{{ end }}</h6>
   {{ if .Rows }}
   <div class="bcd-cliptable-scroll">
   <table class="bcd-table bcd-cliptable cp-rankable" data-no-zero-toggle>
@@ -538,16 +538,16 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
 <div class="bcd-card">
   <h2>{{ t .Lang "dashboard.card.cookie_reuse" }} <span class="src-badge db src-badge-tip" tabindex="0">{{ t .Lang "src_badge.unix" }}<span class="info-popup">{{ safeHTML (t .Lang "src_badge.unix_desc") }}</span></span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_reuse.desc") }}</span></span></h2>
   {{ template "cookie_reuse_section" dict "Lang" .Lang "BasePath" .BasePath "Rows" .CaptchaReuse "ShowJA4N" false "ShowCap" false
-       "Heading" (t .Lang "captcha_reuse.rank_heading") "Empty" (t .Lang "captcha_reuse.empty") }}
+       "Heading" (t .Lang "captcha_reuse.rank_heading") "Help" (t .Lang "captcha_reuse.help") "Empty" (t .Lang "captcha_reuse.empty") }}
   {{ template "cookie_reuse_section" dict "Lang" .Lang "BasePath" .BasePath "Rows" .PowReuse "ShowJA4N" true "ShowCap" true
-       "Heading" (t .Lang "pow_reuse.rank_heading") "Empty" (t .Lang "pow_reuse.empty") }}
+       "Heading" (t .Lang "pow_reuse.rank_heading") "Help" (t .Lang "pow_reuse.help") "Empty" (t .Lang "pow_reuse.empty") }}
   {{/* Re-bound passes are their own way of holding a cookie, so they get their
        own section rather than being counted with the CAPTCHA solves they used
        to be labelled as.  Only when there are any: on an install with no
        roaming clients this is structurally empty. */}}
   {{ if .RebindReuse }}
   {{ template "cookie_reuse_section" dict "Lang" .Lang "BasePath" .BasePath "Rows" .RebindReuse "ShowJA4N" true "ShowCap" true
-       "Heading" (t .Lang "rebind_reuse.rank_heading") "Empty" (t .Lang "rebind_reuse.empty") }}
+       "Heading" (t .Lang "rebind_reuse.rank_heading") "Help" (t .Lang "rebind_reuse.help") "Empty" (t .Lang "rebind_reuse.empty") }}
   {{ end }}
   <p class="muted cr-note">{{ safeHTML (t .Lang "pow_reuse.note") }}</p>
   {{/* The passes behind the reuse: how many distinct cookies each address
@@ -555,10 +555,10 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
        figures a per-cookie limit is read against.  The peak ranking only
        when there is anything to rank. */}}
   {{ template "pass_ip_section" dict "Lang" .Lang "BasePath" .BasePath "Rows" .PassCookies
-       "Heading" (t .Lang "pass_ip.rank_heading") "Empty" (t .Lang "pass_ip.empty") }}
+       "Heading" (t .Lang "pass_ip.rank_heading") "Help" (t .Lang "pass_ip.cookies_help") "Empty" (t .Lang "pass_ip.empty") }}
   {{ if .PassPeaks }}
   {{ template "pass_ip_section" dict "Lang" .Lang "BasePath" .BasePath "Rows" .PassPeaks
-       "Heading" (t .Lang "pass_ip.peak_heading") "Empty" "" }}
+       "Heading" (t .Lang "pass_ip.peak_heading") "Help" (t .Lang "pass_ip.peak_help") "Empty" "" }}
   {{ end }}
   <p class="muted cr-note">{{ safeHTML (t .Lang "pass_ip.note") }}</p>
 </div>
