@@ -110,10 +110,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const usBefore = await around(-98.5, 39.5);
   await feed(); await sleep(400);
   // Blocked bots alone by default: JP and US blocked some, DE none.
-  // The line's entries, one per source (the text runs them together).
-  const topItems = () => page.evaluate(() => Array.from(document.querySelectorAll('#geo-top span')).map(s => s.textContent.trim()));
+  // The line's entries, one per source (the text runs them together): the
+  // code, the count and, after the bar, the share.
+  const topItems = () => page.evaluate(() => Array.from(document.querySelectorAll('#geo-top > span')).map(s => s.textContent.trim()));
+  const lists = (items, t) => items.some(x => x.indexOf(t + ' ') === 0);
   const top = await topItems();
-  ok(top.includes('JP 13') && top.includes('US 8') && !top.some(t => /^DE/.test(t)), 'the top-sources line does not list the blocked bots of the reading: ' + top.join(' | '));
+  ok(lists(top, 'JP 13') && lists(top, 'US 8') && !top.some(t => /^DE/.test(t)), 'the top-sources line does not list the blocked bots of the reading: ' + top.join(' | '));
+  ok(top.includes('JP 13 62%') && top.includes('US 8 38%'), 'the top-sources line lacks the shares: ' + top.join(' | '));
   const pressed = () => page.evaluate(() => Array.from(document.querySelectorAll('#geo-legend .geo-k')).filter(b => b.getAttribute('aria-pressed') === 'true').map(b => b.dataset.k).join(','));
   ok(await pressed() === 'blocked', 'the legend does not start on blocked alone: ' + await pressed());
   const usAfter = await around(-98.5, 39.5);
@@ -159,7 +162,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const legendClick = k => page.click('#geo-legend .geo-k[data-k="' + k + '"]');
   await legendClick('pass'); await sleep(200);
   const both = { top: await topItems(), kept: await page.evaluate(() => localStorage.getItem('unmask:map-kinds')) };
-  ok(['JP 113', 'US 18', 'DE 6'].every(t => both.top.includes(t)), 'switching passes on did not redraw the sources: ' + both.top.join(' | '));
+  ok(['JP 113', 'US 18', 'DE 6'].every(t => lists(both.top, t)), 'switching passes on did not redraw the sources: ' + both.top.join(' | '));
   ok(both.kept === '["blocked","pass"]', 'the choice is not kept in the browser: ' + both.kept);
   await legendClick('pass'); await legendClick('blocked'); await sleep(200);
   const none = await page.evaluate(() => ({ top: document.getElementById('geo-top').textContent, hot: unmaskGeoHot().length }));

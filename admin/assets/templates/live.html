@@ -156,6 +156,11 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 .geo-pop i{display:inline-block;width:.55rem;height:.55rem;border-radius:50%;margin-right:.3rem;vertical-align:-.02em}
 .geo-top{margin-left:auto;color:#475569;display:inline-flex;gap:.6rem;flex-wrap:wrap;align-items:center}
 .geo-top img{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.2em;border-radius:.0625rem;box-shadow:0 0 0 .0625rem rgba(0,0,0,.07)}
+/* The bar beside a top source: its count against the largest's, in the
+   streams' own blue; the share after it in the figure's weight. */
+.geo-top .gbar{display:inline-block;width:2.4rem;height:.4rem;margin:0 .3rem;border-radius:.2rem;background:#e2e8f0;vertical-align:.05em;overflow:hidden}
+.geo-top .gbar span{display:block;height:100%;background:#7dd3fc;border-radius:.2rem}
+.geo-top b{font-weight:600;color:#334155}
 /* The recent-detections card redraws its table every few seconds; a row that
    was not there before flashes green and settles. */
 .livebadge{display:inline-flex;align-items:center;gap:.3rem;font-size:.7rem;color:#16a34a;font-weight:600}
@@ -784,6 +789,9 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   // The counts on the map, in the top-sources line and in the popover, with
   // their thousands separated (the strip formats its figures the same way).
   function comma(n){ return Number(n).toLocaleString('en-US'); }
+  // A source's share of every source on the map, for a label: a whole
+  // percent, and "<1%" rather than "0%" for a source that is there.
+  function pct(s){ var p = Math.round(s * 100); return (p < 1 ? '<1' : p) + '%'; }
   // The meridian down the middle of the map: the one a world map printed in
   // the server's country puts there.  Most of the world prints Greenwich in
   // the middle, the outline's own projection; East Asia and Oceania print
@@ -859,14 +867,20 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     streams = [];
     if (!MAP) return;
     // A source's stream is the kinds the legend has on: its width the thirty
-    // minutes' count of them, its particles the last minute's.
-    var max = 0, cc;
-    for (cc in counts) if (measure(counts[cc]) > max) max = measure(counts[cc]);
+    // minutes' count of them, its particles the last minute's.  Its weight
+    // is the square root of its count against the largest source's: a
+    // stream's ink (its width times its brightness) then follows the count,
+    // so twenty sources of ten hits add up to a fifth of one source of a
+    // thousand, not to more.  The first version took the logarithm, which
+    // drew ten hits at half the width of a thousand, and a continent of
+    // small sources read as the biggest one.
+    var max = 0, total = 0, cc, mc;
+    for (cc in counts) { mc = measure(counts[cc]); total += mc; if (mc > max) max = mc; }
     for (cc in counts) {
       var c = counts[cc], ct = MAP.centroids[cc], m = measure(c);
       if (!ct || !m) continue;
       var o = P(ct[0], ct[1]);
-      var st = { cc: cc, n: m, now: measure(nowCounts[cc]), x0: o[0], y0: o[1], w: Math.log1p(m) / Math.log1p(max || 1), mix: c };
+      var st = { cc: cc, n: m, share: m / (total || 1), now: measure(nowCounts[cc]), x0: o[0], y0: o[1], w: Math.sqrt(m / (max || 1)), mix: c };
       if (server) {
         var dx = server[0] - o[0], dy = server[1] - o[1], d = Math.hypot(dx, dy) || 1;
         st.cx = (o[0] + server[0]) / 2 + (-dy / d) * d * 0.25 * (o[1] > server[1] ? -1 : 1);
@@ -884,8 +898,11 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
     var top = document.getElementById('geo-top');
     if (top) {
       var html = '';
+      // Each with a bar as long as its count against the largest's, and its
+      // share: the order and the gaps read without the figures.
       streams.slice(0, 6).forEach(function(st){
-        html += '<span><img src="' + card.dataset.flags + st.cc.toLowerCase() + '.png" alt="">' + st.cc + ' ' + comma(st.n) + '</span>';
+        html += '<span><img src="' + card.dataset.flags + st.cc.toLowerCase() + '.png" alt="">' + st.cc + ' ' + comma(st.n) +
+          '<span class="gbar"><span style="width:' + Math.round(100 * st.n / streams[0].n) + '%"></span></span> <b>' + pct(st.share) + '</b></span>';
       });
       // Nothing to draw says why: no kind switched on, or none arrived.
       if (!html) html = '<span>' + esc(KINDS.some(function(k){ return sel[k]; }) ? top.dataset.txtEmpty : top.dataset.txtEmptySel) + '</span>';
@@ -958,8 +975,8 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
       var he = { st: st, x: st.x0 * sx / dpr, y: st.y0 * sy / dpr, r: r / dpr };
       fresh.push(he);
       if (i < 6) {
-        // The label: the flag, the code and the count.
-        var t = st.cc + ' ' + comma(st.n), fw = 14 * dpr, fh = 10 * dpr, tw = ctx.measureText(t).width + 11 * dpr + fw, th = 16 * dpr;
+        // The label: the flag, the code, the count and the share.
+        var t = st.cc + ' ' + comma(st.n) + ' \u00b7 ' + pct(st.share), fw = 14 * dpr, fh = 10 * dpr, tw = ctx.measureText(t).width + 11 * dpr + fw, th = 16 * dpr;
         var lx = st.x0 * sx + 6 * dpr, ly = st.y0 * sy - 8 * dpr, tries = 0;
         var hits = function(){ return placed.some(function(r){ return lx < r.x + r.w && lx + tw > r.x && ly < r.y + r.h && ly + th > r.y; }); };
         while (hits() && tries < 3) { ly += th + 2 * dpr; tries++; }
