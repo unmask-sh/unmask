@@ -1803,6 +1803,18 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		}
 		return func(c *statsCards) { c.powReuse = v }, e
 	})
+	// The passes behind the reuse: how many distinct cookies each address
+	// presented in a day, and the busiest hour one of them had -- the figures
+	// a per-cookie limit is read against (unmask_pass_ip_day).  Two orders of
+	// the same rows: by cookies, and by that peak.
+	run("PassCookies", func() (func(*statsCards), error) {
+		v, e := dashboard.PassIPTop(ctx, h.DB, site, hosts, hours, 30, false)
+		return func(c *statsCards) { c.passCookies = v }, e
+	})
+	run("PassPeaks", func() (func(*statsCards), error) {
+		v, e := dashboard.PassIPTop(ctx, h.DB, site, hosts, hours, 30, true)
+		return func(c *statsCards) { c.passPeaks = v }, e
+	})
 	run("AITrafficBreakdown", func() (func(*statsCards), error) {
 		v, e := dashboard.AITrafficBreakdown(ctx, h.DB, site, hosts, hours)
 		return func(c *statsCards) { c.aiTraffic = v }, e
@@ -1925,6 +1937,10 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	cpVerdictCounts, cpForceReasonCounts, cpFailForceReasonCounts := snap.cpVerdictCounts, snap.cpForceReasonCounts, snap.cpFailForceReasonCounts
 	cpTopIPs, cpRecent, cpReuse := snap.cpTopIPs, snap.cpRecent, snap.cpReuse
 	powReuse, rebindReuse, rebindLineages := snap.powReuse, snap.rebindReuse, snap.rebindLineages
+	passCookies, passPeaks := snap.passCookies, snap.passPeaks
+	if sameAddressOrder(passCookies, passPeaks) {
+		passPeaks = nil // the same rows in the same order say nothing twice
+	}
 	aiTraffic, aiTrafficAll, aiTrafficDetail := snap.aiTraffic, snap.aiTrafficAll, snap.aiTrafficDetail
 	dailyKind, dailyTotal := snap.dailyKind, snap.dailyTotal
 	dailyServeKind, dailyServeTotal, dailyBlocked := snap.dailyServeKind, snap.dailyServeTotal, snap.dailyBlocked
@@ -2099,7 +2115,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 	// resolver the forward-auth path uses), tagging bot/suspect rows for
 	// highlight.  Both kinds get the identical treatment.
 	reuseNginxCfg := h.cfg().Nginx
-	for _, rows := range [][]dashboard.CookieReuseRow{cpReuse, powReuse, rebindReuse} {
+	for _, rows := range [][]dashboard.CookieReuseRow{cpReuse, powReuse, rebindReuse, passCookies, passPeaks} {
 		for i := range rows {
 			verdict, action := matchJA4(rows[i].JA4, reuseNginxCfg)
 			rows[i].Verdict = verdict
@@ -2289,6 +2305,8 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		"CaptchaReuse":        cpReuse,
 		"PowReuse":            powReuse,
 		"RebindReuse":         rebindReuse,
+		"PassCookies":         passCookies,
+		"PassPeaks":           passPeaks,
 		"RebindLineages":      rebindLineageRows(ctx, h, rebindLineages),
 		"AITrafficServed":     aiTraffic,
 		"AITraffic":           aiTrafficAll,

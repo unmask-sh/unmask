@@ -747,6 +747,9 @@ func cmdServe(args []string) error {
 			nlog.SetSiteCheck(func(site string) bool {
 				return !h.SnapshotSettings().Sites.IsGhost(site)
 			})
+			// The pass a logged request rode on, named the way the plugin
+			// verified it, for the per-address count of distinct passes.
+			nlog.SetPassMatcher(h.MatchPassEntry)
 			// A crawler name the configuration verifies against its vendor's
 			// ranges keeps the honeypot exemption only on a request that range
 			// passed; the name alone is what a scanner wears (nginxlog).

@@ -93,6 +93,13 @@ type Reader struct {
 	namedBuckets         map[namedKey]*namedBucket
 	countryHourlyBuckets map[countryHourKey]*countryHourBucket
 	cookieIPBuckets      map[cookieIPKey]*cookieIPBucket
+	// passBuckets / passHours / passIDs: the per-address, per-day count of
+	// the passes presented (pass_ip.go); matchPass names the pass a line
+	// rode on, nil until set.
+	passBuckets map[passKey]*passBucket
+	passHours   map[passHourKey]int
+	passIDs     int
+	matchPass   func(value, ip, host string) string
 
 	// geo: ipgeo reader for per-packet country lookup.  Drives the
 	// unmask_traffic_country_hourly aggregation that powers the 30-day chart's
@@ -569,6 +576,8 @@ func Start(socketPath string, d *db.DB) *Reader {
 		namedBuckets:         map[namedKey]*namedBucket{},
 		countryHourlyBuckets: map[countryHourKey]*countryHourBucket{},
 		cookieIPBuckets:      map[cookieIPKey]*cookieIPBucket{},
+		passBuckets:          map[passKey]*passBucket{},
+		passHours:            map[passHourKey]int{},
 		stop:                 make(chan struct{}),
 		ready:                make(chan struct{}),
 		lines:                make(chan string, recvQueueSize),
@@ -737,9 +746,13 @@ func (r *Reader) Loaded() bool {
 // ("captcha" / "pow" / "" / future additions).  [a-z0-9_-] is enough
 // (= plugin implementations always use ASCII lowercase as a constraint).
 //
-// fc / hp / ip / ja4 / hpuri / bp / scheme / cr / ob / rv / ua are optional groups (= degrade
+// fc / hp / ip / ja4 / hpuri / bp / scheme / cr / ob / rv / bv / ua are optional groups (= degrade
 // gracefully even with older config or mode mismatch).  ua is last and matched with .* —
 // it contains spaces, so it must be the final field of the log line.
+//
+// bv is the pass cookie as the request carried it, once the plugin verified
+// it (http.inc's $unmask_bv_log admits the cookie's own alphabet only); the
+// per-address count of distinct passes is keyed by it (pass_ip.go).
 //
 // site is matched as \S* (any non-space): the field carries $host, which is a
 // real vhost name with dots / colons (an earlier [A-Za-z0-9_-] charset failed
@@ -763,7 +776,7 @@ var lineRE = regexp.MustCompile(
 		// Sec-Fetch-Dest and the Referer's host, each passed through a map
 		// that admits only the known tokens (a client-written value cannot
 		// smuggle a field into the line).  Absent from older configurations.
-		`(?: sfs=([a-z-]*))?(?: sfd=([a-z]*))?(?: rh=([A-Za-z0-9.:-]*))?(?: ua=(.*))?`)
+		`(?: sfs=([a-z-]*))?(?: sfd=([a-z]*))?(?: rh=([A-Za-z0-9.:-]*))?(?: bv=([0-9A-Za-z.~]*))?(?: ua=(.*))?`)
 
 // parsed: struct holding the regex match result.
 type parsed struct {
@@ -815,7 +828,11 @@ type parsed struct {
 	sfs string
 	sfd string
 	rh  string
-	ua  string
+	// bv: the pass cookie the request carried, as the configuration logged
+	// it once the plugin verified it; "" without one, or from a
+	// configuration that predates the field.
+	bv string
+	ua string
 }
 
 // plaintext reports whether the request came over the plaintext port.  The
@@ -873,7 +890,8 @@ func (r *Reader) parse(line string) (parsed, bool) {
 		sfs:      m[16],
 		sfd:      m[17],
 		rh:       m[18],
-		ua:       m[19],
+		bv:       m[19],
+		ua:       m[20],
 	}, true
 }
 
@@ -983,6 +1001,10 @@ func (r *Reader) onLine(line string) {
 	// judged (bp=0) is what the reuse cap counts; the ranking shows that
 	// figure beside the whole.
 	r.bumpCookieIP(site, p.ip, p.ja4, p.ua, p.kind, !p.bypassed)
+	// The passes behind that reuse: which cookie the line rode on, per
+	// address and day (pass_ip.go).  The host as logged is what the cookie is
+	// bound to; the bucket's site is the one the other tables use.
+	r.bumpPass(site, p.site, p.ip, p.ja4, p.ua, p.bv, p.kind, !p.bypassed)
 	// Crawler funnel: every request carries a UA.  fc=1 (= a challenge was the
 	// final action) counts as "served"; otherwise the request passed straight
 	// through (rescued / valid cookie / a site in monitor mode, where nothing
@@ -1499,16 +1521,19 @@ func (r *Reader) flushOnce(final bool) {
 			delete(r.cookieIPBuckets, k)
 		}
 	}
+	// pass-count buckets flush every tick: the row keeps the levels and
+	// accumulates the deltas, so the day's figures are fresh within ~60s.
+	passReady := r.collectPassLocked(time.Now())
 	r.mu.Unlock()
 
-	if len(ready) == 0 && len(crawlerReady) == 0 && len(crawlerDetailReady) == 0 && len(namedReady) == 0 && len(countryReady) == 0 && len(cookieIPReady) == 0 {
+	if len(ready) == 0 && len(crawlerReady) == 0 && len(crawlerDetailReady) == 0 && len(namedReady) == 0 && len(countryReady) == 0 && len(cookieIPReady) == 0 && len(passReady) == 0 {
 		return
 	}
 
 	// Ten seconds for a minute's worth; more for the backlog of a hold, which
 	// is written in this one transaction and would otherwise miss the
 	// deadline at every try.
-	rows := len(ready)*4 + len(crawlerReady) + len(crawlerDetailReady) + len(namedReady) + len(countryReady)*2 + len(cookieIPReady)
+	rows := len(ready)*4 + len(crawlerReady) + len(crawlerDetailReady) + len(namedReady) + len(countryReady)*2 + len(cookieIPReady) + len(passReady)
 	within := 10*time.Second + time.Duration(rows)*time.Millisecond
 	if within > 2*time.Minute {
 		within = 2 * time.Minute
@@ -1593,6 +1618,7 @@ func (r *Reader) flushOnce(final bool) {
 				r.cookieIPBuckets[e.key] = &bb
 			}
 		}
+		r.restorePassLocked(passReady)
 		r.mu.Unlock()
 	}
 
@@ -1723,6 +1749,10 @@ func (r *Reader) flushOnce(final bool) {
 			log.Printf("nginxlog: flush exec(cookie-ip): %v", err)
 			return
 		}
+	}
+	if err := r.execPass(ctx, tx, passReady); err != nil {
+		log.Printf("nginxlog: flush exec(pass-ip): %v", err)
+		return
 	}
 	if err := tx.Commit(); err != nil {
 		log.Printf("nginxlog: flush commit: %v", err)

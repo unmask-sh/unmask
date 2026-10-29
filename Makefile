@@ -959,7 +959,7 @@ test-mariadb:
 	@# -p 1: both packages Migrate the same shared database; go test's default
 	@# package parallelism races their check-then-create DDL (observed as
 	@# "Duplicate key name 'uk_user_email'").
-	@cd admin && UNMASK_TEST_MARIADB_HOST=127.0.0.1 UNMASK_TEST_MARIADB_PORT=3307 UNMASK_TEST_MARIADB_USER=unmask UNMASK_TEST_MARIADB_PASSWORD=unmask UNMASK_TEST_MARIADB_DATABASE=unmask_test go test -p 1 ./internal/db/ ./internal/events/ -run TestMariaDB -v -count=1; ret=$$?; docker rm -f unmask-test-mariadb >/dev/null 2>&1; exit $$ret
+	@cd admin && UNMASK_TEST_MARIADB_HOST=127.0.0.1 UNMASK_TEST_MARIADB_PORT=3307 UNMASK_TEST_MARIADB_USER=unmask UNMASK_TEST_MARIADB_PASSWORD=unmask UNMASK_TEST_MARIADB_DATABASE=unmask_test go test -p 1 ./internal/db/ ./internal/events/ ./internal/nginxlog/ -run TestMariaDB -v -count=1; ret=$$?; docker rm -f unmask-test-mariadb >/dev/null 2>&1; exit $$ret
 
 ## e2e           - bare-metal e2e (run 4 scenarios via curl).  BASE_URL switches the target.
 # Examples:

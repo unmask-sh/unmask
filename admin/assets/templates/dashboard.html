@@ -501,6 +501,39 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
   {{ end }}
 {{ end }}
 
+{{ define "pass_ip_section" }}
+  {{/* The passes behind the reuse (unmask_pass_ip_day): per address, the
+       distinct cookies presented in a day and the busiest hour of one.  Same
+       row type and decoration as the reuse sections above; its own columns. */}}
+  <h6 class="cp-h">{{ .Heading }} {{ if .Rows }}<span class="cp-count">{{ len .Rows }}</span>{{ end }}</h6>
+  {{ if .Rows }}
+  <div class="bcd-cliptable-scroll">
+  <table class="bcd-table bcd-cliptable cp-rankable" data-no-zero-toggle>
+    <thead><tr><th>{{ t .Lang "th.ip" }}</th><th>{{ t .Lang "th.verdict" }}</th><th class="bcd-num"><span class="help-dotted" data-help-key="help.pass_ip.cookies">{{ t .Lang "th.pass_cookies" }}</span></th><th class="bcd-num"><span class="help-dotted" data-help-key="help.pass_ip.peak">{{ t .Lang "th.pass_peak" }}</span></th><th class="bcd-num"><span class="help-dotted" data-help-key="help.cookie_reuse.judged">{{ t .Lang "th.reuse_judged" }}</span></th><th class="bcd-num"><span class="help-dotted" data-help-key="help.cookie_reuse.total">{{ t .Lang "th.reuse_total" }}</span></th><th class="bcd-num"><span class="help-dotted" data-help-key="help.pass_ip.ja4n">{{ t .Lang "th.ja4_count" }}</span></th><th>{{ t .Lang "th.ua" }}</th><th>{{ t .Lang "th.last_seen" }}</th></tr></thead>
+    <tbody>
+      {{ $base := .BasePath }}
+      {{ range $i, $r := .Rows }}
+      <tr class="{{ if $r.IsBot }}cp-bot-row {{ end }}{{ if ge $i 10 }}cp-row-extra{{ end }}">
+        <td class="bcd-mono ipclick" data-ip="{{ $r.IP }}"><img class="flag" src="{{ $base }}/static/flags/{{ ccImg $r.CountryCode }}.png" alt="{{ ccLabel $r.CountryCode }}" title="{{ ccLabel $r.CountryCode }}" loading="lazy"> {{ $r.IP }}</td>
+        <td>{{ if $r.Verdict }}<span class="help-dotted cp-verdict{{ if $r.IsBot }} cp-verdict-bot{{ end }}" data-help-key="verdict.{{ $r.Verdict }}">{{ $r.Verdict }}</span>{{ else if $r.JA4 }}<span class="muted">(none)</span>{{ else }}<span class="muted">-</span>{{ end }}</td>
+        <td class="bcd-num{{ if eq $r.Cookies 1 }} cr-ja4n-single{{ end }}">{{ comma $r.Cookies }}</td>
+        <td class="bcd-num">{{ comma $r.Peak }}</td>
+        <td class="bcd-num">{{ comma $r.Judged }}</td>
+        <td class="bcd-num muted">{{ comma $r.Requests }}</td>
+        <td class="bcd-num{{ if eq $r.JA4Count 1 }} cr-ja4n-single{{ end }}">{{ $r.JA4Count }}</td>
+        <td class="bcd-ua{{ if $r.UAFull }} cellpop{{ end }}"{{ if uaSummary $r.UAFull }} data-full-value="{{ $r.UAFull }}"{{ end }}{{ with uaOldNote $.Lang $r.UAFull }} data-note="{{ . }}"{{ end }}>{{ template "ua_cell" $r.UAFull }}</td>
+        <td class="bcd-mono"><time class="js-datetime" data-ts="{{ $r.LastSeenTS }}">{{ $r.LastSeen }}</time></td>
+      </tr>
+      {{ end }}
+    </tbody>
+  </table>
+  </div>
+  {{ if gt (len .Rows) 10 }}<button type="button" class="cp-more" data-more="{{ t .Lang "common.show_more" }} (+{{ sub (len .Rows) 10 }})" data-less="{{ t .Lang "common.show_less" }}">{{ t .Lang "common.show_more" }} (+{{ sub (len .Rows) 10 }})</button>{{ end }}
+  {{ else if .Empty }}
+  <p class="muted" style="font-size:.85rem;margin:.4rem 0 0">{{ .Empty }}</p>
+  {{ end }}
+{{ end }}
+
 {{ define "captcha_reuse_card" }}
 <div class="bcd-card">
   <h2>{{ t .Lang "dashboard.card.cookie_reuse" }} <span class="src-badge db src-badge-tip" tabindex="0">{{ t .Lang "src_badge.unix" }}<span class="info-popup">{{ safeHTML (t .Lang "src_badge.unix_desc") }}</span></span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "dashboard.captcha_reuse.desc") }}</span></span></h2>
@@ -517,6 +550,17 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
        "Heading" (t .Lang "rebind_reuse.rank_heading") "Empty" (t .Lang "rebind_reuse.empty") }}
   {{ end }}
   <p class="muted cr-note">{{ safeHTML (t .Lang "pow_reuse.note") }}</p>
+  {{/* The passes behind the reuse: how many distinct cookies each address
+       presented in a day, and the busiest hour one of them had -- the two
+       figures a per-cookie limit is read against.  The peak ranking only
+       when there is anything to rank. */}}
+  {{ template "pass_ip_section" dict "Lang" .Lang "BasePath" .BasePath "Rows" .PassCookies
+       "Heading" (t .Lang "pass_ip.rank_heading") "Empty" (t .Lang "pass_ip.empty") }}
+  {{ if .PassPeaks }}
+  {{ template "pass_ip_section" dict "Lang" .Lang "BasePath" .BasePath "Rows" .PassPeaks
+       "Heading" (t .Lang "pass_ip.peak_heading") "Empty" "" }}
+  {{ end }}
+  <p class="muted cr-note">{{ safeHTML (t .Lang "pass_ip.note") }}</p>
 </div>
 <style>
 /* Colocated with the only card that injects these (partial re-render replaces

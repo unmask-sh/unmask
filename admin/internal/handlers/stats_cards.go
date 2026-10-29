@@ -41,6 +41,8 @@ type statsCards struct {
 	cpReuse                 []dashboard.CookieReuseRow
 	powReuse                []dashboard.CookieReuseRow
 	rebindReuse             []dashboard.CookieReuseRow
+	passCookies             []dashboard.CookieReuseRow
+	passPeaks               []dashboard.CookieReuseRow
 	rebindLineages          []events.RebindLineageRow
 	aiTraffic               []dashboard.AITrafficRow
 	aiTrafficAll            []AITrafficRow
@@ -53,6 +55,23 @@ type statsCards struct {
 	countries               []dashboard.CountryRow
 	dailyCountry            []dashboard.DailyCountryBucket
 	dailyUniq               []dashboard.DailyUniq
+}
+
+// sameAddressOrder reports whether two rankings list the same addresses in
+// the same order.  The pass-count card ranks the same rows twice, by cookies
+// and by the busiest hour of one; when the two orders agree -- one address,
+// or a few that lead on both -- the second table repeats the first and is
+// left out.
+func sameAddressOrder(a, b []dashboard.CookieReuseRow) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].IP != b[i].IP {
+			return false
+		}
+	}
+	return true
 }
 
 // statsOverallTimeout bounds the stats page's wait for its cards.  A card

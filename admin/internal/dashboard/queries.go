@@ -2842,7 +2842,13 @@ type CookieReuseRow struct {
 	// window (serve rows with force_reason reuse_limit), filled by
 	// FillReuseCapHits; 0 for the CAPTCHA section, whose cookies the cap
 	// does not count.
-	Capped      int
+	Capped int
+	// Cookies and Peak belong to the per-day pass count (PassIPTop): the
+	// distinct passes the address presented on its busiest day of the window,
+	// and the most judged requests one of them made in a single hour.  0 on
+	// the reuse rankings.
+	Cookies     int
+	Peak        int
 	LastSeen    string
 	LastSeenTS  int64
 	IsBot       bool   // filled by the handler by classifying JA4 -> verdict action

@@ -286,6 +286,15 @@ func TestStatsMarksOldBrowsersAndExplainsThem(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// The pass-count ranking beside them, one address from the old browser.
+	// One row, so the second ranking (by the hourly peak) orders the same and
+	// is left out, and the section's UA cell renders once.
+	if _, err := conn.Exec(`INSERT INTO unmask_pass_ip_day
+		(bucket_day, site, ip, cookies, ja4s, ja4, cnt, judged, peak_hour, ua, last_seen)
+		VALUES (?, 'default', ?, 3, 1, 't13d_uaold', 40, 30, 12, ?, ?)`,
+		time.Now().Unix()/86400, events.PackIP("198.51.100.32"), old, last); err != nil {
+		t.Fatal(err)
+	}
 	// One event per table that is built from the event log, all from the old
 	// browser: a rate-limited serve, a JS error of the challenge's own and a
 	// foreign one, a cookie that could not be written, a failed CAPTCHA, a

@@ -49,7 +49,7 @@ func TestRenderIDNamesTheConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(b), " rv="+id1+" pv=$unmask_preview_verified sb=$is_search_bot sfs=$unmask_sfs_log sfd=$unmask_sfd_log rh=$unmask_ref_host ua=$http_user_agent';") {
+	if !strings.Contains(string(b), " rv="+id1+" pv=$unmask_preview_verified sb=$is_search_bot sfs=$unmask_sfs_log sfd=$unmask_sfd_log rh=$unmask_ref_host bv=$unmask_bv_log ua=$http_user_agent';") {
 		t.Errorf("the log format does not carry rv=%s ahead of pv=, sb= and ua=", id1)
 	}
 

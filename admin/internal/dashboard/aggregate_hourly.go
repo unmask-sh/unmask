@@ -482,6 +482,14 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 	// pruning matter more here than for the per-kind cookie/crawler tables.
 	exec("unmask_cookie_ip_minute",
 		`DELETE FROM unmask_cookie_ip_minute WHERE bucket_min < ?`, minCutoff)
+	// unmask_pass_ip_day is per-(day, site, ip): the passes an address
+	// presented in the day and the busiest hour of one of them, for the
+	// stats page's pass-count ranking.  The PoW rows' window, for the PoW
+	// rows' reason: past two cookie lifetimes a day's distinct passes say
+	// nothing more about any one of them.  bucket_day is unix seconds / 86400.
+	exec("unmask_pass_ip_day",
+		`DELETE FROM unmask_pass_ip_day WHERE bucket_day < ?`,
+		time.Now().Unix()/86400-cookieIPPowKeepDays)
 	// PoW rows go earlier than the shared window, for two reasons that point the
 	// same way.  Correctness: a PoW _bv lives 7 days by default, so past two
 	// lifetimes "how much was one cookie reused" stops being one cookie — a
