@@ -14,10 +14,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.1.53-rc27] - 2026-10-29 (testing build)
+
 ### Added
 
 - (2026-10-29) **The stats page counts the passes behind each address.**  The reuse card shows how many distinct pass cookies an address presented in a day and the busiest hour of one cookie, from a new access-log field (`bv=`) once nginx runs the rendered configuration.  The reuse cap counts per address and cannot tell a shared address from a client swapping cookies.  Table `unmask_pass_ip_day` (migration 0049), kept 15 days.
-
 
 ## [0.1.53-rc26] - 2026-10-28 (testing build)
 
