@@ -77,8 +77,14 @@ const (
 
 // passTraceGrace is how long the /bvj issue waits for the page's own beacon
 // before it writes the pass itself.  The two leave the page in the same tick
-// and arrive in either order; a variable so a test need not wait.
+// and arrive in either order.
 var passTraceGrace = 3 * time.Second
+
+// passTraceAfter schedules the end of an issue's grace: time.AfterFunc in the
+// daemon.  A test replaces it with a trigger of its own, so whether a beacon
+// lands inside the grace is the test's decision rather than the clock's --
+// the one race a loaded runner kept losing.
+var passTraceAfter = func(d time.Duration, f func()) { time.AfterFunc(d, f) }
 
 // take counts one beacon from addr against limit and says whether it is
 // within it.  A refused beacon is counted as dropped.
@@ -267,7 +273,7 @@ func (h *Handler) recordBVJPass(r *http.Request, site, key, kind string) {
 		return
 	}
 	ip := clientIP(r)
-	time.AfterFunc(passTraceGrace, func() {
+	passTraceAfter(passTraceGrace, func() {
 		if h.passTrace.bvjFire(key) {
 			events.InsertAsync(h.DB, ev)
 			h.countPass(ip, ev.JA4, site, kind) // the beacon never came: this is the pass's one count
