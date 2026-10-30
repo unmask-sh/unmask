@@ -24,9 +24,19 @@ const bvjTestDifficulty = 8
 // fail at random.
 func powPass(t *testing.T, secret, key, host string, foreign ...string) string {
 	t.Helper()
+	return powPassAvoiding(t, secret, key, host, foreign, nil)
+}
+
+// powPassAvoiding is powPass with the seeds the nonce must NOT clear spelt
+// out: those of the foreign keys on host, and those of key on the foreign
+// hosts -- under every SigHash, since the verifier derives the seed with each
+// (cookies.SigHashes) and would accept the entry for a foreign key or host
+// whose seed the nonce happens to answer.
+func powPassAvoiding(t *testing.T, secret, key, host string, foreignKeys, foreignHosts []string) string {
+	t.Helper()
 	issued := time.Now().Unix()
-	clears := func(k string, nonce int64) bool {
-		sum := sha256.Sum256([]byte(cookies.PowSeed(secret, k, host, issued) + ":" + strconv.FormatInt(nonce, 10)))
+	clears := func(seed string, nonce int64) bool {
+		sum := sha256.Sum256([]byte(seed + ":" + strconv.FormatInt(nonce, 10)))
 		n := 0
 		for _, b := range sum {
 			if b != 0 {
@@ -37,13 +47,23 @@ func powPass(t *testing.T, secret, key, host string, foreign ...string) string {
 		}
 		return n >= bvjTestDifficulty
 	}
+	own := cookies.PowSeed(secret, key, host, issued)
+	var avoid []string
+	for _, h := range cookies.SigHashes {
+		for _, f := range foreignKeys {
+			avoid = append(avoid, cookies.PowSeedH(h, secret, f, host, issued))
+		}
+		for _, fh := range foreignHosts {
+			avoid = append(avoid, cookies.PowSeedH(h, secret, key, fh, issued))
+		}
+	}
 next:
 	for nonce := int64(0); nonce < 1<<24; nonce++ {
-		if !clears(key, nonce) {
+		if !clears(own, nonce) {
 			continue
 		}
-		for _, f := range foreign {
-			if clears(f, nonce) {
+		for _, seed := range avoid {
+			if clears(seed, nonce) {
 				continue next
 			}
 		}

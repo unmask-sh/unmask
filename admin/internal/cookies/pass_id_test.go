@@ -24,12 +24,19 @@ func TestPassIDFollowsThePass(t *testing.T) {
 		return id
 	}
 
-	// Two nonces that answer the same seed.
+	// Two nonces that answer the same seed -- and not the other hash's seed
+	// for the same second: the verifier tries every SigHash and names the
+	// pass by the seed that answered, and at this difficulty one nonce in
+	// 2^8 answers both.
+	solves := func(seed string, n int64) bool {
+		sum := sha256.Sum256([]byte(seed + ":" + strconv.FormatInt(n, 10)))
+		return leadingZeroBits(sum[:]) >= difficulty
+	}
 	seed := PowSeed(secret, ip, host, issued)
+	other := PowSeedH(SigSHA256, secret, ip, host, issued)
 	var nonces []int64
 	for n := int64(0); len(nonces) < 2 && n < 1_000_000; n++ {
-		sum := sha256.Sum256([]byte(seed + ":" + strconv.FormatInt(n, 10)))
-		if leadingZeroBits(sum[:]) >= difficulty {
+		if solves(seed, n) && !solves(other, n) {
 			nonces = append(nonces, n)
 		}
 	}
@@ -52,11 +59,10 @@ func TestPassIDFollowsThePass(t *testing.T) {
 	}
 	// A seed of another second is another pass (the nonce found for the
 	// first seed may not answer it, so solve it on its own).
-	seed2 := PowSeed(secret, ip, host, issued-1)
+	seed2, other2 := PowSeed(secret, ip, host, issued-1), PowSeedH(SigSHA256, secret, ip, host, issued-1)
 	var n2 int64
 	for ; n2 < 1_000_000; n2++ {
-		sum := sha256.Sum256([]byte(seed2 + ":" + strconv.FormatInt(n2, 10)))
-		if leadingZeroBits(sum[:]) >= difficulty {
+		if solves(seed2, n2) && !solves(other2, n2) {
 			break
 		}
 	}

@@ -52,11 +52,17 @@ func TestSigHashesBothVerify(t *testing.T) {
 	if PowSeed(secret, ip, host, now) != PowSeedH(DefaultSigHash, secret, ip, host, now) {
 		t.Error("PowSeed does not follow DefaultSigHash")
 	}
-	for _, seed := range []string{s1, s256} {
+	solves := func(seed string, nonce int64) bool {
+		sum := sha256.Sum256([]byte(seed + ":" + strconv.FormatInt(nonce, 10)))
+		return leadingZeroBits(sum[:]) >= 8
+	}
+	for i, seed := range []string{s1, s256} {
+		// A nonce that answers this seed and not the other: the identity
+		// names the seed that answered, and one nonce in 2^8 answers both.
+		other := []string{s256, s1}[i]
 		var nonce int64
 		for ; nonce < 1_000_000; nonce++ {
-			sum := sha256.Sum256([]byte(seed + ":" + strconv.FormatInt(nonce, 10)))
-			if leadingZeroBits(sum[:]) >= 8 {
+			if solves(seed, nonce) && !solves(other, nonce) {
 				break
 			}
 		}
