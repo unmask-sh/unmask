@@ -5,7 +5,6 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
-	"hash"
 )
 
 // PassIDLen is the length of a pass's identity: the 16 hex digits of a
@@ -68,7 +67,7 @@ func (h SigHash) String() string {
 // mac: the hex of HMAC_h(key, msg), 40 digits for SHA-1 and 64 for SHA-256;
 // the callers cut it to the width their format carries.
 func (h SigHash) mac(key, msg string) string {
-	var f func() hash.Hash = sha1.New
+	f := sha1.New
 	if h == SigSHA256 {
 		f = sha256.New
 	}
