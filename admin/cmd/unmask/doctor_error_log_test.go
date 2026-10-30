@@ -17,13 +17,19 @@ func TestScanNginxErrorLog(t *testing.T) {
 2026/09/05 21:12:24 [error] 79#79: *442 connect() failed (111: Connection refused) while connecting to upstream
 2026/09/05 21:13:00 [notice] 1#1: signal process started
 2026/09/05 21:14:00 [emerg] 1#1: unknown directive "unmask_nope" in /etc/nginx/conf.d/x.conf:3
+2026/09/05 21:15:00 [warn] 79#79: *450 unmask: no JA4 for a TLS connection: the ClientHello never reached this module's callback. Another module that calls SSL_CTX_set_msg_callback on the same server replaces it (one callback per SSL_CTX), so JA4-based decisions do not apply; load one of the two, or report which module it is, client: 203.0.113.9, server: _, request: "GET / HTTP/1.1"
 `
 	rep := scanNginxErrorLog(strings.NewReader(log))
-	if rep.Lines != 5 || len(rep.Uninit) != 1 || rep.Uninit["unmask_failopen"] != 2 || !strings.Contains(rep.UninitLast, "*441") {
+	if rep.Lines != 6 || len(rep.Uninit) != 1 || rep.Uninit["unmask_failopen"] != 2 || !strings.Contains(rep.UninitLast, "*441") {
 		t.Errorf("uninit: %+v", rep)
 	}
 	if rep.Fatal != 1 || !strings.Contains(rep.FatalLast, "unknown directive") {
 		t.Errorf("fatal: %+v", rep)
+	}
+	// The module's own warning that its TLS callback was replaced: counted
+	// apart from the fatal lines, with the last one kept.
+	if rep.NoJA4 != 1 || !strings.Contains(rep.NoJA4Last, "*450") {
+		t.Errorf("no-JA4: %+v", rep)
 	}
 }
 

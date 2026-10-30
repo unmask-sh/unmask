@@ -8,7 +8,12 @@
   page's <header> by its script like the schema update notice beside it.
   .ReloadNotice is nil -- nothing is rendered -- while nginx runs what was
   written, and on an install that sends the daemon no access log
-  (forward-auth), where there is nothing to tell it by.
+  (forward-auth), where there is nothing to tell it by.  The same line
+  serves the module: when the module file on disk is newer than the one
+  nginx loaded (the module's own id on every log line, mo=), the help names
+  a restart in place of the reload -- a reload keeps the old module -- and
+  with the configuration itself current, the line says the module alone is
+  behind.
 
   One line: what is the case and since when.  How to apply it, and how the
   notice knows, sit behind a "?" that is the pages' shared help tip
@@ -35,7 +40,7 @@
 </style>
 <div id="rlnote" class="rlnote" role="status" hidden>
   <span class="rlnote-msg">{{ if .CauseHTML }}{{ safeHTML (tf $.Lang .MsgKey .WrittenHTML .CauseHTML) }}{{ else }}{{ safeHTML (tf $.Lang "reload_notice.msg" .WrittenHTML) }}{{ end }}</span>
-  <span class="info-tip" tabindex="0" aria-label="help" data-pin-title="{{ t $.Lang "reload_notice.title" }}">?<span class="info-popup">{{ if .Gateway }}{{ safeHTML (t $.Lang "reload_notice.sub_gateway") }}{{ else }}{{ safeHTML (t $.Lang "reload_notice.sub") }}{{ end }}{{ if .Changes }}<br><b>{{ t $.Lang "reload_notice.changes_h" }}</b>{{ range .Changes }}<br>· {{ . }}{{ end }}{{ end }}</span></span>
+  <span class="info-tip" tabindex="0" aria-label="help" data-pin-title="{{ t $.Lang .TitleKey }}">?<span class="info-popup">{{ if .Gateway }}{{ safeHTML (t $.Lang "reload_notice.sub_gateway") }}{{ else if .Restart }}{{ safeHTML (tf $.Lang "reload_notice.sub_restart" .RestartCmd) }}{{ else }}{{ safeHTML (t $.Lang "reload_notice.sub") }}{{ end }}{{ if .Changes }}<br><b>{{ t $.Lang "reload_notice.changes_h" }}</b>{{ range .Changes }}<br>· {{ . }}{{ end }}{{ end }}</span></span>
 </div>
 <script>
 (function(){

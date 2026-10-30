@@ -13,13 +13,25 @@
 // naming another id after that file was written is nginx still running the
 // older configuration.
 //
+// The module nginx loaded is read the same way.  A package that places a
+// new ngx_http_unmask_module.so leaves the running nginx on the old one --
+// a reload does not load a module again, only a restart does -- and the
+// line carries the hash of the module file nginx loaded (mo=, the module's
+// $unmask_module_id) beside the render id.  The file at load_module's path
+// (nginxconf.ModuleFilePath) hashes to what nginx should be running; a line
+// naming another hash after that file was placed is an nginx that needs a
+// restart, not a reload.
+//
 // Only a native install (or the container gateway) sends the daemon its
 // access log; a forward-auth install sends none, so nothing is ever seen and
 // nothing is ever reported.
 package renderwatch
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -61,11 +73,76 @@ type Watch struct {
 	diskID      string
 	diskWritten time.Time
 	statAt      time.Time
+
+	// The module: modPath names the file nginx loads (nil = unknown, no
+	// comparison), modSeen is what the lines carried (mo=; "" = a line
+	// without the field, a module from before module ids), and the rest is
+	// the file on disk, hashed again when it changes.
+	modPath   func() string
+	modSeen   map[string]time.Time
+	modFile   string
+	modMod    time.Time
+	modSize   int64
+	modID     string
+	modStatAt time.Time
 }
 
 // New: a watch over the configuration rendered into dir().
 func New(dir func() string) *Watch {
-	return &Watch{dir: dir, seen: map[string]time.Time{}}
+	return &Watch{dir: dir, seen: map[string]time.Time{}, modSeen: map[string]time.Time{}}
+}
+
+// SetModulePath names the module file nginx loads (nginxconf.ModuleFilePath),
+// read on every State; "" from it, or no function, and the module is not
+// compared.
+func (w *Watch) SetModulePath(f func() string) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	w.modPath = f
+	w.mu.Unlock()
+}
+
+// SawModule records the module id one access-log line carried.  "" is a
+// line with no mo= field: a module from before module ids, or a
+// configuration rendered without the module, older than any module that
+// has one.
+func (w *Watch) SawModule(id string, at time.Time) {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	prev, ok := w.modSeen[id]
+	if !ok || at.Sub(prev) >= time.Second {
+		w.modSeen[id] = at
+		w.dirty = true
+		if !ok && len(w.modSeen) > maxIDs {
+			w.modSeen = pruneSeen(w.modSeen)
+		}
+	}
+	w.mu.Unlock()
+}
+
+// ModuleIDOnDisk: the identity of the module file at path, the way the
+// module computes its own ($unmask_module_id: the first 16 hex digits of the
+// file's SHA-256), and the file's mtime -- when it was placed.  "" when the
+// file cannot be read.
+func ModuleIDOnDisk(path string) (id string, placed time.Time) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", time.Time{}
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return "", time.Time{}
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", time.Time{}
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16], fi.ModTime()
 }
 
 // Saw records the render id one access-log line carried.  "" is a line with
@@ -91,17 +168,23 @@ func (w *Watch) Saw(id string, at time.Time) {
 
 // pruneLocked drops the ids seen longest ago down to maxIDs.
 func (w *Watch) pruneLocked() {
-	for len(w.seen) > maxIDs {
+	w.seen = pruneSeen(w.seen)
+}
+
+// pruneSeen drops the ids seen longest ago down to maxIDs.
+func pruneSeen(seen map[string]time.Time) map[string]time.Time {
+	for len(seen) > maxIDs {
 		var oldID string
 		var oldAt time.Time
 		first := true
-		for id, at := range w.seen {
+		for id, at := range seen {
 			if first || at.Before(oldAt) {
 				oldID, oldAt, first = id, at, false
 			}
 		}
-		delete(w.seen, oldID)
+		delete(seen, oldID)
 	}
+	return seen
 }
 
 // State: the comparison now.
@@ -116,13 +199,57 @@ func (w *Watch) State() State {
 	now := time.Now()
 	w.mu.Lock()
 	recheck := dir != w.diskDir || now.Sub(w.statAt) >= statEvery
+	modPath := w.modPath
+	modRecheck := modPath != nil && now.Sub(w.modStatAt) >= statEvery
 	w.mu.Unlock()
 	if recheck {
 		w.refreshDisk(dir, now)
 	}
+	if modRecheck {
+		w.refreshModule(modPath(), now)
+	}
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return Evaluate(w.diskID, w.diskWritten, w.seen)
+	st := Evaluate(w.diskID, w.diskWritten, w.seen)
+	if w.modPath != nil {
+		ms := Evaluate(w.modID, w.modMod, w.modSeen)
+		st.ModuleCurrent, st.ModulePlaced = ms.Current, ms.Written
+		st.ModulePending, st.ModuleRunning = ms.Pending, ms.Running
+	}
+	return st
+}
+
+// refreshModule hashes the module file again when it changed since the
+// last look (or the path did).  Outside the lock, like refreshDisk.
+func (w *Watch) refreshModule(path string, now time.Time) {
+	var mod time.Time
+	var size int64
+	if path != "" {
+		if fi, err := os.Stat(path); err == nil {
+			mod, size = fi.ModTime(), fi.Size()
+		}
+	}
+	w.mu.Lock()
+	same := path == w.modFile && mod.Equal(w.modMod) && size == w.modSize
+	w.mu.Unlock()
+	if same {
+		w.mu.Lock()
+		w.modStatAt = now
+		w.mu.Unlock()
+		return
+	}
+	id, placed := "", time.Time{}
+	if !mod.IsZero() {
+		id, placed = ModuleIDOnDisk(path)
+	}
+	w.mu.Lock()
+	w.modFile, w.modMod, w.modSize = path, mod, size
+	w.modID = id
+	if !placed.IsZero() {
+		w.modMod = placed
+	}
+	w.modStatAt = now
+	w.mu.Unlock()
 }
 
 // Settle is State, and the consequence: once nginx has logged the
@@ -186,6 +313,18 @@ type State struct {
 	LastStale time.Time
 	// LastCurrent: when nginx last logged Current; zero when never.
 	LastCurrent time.Time
+
+	// The module, by the same rule.  ModuleCurrent: the id of the module
+	// file at load_module's path ("" when none is wired or it cannot be
+	// read -- nothing to compare), ModulePlaced its mtime.  ModulePending:
+	// nginx logged another module's id after ModulePlaced plus Grace and
+	// has not logged ModuleCurrent since -- it runs an older module, and
+	// only a restart loads the new one.  ModuleRunning: the id the latest
+	// of those lines carried ("" = a module from before module ids).
+	ModuleCurrent string
+	ModulePlaced  time.Time
+	ModulePending bool
+	ModuleRunning string
 }
 
 // Fresh: nginx has logged the configuration on disk since it was written.
@@ -222,7 +361,8 @@ func Evaluate(current string, written time.Time, seen map[string]time.Time) Stat
 
 // stateDoc: the state file's shape.
 type stateDoc struct {
-	Seen map[string]time.Time `json:"seen"`
+	Seen   map[string]time.Time `json:"seen"`
+	Module map[string]time.Time `json:"module,omitempty"`
 }
 
 // Save writes what the watch saw to StateFile in the output dir, when it saw
@@ -240,9 +380,12 @@ func (w *Watch) Save() error {
 		w.mu.Unlock()
 		return nil
 	}
-	doc := stateDoc{Seen: make(map[string]time.Time, len(w.seen))}
+	doc := stateDoc{Seen: make(map[string]time.Time, len(w.seen)), Module: make(map[string]time.Time, len(w.modSeen))}
 	for id, at := range w.seen {
 		doc.Seen[id] = at.UTC()
+	}
+	for id, at := range w.modSeen {
+		doc.Module[id] = at.UTC()
 	}
 	w.dirty = false
 	w.mu.Unlock()
@@ -295,12 +438,12 @@ func (w *Watch) Load() {
 		return
 	}
 	nginxconf.ScrubRenderRecord(w.dir())
-	seen, err := LoadSeen(w.dir())
+	doc, err := loadState(w.dir())
 	if err != nil {
 		return
 	}
 	w.mu.Lock()
-	for id, at := range seen {
+	for id, at := range doc.Seen {
 		if cur, ok := w.seen[id]; !ok || at.After(cur) {
 			w.seen[id] = at
 		}
@@ -308,21 +451,53 @@ func (w *Watch) Load() {
 	if len(w.seen) > maxIDs {
 		w.pruneLocked()
 	}
+	for id, at := range doc.Module {
+		if cur, ok := w.modSeen[id]; !ok || at.After(cur) {
+			w.modSeen[id] = at
+		}
+	}
+	if len(w.modSeen) > maxIDs {
+		w.modSeen = pruneSeen(w.modSeen)
+	}
 	w.mu.Unlock()
 }
 
-// LoadSeen reads the state file in dir.
+// LoadSeen reads the render ids of the state file in dir.
 func LoadSeen(dir string) (map[string]time.Time, error) {
-	b, err := os.ReadFile(filepath.Join(dir, StateFile))
+	doc, err := loadState(dir)
 	if err != nil {
 		return nil, err
 	}
+	return doc.Seen, nil
+}
+
+// LoadModuleSeen reads the module ids of the state file in dir: when a line
+// last carried each (mo=; "" = a line without the field, a module from
+// before module ids or a configuration rendered without the module).
+// `unmask doctor` reads it to say which module nginx has been running.
+func LoadModuleSeen(dir string) (map[string]time.Time, error) {
+	doc, err := loadState(dir)
+	if err != nil {
+		return nil, err
+	}
+	return doc.Module, nil
+}
+
+// loadState reads the state file in dir, with empty maps for what it lacks.
+func loadState(dir string) (stateDoc, error) {
+	b, err := os.ReadFile(filepath.Join(dir, StateFile))
+	if err != nil {
+		return stateDoc{}, err
+	}
 	var doc stateDoc
 	if err := json.Unmarshal(b, &doc); err != nil {
-		return nil, err
+		return stateDoc{}, err
 	}
 	if doc.Seen == nil {
 		doc.Seen = map[string]time.Time{}
 	}
-	return doc.Seen, nil
+	if doc.Module == nil {
+		doc.Module = map[string]time.Time{}
+	}
+	return doc, nil
 }

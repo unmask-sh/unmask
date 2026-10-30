@@ -113,6 +113,10 @@ type Reader struct {
 	// renderSeen hears the render id every line carries (rv=, "" when the
 	// line has none); nil until set.  Set before Receive, read unlocked.
 	renderSeen func(id string)
+	// moduleSeen hears the module id every line carries (mo=: the hash of
+	// the module file nginx loaded, "" when the line has none); nil until
+	// set.  Set before Receive, read unlocked.
+	moduleSeen func(id string)
 	// isDenied answers whether a client is banned with an action that refuses
 	// it outright.  The access-log line does not say that nginx denied the
 	// request, and the line of a refused client can still carry a pass
@@ -399,6 +403,17 @@ func (r *Reader) SetRenderSeen(f func(id string)) {
 	}
 	r.mu.Lock()
 	r.renderSeen = f
+	r.mu.Unlock()
+}
+
+// SetModuleSeen installs the module watch: f is called with every line's
+// module id (mo=; "" for a line without one).  Call before Receive.
+func (r *Reader) SetModuleSeen(f func(id string)) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.moduleSeen = f
 	r.mu.Unlock()
 }
 
@@ -776,7 +791,10 @@ var lineRE = regexp.MustCompile(
 		// Sec-Fetch-Dest and the Referer's host, each passed through a map
 		// that admits only the known tokens (a client-written value cannot
 		// smuggle a field into the line).  Absent from older configurations.
-		`(?: sfs=([a-z-]*))?(?: sfd=([a-z]*))?(?: rh=([A-Za-z0-9.:-]*))?(?: bv=([0-9A-Za-z.~]*))?(?: ua=(.*))?`)
+		// mo: the module file nginx loaded, by content hash (the module's
+		// $unmask_module_id, 16 hex); "" from a configuration rendered
+		// without the module, absent from older configurations.
+		`(?: sfs=([a-z-]*))?(?: sfd=([a-z]*))?(?: rh=([A-Za-z0-9.:-]*))?(?: bv=([0-9A-Za-z.~]*))?(?: mo=([0-9a-f]*))?(?: ua=(.*))?`)
 
 // parsed: struct holding the regex match result.
 type parsed struct {
@@ -832,6 +850,10 @@ type parsed struct {
 	// it once the plugin verified it; "" without one, or from a
 	// configuration that predates the field.
 	bv string
+	// mo: the hash of the module file nginx loaded (renderwatch); "" from a
+	// configuration rendered without the module or one that predates the
+	// field.
+	mo string
 	ua string
 }
 
@@ -891,7 +913,8 @@ func (r *Reader) parse(line string) (parsed, bool) {
 		sfd:      m[17],
 		rh:       m[18],
 		bv:       m[19],
-		ua:       m[20],
+		mo:       m[20],
+		ua:       m[21],
 	}, true
 }
 
@@ -975,6 +998,9 @@ func (r *Reader) onLine(line string) {
 	r.liveHit(p, isCrawler)
 	if r.renderSeen != nil {
 		r.renderSeen(p.rv)
+	}
+	if r.moduleSeen != nil {
+		r.moduleSeen(p.mo)
 	}
 	if p.cr != "" {
 		r.mu.Lock()

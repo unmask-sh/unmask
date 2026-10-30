@@ -36,7 +36,7 @@ the changelog's "Upgrade note" paragraphs.
 
 | Release | nginx | Sign-in | Settings keys | Schema | Defaults and behaviour |
 |---|---|---|---|---|---|
-| **0.1.53** | **Restart**: the module changed (`$unmask_bind_key`, the ban-file check, the `_bv` budget); update the plugin together with the daemon.  forward-auth: the nginx and Apache snippets changed; reload nginx / restart httpd. | Every admin session is signed out once; sign in again.  Password-reset and invite links sent by an earlier build stop working; send them again. | New, all optional: `nginx.trusted_lb_realip` (the visitor's address from X-Forwarded-For behind the trusted LB / CDN set), `nginx.cdn_egress_extra` (your own CDN origin-facing ranges), `nginx.cdn_egress_ban` (ban CDN egress after all), `nginx.admin_public_url` (the admin's own address, used for the links in mail), `notifications.critical_url` and `notifications.critical_min_severity` (a second webhook for the critical alerts). | 0046, a session generation per account.  0048 widens `cookie_bv` on MariaDB; on a large table it is left for the operator (`unmask migrate -status`).  0049, the pass cookies each address presented in a day. | New checks on by default, held for review on an install that reviews its upgrades: the UA-TLS consistency tier and the proof-of-work pass budget.  The default bypass presets pass GET, HEAD and OPTIONS only.  A crawler passed on its name alone meets traps, rules and limits, and a per-address budget.  With a third-party CAPTCHA configured, a verify without its token is refused.  Changing the SMTP host or the AI endpoint clears the stored credential.  Forwarded headers count only from a trusted proxy, for `/metrics` too.  The data directory is 0751 so nginx's worker reads the ban list (no ban held in nginx before).  No automatic ban lands on a CDN's origin-facing address (CloudFront, Cloudflare, Fastly); a CloudFront preset joins the trusted LB / CDN set.  `nginx.admin_allowed_hosts` guards every admin page, not only sign-in.  Logout ends every session of the account.  A re-bound pass ends with its solve's window.  A browser that asks for neither ja nor en gets English.  The access log carries the pass cookie (`bv=`) once the plugin verified it, and the stats page ranks the passes behind each address -- how many in a day, and the busiest hour of one -- from the moment nginx runs the rendered configuration. |
+| **0.1.53** | **Restart**: the module changed (`$unmask_bind_key`, `$unmask_bv_id`, the ban-file check, the `_bv` budget); update the plugin together with the daemon.  forward-auth: the nginx and Apache snippets changed; reload nginx / restart httpd. | Every admin session is signed out once; sign in again.  Password-reset and invite links sent by an earlier build stop working; send them again. | New, all optional: `nginx.trusted_lb_realip` (the visitor's address from X-Forwarded-For behind the trusted LB / CDN set), `nginx.cdn_egress_extra` (your own CDN origin-facing ranges), `nginx.cdn_egress_ban` (ban CDN egress after all), `nginx.admin_public_url` (the admin's own address, used for the links in mail), `notifications.critical_url` and `notifications.critical_min_severity` (a second webhook for the critical alerts). | 0046, a session generation per account.  0048 widens `cookie_bv` on MariaDB; on a large table it is left for the operator (`unmask migrate -status`).  0049, the pass cookies each address presented in a day. | New checks on by default, held for review on an install that reviews its upgrades: the UA-TLS consistency tier, the proof-of-work pass budget, and the reuse cap's per-pass budget (`rate_limit.reuse.pass_per_hour`, 500 requests an hour for one pass; the address's budget stays as the second tier).  The default bypass presets pass GET, HEAD and OPTIONS only.  A crawler passed on its name alone meets traps, rules and limits, and a per-address budget.  With a third-party CAPTCHA configured, a verify without its token is refused.  Changing the SMTP host or the AI endpoint clears the stored credential.  Forwarded headers count only from a trusted proxy, for `/metrics` too.  The data directory is 0751 so nginx's worker reads the ban list (no ban held in nginx before).  No automatic ban lands on a CDN's origin-facing address (CloudFront, Cloudflare, Fastly); a CloudFront preset joins the trusted LB / CDN set.  `nginx.admin_allowed_hosts` guards every admin page, not only sign-in.  Logout ends every session of the account.  A re-bound pass ends with its solve's window.  A browser that asks for neither ja nor en gets English.  The access log carries the pass cookie (`bv=`) once the plugin verified it, and the stats page ranks the passes behind each address -- how many in a day, and the busiest hour of one -- from the moment nginx runs the rendered configuration. |
 | **0.1.52** | Reload. | -- | `audit_retention_days` removed; `audit_log_retention_days` (0 = keep) and `notice_retention_days` replace it.  The old key is ignored and named at startup. | Index builds a large database leaves for the operator: the stats page's per-visitor card indexes, and 0039 (the Community Bans count).  Bans work during the build; account and profile edits wait. | The settings page takes the admin role; a viewer gets the dashboard, statistics and bot hunt. |
 | **0.1.51** | Reload: native installs need it for path normalization, challenge counting and monitor mode. | -- | `global.passthrough` removed: monitor mode (`challenge.default.observe_only`) is the switch.  `search_bots.upstream_disabled` and `upstream_ua_enabled` replaced by `search_bots.upstream_pattern_mode`.  Over-block alarm: `min_serves` / `max_serves_per_ip` replaced by `min_stuck_ips` / `stuck_percent`. | -- | Crawler modes read Pass / Normal checks / Stop (were White / Neutral / Black).  The admin shows a notice while nginx runs an older configuration. |
 | **0.1.50** | Reload. | -- | -- | `unmask migrate` ends at the last index and can be interrupted; `unmask db-vacuum` builds the query statistics. | The SQL-injection honeypot preset is on by default, held for review on an install that reviews new enforcement; its patterns now match encoded probes. |
@@ -46,9 +46,39 @@ the changelog's "Upgrade note" paragraphs.
 ### 0.1.53
 
 - The plugin and the daemon must move together: the pass cookie is bound
-  through nginx's new `$unmask_bind_key`, and the module also changed its
-  ban-file check and the `_bv` cookie budget.  Restart nginx once the plugin
-  package has been upgraded.
+  through nginx's new `$unmask_bind_key`, the reuse cap's per-pass tier is
+  keyed on its new `$unmask_bv_id`, and the module also changed its ban-file
+  check and the `_bv` cookie budget.  Restart nginx once the plugin package
+  has been upgraded.
+- The pass-cookie reuse cap counts in two tiers now.  The new first tier is
+  per pass: one pass (one browser on one network) holds 500 requests an hour
+  by default (`rate_limit.reuse.pass_per_hour`), so the people behind an
+  office proxy or a carrier NAT each have a budget of their own, and a
+  solved CAPTCHA is a new pass with its own.  The address's budget (10,000 a
+  day, 2,000 at once) stays as the second tier; a new pass does not reset
+  it.  An install that reviews its upgrades runs the address tier alone
+  until 0.1.53 is acknowledged.  A site whose pages call its API many times
+  a minute from one browser can raise the hourly figure; the stats page's
+  "busiest hour of one pass" column shows what the visitors reach.
+- The admin's "nginx is still running the previous configuration" notice
+  now tells a module upgrade apart: every access-log line carries the hash
+  of the module file nginx loaded (`mo=`, the module's `$unmask_module_id`),
+  and while the file on disk is newer, the notice asks for a restart in
+  place of a reload -- a reload keeps the old module.  It needs the new
+  module to say so; this one upgrade still relies on you to restart.
+- Cookie signatures and the proof-of-work seed can be HMAC-SHA256.  The
+  daemon and the module now verify both HMAC-SHA1 (what every release so
+  far signed with) and HMAC-SHA256; what is issued stays SHA-1 until you set
+  `secret.sig_hash: sha256`, which is safe once every nginx that verifies
+  the site's cookies runs the 0.1.53 module (restarted onto it).  A later
+  release makes sha256 the default, and a later one still stops accepting
+  sha1.  Cookies signed before the switch stay good for their window.
+  `unmask doctor` warns when sha256 is set while nginx still logs lines
+  without a module id (an older module, or an older configuration).
+- nginx's error log, and `unmask doctor`, now say when the module's TLS
+  callback was replaced by another module (every request then runs without
+  a JA4): one callback per SSL context is OpenSSL's rule, not a bug to fix
+  on either side; load one of the two.
 - Schema update 0046 gives each account a session generation; existing
   sessions are signed out once by the upgrade.
 - The forward-auth snippets now set the client address (Apache) and clear

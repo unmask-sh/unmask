@@ -3,7 +3,7 @@
 // Format:
 //
 //	"<issued_unix>.<sig>.<kind>"        // kind is a free-form ASCII string (e.g. "captcha")
-//	sig = first 16 hex chars of HMAC-SHA1("<issued_unix>:<remote_ip>:<kind>", BV_SECRET)
+//	sig = first 16 hex chars of HMAC("<issued_unix>:<remote_ip>:<kind>", BV_SECRET), SHA-1 or SHA-256 (SigHash)
 //
 // The first segment is the issuance unix timestamp in seconds (= second
 // granularity).  Previously this was floor(unix/86400) (= day buckets), but
@@ -97,7 +97,13 @@ func nowUnix() int64 { return time.Now().Unix() }
 // host segment (= effectively unbound, for a no-Host request).  MUST stay
 // byte-identical to the C plugin's CAPTCHA HMAC input.
 func IssueValue(bvSecret, remoteIP, host, kind string) string {
-	return issueValueAt(bvSecret, remoteIP, host, kind, nowUnix())
+	return issueValueAtH(DefaultSigHash, bvSecret, remoteIP, host, kind, nowUnix())
+}
+
+// IssueValueH is IssueValue signing with h (settings.secret.sig_hash); the
+// verifier accepts every SigHash, so the choice is the issuer's alone.
+func IssueValueH(h SigHash, bvSecret, remoteIP, host, kind string) string {
+	return issueValueAtH(h, bvSecret, remoteIP, host, kind, nowUnix())
 }
 
 // IssueValueAt is IssueValue carrying the given issue time instead of now.  A
@@ -106,18 +112,30 @@ func IssueValue(bvSecret, remoteIP, host, kind string) string {
 // decides when it stops being honoured: the re-bound entry uses it to end
 // where the solve it stands for ends.
 func IssueValueAt(bvSecret, remoteIP, host, kind string, issued int64) string {
-	return issueValueAt(bvSecret, remoteIP, host, kind, issued)
+	return issueValueAtH(DefaultSigHash, bvSecret, remoteIP, host, kind, issued)
 }
 
+// IssueValueAtH is IssueValueAt signing with h.
+func IssueValueAtH(h SigHash, bvSecret, remoteIP, host, kind string, issued int64) string {
+	return issueValueAtH(h, bvSecret, remoteIP, host, kind, issued)
+}
+
+// issueValueAt / issueJValueAt: the DefaultSigHash forms, the tests' spelling.
 func issueValueAt(bvSecret, remoteIP, host, kind string, issued int64) string {
+	return issueValueAtH(DefaultSigHash, bvSecret, remoteIP, host, kind, issued)
+}
+
+func issueJValueAt(bvSecret, ja4Hash, uaHash, lineage string, asn uint, host, kind string, issued int64) string {
+	return issueJValueAtH(DefaultSigHash, bvSecret, ja4Hash, uaHash, lineage, asn, host, kind, issued)
+}
+
+func issueValueAtH(h SigHash, bvSecret, remoteIP, host, kind string, issued int64) string {
 	if kind == "" {
 		kind = "captcha"
 	}
 	remoteIP = bindIP(remoteIP) // IPv6 -> /64 so privacy-address rotation doesn't re-challenge
 	msg := strconv.FormatInt(issued, 10) + ":" + remoteIP + ":" + host + ":" + kind
-	mac := hmac.New(sha1.New, []byte(bvSecret))
-	mac.Write([]byte(msg))
-	sig := hex.EncodeToString(mac.Sum(nil))[:16]
+	sig := h.mac(bvSecret, msg)[:16]
 	return strconv.FormatInt(issued, 10) + "." + sig + "." + kind
 }
 
@@ -177,24 +195,38 @@ func MatchingEntryKind(value, bvSecret, remoteIP, host string, powValidSeconds, 
 // again writes a new entry each time, a page that reports the same pass twice
 // sends the same one.
 func MatchingEntry(value, bvSecret, remoteIP, host string, powValidSeconds, captchaValidSeconds, powDifficulty int) (entry, kind string, issued int64, ok bool) {
+	entry, kind, _, issued, ok = MatchingEntryID(value, bvSecret, remoteIP, host, powValidSeconds, captchaValidSeconds, powDifficulty)
+	return entry, kind, issued, ok
+}
+
+// MatchingEntryID is MatchingEntry with the pass's identity as well: what the
+// plugin's $unmask_bv_id names for the entry (PassIDLen hex digits -- a
+// 3-segment entry's signature, or the first digits of the seed a
+// proof-of-work entry answered), the key of the per-pass reuse cap.
+func MatchingEntryID(value, bvSecret, remoteIP, host string, powValidSeconds, captchaValidSeconds, powDifficulty int) (entry, kind, id string, issued int64, ok bool) {
 	if value == "" {
-		return "", "", 0, false
+		return "", "", "", 0, false
 	}
 	for i, e := range strings.Split(value, "~") {
 		if i >= maxVerifyEntries {
 			break
 		}
+		parts := strings.Split(e, ".")
+		if len(parts) == 4 && parts[1] == "pow2" {
+			seed, ok := verifyPowSHA256(parts, bvSecret, remoteIP, host, powValidSeconds, powDifficulty)
+			if !ok {
+				continue
+			}
+			issued, _ = strconv.ParseInt(parts[0], 10, 64) // verified, so it parses
+			return e, "pow2", seed[:PassIDLen], issued, true
+		}
 		if !verifyOne(e, bvSecret, remoteIP, host, powValidSeconds, captchaValidSeconds, powDifficulty) {
 			continue
 		}
-		parts := strings.Split(e, ".")
-		issued, _ = strconv.ParseInt(parts[0], 10, 64) // verifyOne accepted it, so it parses
-		if len(parts) == 4 {
-			return e, "pow2", issued, true
-		}
-		return e, parts[2], issued, true
+		issued, _ = strconv.ParseInt(parts[0], 10, 64)
+		return e, parts[2], parts[1], issued, true
 	}
-	return "", "", 0, false
+	return "", "", "", 0, false
 }
 
 // AppendEntry prepends entry to the "~"-delimited _bv list, keeping at most
@@ -231,7 +263,7 @@ func AppendEntry(existing, entry string, max int) string {
 // within the kind-specific validity window for remoteIP.
 //
 // Two formats are accepted:
-//  1. CAPTCHA path  : "<issued_unix>.<HMAC-SHA1 16hex>.<kind>"        (3 segments. issued by server)
+//  1. CAPTCHA path  : "<issued_unix>.<HMAC 16hex>.<kind>"             (3 segments. issued by server; SHA-1 or SHA-256, SigHashes)
 //  2. SHA-256 PoW   : "<issued_unix>.pow2.<nonce_b36>.<flags_b36>"    (4 segments. issued by challenge.js)
 //
 // In the PoW path the client computes the hash in JS and issues the cookie
@@ -256,7 +288,8 @@ func verifyOne(value, bvSecret, remoteIP, host string, powValidSeconds, captchaV
 	parts := strings.Split(value, ".")
 	// PoW format: 4 segments with parts[1]="pow2" marker.
 	if len(parts) == 4 && parts[1] == "pow2" {
-		return verifyPowSHA256(parts, bvSecret, remoteIP, host, powValidSeconds, powDifficulty)
+		_, ok := verifyPowSHA256(parts, bvSecret, remoteIP, host, powValidSeconds, powDifficulty)
+		return ok
 	}
 	// CAPTCHA format: 3 segments.  Verify via HMAC.
 	if len(parts) != 3 {
@@ -275,8 +308,15 @@ func verifyOne(value, bvSecret, remoteIP, host string, powValidSeconds, captchaV
 	}
 	// host is folded into the HMAC input, so re-issuing for the CURRENT host
 	// reproduces the signature only if the cookie was minted for this same host.
-	expected := issueValueAt(bvSecret, remoteIP, host, kind, issued)
-	return hmac.Equal([]byte(expected), []byte(value))
+	// Every SigHash is tried: a cookie signed before an install moved to
+	// SHA-256 stays good for its window (SigHashes, the module's order too).
+	for _, h := range SigHashes {
+		expected := issueValueAtH(h, bvSecret, remoteIP, host, kind, issued)
+		if hmac.Equal([]byte(expected), []byte(value)) {
+			return true
+		}
+	}
+	return false
 }
 
 // issuedKinds are the words the admin actually signs into the kind segment of
@@ -335,17 +375,26 @@ func withinWindow(issued int64, validSeconds int) bool {
 // seed without the secret -- it must fetch the challenge), and binding it to
 // the client IP makes a solved cookie non-transferable to other IPs (= a botnet
 // can't share one solve, and one solve no longer passes for the whole internet
-// for the validity window).  HMAC-SHA1 mirrors the CAPTCHA path so the C plugin
+// for the validity window).  The HMAC mirrors the CAPTCHA path so the C plugin
 // reuses the same primitive; MUST stay byte-identical to ngx_unmask_pow_seed().
 func PowSeed(bvSecret, remoteIP, host string, issued int64) string {
-	remoteIP = bindIP(remoteIP) // IPv6 -> /64 (see bindIP); same token as the C verifier
-	msg := strconv.FormatInt(issued, 10) + ":" + remoteIP + ":" + host + ":pow_seed"
-	mac := hmac.New(sha1.New, []byte(bvSecret))
-	mac.Write([]byte(msg))
-	return hex.EncodeToString(mac.Sum(nil))
+	return PowSeedH(DefaultSigHash, bvSecret, remoteIP, host, issued)
 }
 
-func verifyPowSHA256(parts []string, bvSecret, remoteIP, host string, validSeconds, powDifficulty int) bool {
+// PowSeedH is PowSeed derived with h.  Whatever h, the seed is 40 hex digits
+// (SHA-256's MAC is cut to 160 bits), so the challenge page, challenge.js and
+// the module's buffers see one shape; the verifier derives it with every
+// SigHash, so a cookie solved against either seed verifies.
+func PowSeedH(h SigHash, bvSecret, remoteIP, host string, issued int64) string {
+	remoteIP = bindIP(remoteIP) // IPv6 -> /64 (see bindIP); same token as the C verifier
+	msg := strconv.FormatInt(issued, 10) + ":" + remoteIP + ":" + host + ":pow_seed"
+	return h.mac(bvSecret, msg)[:40]
+}
+
+// verifyPowSHA256 reports whether the entry solves the proof-of-work for one
+// of the seeds this address and host could have been handed (PowSeedH, every
+// SigHash), and that seed: the pass's identity is derived from it (passIDOf).
+func verifyPowSHA256(parts []string, bvSecret, remoteIP, host string, validSeconds, powDifficulty int) (seed string, ok bool) {
 	if powDifficulty < 8 || powDifficulty > 24 {
 		powDifficulty = 18
 	}
@@ -353,19 +402,23 @@ func verifyPowSHA256(parts []string, bvSecret, remoteIP, host string, validSecon
 	// parts[3] = flags (not verified).  parts[1] = "pow2" already detected.
 	issued, err := strconv.ParseInt(issuedStr, 10, 64)
 	if err != nil {
-		return false
+		return "", false
 	}
 	if !withinWindow(issued, validSeconds) {
-		return false
+		return "", false
 	}
 	nonce, err := strconv.ParseInt(nonceB36, 36, 64)
 	if err != nil || nonce < 0 {
-		return false
+		return "", false
 	}
-	seed := PowSeed(bvSecret, remoteIP, host, issued)
-	input := seed + ":" + strconv.FormatInt(nonce, 10)
-	sum := sha256.Sum256([]byte(input))
-	return leadingZeroBits(sum[:]) >= powDifficulty
+	for _, h := range SigHashes {
+		seed := PowSeedH(h, bvSecret, remoteIP, host, issued)
+		sum := sha256.Sum256([]byte(seed + ":" + strconv.FormatInt(nonce, 10)))
+		if leadingZeroBits(sum[:]) >= powDifficulty {
+			return seed, true
+		}
+	}
+	return "", false
 }
 
 // leadingZeroBits: count the number of leading zero bits from the MSB end of
@@ -404,7 +457,7 @@ func leadingZeroBits(b []byte) int {
 // Format (7 dot-separated segments):
 //
 //	"<issued_unix>.<ja4h>.<uah>.<lineage>.<asn>.<kind>.<sig>"
-//	sig = first 16 hex of HMAC-SHA1(
+//	sig = first 16 hex of HMAC(
 //	        "<issued>:<ja4h>:<uah>:<lineage>:<asn>:<kind>:<host>:bvj", BV_SECRET)
 //
 // Segments:
@@ -509,25 +562,28 @@ func NewLineage() (string, error) {
 // IssueJValue builds the _bvj cookie value.  asn is the solve-time ASN (0 if
 // unknown / no ASN db).  Mirrors IssueValue's host binding.
 func IssueJValue(bvSecret, ja4Hash, uaHash, lineage string, asn uint, host, kind string) string {
-	return issueJValueAt(bvSecret, ja4Hash, uaHash, lineage, asn, host, kind, nowUnix())
+	return issueJValueAtH(DefaultSigHash, bvSecret, ja4Hash, uaHash, lineage, asn, host, kind, nowUnix())
 }
 
 // IssueJValueAt is IssueJValue dated at issued: the time of the solve the
 // credential records, so its window is that solve's window.
 func IssueJValueAt(bvSecret, ja4Hash, uaHash, lineage string, asn uint, host, kind string, issued int64) string {
-	return issueJValueAt(bvSecret, ja4Hash, uaHash, lineage, asn, host, kind, issued)
+	return issueJValueAtH(DefaultSigHash, bvSecret, ja4Hash, uaHash, lineage, asn, host, kind, issued)
 }
 
-func issueJValueAt(bvSecret, ja4Hash, uaHash, lineage string, asn uint, host, kind string, issued int64) string {
+// IssueJValueAtH is IssueJValueAt signing with h.
+func IssueJValueAtH(h SigHash, bvSecret, ja4Hash, uaHash, lineage string, asn uint, host, kind string, issued int64) string {
+	return issueJValueAtH(h, bvSecret, ja4Hash, uaHash, lineage, asn, host, kind, issued)
+}
+
+func issueJValueAtH(h SigHash, bvSecret, ja4Hash, uaHash, lineage string, asn uint, host, kind string, issued int64) string {
 	if kind == "" {
 		kind = "captcha"
 	}
 	asnS := strconv.FormatUint(uint64(asn), 10)
 	issuedS := strconv.FormatInt(issued, 10)
 	msg := issuedS + ":" + ja4Hash + ":" + uaHash + ":" + lineage + ":" + asnS + ":" + kind + ":" + host + ":bvj"
-	mac := hmac.New(sha1.New, []byte(bvSecret))
-	mac.Write([]byte(msg))
-	sig := hex.EncodeToString(mac.Sum(nil))[:16]
+	sig := h.mac(bvSecret, msg)[:16]
 	return issuedS + "." + ja4Hash + "." + uaHash + "." + lineage + "." + asnS + "." + kind + "." + sig
 }
 
@@ -555,9 +611,11 @@ func ParseJValue(value, bvSecret, host string, validSeconds int) (JClaims, bool)
 	if err != nil {
 		return zero, false
 	}
-	expected := issueJValueAt(bvSecret, ja4h, uah, lineage, uint(asn64), host, kind, issued)
-	if !hmac.Equal([]byte(expected), []byte(value)) {
-		return zero, false
+	for _, h := range SigHashes {
+		expected := issueJValueAtH(h, bvSecret, ja4h, uah, lineage, uint(asn64), host, kind, issued)
+		if hmac.Equal([]byte(expected), []byte(value)) {
+			return JClaims{Issued: issued, JA4Hash: ja4h, UAHash: uah, Lineage: lineage, ASN: uint(asn64), Kind: kind}, true
+		}
 	}
-	return JClaims{Issued: issued, JA4Hash: ja4h, UAHash: uah, Lineage: lineage, ASN: uint(asn64), Kind: kind}, true
+	return zero, false
 }

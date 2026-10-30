@@ -12,6 +12,18 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+
+- (2026-10-30) **The reuse cap counts one pass at a time.**  Its first tier is now the pass itself: the plugin's `$unmask_bv_id` names the pass that verified, and one pass holds 500 requests an hour, so the people behind an office proxy or a carrier NAT each get a budget of their own.  The address's budget stays as the second tier; a new pass does not reset it.
+
+- (2026-10-30) **The admin asks for a restart when the module changed.**  Every access-log line now carries the hash of the module file nginx loaded (`mo=`, the module's `$unmask_module_id`).  While the file on disk is newer than the one running -- a plugin upgrade not yet restarted -- the reload notice names the restart in place of the reload, which would keep the old module.
+
+- (2026-10-30) **Cookie signatures can move to HMAC-SHA256.**  The daemon and the module now verify both HMAC-SHA1, which every release so far signed with, and HMAC-SHA256; `secret.sig_hash: sha256` switches what is issued once every nginx runs this release's module, and the cookies signed before stay good for their window.  A later release makes it the default.
+
+- (2026-10-30) **The module says when another module took its TLS callback.**  An SSL context holds one message callback, so a module that sets it after unmask leaves every request without a JA4 while nothing else looks wrong.  nginx's error log now says so once a minute, `unmask doctor` reports it, and SECURITY.md gains a threat model that names this and the other limits.
+
 ## [0.1.53-rc29] - 2026-10-30 (testing build)
 
 ### Changed

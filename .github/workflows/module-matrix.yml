@@ -1,0 +1,96 @@
+# module-matrix: build the nginx module against every nginx version the plugin
+# package ships a .so for, whenever the module (or the build that makes it)
+# changes.
+#
+# ci.yml builds the module for a few recent versions on every push; this
+# workflow is the rest of the shipped set -- fifteen versions from 1.10.3 to
+# the current stable -- against the host OpenSSL 3, which is how the release's
+# own `make build-module-multi` builds them.  The release also links the same
+# versions against OpenSSL 1.1 and 1.0 and against glibc 2.12 for the hosts
+# that still run those (the openssl11/10 and glibc212 builders of
+# `make build-module-multi-all`); the OpenSSL 1.1 set is built here too, in
+# its AlmaLinux 8 container.  Before a release every build is also installed
+# on a lab of real distributions (`make distro-check`; CONTRIBUTING.md,
+# "Release gate").
+name: module-matrix
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - "nginx-module/**"
+      - "Makefile"
+      - ".github/workflows/module-matrix.yml"
+  pull_request:
+    branches: [master, main]
+    paths:
+      - "nginx-module/**"
+      - "Makefile"
+      - ".github/workflows/module-matrix.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Every shipped version against the host's OpenSSL 3 (ubuntu-latest), one
+  # job each so a version that stops building names itself.  1.10 / 1.11
+  # predate --with-compat, as build-module-multi knows.
+  build-module-all:
+    strategy:
+      fail-fast: false
+      matrix:
+        nginx:
+          - "1.10.3"
+          - "1.12.2"
+          - "1.14.1"
+          - "1.14.2"
+          - "1.16.1"
+          - "1.18.0"
+          - "1.20.1"
+          - "1.20.2"
+          - "1.22.1"
+          - "1.24.0"
+          - "1.26.2"
+          - "1.26.3"
+          - "1.28.3"
+          - "1.30.0"
+          - "1.30.6"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: install build deps
+        # PCRE (1) for the versions before nginx learned PCRE2 (1.21.5).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev libpcre3-dev libpcre2-dev zlib1g-dev
+      - name: build module
+        # build-module downloads the pinned tarball (nginx-sha256sums.txt
+        # verifies it), configures with --add-dynamic-module and builds.
+        run: |
+          compat=1
+          case "${{ matrix.nginx }}" in 1.10.*|1.11.[0-4]) compat=0 ;; esac
+          make build-module NGINX_VERSION=${{ matrix.nginx }} NGINX_WITH_COMPAT=$compat
+          ls -la dist/ngx_http_unmask_module-linux-amd64.so
+
+  # The OpenSSL 1.1 set, the way the release builds it: every version in the
+  # AlmaLinux 8 builder image.  build-module-multi-openssl11 goes on past a
+  # version that fails, so the .so files are counted afterwards.
+  build-module-openssl11:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: build every version against OpenSSL 1.1
+        run: make build-module-multi-openssl11
+      - name: every version built
+        run: |
+          want=$(sed -n 's/^PLUGIN_NGINX_VERSIONS ?= //p' Makefile)
+          missing=""
+          for v in $want; do
+            [ -f "dist/multi-modules-openssl11/$v/ngx_http_unmask_module.so" ] || missing="$missing $v"
+          done
+          if [ -n "$missing" ]; then
+            echo "no OpenSSL 1.1 module for:$missing" >&2
+            exit 1
+          fi
+          echo "built: $want"

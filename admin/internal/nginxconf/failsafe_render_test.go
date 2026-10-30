@@ -23,7 +23,7 @@ var moduleDirectives = []string{
 // templates read.  Without the module nothing defines them, and a map keyed
 // on one is an nginx that does not start ("unknown variable").
 var moduleVariables = []string{
-	"client_ja4", "unmask_bv_kind", "unmask_banned", "unmask_ban_action", "unmask_has_signed_agent",
+	"client_ja4", "unmask_bv_kind", "unmask_bv_id", "unmask_module_id", "unmask_banned", "unmask_ban_action", "unmask_has_signed_agent",
 	"unmask_client_net",
 }
 

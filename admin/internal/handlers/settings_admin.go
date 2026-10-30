@@ -5136,7 +5136,8 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 		zoneNamesSeen[name] = true
 		if name == c.Default.Name || name == settings.JA4LimitZoneName ||
 			name == settings.IPLimitZoneName || name == settings.IPJA4LimitZoneName ||
-			name == settings.ReuseZoneName || name == settings.ReuseZoneName+"_captcha" {
+			name == settings.ReuseZoneName || name == settings.ReuseZoneName+"_captcha" ||
+			name == settings.ReuseZoneName+"_pass" {
 			return fmt.Errorf("zone name %q is reserved", name)
 		}
 		// validation: alnum + "_" only.
@@ -5283,6 +5284,9 @@ func applyReuseForm(ru *settings.ReuseLimitConfig, r *http.Request) error {
 		return err
 	}
 	if next.Burst, err = readInt("reuse_burst", 1, settings.ReuseMaxBurst); err != nil {
+		return err
+	}
+	if next.PassPerHour, err = readInt("reuse_pass_per_hour", settings.ReusePassMinPerHour, settings.ReusePassMaxPerHour); err != nil {
 		return err
 	}
 	switch a := strings.TrimSpace(r.FormValue("reuse_action")); a {

@@ -6,7 +6,7 @@
  * an untrusted-input parser.  It lives here, free of nginx / OpenSSL types, so
  * it can be exercised by bv_parser_fuzz.c under ASan exactly as the JA4
  * ClientHello parser is.  ngx_http_unmask_module.c calls these; the keyed
- * HMAC-SHA1 / SHA-256-hashcash verification (which needs the secret, the
+ * HMAC / SHA-256-hashcash verification (which needs the secret, the
  * client IP and the host) stays in the module and consumes the field offsets
  * this parser returns.
  *
@@ -21,7 +21,7 @@
 
 typedef enum {
     BV_FMT_NONE = 0,
-    BV_FMT_CAPTCHA,   /* 3 segments: day.sig.kind   (sig = 16 hex, HMAC-SHA1)        */
+    BV_FMT_CAPTCHA,   /* 3 segments: day.sig.kind   (sig = 16 hex of an HMAC)      */
     BV_FMT_POW2,      /* 4 segments: day."pow2".target.flags (SHA-256 hashcash)      */
 } bv_format_t;
 

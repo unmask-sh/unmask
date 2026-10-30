@@ -80,7 +80,7 @@ func TestPreviewVerifyRender(t *testing.T) {
 		`map "$is_search_bot:$bv_any_valid:$is_bypass_ip:$is_bypass_path:$unmask_preview_verified" $unmask_named_rate_key {`,
 		`"1:0:0:0:0"`,
 		// the access log says so
-		" pv=$unmask_preview_verified sb=$is_search_bot sfs=$unmask_sfs_log sfd=$unmask_sfd_log rh=$unmask_ref_host bv=$unmask_bv_log ua=$http_user_agent'",
+		" pv=$unmask_preview_verified sb=$is_search_bot sfs=$unmask_sfs_log sfd=$unmask_sfd_log rh=$unmask_ref_host bv=$unmask_bv_log mo=$unmask_module_id ua=$http_user_agent'",
 	} {
 		if !strings.Contains(httpInc, want) {
 			t.Errorf("http.inc lacks %q", want)

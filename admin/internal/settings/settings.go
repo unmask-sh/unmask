@@ -15,7 +15,7 @@
 //	    password: ...
 //	    database: unmask
 //	secret:
-//	  bv_secret: <random 32+ chars>      # _bv cookie HMAC-SHA1 key
+//	  bv_secret: <random 32+ chars>      # _bv cookie HMAC key (sig_hash: sha1 | sha256)
 //	  captcha_secret_base: <random>      # math captcha token HMAC-SHA256 base
 //	challenge:
 //	  pow_cookie_valid_seconds: 604800       # 7 days
@@ -150,6 +150,15 @@ type MariaDB struct {
 type Secret struct {
 	BVSecret          string `yaml:"bv_secret"`
 	CaptchaSecretBase string `yaml:"captcha_secret_base"`
+	// SigHash: the MAC the daemon signs the _bv and _bvj cookies and the
+	// proof-of-work seed with -- "sha1" (the default, what every release so
+	// far used) or "sha256".  The verifier, in the daemon and in the nginx
+	// module, accepts both, so the setting can move once every nginx runs a
+	// module that does (0.1.53 or later), and the cookies signed before stay
+	// good for their window.  A later release makes sha256 the default and a
+	// later one still stops accepting sha1.  Not web-editable, like the rest
+	// of this block.
+	SigHash string `yaml:"sig_hash,omitempty"`
 }
 
 // ChallengeConfig: multi-site Default + Sites wrapper around a ChallengeValues
@@ -4048,31 +4057,49 @@ type JA4LimitConfig = AxisLimitConfig
 
 // ReuseLimitConfig: the pass-cookie reuse cap (RateLimitConfig.Reuse).
 //
-// It renders as one more limit_req zone, keyed on the client address and
-// counting only requests that carry a valid _bv: a token bucket that holds
-// Burst requests and refills at PerDay a day (nginx takes the rate per
-// minute, so PerDay is rounded up to a whole number a minute).  Over it, the
-// request goes to the challenge route like any rate-limit hit, and the
-// daemon serves a CAPTCHA on every request while the client stays over
-// (captcha_only), or the deny page (deny).  A PoW pass gives no way past it,
-// and neither does a new one: the budget is the address's, not the cookie's.
-// The seeds sit far above what a person does in a day or an hour, and far
-// below what a scraper that keeps reusing one pass does.
+// It renders as limit_req zones that count only requests carrying a valid
+// _bv, in two tiers.  Per pass (PassPerHour): the plugin names the pass that
+// verified ($unmask_bv_id -- one pass is one browser on one network), and
+// one pass holds PassPerHour requests, refilling at that many an hour.  Per
+// address (PerDay, Burst): a token bucket that holds Burst requests and
+// refills at PerDay a day (nginx takes the rate per minute, so both are
+// rounded up to a whole number a minute).  Over either, the request goes to
+// the challenge route like any rate-limit hit, and the daemon serves a
+// CAPTCHA on every request while the client stays over (captcha_only), or
+// the deny page (deny).  The per-pass tier is the precise one -- the people
+// behind an office proxy or a carrier NAT each have their own budget, and a
+// solved CAPTCHA is a new pass with a budget of its own -- and the per-address
+// tier is what keeps a client from going round it: a PoW pass gives no way
+// past that one, and neither does a new one, so the address's day is bounded
+// however many passes it mints.  The seeds sit far above what a person does
+// in an hour or a day, and far below what a scraper that keeps reusing one
+// pass does.
 //
 // On by default -- a tightening added in ReuseAddedIn, so an install on the
 // "review" upgrade policy holds it until the upgrade is acknowledged
-// (nginxconf.ReuseCapActive).
+// (nginxconf.ReuseCapActive); the per-pass tier came in ReusePassAddedIn and
+// is held on its own until that release is (nginxconf.ReusePassActive).
 type ReuseLimitConfig struct {
-	Disabled bool   `yaml:"disabled,omitempty"`
-	PerDay   int    `yaml:"per_day,omitempty"` // 0 -> ReuseSeedPerDay
-	Burst    int    `yaml:"burst,omitempty"`   // 0 -> ReuseSeedBurst
-	Action   string `yaml:"action,omitempty"`  // captcha_only (default) | deny
+	Disabled    bool   `yaml:"disabled,omitempty"`
+	PerDay      int    `yaml:"per_day,omitempty"`       // 0 -> ReuseSeedPerDay
+	Burst       int    `yaml:"burst,omitempty"`         // 0 -> ReuseSeedBurst
+	PassPerHour int    `yaml:"pass_per_hour,omitempty"` // 0 -> ReusePassSeedPerHour
+	Action      string `yaml:"action,omitempty"`        // captcha_only (default) | deny
 }
 
-// ReuseSeedPerDay / ReuseSeedBurst: the defaults, far above what a person does
-// (see ReuseLimitConfig).  ReuseMinPerDay: nginx's smallest rate, one request a
-// minute.  ReuseZoneName: the zone it renders as, reserved like the axis rows'
-// names.  ReuseAddedIn: the release that turned it on, for the upgrade review.
+// ReuseSeedPerDay / ReuseSeedBurst: the per-address defaults, far above what
+// a person does (see ReuseLimitConfig).  ReuseMinPerDay: nginx's smallest
+// rate, one request a minute.  ReuseZoneName: the zone it renders as,
+// reserved like the axis rows' names; the per-pass and the solved-CAPTCHA
+// tiers render as ReuseZoneName + "_pass" / "_captcha".  ReuseAddedIn: the
+// release that turned the cap on, for the upgrade review.
+//
+// ReusePassSeedPerHour: the per-pass default.  One browser on one network
+// takes a page a few seconds apart at the fastest, with the assets and
+// scripts behind each page largely bypassed; 500 an hour is minutes of that
+// without a pause, and a scraper driving one pass is past it inside the
+// hour.  ReusePassMinPerHour: nginx's smallest rate again, one a minute.
+// ReusePassAddedIn: the release that added the tier.
 const (
 	ReuseAddedIn    = "v0.1.49"
 	ReuseSeedPerDay = 10000
@@ -4081,6 +4108,11 @@ const (
 	ReuseMaxPerDay  = 10000000
 	ReuseMaxBurst   = 1000000
 	ReuseZoneName   = "unmask_reuse"
+
+	ReusePassAddedIn     = "v0.1.53"
+	ReusePassSeedPerHour = 500
+	ReusePassMinPerHour  = 60
+	ReusePassMaxPerHour  = 1000000
 	// NamedRescueZoneName: the name-only crawler budget zone
 	// (SearchBotsConfig.NameOnlyRatePerMinResolved).
 	NamedRescueZoneName = "unmask_named_rate"
@@ -4118,6 +4150,25 @@ func (c ReuseLimitConfig) ResolvedAction() string {
 // RatePerMin: PerDay as nginx's per-minute rate, rounded up, at least 1.
 func (c ReuseLimitConfig) RatePerMin() int {
 	n := (c.ResolvedPerDay() + 1439) / 1440
+	if n < 1 {
+		n = 1
+	}
+	return n
+}
+
+// ResolvedPassPerHour: the per-pass budget, or the seed when unset.  It is
+// both the burst one pass holds and the hour's refill.
+func (c ReuseLimitConfig) ResolvedPassPerHour() int {
+	if c.PassPerHour <= 0 {
+		return ReusePassSeedPerHour
+	}
+	return c.PassPerHour
+}
+
+// PassRatePerMin: PassPerHour as nginx's per-minute rate, rounded up, at
+// least 1.
+func (c ReuseLimitConfig) PassRatePerMin() int {
+	n := (c.ResolvedPassPerHour() + 59) / 60
 	if n < 1 {
 		n = 1
 	}
@@ -4905,6 +4956,13 @@ func Load(path string) (Settings, error) {
 		warnRemovedGlobalPassthrough(resolved, raw)
 		warnRemovedUpstreamLists(resolved, raw)
 		warnRemovedAuditRetention(resolved, raw)
+	}
+	switch strings.TrimSpace(s.Secret.SigHash) {
+	case "", "sha1":
+	case "sha256":
+		log.Printf("unmask: secret.sig_hash is sha256: cookies and proof-of-work seeds are signed with HMAC-SHA256, which only the 0.1.53 module or newer verifies -- every nginx serving these sites must run it (unmask doctor checks)")
+	default:
+		log.Printf("unmask: secret.sig_hash %q is not a hash the daemon knows (sha1 or sha256); signing with sha1", s.Secret.SigHash)
 	}
 	if s.Secret.BVSecret == "" {
 		// Neither config.yml nor config-init supplied a key.  A per-process

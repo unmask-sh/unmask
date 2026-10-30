@@ -49,6 +49,20 @@ End-to-end tests live in `e2e/` and run against the dockerized stack.
   the nginx module path (the `nginxconf` templates and the module); it needs no
   forward-auth counterpart.
 
+## Release gate
+
+CI runs on every push: Go lint, vet and tests, the C parsers' unit tests
+and a sanitizer fuzz, the module built against a few recent nginx versions,
+the container images, and the docker e2e stack (`make e2e-docker`, which
+anyone can run).  When the module or its build changes, a second workflow
+(`module-matrix`) builds the .so against every nginx version the plugin
+package ships -- fifteen, from 1.10.3 to the current stable -- against
+OpenSSL 3 and, in a container, OpenSSL 1.1.  Before a release the
+maintainer also installs the packages on a lab of real distributions
+(`make distro-check`: the official install path on ten distributions,
+CentOS 6 among them, through to `nginx -t`, the module loading and a
+challenged request), which needs the lab and is not part of CI.
+
 ## Clean-room reimplementation
 
 The JA4 parser in `nginx-module/` is implemented from the public JA4

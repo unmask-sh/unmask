@@ -75,14 +75,42 @@ func TestReuseCapOnTheRateRoute(t *testing.T) {
 			t.Errorf("foreign pass: reason %v, want rate_limit", b["reason"])
 		}
 	})
-	// The CAPTCHA the cap serves is the way out for a person behind a busy
-	// address: the pass it gives is not the cap's to count, so a request that
-	// reaches the rate route carrying one is a plain rate-limit hit.  A pass
-	// that lists the solve first and an older PoW entry after it (what the
-	// CAPTCHA issuer leaves in the browser) reads as the solve.
+	// With the per-pass tier in force a solved CAPTCHA is a pass like any:
+	// its holder on the rate route is over a budget of the cap's (the pass's
+	// own, or the address's five-fold one) and gets the cap's answer -- a
+	// CAPTCHA again, whose solve is a new pass with a budget of its own, or
+	// here the deny page.  A pass that lists the solve first and an older PoW
+	// entry after it (what the CAPTCHA issuer leaves in the browser) reads as
+	// the solve.
 	t.Run("a solved CAPTCHA", func(t *testing.T) {
 		h, powBV := newH(t, true, "deny")
 		secret := h.cfg().Secret.BVSecret
+		solved := cookies.IssueValue(secret, ip, host, "captcha")
+		for name, bv := range map[string]string{
+			"the solve alone":         solved,
+			"the solve over the pass": cookies.AppendEntry(powBV, solved, 16),
+		} {
+			if b := jsonBody(t, serve(h, bv, false)); b["reason"] != "reuse_limit" || b["error"] != "rate_limited" {
+				t.Errorf("%s: %v, want the cap's answer (rate_limited / reuse_limit)", name, b)
+			}
+		}
+		if b := jsonBody(t, serve(h, powBV, false)); b["reason"] != "reuse_limit" {
+			t.Errorf("the PoW pass: reason %v, want reuse_limit", b["reason"])
+		}
+	})
+	// While the upgrade review holds the per-pass tier (the cap acknowledged,
+	// the release that added the tier not), the address zone is the only one
+	// counting, and the CAPTCHA it serves is the way out for a person behind
+	// a busy address: the pass it gives is not the cap's to count, so a
+	// request that reaches the rate route carrying one is a plain rate-limit
+	// hit, as before the tier.
+	t.Run("a solved CAPTCHA while the per-pass tier is held", func(t *testing.T) {
+		h, powBV := newH(t, true, "deny")
+		cfg := *h.cfg()
+		cfg.Nginx.UpgradeReviewPolicy = settings.UpgradeReviewReview
+		cfg.Nginx.EnforcementReviewedVersion = settings.ReuseAddedIn
+		h.SetSettings(cfg)
+		secret := cfg.Secret.BVSecret
 		solved := cookies.IssueValue(secret, ip, host, "captcha")
 		for name, bv := range map[string]string{
 			"the solve alone":         solved,
@@ -95,6 +123,41 @@ func TestReuseCapOnTheRateRoute(t *testing.T) {
 		// The PoW pass on its own is still the cap's.
 		if b := jsonBody(t, serve(h, powBV, false)); b["reason"] != "reuse_limit" {
 			t.Errorf("the PoW pass: reason %v, want reuse_limit", b["reason"])
+		}
+	})
+	// A custom rule with a rate limit of its own counts everyone it matches,
+	// pass holders included, and the conf names the matched rule on the rate
+	// route.  Under such a rule a pass holder over "some zone" cannot be told
+	// from one over the rule's, so the rule's own answer is served, as under
+	// an ASN / country rate rule; a rule without a rate limit has no zone,
+	// and the hit is the cap's.
+	t.Run("a throttled custom rule", func(t *testing.T) {
+		h, bv := newH(t, true, "deny")
+		cfg := *h.cfg()
+		cfg.Nginx.CustomRules = []settings.CustomRule{
+			{ID: "crthrottle", RatePerMin: 10},
+			{ID: "crplain"},
+		}
+		h.SetSettings(cfg)
+		ruled := func(id string) *httptest.ResponseRecorder {
+			r := httptest.NewRequest(http.MethodGet, "https://"+host+"/unmask/_rl/api/items", nil)
+			r.Host = host
+			r.Header.Set("X-Real-IP", ip)
+			r.Header.Set("Sec-Fetch-Dest", "empty")
+			r.Header.Set("Sec-Fetch-Mode", "cors")
+			r.Header.Set("X-Unmask-Rule", id)
+			r.AddCookie(&http.Cookie{Name: "_bv", Value: bv})
+			rr := httptest.NewRecorder()
+			h.ServeChallengeOrJSON(rr, r)
+			return rr
+		}
+		if b := jsonBody(t, ruled("crthrottle")); b["reason"] != "rate_limit" || b["error"] != "challenge_required" {
+			t.Errorf("under a throttled rule: %v, want the rule's plain rate-limit answer", b)
+		}
+		for _, id := range []string{"crplain", "crunknown", ""} {
+			if b := jsonBody(t, ruled(id)); b["reason"] != "reuse_limit" {
+				t.Errorf("rule %q (no rate limit of its own): reason %v, want reuse_limit", id, b["reason"])
+			}
 		}
 	})
 	t.Run("deny", func(t *testing.T) {
@@ -130,11 +193,11 @@ func TestApplyReuseForm(t *testing.T) {
 		t.Fatalf("untouched card: %+v, %v -- want the zero value", ru, err)
 	}
 	if err := applyReuseForm(&ru, form(url.Values{
-		"reuse_enabled": {"1"}, "reuse_per_day": {"20000"}, "reuse_burst": {"3000"}, "reuse_action": {"deny"},
+		"reuse_enabled": {"1"}, "reuse_pass_per_hour": {"600"}, "reuse_per_day": {"20000"}, "reuse_burst": {"3000"}, "reuse_action": {"deny"},
 	})); err != nil {
 		t.Fatal(err)
 	}
-	if ru != (settings.ReuseLimitConfig{PerDay: 20000, Burst: 3000, Action: "deny"}) {
+	if ru != (settings.ReuseLimitConfig{PerDay: 20000, Burst: 3000, PassPerHour: 600, Action: "deny"}) {
 		t.Errorf("stored %+v", ru)
 	}
 	if err := applyReuseForm(&ru, form(url.Values{
@@ -143,7 +206,8 @@ func TestApplyReuseForm(t *testing.T) {
 		t.Errorf("switched off: %+v, %v -- want the tuning kept", ru, err)
 	}
 	for _, bad := range []url.Values{
-		{"reuse_per_day": {"1000"}, "reuse_action": {"captcha_only"}}, // below nginx's 1 a minute
+		{"reuse_per_day": {"1000"}, "reuse_action": {"captcha_only"}},     // below nginx's 1 a minute
+		{"reuse_pass_per_hour": {"59"}, "reuse_action": {"captcha_only"}}, // the same floor for one pass
 		{"reuse_burst": {"0"}, "reuse_action": {"captcha_only"}},
 		{"reuse_action": {"pow_only"}},
 	} {

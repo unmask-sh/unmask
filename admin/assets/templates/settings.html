@@ -3913,6 +3913,8 @@ function secToHuman(s){
     <div class="note" style="margin-bottom:.6rem">{{ safeHTML (t .Lang "settings.rate_limit.reuse_desc") }}</div>
     <div id="rl-reuse" style="display:flex;flex-wrap:wrap;align-items:center;gap:.6rem 1.4rem">
       <label style="display:flex;align-items:center;gap:.45rem;margin:0;cursor:pointer"><input type="checkbox" name="reuse_enabled" value="1" {{ if not $ru.Disabled }}checked{{ end }}> {{ t .Lang "settings.rate_limit.reuse_enabled" }}</label>
+      <label style="display:flex;align-items:center;gap:.45rem;margin:0">{{ t .Lang "settings.rate_limit.reuse_pass_per_hour" }}
+        <input type="number" name="reuse_pass_per_hour" min="60" max="1000000" step="1" placeholder="{{ reusePassSeedPerHour }}" value="{{ if gt $ru.PassPerHour 0 }}{{ $ru.PassPerHour }}{{ end }}" style="width:6rem"></label>
       <label style="display:flex;align-items:center;gap:.45rem;margin:0">{{ t .Lang "settings.rate_limit.reuse_per_day" }}
         <input type="number" name="reuse_per_day" min="1440" max="10000000" step="1" placeholder="{{ reuseSeedPerDay }}" value="{{ if gt $ru.PerDay 0 }}{{ $ru.PerDay }}{{ end }}" style="width:7rem"></label>
       <label style="display:flex;align-items:center;gap:.45rem;margin:0">{{ t .Lang "settings.rate_limit.reuse_burst" }}

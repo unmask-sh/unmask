@@ -64,6 +64,10 @@ limit_req zone={{ .ZoneName }} burst={{ .Burst }} nodelay;
 limit_req zone={{ .Name }} burst={{ .Burst }} nodelay;
 # ... and the solved CAPTCHA's own budget, five times the cap (http.inc).
 limit_req zone={{ .Name }}_captcha burst={{ .CaptchaBurst }} nodelay;
+{{- if .PassCap }}
+# ... and the per-pass budget: one pass at a time, whatever the address (http.inc).
+limit_req zone={{ .Name }}_pass burst={{ .PassBurst }} nodelay;
+{{- end }}
 {{- end }}
 # JA4-verdict bot / honeypot hit / protected path / persistently-banned client:
 # force challenge.  The original URI is passed to the challenge handler via the

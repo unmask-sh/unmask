@@ -622,6 +622,7 @@ func cmdDoctor(args []string) error {
 	checkNginxStaleLibs(addWarn)
 	checkNginxErrorLog(addOK, addWarn)
 	checkNginxReloadLag(s, addOK, addWarn)
+	checkSigHashModule(s, addOK, addWarn)
 	checkNginxProtectScope(addWarn)
 	checkHTTP3JA4(addWarn)
 	checkHTTPSRedirectApplied(s, addOK, addWarn)
@@ -1460,8 +1461,12 @@ type nginxErrorLogReport struct {
 	UninitLast string         // the most recent such line
 	Fatal      int            // [emerg] / [crit] / [alert] lines
 	FatalLast  string
-	Benign     int // fatal-severity lines that report no failure (benignAlerts)
-	Lines      int
+	// NoJA4: the module's "no JA4 for a TLS connection" lines -- its
+	// ClientHello callback was replaced on the SSL_CTX (checkNginxErrorLog).
+	NoJA4     int
+	NoJA4Last string
+	Benign    int // fatal-severity lines that report no failure (benignAlerts)
+	Lines     int
 }
 
 var uninitVarRe = regexp.MustCompile(`using uninitialized "([^"]+)" variable`)
@@ -1506,6 +1511,11 @@ func scanNginxErrorLog(r io.Reader) nginxErrorLogReport {
 			}
 			rep.Fatal++
 			rep.FatalLast = ln
+			continue
+		}
+		if strings.Contains(ln, "unmask: no JA4 for a TLS connection") {
+			rep.NoJA4++
+			rep.NoJA4Last = ln
 		}
 	}
 	return rep
@@ -1577,6 +1587,11 @@ func checkNginxErrorLog(addOK, addWarn func(t, m string)) {
 		}
 	}
 	rep := scanNginxErrorLog(r)
+	if rep.NoJA4 > 0 {
+		// The module says it once a minute while it lasts, so the count is
+		// the minutes of the tail it covers, not the requests.
+		addWarn("nginx TLS callback", fmt.Sprintf("%s: %d line(s) say the module's ClientHello callback never ran on a TLS connection, the last: %s -- SSL_CTX_set_msg_callback holds one function per server context, so another module (or an nginx debug build) that sets it after unmask replaces it, and JA4-based decisions do not apply while it does. `nginx -T` lists the loaded modules; load one of the two, or report which module it is.", path, rep.NoJA4, truncLogLine(rep.NoJA4Last)))
+	}
 	if len(rep.Uninit) == 0 && rep.Fatal == 0 {
 		benign := ""
 		if rep.Benign > 0 {

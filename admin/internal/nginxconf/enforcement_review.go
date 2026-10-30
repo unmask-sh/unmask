@@ -98,10 +98,15 @@ func HeldEnforcementPresets(s settings.Settings) []HeldPreset {
 		}
 	}
 
-	// The pass-cookie reuse cap: default-on since ReuseAddedIn.
+	// The pass-cookie reuse cap: default-on since ReuseAddedIn; its per-pass
+	// tier since ReusePassAddedIn (listed on its own once the cap itself is
+	// acknowledged, so the review names what is still held).
 	if !s.RateLimit.Reuse.Disabled && EnforcementHeld(n, settings.ReuseAddedIn) {
 		out = append(out, HeldPreset{Category: "rate-limit", ID: "reuse_cap",
 			Label: "Pass-cookie reuse cap", AddedIn: settings.ReuseAddedIn})
+	} else if !s.RateLimit.Reuse.Disabled && EnforcementHeld(n, settings.ReusePassAddedIn) {
+		out = append(out, HeldPreset{Category: "rate-limit", ID: "reuse_pass",
+			Label: "Pass-cookie reuse cap: per-pass budget", AddedIn: settings.ReusePassAddedIn})
 	}
 
 	// The proof-of-work pass budget: default-on since PassBudgetAddedIn.
@@ -141,6 +146,14 @@ func HeldEnforcementPresets(s settings.Settings) []HeldPreset {
 // rate route both ask this, so the two wires cannot disagree.
 func ReuseCapActive(s settings.Settings) bool {
 	return !s.RateLimit.Reuse.Disabled && !EnforcementHeld(s.Nginx, settings.ReuseAddedIn)
+}
+
+// ReusePassActive: whether the cap's per-pass tier is in force -- the cap
+// active, and the release that added the tier acknowledged.  While it is
+// held, the address tiers count on their own, and a solved CAPTCHA's holder
+// on the rate route is a plain rate-limit hit as before (reuseCapHit).
+func ReusePassActive(s settings.Settings) bool {
+	return ReuseCapActive(s) && !EnforcementHeld(s.Nginx, settings.ReusePassAddedIn)
 }
 
 // UATLSActive: whether the UA-TLS consistency tier is in force -- on (the

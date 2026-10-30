@@ -69,6 +69,8 @@ variables_hash_bucket_size 128;
 # lets the undefined-variable guard read this file.
 map "" $client_ja4              { default ""; }
 map "" $unmask_bv_kind          { default ""; }
+map "" $unmask_bv_id            { default ""; }
+map "" $unmask_module_id        { default ""; }
 map "" $unmask_banned           { default "0"; }
 map "" $unmask_ban_action       { default ""; }
 map "" $unmask_has_signed_agent { default "0"; }
@@ -1880,6 +1882,41 @@ map "$bv_reuse_captcha:$is_bypass_ip:$is_bypass_path" $rate_limit_key_reuse_capt
 }
 {{- end }}
 limit_req_zone $rate_limit_key_reuse_captcha zone={{ .Name }}_captcha:10m rate={{ .CaptchaRequestsPerMin }}r/m;
+{{- if .PassCap }}
+
+# The per-pass budget (settings.rate_limit.reuse.pass_per_hour).  The two
+# zones above count an address, so an office proxy or a carrier NAT -- many
+# people, one address -- met the cap for what the whole office did.  This one
+# counts one pass at a time, keyed on $unmask_bv_id: the plugin's name for the
+# pass that verified (the signature of a CAPTCHA, re-bound or passthrough
+# entry; the seed a proof-of-work answers), "" when none did.  One pass is one
+# browser on one network, so the people behind one address each have a budget
+# of their own, and a scraper driving one pass meets it inside the hour, at a
+# figure a person's browsing stays well under.  Over it the request takes the
+# rate route and the daemon serves the cap's answer; a solved CAPTCHA is a new
+# pass with a budget of its own, so a person over it answers one CAPTCHA and
+# goes on.  The seed and not the nonce names a proof-of-work pass: any number
+# of nonces answer one seed, so a new budget costs a challenge served at a
+# new second -- and the address zones above count every one of them, which is
+# what keeps a client from minting its way round this one.
+{{- if $.MonitorMode }}
+map "$unmask_observe:$unmask_bv_id:$is_bypass_ip:$is_bypass_path" $rate_limit_key_pass {
+    default                            "";
+    "~^1:"                             "";
+    "~^.:[^:]*:1:"                     "";
+    "~^.:[^:]*:.:1$"                   "";
+    "~^0:(?<bv_pass_v>[0-9a-f]{16}):"  $bv_pass_v;
+}
+{{- else }}
+map "$unmask_bv_id:$is_bypass_ip:$is_bypass_path" $rate_limit_key_pass {
+    default                          "";
+    "~^[^:]*:1:"                     "";
+    "~^[^:]*:.:1$"                   "";
+    "~^(?<bv_pass_v>[0-9a-f]{16}):"  $bv_pass_v;
+}
+{{- end }}
+limit_req_zone $rate_limit_key_pass zone={{ .Name }}_pass:10m rate={{ .PassRequestsPerMin }}r/m;
+{{- end }}
 {{- end }}
 {{- with .NamedRescueZone }}
 
@@ -2175,7 +2212,7 @@ map "$unmask_bv_kind:$cookie__bv" $unmask_bv_log {
     default                                      "";
     "~^[a-z]+:(?<bv_log_v>[0-9A-Za-z.~]{1,512})$"  $bv_log_v;
 }
-log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} pv=$unmask_preview_verified sb=$is_search_bot sfs=$unmask_sfs_log sfd=$unmask_sfd_log rh=$unmask_ref_host bv=$unmask_bv_log ua=$http_user_agent';
+log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} pv=$unmask_preview_verified sb=$is_search_bot sfs=$unmask_sfs_log sfd=$unmask_sfd_log rh=$unmask_ref_host bv=$unmask_bv_log mo=$unmask_module_id ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed.
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;

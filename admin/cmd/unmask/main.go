@@ -629,6 +629,13 @@ func cmdServe(args []string) error {
 	// pages say so when it does not.  What it saw is kept beside the rendered
 	// files, for `unmask doctor` run inside the service and for the next start.
 	renderWatch := renderwatch.New(renderOutDir)
+	// And whether nginx runs the module file on disk, from the module id
+	// every line carries (mo=) against the file load_module names: a new
+	// file waits for a restart, which the pages then ask for in place of a
+	// reload.
+	renderWatch.SetModulePath(func() string {
+		return nginxconf.ModuleFilePath(h.SnapshotSettings().Nginx.ConfPath)
+	})
 	renderWatch.Load()
 	h.RenderWatch = renderWatch
 	// The markers beside the rendered files: the render's reload marker
@@ -727,6 +734,7 @@ func cmdServe(args []string) error {
 			nlog.SetLive(liveCounter)
 			nlog.SetRuleHit(func(id string) { ruleHits.Hit(id, time.Now()) })
 			nlog.SetRenderSeen(func(id string) { renderWatch.Saw(id, time.Now()) })
+			nlog.SetModuleSeen(func(id string) { renderWatch.SawModule(id, time.Now()) })
 			go saveRenderWatch(renderWatch)
 			// A banned client whose action is deny is refused before its
 			// cookie is looked at, so a line of it showing one is no pass.
@@ -747,9 +755,11 @@ func cmdServe(args []string) error {
 			nlog.SetSiteCheck(func(site string) bool {
 				return !h.SnapshotSettings().Sites.IsGhost(site)
 			})
-			// The pass a logged request rode on, named the way the plugin
-			// verified it, for the per-address count of distinct passes.
-			nlog.SetPassMatcher(h.MatchPassEntry)
+			// The pass a logged request rode on, by the identity the plugin
+			// keys the per-pass reuse cap on, for the per-address count of
+			// distinct passes: the count then says how many budgets an
+			// address holds.
+			nlog.SetPassMatcher(h.PassIdentity)
 			// A crawler name the configuration verifies against its vendor's
 			// ranges keeps the honeypot exemption only on a request that range
 			// passed; the name alone is what a scanner wears (nginxlog).
@@ -2010,7 +2020,8 @@ db:
   #   database: unmask
 
 secret:
-  # _bv cookie HMAC-SHA1 key.  If leaked, change this and re-sync nginx's secret.conf.
+  # _bv cookie HMAC key.  If leaked, change this and re-sync nginx's secret.conf.
+  # sig_hash: sha256   # sign with HMAC-SHA256 instead of SHA-1, once every nginx runs a module that verifies both (0.1.53+)
   bv_secret: %q
   # math captcha token HMAC-SHA256 base
   captcha_secret_base: %q

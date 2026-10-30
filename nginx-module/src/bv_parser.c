@@ -72,7 +72,7 @@ bv_parse_entry(const unsigned char *data, size_t len, bv_fields_t *out)
         return 0;
     }
 
-    /* CAPTCHA path (3 seg): "day.sig.kind", sig = 16 hex of an HMAC-SHA1. */
+    /* CAPTCHA path (3 seg): "day.sig.kind", sig = 16 hex of an HMAC. */
     size_t day_len  = (size_t)(dot1 - data);
     size_t sig_len  = (size_t)(dot2 - (dot1 + 1));
     size_t kind_len = (size_t)(end - (dot2 + 1));

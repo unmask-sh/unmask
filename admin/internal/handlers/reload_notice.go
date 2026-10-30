@@ -3,6 +3,7 @@ package handlers
 import (
 	"fmt"
 	"html/template"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -20,6 +21,15 @@ type ReloadNotice struct {
 	// Gateway: the container gateway reloads nginx by itself, so a notice
 	// there means that reload did not happen (the configuration is refused).
 	Gateway bool
+	// Restart: nginx runs an older module than the file on disk, so a reload
+	// would keep that module (and could not read a configuration that needs
+	// the new one); the help names the restart (RestartCmd) in place of the
+	// reload.  TitleKey: the tip's title -- reload_notice.title, or
+	// title_module when the module alone is behind (MsgKey msg_module, and
+	// WrittenHTML is when the module file was placed).
+	Restart    bool
+	RestartCmd string
+	TitleKey   string
 	// MsgKey: the sentence for why the configuration was written -- a save
 	// (reload_notice.msg_saved), an automatic update (msg_auto), the command
 	// line (msg_cli) -- or reload_notice.msg when the render left no record.
@@ -41,18 +51,34 @@ func (h *Handler) reloadNotice(lang i18n.Lang) *ReloadNotice {
 	// Settle, not State: a page render is also when the reload marker the
 	// render left is removed, once nginx is seen running the render.
 	st := h.RenderWatch.Settle()
-	if !st.Pending {
+	if !st.Pending && !st.ModulePending {
 		return nil
 	}
 	g := h.cfg().Gateway
 	g.Normalize()
-	w := st.Written.UTC()
-	n := &ReloadNotice{
-		WrittenHTML: template.HTML(fmt.Sprintf(`<time class="js-datetime" data-ts="%d">%s</time>`,
-			w.Unix(), w.Format(time.DateTime+" UTC"))),
-		Gateway: g.Active(),
-		MsgKey:  "reload_notice.msg",
+	timeHTML := func(t time.Time) template.HTML {
+		t = t.UTC()
+		return template.HTML(fmt.Sprintf(`<time class="js-datetime" data-ts="%d">%s</time>`,
+			t.Unix(), t.Format(time.DateTime+" UTC")))
 	}
+	n := &ReloadNotice{
+		Gateway:  g.Active(),
+		Restart:  st.ModulePending && !g.Active(),
+		TitleKey: "reload_notice.title",
+		MsgKey:   "reload_notice.msg",
+	}
+	if n.Restart {
+		n.RestartCmd = nginxRestartCommand()
+	}
+	if !st.Pending {
+		// The module alone: the configuration nginx runs is the one on
+		// disk, the module is not.
+		n.WrittenHTML = timeHTML(st.ModulePlaced)
+		n.TitleKey = "reload_notice.title_module"
+		n.MsgKey = "reload_notice.msg_module"
+		return n
+	}
+	n.WrittenHTML = timeHTML(st.Written)
 	// Why, and what moved: the record the render kept beside the files,
 	// when it is about this render (written at about the same time).
 	rec, ok := nginxconf.ReadRenderRecord(h.renderOutDir())
@@ -79,6 +105,15 @@ func (h *Handler) reloadNotice(lang i18n.Lang) *ReloadNotice {
 	}
 	n.CauseHTML = template.HTMLEscapeString(cause)
 	return n
+}
+
+// nginxRestartCommand: how nginx is restarted on this host -- through
+// systemd where it runs the system, the init script's `service` elsewhere.
+func nginxRestartCommand() string {
+	if fi, err := os.Stat("/run/systemd/system"); err == nil && fi.IsDir() {
+		return "sudo systemctl restart nginx"
+	}
+	return "sudo service nginx restart"
 }
 
 // renderOutDir: where the configuration is rendered (settings, or the

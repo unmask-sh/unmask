@@ -4,8 +4,13 @@
  *   $client_ja4         - JA4 fingerprint computed from TLS ClientHello
  *   $unmask_bv_kind     - the kind of the request's valid _bv cookie ("" when
  *                         none verifies); $unmask_bv_pow_valid /
- *                         $unmask_bv_captcha_valid ("1"/"0") and
- *                         $unmask_bv_sig (the matched signature) derive from it.
+ *                         $unmask_bv_captcha_valid ("1"/"0") derive from it.
+ *   $unmask_bv_id       - the identity of the pass that verified (16 hex: a
+ *                         CAPTCHA-form entry's signature, or the seed a
+ *                         proof-of-work answers), "" when none did.
+ *   $unmask_module_id   - the module file this nginx loaded, by content hash
+ *                         (16 hex), so the daemon can tell from the access
+ *                         log that a newer file waits for a restart.
  *   $unmask_banned      - "1" if (remote_addr, client_ja4) is in the ban file,
  *                         else "0".  ban file is mtime-watched (= reload-free).
  *
@@ -20,7 +25,8 @@
  * BV cookie format: "<issued_unix>.<sig>.<kind>"
  *   issued_unix = decimal unix seconds, supplied by the admin at issuance
  *                 (= server clock; clients never compute it themselves)
- *   sig         = HMAC-SHA1("<issued_unix>:<remote_addr>:<host>:<kind>", BV_SECRET) hex[:16]
+ *   sig         = HMAC("<issued_unix>:<remote_addr>:<host>:<kind>", BV_SECRET) hex[:16]
+ *                 (HMAC-SHA256 or HMAC-SHA1: ngx_unmask_sig_hashes)
  *   kind = "captcha"
  *
  * Site binding: $host (lowercased + port-stripped by nginx) is folded into the
@@ -46,6 +52,7 @@
 #include <openssl/ssl.h>
 #include <openssl/sha.h>
 #include <openssl/hmac.h>
+#include <dlfcn.h>
 
 #include "ja4_parser.h"
 #include "bv_parser.h"
@@ -105,7 +112,8 @@ enum {
     UNMASK_LOG_JA4_PARSE,
     UNMASK_LOG_JA4_ALLOC,
     UNMASK_LOG_BAN_MISSING,
-    UNMASK_LOG_H3_NOJA4
+    UNMASK_LOG_H3_NOJA4,
+    UNMASK_LOG_TLS_NOJA4
 };
 
 /* Per-http main config: shared BV secret for the _bv cookie variables */
@@ -173,8 +181,11 @@ static ngx_int_t ngx_http_ja4_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_unmask_bv_kind_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
-static ngx_int_t ngx_http_unmask_bv_sig_variable(ngx_http_request_t *r,
+static ngx_int_t ngx_http_unmask_bv_id_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
+static ngx_int_t ngx_http_unmask_module_id_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data);
+static void ngx_unmask_module_id_compute(void);
 static ngx_int_t ngx_http_unmask_bv_captcha_valid_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_unmask_bv_pow_valid_variable(ngx_http_request_t *r,
@@ -262,7 +273,13 @@ static ngx_http_variable_t ngx_http_ja4_vars[] = {
      * aggregation will automatically treat the new kind as one row. */
     { ngx_string("unmask_bv_kind"), NULL, ngx_http_unmask_bv_kind_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
-    { ngx_string("unmask_bv_sig"), NULL, ngx_http_unmask_bv_sig_variable, 0,
+    /* unmask_bv_id: the pass that verified, by identity (see the variable
+     * function) -- the per-pass reuse cap's key. */
+    { ngx_string("unmask_bv_id"), NULL, ngx_http_unmask_bv_id_variable, 0,
+      NGX_HTTP_VAR_NOCACHEABLE, 0 },
+    /* unmask_module_id: the module file this nginx loaded, by content hash
+     * (ngx_unmask_module_id_compute); the access log carries it (mo=). */
+    { ngx_string("unmask_module_id"), NULL, ngx_http_unmask_module_id_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
     /* unmask_bv_captcha_valid: 1 if $bv_kind == "captcha". Used by the
      * $final_challenge / $rate_limit_key maps in nginx-rendered.conf to
@@ -475,23 +492,44 @@ static ngx_int_t ngx_http_ja4_variable(ngx_http_request_t *r,
     ngx_http_ja4_ctx_t *ctx = SSL_get_ex_data(ssl_obj,
                                               ngx_http_ja4_ssl_ex_data_idx);
     if (!ctx || ctx->ja4.len == 0) {
+        int quic = 0;
 #if (nginx_version >= 1025000) && (NGX_QUIC || NGX_COMPAT)
         /* nginx's QUIC compatibility layer (OpenSSL older than 3.5) sets its
          * own message callback on every QUIC SSL object, over the one this
          * module put on the SSL_CTX, so no ClientHello reaches the parser:
          * every HTTP/3 request then runs without a JA4 and the JA4 axis
          * and the ip|ja4 bans never see it.  Said once a minute. */
-        if (r->connection->quic != NULL
-            && ngx_unmask_log_due(UNMASK_LOG_H3_NOJA4))
-        {
-            ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
-                          "unmask: no JA4 for an HTTP/3 connection; with "
-                          "OpenSSL older than 3.5 nginx's QUIC compatibility "
-                          "layer replaces the TLS message callback, so "
-                          "JA4-based decisions do not apply to HTTP/3 "
-                          "(build nginx with OpenSSL 3.5 or newer, or QuicTLS)");
+        if (r->connection->quic != NULL) {
+            quic = 1;
+            if (ngx_unmask_log_due(UNMASK_LOG_H3_NOJA4)) {
+                ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                              "unmask: no JA4 for an HTTP/3 connection; with "
+                              "OpenSSL older than 3.5 nginx's QUIC compatibility "
+                              "layer replaces the TLS message callback, so "
+                              "JA4-based decisions do not apply to HTTP/3 "
+                              "(build nginx with OpenSSL 3.5 or newer, or QuicTLS)");
+            }
         }
 #endif
+        /* No context at all on a TLS connection: the ClientHello never
+         * reached this module's callback.  SSL_CTX_set_msg_callback holds
+         * one function per context, so a module (or an nginx debug build)
+         * that sets it after this one replaces it, and every request then
+         * runs without a JA4 while nothing else looks wrong.  A context
+         * whose JA4 is empty is a ClientHello the parser refused (its own
+         * line, UNMASK_LOG_JA4_PARSE), not this.  Said once a minute;
+         * `unmask doctor` reads the line. */
+        if (ctx == NULL && !quic
+            && ngx_unmask_log_due(UNMASK_LOG_TLS_NOJA4))
+        {
+            ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                          "unmask: no JA4 for a TLS connection: the ClientHello "
+                          "never reached this module's callback. Another module "
+                          "that calls SSL_CTX_set_msg_callback on the same "
+                          "server replaces it (one callback per SSL_CTX), so "
+                          "JA4-based decisions do not apply; load one of the "
+                          "two, or report which module it is");
+        }
         v->not_found = 1;
         return NGX_OK;
     }
@@ -600,7 +638,7 @@ typedef struct {
     unsigned              ban_done:1;
     unsigned              ban_hit:1;
     ngx_unmask_bv_kind_t  bv_kind;
-    ngx_str_t             bv_sig;      /* the matched entry's signature (16 hex) */
+    ngx_str_t             bv_id;       /* the verified pass's identity (16 hex) */
     ngx_str_t             ban_action;  /* copy in r->pool; empty when no hit */
 } ngx_http_unmask_req_ctx_t;
 
@@ -890,6 +928,9 @@ static ngx_int_t ngx_http_unmask_init_process(ngx_cycle_t *cycle)
 }
 
 static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
+    /* The module's own identity, once per process image (see the function). */
+    ngx_unmask_module_id_compute();
+
     /* Register $client_ja4 variable */
     for (ngx_http_variable_t *v = ngx_http_ja4_vars; v->name.len; v++) {
         ngx_http_variable_t *var = ngx_http_add_variable(cf, &v->name, v->flags);
@@ -1009,10 +1050,10 @@ ngx_http_ja4_init_main_conf(ngx_conf_t *cf, void *conf)
 
 /* ----------------------------------------------------------------------
  * $unmask_bv_kind and the variables derived from it: parse the _bv cookie
- * (a "~"-separated list of entries) and verify each entry's HMAC-SHA1.
+ * (a "~"-separated list of entries) and verify each entry's HMAC.
  *
  * Entry form: "<issued_unix>.<sig16>.<kind>"
- *   sig16 = HMAC-SHA1("<issued_unix>:<bind key>:<host>:<kind>", BV_SECRET) hex[:16]
+ *   sig16 = HMAC("<issued_unix>:<bind key>:<host>:<kind>", BV_SECRET) hex[:16]
  *   (JA4 is NOT in the input -- it diverges across an LB; host binds the vhost;
  *   the bind key is the client address, /64 for IPv6, or a relay-wide key.)
  *
@@ -1033,6 +1074,83 @@ ngx_unmask_hex(char *dst, const unsigned char *src, size_t n)
         dst[i*2]   = H[(src[i] >> 4) & 0xF];
         dst[i*2+1] = H[src[i] & 0xF];
     }
+}
+
+/* $unmask_module_id: the identity of the module file nginx loaded -- the
+ * first 16 hex digits of the SHA-256 of the .so, read from its own path
+ * (dladdr on this module's descriptor) once per process image.  The value
+ * names the bytes that are RUNNING, not the file on disk right now: on a
+ * reload the module is not loaded again (its image stays mapped in the
+ * master, and the workers fork from it), and the static below keeps what was
+ * computed when it was loaded; a restart loads the file afresh and computes
+ * it again.  http.inc logs it on every line (mo=), and the daemon compares
+ * it with the hash of the file at load_module's path: a line naming another
+ * module after a package placed a new file is an nginx that needs a restart
+ * -- which the daemon cannot otherwise tell, since its unit hides other
+ * users' processes (ProtectProc=invisible).  "" when the file cannot be read;
+ * a static build hashes the nginx binary, which the daemon never compares
+ * against (it finds no load_module to read a path from). */
+#define UNMASK_MODULE_ID_LEN 16
+static u_char ngx_unmask_module_id[UNMASK_MODULE_ID_LEN + 1];
+
+static void
+ngx_unmask_module_id_compute(void)
+{
+    Dl_info        info;
+    FILE          *f;
+    unsigned char *buf;
+    unsigned char  digest[SHA256_DIGEST_LENGTH];
+    char           hex[SHA256_DIGEST_LENGTH * 2 + 1];
+    long           n;
+
+    if (ngx_unmask_module_id[0] != 0) {
+        return;
+    }
+    if (dladdr((void *)&ngx_http_unmask_module, &info) == 0
+        || info.dli_fname == NULL || info.dli_fname[0] == '\0')
+    {
+        return;
+    }
+    f = fopen(info.dli_fname, "rb");
+    if (f == NULL) {
+        return;
+    }
+    if (fseek(f, 0, SEEK_END) != 0 || (n = ftell(f)) <= 0
+        || n > 64L * 1024 * 1024 || fseek(f, 0, SEEK_SET) != 0)
+    {
+        fclose(f);
+        return;
+    }
+    buf = malloc((size_t)n);
+    if (buf == NULL) {
+        fclose(f);
+        return;
+    }
+    if (fread(buf, 1, (size_t)n, f) != (size_t)n) {
+        free(buf);
+        fclose(f);
+        return;
+    }
+    fclose(f);
+    SHA256(buf, (size_t)n, digest);
+    free(buf);
+    ngx_unmask_hex(hex, digest, SHA256_DIGEST_LENGTH);
+    ngx_memcpy(ngx_unmask_module_id, hex, UNMASK_MODULE_ID_LEN);
+    ngx_unmask_module_id[UNMASK_MODULE_ID_LEN] = '\0';
+}
+
+static ngx_int_t
+ngx_http_unmask_module_id_variable(ngx_http_request_t *r,
+                                   ngx_http_variable_value_t *v, uintptr_t data)
+{
+    (void)r;
+    (void)data;
+    v->valid = 1;
+    v->no_cacheable = 1;
+    v->not_found = 0;
+    v->data = ngx_unmask_module_id;
+    v->len  = ngx_strlen(ngx_unmask_module_id);
+    return NGX_OK;
 }
 
 /* Constant-time memcmp wrapper. Returns 0 iff equal. */
@@ -1102,19 +1220,41 @@ ngx_unmask_get_host(ngx_http_request_t *r)
     return out;
 }
 
+/* UNMASK_BV_ID_LEN: $unmask_bv_id's length -- the 16 hex digits of a
+ * CAPTCHA-form entry's signature, and as many of a proof-of-work's seed. */
+#define UNMASK_BV_ID_LEN 16
+
+/* The MACs the daemon may have signed with (settings.secret.sig_hash):
+ * HMAC-SHA256, then HMAC-SHA1, which every release before the move used.
+ * A signature is the MAC's first 16 hex digits and a proof-of-work seed its
+ * first 40 whatever the hash, so one wire format carries both; the verifier
+ * tries each in this order, and so does the daemon's (cookies.SigHashes --
+ * the two MUST agree, and MUST stay byte-identical in what they hash).  The
+ * cost of the second try falls on a cookie that does not verify at all. */
+typedef const EVP_MD *(*ngx_unmask_md_fn)(void);
+static const ngx_unmask_md_fn ngx_unmask_sig_hashes[] = { EVP_sha256, EVP_sha1 };
+static const size_t ngx_unmask_sig_hash_count =
+    sizeof(ngx_unmask_sig_hashes) / sizeof(ngx_unmask_sig_hashes[0]);
+
 /* verify_pow_sha256_cookie: v0.1+ SHA-256 hashcash format.
  *   format: "<issued_unix>.pow2.<nonce_b36>.<flags_b36>"  (= parts[1]="pow2" marker already detected)
  *   seed   = hex(HMAC-SHA1(bv_secret, "<issued_unix>:<remote>:<host>:pow_seed"))
  *   input  = seed + ":" + nonce_dec
  *   valid  = leading-zero-bits of SHA-256(input) >= difficulty
- * Bit-identical logic to challenge.js and Go cookies.verifyPowSHA256.
- * Returns 1 if valid, 0 otherwise. */
+ * Bit-identical logic to challenge.js and Go cookies.verifyPowSHA256.  The
+ * seed is derived with every hash the daemon may have signed it with
+ * (ngx_unmask_sig_hashes: HMAC-SHA256 cut to 160 bits, then HMAC-SHA1 -- 40
+ * hex digits either way), so a cookie solved against the seed of an install
+ * that has since moved stays good for its window.
+ * Returns 1 if valid, 0 otherwise.  On 1, id_out (UNMASK_BV_ID_LEN bytes;
+ * may be NULL) receives the verifying seed's first hex digits -- the pass's
+ * identity for $unmask_bv_id, the same for every nonce that answers the seed. */
 static int
 ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
                                     const u_char *nonce_s, size_t nonce_n,
                                     int valid_seconds, int difficulty,
                                     ngx_str_t bv_secret, ngx_str_t remote,
-                                    ngx_str_t host)
+                                    ngx_str_t host, u_char *id_out)
 {
     if (nonce_n == 0 || nonce_n > 13) return 0;
     if (difficulty < 8 || difficulty > 32) difficulty = 18;
@@ -1128,11 +1268,12 @@ ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
     int64_t nonce = ngx_unmask_base36(nonce_s, nonce_n);
     if (nonce < 0) return 0;
 
-    /* seed = hex(HMAC-SHA1(bv_secret, "<issued_unix>:<remote>:pow_seed")).  MUST
-     * stay byte-identical to cookies.PowSeed() (Go admin) and the value the
-     * admin injects as window.UNMASK.pow_seed (challenge.js).  Binding the seed
-     * to the secret makes the PoW impossible to precompute offline; binding it
-     * to the client IP makes a solved cookie non-transferable across IPs. */
+    /* seed = hex(HMAC(bv_secret, "<issued_unix>:<remote>:<host>:pow_seed"))[:40].
+     * MUST stay byte-identical to cookies.PowSeedH() (Go admin) and the value
+     * the admin injects as window.UNMASK.pow_seed (challenge.js).  Binding the
+     * seed to the secret makes the PoW impossible to precompute offline;
+     * binding it to the client IP makes a solved cookie non-transferable
+     * across IPs. */
     /* "<unix>:<remote>:<host>:pow_seed".  host (= $host) can be a 253-char DNS
      * name, so size generously; snprintf truncation returns 0 (= fail closed). */
     char seed_msg[384];
@@ -1141,27 +1282,36 @@ ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
                       (int)remote.len, remote.len ? (const char *)remote.data : "",
                       (int)host.len, host.len ? (const char *)host.data : "");
     if (sm <= 0 || sm >= (int)sizeof(seed_msg)) return 0;
-    unsigned char seed_mac[20];
-    unsigned int seed_mac_len = sizeof(seed_mac);
-    if (HMAC(EVP_sha1(), bv_secret.data, bv_secret.len,
-             (const unsigned char *)seed_msg, (size_t)sm,
-             seed_mac, &seed_mac_len) == NULL || seed_mac_len != 20) {
-        return 0;
+
+    for (size_t hi = 0; hi < ngx_unmask_sig_hash_count; hi++) {
+        unsigned char seed_mac[EVP_MAX_MD_SIZE];
+        unsigned int seed_mac_len = sizeof(seed_mac);
+        if (HMAC(ngx_unmask_sig_hashes[hi](), bv_secret.data, bv_secret.len,
+                 (const unsigned char *)seed_msg, (size_t)sm,
+                 seed_mac, &seed_mac_len) == NULL || seed_mac_len < 20) {
+            continue;
+        }
+        char seed_hex[41];
+        ngx_unmask_hex(seed_hex, seed_mac, 20);   /* the first 160 bits, whatever the hash */
+        seed_hex[40] = '\0';
+
+        /* input = "<seed_hex(40)>:<nonce>".  Max = 40 + 1 + 19 = 60. */
+        char input[80];
+        int ilen = snprintf(input, sizeof(input), "%s:%lld",
+                            seed_hex, (long long)nonce);
+        if (ilen <= 0 || ilen >= (int)sizeof(input)) return 0;
+
+        unsigned char hash[SHA256_DIGEST_LENGTH];
+        SHA256((const unsigned char *)input, (size_t)ilen, hash);
+
+        if (ngx_unmask_leading_zero_bits(hash, SHA256_DIGEST_LENGTH) >= difficulty) {
+            if (id_out != NULL) {
+                ngx_memcpy(id_out, seed_hex, UNMASK_BV_ID_LEN);
+            }
+            return 1;
+        }
     }
-    char seed_hex[41];
-    ngx_unmask_hex(seed_hex, seed_mac, 20);
-    seed_hex[40] = '\0';
-
-    /* input = "<seed_hex(40)>:<nonce>".  Max = 40 + 1 + 19 = 60. */
-    char input[80];
-    int ilen = snprintf(input, sizeof(input), "%s:%lld",
-                        seed_hex, (long long)nonce);
-    if (ilen <= 0 || ilen >= (int)sizeof(input)) return 0;
-
-    unsigned char hash[SHA256_DIGEST_LENGTH];
-    SHA256((const unsigned char *)input, (size_t)ilen, hash);
-
-    return ngx_unmask_leading_zero_bits(hash, SHA256_DIGEST_LENGTH) >= difficulty;
+    return 0;
 }
 
 /* bv_kind: cookie-form determination plus verification result.
@@ -1330,10 +1480,14 @@ ngx_unmask_pow_difficulty(ngx_http_request_t *r, ngx_http_ja4_main_conf_t *mcf)
     return d;
 }
 
+/* verify_one: the kind one entry verifies as, NONE when it does not.  With a
+ * kind, *id_out (when given) is the pass's identity for $unmask_bv_id: the
+ * signature of a CAPTCHA-form entry, the seed a proof-of-work answers -- 16
+ * hex digits either way, in memory that lives as long as the request. */
 static ngx_unmask_bv_kind_t
 ngx_unmask_bv_verify_one(ngx_http_request_t *r,
                          ngx_http_ja4_main_conf_t *mcf,
-                         ngx_str_t cookie)
+                         ngx_str_t cookie, ngx_str_t *id_out)
 {
     /* Structural decode (dot-splitting + per-segment length bounds) lives in
      * the pure, fuzzed bv_parse_entry (see bv_parser.c / bv_parser_fuzz.c) so
@@ -1357,18 +1511,32 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
         int valid_seconds = (mcf->bv_pow_valid_seconds > 0)
             ? (int)mcf->bv_pow_valid_seconds : 86400 * 3;
         int difficulty = ngx_unmask_pow_difficulty(r, mcf);
+        u_char seed_id[UNMASK_BV_ID_LEN];
         if (ngx_unmask_verify_pow_sha256_cookie(
                 cookie.data + fields.day_off,  fields.day_len,
                 cookie.data + fields.tail_off, fields.tail_len,
                 valid_seconds, difficulty,
                 mcf->bv_secret, remote,
-                ngx_unmask_get_host(r)) == 1) {
+                ngx_unmask_get_host(r),
+                id_out != NULL ? seed_id : NULL) == 1) {
+            if (id_out != NULL) {
+                /* The seed names the pass, not the nonce: any number of
+                 * nonces answer one seed, one hashing run each, while a new
+                 * seed costs a challenge served at a new second.  The
+                 * cookie's own bytes hold no such string, so it is copied. */
+                u_char *p = ngx_pnalloc(r->pool, UNMASK_BV_ID_LEN);
+                if (p != NULL) {
+                    ngx_memcpy(p, seed_id, UNMASK_BV_ID_LEN);
+                    id_out->data = p;
+                    id_out->len  = UNMASK_BV_ID_LEN;
+                }
+            }
             return UNMASK_BV_KIND_POW;
         }
         return UNMASK_BV_KIND_NONE;
     }
 
-    /* CAPTCHA path: "day.sig.kind", sig = 16 hex of HMAC-SHA1. */
+    /* CAPTCHA path: "day.sig.kind", sig = 16 hex of an HMAC. */
     int64_t cookie_unix = bv_atoll(cookie.data + fields.day_off, fields.day_len);
     if (cookie_unix < 0) return UNMASK_BV_KIND_NONE;
 
@@ -1402,20 +1570,26 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
     if (host.len) { p = ngx_cpymem(p, host.data, host.len); } *p++ = ':';
     p = ngx_cpymem(p, cookie.data + fields.tail_off, fields.tail_len);
 
-    /* HMAC-SHA1. */
-    unsigned char mac[20];
-    unsigned int mac_len = sizeof(mac);
-    if (HMAC(EVP_sha1(),
-             mcf->bv_secret.data, mcf->bv_secret.len,
-             msg, msg_len,
-             mac, &mac_len) == NULL || mac_len != 20) {
-        return UNMASK_BV_KIND_NONE;
+    /* The MAC, with every hash the daemon may have signed with
+     * (ngx_unmask_sig_hashes); the signature is its first 16 hex digits. */
+    int sig_ok = 0;
+    for (size_t hi = 0; hi < ngx_unmask_sig_hash_count && !sig_ok; hi++) {
+        unsigned char mac[EVP_MAX_MD_SIZE];
+        unsigned int mac_len = sizeof(mac);
+        if (HMAC(ngx_unmask_sig_hashes[hi](),
+                 mcf->bv_secret.data, mcf->bv_secret.len,
+                 msg, msg_len,
+                 mac, &mac_len) == NULL || mac_len < 8) {
+            continue;
+        }
+        char expected[16];
+        ngx_unmask_hex(expected, mac, 8);
+        /* Constant-time over the 16 hex digits the cookie carries. */
+        if (ngx_unmask_ct_memcmp(expected, cookie.data + fields.sig_off, 16) == 0) {
+            sig_ok = 1;
+        }
     }
-
-    char expected[40];
-    ngx_unmask_hex(expected, mac, 20);
-    /* Compare first 16 hex chars (= 8 bytes of mac, but we compare hex). */
-    if (ngx_unmask_ct_memcmp(expected, cookie.data + fields.sig_off, 16) == 0) {
+    if (sig_ok) {
         /* Which 3-segment form is it?  The kind segment is inside the HMAC
          * input above, so by the time we are here it is the admin's own word
          * for how this entry was earned -- a client cannot rewrite it without
@@ -1428,11 +1602,19 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
          * signed over the same message shape with "pow_seed" in the kind
          * slot, is exactly such an unknown kind (see the enum comment).  The
          * list below is the admin's issuing vocabulary; it refuses the rest. */
-        if (UNMASK_TAIL_IS(fields, cookie, "rebind"))      return UNMASK_BV_KIND_REBIND;
-        if (UNMASK_TAIL_IS(fields, cookie, "passthrough")) return UNMASK_BV_KIND_PASSTHROUGH;
-        if (UNMASK_TAIL_IS(fields, cookie, "captcha"))     return UNMASK_BV_KIND_CAPTCHA;
-        if (UNMASK_TAIL_IS(fields, cookie, "pow"))         return UNMASK_BV_KIND_POW;
-        return UNMASK_BV_KIND_NONE;
+        ngx_unmask_bv_kind_t k = UNMASK_BV_KIND_NONE;
+        if (UNMASK_TAIL_IS(fields, cookie, "rebind"))           k = UNMASK_BV_KIND_REBIND;
+        else if (UNMASK_TAIL_IS(fields, cookie, "passthrough")) k = UNMASK_BV_KIND_PASSTHROUGH;
+        else if (UNMASK_TAIL_IS(fields, cookie, "captcha"))     k = UNMASK_BV_KIND_CAPTCHA;
+        else if (UNMASK_TAIL_IS(fields, cookie, "pow"))         k = UNMASK_BV_KIND_POW;
+        if (k != UNMASK_BV_KIND_NONE && id_out != NULL) {
+            /* The signature is the pass's identity: 16 hex digits over the
+             * issue time, the bind key, the host and the kind, minted by
+             * the daemon alone. */
+            id_out->data = cookie.data + fields.sig_off;
+            id_out->len  = UNMASK_BV_ID_LEN;
+        }
+        return k;
     }
     return UNMASK_BV_KIND_NONE;
 }
@@ -1453,7 +1635,7 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
 static ngx_unmask_bv_kind_t
 ngx_unmask_bv_verify_value(ngx_http_request_t *r,
                            ngx_http_ja4_main_conf_t *mcf,
-                           ngx_str_t value, int *budget, ngx_str_t *sig_out)
+                           ngx_str_t value, int *budget, ngx_str_t *id_out)
 {
     u_char *p   = value.data;
     u_char *end = value.data + value.len;
@@ -1464,23 +1646,11 @@ ngx_unmask_bv_verify_value(ngx_http_request_t *r,
         entry.data = p;
         entry.len  = (size_t)((tilde ? tilde : end) - p);
         (*budget)--;
-        ngx_unmask_bv_kind_t k = ngx_unmask_bv_verify_one(r, mcf, entry);
+        /* id_out: the pass's identity, set with the kind -- what
+         * $unmask_bv_id names, so the per-pass rate key follows the pass
+         * rather than the address it arrives from. */
+        ngx_unmask_bv_kind_t k = ngx_unmask_bv_verify_one(r, mcf, entry, id_out);
         if (k != UNMASK_BV_KIND_NONE) {
-            if (sig_out != NULL) {
-                /* The matched entry's own signature (the PoW entry's nonce):
-                 * what $unmask_bv_sig names, so a per-pass rate key follows
-                 * the pass rather than the address it arrives from. */
-                bv_fields_t f;
-                if (bv_parse_entry(entry.data, entry.len, &f)) {
-                    if (f.sig_len > 0) {
-                        sig_out->data = entry.data + f.sig_off;
-                        sig_out->len  = f.sig_len;
-                    } else {
-                        sig_out->data = entry.data + f.tail_off;
-                        sig_out->len  = f.tail_len;
-                    }
-                }
-            }
             return k;
         }
         if (tilde == NULL) break;
@@ -1496,7 +1666,7 @@ ngx_unmask_bv_verify_value(ngx_http_request_t *r,
  * freshly-set one), and stopping at the first match would lock such
  * visitors into a permanent challenge loop. */
 static ngx_unmask_bv_kind_t
-ngx_unmask_bv_kind_compute(ngx_http_request_t *r, ngx_str_t *sig_out)
+ngx_unmask_bv_kind_compute(ngx_http_request_t *r, ngx_str_t *id_out)
 {
     ngx_http_ja4_main_conf_t *mcf =
         ngx_http_get_module_main_conf(r, ngx_http_unmask_module);
@@ -1535,7 +1705,7 @@ ngx_unmask_bv_kind_compute(ngx_http_request_t *r, ngx_str_t *sig_out)
     ngx_str_t cookie;
     int budget = UNMASK_BV_VERIFY_BUDGET;
     while (budget > 0 && ngx_unmask_next_bv_value(header, &off, &cookie)) {
-        ngx_unmask_bv_kind_t k = ngx_unmask_bv_verify_value(r, mcf, cookie, &budget, sig_out);
+        ngx_unmask_bv_kind_t k = ngx_unmask_bv_verify_value(r, mcf, cookie, &budget, id_out);
         if (k != UNMASK_BV_KIND_NONE) {
             return k;
         }
@@ -1548,36 +1718,41 @@ static ngx_unmask_bv_kind_t
 ngx_unmask_bv_kind(ngx_http_request_t *r)
 {
     ngx_http_unmask_req_ctx_t *ctx = ngx_unmask_req_ctx(r);
-    ngx_str_t sig = ngx_null_string;
+    ngx_str_t id = ngx_null_string;
     ngx_unmask_bv_kind_t k;
 
     if (ctx != NULL && ctx->bv_done) {
         return ctx->bv_kind;
     }
-    k = ngx_unmask_bv_kind_compute(r, &sig);
+    k = ngx_unmask_bv_kind_compute(r, &id);
     if (ctx != NULL) {
         ctx->bv_kind = k;
         ctx->bv_done = 1;
-        if (k != UNMASK_BV_KIND_NONE && sig.len > 0 && sig.len <= 64) {
-            u_char *p = ngx_pnalloc(r->pool, sig.len);
+        if (k != UNMASK_BV_KIND_NONE && id.len == UNMASK_BV_ID_LEN) {
+            u_char *p = ngx_pnalloc(r->pool, id.len);
             if (p != NULL) {
-                ngx_memcpy(p, sig.data, sig.len);
-                ctx->bv_sig.data = p;
-                ctx->bv_sig.len  = sig.len;
+                ngx_memcpy(p, id.data, id.len);
+                ctx->bv_id.data = p;
+                ctx->bv_id.len  = id.len;
             }
         }
     }
     return k;
 }
 
-/* $unmask_bv_sig: the signature segment of the _bv entry that verified (the
- * PoW entry's nonce), "" when none did.  A per-pass identity for the reuse
- * cap's key: that cap is about how much one pass is used for, and keyed by
- * the address a pass was issued on it counted an office or a carrier NAT as
- * one holder, and let one pass behind a relay take the cap once per egress. */
+/* $unmask_bv_id: the identity of the pass that verified, 16 hex digits --
+ * the signature of a CAPTCHA-form entry (CAPTCHA, re-bound, passthrough,
+ * the math fallback's "pow"), or for a proof-of-work entry the first digits
+ * of the seed it answers -- and "" when none did.  The per-pass reuse cap
+ * keys on it (http.inc): that cap is about how much one pass is used for,
+ * and keyed by the address a pass was issued on it counted an office or a
+ * carrier NAT as one holder.  The seed and not the nonce, because any number
+ * of nonces answer one seed, one hashing run each, while a new seed costs a
+ * challenge served at a new second; the daemon derives the same string
+ * (cookies.PassID), and the two MUST stay byte-identical. */
 static ngx_int_t
-ngx_http_unmask_bv_sig_variable(ngx_http_request_t *r,
-                                ngx_http_variable_value_t *v, uintptr_t data)
+ngx_http_unmask_bv_id_variable(ngx_http_request_t *r,
+                               ngx_http_variable_value_t *v, uintptr_t data)
 {
     static const u_char empty[] = "";
     ngx_http_unmask_req_ctx_t *ctx;
@@ -1587,9 +1762,9 @@ ngx_http_unmask_bv_sig_variable(ngx_http_request_t *r,
     v->not_found = 0;
     (void)ngx_unmask_bv_kind(r);
     ctx = ngx_http_get_module_ctx(r, ngx_http_unmask_module);
-    if (ctx != NULL && ctx->bv_sig.len > 0) {
-        v->data = ctx->bv_sig.data;
-        v->len  = ctx->bv_sig.len;
+    if (ctx != NULL && ctx->bv_id.len > 0) {
+        v->data = ctx->bv_id.data;
+        v->len  = ctx->bv_id.len;
     } else {
         v->data = (u_char *)empty;
         v->len  = 0;

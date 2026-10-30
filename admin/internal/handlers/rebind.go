@@ -117,7 +117,7 @@ func (h *Handler) writeBVJ(w http.ResponseWriter, r *http.Request, host, ja4Set,
 	if grade == "" {
 		grade = "captcha"
 	}
-	val := cookies.IssueJValueAt(h.cfg().Secret.BVSecret, ja4Set, uaHash, lineage, asn, host, grade, issued)
+	val := cookies.IssueJValueAtH(h.sigHash(), h.cfg().Secret.BVSecret, ja4Set, uaHash, lineage, asn, host, grade, issued)
 	http.SetCookie(w, &http.Cookie{
 		Name:   "_bvj",
 		Value:  val,
@@ -393,7 +393,7 @@ func (h *Handler) rebind(w http.ResponseWriter, r *http.Request, site, bt string
 		entryWindow = sw
 	}
 	solveEnds := claims.Issued + int64(h.bvjWindowSeconds(site, claims.Kind))
-	h.setBVCookie(w, r, cookies.IssueValueAt(cfg.Secret.BVSecret, bindKeyFor(r), host, "rebind",
+	h.setBVCookie(w, r, cookies.IssueValueAtH(h.sigHash(), cfg.Secret.BVSecret, bindKeyFor(r), host, "rebind",
 		reboundIssuedAt(time.Now().Unix(), solveEnds, entryWindow)))
 
 	origPath := truncateAt(r.URL.Query().Get("_orig"), 200)

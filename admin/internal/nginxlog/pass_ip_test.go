@@ -131,7 +131,12 @@ func TestPassCountsDistinctCookiesAndPeak(t *testing.T) {
 // that bounds them.
 func TestPassBucketOfAPastDayIsDropped(t *testing.T) {
 	r, _ := passReader(t)
-	now := time.Date(2026, 10, 29, 23, 50, 0, 0, time.UTC)
+	// The flush prunes the hourly counters by the clock, so the day under
+	// test is today: its last hour, which the next flush -- an hour on, so
+	// the day after -- then drops with the bucket.  (A fixed date passed
+	// and failed this test the morning after it was written.)
+	y, m, d := time.Now().UTC().Date()
+	now := time.Date(y, m, d, 23, 50, 0, 0, time.UTC)
 	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943030.pow2.aaaa.0", "pow", true, now)
 	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "UA-A", "1785943031.pow2.bbbb.0", "pow", true, now)
 	r.flushOnce(true)

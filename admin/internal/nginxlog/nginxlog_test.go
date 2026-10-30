@@ -536,3 +536,31 @@ func TestNamedRescueAggregation(t *testing.T) {
 		t.Errorf("detail total/served = %d/%d, want 4/1", total, served)
 	}
 }
+
+// The module id rides as mo= between bv= and the UA: the hash of the module
+// file nginx loaded.  A configuration rendered without the module logs the
+// field empty, an older configuration has none; the UA still parses, and
+// the watch hears "" for both.
+func TestParseModuleID(t *testing.T) {
+	r := &Reader{}
+	p, ok := r.parse(`<134>1751400000.1 site=shop.example.com kind=pow fc=0 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- rv=0123456789ab pv=0 sb=0 sfs= sfd= rh= bv=1785943030.pow2.1a.0 mo=fedcba9876543210 ua=Mozilla/5.0 (X11)`)
+	if !ok || p.mo != "fedcba9876543210" || p.bv != "1785943030.pow2.1a.0" || p.ua != "Mozilla/5.0 (X11)" {
+		t.Errorf("line with mo: ok=%v %+v", ok, p)
+	}
+	p, ok = r.parse(`<134>1751400000.2 site=shop.example.com kind= fc=0 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- rv=0123456789ab pv=0 sb=0 sfs= sfd= rh= bv= mo= ua=curl/8`)
+	if !ok || p.mo != "" || p.ua != "curl/8" {
+		t.Errorf("line with an empty mo (no module): ok=%v %+v", ok, p)
+	}
+	p, ok = r.parse(`<134>1751400000.3 site=shop.example.com kind= fc=0 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- rv=0123456789ab ua=curl/8`)
+	if !ok || p.mo != "" || p.rv != "0123456789ab" || p.ua != "curl/8" {
+		t.Errorf("older line: ok=%v %+v", ok, p)
+	}
+
+	var heard []string
+	r.SetModuleSeen(func(id string) { heard = append(heard, id) })
+	r.onLine(`1751400000.4 site=shop.example.com kind= fc=0 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- rv=0123456789ab pv=0 sb=0 sfs= sfd= rh= bv= mo=fedcba9876543210 ua=curl/8`)
+	r.onLine(`1751400000.5 site=shop.example.com kind= fc=0 hp=0 ip=9.9.9.9 ja4=- hpuri=- bp=0 scheme=https cr=- rv=0123456789ab ua=curl/8`)
+	if len(heard) != 2 || heard[0] != "fedcba9876543210" || heard[1] != "" {
+		t.Errorf("module watch heard %q, want [fedcba9876543210 \"\"]", heard)
+	}
+}

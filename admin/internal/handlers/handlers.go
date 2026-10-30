@@ -1696,7 +1696,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		// monitoring window handed out cookies that stayed valid, and
 		// CAPTCHA-graded, for a fortnight.  A rule that requires a real
 		// CAPTCHA must not be satisfied by the moment enforcement was off.
-		val := cookies.IssueValue(h.cfg().Secret.BVSecret, bindKeyFor(r), requestHost(r), "passthrough")
+		val := cookies.IssueValueH(h.sigHash(), h.cfg().Secret.BVSecret, bindKeyFor(r), requestHost(r), "passthrough")
 		h.setBVCookie(w, r, val)
 		target := "/"
 		if rlOrigURI != "" {
@@ -2071,7 +2071,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	chHost := requestHost(r)
 	body = bytes.ReplaceAll(body, []byte(issuedAtPlaceholder),
 		[]byte(fmt.Sprintf("/*__ISSUED_AT__*/%d", issued)))
-	powSeedJSON, _ := json.Marshal(cookies.PowSeed(h.cfg().Secret.BVSecret, chIP, chHost, issued))
+	powSeedJSON, _ := json.Marshal(cookies.PowSeedH(h.sigHash(), h.cfg().Secret.BVSecret, chIP, chHost, issued))
 	body = bytes.ReplaceAll(body, []byte(powSeedPlaceholder),
 		append([]byte(`/*__POW_SEED__*/`), powSeedJSON...))
 	// ct: a server-issued, time-bound, single-use proof-of-load token for the
@@ -3077,7 +3077,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 			ok = ok && res.Score >= min
 		}
 		if ok {
-			val := cookies.IssueValue(h.cfg().Secret.BVSecret, bindKey, host, kind)
+			val := cookies.IssueValueH(h.sigHash(), h.cfg().Secret.BVSecret, bindKey, host, kind)
 			h.setBVCookie(w, r, val)
 			h.mintBVJ(w, r, ip, host, kind)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "provider": cc.Provider, "score": round3(res.Score)})
@@ -3119,7 +3119,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
 				return
 			}
-			val := cookies.IssueValue(h.cfg().Secret.BVSecret, bindKey, host, kind)
+			val := cookies.IssueValueH(h.sigHash(), h.cfg().Secret.BVSecret, bindKey, host, kind)
 			h.setBVCookie(w, r, val)
 			h.mintBVJ(w, r, ip, host, kind)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "score": round3(score)})
@@ -3185,7 +3185,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 			issueKind = "pow"
 			Metrics.CountMathNoInputEvidence()
 		}
-		val := cookies.IssueValue(h.cfg().Secret.BVSecret, bindKey, host, issueKind)
+		val := cookies.IssueValueH(h.sigHash(), h.cfg().Secret.BVSecret, bindKey, host, issueKind)
 		h.setBVCookie(w, r, val)
 		h.mintBVJ(w, r, ip, host, issueKind)
 		out := map[string]any{"ok": 1}
