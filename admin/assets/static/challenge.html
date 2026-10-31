@@ -297,6 +297,14 @@ body.uc-on button:disabled{opacity:.5}
       </div>
     </div>
     <div class="error" id="errMsg"></div>
+    <!-- stage 3: the page outlived its proof-of-load token (ct_valid_secs,
+         fifteen minutes), so neither the checkbox nor the arithmetic can be
+         accepted any more.  challenge.js fills the line and the button, which
+         reloads the page for a fresh challenge; hidden until then. -->
+    <div id="ctExpired" style="display:none">
+      <p class="desc" id="ctExpiredMsg"></p>
+      <button type="button" id="ctExpiredReload"></button>
+    </div>
     <p class="note" id="captchaNote">This check protects the site from automated access.</p>
     <!-- small paw-print footer for theme-cat (= hidden by CSS on other themes) -->
     <div class="paws" aria-hidden="true" style="display:none"><span>🐾</span><span>🐾</span><span>🐾</span></div>
@@ -327,7 +335,7 @@ body.uc-on button:disabled{opacity:.5}
        build leaves an empty element rather than a stray label. -->
   <div class="unmask-ref"><!--__REF__--></div>
 </div>
-<script>window.UNMASK = {force_reason: /*__CAPTCHA_FORCE__*/"none", force_rule: /*__FORCE_RULE__*/"", captcha: /*__CAPTCHA__*/null, theme: /*__THEME__*/"auto", custom: /*__CUSTOM__*/null, custom_auto: /*__CUSTOM_AUTO__*/null, challenge_mode: /*__CHMODE__*/"pow_then_captcha", pow_difficulty: /*__POW_DIFFICULTY__*/18, pow_min_display_ms: /*__POW_MIN_DISPLAY_MS__*/0, display_style: /*__CHALLENGE_STYLE__*/"visible", invisible_reveal_ms: /*__INVISIBLE_REVEAL_MS__*/1200, reveal_fade_ms: /*__REVEAL_FADE_MS__*/200, orig_path: /*__ORIG_PATH__*/"", beacon_token: /*__BEACON_TOKEN__*/"", serve_ja4: /*__SERVE_JA4__*/"", issued_at: /*__ISSUED_AT__*/0, pow_seed: /*__POW_SEED__*/"", ct: /*__CT__*/"", bv_max_entries: /*__BV_MAX_ENTRIES__*/8, step_back: /*__STEP_BACK__*/0, brand: /*__BRANDING__*/null};
+<script>window.UNMASK = {force_reason: /*__CAPTCHA_FORCE__*/"none", force_rule: /*__FORCE_RULE__*/"", captcha: /*__CAPTCHA__*/null, theme: /*__THEME__*/"auto", custom: /*__CUSTOM__*/null, custom_auto: /*__CUSTOM_AUTO__*/null, challenge_mode: /*__CHMODE__*/"pow_then_captcha", pow_difficulty: /*__POW_DIFFICULTY__*/18, pow_min_display_ms: /*__POW_MIN_DISPLAY_MS__*/0, display_style: /*__CHALLENGE_STYLE__*/"visible", invisible_reveal_ms: /*__INVISIBLE_REVEAL_MS__*/1200, reveal_fade_ms: /*__REVEAL_FADE_MS__*/200, orig_path: /*__ORIG_PATH__*/"", beacon_token: /*__BEACON_TOKEN__*/"", serve_ja4: /*__SERVE_JA4__*/"", issued_at: /*__ISSUED_AT__*/0, pow_seed: /*__POW_SEED__*/"", ct: /*__CT__*/"", ct_valid_secs: /*__CT_VALID_SECS__*/900, bv_max_entries: /*__BV_MAX_ENTRIES__*/8, step_back: /*__STEP_BACK__*/0, brand: /*__BRANDING__*/null};
 (function(){
   // apply the theme to body class right after document construction (= prevent flash).
   var U=window.UNMASK;

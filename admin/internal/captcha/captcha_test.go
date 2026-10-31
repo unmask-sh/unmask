@@ -288,6 +288,41 @@ func TestVerifyToken(t *testing.T) {
 	}
 }
 
+// A token issued in the last seconds of a UTC day still verifies in the first
+// seconds of the next: the key is the issue day's, which the token names.  It
+// used to be the day of verification, so the ten minutes around midnight UTC
+// refused every page served before it -- and refused the arithmetic fallback
+// those visitors were handed for the same reason.
+func TestTokenVerifiesAcrossMidnightUTC(t *testing.T) {
+	const base = "test-base-secret"
+	const anchor = int64(1_700_000_000)
+	issue := time.Unix(anchor-anchor%86400+86400-10, 0) // 23:59:50 UTC
+	answer := issue.Add(20 * time.Second)               // 00:00:10 UTC, the next day
+	if dayOf(issue.Unix()) == dayOf(answer.Unix()) {
+		t.Fatal("the fixture must straddle a UTC day boundary")
+	}
+	tok := issueTokenAt(base, issue)
+	if !verifyTokenAt(tok, base, 900, answer) {
+		t.Error("a ct issued before midnight UTC should verify after it")
+	}
+	if verifyTokenAt(tok, base, 900, issue.Add(901*time.Second)) {
+		t.Error("the freshness window still bounds the ct")
+	}
+	if verifyTokenAt(tok, "another-secret", 900, answer) {
+		t.Error("another secret still does not verify")
+	}
+	a, b, mtok := mathChallengeAt(base, issue)
+	if !verifyMathAt(strconv.Itoa(a+b), mtok, base, 900, answer) {
+		t.Error("a math token issued before midnight UTC should verify after it")
+	}
+	if verifyMathAt(strconv.Itoa(a+b+1), mtok, base, 900, answer) {
+		t.Error("a wrong sum must not verify")
+	}
+	if verifyMathAt(strconv.Itoa(a+b), mtok, base, 900, issue.Add(901*time.Second)) {
+		t.Error("the freshness window still bounds the math token")
+	}
+}
+
 func TestUsedSet(t *testing.T) {
 	var u UsedSet
 	now := time.Unix(1_700_000_000, 0)

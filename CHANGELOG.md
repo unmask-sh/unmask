@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-11-01) **A check that has run out of time says so.**  A visitor who returned to the checkbox after fifteen minutes was refused for a stale page token; the arithmetic fallback was refused the same way, and the page drew "undefined + undefined = ?". The card now says the check has expired and reloads once on its own, or offers a reload button, and the arithmetic wording is translated. A token issued just before midnight UTC verifies after it.
+
 ## [0.1.53-rc30] - 2026-10-30 (testing build)
 
 ### Added

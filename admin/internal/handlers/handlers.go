@@ -82,15 +82,19 @@ const (
 	// style is injected twice by one ReplaceAll: into an inline <head> script
 	// (so the CSS hides the card BEFORE first paint -- a deferred script
 	// would flash the content it is about to hide) and into window.UNMASK.
-	challengeStylePH        = `/*__CHALLENGE_STYLE__*/"visible"`
-	invisibleRevealPH       = "/*__INVISIBLE_REVEAL_MS__*/1200"
-	revealFadePH            = "/*__REVEAL_FADE_MS__*/200"
-	origPathPlaceholder     = `/*__ORIG_PATH__*/""`
-	beaconTokenPlaceholder  = `/*__BEACON_TOKEN__*/""`
-	serveJA4Placeholder     = `/*__SERVE_JA4__*/""`
-	issuedAtPlaceholder     = `/*__ISSUED_AT__*/0`
-	powSeedPlaceholder      = `/*__POW_SEED__*/""`
-	ctTokenPlaceholder      = `/*__CT__*/""`
+	challengeStylePH       = `/*__CHALLENGE_STYLE__*/"visible"`
+	invisibleRevealPH      = "/*__INVISIBLE_REVEAL_MS__*/1200"
+	revealFadePH           = "/*__REVEAL_FADE_MS__*/200"
+	origPathPlaceholder    = `/*__ORIG_PATH__*/""`
+	beaconTokenPlaceholder = `/*__BEACON_TOKEN__*/""`
+	serveJA4Placeholder    = `/*__SERVE_JA4__*/""`
+	issuedAtPlaceholder    = `/*__ISSUED_AT__*/0`
+	powSeedPlaceholder     = `/*__POW_SEED__*/""`
+	ctTokenPlaceholder     = `/*__CT__*/""`
+	// ctValidSecsPlaceholder: how long the page's ct stays valid, so the page
+	// can say the check has expired before a refusal tells the visitor.  The
+	// HTML's own 900 matches captcha.TokenValidSeconds.
+	ctValidSecsPlaceholder  = `/*__CT_VALID_SECS__*/900`
 	bvMaxEntriesPlaceholder = `/*__BV_MAX_ENTRIES__*/8`
 	// stepBackPlaceholder: 1 when the visitor may leave a passed challenge by
 	// stepping back to the history entry they arrived on (challenge.js
@@ -2080,6 +2084,8 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	ctJSON, _ := json.Marshal(captcha.IssueToken(h.cfg().Secret.CaptchaSecretBase))
 	body = bytes.ReplaceAll(body, []byte(ctTokenPlaceholder),
 		append([]byte(`/*__CT__*/`), ctJSON...))
+	body = bytes.ReplaceAll(body, []byte(ctValidSecsPlaceholder),
+		[]byte(fmt.Sprintf("/*__CT_VALID_SECS__*/%d", captcha.TokenValidSeconds)))
 	// ref: a short support correlation id, printed in the challenge footer and
 	// stored on the serve event's payload below.  When a visitor reports "the
 	// challenge page won't load / I can't get through" with this id, the operator

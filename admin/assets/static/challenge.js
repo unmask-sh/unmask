@@ -160,24 +160,24 @@
   // compromised.  Title / desc / note / wrong / error were also softened
   // to avoid an accusatory tone.
   var L={
-    en:{verify:'Loading {site_name}, just a moment...',title:'Quick check',desc:'Please confirm to continue.',note:'This check protects the site from malicious automated access.',notRobot:"I'm not a robot",wrong:"That didn't go through — please try once more.",error:'Something went wrong. Please try again in a moment.',checking:'Verifying...',verified:'Verified',connecting:'Connecting to {site_name}…'},
-    ja:{verify:'{site_name} を読み込んでいます。もう少々お待ちください…',title:'アクセス確認',desc:'続行するには\u200bチェックを\u200b入れてください。',note:'ボットによる\u200b不正アクセスから\u200bサイトを\u200b守るための\u200b確認です。',notRobot:'私は\u200bロボットでは\u200bありません',wrong:'もう一度\u200b確認させてください。',error:'うまく\u200bいきませんでした。少し時間を\u200bおいてから\u200bお試しください。',checking:'確認中…',verified:'確認できました',connecting:'{site_name} に接続しています…'},
-    zh:{verify:'正在加载 {site_name}，请稍候...',title:'快速验证',desc:'请勾选以继续。',note:'此验证用于保护网站免受恶意自动化访问。',notRobot:'我不是机器人',wrong:'请再试一次。',error:'出了点问题，请稍后再试。',checking:'正在验证…',verified:'验证通过',connecting:'正在连接到 {site_name}…'},
-    zht:{verify:'正在載入 {site_name}，請稍候...',title:'快速驗證',desc:'請勾選以繼續。',note:'此驗證用於保護網站免受惡意自動化存取。',notRobot:'我不是機器人',wrong:'請再試一次。',error:'發生問題，請稍候再試。',checking:'正在驗證…',verified:'驗證通過',connecting:'正在連線至 {site_name}…'},
-    ko:{verify:'{site_name} 로딩 중... 잠시만 기다려 주세요',title:'확인',desc:'계속하려면 체크해 주세요.',note:'봇의 악의적인 접근으로부터 사이트를 보호하기 위한 확인입니다.',notRobot:'저는 로봇이 아닙니다',wrong:'다시 한 번 시도해 주세요.',error:'문제가 발생했습니다. 잠시 후 다시 시도해 주세요.',checking:'확인 중…',verified:'확인되었습니다',connecting:'{site_name}에 연결하는 중…'},
-    es:{verify:'Cargando {site_name}, un momento...',title:'Verificación rápida',desc:'Confirme para continuar.',note:'Esta verificación protege el sitio contra accesos automatizados maliciosos.',wrong:'Inténtelo una vez más, por favor.',enterNum:'Introduzca un número.',error:'Algo no funcionó. Inténtelo de nuevo en un momento.',checking:'Verificando…',verified:'Verificado',connecting:'Conectando con {site_name}…'},
-    pt:{verify:'Carregando {site_name}, um momento...',title:'Verificação rápida',desc:'Confirme para continuar.',note:'Esta verificação protege o site contra acessos automatizados mal-intencionados.',wrong:'Tente novamente, por favor.',enterNum:'Digite um número.',error:'Algo deu errado. Tente novamente em um instante.',checking:'Verificando…',verified:'Verificado',connecting:'Conectando a {site_name}…'},
-    fr:{verify:'Chargement de {site_name}, un instant...',title:'Vérification rapide',desc:'Confirmez pour continuer.',note:'Cette vérification protège le site contre les accès automatisés malveillants.',wrong:'Veuillez réessayer.',enterNum:'Veuillez entrer un nombre.',error:'Une erreur est survenue. Réessayez dans un instant.',checking:'Vérification…',verified:'Vérifié',connecting:'Connexion à {site_name}…'},
-    de:{verify:'{site_name} wird geladen, einen Moment...',title:'Kurze Prüfung',desc:'Bestätigen Sie, um fortzufahren.',note:'Diese Prüfung schützt die Website vor böswilligen automatisierten Zugriffen.',wrong:'Bitte versuchen Sie es erneut.',enterNum:'Bitte geben Sie eine Zahl ein.',error:'Etwas ist schiefgelaufen. Bitte versuchen Sie es gleich noch einmal.',checking:'Wird überprüft…',verified:'Bestätigt',connecting:'Verbindung zu {site_name} wird hergestellt…'},
-    ru:{verify:'Загрузка {site_name}, подождите немного...',title:'Быстрая проверка',desc:'Подтвердите, чтобы продолжить.',note:'Эта проверка защищает сайт от вредоносных автоматических обращений.',wrong:'Попробуйте ещё раз.',enterNum:'Введите число.',error:'Что-то пошло не так. Попробуйте снова через мгновение.',checking:'Проверка…',verified:'Проверено',connecting:'Подключение к {site_name}…'},
-    it:{verify:'Caricamento di {site_name}, un attimo...',title:'Verifica rapida',desc:'Conferma per continuare.',note:'Questa verifica protegge il sito dagli accessi automatici dannosi.',wrong:'Riprova, per favore.',enterNum:'Inserisci un numero.',error:'Qualcosa è andato storto. Riprova tra poco.',checking:'Verifica in corso…',verified:'Verificato',connecting:'Connessione a {site_name}…'},
-    tr:{verify:'{site_name} yükleniyor, bir saniye...',title:'Hızlı doğrulama',desc:'Devam etmek için onaylayın.',note:'Bu doğrulama, siteyi kötü amaçlı otomatik erişime karşı korur.',wrong:'Lütfen tekrar deneyin.',enterNum:'Lütfen bir sayı girin.',error:'Bir şeyler ters gitti. Birazdan tekrar deneyin.',checking:'Doğrulanıyor…',verified:'Doğrulandı',connecting:'{site_name} ile bağlantı kuruluyor…'},
-    pl:{verify:'Ładowanie {site_name}, chwila...',title:'Szybka weryfikacja',desc:'Potwierdź, aby kontynuować.',note:'Ta weryfikacja chroni witrynę przed złośliwym zautomatyzowanym dostępem.',wrong:'Spróbuj jeszcze raz.',enterNum:'Proszę wpisać liczbę.',error:'Coś poszło nie tak. Spróbuj ponownie za chwilę.',checking:'Weryfikacja…',verified:'Zweryfikowano',connecting:'Łączenie z {site_name}…'},
-    vi:{verify:'Đang tải {site_name}, một lát...',title:'Kiểm tra nhanh',desc:'Xác nhận để tiếp tục.',note:'Bước kiểm tra này bảo vệ trang web khỏi truy cập tự động độc hại.',wrong:'Vui lòng thử lại.',enterNum:'Vui lòng nhập một số.',error:'Đã xảy ra lỗi. Vui lòng thử lại sau giây lát.',checking:'Đang xác minh…',verified:'Đã xác minh',connecting:'Đang kết nối đến {site_name}…'},
-    th:{verify:'กำลังโหลด {site_name} สักครู่...',title:'การยืนยันด่วน',desc:'กดยืนยันเพื่อดำเนินการต่อ',note:'การตรวจสอบนี้ช่วยปกป้องเว็บไซต์จากการเข้าถึงอัตโนมัติที่เป็นอันตราย',wrong:'กรุณาลองอีกครั้ง',enterNum:'กรุณาใส่ตัวเลข',error:'เกิดบางอย่างผิดพลาด กรุณาลองใหม่อีกครั้ง',checking:'กำลังตรวจสอบ…',verified:'ยืนยันแล้ว',connecting:'กำลังเชื่อมต่อกับ {site_name}…'},
-    id:{verify:'Memuat {site_name}, sebentar...',title:'Pemeriksaan cepat',desc:'Konfirmasi untuk melanjutkan.',note:'Pemeriksaan ini melindungi situs dari akses otomatis berbahaya.',wrong:'Silakan coba lagi.',enterNum:'Masukkan angka.',error:'Terjadi kesalahan. Silakan coba lagi sebentar lagi.',checking:'Memverifikasi…',verified:'Terverifikasi',connecting:'Menghubungkan ke {site_name}…'},
-    ar:{verify:'جارٍ تحميل {site_name}، لحظة...',title:'تحقق سريع',desc:'يرجى التأكيد للمتابعة.',note:'هذا التحقق يحمي الموقع من الوصول الآلي الضار.',wrong:'يرجى المحاولة مرة أخرى.',enterNum:'الرجاء إدخال رقم.',error:'حدث خطأ ما. يرجى المحاولة بعد لحظات.',checking:'جارٍ التحقق…',verified:'تم التحقق',connecting:'جارٍ الاتصال بـ {site_name}…'},
-    hi:{verify:'{site_name} लोड हो रहा है, एक क्षण...',title:'त्वरित जाँच',desc:'जारी रखने के लिए पुष्टि करें।',note:'यह जाँच साइट को दुर्भावनापूर्ण स्वचालित पहुँच से बचाती है।',wrong:'कृपया फिर से प्रयास करें।',enterNum:'कृपया एक संख्या दर्ज करें।',error:'कुछ गलत हो गया। कृपया कुछ देर बाद पुनः प्रयास करें।',checking:'सत्यापित किया जा रहा है…',verified:'सत्यापित',connecting:'{site_name} से कनेक्ट हो रहा है…'}
+    en:{verify:'Loading {site_name}, just a moment...',title:'Quick check',desc:'Please confirm to continue.',note:'This check protects the site from malicious automated access.',notRobot:"I'm not a robot",wrong:"That didn't go through — please try once more.",error:'Something went wrong. Please try again in a moment.',solveMath:'Please solve this to continue.',enterNum:'Please enter a number.',expired:'This check has expired. Please reload the page to continue.',reload:'Reload',checking:'Verifying...',verified:'Verified',connecting:'Connecting to {site_name}…'},
+    ja:{verify:'{site_name} を読み込んでいます。もう少々お待ちください…',title:'アクセス確認',desc:'続行するには\u200bチェックを\u200b入れてください。',note:'ボットによる\u200b不正アクセスから\u200bサイトを\u200b守るための\u200b確認です。',notRobot:'私は\u200bロボットでは\u200bありません',wrong:'もう一度\u200b確認させてください。',error:'うまく\u200bいきませんでした。少し時間を\u200bおいてから\u200bお試しください。',solveMath:'続行するには\u200b足し算の\u200b答えを\u200b入れてください。',enterNum:'数字を\u200b入れてください。',expired:'この確認の\u200b有効期限が\u200b切れました。ページを\u200b読み込み直すと\u200b続けられます。',reload:'読み込み直す',checking:'確認中…',verified:'確認できました',connecting:'{site_name} に接続しています…'},
+    zh:{verify:'正在加载 {site_name}，请稍候...',title:'快速验证',desc:'请勾选以继续。',note:'此验证用于保护网站免受恶意自动化访问。',notRobot:'我不是机器人',wrong:'请再试一次。',error:'出了点问题，请稍后再试。',solveMath:'请计算下面的算式以继续。',enterNum:'请输入数字。',expired:'此次验证已过期，请重新加载页面以继续。',reload:'重新加载',checking:'正在验证…',verified:'验证通过',connecting:'正在连接到 {site_name}…'},
+    zht:{verify:'正在載入 {site_name}，請稍候...',title:'快速驗證',desc:'請勾選以繼續。',note:'此驗證用於保護網站免受惡意自動化存取。',notRobot:'我不是機器人',wrong:'請再試一次。',error:'發生問題，請稍候再試。',solveMath:'請計算下面的算式以繼續。',enterNum:'請輸入數字。',expired:'此次驗證已過期，請重新載入頁面以繼續。',reload:'重新載入',checking:'正在驗證…',verified:'驗證通過',connecting:'正在連線至 {site_name}…'},
+    ko:{verify:'{site_name} 로딩 중... 잠시만 기다려 주세요',title:'확인',desc:'계속하려면 체크해 주세요.',note:'봇의 악의적인 접근으로부터 사이트를 보호하기 위한 확인입니다.',notRobot:'저는 로봇이 아닙니다',wrong:'다시 한 번 시도해 주세요.',error:'문제가 발생했습니다. 잠시 후 다시 시도해 주세요.',solveMath:'계속하려면 아래 덧셈의 답을 입력해 주세요.',enterNum:'숫자를 입력해 주세요.',expired:'이 확인의 유효 시간이 지났습니다. 페이지를 새로 고치면 계속할 수 있습니다.',reload:'새로 고침',checking:'확인 중…',verified:'확인되었습니다',connecting:'{site_name}에 연결하는 중…'},
+    es:{verify:'Cargando {site_name}, un momento...',title:'Verificación rápida',desc:'Confirme para continuar.',note:'Esta verificación protege el sitio contra accesos automatizados maliciosos.',wrong:'Inténtelo una vez más, por favor.',enterNum:'Introduzca un número.',error:'Algo no funcionó. Inténtelo de nuevo en un momento.',solveMath:'Resuelva esta suma para continuar.',expired:'Esta verificación ha caducado. Recargue la página para continuar.',reload:'Recargar',checking:'Verificando…',verified:'Verificado',connecting:'Conectando con {site_name}…'},
+    pt:{verify:'Carregando {site_name}, um momento...',title:'Verificação rápida',desc:'Confirme para continuar.',note:'Esta verificação protege o site contra acessos automatizados mal-intencionados.',wrong:'Tente novamente, por favor.',enterNum:'Digite um número.',error:'Algo deu errado. Tente novamente em um instante.',solveMath:'Resolva esta soma para continuar.',expired:'Esta verificação expirou. Recarregue a página para continuar.',reload:'Recarregar',checking:'Verificando…',verified:'Verificado',connecting:'Conectando a {site_name}…'},
+    fr:{verify:'Chargement de {site_name}, un instant...',title:'Vérification rapide',desc:'Confirmez pour continuer.',note:'Cette vérification protège le site contre les accès automatisés malveillants.',wrong:'Veuillez réessayer.',enterNum:'Veuillez entrer un nombre.',error:'Une erreur est survenue. Réessayez dans un instant.',solveMath:'Résolvez cette addition pour continuer.',expired:'Cette vérification a expiré. Rechargez la page pour continuer.',reload:'Recharger',checking:'Vérification…',verified:'Vérifié',connecting:'Connexion à {site_name}…'},
+    de:{verify:'{site_name} wird geladen, einen Moment...',title:'Kurze Prüfung',desc:'Bestätigen Sie, um fortzufahren.',note:'Diese Prüfung schützt die Website vor böswilligen automatisierten Zugriffen.',wrong:'Bitte versuchen Sie es erneut.',enterNum:'Bitte geben Sie eine Zahl ein.',error:'Etwas ist schiefgelaufen. Bitte versuchen Sie es gleich noch einmal.',solveMath:'Lösen Sie diese Aufgabe, um fortzufahren.',expired:'Diese Prüfung ist abgelaufen. Laden Sie die Seite neu, um fortzufahren.',reload:'Neu laden',checking:'Wird überprüft…',verified:'Bestätigt',connecting:'Verbindung zu {site_name} wird hergestellt…'},
+    ru:{verify:'Загрузка {site_name}, подождите немного...',title:'Быстрая проверка',desc:'Подтвердите, чтобы продолжить.',note:'Эта проверка защищает сайт от вредоносных автоматических обращений.',wrong:'Попробуйте ещё раз.',enterNum:'Введите число.',error:'Что-то пошло не так. Попробуйте снова через мгновение.',solveMath:'Решите этот пример, чтобы продолжить.',expired:'Срок этой проверки истёк. Перезагрузите страницу, чтобы продолжить.',reload:'Перезагрузить',checking:'Проверка…',verified:'Проверено',connecting:'Подключение к {site_name}…'},
+    it:{verify:'Caricamento di {site_name}, un attimo...',title:'Verifica rapida',desc:'Conferma per continuare.',note:'Questa verifica protegge il sito dagli accessi automatici dannosi.',wrong:'Riprova, per favore.',enterNum:'Inserisci un numero.',error:'Qualcosa è andato storto. Riprova tra poco.',solveMath:'Risolvi questa somma per continuare.',expired:'Questa verifica è scaduta. Ricarica la pagina per continuare.',reload:'Ricarica',checking:'Verifica in corso…',verified:'Verificato',connecting:'Connessione a {site_name}…'},
+    tr:{verify:'{site_name} yükleniyor, bir saniye...',title:'Hızlı doğrulama',desc:'Devam etmek için onaylayın.',note:'Bu doğrulama, siteyi kötü amaçlı otomatik erişime karşı korur.',wrong:'Lütfen tekrar deneyin.',enterNum:'Lütfen bir sayı girin.',error:'Bir şeyler ters gitti. Birazdan tekrar deneyin.',solveMath:'Devam etmek için bu toplamı çözün.',expired:'Bu doğrulamanın süresi doldu. Devam etmek için sayfayı yenileyin.',reload:'Yenile',checking:'Doğrulanıyor…',verified:'Doğrulandı',connecting:'{site_name} ile bağlantı kuruluyor…'},
+    pl:{verify:'Ładowanie {site_name}, chwila...',title:'Szybka weryfikacja',desc:'Potwierdź, aby kontynuować.',note:'Ta weryfikacja chroni witrynę przed złośliwym zautomatyzowanym dostępem.',wrong:'Spróbuj jeszcze raz.',enterNum:'Proszę wpisać liczbę.',error:'Coś poszło nie tak. Spróbuj ponownie za chwilę.',solveMath:'Rozwiąż to działanie, aby kontynuować.',expired:'Ta weryfikacja wygasła. Odśwież stronę, aby kontynuować.',reload:'Odśwież',checking:'Weryfikacja…',verified:'Zweryfikowano',connecting:'Łączenie z {site_name}…'},
+    vi:{verify:'Đang tải {site_name}, một lát...',title:'Kiểm tra nhanh',desc:'Xác nhận để tiếp tục.',note:'Bước kiểm tra này bảo vệ trang web khỏi truy cập tự động độc hại.',wrong:'Vui lòng thử lại.',enterNum:'Vui lòng nhập một số.',error:'Đã xảy ra lỗi. Vui lòng thử lại sau giây lát.',solveMath:'Hãy giải phép cộng này để tiếp tục.',expired:'Bước kiểm tra này đã hết hạn. Hãy tải lại trang để tiếp tục.',reload:'Tải lại',checking:'Đang xác minh…',verified:'Đã xác minh',connecting:'Đang kết nối đến {site_name}…'},
+    th:{verify:'กำลังโหลด {site_name} สักครู่...',title:'การยืนยันด่วน',desc:'กดยืนยันเพื่อดำเนินการต่อ',note:'การตรวจสอบนี้ช่วยปกป้องเว็บไซต์จากการเข้าถึงอัตโนมัติที่เป็นอันตราย',wrong:'กรุณาลองอีกครั้ง',enterNum:'กรุณาใส่ตัวเลข',error:'เกิดบางอย่างผิดพลาด กรุณาลองใหม่อีกครั้ง',solveMath:'กรุณาตอบผลบวกนี้เพื่อดำเนินการต่อ',expired:'การยืนยันนี้หมดอายุแล้ว กรุณาโหลดหน้านี้ใหม่เพื่อดำเนินการต่อ',reload:'โหลดใหม่',checking:'กำลังตรวจสอบ…',verified:'ยืนยันแล้ว',connecting:'กำลังเชื่อมต่อกับ {site_name}…'},
+    id:{verify:'Memuat {site_name}, sebentar...',title:'Pemeriksaan cepat',desc:'Konfirmasi untuk melanjutkan.',note:'Pemeriksaan ini melindungi situs dari akses otomatis berbahaya.',wrong:'Silakan coba lagi.',enterNum:'Masukkan angka.',error:'Terjadi kesalahan. Silakan coba lagi sebentar lagi.',solveMath:'Selesaikan penjumlahan ini untuk melanjutkan.',expired:'Pemeriksaan ini telah kedaluwarsa. Muat ulang halaman untuk melanjutkan.',reload:'Muat ulang',checking:'Memverifikasi…',verified:'Terverifikasi',connecting:'Menghubungkan ke {site_name}…'},
+    ar:{verify:'جارٍ تحميل {site_name}، لحظة...',title:'تحقق سريع',desc:'يرجى التأكيد للمتابعة.',note:'هذا التحقق يحمي الموقع من الوصول الآلي الضار.',wrong:'يرجى المحاولة مرة أخرى.',enterNum:'الرجاء إدخال رقم.',error:'حدث خطأ ما. يرجى المحاولة بعد لحظات.',solveMath:'يرجى حل عملية الجمع هذه للمتابعة.',expired:'انتهت صلاحية هذا التحقق. يرجى إعادة تحميل الصفحة للمتابعة.',reload:'إعادة التحميل',checking:'جارٍ التحقق…',verified:'تم التحقق',connecting:'جارٍ الاتصال بـ {site_name}…'},
+    hi:{verify:'{site_name} लोड हो रहा है, एक क्षण...',title:'त्वरित जाँच',desc:'जारी रखने के लिए पुष्टि करें।',note:'यह जाँच साइट को दुर्भावनापूर्ण स्वचालित पहुँच से बचाती है।',wrong:'कृपया फिर से प्रयास करें।',enterNum:'कृपया एक संख्या दर्ज करें।',error:'कुछ गलत हो गया। कृपया कुछ देर बाद पुनः प्रयास करें।',solveMath:'जारी रखने के लिए इस जोड़ का उत्तर दें।',expired:'यह जाँच समाप्त हो गई है। जारी रखने के लिए पेज फिर से लोड करें।',reload:'फिर से लोड करें',checking:'सत्यापित किया जा रहा है…',verified:'सत्यापित',connecting:'{site_name} से कनेक्ट हो रहा है…'}
   };
 
   // language detection: preview override -> URL path -> Accept-Language -> English
@@ -515,6 +515,7 @@
       cb.disabled = true;
       submitClick();
     });
+    armCTExpiry();
     _bcDebug('captcha', { cap_reason: capReason });
   }
 
@@ -670,6 +671,10 @@
       if(res.data.ok===1){
         _bcDebug(bvPhaseForCaptchaPass(), { score: res.data.score });
         passAndRedirect();
+      } else if (res.data && res.data.error === 'stale_challenge') {
+        // The page's token has run out.  Not a score to fall back from, and
+        // the fallback's question needs the same token: say so, start over.
+        challengeExpired('stale_challenge', { method: 'behavioral', http_status: res.status });
       } else {
         _bcDebug('verify_ng', { http_status: res.status, score: res.data.score });
         // checkbox couldn't confirm -> switch to the numeric-add fallback (= UX rescue).
@@ -968,6 +973,8 @@
         _bcDebug(bvPhaseForCaptchaPass(), { method:'math', iv:mathInputEvents,
                                            downgraded: res.data.downgraded ? 1 : 0 });
         passAndRedirect();
+      } else if (res.data && res.data.error === 'stale_challenge') {
+        challengeExpired('stale_challenge', { method: 'math', http_status: res.status });
       } else {
         _bcDebug('verify_ng', { method:'math', http_status: res.status });
         showError(t.wrong);
@@ -1019,7 +1026,18 @@
     // same token back as the one the answer will consume.
     var pageCt = (window.UNMASK && window.UNMASK.ct) || '';
     fetch(API_BASE + '/captcha/new?ct=' + encodeURIComponent(pageCt)).then(parseJSON).then(function(res){
-      var data = res.data;
+      var data = res.data || {};
+      if (data.error === 'stale_challenge') {
+        challengeExpired('stale_challenge', { method: 'captcha_new', http_status: res.status });
+        return;
+      }
+      // A refusal (the address's question budget) or an answer of another
+      // shape is reported with its status, the way a non-JSON answer is.  It
+      // used to be drawn as the question: "undefined + undefined = ?", which
+      // no answer could satisfy.
+      if (data.ok === 0 || typeof data.a !== 'number' || typeof data.b !== 'number' || !data.token) {
+        throw { status: res.status };
+      }
       captchaToken = data.token;
       captchaCt = data.ct || '';
       document.getElementById('mathQ').textContent = data.a + ' + ' + data.b + ' = ?';
@@ -1034,6 +1052,93 @@
     var el=document.getElementById('errMsg');
     el.textContent=msg;
     el.style.display='block';
+  }
+
+  // The page's ct (proof-of-load token) is good for ct_valid_secs after the
+  // page was served -- fifteen minutes by default -- and the checkbox and the
+  // arithmetic both hand it to the daemon.  A visitor who came back to the
+  // card later than that used to be refused twice in a row: the checkbox as
+  // a stale challenge, which the page read as a low score and answered with
+  // the arithmetic fallback, whose question the daemon refused for the same
+  // reason -- so the page drew "undefined + undefined = ?" and took no
+  // answer.  Now the card says the check has expired and offers the one move
+  // that works, a reload, which serves a fresh challenge with a fresh token.
+  //
+  // how: 'stale_challenge' when the daemon said so to something the visitor
+  // just did -- the page then reloads on its own after a beat, once; a second
+  // refusal in a row within five minutes leaves the button, so a clock or a
+  // secret that disagrees cannot spin the page.  'challenge_expired' when the
+  // page's own clock ran out first: no reload until the visitor asks, since a
+  // tab nobody is looking at should not solve proofs of work for nobody.
+  // Either way the box and the field stop taking input: anything they sent
+  // would be refused.
+  var expiredShown = false;
+  function challengeExpired(how, extra){
+    if (expiredShown) return;
+    expiredShown = true;
+    revealNow();
+    if (ctTimer) { clearTimeout(ctTimer); ctTimer = 0; }
+    var hide = ['clickRow', 'mathFallback', 'captchaBusy', 'errMsg', 'captchaDesc'];
+    for (var i = 0; i < hide.length; i++) {
+      var h = document.getElementById(hide[i]);
+      if (h) h.style.display = 'none';
+    }
+    var cb = document.getElementById('notRobot'); if (cb) cb.disabled = true;
+    var sb = document.getElementById('submitBtn'); if (sb) sb.disabled = true;
+    var reload = function(){
+      try { window.__unmaskReloading = true; } catch (_) {}
+      location.reload();
+    };
+    var text = t.expired || 'This check has expired. Please reload the page to continue.';
+    var box = document.getElementById('ctExpired');
+    var msg = document.getElementById('ctExpiredMsg');
+    var btn = document.getElementById('ctExpiredReload');
+    if (box && msg && btn) {
+      msg.textContent = text;
+      btn.textContent = t.reload || 'Reload';
+      btn.onclick = reload;
+      box.style.display = 'block';
+    } else {
+      // An operator's overlay copy of challenge.html from before this block
+      // existed: the error line carries the text, and the visitor reloads
+      // by hand.
+      showError(text);
+    }
+    var payload = { kind: how, chmode: chMode, age_ms: Date.now() - start };
+    if (extra) for (var k in extra) payload[k] = extra[k];
+    _bcDebug('error', payload);
+    if (how !== 'stale_challenge') return;
+    var KEY = 'unmask_ct_reload';
+    try {
+      var last = JSON.parse(sessionStorage.getItem(KEY) || 'null');
+      if (last && last.to === location.href && Date.now() - last.t < 300000) return;
+      sessionStorage.setItem(KEY, JSON.stringify({ to: location.href, t: Date.now() }));
+    } catch (_) { return; }
+    setTimeout(reload, 1200);
+  }
+
+  // The clock on the page's token, started when the card appears (the
+  // builtin paths alone use it: a provider's widget has its own).  Time on
+  // this page, counted from its start, stands in for the daemon's clock, with
+  // a margin so the page gives up a little before the daemon would.  A tab in
+  // the background may hold the timer past its time, so the same check runs
+  // when the tab comes back.
+  var ctTimer = 0;
+  function ctDeadline(){
+    var secs = (window.UNMASK && window.UNMASK.ct_valid_secs) | 0;
+    if (secs <= 0) secs = 900;
+    return start + secs * 1000 - 15000;
+  }
+  function armCTExpiry(){
+    if (!(window.UNMASK && window.UNMASK.ct)) return;
+    var check = function(){
+      if (!expiredShown && Date.now() >= ctDeadline()) challengeExpired('challenge_expired');
+    };
+    var left = ctDeadline() - Date.now();
+    ctTimer = setTimeout(check, left > 0 ? left : 0);
+    document.addEventListener('visibilitychange', function(){
+      if (document.visibilityState === 'visible') check();
+    });
   }
 
   // Error screen for environments where cookies are disabled or unwritable.
@@ -1214,8 +1319,10 @@
     var left = false;
     function abandon(via, ev){
       // Passing navigates away on purpose -- that is a success, not a
-      // departure, and counting it would drown the signal we came for.
-      if (left || window.__unmaskPassed) return;
+      // departure, and counting it would drown the signal we came for.  Nor
+      // is the reload this page asks for itself when its token has expired
+      // (__unmaskReloading): the visitor is still here.
+      if (left || window.__unmaskPassed || window.__unmaskReloading) return;
       left = true;
       // Two different clocks, and the gap between them is itself a finding.
       //

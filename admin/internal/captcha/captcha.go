@@ -304,9 +304,9 @@ const TokenValidSeconds int64 = 900
 const TokenTTL = time.Duration(TokenValidSeconds) * time.Second
 
 // MathChallenge returns (a, b, token) for a fresh arithmetic question.  token
-// is "<issued>.<hmac>" with hmac = HMAC(mathSecret(base, today), "math:<issued>:<a+b>"),
+// is "<issued>.<hmac>" with hmac = HMAC(mathSecret(base, dayOf(issued)), "math:<issued>:<a+b>"),
 // so a solved (answer, token) pair is bound to a freshness window (see
-// VerifyMath) and to today's secret.
+// VerifyMath) and to the secret of the day it was issued.
 //
 // The token is deliberately not bound to the client's address.  It used to be,
 // so a harvested (answer, token) pair could not be replayed from another
@@ -318,18 +318,26 @@ const TokenTTL = time.Duration(TokenValidSeconds) * time.Second
 // more than one pass is the ct proof-of-load token the /verify math path also
 // requires, which is single-use (UsedSet).
 func MathChallenge(captchaSecretBase string) (int, int, string) {
+	return mathChallengeAt(captchaSecretBase, time.Now())
+}
+
+func mathChallengeAt(captchaSecretBase string, now time.Time) (int, int, string) {
 	a := randomInt(1, 20)
 	b := randomInt(1, 20)
-	issued := time.Now().Unix()
-	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, today()))
+	issued := now.Unix()
+	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, dayOf(issued)))
 	mac.Write([]byte("math:" + strconv.FormatInt(issued, 10) + ":" + strconv.Itoa(a+b)))
 	return a, b, strconv.FormatInt(issued, 10) + "." + hex.EncodeToString(mac.Sum(nil))
 }
 
 // VerifyMath returns true iff answerStr is a non-negative integer and token is a
-// fresh HMAC for that answer: issued within validSecs and signed with today's
-// secret.  Returns false on any malformation.
+// fresh HMAC for that answer: issued within validSecs and signed with the
+// secret of the day the token names.  Returns false on any malformation.
 func VerifyMath(answerStr, token, captchaSecretBase string, validSecs int64) bool {
+	return verifyMathAt(answerStr, token, captchaSecretBase, validSecs, time.Now())
+}
+
+func verifyMathAt(answerStr, token, captchaSecretBase string, validSecs int64, now time.Time) bool {
 	s := strings.TrimSpace(answerStr)
 	if s == "" {
 		return false
@@ -348,34 +356,43 @@ func VerifyMath(answerStr, token, captchaSecretBase string, validSecs int64) boo
 	if err != nil {
 		return false
 	}
-	now := time.Now().Unix()
-	if issued > now+60 || now-issued > validSecs {
+	nowSec := now.Unix()
+	if issued > nowSec+60 || nowSec-issued > validSecs {
 		return false
 	}
-	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, today()))
+	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, dayOf(issued)))
 	mac.Write([]byte("math:" + issuedStr + ":" + s))
 	expected := hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(expected), []byte(sig))
 }
 
 // IssueToken returns a proof-of-load token: "<issued>.<nonce>.<hmac>", hmac =
-// HMAC(mathSecret(base, today), "ct:<issued>:<nonce>").  The nonce makes every
+// HMAC(mathSecret(base, dayOf(issued)), "ct:<issued>:<nonce>").  The nonce makes every
 // token distinct, which is what lets UsedSet refuse a second pass on the same
 // one; the timestamp bounds its life (VerifyToken).  Like the math token it is
 // not bound to the client's address -- MathChallenge has the reason.
 func IssueToken(captchaSecretBase string) string {
-	issued := strconv.FormatInt(time.Now().Unix(), 10)
+	return issueTokenAt(captchaSecretBase, time.Now())
+}
+
+func issueTokenAt(captchaSecretBase string, now time.Time) string {
+	issuedSec := now.Unix()
+	issued := strconv.FormatInt(issuedSec, 10)
 	nonce := tokenNonce()
-	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, today()))
+	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, dayOf(issuedSec)))
 	mac.Write([]byte("ct:" + issued + ":" + nonce))
 	return issued + "." + nonce + "." + hex.EncodeToString(mac.Sum(nil))
 }
 
 // VerifyToken validates a token from IssueToken: the HMAC must match and
-// issued must be within validSecs (the daily secret rotation bounds it
-// further).  Returns false on any malformation.  It does not consume the
-// token; the caller does that with UsedSet once the token has earned a pass.
+// issued must be within validSecs.  Returns false on any malformation.  It
+// does not consume the token; the caller does that with UsedSet once the
+// token has earned a pass.
 func VerifyToken(token, captchaSecretBase string, validSecs int64) bool {
+	return verifyTokenAt(token, captchaSecretBase, validSecs, time.Now())
+}
+
+func verifyTokenAt(token, captchaSecretBase string, validSecs int64, now time.Time) bool {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
 		return false
@@ -385,11 +402,11 @@ func VerifyToken(token, captchaSecretBase string, validSecs int64) bool {
 	if err != nil {
 		return false
 	}
-	now := time.Now().Unix()
-	if issued > now+60 || now-issued > validSecs {
+	nowSec := now.Unix()
+	if issued > nowSec+60 || nowSec-issued > validSecs {
 		return false
 	}
-	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, today()))
+	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, dayOf(issued)))
 	mac.Write([]byte("ct:" + issuedStr + ":" + nonce))
 	expected := hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(expected), []byte(sig))
@@ -465,7 +482,16 @@ func (u *UsedSet) consumeAt(token string, ttl time.Duration, now time.Time) bool
 	return true
 }
 
-func today() int64 { return time.Now().Unix() / 86400 }
+// dayOf is the UTC day a unix timestamp falls in, which selects the daily
+// key.  It is taken from the day a token was ISSUED, which the token itself
+// states, so a token issued in the last minutes of a day still verifies in
+// the first minutes of the next, inside its freshness window.  The key used
+// to be the day of VERIFICATION: a page served at 23:55 UTC whose visitor
+// answered at 00:05 was refused as stale, and the arithmetic fallback it fell
+// to was refused the same way.  Nothing is weakened: the day is written in
+// the clear in the token either way, and the freshness window still bounds
+// how long any token lives.
+func dayOf(unixSec int64) int64 { return unixSec / 86400 }
 
 func mathSecret(base string, day int64) []byte {
 	mac := hmac.New(sha256.New, []byte(base))
