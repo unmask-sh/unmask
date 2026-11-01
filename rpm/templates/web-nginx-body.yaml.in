@@ -46,7 +46,9 @@ contents:
   # left alone by every package script: the postinstall neither enables nor
   # starts it.  The service runs the script below every five minutes: with a
   # .reload-needed flag from the daemon's render and a passing `nginx -t`, it
-  # reloads (never restarts) nginx, at most once per ten minutes.
+  # reloads (never restarts) nginx, at most once per ten minutes.  A master
+  # that still maps a replaced shared library is left alone, with a journal
+  # line asking for the restart.
   - src: ./unmask-nginx-reload.service
     dst: /usr/lib/systemd/system/unmask-nginx-reload.service
     file_info:

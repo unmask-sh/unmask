@@ -16,16 +16,22 @@
 #     removes it once nginx logs under the new id.
 #   - Nothing when the last reload from here was less than ten minutes ago:
 #     the next run picks it up.
+#   - Nothing, but a journal line asking for a restart, while the nginx
+#     master still maps a shared library that an OS update has since replaced
+#     on disk.  A reload keeps that master, and the workers it forks inherit
+#     the stale mapping and crash on it; only a restart leaves it behind.
 #   - `nginx -t`, and only when that passes, `systemctl reload nginx`
 #     (`nginx -s reload` where there is no systemd).
 #   - One line to the journal (logger) for every run that found the file.
 #
-# A changed module (.so) is not handled: that takes a restart, and this
-# script never restarts nginx.
+# A changed module (.so) is not handled either: that takes a restart, and
+# this script never restarts nginx.
 #
 # Environment (for a relocated install, and the test):
 #   UNMASK_NGINX_DIR   the render output directory (default /var/lib/unmask/nginx)
 #   UNMASK_RELOAD_MIN  minutes between two reloads from here (default 10)
+#   UNMASK_NGINX_MAPS  the memory map read for replaced libraries (default
+#                      /proc/<nginx master pid>/maps; the test names a file)
 
 NGINX_DIR=${UNMASK_NGINX_DIR:-/var/lib/unmask/nginx}
 MIN_MINUTES=${UNMASK_RELOAD_MIN:-10}
@@ -46,6 +52,39 @@ say() {
     echo "unmask-nginx-reload: $*"
 }
 
+# nginx_master_pid: the pid file nginx writes (its path differs by
+# distribution), else the unit's main process under systemd, else the oldest
+# nginx process.  Empty when none of them answers.
+nginx_master_pid() {
+    for f in /run/nginx.pid /var/run/nginx.pid /run/nginx/nginx.pid /var/run/nginx/nginx.pid; do
+        [ -f "$f" ] || continue
+        p=$(tr -cd '0-9' < "$f" 2>/dev/null)
+        if [ -n "$p" ] && [ -d "/proc/$p" ]; then echo "$p"; return; fi
+    done
+    if [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; then
+        p=$(systemctl show -p MainPID nginx 2>/dev/null | sed 's/^MainPID=//' | tr -cd '0-9')
+        if [ -n "$p" ] && [ "$p" != 0 ] && [ -d "/proc/$p" ]; then echo "$p"; return; fi
+    fi
+    if command -v pgrep >/dev/null 2>&1; then
+        pgrep -o -x nginx 2>/dev/null | head -n 1
+    fi
+}
+
+# replaced_libraries: the shared libraries the master maps whose file on disk
+# has since been replaced -- "(deleted)" in its memory map -- one basename per
+# line.  nginx's shared-memory zones appear there as "/dev/zero (deleted)",
+# which is normal and not a library.  Empty when the map cannot be found or
+# read: nothing is refused on a guess.
+replaced_libraries() {
+    maps=${UNMASK_NGINX_MAPS:-}
+    if [ -z "$maps" ]; then
+        pid=$(nginx_master_pid)
+        [ -n "$pid" ] || return 0
+        maps="/proc/$pid/maps"
+    fi
+    grep '(deleted)' "$maps" 2>/dev/null | awk '$6 ~ /\.so(\.|$)/ {print $6}' | sed 's|.*/||' | sort -u
+}
+
 [ -f "$FLAG" ] || exit 0
 render_id=$(head -n 1 "$FLAG" 2>/dev/null | tr -cd '0-9a-f')
 
@@ -63,6 +102,16 @@ fi
 if ! command -v nginx >/dev/null 2>&1; then
     say "render $render_id is waiting but nginx is not installed here; nothing to reload"
     exit 0
+fi
+# A master on replaced libraries is a restart matter, which this script
+# never does: it says so and leaves nginx as it is.  The flag stays, and the
+# next run after the restart reloads if anything is still waiting.
+libs=$(replaced_libraries)
+if [ -n "$libs" ]; then
+    n=$(printf '%s\n' "$libs" | wc -l | tr -d ' ')
+    named=$(printf '%s\n' "$libs" | head -n 3 | tr '\n' ' ' | sed 's/ $//')
+    say "render $render_id is waiting but nginx's master still maps $n shared library file(s) replaced on disk ($named): a reload would fork workers onto the old copies -- restart nginx instead (systemctl restart nginx)"
+    exit 1
 fi
 if ! nginx -t >/dev/null 2>&1; then
     say "render $render_id is waiting but nginx -t fails; not reloaded (run nginx -t to see why)"

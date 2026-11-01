@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-11-01) **The reload timer leaves a master that needs a restart alone.**  When an OS update replaces a library nginx has loaded, the workers a reload forks crash on the old copy.  The timer's script now checks the master's mappings first and, with a replaced library there, logs that a restart is needed instead of reloading.  The reload notice says the timer acts only when a render waits.
+
 ## [0.1.53-rc31] - 2026-11-01 (testing build)
 
 ### Fixed

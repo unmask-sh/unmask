@@ -22,7 +22,10 @@ the changelog's "Upgrade note" paragraphs.
   unmask-nginx-reload.timer`.  The timer ships disabled with
   `unmask-web-nginx`; every five minutes it reloads nginx when a render
   changed the configuration and `nginx -t` passes, at most once per ten
-  minutes, and never restarts it.  Without systemd, run
+  minutes, and never restarts it.  While the nginx master still maps a
+  shared library an OS update has replaced, it reloads nothing and writes to
+  the journal that a restart is needed: the workers a reload forks on that
+  master crash on the old copy.  Without systemd, run
   `/usr/share/unmask/nginx-reload-if-stale.sh` from cron.
 - Schema: the daemon applies a short schema update when it starts.  An index
   build that would take long is left for the operator: the package output,

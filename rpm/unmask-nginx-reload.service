@@ -8,7 +8,9 @@
 # that call made standing: the package installs both DISABLED and never
 # enables them; `systemctl enable --now unmask-nginx-reload.timer` opts in.
 # The script runs `nginx -t` first, reloads only when that passes, and never
-# restarts nginx (a changed module needs a restart, by hand).
+# restarts nginx (a changed module needs a restart, by hand).  Nor does it
+# reload a master that still maps a shared library an OS update has replaced:
+# that is a restart too, and the script says so in the journal instead.
 [Unit]
 Description=Reload nginx when unmask rendered a changed configuration
 Documentation=https://github.com/unmask-sh/unmask

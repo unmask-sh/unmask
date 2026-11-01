@@ -2,10 +2,13 @@
 # Test for nginx-reload-if-stale.sh, the script unmask-nginx-reload.timer runs:
 # nothing without the daemon's .reload-needed flag, no reload while nginx -t
 # fails, a reload through systemctl (nginx -s reload without systemd) when it
-# passes, no second reload within ten minutes, and never a restart.
+# passes, no second reload within ten minutes, no reload -- a journal line
+# asking for a restart -- while the master maps a replaced shared library,
+# and never a restart.
 #
 # The script is run for real against a throwaway directory, with a PATH that
-# holds recording stand-ins for nginx, systemctl and logger.  No root, no nginx.
+# holds recording stand-ins for nginx, systemctl and logger, and a file in
+# place of the master's /proc/<pid>/maps.  No root, no nginx.
 #
 # Run: bash rpm/scripts/nginx-reload-if-stale_test.sh
 set -u
@@ -31,6 +34,14 @@ new_root() {
     stub systemctl
     stub logger
     SYSTEMD=$2
+    # The master's memory map as a healthy nginx shows it: a library in use
+    # and the shared-memory zones, which every nginx maps as a deleted
+    # /dev/zero and which must never read as a replaced library.
+    cat > "$T/maps" <<'MAPS'
+7f0000000000-7f0000021000 r--p 00000000 fd:00 1234 /usr/lib64/libc.so.6
+7f0000100000-7f0000200000 rw-s 00000000 00:01 5678 /dev/zero (deleted)
+7f0000300000-7f0000301000 rw-p 00000000 00:00 0
+MAPS
 }
 # run: the script with the throwaway root; systemd is detected through
 # /run/systemd/system, which the test cannot create, so the no-systemd case
@@ -39,12 +50,13 @@ new_root() {
 run() {
     # The stand-ins first, then the system's own tools -- not /usr/sbin, so a
     # real nginx there is not found where the test removed the stand-in.
-    PATH="$T/stub:/usr/bin:/bin" UNMASK_NGINX_DIR="$T/nginx" UNMASK_RELOAD_MIN=10 sh "$SCRIPT" >"$T/out" 2>&1
+    PATH="$T/stub:/usr/bin:/bin" UNMASK_NGINX_DIR="$T/nginx" UNMASK_RELOAD_MIN=10 UNMASK_NGINX_MAPS="$T/maps" sh "$SCRIPT" >"$T/out" 2>&1
     echo $?
 }
 called() { grep -c "$1" "$T/calls.log"; }
 # The reload commands alone: the journal lines say "reloaded" too.
 reloads() { grep -cE '^(systemctl reload nginx|nginx -s reload)$' "$T/calls.log"; }
+restarts() { grep -cE '^(systemctl restart|nginx -s (stop|quit))' "$T/calls.log"; }
 has_systemd() { [ -d /run/systemd/system ] && command -v systemctl >/dev/null 2>&1; }
 
 # --- 1. no flag: nothing happens, nothing is logged -------------------------
@@ -94,7 +106,25 @@ check "ten minutes later: a second reload" 2 "$(reloads)"
 [ "$stamp" = /run/unmask/.last-nginx-reload ] && rm -f "$stamp"
 rm -rf "$T"
 
-# --- 6. no nginx on the host: nothing to reload, exit 0 --------------------
+# --- 6. the master maps a replaced library: no reload, a restart is asked for
+new_root 0 1
+echo "0123456789ab" > "$T/nginx/.reload-needed"
+cat >> "$T/maps" <<'MAPS'
+7f0000400000-7f0000410000 r-xp 00000000 fd:00 999 /usr/lib64/libbrotlienc.so.1.0.9 (deleted)
+7f0000500000-7f0000510000 r--p 00000000 fd:00 998 /usr/lib64/libbrotlienc.so.1.0.9 (deleted)
+MAPS
+check "replaced library: exit 1" 1 "$(run)"
+check "replaced library: no reload" 0 "$(reloads)"
+check "replaced library: no restart either" 0 "$(restarts)"
+check "replaced library: nginx -t not run" 0 "$(called '^nginx -t')"
+check "replaced library: one journal line" 1 "$(called '^logger')"
+check "replaced library: the line names the render" 1 "$(grep -c '0123456789ab' "$T/calls.log")"
+check "replaced library: the line names the library, once" 1 "$(grep -c 'libbrotlienc.so.1.0.9' "$T/calls.log")"
+check "replaced library: the line asks for a restart" 1 "$(grep -c 'systemctl restart nginx' "$T/calls.log")"
+check "replaced library: the flag is left for the daemon" 1 "$([ -f "$T/nginx/.reload-needed" ] && echo 1 || echo 0)"
+rm -rf "$T"
+
+# --- 7. no nginx on the host: nothing to reload, exit 0 --------------------
 new_root 0 1
 rm -f "$T/stub/nginx"
 echo "0123456789ab" > "$T/nginx/.reload-needed"
