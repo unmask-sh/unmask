@@ -29,24 +29,32 @@ func Severity(event string, fields map[string]any) string {
 	return SeverityInfo
 }
 
-// hookFor is the webhook URL an alert goes to, or "" when the channel is
-// paused or has no hook for it.  With no critical hook every alert goes to
-// URL.  With one, an alert whose severity reaches CriticalMinSeverity goes
-// there and the rest to URL -- which may be empty, for an operator who wants
-// to hear of the critical alerts alone.  The over-block breaker's clearing
-// follows its trip: the channel that saw the alarm sees it end.
-func (c Config) hookFor(event string, fields map[string]any) string {
+// hookFor is the webhook URL an alert goes to and the payload format that
+// hook takes, or "" when the channel is paused or has no hook for it.  With
+// no critical hook every alert goes to URL in Format.  With one, an alert
+// whose severity reaches CriticalMinSeverity goes there in CriticalFormat
+// (Format when it names none: the hooks may be different services) and the
+// rest to URL -- which may be empty, for an operator who wants to hear of the
+// critical alerts alone.  The over-block breaker's clearing follows its trip:
+// the channel that saw the alarm sees it end.
+func (c Config) hookFor(event string, fields map[string]any) (hook, format string) {
 	if c.WebhookDisabled {
-		return ""
+		return "", ""
 	}
 	if c.CriticalURL == "" {
-		return c.URL
+		return c.URL, c.Format
 	}
 	sev := Severity(event, fields)
 	critical := event == EventOverBlock || sev == SeverityCrit ||
 		(sev == SeverityWarn && c.CriticalMinSeverity == SeverityWarn)
 	if critical {
-		return c.CriticalURL
+		if c.CriticalFormat != "" {
+			return c.CriticalURL, c.CriticalFormat
+		}
+		return c.CriticalURL, c.Format
 	}
-	return c.URL
+	if c.URL == "" {
+		return "", ""
+	}
+	return c.URL, c.Format
 }

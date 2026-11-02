@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- (2026-10-29) **The critical webhook can take a format of its own.**  The second webhook URL posted in the first hook's format, so a critical channel on Discord beside an info channel on Slack got a body it could not read.  A format select beside the critical URL picks slack, discord or generic, follows the first hook's when left alone, and the critical test button sends in it.
+
 ### Changed
 
 - (2026-11-01) **The reload timer leaves a master that needs a restart alone.**  When an OS update replaces a library nginx has loaded, the workers a reload forks crash on the old copy.  The timer's script now checks the master's mappings first and, with a replaced library there, logs that a restart is needed instead of reloading.  The reload notice says the timer acts only when a render waits.

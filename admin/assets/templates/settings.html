@@ -6508,8 +6508,9 @@ function secToHuman(s){
          channel for what needs a person now and one for the record.  The
          severity is the notification list's (notifier.Severity), so what the
          bell marks critical is what lands here; left empty, the hook above
-         takes everything, as it did before this one existed.  Format and the
-         pause above are shared. */}}
+         takes everything, as it did before this one existed.  The pause above
+         is shared; the format can be its own, since the two hooks may be
+         different services. */}}
     <div class="field" style="margin-top:1rem;padding-top:1rem;border-top:1px solid #e2e8f0">
       <div class="field-label field-label-row">
         <span>{{ t .Lang "settings.notify.critical_url" }}</span>
@@ -6517,6 +6518,19 @@ function secToHuman(s){
       </div>
       <script type="text/html" id="notify-critical-url-help">{{ t .Lang "settings.notify.critical_url_desc" }}</script>
       <input type="url" name="critical_url" value="{{ .Notifications.CriticalURL }}" placeholder="https://hooks.slack.com/services/T.../B.../..." style="width:100%;font-family:ui-monospace,monospace">
+    </div>
+    <div class="field">
+      <div class="field-label field-label-row">
+        <span>{{ t .Lang "settings.notify.critical_format" }}</span>
+        <button type="button" class="ua-help-trigger" data-help-target="notify-critical-format-help" aria-label="?">?</button>
+      </div>
+      <script type="text/html" id="notify-critical-format-help">{{ t .Lang "settings.notify.critical_format_desc" }}</script>
+      <select name="critical_format">
+        <option value=""{{ if eq .Notifications.CriticalFormat "" }} selected{{ end }}>{{ t .Lang "settings.notify.critical_format_same" }}</option>
+        <option value="slack"{{ if eq .Notifications.CriticalFormat "slack" }} selected{{ end }}>Slack / Mattermost (= text + blocks)</option>
+        <option value="discord"{{ if eq .Notifications.CriticalFormat "discord" }} selected{{ end }}>Discord (= content)</option>
+        <option value="generic"{{ if eq .Notifications.CriticalFormat "generic" }} selected{{ end }}>generic (= JSON event payload)</option>
+      </select>
     </div>
     <div class="field">
       <div class="field-label field-label-row">
@@ -6536,9 +6550,10 @@ function secToHuman(s){
   </div>
 <script>
 (function(){
-  // Each test button posts its own hook's URL with the form's format and
-  // label, and the answer lands beside the button that asked.
-  function wire(btnId, outId, urlName){
+  // Each test button posts its own hook's URL in its own format (the
+  // critical hook's select, the form's format when that says "same") with
+  // the label, and the answer lands beside the button that asked.
+  function wire(btnId, outId, urlName, formatName){
     document.getElementById(btnId).addEventListener('click', function(){
       var form = document.getElementById('notify-form');
       var result = document.getElementById(outId);
@@ -6546,7 +6561,8 @@ function secToHuman(s){
       result.style.color = '#64748b';
       var fd = new FormData();
       fd.set('url', form.querySelector('[name=' + urlName + ']').value);
-      fd.set('format', form.querySelector('[name=format]').value);
+      var fmt = formatName ? form.querySelector('[name=' + formatName + ']').value : '';
+      fd.set('format', fmt || form.querySelector('[name=format]').value);
       fd.set('site_label', form.querySelector('[name=site_label]').value);
       fetch('{{ .BasePath }}/admin/api/notify/test', { method:'POST', body: new URLSearchParams(fd) })
         // Read as text: an answer that is not ours (a proxy's error page, nginx's
@@ -6570,7 +6586,7 @@ function secToHuman(s){
     });
   }
   wire('notify-test-btn', 'notify-test-result', 'url');
-  wire('notify-test-crit-btn', 'notify-test-crit-result', 'critical_url');
+  wire('notify-test-crit-btn', 'notify-test-crit-result', 'critical_url', 'critical_format');
 })();
 </script>
 

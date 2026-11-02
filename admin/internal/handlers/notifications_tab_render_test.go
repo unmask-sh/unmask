@@ -55,6 +55,7 @@ func TestNotificationsTabWired(t *testing.T) {
 		`section=notifications`,
 		`name="url"`,          // webhook channel
 		`name="critical_url"`, // the second hook, for the critical alerts
+		`name="critical_format"`,
 		`id="notify-test-crit-btn"`,
 		`name="mail_disabled"`, // mail channel pause, on the mail card
 		`name="mail_to"`,       // explicit alert recipients (empty = admin users)
@@ -135,6 +136,7 @@ func TestNotificationsSaveCarriesBothCards(t *testing.T) {
 		"from_address":  {"notify@example.com"},
 	}
 	form.Set("critical_min_severity", "warn")
+	form.Set("critical_format", "discord")
 	req := jaRequest(http.MethodPost,
 		"/unmask/admin/settings/save?section=notifications",
 		strings.NewReader(form.Encode()))
@@ -155,7 +157,7 @@ func TestNotificationsSaveCarriesBothCards(t *testing.T) {
 	if after.Notifications.SiteLabel != "jp-node" || after.Notifications.URL != "https://hooks.example/x" || !after.Notifications.MailDisabled || after.Notifications.MailTo != "alerts@example.com" {
 		t.Errorf("channel fields not persisted: %+v", after.Notifications)
 	}
-	if after.Notifications.CriticalURL != "https://hooks.example/crit" || after.Notifications.CriticalMinSeverity != "warn" {
+	if after.Notifications.CriticalURL != "https://hooks.example/crit" || after.Notifications.CriticalMinSeverity != "warn" || after.Notifications.CriticalFormat != "discord" {
 		t.Errorf("the critical hook was not persisted: %+v", after.Notifications)
 	}
 	if after.SMTP.Host != "smtp.example.com" || after.SMTP.Port != 25 || !after.SMTP.StartTLS || after.SMTP.FromAddress != "notify@example.com" {

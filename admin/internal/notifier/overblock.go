@@ -72,9 +72,9 @@ func (n *Notifier) OverBlock(r OverBlockReport) {
 	if cfg.Disabled {
 		return
 	}
-	if u := cfg.hookFor(EventOverBlock, fields); u != "" {
+	if u, f := cfg.hookFor(EventOverBlock, fields); u != "" {
 		lang := i18n.Lang(cfg.mailLang())
-		go n.send(u, cfg.Format, EventOverBlock, fields, overBlockLine(r, lang, cfg.Sites))
+		go n.send(u, f, EventOverBlock, fields, overBlockLine(r, lang, cfg.Sites))
 	}
 	go n.sendMailLocalized(func(lang string) (string, string, string) {
 		return renderOverBlock(r, i18n.Lang(lang), cfg.Sites, r.AdminURL)

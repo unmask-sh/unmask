@@ -36,8 +36,8 @@ func (n *Notifier) AdvisorDigest(newCount, total int, body string) {
 	if cfg.Sites != "" {
 		subject = fmt.Sprintf("[unmask %s] %d new ban candidate(s)", cfg.Sites, newCount)
 	}
-	if u := cfg.hookFor(EventAdvisorDigest, fields); u != "" {
-		n.send(u, cfg.Format, EventAdvisorDigest, fields, body)
+	if u, f := cfg.hookFor(EventAdvisorDigest, fields); u != "" {
+		n.send(u, f, EventAdvisorDigest, fields, body)
 	}
 	n.sendMail(subject, body)
 }

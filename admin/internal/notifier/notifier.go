@@ -51,13 +51,14 @@ const (
 // per-channel flags mute one transport while its settings stay intact.
 // A webhook also needs a non-empty URL, mail a configured Mailer.  A second
 // hook, CriticalURL, takes the alerts of severity CriticalMinSeverity and
-// above when it is set (severity.go).
+// above when it is set, in CriticalFormat (severity.go).
 type Config struct {
 	Disabled            bool
 	URL                 string
 	Format              string
 	CriticalURL         string   // the hook for the critical alerts; "" = URL takes every alert
 	CriticalMinSeverity string   // the lowest severity CriticalURL takes: "crit" (default) or "warn"
+	CriticalFormat      string   // the payload format CriticalURL takes; "" = Format (the hooks may be different services)
 	Sites               string   // label to show in notification messages (= arbitrary operator-defined site name)
 	BanEvents           bool     // send ban_created (= honeypot / manual)
 	ChallengeBurst      bool     // send challenge_burst
@@ -245,8 +246,8 @@ func (n *Notifier) BanCreated(ip, ja4, source, reason, bannedBy string) {
 		return
 	}
 	text := formatBanText(ip, ja4, source, reason, bannedBy, cfg.Sites)
-	if u := cfg.hookFor(EventBanCreated, fields); u != "" {
-		go n.send(u, cfg.Format, EventBanCreated, fields, text)
+	if u, f := cfg.hookFor(EventBanCreated, fields); u != "" {
+		go n.send(u, f, EventBanCreated, fields, text)
 	}
 	subject := "[unmask] BAN: " + ip
 	if cfg.Sites != "" {

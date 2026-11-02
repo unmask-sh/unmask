@@ -3809,10 +3809,13 @@ type Notifications struct {
 	// CriticalURL: a second webhook, for the alerts whose severity reaches
 	// CriticalMinSeverity -- "crit" (the default: the over-block breaker) or
 	// "warn" (the challenge burst and link previews stopped as well); the
-	// rest go to URL.  Empty: URL takes every alert.  Format and the pause
-	// are shared.  A credential like URL (secretFieldList).
+	// rest go to URL.  Empty: URL takes every alert.  The pause is shared;
+	// the payload format is CriticalFormat, Format when that is empty (the
+	// two hooks may be different services).  A credential like URL
+	// (secretFieldList).
 	CriticalURL         string `yaml:"critical_url,omitempty"`
 	CriticalMinSeverity string `yaml:"critical_min_severity,omitempty"`
+	CriticalFormat      string `yaml:"critical_format,omitempty"` // "slack" | "discord" | "generic"; "" = Format
 }
 
 // LangResolved returns Lang when it is a language the mail is written in,
@@ -3832,6 +3835,21 @@ func (n Notifications) CriticalMinSeverityResolved() string {
 		return "warn"
 	}
 	return "crit"
+}
+
+// CriticalFormatResolved is the payload format of the critical webhook: its
+// own when it names one, else the first hook's, "slack" when that is empty
+// too (the format select's first entry).
+func (n Notifications) CriticalFormatResolved() string {
+	switch n.CriticalFormat {
+	case "slack", "discord", "generic":
+		return n.CriticalFormat
+	}
+	switch n.Format {
+	case "discord", "generic":
+		return n.Format
+	}
+	return "slack"
 }
 
 // MailToResolved splits MailTo into clean addresses (comma-separated, blanks

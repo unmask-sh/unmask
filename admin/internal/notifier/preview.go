@@ -94,8 +94,8 @@ func (n *Notifier) PreviewChallenged(crawler, axis string) {
 		rule = "network"
 	}
 	text := fmt.Sprintf("[WARN] %d link-preview fetches this hour met a %s rule's challenge (%s); those previews did not render%s", total, rule, crawlers, siteSuffix(cfg.Sites))
-	if u := cfg.hookFor(EventPreviewChallenged, fields); u != "" {
-		go n.send(u, cfg.Format, EventPreviewChallenged, fields, text)
+	if u, f := cfg.hookFor(EventPreviewChallenged, fields); u != "" {
+		go n.send(u, f, EventPreviewChallenged, fields, text)
 	}
 	subject := fmt.Sprintf("[unmask] link previews challenged: %d this hour", total)
 	if cfg.Sites != "" {

@@ -18,6 +18,7 @@ func NotifierConfigFrom(n settings.Notifications, hostID string) notifier.Config
 		Format:              n.Format,
 		CriticalURL:         n.CriticalURL,
 		CriticalMinSeverity: n.CriticalMinSeverityResolved(),
+		CriticalFormat:      n.CriticalFormatResolved(),
 		Sites:               settings.ExpandHostPlaceholder(n.SiteLabel, hostID),
 		BanEvents:           n.BanEvents,
 		ChallengeBurst:      n.ChallengeBurst,

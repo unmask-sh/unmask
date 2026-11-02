@@ -5788,6 +5788,13 @@ func applyNotificationsForm(c *settings.Notifications, r *http.Request) {
 	default:
 		c.Format = "slack"
 	}
+	// The critical hook's own format; "" (the select's first entry) follows
+	// Format, so an operator with two hooks on one service sets nothing.
+	c.CriticalFormat = ""
+	switch cf := strings.TrimSpace(r.FormValue("critical_format")); cf {
+	case "slack", "discord", "generic":
+		c.CriticalFormat = cf
+	}
 	c.SiteLabel = strings.TrimSpace(r.FormValue("site_label"))
 	c.BanEvents = r.FormValue("ban_events") == "1"
 	c.ChallengeBurst = r.FormValue("challenge_burst") == "1"
