@@ -12,87 +12,42 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [Unreleased]
+## [0.1.53] - 2026-11-03
 
 ### Added
-
-- (2026-10-29) **The critical webhook can take a format of its own.**  The second webhook URL posted in the first hook's format, so a critical channel on Discord beside an info channel on Slack got a body it could not read.  A format select beside the critical URL picks slack, discord or generic, follows the first hook's when left alone, and the critical test button sends in it.
-
-### Changed
-
-- (2026-11-01) **The reload timer leaves a master that needs a restart alone.**  When an OS update replaces a library nginx has loaded, the workers a reload forks crash on the old copy.  The timer's script now checks the master's mappings first and, with a replaced library there, logs that a restart is needed instead of reloading.  The reload notice says the timer acts only when a render waits.
-
-## [0.1.53-rc31] - 2026-11-01 (testing build)
-
-### Fixed
-
-- (2026-11-01) **A check that has run out of time says so.**  A visitor who returned to the checkbox after fifteen minutes was refused for a stale page token; the arithmetic fallback was refused the same way, and the page drew "undefined + undefined = ?". The card now says the check has expired and reloads once on its own, or offers a reload button, and the arithmetic wording is translated. A token issued just before midnight UTC verifies after it.
-
-## [0.1.53-rc30] - 2026-10-30 (testing build)
-
-### Added
-
-- (2026-10-30) **The reuse cap counts one pass at a time.**  Its first tier is now the pass itself: the plugin's `$unmask_bv_id` names the pass that verified, and one pass holds 500 requests an hour, so the people behind an office proxy or a carrier NAT each get a budget of their own.  The address's budget stays as the second tier; a new pass does not reset it.
-
-- (2026-10-30) **The admin asks for a restart when the module changed.**  Every access-log line now carries the hash of the module file nginx loaded (`mo=`, the module's `$unmask_module_id`).  While the file on disk is newer than the one running -- a plugin upgrade not yet restarted -- the reload notice names the restart in place of the reload, which would keep the old module.
-
-- (2026-10-30) **Cookie signatures can move to HMAC-SHA256.**  The daemon and the module now verify both HMAC-SHA1, which every release so far signed with, and HMAC-SHA256; `secret.sig_hash: sha256` switches what is issued once every nginx runs this release's module, and the cookies signed before stay good for their window.  A later release makes it the default.
-
-- (2026-10-30) **The module says when another module took its TLS callback.**  An SSL context holds one message callback, so a module that sets it after unmask leaves every request without a JA4 while nothing else looks wrong.  nginx's error log now says so once a minute, `unmask doctor` reports it, and SECURITY.md gains a threat model that names this and the other limits.
-
-## [0.1.53-rc29] - 2026-10-30 (testing build)
-
-### Changed
-
-- (2026-10-29) **A rejected admin request reads a bare 403.**  The admin IP and Host allowlists answered a visitor they turned away with the address they had taken them for and the setting that would admit them; the echoed address let anyone test which forwarded header the daemon trusts.  The body is now just Forbidden, and the daemon log keeps the address, the path and the way back in after a self-lockout.
-
-- (2026-10-29) **The map's streams add up the way the counts do.**  A stream's width followed the logarithm of its count, so ten hits drew at half the width of a thousand, and a continent of small sources outshone a single source five times their sum.  The weight is now the square root of the count, and the labels and the top-sources line carry each source's share.
-
-## [0.1.53-rc28] - 2026-10-30 (testing build)
-
-### Added
-
-- (2026-10-30) **Each ranking in the reuse card explains itself.**  The five tables of the cookie reuse card -- requests on CAPTCHA, PoW and re-bound cookies, the passes behind each address and the busiest hour of one -- each carry a "?" beside the heading saying what the table counts and how to read its rows, so the card's one explainer no longer has to cover them all.
-
-## [0.1.53-rc27] - 2026-10-29 (testing build)
-
-### Added
-
-- (2026-10-29) **The stats page counts the passes behind each address.**  The reuse card shows how many distinct pass cookies an address presented in a day and the busiest hour of one cookie, from a new access-log field (`bv=`) once nginx runs the rendered configuration.  The reuse cap counts per address and cannot tell a shared address from a client swapping cookies.  Table `unmask_pass_ip_day` (migration 0049), kept 15 days.
-
-## [0.1.53-rc26] - 2026-10-28 (testing build)
-
-### Since rc25
-
-- The Apache forward-auth snippet sets X-Real-IP in a form httpd 2.4.6 reads; the expr= form it used needs 2.4.10 and failed httpd -t on CentOS 7.
-
-### Added
-
 - (2026-10-28) **Alerts can go to two webhooks by severity.**  A second webhook URL on the notifications tab takes the alerts whose severity reaches a floor -- the over-block breaker by default, or the warnings too -- and the first keeps the rest, so one Slack channel holds what needs a person now and another the record.  Empty, nothing changes.  The generic payload carries the severity.
 
-## [0.1.53-rc25] - 2026-10-28 (testing build)
+- (2026-10-24) **No automatic ban lands on a CDN's origin-facing address.**  A scan sent to a CDN hostname reaches the origin from a CloudFront address and trips the honeypot, and the ban then stops every fetch the site's own CDN makes from that address.  The addresses CloudFront, Cloudflare and Fastly fetch with get no honeypot, pass-budget or address-wide ban; bans already on them are left out and marked.
 
-### Fixed
+- (2026-10-24) **A CloudFront preset, and on native nginx the visitor's address from X-Forwarded-For.**  With CloudFront in the trusted LB / CDN set and the new switch on, http.inc carries set_real_ip_from, real_ip_header X-Forwarded-For and real_ip_recursive on, as the gateway container does: the bans, the rate limits, the cookies and the log see the visitor behind the CDN, and a scan through it is banned on its own address.
 
-- (2026-10-26) **A pass now ends when its solve does, re-binds included.**  The credential that carries a pass to a new address was honoured for the longer of the two solve windows, and each re-bound pass got a fresh CAPTCHA window, so a seven-day proof-of-work kept a browser passing for up to four weeks, even on the address it was solved from.  Both now end with the solve.
+- (2026-10-24) **An opt-in reverse check for the UA-TLS tier: a Chromium name over a fingerprint that is not Chromium's.**  A script wearing a Chrome name over Go, Python or curl trips it.  Off by default, because antivirus software and corporate proxies that inspect TLS re-originate the session with a stack of their own under the browser's unchanged name, and everyone behind one would meet the screen.  Settings → UA filter.
 
-## [0.1.53-rc24] - 2026-10-27 (testing build)
+- (2026-10-24) **`unmask backup` writes an archive of config.yml and the database.**  Going back to an older version needs the database from before the upgrade, and nothing produced that copy.  The new command archives config.yml and, on SQLite, a consistent snapshot taken with VACUUM INTO while the daemon keeps running; on MariaDB it takes config.yml and points at mysqldump.  `unmask backup -h` has the restore steps.
 
-### Fixed
+- (2026-10-23) **A client that solves the proof-of-work far more often than a person is banned for a day.**  The reuse cap counts the requests a pass is used for, so a client that solves again on every page and carries no cookie never reaches it.  A new pass budget on the rate-limit tab counts the solves per address and JA4 fingerprint; over 500 a day the pair is banned for 24 hours with a CAPTCHA-only action (source rate_limit_abuse), announced like every ban.  On by default, held for review on an install that reviews its upgrades.
 
-- (2026-10-27) **A link's query reaches the page as written after a challenge.**  After a pass, the page was asked for with its query rewritten -- a space as +, a slash as %2F, a bare flag given = -- so a campaign link with such a query also lost the visitor's referrer.  The query is now left exactly as the link had it.
+- (2026-10-23) **A User-Agent that contradicts the TLS fingerprint is escalated to a CAPTCHA.**  A Chromium fingerprint under a Firefox or Safari name, or a TLS 1.3 session under a browser version from before TLS 1.3 (Chrome before 65, Firefox before 60, Safari before 12), is a contradiction no genuine browser produces.  The new UA-TLS consistency tier on the UA-filter tab challenges such a request when it would otherwise pass, never denies, and is on by default (held for review on an install that reviews its upgrades).
 
-- (2026-10-27) **The step back to the page keeps the loading screen up.**  Keeping the visitor's referrer goes through a relay page, which stayed blank until the site answered -- seconds on a slow site -- where the challenge page's loading screen used to stay.  The relay now paints that screen as it was -- background, CAPTCHA card, spinner, logo, progress bar and text -- in the same places.
+- (2026-10-19) **A budget for requests passed on a crawler's name alone.**  A crawler whose vendor publishes no address range passes on its User-Agent string, which anyone can write.  A new per-address budget (UA filter tab, 30 requests a minute by default) counts those requests; over it the request meets a CAPTCHA like any rate limit, so the name buys nothing further from that address.
 
-## [0.1.53-rc23] - 2026-10-27 (testing build)
+- (2026-10-19) **The UA filter shows what each crawler name let through.**  Each crawler's Detail row reads "passed by name, 24h: n requests / m addresses" when the last day let anything through on its name alone, and `unmask doctor` reports the day's total and warns past a few hundred, so a name being abused is visible where it is set to normal checks or stopped.
 
-### Fixed
+- (2026-10-19) **A pass cookie follows a relay's published egress range.**  Inside a range from the relay egress list, nginx's new `$unmask_bind_key` names the range, the daemon issues the cookie and the PoW seed against it, and the plugin verifies with the same variable, so a relay that moves the visitor's address within the range no longer re-challenges.  Update the plugin together with the daemon.
 
-- (2026-10-26) **A visit that passes a challenge keeps where it came from.**  The challenge page left with a script navigation, which made itself the referrer of the page it loaded: analytics counted a search or a link from another site as a direct visit, and the site's log lost the source.  It now steps back to the history entry the visitor arrived on, which the browser fetches again with the original referrer.
+- (2026-10-20) **The ask page can stop a question.**  While a question is out, the send button gives way to a stop button.  Stopping ends the request, and with it the daemon's call to the provider, so no more tokens go to a question the operator has given up on.  The turn reads "stopped", the question comes back to the field, and the history keeps the turn with a retry.
 
-## [0.1.53-rc22] - 2026-10-26 (testing build)
+- (2026-10-20) **The stats page names what fired behind each challenge reason.**  The forced-challenge card breaks every reason down by the entry that raised it -- the custom rule, UA filter row, ASN or country rule, trap, protected path, stale browser, ban source or JA4 verdict -- each linked.  The reason badge on the hunt rows, the CAPTCHA-pass list and the realtime page opens the entry in a popover.
 
-### Added
+- (2026-10-20) **The ask page's history pages.**  The history tab lists fifty turns a page, newest first, with the page's range in its note and a previous and next page below the turns; a turn deleted from a page leaves you on that page.  The list used to stop at the newest fifty, with no way to the older turns.
+
+- (2026-10-20) **The relay list names Zscaler's cloud proxies.**  Behind Zscaler, the page a visitor reads and the form they post from it can leave by different addresses of one data centre, and a pass cookie bound to the address fell off between them.  Inside Zscaler's published ranges, listed by unmask.sh beside iCloud Private Relay, the cookie now follows the visitor across the proxy as a whole.
+
+- (2026-10-21) **The relay list names Netskope, Cato Networks and Cisco Umbrella.**  Their cloud proxies, like Zscaler's, send one visitor's requests from several addresses, so a pass cookie bound to one address fell off between a page and the next.  Inside the ranges each publishes, gathered by unmask.sh, the cookie now follows the visitor across the proxy as a whole.
+
+- (2026-10-22) **Link-preview fetchers are verified by name and calling network.**  A country or ASN rule challenged the X, Facebook and LINE fetchers like any crawler passed on its name, and shared links lost their cards.  The name together with the network they call from now clears those two axes; the country tab shows what a rule would stop before the save, and the notification list says when previews meet the challenge.
+
+- (2026-10-25) **A module for nginx 1.30.6.**  The plugin package carries the module built for nginx 1.30.6 beside the one for 1.30.0.  nginx loads a module only for its own exact version, so a host that moves to 1.30.6 before it takes this package starts nginx without the module, through the placer's fail-safe, until it does.
 
 - (2026-10-26) **The setup wizard has a first-run options step.**  Before finishing it lists the communication with unmask.sh (the shared ban feed and its install token, the reporter's country, the GeoIP downloads, the daily crawler-range sync, the update check), each on by default with a switch, prefills the admin hostname as an allowlist entry, and offers to start in monitor mode.  Scripted installs keep the defaults.
 
@@ -112,7 +67,72 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-26) **/unmask/metrics counts what the ingest let go.**  Three counters join the page for alert rules: access-log lines the receiver dropped at a full queue, event rows a batch write dropped because the database refused their data, and events the batch writer's backlog cap dropped.
 
+- (2026-10-29) **The stats page counts the passes behind each address.**  The reuse card shows how many distinct pass cookies an address presented in a day and the busiest hour of one cookie, from a new access-log field (`bv=`) once nginx runs the rendered configuration.  The reuse cap counts per address and cannot tell a shared address from a client swapping cookies.  Table `unmask_pass_ip_day` (migration 0049), kept 15 days.
+
+- (2026-10-30) **Each ranking in the reuse card explains itself.**  The five tables of the cookie reuse card -- requests on CAPTCHA, PoW and re-bound cookies, the passes behind each address and the busiest hour of one -- each carry a "?" beside the heading saying what the table counts and how to read its rows, so the card's one explainer no longer has to cover them all.
+
+- (2026-10-30) **The reuse cap counts one pass at a time.**  Its first tier is now the pass itself: the plugin's `$unmask_bv_id` names the pass that verified, and one pass holds 500 requests an hour, so the people behind an office proxy or a carrier NAT each get a budget of their own.  The address's budget stays as the second tier; a new pass does not reset it.
+
+- (2026-10-30) **The admin asks for a restart when the module changed.**  Every access-log line now carries the hash of the module file nginx loaded (`mo=`, the module's `$unmask_module_id`).  While the file on disk is newer than the one running -- a plugin upgrade not yet restarted -- the reload notice names the restart in place of the reload, which would keep the old module.
+
+- (2026-10-30) **Cookie signatures can move to HMAC-SHA256.**  The daemon and the module now verify both HMAC-SHA1, which every release so far signed with, and HMAC-SHA256; `secret.sig_hash: sha256` switches what is issued once every nginx runs this release's module, and the cookies signed before stay good for their window.  A later release makes it the default.
+
+- (2026-10-30) **The module says when another module took its TLS callback.**  An SSL context holds one message callback, so a module that sets it after unmask leaves every request without a JA4 while nothing else looks wrong.  nginx's error log now says so once a minute, `unmask doctor` reports it, and SECURITY.md gains a threat model that names this and the other limits.
+
+- (2026-10-29) **The critical webhook can take a format of its own.**  The second webhook URL posted in the first hook's format, so a critical channel on Discord beside an info channel on Slack got a body it could not read.  A format select beside the critical URL picks slack, discord or generic, follows the first hook's when left alone, and the critical test button sends in it.
+
 ### Changed
+- (2026-11-01) **The reload timer leaves a master that needs a restart alone.**  When an OS update replaces a library nginx has loaded, the workers a reload forks crash on the old copy.  The timer's script now checks the master's mappings first and, with a replaced library there, logs that a restart is needed instead of reloading.  The reload notice says the timer acts only when a render waits.
+
+- (2026-10-25) **A save button shows it was pressed.**  Once a form posts, the button that sent it spins and every button of that form is disabled until the next page loads, so a save that takes a few seconds no longer looks ignored and a second click cannot send it twice.  The saves that stay on the page, such as the map's home point, spin the same way.
+
+- (2026-10-25) **On the ask history, a folded question and a folded answer open on their own, and each button says how many lines it hides.**  One button used to open both; now the question has its own under its bubble and the answer keeps its own, and a folded one reads "Show in full (12 more lines)", counted from the lines as rendered, so it follows the window's width.
+
+- (2026-10-25) **On the gateway container, a saved setting no longer hands you a reload command.**  The banners after a save, a rule added from the hunt, an upgrade review applied and a rule saved from the ask page said to run nginx's reload, with the container's self-reload in brackets.  On the container they now say that its nginx reloads itself within seconds, and nothing else.
+
+- (2026-10-25) **The copy button lives inside the command's box and says what it does.**  The ❐ next to a command the admin asks you to run now sits at the end of the command's own chip, level with the text, as a quiet glyph.  Hovering it shows "Copy this command", and after a click the label says the copy happened beside the green tick.
+
+- (2026-10-25) **The ask history folds a long question too.**  A pasted log or configuration made the history one question tall.  It now opens on its first lines the way a long answer does, and the turn's one button shows the whole of whichever is folded and folds it back.
+
+- (2026-10-25) **The bans table fits a laptop window.**  Its columns do not wrap, and they added up to more than a 1440-pixel window holds, so the table scrolled sideways.  The edit and unban buttons are icons with a hover label, the dates drop the year, the operator who placed a manual ban sits beside its source pill, and a ban on its source's default action carries a mark in place of the word.
+
+- (2026-10-24) **The ask page takes a question of up to 10,000 characters, and a field over its limit says how long it is.**  The question was capped at 2,000 characters, short of a pasted log or report.  Every field with a character limit now adds the current count to its note ("At most 2,000 characters. Now 2,345 characters."), so the operator knows how much to cut.
+
+- (2026-10-24) **Every place that names a site marks a host that is not a defined site.**  The bot hunt's log rows coloured such a host amber; the stats page's path tables and heading, the site list, the notices and the hunt's live rows now do the same, so a spoofed Host or an unregistered vhost stands out wherever it appears, not only in the raw log.
+
+- (2026-10-24) **The commands the admin tells you to run have a copy button.**  Beside `sudo nginx -t && sudo nginx -s reload` in the saved banners, the rule dialogs, the upgrade review and the reload notice's help, beside the restart hint, the About tab's update command and the setup page's token command, a ❐ puts the command on the clipboard, so it need not be selected by hand.
+
+- (2026-10-24) **The module says what it could not do.**  It used to be silent: a ban file nginx could not read enforced no ban, an empty cookie secret rejected every cookie, a ClientHello the parser declined left its connection without a JA4, and the error log said nothing.  Each condition now writes one line, at most once a minute per worker.
+
+- (2026-10-24) **The pass budget counts an IPv6 client by its /48.**  A client holds a /64 at the least and a server a /48, so counting per address let one machine draw on tens of thousands of budgets; the pass cookie is bound to the /64 already, and the budget folds to the /48.
+
+- (2026-10-24) **The challenge page warms the CAPTCHA provider's connection only when it will use one.**  Every challenge page opened a connection to `challenges.cloudflare.com`, whether or not Turnstile was the configured provider.  The warm-up links are written in at serve time, for Turnstile only.
+
+- (2026-10-24) **The CSRF token no longer rides in a form's query string.**  The admin's upload forms mirrored the token into their action URL, which put it in the request line and so in every access log along the way.  The server reads it from the multipart body, so the mirror and the query-string acceptance are gone; the header and the hidden field remain the two ways in.
+
+- (2026-10-24) **The repository's own documents and package descriptions say what ships today.**  The README opens with a quick start -- the release package, the three nginx packages, the include and the setup wizard -- and names Apache as the frozen forward-auth path; `UPGRADING.md` lists, release by release since 0.1.50, the nginx restarts, sign-outs, removed settings keys and schema updates an upgrade asks for.  The package descriptions no longer call forward-auth the default, and the third-party notices match `admin/go.mod`.
+
+- (2026-10-23) **The cookie-reuse ranking counts what the reuse cap counts, and says how often the cap fired.**  Its count was every logged request carrying the cookie, static files and the challenge page's own parts included, and read against the cap it ran several times past it.  A "judged" column, the requests the gate judged, now leads and orders the ranking; the whole stands beside it, and an "over the cap" column counts the CAPTCHAs the cap raised for the address.
+
+- (2026-10-19) **A crawler known only by its name no longer slips past the traps and the limits.**  Such a crawler used to be exempt from everything; now its name clears only the challenge a browser would get.  A honeypot it trips, a community listing, a country, network or custom rule, a protected path, a deny and every rate limit apply to it as to anyone, and the name counts only for a GET or HEAD.  Crawlers verified by a published range keep the full exemption.
+
+- (2026-10-19) **The CAPTCHA's failure text says what failed.**  A verify whose request never completed reads E-NET, one answered with something other than JSON carries the status (E-503, a block page or a daemon that is down), and an external widget's failure E-WIDGET.  Each also leaves an error beacon with the same classification, so the hunt page shows what the visitor saw.
+
+- (2026-10-19) **Keyboard-only visitors score as present.**  Reaching the box with Tab and ticking it with Space produces no mouse or touch event, which the behavioural score read as a page nobody touched and sent straight to the arithmetic fallback on every visit.  Key presses now count as input, and the page counts them on keydown so Tab and Space register.
+
+- (2026-10-19) **Silent re-binding allows ten moves an hour, up from four.**  A phone roaming between networks rarely needed more, but a two-exit NAT or a relay that moves its egress now and then does.  The lifetime cap of sixteen re-binds per solve is unchanged, so one solve still cannot be stretched across a proxy pool.
+
+- (2026-10-20) **The reload notice says why the configuration was written, and what changed.**  "nginx is still running the previous configuration" now names the cause: the settings tab that was saved, the IP range sync (the relay egress list, the bypass sources), the GeoIP update, or an install.  An automatic update gets its own calmer wording.  The help tip lists the blocks that moved, with the lines changed, added and removed.
+
+- (2026-10-20) **The ask page's history is kept until you delete it.**  It used to be pruned after ninety days.  A turn is a few kilobytes and the record is your own, so it stays; since answers can quote addresses and user agents, the retention tab gains "Ask history retention" for installs that want it dropped after a number of days (0, the default, keeps it).
+
+- (2026-10-20) **The realtime strip reads from the challenges to the bypassed.**  The tiles run requests, challenges served, blocked, passed on a cookie, solved, refused, rate-limited, bypassed: the blocked after the challenges it is taken from, stopped beside let through, and the bypassed last, the one figure the judged scope leaves out of the requests.  The map's legend ends on the bypassed too.
+
+- (2026-10-20) **A form posted from a new address goes through.**  A request with a body could not take the silent re-bind, whose bounce returns as a GET: a visitor whose address changed between the page and the post got a JSON error and lost their input.  The route re-binds it in place and answers 307, so the browser sends the request again.  A refused post goes back to its form page.
+
+- (2026-10-20) **The realtime strip opens on how the judged requests split.**  The tiles now run requests, passed on a cookie, challenges served, blocked, solved, refused, rate-limited, bypassed: the passed beside the requests they are the largest share of, the blocked figure right after the serves it is taken from, the refused beside the rate limit, and the bypassed last, the one figure the judged scope leaves out of the requests.
+
+- (2026-10-23) **A landing-page section that runs past its budget logs one line saying why.**  Next to the per-card lines it already wrote, the log now carries the window, the site and host filters, whether the hourly rollup was readable -- and so whether the cards read it or scanned the event table -- and the time waited.  That is what decides the cards' path, and what a timeout report was missing.
 
 - (2026-10-26) **The module says at the error level when it enforces nothing.**  An unreadable ban file and an empty `unmask_bv_secret` were warnings, which the nginx.conf most distributions ship does not record.  They are errors now, each worker checks the ban file once at start, and an HTTP/3 request without a JA4 is reported once a minute (nginx's QUIC compatibility layer hides the handshake from the module).
 
@@ -126,9 +146,48 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-26) **A request that asks for neither language is served in English.**  The challenge, deny and admin pages fell back to Japanese when the browser's Accept-Language named neither ja nor en; the fallback is English now.  A chosen language, the cookie or ja in Accept-Language, is unchanged.
 
+- (2026-10-29) **A rejected admin request reads a bare 403.**  The admin IP and Host allowlists answered a visitor they turned away with the address they had taken them for and the setting that would admit them; the echoed address let anyone test which forwarded header the daemon trusts.  The body is now just Forbidden, and the daemon log keeps the address, the path and the way back in after a self-lockout.
+
+- (2026-10-29) **The map's streams add up the way the counts do.**  A stream's width followed the logarithm of its count, so ten hits drew at half the width of a thousand, and a continent of small sources outshone a single source five times their sum.  The weight is now the square root of the count, and the labels and the top-sources line carry each source's share.
+
 ### Fixed
+- (2026-10-27) **A link's query reaches the page as written after a challenge.**  After a pass, the page was asked for with its query rewritten -- a space as +, a slash as %2F, a bare flag given = -- so a campaign link with such a query also lost the visitor's referrer.  The query is now left exactly as the link had it.
+
+- (2026-10-27) **The step back to the page keeps the loading screen up.**  Keeping the visitor's referrer goes through a relay page, which stayed blank until the site answered -- seconds on a slow site -- where the challenge page's loading screen used to stay.  The relay now paints that screen as it was -- background, CAPTCHA card, spinner, logo, progress bar and text -- in the same places.
+
+- (2026-10-26) **A visit that passes a challenge keeps where it came from.**  The challenge page left with a script navigation, which made itself the referrer of the page it loaded: analytics counted a search or a link from another site as a direct visit, and the site's log lost the source.  It now steps back to the history entry the visitor arrived on, which the browser fetches again with the original referrer.
+
+- (2026-10-26) **A pass now ends when its solve does, re-binds included.**  The credential that carries a pass to a new address was honoured for the longer of the two solve windows, and each re-bound pass got a fresh CAPTCHA window, so a seven-day proof-of-work kept a browser passing for up to four weeks, even on the address it was solved from.  Both now end with the solve.
 
 - (2026-10-26) **A failed webhook test says why.**  The notification tab's webhook and mail tests showed a JSON parse error on failure: nginx's daemon-down hook swapped the daemon's answer, reason and all, for its own 503.  After the next nginx reload the daemon's answers reach the page, and a failed test or alert names what the webhook answered, without the hook's URL, which carries its secret, in the page or the log.
+
+- (2026-10-26) **With protect.inc at server scope, visitors not yet passed no longer get a 503 while the daemon is down.**  In compose mode, protect.inc ran again on the way into the challenge and cleared the flag that the replay of the original page keyed on, so nothing was replayed.  The replay now keys on a mark only a protected pass sets; bans still hold during an outage.
+
+- (2026-10-26) **A directory URL no longer gets a raw 502 while the daemon is down.**  The fail-open replay of the original page lost its mark on any further internal redirect -- a directory's index file, a try_files fallback -- and was challenged into the stopped daemon again.  The mark now lasts the whole request, from the next nginx reload.
+
+- (2026-10-25) **Firefox 158 is no longer challenged as a Chrome in disguise.**  Firefox 158 sends the same fifteen cipher suites as Chrome, and the UA-TLS tier's family check, which knew Chromium's stack by its cipher hash alone, contradicted every Firefox 158 user and sent them to the CAPTCHA.  The check now needs one of Chromium's extension hashes as well; a Firefox keeps its own.
+
+- (2026-10-24) **A site's own proof-of-work difficulty is what the module verifies.**  The challenge page served each site the difficulty it configured, while the module held every cookie to the install-wide default: a site set below it looped its visitors on a proof-of-work the verifier rejected.  The daemon now renders a per-host map of the values that differ, and the module reads it before the directive.
+
+- (2026-10-24) **The JA4 of a hello with no ciphers or no extensions follows the specification.**  An empty cipher list, or an extension list that is empty once SNI and ALPN are set aside, is twelve zeros in the JA4 specification, and a signature_algorithms extension with no algorithm adds no underscore; the module hashed the empty string instead, a fingerprint no other implementation produces, so a shared ban keyed on one never matched.
+
+- (2026-10-24) **The ban file loads in sorted order whatever its size, and the gate reads its fail-open flag by name.**  The loader's insertion sort walked a large unsorted file for seconds inside a request, and its out-of-memory fallback could leave an action beside the wrong key; the compose gate took any value longer than two characters as "daemon down".  Rows now sort together, and the gate reads the field after the colon.
+
+- (2026-10-24) **The UA-TLS consistency tier's version check reads a QUIC session too.**  Over HTTP/3 the fingerprint carries a `q` prefix where a TCP session has `t`, and the "TLS 1.3 under a pre-TLS 1.3 version" check matched only `t13`, so the contradiction went unseen on HTTP/3.
+
+- (2026-10-24) **Two settings writes at the same moment could lose one.**  Most handlers loaded config.yml, changed their copy and saved it with only the publish under the lock, so a save that overlapped another writer's -- the hub's token write-back, a second operator -- overwrote it with an older copy.  Every write now loads, changes and saves under one lock, and the saved copy is what the daemon runs.
+
+- (2026-10-23) **The challenge page's pass reports are no longer dropped from a busy address.**  The beacon's per-address limit counted the daemon's own serve rows, so an address challenged twenty times in five minutes could report nothing, and a client re-solving the proof-of-work on every page was all but invisible to the hunt and the funnels.  The limit now counts beacons only, a pass the request's own cookie vouches for is outside it, the /bvj issue records a pass whose beacon never arrived, and the hunt shows how many beacons an address lost.
+
+- (2026-10-20) **The PoW cookie reuse ranking's "show more" opens its own rows.**  On the stats page the cookie-reuse card holds the CAPTCHA, PoW and re-bound rankings one under the other, and every "show more" there opened the card's first table, so the PoW ranking's rows past the tenth never appeared.  Each button now opens the ranking right above it.
+
+- (2026-10-19) **A request a rate limit refused no longer counts as passed.**  The access-log feed marked a request the rate route answered -- a CAPTCHA or a deny page -- as a pass, because the challenge decision itself had been zero; the composition card, the live strip and the crawler drill-down counted a refused request among the passes.  It now counts as served, like a challenge.
+
+- (2026-10-19) **A visitor whose requests leave through more than one address can solve the CAPTCHA again.**  The proof-of-load, arithmetic and beacon tokens were bound to the client address, so a two-uplink NAT or a relay that changes its egress between requests failed every attempt, and the arithmetic fallback with it.  They are now time-bound and single-use instead; the pass cookie itself stays bound as before.
+
+- (2026-10-23) **The landing page's request-count card no longer walks the whole minute table.**  Its read of the unsettled hours had no upper bound, and on a database without planner statistics SQLite answered it by walking every row of the per-minute table through the kind index: tens of seconds from a cold disk, and the card timed out on every open.  The read is bounded now and goes through the primary key.
+
+- (2026-10-23) **`unmask doctor` and the stats page read the event table's id range in two seeks.**  `SELECT MIN(id), MAX(id)` in one statement is outside SQLite's min/max optimization and scanned the whole id index: the doctor's "could not read the rollup cursor" on a large database, and the same read behind the stats page's raw-scan check and the AI advisor's event-count guard.  Each end is its own statement now.
 
 - (2026-10-26) **A reload after removing the nginx module no longer crashes the new workers.**  The module registered a free callback with OpenSSL for its per-connection JA4 data; once `load_module` was removed and nginx reloaded, as the package's removal advice says, the callback pointed into unmapped memory and every new worker died on its first TLS close.  The data now lives in the connection pool and no callback is registered.
 
@@ -164,115 +223,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-26) **The mmdb auto-update and WAL watch loops survive a panic in one pass.**  Both wrapped the whole goroutine in a single recovery, so the first panic ended the loop for the rest of the daemon's life with one log line to say so.  Each pass recovers on its own now: the panic is logged and the next pass runs.
 
-## [0.1.53-rc21] - 2026-10-26 (testing build)
-
-### Fixed
-
-- (2026-10-26) **With protect.inc at server scope, visitors not yet passed no longer get a 503 while the daemon is down.**  In compose mode, protect.inc ran again on the way into the challenge and cleared the flag that the replay of the original page keyed on, so nothing was replayed.  The replay now keys on a mark only a protected pass sets; bans still hold during an outage.
-
-## [0.1.53-rc20] - 2026-10-26 (testing build)
-
-### Fixed
-
-- (2026-10-26) **A directory URL no longer gets a raw 502 while the daemon is down.**  The fail-open replay of the original page lost its mark on any further internal redirect -- a directory's index file, a try_files fallback -- and was challenged into the stopped daemon again.  The mark now lasts the whole request, from the next nginx reload.
-
-## [0.1.53-rc19] - 2026-10-25 (testing build)
-
-### Changed
-
-- (2026-10-25) **A save button shows it was pressed.**  Once a form posts, the button that sent it spins and every button of that form is disabled until the next page loads, so a save that takes a few seconds no longer looks ignored and a second click cannot send it twice.  The saves that stay on the page, such as the map's home point, spin the same way.
-
-## [0.1.53-rc18] - 2026-10-25 (testing build)
-
-### Changed
-
-- (2026-10-25) **On the ask history, a folded question and a folded answer open on their own, and each button says how many lines it hides.**  One button used to open both; now the question has its own under its bubble and the answer keeps its own, and a folded one reads "Show in full (12 more lines)", counted from the lines as rendered, so it follows the window's width.
-
-- (2026-10-25) **On the gateway container, a saved setting no longer hands you a reload command.**  The banners after a save, a rule added from the hunt, an upgrade review applied and a rule saved from the ask page said to run nginx's reload, with the container's self-reload in brackets.  On the container they now say that its nginx reloads itself within seconds, and nothing else.
-
-- (2026-10-25) **The copy button lives inside the command's box and says what it does.**  The ❐ next to a command the admin asks you to run now sits at the end of the command's own chip, level with the text, as a quiet glyph.  Hovering it shows "Copy this command", and after a click the label says the copy happened beside the green tick.
-
-## [0.1.53-rc17] - 2026-10-25 (testing build)
+- (2026-11-01) **A check that has run out of time says so.**  A visitor who returned to the checkbox after fifteen minutes was refused for a stale page token; the arithmetic fallback was refused the same way, and the page drew "undefined + undefined = ?". The card now says the check has expired and reloads once on its own, or offers a reload button, and the arithmetic wording is translated. A token issued just before midnight UTC verifies after it.
 
 ### Security
-
-- (2026-10-25) **The container image runs nginx 1.30.6.**  It ran 1.28.3, and the 1.28 branch has no fix for most of this year's nginx advisories, among them CVE-2026-42945 and CVE-2026-9256 in rewrite and CVE-2026-42533 in map with a regex, both of which the gateway uses on every request.  0.1.53 closes it; the host packages, which load into your own nginx, are unchanged.
-
-## [0.1.53-rc16] - 2026-10-25 (testing build)
-
-### Added
-
-- (2026-10-25) **A module for nginx 1.30.6.**  The plugin package carries the module built for nginx 1.30.6 beside the one for 1.30.0.  nginx loads a module only for its own exact version, so a host that moves to 1.30.6 before it takes this package starts nginx without the module, through the placer's fail-safe, until it does.
-
-### Fixed
-
-- (2026-10-25) **Firefox 158 is no longer challenged as a Chrome in disguise.**  Firefox 158 sends the same fifteen cipher suites as Chrome, and the UA-TLS tier's family check, which knew Chromium's stack by its cipher hash alone, contradicted every Firefox 158 user and sent them to the CAPTCHA.  The check now needs one of Chromium's extension hashes as well; a Firefox keeps its own.
-
-## [0.1.53-rc15] - 2026-10-25 (testing build)
-
-### Changed
-
-- (2026-10-25) **The ask history folds a long question too.**  A pasted log or configuration made the history one question tall.  It now opens on its first lines the way a long answer does, and the turn's one button shows the whole of whichever is folded and folds it back.
-
-- (2026-10-25) **The bans table fits a laptop window.**  Its columns do not wrap, and they added up to more than a 1440-pixel window holds, so the table scrolled sideways.  The edit and unban buttons are icons with a hover label, the dates drop the year, the operator who placed a manual ban sits beside its source pill, and a ban on its source's default action carries a mark in place of the word.
-
-## [0.1.53-rc14] - 2026-10-24 (testing build)
-
-### Added
-
-- (2026-10-24) **No automatic ban lands on a CDN's origin-facing address.**  A scan sent to a CDN hostname reaches the origin from a CloudFront address and trips the honeypot, and the ban then stops every fetch the site's own CDN makes from that address.  The addresses CloudFront, Cloudflare and Fastly fetch with get no honeypot, pass-budget or address-wide ban; bans already on them are left out and marked.
-
-- (2026-10-24) **A CloudFront preset, and on native nginx the visitor's address from X-Forwarded-For.**  With CloudFront in the trusted LB / CDN set and the new switch on, http.inc carries set_real_ip_from, real_ip_header X-Forwarded-For and real_ip_recursive on, as the gateway container does: the bans, the rate limits, the cookies and the log see the visitor behind the CDN, and a scan through it is banned on its own address.
-
-## [0.1.53-rc13] - 2026-10-24 (testing build)
-
-### Security
-
 - (2026-10-24) **nginx enforced no ban where its worker is not the unmask user.**  The module reads the ban list from nginx's worker, which runs as nginx.conf's `user`; the data directory was 0750, so the worker never reached the list and every ban stayed on paper.  The directory is 0751 now, and the doctor, the install and every admin page say when the worker still cannot read the list.
-
-## [0.1.53-rc12] - 2026-10-24 (testing build)
-
-### Changed
-
-- (2026-10-24) **The ask page takes a question of up to 10,000 characters, and a field over its limit says how long it is.**  The question was capped at 2,000 characters, short of a pasted log or report.  Every field with a character limit now adds the current count to its note ("At most 2,000 characters. Now 2,345 characters."), so the operator knows how much to cut.
-
-- (2026-10-24) **Every place that names a site marks a host that is not a defined site.**  The bot hunt's log rows coloured such a host amber; the stats page's path tables and heading, the site list, the notices and the hunt's live rows now do the same, so a spoofed Host or an unregistered vhost stands out wherever it appears, not only in the raw log.
-
-- (2026-10-24) **The commands the admin tells you to run have a copy button.**  Beside `sudo nginx -t && sudo nginx -s reload` in the saved banners, the rule dialogs, the upgrade review and the reload notice's help, beside the restart hint, the About tab's update command and the setup page's token command, a ❐ puts the command on the clipboard, so it need not be selected by hand.
-
-## [0.1.53-rc11] - 2026-10-24 (testing build)
-
-### Added
-
-- (2026-10-24) **An opt-in reverse check for the UA-TLS tier: a Chromium name over a fingerprint that is not Chromium's.**  A script wearing a Chrome name over Go, Python or curl trips it.  Off by default, because antivirus software and corporate proxies that inspect TLS re-originate the session with a stack of their own under the browser's unchanged name, and everyone behind one would meet the screen.  Settings → UA filter.
-
-- (2026-10-24) **`unmask backup` writes an archive of config.yml and the database.**  Going back to an older version needs the database from before the upgrade, and nothing produced that copy.  The new command archives config.yml and, on SQLite, a consistent snapshot taken with VACUUM INTO while the daemon keeps running; on MariaDB it takes config.yml and points at mysqldump.  `unmask backup -h` has the restore steps.
-
-### Changed
-
-- (2026-10-24) **The module says what it could not do.**  It used to be silent: a ban file nginx could not read enforced no ban, an empty cookie secret rejected every cookie, a ClientHello the parser declined left its connection without a JA4, and the error log said nothing.  Each condition now writes one line, at most once a minute per worker.
-
-- (2026-10-24) **The pass budget counts an IPv6 client by its /48.**  A client holds a /64 at the least and a server a /48, so counting per address let one machine draw on tens of thousands of budgets; the pass cookie is bound to the /64 already, and the budget folds to the /48.
-
-- (2026-10-24) **The challenge page warms the CAPTCHA provider's connection only when it will use one.**  Every challenge page opened a connection to `challenges.cloudflare.com`, whether or not Turnstile was the configured provider.  The warm-up links are written in at serve time, for Turnstile only.
-
-- (2026-10-24) **The CSRF token no longer rides in a form's query string.**  The admin's upload forms mirrored the token into their action URL, which put it in the request line and so in every access log along the way.  The server reads it from the multipart body, so the mirror and the query-string acceptance are gone; the header and the hidden field remain the two ways in.
-
-- (2026-10-24) **The repository's own documents and package descriptions say what ships today.**  The README opens with a quick start -- the release package, the three nginx packages, the include and the setup wizard -- and names Apache as the frozen forward-auth path; `UPGRADING.md` lists, release by release since 0.1.50, the nginx restarts, sign-outs, removed settings keys and schema updates an upgrade asks for.  The package descriptions no longer call forward-auth the default, and the third-party notices match `admin/go.mod`.
-
-### Fixed
-
-- (2026-10-24) **A site's own proof-of-work difficulty is what the module verifies.**  The challenge page served each site the difficulty it configured, while the module held every cookie to the install-wide default: a site set below it looped its visitors on a proof-of-work the verifier rejected.  The daemon now renders a per-host map of the values that differ, and the module reads it before the directive.
-
-- (2026-10-24) **The JA4 of a hello with no ciphers or no extensions follows the specification.**  An empty cipher list, or an extension list that is empty once SNI and ALPN are set aside, is twelve zeros in the JA4 specification, and a signature_algorithms extension with no algorithm adds no underscore; the module hashed the empty string instead, a fingerprint no other implementation produces, so a shared ban keyed on one never matched.
-
-- (2026-10-24) **The ban file loads in sorted order whatever its size, and the gate reads its fail-open flag by name.**  The loader's insertion sort walked a large unsorted file for seconds inside a request, and its out-of-memory fallback could leave an action beside the wrong key; the compose gate took any value longer than two characters as "daemon down".  Rows now sort together, and the gate reads the field after the colon.
-
-- (2026-10-24) **The UA-TLS consistency tier's version check reads a QUIC session too.**  Over HTTP/3 the fingerprint carries a `q` prefix where a TCP session has `t`, and the "TLS 1.3 under a pre-TLS 1.3 version" check matched only `t13`, so the contradiction went unseen on HTTP/3.
-
-- (2026-10-24) **Two settings writes at the same moment could lose one.**  Most handlers loaded config.yml, changed their copy and saved it with only the publish under the lock, so a save that overlapped another writer's -- the hub's token write-back, a second operator -- overwrote it with an older copy.  Every write now loads, changes and saves under one lock, and the saved copy is what the daemon runs.
-
-### Security
 
 - (2026-10-24) **The module verifies a request's cookies once.**  Every `$unmask_bv_*` variable is read by several maps across nginx's phases, and each read walked the Cookie header and ran its HMACs again with a fresh sixteen-entry budget, so one request cost up to seven times what the budget was meant to bound.  The cookie's kind, the entry that matched and the ban-file lookup are now computed once per request and kept in the request's context.
 
@@ -289,30 +243,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-10-24) **A regex pattern with a quote could end its nginx map key.**  Path, honeypot and redirect-exemption patterns were written into the rendered config as typed, so a regex containing `"` closed the quoted key and nginx read the rest as directives, while a backslash reached PCRE one short.  Every pattern in every list is now escaped for nginx's reader, a pattern with a line break is refused on save, and the rendered files change once, so the reload notice shows after the update.
 
 - (2026-10-24) **The admin session is signed with a key derived from bv_secret, not bv_secret itself.**  The same value is written into http.inc for nginx's workers, so anyone able to read that file could forge a superadmin session.  The session key is now derived from bv_secret (HKDF-SHA256) and signs nothing else; config.yml is unchanged.  Every operator signs in once more after the update.
-
-## [0.1.53-rc10] - 2026-10-24 (testing build)
-
-### Added
-
-- (2026-10-23) **A client that solves the proof-of-work far more often than a person is banned for a day.**  The reuse cap counts the requests a pass is used for, so a client that solves again on every page and carries no cookie never reaches it.  A new pass budget on the rate-limit tab counts the solves per address and JA4 fingerprint; over 500 a day the pair is banned for 24 hours with a CAPTCHA-only action (source rate_limit_abuse), announced like every ban.  On by default, held for review on an install that reviews its upgrades.
-
-- (2026-10-23) **A User-Agent that contradicts the TLS fingerprint is escalated to a CAPTCHA.**  A Chromium fingerprint under a Firefox or Safari name, or a TLS 1.3 session under a browser version from before TLS 1.3 (Chrome before 65, Firefox before 60, Safari before 12), is a contradiction no genuine browser produces.  The new UA-TLS consistency tier on the UA-filter tab challenges such a request when it would otherwise pass, never denies, and is on by default (held for review on an install that reviews its upgrades).
-
-### Changed
-
-- (2026-10-23) **The cookie-reuse ranking counts what the reuse cap counts, and says how often the cap fired.**  Its count was every logged request carrying the cookie, static files and the challenge page's own parts included, and read against the cap it ran several times past it.  A "judged" column, the requests the gate judged, now leads and orders the ranking; the whole stands beside it, and an "over the cap" column counts the CAPTCHAs the cap raised for the address.
-
-- (2026-10-23) **A landing-page section that runs past its budget logs one line saying why.**  Next to the per-card lines it already wrote, the log now carries the window, the site and host filters, whether the hourly rollup was readable -- and so whether the cards read it or scanned the event table -- and the time waited.  That is what decides the cards' path, and what a timeout report was missing.
-
-### Fixed
-
-- (2026-10-23) **The challenge page's pass reports are no longer dropped from a busy address.**  The beacon's per-address limit counted the daemon's own serve rows, so an address challenged twenty times in five minutes could report nothing, and a client re-solving the proof-of-work on every page was all but invisible to the hunt and the funnels.  The limit now counts beacons only, a pass the request's own cookie vouches for is outside it, the /bvj issue records a pass whose beacon never arrived, and the hunt shows how many beacons an address lost.
-
-- (2026-10-23) **The landing page's request-count card no longer walks the whole minute table.**  Its read of the unsettled hours had no upper bound, and on a database without planner statistics SQLite answered it by walking every row of the per-minute table through the kind index: tens of seconds from a cold disk, and the card timed out on every open.  The read is bounded now and goes through the primary key.
-
-- (2026-10-23) **`unmask doctor` and the stats page read the event table's id range in two seeks.**  `SELECT MIN(id), MAX(id)` in one statement is outside SQLite's min/max optimization and scanned the whole id index: the doctor's "could not read the rollup cursor" on a large database, and the same read behind the stats page's raw-scan check and the AI advisor's event-count guard.  Each end is its own statement now.
-
-### Security
 
 - (2026-10-23) **A proof-of-work seed no longer passes as a signed cookie.**  The seed the challenge page hands every visitor is signed over the same message as a pass cookie, with the word `pow_seed` where the cookie carries its kind, so its first sixteen digits verified as a pass of an unknown kind: a client could present it without hashing once, for the CAPTCHA cookie's window.  Both verifiers now accept only the kinds the daemon issues.
 
@@ -346,109 +276,9 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-10-23) **Two bans placed in the same second both take effect.**  The module reloaded its ban file only when the modification time changed, at one-second resolution, while the daemon flushes the file on every ban it places: the second ban in a second was not applied until a later write landed in a different second.  The file's size and inode are compared as well.
 
-## [0.1.53-rc8] - 2026-10-23 (testing build)
-
-### Added
-
-- (2026-10-22) **Link-preview fetchers are verified by name and calling network.**  A country or ASN rule challenged the X, Facebook and LINE fetchers like any crawler passed on its name, and shared links lost their cards.  The name together with the network they call from now clears those two axes; the country tab shows what a rule would stop before the save, and the notification list says when previews meet the challenge.
-
-## [0.1.53-rc7] - 2026-10-21 (testing build)
-
-### Since rc6
-
-- A pass bound to a relay (iCloud Private Relay, a cloud proxy) now earns the roaming credential that re-binds it on the next network; the earlier 0.1.53 testing builds refused it, so such a visitor solved again once the relay moved them to another range or they left it.
-
-### Added
-
-- (2026-10-21) **The relay list names Netskope, Cato Networks and Cisco Umbrella.**  Their cloud proxies, like Zscaler's, send one visitor's requests from several addresses, so a pass cookie bound to one address fell off between a page and the next.  Inside the ranges each publishes, gathered by unmask.sh, the cookie now follows the visitor across the proxy as a whole.
-
-### Security
-
 - (2026-10-21) **A POST to robots.txt and the other fetched-file presets is judged.**  The default-on bypass presets (static files, `/.well-known/`, browser metadata, health checks) passed every method, so anyone could send a request body past the challenge; on a site that routes unknown paths to one script, that script parsed it.  They now pass GET, HEAD and OPTIONS only; your own bypass paths still pass every method.
 
-## [0.1.53-rc6] - 2026-10-21 (testing build)
-
-### Since rc5
-
-- The realtime strip's blocked tile returns beside the challenges it is taken from and the refused beside the rate limit; the passed stays beside the requests.
-
-## [0.1.53-rc5] - 2026-10-20 (testing build)
-
-### Changed
-
-- (2026-10-20) **The realtime strip opens on how the judged requests split.**  The tiles now run requests, passed on a cookie, challenges served, blocked, solved, refused, rate-limited, bypassed: the passed beside the requests they are the largest share of, the blocked figure right after the serves it is taken from, the refused beside the rate limit, and the bypassed last, the one figure the judged scope leaves out of the requests.
-
-## [0.1.53-rc4] - 2026-10-20 (testing build)
-
-### Since rc3
-
-- The reason badge on the hunt rows, the CAPTCHA-pass list and the realtime page names the reason alone; the entry behind it, which rc3 appended to the badge by name, opens in a popover linked to where it is set.
-
-### Added
-
-- (2026-10-20) **The relay list names Zscaler's cloud proxies.**  Behind Zscaler, the page a visitor reads and the form they post from it can leave by different addresses of one data centre, and a pass cookie bound to the address fell off between them.  Inside Zscaler's published ranges, listed by unmask.sh beside iCloud Private Relay, the cookie now follows the visitor across the proxy as a whole.
-
-### Changed
-
-- (2026-10-20) **The realtime strip reads from the challenges to the bypassed.**  The tiles run requests, challenges served, blocked, passed on a cookie, solved, refused, rate-limited, bypassed: the blocked after the challenges it is taken from, stopped beside let through, and the bypassed last, the one figure the judged scope leaves out of the requests.  The map's legend ends on the bypassed too.
-
-- (2026-10-20) **A form posted from a new address goes through.**  A request with a body could not take the silent re-bind, whose bounce returns as a GET: a visitor whose address changed between the page and the post got a JSON error and lost their input.  The route re-binds it in place and answers 307, so the browser sends the request again.  A refused post goes back to its form page.
-
-## [0.1.53-rc3] - 2026-10-20 (testing build)
-
-### Since rc2
-
-- The arm64 plugin package now carries the new module; rc2's carried the previous one.
-
-### Added
-
-- (2026-10-20) **The ask page can stop a question.**  While a question is out, the send button gives way to a stop button.  Stopping ends the request, and with it the daemon's call to the provider, so no more tokens go to a question the operator has given up on.  The turn reads "stopped", the question comes back to the field, and the history keeps the turn with a retry.
-
-- (2026-10-20) **The stats page names what fired behind each challenge reason.**  The forced-challenge card breaks every reason down by the entry that raised it -- the custom rule, UA filter row, ASN or country rule, trap, protected path, stale browser, ban source or JA4 verdict -- each linked.  The reason badge on the hunt rows, the CAPTCHA-pass list and the realtime page opens the entry in a popover.
-
-- (2026-10-20) **The ask page's history pages.**  The history tab lists fifty turns a page, newest first, with the page's range in its note and a previous and next page below the turns; a turn deleted from a page leaves you on that page.  The list used to stop at the newest fifty, with no way to the older turns.
-
-### Changed
-
-- (2026-10-20) **The reload notice says why the configuration was written, and what changed.**  "nginx is still running the previous configuration" now names the cause: the settings tab that was saved, the IP range sync (the relay egress list, the bypass sources), the GeoIP update, or an install.  An automatic update gets its own calmer wording.  The help tip lists the blocks that moved, with the lines changed, added and removed.
-
-- (2026-10-20) **The ask page's history is kept until you delete it.**  It used to be pruned after ninety days.  A turn is a few kilobytes and the record is your own, so it stays; since answers can quote addresses and user agents, the retention tab gains "Ask history retention" for installs that want it dropped after a number of days (0, the default, keeps it).
-
-### Fixed
-
-- (2026-10-20) **The PoW cookie reuse ranking's "show more" opens its own rows.**  On the stats page the cookie-reuse card holds the CAPTCHA, PoW and re-bound rankings one under the other, and every "show more" there opened the card's first table, so the PoW ranking's rows past the tenth never appeared.  Each button now opens the ranking right above it.
-
-## [0.1.53-rc2] - 2026-10-19 (testing build)
-
-### Since rc1
-
-- The plugin package carries the module built from this source; rc1's carried the previous one.  The arm64 plugin package still carries the previous module until its cache is rebuilt.
-
-## [0.1.53-rc1] - 2026-10-19 (testing build)
-
-### Added
-
-- (2026-10-19) **A budget for requests passed on a crawler's name alone.**  A crawler whose vendor publishes no address range passes on its User-Agent string, which anyone can write.  A new per-address budget (UA filter tab, 30 requests a minute by default) counts those requests; over it the request meets a CAPTCHA like any rate limit, so the name buys nothing further from that address.
-
-- (2026-10-19) **The UA filter shows what each crawler name let through.**  Each crawler's Detail row reads "passed by name, 24h: n requests / m addresses" when the last day let anything through on its name alone, and `unmask doctor` reports the day's total and warns past a few hundred, so a name being abused is visible where it is set to normal checks or stopped.
-
-- (2026-10-19) **A pass cookie follows a relay's published egress range.**  Inside a range from the relay egress list, nginx's new `$unmask_bind_key` names the range, the daemon issues the cookie and the PoW seed against it, and the plugin verifies with the same variable, so a relay that moves the visitor's address within the range no longer re-challenges.  Update the plugin together with the daemon.
-
-### Changed
-
-- (2026-10-19) **A crawler known only by its name no longer slips past the traps and the limits.**  Such a crawler used to be exempt from everything; now its name clears only the challenge a browser would get.  A honeypot it trips, a community listing, a country, network or custom rule, a protected path, a deny and every rate limit apply to it as to anyone, and the name counts only for a GET or HEAD.  Crawlers verified by a published range keep the full exemption.
-
-- (2026-10-19) **The CAPTCHA's failure text says what failed.**  A verify whose request never completed reads E-NET, one answered with something other than JSON carries the status (E-503, a block page or a daemon that is down), and an external widget's failure E-WIDGET.  Each also leaves an error beacon with the same classification, so the hunt page shows what the visitor saw.
-
-- (2026-10-19) **Keyboard-only visitors score as present.**  Reaching the box with Tab and ticking it with Space produces no mouse or touch event, which the behavioural score read as a page nobody touched and sent straight to the arithmetic fallback on every visit.  Key presses now count as input, and the page counts them on keydown so Tab and Space register.
-
-- (2026-10-19) **Silent re-binding allows ten moves an hour, up from four.**  A phone roaming between networks rarely needed more, but a two-exit NAT or a relay that moves its egress now and then does.  The lifetime cap of sixteen re-binds per solve is unchanged, so one solve still cannot be stretched across a proxy pool.
-
-### Fixed
-
-- (2026-10-19) **A request a rate limit refused no longer counts as passed.**  The access-log feed marked a request the rate route answered -- a CAPTCHA or a deny page -- as a pass, because the challenge decision itself had been zero; the composition card, the live strip and the crawler drill-down counted a refused request among the passes.  It now counts as served, like a challenge.
-
-- (2026-10-19) **A visitor whose requests leave through more than one address can solve the CAPTCHA again.**  The proof-of-load, arithmetic and beacon tokens were bound to the client address, so a two-uplink NAT or a relay that changes its egress between requests failed every attempt, and the arithmetic fallback with it.  They are now time-bound and single-use instead; the pass cookie itself stays bound as before.
+- (2026-10-25) **The container image runs nginx 1.30.6.**  It ran 1.28.3, and the 1.28 branch has no fix for most of this year's nginx advisories, among them CVE-2026-42945 and CVE-2026-9256 in rewrite and CVE-2026-42533 in map with a regex, both of which the gateway uses on every request.  0.1.53 closes it; the host packages, which load into your own nginx, are unchanged.
 
 ## [0.1.52] - 2026-10-19
 

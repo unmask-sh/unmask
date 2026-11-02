@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.52",
+  "latest": "0.1.53",
   "releases": [
+    {
+      "version": "0.1.53",
+      "date": "2026-11-03",
+      "notes": "0.1.53 is mostly security work. It closes two flaws present in every earlier release, each with an advisory: the proof-of-work seed the challenge page hands out could be sent back as a pass cookie, skipping the challenge, and on package installs nginx's worker could not read the ban list, so nginx enforced no ban. The module verifies a request's cookies once, says when it enforces nothing or when another module took its TLS callback, and a reload after removing it no longer crashes nginx; its fail-safe renders a configuration without it. Admin cookies stay on the admin path, the CSRF token is derived from the session, logout ends every session, and a password-reset link never takes the request's Host. A client that solves the proof-of-work far more often than a person is banned for a day, one pass cookie carries only so many requests an hour before a CAPTCHA, a User-Agent that contradicts the TLS fingerprint gets a CAPTCHA, a crawler known only by its name has a request budget, IPv6 bans widen to the /64, and a pass ends when its solve does. Cookie signatures can move to HMAC-SHA256. A pass follows the cloud proxies of Zscaler, Netskope, Cato Networks and Cisco Umbrella, a visit that passes a challenge keeps its referrer for analytics, and a check left open too long says so instead of failing. Alerts can go to two webhooks by severity, each in its own format; the stats page counts the passes behind each address; the admin asks for a restart when the module changed; the nginx package ships a disabled reload timer that leaves a master needing a restart alone; `unmask backup` writes an archive; the plugin carries a module for nginx 1.30.6. Upgrading signs every admin out once; restart nginx to load the new module."
+    },
     {
       "version": "0.1.52",
       "date": "2026-10-19",
