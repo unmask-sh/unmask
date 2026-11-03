@@ -111,11 +111,16 @@ fi
 # (unmask_bv_secret / unmask_ban_file / ...) and maps over plugin-provided
 # variables ($client_ja4 / $unmask_bv_kind), so loading it WITHOUT the plugin
 # makes `nginx -t` abort with "unknown directive".  unmask-web-nginx depends
-# only on unmask+nginx (forward-auth is the advertised default), so wire http.inc
-# ONLY when the native plugin .so is actually installed; the unmask-plugin-nginx
-# postinstall also creates this symlink, so install order does not matter.
+# only on unmask+nginx (the native module is a separate package, and the
+# forward-auth snippets work without it), so wire http.inc ONLY when the
+# native plugin .so is actually installed; the unmask-plugin-nginx postinstall
+# also creates this symlink, so install order does not matter.  NATIVE_PLUGIN
+# is what the setup banner at the end reads: the include it names is the one
+# that works on this host.
 PLUGIN_MODPATH=$(nginx -V 2>&1 | tr " " "\n" | sed -n "s|^--modules-path=||p" | head -1)
+NATIVE_PLUGIN=0
 if [ -n "$PLUGIN_MODPATH" ] && [ -e "$PLUGIN_MODPATH/ngx_http_unmask_module.so" ]; then
+    NATIVE_PLUGIN=1
     RENDERED_SRC=/var/lib/unmask/nginx/http.inc
     RENDERED_LINK=$NGINX_INCDIR/00-unmask.conf
     [ -d /var/lib/unmask/nginx ] || mkdir -p /var/lib/unmask/nginx
@@ -320,14 +325,41 @@ fi
 echo ""
 echo "  How to reach the setup wizard:"
 echo ""
-echo "  [1] Recommended — add 1 line to your existing nginx vhost"
-echo "        Edit a server { } block in /etc/nginx/conf.d/ and add:"
-echo ""
-echo "            include /etc/unmask/forward-auth/server.inc;"
-echo ""
-echo "        (native mode with unmask-plugin-nginx: use /var/lib/unmask/nginx/server.inc)"
-echo "        then:  sudo nginx -t && sudo nginx -s reload"
-echo "        open:  https://<your-domain>/unmask/admin/setup/"
+# The include the banner names is the one that works on this host.  With the
+# native module installed (unmask-plugin-nginx, the recommended setup and
+# the one the README walks through), the rendered server.inc carries the
+# /unmask/ locations and the JA4 wiring; without it, only the forward-auth
+# snippet can be included (its server.inc needs no plugin variable).  The
+# banner used to name the forward-auth include as "[1] Recommended" on every
+# host, plugin or not, and an operator who followed it wired the frozen path
+# -- no JA4, fixes only -- on an install that had the module.
+if [ "$NATIVE_PLUGIN" = 1 ]; then
+    echo "  [1] Recommended — add 1 line to your existing nginx vhost"
+    echo "        Edit a server { } block in /etc/nginx/conf.d/ and add:"
+    echo ""
+    echo "            include /var/lib/unmask/nginx/server.inc;"
+    echo ""
+    echo "        then:  sudo nginx -t && sudo nginx -s reload"
+    echo "        open:  https://<your-domain>/unmask/admin/setup/"
+    echo "        (The forward-auth path, include /etc/unmask/forward-auth/server.inc;, is"
+    echo "         the other way in: no JA4 fingerprint, bug and security fixes only.)"
+    PROTECT_INC=/var/lib/unmask/nginx/protect.inc
+else
+    echo "  [1] Recommended — the native nginx module"
+    echo "        Install unmask-plugin-nginx (no ngx_http_unmask_module.so under"
+    echo "        ${PLUGIN_MODPATH:-the modules path of nginx}), then add to a server { } block in /etc/nginx/conf.d/:"
+    echo ""
+    echo "            include /var/lib/unmask/nginx/server.inc;"
+    echo ""
+    echo "        Without the module, the forward-auth path works in its place"
+    echo "        (no JA4 fingerprint, bug and security fixes only):"
+    echo ""
+    echo "            include /etc/unmask/forward-auth/server.inc;"
+    echo ""
+    echo "        then:  sudo nginx -t && sudo nginx -s reload"
+    echo "        open:  https://<your-domain>/unmask/admin/setup/"
+    PROTECT_INC=/etc/unmask/forward-auth/protect.inc
+fi
 echo ""
 echo "  [2] Direct port (= dev / lab, or private network)"
 echo "        Edit /etc/unmask/config.yml → server.bind: 0.0.0.0   (the port is server.port, 9477)"
@@ -339,7 +371,10 @@ echo "        \$ ssh -L 9477:127.0.0.1:9477 ${host} -N &"
 echo "        open:  http://localhost:9477/unmask/admin/setup/"
 echo ""
 echo "  After setup, add protection to your location { } block:"
-echo "        include /etc/unmask/forward-auth/protect.inc;  # fires the bot challenge"
+echo "        include $PROTECT_INC;  # fires the bot challenge"
+if [ "$NATIVE_PLUGIN" = 1 ]; then
+    echo "        (forward-auth: /etc/unmask/forward-auth/protect.inc)"
+fi
 echo ""
 echo "================================================================"
 echo ""

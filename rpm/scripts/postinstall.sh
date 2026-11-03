@@ -295,7 +295,7 @@ fi
 
 echo "unmask: install complete (init: ${INIT_KIND:-unknown})."
 echo "  next steps (= on the nginx side):"
-echo "    1. add 'load_module /usr/lib/nginx/modules/ngx_http_unmask_module.so;' to nginx.conf"
+echo "    1. install unmask-plugin-nginx: its postinstall places the 'load_module' line in nginx.conf, or says where to add it"
 echo "    2. add 'include /var/lib/unmask/nginx/http.inc;'    inside the http {} block"
 echo "       (= the unmask-web-nginx package auto-symlinks this as /etc/nginx/conf.d/00-unmask.conf)"
 echo "    3. add 'include /var/lib/unmask/nginx/server.inc;'  inside protected server {} blocks"

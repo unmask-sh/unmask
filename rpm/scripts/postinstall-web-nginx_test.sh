@@ -181,6 +181,30 @@ post 2
 check "a token at the pre-0.1.9 path: the banner, with it" 1 "$(grep -c 'Setup token:       legacytoken' "$T/out")"
 rm -rf "$T"
 
+# --- the banner names the include that works on this host ----------------------
+# Without the module: the native module is what to install, and the
+# forward-auth include is the way in until then.
+new_root Permissive "" 252
+printf 'f00dfacecafe\n' > "$T/var/lib/unmask/.setup-token"
+post 1
+check "no module: [1] is the native module" 1 "$(grep -c '\[1\] Recommended — the native nginx module' "$T/out")"
+check "no module: the native include is named" 1 "$(grep -c "include $T/var/lib/unmask/nginx/server.inc;" "$T/out")"
+check "no module: the forward-auth include is the way in meanwhile" 1 "$(grep -c "include $T/etc/unmask/forward-auth/server.inc;" "$T/out")"
+check "no module: the protect line is forward-auth's" 1 "$(grep -c "include $T/etc/unmask/forward-auth/protect.inc;  # fires" "$T/out")"
+rm -rf "$T"
+# With the module (unmask-plugin-nginx placed its .so): the native include is
+# [1], and forward-auth is named once as the other path.
+new_root Permissive "" 252
+printf 'f00dfacecafe\n' > "$T/var/lib/unmask/.setup-token"
+: > "$T/modules/ngx_http_unmask_module.so"
+post 1
+check "module: [1] adds the native include" 1 "$(grep -c '\[1\] Recommended — add 1 line' "$T/out")"
+check "module: the native include comes first" 1 "$(grep -c "^            include $T/var/lib/unmask/nginx/server.inc;" "$T/out")"
+check "module: forward-auth is named once, as the other way" 1 "$(grep -c "include $T/etc/unmask/forward-auth/server.inc;" "$T/out")"
+check "module: the protect line is the native one" 1 "$(grep -c "include $T/var/lib/unmask/nginx/protect.inc;  # fires" "$T/out")"
+check "module: no line calls forward-auth recommended" 0 "$(grep -c 'Recommended.*forward-auth' "$T/out")"
+rm -rf "$T"
+
 echo
 if [ "$fails" -gt 0 ]; then
     echo "postinstall-web-nginx_test: $fails FAILED"
