@@ -240,6 +240,9 @@ type Handler struct {
 	// usedCT remembers the proof-of-load tokens that already earned a pass,
 	// so one fetch of a challenge earns one pass (captcha.UsedSet).
 	usedCT captcha.UsedSet
+	// verifyScores keeps the CAPTCHA score of each verify for the beacon
+	// that reports its outcome, by the page's beacon token (verify_score.go).
+	verifyScores scoreStash
 	// SchemaCommand builds the process that applies a schema update; nil
 	// means this binary's `migrate`.  Tests put their own in.
 	SchemaCommand func(by string) (*exec.Cmd, error)
@@ -3043,6 +3046,9 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		DT            *int            `json:"dt"`
 		Sig           *captcha.Signal `json:"sig"`
 		ProviderToken string          `json:"provider_token"` // release token from a 3rd-party CAPTCHA widget
+		// BT: the page's beacon token, so the score this verify computes can
+		// be written on the beacon that reports the outcome (verifyScores).
+		BT string `json:"bt"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0, "error": "invalid_json"})
@@ -3053,6 +3059,15 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	bindKey := bindKeyFor(r) // what the issued _bv is bound to: the address, or a relay's range
 	host := requestHost(r)   // binds the issued _bv to this vhost
 	site := siteFromRequest(r, *h.cfg())
+	// A per-address budget, the question's (CaptchaNew): an address answers
+	// this many times in five minutes, whichever path.  Every other endpoint
+	// the page talks to had one; this one, where a fabricated signal is
+	// scored, took as many tries as a script cared to send.
+	now := time.Now()
+	if limit := h.cfg().Challenge.Resolve(site).DebugRateLimitPer5Min; !h.passTrace.takeQuiet("verify|"+ip, limit, now) {
+		writeJSON(w, http.StatusTooManyRequests, map[string]any{"ok": 0, "error": "rate_limit"})
+		return
+	}
 	// Same authorized preview override as ServeChallenge: a site-scoped page
 	// (/test/site/{site}/) routes its verify to /api/{site}/verify, which must
 	// resolve the SAME values the page was rendered with (CAPTCHA provider /
@@ -3096,15 +3111,18 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 			}
 			ok = ok && res.Score >= min
 		}
+		// The provider's score goes on the beacon, not in the answer (see
+		// the builtin path below for why).
+		h.verifyScores.put(payload.BT, round3(res.Score), now)
 		if ok {
 			val := cookies.IssueValueH(h.sigHash(), h.cfg().Secret.BVSecret, bindKey, host, kind)
 			h.setBVCookie(w, r, val)
 			h.mintBVJ(w, r, ip, host, kind)
-			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "provider": cc.Provider, "score": round3(res.Score)})
+			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "provider": cc.Provider})
 			return
 		}
 		writeJSON(w, http.StatusForbidden, map[string]any{
-			"ok": 0, "error": "provider_rejected", "provider": cc.Provider, "score": round3(res.Score), "detail": res.Err,
+			"ok": 0, "error": "provider_rejected", "provider": cc.Provider, "detail": res.Err,
 		})
 		return
 	}
@@ -3124,8 +3142,22 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
 			return
 		}
+		// The page was served too recently for a person to have met the
+		// card and ticked the box (captcha.TokenMinAgeSeconds): a script
+		// posting its signal in the same breath as the fetch.  Answered as a
+		// refusal the page takes to the arithmetic, which a person who was
+		// that quick will have no trouble with.
+		if age, ok := captcha.TokenAge(payload.Ct, now); !ok || age < captcha.TokenMinAgeSeconds {
+			writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "too_fast"})
+			return
+		}
 		score := captcha.Score(payload.Sig, r.Header.Get("User-Agent"))
 		Metrics.ObserveScore(score)
+		// The score is kept for the hunt -- it rides the page's next beacon
+		// (DebugBeacon) -- and is no longer in the answer.  The answer used to
+		// say exactly how the signal scored, which made the endpoint an oracle
+		// for shaping a fabricated one; the page has no use for the number.
+		h.verifyScores.put(payload.BT, round3(score), now)
 		// Zero-guard the threshold the same way the reCAPTCHA path does above:
 		// a hand-edited config with provider:builtin but no builtin_score_threshold
 		// yields 0, and `score >= 0` would pass every CAPTCHA (a 0.0-scoring bot
@@ -3142,12 +3174,10 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 			val := cookies.IssueValueH(h.sigHash(), h.cfg().Secret.BVSecret, bindKey, host, kind)
 			h.setBVCookie(w, r, val)
 			h.mintBVJ(w, r, ip, host, kind)
-			writeJSON(w, http.StatusOK, map[string]any{"ok": 1, "score": round3(score)})
+			writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 			return
 		}
-		writeJSON(w, http.StatusForbidden, map[string]any{
-			"ok": 0, "error": "low_score", "score": round3(score),
-		})
+		writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "low_score"})
 		return
 	}
 
@@ -3177,7 +3207,16 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
 		return
 	}
-	if captcha.VerifyMath(ans, payload.Token, h.cfg().Secret.CaptchaSecretBase, captcha.TokenValidSeconds) {
+	// The same floor as the behavioral path: an answer within seconds of the
+	// page being served was not typed by someone who first met the checkbox.
+	// The page shows the ordinary retry text and draws another question.
+	if age, ok := captcha.TokenAge(payload.Ct, now); !ok || age < captcha.TokenMinAgeSeconds {
+		writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "too_fast"})
+		return
+	}
+	// The question's token is bound to the page's ct (MathChallenge), so a
+	// question drawn under one page cannot be answered under another.
+	if captcha.VerifyMath(ans, payload.Token, payload.Ct, h.cfg().Secret.CaptchaSecretBase, captcha.TokenValidSeconds) {
 		if !h.usedCT.Consume(payload.Ct, captcha.TokenTTL) {
 			writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
 			return
@@ -3241,7 +3280,7 @@ func (h *Handler) CaptchaNew(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusTooManyRequests, map[string]any{"ok": 0, "error": "rate_limit"})
 		return
 	}
-	a, b, token := captcha.MathChallenge(h.cfg().Secret.CaptchaSecretBase)
+	a, b, token := captcha.MathChallenge(h.cfg().Secret.CaptchaSecretBase, ct)
 	writeJSON(w, http.StatusOK, map[string]any{"a": a, "b": b, "token": token, "ct": ct})
 }
 
@@ -3333,6 +3372,16 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 		if passKey != "" {
 			raw["pass_verified"] = 1
 			raw["pass_kind"] = passKind
+		}
+		// The CAPTCHA score is the daemon's mark too: what /verify computed
+		// for this page (verifyScores, by beacon token), written on the
+		// beacon that reports the outcome.  The page used to echo the number
+		// from the verify answer; the answer no longer carries it.
+		delete(raw, "score")
+		if isCaptchaOutcomePhase(p.Phase) {
+			if score, ok := h.verifyScores.get(p.BT, now); ok {
+				raw["score"] = score
+			}
 		}
 	}
 

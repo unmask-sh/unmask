@@ -39,6 +39,9 @@ with sync_playwright() as p:
     page = ctx.new_page()
     page.goto(BASE + FORCE, wait_until="domcontentloaded")
     page.wait_for_selector("#notRobot", state="attached", timeout=15000)
+    # The daemon refuses a tick within two seconds of the page being served
+    # (captcha.TokenMinAgeSeconds): a person takes longer to meet the card.
+    time.sleep(2.5)
 
     # human-like signal: a moving mouse trail, a scroll, a keypress.
     #

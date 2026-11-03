@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/ban"
-	"github.com/unmask-sh/unmask/admin/internal/captcha"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
@@ -918,7 +917,7 @@ func TestChallengeServesWhileTheWriteLockIsHeld(t *testing.T) {
 	}
 
 	// The verification that issues the cookie.
-	ct := captcha.IssueToken("test-base")
+	ct := agedCT("test-base")
 	var cookie string
 	if code := within("the verification", time.Second, func() int {
 		rr := httptest.NewRecorder()

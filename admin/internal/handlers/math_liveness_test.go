@@ -7,18 +7,28 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/captcha"
 )
 
-// mathAnswerFor mints a real question and returns the pieces the client would
-// post back.  (ip is kept for the callers' symmetry with postMath; the tokens
-// themselves are not bound to an address.)
+// agedCT is a proof-of-load token issued a few seconds ago: the floor the
+// verify applies (captcha.TokenMinAgeSeconds) refuses an answer under a
+// token issued in the same second, which is what a test minting one and
+// answering at once would be.
+func agedCT(base string) string {
+	return captcha.IssueTokenAt(base, time.Now().Add(-5*time.Second))
+}
+
+// mathAnswerFor mints a real question under a page's token and returns the
+// pieces the client would post back.  (ip is kept for the callers' symmetry
+// with postMath; the tokens themselves are not bound to an address.)
 func mathAnswerFor(t *testing.T, h *Handler, ip string) (answer int, token, ct string) {
 	t.Helper()
 	_ = ip
-	a, b, tok := captcha.MathChallenge(h.cfg().Secret.CaptchaSecretBase)
-	return a + b, tok, captcha.IssueToken(h.cfg().Secret.CaptchaSecretBase)
+	ct = agedCT(h.cfg().Secret.CaptchaSecretBase)
+	a, b, tok := captcha.MathChallenge(h.cfg().Secret.CaptchaSecretBase, ct)
+	return a + b, tok, ct
 }
 
 func postMath(t *testing.T, h *Handler, ip string, body map[string]any) (*http.Response, map[string]any) {

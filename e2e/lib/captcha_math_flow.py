@@ -8,6 +8,7 @@
 import os
 import re
 import sys
+import time
 
 from playwright.sync_api import sync_playwright
 
@@ -34,8 +35,11 @@ with sync_playwright() as p:
     # force-captcha serves the CAPTCHA challenge regardless of the global chmode.
     page.goto(BASE + FORCE, wait_until="domcontentloaded")
 
-    # 1. tick the built-in "I'm not a robot" checkbox.
+    # 1. tick the built-in "I'm not a robot" checkbox -- after the two seconds
+    #    the daemon wants between serving the page and taking an answer
+    #    (captcha.TokenMinAgeSeconds); the arithmetic below is held to it too.
     page.wait_for_selector("#notRobot", timeout=15000)
+    time.sleep(2.5)
     page.check("#notRobot")
 
     # 2. a headless browser fails the behavioral check, so the numeric-add

@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/unmask-sh/unmask/admin/internal/captcha"
 	"github.com/unmask-sh/unmask/admin/internal/cookies"
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -174,7 +173,7 @@ func TestVerifyJSON_BehavioralPass(t *testing.T) {
 	// ct = the server-issued proof-of-load token, signed with CaptchaSecretBase
 	// (= "test-base" in newTestHandler).  Required since the behavioral path
 	// rejects a blind POST with no/invalid ct.
-	ct := captcha.IssueToken("test-base")
+	ct := agedCT("test-base")
 	body := `{"token":"x","ct":"` + ct + `","sig":{"hasMouseEvents":true,"clickAt":3000,"mouseTrail":[[10,10,1],[40,33,80],[70,55,160],[100,77,240],[130,99,320]],"windowSize":[1280,800]}}`
 	req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -311,7 +310,7 @@ func TestCaptchaNew(t *testing.T) {
 	if bare.Code != http.StatusForbidden {
 		t.Fatalf("captcha/new without ct expected 403, got %d", bare.Code)
 	}
-	ct := captcha.IssueToken(h.cfg().Secret.CaptchaSecretBase)
+	ct := agedCT(h.cfg().Secret.CaptchaSecretBase)
 	req := httptest.NewRequest(http.MethodGet, "/unmask/api/captcha/new?ct="+ct, nil)
 	rr := httptest.NewRecorder()
 	h.CaptchaNew(rr, req)
@@ -676,7 +675,7 @@ func TestServeChallengeOrJSON_HTMLClient(t *testing.T) {
 // challenge page, one cookie.
 func TestVerifyJSON_CtSingleUse(t *testing.T) {
 	h := newTestHandler(t)
-	ct := captcha.IssueToken("test-base")
+	ct := agedCT("test-base")
 	post := func(ip string) *httptest.ResponseRecorder {
 		body := `{"token":"x","ct":"` + ct + `","sig":{"hasMouseEvents":true,"clickAt":3000,"mouseTrail":[[10,10,1],[40,33,80],[70,55,160],[100,77,240],[130,99,320]],"windowSize":[1440,900]}}`
 		req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
@@ -710,7 +709,7 @@ func TestVerifyJSON_CtNotBoundToAddress(t *testing.T) {
 	// Issued while serving the page to one address...
 	pageReq := httptest.NewRequest(http.MethodGet, "/unmask/challenge/", nil)
 	pageReq.Header.Set("X-Real-IP", "198.51.100.7")
-	ct := captcha.IssueToken("test-base")
+	ct := agedCT("test-base")
 	_ = pageReq
 	// ...posted back from another.
 	body := `{"token":"x","ct":"` + ct + `","sig":{"hasMouseEvents":true,"clickAt":3000,"mouseTrail":[[10,10,1],[40,33,80],[70,55,160],[100,77,240],[130,99,320]],"windowSize":[1440,900]}}`
@@ -743,7 +742,7 @@ func TestVerifyJSON_CtNotBoundToAddress(t *testing.T) {
 // from every address in the range.
 func TestVerifyJSON_BindKeyHeader(t *testing.T) {
 	h := newTestHandler(t)
-	ct := captcha.IssueToken("test-base")
+	ct := agedCT("test-base")
 	body := `{"token":"x","ct":"` + ct + `","sig":{"hasMouseEvents":true,"clickAt":3000,"mouseTrail":[[10,10,1],[40,33,80],[70,55,160],[100,77,240],[130,99,320]],"windowSize":[1440,900]}}`
 	req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

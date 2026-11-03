@@ -39,6 +39,7 @@ with sync_playwright() as p:
 
     page.goto(BASE + FORCE, wait_until="domcontentloaded")
     page.wait_for_selector("#notRobot", timeout=15000)
+    page.wait_for_timeout(2500)  # the daemon's floor between serve and answer
     page.check("#notRobot")
     page.wait_for_timeout(5000)  # let the verify round-trip + any fallback land
 

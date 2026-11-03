@@ -304,9 +304,14 @@ const TokenValidSeconds int64 = 900
 const TokenTTL = time.Duration(TokenValidSeconds) * time.Second
 
 // MathChallenge returns (a, b, token) for a fresh arithmetic question.  token
-// is "<issued>.<hmac>" with hmac = HMAC(mathSecret(base, dayOf(issued)), "math:<issued>:<a+b>"),
+// is "<issued>.<hmac>" with hmac = HMAC(mathSecret(base, dayOf(issued)), "math:<issued>:<a+b>:<ct>"),
 // so a solved (answer, token) pair is bound to a freshness window (see
-// VerifyMath) and to the secret of the day it was issued.
+// VerifyMath), to the secret of the day it was issued, and to ct: the
+// proof-of-load token of the page the question was drawn for.  The question
+// used to sign the sum alone, and a sum is one of 39 values -- a script that
+// drew a question once could answer it under any page's token.  Now the
+// answer is accepted only with the ct it was asked under, and that ct is
+// consumed by the answer.
 //
 // The token is deliberately not bound to the client's address.  It used to be,
 // so a harvested (answer, token) pair could not be replayed from another
@@ -317,27 +322,27 @@ const TokenTTL = time.Duration(TokenValidSeconds) * time.Second
 // rescue them never could.  What keeps one fetch of the question from minting
 // more than one pass is the ct proof-of-load token the /verify math path also
 // requires, which is single-use (UsedSet).
-func MathChallenge(captchaSecretBase string) (int, int, string) {
-	return mathChallengeAt(captchaSecretBase, time.Now())
+func MathChallenge(captchaSecretBase, ct string) (int, int, string) {
+	return mathChallengeAt(captchaSecretBase, ct, time.Now())
 }
 
-func mathChallengeAt(captchaSecretBase string, now time.Time) (int, int, string) {
+func mathChallengeAt(captchaSecretBase, ct string, now time.Time) (int, int, string) {
 	a := randomInt(1, 20)
 	b := randomInt(1, 20)
 	issued := now.Unix()
 	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, dayOf(issued)))
-	mac.Write([]byte("math:" + strconv.FormatInt(issued, 10) + ":" + strconv.Itoa(a+b)))
+	mac.Write([]byte("math:" + strconv.FormatInt(issued, 10) + ":" + strconv.Itoa(a+b) + ":" + ct))
 	return a, b, strconv.FormatInt(issued, 10) + "." + hex.EncodeToString(mac.Sum(nil))
 }
 
 // VerifyMath returns true iff answerStr is a non-negative integer and token is a
-// fresh HMAC for that answer: issued within validSecs and signed with the
-// secret of the day the token names.  Returns false on any malformation.
-func VerifyMath(answerStr, token, captchaSecretBase string, validSecs int64) bool {
-	return verifyMathAt(answerStr, token, captchaSecretBase, validSecs, time.Now())
+// fresh HMAC for that answer under ct: issued within validSecs and signed with
+// the secret of the day the token names.  Returns false on any malformation.
+func VerifyMath(answerStr, token, ct, captchaSecretBase string, validSecs int64) bool {
+	return verifyMathAt(answerStr, token, ct, captchaSecretBase, validSecs, time.Now())
 }
 
-func verifyMathAt(answerStr, token, captchaSecretBase string, validSecs int64, now time.Time) bool {
+func verifyMathAt(answerStr, token, ct, captchaSecretBase string, validSecs int64, now time.Time) bool {
 	s := strings.TrimSpace(answerStr)
 	if s == "" {
 		return false
@@ -361,7 +366,7 @@ func verifyMathAt(answerStr, token, captchaSecretBase string, validSecs int64, n
 		return false
 	}
 	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, dayOf(issued)))
-	mac.Write([]byte("math:" + issuedStr + ":" + s))
+	mac.Write([]byte("math:" + issuedStr + ":" + s + ":" + ct))
 	expected := hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(expected), []byte(sig))
 }
@@ -372,10 +377,12 @@ func verifyMathAt(answerStr, token, captchaSecretBase string, validSecs int64, n
 // one; the timestamp bounds its life (VerifyToken).  Like the math token it is
 // not bound to the client's address -- MathChallenge has the reason.
 func IssueToken(captchaSecretBase string) string {
-	return issueTokenAt(captchaSecretBase, time.Now())
+	return IssueTokenAt(captchaSecretBase, time.Now())
 }
 
-func issueTokenAt(captchaSecretBase string, now time.Time) string {
+// IssueTokenAt is IssueToken as of now: for a test that needs a token old
+// enough to answer under (TokenMinAgeSeconds).
+func IssueTokenAt(captchaSecretBase string, now time.Time) string {
 	issuedSec := now.Unix()
 	issued := strconv.FormatInt(issuedSec, 10)
 	nonce := tokenNonce()
@@ -410,6 +417,28 @@ func verifyTokenAt(token, captchaSecretBase string, validSecs int64, now time.Ti
 	mac.Write([]byte("ct:" + issuedStr + ":" + nonce))
 	expected := hex.EncodeToString(mac.Sum(nil))
 	return hmac.Equal([]byte(expected), []byte(sig))
+}
+
+// TokenMinAgeSeconds is how old a proof-of-load token has to be before an
+// answer under it is taken: the page was served this many seconds ago, at
+// least.  A person meets the card, reads it and moves to the box, which takes
+// longer than this from the moment the daemon wrote the page; a script that
+// fetches the page and posts a fabricated signal in the same breath does not.
+// Two seconds of the token's clock, which is whole seconds, is between one
+// and two seconds of real time.  A faster answer is not refused for good:
+// the behavioral one is sent to the arithmetic, which takes time of its own.
+const TokenMinAgeSeconds int64 = 2
+
+// TokenAge is how many whole seconds ago the token says it was issued, for a
+// token VerifyToken has already accepted; false when the token does not
+// carry a time at all.
+func TokenAge(token string, now time.Time) (int64, bool) {
+	issuedStr, _, _ := strings.Cut(token, ".")
+	issued, err := strconv.ParseInt(issuedStr, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+	return now.Unix() - issued, true
 }
 
 // tokenNonce: 64 random bits as 16 hex chars.  crypto/rand failing on a

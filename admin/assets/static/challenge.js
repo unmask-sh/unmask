@@ -603,14 +603,17 @@
     fetch(API_BASE + '/verify', {
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({ token: captchaToken, provider_token: providerToken })
+      // bt: the page's beacon token, so the daemon can write the score it
+      // computes on the beacon that reports the outcome (the answer itself
+      // no longer carries the number).
+      body:JSON.stringify({ token: captchaToken, provider_token: providerToken, bt: (window.UNMASK && window.UNMASK.beacon_token) || '' })
     }).then(parseJSON)
     .then(function(res){
       if(res.data.ok===1){
-        _bcDebug(bvPhaseForCaptchaPass(), { method:'provider', score: res.data.score });
+        _bcDebug(bvPhaseForCaptchaPass(), { method:'provider' });
         passAndRedirect();
       } else {
-        _bcDebug('verify_ng', { method:'provider', http_status: res.status, score: res.data.score, detail: res.data.detail });
+        _bcDebug('verify_ng', { method:'provider', http_status: res.status, error: res.data.error, detail: res.data.detail });
         showError(t.wrong);
       }
     }).catch(function(e){ verifyFailed(e, 'provider'); });
@@ -653,6 +656,7 @@
       body:JSON.stringify({
         token: captchaToken,
         ct: (window.UNMASK && window.UNMASK.ct) || '', // proof-of-load token bound to IP + this challenge
+        bt: (window.UNMASK && window.UNMASK.beacon_token) || '', // for the score on the outcome beacon
         sig: {
           mouseTrail: sig.mouseTrail,
           untrusted:  sig.untrusted,
@@ -669,14 +673,17 @@
     }).then(parseJSON)
     .then(function(res){
       if(res.data.ok===1){
-        _bcDebug(bvPhaseForCaptchaPass(), { score: res.data.score });
+        _bcDebug(bvPhaseForCaptchaPass(), {});
         passAndRedirect();
       } else if (res.data && res.data.error === 'stale_challenge') {
         // The page's token has run out.  Not a score to fall back from, and
         // the fallback's question needs the same token: say so, start over.
         challengeExpired('stale_challenge', { method: 'behavioral', http_status: res.status });
       } else {
-        _bcDebug('verify_ng', { http_status: res.status, score: res.data.score });
+        // A low score, or an answer the daemon found too quick after the
+        // page was served (too_fast): either way the arithmetic is the way
+        // on.  The score itself is the daemon's to record, on this beacon.
+        _bcDebug('verify_ng', { http_status: res.status, error: res.data && res.data.error });
         // checkbox couldn't confirm -> switch to the numeric-add fallback (= UX rescue).
         // bots score low here, but LLMs can solve numeric add, so bot bypass risk exists.
         // Still, the 2-stage gate "behavioral failed + numeric add solved" keeps simple scrapers out.
@@ -976,7 +983,7 @@
       } else if (res.data && res.data.error === 'stale_challenge') {
         challengeExpired('stale_challenge', { method: 'math', http_status: res.status });
       } else {
-        _bcDebug('verify_ng', { method:'math', http_status: res.status });
+        _bcDebug('verify_ng', { method:'math', http_status: res.status, error: res.data && res.data.error });
         showError(t.wrong);
         // retry with a different question
         fetchMath(false);

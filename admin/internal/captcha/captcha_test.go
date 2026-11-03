@@ -234,23 +234,46 @@ func TestScore_MobileUAContradiction(t *testing.T) {
 
 func TestVerifyMath(t *testing.T) {
 	const base = "test-base-secret"
-	a, b, token := MathChallenge(base)
+	ct := IssueToken(base)
+	a, b, token := MathChallenge(base, ct)
 	correctStr := strconv.Itoa(a + b)
-	if !VerifyMath(correctStr, token, base, 900) {
+	if !VerifyMath(correctStr, token, ct, base, 900) {
 		t.Errorf("correct answer should verify (a=%d b=%d ans=%s)", a, b, correctStr)
 	}
-	if VerifyMath("0", token, base, 900) && a+b != 0 {
+	if VerifyMath("0", token, ct, base, 900) && a+b != 0 {
 		t.Error("zero answer should not verify (unless a+b==0)")
 	}
-	if VerifyMath("not a number", token, base, 900) {
+	if VerifyMath("not a number", token, ct, base, 900) {
 		t.Error("non-numeric answer should fail")
 	}
-	if VerifyMath(correctStr, token, "another-secret", 900) {
+	if VerifyMath(correctStr, token, ct, "another-secret", 900) {
 		t.Error("token signed with another secret should not verify")
 	}
+	// The question is bound to the page it was drawn for: the same sum under
+	// another page's token does not verify.
+	if VerifyMath(correctStr, token, IssueToken(base), base, 900) {
+		t.Error("a question answered under another page's token should not verify")
+	}
 	// Freshness: validSecs=-1 forces the stale branch (now-issued >= 0 > -1).
-	if VerifyMath(correctStr, token, base, -1) {
+	if VerifyMath(correctStr, token, ct, base, -1) {
 		t.Error("token outside the freshness window should not verify")
+	}
+}
+
+// TokenAge reads the whole seconds since the token's issue; the floor the
+// verify applies is TokenMinAgeSeconds of them.
+func TestTokenAge(t *testing.T) {
+	const base = "test-base-secret"
+	issue := time.Unix(1_700_000_000, 0)
+	tok := IssueTokenAt(base, issue)
+	if age, ok := TokenAge(tok, issue.Add(2500*time.Millisecond)); !ok || age != 2 {
+		t.Errorf("age = %d, %v; want 2, true", age, ok)
+	}
+	if age, ok := TokenAge(tok, issue); !ok || age != 0 {
+		t.Errorf("age at issue = %d, %v; want 0, true", age, ok)
+	}
+	if _, ok := TokenAge("x.y.z", issue); ok {
+		t.Error("a token without a time must not report an age")
 	}
 }
 
@@ -301,7 +324,7 @@ func TestTokenVerifiesAcrossMidnightUTC(t *testing.T) {
 	if dayOf(issue.Unix()) == dayOf(answer.Unix()) {
 		t.Fatal("the fixture must straddle a UTC day boundary")
 	}
-	tok := issueTokenAt(base, issue)
+	tok := IssueTokenAt(base, issue)
 	if !verifyTokenAt(tok, base, 900, answer) {
 		t.Error("a ct issued before midnight UTC should verify after it")
 	}
@@ -311,14 +334,14 @@ func TestTokenVerifiesAcrossMidnightUTC(t *testing.T) {
 	if verifyTokenAt(tok, "another-secret", 900, answer) {
 		t.Error("another secret still does not verify")
 	}
-	a, b, mtok := mathChallengeAt(base, issue)
-	if !verifyMathAt(strconv.Itoa(a+b), mtok, base, 900, answer) {
+	a, b, mtok := mathChallengeAt(base, tok, issue)
+	if !verifyMathAt(strconv.Itoa(a+b), mtok, tok, base, 900, answer) {
 		t.Error("a math token issued before midnight UTC should verify after it")
 	}
-	if verifyMathAt(strconv.Itoa(a+b+1), mtok, base, 900, answer) {
+	if verifyMathAt(strconv.Itoa(a+b+1), mtok, tok, base, 900, answer) {
 		t.Error("a wrong sum must not verify")
 	}
-	if verifyMathAt(strconv.Itoa(a+b), mtok, base, 900, issue.Add(901*time.Second)) {
+	if verifyMathAt(strconv.Itoa(a+b), mtok, tok, base, 900, issue.Add(901*time.Second)) {
 		t.Error("the freshness window still bounds the math token")
 	}
 }
