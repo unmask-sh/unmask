@@ -38,13 +38,22 @@ JA4_BANNED="t13e2e0ban01_aaaaaaaaaaaa_bbbbbbbbbbbb"
 BAN_FILE_C=/var/lib/unmask/nginx/banned.txt
 body_tmp=$(mktemp)
 
+# settle: the plugin asks the kernel about the ban file at most once a
+# second (and keeps the list it has until then), so a row written or
+# cleared within the second of the last check is not seen yet -- and a
+# stale row answers a probe that expects the fresh one.  Wait the second out
+# after every change, before asking.
+settle() { sleep 1.2; }
+
 ban_write() { # ban_write <row>
     docker compose -f "$COMPOSE" exec -T --user root nginx sh -c \
         "mkdir -p /var/lib/unmask/nginx && printf '%s\n' '$1' >> '$BAN_FILE_C'" >/dev/null 2>&1
+    settle
 }
 ban_clear() {
     docker compose -f "$COMPOSE" exec -T --user root nginx sh -c \
         "[ -f '$BAN_FILE_C' ] && grep -v -e '^${BAN_IP}|' -e '|${JA4_BANNED}|' '$BAN_FILE_C' > '${BAN_FILE_C}.t' 2>/dev/null && mv '${BAN_FILE_C}.t' '$BAN_FILE_C'" >/dev/null 2>&1 || true
+    settle
 }
 cleanup() {
     rc=$?
