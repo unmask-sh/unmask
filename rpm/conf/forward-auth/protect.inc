@@ -12,9 +12,9 @@
 #         include /etc/unmask/forward-auth/protect.inc;  # protect all locations
 #     }
 #
-# Native-mode installs (= ngx_http_unmask_module) include
-# /etc/unmask/native/protect.inc instead of `auth_request`.  This file is for
-# forward-auth mode.
+# Native-mode installs (= ngx_http_unmask_module) include the rendered
+# /var/lib/unmask/nginx/protect.inc instead of `auth_request`.  This file is
+# for forward-auth mode.
 #
 # /unmask/* and /_unmask/check declare `auth_request off;` explicitly in
 # server.inc, so enabling this include on a higher server does not create a

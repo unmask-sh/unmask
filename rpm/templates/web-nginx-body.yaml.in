@@ -6,13 +6,12 @@
 # (= /usr/sbin/unmask) listens on localhost; this package wires
 # nginx ↔ unmask together.
 #
-# default mode = forward-auth (= lightweight mode that does not require JA4
-# fingerprinting; all features work, but only the JA4-granular verdict
-# degrades to "(none)").
-#
-# To use native mode (= JA4 capture + .so module), additionally install
-# unmask-plugin-nginx and add `load_module` to nginx.conf.  This package
-# provides the proxy / location definitions shared by both modes.
+# The recommended setup is the native module (= JA4 capture + .so module):
+# install unmask-plugin-nginx beside this package, and its postinstall places
+# the `load_module` line.  The forward-auth snippets shipped here work without
+# the module (no JA4 fingerprint; the path is frozen: bug and security fixes
+# only).  This package provides the proxy / location definitions shared by
+# both setups.
 
 description: |
   nginx web integration for unmask (conf.d snippets).
@@ -62,8 +61,9 @@ contents:
     file_info:
       mode: 0755
   # Note: the shipped server block (= the old unmask-web.conf default_server)
-  # has been removed.  Users add `include /etc/unmask/{native,forward-auth}/server.inc;`
-  # to their own vhost as a one-liner.  The upstream block (= resolves
+  # has been removed.  Users add `include /var/lib/unmask/nginx/server.inc;`
+  # (native) or `include /etc/unmask/forward-auth/server.inc;` to their own
+  # vhost as a one-liner.  The upstream block (= resolves
   # proxy_pass http://unmask_daemon) is auto-loaded by postinstall via the
   # /etc/nginx/conf.d/00-unmask-upstream.conf → /etc/unmask/upstream.conf symlink.
 

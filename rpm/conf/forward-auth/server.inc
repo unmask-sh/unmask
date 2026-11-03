@@ -6,7 +6,7 @@
 # /unmask/challenge/ etc. reachable on that vhost.  To actually **protect**
 # user paths (= fire the challenge), include protect.inc separately at
 # server scope or inside the locations you want protected (= same 2-include
-# pattern as native mode's /etc/unmask/native/{server,protect}.inc).
+# pattern as native mode's rendered /var/lib/unmask/nginx/{server,protect}.inc).
 #
 # Locations provided:
 #   /unmask/admin/      → admin UI / dashboard
