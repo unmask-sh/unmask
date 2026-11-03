@@ -68,8 +68,15 @@ func dropPrivilegesIfRoot() (string, error) {
 	if uid == 0 {
 		return "", nil // data dir is root's; the daemon runs as root too
 	}
-	// Order matters: setgid first, because after setuid the process can no
-	// longer change its group.
+	// Order matters: the groups first, then setgid, because after setuid the
+	// process can no longer change either.  The supplementary groups become
+	// the daemon user's own (initgroups): what root had -- in a container,
+	// the root group -- is dropped with the uid, and a group the daemon user
+	// was put in (the web server's, so the sockets it binds can be shared
+	// with the worker by group) is taken on, as the service manager does.
+	if err := syscall.Setgroups(supplementaryGroups(uid, gid)); err != nil {
+		return "", fmt.Errorf("drop privileges to %s: setgroups: %w", name, err)
+	}
 	if err := syscall.Setgid(gid); err != nil {
 		return "", fmt.Errorf("drop privileges to %s: setgid(%d): %w", name, gid, err)
 	}
@@ -78,6 +85,30 @@ func dropPrivilegesIfRoot() (string, error) {
 	}
 	droppedFromRoot = name
 	return fmt.Sprintf("dropped privileges to %s (uid %d) -- files this command creates belong to the daemon", name, uid), nil
+}
+
+// supplementaryGroups is the group list the dropped process runs with: the
+// primary group first, then every other group the daemon user is a member of
+// as the host's group database has it -- or the primary group alone when the
+// account has no entry there (normal in containers).
+func supplementaryGroups(uid, gid int) []int {
+	groups := []int{gid}
+	u, err := user.LookupId(strconv.Itoa(uid))
+	if err != nil {
+		return groups
+	}
+	ids, err := u.GroupIds()
+	if err != nil {
+		return groups
+	}
+	for _, id := range ids {
+		g, err := strconv.Atoi(id)
+		if err != nil || g == gid {
+			continue
+		}
+		groups = append(groups, g)
+	}
+	return groups
 }
 
 // droppedFromRoot names the account this process switched to, or "" when it

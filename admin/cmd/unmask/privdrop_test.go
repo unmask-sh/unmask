@@ -2,7 +2,9 @@ package main
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"testing"
 )
 
@@ -114,5 +116,44 @@ func TestServeIsNotExemptFromTheDrop(t *testing.T) {
 	}
 	if len(privDropExempt) != 0 {
 		t.Errorf("exemptions must be justified in the map's comment, found %v", privDropExempt)
+	}
+}
+
+// The dropped process runs with the daemon user's own groups: the primary
+// group first, then the others the group database lists the user in -- and
+// nothing from before the drop.  An account the database does not know
+// (containers) gets its primary group alone.
+func TestSupplementaryGroupsAreTheUsersOwn(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip(err)
+	}
+	uid, _ := strconv.Atoi(me.Uid)
+	gid, _ := strconv.Atoi(me.Gid)
+	got := supplementaryGroups(uid, gid)
+	if len(got) == 0 || got[0] != gid {
+		t.Fatalf("groups %v, want the primary group %d first", got, gid)
+	}
+	ids, err := me.GroupIds()
+	if err != nil {
+		t.Skip(err)
+	}
+	listed := map[int]bool{gid: true}
+	for _, id := range ids {
+		g, _ := strconv.Atoi(id)
+		listed[g] = true
+	}
+	seen := map[int]bool{}
+	for _, g := range got {
+		if !listed[g] {
+			t.Errorf("group %d is not one of the user's (%v)", g, ids)
+		}
+		if seen[g] {
+			t.Errorf("group %d listed twice in %v", g, got)
+		}
+		seen[g] = true
+	}
+	if got := supplementaryGroups(1<<30+7, 4242); len(got) != 1 || got[0] != 4242 {
+		t.Errorf("an unknown account got %v, want its primary group alone", got)
 	}
 }
