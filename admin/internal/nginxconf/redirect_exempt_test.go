@@ -7,9 +7,17 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
+// The rendered shape of one exemption: a flag the redirect's key folds in,
+// never a `break` (see TestRedirectExemptGatesStillRun).
+const (
+	exemptFlag    = `{ set $unmask_https_redirect_exempt "1"; }`
+	redirectKey   = `set $unmask_https_redirect_key "$unmask_forwarded_proto$unmask_https_redirect_exempt";`
+	redirectCheck = `if ($unmask_https_redirect_key = "http")`
+)
+
 // TestRedirectExemptDefaults: with the redirect on and no operator changes,
-// both default-on presets render before the 301 — ACME as a path break, LB
-// health checks as a user-agent break (the axis that catches probes reaching
+// both default-on presets render before the 301 — ACME as a path flag, LB
+// health checks as a user-agent flag (the axis that catches probes reaching
 // the backend without X-Forwarded-Proto).
 func TestRedirectExemptDefaults(t *testing.T) {
 	got := renderServerInc(t, func(s *settings.Settings) {
@@ -19,60 +27,87 @@ func TestRedirectExemptDefaults(t *testing.T) {
 	if redir < 0 {
 		t.Fatalf("redirect missing:\n%s", got)
 	}
-	acme := strings.Index(got, `if ($request_uri ~ "^/\\.well-known/acme-challenge/") { break; }`)
+	acme := strings.Index(got, `if ($request_uri ~ "^/\\.well-known/acme-challenge/") `+exemptFlag)
 	if acme < 0 || acme > redir {
-		t.Errorf("ACME path break must render before the 301 (acme=%d redir=%d):\n%s", acme, redir, got)
+		t.Errorf("ACME path flag must render before the 301 (acme=%d redir=%d):\n%s", acme, redir, got)
 	}
 	ua := strings.Index(got, `if ($http_user_agent ~* "^(GoogleHC|ELB-HealthChecker|kube-probe`)
 	if ua < 0 || ua > redir {
-		t.Errorf("LB-health UA break must render before the 301 (ua=%d redir=%d):\n%s", ua, redir, got)
+		t.Errorf("LB-health UA flag must render before the 301 (ua=%d redir=%d):\n%s", ua, redir, got)
+	}
+	key := strings.Index(got, redirectKey)
+	check := strings.Index(got, redirectCheck)
+	if key < 0 || check < 0 || key < ua || key > check || check > redir {
+		t.Errorf("the redirect must test the key joined after the flags (ua=%d key=%d check=%d redir=%d):\n%s", ua, key, check, redir, got)
 	}
 }
 
-// TestRedirectExemptBreaksAfterFailopenInit: the fail-open scaffolding
-// (`set $unmask_orig_path ""` / `$unmask_orig_args`) must be emitted before
-// the first exemption `break`.  A `break` ends the server rewrite phase, so a
-// health check that then reaches a protected location would read the
-// variables uninitialized -- nginx logs a [warn] per probe (seen on the
-// gateway, where the health-check path goes through protect.inc).
-// $unmask_failopen is not here: its default is a map in http.inc, which no
-// break can skip.
-func TestRedirectExemptBreaksAfterFailopenInit(t *testing.T) {
+// TestRedirectExemptGatesStillRun: an exemption withholds the redirect and
+// nothing else.  Until 0.1.54 each one was a rewrite-phase `break`, which
+// ends the server rewrite phase: the ban and the hard deny after the
+// redirect never ran for an exempt request, so a banned client that named a
+// health checker's user-agent walked past both to the ordinary challenge.
+// So: no `break` anywhere in server.inc, the flag initialised before the
+// first exemption reads it, and the ban gates after the redirect as before
+// (TestHTTPSRedirectEmittedBeforeGates pins that order).  The fail-open
+// scaffolding (`set $unmask_orig_path ""` / `$unmask_orig_args`) stays
+// ahead of the block, so nothing reads it uninitialized.
+func TestRedirectExemptGatesStillRun(t *testing.T) {
 	got := renderServerInc(t, func(s *settings.Settings) {
 		s.Nginx.HTTPSRedirect = true
+		withLogAndBans(s)
+		s.Nginx.Geo.Rules = []settings.GeoRule{{Country: "CN", Action: settings.RateChallengeDeny, Enabled: true}}
 	})
-	brk := strings.Index(got, `{ break; }`)
+	if i := strings.Index(got, "break;"); i >= 0 {
+		t.Errorf("server.inc must not `break` out of the rewrite phase (offset %d): a break skips the ban and deny gates for the exempt request:\n%s", i, got)
+	}
+	first := strings.Index(got, exemptFlag)
+	init := strings.Index(got, `set $unmask_https_redirect_exempt "";`)
+	if first < 0 || init < 0 || init > first {
+		t.Fatalf("the flag must be initialised before the first exemption sets it (init=%d first=%d):\n%s", init, first, got)
+	}
 	for _, want := range []string{`set $unmask_orig_path "";`, `set $unmask_orig_args "";`} {
-		init := strings.Index(got, want)
-		if init < 0 || brk < 0 {
-			t.Fatalf("scaffolding %q or exemption break missing (init=%d break=%d):\n%s", want, init, brk, got)
+		if i := strings.Index(got, want); i < 0 || i > first {
+			t.Errorf("fail-open scaffolding %q must precede the exemptions (i=%d first=%d)", want, i, first)
 		}
-		if init > brk {
-			t.Errorf("fail-open init %q must precede the first exemption break (init=%d break=%d):\n%s", want, init, brk, got)
+	}
+	redir := strings.Index(got, "return 301 https://")
+	for _, gate := range []string{
+		`if ($unmask_ban_action_effective = "deny")`,
+		`if ($unmask_banned_effective = "1")`,
+		`if ($unmask_deny_now = "1")`,
+	} {
+		g := strings.Index(got, gate)
+		if g < 0 {
+			t.Errorf("gate %q missing:\n%s", gate, got)
+			continue
+		}
+		if g < redir {
+			t.Errorf("gate %q (idx %d) must follow the redirect (idx %d) so a plaintext request is redirected first", gate, g, redir)
 		}
 	}
 }
 
-// TestRedirectExemptDisablePreset: disabling the acme preset drops its break;
+// TestRedirectExemptDisablePreset: disabling the acme preset drops its flag;
 // the lb-health preset stays.
 func TestRedirectExemptDisablePreset(t *testing.T) {
 	got := renderServerInc(t, func(s *settings.Settings) {
 		s.Nginx.HTTPSRedirect = true
 		s.Nginx.HTTPSRedirectExempt.DisabledPresets = []string{"acme"}
 	})
-	// Check for the break DIRECTIVE, not the substring (a template comment also
+	// Check for the DIRECTIVE, not the substring (a template comment also
 	// mentions acme-challenge).
-	if strings.Contains(got, `if ($request_uri ~ "^/\\.well-known/acme-challenge/") { break; }`) {
-		t.Errorf("disabled acme preset must not render its break:\n%s", got)
+	if strings.Contains(got, `if ($request_uri ~ "^/\\.well-known/acme-challenge/") `+exemptFlag) {
+		t.Errorf("disabled acme preset must not render its flag:\n%s", got)
 	}
 	if !strings.Contains(got, "GoogleHC") {
 		t.Errorf("lb-health preset should still render:\n%s", got)
 	}
 }
 
-// TestRedirectExemptCustomRules: a custom UA rule renders a user-agent break, a
-// custom path rule renders a request_uri break, and a disabled row is skipped —
-// all before the 301.
+// TestRedirectExemptCustomRules: a custom UA rule renders a user-agent flag,
+// a custom path rule renders a request_uri flag, and a disabled row is
+// skipped — all before the 301.
 func TestRedirectExemptCustomRules(t *testing.T) {
 	got := renderServerInc(t, func(s *settings.Settings) {
 		s.Nginx.HTTPSRedirect = true
@@ -84,8 +119,8 @@ func TestRedirectExemptCustomRules(t *testing.T) {
 	})
 	redir := strings.Index(got, "return 301 https://")
 	for _, want := range []string{
-		`if ($http_user_agent ~* "^MyMonitor") { break; }`,
-		`if ($request_uri ~ "^/internal/") { break; }`,
+		`if ($http_user_agent ~* "^MyMonitor") ` + exemptFlag,
+		`if ($request_uri ~ "^/internal/") ` + exemptFlag,
 	} {
 		i := strings.Index(got, want)
 		if i < 0 || i > redir {
@@ -134,8 +169,8 @@ func TestRedirectExemptCustomRulesResolveMarkers(t *testing.T) {
 		}
 	})
 	for _, want := range []string{
-		`if ($request_uri ~ "/\\.well-known/") { break; }`,
-		`if ($http_user_agent ~* "^MyMonitor/1\\.0$") { break; }`,
+		`if ($request_uri ~ "/\\.well-known/") ` + exemptFlag,
+		`if ($http_user_agent ~* "^MyMonitor/1\\.0$") ` + exemptFlag,
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("want %s in:\n%s", want, got)

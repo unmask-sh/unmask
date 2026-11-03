@@ -58,12 +58,13 @@ access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_lo
 # compose-mode redirect into /unmask/), so these start empty on each pass:
 # the classic gates save them right before a `rewrite ... last`, which does
 # not come back through here, and compose mode recovers them in
-# @unmask_daemon_down.  Emitted before the HTTPS redirect block on purpose:
-# its exemptions are rewrite-phase `break`s, and a `break` ends the server
-# rewrite phase, so anything set after it never runs for an exempt request
-# -- a load-balancer health check that goes on to a protected location (the
-# gateway's does) then reads these uninitialized and nginx logs a [warn] per
-# probe.
+# @unmask_daemon_down.  Emitted before the HTTPS redirect block: until
+# 0.1.54 its exemptions were rewrite-phase `break`s, and a `break` ends the
+# server rewrite phase, so anything set after it never ran for an exempt
+# request -- a load-balancer health check that went on to a protected
+# location (the gateway's does) read these uninitialized and nginx logged a
+# [warn] per probe.  The exemptions are flags now, and the order stays: the
+# scaffolding first, so nothing below reads a variable before it is set.
 #   $unmask_orig_path : pre-challenge $uri, saved by the gates that rewrite
 #                       into /unmask/*; empty for direct /unmask/* requests.
 #   $unmask_orig_args : pre-challenge $args, restored on replay.
@@ -86,19 +87,28 @@ set $unmask_orig_args "";
 # behind a terminating LB, else $scheme for a direct edge) so it works in both
 # topologies -- $scheme alone would loop behind an HTTPS-terminating LB that
 # forwards to the origin over http.
-# Exemptions (settings: nginx.https_redirect_exempt) run first as rewrite-phase
-# `break`s: ACME HTTP-01 (path) and load-balancer health checks (user-agent),
-# both default on, plus any custom rules.  A `break` stops the rewrite phase so
-# the redirect `if` below never runs and the request falls through to whatever
-# serves it -- a health check that reaches the backend directly carries no
-# X-Forwarded-Proto, so without this it would 301 and the LB would drop the
-# node.  ACME uses a `break` rather than a `location` on purpose: a webroot
-# certbot vhost may already define `location ^~ /.well-known/acme-challenge/`
-# and a second copy here would be a duplicate-location error.
+# Exemptions (settings: nginx.https_redirect_exempt) are tested first: ACME
+# HTTP-01 (path) and load-balancer health checks (user-agent), both default
+# on, plus any custom rules.  An exempt request is not redirected -- a health
+# check that reaches the backend directly carries no X-Forwarded-Proto, so
+# without this it would 301 and the LB would drop the node -- but it is a
+# request like any other past that: the ban and the hard deny below apply to
+# it.  Each exemption sets a flag that the redirect's own test folds in:
+# $unmask_forwarded_proto is "http" or "https", so only a plaintext request
+# with the flag empty reads "http" (nginx's `if` compares one variable, hence
+# the `set` that joins them).  Until 0.1.54 each exemption was a rewrite-phase
+# `break`, which ends the server rewrite phase: a banned or denied client that
+# named a health checker's user-agent walked past both gates to the ordinary
+# challenge.  ACME is an exemption rather than a `location` on purpose: a
+# webroot certbot vhost may already define
+# `location ^~ /.well-known/acme-challenge/` and a second copy here would be
+# a duplicate-location error.
+set $unmask_https_redirect_exempt "";
 {{- range .HTTPSRedirectExempt }}
-{{ if eq .MatchType "ua" }}if ($http_user_agent ~* "{{ rx .Pattern }}") { break; }{{ else }}if ($request_uri ~ "{{ rx .Pattern }}") { break; }{{ end }}
+{{ if eq .MatchType "ua" }}if ($http_user_agent ~* "{{ rx .Pattern }}") { set $unmask_https_redirect_exempt "1"; }{{ else }}if ($request_uri ~ "{{ rx .Pattern }}") { set $unmask_https_redirect_exempt "1"; }{{ end }}
 {{- end }}
-if ($unmask_forwarded_proto = "http") {
+set $unmask_https_redirect_key "$unmask_forwarded_proto$unmask_https_redirect_exempt";
+if ($unmask_https_redirect_key = "http") {
     return 301 https://$host$request_uri;
 }
 

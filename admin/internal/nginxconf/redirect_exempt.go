@@ -2,7 +2,11 @@
 // nginx.https_redirect is on).
 //
 // The redirect fires at the very top of the rendered server.inc, before any
-// gate.  Two classes of request must never be redirected there:
+// gate.  An exemption only withholds the redirect: the exempt request goes on
+// to the ban and the hard deny like any other (until 0.1.54 each exemption was
+// a rewrite-phase `break`, which skipped those gates too, so a banned client
+// could name a health checker's user-agent and walk past them).  Two classes
+// of request must never be redirected there:
 //
 //   - ACME HTTP-01 (path /.well-known/acme-challenge/): a 301 breaks webroot
 //     certbot renewals, noticed only on cert-expiry day.

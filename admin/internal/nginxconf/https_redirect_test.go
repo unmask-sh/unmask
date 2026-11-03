@@ -52,19 +52,22 @@ func TestHTTPSRedirectEmittedBeforeGates(t *testing.T) {
 	if redir < 0 {
 		t.Fatalf("https_redirect on must emit the 301:\n%s", got)
 	}
-	// It must key off $unmask_forwarded_proto (LB + direct edge), not $scheme.
-	if !strings.Contains(got, `if ($unmask_forwarded_proto = "http")`) {
-		t.Errorf("redirect should test $unmask_forwarded_proto:\n%s", got)
+	// It must key off $unmask_forwarded_proto (LB + direct edge), not
+	// $scheme -- joined with the exemption flag into the one variable
+	// nginx's `if` can compare (redirect_exempt_test.go).
+	if !strings.Contains(got, `set $unmask_https_redirect_key "$unmask_forwarded_proto$unmask_https_redirect_exempt";`) ||
+		!strings.Contains(got, `if ($unmask_https_redirect_key = "http")`) {
+		t.Errorf("redirect should test $unmask_forwarded_proto joined with the exemption flag:\n%s", got)
 	}
 
-	// ACME HTTP-01 must be excluded with a rewrite-phase break BEFORE the
-	// redirect, so a certbot webroot renewal on :80 isn't 301'd away from the
+	// ACME HTTP-01 must be exempted BEFORE the redirect, so a certbot
+	// webroot renewal on :80 isn't 301'd away from the
 	// /.well-known/acme-challenge/ path.
 	acme := strings.Index(got, "/.well-known/acme-challenge/")
 	if acme < 0 {
-		t.Errorf("ACME HTTP-01 break missing (certbot webroot renewals would break):\n%s", got)
+		t.Errorf("ACME HTTP-01 exemption missing (certbot webroot renewals would break):\n%s", got)
 	} else if acme > redir {
-		t.Errorf("ACME break (idx %d) must precede the redirect (idx %d)", acme, redir)
+		t.Errorf("ACME exemption (idx %d) must precede the redirect (idx %d)", acme, redir)
 	}
 
 	// The redirect must precede every gate so `return` short-circuits them.

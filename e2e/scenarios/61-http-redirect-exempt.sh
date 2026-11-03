@@ -1,16 +1,21 @@
 #!/bin/bash
-# 61: the HTTP->HTTPS redirect, its load-balancer health-check exemption, and
-# the fail-open scaffolding that exemption must not skip.
+# 61: the HTTP->HTTPS redirect, its load-balancer health-check exemption, the
+# fail-open scaffolding that exemption must not skip, and the ban gate the
+# exemption must not skip either.
 #
 # server.inc, with nginx.https_redirect on, answers plaintext HTTP with a 301
-# -- except for ACME and load-balancer health checks, which `break` out of
-# the redirect and fall through to whatever serves the path.  A `break` ends
-# the server rewrite phase, so everything server.inc sets after it is skipped
-# for that request; the fail-open variables used to sit there, and every
-# health check that reached a protected location then read them
-# uninitialized (an nginx [warn] per probe on the gateway, for a week, while
-# every functional test passed).  This scenario sends both kinds of request
-# over the vhost's plain :8480 listener and then reads nginx's log.
+# -- except for ACME and load-balancer health checks, which are not
+# redirected and fall through to whatever serves the path.  Until 0.1.54 each
+# exemption was a rewrite-phase `break`, which ends the server rewrite phase:
+# everything server.inc did after it was skipped for that request.  The
+# fail-open variables used to sit there, and every health check that reached
+# a protected location then read them uninitialized (an nginx [warn] per
+# probe on the gateway, for a week, while every functional test passed); the
+# ban and the hard deny still sit there, so a banned client that named a
+# health checker's user-agent walked past both to the ordinary challenge.
+# The exemption is a flag now.  This scenario sends the kinds of request over
+# the vhost's plain :8480 listener, reads nginx's log, and then bans an
+# address and sends the health-check user-agent from it.
 set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/env.sh"
@@ -52,3 +57,45 @@ if [ "${warn:-0}" != 0 ]; then
     exit 1
 fi
 log_pass "no uninitialized-variable warning in nginx's log after the exempt request"
+
+# (d) ...and the exemption withholds only the redirect: a banned address that
+#     names the health checker's user-agent still meets the ban.  Until 0.1.54
+#     the exemption's `break` skipped the ban and deny gates, so this request
+#     was answered with the ordinary challenge (or the page itself).
+#     Deterministic ban state, as in scenario 40: an IP-only deny row written
+#     into the nginx container's ban file (the plugin mtime-watches it); the
+#     daemon's 60s flush may overwrite it, so it is re-written per attempt.
+BAN_IP=203.0.113.61
+BAN_FILE_C=/var/lib/unmask/nginx/banned.txt
+body_tmp=$(mktemp)
+ban_write() {
+    docker compose -f "$COMPOSE" exec -T --user root nginx sh -c \
+        "mkdir -p /var/lib/unmask/nginx && printf '%s\n' '${BAN_IP}||manual|deny' >> '$BAN_FILE_C'" >/dev/null 2>&1
+}
+ban_clear() {
+    docker compose -f "$COMPOSE" exec -T --user root nginx sh -c \
+        "[ -f '$BAN_FILE_C' ] && grep -v '^${BAN_IP}|' '$BAN_FILE_C' > '${BAN_FILE_C}.t' 2>/dev/null && mv '${BAN_FILE_C}.t' '$BAN_FILE_C'" >/dev/null 2>&1 || true
+}
+cleanup() {
+    rc=$?
+    ban_clear
+    rm -f "$body_tmp"
+    [ "$rc" -eq 0 ] && [ "${_E2E_FAILS:-0}" -gt 0 ] && exit 1
+    exit "$rc"
+}
+trap cleanup EXIT
+
+code=000
+for _ in $(seq 1 12); do
+    ban_write
+    code=$(curl -s -A "GoogleHC/1.0" -H "X-Forwarded-For: $BAN_IP" -H "Accept: text/html" \
+        -o "$body_tmp" -w '%{http_code}' "$PLAIN/")
+    [ "$code" = 403 ] && grep -q 'unmask:ban-deny' "$body_tmp" && break
+    sleep 0.5
+done
+if [ "$code" = 301 ] || [ "$code" = 302 ]; then
+    log_fail "banned GoogleHC over plain http was redirected ($code): the exemption no longer applies to it"
+    exit 1
+fi
+assert_eq 403 "$code" "a banned address naming the health-check user-agent still meets the ban (not the challenge)" || exit 1
+assert_in "unmask:ban-deny" "$(cat "$body_tmp")" "the exempt-from-redirect request was answered by the ban page"
