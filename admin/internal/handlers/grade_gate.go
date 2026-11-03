@@ -3,6 +3,7 @@ package handlers
 import (
 	"strings"
 
+	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -92,6 +93,55 @@ func requestNeedsCaptchaGrade(ua, uri, site string, cfg settings.Settings) bool 
 		return true
 	}
 	return nginxconf.ModeEndsInCaptcha(protectedModeForOrig(cfg.Nginx, site, uri))
+}
+
+// posturePick resolves the chain the Operating-mode posture serves a UA the
+// black list does not name: its bucket's action (known browser / unknown UA;
+// an unset bucket is pow_only), replaced by the stale-browser tier's action
+// when that tier fires -- the tier's screen is the operator's choice for
+// these UAs, and ServeChallenge serves it in place of the pick.  The one
+// resolution uaDecide votes with and the posture's grade demand reads, so the
+// two cannot disagree.  stale reports whether the tier replaced the pick.
+func posturePick(ua string, g settings.GlobalConfig) (pick string, stale bool) {
+	if classify.IsKnownBrowser(ua) {
+		pick = g.KnownBrowserAction
+	} else {
+		pick = g.UnknownUAAction
+	}
+	if pick == "" {
+		pick = settings.RateChallengePoWOnly
+	}
+	if g.StaleBrowserEnabled() && pick != settings.RateChallengeDeny &&
+		classify.IsStaleBrowser(ua, g.CurrentChromeMajorResolved(), g.CurrentFirefoxMajorResolved(),
+			g.FirefoxESRMajors(), g.StaleBrowserLagN(), g.FirefoxStaleLagN()) {
+		return g.StaleBrowserResolvedAction(), true
+	}
+	return pick, false
+}
+
+// postureNeedsCaptchaGrade reports whether the global posture puts this UA on
+// a chain that ends in a CAPTCHA -- the by-posture source of the grade
+// requirement: the forward-auth twin of native's $unmask_global_captcha, and
+// what the rebind gate reads before it carries a proof-of-work lineage onto a
+// new address.  It was the one captcha-ending chain with no grade signal: on
+// a site whose posture is pow_then_captcha a proof-of-work cookie counted as
+// a pass, so a client that read the page and minted the cookie itself was
+// never asked for the CAPTCHA the posture ends in.
+//
+// The posture is the decision of last resort, so this answers for the UA
+// axis only when nothing else on it speaks: a UA on the black list takes its
+// row's chain (uaRequiresCaptchaGrade), a stale UA the tier's (posturePick).
+// The other axes are the veto's other terms, each with a grade of its own.
+// On this wire they compose by severity, and a captcha-ending posture
+// outranks every pow_only vote -- so the chain served to a client this
+// refuses ends in the CAPTCHA the refusal asks for, and the client is never
+// handed a screen whose pass the gate would refuse again.
+func postureNeedsCaptchaGrade(ua string, cfg settings.Settings) bool {
+	if listed, category, _ := lookupUAListed(ua, cfg.Nginx); listed != "" && category == "challenge" {
+		return false
+	}
+	pick, _ := posturePick(ua, cfg.Global)
+	return chainEndsInCaptcha(pick)
 }
 
 // gradeSatisfies reports whether a credential of grade `have` meets a CAPTCHA

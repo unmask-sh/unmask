@@ -1563,7 +1563,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			forceReason = "stale"
 		}
 		if forceReason == "none" {
-			if reason, act, _ := h.netChallengeReason(adminClientIP(r, *h.cfg()), *h.cfg()); reason != "" {
+			if reason, act, _ := h.netChallengeReasonFor(adminClientIP(r, *h.cfg()), protectedOrigURI(r, h.basePath()), site, h.cfg()); reason != "" {
 				forceReason = reason
 				netChMode = act
 			}

@@ -38,7 +38,7 @@ func TestCustomRulesRender(t *testing.T) {
 		"map $unmask_cr_id $unmask_cr_rate_action {\n    default \"\";\n}",
 		"map $unmask_cr_action $unmask_cr_challenge {",
 		"map $unmask_cr_action $unmask_cr_deny {",
-		`map "$unmask_ua_needs_captcha$unmask_cr_captcha" $unmask_ua_captcha_eff {`,
+		`map "$unmask_ua_needs_captcha$unmask_cr_captcha$unmask_global_captcha" $unmask_ua_captcha_eff {`,
 		`map "$geo_challenge_eff:$asn_challenge_eff:$unmask_cr_challenge" $is_net_challenge {`,
 		"scheme=$unmask_forwarded_proto cr=$unmask_cr_id rv=",
 	} {

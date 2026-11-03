@@ -50,7 +50,7 @@ func (h *Handler) forceEntry(r *http.Request, reason, verdict, ja4, origPath, si
 	case "ua_target":
 		return uaListedEntry(firstNonEmpty(r.Header.Get("X-Original-UA"), r.Header.Get("User-Agent")), cfg.Nginx)
 	case "asn", "geo":
-		if got, _, entry := h.netChallengeReason(adminClientIP(r, *cfg), *cfg); got == reason {
+		if got, _, entry := h.netChallengeReasonFor(adminClientIP(r, *cfg), origPath, site, cfg); got == reason {
 			return entry
 		}
 	case "honeypot":

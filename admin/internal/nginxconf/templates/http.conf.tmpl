@@ -479,8 +479,9 @@ map $unmask_bv_kind $bv_any_valid     { default 1;  ""        0; }
 
 # -----------------------------------------------------------------------------
 # Grade requirement: which pass cookie counts, for a request whose rule ends in
-# a CAPTCHA -- either its UA is on a captcha chain, or it hit a protected path
-# whose mode ends in a CAPTCHA (captcha / pow_then_captcha)
+# a CAPTCHA -- its UA is on a captcha chain, it hit a protected path whose mode
+# ends in a CAPTCHA (captcha / pow_then_captcha), or the site's posture (the
+# Operating-mode bucket) ends in one and is what decided the request
 # -----------------------------------------------------------------------------
 # For those UAs, holding SOME valid cookie is not the question the rule asked.
 # Clearing a captcha chain issues a CAPTCHA-grade cookie -- its proof-of-work
@@ -504,18 +505,56 @@ map $http_user_agent $unmask_ua_needs_captcha {
     "~*{{ rx . }}" 1;
 {{- end }}
 }
-# A custom rule ending in a CAPTCHA demands the same grade; it joins the UA
-# source here so the grade key below keeps its shape.
-map "$unmask_ua_needs_captcha$unmask_cr_captcha" $unmask_ua_captcha_eff {
+# The global posture: the chain of the Operating-mode bucket the UA falls in
+# (known browser / unknown UA, $unmatched_chain_action), when that is what
+# decided the request.  The posture is the decision of last resort --
+# $final_challenge consults it only for a request no other axis claimed --
+# and it was the one captcha-ending chain with no grade signal: on a site
+# whose posture is pow_then_captcha a proof-of-work cookie counted as a pass,
+# so a client that read the page and minted the cookie itself was never asked
+# for the CAPTCHA the posture ends in.
+#
+# The demand stands only where the posture's chain is the one served, so the
+# key carries the signals $final_challenge ranks above the posture.  Each of
+# those axes decides its own chain and brings its own grade signal -- a UA on
+# the black list ($is_challenge_target -> $unmask_ua_needs_captcha), a
+# protected path ($protected_mode), the community feed ($unmask_cb_captcha),
+# a country / network / custom rule ($is_net_challenge -> $unmask_geo_captcha
+# / $unmask_asn_captcha / $unmask_cr_captcha), a bot-verdict fingerprint
+# ($ja4_hit_flag -> $unmask_ja4_captcha: the serve hands out the verdict's
+# chain whichever row fired) and a honeypot trip ($serve_bot_challenge, which
+# demands no grade).  Demanding the posture's grade on one of those would
+# refuse a pass the axis's own chain mints -- pow_only on a protected path,
+# say -- and the visitor would be handed that same screen forever.
+{{- if .GlobalNeedsCaptchaGrade }}
+# An escalation tier whose screen does NOT end in a CAPTCHA replaces the
+# served chain with its own (ServeChallenge), so a request it fires on is the
+# tier's: its signal joins the key and has to read "not firing" (the UA-TLS
+# tier's is empty when the two agree).  A tier whose screen ends in a CAPTCHA
+# mints the grade demanded and needs no field.
+map "$unmatched_chain_action:$unmask_cb_challenge:$is_net_challenge:$protected_mode:$is_challenge_target:$ja4_hit_flag:$serve_bot_challenge{{ if and .StaleBrowserEnabled (not .StaleBrowserCaptchaGrade) }}:$unmask_stale_browser{{ end }}{{ if and .HeaderIntegrityEnabled (not .HeaderIntegrityCaptchaGrade) }}:$unmask_header_mismatch{{ end }}{{ if and .UATLSEnabled (not .UATLSCaptchaGrade) }}:$unmask_ua_tls_mismatch{{ end }}" $unmask_global_captcha {
+    default 0;
+    "captcha_only:0:0::0:0:0{{ if and .StaleBrowserEnabled (not .StaleBrowserCaptchaGrade) }}:0{{ end }}{{ if and .HeaderIntegrityEnabled (not .HeaderIntegrityCaptchaGrade) }}:0{{ end }}{{ if and .UATLSEnabled (not .UATLSCaptchaGrade) }}:{{ end }}"     1;
+    "pow_then_captcha:0:0::0:0:0{{ if and .StaleBrowserEnabled (not .StaleBrowserCaptchaGrade) }}:0{{ end }}{{ if and .HeaderIntegrityEnabled (not .HeaderIntegrityCaptchaGrade) }}:0{{ end }}{{ if and .UATLSEnabled (not .UATLSCaptchaGrade) }}:{{ end }}" 1;
+}
+{{- else }}
+# Neither bucket's chain ends in a CAPTCHA: the posture demands nothing.
+map "" $unmask_global_captcha { default 0; }
+{{- end }}
+# A custom rule ending in a CAPTCHA demands the same grade, and so does the
+# global posture where it decided the request; both join the UA source here
+# so the grade key below keeps its shape.
+map "$unmask_ua_needs_captcha$unmask_cr_captcha$unmask_global_captcha" $unmask_ua_captcha_eff {
     default 0;
     "~1"    1;
 }
-# Fold the three independent sources of a CAPTCHA-grade requirement into one
-# signal: the UA is on a captcha chain ($unmask_ua_needs_captcha), OR the URI hit
-# a protected path whose mode ends in a CAPTCHA ($protected_mode = captcha |
-# pow_then_captcha), OR the client is on the community feed under an action that
-# ends in a CAPTCHA ($unmask_cb_captcha).  "pow" and "" (no match) impose
-# nothing.  (Both companions are maps defined further down; nginx resolves map
+# Fold the independent sources of a CAPTCHA-grade requirement into one
+# signal: the UA is on a captcha chain ($unmask_ua_needs_captcha -- a custom
+# rule and the global posture ride the same field, $unmask_ua_captcha_eff), OR
+# the URI hit a protected path whose mode ends in a CAPTCHA ($protected_mode =
+# captcha | pow_then_captcha), OR the client is on the community feed under an
+# action that ends in a CAPTCHA ($unmask_cb_captcha).  "pow" and "" (no match)
+# impose nothing.  (Both companions are maps defined further down; nginx resolves map
 # cross-references at request time, so block order does not matter.)
 # The by-network sources: a geo / ASN rule that ends in a CAPTCHA demands the
 # grade too, minus each axis's own exempt paths.  Without these two, an ASN

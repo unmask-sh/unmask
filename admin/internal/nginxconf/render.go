@@ -825,6 +825,12 @@ type renderData struct {
 	// CommunityBansNeedsCaptchaGrade: same, for a community-feed hit whose
 	// action ends in a CAPTCHA.
 	CommunityBansNeedsCaptchaGrade bool
+	// GlobalNeedsCaptchaGrade: the global posture -- the known-browser or the
+	// unknown-UA bucket's chain -- ends in a CAPTCHA, so a PoW cookie must not
+	// satisfy it on a request the posture decided ($unmask_global_captcha;
+	// the key stands down where another axis decided and serves its own
+	// chain).
+	GlobalNeedsCaptchaGrade bool
 	// CommunityBansDeny: the community-feed action is "deny", so a hit is a
 	// hard block ($unmask_axis_deny) rather than a challenge.
 	CommunityBansDeny bool
@@ -2308,9 +2314,13 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// the single flag the template consults.  Computed here, after all three
 	// have been resolved, so adding a fourth source is one line in one place
 	// instead of two or-chains that must be kept identical.
+	// The global posture is a source too: the chain each Operating-mode
+	// bucket serves, resolved above the way the serve picks it
+	// (resolveGlobalAction), so the demand and the screen cannot disagree.
+	d.GlobalNeedsCaptchaGrade = actionEndsInCaptcha(d.KnownBrowserAction) || actionEndsInCaptcha(d.UnknownUAAction)
 	d.GradeCheckedPass = len(d.CaptchaGradeUAPatterns) > 0 ||
 		len(d.CaptchaGradeJA4Patterns) > 0 ||
-		d.ProtectedNeedsCaptchaGrade || d.CommunityBansNeedsCaptchaGrade ||
+		d.ProtectedNeedsCaptchaGrade || d.CommunityBansNeedsCaptchaGrade || d.GlobalNeedsCaptchaGrade ||
 		actionEndsInCaptcha(d.GeoDefaultAction) || actionEndsInCaptcha(d.AsnDefaultAction)
 	for _, r := range d.GeoRules {
 		d.GradeCheckedPass = d.GradeCheckedPass || actionEndsInCaptcha(r.Action)

@@ -433,14 +433,16 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 			(requestNeedsCaptchaGrade(ua, uri, site, cfg) ||
 				ja4NeedsCaptchaGrade(ja4Verdict, ja4Action, cfg) ||
 				h.axisNeedsCaptchaGradeFor(ip, uri, matchers, cfg) ||
-				escalationNeedsCaptchaGrade(ua, secChUA, scheme, modernHTTP, cfg))):
+				escalationNeedsCaptchaGrade(ua, secChUA, scheme, modernHTTP, cfg) ||
+				postureNeedsCaptchaGrade(ua, cfg))):
 			// Named after the entry that verified (see pickValidBV): a PoW
 			// solve, a CAPTCHA solve, or a credential re-bound onto this
 			// address after a solve elsewhere.  A PoW cookie does NOT pass here
 			// when the UA's chain, the protected path it hit, its JA4 verdict
-			// row, its network's geo/ASN rule, or the stale-browser / header-
-			// integrity tier that names it ends in a CAPTCHA — it falls
-			// through to the gating axes, which re-issue the right challenge.
+			// row, its network's geo/ASN rule, the stale-browser / header-
+			// integrity tier that names it, or the posture its bucket falls
+			// under ends in a CAPTCHA — it falls through to the gating axes,
+			// which re-issue the right challenge.
 			// Grade first: a CAPTCHA-grade cookie satisfies every source, so
 			// the common repeat-visitor case skips both the UA scan and the
 			// mmdb lookup.
@@ -1306,24 +1308,42 @@ func staleBrowserFiresForServe(r *http.Request, g settings.GlobalConfig) bool {
 // attributed correctly and then served whatever the default chain was.  One
 // lookup cannot drift between the two, and it costs one mmdb read rather than
 // two.
-func (h *Handler) netChallengeReason(ip string, cfg settings.Settings) (reason, chMode, entry string) {
+//
+// asnExempt / geoExempt: the request's path is on that axis's exempt list, so
+// the axis did not decide it (the conf leaves it out there, $asn_challenge_eff
+// / $geo_challenge_eff) and a rule it would match is not named -- see
+// netChallengeReasonFor.
+func (h *Handler) netChallengeReason(ip string, cfg settings.Settings, asnExempt, geoExempt bool) (reason, chMode, entry string) {
 	if h.IPGeo == nil || ip == "" {
 		return "", "", ""
 	}
 	info := h.IPGeo.LookupInfo(ip)
-	if h.IPGeo.ASNLoaded() {
+	if h.IPGeo.ASNLoaded() && !asnExempt {
 		if d, netKey, rate, ok := asnResolve(info.ASN, info.ASNOrg, cfg.Nginx.Asn); ok && d.sev != sevPass && rate == 0 {
 			// The entry: the rule's AS number, or an org rule's substring.
 			return "asn", d.chMode, strings.TrimPrefix(netKey, "asn:")
 		}
 	}
-	if h.IPGeo.Loaded() {
+	if h.IPGeo.Loaded() && !geoExempt {
 		cc := strings.ToUpper(strings.TrimSpace(info.Country))
 		if d, rate, ok := geoDecideForCountry(cc, cfg.Nginx.Geo); ok && d.sev != sevPass && rate == 0 {
 			return "geo", d.chMode, cc
 		}
 	}
 	return "", "", ""
+}
+
+// netChallengeReasonFor is netChallengeReason for the URI a challenge is
+// served for.  A rule whose axis the operator exempted that path from did not
+// decide the request -- the conf leaves the axis out there and the posture
+// decides instead -- so the serve must not name it, nor serve its chain.  It
+// did, before the posture demanded a grade: harmless while any pass satisfied
+// the posture, a loop once the rule's chain (pow_only, say) mints a pass the
+// posture refuses and the visitor is handed that rule's screen again.  An
+// empty URI (a direct hit on the challenge route) is exempt from nothing.
+func (h *Handler) netChallengeReasonFor(ip, uri, site string, snap *settings.Settings) (reason, chMode, entry string) {
+	m := h.bypassMatchers(snap, site)
+	return h.netChallengeReason(ip, *snap, matchPath(uri, m.asnExempt), matchPath(uri, m.geoExempt))
 }
 
 // ja4Decide returns a challenge decision when the JA4 verdict says "bot".
@@ -1431,28 +1451,20 @@ func uaDecide(ua, ja4Action string, cfg settings.Settings, rangeVerifiedUA *rege
 			chMode: chModeFromSeverity(s),
 		}, true
 	}
-	var pick string
-	if classify.IsKnownBrowser(ua) {
-		pick = cfg.Global.KnownBrowserAction
-	} else {
-		pick = cfg.Global.UnknownUAAction
-	}
-	if pick == "" {
-		pick = settings.RateChallengePoWOnly
-	}
-	// Stale-browser escalation (mirrors ServeChallenge on the native path): a UA
-	// far behind current Chrome stable is a headless-scraper tell; serve it the
-	// operator's stale action (default captcha_only) even when the Global pick
-	// would pass or only PoW.  The stale action REPLACES the pick — it is the
-	// operator's explicit choice for these UAs, so captcha_only wins even over a
-	// pow_then_captcha pick (skip the pointless PoW).  A deny pick is left intact
-	// (never soften a hard block).  uaDecide runs after Phase A's veto-passes, so
-	// a bypass-IP monitoring probe / search bot / valid _bv never reaches here.
+	// The Operating-mode pick, with the stale-browser escalation (mirrors
+	// ServeChallenge on the native path): a UA far behind current Chrome
+	// stable is a headless-scraper tell; serve it the operator's stale action
+	// (default captcha_only) even when the Global pick would pass or only
+	// PoW.  The stale action REPLACES the pick — it is the operator's explicit
+	// choice for these UAs, so captcha_only wins even over a pow_then_captcha
+	// pick (skip the pointless PoW).  A deny pick is left intact (never soften
+	// a hard block).  uaDecide runs after Phase A's veto-passes, so a
+	// bypass-IP monitoring probe / search bot / valid _bv never reaches here.
+	// Resolved by posturePick, which the pass-cookie veto's posture term
+	// reads too, so the grade it demands is the grade this chain mints.
+	pick, stale := posturePick(ua, cfg.Global)
 	staleReason := ""
-	if g := cfg.Global; g.StaleBrowserEnabled() && pick != settings.RateChallengeDeny &&
-		classify.IsStaleBrowser(ua, g.CurrentChromeMajorResolved(), g.CurrentFirefoxMajorResolved(),
-			g.FirefoxESRMajors(), g.StaleBrowserLagN(), g.FirefoxStaleLagN()) {
-		pick = g.StaleBrowserResolvedAction()
+	if stale {
 		staleReason = "ua:stale_browser:" + pick
 	}
 	if pick == "pass" {

@@ -343,7 +343,12 @@ func (h *Handler) rebind(w http.ResponseWriter, r *http.Request, site, bt string
 	// A lineage born of a real CAPTCHA still roams silently, which is the
 	// point: the person who solved it keeps their pass across a network
 	// change, and the fleet that solved a proof-of-work does not.
-	if uaRequiresCaptchaGrade(r.Header.Get("User-Agent"), *cfg) && !gradeSatisfies(claims.Kind) {
+	//
+	// The site's posture asks the same where it ends in a CAPTCHA
+	// (postureNeedsCaptchaGrade): this path runs only for a request no
+	// stronger axis claimed, which is exactly where the posture decides.
+	if ua := r.Header.Get("User-Agent"); (uaRequiresCaptchaGrade(ua, *cfg) || postureNeedsCaptchaGrade(ua, *cfg)) &&
+		!gradeSatisfies(claims.Kind) {
 		h.logRebindReject(r, site, ip, ja4, "grade", claims.Lineage, bt, claims.ASN, 0)
 		return false
 	}
