@@ -38,8 +38,9 @@
  *
  * Configuration:
  *   unmask_bv_secret <secret>;        # HTTP main scope. shared with admin app.
- *   unmask_bv_pow_valid_seconds <int>;      # PoW-issued cookies (default 259200 = 3d)
- *   unmask_bv_captcha_valid_seconds <int>;  # CAPTCHA-issued cookies (default 259200 = 3d)
+ *   unmask_bv_pow_valid_seconds <int>;      # PoW-issued cookies (0 or absent = 3d)
+ *   unmask_bv_captcha_valid_seconds <int>;  # CAPTCHA-issued cookies (0 or absent = 3d)
+ *   unmask_bv_pow_difficulty <int>;         # SHA-256 PoW leading zero bits (8..24, default 18)
  *   unmask_ban_file <path>;           # honeypot ban list (= "<ip>|<ja4>" per line)
  */
 
@@ -121,12 +122,12 @@ enum {
 typedef struct {
     ngx_str_t   bv_secret;
     /* Validity window in SECONDS applied to PoW-issued cookies (= 4-segment
-     * "pow2" format).  Default 259200 (= 3 days).  Set via
-     * unmask_bv_pow_valid_seconds. */
+     * "pow2" format).  Set via unmask_bv_pow_valid_seconds; 0 or absent is
+     * the default (ngx_unmask_valid_seconds).  Always > 0 after init. */
     ngx_int_t   bv_pow_valid_seconds;
     /* Validity window in SECONDS applied to CAPTCHA-issued cookies
-     * (= 3-segment HMAC format).  Default 259200 (= 3 days).  Set via
-     * unmask_bv_captcha_valid_seconds. */
+     * (= 3-segment HMAC format).  Set via unmask_bv_captcha_valid_seconds;
+     * same rules. */
     ngx_int_t   bv_captcha_valid_seconds;
     /* Target leading-zero bits for SHA-256 PoW. Must match challenge.js
      * and the Go cookies package.  Default 18.  Override via the
@@ -1064,16 +1065,42 @@ ngx_http_ja4_create_main_conf(ngx_conf_t *cf)
     return cnf;
 }
 
+/* A cookie validity window as configured.  0, like an absent directive, is
+ * the default: that is what the daemon's settings mean by 0 as well
+ * (PowCookieValidSecondsResolved), and the render always writes the resolved
+ * value, so this is for a hand-written configuration -- which used to get 3
+ * days on one directive and "issued this very second" on the other.  A value
+ * past ten years is cut to ten years, said at configuration time: the
+ * verifier works in 64 bits, but a value past 2^31 used to be truncated to
+ * an int on the proof-of-work path.  ngx_conf_set_num_slot refuses a
+ * negative number before this runs. */
+#define UNMASK_BV_VALID_SECONDS_DEFAULT  (86400 * 3)
+#define UNMASK_BV_VALID_SECONDS_MAX      (86400L * 365 * 10)
+
+static ngx_int_t
+ngx_unmask_valid_seconds(ngx_conf_t *cf, const char *name, ngx_int_t v)
+{
+    if (v == NGX_CONF_UNSET || v <= 0) {
+        return UNMASK_BV_VALID_SECONDS_DEFAULT;
+    }
+    if (v > UNMASK_BV_VALID_SECONDS_MAX) {
+        ngx_conf_log_error(NGX_LOG_WARN, cf, 0,
+                           "unmask: %s %i is above the ten-year cap; "
+                           "using %i", name, v,
+                           (ngx_int_t) UNMASK_BV_VALID_SECONDS_MAX);
+        return UNMASK_BV_VALID_SECONDS_MAX;
+    }
+    return v;
+}
+
 static char *
 ngx_http_ja4_init_main_conf(ngx_conf_t *cf, void *conf)
 {
     ngx_http_ja4_main_conf_t *cnf = conf;
-    if (cnf->bv_pow_valid_seconds == NGX_CONF_UNSET) {
-        cnf->bv_pow_valid_seconds = 86400 * 3;
-    }
-    if (cnf->bv_captcha_valid_seconds == NGX_CONF_UNSET) {
-        cnf->bv_captcha_valid_seconds = 86400 * 3;
-    }
+    cnf->bv_pow_valid_seconds = ngx_unmask_valid_seconds(
+        cf, "unmask_bv_pow_valid_seconds", cnf->bv_pow_valid_seconds);
+    cnf->bv_captcha_valid_seconds = ngx_unmask_valid_seconds(
+        cf, "unmask_bv_captcha_valid_seconds", cnf->bv_captcha_valid_seconds);
     if (cnf->bv_pow_difficulty == NGX_CONF_UNSET
         || cnf->bv_pow_difficulty < 8 || cnf->bv_pow_difficulty > 24) {
         cnf->bv_pow_difficulty = 18;
@@ -1253,7 +1280,7 @@ static const size_t ngx_unmask_sig_hash_count =
 static int
 ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
                                     const u_char *nonce_s, size_t nonce_n,
-                                    int valid_seconds, int difficulty,
+                                    int64_t valid_seconds, int difficulty,
                                     ngx_str_t bv_secret, ngx_str_t remote,
                                     ngx_str_t host, u_char *id_out)
 {
@@ -1264,7 +1291,7 @@ ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
     if (cookie_unix < 0) return 0;
     int64_t now = (int64_t)ngx_time();
     if (cookie_unix > now + UNMASK_BV_FUTURE_SKEW_SECONDS) return 0;
-    if (now - cookie_unix > (int64_t)valid_seconds) return 0;
+    if (now - cookie_unix > valid_seconds) return 0;
 
     int64_t nonce = bv_base36(nonce_s, nonce_n);
     if (nonce < 0) return 0;
@@ -1473,8 +1500,7 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
      * djb2 fallback verified an UNKEYED checksum = offline-mintable bypass).
      * Issued client-side by challenge.js after PoW passes; no HMAC secret. */
     if (fields.format == BV_FMT_POW2) {
-        int valid_seconds = (mcf->bv_pow_valid_seconds > 0)
-            ? (int)mcf->bv_pow_valid_seconds : 86400 * 3;
+        int64_t valid_seconds = (int64_t) mcf->bv_pow_valid_seconds;
         int difficulty = ngx_unmask_pow_difficulty(r, mcf);
         u_char seed_id[UNMASK_BV_ID_LEN];
         if (ngx_unmask_verify_pow_sha256_cookie(
@@ -1510,7 +1536,9 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
      * host. */
     int64_t now = (int64_t)ngx_time();
     if (cookie_unix > now + UNMASK_BV_FUTURE_SKEW_SECONDS) return UNMASK_BV_KIND_NONE;
-    if (now - cookie_unix > mcf->bv_captcha_valid_seconds) return UNMASK_BV_KIND_NONE;
+    if (now - cookie_unix > (int64_t) mcf->bv_captcha_valid_seconds) {
+        return UNMASK_BV_KIND_NONE;
+    }
 
     /* `remote` (= client IP folded to /64 for IPv6) was computed once at the top
      * of this function from r->connection->addr_text -- after realip this is the
