@@ -167,8 +167,8 @@ const fresh = async (page, url) => {
   ok(await nav, '5: the page reloads itself');
   canned.verify = null;
 
-  // 6. The page's own clock: with the token's life shortened to two seconds
-  //    past the margin, the card gives up on its own, before any click, and
+  // 6. The page's own clock: with the token's life shortened to five seconds
+  //    past the margin (room for a loaded host to draw the card), the card gives up on its own, before any click, and
   //    does not reload until asked.
   const page6 = await browser.newPage();
   await page6.evaluateOnNewDocument(noBeaconAPI);
@@ -179,15 +179,15 @@ const fresh = async (page, url) => {
       get() { return u; },
       set(v) { if (v && typeof v === 'object') v.ct_valid_secs = secs; u = v; },
     });
-  }, 17);
+  }, 20);
   const beacons6 = [];
   await wire(page6, { verify: null, question: null }, beacons6);
   await page6.goto(PAGE, { waitUntil: 'networkidle0' });
   await page6.evaluate(() => { window.__probe = 6; });
   st = await card(page6);
   ok(!st.expired && st.boxDisabled === false, '6: the card is live at first, got ' + JSON.stringify(st));
-  nav = page6.waitForNavigation({ waitUntil: 'load', timeout: 4500 }).then(() => true, () => false);
-  await sleep(2600);
+  nav = page6.waitForNavigation({ waitUntil: 'load', timeout: 7500 }).then(() => true, () => false);
+  await sleep(5600);
   st = await card(page6);
   ok(st.expired && st.boxDisabled === true, '6: the card gives up when the token\'s time is up, got ' + JSON.stringify(st));
   ok(hasBeacon(beacons6, 'challenge_expired'), '6: an error beacon says the clock ran out, saw ' + short(beacons6));

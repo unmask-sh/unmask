@@ -176,6 +176,11 @@ community_bans:
 challenge:
   default:
     public_test_pages: true
+# The daemon refuses its own connections to loopback since 0.1.54 (webhooks,
+# feeds, AI endpoints), and the tests stand their dead hooks on 127.0.0.1:
+# notify-test-error.test.js posts the webhook test at a port on this host.
+outbound:
+  allow_loopback: true
 EOF
 
 "$BIN" migrate -config "$WORK/config.yml" >/dev/null
