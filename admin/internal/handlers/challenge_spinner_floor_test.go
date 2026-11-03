@@ -165,8 +165,10 @@ func TestPassRedirectHoldIsHonest(t *testing.T) {
 			t.Error("the height floor is not taken from the first rendered line")
 		}
 	}
-	// And the CAPTCHA chain branches before the hold runs.
-	chain := strings.Index(js, "if (chainPoWThenCaptcha)")
+	// And the CAPTCHA chain branches before the hold runs (captchaAfterPow:
+	// the chain's second leg, or the page's own escalation, either way
+	// after the proof-of-work).
+	chain := strings.Index(js, "if (captchaAfterPow)")
 	if chain < 0 {
 		t.Fatal("cannot locate the chain branch")
 	}
