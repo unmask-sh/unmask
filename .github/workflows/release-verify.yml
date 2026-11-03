@@ -84,10 +84,13 @@ jobs:
             echo "$out" | grep -qiE "Signature, key ID [0-9a-f]*${RELEASE_KEY_FPR: -8}: OK" \
               || { echo "::error::$f is not signed with the release key"; exit 1; }
           done
+          # nfpm's payload names the file /usr/sbin/unmask, rpmbuild's would
+          # say ./usr/sbin/unmask; the pattern takes either.
           v=${TAG#v}
           for a in x86_64:amd64 aarch64:arm64; do
             rpmarch=${a%%:*}; goarch=${a##*:}
-            rpm2cpio "assets/unmask-$v-1.$rpmarch.rpm" | cpio -i --quiet --to-stdout ./usr/sbin/unmask > "unmask.$goarch"
+            rpm2cpio "assets/unmask-$v-1.$rpmarch.rpm" | cpio -i --quiet --to-stdout '*usr/sbin/unmask' > "unmask.$goarch"
+            test -s "unmask.$goarch" || { echo "::error::no /usr/sbin/unmask in unmask-$v-1.$rpmarch.rpm"; exit 1; }
             cmp "unmask.$goarch" "assets/unmask-linux-$goarch" \
               || { echo "::error::the daemon inside unmask-$v-1.$rpmarch.rpm is not the published unmask-linux-$goarch"; exit 1; }
           done
