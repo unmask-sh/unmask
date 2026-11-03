@@ -130,6 +130,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- (2026-11-03) **The global posture demands a CAPTCHA-grade pass.**  A site whose operating-mode bucket ends in a CAPTCHA (`pow_then_captcha` or `captcha_only`) took a proof-of-work cookie as a pass, so a client that read the challenge page and minted the cookie itself never met the CAPTCHA.  The posture now keys on the CAPTCHA grade, only where it decided the request: a protected path, a UA rule, a network or fingerprint rule and a honeypot keep their own chain and grade.  Forward-auth and the roaming re-bind read the same answer.
+
 - (2026-11-03) **The admin's own key.**  The admin session, its CSRF tokens and the sign-in form's token now derive from a new `secret.admin_secret`, which only the daemon holds and no rendered nginx file carries.  They derived from `bv_secret`, which every nginx node has in `http.inc`, so one readable `http.inc` could sign a superadmin session for every node.  Every operator signs in again once; `unmask doctor` checks the rendered files.
 
 - (2026-11-03) **The HTTPS-redirect exemptions no longer skip the ban and the hard deny.**  With `nginx.https_redirect` on, a request matching an exemption (a health checker's user-agent, the ACME path, a custom rule) left the server rewrite phase before the ban and deny gates, so a banned or denied client could name `GoogleHC` and reach the ordinary challenge.  The exemption now withholds only the redirect.  Re-render and reload nginx.

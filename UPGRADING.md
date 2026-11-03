@@ -72,6 +72,15 @@ render.
   hold behind a balancer that forwards the fingerprint.  With
   `nginx.https_redirect` on, the rendered `server.inc` changed too: re-render
   (`unmask render-nginx`, or any save) and reload.
+- **A posture that ends in a CAPTCHA.**  On a site whose operating-mode
+  bucket (`known_browser_action` or `unknown_ua_action`) is
+  `pow_then_captcha` or `captcha_only`, a visitor holding only a
+  proof-of-work pass clears the CAPTCHA once after the upgrade; a
+  CAPTCHA-grade pass carries over.  Clearing such a posture already mints a
+  CAPTCHA-grade pass, so an ordinary visitor on it is unaffected: what is
+  asked again is a pass obtained another way (a `pow_only` bucket, a rate zone
+  or a protected path set to `pow`, or a cookie a client minted itself).
+  Known browsers on `pow_only` are not touched.
 - **Challenge in flight.**  A challenge page served by the previous version
   carries a token the new verify refuses as stale; the page reloads itself
   once and the visitor sees the check again.  The token is now bound to the
