@@ -815,6 +815,45 @@ ngx_unmask_access_redirect(ngx_http_request_t *r, ngx_str_t *uri,
     return NGX_DONE;
 }
 
+/* The original URI rides in the challenge route's query (`_orig=`), which
+ * two readers parse: the daemon (a query parser: '&' ends a value, a pair
+ * holding ';' is dropped, '+' reads as a space) and, when the daemon is
+ * down, http.inc's recovery maps through $arg__orig (nginx ends a value at
+ * '&' and never percent-decodes).  Those three bytes are percent-encoded;
+ * a protected URL whose query held '&' used to lose everything after it
+ * when the visitor came back from the challenge.  Nothing else is encoded:
+ * the recovery replays the value as a URI (rewrite ... last), so a fully
+ * encoded value (ngx_escape_uri with NGX_ESCAPE_ARGS) would replay as a
+ * path beginning with "%2F" and fail the recovery's own guard. */
+static size_t
+ngx_unmask_orig_escaped_len(const u_char *src, size_t n)
+{
+    size_t i, extra = 0;
+    for (i = 0; i < n; i++) {
+        if (src[i] == '&' || src[i] == ';' || src[i] == '+') {
+            extra += 2;
+        }
+    }
+    return n + extra;
+}
+
+static u_char *
+ngx_unmask_orig_escape(u_char *dst, const u_char *src, size_t n)
+{
+    static const u_char hex[] = "0123456789ABCDEF";
+    size_t i;
+    for (i = 0; i < n; i++) {
+        if (src[i] == '&' || src[i] == ';' || src[i] == '+') {
+            *dst++ = '%';
+            *dst++ = hex[src[i] >> 4];
+            *dst++ = hex[src[i] & 0x0f];
+        } else {
+            *dst++ = src[i];
+        }
+    }
+    return dst;
+}
+
 static ngx_int_t
 ngx_http_unmask_ratedeny_handler(ngx_http_request_t *r)
 {
@@ -912,14 +951,15 @@ ngx_http_unmask_ratedeny_handler(ngx_http_request_t *r)
 
         (void) ngx_unmask_var_str(r, &requri_var, &orig);
 
-        args.len = (sizeof(orig_prefix) - 1) + orig.len;
+        args.len = (sizeof(orig_prefix) - 1)
+                   + ngx_unmask_orig_escaped_len(orig.data, orig.len);
         args.data = ngx_pnalloc(r->pool, args.len);
         if (args.data == NULL) {
             return NGX_ERROR;
         }
         p = ngx_cpymem(args.data, orig_prefix, sizeof(orig_prefix) - 1);
         if (orig.len) {
-            ngx_memcpy(p, orig.data, orig.len);
+            (void) ngx_unmask_orig_escape(p, orig.data, orig.len);
         }
         return ngx_unmask_access_redirect(r, &chal, &args);
     }
