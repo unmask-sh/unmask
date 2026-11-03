@@ -191,10 +191,22 @@ NGINX_BUILD_DIR  = objs
 endif
 NGINX_CROSS_OPTS =
 
+# Hardening for the shipped .so (= it parses TLS ClientHello bytes and the
+# client's cookie): stack protector, fortified libc calls (which need -O2),
+# RELRO + BIND_NOW so the GOT is read-only once loaded.  The same three go to
+# the CI build and the Dockerfile.  -fstack-protector-strong needs gcc 4.9;
+# an older toolchain gets -fstack-protector.  _FORTIFY_SOURCE is undefined
+# first because some toolchains predefine it (at 3), and nginx builds with
+# -Werror, which a redefinition would trip.
+NGINX_STACK_PROTECTOR := $(shell echo 'int main(void){return 0;}' | $(CC) -fstack-protector-strong -x c -c -o /dev/null - >/dev/null 2>&1 && echo -fstack-protector-strong || echo -fstack-protector)
+NGINX_CC_OPT ?= -O2 $(NGINX_STACK_PROTECTOR) -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2
+NGINX_LD_OPT ?= -Wl,-z,relro,-z,now
+
 build-module: $(NGINX_SRC)/configure
 	cd $(NGINX_SRC) && \
 		./configure --builddir=$(NGINX_BUILD_DIR) $(NGINX_COMPAT_FLAG) --with-http_ssl_module \
 		            $(NGINX_CROSS_OPTS) \
+		            --with-cc-opt='$(NGINX_CC_OPT)' --with-ld-opt='$(NGINX_LD_OPT)' \
 		            --add-dynamic-module=$(CURDIR)/nginx-module && \
 		$(MAKE) -f $(NGINX_BUILD_DIR)/Makefile modules
 	mkdir -p $(DIST)

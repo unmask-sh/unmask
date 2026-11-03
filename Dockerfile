@@ -67,11 +67,15 @@ RUN curl -fsSL -o "nginx-${NGINX_VERSION}.tar.gz" "https://nginx.org/download/ng
     && tar -xzf "nginx-${NGINX_VERSION}.tar.gz" \
     && rm "nginx-${NGINX_VERSION}.tar.gz"
 COPY nginx-module/ /src/nginx-module/
+# The hardening options match the Makefile's build-module and the CI build:
+# stack protector, fortified libc calls, RELRO + BIND_NOW.
 RUN cd "nginx-${NGINX_VERSION}" \
     && ./configure --with-compat \
                    --with-http_ssl_module \
                    --with-http_realip_module \
                    --with-http_auth_request_module \
+                   --with-cc-opt='-O2 -fstack-protector-strong -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2' \
+                   --with-ld-opt='-Wl,-z,relro,-z,now' \
                    --add-dynamic-module=/src/nginx-module \
     && make -j"$(nproc)" modules
 
