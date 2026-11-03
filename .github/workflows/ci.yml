@@ -153,7 +153,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        nginx: ["1.24.0", "1.26.2", "1.28.0"]
+        nginx: ["1.24.0", "1.26.2", "1.28.3"]
         runner: [ubuntu-latest]
         include:
           - nginx: "1.26.2"
@@ -165,10 +165,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libssl-dev libpcre2-dev zlib1g-dev
+      # Fetched, checked against nginx-module/nginx-sha256sums.txt and unpacked
+      # by the script every module build path uses; a version without a pin
+      # fails here.  The versions above are all in the shipped set.
       - name: download nginx source
-        run: |
-          curl -sSL "https://nginx.org/download/nginx-${{ matrix.nginx }}.tar.gz" -o nginx.tgz
-          tar -xzf nginx.tgz
+        run: ./tools/fetch-nginx-src.sh ${{ matrix.nginx }}
       - name: build module
         run: |
           cd nginx-${{ matrix.nginx }}

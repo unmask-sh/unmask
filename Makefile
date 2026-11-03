@@ -404,24 +404,12 @@ build-demo: $(NGINX_SRC)/configure
 		$(MAKE)
 	@echo "built $(NGINX_SRC)/objs/nginx + nginx module"
 
+# The tarball is fetched, checked against nginx-module/nginx-sha256sums.txt
+# and unpacked by tools/fetch-nginx-src.sh -- the one script every module
+# build path reads (the builder containers, CI and the e2e image included), so
+# a pin cannot be enforced here and skipped elsewhere.
 $(NGINX_SRC)/configure:
-	mkdir -p build
-	curl -sSL "https://nginx.org/download/nginx-$(NGINX_VERSION).tar.gz" \
-		-o build/nginx-$(NGINX_VERSION).tar.gz
-	@expected=$$(awk '$$2 == "nginx-$(NGINX_VERSION).tar.gz" {print $$1}' nginx-module/nginx-sha256sums.txt); \
-	 if [ -z "$$expected" ]; then \
-		echo "ERROR: nginx $(NGINX_VERSION) has no pinned sha256 in nginx-module/nginx-sha256sums.txt -- add it before building" >&2; \
-		rm -f build/nginx-$(NGINX_VERSION).tar.gz; exit 1; \
-	 fi; \
-	 actual=$$(sha256sum build/nginx-$(NGINX_VERSION).tar.gz | cut -d' ' -f1); \
-	 if [ "$$expected" != "$$actual" ]; then \
-		echo "ERROR: nginx $(NGINX_VERSION) source sha256 mismatch (supply-chain check failed):" >&2; \
-		echo "  expected $$expected" >&2; echo "  actual   $$actual" >&2; \
-		rm -f build/nginx-$(NGINX_VERSION).tar.gz; exit 1; \
-	 fi; \
-	 echo ">>> verified nginx-$(NGINX_VERSION).tar.gz sha256 ($$actual)"
-	tar -xzf build/nginx-$(NGINX_VERSION).tar.gz -C build
-	rm build/nginx-$(NGINX_VERSION).tar.gz
+	./tools/fetch-nginx-src.sh $(NGINX_VERSION) $(dir $(NGINX_SRC))
 	touch $(NGINX_SRC)/configure
 
 build:

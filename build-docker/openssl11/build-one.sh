@@ -31,14 +31,10 @@ esac
 OUT_DIR="$WORKDIR/dist/multi-modules-openssl11${ARCH_SUFFIX}/$NGX_VER"
 mkdir -p "$OUT_DIR"
 
-SRC_TGZ="/tmp/nginx-${NGX_VER}.tar.gz"
+# The tarball is fetched, checked against the sha256 pinned in the repo and
+# unpacked by the same script every other module build path uses.
 SRC_DIR="/tmp/nginx-${NGX_VER}"
-
-if [ ! -f "$SRC_TGZ" ]; then
-    wget -q -O "$SRC_TGZ" "https://nginx.org/download/nginx-${NGX_VER}.tar.gz"
-fi
-rm -rf "$SRC_DIR"
-tar -xzf "$SRC_TGZ" -C /tmp
+"$WORKDIR/tools/fetch-nginx-src.sh" "$NGX_VER" /tmp
 
 # compat=0 for very old nginx versions that predate --with-compat.
 COMPAT=1

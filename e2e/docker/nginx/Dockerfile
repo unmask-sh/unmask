@@ -13,8 +13,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
-RUN curl -fsSL "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz" \
-    | tar -xz
+# The tarball is checked against the sha256 pinned in the repo before it is
+# unpacked, by the same script the Makefile and the builder containers use.
+COPY tools/fetch-nginx-src.sh /src/tools/fetch-nginx-src.sh
+COPY nginx-module/nginx-sha256sums.txt /src/nginx-module/nginx-sha256sums.txt
+RUN /src/tools/fetch-nginx-src.sh "${NGINX_VERSION}" /src
 
 COPY nginx-module/ /src/nginx-module/
 
