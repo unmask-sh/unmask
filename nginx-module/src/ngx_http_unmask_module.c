@@ -27,7 +27,16 @@
  *                 (= server clock; clients never compute it themselves)
  *   sig         = HMAC("<issued_unix>:<remote_addr>:<host>:<kind>", BV_SECRET) hex[:16]
  *                 (HMAC-SHA256 or HMAC-SHA1: ngx_unmask_sig_hashes)
- *   kind = "captcha"
+ *   kind        = "captcha" / "rebind" / "passthrough" / "pow" (the daemon's
+ *                 issuing vocabulary; see ngx_unmask_bv_kind_t)
+ * and the proof-of-work form "<issued_unix>.pow2.<nonce_b36>.<flags_b36>",
+ * which challenge.js mints after solving (ngx_unmask_verify_pow_sha256_cookie).
+ *
+ * Naming: ngx_http_unmask_* are the entry points nginx calls (module hooks,
+ * variable handlers, the TLS message callback); ngx_unmask_* are this file's
+ * helpers; unmask_* / ja4_* / bv_* are the pure, nginx-free functions in the
+ * sibling files (ban_list.c, ja4_parser.c, ja4_build.c, bv_parser.c), which
+ * carry the unit tests and the fuzzers.
  *
  * Site binding: $host (lowercased + port-stripped by nginx) is folded into the
  * HMAC input, so a cookie minted while solving vhost A's challenge fails on
@@ -76,13 +85,13 @@
 typedef struct {
     u_char     ja4_buf[NGX_JA4_MAX]; /* full string; ngx_str_t.data points here */
     ngx_str_t  ja4;                  /* {data: ja4_buf, len: measured value}.  data is never freed */
-} ngx_http_ja4_ctx_t;
+} ngx_http_unmask_ja4_ctx_t;
 
 /* ex_data index for storing the JA4 ctx on the SSL object.  Registered once
  * per process (OpenSSL never unregisters an index); the static resets only
  * when the module is mapped afresh, which registers a new, equally
  * callback-free index. */
-static int ngx_http_ja4_ssl_ex_data_idx = -1;
+static int ngx_http_unmask_ja4_ex_data_idx = -1;
 
 /* Rate-limited error_log line: at most one per message slot per minute per
  * worker.  The module used to say nothing at all -- a ban file nginx could
@@ -134,10 +143,10 @@ typedef struct {
      * unmask_bv_pow_difficulty directive. */
     ngx_int_t   bv_pow_difficulty;
     ngx_str_t   ban_file_path;
-    /* Index of $unmask_bind_key (set in ngx_http_ja4_init; NGX_ERROR when the
+    /* Index of $unmask_bind_key (set in ngx_http_unmask_init; NGX_ERROR when the
      * variable could not be registered).  See ngx_unmask_bind_key. */
     ngx_int_t   bind_key_index;
-} ngx_http_ja4_main_conf_t;
+} ngx_http_unmask_main_conf_t;
 
 /* A prefix ban: an ip-only line whose address carries a /len (the daemon's
  * /64 escalation of IPv6 bans; an operator's CIDR).  Kept apart from the
@@ -177,11 +186,11 @@ typedef struct {
    is needed. */
 static ngx_unmask_banlist_t ngx_unmask_banlist;
 
-static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf);
+static ngx_int_t ngx_http_unmask_init(ngx_conf_t *cf);
 static ngx_int_t ngx_http_unmask_init_process(ngx_cycle_t *cycle);
-static void *ngx_http_ja4_create_main_conf(ngx_conf_t *cf);
-static char *ngx_http_ja4_init_main_conf(ngx_conf_t *cf, void *conf);
-static ngx_int_t ngx_http_ja4_variable(ngx_http_request_t *r,
+static void *ngx_http_unmask_create_main_conf(ngx_conf_t *cf);
+static char *ngx_http_unmask_init_main_conf(ngx_conf_t *cf, void *conf);
+static ngx_int_t ngx_http_unmask_ja4_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_str_t ngx_unmask_request_ja4(ngx_http_request_t *r);
 static ngx_int_t ngx_http_unmask_bv_kind_variable(ngx_http_request_t *r,
@@ -208,52 +217,52 @@ static ngx_int_t ngx_http_unmask_compose_variable(ngx_http_request_t *r,
 static ngx_int_t ngx_http_unmask_bind_key_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 
-static ngx_command_t ngx_http_ja4_commands[] = {
+static ngx_command_t ngx_http_unmask_commands[] = {
     { ngx_string("unmask_bv_secret"),
       NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
       ngx_conf_set_str_slot,
       NGX_HTTP_MAIN_CONF_OFFSET,
-      offsetof(ngx_http_ja4_main_conf_t, bv_secret),
+      offsetof(ngx_http_unmask_main_conf_t, bv_secret),
       NULL },
     { ngx_string("unmask_bv_pow_valid_seconds"),
       NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
       NGX_HTTP_MAIN_CONF_OFFSET,
-      offsetof(ngx_http_ja4_main_conf_t, bv_pow_valid_seconds),
+      offsetof(ngx_http_unmask_main_conf_t, bv_pow_valid_seconds),
       NULL },
     { ngx_string("unmask_bv_captcha_valid_seconds"),
       NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
       NGX_HTTP_MAIN_CONF_OFFSET,
-      offsetof(ngx_http_ja4_main_conf_t, bv_captcha_valid_seconds),
+      offsetof(ngx_http_unmask_main_conf_t, bv_captcha_valid_seconds),
       NULL },
     { ngx_string("unmask_bv_pow_difficulty"),
       NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
       ngx_conf_set_num_slot,
       NGX_HTTP_MAIN_CONF_OFFSET,
-      offsetof(ngx_http_ja4_main_conf_t, bv_pow_difficulty),
+      offsetof(ngx_http_unmask_main_conf_t, bv_pow_difficulty),
       NULL },
     { ngx_string("unmask_ban_file"),
       NGX_HTTP_MAIN_CONF | NGX_CONF_TAKE1,
       ngx_conf_set_str_slot,
       NGX_HTTP_MAIN_CONF_OFFSET,
-      offsetof(ngx_http_ja4_main_conf_t, ban_file_path),
+      offsetof(ngx_http_unmask_main_conf_t, ban_file_path),
       NULL },
     ngx_null_command
 };
 
 static ngx_http_module_t ngx_http_unmask_module_ctx = {
     NULL,                              /* preconfiguration */
-    ngx_http_ja4_init,                 /* postconfiguration */
-    ngx_http_ja4_create_main_conf,     /* create main configuration */
-    ngx_http_ja4_init_main_conf,       /* init main configuration */
+    ngx_http_unmask_init,                 /* postconfiguration */
+    ngx_http_unmask_create_main_conf,     /* create main configuration */
+    ngx_http_unmask_init_main_conf,       /* init main configuration */
     NULL, NULL, NULL, NULL
 };
 
 ngx_module_t ngx_http_unmask_module = {
     NGX_MODULE_V1,
     &ngx_http_unmask_module_ctx,
-    ngx_http_ja4_commands,
+    ngx_http_unmask_commands,
     NGX_HTTP_MODULE,
     NULL,                              /* init master */
     NULL,                              /* init module */
@@ -268,11 +277,13 @@ ngx_module_t ngx_http_unmask_module = {
 #define ngx_http_null_variable  { ngx_null_string, NULL, NULL, 0, 0, 0 }
 #endif
 
-static ngx_http_variable_t ngx_http_ja4_vars[] = {
-    { ngx_string("client_ja4"), NULL, ngx_http_ja4_variable, 0,
+static ngx_http_variable_t ngx_http_unmask_vars[] = {
+    { ngx_string("client_ja4"), NULL, ngx_http_unmask_ja4_variable, 0,
       NGX_HTTP_VAR_NOCACHEABLE, 0 },
-    /* unmask_bv_kind: "captcha" (3-seg HMAC OK) / "pow" (4-seg djb2 OK) /
-     * "" (= invalid / not presented).
+    /* unmask_bv_kind: "captcha" / "rebind" / "passthrough" (3-seg HMAC OK,
+     * by the kind the daemon signed) / "pow" (4-seg SHA-256 proof-of-work
+     * OK, or the 3-seg kind "pow" of the math fallback) / "" (= invalid /
+     * not presented).
      * Extending: when a future cookie path (= "signature" / "webauthn" /
      * "passkey" etc.) is added, just add a branch here and the dashboard
      * aggregation will automatically treat the new kind as one row. */
@@ -335,7 +346,7 @@ static ngx_http_variable_t ngx_http_ja4_vars[] = {
      * resolver (not_found = "") when no http.inc defines it, so a server.inc
      * that forwards the variable to the daemon still loads.  CHANGEABLE so a
      * geo / map can take it over; unlike $unmask_compose, an existing
-     * definition must WIN here, so ngx_http_ja4_init leaves a get_handler it
+     * definition must WIN here, so ngx_http_unmask_init leaves a get_handler it
      * finds in place (see there). */
     { ngx_string("unmask_bind_key"), NULL,
       ngx_http_unmask_bind_key_variable, 0,
@@ -349,10 +360,10 @@ static ngx_http_variable_t ngx_http_ja4_vars[] = {
 /* The JA4 string assembly (hex4 / uint16 sort / SHA-256[:12] + the
  * JA4_a / JA4_b / JA4_c builder) moved to ja4_build.c so it can be
  * unit-tested + ASan/UBSan fuzzed without nginx / SSL.  See
- * ja4_build_string(), called from ngx_ja4_compute_and_store() below. */
+ * ja4_build_string(), called from ngx_http_unmask_ja4_store() below. */
 
 /*
- * ngx_ja4_compute_and_store: build the JA4 string from ja4_parsed_t
+ * ngx_http_unmask_ja4_store: build the JA4 string from ja4_parsed_t
  * (= our own parser output) and store it in SSL ex_data.
  *
  * The previous implementation relied on SSL_client_hello_get0_*
@@ -360,17 +371,17 @@ static ngx_http_variable_t ngx_http_ja4_vars[] = {
  * TLS 1.2 / 1.3 ClientHello on its own in ja4_parser.c, so the same
  * source builds on OpenSSL 1.0 / 1.1 / 3.x / LibreSSL / BoringSSL.
  */
-static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
-    ngx_http_ja4_ctx_t *ctx;
+static void ngx_http_unmask_ja4_store(SSL *ssl, const ja4_parsed_t *parsed) {
+    ngx_http_unmask_ja4_ctx_t *ctx;
     ngx_connection_t   *c;
 
-    if (ngx_http_ja4_ssl_ex_data_idx < 0) return;
+    if (ngx_http_unmask_ja4_ex_data_idx < 0) return;
 
     /* If already computed (= 2nd or later ClientHello on the same SSL
      * connection, the answer to a HelloRetryRequest), do nothing: the first
      * ClientHello's JA4 is the connection's, as ja4_parser.h says.  Also
      * prevents double allocation / double SSL_set_ex_data. */
-    if (SSL_get_ex_data(ssl, ngx_http_ja4_ssl_ex_data_idx) != NULL) {
+    if (SSL_get_ex_data(ssl, ngx_http_unmask_ja4_ex_data_idx) != NULL) {
         return;
     }
 
@@ -395,7 +406,7 @@ static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
     ctx->ja4.len  = ja4_build_string(parsed, (char *)ctx->ja4_buf, NGX_JA4_MAX);
     ctx->ja4.data = ctx->ja4_buf;
 
-    SSL_set_ex_data(ssl, ngx_http_ja4_ssl_ex_data_idx, ctx);
+    SSL_set_ex_data(ssl, ngx_http_unmask_ja4_ex_data_idx, ctx);
 }
 
 /*
@@ -419,7 +430,7 @@ static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
  * every parse and read only until the JA4 string is built from it. */
 static ja4_parsed_t ngx_unmask_parsed_hello;
 
-static void ngx_ja4_msg_cb(int write_p, int version, int content_type,
+static void ngx_http_unmask_ja4_msg_cb(int write_p, int version, int content_type,
                            const void *buf, size_t len,
                            SSL *ssl, void *arg) {
     const unsigned char *m;
@@ -435,8 +446,8 @@ static void ngx_ja4_msg_cb(int write_p, int version, int content_type,
     if (m[0] != 1 /* client_hello */) return;
 
     /* If already computed, skip the parse entirely. */
-    if (ngx_http_ja4_ssl_ex_data_idx >= 0
-        && SSL_get_ex_data(ssl, ngx_http_ja4_ssl_ex_data_idx) != NULL) {
+    if (ngx_http_unmask_ja4_ex_data_idx >= 0
+        && SSL_get_ex_data(ssl, ngx_http_unmask_ja4_ex_data_idx) != NULL) {
         return;
     }
 
@@ -451,18 +462,18 @@ static void ngx_ja4_msg_cb(int write_p, int version, int content_type,
         }
         return;
     }
-    ngx_ja4_compute_and_store(ssl, parsed);
+    ngx_http_unmask_ja4_store(ssl, parsed);
 }
 
 /* The connection's JA4 ctx for this request, or NULL: no TLS, no ex_data
  * index, or a ClientHello that never reached the callback. */
-static ngx_http_ja4_ctx_t *
+static ngx_http_unmask_ja4_ctx_t *
 ngx_unmask_conn_ja4_ctx(ngx_http_request_t *r)
 {
     SSL *ssl_obj;
 
     if (r->connection == NULL || r->connection->ssl == NULL
-        || ngx_http_ja4_ssl_ex_data_idx < 0)
+        || ngx_http_unmask_ja4_ex_data_idx < 0)
     {
         return NULL;
     }
@@ -470,22 +481,22 @@ ngx_unmask_conn_ja4_ctx(ngx_http_request_t *r)
     if (ssl_obj == NULL) {
         return NULL;
     }
-    return SSL_get_ex_data(ssl_obj, ngx_http_ja4_ssl_ex_data_idx);
+    return SSL_get_ex_data(ssl_obj, ngx_http_unmask_ja4_ex_data_idx);
 }
 
-static ngx_int_t ngx_http_ja4_variable(ngx_http_request_t *r,
+static ngx_int_t ngx_http_unmask_ja4_variable(ngx_http_request_t *r,
                                        ngx_http_variable_value_t *v,
                                        uintptr_t data) {
     ngx_str_t ja4;
     (void)data;
     if (r->connection == NULL || r->connection->ssl == NULL
-        || ngx_http_ja4_ssl_ex_data_idx < 0
+        || ngx_http_unmask_ja4_ex_data_idx < 0
         || r->connection->ssl->connection == NULL)
     {
         v->not_found = 1;
         return NGX_OK;
     }
-    ngx_http_ja4_ctx_t *ctx = ngx_unmask_conn_ja4_ctx(r);
+    ngx_http_unmask_ja4_ctx_t *ctx = ngx_unmask_conn_ja4_ctx(r);
     if (!ctx || ctx->ja4.len == 0) {
         int quic = 0;
 #if (nginx_version >= 1025000) && (NGX_QUIC || NGX_COMPAT)
@@ -686,7 +697,7 @@ ngx_unmask_request_ja4(ngx_http_request_t *r)
 {
     ngx_str_t                   out = ngx_null_string;
     ngx_http_unmask_req_ctx_t  *ctx = ngx_unmask_req_ctx(r);
-    ngx_http_ja4_ctx_t         *jctx;
+    ngx_http_unmask_ja4_ctx_t         *jctx;
 
     if (ctx != NULL && ctx->ja4_done) {
         return ctx->ja4;
@@ -1024,7 +1035,7 @@ ngx_http_unmask_ratedeny_handler(ngx_http_request_t *r)
  * once a minute; this is the line an operator finds after a restart. */
 static ngx_int_t ngx_http_unmask_init_process(ngx_cycle_t *cycle)
 {
-    ngx_http_ja4_main_conf_t *mcf;
+    ngx_http_unmask_main_conf_t *mcf;
     char path[1024];
 
     mcf = ngx_http_cycle_get_module_main_conf(cycle, ngx_http_unmask_module);
@@ -1056,12 +1067,12 @@ static ngx_int_t ngx_http_unmask_init_process(ngx_cycle_t *cycle)
     return NGX_OK;
 }
 
-static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
+static ngx_int_t ngx_http_unmask_init(ngx_conf_t *cf) {
     /* The module's own identity, once per process image (see the function). */
     ngx_unmask_module_id_compute();
 
     /* Register the module's variables. */
-    for (ngx_http_variable_t *v = ngx_http_ja4_vars; v->name.len; v++) {
+    for (ngx_http_variable_t *v = ngx_http_unmask_vars; v->name.len; v++) {
         ngx_http_variable_t *var = ngx_http_add_variable(cf, &v->name, v->flags);
         if (!var) return NGX_ERROR;
         /* $unmask_bind_key: the geo block the render puts in http.inc is parsed
@@ -1093,7 +1104,7 @@ static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
     }
     {
         ngx_str_t bk = ngx_string("unmask_bind_key");
-        ngx_http_ja4_main_conf_t *mcf =
+        ngx_http_unmask_main_conf_t *mcf =
             ngx_http_conf_get_module_main_conf(cf, ngx_http_unmask_module);
         if (mcf != NULL) {
             mcf->bind_key_index = ngx_http_get_variable_index(cf, &bk);
@@ -1103,10 +1114,10 @@ static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
     /* Register the ex_data slot once, with no callbacks (see the ctx
      * comment: a callback in module text outlives the module).  nginx
      * registers its own slots the same way (ngx_ssl_connection_index). */
-    if (ngx_http_ja4_ssl_ex_data_idx < 0) {
-        ngx_http_ja4_ssl_ex_data_idx = SSL_get_ex_new_index(
+    if (ngx_http_unmask_ja4_ex_data_idx < 0) {
+        ngx_http_unmask_ja4_ex_data_idx = SSL_get_ex_new_index(
             0, NULL, NULL, NULL, NULL);
-        if (ngx_http_ja4_ssl_ex_data_idx < 0) return NGX_ERROR;
+        if (ngx_http_unmask_ja4_ex_data_idx < 0) return NGX_ERROR;
     }
 
     /* Attach the msg_callback to each server block's SSL_CTX (= what
@@ -1126,7 +1137,18 @@ static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
      * module's handler lands *before* limit_req there, observed empirically as
      * lrs=0.)  access_phase's checker returns NGX_OK on our NGX_DONE (from
      * ngx_http_internal_redirect), and skips subrequests, both of which suit us.
-     * Unmask-internal -- no public directive (gates on $unmask_compose). */
+     * Unmask-internal -- no public directive (gates on $unmask_compose).
+     *
+     * Order within the phase: nginx runs a phase's handlers in the reverse of
+     * their registration order, and a dynamic module registers after the
+     * built-in ones, so this handler runs FIRST in ACCESS -- before the
+     * location's allow/deny, auth_basic and auth_request.  A request over the
+     * rate cap, or one the gate sends to the challenge, is therefore
+     * redirected before those checks run on the original location; every
+     * phase runs again on the redirect target, so they are not skipped, only
+     * reordered.  Accepted: the rate decision is about the client, not the
+     * resource, and an over-cap or unpassed client gets the deny page or the
+     * challenge either way; the checks apply once it is back on the location. */
     ngx_http_handler_pt *rdh =
         ngx_array_push(&cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers);
     if (rdh == NULL) return NGX_ERROR;
@@ -1148,7 +1170,7 @@ static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
         ngx_http_ssl_srv_conf_t *sscf =
             ctxconf[ngx_http_ssl_module.ctx_index];
         if (sscf && sscf->ssl.ctx) {
-            SSL_CTX_set_msg_callback(sscf->ssl.ctx, ngx_ja4_msg_cb);
+            SSL_CTX_set_msg_callback(sscf->ssl.ctx, ngx_http_unmask_ja4_msg_cb);
         }
     }
     return NGX_OK;
@@ -1159,10 +1181,10 @@ static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
  * -------------------------------------------------------------------- */
 
 static void *
-ngx_http_ja4_create_main_conf(ngx_conf_t *cf)
+ngx_http_unmask_create_main_conf(ngx_conf_t *cf)
 {
-    ngx_http_ja4_main_conf_t *cnf =
-        ngx_pcalloc(cf->pool, sizeof(ngx_http_ja4_main_conf_t));
+    ngx_http_unmask_main_conf_t *cnf =
+        ngx_pcalloc(cf->pool, sizeof(ngx_http_unmask_main_conf_t));
     if (cnf == NULL) return NULL;
     cnf->bv_pow_valid_seconds = NGX_CONF_UNSET;
     cnf->bv_captcha_valid_seconds = NGX_CONF_UNSET;
@@ -1201,9 +1223,9 @@ ngx_unmask_valid_seconds(ngx_conf_t *cf, const char *name, ngx_int_t v)
 }
 
 static char *
-ngx_http_ja4_init_main_conf(ngx_conf_t *cf, void *conf)
+ngx_http_unmask_init_main_conf(ngx_conf_t *cf, void *conf)
 {
-    ngx_http_ja4_main_conf_t *cnf = conf;
+    ngx_http_unmask_main_conf_t *cnf = conf;
     cnf->bv_pow_valid_seconds = ngx_unmask_valid_seconds(
         cf, "unmask_bv_pow_valid_seconds", cnf->bv_pow_valid_seconds);
     cnf->bv_captcha_valid_seconds = ngx_unmask_valid_seconds(
@@ -1539,7 +1561,7 @@ ngx_unmask_bind_ip(ngx_str_t in, ngx_pool_t *pool)
  * address, folded as before, is the key.  The daemon issues against the same
  * variable (forwarded as X-Unmask-Bind-Key), so the two never disagree. */
 static ngx_str_t
-ngx_unmask_bind_key(ngx_http_request_t *r, ngx_http_ja4_main_conf_t *mcf)
+ngx_unmask_bind_key(ngx_http_request_t *r, ngx_http_unmask_main_conf_t *mcf)
 {
     if (mcf != NULL && mcf->bind_key_index != NGX_ERROR) {
         ngx_http_variable_value_t *vv =
@@ -1562,7 +1584,7 @@ ngx_unmask_bind_key(ngx_http_request_t *r, ngx_http_ja4_main_conf_t *mcf)
  * map keeps the verifier on the page's number: a site set below the default
  * used to produce a PoW the directive rejected, and its visitors looped. */
 static int
-ngx_unmask_pow_difficulty(ngx_http_request_t *r, ngx_http_ja4_main_conf_t *mcf)
+ngx_unmask_pow_difficulty(ngx_http_request_t *r, ngx_http_unmask_main_conf_t *mcf)
 {
     static ngx_str_t diff_var = ngx_string("unmask_pow_difficulty");
     ngx_str_t s;
@@ -1585,7 +1607,7 @@ ngx_unmask_pow_difficulty(ngx_http_request_t *r, ngx_http_ja4_main_conf_t *mcf)
  * hex digits either way, in memory that lives as long as the request. */
 static ngx_unmask_bv_kind_t
 ngx_unmask_bv_verify_one(ngx_http_request_t *r,
-                         ngx_http_ja4_main_conf_t *mcf,
+                         ngx_http_unmask_main_conf_t *mcf,
                          ngx_str_t cookie, ngx_str_t *id_out)
 {
     /* Structural decode (dot-splitting + per-segment length bounds) lives in
@@ -1668,7 +1690,7 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
     p = ngx_cpymem(p, cookie.data + fields.day_off, fields.day_len);  *p++ = ':';
     p = ngx_cpymem(p, remote.data, remote.len); *p++ = ':';
     if (host.len) { p = ngx_cpymem(p, host.data, host.len); } *p++ = ':';
-    p = ngx_cpymem(p, cookie.data + fields.tail_off, fields.tail_len);
+    ngx_memcpy(p, cookie.data + fields.tail_off, fields.tail_len);
 
     /* The MAC, with every hash the daemon may have signed with
      * (ngx_unmask_sig_hashes); the signature is its first 16 hex digits. */
@@ -1734,7 +1756,7 @@ ngx_unmask_bv_verify_one(ngx_http_request_t *r,
 
 static ngx_unmask_bv_kind_t
 ngx_unmask_bv_verify_value(ngx_http_request_t *r,
-                           ngx_http_ja4_main_conf_t *mcf,
+                           ngx_http_unmask_main_conf_t *mcf,
                            ngx_str_t value, int *budget, ngx_str_t *id_out)
 {
     u_char *p   = value.data;
@@ -1768,7 +1790,7 @@ ngx_unmask_bv_verify_value(ngx_http_request_t *r,
 static ngx_unmask_bv_kind_t
 ngx_unmask_bv_kind_compute(ngx_http_request_t *r, ngx_str_t *id_out)
 {
-    ngx_http_ja4_main_conf_t *mcf =
+    ngx_http_unmask_main_conf_t *mcf =
         ngx_http_get_module_main_conf(r, ngx_http_unmask_module);
     if (mcf == NULL) {
         return UNMASK_BV_KIND_NONE;
@@ -2259,7 +2281,7 @@ static void
 ngx_unmask_ban_lookup_req(ngx_http_request_t *r, int *hit, ngx_str_t *action)
 {
     ngx_http_unmask_req_ctx_t *ctx = ngx_unmask_req_ctx(r);
-    ngx_http_ja4_main_conf_t *mcf;
+    ngx_http_unmask_main_conf_t *mcf;
     char path[1024];
     char key[256];
     const u_char *ip;
