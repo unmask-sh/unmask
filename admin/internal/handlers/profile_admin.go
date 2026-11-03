@@ -27,7 +27,8 @@ func (h *Handler) AdminProfileIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	tmpl, err := loadDashboardTemplate()
 	if err != nil {
-		http.Error(w, "template: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("profile: template: %v", err)
+		http.Error(w, "template error", http.StatusInternalServerError)
 		return
 	}
 	pay := SessionFromContext(r)
@@ -106,7 +107,8 @@ func (h *Handler) AdminProfileSave(w http.ResponseWriter, r *http.Request) {
 		email := strings.TrimSpace(r.FormValue("email"))
 		alertOptOut := r.FormValue("alert_opt_out") == "1"
 		if err := h.UserRepo.SetProfile(r.Context(), me.ID, email, alertOptOut); err != nil {
-			http.Error(w, "set profile: "+err.Error(), http.StatusInternalServerError)
+			log.Printf("profile: set profile for user %d: %v", me.ID, err)
+			http.Error(w, "the profile could not be saved", http.StatusInternalServerError)
 			return
 		}
 		h.UserRepo.Record(r.Context(), pay.UserID, me.Username, "user_update_own_profile", me.Username,
@@ -149,7 +151,8 @@ func (h *Handler) AdminProfileSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := h.UserRepo.SetPassword(r.Context(), me.ID, newPass); err != nil {
-			http.Error(w, "set password: "+err.Error(), http.StatusInternalServerError)
+			log.Printf("profile: set password for user %d: %v", me.ID, err)
+			http.Error(w, "the password could not be saved", http.StatusInternalServerError)
 			return
 		}
 		// SetPassword ended the account's sessions; keep this one, which is

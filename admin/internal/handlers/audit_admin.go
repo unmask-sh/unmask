@@ -87,7 +87,8 @@ func (h *Handler) AdminAuditIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	entries, err := h.UserRepo.ListAudit(r.Context(), auditPageSize, offset, 0)
 	if err != nil {
-		http.Error(w, "list audit: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("audit: list: %v", err)
+		http.Error(w, "the audit log could not be read", http.StatusInternalServerError)
 		return
 	}
 	enriched := make([]auditEnriched, 0, len(entries))

@@ -324,8 +324,9 @@ func (h *Handler) SetupGate(next http.HandlerFunc) http.HandlerFunc {
 			// since this process started.  That is a database that cannot
 			// answer right now, not a fresh install: say so and let the
 			// browser retry, instead of forcing the setup wizard.
+			log.Printf("setup gate: the database did not answer: %v", err)
 			w.Header().Set("Retry-After", "5")
-			http.Error(w, "the database did not answer ("+err.Error()+"); retry in a moment", http.StatusServiceUnavailable)
+			http.Error(w, "the database did not answer; retry in a moment", http.StatusServiceUnavailable)
 			return
 		}
 		if !has {
