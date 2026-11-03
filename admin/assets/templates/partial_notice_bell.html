@@ -76,9 +76,18 @@
   }
   // Fetched when opened, once per page: the list is what it was when the
   // page was opened, and opening it marks it read (the badge goes).
+  // The two lines of the list's own (loading, failed) are text: put in as
+  // text, not as markup built around an attribute's value.
+  function sayLine(text){
+    list.textContent = '';
+    var s = document.createElement('span');
+    s.className = 'nbell-loading';
+    s.textContent = text || '';
+    list.appendChild(s);
+  }
   function load(){
     loaded = true;
-    list.innerHTML = '<span class="nbell-loading">' + (el.getAttribute('data-l-loading') || '') + '</span>';
+    sayLine(el.getAttribute('data-l-loading'));
     fetch(el.getAttribute('data-api'), { method: 'POST', credentials: 'same-origin' })
       .then(function(r){ if (!r.ok) throw new Error(r.status); return r.text(); })
       .then(function(html){
@@ -89,7 +98,7 @@
       })
       .catch(function(){
         loaded = false;
-        list.innerHTML = '<span class="nbell-loading">' + (el.getAttribute('data-l-failed') || '') + '</span>';
+        sayLine(el.getAttribute('data-l-failed'));
       });
   }
   btn.addEventListener('click', function(e){
