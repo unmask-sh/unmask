@@ -70,6 +70,18 @@ type DB struct {
 	Driver     string  `yaml:"driver"`
 	SQLitePath string  `yaml:"sqlite_path"`
 	MariaDB    MariaDB `yaml:"mariadb"`
+	// MySQLTLS: whether the MariaDB connection is encrypted, and how the
+	// server is checked.  "" (the default) is a plain connection, as every
+	// release before this setting made; "true" is TLS with the server's
+	// certificate verified against the system's roots and its name against
+	// mariadb.host; "skip-verify" is TLS without the check (a self-signed
+	// server certificate); "preferred" is TLS when the server offers it;
+	// and a path is a PEM file of the CA that signed the server's
+	// certificate, verified against that.  A database on another host --
+	// the shared-database install -- sends the credentials and every event
+	// (addresses, user agents) over the network, which this keeps private.
+	// Not web-editable.
+	MySQLTLS string `yaml:"mysql_tls,omitempty"`
 	// PerfProfile picks how much of the host's memory SQLite may use.  It is a
 	// RESOURCE dial, not a speed dial: measured on a multi-GB event DB, page
 	// cache barely changes query time once the range scans ride their index, so
@@ -103,7 +115,7 @@ type DB struct {
 // driver and where it is.  The rest is tuning.  Two sections name the same
 // database when their Connection is equal.
 func (d DB) Connection() DB {
-	return DB{Driver: d.Driver, SQLitePath: d.SQLitePath, MariaDB: d.MariaDB}
+	return DB{Driver: d.Driver, SQLitePath: d.SQLitePath, MariaDB: d.MariaDB, MySQLTLS: d.MySQLTLS}
 }
 
 // SchemaUpdateDeferOver is SchemaUpdateDeferSeconds as the threshold the

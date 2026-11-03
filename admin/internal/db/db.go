@@ -16,6 +16,8 @@ package db
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -293,6 +295,84 @@ func sqlitePerConnBytes(overrideMB int) int64 {
 	return sqlitePerConnBytesFor(settings.DB{PerfProfile: settings.PerfProfileCustom, SQLiteCacheMB: overrideMB})
 }
 
+// mariaDBConfig is the driver configuration for the MariaDB section.
+func mariaDBConfig(s settings.DB) (*mysql.Config, error) {
+	cfg := mysql.NewConfig()
+	cfg.User = s.MariaDB.User
+	cfg.Passwd = s.MariaDB.Password
+	cfg.Net = "tcp"
+	cfg.Addr = fmt.Sprintf("%s:%d", s.MariaDB.Host, s.MariaDB.Port)
+	cfg.DBName = s.MariaDB.Database
+	cfg.ParseTime = true
+	// Force everything timestamp-related to UTC: the driver-side parse
+	// location AND the session time_zone.  With this, NOW() / CURRENT_TIMESTAMP
+	// / DATE(col) / DATE_FORMAT(col,…) / DATE_SUB(NOW(),…) all evaluate in
+	// UTC, matching SQLite's UTC-by-default behaviour.  The application
+	// (= dashboard.Daily*) then converts UTC unix sec to the operator's
+	// cookie TZ on read, so the storage is timezone-agnostic.
+	cfg.Loc = time.UTC
+	cfg.Params = map[string]string{
+		"charset":   "utf8mb4",
+		"time_zone": "'+00:00'",
+	}
+	// A server that does not answer the connect is given up on in
+	// seconds, not the operating system's minutes: without it the
+	// daemon's start hung on an unreachable address until the TCP
+	// timeout, and every pool connection after it did the same.  Writes
+	// are bounded too (a statement's bytes are small).  Reads are not:
+	// an index build in `unmask migrate` can keep the socket silent for
+	// longer than any fixed limit, and the daemon's queries carry their
+	// own deadlines, which the driver honours; a peer that dies
+	// mid-query is caught by TCP keep-alive.
+	cfg.Timeout = mariadbDialTimeout
+	cfg.WriteTimeout = mariadbWriteTimeout
+	if err := applyMySQLTLS(cfg, s.MySQLTLS, s.MariaDB.Host); err != nil {
+		return nil, err
+	}
+	return cfg, nil
+}
+
+// mysqlCAConfigName is the name the CA-file TLS configuration is registered
+// under with the driver (db.mysql_tls naming a file).
+const mysqlCAConfigName = "unmask-ca"
+
+// applyMySQLTLS sets the connection's TLS from db.mysql_tls (settings.DB):
+// "" for none, the driver's own words -- true, skip-verify, preferred --
+// as they are, and a path as the CA bundle the server's certificate is
+// verified against, with the server's name checked against host.  A file
+// that cannot be read or holds no certificate is an error here, at the
+// open, not a plain connection made by mistake.
+func applyMySQLTLS(cfg *mysql.Config, mode, host string) error {
+	mode = strings.TrimSpace(mode)
+	switch strings.ToLower(mode) {
+	case "", "false", "off", "no", "0":
+		return nil
+	case "true", "on", "yes", "1":
+		cfg.TLSConfig = "true"
+		return nil
+	case "skip-verify", "preferred":
+		cfg.TLSConfig = strings.ToLower(mode)
+		return nil
+	}
+	pem, err := os.ReadFile(mode)
+	if err != nil {
+		return fmt.Errorf("db.mysql_tls: %w (write true, skip-verify, preferred, or the path of the CA's PEM file)", err)
+	}
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(pem) {
+		return fmt.Errorf("db.mysql_tls: %s holds no certificate in PEM form", mode)
+	}
+	tc := &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	if h := strings.TrimSpace(host); h != "" {
+		tc.ServerName = h
+	}
+	if err := mysql.RegisterTLSConfig(mysqlCAConfigName, tc); err != nil {
+		return fmt.Errorf("db.mysql_tls: %w", err)
+	}
+	cfg.TLSConfig = mysqlCAConfigName
+	return nil
+}
+
 // sqlitePerConnBytesFor resolves the per-connection allowance for a config.
 func sqlitePerConnBytesFor(s settings.DB) int64 {
 	profile := s.ResolvedPerfProfile()
@@ -439,35 +519,10 @@ func open(s settings.DB, maintenance bool) (*DB, error) {
 		driver = DriverSQLite
 
 	case string(DriverMariaDB):
-		cfg := mysql.NewConfig()
-		cfg.User = s.MariaDB.User
-		cfg.Passwd = s.MariaDB.Password
-		cfg.Net = "tcp"
-		cfg.Addr = fmt.Sprintf("%s:%d", s.MariaDB.Host, s.MariaDB.Port)
-		cfg.DBName = s.MariaDB.Database
-		cfg.ParseTime = true
-		// Force everything timestamp-related to UTC: the driver-side parse
-		// location AND the session time_zone.  With this, NOW() / CURRENT_TIMESTAMP
-		// / DATE(col) / DATE_FORMAT(col,…) / DATE_SUB(NOW(),…) all evaluate in
-		// UTC, matching SQLite's UTC-by-default behaviour.  The application
-		// (= dashboard.Daily*) then converts UTC unix sec to the operator's
-		// cookie TZ on read, so the storage is timezone-agnostic.
-		cfg.Loc = time.UTC
-		cfg.Params = map[string]string{
-			"charset":   "utf8mb4",
-			"time_zone": "'+00:00'",
+		cfg, err := mariaDBConfig(s)
+		if err != nil {
+			return nil, err
 		}
-		// A server that does not answer the connect is given up on in
-		// seconds, not the operating system's minutes: without it the
-		// daemon's start hung on an unreachable address until the TCP
-		// timeout, and every pool connection after it did the same.  Writes
-		// are bounded too (a statement's bytes are small).  Reads are not:
-		// an index build in `unmask migrate` can keep the socket silent for
-		// longer than any fixed limit, and the daemon's queries carry their
-		// own deadlines, which the driver honours; a peer that dies
-		// mid-query is caught by TCP keep-alive.
-		cfg.Timeout = mariadbDialTimeout
-		cfg.WriteTimeout = mariadbWriteTimeout
 		dialector = gormmysql.Open(cfg.FormatDSN())
 		driver = DriverMariaDB
 		maxIdle = 2
