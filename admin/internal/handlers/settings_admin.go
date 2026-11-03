@@ -4048,19 +4048,20 @@ func pairExtras(field string, lang i18n.Lang, patterns, titles, enabled, created
 		if p == "" {
 			continue
 		}
-		// A literal pattern is escaped at render time, so the regex rules
-		// below do not apply to it -- only the characters that would break
-		// the config file itself.  An unusable value is rejected by name, not
-		// dropped: silently swallowing it is exactly the bug that let a bad
-		// pattern vanish under a green "saved" banner.
-		if settings.IsLiteralPattern(p) {
-			if strings.ContainsAny(p, "\x00\r\n") {
-				return nil, nil, nil, nil, nil, nil, &listFieldError{Field: field, Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_char", p)}
-			}
-		} else {
-			if strings.ContainsAny(p, "\"\\\x00\r\n") {
-				return nil, nil, nil, nil, nil, nil, &listFieldError{Field: field, Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_char", p)}
-			}
+		// The characters no pattern may carry, literal or regex: the ones
+		// that break the config file, and the quote and backslash.  A literal
+		// pattern is escaped at render time, so the regex rules below do not
+		// apply to it -- but the pattern is also named on the challenge page
+		// as the entry behind the challenge (force_rule), inside a script,
+		// and a literal one used to be let through with a quote in it.  The
+		// page encodes the entry now; a value that cannot be written
+		// anywhere without escaping is still refused at the door, by name,
+		// not dropped: silently swallowing it is exactly the bug that let a
+		// bad pattern vanish under a green "saved" banner.
+		if strings.ContainsAny(p, "\"\\\x00\r\n") {
+			return nil, nil, nil, nil, nil, nil, &listFieldError{Field: field, Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_char", p)}
+		}
+		if !settings.IsLiteralPattern(p) {
 			if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
 				return nil, nil, nil, nil, nil, nil, &listFieldError{Field: field, Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_regex", p, err)}
 			}
@@ -5762,6 +5763,13 @@ func applyAsnForm(c *settings.AsnConfig, r *http.Request, lang i18n.Lang) error 
 			// change what the rule matches without a word.
 			if utf8.RuneCountInString(org) > labelMax {
 				return &listFieldError{Field: "asn_number", Value: s, Msg: i18n.Tf(lang, "err.value_long", labelMax)}
+			}
+			// The text is the entry the challenge page names for the rule
+			// (force_rule, inside a script); the page encodes it, and a
+			// quote, a backslash or a line break is still refused here, as
+			// the UA patterns refuse them.
+			if strings.ContainsAny(org, "\"\\\x00\r\n") {
+				return &listFieldError{Field: "asn_number", Value: s, Msg: i18n.Tf(lang, "err.rule_pattern_char", org)}
 			}
 			key := strings.ToLower(org)
 			if seenOrg[key] {

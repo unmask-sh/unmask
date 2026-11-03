@@ -1562,10 +1562,20 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "challenge unavailable", http.StatusInternalServerError)
 		return
 	}
+	// Both land inside the page's inline <script>, as the other injected
+	// strings do (orig_path, the beacon token, the PoW seed): JSON-encoded,
+	// never concatenated between quotes.  The entry is the operator's own
+	// text -- a UA filter pattern, the org text of an ASN rule -- and one
+	// with a quote or a backslash in it used to end the string early, which
+	// broke the whole block: window.UNMASK never existed, the proof-of-work
+	// ran on an empty seed, and every visitor that rule matched was turned
+	// away for as long as the rule stood.
+	recordReasonJSON, _ := json.Marshal(recordReason)
 	body = bytes.ReplaceAll(body, []byte(challengePlaceholder),
-		[]byte(`/*__CAPTCHA_FORCE__*/"`+recordReason+`"`))
+		append([]byte(`/*__CAPTCHA_FORCE__*/`), recordReasonJSON...))
+	recordRuleJSON, _ := json.Marshal(recordRule)
 	body = bytes.ReplaceAll(body, []byte(forceRulePlaceholder),
-		[]byte(`/*__FORCE_RULE__*/"`+recordRule+`"`))
+		append([]byte(`/*__FORCE_RULE__*/`), recordRuleJSON...))
 	body = bytes.ReplaceAll(body, []byte(challengeProbe),
 		[]byte("<!--probe=ON force_reason="+recordReason+"-->"))
 	// Resolve per-site challenge + branding once; reuse for every placeholder

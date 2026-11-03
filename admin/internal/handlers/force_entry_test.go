@@ -1,9 +1,9 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -21,8 +21,10 @@ func TestForceEntryNamesWhatFired(t *testing.T) {
 	h.IPGeo = ipgeo.Open("", "")
 	cur := h.snapshotSettings()
 	cur.Server.BasePath = "/unmask"
-	cur.Nginx.ChallengeTargets.Extra = []string{"X11; Linux x86_64"}
-	cur.Nginx.ChallengeTargets.ExtraAction = []string{"captcha_only"}
+	// The second row is a literal pattern with a quote and a backslash in
+	// it, the shape that used to end the page's inline script early.
+	cur.Nginx.ChallengeTargets.Extra = []string{"X11; Linux x86_64", `contains:Trap "x" \u`}
+	cur.Nginx.ChallengeTargets.ExtraAction = []string{"captcha_only", "captcha_only"}
 	cur.Nginx.Asn = settings.AsnConfig{Rules: []settings.AsnRule{{ASN: 132203, Label: "the farm", Action: settings.RateChallengeCaptchaOnly, Enabled: true}}}
 	cur.Nginx.Geo = settings.GeoConfig{Rules: []settings.GeoRule{{Country: "US", Action: settings.RateChallengeCaptchaOnly, Enabled: true}}}
 	cur.Nginx.Honeypot.URLs = []settings.HoneypotURL{{Path: "/trap", Title: "the trap"}}
@@ -31,6 +33,7 @@ func TestForceEntryNamesWhatFired(t *testing.T) {
 	h.SetSettings(cur)
 
 	const farmUA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
+	const trapUA = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) Trap "x" \u AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36`
 	const plainUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36"
 	const oldUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/100.0.0.0 Safari/537.36"
 	serve := func(ua, ip, target string, hdr map[string]string) (reason, entry string) {
@@ -44,12 +47,7 @@ func TestForceEntryNamesWhatFired(t *testing.T) {
 		rr := httptest.NewRecorder()
 		h.ServeChallenge(rr, req)
 		body := rr.Body.String()
-		fr := regexp.MustCompile(`/\*__CAPTCHA_FORCE__\*/"([a-z_]*)"`).FindStringSubmatch(body)
-		fe := regexp.MustCompile(`/\*__FORCE_RULE__\*/"([^"]*)"`).FindStringSubmatch(body)
-		if fr == nil || fe == nil {
-			t.Fatalf("no reason / entry in the served page (status %d)", rr.Code)
-		}
-		return fr[1], fe[1]
+		return injectedString(t, body, "/*__CAPTCHA_FORCE__*/"), injectedString(t, body, "/*__FORCE_RULE__*/")
 	}
 	const plain = "/unmask/challenge/?u=%2F"
 	for _, c := range []struct {
@@ -58,6 +56,7 @@ func TestForceEntryNamesWhatFired(t *testing.T) {
 		reason, entry        string
 	}{
 		{"ua filter row", farmUA, "198.51.100.1", plain, nil, "ua_target", "own:X11; Linux x86_64"},
+		{"ua filter row with a quote", trapUA, "198.51.100.1", plain, nil, "ua_target", `own:contains:Trap "x" \u`},
 		{"asn rule", plainUA, "203.0.113.10", plain, nil, "asn", "AS132203"},
 		{"country rule", plainUA, "192.0.2.5", plain, nil, "geo", "US"},
 		{"trap", plainUA, "198.51.100.1", "/unmask/challenge/?_orig=%2Ftrap", map[string]string{"X-Honeypot-Hit": "1"}, "honeypot", "the trap"},
@@ -147,4 +146,23 @@ func TestForceEntryNames(t *testing.T) {
 			t.Errorf("%s %q: %q, want %q", c.reason, c.entry, got, c.want)
 		}
 	}
+}
+
+// injectedString reads the string the page carries after marker: the value
+// ServeChallenge injected, which has to be one JSON string -- the page's
+// script reads it as a literal, so an entry with a quote in it that was
+// written between quotes is not a string but a broken script.  A regex that
+// took whatever sat between the first two quotes passed on exactly that.
+func injectedString(t *testing.T, body, marker string) string {
+	t.Helper()
+	i := strings.Index(body, marker)
+	if i < 0 {
+		t.Fatalf("no %s in the served page", marker)
+	}
+	dec := json.NewDecoder(strings.NewReader(body[i+len(marker):]))
+	var s string
+	if err := dec.Decode(&s); err != nil {
+		t.Fatalf("the value after %s is not one JSON string: %v", marker, err)
+	}
+	return s
 }
