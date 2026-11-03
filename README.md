@@ -47,12 +47,18 @@ The install guide takes you through either way, step by step: **https://unmask.s
 
 ### Requirements
 
-- **nginx** 1.10.3 to 1.30.6, built `--with-compat` (the distributions'
-  packages are; a self-built nginx needs the flag).  The plugin package
-  bundles a module for each nginx version it supports, picks the one
-  matching `nginx -V` (the same minor branch, and the host's OpenSSL
-  generation) and, when none matches, says so and leaves nginx running
-  without unmask rather than failing to start.
+- **nginx**, one of the 15 versions the plugin package bundles a module
+  for (1.10.3 up to 1.30.6; the install guide lists them), built
+  `--with-compat` (the distributions' packages are; a self-built nginx
+  needs the flag).  The plugin places the module built for
+  exactly the version `nginx -v` reports, for the host's OpenSSL
+  generation: nginx loads no other, a neighbouring patch release included.
+  When none matches, the plugin says which version is missing and what to
+  do, and leaves nginx running without unmask rather than failing to start;
+  `unmask doctor` and the admin's notification list report it until a
+  module is in place.  Pin the nginx package to a bundled version (`dnf
+  versionlock`, `apt-mark hold`) where the distribution's updates would
+  move it off the list.
 - **OS**: RHEL / Rocky / AlmaLinux, Debian, Ubuntu and Alpine, on x86_64
   and arm64; the packages are installed on ten distributions before a
   release.  Anything else runs the gateway container.

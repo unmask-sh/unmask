@@ -2,9 +2,10 @@
 # unmask-plugin-nginx (= bundles .so files for multiple nginx versions in one
 # package).
 #
-# postinstall picks and cp's the .so matching the host nginx out of the bundle.
-# When the host runs an ABI-compatible version (= same minor branch / patch),
-# the closest match is used.
+# postinstall picks and cp's the .so built for exactly the host's nginx version
+# out of the bundle (nginx loads no other, a neighbouring patch release
+# included); with none for that version it says so and exits 1, and the
+# fail-safe leaves nginx running without the module.
 #
 # Bundled versions are everything sitting under build/multi-modules/.  Run
 # `make build-module-multi` to build them all first, then package.

@@ -213,6 +213,35 @@ check "7f marker is back with the cause" 'reason: nginx: [emerg] "map_hash_bucke
 check "7f renders full, then degraded" "2 full degraded" "$RENDERS$RENDER_MODES"
 check "7f runs nginx -t three times, no more" "3" "$(ngx_calls)"
 
+# --- case 8: the pick -- the module built for exactly the host's version, or none ---
+# nginx refuses a module built for any other version, a neighbouring patch
+# release of the same branch included.  Picking the "closest" one of the
+# branch (what this did through 0.1.53) only reached the fail-safe by way of
+# a failed nginx -t, behind a "closest match" line that read like success.
+mkdir -p "$T/bundle"
+for v in 1.26.2 1.26.3 1.28.3 1.30.6; do : > "$T/bundle/ngx_http_unmask_module-$v.so"; done
+check "8 the bundle is listed newest first" "1.30.6 1.28.3 1.26.3 1.26.2" "$(list_versions "$T/bundle" | tr '\n' ' ' | sed 's/ $//')"
+got=$(pick_bundled "$T/bundle" 1.26.3); rc=$?
+check "8 the host's exact version is picked" "0 $T/bundle/ngx_http_unmask_module-1.26.3.so" "$rc $got"
+got=$(pick_bundled "$T/bundle" 1.26.4); rc=$?
+check "8 another patch of the same branch picks nothing" "1 " "$rc $got"
+got=$(pick_bundled "$T/bundle" 1.27.0); rc=$?
+check "8 a branch not bundled picks nothing" "1 " "$rc $got"
+got=$(pick_bundled "$T/nowhere" 1.26.3); rc=$?
+check "8 an empty bundle picks nothing" "1 " "$rc $got"
+# The report an operator reads when nothing is picked: the version missing,
+# the versions there, and the ways out (the pin, the build dropped into the
+# bundle under the version's name).
+out=$(no_module_report "$T/bundle" 1.26.4 2>&1 >/dev/null)
+has() { printf '%s\n' "$out" | grep -qF -- "$1" && echo yes || echo no; }
+check "8 the report names the version without a module" "yes" "$(has 'no module for nginx 1.26.4 -- nothing placed')"
+check "8 the report lists what is bundled" "yes" "$(has '  - 1.26.3')"
+check "8 the report says nginx wants the exact version" "yes" "$(has 'exactly its own version, 1.26.4')"
+check "8 the report names the pin" "yes" "$(has 'dnf versionlock / apt-mark hold')"
+check "8 the report names the build to drop into the bundle" "yes" "$(has "make build-module NGINX_VERSION=1.26.4")"
+check "8 ... under the version's own name" "yes" "$(has "$T/bundle/ngx_http_unmask_module-1.26.4.so")"
+check "8 the report goes to stderr only" "" "$(no_module_report "$T/bundle" 1.26.4 2>/dev/null)"
+
 echo "----"
 [ "$fails" -eq 0 ] && echo "ALL PASS" || echo "$fails FAILED"
 exit "$fails"

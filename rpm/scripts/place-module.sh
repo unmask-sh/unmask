@@ -7,7 +7,13 @@
 # matching bundled .so is re-picked -- or, if none matches the new version, the
 # wiring is fail-safe-stripped (disable_unmask_module) so nginx still starts
 # WITHOUT the module instead of dying on an ABI-incompatible load_module.
-# Idempotent and ALWAYS exits 0 (= never blocks nginx).
+# Idempotent.  Exits 0 when a module is in place for the host's nginx once it
+# returns (placed now, or already there unchanged) and 1 when none is: no
+# nginx to place one for, no bundled module for its version, a modules path
+# that cannot be written, musl without gcompat.  The systemd drop-in prefixes
+# the call with '-', so that 1 never blocks an nginx start; it is for the
+# plugin postinstall, which then says that nothing was placed instead of
+# "module placed", and for whoever reads the journal.  `--verify` exits 0.
 #
 # Only systemd hosts get the automatic per-start re-pick (via the drop-in).
 # Non-systemd hosts (Alpine OpenRC -- which ships no nginx service at all -- and
@@ -20,11 +26,13 @@
 #   1. Get the host nginx version (= X.Y.Z) from `nginx -v`.
 #   2. Look up the host nginx's libcrypto dependency to determine the
 #      OpenSSL ABI (= 1.1 or 3).
-#   3. Find /usr/share/unmask/plugin/{openssl11,openssl3}/ngx_http_unmask_module-X.Y.Z.so:
-#      (a) exact match (= e.g. host 1.18.0 -> -1.18.0.so under the matching ABI dir)
-#      (b) closest within the same minor branch (= host 1.18.4 -> -1.18.0.so, assuming patch ABI compatibility)
-#      (c) none -> disable_unmask_module (= strip the module, re-render the
-#          configuration without it so nginx still starts) + exit 0
+#   3. Find /usr/share/unmask/plugin/{openssl10,openssl11,openssl3,glibc212}/ngx_http_unmask_module-X.Y.Z.so
+#      built for exactly the host's version (= host 1.18.0 -> -1.18.0.so under
+#      the matching ABI dir).  nginx loads no other: a module built for a
+#      neighbouring patch release of the same branch is refused at start.
+#      None -> say which version is missing and the ways out, then
+#      disable_unmask_module (= strip the module, re-render the configuration
+#      without it so nginx still starts) + exit 1.
 #   4. Extract --modules-path= from `nginx -V`.
 #   5. Copy the chosen .so to $modules_path/ngx_http_unmask_module.so —
 #      or, when the modules path is unwritable (immutable /usr, ostree-style
@@ -200,7 +208,7 @@ unmask-plugin-nginx: nginx is not installed, so skipped placing the module.
     2. Copy /usr/share/unmask/plugin/openssl{11,3}/ngx_http_unmask_module-<version>.so by hand to
        \$(nginx -V 2>&1 | tr ' ' '\n' | grep modules-path)
 EOF
-    exit 0
+    exit 1
 fi
 
 # --verify: only re-test the already-placed wiring and fail-safe-disable it if
@@ -247,7 +255,7 @@ https://unmask.sh/install/  ->  pick "nginx · auth_request".
 The .so binaries stay under /usr/share/unmask/plugin/ for inspection.
 ================================================================
 EOF
-        exit 0
+        exit 1
     fi
 fi
 
@@ -352,6 +360,69 @@ resolve_libcrypto() {
     echo ""
 }
 
+# list_versions <plugin-dir>: the nginx versions the bundle under plugin-dir
+# carries a module for, newest first.
+list_versions() {
+    ls -1 "$1"/ngx_http_unmask_module-*.so 2>/dev/null | \
+        sed -n 's|.*/ngx_http_unmask_module-\(.*\)\.so$|\1|p' | \
+        sort -V -r
+}
+
+# pick_bundled <plugin-dir> <host-version>: print the path of the bundled .so
+# built for exactly the host's nginx version, or return 1 when there is none.
+#
+# Exactly: nginx refuses a dynamic module built for any other version, a
+# neighbouring patch release of the same branch included (ngx_module.c
+# compares the module's nginx_version with its own and logs `module "..."
+# version N instead of M`).  Through 0.1.53 this fell back to the closest
+# patch of the same minor branch, calling it "assumes patch ABI
+# compatibility": that module never loaded, the verify step's nginx -t failed
+# on it, and the fail-safe stripped it -- the same end state as no module at
+# all, reached after a misleading "closest match" line.
+pick_bundled() {
+    _pb_so="$1/${SO_NAME%.so}-$2.so"
+    [ -f "$_pb_so" ] || return 1
+    echo "$_pb_so"
+}
+
+# no_module_report <plugin-dir> <host-version>: what the operator can do when
+# the bundle has no module for this nginx.  On stderr, like the other
+# refusals; the fail-safe's own lines follow it.
+no_module_report() {
+    _nr_dir=$1; _nr_ver=$2
+    {
+        echo "================================================================"
+        echo "unmask-plugin-nginx: no module for nginx ${_nr_ver} -- nothing placed."
+        echo "================================================================"
+        echo "nginx loads a module built for exactly its own version, ${_nr_ver}, and"
+        echo "refuses every other at start -- a neighbouring patch release of the"
+        echo "same branch included (its error log then says \"version N instead of M\")."
+        echo ""
+        echo "This bundle carries a module for these nginx versions (${_nr_dir};"
+        echo "\`ls /usr/share/unmask/plugin/*/\` lists every build shipped):"
+        for v in $(list_versions "$_nr_dir"); do echo "  - $v"; done
+        echo ""
+        echo "Until a module is in place, nginx runs WITHOUT unmask (the fail-safe"
+        echo "below keeps it starting) and no request is challenged; \`unmask doctor\`"
+        echo "and the admin's notification list say so.  Ways out:"
+        echo "  1) Move nginx to a bundled version and keep it there: install that"
+        echo "     version and pin the nginx package (dnf versionlock / apt-mark hold /"
+        echo "     apk add 'nginx=<version>') so the distribution's updates do not move"
+        echo "     it off the list; then restart nginx.  A systemd host runs this script"
+        echo "     before every nginx start; elsewhere run it by hand first:"
+        echo "       sh /usr/share/unmask/plugin/place-module.sh"
+        echo "  2) Build the module for nginx ${_nr_ver} from the unmask source on"
+        echo "     another host (make build-module NGINX_VERSION=${_nr_ver}) and put it"
+        echo "     into this bundle as ${_nr_dir}/${SO_NAME%.so}-${_nr_ver}.so:"
+        echo "     the next run of this script places it like a bundled one."
+        echo "  3) Install a later unmask-plugin-nginx that bundles ${_nr_ver}:"
+        echo "     https://unmask.sh/install/ lists the versions each release ships."
+        echo "  4) Run without the module: forward-auth mode needs the main package"
+        echo "     alone (https://unmask.sh/install/)."
+        echo "================================================================"
+    } >&2
+}
+
 # Guard: when sourced by the unit test, stop here (no install side effects).
 [ -n "${PLACE_MODULE_TEST:-}" ] && return 0 2>/dev/null
 
@@ -394,77 +465,27 @@ fi
 
 [ -d "$PLUGIN_DIR" ] || {
     echo "ERROR: plugin dir $PLUGIN_DIR does not exist.  Please verify the package contents." >&2
-    exit 0
+    exit 1
 }
 
 # ---- 1. host nginx version ----
 HOST_VER=$(nginx -v 2>&1 | sed -n 's|.*nginx/\([0-9.]*\).*|\1|p')
 if [ -z "$HOST_VER" ]; then
     echo "ERROR: failed to parse 'nginx -v'.  Skipping module placement." >&2
-    exit 0
+    exit 1
 fi
 echo "unmask-plugin-nginx: host nginx ${HOST_VER}"
 
-# ---- 2. pick the best matching .so ----
-list_versions() {
-    # nginx versions bundled, newest first.
-    ls -1 "$PLUGIN_DIR"/ngx_http_unmask_module-*.so 2>/dev/null | \
-        sed -n 's|.*/ngx_http_unmask_module-\(.*\)\.so$|\1|p' | \
-        sort -V -r
-}
-
-PICKED=""
-PICK_MODE=""
-# (a) exact match
-if [ -f "$PLUGIN_DIR/${SO_NAME%.so}-${HOST_VER}.so" ]; then
-    PICKED="${HOST_VER}"
-    PICK_MODE="exact"
-fi
-# (b) closest in the same minor branch (= 1.18.X)
-if [ -z "$PICKED" ]; then
-    HOST_MAJOR_MINOR=$(echo "$HOST_VER" | awk -F. '{print $1"."$2}')
-    for v in $(list_versions); do
-        v_mm=$(echo "$v" | awk -F. '{print $1"."$2}')
-        if [ "$v_mm" = "$HOST_MAJOR_MINOR" ]; then
-            PICKED="$v"
-            PICK_MODE="minor-match"
-            break
-        fi
-    done
-fi
-
-if [ -z "$PICKED" ]; then
-    cat >&2 <<EOF
-================================================================
-ERROR: no module compatible with host nginx ${HOST_VER} is bundled.
-================================================================
-
-Bundled versions ($PLUGIN_DIR):
-EOF
-    for v in $(list_versions); do echo "  - $v" >&2; done
-    cat >&2 <<EOF
-
-Mitigations:
-  1) Wait for the next unmask release (= adds a .so for nginx ${HOST_VER}).
-  2) Build from source on another host:
-       make build-module NGINX_VERSION=${HOST_VER}
-       cp dist/ngx_http_unmask_module-linux-*.so /usr/lib/nginx/modules/
-  3) Skip the plugin and run in forward-auth mode (= main package alone is enough).
-================================================================
-EOF
-    # Re-run on a host nginx upgrade to an unbundled version leaves a now-
+# ---- 2. the bundled .so built for exactly this nginx ----
+SRC=$(pick_bundled "$PLUGIN_DIR" "$HOST_VER") || {
+    no_module_report "$PLUGIN_DIR" "$HOST_VER"
+    # A re-run on a host nginx upgrade to an unbundled version leaves a now-
     # ABI-incompatible .so + load_module behind, which kills nginx on next
     # start.  Strip the wiring so nginx still comes up (degraded), not dead.
     disable_unmask_module "no bundled module for host nginx ${HOST_VER}"
-    exit 0
-fi
-
-case "$PICK_MODE" in
-    exact)
-        echo "  exact match: ngx_http_unmask_module-${PICKED}.so" ;;
-    minor-match)
-        echo "  closest match: ngx_http_unmask_module-${PICKED}.so (= same minor branch / assumes patch ABI compatibility)" ;;
-esac
+    exit 1
+}
+echo "  exact match: $(basename "$SRC")"
 
 # ---- 3. extract modules-path from `nginx -V` ----
 MODULES_PATH=$(nginx -V 2>&1 | tr ' ' '\n' | sed -n 's|^--modules-path=||p' | head -1)
@@ -472,13 +493,12 @@ if [ -z "$MODULES_PATH" ]; then
     cat >&2 <<EOF
 ERROR: nginx -V has no --modules-path, cannot place automatically.
   Place the chosen module by hand:
-    cp $PLUGIN_DIR/${SO_NAME%.so}-${PICKED}.so /usr/lib/nginx/modules/$SO_NAME
+    cp $SRC /usr/lib/nginx/modules/$SO_NAME
 EOF
-    exit 0
+    exit 1
 fi
 
 # ---- 4. install (with an immutable-/usr fallback) ----
-SRC="$PLUGIN_DIR/${SO_NAME%.so}-${PICKED}.so"
 MODULE_UNCHANGED=0
 if DEST=$(so_in_place "$SRC" "$MODULES_PATH" "$FALLBACK_SO_DIR"); then
     MODULE_UNCHANGED=1
@@ -486,7 +506,7 @@ if DEST=$(so_in_place "$SRC" "$MODULES_PATH" "$FALLBACK_SO_DIR"); then
 else
     DEST=$(install_so "$SRC" "$MODULES_PATH" "$FALLBACK_SO_DIR") || {
         echo "ERROR: could not write the module to $MODULES_PATH nor $FALLBACK_SO_DIR. Skipping placement." >&2
-        exit 0
+        exit 1
     }
 fi
 if [ "$DEST" = "$FALLBACK_SO_DIR/$SO_NAME" ]; then

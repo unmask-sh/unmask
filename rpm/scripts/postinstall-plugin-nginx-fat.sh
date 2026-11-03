@@ -12,15 +12,26 @@
 
 PLACER=/usr/share/unmask/plugin/place-module.sh
 if [ -r "$PLACER" ]; then
-    sh "$PLACER"
-    # Placing the module unlinks the .so a running nginx still has mapped, so a
-    # reload is not enough here: `nginx -s reload` re-reads the config but does
-    # not re-exec the master, leaving it on the old (now deleted) module image.
-    # Say so at the moment the new module lands -- unmask-web-nginx draws the
-    # same distinction for its own step.
-    echo "unmask-plugin-nginx: module placed -- nginx NOT touched."
-    echo "  → a NEW plugin .so needs a RESTART to load (a reload keeps the old one):"
-    echo "    sudo systemctl restart nginx   (or: sudo service nginx restart)"
+    if sh "$PLACER"; then
+        # Placing the module unlinks the .so a running nginx still has mapped, so a
+        # reload is not enough here: `nginx -s reload` re-reads the config but does
+        # not re-exec the master, leaving it on the old (now deleted) module image.
+        # Say so at the moment the new module lands -- unmask-web-nginx draws the
+        # same distinction for its own step.
+        echo "unmask-plugin-nginx: module placed -- nginx NOT touched."
+        echo "  → a NEW plugin .so needs a RESTART to load (a reload keeps the old one):"
+        echo "    sudo systemctl restart nginx   (or: sudo service nginx restart)"
+    else
+        # The placer exits 1 when it leaves nginx without a module -- none
+        # bundled for this nginx version, a modules path it cannot write, musl
+        # without gcompat -- and says why, and what to do, right above.  The
+        # package stays installed: the bundle, the placer and the drop-in are
+        # what gets the module in once the cause is gone, so this is not the
+        # package's failure (a failed postinstall would leave dpkg with a
+        # half-configured package and rpm with a scriptlet error for a host
+        # that is, in fact, correctly set up to wait).
+        echo "unmask-plugin-nginx: NO module placed -- nginx runs WITHOUT unmask until one is (see above)." >&2
+    fi
 else
     echo "unmask-plugin-nginx: $PLACER missing -- module not placed." >&2
 fi
