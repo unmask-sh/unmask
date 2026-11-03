@@ -644,7 +644,7 @@
     if(!box||!m) return;
     box.style.display='flex';
     m.textContent=(done?'✓ ':'')+msg;
-    m.style.color=done?'#16a34a':'#475569';
+    m.style.color=done?'#15803d':'#475569'; // both read at 4.5:1 on the card
     // The "connecting to the site" sub-line belongs to the success state only.
     // Hide it during a plain "verifying" pass so a retry never shows a stale line.
     if(!done){ var sb=document.getElementById('captchaBusySub'); if(sb) sb.style.display='none'; }

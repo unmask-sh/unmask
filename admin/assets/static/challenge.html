@@ -46,11 +46,14 @@ body{position:relative;display:flex;flex-direction:column;justify-content:center
 .input-row{display:flex;justify-content:center;align-items:center;gap:.5em}
 input[type=text]{width:100px;font-size:1.4em;text-align:center;padding:.4em;border:2px solid #ddd;border-radius:8px;outline:none;transition:border-color .2s}
 input[type=text]:focus{border-color:#4a90d9}
-button{padding:.6em 1.8em;font-size:1em;background:#4a90d9;color:#fff;border:none;border-radius:8px;cursor:pointer;transition:background .2s}
-button:hover{background:#3a7bc8}
+button{padding:.6em 1.8em;font-size:1em;background:#2f6fb8;color:#fff;border:none;border-radius:8px;cursor:pointer;transition:background .2s}
+button:hover{background:#25599a}
 button:disabled{background:#aaa;cursor:default}
-.error{color:#d32f2f;font-size:.85em;margin-top:.8em;padding:.4em;background:#ffeaea;border-radius:6px;display:none}
-.note{font-size:.75em;color:#999;margin-top:1.2em;line-height:1.4}
+.error{color:#b91c1c;font-size:.85em;margin-top:.8em;padding:.4em;background:#ffeaea;border-radius:6px;display:none}
+/* Text colours: every pair on every theme reads at 4.5:1 or better (WCAG AA
+   for body text) against what it sits on -- the note, the reference id and
+   the brand footer used to sit near 2.5:1 on the light theme. */
+.note{font-size:.75em;color:#5f6b7a;margin-top:1.2em;line-height:1.4}
 /* Japanese and Korean break between phrases, never inside a word (the default
    broke "もう少々お|待ちください").  keep-all leaves the breaks at spaces (Korean
    puts them between words), after 、。 and at the U+200B marks challenge.js
@@ -76,7 +79,7 @@ body.theme-dark input[type=text]:focus{border-color:#58a6ff}
 body.theme-dark button{background:#58a6ff;color:#0d1117}
 body.theme-dark button:hover{background:#79b8ff}
 body.theme-dark button:disabled{background:#21262d;color:#6e7681}
-body.theme-dark .note{color:#6e7681}
+body.theme-dark .note{color:#8b949e}
 body.theme-dark .error{background:#361a1d;color:#f85149;border:1px solid #f8514955}
 body.theme-dark .math{color:#f0f6fc}
 
@@ -100,7 +103,7 @@ body.theme-terminal .math{color:#7fe0c0;font-family:inherit}
 body.theme-terminal button{background:#5cd0a8;color:#050807;font-family:inherit;letter-spacing:.04em}
 body.theme-terminal button:hover{background:#7fe0c0}
 body.theme-terminal button:disabled{background:#2a3a31;color:#5a6e63}
-body.theme-terminal .note{color:#6a7e72;font-family:inherit;font-size:.7em;letter-spacing:.02em}
+body.theme-terminal .note{color:#8aab9c;font-family:inherit;font-size:.7em;letter-spacing:.02em}
 body.theme-terminal .error{background:rgba(255,80,80,.1);color:#ff7b7b;border:1px solid rgba(255,80,80,.4);font-family:inherit}
 body.theme-terminal #cookieErrTitle{color:#ff7b7b !important}
 
@@ -133,10 +136,10 @@ body.theme-cat .click-row{border-color:rgba(199,90,90,.3);background:#fff;border
 body.theme-cat .click-row:hover{border-color:#e08272}
 body.theme-cat input[type=text]{border-color:rgba(199,90,90,.3);border-radius:10px}
 body.theme-cat input[type=text]:focus{border-color:#e08272}
-body.theme-cat button{background:#e08272;border-radius:12px}
-body.theme-cat button:hover{background:#c66857}
+body.theme-cat button{background:#e08272;color:#3a2a1c;border-radius:12px}
+body.theme-cat button:hover{background:#eca090}
 body.theme-cat button:disabled{background:#e8c7be}
-body.theme-cat .note{color:#9a6a5e}
+body.theme-cat .note{color:#8a5a4e}
 body.theme-cat .paws{display:inline-flex;gap:.5em;margin-top:1.2em;opacity:.65;font-size:1.2em}
 body.theme-cat .paws span{transform:rotate(0deg);display:inline-block}
 
@@ -162,7 +165,7 @@ body.theme-paper .math{color:#1a1715;font-family:inherit;font-style:italic}
 body.theme-paper button{background:#1a1715;color:#faf6ed;border-radius:4px;font-family:inherit;letter-spacing:.02em}
 body.theme-paper button:hover{background:#7d3a18}
 body.theme-paper button:disabled{background:#9a9088;color:#d8d2c5}
-body.theme-paper .note{color:#9a9088;font-family:inherit;font-size:.78em;letter-spacing:.005em}
+body.theme-paper .note{color:#6e675e;font-family:inherit;font-size:.78em;letter-spacing:.005em}
 body.theme-paper .error{background:rgba(125,58,24,.06);color:#7d3a18;border:1px solid rgba(125,58,24,.25)}
 /* unmask credit (= subtle, bottom right.  Translucent bg keeps contrast
    independent of theme + bundled brand icon).  position:absolute (not
@@ -176,8 +179,8 @@ body.theme-paper .error{background:rgba(125,58,24,.06);color:#7d3a18;border:1px 
 body.theme-dark .unmask-credit,body.theme-terminal .unmask-credit{background:rgba(15,23,42,.72);color:#e2e8f0;box-shadow:0 1px 4px rgba(0,0,0,.5)}
 /* support correlation id, bottom-center; theme-aware muted color (light base,
    lighter on dark/terminal so it stays legible-but-subtle on every theme). */
-.unmask-ref{margin-top:2em;font-size:.72rem;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.02em;color:#8a93a2;white-space:nowrap;cursor:text;-webkit-user-select:text;user-select:text}
-body.theme-dark .unmask-ref,body.theme-terminal .unmask-ref{color:#6e7681}
+.unmask-ref{margin-top:2em;font-size:.72rem;font-family:ui-monospace,Menlo,Consolas,monospace;letter-spacing:.02em;color:#5f6b7a;white-space:nowrap;cursor:text;-webkit-user-select:text;user-select:text}
+body.theme-dark .unmask-ref,body.theme-terminal .unmask-ref{color:#8b949e}
 
 /* ============================================================
    operator color override (uc = unmask custom): recolors WHATEVER theme is
@@ -197,6 +200,16 @@ body.uc-on input[type=text]:focus{border-color:var(--uc-text)}
 body.uc-on button{background:var(--uc-text);color:var(--uc-bg)}
 body.uc-on button:hover{filter:brightness(.9)}
 body.uc-on button:disabled{opacity:.5}
+/* Reduced motion: the spinner, the terminal caret, the cat and the paper rule
+   all run until the page leaves, and a visitor who asked for less motion
+   should see none of it.  The spinner becomes a still ring; the paper rule a
+   drawn line; the progress bar still fills, which is the one movement that
+   carries information. */
+@media (prefers-reduced-motion: reduce){
+  .spinner,#spinner::before,body.theme-terminal #msg::after,body.theme-cat .cat .ear-l,body.theme-cat .cat .ear-r,body.theme-cat .cat .eye-l,body.theme-cat .cat .eye-r,body.theme-cat .cat .tail,body.theme-cat .cat .body-bounce{animation:none !important}
+  body.theme-paper #spinner::before{width:100%}
+  #powProgress,#powProgressFill,button,input[type=text]{transition:none !important}
+}
 </style>
 </head>
 <body>
@@ -289,7 +302,7 @@ body.uc-on button:disabled{opacity:.5}
       <!-- success sub-line: shown only after "verified", so the visitor knows
            the check passed AND the site is now loading (= no "stuck" feeling
            on a slow origin). Hidden during the "verifying" step. -->
-      <div id="captchaBusySub" style="display:none;margin-top:-.3em;font-size:.8em;color:#94a3b8"></div>
+      <div id="captchaBusySub" style="display:none;margin-top:-.3em;font-size:.8em;color:#64748b"></div>
     </div>
     <!-- stage 2: numeric-add fallback (= auto-switched when behavioral fails) -->
     <div id="mathFallback" style="display:none">
@@ -313,7 +326,7 @@ body.uc-on button:disabled{opacity:.5}
     <div class="paws" aria-hidden="true" style="display:none"><span>🐾</span><span>🐾</span><span>🐾</span></div>
   </div>
   <div id="cookieErr" style="display:none" role="alert">
-    <h2 id="cookieErrTitle" style="color:#d32f2f">Please enable cookies</h2>
+    <h2 id="cookieErrTitle" style="color:#b91c1c">Please enable cookies</h2>
     <p class="desc" id="cookieErrDesc">This site needs cookies to load. Please enable cookies in your browser settings and reload this page.</p>
     <!-- The app-browser case and the address to escape it with; challenge.js
          fills both, and leaves them empty on a jar it can actually write. -->
@@ -332,7 +345,7 @@ body.uc-on button:disabled{opacity:.5}
   </noscript>
   <!-- Branding footer: optional "Operated by …" string.  challenge.js fills
        textContent when window.__brand.footer_text is set. -->
-  <div id="brand-foot" style="display:none;margin-top:1.2em;color:#94a3b8;font-size:.8em"></div>
+  <div id="brand-foot" style="display:none;margin-top:1.2em;color:#5f6b7a;font-size:.8em"></div>
   <!-- Support correlation id.  The server replaces the comment below with
        "Ref ID <id>".  In normal flow as the box's last line (= a fixed gap
        below the challenge copy, not pinned to the viewport bottom) so it
