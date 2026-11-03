@@ -1918,7 +1918,14 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	if a := strings.TrimSpace(r.Header.Get("X-Unmask-Rule-Action")); a != "" && chMode != settings.RateChallengeDeny && settings.IsValidRateChallengeMode(a) && a != settings.RateChallengeDeny {
 		chMode = a
 	}
-	if cm := strings.TrimSpace(r.URL.Query().Get("chm")); cm != "" && settings.IsValidRateChallengeMode(cm) {
+	// ?chm=: the chain-mode hint a wrapper's internal route may carry.  It
+	// is taken only when nginx says the request came here from another URI
+	// (X-Original-URI, set by the proxy and not the client's to forge, names
+	// a page rather than this route).  On a direct hit of the public route
+	// the query is the visitor's own: they could not get below what the
+	// gate requires -- the backstop below holds that -- but they could pick
+	// a lighter chain than the posture, and the record's ch_mode with it.
+	if cm := strings.TrimSpace(r.URL.Query().Get("chm")); cm != "" && settings.IsValidRateChallengeMode(cm) && banProbedOrigPath(r, h.basePath()) != "" {
 		chMode = cm
 	}
 	// Never serve a chain that cannot mint what the gate will demand.
