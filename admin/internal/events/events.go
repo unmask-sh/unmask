@@ -608,11 +608,12 @@ func prepareInsertArgs(e *Event) []any {
 		buf, err := json.Marshal(e.Payload)
 		if err == nil {
 			s := string(buf)
-			if len(s) > 4000 {
+			if len(s) > payloadMax {
 				// A byte-truncation here would cut mid-token and produce invalid
 				// JSON, which breaks every dashboard card that JSON-parses
-				// payload_json.  Store a valid sentinel instead of corrupt JSON.
-				s = `{"_truncated":true}`
+				// payload_json.  Keep the keys the hunt groups and attributes
+				// by, under a mark that says the rest is gone.
+				s = truncatedPayload(e.Payload)
 			}
 			payloadText = sql.NullString{String: s, Valid: true}
 			refID = nullIfEmpty(extractRef(s))
@@ -661,6 +662,34 @@ func prepareInsertArgs(e *Event) []any {
 // flush interval behind.  Set at startup, before any request is served; never
 // swapped at runtime.  Must be quick and must not touch the database.
 var OnInsert func(*Event)
+
+// payloadMax is the size of payload_json a row may carry.
+const payloadMax = 4000
+
+// truncatedPayloadKeys: what is kept of a payload past payloadMax -- the keys
+// the hunt groups a session by (bt), attributes it with (force_reason,
+// force_rule, orig_path, ref) and orders it by (seq, elapsed_ms), and the
+// short words a phase carries.  Everything else, the device attributes and
+// the user agent among them, is what made the record big.
+var truncatedPayloadKeys = []string{"bt", "force_reason", "force_rule", "orig_path", "ref", "seq", "elapsed_ms", "ch_mode", "chmode", "kind", "method", "http_status", "cap_reason", "abandon_phase", "pass_verified", "pass_kind", "rl", "test"}
+
+// truncatedPayload is the payload_json stored for a payload past
+// payloadMax.  The whole payload used to be replaced by the mark alone,
+// which took the beacon token with it: the row then belonged to no session
+// and the reason to no rule.
+func truncatedPayload(p map[string]any) string {
+	kept := map[string]any{"_truncated": true}
+	for _, k := range truncatedPayloadKeys {
+		if v, ok := p[k]; ok {
+			kept[k] = v
+		}
+	}
+	b, err := json.Marshal(kept)
+	if err != nil || len(b) > payloadMax {
+		return `{"_truncated":true}`
+	}
+	return string(b)
+}
 
 // Insert writes one row into unmask_event.  Best-effort: failures only log.
 func Insert(ctx context.Context, d *db.DB, e *Event) error {

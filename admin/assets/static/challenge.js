@@ -60,6 +60,12 @@
   //   - errors stay silent (don't disturb the normal challenge flow)
   // ============================================================
   var _bcSeq = 0;
+  // _bcClip: a string for a beacon, cut to n characters (a browser's error
+  // message or a path can run to kilobytes; the record cannot).
+  function _bcClip(v, n){
+    try { v = String(v == null ? '' : v); } catch (_) { return ''; }
+    return v.length > n ? v.slice(0, n) : v;
+  }
   function _bcDebug(phase, extra){
     // Remember the last phase reached so an abandonment beacon can say WHERE
     // the visitor gave up.  Recording it here rather than at each call site
@@ -68,12 +74,39 @@
     // reporting about.
     if (phase !== 'abandon') { try { window.__unmaskPhase = phase; } catch (_) {} }
     try {
+      // The keys the hunt groups and attributes by come first (bt,
+      // force_reason, force_rule, seq): the daemon stores a record past its
+      // column's size with those alone, in this order.
       var pl = {
         phase: phase,
+        bt: (window.UNMASK && window.UNMASK.beacon_token) || '',
+        // force_reason rides every phase beacon (not just 'load') so the funnel
+        // can attribute the whole serve->load->pass chain to the axis that
+        // raised it (header / asn / geo / rate_limit / ...), not only counts.
+        force_reason: (window.UNMASK && window.UNMASK.force_reason) || 'none',
+        // force_rule: the custom rule a custom_rule serve named, echoed the
+        // same way so the stats page can break custom_rule down by rule.
+        force_rule: (window.UNMASK && window.UNMASK.force_rule) || '',
+        // Emission order, stated rather than inferred.  Beacons are separate
+        // requests stamped when the server receives them, so two phases sent
+        // microseconds apart arrive in whichever order the network chose --
+        // and pow_pass/captcha, which leave in the same tick, do invert in
+        // production.  elapsed_ms cannot break that tie either: same tick,
+        // same millisecond.  A counter can, because it is the one fact only
+        // this page knows.  Scoped to one page instance, which is also the
+        // scope of a beacon token, so it needs no cross-page uniqueness.
+        seq: _bcSeq++,
+        ts: Date.now(),
+        elapsed_ms: (typeof start !== 'undefined') ? Date.now() - start : null,
         flags: (typeof flags !== 'undefined') ? flags : null,
         reload_count: (function(){
           try { var m=document.cookie.match(/_br=(\d+)/); return m?parseInt(m[1]):0; } catch(e) { return 0; }
         })(),
+        orig_path: (window.UNMASK && window.UNMASK.orig_path) || '',
+        // The JA4 the page was served to.  The beacon POST rides its own TLS
+        // connection whose fingerprint can differ on the same device; echoing
+        // the serve-time one lets a single hunt row show the variation.
+        serve_ja4: (window.UNMASK && window.UNMASK.serve_ja4) || '',
         ua: navigator.userAgent,
         screen_w: screen.width, screen_h: screen.height,
         viewport_w: window.innerWidth, viewport_h: window.innerHeight,
@@ -85,31 +118,12 @@
         connection_type: (navigator.connection && navigator.connection.type) || null,
         save_data: (navigator.connection && navigator.connection.saveData) || false,
         cookie_enabled: navigator.cookieEnabled,
-        url: location.href,
-        orig_path: (window.UNMASK && window.UNMASK.orig_path) || '',
-        // force_reason rides every phase beacon (not just 'load') so the funnel
-        // can attribute the whole serve->load->pass chain to the axis that
-        // raised it (header / asn / geo / rate_limit / ...), not only counts.
-        force_reason: (window.UNMASK && window.UNMASK.force_reason) || 'none',
-        // force_rule: the custom rule a custom_rule serve named, echoed the
-        // same way so the stats page can break custom_rule down by rule.
-        force_rule: (window.UNMASK && window.UNMASK.force_rule) || '',
-        // The JA4 the page was served to.  The beacon POST rides its own TLS
-        // connection whose fingerprint can differ on the same device; echoing
-        // the serve-time one lets a single hunt row show the variation.
-        serve_ja4: (window.UNMASK && window.UNMASK.serve_ja4) || '',
-        bt: (window.UNMASK && window.UNMASK.beacon_token) || '',
-        ts: Date.now(),
-        elapsed_ms: (typeof start !== 'undefined') ? Date.now() - start : null,
-        // Emission order, stated rather than inferred.  Beacons are separate
-        // requests stamped when the server receives them, so two phases sent
-        // microseconds apart arrive in whichever order the network chose --
-        // and pow_pass/captcha, which leave in the same tick, do invert in
-        // production.  elapsed_ms cannot break that tie either: same tick,
-        // same millisecond.  A counter can, because it is the one fact only
-        // this page knows.  Scoped to one page instance, which is also the
-        // scope of a beacon token, so it needs no cross-page uniqueness.
-        seq: _bcSeq++
+        // This page's path, without its query.  A native serve stands at
+        // the address the visitor asked for, so the query was the page's
+        // own -- a search, a token in a link -- which is not the beacon's
+        // to keep; and a long one pushed the record past the size the
+        // daemon stores.  Bounded, for the same reason.
+        url: _bcClip(location.pathname, 512)
       };
       if (extra) for (var k in extra) pl[k] = extra[k];
       var body = JSON.stringify(pl);
@@ -149,7 +163,7 @@
       var src = String((e && e.filename) || '');
       var doc = src.split('#')[0] === location.href.split('#')[0];
       var own = src && ((doc && e.lineno > 1) || src.indexOf('/unmask/') !== -1);
-      _bcDebug('error', { kind: own ? 'js_exception' : 'js_foreign', error_msg:String(e && e.message), error_filename:src, error_lineno:e && e.lineno });
+      _bcDebug('error', { kind: own ? 'js_exception' : 'js_foreign', error_msg:_bcClip(e && e.message, 300), error_filename:_bcClip(src, 300), error_lineno:e && e.lineno });
     } catch(_){}
   });
 
@@ -1041,7 +1055,7 @@
     showError(t.error + ' ' + failCode(e));
     _bcDebug('error', { kind: failKind(e), method: method,
                         http_status: (e && typeof e.status === 'number') ? e.status : 0,
-                        error: (e && e.message) ? String(e.message) : '' });
+                        error: (e && e.message) ? _bcClip(e.message, 300) : '' });
   }
   // A fresh question (and the proof-of-load token that goes with it).  Shared
   // by the first fall-back and by every retry after a wrong answer.
