@@ -36,6 +36,36 @@ make package
 
 End-to-end tests live in `e2e/` and run against the dockerized stack.
 
+## Running the tests
+
+What CI runs, and how to run each part here before a push:
+
+```sh
+# Go: unit tests (the handlers package takes a few minutes), vet, gofmt.
+cd admin && go test ./... && go vet ./... && gofmt -l .
+# The i18n catalogs: parity of ja / en, no mixed-up locale, every key a
+# template uses.  Run whenever i18n.go or a template changes.
+cd admin && go test ./internal/i18n/
+# golangci-lint, exactly as CI runs it (pins the Go version from go.mod).
+make lint
+# The C parsers: unit tests, the same under ASan/UBSan, and the fuzzers.
+make test-plugin-parser test-plugin-parser-san fuzz-plugin
+# The package scripts (install, upgrade, removal, against a throwaway root).
+for t in rpm/scripts/*_test.sh; do bash "$t"; done
+# Production figures and node names must not reach public text.
+./tools/check-public-text.sh
+# The docker e2e stack: nginx + the module + the daemon, 70-odd scenarios.
+make e2e-docker
+# The admin UI in a browser (node + a Chromium; `npm ci` in e2e/ui first).
+# UI_E2E_ONLY=<substring> runs the matching test files alone.
+make e2e-ui
+cd e2e/ui && UI_E2E_ONLY=crawler-modes ./run.sh
+```
+
+A change to a template is covered by the handlers tests and the UI
+tests; a change to the module or its build also runs the module-matrix
+workflow in CI (every nginx version the plugin ships).
+
 ## Pull request guidelines
 
 - One logical change per PR. Split unrelated changes.
