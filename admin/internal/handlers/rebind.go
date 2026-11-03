@@ -216,16 +216,16 @@ func (h *Handler) IssueBVJ(w http.ResponseWriter, r *http.Request) {
 	host := requestHost(r)
 	site := siteFromRequest(r, *cfg)
 	ch := cfg.Challenge.Resolve(site)
-	entry, kind, issued, ok := "", "", int64(0), false
+	entry, kind, passID, issued, ok := "", "", "", int64(0), false
 	for _, c := range r.Cookies() {
 		if c.Name != "_bv" || c.Value == "" || len(c.Value) > 1024 {
 			continue
 		}
-		if e, k, at, m := cookies.MatchingEntry(c.Value, cfg.Secret.BVSecret, key, host,
+		if e, k, pid, at, m := cookies.MatchingEntryID(c.Value, cfg.Secret.BVSecret, key, host,
 			ch.PowCookieValidSecondsResolved(),
 			ch.CaptchaCookieValidSecondsResolved(),
 			ch.ResolvedPowDifficulty()); m {
-			entry, kind, issued, ok = e, k, at, true
+			entry, kind, passID, issued, ok = e, k, pid, at, true
 			break
 		}
 	}
@@ -241,7 +241,7 @@ func (h *Handler) IssueBVJ(w http.ResponseWriter, r *http.Request) {
 	// (pass_trace.go).  A fresh entry only: an old pass re-posting here is
 	// no solve of this page.
 	if age := time.Now().Unix() - issued; age <= int64(passTraceFresh/time.Second) && age >= -60 {
-		h.recordBVJPass(r, site, key+"|"+entry, kind)
+		h.recordBVJPass(r, site, key+"|"+entry, kind, passID)
 	}
 	if claims, has := h.validBVJ(r, host, site); has {
 		// Re-POSTing with a still-valid _bvj is normally a no-op, so the endpoint

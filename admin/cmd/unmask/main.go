@@ -751,6 +751,10 @@ func cmdServe(args []string) error {
 			// distinct passes: the count then says how many budgets an
 			// address holds.
 			nlog.SetPassMatcher(h.PassIdentity)
+			// Every pass an address presents for the first time in a day,
+			// for the pass budget: the count the daemon makes itself, of a
+			// client that reports nothing.
+			nlog.SetPassObserver(h.ObservePass)
 			// A crawler name the configuration verifies against its vendor's
 			// ranges keeps the honeypot exemption only on a request that range
 			// passed; the name alone is what a scanner wears (nginxlog).

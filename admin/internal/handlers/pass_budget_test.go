@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -74,14 +75,14 @@ func TestPassBudgetBansAPageByPageSolver(t *testing.T) {
 	// is answered by a script in two requests, so a run of them is the same
 	// client this budget exists for).
 	for i := 0; i < 4; i++ {
-		h.countPass("198.51.100.52", ja4, "", "captcha")
+		h.countPass("198.51.100.52", ja4, "", "captcha", "")
 	}
 	if _, _, b := banned("198.51.100.52"); !b {
 		t.Error("CAPTCHA passes were not counted")
 	}
 	// A re-bound pass is not a solve.
 	for i := 0; i < 10; i++ {
-		h.countPass("198.51.100.54", ja4, "", "rebind")
+		h.countPass("198.51.100.54", ja4, "", "rebind", "")
 	}
 	if _, _, b := banned("198.51.100.54"); b {
 		t.Error("re-bound passes were counted")
@@ -158,5 +159,64 @@ func TestPassBudgetResolvers(t *testing.T) {
 	c.Action = settings.RateChallengePoWOnly
 	if c.ResolvedAction() != settings.RateChallengeCaptchaOnly {
 		t.Error("an action other than deny resolves to captcha_only")
+	}
+}
+
+// TestPassBudgetCountsDistinctPasses: a pass is one however many traces
+// report it -- the page's beacon and the access log naming the same pass
+// count once -- and the log alone, with no beacon ever sent, carries a
+// client to the ban: the passes an address presents are what the daemon
+// sees of a client that mints its cookies itself.  The log names the
+// proof-of-work kind the plugin's way ("pow").
+func TestPassBudgetCountsDistinctPasses(t *testing.T) {
+	h := passTraceHandler(t)
+	h.BanMgr = ban.New(h.DB, filepath.Join(t.TempDir(), "ban.list"), time.Hour)
+	s := *h.cfg()
+	s.RateLimit.PassBudget.PerDay = 3
+	h.SetSettings(s)
+	const host, ja4 = "example.com", "t13d1517h2_8daaf6152771_dcad5a053991"
+	ctx := context.Background()
+	banned := func(ip string) bool {
+		_, _, b := h.BanMgr.IsBannedActionSource(ctx, ip, ja4)
+		return b
+	}
+
+	// One pass, reported by the beacon and seen in the log many times.
+	const quiet = "198.51.100.61"
+	bv := powPassAt(t, h.cfg().Secret.BVSecret, quiet, host, time.Now().Unix()-2)
+	if rr := passBeaconJA4(h, quiet, host, ja4, "bv_pow_only", bv); rr.Code != http.StatusOK {
+		t.Fatalf("pass beacon answered %d %s", rr.Code, rr.Body.String())
+	}
+	id := h.PassIdentity(bv, quiet, host)
+	if id == "" {
+		t.Fatal("the pass has no identity")
+	}
+	for i := 0; i < 10; i++ {
+		h.ObservePass(quiet, ja4, "", "pow", id)
+	}
+	if banned(quiet) {
+		t.Error("one pass, reported through two traces, was counted past the budget")
+	}
+
+	// A client that never reports: the log alone.
+	const silent = "198.51.100.62"
+	for i := 1; i <= 3; i++ {
+		h.ObservePass(silent, ja4, "", "pow", fmt.Sprintf("pass-%d", i))
+		h.ObservePass(silent, ja4, "", "pow", fmt.Sprintf("pass-%d", i)) // the same pass again
+	}
+	if banned(silent) {
+		t.Fatal("banned within the budget")
+	}
+	h.ObservePass(silent, ja4, "", "captcha", "pass-4")
+	if !banned(silent) {
+		t.Error("a client whose passes the log shows past the budget was not banned")
+	}
+	// A kind the budget does not count.
+	const roaming = "198.51.100.63"
+	for i := 1; i <= 6; i++ {
+		h.ObservePass(roaming, ja4, "", "rebind", fmt.Sprintf("pass-%d", i))
+	}
+	if banned(roaming) {
+		t.Error("re-bound passes from the log were counted")
 	}
 }

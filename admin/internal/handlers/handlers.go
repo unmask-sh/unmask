@@ -3464,9 +3464,9 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 	// or written already off the /bvj issue, is answered and not written.
 	now := time.Now()
 	limit := h.cfg().Challenge.Resolve(site).DebugRateLimitPer5Min
-	passKey, passKind := "", ""
+	passKey, passKind, passID := "", "", ""
 	if isPassPhase(p.Phase) {
-		passKey, passKind = h.vouchedPass(r, site, now)
+		passKey, passKind, passID = h.vouchedPass(r, site, now)
 	}
 	kept := passKey != "" && h.passTrace.beaconPass(passKey, now)
 	if !kept && !h.passTrace.take(string(pkt), limit, now) {
@@ -3549,7 +3549,7 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 		events.InsertAsync(h.DB, beacon)
 	}
 	if kept {
-		h.countPass(ip, ja4, site, passKind) // the pass budget's count, once per pass
+		h.countPass(ip, ja4, site, passKind, passID) // the pass budget's count, once per pass
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 }

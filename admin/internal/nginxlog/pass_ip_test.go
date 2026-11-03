@@ -212,3 +212,44 @@ func TestPassFlushPutsTheDeltasBackOnFailure(t *testing.T) {
 			b.cnt, b.judged, b.dirty, len(b.ids), b.peak)
 	}
 }
+
+// TestPassObserverHearsEachPassOnce: the observer is told of a pass the
+// first time an address presents it in a day -- not again for the same
+// pass, not for a value the matcher could not verify -- with the pass's
+// name and the line's kind.
+func TestPassObserverHearsEachPassOnce(t *testing.T) {
+	r, _ := passReader(t)
+	r.SetPassMatcher(func(value, ip, host string) string {
+		if value == "junk" {
+			return ""
+		}
+		return "id-" + value + "@" + ip
+	})
+	var heard []string
+	r.SetPassObserver(func(ip, ja4, site, kind, id string) {
+		heard = append(heard, ip+" "+ja4+" "+site+" "+kind+" "+id)
+	})
+	now := time.Unix(1_761_700_000, 0)
+	for i := 0; i < 3; i++ {
+		r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "ua", "bvA", "pow", true, now)
+	}
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "ua", "bvB", "captcha", true, now)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "ua", "junk", "pow", true, now)
+	r.bumpPassAt("s1", "s1.example", "203.0.113.10", "t13d_b", "ua", "bvA", "pow", false, now)
+	// The next day, the same pass is news again.
+	r.bumpPassAt("s1", "s1.example", "203.0.113.9", "t13d_a", "ua", "bvA", "pow", true, now.Add(24*time.Hour))
+	want := []string{
+		"203.0.113.9 t13d_a s1 pow id-bvA@203.0.113.9",
+		"203.0.113.9 t13d_a s1 captcha id-bvB@203.0.113.9",
+		"203.0.113.10 t13d_b s1 pow id-bvA@203.0.113.10",
+		"203.0.113.9 t13d_a s1 pow id-bvA@203.0.113.9",
+	}
+	if len(heard) != len(want) {
+		t.Fatalf("heard %d reports, want %d: %q", len(heard), len(want), heard)
+	}
+	for i := range want {
+		if heard[i] != want[i] {
+			t.Errorf("report %d = %q, want %q", i, heard[i], want[i])
+		}
+	}
+}

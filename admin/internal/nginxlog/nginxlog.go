@@ -101,6 +101,9 @@ type Reader struct {
 	passHours   map[passHourKey]int
 	passIDs     int
 	matchPass   func(value, ip, host string) string
+	// observePass hears of a pass an address presents for the first time in
+	// a day (SetPassObserver); nil until set.
+	observePass func(ip, ja4, site, kind, id string)
 
 	// geo: ipgeo reader for per-packet country lookup.  Drives the
 	// unmask_traffic_country_hourly aggregation that powers the 30-day chart's

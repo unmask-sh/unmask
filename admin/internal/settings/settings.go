@@ -4281,9 +4281,13 @@ func (c ReuseLimitConfig) PassRatePerMin() int {
 // budget the client is banned for BanHours (source rate_limit_abuse, the
 // address and the fingerprint together) under Action: captcha_only by
 // default, so a pass no longer passes and a CAPTCHA does; deny for the deny
-// page.  Counted from the passes the daemon records (pass_trace.go): an
-// address on the bypass list and a crawler verified by its range are never
-// counted, and a CAPTCHA pass is not a proof-of-work pass.  The seed sits
+// page.  Counted from the passes the daemon sees, each once: the ones the
+// challenge page reports (pass_trace.go) and the ones the access log shows
+// an address presenting (pass_budget.go, ObservePass) -- so a client that
+// mints its cookies itself and reports nothing is counted by the passes it
+// uses.  An address on the bypass list, a crawler verified by its range and
+// an address inside a relay's range are never counted, and a CAPTCHA pass
+// counts like a proof-of-work pass.  The seed sits
 // above what a shared address produces -- an office or carrier NAT whose
 // users run one browser build share a key, and each solves once per cookie
 // lifetime -- and far below a page-by-page solver.

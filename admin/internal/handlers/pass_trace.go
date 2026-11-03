@@ -231,12 +231,13 @@ func isPassPhase(phase string) bool {
 
 // vouchedPass finds, among the request's _bv cookies, a fresh entry that
 // verifies for the request's bind key and host: the pass the request itself
-// proves it holds.  It returns the pass key (bind key and entry) and the
-// entry's kind, or "" when the request holds none.  A rebound entry does not
-// count: it records a roam, not a solve, and the rebind path writes its own
-// row.  Freshness is the beacon token's lifetime, measured from the issue
-// time the entry carries, which the server supplied.
-func (h *Handler) vouchedPass(r *http.Request, site string, now time.Time) (key, kind string) {
+// proves it holds.  It returns the pass key (bind key and entry), the
+// entry's kind and the pass's identity (the budget's key, cookies.
+// MatchingEntryID), or "" when the request holds none.  A rebound entry does
+// not count: it records a roam, not a solve, and the rebind path writes its
+// own row.  Freshness is the beacon token's lifetime, measured from the
+// issue time the entry carries, which the server supplied.
+func (h *Handler) vouchedPass(r *http.Request, site string, now time.Time) (key, kind, id string) {
 	cfg := h.cfg()
 	ch := cfg.Challenge.Resolve(site)
 	bind := bindKeyFor(r)
@@ -245,7 +246,7 @@ func (h *Handler) vouchedPass(r *http.Request, site string, now time.Time) (key,
 		if c.Name != "_bv" || c.Value == "" || len(c.Value) > 1024 {
 			continue
 		}
-		entry, k, issued, ok := cookies.MatchingEntry(c.Value, cfg.Secret.BVSecret, bind, host,
+		entry, k, pid, issued, ok := cookies.MatchingEntryID(c.Value, cfg.Secret.BVSecret, bind, host,
 			ch.PowCookieValidSecondsResolved(), ch.CaptchaCookieValidSecondsResolved(), ch.ResolvedPowDifficulty())
 		if !ok || k == "rebind" {
 			continue
@@ -253,9 +254,9 @@ func (h *Handler) vouchedPass(r *http.Request, site string, now time.Time) (key,
 		if age := now.Unix() - issued; age > int64(passTraceFresh/time.Second) || age < -60 {
 			continue
 		}
-		return bind + "|" + entry, k
+		return bind + "|" + entry, k, pid
 	}
-	return "", ""
+	return "", "", ""
 }
 
 // recordBVJPass keeps the pass the /bvj issue proves, should the page's own
@@ -264,7 +265,7 @@ func (h *Handler) vouchedPass(r *http.Request, site string, now time.Time) (key,
 // traces of the solve, and the beacon's budget used to drop nearly all of
 // them.  The CAPTCHA path's passes are issued by the daemon, in the verify
 // response, and their beacons are vouched for the same way.
-func (h *Handler) recordBVJPass(r *http.Request, site, key, kind string) {
+func (h *Handler) recordBVJPass(r *http.Request, site, key, kind, id string) {
 	if kind != "pow2" {
 		return
 	}
@@ -276,7 +277,7 @@ func (h *Handler) recordBVJPass(r *http.Request, site, key, kind string) {
 	passTraceAfter(passTraceGrace, func() {
 		if h.passTrace.bvjFire(key) {
 			events.InsertAsync(h.DB, ev)
-			h.countPass(ip, ev.JA4, site, kind) // the beacon never came: this is the pass's one count
+			h.countPass(ip, ev.JA4, site, kind, id) // the beacon never came: this is the pass's one count
 		}
 	})
 }

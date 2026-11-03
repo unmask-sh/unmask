@@ -103,6 +103,24 @@ func (r *Reader) SetPassMatcher(f func(value, ip, host string) string) {
 	r.mu.Unlock()
 }
 
+// SetPassObserver installs the function told of every pass the log shows an
+// address using for the first time in a day: the address, the line's
+// fingerprint, the bucket's site, the kind as logged ("pow" / "captcha" /
+// ...) and the pass's name from the matcher.  Only a pass the matcher
+// verified is reported -- a value that verified for nobody is counted in the
+// bucket (never fewer passes than there were) but is nobody's to answer for.
+// The pass budget reads these (handlers.Handler.ObservePass): the passes an
+// address presents are what the daemon sees of a client that never reports
+// its solves.  nil-safe.
+func (r *Reader) SetPassObserver(f func(ip, ja4, site, kind, id string)) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.observePass = f
+	r.mu.Unlock()
+}
+
 // bumpPass records one line carrying a verified pass (kind set, bv the value
 // as logged) into the day's bucket of its address.  site is the bucket's
 // site (OtherSite past the cap), host the $host the cookie is bound to.
@@ -116,12 +134,13 @@ func (r *Reader) bumpPassAt(site, host, ip, ja4, ua, bv, kind string, judged boo
 		return
 	}
 	r.mu.Lock()
-	match := r.matchPass
+	match, observe := r.matchPass, r.observePass
 	r.mu.Unlock()
 	name := ""
 	if match != nil {
 		name = match(bv, ip, host) // the HMAC / SHA-256 work, outside the lock
 	}
+	verified := name != ""
 	if name == "" {
 		name = bv
 	}
@@ -132,6 +151,16 @@ func (r *Reader) bumpPassAt(site, host, ip, ja4, ua, bv, kind string, judged boo
 	if len(ja4) > passJA4Width {
 		ja4 = ja4[:passJA4Width]
 	}
+	// The observer hears of a pass's first sight on its own, after the lock
+	// is dropped: it may place a ban, which is no work for the lock.
+	if r.bumpPassLocked(site, ip, ja4, ua, id, judged, now) && verified && observe != nil {
+		observe(ip, ja4, site, kind, name)
+	}
+}
+
+// bumpPassLocked is bumpPassAt's write into the bucket; true when id is a
+// pass the address had not presented yet today.
+func (r *Reader) bumpPassLocked(site, ip, ja4, ua string, id uint64, judged bool, now time.Time) (fresh bool) {
 	ts := now.Unix()
 	key := passKey{day: ts / 86400, site: site, ip: ip}
 	r.mu.Lock()
@@ -145,7 +174,7 @@ func (r *Reader) bumpPassAt(site, host, ip, ja4, ua, bv, kind string, judged boo
 	b := r.passBuckets[key]
 	if b == nil {
 		if len(r.passBuckets) >= passBucketsMax {
-			return
+			return false
 		}
 		b = &passBucket{ids: map[uint64]struct{}{}, ja4s: map[string]struct{}{}}
 		r.passBuckets[key] = b
@@ -153,6 +182,7 @@ func (r *Reader) bumpPassAt(site, host, ip, ja4, ua, bv, kind string, judged boo
 	if _, seen := b.ids[id]; !seen && r.passIDs < passIDsMax {
 		b.ids[id] = struct{}{}
 		r.passIDs++
+		fresh = true
 	}
 	if ja4 != "" {
 		if _, seen := b.ja4s[ja4]; !seen && len(b.ja4s) < passJA4Max {
@@ -176,6 +206,7 @@ func (r *Reader) bumpPassAt(site, host, ip, ja4, ua, bv, kind string, judged boo
 	b.ua = ua
 	b.lastSeen = ts
 	b.dirty = true
+	return fresh
 }
 
 // collectPassLocked takes what the buckets have to write (the caller holds
