@@ -11,15 +11,23 @@
     - superadmin: user management + audit log + logout
     - admin     : audit log + logout
     - viewer    : logout only
+
+  The trigger is a <button> (aria-haspopup / aria-expanded / aria-controls),
+  so the menu opens from the keyboard as from the mouse: Enter, Space or the
+  down arrow opens it, Escape closes it and puts the focus back on the
+  trigger, the arrows walk the entries, and Tab out of the last entry closes
+  it.  Through 0.1.53 the trigger was a span inside a focusable div: it took
+  the focus, drew no ring (the pages set outline:none on it) and opened on
+  click alone, so a keyboard user could not reach the profile -- or log out.
 */}}
 {{ define "user_menu" }}
 {{ if .Me }}
-<div class="user-menu" tabindex="0" id="user-menu">
-  <span class="user-menu-trigger">
+<div class="user-menu" id="user-menu">
+  <button type="button" class="user-menu-trigger" id="user-menu-btn" aria-haspopup="true" aria-expanded="false" aria-controls="user-menu-pop">
     <span class="user-menu-name">{{ if .MeName }}{{ .MeName }}{{ else }}user{{ end }}</span>
-    <span class="user-menu-arrow">▾</span>
-  </span>
-  <div class="user-menu-pop">
+    <span class="user-menu-arrow" aria-hidden="true">▾</span>
+  </button>
+  <div class="user-menu-pop" id="user-menu-pop">
     {{/* Personal entry.  TZ + language pickers live on the profile page
          itself (= rarely changed; no need to keep them in the dropdown). */}}
     <a href="{{ .BasePath }}/admin/profile/">{{ t .Lang "nav.profile" }}</a>
@@ -38,6 +46,13 @@
   </div>
 </div>
 <style>
+/* Each page styles .user-menu-trigger (border, padding, colour, size) as it
+   did the former <span>; this takes away what a <button> brings of its own,
+   and draws the focus ring the pages leave out.  Co-located with the partial,
+   like the rest of the menu's own styles below. */
+.user-menu-trigger{background:none;font-family:inherit;line-height:inherit;margin:0;color:#cbd5e1}
+.user-menu-trigger:focus-visible,.user-menu-pop a:focus-visible,.user-menu-pop .um-logout-form button:focus-visible{outline:2px solid #60a5fa;outline-offset:2px}
+.user-menu-pop a:focus-visible,.user-menu-pop .um-logout-form button:focus-visible{outline-offset:-2px;background:#334155;color:#fff}
 .user-menu-pop .um-section{font-size:.64rem;text-transform:uppercase;letter-spacing:.05em;color:#64748b;font-weight:600;padding:.5rem .7rem .2rem}
 .user-menu-pop .um-divider{border-top:1px solid #334155;margin:.3rem 0}
 /* logout is a POST (a GET link is CSRF-able into a forced logout); the global
@@ -51,14 +66,59 @@
 (function(){
   var m = document.getElementById('user-menu');
   if (!m) return;
-  // Open on hover; click also toggles (for touch devices).
-  m.querySelector('.user-menu-trigger').addEventListener('click', function(e){
+  var btn = document.getElementById('user-menu-btn');
+  var pop = document.getElementById('user-menu-pop');
+  function isOpen(){ return m.classList.contains('open'); }
+  function setOpen(on){
+    m.classList.toggle('open', on);
+    btn.setAttribute('aria-expanded', on ? 'true' : 'false');
+  }
+  function entries(){ return Array.prototype.slice.call(pop.querySelectorAll('a, button')); }
+  // Click (and Enter / Space on the button, which the browser turns into a
+  // click) toggles.
+  btn.addEventListener('click', function(e){
     e.stopPropagation();
-    m.classList.toggle('open');
+    setOpen(!isOpen());
+  });
+  // The down arrow on the trigger opens the menu on its first entry.  The
+  // event stops here: the menu's own handler below would read the focus
+  // just moved and walk on to the second entry.
+  btn.addEventListener('keydown', function(e){
+    if (e.key !== 'ArrowDown') return;
+    e.preventDefault();
+    e.stopPropagation();
+    setOpen(true);
+    var it = entries();
+    if (it.length) it[0].focus();
+  });
+  // Inside the menu: Escape closes and returns the focus to the trigger; the
+  // arrows walk the entries, wrapping around.
+  m.addEventListener('keydown', function(e){
+    if (e.key === 'Escape') {
+      if (!isOpen()) return;
+      e.preventDefault();
+      setOpen(false);
+      btn.focus();
+      return;
+    }
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    if (e.target === btn) return;
+    var it = entries();
+    var i = it.indexOf(document.activeElement);
+    if (i < 0) return;
+    e.preventDefault();
+    it[(i + (e.key === 'ArrowDown' ? 1 : it.length - 1)) % it.length].focus();
+  });
+  // The focus moving on to something outside the menu (Tab past the last
+  // entry) closes it.  A focus loss with no successor is left alone: that is
+  // what a mouse press on an entry looks like in a browser that does not
+  // focus buttons, and closing then would take the entry away mid-click.
+  m.addEventListener('focusout', function(e){
+    if (e.relatedTarget && !m.contains(e.relatedTarget)) setOpen(false);
   });
   // Close on outside click.
   document.addEventListener('click', function(e){
-    if (!m.contains(e.target)) m.classList.remove('open');
+    if (!m.contains(e.target)) setOpen(false);
   });
 })();
 </script>
