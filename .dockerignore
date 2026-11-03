@@ -1,0 +1,20 @@
+# What never reaches a docker build whose context is the repository root
+# (Dockerfile, e2e/docker/*/Dockerfile): the git history, built packages and
+# module caches, node_modules, a demo's state, TLS material.  Every COPY in
+# those Dockerfiles names source under admin/, nginx-module/, docker/, e2e/,
+# snippets/ or tools/; nothing below is wanted, and a local artifact that
+# happened to sit in the tree could never be copied in by mistake.
+.git
+dist
+build
+rpmbuild
+demo
+data
+tls
+**/node_modules
+*.rpm
+*.deb
+*.apk
+*.so
+*.sqlite
+*.db
