@@ -43,9 +43,17 @@ on:
 permissions:
   contents: read
 
+# One run per tag, never cancelled by another: a release run that is
+# superseded would leave a half-filled draft behind.  Each job has a
+# timeout-minutes well under the six-hour default.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   build-admin:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       matrix:
         goarch: [amd64, arm64]
@@ -105,6 +113,8 @@ jobs:
   # built against that exact nginx version, plus the daemon (Dockerfile).
   docker:
     runs-on: ubuntu-latest
+    # The arm64 half of the image is built under qemu.
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write
@@ -158,6 +168,7 @@ jobs:
 
   sbom:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -180,6 +191,7 @@ jobs:
   release:
     needs: [build-admin, sbom]
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write # create the GitHub release + upload assets
     steps:

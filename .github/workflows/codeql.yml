@@ -25,9 +25,16 @@ permissions:
   security-events: write
   actions: read
 
+# A newer push to the same branch supersedes a scan still going; a scan that
+# hangs is cut off well before the six-hour default.
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analyze:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
