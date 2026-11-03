@@ -113,6 +113,9 @@ func mergeBranding(base, over BrandingValues) BrandingValues {
 	if over.FooterText != "" {
 		out.FooterText = over.FooterText
 	}
+	if over.PrivacyURL != "" {
+		out.PrivacyURL = over.PrivacyURL
+	}
 	if over.CopyPreset != "" {
 		out.CopyPreset = over.CopyPreset
 	}

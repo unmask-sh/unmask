@@ -500,6 +500,11 @@ type BrandingValues struct {
 	// FooterText: optional small text below the challenge content (e.g.
 	// "Operated by ACME"). Plain text; HTML-escaped at render time.
 	FooterText string `yaml:"footer_text,omitempty"`
+	// PrivacyURL: optional address of the site's privacy notice, linked
+	// from the CAPTCHA card's note, so a visitor can read what the check
+	// collects (see the branding help).  An https:// or http:// address, or
+	// a path on this site; anything else is not rendered.
+	PrivacyURL string `yaml:"privacy_url,omitempty"`
 	// CopyPreset: which copy preset to apply to the challenge page strings.
 	// "friendly" (= default / reassurance-leaning) | "neutral" (= status-quo
 	// compatible) | "minimal" (= short text). Empty / unknown → "friendly".

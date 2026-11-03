@@ -393,12 +393,14 @@ func brandingInjectJSON(b settings.BrandingValues, basePath, logoURLOverride str
 		LogoHeight int    `json:"logo_height,omitempty"`
 		SiteName   string `json:"site_name,omitempty"`
 		FooterText string `json:"footer_text,omitempty"`
+		PrivacyURL string `json:"privacy_url,omitempty"`
 		CopyPreset string `json:"copy_preset"`
 	}
 	o := out{
 		LogoHeight: b.LogoHeight,
 		SiteName:   strings.TrimSpace(b.SiteName),
 		FooterText: strings.TrimSpace(b.FooterText),
+		PrivacyURL: linkableURL(b.PrivacyURL),
 		CopyPreset: b.ResolvedCopyPreset(),
 	}
 	// logoURLOverride is the settings live-preview path: a not-yet-saved logo
@@ -434,7 +436,7 @@ func brandingInjectJSON(b settings.BrandingValues, basePath, logoURLOverride str
 	// Skip the payload entirely when there's nothing to override (= the
 	// visitor still benefits from the friendlier default copy preset,
 	// applied client-side from window.__brand defaults).
-	if o.LogoURL == "" && o.SiteName == "" && o.FooterText == "" && o.CopyPreset == settings.BrandingPresetFriendly {
+	if o.LogoURL == "" && o.SiteName == "" && o.FooterText == "" && o.PrivacyURL == "" && o.CopyPreset == settings.BrandingPresetFriendly {
 		return "null"
 	}
 	js, err := json.Marshal(o)
@@ -442,6 +444,29 @@ func brandingInjectJSON(b settings.BrandingValues, basePath, logoURLOverride str
 		return "null"
 	}
 	return string(js)
+}
+
+// linkableURL: u when it is an address the challenge page may put in a
+// link -- https:// or http://, or a path on this site -- without control
+// characters; "" for anything else (a javascript: URL, a stray word).
+func linkableURL(u string) string {
+	u = strings.TrimSpace(u)
+	if u == "" || len(u) > 512 || strings.ContainsAny(u, " \t\r\n\"'<>\\") {
+		return ""
+	}
+	for i := 0; i < len(u); i++ {
+		if u[i] < 0x20 || u[i] == 0x7f {
+			return ""
+		}
+	}
+	lower := strings.ToLower(u)
+	if strings.HasPrefix(lower, "https://") || strings.HasPrefix(lower, "http://") {
+		return u
+	}
+	if isLocalRedirect(u) {
+		return u
+	}
+	return ""
 }
 
 // ServeBrandingLogo: GET {base}/branding/logo.<ext>.  Reads the configured

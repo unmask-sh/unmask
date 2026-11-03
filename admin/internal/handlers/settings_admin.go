@@ -6663,7 +6663,7 @@ func brandingFormHasEdits(r *http.Request) bool {
 	if r.MultipartForm != nil && len(r.MultipartForm.File["branding_logo_file"]) > 0 {
 		return true
 	}
-	for _, k := range []string{"branding_site_name", "branding_footer_text", "branding_logo_height"} {
+	for _, k := range []string{"branding_site_name", "branding_footer_text", "branding_logo_height", "branding_privacy_url"} {
 		if strings.TrimSpace(r.FormValue(k)) != "" {
 			return true
 		}
@@ -6681,6 +6681,19 @@ const (
 func applyBrandingForm(cur *settings.BrandingValues, scope string, r *http.Request) error {
 	cur.SiteName = strings.TrimSpace(r.FormValue("branding_site_name"))
 	cur.FooterText = strings.TrimSpace(r.FormValue("branding_footer_text"))
+	// The privacy address: taken from a page that posts the field, kept as
+	// it is from one that does not (config.yml sets it today).  An address
+	// the page could not link is refused by name.
+	if v, posted := r.Form["branding_privacy_url"]; posted {
+		u := ""
+		if len(v) > 0 {
+			u = strings.TrimSpace(v[0])
+		}
+		if u != "" && linkableURL(u) == "" {
+			return fmt.Errorf("privacy url: %q is not an https:// address or a path on this site", u)
+		}
+		cur.PrivacyURL = u
+	}
 	// Logo height: blank = the image's own size.  Out-of-range values are
 	// clamped rather than refused, like the text lengths below: the preview
 	// shows what was kept.
