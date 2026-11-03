@@ -145,6 +145,33 @@ func budgetCeilFor(profile string) int64 {
 // CPU limit is respected.
 func sqliteMaxOpen() int { return sqliteMaxOpenFor(settings.DB{}) }
 
+// MariaDB's pool and its network limits.  The pool is the daemon's share of
+// the server's connections (its default max_connections is in the
+// hundreds): the event flusher, the hourly rollups and the prune hold one
+// each, the dashboard fans a page out over up to six, and the rest is for
+// the request path.  The CPU count this process runs on, which sizes the
+// SQLite pool, says nothing about a server on another host.
+const (
+	mariadbMaxOpen           = 16
+	mariadbMaxOpenCustomCeil = 64
+	mariadbDialTimeout       = 10 * time.Second
+	mariadbWriteTimeout      = 30 * time.Second
+	mariadbPingTimeout       = 15 * time.Second
+)
+
+// maxOpenFor sizes the connection pool for the driver: the CPU-derived
+// SQLite pool, or MariaDB's server-sized one, each under the operator's
+// custom db.max_conns when the custom profile sets it.
+func maxOpenFor(driver Driver, s settings.DB) int {
+	if driver != DriverMariaDB {
+		return sqliteMaxOpenFor(s)
+	}
+	if s.ResolvedPerfProfile() == settings.PerfProfileCustom && s.MaxConns > 0 {
+		return min(s.MaxConns, mariadbMaxOpenCustomCeil)
+	}
+	return mariadbMaxOpen
+}
+
 // sqliteMaxOpenFor is sqliteMaxOpen with the operator's custom override applied.
 func sqliteMaxOpenFor(s settings.DB) int {
 	if s.ResolvedPerfProfile() == settings.PerfProfileCustom && s.MaxConns > 0 {
@@ -430,6 +457,17 @@ func open(s settings.DB, maintenance bool) (*DB, error) {
 			"charset":   "utf8mb4",
 			"time_zone": "'+00:00'",
 		}
+		// A server that does not answer the connect is given up on in
+		// seconds, not the operating system's minutes: without it the
+		// daemon's start hung on an unreachable address until the TCP
+		// timeout, and every pool connection after it did the same.  Writes
+		// are bounded too (a statement's bytes are small).  Reads are not:
+		// an index build in `unmask migrate` can keep the socket silent for
+		// longer than any fixed limit, and the daemon's queries carry their
+		// own deadlines, which the driver honours; a peer that dies
+		// mid-query is caught by TCP keep-alive.
+		cfg.Timeout = mariadbDialTimeout
+		cfg.WriteTimeout = mariadbWriteTimeout
 		dialector = gormmysql.Open(cfg.FormatDSN())
 		driver = DriverMariaDB
 		maxIdle = 2
@@ -451,8 +489,9 @@ func open(s settings.DB, maintenance bool) (*DB, error) {
 	}
 	// WAL mode allows multiple parallel readers; writes are serial (SQLite).
 	// Parallelising reads keeps the dashboard from contending with auth_request
-	// writes and hitting the busy timeout.
-	conn.SetMaxOpenConns(sqliteMaxOpenFor(s))
+	// writes and hitting the busy timeout.  MariaDB's pool is sized for a
+	// server, not for the CPUs of this process (maxOpenFor).
+	conn.SetMaxOpenConns(maxOpenFor(driver, s))
 	conn.SetMaxIdleConns(maxIdle)
 	conn.SetConnMaxLifetime(maxLife)
 	if maintenance {
@@ -460,7 +499,17 @@ func open(s settings.DB, maintenance bool) (*DB, error) {
 		conn.SetMaxIdleConns(1)
 		conn.SetConnMaxLifetime(0)
 	}
-	if err := conn.PingContext(context.Background()); err != nil {
+	// The first connection.  Bounded for MariaDB (the dial is, above, but a
+	// server that accepts and then says nothing is not); not for SQLite,
+	// whose open replays a write-ahead log left behind, which takes minutes
+	// for every few gigabytes and must not be cut short.
+	pingCtx, cancelPing := context.Background(), func() {}
+	if driver == DriverMariaDB {
+		pingCtx, cancelPing = context.WithTimeout(pingCtx, mariadbPingTimeout)
+	}
+	err = conn.PingContext(pingCtx)
+	cancelPing()
+	if err != nil {
 		conn.Close()
 		return nil, err
 	}
