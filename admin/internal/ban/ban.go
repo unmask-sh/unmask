@@ -1283,7 +1283,8 @@ func (m *Manager) loop() {
 	// 0.1.53 the loop as a whole was recovered, and one panic left the
 	// expired bans in nginx's file and the kept ones out of the table for
 	// the life of the process.  A tick that panicked in the write leaves
-	// the file to write again: the flush had cleared the mark first.
+	// the file to write again (rearmOnPanic): the flush had cleared the
+	// mark first.
 	guard := safe.NewGuard("ban-loop")
 	tick := time.NewTicker(60 * time.Second)
 	defer tick.Stop()
@@ -1295,7 +1296,8 @@ func (m *Manager) loop() {
 			if !guard.Ready() {
 				continue
 			}
-			if guard.Run(func() {
+			guard.Run(func() {
+				defer m.rearmOnPanic()
 				// Under a hold the table cannot be written, but it can be
 				// read: the file (the table and the kept bans) is still
 				// kept current.
@@ -1308,14 +1310,13 @@ func (m *Manager) loop() {
 				if m.shouldFlush() && m.filePath != "" {
 					_ = m.flush()
 				}
-			}) {
-				m.markDirty()
-			}
+			})
 		case <-m.wake:
 			if !guard.Ready() {
 				continue // the next tick takes it: the mark is still set
 			}
-			if guard.Run(func() {
+			guard.Run(func() {
+				defer m.rearmOnPanic()
 				// A ban kept by the receive loop: into the file now, and
 				// into the table when the lock is free.
 				if m.shouldFlush() && m.filePath != "" {
@@ -1324,10 +1325,20 @@ func (m *Manager) loop() {
 				if !m.DB.WritesHeld() {
 					m.writeHeld()
 				}
-			}) {
-				m.markDirty()
-			}
+			})
 		}
+	}
+}
+
+// rearmOnPanic, deferred at the top of a guarded tick, marks the file to
+// write again when the tick panics -- before the guard recovers and reports
+// the panic, since the report is what a test waits on -- and lets the panic
+// go on to the guard.  A flush clears the mark first, so without this a
+// write that died in the middle left nothing to write next time.
+func (m *Manager) rearmOnPanic() {
+	if r := recover(); r != nil {
+		m.markDirty()
+		panic(r)
 	}
 }
 
