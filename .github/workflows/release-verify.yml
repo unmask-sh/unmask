@@ -10,7 +10,9 @@
 # key, or does not name every asset; when an rpm is not signed with the
 # release key; when the daemon inside the main rpm is not the raw binary
 # published beside it; or when a deb, an apk, the SBOM or the compose example
-# is missing or malformed.
+# is missing or malformed; and when a raw binary carries no build-provenance
+# attestation from release.yml (releases before 0.1.54 have none, so a
+# dispatch on one of those tags stops here).
 name: release-verify
 
 on:
@@ -93,6 +95,15 @@ jobs:
             test -s "unmask.$goarch" || { echo "::error::no /usr/sbin/unmask in unmask-$v-1.$rpmarch.rpm"; exit 1; }
             cmp "unmask.$goarch" "assets/unmask-linux-$goarch" \
               || { echo "::error::the daemon inside unmask-$v-1.$rpmarch.rpm is not the published unmask-linux-$goarch"; exit 1; }
+          done
+      - name: the raw binaries and the SBOM carry release.yml's provenance attestation
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          v=${TAG#v}
+          for f in assets/unmask-linux-amd64 assets/unmask-linux-arm64 "assets/unmask-$v.cdx.json" "assets/unmask-$v.cdx.xml"; do
+            gh attestation verify "$f" --repo "$GITHUB_REPOSITORY" --signer-workflow "$GITHUB_REPOSITORY/.github/workflows/release.yml" \
+              || { echo "::error::$f has no build-provenance attestation from release.yml"; exit 1; }
           done
       - name: the debs and apks unpack, the SBOM and the compose example are there
         run: |

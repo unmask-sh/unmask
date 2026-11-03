@@ -142,6 +142,13 @@ for bootstrapping trust by hand (cross-check with https://unmask.sh/keys/):
 - Alpine RSA, apk (`unmask.rsa.pub`), SHA-256 of the DER public key:
   `63:77:6a:f3:57:b7:be:aa:db:2a:83:67:9d:ae:46:42:ac:78:6d:ad:49:95:9b:7c:1f:cb:3d:16:5c:c9:a5:dc`
 
+The raw binaries, the SBOM and the container image of a release are built
+by the release workflow, which attests their provenance:
+`gh attestation verify unmask-linux-amd64 --repo unmask-sh/unmask` (or
+`oci://ghcr.io/unmask-sh/unmask:<version>`) checks a download against it.
+The packages are built and signed locally; their provenance is the
+signature above.
+
 ## Docs
 
 Official docs: **https://unmask.sh/docs/**

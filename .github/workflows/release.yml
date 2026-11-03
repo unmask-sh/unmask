@@ -6,6 +6,18 @@
 # upload` before flipping the draft to published.  release-verify.yml then
 # reads the published page and fails on a missing or unsigned piece.
 #
+# What this workflow builds -- the binaries, the SBOM, the image -- carries a
+# build-provenance attestation (actions/attest-build-provenance: a signed
+# SLSA statement, stored with the repository, naming this workflow, the
+# commit and the run).  A downloader checks a file on the release page with
+# `gh attestation verify unmask-linux-amd64 --repo unmask-sh/unmask`, and
+# the image with `gh attestation verify oci://ghcr.io/unmask-sh/unmask:<v>
+# --repo unmask-sh/unmask`.  The packages are built and signed locally (the
+# procedure below), so they are not attested: their provenance is the GPG
+# signature on each rpm and on checksums.txt, which release-verify.yml
+# checks on the published page, together with the attestation of the
+# binaries.
+#
 # Local release procedure (= after the tag is pushed and this workflow is green):
 #
 #   make package-all       # admin + plugin-nginx-fat + web-{nginx,apache}
@@ -39,7 +51,9 @@ on:
 
 # Least-privilege default: only the `release` job needs contents:write (create
 # the GitHub release) and only the `docker` job needs packages:write (GHCR);
-# everything else reads the checkout.
+# the two jobs that attest what they publish add id-token:write (the OIDC
+# token Sigstore signs against) and attestations:write (storing the
+# statement); everything else reads the checkout.
 permissions:
   contents: read
 
@@ -118,6 +132,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
     strategy:
       matrix:
         include:
@@ -156,6 +172,7 @@ jobs:
             echo "version=$v"
           } >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        id: build
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -165,6 +182,14 @@ jobs:
             UNMASK_VERSION=${{ steps.meta.outputs.version }}
             ${{ matrix.build-args }}
           tags: ${{ steps.meta.outputs.tags }}
+      # The image's provenance, beside buildx's own: a signed statement that
+      # this run, on this commit, built the manifest with this digest, pushed
+      # to the registry next to the image and kept with the repository.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/unmask-sh/unmask
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
 
   sbom:
     runs-on: ubuntu-latest
@@ -194,6 +219,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write # create the GitHub release + upload assets
+      id-token: write # the attestation's signing identity
+      attestations: write # store the attestation with the repository
     steps:
       # Guard: a tag push for a tag whose release is already PUBLISHED must not
       # touch that release.  action-gh-release (draft: true below) does not
@@ -230,6 +257,28 @@ jobs:
           find artifacts -type f -exec cp {} dist/ \;
           ( cd dist && sha256sum unmask-linux-* unmask-*.cdx.* > checksums.txt )
           ls -la dist/
+      # The binaries' and the SBOM's provenance (the header above).  The
+      # subjects are the files as they go onto the release page; the local
+      # procedure leaves those in place, so what a downloader verifies is
+      # what was attested.
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: steps.guard.outputs.skip != 'true'
+        with:
+          subject-path: |
+            dist/unmask-linux-*
+            dist/unmask-*.cdx.*
+      # The release notes count the plugin's bundled nginx versions from the
+      # Makefile, which is where the list lives: a count typed into this
+      # file said 14 while the Makefile had 15.
+      - name: the plugin's nginx versions, from the Makefile
+        id: plugin
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          set -- $(sed -n 's/^PLUGIN_NGINX_VERSIONS ?= //p' Makefile)
+          [ "$#" -gt 0 ] || { echo "::error::PLUGIN_NGINX_VERSIONS not found in the Makefile"; exit 1; }
+          echo "count=$#" >> "$GITHUB_OUTPUT"
+          echo "first=$1" >> "$GITHUB_OUTPUT"
+          eval "echo last=\${$#}" >> "$GITHUB_OUTPUT"
       - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         if: steps.guard.outputs.skip != 'true'
         with:
@@ -253,7 +302,7 @@ jobs:
             ## Artifacts
 
             - `unmask` (rpm / deb / apk) — the daemon: binary + service unit + config skeleton
-            - `unmask-plugin-nginx` (rpm / deb / apk) — the nginx dynamic module bundle (14 nginx versions; OpenSSL 1.0 / 1.1 / 3 builds on x86_64, 1.1 / 3 on arm64)
+            - `unmask-plugin-nginx` (rpm / deb / apk) — the nginx dynamic module bundle (${{ steps.plugin.outputs.count }} nginx versions, ${{ steps.plugin.outputs.first }} to ${{ steps.plugin.outputs.last }}, each loaded only by exactly that version; OpenSSL 1.0 / 1.1 / 3 builds on x86_64, 1.1 / 3 on arm64)
             - `unmask-web-nginx` / `unmask-web-apache` (rpm / deb / apk) — the web-server snippets (nginx: the upstream and includes for both modes; Apache: forward-auth)
             - `unmask-release` (rpm / deb / apk) — the repository definition and public keys
             - `unmask-linux-{amd64,arm64}` — raw Go binary (= no system integration)
@@ -270,4 +319,7 @@ jobs:
             curl -fL --remote-name-all https://github.com/unmask-sh/unmask/releases/download/${{ github.ref_name }}/checksums.txt{,.sig}
             gpg --verify checksums.txt.sig checksums.txt
             sha256sum --ignore-missing --check checksums.txt
+            # the raw binaries, the SBOM and the image were built by the release workflow:
+            gh attestation verify unmask-linux-amd64 --repo unmask-sh/unmask
+            gh attestation verify oci://ghcr.io/unmask-sh/unmask:${{ steps.meta.outputs.version }} --repo unmask-sh/unmask
             ```
