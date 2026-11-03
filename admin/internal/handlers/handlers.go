@@ -72,6 +72,15 @@ const (
 	// whose PoW never ran -- the widespread web1-jp loop.
 	challengeJSScriptTag = `<script src="/unmask/static/challenge.js?v=__BUILD_V__" defer></script>`
 	chmodePlaceholder    = `/*__CHMODE__*/"pow_then_captcha"`
+	// The per-serve nonce of the page's Content-Security-Policy: on the
+	// inline <script> tags of challenge.html (nonceAttrPlaceholder, an
+	// attribute value) and in window.UNMASK (cspNoncePlaceholder, for the
+	// script the page adds for an external CAPTCHA provider).  A page without
+	// the attribute placeholder -- an operator's copy from before it -- is
+	// served without a policy, as before, rather than with one that would
+	// refuse its own scripts.
+	nonceAttrPlaceholder = `__UNMASK_NONCE__`
+	cspNoncePlaceholder  = `/*__CSP_NONCE__*/""`
 	powDiffPlaceholder   = "/*__POW_DIFFICULTY__*/18"
 	// PoW display floor (visible style).  The HTML's own value 0 means "no
 	// floor" if substitution ever fails; the handler injects the resolved
@@ -1558,6 +1567,8 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 		entryURI = rlOrigURI
 	}
 	recordRule := h.forceEntry(r, recordReason, verdict, ja4, entryURI, site)
+	// One nonce per serve, for the page's own scripts (see challengeCSP).
+	nonce := cspNonce()
 
 	body, err := h.loadChallengeHTML()
 	if err != nil {
@@ -1669,8 +1680,9 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// if the JS can't be read.
 	if js, jerr := h.loadChallengeJS(); jerr == nil && len(js) > 0 {
 		js = bytes.ReplaceAll(js, []byte("</script"), []byte(`<\/script`))
-		inlined := make([]byte, 0, len(js)+len("<script></script>"))
-		inlined = append(inlined, []byte("<script>")...)
+		open := `<script nonce="` + nonce + `">`
+		inlined := make([]byte, 0, len(js)+len(open)+len("</script>"))
+		inlined = append(inlined, []byte(open)...)
 		inlined = append(inlined, js...)
 		inlined = append(inlined, []byte("</script>")...)
 		body = bytes.Replace(body, []byte(challengeJSScriptTag), inlined, 1)
@@ -2132,6 +2144,18 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	}
 	body = stripOrKeepCredit(body, showCredit)
 
+	// The page's Content-Security-Policy, when the page takes a nonce: the
+	// site's own add_header, if it has one, is enforced beside it, and a
+	// policy that cannot see the nonce stops the page -- README says so;
+	// what this one adds is that an injected script does not run here.
+	csp := ""
+	if bytes.Contains(body, []byte(nonceAttrPlaceholder)) {
+		body = bytes.ReplaceAll(body, []byte(nonceAttrPlaceholder), []byte(nonce))
+		nonceJSON, _ := json.Marshal(nonce)
+		body = bytes.ReplaceAll(body, []byte(cspNoncePlaceholder), append([]byte(`/*__CSP_NONCE__*/`), nonceJSON...))
+		csp = challengeCSP(nonce, ch.CaptchaProvider)
+	}
+
 	ip := clientIP(r)
 	if pkt := events.PackIP(ip); pkt != nil {
 		rlInt, _ := strconv.Atoi(rl)
@@ -2226,6 +2250,10 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	w.Header().Set("Retry-After", "600")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if csp != "" {
+		w.Header().Set("Content-Security-Policy", csp)
+	}
 	w.WriteHeader(status)
 	_, _ = w.Write(body)
 
@@ -2979,10 +3007,16 @@ func (h *Handler) ServeBackRelay(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "back.html unavailable", http.StatusInternalServerError)
 		return
 	}
+	// Its one inline script under a nonce, the way the challenge page's are:
+	// the relay runs where the site's own add_header applies too, and it
+	// paints the logo from the site's origin and nothing else.
+	nonce := cspNonce()
+	b = bytes.Replace(b, []byte("<script>"), []byte(`<script nonce="`+nonce+`">`), 1)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'nonce-"+nonce+"'; style-src 'unsafe-inline'; img-src 'self' https: data:; base-uri 'none'; form-action 'none'")
 	_, _ = w.Write(b)
 }
 

@@ -609,6 +609,11 @@
   function injectScript(src){
     var s = document.createElement('script');
     s.src = src; s.async = true; s.defer = true;
+    // The page's Content-Security-Policy names the provider's origin and
+    // this serve's nonce; the tag carries the nonce too, for a policy
+    // that allows scripts by nonce alone.
+    var nonce = (window.UNMASK && window.UNMASK.csp_nonce) || '';
+    if (nonce) s.setAttribute('nonce', nonce);
     document.head.appendChild(s);
   }
 

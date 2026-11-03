@@ -114,6 +114,17 @@ then the wizard at `https://localhost/unmask/admin/` (the token is in
 and the rest are in the install guide.  Moving an existing install to a newer
 release: [UPGRADING.md](UPGRADING.md).
 
+Content-Security-Policy: the challenge page is served in place of the page the
+visitor asked for, so an `add_header Content-Security-Policy` in the
+`server { }` block reaches it too, and a browser enforces every policy it
+receives.  The daemon sends a policy of its own with each challenge page (a
+per-page nonce for the page's inline scripts, `blob:` workers for the
+proof-of-work, the origin of the CAPTCHA provider you picked); a site policy
+that allows neither `'unsafe-inline'` scripts nor `blob:` workers stops the
+page, since the site cannot know the nonce.  Set the site's header inside the
+`location { }` blocks it is meant for, or leave the `/unmask/` location without
+one.
+
 ### Package signing
 
 Every package (rpm / deb / apk) is signed; `unmask-release` installs the public
