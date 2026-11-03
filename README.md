@@ -28,7 +28,7 @@ ranges wherever the vendor publishes them.
 
 ## Features
 
-- **Challenges that grow with suspicion** — Ordinary visitors clear a proof-of-work in the background, with no click. The proof-of-work is a cost, not a test: a bot that loads the page and runs its JavaScript solves it too. It turns away the plain HTTP fetchers that never do, and what bounds the rest is the budget on what a pass is used for (per pass and per address) and the rate limits. A visit that looks automated, or matches a rule you set, goes on to a built-in behavioral CAPTCHA (a 5-axis score from mouse trail / scroll / keyboard / window size / click position; no third-party service, no site key). Blocking is opt-in. The challenge page carries your logo and speaks 18 languages.
+- **Challenges that grow with suspicion** — Ordinary visitors clear a proof-of-work in the background, with no click. The proof-of-work is a cost, not a test: a bot that loads the page and runs its JavaScript solves it too. It turns away the plain HTTP fetchers that never do, and what bounds the rest is the budget on what a pass is used for (per pass and per address) and the rate limits. A visit that looks automated, or matches a rule you set, goes on to a built-in behavioral CAPTCHA (a 5-axis score from mouse trail / scroll / keyboard / window size / click position; no third-party service, no site key -- or Cloudflare Turnstile, hCaptcha or reCAPTCHA v3 in its place). Blocking is opt-in. The challenge page carries your logo and speaks 18 languages.
 - **Two-stage search-bot rescue** — UA list + official IP range double-check. Designed not to break Googlebot / GPTBot / ClaudeBot. One click refuses AI training crawlers while AI search fetches still pass.
 - **Layered signals** — The JA4 TLS fingerprint (ban a tool, not just an address), network (ASN), country, request rate, honeypot paths and User-Agent rules.
 - **Community Bans** — Anonymous BAN feed shared across installs. 5-tier confidence score combines heuristic + AI judge. Pulling the shared list is ON by default and enforced as a challenge (proof-of-work, then CAPTCHA; a block only if you choose one), so a mismatched human still passes; set `subscribe_mode: off` to disconnect. Submitting your own reports is opt-in (country is tagged by default — opt out in settings). GDPR by design: the hub keeps reporting installs' addresses only as per-day salted hashes, scrubbed after 30 days.
@@ -76,11 +76,8 @@ The install guide takes you through either way, step by step: **https://unmask.s
   LB / CDN and "Take the visitor's address from X-Forwarded-For (realip)".
   Otherwise every visitor shares the proxy's address, and so do the rate
   limits and bans.
-- **Several nodes**: every node that verifies passes for a site holds the
-  same `secret.bv_secret`.  Rate-limit budgets count per node (behind a
-  load balancer the total is that many times the figure); bans and
-  statistics live in the database, so nodes sharing one MariaDB share
-  them, and nodes with their own SQLite each keep their own.
+- **Several nodes** share the `secret` section of config.yml; the budgets
+  count per node.  "Several nodes" below has the rest.
 - **Cost**: the module adds about 0.05 ms to a request that carries a
   pass.  The rendered configuration is a few thousand lines of `map`
   blocks nginx reads at reload, and the rate-limit zones take 10 MB of
@@ -134,6 +131,72 @@ that allows neither `'unsafe-inline'` scripts nor `blob:` workers stops the
 page, since the site cannot know the nonce.  Set the site's header inside the
 `location { }` blocks it is meant for, or leave the `/unmask/` location without
 one.
+
+### Configuration
+
+`/etc/unmask/config.yml` is the one place settings live: the admin UI
+writes it on save (comments do not survive), `unmask doctor` checks it,
+`unmask config-init` writes a starting one.  Its sections, each a tab of
+the settings page:
+
+- `db` (driver, location), `secret` (`bv_secret` behind every pass, `sig_hash`),
+  `server` (listener, `host_id`), `nginx_log` (the socket nginx's log arrives on);
+- `challenge` -- `default` and per-site values: proof-of-work difficulty, pass
+  windows, monitor mode (`observe_only`), the CAPTCHA (`captcha.provider`), branding;
+- `nginx` -- what the rendered configuration says: trusted LB / CDN ranges and
+  realip, the admin's hosts and addresses, bypass lists, `honeypot`, `custom_rules`,
+  `metrics_allow_from`;
+- `rate_limit` (the zones, the reuse cap on a pass), `community_bans`,
+  `notifications`, `smtp`, `ai_advisor`, `ipgeo`, `outbound`, and the
+  `*_retention_days` of events, the audit log and the notifications.
+
+An unknown key is named at startup and ignored; [UPGRADING.md](UPGRADING.md)
+lists what each release adds, renames or removes.
+
+### Several nodes
+
+Behind a load balancer, every node that verifies passes for a site holds
+the same `secret` section (`bv_secret`, `captcha_secret_base`): copy it, or
+the whole config.yml, to each node, and each daemon renders its own nginx
+configuration from it.  A pass then verifies on any node, so the load
+balancer needs no sticky sessions.  Bans, statistics and the admin's
+accounts live in the database: nodes sharing one MariaDB share them, and
+the admin tells them apart by `server.host_id` (the hostname unless set);
+nodes with their own SQLite each keep their own, and a ban made on one is
+not known to the others.  Rate-limit budgets are counted per node, in
+nginx's shared memory, so the total behind a load balancer is that many
+times the figure.  The install guide has the load balancer's side: the
+visitor's address, and the JA4 fingerprint where TLS ends in front of nginx.
+
+### Monitoring
+
+`/unmask/metrics` serves Prometheus text: the events by phase and verdict
+and the unique addresses of the last 24 hours, the CAPTCHA score histogram,
+database query timings, and the gauges an alert should watch --
+`unmask_native_failsafe_active` (the plugin's fail-safe stripped the
+module: nginx runs without unmask), `unmask_nginx_config_stale` (a render
+waits for a reload), `unmask_ban_file_worker_readable` (nginx can read the
+ban list), `unmask_schema_update_pending`, and the `*_dropped_total`
+counters of the log and event intake.  It answers loopback only until
+`nginx.metrics_allow_from` names your Prometheus.  The `unmask` package
+ships a Grafana dashboard and example alerting rules for these under
+`/usr/share/unmask/grafana/` (`dashboards/` in this repository).
+
+### The built-in CAPTCHA, and a provider in its place
+
+The built-in CAPTCHA scores what the browser reports about the visit --
+mouse trail, scroll, keyboard, window size, where the click landed -- and
+asks nothing of the visitor beyond a checkbox.  That is also its limit: a
+client that runs the page's JavaScript can send a plausible report, so this
+stage sorts scripts from browsers rather than bots from people, and what
+bounds a client that gets through is the same as after the proof-of-work:
+the budget on what a pass is used for, the rate limits and the bans.  Where
+the CAPTCHA stage has to hold against scripted browsers -- a sign-up form,
+an endpoint worth automating -- put Cloudflare Turnstile, hCaptcha or
+reCAPTCHA v3 in its place: `captcha.provider` with the provider's site and
+secret keys, on the settings page (which warns before a change that could
+lock you out of the admin; the challenge page's policy admits the
+provider's origin).
 
 ### Package signing
 
