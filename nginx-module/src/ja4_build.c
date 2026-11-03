@@ -16,6 +16,7 @@
 
 #include "ja4_build.h"
 
+#include <stdint.h>  /* uint16_t */
 #include <stdio.h>   /* snprintf */
 #include <stdlib.h>  /* qsort */
 #include <string.h>  /* memcpy */
@@ -31,10 +32,10 @@ static void ja4_hex4(char *out, unsigned int v) {
     out[3] = hex[v & 0xF];
 }
 
-/* qsort comparator: uint16 (stored in unsigned int) ascending. */
+/* qsort comparator: uint16 ascending. */
 static int ja4_u16_cmp(const void *a, const void *b) {
-    unsigned int x = *(const unsigned int *)a;
-    unsigned int y = *(const unsigned int *)b;
+    unsigned int x = *(const uint16_t *)a;
+    unsigned int y = *(const uint16_t *)b;
     return (x < y) ? -1 : (x > y) ? 1 : 0;
 }
 
@@ -72,8 +73,11 @@ size_t ja4_build_string(const ja4_parsed_t *parsed, char *out, size_t outlen) {
     int  i, nexts_c;
     int  tlsver, cipher_count_disp, ext_count_disp, n;
     int  ncipher, nexts, nsig_algs;
-    unsigned int sorted[JA4_MAX_CIPHERS];
-    unsigned int sorted_e[JA4_MAX_EXTENSIONS];
+    /* The sorted copies hold what the parser read with rd_u16, so 16 bits
+     * each: this runs on the TLS callback's stack, and the lists at their
+     * caps are 4 KB this way instead of 8. */
+    uint16_t sorted[JA4_MAX_CIPHERS];
+    uint16_t sorted_e[JA4_MAX_EXTENSIONS];
 
     if (outlen == 0) return 0;
 
@@ -116,8 +120,10 @@ size_t ja4_build_string(const ja4_parsed_t *parsed, char *out, size_t outlen) {
      * of SHA-256 === */
     bp = buf;
     if (ncipher > 0) {
-        memcpy(sorted, parsed->ciphers, (size_t)ncipher * sizeof(unsigned int));
-        qsort(sorted, (size_t)ncipher, sizeof(unsigned int), ja4_u16_cmp);
+        for (i = 0; i < ncipher; i++) {
+            sorted[i] = (uint16_t)parsed->ciphers[i];
+        }
+        qsort(sorted, (size_t)ncipher, sizeof(uint16_t), ja4_u16_cmp);
         for (i = 0; i < ncipher; i++) {
             if (i) *bp++ = ',';
             ja4_hex4(bp, sorted[i]);
@@ -138,9 +144,9 @@ size_t ja4_build_string(const ja4_parsed_t *parsed, char *out, size_t outlen) {
     nexts_c = 0;
     for (i = 0; i < nexts; i++) {
         if (parsed->extensions[i] == 0 || parsed->extensions[i] == 16) continue;
-        sorted_e[nexts_c++] = parsed->extensions[i];
+        sorted_e[nexts_c++] = (uint16_t)parsed->extensions[i];
     }
-    qsort(sorted_e, (size_t)nexts_c, sizeof(unsigned int), ja4_u16_cmp);
+    qsort(sorted_e, (size_t)nexts_c, sizeof(uint16_t), ja4_u16_cmp);
     for (i = 0; i < nexts_c; i++) {
         if (i) *bp++ = ',';
         ja4_hex4(bp, sorted_e[i]);

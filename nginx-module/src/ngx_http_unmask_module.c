@@ -411,11 +411,19 @@ static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
  *
  * Note: write_p == 1 is server->client (= ServerHello etc.), so ignored.
  */
+/* The parser's output (about 9 KB with its list caps) lives here rather than
+ * on the callback's stack: OpenSSL calls the message callback from the
+ * thread that drives the handshake, which in nginx is the worker's event
+ * loop and nothing else (its thread pools do file I/O only), so one
+ * buffer per worker is one buffer per caller.  It is written whole by
+ * every parse and read only until the JA4 string is built from it. */
+static ja4_parsed_t ngx_unmask_parsed_hello;
+
 static void ngx_ja4_msg_cb(int write_p, int version, int content_type,
                            const void *buf, size_t len,
                            SSL *ssl, void *arg) {
     const unsigned char *m;
-    ja4_parsed_t parsed;
+    ja4_parsed_t *parsed = &ngx_unmask_parsed_hello;
 
     (void)version; (void)arg;
 
@@ -432,7 +440,7 @@ static void ngx_ja4_msg_cb(int write_p, int version, int content_type,
         return;
     }
 
-    if (ja4_parse_client_hello(m, len, &parsed) != 0) {
+    if (ja4_parse_client_hello(m, len, parsed) != 0) {
         /* A ClientHello the parser would not take.  INFO, not WARN: odd
          * clients exist and each one is a line a minute at most. */
         ngx_connection_t *c = ngx_ssl_get_connection(ssl);
@@ -443,7 +451,7 @@ static void ngx_ja4_msg_cb(int write_p, int version, int content_type,
         }
         return;
     }
-    ngx_ja4_compute_and_store(ssl, &parsed);
+    ngx_ja4_compute_and_store(ssl, parsed);
 }
 
 /* The connection's JA4 ctx for this request, or NULL: no TLS, no ex_data
