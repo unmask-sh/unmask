@@ -1513,58 +1513,71 @@
     }
     return new Uint8Array(out);
   }
-  function sha256(str){
-    // UTF-8 encode + pad to 64-byte chunks
-    var enc=utf8Bytes(str);
-    var msgLen=enc.length, bitLen=msgLen*8;
-    var paddedLen=Math.ceil((msgLen+9)/64)*64;
-    var p=new Uint8Array(paddedLen);
-    p.set(enc); p[msgLen]=0x80;
-    // 64-bit length (high 32 bits = 0 for typical inputs, low 32 = bitLen)
-    p[paddedLen-4]=(bitLen>>>24)&0xff; p[paddedLen-3]=(bitLen>>>16)&0xff;
-    p[paddedLen-2]=(bitLen>>>8)&0xff;  p[paddedLen-1]=bitLen&0xff;
-    var h0=0x6a09e667,h1=0xbb67ae85,h2=0x3c6ef372,h3=0xa54ff53a;
-    var h4=0x510e527f,h5=0x9b05688c,h6=0x1f83d9ab,h7=0x5be0cd19;
+  // sha256Compress: one 64-byte block of p, at off, into the eight-word
+  // state h.  The compression function on its own, so the proof-of-work can
+  // run it on a buffer it keeps (powHasher) instead of on a fresh encoding of
+  // a fresh string per nonce.
+  function sha256Compress(h, p, off){
     var W=SHA256_W;
-    for(var c=0;c<paddedLen;c+=64){
-      for(var i=0;i<16;i++){ W[i]=(p[c+i*4]<<24)|(p[c+i*4+1]<<16)|(p[c+i*4+2]<<8)|p[c+i*4+3]; }
-      for(var i=16;i<64;i++){
-        var w15=W[i-15], w2=W[i-2];
-        var s0=((w15>>>7)|(w15<<25))^((w15>>>18)|(w15<<14))^(w15>>>3);
-        var s1=((w2>>>17)|(w2<<15))^((w2>>>19)|(w2<<13))^(w2>>>10);
-        W[i]=(W[i-16]+s0+W[i-7]+s1)>>>0;
-      }
-      var a=h0,b=h1,cc=h2,dd=h3,e=h4,f=h5,g=h6,hh=h7;
-      for(var i=0;i<64;i++){
-        var S1=((e>>>6)|(e<<26))^((e>>>11)|(e<<21))^((e>>>25)|(e<<7));
-        var ch=(e&f)^(~e&g);
-        var t1=(hh+S1+ch+SHA256_K[i]+W[i])>>>0;
-        var S0=((a>>>2)|(a<<30))^((a>>>13)|(a<<19))^((a>>>22)|(a<<10));
-        var mj=(a&b)^(a&cc)^(b&cc);
-        var t2=(S0+mj)>>>0;
-        hh=g; g=f; f=e; e=(dd+t1)>>>0; dd=cc; cc=b; b=a; a=(t1+t2)>>>0;
-      }
-      h0=(h0+a)>>>0; h1=(h1+b)>>>0; h2=(h2+cc)>>>0; h3=(h3+dd)>>>0;
-      h4=(h4+e)>>>0; h5=(h5+f)>>>0;  h6=(h6+g)>>>0; h7=(h7+hh)>>>0;
+    for(var i=0;i<16;i++){ W[i]=(p[off+i*4]<<24)|(p[off+i*4+1]<<16)|(p[off+i*4+2]<<8)|p[off+i*4+3]; }
+    for(var i=16;i<64;i++){
+      var w15=W[i-15], w2=W[i-2];
+      var s0=((w15>>>7)|(w15<<25))^((w15>>>18)|(w15<<14))^(w15>>>3);
+      var s1=((w2>>>17)|(w2<<15))^((w2>>>19)|(w2<<13))^(w2>>>10);
+      W[i]=(W[i-16]+s0+W[i-7]+s1)>>>0;
     }
-    // Return as 32-byte Uint8Array
-    var out=new Uint8Array(32);
-    var hs=[h0,h1,h2,h3,h4,h5,h6,h7];
-    for(var i=0;i<8;i++){
-      out[i*4]=(hs[i]>>>24)&0xff; out[i*4+1]=(hs[i]>>>16)&0xff;
-      out[i*4+2]=(hs[i]>>>8)&0xff; out[i*4+3]=hs[i]&0xff;
+    var a=h[0],b=h[1],cc=h[2],dd=h[3],e=h[4],f=h[5],g=h[6],hh=h[7];
+    for(var i=0;i<64;i++){
+      var S1=((e>>>6)|(e<<26))^((e>>>11)|(e<<21))^((e>>>25)|(e<<7));
+      var ch=(e&f)^(~e&g);
+      var t1=(hh+S1+ch+SHA256_K[i]+W[i])>>>0;
+      var S0=((a>>>2)|(a<<30))^((a>>>13)|(a<<19))^((a>>>22)|(a<<10));
+      var mj=(a&b)^(a&cc)^(b&cc);
+      var t2=(S0+mj)>>>0;
+      hh=g; g=f; f=e; e=(dd+t1)>>>0; dd=cc; cc=b; b=a; a=(t1+t2)>>>0;
     }
-    return out;
+    h[0]=(h[0]+a)>>>0; h[1]=(h[1]+b)>>>0; h[2]=(h[2]+cc)>>>0; h[3]=(h[3]+dd)>>>0;
+    h[4]=(h[4]+e)>>>0; h[5]=(h[5]+f)>>>0;  h[6]=(h[6]+g)>>>0; h[7]=(h[7]+hh)>>>0;
   }
-  function leadingZeroBits(bytes){
-    var bits=0;
-    for(var i=0;i<bytes.length;i++){
-      if(bytes[i]===0){ bits+=8; continue; }
-      var b=bytes[i];
-      while((b&0x80)===0){ bits++; b<<=1; }
+  // powHasher(seed) returns n -> the number of leading zero bits of
+  // SHA-256(seed + ":" + n), the figure the proof-of-work compares with the
+  // difficulty -- bit for bit what hashing the string gives, computed
+  // without building the string.  The loop used to make a string, a byte
+  // array and two typed arrays for every nonce, and the allocation cost
+  // more than the arithmetic.  Here the prefix (seed and colon) is encoded
+  // once; the blocks it fills whole are compressed once, into a midstate
+  // (a 64-character seed fills one); and per nonce only the digits, the
+  // padding and the length are written into one kept buffer, and the
+  // remaining block or two compressed from the midstate.
+  function powHasher(seed){
+    var pre=utf8Bytes(seed+':');
+    var full=pre.length-(pre.length%64);
+    var mid=new Uint32Array([0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19]);
+    for(var c=0;c<full;c+=64) sha256Compress(mid,pre,c);
+    var tail=pre.length-full;
+    // Room for the prefix tail, sixteen digits, the 0x80, and the length.
+    var buf=new Uint8Array(Math.ceil((tail+16+9)/64)*64);
+    for(var i=0;i<tail;i++) buf[i]=pre[full+i];
+    var st=new Uint32Array(8), digits=new Uint8Array(16);
+    return function(n){
+      var nd=0, m=n;
+      if(m===0){ digits[0]=48; nd=1; }
+      while(m>0){ var d=m%10; digits[nd++]=48+d; m=(m-d)/10; }
+      var p=tail;
+      while(nd>0) buf[p++]=digits[--nd];
+      var msgLen=full+p;
+      buf[p++]=0x80;
+      var padded=Math.ceil((p+8)/64)*64;
+      for(var z=p;z<padded-4;z++) buf[z]=0;
+      var bitLen=msgLen*8;
+      buf[padded-4]=(bitLen>>>24)&0xff; buf[padded-3]=(bitLen>>>16)&0xff;
+      buf[padded-2]=(bitLen>>>8)&0xff;  buf[padded-1]=bitLen&0xff;
+      st.set(mid);
+      for(var c=0;c<padded;c+=64) sha256Compress(st,buf,c);
+      var bits=0;
+      for(var i=0;i<8;i++){ if(st[i]===0){ bits+=32; continue; } return bits+Math.clz32(st[i]); }
       return bits;
-    }
-    return bits;
+    };
   }
   // ---- PoW solve loop ----
   //
@@ -1616,11 +1629,12 @@
       // loop, and the visitor pays the slow path the worker exists to avoid.
       var src='var SHA256_K=new Uint32Array(['+Array.prototype.join.call(SHA256_K,',')+']);'+
         'var SHA256_W=new Uint32Array(64);'+
-        utf8Bytes.toString()+sha256.toString()+leadingZeroBits.toString()+
+        utf8Bytes.toString()+sha256Compress.toString()+powHasher.toString()+
         'onmessage=function(e){'+
         'var seed=e.data.seed,diff=e.data.diff,max=e.data.max,batch=e.data.batch;'+
+        'var bitsOf=powHasher(seed);'+
         'for(var n=0;n<max;n++){'+
-        'if(leadingZeroBits(sha256(seed+":"+n))>=diff){postMessage({found:n});return;}'+
+        'if(bitsOf(n)>=diff){postMessage({found:n});return;}'+
         'if(n%batch===0&&n>0)postMessage({progress:n});'+
         '}postMessage({found:0});};';
       var url, w;
@@ -1651,11 +1665,11 @@
     // background-tab clamp if the visitor looks away.
     target = 0;
     nonce = 0;
+    var bitsOf=powHasher(seed);
     while(nonce<MAX_ITER){
       var batchEnd=Math.min(nonce+BATCH, MAX_ITER);
       for(;nonce<batchEnd;nonce++){
-        var h=sha256(seed+':'+nonce);
-        if(leadingZeroBits(h)>=powDiff){ target=nonce; nonce=MAX_ITER; break; }
+        if(bitsOf(nonce)>=powDiff){ target=nonce; nonce=MAX_ITER; break; }
       }
       if(target>0)break;
       powProgress(nonce);
