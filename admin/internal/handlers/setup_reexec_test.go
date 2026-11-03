@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -30,7 +31,9 @@ func TestSetupWizardDBSwitchTriggersReexec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open boot db: %v", err)
 	}
-	// No Close cleanup for conn: a successful switch closes the boot handle.
+	// The boot handle stays the daemon's across a switch (the re-exec is
+	// what rebinds), so the test closes it.
+	t.Cleanup(func() { _ = conn.Close() })
 
 	h := &Handler{DB: conn, ConfigPath: cfgPath}
 	h.SetSettings(settings.Settings{DB: settings.DB{Driver: "sqlite", SQLitePath: bootPath}})
@@ -87,7 +90,12 @@ func TestSetupWizardDBSwitchTriggersReexec(t *testing.T) {
 	if fired != 1 {
 		t.Fatalf("a DB switch must schedule the re-exec exactly once, fired=%d", fired)
 	}
-	if h.DB == conn {
-		t.Fatal("install did not swap the live handle to the new DB")
+	// The live handle is not swapped under the request goroutines and the
+	// workers that read it without a lock: the re-exec rebinds them all.
+	if h.DB != conn {
+		t.Fatal("install swapped the live handle in place; the re-exec is what rebinds")
+	}
+	if err := h.DB.PingContext(context.Background()); err != nil {
+		t.Fatalf("install closed the boot handle the daemon still serves from: %v", err)
 	}
 }

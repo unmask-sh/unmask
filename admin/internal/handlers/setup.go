@@ -1202,29 +1202,31 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 			applyWizardOptions(live, s.Options)
 		}
 	})
-	if old != nil && old != conn {
-		_ = old.Close()
+	if switched {
+		// The handle the wizard opened on the new database: its work (the
+		// schema, the admin) is committed, and the re-exec opens its own.
+		_ = conn.Close()
 	}
 	// 5. seal the wizard.  removeSetupToken is a no-op when reconfiguring (the
 	// bootstrap token is already gone); drop the in-flight state by the same
-	// mode-aware key it was stored under (stateKey was captured pre-swap).
+	// mode-aware key it was stored under (stateKey was captured before).
 	removeSetupToken()
 	dropWizardState(stateKey)
-	// A DB switch (e.g. to MariaDB) opened a fresh handle and closed the boot
-	// one; the background workers are still bound to the old handle, so only a
-	// restart re-binds them.  Flag it so the done page makes the restart
-	// mandatory instead of optional.  An unchanged DB reused the live handle and
-	// needs no restart.
+	// A DB switch (e.g. to MariaDB) leaves the daemon on the boot handle: the
+	// request path and the background workers alike are bound to it, so only
+	// a restart re-binds them.  Flag it so the done page makes the restart
+	// mandatory instead of optional.  An unchanged DB kept the live handle
+	// and needs no restart.
 	done := base + "/admin/setup/done"
-	if old != conn {
+	if switched {
 		done += "?restart=1"
 	}
 	http.Redirect(w, r, done, http.StatusFound)
-	if old != conn {
-		// A DB switch orphaned the background workers (hourly aggregate / prune /
-		// event flusher still hold the now-closed boot handle), which silently
-		// breaks the funnel + serve recording until a restart.  Re-exec so they
-		// rebind to the new DB -- no manual restart needed.
+	if switched {
+		// A DB switch would leave the daemon on the old database (the funnel
+		// and the serve recording silently on the wrong one) until a restart.
+		// Re-exec so everything rebinds to the new DB -- no manual restart
+		// needed.
 		scheduleReexecFn()
 	}
 }
