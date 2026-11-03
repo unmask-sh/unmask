@@ -57,6 +57,7 @@
 #include "ja4_parser.h"
 #include "bv_parser.h"
 #include "ja4_build.h"
+#include "ban_list.h"
 
 #define NGX_JA4_MAX 64
 
@@ -137,37 +138,39 @@ typedef struct {
     ngx_int_t   bind_key_index;
 } ngx_http_ja4_main_conf_t;
 
-/* ban list entry: "<ip>|<ja4>|<source>|<action>" sorted ASC by the ip|ja4
- * prefix for binary search.  worker scope (= re-loaded on mtime change).
- * keys[i] points at "ip|ja4" (= NUL-terminated in-place where '|' before
- * source used to be).  actions[i] points at the action token after that
- * NUL ("deny" / "pow_only" / "pow_then_captcha" / "captcha_only"). */
 /* A prefix ban: an ip-only line whose address carries a /len (the daemon's
  * /64 escalation of IPv6 bans; an operator's CIDR).  Kept apart from the
  * exact keys and matched after them, so a more specific line wins. */
 typedef struct {
-    ngx_cidr_t  cidr;
-    char       *action;
+    ngx_cidr_t   cidr;
+    const char  *action;
 } ngx_unmask_ban_cidr_t;
 
+/* The ban list this worker holds.  The file's bytes and the rows that point
+ * into them (ban_list.h) live in one pool, destroyed when the next load
+ * replaces it; a lookup copies the action it answers with into the request
+ * pool, so no request keeps a pointer past the swap.
+ *
+ * mtime / size / ino identify the file last loaded, to skip reloads: mtime
+ * alone is a whole second, and the daemon flushes the file on every ban it
+ * places (tmp + rename, so a new inode each time): two bans in the same
+ * second left the second one unapplied until some later write landed in a
+ * different second.  Size and inode tell those apart.  `checked` is when
+ * the file was last stat()ed (ngx_unmask_check_banlist). */
 typedef struct {
-    char    *buf;       /* malloc'd, contains keys + NULs */
-    char   **keys;      /* pointers into buf */
-    char   **actions;   /* parallel array, same length as keys */
-    size_t   nkeys;
-    ngx_unmask_ban_cidr_t *cidrs;   /* prefix rows, in file order */
-    size_t   ncidrs;
-    /* Identity of the file last loaded, to skip reloads.  mtime alone is a
-     * whole second, and the admin flushes the file on every ban it places
-     * (tmp + rename, so a new inode each time): two bans in the same second
-     * left the second one unapplied until some later write landed in a
-     * different second.  Size and inode tell those apart. */
-    time_t   mtime;
-    off_t    size;
-    ino_t    ino;
+    ngx_pool_t             *pool;
+    unmask_ban_row_t       *rows;      /* exact "<ip>|<ja4>" keys, sorted */
+    size_t                  nrows;
+    ngx_unmask_ban_cidr_t  *cidrs;     /* prefix rows, in file order */
+    size_t                  ncidrs;
+    time_t                  mtime;
+    off_t                   size;
+    ino_t                   ino;
+    time_t                  checked;
 } ngx_unmask_banlist_t;
 
-/* per-worker ban list. Reloaded lazily on every variable evaluation if mtime changed. */
+/* per-worker ban list, reloaded when the file changes (= worker scope: the
+ * file is read by every worker, into its own memory). */
 /* gcc 4.4 (= CentOS 6) warns on `= {0}` with a missing-initializer.
    The C standard zero-initializes static storage, so no explicit init
    is needed. */
@@ -1866,173 +1869,188 @@ ngx_http_unmask_bv_pow_valid_variable(ngx_http_request_t *r,
  * $unmask_ban_action is the action token on hit, "" otherwise -- the
  * server-block render switches on it (= return 403 vs rewrite challenge).
  *
- * Change watch: the first lookup in a request calls stat() (mtime, size and
- * inode compared) and reloads on a change; the answer is kept in the request
+ * Change watch: the first lookup in a request asks ngx_unmask_check_banlist,
+ * which stat()s the file at most once a second per worker (mtime, size and
+ * inode compared) and reloads it on a change -- whole, into the worker's own
+ * memory, through the parser in ban_list.c; the answer is kept in the request
  * ctx for every later evaluation in that request.
  * Sorted ASC by "ip|ja4"; lookup is bsearch O(log N).
  * ============================================================================ */
 
-#include <sys/stat.h>
+/* The ban file is read whole, by every worker, each time it changes.  A
+ * file past this size is not loaded: the list in force stays, and the error
+ * log says so once a minute.  64 MiB is several hundred thousand rows, far
+ * past what the daemon flushes, and a bound on what one change can cost
+ * each worker in memory and in time on the event loop. */
+#define UNMASK_BAN_FILE_MAX   (64 * 1024 * 1024)
 
-typedef struct { char *key; char *action; } ngx_unmask_ban_row_t;
+/* Drop the list: the file is gone. */
+static void
+ngx_unmask_banlist_clear(void)
+{
+    ngx_unmask_banlist_t *bl = &ngx_unmask_banlist;
 
-static int unmask_ban_row_cmp(const void *a, const void *b) {
-    return strcmp(((const ngx_unmask_ban_row_t *)a)->key,
-                  ((const ngx_unmask_ban_row_t *)b)->key);
+    if (bl->pool != NULL) {
+        ngx_destroy_pool(bl->pool);
+    }
+    ngx_memzero(bl, sizeof(*bl));
 }
 
-/* free old buffers, parse new file content into sorted keys[] */
-static int ngx_unmask_load_banlist(const char *path) {
-    FILE *fp;
-    long  size;
-    char *buf;
-    size_t cap = 0;
+/* Read and parse the file into a fresh pool and swap it in.  Returns NGX_OK
+ * (fi holds the identity of the bytes read, taken from the open descriptor,
+ * not from whatever the path named a moment earlier), NGX_DECLINED when the
+ * file is not there, or NGX_ERROR after saying why: the list in force stays
+ * on an error. */
+static ngx_int_t
+ngx_unmask_load_banlist(const char *path, ngx_log_t *log, ngx_file_info_t *fi)
+{
+    ngx_fd_t               fd;
+    ngx_file_t             file;
+    ngx_pool_t            *pool, *old;
+    ngx_err_t              err;
+    off_t                  size;
+    ssize_t                n;
+    size_t                 nrows, nprefixes, i;
+    char                  *buf;
+    unmask_ban_row_t      *rows;
+    unmask_ban_prefix_t   *prefixes;
+    ngx_unmask_ban_cidr_t *cidrs;
+    ngx_unmask_banlist_t  *bl = &ngx_unmask_banlist;
 
-    if (path == NULL || *path == '\0') {
-        return -1;
+    fd = ngx_open_file(path, NGX_FILE_RDONLY, NGX_FILE_OPEN, 0);
+    if (fd == NGX_INVALID_FILE) {
+        err = ngx_errno;
+        if (err == NGX_ENOENT) {
+            return NGX_DECLINED;
+        }
+        if (ngx_unmask_log_due(UNMASK_LOG_BAN_STAT)) {
+            ngx_log_error(NGX_LOG_ERR, log, err,
+                          "unmask: ban file \"%s\" cannot be read by this "
+                          "worker; no ban is enforced (check the directory "
+                          "and file permissions: unmask doctor)", path);
+        }
+        return NGX_ERROR;
     }
-    fp = fopen(path, "rb");
-    if (!fp) return -1;
-    if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); return -1; }
-    size = ftell(fp);
-    if (size < 0) { fclose(fp); return -1; }
-    if (fseek(fp, 0, SEEK_SET) != 0) { fclose(fp); return -1; }
-    buf = (char *)malloc((size_t)size + 1);
-    if (!buf) { fclose(fp); return -1; }
-    if (size > 0 && fread(buf, 1, (size_t)size, fp) != (size_t)size) {
-        free(buf); fclose(fp); return -1;
+    if (ngx_fd_info(fd, fi) == NGX_FILE_ERROR) {
+        err = ngx_errno;
+        ngx_close_file(fd);
+        if (ngx_unmask_log_due(UNMASK_LOG_BAN_LOAD)) {
+            ngx_log_error(NGX_LOG_ERR, log, err,
+                          "unmask: ban file \"%s\" could not be loaded "
+                          "(" ngx_fd_info_n " failed); the previous list "
+                          "stays in force", path);
+        }
+        return NGX_ERROR;
     }
-    buf[size] = '\0';
-    fclose(fp);
-
-    /* count newlines as upper bound */
-    size_t maxk = 0;
-    for (long i = 0; i < size; i++) if (buf[i] == '\n') maxk++;
-    char **keys = (char **)malloc((maxk + 1) * sizeof(char *));
-    if (!keys) { free(buf); return -1; }
-    char **actions = (char **)malloc((maxk + 1) * sizeof(char *));
-    if (!actions) { free(keys); free(buf); return -1; }
-    ngx_unmask_ban_cidr_t *cidrs =
-        (ngx_unmask_ban_cidr_t *)malloc((maxk + 1) * sizeof(*cidrs));
-    if (!cidrs) { free(actions); free(keys); free(buf); return -1; }
-    size_t ncidr = 0;
-    cap = maxk;
-    (void)cap;
-
-    /* split by '\n' in-place */
-    size_t nk = 0;
-    int sorted = 1;
-    char *p = buf;
-    char *end = buf + size;
-    while (p < end) {
-        char *nl = (char *)memchr(p, '\n', (size_t)(end - p));
-        char *ln_end = (nl != NULL) ? nl : end;
-        /* trim trailing whitespace */
-        while (ln_end > p && (ln_end[-1] == '\r' || ln_end[-1] == ' ' || ln_end[-1] == '\t')) ln_end--;
-        /* trim leading whitespace */
-        char *ln_start = p;
-        while (ln_start < ln_end && (*ln_start == ' ' || *ln_start == '\t')) ln_start++;
-        if (ln_start < ln_end && *ln_start != '#') {
-            *ln_end = '\0';
-            /* parse "ip|ja4|source|action".  Cut the line at the 2nd '|'
-             * so keys[i] is the "ip|ja4" bsearch handle, then walk one
-             * more '|' to reach the action field.  Two-field legacy
-             * lines (= ip|ja4) flush as action="deny" (= safe default). */
-            char *p1 = (char *)memchr(ln_start, '|', (size_t)(ln_end - ln_start));
-            const char *act = "deny";
-            char *p2 = NULL;
-            if (p1 != NULL) {
-                p2 = (char *)memchr(p1 + 1, '|', (size_t)(ln_end - (p1 + 1)));
-                if (p2 != NULL) {
-                    *p2 = '\0';
-                    char *p3 = (char *)memchr(p2 + 1, '|', (size_t)(ln_end - (p2 + 1)));
-                    if (p3 != NULL && p3 + 1 < ln_end) {
-                        act = p3 + 1;
-                    }
-                }
-            }
-            /* An ip-only line whose address carries a prefix length
-             * ("2001:db8:1:2::/64|", "203.0.113.0/24|") is a prefix ban:
-             * parsed once here, matched by mask after the exact keys.  A
-             * line that does not parse is skipped rather than kept as a
-             * key no address could ever equal. */
-            if (p1 != NULL && memchr(ln_start, '/', (size_t)(p1 - ln_start)) != NULL
-                && (p2 == NULL ? (p1 + 1 == ln_end) : (p2 == p1 + 1)))
-            {
-                ngx_str_t  txt;
-                ngx_int_t  rc;
-                txt.data = (u_char *)ln_start;
-                txt.len  = (size_t)(p1 - ln_start);
-                rc = ngx_ptocidr(&txt, &cidrs[ncidr].cidr);
-                if (rc == NGX_OK || rc == NGX_DONE) {
-                    cidrs[ncidr].action = (char *)act;
-                    ncidr++;
-                }
-            } else {
-                keys[nk] = ln_start;
-                actions[nk] = (char *)act;
-                if (nk > 0 && sorted && strcmp(keys[nk - 1], keys[nk]) > 0) {
-                    sorted = 0;
-                }
-                nk++;
-            }
+    size = ngx_file_size(fi);
+    if (size < 0 || size > UNMASK_BAN_FILE_MAX) {
+        ngx_close_file(fd);
+        if (ngx_unmask_log_due(UNMASK_LOG_BAN_LOAD)) {
+            ngx_log_error(NGX_LOG_ERR, log, 0,
+                          "unmask: ban file \"%s\" is %O bytes, above the "
+                          "%d MiB this module loads; the previous list stays "
+                          "in force", path, size, UNMASK_BAN_FILE_MAX / (1024 * 1024));
         }
-        if (nl == NULL) break;
-        p = nl + 1;
-    }
-    /* sort ASC by key (= ip|ja4), each action travelling with its key.  The
-     * daemon writes the file sorted, but a hand-written or an older file is
-     * not, and the insertion sort this replaces walked a few ten thousand
-     * unsorted lines for seconds, inside a request, on every worker; its
-     * out-of-memory fallback sorted keys[] alone and left actions[] behind. */
-    if (nk > 1 && !sorted) {
-        ngx_unmask_ban_row_t *rows =
-            (ngx_unmask_ban_row_t *)malloc(nk * sizeof(*rows));
-        if (rows == NULL) {
-            free(cidrs); free(keys); free(actions); free(buf);
-            return -1;
-        }
-        for (size_t i = 0; i < nk; i++) {
-            rows[i].key = keys[i];
-            rows[i].action = actions[i];
-        }
-        qsort(rows, nk, sizeof(*rows), unmask_ban_row_cmp);
-        for (size_t i = 0; i < nk; i++) {
-            keys[i] = rows[i].key;
-            actions[i] = rows[i].action;
-        }
-        free(rows);
+        return NGX_ERROR;
     }
 
-    /* swap into global */
-    char *old_buf = ngx_unmask_banlist.buf;
-    char **old_keys = ngx_unmask_banlist.keys;
-    char **old_actions = ngx_unmask_banlist.actions;
-    ngx_unmask_ban_cidr_t *old_cidrs = ngx_unmask_banlist.cidrs;
-    ngx_unmask_banlist.buf = buf;
-    ngx_unmask_banlist.keys = keys;
-    ngx_unmask_banlist.actions = actions;
-    ngx_unmask_banlist.nkeys = nk;
-    ngx_unmask_banlist.cidrs = cidrs;
-    ngx_unmask_banlist.ncidrs = ncidr;
-    free(old_buf);
-    free(old_keys);
-    free(old_actions);
-    free(old_cidrs);
-    return 0;
+    /* The worker's log, not the request's: this pool outlives the request
+     * that triggered the load. */
+    pool = ngx_create_pool(4096, ngx_cycle->log);
+    if (pool == NULL) {
+        ngx_close_file(fd);
+        return NGX_ERROR;
+    }
+    buf = ngx_palloc(pool, (size_t) size + 1);
+    if (buf == NULL) {
+        goto nomem;
+    }
+    ngx_memzero(&file, sizeof(ngx_file_t));
+    file.fd = fd;
+    file.log = log;
+    file.name.data = (u_char *) path;
+    file.name.len = ngx_strlen(path);
+    n = ngx_read_file(&file, (u_char *) buf, (size_t) size, 0);
+    ngx_close_file(fd);
+    if (n != size) {
+        /* ngx_read_file said what failed; a short read is a file that
+         * changed while it was read (the next check reloads it). */
+        ngx_destroy_pool(pool);
+        if (n >= 0 && ngx_unmask_log_due(UNMASK_LOG_BAN_LOAD)) {
+            ngx_log_error(NGX_LOG_ERR, log, 0,
+                          "unmask: ban file \"%s\" changed while it was read; "
+                          "the previous list stays in force", path);
+        }
+        return NGX_ERROR;
+    }
+
+    unmask_ban_count(buf, (size_t) size, &nrows, &nprefixes);
+    rows = ngx_palloc(pool, (nrows + 1) * sizeof(*rows));
+    prefixes = ngx_palloc(pool, (nprefixes + 1) * sizeof(*prefixes));
+    cidrs = ngx_palloc(pool, (nprefixes + 1) * sizeof(*cidrs));
+    if (rows == NULL || prefixes == NULL || cidrs == NULL) {
+        goto nomem;
+    }
+    if (unmask_ban_parse(buf, (size_t) size, rows, nrows, &nrows,
+                         prefixes, nprefixes, &nprefixes) != 0)
+    {
+        /* Cannot happen: the count sized the arrays.  Treated as a load
+         * failure rather than trusted. */
+        ngx_destroy_pool(pool);
+        return NGX_ERROR;
+    }
+
+    /* Prefix rows become nginx CIDRs here; one that does not parse is
+     * skipped rather than kept as a key no address could ever equal.
+     * NGX_DONE (address bits outside the mask) is accepted, masked. */
+    bl->ncidrs = 0;
+    for (i = 0; i < nprefixes; i++) {
+        ngx_str_t  txt;
+        ngx_int_t  rc;
+        size_t     nc = bl->ncidrs;
+
+        txt.data = (u_char *) prefixes[i].prefix;
+        txt.len = prefixes[i].prefix_len;
+        rc = ngx_ptocidr(&txt, &cidrs[nc].cidr);
+        if (rc == NGX_OK || rc == NGX_DONE) {
+            cidrs[nc].action = prefixes[i].action;
+            bl->ncidrs = nc + 1;
+        }
+    }
+
+    old = bl->pool;
+    bl->pool = pool;
+    bl->rows = rows;
+    bl->nrows = nrows;
+    bl->cidrs = cidrs;
+    if (old != NULL) {
+        ngx_destroy_pool(old);
+    }
+    return NGX_OK;
+
+nomem:
+    ngx_destroy_pool(pool);
+    if (ngx_unmask_log_due(UNMASK_LOG_BAN_LOAD)) {
+        ngx_log_error(NGX_LOG_ERR, log, 0,
+                      "unmask: no memory to load the ban file \"%s\" "
+                      "(%O bytes); the previous list stays in force",
+                      path, size);
+    }
+    return NGX_ERROR;
 }
 
 /* Prefix bans: the client's address against every /len row.  Linear, but
  * the rows are the daemon's escalations and an operator's CIDRs, a handful
  * at most, and this runs once per request after the exact lookups missed. */
-static int ngx_unmask_banlist_cidr_lookup(struct sockaddr *sa,
-                                          const char **action_out)
+static const char *
+ngx_unmask_banlist_cidr_lookup(struct sockaddr *sa)
 {
     size_t i;
+    ngx_unmask_banlist_t *bl = &ngx_unmask_banlist;
 
-    if (sa == NULL) return 0;
-    for (i = 0; i < ngx_unmask_banlist.ncidrs; i++) {
-        ngx_unmask_ban_cidr_t *e = &ngx_unmask_banlist.cidrs[i];
+    if (sa == NULL) return NULL;
+    for (i = 0; i < bl->ncidrs; i++) {
+        ngx_unmask_ban_cidr_t *e = &bl->cidrs[i];
         if (e->cidr.family != (ngx_uint_t) sa->sa_family) continue;
 #if (NGX_HAVE_INET6)
         if (sa->sa_family == AF_INET6) {
@@ -2046,8 +2064,7 @@ static int ngx_unmask_banlist_cidr_lookup(struct sockaddr *sa,
                 }
             }
             if (n == 16) {
-                if (action_out) *action_out = e->action;
-                return 1;
+                return e->action;
             }
             continue;
         }
@@ -2055,45 +2072,40 @@ static int ngx_unmask_banlist_cidr_lookup(struct sockaddr *sa,
         if (sa->sa_family == AF_INET) {
             in_addr_t a = ((struct sockaddr_in *) sa)->sin_addr.s_addr;
             if ((a & e->cidr.u.in.mask) == e->cidr.u.in.addr) {
-                if (action_out) *action_out = e->action;
-                return 1;
+                return e->action;
             }
         }
     }
-    return 0;
+    return NULL;
 }
 
-/* binary search for "<ip>|<ja4>" in sorted keys[].  On hit, returns 1
- * and (when action_out != NULL) hands back the parallel action slot. */
-static int ngx_unmask_banlist_lookup(const char *key, const char **action_out) {
-    if (action_out) *action_out = "";
-    if (ngx_unmask_banlist.nkeys == 0) return 0;
-    size_t lo = 0, hi = ngx_unmask_banlist.nkeys;
-    while (lo < hi) {
-        size_t mid = (lo + hi) / 2;
-        int c = strcmp(ngx_unmask_banlist.keys[mid], key);
-        if (c == 0) {
-            if (action_out && ngx_unmask_banlist.actions) {
-                *action_out = ngx_unmask_banlist.actions[mid];
-            }
-            return 1;
-        }
-        if (c < 0) lo = mid + 1; else hi = mid;
+/* Reload the list when the file changed, asking the kernel at most once a
+ * second (ngx_time() is nginx's cached clock, so on the request path this
+ * costs a comparison).  A ban the daemon places is in force within the
+ * second; a worker serving thousands of requests a second no longer
+ * stat()s the file on each of them.  The daemon writes a complete file and
+ * renames it over the old one, so a reader sees either list, never a
+ * partial one. */
+static void
+ngx_unmask_check_banlist(const char *path, ngx_log_t *log)
+{
+    ngx_file_info_t        fi;
+    ngx_err_t              err;
+    ngx_int_t              rc;
+    time_t                 now = ngx_time();
+    ngx_unmask_banlist_t  *bl = &ngx_unmask_banlist;
+
+    if (bl->checked == now) {
+        return;
     }
-    return 0;
-}
+    bl->checked = now;
 
-
-/* Lazy reload when the file changed (mtime, size or inode): one stat() per
- * request, from the ban lookup below. */
-static void ngx_unmask_maybe_reload_banlist(const char *path, ngx_log_t *log) {
-    struct stat st;
-    if (stat(path, &st) != 0) {
-        int err = errno;
+    if (ngx_file_info(path, &fi) == NGX_FILE_ERROR) {
+        err = ngx_errno;
         /* file gone -> empty list.  Said when it is not merely absent: a
          * permission or label change leaves every ban unenforced, and that
          * is invisible from a module that stays silent. */
-        if (err == ENOENT) {
+        if (err == NGX_ENOENT) {
             /* Absent is normal only before the daemon's first write; an
              * operator reads this at the "error" level the distributions
              * ship, so it says what is (not) enforced. */
@@ -2109,37 +2121,30 @@ static void ngx_unmask_maybe_reload_banlist(const char *path, ngx_log_t *log) {
                           "worker; no ban is enforced (check the directory "
                           "and file permissions: unmask doctor)", path);
         }
-        if (ngx_unmask_banlist.nkeys != 0 || ngx_unmask_banlist.ncidrs != 0) {
-            free(ngx_unmask_banlist.buf);
-            free(ngx_unmask_banlist.keys);
-            free(ngx_unmask_banlist.actions);
-            free(ngx_unmask_banlist.cidrs);
-            ngx_unmask_banlist.buf = NULL;
-            ngx_unmask_banlist.keys = NULL;
-            ngx_unmask_banlist.actions = NULL;
-            ngx_unmask_banlist.cidrs = NULL;
-            ngx_unmask_banlist.nkeys = 0;
-            ngx_unmask_banlist.ncidrs = 0;
-            ngx_unmask_banlist.mtime = 0;
-            ngx_unmask_banlist.size = 0;
-            ngx_unmask_banlist.ino = 0;
+        if (bl->pool != NULL) {
+            ngx_unmask_banlist_clear();
+            bl->checked = now;
         }
         return;
     }
-    if (st.st_mtime == ngx_unmask_banlist.mtime
-        && st.st_size == ngx_unmask_banlist.size
-        && st.st_ino == ngx_unmask_banlist.ino) {
+    if (ngx_file_mtime(&fi) == bl->mtime
+        && ngx_file_size(&fi) == bl->size
+        && ngx_file_uniq(&fi) == bl->ino)
+    {
         return;
     }
-    if (ngx_unmask_load_banlist(path) == 0) {
-        ngx_unmask_banlist.mtime = st.st_mtime;
-        ngx_unmask_banlist.size = st.st_size;
-        ngx_unmask_banlist.ino = st.st_ino;
-    } else if (ngx_unmask_log_due(UNMASK_LOG_BAN_LOAD)) {
-        ngx_log_error(NGX_LOG_ERR, log, errno,
-                      "unmask: ban file \"%s\" could not be loaded; "
-                      "the previous list stays in force", path);
+    rc = ngx_unmask_load_banlist(path, log, &fi);
+    if (rc == NGX_OK) {
+        bl->mtime = ngx_file_mtime(&fi);
+        bl->size = ngx_file_size(&fi);
+        bl->ino = ngx_file_uniq(&fi);
+    } else if (rc == NGX_DECLINED && bl->pool != NULL) {
+        /* Renamed away between the stat and the open: gone. */
+        ngx_unmask_banlist_clear();
+        bl->checked = now;
     }
+    /* NGX_ERROR: the loader said why; the identity stays as it was, so the
+     * next second tries again. */
 }
 
 /* One ban-file lookup per request (see ngx_http_unmask_req_ctx_t): the list
@@ -2159,8 +2164,7 @@ ngx_unmask_ban_lookup_req(ngx_http_request_t *r, int *hit, ngx_str_t *action)
     size_t iplen;
     u_char *ja4_data = (u_char *)"";
     size_t  ja4_len  = 0;
-    const char *act = "";
-    int found = 0;
+    const char *act = NULL;
 
     *hit = 0;
     action->len = 0;
@@ -2182,8 +2186,8 @@ ngx_unmask_ban_lookup_req(ngx_http_request_t *r, int *hit, ngx_str_t *action)
     ngx_memcpy(path, mcf->ban_file_path.data, mcf->ban_file_path.len);
     path[mcf->ban_file_path.len] = '\0';
 
-    ngx_unmask_maybe_reload_banlist(path, r->connection->log);
-    if (ngx_unmask_banlist.nkeys == 0 && ngx_unmask_banlist.ncidrs == 0) {
+    ngx_unmask_check_banlist(path, r->connection->log);
+    if (ngx_unmask_banlist.nrows == 0 && ngx_unmask_banlist.ncidrs == 0) {
         goto done;
     }
 
@@ -2212,25 +2216,25 @@ ngx_unmask_ban_lookup_req(ngx_http_request_t *r, int *hit, ngx_str_t *action)
     key[iplen] = '|';
     if (ja4_len) ngx_memcpy(key + iplen + 1, ja4_data, ja4_len);
     key[iplen + 1 + ja4_len] = '\0';
-    found = ngx_unmask_banlist_lookup(key, &act);
-    if (!found && ja4_len > 0) {
+    act = unmask_ban_lookup(ngx_unmask_banlist.rows, ngx_unmask_banlist.nrows, key);
+    if (act == NULL && ja4_len > 0) {
         key[0] = '|';
         ngx_memcpy(key + 1, ja4_data, ja4_len);
         key[1 + ja4_len] = '\0';
-        found = ngx_unmask_banlist_lookup(key, &act);
+        act = unmask_ban_lookup(ngx_unmask_banlist.rows, ngx_unmask_banlist.nrows, key);
     }
-    if (!found) {
+    if (act == NULL) {
         ngx_memcpy(key, ip, iplen);
         key[iplen] = '|';
         key[iplen + 1] = '\0';
-        found = ngx_unmask_banlist_lookup(key, &act);
+        act = unmask_ban_lookup(ngx_unmask_banlist.rows, ngx_unmask_banlist.nrows, key);
     }
-    if (!found && ngx_unmask_banlist.ncidrs > 0) {
-        found = ngx_unmask_banlist_cidr_lookup(r->connection->sockaddr, &act);
+    if (act == NULL && ngx_unmask_banlist.ncidrs > 0) {
+        act = ngx_unmask_banlist_cidr_lookup(r->connection->sockaddr);
     }
-    if (found) {
+    if (act != NULL) {
         *hit = 1;
-        if (act != NULL && *act != '\0') {
+        if (*act != '\0') {
             /* Copied out: the list's buffer is freed by the next reload, and
              * this request may still be reading its answer after one. */
             size_t alen = strlen(act);
