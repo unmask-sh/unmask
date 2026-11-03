@@ -1163,46 +1163,9 @@ ngx_unmask_ct_memcmp(const void *a, const void *b, size_t n)
     return CRYPTO_memcmp(a, b, n);
 }
 
-/* base36 parse: accepts only [0-9a-zA-Z]. Returns -1 for n>13, empty,
- * invalid char, or overflow.  13 chars is the safe upper bound for an
- * int64 base36 value (= log36(2^63) ~ 12.27). */
-static int64_t
-ngx_unmask_base36(const u_char *s, size_t n)
-{
-    if (n == 0 || n > 13) return -1;
-    int64_t v = 0;
-    for (size_t i = 0; i < n; i++) {
-        u_char c = s[i];
-        int d;
-        if (c >= '0' && c <= '9')      d = c - '0';
-        else if (c >= 'a' && c <= 'z') d = c - 'a' + 10;
-        else if (c >= 'A' && c <= 'Z') d = c - 'A' + 10;
-        else return -1;
-        /* overflow guard: pre-check that 36 * v + d <= INT64_MAX. */
-        if (v > (INT64_MAX - d) / 36) return -1;
-        v = v * 36 + d;
-    }
-    return v;
-}
-
-/* leading_zero_bits: count consecutive 0 bits starting from the MSB of
- * a byte sequence.  Matches challenge.js leadingZeroBits() and Go
- * cookies.leadingZeroBits(). */
-static int
-ngx_unmask_leading_zero_bits(const unsigned char *b, size_t n)
-{
-    int bits = 0;
-    for (size_t i = 0; i < n; i++) {
-        if (b[i] == 0) { bits += 8; continue; }
-        unsigned char v = b[i];
-        for (unsigned char mask = 0x80; mask != 0; mask >>= 1) {
-            if (v & mask) return bits;
-            bits++;
-        }
-        return bits;
-    }
-    return bits;
-}
+/* The base-36 nonce reader and the proof-of-work's leading-zero count live
+ * in bv_parser.c (bv_base36, bv_leading_zero_bits), with the unit tests that
+ * pin them to challenge.js and the Go cookies package. */
 
 /* ngx_unmask_get_host: read nginx's built-in $host (lowercased + port-stripped)
  * for this request.  Folded into the _bv HMAC / PoW seed so a cookie minted on
@@ -1268,7 +1231,7 @@ ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
     if (cookie_unix > now + UNMASK_BV_FUTURE_SKEW_SECONDS) return 0;
     if (now - cookie_unix > (int64_t)valid_seconds) return 0;
 
-    int64_t nonce = ngx_unmask_base36(nonce_s, nonce_n);
+    int64_t nonce = bv_base36(nonce_s, nonce_n);
     if (nonce < 0) return 0;
 
     /* seed = hex(HMAC(bv_secret, "<issued_unix>:<remote>:<host>:pow_seed"))[:40].
@@ -1307,7 +1270,7 @@ ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
         unsigned char hash[SHA256_DIGEST_LENGTH];
         SHA256((const unsigned char *)input, (size_t)ilen, hash);
 
-        if (ngx_unmask_leading_zero_bits(hash, SHA256_DIGEST_LENGTH) >= difficulty) {
+        if (bv_leading_zero_bits(hash, SHA256_DIGEST_LENGTH) >= difficulty) {
             if (id_out != NULL) {
                 ngx_memcpy(id_out, seed_hex, UNMASK_BV_ID_LEN);
             }
@@ -1370,50 +1333,14 @@ ngx_unmask_verify_pow_sha256_cookie(const u_char *day_s, size_t day_n,
     ((f).tail_len == sizeof(lit) - 1 &&                                 \
      ngx_strncmp((c).data + (f).tail_off, lit, sizeof(lit) - 1) == 0)
 
-/* Yield the next `_bv=value` pair in `header` starting at `*off`.  Used by
- * bv_kind_compute to iterate duplicate cookies — `ngx_http_parse_multi_header_lines`
- * only returns the first match, so a stale invalid `_bv` (= old cookie at a
- * different path shadowing the freshly-set one) would otherwise wedge the
- * caller into an endless challenge loop. */
-static int
-ngx_unmask_next_bv_value(ngx_str_t header, size_t *off, ngx_str_t *value)
-{
-    static const char NAME[] = "_bv";
-    const size_t name_len = sizeof(NAME) - 1;
-
-    while (*off < header.len) {
-        /* Skip ' ', '\t', ';' separators between cookie pairs. */
-        while (*off < header.len &&
-               (header.data[*off] == ' ' || header.data[*off] == '\t' ||
-                header.data[*off] == ';')) {
-            (*off)++;
-        }
-        if (*off >= header.len) return 0;
-
-        size_t name_start = *off;
-        while (*off < header.len &&
-               header.data[*off] != '=' && header.data[*off] != ';') {
-            (*off)++;
-        }
-        size_t name_end = *off;
-        int matched = (name_end - name_start == name_len) &&
-            (ngx_strncmp(header.data + name_start, NAME, name_len) == 0);
-
-        if (*off < header.len && header.data[*off] == '=') {
-            (*off)++;
-            size_t val_start = *off;
-            while (*off < header.len && header.data[*off] != ';') (*off)++;
-            size_t val_end = *off;
-            if (matched) {
-                value->data = header.data + val_start;
-                value->len = val_end - val_start;
-                return 1;
-            }
-        }
-        /* No '=' (= bare name) or non-match: continue past ';'. */
-    }
-    return 0;
-}
+/* The Cookie header splitter is bv_cookie_next (bv_parser.c): it yields every
+ * `_bv=value` pair in turn, because `ngx_http_parse_multi_header_lines`
+ * returns only the first match, and a stale invalid `_bv` (= an old cookie at
+ * a different path shadowing the freshly-set one) would otherwise wedge the
+ * visitor into an endless challenge loop.  It also takes a quoted value and
+ * spaces around '=', which a proxy or an SDK may produce and a browser never
+ * does; the module used to see no cookie at all in those and challenged
+ * again. */
 
 /* ngx_unmask_bind_ip: the per-request client IP folded for the _bv HMAC seed.
  * The pure logic lives in unmask_bind_ip_token (bv_parser.c, fuzz/parity-tested);
@@ -1704,10 +1631,15 @@ ngx_unmask_bv_kind_compute(ngx_http_request_t *r, ngx_str_t *id_out)
         return UNMASK_BV_KIND_NONE;
     }
 
-    size_t off = 0;
+    size_t off = 0, voff = 0, vlen = 0;
     ngx_str_t cookie;
     int budget = UNMASK_BV_VERIFY_BUDGET;
-    while (budget > 0 && ngx_unmask_next_bv_value(header, &off, &cookie)) {
+    while (budget > 0
+           && bv_cookie_next(header.data, header.len, "_bv", sizeof("_bv") - 1,
+                             &off, &voff, &vlen))
+    {
+        cookie.data = header.data + voff;
+        cookie.len = vlen;
         ngx_unmask_bv_kind_t k = ngx_unmask_bv_verify_value(r, mcf, cookie, &budget, id_out);
         if (k != UNMASK_BV_KIND_NONE) {
             return k;
