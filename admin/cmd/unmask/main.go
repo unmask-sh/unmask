@@ -298,11 +298,11 @@ func cmdServe(args []string) error {
 	// the running config means the operator re-keyed or re-rendered but skipped
 	// the nginx RESTART the native module needs — every _bv the daemon issues is
 	// then rejected and visitors loop on the challenge.  This went unnoticed for
-	// hours on 2026-06-08, so surface it loudly at startup; a deploy that forgot
-	// the restart is then obvious in the journal.  No-op in forward-auth mode
+	// hours on a production install once, so surface it loudly at startup; a
+	// deploy that forgot the restart is then obvious in the journal.  No-op in forward-auth mode
 	// (no rendered http.inc) and on a fresh install.
 	if nginxconf.BVSecretDesynced(s.Nginx.OutputDir, s.Secret.BVSecret) {
-		log.Printf("unmask: WARNING: bv_secret desync — rendered http.inc differs from the running config; the native plugin rejects every _bv and loops visitors on the challenge. Run `unmask render-nginx` and RESTART nginx (a reload won't reload the module). See the 2026-06-08 incident.")
+		log.Printf("unmask: WARNING: bv_secret desync — rendered http.inc differs from the running config; the native plugin rejects every _bv and loops visitors on the challenge. Run `unmask render-nginx` and RESTART nginx (a reload won't reload the module).")
 	}
 
 	// Probe the host nginx once so Render picks the rate composition flow: nginx
@@ -481,7 +481,8 @@ func cmdServe(args []string) error {
 		// Handler is built (see below, in the `if banMgr != nil` block), because
 		// it resolves the trap's per-preset action via h.SnapshotSettings (live
 		// settings) and h does not exist yet here.
-		// Never honeypot-ban a rescued search/AI crawler (= CLAUDE.md #4; mirrors
+		// Never honeypot-ban a rescued search/AI crawler (a search crawler must
+		// never be blocked; mirrors
 		// the forward-auth search-bot veto-pass on the access-log ban path).
 		nlog.SetSearchBotCheck(func(ua string) bool {
 			return classify.IsBot(ua, "").String() == "search_ai"
@@ -665,7 +666,8 @@ func cmdServe(args []string) error {
 		// closure over live settings so toggling a preset / adding a bypass IP
 		// applies without a restart, and so it is preset + CIDR-aware: a
 		// crawler range (Googlebot / Bingbot / GPTBot) landing on a honeypot
-		// URI is never auto-banned (CLAUDE.md #4).  The map-based whitelist this
+		// URI is never auto-banned (a search crawler must never be blocked).
+		// The map-based whitelist this
 		// replaces saw only literal operator IPs, not presets or CIDRs.
 		banMgr.SetWhitelist(func(ip string) bool {
 			return nginxconf.NewIPBypassMatcher(h.SnapshotSettings().Nginx).Match(ip)

@@ -27,7 +27,7 @@
 // therefore reads as "session present, CSRF absent" on every hop of
 // such a chain -- the state that turned AuthMiddleware's backfill into
 // a 303 self-redirect loop and locked an operator out of /unmask/admin/
-// (web1-jp, 2026-07-10).  Lax only ever attaches the cookie to
+// (seen on a production install).  Lax only ever attaches the cookie to
 // top-level GET navigations, which never mutate state here.
 //
 // Login submit is intentionally exempt: there is no session yet, so
