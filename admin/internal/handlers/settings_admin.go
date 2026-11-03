@@ -14,10 +14,12 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"io"
 	"log"
 	"net"
@@ -27,6 +29,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"regexp"
+	"runtime/debug"
 	"sort"
 	"strconv"
 	"strings"
@@ -156,18 +159,87 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := h.settingsViewData(w, r, tab)
-	// The retention tab's compaction card shows a run in full; the top bar's
-	// small sign of it (partial_vacuum.html) would only repeat it there.
-	if tab == "retention" {
-		data["VacuumNotice"] = (*VacuumView)(nil)
+	// The page is built and rendered off the connection, within a budget
+	// under the server's write timeout, and written whole: a render that
+	// outran the timeout (the ASN counts, under load, before they were
+	// kept) reached the browser as half a page -- the top, no save button,
+	// no error.  Past the budget the operator gets an error that says so,
+	// and the build goes on in the background for the next request.
+	type rendered struct {
+		header http.Header
+		body   []byte
+		err    error
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	h.addMeToData(r, data)
-	if err := tmpl.ExecuteTemplate(w, "settings.html", data); err != nil {
-		log.Printf("settings render: %v", err)
+	done := make(chan rendered, 1)
+	go func() {
+		out := rendered{header: http.Header{}}
+		defer func() {
+			if rec := recover(); rec != nil {
+				out.err = fmt.Errorf("panic: %v", rec)
+				log.Printf("settings render: PANIC recovered: %v\n%s", rec, debug.Stack())
+			}
+			done <- out
+		}()
+		if settingsRenderHook != nil {
+			settingsRenderHook()
+		}
+		hw := headerWriter{header: out.header}
+		data := h.settingsViewData(hw, r, tab)
+		// The retention tab's compaction card shows a run in full; the top
+		// bar's small sign of it (partial_vacuum.html) would only repeat it
+		// there.
+		if tab == "retention" {
+			data["VacuumNotice"] = (*VacuumView)(nil)
+		}
+		h.addMeToData(r, data)
+		var buf bytes.Buffer
+		if err := tmpl.ExecuteTemplate(&buf, "settings.html", data); err != nil {
+			out.err = err
+			return
+		}
+		out.body = buf.Bytes()
+	}()
+	select {
+	case out := <-done:
+		if out.err != nil {
+			log.Printf("settings render: %v", out.err)
+			http.Error(w, "settings render error", http.StatusInternalServerError)
+			return
+		}
+		for k, vs := range out.header {
+			for _, v := range vs {
+				w.Header().Add(k, v)
+			}
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(out.body)
+	case <-time.After(settingsRenderBudget):
+		log.Printf("settings render: the %s tab took longer than %s to build; the page was not sent (the build goes on for the next request)", tab, settingsRenderBudget)
+		lang := i18n.Resolve(r)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Header().Set("Retry-After", "30")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = fmt.Fprintf(w, "<!doctype html><html><head><meta charset=\"utf-8\"><title>unmask</title></head><body style=\"font-family:sans-serif;margin:2rem\"><p>%s</p></body></html>\n",
+			template.HTMLEscapeString(i18n.T(lang, "err.settings_render_timeout")))
 	}
 }
+
+// settingsRenderBudget is how long AdminSettingsIndex waits for the page:
+// under the server's 60 s write timeout, with room to send it.
+var settingsRenderBudget = 45 * time.Second
+
+// settingsRenderHook runs at the start of a settings page build; nil but in
+// a test (the budget is tested through it).
+var settingsRenderHook func()
+
+// headerWriter is the ResponseWriter the page build writes its headers to
+// (the flash cookies it clears), off the connection; the body is never
+// written through it.
+type headerWriter struct{ header http.Header }
+
+func (w headerWriter) Header() http.Header         { return w.header }
+func (w headerWriter) Write(b []byte) (int, error) { return len(b), nil }
+func (w headerWriter) WriteHeader(int)             {}
 
 // settingsViewData: passes the per-tab data needed by the template.
 // Takes w so flash cookies can be cleared (= readFlash drops them via Set-Cookie).
@@ -5538,7 +5610,7 @@ func (h *Handler) asnProviderView(cfg settings.AsnConfig) []asnProviderRow {
 				pats[hp.ID] = hp.OrgPatterns
 				nums[hp.ID] = hp.ASNs
 			}
-			if c, err := ipgeo.ASNCounts(path, pats, nums); err == nil {
+			if c, err := ipgeo.ASNCountsCached(path, pats, nums); err == nil {
 				counts = c
 				haveCounts = true
 			}
