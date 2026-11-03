@@ -39,6 +39,31 @@ contents:
     file_info:
       mode: 0755
 
+  # The license and the notices.  The binary carries MIT / BSD / ISC / MPL-2.0
+  # code and MIT data (the crawler list, the flags), whose terms, like Apache
+  # 2.0's own section 4, ask that the notices travel with a binary
+  # distribution; a package is one.  rpm marks LICENSE as %license -- a
+  # content type nfpm's deb and apk packagers drop, hence the plain entry
+  # each of those gets for the same file -- and Debian reads the copyright
+  # file (DEP-5) beside it.
+  - src: ../LICENSE
+    dst: /usr/share/doc/unmask/LICENSE
+    type: license
+    packager: rpm
+  - src: ../LICENSE
+    dst: /usr/share/doc/unmask/LICENSE
+    packager: deb
+  - src: ../LICENSE
+    dst: /usr/share/doc/unmask/LICENSE
+    packager: apk
+  - src: ../NOTICE
+    dst: /usr/share/doc/unmask/NOTICE
+  - src: ../THIRD-PARTY-NOTICES.md
+    dst: /usr/share/doc/unmask/THIRD-PARTY-NOTICES.md
+  - src: ./conf/copyright
+    dst: /usr/share/doc/unmask/copyright
+    packager: deb
+
   # vts integration example (= needs a separate module, so we don't include by default — manual copy)
   - src: ../nginx/vts.conf.example
     dst: /usr/share/doc/unmask/vts.conf.example

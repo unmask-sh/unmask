@@ -93,6 +93,10 @@ COPY --from=modbuild /src/nginx-${NGINX_VERSION}/objs/ngx_http_unmask_module.so 
 # The challenge page is served by nginx itself (the module rewrites to it),
 # same path as the host packages use.
 COPY admin/assets/static/challenge.html admin/assets/static/challenge.js /usr/share/unmask/challenge/
+# The license and the notices travel with the image as with the packages
+# (/usr/share/doc/unmask/ there too): the daemon carries MIT / BSD / ISC /
+# MPL-2.0 code and MIT data whose terms ask for them in a binary distribution.
+COPY LICENSE NOTICE THIRD-PARTY-NOTICES.md /usr/share/doc/unmask/
 # load_module has to sit in main context; prepend it to the stock nginx.conf
 # rather than replacing the file, so upstream changes to that file keep
 # flowing through.  The official image ships nginx's own ACME module; loading

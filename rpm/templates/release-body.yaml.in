@@ -73,6 +73,22 @@ contents:
     dst: /usr/share/doc/unmask-release/README
     file_info:
       mode: 0644
+  # The license and the notices, as in the main package.
+  - src: ../LICENSE
+    dst: /usr/share/doc/unmask-release/LICENSE
+    type: license
+    packager: rpm
+  - src: ../LICENSE
+    dst: /usr/share/doc/unmask-release/LICENSE
+    packager: deb
+  - src: ../LICENSE
+    dst: /usr/share/doc/unmask-release/LICENSE
+    packager: apk
+  - src: ../NOTICE
+    dst: /usr/share/doc/unmask-release/NOTICE
+  - src: ./conf/copyright
+    dst: /usr/share/doc/unmask-release/copyright
+    packager: deb
 
 # The repo definition files (= /etc/yum.repos.d/unmask.repo / unmask.sources /
 # repositories.d) are generated dynamically by the postinstall script after it

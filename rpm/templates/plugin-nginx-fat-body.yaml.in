@@ -85,3 +85,22 @@ contents:
     dst: /usr/lib/systemd/system/nginx.service.d/10-unmask-repick.conf
     file_info:
       mode: 0644
+  # The license and the notices, as in the main package (the module is built
+  # from this project's C source; THIRD-PARTY-NOTICES.md has its section).
+  - src: ../LICENSE
+    dst: /usr/share/doc/unmask-plugin-nginx/LICENSE
+    type: license
+    packager: rpm
+  - src: ../LICENSE
+    dst: /usr/share/doc/unmask-plugin-nginx/LICENSE
+    packager: deb
+  - src: ../LICENSE
+    dst: /usr/share/doc/unmask-plugin-nginx/LICENSE
+    packager: apk
+  - src: ../NOTICE
+    dst: /usr/share/doc/unmask-plugin-nginx/NOTICE
+  - src: ../THIRD-PARTY-NOTICES.md
+    dst: /usr/share/doc/unmask-plugin-nginx/THIRD-PARTY-NOTICES.md
+  - src: ./conf/copyright
+    dst: /usr/share/doc/unmask-plugin-nginx/copyright
+    packager: deb

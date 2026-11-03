@@ -37,6 +37,24 @@ contents:
     dst: /usr/share/unmask/plugin/ngx_http_unmask_module.so
     file_info:
       mode: 0644
+  # The license and the notices, as in the main package.
+  - src: ../LICENSE
+    dst: /usr/share/doc/unmask-plugin-nginx/LICENSE
+    type: license
+    packager: rpm
+  - src: ../LICENSE
+    dst: /usr/share/doc/unmask-plugin-nginx/LICENSE
+    packager: deb
+  - src: ../LICENSE
+    dst: /usr/share/doc/unmask-plugin-nginx/LICENSE
+    packager: apk
+  - src: ../NOTICE
+    dst: /usr/share/doc/unmask-plugin-nginx/NOTICE
+  - src: ../THIRD-PARTY-NOTICES.md
+    dst: /usr/share/doc/unmask-plugin-nginx/THIRD-PARTY-NOTICES.md
+  - src: ./conf/copyright
+    dst: /usr/share/doc/unmask-plugin-nginx/copyright
+    packager: deb
 
 overrides:
   # Pin unmask to the EXACT build version per packager (rpm `=`, deb `(= )`,
