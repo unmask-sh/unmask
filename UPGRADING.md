@@ -47,12 +47,51 @@ render.
 
 | Release | nginx | Sign-in | Settings keys | Schema |
 |---|---|---|---|---|
+| **0.1.54** | Restart | -- | 7 new, all optional | 0050 |
 | **0.1.53** | Restart | Signed out once | 8 new, all optional | 0046, 0048, 0049 |
 | **0.1.52** | Reload | -- | 1 renamed | index builds, on a large database |
 | **0.1.51** | Reload | -- | 1 removed, 4 renamed | -- |
 | **0.1.50** | Reload | -- | -- | -- |
 
 ## Details
+
+### 0.1.54
+
+- **nginx: restart.**  The module changed: it reads the ban list on a change
+  instead of on every request, accepts a quoted `_bv` cookie, keeps the
+  main-request marker across an internal redirect, encodes the compose
+  redirect's query, and is built with a stack protector and full RELRO.
+  Restart nginx once the plugin package has been upgraded; a reload keeps the
+  module it has loaded, and the admin says so.
+- **Challenge page.**  The challenge is served with a Content-Security-Policy
+  of its own (a nonce for its inline scripts, `blob:` workers, the CAPTCHA
+  provider's origin).  A site that adds its own policy in the same `server`
+  block has to allow the same; README's nginx section lists it.
+- **Access-log socket.**  `/run/unmask/log.sock` changes from 0666 to 0660
+  owned by the web server's group on the first start of the new version.
+  The service unit already puts the daemon in that group
+  (`SupplementaryGroups=`), so a package install needs nothing.  Where the
+  daemon is not a member of the worker's group, or no `nginx` / `www-data` /
+  `http` group exists, the socket stays at 0666 and the daemon log and
+  `unmask doctor` say so; set `nginx_log.socket_group` (and add the daemon
+  user to that group) to share it by group.
+- **Outbound connections.**  A webhook, feed or AI endpoint on the host's
+  loopback address needs `outbound.allow_loopback: true` from this version;
+  the SMTP relay and a local AI model keep loopback without it.  The cloud
+  metadata addresses are refused everywhere.  `outbound.deny_private: true`
+  closes the private ranges as well.
+- **Settings keys.**  New and optional: `nginx_log.socket_mode`,
+  `nginx_log.socket_group`, `outbound.deny_private`,
+  `outbound.allow_loopback`, `server.access_log` (`"off"` silences the line
+  per request), `db.max_conns` (MariaDB, custom profile) and the challenge
+  branding's `privacy_url`.  Nothing is renamed or removed.
+- **Schema.**  Update 0050 adds the table the login lockout counts in; it is
+  small and runs at start.
+- **Admin pages.**  Every response carries a report-only script policy
+  (`Content-Security-Policy-Report-Only`); nothing is blocked, and the
+  browser console lists what an enforced policy would stop.  The sign-in
+  form now carries a CSRF token: a sign-in page left open from before the
+  upgrade must be reloaded once.
 
 ### 0.1.53
 

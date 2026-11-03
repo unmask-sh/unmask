@@ -12,6 +12,132 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+
+- (2026-11-03) **A privacy notice link on the CAPTCHA card.**  Set `branding.default.privacy_url` in config.yml (or per site) and the card's note links to your privacy notice in the visitor's language.  The branding help lists what the challenge page sends to the event log and for how long, as material for that notice.
+
+### Changed
+
+- (2026-11-03) **The challenge page reads at AA contrast on every theme, and holds still under reduced motion.**  The note, the reference id, the brand footer, the "connecting" line and two buttons sat below the 4.5:1 WCAG AA asks of body text; every pair now measures 4.5:1 or better on all five themes.  With prefers-reduced-motion the spinner, the terminal caret, the cat and the paper rule stop; the progress bar still fills.
+
+- (2026-11-03) **The challenge page speaks to screen readers.**  The verifying and verified lines and the failure text are announced as they change, the CAPTCHA card is a named region whose checkbox takes focus when it appears, the arithmetic field is labelled by its question, and the spinners are hidden from the accessibility tree.
+
+- (2026-11-03) **The settings help says what the proof-of-work stops.**  The difficulty's help and the known-browser posture's read as if the proof-of-work caught impersonating bots.  Any client that reads the page can solve it; what stops at it is a bot that does not run the page's JavaScript, and the pass-reuse cap and pass budget are what stop one that keeps solving.  Both texts say so now.
+
+- (2026-11-03) **Beacons carry the page's path, not its query.**  The challenge page's beacons sent the full address of the page the visitor asked for, query included, into the event log; they now send the path alone, bounded, and an event too large for its column keeps the keys that tie it to its session and rule instead of losing everything.
+
+- (2026-11-03) **The daemon's line per request can be switched off.**  `unmask serve` logs one line per HTTP request it serves (method, path, status, duration).  `server.access_log: "off"` in config.yml turns it off; it stays on by default.  On a forward-auth install the line is per request of the site, and a journal that rate-limits the daemon drops its warnings with them.
+
+- (2026-11-03) **Admin pages answer failures with a fixed message.**  The profile, audit log and setup gate returned the database's or template's error text in the response body; it now goes to the journal and the response says what failed in plain words.
+
+- (2026-11-03) **JA4 details: the `s2` version code, HTTP/3's `q` without touching the connection's string, and the retry policy written down.**  SSL 2.0's version code is emitted where the specification lists it; the `q` an HTTP/3 request carries is composed per request instead of rewriting the connection's stored fingerprint; a second ClientHello after a HelloRetryRequest keeps the first one's JA4, as packet-capture tools do.  Requires an nginx restart.
+
+- (2026-11-03) **A configuration-defined `$client_ja4` or `$unmask_*` variable is taken over with a notice.**  When a `map` or `geo` in nginx.conf already defines a variable the module provides (a degraded render left in place, for example), the module logs a notice at configuration time and keeps the variable non-cacheable instead of silently replacing the handler.  Requires an nginx restart.
+
+- (2026-11-03) **The TLS message callback uses less stack, and `$unmask_client_net` is computed once per request.**  The parsed ClientHello (about 9 KB) now lives in worker memory rather than on the callback's stack, the builder's scratch arrays are half their size, and the rate-limit key is kept in the request context instead of being allocated on every evaluation.  No change in behaviour.  Requires an nginx restart.
+
+- (2026-11-03) **A per-response nonce on the admin's shared scripts, with a report-only script policy.**  Every admin response now carries a `Content-Security-Policy-Report-Only` header of `script-src 'self' 'nonce-...'`, and the scripts the shared partials emit carry that nonce.  Nothing is blocked yet; the browser console lists the inline scripts still to move under the nonce before the directive joins the enforced policy.
+
+- (2026-11-03) **A dropped daemon runs with its own groups.**  When `unmask` starts as root and drops to the daemon user (the container image, a hand-started service), it now takes that user's supplementary groups from the group database, as a service manager does, instead of keeping root's.  The container's daemon user is a member of nginx's group, so the log socket is shared by group there too.
+
+- (2026-11-03) **Threat model: the pass's binding and the name-only rescue.**  SECURITY.md now says what the 64-bit signature protects and within which binding a pass may be presented again, and that the crawlers unmask rescues as shipped are recognised by their address ranges: a User-Agent pattern added by hand to the name-only list is trusted on the name alone.
+
+- (2026-11-03) **The UA filter tab is two fifths of its size.**  Each crawler group's Detail dialog carried every crawler as a rendered row with its own select: 600 KB and seven hundred controls for dialogs that stay closed on most visits.  The rows travel as data and are built the first time a dialog opens.
+
+- (2026-11-03) **Every settings control carries its label.**  Text inputs, selects and the rows of the preset tables are associated with their label (`for`/`id`, or `aria-label` on a table cell), so a screen reader names the field and a click on the label focuses it.
+
+- (2026-11-03) **UPGRADING.md reads as a table again, and says how to roll back.**  The release-by-release table keeps a word or two per cell, each release's section carries the detail under the same headings, and a new section gives the rollback steps for rpm, deb, apk and the container, starting from the backup, since the schema only moves forward.
+
+- (2026-11-03) **The README states the requirements and what is stored.**  The nginx versions and `--with-compat`, the operating systems, SQLite or MariaDB, HTTP/3, a load balancer or CDN in front, several nodes and the cost; the quick start ends with a way to see the challenge fire; a section says what the daemon records and for how long.  The proof-of-work paragraph says what it stops: fetchers that never run the page.
+
+- (2026-11-03) **Japanese labels.**  A hundred-odd admin labels that still read in English on the Japanese pages, among them sign-in, columns, theme names, SMTP fields and settings tabs, are in Japanese.
+
+- (2026-11-03) **The Grafana dashboard has a health row, and alerting rules ship beside it.**  The module stripped by its fail-safe, a render waiting for its reload, a ban list nginx cannot read, a schema update left waiting, and dropped events or access-log lines, as stat panels and as a Prometheus rules file under `/usr/share/unmask/grafana/`.
+
+- (2026-11-03) **Every module in the plugin package can be rebuilt from the repository.**  The recipes for the OpenSSL 1.0 (CentOS 7) and glibc 2.12 (CentOS 6) builder containers are now in `build-docker/`, beside the OpenSSL 1.1 one, with their base images pinned by digest; `make build-module-multi-all` builds them on first use, and the module-matrix workflow builds every shipped nginx version in all three containers.
+
+- (2026-11-03) **The daemon binary is built the same way everywhere, and proved reproducible.**  CI and the release workflow build `unmask-linux-*` through the Makefile recipe a release uses, and `make verify-reproducible` rebuilds it from a copy of the tree with a cold cache and fails unless the bytes match.  A tag whose version differs from the Makefile's fails the release instead of shipping a mislabelled binary.
+
+- (2026-11-03) **Published releases are checked after publishing.**  A workflow runs when a release goes live: `checksums.txt` must be signed with the release key and name every asset, every rpm must carry the release signature, the daemon inside the main rpm must be the raw binary published beside it, and the debs, apks, SBOM and compose example must be present and well-formed.  `make release` now lists the SBOM in `checksums.txt`.
+
+- (2026-11-03) **CONTRIBUTING lists how to run each part of the tests, and a question form joins the issue templates.**  `go test` runs with a timeout in CI, the Makefile and the contributor notes alike; the bug form asks for the version and the install path, and a second form takes questions.
+
+- (2026-11-03) **The proof-of-work solves faster on the same hardware.**  The hashing loop built a string and three arrays for every nonce; it now writes the nonce's digits into one kept buffer and hashes only the block that changes, with the fixed part of the seed compressed once.  The hash is the same, so cookies from the old loop and the new verify alike, and a visitor's wait is shorter in proportion.
+
+### Fixed
+
+- (2026-11-03) **A browser too old to run the challenge is told so.**  The challenge script needs a browser of 2017 or later; an older one failed to parse it and sat on the spinner for ever, with no beacon.  The page's own bootstrap now waits five seconds for the script to start and otherwise stops the spinner and says, in English and Japanese, that this browser cannot show the page.
+
+- (2026-11-03) **Every language names the checkbox and the site.**  Thirteen of the eighteen languages showed "I'm not a robot" in English under a card otherwise in their language, and a site without a name read "this site" in every language but Japanese.  Each language now carries its own label and its own word for the site, and the tab's title follows the card's heading.
+
+- (2026-11-03) **GeoIP reloads no longer race the lookups.**  The daemon's IP-to-country reader closed and reopened its mmdb files under the lookups that run for every access-log line and event, so a settings save, an `install-ipgeo` or the daily auto-update could unmap a file a lookup was reading.  Lookups now hold a read lock the reload takes exclusively; a lookup after Close answers empty.
+
+- (2026-11-03) **The GeoIP answer cache has a ceiling.**  The reader cached every distinct address it ever resolved and released them only on a reload, so memory grew with the address pool a crawl brought.  The cache now keeps two generations of a fixed size: an address asked for again survives the turnover, one seen once leaves, and the memory stays bounded whatever the traffic.
+
+- (2026-11-03) **A settings save cannot lose the CLI's change any more.**  The daemon held the config file's lock inside the save only, so `unmask upgrade-review` running between its load and its save had its change overwritten, or lost its own.  The whole load-change-save now runs under the lock, in the settings handlers and the setup wizard alike, matching the CLI.
+
+- (2026-11-03) **The setup wizard no longer swaps the live database handle in place.**  Completing the wizard onto a different database wrote the new handle under every request and worker still reading the old one.  The handle is left alone; the re-exec the wizard already scheduled binds everything to the new database, and the done page still asks for the restart.
+
+- (2026-11-03) **Background loops stop before the database closes.**  At shutdown the hourly rollups, the retention prune, the WAL watch and the other loops kept running against a database the daemon had already closed, filling the journal with errors.  Every loop now runs under one context the shutdown ends and waits for, up to 20 s, before the handles close; an interrupted prune or rollup resumes from its cursor.
+
+- (2026-11-03) **MariaDB connections have their own pool size and timeouts.**  The pool was sized from this process's CPUs as for SQLite, and a server that did not answer the connect blocked `unmask serve` until the operating system's TCP timeout.  MariaDB now gets 16 connections by default (`db.max_conns` under the custom profile, up to 64), a 10 s connect timeout, a 30 s write timeout and a bounded first ping.
+
+- (2026-11-03) **Forward-auth keeps a bypass matcher per site.**  The compiled bypass, protected-path and honeypot matchers were cached for one site at a time, so a multi-site forward-auth install whose `/api/check` calls interleaved rebuilt them on nearly every request, under a lock.  The cache now holds every site of a settings generation (up to 256) and is dropped as a whole when settings change.
+
+- (2026-11-03) **The ban list is read on a change, not on every request.**  Each nginx worker used to `stat()` the ban file on every request and read it whole, with no size bound, the moment it changed.  The module now checks once a second per worker at most, reads the file into worker-lifetime memory, and refuses a file over 64 MiB, keeping the previous list.  Requires an nginx restart.
+
+- (2026-11-03) **A `_bv` cookie wrapped in quotes, or written with spaces around `=`, verifies.**  The module's cookie splitter required the exact `_bv=value` shape browsers produce; a proxy or an SDK that sends `_bv="value"` or `_bv = value` had every request challenged again.  The splitter now takes both, as nginx's own header parser does, and skips a bare `_bv` without hiding the pair after it.  Requires an nginx restart.
+
+- (2026-11-03) **A validity window of 0 means the default on both cookie kinds.**  `unmask_bv_pow_valid_seconds 0` read as the default while `unmask_bv_captcha_valid_seconds 0` accepted only cookies issued in the same second, and a value past 2^31 was truncated on one path.  Both directives now treat 0 as the default, as the daemon's settings do, and cap the window at ten years with a warning at configuration time.  Requires an nginx restart.
+
+- (2026-11-03) **The compose redirect keeps the whole original query.**  In compose mode the ACCESS-phase handler appended the original URI to `_orig=` unencoded, so a protected URL whose query held `&` lost everything after it when the visitor returned from the challenge, and `;` and `+` were misread.  Those delimiters are now percent-encoded in `_orig`.  Requires an nginx restart.
+
+- (2026-11-03) **The main-request marker survives an internal redirect.**  The module's "is this the main request" test rested on a per-request context that nginx clears on `error_page` and `try_files` redirects, so `$unmask_has_signed_agent` read `0` for a signed main request after one.  The marker now lives with the request's memory pool, which an internal redirect keeps and a subrequest shares without being mistaken for the main request.  Requires an nginx restart.
+
+- (2026-11-03) **The post-install banner names the native module.**  A new install printed the forward-auth include as "Recommended" on every host, plugin or not, while the README installs the module.  The banner now names the include that works on the host: the native one when the plugin is there, with forward-auth as the other way in, and the matching protect.inc.
+
+- (2026-11-03) **A save from the admin keeps the comments in config.yml.**  Saving from the web UI rewrote the file from the struct and dropped every comment: what config-init wrote beside each value, and the operator's own notes.  The comments are carried onto the keys written again; a file with none gets a one-line header, once.
+
+- (2026-11-03) **The hunt and settings pages fit a phone.**  Both lacked the viewport meta every other admin page has, so a handset drew them at desktop width.
+
+- (2026-11-03) **The snippets name the current path of the native include.**  The forward-auth and Apache snippets still pointed at `/etc/unmask/native/protect.inc`, retired when the rendered includes moved under `/var/lib/unmask/nginx`.
+
+- (2026-11-03) **The compose example starts without a checkout.**  It named `build: .` beside the published image, so `docker compose up` on a host without the Dockerfile failed on the missing build context; the build line is now a commented option.
+
+- (2026-11-03) **The built-in CAPTCHA help describes the scoring that runs.**  The threshold's help listed five averaged axes, among them the smoothness of scrolls and the rhythm of keystrokes, which the scorer never reads.  It now lists the actual deductions (self-dispatched events, no input, a click under half a second, a one-point or straight trail, a stepped trail, a zero window) and what the default 0.5 means in those terms.
+
+### Security
+
+- (2026-11-03) **The challenge page carries a Content-Security-Policy of its own.**  Each serve gets a nonce for the page's inline scripts, `blob:` workers for the proof-of-work, and the origin of the CAPTCHA provider you picked; an operator's own copy of the page from before the change is served without a policy.  The step-back relay runs under a nonce too; README's nginx section says what a site's own policy has to allow.
+
+- (2026-11-03) **The built-in CAPTCHA takes more than a fetch and a POST.**  An answer within two seconds of the page being served is refused, each address gets a bounded number of answers per five minutes, the arithmetic question is bound to the page it was drawn for, and the verify answer no longer reports the score.  The admin description says plainly that a headless browser can pass the built-in check.
+
+- (2026-11-03) **A rule name with a quote no longer breaks the challenge page.**  The entry behind a challenge (a literal UA filter pattern, the organisation text of an ASN rule) was written into the page's inline script between quotes; one with a quote or a backslash ended the script early, and every visitor that rule matched was turned away.  Both values are JSON-encoded now, and the save refuses those characters.
+
+- (2026-11-03) **The chain-mode hint in the challenge query is taken only from an internal route.**  `?chm=` on a direct hit of the public challenge route let a visitor pick a lighter chain than the posture, and have the serve record it as the one offered; it is now honoured only when nginx routed the request here from another page.  The gate's requirement was never affected.
+
+- (2026-11-03) **Go 1.27.3 and the current x/net in the released binaries.**  The 0.1.53 binaries were built with Go 1.27.1 and x/net 0.57, which govulncheck reports with thirteen reachable vulnerabilities, among them the HTTP/2 server and multipart parsing that any client reaches through the challenge and API routes.  go.mod now names Go 1.27.3 and the release workflow builds with it; the scan finds nothing reachable.
+
+- (2026-11-03) **Outbound connections refuse the cloud metadata addresses and loopback.**  A webhook, feed or AI endpoint set by an administrator could point the daemon at the cloud's metadata service, which hands out instance credentials, or at services on the host itself.  Every such connection is now judged on the resolved address, after DNS and on each redirect; private networks stay reachable unless `outbound.deny_private` is set, and `outbound.allow_loopback` re-admits loopback.
+
+- (2026-11-03) **The login lockout outlives a restart and is shared across nodes.**  The per-address lockout (ten failures, fifteen minutes) and the forgot-password cap counted in each daemon's memory: a restart forgot them, and behind a load balancer N nodes allowed N times the failures.  The counters now live in the database (migration 0050), so every node reads the same count and a lock survives the daemon.
+
+- (2026-11-03) **nginx's access-log socket is shared by group, not world-writable.**  The daemon bound `/run/unmask/log.sock` at mode 0666, so any local process could write lines into the traffic counts.  It is now 0660 owned by the web server's group (`nginx_log.socket_group`, detected when unset); where no group can be applied it stays open, and the daemon log and `unmask doctor` say so.
+
+- (2026-11-03) **Template arguments formatted into an HTML message are escaped.**  The admin's `tf` template function formatted its arguments into an i18n message as they came, and templates that render such a message with markup put the argument into the page unescaped: a hostname, a path or the update check's version string could carry markup.  `tf` now escapes string arguments; arguments that are HTML already pass through typed.
+
+- (2026-11-03) **Two more log lines escape what came off the wire.**  The ban manager's CDN-egress line wrote the client address, the vendor's name and the ban's description as they came, and the overview's budget line wrote the host filter unescaped, so a newline in either could start a line that looked like the daemon's own.  Both now escape control characters the way the other request-derived log values do.
+
+- (2026-11-03) **The sign-in form carries a CSRF token.**  The sign-in POST was exempt from the CSRF check, so a page on another origin could sign a visitor into an account of its choosing.  The form's GET sets a nonce cookie and the form embeds a token derived from it; a POST without them is answered with the form again.
+
+- (2026-11-03) **The module `.so` is built hardened.**  The Makefile, the CI matrix and the Docker image build the module with a stack protector, fortified libc calls and full RELRO with `BIND_NOW`, so the module's GOT is read-only once loaded.  The module parses TLS ClientHello bytes and the client's cookie; none of this changes its behaviour.  Requires an nginx restart to run the new file.
+
+- (2026-11-03) **The nginx source is verified on every build path.**  `tools/fetch-nginx-src.sh` downloads the tarball, checks it against the pinned sha256 list and unpacks it for the Makefile, the builder containers, CI and the e2e image alike; a version without a pin no longer builds anywhere.
+
+- (2026-11-03) **The notice bell's loading and failed lines go in as text.**  The bell built its two own lines as markup around an attribute's value through innerHTML; the value is the server's translated string, so nothing was exposed, but the lines now go in as text.
+
 ## [0.1.53] - 2026-11-03
 
 ### Added
