@@ -3909,7 +3909,7 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 		if patternBreaksLine(p) {
 			return &listFieldError{Field: "honeypot_url_path", Value: p, Msg: i18n.Tf(lang, "err.pattern_line_break", p)}
 		}
-		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
+		if err := settings.CheckRegex(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: "honeypot_url_path", Value: p, Msg: i18n.Tf(lang, "err.honeypot_regex", p, err)}
 		}
 		// The title leads the reason of every ban this rule creates, which
@@ -4062,7 +4062,7 @@ func pairExtras(field string, lang i18n.Lang, patterns, titles, enabled, created
 			return nil, nil, nil, nil, nil, nil, &listFieldError{Field: field, Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_char", p)}
 		}
 		if !settings.IsLiteralPattern(p) {
-			if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
+			if err := settings.CheckRegex(settings.PatternRegex(p)); err != nil {
 				return nil, nil, nil, nil, nil, nil, &listFieldError{Field: field, Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_regex", p, err)}
 			}
 		}
@@ -4190,7 +4190,7 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		if strings.ContainsAny(v, "\"\\\x00\r\n") {
 			return &listFieldError{Field: "ja4_extra_pat", Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_char", v)}
 		}
-		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
+		if err := settings.CheckRegex(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: "ja4_extra_pat", Value: p, Msg: i18n.Tf(lang, "err.verdict_regex", p, err)}
 		}
 		if !nginxconf.IsValidJA4Action(a) {
@@ -4347,7 +4347,7 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		if patternBreaksLine(p) {
 			return &listFieldError{Field: "protected_path", Value: p, Msg: i18n.Tf(lang, "err.pattern_line_break", p)}
 		}
-		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
+		if err := settings.CheckRegex(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: "protected_path", Value: p, Msg: i18n.Tf(lang, "err.protected_regex", p, err)}
 		}
 		if ts <= 0 {
@@ -4578,7 +4578,7 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		if patternBreaksLine(p) {
 			return &listFieldError{Field: "bp_path", Value: p, Msg: i18n.Tf(lang, "err.pattern_line_break", p)}
 		}
-		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
+		if err := settings.CheckRegex(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: "bp_path", Value: p, Msg: i18n.Tf(lang, "err.bypass_path_regex", p, err)}
 		}
 		if ts <= 0 {
@@ -4646,7 +4646,7 @@ func applyExemptPathsForm(dst *[]settings.BypassPath, prefix string, r *http.Req
 		if patternBreaksLine(p) {
 			return &listFieldError{Field: prefix + "_path", Value: p, Msg: i18n.Tf(lang, "err.pattern_line_break", p)}
 		}
-		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
+		if err := settings.CheckRegex(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: prefix + "_path", Value: p, Msg: i18n.Tf(lang, "err.bypass_path_regex", p, err)}
 		}
 		if ts <= 0 {
@@ -4731,7 +4731,7 @@ func applyRedirectExemptForm(n *settings.Nginx, r *http.Request, lang i18n.Lang)
 		if patternBreaksLine(p) {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.pattern_line_break", p))
 		}
-		if _, err := regexp.Compile(settings.PatternRegex(p)); err != nil {
+		if err := settings.CheckRegex(settings.PatternRegex(p)); err != nil {
 			return fmt.Errorf("%s", i18n.Tf(lang, "err.redirect_exempt_regex", p, err))
 		}
 		if ts <= 0 {
@@ -5183,7 +5183,7 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 			// compile is refused HERE, so nothing unparsable can reach the
 			// render (where it would fail `nginx -t` and disable the module)
 			// or MatchPath (where it would silently never match).
-			if _, err := regexp.Compile(line); err != nil {
+			if err := settings.CheckRegex(line); err != nil {
 				return fmt.Errorf("zone %s: path %q is not a valid regular expression: %v", name, line, err)
 			}
 			seen[line] = true

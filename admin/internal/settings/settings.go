@@ -1670,11 +1670,11 @@ func NormalizeCustomCondition(c *CustomCondition) error {
 			}
 			v = strconv.FormatUint(n, 10)
 		case CustomCondUA:
-			if _, err := regexp.Compile("(?i)" + v); err != nil {
+			if err := CheckRegex("(?i)" + v); err != nil {
 				return fmt.Errorf("user-agent pattern %q: %v", v, err)
 			}
 		case CustomCondPath:
-			if _, err := regexp.Compile(v); err != nil {
+			if err := CheckRegex(v); err != nil {
 				return fmt.Errorf("path pattern %q: %v", v, err)
 			}
 		case CustomCondHost:
