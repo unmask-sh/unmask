@@ -267,7 +267,10 @@ func loadDashboardTemplate() (*template.Template, error) {
 				return fmt.Sprintf("%.1f%%", pct)
 			},
 			// Bypass HTML escaping (used to embed <code> etc. in descriptions).
-			"safeHTML": func(s string) template.HTML { return template.HTML(s) },
+			// safeHTML: its argument as HTML the escaper leaves alone -- a
+			// catalog string the template vouches for, or tf's result, which
+			// is HTML already (template_escape.go).
+			"safeHTML": safeHTMLAny,
 			// pctOf: share of a total, for the composition bar's segment widths.
 			// Returns a plain number so the template can put it straight into a
 			// width; a zero total is 0 rather than a divide by zero.
@@ -444,9 +447,12 @@ func loadDashboardTemplate() (*template.Template, error) {
 				}
 				return i18n.Ago(lang, time.Since(time.Unix(ts, 0)))
 			},
-			"tf": func(lang i18n.Lang, key string, args ...any) string {
-				return i18n.Tf(lang, key, args...)
-			},
+			// tf: a message with its arguments formatted in, string arguments
+			// escaped, as HTML -- safe under safeHTML and without it.  tfText
+			// is the same for a script or an attribute, where the contextual
+			// escaper does the escaping (template_escape.go).
+			"tf":     tfHTML,
+			"tfText": tfText,
 			// rateStr: a nullable rate pointer -> its string, "" when nil
 			// (inherit).  Lets the geo tab render GeoRule.RatePerMin directly
 			// (the ASN tab pre-flattens rows Go-side; geo ranges the config).

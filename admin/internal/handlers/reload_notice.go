@@ -35,8 +35,9 @@ type ReloadNotice struct {
 	// line (msg_cli) -- or reload_notice.msg when the render left no record.
 	MsgKey string
 	// CauseHTML: the cause in the operator's words, escaped, for MsgKey's
-	// second %s; "" with reload_notice.msg.
-	CauseHTML string
+	// second %s; "" with reload_notice.msg.  Typed HTML so tf passes it
+	// through as it is (template_escape.go) rather than escape it again.
+	CauseHTML template.HTML
 	// Changes: what the render changed, block by block, in the operator's
 	// words ("国判定の範囲: 変更 2 行、追加 2 行"), for the help tip.
 	Changes []string
@@ -103,7 +104,7 @@ func (h *Handler) reloadNotice(lang i18n.Lang) *ReloadNotice {
 	case nginxconf.RenderByCLI:
 		n.MsgKey = "reload_notice.msg_cli"
 	}
-	n.CauseHTML = template.HTMLEscapeString(cause)
+	n.CauseHTML = template.HTML(template.HTMLEscapeString(cause)) //nolint:gosec // escaped on the line itself
 	return n
 }
 
