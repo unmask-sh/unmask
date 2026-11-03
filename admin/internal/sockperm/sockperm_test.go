@@ -5,7 +5,9 @@ import (
 	"os"
 	osuser "os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -135,5 +137,47 @@ func TestApplyExplicitWorldWritable(t *testing.T) {
 	}
 	if !res.WorldWritable() || res.Group != "" || len(res.Notes) != 0 || modeOf(t, path) != 0o666 {
 		t.Fatalf("result %+v, mode %#o", res, modeOf(t, path))
+	}
+}
+
+// The socket's directory is shared the same way: 0750 by the socket's
+// group when there is one, 0755 when there is not (the worker still has to
+// pass through), and a directory the daemon does not own is left alone.
+func TestShareDir(t *testing.T) {
+	me, err := osuser.Current()
+	if err != nil {
+		t.Skip(err)
+	}
+	grp, err := osuser.LookupGroupId(me.Gid)
+	if err != nil {
+		t.Skip(err)
+	}
+	dir := t.TempDir()
+	mode, notes := ShareDir(dir, grp.Name)
+	if mode != 0o750 || len(notes) != 0 || modeOf(t, dir) != 0o750 {
+		t.Fatalf("shared with %q: mode %#o, notes %v, on disk %#o", grp.Name, mode, notes, modeOf(t, dir))
+	}
+	st, err := os.Stat(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gid := st.Sys().(*syscall.Stat_t).Gid; strconv.Itoa(int(gid)) != me.Gid {
+		t.Errorf("directory gid %d, want %s", gid, me.Gid)
+	}
+
+	mode, notes = ShareDir(dir, "")
+	if mode != 0o755 || len(notes) != 1 || !strings.Contains(notes[0], "0755") || modeOf(t, dir) != 0o755 {
+		t.Errorf("no group: mode %#o, notes %v, on disk %#o", mode, notes, modeOf(t, dir))
+	}
+	mode, notes = ShareDir(dir, "no-such-group-unmask-test")
+	if mode != 0o755 || len(notes) != 1 || !strings.Contains(notes[0], "cannot give") {
+		t.Errorf("unknown group: mode %#o, notes %v", mode, notes)
+	}
+
+	if os.Getuid() != 0 {
+		before := modeOf(t, "/")
+		if mode, notes := ShareDir("/", grp.Name); mode != before || len(notes) != 0 || modeOf(t, "/") != before {
+			t.Errorf("a directory of another owner: mode %#o, notes %v", mode, notes)
+		}
 	}
 }

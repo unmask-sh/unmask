@@ -635,8 +635,9 @@ func StartWith(socketPath string, d *db.DB, perm sockperm.Spec) *Reader {
 		r.conn, r.stored = conn, true
 		log.Printf("nginxlog: listening on unix:%s (kept over the restart)", socketPath)
 		// The kept socket is the file at the path: it takes the mode and
-		// group this version asks for, as a fresh bind would.
-		applySocketPerms(socketPath, perm)
+		// group this version asks for, as a fresh bind would, and so does
+		// its directory.
+		shareDir(socketPath, applySocketPerms(socketPath, perm))
 		go r.recvLoop()
 		go r.workLoop()
 		go r.flushLoop()
@@ -644,18 +645,14 @@ func StartWith(socketPath string, d *db.DB, perm sockperm.Spec) *Reader {
 	}
 
 	// Create the parent dir (= /run/unmask etc.).  Operationally we
-	// expect systemd's RuntimeDirectory to create it, but in dev /
-	// Docker admin may create it.
-	// systemd's default RuntimeDirectoryMode is 0755, but if the unit
-	// explicitly specifies 0750 then the nginx worker (= a different
-	// user) can't traverse the dir and can't connect to the socket
-	// (= [alert] connect() failed: Permission denied while logging to syslog).
-	// Explicitly loosen to 0755 here to permit world rx (= the socket
-	// file itself gets its mode and group below, so as long as the dir's
-	// x bit lets nginx through, it can write).
+	// expect systemd's RuntimeDirectory to create it (0750, the daemon's
+	// own), but in dev / Docker admin may create it.  The worker, another
+	// user, has to pass through it to reach the socket: once the socket
+	// is bound and has its group, the directory takes the same group at
+	// 0750 (shareDir) -- until 0.1.54 it was opened to every local user
+	// (0755) here, whatever the unit said.
 	if dir := filepath.Dir(socketPath); dir != "" && dir != "." {
-		_ = os.MkdirAll(dir, 0o755)
-		_ = os.Chmod(dir, 0o755)
+		_ = os.MkdirAll(dir, 0o750)
 	}
 	addr := &net.UnixAddr{Name: socketPath, Net: "unixgram"}
 	var conn *net.UnixConn
@@ -682,7 +679,7 @@ func StartWith(socketPath string, d *db.DB, perm sockperm.Spec) *Reader {
 	// count of datagrams, and past it nginx's worker gets EAGAIN and drops
 	// the line.  What keeps that queue short is a receiver that never waits
 	// on a line: recvLoop hands each one to workLoop and reads on.
-	applySocketPerms(socketPath, perm)
+	shareDir(socketPath, applySocketPerms(socketPath, perm))
 	r.conn = conn
 	log.Printf("nginxlog: listening on unix:%s", socketPath)
 	if labelled {
@@ -706,19 +703,38 @@ func StartWith(socketPath string, d *db.DB, perm sockperm.Spec) *Reader {
 // for (sockperm): 0660 shared with the worker's group, or open to every
 // local user when no group can be applied -- said in the log either way,
 // since which it is decides who can write lines into the daemon's counts.
-func applySocketPerms(path string, perm sockperm.Spec) {
+// Returns the group the socket was given ("" when none).
+func applySocketPerms(path string, perm sockperm.Spec) string {
 	res, err := sockperm.Apply(path, perm, 0o660, true)
 	for _, n := range res.Notes {
 		log.Printf("nginxlog: %s", n)
 	}
 	if err != nil {
 		log.Printf("nginxlog: %v (nginx's worker may not be able to write to the socket)", err)
-		return
+		return ""
 	}
 	if res.Group != "" {
 		log.Printf("nginxlog: %s is mode %#o, group %s", path, res.Mode, res.Group)
 	} else if res.WorldWritable() {
 		log.Printf("nginxlog: %s is mode %#o (open to every local user)", path, res.Mode)
+	}
+	return res.Group
+}
+
+// shareDir gives the socket's directory to the socket's group at 0750, so
+// the worker passes through it and other local users do not
+// (sockperm.ShareDir); 0755 when there is no group to share with.
+func shareDir(socketPath, group string) {
+	dir := filepath.Dir(socketPath)
+	if dir == "" || dir == "." {
+		return
+	}
+	mode, notes := sockperm.ShareDir(dir, group)
+	for _, n := range notes {
+		log.Printf("nginxlog: %s", n)
+	}
+	if mode == 0o750 {
+		log.Printf("nginxlog: %s is mode 0750, group %s", dir, group)
 	}
 }
 

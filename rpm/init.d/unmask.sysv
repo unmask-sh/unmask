@@ -32,8 +32,9 @@ user="unmask"
 # /run/unmask, not /var/run/unmask: the daemon's default nginx-log socket is
 # /run/unmask/log.sock (= matches systemd RuntimeDirectory), and the daemon runs
 # unprivileged so it cannot create /run itself -- root must, here, before it
-# starts (else nginxlog aggregation silently disables).  0755 so the nginx
-# worker (a different user) can traverse in to write the 0666 socket.
+# starts (else nginxlog aggregation silently disables).  0750: the daemon
+# gives the directory the socket's group (nginx's) at bind, so the worker
+# passes through it and no other local user does.
 rundir="/run/unmask"
 pidfile="$rundir/unmask.pid"
 logfile="/var/log/unmask.log"
@@ -47,9 +48,9 @@ start() {
         return 0
     fi
     # Runtime dir (tmpfs-safe, recreated each boot) + log file owned by unmask.
-    # 0755: the daemon binds /run/unmask/log.sock here and the nginx worker
-    # (different user) must traverse in to write it.
-    install -d -o "$user" -g "$user" -m 0755 "$rundir"
+    # 0750: the daemon binds /run/unmask/log.sock here and gives the directory
+    # the socket's group (nginx's), so the worker passes through it.
+    install -d -o "$user" -g "$user" -m 0750 "$rundir"
     [ -e "$logfile" ] || { : > "$logfile" && chown "$user:$user" "$logfile"; }
     echo -n $"Starting $prog: "
     # The Go binary runs in the foreground (it does not self-daemonize), so

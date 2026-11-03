@@ -166,6 +166,9 @@ if [ "$(id -u)" = "0" ]; then
         # not writable fails loudly at migrate/render right after.
         [ -d "$d" ] && { chown -R unmask:unmask "$d" 2>/dev/null || echo "entrypoint: chown $d: read-only entries left as they are" >&2; }
     done
+    # The sockets' directory is shared with nginx's worker by group, and by
+    # nobody else (the daemon sets the same at bind).
+    [ -d /run/unmask ] && { chgrp nginx /run/unmask && chmod 0750 /run/unmask; } 2>/dev/null
 fi
 
 # On a host the schema and the rendered includes are there before the daemon

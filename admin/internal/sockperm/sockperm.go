@@ -1,7 +1,9 @@
 // Package sockperm sets the mode and the group owner of a unix socket the
 // daemon binds for the web server to reach: the admin listener (server.bind
 // unix:...) that nginx proxies to, and the access-log socket nginx's worker
-// writes its lines into.
+// writes its lines into -- and of the directory they are bound in
+// (ShareDir), which the worker has to pass through and which, shared by
+// the same group, no other local user needs to.
 //
 // The worker runs as the web server's user, not the daemon's, so the socket
 // is shared by group: mode 0660 and a group the worker belongs to.  That
@@ -22,6 +24,7 @@ import (
 	osuser "os/user"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // Spec is what the operator asked for: the mode as an octal string and the
@@ -135,6 +138,56 @@ func Apply(path string, spec Spec, fallback os.FileMode, loosen bool) (Result, e
 	}
 	res.Mode = mode
 	return res, nil
+}
+
+// ShareDir sets the directory a shared socket is bound in so that the
+// worker passes through it and other local users do not: 0750, owned by
+// the socket's group (the one Apply gave it).  The daemon owns the
+// directory (the service manager makes it so: RuntimeDirectory=unmask) and
+// may give it to a group it is a member of, which the worker's group is.
+// With no group to share with -- the socket is open to every local user, or
+// no group could be applied -- the directory is 0755 instead, since the
+// worker still has to pass through it; and a directory the daemon does not
+// own (a socket under /tmp in development) is left as it is.  The mode the
+// directory ended with, and what the log should say.
+func ShareDir(dir, group string) (os.FileMode, []string) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" || dir == "." {
+		return 0, nil
+	}
+	fi, err := os.Stat(dir)
+	if err != nil {
+		return 0, []string{fmt.Sprintf("%s: %v (the socket's directory is left as it is)", dir, err)}
+	}
+	if !ownedByMe(fi) {
+		return fi.Mode().Perm(), nil
+	}
+	var notes []string
+	if group != "" {
+		gid, err := lookupGID(group)
+		if err == nil {
+			err = os.Chown(dir, -1, gid)
+		}
+		if err == nil {
+			if err := os.Chmod(dir, 0o750); err != nil {
+				return fi.Mode().Perm(), []string{fmt.Sprintf("chmod %s: %v", dir, err)}
+			}
+			return 0o750, nil
+		}
+		notes = append(notes, fmt.Sprintf("cannot give %s to group %q (%v); it is 0755 so the worker can pass through it (every local user can)", dir, group, err))
+	} else {
+		notes = append(notes, fmt.Sprintf("%s is 0755 so the worker can pass through it (every local user can): the socket in it is not shared by group", dir))
+	}
+	if err := os.Chmod(dir, 0o755); err != nil {
+		return fi.Mode().Perm(), append(notes, fmt.Sprintf("chmod %s: %v", dir, err))
+	}
+	return 0o755, notes
+}
+
+// ownedByMe reports whether the file belongs to this process's user.
+func ownedByMe(fi os.FileInfo) bool {
+	st, ok := fi.Sys().(*syscall.Stat_t)
+	return ok && st.Uid == uint32(os.Getuid())
 }
 
 func lookupGID(group string) (int, error) {

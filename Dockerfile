@@ -120,9 +120,13 @@ RUN test -x /docker-entrypoint.d/10-unmask-gateway.envsh && test -x /docker-entr
 # a member of nginx's group so the access-log socket it binds can be shared
 # with nginx's worker by group (0660), as the service unit arranges on a
 # host install.
+# /run/unmask holds the sockets nginx's worker reaches: the daemon's, shared
+# with nginx's group at 0750 (the daemon sets it so at bind, as the service
+# unit's RuntimeDirectoryMode does on a host install).
 RUN useradd --system --user-group --groups nginx --home-dir /var/lib/unmask --shell /usr/sbin/nologin unmask \
     && mkdir -p /var/lib/unmask /var/log/unmask \
-    && chown -R unmask:unmask /var/lib/unmask /var/log/unmask /etc/unmask /run/unmask
+    && chown -R unmask:unmask /var/lib/unmask /var/log/unmask /etc/unmask /run/unmask \
+    && chown unmask:nginx /run/unmask && chmod 0750 /run/unmask
 COPY --from=build /out/unmask /usr/local/bin/unmask
 # First boot: a minimal config.yml (the wizard fills in the rest), migrate,
 # render; then the daemon.  The same script the daemon-only image used.

@@ -1086,6 +1086,19 @@ func openListener(s settings.Server) (net.Listener, string, error) {
 			ln.Close()
 			return nil, "", err
 		}
+		// The directory the socket is in (/run/unmask) is the daemon's,
+		// 0750: the worker passes through it by the socket's group
+		// (sockperm.ShareDir), whether or not the access-log socket -- the
+		// other code path that sets it -- is on.
+		if dir := filepath.Dir(path); dir != "" && dir != "." {
+			mode, notes := sockperm.ShareDir(dir, res.Group)
+			for _, n := range notes {
+				log.Printf("listen: %s", n)
+			}
+			if mode == 0o750 {
+				log.Printf("listen: %s is mode 0750, group %s", dir, res.Group)
+			}
+		}
 		return ln, "unix:" + path, nil
 	}
 

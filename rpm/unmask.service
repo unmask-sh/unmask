@@ -18,17 +18,20 @@ ExecStart=/usr/sbin/unmask serve
 
 # Auto-create /run/unmask/ on startup (= unmask:unmask, on tmpfs).  admin
 # binds log.sock and the optional unix:/run/unmask/http.sock here, and nginx
-# workers must TRAVERSE the directory to reach either.  0755 grants traverse
-# only — access control stays on each socket's own mode (the daemon chmods
-# them at bind).  0750 left the unix-socket admin bind 502ing whenever
-# nginx_log was off, because nginxlog.Start was the only code path that
-# widened the directory.
+# workers must TRAVERSE the directory to reach either.  0750: at bind the
+# daemon gives the directory the sockets' group (nginx's -- it is a member,
+# SupplementaryGroups above) so the worker passes through and no other
+# local user does; the sockets themselves are 0660 by the same group.  Both
+# bind paths set the directory (sockperm.ShareDir), so the unix-socket admin
+# bind works with nginx_log off, which 0750 broke before 0.1.54 when only
+# the log socket's path widened the directory.  With no web server group to
+# share with the daemon falls back to 0755.
 # Where systemd is 236 or later the package adds a drop-in
 # (unmask.service.d/20-log-handover.conf, rpm/scripts/postinstall.sh) that
 # keeps the directory and the log socket over a restart, so nginx's workers
 # stay connected through it; a stop still removes both.
 RuntimeDirectory=unmask
-RuntimeDirectoryMode=0755
+RuntimeDirectoryMode=0750
 
 # Hardening (= systemd hardening)
 NoNewPrivileges=yes
