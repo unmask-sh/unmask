@@ -80,3 +80,53 @@ func TestSettingsToolsListed(t *testing.T) {
 		t.Error("settings_tab without the admin must be an error")
 	}
 }
+
+// A webhook URL is a credential (its token is the path), and so is any
+// value that carries one -- a password in a URL, a token in a query string
+// -- whatever its key is called.  None of them reaches the model: not in
+// the flattened keys, and not through a search that names the service.
+func TestFlattenConfigRedactsWebhookURLsAndCredentialValues(t *testing.T) {
+	var s settings.Settings
+	s.Notifications.URL = "https://hooks.slack.com/services/T000/B000/SECRETTOKEN"
+	s.Notifications.CriticalURL = "https://discord.com/api/webhooks/1234/DISCORDTOKEN"
+	s.SMTP.Host = "mail.example"
+	s.CommunityBans.SubmitURL = "https://user:HUBPASS@hub.example/submit"
+	s.VersionCheckURL = "https://updates.example/check?token=QUERYTOKEN"
+	s.IPGeo.MMDBPath = "/var/lib/unmask/ipgeo/dbip-country.mmdb"
+	keys := flattenConfig(s)
+	byKey := map[string]string{}
+	for _, k := range keys {
+		byKey[k.Key] = k.Value
+	}
+	for _, key := range []string{"notifications.url", "notifications.critical_url", "community_bans.submit_url", "version_check_url"} {
+		if byKey[key] != "(set; not shown)" {
+			t.Errorf("%s = %q, want it redacted", key, byKey[key])
+		}
+	}
+	if byKey["smtp.host"] != "mail.example" || byKey["ipgeo.mmdb_path"] != s.IPGeo.MMDBPath {
+		t.Errorf("plain values were hidden: host=%q mmdb=%q", byKey["smtp.host"], byKey["ipgeo.mmdb_path"])
+	}
+	for _, leak := range []string{"SECRETTOKEN", "DISCORDTOKEN", "HUBPASS", "QUERYTOKEN"} {
+		for _, k := range keys {
+			if strings.Contains(k.Value, leak) {
+				t.Errorf("%s leaked through %s = %q", leak, k.Key, k.Value)
+			}
+		}
+		for _, q := range []string{"slack", "webhook", "url", "discord", "token"} {
+			for _, k := range configKeysMatching(keys, queryWords(q)) {
+				if strings.Contains(k.Value, leak) {
+					t.Errorf("query %q returned %s = %q", q, k.Key, k.Value)
+				}
+			}
+		}
+	}
+	// The key is still found by the words that name it, with its value
+	// said to be set.
+	found := false
+	for _, k := range configKeysMatching(keys, queryWords("webhook url")) {
+		found = found || k.Key == "notifications.url"
+	}
+	if !found {
+		t.Error("\"webhook url\" did not find notifications.url")
+	}
+}

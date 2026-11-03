@@ -6,14 +6,30 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
 // The config.yml side of "where is this set": every key the settings file
 // carries, flattened to its dotted path with the current value, so an answer
 // can name the key beside the admin's field.  Secrets are only said to be
-// set.
+// set: what goes to the model is quoted in its answer and kept in the ask
+// history, which every account can read.
+//
+// A secret is told three ways, any one enough: the key is on the settings
+// package's own list of credentials (settings.IsSecretField -- the webhook
+// URLs are there: a chat hook's token is its path, and until 0.1.54 the
+// name-pattern below did not match "notifications.url", so the hook went to
+// the model whole); the key's name says so (secretKeyRE); or the value is a
+// credential whatever the key -- a URL with a password in it, a chat
+// service's hook, a token in a query string (secretValueRE).
 
-var secretKeyRE = regexp.MustCompile(`(?i)(secret|password|passwd|token|api_key|apikey|_key$|^key$|dsn)`)
+var secretKeyRE = regexp.MustCompile(`(?i)(secret|password|passwd|token|api_key|apikey|_key$|^key$|dsn|webhook|hook_url)`)
+
+// secretValueRE: a value that is a credential on its own.  The user:pass@
+// of a URL; the hook paths of Slack, Discord, Mattermost / Rocket.Chat and
+// Microsoft Teams; a credential named in a query string.
+var secretValueRE = regexp.MustCompile(`(?i)(://[^/\s@]+:[^/\s@]+@|hooks\.slack\.com/services/|discord(?:app)?\.com/api/webhooks/|webhook\.office\.com/|/hooks/[A-Za-z0-9]|[?&](?:token|key|secret|api_key|apikey|password|passwd|pass|auth|sig|signature|access_token)=)`)
 
 type configKey struct {
 	Key   string `json:"key"`
@@ -100,7 +116,7 @@ func flattenInto(v reflect.Value, prefix string, out *[]configKey, depth int) {
 }
 
 func redact(key, val string) string {
-	if val != "" && secretKeyRE.MatchString(key) {
+	if val != "" && (settings.IsSecretField(key) || secretKeyRE.MatchString(key) || secretValueRE.MatchString(val)) {
 		return "(set; not shown)"
 	}
 	if len([]rune(val)) > 160 {
