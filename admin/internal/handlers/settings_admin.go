@@ -91,23 +91,23 @@ var errSettingsAnswered = errors.New("settings: the mutator answered the request
 // two operators -- each saved their own copy of what they had read, and the
 // one that saved first lost its change.
 //
+// The file's own lock (settings.Mutate) is held for the whole of it too:
+// settingsMu serializes this process's writers, the file lock those of
+// another -- the CLI's upgrade-review, which loads, changes and saves under
+// the same lock.  With the lock inside Save only, as it was, the CLI could
+// write between this load and this save, and its change was lost.
+//
 // fn returning an error saves nothing, and the error comes back as it was
 // given, so a caller can tell its own (errSettingsAnswered, a "nothing to
 // do") from a load or save failure, which carry a "load: " / "save: "
-// prefix.  fn runs under the lock: it must not call UpdateSettings or
+// prefix.  fn runs under the locks: it must not call UpdateSettings or
 // mutateSettings again (a deadlock), and it should not wait on the network.
 func (h *Handler) mutateSettings(fn func(*settings.Settings) error) (settings.Settings, error) {
 	settingsMu.Lock()
 	defer settingsMu.Unlock()
-	cur, err := settings.Load(h.ConfigPath)
+	cur, err := settings.Mutate(h.ConfigPath, fn)
 	if err != nil {
-		return cur, fmt.Errorf("load: %w", err)
-	}
-	if err := fn(&cur); err != nil {
 		return cur, err
-	}
-	if err := settings.Save(cur, h.ConfigPath); err != nil {
-		return cur, fmt.Errorf("save: %w", err)
 	}
 	// cur is this call's own copy and nothing else holds its address, so the
 	// pointer published here is never written to afterwards; the caller gets

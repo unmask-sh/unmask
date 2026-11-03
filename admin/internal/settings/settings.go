@@ -5542,19 +5542,52 @@ func Update(path string, fn func(*Settings) error) error {
 	if path == "" {
 		return fmt.Errorf("update: path is empty")
 	}
+	_, err := Mutate(path, fn)
+	return err
+}
+
+// Mutate is Update that hands back what it saved, for a caller that
+// publishes the saved copy as the live settings (the daemon's one write
+// path).  A failed load comes back as "load: ...", a failed save (the lock
+// included) as "save: ...", and fn's own error as it was given, with
+// nothing saved; on any failure the settings returned are what was loaded,
+// or the defaults.
+//
+// Until 0.1.54 the daemon took the lock inside Save only, so the CLI's
+// Update could run between the daemon's load and its save, and one of the
+// two writes was lost.
+func Mutate(path string, fn func(*Settings) error) (Settings, error) {
+	if path == "" {
+		// Nothing to lock: load what the environment names, let fn answer
+		// for itself, and fail the save as Save does.
+		s, err := Load(path)
+		if err != nil {
+			return s, fmt.Errorf("load: %w", err)
+		}
+		if err := fn(&s); err != nil {
+			return s, err
+		}
+		if err := Save(s, path); err != nil {
+			return s, fmt.Errorf("save: %w", err)
+		}
+		return s, nil
+	}
 	unlock, err := lockConfig(path)
 	if err != nil {
-		return err
+		return defaults(), fmt.Errorf("save: %w", err)
 	}
 	defer unlock()
 	s, err := Load(path)
 	if err != nil {
-		return err
+		return s, fmt.Errorf("load: %w", err)
 	}
 	if err := fn(&s); err != nil {
-		return err
+		return s, err
 	}
-	return saveLocked(s, path)
+	if err := saveLocked(s, path); err != nil {
+		return s, fmt.Errorf("save: %w", err)
+	}
+	return s, nil
 }
 
 // lockConfig takes the config file's write lock -- flock(LOCK_EX) on

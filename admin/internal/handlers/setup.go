@@ -1122,75 +1122,75 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// 3. apply protection-mode preset onto current settings and persist
-	cur, err := settings.Load(h.ConfigPath)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			// No config file yet (genuinely fresh): an empty template is the
-			// only option -- the install flow's config-init normally writes one
-			// (with bv_secret) before the wizard runs.
-			cur = settings.Settings{}
-		} else {
-			// The file EXISTS but won't load (unreadable / unparseable).  Do NOT
-			// fall back to an empty template: Save() marshals every field, so it
-			// would clobber the real config -- wiping secret.bv_secret and looping
-			// every visitor on the challenge after the next restart (the
-			// settings.Load-then-Save hazard).  Abort and surface the error.
-			if conn != h.DB {
-				_ = conn.Close()
+	// 3. apply protection-mode preset onto current settings and persist,
+	// under the file's lock for the whole read-modify-write (settings.Mutate)
+	// like every other writer of config.yml.
+	apply := func(cur *settings.Settings) error {
+		// The wizard asks for the connection only.  What the operator tuned
+		// beside it -- the memory profile, the pool, the schema update
+		// threshold -- stays; replacing the whole section used to reset them
+		// all on a switch of database.
+		tuned := cur.DB
+		cur.DB = s.DB
+		cur.DB.PerfProfile, cur.DB.SQLiteCacheMB, cur.DB.MaxConns = tuned.PerfProfile, tuned.SQLiteCacheMB, tuned.MaxConns
+		cur.DB.SchemaUpdateDeferSeconds = tuned.SchemaUpdateDeferSeconds
+		// The options step (first run only): the communication with unmask.sh,
+		// the admin hostname and monitor mode as the operator chose them.  A
+		// wizard that never submitted the step leaves them as the config has
+		// them.
+		if !reconfigure && s.OptionsSet {
+			applyWizardOptions(cur, s.Options)
+		}
+		// Completing the wizard means the operator is looking at THIS release, so
+		// stamp it as seen: this baselines the settings UI's "NEW since your last
+		// save" badge to this version, so only what later releases add is badged.
+		// (Presets themselves are active from the release that ships them; the
+		// stamp no longer gates rendering.)  Guarded so a dev build ("vdev",
+		// unparseable) cannot overwrite a real recorded version.
+		if v := "v" + h.Version; nginxconf.VersionParseable(v) {
+			cur.Nginx.SeenVersion = v
+			// Baseline the upgrade-review protection to this release: a fresh install
+			// ships nothing held (only LATER additions wait for review), and an unset
+			// policy defaults to "review" so a growing operator base is not surprised
+			// by a tightened ruleset on a later `dnf upgrade`.  An operator who set
+			// "apply" in config.yml is left as-is.
+			cur.Nginx.EnforcementReviewedVersion = v
+			if cur.Nginx.UpgradeReviewPolicy == "" {
+				cur.Nginx.UpgradeReviewPolicy = settings.UpgradeReviewReview
 			}
-			redirErr("read config.yml (exists but won't load): " + err.Error())
-			return
 		}
+		return nil
 	}
-	// The wizard asks for the connection only.  What the operator tuned
-	// beside it -- the memory profile, the pool, the schema update
-	// threshold -- stays; replacing the whole section used to reset them
-	// all on a switch of database.
-	tuned := cur.DB
-	cur.DB = s.DB
-	cur.DB.PerfProfile, cur.DB.SQLiteCacheMB, cur.DB.MaxConns = tuned.PerfProfile, tuned.SQLiteCacheMB, tuned.MaxConns
-	cur.DB.SchemaUpdateDeferSeconds = tuned.SchemaUpdateDeferSeconds
-	// The options step (first run only): the communication with unmask.sh,
-	// the admin hostname and monitor mode as the operator chose them.  A
-	// wizard that never submitted the step leaves them as the config has
-	// them.
-	if !reconfigure && s.OptionsSet {
-		applyWizardOptions(&cur, s.Options)
+	cur, err := settings.Mutate(h.ConfigPath, apply)
+	if err != nil && errors.Is(err, fs.ErrNotExist) {
+		// No config file yet (genuinely fresh): an empty template is the
+		// only option -- the install flow's config-init normally writes one
+		// (with bv_secret) before the wizard runs.  No other writer has a
+		// file to change meanwhile, so the lock is not missed.
+		cur = settings.Settings{}
+		_ = apply(&cur)
+		err = settings.Save(cur, h.ConfigPath)
 	}
-	// Completing the wizard means the operator is looking at THIS release, so
-	// stamp it as seen: this baselines the settings UI's "NEW since your last
-	// save" badge to this version, so only what later releases add is badged.
-	// (Presets themselves are active from the release that ships them; the
-	// stamp no longer gates rendering.)  Guarded so a dev build ("vdev",
-	// unparseable) cannot overwrite a real recorded version.
-	if v := "v" + h.Version; nginxconf.VersionParseable(v) {
-		cur.Nginx.SeenVersion = v
-		// Baseline the upgrade-review protection to this release: a fresh install
-		// ships nothing held (only LATER additions wait for review), and an unset
-		// policy defaults to "review" so a growing operator base is not surprised
-		// by a tightened ruleset on a later `dnf upgrade`.  An operator who set
-		// "apply" in config.yml is left as-is.
-		cur.Nginx.EnforcementReviewedVersion = v
-		if cur.Nginx.UpgradeReviewPolicy == "" {
-			cur.Nginx.UpgradeReviewPolicy = settings.UpgradeReviewReview
-		}
-	}
-	if err := settings.Save(cur, h.ConfigPath); err != nil {
+	if err != nil {
+		// The file EXISTS but won't load (unreadable / unparseable), or the
+		// save failed.  Do NOT fall back to an empty template: Save() marshals
+		// every field, so it would clobber the real config -- wiping
+		// secret.bv_secret and looping every visitor on the challenge after
+		// the next restart (the settings.Load-then-Save hazard).  Abort and
+		// surface the error.
 		if conn != h.DB {
 			_ = conn.Close()
 		}
-		redirErr("save config.yml: " + err.Error())
+		redirErr("config.yml: " + err.Error())
 		return
 	}
-	// 4. hot-swap runtime state
-	old := h.DB
-	h.DB = conn
-	if h.UserRepo != nil {
-		h.UserRepo.DB = conn
-	} else {
-		h.UserRepo = repo
-	}
+	// 4. the live settings.  The database handle is not swapped here: every
+	// request goroutine and background worker reads h.DB without a lock, so
+	// a write to it raced them all (and the workers stayed bound to the old
+	// handle regardless).  A switch of database re-execs the daemon instead
+	// (step 5), which binds everything to the new one at once; the done
+	// page, served meanwhile, needs no database.
+	switched := conn != h.DB
 	h.updateSettingsInMemory(func(live *settings.Settings) {
 		live.DB = s.DB
 		// Setup wizard only touches the global Default record (= per-site
