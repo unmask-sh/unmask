@@ -1,12 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/renderwatch"
-	"github.com/unmask-sh/unmask/admin/internal/safe"
 )
 
 // renderAfterGeoUpdate: a new GeoIP snapshot is a new set of address ranges
@@ -36,12 +36,11 @@ func renderAfterGeoUpdate(render func() error, dir string) {
 // saveRenderWatch keeps the render watch's state file current: every 30
 // seconds, when lines came in since the last save.  A failure is logged once,
 // and again only when it changes.
-func saveRenderWatch(w *renderwatch.Watch) {
-	defer safe.Recover("render-watch-save")
+func saveRenderWatch(ctx context.Context, w *renderwatch.Watch) {
 	t := time.NewTicker(30 * time.Second)
 	defer t.Stop()
 	last := ""
-	for range t.C {
+	for tick(ctx, t) {
 		msg := ""
 		if err := w.Save(); err != nil {
 			msg = err.Error()

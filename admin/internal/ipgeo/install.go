@@ -19,6 +19,7 @@ package ipgeo
 
 import (
 	"compress/gzip"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -219,8 +220,8 @@ func InstallDBIPLite(opts InstallOptions) (*InstallResult, error) {
 // are bounded-retry (covers a host briefly offline at boot) and non-fatal.  Only
 // default managed paths are touched; a custom mmdb_path is the operator's own
 // file and is left alone.  gip is reloaded so the geo axis sees the new file
-// without a restart.
-func AutoFetchMissing(countryPath, asnPath string, gip *Reader) {
+// without a restart.  ctx ending (the daemon's shutdown) ends the retries.
+func AutoFetchMissing(ctx context.Context, countryPath, asnPath string, gip *Reader) {
 	type job struct {
 		kind InstallKind
 		path string
@@ -242,7 +243,11 @@ func AutoFetchMissing(countryPath, asnPath string, gip *Reader) {
 		remaining := jobs
 		for _, wait := range backoffs {
 			if wait > 0 {
-				time.Sleep(wait)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(wait):
+				}
 			}
 			var failed []job
 			for _, j := range remaining {

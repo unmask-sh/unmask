@@ -53,7 +53,6 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/relay"
 	"github.com/unmask-sh/unmask/admin/internal/renderwatch"
 	"github.com/unmask-sh/unmask/admin/internal/rulehits"
-	"github.com/unmask-sh/unmask/admin/internal/safe"
 	"github.com/unmask-sh/unmask/admin/internal/selabel"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/user"
@@ -408,6 +407,11 @@ func cmdServe(args []string) error {
 		}
 	}
 
+	// The background loops, under one context the shutdown ends and one
+	// group it waits for (serve_workers.go): each stops between its steps,
+	// and the handles they use are closed after them, not under them.
+	workers := newWorkerGroup(context.Background())
+
 	gip := ipgeo.Open(s.IPGeo.MMDBPath, s.IPGeo.MMDBASNPath)
 	defer gip.Close()
 	if s.IPGeo.MMDBPath != "" {
@@ -430,7 +434,7 @@ func cmdServe(args []string) error {
 	// Gated on setupComplete so a pre-wizard / air-gapped box doesn't reach out
 	// to the mirror (and log a fetch failure) before the operator consents.
 	if s.IPGeo.AutoFetch && setupComplete {
-		ipgeo.AutoFetchMissing(s.IPGeo.MMDBPath, s.IPGeo.MMDBASNPath, gip)
+		ipgeo.AutoFetchMissing(workers.Context(), s.IPGeo.MMDBPath, s.IPGeo.MMDBASNPath, gip)
 	}
 	// Tail of nginx-only access_log + 1-minute flush goroutine + ban manager
 	// only start when the DB is connected (setup complete).  Right after the
@@ -533,13 +537,7 @@ func cmdServe(args []string) error {
 
 	limiter := ratelimit.New()
 	// GC stale entries (no hits in the last hour) every minute.  Prevents memory bloat.
-	go func() {
-		t := time.NewTicker(60 * time.Second)
-		defer t.Stop()
-		for range t.C {
-			safe.Run("limiter-purge", limiter.Purge)
-		}
-	}()
+	workers.Go("limiter-purge", func(ctx context.Context) { runLimiterPurge(ctx, limiter) })
 
 	// Raw events are written via the batch flusher (N rows per single tx).
 	// Started once at startup; settings save hot-reloads it; shutdown drains it.
@@ -641,47 +639,17 @@ func cmdServe(args []string) error {
 	// The markers beside the rendered files: the render's reload marker
 	// settles once nginx logs the render, and the plugin's fail-safe marker
 	// is a notice when it comes and when it goes (handlers/failsafe_watch.go).
-	go h.RunNativeFailsafeWatch(context.Background())
+	workers.Go("native-failsafe-watch", h.RunNativeFailsafeWatch)
 
-	// Keep a managed mmdb current.  Checked DAILY against the snapshot's own
-	// build date rather than run monthly on a fixed day: DB-IP publishes
-	// several days into the month, and a monthly timer that fires before the
-	// new snapshot exists simply skips that month -- which is how the mirror
-	// came to serve a three-week-old file.  A daily check that only downloads
-	// something newer self-corrects and costs one conditional request.
-	//
-	// Same gating as AutoFetch (managed paths, setup complete): the operator's
-	// own mmdb_path is never touched, and an install with no mmdb is
-	// AutoFetch's business, not this loop's.
+	// Keep a managed mmdb current (runIPGeoAutoUpdate): a daily check
+	// against the snapshot's own build date.  Same gating as AutoFetch
+	// (managed paths, setup complete): the operator's own mmdb_path is
+	// never touched, and an install with no mmdb is AutoFetch's business,
+	// not this loop's.
 	if (s.IPGeo.AutoUpdate || s.IPGeo.AutoUpdateASN) && setupComplete {
-		go func() {
-			defer safe.Recover("ipgeo-auto-update")
-			const (
-				checkEvery = 24 * time.Hour
-				staleAfter = 30 * 24 * time.Hour
-			)
-			// Settle first: startup already has the first-run fetch, migrations
-			// and the nginx render competing for the same minutes, and a month
-			// -old file is not urgent.
-			time.Sleep(10 * time.Minute)
-			for {
-				// One pass under its own recovery (safe.Run): a panic in
-				// a pass is logged and the next pass runs, where one in
-				// the loop would have ended the checks for good.
-				safe.Run("ipgeo-auto-update", func() {
-					// Re-read settings each pass so a toggle in the web UI takes
-					// effect without a restart (same pattern as the other loops).
-					cur := h.SnapshotSettings()
-					if cur.IPGeo.AutoUpdate || cur.IPGeo.AutoUpdateASN {
-						if ipgeo.AutoUpdateStaleKinds(cur.IPGeo.MMDBPath, cur.IPGeo.MMDBASNPath,
-							cur.IPGeo.AutoUpdate, cur.IPGeo.AutoUpdateASN, gip, staleAfter, time.Time{}) > 0 {
-							renderAfterGeoUpdate(func() error { return renderNow(nginxconf.RenderCause{Kind: nginxconf.RenderByGeoIP}) }, renderOutDir())
-						}
-					}
-				})
-				time.Sleep(checkEvery)
-			}
-		}()
+		workers.Go("ipgeo-auto-update", func(ctx context.Context) {
+			runIPGeoAutoUpdate(ctx, h, gip, renderNow, renderOutDir)
+		})
 	}
 
 	// Wire the ban file's per-source action resolver to live settings so a
@@ -735,7 +703,7 @@ func cmdServe(args []string) error {
 			nlog.SetRuleHit(func(id string) { ruleHits.Hit(id, time.Now()) })
 			nlog.SetRenderSeen(func(id string) { renderWatch.Saw(id, time.Now()) })
 			nlog.SetModuleSeen(func(id string) { renderWatch.SawModule(id, time.Now()) })
-			go saveRenderWatch(renderWatch)
+			workers.Go("render-watch-save", func(ctx context.Context) { saveRenderWatch(ctx, renderWatch) })
 			// A banned client whose action is deny is refused before its
 			// cookie is looked at, so a line of it showing one is no pass.
 			nlog.SetDeniedCheck(func(ip, ja4 string) bool {
@@ -804,7 +772,9 @@ func cmdServe(args []string) error {
 		// operator has finished the wizard.  The post-setup auto re-exec starts
 		// it on the next boot.
 		if setupComplete {
-			go h.CommunityBans.Run(context.Background(), communitybans.PullInterval)
+			workers.Go("community-bans", func(ctx context.Context) {
+				h.CommunityBans.Run(ctx, communitybans.PullInterval)
+			})
 		}
 	}
 
@@ -863,7 +833,7 @@ func cmdServe(args []string) error {
 	ipSync.PullRelay = true
 	ipSync.PullCDN = true
 	h.IPRangeSync = ipSync
-	go ipSync.Start(context.Background())
+	workers.Go("iprange-sync", ipSync.Start)
 
 	// Same hub-subscribe pattern for the stale-browser tier's current-stable
 	// baselines (Chrome / Firefox + ESR).  Always on and harmless when the
@@ -875,182 +845,22 @@ func cmdServe(args []string) error {
 	bmSync.HubURL = strings.TrimSpace(s.Nginx.BrowserMajorsHubURL) // empty = the published document
 	bmSync.Disabled = syncOff
 	h.BrowserSync = bmSync
-	go bmSync.Start(context.Background())
+	workers.Go("browser-majors-sync", bmSync.Start)
 
 	mux := buildRouter(s, h)
 
-	// Prune old rows from unmask_event every hour (those exceeding
-	// EventsRetentionDays).  Aggregates (unmask_aggregate) are kept
-	// permanently.  retention <= 0 -> no-op.  Run once at startup to sweep
-	// backlog from immediately after install / restart.  Snapshotting settings
-	// per run inside the goroutine hot-picks up web UI saves.
-	//
-	// Hourly, not daily: a run that stops on its budget (or on a busy lock)
-	// used to leave the remainder for the next day, and on a busy install a
-	// day's intake outran what one run deleted -- the file grew for weeks
-	// (2026-09-08: 36 GB against a 7-day window).  Small hourly runs keep
-	// the backlog near zero, and the prune paces itself against the other
-	// writers (see events.PruneOldEventsOpts).
+	// Prune old rows from unmask_event every hour (runRetentionPrune), and
+	// the audit log, the notification list and the ask history on their
+	// own retentions.
 	if conn != nil {
-		go func() {
-			runPrune := func() {
-				defer safe.Recover("retention-prune") // a panic here must not kill the daemon
-				// 45 minutes of the hour: the prune holds the write lock for
-				// a second at most at a time and yields at least as long in
-				// between, so a long budget is not a long lock -- it is how
-				// fast a backlog drains (a week of intake in a day or so).
-				ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
-				defer cancel()
-				// One consistent snapshot for this run (settingsPtr is unexported;
-				// SnapshotSettings hot-picks up web UI saves on the next tick).
-				cfg := h.SnapshotSettings()
-				// Admin-action audit log first: it is tiny and must not lose its
-				// daily run to an events prune that used the whole budget.
-				// (Independent retention; checked separately so
-				// events_retention_days=0 doesn't disable it.  Its own
-				// default is 0: the log is kept until the operator sets a
-				// number.)
-				if h.UserRepo != nil {
-					if retention := cfg.AuditLogRetentionDays; retention > 0 {
-						if n, err := h.UserRepo.PruneOldAudit(ctx, retention); err != nil {
-							log.Printf("audit prune: %v", err)
-						} else if n > 0 {
-							log.Printf("audit prune: deleted %d row(s) older than %d days", n, retention)
-						}
-					}
-				}
-				// The notification list, on its own retention (also kept by
-				// default).
-				if h.Notices != nil {
-					if retention := cfg.NoticeRetentionDays; retention > 0 {
-						if n, err := h.Notices.Prune(ctx, retention); err != nil {
-							log.Printf("notice prune: %v", err)
-						} else if n > 0 {
-							log.Printf("notice prune: deleted %d row(s) older than %d days", n, retention)
-						}
-					}
-				}
-				// The ask page's history, on its own retention (kept by default:
-				// a turn is a few KB, and the record is the operator's own).
-				if retention := cfg.AskHistoryRetentionDays; retention > 0 {
-					if n, err := h.PruneAskHistory(ctx, retention); err != nil {
-						log.Printf("ask history prune: %v", err)
-					} else if n > 0 {
-						log.Printf("ask history prune: deleted %d row(s) older than %d days", n, retention)
-					}
-				}
-				// Raw traffic events.  (The per-hour, per-crawler drill-down that
-				// backs the AI-card trend sparkline is NOT pruned here anymore --
-				// it moved to PruneHourly's fixed 32-day aggregate window so that
-				// lowering events_retention_days for disk does not shorten the
-				// crawler trend.  events_retention_days now governs only raw events:
-				// the bot-hunt log, --ref lookups, rankings and analyze.)
-				if retention := cfg.EventsRetentionDays; retention > 0 {
-					// The run's record (unmask_maint_state) is what doctor and the
-					// retention tab judge "keeping up" by; write it before and after
-					// so a run cut short still shows when it started.
-					rec := db.PruneRecord{StartedAt: time.Now().Unix(), Retention: retention}
-					var prev db.PruneRecord
-					if ok, _ := conn.LoadMaintState(ctx, db.MaintEventsPrune, &prev); ok {
-						rec.CompletedAt = prev.CompletedAt
-					}
-					_ = conn.SaveMaintState(ctx, db.MaintEventsPrune, rec)
-					res, err := events.PruneOldEventsOpts(ctx, conn, retention, events.PruneOptions{})
-					rec.EndedAt = time.Now().Unix()
-					rec.Deleted, rec.Chunks, rec.BusyRetries, rec.Seconds = res.Deleted, res.Chunks, res.BusyRetries, res.Elapsed.Seconds()
-					switch {
-					case err != nil && errors.Is(err, context.DeadlineExceeded):
-						// Committed chunks survive; say how far it got so a budget
-						// stop on a big backlog reads as progress, not as a prune
-						// that does nothing.
-						rec.Err = "budget reached"
-						log.Printf("events prune: budget reached after %d row(s) in %d chunk(s) (%d busy retries); the next hourly run continues", res.Deleted, res.Chunks, res.BusyRetries)
-					case err != nil:
-						rec.Err = err.Error()
-						log.Printf("events prune: %v (deleted %d row(s) first; the next hourly run continues)", err, res.Deleted)
-					default:
-						rec.CompletedAt = rec.EndedAt
-						if res.Deleted > 0 {
-							log.Printf("events prune: deleted %d row(s) older than %d days in %d chunk(s), %v (%d busy retries)", res.Deleted, retention, res.Chunks, res.Elapsed.Round(time.Second), res.BusyRetries)
-						}
-					}
-					// The record is written outside the run's budget: a deadline
-					// must not also lose the note that says the deadline hit.
-					rctx, rcancel := context.WithTimeout(context.Background(), 10*time.Second)
-					if err := conn.SaveMaintState(rctx, db.MaintEventsPrune, rec); err != nil {
-						log.Printf("events prune: record state: %v", err)
-					}
-					rcancel()
-				}
-			}
-			runPrune()
-			t := time.NewTicker(time.Hour)
-			defer t.Stop()
-			for range t.C {
-				// Not against a schema update's write lock: the next hour's
-				// run takes what this one leaves.
-				if conn.WritesHeld() {
-					continue
-				}
-				runPrune()
-			}
-		}()
+		workers.Go("retention-prune", func(ctx context.Context) { runRetentionPrune(ctx, h, conn) })
 	}
 
-	// The write-ahead log.  journal_size_limit truncates it to 64 MB after a
-	// checkpoint, but a checkpoint can only finish when no reader holds an
-	// older snapshot: on a large database with long dashboard queries the
-	// readers overlap and the file grows for as long as they do (10.7 GB on
-	// 2026-09-08), and the stop that follows has a checkpoint to do that no
-	// init system waits for.  Every five minutes, when the log is past
-	// db.WALLargeBytes, trim it as far as the readers allow (db.TrimWAL) and
-	// say what happened -- once an hour while it stays large, so the log
-	// names the condition without repeating it.
+	// The write-ahead log (runWALWatch): trimmed when it is past
+	// db.WALLargeBytes and the readers allow, and named in the log while
+	// it stays large.
 	if conn != nil && conn.Driver == db.DriverSQLite {
-		go func() {
-			defer safe.Recover("wal-watch")
-			var lastSaid time.Time
-			t := time.NewTicker(5 * time.Minute)
-			defer t.Stop()
-			// One tick under its own recovery (safe.Run): a panic in a
-			// tick is logged and the watch goes on, where one in the loop
-			// would have ended it for good.
-			for range t.C {
-				safe.Run("wal-watch", func() {
-					sz := conn.WALSize()
-					if sz < db.WALLargeBytes {
-						return
-					}
-					// A schema update writes its index into the log and holds
-					// the lock until it is done: large, not shrinking, and as
-					// intended.  It checkpoints the log itself when it ends.
-					if conn.WritesHeld() {
-						return
-					}
-					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-					tr, err := conn.TrimWAL(ctx)
-					cancel()
-					if err != nil {
-						log.Printf("wal: %s, trim: %v", humanBytesCLI(sz), err)
-						return
-					}
-					if tr.After < db.WALLargeBytes {
-						log.Printf("wal: trimmed from %s to %s", humanBytesCLI(tr.Before), humanBytesCLI(tr.After))
-						lastSaid = time.Time{}
-						return
-					}
-					if time.Since(lastSaid) < time.Hour {
-						return
-					}
-					lastSaid = time.Now()
-					held := "a reader holds an older snapshot"
-					if tr.Blocked {
-						held = "a reader is still on the log"
-					}
-					log.Printf("wal: %s and not shrinking (checkpoint copied %d of %d frames; %s) -- long-running queries keep it; a stop that is killed leaves it for the next start to replay", humanBytesCLI(tr.After), tr.Passive.Checkpointed, tr.Passive.LogFrames, held)
-				})
-			}
-		}()
+		workers.Go("wal-watch", func(ctx context.Context) { runWALWatch(ctx, conn) })
 	}
 
 	// Over-block circuit breaker: sample the challenge funnel every 60s and trip
@@ -1059,17 +869,17 @@ func cmdServe(args []string) error {
 	// over-block real traffic for hours.  No-op until over_block_breaker is
 	// enabled.  Reads h.Settings live so web UI saves take effect.
 	if conn != nil {
-		go h.RunOverBlockMonitor(context.Background())
+		workers.Go("over-block-monitor", h.RunOverBlockMonitor)
 	}
 
 	// Schema updates left for the operator: what waits, and the run that
 	// applies them (handlers/schema_update.go).
 	if conn != nil {
-		go h.RunSchemaWatch(context.Background())
+		workers.Go("schema-watch", h.RunSchemaWatch)
 		// Database compactions (handlers/vacuum.go): the run lock is looked
 		// at every two seconds, so a run from a shell is handed over to at
 		// once.  SQLite only; it returns at once on MariaDB.
-		go h.RunVacuumWatch(context.Background())
+		workers.Go("vacuum-watch", h.RunVacuumWatch)
 	}
 
 	// Scheduled advisor digest: run the deterministic candidate engine on a
@@ -1078,14 +888,12 @@ func cmdServe(args []string) error {
 	// somebody to open the page.  The schedule is read live inside the loop
 	// (off by default), and the pass never calls a model.
 	if conn != nil {
-		go h.RunAdvisorSchedule(context.Background())
+		workers.Go("advisor-schedule", h.RunAdvisorSchedule)
 	}
 
-	// Roll new unmask_event rows into unmask_aggregate_hourly every 60s (plus a
-	// startup pass).  The stats page reads those hourly rollups instead of
-	// scanning the raw event table, which is ~10x slower under pure-Go SQLite.
-	// PruneHourly trims buckets past the 32-day window roughly hourly.  Fully
-	// in-process: no external cron required.
+	// Roll new unmask_event rows into unmask_aggregate_hourly every 60s
+	// (runHourlyAggregate): the stats page reads those hourly rollups
+	// instead of scanning the raw event table.
 	if conn != nil {
 		// Per-site funnel aggregates are written only for operator-declared
 		// sites ("defined" mode) -- the same gate the reader (Funnel's
@@ -1094,84 +902,7 @@ func cmdServe(args []string) error {
 		dashboard.DefinedSitesFn = func() map[string]bool {
 			return h.SnapshotSettings().Sites.DefinedSet()
 		}
-		go func() {
-			// Each rollup runs under its own budget.  They used to share one
-			// five-minute context: on a host with a long event backlog the
-			// hourly fold spent all of it every tick, and the rollups behind
-			// it -- the install-wide one DailyPassByDay reads -- got a context
-			// that had already expired, so their cursors never moved and the
-			// card scanned 30 days of per-minute rows instead (the company
-			// host, 2026-09-12).  The fold's own budget is the longest: it
-			// stops between chunks and continues next tick (AggregateHourly).
-			stage := func(name string, budget time.Duration, fn func(context.Context) error) {
-				ctx, cancel := context.WithTimeout(context.Background(), budget)
-				defer cancel()
-				if err := fn(ctx); err != nil {
-					log.Printf("%s: %v", name, err)
-				}
-			}
-			runAgg := func() {
-				defer safe.Recover("hourly-aggregate") // panic must not kill the daemon
-				stage("hourly aggregate", 3*time.Minute, func(ctx context.Context) error {
-					return dashboard.AggregateHourly(ctx, conn, gip)
-				})
-				// Fold per-minute traffic sketches into hourly rollups so the
-				// DailyUniqueIPs card merges ~720 sketches, not ~65k rows.
-				stage("traffic-hll rollup", 2*time.Minute, func(ctx context.Context) error {
-					return dashboard.RollupTrafficHLL(ctx, conn)
-				})
-				// Fold the per-minute nginx-log tables into install-wide hourly
-				// aggregates so the default (unfiltered) DailyUniqueIPs /
-				// DailyPassByDay cards skip the ~300-site read fan-out.
-				stage("install-wide rollup", 2*time.Minute, func(ctx context.Context) error {
-					return dashboard.RollupInstallWideHourly(ctx, conn)
-				})
-				// Same idea for the per-country pass chart (DailyPassByCountry):
-				// collapse the per-site country_hourly rows into install-wide ones.
-				stage("install-wide country rollup", 2*time.Minute, func(ctx context.Context) error {
-					return dashboard.RollupInstallWideCountry(ctx, conn)
-				})
-				// Pre-aggregate the Funnel card's rate_limit row per hour so it
-				// stops running a per-IP self-join over unmask_event on each load.
-				stage("rate-limit funnel rollup", 2*time.Minute, func(ctx context.Context) error {
-					return dashboard.RollupRateLimitFunnel(ctx, conn)
-				})
-				// Install-wide 'ipc'/'ipp' sketches so the overview's non-human-%
-				// card skips the per-site traffic_hll fan-out.
-				stage("install-wide blocked rollup", 2*time.Minute, func(ctx context.Context) error {
-					return dashboard.RollupInstallWideBlocked(ctx, conn)
-				})
-			}
-			runPrune := func() {
-				defer safe.Recover("hourly-prune")
-				if err := dashboard.PruneHourly(context.Background(), conn); err != nil {
-					log.Printf("hourly aggregate prune: %v", err)
-				}
-			}
-			runAgg()
-			runPrune()
-			t := time.NewTicker(60 * time.Second)
-			defer t.Stop()
-			pruneDue := false
-			for tick := 0; ; tick++ {
-				<-t.C
-				if tick%60 == 0 {
-					pruneDue = true
-				}
-				// A schema update holds the write lock: every statement
-				// here would wait out the busy timeout and fail.  The
-				// rollups continue from their cursors and the prune from
-				// its cutoff, so a skipped turn costs nothing but time.
-				if conn.WritesHeld() {
-					continue
-				}
-				runAgg()
-				if pruneDue {
-					pruneDue = false
-					runPrune()
-				}
-			}
-		}()
+		workers.Go("hourly-aggregate", func(ctx context.Context) { runHourlyAggregate(ctx, conn, gip) })
 	}
 
 	// NOTE: the query planner's statistics (sqlite_stat1) are deliberately NOT
@@ -1214,6 +945,12 @@ func cmdServe(args []string) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		_ = srv.Shutdown(ctx)
 		cancel()
+		// The background loops are told to stop now that nothing will ask
+		// them for anything; they end at their next step, while the stops
+		// below proceed, and are waited for at the end -- before the
+		// handles they use are closed, which cmdServe's deferred closes do
+		// once shutdownDone is seen.
+		workers.Cancel()
 		// A schema update this daemon started is stopped before the last
 		// writes: it holds the write lock they need, and left running it
 		// would lose its output pipe and die halfway without a word.
@@ -1236,6 +973,9 @@ func cmdServe(args []string) error {
 		}
 		// Drain the event flusher queue + perform a final flush.
 		events.StopFlusher()
+		if !workers.Wait(20 * time.Second) {
+			log.Printf("shutdown: a background worker did not stop in 20s; closing the database under it")
+		}
 	}()
 
 	// conn is intentionally nil when the DB is unreachable at boot so the setup
