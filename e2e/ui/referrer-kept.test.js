@@ -278,6 +278,10 @@ async function visit(browser, name, start, times = 1, before = null, target = PA
     if (math) {
       await p.waitForFunction(() => /\d+ \+ \d+/.test(document.getElementById('mathQ').textContent), { timeout: 8000 });
       const [a, b] = (await p.$eval('#mathQ', e => e.textContent)).match(/\d+/g).map(Number);
+      // The daemon refuses an answer within TokenMinAgeSeconds of the page
+      // being served (too_fast); a person who reads the question is slower
+      // than this script, so wait that long before typing.
+      await new Promise(r => setTimeout(r, 2300));
       await p.type('#answerInput', String(a + b), { delay: 80 });
       await p.click('#submitBtn');
     }

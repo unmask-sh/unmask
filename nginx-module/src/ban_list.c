@@ -71,15 +71,19 @@ unmask_ban_classify(char *p, char *nl, unmask_ban_line_t *ln)
 void
 unmask_ban_count(const char *buf, size_t len, size_t *nrows, size_t *nprefixes)
 {
-    const char *p = buf;
-    const char *end = buf + len;
+    const char *p;
+    const char *end;
     unmask_ban_line_t ln;
 
     *nrows = 0;
     *nprefixes = 0;
-    if (buf == NULL) {
+    if (buf == NULL || len == 0) {
         return;
     }
+    /* After the guard: an offset on a null pointer is undefined behaviour,
+     * which UBSan reports even for an offset of zero. */
+    p = buf;
+    end = buf + len;
     while (p < end) {
         const char *nl = memchr(p, '\n', (size_t)(end - p));
         const char *stop = (nl != NULL) ? nl : end;
@@ -111,17 +115,19 @@ unmask_ban_parse(char *buf, size_t len,
                  unmask_ban_prefix_t *prefixes, size_t prefixes_cap,
                  size_t *nprefixes)
 {
-    char *p = buf;
-    char *end = buf + len;
+    char *p;
+    char *end;
     size_t nr = 0, np = 0;
     int sorted = 1;
     unmask_ban_line_t ln;
 
     *nrows = 0;
     *nprefixes = 0;
-    if (buf == NULL) {
+    if (buf == NULL || len == 0) {
         return 0;
     }
+    p = buf;
+    end = buf + len;
     buf[len] = '\0';
 
     while (p < end) {
