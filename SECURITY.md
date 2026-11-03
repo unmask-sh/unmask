@@ -94,7 +94,25 @@ fetched by default and applied with limits on what one pull can switch
 on; submitting is opt-in.  Signatures are HMAC (SHA-1 today, SHA-256
 selectable; both verified during the move) cut to 64 bits -- enough for
 an online guess to be hopeless, not for an offline one against a leaked
-secret, which is the secret's job to prevent.
+secret, which is the secret's job to prevent.  That signature is what
+the nginx module checks on every request; within its binding (the
+address or the /64, the host, the window) a pass is a bearer token and
+may be presented again, by the same client or by another in the same
+/64, up to the reuse budget the operator sets -- a narrower binding
+would cut off the visitor whose address moves, which is why the budget,
+not the binding, is the limit.
+
+**Rescue by name.**  A request from a crawler the operator chose to let
+through is exempt from the challenge.  As shipped, the search engines
+and the AI crawlers on that list are recognised by their published
+address ranges (`$is_bypass_ip`), never by the User-Agent alone; a
+client that merely claims one of their names is treated as any other
+client.  A User-Agent pattern the operator adds by hand to the name-only
+list is trusted on the name alone, for GET and HEAD, at the name-only
+rate -- the honeypot, the ban list, the country and ASN rules and the
+custom rules still apply to it -- so an added pattern is a decision to
+trust whoever can type that name, and the shipped configuration makes
+none.
 
 ## Out of Scope
 
