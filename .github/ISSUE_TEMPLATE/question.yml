@@ -1,0 +1,45 @@
+name: Question / help
+description: Something does not behave as you expected, and you are not sure it is a bug.
+title: "[question] "
+labels: ["question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ask here when you are not sure whether what you see is a bug: a
+        crawler that is challenged or passed when you expected the other, a
+        setting whose effect you cannot see, an install step that does not
+        match your host.  Security issues go through
+        [SECURITY.md](https://github.com/unmask-sh/unmask/blob/main/SECURITY.md)
+        instead, privately.
+
+  - type: textarea
+    id: question
+    attributes:
+      label: What are you trying to do, and what happens instead?
+      placeholder: |
+        I added include /var/lib/unmask/nginx/protect.inc; to the location
+        of my API and reloaded nginx, but curl still gets 200 from it.
+    validations:
+      required: true
+
+  - type: textarea
+    id: setup
+    attributes:
+      label: Your setup
+      description: |
+        The output of `unmask doctor` answers most of this; paste it, with
+        secrets removed.  Otherwise: distro, nginx version, how unmask is
+        deployed (native module / gateway container / forward-auth), and
+        the unmask version (`unmask --version`).
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: What you have checked already
+      description: Settings you looked at, log lines, the admin's Bot hunt rows for the request.
+    validations:
+      required: false

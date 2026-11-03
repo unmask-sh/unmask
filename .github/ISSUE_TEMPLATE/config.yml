@@ -5,12 +5,12 @@ contact_links:
     about: |
       Do NOT open a public issue for security vulnerabilities.  Report it
       privately here, per SECURITY.md.  We coordinate disclosure with you.
-  - name: Question / discussion
+  - name: Discussion
     url: https://github.com/unmask-sh/unmask/discussions
     about: |
-      Open questions, deployment patterns, and pre-bug-report sanity checks
-      belong in Discussions.  The issue tracker is for confirmed bugs and
-      concrete feature requests.
+      Deployment patterns, ideas and open-ended questions belong in
+      Discussions.  A question about something that does not behave as
+      you expected can also be an issue: use the "Question / help" form.
   - name: Docs and install steps
     url: https://unmask.sh/docs/
     about: |
