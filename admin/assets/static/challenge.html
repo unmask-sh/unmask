@@ -254,8 +254,11 @@ body.uc-on button:disabled{opacity:.5}
     </svg>
   </div>
   <!-- existing spinner (= for the light theme; hidden by CSS in the cat theme) -->
-  <div class="spinner" id="spinner"></div>
-  <p id="msg">Verifying your access, please wait...</p>
+  <div class="spinner" id="spinner" aria-hidden="true"></div>
+  <!-- role=status: the line changes as the check moves on (verifying, the
+       old-browser note) and a screen reader hears each change without the
+       page taking focus. -->
+  <p id="msg" role="status" aria-live="polite">Verifying your access, please wait...</p>
   <!-- Visible PoW progress.  Filled in by challenge.js once the solve loop
        starts; kept zero-width + zero-height (= no layout shift) when the
        JS bails before the loop (= silent bot / preview / cookie_err).
@@ -264,7 +267,7 @@ body.uc-on button:disabled{opacity:.5}
   <div id="powProgress" aria-hidden="true" style="width:60%;max-width:18rem;height:.25rem;margin:.6em auto 1em;background:#e2e8f0;border-radius:.125rem;overflow:hidden;opacity:0;transition:opacity .2s">
     <div id="powProgressFill" style="width:0%;height:100%;background:#3b82f6;transition:width .15s linear"></div>
   </div>
-  <div id="captcha">
+  <div id="captcha" role="region" aria-labelledby="captchaTitle">
     <h2 id="captchaTitle">Security Check</h2>
     <p class="desc" id="captchaDesc">Please confirm to continue.</p>
     <!-- 3rd-party CAPTCHA widget mount point (= shown only when a provider is configured) -->
@@ -281,8 +284,8 @@ body.uc-on button:disabled{opacity:.5}
          slow /verify or a slow redirect target makes clear the click registered
          and work is in progress (= shown by challenge.js, hidden by default). -->
     <div id="captchaBusy" style="display:none;flex-direction:column;align-items:center;gap:.6em;padding:.2em 0">
-      <div class="spinner" style="margin:0"></div>
-      <div id="captchaBusyMsg" style="font-size:.9em;color:#475569"></div>
+      <div class="spinner" style="margin:0" aria-hidden="true"></div>
+      <div id="captchaBusyMsg" role="status" aria-live="polite" style="font-size:.9em;color:#475569"></div>
       <!-- success sub-line: shown only after "verified", so the visitor knows
            the check passed AND the site is now loading (= no "stuck" feeling
            on a slow origin). Hidden during the "verifying" step. -->
@@ -292,24 +295,24 @@ body.uc-on button:disabled{opacity:.5}
     <div id="mathFallback" style="display:none">
       <div class="math" id="mathQ"></div>
       <div class="input-row">
-        <input type="text" id="answerInput" autocomplete="off" inputmode="numeric" pattern="[0-9]*" placeholder="?">
+        <input type="text" id="answerInput" autocomplete="off" inputmode="numeric" pattern="[0-9]*" placeholder="?" aria-labelledby="captchaDesc mathQ">
         <button id="submitBtn">OK</button>
       </div>
     </div>
-    <div class="error" id="errMsg"></div>
+    <div class="error" id="errMsg" role="alert"></div>
     <!-- stage 3: the page outlived its proof-of-load token (ct_valid_secs,
          fifteen minutes), so neither the checkbox nor the arithmetic can be
          accepted any more.  challenge.js fills the line and the button, which
          reloads the page for a fresh challenge; hidden until then. -->
     <div id="ctExpired" style="display:none">
-      <p class="desc" id="ctExpiredMsg"></p>
+      <p class="desc" id="ctExpiredMsg" role="status"></p>
       <button type="button" id="ctExpiredReload"></button>
     </div>
     <p class="note" id="captchaNote">This check protects the site from automated access.</p>
     <!-- small paw-print footer for theme-cat (= hidden by CSS on other themes) -->
     <div class="paws" aria-hidden="true" style="display:none"><span>🐾</span><span>🐾</span><span>🐾</span></div>
   </div>
-  <div id="cookieErr" style="display:none">
+  <div id="cookieErr" style="display:none" role="alert">
     <h2 id="cookieErrTitle" style="color:#d32f2f">Please enable cookies</h2>
     <p class="desc" id="cookieErrDesc">This site needs cookies to load. Please enable cookies in your browser settings and reload this page.</p>
     <!-- The app-browser case and the address to escape it with; challenge.js

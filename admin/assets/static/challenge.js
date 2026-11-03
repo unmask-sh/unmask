@@ -520,6 +520,13 @@
       cb.disabled = true;
       submitClick();
     });
+    // Take the keyboard to the one control there is.  The card appeared
+    // without any navigation, so nothing told a screen reader about it;
+    // focusing the box announces its label.  focus() dispatches no input
+    // event, so the behavioral signal (isTrusted, the trail) is untouched.
+    // preventScroll: the card is centred already, and a scroll here would
+    // register as a scroll the visitor did not make.
+    try { cb.focus({ preventScroll: true }); } catch (_) { try { cb.focus(); } catch (__) {} }
     armCTExpiry();
     _bcDebug('captcha', { cap_reason: capReason });
   }
