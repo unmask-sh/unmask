@@ -26,7 +26,7 @@ func TestBanFileNoticeOnEveryPage(t *testing.T) {
 	for path, fn := range pagesWithTheHeader(h) {
 		body := renderAs(t, fn, path, user.RoleViewer, "en")
 		at := strings.Index(body, `id="bfnote"`)
-		if at < 0 || !strings.Contains(body, "nginx&#39;s worker (user nginx) cannot read the ban list /var/lib/unmask/nginx/banned.txt, so nginx enforces no ban.") {
+		if at < 0 || !strings.Contains(body, "nginx's worker (user nginx) cannot read the ban list /var/lib/unmask/nginx/banned.txt, so nginx enforces no ban.") {
 			t.Errorf("%s: the ban-list notice is missing", path)
 			continue
 		}

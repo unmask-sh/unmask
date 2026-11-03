@@ -5240,7 +5240,7 @@ function secToHuman(s){
         <input type="text" id="branding-footer-text" name="branding_footer_text" data-maxchars="{{ .BrandingFooterMax }}" data-maxchars-msg="{{ tf .Lang "err.value_long" .BrandingFooterMax }}"
                value="{{ .BrandingValues.FooterText }}" placeholder="{{ t .Lang "settings.branding.footer_placeholder" }}"
                style="width:100%;max-width:24rem">
-        <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ t .Lang "settings.branding.footer_desc" }}</p>
+        <p class="note" style="margin:.25rem 0 0;color:#64748b;font-size:.75rem">{{ safeHTML (t .Lang "settings.branding.footer_desc") }}</p>
       </div>
 
       <div class="field">

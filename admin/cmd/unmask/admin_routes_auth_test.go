@@ -200,9 +200,22 @@ func serve(mux *http.ServeMux, req *http.Request) *httptest.ResponseRecorder {
 // the session and CSRF cookies.
 func viewerLogin(t *testing.T, mux *http.ServeMux, base string) []*http.Cookie {
 	t.Helper()
-	form := url.Values{"username": {"viewer"}, "password": {"viewer-pass-2026"}}
+	// The form first: its GET sets the nonce cookie and embeds the token the
+	// POST must carry (the sign-in has its own CSRF check since 0.1.54).
+	get := serve(mux, httptest.NewRequest(http.MethodGet, base+"/admin/login", nil))
+	if get.Code != http.StatusOK {
+		t.Fatalf("login form: %d", get.Code)
+	}
+	m := regexp.MustCompile(`name="_csrf" value="([^"]+)"`).FindStringSubmatch(get.Body.String())
+	if m == nil {
+		t.Fatalf("login form carries no _csrf token")
+	}
+	form := url.Values{"username": {"viewer"}, "password": {"viewer-pass-2026"}, "_csrf": {m[1]}}
 	req := httptest.NewRequest(http.MethodPost, base+"/admin/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	for _, c := range get.Result().Cookies() {
+		req.AddCookie(c)
+	}
 	rec := serve(mux, req)
 	if rec.Code != http.StatusFound || strings.Contains(rec.Header().Get("Location"), "err=") {
 		t.Fatalf("viewer login: %d %s", rec.Code, rec.Header().Get("Location"))

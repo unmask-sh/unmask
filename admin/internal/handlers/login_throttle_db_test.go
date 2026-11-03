@@ -5,7 +5,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -155,8 +154,7 @@ func TestLoginPostLockSurvivesARestart(t *testing.T) {
 	conn := migratedDB(t)
 	post := func(h *Handler) *httptest.ResponseRecorder {
 		form := url.Values{"username": {"admin"}, "password": {"wrong"}}
-		req := httptest.NewRequest(http.MethodPost, "/unmask/admin/login", strings.NewReader(form.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req := loginRequest(h, form) // with the form's CSRF token, so the refusal is the lock's
 		req.RemoteAddr = "203.0.113.7:44321"
 		rr := httptest.NewRecorder()
 		h.AdminLoginPost(rr, req)
