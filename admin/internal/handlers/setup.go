@@ -729,6 +729,7 @@ func (h *Handler) AdminSetupIndex(w http.ResponseWriter, r *http.Request) {
 			data["NoChange"] = h.reconfigureNoOp(wstate)
 		}
 	}
+	data["Nonce"] = CSPNonceFromRequest(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "setup.html", data); err != nil {
 		log.Printf("setup render: %v", err)
@@ -1276,6 +1277,7 @@ func (h *Handler) AdminSetupDone(w http.ResponseWriter, r *http.Request) {
 		"Version":         h.Version,
 		"Step":            "done",
 		"RestartRequired": r.URL.Query().Get("restart") == "1",
+		"Nonce":           CSPNonceFromRequest(r),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "setup.html", data); err != nil {

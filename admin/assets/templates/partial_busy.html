@@ -39,7 +39,7 @@
 @keyframes ux-busy-spin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){.ux-busy::before{animation-duration:2.4s}}
 </style>
-<script>
+<script{{ nonceAttr . }}>
 window.unmaskBusy = window.unmaskBusy || (function(){
   var held = [];   // buttons this script disabled, to give back
   function hold(b){

@@ -51,7 +51,7 @@
   is a harmless no-op.
 */}}
 {{ define "init_csrf" }}
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   function getCookie(name){
     var m = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.$?*|{}()[\]\\\/+^]/g,'\\$&') + '=([^;]*)'));
@@ -117,7 +117,7 @@
   skips cleanly when a cookie is already there.
 */}}
 {{ define "init_tz_cookie" }}
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   function getCookie(name){
     var m = document.cookie.match(new RegExp('(?:^|; )' + name.replace(/[.$?*|{}()[\]\\\/+^]/g,'\\$&') + '=([^;]*)'));

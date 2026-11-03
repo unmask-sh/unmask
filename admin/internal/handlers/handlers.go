@@ -2403,6 +2403,10 @@ func (h *Handler) PreviewRateDeny(w http.ResponseWriter, r *http.Request) {
 	// and SAMEORIGIN / frame-ancestors 'self' still blocks cross-origin framing.
 	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 	w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self'")
+	// The preview is the deny page as nginx serves it, not an admin
+	// template: the admin's report-only script policy (csp_nonce.go) would
+	// only report its own script, from inside the settings page's frame.
+	w.Header().Del("Content-Security-Policy-Report-Only")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

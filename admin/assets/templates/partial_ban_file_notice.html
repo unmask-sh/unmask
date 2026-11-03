@@ -30,7 +30,7 @@
   <span class="bfnote-msg">{{ tf $.Lang "ban_file_notice.msg" .User .Path }}</span>
   <span class="info-tip" tabindex="0" aria-label="help" data-pin-title="{{ t $.Lang "ban_file_notice.title" }}">?<span class="info-popup">{{ if eq .Need "r" }}{{ tf $.Lang "ban_file_notice.cause_r" .Blocker }}{{ else }}{{ tf $.Lang "ban_file_notice.cause_x" .Blocker }}{{ end }}<br>{{ t $.Lang "ban_file_notice.fix" }}{{ range .Fix }} <code class="cmd">{{ . }}</code>{{ end }}<br>{{ safeHTML (t $.Lang "ban_file_notice.after") }}</span></span>
 </div>
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   var el = document.getElementById('bfnote');
   if (!el) return;

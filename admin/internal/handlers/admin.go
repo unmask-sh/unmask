@@ -111,6 +111,9 @@ func loadDashboardTemplate() (*template.Template, error) {
 			// challenge.js already uses (process start), so one restart moves
 			// every asset forward together.
 			"assetv": func() int64 { return buildVersionStamp },
+			// nonceAttr: the response's script nonce as a <script> attribute
+			// (csp_nonce.go).  `<script{{ nonceAttr . }}>`.
+			"nonceAttr": nonceAttr,
 			// dict builds a map from alternating key/value args, for passing a
 			// small bundle of named values into a {{ template }} partial.
 			// json: a value as JSON for an inline <script type="application/json">.
@@ -543,10 +546,12 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// Security headers on every admin response.  X-Frame-Options + CSP
 		// frame-ancestors stop the admin UI being framed (clickjacking of
 		// state-changing actions); nosniff + Referrer-Policy are safe hardening.
-		// (A script-src CSP that would also block injected inline handlers needs
-		// the admin's inline <script>s moved to nonces first -- a follow-up; the
-		// round-3 stored XSS is already fixed at the escaping source.)
-		setAdminSecurityHeaders(w)
+		// (The script-src that would also block injected inline handlers is
+		// published report-only under a per-response nonce until the admin's
+		// inline <script>s all carry it -- see csp_nonce.go; the round-3
+		// stored XSS is already fixed at the escaping source.)
+		r, nonce := withCSPNonce(r)
+		setAdminSecurityHeaders(w, nonce)
 		// Admin pages are per-operator, data-driven, and redeployed often.  With
 		// no Cache-Control the browser applies heuristic caching and serves a
 		// stale dashboard after a redeploy (the inline <style>/markup that make
@@ -812,23 +817,31 @@ func readFlash(w http.ResponseWriter, r *http.Request, basePath, key string) str
 // closes the holes that need no nonce: no framing by any origin, no <base>
 // retargeting, no plugins, and forms that submit only to this origin.  A
 // route that must be framed by the settings page relaxes frame-ancestors to
-// 'self' and keeps the rest (see the preview handlers).
+// 'self' and keeps the rest (see the preview handlers).  The script-src
+// that would complete it is published report-only, under the response's
+// nonce, until every inline script carries that nonce (csp_nonce.go).
 const adminCSP = "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'"
 
 // setAdminSecurityHeaders: the headers every admin response carries --
 // authenticated pages (AuthMiddleware) and the ones before a session exists
 // (login, setup, password reset: AdminIPAllowMiddleware).  The login page is
 // the one most worth framing or retargeting, and it used to carry none.
-func setAdminSecurityHeaders(w http.ResponseWriter) {
+// nonce is the response's script nonce (withCSPNonce), named by the
+// report-only script policy.
+func setAdminSecurityHeaders(w http.ResponseWriter, nonce string) {
 	w.Header().Set("X-Frame-Options", "DENY")
 	w.Header().Set("Content-Security-Policy", adminCSP)
+	w.Header().Set("Content-Security-Policy-Report-Only", cspScriptReportOnly(nonce))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "same-origin")
 }
 
 func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		setAdminSecurityHeaders(w)
+		// The response's script nonce rides the request from here: the pages
+		// before a session (login, setup, reset) read it off the context.
+		r, nonce := withCSPNonce(r)
+		setAdminSecurityHeaders(w, nonce)
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 		// Bypass during the install wizard (setup token guards it separately).
 		if needed, _ := h.SetupNeeded(r); needed {
@@ -1033,6 +1046,11 @@ func (h *Handler) addMeToData(r *http.Request, data map[string]any) {
 	if _, ok := data["CSRFToken"]; !ok {
 		data["CSRFToken"] = CSRFTokenFromRequest(r)
 	}
+	// The response's script nonce, for the <script> tags the templates
+	// mark with nonceAttr (csp_nonce.go).
+	if _, ok := data["Nonce"]; !ok {
+		data["Nonce"] = CSPNonceFromRequest(r)
+	}
 	// GatewayActive: this install is the gateway container, whose nginx
 	// reloads itself when the admin writes a configuration -- the "saved"
 	// banners then say so instead of handing over the reload command.
@@ -1208,6 +1226,7 @@ func (h *Handler) AdminLoginGet(w http.ResponseWriter, r *http.Request) {
 		"Return":      r.URL.Query().Get("return"),
 		"Error":       r.URL.Query().Get("err"),
 		"MailEnabled": h.Mailer != nil && h.Mailer.Enabled(),
+		"Nonce":       CSPNonceFromRequest(r),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "login.html", data); err != nil {

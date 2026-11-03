@@ -29,7 +29,7 @@
 .user-menu-pop .picker label:first-of-type{margin-top:0}
 .user-menu-pop .picker select{width:100%}
 </style>
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   // localStorage <-> cookie sync + dropdown init + reload-on-change.
   // localStorage is the source of truth, but without a cookie the

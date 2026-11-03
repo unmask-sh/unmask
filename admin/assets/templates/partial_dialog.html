@@ -44,7 +44,7 @@
 .ux-dialog-btn.danger:hover{background:#991b1b}
 .ux-dialog-btn:focus-visible{outline:2px solid #93c5fd;outline-offset:2px}
 </style>
-<script>
+<script{{ nonceAttr . }}>
 window.unmaskDialog = (function(){
   var L = {ok: {{ t .Lang "dialog.ok" }}, cancel: {{ t .Lang "dialog.cancel" }}, error: {{ t .Lang "dialog.error_title" }}};
   var native = typeof HTMLDialogElement !== 'function';

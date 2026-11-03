@@ -30,7 +30,7 @@
 input[data-maxchars]:invalid,textarea[data-maxchars]:invalid,input[data-invalid-msg]:invalid{border-color:#dc2626 !important;background:#fef2f2 !important;box-shadow:0 0 0 1px #dc2626 !important}
 .maxchars-err{margin:.15rem 0 .6rem;padding:.4rem .6rem;background:#fee2e2;border:1px solid #fca5a5;border-radius:.3rem;color:#7f1d1d;font-size:.82rem;line-height:1.5}
 </style>
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   var SEL = 'input[data-maxchars],textarea[data-maxchars],input[data-invalid-msg]';
   // The note's second sentence: how long the value is now, so the operator

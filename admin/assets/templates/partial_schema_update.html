@@ -110,7 +110,7 @@
   </div>
 </dialog>
 {{ end }}
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   var el = document.getElementById('schup');
   if (!el) return;

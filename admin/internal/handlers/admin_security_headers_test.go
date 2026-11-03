@@ -26,6 +26,11 @@ func TestAdminSecurityHeadersBeforeAndAfterLogin(t *testing.T) {
 		if !strings.Contains(hdr.Get("Cache-Control"), "no-store") {
 			t.Errorf("%s: Cache-Control lacks no-store: %q", label, hdr.Get("Cache-Control"))
 		}
+		// The script policy, report-only, under the response's nonce
+		// (csp_nonce.go).
+		if ro := hdr.Get("Content-Security-Policy-Report-Only"); !strings.HasPrefix(ro, "script-src 'self' 'nonce-") {
+			t.Errorf("%s: report-only script policy = %q", label, ro)
+		}
 	}
 	// Before a session: the IP/host gate wraps login, setup and reset.
 	rr := httptest.NewRecorder()

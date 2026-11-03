@@ -44,6 +44,7 @@ func (h *Handler) AdminForgotPasswordGet(w http.ResponseWriter, r *http.Request)
 		"BasePath":    h.cfg().Server.BasePath,
 		"MailEnabled": h.Mailer != nil && h.Mailer.Enabled(),
 		"Sent":        r.URL.Query().Get("sent") == "1",
+		"Nonce":       CSPNonceFromRequest(r),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "forgot_password.html", data); err != nil {
@@ -165,6 +166,7 @@ func (h *Handler) AdminResetPasswordGet(w http.ResponseWriter, r *http.Request) 
 		"BasePath": h.cfg().Server.BasePath,
 		"Token":    r.URL.Query().Get("token"),
 		"Error":    r.URL.Query().Get("err"),
+		"Nonce":    CSPNonceFromRequest(r),
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "reset_password.html", data); err != nil {
