@@ -30,15 +30,21 @@
 // (seen on a production install).  Lax only ever attaches the cookie to
 // top-level GET navigations, which never mutate state here.
 //
-// Login submit is intentionally exempt: there is no session yet, so
-// nothing to derive a token from, and the handlers' own per-IP
-// loginThrottle bounds credential stuffing.
+// The sign-in form has no session to derive a token from, so it carries
+// one derived from a nonce instead (loginCSRFToken): a random value the GET
+// of the form sets as an HttpOnly cookie, and the token the form embeds is
+// the HMAC over it under the same key.  A page on another origin cannot
+// read the cookie, nor compute the HMAC, so it cannot submit the form for
+// a visitor -- a sign-in CSRF would log the visitor into an account the
+// attacker holds, and everything the visitor then did would be in the
+// attacker's account.  Until 0.1.54 the sign-in POST was exempt.
 package handlers
 
 import (
 	"context"
 	"crypto/hkdf"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
@@ -231,4 +237,78 @@ func (h *Handler) RequireCSRFFunc(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		wrapped.ServeHTTP(w, r)
 	}
+}
+
+const (
+	// loginCSRFCookieName carries the nonce the sign-in form's token is
+	// derived from (see the package comment): there is no session yet to
+	// derive it from.  HttpOnly -- the form embeds the token itself, so no
+	// script needs the nonce.
+	loginCSRFCookieName = "unmask_admin_login"
+	// loginCSRFTTL: how long a sign-in page stays submittable.  Past it the
+	// POST is answered with the form again (err=expired), with a new nonce.
+	loginCSRFTTL  = time.Hour
+	loginNonceLen = 32 // hex chars: 16 random bytes
+)
+
+// loginCSRFToken returns the sign-in form's token for a nonce:
+// hex(HMAC-SHA256(csrfKey, csrfKeyInfo + "|login|" + nonce)).  The label
+// keeps it apart from a session's token under the same key.
+func loginCSRFToken(secret, nonce string) string {
+	h := hmac.New(sha256.New, csrfKey(secret))
+	h.Write([]byte(csrfKeyInfo + "|login|" + nonce))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// validLoginNonce: the shape issueLoginCSRF mints, and nothing else -- a
+// cookie planted from a sibling host with another shape is not a nonce.
+func validLoginNonce(v string) bool {
+	if len(v) != loginNonceLen {
+		return false
+	}
+	_, err := hex.DecodeString(v)
+	return err == nil
+}
+
+// issueLoginCSRF returns the token the sign-in form must carry, and sets
+// the nonce cookie it is bound to when the request brought none it can
+// use: a form opened again within the hour keeps its nonce, so a tab left
+// open beside a new one still submits.
+func (h *Handler) issueLoginCSRF(w http.ResponseWriter, r *http.Request) string {
+	nonce := ""
+	if c, err := r.Cookie(loginCSRFCookieName); err == nil && validLoginNonce(c.Value) {
+		nonce = c.Value
+	}
+	if nonce == "" {
+		var b [loginNonceLen / 2]byte
+		if _, err := rand.Read(b[:]); err != nil {
+			return ""
+		}
+		nonce = hex.EncodeToString(b[:])
+		http.SetCookie(w, &http.Cookie{
+			Name:     loginCSRFCookieName,
+			Value:    nonce,
+			Path:     adminCookiePath(h.cfg().Server.BasePath),
+			MaxAge:   int(loginCSRFTTL.Seconds()),
+			HttpOnly: true,
+			Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+			SameSite: http.SameSiteLaxMode, // the same as the session cookie; see the package comment
+		})
+	}
+	return loginCSRFToken(h.cfg().Secret.BVSecret, nonce)
+}
+
+// verifyLoginCSRF reports whether the sign-in POST carries, in its _csrf
+// field, the token of the nonce cookie it was sent with.  No cookie, no
+// field and a mismatch are one answer.
+func (h *Handler) verifyLoginCSRF(r *http.Request) bool {
+	c, err := r.Cookie(loginCSRFCookieName)
+	if err != nil || !validLoginNonce(c.Value) {
+		return false
+	}
+	echo := strings.TrimSpace(r.PostFormValue(csrfFieldName))
+	if echo == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(loginCSRFToken(h.cfg().Secret.BVSecret, c.Value)), []byte(echo)) == 1
 }

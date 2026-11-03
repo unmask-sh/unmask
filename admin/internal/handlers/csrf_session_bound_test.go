@@ -190,8 +190,7 @@ func TestAdminCookiesScopedToBasePath(t *testing.T) {
 	h, _ := reconfHandler(t, true)
 	withBasePath(h, "/unmask")
 	form := url.Values{"username": {"admin"}, "password": {"correct-horse-battery"}}
-	req := httptest.NewRequest(http.MethodPost, "/unmask/admin/login", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := loginRequest(h, form)
 	rec := httptest.NewRecorder()
 	h.AdminLoginPost(rec, req)
 	if rec.Code != http.StatusFound {

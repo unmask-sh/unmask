@@ -50,6 +50,9 @@ button:hover { background: #1d4ed8; }
   {{if eq .Error "invalid"}}
   <div class="err">{{ t .Lang "login.invalid" }}</div>
   {{end}}
+  {{if eq .Error "expired"}}
+  <div class="err">{{ t .Lang "login.expired" }}</div>
+  {{end}}
 
   <label for="username">{{ t .Lang "login.username_label" }}</label>
   <input id="username" name="username" type="text" autofocus autocomplete="username" required>

@@ -41,8 +41,12 @@ case "$loc" in *err=*) fail "install step: $loc (after user step the wizard show
 for i in $(seq 1 45); do docker logs "$ADMIN_CONTAINER" 2>&1 | grep -q 'setup: re-exec' && break; sleep 1; done
 sleep 1
 for i in $(seq 1 30); do [ "$(curl -s -o /dev/null -w '%{http_code}' "$ADMIN_URL/healthz")" = 200 ] && break; sleep 1; done
-loc=$($C -o /dev/null -w '%{redirect_url}' --data-urlencode "username=admin" --data-urlencode "password=$PW" "$ADMIN_URL/admin/login")
-case "$loc" in */admin/setup/*) fail "login still redirects to the wizard ($loc) -- setup did not complete" ;; *) pass "login: $loc" ;; esac
+# The sign-in form carries a token bound to a nonce cookie its GET sets
+# (csrf.go): fetch the form first, as a browser does, and post its token.
+ltok=$($C "$ADMIN_URL/admin/login" | grep -oE 'name="_csrf" value="[0-9a-f]+"' | grep -oE '[0-9a-f]{64}' | head -1)
+[ -n "$ltok" ] && pass "login form carries its token" || fail "login form carries no token"
+loc=$($C -o /dev/null -w '%{redirect_url}' --data-urlencode "_csrf=$ltok" --data-urlencode "username=admin" --data-urlencode "password=$PW" "$ADMIN_URL/admin/login")
+case "$loc" in */admin/setup/*) fail "login still redirects to the wizard ($loc) -- setup did not complete" ;; *err=*) fail "login: $loc" ;; *) pass "login: $loc" ;; esac
 
 # 2. The Gateway tab renders for a gateway install, and a pasted pair lands
 #    on :443.  Self-signed, with a subject nothing else uses.

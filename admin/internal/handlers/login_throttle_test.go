@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"strings"
 	"testing"
 	"time"
 )
@@ -72,9 +71,7 @@ func TestLoginPostLocksTheHammeringAddress(t *testing.T) {
 	h := newTestHandler(t)
 	post := func() *httptest.ResponseRecorder {
 		form := url.Values{"username": {"admin"}, "password": {"wrong"}}
-		req := httptest.NewRequest(http.MethodPost, "/unmask/admin/login",
-			strings.NewReader(form.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req := loginRequest(h, form)
 		req.RemoteAddr = "203.0.113.7:44321"
 		rr := httptest.NewRecorder()
 		h.AdminLoginPost(rr, req)

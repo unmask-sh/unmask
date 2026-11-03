@@ -1233,6 +1233,7 @@ func (h *Handler) AdminLoginGet(w http.ResponseWriter, r *http.Request) {
 		"Error":       r.URL.Query().Get("err"),
 		"MailEnabled": h.Mailer != nil && h.Mailer.Enabled(),
 		"Nonce":       CSPNonceFromRequest(r),
+		"CSRFToken":   h.issueLoginCSRF(w, r), // pre-session; see csrf.go
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := tmpl.ExecuteTemplate(w, "login.html", data); err != nil {
@@ -1247,6 +1248,13 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 	// Must be a local path (not "//" / "/\" = a protocol-relative off-site URL).
 	if !isLocalRedirect(ret) {
 		ret = base + "/admin/"
+	}
+	// The form's token against its nonce cookie (csrf.go).  Without a
+	// match the form is shown again with a fresh nonce: the page had
+	// expired, or the POST did not come from it.
+	if !h.verifyLoginCSRF(r) {
+		http.Redirect(w, r, base+"/admin/login?err=expired&return="+url.QueryEscape(ret), http.StatusFound)
+		return
 	}
 	username := strings.TrimSpace(r.FormValue("username"))
 	password := r.FormValue("password")

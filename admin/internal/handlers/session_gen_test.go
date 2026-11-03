@@ -93,8 +93,7 @@ func TestPasswordChangeEndsExistingSessions(t *testing.T) {
 	// Signing in with the new password issues a cookie under the new
 	// generation, and that one passes.
 	form := url.Values{"username": {"eve"}, "password": {"test-password-eve2"}}
-	req := httptest.NewRequest(http.MethodPost, "/unmask/admin/login", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := loginRequest(h, form)
 	lrr := httptest.NewRecorder()
 	h.AdminLoginPost(lrr, req)
 	fresh := sessionCookieOf(lrr)

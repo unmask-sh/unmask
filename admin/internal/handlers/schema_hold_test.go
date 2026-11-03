@@ -58,8 +58,7 @@ func TestSignInDuringAHold(t *testing.T) {
 	}
 	release := holdTheWriteLock(t, h)
 	form := url.Values{"username": {"gina"}, "password": {"test-password-gina"}}
-	req := httptest.NewRequest(http.MethodPost, "/unmask/admin/login", strings.NewReader(form.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req := loginRequest(h, form)
 	rr := httptest.NewRecorder()
 	t0 := time.Now()
 	h.AdminLoginPost(rr, req)

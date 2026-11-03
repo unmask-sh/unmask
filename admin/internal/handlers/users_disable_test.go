@@ -147,8 +147,7 @@ func TestDisabledLoginRefused(t *testing.T) {
 	}
 	login := func() *httptest.ResponseRecorder {
 		form := url.Values{"username": {"frank"}, "password": {"test-password-frank"}}
-		req := httptest.NewRequest(http.MethodPost, "/unmask/admin/login", strings.NewReader(form.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req := loginRequest(h, form)
 		rr := httptest.NewRecorder()
 		h.AdminLoginPost(rr, req)
 		return rr

@@ -2799,6 +2799,7 @@ var dict = map[Lang]map[string]string{
 		// login
 		"login.title":           "unmask admin",
 		"login.invalid":         "ユーザー名またはパスワードが正しくありません",
+		"login.expired":         "サインインのページの有効期限が切れました。もう一度お試しください。",
 		"login.username_label":  "ユーザー名",
 		"login.password_label":  "パスワード",
 		"login.submit":          "ログイン",
@@ -5723,6 +5724,7 @@ where <code>&lt;site-id&gt;</code> is any <code>[a-z0-9-]{1,32}</code>. Omit to 
 
 		"login.title":           "unmask admin",
 		"login.invalid":         "Invalid username or password",
+		"login.expired":         "The sign-in page had expired; try again.",
 		"login.username_label":  "username",
 		"login.password_label":  "password",
 		"login.submit":          "Sign in",
