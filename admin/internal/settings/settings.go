@@ -710,6 +710,24 @@ type Server struct {
 	// filled automatically). In shared-DB setups where hostnames collide or
 	// change dynamically, pin a fixed name in config.
 	HostID string `yaml:"host_id,omitempty"`
+	// AccessLog: whether the daemon writes a line per request it serves to
+	// its own log (the journal): method, path, status, duration.  Unset or
+	// "on": every request (the default).  "off": none.  nginx's access log
+	// is the record of the traffic; the daemon's line is its own account,
+	// worth having when the two disagree -- and on a forward-auth install
+	// it is a line per request of the site, which a journal that
+	// rate-limits the daemon drops together with its warnings.
+	AccessLog string `yaml:"access_log,omitempty"`
+}
+
+// AccessLogOn reports whether the daemon logs a line per request: unless
+// access_log says off (or false / no / 0).
+func (s Server) AccessLogOn() bool {
+	switch strings.ToLower(strings.TrimSpace(s.AccessLog)) {
+	case "off", "false", "no", "0":
+		return false
+	}
+	return true
 }
 
 // TCPHost is the bind as the host of a TCP address: an IPv6 literal without

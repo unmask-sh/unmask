@@ -914,8 +914,18 @@ func cmdServe(args []string) error {
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)
 	}
+	// The daemon's own line per request (withAccessLog), unless the
+	// configuration turns it off: on a forward-auth install it is a line
+	// per request of the site, and a journal that rate-limits the daemon
+	// drops its warnings with them.
+	var handler http.Handler = mux
+	if s.Server.AccessLogOn() {
+		handler = withAccessLog(mux)
+	} else {
+		log.Printf("server.access_log is off: the daemon logs no line per request")
+	}
 	srv := &http.Server{
-		Handler: withAccessLog(mux),
+		Handler: handler,
 		// WriteTimeout governs the longest response Go will let a handler
 		// finish before the connection is force-closed.  The dashboard's
 		// renderStats caps its own work at 30s overall (= via per-card
@@ -1783,6 +1793,7 @@ server:
   bind: 127.0.0.1
   port: 9477
   base_path: /unmask
+  # access_log: "off"   # the daemon's own line per request (method, path, status, time); on by default
 
 global:
   # Stale-browser tier: escalate a UA pinned to an outdated Chrome (Chromium-
