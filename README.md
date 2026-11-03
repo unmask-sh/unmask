@@ -104,11 +104,15 @@ About ten minutes from a shell on the host.
    nginx module, and the nginx snippets.  The plugin's postinstall places the
    `load_module` line, or says where to add it.
 3. Add `include /var/lib/unmask/nginx/server.inc;` to the `server { }` block
-   of the site, then `sudo nginx -t && sudo systemctl reload nginx`.
+   of the site, then `sudo nginx -t && sudo systemctl restart nginx`: a
+   restart, not a reload, because nginx loads a module only when it starts
+   (the plugin's install output says the same).
 4. Open `https://<your-host>/unmask/admin/setup/` and paste the setup token
    the install printed (`sudo cat /var/lib/unmask/.setup-token`).
 5. Protect a location: `include /var/lib/unmask/nginx/protect.inc;` inside
-   its `location { }`, and reload nginx again.
+   its `location { }`, then `sudo nginx -t && sudo systemctl reload nginx`
+   (a reload is enough from here on: only a changed module needs a
+   restart, and the admin says which).
 6. See it work: `curl -sS -o /dev/null -w '%{http_code}\n' https://<your-host>/<that path>`
    answers 403 (the challenge page) to a client that holds no pass and runs
    no JavaScript, a browser clears the proof-of-work and gets the page, and

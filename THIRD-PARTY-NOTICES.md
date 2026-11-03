@@ -153,8 +153,8 @@ Required attribution:
 
 > IP Geolocation by DB-IP — <https://db-ip.com/>
 
-Per CC BY 4.0 §3, an attribution copy is also placed at
-`/usr/share/doc/unmask/IPGEO-ATTRIBUTION.txt` by the package's postinstall.
+Per CC BY 4.0 §3, the `unmask` package also ships an attribution copy at
+`/usr/share/doc/unmask/unmask-ipgeo-attribution.txt`, beside this file.
 
 ----
 

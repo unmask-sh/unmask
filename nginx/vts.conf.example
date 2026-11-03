@@ -9,7 +9,10 @@
 #
 # install:
 #   1. Load the vts module into nginx (= --add-dynamic-module=ngx_http_vhost_traffic_status_module)
-#   2. Add `include /etc/unmask/nginx/vts.conf.example;` to http {} (= rename recommended)
+#   2. The unmask package ships this file at /usr/share/doc/unmask/vts.conf.example.
+#      Copy it to /etc/nginx/conf.d/unmask-vts.conf (which the stock nginx.conf
+#      includes at http {} scope; otherwise add an `include` of the copy to
+#      http {}) and edit the copy.
 #   3. nginx -t && systemctl reload nginx
 #   4. JSON counters become visible at /vts/json
 #
