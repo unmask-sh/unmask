@@ -35,7 +35,13 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;m
 .driver-card{padding:1rem 1.2rem;border:.125rem solid #e2e8f0;border-radius:.4rem;cursor:pointer;text-align:center;transition:all .15s}
 .driver-card:hover{border-color:#94a3b8;background:#f8fafc}
 .driver-card.selected{border-color:#3b82f6;background:#dbeafe;box-shadow:0 0 0 .1875rem rgba(59,130,246,.1)}
-.driver-card input{display:none}
+/* The radio stays in the page for the keyboard and the accessibility tree
+   (Tab reaches the group, the arrows move the choice); only its box is hidden,
+   and the card shows the focus in its place.  display:none took it out of
+   both: the choice could not be made without a mouse. */
+.driver-card{position:relative}
+.driver-card input{position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap}
+.driver-card:focus-within{border-color:#3b82f6;box-shadow:0 0 0 .1875rem rgba(59,130,246,.35)}
 .driver-card strong{display:block;font-size:1rem;margin-bottom:.2rem;color:#0f172a}
 .driver-card .desc{font-size:.78rem;color:#64748b;line-height:1.5}
 .btn{display:inline-block;padding:.6rem 1.6rem;font-size:.95rem;background:#3b82f6;color:#fff;border:none;border-radius:.3rem;cursor:pointer;font-weight:600;text-decoration:none}
@@ -103,8 +109,8 @@ p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
     <form method="post" action="{{ .BasePath }}/admin/setup/token">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
       <div class="field">
-        <label>{{ t .Lang "setup.token.label" }}</label>
-        <input type="text" name="token" autofocus required style="font-family:ui-monospace,monospace" placeholder="...">
+        <label for="su_token">{{ t .Lang "setup.token.label" }}</label>
+        <input type="text" name="token" id="su_token" autofocus required style="font-family:ui-monospace,monospace" placeholder="...">
         <div class="hint">{{ safeHTML (tf .Lang "setup.token.hint" .TokenPath) }}</div>
       </div>
       <div class="actions">
@@ -148,35 +154,35 @@ p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
       </div>
       <div class="sqlite-fields {{ if ne .DriverChoice "sqlite" }}hide{{ end }}">
         <div class="field">
-          <label>{{ t .Lang "setup.db.sqlite_path" }}</label>
-          <input type="text" name="sqlite_path" value="{{ if .DB.SQLitePath }}{{ .DB.SQLitePath }}{{ else }}/var/lib/unmask/unmask.sqlite{{ end }}" placeholder="/var/lib/unmask/unmask.sqlite">
+          <label for="su_sqlite_path">{{ t .Lang "setup.db.sqlite_path" }}</label>
+          <input type="text" name="sqlite_path" id="su_sqlite_path" value="{{ if .DB.SQLitePath }}{{ .DB.SQLitePath }}{{ else }}/var/lib/unmask/unmask.sqlite{{ end }}" placeholder="/var/lib/unmask/unmask.sqlite">
           <div class="hint">{{ t .Lang "setup.db.sqlite_path_hint" }}</div>
         </div>
       </div>
       <div class="mariadb-fields {{ if eq .DriverChoice "mariadb" }}show{{ end }}">
         <div class="row-2">
           <div class="field">
-            <label>{{ t .Lang "setup.db.host" }}</label>
-            <input type="text" name="mariadb_host" value="{{ if .DB.MariaDB.Host }}{{ .DB.MariaDB.Host }}{{ else }}127.0.0.1{{ end }}">
+            <label for="su_db_host">{{ t .Lang "setup.db.host" }}</label>
+            <input type="text" name="mariadb_host" id="su_db_host" value="{{ if .DB.MariaDB.Host }}{{ .DB.MariaDB.Host }}{{ else }}127.0.0.1{{ end }}">
           </div>
           <div class="field">
-            <label>{{ t .Lang "setup.db.port" }}</label>
-            <input type="number" name="mariadb_port" value="{{ if gt .DB.MariaDB.Port 0 }}{{ .DB.MariaDB.Port }}{{ else }}3306{{ end }}">
+            <label for="su_db_port">{{ t .Lang "setup.db.port" }}</label>
+            <input type="number" name="mariadb_port" id="su_db_port" value="{{ if gt .DB.MariaDB.Port 0 }}{{ .DB.MariaDB.Port }}{{ else }}3306{{ end }}">
           </div>
         </div>
         <div class="field">
-          <label>{{ t .Lang "setup.db.database" }}</label>
-          <input type="text" name="mariadb_database" value="{{ .DB.MariaDB.Database }}" placeholder="unmask">
+          <label for="su_db_name">{{ t .Lang "setup.db.database" }}</label>
+          <input type="text" name="mariadb_database" id="su_db_name" value="{{ .DB.MariaDB.Database }}" placeholder="unmask">
           <div class="hint">{{ safeHTML (t .Lang "setup.db.database_hint") }}</div>
         </div>
         <div class="row-2">
           <div class="field">
-            <label>{{ t .Lang "setup.db.user" }}</label>
-            <input type="text" name="mariadb_user" value="{{ .DB.MariaDB.User }}" placeholder="unmask">
+            <label for="su_db_user">{{ t .Lang "setup.db.user" }}</label>
+            <input type="text" name="mariadb_user" id="su_db_user" value="{{ .DB.MariaDB.User }}" placeholder="unmask">
           </div>
           <div class="field">
-            <label>{{ t .Lang "setup.db.password" }}</label>
-            <input type="password" name="mariadb_password" autocomplete="new-password" placeholder="*****">
+            <label for="su_db_pass">{{ t .Lang "setup.db.password" }}</label>
+            <input type="password" name="mariadb_password" id="su_db_pass" autocomplete="new-password" placeholder="*****">
           </div>
         </div>
       </div>
@@ -187,12 +193,13 @@ p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
       </div>
     </form>
     <script>
-    document.querySelectorAll('.driver-card').forEach(card => {
-      card.addEventListener('click', () => {
-        document.querySelectorAll('.driver-card').forEach(c => c.classList.remove('selected'));
-        card.classList.add('selected');
-        card.querySelector('input').checked = true;
-        var d = card.dataset.driver;
+    // The choice follows the radio, whichever way it was made: a click on
+    // the card (the label checks its radio) or the arrow keys on the group.
+    document.querySelectorAll('.driver-card input[type="radio"]').forEach(r => {
+      r.addEventListener('change', () => {
+        if (!r.checked) return;
+        document.querySelectorAll('.driver-card').forEach(c => c.classList.toggle('selected', c.contains(r)));
+        var d = r.closest('.driver-card').dataset.driver;
         document.querySelector('.sqlite-fields').classList.toggle('hide', d !== 'sqlite');
         document.querySelector('.mariadb-fields').classList.toggle('show', d === 'mariadb');
       });
@@ -207,17 +214,17 @@ p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
     <form method="post" action="{{ .BasePath }}/admin/setup/user">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
       <div class="field">
-        <label>{{ t .Lang "setup.user.username" }}</label>
-        <input type="text" name="username" autocomplete="username" required placeholder="admin" value="{{ .PrefillUsername }}">
+        <label for="su_username">{{ t .Lang "setup.user.username" }}</label>
+        <input type="text" name="username" id="su_username" autocomplete="username" required placeholder="admin" value="{{ .PrefillUsername }}">
         <div class="hint">{{ safeHTML (t .Lang "setup.user.username_hint") }}</div>
       </div>
       <div class="field">
-        <label>{{ t .Lang "setup.user.password" }}</label>
-        <input type="password" name="password" autocomplete="new-password" required minlength="8" placeholder="********">
+        <label for="su_password">{{ t .Lang "setup.user.password" }}</label>
+        <input type="password" name="password" id="su_password" autocomplete="new-password" required minlength="8" placeholder="********">
         <div class="hint">{{ t .Lang "setup.user.password_hint" }}</div>
       </div>
       <div class="field">
-        <label>{{ t .Lang "setup.user.password_confirm" }}</label>
+        <label for="su_pwc">{{ t .Lang "setup.user.password_confirm" }}</label>
         <input type="password" name="password_confirm" id="su_pwc" autocomplete="new-password" required minlength="8" data-mismatch="{{ t .Lang "setup.err.password_mismatch" }}">
       </div>
       <div class="actions">
@@ -252,8 +259,8 @@ p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
 
       <h3>{{ t .Lang "setup.options.host_h" }}</h3>
       <div class="field">
-        <label>{{ t .Lang "setup.options.host_label" }}</label>
-        <input type="text" name="admin_host" value="{{ .AdminHostText }}" placeholder="admin.example.com" autocomplete="off" spellcheck="false">
+        <label for="su_admin_host">{{ t .Lang "setup.options.host_label" }}</label>
+        <input type="text" name="admin_host" value="{{ .AdminHostText }}" id="su_admin_host" placeholder="admin.example.com" autocomplete="off" spellcheck="false">
         <div class="hint">{{ safeHTML (t .Lang "setup.options.host_hint") }}{{ if .ReachedHostIsIP }}<br>{{ tf .Lang "setup.options.host_ip" .ReachedHost }}{{ end }}</div>
       </div>
 
