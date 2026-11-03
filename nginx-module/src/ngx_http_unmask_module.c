@@ -183,6 +183,7 @@ static void *ngx_http_ja4_create_main_conf(ngx_conf_t *cf);
 static char *ngx_http_ja4_init_main_conf(ngx_conf_t *cf, void *conf);
 static ngx_int_t ngx_http_ja4_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
+static ngx_str_t ngx_unmask_request_ja4(ngx_http_request_t *r);
 static ngx_int_t ngx_http_unmask_bv_kind_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_unmask_bv_id_variable(ngx_http_request_t *r,
@@ -366,8 +367,9 @@ static void ngx_ja4_compute_and_store(SSL *ssl, const ja4_parsed_t *parsed) {
     if (ngx_http_ja4_ssl_ex_data_idx < 0) return;
 
     /* If already computed (= 2nd or later ClientHello on the same SSL
-     * connection, e.g. an HRR path), do nothing.  Prevents double
-     * allocation / double SSL_set_ex_data. */
+     * connection, the answer to a HelloRetryRequest), do nothing: the first
+     * ClientHello's JA4 is the connection's, as ja4_parser.h says.  Also
+     * prevents double allocation / double SSL_set_ex_data. */
     if (SSL_get_ex_data(ssl, ngx_http_ja4_ssl_ex_data_idx) != NULL) {
         return;
     }
@@ -444,57 +446,38 @@ static void ngx_ja4_msg_cb(int write_p, int version, int content_type,
     ngx_ja4_compute_and_store(ssl, &parsed);
 }
 
-/*
- * JA4 transport prefix.  ja4_build emits 't' (TCP/TLS); HTTP/3 requests get 'q'.
- *
- * The SSL msg_callback that computes the JA4 runs on the QUIC *connection* (whose
- * c->quic is NULL), so the transport is unknown at build time.  By the time a
- * request is processed it rides a QUIC *stream* -- r->connection->quic != NULL is
- * the marker nginx itself uses for HTTP/3, and the stream inherits the
- * connection's ->ssl (ngx_event_quic_streams.c: sc->ssl = c->ssl), so the same
- * per-connection JA4 ctx is reached.  Flip the first byte in place: the ctx is
- * per-connection and every stream on a QUIC connection is HTTP/3, so the flip is
- * connection-consistent and idempotent.  The rest of the JA4 (ciphers / exts /
- * alpn) is transport-independent and already reflects the QUIC ClientHello's
- * quic_transport_parameters (0x39) extension.
- *
- * Guarded: ngx_connection_t.quic exists only on nginx >= 1.25 built with QUIC or
- * --with-compat (the plugin's build mode).  On older nginx the field is absent
- * and HTTP/3 cannot be served, so 't' is always correct -- compile the flip out.
- */
-static void
-ngx_unmask_ja4_apply_transport(ngx_http_request_t *r, ngx_http_ja4_ctx_t *ctx) {
-#if (nginx_version >= 1025000) && (NGX_QUIC || NGX_COMPAT)
-    if (ctx != NULL && ctx->ja4.len > 0
-        && r->connection->quic != NULL
-        && ctx->ja4.data[0] == 't')
+/* The connection's JA4 ctx for this request, or NULL: no TLS, no ex_data
+ * index, or a ClientHello that never reached the callback. */
+static ngx_http_ja4_ctx_t *
+ngx_unmask_conn_ja4_ctx(ngx_http_request_t *r)
+{
+    SSL *ssl_obj;
+
+    if (r->connection == NULL || r->connection->ssl == NULL
+        || ngx_http_ja4_ssl_ex_data_idx < 0)
     {
-        ctx->ja4.data[0] = 'q';
+        return NULL;
     }
-#else
-    (void) r; (void) ctx;
-#endif
+    ssl_obj = r->connection->ssl->connection;
+    if (ssl_obj == NULL) {
+        return NULL;
+    }
+    return SSL_get_ex_data(ssl_obj, ngx_http_ja4_ssl_ex_data_idx);
 }
 
 static ngx_int_t ngx_http_ja4_variable(ngx_http_request_t *r,
                                        ngx_http_variable_value_t *v,
                                        uintptr_t data) {
+    ngx_str_t ja4;
     (void)data;
-    if (r->connection == NULL || r->connection->ssl == NULL) {
+    if (r->connection == NULL || r->connection->ssl == NULL
+        || ngx_http_ja4_ssl_ex_data_idx < 0
+        || r->connection->ssl->connection == NULL)
+    {
         v->not_found = 1;
         return NGX_OK;
     }
-    if (ngx_http_ja4_ssl_ex_data_idx < 0) {
-        v->not_found = 1;
-        return NGX_OK;
-    }
-    SSL *ssl_obj = r->connection->ssl->connection;
-    if (ssl_obj == NULL) {
-        v->not_found = 1;
-        return NGX_OK;
-    }
-    ngx_http_ja4_ctx_t *ctx = SSL_get_ex_data(ssl_obj,
-                                              ngx_http_ja4_ssl_ex_data_idx);
+    ngx_http_ja4_ctx_t *ctx = ngx_unmask_conn_ja4_ctx(r);
     if (!ctx || ctx->ja4.len == 0) {
         int quic = 0;
 #if (nginx_version >= 1025000) && (NGX_QUIC || NGX_COMPAT)
@@ -537,12 +520,12 @@ static ngx_int_t ngx_http_ja4_variable(ngx_http_request_t *r,
         v->not_found = 1;
         return NGX_OK;
     }
-    ngx_unmask_ja4_apply_transport(r, ctx);   /* 't' -> 'q' for HTTP/3 */
+    ja4 = ngx_unmask_request_ja4(r);   /* 't' -> 'q' for HTTP/3 */
     v->valid = 1;
     v->no_cacheable = 1;
     v->not_found = 0;
-    v->len = ctx->ja4.len;
-    v->data = ctx->ja4.data;
+    v->len = ja4.len;
+    v->data = ja4.data;
     return NGX_OK;
 }
 
@@ -639,6 +622,8 @@ typedef struct {
     unsigned              bv_done:1;
     unsigned              ban_done:1;
     unsigned              ban_hit:1;
+    unsigned              ja4_done:1;
+    ngx_str_t             ja4;         /* the request's JA4 (ngx_unmask_request_ja4) */
     ngx_unmask_bv_kind_t  bv_kind;
     ngx_str_t             bv_id;       /* the verified pass's identity (16 hex) */
     ngx_str_t             ban_action;  /* copy in r->pool; empty when no hit */
@@ -659,6 +644,61 @@ ngx_unmask_req_ctx(ngx_http_request_t *r)
         ngx_http_set_ctx(r, ctx, ngx_http_unmask_module);
     }
     return ctx;
+}
+
+/*
+ * The request's JA4: the connection's string, with the transport prefix an
+ * HTTP/3 request calls for.  ja4_build emits 't' (TCP/TLS); HTTP/3 is 'q'.
+ *
+ * The SSL msg_callback that computes the JA4 runs on the QUIC *connection*
+ * (whose c->quic is NULL), so the transport is unknown at build time.  By
+ * the time a request is processed it rides a QUIC *stream* --
+ * r->connection->quic != NULL is the marker nginx itself uses for HTTP/3,
+ * and the stream inherits the connection's ->ssl (ngx_event_quic_streams.c:
+ * sc->ssl = c->ssl), so the same per-connection JA4 ctx is reached.  The
+ * 'q' form is composed into the request pool, once, and kept in the request
+ * ctx: the connection's ctx is a record of the handshake that a request
+ * handler reads and never writes (the first byte used to be flipped in
+ * place, which was consistent -- every stream of a QUIC connection is
+ * HTTP/3 -- but surprising to read).  The rest of the JA4 (ciphers / exts /
+ * alpn) is transport-independent and already reflects the QUIC
+ * ClientHello's quic_transport_parameters (0x39) extension.
+ *
+ * Guarded: ngx_connection_t.quic exists only on nginx >= 1.25 built with
+ * QUIC or --with-compat (the plugin's build mode).  On older nginx the field
+ * is absent and HTTP/3 cannot be served, so 't' is always correct.
+ *
+ * Empty when the connection has no JA4; $client_ja4 adds the diagnostics.
+ */
+static ngx_str_t
+ngx_unmask_request_ja4(ngx_http_request_t *r)
+{
+    ngx_str_t                   out = ngx_null_string;
+    ngx_http_unmask_req_ctx_t  *ctx = ngx_unmask_req_ctx(r);
+    ngx_http_ja4_ctx_t         *jctx;
+
+    if (ctx != NULL && ctx->ja4_done) {
+        return ctx->ja4;
+    }
+    jctx = ngx_unmask_conn_ja4_ctx(r);
+    if (jctx != NULL && jctx->ja4.len > 0) {
+        out = jctx->ja4;
+#if (nginx_version >= 1025000) && (NGX_QUIC || NGX_COMPAT)
+        if (r->connection->quic != NULL && out.data[0] == 't') {
+            u_char *p = ngx_pnalloc(r->pool, out.len);
+            if (p != NULL) {
+                ngx_memcpy(p, out.data, out.len);
+                p[0] = 'q';
+                out.data = p;
+            }
+        }
+#endif
+    }
+    if (ctx != NULL) {
+        ctx->ja4 = out;
+        ctx->ja4_done = 1;
+    }
+    return out;
 }
 
 /* The main-request marker: a record on the request's pool naming the request
@@ -2213,8 +2253,7 @@ ngx_unmask_ban_lookup_req(ngx_http_request_t *r, int *hit, ngx_str_t *action)
     char key[256];
     const u_char *ip;
     size_t iplen;
-    u_char *ja4_data = (u_char *)"";
-    size_t  ja4_len  = 0;
+    ngx_str_t ja4;
     const char *act = NULL;
 
     *hit = 0;
@@ -2247,31 +2286,21 @@ ngx_unmask_ban_lookup_req(ngx_http_request_t *r, int *hit, ngx_str_t *action)
     if (iplen == 0 || iplen > 80) {
         goto done;
     }
-    /* fetch ja4 string (= same pattern as $unmask_bv_kind). */
-    if (r->connection->ssl) {
-        SSL *ssl_obj = r->connection->ssl->connection;
-        if (ssl_obj && ngx_http_ja4_ssl_ex_data_idx >= 0) {
-            ngx_http_ja4_ctx_t *jctx = SSL_get_ex_data(
-                ssl_obj, ngx_http_ja4_ssl_ex_data_idx);
-            ngx_unmask_ja4_apply_transport(r, jctx);  /* 't' -> 'q' for HTTP/3 */
-            if (jctx && jctx->ja4.len > 0) {
-                ja4_data = jctx->ja4.data;
-                ja4_len  = jctx->ja4.len;
-            }
-        }
-    }
-    if (iplen + 1 + ja4_len + 1 > sizeof(key)) {
+    /* The request's JA4 as $client_ja4 logs it ('q' for HTTP/3), which is
+     * what the daemon wrote into the file. */
+    ja4 = ngx_unmask_request_ja4(r);
+    if (iplen + 1 + ja4.len + 1 > sizeof(key)) {
         goto done;
     }
     ngx_memcpy(key, ip, iplen);
     key[iplen] = '|';
-    if (ja4_len) ngx_memcpy(key + iplen + 1, ja4_data, ja4_len);
-    key[iplen + 1 + ja4_len] = '\0';
+    if (ja4.len) ngx_memcpy(key + iplen + 1, ja4.data, ja4.len);
+    key[iplen + 1 + ja4.len] = '\0';
     act = unmask_ban_lookup(ngx_unmask_banlist.rows, ngx_unmask_banlist.nrows, key);
-    if (act == NULL && ja4_len > 0) {
+    if (act == NULL && ja4.len > 0) {
         key[0] = '|';
-        ngx_memcpy(key + 1, ja4_data, ja4_len);
-        key[1 + ja4_len] = '\0';
+        ngx_memcpy(key + 1, ja4.data, ja4.len);
+        key[1 + ja4.len] = '\0';
         act = unmask_ban_lookup(ngx_unmask_banlist.rows, ngx_unmask_banlist.nrows, key);
     }
     if (act == NULL) {

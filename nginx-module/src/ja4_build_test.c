@@ -104,6 +104,16 @@ int main(void) {
     ja4_build_string(&p, out, sizeof(out));
     CHECK_STR(out, "t13i000100_000000000000_06540eb5c95f", "V6 no ciphers");
 
+    /* V7: SSL 2.0's version code, the last row of the spec's table.  No
+     * OpenSSL this module builds against still negotiates it, so the code is
+     * reached only through a hand-built struct; the string is pinned so the
+     * table stays complete.  a="ts2i010000". */
+    zero(&p);
+    p.legacy_version = 0x0002;
+    p.ciphers[0] = 0x1301; p.ncipher = 1;
+    ja4_build_string(&p, out, sizeof(out));
+    CHECK_STR(out, "ts2i010000_0f2cb44170f4_000000000000", "V7 SSL 2.0 code");
+
     printf("ja4_build_test: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

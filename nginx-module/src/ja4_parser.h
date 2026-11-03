@@ -12,6 +12,13 @@
  * https://github.com/FoxIO-LLC/ja4/blob/main/technical_details/JA4.md.
  * The BSL-licensed FoxIO reference implementation is not consulted
  * (= clean-room).
+ *
+ * One ClientHello per connection: the module parses the first ClientHello
+ * it sees and keeps its JA4 for the connection's life.  A second one on the
+ * same connection -- the client's answer to a HelloRetryRequest (RFC 8446
+ * section 4.1.4), which may carry a different key_share and cookie -- is
+ * not parsed.  Packet-capture fingerprinting reads the first ClientHello of
+ * a flow the same way, so a JA4 computed here matches one computed there.
  */
 
 #ifndef NGX_JA4_PARSER_H_INCLUDED_

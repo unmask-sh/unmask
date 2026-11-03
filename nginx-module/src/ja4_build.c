@@ -94,6 +94,7 @@ size_t ja4_build_string(const ja4_parsed_t *parsed, char *out, size_t outlen) {
     case 0x0302: memcpy(tlscode, "11", 2); break;
     case 0x0301: memcpy(tlscode, "10", 2); break;
     case 0x0300: memcpy(tlscode, "s3", 2); break;
+    case 0x0002: memcpy(tlscode, "s2", 2); break; /* SSL 2.0, per the spec's table */
     case 0xfeff: memcpy(tlscode, "d1", 2); break;
     case 0xfefd: memcpy(tlscode, "d2", 2); break;
     case 0xfefc: memcpy(tlscode, "d3", 2); break;
