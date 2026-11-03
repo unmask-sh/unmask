@@ -183,6 +183,9 @@ type Manager struct {
 	// until they are written -- two at once would write and announce each
 	// of them twice.
 	writeHeldMu sync.Mutex
+	// outsideDataRootOnce: the one log line about a list outside the data
+	// directory (ensureReadable).
+	outsideDataRootOnce sync.Once
 	// wake asks the loop to write the kept bans and the file now rather
 	// than at its next tick: an automatic ban the receive loop could not
 	// write at once.  Buffered by one; a wake while one waits is the same.
@@ -1536,20 +1539,41 @@ func (m *Manager) flush() (err error) {
 	return nil
 }
 
+// dataRoot is the package's data directory: the one tree whose directories
+// the daemon opens for nginx's worker (ensureReadable).
+const dataRoot = "/var/lib/unmask"
+
+// underDir reports whether path is dir or inside it (both clean, absolute).
+func underDir(path, dir string) bool {
+	path, dir = filepath.Clean(path), filepath.Clean(dir)
+	return path == dir || strings.HasPrefix(path, dir+string(filepath.Separator))
+}
+
 // ensureReadable: the list is read by nginx's WORKER, which runs as
 // nginx.conf's `user`, not as the daemon.  The file is 0644 whatever the
 // daemon's umask (the unit's UMask=0027 would make it 0640), and every
-// directory above it that the daemon owns lets others pass through (x: the
-// package shipped /var/lib/unmask as 0750 through 0.1.53-rc12, and nginx
-// enforced no ban on any install whose worker is another user).  Only the
-// x bit is added, and only on the daemon's own directories; what else is
-// in them keeps its own mode (the database 0640, http.inc 0640).
+// directory above it that the daemon owns, down to the package's data
+// directory, lets others pass through (x: the package shipped
+// /var/lib/unmask as 0750 through 0.1.53-rc12, and nginx enforced no ban on
+// any install whose worker is another user).  Only the x bit is added, only
+// on the daemon's own directories, and only under /var/lib/unmask: a list
+// the operator put elsewhere (a home directory, say) is theirs to make
+// reachable, and the daemon says so once -- the admin's notice bar and
+// `unmask doctor` (ban file worker read) name the directory in the way and
+// the command.  What else is in an opened directory keeps its own mode
+// (the database 0640, http.inc 0640).
 func (m *Manager) ensureReadable() {
 	if err := os.Chmod(m.filePath, 0o644); err != nil {
 		log.Printf("ban: %s: chmod 0644: %v", m.filePath, err)
 	}
+	if !underDir(filepath.Dir(m.filePath), dataRoot) {
+		m.outsideDataRootOnce.Do(func() {
+			log.Printf("ban: %s is outside %s, so the daemon leaves the directories above it as they are; if nginx's worker cannot reach the list, `unmask doctor` names the directory and the command", m.filePath, dataRoot)
+		})
+		return
+	}
 	uid := uint32(os.Getuid())
-	for d := filepath.Dir(m.filePath); d != "" && d != "." && d != filepath.Dir(d); d = filepath.Dir(d) {
+	for d := filepath.Dir(m.filePath); underDir(d, dataRoot); d = filepath.Dir(d) {
 		fi, err := os.Stat(d)
 		if err != nil {
 			return
