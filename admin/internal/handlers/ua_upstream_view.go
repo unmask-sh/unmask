@@ -43,29 +43,35 @@ type upstreamGroupView struct {
 	HasRV bool
 }
 
+// upstreamRowView is one crawler of a group's Detail dialog.  The dialog's
+// rows are not rendered as HTML: the template embeds each group's rows as
+// JSON (the short json names here; a false or empty field is left out) and
+// the page builds a row's markup the first time its dialog opens.  Rendered
+// on the server, the fourteen dialogs' selects made the tab a 600 KB page
+// with seven hundred form controls, nearly all in dialogs that never open.
 type upstreamRowView struct {
-	Pattern     string
-	Description string
-	Since       string
+	Pattern     string `json:"p"`
+	Description string `json:"d,omitempty"`
+	Since       string `json:"s,omitempty"`
 	// Own: the mode set for this crawler on its own, "" = follows the group.
-	Own string
+	Own string `json:"o,omitempty"`
 	// RangeBacked: the vendor publishes egress ranges for it; RangeActive:
 	// those ranges are enabled on the Bypass IPs tab right now (= the badge
 	// is green).
-	RangeBacked bool
-	RangeActive bool
+	RangeBacked bool `json:"rb,omitempty"`
+	RangeActive bool `json:"ra,omitempty"`
 	// Name: the crawler's display name (classify.CrawlerNameFromPattern), the
 	// key the hourly aggregates use.  NamedDay / NamedIPs: requests the last
 	// 24 hours let through on this crawler's name alone, and roughly how many
 	// addresses they came from (fillNamedRescue); 0 when none.
-	Name     string
-	NamedDay int
-	NamedIPs int
+	Name     string `json:"-"`
+	NamedDay int    `json:"nd,omitempty"`
+	NamedIPs int    `json:"ni,omitempty"`
 	// PreviewASNs: the networks the name-and-network pair verifies this
 	// link-preview fetcher by ("AS13414"), "" for a crawler the pair does not
 	// know; PreviewActive: the check is live for it (fillPreviewVerify).
-	PreviewASNs   string
-	PreviewActive bool
+	PreviewASNs   string `json:"pv,omitempty"`
+	PreviewActive bool   `json:"pa,omitempty"`
 }
 
 type upstreamOrphanView struct {

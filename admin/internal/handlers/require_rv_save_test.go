@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -124,17 +123,14 @@ func TestRangeBackedRowReadsAsRescuedWhilePolicyVerifiesByIP(t *testing.T) {
 	body := rr.Body.String()
 
 	// The row for a range-backed pattern: following its group, which passes,
-	// and a badge saying the vendor's ranges are loaded.
-	// The attribute holds the pattern verbatim, backslash included.
-	row := regexp.MustCompile(`(?s)<div class="upstream-row" data-pattern="Googlebot\\/"[^>]*>.*?</select>.*?</div>`).FindString(body)
-	if row == "" {
-		t.Fatal("no Googlebot row rendered")
+	// and a badge saying the vendor's ranges are loaded.  The JSON holds the
+	// pattern verbatim, backslash included; the group's mode is on its row.
+	row, cat := upstreamRow(t, body, `Googlebot\/`)
+	if row["o"] != nil || !strings.Contains(body, `<div class="upstream-group" data-cat="`+cat+`" data-mode="white"`) {
+		t.Errorf("a range-backed crawler must follow its passing group by default, got: %v in %s", row, cat)
 	}
-	if !strings.Contains(row, `data-own=""`) || !regexp.MustCompile(`<option value="" selected>[^<]*\((Pass|通す)\)</option>`).MatchString(row) {
-		t.Errorf("a range-backed crawler must show as following its passing group by default, got: %.400s", row)
-	}
-	if !strings.Contains(row, "rv-on") {
-		t.Errorf("the badge must show as verified-by-address (green), got: %.400s", row)
+	if row["ra"] != true {
+		t.Errorf("the badge must show as verified-by-address (green), got: %v", row)
 	}
 
 	// And the effective config agrees: the UA string does not rescue it.

@@ -1,8 +1,10 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -53,14 +55,12 @@ func TestSettingsUAFilterTabRendersRangeBadges(t *testing.T) {
 	// With the standing policy on (the default), a range-backed crawler
 	// following its passing group reads as passing -- the green badge says
 	// the address is what gets checked.
-	if row := upstreamRow(t, body, `Googlebot\/`); !strings.Contains(row, `data-own=""`) ||
-		!strings.Contains(row, `<option value="" selected>`) {
-		t.Errorf("Googlebot must render as following its group, got %q", row)
+	if row, _ := upstreamRow(t, body, `Googlebot\/`); row["o"] != nil || row["ra"] != true {
+		t.Errorf("Googlebot must be embedded as following its group, with a green badge, got %v", row)
 	}
 	// One set on its own says so, in its own mode.
-	if row := upstreamRow(t, body, `bingbot`); !strings.Contains(row, `data-own="white"`) ||
-		!strings.Contains(row, `<option value="white" selected>`) {
-		t.Errorf("bingbot is set to pass on its own, got %q", row)
+	if row, _ := upstreamRow(t, body, `bingbot`); row["o"] != "white" {
+		t.Errorf("bingbot is set to pass on its own, got %v", row)
 	}
 	// The seo group now holds a stopped crawler, so its chain picker shows
 	// and the group counts the crawler set on its own.
@@ -75,18 +75,27 @@ func TestSettingsUAFilterTabRendersRangeBadges(t *testing.T) {
 	}
 }
 
-// upstreamRow: the rendered Detail row for pat, up to its end.
-func upstreamRow(t *testing.T, body, pat string) string {
+// upstreamRowsRe: a group's Detail dialog and the JSON its rows are built
+// from (the server renders no row markup; see upstreamRowView).
+var upstreamRowsRe = regexp.MustCompile(`(?s)<div class="upstream-modal" data-cat="([^"]+)".*?<script type="application/json" class="upstream-rows">(.*?)</script>`)
+
+// upstreamRow: the Detail row for pat as the page embeds it, under
+// upstreamRowView's short json names, and the group it belongs to.
+func upstreamRow(t *testing.T, body, pat string) (row map[string]any, cat string) {
 	t.Helper()
-	i := strings.Index(body, `<div class="upstream-row" data-pattern="`+pat+`"`)
-	if i < 0 {
-		t.Fatalf("%s row not rendered", pat)
+	for _, m := range upstreamRowsRe.FindAllStringSubmatch(body, -1) {
+		var rows []map[string]any
+		if err := json.Unmarshal([]byte(m[2]), &rows); err != nil {
+			t.Fatalf("rows of %s: %v", m[1], err)
+		}
+		for _, r := range rows {
+			if r["p"] == pat {
+				return r, m[1]
+			}
+		}
 	}
-	row := body[i:]
-	if end := strings.Index(row, "</div>"); end > 0 {
-		row = row[:end]
-	}
-	return row
+	t.Fatalf("%s row not embedded", pat)
+	return nil, ""
 }
 
 // The badge means one thing -- "this bot's range preset is enabled" -- and the
@@ -116,14 +125,15 @@ func TestBadgeStaysGreenForARowThatAlsoPassesOnItsUA(t *testing.T) {
 	}
 	body := rr.Body.String()
 
-	row := upstreamRow(t, body, `bingbot`)
-	if !strings.Contains(row, "upstream-rv rv-on") {
-		t.Errorf("bingbot's preset is enabled, so its badge must be green regardless of how the row is set: %q", row)
+	row, _ := upstreamRow(t, body, `bingbot`)
+	if row["rb"] != true || row["ra"] != true {
+		t.Errorf("bingbot's preset is enabled, so its badge must be green regardless of how the row is set: %v", row)
 	}
 	// And the badge carries no per-row explanation any more: the legend covers
-	// both colours, so a title here would only restate it.
-	if strings.Contains(row, `class="upstream-rv rv-on" title=`) {
-		t.Error("the badge should not carry a tooltip; the legend explains both colours")
+	// both colours, so a title here would only restate it.  The row builder
+	// gives the range badge its text alone (the AS badge keeps a title).
+	if !strings.Contains(body, "badge('upstream-rv ' + (r.ra ? 'rv-on' : 'rv-off'), LABELS.rv || '')") {
+		t.Error("the range badge should be built without a tooltip; the legend explains both colours")
 	}
 	// cursor:help promises a tooltip that no longer exists -- the pointer
 	// changes, the operator waits, nothing appears.

@@ -64,6 +64,16 @@ const openDetail = async (page) => {
   await page.waitForFunction(sel => document.querySelector(sel).style.display === 'flex', {}, MODAL);
 };
 
+// The dialog's rows are built the first time it opens (the page embeds
+// them as JSON); readGroup reads the rows, so a freshly loaded page has the
+// dialog opened and closed once first.  Escape puts nothing back that was
+// not changed.
+const ensureRows = async (page) => {
+  await openDetail(page);
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(sel => document.querySelector(sel).style.display === 'none', {}, MODAL);
+};
+
 // The crawlers set on their own as config.yml stores them.
 const storedModes = () => {
   if (!CONFIG) return null;
@@ -93,6 +103,17 @@ const storedModes = () => {
   ]);
   await page.goto(BASE + '/admin/settings/ua-filter/', { waitUntil: 'networkidle2' });
 
+  // Before the dialog has opened, the page carries the rows as data only:
+  // no row markup, and no select, for the crawlers of any group.
+  const unbuilt = await page.evaluate((modalSel) => ({
+    rows: document.querySelectorAll('.upstream-row').length,
+    selects: document.querySelectorAll('.upstream-own-sel').length,
+    data: !!document.querySelector(modalSel + ' script.upstream-rows'),
+  }), MODAL);
+  ok(unbuilt.rows === 0 && unbuilt.selects === 0 && unbuilt.data,
+    'the rows are built on first open, not on load: ' + JSON.stringify(unbuilt));
+
+  await ensureRows(page);
   let g = await readGroup(page);
   ok(g !== null, 'the UA tab has no ' + CAT + ' group with a Detail dialog');
   if (!g) throw new Error(fails.join('; '));
@@ -168,6 +189,15 @@ const storedModes = () => {
   // 3. Save: exactly the two are stored, with the group's chain.
   await page.select(GROUP + ' .upstream-action-sel', 'captcha_only');
   await save(page);
+  // The reloaded page shows the count and the chain picker before the
+  // dialog is opened: the state is in the data, not in the built rows.
+  const fresh = await page.evaluate((groupSel) => {
+    const grp = document.querySelector(groupSel);
+    const oc = grp.querySelector('.upstream-own-count');
+    return { count: oc && !oc.hidden ? oc.querySelector('.upstream-own-n').textContent : '', rows: document.querySelectorAll('.upstream-row').length };
+  }, GROUP);
+  ok(fresh.count.indexOf('2') >= 0 && fresh.rows === 0, 'the reloaded group row counts from the data before any dialog opens: ' + JSON.stringify(fresh));
+  await ensureRows(page);
   g = await readGroup(page);
   ok(g.own['MJ12bot'] === 'black' && g.own['dotbot'] === 'none', 'the reloaded page must show the two again: ' +
     JSON.stringify({ MJ12bot: g.own['MJ12bot'], dotbot: g.own['dotbot'] }));
@@ -195,6 +225,7 @@ const storedModes = () => {
   g = await readGroup(page);
   ok(g.ownCount === '' && !g.actionShown, 'nothing set on its own any more: no count and no chain picker');
   await save(page);
+  await ensureRows(page);
   g = await readGroup(page);
   ok(Object.values(g.own).every(v => v === ''), 'cleanup: every seo crawler must follow its group again');
   const after = storedModes();

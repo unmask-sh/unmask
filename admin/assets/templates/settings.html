@@ -2094,6 +2094,24 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <span class="named-rate-row"><input type="number" name="name_only_rate_per_min" min="0" max="100000" step="1" value="{{ .Cur.SearchBots.NameOnlyRatePerMinResolved }}"> <span>{{ t .Lang "settings.ua.upstream.name_only_rate_unit" }}</span></span>
       </span>
     </div>
+    {{/* One row skeleton, and the badge texts, for every dialog's rows: the
+         rows are built by the script below when a dialog first opens, from
+         the JSON each dialog carries.  Rendered on the server, the fourteen
+         dialogs' selects made this tab a 600 KB page with seven hundred form
+         controls, nearly all of them in dialogs that never open. */}}
+    <template class="upstream-row-tpl">
+      <div class="upstream-row">
+        <select class="upstream-own-sel">
+          <option value=""></option>
+          <option value="white">{{ t .Lang "settings.ua.upstream.mode.white" }}</option>
+          <option value="none">{{ t .Lang "settings.ua.upstream.mode.none" }}</option>
+          <option value="black">{{ t .Lang "settings.ua.upstream.mode.black" }}</option>
+        </select>
+        <span class="upstream-row-main"><code></code></span>
+        <span class="upstream-since"></span>
+      </div>
+    </template>
+    <script type="application/json" class="upstream-row-labels">{{ toJSON (dict "rv" (t .Lang "settings.ua.upstream.rv_badge") "pv" (t .Lang "settings.ua.upstream.pv_badge") "pvTitle" (t .Lang "settings.ua.upstream.pv_badge_title") "named" (t .Lang "settings.ua.upstream.named_day") "namedTitle" (t .Lang "settings.ua.upstream.named_day_title")) }}</script>
     {{ range $g := .Upstream.Groups }}
     {{ $catLabel := t $.Lang (printf "settings.ua.upstream.cat.%s" $g.Cat) }}
     <div class="upstream-group" data-cat="{{ $g.Cat }}" data-mode="{{ $g.Mode }}">
@@ -2125,10 +2143,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <button type="button" class="upstream-detail-btn" data-cat="{{ $g.Cat }}">{{ t $.Lang "settings.ua.upstream.detail_btn" }}</button>
     </div>
 
-    {{/* The selects carry no name: on submit the page posts one
+    {{/* The rows' selects carry no name: on submit the page posts one
          upstream_pattern_mode ("<mode>:<pattern>") per crawler set on its
          own, and nothing for one that follows its group. */}}
-    {{ $follow := tf $.Lang "settings.ua.upstream.own_follow" (t $.Lang (printf "settings.ua.upstream.mode.%s" $g.Mode)) }}
     <div class="upstream-modal" data-cat="{{ $g.Cat }}" data-follow-fmt="{{ t $.Lang "settings.ua.upstream.own_follow" }}" style="display:none">
       <div class="upstream-modal-backdrop"></div>
       <div class="upstream-modal-box" role="dialog" aria-modal="true" aria-label="{{ $catLabel }}">
@@ -2157,22 +2174,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <button type="button" class="upstream-sort-btn" data-sort="pattern">{{ t $.Lang "settings.ua.upstream.col_pattern" }} <span class="upstream-sort-ind"></span></button>
           <button type="button" class="upstream-sort-btn" data-sort="since">{{ t $.Lang "settings.ua.upstream.col_since" }} <span class="upstream-sort-ind"></span></button>
         </div>
-        <div class="upstream-modal-list">
-          {{ range $g.Rows }}
-          <div class="upstream-row" data-pattern="{{ .Pattern }}" data-since="{{ .Since }}" data-own="{{ .Own }}">
-            <select class="upstream-own-sel" aria-label="{{ .Pattern }}">
-              <option value=""{{ if eq .Own "" }} selected{{ end }}>{{ $follow }}</option>
-              <option value="white"{{ if eq .Own "white" }} selected{{ end }}>{{ t $.Lang "settings.ua.upstream.mode.white" }}</option>
-              <option value="none"{{ if eq .Own "none" }} selected{{ end }}>{{ t $.Lang "settings.ua.upstream.mode.none" }}</option>
-              <option value="black"{{ if eq .Own "black" }} selected{{ end }}>{{ t $.Lang "settings.ua.upstream.mode.black" }}</option>
-            </select>
-            {{/* The badge reports the preset's state only, so it never repaints
-                 from this row's setting -- see nginxconf.UpstreamRangeActive. */}}
-            <span><code>{{ .Pattern }}</code>{{ if .RangeBacked }}<span class="upstream-rv {{ if .RangeActive }}rv-on{{ else }}rv-off{{ end }}">{{ t $.Lang "settings.ua.upstream.rv_badge" }}</span>{{ end }}{{ if .PreviewASNs }}<span class="upstream-rv {{ if .PreviewActive }}rv-on{{ else }}rv-off{{ end }}" title="{{ t $.Lang "settings.ua.upstream.pv_badge_title" }}">{{ t $.Lang "settings.ua.upstream.pv_badge" }} {{ .PreviewASNs }}</span>{{ end }}{{ if .NamedDay }}<span class="upstream-named" title="{{ t $.Lang "settings.ua.upstream.named_day_title" }}">{{ printf (t $.Lang "settings.ua.upstream.named_day") .NamedDay .NamedIPs }}</span>{{ end }}{{ if .Description }}<span class="upstream-desc">{{ .Description }}</span>{{ end }}</span>
-            <span class="upstream-since">{{ if .Since }}{{ .Since }}{{ else }}—{{ end }}</span>
-          </div>
-          {{ end }}
-        </div>
+        {{/* Built on first open from this JSON (upstreamRowView's short
+             names); the row skeleton and the badge texts are above the
+             groups. */}}
+        <div class="upstream-modal-list"></div>
+        <script type="application/json" class="upstream-rows">{{ toJSON $g.Rows }}</script>
         <div class="upstream-modal-foot">
           <button type="button" class="upstream-modal-cancel">{{ t $.Lang "settings.ua.upstream.cancel" }}</button>
           <button type="button" class="upstream-modal-save">{{ t $.Lang "settings.ua.upstream.save" }}</button>
@@ -2573,12 +2579,28 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
 (function(){
   // Each crawler follows its group's mode unless the operator set it on its
-  // own in the group's Detail dialog.  The dialogs' selects carry no name: on
-  // submit, one hidden upstream_pattern_mode ("<mode>:<pattern>") is
-  // generated per crawler set on its own, so a crawler left following its
-  // group posts nothing.
+  // own in the group's Detail dialog.  A dialog's rows come from the JSON it
+  // carries (script.upstream-rows) and are built into the DOM the first time
+  // it opens: the array behind each dialog is the state, and a built row's
+  // select is a view of its entry.  The selects carry no name: on submit,
+  // one hidden upstream_pattern_mode ("<mode>:<pattern>") is generated per
+  // crawler set on its own, so a crawler left following its group posts
+  // nothing.
+  var labelsEl = document.querySelector('script.upstream-row-labels');
+  var LABELS = labelsEl ? JSON.parse(labelsEl.textContent) : {};
+  var rowTpl = document.querySelector('template.upstream-row-tpl');
   function groupOf(cat) { return document.querySelector('.upstream-group[data-cat="'+cat+'"]'); }
   function modalOf(cat) { return document.querySelector('.upstream-modal[data-cat="'+cat+'"]'); }
+  // rowsOf: the dialog's crawlers, parsed once ({p: pattern, o: own mode,
+  // s: since, ...} -- the names upstreamRowView gives them).
+  function rowsOf(modal) {
+    if (!modal._rows) {
+      var src = modal.querySelector('script.upstream-rows');
+      modal._rows = src ? JSON.parse(src.textContent) : [];
+      modal._rows.forEach(function(r){ r.o = r.o || ''; });
+    }
+    return modal._rows;
+  }
   function groupMode(grp) {
     var radio = grp.querySelector('.upstream-mode-control input[type=radio]:checked');
     return radio ? radio.value : 'white';
@@ -2589,6 +2611,56 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     var s = grp.querySelector('.mode-opt.mode-' + mode + ' span');
     return s ? s.textContent : mode;
   }
+  // "Follow the group (X)" names what following resolves to right now.
+  function followLabel(cat) {
+    var grp = groupOf(cat), modal = modalOf(cat);
+    return (modal.dataset.followFmt || '%s').replace('%s', modeLabel(grp, groupMode(grp)));
+  }
+  function badge(cls, text, title) {
+    var b = document.createElement('span');
+    b.className = cls;
+    b.textContent = text;
+    if (title) b.title = title;
+    return b;
+  }
+  // buildRows: the dialog's rows into its list, once.
+  function buildRows(modal) {
+    if (modal.dataset.built || !rowTpl) return;
+    var list = modal.querySelector('.upstream-modal-list');
+    var follow = followLabel(modal.dataset.cat);
+    var frag = document.createDocumentFragment();
+    rowsOf(modal).forEach(function(r, i){
+      var row = rowTpl.content.firstElementChild.cloneNode(true);
+      row.dataset.pattern = r.p;
+      row.dataset.since = r.s || '';
+      row.dataset.own = r.o;
+      row.dataset.idx = i;
+      var sel = row.querySelector('.upstream-own-sel');
+      sel.setAttribute('aria-label', r.p);
+      sel.querySelector('option[value=""]').textContent = follow;
+      sel.value = r.o;
+      var main = row.querySelector('.upstream-row-main');
+      main.querySelector('code').textContent = r.p;
+      // The badge reports the preset's state only, so it never repaints
+      // from this row's setting -- see nginxconf.UpstreamRangeActive.
+      if (r.rb) main.appendChild(badge('upstream-rv ' + (r.ra ? 'rv-on' : 'rv-off'), LABELS.rv || ''));
+      if (r.pv) main.appendChild(badge('upstream-rv ' + (r.pa ? 'rv-on' : 'rv-off'), (LABELS.pv || '') + ' ' + r.pv, LABELS.pvTitle));
+      if (r.nd) main.appendChild(badge('upstream-named', (LABELS.named || '%d / %d').replace('%d', r.nd).replace('%d', r.ni || 0), LABELS.namedTitle));
+      if (r.d) main.appendChild(badge('upstream-desc', r.d));
+      row.querySelector('.upstream-since').textContent = r.s || '—';
+      frag.appendChild(row);
+    });
+    list.appendChild(frag);
+    modal.dataset.built = '1';
+  }
+  // setOwn: a built row's mode, in the state and in the view.
+  function setOwn(modal, row, v) {
+    var r = rowsOf(modal)[+row.dataset.idx];
+    if (r) r.o = v;
+    row.dataset.own = v;
+    var sel = row.querySelector('.upstream-own-sel');
+    if (sel && sel.value !== v) sel.value = v;
+  }
   function refreshGroup(cat) {
     var grp = groupOf(cat), modal = modalOf(cat);
     if (!grp || !modal) return;
@@ -2598,14 +2670,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       var input = opt.querySelector('input[type=radio]');
       opt.classList.toggle('active', !!(input && input.checked));
     });
-    // "Follow the group (X)" names what following resolves to right now.
-    var follow = (modal.dataset.followFmt || '%s').replace('%s', modeLabel(grp, mode));
+    var follow = followLabel(cat);
     modal.querySelectorAll('.upstream-own-sel option[value=""]').forEach(function(o){ o.textContent = follow; });
     var own = 0, ownBlack = false;
-    modal.querySelectorAll('.upstream-row').forEach(function(row){
-      var v = row.querySelector('.upstream-own-sel').value;
-      row.dataset.own = v;
-      if (v) { own++; if (v === 'black') ownBlack = true; }
+    rowsOf(modal).forEach(function(r){
+      if (r.o) { own++; if (r.o === 'black') ownBlack = true; }
     });
     var oc = grp.querySelector('.upstream-own-count');
     if (oc) {
@@ -2623,8 +2692,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     document.querySelectorAll('.upstream-group').forEach(function(grp){
       var mode = groupMode(grp), modal = modalOf(grp.dataset.cat);
       if (!modal) return;
-      modal.querySelectorAll('.upstream-own-sel').forEach(function(sel){
-        if ((sel.value || mode) === 'white') n++;
+      rowsOf(modal).forEach(function(r){
+        if ((r.o || mode) === 'white') n++;
       });
     });
     var el = document.querySelector('.upstream-overall-enabled');
@@ -2638,7 +2707,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     modal.querySelectorAll('.upstream-row').forEach(function(r){
       var pat = (r.dataset.pattern || '').toLowerCase();
       var show = (!q || pat.indexOf(q) !== -1) &&
-        (!ownOnly || r.querySelector('.upstream-own-sel').value !== '');
+        (!ownOnly || r.dataset.own !== '');
       r.classList.toggle('hidden', !show);
     });
   }
@@ -2673,9 +2742,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   function openModal(cat) {
     var modal = modalOf(cat);
     if (!modal) return;
-    var snap = [];
-    modal.querySelectorAll('.upstream-own-sel').forEach(function(sel){ snap.push(sel.value); });
-    modal.dataset.snapshot = JSON.stringify(snap);
+    buildRows(modal);
+    modal.dataset.snapshot = JSON.stringify(rowsOf(modal).map(function(r){ return r.o; }));
     if (!modal.dataset.sortKey) { modal.dataset.sortKey = 'pattern'; modal.dataset.sortDir = 'asc'; }
     applySort(modal);
     modal.style.display = 'flex';
@@ -2696,21 +2764,25 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     var modal = modalOf(cat);
     if (!modal) return;
     var snap = JSON.parse(modal.dataset.snapshot || '[]');
-    modal.querySelectorAll('.upstream-own-sel').forEach(function(sel, i){
-      if (i < snap.length) sel.value = snap[i];
+    var rows = rowsOf(modal);
+    rows.forEach(function(r, i){ if (i < snap.length) r.o = snap[i]; });
+    modal.querySelectorAll('.upstream-row').forEach(function(row){
+      var r = rows[+row.dataset.idx];
+      if (r) setOwn(modal, row, r.o);
     });
   }
   function syncHidden(form) {
     form.querySelectorAll('input.js-upstream-own-hidden').forEach(function(x){ x.remove(); });
-    document.querySelectorAll('.upstream-row').forEach(function(row){
-      var v = row.querySelector('.upstream-own-sel').value;
-      if (!v) return;
-      var h = document.createElement('input');
-      h.type = 'hidden';
-      h.name = 'upstream_pattern_mode';
-      h.value = v + ':' + row.dataset.pattern;
-      h.className = 'js-upstream-own-hidden';
-      form.appendChild(h);
+    document.querySelectorAll('.upstream-modal').forEach(function(modal){
+      rowsOf(modal).forEach(function(r){
+        if (!r.o) return;
+        var h = document.createElement('input');
+        h.type = 'hidden';
+        h.name = 'upstream_pattern_mode';
+        h.value = r.o + ':' + r.p;
+        h.className = 'js-upstream-own-hidden';
+        form.appendChild(h);
+      });
     });
   }
   // Initial render: counts and labels come pre-set from the server; this
@@ -2729,11 +2801,15 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       if (grp) refreshGroup(grp.dataset.cat);
     });
   });
-  document.querySelectorAll('.upstream-own-sel').forEach(function(sel){
-    sel.addEventListener('change', function(){
-      var modal = sel.closest('.upstream-modal');
-      sel.closest('.upstream-row').dataset.own = sel.value;
-      if (modal) refreshGroup(modal.dataset.cat);
+  // A row's select, delegated to the list: the rows are not there until
+  // the dialog opens.
+  document.querySelectorAll('.upstream-modal-list').forEach(function(list){
+    list.addEventListener('change', function(e){
+      var sel = e.target;
+      if (!sel || !sel.classList || !sel.classList.contains('upstream-own-sel')) return;
+      var modal = list.closest('.upstream-modal');
+      setOwn(modal, sel.closest('.upstream-row'), sel.value);
+      refreshGroup(modal.dataset.cat);
     });
   });
   // Set every row the filters leave showing -- "stop the Google ones" is a
@@ -2742,7 +2818,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     b.addEventListener('click', function(){
       var modal = b.closest('.upstream-modal');
       modal.querySelectorAll('.upstream-row').forEach(function(row){
-        if (!row.classList.contains('hidden')) row.querySelector('.upstream-own-sel').value = b.dataset.set;
+        if (!row.classList.contains('hidden')) setOwn(modal, row, b.dataset.set);
       });
       refreshGroup(modal.dataset.cat);
       applyFilter(modal);
