@@ -24,6 +24,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 )
 
 // VerifyResult: provider verification result.
@@ -99,4 +101,4 @@ func verifyHTTP(ctx context.Context, endpoint, secret, token, ip string, useScor
 	return r, nil
 }
 
-var httpClient = &http.Client{Timeout: 6 * time.Second}
+var httpClient = outbound.Client(6 * time.Second)

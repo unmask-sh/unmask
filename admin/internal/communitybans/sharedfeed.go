@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -186,7 +187,7 @@ func (c *Client) httpClient() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
-	return &http.Client{Timeout: 10 * time.Second}
+	return outbound.Client(10 * time.Second)
 }
 
 // logf: fall back to the standard log if Logger is nil.

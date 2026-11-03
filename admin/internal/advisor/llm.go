@@ -37,6 +37,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -991,6 +992,13 @@ func fillFromPool(c *Candidate, pool Pool) bool {
 	return true
 }
 
+// providerClient is the HTTP client behind every call to the AI provider.
+// Under the outbound policy (internal/outbound) as a destination that is
+// local by design: a model served on this host (ollama's default endpoint
+// is loopback) is reachable, the cloud metadata addresses are not.  No
+// timeout of its own: each request bounds itself with a context.
+var providerClient = outbound.LocalClient(0)
+
 func postJSON(ctx context.Context, url string, headers map[string]string, body any) ([]byte, error) {
 	buf, err := json.Marshal(body)
 	if err != nil {
@@ -1004,7 +1012,7 @@ func postJSON(ctx context.Context, url string, headers map[string]string, body a
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := providerClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

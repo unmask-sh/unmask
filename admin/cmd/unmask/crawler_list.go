@@ -18,6 +18,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 )
 
 const crawlerListURL = "https://raw.githubusercontent.com/monperrus/crawler-user-agents/master/crawler-user-agents.json"
@@ -29,7 +31,7 @@ func cmdUpdateCrawlerList(args []string) error {
 	timeout := fs.Duration("timeout", 30*time.Second, "HTTP timeout")
 	_ = fs.Parse(args)
 
-	cli := &http.Client{Timeout: *timeout}
+	cli := outbound.Client(*timeout)
 	req, _ := http.NewRequest(http.MethodGet, *url, nil)
 	req.Header.Set("User-Agent", "unmask/"+Version)
 	resp, err := cli.Do(req)

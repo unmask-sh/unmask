@@ -11,6 +11,8 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 )
 
 // Hub-operator client: queries the hub-side endpoints introduced in the hub
@@ -62,7 +64,7 @@ func (c *OperatorClient) httpClient() *http.Client {
 	if c.HTTPClient != nil {
 		return c.HTTPClient
 	}
-	return &http.Client{Timeout: 10 * time.Second}
+	return outbound.Client(10 * time.Second)
 }
 
 func (c *OperatorClient) url(path string) string {

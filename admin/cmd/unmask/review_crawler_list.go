@@ -29,6 +29,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/assets"
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 )
 
 func cmdReviewCrawlerList(args []string) error {
@@ -44,7 +45,7 @@ func cmdReviewCrawlerList(args []string) error {
 	}
 
 	// Fetch upstream.
-	cli := &http.Client{Timeout: *timeout}
+	cli := outbound.Client(*timeout)
 	req, _ := http.NewRequest(http.MethodGet, *url, nil)
 	req.Header.Set("User-Agent", "unmask/"+Version)
 	resp, err := cli.Do(req)

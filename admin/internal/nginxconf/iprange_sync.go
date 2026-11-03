@@ -30,6 +30,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 )
 
 // SyncDefaultHubURL: the canonical hub-aggregated document.
@@ -263,6 +265,7 @@ func (s *Sync) httpClient() *http.Client {
 		return &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
+				DialContext: outbound.Dialer(30*time.Second, false).DialContext,
 				// The content signature carries the trust here (see the
 				// InsecureTLS field comment); the transport check is what the
 				// operator explicitly waived.
@@ -273,7 +276,7 @@ func (s *Sync) httpClient() *http.Client {
 	if s.HTTPClient != nil {
 		return s.HTTPClient
 	}
-	return &http.Client{Timeout: 30 * time.Second}
+	return outbound.Client(30 * time.Second)
 }
 
 func (s *Sync) logf(format string, args ...any) {

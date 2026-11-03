@@ -254,7 +254,7 @@ func getJSON(ctx context.Context, url string, headers map[string]string) ([]byte
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := providerClient.Do(req)
 	if err != nil {
 		return nil, err
 	}

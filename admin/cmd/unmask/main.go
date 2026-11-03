@@ -47,6 +47,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/nginxlog"
 	"github.com/unmask-sh/unmask/admin/internal/notice"
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 	"github.com/unmask-sh/unmask/admin/internal/privacypass"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
 	"github.com/unmask-sh/unmask/admin/internal/relay"
@@ -208,7 +209,20 @@ env:
 }
 
 func loadSettings(configPath string) (settings.Settings, error) {
-	return settings.Load(configPath)
+	s, err := settings.Load(configPath)
+	if err != nil {
+		return s, err
+	}
+	// The process-wide knobs the settings carry: where the daemon's own
+	// connections may go (internal/outbound), for every sub-command that
+	// opens one.  The settings save re-applies it (handlers).
+	outbound.SetPolicy(outboundPolicy(s))
+	return s, nil
+}
+
+// outboundPolicy is the outbound policy the settings ask for.
+func outboundPolicy(s settings.Settings) outbound.Policy {
+	return outbound.Policy{DenyPrivate: s.Outbound.DenyPrivate, AllowLoopback: s.Outbound.AllowLoopback}
 }
 
 // resolveHostID decides the name that uniquely identifies this host.

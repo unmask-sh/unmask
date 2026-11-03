@@ -48,6 +48,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/mail"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 	"github.com/unmask-sh/unmask/admin/internal/relay"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -2089,6 +2090,10 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	if h.Notifier != nil {
 		h.Notifier.SetConfig(NotifierConfigFrom(cur.Notifications, h.HostID))
 	}
+
+	// outbound policy (= where the daemon's own connections may go; a
+	// config-file key, re-read here so an edit lands with the next save).
+	outbound.SetPolicy(outbound.Policy{DenyPrivate: cur.Outbound.DenyPrivate, AllowLoopback: cur.Outbound.AllowLoopback})
 
 	// mailer hot-swap (= picks up host/auth changes immediately)
 	if h.Mailer != nil {

@@ -35,6 +35,7 @@ import (
 
 	"github.com/oschwald/maxminddb-golang"
 
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 	"github.com/unmask-sh/unmask/admin/internal/relay"
 )
 
@@ -164,7 +165,7 @@ func InstallDBIPLite(opts InstallOptions) (*InstallResult, error) {
 	}
 	client := opts.HTTPClient
 	if client == nil {
-		client = &http.Client{Timeout: 60 * time.Second}
+		client = outbound.Client(60 * time.Second)
 	}
 
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {

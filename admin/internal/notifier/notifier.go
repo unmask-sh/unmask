@@ -34,6 +34,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 )
 
 const (
@@ -132,7 +134,7 @@ type Notifier struct {
 func New(cfg Config) *Notifier {
 	n := &Notifier{
 		cfg:    cfg,
-		client: &http.Client{Timeout: 5 * time.Second},
+		client: outbound.Client(5 * time.Second),
 	}
 	n.dynamic.Store(&cfg)
 	return n

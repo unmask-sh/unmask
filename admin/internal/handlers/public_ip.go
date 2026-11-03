@@ -67,7 +67,7 @@ func (h *Handler) ProbePublicIP(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := outboundClient.Do(req)
 	if err != nil {
 		return "", err
 	}

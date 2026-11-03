@@ -17,12 +17,12 @@ import (
 	"context"
 	"flag"
 	"fmt"
-	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 )
 
 func cmdUpdateIPRange(args []string) error {
@@ -48,7 +48,7 @@ func cmdUpdateIPRange(args []string) error {
 	s.InsecureTLS = *insecure
 	s.RequireSignature = *requireSig
 	if !*insecure {
-		s.HTTPClient = &http.Client{Timeout: *timeout}
+		s.HTTPClient = outbound.Client(*timeout)
 	}
 
 	// The relay list goes beside the bypass-IP document only in the runtime

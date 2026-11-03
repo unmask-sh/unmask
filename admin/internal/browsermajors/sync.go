@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -203,7 +204,7 @@ func (s *Sync) httpClient() *http.Client {
 	if s.HTTPClient != nil {
 		return s.HTTPClient
 	}
-	return &http.Client{Timeout: 30 * time.Second}
+	return outbound.Client(30 * time.Second)
 }
 
 func (s *Sync) logf(format string, args ...any) {

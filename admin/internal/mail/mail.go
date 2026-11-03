@@ -23,12 +23,15 @@ import (
 	"fmt"
 	"log"
 	"mime/quotedprintable"
+	"net"
 	"net/smtp"
 	"os"
 	"strings"
 	"sync/atomic"
 	"time"
 	"unicode/utf8"
+
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 )
 
 // Config: SMTP connection settings.  Empty Host means disabled.
@@ -188,9 +191,14 @@ func (m *Mailer) deliver(cfg Config, to string, msg []byte) error {
 // itself except to localhost, so the no-TLS paths stay safe against
 // credential leakage by construction.
 func sendSession(addr string, cfg Config, auth smtp.Auth, from, to string, msg []byte, useStartTLS bool) error {
-	c, err := smtp.Dial(addr)
+	conn, err := smtpDialer().Dial("tcp", addr)
 	if err != nil {
 		return fmt.Errorf("smtp dial: %w", err)
+	}
+	c, err := smtp.NewClient(conn, cfg.Host)
+	if err != nil {
+		_ = conn.Close()
+		return fmt.Errorf("smtp newclient: %w", err)
 	}
 	defer c.Close()
 	if err := c.Hello(localhostHello()); err != nil {
@@ -233,12 +241,18 @@ func sendSession(addr string, cfg Config, auth smtp.Auth, from, to string, msg [
 	return c.Quit()
 }
 
+// smtpDialer is the dialer of every SMTP session, under the outbound policy
+// (internal/outbound) as a destination that is local by design: the relay
+// is, on most hosts, a postfix on this host, so loopback stays reachable
+// whatever the policy says; the cloud metadata addresses do not.
+func smtpDialer() *net.Dialer { return outbound.Dialer(10*time.Second, true) }
+
 func sendImplicitTLS(addr string, cfg Config, auth smtp.Auth, from, to string, msg []byte) error {
 	tlsCfg := &tls.Config{
 		ServerName:         cfg.Host,
 		InsecureSkipVerify: cfg.InsecureSkipVerify, //nolint:gosec // operator opt-in (default false) for self-signed local SMTP relays
 	}
-	conn, err := tls.Dial("tcp", addr, tlsCfg)
+	conn, err := tls.DialWithDialer(smtpDialer(), "tcp", addr, tlsCfg)
 	if err != nil {
 		return fmt.Errorf("smtp tls dial: %w", err)
 	}

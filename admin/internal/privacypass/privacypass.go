@@ -39,6 +39,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 )
 
 const (
@@ -191,7 +193,7 @@ func (v *Verifier) httpClient() *http.Client {
 	if v.httpc != nil {
 		return v.httpc
 	}
-	return &http.Client{Timeout: 5 * time.Second}
+	return outbound.Client(5 * time.Second)
 }
 
 // resolve returns the currently trusted keys: the static set when no loader is

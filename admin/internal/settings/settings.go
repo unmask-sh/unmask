@@ -827,6 +827,23 @@ type NginxLog struct {
 	SocketGroup string `yaml:"socket_group,omitempty"`
 }
 
+// Outbound: where a connection the daemon opens to a destination the
+// operator configured -- the alert webhook, the SMTP relay, the AI
+// provider, the Community Bans hub, the feeds it pulls, the geo database
+// it downloads -- may go (internal/outbound).  The cloud metadata
+// addresses are refused under every setting.  Config-file only.
+//
+//	deny_private  : refuse the private ranges too (RFC 1918, fc00::/7,
+//	                100.64.0.0/10).  Default false: an alert receiver on
+//	                the office network is the common case.
+//	allow_loopback: let a configured destination be this host.  Default
+//	                false; the SMTP relay and the AI provider reach loopback
+//	                regardless (a relay on localhost, a local model).
+type Outbound struct {
+	DenyPrivate   bool `yaml:"deny_private,omitempty"`
+	AllowLoopback bool `yaml:"allow_loopback,omitempty"`
+}
+
 // Nginx: input that `unmask render-nginx` uses to generate the nginx config.
 //
 // Users only need to edit config.yml's nginx.* — no per-file conf editing
@@ -3457,6 +3474,8 @@ type Settings struct {
 	// VersionCheckDisabled: opt out of the update check entirely (no outbound
 	// call at all).  Default false = the check runs.  Toggled from the About tab.
 	VersionCheckDisabled bool `yaml:"version_check_disabled,omitempty"`
+	// Outbound: where the daemon's own connections may go (see Outbound).
+	Outbound Outbound `yaml:"outbound,omitempty"`
 	// EventsRetentionDays: retention days for raw unmask_event rows. Default 7.
 	// Raw events only back the bot-hunt log, --ref lookups, rankings, analyze
 	// and undeclared-site views; everything long-range reads the fixed 32-day

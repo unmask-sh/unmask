@@ -9,6 +9,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/advisor"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 )
 
 // Same rationale as nginxconf's TestMain: the auto-from-UA bypass derivation
@@ -47,6 +48,9 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	nginxconf.FailsafePackageDir = pkgDir
+	// The tests' servers listen on loopback, which the outbound policy
+	// refuses by default (internal/outbound); the suite opens it.
+	outbound.SetPolicy(outbound.Policy{AllowLoopback: true})
 	code := m.Run()
 	_ = os.RemoveAll(pkgDir)
 	restoreWait()

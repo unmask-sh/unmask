@@ -4,6 +4,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/outbound"
 )
 
 // The auto-from-UA derivation (autobypass.go) reads the embedded snapshot's
@@ -22,6 +24,9 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	FailsafePackageDir = pkgDir
+	// The tests' servers listen on loopback, which the outbound policy
+	// refuses by default (internal/outbound); the suite opens it.
+	outbound.SetPolicy(outbound.Policy{AllowLoopback: true})
 	code := m.Run()
 	_ = os.RemoveAll(pkgDir)
 	restore()
