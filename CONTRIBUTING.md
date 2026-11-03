@@ -57,7 +57,9 @@ the container images, and the docker e2e stack (`make e2e-docker`, which
 anyone can run).  When the module or its build changes, a second workflow
 (`module-matrix`) builds the .so against every nginx version the plugin
 package ships -- fifteen, from 1.10.3 to the current stable -- against
-OpenSSL 3 and, in a container, OpenSSL 1.1.  Before a release the
+OpenSSL 3 and, in containers whose recipes are under `build-docker/`,
+OpenSSL 1.1, OpenSSL 1.0 and glibc 2.12; every .so in the plugin package
+can be rebuilt from this tree.  Before a release the
 maintainer also installs the packages on a lab of real distributions
 (`make distro-check`: the official install path on ten distributions,
 CentOS 6 among them, through to `nginx -t`, the module loading and a

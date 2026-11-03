@@ -8,10 +8,11 @@
 # own `make build-module-multi` builds them.  The release also links the same
 # versions against OpenSSL 1.1 and 1.0 and against glibc 2.12 for the hosts
 # that still run those (the openssl11/10 and glibc212 builders of
-# `make build-module-multi-all`); the OpenSSL 1.1 set is built here too, in
-# its AlmaLinux 8 container.  Before a release every build is also installed
-# on a lab of real distributions (`make distro-check`; CONTRIBUTING.md,
-# "Release gate").
+# `make build-module-multi-all`, recipes under build-docker/); those three
+# sets are built here too, each in its container, so every .so the plugin
+# package ships can be produced from this tree by anyone.  Before a release
+# every build is also installed on a lab of real distributions (`make
+# distro-check`; CONTRIBUTING.md, "Release gate").
 name: module-matrix
 
 on:
@@ -73,24 +74,39 @@ jobs:
           make build-module NGINX_VERSION=${{ matrix.nginx }} NGINX_WITH_COMPAT=$compat
           ls -la dist/ngx_http_unmask_module-linux-amd64.so
 
-  # The OpenSSL 1.1 set, the way the release builds it: every version in the
-  # AlmaLinux 8 builder image.  build-module-multi-openssl11 goes on past a
-  # version that fails, so the .so files are counted afterwards.
-  build-module-openssl11:
+  # The other three ABIs, the way the release builds them: every version in
+  # the builder container of each (build-docker/<name>/, built here from the
+  # recipe, so a recipe that no longer builds is caught).  The make targets go
+  # on past a version that fails, so the .so files are counted afterwards.
+  build-module-abi:
+    name: ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: build-module-multi-openssl11
+            abi: OpenSSL 1.1 (AlmaLinux 8)
+            dir: dist/multi-modules-openssl11
+          - target: build-module-multi-openssl10
+            abi: OpenSSL 1.0 (CentOS 7)
+            dir: dist/multi-modules-openssl10
+          - target: build-module-multi-glibc212
+            abi: glibc 2.12 / OpenSSL 1.0 (CentOS 6)
+            dir: dist/multi-modules-glibc212
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: build every version against OpenSSL 1.1
-        run: make build-module-multi-openssl11
+      - name: build every version against ${{ matrix.abi }}
+        run: make ${{ matrix.target }}
       - name: every version built
         run: |
           want=$(sed -n 's/^PLUGIN_NGINX_VERSIONS ?= //p' Makefile)
           missing=""
           for v in $want; do
-            [ -f "dist/multi-modules-openssl11/$v/ngx_http_unmask_module.so" ] || missing="$missing $v"
+            [ -f "${{ matrix.dir }}/$v/ngx_http_unmask_module.so" ] || missing="$missing $v"
           done
           if [ -n "$missing" ]; then
-            echo "no OpenSSL 1.1 module for:$missing" >&2
+            echo "no ${{ matrix.abi }} module for:$missing" >&2
             exit 1
           fi
           echo "built: $want"

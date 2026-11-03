@@ -1,0 +1,66 @@
+#!/bin/sh
+# build-one.sh -- build one nginx version's plugin .so against CentOS 6
+# (glibc 2.12, OpenSSL 1.0) inside the builder container.
+#
+# Call: build-one.sh <nginx-version>     (ex: build-one.sh 1.18.0)
+#
+# Input (= the repo bind-mounted at /work):
+#   /work/nginx-module/            the module source and its config
+#   /work/tools/fetch-nginx-src.sh the pinned-sha256 download of the nginx source
+#
+# Output: /work/dist/multi-modules-glibc212/<ver>/ngx_http_unmask_module.so
+#   Written through the bind mount, so it lands in the host's dist/.
+set -eu
+
+NGX_VER="${1:-}"
+if [ -z "$NGX_VER" ]; then
+    echo "usage: build-one.sh <nginx-version>" >&2
+    exit 1
+fi
+
+WORKDIR=/work
+OUT_DIR="$WORKDIR/dist/multi-modules-glibc212/$NGX_VER"
+mkdir -p "$OUT_DIR"
+
+# The tarball is fetched, checked against the sha256 pinned in the repo and
+# unpacked by the same script every other module build path uses.  Over
+# plain http: this container's TLS stack and CA bundle are too old for
+# nginx.org, and the sha256 check is what vouches for the bytes.
+SRC_DIR="/tmp/nginx-${NGX_VER}"
+NGINX_DOWNLOAD_BASE="${NGINX_DOWNLOAD_BASE:-http://nginx.org/download}" \
+    "$WORKDIR/tools/fetch-nginx-src.sh" "$NGX_VER" /tmp
+
+# compat=0 for very old nginx versions that predate --with-compat.
+COMPAT=1
+case "$NGX_VER" in
+    1.10.*|1.11.[0-4]) COMPAT=0 ;;
+esac
+
+cd "$SRC_DIR"
+# CentOS 6's gcc 4.4 defaults to gnu89, which rejects the C99 the module is
+# written in, so the C standard is forced.
+# 1.11.5+ : --with-compat alone gives the dlopen ABI contract.
+# 1.10.x  : no --with-compat, so enable --with-http_ssl_module explicitly to
+#           turn on the SSL struct members (= ngx_connection_t.ssl).
+CC_OPT="-std=gnu99"
+if [ "$COMPAT" = "1" ]; then
+    ./configure --with-compat --with-cc-opt="$CC_OPT" --add-dynamic-module="$WORKDIR/nginx-module" >/dev/null
+else
+    ./configure --with-http_ssl_module --with-cc-opt="$CC_OPT" --add-dynamic-module="$WORKDIR/nginx-module" >/dev/null
+fi
+make modules
+
+SO="$SRC_DIR/objs/ngx_http_unmask_module.so"
+if [ ! -f "$SO" ]; then
+    echo "build failed: $SO not found" >&2
+    exit 2
+fi
+
+cp -v "$SO" "$OUT_DIR/ngx_http_unmask_module.so"
+# Confirm the link targets (libssl.so.10, libc) and that nothing newer than
+# GLIBC_2.12 is required -- the whole point of this builder.
+ldd "$OUT_DIR/ngx_http_unmask_module.so" 2>&1 | grep -E "libssl|libcrypto|libc.so" || true
+echo ">>> required GLIBC versions:"
+objdump -T "$OUT_DIR/ngx_http_unmask_module.so" 2>/dev/null | grep -oE 'GLIBC_[0-9.]+' | sort -uV | tr '\n' ' '
+echo ""
+echo ">>> built: $OUT_DIR/ngx_http_unmask_module.so (nginx $NGX_VER, CentOS 6 / glibc 2.12 / OpenSSL 1.0)"

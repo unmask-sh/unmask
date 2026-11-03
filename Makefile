@@ -245,8 +245,8 @@ build-module-multi:
 # via an AlmaLinux 8 docker container (targets rhel6/7/8, Debian 11, Ubuntu
 # 22.04 hosts).
 # Output: dist/multi-modules-openssl11/<ver>/ngx_http_unmask_module.so.
-# Prereqs: docker installed + unmask-builder-openssl11 image already built.
-#   $ docker build -t unmask-builder-openssl11 build/docker-openssl11/
+# Prereqs: docker.  The builder image is built from build-docker/openssl11/
+# on first use (or by hand: docker build -t unmask-builder-openssl11 build-docker/openssl11/).
 # Arch-suffixed like MULTI_DIR: amd64 keeps the legacy un-suffixed path; other
 # arches get -$(GOARCH).  This also keeps package-plugin-nginx-fat honest for
 # arm64 — the openssl11/10/glibc212 bundles exist only for amd64 today, so the
@@ -295,10 +295,11 @@ build-module-multi-openssl11:
 # build-module-multi-openssl10: batch-build OpenSSL 1.0 ABI-linked plugin .so
 # via a CentOS 7 docker container (targets CentOS 7 / RHEL 7 / Oracle Linux 7
 # and other libcrypto.so.10 hosts).  CentOS 7 hit EOL on 2024-06-30, so repos
-# are sourced from vault.
+# are sourced from vault.  x86_64 only (the ABI has no arm64 install base),
+# hence the explicit platform: an arm64 build host emulates.
 # Output: dist/multi-modules-openssl10/<ver>/ngx_http_unmask_module.so.
-# Prereqs: docker installed + unmask-builder-openssl10 image already built.
-#   $ docker build -t unmask-builder-openssl10 build/docker-openssl10/
+# Prereqs: docker.  The builder image is built from build-docker/openssl10/
+# on first use (or by hand: docker build -t unmask-builder-openssl10 build-docker/openssl10/).
 ifeq ($(GOARCH),amd64)
 MULTI_OPENSSL10_DIR = $(DIST)/multi-modules-openssl10
 else
@@ -308,7 +309,7 @@ endif
 build-module-multi-openssl10:
 	@if ! docker image inspect unmask-builder-openssl10 >/dev/null 2>&1; then \
 		echo ">>> building unmask-builder-openssl10 image first"; \
-		docker build -t unmask-builder-openssl10 build/docker-openssl10/; \
+		docker build --platform=linux/amd64 -t unmask-builder-openssl10 build-docker/openssl10/; \
 	fi
 	@echo ">>> building modules for: $(PLUGIN_NGINX_VERSIONS) (OpenSSL 1.0 via docker CentOS 7 vault)"
 	@mkdir -p $(MULTI_OPENSSL10_DIR)
@@ -324,7 +325,7 @@ build-module-multi-openssl10:
 		[ ! -f $$out ] || echo "  stale: $$out (module source changed), rebuilding"; \
 		rm -f $$out $$stamp; \
 		mkdir -p $$(dirname $$out); \
-		docker run --rm -v "$$(pwd):/work" unmask-builder-openssl10 $$v || { \
+		docker run --rm --platform=linux/amd64 -v "$$(pwd):/work" unmask-builder-openssl10 $$v || { \
 			echo "!!! build failed for nginx $$v (continuing)"; \
 			continue; \
 		}; \
@@ -332,7 +333,7 @@ build-module-multi-openssl10:
 	done
 	@# Hand the root-owned bind-mount outputs back to the invoking user (see
 	@# the openssl11 target).
-	@docker run --rm -v "$$(pwd):/work" --entrypoint chown unmask-builder-openssl10 -R "$$(id -u):$$(id -g)" /work/dist/multi-modules-openssl10 2>/dev/null || true
+	@docker run --rm --platform=linux/amd64 -v "$$(pwd):/work" --entrypoint chown unmask-builder-openssl10 -R "$$(id -u):$$(id -g)" /work/dist/multi-modules-openssl10 2>/dev/null || true
 	@echo ""
 	@echo ">>> built modules (OpenSSL 1.0):"
 	@ls -la $(MULTI_OPENSSL10_DIR)/*/*.so 2>/dev/null || echo "  (none)"
@@ -340,10 +341,11 @@ build-module-multi-openssl10:
 # build-module-multi-glibc212: batch-build glibc 2.12 + OpenSSL 1.0 ABI-linked
 # plugin .so via a CentOS 6 docker container (targets CentOS 6 / RHEL 6 hosts).
 # CentOS 6 hit EOL on 2020-11-30, so repos are pinned to the
-# archive.kernel.org HTTP mirror.
+# archive.kernel.org HTTP mirror.  x86_64 only (CentOS 6 never had aarch64),
+# hence the explicit platform: an arm64 build host emulates.
 # Output: dist/multi-modules-glibc212/<ver>/ngx_http_unmask_module.so.
-# Prereqs: docker installed + unmask-builder-centos6 image already built.
-#   $ docker build -t unmask-builder-centos6 build/docker-centos6/
+# Prereqs: docker.  The builder image is built from build-docker/centos6/
+# on first use (or by hand: docker build -t unmask-builder-centos6 build-docker/centos6/).
 ifeq ($(GOARCH),amd64)
 MULTI_GLIBC212_DIR = $(DIST)/multi-modules-glibc212
 else
@@ -353,7 +355,7 @@ endif
 build-module-multi-glibc212:
 	@if ! docker image inspect unmask-builder-centos6 >/dev/null 2>&1; then \
 		echo ">>> building unmask-builder-centos6 image first"; \
-		docker build -t unmask-builder-centos6 build/docker-centos6/; \
+		docker build --platform=linux/amd64 -t unmask-builder-centos6 build-docker/centos6/; \
 	fi
 	@echo ">>> building modules for: $(PLUGIN_NGINX_VERSIONS) (glibc 2.12 via docker CentOS 6)"
 	@mkdir -p $(MULTI_GLIBC212_DIR)
@@ -369,7 +371,7 @@ build-module-multi-glibc212:
 		[ ! -f $$out ] || echo "  stale: $$out (module source changed), rebuilding"; \
 		rm -f $$out $$stamp; \
 		mkdir -p $$(dirname $$out); \
-		docker run --rm -v "$$(pwd):/work" unmask-builder-centos6 $$v || { \
+		docker run --rm --platform=linux/amd64 -v "$$(pwd):/work" unmask-builder-centos6 $$v || { \
 			echo "!!! build failed for nginx $$v (continuing)"; \
 			continue; \
 		}; \
@@ -377,7 +379,7 @@ build-module-multi-glibc212:
 	done
 	@# Hand the root-owned bind-mount outputs back to the invoking user (see
 	@# the openssl11 target).
-	@docker run --rm -v "$$(pwd):/work" --entrypoint chown unmask-builder-centos6 -R "$$(id -u):$$(id -g)" /work/dist/multi-modules-glibc212 2>/dev/null || true
+	@docker run --rm --platform=linux/amd64 -v "$$(pwd):/work" --entrypoint chown unmask-builder-centos6 -R "$$(id -u):$$(id -g)" /work/dist/multi-modules-glibc212 2>/dev/null || true
 	@echo ""
 	@echo ">>> built modules (glibc 2.12):"
 	@ls -la $(MULTI_GLIBC212_DIR)/*/*.so 2>/dev/null || echo "  (none)"
