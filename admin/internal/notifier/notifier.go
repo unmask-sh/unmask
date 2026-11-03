@@ -34,6 +34,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/unmask-sh/unmask/admin/internal/outbound"
 )
@@ -231,6 +232,11 @@ func (n *Notifier) BanCreated(ip, ja4, source, reason, bannedBy string) {
 	if n == nil {
 		return
 	}
+	// The visitor wrote part of these -- a honeypot's reason carries the
+	// path it asked for -- so they are bounded before any channel, the list
+	// and the generic payload included (untrusted).
+	ip, ja4, source = untrusted(ip, fieldMax), untrusted(ja4, fieldMax), untrusted(source, fieldMax)
+	reason, bannedBy = untrusted(reason, reasonMax), untrusted(bannedBy, fieldMax)
 	cfg := n.currentCfg()
 	fields := map[string]any{
 		"event":     EventBanCreated,
@@ -386,15 +392,63 @@ func (n *Notifier) send(hook, format, event string, fields map[string]any, text 
 	}
 }
 
+// What a chat service makes of the text.  Slack reads <!channel>, <!here>,
+// <@U…> and <url|label> out of mrkdwn, so a visitor whose path -- the
+// reason of a honeypot ban -- carries them could page the channel or plant
+// a link; Slack's rule is that &, < and > are written as entities in all
+// text, which is what slackEscape does.  Discord pings on @everyone, @here
+// and <@…> in the content; the payload's allowed_mentions with an empty
+// parse list turns every mention off, the documented way (the words stay
+// readable).  Each service also bounds its message: Discord's content is
+// 2,000 characters, Slack's text 4,000 -- past them the alert is refused
+// whole, which is the opposite of what an alert is for.
+const (
+	slackTextMax      = 4000
+	discordContentMax = 2000
+	// fieldMax / reasonMax bound what the visitor wrote before it reaches a
+	// channel: an address or a fingerprint is short, a reason carries a path.
+	fieldMax  = 120
+	reasonMax = 400
+)
+
+var slackEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
+func slackEscape(s string) string { return slackEscaper.Replace(s) }
+
+// untrusted bounds a field the visitor wrote: control characters (a line
+// break would start a line of the alert's own) become spaces, and the rest
+// is cut at max runes with a mark.
+func untrusted(s string, max int) string {
+	s = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || r == utf8.RuneError {
+			return ' '
+		}
+		return r
+	}, s)
+	return cutRunes(s, max)
+}
+
+// cutRunes keeps the first max runes of s, with a mark when it cut.
+func cutRunes(s string, max int) string {
+	if max <= 0 || utf8.RuneCountInString(s) <= max {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:max-1]) + "…"
+}
+
 // buildPayload: build the message body per format.  Returns JSON-marshalled
 // bytes + Content-Type.
 func buildPayload(format, event string, fields map[string]any, text string) ([]byte, string) {
 	switch format {
 	case FormatSlack:
-		body, _ := json.Marshal(map[string]any{"text": text})
+		body, _ := json.Marshal(map[string]any{"text": cutRunes(slackEscape(text), slackTextMax)})
 		return body, "application/json"
 	case FormatDiscord:
-		body, _ := json.Marshal(map[string]any{"content": text})
+		body, _ := json.Marshal(map[string]any{
+			"content":          cutRunes(text, discordContentMax),
+			"allowed_mentions": map[string]any{"parse": []string{}},
+		})
 		return body, "application/json"
 	default: // generic
 		body, _ := json.Marshal(fields)
