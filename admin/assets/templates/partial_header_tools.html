@@ -29,7 +29,31 @@
   (partial_notice_bell.html), the admin's notification list, stands left of
   the user menu: it is the account's, like the menu.
 */ -}}
-{{ define "header_tools" }}{{ template "vacuum_notice" . }}<a href="{{ .BasePath }}/admin/ask/" class="hdr-ask" style="display:inline-flex;align-items:center;gap:.3rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;text-decoration:none">✦ {{ t .Lang "nav.ask" }}</a>  {{ template "host_picker" . }}  {{ template "site_picker" . }}  {{ template "notice_bell" . }}  {{ template "user_menu" . }}{{ template "init_tz_cookie" . }}{{ template "init_csrf" . }}{{ template "init_dialog" . }}{{ template "init_maxchars" . }}{{ template "init_busy" . }}{{ template "schema_update_notice" . }}{{ template "reload_notice" . }}{{ template "ban_file_notice" . }}{{ end }}
+{{ define "header_tools" }}<style>
+/* The top bar on a narrow screen (a phone held upright is 390 px).  Every
+   page lays the bar out as one flex row, with no rule for a width it does not
+   fit, and at 390 px the page links broke one character per line while the
+   pickers, the bell and the account menu ran past the right edge.  This is
+   here, and not in the pages, because header_tools is the one partial every
+   signed-in page's bar renders.  Under 48 rem the bar wraps: the brand and
+   the page links (as whole words, wrapping between them) on the first line,
+   the tools on lines of their own after the spacer, which turns into a line
+   break; the pickers give up some of their width.  The three drop-downs of
+   the bar (the host list, the notifications, the account menu) hang from the
+   bar itself rather than from their buttons: anchored to a button's right
+   edge, as on a wide screen, a list wider than the button's distance from
+   the left edge ran off the viewport on that side. */
+@media (max-width:48rem){
+  .unmask-header{position:relative;flex-wrap:wrap;row-gap:.5rem;padding:.6rem .9rem}
+  .unmask-header .nav{flex-wrap:wrap;gap:.35rem .8rem;margin-left:.4rem;padding-left:.6rem}
+  .unmask-header .nav a{white-space:nowrap}
+  .unmask-header .spacer{flex:0 0 100%;height:0}
+  .unmask-header .host-picker .hp-sel-label{max-width:7rem}
+  .unmask-header .site-picker .sp-sel{max-width:9rem}
+  .unmask-header .host-picker,.unmask-header .nbell,.unmask-header .user-menu{position:static}
+  .unmask-header .host-picker .hp-list,.unmask-header .nbell-pop,.unmask-header .user-menu-pop{left:.9rem;right:.9rem;top:100%;width:auto;min-width:0;max-width:none}
+}
+</style>{{ template "vacuum_notice" . }}<a href="{{ .BasePath }}/admin/ask/" class="hdr-ask" style="display:inline-flex;align-items:center;gap:.3rem;padding:.25rem .55rem;border:1px solid #334155;border-radius:.25rem;font-size:.8rem;color:#cbd5e1;text-decoration:none">✦ {{ t .Lang "nav.ask" }}</a>  {{ template "host_picker" . }}  {{ template "site_picker" . }}  {{ template "notice_bell" . }}  {{ template "user_menu" . }}{{ template "init_tz_cookie" . }}{{ template "init_csrf" . }}{{ template "init_dialog" . }}{{ template "init_maxchars" . }}{{ template "init_busy" . }}{{ template "schema_update_notice" . }}{{ template "reload_notice" . }}{{ template "ban_file_notice" . }}{{ end }}
 
 {{/*
   init_csrf: double-submit CSRF shim, global so no individual form or fetch
