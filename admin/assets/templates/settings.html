@@ -958,29 +958,29 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <div class="listen-tcp{{ if ne .ListenMode "tcp" }} hidden{{ end }}">
       <div class="field listen-pair">
         <div>
-          <label>{{ t .Lang "settings.network.listen_bind" }}</label>
-          <input type="text" name="tcp_bind" value="{{ if eq .ListenMode "tcp" }}{{ .ListenBind }}{{ else }}127.0.0.1{{ end }}" placeholder="127.0.0.1">
+          <label for="f-tcp_bind">{{ t .Lang "settings.network.listen_bind" }}</label>
+          <input id="f-tcp_bind" type="text" name="tcp_bind" value="{{ if eq .ListenMode "tcp" }}{{ .ListenBind }}{{ else }}127.0.0.1{{ end }}" placeholder="127.0.0.1">
         </div>
         <div>
-          <label>{{ t .Lang "settings.network.listen_port" }}</label>
-          <input type="number" name="tcp_port" min="1" max="65535" value="{{ if .ListenPort }}{{ .ListenPort }}{{ else }}9477{{ end }}">
+          <label for="f-tcp_port">{{ t .Lang "settings.network.listen_port" }}</label>
+          <input id="f-tcp_port" type="number" name="tcp_port" min="1" max="65535" value="{{ if .ListenPort }}{{ .ListenPort }}{{ else }}9477{{ end }}">
         </div>
       </div>
     </div>
 
     <div class="listen-socket{{ if ne .ListenMode "socket" }} hidden{{ end }}">
       <div class="field">
-        <label>{{ t .Lang "settings.network.listen_sock_path" }}</label>
-        <input type="text" name="socket_path" value="{{ .ListenSockPath }}" placeholder="/run/unmask/http.sock">
+        <label for="f-socket_path">{{ t .Lang "settings.network.listen_sock_path" }}</label>
+        <input id="f-socket_path" type="text" name="socket_path" value="{{ .ListenSockPath }}" placeholder="/run/unmask/http.sock">
       </div>
       <div class="field listen-pair">
         <div>
-          <label>{{ t .Lang "settings.network.listen_sock_mode" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.4rem">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.listen_sock_mode_help") }}</span></span></label>
-          <input type="text" name="socket_mode" value="{{ .ListenSockMode }}" placeholder="0660" pattern="0?[0-7]{3}">
+          <label for="f-socket_mode">{{ t .Lang "settings.network.listen_sock_mode" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.4rem">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.listen_sock_mode_help") }}</span></span></label>
+          <input id="f-socket_mode" type="text" name="socket_mode" value="{{ .ListenSockMode }}" placeholder="0660" pattern="0?[0-7]{3}">
         </div>
         <div>
-          <label>{{ t .Lang "settings.network.listen_sock_group" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.4rem">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.listen_sock_group_help") }}</span></span></label>
-          <input type="text" name="socket_group" value="{{ .ListenSockGroup }}" placeholder="{{ t .Lang "settings.network.listen_sock_group_ph" }}">
+          <label for="f-socket_group">{{ t .Lang "settings.network.listen_sock_group" }}<span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.4rem">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.listen_sock_group_help") }}</span></span></label>
+          <input id="f-socket_group" type="text" name="socket_group" value="{{ .ListenSockGroup }}" placeholder="{{ t .Lang "settings.network.listen_sock_group_ph" }}">
         </div>
       </div>
     </div>
@@ -1090,7 +1090,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <span class="ipgeo-mode-sub">{{ safeHTML (t .Lang "settings.network.ipgeo_mode_custom_sub") }}</span>
       </label>
       <div class="ipgeo-mode-body" id="ipgeo-mode-custom" {{ if ne $mode "custom" }}style="display:none"{{ end }}>
-        <input type="text" name="ipgeo_mmdb_path" id="ipgeo_mmdb_path"
+        <input type="text" name="ipgeo_mmdb_path" id="ipgeo_mmdb_path" aria-label="{{ t .Lang "settings.network.geoip_path_label" }}"
                value="{{ if eq $mode "custom" }}{{ .IPGeoMMDBPath }}{{ end }}"
                placeholder="e.g. /usr/share/GeoIP/GeoLite2-City.mmdb">
         {{ if .IPGeoCommonGeo }}
@@ -1165,7 +1165,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <span class="ipgeo-mode-sub">{{ safeHTML (t .Lang "settings.network.ipgeo_asn_mode_custom_sub") }}</span>
       </label>
       <div class="ipgeo-mode-body" id="ipgeo-asn-mode-custom" {{ if ne $asnMode "custom" }}style="display:none"{{ end }}>
-        <input type="text" name="ipgeo_mmdb_asn_path" id="ipgeo_mmdb_asn_path"
+        <input type="text" name="ipgeo_mmdb_asn_path" id="ipgeo_mmdb_asn_path" aria-label="{{ t .Lang "settings.network.geoip_asn_label" }}"
                value="{{ if eq $asnMode "custom" }}{{ .IPGeoMMDBASNPath }}{{ end }}"
                placeholder="e.g. /usr/share/GeoIP/GeoLite2-ASN.mmdb">
         {{ if .IPGeoCommonASN }}
@@ -1445,8 +1445,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2>{{ t .Lang "settings.network.cdn_h" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.cdn_desc") }}</span></span></h2>
     {{ with .CDNEgress }}
     <p class="desc" style="font-size:.78rem;color:#64748b;margin:0 0 .5rem">{{ range $i, $v := .Vendors }}{{ if $i }} · {{ end }}{{ $v.Name }} {{ $v.Prefixes }}{{ end }}{{ if .Snapshot }} — {{ t $.Lang "settings.network.cdn_snapshot" }}{{ else if .Generated }} — {{ t $.Lang "settings.network.cdn_hub" }} <time class="js-datetime" data-ts="{{ .Generated }}"></time>{{ end }}</p>
-    <label class="field-label" style="display:block;font-size:.82rem;margin:.4rem 0 .2rem">{{ t $.Lang "settings.network.cdn_extra_label" }}</label>
-    <textarea name="cdn_egress_extra" rows="3" style="width:100%;max-width:32rem;font-family:ui-monospace,Menlo,monospace;font-size:.82rem" placeholder="{{ t $.Lang "settings.network.cdn_extra_ph" }}">{{ .Extra }}</textarea>
+    <label for="f-cdn_egress_extra" class="field-label" style="display:block;font-size:.82rem;margin:.4rem 0 .2rem">{{ t $.Lang "settings.network.cdn_extra_label" }}</label>
+    <textarea id="f-cdn_egress_extra" name="cdn_egress_extra" rows="3" style="width:100%;max-width:32rem;font-family:ui-monospace,Menlo,monospace;font-size:.82rem" placeholder="{{ t $.Lang "settings.network.cdn_extra_ph" }}">{{ .Extra }}</textarea>
     <p class="desc" style="font-size:.78rem;color:#64748b;margin:.2rem 0 .6rem">{{ t $.Lang "settings.network.cdn_extra_hint" }}</p>
     <label class="ck"><input type="checkbox" name="cdn_egress_ban" value="1" {{ if .Ban }}checked{{ end }}> {{ t $.Lang "settings.network.cdn_ban_label" }}</label>
     <p class="desc" style="font-size:.78rem;color:#64748b;margin:.3rem 0 0">{{ t $.Lang "settings.network.cdn_ban_hint" }}</p>
@@ -1738,7 +1738,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <tbody>
         {{ range .BypassPresetGroups }}
         <tr>
-          <td><input type="checkbox" name="bypass_preset_enabled" value="{{ .ID }}" {{ if or .Enabled .AutoEnabled }}checked{{ end }}>{{ if .AutoEnabled }}<input type="hidden" name="bypass_preset_auto" value="{{ .ID }}">{{ end }}</td>
+          <td><input type="checkbox" name="bypass_preset_enabled" aria-label="{{ .Label }}" value="{{ .ID }}" {{ if or .Enabled .AutoEnabled }}checked{{ end }}>{{ if .AutoEnabled }}<input type="hidden" name="bypass_preset_auto" value="{{ .ID }}">{{ end }}</td>
           <td>
             {{ .Label }}
             {{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .UpdatedIn }}<span class="added">{{ tf $.Lang "settings.ua.updated_in" .UpdatedIn }}</span>{{ end }}
@@ -2004,9 +2004,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     {{ $uua := .Global.UnknownUAAction }}
 
     <div class="field" style="margin:1.4rem 0 1.8rem">
-      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem"><span class="def-num">①</span>{{ t .Lang "settings.global.known_browser_h" }}</label>
+      <label for="f-global_known_browser_action" class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem"><span class="def-num">①</span>{{ t .Lang "settings.global.known_browser_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.known_browser_help") }}</div>
-      <select name="global_known_browser_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+      <select id="f-global_known_browser_action" name="global_known_browser_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
         <option value=""                 {{ if eq $kba "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_only" }}</option>
         <option value="pass"             {{ if eq $kba "pass" }}selected{{ end }}>pass (= do nothing)</option>
         <option value="pow_only"         {{ if eq $kba "pow_only" }}selected{{ end }}>pow_only</option>
@@ -2017,9 +2017,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </div>
 
     <div class="field" style="margin:1.4rem 0 1.2rem">
-      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem"><span class="def-num">②</span>{{ t .Lang "settings.global.unknown_ua_h" }}</label>
+      <label for="f-global_unknown_ua_action" class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem"><span class="def-num">②</span>{{ t .Lang "settings.global.unknown_ua_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.global.unknown_ua_help") }}</div>
-      <select name="global_unknown_ua_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+      <select id="f-global_unknown_ua_action" name="global_unknown_ua_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
         <option value=""                 {{ if eq $uua "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_only" }}</option>
         <option value="pass"             {{ if eq $uua "pass" }}selected{{ end }}>pass (= do nothing)</option>
         <option value="pow_only"         {{ if eq $uua "pow_only" }}selected{{ end }}>pow_only</option>
@@ -2091,7 +2091,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <span>
         <strong>{{ t .Lang "settings.ua.upstream.name_only_rate" }}</strong>
         <span class="require-rv-desc">{{ safeHTML (t .Lang "settings.ua.upstream.name_only_rate_desc") }}</span>
-        <span class="named-rate-row"><input type="number" name="name_only_rate_per_min" min="0" max="100000" step="1" value="{{ .Cur.SearchBots.NameOnlyRatePerMinResolved }}"> <span>{{ t .Lang "settings.ua.upstream.name_only_rate_unit" }}</span></span>
+        <span class="named-rate-row"><input type="number" name="name_only_rate_per_min" aria-label="{{ t .Lang "settings.ua.upstream.name_only_rate" }}" min="0" max="100000" step="1" value="{{ .Cur.SearchBots.NameOnlyRatePerMinResolved }}"> <span>{{ t .Lang "settings.ua.upstream.name_only_rate_unit" }}</span></span>
       </span>
     </div>
     {{/* One row skeleton, and the badge texts, for every dialog's rows: the
@@ -2152,7 +2152,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div class="upstream-modal-head">
           <h4>{{ $catLabel }}</h4>
           <p class="upstream-modal-help">{{ t $.Lang "settings.ua.upstream.row_help" }}</p>
-          <input type="text" class="upstream-modal-filter" placeholder="{{ t $.Lang "settings.ua.upstream.search_placeholder" }}">
+          <input type="text" class="upstream-modal-filter" aria-label="{{ t $.Lang "settings.ua.upstream.search_placeholder" }}" placeholder="{{ t $.Lang "settings.ua.upstream.search_placeholder" }}">
           <label class="upstream-own-only"><input type="checkbox" class="upstream-own-only-chk"> {{ t $.Lang "settings.ua.upstream.own_only" }}</label>
         </div>
         <div class="upstream-modal-bulk">
@@ -2266,11 +2266,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
          rate_limit.default.challenge_mode (= each axis has its own field). -->
     <div class="field" style="margin:.6rem 0 1rem;padding:.6rem .75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
       <div class="field-label" style="font-weight:600;color:#475569;display:flex;align-items:center;gap:.5rem">
-        {{ t .Lang "settings.ua.black_action_h" }}
+        <label for="f-ua_black_action">{{ t .Lang "settings.ua.black_action_h" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="ua-black-action-help" aria-label="?">?</button>
       </div>
       {{ $bcm := .ChallengeTargets.DefaultAction }}
-      <select name="ua_black_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+      <select id="f-ua_black_action" name="ua_black_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
         {{/* Unset inherits the install's default chain (rate-limit tab), which
              is what every wire and every other label on this page resolves to.
              It used to claim captcha_only -- a value only the forward-auth
@@ -2306,7 +2306,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .UpdatedIn }}<span class="added">{{ tf $.Lang "settings.ua.updated_in" .UpdatedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
           <div class="pat">{{ template "presetPats" (dict "Lang" $.Lang "Mode" .Mode "Pats" .Patterns) }}</div>
         </label>
-        <select class="preset-action-sel" name="black_preset_action__{{ .ID }}" title="{{ t $.Lang "settings.ua.upstream.action_title" }}"{{ if not .Enabled }} disabled{{ end }}>
+        <select class="preset-action-sel" name="black_preset_action__{{ .ID }}" aria-label="{{ .Label }}: {{ t $.Lang "settings.ua.upstream.action_title" }}" title="{{ t $.Lang "settings.ua.upstream.action_title" }}"{{ if not .Enabled }} disabled{{ end }}>
           <option value="inherit" {{ if eq $pact "" }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.ChallengeDefaultActionLabel }}</option>
           <option value="pow_only"         {{ if eq $pact "pow_only" }}selected{{ end }}>pow_only</option>
           <option value="pow_then_captcha" {{ if eq $pact "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -2411,9 +2411,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="note" style="margin-top:.55rem;color:#1e40af;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.header_help") }}</div>
     </div>
     <div class="field" style="margin:1.2rem 0 .4rem">
-      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.header_action_h" }}</label>
+      <label for="f-header_integrity_action" class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.header_action_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.header_action_help") }}</div>
-      <select name="header_integrity_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+      <select id="f-header_integrity_action" name="header_integrity_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
         <option value=""             {{ if eq $hia "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_then_captcha" }}</option>
         <option value="pow_then_captcha" {{ if eq $hia "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $hia "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -2449,9 +2449,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       <div class="note" style="margin-top:.55rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.uatls_reverse_help") }}</div>
     </div>
     <div class="field" style="margin:1.2rem 0 .4rem">
-      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.uatls_action_h" }}</label>
+      <label for="f-ua_tls_consistency_action" class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.uatls_action_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.uatls_action_help") }}</div>
-      <select name="ua_tls_consistency_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+      <select id="f-ua_tls_consistency_action" name="ua_tls_consistency_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
         <option value=""                 {{ if eq $uta "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "captcha_only" }}</option>
         <option value="captcha_only"     {{ if eq $uta "captcha_only" }}selected{{ end }}>captcha_only</option>
         <option value="pow_then_captcha" {{ if eq $uta "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -2553,9 +2553,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     </div>
 
     <div class="field" style="margin:1.4rem 0 1.2rem">
-      <label class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.stale_action_h" }}</label>
+      <label for="f-stale_browser_action" class="field-label" style="font-weight:600;color:#0f172a;display:block;margin-bottom:.4rem;font-size:.95rem">{{ t .Lang "settings.ua.stale_action_h" }}</label>
       <div class="note" style="margin-bottom:.7rem;line-height:1.65">{{ safeHTML (t .Lang "settings.ua.stale_action_help") }}</div>
-      <select name="stale_browser_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+      <select id="f-stale_browser_action" name="stale_browser_action" style="padding:.35rem .55rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
         <option value=""                 {{ if eq $sba "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_then_captcha" }}</option>
         <option value="pow_then_captcha" {{ if eq $sba "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $sba "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -2920,11 +2920,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
          ChallengeTargets and RateLimit defaults so each axis has its own knob. -->
     <div class="field" style="margin:.6rem 0 1rem;padding:.6rem .75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
       <div class="field-label" style="font-weight:600;color:#475569;display:flex;align-items:center;gap:.5rem">
-        {{ t .Lang "settings.ja4.action_h" }}
+        <label for="f-ja4_default_action">{{ t .Lang "settings.ja4.action_h" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="ja4-action-help" aria-label="?">?</button>
       </div>
       {{ $jcm := .JA4Verdicts.DefaultAction }}
-      <select name="ja4_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+      <select id="f-ja4_default_action" name="ja4_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
         <option value=""                 {{ if eq $jcm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" .RateDefaultChMode }}</option>
         <option value="pow_only"         {{ if eq $jcm "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $jcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -2956,7 +2956,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .UpdatedIn }}<span class="added">{{ tf $.Lang "settings.ua.updated_in" .UpdatedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
           <div class="pat">{{ range $i, $r := .Rules }}{{ if $i }}<br>{{ end }}<span class="pat-lit lead" data-mode="{{ patMode $r.Pattern }}">{{ patModeLabel $.Lang $r.Pattern }}</span>{{ $r.Pattern }} → <span class="verdict">{{ $r.Verdict }}</span> <span class="action-pill action-{{ $r.Action }}">{{ t $.Lang (printf "settings.ja4.action_label.%s" $r.Action) }}</span>{{ end }}</div>
         </label>
-        <select class="preset-action-sel" name="ja4_preset_action__{{ .ID }}" title="{{ t $.Lang "settings.ua.upstream.action_title" }}"{{ if not .Enabled }} disabled{{ end }}>
+        <select class="preset-action-sel" name="ja4_preset_action__{{ .ID }}" aria-label="{{ .Label }}: {{ t $.Lang "settings.ua.upstream.action_title" }}" title="{{ t $.Lang "settings.ua.upstream.action_title" }}"{{ if not .Enabled }} disabled{{ end }}>
           <option value="inherit" {{ if eq $jpa "" }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.JA4DefaultActionLabel }}</option>
           <option value="pow_only"         {{ if eq $jpa "pow_only" }}selected{{ end }}>pow_only</option>
           <option value="pow_then_captcha" {{ if eq $jpa "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -3099,11 +3099,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <!-- honeypot trip default action -->
     <div class="field" style="margin:.6rem 0 1rem;padding:.6rem .75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
       <div class="field-label" style="font-weight:600;color:#475569;display:flex;align-items:center;gap:.5rem">
-        {{ t .Lang "settings.honeypot.action_h" }}
+        <label for="f-honeypot_default_action">{{ t .Lang "settings.honeypot.action_h" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="honeypot-action-help" aria-label="?">?</button>
       </div>
       {{ $hcm := .Honeypot.DefaultAction }}
-      <select name="honeypot_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+      <select id="f-honeypot_default_action" name="honeypot_default_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
         <option value=""                 {{ if eq $hcm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" .RateDefaultChMode }}</option>
         <option value="pow_only"         {{ if eq $hcm "pow_only" }}selected{{ end }}>pow_only</option>
         <option value="pow_then_captcha" {{ if eq $hcm "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -3140,7 +3140,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
              values and blanked the map, wiping a hand-edited config on every
              save of this tab.  Same shape as the ja4 / ua-filter preset pickers. */}}
         {{ $hpa := index $.HoneypotPresetAction .ID }}
-        <select name="honeypot_preset_action__{{ .ID }}" class="preset-action-sel" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
+        <select name="honeypot_preset_action__{{ .ID }}" class="preset-action-sel" aria-label="{{ .Label }}: {{ t $.Lang "settings.ua.upstream.action_title" }}" title="{{ t $.Lang "settings.ua.upstream.action_title" }}">
           <option value="inherit" {{ if eq $hpa "" }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.HoneypotDefaultActionLabel }}</option>
           <option value="pow_only"         {{ if eq $hpa "pow_only" }}selected{{ end }}>pow_only</option>
           <option value="pow_then_captcha" {{ if eq $hpa "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
@@ -3277,11 +3277,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
          explicit mode on a row or preset always wins. */}}
     <div class="field" style="margin:.2rem 0 1rem;padding:.6rem .75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
       <div class="field-label" style="font-weight:600;color:#475569;display:flex;align-items:center;gap:.5rem">
-        {{ t .Lang "settings.protected.default_mode_h" }}
+        <label for="f-protected_default_mode">{{ t .Lang "settings.protected.default_mode_h" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="protected-default-help" aria-label="?">?</button>
       </div>
       {{ $pdm := .ProtectedDefaultMode }}
-      <select name="protected_default_mode" data-shipped-default="{{ .ProtectedShippedDefault }}" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+      <select id="f-protected_default_mode" name="protected_default_mode" data-shipped-default="{{ .ProtectedShippedDefault }}" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
         {{/* Unset is its own option, so a no-op save cannot pin today's shipped
              floor into the config (and freeze it against a later change). */}}
         <option value=""                 {{ if eq $pdm "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_then_captcha" }}</option>
@@ -3302,7 +3302,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .UpdatedIn }}<span class="added">{{ tf $.Lang "settings.ua.updated_in" .UpdatedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
           <div class="pat">{{ template "presetPats" (dict "Lang" $.Lang "Mode" .PatMode "Pats" .Patterns) }}</div>
         </label>
-        <select name="protected_preset_mode__{{ .ID }}" title="{{ t $.Lang "settings.protected.mode_title" }}" style="padding:.3rem .5rem;font-size:.8rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff">
+        <select name="protected_preset_mode__{{ .ID }}" aria-label="{{ .Label }}: {{ t $.Lang "settings.protected.mode_title" }}" title="{{ t $.Lang "settings.protected.mode_title" }}" style="padding:.3rem .5rem;font-size:.8rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff">
           <option value=""                 {{ if eq .Mode "" }}selected{{ end }}>{{ tf $.Lang "settings.select.unset_as" $.ProtectedResolvedDefault }}</option>
           <option value="pow_then_captcha" {{ if eq .Mode "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
           <option value="pow"              {{ if eq .Mode "pow" }}selected{{ end }}>pow</option>
@@ -3892,14 +3892,14 @@ function secToHuman(s){
         {{ range .RateLimit.DefaultAxisRows }}
         <tr class="axis-row{{ if not .On }} axis-off{{ end }}" data-axis="{{ .Field }}">
           <td class="ax-name"><label><input type="checkbox" class="ax-on" name="axis_{{ .Field }}_on" value="1" {{ if .On }}checked{{ end }}> {{ .Label }}</label></td>
-          <td style="text-align:right"><input type="number" name="axis_{{ .Field }}_rpm" min="1" max="100000" step="1" placeholder="{{ axisSeedRPM .Kind }}" value="{{ if gt .RequestsPerMin 0 }}{{ .RequestsPerMin }}{{ end }}" style="width:6rem"></td>
-          <td style="text-align:right"><input type="number" name="axis_{{ .Field }}_burst" min="0" max="100000" step="1" placeholder="{{ axisSeedBurst .Kind }}" value="{{ if or (gt .Burst 0) .Primary }}{{ .Burst }}{{ end }}" style="width:6rem"></td>
+          <td style="text-align:right"><input type="number" name="axis_{{ .Field }}_rpm" aria-label="{{ .Label }}: {{ t $.Lang "settings.rate_limit.requests_per_min" }}" min="1" max="100000" step="1" placeholder="{{ axisSeedRPM .Kind }}" value="{{ if gt .RequestsPerMin 0 }}{{ .RequestsPerMin }}{{ end }}" style="width:6rem"></td>
+          <td style="text-align:right"><input type="number" name="axis_{{ .Field }}_burst" aria-label="{{ .Label }}: {{ t $.Lang "settings.rate_limit.burst" }}" min="0" max="100000" step="1" placeholder="{{ axisSeedBurst .Kind }}" value="{{ if or (gt .Burst 0) .Primary }}{{ .Burst }}{{ end }}" style="width:6rem"></td>
           <td>
             {{/* Always a concrete mode: with only three rows, "follow row X"
                  indirection costs more than it saves (an empty stored value
                  preselects what enforcement resolves it to). */}}
             {{ $m := .ChallengeMode }}{{ if eq $m "" }}{{ $m = $primaryMode }}{{ end }}
-            <select name="axis_{{ .Field }}_chmode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
+            <select name="axis_{{ .Field }}_chmode" aria-label="{{ .Label }}: mode" style="font-family:ui-monospace,Menlo,monospace;font-size:.8rem">
               <option value="pow_only"         {{ if eq $m "pow_only" }}selected{{ end }}>pow_only</option>
               <option value="pow_then_captcha" {{ if eq $m "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
               <option value="captcha_only"     {{ if eq $m "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -4770,7 +4770,7 @@ function secToHuman(s){
       <tbody>
         {{ range .AsnProviders }}
         <tr>
-          <td><input type="checkbox" class="asn-preset-chk" name="asn_provider_enabled_{{ .ID }}" value="1" {{ if .Enabled }}checked{{ end }}></td>
+          <td><input type="checkbox" class="asn-preset-chk" name="asn_provider_enabled_{{ .ID }}" aria-label="{{ .Label }}" value="1" {{ if .Enabled }}checked{{ end }}></td>
           <td>{{ .Label }}</td>
           <td class="num">{{ if ge .ASNCount 0 }}{{ .ASNCount }}{{ else }}-{{ end }}</td>
           <td class="col-since" style="white-space:nowrap">
@@ -4778,7 +4778,7 @@ function secToHuman(s){
             {{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}
           </td>
           <td class="asn-action-cell">
-            <select name="asn_provider_action_{{ .ID }}" class="asn-preset-action" style="padding:.2rem .4rem;font-size:.72rem;border:1px solid #cbd5e1;border-radius:.25rem">
+            <select name="asn_provider_action_{{ .ID }}" class="asn-preset-action" aria-label="{{ .Label }}: {{ t $.Lang "settings.geo.col_action" }}" style="padding:.2rem .4rem;font-size:.72rem;border:1px solid #cbd5e1;border-radius:.25rem">
               <option value=""                 {{ if eq .Action ""                 }}selected{{ end }}>{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRuleAction }}</option>
               <option value="skip"             {{ if eq .Action "skip"             }}selected{{ end }}>skip</option>
               <option value="pow_only"         {{ if eq .Action "pow_only"         }}selected{{ end }}>pow_only</option>
@@ -4787,7 +4787,7 @@ function secToHuman(s){
               <option value="deny"             {{ if eq .Action "deny"             }}selected{{ end }}>deny</option>
             </select>
           </td>
-          <td class="asn-rate-cell" style="white-space:nowrap"><input type="number" name="asn_provider_rate_{{ .ID }}" min="0" value="{{ .RateStr }}" placeholder="{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}" style="width:5.5rem;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .3rem"> <span class="rate-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span></td>
+          <td class="asn-rate-cell" style="white-space:nowrap"><input type="number" name="asn_provider_rate_{{ .ID }}" aria-label="{{ .Label }}: {{ t $.Lang "settings.asn.col_rate" }}" min="0" value="{{ .RateStr }}" placeholder="{{ if gt $.AsnDefaultRate 0 }}{{ tf $.Lang "settings.asn.rate_inherit_ph" $.AsnDefaultRate }}{{ else }}{{ tf $.Lang "settings.asn.rate_inherit_ph" (t $.Lang "settings.asn.rate_ph") }}{{ end }}" style="width:5.5rem;font-size:.82rem;border:1px solid #cbd5e1;border-radius:.25rem;padding:.2rem .3rem"> <span class="rate-unit">{{ t $.Lang "settings.asn.rate_unit" }}</span></td>
         </tr>
         {{ end }}
       </tbody>
@@ -5244,7 +5244,7 @@ function secToHuman(s){
       </div>
 
       <div class="field">
-        <label>{{ t .Lang "settings.branding.logo_label" }}</label>
+        <label for="branding-logo-file">{{ t .Lang "settings.branding.logo_label" }}</label>
         {{/* Thumbnail row: a saved logo, a freshly-picked file (preview), or the
              "will be removed" state.  The script below owns which one shows and
              whether the button reads Remove / Cancel / Undo. */}}
@@ -5461,7 +5461,7 @@ function secToHuman(s){
          (must start with `/`, must not be protocol-relative `//`) before
          using it as the redirect target. */}}
     <div class="pow-display-row">
-      <span class="pow-display-label">{{ t .Lang "settings.theme.redirect_label" }}</span>
+      <label class="pow-display-label" for="test-redirect-input">{{ t .Lang "settings.theme.redirect_label" }}</label>
       <input type="text" id="test-redirect-input" placeholder="/" value="/"
              style="font-size:.78rem;padding:.22rem .45rem;border:1px solid #cbd5e1;border-radius:.25rem;min-width:14rem">
       <span class="pow-display-help" style="font-size:.7rem;color:#94a3b8;flex-basis:100%">{{ safeHTML (t .Lang "settings.theme.redirect_help") }}</span>
@@ -5701,7 +5701,7 @@ function secToHuman(s){
   </div>
   <div class="uc-bottom">
     <span class="uc-prev" id="uc-prev" aria-hidden="true"></span>
-    <input type="text" class="uc-hex" id="uc-hex" maxlength="7" spellcheck="false" autocomplete="off" inputmode="latin">
+    <input type="text" class="uc-hex" id="uc-hex" aria-label="HEX" maxlength="7" spellcheck="false" autocomplete="off" inputmode="latin">
     <span class="uc-reset-wrap">
       <button type="button" class="uc-reset" id="uc-reset" aria-label="{{ t .Lang "settings.theme.custom.reset" }}">↺</button>
       <span class="uc-reset-pop" role="tooltip">{{ t .Lang "settings.theme.custom.reset_help" }}</span>
@@ -6256,8 +6256,8 @@ function secToHuman(s){
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.gateway.upstream_h" }}</h2>
     <p class="note">{{ safeHTML (t .Lang "settings.gateway.upstream_desc") }}</p>
-    <div class="field-label">{{ t .Lang "settings.gateway.upstream" }}</div>
-    <input type="text" name="upstream" value="{{ .Gateway.Upstream }}" placeholder="http://host.docker.internal:8080" spellcheck="false" autocomplete="off" style="width:100%;font-family:ui-monospace,monospace">
+    <div class="field-label"><label for="f-upstream">{{ t .Lang "settings.gateway.upstream" }}</label></div>
+    <input id="f-upstream" type="text" name="upstream" value="{{ .Gateway.Upstream }}" placeholder="http://host.docker.internal:8080" spellcheck="false" autocomplete="off" style="width:100%;font-family:ui-monospace,monospace">
     {{ if .GatewayNginx.upstream_env }}<p class="note">{{ if .Gateway.Upstream }}{{ t .Lang "settings.gateway.upstream_env_overridden" }}{{ else }}{{ t .Lang "settings.gateway.upstream_env_used" }}{{ end }}: <code>{{ .GatewayNginx.upstream_env }}</code></p>{{ else if not .Gateway.Upstream }}<p class="gw-warn">{{ t .Lang "settings.gateway.upstream_unset" }}</p>{{ end }}
     <p class="note">{{ safeHTML (t .Lang "settings.gateway.upstream_examples") }}</p>
     <div class="field-label">{{ t .Lang "settings.gateway.trusted_proxies" }}</div>
@@ -6284,7 +6284,7 @@ function secToHuman(s){
     <label style="display:block;margin:.3rem 0"><input type="radio" name="hostnames_mode" value="custom" data-gw-hosts {{ if not .GatewayHostsAll }}checked{{ end }}> {{ t .Lang "settings.gateway.hostnames_custom" }}</label>
     <fieldset class="field" data-gw-hosts-list>
       <input type="hidden" name="hostnames_present" value="1">
-      <textarea name="hostnames" rows="3" spellcheck="false" autocomplete="off" placeholder="example.com&#10;www.example.com&#10;shop.example.com" style="width:100%;font-family:ui-monospace,monospace">{{ .GatewayHostnames }}</textarea>
+      <textarea name="hostnames" aria-label="{{ t .Lang "settings.gateway.hostnames_custom" }}" rows="3" spellcheck="false" autocomplete="off" placeholder="example.com&#10;www.example.com&#10;shop.example.com" style="width:100%;font-family:ui-monospace,monospace">{{ .GatewayHostnames }}</textarea>
       <p class="note">{{ safeHTML (t .Lang "settings.gateway.hostnames_custom_desc") }}</p>
       {{ if .GatewayUncovered }}<p class="gw-warn" data-gw-uncovered>{{ t .Lang "settings.gateway.uncovered" }} <code>{{ .GatewayUncovered }}</code></p>{{ end }}
     </fieldset>
@@ -6306,7 +6306,7 @@ function secToHuman(s){
         </div>
         <input type="hidden" name="cert_id" value="{{ .C.ID }}">
         <div class="field-label">{{ t $.Lang "settings.gateway.tls_mode" }}</div>
-        <select name="cert_mode" data-gw-mode>
+        <select aria-label="{{ t $.Lang "settings.gateway.tls_mode" }}" name="cert_mode" data-gw-mode>
           <option value="acme"   {{ if eq .C.ModeResolved "acme"   }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_acme" }}</option>
           <option value="upload" {{ if eq .C.ModeResolved "upload" }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_upload" }}</option>
           <option value="files"  {{ if eq .C.ModeResolved "files"  }}selected{{ end }}>{{ t $.Lang "settings.gateway.mode_files" }}</option>
@@ -6314,7 +6314,7 @@ function secToHuman(s){
         </select>
         <div data-gw-domains>
           <div class="field-label" data-gw-domains-label>{{ t $.Lang "settings.gateway.cert_domains_acme" }}</div>
-          <input type="text" name="cert_domains" value="{{ .C.Domains }}" placeholder="example.com www.example.com" style="width:100%;font-family:ui-monospace,monospace">
+          <input aria-label="{{ t $.Lang "settings.gateway.cert_domains_acme" }}" type="text" name="cert_domains" value="{{ .C.Domains }}" placeholder="example.com www.example.com" style="width:100%;font-family:ui-monospace,monospace">
           <p class="note" data-gw-domains-note>{{ safeHTML (t $.Lang "settings.gateway.cert_domains_acme_desc") }}</p>
         </div>
         <p class="note" data-gw-domains-auto>{{ if .C.Domains }}{{ t $.Lang "settings.gateway.cert_domains_san" }}: <code>{{ .C.Domains }}</code>{{ else }}{{ t $.Lang "settings.gateway.cert_domains_san_pending" }}{{ end }}</p>
@@ -6329,18 +6329,18 @@ function secToHuman(s){
             {{ if .Uploaded.OK }}<b>{{ .Uploaded.Subject }}</b> ({{ t $.Lang "settings.gateway.cert_issuer" }}: {{ .Uploaded.Issuer }}, {{ t $.Lang "settings.gateway.cert_expires" }}: {{ .Uploaded.NotAfter }}) — {{ t $.Lang "settings.gateway.uploaded_keep" }}{{ else }}{{ t $.Lang "settings.gateway.uploaded_none" }}{{ end }}
           </p>
           <div class="field-label">{{ t $.Lang "settings.gateway.cert_pem" }}</div>
-          <textarea name="cert_cert_pem" rows="5" spellcheck="false" autocomplete="off" placeholder="-----BEGIN CERTIFICATE-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
+          <textarea aria-label="{{ t $.Lang "settings.gateway.cert_pem" }}" name="cert_cert_pem" rows="5" spellcheck="false" autocomplete="off" placeholder="-----BEGIN CERTIFICATE-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
           <div class="field-label">{{ t $.Lang "settings.gateway.chain_pem" }}</div>
-          <textarea name="cert_chain_pem" rows="3" spellcheck="false" autocomplete="off" placeholder="-----BEGIN CERTIFICATE-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
+          <textarea aria-label="{{ t $.Lang "settings.gateway.chain_pem" }}" name="cert_chain_pem" rows="3" spellcheck="false" autocomplete="off" placeholder="-----BEGIN CERTIFICATE-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
           <div class="field-label">{{ t $.Lang "settings.gateway.key_pem" }}</div>
-          <textarea name="cert_key_pem" rows="5" spellcheck="false" autocomplete="off" placeholder="-----BEGIN PRIVATE KEY-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
+          <textarea aria-label="{{ t $.Lang "settings.gateway.key_pem" }}" name="cert_key_pem" rows="5" spellcheck="false" autocomplete="off" placeholder="-----BEGIN PRIVATE KEY-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
         </div>
         <div class="field" data-gw-panel="files">
           <p class="note">{{ safeHTML (t $.Lang "settings.gateway.mode_files_desc") }}</p>
           <div class="field-label">{{ t $.Lang "settings.gateway.tls_cert_path" }}</div>
-          <input type="text" name="cert_cert_path" value="{{ .C.CertPath }}" placeholder="/etc/unmask/tls/fullchain.pem" style="width:100%;font-family:ui-monospace,monospace">
+          <input aria-label="{{ t $.Lang "settings.gateway.tls_cert_path" }}" type="text" name="cert_cert_path" value="{{ .C.CertPath }}" placeholder="/etc/unmask/tls/fullchain.pem" style="width:100%;font-family:ui-monospace,monospace">
           <div class="field-label">{{ t $.Lang "settings.gateway.tls_key_path" }}</div>
-          <input type="text" name="cert_key_path" value="{{ .C.KeyPath }}" placeholder="/etc/unmask/tls/privkey.pem" style="width:100%;font-family:ui-monospace,monospace">
+          <input aria-label="{{ t $.Lang "settings.gateway.tls_key_path" }}" type="text" name="cert_key_path" value="{{ .C.KeyPath }}" placeholder="/etc/unmask/tls/privkey.pem" style="width:100%;font-family:ui-monospace,monospace">
         </div>
         <div class="field" data-gw-panel="selfsigned">
           <p class="note">{{ safeHTML (t $.Lang "settings.gateway.mode_selfsigned_desc") }}</p>
@@ -6373,7 +6373,7 @@ function secToHuman(s){
         </div>
         <input type="hidden" name="cert_id" value="">
         <div class="field-label">{{ t .Lang "settings.gateway.tls_mode" }}</div>
-        <select name="cert_mode" data-gw-mode>
+        <select aria-label="{{ t .Lang "settings.gateway.tls_mode" }}" name="cert_mode" data-gw-mode>
           <option value="acme" selected>{{ t .Lang "settings.gateway.mode_acme" }}</option>
           <option value="upload">{{ t .Lang "settings.gateway.mode_upload" }}</option>
           <option value="files">{{ t .Lang "settings.gateway.mode_files" }}</option>
@@ -6381,7 +6381,7 @@ function secToHuman(s){
         </select>
         <div data-gw-domains>
           <div class="field-label" data-gw-domains-label>{{ t .Lang "settings.gateway.cert_domains_acme" }}</div>
-          <input type="text" name="cert_domains" value="" placeholder="example.com www.example.com" style="width:100%;font-family:ui-monospace,monospace">
+          <input aria-label="{{ t .Lang "settings.gateway.cert_domains_acme" }}" type="text" name="cert_domains" value="" placeholder="example.com www.example.com" style="width:100%;font-family:ui-monospace,monospace">
           <p class="note" data-gw-domains-note>{{ safeHTML (t .Lang "settings.gateway.cert_domains_acme_desc") }}</p>
         </div>
         <p class="note" data-gw-domains-auto>{{ t .Lang "settings.gateway.cert_domains_san_pending" }}</p>
@@ -6391,18 +6391,18 @@ function secToHuman(s){
         <div class="field" data-gw-panel="upload">
           <p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_upload_desc") }}</p>
           <div class="field-label">{{ t .Lang "settings.gateway.cert_pem" }}</div>
-          <textarea name="cert_cert_pem" rows="5" spellcheck="false" autocomplete="off" placeholder="-----BEGIN CERTIFICATE-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
+          <textarea aria-label="{{ t .Lang "settings.gateway.cert_pem" }}" name="cert_cert_pem" rows="5" spellcheck="false" autocomplete="off" placeholder="-----BEGIN CERTIFICATE-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
           <div class="field-label">{{ t .Lang "settings.gateway.chain_pem" }}</div>
-          <textarea name="cert_chain_pem" rows="3" spellcheck="false" autocomplete="off" placeholder="-----BEGIN CERTIFICATE-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
+          <textarea aria-label="{{ t .Lang "settings.gateway.chain_pem" }}" name="cert_chain_pem" rows="3" spellcheck="false" autocomplete="off" placeholder="-----BEGIN CERTIFICATE-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
           <div class="field-label">{{ t .Lang "settings.gateway.key_pem" }}</div>
-          <textarea name="cert_key_pem" rows="5" spellcheck="false" autocomplete="off" placeholder="-----BEGIN PRIVATE KEY-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
+          <textarea aria-label="{{ t .Lang "settings.gateway.key_pem" }}" name="cert_key_pem" rows="5" spellcheck="false" autocomplete="off" placeholder="-----BEGIN PRIVATE KEY-----" style="width:100%;font-family:ui-monospace,monospace;font-size:.8rem"></textarea>
         </div>
         <div class="field" data-gw-panel="files">
           <p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_files_desc") }}</p>
           <div class="field-label">{{ t .Lang "settings.gateway.tls_cert_path" }}</div>
-          <input type="text" name="cert_cert_path" value="" placeholder="/etc/unmask/tls/fullchain.pem" style="width:100%;font-family:ui-monospace,monospace">
+          <input aria-label="{{ t .Lang "settings.gateway.tls_cert_path" }}" type="text" name="cert_cert_path" value="" placeholder="/etc/unmask/tls/fullchain.pem" style="width:100%;font-family:ui-monospace,monospace">
           <div class="field-label">{{ t .Lang "settings.gateway.tls_key_path" }}</div>
-          <input type="text" name="cert_key_path" value="" placeholder="/etc/unmask/tls/privkey.pem" style="width:100%;font-family:ui-monospace,monospace">
+          <input aria-label="{{ t .Lang "settings.gateway.tls_key_path" }}" type="text" name="cert_key_path" value="" placeholder="/etc/unmask/tls/privkey.pem" style="width:100%;font-family:ui-monospace,monospace">
         </div>
         <div class="field" data-gw-panel="selfsigned"><p class="note">{{ safeHTML (t .Lang "settings.gateway.mode_selfsigned_desc") }}</p></div>
       </div>
@@ -6416,18 +6416,18 @@ function secToHuman(s){
     <h2>{{ t .Lang "settings.gateway.acme_h" }}</h2>
     <p class="note">{{ safeHTML (t .Lang "settings.gateway.acme_desc") }}</p>
     <div class="field">
-      <div class="field-label">{{ t .Lang "settings.gateway.acme_email" }}</div>
-      <input type="email" name="acme_email" value="{{ .Gateway.ACMEEmail }}" placeholder="you@example.com" style="width:24rem">
+      <div class="field-label"><label for="f-acme_email">{{ t .Lang "settings.gateway.acme_email" }}</label></div>
+      <input id="f-acme_email" type="email" name="acme_email" value="{{ .Gateway.ACMEEmail }}" placeholder="you@example.com" style="width:24rem">
     </div>
     <div class="field">
-      <div class="field-label">{{ t .Lang "settings.gateway.acme_directory" }}</div>
-      <select name="acme_directory" data-gw-acme-dir>
+      <div class="field-label"><label for="f-acme_directory">{{ t .Lang "settings.gateway.acme_directory" }}</label></div>
+      <select id="f-acme_directory" name="acme_directory" data-gw-acme-dir>
         <option value="production" {{ if eq .GatewayACMEChoice "production" }}selected{{ end }}>{{ t .Lang "settings.gateway.acme_production" }}</option>
         <option value="staging"    {{ if eq .GatewayACMEChoice "staging"    }}selected{{ end }}>{{ t .Lang "settings.gateway.acme_staging" }}</option>
         <option value="custom"     {{ if eq .GatewayACMEChoice "custom"     }}selected{{ end }}>{{ t .Lang "settings.gateway.acme_custom" }}</option>
       </select>
       <div data-gw-acme-custom style="margin-top:.5rem">
-        <input type="text" name="acme_directory_custom" value="{{ if eq .GatewayACMEChoice "custom" }}{{ .Gateway.ACMEDirectory }}{{ end }}" placeholder="https://acme.example/directory" style="width:100%;font-family:ui-monospace,monospace">
+        <input type="text" name="acme_directory_custom" aria-label="{{ t .Lang "settings.gateway.acme_custom" }}" value="{{ if eq .GatewayACMEChoice "custom" }}{{ .Gateway.ACMEDirectory }}{{ end }}" placeholder="https://acme.example/directory" style="width:100%;font-family:ui-monospace,monospace">
         <label style="display:block;margin-top:.4rem"><input type="checkbox" name="acme_insecure" value="1" {{ if .Gateway.ACMEInsecure }}checked{{ end }}> {{ t .Lang "settings.gateway.acme_insecure" }}</label>
       </div>
     </div>
@@ -6508,11 +6508,11 @@ function secToHuman(s){
 
     <div class="field">
       <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.notify.site_label" }}</span>
+        <label for="f-site_label">{{ t .Lang "settings.notify.site_label" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-site-label-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="notify-site-label-help">{{ t .Lang "settings.notify.site_label_desc" }}</script>
-      <input type="text" name="site_label" value="{{ .Notifications.SiteLabel }}" placeholder="__hostname__ / blog-jp / ..." style="width:24rem">
+      <input id="f-site_label" type="text" name="site_label" value="{{ .Notifications.SiteLabel }}" placeholder="__hostname__ / blog-jp / ..." style="width:24rem">
     </div>
 
     <h3 style="margin:1rem 0 .4rem;font-size:.95rem">{{ t .Lang "settings.notify.events" }}</h3>
@@ -6529,8 +6529,8 @@ function secToHuman(s){
         <button type="button" class="ua-help-trigger" data-help-target="notify-burst-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="notify-burst-help">{{ t .Lang "settings.notify.challenge_burst_desc" }}</script>
-      <div class="field-label" style="margin-top:.5rem">{{ t .Lang "settings.notify.burst_threshold" }}</div>
-      <input type="number" name="burst_threshold_per_5m" value="{{ if gt .Notifications.BurstThresholdPer5m 0 }}{{ .Notifications.BurstThresholdPer5m }}{{ else }}50{{ end }}" min="0" step="10" style="width:8rem">
+      <div class="field-label" style="margin-top:.5rem"><label for="f-burst_threshold_per_5m">{{ t .Lang "settings.notify.burst_threshold" }}</label></div>
+      <input id="f-burst_threshold_per_5m" type="number" name="burst_threshold_per_5m" value="{{ if gt .Notifications.BurstThresholdPer5m 0 }}{{ .Notifications.BurstThresholdPer5m }}{{ else }}50{{ end }}" min="0" step="10" style="width:8rem">
     </div>
     {{/* The over-block breaker alert has no per-event toggle on purpose: it is
          the fail-safe of last resort, and a switch that silently turns it off
@@ -6556,20 +6556,20 @@ function secToHuman(s){
     </div>
     <div class="field">
       <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.notify.url" }}</span>
+        <label for="f-url">{{ t .Lang "settings.notify.url" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-url-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="notify-url-help">{{ safeHTML (t .Lang "settings.notify.url_desc") }}</script>
-      <input type="url" name="url" value="{{ .Notifications.URL }}" placeholder="https://hooks.slack.com/services/T.../B.../..." style="width:100%;font-family:ui-monospace,monospace">
+      <input id="f-url" type="url" name="url" value="{{ .Notifications.URL }}" placeholder="https://hooks.slack.com/services/T.../B.../..." style="width:100%;font-family:ui-monospace,monospace">
     </div>
 
     <div class="field">
       <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.notify.format" }}</span>
+        <label for="f-format">{{ t .Lang "settings.notify.format" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-format-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="notify-format-help">{{ safeHTML (t .Lang "settings.notify.format_desc") }}</script>
-      <select name="format">
+      <select id="f-format" name="format">
         <option value="slack"   {{ if or (eq .Notifications.Format "") (eq .Notifications.Format "slack") }}selected{{ end }}>Slack / Mattermost (= text + blocks)</option>
         <option value="discord" {{ if eq .Notifications.Format "discord" }}selected{{ end }}>Discord (= content)</option>
         <option value="generic" {{ if eq .Notifications.Format "generic" }}selected{{ end }}>generic (= JSON event payload)</option>
@@ -6590,19 +6590,19 @@ function secToHuman(s){
          different services. */}}
     <div class="field" style="margin-top:1rem;padding-top:1rem;border-top:1px solid #e2e8f0">
       <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.notify.critical_url" }}</span>
+        <label for="f-critical_url">{{ t .Lang "settings.notify.critical_url" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-critical-url-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="notify-critical-url-help">{{ t .Lang "settings.notify.critical_url_desc" }}</script>
-      <input type="url" name="critical_url" value="{{ .Notifications.CriticalURL }}" placeholder="https://hooks.slack.com/services/T.../B.../..." style="width:100%;font-family:ui-monospace,monospace">
+      <input id="f-critical_url" type="url" name="critical_url" value="{{ .Notifications.CriticalURL }}" placeholder="https://hooks.slack.com/services/T.../B.../..." style="width:100%;font-family:ui-monospace,monospace">
     </div>
     <div class="field">
       <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.notify.critical_format" }}</span>
+        <label for="f-critical_format">{{ t .Lang "settings.notify.critical_format" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-critical-format-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="notify-critical-format-help">{{ t .Lang "settings.notify.critical_format_desc" }}</script>
-      <select name="critical_format">
+      <select id="f-critical_format" name="critical_format">
         <option value=""{{ if eq .Notifications.CriticalFormat "" }} selected{{ end }}>{{ t .Lang "settings.notify.critical_format_same" }}</option>
         <option value="slack"{{ if eq .Notifications.CriticalFormat "slack" }} selected{{ end }}>Slack / Mattermost (= text + blocks)</option>
         <option value="discord"{{ if eq .Notifications.CriticalFormat "discord" }} selected{{ end }}>Discord (= content)</option>
@@ -6611,11 +6611,11 @@ function secToHuman(s){
     </div>
     <div class="field">
       <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.notify.critical_from" }}</span>
+        <label for="f-critical_min_severity">{{ t .Lang "settings.notify.critical_from" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-critical-from-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="notify-critical-from-help">{{ t .Lang "settings.notify.critical_from_desc" }}</script>
-      <select name="critical_min_severity">
+      <select id="f-critical_min_severity" name="critical_min_severity">
         <option value=""{{ if ne .Notifications.CriticalMinSeverity "warn" }} selected{{ end }}>{{ t .Lang "settings.notify.critical_from_crit" }}</option>
         <option value="warn"{{ if eq .Notifications.CriticalMinSeverity "warn" }} selected{{ end }}>{{ t .Lang "settings.notify.critical_from_warn" }}</option>
       </select>
@@ -6681,20 +6681,20 @@ function secToHuman(s){
     </div>
     <div class="field">
       <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.notify.mail_to" }}</span>
+        <label for="f-mail_to">{{ t .Lang "settings.notify.mail_to" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-mail-to-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="notify-mail-to-help">{{ t .Lang "settings.notify.mail_to_desc" }}</script>
-      <input type="text" name="mail_to" value="{{ .Notifications.MailTo }}" placeholder="alerts@example.com, oncall@example.com" style="width:100%;font-family:ui-monospace,monospace">
+      <input id="f-mail_to" type="text" name="mail_to" value="{{ .Notifications.MailTo }}" placeholder="alerts@example.com, oncall@example.com" style="width:100%;font-family:ui-monospace,monospace">
       <div class="note" style="margin-top:.35rem">{{ t .Lang "settings.notify.mail_to_note" }}</div>
     </div>
     <div class="field">
       <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.notify.mail_lang" }}</span>
+        <label for="f-mail_lang">{{ t .Lang "settings.notify.mail_lang" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-mail-lang-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="notify-mail-lang-help">{{ t .Lang "settings.notify.mail_lang_desc" }}</script>
-      <select name="mail_lang">
+      <select id="f-mail_lang" name="mail_lang">
         <option value=""{{ if ne .Notifications.Lang "ja" }} selected{{ end }}>English</option>
         <option value="ja"{{ if eq .Notifications.Lang "ja" }} selected{{ end }}>日本語</option>
       </select>
@@ -6713,12 +6713,12 @@ function secToHuman(s){
 
     <div class="field smtp-row">
       <div>
-        <label class="field-label">{{ t .Lang "settings.smtp.host" }}</label>
-        <input type="text" name="host" value="{{ .SMTP.Host }}" placeholder="smtp.example.com" style="width:100%;font-family:ui-monospace,monospace">
+        <label for="f-host" class="field-label">{{ t .Lang "settings.smtp.host" }}</label>
+        <input id="f-host" type="text" name="host" value="{{ .SMTP.Host }}" placeholder="smtp.example.com" style="width:100%;font-family:ui-monospace,monospace">
       </div>
       <div>
-        <label class="field-label">{{ t .Lang "settings.smtp.port" }}</label>
-        <input type="number" name="port" value="{{ if gt .SMTP.Port 0 }}{{ .SMTP.Port }}{{ else }}587{{ end }}" min="1" max="65535" style="width:6rem">
+        <label for="f-port" class="field-label">{{ t .Lang "settings.smtp.port" }}</label>
+        <input id="f-port" type="number" name="port" value="{{ if gt .SMTP.Port 0 }}{{ .SMTP.Port }}{{ else }}587{{ end }}" min="1" max="65535" style="width:6rem">
       </div>
     </div>
 
@@ -6732,25 +6732,25 @@ function secToHuman(s){
 
     <div class="field smtp-row">
       <div>
-        <label class="field-label">{{ t .Lang "settings.smtp.username" }}</label>
-        <input type="text" name="username" value="{{ .SMTP.Username }}" placeholder="apikey / user@example.com" style="width:100%;font-family:ui-monospace,monospace">
+        <label for="f-username" class="field-label">{{ t .Lang "settings.smtp.username" }}</label>
+        <input id="f-username" type="text" name="username" value="{{ .SMTP.Username }}" placeholder="apikey / user@example.com" style="width:100%;font-family:ui-monospace,monospace">
       </div>
       <div>
-        <label class="field-label">{{ t .Lang "settings.smtp.password" }}</label>
-        <input type="password" name="password" value="" placeholder="{{ t .Lang "settings.smtp.password_placeholder" }}" autocomplete="new-password" style="width:100%;font-family:ui-monospace,monospace">
+        <label for="f-password" class="field-label">{{ t .Lang "settings.smtp.password" }}</label>
+        <input id="f-password" type="password" name="password" value="" placeholder="{{ t .Lang "settings.smtp.password_placeholder" }}" autocomplete="new-password" style="width:100%;font-family:ui-monospace,monospace">
       </div>
     </div>
 
     <div class="field smtp-row">
       <div>
-        <label class="field-label">{{ t .Lang "settings.smtp.from_address" }}</label>
-        <input type="email" name="from_address" value="{{ .SMTP.FromAddress }}" placeholder="unmask@example.com" style="width:100%;font-family:ui-monospace,monospace">
+        <label for="f-from_address" class="field-label">{{ t .Lang "settings.smtp.from_address" }}</label>
+        <input id="f-from_address" type="email" name="from_address" value="{{ .SMTP.FromAddress }}" placeholder="unmask@example.com" style="width:100%;font-family:ui-monospace,monospace">
       </div>
       <div>
-        <div class="field-label field-label-row"><span>{{ t .Lang "settings.smtp.from_name" }}</span>
+        <div class="field-label field-label-row"><label for="f-from_name">{{ t .Lang "settings.smtp.from_name" }}</label>
           <button type="button" class="ua-help-trigger" data-help-target="smtp-from-name-help" aria-label="?">?</button></div>
         <script type="text/html" id="smtp-from-name-help">{{ t .Lang "settings.smtp.from_name_desc" }}</script>
-        <input type="text" name="from_name" value="{{ .SMTP.FromName }}" placeholder="unmask __hostname__" style="width:100%">
+        <input id="f-from_name" type="text" name="from_name" value="{{ .SMTP.FromName }}" placeholder="unmask __hostname__" style="width:100%">
       </div>
     </div>
 
@@ -6765,7 +6765,7 @@ function secToHuman(s){
     <h3 style="margin:1rem 0 .4rem;font-size:.95rem">{{ t .Lang "settings.smtp.test_h" }}</h3>
     <div class="field">
       <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.smtp.test_to" }}</span>
+        <label for="smtp-test-to">{{ t .Lang "settings.smtp.test_to" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="smtp-test-to-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="smtp-test-to-help">{{ t .Lang "settings.smtp.test_to_desc" }}</script>
@@ -6895,13 +6895,13 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       <div class="field-label">{{ t .Lang "settings.perf.custom_h" }}</div>
       <div style="display:flex;gap:1.2rem;flex-wrap:wrap;align-items:flex-end">
         <div>
-          <div style="font-size:.8rem;color:#475569">{{ t .Lang "settings.perf.cache_label" }}</div>
+          <label for="perf-cache" style="display:block;font-size:.8rem;color:#475569">{{ t .Lang "settings.perf.cache_label" }}</label>
           <input type="number" id="perf-cache" name="sqlite_cache_mb" min="0" max="2048" style="width:8rem"
                  value="{{ if .Retention.MemCacheMB }}{{ .Retention.MemCacheMB }}{{ end }}"
                  placeholder="{{ printf (t .Lang "settings.perf.auto_placeholder") .Retention.MemAutoCacheStr }}"> MB
         </div>
         <div>
-          <div style="font-size:.8rem;color:#475569">{{ t .Lang "settings.perf.conns_label" }}</div>
+          <label for="perf-conns" style="display:block;font-size:.8rem;color:#475569">{{ t .Lang "settings.perf.conns_label" }}</label>
           <input type="number" id="perf-conns" name="db_max_conns" min="0" max="32" style="width:8rem"
                  value="{{ if .Retention.MemMaxConns }}{{ .Retention.MemMaxConns }}{{ end }}"
                  placeholder="{{ printf (t .Lang "settings.perf.conns_auto") .Retention.MemCPUs }}">
@@ -6936,12 +6936,12 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     <h2>{{ t .Lang "settings.perf.write_h" }}</h2>
     <div class="note" style="margin-bottom:1rem">{{ safeHTML (t .Lang "settings.perf.write_intro") }}</div>
     <div class="field">
-      <div class="field-label">{{ t .Lang "settings.retention.batch_size" }}</div>
-      <input type="number" name="events_batch_size" value="{{ .EventsBatchSize }}" min="1" max="1000" style="width:8rem"> {{ t .Lang "settings.retention.batch_size_unit" }}
+      <div class="field-label"><label for="f-events_batch_size">{{ t .Lang "settings.retention.batch_size" }}</label></div>
+      <input id="f-events_batch_size" type="number" name="events_batch_size" value="{{ .EventsBatchSize }}" min="1" max="1000" style="width:8rem"> {{ t .Lang "settings.retention.batch_size_unit" }}
     </div>
     <div class="field">
-      <div class="field-label">{{ t .Lang "settings.retention.batch_interval" }}</div>
-      <input type="number" name="events_batch_interval_ms" value="{{ .EventsBatchIntervalMs }}" min="50" max="60000" style="width:8rem"> ms
+      <div class="field-label"><label for="f-events_batch_interval_ms">{{ t .Lang "settings.retention.batch_interval" }}</label></div>
+      <input id="f-events_batch_interval_ms" type="number" name="events_batch_interval_ms" value="{{ .EventsBatchIntervalMs }}" min="50" max="60000" style="width:8rem"> ms
     </div>
     {{/* Dropped events belong with the knobs that cause them: the queue filled
          faster than the flusher drained it. */}}
@@ -7338,11 +7338,11 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 
     <div class="field">
       <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.retention.events_days" }}</span>
+        <label for="f-events_retention_days">{{ t .Lang "settings.retention.events_days" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="retention-events-days-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="retention-events-days-help">{{ safeHTML (t .Lang "settings.retention.events_days_desc") }}</script>
-      <input type="number" name="events_retention_days" value="{{ .EventsRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
+      <input id="f-events_retention_days" type="number" name="events_retention_days" value="{{ .EventsRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
       {{ if .Retention.EventsTimedOut }}
       <div style="font-size:.78rem;margin-top:.5rem;padding:.4rem .6rem;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:.25rem">⚠ {{ t .Lang "settings.retention.timeout_warn" }}</div>
       {{ end }}
@@ -7380,27 +7380,27 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
          events window. */}}
     <div class="field">
       <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.retention.audit_days" }}</span>
+        <label for="f-audit_log_retention_days">{{ t .Lang "settings.retention.audit_days" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="retention-audit-days-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="retention-audit-days-help">{{ safeHTML (t .Lang "settings.retention.audit_days_desc") }}</script>
-      <input type="number" name="audit_log_retention_days" value="{{ .AuditLogRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
+      <input id="f-audit_log_retention_days" type="number" name="audit_log_retention_days" value="{{ .AuditLogRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
     </div>
     <div class="field">
       <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.retention.notice_days" }}</span>
+        <label for="f-notice_retention_days">{{ t .Lang "settings.retention.notice_days" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="retention-notice-days-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="retention-notice-days-help">{{ safeHTML (t .Lang "settings.retention.notice_days_desc") }}</script>
-      <input type="number" name="notice_retention_days" value="{{ .NoticeRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
+      <input id="f-notice_retention_days" type="number" name="notice_retention_days" value="{{ .NoticeRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
     </div>
     <div class="field">
       <div class="field-label field-label-row">
-        <span>{{ t .Lang "settings.retention.ask_history_days" }}</span>
+        <label for="f-ask_history_retention_days">{{ t .Lang "settings.retention.ask_history_days" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="retention-ask-history-days-help" aria-label="?">?</button>
       </div>
       <script type="text/html" id="retention-ask-history-days-help">{{ safeHTML (t .Lang "settings.retention.ask_history_days_desc") }}</script>
-      <input type="number" name="ask_history_retention_days" value="{{ .AskHistoryRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
+      <input id="f-ask_history_retention_days" type="number" name="ask_history_retention_days" value="{{ .AskHistoryRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
     </div>
   </div>
 
@@ -7665,7 +7665,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         <button type="button" class="btn-secondary" id="ai_model_fetch" style="padding:.35rem .7rem;font-size:.85rem">{{ t .Lang "settings.ai_advisor.model_fetch" }}</button>
         <span class="note" id="ai_model_status">{{ with $.AIModelCache }}{{ tf $.Lang "settings.ai_advisor.model_cached" (len .Models) }} <time class="js-datetime js-datetime-notz" data-ts="{{ .FetchedAt }}"></time>{{ end }}</span>
       </div>
-      <input id="ai_model" type="text" name="ai_model" value="{{ $ai.Model }}" placeholder="{{ $ai.ResolvedModel }}" autocomplete="off" spellcheck="false"
+      <input id="ai_model" type="text" name="ai_model" aria-label="{{ t .Lang "settings.ai_advisor.model_label" }}" value="{{ $ai.Model }}" placeholder="{{ $ai.ResolvedModel }}" autocomplete="off" spellcheck="false"
              style="margin-top:.4rem;padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;min-width:22rem;font-family:ui-monospace,Menlo,monospace">
       <div class="note" style="margin-top:.3rem">{{ t .Lang "settings.ai_advisor.model_desc2" }}</div>
     </div>
@@ -7799,11 +7799,11 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     <h3 style="font-size:1rem;margin:1.4rem 0 .4rem">{{ t .Lang "settings.community_bans.toggles_h" }}</h3>
 
     <div class="field">
-      <label style="display:block;margin-bottom:.3rem">
+      <label for="f-subscribe_mode" style="display:block;margin-bottom:.3rem">
         <strong>{{ t .Lang "settings.community_bans.subscribe_label" }}</strong>
       </label>
       {{ $sm := .CommunityBans.ResolvedSubscribeMode }}
-      <select name="subscribe_mode" style="padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;font-size:.92rem;min-width:22rem">
+      <select id="f-subscribe_mode" name="subscribe_mode" style="padding:.4rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;font-size:.92rem;min-width:22rem">
         <option value="fetch_apply" {{ if eq $sm "fetch_apply" }}selected{{ end }}>{{ t .Lang "community_bans.mode.fetch_apply" }}</option>
         <option value="fetch"       {{ if eq $sm "fetch" }}selected{{ end }}>{{ t .Lang "community_bans.mode.fetch" }}</option>
         <option value="off"         {{ if eq $sm "off" }}selected{{ end }}>{{ t .Lang "community_bans.mode.off" }}</option>
@@ -7813,11 +7813,11 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 
     <div class="field" style="margin:.6rem 0 1rem;padding:.6rem .75rem;background:#f8fafc;border:1px solid #e2e8f0;border-radius:.3rem">
       <div class="field-label" style="font-weight:600;color:#475569;display:flex;align-items:center;gap:.5rem">
-        {{ t .Lang "settings.community_bans.action_h" }}
+        <label for="f-community_bans_action">{{ t .Lang "settings.community_bans.action_h" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="community-bans-action-help" aria-label="?">?</button>
       </div>
       {{ $cba := .CommunityBans.Action }}
-      <select name="community_bans_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
+      <select id="f-community_bans_action" name="community_bans_action" style="margin-top:.4rem;padding:.3rem .5rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;min-width:14rem">
         <option value=""                 {{ if eq $cba "" }}selected{{ end }}>{{ tf .Lang "settings.select.unset_as" "pow_then_captcha" }}</option>
         <option value="pow_then_captcha" {{ if eq $cba "pow_then_captcha" }}selected{{ end }}>pow_then_captcha</option>
         <option value="captcha_only"     {{ if eq $cba "captcha_only" }}selected{{ end }}>captcha_only</option>
@@ -7878,8 +7878,8 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         <code style="display:inline-block;padding:.35rem .55rem;border:1px solid #e2e8f0;border-radius:.25rem;background:#f1f5f9;font-family:ui-monospace,Menlo,monospace;color:#475569">{{ if .CommunityBans.HN }}{{ .CommunityBans.HN }}{{ else }}<span class="muted">(まだ登録されていません)</span>{{ end }}</code>
       </div>
       <div style="flex:1;min-width:14rem">
-        <label style="display:block;font-size:.85rem;color:#475569">{{ t .Lang "settings.community_bans.hn_override_label" }}</label>
-        <input type="text" name="hn_override" value="{{ .CommunityBans.HNOverride }}" placeholder="example-name-x1" pattern="[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]" data-invalid-msg="{{ t .Lang "err.hn_override_format" }}" style="width:100%;padding:.35rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;font-family:ui-monospace,Menlo,monospace;font-size:.9rem">
+        <label for="f-hn_override" style="display:block;font-size:.85rem;color:#475569">{{ t .Lang "settings.community_bans.hn_override_label" }}</label>
+        <input id="f-hn_override" type="text" name="hn_override" value="{{ .CommunityBans.HNOverride }}" placeholder="example-name-x1" pattern="[a-z0-9][a-z0-9_-]{1,30}[a-z0-9]" data-invalid-msg="{{ t .Lang "err.hn_override_format" }}" style="width:100%;padding:.35rem .55rem;border:1px solid #cbd5e1;border-radius:.25rem;font-family:ui-monospace,Menlo,monospace;font-size:.9rem">
         <div class="note" style="margin-top:.25rem;font-size:.72rem">{{ safeHTML (t .Lang "settings.community_bans.hn_override_rules") }}</div>
       </div>
     </div>
