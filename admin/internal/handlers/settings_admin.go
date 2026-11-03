@@ -171,6 +171,11 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 		err    error
 	}
 	done := make(chan rendered, 1)
+	// The test hook is read here, on the request's goroutine, not inside the
+	// render goroutine: a render abandoned past the budget keeps running after
+	// the handler has returned, and a test that then resets the hook would
+	// race with it.
+	hook := settingsRenderHook
 	go func() {
 		out := rendered{header: http.Header{}}
 		defer func() {
@@ -180,8 +185,8 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 			}
 			done <- out
 		}()
-		if settingsRenderHook != nil {
-			settingsRenderHook()
+		if hook != nil {
+			hook()
 		}
 		hw := headerWriter{header: out.header}
 		data := h.settingsViewData(hw, r, tab)
