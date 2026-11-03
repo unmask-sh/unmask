@@ -4,7 +4,8 @@
 // Design:
 //   - When the DB is absent (= path unset / open failed), Lookup() /
 //     LookupInfo() return empty (= "" / Info{}).  Callers don't need nil-checks.
-//   - Cache each (IP, lookup) in memory (= the dashboard hits the same IP repeatedly).
+//   - Cache each (IP, lookup) in memory (= the dashboard hits the same IP
+//     repeatedly), under a ceiling: two generations of cacheGenSize entries.
 //   - thread-safe: lookups read the databases under a read lock that Reload
 //     and Close take exclusively, so a database is never closed under a
 //     lookup; the cache has a lock of its own.
@@ -62,9 +63,18 @@ type Reader struct {
 	closed    bool // Close was called: a Reload after it opens nothing
 
 	// The answer cache, under its own lock (a lookup writes it while
-	// holding mu shared).
-	cacheMu sync.Mutex
-	cache   map[string]Info
+	// holding mu shared).  Two generations: cur fills up to genSize entries,
+	// then becomes prev and a fresh cur starts; prev is dropped when cur
+	// fills again.  An address asked for repeatedly is found in prev and
+	// moved up, so the hot set survives the turnover; an address seen once
+	// leaves within two generations.  The memory is bounded by 2*genSize
+	// entries whatever the traffic -- it used to grow by every distinct
+	// address the process ever saw, which on a bot-heavy install is
+	// hundreds of megabytes.
+	cacheMu   sync.Mutex
+	cacheCur  map[string]Info
+	cachePrev map[string]Info
+	genSize   int
 
 	// asnIdx is the lazily-built org/ASN suggestion index (nil until the first
 	// SuggestASN call walks asnDB).  Immutable once built; discarded on Reload.
@@ -73,6 +83,15 @@ type Reader struct {
 	idxMu  sync.Mutex
 	asnIdx *asnSuggestIndex
 }
+
+// cacheGenSize is the number of answers one cache generation holds.  An
+// entry is the address string, the names a City/ASN database gives and the
+// coordinates -- a few hundred bytes -- so two full generations stay in
+// the tens of megabytes.  The per-address popover and the per-minute
+// country buckets ask for the same addresses within minutes, which is the
+// reuse the cache is for; a crawl across a large address pool mostly misses
+// it and should not be remembered.
+const cacheGenSize = 32768
 
 // Open opens the IP-geo DBs at the given paths.  Both are optional;
 // passing "" for either disables that lookup.
@@ -83,9 +102,10 @@ type Reader struct {
 // bundling a real GeoLite2 mmdb in the test container.  Unset in production.
 func Open(geoPath, asnPath string) *Reader {
 	r := &Reader{
-		cache:   map[string]Info{},
-		geoPath: geoPath,
-		asnPath: asnPath,
+		cacheCur: map[string]Info{},
+		genSize:  cacheGenSize,
+		geoPath:  geoPath,
+		asnPath:  asnPath,
 	}
 	if geoPath != "" {
 		if db, err := maxminddb.Open(geoPath); err == nil {
@@ -226,7 +246,7 @@ func (r *Reader) Reload(geoPath, asnPath string) {
 	}
 	// Discard the cache on a path change (= results may change with a new DB).
 	r.cacheMu.Lock()
-	r.cache = map[string]Info{}
+	r.cacheCur, r.cachePrev = map[string]Info{}, nil
 	r.cacheMu.Unlock()
 }
 
@@ -434,16 +454,38 @@ func (r *Reader) LookupBytes(b []byte) string {
 	return ""
 }
 
+// cacheGet finds a cached answer, moving one found in the older generation
+// up to the current so it outlives the next turnover.
 func (r *Reader) cacheGet(key string) (Info, bool) {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
-	info, ok := r.cache[key]
-	return info, ok
+	if info, ok := r.cacheCur[key]; ok {
+		return info, true
+	}
+	if info, ok := r.cachePrev[key]; ok {
+		delete(r.cachePrev, key)
+		r.cacheCur[key] = info
+		return info, true
+	}
+	return Info{}, false
 }
 
+// cacheSet records an answer; a full current generation is retired to prev
+// (the previous prev, and every address only it held, is dropped).
 func (r *Reader) cacheSet(key string, val Info) Info {
 	r.cacheMu.Lock()
 	defer r.cacheMu.Unlock()
-	r.cache[key] = val
+	if len(r.cacheCur) >= r.genSize {
+		r.cachePrev = r.cacheCur
+		r.cacheCur = make(map[string]Info, r.genSize/4)
+	}
+	r.cacheCur[key] = val
 	return val
+}
+
+// cacheLen is the number of answers held, for the tests.
+func (r *Reader) cacheLen() int {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	return len(r.cacheCur) + len(r.cachePrev)
 }
