@@ -322,8 +322,10 @@ body.uc-on button:disabled{opacity:.5}
     <!-- Soften the JS-required message: it used to be red shouted text
          that pushed the visitor to mistrust their browser setup.  Plain
          color + neutral phrasing reads as a site-loading requirement
-         instead of an accusation. -->
+         instead of an accusation.  English and Japanese: no script runs
+         here to pick the visitor's language. -->
     <p style="color:#475569">JavaScript needs to be enabled to load this site. Please turn it on and reload the page.</p>
+    <p style="color:#475569" lang="ja">このサイトを表示するには JavaScript が必要です。有効にしてから、ページを読み込み直してください。</p>
   </noscript>
   <!-- Branding footer: optional "Operated by …" string.  challenge.js fills
        textContent when window.__brand.footer_text is set. -->
@@ -361,6 +363,28 @@ body.uc-on button:disabled{opacity:.5}
   }
   // theme-cat-only decoration (= stays display:none on other themes).
   if(t==='cat'){var p=document.querySelector('.paws');if(p)p.style.display='';}
+  // The challenge script below is written for browsers of 2017 and later
+  // (async functions, URL, URLSearchParams).  An older browser fails to
+  // parse it and ran nothing -- not even the error listener -- so the
+  // visitor sat on the spinner for as long as they cared to wait, with no
+  // word about why.  challenge.js sets __unmaskStarted as its first
+  // statement; if that has not happened a few seconds from now, the script
+  // never ran, and the page says so in English and Japanese (this script
+  // has no language table of its own).
+  setTimeout(function(){
+    if(window.__unmaskStarted)return;
+    var sp=document.getElementById('spinner');if(sp)sp.style.display='none';
+    var pp=document.getElementById('powProgress');if(pp)pp.style.display='none';
+    var m=document.getElementById('msg');
+    if(m){
+      m.textContent='This browser cannot display this page. Please open the address in a current browser.';
+      var ja=document.createElement('p');
+      ja.lang='ja';
+      ja.style.marginTop='.8em';
+      ja.textContent='\u3053\u306e\u30d6\u30e9\u30a6\u30b6\u3067\u306f\u3053\u306e\u30da\u30fc\u30b8\u3092\u8868\u793a\u3067\u304d\u307e\u305b\u3093\u3002\u65b0\u3057\u3044\u30d6\u30e9\u30a6\u30b6\u3067\u3053\u306e\u30a2\u30c9\u30ec\u30b9\u3092\u958b\u3044\u3066\u304f\u3060\u3055\u3044\u3002';
+      m.parentNode.insertBefore(ja,m.nextSibling);
+    }
+  },5000);
   // _preview=1: for the settings UI's iframe preview. Don't run challenge.js;
   // just display spinner + msg as-is (= theme look check only).
   // We also paint the PoW progress bar in a representative mid-state so the

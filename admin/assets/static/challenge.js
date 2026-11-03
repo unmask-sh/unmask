@@ -1,4 +1,9 @@
 (async function(){
+  // The first statement, before anything that could throw: the inline
+  // bootstrap in challenge.html waits a few seconds for this mark and, not
+  // seeing it, tells the visitor the browser cannot run this page.  A
+  // browser too old to parse this file (async functions) never gets here.
+  window.__unmaskStarted = true;
   // _preview=1 mode: see the early-return below `document.getElementById('msg').textContent=t.verify`.
   // We let setup run far enough to apply the brand / preset / site-name overlay
   // and paint the spinner text, then bail before any PoW or beacon work runs.
