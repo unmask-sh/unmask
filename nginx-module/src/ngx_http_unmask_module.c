@@ -1009,7 +1009,7 @@ static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
     /* The module's own identity, once per process image (see the function). */
     ngx_unmask_module_id_compute();
 
-    /* Register $client_ja4 variable */
+    /* Register the module's variables. */
     for (ngx_http_variable_t *v = ngx_http_ja4_vars; v->name.len; v++) {
         ngx_http_variable_t *var = ngx_http_add_variable(cf, &v->name, v->flags);
         if (!var) return NGX_ERROR;
@@ -1021,8 +1021,24 @@ static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
         {
             continue;
         }
+        /* Any other name already defined by the configuration -- a map or
+         * geo (the degraded render's `map "" $client_ja4 { default ""; }`
+         * left in place, say) -- is taken over by the module's handler.
+         * ngx_http_add_variable hands an existing CHANGEABLE variable back as
+         * it is, without merging flags, so the module's NOCACHEABLE is set
+         * here by hand (every handler also marks its value no_cacheable, so
+         * this is belt and braces), and the takeover is said at configuration
+         * time rather than done in silence.  A `set` installs no get_handler,
+         * so protect.inc's `set $unmask_compose 1` is not reported. */
+        if (var->get_handler != NULL && var->get_handler != v->get_handler) {
+            ngx_conf_log_error(NGX_LOG_NOTICE, cf, 0,
+                               "unmask: \"$%V\" is defined by the "
+                               "configuration as well; the module's value "
+                               "is used", &v->name);
+        }
         var->get_handler = v->get_handler;
         var->data = v->data;
+        var->flags |= (v->flags & NGX_HTTP_VAR_NOCACHEABLE);
     }
     {
         ngx_str_t bk = ngx_string("unmask_bind_key");
