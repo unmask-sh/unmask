@@ -133,6 +133,29 @@ jobs:
           args: --timeout=5m
 
   # --------------------------------------------------------------------
+  # govulncheck: known vulnerabilities reachable from the daemon's code --
+  # in its dependencies and in the standard library of the Go toolchain
+  # go.mod pins.  Source mode, so a vulnerable function nothing calls does
+  # not fail the build; a reachable one does, until the dependency or the
+  # toolchain line in go.mod moves.  Pinned to a release of x/vuln like
+  # every other tool here; the vulnerability database itself is fetched
+  # live, which is the point.
+  # --------------------------------------------------------------------
+  govulncheck:
+    runs-on: ubuntu-latest
+    needs: go-test
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: admin/go.mod
+          cache-dependency-path: admin/go.sum
+      - name: govulncheck
+        working-directory: admin
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+
+  # --------------------------------------------------------------------
   # unmask binary (= cross compile linux/{amd64,arm64})
   # --------------------------------------------------------------------
   build-admin:
