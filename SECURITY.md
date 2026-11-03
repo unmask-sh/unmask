@@ -67,7 +67,12 @@ address) are what bound the client that pays.
 
 **Trust boundaries.** The daemon and nginx share one secret
 (`secret.bv_secret`); every node that verifies passes for a site must
-hold it, and a node that leaks it can mint passes for every other.  A
+hold it, and a node that leaks it can mint passes for every other.  The
+admin's own signatures -- the session cookie, the CSRF tokens -- derive
+from a second secret (`secret.admin_secret`) that only the daemon holds
+and that no rendered nginx file carries, so a node that leaks `bv_secret`
+mints passes but cannot sign an admin session (`unmask doctor` checks
+that the rendered files do not carry it).  A
 pass cookie is a bearer token bound to the client's address (an IPv6
 client by its /64), the site's host and a window; within those it can
 be replayed from the same address, which is why what a pass is used for

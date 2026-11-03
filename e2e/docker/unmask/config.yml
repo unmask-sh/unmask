@@ -13,6 +13,7 @@ db:
 secret:
   bv_secret: "e2e-docker-bv-secret-do-not-use-in-prod"
   captcha_secret_base: "e2e-docker-captcha-base-do-not-use-in-prod"
+  admin_secret: "e2e-docker-admin-secret-do-not-use-in-prod"
 
 challenge:
   pow_cookie_valid_seconds: 604800       # 7 days

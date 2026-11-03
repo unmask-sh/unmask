@@ -34,7 +34,8 @@ func installedHandler(t *testing.T) *Handler {
 	}
 	h := &Handler{DB: conn, UserRepo: &user.Repository{DB: conn}}
 	var st settings.Settings
-	st.Secret.BVSecret = "test-secret" // sessions are signed with it
+	st.Secret.BVSecret = "test-secret"
+	st.Secret.AdminSecret = "test-admin-secret" // sessions are signed with it
 	h.SetSettings(st)
 	return h
 }
@@ -57,7 +58,7 @@ func TestAuthMiddlewarePutsClientIPInContext(t *testing.T) {
 	// AuthMiddleware redirects an unauthenticated request to the login page
 	// before reaching the wrapped handler, so the assertion needs a session --
 	// which is also the case that matters: every audited action is authenticated.
-	r.AddCookie(issueSessionCookie(h.cfg().Secret.BVSecret, "/unmask", 1, "superadmin", false, false, 0))
+	r.AddCookie(issueSessionCookie(h.adminSecret(), "/unmask", 1, "superadmin", false, false, 0))
 	r.RemoteAddr = "127.0.0.1:5555"
 	r.Header.Set("X-Real-IP", "203.0.113.9")
 	h.AuthMiddleware(next)(httptest.NewRecorder(), r)

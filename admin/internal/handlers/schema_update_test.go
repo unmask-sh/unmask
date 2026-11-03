@@ -68,7 +68,7 @@ func schemaHandler(t *testing.T, n int, deferOver float64) *Handler {
 	h.SetSettings(settings.Settings{
 		DB:     cfg,
 		Server: settings.Server{BasePath: "/unmask"},
-		Secret: settings.Secret{BVSecret: "test-secret", CaptchaSecretBase: "test-base"},
+		Secret: settings.Secret{BVSecret: "test-secret", CaptchaSecretBase: "test-base", AdminSecret: "test-admin-secret"},
 	})
 	return h
 }
@@ -746,9 +746,9 @@ func changesWaitWhileWritesAreHeld(t *testing.T, basePath string) {
 	do := func(method, path string) *httptest.ResponseRecorder {
 		r := httptest.NewRequest(method, path, nil)
 		r.RemoteAddr = "127.0.0.1:5555"
-		session := issueSessionCookie(h.cfg().Secret.BVSecret, "/unmask", 1, "superadmin", false, false, 0)
+		session := issueSessionCookie(h.adminSecret(), "/unmask", 1, "superadmin", false, false, 0)
 		r.AddCookie(session)
-		r.Header.Set("X-CSRF-Token", csrfTokenFor(h.cfg().Secret.BVSecret, session.Value))
+		r.Header.Set("X-CSRF-Token", csrfTokenFor(h.adminSecret(), session.Value))
 		r.AddCookie(&http.Cookie{Name: i18n.CookieName, Value: "en"})
 		rr := httptest.NewRecorder()
 		h.AuthMiddleware(next)(rr, r)

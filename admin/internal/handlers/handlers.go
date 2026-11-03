@@ -2558,7 +2558,7 @@ func (h *Handler) hasAdminSession(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	return verifySessionCookie(h.cfg().Secret.BVSecret, c.Value) != nil
+	return verifySessionCookie(h.adminSecret(), c.Value) != nil
 }
 
 // testSiteOverride returns the site whose VALUES (challenge knobs / branding)

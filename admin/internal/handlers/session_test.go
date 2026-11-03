@@ -10,12 +10,14 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/user"
 )
 
-// The session is signed with a key derived from bv_secret, not with
-// bv_secret: that value is also in http.inc, which nginx's workers read, and
-// a cookie signed with it directly -- the scheme until 0.1.53, and what a
-// reader of that file can produce -- must not verify.
+// The session is signed with a key derived from admin_secret, not with the
+// secret itself: a cookie signed with the raw secret -- the scheme until
+// 0.1.53, when the secret was bv_secret and every nginx node's http.inc
+// held it -- must not verify.  (That the key is the daemon's own
+// admin_secret rather than bv_secret is the handlers' adminSecret; the
+// derivation is what this pins.)
 func TestSessionKeyIsDerivedFromTheSecret(t *testing.T) {
-	const secret = "shared-with-http-inc"
+	const secret = "the-daemons-admin-secret"
 	body := "42." + user.RoleSuperadmin + ".9999999999.0.0"
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(body))

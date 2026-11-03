@@ -14,6 +14,11 @@ import (
 
 // reconfHandler returns a fully-migrated handler.  When withAdmin is true it
 // also seeds a superadmin and returns its id (= setupHasAdmin true).
+// reconfAdminSecret is the admin key of the handlers reconfHandler builds:
+// what superadminCookie signs with, and what a test that derives a CSRF
+// token for one of those sessions must use (csrfTokenFor).
+const reconfAdminSecret = "test-admin-secret"
+
 func reconfHandler(t *testing.T, withAdmin bool) (*Handler, int64) {
 	t.Helper()
 	dir := t.TempDir()
@@ -39,7 +44,7 @@ func reconfHandler(t *testing.T, withAdmin bool) (*Handler, int64) {
 		uid = u.ID
 	}
 	h := &Handler{DB: conn, UserRepo: repo, ConfigPath: filepath.Join(dir, "config.yml")}
-	h.SetSettings(settings.Settings{Secret: settings.Secret{BVSecret: "test-secret"}})
+	h.SetSettings(settings.Settings{Secret: settings.Secret{BVSecret: "test-secret", AdminSecret: reconfAdminSecret}})
 	// Point the token path at a non-existent temp file so the bootstrap path is
 	// driven purely by the user count, not a stray token on the host.
 	oldTok, oldLegacy := SetupTokenPath, legacySetupTokenPath
@@ -50,7 +55,7 @@ func reconfHandler(t *testing.T, withAdmin bool) (*Handler, int64) {
 }
 
 func superadminCookie(uid int64) *http.Cookie {
-	return issueSessionCookie("test-secret", "/", uid, user.RoleSuperadmin, false, false, 0)
+	return issueSessionCookie(reconfAdminSecret, "/", uid, user.RoleSuperadmin, false, false, 0)
 }
 
 // --- setupSuperadmin auth matrix ---
@@ -73,7 +78,7 @@ func TestSetupSuperadmin_RejectsNonSuperadmin(t *testing.T) {
 		t.Fatalf("create viewer: %v", err)
 	}
 	req := httptest.NewRequest("GET", "/admin/setup/", nil)
-	req.AddCookie(issueSessionCookie("test-secret", "/", v.ID, user.RoleViewer, false, false, 0))
+	req.AddCookie(issueSessionCookie(reconfAdminSecret, "/", v.ID, user.RoleViewer, false, false, 0))
 	if h.setupSuperadmin(req) != nil {
 		t.Error("a viewer must not pass the superadmin gate")
 	}

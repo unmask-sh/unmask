@@ -89,6 +89,7 @@ func TestDisabledAccountLosesSessionImmediately(t *testing.T) {
 	ctx := context.Background()
 	h.updateSettingsInMemory(func(s *settings.Settings) {
 		s.Secret.BVSecret = "test-bv-secret-0123456789abcdef"
+		s.Secret.AdminSecret = "test-admin-secret-0123456789abcdef"
 	})
 	// Isolate the setup-token globals: on a dev box a real
 	// /var/lib/unmask/.setup-token would flip AuthMiddleware into the wizard
@@ -104,7 +105,7 @@ func TestDisabledAccountLosesSessionImmediately(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cookie := issueSessionCookie(h.cfg().Secret.BVSecret, "/unmask", eve.ID, eve.Role, false, false, 0)
+	cookie := issueSessionCookie(h.adminSecret(), "/unmask", eve.ID, eve.Role, false, false, 0)
 
 	serve := func() (*httptest.ResponseRecorder, bool) {
 		called := false

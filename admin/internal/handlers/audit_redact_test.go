@@ -52,7 +52,8 @@ func auditHandler(t *testing.T) (h *Handler, cfgPath string, userID int64) {
 	s.Server.BasePath = "/unmask"
 	s.Nginx.OutputDir = dir
 	s.CommunityBans.MapDir = dir
-	s.Secret.BVSecret = "LEAK-bv-session-key"
+	s.Secret.BVSecret = "LEAK-bv-pass-key"
+	s.Secret.AdminSecret = "LEAK-admin-session-key"
 	s.SMTP = settings.SMTP{Host: "smtp.example.com", Port: 587, Username: "mailer", Password: "LEAK-smtp-old"}
 	s.AIAdvisor.APIKey = "LEAK-ai-key"
 	s.Notifications.URL = "https://hooks.example/services/LEAK-hook-old"
@@ -184,8 +185,8 @@ func TestAuditRestorePutsLiveSecretsBack(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Secret.BVSecret != "LEAK-bv-session-key" {
-		t.Errorf("bv_secret after restore: %q", got.Secret.BVSecret)
+	if got.Secret.BVSecret != "LEAK-bv-pass-key" || got.Secret.AdminSecret != "LEAK-admin-session-key" {
+		t.Errorf("bv_secret / admin_secret after restore: %q / %q", got.Secret.BVSecret, got.Secret.AdminSecret)
 	}
 	if got.SMTP.Password != "LEAK-smtp-rotated" {
 		t.Errorf("smtp password after restore: %q, want the live one", got.SMTP.Password)

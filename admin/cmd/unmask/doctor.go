@@ -638,6 +638,7 @@ func cmdDoctor(args []string) error {
 	checkHTTPSRedirectApplied(s, addOK, addWarn)
 	checkHTTPSRedirectHealthCheck(s, addOK, addWarn)
 	checkBVSecretSync(s, addOK, addWarn)
+	checkAdminSecretNotRendered(s, resolved, addOK, addWarn, addErr)
 
 	runSLOCheck(s, addOK, addWarn, addErr)
 
@@ -1752,6 +1753,69 @@ func checkBVSecretSync(s settings.Settings, addOK, addWarn func(t, m string)) {
 		return
 	}
 	addWarn("bv_secret desync", "http.inc's unmask_bv_secret differs from the daemon config — the rendered nginx config is stale. Run `unmask render-nginx` and then RESTART nginx (a reload won't reload the module), otherwise the native plugin rejects every _bv the daemon issues and visitors loop on the challenge (the 2026-06-08 root cause).")
+}
+
+// renderedFileReadMax bounds what checkAdminSecretNotRendered reads per file:
+// the render directory also holds the ban list, which grows with the bans.
+const renderedFileReadMax = 64 << 20
+
+// checkAdminSecretNotRendered: the admin key (secret.admin_secret) signs the
+// admin's sessions and CSRF tokens, and what keeps it apart from bv_secret
+// is that no nginx node holds it -- bv_secret is in every node's http.inc,
+// and until 0.1.54 the session key derived from it, so one readable
+// http.inc signed a superadmin session for every node.  Every file under
+// nginx.output_dir is read; the key's value in any of them is an ERR.  The
+// OK says where the key lives: config.yml, or the sidecar settings.Load
+// keeps beside the runtime state.  Neither -- a key this process alone
+// holds -- is a WARN, because every restart then signs every operator out.
+func checkAdminSecretNotRendered(s settings.Settings, cfgPath string, addOK, addWarn, addErr func(t, m string)) {
+	sec := strings.TrimSpace(s.Secret.AdminSecret)
+	if sec == "" {
+		return // nothing to look for (a Settings not from Load)
+	}
+	dir := s.Nginx.OutputDir
+	if dir == "" {
+		dir = "/var/lib/unmask/nginx"
+	}
+	files := 0
+	found := ""
+	_ = filepath.WalkDir(dir, func(p string, d iofs.DirEntry, err error) error {
+		if err != nil || found != "" {
+			return nil
+		}
+		if d.IsDir() {
+			return nil
+		}
+		info, ierr := d.Info()
+		if ierr != nil || !info.Mode().IsRegular() || info.Size() > renderedFileReadMax {
+			return nil
+		}
+		b, rerr := os.ReadFile(p)
+		if rerr != nil {
+			return nil
+		}
+		files++
+		if bytes.Contains(b, []byte(sec)) {
+			found = p
+		}
+		return nil
+	})
+	if found != "" {
+		addErr("admin_secret", "the admin key is written into "+found+" -- nginx must never hold it: whoever can read that file can sign an admin session. Rotate secret.admin_secret (every operator signs in again) and find what copied it there.")
+		return
+	}
+	var where string
+	switch {
+	case settings.RawAdminSecretPresent(cfgPath):
+		where = "config.yml"
+	default:
+		if _, err := os.Stat(settings.AdminSecretSidecarPath()); err != nil {
+			addWarn("admin_secret", "not set in config.yml and no key is persisted at "+settings.AdminSecretSidecarPath()+" -- the daemon signs the admin's sessions with a key it alone holds, so every restart signs every operator out. Set secret.admin_secret (any random string) or make "+filepath.Dir(settings.AdminSecretSidecarPath())+" writable by the daemon.")
+			return
+		}
+		where = "the sidecar " + settings.AdminSecretSidecarPath()
+	}
+	addOK("admin_secret", fmt.Sprintf("held by the daemon only (%s); absent from the %d rendered nginx files under %s", where, files, dir))
 }
 
 // runSLOCheck probes the locally-configured admin bind with N HTTP GETs to

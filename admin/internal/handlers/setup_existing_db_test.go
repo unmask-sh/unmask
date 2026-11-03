@@ -99,6 +99,7 @@ func setupHandlerWithDB(t *testing.T, path string) *Handler {
 	var s settings.Settings
 	s.Server.BasePath = "/unmask"
 	s.Secret.BVSecret = "test-secret"
+	s.Secret.AdminSecret = "test-admin-secret"
 	if path != "" {
 		s.DB = settings.DB{Driver: "sqlite", SQLitePath: path}
 	}

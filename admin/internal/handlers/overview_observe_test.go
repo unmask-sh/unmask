@@ -47,6 +47,7 @@ func observeHandler(t *testing.T, observe bool, judged int) *Handler {
 	h := &Handler{DB: conn, UserRepo: &user.Repository{DB: conn}}
 	var s settings.Settings
 	s.Secret.BVSecret = "test-secret"
+	s.Secret.AdminSecret = "test-admin-secret"
 	if observe {
 		s.Challenge.Default.ObserveOnly = settings.BoolPtr(true)
 	}
@@ -57,7 +58,7 @@ func observeHandler(t *testing.T, observe bool, judged int) *Handler {
 func renderOverview(t *testing.T, h *Handler) string {
 	t.Helper()
 	r := jaRequest(http.MethodGet, "/unmask/admin/", nil)
-	r.AddCookie(issueSessionCookie(h.cfg().Secret.BVSecret, "/unmask", 1, "superadmin", false, false, 0))
+	r.AddCookie(issueSessionCookie(h.adminSecret(), "/unmask", 1, "superadmin", false, false, 0))
 	// The handler is called without AuthMiddleware, so the account goes
 	// into the context here: the reasons card draws its links to bot hunt
 	// and the settings for an administrator only.

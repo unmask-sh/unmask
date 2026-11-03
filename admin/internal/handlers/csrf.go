@@ -2,7 +2,7 @@
 //
 // The admin session is a stateless HMAC-signed cookie (= no DB row to bind
 // a token to), so the token is derived from it: HMAC-SHA256, under a key of
-// its own (csrfKey, from bv_secret by HKDF like the session key), over the
+// its own (csrfKey, from admin_secret by HKDF like the session key), over the
 // session cookie's signature.  A request's token is right when it equals
 // the one derived from the session cookie the request carries, and nothing
 // else is compared.  The token reaches the page two ways: the layout embeds
@@ -56,14 +56,14 @@ import (
 const (
 	csrfCookieName = "unmask_admin_csrf"
 	csrfFieldName  = "_csrf"
-	// csrfKeyInfo labels the CSRF key among the keys derived from bv_secret
+	// csrfKeyInfo labels the CSRF key among the keys derived from admin_secret
 	// (sessionKeyInfo is the session's) and prefixes what the token signs.
 	csrfKeyInfo = "unmask admin csrf v1"
 )
 
-// csrfKey derives the token-signing key from bv_secret (HKDF-SHA256), the
+// csrfKey derives the token-signing key from admin_secret (HKDF-SHA256), the
 // way sessionKey does for the session, under its own label: holding one of
-// the derived keys says nothing about the other or about bv_secret.
+// the derived keys says nothing about the other or about admin_secret.
 func csrfKey(secret string) []byte {
 	key, err := hkdf.Key(sha256.New, []byte(secret), nil, csrfKeyInfo, sha256.Size)
 	if err != nil {
@@ -176,7 +176,7 @@ const csrfHeaderName = "X-CSRF-Token"
 
 // verifyCSRF returns true when the request carries, via an accepted
 // channel, the token derived from the session cookie it was sent with
-// (csrfTokenOf under secret = bv_secret).  The channels: the X-CSRF-Token
+// (csrfTokenOf under secret = admin_secret).  The channels: the X-CSRF-Token
 // header (fetch / XHR) or the _csrf form field (native forms; read from the
 // multipart body for an upload form, whose body ParseForm does not read).
 // The URL query is not one: the shim used to mirror the field into a
@@ -221,7 +221,7 @@ func (h *Handler) RequireCSRF(next http.Handler) http.Handler {
 			http.Error(w, "form parse error", http.StatusBadRequest)
 			return
 		}
-		if !verifyCSRF(h.cfg().Secret.BVSecret, r) {
+		if !verifyCSRF(h.adminSecret(), r) {
 			http.Error(w, "csrf token mismatch (= reload the page and retry)", http.StatusForbidden)
 			return
 		}
@@ -295,7 +295,7 @@ func (h *Handler) issueLoginCSRF(w http.ResponseWriter, r *http.Request) string 
 			SameSite: http.SameSiteLaxMode, // the same as the session cookie; see the package comment
 		})
 	}
-	return loginCSRFToken(h.cfg().Secret.BVSecret, nonce)
+	return loginCSRFToken(h.adminSecret(), nonce)
 }
 
 // verifyLoginCSRF reports whether the sign-in POST carries, in its _csrf
@@ -310,5 +310,5 @@ func (h *Handler) verifyLoginCSRF(r *http.Request) bool {
 	if echo == "" {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(loginCSRFToken(h.cfg().Secret.BVSecret, c.Value)), []byte(echo)) == 1
+	return subtle.ConstantTimeCompare([]byte(loginCSRFToken(h.adminSecret(), c.Value)), []byte(echo)) == 1
 }

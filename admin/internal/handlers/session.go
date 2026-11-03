@@ -12,10 +12,12 @@
 //	           side row gets revoked.  Added 2026-10 -- a cookie issued before
 //	           then has one field fewer and fails verification, so the upgrade
 //	           signs every operator out once.
-//	sig      = HMAC-SHA256(sessionKey(bv_secret), "<user_id>.<role>.<exp>.<remember>.<gen>") hex[:32]
+//	sig      = HMAC-SHA256(sessionKey(admin_secret), "<user_id>.<role>.<exp>.<remember>.<gen>") hex[:32]
 //
-// The key is derived from settings.Secret.BVSecret (sessionKey), so rotating
-// bv_secret invalidates all sessions; bv_secret itself signs nothing here.
+// The key is derived from settings.Secret.AdminSecret (sessionKey), the
+// daemon's own key, so rotating admin_secret invalidates all sessions;
+// bv_secret, which every nginx node holds, signs nothing here (it did,
+// through the derivation, until 0.1.54: see sessionKey).
 // admin_token has been removed.  Since the user identifier is in the cookie,
 // role changes and user deletion are reflected on the next access via DB lookup
 // (= cookie content is a snapshot at issue time; acceptable for short-lived cookies).
@@ -179,20 +181,31 @@ func verifySessionCookie(secret, value string) *SessionPayload {
 }
 
 // sessionKeyInfo labels the admin-session key among the keys derived from
-// bv_secret; a key for another use takes another label.
+// admin_secret; a key for another use takes another label.
 const sessionKeyInfo = "unmask admin session v1"
 
-// sessionKey derives the session-signing key from bv_secret (HKDF-SHA256,
-// RFC 5869) instead of signing with bv_secret itself.  bv_secret is also
-// written into http.inc, which nginx's workers read (0640, the nginx group),
-// so until 0.1.53 whoever could read that file -- a process in the nginx
-// group, a copy of /var/lib/unmask -- could sign a superadmin session with
-// it.  The derivation is one way: the derived key signs sessions and nothing
-// else, and holding it tells nothing about bv_secret or the _bv cookies.
-// Derived on every call (three hashes) rather than cached, so a rotated
-// bv_secret takes effect on the next request as before; a cookie signed
-// under the old scheme fails verification once, like one from before the
-// generation field.
+// adminSecret is the key the admin's own signatures derive from: the
+// session cookie (sessionKey), the CSRF tokens and the sign-in form's token
+// (csrfKey) -- settings.Secret.AdminSecret, which the daemon alone holds
+// (config.yml, or the sidecar settings.Load keeps beside the runtime state)
+// and which no rendered nginx file carries.  Until 0.1.54 these derived
+// from bv_secret, the key every nginx node holds in http.inc (0640, the
+// nginx group): a derivation keeps the secret itself out of the signature,
+// not the key out of the file, so whoever could read one node's http.inc --
+// a process in the nginx group, a copy of /var/lib/unmask -- could compute
+// the session key and sign a superadmin session for every node sharing that
+// bv_secret.  Deriving from a key the edge never receives is what closes
+// that; unmask doctor checks that the rendered files do not carry it.
+func (h *Handler) adminSecret() string { return h.cfg().Secret.AdminSecret }
+
+// sessionKey derives the session-signing key from admin_secret (HKDF-SHA256,
+// RFC 5869) instead of signing with the secret itself.  The derivation is
+// one way: the derived key signs sessions and nothing else, and holding it
+// tells nothing about admin_secret or the CSRF key.  Derived on every call
+// (three hashes) rather than cached, so a rotated admin_secret takes effect
+// on the next request; a cookie signed under the key of a release before
+// 0.1.54 (derived from bv_secret) fails verification once, like one from
+// before the generation field, and the operator signs in again.
 func sessionKey(secret string) []byte {
 	key, err := hkdf.Key(sha256.New, []byte(secret), nil, sessionKeyInfo, sha256.Size)
 	if err != nil {
@@ -231,7 +244,7 @@ func (h *Handler) reissueSessionAfterPasswordChange(w http.ResponseWriter, r *ht
 		return
 	}
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-	secret := h.cfg().Secret.BVSecret
+	secret := h.adminSecret()
 	path := adminCookiePath(h.cfg().Server.BasePath)
 	sc := issueSessionCookie(secret, path, u.ID, u.Role, secure, pay.Remember, u.SessionGen)
 	http.SetCookie(w, sc)

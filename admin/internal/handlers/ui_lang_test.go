@@ -24,6 +24,7 @@ func TestAccountLanguageIsRemembered(t *testing.T) {
 	ctx := context.Background()
 	h.updateSettingsInMemory(func(s *settings.Settings) {
 		s.Secret.BVSecret = "test-bv-secret-0123456789abcdef"
+		s.Secret.AdminSecret = "test-admin-secret-0123456789abcdef"
 	})
 	origPath, origLegacy := SetupTokenPath, legacySetupTokenPath
 	SetupTokenPath, legacySetupTokenPath = filepath.Join(t.TempDir(), ".setup-token"), ""
@@ -32,7 +33,7 @@ func TestAccountLanguageIsRemembered(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cookie := issueSessionCookie(h.cfg().Secret.BVSecret, "/unmask", eve.ID, eve.Role, false, false, 0)
+	cookie := issueSessionCookie(h.adminSecret(), "/unmask", eve.ID, eve.Role, false, false, 0)
 	visit := func(locale, acceptLang string) {
 		t.Helper()
 		mw := h.AuthMiddleware(func(w http.ResponseWriter, r *http.Request) {})

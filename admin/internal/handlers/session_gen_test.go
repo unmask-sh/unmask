@@ -22,6 +22,7 @@ func sessionGenHandler(t *testing.T) *Handler {
 	h, _ := newInviteTestHandler(t)
 	h.updateSettingsInMemory(func(s *settings.Settings) {
 		s.Secret.BVSecret = "test-bv-secret-0123456789abcdef"
+		s.Secret.AdminSecret = "test-admin-secret-0123456789abcdef"
 		s.Server.BasePath = "/unmask"
 	})
 	origPath, origLegacy := SetupTokenPath, legacySetupTokenPath
@@ -65,7 +66,7 @@ func TestPasswordChangeEndsExistingSessions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secret := h.cfg().Secret.BVSecret
+	secret := h.adminSecret()
 	old := issueSessionCookie(secret, "/unmask", eve.ID, eve.Role, false, true, eve.SessionGen)
 	if rr, called := serveWithSession(h, old); !called {
 		t.Fatalf("a current session must pass (code=%d loc=%q)", rr.Code, rr.Header().Get("Location"))
@@ -122,7 +123,7 @@ func TestSuspensionEndsSessionsForGood(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := issueSessionCookie(h.cfg().Secret.BVSecret, "/unmask", eve.ID, eve.Role, false, false, eve.SessionGen)
+	c := issueSessionCookie(h.adminSecret(), "/unmask", eve.ID, eve.Role, false, false, eve.SessionGen)
 	if err := h.UserRepo.SetDisabled(ctx, eve.ID, true); err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +145,7 @@ func TestOwnPasswordChangeKeepsTheChangersSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	secret := h.cfg().Secret.BVSecret
+	secret := h.adminSecret()
 	otherDevice := issueSessionCookie(secret, "/unmask", eve.ID, eve.Role, false, true, eve.SessionGen)
 
 	form := url.Values{

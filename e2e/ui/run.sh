@@ -140,6 +140,7 @@ db:
 secret:
   bv_secret: "ui-e2e-throwaway-secret-1"
   captcha_secret_base: "ui-e2e-throwaway-secret-2"
+  admin_secret: "ui-e2e-throwaway-secret-3"
 server:
   bind: 127.0.0.1
   port: $PORT

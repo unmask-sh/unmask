@@ -13,7 +13,7 @@ import (
 func loginRequest(h *Handler, form url.Values) *http.Request {
 	const nonce = "0123456789abcdef0123456789abcdef"
 	form = cloneValues(form)
-	form.Set(csrfFieldName, loginCSRFToken(h.cfg().Secret.BVSecret, nonce))
+	form.Set(csrfFieldName, loginCSRFToken(h.adminSecret(), nonce))
 	req := httptest.NewRequest(http.MethodPost, "/unmask/admin/login", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.AddCookie(&http.Cookie{Name: loginCSRFCookieName, Value: nonce})
@@ -40,7 +40,7 @@ func TestLoginPostNeedsTheFormsToken(t *testing.T) {
 		t.Fatal(err)
 	}
 	form := url.Values{"username": {"carol"}, "password": {"test-password-carol"}}
-	secret := h.cfg().Secret.BVSecret
+	secret := h.adminSecret()
 	const nonce = "0123456789abcdef0123456789abcdef"
 	good := loginCSRFToken(secret, nonce)
 
@@ -119,7 +119,7 @@ func TestLoginGetIssuesNonceAndToken(t *testing.T) {
 	if !validLoginNonce(nonce) {
 		t.Fatalf("GET login set no usable nonce cookie: %q", nonce)
 	}
-	want := `name="_csrf" value="` + loginCSRFToken(h.cfg().Secret.BVSecret, nonce) + `"`
+	want := `name="_csrf" value="` + loginCSRFToken(h.adminSecret(), nonce) + `"`
 	if !strings.Contains(rr.Body.String(), want) {
 		t.Errorf("the form does not carry the token of its nonce")
 	}

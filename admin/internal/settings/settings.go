@@ -17,6 +17,7 @@
 //	secret:
 //	  bv_secret: <random 32+ chars>      # _bv cookie HMAC key (sig_hash: sha1 | sha256)
 //	  captcha_secret_base: <random>      # math captcha token HMAC-SHA256 base
+//	  admin_secret: <random>             # admin session / CSRF key; the daemon's own, never rendered into nginx
 //	challenge:
 //	  pow_cookie_valid_seconds: 604800       # 7 days
 //	  captcha_cookie_valid_seconds: 1209600  # 14 days
@@ -162,6 +163,17 @@ type MariaDB struct {
 type Secret struct {
 	BVSecret          string `yaml:"bv_secret"`
 	CaptchaSecretBase string `yaml:"captcha_secret_base"`
+	// AdminSecret: the key the admin's own signatures derive from -- the
+	// session cookie, the CSRF tokens and the sign-in form's token
+	// (handlers/session.go, csrf.go), each under its own HKDF label.  Held
+	// by the daemon alone: it is never rendered into http.inc or any other
+	// nginx file (unmask doctor checks), unlike bv_secret, which every nginx
+	// node verifying passes must hold.  Until 0.1.54 those keys derived from
+	// bv_secret, so whoever could read one node's http.inc could sign a
+	// superadmin session for every node.  Unset, Load persists a generated
+	// one beside the runtime state (adminSecretSidecarPath); config-init
+	// writes one.  Rotating it signs every operator out once.
+	AdminSecret string `yaml:"admin_secret"`
 	// SigHash: the MAC the daemon signs the _bv and _bvj cookies and the
 	// proof-of-work seed with -- "sha1" (the default, what every release so
 	// far used) or "sha256".  The verifier, in the daemon and in the nginx
@@ -4987,19 +4999,31 @@ func ResolvePath(path string) string {
 // returns false (= treat as "not set"); doctor's own config-load check reports
 // the read error separately.
 func RawBVSecretPresent(path string) bool {
+	return rawSecretPresent(path, func(s Secret) string { return s.BVSecret })
+}
+
+// RawAdminSecretPresent reports whether the config FILE at path sets a
+// non-empty secret.admin_secret, BEFORE Load()'s sidecar fill-in -- so doctor
+// can say where the admin key lives (config.yml, or the sidecar Load keeps).
+func RawAdminSecretPresent(path string) bool {
+	return rawSecretPresent(path, func(s Secret) string { return s.AdminSecret })
+}
+
+// rawSecretPresent: the probe behind RawBVSecretPresent and
+// RawAdminSecretPresent -- the secret block of the file as written, with
+// nothing filled in.
+func rawSecretPresent(path string, pick func(Secret) string) bool {
 	raw, err := os.ReadFile(ResolvePath(path))
 	if err != nil {
 		return false
 	}
 	var probe struct {
-		Secret struct {
-			BVSecret string `yaml:"bv_secret"`
-		} `yaml:"secret"`
+		Secret Secret `yaml:"secret"`
 	}
 	if yaml.Unmarshal(raw, &probe) != nil {
 		return false
 	}
-	return strings.TrimSpace(probe.Secret.BVSecret) != ""
+	return strings.TrimSpace(pick(probe.Secret)) != ""
 }
 
 // Load reads the config file (path or auto-detected) and overlays it on top
@@ -5062,6 +5086,20 @@ func Load(path string) (Settings, error) {
 	}
 	if s.Secret.CaptchaSecretBase == "" {
 		s.Secret.CaptchaSecretBase = randomHex(24)
+	}
+	if s.Secret.AdminSecret == "" {
+		// The admin's own key (sessions, CSRF): config.yml, else a sidecar
+		// that only the daemon host holds -- the file is never rendered, so
+		// no nginx node has it.  A sidecar that cannot be read or written
+		// leaves a per-process key: sessions then end with the process.
+		sec, persisted, created := loadOrCreateSidecarSecret(AdminSecretSidecarPath())
+		s.Secret.AdminSecret = sec
+		switch {
+		case created:
+			log.Printf("unmask: secret.admin_secret was unset in %q -- generated the admin session key and persisted it to %s (the daemon's own key; it is never written into the nginx config). Set secret.admin_secret to carry it in config.yml instead.", resolved, AdminSecretSidecarPath())
+		case !persisted:
+			log.Printf("unmask: WARNING: secret.admin_secret is not set in %q and a generated key could NOT be persisted (%s unreadable or unwritable) -- the admin's sessions and CSRF tokens are signed with a key this process alone holds, so every operator is signed out when it restarts. Set secret.admin_secret or run `unmask config-init`.", resolved, AdminSecretSidecarPath())
+		}
 	}
 	normalizeDBDriver(&s)
 	s.Gateway.Normalize()
@@ -5128,25 +5166,42 @@ func bvSecretSidecarPath() string {
 	return "/var/lib/unmask/bv_secret"
 }
 
+// AdminSecretSidecarPath returns where a generated admin key (Secret.AdminSecret)
+// is persisted when config.yml omits secret.admin_secret: beside the runtime
+// state, mode 0600, like the _bv key's sidecar.  This file stays on the daemon
+// host -- nothing renders it -- which is the point of the key: the nginx
+// nodes verify passes with bv_secret and never need it.
+func AdminSecretSidecarPath() string {
+	return "/var/lib/unmask/admin_secret"
+}
+
 // loadOrCreateBVSecret returns a persisted _bv key for the case where config.yml
 // omits one.  It reads the sidecar if present so every process shares the same
 // key; on first call it generates one and writes it 0600.  A read/write failure
 // falls back to a per-process key (= the pre-DB-5 behavior) and reports
 // persisted=false so the caller can warn that the loop is still possible.
 func loadOrCreateBVSecret() (secret string, persisted bool) {
-	p := bvSecretSidecarPath()
+	secret, persisted, _ = loadOrCreateSidecarSecret(bvSecretSidecarPath())
+	return secret, persisted
+}
+
+// loadOrCreateSidecarSecret reads the secret persisted at p, or generates one
+// and writes it there 0600 (created=true).  A read/write failure hands back a
+// per-process key with persisted=false, for the caller to say what that key
+// cannot do.  Shared by the _bv key and the admin key: one shape, two files.
+func loadOrCreateSidecarSecret(p string) (secret string, persisted, created bool) {
 	if data, err := os.ReadFile(p); err == nil {
 		if sec := strings.TrimSpace(string(data)); sec != "" {
-			return sec, true
+			return sec, true, false
 		}
 	}
 	sec := randomHex(24)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err == nil {
 		if err := os.WriteFile(p, []byte(sec+"\n"), 0o600); err == nil {
-			return sec, true
+			return sec, true, true
 		}
 	}
-	return sec, false
+	return sec, false, false
 }
 
 // BrowserCookieMaxAgeSeconds is the fixed Max-Age set on _bv cookies sent
@@ -5316,10 +5371,12 @@ const redactedSecret = "***REDACTED***"
 // challengeSecretFields, keyed by site, so a snapshot's record can be paired
 // with the live record of the same site.
 //
-// What counts: bv_secret is what the admin session-signing key is derived
-// from (session.go) and what signs the _bv cookies, so a copy of it lets an
-// admin-role reader forge a superadmin session and mint _bv bypass cookies
-// for every site; the rest are credentials for other systems (the DB, the
+// What counts: admin_secret is what the admin session-signing and CSRF keys
+// are derived from (session.go, csrf.go), so a copy of it lets an admin-role
+// reader forge a superadmin session; bv_secret signs the _bv cookies and the
+// proof-of-work seeds, so a copy of it mints bypass cookies for every site
+// (until 0.1.54 the session key derived from it too); the rest are
+// credentials for other systems (the DB, the
 // mail relay, the hub, the model provider), where a chat webhook URL is the
 // credential (anyone holding it can post to the channel) and the test-page
 // password gates pages the operator chose to expose.  Public site keys, key
@@ -5340,6 +5397,7 @@ var secretFieldList = []struct {
 }{
 	{"secret.bv_secret", func(s *Settings) *string { return &s.Secret.BVSecret }},
 	{"secret.captcha_secret_base", func(s *Settings) *string { return &s.Secret.CaptchaSecretBase }},
+	{"secret.admin_secret", func(s *Settings) *string { return &s.Secret.AdminSecret }},
 	{"db.mariadb.password", func(s *Settings) *string { return &s.DB.MariaDB.Password }},
 	{"smtp.password", func(s *Settings) *string { return &s.SMTP.Password }},
 	{"community_bans.token", func(s *Settings) *string { return &s.CommunityBans.Token }},

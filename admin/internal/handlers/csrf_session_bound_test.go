@@ -106,7 +106,7 @@ func TestAuthMiddlewareIssuesTheSessionsToken(t *testing.T) {
 	h, uid := reconfHandler(t, true)
 	withBasePath(h, "/unmask")
 	session := superadminCookie(uid)
-	tok := csrfTokenFor("test-secret", session.Value)
+	tok := csrfTokenFor(reconfAdminSecret, session.Value)
 
 	var seen string
 	called := false
@@ -149,7 +149,7 @@ func TestAuthMiddlewareIssuesTheSessionsToken(t *testing.T) {
 	}
 	called = false
 	rec = httptest.NewRecorder()
-	otherTok := csrfTokenFor("test-secret", issueSessionCookie("test-secret", "/unmask", uid+1, user.RoleAdmin, false, false, 0).Value)
+	otherTok := csrfTokenFor(reconfAdminSecret, issueSessionCookie(reconfAdminSecret, "/unmask", uid+1, user.RoleAdmin, false, false, 0).Value)
 	h.AuthMiddleware(inner)(rec, csrfPost("/admin/settings/save", []*http.Cookie{session, {Name: csrfCookieName, Value: otherTok}}, otherTok))
 	if rec.Code != http.StatusForbidden || called {
 		t.Errorf("a POST with another session's token (and a matching cookie): code=%d called=%v", rec.Code, called)
@@ -200,12 +200,12 @@ func TestAdminCookiesScopedToBasePath(t *testing.T) {
 	if session == nil || session.Path != "/unmask" || !session.HttpOnly {
 		t.Fatalf("the session cookie login set: %+v", session)
 	}
-	if csrf == nil || csrf.Path != "/unmask" || csrf.Value != csrfTokenFor("test-secret", session.Value) {
+	if csrf == nil || csrf.Path != "/unmask" || csrf.Value != csrfTokenFor(reconfAdminSecret, session.Value) {
 		t.Fatalf("the CSRF cookie login set: %+v", csrf)
 	}
 
 	// A session the middleware refuses is cleared on the same path.
-	gone := issueSessionCookie("test-secret", "/unmask", 999, user.RoleAdmin, false, false, 0)
+	gone := issueSessionCookie(reconfAdminSecret, "/unmask", 999, user.RoleAdmin, false, false, 0)
 	req = httptest.NewRequest(http.MethodGet, "/unmask/admin/", nil)
 	req.AddCookie(gone)
 	rec = httptest.NewRecorder()
@@ -222,7 +222,7 @@ func TestLogoutEndsTheAccountsSessions(t *testing.T) {
 	h, uid := reconfHandler(t, true)
 	withBasePath(h, "/unmask")
 	session := superadminCookie(uid)
-	tok := csrfTokenFor("test-secret", session.Value)
+	tok := csrfTokenFor(reconfAdminSecret, session.Value)
 	logout := h.AdminIPAllowMiddleware(h.RequireCSRFFunc(h.AdminLogout))
 
 	called := false

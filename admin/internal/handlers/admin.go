@@ -595,7 +595,7 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// already knows the real address behind the proxy, and a call site added
 		// later inherits it instead of quietly logging an action from nowhere.
 		r = r.WithContext(user.WithClientIP(r.Context(), ip))
-		secret := h.cfg().Secret.BVSecret
+		secret := h.adminSecret()
 		cookiePath := adminCookiePath(h.cfg().Server.BasePath)
 		if c, err := r.Cookie(sessionCookieName); err == nil {
 			if pay := verifySessionCookie(secret, c.Value); pay != nil {
@@ -1339,7 +1339,7 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 	h.UserRepo.Record(r.Context(), u.ID, u.Username, "login", "", "")
 	secure := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
 	remember := r.FormValue("remember") != ""
-	secret := h.cfg().Secret.BVSecret
+	secret := h.adminSecret()
 	cookiePath := adminCookiePath(base)
 	sc := issueSessionCookie(secret, cookiePath, u.ID, u.Role, secure, remember, u.SessionGen)
 	http.SetCookie(w, sc)
@@ -1361,7 +1361,7 @@ func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) AdminLogout(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	if c, err := r.Cookie(sessionCookieName); err == nil && h.UserRepo != nil {
-		if pay := verifySessionCookie(h.cfg().Secret.BVSecret, c.Value); pay != nil {
+		if pay := verifySessionCookie(h.adminSecret(), c.Value); pay != nil {
 			username := ""
 			if u, err := h.UserRepo.GetByID(ctx, pay.UserID); err == nil {
 				username = u.Username

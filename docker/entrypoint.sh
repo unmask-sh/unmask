@@ -8,7 +8,7 @@
 #
 # Skeleton values:
 #   - db.driver: sqlite, sqlite_path: /var/lib/unmask/unmask.sqlite
-#   - secret.bv_secret / captcha_secret_base: random 32B on each startup (= if a
+#   - secret.bv_secret / captcha_secret_base / admin_secret: random 32B on the first run (= if a
 #     yml already exists it is never touched; generated only on the first run).
 #   - server.bind: 0.0.0.0,  port: 9477,  base_path: /unmask
 #   - nginx.upstream_addr: $UNMASK_DAEMON_ADDR (default 127.0.0.1:9477) = what
@@ -23,6 +23,9 @@ CFG=/etc/unmask/config.yml
 if [ ! -f "$CFG" ]; then
     BV=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
     CB=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+    # The admin's own key (sessions, CSRF): never rendered into the nginx
+    # config, so the nginx container never holds it.
+    AS=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
     # A gateway install (settings > Gateway seeded below) redirects :80 to
     # https by default; the redirect lives in server.inc and exempts health
     # checks and ACME.  A module-only container leaves it to the operator's
@@ -59,6 +62,7 @@ db:
 secret:
     bv_secret: ${BV}
     captcha_secret_base: ${CB}
+    admin_secret: ${AS}
 
 challenge:
     # Challenge knobs live under default: (multi-site v2 shape); fields placed
@@ -90,7 +94,7 @@ ${GATEWAY_REDIRECT_LINE}
         - 127.0.0.1
 ${TRUSTED_LB_LINES}
 EOF
-    # The file embeds bv_secret + captcha_secret_base, and host bind-mounts
+    # The file embeds bv_secret, captcha_secret_base and admin_secret, and host bind-mounts
     # (= docker-compose.example.yml: unmask-config:/etc/unmask) surface this
     # file on the host fs -- without this chmod the default umask leaves it
     # world-readable there.

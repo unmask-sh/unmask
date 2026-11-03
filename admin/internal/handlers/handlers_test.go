@@ -116,6 +116,7 @@ func newTestHandler(t *testing.T) *Handler {
 	s := settings.Settings{
 		Secret: settings.Secret{
 			BVSecret:          "test-secret",
+			AdminSecret:       "test-admin-secret",
 			CaptchaSecretBase: "test-base",
 		},
 		Challenge: settings.ChallengeConfig{

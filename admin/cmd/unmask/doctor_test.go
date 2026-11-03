@@ -237,3 +237,56 @@ func TestCheckGeoRules(t *testing.T) {
 		}
 	})
 }
+
+// TestCheckAdminSecretNotRendered: the admin key in a rendered file is an
+// ERR; absent from every rendered file it is OK and the OK says where the
+// key lives (config.yml here); an empty key is silent (nothing to look for).
+func TestCheckAdminSecretNotRendered(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cfgPath := filepath.Join(t.TempDir(), "config.yml")
+	if err := os.WriteFile(cfgPath, []byte("secret:\n  bv_secret: bvkey\n  admin_secret: the-admin-key\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mk := func(secret string) settings.Settings {
+		var s settings.Settings
+		s.Secret.AdminSecret = secret
+		s.Nginx.OutputDir = dir
+		return s
+	}
+
+	t.Run("absent -> OK", func(t *testing.T) {
+		write("http.inc", `unmask_bv_secret "bvkey";`)
+		write("server.inc", "set $unmask_orig_path \"\";\n")
+		cap, addOK, addWarn, addErr := newCaptures()
+		checkAdminSecretNotRendered(mk("the-admin-key"), cfgPath, addOK, addWarn, addErr)
+		if len(cap.ok) != 1 || len(cap.warn)+len(cap.err) != 0 {
+			t.Fatalf("expected 1 OK, got ok=%v warn=%v err=%v", cap.ok, cap.warn, cap.err)
+		}
+		if !strings.Contains(cap.ok[0], "config.yml") || !strings.Contains(cap.ok[0], "2 rendered") {
+			t.Errorf("OK should name config.yml and the 2 files read, got %q", cap.ok[0])
+		}
+	})
+	t.Run("rendered -> ERR", func(t *testing.T) {
+		write("http.inc", "unmask_bv_secret \"bvkey\";\nmap \"\" $x { default \"the-admin-key\"; }\n")
+		cap, addOK, addWarn, addErr := newCaptures()
+		checkAdminSecretNotRendered(mk("the-admin-key"), cfgPath, addOK, addWarn, addErr)
+		if len(cap.err) != 1 || len(cap.ok)+len(cap.warn) != 0 {
+			t.Fatalf("expected 1 ERR, got ok=%v warn=%v err=%v", cap.ok, cap.warn, cap.err)
+		}
+		if !strings.Contains(cap.err[0], filepath.Join(dir, "http.inc")) {
+			t.Errorf("ERR should name the file, got %q", cap.err[0])
+		}
+	})
+	t.Run("empty key -> silent", func(t *testing.T) {
+		cap, addOK, addWarn, addErr := newCaptures()
+		checkAdminSecretNotRendered(mk(""), cfgPath, addOK, addWarn, addErr)
+		if len(cap.ok)+len(cap.warn)+len(cap.err) != 0 {
+			t.Errorf("expected silent, got ok=%v warn=%v err=%v", cap.ok, cap.warn, cap.err)
+		}
+	})
+}

@@ -60,7 +60,7 @@ func vacuumHandler(t *testing.T, n int) *Handler {
 	h.SetSettings(settings.Settings{
 		DB:     cfg,
 		Server: settings.Server{BasePath: "/unmask"},
-		Secret: settings.Secret{BVSecret: "test-secret", CaptchaSecretBase: "test-base"},
+		Secret: settings.Secret{BVSecret: "test-secret", CaptchaSecretBase: "test-base", AdminSecret: "test-admin-secret"},
 	})
 	return h
 }
