@@ -176,8 +176,10 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 	// the handler has returned, and a test that then resets the hook would
 	// race with it.
 	hook := settingsRenderHook
+	settingsRenderPending.Add(1)
 	go func() {
 		out := rendered{header: http.Header{}}
+		defer settingsRenderPending.Done()
 		defer func() {
 			if rec := recover(); rec != nil {
 				out.err = fmt.Errorf("panic: %v", rec)
@@ -232,6 +234,11 @@ func (h *Handler) AdminSettingsIndex(w http.ResponseWriter, r *http.Request) {
 // settingsRenderBudget is how long AdminSettingsIndex waits for the page:
 // under the server's 60 s write timeout, with room to send it.
 var settingsRenderBudget = 45 * time.Second
+
+// settingsRenderPending counts the page builds still running, the abandoned
+// ones included: a test that resets the hook or the budget waits for it, so
+// no build outlives the test that started it.
+var settingsRenderPending sync.WaitGroup
 
 // settingsRenderHook runs at the start of a settings page build; nil but in
 // a test (the budget is tested through it).

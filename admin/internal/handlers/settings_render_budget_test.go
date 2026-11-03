@@ -34,6 +34,7 @@ func TestSettingsPageSaysWhenItsBuildTookTooLong(t *testing.T) {
 	settingsRenderBudget = 20 * time.Millisecond
 	settingsRenderHook = func() { time.Sleep(300 * time.Millisecond) }
 	t.Cleanup(func() {
+		settingsRenderPending.Wait() // no abandoned build outlives the test
 		settingsRenderBudget = oldBudget
 		settingsRenderHook = nil
 	})
@@ -48,7 +49,9 @@ func TestSettingsPageSaysWhenItsBuildTookTooLong(t *testing.T) {
 		t.Errorf("slow build body in Japanese: %s", body)
 	}
 
-	// Within the budget the page is whole, with its form.
+	// Within the budget the page is whole, with its form.  The two builds
+	// abandoned above finish first, so resetting the hook races nothing.
+	settingsRenderPending.Wait()
 	settingsRenderBudget = oldBudget
 	settingsRenderHook = nil
 	rr = get("en")
