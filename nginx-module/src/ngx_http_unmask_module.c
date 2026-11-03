@@ -630,13 +630,11 @@ typedef enum {
  * server.inc.  Neither input (the Cookie header, the file) changes within a
  * request, so the first evaluation's answer is the request's answer.
  *
- * `main` is the "arrived from the wire" marker the POST_READ handler drops
- * (see ngx_http_unmask_mark_main_handler); it has to be a flag, not the
- * mere presence of the ctx, because a subrequest or an internally redirected
- * request (nginx zeroes r->ctx on redirect) gets a ctx of its own the first
- * time it reads a variable, and that ctx must not read as "main". */
+ * The "is this the main request" marker is NOT here: nginx zeroes r->ctx on
+ * an internal redirect (ngx_http_internal_redirect, a named location, an
+ * error_page), so a flag in it read "not main" for a main request after one.
+ * It lives on the request pool instead; see ngx_http_unmask_mark_main_handler. */
 typedef struct {
-    unsigned              main:1;
     unsigned              bv_done:1;
     unsigned              ban_done:1;
     unsigned              ban_hit:1;
@@ -662,29 +660,65 @@ ngx_unmask_req_ctx(ngx_http_request_t *r)
     return ctx;
 }
 
-/* POST_READ runs only for a request that arrived from the wire: ngx_http_handler
- * enters an internal request (subrequest / internal redirect) at
- * phase_engine.server_rewrite_index, which is past this phase.  Marking the
- * ctx here therefore yields an ABI-safe "is this the main request?" --
- * r->ctx sits at offset 16, ahead of headers_in, and a subrequest gets a
- * freshly zeroed ctx array of its own. */
+/* The main-request marker: a record on the request's pool naming the request
+ * POST_READ saw.  POST_READ runs only for a request that arrived from the
+ * wire (ngx_http_handler enters an internal request at
+ * phase_engine.server_rewrite_index, past this phase), so the record names
+ * the main request.  The pool is the right home for it:
+ *   - an internal redirect (ngx_http_internal_redirect, a named location, an
+ *     error_page) zeroes r->ctx, where this flag used to live -- after one, a
+ *     main request read as "not main" -- but keeps r->pool;
+ *   - a subrequest shares r->pool with its main request (sr->pool = r->pool),
+ *     so it finds the record, and the record's pointer is not the subrequest;
+ *   - r->pool sits ahead of headers_in in ngx_http_request_t, so it is safe to
+ *     read on a layout-shifted host (ABI note above), and the pool is a core
+ *     struct no distribution patch moves.
+ * The record is a pool cleanup whose handler is a no-op in this module: the
+ * handler's identity is how the record is told from other cleanups without
+ * reading their data, and a pool cleanup runs in the worker that owns the
+ * pool, with this module mapped for the worker's lifetime (unlike an OpenSSL
+ * ex_data callback, which the master keeps registered process-wide across a
+ * reload -- see the JA4 ctx comment). */
+typedef struct {
+    ngx_http_request_t  *main;
+} ngx_unmask_main_mark_t;
+
+static void
+ngx_unmask_main_mark_cleanup(void *data)
+{
+    (void) data;
+}
+
 static ngx_int_t
 ngx_http_unmask_mark_main_handler(ngx_http_request_t *r)
 {
-    ngx_http_unmask_req_ctx_t *ctx = ngx_unmask_req_ctx(r);
-    if (ctx != NULL) {
-        ctx->main = 1;
+    ngx_pool_cleanup_t      *cln;
+    ngx_unmask_main_mark_t  *mark;
+
+    cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_unmask_main_mark_t));
+    if (cln != NULL) {
+        mark = cln->data;
+        mark->main = r;
+        cln->handler = ngx_unmask_main_mark_cleanup;
     }
     return NGX_DECLINED;
 }
 
-/* Stands in for `r == r->main`, which is unreadable on a layout-shifted host. */
+/* `r == r->main`, read without r->main (unreadable on a layout-shifted host):
+ * true for the request POST_READ marked, before and after any internal
+ * redirect; false for a subrequest, and for a request whose pool got no mark
+ * (out of memory at POST_READ), which fails toward "not main". */
 static ngx_int_t
 ngx_unmask_is_main_request(ngx_http_request_t *r)
 {
-    ngx_http_unmask_req_ctx_t *ctx =
-        ngx_http_get_module_ctx(r, ngx_http_unmask_module);
-    return ctx != NULL && ctx->main;
+    ngx_pool_cleanup_t  *cln;
+
+    for (cln = r->pool->cleanup; cln != NULL; cln = cln->next) {
+        if (cln->handler == ngx_unmask_main_mark_cleanup) {
+            return ((ngx_unmask_main_mark_t *) cln->data)->main == r;
+        }
+    }
+    return 0;
 }
 
 /* $unmask_gate is "<final_challenge>:<failopen>"; the field after the colon
@@ -991,8 +1025,9 @@ static ngx_int_t ngx_http_ja4_init(ngx_conf_t *cf) {
     *rdh = ngx_http_unmask_ratedeny_handler;
 
     /* POST_READ marker: gives every later hook an ABI-safe "is this the main
-     * request?" (= ngx_unmask_is_main_request).  This phase runs only for
-     * requests that arrived from the wire, never for subrequests. */
+     * request?" (= ngx_unmask_is_main_request), one that survives an internal
+     * redirect.  This phase runs only for requests that arrived from the wire,
+     * never for subrequests. */
     ngx_http_handler_pt *mrh =
         ngx_array_push(&cmcf->phases[NGX_HTTP_POST_READ_PHASE].handlers);
     if (mrh == NULL) return NGX_ERROR;
@@ -2260,7 +2295,12 @@ ngx_http_unmask_has_signed_agent_variable(ngx_http_request_t *r,
      * through the POST_READ marker rather than `r == r->main`, which is one of
      * the fields a patched ngx_http_request_t shifts (ABI note above): reading it
      * there yields NULL, this guard fires for EVERY request, and the variable is
-     * stuck at "0" so the signed-route gate never engages. */
+     * stuck at "0" so the signed-route gate never engages.  The marker holds
+     * across an internal redirect (error_page, try_files, the compose
+     * handler's own redirect), so a signed main request reads "1" on the
+     * re-entered pass too; the gate that reads this ($unmask_signed_gate in
+     * http.inc) is keyed on the URI class as well, and the detour's
+     * continuation re-enters at location search, so that cannot loop. */
     if (!ngx_unmask_is_main_request(r)) {
         return NGX_OK;
     }
