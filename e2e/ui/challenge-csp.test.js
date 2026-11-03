@@ -67,12 +67,17 @@ const violation = (m) => /Content.Security.Policy|Refused to/i.test(m);
   }
 
   // The relay page: its script runs under its own nonce and sends the
-  // visitor on (to "/" here: nothing to step back to).
+  // visitor on (to "/" here: nothing to step back to).  The relay leaves
+  // at once, so goto may resolve with the page it left for; the relay's
+  // own answer is taken from the response stream.
   const relay = await browser.newPage();
   const lines = [];
+  let relayCSP = null;
   relay.on('console', m => lines.push(m.text()));
-  const res = await relay.goto(BASE + '/static/back.html', { waitUntil: 'domcontentloaded' }).catch(() => null);
-  const csp = res ? (res.headers()['content-security-policy'] || '') : '';
+  relay.on('response', r => { if (r.url().indexOf('/static/back.html') >= 0 && relayCSP === null) relayCSP = r.headers()['content-security-policy'] || ''; });
+  await relay.goto(BASE + '/static/back.html', { waitUntil: 'domcontentloaded' }).catch(() => null);
+  for (let i = 0; i < 20 && relayCSP === null; i++) await sleep(100);
+  const csp = relayCSP || '';
   ok(/'nonce-/.test(csp), 'relay: the relay carries a nonced policy, got ' + JSON.stringify(csp));
   await sleep(800);
   ok(lines.filter(violation).length === 0, 'relay: no violation, saw ' + JSON.stringify(lines.slice(0, 3)));

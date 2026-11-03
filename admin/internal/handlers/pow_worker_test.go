@@ -37,9 +37,11 @@ func TestPoWRunsInAWorker(t *testing.T) {
 	}
 
 	// One SHA-256 implementation, shared: the worker source is built by
-	// stringifying the same functions.  A second, hand-copied implementation
-	// inside the worker could drift and produce nonces the server rejects.
-	if !strings.Contains(js, "sha256.toString()") || !strings.Contains(js, "leadingZeroBits.toString()") {
+	// stringifying the same functions -- the compression function and the
+	// hasher built on it, which the UI-thread fallback uses too.  A second,
+	// hand-copied implementation inside the worker could drift and produce
+	// nonces the server rejects.
+	if !strings.Contains(js, "sha256Compress.toString()") || !strings.Contains(js, "powHasher.toString()") {
 		t.Error("the worker no longer reuses the page's own hash functions; a divergent copy would fail server verification")
 	}
 

@@ -104,10 +104,10 @@ func objectKeys(body string) []string {
 	i := 0
 	for i < len(body) {
 		c := body[i]
-		switch {
-		case c == ' ' || c == ',':
+		switch c {
+		case ' ', ',':
 			i++
-		case c == '\'' || c == '"':
+		case '\'', '"':
 			q := c
 			i++
 			for i < len(body) && body[i] != q {

@@ -66,6 +66,18 @@ const inWord = b => LETTER.test(b[0]) && LETTER.test(b[2]);
       await page.setViewport({ width, height: 800 });
       await page.setRequestInterception(true);
       page.on('request', q => (q.method() === 'POST' ? q.abort() : q.continue()));
+      // The PoW page solves and leaves for "/" on its own -- in about a
+      // second at the default difficulty, which is less than this check
+      // takes, so its own navigation would cancel the next goto.  Make the
+      // proof too hard to finish while the page is measured.
+      await page.evaluateOnNewDocument(() => {
+        let u;
+        Object.defineProperty(window, 'UNMASK', {
+          configurable: true,
+          get() { return u; },
+          set(v) { if (v && typeof v === 'object') v.pow_difficulty = 30; u = v; },
+        });
+      });
 
       await page.goto(`${BASE}/test/force-pow?_preview_lang=${lang}`, { waitUntil: 'domcontentloaded' });
       await page.waitForFunction(() => /[぀-ヿ가-힯]/.test(document.getElementById('msg').textContent), { timeout: 5000 });
