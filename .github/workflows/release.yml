@@ -1,25 +1,41 @@
-# release: on a v* tag push, build the unmask binary on GH Actions and create a
-# draft release.  The rpm/deb/apk and signed checksums must be built locally
-# (= Makefile: package-all / sign-rpm — needs Docker for multi-OpenSSL plugin)
-# and uploaded with `gh release upload` before flipping the draft to published.
+# release: on a release tag push, build the unmask binary on GH Actions
+# (reproducibly: the Makefile recipe, built twice), generate the SBOM and
+# create a draft release carrying both.  The rpm/deb/apk and the signed
+# checksums must be built locally (= Makefile: package-all / sign-rpm --
+# needs Docker for the multi-OpenSSL plugin) and uploaded with `gh release
+# upload` before flipping the draft to published.  release-verify.yml then
+# reads the published page and fails on a missing or unsigned piece.
 #
-# Local release procedure (= after the tag is pushed):
+# Local release procedure (= after the tag is pushed and this workflow is green):
 #
 #   make package-all       # admin + plugin-nginx-fat + web-{nginx,apache}
+#   gh release download v0.X.Y --pattern 'unmask-linux-*' --dir ci-bin
+#   (cd ci-bin && sha256sum unmask-linux-*) | sed 's| ci-bin/| dist/|' | sha256sum -c
+#                          # the local build and the workflow's are the same
+#                          # recipe from the same commit, so the bytes match;
+#                          # when they do not, stop -- the tree or the
+#                          # toolchain is not the tag's.  The binaries on the
+#                          # page stay the workflow's: do not upload dist's.
 #   make sign-rpm          # do NOT skip: 0.1.36-38 shipped UNSIGNED rpms to the
 #                          # release page because this step was missed (the /dl/
 #                          # repo copies are signed separately by build-repo.sh,
 #                          # which hid the gap).  checksums.txt must be generated
 #                          # AFTER signing so it hashes the signed rpms.
-#   (cd dist && sha256sum unmask-linux-* *.rpm *.deb *.apk > checksums.txt \
+#   gh release download v0.X.Y --pattern 'unmask-*.cdx.*' --dir dist
+#                          # the SBOM is in the list too: 0.1.53's hand-made
+#                          # checksums.txt replaced the draft's and lost it.
+#   (cd dist && sha256sum unmask-linux-* unmask-*.cdx.* *.rpm *.deb *.apk > checksums.txt \
 #                && gpg --detach-sign -o checksums.txt.sig checksums.txt)
-#   gh release upload v0.X.Y dist/*.{rpm,deb,apk} dist/checksums.txt dist/checksums.txt.sig
+#   gh release upload v0.X.Y dist/*.{rpm,deb,apk} dist/checksums.txt dist/checksums.txt.sig --clobber
 #   gh release edit v0.X.Y --draft=false
+#                          # release-verify runs on this; read its verdict.
 name: release
 
 on:
   push:
-    tags: ["v*"]
+    # A release tag only.  A pre-release tag (v0.1.54-rc3, the testing
+    # channel) must not open a draft release or push a :latest image.
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
 
 # Least-privilege default: only the `release` job needs contents:write (create
 # the GitHub release) and only the `docker` job needs packages:write (GHCR);

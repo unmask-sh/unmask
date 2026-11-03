@@ -863,8 +863,14 @@ release: release-clean
 		ls unmask?$(UNMASK_VERSION)*$$spec >/dev/null 2>&1 || { echo "!! main package ($$spec) at $(UNMASK_VERSION) missing in dist/"; fail=1; }; \
 	done; \
 	[ $$fail -eq 0 ] || { echo "!!! aborting: incomplete release set (see above)"; exit 1; }
+	# checksums.txt names everything the release page serves: the binaries,
+	# the packages and the SBOM -- the SBOM is produced by the release
+	# workflow and fetched into dist/ from the draft before this runs (the
+	# local procedure in .github/workflows/release.yml); 0.1.53's list lost
+	# its SBOM lines because the hand-made list replaced the workflow's.
+	# release-verify.yml fails a published release whose list misses an asset.
 	@echo ">>> generating checksums.txt"
-	cd $(DIST) && sha256sum unmask-linux-* ngx_http_unmask_module-linux-* unmask*.rpm unmask*.deb unmask*.apk unmask-plugin-nginx*.deb unmask-plugin-nginx*.apk 2>/dev/null | awk '!seen[$$0]++' > checksums.txt || true
+	cd $(DIST) && sha256sum unmask-linux-* unmask-*.cdx.* ngx_http_unmask_module-linux-* unmask*.rpm unmask*.deb unmask*.apk unmask-plugin-nginx*.deb unmask-plugin-nginx*.apk 2>/dev/null | awk '!seen[$$0]++' > checksums.txt || true
 	# GPG-sign checksums.txt so a direct download (= GitHub release asset, not the
 	# GPG-verified apt/dnf/apk repo) is verifiable: `gpg --verify checksums.txt.asc
 	# checksums.txt`.  Gated on UNMASK_GPG_KEY_ID (= same key as sign-rpm); skipped

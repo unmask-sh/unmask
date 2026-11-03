@@ -1,0 +1,105 @@
+# release-verify: when a release is published, read the release page the way
+# a downloader does and check what it serves.
+#
+# The release page is filled by hand after release.yml creates the draft
+# (packages, signed rpms, checksums.txt and its signature), and nothing
+# looked at the result: 0.1.36-38 went out with unsigned rpms, and 0.1.53's
+# checksums.txt lost the SBOM lines the draft had carried.  This runs on the
+# publish event -- the moment the page goes live -- and on demand for an
+# older tag.  It fails when checksums.txt is unsigned, signed with another
+# key, or does not name every asset; when an rpm is not signed with the
+# release key; when the daemon inside the main rpm is not the raw binary
+# published beside it; or when a deb, an apk, the SBOM or the compose example
+# is missing or malformed.
+name: release-verify
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "release tag to verify (vX.Y.Z)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-verify-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+env:
+  # The fingerprint the release notes tell downloaders to check.
+  RELEASE_KEY_FPR: C03DD45E28C4446FDDC48EFC34A320B544B28158
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+      - name: download every asset of ${{ github.event.release.tag_name || inputs.tag }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir assets
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir assets
+          ls -la assets
+      - name: checksums.txt is signed with the release key and names every asset
+        run: |
+          gpg --batch --import rpm/release/RPM-GPG-KEY-unmask
+          fpr=$(gpg --batch --with-colons --fingerprint | awk -F: '$1 == "fpr" {print $10; exit}')
+          if [ "$fpr" != "$RELEASE_KEY_FPR" ]; then
+            echo "::error::rpm/release/RPM-GPG-KEY-unmask has fingerprint $fpr, the release notes name $RELEASE_KEY_FPR"
+            exit 1
+          fi
+          cd assets
+          sig=checksums.txt.sig
+          [ -f "$sig" ] || sig=checksums.txt.asc
+          gpg --batch --verify "$sig" checksums.txt
+          # Every asset is named (the signature, the list itself and the
+          # compose example excepted), and every line checks out.  The
+          # hand-made list spells packages as ./name; that is normalised.
+          fail=0
+          for f in *; do
+            case "$f" in checksums.txt|checksums.txt.sig|checksums.txt.asc|docker-compose.example.yml) continue ;; esac
+            grep -qE "^[0-9a-f]{64}  (\./)?$f\$" checksums.txt || { echo "::error::$f is on the release page but not in checksums.txt"; fail=1; }
+          done
+          sed 's|  \./|  |' checksums.txt | sha256sum --check --strict
+          test "$fail" = 0
+      - name: every rpm is signed with the release key, and the main rpm carries the published binary
+        run: |
+          sudo apt-get -qq update
+          sudo apt-get -qq install -y rpm cpio
+          sudo rpm --import rpm/release/RPM-GPG-KEY-unmask
+          for f in assets/*.rpm; do
+            out=$(rpm -Kv "$f")
+            echo "$out"
+            echo "$out" | grep -qiE "Signature, key ID [0-9a-f]*${RELEASE_KEY_FPR: -8}: OK" \
+              || { echo "::error::$f is not signed with the release key"; exit 1; }
+          done
+          v=${TAG#v}
+          for a in x86_64:amd64 aarch64:arm64; do
+            rpmarch=${a%%:*}; goarch=${a##*:}
+            rpm2cpio "assets/unmask-$v-1.$rpmarch.rpm" | cpio -i --quiet --to-stdout ./usr/sbin/unmask > "unmask.$goarch"
+            cmp "unmask.$goarch" "assets/unmask-linux-$goarch" \
+              || { echo "::error::the daemon inside unmask-$v-1.$rpmarch.rpm is not the published unmask-linux-$goarch"; exit 1; }
+          done
+      - name: the debs and apks unpack, the SBOM and the compose example are there
+        run: |
+          v=${TAG#v}
+          for f in assets/*.deb; do dpkg-deb --info "$f" >/dev/null; done
+          for f in assets/*.apk; do
+            tar -tzf "$f" 2>/dev/null | grep -q '^\.PKGINFO$' || { echo "::error::$f has no .PKGINFO"; exit 1; }
+            tar -tzf "$f" 2>/dev/null | grep -q '^\.SIGN\.RSA\.' || { echo "::error::$f is not signed"; exit 1; }
+          done
+          for f in "assets/unmask-$v.cdx.json" "assets/unmask-$v.cdx.xml" assets/docker-compose.example.yml; do
+            test -s "$f" || { echo "::error::$f is missing from the release"; exit 1; }
+          done
+          echo "release $TAG: $(ls assets | wc -l) assets verified"
