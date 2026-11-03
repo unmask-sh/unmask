@@ -103,8 +103,11 @@ MODULE_SO       = $(DIST)/ngx_http_unmask_module-$(GOOS)-$(GOARCH).so
 # UNMASK_COMMIT: the revision this binary is built from, stamped into it so a
 # running node can be identified.  Not from -buildvcs (which is off for
 # reproducibility and would also mark the build dirty); resolved here so a build
-# from a tarball with no git simply leaves it empty.
-UNMASK_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null)
+# from a tarball with no git simply leaves it empty.  Eight characters of the
+# full id, not --short: git picks --short's length per repository (seven in a
+# shallow CI clone, eight in a full one), and the stamp is part of the binary
+# two builds have to agree on.
+UNMASK_COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null | cut -c1-8)
 GOFLAGS = -trimpath -buildvcs=false -ldflags="-s -w -X main.Version=$(UNMASK_BIN_VERSION) -X main.Commit=$(UNMASK_COMMIT)"
 
 # SOURCE_DATE_EPOCH: pin file mtime + Go's "build info" timestamp.  Default to
@@ -133,6 +136,27 @@ build-admin:
 	mkdir -p $(DIST)
 	cd admin && CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=$(GOARCH) \
 		go build $(GOFLAGS) -o ../$(ADMIN_BIN) ./cmd/unmask
+
+## verify-reproducible - build the daemon twice and require the same bytes.
+# The second build runs from a copy of the tree at another path, with a cold
+# Go build cache, so what is checked is the claim the flags above make
+# (-trimpath, -buildvcs=false, SOURCE_DATE_EPOCH, the pinned toolchain) and
+# not anything in one machine's environment.  CI runs it on every push and the
+# release workflow on the tag: a release binary that does not reproduce stops
+# there.  The commit and the timestamp are passed in, so the copy needs no .git.
+.PHONY: verify-reproducible
+verify-reproducible: build-admin
+	@tmp=$$(mktemp -d); trap 'rm -rf "$$tmp"' EXIT; \
+	mkdir -p "$$tmp/tree"; \
+	tar -C . --exclude=./.git --exclude=./$(DIST) --exclude=./build -cf - . | tar -C "$$tmp/tree" -xf -; \
+	( cd "$$tmp/tree" && GOCACHE="$$tmp/gocache" $(MAKE) --no-print-directory build-admin \
+		GOOS=$(GOOS) GOARCH=$(GOARCH) UNMASK_COMMIT=$(UNMASK_COMMIT) SOURCE_DATE_EPOCH=$(SOURCE_DATE_EPOCH) ); \
+	a=$$(sha256sum $(ADMIN_BIN) | cut -d' ' -f1); \
+	b=$$(sha256sum "$$tmp/tree/$(ADMIN_BIN)" | cut -d' ' -f1); \
+	echo "first  $$a  $(ADMIN_BIN)"; \
+	echo "second $$b  (rebuilt from a copy of the tree, cold build cache)"; \
+	if [ "$$a" != "$$b" ]; then echo "!!! $(ADMIN_BIN) is not reproducible: the two builds differ" >&2; exit 1; fi; \
+	echo ">>> reproducible: $(ADMIN_BIN) ($$a)"
 
 ## update-iprange-embed - refresh embedded search-bot bypass-IP ranges from the hub (run + commit before release)
 .PHONY: update-iprange-embed

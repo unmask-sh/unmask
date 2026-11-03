@@ -61,16 +61,23 @@ jobs:
         with:
           go-version-file: admin/go.mod
           cache-dependency-path: admin/go.sum
-      - name: build
-        env:
-          GOOS: linux
-          GOARCH: ${{ matrix.goarch }}
+      # The version stamped into the binary is the Makefile's, so the tag and
+      # the Makefile have to agree before anything is built.
+      - name: the Makefile's version is the tag's
         run: |
-          mkdir -p dist
-          cd admin
-          CGO_ENABLED=0 go build -trimpath \
-            -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME#v}" \
-            -o "../dist/unmask-linux-${GOARCH}" ./cmd/unmask
+          v=$(sed -n 's/^UNMASK_VERSION ?= //p' Makefile)
+          if [ "$v" != "${GITHUB_REF_NAME#v}" ]; then
+            echo "::error::Makefile has UNMASK_VERSION=$v but the tag is ${GITHUB_REF_NAME}; bump the Makefile in the release commit and re-tag"
+            exit 1
+          fi
+      # The same recipe ci.yml builds and checks on every push (`make
+      # build-admin`: -trimpath, -buildvcs=false, SOURCE_DATE_EPOCH from the
+      # commit).  The target builds twice and fails unless both builds are
+      # byte-identical, so the binary on the release page is one a rebuild
+      # from the tag can be checked against -- and the local release
+      # procedure's `make package-all` produces the same bytes.
+      - name: build (the Makefile recipe) and prove it reproduces
+        run: make verify-reproducible GOARCH=${{ matrix.goarch }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: admin-${{ matrix.goarch }}

@@ -126,16 +126,15 @@ jobs:
         with:
           go-version-file: admin/go.mod
           cache-dependency-path: admin/go.sum
-      - name: build
-        env:
-          GOOS: linux
-          GOARCH: ${{ matrix.goarch }}
-        run: |
-          mkdir -p dist
-          cd admin && CGO_ENABLED=0 \
-            go build -trimpath -ldflags="-s -w -X main.Version=${GITHUB_REF_NAME}" \
-                     -o ../dist/unmask-linux-${GOARCH} ./cmd/unmask
-          file ../dist/unmask-linux-${GOARCH}
+      # The Makefile recipe, the one a release is built with: -trimpath,
+      # -buildvcs=false, SOURCE_DATE_EPOCH from the commit, the version and
+      # commit stamped in.  The target builds twice -- the second time from a
+      # copy of the tree at another path, with a cold build cache -- and
+      # fails unless the two are byte-identical: a binary that reproduces here
+      # can be checked against a rebuild by anyone.
+      - name: build (the Makefile recipe) and prove it reproduces
+        run: make verify-reproducible GOARCH=${{ matrix.goarch }}
+      - run: file dist/unmask-linux-${{ matrix.goarch }}
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: unmask-linux-${{ matrix.goarch }}
