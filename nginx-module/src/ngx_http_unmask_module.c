@@ -146,6 +146,8 @@ typedef struct {
     /* Index of $unmask_bind_key (set in ngx_http_unmask_init; NGX_ERROR when the
      * variable could not be registered).  See ngx_unmask_bind_key. */
     ngx_int_t   bind_key_index;
+    /* Index of $unmask_ban_ja4, the same way.  See ngx_unmask_ban_ja4. */
+    ngx_int_t   ban_ja4_index;
 } ngx_http_unmask_main_conf_t;
 
 /* A prefix ban: an ip-only line whose address carries a /len (the daemon's
@@ -215,6 +217,8 @@ static ngx_int_t ngx_http_unmask_client_net_variable(ngx_http_request_t *r,
 static ngx_int_t ngx_http_unmask_compose_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_unmask_bind_key_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data);
+static ngx_int_t ngx_http_unmask_ban_ja4_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 
 static ngx_command_t ngx_http_unmask_commands[] = {
@@ -351,6 +355,17 @@ static ngx_http_variable_t ngx_http_unmask_vars[] = {
     { ngx_string("unmask_bind_key"), NULL,
       ngx_http_unmask_bind_key_variable, 0,
       NGX_HTTP_VAR_CHANGEABLE, 0 },
+    /* unmask_ban_ja4: the fingerprint the ban file's "<ip>|<ja4>" and
+     * "|<ja4>" rows are matched with (read by ngx_unmask_ban_ja4).  The
+     * render's http.inc defines it as a map on the fingerprint the daemon
+     * logs and bans by -- behind a trusted load balancer the one the
+     * balancer forwarded in a header.  This registration gives the name a
+     * resolver (this hop's own handshake, as before 0.1.54) when no http.inc
+     * defines it; CHANGEABLE, and an existing definition wins, as for
+     * $unmask_bind_key. */
+    { ngx_string("unmask_ban_ja4"), NULL,
+      ngx_http_unmask_ban_ja4_variable, 0,
+      NGX_HTTP_VAR_CHANGEABLE | NGX_HTTP_VAR_NOCACHEABLE, 0 },
     ngx_http_null_variable
 };
 
@@ -828,6 +843,23 @@ ngx_http_unmask_bind_key_variable(ngx_http_request_t *r,
     return NGX_OK;
 }
 
+/* $unmask_ban_ja4 when the rendered http.inc does not define it: this hop's
+ * own fingerprint, what the ban key was made of before 0.1.54. */
+static ngx_int_t
+ngx_http_unmask_ban_ja4_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data)
+{
+    ngx_str_t ja4 = ngx_unmask_request_ja4(r);
+
+    (void) data;
+    v->valid = 1;
+    v->no_cacheable = 1;
+    v->not_found = 0;
+    v->len = ja4.len;
+    v->data = ja4.data;
+    return NGX_OK;
+}
+
 /* ----------------------------------------------------------------------
  * Rate-limit / protected composition (ACCESS phase).  On "compose" locations
  * (the render switches a protected location to the unified flow when a deny
@@ -1075,10 +1107,12 @@ static ngx_int_t ngx_http_unmask_init(ngx_conf_t *cf) {
     for (ngx_http_variable_t *v = ngx_http_unmask_vars; v->name.len; v++) {
         ngx_http_variable_t *var = ngx_http_add_variable(cf, &v->name, v->flags);
         if (!var) return NGX_ERROR;
-        /* $unmask_bind_key: the geo block the render puts in http.inc is parsed
-         * before this hook runs and is the definition that must stand; the
-         * module's own handler is only the fallback for a config without one. */
-        if (v->get_handler == ngx_http_unmask_bind_key_variable
+        /* $unmask_bind_key and $unmask_ban_ja4: the geo / map block the render
+         * puts in http.inc is parsed before this hook runs and is the
+         * definition that must stand; the module's own handler is only the
+         * fallback for a config without one. */
+        if ((v->get_handler == ngx_http_unmask_bind_key_variable
+             || v->get_handler == ngx_http_unmask_ban_ja4_variable)
             && var->get_handler != NULL)
         {
             continue;
@@ -1104,10 +1138,12 @@ static ngx_int_t ngx_http_unmask_init(ngx_conf_t *cf) {
     }
     {
         ngx_str_t bk = ngx_string("unmask_bind_key");
+        ngx_str_t bj = ngx_string("unmask_ban_ja4");
         ngx_http_unmask_main_conf_t *mcf =
             ngx_http_conf_get_module_main_conf(cf, ngx_http_unmask_module);
         if (mcf != NULL) {
             mcf->bind_key_index = ngx_http_get_variable_index(cf, &bk);
+            mcf->ban_ja4_index = ngx_http_get_variable_index(cf, &bj);
         }
     }
 
@@ -1190,6 +1226,7 @@ ngx_http_unmask_create_main_conf(ngx_conf_t *cf)
     cnf->bv_captcha_valid_seconds = NGX_CONF_UNSET;
     cnf->bv_pow_difficulty = NGX_CONF_UNSET;
     cnf->bind_key_index = NGX_ERROR;
+    cnf->ban_ja4_index = NGX_ERROR;
     /* bv_secret left zero-init: empty ngx_str_t */
     return cnf;
 }
@@ -2271,6 +2308,29 @@ ngx_unmask_check_banlist(const char *path, ngx_log_t *log)
      * next second tries again. */
 }
 
+/* ngx_unmask_ban_ja4: the fingerprint the ban file's "<ip>|<ja4>" and
+ * "|<ja4>" rows are matched with.  The daemon writes those rows from the
+ * access log's ja4=, which the rendered http.inc takes from a trusted load
+ * balancer's header when there is one ($effective_ja4), and the render
+ * defines $unmask_ban_ja4 on that same value.  Until 0.1.54 the key was
+ * this hop's own handshake, which behind a balancer is the balancer's
+ * fingerprint: a JA4 ban the daemon placed matched no request there, with
+ * nothing logged.  A configuration without the variable keeps the old key
+ * (the module's fallback handler). */
+static ngx_str_t
+ngx_unmask_ban_ja4(ngx_http_request_t *r, ngx_http_unmask_main_conf_t *mcf)
+{
+    if (mcf != NULL && mcf->ban_ja4_index != NGX_ERROR) {
+        ngx_http_variable_value_t *vv =
+            ngx_http_get_indexed_variable(r, (ngx_uint_t) mcf->ban_ja4_index);
+        if (vv != NULL && vv->valid && !vv->not_found && vv->len > 0) {
+            ngx_str_t j = { vv->len, vv->data };
+            return j;
+        }
+    }
+    return ngx_unmask_request_ja4(r);
+}
+
 /* One ban-file lookup per request (see ngx_http_unmask_req_ctx_t): the list
  * is (re)loaded if the file changed, then the client's "<ip>|<ja4>" key is
  * tried, then the JA4-only "|<ja4>" shape (scope ja4_only), then the IP-only
@@ -2319,9 +2379,11 @@ ngx_unmask_ban_lookup_req(ngx_http_request_t *r, int *hit, ngx_str_t *action)
     if (iplen == 0 || iplen > 80) {
         goto done;
     }
-    /* The request's JA4 as $client_ja4 logs it ('q' for HTTP/3), which is
-     * what the daemon wrote into the file. */
-    ja4 = ngx_unmask_request_ja4(r);
+    /* The fingerprint the daemon wrote into the file: $unmask_ban_ja4 as the
+     * render defines it (behind a trusted load balancer, the one forwarded
+     * in a header), else this hop's own as $client_ja4 logs it ('q' for
+     * HTTP/3). */
+    ja4 = ngx_unmask_ban_ja4(r, mcf);
     if (iplen + 1 + ja4.len + 1 > sizeof(key)) {
         goto done;
     }

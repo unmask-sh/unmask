@@ -367,6 +367,21 @@ map $unmask_lb_ja4_or_sentinel $effective_ja4 {
     default $unmask_lb_ja4_or_sentinel;
 }
 
+# $unmask_ban_ja4: the fingerprint the native plugin matches the ban file's
+# "<ip>|<ja4>" and "|<ja4>" rows with.  The daemon writes those rows from the
+# access log's ja4= -- $effective_ja4, the header a trusted load balancer
+# forwarded when there is one -- so the plugin has to match on that same
+# value.  Until 0.1.54 it matched on its own handshake's fingerprint, which
+# behind a balancer is the balancer's: a JA4 ban the daemon placed (a honeypot
+# ban's default scope, a fingerprint-only ban) matched nothing there, with
+# nothing logged.  The plugin also registers the variable (its own
+# fingerprint), so a hand-written configuration without this map keeps the
+# old key; a plugin older than 0.1.54 ignores the map, and nginx must be
+# restarted for the new one to read it.
+map $effective_ja4 $unmask_ban_ja4 {
+    default $effective_ja4;
+}
+
 # JA4 -> verdict label (free-form label for log / dashboard display).  No behavior impact.
 map $effective_ja4 $ja4_verdict {
     default "ok";
