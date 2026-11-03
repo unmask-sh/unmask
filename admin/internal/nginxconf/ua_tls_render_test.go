@@ -20,7 +20,7 @@ func TestUATLSRenderOff(t *testing.T) {
 			t.Errorf("tier off: %q must not render", absent)
 		}
 	}
-	if !strings.Contains(off, `:$unmask_header_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" $final_challenge {`) {
+	if !strings.Contains(off, `:$unmask_header_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_captcha_valid" $final_challenge {`) {
 		t.Error("tier off: the header tier should write $final_challenge itself")
 	}
 }
@@ -75,8 +75,8 @@ func TestUATLSRenderOn(t *testing.T) {
 		`map "$unmask_ja4_chromium:$unmask_ua_tls_family:$unmask_ja4_t13:$unmask_ua_pre_tls13:$unmask_ua_tls_reverse" $unmask_ua_tls_mismatch {`,
 		`"~^1:[fs]:" family;`,
 		`"~^[01]:[cfs]:1:1:" version;`,
-		`:$unmask_header_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" $fc_after_header {`,
-		`map "$fc_after_header:$unmask_ua_tls_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" $final_challenge {`,
+		`:$unmask_header_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_captcha_valid" $fc_after_header {`,
+		`map "$fc_after_header:$unmask_ua_tls_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_captcha_valid" $final_challenge {`,
 		`default               $fc_after_header;`,
 		`"~^0:[a-z]+:0:0:0:0$" 1;`,
 	} {
@@ -103,7 +103,7 @@ func TestUATLSRenderOn(t *testing.T) {
 		s.Global.StaleBrowserChallenge = true
 	})
 	if !strings.Contains(stale, `map "$fc_after_stale:$unmask_ua_tls_mismatch:`) ||
-		!strings.Contains(stale, `:$unmask_stale_browser:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" $fc_after_stale {`) {
+		!strings.Contains(stale, `:$unmask_stale_browser:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_captcha_valid" $fc_after_stale {`) {
 		t.Error("tier after stale: the stale tier should write $fc_after_stale and the tier read it")
 	}
 }

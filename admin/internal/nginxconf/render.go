@@ -699,6 +699,18 @@ type renderData struct {
 	// name, or a TLS 1.3 session under a browser version from before TLS 1.3.
 	// Off, its maps are not emitted.
 	UATLSEnabled bool
+	// StaleBrowserCaptchaGrade / HeaderIntegrityCaptchaGrade /
+	// UATLSCaptchaGrade: the tier's screen ends in a CAPTCHA, so the pass that
+	// keeps a client the tier names out of it is a CAPTCHA-grade one.  Each
+	// tier escalates only a would-pass request, and "would pass" used to read
+	// $bv_any_valid: a proof-of-work cookie -- which the page the tier serves
+	// hands out before its CAPTCHA, and which a client that reads the page
+	// mints for itself -- satisfied a screen meant to be the CAPTCHA.  With
+	// the flag the tier reads $bv_captcha_valid instead, the grade its own
+	// screen mints; a tier whose action is pow_only keeps reading any pass.
+	StaleBrowserCaptchaGrade    bool
+	HeaderIntegrityCaptchaGrade bool
+	UATLSCaptchaGrade           bool
 	// UATLSReverse: the opt-in reverse check (settings.ua_tls_reverse_check)
 	// joins the tier's key.
 	UATLSReverse bool
@@ -1459,6 +1471,11 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	d.HeaderIntegrityLBFronted = len(d.LBIPRanges) > 0
 	d.UATLSEnabled = UATLSActive(s)
 	d.UATLSReverse = d.UATLSEnabled && s.Global.UATLSReverseCheck
+	// The grade each tier's screen demands, from the same resolvers the serve
+	// picks the screen with (ServeChallenge), so the two cannot disagree.
+	d.StaleBrowserCaptchaGrade = actionEndsInCaptcha(s.Global.StaleBrowserResolvedAction())
+	d.HeaderIntegrityCaptchaGrade = actionEndsInCaptcha(s.Global.HeaderIntegrityResolvedAction())
+	d.UATLSCaptchaGrade = actionEndsInCaptcha(s.Global.UATLSResolvedAction())
 	d.ChromiumJA4C = strings.Join(ChromiumJA4C, "|")
 
 	// Monitor mode: rendered only while some site is in it, so the usual

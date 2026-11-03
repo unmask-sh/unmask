@@ -1415,11 +1415,17 @@ map $http_user_agent $unmask_stale_browser {
     "~{{ .StaleBrowserPattern }}" 1;
 }
 # Escalate only a not-otherwise-exempt, would-pass request (base=0) that is
-# stale.  Key: base : stale : search_bot : bypass_ip : bypass_path : bv_valid.
+# stale.  Key: base : stale : search_bot : bypass_ip : bypass_path : bv_pass.
+# The last field is the pass that satisfies THIS tier: when its screen ends
+# in a CAPTCHA, only a CAPTCHA-grade cookie ($bv_captcha_valid) -- the one
+# that screen mints.  A proof-of-work cookie used to count here, so a stale
+# browser that solved the proof-of-work (or minted the cookie itself, as the
+# scraper this tier was built for did) never saw the CAPTCHA the tier
+# escalates to.  A tier set to pow_only reads any pass.
 # When a later tier (header-integrity, UA-TLS consistency) also runs it
 # consumes this result next, so emit into an intermediate; otherwise this IS
 # the final decision.
-map "$final_challenge_base:$unmask_stale_browser:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" {{ if or .HeaderIntegrityEnabled .UATLSEnabled }}$fc_after_stale{{ else }}$final_challenge{{ end }} {
+map "$final_challenge_base:$unmask_stale_browser:$is_search_bot:$is_bypass_ip:$is_bypass_path:{{ if .StaleBrowserCaptchaGrade }}$bv_captcha_valid{{ else }}$bv_any_valid{{ end }}" {{ if or .HeaderIntegrityEnabled .UATLSEnabled }}$fc_after_stale{{ else }}$final_challenge{{ end }} {
     default              $final_challenge_base;  # keep base decision (incl. all base=1 challenges)
     "~^0:1:0:0:0:0$"     1;                       # stale + no exemption + would-pass -> challenge
 }
@@ -1487,8 +1493,11 @@ map "$unmask_ua_chromium:$scheme:$unmask_http_modern:$http_sec_ch_ua" $unmask_he
 }
 {{- end }}
 # Escalate a would-pass ({{ if .StaleBrowserEnabled }}post-stale{{ else }}base{{ end }}), not-otherwise-exempt request that mismatches.
-# Key: prev : mismatch : search_bot : bypass_ip : bypass_path : bv_valid.
-map "{{ if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base{{ end }}:$unmask_header_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" {{ if .UATLSEnabled }}$fc_after_header{{ else }}$final_challenge{{ end }} {
+# Key: prev : mismatch : search_bot : bypass_ip : bypass_path : bv_pass --
+# the pass that satisfies this tier, as the stale tier's: a CAPTCHA-grade
+# cookie when the tier's screen ends in a CAPTCHA, any pass when it is
+# pow_only.
+map "{{ if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base{{ end }}:$unmask_header_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:{{ if .HeaderIntegrityCaptchaGrade }}$bv_captcha_valid{{ else }}$bv_any_valid{{ end }}" {{ if .UATLSEnabled }}$fc_after_header{{ else }}$final_challenge{{ end }} {
     default          {{ if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base{{ end }};
     "~^0:1:0:0:0:0$" 1;   # mismatch + no exemption + would-pass -> challenge
 }
@@ -1582,8 +1591,10 @@ map "$unmask_ja4_chromium:$unmask_ua_tls_family:$unmask_ja4_t13:$unmask_ua_pre_t
     "~^0:c:1:0:1$" reverse;
 }
 # Escalate a would-pass, not-otherwise-exempt request that contradicts itself.
-# Key: prev : mismatch : search_bot : bypass_ip : bypass_path : bv_valid.
-map "{{ if .HeaderIntegrityEnabled }}$fc_after_header{{ else if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base{{ end }}:$unmask_ua_tls_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" $final_challenge {
+# Key: prev : mismatch : search_bot : bypass_ip : bypass_path : bv_pass --
+# the pass that satisfies this tier, as the tiers above: a CAPTCHA-grade
+# cookie when the tier's screen ends in a CAPTCHA, any pass when pow_only.
+map "{{ if .HeaderIntegrityEnabled }}$fc_after_header{{ else if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base{{ end }}:$unmask_ua_tls_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:{{ if .UATLSCaptchaGrade }}$bv_captcha_valid{{ else }}$bv_any_valid{{ end }}" $final_challenge {
     default               {{ if .HeaderIntegrityEnabled }}$fc_after_header{{ else if .StaleBrowserEnabled }}$fc_after_stale{{ else }}$final_challenge_base{{ end }};
     "~^0:[a-z]+:0:0:0:0$" 1;   # a contradiction + no exemption + would-pass -> challenge
 }

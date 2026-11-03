@@ -37,7 +37,7 @@ func TestHeaderIntegrityRenderOn(t *testing.T) {
 		`"~^1:https:1:$" 1;`, // chromium + https + h2/h3 + empty Sec-CH-UA
 		// The escalation consumes the base decision (no stale tier here) and
 		// only bumps a would-pass, non-exempt mismatch.
-		`:$unmask_header_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_any_valid" $final_challenge {`,
+		`:$unmask_header_mismatch:$is_search_bot:$is_bypass_ip:$is_bypass_path:$bv_captcha_valid" $final_challenge {`,
 		`"~^0:1:0:0:0:0$" 1;`,
 	} {
 		if !strings.Contains(on, want) {

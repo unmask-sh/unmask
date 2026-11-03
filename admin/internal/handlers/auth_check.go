@@ -432,12 +432,14 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		case bvOK && !(!gradeSatisfies(bvCookieKind) &&
 			(requestNeedsCaptchaGrade(ua, uri, site, cfg) ||
 				ja4NeedsCaptchaGrade(ja4Verdict, ja4Action, cfg) ||
-				h.axisNeedsCaptchaGradeFor(ip, uri, matchers, cfg))):
+				h.axisNeedsCaptchaGradeFor(ip, uri, matchers, cfg) ||
+				escalationNeedsCaptchaGrade(ua, secChUA, scheme, modernHTTP, cfg))):
 			// Named after the entry that verified (see pickValidBV): a PoW
 			// solve, a CAPTCHA solve, or a credential re-bound onto this
 			// address after a solve elsewhere.  A PoW cookie does NOT pass here
 			// when the UA's chain, the protected path it hit, its JA4 verdict
-			// row, or its network's geo/ASN rule ends in a CAPTCHA — it falls
+			// row, its network's geo/ASN rule, or the stale-browser / header-
+			// integrity tier that names it ends in a CAPTCHA — it falls
 			// through to the gating axes, which re-issue the right challenge.
 			// Grade first: a CAPTCHA-grade cookie satisfies every source, so
 			// the common repeat-visitor case skips both the UA scan and the
@@ -1213,6 +1215,29 @@ func headerDecide(ua, secChUA, scheme string, modernHTTP bool, g settings.Global
 	act := g.HeaderIntegrityResolvedAction()
 	s := severityFromAction(act)
 	return axisDecision{sev: s, reason: "header:no_sch_ua", chMode: chModeFromSeverity(s)}, true
+}
+
+// escalationNeedsCaptchaGrade reports whether the stale-browser or the
+// header-integrity tier puts this request on a chain that ends in a CAPTCHA:
+// the tier fires for it, and the tier's action (the screen the serve would
+// show) ends in one.  The forward-auth twin of the native tiers reading
+// $bv_captcha_valid (http.conf.tmpl): both tiers run after the pass-cookie
+// veto, so a proof-of-work cookie -- which the tier's own page hands out
+// before its CAPTCHA, and which a client that reads the page mints for
+// itself -- used to carry a stale or header-less client past the CAPTCHA
+// the tier escalates to.  The UA-TLS tier has no forward-auth twin (the
+// path is frozen) and is not mirrored here.
+func escalationNeedsCaptchaGrade(ua, secChUA, scheme string, modernHTTP bool, cfg settings.Settings) bool {
+	g := cfg.Global
+	if g.StaleBrowserEnabled() && chainEndsInCaptcha(g.StaleBrowserResolvedAction()) &&
+		classify.IsStaleBrowser(ua, g.CurrentChromeMajorResolved(), g.CurrentFirefoxMajorResolved(),
+			g.FirefoxESRMajors(), g.StaleBrowserLagN(), g.FirefoxStaleLagN()) {
+		return true
+	}
+	if _, ok := headerDecide(ua, secChUA, scheme, modernHTTP, g); ok && chainEndsInCaptcha(g.HeaderIntegrityResolvedAction()) {
+		return true
+	}
+	return false
 }
 
 // headerDecideForServe runs the header-integrity axis against a challenge-serve
