@@ -26,7 +26,11 @@
 services:
   unmask:
     image: unmask.sh/unmask:latest      # mirrored at ghcr.io/unmask-sh/unmask
-    build: .                            # or build from this checkout
+    # To build the image from a checkout of the repository instead of
+    # pulling it, uncomment the next line and run `docker compose build`.
+    # Left in, it makes `up` on a host without the Dockerfile (this file is
+    # also shipped on its own) fail on the missing build context.
+    # build: .
     container_name: unmask
     restart: unless-stopped
     environment:
