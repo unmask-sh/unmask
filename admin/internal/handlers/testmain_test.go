@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"io"
+	"log"
 	"os"
 	"testing"
 	"time"
@@ -13,6 +15,17 @@ import (
 // must not ride the embedded snapshot's real age inside tests.  Handlers
 // render and match through nginxconf, so the pin applies here too.
 func TestMain(m *testing.M) {
+	// The handlers log through the standard logger, and under test they log
+	// what they would in production: a rollup table the fixture never
+	// created, an insert after the test closed its database.  Across the
+	// package that is several hundred lines a run, and go test prints them
+	// exactly when a test fails -- around the one line that says what did.
+	// Dropped unless asked for; UNMASK_TEST_LOG=1 keeps them.  A test that
+	// reads the log swaps the writer itself and restores what it found
+	// (challenge_asset_test.go), so it is not affected.
+	if os.Getenv("UNMASK_TEST_LOG") == "" {
+		log.SetOutput(io.Discard)
+	}
 	restore := nginxconf.SetSnapshotDataAtForTests(func() time.Time { return time.Time{} })
 	// No test re-executes the test binary.  The wizard's switch of database
 	// schedules a syscall.Exec of os.Args a few seconds later, which starts
