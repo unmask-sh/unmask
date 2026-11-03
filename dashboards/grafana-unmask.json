@@ -28,10 +28,124 @@
   },
   "panels": [
     {
+      "id": 101,
+      "type": "stat",
+      "title": "module fail-safe",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {"refId": "A", "expr": "max(unmask_native_failsafe_active)", "legendFormat": "fail-safe"}
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "background", "graphMode": "none", "textMode": "value"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]},
+          "mappings": [{"type": "value", "options": {"0": {"text": "module loaded", "color": "green", "index": 0}, "1": {"text": "FAIL-SAFE: protection off", "color": "red", "index": 1}}}]
+        }
+      },
+      "description": "1 while the plugin's fail-safe has the nginx module stripped and the configuration rendered without it: nginx runs, unmask protects nothing.  `unmask doctor` says why."
+    },
+    {
+      "id": 102,
+      "type": "stat",
+      "title": "nginx configuration",
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {"refId": "A", "expr": "max(unmask_nginx_config_stale)", "legendFormat": "stale"}
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "background", "graphMode": "none", "textMode": "value"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}]},
+          "mappings": [{"type": "value", "options": {"0": {"text": "current", "color": "green", "index": 0}, "1": {"text": "reload needed", "color": "orange", "index": 1}}}]
+        }
+      },
+      "description": "1 while a rendered configuration waits for nginx to reload (or restart, when the module changed).  Cleared once the access log shows nginx running it."
+    },
+    {
+      "id": 103,
+      "type": "stat",
+      "title": "ban list readable by nginx",
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {"refId": "A", "expr": "min(unmask_ban_file_worker_readable)", "legendFormat": "readable"}
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "background", "graphMode": "none", "textMode": "value"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]},
+          "mappings": [{"type": "value", "options": {"1": {"text": "readable", "color": "green", "index": 0}, "0": {"text": "UNREADABLE: no ban enforced", "color": "red", "index": 1}}}]
+        }
+      },
+      "description": "0 when nginx's worker cannot read the ban list the daemon writes: nginx then enforces no ban.  1 otherwise, including when there is no list yet."
+    },
+    {
+      "id": 104,
+      "type": "stat",
+      "title": "schema updates waiting",
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {"refId": "A", "expr": "max(unmask_schema_update_pending)", "legendFormat": "pending"}
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "background", "graphMode": "none", "textMode": "value"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1}]},
+          "mappings": [{"type": "value", "options": {"0": {"text": "none", "color": "green", "index": 0}}}]
+        }
+      },
+      "description": "Schema updates left for the operator (an index build that would take long): applied from the admin's notice or with `unmask migrate`."
+    },
+    {
+      "id": 105,
+      "type": "stat",
+      "title": "events dropped / 1h",
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {"refId": "A", "expr": "sum(increase(unmask_events_dropped_total[1h]))", "legendFormat": "dropped"}
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "background", "graphMode": "none", "textMode": "value"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]},
+          "mappings": []
+        }
+      },
+      "description": "Events the batch writer dropped at its backlog cap: the database is not keeping up with the challenge volume.  Anything above zero loses hunt rows and statistics."
+    },
+    {
+      "id": 106,
+      "type": "stat",
+      "title": "access-log lines dropped / 1h",
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {"refId": "A", "expr": "sum(increase(unmask_nginxlog_dropped_total[1h]))", "legendFormat": "dropped"}
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "background", "graphMode": "none", "textMode": "value"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 1}]},
+          "mappings": []
+        }
+      },
+      "description": "Access-log lines the receiver dropped at a full queue: the daemon saw less traffic than nginx served, so counts, budgets and the reload notice run behind."
+    },
+    {
       "id": 1,
       "type": "stat",
       "title": "challenge serve / 24h",
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
@@ -46,7 +160,7 @@
       "id": 2,
       "type": "stat",
       "title": "verify ok / 24h",
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
@@ -60,7 +174,7 @@
       "id": 3,
       "type": "stat",
       "title": "verify ng / 24h",
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
@@ -75,7 +189,7 @@
       "id": 4,
       "type": "stat",
       "title": "unique source IPs (24h)",
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
@@ -89,7 +203,7 @@
       "id": 10,
       "type": "timeseries",
       "title": "challenge funnel (rate / 5m)",
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 8 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
@@ -110,7 +224,7 @@
       "id": 20,
       "type": "barchart",
       "title": "verdict distribution (24h, top 12)",
-      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 13 },
+      "gridPos": { "h": 9, "w": 12, "x": 0, "y": 17 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
@@ -125,7 +239,7 @@
       "id": 21,
       "type": "heatmap",
       "title": "verify score histogram",
-      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 13 },
+      "gridPos": { "h": 9, "w": 12, "x": 12, "y": 17 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
@@ -141,7 +255,7 @@
       "id": 30,
       "type": "timeseries",
       "title": "DB query latency p50/p95 (= sum/count rate)",
-      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 22 },
+      "gridPos": { "h": 9, "w": 24, "x": 0, "y": 26 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {

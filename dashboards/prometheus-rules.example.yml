@@ -1,0 +1,72 @@
+# Prometheus alerting rules for unmask, on the gauges and counters
+# /unmask/metrics exposes (admin/internal/handlers/metrics.go).  Copy into
+# the rule_files of your Prometheus and adjust the thresholds and labels.
+# Each alert names a condition the dashboard's "Health" row shows; these are
+# the quiet failures of this product -- nginx keeps serving, with less
+# protection than the operator believes.
+groups:
+  - name: unmask
+    rules:
+      # The plugin's fail-safe stripped the module: nginx runs, unmask
+      # protects nothing.  `unmask doctor` on the host says why (an ABI
+      # mismatch after an nginx upgrade, a render nginx -t refused).
+      - alert: UnmaskModuleFailsafe
+        expr: max by (instance) (unmask_native_failsafe_active) == 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "unmask module stripped by its fail-safe on {{ $labels.instance }}"
+          description: "nginx is running without the unmask module; no request is challenged. Run `unmask doctor` on the host."
+
+      # A rendered configuration waits for a reload (or a restart, when the
+      # module changed).  A settings save is not in effect until then.
+      - alert: UnmaskNginxConfigStale
+        expr: max by (instance) (unmask_nginx_config_stale) == 1
+        for: 30m
+        labels:
+          severity: warning
+        annotations:
+          summary: "nginx on {{ $labels.instance }} runs an older unmask configuration"
+          description: "A render has waited more than 30 minutes for `nginx -s reload` (a restart when the module changed). The unmask-nginx-reload.timer automates this."
+
+      # nginx's worker cannot read the ban list: no ban is enforced.
+      - alert: UnmaskBanListUnreadable
+        expr: min by (instance) (unmask_ban_file_worker_readable) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "nginx cannot read unmask's ban list on {{ $labels.instance }}"
+          description: "The daemon writes the ban list, but nginx's worker cannot open it, so bans are not enforced. `unmask doctor` names the permission to fix."
+
+      # A schema update is waiting for the operator (an index build that
+      # would take long).  Not urgent; the challenge keeps being served.
+      - alert: UnmaskSchemaUpdatePending
+        expr: max by (instance) (unmask_schema_update_pending) > 0
+        for: 24h
+        labels:
+          severity: info
+        annotations:
+          summary: "unmask on {{ $labels.instance }} has a schema update waiting"
+          description: "Run `unmask migrate`, or start it from the admin's notice."
+
+      # Events dropped at the batch writer's cap: the database is not
+      # keeping up, and hunt rows and statistics are being lost.
+      - alert: UnmaskEventsDropped
+        expr: sum by (instance) (increase(unmask_events_dropped_total[10m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "unmask on {{ $labels.instance }} is dropping events"
+          description: "The batch writer dropped events in the last 10 minutes; the database is behind the challenge volume (disk, a slow MariaDB, or an index build)."
+
+      # Access-log lines dropped at the receiver: the daemon saw less
+      # traffic than nginx served, so counts and budgets run behind.
+      - alert: UnmaskAccessLogDropped
+        expr: sum by (instance) (increase(unmask_nginxlog_dropped_total[10m])) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "unmask on {{ $labels.instance }} is dropping access-log lines"
+          description: "The log receiver's queue was full in the last 10 minutes; the dashboard and the pass budgets undercount."

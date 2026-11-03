@@ -53,9 +53,11 @@ contents:
   - src: ../admin/assets/static/challenge.js
     dst: /usr/share/unmask/challenge/challenge.js
 
-  # Grafana dashboard JSON
+  # Grafana dashboard JSON, and the Prometheus alerting rules it pairs with
   - src: ../dashboards/grafana-unmask.json
     dst: /usr/share/unmask/grafana/grafana-unmask.json
+  - src: ../dashboards/prometheus-rules.example.yml
+    dst: /usr/share/unmask/grafana/prometheus-rules.example.yml
 
   # systemd unit (= RHEL 7+ / Debian 8+ / Alpine 3.7+)
   - src: ./unmask.service
