@@ -63,9 +63,14 @@ jobs:
       - name: go vet
         working-directory: admin
         run: go vet ./...
+      # -timeout: the handlers package alone takes six and a half minutes
+      # here under -race, two thirds of go test's default ten, and a package
+      # that hits the default dies with a goroutine dump instead of a
+      # verdict.  Three times that figure; the Makefile's `test` says the
+      # same.  The job's own timeout-minutes sits above it.
       - name: go test
         working-directory: admin
-        run: go test -race -coverprofile=coverage.out ./...
+        run: go test -race -timeout 20m -coverprofile=coverage.out ./...
       - name: coverage report
         working-directory: admin
         run: go tool cover -func=coverage.out | tail -5

@@ -912,8 +912,13 @@ release-github:
 	@echo "    https://github.com/unmask-sh/unmask/releases"
 
 ## test          - go test (admin app) + plugin parser unit test
+# -timeout: go test's default of ten minutes per package is what the
+# handlers package takes on a slow machine (six and a half on a CI runner
+# under -race), and a package that hits it dies with a goroutine dump
+# instead of a verdict.  Three times the CI figure, here and in ci.yml.
+GO_TEST_TIMEOUT ?= 20m
 test: test-plugin-parser
-	cd admin && go test ./...
+	cd admin && go test -timeout $(GO_TEST_TIMEOUT) ./...
 
 ## test-plugin-parser - run the stand-alone C tests (ja4_parser_test.c + ja4_build_test.c)
 .PHONY: test-plugin-parser
@@ -973,7 +978,7 @@ test-mariadb:
 	@# -p 1: both packages Migrate the same shared database; go test's default
 	@# package parallelism races their check-then-create DDL (observed as
 	@# "Duplicate key name 'uk_user_email'").
-	@cd admin && UNMASK_TEST_MARIADB_HOST=127.0.0.1 UNMASK_TEST_MARIADB_PORT=3307 UNMASK_TEST_MARIADB_USER=unmask UNMASK_TEST_MARIADB_PASSWORD=unmask UNMASK_TEST_MARIADB_DATABASE=unmask_test go test -p 1 ./internal/db/ ./internal/events/ ./internal/nginxlog/ -run TestMariaDB -v -count=1; ret=$$?; docker rm -f unmask-test-mariadb >/dev/null 2>&1; exit $$ret
+	@cd admin && UNMASK_TEST_MARIADB_HOST=127.0.0.1 UNMASK_TEST_MARIADB_PORT=3307 UNMASK_TEST_MARIADB_USER=unmask UNMASK_TEST_MARIADB_PASSWORD=unmask UNMASK_TEST_MARIADB_DATABASE=unmask_test go test -timeout $(GO_TEST_TIMEOUT) -p 1 ./internal/db/ ./internal/events/ ./internal/nginxlog/ -run TestMariaDB -v -count=1; ret=$$?; docker rm -f unmask-test-mariadb >/dev/null 2>&1; exit $$ret
 
 ## e2e           - bare-metal e2e (run 4 scenarios via curl).  BASE_URL switches the target.
 # Examples:

@@ -5,7 +5,7 @@ Thanks for the contribution.  A few notes:
 - Match the surrounding code style; admin/ uses gofmt, nginx-module/ follows
   nginx upstream style, challenge.js is plain ES5-compatible JavaScript.
 - Update CHANGELOG.md under [Unreleased] (= or the active release section).
-- Run `go test ./...` from admin/ before submitting.
+- Run `go test -timeout 20m ./...` from admin/ before submitting.
 - See CONTRIBUTING.md for the full guidelines.
 -->
 
@@ -32,7 +32,7 @@ of the system, etc. -->
 
 - [ ] One logical change (= split unrelated edits into separate PRs).
 - [ ] gofmt clean (= `gofmt -l admin/` is empty).
-- [ ] `go test ./...` passes in admin/.
+- [ ] `go test -timeout 20m ./...` passes in admin/.
 - [ ] `make e2e-docker` passes locally (= for nginx / forward-auth / Apache scenarios).
 - [ ] CHANGELOG.md updated under the active release.
 - [ ] Docs / install page updated if the change affects the install flow.

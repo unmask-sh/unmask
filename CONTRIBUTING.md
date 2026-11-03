@@ -42,7 +42,9 @@ End-to-end tests live in `e2e/` and run against the dockerized stack.
 - Match the existing code style — Go uses `gofmt`; C follows the nginx
   source style.
 - Update `CHANGELOG.md` under `[Unreleased]` with a brief entry.
-- Run `go test ./...` from `admin/` before submitting.
+- Run `go test -timeout 20m ./...` from `admin/` before submitting (the
+  handlers package can take longer than go test's default ten minutes on a
+  slow machine).
 - forward-auth mode is frozen: its decision path
   (`admin/internal/handlers/auth_check.go`, reached through `auth_request` or
   Apache `mod_lua`) takes bug and security fixes only.  Wire a new feature into
