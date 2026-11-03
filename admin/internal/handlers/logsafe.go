@@ -1,6 +1,6 @@
 package handlers
 
-import "strings"
+import "github.com/unmask-sh/unmask/admin/internal/logsafe"
 
 // LogSafe makes a request-derived value safe to put in a log line.
 //
@@ -17,37 +17,7 @@ import "strings"
 // than silently dropped, and the value stays readable: an operator grepping for
 // a path still finds it.  Other C0 controls go the same way, since a bare
 // escape sequence in a terminal is its own small surprise.
-func LogSafe(s string) string {
-	if !strings.ContainsFunc(s, func(r rune) bool { return r < 0x20 || r == 0x7f }) {
-		return s
-	}
-	var b strings.Builder
-	b.Grow(len(s) + 8)
-	for _, r := range s {
-		switch {
-		case r == '\n':
-			b.WriteString(`\n`)
-		case r == '\r':
-			b.WriteString(`\r`)
-		case r == '\t':
-			b.WriteString(`\t`)
-		case r < 0x20 || r == 0x7f:
-			b.WriteString(`\x`)
-			const hex = "0123456789abcdef"
-			b.WriteByte(hex[(r>>4)&0xf])
-			b.WriteByte(hex[r&0xf])
-		default:
-			b.WriteRune(r)
-		}
-	}
-	return b.String()
-}
+func LogSafe(s string) string { return logsafe.String(s) }
 
 // LogSafeAll applies LogSafe across a slice, for the %v of a host / allowlist.
-func LogSafeAll(ss []string) []string {
-	out := make([]string, len(ss))
-	for i, s := range ss {
-		out[i] = LogSafe(s)
-	}
-	return out
-}
+func LogSafeAll(ss []string) []string { return logsafe.Strings(ss) }

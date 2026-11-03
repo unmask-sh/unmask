@@ -177,7 +177,7 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 			path = "scan"
 		}
 		log.Printf("overview: the %dh section ran past its %v budget after %v (partial=%q site=%q hosts=%v aggReady=%v path=%s)",
-			winHours, budget, time.Since(t0).Round(time.Millisecond), partial, site, hosts, dashboard.HourlyAggReady(), path)
+			winHours, budget, time.Since(t0).Round(time.Millisecond), partial, site, LogSafeAll(hosts), dashboard.HourlyAggReady(), path)
 	}
 
 	// "Blocked" for the hero: challenges fired that produced no pass, minus the

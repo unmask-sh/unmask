@@ -27,6 +27,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/unmask-sh/unmask/admin/internal/logsafe"
 	"log"
 	"os"
 	"path/filepath"
@@ -308,7 +309,9 @@ func (m *Manager) egressLog(ip, vendor, what string) {
 	}
 	m.mu.Unlock()
 	if say {
-		log.Printf("ban: %s is %s's origin-facing address, shared by every site behind that CDN: %s not placed (settings > Network: CDN egress)", ip, vendor, what)
+		// The address came off the wire and the vendor's name out of the CDN
+		// list: neither may end the line early (logsafe).
+		log.Printf("ban: %s is %s's origin-facing address, shared by every site behind that CDN: %s not placed (settings > Network: CDN egress)", logsafe.String(ip), logsafe.String(vendor), logsafe.String(what))
 	}
 }
 
