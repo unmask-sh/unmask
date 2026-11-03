@@ -74,15 +74,19 @@ func (r *Reader) SuggestASN(q string, limit int) []ASNSuggestion {
 	return idx.search(q, limit)
 }
 
-// asnIndexOrBuild returns the cached index, building it under the lock on first
+// asnIndexOrBuild returns the cached index, building it under idxMu on first
 // use.  The build walks the whole ASN mmdb once (~70k orgs); subsequent calls
-// are free.
+// are free.  The walk reads the database under the shared lock, so lookups
+// go on beside it and a Reload waits for it (idxMu first, as Reload takes
+// it) rather than closing the file under the walk.
 func (r *Reader) asnIndexOrBuild() *asnSuggestIndex {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.idxMu.Lock()
+	defer r.idxMu.Unlock()
 	if r.asnIdx != nil {
 		return r.asnIdx
 	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	if r.asnDB == nil {
 		return nil
 	}

@@ -5,7 +5,9 @@
 //   - When the DB is absent (= path unset / open failed), Lookup() /
 //     LookupInfo() return empty (= "" / Info{}).  Callers don't need nil-checks.
 //   - Cache each (IP, lookup) in memory (= the dashboard hits the same IP repeatedly).
-//   - thread-safe (= sync.Mutex guards both the reader and the cache).
+//   - thread-safe: lookups read the databases under a read lock that Reload
+//     and Close take exclusively, so a database is never closed under a
+//     lookup; the cache has a lock of its own.
 //   - Country DB / City DB are interchangeable: with a City DB you get both
 //     country + city.  Read the record's `country.iso_code` and `city.names.en`.
 package ipgeo
@@ -45,18 +47,30 @@ type Info struct {
 }
 
 type Reader struct {
-	mu        sync.Mutex
+	// mu guards the databases and what describes them (the paths and the
+	// loaded flags).  A lookup holds it shared for the duration of its
+	// reads; Reload and Close hold it exclusively, so the file a lookup is
+	// reading is never unmapped under it (maxminddb's Close unmaps).
+	mu        sync.RWMutex
 	geoDB     *maxminddb.Reader // Country or City DB
 	asnDB     *maxminddb.Reader // ASN DB
-	cache     map[string]Info
-	overrides map[string]Info // test-only IP -> Info override.  populated by Open() from env.
+	overrides map[string]Info   // test-only IP -> Info override.  populated by Open() from env.
 	geoPath   string
 	asnPath   string
 	loaded    bool // whether geoDB opened OR overrides populated
 	asnReady  bool // whether asnDB opened
+	closed    bool // Close was called: a Reload after it opens nothing
+
+	// The answer cache, under its own lock (a lookup writes it while
+	// holding mu shared).
+	cacheMu sync.Mutex
+	cache   map[string]Info
 
 	// asnIdx is the lazily-built org/ASN suggestion index (nil until the first
 	// SuggestASN call walks asnDB).  Immutable once built; discarded on Reload.
+	// Guarded by idxMu, which is taken before mu (Reload takes both in that
+	// order; the build holds idxMu and reads asnDB under mu shared).
+	idxMu  sync.Mutex
 	asnIdx *asnSuggestIndex
 }
 
@@ -118,17 +132,25 @@ func Open(geoPath, asnPath string) *Reader {
 	return r
 }
 
-// Close releases both readers.
+// Close releases both readers.  Taken exclusively, so a lookup in flight
+// finishes on the open file first; a lookup after it answers empty.
 func (r *Reader) Close() {
 	if r == nil {
 		return
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.geoDB != nil {
 		_ = r.geoDB.Close()
+		r.geoDB = nil
 	}
 	if r.asnDB != nil {
 		_ = r.asnDB.Close()
+		r.asnDB = nil
 	}
+	r.loaded = len(r.overrides) > 0
+	r.asnReady = false
+	r.closed = true
 }
 
 // Loaded reports whether the geo DB is ready (= used to decide whether to show the per-country chart).
@@ -136,8 +158,8 @@ func (r *Reader) Loaded() bool {
 	if r == nil {
 		return false
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return r.loaded
 }
 
@@ -146,8 +168,8 @@ func (r *Reader) ASNLoaded() bool {
 	if r == nil {
 		return false
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return r.asnReady
 }
 
@@ -155,12 +177,23 @@ func (r *Reader) ASNLoaded() bool {
 // Called when the path changes via the settings UI (= no server restart needed).
 // On failure (= file cannot open), reset the corresponding DB to nil and loaded=false.
 // If the path is unchanged, do nothing (= avoid a needless close).
+//
+// Exclusive against the lookups: one that is reading the old file finishes
+// before it is closed, and the ones that arrive meanwhile wait (an open is
+// a map of the file, microseconds) and read the new one.
 func (r *Reader) Reload(geoPath, asnPath string) {
 	if r == nil {
 		return
 	}
+	r.idxMu.Lock()
+	defer r.idxMu.Unlock()
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.closed {
+		// The daemon is shutting down (a first-run fetch that lands after
+		// it): nothing to open.
+		return
+	}
 
 	if geoPath != r.geoPath {
 		if r.geoDB != nil {
@@ -192,7 +225,9 @@ func (r *Reader) Reload(geoPath, asnPath string) {
 		}
 	}
 	// Discard the cache on a path change (= results may change with a new DB).
+	r.cacheMu.Lock()
 	r.cache = map[string]Info{}
+	r.cacheMu.Unlock()
 }
 
 // Lookup returns the ISO country code only (= compatibility API).
@@ -288,15 +323,14 @@ func (r *Reader) lookupDB(ip string) Info {
 			return info
 		}
 	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	if r.geoDB == nil && r.asnDB == nil {
 		return Info{}
 	}
-	r.mu.Lock()
-	if info, ok := r.cache[ip]; ok {
-		r.mu.Unlock()
+	if info, ok := r.cacheGet(ip); ok {
 		return info
 	}
-	r.mu.Unlock()
 
 	parsed := net.ParseIP(ip)
 	if parsed == nil {
@@ -370,6 +404,8 @@ func (r *Reader) LookupASN(ip string) (uint, string) {
 			return info.ASN, info.ASNOrg
 		}
 	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	if r.asnDB == nil {
 		return 0, ""
 	}
@@ -398,9 +434,16 @@ func (r *Reader) LookupBytes(b []byte) string {
 	return ""
 }
 
+func (r *Reader) cacheGet(key string) (Info, bool) {
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
+	info, ok := r.cache[key]
+	return info, ok
+}
+
 func (r *Reader) cacheSet(key string, val Info) Info {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.cacheMu.Lock()
+	defer r.cacheMu.Unlock()
 	r.cache[key] = val
 	return val
 }
