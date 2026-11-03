@@ -811,9 +811,20 @@ type IPGeo struct {
 //	             Default true. Empty socket_path is effectively disabled too.
 //	socket_path: path of the Unix datagram socket the admin binds. Keep in
 //	             sync with nginx access_log syslog:server=unix:<same path>.
+//	socket_mode: file mode of that socket, octal ("0660").  Empty → 0660,
+//	             shared by group with nginx's worker -- or 0666 when no
+//	             group can be applied (see socket_group), so the worker can
+//	             still write; `unmask doctor` says which it is.
+//	socket_group: group owner of the socket: the group nginx's worker runs
+//	             as.  Empty → the first of nginx / apache / www-data /
+//	             http / www that exists on the host.  The daemon must be a
+//	             member of it (the service unit adds it as a supplementary
+//	             group) for the chown to succeed.
 type NginxLog struct {
-	Enabled    bool   `yaml:"enabled"`
-	SocketPath string `yaml:"socket_path"`
+	Enabled     bool   `yaml:"enabled"`
+	SocketPath  string `yaml:"socket_path"`
+	SocketMode  string `yaml:"socket_mode,omitempty"`
+	SocketGroup string `yaml:"socket_group,omitempty"`
 }
 
 // Nginx: input that `unmask render-nginx` uses to generate the nginx config.

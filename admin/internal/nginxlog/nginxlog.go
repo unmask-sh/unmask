@@ -74,6 +74,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/live"
 	"github.com/unmask-sh/unmask/admin/internal/safe"
 	"github.com/unmask-sh/unmask/admin/internal/selabel"
+	"github.com/unmask-sh/unmask/admin/internal/sockperm"
 )
 
 // Reader: body of the recv goroutine + flush goroutine.  Disabled
@@ -572,16 +573,25 @@ type bucket struct {
 
 // Start: if socketPath is empty, return a disabled stub
 // (= goroutines don't run).  Otherwise bind the Unix datagram socket
-// and start the two recv + flush goroutines.
-//
-// An existing socket file is deleted and re-created (= residue from
-// a prior admin).  Permissions are 0660.  Group-share the socket so
-// the nginx worker (= usually the nginx user) can write to it:
-//
-//	add SupplementaryGroups=nginx to the systemd unit so admin joins the nginx group,
-//	or add nginx to the unmask group,
-//	or raise the mode to 0666 (= within the same host the impact is small).
+// and start the two recv + flush goroutines.  The socket's mode and group
+// are the defaults (StartWith).
 func Start(socketPath string, d *db.DB) *Reader {
+	return StartWith(socketPath, d, sockperm.Spec{})
+}
+
+// StartWith is Start with the socket's mode and group as the operator set
+// them (nginx_log.socket_mode / socket_group).
+//
+// An existing socket file is deleted and re-created (= residue from a
+// prior admin).  The socket is shared by group with nginx's worker: mode
+// 0660, owned by the worker's group (named, or the first web server group
+// the host has), which the daemon must be a member of (the service unit
+// adds it as a supplementary group).  When no group can be applied the
+// socket is opened to every local user (0666) instead, so that nginx's
+// lines are not lost silently, and the log says so; `unmask doctor`
+// repeats it.  Any local process can then write lines into the daemon's
+// counts, which is what the group share is for (sockperm).
+func StartWith(socketPath string, d *db.DB, perm sockperm.Spec) *Reader {
 	r := &Reader{
 		socketPath:           socketPath,
 		d:                    d,
@@ -624,6 +634,9 @@ func Start(socketPath string, d *db.DB) *Reader {
 	if conn := adopt(socketPath); conn != nil {
 		r.conn, r.stored = conn, true
 		log.Printf("nginxlog: listening on unix:%s (kept over the restart)", socketPath)
+		// The kept socket is the file at the path: it takes the mode and
+		// group this version asks for, as a fresh bind would.
+		applySocketPerms(socketPath, perm)
 		go r.recvLoop()
 		go r.workLoop()
 		go r.flushLoop()
@@ -638,8 +651,8 @@ func Start(socketPath string, d *db.DB) *Reader {
 	// user) can't traverse the dir and can't connect to the socket
 	// (= [alert] connect() failed: Permission denied while logging to syslog).
 	// Explicitly loosen to 0755 here to permit world rx (= the socket
-	// file itself is chmoded to 0666 below, so as long as the dir's x
-	// bit lets nginx through, it can write).
+	// file itself gets its mode and group below, so as long as the dir's
+	// x bit lets nginx through, it can write).
 	if dir := filepath.Dir(socketPath); dir != "" && dir != "." {
 		_ = os.MkdirAll(dir, 0o755)
 		_ = os.Chmod(dir, 0o755)
@@ -669,11 +682,7 @@ func Start(socketPath string, d *db.DB) *Reader {
 	// count of datagrams, and past it nginx's worker gets EAGAIN and drops
 	// the line.  What keeps that queue short is a receiver that never waits
 	// on a line: recvLoop hands each one to workLoop and reads on.
-	// Loosen the mode so the nginx worker can write (= 0666).  In
-	// production, group-based ownership is recommended.
-	if err := os.Chmod(socketPath, 0o666); err != nil {
-		log.Printf("nginxlog: chmod %s 0666 failed: %v", socketPath, err)
-	}
+	applySocketPerms(socketPath, perm)
 	r.conn = conn
 	log.Printf("nginxlog: listening on unix:%s", socketPath)
 	if labelled {
@@ -691,6 +700,26 @@ func Start(socketPath string, d *db.DB) *Reader {
 	go r.workLoop()
 	go r.flushLoop()
 	return r
+}
+
+// applySocketPerms gives the socket the mode and group the operator asked
+// for (sockperm): 0660 shared with the worker's group, or open to every
+// local user when no group can be applied -- said in the log either way,
+// since which it is decides who can write lines into the daemon's counts.
+func applySocketPerms(path string, perm sockperm.Spec) {
+	res, err := sockperm.Apply(path, perm, 0o660, true)
+	for _, n := range res.Notes {
+		log.Printf("nginxlog: %s", n)
+	}
+	if err != nil {
+		log.Printf("nginxlog: %v (nginx's worker may not be able to write to the socket)", err)
+		return
+	}
+	if res.Group != "" {
+		log.Printf("nginxlog: %s is mode %#o, group %s", path, res.Mode, res.Group)
+	} else if res.WorldWritable() {
+		log.Printf("nginxlog: %s is mode %#o (open to every local user)", path, res.Mode)
+	}
 }
 
 // Receive lets the reader take lines from the socket.  Start binds (or takes

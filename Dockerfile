@@ -116,8 +116,11 @@ COPY --chmod=0755 docker/nginx/30-unmask-autoreload.sh /docker-entrypoint.d/30-u
 RUN test -x /docker-entrypoint.d/10-unmask-gateway.envsh && test -x /docker-entrypoint.d/30-unmask-autoreload.sh
 
 # The daemon: a pure-Go static binary, its own user (the binary drops to it
-# right after start, as under systemd), and the directories it owns.
-RUN useradd --system --user-group --home-dir /var/lib/unmask --shell /usr/sbin/nologin unmask \
+# right after start, as under systemd), and the directories it owns.  It is
+# a member of nginx's group so the access-log socket it binds can be shared
+# with nginx's worker by group (0660), as the service unit arranges on a
+# host install.
+RUN useradd --system --user-group --groups nginx --home-dir /var/lib/unmask --shell /usr/sbin/nologin unmask \
     && mkdir -p /var/lib/unmask /var/log/unmask \
     && chown -R unmask:unmask /var/lib/unmask /var/log/unmask /etc/unmask /run/unmask
 COPY --from=build /out/unmask /usr/local/bin/unmask

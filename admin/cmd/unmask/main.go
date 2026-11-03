@@ -23,7 +23,6 @@ import (
 	"net/netip"
 	"os"
 	"os/signal"
-	osuser "os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -55,6 +54,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/rulehits"
 	"github.com/unmask-sh/unmask/admin/internal/selabel"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
+	"github.com/unmask-sh/unmask/admin/internal/sockperm"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 	"github.com/unmask-sh/unmask/admin/internal/webbotauth"
 )
@@ -454,7 +454,7 @@ func cmdServe(args []string) error {
 		if !s.NginxLog.Enabled {
 			nlogSock = ""
 		}
-		nlog = nginxlog.Start(nlogSock, conn)
+		nlog = nginxlog.StartWith(nlogSock, conn, sockperm.Spec{Mode: s.NginxLog.SocketMode, Group: s.NginxLog.SocketGroup})
 		defer nlog.Close()
 		// Honeypot ban duration is per-site in v2; the ban manager is a
 		// single shared writer so we seed it with the install-wide default.
@@ -1057,43 +1057,20 @@ func openListener(s settings.Server) (net.Listener, string, error) {
 		if labelled {
 			log.Printf("listen: %s carries the web server's SELinux type (%s), so it may connect", path, selabel.WebServerType)
 		}
-		// Permissions.  Default 0660 (owner rw + group rw).  Include group rw
-		// so the nginx worker can read/write through group access.
-		mode := parseFileMode(s.SocketMode, 0660)
-		if err := os.Chmod(path, mode); err != nil {
+		// Permissions and group owner (sockperm).  Default 0660 (owner rw +
+		// group rw), owned by a group the web server worker belongs to: an
+		// explicit socket_group, else the first of the common web server
+		// groups the host has.  A group that cannot be applied is said in
+		// the log and the mode is kept: nginx's "connection refused" is
+		// found at once, unlike a lost log line (the access-log socket
+		// loosens instead, see nginxlog.StartWith).
+		res, err := sockperm.Apply(path, sockperm.Spec{Mode: s.SocketMode, Group: s.SocketGroup}, 0o660, false)
+		for _, n := range res.Notes {
+			log.Printf("listen: %s", n)
+		}
+		if err != nil {
 			ln.Close()
-			return nil, "", fmt.Errorf("chmod %s: %w", path, err)
-		}
-		// Group owner.  The socket must be group-owned by a group the web
-		// server worker belongs to (it connects through group rw, see
-		// SocketMode 0660).  An explicit socket_group wins; when empty we probe
-		// the common web-server groups (nginx today, apache etc. planned) and
-		// use the first that exists instead of hard-coding nginx.  Warn only if
-		// the resolved group doesn't exist.
-		// A world-writable socket (other-write bit, e.g. 0666) lets any local
-		// process connect regardless of group, so group ownership is moot --
-		// skip auto-detect (and its multi-group warning) and the chown.  An
-		// explicit socket_group is still honored even then (harmless).
-		group := s.SocketGroup
-		if group == "" && mode&0o002 == 0 {
-			if g, all := detectWebServerGroup(); g != "" {
-				group = g
-				if len(all) > 1 {
-					log.Printf("socket group: multiple web server groups found (%s); using %q -- set socket_group explicitly if the front-end is not %s", strings.Join(all, ", "), g, g)
-				}
-			} else {
-				group = "nginx" // none found; keep nginx as the warning label below
-			}
-		}
-		if group != "" {
-			if g, err := osuser.LookupGroup(group); err == nil {
-				gid, _ := strconv.Atoi(g.Gid)
-				if err := os.Chown(path, -1, gid); err != nil {
-					log.Printf("socket chown :%s failed: %v (insufficient permission?  socket stays at default uid)", group, err)
-				}
-			} else {
-				log.Printf("socket group %q lookup failed: %v (chown skipped; the web server worker may not be able to read it.  change socket_group or run groupadd)", group, err)
-			}
+			return nil, "", err
 		}
 		return ln, "unix:" + path, nil
 	}
@@ -1112,45 +1089,6 @@ func openListener(s settings.Server) (net.Listener, string, error) {
 		return nil, "", err
 	}
 	return ln, addr, nil
-}
-
-// detectWebServerGroup probes the common web server groups and returns the
-// first existing one plus the full list of those that exist (or "", nil when
-// none).  The unix socket is group-owned by the web server's group so its
-// worker can connect (group rw); that group differs by web server / distro --
-// nginx, apache (RHEL), www-data (Debian/Ubuntu), http (Arch).  Probing keeps
-// `socket_group: ""` correct everywhere instead of assuming nginx, which
-// matters once native mode grows beyond nginx (apache, …).
-//
-// The second return lets the caller warn when more than one is installed: the
-// pick is order-based (nginx wins), so a host that runs apache behind unmask
-// but also has nginx installed needs an explicit socket_group.
-func detectWebServerGroup() (string, []string) {
-	var found []string
-	for _, cand := range []string{"nginx", "apache", "www-data", "http", "www"} {
-		if _, err := osuser.LookupGroup(cand); err == nil {
-			found = append(found, cand)
-		}
-	}
-	if len(found) == 0 {
-		return "", nil
-	}
-	return found[0], found
-}
-
-// parseFileMode interprets an octal string like "0660" as os.FileMode.  Empty
-// or invalid returns the fallback.  Leading "0" is optional.
-func parseFileMode(s string, fallback os.FileMode) os.FileMode {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return fallback
-	}
-	v, err := strconv.ParseUint(s, 8, 32)
-	if err != nil {
-		log.Printf("socket_mode %q parse failed (write in octal, e.g. 0660): %v.  fallback %#o", s, err, fallback)
-		return fallback
-	}
-	return os.FileMode(v)
 }
 
 func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {

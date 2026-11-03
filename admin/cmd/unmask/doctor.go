@@ -523,6 +523,7 @@ func cmdDoctor(args []string) error {
 	// it there, and nginx enforced no ban while the admin showed every ban
 	// as in force.
 	checkBanFileWorkerRead(s, addOK, addWarn, addErr)
+	checkLogSocketShare(s, addOK, addWarn)
 
 	// 6. challenge html override (= optional).  Doctor reports the global
 	// default only; per-site challenge_html_path overrides are surfaced in
@@ -2382,4 +2383,33 @@ func checkPreviewVerify(s settings.Settings, addOK, addWarn func(t, m string)) {
 		return
 	}
 	addOK(title, who+" are verified by name and calling network (ASN mmdb) and exempt from the country / ASN rules")
+}
+
+// checkLogSocketShare: whether the access-log socket nginx's worker writes
+// into is shared with it by group (0660, the worker's group) or open to
+// every local user (0666), which lets any local process write lines into
+// the daemon's counts.  Nothing to say when the daemon is not running (no
+// socket) or the receiver is off.
+func checkLogSocketShare(s settings.Settings, addOK, addWarn func(t, m string)) {
+	p := s.NginxLog.SocketPath
+	if !s.NginxLog.Enabled || p == "" {
+		return
+	}
+	st, err := os.Stat(p)
+	if err != nil || st.Mode()&os.ModeSocket == 0 {
+		return
+	}
+	perm := st.Mode().Perm()
+	group := ""
+	if sys, ok := st.Sys().(*syscall.Stat_t); ok {
+		group = strconv.Itoa(int(sys.Gid))
+		if g, err := user.LookupGroupId(group); err == nil {
+			group = g.Name
+		}
+	}
+	if perm&0o002 != 0 {
+		addWarn("access-log socket", fmt.Sprintf("%s is mode %#o: every local process can write lines into the daemon's counts. Set nginx_log.socket_group to the group nginx's worker runs as (the daemon must be a member of it -- the service unit adds it as a supplementary group) and restart unmask; the socket is then 0660, shared by group.", p, perm))
+		return
+	}
+	addOK("access-log socket", fmt.Sprintf("%s is mode %#o, group %s", p, perm, group))
 }
