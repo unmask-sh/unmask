@@ -1793,19 +1793,27 @@ type honeypotRule struct {
 	name   string // what the ban's reason calls the rule: HoneypotGroup.Name / HoneypotURLName
 }
 
-// bypassMatchersCache: reused until the (published-snapshot pointer, site)
-// pair changes.  The key is the pointer the handler PUBLISHES (settingsPtr
-// via h.cfg()) — settings updates swap that pointer, so it identifies a
-// settings generation.  site is part of the key so swapping vhosts
-// mid-process does not return a cached compile that was filtered for a
-// different host.  (The original key was the address of a per-call value
-// copy, which never matched — every /api/check rebuilt ~100 matchers.)
+// The bypass matcher cache: one compile per (settings generation, site),
+// kept for the generation.  The generation is the pointer the handler
+// PUBLISHES (settingsPtr via h.cfg()) — settings updates swap that pointer,
+// so a save drops every site's compile at once.  Sites are kept side by
+// side: with one slot, as it was, two sites whose /api/check calls
+// interleaved evicted each other on every request, and each miss parsed the
+// embedded crawler ranges and compiled the preset patterns again under the
+// lock.  (The original key was the address of a per-call value copy, which
+// never matched — every /api/check rebuilt ~100 matchers.)
+//
+// The Host header names the site, so the set of keys is not the
+// operator's to bound: past matchersCacheSites entries the map is dropped
+// and starts over, which costs a stranger one compile per request -- what
+// every request cost before -- and never more memory than the cap.
 var (
 	matchersMu     sync.Mutex
-	cachedSnap     *settings.Settings
-	cachedSite     string
-	cachedMatchers pathMatchers
+	matchersSnap   *settings.Settings
+	matchersBySite map[string]pathMatchers
 )
+
+const matchersCacheSites = 256
 
 // reCache memoizes compiled patterns by their STRING, which always compiles to
 // the same regex -- so it is staleness-free (unlike the settings-pointer cache
@@ -1839,8 +1847,12 @@ func compileCachedRe(pattern string) *regexp.Regexp {
 func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatchers {
 	matchersMu.Lock()
 	defer matchersMu.Unlock()
-	if cachedSnap == snap && cachedSite == site {
-		return cachedMatchers
+	if matchersSnap != snap || len(matchersBySite) >= matchersCacheSites {
+		matchersSnap = snap
+		matchersBySite = map[string]pathMatchers{}
+	}
+	if pm, ok := matchersBySite[site]; ok {
+		return pm
 	}
 	n := snap.Nginx
 	pm := pathMatchers{}
@@ -2000,9 +2012,7 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 		}
 	}
 
-	cachedSnap = snap
-	cachedSite = site
-	cachedMatchers = pm
+	matchersBySite[site] = pm
 	return pm
 }
 
