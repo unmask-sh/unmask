@@ -33,7 +33,7 @@ const installWideState = "iw_hourly"
 //     ~720 hourly rows instead of scanning ~333k per-minute, per-site rows.
 //
 // Both preserve hour resolution, so the read side still folds hours into the
-// operator's cookie-TZ day (day boundaries follow the operator — CLAUDE.md #6);
+// operator's cookie-TZ day (day boundaries follow the operator);
 // a daily rollup could not, because an HLL sketch cannot be re-split once
 // unioned and a summed count cannot be re-split once merged.
 //

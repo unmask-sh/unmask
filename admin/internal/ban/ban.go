@@ -1076,7 +1076,7 @@ func upsertOn(g *gorm.DB, ip, ja4, source, reason string, bannedAt, expiresAt in
 		// manual ja4_only ban on the SAME (ip, ja4) are distinct rows, not an
 		// overwrite.  Without scope here the upsert silently rewrote one into the
 		// other -- which could widen a single-device ban into a JA4-wide ban
-		// (every IP with that JA4), the exact ranking accident CLAUDE.md #4 guards.
+		// (every IP with that JA4), the search-ranking accident the crawler rescue guards against.
 		Columns: []clause.Column{{Name: "ip"}, {Name: "ja4"}, {Name: "scope"}},
 		DoUpdates: clause.AssignmentColumns([]string{
 			"source", "reason", "banned_at", "expires_at", "banned_by", "action",

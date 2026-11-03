@@ -1724,7 +1724,7 @@ db:
   #   database: unmask
 
 secret:
-  # _bv cookie HMAC key.  If leaked, change this and re-sync nginx's secret.conf.
+  # _bv cookie HMAC key.  If leaked, change it, re-render nginx (unmask render-nginx) and reload nginx.
   # sig_hash: sha256   # sign with HMAC-SHA256 instead of SHA-1, once every nginx runs a module that verifies both (0.1.53+)
   bv_secret: %q
   # math captcha token HMAC-SHA256 base

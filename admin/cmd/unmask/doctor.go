@@ -597,8 +597,8 @@ func cmdDoctor(args []string) error {
 	// 10b. over-block breaker alert deliverability.  The breaker is armed by
 	// default, but its trip alert only reaches the operator through the
 	// webhook or mail; with neither configured, a trip shows nowhere but the
-	// daemon log and the admin overview banner -- the shape of the 2026-06-08
-	// incident, where a challenge loop over-blocked visitors for ~14h before
+	// daemon log and the admin overview banner -- the shape of an
+	// incident where a challenge loop over-blocked visitors for hours before
 	// anyone looked.  (Mail delivery also needs alert recipients on admin
 	// users; this check covers the transport being configured at all.)
 	if !s.OverBlock.Disabled {
@@ -1679,8 +1679,8 @@ var httpsRedirectProbeURL = "http://127.0.0.1:80/"
 // X-Forwarded-Proto (health probes reach the backend directly, bypassing the
 // LB proxy that would set it) — and warns if it gets a 301.  A 301 to a health
 // check is a FAILED check: the LB marks the node unhealthy and drops it from
-// rotation, so its traffic (and stats) go silent.  This is what stopped web1-jp
-// recording on 2026-07-04 before the load-balancer-health redirect exemption
+// rotation, so its traffic (and stats) go silent.  This is what stopped a
+// node's recording before the load-balancer-health redirect exemption
 // existed.  With that exemption on (the default) the probe is not redirected and
 // this is silent; it fires only when the redirect is on and the exemption was
 // turned off (or a custom config leaves the probe uncovered).  Best-effort:
@@ -1725,7 +1725,7 @@ func checkHTTPSRedirectHealthCheck(s settings.Settings, addOK, addWarn func(t, m
 // against the daemon's config.  A mismatch means the rendered nginx config is
 // stale: the native plugin verifies the _bv cookie against http.inc's secret
 // while the daemon signs with its config secret, so every _bv is rejected and
-// the visitor loops on the challenge — the 2026-06-08 incident's root cause.
+// the visitor loops on the challenge: the root cause of a past incident.
 // A reload won't fix it (the module isn't reloaded either); it needs a
 // re-render plus an nginx restart.  The daemon runs the same check at startup
 // (main.go) so a deploy that forgets the restart surfaces in the log too.
