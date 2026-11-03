@@ -14,6 +14,8 @@
 //     ban_created     : auto-BAN from a honeypot trip, or admin manual BAN
 //     challenge_burst : five minutes of challenges far above the hour before (burst.go)
 //     preview_challenged : an hour's link-preview fetches stopped by a country or ASN rule (preview.go)
+//     over_block      : the over-block breaker tripped or cleared (overblock.go)
+//     native_failsafe : the plugin's fail-safe stripped the nginx module, or wired it again (failsafe.go)
 //   - A third channel, the admin's own notification list (Inbox, the notice
 //     package), gets every event whatever the switches below say: they are
 //     about how much mail and webhook traffic the operator wants, and the

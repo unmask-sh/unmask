@@ -608,6 +608,15 @@ func cmdDoctor(args []string) error {
 			addWarn("over-block alerts", "the breaker is armed but its trip alert has nowhere to go (no webhook URL, no SMTP host) — a challenge-loop trip only shows in the daemon log and the admin overview banner. Configure Settings → Notifications, or SMTP.")
 		}
 	}
+	// 10c. The alert for the nginx module stripped by the plugin's
+	// fail-safe (protection off: checkNativeFailsafe) goes by the same
+	// transports, and is the one alert every install should be able to
+	// deliver -- the state it reports has no symptom a visitor would notice.
+	if via := overBlockAlertRoute(s); via != "" {
+		addOK("nginx module alerts", "deliverable via "+via)
+	} else {
+		addWarn("nginx module alerts", "when the plugin's fail-safe strips the nginx module (protection off), the alert has nowhere to go (no webhook URL, no SMTP host): it shows only in the daemon log, the admin's notification list and this doctor. Configure Settings → Notifications, or SMTP.")
+	}
 
 	// 11. runtime SLO self-curl (= measure /unmask/healthz round-trip latency
 	// + error rate on the configured admin bind).  When admin is not running,
@@ -618,7 +627,7 @@ func cmdDoctor(args []string) error {
 	checkAdminBind(s, addOK, addWarn)
 	checkRealIP(conn, s, addOK, addWarn, addErr)
 	checkApacheConnPeer(addWarn)
-	checkNativeFailsafe(s.Nginx.OutputDir, addWarn)
+	checkNativeFailsafe(s.Nginx.OutputDir, addErr)
 	checkNginxConfTest(addOK, addWarn, addErr)
 	checkNginxStaleLibs(addWarn)
 	checkNginxErrorLog(addOK, addWarn)
@@ -685,7 +694,8 @@ var (
 // swapping the binary is every node, permanently.  A warning nobody can clear
 // is how a tool teaches people to stop reading it, and the next one that
 // matters goes with it.
-// overBlockAlertRoute reports how an over-block trip alert can reach the
+// overBlockAlertRoute reports how an over-block trip alert -- or the nginx
+// module's fail-safe alert, which takes the same route -- can reach the
 // operator: "webhook", "mail", "webhook + mail", or "" when no transport can
 // deliver.  Notifications.Disabled gates both transports (notifier's OverBlock
 // returns before either path when the section is off), and each channel's
@@ -1412,8 +1422,8 @@ func nginxErrLine(out string) string {
 	return last
 }
 
-// checkNativeFailsafe warns when the plugin's place-module fail-safe stripped
-// the nginx module (no bundled module matches the host nginx, or `nginx -t`
+// checkNativeFailsafe reports an error (protection is off) when the plugin's
+// place-module fail-safe stripped the nginx module (no bundled module matches the host nginx, or `nginx -t`
 // failed referencing unmask) and left its marker (nginxconf.FailsafeMarker)
 // beside the rendered files.  In that state nginx starts and the admin UI is
 // reachable, but protection is OFF -- the configuration is rendered DEGRADED,
@@ -1423,7 +1433,7 @@ func nginxErrLine(out string) string {
 // module wired, and renders the full configuration again; its presence means
 // the module is still out now.  The marker counts from the render dir and
 // from the package dir place-module writes to (nginxconf.FailsafeState).
-func checkNativeFailsafe(outputDir string, addWarn func(t, m string)) {
+func checkNativeFailsafe(outputDir string, addErr func(t, m string)) {
 	dir := strings.TrimSpace(outputDir)
 	if dir == "" {
 		dir = nginxconf.FailsafePackageDir
@@ -1450,7 +1460,7 @@ func checkNativeFailsafe(outputDir string, addWarn func(t, m string)) {
 		msg += " The rendered configuration is NOT the degraded one (the re-render under the fail-safe failed), so http.inc is left out of nginx; run `unmask render-nginx` and `nginx -t`."
 	}
 	msg += " Fix the cause (an nginx the plugin has no module for: install a plugin build that has one, or build the module for it; a config error: fix it), then run `sh /usr/share/unmask/plugin/place-module.sh` or restart nginx (systemd runs it before each start): once `nginx -t` passes with the module wired, the marker clears and the full configuration is rendered."
-	addWarn("native module disabled (fail-safe)", msg)
+	addErr("native module disabled (fail-safe)", msg)
 }
 
 // nginxErrorLogFile overrides the discovered error-log path (tests).

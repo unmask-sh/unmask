@@ -44,9 +44,9 @@ const (
 	KindPreview   = notifier.EventPreviewChallenged
 	// KindFailsafe: the plugin's fail-safe stripped the nginx module and the
 	// configuration is rendered without it (handlers.RunNativeFailsafeWatch
-	// writes the row when the marker appears, and one when it goes).  Not a
-	// webhook event: the daemon's own observation, written with Put.
-	KindFailsafe = "native_failsafe"
+	// writes the row when the marker appears, and one when it goes, with
+	// Put -- and sends the webhook and the mail through the notifier).
+	KindFailsafe = notifier.EventNativeFailsafe
 	// KindPanic: a loop's iteration panicked and was recovered; the loop
 	// goes on (notifier.LoopPanic).
 	KindPanic = notifier.EventLoopPanic

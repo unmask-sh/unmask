@@ -22,7 +22,11 @@ func TestSeverity(t *testing.T) {
 		{EventPreviewChallenged, nil, SeverityWarn},
 		{EventOverBlock, map[string]any{"tripped": true}, SeverityCrit},
 		{EventOverBlock, map[string]any{"tripped": false}, SeverityInfo},
-		{"native_failsafe", map[string]any{"active": true}, SeverityInfo},
+		{EventNativeFailsafe, map[string]any{"active": true}, SeverityCrit},
+		{EventNativeFailsafe, map[string]any{"active": false}, SeverityInfo},
+		{EventLoopPanic, map[string]any{"consecutive": 1}, SeverityWarn},
+		{EventLoopPanic, map[string]any{"consecutive": 3}, SeverityCrit},
+		{"something_else", nil, SeverityInfo},
 	}
 	for _, c := range cases {
 		if got := Severity(c.event, c.fields); got != c.want {

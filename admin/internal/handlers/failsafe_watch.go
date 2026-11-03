@@ -8,6 +8,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/notice"
+	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/safe"
 )
 
@@ -27,12 +28,13 @@ type failsafeSeen struct {
 // RunNativeFailsafeWatch keeps two things current until ctx ends.  The reload
 // marker: once the access log shows nginx running the render on disk, the
 // marker the render left for it goes (renderwatch.Settle), without waiting
-// for an admin page to ask.  And the notification list: when the plugin's
-// fail-safe strips the nginx module (place-module.sh leaves
-// nginxconf.FailsafeMarker and the configuration is rendered without the
-// module), a row says protection is off; when the marker goes, a row says it
-// is back.  The first look after a start compares with the list's last word,
-// so a restart in either state repeats nothing.
+// for an admin page to ask.  And the alert: when the plugin's fail-safe
+// strips the nginx module (place-module.sh leaves nginxconf.FailsafeMarker
+// and the configuration is rendered without the module), a row in the
+// notification list, the webhook and the mail say protection is off; when
+// the marker goes, they say it is back.  The first look after a start
+// compares with the list's last word, so a restart in either state repeats
+// nothing.
 func (h *Handler) RunNativeFailsafeWatch(ctx context.Context) {
 	for {
 		func() {
@@ -86,6 +88,12 @@ func (h *Handler) noticeFailsafe(ctx context.Context, dir string) {
 		log.Printf("native fail-safe: the nginx module is stripped and the configuration is rendered without it (protection off); run `unmask doctor`. %s", reason)
 	} else {
 		log.Printf("native fail-safe cleared: the nginx module is wired again and the full configuration is rendered; reload nginx")
+	}
+	// The webhook and the mail (notifier.NativeFailsafe): the loudest alert
+	// the daemon has, critical while the module is out.  The row for the
+	// list is this watch's own, below.
+	if h.Notifier != nil {
+		h.Notifier.NativeFailsafe(notifier.FailsafeReport{Active: active, Reason: reason, Since: since})
 	}
 	if h.Notices == nil {
 		return

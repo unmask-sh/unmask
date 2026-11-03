@@ -26,6 +26,10 @@ func Severity(event string, fields map[string]any) string {
 		if tripped, _ := fields["tripped"].(bool); tripped {
 			return SeverityCrit
 		}
+	case EventNativeFailsafe:
+		if active, _ := fields["active"].(bool); active {
+			return SeverityCrit
+		}
 	case EventLoopPanic:
 		if n, _ := fields["consecutive"].(int); n >= panicAlertAt {
 			return SeverityCrit
@@ -52,7 +56,7 @@ func (c Config) hookFor(event string, fields map[string]any) (hook, format strin
 		return c.URL, c.Format
 	}
 	sev := Severity(event, fields)
-	critical := event == EventOverBlock || sev == SeverityCrit ||
+	critical := event == EventOverBlock || event == EventNativeFailsafe || sev == SeverityCrit ||
 		(sev == SeverityWarn && c.CriticalMinSeverity == SeverityWarn)
 	if critical {
 		if c.CriticalFormat != "" {

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/notice"
+	"github.com/unmask-sh/unmask/admin/internal/notifier"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 )
 
@@ -177,4 +179,43 @@ func TestMetricsStateGauges(t *testing.T) {
 		t.Fatal("the reload marker was not cleared")
 	}
 	want(scrape(), "unmask_nginx_config_stale 0")
+}
+
+// The marker appearing is also the webhook's and the mail's business: the
+// watch hands the change to the notifier, critical while the module is out.
+func TestFailsafeWatchAlertsTheWebhook(t *testing.T) {
+	dir := t.TempDir()
+	h := failsafeHandler(t, dir)
+	posts := make(chan map[string]any, 4)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var m map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&m)
+		posts <- m
+	}))
+	defer srv.Close()
+	h.Notifier = notifier.New(notifier.Config{URL: srv.URL, Format: notifier.FormatGeneric})
+	ctx := context.Background()
+
+	h.failsafeTick(ctx)
+	if err := os.WriteFile(filepath.Join(dir, nginxconf.FailsafeMarker), []byte("reason: no bundled module for host nginx 1.99.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	h.failsafeTick(ctx)
+	h.failsafeTick(ctx)
+	select {
+	case m := <-posts:
+		if m["event"] != notifier.EventNativeFailsafe || m["active"] != true || m["severity"] != notifier.SeverityCrit || m["reason"] != "no bundled module for host nginx 1.99.0" {
+			t.Errorf("payload %v", m)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("the marker appearing sent no webhook")
+	}
+	select {
+	case m := <-posts:
+		t.Errorf("a second look sent again: %v", m)
+	case <-time.After(200 * time.Millisecond):
+	}
+	if rows := failsafeRows(t, h); len(rows) != 1 {
+		t.Fatalf("the list has %d row(s)", len(rows))
+	}
 }
