@@ -67,7 +67,7 @@ def check(page, ctx, value, expect_path):
 
 with sync_playwright() as p:
     browser = p.chromium.launch()
-    ctx = browser.new_context(ignore_https_errors=True, user_agent=UA,
+    ctx = browser.new_context(bypass_csp=True, ignore_https_errors=True, user_agent=UA,
                               extra_http_headers={"X-Forwarded-For": "198.51.100.81"})
     ctx.add_init_script(STEALTH)
     page = ctx.new_page()

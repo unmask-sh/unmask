@@ -32,12 +32,17 @@ with sync_playwright() as p:
     browser = p.chromium.launch()
     # A dedicated XFF so the browser scenarios don't share the host IP's
     # rate-limit / ban state with each other (the e2e proxies trust XFF).
-    ctx = browser.new_context(ignore_https_errors=True, user_agent=UA,
+    ctx = browser.new_context(bypass_csp=True, ignore_https_errors=True, user_agent=UA,
                               extra_http_headers={"X-Forwarded-For": "198.51.100.80"})
     ctx.add_init_script(STEALTH)
     page = ctx.new_page()
 
     # 1. Hit a PoW-only protected path -> the plugin serves the challenge (403).
+    # On a failure the console and the page errors say why the script did
+    # not get to the cookie (a policy refusal, a syntax error, an exception).
+    console = []
+    page.on("console", lambda m: console.append(f"console.{m.type}: {m.text}"))
+    page.on("pageerror", lambda e: console.append(f"pageerror: {e}"))
     resp = page.goto(BASE + PROT, wait_until="domcontentloaded")
     if not resp or resp.status != 403:
         fail("expected a challenge (403), got %s" % (resp.status if resp else None))
@@ -46,7 +51,9 @@ with sync_playwright() as p:
     try:
         page.wait_for_function("() => document.cookie.indexOf('_bv=') !== -1", timeout=30000)
     except Exception:
-        fail("challenge.js did not set a _bv within 30s (PoW unsolved? stale/djb2 JS?)")
+        body = page.evaluate("() => document.body ? document.body.innerText.slice(0, 300) : ''")
+        fail("challenge.js did not set a _bv within 30s (PoW unsolved? stale/djb2 JS?); console: "
+             + " | ".join(console[-8:]) + "; body: " + repr(body))
 
     # 3. The protected path must now pass (200), reusing the browser's cookies.
     resp2 = ctx.request.get(BASE + PROT)

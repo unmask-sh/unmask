@@ -33,7 +33,7 @@ with sync_playwright() as p:
     browser = p.chromium.launch()
     # Dedicated XFF so browser scenarios don't share the host IP's rate-limit /
     # ban state with each other (Apache trusts XFF via mod_remoteip).
-    ctx = browser.new_context(user_agent=UA,
+    ctx = browser.new_context(bypass_csp=True, user_agent=UA,
                               extra_http_headers={"X-Forwarded-For": "198.51.100.83"})
     ctx.add_init_script(STEALTH)
     page = ctx.new_page()
