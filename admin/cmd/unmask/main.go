@@ -53,6 +53,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/relay"
 	"github.com/unmask-sh/unmask/admin/internal/renderwatch"
 	"github.com/unmask-sh/unmask/admin/internal/rulehits"
+	"github.com/unmask-sh/unmask/admin/internal/safe"
 	"github.com/unmask-sh/unmask/admin/internal/selabel"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/sockperm"
@@ -547,6 +548,12 @@ func cmdServe(args []string) error {
 	if banMgr != nil {
 		banMgr.OnCreated = notifierInst.BanCreated
 	}
+	// A loop's recovered panic (safe.Guard: the events flusher, the ban
+	// loop, the access-log flush) is a row in the admin's list, and a loop
+	// stuck on one is critical on the webhook and in the mail.
+	safe.SetOnPanic(func(name string, consecutive int, value any) {
+		notifierInst.LoopPanic(name, consecutive, fmt.Sprint(value))
+	})
 
 	log.Printf("host id: %s (recorded in the events.host column)", hostID)
 

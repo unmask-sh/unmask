@@ -28,7 +28,7 @@ const (
 )
 
 // noticeKinds is the order the page's filter lists the kinds in.
-var noticeKinds = []string{notice.KindBan, notice.KindBurst, notice.KindPreview, notice.KindOverBlock, notice.KindFailsafe, notice.KindAdvisor}
+var noticeKinds = []string{notice.KindBan, notice.KindBurst, notice.KindPreview, notice.KindOverBlock, notice.KindFailsafe, notice.KindPanic, notice.KindAdvisor}
 
 // noticeRow is one line of the list as the templates render it.
 type noticeRow struct {
@@ -296,6 +296,17 @@ func noticeText(e notice.Entry, lang i18n.Lang, base string) (title, body, href 
 		} else {
 			title = i18n.T(lang, "notice.failsafe.title_cleared")
 			body = i18n.T(lang, "notice.failsafe.body_cleared")
+		}
+	case notice.KindPanic:
+		// The About tab has the version and the update commands; the
+		// daemon log has the stack.
+		href = base + "/admin/settings/about/"
+		n := e.Int("consecutive")
+		title = i18n.Tf(lang, "notice.panic.title", e.Str("loop"))
+		if n >= 3 {
+			body = i18n.Tf(lang, "notice.panic.body_stuck", n, e.Str("value"))
+		} else {
+			body = i18n.Tf(lang, "notice.panic.body", e.Str("value"))
 		}
 	case notice.KindAdvisor:
 		href = base + "/admin/advisor/"

@@ -14,9 +14,10 @@ const (
 // (internal/notice) and the hooks read, so what the bell shows as critical is
 // what the critical hook gets.  A ban and the advisor's digest are
 // information; a challenge burst and link previews stopped are warnings; the
-// over-block breaker tripping is critical, and its clearing information.  An
-// event this package does not send (the fail-safe row the daemon writes
-// itself) is information here; its writer sets the mark.
+// over-block breaker tripping is critical, and its clearing information; the
+// nginx module stripped by the plugin's fail-safe (protection off) is
+// critical, and its return information; a loop's recovered panic is a
+// warning, and the loop stuck on one critical (panic.go).
 func Severity(event string, fields map[string]any) string {
 	switch event {
 	case EventChallengeBurst, EventPreviewChallenged:
@@ -25,6 +26,11 @@ func Severity(event string, fields map[string]any) string {
 		if tripped, _ := fields["tripped"].(bool); tripped {
 			return SeverityCrit
 		}
+	case EventLoopPanic:
+		if n, _ := fields["consecutive"].(int); n >= panicAlertAt {
+			return SeverityCrit
+		}
+		return SeverityWarn
 	}
 	return SeverityInfo
 }
@@ -35,8 +41,9 @@ func Severity(event string, fields map[string]any) string {
 // whose severity reaches CriticalMinSeverity goes there in CriticalFormat
 // (Format when it names none: the hooks may be different services) and the
 // rest to URL -- which may be empty, for an operator who wants to hear of the
-// critical alerts alone.  The over-block breaker's clearing follows its trip:
-// the channel that saw the alarm sees it end.
+// critical alerts alone.  The over-block breaker's clearing follows its trip,
+// and the nginx module's return its loss: the channel that saw the alarm
+// sees it end.
 func (c Config) hookFor(event string, fields map[string]any) (hook, format string) {
 	if c.WebhookDisabled {
 		return "", ""

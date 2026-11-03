@@ -1278,7 +1278,13 @@ func (m *Manager) liftedIDs() map[int64]bool {
 
 func (m *Manager) loop() {
 	defer close(m.doneCh)
-	defer safe.Recover("ban-loop") // a panic here must not crash the daemon
+	// A panic in a tick ends that tick, not the loop (safe.Guard): the
+	// next tick prunes and writes again, after the guard's wait.  Through
+	// 0.1.53 the loop as a whole was recovered, and one panic left the
+	// expired bans in nginx's file and the kept ones out of the table for
+	// the life of the process.  A tick that panicked in the write leaves
+	// the file to write again: the flush had cleared the mark first.
+	guard := safe.NewGuard("ban-loop")
 	tick := time.NewTicker(60 * time.Second)
 	defer tick.Stop()
 	for {
@@ -1286,25 +1292,40 @@ func (m *Manager) loop() {
 		case <-m.stopCh:
 			return
 		case <-tick.C:
-			// Under a hold the table cannot be written, but it can be read:
-			// the file (the table and the kept bans) is still kept current.
-			if !m.DB.WritesHeld() {
-				m.writeHeld()
-				if pruned := m.prune(); pruned > 0 {
-					m.markDirty()
-				}
+			if !guard.Ready() {
+				continue
 			}
-			if m.shouldFlush() && m.filePath != "" {
-				_ = m.flush()
+			if guard.Run(func() {
+				// Under a hold the table cannot be written, but it can be
+				// read: the file (the table and the kept bans) is still
+				// kept current.
+				if !m.DB.WritesHeld() {
+					m.writeHeld()
+					if pruned := m.prune(); pruned > 0 {
+						m.markDirty()
+					}
+				}
+				if m.shouldFlush() && m.filePath != "" {
+					_ = m.flush()
+				}
+			}) {
+				m.markDirty()
 			}
 		case <-m.wake:
-			// A ban kept by the receive loop: into the file now, and into
-			// the table when the lock is free.
-			if m.shouldFlush() && m.filePath != "" {
-				_ = m.flush()
+			if !guard.Ready() {
+				continue // the next tick takes it: the mark is still set
 			}
-			if !m.DB.WritesHeld() {
-				m.writeHeld()
+			if guard.Run(func() {
+				// A ban kept by the receive loop: into the file now, and
+				// into the table when the lock is free.
+				if m.shouldFlush() && m.filePath != "" {
+					_ = m.flush()
+				}
+				if !m.DB.WritesHeld() {
+					m.writeHeld()
+				}
+			}) {
+				m.markDirty()
 			}
 		}
 	}

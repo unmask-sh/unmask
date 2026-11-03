@@ -47,6 +47,9 @@ const (
 	// writes the row when the marker appears, and one when it goes).  Not a
 	// webhook event: the daemon's own observation, written with Put.
 	KindFailsafe = "native_failsafe"
+	// KindPanic: a loop's iteration panicked and was recovered; the loop
+	// goes on (notifier.LoopPanic).
+	KindPanic = notifier.EventLoopPanic
 )
 
 // How a row is marked: the notifier's table (notifier.Severity), one answer
@@ -187,7 +190,7 @@ func (s *Store) RetryHeld() int {
 // columns, the rest is the detail.
 func fromEvent(event string, fields map[string]any) Entry {
 	switch event {
-	case KindBan, KindBurst, KindOverBlock, KindAdvisor, KindPreview:
+	case KindBan, KindBurst, KindOverBlock, KindAdvisor, KindPreview, KindPanic:
 	default:
 		return Entry{}
 	}

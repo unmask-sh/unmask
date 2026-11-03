@@ -114,6 +114,9 @@ type Reader struct {
 	// renderSeen hears the render id every line carries (rv=, "" when the
 	// line has none); nil until set.  Set before Receive, read unlocked.
 	renderSeen func(id string)
+	// beforeFlush runs at the start of every flush; nil but in a test
+	// (the flush loop's recovery is tested through it).
+	beforeFlush func()
 	// moduleSeen hears the module id every line carries (mo=: the hash of
 	// the module file nginx loaded, "" when the line has none); nil until
 	// set.  Set before Receive, read unlocked.
@@ -1499,6 +1502,9 @@ func (r *Reader) flushOnce(final bool) {
 	if r == nil || r.d == nil {
 		return
 	}
+	if r.beforeFlush != nil {
+		r.beforeFlush() // a test's seam
+	}
 	// A schema update holds the write lock: the buckets stay in memory,
 	// keep counting, and go out with the first flush after it.
 	if r.d.WritesHeld() {
@@ -1943,18 +1949,27 @@ func trafficHLLUpsert(drv db.Driver) string {
 		ON DUPLICATE KEY UPDATE sketch = VALUES(sketch)`
 }
 
-// flushLoop: 60-second ticker.
+// flushEvery is the flush loop's tick (a variable for the tests).
+var flushEvery = 60 * time.Second
+
+// flushLoop: 60-second ticker.  A panic in a flush ends that flush, not
+// the loop (safe.Guard): the buckets stay in memory and go out with the
+// next tick, after the guard's wait.  Through 0.1.53 the loop as a whole
+// was recovered, and one panic left the counters to grow in memory, and
+// the statistics to stop, for the life of the process.
 func (r *Reader) flushLoop() {
 	defer close(r.doneB)
-	defer safe.Recover("nginxlog-flush") // a panic here must not crash the daemon
-	tick := time.NewTicker(60 * time.Second)
+	guard := safe.NewGuard("nginxlog-flush")
+	tick := time.NewTicker(flushEvery)
 	defer tick.Stop()
 	for {
 		select {
 		case <-r.stop:
 			return
 		case <-tick.C:
-			r.flushOnce(false)
+			if guard.Ready() {
+				guard.Run(func() { r.flushOnce(false) })
+			}
 		}
 	}
 }

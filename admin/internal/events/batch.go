@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"log"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -192,13 +193,14 @@ func (f *Flusher) DroppedOnErrorCount() uint64 {
 
 // DroppedBadRowsCount: cumulative rows the database refused for their own
 // data and that were let go so the rest of their batch could be written
-// (insertRows).  A third failure mode, apart from the two above: the row,
-// not the queue or the database, was the problem.
+// (insertRows), and rows whose preparation panicked (insertArgs).  A third
+// failure mode, apart from the two above: the row, not the queue or the
+// database, was the problem.
 func (f *Flusher) DroppedBadRowsCount() uint64 {
 	if f == nil {
 		return 0
 	}
-	return f.droppedBadRows.Load()
+	return f.droppedBadRows.Load() + rowPanics.Load()
 }
 
 // GlobalFlusherDroppedBadRows is DroppedBadRowsCount of the process's
@@ -212,7 +214,13 @@ func GlobalFlusherDroppedBadRows() uint64 {
 
 func (f *Flusher) run() {
 	defer f.wg.Done()
-	defer safe.Recover("events-flusher") // a panic here must not crash the daemon
+	// A panic in a flush ends that flush, not the loop: the events it was
+	// writing stay in buf for the next try, after the guard's wait (the
+	// loop as a whole was recovered through 0.1.53, and one panic ended
+	// it for good, with the queue filling and dropping behind it).  A row
+	// whose own preparation panics is let go on its own (insertArgs), so
+	// a bad event cannot be the panic that comes back every time.
+	guard := safe.NewGuard("events-flusher")
 	buf := make([]*Event, 0, 512)
 	// Ideally the ticker would re-read flushInterval each tick, but stdlib's
 	// Ticker cannot change interval, so poll on a short interval (= 100ms)
@@ -364,19 +372,21 @@ func (f *Flusher) run() {
 			buf = append(buf, e)
 			// While holding, the batch size is no reason to try: the tick
 			// trims and waits.
-			if !holding && len(buf) >= int(f.batchSize.Load()) {
-				flush(false)
+			if !holding && len(buf) >= int(f.batchSize.Load()) && guard.Ready() {
+				guard.Run(func() { flush(false) })
 			}
 		case <-t.C:
 			interval := time.Duration(f.flushInterval.Load())
-			if time.Since(lastFlush) >= interval || (holding && len(buf) > heldMax) {
-				flush(false)
+			if (time.Since(lastFlush) >= interval || (holding && len(buf) > heldMax)) && guard.Ready() {
+				guard.Run(func() { flush(false) })
 			}
 			if time.Since(widthsRead) >= columnWidthsEvery {
 				widthsRead = time.Now()
-				ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-				LoadColumnWidths(ctx, f.d)
-				cancel()
+				safe.Run("events-flusher-widths", func() {
+					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+					LoadColumnWidths(ctx, f.d)
+					cancel()
+				})
 			}
 		case <-f.done:
 			// Drain what is queued and write it all, the hold or not: this
@@ -387,12 +397,32 @@ func (f *Flusher) run() {
 				case e := <-f.ch:
 					buf = append(buf, e)
 				default:
-					flush(true)
+					guard.Run(func() { flush(true) })
 					return
 				}
 			}
 		}
 	}
+}
+
+// rowPanics counts the events whose preparation for the insert panicked
+// (insertArgs) and that were let go for it.
+var rowPanics atomic.Uint64
+
+// insertArgs is prepareInsertArgs with the row's own panic recovered: the
+// row is let go (nil, as a row of an unknown phase is), counted in
+// DroppedBadRowsCount and logged -- the first, then every thousandth -- and
+// the rest of its batch is written.
+func insertArgs(e *Event) (args []any) {
+	defer func() {
+		if r := recover(); r != nil {
+			args = nil
+			if n := rowPanics.Add(1); n == 1 || n%1000 == 0 {
+				log.Printf("events: a row's preparation panicked and the row was dropped (%d so far; phase %q, site %q): %v\n%s", n, e.Phase, e.Site, r, debug.Stack())
+			}
+		}
+	}()
+	return prepareInsertArgs(e)
 }
 
 // insertBulk: INSERT N rows inside a single transaction.  Mid-flight failure rolls back everything.
@@ -412,7 +442,7 @@ func insertBulk(ctx context.Context, d *db.DB, events []*Event) error {
 	}
 	defer stmt.Close()
 	for _, e := range events {
-		args := prepareInsertArgs(e)
+		args := insertArgs(e)
 		if args == nil {
 			continue
 		}
@@ -463,7 +493,7 @@ func (f *Flusher) insertRows(ctx context.Context, events []*Event, cause error) 
 		}
 	}()
 	for _, e := range events {
-		args := prepareInsertArgs(e)
+		args := insertArgs(e)
 		if args == nil {
 			consumed++
 			continue
