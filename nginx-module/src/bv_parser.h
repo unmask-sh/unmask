@@ -68,4 +68,39 @@ int64_t bv_atoll(const unsigned char *s, size_t n);
  */
 size_t unmask_bind_ip_token(const char *ip, size_t len, char *out);
 
+/*
+ * bv_cookie_next: the next `name=value` pair in a Cookie header whose name is
+ * `name`, scanning from *off (0 to start; advanced past the pair on return).
+ * Returns 1 with *val_off / *val_len set (into hdr) when one is found, 0 at
+ * the end.  The caller iterates because a browser can send several `_bv`
+ * cookies at once (a stale one at another path beside the fresh one), and
+ * nginx's own header parser returns only the first.
+ *
+ * Pairs are split on ';'.  Spaces and tabs around the name and the value are
+ * skipped, as nginx's parser skips them (`_bv = v`), and a value wrapped in
+ * double quotes (RFC 6265's cookie-value form, which a proxy or an SDK may
+ * produce) is returned without the quotes.  Names are compared
+ * case-sensitively; a bare name without '=' is skipped.  Never reads outside
+ * [hdr, hdr + len).
+ */
+int bv_cookie_next(const unsigned char *hdr, size_t len,
+                   const char *name, size_t name_len,
+                   size_t *off, size_t *val_off, size_t *val_len);
+
+/*
+ * bv_base36: parse a base-36 number ([0-9a-zA-Z], 1 to 13 characters).
+ * Returns -1 for an empty or longer input, an invalid character, or a value
+ * past INT64_MAX (13 characters is the longest a non-negative int64 needs:
+ * log36(2^63) ~ 12.27).  The proof-of-work nonce is carried this way.
+ */
+int64_t bv_base36(const unsigned char *s, size_t n);
+
+/*
+ * bv_leading_zero_bits: the number of consecutive zero bits from the most
+ * significant bit of b[0] onward.  Matches leadingZeroBits() in challenge.js
+ * and in the Go cookies package; the three MUST agree, since this is what a
+ * proof-of-work is measured by.
+ */
+int bv_leading_zero_bits(const unsigned char *b, size_t n);
+
 #endif /* UNMASK_BV_PARSER_H */

@@ -116,3 +116,118 @@ unmask_bind_ip_token(const char *ip, size_t len, char *out)
     }
     return 16;
 }
+
+int
+bv_cookie_next(const unsigned char *hdr, size_t len,
+               const char *name, size_t name_len,
+               size_t *off, size_t *val_off, size_t *val_len)
+{
+    if (hdr == NULL || name == NULL || off == NULL) {
+        return 0;
+    }
+    while (*off < len) {
+        size_t name_start, name_end, vs, ve;
+        int matched;
+
+        /* Separators between pairs: ';' and the whitespace around it. */
+        while (*off < len
+               && (hdr[*off] == ' ' || hdr[*off] == '\t' || hdr[*off] == ';'))
+        {
+            (*off)++;
+        }
+        if (*off >= len) {
+            return 0;
+        }
+
+        name_start = *off;
+        while (*off < len && hdr[*off] != '=' && hdr[*off] != ';') {
+            (*off)++;
+        }
+        name_end = *off;
+        while (name_end > name_start
+               && (hdr[name_end - 1] == ' ' || hdr[name_end - 1] == '\t'))
+        {
+            name_end--;
+        }
+        matched = (name_end - name_start == name_len)
+                  && memcmp(hdr + name_start, name, name_len) == 0;
+
+        if (*off < len && hdr[*off] == '=') {
+            (*off)++;
+            while (*off < len && (hdr[*off] == ' ' || hdr[*off] == '\t')) {
+                (*off)++;
+            }
+            vs = *off;
+            while (*off < len && hdr[*off] != ';') {
+                (*off)++;
+            }
+            ve = *off;
+            if (matched) {
+                while (ve > vs && (hdr[ve - 1] == ' ' || hdr[ve - 1] == '\t')) {
+                    ve--;
+                }
+                if (ve - vs >= 2 && hdr[vs] == '"' && hdr[ve - 1] == '"') {
+                    vs++;
+                    ve--;
+                }
+                *val_off = vs;
+                *val_len = ve - vs;
+                return 1;
+            }
+        }
+        /* A bare name, or another cookie: on to the next ';'. */
+    }
+    return 0;
+}
+
+int64_t
+bv_base36(const unsigned char *s, size_t n)
+{
+    int64_t v = 0;
+    size_t i;
+
+    if (s == NULL || n == 0 || n > 13) {
+        return -1;
+    }
+    for (i = 0; i < n; i++) {
+        unsigned char c = s[i];
+        int d;
+        if (c >= '0' && c <= '9')      d = c - '0';
+        else if (c >= 'a' && c <= 'z') d = c - 'a' + 10;
+        else if (c >= 'A' && c <= 'Z') d = c - 'A' + 10;
+        else return -1;
+        /* overflow guard: pre-check that 36 * v + d <= INT64_MAX. */
+        if (v > (INT64_MAX - d) / 36) {
+            return -1;
+        }
+        v = v * 36 + d;
+    }
+    return v;
+}
+
+int
+bv_leading_zero_bits(const unsigned char *b, size_t n)
+{
+    int bits = 0;
+    size_t i;
+
+    if (b == NULL) {
+        return 0;
+    }
+    for (i = 0; i < n; i++) {
+        unsigned char v = b[i];
+        unsigned char mask;
+        if (v == 0) {
+            bits += 8;
+            continue;
+        }
+        for (mask = 0x80; mask != 0; mask >>= 1) {
+            if (v & mask) {
+                return bits;
+            }
+            bits++;
+        }
+        return bits;
+    }
+    return bits;
+}

@@ -145,6 +145,49 @@ static void check_bind_ip(void) {
     }
 }
 
+/* bv_cookie_next: random Cookie headers biased to the cookie alphabet, plus
+ * real shapes truncated at every offset.  Every value it yields must lie
+ * inside the header, and the scan must terminate. */
+static void fuzz_cookie(size_t iters) {
+    unsigned char buf[300];
+    static const char *seeds[] = {
+        "_bv=1700000000.0123456789abcdef.captcha; x=1",
+        "x=1; _bv=\"1700000000.pow2.3k5x.18\"; _bv = v ;_bv",
+        ";;=;=;_bv==;_bv=\"\";\"_bv\"=1",
+    };
+    for (size_t s = 0; s < sizeof(seeds) / sizeof(seeds[0]); s++) {
+        size_t L = strlen(seeds[s]);
+        for (size_t cut = 0; cut <= L; cut++) {
+            size_t off = 0, voff = 0, vlen = 0, guard = 0;
+            while (bv_cookie_next((const unsigned char *)seeds[s], cut, "_bv", 3,
+                                  &off, &voff, &vlen)) {
+                assert(voff <= cut && vlen <= cut - voff);
+                assert(++guard <= cut + 1);
+            }
+        }
+    }
+    for (size_t i = 0; i < iters; i++) {
+        size_t n = rng_next() % (sizeof(buf) + 1);
+        size_t off = 0, voff = 0, vlen = 0, guard = 0;
+        for (size_t j = 0; j < n; j++) {
+            uint32_t r = rng_next();
+            switch (r & 7) {
+                case 0:  buf[j] = ';'; break;
+                case 1:  buf[j] = '='; break;
+                case 2:  buf[j] = ' '; break;
+                case 3:  buf[j] = '"'; break;
+                case 4:  buf[j] = '_'; break;
+                case 5:  buf[j] = (unsigned char)("bv"[(r >> 3) & 1]); break;
+                default: buf[j] = (unsigned char)(r >> 3); break;
+            }
+        }
+        while (bv_cookie_next(buf, n, "_bv", 3, &off, &voff, &vlen)) {
+            assert(voff <= n && vlen <= n - voff);
+            assert(++guard <= n + 1);
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     size_t iters = (argc > 1) ? (size_t)strtoul(argv[1], NULL, 10) : 1000000;
     rng_state = (uint32_t)time(NULL) | 1u;
@@ -153,7 +196,8 @@ int main(int argc, char **argv) {
     fuzz_edges();
     fuzz_truncated();
     fuzz_random(iters);
+    fuzz_cookie(iters);
 
-    printf("bv_parser_fuzz: %zu random iters + truncation sweep + edges + bind-ip parity — no crash\n", iters);
+    printf("bv_parser_fuzz: %zu random iters + truncation sweep + edges + bind-ip parity + cookie splitter — no crash\n", iters);
     return 0;
 }

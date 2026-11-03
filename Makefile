@@ -926,7 +926,8 @@ GO_TEST_TIMEOUT ?= 20m
 test: test-plugin-parser
 	cd admin && go test -timeout $(GO_TEST_TIMEOUT) ./...
 
-## test-plugin-parser - run the stand-alone C tests (ja4_parser_test.c + ja4_build_test.c)
+## test-plugin-parser - run the stand-alone C tests (ja4_parser_test.c, ja4_build_test.c,
+## bv_parser_test.c, ban_list_test.c)
 .PHONY: test-plugin-parser
 test-plugin-parser:
 	mkdir -p $(DIST)
@@ -940,6 +941,16 @@ test-plugin-parser:
 		nginx-module/src/ja4_build_test.c \
 		-lcrypto -o $(DIST)/ja4_build_test
 	$(DIST)/ja4_build_test
+	gcc -std=gnu99 -Wall -Wextra \
+		nginx-module/src/bv_parser.c \
+		nginx-module/src/bv_parser_test.c \
+		-o $(DIST)/bv_parser_test
+	$(DIST)/bv_parser_test
+	gcc -std=gnu99 -Wall -Wextra \
+		nginx-module/src/ban_list.c \
+		nginx-module/src/ban_list_test.c \
+		-o $(DIST)/ban_list_test
+	$(DIST)/ban_list_test
 
 ## test-plugin-parser-san - the same unit tests under ASan/UBSan.  The fuzzers
 ## run sanitized, the unit tests did not, and a memcpy from NULL in a test
@@ -957,9 +968,20 @@ test-plugin-parser-san:
 		nginx-module/src/ja4_build_test.c \
 		-lcrypto -o $(DIST)/ja4_build_test_san
 	$(DIST)/ja4_build_test_san
+	$(FUZZ_CC) -std=gnu99 -Wall -Wextra $(FUZZ_FLAGS) \
+		nginx-module/src/bv_parser.c \
+		nginx-module/src/bv_parser_test.c \
+		-o $(DIST)/bv_parser_test_san
+	$(DIST)/bv_parser_test_san
+	$(FUZZ_CC) -std=gnu99 -Wall -Wextra $(FUZZ_FLAGS) \
+		nginx-module/src/ban_list.c \
+		nginx-module/src/ban_list_test.c \
+		-o $(DIST)/ban_list_test_san
+	$(DIST)/ban_list_test_san
 
-## fuzz-plugin  - ASan/UBSan fuzz of the ClientHello parser, JA4 builder + _bv cookie parser.
-## Both handle fully untrusted input (raw TLS bytes / a client-set cookie).
+## fuzz-plugin  - ASan/UBSan fuzz of the ClientHello parser, JA4 builder, _bv cookie parser
+## and ban file parser.  All handle input the module does not control (raw TLS bytes,
+## a client-set cookie, a file an operator may hand-edit).
 ## clang bundles the sanitizer runtime; override FUZZ_CC=gcc (+ dnf install libasan).
 FUZZ_CC    ?= clang
 FUZZ_FLAGS ?= -fsanitize=address,undefined -fno-sanitize-recover=all -g -O1
@@ -973,6 +995,8 @@ fuzz-plugin:
 	$(DIST)/bv_parser_fuzz $(FUZZ_ITERS)
 	$(FUZZ_CC) $(FUZZ_FLAGS) nginx-module/src/ja4_parser.c nginx-module/src/ja4_build.c nginx-module/src/ja4_build_fuzz.c -lcrypto -o $(DIST)/ja4_build_fuzz
 	$(DIST)/ja4_build_fuzz $(FUZZ_ITERS)
+	$(FUZZ_CC) $(FUZZ_FLAGS) nginx-module/src/ban_list.c nginx-module/src/ban_list_fuzz.c -o $(DIST)/ban_list_fuzz
+	$(DIST)/ban_list_fuzz $(FUZZ_ITERS)
 
 ## test-mariadb  - docker-gated MariaDB smoke (idempotent migrate + UTC + dialect aggregate)
 .PHONY: test-mariadb
