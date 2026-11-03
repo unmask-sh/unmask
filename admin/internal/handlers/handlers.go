@@ -532,6 +532,15 @@ func (h *Handler) basePath() string {
 	return strings.TrimRight(h.cfg().Server.BasePath, "/")
 }
 
+// isTestRoute reports whether the request is on one of the test pages under
+// the base path -- /test/... (PublicTestPages) or /admin/test/... (the
+// login) -- as opposed to the public challenge route or the rate-limit
+// route, whose path carries the visitor's own URI after /_rl.
+func (h *Handler) isTestRoute(r *http.Request) bool {
+	rel := strings.TrimPrefix(r.URL.Path, h.basePath())
+	return strings.HasPrefix(rel, "/test/") || strings.HasPrefix(rel, "/admin/test/")
+}
+
 // loadChallengeHTML returns the challenge.html bytes.  Order:
 //
 //   - settings.challenge.challenge_html_path (the operator named a file)
@@ -1330,6 +1339,16 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// Public /test/* is already gated by Challenge.PublicTestPages;
 	// /admin/test/* is auth-gated.
 	forceQuery := strings.TrimSpace(r.URL.Query().Get("_force"))
+	// Only the test routes take it (/test/force-* and the site previews
+	// under /test/site/, public ones gated by PublicTestPages, admin ones by
+	// the login).  On the public challenge route the query is the visitor's
+	// own, and the chain it named used to be served -- which, now that the
+	// chain decides what a CAPTCHA pass owes (chainTerms), would have let any
+	// client ask for the CAPTCHA-only chain and skip the proof-of-work the
+	// posture put in front of it.
+	if forceQuery != "" && !h.isTestRoute(r) {
+		forceQuery = ""
+	}
 	// Monitor mode takes no part here.  Forward-auth answers pass at
 	// /api/check; the module path renders the mode into nginx, whose gate
 	// then never sends a watched site's visitor to this route.  An earlier
@@ -1465,7 +1484,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	//   "pow"              : forceReason="none" + chMode=pow_only.  PoW only path.
 	//   "captcha"          : forceReason="test" + chMode=captcha_only.  CAPTCHA only.
 	//   "pow_then_captcha" : forceReason="none" + chMode=pow_then_captcha.  Full chain.
-	switch strings.TrimSpace(r.URL.Query().Get("_force")) {
+	switch forceQuery {
 	case "pow":
 		forceReason = "none"
 		test = "1"
@@ -1987,7 +2006,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 			chMode = settings.RateChallengePoWThenCaptcha
 		}
 	}
-	switch strings.TrimSpace(r.URL.Query().Get("_force")) {
+	switch forceQuery {
 	case "pow":
 		chMode = settings.RateChallengePoWOnly
 	case "captcha":
@@ -2136,9 +2155,16 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	body = bytes.ReplaceAll(body, []byte(powSeedPlaceholder),
 		append([]byte(`/*__POW_SEED__*/`), powSeedJSON...))
 	// ct: a server-issued, time-bound, single-use proof-of-load token for the
-	// behavioral CAPTCHA submit, so a forged behavioral score can't be accepted
-	// from a blind POST that never fetched this challenge (see captcha.IssueToken).
-	ctJSON, _ := json.Marshal(captcha.IssueToken(h.cfg().Secret.CaptchaSecretBase))
+	// CAPTCHA submit, so a forged behavioral score can't be accepted from a
+	// blind POST that never fetched this challenge (captcha.IssueToken).
+	// Bound to this client the way the pass cookie is (the bind key and the
+	// host) and to the fingerprint the page went out on, and carrying the
+	// chain served: the verify reads the chain back to know whether a
+	// proof-of-work was owed before the CAPTCHA and what grade of pass the
+	// CAPTCHA earns (chainTerms).  Dated with the proof-of-work seed's
+	// second, so the proof the chain's first leg produced names this page.
+	ctJSON, _ := json.Marshal(captcha.IssueToken(h.cfg().Secret.CaptchaSecretBase, time.Unix(issued, 0),
+		captcha.Binding{Key: chIP, Host: chHost, JA4: safeJA4(ja4), Chain: chMode}))
 	body = bytes.ReplaceAll(body, []byte(ctTokenPlaceholder),
 		append([]byte(`/*__CT__*/`), ctJSON...))
 	body = bytes.ReplaceAll(body, []byte(ctValidSecsPlaceholder),
@@ -3112,6 +3138,13 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		DT            *int            `json:"dt"`
 		Sig           *captcha.Signal `json:"sig"`
 		ProviderToken string          `json:"provider_token"` // release token from a 3rd-party CAPTCHA widget
+		// Pow: the proof-of-work the page solved before it showed the
+		// CAPTCHA, in the cookie's own form ("<issued>.pow2.<nonce>.<flags>"),
+		// for a chain that owes one (chainTerms).  The page keeps it out of
+		// the cookie jar on purpose -- the chain mints no pass until the
+		// CAPTCHA is cleared -- so it travels here; a _bv entry of the same
+		// shape on the request is taken as well (powProofFor).
+		Pow string `json:"pow"`
 		// BT: the page's beacon token, so the score this verify computes can
 		// be written on the beacon that reports the outcome (verifyScores).
 		BT string `json:"bt"`
@@ -3124,6 +3157,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 	ip := clientIP(r)
 	bindKey := bindKeyFor(r) // what the issued _bv is bound to: the address, or a relay's range
 	host := requestHost(r)   // binds the issued _bv to this vhost
+	reqJA4 := safeJA4(strings.TrimSpace(r.Header.Get("X-Client-JA4")))
 	site := siteFromRequest(r, *h.cfg())
 	// A per-address budget, the question's (CaptchaNew): an address answers
 	// this many times in five minutes, whichever path.  Every other endpoint
@@ -3201,11 +3235,27 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		// Proof-of-load.  The behavioral score is fully client-controlled and
 		// forgeable, so without this a bot clears the CAPTCHA with a single blind
 		// POST of a fabricated signal.  Require the server-issued ct token that
-		// proves a recent fetch of THIS challenge page; it is consumed below, so
-		// one fetch earns one pass.  (Not bound to the address: a visitor whose
-		// requests leave through more than one exit must still get in.)
-		if !captcha.VerifyToken(payload.Ct, h.cfg().Secret.CaptchaSecretBase, captcha.TokenValidSeconds) {
+		// proves a recent fetch of THIS challenge page by THIS client -- the
+		// same bind key and host the cookie is bound to, a connection of the
+		// same TLS stack (captcha.VerifyToken); it is consumed below, so one
+		// fetch earns one pass.
+		claims, ok := captcha.VerifyToken(payload.Ct, h.cfg().Secret.CaptchaSecretBase, captcha.TokenValidSeconds, bindKey, host, reqJA4)
+		if !ok {
 			writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
+			return
+		}
+		// What the page's chain owed before this CAPTCHA, and what clearing
+		// it earns.  A chain that ran a proof-of-work first has to show it:
+		// without this the CAPTCHA leg was answerable on its own, and the
+		// chain's first leg -- the cost a client cannot fake its way past --
+		// was the client's to skip.
+		grade, needPow, known := chainTerms(claims.Chain)
+		if !known {
+			writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
+			return
+		}
+		if needPow && !h.powProofFor(r, payload.Pow, claims.Issued, bindKey, host, site) {
+			writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "pow_required"})
 			return
 		}
 		// The page was served too recently for a person to have met the
@@ -3237,9 +3287,9 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 				writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
 				return
 			}
-			val := cookies.IssueValueH(h.sigHash(), h.cfg().Secret.BVSecret, bindKey, host, kind)
+			val := cookies.IssueValueH(h.sigHash(), h.cfg().Secret.BVSecret, bindKey, host, grade)
 			h.setBVCookie(w, r, val)
-			h.mintBVJ(w, r, ip, host, kind)
+			h.mintBVJ(w, r, ip, host, grade)
 			writeJSON(w, http.StatusOK, map[string]any{"ok": 1})
 			return
 		}
@@ -3265,12 +3315,25 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Require the proof-of-load token on the math path too (the behavioral path
-	// already does).  The math token binds only the answer (a+b in [2,40], ~39
-	// values), so without this a bot harvests the few answer/token pairs from
-	// /api/captcha/new once and blind-POSTs them forever to mint _bv cookies.
-	// The ct is consumed on success, so each fetch of a question earns one pass.
-	if !captcha.VerifyToken(payload.Ct, h.cfg().Secret.CaptchaSecretBase, captcha.TokenValidSeconds) {
+	// already does), for this client (captcha.VerifyToken).  The math token
+	// binds only the answer (a+b in [2,40], ~39 values), so without this a bot
+	// harvests the few answer/token pairs from /api/captcha/new once and
+	// blind-POSTs them forever to mint _bv cookies.  The ct is consumed on
+	// success, so each fetch of a question earns one pass.
+	claims, ok := captcha.VerifyToken(payload.Ct, h.cfg().Secret.CaptchaSecretBase, captcha.TokenValidSeconds, bindKey, host, reqJA4)
+	if !ok {
 		writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
+		return
+	}
+	// The chain's terms, as on the behavioral path: the arithmetic is the
+	// same CAPTCHA leg, reached from the same card.
+	grade, needPow, known := chainTerms(claims.Chain)
+	if !known {
+		writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
+		return
+	}
+	if needPow && !h.powProofFor(r, payload.Pow, claims.Issued, bindKey, host, site) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "pow_required"})
 		return
 	}
 	// The same floor as the behavioral path: an answer within seconds of the
@@ -3305,7 +3368,7 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		// those keep the full grade so an upgrade never strands anyone
 		// mid-answer.
 		downgraded := payload.IV != nil && *payload.IV == 0
-		issueKind := kind
+		issueKind := grade
 		if downgraded {
 			issueKind = "pow"
 			Metrics.CountMathNoInputEvidence()
@@ -3336,7 +3399,10 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 // questions one address may draw in five minutes.
 func (h *Handler) CaptchaNew(w http.ResponseWriter, r *http.Request) {
 	ct := r.URL.Query().Get("ct")
-	if !captcha.VerifyToken(ct, h.cfg().Secret.CaptchaSecretBase, captcha.TokenValidSeconds) {
+	// For this client: the page's token is bound as its pass will be, and a
+	// question is drawn only for the client the page went to.
+	if _, ok := captcha.VerifyToken(ct, h.cfg().Secret.CaptchaSecretBase, captcha.TokenValidSeconds,
+		bindKeyFor(r), requestHost(r), safeJA4(strings.TrimSpace(r.Header.Get("X-Client-JA4")))); !ok {
 		writeJSON(w, http.StatusForbidden, map[string]any{"ok": 0, "error": "stale_challenge"})
 		return
 	}

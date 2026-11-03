@@ -232,9 +232,20 @@ func TestScore_MobileUAContradiction(t *testing.T) {
 	}
 }
 
+// testBinding is the client the token tests issue for: one address, one
+// host, a Chrome-shaped fingerprint over TCP, the chain that ends in a
+// CAPTCHA.
+var testBinding = Binding{Key: "203.0.113.5", Host: "example.com", JA4: "t13d1516h2_8daaf6152771_d8a2da3f94cd", Chain: "pow_then_captcha"}
+
+func issueFor(base string, b Binding) string { return IssueToken(base, time.Now(), b) }
+
+func verifyFor(tok, base string, b Binding) (Claims, bool) {
+	return VerifyToken(tok, base, 900, b.Key, b.Host, b.JA4)
+}
+
 func TestVerifyMath(t *testing.T) {
 	const base = "test-base-secret"
-	ct := IssueToken(base)
+	ct := issueFor(base, testBinding)
 	a, b, token := MathChallenge(base, ct)
 	correctStr := strconv.Itoa(a + b)
 	if !VerifyMath(correctStr, token, ct, base, 900) {
@@ -251,7 +262,7 @@ func TestVerifyMath(t *testing.T) {
 	}
 	// The question is bound to the page it was drawn for: the same sum under
 	// another page's token does not verify.
-	if VerifyMath(correctStr, token, IssueToken(base), base, 900) {
+	if VerifyMath(correctStr, token, issueFor(base, testBinding), base, 900) {
 		t.Error("a question answered under another page's token should not verify")
 	}
 	// Freshness: validSecs=-1 forces the stale branch (now-issued >= 0 > -1).
@@ -265,7 +276,7 @@ func TestVerifyMath(t *testing.T) {
 func TestTokenAge(t *testing.T) {
 	const base = "test-base-secret"
 	issue := time.Unix(1_700_000_000, 0)
-	tok := IssueTokenAt(base, issue)
+	tok := IssueToken(base, issue, testBinding)
 	if age, ok := TokenAge(tok, issue.Add(2500*time.Millisecond)); !ok || age != 2 {
 		t.Errorf("age = %d, %v; want 2, true", age, ok)
 	}
@@ -279,35 +290,120 @@ func TestTokenAge(t *testing.T) {
 
 func TestVerifyToken(t *testing.T) {
 	const base = "test-base-secret"
-	tok := IssueToken(base)
-	if !VerifyToken(tok, base, 900) {
+	tok := issueFor(base, testBinding)
+	claims, ok := verifyFor(tok, base, testBinding)
+	if !ok {
 		t.Fatalf("freshly issued token should verify; got %q", tok)
 	}
-	if VerifyToken(tok, "another-secret", 900) {
+	if claims.Chain != testBinding.Chain || claims.JA4 != testBinding.JA4 || claims.Issued == 0 {
+		t.Errorf("claims = %+v, want the binding's chain and fingerprint", claims)
+	}
+	if _, ok := verifyFor(tok, "another-secret", testBinding); ok {
 		t.Error("token signed with another secret should not verify")
 	}
-	if VerifyToken(tok, base, -1) {
+	if _, ok := VerifyToken(tok, base, -1, testBinding.Key, testBinding.Host, testBinding.JA4); ok {
 		t.Error("token outside the freshness window should not verify")
 	}
 	parts := strings.Split(tok, ".")
-	if len(parts) != 3 {
-		t.Fatalf("token should have three segments, got %q", tok)
+	if len(parts) != 5 {
+		t.Fatalf("token should have five segments, got %q", tok)
 	}
-	for _, bad := range []string{"", "1", "1.2", "1.2.3.4", parts[0] + "." + parts[1] + ".", parts[0] + ".x." + parts[2], "x." + parts[1] + "." + parts[2]} {
-		if VerifyToken(bad, base, 900) {
+	for _, bad := range []string{"", "1", "1.2", "1.2.3", "1.2.3.4", "1.2.3.4.5.6", parts[0] + "." + parts[1] + "." + parts[2] + "." + parts[3] + ".", "x." + parts[1] + "." + parts[2] + "." + parts[3] + "." + parts[4]} {
+		if _, ok := verifyFor(bad, base, testBinding); ok {
 			t.Errorf("malformed token %q should not verify", bad)
 		}
 	}
-	sig := []byte(parts[2])
+	sig := []byte(parts[4])
 	sig[0] ^= 1
-	if VerifyToken(parts[0]+"."+parts[1]+"."+string(sig), base, 900) {
+	if _, ok := verifyFor(strings.Join(parts[:4], ".")+"."+string(sig), base, testBinding); ok {
 		t.Error("tampered signature should not verify")
+	}
+	// The chain travels in the clear and under the signature: rewriting it
+	// is a tamper.
+	if _, ok := verifyFor(parts[0]+"."+parts[1]+".captcha_only."+parts[3]+"."+parts[4], base, testBinding); ok {
+		t.Error("a token with its chain rewritten should not verify")
 	}
 	// Two tokens issued in the same second differ: the nonce is what lets the
 	// used set tell them apart.
-	first, second := IssueToken(base), IssueToken(base)
+	first, second := issueFor(base, testBinding), issueFor(base, testBinding)
 	if first == second {
 		t.Error("consecutive tokens must differ")
+	}
+}
+
+// A token is spent by the client it was issued to: the same bind key and
+// host as the pass cookie, and a connection of the same TLS stack.
+func TestTokenIsBoundToTheClient(t *testing.T) {
+	const base = "test-base-secret"
+	tok := issueFor(base, testBinding)
+	other := testBinding
+	other.Key = "198.51.100.7"
+	if _, ok := verifyFor(tok, base, other); ok {
+		t.Error("a token fetched by one address must not verify for another")
+	}
+	other = testBinding
+	other.Host = "other.example"
+	if _, ok := verifyFor(tok, base, other); ok {
+		t.Error("a token fetched on one host must not verify on another")
+	}
+	// A relay's range as the key: the token holds across the range's exits
+	// because the key, not the address, is what it is bound to.
+	relay := testBinding
+	relay.Key = "192.0.2.192/26"
+	rtok := issueFor(base, relay)
+	if _, ok := verifyFor(rtok, base, relay); !ok {
+		t.Error("a token bound to a relay's range must verify under that key")
+	}
+	if _, ok := verifyFor(rtok, base, testBinding); ok {
+		t.Error("a token bound to a relay's range must not verify under a bare address")
+	}
+	// The fingerprint: another TCP stack is refused; the same stack resumed
+	// (one more extension, same ciphers), the device's QUIC side, and a
+	// deployment that sees no fingerprint on either request all hold.
+	for _, c := range []struct {
+		ja4  string
+		want bool
+		why  string
+	}{
+		{"t13d1516h2_8daaf6152771_d8a2da3f94cd", true, "the same connection"},
+		{"t13d1517h2_8daaf6152771_b0da82dd1658", true, "the same stack, a resumed session"},
+		{"t13d1516h1_8daaf6152771_e5627efa2ab1", true, "the same stack, HTTP/1.1 ALPN"},
+		{"q13d0310h3_55b375c5d22e_cd85d2d88918", true, "the device's QUIC side"},
+		{"", true, "no fingerprint on the answer"},
+		{"t13d3112h2_e8f1e7e78f70_6f4d6a8e8a2c", false, "another TCP stack (a script's)"},
+		{"t12d0912h1_2d2b6c6f5e1c_3f5e2a7b8c9d", false, "another TCP stack on TLS 1.2"},
+	} {
+		b := testBinding
+		b.JA4 = c.ja4
+		if _, ok := verifyFor(tok, base, b); ok != c.want {
+			t.Errorf("%s (%q): verify = %v, want %v", c.why, c.ja4, ok, c.want)
+		}
+	}
+	// A page served with no fingerprint is answerable from any.
+	none := testBinding
+	none.JA4 = ""
+	ntok := issueFor(base, none)
+	if _, ok := verifyFor(ntok, base, testBinding); !ok {
+		t.Error("a token issued without a fingerprint must verify under one")
+	}
+}
+
+func TestSameTLSStack(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{
+		{"", "", true},
+		{"t13d1516h2_8daaf6152771_d8a2da3f94cd", "t13d1516h2_8daaf6152771_d8a2da3f94cd", true},
+		{"t13d1516h2_8daaf6152771_d8a2da3f94cd", "t13d1517h2_8daaf6152771_b0da82dd1658", true},
+		{"t13d1516h2_8daaf6152771_d8a2da3f94cd", "q13d0310h3_55b375c5d22e_cd85d2d88918", true},
+		{"t13d1516h2_8daaf6152771_d8a2da3f94cd", "t13d3112h2_e8f1e7e78f70_6f4d6a8e8a2c", false},
+		{"t13d1516h2_8daaf6152771_d8a2da3f94cd", "garbage", false},
+		{"garbage", "garbage", true},
+	} {
+		if got := SameTLSStack(c.a, c.b); got != c.want {
+			t.Errorf("SameTLSStack(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
+		}
 	}
 }
 
@@ -324,24 +420,25 @@ func TestTokenVerifiesAcrossMidnightUTC(t *testing.T) {
 	if dayOf(issue.Unix()) == dayOf(answer.Unix()) {
 		t.Fatal("the fixture must straddle a UTC day boundary")
 	}
-	tok := IssueTokenAt(base, issue)
-	if !verifyTokenAt(tok, base, 900, answer) {
+	b := testBinding
+	tok := IssueToken(base, issue, b)
+	if _, ok := verifyTokenAt(tok, base, 900, b.Key, b.Host, b.JA4, answer); !ok {
 		t.Error("a ct issued before midnight UTC should verify after it")
 	}
-	if verifyTokenAt(tok, base, 900, issue.Add(901*time.Second)) {
+	if _, ok := verifyTokenAt(tok, base, 900, b.Key, b.Host, b.JA4, issue.Add(901*time.Second)); ok {
 		t.Error("the freshness window still bounds the ct")
 	}
-	if verifyTokenAt(tok, "another-secret", 900, answer) {
+	if _, ok := verifyTokenAt(tok, "another-secret", 900, b.Key, b.Host, b.JA4, answer); ok {
 		t.Error("another secret still does not verify")
 	}
-	a, b, mtok := mathChallengeAt(base, tok, issue)
-	if !verifyMathAt(strconv.Itoa(a+b), mtok, tok, base, 900, answer) {
+	a, bb, mtok := mathChallengeAt(base, tok, issue)
+	if !verifyMathAt(strconv.Itoa(a+bb), mtok, tok, base, 900, answer) {
 		t.Error("a math token issued before midnight UTC should verify after it")
 	}
-	if verifyMathAt(strconv.Itoa(a+b+1), mtok, tok, base, 900, answer) {
+	if verifyMathAt(strconv.Itoa(a+bb+1), mtok, tok, base, 900, answer) {
 		t.Error("a wrong sum must not verify")
 	}
-	if verifyMathAt(strconv.Itoa(a+b), mtok, tok, base, 900, issue.Add(901*time.Second)) {
+	if verifyMathAt(strconv.Itoa(a+bb), mtok, tok, base, 900, issue.Add(901*time.Second)) {
 		t.Error("the freshness window still bounds the math token")
 	}
 }

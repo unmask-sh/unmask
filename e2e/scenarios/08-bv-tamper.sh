@@ -31,7 +31,7 @@ ans=$((a + b))
 
 verify=$(curl -sk -A "$UA_BROWSER" -c "$ck" \
     -H 'Content-Type: application/json' \
-    -d "{\"token\":\"$token\",\"answer\":\"$ans\",\"ct\":\"$ct\"}" \
+    -d "{\"token\":\"$token\",\"answer\":\"$ans\",\"ct\":\"$ct\",\"pow\":\"$(captcha_page_pow "$pct")\"}" \
     "${BASE_URL}/unmask/api/verify")
 assert_in '"ok":1' "$verify" "verify returns ok=1" || exit 1
 

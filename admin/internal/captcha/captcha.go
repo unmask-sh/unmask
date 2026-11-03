@@ -313,15 +313,12 @@ const TokenTTL = time.Duration(TokenValidSeconds) * time.Second
 // answer is accepted only with the ct it was asked under, and that ct is
 // consumed by the answer.
 //
-// The token is deliberately not bound to the client's address.  It used to be,
-// so a harvested (answer, token) pair could not be replayed from another
-// network -- and that binding locked out every visitor whose connections leave
-// through more than one exit (a two-uplink NAT, a relay that picks a fresh
-// egress per request): the question went out through one address and the
-// answer came back through another, every time, so the fallback meant to
-// rescue them never could.  What keeps one fetch of the question from minting
-// more than one pass is the ct proof-of-load token the /verify math path also
-// requires, which is single-use (UsedSet).
+// The question's token carries no binding of its own: the ct it is bound to
+// is bound to the client (Binding), and the /verify math path checks that
+// ct for the request answering, so a question drawn through one exit of a
+// relay and answered through another still holds, the way the pass cookie
+// does.  What keeps one fetch of the question from minting more than one
+// pass is that same ct, which is single-use (UsedSet).
 func MathChallenge(captchaSecretBase, ct string) (int, int, string) {
 	return mathChallengeAt(captchaSecretBase, ct, time.Now())
 }
@@ -371,52 +368,131 @@ func verifyMathAt(answerStr, token, ct, captchaSecretBase string, validSecs int6
 	return hmac.Equal([]byte(expected), []byte(sig))
 }
 
-// IssueToken returns a proof-of-load token: "<issued>.<nonce>.<hmac>", hmac =
-// HMAC(mathSecret(base, dayOf(issued)), "ct:<issued>:<nonce>").  The nonce makes every
-// token distinct, which is what lets UsedSet refuse a second pass on the same
-// one; the timestamp bounds its life (VerifyToken).  Like the math token it is
-// not bound to the client's address -- MathChallenge has the reason.
-func IssueToken(captchaSecretBase string) string {
-	return IssueTokenAt(captchaSecretBase, time.Now())
+// Binding is what a proof-of-load token is tied to: the client the page was
+// served to and the chain it was served.
+//
+//   - Key is the bind key the pass cookie minted from this page is bound to
+//     (the address, or a relay's range / id), Host the vhost -- the same two
+//     values cookies.IssueValue binds, through the same derivation, so a
+//     visitor whose own requests leave through several exits of one relay
+//     keeps the token the way they keep the cookie.  A token used to be bound
+//     to nothing on this side, and a page fetched from one address could be
+//     answered from any other: a script spent tokens harvested anywhere.
+//   - JA4 is the fingerprint of the connection the page went out on, as the
+//     daemon saw it ("" when the deployment hands it none); VerifyToken reads
+//     the answer's against it through SameTLSStack.
+//   - Chain is the challenge chain the page ran (pow_only / captcha_only /
+//     pow_then_captcha).  The verify reads it back to know what the page owed
+//     before the CAPTCHA -- a proof-of-work leg or none -- and what grade of
+//     pass clearing the CAPTCHA earns.  Signed, so a client cannot answer a
+//     proof-of-work page as if it had been a CAPTCHA-only one.
+type Binding struct {
+	Key   string
+	Host  string
+	JA4   string
+	Chain string
 }
 
-// IssueTokenAt is IssueToken as of now: for a test that needs a token old
-// enough to answer under (TokenMinAgeSeconds).
-func IssueTokenAt(captchaSecretBase string, now time.Time) string {
+// Claims is what VerifyToken read out of a token it accepted.
+type Claims struct {
+	Issued int64
+	JA4    string
+	Chain  string
+}
+
+// IssueToken returns a proof-of-load token for the page served at now to the
+// client b describes: "<issued>.<nonce>.<chain>.<ja4>.<hmac>", hmac =
+// HMAC(mathSecret(base, dayOf(issued)), the fields and the binding, newline
+// separated).  The nonce makes every token distinct, which is what lets
+// UsedSet refuse a second pass on the same one; the timestamp bounds its life
+// (VerifyToken); the chain and the fingerprint travel in the clear because
+// the verifier needs them back, and the signature covers them.
+func IssueToken(captchaSecretBase string, now time.Time, b Binding) string {
 	issuedSec := now.Unix()
 	issued := strconv.FormatInt(issuedSec, 10)
 	nonce := tokenNonce()
-	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, dayOf(issuedSec)))
-	mac.Write([]byte("ct:" + issued + ":" + nonce))
-	return issued + "." + nonce + "." + hex.EncodeToString(mac.Sum(nil))
+	sig := tokenMAC(captchaSecretBase, issuedSec, issued, nonce, b)
+	return issued + "." + nonce + "." + b.Chain + "." + b.JA4 + "." + sig
 }
 
-// VerifyToken validates a token from IssueToken: the HMAC must match and
-// issued must be within validSecs.  Returns false on any malformation.  It
-// does not consume the token; the caller does that with UsedSet once the
-// token has earned a pass.
-func VerifyToken(token, captchaSecretBase string, validSecs int64) bool {
-	return verifyTokenAt(token, captchaSecretBase, validSecs, time.Now())
+// tokenMAC: the token's signature over its own fields and the binding.  The
+// separator cannot occur in any field (a header value carries no newline, and
+// the chain and the nonce are the daemon's own), so no two bindings share an
+// input.
+func tokenMAC(base string, issuedSec int64, issued, nonce string, b Binding) string {
+	mac := hmac.New(sha256.New, mathSecret(base, dayOf(issuedSec)))
+	mac.Write([]byte("ct2\n" + issued + "\n" + nonce + "\n" + b.Chain + "\n" + b.Key + "\n" + b.Host + "\n" + b.JA4))
+	return hex.EncodeToString(mac.Sum(nil))
 }
 
-func verifyTokenAt(token, captchaSecretBase string, validSecs int64, now time.Time) bool {
+// VerifyToken validates a token from IssueToken for the client answering
+// under it -- key and host as the answer's request binds them, ja4 as the
+// daemon sees the answer's connection: the HMAC must match under the
+// token's own chain and fingerprint, issued must be within validSecs, and
+// the answer's fingerprint must be the same TLS stack as the page's
+// (SameTLSStack).  Returns the claims the token carries, and false on any
+// malformation or mismatch.  It does not consume the token; the caller does
+// that with UsedSet once the token has earned a pass.
+func VerifyToken(token, captchaSecretBase string, validSecs int64, key, host, ja4 string) (Claims, bool) {
+	return verifyTokenAt(token, captchaSecretBase, validSecs, key, host, ja4, time.Now())
+}
+
+func verifyTokenAt(token, captchaSecretBase string, validSecs int64, key, host, ja4 string, now time.Time) (Claims, bool) {
 	parts := strings.Split(token, ".")
-	if len(parts) != 3 || parts[0] == "" || parts[1] == "" || parts[2] == "" {
-		return false
+	if len(parts) != 5 || parts[0] == "" || parts[1] == "" || parts[4] == "" {
+		return Claims{}, false
 	}
-	issuedStr, nonce, sig := parts[0], parts[1], parts[2]
+	issuedStr, nonce, chain, tokJA4, sig := parts[0], parts[1], parts[2], parts[3], parts[4]
 	issued, err := strconv.ParseInt(issuedStr, 10, 64)
 	if err != nil {
-		return false
+		return Claims{}, false
 	}
 	nowSec := now.Unix()
 	if issued > nowSec+60 || nowSec-issued > validSecs {
-		return false
+		return Claims{}, false
 	}
-	mac := hmac.New(sha256.New, mathSecret(captchaSecretBase, dayOf(issued)))
-	mac.Write([]byte("ct:" + issuedStr + ":" + nonce))
-	expected := hex.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte(expected), []byte(sig))
+	expected := tokenMAC(captchaSecretBase, issued, issuedStr, nonce, Binding{Key: key, Host: host, JA4: tokJA4, Chain: chain})
+	if !hmac.Equal([]byte(expected), []byte(sig)) {
+		return Claims{}, false
+	}
+	if !SameTLSStack(tokJA4, ja4) {
+		return Claims{}, false
+	}
+	return Claims{Issued: issued, JA4: tokJA4, Chain: chain}, true
+}
+
+// SameTLSStack reports whether two JA4 fingerprints can be one device's.  A
+// token is spent on the fingerprint it was issued under, with the two ways a
+// browser's own fingerprint moves between the page and the answer allowed
+// for: the connection was resumed (a resumed TLS 1.3 session carries one
+// more extension, so the extension count and hash differ while the cipher
+// list is the same), or the device moved to its other transport (HTTP/3 over
+// QUIC against HTTP/2 over TCP differs in every field).  So two fingerprints
+// agree when they are equal, when they share the cipher hash (the middle
+// field), or when their transports differ.  An empty side is unknown rather
+// than a contradiction: a deployment that hands the daemon no fingerprint
+// hands it none on either request.  What this refuses is the page fetched
+// by one TLS stack and answered by another over the same transport -- a
+// browser's page answered by a script.
+func SameTLSStack(a, b string) bool {
+	if a == b || a == "" || b == "" {
+		return true
+	}
+	if (a[0] == 't' && b[0] == 'q') || (a[0] == 'q' && b[0] == 't') {
+		return true
+	}
+	ca, cb := ja4CipherHash(a), ja4CipherHash(b)
+	return ca != "" && ca == cb
+}
+
+// ja4CipherHash is the middle field of a JA4 ("t13d1516h2_<ciphers>_<exts>"),
+// "" when the string is not shaped like one.
+func ja4CipherHash(s string) string {
+	parts := strings.Split(s, "_")
+	if len(parts) != 3 {
+		return ""
+	}
+	return parts[1]
 }
 
 // TokenMinAgeSeconds is how old a proof-of-load token has to be before an
@@ -453,12 +529,8 @@ func tokenNonce() string {
 }
 
 // UsedSet remembers the proof-of-load tokens that have already earned a pass,
-// so each one earns exactly one.  Before this the token was bound to the
-// client's address instead, which kept a harvested token from being replayed
-// from other networks but also failed every visitor whose own requests arrive
-// from more than one (MathChallenge has the story).  Single use keeps the
-// property that mattered -- one fetch of a challenge, one pass -- and drops
-// the one that did not.
+// so each one earns exactly one: one fetch of a challenge, one pass.  The
+// binding (Binding) says who may spend a token; this says how often.
 //
 // The set lives in this process: on a multi-node install behind a balancer a
 // token could earn one pass per node before it expires, which is still a

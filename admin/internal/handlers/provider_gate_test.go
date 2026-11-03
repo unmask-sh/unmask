@@ -21,7 +21,7 @@ func TestVerifyJSONRequiresTheConfiguredProvider(t *testing.T) {
 			TurnstileSecretKey: "0xSECRET",
 		}
 	})
-	ct := agedCT(h.cfg().Secret.CaptchaSecretBase)
+	ct := agedCT(h.cfg().Secret.CaptchaSecretBase, "198.51.100.21")
 	sig := map[string]any{"keys": 1, "clickAt": 1500, "windowSize": []int{1280, 720}, "screenSize": []int{1920, 1080}}
 	res, out := postMath(t, h, "198.51.100.21", map[string]any{"token": "x", "ct": ct, "sig": sig})
 	if res.StatusCode != http.StatusForbidden || fmt.Sprint(out["error"]) != "provider_required" {

@@ -174,7 +174,7 @@ func TestVerifyJSON_BehavioralPass(t *testing.T) {
 	// ct = the server-issued proof-of-load token, signed with CaptchaSecretBase
 	// (= "test-base" in newTestHandler).  Required since the behavioral path
 	// rejects a blind POST with no/invalid ct.
-	ct := agedCT("test-base")
+	ct := agedCT("test-base", "1.2.3.4")
 	body := `{"token":"x","ct":"` + ct + `","sig":{"hasMouseEvents":true,"clickAt":3000,"mouseTrail":[[10,10,1],[40,33,80],[70,55,160],[100,77,240],[130,99,320]],"windowSize":[1280,800]}}`
 	req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -311,7 +311,7 @@ func TestCaptchaNew(t *testing.T) {
 	if bare.Code != http.StatusForbidden {
 		t.Fatalf("captcha/new without ct expected 403, got %d", bare.Code)
 	}
-	ct := agedCT(h.cfg().Secret.CaptchaSecretBase)
+	ct := agedCT(h.cfg().Secret.CaptchaSecretBase, "192.0.2.1") // httptest's RemoteAddr
 	req := httptest.NewRequest(http.MethodGet, "/unmask/api/captcha/new?ct="+ct, nil)
 	rr := httptest.NewRecorder()
 	h.CaptchaNew(rr, req)
@@ -676,7 +676,7 @@ func TestServeChallengeOrJSON_HTMLClient(t *testing.T) {
 // challenge page, one cookie.
 func TestVerifyJSON_CtSingleUse(t *testing.T) {
 	h := newTestHandler(t)
-	ct := agedCT("test-base")
+	ct := agedCT("test-base", "1.2.3.4")
 	post := func(ip string) *httptest.ResponseRecorder {
 		body := `{"token":"x","ct":"` + ct + `","sig":{"hasMouseEvents":true,"clickAt":3000,"mouseTrail":[[10,10,1],[40,33,80],[70,55,160],[100,77,240],[130,99,320]],"windowSize":[1440,900]}}`
 		req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
@@ -700,18 +700,15 @@ func TestVerifyJSON_CtSingleUse(t *testing.T) {
 	}
 }
 
-// The proof-of-load token is not bound to the client's address: the page can
-// be fetched through one exit and the answer posted through another (a
-// two-uplink NAT, a relay that changes its egress), and the visitor still
-// gets in.  The cookie that results is bound to the address that verified,
-// as before.
-func TestVerifyJSON_CtNotBoundToAddress(t *testing.T) {
+// The proof-of-load token is bound to the client the page was served to, the
+// way its pass will be: the page fetched through one address and the answer
+// posted through another is refused, with no cookie.  (A client whose
+// requests leave through the exits of one relay is bound to the relay's key
+// on both, TestVerifyJSON_BindKeyHeader.)
+func TestVerifyJSON_CtBoundToAddress(t *testing.T) {
 	h := newTestHandler(t)
 	// Issued while serving the page to one address...
-	pageReq := httptest.NewRequest(http.MethodGet, "/unmask/challenge/", nil)
-	pageReq.Header.Set("X-Real-IP", "198.51.100.7")
-	ct := agedCT("test-base")
-	_ = pageReq
+	ct := agedCT("test-base", "198.51.100.7")
 	// ...posted back from another.
 	body := `{"token":"x","ct":"` + ct + `","sig":{"hasMouseEvents":true,"clickAt":3000,"mouseTrail":[[10,10,1],[40,33,80],[70,55,160],[100,77,240],[130,99,320]],"windowSize":[1440,900]}}`
 	req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
@@ -719,20 +716,13 @@ func TestVerifyJSON_CtNotBoundToAddress(t *testing.T) {
 	req.Header.Set("X-Real-IP", "203.0.113.77")
 	rr := httptest.NewRecorder()
 	h.VerifyJSON(rr, req)
-	if rr.Code != http.StatusOK {
-		t.Fatalf("a verify from another address must pass, got %d body=%s", rr.Code, rr.Body.String())
+	if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "stale_challenge") {
+		t.Fatalf("a verify from another address: want 403 stale_challenge, got %d body=%s", rr.Code, rr.Body.String())
 	}
-	var bv string
 	for _, c := range rr.Result().Cookies() {
 		if c.Name == "_bv" {
-			bv = c.Value
+			t.Fatalf("a _bv was issued to the other address: %q", c.Value)
 		}
-	}
-	if bv == "" {
-		t.Fatal("expected a _bv cookie")
-	}
-	if !cookies.Verify(bv, h.cfg().Secret.BVSecret, "203.0.113.77", "example.com", 7*86400, 14*86400, 16) {
-		t.Errorf("the cookie must be bound to the address that verified (203.0.113.77); value %q", bv)
 	}
 }
 
@@ -743,7 +733,7 @@ func TestVerifyJSON_CtNotBoundToAddress(t *testing.T) {
 // from every address in the range.
 func TestVerifyJSON_BindKeyHeader(t *testing.T) {
 	h := newTestHandler(t)
-	ct := agedCT("test-base")
+	ct := agedCTFor("test-base", "192.0.2.192/26", "example.com", settings.RateChallengeCaptchaOnly) // the page was served under the same key
 	body := `{"token":"x","ct":"` + ct + `","sig":{"hasMouseEvents":true,"clickAt":3000,"mouseTrail":[[10,10,1],[40,33,80],[70,55,160],[100,77,240],[130,99,320]],"windowSize":[1440,900]}}`
 	req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

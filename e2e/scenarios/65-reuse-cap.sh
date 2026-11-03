@@ -202,7 +202,7 @@ BVC=""
 if [ -n "$a" ] && [ -n "$b" ] && [ -n "$token" ]; then
     verify=$(curl -sk --max-time 8 -A "$UA_BROWSER" -H "X-Forwarded-For: $IP1" -H "Cookie: _bv=$BV1" \
         -c "$WORK/jar" -H 'Content-Type: application/json' \
-        -d "{\"token\":\"$token\",\"answer\":\"$((a + b))\",\"ct\":\"$ct\"}" \
+        -d "{\"token\":\"$token\",\"answer\":\"$((a + b))\",\"ct\":\"$ct\",\"pow\":\"$(captcha_page_pow "$pct")\"}" \
         "${BASE_URL}/unmask/api/verify")
     assert_in '"ok":1' "$verify" "the CAPTCHA is solved from the address over the cap"
     BVC=$(awk '$6 == "_bv" {print $7}' "$WORK/jar")

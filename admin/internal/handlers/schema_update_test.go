@@ -917,7 +917,7 @@ func TestChallengeServesWhileTheWriteLockIsHeld(t *testing.T) {
 	}
 
 	// The verification that issues the cookie.
-	ct := agedCT("test-base")
+	ct := agedCT("test-base", ip)
 	var cookie string
 	if code := within("the verification", time.Second, func() int {
 		rr := httptest.NewRecorder()

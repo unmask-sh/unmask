@@ -10,23 +10,29 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/captcha"
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
-// agedCT is a proof-of-load token issued a few seconds ago: the floor the
-// verify applies (captcha.TokenMinAgeSeconds) refuses an answer under a
-// token issued in the same second, which is what a test minting one and
-// answering at once would be.
-func agedCT(base string) string {
-	return captcha.IssueTokenAt(base, time.Now().Add(-5*time.Second))
+// agedCT is a proof-of-load token issued a few seconds ago to ip, on the
+// test request's host, on the CAPTCHA-only chain (the one that owes no
+// proof-of-work) and with no fingerprint: the floor the verify applies
+// (captcha.TokenMinAgeSeconds) refuses an answer under a token issued in the
+// same second, which is what a test minting one and answering at once would
+// be.
+func agedCT(base, ip string) string {
+	return agedCTFor(base, ip, "example.com", settings.RateChallengeCaptchaOnly)
 }
 
-// mathAnswerFor mints a real question under a page's token and returns the
-// pieces the client would post back.  (ip is kept for the callers' symmetry
-// with postMath; the tokens themselves are not bound to an address.)
+// agedCTFor is agedCT for a bind key, a host and a chain of the test's choosing.
+func agedCTFor(base, key, host, chain string) string {
+	return captcha.IssueToken(base, time.Now().Add(-5*time.Second), captcha.Binding{Key: key, Host: host, Chain: chain})
+}
+
+// mathAnswerFor mints a real question under a page's token for ip and
+// returns the pieces the client would post back.
 func mathAnswerFor(t *testing.T, h *Handler, ip string) (answer int, token, ct string) {
 	t.Helper()
-	_ = ip
-	ct = agedCT(h.cfg().Secret.CaptchaSecretBase)
+	ct = agedCT(h.cfg().Secret.CaptchaSecretBase, ip)
 	a, b, tok := captcha.MathChallenge(h.cfg().Secret.CaptchaSecretBase, ct)
 	return a + b, tok, ct
 }
@@ -141,14 +147,17 @@ func TestMathCtSingleUse(t *testing.T) {
 	}
 }
 
-// A question fetched through one exit and answered through another still
-// passes: neither the math token nor the proof-of-load token is bound to an
-// address.
-func TestMathNotBoundToAddress(t *testing.T) {
+// A question fetched by one client and answered by another is refused: the
+// page's token is bound to the client the way its pass will be, and the
+// question is bound to the token.
+func TestMathIsBoundToTheClient(t *testing.T) {
 	h := newTestHandler(t)
 	ans, token, ct := mathAnswerFor(t, h, "198.51.100.7")
 	res, out := postMath(t, h, "203.0.113.77", map[string]any{"answer": ans, "token": token, "ct": ct, "iv": 5, "dt": 4000})
-	if res.StatusCode != http.StatusOK || fmt.Sprint(out["ok"]) != "1" {
-		t.Fatalf("an answer from another address must pass, got %d %v", res.StatusCode, out)
+	if res.StatusCode != http.StatusForbidden || fmt.Sprint(out["error"]) != "stale_challenge" {
+		t.Fatalf("an answer from another address: want 403 stale_challenge, got %d %v", res.StatusCode, out)
+	}
+	if k := bvKindFrom(t, res); k != "" {
+		t.Fatalf("a _bv was issued: %q", k)
 	}
 }

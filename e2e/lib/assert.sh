@@ -83,14 +83,48 @@ assert_not_in() {
 # same token back as the ct /verify consumes, so one page load buys one
 # answered question; every math-CAPTCHA flow starts here.
 #
+# The token is bound to the client the page was served to (the address the
+# curl args name, the host) and signs the chain the page ran.  A chain that
+# runs the proof-of-work before the CAPTCHA (the default pow_then_captcha)
+# owes that proof at /verify, so the page's seed is solved here as well
+# (lib/powsolve.py, the way scenario 23 does) and kept for captcha_page_pow,
+# which the caller puts in the verify body as "pow".
+#
 # The daemon also refuses an answer within two seconds of the token's clock
 # (captcha.TokenMinAgeSeconds): a person cannot meet the card that fast, and
 # neither can a script that fetches and answers in one breath -- which is
 # what every caller here is.  So the wait is taken once, here, before the
 # token is handed back.
 captcha_page_ct() {
-    local url=$1 ct; shift
-    ct=$(curl -sk -A "$UA_BROWSER" "$@" "$url" | grep -oE '__CT__\*/"[^"]+"' | head -1 | sed -E 's/.*"([^"]+)"/\1/')
-    [ -n "$ct" ] && sleep 2.5
+    local url=$1 page ct seed issued diff; shift
+    page=$(curl -sk -A "$UA_BROWSER" "$@" "$url")
+    ct=$(printf '%s' "$page" | grep -oE '__CT__\*/"[^"]+"' | head -1 | sed -E 's/.*"([^"]+)"/\1/')
+    [ -n "$ct" ] || return 0
+    seed=$(printf '%s' "$page" | grep -oE '__POW_SEED__\*/"[0-9a-f]+' | grep -oE '[0-9a-f]{40}' | head -1)
+    issued=$(printf '%s' "$page" | grep -oE '__ISSUED_AT__\*/[0-9]+' | grep -oE '[0-9]{6,}' | head -1)
+    diff=$(printf '%s' "$page" | grep -oE '__POW_DIFFICULTY__\*/[0-9]+' | grep -oE '[0-9]+$' | head -1)
+    if [ -n "$seed" ] && [ -n "$issued" ]; then
+        python3 "$(dirname "${BASH_SOURCE[0]}")/powsolve.py" "$seed" "$issued" "${diff:-18}" \
+            > "$(captcha_pow_file "$ct")" 2>/dev/null || true
+    fi
+    sleep 2.5
     printf '%s' "$ct"
+}
+
+# captcha_pow_file <ct> -- where captcha_page_ct keeps the page's solved
+# proof-of-work (the function runs in a command substitution, so a variable
+# could not carry it out).
+captcha_pow_file() {
+    printf '%s/unmask-e2e-pow.%s' "${TMPDIR:-/tmp}" "$(printf '%s' "$1" | tr -c 'a-zA-Z0-9._-' '_')"
+}
+
+# captcha_page_pow <ct> -- the proof-of-work solved for the page whose ct
+# this is ("<issued>.pow2.<nonce>.0"), for the "pow" field of the verify
+# body; empty when the page carried no seed.
+captcha_page_pow() {
+    local f
+    f=$(captcha_pow_file "$1")
+    [ -f "$f" ] && tr -d '\n' < "$f"
+    rm -f "$f"
+    return 0
 }

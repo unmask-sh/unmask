@@ -33,7 +33,7 @@ ct=$(echo "$new" | grep -oE '"ct":"[^"]+"' | sed -E 's/.*"ct":"([^"]+)".*/\1/')
 [ -n "$a" ] && [ -n "$token" ] || { log_fail "captcha/new failed: $new"; exit 1; }
 verify=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" -c "$ck" \
     -H 'Content-Type: application/json' \
-    -d "{\"token\":\"$token\",\"answer\":\"$((a + b))\",\"ct\":\"$ct\"}" \
+    -d "{\"token\":\"$token\",\"answer\":\"$((a + b))\",\"ct\":\"$ct\",\"pow\":\"$(captcha_page_pow "$pct")\"}" \
     "${BASE_URL}/unmask/api/verify")
 assert_in '"ok":1' "$verify" "obtained a _bv by solving the CAPTCHA" || exit 1
 

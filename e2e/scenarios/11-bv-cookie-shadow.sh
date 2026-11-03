@@ -42,7 +42,7 @@ ct=$(echo "$new" | grep -oE '"ct":"[^"]+"' | sed -E 's/.*"ct":"([^"]+)".*/\1/')
 [ -n "$a" ] && [ -n "$b" ] && [ -n "$token" ] || { log_fail "captcha new failed: $new"; exit 1; }
 curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" -c "$ck" \
     -H 'Content-Type: application/json' \
-    -d "{\"token\":\"$token\",\"answer\":\"$((a+b))\",\"ct\":\"$ct\"}" \
+    -d "{\"token\":\"$token\",\"answer\":\"$((a+b))\",\"ct\":\"$ct\",\"pow\":\"$(captcha_page_pow "$pct")\"}" \
     "${BASE_URL}/unmask/api/verify" > /dev/null
 
 # Match the cookie-NAME column (6) exactly: the solve also sets a _bvj

@@ -57,7 +57,7 @@ ans=$((a + b))
 
 verify=$(curl -sk -A "$UA_BROWSER" -c "$ck" -H "X-Forwarded-For: $CLIENT_IP" \
     -H 'Content-Type: application/json' \
-    -d "{\"token\":\"$token\",\"answer\":\"$ans\",\"ct\":\"$ct\"}" \
+    -d "{\"token\":\"$token\",\"answer\":\"$ans\",\"ct\":\"$ct\",\"pow\":\"$(captcha_page_pow "$pct")\"}" \
     "${ADMIN_URL}/unmask/api/verify")
 assert_in '"ok":1' "$verify" "step 2: verify returns ok=1" || fails=$((fails+1))
 # Match the cookie-NAME column (6) exactly: the solve also sets a _bvj

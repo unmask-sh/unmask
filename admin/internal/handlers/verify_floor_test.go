@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/captcha"
+	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
 // The behavioral signal the page posts is the client's to make up, and the
@@ -33,7 +34,7 @@ func TestVerifyRefusesAnAnswerInTheSameBreathAsTheServe(t *testing.T) {
 		return rr, out
 	}
 	// A token issued now: the page was served this very second.
-	rr, out := post(captcha.IssueToken("test-base"))
+	rr, out := post(captcha.IssueToken("test-base", time.Now(), captcha.Binding{Key: "203.0.113.40", Host: "example.com", Chain: settings.RateChallengeCaptchaOnly}))
 	if rr.Code != http.StatusForbidden || fmt.Sprint(out["error"]) != "too_fast" {
 		t.Fatalf("an answer in the same second as the serve: want 403 too_fast, got %d %v", rr.Code, out)
 	}
@@ -44,7 +45,7 @@ func TestVerifyRefusesAnAnswerInTheSameBreathAsTheServe(t *testing.T) {
 	}
 	// The same signal under a token old enough passes, and the answer says
 	// nothing about the score.
-	rr, out = post(agedCT("test-base"))
+	rr, out = post(agedCT("test-base", "203.0.113.40"))
 	if rr.Code != http.StatusOK || fmt.Sprint(out["ok"]) != "1" {
 		t.Fatalf("the same signal under an older token: want 200, got %d %v", rr.Code, out)
 	}
@@ -52,7 +53,7 @@ func TestVerifyRefusesAnAnswerInTheSameBreathAsTheServe(t *testing.T) {
 		t.Errorf("the answer carries the score: %v", out)
 	}
 	// The math path is held to the same floor.
-	ct := captcha.IssueToken("test-base")
+	ct := captcha.IssueToken("test-base", time.Now(), captcha.Binding{Key: "203.0.113.40", Host: "example.com", Chain: settings.RateChallengeCaptchaOnly})
 	a, b, tok := captcha.MathChallenge("test-base", ct)
 	res, mout := postMath(t, h, "203.0.113.40", map[string]any{"answer": a + b, "token": tok, "ct": ct, "iv": 3, "dt": 2000})
 	if res.StatusCode != http.StatusForbidden || fmt.Sprint(mout["error"]) != "too_fast" {
@@ -65,7 +66,7 @@ func TestVerifyRefusesAnAnswerInTheSameBreathAsTheServe(t *testing.T) {
 func TestMathQuestionIsBoundToItsPage(t *testing.T) {
 	h := newTestHandler(t)
 	ans, token, _ := mathAnswerFor(t, h, "203.0.113.41")
-	other := agedCT(h.cfg().Secret.CaptchaSecretBase)
+	other := agedCT(h.cfg().Secret.CaptchaSecretBase, "203.0.113.41")
 	res, out := postMath(t, h, "203.0.113.41", map[string]any{"answer": ans, "token": token, "ct": other, "iv": 3, "dt": 2000})
 	if res.StatusCode != http.StatusForbidden || fmt.Sprint(out["error"]) != "wrong" {
 		t.Fatalf("a question answered under another page's token: want 403 wrong, got %d %v", res.StatusCode, out)
@@ -85,7 +86,7 @@ func TestVerifyHasAPerAddressBudget(t *testing.T) {
 	}
 	var last *httptest.ResponseRecorder
 	for i := 0; i <= limit; i++ {
-		body := `{"token":"x","ct":"` + agedCT("test-base") + `","sig":{"hasMouseEvents":false,"clickAt":50,"windowSize":[0,0]}}`
+		body := `{"token":"x","ct":"` + agedCT("test-base", "203.0.113.42") + `","sig":{"hasMouseEvents":false,"clickAt":50,"windowSize":[0,0]}}`
 		req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Real-IP", "203.0.113.42")
@@ -99,7 +100,7 @@ func TestVerifyHasAPerAddressBudget(t *testing.T) {
 		t.Fatalf("answer %d from one address: want 429 rate_limit, got %d %s", limit+1, last.Code, last.Body.String())
 	}
 	// Another address is untouched.
-	body := `{"token":"x","ct":"` + agedCT("test-base") + `","sig":{"hasMouseEvents":false,"clickAt":50,"windowSize":[0,0]}}`
+	body := `{"token":"x","ct":"` + agedCT("test-base", "203.0.113.43") + `","sig":{"hasMouseEvents":false,"clickAt":50,"windowSize":[0,0]}}`
 	req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Real-IP", "203.0.113.43")
@@ -116,7 +117,7 @@ func TestVerifyHasAPerAddressBudget(t *testing.T) {
 func TestVerifyScoreRidesTheOutcomeBeacon(t *testing.T) {
 	h := newTestHandler(t)
 	bt := issueBeaconToken(h.cfg().Secret.CaptchaSecretBase)
-	body := `{"token":"x","ct":"` + agedCT("test-base") + `","bt":"` + bt + `","sig":{"hasMouseEvents":false,"clickAt":50,"windowSize":[0,0]}}`
+	body := `{"token":"x","ct":"` + agedCT("test-base", "203.0.113.44") + `","bt":"` + bt + `","sig":{"hasMouseEvents":false,"clickAt":50,"windowSize":[0,0]}}`
 	req := httptest.NewRequest(http.MethodPost, "/unmask/api/verify", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Real-IP", "203.0.113.44")

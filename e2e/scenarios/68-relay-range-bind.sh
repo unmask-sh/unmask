@@ -56,7 +56,7 @@ ct=$(printf '%s' "$new" | grep -oE '"ct":"[^"]+"' | sed -E 's/.*"ct":"([^"]+)".*
 [ -n "$a" ] && [ -n "$b" ] && [ -n "$token" ] || { log_fail "captcha new failed: $new"; exit 1; }
 verify=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $IP_A" -c "$ck" \
     -H 'Content-Type: application/json' \
-    -d "{\"token\":\"$token\",\"answer\":\"$((a + b))\",\"ct\":\"$ct\",\"iv\":3,\"dt\":2500}" \
+    -d "{\"token\":\"$token\",\"answer\":\"$((a + b))\",\"ct\":\"$ct\",\"pow\":\"$(captcha_page_pow "$pct")\",\"iv\":3,\"dt\":2500}" \
     "${BASE_URL}/unmask/api/verify")
 assert_in '"ok":1' "$verify" "the CAPTCHA is solved from an address in the relay range" || exit 1
 bv=$(awk '$6 == "_bv" {print $7}' "$ck")

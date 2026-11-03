@@ -444,6 +444,12 @@
   var start=Date.now();
   var captchaToken='';
   var captchaCt='';
+  // The proof-of-work this page solved before it showed the CAPTCHA, in the
+  // cookie's form.  A chain that runs the proof-of-work first mints no pass
+  // until the CAPTCHA is cleared, so the proof is not in the cookie jar; it
+  // rides the verify instead, and the daemon takes no CAPTCHA answer for such
+  // a chain without it.  Empty on the captcha_only chain, which owes none.
+  var powProof='';
 
   // --- behavioral signal collection ---
   // On checkbox click, send this sig to the server which makes the bot decision.
@@ -698,7 +704,8 @@
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify({
         token: captchaToken,
-        ct: (window.UNMASK && window.UNMASK.ct) || '', // proof-of-load token bound to IP + this challenge
+        ct: (window.UNMASK && window.UNMASK.ct) || '', // proof-of-load token bound to this client + this challenge
+        pow: powProof,                                 // the proof-of-work leg, when the chain ran one
         bt: (window.UNMASK && window.UNMASK.beacon_token) || '', // for the score on the outcome beacon
         sig: {
           mouseTrail: sig.mouseTrail,
@@ -718,10 +725,11 @@
       if(res.data.ok===1){
         _bcDebug(bvPhaseForCaptchaPass(), {});
         passAndRedirect();
-      } else if (res.data && res.data.error === 'stale_challenge') {
-        // The page's token has run out.  Not a score to fall back from, and
-        // the fallback's question needs the same token: say so, start over.
-        challengeExpired('stale_challenge', { method: 'behavioral', http_status: res.status });
+      } else if (res.data && (res.data.error === 'stale_challenge' || res.data.error === 'pow_required')) {
+        // The page's token has run out, or the daemon wants the proof-of-work
+        // this page should have solved first.  Not a score to fall back from,
+        // and the fallback's question needs the same token: say so, start over.
+        challengeExpired('stale_challenge', { method: 'behavioral', http_status: res.status, error: res.data.error });
       } else {
         // A low score, or an answer the daemon found too quick after the
         // page was served (too_fast): either way the arithmetic is the way
@@ -1015,7 +1023,7 @@
     fetch(API_BASE + '/verify',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({answer:parseInt(ans), token:captchaToken, ct:captchaCt,
+      body:JSON.stringify({answer:parseInt(ans), token:captchaToken, ct:captchaCt, pow:powProof,
                            iv:mathInputEvents, dt:(mathShownAt ? Date.now()-mathShownAt : 0)})
     }).then(parseJSON)
     .then(function(res){
@@ -1023,8 +1031,8 @@
         _bcDebug(bvPhaseForCaptchaPass(), { method:'math', iv:mathInputEvents,
                                            downgraded: res.data.downgraded ? 1 : 0 });
         passAndRedirect();
-      } else if (res.data && res.data.error === 'stale_challenge') {
-        challengeExpired('stale_challenge', { method: 'math', http_status: res.status });
+      } else if (res.data && (res.data.error === 'stale_challenge' || res.data.error === 'pow_required')) {
+        challengeExpired('stale_challenge', { method: 'math', http_status: res.status, error: res.data.error });
       } else {
         _bcDebug('verify_ng', { method:'math', http_status: res.status, error: res.data && res.data.error });
         showError(t.wrong);
@@ -1428,30 +1436,38 @@
     return;
   }
   // chainPoWThenCaptcha: when true, the PoW success path branches into
-  // showCaptcha() instead of issuing _bv.
+  // showCaptcha() instead of issuing _bv.  captchaAfterPow names the
+  // CAPTCHA the solve hands off to, for that chain and for the page's own
+  // escalation below; the proof-of-work always comes first, because the
+  // daemon takes no CAPTCHA answer for a chain that ran one without it.
   var chainPoWThenCaptcha = (chMode === 'pow_then_captcha');
+  var captchaAfterPow = chainPoWThenCaptcha ? 'pow_then_captcha' : '';
 
-  // flags >= 3 -> bot decision -> show CAPTCHA
+  // flags >= 3 -> bot decision -> show CAPTCHA (after the proof-of-work the
+  // chain owes: a flagged client is asked for more than the posture, never
+  // less)
   if(flags>=3){
     var rc=0;
     try{var m2=document.cookie.match(/_br=(\d+)/);if(m2)rc=parseInt(m2[1]);}catch(e){}
     if(rc>=2){
-      showCaptcha('flags_retry');
+      // Used to show the CAPTCHA here, before any proof-of-work; the chain's
+      // own hand-off keeps its name when it is the chain that asked.
+      if(!captchaAfterPow) captchaAfterPow = 'flags_retry';
+    } else {
+      // _br retry counter: independent of _bv server-validity windows.  365 days
+      // is "practically permanent"; the server only ever reads this to count
+      // recent JS-side challenge attempts, never to authenticate.
+      var exp=new Date(Date.now()+86400000*365);
+      document.cookie='_br='+(rc+1)+';path=/;expires='+exp.toUTCString()+';SameSite=Lax';
+      // _br set check: if we can't write, the page reloads forever, so show an error and give up
+      var _br_set_ok = /(?:^|;\s*)_br=/.test(document.cookie);
+      if (!_br_set_ok) {
+        showCookieError();
+        return;
+      }
+      setTimeout(function(){passAndRedirect();},2000);
       return;
     }
-    // _br retry counter: independent of _bv server-validity windows.  365 days
-    // is "practically permanent"; the server only ever reads this to count
-    // recent JS-side challenge attempts, never to authenticate.
-    var exp=new Date(Date.now()+86400000*365);
-    document.cookie='_br='+(rc+1)+';path=/;expires='+exp.toUTCString()+';SameSite=Lax';
-    // _br set check: if we can't write, the page reloads forever, so show an error and give up
-    var _br_set_ok = /(?:^|;\s*)_br=/.test(document.cookie);
-    if (!_br_set_ok) {
-      showCookieError();
-      return;
-    }
-    setTimeout(function(){passAndRedirect();},2000);
-    return;
   }
 
   // --- Proof-of-Work (= SHA-256 hashcash style.  unix-second granularity since 2026-05) ---
@@ -1701,9 +1717,10 @@
   // The CAPTCHA leg branches BEFORE the display floor below: it needs the
   // visitor's hands, and holding a solved spinner in front of a task would be
   // pure added latency.
-  if (chainPoWThenCaptcha) {
+  if (captchaAfterPow) {
+    powProof = tok;
     _bcDebug('pow_pass', { pow_iterations: target, pow_elapsed_ms: elapsed, token_flags: flags });
-    showCaptcha('pow_then_captcha');
+    showCaptcha(captchaAfterPow);
     return;
   }
 
