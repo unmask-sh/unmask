@@ -56,9 +56,19 @@ type Policy struct {
 
 var current atomic.Pointer[Policy]
 
+// testLoopback: loopback allowed whatever the policy says, for test suites
+// whose servers listen on it (SetLoopbackForTests).  A knob of its own,
+// not a policy, because a settings save in the same suite publishes the
+// saved settings' policy and would take a plain allowance away again.
+var testLoopback atomic.Bool
+
 // SetPolicy publishes the policy every later dial is judged by.  Called at
 // startup from the settings and again when they are saved.
 func SetPolicy(p Policy) { current.Store(&p) }
+
+// SetLoopbackForTests lets a test suite reach its own servers on loopback
+// regardless of the policy in force.  Returns the previous value.
+func SetLoopbackForTests(allow bool) (was bool) { return testLoopback.Swap(allow) }
 
 // Current is the policy in force.
 func Current() Policy {
@@ -123,7 +133,7 @@ func (p Policy) Refuse(ip netip.Addr, local bool) string {
 			return "cloud metadata address"
 		}
 	}
-	if ip.IsLoopback() && !local && !p.AllowLoopback {
+	if ip.IsLoopback() && !local && !p.AllowLoopback && !testLoopback.Load() {
 		return "loopback address; set outbound.allow_loopback to permit"
 	}
 	if p.DenyPrivate && !ip.IsLoopback() && (ip.IsPrivate() || cgnat.Contains(ip)) {

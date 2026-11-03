@@ -8,8 +8,9 @@ import (
 )
 
 // The tests' servers listen on loopback, which the outbound policy refuses
-// by default (internal/outbound); the suite opens it.
+// by default (internal/outbound); the suite opens it -- as a test-only
+// allowance, which a settings save in the suite cannot take away.
 func TestMain(m *testing.M) {
-	outbound.SetPolicy(outbound.Policy{AllowLoopback: true})
+	outbound.SetLoopbackForTests(true)
 	os.Exit(m.Run())
 }

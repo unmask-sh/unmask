@@ -146,3 +146,23 @@ func TestUnixSocketsPassTheControlHook(t *testing.T) {
 		t.Fatal("tcp to the metadata address passed")
 	}
 }
+
+// The test-only allowance holds through a SetPolicy, which is what a
+// settings save in a suite does; it is a knob apart from the policy.
+func TestLoopbackAllowanceForTestsOutlivesSetPolicy(t *testing.T) {
+	t.Cleanup(func() { SetLoopbackForTests(false); SetPolicy(Policy{}) })
+	SetLoopbackForTests(true)
+	SetPolicy(Policy{})
+	if why := Current().Refuse(netip.MustParseAddr("127.0.0.1"), false); why != "" {
+		t.Errorf("loopback refused under the test allowance: %s", why)
+	}
+	if why := Current().Refuse(netip.MustParseAddr("169.254.169.254"), false); why == "" {
+		t.Error("the metadata address passed under the test allowance")
+	}
+	if was := SetLoopbackForTests(false); !was {
+		t.Error("SetLoopbackForTests did not report the previous value")
+	}
+	if why := Current().Refuse(netip.MustParseAddr("127.0.0.1"), false); why == "" {
+		t.Error("loopback passed after the allowance was taken back")
+	}
+}
