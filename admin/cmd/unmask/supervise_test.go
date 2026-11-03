@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -23,6 +25,15 @@ const (
 func TestMain(m *testing.M) {
 	switch os.Getenv(superviseChildEnv) {
 	case "":
+		// The commands log through the standard logger, and under test they
+		// log what they would in production (a doctor's findings, a render's
+		// notes); go test prints it all exactly when a test fails, around
+		// the one line that says what did.  Dropped unless asked for;
+		// UNMASK_TEST_LOG=1 keeps it.  A test that reads the log swaps the
+		// writer itself and restores what it found (render_watch_test.go).
+		if os.Getenv("UNMASK_TEST_LOG") == "" {
+			log.SetOutput(io.Discard)
+		}
 		os.Exit(m.Run())
 	case "exit0":
 		superviseCount()

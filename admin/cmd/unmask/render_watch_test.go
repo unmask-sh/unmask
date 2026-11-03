@@ -18,8 +18,9 @@ import (
 // render failed.
 func TestRenderAfterGeoUpdate(t *testing.T) {
 	var buf bytes.Buffer
+	prev := log.Writer()
 	log.SetOutput(&buf)
-	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	t.Cleanup(func() { log.SetOutput(prev) })
 
 	dir := t.TempDir()
 	conf := filepath.Join(dir, "nginx.conf")
