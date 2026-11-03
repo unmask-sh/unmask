@@ -77,7 +77,7 @@ unmask_ban_count(const char *buf, size_t len, size_t *nrows, size_t *nprefixes)
 
     *nrows = 0;
     *nprefixes = 0;
-    if (buf == NULL || len == 0) {
+    if (buf == NULL) {
         return;
     }
     /* After the guard: an offset on a null pointer is undefined behaviour,
@@ -123,9 +123,12 @@ unmask_ban_parse(char *buf, size_t len,
 
     *nrows = 0;
     *nprefixes = 0;
-    if (buf == NULL || len == 0) {
+    if (buf == NULL) {
         return 0;
     }
+    /* After the guard: an offset on a null pointer is undefined behaviour,
+     * which UBSan reports even for an offset of zero.  An empty buffer still
+     * gets its terminator: callers hand over len + 1 bytes and read it. */
     p = buf;
     end = buf + len;
     buf[len] = '\0';
