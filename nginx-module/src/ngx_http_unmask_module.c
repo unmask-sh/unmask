@@ -623,7 +623,10 @@ typedef struct {
     unsigned              ban_done:1;
     unsigned              ban_hit:1;
     unsigned              ja4_done:1;
+    unsigned              client_net_done:1;
     ngx_str_t             ja4;         /* the request's JA4 (ngx_unmask_request_ja4) */
+    u_char                client_net[8];     /* $unmask_client_net's bytes */
+    size_t                client_net_len;
     ngx_unmask_bv_kind_t  bv_kind;
     ngx_str_t             bv_id;       /* the verified pass's identity (16 hex) */
     ngx_str_t             ban_action;  /* copy in r->pool; empty when no hit */
@@ -2454,18 +2457,12 @@ ngx_http_unmask_has_signed_agent_variable(ngx_http_request_t *r,
  *                    its privacy-extension addresses rotate within it
  * Binary value (like $binary_remote_addr); mirrors the _bv cookie's IPv6 /64
  * binding so the two layers agree on "a /64 is one client". */
-static ngx_int_t
-ngx_http_unmask_client_net_variable(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, uintptr_t data)
+/* The key's bytes into out (8 bytes is enough); returns their number.  0
+ * for an unknown family (= unix socket, etc.): an empty key, degenerate but
+ * safe -- a non-IP connection never reaches the public rate-limited paths. */
+static size_t
+ngx_unmask_client_net(struct sockaddr *sa, u_char *out)
 {
-    struct sockaddr *sa = r->connection->sockaddr;
-    u_char *p;
-
-    (void) data;
-    v->valid = 1;
-    v->no_cacheable = 1;
-    v->not_found = 0;
-
     if (sa != NULL && sa->sa_family == AF_INET6) {
         struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *) sa;
         u_char *a = sin6->sin6_addr.s6_addr;
@@ -2475,32 +2472,51 @@ ngx_http_unmask_client_net_variable(ngx_http_request_t *r,
         }
         if (mapped && a[10] == 0xff && a[11] == 0xff) {
             /* IPv4-mapped -> key on the embedded IPv4. */
-            p = ngx_pnalloc(r->pool, 4);
-            if (p == NULL) return NGX_ERROR;
-            ngx_memcpy(p, a + 12, 4);
-            v->data = p; v->len = 4;
-        } else {
-            /* /64 = the first 8 bytes. */
-            p = ngx_pnalloc(r->pool, 8);
-            if (p == NULL) return NGX_ERROR;
-            ngx_memcpy(p, a, 8);
-            v->data = p; v->len = 8;
+            ngx_memcpy(out, a + 12, 4);
+            return 4;
         }
-        return NGX_OK;
+        /* /64 = the first 8 bytes. */
+        ngx_memcpy(out, a, 8);
+        return 8;
     }
-
     if (sa != NULL && sa->sa_family == AF_INET) {
         struct sockaddr_in *sin = (struct sockaddr_in *) sa;
-        p = ngx_pnalloc(r->pool, 4);
+        ngx_memcpy(out, &sin->sin_addr.s_addr, 4);
+        return 4;
+    }
+    return 0;
+}
+
+/* The variable is NOCACHEABLE (the limit_req key reads it after an internal
+ * redirect's variable reset), so it is evaluated several times a request;
+ * the bytes are computed once and kept in the request ctx, with no pool
+ * allocation.  The ctx is absent only when the pool is exhausted, and then
+ * the pool-allocated copy fails the same way. */
+static ngx_int_t
+ngx_http_unmask_client_net_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data)
+{
+    ngx_http_unmask_req_ctx_t *ctx = ngx_unmask_req_ctx(r);
+    u_char *p;
+
+    (void) data;
+    v->valid = 1;
+    v->no_cacheable = 1;
+    v->not_found = 0;
+
+    if (ctx == NULL) {
+        p = ngx_pnalloc(r->pool, 8);
         if (p == NULL) return NGX_ERROR;
-        ngx_memcpy(p, &sin->sin_addr.s_addr, 4);
-        v->data = p; v->len = 4;
+        v->data = p;
+        v->len = ngx_unmask_client_net(r->connection->sockaddr, p);
         return NGX_OK;
     }
-
-    /* Unknown family (= unix socket, etc.): empty key (degenerate but safe -- a
-     * non-IP connection never reaches the public rate-limited paths). */
-    v->data = (u_char *) "";
-    v->len = 0;
+    if (!ctx->client_net_done) {
+        ctx->client_net_len = ngx_unmask_client_net(r->connection->sockaddr,
+                                                    ctx->client_net);
+        ctx->client_net_done = 1;
+    }
+    v->data = ctx->client_net;
+    v->len = ctx->client_net_len;
     return NGX_OK;
 }
