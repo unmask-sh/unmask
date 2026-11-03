@@ -4,6 +4,9 @@ What a release asks of the operator, from 0.1.50 on.  `CHANGELOG.md` has
 every change; this page keeps the actions.  For releases before 0.1.50, read
 the changelog's "Upgrade note" paragraphs.
 
+Still 0.x: a patch release can rename or remove a settings key, and most
+releases ask nginx for a reload or a restart.  The table says which.
+
 ## Every upgrade
 
 - Back up before you start: `unmask backup`.
@@ -37,22 +40,72 @@ the changelog's "Upgrade note" paragraphs.
 
 ## Release by release
 
-| Release | nginx | Sign-in | Settings keys | Schema | Defaults and behaviour |
-|---|---|---|---|---|---|
-| **0.1.53** | **Restart**: the module changed (`$unmask_bind_key`, `$unmask_bv_id`, the ban-file check, the `_bv` budget); update the plugin together with the daemon.  forward-auth: the nginx and Apache snippets changed; reload nginx / restart httpd. | Every admin session is signed out once; sign in again.  Password-reset and invite links sent by an earlier build stop working; send them again. | New, all optional: `nginx.trusted_lb_realip` (the visitor's address from X-Forwarded-For behind the trusted LB / CDN set), `nginx.cdn_egress_extra` (your own CDN origin-facing ranges), `nginx.cdn_egress_ban` (ban CDN egress after all), `nginx.admin_public_url` (the admin's own address, used for the links in mail), `notifications.critical_url`, `notifications.critical_min_severity` and `notifications.critical_format` (a second webhook for the critical alerts, with a format of its own). | 0046, a session generation per account.  0048 widens `cookie_bv` on MariaDB; on a large table it is left for the operator (`unmask migrate -status`).  0049, the pass cookies each address presented in a day. | New checks on by default, held for review on an install that reviews its upgrades: the UA-TLS consistency tier, the proof-of-work pass budget, and the reuse cap's per-pass budget (`rate_limit.reuse.pass_per_hour`, 500 requests an hour for one pass; the address's budget stays as the second tier).  The default bypass presets pass GET, HEAD and OPTIONS only.  A crawler passed on its name alone meets traps, rules and limits, and a per-address budget.  With a third-party CAPTCHA configured, a verify without its token is refused.  Changing the SMTP host or the AI endpoint clears the stored credential.  Forwarded headers count only from a trusted proxy, for `/metrics` too.  The data directory is 0751 so nginx's worker reads the ban list (no ban held in nginx before).  No automatic ban lands on a CDN's origin-facing address (CloudFront, Cloudflare, Fastly); a CloudFront preset joins the trusted LB / CDN set.  `nginx.admin_allowed_hosts` guards every admin page, not only sign-in.  Logout ends every session of the account.  A re-bound pass ends with its solve's window.  A browser that asks for neither ja nor en gets English.  The access log carries the pass cookie (`bv=`) once the plugin verified it, and the stats page ranks the passes behind each address -- how many in a day, and the busiest hour of one -- from the moment nginx runs the rendered configuration. |
-| **0.1.52** | Reload. | -- | `audit_retention_days` removed; `audit_log_retention_days` (0 = keep) and `notice_retention_days` replace it.  The old key is ignored and named at startup. | Index builds a large database leaves for the operator: the stats page's per-visitor card indexes, and 0039 (the Community Bans count).  Bans work during the build; account and profile edits wait. | The settings page takes the admin role; a viewer gets the dashboard, statistics and bot hunt. |
-| **0.1.51** | Reload: native installs need it for path normalization, challenge counting and monitor mode. | -- | `global.passthrough` removed: monitor mode (`challenge.default.observe_only`) is the switch.  `search_bots.upstream_disabled` and `upstream_ua_enabled` replaced by `search_bots.upstream_pattern_mode`.  Over-block alarm: `min_serves` / `max_serves_per_ip` replaced by `min_stuck_ips` / `stuck_percent`. | -- | Crawler modes read Pass / Normal checks / Stop (were White / Neutral / Black).  The admin shows a notice while nginx runs an older configuration. |
-| **0.1.50** | Reload. | -- | -- | `unmask migrate` ends at the last index and can be interrupted; `unmask db-vacuum` builds the query statistics. | The SQL-injection honeypot preset is on by default, held for review on an install that reviews new enforcement; its patterns now match encoded probes. |
+One line per release; the section of the same name under Details says what
+each cell means.  "Restart" is a restart of nginx (a reload keeps the module
+it has loaded); "Reload" is `nginx -t` and a reload after the package's
+render.
+
+| Release | nginx | Sign-in | Settings keys | Schema |
+|---|---|---|---|---|
+| **0.1.53** | Restart | Signed out once | 8 new, all optional | 0046, 0048, 0049 |
+| **0.1.52** | Reload | -- | 1 renamed | index builds, on a large database |
+| **0.1.51** | Reload | -- | 1 removed, 4 renamed | -- |
+| **0.1.50** | Reload | -- | -- | -- |
 
 ## Details
 
 ### 0.1.53
 
-- The plugin and the daemon must move together: the pass cookie is bound
-  through nginx's new `$unmask_bind_key`, the reuse cap's per-pass tier is
-  keyed on its new `$unmask_bv_id`, and the module also changed its ban-file
-  check and the `_bv` cookie budget.  Restart nginx once the plugin package
-  has been upgraded.
+- **nginx: restart.**  The plugin and the daemon must move together: the
+  pass cookie is bound through nginx's new `$unmask_bind_key`, the reuse
+  cap's per-pass tier is keyed on its new `$unmask_bv_id`, and the module
+  also changed its ban-file check and the `_bv` cookie budget.  Restart
+  nginx once the plugin package has been upgraded.  forward-auth: the nginx
+  and Apache snippets changed too; reload nginx / restart httpd so the
+  updated snippets are read.  The Apache snippet needs mod_setenvif, which
+  the distributions' httpd packages load by default.
+- **Sign-in.**  Schema update 0046 gives each account a session generation;
+  every admin session is signed out once by the upgrade.  Password-reset and
+  invite links sent by an earlier build stop working; send them again.  A
+  reset link is now built on `nginx.admin_public_url`; without it, on the
+  first hostname in `nginx.admin_allowed_hosts`; with neither, the mail
+  carries the path alone.
+- **Settings keys, new and optional.**  `nginx.trusted_lb_realip` (the
+  visitor's address from X-Forwarded-For behind the trusted LB / CDN set);
+  `nginx.cdn_egress_extra` (your own CDN origin-facing ranges);
+  `nginx.cdn_egress_ban` (ban CDN egress after all);
+  `nginx.admin_public_url` (the admin's own address, used for the links in
+  mail); `notifications.critical_url`,
+  `notifications.critical_min_severity` and `notifications.critical_format`
+  (a second webhook for the critical alerts, with a format of its own);
+  `secret.sig_hash` (`sha1`, the default, or `sha256`; below).
+- **Schema.**  0046, a session generation per account.  0048 widens
+  `cookie_bv` on MariaDB; on a large table it is left for the operator
+  (`unmask migrate -status`).  0049, the pass cookies each address presented
+  in a day.
+- **Defaults and behaviour.**  New checks on by default, held for review on
+  an install that reviews its upgrades: the UA-TLS consistency tier, the
+  proof-of-work pass budget, and the reuse cap's per-pass budget.  The
+  default bypass presets pass GET, HEAD and OPTIONS only.  A crawler passed
+  on its name alone meets traps, rules and limits, and a per-address budget.
+  With a third-party CAPTCHA configured, a verify without its token is
+  refused.  Changing the SMTP host or the AI endpoint clears the stored
+  credential.  Forwarded headers count only from a trusted proxy, for
+  `/metrics` too.  The data directory is 0751 so nginx's worker reads the
+  ban list (no ban held in nginx before).  No automatic ban lands on a CDN's
+  origin-facing address (CloudFront, Cloudflare, Fastly); a CloudFront
+  preset joins the trusted LB / CDN set.  `nginx.admin_allowed_hosts`, when
+  set, guards every admin page, not only sign-in and password reset: list
+  every name you reach the admin under before upgrading.  Logging out ends
+  every session of the account, on every device.  A pass re-bound to a new
+  address ends with the window of the solve behind it (seven days for a
+  proof-of-work by default); a visitor whose pass was being carried past
+  that window meets a challenge again.  A browser whose Accept-Language
+  names neither ja nor en gets the challenge, deny and admin pages in
+  English; they were Japanese.  The access log carries the pass cookie
+  (`bv=`) once the plugin verified it, and the stats page ranks the passes
+  behind each address -- how many in a day, and the busiest hour of one --
+  from the moment nginx runs the rendered configuration.
 - The pass-cookie reuse cap counts in two tiers now.  The new first tier is
   per pass: one pass (one browser on one network) holds 500 requests an hour
   by default (`rate_limit.reuse.pass_per_hour`), so the people behind an
@@ -82,51 +135,89 @@ the changelog's "Upgrade note" paragraphs.
   callback was replaced by another module (every request then runs without
   a JA4): one callback per SSL context is OpenSSL's rule, not a bug to fix
   on either side; load one of the two.
-- Schema update 0046 gives each account a session generation; existing
-  sessions are signed out once by the upgrade.
-- The forward-auth snippets now set the client address (Apache) and clear
-  the cookie's bind-key header themselves; reload nginx or restart httpd so
-  the updated snippets are read.  The Apache snippet needs mod_setenvif,
-  which the distributions' httpd packages load by default.
-- A password-reset link is built on `nginx.admin_public_url`; without it,
-  on the first hostname in `nginx.admin_allowed_hosts`; with neither, the
-  mail carries the path alone.  Links an earlier build sent stop working;
-  send them again.
-- `nginx.admin_allowed_hosts`, when set, now guards every admin page, not
-  only sign-in and password reset: list every name you reach the admin under
-  before upgrading.
-- Logging out ends every session of the account, on every device.
-- A pass re-bound to a new address ends with the window of the solve behind
-  it (seven days for a proof-of-work by default).  A visitor whose pass was
-  being carried past that window meets a challenge again.
-- A browser whose Accept-Language names neither ja nor en gets the
-  challenge, deny and admin pages in English; they were Japanese.
 
 ### 0.1.52
 
-- `audit_retention_days` became `audit_log_retention_days` (the retention
-  tab; 0 keeps the log), with `notice_retention_days` for the notification
-  list.  Delete the old key from config.yml to silence the startup warning.
-- On a large database the upgrade leaves the index builds to you: run
-  `unmask migrate` when convenient, or start it from the admin's notice; the
-  challenge keeps being served meanwhile.
+- **nginx: reload.**
+- **Settings keys.**  `audit_retention_days` became
+  `audit_log_retention_days` (the retention tab; 0 keeps the log), with
+  `notice_retention_days` for the notification list.  The old key is ignored
+  and named at startup; delete it from config.yml to silence the warning.
+- **Schema.**  On a large database the upgrade leaves the index builds to
+  you -- the stats page's per-visitor card indexes, and 0039 (the Community
+  Bans count): run `unmask migrate` when convenient, or start it from the
+  admin's notice; the challenge keeps being served meanwhile.  Bans work
+  during the build; account and profile edits wait.
+- **Behaviour.**  The settings page takes the admin role; a viewer gets the
+  dashboard, statistics and bot hunt.
 
 ### 0.1.51
 
-- `global.passthrough` (pass-through mode) is gone and ignored.  If it was
-  on, enforcement is back on; monitor mode is the switch, and on a module
-  install it is rendered into nginx (`render-nginx` + reload after turning it
-  on).
-- `search_bots.upstream_disabled`: crawlers still listed there pass again
-  until each is set to Normal checks in its group's Detail on the UA filter
-  tab (stored as `upstream_pattern_mode: {<pattern>: none}`); the startup
-  log names them.  `upstream_ua_enabled` needs nothing.
-- The over-block alarm's `min_serves` / `max_serves_per_ip` became
-  `min_stuck_ips` / `stuck_percent`.
+- **nginx: reload.**  Native installs need it for path normalization,
+  challenge counting and monitor mode.
+- **Settings keys.**  `global.passthrough` (pass-through mode) is gone and
+  ignored.  If it was on, enforcement is back on; monitor mode
+  (`challenge.default.observe_only`) is the switch, and on a module install
+  it is rendered into nginx (`render-nginx` + reload after turning it on).
+  `search_bots.upstream_disabled` and `upstream_ua_enabled` are replaced by
+  `search_bots.upstream_pattern_mode`: crawlers still listed in
+  `upstream_disabled` pass again until each is set to Normal checks in its
+  group's Detail on the UA filter tab (stored as
+  `upstream_pattern_mode: {<pattern>: none}`); the startup log names them.
+  `upstream_ua_enabled` needs nothing.  The over-block alarm's `min_serves`
+  / `max_serves_per_ip` became `min_stuck_ips` / `stuck_percent`.
+- **Behaviour.**  Crawler modes read Pass / Normal checks / Stop (were
+  White / Neutral / Black).  The admin shows a notice while nginx runs an
+  older configuration.
 
 ### 0.1.50
 
-- The SQL-injection honeypot preset turns on; a site whose search echoes SQL
-  itself can switch it off.
-- `migrate -status` and the upgrade notice point to `unmask db-vacuum -plan`
+- **nginx: reload.**
+- **Schema.**  `unmask migrate` ends at the last index and can be
+  interrupted; `unmask db-vacuum` builds the query statistics, and
+  `migrate -status` and the upgrade notice point to `unmask db-vacuum -plan`
   for a fragmented database file.
+- **Behaviour.**  The SQL-injection honeypot preset is on by default, held
+  for review on an install that reviews new enforcement; its patterns now
+  match encoded probes.  A site whose search echoes SQL itself can switch it
+  off.
+
+## Rolling back
+
+The schema only moves forward: a release's schema updates are not undone,
+and an earlier daemon is not run against a later schema.  Going back to an
+earlier version therefore starts from the backup taken before the upgrade
+(`unmask backup`; `unmask backup -h` has the restore steps).  Without one,
+the database stays as the later version left it, and the earlier daemon
+starts against it at your own risk.
+
+1. Stop the daemon: `systemctl stop unmask` (`rc-service unmask stop` on
+   OpenRC).
+2. Put back `config.yml` and, on SQLite, the database file from the
+   archive, after removing the `-wal` and `-shm` files next to it; the
+   `branding/` files to `/var/lib/unmask/branding/`; `chown` all of them to
+   the daemon's user (`unmask`).  On MariaDB, restore the `mysqldump` taken
+   with the backup.  Settings keys the earlier version does not know are
+   named at its startup and ignored.
+3. Install the earlier version, the three packages as one set (the plugin
+   and the web snippets are pinned to the daemon's exact version).  The
+   repository carries the current release only; the package files of every
+   release are on its release page,
+   https://github.com/unmask-sh/unmask/releases, under the version's tag.
+   - rpm: `sudo dnf downgrade ./unmask-<version>-*.rpm ./unmask-plugin-nginx-<version>-*.rpm ./unmask-web-nginx-<version>-*.rpm`
+   - deb: `sudo apt install --allow-downgrades ./unmask_<version>-*.deb ./unmask-plugin-nginx_<version>-*.deb ./unmask-web-nginx_<version>-*.deb`
+   - apk: `sudo apk add ./unmask-<version>-*.apk ./unmask-plugin-nginx-<version>-*.apk ./unmask-web-nginx-<version>-*.apk`
+   - the gateway container: pin the image to the version in the compose
+     file (`image: unmask.sh/unmask:<version>`; the registry keeps every
+     released tag, `latest` moves) and `docker compose up -d`.  The
+     `/etc/unmask` volume holds the config and the database: put the
+     backup's files back there before starting the container.
+   The `unmask` package starts the daemon again; otherwise `systemctl start
+   unmask`.
+4. nginx: the plugin package placed the earlier module file, and a reload
+   keeps the one loaded: `nginx -t`, then restart nginx.  The daemon's
+   start re-rendered the configuration for the earlier version.
+5. `unmask doctor` reports what is left: the rendered configuration nginx
+   runs, the module it loaded, and the schema.
+
+Sessions signed out by the later version stay signed out; sign in again.
