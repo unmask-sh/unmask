@@ -16,9 +16,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- (2026-11-03) **`db.mysql_tls` turns on TLS for the MariaDB connection.**  The connection to MariaDB ran in the clear whatever the server offered.  `db.mysql_tls` in config.yml takes `true` (verify the server's certificate), `skip-verify`, `preferred`, or the path of the CA's PEM file; left empty, nothing changes.
+
 - (2026-11-03) **A privacy notice link on the CAPTCHA card.**  Set `branding.default.privacy_url` in config.yml (or per site) and the card's note links to your privacy notice in the visitor's language.  The branding help lists what the challenge page sends to the event log and for how long, as material for that notice.
 
 ### Changed
+
+- (2026-11-03) **The pass budget counts the passes the daemon sees.**  It used to count only the solves a page reported (the beacon or the `/bvj` issue), which a client that mints its own cookies never sends.  Now every pass an address presents in the nginx access log is counted too, each pass once whichever trace brings it; an address inside a relay's range is left out.
+
+- (2026-11-03) **Packages and the image carry the license notices, and releases are attested.**  Every rpm, deb and apk, and the container image, now ship LICENSE, NOTICE and the third-party notices (debs a copyright file).  The release workflow attests the provenance of the binaries, the SBOM and the image, `gh attestation verify` checks it, and release-verify does so after each publish.
+
+- (2026-11-03) **The README gains configuration, several-nodes, metrics and CAPTCHA-provider sections.**  The main `config.yml` keys, what running several nodes needs, the `/unmask/metrics` endpoint with the Grafana dashboard, and the switch to Turnstile, hCaptcha or reCAPTCHA (with what the built-in CAPTCHA does not stop) are now in the README; eight statements that no longer matched the code were corrected.
+
+- (2026-11-03) **The admin's account menu, setup labels and top bar work from the keyboard and on a phone.**  The account menu (sign-out included) is a button that opens with Enter or Space, moves with the arrow keys and closes with Escape; the setup wizard's labels are tied to their fields; and the top bar no longer overflows at 390 pixels.
 
 - (2026-11-03) **The challenge page reads at AA contrast on every theme, and holds still under reduced motion.**  The note, the reference id, the brand footer, the "connecting" line and two buttons sat below the 4.5:1 WCAG AA asks of body text; every pair now measures 4.5:1 or better on all five themes.  With prefers-reduced-motion the spinner, the terminal caret, the cat and the paper rule stop; the progress bar still fills.
 
@@ -68,6 +78,16 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- (2026-11-03) **The plugin places the module built for exactly the host's nginx, or none.**  nginx refuses a module built for a neighbouring patch release, so the "closest match" the placer picked never loaded and only reached the fail-safe through a failed `nginx -t`.  With no module for the host's version the placer names it, lists the bundled versions and the ways out, and exits 1; the postinstall says so.
+
+- (2026-11-03) **A module stripped by the fail-safe is a critical alert.**  When nginx could not load the module and the fail-safe left the site unprotected, the admin's list had a row and nothing else heard of it.  The event now goes to the webhook and by mail as critical, the recovery as info, and `unmask doctor` reports an active fail-safe as an error and says whether that alert can reach anyone.
+
+- (2026-11-03) **The daemon's loops survive a panic.**  The event flusher, the ban manager and the access-log counters wrapped their whole loop in one recover, so a single panic ended that loop for the daemon's lifetime, silently.  Each iteration now recovers on its own: the one that panicked is dropped, the loop retries with a growing wait, and a loop stuck on panics is reported by webhook and mail.
+
+- (2026-11-03) **The settings page no longer walks the whole ASN database on every render.**  The provider counts the UA and ASN tabs show were computed by reading the ASN database end to end on each request; they are now kept by the database file's identity.  A page whose build outruns the server's timeout gets an explicit error instead of a page cut off without its save button.
+
+- (2026-11-03) **The ban list's directories are opened for nginx's worker only under `/var/lib/unmask`.**  Writing the ban file, the daemon walked up the file's directories adding search permission for others, so an operator who pointed `ban_file_path` under a home directory had that home opened too.  The walk stays under `/var/lib/unmask`; elsewhere the daemon logs what the worker needs and changes nothing.
+
 - (2026-11-03) **A browser too old to run the challenge is told so.**  The challenge script needs a browser of 2017 or later; an older one failed to parse it and sat on the spinner for ever, with no beacon.  The page's own bootstrap now waits five seconds for the script to start and otherwise stops the spinner and says, in English and Japanese, that this browser cannot show the page.
 
 - (2026-11-03) **Every language names the checkbox and the site.**  Thirteen of the eighteen languages showed "I'm not a robot" in English under a card otherwise in their language, and a site without a name read "this site" in every language but Japanese.  Each language now carries its own label and its own word for the site, and the tab's title follows the card's heading.
@@ -109,6 +129,26 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-11-03) **The built-in CAPTCHA help describes the scoring that runs.**  The threshold's help listed five averaged axes, among them the smoothness of scrolls and the rhythm of keystrokes, which the scorer never reads.  It now lists the actual deductions (self-dispatched events, no input, a click under half a second, a one-point or straight trail, a stepped trail, a zero window) and what the default 0.5 means in those terms.
 
 ### Security
+
+- (2026-11-03) **The admin's own key.**  The admin session, its CSRF tokens and the sign-in form's token now derive from a new `secret.admin_secret`, which only the daemon holds and no rendered nginx file carries.  They derived from `bv_secret`, which every nginx node has in `http.inc`, so one readable `http.inc` could sign a superadmin session for every node.  Every operator signs in again once; `unmask doctor` checks the rendered files.
+
+- (2026-11-03) **The HTTPS-redirect exemptions no longer skip the ban and the hard deny.**  With `nginx.https_redirect` on, a request matching an exemption (a health checker's user-agent, the ACME path, a custom rule) left the server rewrite phase before the ban and deny gates, so a banned or denied client could name `GoogleHC` and reach the ordinary challenge.  The exemption now withholds only the redirect.  Re-render and reload nginx.
+
+- (2026-11-03) **JA4 bans hold behind a trusted load balancer.**  The native plugin matched the ban file's `ip|ja4` and `|ja4` rows on its own TLS handshake's fingerprint, which behind a balancer forwarding JA4 in a header is the balancer's, while the daemon writes the rows from the forwarded value; those bans never matched there.  The plugin now keys on `$unmask_ban_ja4`, defined on `$effective_ja4` by the render.  Requires an nginx restart.
+
+- (2026-11-03) **The CAPTCHA's proof-of-load token is the client's.**  The `ct` a challenge page carries is now bound to the client it was served to, with the pass cookie's bind key and host (a relay's range for a client inside one) and the connection's TLS fingerprint; `/api/verify` and `/api/captcha/new` refuse it from anyone else.  A fingerprint may differ by what a browser's own does: a resumed session, or HTTP/3 against HTTP/2.
+
+- (2026-11-03) **A CAPTCHA chain owes its proof-of-work.**  The page's token signs the chain served.  On `pow_then_captcha` the verify takes no CAPTCHA answer, behavioral or arithmetic, without the proof-of-work solved for that page, which the page now sends with the answer; `captcha_only` owes none, as its CAPTCHA is meant to come first.  A `pow_only` page earns a proof-of-work pass at most.  `?_force=` is honoured only on the test pages.
+
+- (2026-11-03) **The stale-browser, header-integrity and UA-TLS tiers demand a CAPTCHA-grade pass.**  Each tier escalated only a request that would otherwise pass, and a proof-of-work cookie counted as passing, so the CAPTCHA the tier serves was never reached by a client that solved, or minted, the proof-of-work.  A tier whose action ends in a CAPTCHA now keys on the CAPTCHA grade; forward-auth mirrors the stale and header tiers.
+
+- (2026-11-03) **`/run/unmask` is shared with the web server's group only.**  The runtime directory was 0755 beside sockets that are 0660, so any local user could reach the log socket's directory.  It is now 0750, owned by the same group as the sockets in it, on the service unit, the init script and the container alike; nginx's worker, a member of that group, traverses it as before.
+
+- (2026-11-03) **Webhook text escapes what a visitor wrote.**  A ban's reason, a visitor's URI or user agent went into the Slack, Discord and generic bodies as they came, so a crafted request could ring `<!channel>` or `@everyone` in the operator's channel.  Slack entities are escaped, Discord mentions are switched off, control characters are dropped, and each field and body keeps within the service's length.
+
+- (2026-11-03) **The AI tools redact webhook URLs and credential-shaped values.**  The configuration the AI advisor and the ask page hand to a model masked keys named like secrets but not `webhook_url`, `critical_url` or a URL carrying a token, so a Slack hook (a secret in itself) reached the provider.  Keys that carry a hook or a credential, and values shaped like one, are now said to be set and nothing more.
+
+- (2026-11-03) **Patterns with nested repetition are refused at save.**  Every pattern the admin accepts for nginx (UA filters, protected and bypass paths, custom rules, AI-proposed rules) was checked with Go's linear-time engine but runs under nginx's PCRE, where a nested quantifier such as `(a+)+` can take exponential time on a crafted request.  Such patterns, and patterns over 1024 bytes, are now refused with a reason.
 
 - (2026-11-03) **The challenge page carries a Content-Security-Policy of its own.**  Each serve gets a nonce for the page's inline scripts, `blob:` workers for the proof-of-work, and the origin of the CAPTCHA provider you picked; an operator's own copy of the page from before the change is served without a policy.  The step-back relay runs under a nonce too; README's nginx section says what a site's own policy has to allow.
 

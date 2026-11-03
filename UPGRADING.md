@@ -47,7 +47,7 @@ render.
 
 | Release | nginx | Sign-in | Settings keys | Schema |
 |---|---|---|---|---|
-| **0.1.54** | Restart | -- | 7 new, all optional | 0050 |
+| **0.1.54** | Restart | Signed out once | 9 new, all optional | 0050 |
 | **0.1.53** | Restart | Signed out once | 8 new, all optional | 0046, 0048, 0049 |
 | **0.1.52** | Reload | -- | 1 renamed | index builds, on a large database |
 | **0.1.51** | Reload | -- | 1 removed, 4 renamed | -- |
@@ -57,6 +57,29 @@ render.
 
 ### 0.1.54
 
+- **Sign-in.**  The admin session, its CSRF tokens and the sign-in form's
+  token are signed with a new `secret.admin_secret` that only the daemon
+  holds; every operator signs in again once after the daemon restarts.
+  Nothing to configure: an install whose `config.yml` has no `admin_secret`
+  gets one generated and kept at `/var/lib/unmask/admin_secret` (0600, the
+  daemon's user).  To carry the key in `config.yml` instead (a backup, or a
+  second daemon host behind one admin address) set `secret.admin_secret` to
+  any random string; `unmask config-init` writes one on a fresh install.  The
+  key must never reach nginx's files; `unmask doctor` reports it if it does.
+- **nginx: restart, and re-render.**  Besides the module changes above, the
+  plugin's ban lookup now reads `$unmask_ban_ja4`, which the new `http.inc`
+  defines on `$effective_ja4` (an older plugin ignores the map), so JA4 bans
+  hold behind a balancer that forwards the fingerprint.  With
+  `nginx.https_redirect` on, the rendered `server.inc` changed too: re-render
+  (`unmask render-nginx`, or any save) and reload.
+- **Challenge in flight.**  A challenge page served by the previous version
+  carries a token the new verify refuses as stale; the page reloads itself
+  once and the visitor sees the check again.  The token is now bound to the
+  client and names the chain, and a `pow_then_captcha` page sends its
+  proof-of-work with the CAPTCHA answer.
+- **Runtime directory.**  `/run/unmask` is 0750 and owned by the web
+  server's group (the sockets in it already were); the service unit, the
+  init script and the container set it.
 - **nginx: restart.**  The module changed: it reads the ban list on a change
   instead of on every request, accepts a quoted `_bv` cookie, keeps the
   main-request marker across an internal redirect, encodes the compose
@@ -80,11 +103,12 @@ render.
   the SMTP relay and a local AI model keep loopback without it.  The cloud
   metadata addresses are refused everywhere.  `outbound.deny_private: true`
   closes the private ranges as well.
-- **Settings keys.**  New and optional: `nginx_log.socket_mode`,
-  `nginx_log.socket_group`, `outbound.deny_private`,
-  `outbound.allow_loopback`, `server.access_log` (`"off"` silences the line
-  per request), `db.max_conns` (MariaDB, custom profile) and the challenge
-  branding's `privacy_url`.  Nothing is renamed or removed.
+- **Settings keys.**  New and optional: `secret.admin_secret` (see
+  Sign-in), `nginx_log.socket_mode`, `nginx_log.socket_group`,
+  `outbound.deny_private`, `outbound.allow_loopback`, `server.access_log`
+  (`"off"` silences the line per request), `db.max_conns` (MariaDB, custom
+  profile), `db.mysql_tls` (TLS to MariaDB) and the challenge branding's
+  `privacy_url`.  Nothing is renamed or removed.
 - **Schema.**  Update 0050 adds the table the login lockout counts in; it is
   small and runs at start.
 - **Admin pages.**  Every response carries a report-only script policy
