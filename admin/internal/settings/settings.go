@@ -5523,6 +5523,71 @@ func settingsTopLevelKeys() map[string]bool {
 	return out
 }
 
+// carryComments moves the comments of the config file at path onto tree, the
+// freshly encoded settings: a key's head, line and foot comments onto the key
+// of the same name at the same depth, a sequence element's onto the element
+// at the same index while the sequence kept its length.  A key the new tree
+// does not have (a removed or empty field) takes its comments with it.  The
+// block before the first key, which yaml.v3 holds on the document rather than
+// on a key, is returned for the caller to put back; the header an earlier
+// Save wrote, saying the comments were lost, is replaced by saveHeader.
+// commented says whether the file began with a comment at all -- when it did
+// not, the caller adds saveHeader.  A file that cannot be read or parsed
+// carries nothing.
+func carryComments(path string, tree *yaml.Node) (head string, commented bool) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return "", false
+	}
+	var doc yaml.Node
+	if yaml.Unmarshal(raw, &doc) != nil || doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return "", false
+	}
+	copyNodeComments(doc.Content[0], tree)
+	head = doc.HeadComment
+	if strings.Contains(head, "Comments authored right after install are lost") {
+		head = strings.TrimSuffix(saveHeader, "\n")
+	}
+	return head, strings.HasPrefix(strings.TrimSpace(string(raw)), "#")
+}
+
+// copyNodeComments copies old's comments onto nu where the two trees agree
+// in shape: the node's own three, then its children -- mapping entries by
+// key, sequence elements by index while the lengths agree.
+func copyNodeComments(old, nu *yaml.Node) {
+	if old == nil || nu == nil || old.Kind != nu.Kind {
+		return
+	}
+	if nu.HeadComment == "" {
+		nu.HeadComment = old.HeadComment
+	}
+	if nu.LineComment == "" {
+		nu.LineComment = old.LineComment
+	}
+	if nu.FootComment == "" {
+		nu.FootComment = old.FootComment
+	}
+	switch nu.Kind {
+	case yaml.MappingNode:
+		was := make(map[string][2]*yaml.Node, len(old.Content)/2)
+		for i := 0; i+1 < len(old.Content); i += 2 {
+			was[old.Content[i].Value] = [2]*yaml.Node{old.Content[i], old.Content[i+1]}
+		}
+		for i := 0; i+1 < len(nu.Content); i += 2 {
+			if kv, ok := was[nu.Content[i].Value]; ok {
+				copyNodeComments(kv[0], nu.Content[i])
+				copyNodeComments(kv[1], nu.Content[i+1])
+			}
+		}
+	case yaml.SequenceNode:
+		if len(old.Content) == len(nu.Content) {
+			for i := range nu.Content {
+				copyNodeComments(old.Content[i], nu.Content[i])
+			}
+		}
+	}
+}
+
 // preservedUnknownYAML extracts the top-level mappings in the file at path
 // that Settings does not know about — sections owned by OTHER programs
 // sharing the config file (unmask.sh's feed_server block was silently eaten
@@ -5560,9 +5625,11 @@ func preservedUnknownYAML(path string) []byte {
 	return b
 }
 
-// Save writes the settings to path.  Existing file comments are lost (=
-// yaml.v3 marshal does not preserve comments); a header stating "managed by
-// the web UI" is prepended instead.
+// Save writes the settings to path.  The comments of the file already there
+// are kept (carryComments): on every key that is written again, by name and
+// at every depth, so what config-init wrote and what the operator noted
+// beside a value survive a save from the web UI.  Until 0.1.54 a save
+// dropped every comment and prepended a header saying so.
 //
 // The write: a temp file in the same dir (os.CreateTemp, 0600 -- secrets
 // are included), fsync, rename over path (POSIX atomic), fsync of the dir
@@ -5658,22 +5725,32 @@ func lockConfig(path string) (func(), error) {
 	}, nil
 }
 
+// saveHeader opens a config file the web UI writes for the first time -- one
+// that began with no comment.  A file that has comments keeps its own; the
+// header an earlier Save wrote, which said the comments were lost, is
+// replaced by this one.
+const saveHeader = "# unmask config (= managed by the unmask web UI; the comments in this file are kept on save)\n" +
+	"# Bootstrap values (= db/secret/server/...) are not web-editable; write them by hand.\n"
+
 // saveLocked is Save's write; the caller holds the lock.
 func saveLocked(s Settings, path string) error {
 	// An explicit false on a Default record is the same as unset (nothing sits
 	// above Default to inherit from), and persisting it would rewrite the file
 	// on every save.
 	normalizeDefaults(&s)
-	body, err := yaml.Marshal(&s)
+	var tree yaml.Node
+	if err := tree.Encode(&s); err != nil {
+		return fmt.Errorf("marshal yaml: %w", err)
+	}
+	head, commented := carryComments(path, &tree)
+	doc := yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{&tree}, HeadComment: head}
+	body, err := yaml.Marshal(&doc)
 	if err != nil {
 		return fmt.Errorf("marshal yaml: %w", err)
 	}
-	header := []byte(
-		"# unmask config (= managed by unmask web UI; do not edit while admin running)\n" +
-			"# Comments authored right after install are lost when saved via the web.\n" +
-			"# Bootstrap values (= db/secret/server/...) are not web-editable; write them manually at install time only.\n\n",
-	)
-	body = append(header, body...)
+	if !commented {
+		body = append([]byte(saveHeader+"\n"), body...)
+	}
 	// Top-level sections this struct does not know about are other programs'
 	// property (or a future unmask's) — carry them over verbatim instead of
 	// silently dropping them.
