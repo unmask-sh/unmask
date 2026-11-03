@@ -490,6 +490,13 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 	exec("unmask_pass_ip_day",
 		`DELETE FROM unmask_pass_ip_day WHERE bucket_day < ?`,
 		time.Now().Unix()/86400-cookieIPPowKeepDays)
+	// unmask_login_throttle holds the admin credential endpoints' per-address
+	// counters (handlers/login_throttle_db.go): a row whose lock has run out
+	// and whose last event is a day old says nothing any more -- the windows
+	// are minutes long -- and an address sweep must not grow the table.
+	exec("unmask_login_throttle",
+		`DELETE FROM unmask_login_throttle WHERE updated_at < ? AND locked_until < ?`,
+		time.Now().Unix()-86400, time.Now().Unix())
 	// PoW rows go earlier than the shared window, for two reasons that point the
 	// same way.  Correctness: a PoW _bv lives 7 days by default, so past two
 	// lifetimes "how much was one cookie reused" stops being one cookie — a

@@ -26,6 +26,12 @@ import (
 // locked out); per-IP makes the attacker spread across addresses without ever
 // touching the operator's own access.
 type loginThrottle struct {
+	// store keeps the counters in the database (login_throttle_db.go), so
+	// they outlive a restart and are shared by every node on a shared
+	// database.  The cells below are the fallback: no database yet, its
+	// writes held by a schema update, or an error on the way.
+	store *loginThrottleStore
+
 	mu    sync.Mutex
 	cells map[string]*throttleCell
 
@@ -53,8 +59,8 @@ func newLoginThrottle() *loginThrottle {
 	}
 }
 
-// lockedFor returns how much longer the key is locked (0 = not locked).
-func (t *loginThrottle) lockedFor(key string, now time.Time) time.Duration {
+// lockedForMem is lockedFor on this node's memory.
+func (t *loginThrottle) lockedForMem(key string, now time.Time) time.Duration {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	c := t.cells[key]
@@ -64,10 +70,8 @@ func (t *loginThrottle) lockedFor(key string, now time.Time) time.Duration {
 	return c.lockedUntil.Sub(now)
 }
 
-// note records one event (a login failure, or a forgot-password request)
-// against key and returns the remaining lock if this event tripped or renewed
-// it.  limit/window/lock describe the axis being counted.
-func (t *loginThrottle) note(key string, now time.Time, limit int, window, lock time.Duration) time.Duration {
+// noteMem is note on this node's memory.
+func (t *loginThrottle) noteMem(key string, now time.Time, limit int, window, lock time.Duration) time.Duration {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	t.pruneLocked(now)
@@ -94,8 +98,8 @@ func (t *loginThrottle) note(key string, now time.Time, limit int, window, lock 
 	return 0
 }
 
-// clear drops the key's state (a successful login is a clean slate).
-func (t *loginThrottle) clear(key string) {
+// clearMem is clear on this node's memory.
+func (t *loginThrottle) clearMem(key string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	delete(t.cells, key)
@@ -184,6 +188,9 @@ func (h *Handler) throttle() *loginThrottle {
 	h.loginThrottleOnce.Do(func() {
 		if h.loginThrottle == nil {
 			h.loginThrottle = newLoginThrottle()
+		}
+		if h.loginThrottle.store == nil && h.DB != nil {
+			h.loginThrottle.store = &loginThrottleStore{db: h.DB}
 		}
 	})
 	return h.loginThrottle

@@ -129,6 +129,21 @@ type Notice struct {
 
 func (Notice) TableName() string { return "unmask_notice" }
 
+// LoginThrottle: a row of unmask_login_throttle -- one per-address counter
+// of the admin's credential endpoints (migration 0050): the login lockout
+// and the forgot-password cap, shared by every node on a shared database
+// and kept over a restart.  K is the axis prefix and the address; the unix
+// times are app-managed.
+type LoginThrottle struct {
+	K           string `gorm:"column:k;primaryKey"`
+	Cnt         int    `gorm:"column:cnt;not null"`
+	WindowStart int64  `gorm:"column:window_start;not null"`
+	LockedUntil int64  `gorm:"column:locked_until;not null"`
+	UpdatedAt   int64  `gorm:"column:updated_at;not null;autoUpdateTime:false"`
+}
+
+func (LoginThrottle) TableName() string { return "unmask_login_throttle" }
+
 // NoticeSeen: a row of unmask_notice_seen -- how far an account has read the
 // notification list (the id of the newest row it had opened the list to).
 type NoticeSeen struct {
