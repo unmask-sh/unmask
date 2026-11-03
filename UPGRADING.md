@@ -92,6 +92,13 @@ render.
   browser console lists what an enforced policy would stop.  The sign-in
   form now carries a CSRF token: a sign-in page left open from before the
   upgrade must be reloaded once.
+- **Plugin.**  The placer puts in only the module built for exactly the
+  host's nginx version; nginx loads no other, and the "closest match" of
+  the same branch it used to pick never loaded.  With no module for the
+  host's version it prints the version, the versions bundled and the ways
+  out, and exits 1 (the package install still succeeds; nginx starts
+  without the module, as before).  A host whose nginx the bundle does not
+  cover should pin the nginx package to a bundled version.
 
 ### 0.1.53
 
