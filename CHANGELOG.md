@@ -12,7 +12,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-11-06) **The module loads on Alpine again.**  0.1.54 compiled the plugin with fortified libc calls, which exist only in glibc; Alpine's musl nginx loads the same glibc-built file through gcompat, found no `__snprintf_chk`, and the fail-safe stripped the module (protection off, admin reachable, `unmask doctor` named it).  The module is now built without `_FORTIFY_SOURCE`; the stack protector and full RELRO stay.  Restart nginx after the upgrade.
+
 ## [0.1.54] - 2026-11-06
+
+_Tagged but not published: the plugin built for this version did not load on Alpine (see 0.1.55, which carries every change below)._
 
 ### Added
 

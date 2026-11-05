@@ -1,11 +1,6 @@
 {
-  "latest": "0.1.54",
+  "latest": "0.1.53",
   "releases": [
-    {
-      "version": "0.1.54",
-      "date": "2026-11-06",
-      "notes": "0.1.54 is the work of two external reviews. A posture that ends in a CAPTCHA, whether the site's own (`pow_then_captcha`, `captcha_only`) or the stale-browser, header-integrity and UA-TLS tiers, now demands a CAPTCHA-grade pass, so a proof-of-work pass obtained another way no longer clears it; the CAPTCHA's proof-of-load token is bound to the client and a CAPTCHA chain owes its proof-of-work. The admin signs its session, CSRF and sign-in tokens with a key only the daemon holds, the sign-in form carries a CSRF token, and the login lockout survives a restart and is shared across nodes. The HTTPS-redirect exemptions no longer skip the ban and the hard deny, JA4 bans hold behind a trusted load balancer, the challenge page carries a Content-Security-Policy of its own, the built-in CAPTCHA takes more than a fetch and a POST, and outbound connections refuse the cloud metadata addresses and loopback. Webhook text, log lines and templated messages escape what a visitor wrote, the AI tools redact webhook URLs and credential-shaped values, patterns with nested repetition are refused, and `/run/unmask` and the access-log socket are shared with the web server's group only. The module reads the ban list on a change instead of on every request, accepts a quoted `_bv` cookie, keeps the main-request marker across an internal redirect, and is built hardened; the plugin places the module built for exactly the host's nginx, or none, and a module stripped by the fail-safe is a critical alert. The daemon's loops survive a panic, GeoIP reloads no longer race the lookups, MariaDB connections have their own pool size, timeouts and `db.mysql_tls`, a save keeps the comments in config.yml, and the settings page no longer walks the whole ASN database. Every package and the image carry the license notices, releases are attested, the daemon binary is reproducible, and the published release is checked after publishing. The challenge page reads at AA contrast, speaks to screen readers and holds still under reduced motion; the admin works from the keyboard and on a phone. Upgrading restarts nginx to load the new module and signs every admin out once; a visitor holding only a proof-of-work pass on a CAPTCHA posture clears the CAPTCHA once."
-    },
     {
       "version": "0.1.53",
       "date": "2026-11-03",

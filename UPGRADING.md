@@ -47,7 +47,8 @@ render.
 
 | Release | nginx | Sign-in | Settings keys | Schema |
 |---|---|---|---|---|
-| **0.1.54** | Restart | Signed out once | 9 new, all optional | 0050 |
+| **0.1.55** | Restart | Signed out once | 9 new, all optional | 0050 |
+| 0.1.54 (tagged, not published) | -- | -- | -- | -- |
 | **0.1.53** | Restart | Signed out once | 8 new, all optional | 0046, 0048, 0049 |
 | **0.1.52** | Reload | -- | 1 renamed | index builds, on a large database |
 | **0.1.51** | Reload | -- | 1 removed, 4 renamed | -- |
@@ -55,7 +56,14 @@ render.
 
 ## Details
 
-### 0.1.54
+### 0.1.55
+
+0.1.55 is 0.1.54 with one fix: the module file is built without fortified
+libc calls, so Alpine's nginx (musl, loading the glibc build through
+`gcompat`) loads it again.  0.1.54 was tagged but never published; every
+item under 0.1.54 below applies to an upgrade from 0.1.53 to 0.1.55.
+
+### 0.1.54 (not published)
 
 - **Sign-in.**  The admin session, its CSRF tokens and the sign-in form's
   token are signed with a new `secret.admin_secret` that only the daemon

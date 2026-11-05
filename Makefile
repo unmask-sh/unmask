@@ -192,14 +192,18 @@ endif
 NGINX_CROSS_OPTS =
 
 # Hardening for the shipped .so (= it parses TLS ClientHello bytes and the
-# client's cookie): stack protector, fortified libc calls (which need -O2),
-# RELRO + BIND_NOW so the GOT is read-only once loaded.  The same three go to
-# the CI build and the Dockerfile.  -fstack-protector-strong needs gcc 4.9;
-# an older toolchain gets -fstack-protector.  _FORTIFY_SOURCE is undefined
-# first because some toolchains predefine it (at 3), and nginx builds with
-# -Werror, which a redefinition would trip.
+# client's cookie): stack protector, RELRO + BIND_NOW so the GOT is read-only
+# once loaded.  The same flags go to the CI build and the Dockerfile.
+# -fstack-protector-strong needs gcc 4.9; an older toolchain gets
+# -fstack-protector.  _FORTIFY_SOURCE is undefined and stays off: the
+# fortified calls it emits (__snprintf_chk, __memcpy_chk) exist only in glibc,
+# and the same glibc-built .so is dlopen()ed by Alpine's musl nginx through
+# gcompat, which provides none of them -- the 0.1.54 module failed to load
+# there ("__snprintf_chk: symbol not found") and the fail-safe stripped it.
+# Some toolchains predefine _FORTIFY_SOURCE (at 3), and nginx builds with
+# -Werror, so it is undefined explicitly.
 NGINX_STACK_PROTECTOR := $(shell echo 'int main(void){return 0;}' | $(CC) -fstack-protector-strong -x c -c -o /dev/null - >/dev/null 2>&1 && echo -fstack-protector-strong || echo -fstack-protector)
-NGINX_CC_OPT ?= -O2 $(NGINX_STACK_PROTECTOR) -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2
+NGINX_CC_OPT ?= -O2 $(NGINX_STACK_PROTECTOR) -U_FORTIFY_SOURCE
 NGINX_LD_OPT ?= -Wl,-z,relro,-z,now
 
 build-module: $(NGINX_SRC)/configure

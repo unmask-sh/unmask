@@ -74,7 +74,7 @@ RUN cd "nginx-${NGINX_VERSION}" \
                    --with-http_ssl_module \
                    --with-http_realip_module \
                    --with-http_auth_request_module \
-                   --with-cc-opt='-O2 -fstack-protector-strong -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=2' \
+                   --with-cc-opt='-O2 -fstack-protector-strong -U_FORTIFY_SOURCE' \
                    --with-ld-opt='-Wl,-z,relro,-z,now' \
                    --add-dynamic-module=/src/nginx-module \
     && make -j"$(nproc)" modules
