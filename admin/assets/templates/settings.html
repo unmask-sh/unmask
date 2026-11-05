@@ -453,6 +453,27 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
    purpose so the pill sync treats it as a MODE pill, not an action pill. */
 .rule-row .rule-mode-sel{display:none;padding:.25rem .4rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff}
 .rule-row.editing .rule-mode-sel{display:inline-block}
+/* A list whose open row wraps onto two lines (the JA4 custom rules: name,
+   pattern, verdict and two pickers).  On one line the pattern -- the only
+   control allowed to shrink, and the one that has to hold a whole
+   fingerprint -- absorbed the whole squeeze and was left a few characters
+   wide.  Now the name and the pattern share the first line, the verdict and
+   both pickers the second with the row's buttons at its right end, at every
+   width: the break is forced (the row's ::after at full width), not left to
+   the window.  The arrow leading the second line reads as the folded row
+   does: pattern → verdict.  The markup is the one every list shares. */
+.rule-list.edit-2line .rule-row.editing{flex-wrap:wrap;row-gap:.45rem}
+.rule-list.edit-2line .rule-row.editing::after{content:"";flex-basis:100%;height:0;order:1}
+.rule-list.edit-2line .rule-row.editing::before{content:"→";order:2;color:#94a3b8;font-size:.9rem;line-height:1}
+.rule-list.edit-2line .rule-row.editing input.rule-title{flex:1 1 12rem;min-width:0}
+.rule-list.edit-2line .rule-row.editing .rule-pat-wrap{flex:3 1 20rem}
+.rule-list.edit-2line .rule-row.editing input.rule-verd{flex:1 1 12rem;min-width:0;max-width:22rem;order:2}
+.rule-list.edit-2line .rule-row.editing .rule-action,
+.rule-list.edit-2line .rule-row.editing .extra-action-sel,
+.rule-list.edit-2line .rule-row.editing > button{order:2}
+.rule-list.edit-2line .rule-row.editing > .rule-save{margin-left:auto}
+/* The folded custom row names its verdict the way the presets do. */
+.rule-view .pat .verdict{color:#92400e;font-weight:700}
 /* ? helper right after the h2 title.  Popover shows on hover / focus.  CSS only */
 .bcd-card h2{display:flex;align-items:center;gap:.4rem}
 /* .info-tip / .info-popup (base, hover, pinned, close button, edge flip) all
@@ -2988,7 +3009,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <div class="ua-section">
       <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span></h3>
       <p class="desc">{{ safeHTML (t .Lang "settings.ja4.extra_desc") }}</p>
-      <div class="rule-list" data-rule-name="ja4_extra">
+      <div class="rule-list edit-2line" data-rule-name="ja4_extra">
         {{ range $i, $r := .JA4Rules }}
         {{ $jea := index $.JA4ExtraAction $i }}
         {{ $rrs := ruleRowState $r.Pattern "ja4_extra_pat" $.SecErrField $.SecErrValue $.SecErrMsg $.SecFocusSet }}
@@ -2999,7 +3020,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <input type="hidden" name="ja4_extra_created_at" value="{{ $r.CreatedAt }}"><input type="hidden" name="ja4_extra_updated_at" value="{{ $r.UpdatedAt }}">
           <span class="rule-view">
             <div class="ttl{{ if not $r.Title }} empty{{ end }}">{{ if $r.Title }}{{ $r.Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-            <div class="pat{{ if not $r.Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.ua.empty_pattern" }}">{{ if $r.Pattern }}{{ patText $r.Pattern }}<span class="pat-lit" data-mode="{{ patMode $r.Pattern }}">{{ patModeLabel $.Lang $r.Pattern }}</span>{{ else }}{{ t $.Lang "settings.ua.empty_pattern" }}{{ end }} → <span class="verdict">{{ $r.Verdict }}</span> <span class="action-pill action-{{ $r.Action }}">{{ t $.Lang (printf "settings.ja4.action_label.%s" $r.Action) }}</span>{{ with $jea }} <span class="action-pill action-bot" data-pill="action">{{ . }}</span>{{ end }}</div>
+            <div class="pat{{ if not $r.Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.ua.empty_pattern" }}">{{ if $r.Pattern }}{{ patText $r.Pattern }}<span class="pat-lit" data-mode="{{ patMode $r.Pattern }}">{{ patModeLabel $.Lang $r.Pattern }}</span>{{ else }}{{ t $.Lang "settings.ua.empty_pattern" }}{{ end }}<span class="verdict-lane"> → <span class="verdict">{{ $r.Verdict }}</span></span> <span class="action-pill action-{{ $r.Action }}">{{ t $.Lang (printf "settings.ja4.action_label.%s" $r.Action) }}</span>{{ with $jea }} <span class="action-pill action-bot" data-pill="action">{{ . }}</span>{{ end }}</div>
             {{ if gt $r.CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ $r.CreatedAt }}">{{ $r.CreatedAt }}</time>{{ if gt $r.UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ $r.UpdatedAt }}">{{ $r.UpdatedAt }}</time>{{ end }}</div>{{ end }}
           </span>
           <input type="text" name="ja4_extra_title" value="{{ $r.Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
@@ -8084,6 +8105,14 @@ document.addEventListener('DOMContentLoaded', function(){
     return parts.join('\u0001');
   }
 
+  // laneEnd: the first node of the folded row that is not the value -- the
+  // JA4 rows' arrow-and-verdict lane, otherwise the first pill.  Everything
+  // before it is the value and gets rewritten on confirm; everything from it
+  // on is kept and updated in place.
+  function laneEnd(patView) {
+    return patView.querySelector('.verdict-lane, .action-pill');
+  }
+
   function syncRowPills(patView) {
     const row = patView.closest('.rule-row');
     if (!row) return;
@@ -8140,6 +8169,36 @@ document.addEventListener('DOMContentLoaded', function(){
     }
     const site = row.querySelector('input.rule-action[name$="_site"]');
     if (site) upsert('site', site.value.trim() ? 'site=' + site.value.trim() : '', 'action-suspect');
+    // The JA4 rows keep two more values in the folded row: the verdict label
+    // behind the arrow and the block / observe / allow pill, both read from
+    // the row's own controls.  A row added on this page has neither yet, so
+    // each is created on its first confirm and updated after that; the chain
+    // pill, when there is one, keeps its place behind them.  Without this the
+    // two vanished on confirm and came back only with a reload.
+    const verd = row.querySelector('input.rule-verd');
+    if (verd) {
+      let lane = patView.querySelector('.verdict-lane');
+      if (!lane) {
+        lane = document.createElement('span');
+        lane.className = 'verdict-lane';
+        lane.appendChild(document.createTextNode(' \u2192 '));
+        lane.appendChild(document.createElement('span')).className = 'verdict';
+        patView.insertBefore(lane, patView.querySelector('.action-pill'));
+      }
+      lane.querySelector('.verdict').textContent = verd.value.trim();
+      const kind = row.querySelector('select.rule-action');
+      if (kind) {
+        let pill = patView.querySelector('.action-pill:not([data-pill])');
+        if (!pill) {
+          pill = document.createElement('span');
+          const after = lane.nextSibling;
+          patView.insertBefore(document.createTextNode(' '), after);
+          patView.insertBefore(pill, after);
+        }
+        pill.className = 'action-pill action-' + kind.value;
+        pill.textContent = kind.options[kind.selectedIndex] ? kind.options[kind.selectedIndex].textContent.trim() : kind.value;
+      }
+    }
   }
 
   function syncPatValue(patView, patInput) {
@@ -8170,7 +8229,7 @@ document.addEventListener('DOMContentLoaded', function(){
       // Replace only the text before the first pill -- assigning textContent
       // wiped the mode, action and site pills off every confirmed row, so a row
       // read as bare until the page was reloaded.
-      const firstPill = patView.querySelector('.action-pill');
+      const firstPill = laneEnd(patView);
       while (patView.firstChild && patView.firstChild !== firstPill) {
         patView.removeChild(patView.firstChild);
       }
@@ -8250,7 +8309,7 @@ document.addEventListener('DOMContentLoaded', function(){
             // site are set, and hiding them reads as the values having been
             // lost rather than as one field still being blank.
             patView.classList.add('empty');
-            const firstPill = patView.querySelector('.action-pill');
+            const firstPill = laneEnd(patView);
             while (patView.firstChild && patView.firstChild !== firstPill) {
               patView.removeChild(patView.firstChild);
             }
