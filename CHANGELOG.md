@@ -12,7 +12,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [0.1.54-rc1] - 2026-11-03 (testing build)
+## [0.1.54] - 2026-11-06
 
 ### Added
 
