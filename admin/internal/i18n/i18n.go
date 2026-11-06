@@ -489,6 +489,7 @@ var dict = map[Lang]map[string]string{
 		"profile.err.empty":                             "新 password が空です。",
 		"profile.err.mismatch":                          "新 password と確認用が一致しません。",
 		"profile.err.too_long":                          "password が長すぎます (1024 byte 上限)。",
+		"profile.err.too_short":                         "password は 8 文字以上にしてください。",
 		"profile.err.unknown_op":                        "未知の操作です。",
 		"overview.title":                                "ダッシュボード",
 		"overview.upgrade_review.banner":                "アップグレードで追加された enforcement ルール %d 件が確認待ちです",
@@ -2828,6 +2829,7 @@ var dict = map[Lang]map[string]string{
 		"reset.err_invalid":      "token が無効か期限切れです。もう一度「パスワードを忘れた場合」から再設定 link を取得してください。",
 		"reset.err_mismatch":     "確認用 password が一致しません。",
 		"reset.err_empty":        "password を入力してください。",
+		"reset.err_length":       "password は 8 文字以上 (1024 byte 以内) にしてください。",
 		"reset.err_set":          "password の更新に失敗しました。時間をおいて再試行してください。",
 		// nginx has not reloaded (partial_reload_notice.html)
 		"reload_notice.msg":                  "nginx がまだ前の設定で動いています。%s に書き出した設定は reload まで効きません。",
@@ -3434,6 +3436,7 @@ var dict = map[Lang]map[string]string{
 		"profile.err.empty":                             "New password is empty.",
 		"profile.err.mismatch":                          "New password and confirmation do not match.",
 		"profile.err.too_long":                          "Password too long (= 1024 byte limit).",
+		"profile.err.too_short":                         "Use at least 8 characters for the password.",
 		"profile.err.unknown_op":                        "Unknown op.",
 		"overview.title":                                "Dashboard",
 		"overview.upgrade_review.banner":                "%d enforcement rule(s) added by an upgrade are awaiting review",
@@ -5758,6 +5761,7 @@ where <code>&lt;site-id&gt;</code> is any <code>[a-z0-9-]{1,32}</code>. Omit to 
 		"reset.err_invalid":      "The reset token is invalid or expired. Request a new reset link from the «Forgot your password?» page.",
 		"reset.err_mismatch":     "The two passwords do not match.",
 		"reset.err_empty":        "Please enter a password.",
+		"reset.err_length":       "Use at least 8 characters (and no more than 1024 bytes).",
 		"reset.err_set":          "Failed to update the password. Please try again in a moment.",
 		// nginx has not reloaded (partial_reload_notice.html)
 		"reload_notice.msg":                  "nginx is still running the previous configuration: the one written at %s takes effect once nginx reloads.",

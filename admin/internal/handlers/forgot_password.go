@@ -203,6 +203,14 @@ func (h *Handler) AdminResetPasswordPost(w http.ResponseWriter, r *http.Request)
 		http.Redirect(w, r, base+"/admin/reset-password?token="+tok+"&err=mismatch", http.StatusFound)
 		return
 	}
+	// Before the token is spent: a password the policy refuses leaves the
+	// link good for the next try.  (The page asks the browser for eight
+	// characters; nothing here did, and one too long was refused only after
+	// the token was gone.)
+	if err := user.ValidatePassword(pw); err != nil {
+		http.Redirect(w, r, base+"/admin/reset-password?token="+tok+"&err=length", http.StatusFound)
+		return
+	}
 
 	ctx := r.Context()
 	u, err := h.UserRepo.ConsumeResetToken(ctx, tok)

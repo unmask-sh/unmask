@@ -228,6 +228,14 @@ func (h *Handler) AdminUsersSave(w http.ResponseWriter, r *http.Request) {
 		alertOptOut := r.FormValue("alert_opt_out") == "1"
 		passwordLocked := r.FormValue("password_locked") == "1"
 		newPass := r.FormValue("password")
+		// Before anything is written: a password the policy refuses must not
+		// leave the role and the profile half applied.
+		if newPass != "" {
+			if err := user.ValidatePassword(newPass); err != nil {
+				redir(err.Error())
+				return
+			}
+		}
 
 		// Call SetRole if the role differs from the current one.  The
 		// "cannot demote the last superadmin" check is done inside SetRole.
@@ -283,6 +291,14 @@ func (h *Handler) AdminUsersSave(w http.ResponseWriter, r *http.Request) {
 		if !user.IsValidRole(role) {
 			redir("invalid role: " + role)
 			return
+		}
+		// A typed password meets the policy the wizard and the CLI hold a
+		// new one to (the invite flow's own is random, and long).
+		if password != "" {
+			if err := user.ValidatePassword(password); err != nil {
+				redir(err.Error())
+				return
+			}
 		}
 		email := strings.TrimSpace(r.FormValue("email"))
 		alertOptOut := r.FormValue("alert_opt_out") == "1"
@@ -440,6 +456,10 @@ func (h *Handler) AdminUsersSave(w http.ResponseWriter, r *http.Request) {
 		newPass := r.FormValue("password")
 		if newPass == "" {
 			redir("password is empty")
+			return
+		}
+		if err := user.ValidatePassword(newPass); err != nil {
+			redir(err.Error())
 			return
 		}
 		if err := h.UserRepo.SetPassword(r.Context(), uid, newPass); err != nil {

@@ -140,6 +140,12 @@ func (h *Handler) AdminProfileSave(w http.ResponseWriter, r *http.Request) {
 			redir("profile.err.too_long")
 			return
 		}
+		// The floor the setup wizard and the CLI hold a new password to.
+		// This page set whatever it was given, a single character included.
+		if len(newPass) < user.MinPasswordLen {
+			redir("profile.err.too_short")
+			return
+		}
 		if err := user.CheckPassword(me.PasswordHash, cur); err != nil {
 			if errors.Is(err, user.ErrBusy) {
 				// Not checked at all (the hashing slots stayed full), so not
