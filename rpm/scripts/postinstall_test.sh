@@ -28,11 +28,13 @@ check() { # <desc> <expected> <actual>
 run_case() {
     local init="$1" apk="$2" notice="$3"; shift 3
     T=$(mktemp -d)
-    mkdir -p "$T/stub" "$T/tools" "$T/etc/unmask" "$T/var/lib/unmask" "$T/usr/share/unmask/init" "$T/etc/init.d" "$T/bin"
+    mkdir -p "$T/stub" "$T/tools" "$T/etc/unmask" "$T/var/lib/unmask/nginx" "$T/usr/share/unmask/init" "$T/etc/init.d" "$T/bin"
     : > "$T/calls.log"
     : > "$T/usr/share/unmask/init/unmask.sysv"
     : > "$T/usr/share/unmask/init/unmask.openrc"
     : > "$T/etc/unmask/config.yml"           # an upgrade: the config is there
+    # ...and so are the files of the last render.
+    for c in http server protect; do : > "$T/var/lib/unmask/nginx/$c.inc"; done
     # The commands the script may call, as stand-ins that record the call.
     local stubs="chown chmod getent hostname install runuser su"
     case "$init" in
@@ -117,6 +119,12 @@ run_case systemd 0 "" 2
 check "systemd, rpm upgrade: started once" 1 "$(starts)"
 check "systemd, rpm upgrade: not re-enabled (the operator may have disabled it)" 0 "$(called '^systemctl enable')"
 check "systemd, rpm upgrade: the data directory is made passable too" 1 "$(called "^chmod 0751 $T/var/lib/unmask$")"
+# http.inc carries the key behind every pass.  It used to go to 0644 with the
+# other rendered files and back to 0640 in the next command: readable by every
+# local user for the moment in between, on every upgrade.
+check "http.inc is never made world-readable, not even in passing" 0 "$(called '^chmod 0644 .*/http\.inc')"
+check "http.inc is kept at 0640" 1 "$(called "^chmod 0640 $T/var/lib/unmask/nginx/http.inc$")"
+check "the other rendered files go to 0644, one by one" "1 1" "$(called "^chmod 0644 $T/var/lib/unmask/nginx/server.inc$") $(called "^chmod 0644 $T/var/lib/unmask/nginx/protect.inc$")"
 rm -rf "$T"
 
 run_case systemd 0 "" configure

@@ -112,11 +112,21 @@ RENDER_DIR=/var/lib/unmask/nginx
 # runs as unmask and must rewrite them (community-bans map files, web-UI
 # re-render), so hand the whole render dir to unmask.
 chown -R unmask:unmask "$RENDER_DIR" 2>/dev/null || true
-chmod 0644 "$RENDER_DIR"/*.inc 2>/dev/null || true
 # http.inc carries unmask_bv_secret -- not world-readable (a local user could
 # otherwise read the key and forge _bv cookies).  nginx's master reads config
 # as root, so 0640 unmask:unmask is sufficient.
-chmod 0640 "$RENDER_DIR"/http.inc 2>/dev/null || true
+#
+# The render writes these modes itself (http.inc 0640, the others 0644); this
+# is for files from before it did.  Each file goes to its own mode in one
+# step: a `chmod 0644 *.inc` followed by a 0640 for http.inc left the key
+# readable by every local user for the moment in between, on every upgrade.
+for f in "$RENDER_DIR"/*.inc; do
+    [ -e "$f" ] || continue
+    case "$f" in
+        */http.inc) chmod 0640 "$f" 2>/dev/null || true ;;
+        *)          chmod 0644 "$f" 2>/dev/null || true ;;
+    esac
+done
 
 # The ban list ($RENDER_DIR/banned.txt) is read by nginx's WORKER on every
 # request, and the worker runs as nginx.conf's `user` (nginx, www-data), not
