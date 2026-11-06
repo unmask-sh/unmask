@@ -8,8 +8,9 @@
 # banned) -- the exact harm unmask exists to prevent.
 #
 # Asserts both forward-auth fronts (stock-nginx fa-nginx + apache) return 404 for
-# a direct /unmask/api/check, while the front is otherwise healthy (healthz still
-# proxies) -- so the block is scoped to the decision endpoint, not the passthrough.
+# a direct /unmask/api/check and for the per-site spelling the daemon no longer
+# has, while the front is otherwise healthy (healthz still proxies) -- so the
+# block is scoped to the decision endpoint, not the passthrough.
 set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 # shellcheck source=../lib/env.sh
@@ -37,6 +38,22 @@ for front in "$FA_NGINX_URL" "$APACHE_URL"; do
         -H 'X-Original-URI: /wp-login.php' \
         "${front}/unmask/api/check")
     assert_eq 404 "$code" "${front}: public /unmask/api/check blocked (404)" || fails=$((fails+1))
+
+    # The endpoint has that one path.  /unmask/api/<site>/check used to be a
+    # second one: the fronts block the first by name and proxied this one
+    # through, so the same forged request reached AuthCheck and banned the
+    # address it named (the default SQL-injection trap is enough).
+    for alias in /unmask/api/default/check /unmask/api/x/check; do
+        for method in GET POST; do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X "$method" \
+                -A "$UA_BROWSER" \
+                -H 'X-Original-IP: 203.0.113.222' \
+                -H 'X-Real-IP: 203.0.113.222' \
+                -H 'X-Original-URI: /item?id=1;xp_cmdshell' \
+                "${front}${alias}")
+            assert_eq 404 "$code" "${front}: ${method} ${alias} is not the decision endpoint (404)" || fails=$((fails+1))
+        done
+    done
 
     # The block is scoped: the rest of the /unmask/ passthrough still works.
     code=$(curl -s -o /dev/null -w '%{http_code}' "${front}/unmask/healthz")

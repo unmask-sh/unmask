@@ -1409,10 +1409,18 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	// forward-auth mode endpoint (called by nginx auth_request /
 	// Apache forward-auth / any forward-auth-capable proxy).
 	// No auth (the HTTP server's subrequest).  Supports both GET / POST.
+	//
+	// One path, and only this one.  The handler believes the X-Original-*
+	// headers of whoever calls it -- that is how the proxy tells it which
+	// visitor it is asking about -- so the fronts keep visitors away from it
+	// by name: an exact-match 404 in the nginx configurations, a ProxyPass
+	// exclusion in Apache's.  A second spelling of the route (there was a
+	// /api/{site}/check, which no configuration ever called and whose {site}
+	// the handler never read) is a way past those: a visitor reached the
+	// handler through it with headers naming another address, and a honeypot
+	// path in X-Original-URI banned that address.
 	mux.HandleFunc("GET "+base+"/api/check", h.AuthCheck)
 	mux.HandleFunc("POST "+base+"/api/check", h.AuthCheck)
-	mux.HandleFunc("GET "+base+"/api/{site}/check", h.AuthCheck)
-	mux.HandleFunc("POST "+base+"/api/{site}/check", h.AuthCheck)
 
 	// users management tab (superadmin only)
 	mux.HandleFunc("GET "+base+"/admin/users/{$}",
