@@ -250,14 +250,18 @@ func waitingRouter(t *testing.T) (settings.Settings, *http.ServeMux) {
 // Every route under {base}/admin/ of a daemon that waits for its database
 // answers 503 -- taken from the router itself, so a route added later is
 // covered -- and none of them redirects to the setup wizard or breaks on the
-// handle that is not there.  Two need no database and keep their answers:
-// the wizard's done page, and the sign-out (403 here, for want of a session).
+// handle that is not there.  Three need no database and keep their answers:
+// the wizard's done page, the sign-out (403 here, for want of a session),
+// and the sink for what the browser refuses under the admin's script policy
+// -- the 503 page carries that policy too, and a report about it is a log
+// line (400 here: the walk posts an empty body).
 func TestDBWaitingEveryAdminRouteIs503(t *testing.T) {
 	s, mux := waitingRouter(t)
 	base := s.Server.BasePath
 	other := map[string]int{
 		base + "/admin/setup/done": http.StatusOK,
 		base + "/admin/logout":     http.StatusForbidden,
+		base + "/admin/csp-report": http.StatusBadRequest,
 	}
 	for _, r := range adminRoutes(t, mux, base) {
 		req := httptest.NewRequest(r.method, r.path, strings.NewReader(""))
