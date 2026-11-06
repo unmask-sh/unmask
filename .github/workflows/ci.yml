@@ -93,6 +93,51 @@ jobs:
         run: go tool cover -func=coverage.out | tail -5
 
   # --------------------------------------------------------------------
+  # The MariaDB tests.  go-test above compiles them and every one skips: there
+  # is no server there.  The dialect's own code -- the migrations, the
+  # upserts, the named locks, a cancelled index build -- was therefore only
+  # run on a maintainer's machine before a release, and a change that broke
+  # it reached main green.  A service container gives them a server on every
+  # push; `make test-mariadb-env` is the command line the local target runs,
+  # and it fails when a MariaDB test skipped instead of running.
+  # --------------------------------------------------------------------
+  mariadb:
+    runs-on: ubuntu-latest
+    # Above go test's -timeout 20m (the Makefile's), like go-test.
+    timeout-minutes: 30
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: rootpw
+          MARIADB_DATABASE: unmask_test
+          MARIADB_USER: unmask
+          MARIADB_PASSWORD: unmask
+        ports:
+          - 3306:3306
+        # Healthy once the entrypoint's init has made the user and the
+        # database: the probe `make test-mariadb` waits on.
+        options: >-
+          --health-cmd "mariadb -uunmask -punmask unmask_test -e 'SELECT 1'"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: admin/go.mod
+          cache-dependency-path: admin/go.sum
+      - name: MariaDB tests
+        env:
+          UNMASK_TEST_MARIADB_HOST: 127.0.0.1
+          UNMASK_TEST_MARIADB_PORT: "3306"
+          UNMASK_TEST_MARIADB_USER: unmask
+          UNMASK_TEST_MARIADB_PASSWORD: unmask
+          UNMASK_TEST_MARIADB_DATABASE: unmask_test
+        run: make test-mariadb-env
+
+  # --------------------------------------------------------------------
   # C parser unit test + fuzz.  The JA4 ClientHello parser (raw TLS bytes on
   # every request) and the _bv pass-cookie parser (a fully client-set cookie)
   # are the two untrusted-input C parsers in the tree -- the most

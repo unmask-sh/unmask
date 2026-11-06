@@ -1021,10 +1021,31 @@ test-mariadb:
 	@docker rm -f unmask-test-mariadb >/dev/null 2>&1 || true
 	docker run -d --name unmask-test-mariadb -e MARIADB_ROOT_PASSWORD=rootpw -e MARIADB_DATABASE=unmask_test -e MARIADB_USER=unmask -e MARIADB_PASSWORD=unmask -p 3307:3306 mariadb:11 >/dev/null
 	@echo "waiting for mariadb..."; for i in $$(seq 1 45); do docker exec unmask-test-mariadb mariadb -uunmask -punmask unmask_test -e "SELECT 1" >/dev/null 2>&1 && break; sleep 2; done
-	@# -p 1: both packages Migrate the same shared database; go test's default
-	@# package parallelism races their check-then-create DDL (observed as
-	@# "Duplicate key name 'uk_user_email'").
-	@cd admin && UNMASK_TEST_MARIADB_HOST=127.0.0.1 UNMASK_TEST_MARIADB_PORT=3307 UNMASK_TEST_MARIADB_USER=unmask UNMASK_TEST_MARIADB_PASSWORD=unmask UNMASK_TEST_MARIADB_DATABASE=unmask_test go test -timeout $(GO_TEST_TIMEOUT) -p 1 ./internal/db/ ./internal/events/ ./internal/nginxlog/ -run TestMariaDB -v -count=1; ret=$$?; docker rm -f unmask-test-mariadb >/dev/null 2>&1; exit $$ret
+	@UNMASK_TEST_MARIADB_HOST=127.0.0.1 UNMASK_TEST_MARIADB_PORT=3307 UNMASK_TEST_MARIADB_USER=unmask UNMASK_TEST_MARIADB_PASSWORD=unmask UNMASK_TEST_MARIADB_DATABASE=unmask_test $(MAKE) --no-print-directory test-mariadb-env; ret=$$?; docker rm -f unmask-test-mariadb >/dev/null 2>&1; exit $$ret
+
+## test-mariadb-env - the MariaDB tests against the server UNMASK_TEST_MARIADB_* names
+# What test-mariadb runs once its container is up, and what CI runs against
+# its service container: one command line, so the two cannot come to test
+# different things.  Every package is asked, so a MariaDB test added to any
+# of them is run without a list here learning of it.
+#
+# -p 1: the packages Migrate the same shared database; go test's default
+# package parallelism races their check-then-create DDL (observed as
+# "Duplicate key name 'uk_user_email'").
+#
+# These tests skip themselves when there is no server to talk to, and a run
+# in which they all skipped is green and proves nothing: the target fails
+# unless at least one ran and none skipped.
+.PHONY: test-mariadb-env
+test-mariadb-env:
+	@test -n "$$UNMASK_TEST_MARIADB_HOST" || { echo "test-mariadb-env: UNMASK_TEST_MARIADB_HOST is not set (make test-mariadb starts a server of its own)" >&2; exit 2; }
+	@out=$$(cd admin && go test -timeout $(GO_TEST_TIMEOUT) -p 1 ./internal/... -run TestMariaDB -v -count=1 2>&1); ret=$$?; \
+	echo "$$out" | grep -E '^(--- (PASS|FAIL|SKIP)|FAIL|panic:)|_test\.go:[0-9]+:' ; \
+	ran=$$(echo "$$out" | grep -c -- '^--- PASS: TestMariaDB'); \
+	skipped=$$(echo "$$out" | grep -c -- '^--- SKIP: TestMariaDB'); \
+	echo "test-mariadb-env: $$ran passed, $$skipped skipped"; \
+	[ "$$ret" = 0 ] || exit "$$ret"; \
+	if [ "$$ran" = 0 ] || [ "$$skipped" != 0 ]; then echo "test-mariadb-env: the MariaDB tests did not all run -- is the server reachable?" >&2; exit 1; fi
 
 ## e2e           - bare-metal e2e (run 4 scenarios via curl).  BASE_URL switches the target.
 # Examples:
