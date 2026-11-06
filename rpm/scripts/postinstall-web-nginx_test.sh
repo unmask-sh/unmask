@@ -62,7 +62,7 @@ new_root() {
     for c in $tools; do stub "$c"; done
     # What the scripts need from the system, and nothing else: no real
     # systemctl, chcon or semanage may be reachable from here.
-    for c in awk cat grep sed ln rm rmdir mkdir chmod dirname tr head readlink; do
+    for c in awk cat grep sed ln rm rmdir mkdir chmod dirname tr head readlink sort; do
         p=$(command -v "$c") && ln -s "$p" "$T/tools/$c"
     done
     for s in postinstall-web-nginx.sh postremove-web-nginx.sh; do
@@ -106,6 +106,9 @@ postrm 1
 check "upgrade: the old package's postremove leaves the drop-in in place" yes "$(has_dropin)"
 check "upgrade: the old package's postremove does not reload systemd" 0 "$(reloads)"
 check "upgrade: ...nor restart the daemon" 0 "$(restarts)"
+# It used to end every upgrade with "snippet removed.  remember to: sudo nginx
+# -s reload" -- of a snippet that was still there.
+check "upgrade: ...and has nothing to say about a removal" "" "$(cat "$T/out")"
 
 # The same on Debian: the old package's postrm is called with "upgrade".
 postrm upgrade
@@ -116,6 +119,10 @@ postrm 0
 check "rpm erase: the drop-in is removed" no "$(has_dropin)"
 check "rpm erase: systemd is told" 1 "$(reloads)"
 check "rpm erase: the emptied drop-in directory is removed" no "$([ -d "$T/etc/systemd/system/unmask.service.d" ] && echo yes || echo no)"
+# What the removal leaves is uninstall_test.sh's; here, that it asks nginx and
+# leaves it alone.
+check "rpm erase: nginx -t is run, and its answer printed" "1 1" "$(called '^nginx -t$') $(grep -c "unmask-web-nginx: 'nginx -t' passes." "$T/out")"
+check "rpm erase: nginx is not reloaded" 0 "$(called '^nginx -s|^systemctl .*nginx')"
 rm -rf "$T"
 
 # --- a drop-in from an earlier version is brought up to date ---------------------

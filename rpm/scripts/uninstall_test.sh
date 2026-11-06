@@ -1,6 +1,6 @@
 #!/bin/sh
-# Test for removing unmask-plugin-nginx: what the removal takes out of nginx,
-# and what it leaves.
+# Test for removing unmask-plugin-nginx and unmask-web-nginx: what the removal
+# takes out of nginx, what it leaves, and what it tells the operator.
 #
 # The module's load_module is put where nginx.conf says modules are loaded
 # from -- a different directory per distribution -- and the removal used to
@@ -15,8 +15,11 @@
 #   - with the placer's note of where it put things, and without it (an
 #     install from before the note);
 #   - only what the package put there goes: a load_module the operator wrote
-#     stays, and is named.  nginx is never reloaded or restarted from a
-#     package script.
+#     stays, and is named;
+#   - the lines of the operator's own server blocks that include unmask's
+#     files are named, once, whichever of the two packages goes first -- and
+#     `nginx -t` is run and its answer printed.  nginx is never reloaded or
+#     restarted from a package script.
 #
 # The scripts are run for real, against a throwaway root: copies with their
 # absolute paths pointed into a temporary directory, and a PATH that holds
@@ -317,6 +320,8 @@ wired() {
 }
 same()    { if [ "$(cat "$1")" = "$(cat "$2")" ]; then echo same; else echo changed; fi; }
 inode()   { ls -i "$1" | awk '{print $1}'; }
+# The lines the removal told the operator to take out, as "file:line".
+listed()  { sed -n 's/^    \([^ ]*:[0-9][0-9]*\): .*include .*/\1/p' "$T/out" | sed "s|$T||g" | tr '\n' ' ' | sed 's/ $//'; }
 touched_nginx() { grep -cE '^nginx -s|^systemctl .*(reload|restart|stop|start).*nginx' "$T/calls.log"; }
 
 # --- place, then remove, on each kind of host ----------------------------------
@@ -349,11 +354,22 @@ for layout in debian rhel alpine none; do
     check "$layout: no load_module for the module is left anywhere" 0 "$(grep -rl 'load_module.*ngx_http_unmask_module' "$N" "$T/usr/share" 2>/dev/null | grep -vc "^$PLUG/")"
     check "$layout: the note is gone, and its directory with it" gone "$(there "$T/var/lib/unmask/plugin")"
     check "$layout: the removal says what it removed" 1 "$(says "unmask-plugin-nginx: removed $MP/$SO")"
+    # http.inc sets the module's directives: the link that loads it goes with
+    # the module, and the operator's own includes are named.
+    check "$layout: the link that loads http.inc goes with the module" gone "$(there "$HTTPD/00-unmask.conf")"
+    check "$layout: the operator's includes are named, file and line" "${SITE#"$T"}:3 ${SITE#"$T"}:5" "$(listed)"
+    check "$layout: ...with what to do about them" 1 "$(says 'Remove these lines before the next nginx reload or restart:')"
+    check "$layout: nginx -t was run, and its answer printed" 1 "$(says "unmask-plugin-nginx: WARNING -- 'nginx -t' does NOT pass.")"
+    check "$layout: ...the error with it" 1 "$(says 'unknown log format "unmask_minimal"')"
     check "$layout: nginx is neither reloaded nor restarted" 0 "$(touched_nginx)"
     plugin_files_gone
-
-    # The rest of the uninstall: the operator's two lines, and unmask-web-nginx.
+    # The operator does as told: nginx loads again, with unmask-web-nginx
+    # still installed.
     site_without_includes
+    check "$layout: with those lines out, nginx loads" ok "$(ngx_t)"
+
+    # The rest of the uninstall.  The includes were named by the package
+    # that took http.inc away; this one has none left to name.
     [ "$layout" = none ] && rm -f "$T/etc/unmask/forward-auth/server.inc" "$T/etc/unmask/forward-auth/protect.inc"
     case "$layout" in
         debian) web_postrm remove ;;
@@ -361,6 +377,9 @@ for layout in debian rhel alpine none; do
         *)      web_postrm 0 ;;
     esac
     check "$layout: unmask-web-nginx's links are gone" 0 "$(ls "$N/conf.d" "$HTTPD" | grep -cE '^(00|zz)-unmask')"
+    check "$layout: unmask-web-nginx says nginx -t passes" 1 "$(says "unmask-web-nginx: 'nginx -t' passes.")"
+    check "$layout: ...and that nginx was not reloaded" 1 "$(says 'nginx was NOT reloaded.')"
+    check "$layout: ...which is true" 0 "$(touched_nginx)"
     check "$layout: nginx loads without unmask" ok "$(ngx_t)"
     rm -rf "$T"
 done
@@ -377,6 +396,12 @@ check "deb upgrade: what loads the module stays" "$WIRES" "$(wired)"
 check "deb upgrade: nothing is said" "" "$(cat "$T/out")"
 web_postrm 1
 check "rpm upgrade: unmask-web-nginx's postremove leaves the links" there "$(there "$HTTPD/00-unmask-upstream.conf")"
+# This used to end every upgrade with "snippet removed.  remember to: sudo
+# nginx -s reload", of a snippet that was still there.
+check "rpm upgrade: ...and says nothing" "" "$(cat "$T/out")"
+web_postrm upgrade 0.1.56-1
+check "deb upgrade: unmask-web-nginx's postremove says nothing" "" "$(cat "$T/out")"
+check "an upgrade never runs nginx -t from the removal scripts" 0 "$(grep -c '^nginx -t' "$T/calls.log")"
 rm -rf "$T"
 
 # --- an install from before the note: nginx.conf, then the known directories ---
@@ -387,6 +412,8 @@ rm -f "$WIRED"
 plugin_prerm 0
 check "no note, a conf in /etc/nginx/modules: found" gone "$(there "$MODDIR/$CONF")"
 check "no note: the module is gone" gone "$(there "$MP/$SO")"
+site_without_includes
+check "no note: nginx loads after the removal" ok "$(ngx_t)"
 rm -rf "$T"
 
 new_root none
@@ -414,6 +441,8 @@ install_all
   echo "events { }"; echo "http {"; echo "    include $HTTPD/*.conf;"; echo "}"; } > "$N/nginx.conf"
 plugin_prerm 0
 check "nginx.conf changed since: the conf is found through the note" gone "$(there "$N/dyn-a/$CONF")"
+site_without_includes
+check "nginx.conf changed since: nginx loads after the removal" ok "$(ngx_t)"
 rm -rf "$T"
 
 # No note and nginx.conf no longer names the directory at all: the known ones.
@@ -468,6 +497,12 @@ check "the operator's load_module: nginx.conf is not touched" same "$(same "$N/n
 check "the operator's load_module: named, file and line" 1 "$(says "    $N/nginx.conf:1: load_module \"$MP/$SO\";")"
 check "the operator's load_module: said to be theirs" 1 "$(says 'a load_module for the unmask module that this package did not write')"
 check "the operator's load_module: said to name the file that went" 1 "$(says 'It names the module file removed above: nginx does not start until that line is removed too.')"
+check "the operator's load_module: nginx -t says the same" 1 "$(says "dlopen() \"$MP/$SO\" failed")"
+# No module is left, so http.inc cannot load either: one trap, not two.
+check "the operator's load_module: http.inc is unlinked all the same" gone "$(there "$HTTPD/00-unmask.conf")"
+check "the operator's load_module: their includes are named" "${SITE#"$T"}:3 ${SITE#"$T"}:5" "$(listed)"
+sed '1d' "$T/nginx.conf.operator" > "$N/nginx.conf"; site_without_includes
+check "the operator's load_module: with that line and the includes out, nginx loads" ok "$(ngx_t)"
 rm -rf "$T"
 
 # A conf of the operator's own, loading a module they built themselves: not
@@ -482,6 +517,9 @@ check "the operator's own conf: their module too" there "$(there "$T/opt/own/$SO
 check "the operator's own conf: the package's copy of the module goes" gone "$(there "$MP/$SO")"
 check "the operator's own conf: named" 1 "$(says "    $MODDIR/10-own-unmask.conf:1: load_module $T/opt/own/$SO;")"
 check "the operator's own conf: not said to name a file that went" 0 "$(says 'It names the module file removed above')"
+check "the operator's own conf: http.inc stays linked, their module loads it" there "$(there "$HTTPD/00-unmask.conf")"
+check "the operator's own conf: no line is named for removal" "" "$(listed)"
+check "the operator's own conf: nginx -t passes" 1 "$(says "unmask-plugin-nginx: 'nginx -t' passes.")"
 rm -rf "$T"
 
 # In nginx.conf, only the line carrying the placer's tag is the package's: a
@@ -493,6 +531,92 @@ echo "# load_module modules/$SO;   (the line we had before the package wrote its
 plugin_prerm 0
 check "the tagged line goes, a commented-out load_module of the operator's stays" same "$(same "$N/nginx.conf" "$T/nginx.conf.operator")"
 check "...and is not reported as theirs to remove" 0 "$(says 'did not write')"
+rm -rf "$T"
+
+# --- the lines named are the ones nginx reads, and the operator's ---------------
+new_root debian
+install_all
+: > "$T/server-includes-protect"; "$T/usr/sbin/unmask" render-nginx
+mkdir -p "$N/snippets" "$N/sites-available" "$N/vhosts" "$T/srv/sites"
+{ sed '$d' "$N/nginx.conf"                         # everything but the http block's closing brace
+  echo "    include vhosts/*.conf;"                 # relative: read against nginx.conf's directory
+  echo "    include \"$T/srv/sites/*.conf\" ;"      # quoted, and outside /etc/nginx
+  echo "}"; } > "$T/nginx.conf.larger"
+cp "$T/nginx.conf.larger" "$N/nginx.conf"
+{ echo "server {"; echo "    include $RD/server.inc;"
+  echo "    # include $RD/protect.inc;"                              # commented out
+  echo "    location / { include snippets/protect.conf; }"           # an include of an include
+  echo "}"; } > "$SITE"
+echo "include $RD/protect.inc;" > "$N/snippets/protect.conf"
+printf 'server {\n\tinclude "%s/server.inc";\n}\n' "$RD" > "$N/vhosts/b.conf"
+echo "server { include $RD/server.inc; }" > "$T/srv/sites/c.conf"
+echo "server { include $RD/server.inc; }" > "$N/sites-available/disabled"     # nginx never reads it
+echo "server { include $RD/server.inc; }" > "$HTTPD/site.conf.bak"            # nor this
+check "a larger configuration loads" ok "$(ngx_t)"
+plugin_prerm remove
+check "named: what nginx reads, wherever it is -- and nothing else" \
+      "/etc/nginx/conf.d/site.conf:2 /etc/nginx/snippets/protect.conf:1 /etc/nginx/vhosts/b.conf:2 /srv/sites/c.conf:1" "$(listed)"
+check "not named: unmask's own server.inc, which includes protect.inc" 0 "$(grep -c "^    $RD/" "$T/out")"
+rm -rf "$T"
+
+# An include of http.inc the operator wrote by hand (the unmask package's
+# install output offers it as the alternative to unmask-web-nginx) loads the
+# module's directives just as the link does, and is named with the others.
+new_root rhel
+plugin_install
+rm -f "$HTTPD/00-unmask.conf"
+{ echo "upstream unmask_daemon { server 127.0.0.1:9477; }"; echo "include $RD/http.inc;"; } > "$HTTPD/00-by-hand.conf"
+site_with_includes
+check "an include of http.inc by hand loads" ok "$(ngx_t)"
+plugin_prerm 0
+check "an include of http.inc by hand is named" "/etc/nginx/conf.d/00-by-hand.conf:2 ${SITE#"$T"}:3 ${SITE#"$T"}:5" "$(listed)"
+rm -rf "$T"
+
+# --- whichever package goes first names the includes, once ----------------------
+# unmask-web-nginx first: it takes the links out of nginx's http block, names
+# the includes, and unmask-plugin-nginx after it has none to name again.
+new_root rhel
+install_all
+rm -f "$T/etc/unmask/forward-auth/server.inc" "$T/etc/unmask/forward-auth/protect.inc"     # rpm removed them
+web_postrm 0
+check "web-nginx first: it names the operator's includes" "${SITE#"$T"}:3 ${SITE#"$T"}:5" "$(listed)"
+check "web-nginx first: under its own name" 1 "$(says 'unmask-web-nginx: your nginx configuration still includes files that nginx cannot read without this package.')"
+check "web-nginx first: nginx -t does not pass, and it says so" 1 "$(says "unmask-web-nginx: WARNING -- 'nginx -t' does NOT pass.")"
+check "web-nginx first: no word about reloading a configuration that does not load" 0 "$(says 'Apply when you choose')"
+plugin_prerm 0
+check "then the plugin: the module and its conf go" "gone gone" "$(there "$MP/$SO") $(there "$MODDIR/$CONF")"
+check "then the plugin: the includes are not named a second time" "" "$(listed)"
+check "then the plugin: nginx -t still does not pass, and it says so" 1 "$(says "unmask-plugin-nginx: WARNING -- 'nginx -t' does NOT pass.")"
+check "then the plugin: no word about a restart that would fail" 0 "$(says 'Restart it when you choose')"
+site_without_includes
+check "with the includes out, nginx loads" ok "$(ngx_t)"
+rm -rf "$T"
+
+# The plugin first, and everything in order: it says so and names the restart.
+new_root debian
+install_all
+site_without_includes
+plugin_prerm remove
+check "nothing left behind: nginx -t passes" 1 "$(says "unmask-plugin-nginx: 'nginx -t' passes.")"
+check "nothing left behind: the restart is the operator's, and named" 1 "$(says 'sudo systemctl restart nginx')"
+check "nothing left behind: no line is named for removal" 0 "$(says 'Remove these lines')"
+# dpkg calls the postremove for the remove and again for the purge.
+web_postrm remove
+check "deb remove: unmask-web-nginx reports" 1 "$(says "unmask-web-nginx: 'nginx -t' passes.")"
+web_postrm purge
+check "deb purge after it: nothing is said twice" "" "$(cat "$T/out")"
+rm -rf "$T"
+
+# The forward-auth snippets are unmask-web-nginx's: it names an include of
+# them whether or not the module was ever there, and the plugin never does.
+new_root debian
+web_install
+{ echo "server {"; echo "    include $T/etc/unmask/forward-auth/server.inc;"
+  echo "    location / { include $T/etc/unmask/forward-auth/protect.inc; }"; echo "}"; } > "$SITE"
+check "forward-auth: the configuration loads" ok "$(ngx_t)"
+web_postrm remove
+check "forward-auth: the includes are named" "${SITE#"$T"}:2 ${SITE#"$T"}:3" "$(listed)"
+check "forward-auth: nginx -t does not pass, and it says so" 1 "$(says "unmask-web-nginx: WARNING -- 'nginx -t' does NOT pass.")"
 rm -rf "$T"
 
 # --- the fail-safe takes the module out by the same function --------------------
@@ -508,6 +632,14 @@ check "fail-safe: the conf is taken out of /etc/nginx/modules" gone "$(there "$M
 check "fail-safe: the module is taken out" gone "$(there "$MP/$SO")"
 check "fail-safe: the note goes with them" gone "$(there "$WIRED")"
 check "fail-safe: nginx loads the configuration rendered without the module" ok "$(ngx_t)"
+# Removing the package in that state breaks nothing: the http.inc that is
+# linked now names none of the module's directives, so it stays, and no line
+# is named.
+mkdir -p "$T/lib/apk"; plugin_prerm 0.1.56-r1
+check "removal under the fail-safe: http.inc stays linked" there "$(there "$HTTPD/00-unmask.conf")"
+check "removal under the fail-safe: no line is named" "" "$(listed)"
+check "removal under the fail-safe: nginx -t passes" 1 "$(says "unmask-plugin-nginx: 'nginx -t' passes.")"
+check "removal under the fail-safe: no restart is asked for, nothing was removed" 0 "$(says 'Restart it when you choose')"
 rm -rf "$T"
 
 # The fail-safe runs with nobody at the console, ahead of an nginx start: a
@@ -533,6 +665,7 @@ check "single-nginx variant: there is no placer to call" gone "$(there "$PLUG/pl
 mkdir -p "$T/lib/apk"; plugin_prerm 0.1.56-r1
 check "single-nginx variant: the conf goes" gone "$(there "$MODDIR/$CONF")"
 check "single-nginx variant: the module goes" gone "$(there "$MP/$SO")"
+check "single-nginx variant: the includes are named" "${SITE#"$T"}:3 ${SITE#"$T"}:5" "$(listed)"
 rm -rf "$T"
 
 # --- nginx already removed, and a second run -----------------------------------
@@ -554,7 +687,7 @@ rm -rf "$T"
 # A package script runs alone, so what two of them share is carried by both;
 # these fail when the copies drift apart.
 block() { sed -n "/^# >>> $2 >>>\$/,/^# <<< $2 <<<\$/p" "$DIR/$1"; }
-for pair in "unwire place-module.sh preremove-plugin-nginx.sh"; do
+for pair in "unwire place-module.sh preremove-plugin-nginx.sh" "leftover preremove-plugin-nginx.sh postremove-web-nginx.sh"; do
     set -- $pair
     a=$(block "$2" "$1"); b=$(block "$3" "$1")
     if [ -n "$a" ] && [ "$(printf '%s\n' "$a" | wc -l)" -gt 20 ]; then pass "the $1 block is there in $2"; else fail "the $1 block is there in $2"; fi

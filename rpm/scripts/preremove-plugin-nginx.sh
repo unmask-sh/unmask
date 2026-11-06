@@ -3,9 +3,11 @@
 # per nginx version, and the single-nginx one).
 #
 # Takes away what the postinstall put into nginx -- the module file and the
-# load_module that names it -- from where it was put, and names a load_module
-# of the operator's own, which it leaves.  Skipped on upgrade ($1=1) (= the
-# new version overwrites the same path).
+# load_module that names it -- from where it was put, and then says what is
+# left for the operator: a load_module of their own, the lines of their
+# server blocks that include unmask's files, and whether nginx still loads
+# its configuration.  nginx itself is neither reloaded nor restarted from
+# here.  Skipped on upgrade ($1=1) (= the new version overwrites the same path).
 
 # Only on a genuine removal.  rpm: $1="0"; dpkg: $1="remove".  apk passes the
 # package version string as $1, and nfpm wires this as apk's pre-deinstall hook
@@ -168,6 +170,90 @@ unwire_module() {
 }
 # <<< unwire <<<
 
+# >>> leftover >>>
+# What a removal leaves for the operator: the lines of their own configuration
+# that include unmask's files, and whether nginx still loads the whole.
+#
+# The lines between the two markers are the same, byte for byte, in
+# preremove-plugin-nginx.sh and postremove-web-nginx.sh (uninstall_test.sh
+# fails when they differ).  A copy in each: a package script runs alone, and
+# the other package -- with every file it shipped -- may be gone by then.
+
+# nginx_conf_files: what nginx reads -- nginx.conf and the files it includes,
+# includes of includes too -- one path per line (a file reached twice is
+# listed twice).  A relative include is read against nginx.conf's directory,
+# as nginx reads it, and a mask is expanded by the shell.  Only these count:
+# a line in a file nginx never includes (a disabled site, an editor's backup)
+# stops nothing.  Each level is read in one pass (comments dropped, one
+# directive per line), so a host with thousands of sites costs a handful of
+# processes, not a handful per site.
+nginx_conf_files() {
+    [ -r "$NGINX_CONF" ] || return 0
+    _cf_ifs=$IFS
+    IFS='
+'
+    set -f
+    _cf_level=$NGINX_CONF
+    _cf_depth=0
+    # Eight levels: an include that leads back to itself ends here.
+    while [ -n "$_cf_level" ] && [ "$_cf_depth" -lt 8 ]; do
+        printf '%s\n' "$_cf_level"
+        _cf_next=""
+        for _cf_p in $(sed 's/#.*//' $_cf_level 2>/dev/null | tr '{};' '\n\n\n' |
+                       sed -n 's/^[[:space:]]*include[[:space:]]\{1,\}\(.*[^[:space:]]\)[[:space:]]*$/\1/p' | tr -d "\"'"); do
+            case "$_cf_p" in
+                /*) ;;
+                *) _cf_p="${NGINX_CONF%/*}/$_cf_p" ;;
+            esac
+            set +f
+            for _cf_m in $_cf_p; do
+                [ -f "$_cf_m" ] && _cf_next="$_cf_next
+$_cf_m"
+            done
+            set -f
+        done
+        _cf_level=$(printf '%s\n' "$_cf_next" | sed '/^$/d' | sort -u)
+        _cf_depth=$((_cf_depth + 1))
+    done
+    set +f
+    IFS=$_cf_ifs
+}
+
+# unmask_include_lines <ERE>: the lines, in what nginx reads, that include a
+# file whose path matches the ERE -- "    file:line: text", ready to print.
+# unmask's own files are left out: they include each other (server.inc may
+# include protect.inc), and those are not lines for the operator to edit.
+unmask_include_lines() {
+    _il_files=$(nginx_conf_files | sort -u | grep -v -e '^/var/lib/unmask/' -e '^/etc/unmask/')
+    [ -n "$_il_files" ] || return 0
+    _il_ifs=$IFS
+    IFS='
+'
+    set -f
+    grep -nE "^([^#]*[[:space:];{}])?include[[:space:]]+[\"']?($1)[\"']?[[:space:]]*;" /dev/null $_il_files 2>/dev/null |
+        sed 's/^\([^:]*:[0-9]*:\)[[:space:]]*/    \1 /'
+    set +f
+    IFS=$_il_ifs
+}
+
+# nginx_t_report <package>: run nginx -t and say what it answered; 0 when it
+# passes.  nginx itself is left alone, neither reloaded nor restarted.
+nginx_t_report() {
+    # Alpine keeps nginx's pid file in /run/nginx, a directory its service
+    # makes when it starts; without it nginx -t fails on a valid configuration.
+    [ -d /run/nginx ] || mkdir -p /run/nginx 2>/dev/null || true
+    if _nt_out=$(nginx -t 2>&1); then
+        echo "$1: 'nginx -t' passes."
+        return 0
+    fi
+    echo "$1: WARNING -- 'nginx -t' does NOT pass.  nginx was not touched: it keeps running on the"
+    echo "  configuration it has loaded, and a reload or restart fails until this is fixed:"
+    printf '%s\n' "$_nt_out" | sed 's/^/    /'
+    return 1
+}
+# <<< leftover <<<
+
+# ---- 1. the module and its load_module ----
 # Whether or not nginx is still installed: this used to stop right here
 # without it, and left the conf for the next nginx to fail on.
 unwire_module remove
@@ -197,6 +283,49 @@ if [ -f /etc/nginx/conf.d/10-unmask-rendered.conf ]; then
     echo "unmask-plugin-nginx: removed /etc/nginx/conf.d/10-unmask-rendered.conf"
 fi
 
-echo "unmask-plugin-nginx: removal complete.  run 'nginx -t && systemctl reload nginx' to apply."
+# ---- 2. http.inc, and the operator's own includes ----
+# http.inc as rendered for the module sets the module's directives
+# (unmask_bv_secret and the rest), and nginx stops at the first of them once
+# the module is gone.  So the link that loads it -- 00-unmask.conf, which this
+# package and unmask-web-nginx both create -- goes with the module: the rule
+# unmask-web-nginx's postinstall applies from its side (no .so, no link).  It
+# stays when http.inc is the one rendered without the module (the
+# fail-safe's): that one names none of those directives, and what includes it
+# still loads.  And it stays while a module of the operator's own loads.
+#
+# Whichever package takes that link away -- this one, or unmask-web-nginx
+# when it is removed first -- is the one whose removal stops the operator's
+# includes of server.inc / protect.inc from loading, and the one that names
+# them.  The other finds no link and says nothing about them, so each line is
+# listed once, whichever order the packages go in.
+HTTP_INC=/var/lib/unmask/nginx/http.inc
+if [ "$MODULE_GONE" = 1 ] && grep -q '^[[:space:]]*unmask_bv_secret[[:space:]]' "$HTTP_INC" 2>/dev/null; then
+    HTTP_INC_WAS_LOADED=0
+    for link in /etc/nginx/conf.d/00-unmask.conf /etc/nginx/http.d/00-unmask.conf; do
+        if [ -L "$link" ] && [ "$(readlink "$link")" = "$HTTP_INC" ]; then
+            rm -f "$link"
+            echo "unmask-plugin-nginx: removed $link (it loaded http.inc, which nginx cannot read without the module)"
+            HTTP_INC_WAS_LOADED=1
+        fi
+    done
+    LEFT=$(unmask_include_lines '/var/lib/unmask/nginx/(http|server|protect)[.]inc')
+    # An include of http.inc written by hand loaded it just as the link did.
+    case "$LEFT" in
+        */var/lib/unmask/nginx/http.inc*) HTTP_INC_WAS_LOADED=1 ;;
+    esac
+    if [ "$HTTP_INC_WAS_LOADED" = 1 ] && [ -n "$LEFT" ]; then
+        echo "unmask-plugin-nginx: your nginx configuration still includes files that nginx cannot read without the module."
+        echo "  Remove these lines before the next nginx reload or restart:"
+        printf '%s\n' "$LEFT"
+    fi
+fi
+
+# ---- 3. does nginx still load its configuration? ----
+if command -v nginx >/dev/null 2>&1; then
+    if nginx_t_report unmask-plugin-nginx && [ "$UNWIRE_REMOVED" = 1 ] && [ "$MODULE_GONE" = 1 ]; then
+        echo "  → nginx was NOT restarted.  Restart it when you choose, to run without the module:"
+        echo "    sudo systemctl restart nginx   (or: sudo service nginx restart)"
+    fi
+fi
 
 exit 0
