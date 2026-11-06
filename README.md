@@ -132,6 +132,23 @@ page, since the site cannot know the nonce.  Set the site's header inside the
 `location { }` blocks it is meant for, or leave the `/unmask/` location without
 one.
 
+### Uninstall
+
+1. `sudo dnf remove unmask unmask-plugin-nginx unmask-web-nginx`
+   (`apt remove` / `apk del`, same names).  The removal takes the module and
+   its `load_module` out of nginx again, lists the lines of your own
+   configuration that still include unmask's files, and prints what
+   `nginx -t` says.  It does not reload or restart nginx.
+2. Remove those lines from your `server { }` blocks: the two from the quick
+   start, `include /var/lib/unmask/nginx/server.inc;` and
+   `include /var/lib/unmask/nginx/protect.inc;`.  nginx does not load its
+   configuration while they are there.
+3. `sudo nginx -t && sudo systemctl restart nginx`.
+
+What stays: `/etc/unmask` (config.yml, with its secrets), `/var/lib/unmask`
+(the database, the rendered files) and the `unmask` user, for a reinstall to
+pick up.  Delete them by hand when they are no longer wanted.
+
 ### Configuration
 
 `/etc/unmask/config.yml` is the one place settings live: the admin UI
