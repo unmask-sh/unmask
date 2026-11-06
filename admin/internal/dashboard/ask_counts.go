@@ -94,3 +94,44 @@ func DistinctIPsByHour(ctx context.Context, d *db.DB, hours int) (map[string]int
 	}
 	return out, total, true
 }
+
+// EventDistinctIPs estimates the distinct addresses behind the events of the
+// last `hours` hours: what /metrics exports as unmask_event_unique_ip.  The
+// union of the per-verdict sketches (hkVerdictIP, which every event feeds --
+// "(none)" for one without a verdict): a few dozen rows an hour whatever the
+// number of sites, where DistinctIPsByHour's per-site sketches are one per
+// site.  The scrape used to count them off the raw table, a COUNT(DISTINCT)
+// over a day of events on every cache miss.
+//
+// An estimate within a few percent (hll.go), over whole hours (so the window
+// reaches up to an hour further back than asked), and a fold behind
+// (AggregateHourly runs every minute).  ok is false when the rollup cannot
+// answer: no full pass yet in this process, or a read error.
+func EventDistinctIPs(ctx context.Context, d *db.DB, hours int) (int, bool) {
+	if d == nil || !HourlyAggReady() {
+		return 0, false
+	}
+	rows, err := d.QueryContext(ctx, `
+        SELECT sketch FROM unmask_aggregate_hll
+        WHERE bucket_kind = '`+hkVerdictIP+`' AND `+hourWindow(ctx, hours, "bucket"))
+	if err != nil {
+		return 0, false
+	}
+	defer rows.Close()
+	all, found := &hll{}, false
+	for rows.Next() {
+		var blob []byte
+		if err := rows.Scan(&blob); err != nil {
+			return 0, false
+		}
+		all.mergeBytes(blob)
+		found = true
+	}
+	if rows.Err() != nil {
+		return 0, false
+	}
+	if !found {
+		return 0, true // no event in the window
+	}
+	return all.estimate(), true
+}
