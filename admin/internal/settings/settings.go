@@ -368,10 +368,12 @@ func IsValidHexColor(s string) bool {
 	return true
 }
 
-// ResolvedPowDifficulty: returns default 18 when 0 / out of range.
+// ResolvedPowDifficulty: returns PowDifficultyDefault (18) when 0 / out of
+// range (PowDifficultyOutOfRange names the records where that hides a number
+// the operator wrote).
 func (c ChallengeValues) ResolvedPowDifficulty() int {
-	if c.PowDifficulty < 8 || c.PowDifficulty > 24 {
-		return 18
+	if c.PowDifficulty < PowDifficultyMin || c.PowDifficulty > PowDifficultyMax {
+		return PowDifficultyDefault
 	}
 	return c.PowDifficulty
 }
@@ -5067,6 +5069,7 @@ func Load(path string) (Settings, error) {
 		warnRemovedGlobalPassthrough(resolved, raw)
 		warnRemovedUpstreamLists(resolved, raw)
 		warnRemovedAuditRetention(resolved, raw)
+		warnPowDifficultyRange(resolved, s)
 	}
 	switch strings.TrimSpace(s.Secret.SigHash) {
 	case "", "sha1":

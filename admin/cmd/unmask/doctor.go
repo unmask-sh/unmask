@@ -633,6 +633,7 @@ func cmdDoctor(args []string) error {
 	checkNginxErrorLog(addOK, addWarn)
 	checkNginxReloadLag(s, addOK, addWarn)
 	checkSigHashModule(s, addOK, addWarn)
+	checkPowDifficultyRange(s, addWarn)
 	checkNginxProtectScope(addWarn)
 	checkHTTP3JA4(addWarn)
 	checkHTTPSRedirectApplied(s, addOK, addWarn)

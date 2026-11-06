@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+
+- (2026-11-06) **A `pow_difficulty` outside 8-24 in config.yml is reported.**  The settings page refuses such a number, but one written into the file by hand ran at the built-in 18 without a word, so an operator who meant to raise the difficulty stayed at the default.  The daemon now logs it when it loads the file and `unmask doctor` warns, naming the key and the number.
+
 ## [0.1.55] - 2026-11-06
 
 ### Fixed
