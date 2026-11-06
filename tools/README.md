@@ -14,6 +14,10 @@ this repository; the scripts here build and check the trees it publishes.
 | `pkgdeps-test.sh`     | Install a companion package next to the core it pins, per format.       |
 | `repoconf-test.sh`    | Install `unmask-release` and let each package manager read what it wrote.|
 | `with-gpg-preset.sh`  | Shim that preseeds the GPG passphrase before invoking `rpm --addsign`.  |
+| `fetch-nginx-src.sh`  | Fetch an nginx tarball and check it against the pinned sha256 (every module build). |
+| `module-src-hash.sh`  | The stamp on a cached module `.so`: its source, build options and recipes. |
+| `check-so-hardening.sh` | Read RELRO / BIND_NOW / the stack protector back out of a built `.so`. |
+| `module-load-test.sh` | `nginx -t` with a container-built `.so`, in a distribution of its ABI.  |
 | `Dockerfile.alpine`   | Image used by `make repo-apk` (apk-tools + abuild on Alpine 3.20).      |
 
 ## Common flows

@@ -10,9 +10,13 @@
 # that still run those (the openssl11/10 and glibc212 builders of
 # `make build-module-multi-all`, recipes under build-docker/); those three
 # sets are built here too, each in its container, so every .so the plugin
-# package ships can be produced from this tree by anyone.  Before a release
-# every build is also installed on a lab of real distributions (`make
-# distro-check`; CONTRIBUTING.md, "Release gate").
+# package ships can be produced from this tree by anyone.  Each build reads
+# its hardening back out of the .so (tools/check-so-hardening.sh), and one
+# .so of each container-built set is loaded into the nginx of a distribution
+# of that ABI (tools/module-load-test.sh), so a build change that a host
+# would refuse to load is refused here.  Before a release every build is
+# also installed on a lab of real distributions (`make distro-check`;
+# CONTRIBUTING.md, "Release gate").
 name: module-matrix
 
 on:
@@ -20,12 +24,20 @@ on:
     branches: [master, main]
     paths:
       - "nginx-module/**"
+      - "build-docker/**"
+      - "tools/fetch-nginx-src.sh"
+      - "tools/check-so-hardening.sh"
+      - "tools/module-load-test.sh"
       - "Makefile"
       - ".github/workflows/module-matrix.yml"
   pull_request:
     branches: [master, main]
     paths:
       - "nginx-module/**"
+      - "build-docker/**"
+      - "tools/fetch-nginx-src.sh"
+      - "tools/check-so-hardening.sh"
+      - "tools/module-load-test.sh"
       - "Makefile"
       - ".github/workflows/module-matrix.yml"
   workflow_dispatch:
@@ -95,12 +107,15 @@ jobs:
           - target: build-module-multi-openssl11
             abi: OpenSSL 1.1 (AlmaLinux 8)
             dir: dist/multi-modules-openssl11
+            load: openssl11
           - target: build-module-multi-openssl10
             abi: OpenSSL 1.0 (CentOS 7)
             dir: dist/multi-modules-openssl10
+            load: openssl10
           - target: build-module-multi-glibc212
             abi: glibc 2.12 / OpenSSL 1.0 (CentOS 6)
             dir: dist/multi-modules-glibc212
+            load: glibc212
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -118,3 +133,7 @@ jobs:
             exit 1
           fi
           echo "built: $want"
+      # The build above checked each .so's hardening; this asks an nginx of
+      # the ABI whether it will start with one of them.
+      - name: the module loads into an nginx of ${{ matrix.abi }}
+        run: tools/module-load-test.sh ${{ matrix.load }}

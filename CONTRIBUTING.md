@@ -94,7 +94,9 @@ anyone can run).  When the module or its build changes, a second workflow
 package ships -- fifteen, from 1.10.3 to the current stable -- against
 OpenSSL 3 and, in containers whose recipes are under `build-docker/`,
 OpenSSL 1.1, OpenSSL 1.0 and glibc 2.12; every .so in the plugin package
-can be rebuilt from this tree.  Before a release the
+can be rebuilt from this tree.  Every build reads its hardening back out of
+the .so, and one .so of each container-built set is loaded into an nginx of
+that ABI (`make module-load-test`).  Before a release the
 maintainer also installs the packages on a lab of real distributions
 (`make distro-check`: the official install path on ten distributions,
 CentOS 6 among them, through to `nginx -t`, the module loading and a

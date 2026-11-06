@@ -436,6 +436,16 @@ else
 build-module-multi-all: build-module-multi build-module-multi-openssl11
 endif
 
+## module-load-test - load one container-built .so of each older ABI into an nginx of that ABI (docker)
+# After build-module-multi-all: `nginx -t` with the module, in AlmaLinux 8
+# (OpenSSL 1.1), CentOS 7 (OpenSSL 1.0) and CentOS 6 (glibc 2.12).  The
+# module-matrix workflow runs the same script after it builds each set.
+.PHONY: module-load-test
+module-load-test:
+	tools/module-load-test.sh openssl11 $(DIST)
+	tools/module-load-test.sh openssl10 $(DIST)
+	tools/module-load-test.sh glibc212 $(DIST)
+
 ## build-demo    - demo nginx binary + nginx module (same source tree).  For long-running dev environments.
 # Unlike build-module, also generates the nginx binary (objs/nginx).  Not needed at distribution time.
 # Start from demo/ with `<NGINX_SRC>/objs/nginx -p demo -c demo/nginx.conf`.
