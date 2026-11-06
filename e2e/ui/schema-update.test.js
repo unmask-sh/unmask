@@ -379,6 +379,10 @@ c.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     ok(other && other.state === 'done', 'another browser, which did not dismiss it, should still be told the update finished');
 
     ok(errors.length === 0, 'script errors: ' + errors.join(' | '));
+    // This daemon is the test's own: run.sh's look at the suite's log for
+    // what the browser refused under the admin's policy does not reach it.
+    const refused = fs.readFileSync(path.join(work, 'serve.log'), 'utf8').split('\n').filter(l => l.includes('admin csp violation:'));
+    ok(refused.length === 0, 'the browser reported Content-Security-Policy violations:\n  ' + refused.join('\n  '));
     if (fails.length) { console.error('FAIL\n- ' + fails.join('\n- ')); await finish(1); }
     console.log(`schema-update: OK (${ROWS} rows; running state ${sawRunning ? 'observed' : 'not observed'})`);
     await finish(0);

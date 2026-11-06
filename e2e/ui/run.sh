@@ -588,5 +588,23 @@ for t in "$DIR"/*.test.js; do
     fi
 done
 
+# ---- the Content-Security-Policy gate --------------------------------------
+# Every admin page the tests opened came under the enforced script policy,
+# and the browser posted what it refused to the daemon, which logged a line
+# per report (handlers/csp_report.go).  A refusal is a script or an inline
+# handler that silently did not run, so one fails the run, whichever test
+# opened the page: the line names the page, the directive, where in the page,
+# and how the refused script begins.  The post itself counts too (the
+# daemon's access-log line), for a report it refused and wrote no line for.
+if grep -Eq 'admin csp violation:| POST [^ ]*/admin/csp-report ' "$WORK/serve.log"; then
+    fail=$((fail + 1))
+    echo "FAIL: the browser reported Content-Security-Policy violations on admin pages:"
+    grep 'admin csp violation:' "$WORK/serve.log" | sed 's/^/   /' | head -40
+    grep -E ' POST [^ ]*/admin/csp-report ' "$WORK/serve.log" | grep -v ' 204 ' | sed 's/^/   /' | head -10
+    KEEP="$(mktemp -d /tmp/unmask-ui-e2e.XXXXXX)"
+    cp "$WORK/serve.log" "$KEEP/" 2>/dev/null || true
+    echo "   artifacts: $KEEP"
+fi
+
 [ "$fail" -eq 0 ] && echo "ui e2e: all green"
 exit "$fail"
