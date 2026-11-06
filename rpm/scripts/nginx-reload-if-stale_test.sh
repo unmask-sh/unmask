@@ -100,7 +100,9 @@ check "within ten minutes: no second reload" 1 "$(reloads)"
 check "within ten minutes: says so once" 2 "$(called '^logger')"
 
 # --- 5. ten minutes later the reload happens again -------------------------
-touch -d '-11 minutes' "$stamp" 2>/dev/null || touch -t "$(date -d '-11 minutes' +%Y%m%d%H%M.%S)" "$stamp"
+# Eleven minutes back, as seconds since the epoch: the one spelling GNU touch
+# and busybox touch both read ("-11 minutes" is GNU's alone).
+touch -d "@$(( $(date +%s) - 660 ))" "$stamp"
 check "ten minutes later: exit 0" 0 "$(run)"
 check "ten minutes later: a second reload" 2 "$(reloads)"
 [ "$stamp" = /run/unmask/.last-nginx-reload ] && rm -f "$stamp"

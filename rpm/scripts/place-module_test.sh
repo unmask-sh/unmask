@@ -10,10 +10,21 @@
 set -u
 DIR="$(cd "$(dirname "$0")" && pwd)"
 
+T=$(mktemp -d)
+trap 'chmod -R u+w "$T" 2>/dev/null; rm -rf "$T"' EXIT
+
 # Source only the functions (the guard stops before install side effects).
+# Ahead of the guard the script looks at the host -- it stops where there is no
+# nginx, and on musl without gcompat -- and this test is about neither.  So
+# that it also runs where either is the case (an Alpine container, an image
+# without nginx): stand-ins for the two commands it asks, and a copy of the
+# script whose dynamic-loader paths point at nothing.
+nginx() { :; }
+ldd() { echo "ldd (GNU libc) 2.34"; }
+sed "s|/lib/ld-|$T/lib/ld-|g" "$DIR/place-module.sh" > "$T/place-module.sh"
 PLACE_MODULE_TEST=1
 # shellcheck source=./place-module.sh
-. "$DIR/place-module.sh"
+. "$T/place-module.sh"
 
 fails=0
 check() { # <desc> <expected> <actual>
@@ -60,8 +71,6 @@ check "no ldd/no -V/no SONAME -> empty" "" "$(resolve_libcrypto)"
 
 # --- case 5: install_so — primary writable / read-only-primary fallback ---
 # (the immutable-/usr path: modules dir unwritable -> /var/lib fallback)
-T=$(mktemp -d)
-trap 'chmod -R u+w "$T" 2>/dev/null; rm -rf "$T"' EXIT
 printf 'SOBYTES' > "$T/src.so"
 
 mkdir -p "$T/primary" "$T/fallback"
@@ -248,7 +257,7 @@ check "8 the report goes to stderr only" "" "$(no_module_report "$T/bundle" 1.26
 # has to read under every awk the packages meet.  busybox's (Alpine) stopped on
 # the earlier spelling ("bad regex"), no directory was found there, and the
 # line went into nginx.conf -- on the one distribution whose nginx.conf
-# includes /etc/nginx/modules/*.conf.
+# includes /etc/nginx/modules/*.conf.  Run this file with busybox sh to see it.
 NGINX_CONF="$T/nginx.conf"
 dir_of() { printf '%s\n' "$@" > "$NGINX_CONF"; main_include_dir 2>&1; }
 check "9 Debian: modules-enabled" "/etc/nginx/modules-enabled" \
