@@ -126,6 +126,7 @@ var adminRoutesWithoutSession = []string{
 	"/admin/forgot-password", // the reset mail
 	"/admin/reset-password",  // the reset link
 	"/admin/setup/",          // the wizard: the setup token / SetupGate
+	"/admin/csp-report",      // the browser's own post: the login page reports too, and no token rides it
 }
 
 // Writes a viewer may make.

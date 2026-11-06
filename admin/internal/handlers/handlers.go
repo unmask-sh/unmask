@@ -247,6 +247,9 @@ type Handler struct {
 	// schema is what the daemon knows about the schema updates left for the
 	// operator and the run that applies them.  See schema_update.go.
 	schema schemaUpdater
+	// cspReports rations the log lines of the browser's policy reports
+	// (csp_report.go).  Zero value is ready.
+	cspReports cspReportLog
 	// passTrace is the beacon's per-address limit, the passes recorded and
 	// the beacons the limit dropped, all in memory (pass_trace.go).
 	passTrace passTrace

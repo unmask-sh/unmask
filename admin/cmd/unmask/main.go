@@ -1307,6 +1307,10 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	// cross-site (<img src=.../admin/logout>) to force a logout.  The nav menu
 	// posts a CSRF-tokened form (partial_user_menu.html).
 	mux.HandleFunc("POST "+base+"/admin/logout", h.AdminIPAllowMiddleware(h.RequireCSRFFunc(h.AdminLogout)))
+	// Where the browser reports what the admin's Content-Security-Policy
+	// refused.  It posts on its own -- from the login page too, and with no
+	// CSRF token -- so the route sits behind the IP/host gate alone.
+	mux.HandleFunc("POST "+base+"/admin/csp-report", h.AdminIPAllowMiddleware(h.AdminCSPReport))
 	// install wizard (cacti / zabbix style).  No auth required; once complete,
 	// SetupGate redirects to /admin/ (prevents re-running setup).
 	mux.HandleFunc("GET "+base+"/admin/setup/{$}", h.SetupGate(h.AdminSetupIndex))
