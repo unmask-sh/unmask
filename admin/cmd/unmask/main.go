@@ -471,9 +471,10 @@ func cmdServe(args []string) error {
 		ipgeo.AutoFetchMissing(workers.Context(), s.IPGeo.MMDBPath, s.IPGeo.MMDBASNPath, gip)
 	}
 	// Tail of nginx-only access_log + 1-minute flush goroutine + ban manager
-	// only start when the DB is connected (setup complete).  Right after the
-	// setup wizard finishes we expect a service restart to enable everything
-	// (no hot-spawn, for simplicity).
+	// only start when the DB is connected.  Nothing is hot-spawned onto a
+	// database that turns up later: the setup wizard's switch of database and
+	// the wait for one that was away (db_wait.go) both end in a re-exec of
+	// the daemon, which starts them all.
 	var nlog *nginxlog.Reader
 	var banMgr *ban.Manager
 	if conn == nil {
