@@ -118,7 +118,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
       <button type="submit" class="btn">{{ t .Lang "users.btn.add" }}</button>
     </div>
   </form>
-  <script>
+  <script{{ nonceAttr . }}>
   // Invite mode: the invitee sets their own password through the mailed link,
   // so the password field empties and locks; the email becomes required.
   (function(){

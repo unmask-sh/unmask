@@ -620,7 +620,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   <a class="tip-cta" href="{{ .StaticAssetsTipHref }}">{{ t .Lang "hunt.tip.cta_open_bypass" }}</a>
   <button type="button" class="tip-dismiss" onclick="dismissHuntTip('static-assets')" aria-label="{{ t .Lang "hunt.tip.dismiss" }}" title="{{ t .Lang "hunt.tip.dismiss" }}">×</button>
 </div>
-<script>
+<script{{ nonceAttr . }}>
 function dismissHuntTip(id){
   // Append `id` to the unmask_hunt_tip_dismissed cookie so the banner stays
   // hidden on subsequent renders.  Comma-separated so future tips share the
@@ -838,7 +838,7 @@ function dismissHuntTip(id){
 .rule-dialog-warn code{font-family:ui-monospace,monospace}
 </style>
 
-<script>
+<script{{ nonceAttr . }}>
 // Rank-card folding + the UA card's summary/raw switch.  Both are display
 // preferences, so both are applied server-side from a cookie on the next
 // render and toggled here without a round trip -- the operator is adjusting

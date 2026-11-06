@@ -167,7 +167,7 @@ table.audit td.detail{font-family:ui-monospace,Menlo,monospace;color:#64748b;fon
       {{ end }}
     </tbody>
   </table>
-  <script>
+  <script{{ nonceAttr . }}>
   document.addEventListener('click', function(e){
     if (e.target.classList.contains('diff-toggle')) {
       var box = document.getElementById(e.target.getAttribute('data-target'));

@@ -446,7 +446,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 
 {{ template "ip_popover_el" . }}
 <div id="cell-popover" data-popover="cell"></div>
-<script>
+<script{{ nonceAttr . }}>
 // The shared IP popover: it binds the rows each redraw of the recent table
 // brings as well (window.unmaskRewire), where a copy bound at load lost them.
 {{ template "ip_popover_js" . }}
@@ -457,7 +457,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 // data-events-cap attribute on the table itself (set by the partial when
 // .EventsCap > 0 is passed in the context).
 </script>
-<script>
+<script{{ nonceAttr . }}>
 // The recent-detections table is redrawn from the server under the live
 // strip's switch: with the strip, on every second turn of its countdown (its
 // script calls window.unmaskRefreshRecent), so the rows arrive with the
@@ -511,7 +511,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   }, 1000);
 })();
 </script>
-<script>
+<script{{ nonceAttr . }}>
 // The "right now" strip.  Every PERIOD seconds (while the tab is visible and
 // the operator has not switched it off) the page re-reads /admin/api/now and
 // writes the figures over the ones it has.  The previous reading stays up
@@ -730,7 +730,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
   if (on && document.visibilityState === 'visible') refresh();
 })();
 </script>
-<script>
+<script{{ nonceAttr . }}>
 // The map.  Streams from each source country's centroid to the server's
 // position, with width, glow and particle rate following the last minute's
 // count on a log scale (so one busy country does not drown the rest), and

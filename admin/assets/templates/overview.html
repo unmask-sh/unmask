@@ -600,7 +600,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 
 </main>
 
-<script>
+<script{{ nonceAttr . }}>
 // Segment toggles.  A function rather than a one-shot block: the section
 // this card sits in is redrawn every minute, and the new card needs binding.  The server renders the selected view (cookie/?comp=), so
 // the page is truthful without JS; this script mirrors the same arithmetic to
@@ -750,7 +750,7 @@ window.unmaskInitComp = function(){
 };
 unmaskInitComp();
 </script>
-<script>
+<script{{ nonceAttr . }}>
 // The 24-hour section (#day-section: the hero, the composition, the tiles) is redrawn from the server every minute, under the same switch as
 // the live strip.  The server renders the same template it did for the page,
 // so a refresh cannot show numbers the page would not; a failure keeps what

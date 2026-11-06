@@ -427,7 +427,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
 {{ template "ip_popover_el" . }}
 <div id="cell-popover" data-popover="cell"></div>
 {{ template "ban_dialog" . }}
-<script>
+<script{{ nonceAttr . }}>
 {{ template "ip_popover_js" . }}
 {{ template "ai_picks_js" . }}
 

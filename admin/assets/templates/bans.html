@@ -410,7 +410,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
 </main>
 <div id="ip-popover" data-popover="ip"></div>
 <div id="clamp-popover" data-popover="clamp"></div>
-<script>
+<script{{ nonceAttr . }}>
 
 // Clamp popover for the reason column.  Same behaviour as the community feed
 // table: hover measures the span, and only a value that actually overflows

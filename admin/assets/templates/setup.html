@@ -192,7 +192,7 @@ p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
         <button type="submit" class="btn">{{ t .Lang "setup.btn.next" }}</button>
       </div>
     </form>
-    <script>
+    <script{{ nonceAttr . }}>
     // The choice follows the radio, whichever way it was made: a click on
     // the card (the label checks its radio) or the arrow keys on the group.
     document.querySelectorAll('.driver-card input[type="radio"]').forEach(r => {
@@ -233,7 +233,7 @@ p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
         {{ if and .Reconfigure .TargetHasUser }}<button type="submit" name="action" value="skip" formnovalidate class="btn btn-secondary" style="order:1" title="{{ t .Lang "setup.btn.skip_user_hint" }}">{{ t .Lang "setup.btn.skip_user" }}</button>{{ end }}
       </div>
     </form>
-    <script>
+    <script{{ nonceAttr . }}>
     (function(){
       var p=document.querySelector('input[name="password"]'), c=document.getElementById('su_pwc');
       if(!p||!c) return;
@@ -319,7 +319,7 @@ p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
     <h2>🎉 {{ t .Lang "setup.done.h" }}</h2>
     {{ if .RestartRequired }}
     <p class="lead" style="background:#fef3c7;border-left:.25rem solid #f59e0b;padding:.8rem 1rem;border-radius:.25rem">{{ safeHTML (t .Lang "setup.done.restart_required") }}</p>
-    <script>setTimeout(function(){location.href='{{ .BasePath }}/admin/'},12000)</script>
+    <script{{ nonceAttr . }}>setTimeout(function(){location.href='{{ .BasePath }}/admin/'},12000)</script>
     {{ end }}
     <p class="lead">{{ safeHTML (t .Lang "setup.done.lead") }}</p>
     <div class="actions" style="justify-content:flex-end">
@@ -328,7 +328,7 @@ p.lead.or-else{font-size:.82rem;color:#64748b;margin:0 0 .6rem}
     {{ end }}
   </div>
 </div>
-<script>
+<script{{ nonceAttr . }}>
 // Wizard language picker: write the unmask_locale cookie (read server-side
 // by i18n.Resolve) and reload.  Stays consistent with the full lang_tz_picker
 // used elsewhere; we only need the locale dimension here.

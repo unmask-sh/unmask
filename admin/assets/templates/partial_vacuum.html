@@ -41,7 +41,7 @@
   <a href="{{ $.BasePath }}/admin/settings/retention/#vacuum-card"><span class="vacpill-dot" aria-hidden="true"></span><span id="vacpill-text">{{ if eq .State "running" }}{{ .PillText }}{{ else }}{{ t $.Lang (printf "vacuum.pill_%s" .State) }}{{ end }}</span></a>
   <button type="button" id="vacpill-x" aria-label="{{ t $.Lang "vacuum.dismiss" }}"{{ if eq .State "running" }} hidden{{ end }}>×</button>
 </span>
-<script{{ nonceAttr . }}>
+<script{{ nonceAttr $ }}>
 (function(){
   var el = document.getElementById('vacpill');
   if (!el) return;

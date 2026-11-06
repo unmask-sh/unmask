@@ -114,7 +114,7 @@ table.detail td{padding:.4rem .6rem;border-bottom:.0625rem solid #f1f5f9;font-fa
   </table>
 </div>
 
-<script>
+<script{{ nonceAttr . }}>
 function $(id){ return document.getElementById(id); }
 document.querySelectorAll('[data-fill-ja4]').forEach(b => b.addEventListener('click', () => $('ja4').value = b.dataset.fillJa4));
 document.querySelectorAll('[data-fill-ua]').forEach(b => b.addEventListener('click', () => $('ua').value = b.dataset.fillUa));

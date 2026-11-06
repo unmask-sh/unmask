@@ -472,7 +472,7 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
 <div id="comment-popover" data-popover="comment"></div>
 <div id="reports-popover" data-popover="reports"></div>
 <div id="vote-popover" data-popover="vote"></div>
-<script>
+<script{{ nonceAttr . }}>
 
 // Impact figure: while the 30-day scan runs in the background the figure shows
 // a spinner.  Poll the impact endpoint and swap the spinner for the number the

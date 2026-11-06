@@ -188,7 +188,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 {{ end }}
 
 </main>
-<script>
+<script{{ nonceAttr . }}>
 // Ask before a save only when it changes the password (the field has a
 // value); a save without one goes through as it is.
 function confirmSave(e){

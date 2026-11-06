@@ -875,7 +875,7 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
     </tbody>
   </table>
   </div>
-  <script>
+  <script{{ nonceAttr . }}>
   (function(){
     var t = document.getElementById('jsfe-toggle'), tbl = document.getElementById('jsfe-table');
     if (!t || !tbl) return;
@@ -1086,13 +1086,13 @@ table.bcd-table.funnel-grouped > tbody > tr > td{padding:.35rem .35rem}
      Detail browsing + manual operations live there. -->
 
 
-<script>
+<script{{ nonceAttr . }}>
 /* popoverPin / installInfoTipPinning live in /static/popover-pin.js
    (= loaded by the "popover_pin_assets" partial. defer ensures DOM-ready execution). */
 </script>
 
 {{ template "zero_rows_assets" . }}
-<script>
+<script{{ nonceAttr . }}>
 // 30-day stacked bar chart (= aggregate all reqs from nginx access_log).
 // data: [{date, kind, req}, ...].  kind = 1(white_pass) / 2(pow_pass) / 3(not_pass).
 // Hover shows a popover with each kind's count for the day plus the total.
@@ -1495,8 +1495,8 @@ renderCountryChart('country-chart-all', typeof countriesAll !== 'undefined' ? co
 <div id="cell-popover" data-popover="cell"></div>
 
 {{ template "ua_assets" }}
-<script id="help-data" type="application/json">{{ helpJSON .Lang }}</script>
-<script>
+<script{{ nonceAttr . }} id="help-data" type="application/json">{{ helpJSON .Lang }}</script>
+<script{{ nonceAttr . }}>
 // (popoverPin is already defined earlier.  The old definition (= duplicate made a no-op by `||`)
 // has been removed.  drag handle / collapse toggle / close button + multi-pin via clone are
 // consolidated into the single definition above.)

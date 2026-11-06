@@ -271,7 +271,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
 </dialog>
 <template id="cc-template">{{ template "settings_cr_cond" (dict "Key" "KEY" "Kinds" .CRKinds "Lang" .Lang "Kind" "ip" "ValuesText" "" "Memo" "") }}</template>
 {{ end }}
-<script>
+<script{{ nonceAttr . }}>
 {{ template "ip_popover_js" . }}
 {{ template "ai_picks_js" . }}
 {{ if .CanAsk }}{{ template "cr_js" . }}

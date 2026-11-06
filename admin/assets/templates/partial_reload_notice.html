@@ -42,7 +42,7 @@
   <span class="rlnote-msg">{{ if .CauseHTML }}{{ safeHTML (tf $.Lang .MsgKey .WrittenHTML .CauseHTML) }}{{ else }}{{ safeHTML (tf $.Lang "reload_notice.msg" .WrittenHTML) }}{{ end }}</span>
   <span class="info-tip" tabindex="0" aria-label="help" data-pin-title="{{ t $.Lang .TitleKey }}">?<span class="info-popup">{{ if .Gateway }}{{ safeHTML (t $.Lang "reload_notice.sub_gateway") }}{{ else if .Restart }}{{ safeHTML (tf $.Lang "reload_notice.sub_restart" .RestartCmd) }}{{ else }}{{ safeHTML (t $.Lang "reload_notice.sub") }}{{ end }}{{ if .Changes }}<br><b>{{ t $.Lang "reload_notice.changes_h" }}</b>{{ range .Changes }}<br>· {{ . }}{{ end }}{{ end }}</span></span>
 </div>
-<script{{ nonceAttr . }}>
+<script{{ nonceAttr $ }}>
 (function(){
   var el = document.getElementById('rlnote');
   if (!el) return;

@@ -769,7 +769,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
          Its position is kept across loads (sessionStorage), and the active
          entry is centred when it is still out of view: a first visit, a link
          from another page. -->
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   var nav = document.querySelector('.settings-shell > .settings-nav');
   if (!nav) return;
@@ -815,7 +815,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   {{ t .Lang (printf "settings.tab.%s" (replace .Tab "-" "_")) }}
   {{ if .TabHelpKey }}
   <button type="button" class="ua-help-trigger" data-help-target="settings-tab-help" aria-label="?">?</button>
-  <script type="text/html" id="settings-tab-help">{{ safeHTML (t .Lang .TabHelpKey) }}</script>
+  <script{{ nonceAttr . }} type="text/html" id="settings-tab-help">{{ safeHTML (t .Lang .TabHelpKey) }}</script>
   {{ end }}
 </h1>
 
@@ -943,7 +943,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <div style="display:flex;align-items:center;gap:.4rem">
       <label><input type="checkbox" name="feed_sync" value="1" {{ if .FeedSyncEnabled }}checked{{ end }}> {{ t .Lang "settings.about.feed_sync_toggle" }}</label>
       <button type="button" class="ua-help-trigger" data-help-target="feed-sync-help" aria-label="?">?</button>
-      <script type="text/html" id="feed-sync-help">{{ safeHTML (t .Lang "settings.about.feed_sync_help") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="feed-sync-help">{{ safeHTML (t .Lang "settings.about.feed_sync_help") }}</script>
     </div>
     {{/* Advanced attestation master switch (Web Bot Auth + Privacy Pass).  Kept
          here next to the version-check toggle rather than given its own tab: a
@@ -953,7 +953,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <div class="about-advanced" style="align-self:stretch;padding-top:.8rem;border-top:1px solid #e2e8f0;display:flex;align-items:center;gap:.4rem">
       <label><input type="checkbox" name="advanced_enabled" value="1" {{ if .AdvancedEnabled }}checked{{ end }}> {{ t .Lang "settings.advanced.enabled.label" }}</label>
       <button type="button" class="ua-help-trigger" data-help-target="advanced-help" aria-label="?">?</button>
-      <script type="text/html" id="advanced-help">{{ safeHTML (t .Lang "settings.advanced.desc") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="advanced-help">{{ safeHTML (t .Lang "settings.advanced.desc") }}</script>
     </div>
     <button type="submit">{{ t .Lang "settings.about.check_save" }}</button>
   </form>
@@ -1233,7 +1233,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </label>
       <p class="muted" style="font-size:.72rem;margin:.3rem 0 0">{{ with .IPGeoRelay }}{{ tf $.Lang "settings.network.relay_status" (comma .Prefixes) .Countries }}{{ if .GeneratedTS }} · {{ t $.Lang "settings.network.relay_generated" }} <time class="js-datetime" data-ts="{{ .GeneratedTS }}">{{ .Generated }}</time>{{ end }}{{ else }}{{ t .Lang "settings.network.relay_none" }}{{ end }}</p>
     </div>
-    <script type="text/html" id="ipgeo-auto-update-help">{{ safeHTML (t .Lang "settings.network.ipgeo_auto_update_help") }}</script>
+    <script{{ nonceAttr . }} type="text/html" id="ipgeo-auto-update-help">{{ safeHTML (t .Lang "settings.network.ipgeo_auto_update_help") }}</script>
 
   </div>
   <style>
@@ -1262,7 +1262,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   .ipgeo-fixed-path{font-size:.78rem;display:flex;align-items:center;gap:.4rem;flex-wrap:wrap}
   .ipgeo-fixed-path code{font-family:ui-monospace,Menlo,monospace;background:#f1f5f9;padding:.05rem .35rem;border-radius:.2rem;font-size:.78rem}
   </style>
-  <script>
+  <script{{ nonceAttr . }}>
   (function(){
     // Show only the body matching the selected radio.  Country and ASN
     // radio groups are managed identically (= same data-target -> body id
@@ -1284,7 +1284,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     });
   })();
   </script>
-  <script>
+  <script{{ nonceAttr . }}>
   (function(){
     var basePath  = {{ .BasePath }};
     var running   = '{{ t .Lang "settings.network.ipgeo_install_running" }}';
@@ -1335,7 +1335,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   .ipgeo-pick{font-size:.78rem;padding:0 .35rem;border:1px solid #cbd5e1;border-radius:.2rem;background:#fff;cursor:pointer;line-height:1.3}
   .ipgeo-pick:hover{background:#e0e7ff;border-color:#a5b4fc}
   </style>
-  <script>
+  <script{{ nonceAttr . }}>
   (function(){
     // single shared toast displayed sequentially. don't recreate on each click — just rewrite textContent.
     var toast = document.createElement('div');
@@ -1505,7 +1505,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
              when writing a pattern, and inline it pushed the rows down the
              page on every visit. */}}
         <p class="desc" style="font-size:.78rem;color:#64748b">{{ safeHTML (t .Lang "settings.network.redirect_exempt_custom_lead") }}<button type="button" class="ua-help-trigger" data-help-target="re-custom-help" aria-label="?">?</button></p>
-        <script type="text/html" id="re-custom-help">{{ safeHTML (t .Lang "settings.network.redirect_exempt_custom_hint") }}</script>
+        <script{{ nonceAttr . }} type="text/html" id="re-custom-help">{{ safeHTML (t .Lang "settings.network.redirect_exempt_custom_hint") }}</script>
         <div class="rule-list" data-rule-name="re_pattern">
         {{ range .RedirectExemptRules }}
         <div class="rule-row{{ if .Disabled }} disabled-row{{ end }}" data-orig-pat="{{ .Pattern }}" data-orig-title="{{ .Title }}">
@@ -1588,7 +1588,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         {{ end }}
       </div>
       <button type="button" onclick="wbaAddOperator()" style="margin:.3rem 0 1rem;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:.3rem;padding:.35rem .8rem;cursor:pointer;font-size:.85rem;color:#475569">+ {{ t .Lang "settings.web_bot_auth.add_operator" }}</button>
-      <script>
+      <script{{ nonceAttr . }}>
       function wbaAddOperator(){
         var c=document.getElementById('wba-op-rows');
         var d=document.createElement('div'); d.className='op-row'; d.style.cssText='display:flex;gap:.4rem;margin:.2rem 0';
@@ -1605,7 +1605,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <div class="form-row">
       <label for="wba-ttl">{{ t .Lang "settings.web_bot_auth.cache_ttl.label" }}</label>
       <button type="button" class="ua-help-trigger" data-help-target="wba-ttl-help" aria-label="?">?</button>
-      <script type="text/html" id="wba-ttl-help">{{ safeHTML (t .Lang "settings.web_bot_auth.cache_ttl.help") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="wba-ttl-help">{{ safeHTML (t .Lang "settings.web_bot_auth.cache_ttl.help") }}</script>
       <input id="wba-ttl" type="number" name="cache_ttl_sec" min="60" max="86400" value="{{ if gt .WebBotAuth.CacheTTLSec 0 }}{{ .WebBotAuth.CacheTTLSec }}{{ end }}" placeholder="3600 (default)" style="width:8rem">
       <span class="muted">{{ t .Lang "settings.web_bot_auth.cache_ttl.unit" }}</span>
     </div>
@@ -1654,7 +1654,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         {{ end }}
       </div>
       <button type="button" onclick="ppAddIssuer()" style="margin:.3rem 0 1rem;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:.3rem;padding:.35rem .8rem;cursor:pointer;font-size:.85rem;color:#475569">+ {{ t .Lang "settings.privacy_pass.add_issuer" }}</button>
-      <script>
+      <script{{ nonceAttr . }}>
       function ppAddIssuer(){
         var c=document.getElementById('pp-issuer-rows');
         var d=document.createElement('div'); d.className='pp-issuer-row'; d.style.cssText='display:flex;gap:.4rem;margin:.3rem 0;align-items:flex-start';
@@ -1713,7 +1713,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     .iprange-sync .muted{color:#94a3b8}
     .iprange-sync .error code{color:#b91c1c;background:#fef2f2;padding:.1rem .4rem;border-radius:.2rem}
   </style>
-  <script>
+  <script{{ nonceAttr . }}>
     (function(){
       var btn = document.getElementById('iprange-sync-now-btn');
       var stat = document.getElementById('iprange-sync-status');
@@ -1745,7 +1745,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2>
       {{ t .Lang "settings.bypass.preset.title" }}
       <button type="button" class="ua-help-trigger" data-help-target="bypass-preset-help" aria-label="?">?</button>
-      <script type="text/html" id="bypass-preset-help">{{ safeHTML (t .Lang "settings.bypass.preset.help") }}</script></h2>
+      <script{{ nonceAttr . }} type="text/html" id="bypass-preset-help">{{ safeHTML (t .Lang "settings.bypass.preset.help") }}</script></h2>
     <table class="settings-preset">
       <thead>
         <tr>
@@ -1884,7 +1884,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <div class="bcd-card">
     <h2>{{ t .Lang "settings.rdns.title" }}
       <button type="button" class="ua-help-trigger" data-help-target="rdns-help" aria-label="?">?</button>
-      <script type="text/html" id="rdns-help">{{ safeHTML (t .Lang "settings.rdns.help") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="rdns-help">{{ safeHTML (t .Lang "settings.rdns.help") }}</script>
     </h2>
     <p class="desc">{{ safeHTML (t .Lang "settings.rdns.desc") }}</p>
     <label class="rdns-enable" style="display:flex;align-items:center;gap:.4rem;margin:.4rem 0 .7rem">
@@ -1932,7 +1932,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2>
       {{ t .Lang "settings.bypass_paths.preset.title" }}
       <button type="button" class="ua-help-trigger" data-help-target="bp-preset-help" aria-label="?">?</button>
-      <script type="text/html" id="bp-preset-help">{{ safeHTML (t .Lang "settings.bypass_paths.preset.desc") }}</script></h2>
+      <script{{ nonceAttr . }} type="text/html" id="bp-preset-help">{{ safeHTML (t .Lang "settings.bypass_paths.preset.desc") }}</script></h2>
     <div class="ua-section">
       {{ range .BypassPathGroups }}
       <div class="preset{{ if .IsNew }} is-new{{ end }}">
@@ -1950,7 +1950,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2>
       {{ t .Lang "settings.bypass_paths.title" }}
       <button type="button" class="ua-help-trigger" data-help-target="bp-custom-help" aria-label="?">?</button>
-      <script type="text/html" id="bp-custom-help">{{ safeHTML (t .Lang "settings.bypass_paths.desc") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="bp-custom-help">{{ safeHTML (t .Lang "settings.bypass_paths.desc") }}</script>
     </h2>
     <div class="rule-list" data-rule-name="bp_path">
       {{ range .BypassPathsRules }}
@@ -2050,7 +2050,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </select>
     </div>
 
-    <script type="text/html" id="global-default-help">
+    <script{{ nonceAttr . }} type="text/html" id="global-default-help">
       <div><strong>{{ t .Lang "settings.global.no_match_h" }}</strong></div>
       <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.global.no_match_intro") }}</p>
       <ul style="padding-left:1.2rem;margin:.3rem 0;line-height:1.5">
@@ -2084,7 +2084,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2 style="color:#4338ca">
       {{ t .Lang "settings.ua.badge.upstream" }}
       <button type="button" class="ua-help-trigger" data-help-target="upstream-help" aria-label="?">?</button></h2>
-    <script type="text/html" id="upstream-help">
+    <script{{ nonceAttr . }} type="text/html" id="upstream-help">
       <p style="margin:0 0 .5rem">{{ safeHTML (t .Lang "settings.ua.upstream_desc") }}</p>
       <p style="margin:0">{{ safeHTML (t .Lang "settings.ua.upstream.mode_legend") }}</p>
     </script>
@@ -2132,7 +2132,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <span class="upstream-since"></span>
       </div>
     </template>
-    <script type="application/json" class="upstream-row-labels">{{ toJSON (dict "rv" (t .Lang "settings.ua.upstream.rv_badge") "pv" (t .Lang "settings.ua.upstream.pv_badge") "pvTitle" (t .Lang "settings.ua.upstream.pv_badge_title") "named" (t .Lang "settings.ua.upstream.named_day") "namedTitle" (t .Lang "settings.ua.upstream.named_day_title")) }}</script>
+    <script{{ nonceAttr . }} type="application/json" class="upstream-row-labels">{{ toJSON (dict "rv" (t .Lang "settings.ua.upstream.rv_badge") "pv" (t .Lang "settings.ua.upstream.pv_badge") "pvTitle" (t .Lang "settings.ua.upstream.pv_badge_title") "named" (t .Lang "settings.ua.upstream.named_day") "namedTitle" (t .Lang "settings.ua.upstream.named_day_title")) }}</script>
     {{ range $g := .Upstream.Groups }}
     {{ $catLabel := t $.Lang (printf "settings.ua.upstream.cat.%s" $g.Cat) }}
     <div class="upstream-group" data-cat="{{ $g.Cat }}" data-mode="{{ $g.Mode }}">
@@ -2199,7 +2199,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
              names); the row skeleton and the badge texts are above the
              groups. */}}
         <div class="upstream-modal-list"></div>
-        <script type="application/json" class="upstream-rows">{{ toJSON $g.Rows }}</script>
+        <script{{ nonceAttr $ }} type="application/json" class="upstream-rows">{{ toJSON $g.Rows }}</script>
         <div class="upstream-modal-foot">
           <button type="button" class="upstream-modal-cancel">{{ t $.Lang "settings.ua.upstream.cancel" }}</button>
           <button type="button" class="upstream-modal-save">{{ t $.Lang "settings.ua.upstream.save" }}</button>
@@ -2303,7 +2303,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <option value="deny"             {{ if eq $bcm "deny" }}selected{{ end }}>deny</option>
       </select>
     </div>
-    <script type="text/html" id="ua-black-action-help">
+    <script{{ nonceAttr . }} type="text/html" id="ua-black-action-help">
       <div><strong>{{ t .Lang "settings.ua.black_action_h" }}</strong></div>
       <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.ua.black_action_help") }}</p>
       <ul style="padding-left:1.2rem;margin:.3rem 0;line-height:1.5">
@@ -2341,7 +2341,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       {{ end }}
     </div>
-    <script>
+    <script{{ nonceAttr . }}>
     // Black-preset action select: greyed out when the preset is OFF (= the
     // pattern is not even being matched in nginx, so an override would have
     // no effect).  Re-enable when the user turns the preset back ON.
@@ -2441,7 +2441,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <option value="pow_only"         {{ if eq $hia "pow_only" }}selected{{ end }}>pow_only</option>
       </select>
     </div>
-    <script type="text/html" id="ua-header-help">
+    <script{{ nonceAttr . }} type="text/html" id="ua-header-help">
       <div><strong>{{ t .Lang "settings.ua.header_h" }}</strong></div>
       <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.ua.header_help") }}</p>
     </script>
@@ -2479,7 +2479,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <option value="pow_only"         {{ if eq $uta "pow_only" }}selected{{ end }}>pow_only</option>
       </select>
     </div>
-    <script type="text/html" id="ua-tls-help">
+    <script{{ nonceAttr . }} type="text/html" id="ua-tls-help">
       <div><strong>{{ t .Lang "settings.ua.uatls_h" }}</strong></div>
       <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.ua.uatls_help") }}</p>
     </script>
@@ -2584,7 +2584,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </select>
     </div>
 
-    <script type="text/html" id="ua-stale-help">
+    <script{{ nonceAttr . }} type="text/html" id="ua-stale-help">
       <div><strong>{{ t .Lang "settings.ua.stale_h" }}</strong></div>
       <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.ua.stale_help_long") }}</p>
     
@@ -2594,7 +2594,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
-<script>
+<script{{ nonceAttr . }}>
 // (ua-filter help popover JS lives in the global block at the end of body
 // so it works in every settings tab.)
 
@@ -2903,7 +2903,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   });
 })();
 </script>
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   // The black-list chain the rows inherit tracks the tab's own picker live:
   // the "inherit" option on every custom row (and on the scaffold a new row is
@@ -2953,7 +2953,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <option value="deny"             {{ if eq $jcm "deny" }}selected{{ end }}>deny</option>
       </select>
     </div>
-    <script type="text/html" id="ja4-action-help">
+    <script{{ nonceAttr . }} type="text/html" id="ja4-action-help">
       <div><strong>{{ t .Lang "settings.ja4.action_h" }}</strong></div>
       <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.ja4.action_help") }}</p>
       <ul style="padding-left:1.2rem;margin:.3rem 0;line-height:1.5">
@@ -2991,7 +2991,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       {{ end }}
     </div>
-    <script>
+    <script{{ nonceAttr . }}>
     // JA4 preset action select: enable/disable in sync with its checkbox.
     (function(){
       document.querySelectorAll('input[name="enabled_presets"]').forEach(function(cb){
@@ -3077,7 +3077,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   // The chain the rows inherit tracks the tab's own picker live: the
   // "inherit" option on every preset and custom row (and on the scaffold a
@@ -3111,7 +3111,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <label for="hp-ban-duration">{{ t .Lang "settings.honeypot.ban_duration_h" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="hp-ban-duration-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="hp-ban-duration-help">{{ safeHTML (t .Lang "settings.honeypot.ban_duration_desc") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="hp-ban-duration-help">{{ safeHTML (t .Lang "settings.honeypot.ban_duration_desc") }}</script>
       <input type="number" id="hp-ban-duration" name="honeypot_default_ban_duration_sec" min="0" max="2592000" step="60"
              value="{{ .HoneypotDefaultBanDuration }}" style="width:8rem">
       <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">{{ t .Lang "settings.honeypot.ban_duration_unit" }}</span>
@@ -3132,7 +3132,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <option value="deny"             {{ if eq $hcm "deny" }}selected{{ end }}>deny</option>
       </select>
     </div>
-    <script type="text/html" id="honeypot-action-help">
+    <script{{ nonceAttr . }} type="text/html" id="honeypot-action-help">
       <div><strong>{{ t .Lang "settings.honeypot.action_h" }}</strong></div>
       <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.honeypot.action_help") }}</p>
       <ul style="padding-left:1.2rem;margin:.3rem 0;line-height:1.5">
@@ -3175,7 +3175,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
       </div>
       {{ end }}
     </div>
-    <script>
+    <script{{ nonceAttr . }}>
     (function(){
       document.querySelectorAll('input[name="honeypot_preset_enabled"]').forEach(function(cb){
         cb.addEventListener('change', function(){
@@ -3255,7 +3255,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
      on IP+JA4, not on the visited host, so a per-host TTL did not have a
      coherent meaning.  URL rows above carry their own per-row site filter
      and remain per-host scoped. */}}
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   // The chain the traps inherit tracks the tab's own picker live, the same
   // way as the ja4-verdicts tab above: every preset's and custom row's
@@ -3282,7 +3282,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <h2 style="display:flex;align-items:center;gap:.6rem">
       {{ t .Lang "settings.tab.protected" }}
       <button type="button" class="ua-help-trigger" data-help-target="protected-help" aria-label="?">?</button></h2>
-    <script type="text/html" id="protected-help">
+    <script{{ nonceAttr . }} type="text/html" id="protected-help">
       <div><strong>{{ t .Lang "settings.protected.card_h" }}</strong></div>
       <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.protected.desc") }}</p>
       <ul style="padding-left:1.2rem;margin:.3rem 0;line-height:1.5">
@@ -3310,7 +3310,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <option value="pow"              {{ if eq $pdm "pow" }}selected{{ end }}>pow</option>
         <option value="captcha"          {{ if eq $pdm "captcha" }}selected{{ end }}>captcha</option>
       </select>
-      <script type="text/html" id="protected-default-help">{{ safeHTML (t .Lang "settings.protected.default_mode_desc") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="protected-default-help">{{ safeHTML (t .Lang "settings.protected.default_mode_desc") }}</script>
     </div>
 
     <div class="ua-section">
@@ -3336,7 +3336,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <div class="ua-section">
       <h3><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span>
         <button type="button" class="ua-help-trigger" data-help-target="protected-custom-help" aria-label="?">?</button></h3>
-      <script type="text/html" id="protected-custom-help">{{ safeHTML (t .Lang "settings.protected.desc") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="protected-custom-help">{{ safeHTML (t .Lang "settings.protected.desc") }}</script>
       <div class="rule-list" data-rule-name="protected_path">
       {{ range $i, $r := .ProtectedRules }}
       {{ $rrs := ruleRowState $r.Pattern "protected_path" $.SecErrField $.SecErrValue $.SecErrMsg $.SecFocusSet }}
@@ -3392,7 +3392,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   </div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   // The inherited mode tracks the tab default live: every "unset" option and
   // every inherit pill re-resolves as the operator changes the picker, instead
@@ -3427,7 +3427,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 <div class="captcha-admin-gate" style="background:#fff8e1;border:1px solid #f0c36d;border-radius:.4rem;padding:.7rem .9rem;margin-bottom:1rem;font-size:.85rem;line-height:1.7;color:#5c4400">
   {{ safeHTML (t .Lang "settings.captcha.admin_gate_warn") }}
 </div>
-<script>(function(){var h=document.getElementById('captchaAdminHost');if(h)h.textContent=location.host;})();</script>
+<script{{ nonceAttr . }}>(function(){var h=document.getElementById('captchaAdminHost');if(h)h.textContent=location.host;})();</script>
 {{ end }}
 <form method="post" action="{{ .BasePath }}/admin/settings/save?section=captcha">
   <div class="bcd-card">
@@ -3447,9 +3447,9 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
                    value="{{ if gt .Captcha.BuiltinScoreThreshold 0.0 }}{{ .Captcha.BuiltinScoreThreshold }}{{ else }}0.5{{ end }}"
                    style="width:6rem">
           </label>
-          <script type="text/html" id="builtin-score-help">{{ safeHTML (t .Lang "settings.captcha.builtin.score_threshold_help") }}</script>
+          <script{{ nonceAttr . }} type="text/html" id="builtin-score-help">{{ safeHTML (t .Lang "settings.captcha.builtin.score_threshold_help") }}</script>
         </div>
-        <script type="text/html" id="captcha-builtin-help">{{ safeHTML (t .Lang "settings.captcha.provider.builtin_desc") }}</script>
+        <script{{ nonceAttr . }} type="text/html" id="captcha-builtin-help">{{ safeHTML (t .Lang "settings.captcha.provider.builtin_desc") }}</script>
       </label>
 
       <label class="captcha-opt"><input type="radio" name="provider" value="turnstile" {{ if eq .Captcha.Provider "turnstile" }}checked{{ end }}>
@@ -3460,7 +3460,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <label class="captcha-keylabel">{{ t .Lang "settings.captcha.site_key" }}<input type="text"     name="turnstile_site_key"   value="{{ .Captcha.TurnstileSiteKey }}" autocomplete="off" placeholder="0x4AAAAAAA..."></label>
           <label class="captcha-keylabel">{{ t .Lang "settings.captcha.secret_key" }}<input type="text" name="turnstile_secret_key" value="" autocomplete="off" placeholder="{{ if .Captcha.TurnstileSecretKey }}{{ t .Lang "settings.captcha.secret_kept" }}{{ else }}0x4AAAAAAA...{{ end }}"></label>
         </div>
-        <script type="text/html" id="captcha-turnstile-help">{{ safeHTML (t .Lang "settings.captcha.provider.turnstile_desc") }}</script>
+        <script{{ nonceAttr . }} type="text/html" id="captcha-turnstile-help">{{ safeHTML (t .Lang "settings.captcha.provider.turnstile_desc") }}</script>
       </label>
 
       <label class="captcha-opt"><input type="radio" name="provider" value="hcaptcha"  {{ if eq .Captcha.Provider "hcaptcha" }}checked{{ end }}>
@@ -3471,7 +3471,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <label class="captcha-keylabel">{{ t .Lang "settings.captcha.site_key" }}<input type="text"     name="hcaptcha_site_key"   value="{{ .Captcha.HCaptchaSiteKey }}" autocomplete="off" placeholder="00000000-0000-..."></label>
           <label class="captcha-keylabel">{{ t .Lang "settings.captcha.secret_key" }}<input type="text" name="hcaptcha_secret_key" value="" autocomplete="off" placeholder="{{ if .Captcha.HCaptchaSecretKey }}{{ t .Lang "settings.captcha.secret_kept" }}{{ else }}ES_...{{ end }}"></label>
         </div>
-        <script type="text/html" id="captcha-hcaptcha-help">{{ safeHTML (t .Lang "settings.captcha.provider.hcaptcha_desc") }}</script>
+        <script{{ nonceAttr . }} type="text/html" id="captcha-hcaptcha-help">{{ safeHTML (t .Lang "settings.captcha.provider.hcaptcha_desc") }}</script>
       </label>
 
       <label class="captcha-opt"><input type="radio" name="provider" value="recaptcha" {{ if eq .Captcha.Provider "recaptcha" }}checked{{ end }}>
@@ -3483,7 +3483,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <label class="captcha-keylabel">{{ t .Lang "settings.captcha.secret_key" }}<input type="text" name="recaptcha_secret_key" value="" autocomplete="off" placeholder="{{ if .Captcha.RecaptchaSecretKey }}{{ t .Lang "settings.captcha.secret_kept" }}{{ else }}6Lc...{{ end }}"></label>
           <label class="captcha-keylabel">{{ t .Lang "settings.captcha.recaptcha_min_score" }}<input type="number" name="recaptcha_min_score" min="0" max="1" step="0.05" value="{{ if gt .Captcha.RecaptchaMinScore 0.0 }}{{ .Captcha.RecaptchaMinScore }}{{ else }}0.5{{ end }}" style="width:6rem"></label>
         </div>
-        <script type="text/html" id="captcha-recaptcha-help">{{ safeHTML (t .Lang "settings.captcha.provider.recaptcha_desc") }}</script>
+        <script{{ nonceAttr . }} type="text/html" id="captcha-recaptcha-help">{{ safeHTML (t .Lang "settings.captcha.provider.recaptcha_desc") }}</script>
       </label>
     </div>
   </div>
@@ -3518,7 +3518,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <div class="scope-picker-titlegroup">
     <strong class="scope-picker-title">{{ t .Lang "settings.scope.section_title" }}</strong>
     <button type="button" class="ua-help-trigger" data-help-target="scope-help-challenge" aria-label="?">?</button>
-    <script type="text/html" id="scope-help-challenge">{{ safeHTML (t .Lang "settings.scope.help") }}</script>
+    <script{{ nonceAttr . }} type="text/html" id="scope-help-challenge">{{ safeHTML (t .Lang "settings.scope.help") }}</script>
   </div>
   <label for="scope-select-challenge" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
   <select id="scope-select-challenge" class="scope-picker-select"
@@ -3564,8 +3564,8 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
        values, so a field the site pins looks exactly like one it is borrowing
        from the global record.  The script tags every input whose name is not in
        the override map, which keeps the markers correct as fields come and go. */}}
-  <script type="application/json" class="field-overrides">{{ toJSON .ChallengeFieldOverrides }}</script>
-  <script>
+  <script{{ nonceAttr . }} type="application/json" class="field-overrides">{{ toJSON .ChallengeFieldOverrides }}</script>
+  <script{{ nonceAttr . }}>
   (function(){
     var el = document.currentScript, form = el.closest('form');
     var holder = form.querySelector('script.field-overrides');
@@ -3597,7 +3597,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <label for="ch-pow-cookie-sec">{{ t .Lang "settings.challenge.pow_cookie_valid_seconds" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="ch-pow-cookie-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="ch-pow-cookie-help">{{ safeHTML (t .Lang "settings.challenge.pow_cookie_valid_seconds_help") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="ch-pow-cookie-help">{{ safeHTML (t .Lang "settings.challenge.pow_cookie_valid_seconds_help") }}</script>
       <input type="number" id="ch-pow-cookie-sec" name="pow_cookie_valid_seconds" min="60" max="31536000" step="60"
              value="{{ if gt .ChallengeValues.PowCookieValidSeconds 0 }}{{ .ChallengeValues.PowCookieValidSeconds }}{{ else }}604800{{ end }}"
              {{/* default: 604800 (= 7 days). PoW is automatic / lightweight proof; refresh more often than CAPTCHA. */}}
@@ -3611,7 +3611,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <label for="ch-captcha-cookie-sec">{{ t .Lang "settings.challenge.captcha_cookie_valid_seconds" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="ch-captcha-cookie-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="ch-captcha-cookie-help">{{ safeHTML (t .Lang "settings.challenge.captcha_cookie_valid_seconds_help") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="ch-captcha-cookie-help">{{ safeHTML (t .Lang "settings.challenge.captcha_cookie_valid_seconds_help") }}</script>
       <input type="number" id="ch-captcha-cookie-sec" name="captcha_cookie_valid_seconds" min="60" max="31536000" step="60"
              value="{{ if gt .ChallengeValues.CaptchaCookieValidSeconds 0 }}{{ .ChallengeValues.CaptchaCookieValidSeconds }}{{ else }}1209600{{ end }}"
              {{/* default: 1209600 (= 14 days). CAPTCHA is human-effort proof; longer than PoW reduces re-CAPTCHA friction. */}}
@@ -3625,7 +3625,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <label for="ch-pow-diff">{{ t .Lang "settings.challenge.pow_difficulty" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="ch-pow-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="ch-pow-help">{{ safeHTML (t .Lang "settings.challenge.pow_difficulty_help") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="ch-pow-help">{{ safeHTML (t .Lang "settings.challenge.pow_difficulty_help") }}</script>
       <input type="number" id="ch-pow-diff" name="pow_difficulty" min="8" max="24" step="1"
              value="{{ if gt .ChallengeValues.PowDifficulty 0 }}{{ .ChallengeValues.PowDifficulty }}{{ end }}"
              placeholder="{{ .ChallengeValues.ResolvedPowDifficulty }} (default)"
@@ -3643,7 +3643,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
            two cards below ARE the choice, so there is no separate "display
            style" label for it to hang off. */}}
       <legend>{{ t .Lang "settings.challenge.display_section" }}<button type="button" class="ua-help-trigger" data-help-target="ch-style-help" aria-label="?">?</button></legend>
-      <script type="text/html" id="ch-style-help">{{ safeHTML (t .Lang "settings.challenge.display_style_help") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="ch-style-help">{{ safeHTML (t .Lang "settings.challenge.display_style_help") }}</script>
 
       {{/* Same shape as the network tab's IP-geo database modes: each choice is
            a card that CONTAINS the settings it governs, so a timing is never
@@ -3664,7 +3664,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
               <label for="ch-min-display">{{ t .Lang "settings.challenge.min_display_ms" }}</label>
               <button type="button" class="ua-help-trigger" data-help-target="ch-min-display-help" aria-label="?">?</button>
             </div>
-            <script type="text/html" id="ch-min-display-help">{{ safeHTML (t .Lang "settings.challenge.min_display_ms_help") }}</script>
+            <script{{ nonceAttr . }} type="text/html" id="ch-min-display-help">{{ safeHTML (t .Lang "settings.challenge.min_display_ms_help") }}</script>
             <input type="number" id="ch-min-display" name="min_display_ms" min="0" max="30000" step="50"
                    value="{{ .ChallengeValues.MinDisplayMSField }}"
                    placeholder="800 (default)"
@@ -3686,7 +3686,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
               <label for="ch-inv-reveal">{{ t .Lang "settings.challenge.invisible_reveal_ms" }}</label>
               <button type="button" class="ua-help-trigger" data-help-target="ch-inv-reveal-help" aria-label="?">?</button>
             </div>
-            <script type="text/html" id="ch-inv-reveal-help">{{ safeHTML (t .Lang "settings.challenge.invisible_reveal_ms_help") }}</script>
+            <script{{ nonceAttr . }} type="text/html" id="ch-inv-reveal-help">{{ safeHTML (t .Lang "settings.challenge.invisible_reveal_ms_help") }}</script>
             <input type="number" id="ch-inv-reveal" name="invisible_reveal_ms" min="100" max="30000" step="100"
                    value="{{ if gt .ChallengeValues.InvisibleRevealMS 0 }}{{ .ChallengeValues.InvisibleRevealMS }}{{ end }}"
                    placeholder="1200 (default)"
@@ -3698,7 +3698,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
               <label for="ch-reveal-fade">{{ t .Lang "settings.challenge.reveal_fade_ms" }}</label>
               <button type="button" class="ua-help-trigger" data-help-target="ch-reveal-fade-help" aria-label="?">?</button>
             </div>
-            <script type="text/html" id="ch-reveal-fade-help">{{ safeHTML (t .Lang "settings.challenge.reveal_fade_ms_help") }}</script>
+            <script{{ nonceAttr . }} type="text/html" id="ch-reveal-fade-help">{{ safeHTML (t .Lang "settings.challenge.reveal_fade_ms_help") }}</script>
             <input type="number" id="ch-reveal-fade" name="reveal_fade_ms" min="0" max="5000" step="50"
                    value="{{ .ChallengeValues.RevealFadeMSField }}"
                    placeholder="200 (default)"
@@ -3714,7 +3714,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <label for="ch-debug-rate">{{ t .Lang "settings.challenge.debug_rate" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="ch-debug-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="ch-debug-help">{{ safeHTML (t .Lang "settings.challenge.debug_rate_help") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="ch-debug-help">{{ safeHTML (t .Lang "settings.challenge.debug_rate_help") }}</script>
       <input type="number" id="ch-debug-rate" name="debug_rate_limit_per_5min" min="1" max="10000" step="1"
              value="{{ if gt .ChallengeValues.DebugRateLimitPer5Min 0 }}{{ .ChallengeValues.DebugRateLimitPer5Min }}{{ else }}20{{ end }}"
              style="width:6rem">
@@ -3731,7 +3731,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <span>{{ t .Lang "settings.challenge.public_test_pages" }}</span>
         <button type="button" class="ua-help-trigger" data-help-target="ch-test-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="ch-test-help">{{ safeHTML (t .Lang "settings.challenge.public_test_pages_help") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="ch-test-help">{{ safeHTML (t .Lang "settings.challenge.public_test_pages_help") }}</script>
       <label style="display:flex;align-items:center;gap:.4rem;font-weight:normal">
         <input type="hidden" name="public_test_pages_present" value="1">
         <input type="checkbox" name="public_test_pages" value="1" {{ if .ChallengeEff.IsPublicTestPages }}checked{{ end }}>
@@ -3765,7 +3765,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           </label>
           <button type="button" class="ua-help-trigger" data-help-target="ch-test-site-picker-help" aria-label="?">?</button>
         </div>
-        <script type="text/html" id="ch-test-site-picker-help">{{ safeHTML (t .Lang "settings.challenge.public_test_pages_site_picker_help") }}</script>
+        <script{{ nonceAttr . }} type="text/html" id="ch-test-site-picker-help">{{ safeHTML (t .Lang "settings.challenge.public_test_pages_site_picker_help") }}</script>
       </div>
       {{/* Quick links.  This section configures the PUBLIC pages, so the
            public link leads; the admin one follows as the "and there is
@@ -3798,7 +3798,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <label for="roaming-cap">{{ t .Lang "settings.roaming.cap_label" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="roaming-cap-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="roaming-cap-help">{{ safeHTML (t .Lang "settings.roaming.cap_help") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="roaming-cap-help">{{ safeHTML (t .Lang "settings.roaming.cap_help") }}</script>
       <input type="number" id="roaming-cap" name="roaming_cap" min="1" max="16" step="1"
              value="{{ if gt .RoamingCapRaw 0 }}{{ .RoamingCapRaw }}{{ end }}"
              placeholder="{{ .RoamingCap }} (default)" style="width:6rem">
@@ -3809,7 +3809,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <span>{{ t .Lang "settings.roaming.mode_label" }}</span>
         <button type="button" class="ua-help-trigger" data-help-target="roaming-mode-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="roaming-mode-help">{{ safeHTML (t .Lang "settings.roaming.mode_help") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="roaming-mode-help">{{ safeHTML (t .Lang "settings.roaming.mode_help") }}</script>
       {{ $rm := .RoamingMode }}
       {{/* ordered loosest -> strictest so the trade-off reads top to bottom */}}
       <label class="ipgeo-mode-label" style="display:block;margin:.35rem 0">
@@ -3844,7 +3844,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
      is now expressed as "save with the checkbox unchecked" (= drop the
      Sites entry on the save handler side). */}}
 
-<script>
+<script{{ nonceAttr . }}>
 // human-readable display next to a seconds input (= 86400 -> "1 d", 3600 -> "1 h", etc.).
 function secToHuman(s){
   s = parseInt(s, 10);
@@ -3932,9 +3932,9 @@ function secToHuman(s){
       </tbody>
     </table>
     <div id="rl-deny-warn" class="note" style="display:none;margin-top:.55rem;padding:.55rem .7rem;background:#fffbeb;border-left:.1875rem solid #f59e0b;border-radius:.25rem;line-height:1.6">{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</div>
-    <script type="text/html" id="rl-rpm-help">{{ safeHTML (t .Lang "settings.rate_limit.requests_per_min_help") }}</script>
-    <script type="text/html" id="rl-burst-help">{{ safeHTML (t .Lang "settings.rate_limit.burst_help") }}</script>
-    <script type="text/html" id="rl-mode-help">
+    <script{{ nonceAttr . }} type="text/html" id="rl-rpm-help">{{ safeHTML (t .Lang "settings.rate_limit.requests_per_min_help") }}</script>
+    <script{{ nonceAttr . }} type="text/html" id="rl-burst-help">{{ safeHTML (t .Lang "settings.rate_limit.burst_help") }}</script>
+    <script{{ nonceAttr . }} type="text/html" id="rl-mode-help">
       <ul style="padding-left:1.2rem;margin:.3rem 0;line-height:1.55">
         <li><strong>pow_only</strong> — {{ t .Lang "settings.rate_limit.mode_pow_only_desc" }}</li>
         <li><strong>pow_then_captcha</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_pow_then_captcha_desc") }}</li>
@@ -3942,7 +3942,7 @@ function secToHuman(s){
         <li><strong>deny</strong> — {{ safeHTML (t .Lang "settings.rate_limit.mode_deny_desc") }}<br>{{ safeHTML (t .Lang "settings.rate_limit.mode_deny_protected_warn") }}</li>
       </ul>
     </script>
-    <script>
+    <script{{ nonceAttr . }}>
     // Axis rows: grey a switched-off row (values stay posted so tuning
     // survives an off/on cycle) and keep the primary row's mode select free
     // of the self-referential inherit option -- "(default 継承)" on the row
@@ -4023,7 +4023,7 @@ function secToHuman(s){
           <option value="deny"         {{ if eq $ru.ResolvedAction "deny" }}selected{{ end }}>deny</option>
         </select></label>
     </div>
-    <script type="text/html" id="rl-reuse-help">{{ safeHTML (t .Lang "settings.rate_limit.reuse_help") }}</script>
+    <script{{ nonceAttr . }} type="text/html" id="rl-reuse-help">{{ safeHTML (t .Lang "settings.rate_limit.reuse_help") }}</script>
 
     {{/* The proof-of-work pass budget (settings.rate_limit.pass_budget): the
          reuse cap counts what a pass is used for; this counts the passes, for
@@ -4047,7 +4047,7 @@ function secToHuman(s){
       <label style="display:flex;align-items:center;gap:.45rem;margin:0">{{ t .Lang "settings.rate_limit.pass_budget_ban_hours" }}
         <input type="number" name="pass_budget_ban_hours" min="1" max="720" step="1" placeholder="{{ passBudgetSeedBanHours }}" value="{{ if gt $pb.BanHours 0 }}{{ $pb.BanHours }}{{ end }}" style="width:5rem"></label>
     </div>
-    <script type="text/html" id="rl-pass-budget-help">{{ safeHTML (t .Lang "settings.rate_limit.pass_budget_help") }}</script>
+    <script{{ nonceAttr . }} type="text/html" id="rl-pass-budget-help">{{ safeHTML (t .Lang "settings.rate_limit.pass_budget_help") }}</script>
 
     <h3 style="font-size:1rem;margin:1.5rem 0 .4rem;display:flex;align-items:center;gap:.45rem">{{ t .Lang "settings.rate_limit.zones_h" }}
       <button type="button" class="ua-help-trigger" data-help-target="rl-zones-help" aria-label="?">?</button>
@@ -4059,7 +4059,7 @@ function secToHuman(s){
          does not apply here", which is the actual answer an operator scans
          for.  The moment it applies, rlWarnSync lights the row's own
          full-width warning. */}}
-    <script type="text/html" id="rl-zones-help">
+    <script{{ nonceAttr . }} type="text/html" id="rl-zones-help">
       <p style="margin:.2rem 0 .5rem">{{ safeHTML (t .Lang "settings.rate_limit.zones_help") }}</p>
       <p style="margin:.5rem 0 .2rem;padding-top:.5rem;border-top:1px solid #e2e8f0">{{ safeHTML (t .Lang "settings.rate_limit.zones_deny_note") }}</p>
     </script>
@@ -4218,7 +4218,7 @@ function secToHuman(s){
 
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
-<script>
+<script{{ nonceAttr . }}>
 // Zone rows: view/edit toggling, add/remove, reorder, and the deny-overlap
 // warning.  Order is semantics (top-down, first match wins), so every
 // structural change ends in rlReseq so zone_<i>_* stays 0..N-1 for the parser.
@@ -4389,7 +4389,7 @@ function secToHuman(s){
     </div>
   </div>
 </form>
-<script>
+<script{{ nonceAttr . }}>
 {{ template "cr_js" . }}
 (function(){
   var list = document.getElementById('cr-list'), tpl = document.getElementById('cr-template'), add = document.getElementById('cr-add');
@@ -4479,7 +4479,7 @@ function secToHuman(s){
         <input type="number" name="geo_default_rate" min="0" value="{{ if gt .GeoDefaultRate 0 }}{{ .GeoDefaultRate }}{{ end }}" placeholder="{{ t .Lang "settings.asn.rate_ph" }}" style="width:5.5rem;font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem">
         <span class="rate-unit">{{ t .Lang "settings.asn.rate_unit" }}</span>
         <button type="button" class="ua-help-trigger" data-help-target="geo-defrate-help" aria-label="?">?</button>
-        <script type="text/html" id="geo-defrate-help">{{ safeHTML (t .Lang "settings.asn.default_rate_hint") }}</script>
+        <script{{ nonceAttr . }} type="text/html" id="geo-defrate-help">{{ safeHTML (t .Lang "settings.asn.default_rate_hint") }}</script>
       </label>
     </div>
 
@@ -4558,7 +4558,7 @@ function secToHuman(s){
     <h2>
       {{ t .Lang "settings.geo.exempt.title" }}
       <button type="button" class="ua-help-trigger" data-help-target="gx-help" aria-label="?">?</button>
-      <script type="text/html" id="gx-help">{{ safeHTML (t .Lang "settings.geo.exempt.desc") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="gx-help">{{ safeHTML (t .Lang "settings.geo.exempt.desc") }}</script>
     </h2>
     <div class="rule-list" data-rule-name="gx_path">
       {{ range .GeoExemptRows }}
@@ -4606,7 +4606,7 @@ function secToHuman(s){
   </div>
 </form>
 
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   // Inherit-action labels track the registered-rule default action live: the
   // "(inherit)" option in every row's action select and the view rows'
@@ -4639,7 +4639,7 @@ function secToHuman(s){
   if (defRate) defRate.addEventListener('input', refreshRate);
 })();
 </script>
-<script>
+<script{{ nonceAttr . }}>
 // The link-preview fetchers the rules being edited would stop, from the last
 // day's name-only passes (geo_preview_impact.go).  Asked on load and after
 // every change to the default actions and the rule rows, debounced, so the
@@ -4750,7 +4750,7 @@ function secToHuman(s){
         <input type="number" name="asn_default_rate" min="0" value="{{ if gt .AsnDefaultRate 0 }}{{ .AsnDefaultRate }}{{ end }}" placeholder="{{ t .Lang "settings.asn.rate_ph" }}" style="width:5.5rem;font-size:.85rem;padding:.25rem .4rem;border:1px solid #cbd5e1;border-radius:.25rem">
         <span class="rate-unit">{{ t .Lang "settings.asn.rate_unit" }}</span>
         <button type="button" class="ua-help-trigger" data-help-target="asn-defrate-help" aria-label="?">?</button>
-        <script type="text/html" id="asn-defrate-help">{{ safeHTML (t .Lang "settings.asn.default_rate_hint") }}</script>
+        <script{{ nonceAttr . }} type="text/html" id="asn-defrate-help">{{ safeHTML (t .Lang "settings.asn.default_rate_hint") }}</script>
       </label>
     </div>
   </div>
@@ -4761,7 +4761,7 @@ function secToHuman(s){
       <span class="card-badge preset">{{ t .Lang "settings.ua.badge.preset" }}</span>
       {{ t .Lang "settings.asn.preset.title" }}
       <button type="button" class="ua-help-trigger" data-help-target="asn-preset-help" aria-label="?">?</button>
-      <script type="text/html" id="asn-preset-help">{{ safeHTML (t .Lang "settings.asn.preset.help") }}</script></h2>
+      <script{{ nonceAttr . }} type="text/html" id="asn-preset-help">{{ safeHTML (t .Lang "settings.asn.preset.help") }}</script></h2>
     <div class="note" style="margin-bottom:.5rem;font-size:.8rem">{{ safeHTML (t .Lang "settings.asn.preset.warn") }}</div>
     <div class="asn-preset-tools" style="display:flex;gap:.5rem;align-items:center;margin-bottom:.5rem;flex-wrap:wrap">
       <button type="button" id="asn-preset-all-on">{{ t .Lang "settings.asn.preset.all_on" }}</button>
@@ -4819,7 +4819,7 @@ function secToHuman(s){
   <div class="bcd-card">
     <h2><span class="card-badge custom">{{ t .Lang "settings.ua.badge.custom" }}</span> {{ t .Lang "settings.asn.rules_h" }}
       <button type="button" class="ua-help-trigger" data-help-target="asn-rate-help" aria-label="?">?</button>
-      <script type="text/html" id="asn-rate-help">{{ safeHTML (t .Lang "settings.asn.rate_hint") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="asn-rate-help">{{ safeHTML (t .Lang "settings.asn.rate_hint") }}</script>
     </h2>
     <p class="desc">{{ safeHTML (t .Lang "settings.asn.rules_help") }}</p>
 
@@ -4892,7 +4892,7 @@ function secToHuman(s){
     <h2>
       {{ t .Lang "settings.asn.exempt.title" }}
       <button type="button" class="ua-help-trigger" data-help-target="ax-help" aria-label="?">?</button>
-      <script type="text/html" id="ax-help">{{ safeHTML (t .Lang "settings.asn.exempt.desc") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="ax-help">{{ safeHTML (t .Lang "settings.asn.exempt.desc") }}</script>
     </h2>
     <div class="rule-list" data-rule-name="ax_path">
       {{ range .AsnExemptRows }}
@@ -4946,7 +4946,7 @@ function secToHuman(s){
      JS-driven. */}}
 <div id="asn-suggest-spacer" aria-hidden="true" style="height:20rem"></div>
 
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   // Rate placeholders track the default-rate field live: an empty rate field
   // reads "inherit (N)" / "inherit (none)" and updates as the default changes,
@@ -5159,7 +5159,7 @@ function secToHuman(s){
   <div class="scope-picker-titlegroup">
     <strong class="scope-picker-title">{{ t .Lang "settings.scope.section_title" }}</strong>
     <button type="button" class="ua-help-trigger" data-help-target="scope-help-theme" aria-label="?">?</button>
-    <script type="text/html" id="scope-help-theme">{{ safeHTML (t .Lang "settings.scope.help") }}</script>
+    <script{{ nonceAttr . }} type="text/html" id="scope-help-theme">{{ safeHTML (t .Lang "settings.scope.help") }}</script>
   </div>
   <label for="scope-select-theme" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
   <select id="scope-select-theme" class="scope-picker-select"
@@ -5213,8 +5213,8 @@ function secToHuman(s){
        values, so a field the site pins looks exactly like one it is borrowing
        from the global record.  The script tags every input whose name is not in
        the override map, which keeps the markers correct as fields come and go. */}}
-  <script type="application/json" class="field-overrides">{{ toJSON .BrandingFieldOverrides }}</script>
-  <script>
+  <script{{ nonceAttr . }} type="application/json" class="field-overrides">{{ toJSON .BrandingFieldOverrides }}</script>
+  <script{{ nonceAttr . }}>
   (function(){
     var el = document.currentScript, form = el.closest('form');
     var holder = form.querySelector('script.field-overrides');
@@ -5296,7 +5296,7 @@ function secToHuman(s){
            so the challenge / deny iframes show the not-yet-saved image.  Remove
            broadcasts "none" so the iframes preview the logo-less page; Save
            persists via branding_logo_file / branding_logo_clear. */}}
-      <script>
+      <script{{ nonceAttr . }}>
       (function(){
         var inp = document.getElementById('branding-logo-file');
         if (!inp) return;
@@ -5379,7 +5379,7 @@ function secToHuman(s){
           <span>{{ t .Lang "settings.challenge.show_credit" }}</span>
           <button type="button" class="ua-help-trigger" data-help-target="th-credit-help" aria-label="?">?</button>
         </div>
-        <script type="text/html" id="th-credit-help">{{ safeHTML (t .Lang "settings.challenge.show_credit_help") }}</script>
+        <script{{ nonceAttr . }} type="text/html" id="th-credit-help">{{ safeHTML (t .Lang "settings.challenge.show_credit_help") }}</script>
         <label style="font-size:.92rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem;font-weight:normal">
           <input type="checkbox" id="branding-show-credit" name="show_credit" value="1" {{ if .BrandingEff.IsShowCredit }}checked{{ end }}>
           {{ safeHTML (t .Lang "settings.challenge.show_credit_label") }}
@@ -5638,7 +5638,7 @@ function secToHuman(s){
        (uc-change / custom-toggle) or a tone preset changes.  Full-URL rebuild
        keeps it robust; the deny page applies SAVED colors server-side and these
        _preview_custom params overlay the as-yet-unsaved edits. */}}
-  <script>
+  <script{{ nonceAttr . }}>
   (function(){
     var form = document.getElementById('appearance-form');
     if (!form) return;
@@ -5832,7 +5832,7 @@ function secToHuman(s){
    out of the challenge tab body, which made the challenge tab render
    the banner unstyled. */
 </style>
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   var input = document.getElementById('theme-input');
   var cards = document.querySelectorAll('#appearance-form .theme-card');
@@ -6455,7 +6455,7 @@ function secToHuman(s){
   </fieldset></div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   var form = document.getElementById('gateway-form'); if (!form) return;
   var certList = form.querySelector('[data-gw-certs]');
@@ -6524,7 +6524,7 @@ function secToHuman(s){
         <label><input type="checkbox" name="disabled" value="1" {{ if .Notifications.Disabled }}checked{{ end }}> {{ t .Lang "settings.notify.disabled" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-disabled-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="notify-disabled-help">{{ t .Lang "settings.notify.disabled_desc" }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="notify-disabled-help">{{ t .Lang "settings.notify.disabled_desc" }}</script>
     </div>
 
     <div class="field">
@@ -6532,7 +6532,7 @@ function secToHuman(s){
         <label for="f-site_label">{{ t .Lang "settings.notify.site_label" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-site-label-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="notify-site-label-help">{{ t .Lang "settings.notify.site_label_desc" }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="notify-site-label-help">{{ t .Lang "settings.notify.site_label_desc" }}</script>
       <input id="f-site_label" type="text" name="site_label" value="{{ .Notifications.SiteLabel }}" placeholder="__hostname__ / blog-jp / ..." style="width:24rem">
     </div>
 
@@ -6542,14 +6542,14 @@ function secToHuman(s){
         <label><input type="checkbox" name="ban_events" value="1" {{ if .Notifications.BanEvents }}checked{{ end }}> {{ t .Lang "settings.notify.ban_events" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-ban-events-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="notify-ban-events-help">{{ t .Lang "settings.notify.ban_events_desc" }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="notify-ban-events-help">{{ t .Lang "settings.notify.ban_events_desc" }}</script>
     </div>
     <div class="field">
       <div class="field-label field-label-row">
         <label><input type="checkbox" name="challenge_burst" value="1" {{ if .Notifications.ChallengeBurst }}checked{{ end }}> {{ t .Lang "settings.notify.challenge_burst" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-burst-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="notify-burst-help">{{ t .Lang "settings.notify.challenge_burst_desc" }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="notify-burst-help">{{ t .Lang "settings.notify.challenge_burst_desc" }}</script>
       <div class="field-label" style="margin-top:.5rem"><label for="f-burst_threshold_per_5m">{{ t .Lang "settings.notify.burst_threshold" }}</label></div>
       <input id="f-burst_threshold_per_5m" type="number" name="burst_threshold_per_5m" value="{{ if gt .Notifications.BurstThresholdPer5m 0 }}{{ .Notifications.BurstThresholdPer5m }}{{ else }}50{{ end }}" min="0" step="10" style="width:8rem">
     </div>
@@ -6573,14 +6573,14 @@ function secToHuman(s){
         <label><input type="checkbox" name="webhook_disabled" value="1" {{ if .Notifications.WebhookDisabled }}checked{{ end }}> {{ t .Lang "settings.notify.webhook_disabled" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-webhook-disabled-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="notify-webhook-disabled-help">{{ t .Lang "settings.notify.webhook_disabled_desc" }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="notify-webhook-disabled-help">{{ t .Lang "settings.notify.webhook_disabled_desc" }}</script>
     </div>
     <div class="field">
       <div class="field-label field-label-row">
         <label for="f-url">{{ t .Lang "settings.notify.url" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-url-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="notify-url-help">{{ safeHTML (t .Lang "settings.notify.url_desc") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="notify-url-help">{{ safeHTML (t .Lang "settings.notify.url_desc") }}</script>
       <input id="f-url" type="url" name="url" value="{{ .Notifications.URL }}" placeholder="https://hooks.slack.com/services/T.../B.../..." style="width:100%;font-family:ui-monospace,monospace">
     </div>
 
@@ -6589,7 +6589,7 @@ function secToHuman(s){
         <label for="f-format">{{ t .Lang "settings.notify.format" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-format-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="notify-format-help">{{ safeHTML (t .Lang "settings.notify.format_desc") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="notify-format-help">{{ safeHTML (t .Lang "settings.notify.format_desc") }}</script>
       <select id="f-format" name="format">
         <option value="slack"   {{ if or (eq .Notifications.Format "") (eq .Notifications.Format "slack") }}selected{{ end }}>Slack / Mattermost (= text + blocks)</option>
         <option value="discord" {{ if eq .Notifications.Format "discord" }}selected{{ end }}>Discord (= content)</option>
@@ -6614,7 +6614,7 @@ function secToHuman(s){
         <label for="f-critical_url">{{ t .Lang "settings.notify.critical_url" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-critical-url-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="notify-critical-url-help">{{ t .Lang "settings.notify.critical_url_desc" }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="notify-critical-url-help">{{ t .Lang "settings.notify.critical_url_desc" }}</script>
       <input id="f-critical_url" type="url" name="critical_url" value="{{ .Notifications.CriticalURL }}" placeholder="https://hooks.slack.com/services/T.../B.../..." style="width:100%;font-family:ui-monospace,monospace">
     </div>
     <div class="field">
@@ -6622,7 +6622,7 @@ function secToHuman(s){
         <label for="f-critical_format">{{ t .Lang "settings.notify.critical_format" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-critical-format-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="notify-critical-format-help">{{ t .Lang "settings.notify.critical_format_desc" }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="notify-critical-format-help">{{ t .Lang "settings.notify.critical_format_desc" }}</script>
       <select id="f-critical_format" name="critical_format">
         <option value=""{{ if eq .Notifications.CriticalFormat "" }} selected{{ end }}>{{ t .Lang "settings.notify.critical_format_same" }}</option>
         <option value="slack"{{ if eq .Notifications.CriticalFormat "slack" }} selected{{ end }}>Slack / Mattermost (= text + blocks)</option>
@@ -6635,7 +6635,7 @@ function secToHuman(s){
         <label for="f-critical_min_severity">{{ t .Lang "settings.notify.critical_from" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-critical-from-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="notify-critical-from-help">{{ t .Lang "settings.notify.critical_from_desc" }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="notify-critical-from-help">{{ t .Lang "settings.notify.critical_from_desc" }}</script>
       <select id="f-critical_min_severity" name="critical_min_severity">
         <option value=""{{ if ne .Notifications.CriticalMinSeverity "warn" }} selected{{ end }}>{{ t .Lang "settings.notify.critical_from_crit" }}</option>
         <option value="warn"{{ if eq .Notifications.CriticalMinSeverity "warn" }} selected{{ end }}>{{ t .Lang "settings.notify.critical_from_warn" }}</option>
@@ -6646,7 +6646,7 @@ function secToHuman(s){
       <span id="notify-test-crit-result" style="font-size:.875rem"></span>
     </div>
   </div>
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   // Each test button posts its own hook's URL in its own format (the
   // critical hook's select, the form's format when that says "same") with
@@ -6698,14 +6698,14 @@ function secToHuman(s){
         <label><input type="checkbox" name="mail_disabled" value="1" {{ if .Notifications.MailDisabled }}checked{{ end }}> {{ t .Lang "settings.notify.mail_disabled" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-mail-disabled-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="notify-mail-disabled-help">{{ t .Lang "settings.notify.mail_disabled_desc" }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="notify-mail-disabled-help">{{ t .Lang "settings.notify.mail_disabled_desc" }}</script>
     </div>
     <div class="field">
       <div class="field-label field-label-row">
         <label for="f-mail_to">{{ t .Lang "settings.notify.mail_to" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-mail-to-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="notify-mail-to-help">{{ t .Lang "settings.notify.mail_to_desc" }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="notify-mail-to-help">{{ t .Lang "settings.notify.mail_to_desc" }}</script>
       <input id="f-mail_to" type="text" name="mail_to" value="{{ .Notifications.MailTo }}" placeholder="alerts@example.com, oncall@example.com" style="width:100%;font-family:ui-monospace,monospace">
       <div class="note" style="margin-top:.35rem">{{ t .Lang "settings.notify.mail_to_note" }}</div>
     </div>
@@ -6714,7 +6714,7 @@ function secToHuman(s){
         <label for="f-mail_lang">{{ t .Lang "settings.notify.mail_lang" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="notify-mail-lang-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="notify-mail-lang-help">{{ t .Lang "settings.notify.mail_lang_desc" }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="notify-mail-lang-help">{{ t .Lang "settings.notify.mail_lang_desc" }}</script>
       <select id="f-mail_lang" name="mail_lang">
         <option value=""{{ if ne .Notifications.Lang "ja" }} selected{{ end }}>English</option>
         <option value="ja"{{ if eq .Notifications.Lang "ja" }} selected{{ end }}>日本語</option>
@@ -6748,7 +6748,7 @@ function secToHuman(s){
         <label><input type="checkbox" name="starttls" value="1" {{ if .SMTP.StartTLS }}checked{{ end }}> {{ t .Lang "settings.smtp.starttls" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="smtp-starttls-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="smtp-starttls-help">{{ t .Lang "settings.smtp.starttls_desc" }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="smtp-starttls-help">{{ t .Lang "settings.smtp.starttls_desc" }}</script>
     </div>
 
     <div class="field smtp-row">
@@ -6770,7 +6770,7 @@ function secToHuman(s){
       <div>
         <div class="field-label field-label-row"><label for="f-from_name">{{ t .Lang "settings.smtp.from_name" }}</label>
           <button type="button" class="ua-help-trigger" data-help-target="smtp-from-name-help" aria-label="?">?</button></div>
-        <script type="text/html" id="smtp-from-name-help">{{ t .Lang "settings.smtp.from_name_desc" }}</script>
+        <script{{ nonceAttr . }} type="text/html" id="smtp-from-name-help">{{ t .Lang "settings.smtp.from_name_desc" }}</script>
         <input id="f-from_name" type="text" name="from_name" value="{{ .SMTP.FromName }}" placeholder="unmask __hostname__" style="width:100%">
       </div>
     </div>
@@ -6780,7 +6780,7 @@ function secToHuman(s){
         <label><input type="checkbox" name="insecure_skip_verify" value="1" {{ if .SMTP.InsecureSkipVerify }}checked{{ end }}> {{ t .Lang "settings.smtp.insecure_skip_verify" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="smtp-skip-verify-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="smtp-skip-verify-help">{{ t .Lang "settings.smtp.insecure_skip_verify_desc" }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="smtp-skip-verify-help">{{ t .Lang "settings.smtp.insecure_skip_verify_desc" }}</script>
     </div>
 
     <h3 style="margin:1rem 0 .4rem;font-size:.95rem">{{ t .Lang "settings.smtp.test_h" }}</h3>
@@ -6789,7 +6789,7 @@ function secToHuman(s){
         <label for="smtp-test-to">{{ t .Lang "settings.smtp.test_to" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="smtp-test-to-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="smtp-test-to-help">{{ t .Lang "settings.smtp.test_to_desc" }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="smtp-test-to-help">{{ t .Lang "settings.smtp.test_to_desc" }}</script>
       <input type="email" id="smtp-test-to" placeholder="you@example.com" style="width:24rem">
     </div>
     <div class="field" style="display:flex;gap:.6rem;align-items:center;margin-bottom:0">
@@ -6805,7 +6805,7 @@ function secToHuman(s){
 .smtp-row{display:grid;grid-template-columns:3fr 1fr;gap:.6rem}
 .smtp-row > div > .field-label{font-size:.78rem;color:#475569}
 </style>
-<script>
+<script{{ nonceAttr . }}>
 document.getElementById('smtp-test-btn').addEventListener('click', function(){
   var form = document.getElementById('notify-form');
   var result = document.getElementById('smtp-test-result');
@@ -6995,7 +6995,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 .perf-split{font-size:.72rem;color:#64748b;font-variant-numeric:tabular-nums}
 .perf-note{font-size:.72rem;color:#94a3b8;line-height:1.4}
 </style>
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   var wrap = document.getElementById('perf-profiles');
   if (!wrap) return;
@@ -7212,7 +7212,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     </div>
     {{ end }}{{ end }}
   </div>
-  <script>
+  <script{{ nonceAttr $ }}>
   (function(){
     var card = document.getElementById('vacuum-card');
     if (!card) return;
@@ -7362,7 +7362,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         <label for="f-events_retention_days">{{ t .Lang "settings.retention.events_days" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="retention-events-days-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="retention-events-days-help">{{ safeHTML (t .Lang "settings.retention.events_days_desc") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="retention-events-days-help">{{ safeHTML (t .Lang "settings.retention.events_days_desc") }}</script>
       <input id="f-events_retention_days" type="number" name="events_retention_days" value="{{ .EventsRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
       {{ if .Retention.EventsTimedOut }}
       <div style="font-size:.78rem;margin-top:.5rem;padding:.4rem .6rem;background:#fef3c7;color:#92400e;border:1px solid #fcd34d;border-radius:.25rem">⚠ {{ t .Lang "settings.retention.timeout_warn" }}</div>
@@ -7404,7 +7404,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         <label for="f-audit_log_retention_days">{{ t .Lang "settings.retention.audit_days" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="retention-audit-days-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="retention-audit-days-help">{{ safeHTML (t .Lang "settings.retention.audit_days_desc") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="retention-audit-days-help">{{ safeHTML (t .Lang "settings.retention.audit_days_desc") }}</script>
       <input id="f-audit_log_retention_days" type="number" name="audit_log_retention_days" value="{{ .AuditLogRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
     </div>
     <div class="field">
@@ -7412,7 +7412,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         <label for="f-notice_retention_days">{{ t .Lang "settings.retention.notice_days" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="retention-notice-days-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="retention-notice-days-help">{{ safeHTML (t .Lang "settings.retention.notice_days_desc") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="retention-notice-days-help">{{ safeHTML (t .Lang "settings.retention.notice_days_desc") }}</script>
       <input id="f-notice_retention_days" type="number" name="notice_retention_days" value="{{ .NoticeRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
     </div>
     <div class="field">
@@ -7420,7 +7420,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         <label for="f-ask_history_retention_days">{{ t .Lang "settings.retention.ask_history_days" }}</label>
         <button type="button" class="ua-help-trigger" data-help-target="retention-ask-history-days-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="retention-ask-history-days-help">{{ safeHTML (t .Lang "settings.retention.ask_history_days_desc") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="retention-ask-history-days-help">{{ safeHTML (t .Lang "settings.retention.ask_history_days_desc") }}</script>
       <input id="f-ask_history_retention_days" type="number" name="ask_history_retention_days" value="{{ .AskHistoryRetentionDays }}" min="0" max="3650" style="width:8rem"> {{ t .Lang "settings.retention.events_days_unit" }}
     </div>
   </div>
@@ -7437,7 +7437,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
         </label>
         <button type="button" class="ua-help-trigger" data-help-target="retention-nginx-log-help" aria-label="?">?</button>
       </div>
-      <script type="text/html" id="retention-nginx-log-help">{{ safeHTML (t .Lang "settings.retention.nginx_log_enabled_desc") }}</script>
+      <script{{ nonceAttr . }} type="text/html" id="retention-nginx-log-help">{{ safeHTML (t .Lang "settings.retention.nginx_log_enabled_desc") }}</script>
       <div style="font-size:.78rem;color:#64748b;margin-top:.5rem">
         {{ t .Lang "settings.retention.current_label" }}:
         {{ if .Retention.CookieMinuteRowsOK }}<strong{{ if .Retention.CookieMinuteRowsApprox }} title="{{ t .Lang "settings.retention.approx_count_title" }}"{{ end }}>{{ if .Retention.CookieMinuteRowsApprox }}≈{{ end }}{{ comma .Retention.CookieMinuteRows }}</strong>{{ else }}<strong title="{{ t .Lang "settings.retention.timeout_value_title" }}">??</strong>{{ end }} {{ t .Lang "settings.retention.rows_unit" }}
@@ -7583,7 +7583,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 
 <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   // host-id editor: the text input only matters in "custom" mode.
   var input = document.getElementById('host-id-input');
@@ -7692,8 +7692,8 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
     </div>
     {{/* every provider's presets and default, so the picker can follow the
          provider select without a round trip */}}
-    <script type="application/json" id="ai_model_presets">{{ json (dict "presets" $.AIModelPresets "defaults" $.AIModelDefaults) }}</script>
-    <script>
+    <script{{ nonceAttr . }} type="application/json" id="ai_model_presets">{{ json (dict "presets" $.AIModelPresets "defaults" $.AIModelDefaults) }}</script>
+    <script{{ nonceAttr . }}>
     // Model picker: the <select> is a convenience over the text field that is
     // actually submitted, so a model newer than any list can still be typed.
     // The list follows the provider select: pick openai and the options are
@@ -7847,7 +7847,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
       </select>
       <div class="note" style="margin-top:.3rem">{{ safeHTML (t .Lang "settings.community_bans.action_desc") }}</div>
     </div>
-    <script type="text/html" id="community-bans-action-help">
+    <script{{ nonceAttr . }} type="text/html" id="community-bans-action-help">
       <div><strong>{{ t .Lang "settings.community_bans.action_h" }}</strong></div>
       <p style="margin:.4rem 0">{{ safeHTML (t .Lang "settings.community_bans.action_help") }}</p>
     </script>
@@ -7929,7 +7929,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
   </div>
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
 </form>
-<script>
+<script{{ nonceAttr . }}>
 // Toggle Submit checkbox availability live as the terms checkbox is flipped,
 // so checking terms + Submit in the same form submission works (= no save round-trip).
 // Server-side SubmitActive() still gates on TermsAcceptedAt > 0, so this is purely UX.
@@ -8056,7 +8056,7 @@ document.getElementById('smtp-test-btn').addEventListener('click', function(){
 </script>
 {{ end }}
 
-<script>
+<script{{ nonceAttr . }}>
 // rule-list row actions:
 //   edit click   -> add editing class to switch to input mode (= focus the title input)
 //   add click    -> insert an empty row (= editing) below
@@ -8465,7 +8465,7 @@ document.addEventListener('DOMContentLoaded', function(){
 
 </main>
 
-<script>
+<script{{ nonceAttr . }}>
 // ============================================================
 // info-tip pinning is installed by /static/popover-pin.js (installInfoTipPinning
 // runs on DOMContentLoaded for the whole document).  A local copy used to live
@@ -8478,7 +8478,7 @@ document.addEventListener('DOMContentLoaded', function(){
      trigger reads its content from #<data-help-target> or falls back to the
      ua-filter overview #ua-help-content when omitted). -->
 <div id="ua-help-popover" data-popover="help"></div>
-<script>
+<script{{ nonceAttr . }}>
 (function(){
   if (!window.popoverPin) return;
   var pop = document.getElementById('ua-help-popover');
@@ -8509,7 +8509,7 @@ document.addEventListener('DOMContentLoaded', function(){
 })();
 </script>
 
-<script>
+<script{{ nonceAttr . }}>
 // Suppress implicit form submission on Enter inside settings inputs.
 //
 // Every settings tab is a single form with many text / number / select
@@ -8558,7 +8558,7 @@ document.addEventListener('DOMContentLoaded', function(){
 </body>
 </html>
 
-<script>
+<script{{ nonceAttr . }}>
 (function(){
 // Pattern mode.  Every one of these fields is a regular expression, and the
 // obvious move -- paste the value you want to match -- silently does not work:
@@ -8684,7 +8684,7 @@ document.querySelectorAll('form').forEach(function(f){
 })();
 </script>
 
-<script>
+<script{{ nonceAttr . }}>
 // Challenge display style: reflect the pick onto the fieldset.  Both bodies
 // stay on screen (they are how an operator sees what each mode does); the CSS
 // dims whichever card is not selected, keyed off :has(:checked), so this only
