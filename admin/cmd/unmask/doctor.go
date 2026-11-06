@@ -13,6 +13,9 @@
 //  6. If challenge_html_path is set, the file is readable
 //  7. challenge cookie validity windows are sensible
 //  8. nginx output_dir is writable
+//
+// and, of the running daemon: whether it has its database (readyz), and how
+// fast it answers (the self-curl).
 package main
 
 import (
@@ -641,6 +644,7 @@ func cmdDoctor(args []string) error {
 	checkBVSecretSync(s, addOK, addWarn)
 	checkAdminSecretNotRendered(s, resolved, addOK, addWarn, addErr)
 
+	checkDaemonHasDB(s, addOK, addErr)
 	runSLOCheck(s, addOK, addWarn, addErr)
 
 	return printSummary(checks)
@@ -1817,6 +1821,42 @@ func checkAdminSecretNotRendered(s settings.Settings, cfgPath string, addOK, add
 		where = "the sidecar " + settings.AdminSecretSidecarPath()
 	}
 	addOK("admin_secret", fmt.Sprintf("held by the daemon only (%s); absent from the %d rendered nginx files under %s", where, files, dir))
+}
+
+// checkDaemonHasDB asks the running daemon whether it has its database
+// (GET {base}/readyz).  The "DB connect" check above is this process's own
+// connection, made now; the daemon made its own when it started, and one
+// that started while the database was away runs without it -- challenge
+// pages served, no statistics, no new bans, no admin UI -- until its retry
+// finds the database and it starts over.  On a host where the database is
+// back, that is a daemon in trouble under a doctor that reads all green.
+//
+// A daemon that is not running is the self-curl's finding, and one older
+// than /readyz answers 404: neither is said here.
+func checkDaemonHasDB(s settings.Settings, addOK, addErr func(string, string)) {
+	url, dialer := sloTarget(s.Server)
+	if url == "" {
+		return
+	}
+	url = strings.TrimSuffix(url, "/healthz") + "/readyz"
+	client := &http.Client{
+		Timeout:   2 * time.Second,
+		Transport: &http.Transport{DialContext: dialer},
+	}
+	resp, err := client.Get(url)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	switch resp.StatusCode {
+	case http.StatusOK:
+		addOK("daemon database", "the running daemon has its database (readyz 200)")
+	case http.StatusServiceUnavailable:
+		addErr("daemon database", "the running daemon has no database (readyz 503): its start could not open it. "+
+			"Challenge pages are served; statistics, new bans and the admin UI are off. On an install that is set up "+
+			"the daemon retries and starts over by itself once the database answers -- its log names the error it gets; "+
+			"restarting the service retries at once")
+	}
 }
 
 // runSLOCheck probes the locally-configured admin bind with N HTTP GETs to
