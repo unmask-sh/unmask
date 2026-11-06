@@ -28,10 +28,29 @@
   },
   "panels": [
     {
+      "id": 107,
+      "type": "stat",
+      "title": "database",
+      "gridPos": {"h": 4, "w": 3, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "${datasource}"},
+      "targets": [
+        {"refId": "A", "expr": "min(unmask_db_up)", "legendFormat": "database"}
+      ],
+      "options": {"reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}, "colorMode": "background", "graphMode": "none", "textMode": "value"},
+      "fieldConfig": {
+        "defaults": {
+          "color": {"mode": "thresholds"},
+          "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]},
+          "mappings": [{"type": "value", "options": {"1": {"text": "connected", "color": "green", "index": 0}, "0": {"text": "NO DATABASE", "color": "red", "index": 1}}}]
+        }
+      },
+      "description": "0 while a daemon runs without its database: its start could not open it.  Challenge pages are served; statistics, new bans and the admin UI wait.  The daemon retries and starts over by itself when the database answers; its log names the error, and `/unmask/readyz` answers 503 meanwhile."
+    },
+    {
       "id": 101,
       "type": "stat",
       "title": "module fail-safe",
-      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+      "gridPos": {"h": 4, "w": 4, "x": 3, "y": 0},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
       "targets": [
         {"refId": "A", "expr": "max(unmask_native_failsafe_active)", "legendFormat": "fail-safe"}
@@ -50,7 +69,7 @@
       "id": 102,
       "type": "stat",
       "title": "nginx configuration",
-      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
+      "gridPos": {"h": 4, "w": 4, "x": 7, "y": 0},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
       "targets": [
         {"refId": "A", "expr": "max(unmask_nginx_config_stale)", "legendFormat": "stale"}
@@ -69,7 +88,7 @@
       "id": 103,
       "type": "stat",
       "title": "ban list readable by nginx",
-      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
+      "gridPos": {"h": 4, "w": 4, "x": 11, "y": 0},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
       "targets": [
         {"refId": "A", "expr": "min(unmask_ban_file_worker_readable)", "legendFormat": "readable"}
@@ -88,7 +107,7 @@
       "id": 104,
       "type": "stat",
       "title": "schema updates waiting",
-      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+      "gridPos": {"h": 4, "w": 3, "x": 15, "y": 0},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
       "targets": [
         {"refId": "A", "expr": "max(unmask_schema_update_pending)", "legendFormat": "pending"}
@@ -107,7 +126,7 @@
       "id": 105,
       "type": "stat",
       "title": "events dropped / 1h",
-      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 0},
+      "gridPos": {"h": 4, "w": 3, "x": 18, "y": 0},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
       "targets": [
         {"refId": "A", "expr": "sum(increase(unmask_events_dropped_total[1h]))", "legendFormat": "dropped"}
@@ -126,7 +145,7 @@
       "id": 106,
       "type": "stat",
       "title": "access-log lines dropped / 1h",
-      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 0},
+      "gridPos": {"h": 4, "w": 3, "x": 21, "y": 0},
       "datasource": {"type": "prometheus", "uid": "${datasource}"},
       "targets": [
         {"refId": "A", "expr": "sum(increase(unmask_nginxlog_dropped_total[1h]))", "legendFormat": "dropped"}

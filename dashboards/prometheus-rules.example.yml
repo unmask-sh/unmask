@@ -1,12 +1,39 @@
 # Prometheus alerting rules for unmask, on the gauges and counters
 # /unmask/metrics exposes (admin/internal/handlers/metrics.go).  Copy into
 # the rule_files of your Prometheus and adjust the thresholds and labels.
-# Each alert names a condition the dashboard's "Health" row shows; these are
-# the quiet failures of this product -- nginx keeps serving, with less
-# protection than the operator believes.
+# Each alert names a condition the dashboard's "Health" row shows (the first
+# reads Prometheus's own `up` instead); these are the quiet failures of this
+# product -- nginx keeps serving, with less protection than the operator
+# believes.
 groups:
   - name: unmask
     rules:
+      # The daemon does not answer the scrape.  nginx fails open meanwhile:
+      # a visitor who would have met the challenge passes without it, and
+      # nothing is recorded.  `up` is Prometheus's own series for a scrape
+      # target; put the job_name of your scrape config in the selector.
+      - alert: UnmaskDaemonDown
+        expr: up{job="unmask"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "unmask on {{ $labels.instance }} does not answer"
+          description: "The scrape of /unmask/metrics has failed for 2 minutes: the daemon is down or unreachable, and nginx lets requests through unchallenged. Check the service and its log on the host."
+
+      # The daemon runs without its database: it started while the database
+      # was away.  The challenge is served; statistics, new bans and the
+      # admin UI are not.  The daemon retries and starts over by itself when
+      # the database answers, so this fires only when that takes long.
+      - alert: UnmaskDatabaseUnavailable
+        expr: min by (instance) (unmask_db_up) == 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "unmask on {{ $labels.instance }} runs without its database"
+          description: "The daemon could not open its database at start and has been retrying for 5 minutes (GET /unmask/readyz answers 503). Its log names the error; `unmask doctor` on the host checks the connection."
+
       # The plugin's fail-safe stripped the module: nginx runs, unmask
       # protects nothing.  `unmask doctor` on the host says why (an ABI
       # mismatch after an nginx upgrade, a render nginx -t refused).

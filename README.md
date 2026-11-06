@@ -194,14 +194,23 @@ visitor's address, and the JA4 fingerprint where TLS ends in front of nginx.
 `/unmask/metrics` serves Prometheus text: the events by phase and verdict
 and the unique addresses of the last 24 hours, the CAPTCHA score histogram,
 database query timings, and the gauges an alert should watch --
-`unmask_native_failsafe_active` (the plugin's fail-safe stripped the
-module: nginx runs without unmask), `unmask_nginx_config_stale` (a render
-waits for a reload), `unmask_ban_file_worker_readable` (nginx can read the
-ban list), `unmask_schema_update_pending`, and the `*_dropped_total`
-counters of the log and event intake.  It answers loopback only until
+`unmask_db_up` (the daemon has its database), `unmask_native_failsafe_active`
+(the plugin's fail-safe stripped the module: nginx runs without unmask),
+`unmask_nginx_config_stale` (a render waits for a reload),
+`unmask_ban_file_worker_readable` (nginx can read the ban list),
+`unmask_schema_update_pending`, and the `*_dropped_total` counters of the
+log and event intake.  It answers loopback only until
 `nginx.metrics_allow_from` names your Prometheus.  The `unmask` package
 ships a Grafana dashboard and example alerting rules for these under
 `/usr/share/unmask/grafana/` (`dashboards/` in this repository).
+
+Two probes need no Prometheus.  `/unmask/healthz` answers 200 for as long as
+the daemon runs: the one for a load balancer's health check.
+`/unmask/readyz` answers 200 once the daemon has its database and 503 while
+it runs without one.  A daemon started while its database was away (a host
+that boots it ahead of MariaDB) keeps serving the challenge, retries the
+database, and starts over by itself when it answers; statistics, new bans
+and the admin UI wait until then.
 
 ### The built-in CAPTCHA, and a provider in its place
 
