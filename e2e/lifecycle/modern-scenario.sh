@@ -29,7 +29,9 @@ if command -v dnf >/dev/null 2>&1; then
     pkg_setup()   { dnf -q -y install nginx >/dev/null 2>&1; }
     pkg_files()   { echo "/work/unmask-$1-1.x86_64.rpm /work/unmask-plugin-nginx-$1-1.x86_64.rpm /work/unmask-web-nginx-$1-1.x86_64.rpm"; }
     pkg_install() { dnf -q -y install $(pkg_files "$1"); }
-    pkg_remove()  { dnf -q -y remove unmask-plugin-nginx unmask-web-nginx unmask; }
+    # Not -q: dnf then drops what the scriptlets print, and what a removal
+    # tells the operator is part of what is checked.
+    pkg_remove()  { dnf -y remove unmask-plugin-nginx unmask-web-nginx unmask; }
 elif command -v apt-get >/dev/null 2>&1; then
     FAM=deb
     export DEBIAN_FRONTEND=noninteractive
