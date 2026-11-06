@@ -49,8 +49,9 @@ The install guide takes you through either way, step by step: **https://unmask.s
 
 - **nginx**, one of the 15 versions the plugin package bundles a module
   for (1.10.3 up to 1.30.6; the install guide lists them), built
-  `--with-compat` (the distributions' packages are; a self-built nginx
-  needs the flag).  The plugin places the module built for
+  `--with-compat` (the distributions' packages are -- Alpine's own from
+  3.23 on -- and so are nginx.org's; a self-built nginx needs the flag).
+  The plugin places the module built for
   exactly the version `nginx -v` reports, for the host's OpenSSL
   generation: nginx loads no other, a neighbouring patch release included.
   When none matches, the plugin says which version is missing and what to
@@ -61,7 +62,10 @@ The install guide takes you through either way, step by step: **https://unmask.s
   move it off the list.
 - **OS**: RHEL / Rocky / AlmaLinux, Debian, Ubuntu and Alpine, on x86_64
   and arm64; the packages are installed on ten distributions before a
-  release.  Anything else runs the gateway container.
+  release.  On Alpine 3.22 and older, Alpine's own nginx package is built
+  without `--with-compat` and refuses the module (the plugin then leaves it
+  out and says so): use nginx.org's package there, or Alpine 3.23.
+  Anything else runs the gateway container.
 - **Database**: SQLite by default, a file under `/var/lib/unmask`, nothing
   to set up; or MariaDB (`db.driver: mariadb`).  PostgreSQL is not
   supported.
