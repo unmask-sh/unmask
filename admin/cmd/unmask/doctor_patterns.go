@@ -100,3 +100,18 @@ func checkPatternLists(s settings.Settings, addOK, addWarn func(t, m string)) {
 		addOK("Rule lists", "every pattern carries at most one marker, and every list's columns line up with its rows")
 	}
 }
+
+// checkPatternIssues: the rows of the rule lists that the settings page
+// would not have taken -- a pattern that does not compile, or that nginx's
+// regex engine could take exponential time on, a line break in one.  The
+// page checks what is typed into it; a config.yml edited by hand or written
+// by a configuration manager never passes it, and such a row is rendered as
+// it stands.  One that does not compile fails `nginx -t` at the next reload;
+// one only the daemon's engine refuses is enforced by nginx while the
+// daemon's own matching (forward-auth, the reason a log line gives) skips
+// it.  Nothing is changed here: the warning is the row to look at.
+func checkPatternIssues(s settings.Settings, addWarn func(t, m string)) {
+	for _, is := range s.PatternIssues() {
+		addWarn("Rule patterns", is.String()+". Correct the row (the settings page says what it accepts), then run nginx -t.")
+	}
+}

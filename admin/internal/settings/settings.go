@@ -5070,6 +5070,7 @@ func Load(path string) (Settings, error) {
 		warnRemovedUpstreamLists(resolved, raw)
 		warnRemovedAuditRetention(resolved, raw)
 		warnPowDifficultyRange(resolved, s)
+		warnPatternIssues(resolved, s)
 	}
 	switch strings.TrimSpace(s.Secret.SigHash) {
 	case "", "sha1":
