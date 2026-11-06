@@ -552,12 +552,11 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// Security headers on every admin response.  X-Frame-Options + CSP
 		// frame-ancestors stop the admin UI being framed (clickjacking of
 		// state-changing actions); nosniff + Referrer-Policy are safe hardening.
-		// (The script-src that would also block injected inline handlers is
-		// published report-only under a per-response nonce until the admin's
-		// inline <script>s all carry it -- see csp_nonce.go; the round-3
-		// stored XSS is already fixed at the escaping source.)
+		// The policy's script-src runs only the scripts that carry this
+		// response's nonce, so one injected through an escaping mistake does
+		// not run (csp_nonce.go).
 		r, nonce := withCSPNonce(r)
-		setAdminSecurityHeaders(w, nonce)
+		setAdminSecurityHeaders(w, nonce, h.basePath())
 		// Admin pages are per-operator, data-driven, and redeployed often.  With
 		// no Cache-Control the browser applies heuristic caching and serves a
 		// stale dashboard after a redeploy (the inline <style>/markup that make
@@ -800,6 +799,59 @@ func readFlash(w http.ResponseWriter, r *http.Request, basePath, key string) str
 	return v
 }
 
+// adminCSPBase is the part of the admin's Content-Security-Policy that needs
+// no nonce: no framing by any origin, no <base> retargeting, no plugins, and
+// forms that submit only to this origin.  A route that must be framed by the
+// settings page relaxes frame-ancestors to 'self' and keeps the rest (see the
+// preview handlers).  Styles are not restricted: the templates carry theirs
+// inline.
+const adminCSPBase = "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'"
+
+// adminCSP is the admin surface's Content-Security-Policy for one response:
+// adminCSPBase, the script directive for the response's nonce (csp_nonce.go)
+// and where the browser reports what it refused (csp_report.go).  report-uri
+// comes last, so that nothing an operator could put in base_path can cut a
+// directive short.
+func adminCSP(nonce, basePath string) string {
+	return adminCSPBase + "; " + cspScriptSrc(nonce) + "; report-uri " + basePath + "/admin/csp-report"
+}
+
+// setAdminSecurityHeaders: the headers every admin response carries --
+// authenticated pages (AuthMiddleware), the ones before a session exists
+// (login, password reset: AdminIPAllowMiddleware) and the install wizard
+// (AdminHeadersMiddleware).  The login page is the one most worth framing or
+// retargeting, and it used to carry none.  nonce is the response's script
+// nonce (withCSPNonce).
+func setAdminSecurityHeaders(w http.ResponseWriter, nonce, basePath string) {
+	w.Header().Set("X-Frame-Options", "DENY")
+	w.Header().Set("Content-Security-Policy", adminCSP(nonce, basePath))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Referrer-Policy", "same-origin")
+}
+
+// keepAdminCSPWithoutScripts is for a page an admin route serves that is not
+// the admin's own: the admin's script directive names a nonce that page's
+// scripts do not carry.  The response keeps the rest of the policy.  One
+// that carries no policy -- the same handler on a public route -- stays
+// without.
+func keepAdminCSPWithoutScripts(w http.ResponseWriter) {
+	if w.Header().Get("Content-Security-Policy") != "" {
+		w.Header().Set("Content-Security-Policy", adminCSPBase)
+	}
+}
+
+// AdminHeadersMiddleware gives the install wizard's routes the headers and
+// the script nonce the two gates give every other admin page.  The wizard
+// sits outside both gates -- there is no user to sign in, and an allowlist
+// must not lock the installer out -- so nothing else sets them there.
+func (h *Handler) AdminHeadersMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		r, nonce := withCSPNonce(r)
+		setAdminSecurityHeaders(w, nonce, h.basePath())
+		next(w, r)
+	}
+}
+
 // AdminIPAllowMiddleware enforces both remote-IP and Host-header access
 // control on /admin/*.
 //
@@ -825,36 +877,12 @@ func readFlash(w http.ResponseWriter, r *http.Request, basePath, key string) str
 // Not applied during the install wizard (/admin/setup/) so the initial install
 // can't lock you out before any IP / Host is configured.  Applied to
 // /admin/login to prevent brute force from unauthorized IPs.
-// adminCSP is the admin surface's Content-Security-Policy.  It does not
-// restrict scripts (the templates carry inline JavaScript and styles); it
-// closes the holes that need no nonce: no framing by any origin, no <base>
-// retargeting, no plugins, and forms that submit only to this origin.  A
-// route that must be framed by the settings page relaxes frame-ancestors to
-// 'self' and keeps the rest (see the preview handlers).  The script-src
-// that would complete it is published report-only, under the response's
-// nonce, until every inline script carries that nonce (csp_nonce.go).
-const adminCSP = "frame-ancestors 'none'; base-uri 'self'; object-src 'none'; form-action 'self'"
-
-// setAdminSecurityHeaders: the headers every admin response carries --
-// authenticated pages (AuthMiddleware) and the ones before a session exists
-// (login, setup, password reset: AdminIPAllowMiddleware).  The login page is
-// the one most worth framing or retargeting, and it used to carry none.
-// nonce is the response's script nonce (withCSPNonce), named by the
-// report-only script policy.
-func setAdminSecurityHeaders(w http.ResponseWriter, nonce string) {
-	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("Content-Security-Policy", adminCSP)
-	w.Header().Set("Content-Security-Policy-Report-Only", cspScriptReportOnly(nonce))
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("Referrer-Policy", "same-origin")
-}
-
 func (h *Handler) AdminIPAllowMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// The response's script nonce rides the request from here: the pages
-		// before a session (login, setup, reset) read it off the context.
+		// before a session (login, reset) read it off the context.
 		r, nonce := withCSPNonce(r)
-		setAdminSecurityHeaders(w, nonce)
+		setAdminSecurityHeaders(w, nonce, h.basePath())
 		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 		// Bypass during the install wizard (setup token guards it separately).
 		if needed, _ := h.SetupNeeded(r); needed {

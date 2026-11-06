@@ -8,24 +8,22 @@ import (
 	"net/http"
 )
 
-// The admin's inline JavaScript under a nonce.
+// The admin's script policy.
 //
-// adminCSP closes the holes that need no nonce (framing, <base>, plugins,
-// form targets) and leaves script execution alone, because the admin pages
-// carry their JavaScript inline: a script-src that named only 'self' would
-// stop every page working.  The way to a script-src is a nonce: the
-// middleware draws one per response, the response header names it, and every
-// <script> the templates emit carries it as an attribute -- a script injected
-// through an escaping mistake does not know the nonce and does not run.
+// The admin pages carry their JavaScript inline, in the same HTML that shows
+// values a visitor chose -- the User-Agent and the path of an access-log
+// line -- so one escaping mistake would run a script in an operator's
+// session.  The policy stands behind the escaping: the middleware draws a
+// nonce per response, the Content-Security-Policy header names it
+// (script-src 'self' 'nonce-...'), and every <script> the templates emit
+// carries it as an attribute (nonceAttr).  A script injected into the page
+// does not know the nonce and does not run.  Neither does an inline on*
+// attribute or a javascript: URL, which cannot carry one: the templates wire
+// their handlers with addEventListener, and a test keeps both that way
+// (csp_templates_test.go).
 //
-// This is the plumbing for that, with the policy published in REPORT-ONLY
-// form (Content-Security-Policy-Report-Only).  A report-only policy blocks
-// nothing; the browser reports each script it would have refused on the
-// console, which is the inventory of what still has to move under the nonce
-// before the directive can join the enforced header.  The partials shared by
-// every page carry the nonce already (nonceAttr); the pages' own <script>
-// blocks and their inline on* handlers are the remaining work, and the
-// enforced policy waits for them.
+// What the browser refuses it reports to {base}/admin/csp-report
+// (csp_report.go), one log line each.
 
 // cspNonceKey is the request-context key of the response's script nonce.
 type cspNonceKey struct{}
@@ -35,9 +33,9 @@ type cspNonceKey struct{}
 func newCSPNonce() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		// No randomness, no nonce: the header then names no nonce and the
-		// report-only policy reports every inline script, which is the
-		// truthful reading of a response whose scripts cannot be told apart.
+		// No randomness, no nonce: the header then names none and the page's
+		// inline scripts do not run, which is the safe reading of a response
+		// whose scripts cannot be told from an injected one.
 		return ""
 	}
 	return base64.StdEncoding.EncodeToString(b[:])
@@ -51,8 +49,9 @@ func withCSPNonce(r *http.Request) (*http.Request, string) {
 }
 
 // CSPNonceFromRequest is the nonce the middleware drew for this response, ""
-// outside the middlewares (tests that call a handler directly, the setup
-// wizard's pre-gate routes): the templates then emit no nonce attribute.
+// outside the middlewares (a test that calls a handler directly, the public
+// test pages): the response then carries no policy, and the templates emit no
+// nonce attribute.
 func CSPNonceFromRequest(r *http.Request) string {
 	if r == nil {
 		return ""
@@ -61,23 +60,25 @@ func CSPNonceFromRequest(r *http.Request) string {
 	return n
 }
 
-// cspScriptReportOnly is the report-only policy for the response's nonce:
-// scripts from this origin and inline scripts carrying the nonce.  Only
-// script-src: the admin's inline styles are a separate pass, and a
-// default-src here would bury the script reports under style ones.
-func cspScriptReportOnly(nonce string) string {
+// cspScriptSrc is the script directive for the response's nonce: scripts
+// from this origin (popover-pin.js) and inline scripts carrying the nonce.
+// No 'unsafe-inline', no 'unsafe-eval'.  'report-sample' loosens nothing: it
+// has the browser put the first characters of what it refused in the report,
+// which is what tells an operator's own stray handler from an injected script.
+func cspScriptSrc(nonce string) string {
 	if nonce == "" {
-		return "script-src 'self'"
+		return "script-src 'self' 'report-sample'"
 	}
-	return "script-src 'self' 'nonce-" + nonce + "'"
+	return "script-src 'self' 'nonce-" + nonce + "' 'report-sample'"
 }
 
 // nonceAttr is the template function that puts the response's nonce on a
-// <script> tag: `<script{{ nonceAttr . }}>`.  It reads the Nonce entry of
-// the page's data map (addMeToData puts it there), and renders nothing for
-// data that is not that map -- a partial handed a sub-value, a nil dot --
-// so a template never fails for want of a nonce; its script is then one the
-// report-only policy reports, which is the intended signal.
+// <script> tag: `<script{{ nonceAttr . }}>` at a template's top level,
+// `<script{{ nonceAttr $ }}>` inside a range or with, where the dot is no
+// longer the page.  It reads the Nonce entry of the page's data map
+// (addMeToData puts it there), and renders nothing for anything else -- a
+// sub-value, a nil dot -- so a template never fails for want of a nonce; its
+// script then does not run under the policy, and the browser reports it.
 func nonceAttr(v any) template.HTMLAttr {
 	m, ok := v.(map[string]any)
 	if !ok {

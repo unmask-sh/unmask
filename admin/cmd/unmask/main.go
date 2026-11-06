@@ -1312,14 +1312,15 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	// CSRF token -- so the route sits behind the IP/host gate alone.
 	mux.HandleFunc("POST "+base+"/admin/csp-report", h.AdminIPAllowMiddleware(h.AdminCSPReport))
 	// install wizard (cacti / zabbix style).  No auth required; once complete,
-	// SetupGate redirects to /admin/ (prevents re-running setup).
-	mux.HandleFunc("GET "+base+"/admin/setup/{$}", h.SetupGate(h.AdminSetupIndex))
-	mux.HandleFunc("POST "+base+"/admin/setup/token", h.SetupGate(h.AdminSetupSaveToken))
-	mux.HandleFunc("POST "+base+"/admin/setup/db", h.SetupGate(h.AdminSetupSaveDB))
-	mux.HandleFunc("POST "+base+"/admin/setup/user", h.SetupGate(h.AdminSetupSaveUser))
-	mux.HandleFunc("POST "+base+"/admin/setup/options", h.SetupGate(h.AdminSetupSaveOptions))
-	mux.HandleFunc("POST "+base+"/admin/setup/install", h.SetupGate(h.AdminSetupInstall))
-	mux.HandleFunc("GET "+base+"/admin/setup/done", h.AdminSetupDone)
+	// SetupGate redirects to /admin/ (prevents re-running setup).  Outside
+	// both gates, so AdminHeadersMiddleware sets the admin's headers here.
+	mux.HandleFunc("GET "+base+"/admin/setup/{$}", h.AdminHeadersMiddleware(h.SetupGate(h.AdminSetupIndex)))
+	mux.HandleFunc("POST "+base+"/admin/setup/token", h.AdminHeadersMiddleware(h.SetupGate(h.AdminSetupSaveToken)))
+	mux.HandleFunc("POST "+base+"/admin/setup/db", h.AdminHeadersMiddleware(h.SetupGate(h.AdminSetupSaveDB)))
+	mux.HandleFunc("POST "+base+"/admin/setup/user", h.AdminHeadersMiddleware(h.SetupGate(h.AdminSetupSaveUser)))
+	mux.HandleFunc("POST "+base+"/admin/setup/options", h.AdminHeadersMiddleware(h.SetupGate(h.AdminSetupSaveOptions)))
+	mux.HandleFunc("POST "+base+"/admin/setup/install", h.AdminHeadersMiddleware(h.SetupGate(h.AdminSetupInstall)))
+	mux.HandleFunc("GET "+base+"/admin/setup/done", h.AdminHeadersMiddleware(h.AdminSetupDone))
 	// admin: /admin/ renders the top dashboard (summary).
 	// /admin/stats/ shows the site list (or jumps straight to chart when site<=1).  /admin/stats/{site}/ shows per-site chart.
 	mux.HandleFunc("GET "+base+"/admin/{$}",

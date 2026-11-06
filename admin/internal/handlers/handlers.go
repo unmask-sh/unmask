@@ -2092,6 +2092,10 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if csp != "" {
 		w.Header().Set("Content-Security-Policy", csp)
+	} else {
+		// An operator's copy of the page from before the nonce, previewed
+		// on /admin/test/: its scripts run as they do on the public route.
+		keepAdminCSPWithoutScripts(w)
 	}
 	w.WriteHeader(status)
 	_, _ = w.Write(body)
@@ -2186,7 +2190,14 @@ func (h *Handler) TestIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow")
-	body := strings.Replace(testIndexBody, "<<SITE_PICKER>>", h.testSitePickerHTML(r), 1)
+	body := testIndexBody
+	// On the admin route the page is under the admin's script policy, and its
+	// one script carries the response's nonce.  The public route has neither.
+	// Done before the site names go in, so only the page's own tag is marked.
+	if nonce := CSPNonceFromRequest(r); nonce != "" {
+		body = strings.Replace(body, "<script>", `<script nonce="`+nonce+`">`, 1)
+	}
+	body = strings.Replace(body, "<<SITE_PICKER>>", h.testSitePickerHTML(r), 1)
 	body = strings.Replace(body, "<<SITE_CFG>>", h.testSiteConfigJSON(), 1)
 	_, _ = w.Write([]byte(buildTestPage(prefix, body, "")))
 }
@@ -2289,11 +2300,9 @@ func (h *Handler) PreviewRateDeny(w http.ResponseWriter, r *http.Request) {
 	// Safe: the route is auth-gated and read-only (no state-changing actions),
 	// and SAMEORIGIN / frame-ancestors 'self' still blocks cross-origin framing.
 	w.Header().Set("X-Frame-Options", "SAMEORIGIN")
+	// No script directive either: the preview is the deny page as nginx
+	// serves it, not an admin template, and its own script carries no nonce.
 	w.Header().Set("Content-Security-Policy", "frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self'")
-	// The preview is the deny page as nginx serves it, not an admin
-	// template: the admin's report-only script policy (csp_nonce.go) would
-	// only report its own script, from inside the settings page's frame.
-	w.Header().Del("Content-Security-Policy-Report-Only")
 	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate")
 	w.Header().Set("X-Robots-Tag", "noindex, nofollow, noarchive")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
