@@ -2812,6 +2812,14 @@ var dict = map[Lang]map[string]string{
 		"login.remember":        "自動ログインする",
 		"login.forgot_password": "パスワードを忘れた場合",
 
+		// The page every admin route answers with (503) while the daemon runs
+		// without its database (handlers/db_wait.go).
+		"dbwait.title":       "データベースに接続できません",
+		"dbwait.body":        "起動時にデータベースへ接続できませんでした。challenge ページの配信は続いています。統計・新しい BAN・この管理画面は、データベースにつながるまで使えません。daemon が再試行を続け、つながり次第、自動で再起動します。",
+		"dbwait.hint":        "この表示が続くときは、daemon のログにエラーの内容が出ています。ホストで unmask doctor を実行すると接続を確認できます。",
+		"dbwait.reconfigure": "接続先のデータベースを変更する (setup)",
+		"dbwait.reload":      "このページは 10 秒ごとに再読み込みされます。",
+
 		"forgot.title":            "パスワード再設定",
 		"forgot.subtitle":         "登録した email または username を入力してください。",
 		"forgot.identifier_label": "メール / ユーザー名",
@@ -5743,6 +5751,12 @@ where <code>&lt;site-id&gt;</code> is any <code>[a-z0-9-]{1,32}</code>. Omit to 
 		"login.submit":          "Sign in",
 		"login.remember":        "Keep me signed in",
 		"login.forgot_password": "Forgot your password?",
+
+		"dbwait.title":       "Database unavailable",
+		"dbwait.body":        "unmask could not reach its database when it started. Challenge pages are still served; statistics, new bans and this admin UI wait for the database. The daemon keeps retrying and restarts itself as soon as the database answers.",
+		"dbwait.hint":        "If this does not clear, the daemon's log names the error, and unmask doctor on the host checks the connection.",
+		"dbwait.reconfigure": "Change the database connection (setup)",
+		"dbwait.reload":      "This page reloads every 10 seconds.",
 
 		"forgot.title":            "Reset password",
 		"forgot.subtitle":         "Enter your registered email address or username.",

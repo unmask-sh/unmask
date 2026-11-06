@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="{{ .Lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+{{- /* The daemon restarts itself when the database answers (cmd/unmask
+       db_wait.go); a page that was read is then the page that was asked for.
+       Only where asking again is the same request. */ -}}
+{{ if .Reload }}
+<meta http-equiv="refresh" content="10">
+{{ end }}
+<title>unmask — {{ t .Lang "dbwait.title" }}</title>
+<link rel="icon" type="image/png" href="{{ .BasePath }}/static/icon.png">
+<style>
+* { box-sizing: border-box; }
+body {
+  margin: 0; min-height: 100vh; display: flex; justify-content: center; align-items: center;
+  background: #0f172a; color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.card {
+  background: #1e293b; border: 1px solid #334155; border-radius: .5rem;
+  padding: 2rem; width: 26rem; max-width: calc(100vw - 2rem); box-shadow: 0 .5rem 1.5rem rgba(0,0,0,.3);
+}
+h1 { margin: 0 0 .9rem; font-size: 1.2rem; }
+p { margin: 0 0 .8rem; font-size: .9rem; line-height: 1.6; color: #cbd5e1; }
+.note { margin: 0; font-size: .8rem; color: #94a3b8; }
+a { color: #60a5fa; text-decoration: none; }
+</style>
+</head>
+<body>
+<div class="card" role="alert">
+  <h1>{{ t .Lang "dbwait.title" }}</h1>
+  <p>{{ t .Lang "dbwait.body" }}</p>
+  <p>{{ t .Lang "dbwait.hint" }}</p>
+  {{ if .Reconfigure }}
+  <p><a href="{{ .BasePath }}/admin/setup/">{{ t .Lang "dbwait.reconfigure" }}</a></p>
+  {{ end }}
+  {{ if .Reload }}
+  <p class="note">{{ t .Lang "dbwait.reload" }}</p>
+  {{ end }}
+</div>
+</body>
+</html>

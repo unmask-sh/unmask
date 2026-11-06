@@ -50,6 +50,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/outbound"
 	"github.com/unmask-sh/unmask/admin/internal/privacypass"
 	"github.com/unmask-sh/unmask/admin/internal/ratelimit"
+	"github.com/unmask-sh/unmask/admin/internal/reexec"
 	"github.com/unmask-sh/unmask/admin/internal/relay"
 	"github.com/unmask-sh/unmask/admin/internal/renderwatch"
 	"github.com/unmask-sh/unmask/admin/internal/rulehits"
@@ -345,10 +346,15 @@ func cmdServe(args []string) error {
 	// system (= systemd journald / OpenRC syslog / docker container runtime)
 	// handles routing + retention.  No app-side file rotation; see
 	// https://12factor.net/logs.
-	// Serve still starts even when DB connection fails (incomplete db: section
-	// in config.yml, or DB server not running).  The setup wizard at
-	// /admin/setup/ accepts driver / connection info and hot-swaps it after
-	// completion.  When conn == nil, the setup gate redirects every other URL.
+	// Serve still starts even when DB connection fails, for one of two
+	// reasons that are told apart below.  An install nobody has set up yet
+	// (an incomplete db: section in config.yml, the wizard not finished):
+	// the setup wizard at /admin/setup/ accepts driver / connection info, and
+	// the setup gate redirects every other admin URL to it.  Or an install
+	// that IS set up and whose database is away -- a host that boots unmask
+	// before MariaDB: the challenge pages are served meanwhile, the admin
+	// routes say 503, and the daemon retries until it can start over with
+	// the database (db_wait.go).
 	// A large write-ahead log left behind (a stop that was killed mid
 	// checkpoint) is replayed on open, which takes minutes for every few GB
 	// -- say so before the silence, so the operator waiting on healthz
@@ -359,10 +365,18 @@ func cmdServe(args []string) error {
 		}
 	}
 	var conn *db.DB
+	// dbWaiting: the database of a set-up install could not be opened; the
+	// wait for it starts with the other workers, below.
+	dbWaiting := false
 	// What this start applied to the schema, for the audit log's entry.
 	var applied []db.AppliedMigration
 	if c, err := db.Open(s.DB); err != nil {
-		log.Printf("db: open failed (redirecting to setup wizard): %v", err)
+		if handlers.SetupCompleted(settings.ResolvePath(*configPath), s.DB) {
+			dbWaiting = true
+			log.Printf("db: open failed: %v -- this install is set up, so the daemon serves the challenge pages without the database and retries it until it answers; statistics, bans and the admin UI wait for it (GET %s/readyz says 503 meanwhile)", err, strings.TrimRight(s.Server.BasePath, "/"))
+		} else {
+			log.Printf("db: open failed (redirecting to setup wizard): %v", err)
+		}
 	} else {
 		conn = c
 		defer conn.Close()
@@ -419,6 +433,11 @@ func cmdServe(args []string) error {
 	if userRepo != nil {
 		if n, err := userRepo.Count(context.Background()); err == nil && n > 0 {
 			setupComplete = true
+			// A setup token beside an install with an admin is stale (a
+			// postinstall minted it on an upgrade).  Gone now, not at the
+			// first admin request: a later start that finds the database
+			// away reads the token's absence as "set up" (db_wait.go).
+			handlers.ClearStaleSetupToken()
 		}
 	}
 
@@ -548,6 +567,23 @@ func cmdServe(args []string) error {
 	// GC stale entries (no hits in the last hour) every minute.  Prevents memory bloat.
 	workers.Go("limiter-purge", func(ctx context.Context) { runLimiterPurge(ctx, limiter) })
 
+	// The wait for the database of a set-up install that this start could
+	// not open (db_wait.go): retried until it answers, then the daemon
+	// starts over in place.  The shutdown ends it like any other worker.
+	if dbWaiting {
+		wait := dbWait{
+			open: func(ctx context.Context) error { return probeDB(ctx, s.DB) },
+			restart: func() error {
+				log.Printf("db: re-exec %s", reexec.Executable())
+				return reexec.Self()
+			},
+			sleep: sleepCtx,
+			now:   time.Now,
+			logf:  log.Printf,
+		}
+		workers.Go("db-wait", wait.run)
+	}
+
 	// Raw events are written via the batch flusher (N rows per single tx).
 	// Started once at startup; settings save hot-reloads it; shutdown drains it.
 	if conn != nil {
@@ -577,6 +613,7 @@ func cmdServe(args []string) error {
 	}
 	h := &handlers.Handler{
 		DB:            conn,
+		DBWaiting:     dbWaiting,
 		ConfigPath:    settings.ResolvePath(*configPath),
 		Version:       Version,
 		HostID:        hostID,
@@ -1006,8 +1043,11 @@ func cmdServe(args []string) error {
 	// wizard can still come up (see the conn==nil gate above) -- so don't deref
 	// it here, or every DB-down install crashes instead of showing setup.
 	driver := "none (setup mode)"
-	if conn != nil {
+	switch {
+	case conn != nil:
 		driver = string(conn.Driver)
+	case dbWaiting:
+		driver = "none (waiting for the database)"
 	}
 	log.Printf("unmask %s listening on %s base=%s driver=%s",
 		Version, listenDesc, s.Server.BasePath, driver)

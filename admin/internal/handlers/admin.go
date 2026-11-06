@@ -590,6 +590,13 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 			adminForbidden(w)
 			return
 		}
+		// A daemon that waits for its database (db_wait.go) can check no
+		// session and draw no page.  Said here, past the allowlists, so an
+		// address they turn away learns nothing of it.
+		if h.dbWaiting() {
+			h.serveDBWaiting(w, r)
+			return
+		}
 		// Carry the resolved client address to the audit log.  Done here rather
 		// than at each of Record's ~30 call sites: this is the one place that
 		// already knows the real address behind the proxy, and a call site added

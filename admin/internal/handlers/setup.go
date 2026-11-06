@@ -16,6 +16,10 @@
 //   - h.DB == nil                (= initial start failed to connect)
 //   - unmask_user table missing  (= migration not run)
 //   - 0 users in the DB          (= no admin yet)
+//
+// except on an install that is set up and whose start found the database
+// away (Handler.DBWaiting, db_wait.go): that one is not in setup, and its
+// admin routes answer 503 until the daemon has the database again.
 package handlers
 
 import (
@@ -140,6 +144,12 @@ func removeSetupToken() {
 
 func (h *Handler) SetupNeeded(r *http.Request) (needed bool, step string) {
 	if h == nil {
+		return false, ""
+	}
+	// A set-up install waiting for its database (db_wait.go) is not in
+	// setup: its admin routes say so themselves, behind the allowlists the
+	// wizard is exempt from.
+	if h.dbWaiting() {
 		return false, ""
 	}
 	// Wizard phase = the setup token file is still present.  Step comes
@@ -317,6 +327,22 @@ func (h *Handler) SetupGate(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		base := h.cfg().Server.BasePath
 		isSetupPath := strings.HasPrefix(r.URL.Path, base+"/admin/setup")
+
+		// A set-up install waiting for its database (db_wait.go): nothing
+		// behind this gate can be drawn, and the wizard it used to send
+		// everyone to sealed itself long ago.  The one door left is the one
+		// that was open before as well -- a signed-in superadmin on the
+		// wizard, who may be here to point the daemon at where the database
+		// went (the session is the cookie's word alone: there is no account
+		// table to check it against).
+		if h.dbWaiting() {
+			if isSetupPath && h.setupSuperadmin(r) != nil {
+				next(w, r)
+				return
+			}
+			h.serveDBWaiting(w, r)
+			return
+		}
 
 		has, err := h.setupHasAdmin()
 		if err != nil && !has {

@@ -161,6 +161,13 @@ var challengeThemeBaseColors = map[string][2]string{
 
 type Handler struct {
 	DB *db.DB
+	// DBWaiting: the start could not open the database of an install that
+	// is set up, so DB is nil and stays nil: the daemon serves what needs no
+	// database, answers 503 on its admin routes, and retries until it can
+	// start over with one (db_wait.go).  Set before the first request and
+	// never changed.  False on a daemon with no database for the other
+	// reason -- an install not set up yet -- where the wizard is the answer.
+	DBWaiting bool
 	// settingsPtr holds the live settings snapshot.  Read it lock-free via
 	// cfg() — race-free because writers publish a fresh *settings.Settings with
 	// Store while readers Load a stable pointer (no torn struct).  Writers
