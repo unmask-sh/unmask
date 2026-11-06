@@ -17,6 +17,13 @@ func RebindAllow(ctx context.Context, conn *DB, lineage, host string, maxLifetim
 	if lineage == "" {
 		return false, nil
 	}
+	// A daemon that runs without its database has no slot to consume: the
+	// rebind is refused, and the visitor meets the challenge they would have
+	// met without it.  (A fault, not a decision: the caller records no
+	// reject for it.)
+	if conn == nil {
+		return false, ErrNoDatabase
+	}
 	// A schema update holds the write lock, and consuming a rebind is a
 	// write.  Refuse now rather than after the busy timeout: the visitor is
 	// waiting on this request, and what a refused rebind costs them is the

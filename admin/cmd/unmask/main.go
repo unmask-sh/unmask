@@ -519,25 +519,12 @@ func cmdServe(args []string) error {
 	notifierInst := notifier.New(handlers.NotifierConfigFrom(s.Notifications, hostID))
 	// SMTP mailer (optional).  Empty Host -> no-op.  Used by alert mail / password reset.
 	mailerInst := mail.New(handlers.MailConfigFrom(s.SMTP, hostID))
-	// Wire mail notifications into the notifier.  The recipient resolver is a
-	// thin closure that calls UserRepo.AlertRecipients.  On failure, return
-	// an empty list to skip mail sending.
+	// Wire mail notifications into the notifier.  The recipient resolver
+	// (alertRecipients) asks UserRepo.AlertRecipients; a failure, or a
+	// daemon without its database, is an empty list and no mail.
 	// Each recipient gets the over-block alert in the language it last saw
 	// the admin in.
-	notifierInst.WithMail(mailerInst, func() []notifier.Recipient {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		xs, err := userRepo.AlertRecipients(ctx)
-		if err != nil {
-			log.Printf("alert recipients lookup: %v", err)
-			return nil
-		}
-		out := make([]notifier.Recipient, 0, len(xs))
-		for _, x := range xs {
-			out = append(out, notifier.Recipient{Email: x.Email, Lang: x.Lang})
-		}
-		return out
-	}, func(email string) string {
+	notifierInst.WithMail(mailerInst, alertRecipients(userRepo), func(email string) string {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		return userRepo.UILangByEmail(ctx, email)
@@ -1038,6 +1025,36 @@ func cmdServe(args []string) error {
 		log.Printf("shutdown: did not finish in 100s; exiting")
 	}
 	return nil
+}
+
+// alertRecipients resolves who alert mail goes to: the admin accounts with
+// an address, each in the language it last saw the admin in.  A failed
+// lookup sends no mail (the webhook and the notification list still get the
+// alert).
+//
+// A daemon without its database has no repository and so no accounts to
+// ask; the alert then goes to notifications.mail_to, if set.  The notifier
+// calls this in the mail's own goroutine, where the nil repository was
+// dereferenced: an alert raised while the database was away -- the nginx
+// module's fail-safe is watched without one -- ended the daemon.
+func alertRecipients(repo *user.Repository) func() []notifier.Recipient {
+	return func() []notifier.Recipient {
+		if repo == nil {
+			return nil
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		xs, err := repo.AlertRecipients(ctx)
+		if err != nil {
+			log.Printf("alert recipients lookup: %v", err)
+			return nil
+		}
+		out := make([]notifier.Recipient, 0, len(xs))
+		for _, x := range xs {
+			out = append(out, notifier.Recipient{Email: x.Email, Lang: x.Lang})
+		}
+		return out
+	}
 }
 
 // openListener listens on a unix domain socket when bind is "unix:/path",

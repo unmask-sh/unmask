@@ -2,6 +2,7 @@ package db
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -87,5 +88,16 @@ func TestRebindAllowEmptyLineage(t *testing.T) {
 	conn := rebindTestConn(t)
 	if ok, err := RebindAllow(context.Background(), conn, "", "example.com", 16, 4, 1); ok || err != nil {
 		t.Fatalf("empty lineage must be refused without error (ok=%v err=%v)", ok, err)
+	}
+}
+
+// A daemon that runs without its database (the start could not open it)
+// still serves the challenge route, where a roaming client's rebind is
+// decided: the rebind is refused with ErrNoDatabase, where the nil handle
+// used to be dereferenced.
+func TestRebindAllowWithoutDatabase(t *testing.T) {
+	ok, err := RebindAllow(context.Background(), nil, "lin-nodb", "example.com", 3, 100, 1_700_000_000)
+	if ok || !errors.Is(err, ErrNoDatabase) {
+		t.Fatalf("RebindAllow on no database = (%v, %v), want (false, ErrNoDatabase)", ok, err)
 	}
 }

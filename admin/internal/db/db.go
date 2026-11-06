@@ -742,6 +742,13 @@ const unguardedKey = "unmask:unguarded"
 // waiting for the lock.
 var ErrWritesHeld = errors.New("the database's writes are held (a schema update or a compaction holds the write lock); try again when it has finished")
 
+// ErrNoDatabase is what a write on the visitor's path returns on a daemon
+// that runs without its database: the start could not open it and the
+// daemon waits for it (cmd/unmask db_wait.go), or the install has not been
+// set up yet.  The challenge is served either way; what would have been
+// recorded is not.
+var ErrNoDatabase = errors.New("no database")
+
 // EventJA4IndexHint pins the fingerprint index for a read keyed on ja4 and a
 // phase over a date window (who completed the challenge with this
 // fingerprint).  Without it SQLite has no statistics to prefer it over the

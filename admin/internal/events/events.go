@@ -693,6 +693,13 @@ func truncatedPayload(p map[string]any) string {
 
 // Insert writes one row into unmask_event.  Best-effort: failures only log.
 func Insert(ctx context.Context, d *db.DB, e *Event) error {
+	if d == nil {
+		// A daemon without its database: the event goes unrecorded, as
+		// InsertAsync lets it go, and before the notice.  The beacon of a
+		// challenge page served meanwhile used to end here in a nil
+		// dereference -- one stack trace in the log per page.
+		return db.ErrNoDatabase
+	}
 	if e != nil && OnInsert != nil {
 		OnInsert(e)
 	}
