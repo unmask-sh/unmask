@@ -32,12 +32,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/reexec"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 )
@@ -1244,20 +1244,18 @@ var scheduleReexecFn = scheduleReexec
 var reexecOnce sync.Once
 
 // scheduleReexec re-launches the daemon in place a few seconds after a DB switch,
-// once the setup-done response has flushed.  syscall.Exec keeps the PID, so the
-// sysv pidfile / systemd MainPID stay valid.  This rebinds the background workers
-// (hourly aggregate / prune / event flusher) that were left on the closed boot DB
-// handle.  On failure it is a no-op (the done page still names a manual restart).
+// once the setup-done response has flushed.  The re-launch itself is
+// reexec.Self, which a daemon that waited for its database ends in too
+// (cmd/unmask db_wait.go): it keeps the PID, so the sysv pidfile / systemd
+// MainPID stay valid.  This rebinds the background workers (hourly aggregate /
+// prune / event flusher) that were left on the closed boot DB handle.  On
+// failure it is a no-op (the done page still names a manual restart).
 func scheduleReexec() {
 	reexecOnce.Do(func() {
 		go func() {
 			time.Sleep(3 * time.Second) // let the redirect + done page flush first
-			exe, err := os.Executable()
-			if err != nil {
-				exe = os.Args[0]
-			}
-			log.Printf("setup: re-exec %s to rebind background workers to the new DB", exe)
-			if err := syscall.Exec(exe, os.Args, os.Environ()); err != nil {
+			log.Printf("setup: re-exec %s to rebind background workers to the new DB", reexec.Executable())
+			if err := reexec.Self(); err != nil {
 				log.Printf("setup: re-exec failed (%v); restart the daemon manually", err)
 			}
 		}()
