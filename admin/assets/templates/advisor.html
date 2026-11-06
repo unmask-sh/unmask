@@ -213,7 +213,7 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
   <div class="bcd-card">
     <form method="get" action="{{.BasePath}}/admin/advisor/" class="windowbar">
       <label for="adv-window">{{ t .Lang "advisor.window" }}</label>
-      <select id="adv-window" name="window" onchange="this.form.submit()">
+      <select id="adv-window" name="window" data-autosubmit>
         {{ $w := .WindowH }}
         <option value="6"  {{ if eq $w 6 }}selected{{ end }}>6h</option>
         <option value="24" {{ if eq $w 24 }}selected{{ end }}>24h</option>
@@ -223,14 +223,20 @@ img.flag{width:.875rem;height:.66rem;vertical-align:-.05em;margin-right:.25em;bo
       {{/* Default: the rows worth attention (score >= AttentionScore) plus the
            model's nominations; "all" lifts the floor. */}}
       <label for="adv-min">{{ t .Lang "advisor.filter" }}</label>
-      <select id="adv-min" name="min" onchange="this.form.submit()">
+      <select id="adv-min" name="min" data-autosubmit>
         <option value=""   {{ if not .ShowAll }}selected{{ end }}>{{ tf .Lang "advisor.filter_attention" .AttentionScore }}</option>
         <option value="all"{{ if .ShowAll }} selected{{ end }}>{{ t .Lang "advisor.filter_all" }}</option>
       </select>
-      <label class="chk"><input type="checkbox" name="show_dismissed" value="1"{{ if .ShowDismissed }} checked{{ end }} onchange="this.form.submit()"> {{ t .Lang "advisor.show_dismissed" }}</label>
+      <label class="chk"><input type="checkbox" name="show_dismissed" value="1"{{ if .ShowDismissed }} checked{{ end }} data-autosubmit> {{ t .Lang "advisor.show_dismissed" }}</label>
       {{/* the list is served from memory and refreshed behind the page */}}
       {{ if .CandStale }}<span class="kv cand-age">{{ tf .Lang "advisor.list_age" .CandAge }}</span>{{ end }}
     </form>
+    {{/* The bar's filters apply as they are changed. */}}
+    <script{{ nonceAttr . }}>
+    document.querySelectorAll('.windowbar [data-autosubmit]').forEach(function(el){
+      el.addEventListener('change', function(){ el.form.submit(); });
+    });
+    </script>
 
     {{ if .AIActive }}
     {{/* The click starts a background run (ai-run) and the page stays: the

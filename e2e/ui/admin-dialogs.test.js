@@ -94,7 +94,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const posts = [];
     page.on('request', r => { if (r.method() === 'POST' && /\/admin\/users\/save/.test(r.url())) posts.push(r.url()); });
     await page.goto(new URL(edit[0], BASE + '/').href, { waitUntil: 'networkidle2' });
-    const form = 'form[onsubmit*="confirmSave"]';
+    const form = '#user-edit-form';
     ok(!!(await page.$(form + ' input[name="password"]')), 'the edit form has its password field');
     await page.type(form + ' input[name="password"]', 'a-new-password-1234');
     await page.$eval(form, f => f.requestSubmit());

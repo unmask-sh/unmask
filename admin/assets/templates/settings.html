@@ -972,9 +972,19 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <div class="bcd-card listen-card">
     <h2>{{ t .Lang "settings.network.listen" }}<span class="info-tip" tabindex="0" aria-label="help">?<span class="info-popup">{{ safeHTML (t .Lang "settings.network.listen_desc") }}</span></span></h2>
     <div class="listen-mode-row">
-      <label class="listen-radio"><input type="radio" name="listen_mode" value="tcp" {{ if eq .ListenMode "tcp" }}checked{{ end }} onchange="document.querySelectorAll('.listen-tcp,.listen-socket').forEach(function(e){e.classList.toggle('hidden', e.classList.contains('listen-socket') ? this.value!=='socket' : this.value!=='tcp')}.bind(this))"> <span>{{ t .Lang "settings.network.listen_tcp" }}</span></label>
-      <label class="listen-radio"><input type="radio" name="listen_mode" value="socket" {{ if eq .ListenMode "socket" }}checked{{ end }} onchange="document.querySelectorAll('.listen-tcp,.listen-socket').forEach(function(e){e.classList.toggle('hidden', e.classList.contains('listen-socket') ? this.value!=='socket' : this.value!=='tcp')}.bind(this))"> <span>{{ t .Lang "settings.network.listen_socket" }}</span></label>
+      <label class="listen-radio"><input type="radio" name="listen_mode" value="tcp" {{ if eq .ListenMode "tcp" }}checked{{ end }}> <span>{{ t .Lang "settings.network.listen_tcp" }}</span></label>
+      <label class="listen-radio"><input type="radio" name="listen_mode" value="socket" {{ if eq .ListenMode "socket" }}checked{{ end }}> <span>{{ t .Lang "settings.network.listen_socket" }}</span></label>
     </div>
+    {{/* Only the chosen mode's fields show. */}}
+    <script{{ nonceAttr . }}>
+    document.querySelectorAll('input[name="listen_mode"]').forEach(function(r){
+      r.addEventListener('change', function(){
+        document.querySelectorAll('.listen-tcp,.listen-socket').forEach(function(e){
+          e.classList.toggle('hidden', e.classList.contains('listen-socket') ? r.value !== 'socket' : r.value !== 'tcp');
+        });
+      });
+    });
+    </script>
 
     <div class="listen-tcp{{ if ne .ListenMode "tcp" }} hidden{{ end }}">
       <div class="field listen-pair">
@@ -1583,11 +1593,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         {{ range .WebBotAuthCustom }}
         <div class="op-row" style="display:flex;gap:.4rem;margin:.2rem 0">
           <input type="text" name="operator" value="{{ . }}" placeholder="operator.example" style="flex:1;font-family:ui-monospace,SFMono-Regular,monospace;font-size:.85rem">
-          <button type="button" class="del-btn" onclick="this.parentElement.remove()" style="background:transparent;border:1px solid #cbd5e1;border-radius:.2rem;padding:.1rem .5rem;cursor:pointer;color:#991b1b">✖</button>
+          <button type="button" class="del-btn" style="background:transparent;border:1px solid #cbd5e1;border-radius:.2rem;padding:.1rem .5rem;cursor:pointer;color:#991b1b">✖</button>
         </div>
         {{ end }}
       </div>
-      <button type="button" onclick="wbaAddOperator()" style="margin:.3rem 0 1rem;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:.3rem;padding:.35rem .8rem;cursor:pointer;font-size:.85rem;color:#475569">+ {{ t .Lang "settings.web_bot_auth.add_operator" }}</button>
+      <button type="button" id="wba-op-add" style="margin:.3rem 0 1rem;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:.3rem;padding:.35rem .8rem;cursor:pointer;font-size:.85rem;color:#475569">+ {{ t .Lang "settings.web_bot_auth.add_operator" }}</button>
       <script{{ nonceAttr . }}>
       function wbaAddOperator(){
         var c=document.getElementById('wba-op-rows');
@@ -1599,6 +1609,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         b.onclick=function(){ d.remove(); };
         d.appendChild(i); d.appendChild(b); c.appendChild(d); i.focus();
       }
+      document.getElementById('wba-op-add').addEventListener('click', function(){ wbaAddOperator(); });
+      document.querySelectorAll('#wba-op-rows .del-btn').forEach(function(b){
+        b.addEventListener('click', function(){ b.parentElement.remove(); });
+      });
       </script>
     </div>
 
@@ -1649,11 +1663,11 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div class="pp-issuer-row" style="display:flex;gap:.4rem;margin:.3rem 0;align-items:flex-start">
           <input type="text" name="pp_issuer_name" value="{{ .Name }}" placeholder="issuer host" style="flex:0 0 14rem;font-family:ui-monospace,SFMono-Regular,monospace;font-size:.85rem">
           <textarea name="pp_issuer_key" rows="2" placeholder="base64 token-key (DER SPKI)" style="flex:1;font-family:ui-monospace,SFMono-Regular,monospace;font-size:.75rem">{{ .Key }}</textarea>
-          <button type="button" class="del-btn" onclick="this.parentElement.remove()" style="background:transparent;border:1px solid #cbd5e1;border-radius:.2rem;padding:.1rem .5rem;cursor:pointer;color:#991b1b">✖</button>
+          <button type="button" class="del-btn" style="background:transparent;border:1px solid #cbd5e1;border-radius:.2rem;padding:.1rem .5rem;cursor:pointer;color:#991b1b">✖</button>
         </div>
         {{ end }}
       </div>
-      <button type="button" onclick="ppAddIssuer()" style="margin:.3rem 0 1rem;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:.3rem;padding:.35rem .8rem;cursor:pointer;font-size:.85rem;color:#475569">+ {{ t .Lang "settings.privacy_pass.add_issuer" }}</button>
+      <button type="button" id="pp-issuer-add" style="margin:.3rem 0 1rem;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:.3rem;padding:.35rem .8rem;cursor:pointer;font-size:.85rem;color:#475569">+ {{ t .Lang "settings.privacy_pass.add_issuer" }}</button>
       <script{{ nonceAttr . }}>
       function ppAddIssuer(){
         var c=document.getElementById('pp-issuer-rows');
@@ -1667,6 +1681,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         b.onclick=function(){ d.remove(); };
         d.appendChild(n); d.appendChild(k); d.appendChild(b); c.appendChild(d); n.focus();
       }
+      document.getElementById('pp-issuer-add').addEventListener('click', function(){ ppAddIssuer(); });
+      document.querySelectorAll('#pp-issuer-rows .del-btn').forEach(function(b){
+        b.addEventListener('click', function(){ b.parentElement.remove(); });
+      });
       </script>
     </div>
 
@@ -2508,12 +2526,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div class="note" style="margin-bottom:.5rem;line-height:1.55;max-width:26rem">{{ safeHTML (t .Lang "settings.ua.stale_current_help") }}</div>
         {{ $cman := gt .Global.CurrentChromeMajor 0 }}
         <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
-          <input type="radio" name="stale_chrome_src" value="auto" {{ if not $cman }}checked{{ end }} onchange="document.getElementById('stale-chrome-manual').disabled=true">
+          <input type="radio" name="stale_chrome_src" value="auto" {{ if not $cman }}checked{{ end }} data-manual-off="stale-chrome-manual">
           <span>{{ t .Lang "settings.ua.stale_src_auto" }} <strong>{{ .StaleAutoChrome }}</strong>
             <span style="color:#64748b;font-size:.8rem">({{ if eq .StaleAutoChromeSrc "hub" }}{{ t .Lang "settings.ua.stale_src_hub" }} · {{ .StaleHubFetchedAt }}{{ else }}{{ t .Lang "settings.ua.stale_src_builtin" }}{{ end }})</span></span>
         </label>
         <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
-          <input type="radio" name="stale_chrome_src" value="manual" {{ if $cman }}checked{{ end }} onchange="var i=document.getElementById('stale-chrome-manual');i.disabled=false;i.focus()">
+          <input type="radio" name="stale_chrome_src" value="manual" {{ if $cman }}checked{{ end }} data-manual-on="stale-chrome-manual">
           <span>{{ t .Lang "settings.ua.stale_src_manual" }}</span>
           <input type="number" id="stale-chrome-manual" name="current_chrome_major" min="1" max="999" value="{{ if $cman }}{{ .Global.CurrentChromeMajor }}{{ end }}" {{ if not $cman }}disabled{{ end }} style="padding:.25rem .45rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:6rem">
         </label>
@@ -2523,12 +2541,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <div class="note" style="margin-bottom:.5rem;line-height:1.55;max-width:26rem">{{ safeHTML (t .Lang "settings.ua.stale_current_ff_help") }}</div>
         {{ $fman := gt .Global.CurrentFirefoxMajor 0 }}
         <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
-          <input type="radio" name="stale_firefox_src" value="auto" {{ if not $fman }}checked{{ end }} onchange="document.getElementById('stale-firefox-manual').disabled=true">
+          <input type="radio" name="stale_firefox_src" value="auto" {{ if not $fman }}checked{{ end }} data-manual-off="stale-firefox-manual">
           <span>{{ t .Lang "settings.ua.stale_src_auto" }} <strong>{{ .StaleAutoFF }}</strong>
             <span style="color:#64748b;font-size:.8rem">({{ if eq .StaleAutoFFSrc "hub" }}{{ t .Lang "settings.ua.stale_src_hub" }} · {{ .StaleHubFetchedAt }}{{ else }}{{ t .Lang "settings.ua.stale_src_builtin" }}{{ end }})</span></span>
         </label>
         <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
-          <input type="radio" name="stale_firefox_src" value="manual" {{ if $fman }}checked{{ end }} onchange="var i=document.getElementById('stale-firefox-manual');i.disabled=false;i.focus()">
+          <input type="radio" name="stale_firefox_src" value="manual" {{ if $fman }}checked{{ end }} data-manual-on="stale-firefox-manual">
           <span>{{ t .Lang "settings.ua.stale_src_manual" }}</span>
           <input type="number" id="stale-firefox-manual" name="current_firefox_major" min="1" max="999" value="{{ if $fman }}{{ .Global.CurrentFirefoxMajor }}{{ end }}" {{ if not $fman }}disabled{{ end }} style="padding:.25rem .45rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:6rem">
         </label>
@@ -2546,12 +2564,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           {{ $clman := gt .Global.StaleBrowserLag 0 }}
           <div style="font-size:.9rem;font-weight:600;margin:.2rem 0">Chrome</div>
           <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
-            <input type="radio" name="stale_chrome_lag_src" value="auto" {{ if not $clman }}checked{{ end }} onchange="document.getElementById('stale-chrome-lag-manual').disabled=true">
+            <input type="radio" name="stale_chrome_lag_src" value="auto" {{ if not $clman }}checked{{ end }} data-manual-off="stale-chrome-lag-manual">
             <span>{{ t .Lang "settings.ua.stale_src_auto" }} <strong>{{ .StaleBrowserLagDefault }}</strong>
               <span style="color:#64748b;font-size:.8rem">({{ t .Lang "settings.ua.stale_src_builtin" }})</span></span>
           </label>
           <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
-            <input type="radio" name="stale_chrome_lag_src" value="manual" {{ if $clman }}checked{{ end }} onchange="var i=document.getElementById('stale-chrome-lag-manual');i.disabled=false;i.focus()">
+            <input type="radio" name="stale_chrome_lag_src" value="manual" {{ if $clman }}checked{{ end }} data-manual-on="stale-chrome-lag-manual">
             <span>{{ t .Lang "settings.ua.stale_src_manual" }}</span>
             <input type="number" id="stale-chrome-lag-manual" name="stale_browser_lag" min="1" max="99" value="{{ if $clman }}{{ .Global.StaleBrowserLag }}{{ end }}" {{ if not $clman }}disabled{{ end }} style="padding:.25rem .45rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:6rem">
           </label>
@@ -2560,12 +2578,12 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           {{ $flman := gt .Global.StaleBrowserLagFirefox 0 }}
           <div style="font-size:.9rem;font-weight:600;margin:.2rem 0">Firefox</div>
           <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
-            <input type="radio" name="stale_firefox_lag_src" value="auto" {{ if not $flman }}checked{{ end }} onchange="document.getElementById('stale-firefox-lag-manual').disabled=true">
+            <input type="radio" name="stale_firefox_lag_src" value="auto" {{ if not $flman }}checked{{ end }} data-manual-off="stale-firefox-lag-manual">
             <span>{{ t .Lang "settings.ua.stale_src_auto" }} <strong>{{ .StaleBrowserLagDefaultFF }}</strong>
               <span style="color:#64748b;font-size:.8rem">({{ t .Lang "settings.ua.stale_src_builtin" }})</span></span>
           </label>
           <label style="display:flex;align-items:center;gap:.4rem;margin:.15rem 0;font-size:.9rem">
-            <input type="radio" name="stale_firefox_lag_src" value="manual" {{ if $flman }}checked{{ end }} onchange="var i=document.getElementById('stale-firefox-lag-manual');i.disabled=false;i.focus()">
+            <input type="radio" name="stale_firefox_lag_src" value="manual" {{ if $flman }}checked{{ end }} data-manual-on="stale-firefox-lag-manual">
             <span>{{ t .Lang "settings.ua.stale_src_manual" }}</span>
             <input type="number" id="stale-firefox-lag-manual" name="stale_browser_lag_firefox" min="1" max="99" value="{{ if $flman }}{{ .Global.StaleBrowserLagFirefox }}{{ end }}" {{ if not $flman }}disabled{{ end }} style="padding:.25rem .45rem;font-size:.85rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;width:6rem">
           </label>
@@ -2597,6 +2615,18 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 <script{{ nonceAttr . }}>
 // (ua-filter help popover JS lives in the global block at the end of body
 // so it works in every settings tab.)
+
+// The stale-browser card's auto / manual radios: "manual" opens its number
+// box, "auto" closes it.
+document.querySelectorAll('#ua-stale input[data-manual-off]').forEach(function(r){
+  r.addEventListener('change', function(){ document.getElementById(r.getAttribute('data-manual-off')).disabled = true; });
+});
+document.querySelectorAll('#ua-stale input[data-manual-on]').forEach(function(r){
+  r.addEventListener('change', function(){
+    var i = document.getElementById(r.getAttribute('data-manual-on'));
+    i.disabled = false; i.focus();
+  });
+});
 
 (function(){
   // Each crawler follows its group's mode unless the operator set it on its
@@ -3521,8 +3551,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
     <script{{ nonceAttr . }} type="text/html" id="scope-help-challenge">{{ safeHTML (t .Lang "settings.scope.help") }}</script>
   </div>
   <label for="scope-select-challenge" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
-  <select id="scope-select-challenge" class="scope-picker-select"
-          onchange="(function(sel){var v=sel.value;if(v==='__add__'){unmaskDialog.prompt({title:{{ t .Lang "settings.scope.add_title" }},message:{{ t .Lang "settings.scope.add_prompt" }},placeholder:'shop.example.com',ok:{{ t .Lang "settings.scope.add_ok" }}}).then(function(h){h=h?h.trim():'';if(!h){sel.value='{{ .Scope }}';return;}location.href='{{ .BasePath }}/admin/settings/challenge/?scope='+encodeURIComponent(h);});return;}location.href=v?'{{ .BasePath }}/admin/settings/challenge/?scope='+encodeURIComponent(v):'{{ .BasePath }}/admin/settings/challenge/';})(this)">
+  <select id="scope-select-challenge" class="scope-picker-select">
     <option value="" {{ if not .Scope }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
     {{ range $h := .ScopeHosts }}
     <option value="{{ $h }}" {{ if eq $.Scope $h }}selected{{ end }}>{{ $h }} {{ if index $.ChallengeOverrideHosts $h }}{{ t $.Lang "settings.scope.option_override" }}{{ else if index $.BrandingRecordHosts $h }}{{ t $.Lang "settings.scope.option_inherit_other_theme" }}{{ else }}{{ t $.Lang "settings.scope.option_inherit" }}{{ end }}</option>
@@ -3535,6 +3564,20 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
   <span class="scope-picker-banner scope-default">{{ t .Lang "settings.scope.banner_default" }}</span>
   {{ end }}
 </div>
+<script{{ nonceAttr . }}>
+document.getElementById('scope-select-challenge').addEventListener('change', function(){
+  var sel = this, v = sel.value;
+  if (v === '__add__') {
+    unmaskDialog.prompt({title: {{ t .Lang "settings.scope.add_title" }}, message: {{ t .Lang "settings.scope.add_prompt" }}, placeholder: 'shop.example.com', ok: {{ t .Lang "settings.scope.add_ok" }}}).then(function(h){
+      h = h ? h.trim() : '';
+      if (!h) { sel.value = '{{ .Scope }}'; return; }
+      location.href = '{{ .BasePath }}/admin/settings/challenge/?scope=' + encodeURIComponent(h);
+    });
+    return;
+  }
+  location.href = v ? '{{ .BasePath }}/admin/settings/challenge/?scope=' + encodeURIComponent(v) : '{{ .BasePath }}/admin/settings/challenge/';
+});
+</script>
 
 <form method="post" class="scope-aware-form"
       action="{{ if $scopeDefault }}{{ .BasePath }}/admin/settings/save?section=challenge{{ else }}{{ .BasePath }}/admin/settings/challenge/site/save?site={{ .Scope }}{{ end }}">
@@ -3546,8 +3589,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
        visual state matches what the save will persist. */}}
   <label class="override-toggle-row">
     <input type="checkbox" name="use_site_override" value="1" class="override-toggle"
-           {{ if .ChallengeHasOverride }}checked{{ end }}
-           onchange="(function(cb){var form=cb.closest('form');form.querySelectorAll('input,select,textarea,button').forEach(function(el){if(el===cb||el.type==='submit')return;el.disabled=!cb.checked;});form.classList.toggle('override-off',!cb.checked);})(this)">
+           {{ if .ChallengeHasOverride }}checked{{ end }}>
     <span>{{ t .Lang "settings.scope.override_label" }}</span>
     <span class="override-hint">{{ t .Lang "settings.scope.override_hint" }}</span>
   </label>
@@ -3566,6 +3608,16 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
        the override map, which keeps the markers correct as fields come and go. */}}
   <script{{ nonceAttr . }} type="application/json" class="field-overrides">{{ toJSON .ChallengeFieldOverrides }}</script>
   <script{{ nonceAttr . }}>
+  (function(){
+    var form = document.currentScript.closest('form'), cb = form.querySelector('input.override-toggle');
+    cb.addEventListener('change', function(){
+      form.querySelectorAll('input,select,textarea,button').forEach(function(el){
+        if (el === cb || el.type === 'submit') return;
+        el.disabled = !cb.checked;
+      });
+      form.classList.toggle('override-off', !cb.checked);
+    });
+  })();
   (function(){
     var el = document.currentScript, form = el.closest('form');
     var holder = form.querySelector('script.field-overrides');
@@ -4213,7 +4265,7 @@ function secToHuman(s){
         </tr>
         <tr class="zone-warn-row"><td colspan="9"><div class="z-warn">{{ safeHTML (t .Lang "settings.rate_limit.zone_deny_overlap_warn") }}</div></td></tr>
     </template>
-    <button type="button" onclick="rlAddZone()" style="margin-top:.6rem;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:.3rem;padding:.4rem .8rem;cursor:pointer;font-size:.85rem;color:#475569">+ {{ t .Lang "settings.rate_limit.add_zone" }}</button>
+    <button type="button" id="rl-zone-add" style="margin-top:.6rem;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:.3rem;padding:.4rem .8rem;cursor:pointer;font-size:.85rem;color:#475569">+ {{ t .Lang "settings.rate_limit.add_zone" }}</button>
   </div>
 
   <button type="submit" class="btn">{{ t .Lang "settings.save" }}</button>
@@ -4306,6 +4358,7 @@ function secToHuman(s){
     var name = tr.querySelector('[name$="_name"]');
     if (name) name.focus();
   };
+  document.getElementById('rl-zone-add').addEventListener('click', function(){ window.rlAddZone(); });
   window.rlRemoveZone = function(btn){
     var tr = btn.closest('tr');
     if (tr) {
@@ -5162,8 +5215,7 @@ function secToHuman(s){
     <script{{ nonceAttr . }} type="text/html" id="scope-help-theme">{{ safeHTML (t .Lang "settings.scope.help") }}</script>
   </div>
   <label for="scope-select-theme" class="scope-picker-label">{{ t .Lang "settings.scope.label" }}</label>
-  <select id="scope-select-theme" class="scope-picker-select"
-          onchange="(function(sel){var v=sel.value;if(v==='__add__'){unmaskDialog.prompt({title:{{ t .Lang "settings.scope.add_title" }},message:{{ t .Lang "settings.scope.add_prompt" }},placeholder:'shop.example.com',ok:{{ t .Lang "settings.scope.add_ok" }}}).then(function(h){h=h?h.trim():'';if(!h){sel.value='{{ .Scope }}';return;}location.href='{{ .BasePath }}/admin/settings/theme/?scope='+encodeURIComponent(h);});return;}location.href=v?'{{ .BasePath }}/admin/settings/theme/?scope='+encodeURIComponent(v):'{{ .BasePath }}/admin/settings/theme/';})(this)">
+  <select id="scope-select-theme" class="scope-picker-select">
     <option value="" {{ if not .Scope }}selected{{ end }}>{{ t .Lang "settings.scope.default" }}</option>
     {{ range $h := .ScopeHosts }}
     <option value="{{ $h }}" {{ if eq $.Scope $h }}selected{{ end }}>{{ $h }} {{ if index $.BrandingOverrideHosts $h }}{{ t $.Lang "settings.scope.option_override" }}{{ else if index $.ChallengeRecordHosts $h }}{{ t $.Lang "settings.scope.option_inherit_other_challenge" }}{{ else }}{{ t $.Lang "settings.scope.option_inherit" }}{{ end }}</option>
@@ -5176,6 +5228,20 @@ function secToHuman(s){
   <span class="scope-picker-banner scope-default">{{ t .Lang "settings.scope.banner_default" }}</span>
   {{ end }}
 </div>
+<script{{ nonceAttr . }}>
+document.getElementById('scope-select-theme').addEventListener('change', function(){
+  var sel = this, v = sel.value;
+  if (v === '__add__') {
+    unmaskDialog.prompt({title: {{ t .Lang "settings.scope.add_title" }}, message: {{ t .Lang "settings.scope.add_prompt" }}, placeholder: 'shop.example.com', ok: {{ t .Lang "settings.scope.add_ok" }}}).then(function(h){
+      h = h ? h.trim() : '';
+      if (!h) { sel.value = '{{ .Scope }}'; return; }
+      location.href = '{{ .BasePath }}/admin/settings/theme/?scope=' + encodeURIComponent(h);
+    });
+    return;
+  }
+  location.href = v ? '{{ .BasePath }}/admin/settings/theme/?scope=' + encodeURIComponent(v) : '{{ .BasePath }}/admin/settings/theme/';
+});
+</script>
 
 {{/* "Appearance" form: one form, one save button.  Holds three sub-cards:
      branding identity (logo / site name / footer) + copy template (preset
@@ -5195,8 +5261,7 @@ function secToHuman(s){
        drop the Sites entry; checked save = persist the full record. */}}
   <label class="override-toggle-row">
     <input type="checkbox" name="use_site_override" value="1" class="override-toggle"
-           {{ if .BrandingHasOverride }}checked{{ end }}
-           onchange="(function(cb){var form=cb.closest('form');form.querySelectorAll('input,select,textarea,button').forEach(function(el){if(el===cb||el.type==='submit')return;el.disabled=!cb.checked;});form.classList.toggle('override-off',!cb.checked);})(this)">
+           {{ if .BrandingHasOverride }}checked{{ end }}>
     <span>{{ t .Lang "settings.scope.override_label" }}</span>
     <span class="override-hint">{{ t .Lang "settings.scope.override_hint" }}</span>
   </label>
@@ -5215,6 +5280,16 @@ function secToHuman(s){
        the override map, which keeps the markers correct as fields come and go. */}}
   <script{{ nonceAttr . }} type="application/json" class="field-overrides">{{ toJSON .BrandingFieldOverrides }}</script>
   <script{{ nonceAttr . }}>
+  (function(){
+    var form = document.currentScript.closest('form'), cb = form.querySelector('input.override-toggle');
+    cb.addEventListener('change', function(){
+      form.querySelectorAll('input,select,textarea,button').forEach(function(el){
+        if (el === cb || el.type === 'submit') return;
+        el.disabled = !cb.checked;
+      });
+      form.classList.toggle('override-off', !cb.checked);
+    });
+  })();
   (function(){
     var el = document.currentScript, form = el.closest('form');
     var holder = form.querySelector('script.field-overrides');
@@ -5500,7 +5575,7 @@ function secToHuman(s){
         </div>
         <p class="theme-card-desc">{{ t $.Lang (printf "settings.theme.option.%s_desc" $opt) }}</p>
         {{/* Per-theme color override (= recolor this theme to the site palette).
-             onclick stopPropagation so editing colors does not also flip the
+             Its clicks do not propagate, so editing colors does not also flip the
              card's theme-select radio.  auto has no inputs -- it composes the
              default + dark colors by the visitor's OS -- so it shows a note. */}}
         {{ if eq $opt "auto" }}
@@ -5508,7 +5583,7 @@ function secToHuman(s){
         {{ else }}
         {{ $base := index $.ChallengeThemeBaseColors $opt }}
         {{ $ov := index $.ChallengeCustomColors $opt }}
-        <div class="theme-colors" onclick="event.stopPropagation();">
+        <div class="theme-colors">
           <label class="theme-colors-toggle">
             <input type="checkbox" name="custom_on_{{ $opt }}" class="uc-toggle" data-theme="{{ $opt }}" {{ if $ov.Bg }}checked{{ end }}>
             <span>{{ t $.Lang "settings.theme.custom.label" }}</span>
@@ -5542,7 +5617,7 @@ function secToHuman(s){
         </div>
         {{/* Pin theme (= card); preset inherited from the form's currently
              selected preset (= updated live by inline JS below). */}}
-        <div class="theme-card-actions" onclick="event.stopPropagation();">
+        <div class="theme-card-actions">
           <a class="preview-link" target="_blank" rel="noopener"
              data-preview-theme="{{ $opt }}" data-preview-mode="pow"
              href="{{ $.BasePath }}/admin/test/force-pow?theme={{ $opt }}&_preview_preset={{ if $.BrandingValues.CopyPreset }}{{ $.BrandingValues.CopyPreset }}{{ else }}friendly{{ end }}{{ if $.BrandingValues.SiteName }}&_preview_site_name={{ $.BrandingValues.SiteName }}{{ end }}">
@@ -5605,9 +5680,9 @@ function secToHuman(s){
       <p class="note" style="margin:.25rem 0 0;color:#94a3b8;font-size:.72rem">{{ t .Lang "settings.rate_limit.deny_page_preset_hint" }}</p>
     </div>
     <div class="deny-theme-grid">
-      <label class="deny-theme-card" data-deny-theme="auto"><div class="deny-theme-head"><input type="radio" name="deny_theme" value="auto" {{ if eq $dt "auto" }}checked{{ end }}><strong>{{ t .Lang "settings.rate_limit.deny_page_theme_auto" }}</strong></div><p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_auto_desc" }}</p><p class="deny-colors-auto-note">{{ t .Lang "settings.deny.colors_auto_note" }}</p><div class="deny-theme-frame"><iframe loading="lazy" title="rate-deny: auto" src="{{ .BasePath }}/admin/test/rate-deny?theme=auto&preset={{ $dp }}"></iframe></div><div class="deny-theme-actions" onclick="event.stopPropagation();"><a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?theme=auto&preset={{ $dp }}" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a></div></label>
-      <label class="deny-theme-card" data-deny-theme="light"><div class="deny-theme-head"><input type="radio" name="deny_theme" value="light" {{ if eq $dt "light" }}checked{{ end }}><strong>{{ t .Lang "settings.rate_limit.deny_page_theme_light" }}</strong></div><p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_light_desc" }}</p><div class="theme-colors" onclick="event.stopPropagation();"><label class="theme-colors-toggle"><input type="checkbox" name="deny_custom_on_light" class="uc-toggle" data-theme="light" {{ if $rcl.Bg }}checked{{ end }}><span>{{ t .Lang "settings.theme.custom.label" }}</span></label><div class="theme-colors-inputs"><span class="uc-field">{{ t .Lang "settings.theme.custom.bg" }} <button type="button" class="uc-swatch" data-target="deny_custom_bg_light" data-theme="light" data-default="#f6f7f9" style="background:{{ if $rcl.Bg }}{{ $rcl.Bg }}{{ else }}#f6f7f9{{ end }}" aria-label="{{ t .Lang "settings.theme.custom.bg" }}"></button><input type="hidden" name="deny_custom_bg_light" value="{{ if $rcl.Bg }}{{ $rcl.Bg }}{{ else }}#f6f7f9{{ end }}"></span><span class="uc-field">{{ t .Lang "settings.theme.custom.text" }} <button type="button" class="uc-swatch" data-target="deny_custom_text_light" data-theme="light" data-default="#1d2433" style="background:{{ if $rcl.Text }}{{ $rcl.Text }}{{ else }}#1d2433{{ end }}" aria-label="{{ t .Lang "settings.theme.custom.text" }}"></button><input type="hidden" name="deny_custom_text_light" value="{{ if $rcl.Text }}{{ $rcl.Text }}{{ else }}#1d2433{{ end }}"></span></div></div><div class="deny-theme-frame"><iframe loading="lazy" title="rate-deny: light" src="{{ .BasePath }}/admin/test/rate-deny?theme=light&preset={{ $dp }}"></iframe></div><div class="deny-theme-actions" onclick="event.stopPropagation();"><a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?theme=light&preset={{ $dp }}" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a></div></label>
-      <label class="deny-theme-card" data-deny-theme="dark"><div class="deny-theme-head"><input type="radio" name="deny_theme" value="dark" {{ if eq $dt "dark" }}checked{{ end }}><strong>{{ t .Lang "settings.rate_limit.deny_page_theme_dark" }}</strong></div><p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_dark_desc" }}</p><div class="theme-colors" onclick="event.stopPropagation();"><label class="theme-colors-toggle"><input type="checkbox" name="deny_custom_on_dark" class="uc-toggle" data-theme="dark" {{ if $rcd.Bg }}checked{{ end }}><span>{{ t .Lang "settings.theme.custom.label" }}</span></label><div class="theme-colors-inputs"><span class="uc-field">{{ t .Lang "settings.theme.custom.bg" }} <button type="button" class="uc-swatch" data-target="deny_custom_bg_dark" data-theme="dark" data-default="#15181d" style="background:{{ if $rcd.Bg }}{{ $rcd.Bg }}{{ else }}#15181d{{ end }}" aria-label="{{ t .Lang "settings.theme.custom.bg" }}"></button><input type="hidden" name="deny_custom_bg_dark" value="{{ if $rcd.Bg }}{{ $rcd.Bg }}{{ else }}#15181d{{ end }}"></span><span class="uc-field">{{ t .Lang "settings.theme.custom.text" }} <button type="button" class="uc-swatch" data-target="deny_custom_text_dark" data-theme="dark" data-default="#e6e9ee" style="background:{{ if $rcd.Text }}{{ $rcd.Text }}{{ else }}#e6e9ee{{ end }}" aria-label="{{ t .Lang "settings.theme.custom.text" }}"></button><input type="hidden" name="deny_custom_text_dark" value="{{ if $rcd.Text }}{{ $rcd.Text }}{{ else }}#e6e9ee{{ end }}"></span></div></div><div class="deny-theme-frame"><iframe loading="lazy" title="rate-deny: dark" src="{{ .BasePath }}/admin/test/rate-deny?theme=dark&preset={{ $dp }}"></iframe></div><div class="deny-theme-actions" onclick="event.stopPropagation();"><a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?theme=dark&preset={{ $dp }}" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a></div></label>
+      <label class="deny-theme-card" data-deny-theme="auto"><div class="deny-theme-head"><input type="radio" name="deny_theme" value="auto" {{ if eq $dt "auto" }}checked{{ end }}><strong>{{ t .Lang "settings.rate_limit.deny_page_theme_auto" }}</strong></div><p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_auto_desc" }}</p><p class="deny-colors-auto-note">{{ t .Lang "settings.deny.colors_auto_note" }}</p><div class="deny-theme-frame"><iframe loading="lazy" title="rate-deny: auto" src="{{ .BasePath }}/admin/test/rate-deny?theme=auto&preset={{ $dp }}"></iframe></div><div class="deny-theme-actions"><a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?theme=auto&preset={{ $dp }}" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a></div></label>
+      <label class="deny-theme-card" data-deny-theme="light"><div class="deny-theme-head"><input type="radio" name="deny_theme" value="light" {{ if eq $dt "light" }}checked{{ end }}><strong>{{ t .Lang "settings.rate_limit.deny_page_theme_light" }}</strong></div><p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_light_desc" }}</p><div class="theme-colors"><label class="theme-colors-toggle"><input type="checkbox" name="deny_custom_on_light" class="uc-toggle" data-theme="light" {{ if $rcl.Bg }}checked{{ end }}><span>{{ t .Lang "settings.theme.custom.label" }}</span></label><div class="theme-colors-inputs"><span class="uc-field">{{ t .Lang "settings.theme.custom.bg" }} <button type="button" class="uc-swatch" data-target="deny_custom_bg_light" data-theme="light" data-default="#f6f7f9" style="background:{{ if $rcl.Bg }}{{ $rcl.Bg }}{{ else }}#f6f7f9{{ end }}" aria-label="{{ t .Lang "settings.theme.custom.bg" }}"></button><input type="hidden" name="deny_custom_bg_light" value="{{ if $rcl.Bg }}{{ $rcl.Bg }}{{ else }}#f6f7f9{{ end }}"></span><span class="uc-field">{{ t .Lang "settings.theme.custom.text" }} <button type="button" class="uc-swatch" data-target="deny_custom_text_light" data-theme="light" data-default="#1d2433" style="background:{{ if $rcl.Text }}{{ $rcl.Text }}{{ else }}#1d2433{{ end }}" aria-label="{{ t .Lang "settings.theme.custom.text" }}"></button><input type="hidden" name="deny_custom_text_light" value="{{ if $rcl.Text }}{{ $rcl.Text }}{{ else }}#1d2433{{ end }}"></span></div></div><div class="deny-theme-frame"><iframe loading="lazy" title="rate-deny: light" src="{{ .BasePath }}/admin/test/rate-deny?theme=light&preset={{ $dp }}"></iframe></div><div class="deny-theme-actions"><a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?theme=light&preset={{ $dp }}" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a></div></label>
+      <label class="deny-theme-card" data-deny-theme="dark"><div class="deny-theme-head"><input type="radio" name="deny_theme" value="dark" {{ if eq $dt "dark" }}checked{{ end }}><strong>{{ t .Lang "settings.rate_limit.deny_page_theme_dark" }}</strong></div><p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_dark_desc" }}</p><div class="theme-colors"><label class="theme-colors-toggle"><input type="checkbox" name="deny_custom_on_dark" class="uc-toggle" data-theme="dark" {{ if $rcd.Bg }}checked{{ end }}><span>{{ t .Lang "settings.theme.custom.label" }}</span></label><div class="theme-colors-inputs"><span class="uc-field">{{ t .Lang "settings.theme.custom.bg" }} <button type="button" class="uc-swatch" data-target="deny_custom_bg_dark" data-theme="dark" data-default="#15181d" style="background:{{ if $rcd.Bg }}{{ $rcd.Bg }}{{ else }}#15181d{{ end }}" aria-label="{{ t .Lang "settings.theme.custom.bg" }}"></button><input type="hidden" name="deny_custom_bg_dark" value="{{ if $rcd.Bg }}{{ $rcd.Bg }}{{ else }}#15181d{{ end }}"></span><span class="uc-field">{{ t .Lang "settings.theme.custom.text" }} <button type="button" class="uc-swatch" data-target="deny_custom_text_dark" data-theme="dark" data-default="#e6e9ee" style="background:{{ if $rcd.Text }}{{ $rcd.Text }}{{ else }}#e6e9ee{{ end }}" aria-label="{{ t .Lang "settings.theme.custom.text" }}"></button><input type="hidden" name="deny_custom_text_dark" value="{{ if $rcd.Text }}{{ $rcd.Text }}{{ else }}#e6e9ee{{ end }}"></span></div></div><div class="deny-theme-frame"><iframe loading="lazy" title="rate-deny: dark" src="{{ .BasePath }}/admin/test/rate-deny?theme=dark&preset={{ $dp }}"></iframe></div><div class="deny-theme-actions"><a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?theme=dark&preset={{ $dp }}" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a></div></label>
     </div>
   </div>
 
@@ -5628,9 +5703,9 @@ function secToHuman(s){
       <p class="note" style="margin:.25rem 0 0;color:#94a3b8;font-size:.72rem">{{ t .Lang "settings.rate_limit.deny_page_preset_hint" }}</p>
     </div>
     <div class="deny-theme-grid">
-      <label class="deny-theme-card" data-deny-theme="auto"><div class="deny-theme-head"><input type="radio" name="ban_deny_theme" value="auto" {{ if eq $bt "auto" }}checked{{ end }}><strong>{{ t .Lang "settings.rate_limit.deny_page_theme_auto" }}</strong></div><p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_auto_desc" }}</p><p class="deny-colors-auto-note">{{ t .Lang "settings.deny.colors_auto_note" }}</p><div class="deny-theme-frame"><iframe loading="lazy" title="ban-deny: auto" src="{{ .BasePath }}/admin/test/rate-deny?kind=ban&theme=auto&preset={{ $bp }}"></iframe></div><div class="deny-theme-actions" onclick="event.stopPropagation();"><a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?kind=ban&theme=auto&preset={{ $bp }}" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a></div></label>
-      <label class="deny-theme-card" data-deny-theme="light"><div class="deny-theme-head"><input type="radio" name="ban_deny_theme" value="light" {{ if eq $bt "light" }}checked{{ end }}><strong>{{ t .Lang "settings.rate_limit.deny_page_theme_light" }}</strong></div><p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_light_desc" }}</p><div class="theme-colors" onclick="event.stopPropagation();"><label class="theme-colors-toggle"><input type="checkbox" name="ban_custom_on_light" class="uc-toggle" data-theme="light" {{ if $bcl.Bg }}checked{{ end }}><span>{{ t .Lang "settings.theme.custom.label" }}</span></label><div class="theme-colors-inputs"><span class="uc-field">{{ t .Lang "settings.theme.custom.bg" }} <button type="button" class="uc-swatch" data-target="ban_custom_bg_light" data-theme="light" data-default="#f6f7f9" style="background:{{ if $bcl.Bg }}{{ $bcl.Bg }}{{ else }}#f6f7f9{{ end }}" aria-label="{{ t .Lang "settings.theme.custom.bg" }}"></button><input type="hidden" name="ban_custom_bg_light" value="{{ if $bcl.Bg }}{{ $bcl.Bg }}{{ else }}#f6f7f9{{ end }}"></span><span class="uc-field">{{ t .Lang "settings.theme.custom.text" }} <button type="button" class="uc-swatch" data-target="ban_custom_text_light" data-theme="light" data-default="#1d2433" style="background:{{ if $bcl.Text }}{{ $bcl.Text }}{{ else }}#1d2433{{ end }}" aria-label="{{ t .Lang "settings.theme.custom.text" }}"></button><input type="hidden" name="ban_custom_text_light" value="{{ if $bcl.Text }}{{ $bcl.Text }}{{ else }}#1d2433{{ end }}"></span></div></div><div class="deny-theme-frame"><iframe loading="lazy" title="ban-deny: light" src="{{ .BasePath }}/admin/test/rate-deny?kind=ban&theme=light&preset={{ $bp }}"></iframe></div><div class="deny-theme-actions" onclick="event.stopPropagation();"><a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?kind=ban&theme=light&preset={{ $bp }}" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a></div></label>
-      <label class="deny-theme-card" data-deny-theme="dark"><div class="deny-theme-head"><input type="radio" name="ban_deny_theme" value="dark" {{ if eq $bt "dark" }}checked{{ end }}><strong>{{ t .Lang "settings.rate_limit.deny_page_theme_dark" }}</strong></div><p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_dark_desc" }}</p><div class="theme-colors" onclick="event.stopPropagation();"><label class="theme-colors-toggle"><input type="checkbox" name="ban_custom_on_dark" class="uc-toggle" data-theme="dark" {{ if $bcd.Bg }}checked{{ end }}><span>{{ t .Lang "settings.theme.custom.label" }}</span></label><div class="theme-colors-inputs"><span class="uc-field">{{ t .Lang "settings.theme.custom.bg" }} <button type="button" class="uc-swatch" data-target="ban_custom_bg_dark" data-theme="dark" data-default="#15181d" style="background:{{ if $bcd.Bg }}{{ $bcd.Bg }}{{ else }}#15181d{{ end }}" aria-label="{{ t .Lang "settings.theme.custom.bg" }}"></button><input type="hidden" name="ban_custom_bg_dark" value="{{ if $bcd.Bg }}{{ $bcd.Bg }}{{ else }}#15181d{{ end }}"></span><span class="uc-field">{{ t .Lang "settings.theme.custom.text" }} <button type="button" class="uc-swatch" data-target="ban_custom_text_dark" data-theme="dark" data-default="#e6e9ee" style="background:{{ if $bcd.Text }}{{ $bcd.Text }}{{ else }}#e6e9ee{{ end }}" aria-label="{{ t .Lang "settings.theme.custom.text" }}"></button><input type="hidden" name="ban_custom_text_dark" value="{{ if $bcd.Text }}{{ $bcd.Text }}{{ else }}#e6e9ee{{ end }}"></span></div></div><div class="deny-theme-frame"><iframe loading="lazy" title="ban-deny: dark" src="{{ .BasePath }}/admin/test/rate-deny?kind=ban&theme=dark&preset={{ $bp }}"></iframe></div><div class="deny-theme-actions" onclick="event.stopPropagation();"><a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?kind=ban&theme=dark&preset={{ $bp }}" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a></div></label>
+      <label class="deny-theme-card" data-deny-theme="auto"><div class="deny-theme-head"><input type="radio" name="ban_deny_theme" value="auto" {{ if eq $bt "auto" }}checked{{ end }}><strong>{{ t .Lang "settings.rate_limit.deny_page_theme_auto" }}</strong></div><p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_auto_desc" }}</p><p class="deny-colors-auto-note">{{ t .Lang "settings.deny.colors_auto_note" }}</p><div class="deny-theme-frame"><iframe loading="lazy" title="ban-deny: auto" src="{{ .BasePath }}/admin/test/rate-deny?kind=ban&theme=auto&preset={{ $bp }}"></iframe></div><div class="deny-theme-actions"><a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?kind=ban&theme=auto&preset={{ $bp }}" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a></div></label>
+      <label class="deny-theme-card" data-deny-theme="light"><div class="deny-theme-head"><input type="radio" name="ban_deny_theme" value="light" {{ if eq $bt "light" }}checked{{ end }}><strong>{{ t .Lang "settings.rate_limit.deny_page_theme_light" }}</strong></div><p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_light_desc" }}</p><div class="theme-colors"><label class="theme-colors-toggle"><input type="checkbox" name="ban_custom_on_light" class="uc-toggle" data-theme="light" {{ if $bcl.Bg }}checked{{ end }}><span>{{ t .Lang "settings.theme.custom.label" }}</span></label><div class="theme-colors-inputs"><span class="uc-field">{{ t .Lang "settings.theme.custom.bg" }} <button type="button" class="uc-swatch" data-target="ban_custom_bg_light" data-theme="light" data-default="#f6f7f9" style="background:{{ if $bcl.Bg }}{{ $bcl.Bg }}{{ else }}#f6f7f9{{ end }}" aria-label="{{ t .Lang "settings.theme.custom.bg" }}"></button><input type="hidden" name="ban_custom_bg_light" value="{{ if $bcl.Bg }}{{ $bcl.Bg }}{{ else }}#f6f7f9{{ end }}"></span><span class="uc-field">{{ t .Lang "settings.theme.custom.text" }} <button type="button" class="uc-swatch" data-target="ban_custom_text_light" data-theme="light" data-default="#1d2433" style="background:{{ if $bcl.Text }}{{ $bcl.Text }}{{ else }}#1d2433{{ end }}" aria-label="{{ t .Lang "settings.theme.custom.text" }}"></button><input type="hidden" name="ban_custom_text_light" value="{{ if $bcl.Text }}{{ $bcl.Text }}{{ else }}#1d2433{{ end }}"></span></div></div><div class="deny-theme-frame"><iframe loading="lazy" title="ban-deny: light" src="{{ .BasePath }}/admin/test/rate-deny?kind=ban&theme=light&preset={{ $bp }}"></iframe></div><div class="deny-theme-actions"><a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?kind=ban&theme=light&preset={{ $bp }}" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a></div></label>
+      <label class="deny-theme-card" data-deny-theme="dark"><div class="deny-theme-head"><input type="radio" name="ban_deny_theme" value="dark" {{ if eq $bt "dark" }}checked{{ end }}><strong>{{ t .Lang "settings.rate_limit.deny_page_theme_dark" }}</strong></div><p class="deny-theme-desc">{{ t .Lang "settings.rate_limit.deny_page_theme_dark_desc" }}</p><div class="theme-colors"><label class="theme-colors-toggle"><input type="checkbox" name="ban_custom_on_dark" class="uc-toggle" data-theme="dark" {{ if $bcd.Bg }}checked{{ end }}><span>{{ t .Lang "settings.theme.custom.label" }}</span></label><div class="theme-colors-inputs"><span class="uc-field">{{ t .Lang "settings.theme.custom.bg" }} <button type="button" class="uc-swatch" data-target="ban_custom_bg_dark" data-theme="dark" data-default="#15181d" style="background:{{ if $bcd.Bg }}{{ $bcd.Bg }}{{ else }}#15181d{{ end }}" aria-label="{{ t .Lang "settings.theme.custom.bg" }}"></button><input type="hidden" name="ban_custom_bg_dark" value="{{ if $bcd.Bg }}{{ $bcd.Bg }}{{ else }}#15181d{{ end }}"></span><span class="uc-field">{{ t .Lang "settings.theme.custom.text" }} <button type="button" class="uc-swatch" data-target="ban_custom_text_dark" data-theme="dark" data-default="#e6e9ee" style="background:{{ if $bcd.Text }}{{ $bcd.Text }}{{ else }}#e6e9ee{{ end }}" aria-label="{{ t .Lang "settings.theme.custom.text" }}"></button><input type="hidden" name="ban_custom_text_dark" value="{{ if $bcd.Text }}{{ $bcd.Text }}{{ else }}#e6e9ee{{ end }}"></span></div></div><div class="deny-theme-frame"><iframe loading="lazy" title="ban-deny: dark" src="{{ .BasePath }}/admin/test/rate-deny?kind=ban&theme=dark&preset={{ $bp }}"></iframe></div><div class="deny-theme-actions"><a class="deny-theme-preview-link" href="{{ .BasePath }}/admin/test/rate-deny?kind=ban&theme=dark&preset={{ $bp }}" target="_blank" rel="noopener">{{ t .Lang "settings.rate_limit.deny_page_preview" }} ↗</a></div></label>
     </div>
   </div>
   {{/* Live preview: rebuild each deny preview iframe (the per-theme color cards
@@ -5639,6 +5714,12 @@ function secToHuman(s){
        keeps it robust; the deny page applies SAVED colors server-side and these
        _preview_custom params overlay the as-yet-unsaved edits. */}}
   <script{{ nonceAttr . }}>
+  // A click on a card's own controls (its colors, its preview links) stays
+  // there: the card around them is the label of the theme's radio, and the
+  // click must not select it.
+  document.querySelectorAll('.theme-colors, .theme-card-actions, .deny-theme-actions').forEach(function(el){
+    el.addEventListener('click', function(e){ e.stopPropagation(); });
+  });
   (function(){
     var form = document.getElementById('appearance-form');
     if (!form) return;
@@ -8540,8 +8621,8 @@ document.addEventListener('keydown', function(e){
   }
 });
 
-// Override-toggle initial sync.  The checkbox's onchange disables every
-// input in its form when the box is off, but onchange does not fire on
+// Override-toggle initial sync.  The checkbox's change listener disables every
+// input in its form when the box is off, but change does not fire on
 // page load -- so an unchecked initial state arrived with every field
 // fully editable.  Walk every .override-toggle once at DOMContentLoaded
 // and dispatch the change event so the disabled / .override-off classes

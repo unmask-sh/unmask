@@ -1445,7 +1445,7 @@ function renderCountryChart(wrapId, data){
     const text = safeCC || '??';
     return '<div class="country-row" data-cc="' + safeCC + '">' +
              '<div class="cc-label">' +
-               '<img class="cc-flag" src="' + flagSrc(safeCC) + '" alt="" loading="lazy" onerror="this.src=\'' + flagBase + 'unknown.png\';this.onerror=null">' +
+               '<img class="cc-flag" src="' + flagSrc(safeCC) + '" alt="" loading="lazy">' +
                '<span>' + text + '</span>' +
              '</div>' +
              '<div class="cc-bar-wrap"><div class="cc-bar" style="width:' + pct.toFixed(2) + '%"></div></div>' +
@@ -1453,6 +1453,10 @@ function renderCountryChart(wrapId, data){
            '</div>';
   }).join('');
   wrap.innerHTML = rows;
+  // A flag that fails to load falls back to the unknown one, once.
+  wrap.querySelectorAll('img.cc-flag').forEach(img => {
+    img.addEventListener('error', () => { img.src = flagBase + 'unknown.png'; }, { once: true });
+  });
 
   function bindCountryPopovers(){
     const popEl = document.getElementById('help-popover');

@@ -618,7 +618,7 @@ table.events td:has(.session-chain){white-space:nowrap;min-width:max-content;ove
 <div class="banner tip" id="hunt-tip-static-assets">
   <span class="tip-text">{{ safeHTML (tf .Lang "hunt.tip.static_assets" .StaticAssetsTipHits) }}</span>
   <a class="tip-cta" href="{{ .StaticAssetsTipHref }}">{{ t .Lang "hunt.tip.cta_open_bypass" }}</a>
-  <button type="button" class="tip-dismiss" onclick="dismissHuntTip('static-assets')" aria-label="{{ t .Lang "hunt.tip.dismiss" }}" title="{{ t .Lang "hunt.tip.dismiss" }}">×</button>
+  <button type="button" class="tip-dismiss" aria-label="{{ t .Lang "hunt.tip.dismiss" }}" title="{{ t .Lang "hunt.tip.dismiss" }}">×</button>
 </div>
 <script{{ nonceAttr . }}>
 function dismissHuntTip(id){
@@ -634,6 +634,7 @@ function dismissHuntTip(id){
   var el = document.getElementById('hunt-tip-' + id);
   if (el) el.remove();
 }
+document.querySelector('#hunt-tip-static-assets .tip-dismiss').addEventListener('click', function(){ dismissHuntTip('static-assets'); });
 </script>
 {{ end }}
 

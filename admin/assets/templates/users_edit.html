@@ -99,7 +99,7 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
   </dl>
 </div>
 
-<form method="POST" action="{{ .BasePath }}/admin/users/save" onsubmit="return confirmSave(event)">
+<form method="POST" action="{{ .BasePath }}/admin/users/save" id="user-edit-form">
   <input type="hidden" name="_csrf" value="{{ $.CSRFToken }}">
   <input type="hidden" name="op" value="update">
   <input type="hidden" name="id" value="{{ .User.ID }}">
@@ -196,6 +196,9 @@ function confirmSave(e){
   if (!pw || pw.value === '') return true;
   return unmaskDialog.confirmSubmit(e, {title: {{ tfText .Lang "users.confirm.password" .User.Username }}, ok: {{ t .Lang "users.confirm.password_ok" }}});
 }
+document.getElementById('user-edit-form').addEventListener('submit', function(e){
+  if (confirmSave(e) === false) e.preventDefault();
+});
 // js-datetime: render data-ts (unix sec) as localized string (same as users.html).
 </script>
 </body>

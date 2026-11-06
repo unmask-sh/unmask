@@ -274,12 +274,16 @@ table.feed tbody tr.row-bypassed:hover{background:#fef9c3}
       <input type="hidden" name="op" value="subscribe-toggle">
       <input type="hidden" name="return_to" value="community-bans">
       <label class="lbl" for="subscribe-mode-sel" style="font-size:.85rem;color:#475569;font-weight:600">{{ t .Lang "community_bans.mode_label" }}</label>
-      <select id="subscribe-mode-sel" name="subscribe_mode" onchange="this.form.submit()" style="padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;font-size:.85rem">
+      <select id="subscribe-mode-sel" name="subscribe_mode" style="padding:.3rem .5rem;border:1px solid #cbd5e1;border-radius:.25rem;background:#fff;font-size:.85rem">
         <option value="fetch_apply" {{ if eq .SubscribeMode "fetch_apply" }}selected{{ end }}>{{ t .Lang "community_bans.mode.fetch_apply" }}</option>
         <option value="fetch"       {{ if eq .SubscribeMode "fetch" }}selected{{ end }}>{{ t .Lang "community_bans.mode.fetch" }}</option>
         <option value="off"         {{ if eq .SubscribeMode "off" }}selected{{ end }}>{{ t .Lang "community_bans.mode.off" }}</option>
       </select>
     </form>
+    {{/* The mode is saved as it is changed. */}}
+    <script{{ nonceAttr . }}>
+    document.getElementById('subscribe-mode-sel').addEventListener('change', function(){ this.form.submit(); });
+    </script>
   </div>
 
   {{- /* Impact panel: how often hub-derived BANs actually blocked traffic on
