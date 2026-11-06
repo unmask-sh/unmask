@@ -14,9 +14,47 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- (2026-11-06) **Forward-auth: a visitor could get another address banned.**  The decision endpoint also answered on `/unmask/api/<site>/check`, a path no configuration used and the copy-paste nginx snippet did not block, and it believed the caller's `X-Original-IP`. One request naming another address on a honeypot URL banned that address. The alias is gone, and the snippet now overwrites the `X-Original-*` headers itself. The native module and the packaged forward-auth configuration were not affected.
+
+- (2026-11-06) **The admin's scripts run under an enforced Content-Security-Policy.**  Every admin response now enforces `script-src 'nonce-...'`: the pages' scripts carry a per-response nonce, the inline `on*` handlers became listeners, and a script injected through an escaping mistake no longer runs -- nor does a script file of the protected site, which shares the admin's origin. The browser posts what it refuses to `/unmask/admin/csp-report`, logged as rate-limited `admin csp violation:` lines. The install wizard carries the admin's security headers.
+
 ### Added
 
 - (2026-11-06) **A `pow_difficulty` outside 8-24 in config.yml is reported.**  The settings page refuses such a number, but one written into the file by hand ran at the built-in 18 without a word, so an operator who meant to raise the difficulty stayed at the default.  The daemon now logs it when it loads the file and `unmask doctor` warns, naming the key and the number.
+
+- (2026-11-06) **`/unmask/readyz` and `unmask_db_up` say whether the daemon has its database.**  `/unmask/healthz` answers 200 whenever the process runs, so nothing outside could see a daemon running without its database. `/unmask/readyz` answers 503 in that state, `/metrics` exports `unmask_db_up` (and no longer fails the scrape there), the example rules gain two alerts, the dashboard a tile, and `unmask doctor` asks the running daemon. healthz is unchanged.
+
+- (2026-11-06) **A pattern in config.yml that will not work is reported.**  The settings page refuses a pattern that does not compile or that nginx's regex engine could take exponential time on. A config.yml written by hand or by a configuration manager never passes that page, and such a row was used as written until `nginx -t` failed. Loading the file now logs each one, and `unmask doctor` warns with it; nothing is rewritten or dropped.
+
+### Changed
+
+- (2026-11-06) **`unmask_event_total` is a real counter.**  It was declared a counter but exported the last 24 hours of the event table, so it fell as rows aged out and `rate()` and `increase()` over it -- what the shipped dashboard uses -- miscounted. It now counts the rows each daemon has written since it started, read from memory. A rule that read its raw value as "events in 24 hours" needs `increase(...[24h])`.
+
+- (2026-11-06) **The unique-address gauge reads the rollup, and two dashboard panels are put right.**  `unmask_event_unique_ip` scanned a day of raw events on scrape and exported 0 when that failed; it is now an estimate from the hourly rollup, left out when the rollup cannot answer. `unmask_db_query_seconds` is declared a summary, matching its samples. The dashboard's passed-challenges tile asked for a phase that no longer exists, and its latency panel was not an average.
+
+### Fixed
+
+- (2026-11-06) **A daemon started before its database comes back by itself.**  A daemon that could not open its database at start (a host that boots it ahead of MariaDB) ran without statistics, bans or an admin UI until someone restarted it, and sent every admin page to a setup wizard nobody could enter. It now keeps serving challenges, retries the database, and restarts itself in place when it answers; admin pages answer 503 and say so meanwhile.
+
+- (2026-11-06) **A daemon without its database no longer breaks on a beacon, a roaming rebind or an alert mail.**  While it ran without a database, each challenge page's beacon and each roaming rebind ended in a failed request and a stack trace in the log, and an alert mail raised meanwhile ended the process. Now the event goes unrecorded, the rebind is refused, and the alert goes to the webhook and `notifications.mail_to`.
+
+- (2026-11-06) **Nodes sharing one MariaDB no longer double-count the hourly statistics.**  Each node folds new events into the hourly rollup once a minute; two nodes folding at the same moment read the same position and both added the same events, inflating the stats pages' counts. A fold now holds a named lock on the database, and a node that finds it taken skips that turn. SQLite installs are unaffected.
+
+- (2026-11-06) **Removing the nginx plugin no longer leaves a `load_module` behind that stops nginx.**  The removal looked for `50-mod-unmask.conf` in a fixed list of directories, and the fail-safe in a different one. A conf in a directory on neither list stayed and named a module file that was gone, so nginx failed on `dlopen()` at its next start. Both now remove it from where it was put, and a `load_module` you wrote yourself is left and named.
+
+- (2026-11-06) **Uninstalling names the lines to take out of your configuration, and runs `nginx -t`.**  The `include` lines for `server.inc` and `protect.inc` in your own server blocks outlive the packages, and nginx does not load its configuration with them. The removal now lists them, file and line, and prints what `nginx -t` answers; it does not reload or restart nginx. Removing the plugin alone also unlinks `http.inc`. The README has an Uninstall section.
+
+- (2026-11-06) **On Alpine the plugin finds nginx's module directory.**  busybox awk rejected the program that finds the directory nginx.conf loads modules from (`awk: bad regex` during the install), so on Alpine the `load_module` line always went into nginx.conf itself. New installs get `/etc/nginx/modules/50-mod-unmask.conf`; an existing install keeps its line and gets no second one. To go back to an older release on Alpine, remove the plugin and install the older package.
+
+- (2026-11-06) **The deb installs on a system without `adduser`.**  A minimal Debian 13 or Ubuntu 24.04 system has no `adduser`. The package's preinstall called it regardless, printed "not found" and exited 0; apt reported success, and the daemon could not start for want of its user. The account is now made with `useradd` there, and an install that still ends without the user fails with a line saying what to do.
+
+- (2026-11-06) **The modules for older systems are built with the same hardening as the rest.**  The module builds for OpenSSL 1.1, OpenSSL 1.0 and glibc 2.12 hosts had no stack protector and were not `BIND_NOW` (the glibc 2.12 one had no RELRO either), although the current build had all three. Every build path now takes its options from one script and reads them back out of the `.so` it made. Restart nginx on those hosts after the upgrade.
+
+- (2026-11-06) **`http.inc` is no longer world-readable for a moment during an upgrade.**  The package's postinstall set every rendered file to 0644 and then `http.inc`, which holds the key that signs passes, back to 0640. Between the two commands any local user could read it, on every upgrade. Each file now goes straight to its own mode, and `http.inc` stays 0640 throughout.
+
+- (2026-11-06) **Passwords shorter than eight characters are refused everywhere.**  The setup wizard and the CLI already refused them; the profile page, the users page and the mailed reset link did not, although the reset page said "at least 8". Each now checks before it writes: a refused update on the users page changes nothing else, and a refused reset keeps its link usable.
 
 ## [0.1.55] - 2026-11-06
 

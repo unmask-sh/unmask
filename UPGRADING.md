@@ -47,6 +47,7 @@ render.
 
 | Release | nginx | Sign-in | Settings keys | Schema |
 |---|---|---|---|---|
+| **0.1.56** | Reload; restart where the module changed | -- | -- | -- |
 | **0.1.55** | Restart | Signed out once | 9 new, all optional | 0050 |
 | 0.1.54 (tagged, not published) | -- | -- | -- | -- |
 | **0.1.53** | Restart | Signed out once | 8 new, all optional | 0046, 0048, 0049 |
@@ -55,6 +56,80 @@ render.
 | **0.1.50** | Reload | -- | -- | -- |
 
 ## Details
+
+### 0.1.56
+
+- **nginx: restart on older systems, reload elsewhere.**  The module files
+  for OpenSSL 1.1, OpenSSL 1.0 and glibc 2.12 hosts (RHEL 8 and its
+  rebuilds, Debian 11, Ubuntu 20.04, CentOS 7, CentOS 6) are now built with
+  the stack protector, RELRO and `BIND_NOW` the current build already had,
+  so the module changes there: restart nginx after the plugin package has
+  been upgraded.  On other hosts the plugin package's output says whether
+  the module file changed, as on every upgrade.
+- **Forward-auth.**  The decision endpoint no longer answers on
+  `/unmask/api/<site>/check`; no shipped configuration used that path, and
+  through the copy-paste nginx snippet it let a visitor get another address
+  banned.  The daemon upgrade closes it.  If your own configuration points
+  `auth_request` at that path, point it at `/unmask/api/check`.  If you
+  pasted `/usr/share/unmask/snippets/nginx-forward-auth.conf`, paste its
+  PART 2 again: its locations now set the `X-Original-*` headers themselves.
+  The packaged `/etc/unmask/forward-auth/server.inc` gains a location for
+  `/unmask/readyz`; an edited copy is kept on upgrade, so add it by hand
+  (copy the healthz block) to reach readyz through nginx.
+- **Monitoring.**  `unmask_event_total` changes meaning: it is the number of
+  events this daemon has written since it started (0 at every start), no
+  longer the last 24 hours of the event table.  `rate()` and `increase()`
+  over it need no change -- the shipped dashboard uses them -- but a rule
+  that read the raw value as "events in the last 24 hours" must become
+  `increase(unmask_event_total[24h])`, and on nodes sharing one MariaDB each
+  daemon now exports its own writes (`sum()` is the total).
+  `unmask_event_unique_ip` is an estimate from the hourly rollup and has no
+  sample while the daemon has no database or has not finished its first
+  rollup pass.  `unmask_db_query_seconds` is a summary.  New:
+  `unmask_db_up`, `/unmask/readyz` (200 with the database, 503 without;
+  keep a load balancer's health check on `/unmask/healthz`, which is
+  unchanged), two alert rules (`UnmaskDaemonDown`, whose `job` label you set
+  to your scrape job's, and `UnmaskDatabaseUnavailable`) and a dashboard
+  tile: import the dashboard again.
+- **A daemon without its database.**  On an install that is set up, a daemon
+  that cannot open its database at start no longer sends the admin to the
+  setup wizard: admin pages answer 503, the daemon retries, and it restarts
+  itself in place (same PID) when the database answers.  Nodes sharing one
+  MariaDB take a named lock (`unmask_aggregate:<database>`) while they fold
+  events into the hourly statistics; counts an earlier release doubled are
+  not corrected, and leave with the rollup's 32-day window.
+- **Admin pages.**  The script policy that 0.1.54 published report-only is
+  enforced: `Content-Security-Policy: ...; script-src 'nonce-...'
+  'report-sample'; report-uri <base>/admin/csp-report`.  Nothing in a stock
+  install is affected.  Anything that adds a script to the admin's pages
+  from outside is now refused by the browser -- a proxy in front that
+  injects or rewrites scripts (an optimiser, an analytics snippet added with
+  `sub_filter`), a userscript, an extension that writes a script into the
+  page: exclude `<base>/admin/` from it.  Each refusal is one line in the
+  daemon's log (`admin csp violation: ...`, at most 20 a minute); on a stock
+  install such a line is a bug in the admin to report, or an injected script
+  that was stopped.  `POST <base>/admin/csp-report` is new, takes no session
+  (the browser sends it on its own) and writes nothing but that line; a
+  front proxy that lets only known admin paths through has to let it
+  through as well, or the reports are lost.  The install wizard's pages now
+  send the admin's security headers too.
+- **Passwords.**  Every page that sets an admin password now refuses fewer
+  than eight characters, as the setup wizard always did.  Existing shorter
+  passwords still sign in.
+- **config.yml.**  A pattern the settings page would not have taken -- one
+  that does not compile, or that nginx's regex engine could take exponential
+  time on -- is now named in the daemon's log at start and by `unmask
+  doctor`.  Nothing is changed in the file or in what is rendered.
+- **Alpine.**  The plugin now places `load_module` in
+  `/etc/nginx/modules/50-mod-unmask.conf`; an install that has the line in
+  nginx.conf keeps it there.  To go back to 0.1.55 or older, remove the
+  plugin package and install the older one (an in-place downgrade would load
+  the module twice).  Alpine 3.22 and older: Alpine's own nginx package is
+  built without `--with-compat` and has never loaded the module; use
+  nginx.org's package there, or Alpine 3.23.
+- **Uninstalling.**  Removing the packages now lists the `include` lines
+  left in your own server blocks and prints what `nginx -t` answers
+  (README, "Uninstall").  With dnf, leave out `-q` to see it.
 
 ### 0.1.55
 
