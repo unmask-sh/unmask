@@ -80,12 +80,13 @@ func faLocations(t *testing.T, rel string) []faLocation {
 var faHeadersActedOn = []string{"X-Original-Host", "X-Original-URI", "X-Original-IP", "X-Original-UA"}
 
 // faNoOriginalHeaders: locations whose handlers read none of them -- files,
-// the two probes, and the ban page (which shows the address and User-Agent
-// nginx itself reports).
+// the probes, and the ban page (which shows the address and User-Agent nginx
+// itself reports).
 var faNoOriginalHeaders = map[string]bool{
 	"^~ /unmask/static/": true,
 	"= /unmask/metrics":  true,
 	"= /unmask/healthz":  true,
+	"= /unmask/readyz":   true,
 	"@unmask_blocked":    true,
 }
 
