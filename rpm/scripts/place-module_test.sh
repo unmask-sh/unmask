@@ -242,6 +242,32 @@ check "8 the report names the build to drop into the bundle" "yes" "$(has "make 
 check "8 ... under the version's own name" "yes" "$(has "$T/bundle/ngx_http_unmask_module-1.26.4.so")"
 check "8 the report goes to stderr only" "" "$(no_module_report "$T/bundle" 1.26.4 2>/dev/null)"
 
+# --- case 9: the directory nginx.conf loads modules from ---
+# The first absolute-path include ahead of the http block: where the load_module
+# conf is put, and where the removal looks for it.  The awk program behind it
+# has to read under every awk the packages meet.  busybox's (Alpine) stopped on
+# the earlier spelling ("bad regex"), no directory was found there, and the
+# line went into nginx.conf -- on the one distribution whose nginx.conf
+# includes /etc/nginx/modules/*.conf.
+NGINX_CONF="$T/nginx.conf"
+dir_of() { printf '%s\n' "$@" > "$NGINX_CONF"; main_include_dir 2>&1; }
+check "9 Debian: modules-enabled" "/etc/nginx/modules-enabled" \
+      "$(dir_of 'user www-data;' 'include /etc/nginx/modules-enabled/*.conf;' 'events {' '}' 'http {' '    include /etc/nginx/conf.d/*.conf;' '}')"
+check "9 RHEL: /usr/share/nginx/modules" "/usr/share/nginx/modules" \
+      "$(dir_of 'user nginx;' '# Load dynamic modules. See /usr/share/doc/nginx/README.dynamic.' 'include /usr/share/nginx/modules/*.conf;' 'events {' '}' 'http {' '}')"
+check "9 Alpine: /etc/nginx/modules, the first of its two" "/etc/nginx/modules" \
+      "$(dir_of 'user nginx;' 'include /etc/nginx/modules/*.conf;' 'include /etc/nginx/conf.d/*.conf;' 'events {' '}' 'http {' '    include /etc/nginx/http.d/*.conf;' '}')"
+check "9 nginx.org: no include ahead of the http block, none" "" \
+      "$(dir_of 'user nginx;' 'events {' '}' 'http {' '    include /etc/nginx/mime.types;' '    include /etc/nginx/conf.d/*.conf;' '}')"
+check "9 the http block is where it stops, however its brace is spaced" "" \
+      "$(dir_of 'events { }' '  http{' '    include /etc/nginx/conf.d/*.conf;' '}')"
+check "9 a commented-out include is not one" "/etc/nginx/modules" \
+      "$(dir_of '# include /etc/nginx/old-modules/*.conf;' 'include /etc/nginx/modules/*.conf;' 'http {' '}')"
+check "9 a relative include is passed over" "/etc/nginx/modules-enabled" \
+      "$(dir_of 'include modules/*.conf;' 'include /etc/nginx/modules-enabled/*.conf;' 'http {' '}')"
+rm -f "$NGINX_CONF"
+check "9 no nginx.conf, none" "" "$(main_include_dir 2>&1)"
+
 echo "----"
 [ "$fails" -eq 0 ] && echo "ALL PASS" || echo "$fails FAILED"
 exit "$fails"

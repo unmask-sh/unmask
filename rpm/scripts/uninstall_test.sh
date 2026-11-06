@@ -318,6 +318,15 @@ wired() {
     fi
     echo "$_w"
 }
+# What 0.1.55 left on a host whose awk is busybox's (every Alpine install): the
+# directory was not found, so the line is in nginx.conf itself, there is no
+# conf, and no note.
+line_install() {
+    plugin_install
+    rm -f "$MODDIR/$CONF" "$WIRED"
+    { echo "load_module \"$MP/$SO\";  $TAG, removed on uninstall"; cat "$T/nginx.conf.orig"; } > "$N/nginx.conf"
+    cp "$N/nginx.conf" "$T/nginx.conf.line"
+}
 same()    { if [ "$(cat "$1")" = "$(cat "$2")" ]; then echo same; else echo changed; fi; }
 inode()   { ls -i "$1" | awk '{print $1}'; }
 # The lines the removal told the operator to take out, as "file:line".
@@ -340,6 +349,8 @@ for layout in debian rhel alpine none; do
         line) check "$layout: ...and no conf, having written none" 0 "$(grep -c '^conf ' "$WIRED")" ;;
         conf) check "$layout: ...and the conf" 1 "$(grep -cx "conf $MODDIR/$CONF" "$WIRED")" ;;
     esac
+    # Alpine includes conf.d outside the http block and http.d inside it.
+    check "$layout: http.inc is linked into nginx's http block" there "$(there "$HTTPD/00-unmask.conf")"
     check "$layout: nginx loads the result" ok "$(ngx_t)"
 
     case "$layout" in
@@ -402,6 +413,42 @@ check "rpm upgrade: ...and says nothing" "" "$(cat "$T/out")"
 web_postrm upgrade 0.1.56-1
 check "deb upgrade: unmask-web-nginx's postremove says nothing" "" "$(cat "$T/out")"
 check "an upgrade never runs nginx -t from the removal scripts" 0 "$(grep -c '^nginx -t' "$T/calls.log")"
+rm -rf "$T"
+
+# --- an install whose line is in nginx.conf, on a host that has a directory -----
+# Through 0.1.55 the placer's awk program stopped under busybox awk, so on
+# Alpine it found no directory and wrote the line into nginx.conf -- although
+# Alpine's nginx.conf includes /etc/nginx/modules/*.conf.  It finds the
+# directory now.  An install made before must not get a conf beside its line:
+# nginx refuses a module loaded twice.  The line stays where it is.
+new_root alpine
+line_install
+web_install
+site_with_includes
+check "a line in nginx.conf: nginx loads it" ok "$(ngx_t)"
+run postinstall-plugin-nginx-fat.sh 2
+check "upgrade over a line in nginx.conf: the line stays, and no conf is put beside it" line "$(wired)"
+check "upgrade over a line in nginx.conf: nginx.conf is left as it was" same "$(same "$N/nginx.conf" "$T/nginx.conf.line")"
+check "upgrade over a line in nginx.conf: the module is loaded once, and nginx loads" ok "$(ngx_t)"
+check "upgrade over a line in nginx.conf: it says the line is there" 1 "$(says "load_module already present in $N/nginx.conf (= idempotent skip)")"
+check "upgrade over a line in nginx.conf: the note has the module and no conf" "1 0" "$(grep -cx "so $MP/$SO" "$WIRED") $(grep -c '^conf ' "$WIRED")"
+# A conf of the package's beside the line, however it got there: one of the
+# two has to go, and it is the conf.
+echo "load_module \"$MP/$SO\";  $TAG, removed on uninstall" > "$MODDIR/$CONF"
+check "a conf beside the line: nginx refuses the module twice" 'module "ngx_http_unmask_module" is already loaded in /etc/nginx/modules/50-mod-unmask.conf:1' "$(ngx_t)"
+run postinstall-plugin-nginx-fat.sh 2
+check "a conf beside the line: the next run takes the conf away" line "$(wired)"
+check "a conf beside the line: nginx loads again" ok "$(ngx_t)"
+# The module moved (the modules path, or its home on a read-only /usr): the
+# line follows it.
+sed "1s|\"$MP/$SO\"|\"$T/var/lib/unmask/plugin/$SO\"|" "$T/nginx.conf.line" > "$N/nginx.conf"
+run postinstall-plugin-nginx-fat.sh 2
+check "a line naming another path: brought up to date, still one line and no conf" "line 1" "$(wired) $(grep -c "^load_module \"$MP/$SO\";  $TAG" "$N/nginx.conf")"
+mkdir -p "$T/lib/apk"; plugin_prerm 0.1.56-r1
+check "removal of an install whose line is in nginx.conf: the line goes" same "$(same "$N/nginx.conf" "$T/nginx.conf.orig")"
+check "...and the module" gone "$(there "$MP/$SO")"
+site_without_includes
+check "...and nginx loads" ok "$(ngx_t)"
 rm -rf "$T"
 
 # --- an install from before the note: nginx.conf, then the known directories ---
@@ -666,6 +713,19 @@ mkdir -p "$T/lib/apk"; plugin_prerm 0.1.56-r1
 check "single-nginx variant: the conf goes" gone "$(there "$MODDIR/$CONF")"
 check "single-nginx variant: the module goes" gone "$(there "$MP/$SO")"
 check "single-nginx variant: the includes are named" "${SITE#"$T"}:3 ${SITE#"$T"}:5" "$(listed)"
+rm -rf "$T"
+
+# Over a line the bundle variant once wrote into nginx.conf: it adds no conf
+# beside it, and its removal takes the line.
+new_root alpine
+line_install
+plugin_files_gone
+plugin_install_single
+web_install
+check "single-nginx variant over a line in nginx.conf: no conf beside it" line "$(wired)"
+check "single-nginx variant over a line in nginx.conf: nginx loads" ok "$(ngx_t)"
+mkdir -p "$T/lib/apk"; plugin_prerm 0.1.56-r1
+check "single-nginx variant over a line in nginx.conf: the removal takes the line" same "$(same "$N/nginx.conf" "$T/nginx.conf.orig")"
 rm -rf "$T"
 
 # --- nginx already removed, and a second run -----------------------------------

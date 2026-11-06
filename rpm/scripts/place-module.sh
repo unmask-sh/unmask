@@ -117,13 +117,19 @@ LOAD_TAG="# unmask-plugin-nginx: auto-added"
 # nginx.conf's http block -- where the distribution's nginx.conf loads its
 # modules from (modules-enabled/, /usr/share/nginx/modules/, modules/).
 # Nothing when nginx.conf has no such include.
+#
+# Spelled for every awk the packages meet.  busybox's (Alpine) takes a bare
+# "{" in a regex for an interval and ends a regex at a "/" inside brackets:
+# through 0.1.55 it stopped on this program ("bad regex"), no directory was
+# found on Alpine, and the line went into nginx.conf instead -- on the one
+# distribution whose nginx.conf includes /etc/nginx/modules/*.conf.
 main_include_dir() {
     [ -r "$NGINX_CONF" ] || return 0
     awk '
-        /^[[:space:]]*http[[:space:]]*{/ { exit }
+        /^[[:space:]]*http[[:space:]]*[{]/ { exit }
         /^[[:space:]]*include[[:space:]]/ {
             for (i = 1; i <= NF; i++) {
-                if ($i ~ /^[/]/) { print $i; exit }
+                if (substr($i, 1, 1) == "/") { print $i; exit }
             }
         }
     ' "$NGINX_CONF" | sed 's|/\*\.conf;$||; s|;$||' | head -1
@@ -677,9 +683,9 @@ fi
 
 # ---- 7. auto-place load_module ----
 # Drop into the distro-conventional main-scope include dir (=
-# /etc/nginx/modules-enabled/ or /usr/share/nginx/modules/).  Otherwise
-# edit nginx.conf and add the line at the top (= outside http {}).  This
-# is so it works on every distro out of the box.
+# /etc/nginx/modules-enabled/, /usr/share/nginx/modules/ or
+# /etc/nginx/modules/).  Otherwise edit nginx.conf and add the line at the top
+# (= outside http {}).  This is so it works on every distro out of the box.
 #
 # Tag the directive so it's recognizable as package-managed when it lands in the
 # host nginx.conf (= the no-include-dir fallback below): a config-management tool
@@ -691,9 +697,24 @@ LOAD_DROPPED=""
 # The conf this run wrote, for the note the removal reads (wired_record).
 DROP_PLACED=""
 
+# A line this package itself wrote into nginx.conf stays where it is, and no
+# conf is put beside it: nginx refuses a module loaded twice.  That is where
+# the line went on every host whose directory an earlier version did not find
+# -- every Alpine install through 0.1.55 (see main_include_dir).  It is not
+# moved into the directory either: a downgrade looks for the line where its
+# own placer left it.  The block for a host without a directory, below, keeps
+# the path in it current.
+OWN_LINE=""
+if grep -q "^[[:space:]]*load_module.*ngx_http_unmask_module.*$LOAD_TAG" "$NGINX_CONF" 2>/dev/null; then
+    OWN_LINE=1
+fi
+
 if [ -r "$NGINX_CONF" ]; then
     INCLUDE_DIR=$(main_include_dir)
-    if [ -n "$INCLUDE_DIR" ] && [ -d "$INCLUDE_DIR" ]; then
+    if [ -n "$INCLUDE_DIR" ] && [ -d "$INCLUDE_DIR" ] && [ -n "$OWN_LINE" ]; then
+        # A conf of ours beside the line: one of the two has to go.
+        rm -f "$INCLUDE_DIR/$LOAD_CONF" 2>/dev/null
+    elif [ -n "$INCLUDE_DIR" ] && [ -d "$INCLUDE_DIR" ]; then
         DROP="$INCLUDE_DIR/$LOAD_CONF"
         # Idempotency across FOREIGN wiring, not just our own file.  An
         # operator may already load the module themselves -- a hand-added
@@ -735,10 +756,12 @@ if [ -r "$NGINX_CONF" ]; then
     fi
 fi
 
-if [ -z "$LOAD_DROPPED" ] && [ -w "$NGINX_CONF" ]; then
-    # No main-scope include dir found (= e.g. CentOS 6 nginx.org 1.18) ->
-    # edit nginx.conf directly and idempotently add load_module at the
-    # top.
+# (A line already there and right needs no write: an nginx.conf that cannot be
+# written is then no reason for the warning below.)
+if [ -z "$LOAD_DROPPED" ] && { [ -w "$NGINX_CONF" ] || grep -qF "load_module \"$DEST\"" "$NGINX_CONF" 2>/dev/null; }; then
+    # No main-scope include dir found (= e.g. CentOS 6 nginx.org 1.18), or
+    # the line is in nginx.conf from an earlier run -> edit nginx.conf
+    # directly and idempotently add load_module at the top.
     if ! grep -q "load_module.*ngx_http_unmask_module" "$NGINX_CONF"; then
         # Insert at the very top of nginx.conf (= keep existing lines,
         # add load_module as line 1).

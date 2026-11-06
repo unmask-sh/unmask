@@ -67,11 +67,13 @@ DROP_PLACED=""
 if [ -r "$NGINX_CONF" ]; then
     # Extract main-scope *.conf include dirs from nginx.conf's include lines
     # (= exclude includes inside http {}.  awk scans only up to the first http {).
+    # Spelled for busybox awk too (Alpine), as in place-module.sh's
+    # main_include_dir: a bare "{" and a "/" inside brackets stopped it there.
     INCLUDE_DIR=$(awk '
-        /^[[:space:]]*http[[:space:]]*{/ { exit }
+        /^[[:space:]]*http[[:space:]]*[{]/ { exit }
         /^[[:space:]]*include[[:space:]]/ {
             for (i = 1; i <= NF; i++) {
-                if ($i ~ /^[/]/) { print $i; exit }
+                if (substr($i, 1, 1) == "/") { print $i; exit }
             }
         }
     ' "$NGINX_CONF" | sed 's|/\*\.conf;$||; s|;$||' | head -1)
