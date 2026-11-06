@@ -40,7 +40,8 @@ func TestSettingsPrivacyPassTabRenders(t *testing.T) {
 		`card-badge custom`,                            // custom section badge
 		`name="pp_issuer_name" value="issuer.example"`, // issuer row name field
 		`>QUJD</textarea>`,                             // key in the row textarea
-		`ppAddIssuer()`,                                // add-row button
+		`'pp-issuer-add').addEventListener('click'`,    // the add-row button's listener
+		`id="pp-issuer-add"`,                           // ...and the button
 		`</html>`,                                      // page must not truncate mid-template
 	} {
 		if !strings.Contains(body, want) {

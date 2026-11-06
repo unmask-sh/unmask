@@ -41,7 +41,8 @@ func TestSettingsWebBotAuthTabRenders(t *testing.T) {
 		`card-badge preset`,                      // preset section badge
 		`card-badge custom`,                      // custom section badge
 		`name="operator" value="custom.example"`, // custom row (not a preset)
-		`wbaAddOperator()`,                       // add button
+		`'wba-op-add').addEventListener('click'`, // the add button's listener
+		`id="wba-op-add"`,                        // ...and the button
 		`</html>`,                                // no truncation
 	} {
 		if !strings.Contains(body, want) {
