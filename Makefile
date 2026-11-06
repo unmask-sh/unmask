@@ -1111,6 +1111,17 @@ e2e-lifecycle:
 	$(MAKE) package-rpm package-plugin-nginx-fat package-web-nginx UNMASK_VERSION=0.1.1
 	./e2e/lifecycle/run.sh
 
+## e2e-lifecycle-modern - the same lifecycle on Ubuntu, AlmaLinux and Alpine in docker
+# install / upgrade / the module fail-safe / removal through each
+# distribution's own package manager and nginx; e2e-lifecycle above is CentOS 6
+# and the direct nginx.conf edit.  Builds the three modules and unsigned
+# packages it needs first (e2e/lifecycle/build.sh).  CI runs this on every
+# push.
+.PHONY: e2e-lifecycle-modern
+e2e-lifecycle-modern:
+	./e2e/lifecycle/build.sh
+	./e2e/lifecycle/modern.sh
+
 ## distro-check  - release-gate: e2e (docker) + install matrix on a VM lab.
 # Maintainer-only target.  e2e covers admin / plugin behavior in isolation;
 # install-test-official.sh exercises the distribution path on real distros

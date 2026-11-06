@@ -59,6 +59,9 @@ for t in rpm/scripts/*_test.sh; do bash "$t"; done
 ./tools/check-public-text.sh
 # The docker e2e stack: nginx + the module + the daemon, 70-odd scenarios.
 make e2e-docker
+# The packages, through install, upgrade and removal on Ubuntu, AlmaLinux and
+# Alpine containers, each with its package manager and nginx (docker, nfpm).
+make e2e-lifecycle-modern
 # The admin UI in a browser (node + a Chromium; `npm ci` in e2e/ui first).
 # UI_E2E_ONLY=<substring> runs the matching test files alone.
 make e2e-ui
@@ -88,8 +91,9 @@ workflow in CI (every nginx version the plugin ships).
 
 CI runs on every push: Go lint, vet and tests (the MariaDB ones against a
 server of their own), the C parsers' unit tests and a sanitizer fuzz, the module built against a few recent nginx versions,
-the container images, and the docker e2e stack (`make e2e-docker`, which
-anyone can run).  When the module or its build changes, a second workflow
+the container images, the docker e2e stack (`make e2e-docker`, which
+anyone can run), and the packages through install, upgrade and removal on
+three distributions (`make e2e-lifecycle-modern`).  When the module or its build changes, a second workflow
 (`module-matrix`) builds the .so against every nginx version the plugin
 package ships -- fifteen, from 1.10.3 to the current stable -- against
 OpenSSL 3 and, in containers whose recipes are under `build-docker/`,
