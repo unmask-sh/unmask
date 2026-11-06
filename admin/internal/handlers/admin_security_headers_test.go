@@ -3,6 +3,8 @@ package handlers
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -70,5 +72,41 @@ func TestAdminSecurityHeadersOnTheWizard(t *testing.T) {
 	}
 	if nonce == "" || cspDirective(csp, "script-src") != "script-src 'self' 'nonce-"+nonce+"' 'report-sample'" {
 		t.Errorf("the handler's nonce %q is not the policy's: %q", nonce, csp)
+	}
+}
+
+// The wizard's page on a fresh install -- a setup token, no user yet -- runs
+// under the policy like any other: every script tag it carries has the nonce
+// the header names.  (Signed in as a superadmin the same page is the
+// reconfigure wizard, which the router's walk of the admin covers.)
+func TestWizardPageOnAFreshInstallCarriesThePolicyNonce(t *testing.T) {
+	h := newTestHandler(t)
+	if _, err := h.DB.Exec(`CREATE TABLE unmask_user (id INTEGER PRIMARY KEY, username TEXT)`); err != nil {
+		t.Fatal(err)
+	}
+	old, oldLegacy := SetupTokenPath, legacySetupTokenPath
+	SetupTokenPath = filepath.Join(t.TempDir(), ".setup-token")
+	legacySetupTokenPath = ""
+	t.Cleanup(func() { SetupTokenPath, legacySetupTokenPath = old, oldLegacy })
+	if err := os.WriteFile(SetupTokenPath, []byte("tok"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rr := httptest.NewRecorder()
+	h.AdminHeadersMiddleware(h.SetupGate(h.AdminSetupIndex))(rr, httptest.NewRequest(http.MethodGet, h.basePath()+"/admin/setup/", nil))
+	if rr.Code != http.StatusOK || !strings.Contains(rr.Body.String(), "</html>") {
+		t.Fatalf("the wizard's page: status %d, %d bytes", rr.Code, rr.Body.Len())
+	}
+	m := nonceInHeaderRE.FindStringSubmatch(rr.Header().Get("Content-Security-Policy"))
+	if m == nil {
+		t.Fatalf("no nonce in the wizard's policy: %q", rr.Header().Get("Content-Security-Policy"))
+	}
+	tags := scriptTagRE.FindAllString(rr.Body.String(), -1)
+	if len(tags) < 2 {
+		t.Fatalf("the wizard's page has %d script tag(s); the test checks nothing", len(tags))
+	}
+	for _, tag := range tags {
+		if !strings.Contains(tag, ` nonce="`+m[1]+`"`) {
+			t.Errorf("%s does not carry the header's nonce %s", tag, m[1])
+		}
 	}
 }
