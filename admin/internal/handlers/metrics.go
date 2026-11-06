@@ -7,6 +7,7 @@
 //	unmask_verify_score_sum                        score histogram (sum)
 //	unmask_verify_score_bucket{le=...}             score histogram (bucket)
 //	unmask_db_query_seconds{op=...} (sum/count)    DB query latency (Counter pair)
+//	unmask_db_up                                   1 when the daemon has its database, 0 while it runs without one (gauge)
 //	unmask_native_failsafe_active                  1 while the plugin's fail-safe has the module stripped (gauge)
 //	unmask_nginx_config_stale                      1 while a render waits for its reload (gauge)
 //	unmask_ban_file_worker_readable                0 when nginx's worker cannot read the ban list (gauge)
@@ -121,21 +122,37 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	snap := Metrics.snapshot(r.Context(), h)
+	// A daemon that runs without its database (a start that could not open
+	// it; db_wait.go) still answers the scrape: what it reads from memory and
+	// from disk is exported, what it would read from the database is left
+	// out, and unmask_db_up says which of the two this is.  The handler used
+	// to dereference the nil handle, so the one state an alert most wants to
+	// see was a failed scrape.
+	hasDB := h.DB != nil
+	var snap *metricsSnapshot
+	if hasDB {
+		snap = Metrics.snapshot(r.Context(), h)
+	}
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 
-	// unmask_event_total
-	fmt.Fprintln(w, "# HELP unmask_event_total Total events recorded by phase and verdict")
-	fmt.Fprintln(w, "# TYPE unmask_event_total counter")
-	for _, r := range snap.phaseRows {
-		fmt.Fprintf(w, "unmask_event_total{phase=%q,verdict=%q} %d\n",
-			r.Phase, r.Verdict, r.Count)
-	}
+	fmt.Fprintln(w, "# HELP unmask_db_up 1 when the daemon has its database; 0 while it runs without one (the start could not open it: challenge pages are served, the daemon retries, and readyz answers 503)")
+	fmt.Fprintln(w, "# TYPE unmask_db_up gauge")
+	fmt.Fprintf(w, "unmask_db_up %d\n", gaugeBit(hasDB))
 
-	fmt.Fprintln(w, "# HELP unmask_event_unique_ip Unique source IPs that hit any phase in last 24h")
-	fmt.Fprintln(w, "# TYPE unmask_event_unique_ip gauge")
-	fmt.Fprintf(w, "unmask_event_unique_ip %d\n", snap.uniqueIPs)
+	if snap != nil {
+		// unmask_event_total
+		fmt.Fprintln(w, "# HELP unmask_event_total Total events recorded by phase and verdict")
+		fmt.Fprintln(w, "# TYPE unmask_event_total counter")
+		for _, r := range snap.phaseRows {
+			fmt.Fprintf(w, "unmask_event_total{phase=%q,verdict=%q} %d\n",
+				r.Phase, r.Verdict, r.Count)
+		}
+
+		fmt.Fprintln(w, "# HELP unmask_event_unique_ip Unique source IPs that hit any phase in last 24h")
+		fmt.Fprintln(w, "# TYPE unmask_event_unique_ip gauge")
+		fmt.Fprintf(w, "unmask_event_unique_ip %d\n", snap.uniqueIPs)
+	}
 
 	// score histogram
 	count := atomic.LoadUint64(&Metrics.scoreCount)
@@ -156,17 +173,16 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "# TYPE unmask_captcha_math_no_input_total counter")
 	fmt.Fprintf(w, "unmask_captcha_math_no_input_total %d\n", atomic.LoadUint64(&Metrics.mathNoInput))
 
-	// Schema updates left for the operator.
-	waiting, running := h.SchemaWaiting()
-	fmt.Fprintln(w, "# HELP unmask_schema_update_pending Schema updates waiting for the operator (applied from the admin UI or with `unmask migrate`)")
-	fmt.Fprintln(w, "# TYPE unmask_schema_update_pending gauge")
-	fmt.Fprintf(w, "unmask_schema_update_pending %d\n", waiting)
-	fmt.Fprintln(w, "# HELP unmask_schema_update_running 1 while a schema update is being applied")
-	fmt.Fprintln(w, "# TYPE unmask_schema_update_running gauge")
-	if running {
-		fmt.Fprintln(w, "unmask_schema_update_running 1")
-	} else {
-		fmt.Fprintln(w, "unmask_schema_update_running 0")
+	// Schema updates left for the operator.  Not without a database: nothing
+	// has looked at its schema, and a 0 would say that something had.
+	if hasDB {
+		waiting, running := h.SchemaWaiting()
+		fmt.Fprintln(w, "# HELP unmask_schema_update_pending Schema updates waiting for the operator (applied from the admin UI or with `unmask migrate`)")
+		fmt.Fprintln(w, "# TYPE unmask_schema_update_pending gauge")
+		fmt.Fprintf(w, "unmask_schema_update_pending %d\n", waiting)
+		fmt.Fprintln(w, "# HELP unmask_schema_update_running 1 while a schema update is being applied")
+		fmt.Fprintln(w, "# TYPE unmask_schema_update_running gauge")
+		fmt.Fprintf(w, "unmask_schema_update_running %d\n", gaugeBit(running))
 	}
 
 	// The nginx side, for an alert rule: the plugin's fail-safe (the module
