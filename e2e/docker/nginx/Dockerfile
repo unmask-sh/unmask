@@ -20,13 +20,21 @@ COPY nginx-module/nginx-sha256sums.txt /src/nginx-module/nginx-sha256sums.txt
 RUN /src/tools/fetch-nginx-src.sh "${NGINX_VERSION}" /src
 
 COPY nginx-module/ /src/nginx-module/
+COPY tools/check-so-hardening.sh /src/tools/check-so-hardening.sh
 
+# Built with the options the shipped module is built with
+# (nginx-module/hardening.sh), so the scenarios run the binary the packages
+# carry in every respect but the nginx around it: a module that only loads
+# or only works without them would otherwise pass here and fail on a host.
 RUN cd nginx-${NGINX_VERSION} \
     && ./configure --with-compat --with-http_ssl_module \
                    --with-http_realip_module \
                    --with-http_auth_request_module \
+                   --with-cc-opt="$(sh /src/nginx-module/hardening.sh cc)" \
+                   --with-ld-opt="$(sh /src/nginx-module/hardening.sh ld)" \
                    --add-dynamic-module=/src/nginx-module \
-    && make -j"$(nproc)"
+    && make -j"$(nproc)" \
+    && sh /src/tools/check-so-hardening.sh objs/ngx_http_unmask_module.so
 
 # Runtime stage
 FROM debian:12-slim

@@ -192,19 +192,13 @@ endif
 NGINX_CROSS_OPTS =
 
 # Hardening for the shipped .so (= it parses TLS ClientHello bytes and the
-# client's cookie): stack protector, RELRO + BIND_NOW so the GOT is read-only
-# once loaded.  The same flags go to the CI build and the Dockerfile.
-# -fstack-protector-strong needs gcc 4.9; an older toolchain gets
-# -fstack-protector.  _FORTIFY_SOURCE is undefined and stays off: the
-# fortified calls it emits (__snprintf_chk, __memcpy_chk) exist only in glibc,
-# and the same glibc-built .so is dlopen()ed by Alpine's musl nginx through
-# gcompat, which provides none of them -- the 0.1.54 module failed to load
-# there ("__snprintf_chk: symbol not found") and the fail-safe stripped it.
-# Some toolchains predefine _FORTIFY_SOURCE (at 3), and nginx builds with
-# -Werror, so it is undefined explicitly.
-NGINX_STACK_PROTECTOR := $(shell echo 'int main(void){return 0;}' | $(CC) -fstack-protector-strong -x c -c -o /dev/null - >/dev/null 2>&1 && echo -fstack-protector-strong || echo -fstack-protector)
-NGINX_CC_OPT ?= -O2 $(NGINX_STACK_PROTECTOR) -U_FORTIFY_SOURCE
-NGINX_LD_OPT ?= -Wl,-z,relro,-z,now
+# client's cookie): a stack protector, RELRO + BIND_NOW, no fortified libc
+# calls.  The options and the reasons are in nginx-module/hardening.sh, which
+# every build path asks -- this one, the container recipes under
+# build-docker/, the Dockerfile, CI -- and tools/check-so-hardening.sh reads
+# them back out of the .so each path produced.
+NGINX_CC_OPT ?= $(shell sh $(CURDIR)/nginx-module/hardening.sh cc $(CC))
+NGINX_LD_OPT ?= $(shell sh $(CURDIR)/nginx-module/hardening.sh ld)
 
 build-module: $(NGINX_SRC)/configure
 	cd $(NGINX_SRC) && \
@@ -215,6 +209,7 @@ build-module: $(NGINX_SRC)/configure
 		$(MAKE) -f $(NGINX_BUILD_DIR)/Makefile modules
 	mkdir -p $(DIST)
 	cp $(NGINX_SRC)/$(NGINX_BUILD_DIR)/ngx_http_unmask_module.so $(MODULE_SO)
+	sh $(CURDIR)/tools/check-so-hardening.sh $(MODULE_SO)
 	@echo "built $(MODULE_SO) (nginx $(NGINX_VERSION), with-compat=$(NGINX_WITH_COMPAT), arch=$(GOARCH))"
 
 ## build-module-multi - build .so for multiple nginx versions in one go.
@@ -287,6 +282,11 @@ build-module-multi:
 # Output: dist/multi-modules-openssl11/<ver>/ngx_http_unmask_module.so.
 # Prereqs: docker.  The builder image is built from build-docker/openssl11/
 # on first use (or by hand: docker build -t unmask-builder-openssl11 build-docker/openssl11/).
+# The image is the toolchain only: the recipe that runs is the tree's own
+# build-docker/<name>/build-one.sh (bind-mounted), not the copy baked into an
+# image built some time ago -- so an edit to a recipe takes effect on the next
+# build, and is part of what the cache stamp hashes (tools/module-src-hash.sh).
+# The same holds for the two recipes below.
 # Arch-suffixed like MULTI_DIR: amd64 keeps the legacy un-suffixed path; other
 # arches get -$(GOARCH).  This also keeps package-plugin-nginx-fat honest for
 # arm64 — the openssl11/10/glibc212 bundles exist only for amd64 today, so the
@@ -318,7 +318,7 @@ build-module-multi-openssl11:
 		[ ! -f $$out ] || echo "  stale: $$out (module source changed), rebuilding"; \
 		rm -f $$out $$stamp; \
 		mkdir -p $$(dirname $$out); \
-		docker run --rm --platform=linux/$(GOARCH) -v "$$(pwd):/work" $(BUILDER_OPENSSL11) $$v || { \
+		docker run --rm --platform=linux/$(GOARCH) -v "$$(pwd):/work" --entrypoint /bin/sh $(BUILDER_OPENSSL11) /work/build-docker/openssl11/build-one.sh $$v || { \
 			echo "!!! build failed for nginx $$v (continuing)"; \
 			continue; \
 		}; \
@@ -365,7 +365,7 @@ build-module-multi-openssl10:
 		[ ! -f $$out ] || echo "  stale: $$out (module source changed), rebuilding"; \
 		rm -f $$out $$stamp; \
 		mkdir -p $$(dirname $$out); \
-		docker run --rm --platform=linux/amd64 -v "$$(pwd):/work" unmask-builder-openssl10 $$v || { \
+		docker run --rm --platform=linux/amd64 -v "$$(pwd):/work" --entrypoint /bin/sh unmask-builder-openssl10 /work/build-docker/openssl10/build-one.sh $$v || { \
 			echo "!!! build failed for nginx $$v (continuing)"; \
 			continue; \
 		}; \
@@ -411,7 +411,7 @@ build-module-multi-glibc212:
 		[ ! -f $$out ] || echo "  stale: $$out (module source changed), rebuilding"; \
 		rm -f $$out $$stamp; \
 		mkdir -p $$(dirname $$out); \
-		docker run --rm --platform=linux/amd64 -v "$$(pwd):/work" unmask-builder-centos6 $$v || { \
+		docker run --rm --platform=linux/amd64 -v "$$(pwd):/work" --entrypoint /bin/sh unmask-builder-centos6 /work/build-docker/centos6/build-one.sh $$v || { \
 			echo "!!! build failed for nginx $$v (continuing)"; \
 			continue; \
 		}; \

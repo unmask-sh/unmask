@@ -46,10 +46,14 @@ cd "$SRC_DIR"
 # 1.11.5+ : --with-compat alone gives the dlopen ABI contract.
 # 1.10.x  : no --with-compat, so enable --with-http_ssl_module explicitly to
 #           turn on the SSL struct members (= ngx_connection_t.ssl).
+# The options every build path gives the module (nginx-module/hardening.sh);
+# this recipe used to pass none.
+CC_OPT="$(sh "$WORKDIR/nginx-module/hardening.sh" cc)"
+LD_OPT="$(sh "$WORKDIR/nginx-module/hardening.sh" ld)"
 if [ "$COMPAT" = "1" ]; then
-    ./configure --with-compat --add-dynamic-module="$WORKDIR/nginx-module" >/dev/null
+    ./configure --with-compat --with-cc-opt="$CC_OPT" --with-ld-opt="$LD_OPT" --add-dynamic-module="$WORKDIR/nginx-module" >/dev/null
 else
-    ./configure --with-http_ssl_module --add-dynamic-module="$WORKDIR/nginx-module" >/dev/null
+    ./configure --with-http_ssl_module --with-cc-opt="$CC_OPT" --with-ld-opt="$LD_OPT" --add-dynamic-module="$WORKDIR/nginx-module" >/dev/null
 fi
 make modules
 
@@ -58,6 +62,9 @@ if [ ! -f "$SO" ]; then
     echo "build failed: $SO not found" >&2
     exit 2
 fi
+# Read the options back out of the .so: one that lost them does not reach
+# the cache.
+sh "$WORKDIR/tools/check-so-hardening.sh" "$SO"
 
 cp -v "$SO" "$OUT_DIR/ngx_http_unmask_module.so"
 # Confirm the link target is libssl.so.1.1 (= the whole point of this builder).

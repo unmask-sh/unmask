@@ -264,16 +264,18 @@ jobs:
       - name: download nginx source
         run: ./tools/fetch-nginx-src.sh ${{ matrix.nginx }}
       - name: build module
-        # The hardening options match the Makefile's build-module and the
-        # Dockerfile: stack protector, fortified libc calls, RELRO + BIND_NOW.
+        # The hardening options are the ones every build of the module asks
+        # nginx-module/hardening.sh for (the Makefile, the Dockerfile, the
+        # container recipes); the check reads them back out of the .so.
         run: |
           cd nginx-${{ matrix.nginx }}
           ./configure --with-compat --with-http_ssl_module \
-                      --with-cc-opt='-O2 -fstack-protector-strong -U_FORTIFY_SOURCE' \
-                      --with-ld-opt='-Wl,-z,relro,-z,now' \
+                      --with-cc-opt="$(sh $GITHUB_WORKSPACE/nginx-module/hardening.sh cc)" \
+                      --with-ld-opt="$(sh $GITHUB_WORKSPACE/nginx-module/hardening.sh ld)" \
                       --add-dynamic-module=$GITHUB_WORKSPACE/nginx-module
           make modules
           ls -la objs/ngx_http_unmask_module.so
+          sh $GITHUB_WORKSPACE/tools/check-so-hardening.sh objs/ngx_http_unmask_module.so
       - name: rename + arch suffix
         id: arch
         run: |

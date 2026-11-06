@@ -67,17 +67,19 @@ RUN curl -fsSL -o "nginx-${NGINX_VERSION}.tar.gz" "https://nginx.org/download/ng
     && tar -xzf "nginx-${NGINX_VERSION}.tar.gz" \
     && rm "nginx-${NGINX_VERSION}.tar.gz"
 COPY nginx-module/ /src/nginx-module/
-# The hardening options match the Makefile's build-module and the CI build:
-# stack protector, fortified libc calls, RELRO + BIND_NOW.
+COPY tools/check-so-hardening.sh /src/check-so-hardening.sh
+# The hardening options are the ones every build of the module asks
+# nginx-module/hardening.sh for, and the check reads them back out of the .so.
 RUN cd "nginx-${NGINX_VERSION}" \
     && ./configure --with-compat \
                    --with-http_ssl_module \
                    --with-http_realip_module \
                    --with-http_auth_request_module \
-                   --with-cc-opt='-O2 -fstack-protector-strong -U_FORTIFY_SOURCE' \
-                   --with-ld-opt='-Wl,-z,relro,-z,now' \
+                   --with-cc-opt="$(sh /src/nginx-module/hardening.sh cc)" \
+                   --with-ld-opt="$(sh /src/nginx-module/hardening.sh ld)" \
                    --add-dynamic-module=/src/nginx-module \
-    && make -j"$(nproc)" modules
+    && make -j"$(nproc)" modules \
+    && sh /src/check-so-hardening.sh objs/ngx_http_unmask_module.so
 
 # -------------------------------------------------------------------------
 # runtime: the official nginx image + the module + the daemon
