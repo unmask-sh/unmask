@@ -15,8 +15,8 @@ import (
 // line -- so one escaping mistake would run a script in an operator's
 // session.  The policy stands behind the escaping: the middleware draws a
 // nonce per response, the Content-Security-Policy header names it
-// (script-src 'self' 'nonce-...'), and every <script> the templates emit
-// carries it as an attribute (nonceAttr).  A script injected into the page
+// (script-src 'nonce-...'), and every <script> the templates emit carries
+// it as an attribute (nonceAttr).  A script injected into the page
 // does not know the nonce and does not run.  Neither does an inline on*
 // attribute or a javascript: URL, which cannot carry one: the templates wire
 // their handlers with addEventListener, and a test keeps both that way
@@ -60,16 +60,23 @@ func CSPNonceFromRequest(r *http.Request) string {
 	return n
 }
 
-// cspScriptSrc is the script directive for the response's nonce: scripts
-// from this origin (popover-pin.js) and inline scripts carrying the nonce.
-// No 'unsafe-inline', no 'unsafe-eval'.  'report-sample' loosens nothing: it
-// has the browser put the first characters of what it refused in the report,
-// which is what tells an operator's own stray handler from an injected script.
+// cspScriptSrc is the script directive for the response's nonce: the scripts
+// that carry it, inline or from a file (the tag of popover-pin.js has it like
+// the rest), and nothing else.
+//
+// Not 'self'.  The admin shares its origin with the site it protects, so
+// 'self' would also run any script that site serves -- an upload, a JSONP
+// endpoint -- as soon as an injected tag named it, and an injected tag is
+// what this policy is here to stop.  No 'unsafe-inline', no 'unsafe-eval'.
+// 'report-sample' loosens nothing: it has the browser put the first
+// characters of what it refused in the report, which is what tells an
+// operator's own stray handler from an injected script.  A response without
+// a nonce runs no script at all.
 func cspScriptSrc(nonce string) string {
 	if nonce == "" {
-		return "script-src 'self' 'report-sample'"
+		return "script-src 'none'"
 	}
-	return "script-src 'self' 'nonce-" + nonce + "' 'report-sample'"
+	return "script-src 'nonce-" + nonce + "' 'report-sample'"
 }
 
 // nonceAttr is the template function that puts the response's nonce on a

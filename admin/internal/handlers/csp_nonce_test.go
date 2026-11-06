@@ -25,8 +25,8 @@ func TestCSPNonceHeaderAndPageAgree(t *testing.T) {
 		t.Fatalf("login page: %d", rr.Code)
 	}
 	csp := rr.Header().Get("Content-Security-Policy")
-	if !strings.Contains(csp, "; script-src 'self' 'nonce-") {
-		t.Fatalf("policy = %q, want script-src 'self' with a nonce", csp)
+	if !strings.Contains(csp, "; script-src 'nonce-") {
+		t.Fatalf("policy = %q, want a script-src that leads with the nonce", csp)
 	}
 	m := nonceInHeaderRE.FindStringSubmatch(csp)
 	if m == nil {
@@ -42,12 +42,14 @@ func TestCSPNonceHeaderAndPageAgree(t *testing.T) {
 		}
 	}
 	// The directive is enforced: no report-only copy beside it, and it is
-	// this origin and the nonce, nothing that would let an unmarked script
-	// run ('unsafe-inline', 'unsafe-eval', a scheme, a wildcard).
+	// the nonce alone, nothing that would let an unmarked script run
+	// ('unsafe-inline', 'unsafe-eval', a scheme, a wildcard) -- not 'self'
+	// either, which on an origin shared with the protected site would run
+	// that site's script files from an injected tag.
 	if ro := rr.Header().Get("Content-Security-Policy-Report-Only"); ro != "" {
 		t.Errorf("a report-only policy is still sent: %q", ro)
 	}
-	if got, want := cspDirective(csp, "script-src"), "script-src 'self' 'nonce-"+m[1]+"' 'report-sample'"; got != want {
+	if got, want := cspDirective(csp, "script-src"), "script-src 'nonce-"+m[1]+"' 'report-sample'"; got != want {
 		t.Errorf("script directive = %q, want %q", got, want)
 	}
 	if !strings.HasSuffix(csp, "; report-uri "+h.basePath()+"/admin/csp-report") {
@@ -111,17 +113,23 @@ func TestNonceAttrToleratesOtherData(t *testing.T) {
 	}
 }
 
-// Without a nonce the directive still allows only this origin's files: the
-// page's inline scripts then do not run, which is the safe side of a
-// response whose scripts cannot be told from an injected one.
+// Without a nonce no script runs at all: the safe side of a response whose
+// scripts cannot be told from an injected one.
 func TestCSPScriptSrcWithoutANonce(t *testing.T) {
-	if got := cspScriptSrc(""); got != "script-src 'self' 'report-sample'" {
+	if got := cspScriptSrc(""); got != "script-src 'none'" {
 		t.Errorf("directive without a nonce = %q", got)
 	}
-	if got := cspScriptSrc("abc+/="); got != "script-src 'self' 'nonce-abc+/=' 'report-sample'" {
+	if got := cspScriptSrc("abc+/="); got != "script-src 'nonce-abc+/=' 'report-sample'" {
 		t.Errorf("directive with a nonce = %q", got)
 	}
-	if got := adminCSP("", "/unmask"); strings.Contains(got, "nonce-") || !strings.Contains(got, "; script-src 'self' ") {
+	if got := adminCSP("", "/unmask"); strings.Contains(got, "nonce-") || !strings.Contains(got, "; script-src 'none'; ") {
 		t.Errorf("policy without a nonce = %q", got)
+	}
+	// 'self' is the one source the admin must not name: its origin is the
+	// protected site's too.
+	for _, nonce := range []string{"", "abc+/="} {
+		if got := cspScriptSrc(nonce); strings.Contains(got, "'self'") {
+			t.Errorf("directive %q names 'self'", got)
+		}
 	}
 }

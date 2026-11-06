@@ -1,6 +1,6 @@
 // The admin under its enforced Content-Security-Policy.
 //
-// script-src names this origin and the response's nonce and nothing else, so
+// script-src names the response's nonce and nothing else, so
 // a <script> a template forgot to mark, an inline on* handler or a
 // javascript: link does not run -- and says nothing: the page looks the same
 // and a button does nothing.  This walks the admin in a real browser and
@@ -139,7 +139,7 @@ async function open(page, sink, p, want) {
     ok(csp === "frame-ancestors 'self'; base-uri 'self'; object-src 'none'; form-action 'self'",
       `${p}: the deny preview's policy changed: ${csp}`);
   } else {
-    const m = /; script-src 'self' 'nonce-([A-Za-z0-9+\/=]{22,})' 'report-sample'; report-uri \S+\/admin\/csp-report$/.exec(csp);
+    const m = /; script-src 'nonce-([A-Za-z0-9+\/=]{22,})' 'report-sample'; report-uri \S+\/admin\/csp-report$/.exec(csp);
     ok(m !== null, `${p}: the response does not carry the script policy: ${JSON.stringify(csp)}`);
     ok(!/unsafe-inline|unsafe-eval/.test(csp), `${p}: the policy is loosened: ${csp}`);
     ok(!res.headers()['content-security-policy-report-only'], `${p}: a report-only policy is still sent`);

@@ -30,7 +30,7 @@ func TestAdminSecurityHeadersBeforeAndAfterLogin(t *testing.T) {
 		}
 		// The script directive, enforced, under the response's nonce
 		// (csp_nonce.go), and where the browser reports a refusal.
-		if d := cspDirective(csp, "script-src"); !strings.HasPrefix(d, "script-src 'self' 'nonce-") {
+		if d := cspDirective(csp, "script-src"); !strings.HasPrefix(d, "script-src 'nonce-") {
 			t.Errorf("%s: script directive = %q", label, d)
 		}
 		if d := cspDirective(csp, "report-uri"); d != "report-uri "+h.basePath()+"/admin/csp-report" {
@@ -70,7 +70,7 @@ func TestAdminSecurityHeadersOnTheWizard(t *testing.T) {
 	if !strings.HasPrefix(csp, adminCSPBase+"; ") {
 		t.Errorf("policy = %q, want it to start with %q", csp, adminCSPBase)
 	}
-	if nonce == "" || cspDirective(csp, "script-src") != "script-src 'self' 'nonce-"+nonce+"' 'report-sample'" {
+	if nonce == "" || cspDirective(csp, "script-src") != "script-src 'nonce-"+nonce+"' 'report-sample'" {
 		t.Errorf("the handler's nonce %q is not the policy's: %q", nonce, csp)
 	}
 }
