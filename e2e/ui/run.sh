@@ -182,6 +182,14 @@ challenge:
 # notify-test-error.test.js posts the webhook test at a port on this host.
 outbound:
   allow_loopback: true
+# No GeoIP database for a daemon that lives for one test run.  Left at the
+# default, it found none on the managed path at every start and went to fetch
+# one -- a download from the mirror per run, here and in CI, written (or, for
+# want of /var/lib/unmask, not written) to a path no test reads.
+ipgeo:
+  auto_fetch: false
+  auto_update: false
+  auto_update_asn: false
 EOF
 
 "$BIN" migrate -config "$WORK/config.yml" >/dev/null
