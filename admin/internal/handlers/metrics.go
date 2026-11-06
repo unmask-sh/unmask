@@ -2,22 +2,26 @@
 //
 // Emitted metrics:
 //
-//	unmask_event_total{phase=...,verdict=...}      counter
-//	unmask_verify_score_count                      score histogram (count)
-//	unmask_verify_score_sum                        score histogram (sum)
-//	unmask_verify_score_bucket{le=...}             score histogram (bucket)
-//	unmask_db_query_seconds{op=...} (sum/count)    DB query latency (Counter pair)
 //	unmask_db_up                                   1 when the daemon has its database, 0 while it runs without one (gauge)
+//	unmask_event_total{phase=...,verdict=...}      event rows this daemon has written since it started (counter)
+//	unmask_event_unique_ip                         distinct addresses behind the last 24 hours of events (gauge)
+//	unmask_verify_score_bucket{le=...} / _sum / _count   behavioral score distribution (histogram)
+//	unmask_captcha_math_no_input_total             correct math answers with no input events (counter)
+//	unmask_schema_update_pending / _running        schema updates left for the operator (gauges)
 //	unmask_native_failsafe_active                  1 while the plugin's fail-safe has the module stripped (gauge)
 //	unmask_nginx_config_stale                      1 while a render waits for its reload (gauge)
 //	unmask_ban_file_worker_readable                0 when nginx's worker cannot read the ban list (gauge)
 //	unmask_nginxlog_dropped_total                  access-log lines dropped at a full receiver queue (counter)
 //	unmask_events_bad_rows_total                   event rows dropped because the database refused their data (counter)
 //	unmask_events_dropped_total                    events dropped by the batch writer's backlog cap (counter)
+//	unmask_db_query_seconds_sum / _count{op=...}   time spent in the exporter's own database reads (summary)
 //
-// challenge phases are counted by events.Insert on each admin request, so the
-// /metrics handler reads them by GROUP BY directly from the DB on invocation
-// (= cached for 30 seconds).
+// A scrape reads memory and a few files, and the database once a minute at
+// most (the unique-address sketches).  The event counter in particular is
+// counted where the rows are written (events.WrittenCounts) and never read
+// back from the table: it used to be a GROUP BY over the last 24 hours of
+// unmask_event, which is not a counter -- it fell whenever a row left the
+// window -- and was a scan of a day of events on every cache miss.
 //
 // Why no client_golang: avoid adding a dependency.  Counter and histogram are
 // implementable with stdlib + sync/atomic, and the text format is simple.
@@ -26,13 +30,16 @@ package handlers
 import (
 	"context"
 	"fmt"
-	"github.com/unmask-sh/unmask/admin/internal/events"
 	"net/http"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/unmask-sh/unmask/admin/internal/dashboard"
+	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -52,9 +59,12 @@ type metricsState struct {
 	mathNoInput uint64
 	qLat        sync.Map // op string -> *latencyAcc
 
-	cache      *metricsSnapshot
-	cacheUntil time.Time
-	cacheMu    sync.Mutex
+	// uniq: the last reading of the 24-hour unique addresses (uniqueIPs),
+	// when it was taken, and the database it was taken from.
+	uniqMu  sync.Mutex
+	uniq    int
+	uniqAt  time.Time
+	uniqFor *db.DB
 }
 
 type latencyAcc struct {
@@ -93,16 +103,15 @@ func (m *metricsState) ObserveQuery(op string, d time.Duration) {
 	atomic.AddUint64(&acc.sum, uint64(d.Nanoseconds()))
 }
 
-type phaseRow struct {
-	Phase   string
-	Verdict string
-	Count   uint64
-}
+// promLabelEscaper escapes a label value for the text exposition format,
+// which knows three escapes and no others: backslash, double quote, line
+// feed.  (Go's %q writes a tab as \t and a control byte as \x01, and a
+// scraper refuses the whole exposition for either.)
+var promLabelEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
 
-type metricsSnapshot struct {
-	phaseRows []phaseRow
-	totalRows uint64
-	uniqueIPs uint64
+// promLabel is s as a label value, between its quotes.
+func promLabel(s string) string {
+	return promLabelEscaper.Replace(strings.ToValidUTF8(s, "\uFFFD"))
 }
 
 // Metrics: GET {base}/metrics
@@ -129,10 +138,6 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 	// to dereference the nil handle, so the one state an alert most wants to
 	// see was a failed scrape.
 	hasDB := h.DB != nil
-	var snap *metricsSnapshot
-	if hasDB {
-		snap = Metrics.snapshot(r.Context(), h)
-	}
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 
@@ -140,18 +145,24 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "# TYPE unmask_db_up gauge")
 	fmt.Fprintf(w, "unmask_db_up %d\n", gaugeBit(hasDB))
 
-	if snap != nil {
-		// unmask_event_total
-		fmt.Fprintln(w, "# HELP unmask_event_total Total events recorded by phase and verdict")
-		fmt.Fprintln(w, "# TYPE unmask_event_total counter")
-		for _, r := range snap.phaseRows {
-			fmt.Fprintf(w, "unmask_event_total{phase=%q,verdict=%q} %d\n",
-				r.Phase, r.Verdict, r.Count)
-		}
+	// The rows written, from the writer's own count (events/written.go): it
+	// starts at zero with the daemon and only goes up, which is what rate()
+	// and increase() need of a counter.  Each daemon counts what it wrote
+	// itself, also where several share one database.
+	fmt.Fprintln(w, "# HELP unmask_event_total event rows this daemon has written to the database since it started, by phase and verdict")
+	fmt.Fprintln(w, "# TYPE unmask_event_total counter")
+	for _, c := range events.WrittenCounts() {
+		fmt.Fprintf(w, "unmask_event_total{phase=\"%s\",verdict=\"%s\"} %d\n",
+			promLabel(c.Phase), promLabel(c.Verdict), c.N)
+	}
 
-		fmt.Fprintln(w, "# HELP unmask_event_unique_ip Unique source IPs that hit any phase in last 24h")
+	// The unique addresses of the last 24 hours, when the rollup can say:
+	// no sample, rather than a 0 that reads as "nobody came", while it
+	// cannot.
+	if n, ok := Metrics.uniqueIPs(r.Context(), h.DB); ok {
+		fmt.Fprintln(w, "# HELP unmask_event_unique_ip distinct source addresses behind the events of the last 24 hours (an estimate from the hourly rollup of the database, so the same on every daemon sharing it)")
 		fmt.Fprintln(w, "# TYPE unmask_event_unique_ip gauge")
-		fmt.Fprintf(w, "unmask_event_unique_ip %d\n", snap.uniqueIPs)
+		fmt.Fprintf(w, "unmask_event_unique_ip %d\n", n)
 	}
 
 	// score histogram
@@ -215,9 +226,11 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintln(w, "# TYPE unmask_events_dropped_total counter")
 	fmt.Fprintf(w, "unmask_events_dropped_total %d\n", events.GlobalFlusherDropped())
 
-	// DB latency
-	fmt.Fprintln(w, "# HELP unmask_db_query_seconds DB query latency (sum & count, per op)")
-	fmt.Fprintln(w, "# TYPE unmask_db_query_seconds counter")
+	// The exporter's own database reads: a sum and a count per op, which is
+	// a summary (without quantiles) and was declared a counter, a type whose
+	// samples carry the family's own name.
+	fmt.Fprintln(w, "# HELP unmask_db_query_seconds time spent in the exporter's own database reads, per op (sum and count; no quantiles)")
+	fmt.Fprintln(w, "# TYPE unmask_db_query_seconds summary")
 	type opPair struct {
 		op    string
 		count uint64
@@ -235,50 +248,50 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 	})
 	sort.Slice(ops, func(i, j int) bool { return ops[i].op < ops[j].op })
 	for _, op := range ops {
-		fmt.Fprintf(w, "unmask_db_query_seconds_count{op=%q} %d\n", op.op, op.count)
-		fmt.Fprintf(w, "unmask_db_query_seconds_sum{op=%q} %g\n", op.op, float64(op.sum)/1e9)
+		fmt.Fprintf(w, "unmask_db_query_seconds_sum{op=\"%s\"} %g\n", promLabel(op.op), float64(op.sum)/1e9)
+		fmt.Fprintf(w, "unmask_db_query_seconds_count{op=\"%s\"} %d\n", promLabel(op.op), op.count)
 	}
 }
 
-// snapshot reads aggregate counters from the DB.  Cached for 30 seconds to
-// avoid hammering DB on prometheus scrape (= default 15s scrape * 1 instance).
-func (m *metricsState) snapshot(ctx context.Context, h *Handler) *metricsSnapshot {
-	m.cacheMu.Lock()
-	defer m.cacheMu.Unlock()
-	if m.cache != nil && time.Now().Before(m.cacheUntil) {
-		return m.cache
-	}
+const (
+	// uniqueIPHours is the window of unmask_event_unique_ip.
+	uniqueIPHours = 24
+	// uniqueIPKeep is how long one reading of it stands: the rollup it is
+	// read from is folded once a minute, so a scrape that comes sooner would
+	// read the same sketches again.
+	uniqueIPKeep = time.Minute
+	// uniqueIPBudget bounds the read; a scrape is not kept waiting on a
+	// database that is busy.
+	uniqueIPBudget = 3 * time.Second
+)
 
-	snap := &metricsSnapshot{}
+// uniqueIPs is the distinct addresses behind the last 24 hours of events,
+// from the hourly rollup's sketches (dashboard.EventDistinctIPs), read at
+// most once per uniqueIPKeep.  ok is false when there is nothing to export:
+// no database, a rollup that has not completed a pass yet, or a read that
+// failed or ran out of its budget.  A failure is not kept -- the next scrape
+// asks again -- and is never turned into a 0: the reading used to be a
+// COUNT(DISTINCT) over a day of raw events whose error was dropped, and the
+// zero it left behind was cached and exported as the answer.
+func (m *metricsState) uniqueIPs(ctx context.Context, d *db.DB) (n int, ok bool) {
+	if d == nil {
+		return 0, false
+	}
+	m.uniqMu.Lock()
+	defer m.uniqMu.Unlock()
+	if m.uniqFor == d && time.Since(m.uniqAt) < uniqueIPKeep {
+		return m.uniq, true
+	}
+	rctx, cancel := context.WithTimeout(ctx, uniqueIPBudget)
+	defer cancel()
 	t0 := time.Now()
-	stmt := fmt.Sprintf(`
-        SELECT phase, COALESCE(ja4_verdict, '(none)') AS v, COUNT(*) FROM unmask_event
-        WHERE date_created > %s
-        GROUP BY phase, ja4_verdict`, h.DB.NowMinusMinutes(24*60))
-	rows, err := h.DB.QueryContext(ctx, stmt)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var pr phaseRow
-			if err := rows.Scan(&pr.Phase, &pr.Verdict, &pr.Count); err != nil {
-				continue
-			}
-			snap.phaseRows = append(snap.phaseRows, pr)
-			snap.totalRows += pr.Count
-		}
+	n, ok = dashboard.EventDistinctIPs(rctx, d, uniqueIPHours)
+	if !ok {
+		return 0, false
 	}
-	m.ObserveQuery("metrics_phase_group", time.Since(t0))
-
-	t0 = time.Now()
-	row := h.DB.QueryRowContext(ctx, fmt.Sprintf(
-		`SELECT COUNT(DISTINCT ip_address) FROM unmask_event WHERE date_created > %s`,
-		h.DB.NowMinusMinutes(24*60)))
-	_ = row.Scan(&snap.uniqueIPs)
 	m.ObserveQuery("metrics_unique_ip", time.Since(t0))
-
-	m.cache = snap
-	m.cacheUntil = time.Now().Add(30 * time.Second)
-	return snap
+	m.uniq, m.uniqAt, m.uniqFor = n, time.Now(), d
+	return n, true
 }
 
 // gaugeBit is a state as a gauge reads it.
