@@ -219,7 +219,25 @@ func (b *aggBatch) sketch(k hllKey) *hll {
 // = delete that state row and truncate the tables; the next call backfills
 // from id 0. gip may be nil (no IP-geo configured) — country rollups are then
 // skipped.
+//
+// "Single writer" is one process on SQLite and has to be made true on a
+// MariaDB that several nodes share: each of them runs this once a minute, the
+// cursor is read here and written in each chunk's own transaction, and two
+// passes that read it together fold the same events and add them twice.  So
+// a pass holds the database's aggregate lock (db.LockAggregate) from before
+// the cursor is read until it returns, and a pass that finds the lock taken
+// returns at once, having folded nothing: the holder is folding those events.
+// (The rollups that run after this one recompute their hours and overwrite,
+// so two of them at once write the same thing and need no lock.)
 func AggregateHourly(ctx context.Context, d *db.DB, gip *ipgeo.Reader) error {
+	lock, got, err := d.LockAggregate(ctx)
+	if err != nil {
+		return fmt.Errorf("aggregate lock: %w", err)
+	}
+	if !got {
+		return nil
+	}
+	defer lock.Release()
 	last, err := hourlyLastID(ctx, d)
 	if err != nil {
 		return err
