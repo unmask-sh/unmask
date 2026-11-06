@@ -61,6 +61,8 @@ echo "  installed: $DEST"
 NGINX_CONF=/etc/nginx/nginx.conf
 LOAD_LINE="load_module \"$DEST\";"
 LOAD_DROPPED=""
+# The conf this run wrote, for the note the removal reads (below).
+DROP_PLACED=""
 
 if [ -r "$NGINX_CONF" ]; then
     # Extract main-scope *.conf include dirs from nginx.conf's include lines
@@ -99,6 +101,7 @@ if [ -r "$NGINX_CONF" ]; then
             echo "$LOAD_LINE" > "$DROP"
             chmod 0644 "$DROP"
             echo "  load_module conf: $DROP"
+            DROP_PLACED=$DROP
         fi
         LOAD_DROPPED=1
     fi
@@ -111,6 +114,24 @@ if [ -z "$LOAD_DROPPED" ]; then
     echo "           non-standard for this distro's nginx package).  Add manually:"
     echo "             At the top of $NGINX_CONF (= outside http {})"
     echo "               $LOAD_LINE"
+fi
+
+# Note where the module and the conf that loads it went: the removal
+# (preremove-plugin-nginx.sh) looks there first, whatever nginx.conf says by
+# then.  The same note, in the same place, as place-module.sh keeps for the
+# bundle variant.  The directory is in the unmask user's tree, so the note is
+# made under a fresh name and renamed into place -- a link planted at either
+# name is replaced, never written through.
+WIRED_STATE=/var/lib/unmask/plugin/.wired
+if mkdir -p "${WIRED_STATE%/*}" 2>/dev/null; then
+    wired_tmp="$WIRED_STATE.tmp.$$"
+    rm -f "$wired_tmp" 2>/dev/null
+    if ( set -C
+         { echo "so $DEST"
+           if [ -n "$DROP_PLACED" ]; then echo "conf $DROP_PLACED"; fi
+         } > "$wired_tmp" ) 2>/dev/null; then
+        mv -f "$wired_tmp" "$WIRED_STATE" 2>/dev/null || rm -f "$wired_tmp" 2>/dev/null
+    fi
 fi
 
 # NOTE: this thin plugin variant deliberately does NOT drop an include for the

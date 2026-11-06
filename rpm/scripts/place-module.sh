@@ -38,9 +38,13 @@
 #      or, when the modules path is unwritable (immutable /usr, ostree-style
 #      distros), to /var/lib/unmask/plugin/ and point load_module there.
 #   6. restorecon if selinux is in use.
+#   7. Place the load_module line, and note where it and the .so went
+#      (wired_record): the fail-safe and the package's removal take them away
+#      from there (unwire_module).
 
 PLUGIN_BASE=/usr/share/unmask/plugin
 SO_NAME=ngx_http_unmask_module.so
+NGINX_CONF=/etc/nginx/nginx.conf
 # Fallback .so home for hosts whose /usr is read-only at runtime (Fedora
 # Silverblue / ostree and friends).  The distro-conventional modules path is
 # still preferred when writable: it inherits the right SELinux label and
@@ -73,25 +77,170 @@ _pm_render() {
     /usr/sbin/unmask render-nginx >/dev/null 2>&1
 }
 _pm_nginx_t() { nginx -t 2>&1; }
-_pm_strip_module() {
-    mp=$(nginx -V 2>&1 | tr ' ' '\n' | sed -n 's|^--modules-path=||p' | head -1)
-    rm -f /etc/nginx/modules-enabled/50-mod-unmask.conf \
-          /etc/nginx/modules.d/50-mod-unmask.conf \
-          /usr/share/nginx/modules/50-mod-unmask.conf 2>/dev/null
-    [ -n "$mp" ] && rm -f "$mp/$SO_NAME" 2>/dev/null
-    rm -f "$FALLBACK_SO_DIR/$SO_NAME" 2>/dev/null
-    if [ -w /etc/nginx/nginx.conf ] && grep -q 'load_module.*ngx_http_unmask_module' /etc/nginx/nginx.conf 2>/dev/null; then
-        t="/etc/nginx/nginx.conf.unmask-disable.$$"
-        if grep -v 'load_module.*ngx_http_unmask_module' /etc/nginx/nginx.conf > "$t" 2>/dev/null; then
-            mv -f "$t" /etc/nginx/nginx.conf
-        else
-            rm -f "$t"
-        fi
-    fi
-}
+_pm_strip_module() { unwire_module strip; }
 _pm_module_wired() {
     mp=$(nginx -V 2>&1 | tr ' ' '\n' | sed -n 's|^--modules-path=||p' | head -1)
     { [ -n "$mp" ] && [ -e "$mp/$SO_NAME" ]; } || [ -e "$FALLBACK_SO_DIR/$SO_NAME" ]
+}
+
+# >>> unwire >>>
+# Taking the module out of nginx again: the load_module wiring and the .so.
+#
+# The lines between the two markers are the same, byte for byte, in
+# place-module.sh (the fail-safe, which strips the module so that nginx still
+# starts) and in preremove-plugin-nginx.sh (the package's removal);
+# uninstall_test.sh fails when they differ.  A copy in each rather than a call
+# from one to the other: the single-nginx variant of the plugin shares the
+# preremove and ships no place-module.sh, and the fail-safe runs before every
+# nginx start, where it must not depend on a second file being there.
+#
+# The two used to carry a list of directories each, and the lists disagreed.
+# The directory is not theirs to list: nginx.conf decides it (an include of
+# /etc/nginx/modules/*.conf, or of a directory of the operator's own, names
+# one that was on neither), and a 50-mod-unmask.conf left behind names a .so
+# that is gone -- nginx then dies on dlopen() at its next start.  So removal
+# goes by where the conf was PUT, and looks in all of:
+#   - the path the placer noted when it put the conf there ($WIRED_STATE);
+#   - the directory nginx.conf names now, found the way the placer finds it
+#     (main_include_dir);
+#   - the directories the distributions use ($LOAD_CONF_DIRS): an install from
+#     before the note, whose nginx.conf has changed since.
+WIRED_STATE=/var/lib/unmask/plugin/.wired
+LOAD_CONF=50-mod-unmask.conf
+LOAD_CONF_DIRS="/etc/nginx/modules-enabled /etc/nginx/modules.d /etc/nginx/modules-available /etc/nginx/modules /usr/share/nginx/modules"
+# The comment the placer puts on a load_module line it adds to nginx.conf
+# itself (a host with no include directory): what tells that line from one
+# the operator wrote.
+LOAD_TAG="# unmask-plugin-nginx: auto-added"
+
+# main_include_dir: the directory of the first absolute-path include ahead of
+# nginx.conf's http block -- where the distribution's nginx.conf loads its
+# modules from (modules-enabled/, /usr/share/nginx/modules/, modules/).
+# Nothing when nginx.conf has no such include.
+main_include_dir() {
+    [ -r "$NGINX_CONF" ] || return 0
+    awk '
+        /^[[:space:]]*http[[:space:]]*{/ { exit }
+        /^[[:space:]]*include[[:space:]]/ {
+            for (i = 1; i <= NF; i++) {
+                if ($i ~ /^[/]/) { print $i; exit }
+            }
+        }
+    ' "$NGINX_CONF" | sed 's|/\*\.conf;$||; s|;$||' | head -1
+}
+
+# _uw_rm <path>: remove one file the package put there and, on a removal, say so.
+_uw_rm() {
+    [ -f "$1" ] || [ -L "$1" ] || return 0
+    if rm -f "$1" 2>/dev/null; then
+        UNWIRE_REMOVED=1
+        [ "$_uw_mode" = remove ] && echo "unmask-plugin-nginx: removed $1"
+    elif [ "$_uw_mode" = remove ]; then
+        echo "unmask-plugin-nginx: WARNING -- could not remove $1 -- remove it by hand." >&2
+    fi
+    return 0
+}
+
+# unwire_module <strip|remove>: take the load_module wiring and the .so away.
+#
+#   strip   the fail-safe.  Says nothing (its caller does).  A load_module
+#           line in nginx.conf goes whoever wrote it, as it always has: this
+#           runs with nobody at the console, ahead of an nginx start that the
+#           line would stop.
+#   remove  the package's removal.  Says what it removed.  Only what the
+#           package put there goes: a load_module the operator wrote is
+#           theirs, so it stays and is handed back in $UNWIRE_FOREIGN
+#           ("file:line:text" lines) for the caller to name -- this time the
+#           operator is reading.
+#
+# $UNWIRE_REMOVED is 1 when anything was removed.
+unwire_module() {
+    _uw_mode=$1
+    UNWIRE_FOREIGN=""
+    UNWIRE_REMOVED=0
+
+    # What the placer noted.  The note lives in the unmask user's tree, so it
+    # is read as a hint and no more: a path is taken only when it ends in one
+    # of the two names this package gives its files.
+    if [ -r "$WIRED_STATE" ]; then
+        while read -r _uw_k _uw_p; do
+            case "$_uw_k:$_uw_p" in
+                conf:/*/"$LOAD_CONF"|so:/*/"$SO_NAME") _uw_rm "$_uw_p" ;;
+            esac
+        done < "$WIRED_STATE"
+    fi
+
+    # The directory nginx.conf names now, then the known ones.
+    _uw_dir=$(main_include_dir)
+    [ -n "$_uw_dir" ] && _uw_rm "$_uw_dir/$LOAD_CONF"
+    for _uw_d in $LOAD_CONF_DIRS; do
+        _uw_rm "$_uw_d/$LOAD_CONF"
+    done
+
+    # The .so: nginx's modules path, and the home it gets on a read-only /usr.
+    _uw_mp=""
+    if command -v nginx >/dev/null 2>&1; then
+        _uw_mp=$(nginx -V 2>&1 | tr ' ' '\n' | sed -n 's|^--modules-path=||p' | head -1)
+    fi
+    [ -n "$_uw_mp" ] && _uw_rm "$_uw_mp/$SO_NAME"
+    _uw_rm "$FALLBACK_SO_DIR/$SO_NAME"
+
+    # The line in nginx.conf itself.  Built beside it and renamed into place,
+    # so that nginx.conf is never half-written; the copy first keeps its mode
+    # and owner.
+    _uw_re='load_module.*ngx_http_unmask_module'
+    [ "$_uw_mode" = remove ] && _uw_re="$_uw_re.*$LOAD_TAG"
+    if [ -w "$NGINX_CONF" ] && grep -q "$_uw_re" "$NGINX_CONF" 2>/dev/null; then
+        _uw_t="$NGINX_CONF.unmask-unwire.$$"
+        if cp -p "$NGINX_CONF" "$_uw_t" 2>/dev/null &&
+           sed "/$_uw_re/d" "$NGINX_CONF" > "$_uw_t" 2>/dev/null &&
+           mv -f "$_uw_t" "$NGINX_CONF" 2>/dev/null; then
+            UNWIRE_REMOVED=1
+            [ "$_uw_mode" = remove ] && echo "unmask-plugin-nginx: removed the load_module line from $NGINX_CONF"
+        else
+            rm -f "$_uw_t" 2>/dev/null
+        fi
+    fi
+
+    # What is still there after that is not this package's: name it.
+    if [ "$_uw_mode" = remove ]; then
+        UNWIRE_FOREIGN=$(
+            {
+                [ -r "$NGINX_CONF" ] && grep -n 'load_module.*ngx_http_unmask_module' "$NGINX_CONF" /dev/null
+                for _uw_d in "$_uw_dir" $LOAD_CONF_DIRS; do
+                    [ -d "$_uw_d" ] || continue
+                    for _uw_f in "$_uw_d"/*.conf; do
+                        [ -f "$_uw_f" ] && grep -n 'load_module.*ngx_http_unmask_module' "$_uw_f" /dev/null
+                    done
+                done
+            } 2>/dev/null | grep -v '^[^:]*:[0-9]*:[[:space:]]*#' | sort -u
+        )
+    fi
+
+    rm -f "$WIRED_STATE" 2>/dev/null
+    [ "$_uw_mode" = remove ] && rmdir "$FALLBACK_SO_DIR" 2>/dev/null
+    return 0
+}
+# <<< unwire <<<
+
+# wired_record <so path> [<conf path>]: note where the module and the conf
+# that loads it were put, so that unwire_module looks there first, whatever
+# nginx.conf says by then.  Rewritten only when it changed: this runs before
+# every nginx start.  The directory is in the unmask user's tree, so the note
+# is made under a fresh name and renamed into place -- a link planted at
+# either name is replaced, never written through.
+wired_record() {
+    _wr_new="so $1"
+    [ -n "${2:-}" ] && _wr_new="$_wr_new
+conf $2"
+    [ "$(cat "$WIRED_STATE" 2>/dev/null)" = "$_wr_new" ] && return 0
+    mkdir -p "${WIRED_STATE%/*}" 2>/dev/null || return 0
+    _wr_tmp="$WIRED_STATE.tmp.$$"
+    rm -f "$_wr_tmp" 2>/dev/null
+    if ( set -C; printf '%s\n' "$_wr_new" > "$_wr_tmp" ) 2>/dev/null; then
+        mv -f "$_wr_tmp" "$WIRED_STATE" 2>/dev/null || rm -f "$_wr_tmp" 2>/dev/null
+    fi
+    return 0
 }
 
 # unmask_error <nginx -t output>: 0 when the failure is about OUR OWN wiring
@@ -531,26 +680,21 @@ fi
 # /etc/nginx/modules-enabled/ or /usr/share/nginx/modules/).  Otherwise
 # edit nginx.conf and add the line at the top (= outside http {}).  This
 # is so it works on every distro out of the box.
-NGINX_CONF=/etc/nginx/nginx.conf
+#
 # Tag the directive so it's recognizable as package-managed when it lands in the
 # host nginx.conf (= the no-include-dir fallback below): a config-management tool
-# or operator reading nginx.conf sees it's auto-added, not a hand edit.  Removal
-# still matches the module name (grep -v), so the comment rides along and goes
-# with it.  One line, so no begin/end block is needed.
-LOAD_LINE="load_module \"$DEST\";  # unmask-plugin-nginx: auto-added, removed on uninstall"
+# or operator reading nginx.conf sees it's auto-added, not a hand edit, and the
+# package's removal takes out the line that carries the tag and no other
+# (unwire_module).  One line, so no begin/end block is needed.
+LOAD_LINE="load_module \"$DEST\";  $LOAD_TAG, removed on uninstall"
 LOAD_DROPPED=""
+# The conf this run wrote, for the note the removal reads (wired_record).
+DROP_PLACED=""
 
 if [ -r "$NGINX_CONF" ]; then
-    INCLUDE_DIR=$(awk '
-        /^[[:space:]]*http[[:space:]]*{/ { exit }
-        /^[[:space:]]*include[[:space:]]/ {
-            for (i = 1; i <= NF; i++) {
-                if ($i ~ /^[/]/) { print $i; exit }
-            }
-        }
-    ' "$NGINX_CONF" | sed 's|/\*\.conf;$||; s|;$||' | head -1)
+    INCLUDE_DIR=$(main_include_dir)
     if [ -n "$INCLUDE_DIR" ] && [ -d "$INCLUDE_DIR" ]; then
-        DROP="$INCLUDE_DIR/50-mod-unmask.conf"
+        DROP="$INCLUDE_DIR/$LOAD_CONF"
         # Idempotency across FOREIGN wiring, not just our own file.  An
         # operator may already load the module themselves -- a hand-added
         # line in nginx.conf (the docs used to show exactly that) or their
@@ -585,6 +729,7 @@ if [ -r "$NGINX_CONF" ]; then
             # with the wrong type; relabel it so nginx (httpd_t) can read it.
             command -v restorecon >/dev/null 2>&1 && restorecon -F "$DROP" 2>/dev/null || true
             echo "  load_module conf: $DROP"
+            DROP_PLACED=$DROP
         fi
         LOAD_DROPPED=1
     fi
@@ -637,6 +782,10 @@ if [ -z "$LOAD_DROPPED" ]; then
     echo "             at the top of $NGINX_CONF (= outside http {})"
     echo "               $LOAD_LINE"
 fi
+
+# Where the module went and, when this run wrote one, the conf that loads it:
+# the fail-safe and the package's removal take them away from there.
+wired_record "$DEST" "$DROP_PLACED"
 
 # Wire http.inc into http {} scope now that the native plugin .so is present.
 # unmask-web-nginx also creates this symlink (gated on the .so), so doing it here

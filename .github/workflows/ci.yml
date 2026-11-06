@@ -55,9 +55,11 @@ jobs:
       # the drop-in that keeps nginx's log socket over a restart (and its
       # removal on a downgrade), and unmask-web-nginx's SELinux drop-in across
       # install, upgrade and removal, and its setup banner; the reload script
-      # unmask-nginx-reload.timer runs; and place-module.sh, which picks the
+      # unmask-nginx-reload.timer runs; place-module.sh, which picks the
       # .so for the host's nginx and OpenSSL before every nginx start and
-      # strips the module when the configuration cannot load it.
+      # strips the module when the configuration cannot load it; and the
+      # removal of the plugin and of unmask-web-nginx, per kind of host: what
+      # it takes out of nginx, and what it tells the operator is left.
       - name: package scripts
         run: |
           bash rpm/scripts/postinstall_test.sh
@@ -65,6 +67,7 @@ jobs:
           bash rpm/scripts/postinstall-web-nginx_test.sh
           bash rpm/scripts/nginx-reload-if-stale_test.sh
           bash rpm/scripts/place-module_test.sh
+          bash rpm/scripts/uninstall_test.sh
       - name: gofmt
         working-directory: admin
         run: |
