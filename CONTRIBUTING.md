@@ -46,6 +46,9 @@ cd admin && go test ./... && go vet ./... && gofmt -l .
 # The i18n catalogs: parity of ja / en, no mixed-up locale, every key a
 # template uses.  Run whenever i18n.go or a template changes.
 cd admin && go test ./internal/i18n/
+# The same tests against MariaDB (they skip without a server): starts a
+# throwaway mariadb container, so it needs docker.
+make test-mariadb
 # golangci-lint, exactly as CI runs it (pins the Go version from go.mod).
 make lint
 # The C parsers: unit tests, the same under ASan/UBSan, and the fuzzers.
@@ -83,8 +86,8 @@ workflow in CI (every nginx version the plugin ships).
 
 ## Release gate
 
-CI runs on every push: Go lint, vet and tests, the C parsers' unit tests
-and a sanitizer fuzz, the module built against a few recent nginx versions,
+CI runs on every push: Go lint, vet and tests (the MariaDB ones against a
+server of their own), the C parsers' unit tests and a sanitizer fuzz, the module built against a few recent nginx versions,
 the container images, and the docker e2e stack (`make e2e-docker`, which
 anyone can run).  When the module or its build changes, a second workflow
 (`module-matrix`) builds the .so against every nginx version the plugin
