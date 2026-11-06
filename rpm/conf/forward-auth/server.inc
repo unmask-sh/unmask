@@ -15,6 +15,7 @@
 #   /unmask/static/     → assets
 #   /unmask/_rl/        → rate-limit-triggered challenge
 #   /unmask/healthz     → 200 health
+#   /unmask/readyz      → 200 once the daemon has its database, 503 before
 #   /unmask/metrics     → Prometheus metrics (= localhost only)
 #   /_unmask/check      → internal subrequest (= for forward-auth mode)
 #   @unmask_rate_challenge / @unmask_blocked / @unmask_fail_open / @unmask_daemon_down
@@ -25,7 +26,7 @@
 # admin login page is itself a sensitive target, so when protect.inc is on
 # the server and the protected-paths preset "unmask itself" is enabled,
 # operators clear a CAPTCHA before reaching the login form.  Other /unmask/*
-# (= challenge / api / static / _rl / test / healthz / metrics) and
+# (= challenge / api / static / _rl / test / healthz / readyz / metrics) and
 # /_unmask/check keep auth_request off; to break the verify loop.
 # When protect.inc is restricted to specific locations, the off is a harmless no-op.
 #
@@ -195,6 +196,15 @@ location = /unmask/metrics {
 
 # /unmask/healthz  — 200 health probe.
 location = /unmask/healthz {
+    auth_request off;
+    proxy_pass        http://unmask_daemon;
+    proxy_set_header  Host  $host;
+}
+
+# /unmask/readyz  — readiness: 200 once the daemon has its database, 503
+# while it runs without one (the challenge is served either way, so a load
+# balancer's health check belongs on healthz above).
+location = /unmask/readyz {
     auth_request off;
     proxy_pass        http://unmask_daemon;
     proxy_set_header  Host  $host;

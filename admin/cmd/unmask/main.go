@@ -1524,11 +1524,24 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 	mux.HandleFunc("GET "+base+"/admin/docs/{$}", h.AuthMiddleware(docsRedirect))
 	mux.HandleFunc("GET "+base+"/admin/install/{$}", h.AuthMiddleware(docsRedirect))
 
-	// health
+	// health: liveness.  200 for as long as the process answers, whatever
+	// else it has -- on purpose, and not to be turned into a readiness
+	// check.  Load balancer health checks, the container HEALTHCHECK, the
+	// gateway's entrypoint and doctor's self-curl all read 200 as "the
+	// daemon is up", and a daemon without its database is up: it serves the
+	// challenge pages they stand in front of.  A check that failed here
+	// while a database is away would take every node sharing that database
+	// out of rotation at once.
 	mux.HandleFunc("GET "+base+"/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain")
 		_, _ = w.Write([]byte("ok\n"))
 	})
+	// readiness: 503 while the daemon runs without its database (a start
+	// that could not open it; db_wait.go), 200 once it has one.  For a
+	// monitor, and for an orchestrator that wants to know when statistics,
+	// bans and the admin UI are there -- not for a health check that decides
+	// whether visitors reach this node (see healthz).
+	mux.HandleFunc("GET "+base+"/readyz", h.Readyz)
 
 	// metrics (Prometheus text format).  bind=127.0.0.1 by default, so the
 	// scraper (prometheus exporter / agent) typically reads from loopback.
