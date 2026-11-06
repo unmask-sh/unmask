@@ -44,7 +44,7 @@
           "mappings": [{"type": "value", "options": {"1": {"text": "connected", "color": "green", "index": 0}, "0": {"text": "NO DATABASE", "color": "red", "index": 1}}}]
         }
       },
-      "description": "0 while a daemon runs without its database: its start could not open it.  Challenge pages are served; statistics, new bans and the admin UI wait.  The daemon retries and starts over by itself when the database answers; its log names the error, and `/unmask/readyz` answers 503 meanwhile."
+      "description": "0 while a daemon runs without its database: its start could not open it.  Challenge pages are served; statistics, new bans and the admin UI wait.  On an install that is set up the daemon retries and starts over by itself when the database answers; its log names the error, and `/unmask/readyz` answers 503 meanwhile."
     },
     {
       "id": 101,

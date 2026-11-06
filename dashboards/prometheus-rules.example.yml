@@ -23,8 +23,9 @@ groups:
 
       # The daemon runs without its database: it started while the database
       # was away.  The challenge is served; statistics, new bans and the
-      # admin UI are not.  The daemon retries and starts over by itself when
-      # the database answers, so this fires only when that takes long.
+      # admin UI are not.  A daemon on an install that is set up retries and
+      # starts over by itself when the database answers, so this fires only
+      # when that takes long.
       - alert: UnmaskDatabaseUnavailable
         expr: min by (instance) (unmask_db_up) == 0
         for: 5m
@@ -32,7 +33,7 @@ groups:
           severity: critical
         annotations:
           summary: "unmask on {{ $labels.instance }} runs without its database"
-          description: "The daemon could not open its database at start and has been retrying for 5 minutes (GET /unmask/readyz answers 503). Its log names the error; `unmask doctor` on the host checks the connection."
+          description: "The daemon could not open its database at start and has run without it for 5 minutes (GET /unmask/readyz answers 503). Its log names the error; `unmask doctor` on the host checks the connection."
 
       # The plugin's fail-safe stripped the module: nginx runs, unmask
       # protects nothing.  `unmask doctor` on the host says why (an ABI

@@ -141,7 +141,7 @@ func (h *Handler) Metrics(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
 
-	fmt.Fprintln(w, "# HELP unmask_db_up 1 when the daemon has its database; 0 while it runs without one (the start could not open it: challenge pages are served, the daemon retries, and readyz answers 503)")
+	fmt.Fprintln(w, "# HELP unmask_db_up 1 when the daemon has its database; 0 while it runs without one (the start could not open it: challenge pages are served, a set-up install retries by itself, and readyz answers 503)")
 	fmt.Fprintln(w, "# TYPE unmask_db_up gauge")
 	fmt.Fprintf(w, "unmask_db_up %d\n", gaugeBit(hasDB))
 
