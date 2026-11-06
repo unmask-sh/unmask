@@ -173,21 +173,23 @@
           "legendFormat": "serve"
         }
       ],
-      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green" }] } } }
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green" }] } } },
+      "description": "Challenge and deny pages served in the last 24 hours: the increase of unmask_event_total, which each daemon counts from zero at its start as it writes the rows, summed over the daemons scraped."
     },
     {
       "id": 2,
       "type": "stat",
-      "title": "verify ok / 24h",
+      "title": "challenges passed / 24h",
       "gridPos": { "h": 4, "w": 6, "x": 6, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum(increase(unmask_event_total{phase=\"verify_ok\"}[24h]))",
-          "legendFormat": "verify_ok"
+          "expr": "sum(increase(unmask_event_total{phase=~\"bv_pow_only|bv_captcha_only|bv_pow_then_captcha\"}[24h]))",
+          "legendFormat": "passed"
         }
-      ]
+      ],
+      "description": "Passes issued in the last 24 hours: a pass is recorded under the phase of the chain that earned it (bv_pow_only, bv_captcha_only, bv_pow_then_captcha)."
     },
     {
       "id": 3,
@@ -202,7 +204,8 @@
           "legendFormat": "verify_ng"
         }
       ],
-      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "red" }] } } }
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "red" }] } } },
+      "description": "CAPTCHA answers refused in the last 24 hours."
     },
     {
       "id": 4,
@@ -216,7 +219,8 @@
           "expr": "unmask_event_unique_ip",
           "legendFormat": "unique IPs"
         }
-      ]
+      ],
+      "description": "Distinct addresses behind the last 24 hours of events: an estimate (within a few percent) read from the database's hourly rollup, so daemons that share a database export the same figure.  No value while a daemon has no database or its rollup has not completed its first pass."
     },
     {
       "id": 10,
@@ -273,19 +277,20 @@
     {
       "id": 30,
       "type": "timeseries",
-      "title": "DB query latency p50/p95 (= sum/count rate)",
+      "title": "exporter's database reads: average time per op",
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 26 },
       "datasource": { "type": "prometheus", "uid": "${datasource}" },
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (op) (rate(unmask_db_query_seconds_sum[5m])) / clamp_min(sum by (op) (rate(unmask_db_query_seconds_count[5m])), 1)",
+          "expr": "sum by (op) (rate(unmask_db_query_seconds_sum[5m])) / sum by (op) (rate(unmask_db_query_seconds_count[5m]))",
           "legendFormat": "avg {{op}}"
         }
       ],
       "fieldConfig": {
         "defaults": { "unit": "s", "custom": { "lineInterpolation": "smooth", "fillOpacity": 8 } }
-      }
+      },
+      "description": "unmask_db_query_seconds is a summary with a sum and a count per op and no quantiles, so this is the average: seconds spent divided by reads.  The one op the exporter times is its read of the unique-address sketches (metrics_unique_ip), once a minute at most; the event counter is counted in memory and reads nothing."
     }
   ]
 }

@@ -191,9 +191,10 @@ visitor's address, and the JA4 fingerprint where TLS ends in front of nginx.
 
 ### Monitoring
 
-`/unmask/metrics` serves Prometheus text: the events by phase and verdict
-and the unique addresses of the last 24 hours, the CAPTCHA score histogram,
-database query timings, and the gauges an alert should watch --
+`/unmask/metrics` serves Prometheus text: `unmask_event_total`, the events
+each daemon has written since it started, by phase and verdict (a counter:
+take `rate()` or `increase()` of it), the unique addresses of the last 24
+hours, the CAPTCHA score histogram, and the gauges an alert should watch --
 `unmask_db_up` (the daemon has its database), `unmask_native_failsafe_active`
 (the plugin's fail-safe stripped the module: nginx runs without unmask),
 `unmask_nginx_config_stale` (a render waits for a reload),
