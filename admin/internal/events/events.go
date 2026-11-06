@@ -728,6 +728,7 @@ func insertDirect(ctx context.Context, d *db.DB, e *Event) error {
 		}
 		return err
 	}
+	written.add(writtenKeyOf(e), 1)
 	return nil
 }
 

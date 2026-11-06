@@ -427,6 +427,7 @@ func insertArgs(e *Event) (args []any) {
 
 // insertBulk: INSERT N rows inside a single transaction.  Mid-flight failure rolls back everything.
 // Both SQLite WAL and MariaDB transactions commit per batch, so it is a single write.
+// The rows of a committed batch are counted as written (written.go).
 func insertBulk(ctx context.Context, d *db.DB, events []*Event) error {
 	if len(events) == 0 || d == nil {
 		return nil
@@ -441,6 +442,10 @@ func insertBulk(ctx context.Context, d *db.DB, events []*Event) error {
 		return err
 	}
 	defer stmt.Close()
+	// The rows of this transaction by series, counted as written once the
+	// commit has gone through and not before: a rolled-back batch wrote
+	// nothing, and is written again.
+	counts := make(map[writtenKey]uint64, 8)
 	for _, e := range events {
 		args := insertArgs(e)
 		if args == nil {
@@ -449,8 +454,13 @@ func insertBulk(ctx context.Context, d *db.DB, events []*Event) error {
 		if _, err := stmt.ExecContext(ctx, args...); err != nil {
 			return err
 		}
+		counts[writtenKeyOf(e)]++
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	written.addAll(counts)
+	return nil
 }
 
 // isDataError reports whether a write failed for what a row carries -- a
@@ -506,6 +516,8 @@ func (f *Flusher) insertRows(ctx context.Context, events []*Event, cause error) 
 				first = err
 			}
 			bad++
+		} else {
+			written.add(writtenKeyOf(e), 1)
 		}
 		consumed++
 	}
