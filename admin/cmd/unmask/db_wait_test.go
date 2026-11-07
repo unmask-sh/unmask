@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -214,9 +215,20 @@ func TestProbeDB(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	// Either answer is in time; what matters is that a stopped context is
-	// not kept waiting for the open.
+	// not kept waiting for the open.  The open it lets go of runs on in the
+	// background, so its target is a MariaDB at a loopback port nothing
+	// listens on (a listener closed a moment ago): the attempt fails on its
+	// own and leaves no file.  A SQLite path here raced t.TempDir's cleanup
+	// with the journal of that abandoned open ("directory not empty").
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	nobody := settings.DB{Driver: "mariadb", MariaDB: settings.MariaDB{Host: "127.0.0.1", Port: port, User: "probe", Password: "probe", Database: "probe"}}
 	done := make(chan struct{})
-	go func() { _ = probeDB(ctx, settings.DB{Driver: "sqlite", SQLitePath: path}); close(done) }()
+	go func() { _ = probeDB(ctx, nobody); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(10 * time.Second):
