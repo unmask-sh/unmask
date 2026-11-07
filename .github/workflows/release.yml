@@ -116,7 +116,7 @@ jobs:
       # procedure's `make package-all` produces the same bytes.
       - name: build (the Makefile recipe) and prove it reproduces
         run: make verify-reproducible GOARCH=${{ matrix.goarch }}
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: admin-${{ matrix.goarch }}
           path: dist/
@@ -145,16 +145,16 @@ jobs:
               ghcr.io/unmask-sh/unmask:latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       # provenance-add-gha=false: the image keeps its provenance attestation
       # (builder, source revision, build parameters), without the workflow
       # event payload buildx adds by default.  That payload carries account
       # details of whoever pushed the tag, and the attestation is published
       # with the image.
-      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         with:
           driver-opts: provenance-add-gha=false
-      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -171,7 +171,7 @@ jobs:
             echo "EOF"
             echo "version=$v"
           } >> "$GITHUB_OUTPUT"
-      - uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         id: build
         with:
           context: .
@@ -208,7 +208,7 @@ jobs:
           mkdir -p ../dist
           $(go env GOPATH)/bin/cyclonedx-gomod mod -licenses -json -output ../dist/unmask-${GITHUB_REF_NAME#v}.cdx.json
           $(go env GOPATH)/bin/cyclonedx-gomod mod -licenses        -output ../dist/unmask-${GITHUB_REF_NAME#v}.cdx.xml
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: sbom
           path: dist/unmask-*.cdx.*
@@ -246,7 +246,7 @@ jobs:
       # by hand: without this step the release job had no working tree).
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         if: steps.guard.outputs.skip != 'true'
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         if: steps.guard.outputs.skip != 'true'
         with:
           path: artifacts
@@ -279,7 +279,7 @@ jobs:
           echo "count=$#" >> "$GITHUB_OUTPUT"
           echo "first=$1" >> "$GITHUB_OUTPUT"
           eval "echo last=\${$#}" >> "$GITHUB_OUTPUT"
-      - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+      - uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         if: steps.guard.outputs.skip != 'true'
         with:
           # The compose example rides along so the install page can point at
