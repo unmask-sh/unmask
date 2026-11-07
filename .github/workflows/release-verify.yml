@@ -79,9 +79,18 @@ jobs:
         run: |
           sudo apt-get -qq update
           sudo apt-get -qq install -y rpm cpio
-          sudo rpm --import rpm/release/RPM-GPG-KEY-unmask
+          # Ubuntu's rpm keeps its database under $HOME (/root/.rpmdb for
+          # root, ~runner/.rpmdb for the runner), so a key imported with sudo
+          # is not the one `rpm -Kv` reads, and every signature is NOKEY.  One
+          # database, named here and used by both commands, is the same on
+          # every distribution.
+          db="$PWD/rpmdb"; mkdir -p "$db"
+          rpm --dbpath "$db" --import rpm/release/RPM-GPG-KEY-unmask
           for f in assets/*.rpm; do
-            out=$(rpm -Kv "$f")
+            # `rpm -Kv` returns 1 for NOKEY or BAD; under bash -e a bare
+            # `out=$(...)` would end the step there, before the echo, and the
+            # log would show nothing.  The grep below is the verdict.
+            out=$(rpm --dbpath "$db" -Kv "$f" || true)
             echo "$out"
             echo "$out" | grep -qiE "Signature, key ID [0-9a-f]*${RELEASE_KEY_FPR: -8}: OK" \
               || { echo "::error::$f is not signed with the release key"; exit 1; }

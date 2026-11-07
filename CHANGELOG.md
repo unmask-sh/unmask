@@ -36,6 +36,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- (2026-11-07) **The `release-verify` check reads rpm signatures with the key it imported.**  On the Ubuntu runner, rpm keeps its database per user, so the release key imported with sudo was not the one `rpm -Kv` consulted: every signature read as unknown, and the step ended before it could say so.  Both commands now use one named database, and the step prints what it saw.
+
 - (2026-11-06) **A daemon started before its database comes back by itself.**  A daemon that could not open its database at start (a host that boots it ahead of MariaDB) ran without statistics, bans or an admin UI until someone restarted it, and sent every admin page to a setup wizard nobody could enter. It now keeps serving challenges, retries the database, and restarts itself in place when it answers; admin pages answer 503 and say so meanwhile.
 
 - (2026-11-06) **A daemon without its database no longer breaks on a beacon, a roaming rebind or an alert mail.**  While it ran without a database, each challenge page's beacon and each roaming rebind ended in a failed request and a stack trace in the log, and an alert mail raised meanwhile ended the process. Now the event goes unrecorded, the rebind is refused, and the alert goes to the webhook and `notifications.mail_to`.
