@@ -66,12 +66,24 @@ else
 # changes nothing -- these checks were installing into a two-year-old distro.
 # The point of an install check is the distro a user installs on today.
 REPO_URL="$BASE/${SUB}rpm/\$basearch"
-got=$(docker run --rm --pull=always rockylinux/rockylinux:9 sh -c "
+# `rpm -q` of a package that is not there prints "package unmask is not
+# installed" on stdout, so a failed dnf used to come back as a "version" that
+# then became the expected deb and apk versions; the query runs only once the
+# package is known to be installed, and dnf's last lines are kept for the report.
+# Only this channel's repository is enabled: the distro's own mirrors have no
+# part in whether the channel serves the package, and a mirror that fails to
+# answer should not read as a broken channel (2026-11-07, Rocky's baseos).
+rpm_out=$(docker run --rm --pull=always rockylinux/rockylinux:9 sh -c "
     curl -fsSL -o /tmp/k $BASE/keys/RPM-GPG-KEY-unmask 2>/dev/null && rpm --import /tmp/k
     printf '[t]\nname=t\nbaseurl=$REPO_URL\nenabled=1\ngpgcheck=1\nrepo_gpgcheck=1\ngpgkey=$BASE/keys/RPM-GPG-KEY-unmask\n' > /etc/yum.repos.d/t.repo
-    dnf install -y -q unmask >/dev/null 2>&1
-    rpm -q --qf '%{VERSION}-%{RELEASE}' unmask 2>/dev/null" 2>/dev/null || echo "")
-[ -n "$got" ] && ok "rpm    installs from the live repo ($got)" || bad "rpm    could not install from the live repo"
+    if dnf install -y -q --disablerepo='*' --enablerepo=t unmask >/tmp/dnf.log 2>&1 && rpm -q unmask >/dev/null 2>&1; then
+        rpm -q --qf 'VERSION=%{VERSION}-%{RELEASE}' unmask
+    else
+        echo DNF-FAILED; tail -n 3 /tmp/dnf.log
+    fi" 2>/dev/null || echo "")
+got=$(printf '%s\n' "$rpm_out" | sed -n 's/^VERSION=//p' | head -1)
+[ -n "$got" ] && ok "rpm    installs from the live repo ($got)" \
+    || bad "rpm    could not install from the live repo$(printf '%s\n' "$rpm_out" | grep -v '^DNF-FAILED$' | grep -v '^$' | head -3 | sed 's/^/ -- /' | tr '\n' ' ')"
 
 # What deb and apk must install is what rpm just did, spelled their way.  The
 # rpm check reads only this channel's repository, so its version is the
