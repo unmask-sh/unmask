@@ -12,6 +12,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Fixed
+
+- (2026-11-08) **Path patterns of the form `([^/]+/)*` are accepted again.**  The nested-repetition check of 0.1.55 refused every repetition over a group that itself repeats, and so caught the common path shape whose inner repetition stops at a slash it cannot match. That shape splits a request one way only and is linear, so the settings page, `unmask doctor` and the start-up check accept it; `(.*/)*` and `([^/]+/?)*` stay refused.
+
 ## [0.1.56-rc1] - 2026-11-07 (testing build)
 
 ### Security
