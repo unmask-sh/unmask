@@ -12,13 +12,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
-## [0.1.56-rc2] - 2026-11-08 (testing build)
-
-### Fixed
-
-- (2026-11-08) **Path patterns of the form `([^/]+/)*` are accepted again.**  The nested-repetition check of 0.1.55 refused every repetition over a group that itself repeats, and so caught the common path shape whose inner repetition stops at a slash it cannot match. That shape splits a request one way only and is linear, so the settings page, `unmask doctor` and the start-up check accept it; `(.*/)*` and `([^/]+/?)*` stay refused.
-
-## [0.1.56-rc1] - 2026-11-07 (testing build)
+## [0.1.56] - 2026-11-10
 
 ### Security
 
@@ -41,6 +35,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-11-06) **The unique-address gauge reads the rollup, and two dashboard panels are put right.**  `unmask_event_unique_ip` scanned a day of raw events on scrape and exported 0 when that failed; it is now an estimate from the hourly rollup, left out when the rollup cannot answer. `unmask_db_query_seconds` is declared a summary, matching its samples. The dashboard's passed-challenges tile asked for a phase that no longer exists, and its latency panel was not an average.
 
 ### Fixed
+
+- (2026-11-08) **Path patterns of the form `([^/]+/)*` are accepted again.**  The nested-repetition check of 0.1.55 refused every repetition over a group that itself repeats, and so caught the common path shape whose inner repetition stops at a slash it cannot match. That shape splits a request one way only and is linear, so the settings page, `unmask doctor` and the start-up check accept it; `(.*/)*` and `([^/]+/?)*` stay refused.
 
 - (2026-11-07) **The `release-verify` check reads rpm signatures with the key it imported.**  On the Ubuntu runner, rpm keeps its database per user, so the release key imported with sudo was not the one `rpm -Kv` consulted: every signature read as unknown, and the step ended before it could say so.  Both commands now use one named database, and the step prints what it saw.
 

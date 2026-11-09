@@ -1,6 +1,11 @@
 {
-  "latest": "0.1.55",
+  "latest": "0.1.56",
   "releases": [
+    {
+      "version": "0.1.56",
+      "date": "2026-11-10",
+      "notes": "0.1.56 follows two more external reviews. The forward-auth decision endpoint also answered on a second path that no configuration used, where a visitor could have another address banned; it answers on one path only. The admin's scripts run under an enforced Content-Security-Policy. The daemon says whether it has its database: `/unmask/readyz` and `unmask_db_up` answer the question, a daemon started before its database comes back by itself once the database is there, and one running without it no longer breaks on a beacon, a roaming rebind or an alert mail. Nodes sharing one MariaDB no longer double-count the hourly statistics, `unmask_event_total` is a real counter, and the unique-address gauge reads the rollup. A `pow_difficulty` outside 8-24 and a pattern that will not work are reported when config.yml is read, and path patterns of the form `([^/]+/)*` are accepted again. Removing the nginx plugin no longer leaves a `load_module` behind, uninstalling names the lines to take out of your configuration and runs `nginx -t`, the plugin finds nginx's module directory on Alpine, the deb installs on a system without `adduser`, the modules for OpenSSL 1.1, OpenSSL 1.0 and glibc 2.12 hosts are built with the same hardening as the rest, `http.inc` is never world-readable during an upgrade, and passwords shorter than eight characters are refused everywhere. The check that reads a published release verifies rpm signatures with the key it imported. Upgrading leaves nginx running where the module is unchanged (hosts on OpenSSL 3); hosts on the older libraries load a rebuilt module and restart nginx. Admin sessions stay signed in."
+    },
     {
       "version": "0.1.55",
       "date": "2026-11-06",
