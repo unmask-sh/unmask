@@ -162,12 +162,12 @@ has() { printf '%s\n' "$out" | grep -qF -- "$1" && echo yes || echo no; }
 check "says whose nginx it is" yes "$(has 'unmask-plugin-nginx: this nginx was not installed from a package')"
 check "names the file" yes "$(has 'Add to /www/server/nginx/conf/nginx.conf, once:')"
 check "names the module include, and where" yes "$(has 'include /usr/share/unmask/nginx/modules-enabled/*.conf;     <- as the first line of the file')"
-check "names the http include, and where" yes "$(has 'include /usr/share/unmask/nginx/conf.d/*.conf;     <- inside http { }')"
+check "names the http include, and where" yes "$(has 'include /usr/share/unmask/nginx/conf.d/*.conf;     <- as the first line inside http { }')"
 check "says a restart is what loads a module" yes "$(has 'restart nginx (a reload does not load a module)')"
 dump 'include /usr/share/unmask/nginx/modules-enabled/*.conf;
 http { }'
 out=$(own_includes_say unmask-web-nginx)
-check "with the module line there, only the http one is named" "no yes" "$(has 'modules-enabled') $(has 'conf.d/*.conf;     <- inside http')"
+check "with the module line there, only the http one is named" "no yes" "$(has 'modules-enabled') $(has 'conf.d/*.conf;     <- as the first line inside http')"
 dump 'include /usr/share/unmask/nginx/modules-enabled/*.conf;
 http { include /usr/share/unmask/nginx/conf.d/*.conf; }'
 check "with both there, nothing is said" "" "$(own_includes_say unmask-plugin-nginx)"

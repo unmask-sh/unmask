@@ -41,6 +41,14 @@
 #   7. Place the load_module line, and note where it and the .so went
 #      (wired_record): the fail-safe and the package's removal take them away
 #      from there (unwire_module).
+#
+# Arguments:
+#   (none)            the run above: pick, place, check.
+#   --verify          only the check at the end (the web-nginx postinstall).
+#   --nginx-changed   the binary of an nginx built from source changed or
+#                     went: take the module out and render the include files
+#                     with nothing in them (see go_inert).  Run by the watch,
+#                     unmask-nginx-binary.path.
 
 PLUGIN_BASE=/usr/share/unmask/plugin
 SO_NAME=ngx_http_unmask_module.so
@@ -58,7 +66,12 @@ SO_NAME=ngx_http_unmask_module.so
 # includes two of them, once:
 #
 #     include /usr/share/unmask/nginx/modules-enabled/*.conf;    the first line of nginx.conf
-#     include /usr/share/unmask/nginx/conf.d/*.conf;             inside http { }
+#     include /usr/share/unmask/nginx/conf.d/*.conf;             the first line inside http { }
+#
+# (The first line inside http { }: ahead of every server block and of every
+# include that brings the sites in.  A server that includes unmask's
+# server.inc names a log format the http directory defines, and nginx wants
+# the definition first.)
 #
 # Wildcard includes, which nginx accepts with nothing behind them: the module
 # can be taken out again (the fail-safe) and the packages removed with the two
@@ -115,8 +128,12 @@ own_includes_missing() {
             main) _nl_d=$OWN_MAIN_DIR ;;
             *)    _nl_d=$OWN_HTTP_DIR ;;
         esac
+        # grep reads to the end (no -q).  One that stops at the first match
+        # leaves sed and printf writing into a closed pipe, and where SIGPIPE
+        # is ignored -- a systemd service, which is where this runs before
+        # every nginx start -- each of them says so in the journal.
         printf '%s\n' "$_nl_cfg" | sed 's/#.*//' |
-            grep -qE "(^|[[:space:];{}])include[[:space:]]+[\"']?$_nl_d/[*][.]conf[\"']?[[:space:]]*;" ||
+            grep -E "(^|[[:space:];{}])include[[:space:]]+[\"']?$_nl_d/[*][.]conf[\"']?[[:space:]]*;" >/dev/null ||
             echo "$_nl_k"
     done
 }
@@ -136,7 +153,7 @@ own_includes_say() {
     esac
     case "$_nl_miss" in *" http "*)
         echo ""
-        echo "      include $OWN_HTTP_DIR/*.conf;     <- inside http { }"
+        echo "      include $OWN_HTTP_DIR/*.conf;     <- as the first line inside http { }"
         ;;
     esac
     echo ""
@@ -186,6 +203,218 @@ _pm_strip_module() { unwire_module strip; }
 _pm_module_wired() {
     mp=$(nginx -V 2>&1 | tr ' ' '\n' | sed -n 's|^--modules-path=||p' | head -1)
     { [ -n "$mp" ] && [ -e "$mp/$SO_NAME" ]; } || [ -e "$FALLBACK_SO_DIR/$SO_NAME" ] || [ -e "$OWN_SO_DIR/$SO_NAME" ]
+}
+
+# ---- an nginx built from source that is built again ----
+# A distribution replaces its nginx through the package manager and starts it
+# through its service, where this script runs first (the drop-in) and picks
+# the module for the new build.  An nginx built from source has other ways:
+# a hosting panel removes the old build, installs another -- a version of its
+# choosing, with or without --with-compat -- puts an nginx.conf in place (a
+# new one, or a copy it kept, with or without the two include lines) and runs
+# `nginx -t` on the result itself, before it starts anything.  When that test
+# fails the panel stops there, and no nginx runs.  It fails on a module built
+# for the old binary, and on a server block that includes unmask's server.inc
+# while the http directory that defines what it names is not included.
+#
+# So for such an nginx the module is taken out, and what the server blocks
+# include is rendered with nothing in it (go_inert), the moment its binary
+# changes or goes: a systemd path unit watches the file and runs this script
+# with --nginx-changed.  Whatever build and nginx.conf come next, they load.
+# The way back is the ordinary run of this script -- before every start of
+# nginx's service, from the packages, by hand: it places the module for the
+# build that is there, and the full configuration is rendered again once the
+# two include lines are in nginx.conf and nginx -t passes with them.
+
+# The nginx binary the module on disk was placed for ("<sha256>  <path>").
+NGINX_BIN_NOTE=/var/lib/unmask/plugin/.nginx-binary
+# The watch on that file: written here, enabled by the package's postinstall,
+# removed with the package.  Its service is shipped (unmask-nginx-binary.service).
+WATCH_UNIT=/etc/systemd/system/unmask-nginx-binary.path
+SYSTEMD_RUN_DIR=/run/systemd/system
+# One run of this script at a time: the watch can fire while nginx's service
+# is starting.
+PM_LOCK=/run/unmask-place-module.lock
+
+_pm_lock() {
+    command -v flock >/dev/null 2>&1 || return 0
+    # Asked in a subshell first: a redirection that fails on `exec` itself
+    # ends the shell (not root, no /run).  Without the lock the run goes on.
+    ( : >> "$PM_LOCK" ) 2>/dev/null || return 0
+    exec 9>>"$PM_LOCK"
+    flock -w 60 9 2>/dev/null || true
+}
+
+# nginx_bin_real: the nginx on PATH as a file, its links followed (a panel
+# puts a link into /usr/bin).  Fails when there is none.
+nginx_bin_real() {
+    _br=$(command -v nginx 2>/dev/null) || return 1
+    case "$_br" in
+        /*) ;;
+        *)  return 1 ;;
+    esac
+    _br_l=$(readlink -f "$_br" 2>/dev/null)
+    [ -n "$_br_l" ] && _br=$_br_l
+    [ -f "$_br" ] || return 1
+    echo "$_br"
+}
+
+# nginx_bin_id <file>: what tells one build from another.
+nginx_bin_id() { sha256sum "$1" 2>/dev/null | cut -d' ' -f1; }
+
+# nginx_bin_note: note the build the module is now in place for.  Written the
+# way the other note is (wired_record): beside it, then renamed.
+nginx_bin_note() {
+    _bn_bin=$(nginx_bin_real) || return 0
+    _bn_new="$(nginx_bin_id "$_bn_bin")  $_bn_bin"
+    [ "$(cat "$NGINX_BIN_NOTE" 2>/dev/null)" = "$_bn_new" ] && return 0
+    mkdir -p "${NGINX_BIN_NOTE%/*}" 2>/dev/null || return 0
+    _bn_tmp="$NGINX_BIN_NOTE.tmp.$$"
+    rm -f "$_bn_tmp" 2>/dev/null
+    if ( set -C; printf '%s\n' "$_bn_new" > "$_bn_tmp" ) 2>/dev/null; then
+        mv -f "$_bn_tmp" "$NGINX_BIN_NOTE" 2>/dev/null || rm -f "$_bn_tmp" 2>/dev/null
+    fi
+    return 0
+}
+
+# includes_note: what this run found of the two include lines, for `unmask
+# doctor`.  The daemon's user often cannot read the nginx.conf of an nginx
+# built from source (a panel keeps it to root), and then doctor could only
+# say that it does not know.  "ok", or "missing: main http"; the file's time
+# is when this was looked at.
+INCLUDES_NOTE=/var/lib/unmask/plugin/.nginx-includes
+includes_note() {
+    if _pm_scope_included; then
+        _in_new=ok
+    else
+        _in_new="missing: $(own_includes_missing | tr '\n' ' ' | sed 's/ $//')"
+    fi
+    mkdir -p "${INCLUDES_NOTE%/*}" 2>/dev/null || return 0
+    _in_tmp="$INCLUDES_NOTE.tmp.$$"
+    rm -f "$_in_tmp" 2>/dev/null
+    if ( set -C; printf '%s\n' "$_in_new" > "$_in_tmp" ) 2>/dev/null; then
+        mv -f "$_in_tmp" "$INCLUDES_NOTE" 2>/dev/null || rm -f "$_in_tmp" 2>/dev/null
+    fi
+    return 0
+}
+
+# nginx_bin_same: 0 when the nginx on PATH is the build the note names.
+nginx_bin_same() {
+    _bs_bin=$(nginx_bin_real) || return 1
+    _bs_was=$(cat "$NGINX_BIN_NOTE" 2>/dev/null)
+    [ -n "$_bs_was" ] && [ "$(nginx_bin_id "$_bs_bin")  $_bs_bin" = "$_bs_was" ]
+}
+
+# watch_unit_write: the path unit for this nginx's binary, where there is a
+# systemd to run it -- written, and switched on, only when it would differ
+# from the one there (this runs before every nginx start, where the file is
+# as a rule the same and nothing is done).  Switched on from here and not
+# only from the package's postinstall: the nginx may be installed after the
+# plugin, or be one the plugin refused and that was then built again, and
+# the first run to see it is the one inside the start of nginx's service.
+# Nothing waits on nginx there: the path unit has no ordering against it.
+watch_unit_write() {
+    [ -d "$SYSTEMD_RUN_DIR" ] || return 0
+    _wu_bin=$(nginx_bin_real) || return 0
+    _wu_new="# Written by unmask-plugin-nginx (place-module.sh) for an nginx built from
+# source, and removed with the package.  When that nginx's binary changes or
+# goes -- a rebuild, a hosting panel installing another version -- unmask
+# takes its module out and renders its include files empty, so that the next
+# build loads its configuration whatever it is.  The module is placed again
+# before nginx's service starts.  See place-module.sh.
+[Unit]
+Description=unmask: watch the binary of an nginx built from source
+
+[Path]
+PathChanged=$_wu_bin
+Unit=unmask-nginx-binary.service
+
+[Install]
+WantedBy=multi-user.target"
+    [ "$(cat "$WATCH_UNIT" 2>/dev/null)" = "$_wu_new" ] && return 0
+    printf '%s\n' "$_wu_new" > "$WATCH_UNIT" 2>/dev/null || return 0
+    chmod 0644 "$WATCH_UNIT" 2>/dev/null
+    echo "  watch on $_wu_bin: $WATCH_UNIT"
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl daemon-reload >/dev/null 2>&1 || true
+        systemctl enable unmask-nginx-binary.path >/dev/null 2>&1 || true
+        systemctl --no-block restart unmask-nginx-binary.path >/dev/null 2>&1 || true
+    fi
+}
+
+# _pm_marker <reason> [inert]: leave the fail-safe's marker.  With a second
+# argument it also says that nginx does not read unmask's http directory: the
+# render then puts nothing into the files a server block includes.
+_pm_marker() {
+    mkdir -p "$(dirname "$FAILSAFE_MARKER")" 2>/dev/null
+    { echo "native wiring stripped by place-module fail-safe ($(date 2>/dev/null))"
+      [ -n "${1:-}" ] && echo "reason: $1"
+      [ -n "${2:-}" ] && echo "inert: nginx does not read unmask's http directory; server.inc and protect.inc carry no directive"
+    } > "$FAILSAFE_MARKER" 2>/dev/null || true
+}
+_pm_marker_inert() { grep '^inert:' "$FAILSAFE_MARKER" >/dev/null 2>&1; }
+
+# Whether a self-built nginx reads unmask's part of its configuration: the
+# two include lines (own_includes_missing), or wiring of the operator's own
+# that stands in for one -- a load_module they wrote for the module, an
+# include of http.inc itself.  Both hold for a distribution's nginx, whose
+# wiring is the packages' own.
+#   _pm_http_included   : it reads http.inc.
+#   _pm_scope_included  : it reads http.inc and loads the module.
+# _pm_stands_in <main|http>: 0 when the operator's own line does that part.
+_pm_stands_in() {
+    _st_cfg=$(_nl_nginx_dump)
+    [ -n "$_st_cfg" ] || _st_cfg=$(cat "$NGINX_CONF" 2>/dev/null)
+    case $1 in
+        main) _st_re='(^|[[:space:];{}])load_module[[:space:]].*ngx_http_unmask_module' ;;
+        *)    _st_re="(^|[[:space:];{}])include[[:space:]]+[\"']?/var/lib/unmask/nginx/http[.]inc[\"']?[[:space:]]*;" ;;
+    esac
+    printf '%s\n' "$_st_cfg" | sed 's/#.*//' | grep -E "$_st_re" >/dev/null
+}
+_pm_http_included() {
+    [ "${SELFBUILT_NGINX:-0}" = 1 ] || return 0
+    own_includes_missing | grep '^http$' >/dev/null || return 0
+    _pm_stands_in http
+}
+_pm_scope_included() {
+    [ "${SELFBUILT_NGINX:-0}" = 1 ] || return 0
+    for _sc_k in $(own_includes_missing); do
+        _pm_stands_in "$_sc_k" || return 1
+    done
+    return 0
+}
+
+# _pm_own_wiring: 0 when anything of a self-built nginx's wiring is in place.
+_pm_own_wiring() {
+    [ -e "$OWN_SO_DIR/$SO_NAME" ] || [ -e "$OWN_MAIN_DIR/$LOAD_CONF" ] || [ -L "$OWN_HTTP_DIR/00-unmask.conf" ]
+}
+
+# go_inert <reason>: take the module out and render what the server blocks
+# include with nothing in it.  nginx -- whichever build, with whichever
+# nginx.conf -- then loads its configuration as if unmask were not installed.
+#
+# Answers as the render did: when `unmask render-nginx` could not run (no
+# binary, a database it cannot reach) the files are as they were, and the
+# caller says so.  What was noted of this nginx's include lines for doctor
+# goes too: the next nginx.conf is another file.
+go_inert() {
+    _pm_strip_module
+    _pm_marker "$1" inert
+    rm -f "$INCLUDES_NOTE" 2>/dev/null
+    _pm_render
+}
+# go_inert_say: what the caller prints after it.
+go_inert_say() {
+    if [ "$1" = 0 ]; then
+        echo "  The module is out and unmask's include files carry nothing, so the next build loads its configuration"
+        echo "  whatever it is.  Before nginx's service starts, the module is placed for that build; the full"
+        echo "  configuration is rendered again once its nginx.conf carries the two include lines and nginx -t passes."
+    else
+        echo "  The module is out, but 'unmask render-nginx' could not run: unmask's include files are as they were."
+        echo "  A server block that includes them may stop the next build from loading its configuration -- run"
+        echo "    unmask render-nginx"
+        echo "  once it can (see its error), or take the include lines out of the server blocks until then."
+    fi
 }
 
 # >>> unwire >>>
@@ -397,15 +626,27 @@ unmask_error_line() {
 # (`unknown log format "unmask_minimal"`).  Only when unmask cannot render --
 # no binary, a config it cannot read -- is http.inc dropped from nginx as before.
 # The bundled .so files stay under $PLUGIN_BASE for a later re-pick.
+#
+# One step further down, where http.inc itself is not read: an nginx built
+# from source whose nginx.conf does not include unmask's http directory (the
+# operator has not added the line, or a panel wrote the file anew), and any
+# nginx on which `nginx -t` still fails on unmask's files with the module
+# out.  server.inc and protect.inc are then rendered with nothing in them
+# (the marker's `inert:` line asks the render for that): a server block that
+# includes them loads, and the sites serve as they would without unmask.
 disable_unmask_module() {
     _pm_strip_module
-    mkdir -p "$(dirname "$FAILSAFE_MARKER")" 2>/dev/null
-    { echo "native wiring stripped by place-module fail-safe ($(date 2>/dev/null))"
-      [ -n "${1:-}" ] && echo "reason: $1"
-    } > "$FAILSAFE_MARKER" 2>/dev/null || true
+    _dm_inert=""
+    _pm_http_included || _dm_inert=1
+    _pm_marker "${1:-}" "$_dm_inert"
     if _pm_render; then
         echo "  fail-safe: stripped the unmask module (load_module + .so) and re-rendered the configuration WITHOUT it:"
-        echo "             nginx starts and the admin UI stays reachable, protection is OFF until the module is back."
+        if [ -n "$_dm_inert" ]; then
+            echo "             this nginx does not include unmask's http directory, so the files its server blocks include"
+            echo "             carry nothing: nginx starts and the sites serve as without unmask, protection is OFF."
+        else
+            echo "             nginx starts and the admin UI stays reachable, protection is OFF until the module is back."
+        fi
     else
         for f in $HTTP_INC_LINKS; do rm -f "$f" 2>/dev/null; done
         echo "  fail-safe: stripped unmask nginx wiring (load_module + http.inc + .so) so nginx still starts without the module"
@@ -414,6 +655,21 @@ disable_unmask_module() {
     if err=$(_pm_nginx_t); then
         echo "  nginx -t passes without the module.  'unmask doctor' names the cause; the marker $FAILSAFE_MARKER"
         echo "  clears, and the full configuration is rendered again, once nginx -t passes with the module wired."
+    elif [ -z "$_dm_inert" ] && unmask_error "$err"; then
+        # Still one of unmask's files, with the module out: what a server
+        # block includes names something http.inc defines, and nginx does not
+        # read http.inc (or reads it after the sites).  Nothing is left to
+        # take out but the directives themselves.
+        echo "  nginx -t still fails on unmask's files without the module:"
+        printf '%s\n' "$err" | sed 's/^/       /'
+        _pm_marker "${1:-}" inert
+        if _pm_render && err=$(_pm_nginx_t); then
+            echo "  so server.inc and protect.inc are now rendered with nothing in them: nginx -t passes, nginx starts and"
+            echo "  the sites serve as without unmask.  'unmask doctor' names the cause."
+        else
+            echo "  and it fails with those rendered empty as well:"
+            printf '%s\n' "$err" | sed 's/^/       /'
+        fi
     else
         echo "  nginx -t still fails without the module:"
         printf '%s\n' "$err" | sed 's/^/       /'
@@ -440,7 +696,7 @@ verify_or_disable() {
     command -v nginx >/dev/null 2>&1 || return 0
     if err=$(_pm_nginx_t); then
         if [ -e "$FAILSAFE_MARKER" ]; then
-            if _pm_module_wired; then
+            if _pm_module_wired && _pm_scope_included; then
                 rm -f "$FAILSAFE_MARKER" 2>/dev/null
                 echo "  fail-safe cleared: nginx -t passes with the module wired; rendering the full configuration again."
                 _pm_render || echo "  WARNING: 'unmask render-nginx' failed -- run it by hand, then nginx -t."
@@ -454,6 +710,13 @@ verify_or_disable() {
                         printf '%s\n' "$err" | sed 's/^/       /'
                     fi
                 fi
+            elif _pm_module_wired; then
+                # A self-built nginx: the module is in place and its nginx.conf
+                # does not include both of unmask's directories.  The full
+                # configuration cannot load there; the lines are named below.
+                echo "  fail-safe still active ($FAILSAFE_MARKER): the module is in place, but $NGINX_CONF does not"
+                echo "  include both of unmask's directories; the configuration stays rendered without unmask until it does"
+                echo "  and nginx is started again."
             else
                 echo "  fail-safe still active ($FAILSAFE_MARKER): no module in place for nginx to load; the configuration stays rendered without it."
             fi
@@ -470,7 +733,41 @@ verify_or_disable() {
     fi
 }
 
+# One run at a time (not when the unit test reads the functions).
+[ -n "${PLACE_MODULE_TEST:-}" ] || _pm_lock
+
+# --nginx-changed: the watch on a self-built nginx's binary saw the file
+# change or go (unmask-nginx-binary.path).  Takes unmask out and nothing
+# else; the ordinary run puts it back.  A change that leaves the build the
+# module was placed for -- a touch, a chmod -- is none.
+if [ "${1:-}" = "--nginx-changed" ]; then
+    SELFBUILT_NGINX=1
+    if nginx_bin_same; then
+        exit 0
+    fi
+    if [ -e "$FAILSAFE_MARKER" ] && _pm_marker_inert && [ ! -e "$OWN_SO_DIR/$SO_NAME" ] && [ ! -e "$OWN_MAIN_DIR/$LOAD_CONF" ]; then
+        exit 0      # out already
+    fi
+    if _nc_bin=$(nginx_bin_real); then
+        _nc_why="the nginx binary changed ($_nc_bin is not the build the module was placed for)"
+    else
+        _nc_why="the nginx binary is gone (an nginx built from source is being replaced)"
+    fi
+    echo "unmask-plugin-nginx: $_nc_why."
+    go_inert "$_nc_why"
+    go_inert_say $?
+    exit 0
+fi
+
 if ! command -v nginx >/dev/null 2>&1; then
+    # An nginx built from source that was wired and is gone -- a panel is
+    # between two builds: the next one must load whatever it finds.
+    if _pm_own_wiring; then
+        SELFBUILT_NGINX=1
+        echo "unmask-plugin-nginx: the nginx built from source that carried the module is gone."
+        go_inert "nginx is not installed (an nginx built from source was removed)"
+        go_inert_say $?
+    fi
     cat <<EOF
 unmask-plugin-nginx: nginx is not installed, so skipped placing the module.
   Install nginx and then re-place by one of:
@@ -838,6 +1135,11 @@ echo "  exact match: $(basename "$SRC")"
 if [ "$SELFBUILT_NGINX" = 1 ]; then
     MODULES_PATH=$OWN_SO_DIR
     echo "unmask-plugin-nginx: an nginx built from source (configuration: $NGINX_CONF) -- its files are left as they are"
+    # The watch on its binary and what its configuration includes (for
+    # doctor), whatever this run goes on to find: a build the module is
+    # refused by is watched too -- it is the one that will be built again.
+    watch_unit_write
+    includes_note
     # A fork that names an nginx version (Tengine does, and a panel offers it
     # beside nginx) is not that nginx: its structures differ, and a module
     # built for the version it names may load and then read the wrong fields.
@@ -1086,8 +1388,26 @@ fi
 # left for the operator.
 verify_or_disable
 
-# A self-built nginx: the two include lines, as long as one is missing.
-[ "$SELFBUILT_NGINX" = 1 ] && own_includes_say unmask-plugin-nginx
+if [ "$SELFBUILT_NGINX" = 1 ]; then
+    # The build the module is now in place for.
+    nginx_bin_note
+    # In place for this build, with the include lines missing: that is what
+    # the marker says from here on, not what took the module out before.
+    if [ -e "$FAILSAFE_MARKER" ] && _pm_module_wired && ! _pm_scope_included; then
+        _tl_miss=$(own_includes_missing | tr '\n' ' ')
+        _tl_why="$NGINX_CONF does not include unmask's directories (missing: ${_tl_miss% }); the module is in place for nginx ${HOST_VER}"
+        if _pm_http_included; then
+            _pm_marker "$_tl_why"
+        elif _pm_marker_inert; then
+            _pm_marker "$_tl_why" inert
+        else
+            _pm_marker "$_tl_why" inert
+            _pm_render || true
+        fi
+    fi
+    # The two include lines, as long as one is missing.
+    own_includes_say unmask-plugin-nginx
+fi
 
 echo ""
 echo "next steps (= on the nginx side):"
@@ -1105,12 +1425,20 @@ fi
 if [ "$SELFBUILT_NGINX" = 1 ]; then
     # nginx loads a module built for exactly its own version and options.  A
     # distribution's nginx is started by a unit this package hooks into, and
-    # the module is picked again before every start; whatever starts this
-    # one (an init script, a panel) asks nobody.
-    echo "  3. When this nginx is built again -- another version, other options -- run"
-    echo "       sh $PLUGIN_BASE/place-module.sh"
-    echo "     BEFORE it is started: it places the module for the new build, or takes"
-    echo "     the module out when there is none, so that nginx starts either way."
+    # the module is picked again before every start.  This one may be built
+    # again and tested by whatever built it before any service starts it: the
+    # watch on its binary takes unmask out for that (--nginx-changed).
+    if [ -d "$SYSTEMD_RUN_DIR" ] && [ -f "$WATCH_UNIT" ]; then
+        echo "  3. When this nginx is built again -- another version, other options, by hand or by a panel --"
+        echo "     unmask takes its module out the moment the binary changes (unmask-nginx-binary.path), so the new"
+        echo "     build loads its configuration; the module for that build is placed before nginx's service starts."
+        echo "     Started some other way, run   sh $PLUGIN_BASE/place-module.sh   once it is built."
+    else
+        echo "  3. When this nginx is built again -- another version, other options -- run"
+        echo "       sh $PLUGIN_BASE/place-module.sh"
+        echo "     BEFORE it is started: it places the module for the new build, or takes"
+        echo "     the module out when there is none, so that nginx starts either way."
+    fi
 fi
 
 exit 0

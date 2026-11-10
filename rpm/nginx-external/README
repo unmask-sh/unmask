@@ -22,7 +22,7 @@ are kept in directories of unmask's own, and the packages name two lines to
 add to that nginx's nginx.conf, once:
 
     include /usr/share/unmask/nginx/modules-enabled/*.conf;    as its first line
-    include /usr/share/unmask/nginx/conf.d/*.conf;             inside http { }
+    include /usr/share/unmask/nginx/conf.d/*.conf;             the first line inside http { }
 
 Both are wildcard includes: nginx reads them as nothing when unmask has
 taken its module out or has been removed, so they never stop it from

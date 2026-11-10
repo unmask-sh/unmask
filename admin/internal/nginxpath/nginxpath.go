@@ -187,6 +187,45 @@ func MissingOwnIncludes(confPath string) (noMain, noHTTP, readable bool, unread 
 	return noMain, noHTTP, true, unread
 }
 
+// IncludeNotePath is where unmask-plugin-nginx's placer notes what it found
+// of the two include lines in a self-built nginx's configuration: "ok", or
+// "missing: main http".  The placer runs as root, before every start of
+// nginx's service; the daemon's user often cannot read that nginx.conf at all
+// (a panel keeps it to root).  A variable so a test can point it elsewhere.
+var IncludeNotePath = "/var/lib/unmask/plugin/.nginx-includes"
+
+// IncludeNote reads that note: which of the two lines the placer found
+// missing ("main", "http"; none when it found both), and when it looked.
+// found is false when there is no note, or one that says neither.
+func IncludeNote() (missing []string, at time.Time, found bool) {
+	fi, err := os.Stat(IncludeNotePath)
+	if err != nil {
+		return nil, time.Time{}, false
+	}
+	b, err := os.ReadFile(IncludeNotePath)
+	if err != nil {
+		return nil, time.Time{}, false
+	}
+	line, _, _ := strings.Cut(string(b), "\n")
+	line = strings.TrimSpace(line)
+	if line == "ok" {
+		return nil, fi.ModTime(), true
+	}
+	rest, ok := strings.CutPrefix(line, "missing:")
+	if !ok {
+		return nil, time.Time{}, false
+	}
+	for _, w := range strings.Fields(rest) {
+		if w == "main" || w == "http" {
+			missing = append(missing, w)
+		}
+	}
+	if len(missing) == 0 {
+		return nil, time.Time{}, false
+	}
+	return missing, fi.ModTime(), true
+}
+
 // resetProbe forgets the cached answer (tests).
 func resetProbe() {
 	mu.Lock()

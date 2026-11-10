@@ -41,6 +41,18 @@ fi
 # re-runs the placer and a host nginx UPGRADE is re-picked automatically.
 if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     systemctl daemon-reload 2>/dev/null || true
+    # An nginx built from source: the placer wrote a watch on its binary
+    # (unmask-nginx-binary.path) and switched it on.  Again here, after the
+    # reload above has read this version's service for it: an upgrade may
+    # have changed that file.
+    WATCH=/etc/systemd/system/unmask-nginx-binary.path
+    if [ -f "$WATCH" ]; then
+        systemctl enable unmask-nginx-binary.path >/dev/null 2>&1 || true
+        if systemctl restart unmask-nginx-binary.path 2>/dev/null; then
+            echo "unmask-plugin-nginx: watching $(sed -n 's/^PathChanged=//p' "$WATCH") -- when that nginx is built again, unmask"
+            echo "  steps out of its way until the module is placed for the new build (unmask-nginx-binary.path)."
+        fi
+    fi
 else
     # Non-systemd hosts have no nginx unit to attach an ExecStartPre re-pick to
     # (Alpine ships no nginx OpenRC service at all; SysV nginx scripts are

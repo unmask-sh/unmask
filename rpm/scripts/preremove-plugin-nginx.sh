@@ -42,7 +42,12 @@ FALLBACK_SO_DIR=/var/lib/unmask/plugin
 # includes two of them, once:
 #
 #     include /usr/share/unmask/nginx/modules-enabled/*.conf;    the first line of nginx.conf
-#     include /usr/share/unmask/nginx/conf.d/*.conf;             inside http { }
+#     include /usr/share/unmask/nginx/conf.d/*.conf;             the first line inside http { }
+#
+# (The first line inside http { }: ahead of every server block and of every
+# include that brings the sites in.  A server that includes unmask's
+# server.inc names a log format the http directory defines, and nginx wants
+# the definition first.)
 #
 # Wildcard includes, which nginx accepts with nothing behind them: the module
 # can be taken out again (the fail-safe) and the packages removed with the two
@@ -99,8 +104,12 @@ own_includes_missing() {
             main) _nl_d=$OWN_MAIN_DIR ;;
             *)    _nl_d=$OWN_HTTP_DIR ;;
         esac
+        # grep reads to the end (no -q).  One that stops at the first match
+        # leaves sed and printf writing into a closed pipe, and where SIGPIPE
+        # is ignored -- a systemd service, which is where this runs before
+        # every nginx start -- each of them says so in the journal.
         printf '%s\n' "$_nl_cfg" | sed 's/#.*//' |
-            grep -qE "(^|[[:space:];{}])include[[:space:]]+[\"']?$_nl_d/[*][.]conf[\"']?[[:space:]]*;" ||
+            grep -E "(^|[[:space:];{}])include[[:space:]]+[\"']?$_nl_d/[*][.]conf[\"']?[[:space:]]*;" >/dev/null ||
             echo "$_nl_k"
     done
 }
@@ -120,7 +129,7 @@ own_includes_say() {
     esac
     case "$_nl_miss" in *" http "*)
         echo ""
-        echo "      include $OWN_HTTP_DIR/*.conf;     <- inside http { }"
+        echo "      include $OWN_HTTP_DIR/*.conf;     <- as the first line inside http { }"
         ;;
     esac
     echo ""
@@ -374,6 +383,25 @@ nginx_t_report() {
     return 1
 }
 # <<< leftover <<<
+
+# ---- 0. the watch on a self-built nginx's binary ----
+# place-module.sh writes it for an nginx built from source and the
+# postinstall enables it; its service goes with the package's files.  And the
+# placer's notes -- the build the module was placed for, what that nginx's
+# configuration included -- which sit beside the module's home on a read-only
+# /usr (removed below, when it is empty).
+WATCH_UNIT=/etc/systemd/system/unmask-nginx-binary.path
+if [ -f "$WATCH_UNIT" ]; then
+    if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+        systemctl disable --now unmask-nginx-binary.path >/dev/null 2>&1 || true
+    fi
+    rm -f "$WATCH_UNIT"
+    if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+        systemctl daemon-reload 2>/dev/null || true
+    fi
+    echo "unmask-plugin-nginx: removed the watch on the nginx binary ($WATCH_UNIT)"
+fi
+rm -f "$FALLBACK_SO_DIR/.nginx-binary" "$FALLBACK_SO_DIR/.nginx-includes" 2>/dev/null
 
 # ---- 1. the module and its load_module ----
 # Whether or not nginx is still installed: this used to stop right here

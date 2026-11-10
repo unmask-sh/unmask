@@ -1354,18 +1354,37 @@ func checkSelfBuiltNginx(addOK, addWarn func(t, m string)) {
 	}
 	conf := nginxpath.ConfPath("")
 	noMain, noHTTP, readable, unread := nginxpath.MissingOwnIncludes(conf)
+	// What the daemon's user could not read, the plugin's placer -- root,
+	// before every start of nginx's service -- has: its note stands in.
+	if !readable || ((noMain || noHTTP) && len(unread) > 0) {
+		if miss, at, ok := nginxpath.IncludeNote(); ok {
+			when := at.Format("2006-01-02 15:04")
+			if len(miss) == 0 {
+				addOK("self-built nginx", conf+" includes unmask's module and http directories (as unmask-plugin-nginx found when it last placed the module, "+when+"; the daemon's user cannot read that file itself)")
+				return
+			}
+			noMain, noHTTP, readable, unread = false, false, true, nil
+			for _, m := range miss {
+				if m == "main" {
+					noMain = true
+				} else {
+					noHTTP = true
+				}
+			}
+		}
+	}
 	switch {
 	case !readable:
 		addWarn("self-built nginx", "this nginx was not installed from a package, and its configuration ("+conf+
 			") could not be read to see whether it includes unmask's directories: it needs `include "+
-			nginxpath.OwnMainDir+"/*.conf;` as its first line and `include "+nginxpath.OwnHTTPDir+"/*.conf;` inside http { }")
+			nginxpath.OwnMainDir+"/*.conf;` as its first line and `include "+nginxpath.OwnHTTPDir+"/*.conf;` as the first line inside http { }")
 	case !noMain && !noHTTP:
 		addOK("self-built nginx", conf+" includes unmask's module and http directories")
 	case len(unread) > 0:
 		// The daemon's user could not open every file that configuration
 		// includes: a line that looks missing may be in one of them.
 		addWarn("self-built nginx", fmt.Sprintf("could not read %d file(s) that %s includes (%s, ...) to see whether unmask's directories are included: "+
-			"`sudo nginx -T | grep /usr/share/unmask/nginx` shows the two lines when they are there -- `include %s/*.conf;` as the first line and `include %s/*.conf;` inside http { }",
+			"`sudo nginx -T | grep /usr/share/unmask/nginx` shows the two lines when they are there -- `include %s/*.conf;` as the first line and `include %s/*.conf;` as the first line inside http { }",
 			len(unread), conf, unread[0], nginxpath.OwnMainDir, nginxpath.OwnHTTPDir))
 	default:
 		var lines []string
@@ -1373,7 +1392,7 @@ func checkSelfBuiltNginx(addOK, addWarn func(t, m string)) {
 			lines = append(lines, "`include "+nginxpath.OwnMainDir+"/*.conf;` as its first line")
 		}
 		if noHTTP {
-			lines = append(lines, "`include "+nginxpath.OwnHTTPDir+"/*.conf;` inside http { }")
+			lines = append(lines, "`include "+nginxpath.OwnHTTPDir+"/*.conf;` as the first line inside http { } (ahead of the sites)")
 		}
 		addWarn("self-built nginx", "this nginx was not installed from a package, so its "+conf+
 			" is not edited for it: add "+strings.Join(lines, " and ")+

@@ -66,6 +66,10 @@ The install guide takes you through either way, step by step: **https://unmask.s
   parameters of its nginx build).  unmask edits nothing of such an nginx:
   it keeps the module and its include files in directories of its own and
   names the two `include` lines to add to that nginx's `nginx.conf`.
+  When that nginx is built again -- another version, a panel's reinstall --
+  unmask takes its module out the moment the binary changes, so that the
+  new build starts with whatever `nginx.conf` it is given, and puts it back
+  when nginx's service starts with the two lines in place.
   Install `unmask-nginx-external` first there -- it tells the package
   manager that the host has an nginx no package installed, so that the
   plugin does not bring in the distribution's beside it.

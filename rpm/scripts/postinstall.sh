@@ -32,7 +32,12 @@ CONFIG=$CONFIG_DIR/config.yml
 # includes two of them, once:
 #
 #     include /usr/share/unmask/nginx/modules-enabled/*.conf;    the first line of nginx.conf
-#     include /usr/share/unmask/nginx/conf.d/*.conf;             inside http { }
+#     include /usr/share/unmask/nginx/conf.d/*.conf;             the first line inside http { }
+#
+# (The first line inside http { }: ahead of every server block and of every
+# include that brings the sites in.  A server that includes unmask's
+# server.inc names a log format the http directory defines, and nginx wants
+# the definition first.)
 #
 # Wildcard includes, which nginx accepts with nothing behind them: the module
 # can be taken out again (the fail-safe) and the packages removed with the two
@@ -89,8 +94,12 @@ own_includes_missing() {
             main) _nl_d=$OWN_MAIN_DIR ;;
             *)    _nl_d=$OWN_HTTP_DIR ;;
         esac
+        # grep reads to the end (no -q).  One that stops at the first match
+        # leaves sed and printf writing into a closed pipe, and where SIGPIPE
+        # is ignored -- a systemd service, which is where this runs before
+        # every nginx start -- each of them says so in the journal.
         printf '%s\n' "$_nl_cfg" | sed 's/#.*//' |
-            grep -qE "(^|[[:space:];{}])include[[:space:]]+[\"']?$_nl_d/[*][.]conf[\"']?[[:space:]]*;" ||
+            grep -E "(^|[[:space:];{}])include[[:space:]]+[\"']?$_nl_d/[*][.]conf[\"']?[[:space:]]*;" >/dev/null ||
             echo "$_nl_k"
     done
 }
@@ -110,7 +119,7 @@ own_includes_say() {
     esac
     case "$_nl_miss" in *" http "*)
         echo ""
-        echo "      include $OWN_HTTP_DIR/*.conf;     <- inside http { }"
+        echo "      include $OWN_HTTP_DIR/*.conf;     <- as the first line inside http { }"
         ;;
     esac
     echo ""

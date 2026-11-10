@@ -148,3 +148,47 @@ func TestMissingOwnIncludes(t *testing.T) {
 		}
 	}
 }
+
+// The placer's note of what a self-built nginx's configuration includes: the
+// daemon's user often cannot read that file (a panel keeps it to root), and
+// doctor reads the note instead.
+func TestIncludeNote(t *testing.T) {
+	dir := t.TempDir()
+	prev := IncludeNotePath
+	IncludeNotePath = filepath.Join(dir, ".nginx-includes")
+	t.Cleanup(func() { IncludeNotePath = prev })
+
+	if _, _, found := IncludeNote(); found {
+		t.Error("a note that is not there was found")
+	}
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(IncludeNotePath, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	write("ok\n")
+	miss, at, found := IncludeNote()
+	if !found || len(miss) != 0 || at.IsZero() {
+		t.Errorf("\"ok\": missing=%v at=%v found=%v, want none, a time, true", miss, at, found)
+	}
+
+	write("missing: main http\n")
+	if miss, _, found := IncludeNote(); !found || len(miss) != 2 || miss[0] != "main" || miss[1] != "http" {
+		t.Errorf("\"missing: main http\": missing=%v found=%v", miss, found)
+	}
+	write("missing: http\n")
+	if miss, _, found := IncludeNote(); !found || len(miss) != 1 || miss[0] != "http" {
+		t.Errorf("\"missing: http\": missing=%v found=%v", miss, found)
+	}
+
+	// Anything else says nothing: the note is in a tree the daemon's user
+	// can reach into, so it is read for these words and no others.
+	for _, body := range []string{"", "missing:\n", "missing: /etc/shadow\n", "fine\n"} {
+		write(body)
+		if miss, _, found := IncludeNote(); found {
+			t.Errorf("%q was taken for a note (missing=%v)", body, miss)
+		}
+	}
+}

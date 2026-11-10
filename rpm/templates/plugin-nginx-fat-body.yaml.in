@@ -85,6 +85,14 @@ contents:
     dst: /usr/lib/systemd/system/nginx.service.d/10-unmask-repick.conf
     file_info:
       mode: 0644
+  # What the watch on a self-built nginx's binary starts (the watch itself,
+  # unmask-nginx-binary.path, names that host's file and is written by the
+  # placer): the module is taken out when the binary changes, so the next
+  # build loads its configuration.  Never started on a distribution's nginx.
+  - src: ./unmask-nginx-binary.service
+    dst: /usr/lib/systemd/system/unmask-nginx-binary.service
+    file_info:
+      mode: 0644
   # The license and the notices, as in the main package (the module is built
   # from this project's C source; THIRD-PARTY-NOTICES.md has its section).
   - src: ../LICENSE
