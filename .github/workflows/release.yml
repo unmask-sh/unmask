@@ -286,6 +286,14 @@ jobs:
           echo "count=$#" >> "$GITHUB_OUTPUT"
           echo "first=$1" >> "$GITHUB_OUTPUT"
           eval "echo last=\${$#}" >> "$GITHUB_OUTPUT"
+      # The version the body below names: the tag without its v, as the docker
+      # job computes it for the image.  The body took it from that job's step,
+      # which this job cannot see, so the image reference in the draft ended in
+      # a bare colon; and the SBOM's file name was written out as X.Y.Z.
+      - name: the version, from the tag
+        id: meta
+        if: steps.guard.outputs.skip != 'true'
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
       - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
         if: steps.guard.outputs.skip != 'true'
         with:
@@ -296,6 +304,8 @@ jobs:
             docker-compose.example.yml
           generate_release_notes: true
           draft: true
+          # This text is the published page: the local release procedure puts
+          # the release's paragraph above it and publishes the draft as it is.
           body: |
             ## Distribution
 
@@ -314,7 +324,7 @@ jobs:
             - `unmask-nginx-external` (rpm / deb / apk) — only for a host whose nginx was built from source (by hand, by a hosting panel): provides `nginx`, so the two packages above install without the distribution's nginx beside it
             - `unmask-release` (rpm / deb / apk) — the repository definition and public keys
             - `unmask-linux-{amd64,arm64}` — raw Go binary (= no system integration)
-            - `unmask-X.Y.Z.cdx.{json,xml}` — SBOM (CycloneDX)
+            - `unmask-${{ steps.meta.outputs.version }}.cdx.{json,xml}` — SBOM (CycloneDX)
             - `docker-compose.example.yml` — the gateway container, one service
             - `checksums.txt` — SHA-256 of the packages and binaries above
             - `checksums.txt.sig` — its detached GPG signature
