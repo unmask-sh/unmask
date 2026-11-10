@@ -13,6 +13,9 @@
 # is missing or malformed; and when a raw binary carries no build-provenance
 # attestation from release.yml (releases before 0.1.54 have none, so a
 # dispatch on one of those tags stops here).
+#
+# When the page has verified, the last job points ghcr.io/unmask-sh/unmask:latest
+# at the release's image (latest-image, below).
 name: release-verify
 
 on:
@@ -126,3 +129,48 @@ jobs:
             test -s "$f" || { echo "::error::$f is missing from the release"; exit 1; }
           done
           echo "release $TAG: $(ls assets | wc -l) assets verified"
+
+  # ghcr.io/unmask-sh/unmask:latest moves here, not in release.yml.  A tag
+  # push builds the image and opens a draft; the packages have not met the
+  # release gate at that point.  0.1.54 stopped there and was never released,
+  # and 0.1.56 waited eleven hours as a draft -- both were what :latest
+  # served on the mirror meanwhile.  So release.yml pushes the version tag
+  # only, and :latest is pointed at it once the page is published and the job
+  # above has passed: the same manifest list, digest for digest, so the
+  # image's attestations apply to :latest as they do to the version.  Only
+  # for the release GitHub marks as latest -- publishing a fix for an older
+  # line, or a dispatch on an older tag, leaves :latest where it is.
+  latest-image:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      IMAGE: ghcr.io/unmask-sh/unmask
+    steps:
+      - name: point :latest at the published version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          newest=$(gh api "repos/$GITHUB_REPOSITORY/releases/latest" --jq .tag_name)
+          if [ "$newest" != "$TAG" ]; then
+            echo "$TAG is not the latest release ($newest is): :latest stays where it is"
+            exit 0
+          fi
+          v="${TAG#v}"
+          # The digest of a tag is that of the manifest the registry serves
+          # for it -- here the list of both architectures.
+          digest() { skopeo inspect --raw "docker://$IMAGE:$1" > manifest.json; sha256sum manifest.json | cut -d' ' -f1; }
+          printf '%s' "$GH_TOKEN" | skopeo login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          want=$(digest "$v")
+          skopeo copy --all --preserve-digests "docker://$IMAGE:$v" "docker://$IMAGE:latest"
+          got=$(digest latest)
+          if [ "$got" != "$want" ]; then
+            echo "::error::$IMAGE:latest is sha256:$got, $IMAGE:$v is sha256:$want"
+            exit 1
+          fi
+          echo "$IMAGE:latest -> $v (sha256:$got)"

@@ -41,12 +41,15 @@
 #   gh release upload v0.X.Y dist/*.{rpm,deb,apk} dist/checksums.txt dist/checksums.txt.sig --clobber
 #   gh release edit v0.X.Y --draft=false
 #                          # release-verify runs on this; read its verdict.
+#                          # Its last job points ghcr.io/unmask-sh/unmask:latest
+#                          # at this version: until then :latest is the
+#                          # previous release.
 name: release
 
 on:
   push:
     # A release tag only.  A pre-release tag (v0.1.54-rc3, the testing
-    # channel) must not open a draft release or push a :latest image.
+    # channel) must not open a draft release or push the release image.
     tags: ["v[0-9]+.[0-9]+.[0-9]+"]
 
 # Least-privilege default: only the `release` job needs contents:write (create
@@ -140,9 +143,13 @@ jobs:
           - name: unmask
             dockerfile: Dockerfile
             build-args: NGINX_VERSION=1.30.6
+            # The version tag only.  :latest is not pushed here: a tag push
+            # comes before the release gate, and a release that stops at this
+            # point (0.1.54) or waits as a draft must not be what :latest
+            # serves.  release-verify.yml points :latest at this image once
+            # the release is published and its page has verified.
             tags: |
               ghcr.io/unmask-sh/unmask:VERSION
-              ghcr.io/unmask-sh/unmask:latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0

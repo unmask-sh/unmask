@@ -20,6 +20,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-10) **`unmask-nginx-external`: for a host whose nginx no package installed.**  `unmask-plugin-nginx` and `unmask-web-nginx` depend on `nginx`, which on a host with a self-built nginx brought in the distribution's nginx beside it -- a second nginx that takes the name on PATH. The new package provides `nginx` and ships its README, nothing else: installed first, on purpose, it lets the other two in without one.
 
+### Changed
+
+- (2026-11-10) **The image mirror's `latest` follows the published release.**  `ghcr.io/unmask-sh/unmask:latest` moved when a release was tagged -- before its packages had passed the release checks, and while the release page was still a draft. Tagging now pushes the image under its version only; `latest` is pointed at that image, by digest, once the published release has verified. `unmask.sh/unmask` was never ahead of a release.
+
 ### Fixed
 
 - (2026-11-10) **Compiled into nginx (`--add-module`), the module no longer breaks an nginx with a static OpenSSL.**  The module's build file named `-lcrypto` for that build too, ahead of the `libcrypto.a` of an nginx configured `--with-openssl=DIR`: the binary mixed two OpenSSL releases and died of a segfault at its first start, with no build error. Compiled in, the module now leaves OpenSSL to nginx. The packaged module is unchanged, byte for byte.
