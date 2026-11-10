@@ -276,6 +276,12 @@ jobs:
           make modules
           ls -la objs/ngx_http_unmask_module.so
           sh $GITHUB_WORKSPACE/tools/check-so-hardening.sh objs/ngx_http_unmask_module.so
+      # The other way of building it, --add-module: configure only, in a build
+      # directory of its own, and the link line read back.  The module's config
+      # named -lcrypto there too, ahead of the static libcrypto.a of an nginx
+      # configured --with-openssl=DIR, and that binary segfaults at start.
+      - name: compiled into nginx, the module leaves OpenSSL to nginx
+        run: sh tools/check-static-link.sh nginx-${{ matrix.nginx }}
       - name: rename + arch suffix
         id: arch
         run: |

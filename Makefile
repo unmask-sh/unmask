@@ -446,6 +446,16 @@ module-load-test:
 	tools/module-load-test.sh openssl10 $(DIST)
 	tools/module-load-test.sh glibc212 $(DIST)
 
+## module-static-link-test - compiled INTO nginx (--add-module), the module leaves OpenSSL to nginx (configure only)
+# nginx-module/config named -lcrypto for that build too, and it landed ahead of
+# the static libcrypto.a of an nginx configured --with-openssl=DIR: one binary
+# with two OpenSSL releases in it, which segfaults at its first start.  The
+# script runs configure in a build directory of its own and reads the link
+# line back; CI runs it in the build-module job.
+.PHONY: module-static-link-test
+module-static-link-test: $(NGINX_SRC)/configure
+	sh tools/check-static-link.sh $(NGINX_SRC)
+
 ## build-demo    - demo nginx binary + nginx module (same source tree).  For long-running dev environments.
 # Unlike build-module, also generates the nginx binary (objs/nginx).  Not needed at distribution time.
 # Start from demo/ with `<NGINX_SRC>/objs/nginx -p demo -c demo/nginx.conf`.

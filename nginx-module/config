@@ -5,16 +5,39 @@ ngx_addon_name=ngx_http_unmask_module
 # (= the stable API common to OpenSSL 0.9.7+ across all ABIs), enabling a
 # single-source build across OpenSSL 1.0 / 1.1 / 3.x / LibreSSL / BoringSSL.
 
+# Compiled into nginx (--add-module) instead of built as a module of its own:
+# nginx links OpenSSL itself then, and which one is its business -- the
+# system's, or the static one of an nginx configured --with-openssl=DIR.  A
+# -lcrypto of ours would come FIRST on the link line (configure reads this
+# file before it adds nginx's own libraries), so the binary took the system's
+# shared libcrypto under the libssl.a of another OpenSSL release, and such an
+# nginx dies of a segfault the first time it starts.  So no libcrypto from
+# here, and a word at configure time when the nginx has no TLS to read a
+# ClientHello from, which is otherwise a link error naming ngx_http_ssl_module.
+ngx_http_unmask_static() {
+    if [ "$HTTP_SSL" != YES ]; then
+        echo "$0: error: ngx_http_unmask_module needs an nginx with TLS: add --with-http_ssl_module"
+        exit 1
+    fi
+}
+
 if test -n "$ngx_module_link"; then
     ngx_module_type=HTTP
     ngx_module_name=ngx_http_unmask_module
     ngx_module_srcs="$ngx_addon_dir/src/ngx_http_unmask_module.c $ngx_addon_dir/src/ja4_parser.c $ngx_addon_dir/src/bv_parser.c $ngx_addon_dir/src/ja4_build.c $ngx_addon_dir/src/ban_list.c"
     # -ldl: dladdr, which names the module's own file for $unmask_module_id
     # (a no-op library on musl and on glibc 2.34+, where it is part of libc).
-    ngx_module_libs="-lcrypto -ldl"
+    if [ "$ngx_module_link" = DYNAMIC ]; then
+        ngx_module_libs="-lcrypto -ldl"
+    else
+        ngx_http_unmask_static
+        ngx_module_libs="-ldl"
+    fi
     . auto/module
 else
+    # nginx before 1.9.11 has no auto/module, and no dynamic modules either.
+    ngx_http_unmask_static
     HTTP_MODULES="$HTTP_MODULES ngx_http_unmask_module"
     NGX_ADDON_SRCS="$NGX_ADDON_SRCS $ngx_addon_dir/src/ngx_http_unmask_module.c $ngx_addon_dir/src/ja4_parser.c $ngx_addon_dir/src/bv_parser.c $ngx_addon_dir/src/ja4_build.c $ngx_addon_dir/src/ban_list.c"
-    CORE_LIBS="$CORE_LIBS -lcrypto -ldl"
+    CORE_LIBS="$CORE_LIBS -ldl"
 fi
