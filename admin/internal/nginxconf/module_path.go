@@ -4,22 +4,23 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/unmask-sh/unmask/admin/internal/nginxpath"
 )
 
 // ModuleFilePath: where the host nginx loads the unmask module from -- the
 // path of the first load_module directive naming ngx_http_unmask_module, in
-// nginx.conf (confPath; /etc/nginx/nginx.conf when "") or in a file of a
-// main-context include it names ahead of its http block, which is where
-// place-module.sh wires the module (modules-enabled/, /usr/share/nginx/modules/).
+// nginx.conf (confPath; when "", the file the nginx on PATH was built to
+// read) or in a file of a main-context include it names ahead of its http
+// block, which is where place-module.sh wires the module (modules-enabled/,
+// /usr/share/nginx/modules/; for an nginx built from source, unmask's own
+// directory, which the operator's nginx.conf includes).
 // "" when none is wired: a forward-auth install, the fail-safe that stripped
 // the module, the gateway container whose nginx lives elsewhere.  The daemon
 // hashes the file there to tell, from the access log, whether the running
 // nginx loaded it (renderwatch).
 func ModuleFilePath(confPath string) string {
-	confPath = strings.TrimSpace(confPath)
-	if confPath == "" {
-		confPath = "/etc/nginx/nginx.conf"
-	}
+	confPath = nginxpath.ConfPath(confPath)
 	b, err := os.ReadFile(confPath)
 	if err != nil {
 		return ""

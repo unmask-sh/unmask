@@ -52,9 +52,27 @@ func (r Result) WorldWritable() bool { return r.Mode&0o002 != 0 }
 // nginx wins where several exist.
 var WebServerGroups = []string{"nginx", "apache", "www-data", "http", "www"}
 
-// DetectWebServerGroup probes the common web server groups and returns the
-// first that exists plus all that do ("", nil when none).
+// WorkerGroup, when set, answers with the group nginx's workers run in on
+// this host -- nginx.conf's `user`, read by a caller that knows where that
+// file is -- or "" when it cannot tell.  Its answer comes ahead of the list:
+// the first group of the list that exists is not always the worker's (every
+// Debian has a www-data group, nginx or not; a hosting panel's nginx runs as
+// a user of the panel's own), and a socket shared with the wrong group is
+// one the worker cannot write.
+var WorkerGroup func() string
+
+// DetectWebServerGroup returns the group to share a socket with -- the one
+// nginx.conf names for its workers when that is known and exists here, else
+// the first of the common web server groups that exists -- plus all the
+// candidates that exist ("", nil when none).
 func DetectWebServerGroup() (string, []string) {
+	if WorkerGroup != nil {
+		if g := strings.TrimSpace(WorkerGroup()); g != "" {
+			if _, err := osuser.LookupGroup(g); err == nil {
+				return g, []string{g}
+			}
+		}
+	}
 	var found []string
 	for _, cand := range WebServerGroups {
 		if _, err := osuser.LookupGroup(cand); err == nil {

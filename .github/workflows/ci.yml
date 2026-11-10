@@ -59,7 +59,12 @@ jobs:
       # .so for the host's nginx and OpenSSL before every nginx start and
       # strips the module when the configuration cannot load it; and the
       # removal of the plugin and of unmask-web-nginx, per kind of host: what
-      # it takes out of nginx, and what it tells the operator is left.
+      # it takes out of nginx, and what it tells the operator is left; and
+      # the block that tells a distribution's nginx from one built from
+      # source, whose files the scripts leave alone -- one copy in each
+      # script that has to know, the same in all -- with place-module.sh run
+      # against such an nginx: placed in unmask's own directories, refused
+      # when it does not take the module, nothing of that nginx written.
       - name: package scripts
         run: |
           bash rpm/scripts/postinstall_test.sh
@@ -68,6 +73,8 @@ jobs:
           bash rpm/scripts/nginx-reload-if-stale_test.sh
           bash rpm/scripts/place-module_test.sh
           bash rpm/scripts/uninstall_test.sh
+          sh rpm/scripts/nginx-layout_test.sh
+          sh rpm/scripts/place-module-selfbuilt_test.sh
       - name: gofmt
         working-directory: admin
         run: |

@@ -119,7 +119,7 @@ SOURCE_DATE_EPOCH := $(shell git log -1 --pretty=%ct 2>/dev/null || echo 0)
 endif
 export SOURCE_DATE_EPOCH
 
-.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down e2e-docker-socket e2e-docker-mariadb e2e-lifecycle distro-check vet fmt clean release-clean help repo repo-apk
+.PHONY: build build-all build-admin build-module build-module-multi build-module-multi-openssl11 build-module-multi-openssl10 build-module-multi-glibc212 build-module-multi-all build-demo package package-all package-rpm package-deb package-apk package-plugin-nginx package-plugin-nginx-rpm package-plugin-nginx-deb package-plugin-nginx-apk package-plugin-nginx-fat package-web-nginx package-web-apache package-nginx-external release docker docker-buildx test e2e e2e-demo e2e-docker e2e-docker-down e2e-docker-socket e2e-docker-mariadb e2e-lifecycle distro-check vet fmt clean release-clean help repo repo-apk
 
 help:
 	@printf "unmask Makefile targets:\n\n"
@@ -798,6 +798,21 @@ package-web-apache:
 	$(call _nfpm_web,apache,deb)
 	$(call _nfpm_web,apache,apk)
 
+## package-nginx-external - stand-in for `nginx` where no package installed it (rpm/deb/apk)
+# For a host whose nginx was built from source, by hand or by a hosting
+# panel.  unmask-plugin-nginx and unmask-web-nginx depend on nginx, and there
+# the package manager meets that by installing the distribution's nginx
+# beside the one the host runs.  This package provides `nginx` and ships its
+# documentation, nothing else: installed first, on purpose, it lets the other
+# two in.  Per arch like the web packages (the resolvers install only
+# packages of the host's arch).
+package-nginx-external:
+	$(call _nfpm_yaml,nginx-external,unmask-nginx-external,$(GOARCH),unmask,https://github.com/unmask-sh/unmask,$(DIST)/.tmp-pkg/nfpm-nginx-external.$(GOARCH).yaml)
+	cd rpm && $(call _nfpm_env,rpm) $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-nginx-external.$(GOARCH).yaml --packager rpm --target ../$(DIST)
+	cd rpm && $(call _nfpm_env,deb) $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-nginx-external.$(GOARCH).yaml --packager deb --target ../$(DIST)
+	cd rpm && $(call _nfpm_env,apk) $(NFPM) pkg --config ../$(DIST)/.tmp-pkg/nfpm-nginx-external.$(GOARCH).yaml --packager apk --target ../$(DIST)
+	rm -f $(DIST)/.tmp-pkg/nfpm-nginx-external.$(GOARCH).yaml
+
 ## package-all   - generate rpm/deb/apk for both amd64 and arm64 in one run
 # Note: cross-compiling the nginx module (arm64 host != build host) requires
 # a GCC cross toolchain (aarch64-linux-gnu-gcc).  Without it, only the admin
@@ -880,6 +895,8 @@ release: release-clean
 	$(MAKE) package-web-apache UNMASK_VERSION=$(UNMASK_VERSION) GOARCH=amd64
 	$(MAKE) package-web-nginx UNMASK_VERSION=$(UNMASK_VERSION) GOARCH=arm64
 	$(MAKE) package-web-apache UNMASK_VERSION=$(UNMASK_VERSION) GOARCH=arm64
+	$(MAKE) package-nginx-external UNMASK_VERSION=$(UNMASK_VERSION) GOARCH=amd64
+	$(MAKE) package-nginx-external UNMASK_VERSION=$(UNMASK_VERSION) GOARCH=arm64
 	$(MAKE) package-release UNMASK_VERSION=$(UNMASK_VERSION)
 	# Completeness gate: refuse to call a partial set a release.  Every
 	# package family the docs / repo advertise must exist in dist/ -- and the
@@ -887,7 +904,7 @@ release: release-clean
 	# checksums are emitted.
 	@echo ">>> asserting the full artifact set in $(DIST)/ (family x format x arch)"
 	@cd $(DIST) && fail=0; \
-	for fam in unmask-plugin-nginx unmask-web-nginx unmask-web-apache; do \
+	for fam in unmask-plugin-nginx unmask-web-nginx unmask-web-apache unmask-nginx-external; do \
 		for spec in x86_64.rpm aarch64.rpm amd64.deb arm64.deb x86_64.apk aarch64.apk; do \
 			ls $$fam*$(UNMASK_VERSION)*$$spec >/dev/null 2>&1 || { echo "!! release set incomplete: no $$fam ($$spec) at $(UNMASK_VERSION) in dist/"; fail=1; }; \
 		done; \

@@ -58,7 +58,10 @@ new_root() {
     stub restorecon
     stub hostname 'echo test-host'
     stub systemctl "case \"\$1\" in --version) echo 'systemd $sdver (test)' ;; esac; exit 0"
-    stub nginx "case \"\$1\" in -V) echo 'configure arguments: --modules-path=$T/modules' >&2 ;; esac; exit 0"
+    # --conf-path as every distribution's nginx names it: without it the
+    # scripts take the nginx for a self-built one and leave /etc/nginx alone
+    # (nginx-layout).
+    stub nginx "case \"\$1\" in -V) echo 'configure arguments: --conf-path=$T/etc/nginx/nginx.conf --modules-path=$T/modules' >&2 ;; esac; exit 0"
     for c in $tools; do stub "$c"; done
     # What the scripts need from the system, and nothing else: no real
     # systemctl, chcon or semanage may be reachable from here.

@@ -1,0 +1,42 @@
+unmask-nginx-external
+=====================
+
+For a host whose nginx no package installed: one built from source, by hand
+or by a hosting panel that compiles its own.
+
+unmask-plugin-nginx and unmask-web-nginx depend on "nginx".  On such a host
+the package manager meets that dependency by installing the distribution's
+nginx beside the one the host runs -- a second nginx, which takes the name
+`nginx` on PATH and may take the ports.  This package provides "nginx" and
+installs nothing but this file and its licence: installed first, and on
+purpose, it tells the package manager that the host has an nginx already.
+
+    apt install unmask-nginx-external unmask unmask-plugin-nginx unmask-web-nginx
+    dnf install unmask-nginx-external unmask unmask-plugin-nginx unmask-web-nginx
+
+What unmask does with an nginx built from source
+------------------------------------------------
+
+It edits nothing of that nginx.  The module and the files nginx has to read
+are kept in directories of unmask's own, and the packages name two lines to
+add to that nginx's nginx.conf, once:
+
+    include /usr/share/unmask/nginx/modules-enabled/*.conf;    as its first line
+    include /usr/share/unmask/nginx/conf.d/*.conf;             inside http { }
+
+Both are wildcard includes: nginx reads them as nothing when unmask has
+taken its module out or has been removed, so they never stop it from
+starting.  `unmask doctor` says which of the two is still missing.
+
+The nginx has to be one of the versions the plugin bundles a module for,
+and built --with-compat (a hosting panel: the custom parameters of its nginx
+build).  The plugin says so, in words, when it is not.
+
+When that nginx is built again -- another version, other options -- run
+
+    sh /usr/share/unmask/plugin/place-module.sh
+
+before it is started: it places the module for the new build, or takes the
+module out when there is none for it, so that nginx starts either way.
+
+Do not install this package on a host whose nginx came from a package.

@@ -41,6 +41,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
+	"github.com/unmask-sh/unmask/admin/internal/nginxpath"
 	"github.com/unmask-sh/unmask/admin/internal/relay"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -2371,10 +2372,7 @@ func hostHasVariablesHash(s settings.Settings) bool {
 // and under-emit on every re-render.  Best-effort: unreadable files are skipped;
 // one level deep covers the conf.d/*.conf case without shelling out to nginx -T.
 func hostConfContents(s settings.Settings) []string {
-	confPath := strings.TrimSpace(s.Nginx.ConfPath)
-	if confPath == "" {
-		confPath = "/etc/nginx/nginx.conf"
-	}
+	confPath := nginxpath.ConfPath(s.Nginx.ConfPath)
 	b, err := os.ReadFile(confPath)
 	if err != nil {
 		return nil
@@ -2458,10 +2456,7 @@ func HostDeclaresRealIPHeader(s settings.Settings) bool {
 // (~76 chars / 256), or the conf could not be read.  Callers gate on
 // community-bans enforcement being active.
 func resolveMapHash(s settings.Settings) (emitBucket, emitMax bool, warning string) {
-	confPath := strings.TrimSpace(s.Nginx.ConfPath)
-	if confPath == "" {
-		confPath = "/etc/nginx/nginx.conf"
-	}
+	confPath := nginxpath.ConfPath(s.Nginx.ConfPath)
 	const wantBucket = 256
 	hb, hmax, hasMapBlock, readable := readHostMapHash(confPath)
 	if !readable {

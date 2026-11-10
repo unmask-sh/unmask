@@ -1,0 +1,48 @@
+# nginx-external-body.yaml.in — body for unmask-nginx-external.
+#
+# For a host whose nginx no package installed -- built from source, by hand
+# or by a hosting panel.  unmask-plugin-nginx and unmask-web-nginx depend on
+# `nginx`, and there the package manager meets that by installing the
+# distribution's nginx beside the one the host runs: a second nginx that
+# takes the name on PATH (the package scripts then wire the wrong one) and
+# may take the ports.  This package provides `nginx` and ships its
+# documentation, nothing else: installed first, on purpose, it says that the
+# host has an nginx already.
+#
+# No scripts, no dependencies, no files nginx reads.  What the other packages
+# do with a self-built nginx is in rpm/scripts (the nginx-layout block).
+
+description: |
+  For a host whose nginx was built from source (by hand, or by a hosting
+  panel).  Provides "nginx" to the package manager, so that
+  unmask-plugin-nginx and unmask-web-nginx install without pulling in the
+  distribution's nginx beside the one the host runs.  Install it first.
+  It ships its documentation and nothing else; unmask edits nothing of such
+  an nginx and names the two include lines to add to its nginx.conf.
+  Not for a host whose nginx came from a package.
+
+provides:
+  - nginx
+
+contents:
+  - src: ./nginx-external/README
+    dst: /usr/share/doc/unmask-nginx-external/README
+    file_info:
+      mode: 0644
+  # Per-packager LICENSE entries: rpm marks it %license, deb and apk ship it
+  # as a plain doc file (the other unmask packages do the same).
+  - src: ../LICENSE
+    dst: /usr/share/doc/unmask-nginx-external/LICENSE
+    type: license
+    packager: rpm
+  - src: ../LICENSE
+    dst: /usr/share/doc/unmask-nginx-external/LICENSE
+    packager: deb
+  - src: ../LICENSE
+    dst: /usr/share/doc/unmask-nginx-external/LICENSE
+    packager: apk
+  - src: ../NOTICE
+    dst: /usr/share/doc/unmask-nginx-external/NOTICE
+  - src: ./conf/copyright
+    dst: /usr/share/doc/unmask-nginx-external/copyright
+    packager: deb

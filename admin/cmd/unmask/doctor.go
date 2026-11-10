@@ -51,6 +51,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/handlers"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/nginxpath"
 	"github.com/unmask-sh/unmask/admin/internal/relay"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -632,6 +633,7 @@ func cmdDoctor(args []string) error {
 	checkApacheConnPeer(addWarn)
 	checkNativeFailsafe(s.Nginx.OutputDir, addErr)
 	checkNginxConfTest(addOK, addWarn, addErr)
+	checkSelfBuiltNginx(addOK, addWarn)
 	checkNginxStaleLibs(addWarn)
 	checkNginxErrorLog(addOK, addWarn)
 	checkNginxReloadLag(s, addOK, addWarn)
@@ -1333,6 +1335,50 @@ func checkNginxConfTest(addOK, addWarn, addErr func(t, m string)) {
 		return
 	}
 	addErr("nginx -t", "live nginx config FAILS to load ("+msg+") — nginx cannot reload until fixed; run `nginx -t` for the full output.")
+}
+
+// checkSelfBuiltNginx: an nginx built from source -- by hand, by a hosting
+// panel -- reads nothing of unmask's until its nginx.conf includes unmask's
+// two directories: the packages do not edit that file (rpm/scripts, the
+// nginx-layout block), they say which lines to add.  Said again here, for as
+// long as one is missing: with neither, the module is not loaded and the
+// rendered configuration is not read, the site's own includes of server.inc
+// then stop `nginx -t`, and with the first alone no request is challenged.
+// Whose nginx it is goes by `nginx -V`, as it does for the packages.
+func checkSelfBuiltNginx(addOK, addWarn func(t, m string)) {
+	if _, err := exec.LookPath("nginx"); err != nil {
+		return
+	}
+	if !nginxpath.SelfBuilt("") {
+		return
+	}
+	conf := nginxpath.ConfPath("")
+	noMain, noHTTP, readable, unread := nginxpath.MissingOwnIncludes(conf)
+	switch {
+	case !readable:
+		addWarn("self-built nginx", "this nginx was not installed from a package, and its configuration ("+conf+
+			") could not be read to see whether it includes unmask's directories: it needs `include "+
+			nginxpath.OwnMainDir+"/*.conf;` as its first line and `include "+nginxpath.OwnHTTPDir+"/*.conf;` inside http { }")
+	case !noMain && !noHTTP:
+		addOK("self-built nginx", conf+" includes unmask's module and http directories")
+	case len(unread) > 0:
+		// The daemon's user could not open every file that configuration
+		// includes: a line that looks missing may be in one of them.
+		addWarn("self-built nginx", fmt.Sprintf("could not read %d file(s) that %s includes (%s, ...) to see whether unmask's directories are included: "+
+			"`sudo nginx -T | grep /usr/share/unmask/nginx` shows the two lines when they are there -- `include %s/*.conf;` as the first line and `include %s/*.conf;` inside http { }",
+			len(unread), conf, unread[0], nginxpath.OwnMainDir, nginxpath.OwnHTTPDir))
+	default:
+		var lines []string
+		if noMain {
+			lines = append(lines, "`include "+nginxpath.OwnMainDir+"/*.conf;` as its first line")
+		}
+		if noHTTP {
+			lines = append(lines, "`include "+nginxpath.OwnHTTPDir+"/*.conf;` inside http { }")
+		}
+		addWarn("self-built nginx", "this nginx was not installed from a package, so its "+conf+
+			" is not edited for it: add "+strings.Join(lines, " and ")+
+			", then `nginx -t` and restart nginx — until then nginx does not load the module or the rendered configuration, and no request is challenged")
+	}
 }
 
 // checkNginxProtectScope warns when protect.inc is included at SERVER scope

@@ -44,7 +44,112 @@
 
 PLUGIN_BASE=/usr/share/unmask/plugin
 SO_NAME=ngx_http_unmask_module.so
-NGINX_CONF=/etc/nginx/nginx.conf
+
+# >>> nginx-layout >>>
+# Whose nginx this is, and where unmask's part of its configuration lives.
+#
+# A distribution's nginx reads /etc/nginx/nginx.conf, and that file includes
+# directories a package may put a file into: the packages wire unmask in
+# there.  An nginx built from source -- by hand under /usr/local/nginx, by a
+# hosting panel under a prefix of its own -- keeps its nginx.conf elsewhere,
+# says nothing about directories, and the file is its builder's (a panel
+# writes it again when it pleases).  The packages edit nothing of such an
+# nginx.  They keep directories of their own, root's, and the operator
+# includes two of them, once:
+#
+#     include /usr/share/unmask/nginx/modules-enabled/*.conf;    the first line of nginx.conf
+#     include /usr/share/unmask/nginx/conf.d/*.conf;             inside http { }
+#
+# Wildcard includes, which nginx accepts with nothing behind them: the module
+# can be taken out again (the fail-safe) and the packages removed with the two
+# lines still there, and nginx starts.  The module file is kept beside them
+# ($OWN_SO_DIR), not under the prefix of that nginx.
+#
+# The lines between the two markers are the same, byte for byte, in every
+# script that carries them; nginx-layout_test.sh fails when they differ.
+OWN_NGINX_DIR=/usr/share/unmask/nginx
+OWN_MAIN_DIR=$OWN_NGINX_DIR/modules-enabled
+OWN_HTTP_DIR=$OWN_NGINX_DIR/conf.d
+OWN_SO_DIR=$OWN_NGINX_DIR/modules
+PACKAGED_NGINX_CONF=/etc/nginx/nginx.conf
+
+# What a test overrides: `nginx -V`, and the configuration as nginx reads it
+# (every included file; nothing when the configuration does not load).
+_nl_nginx_v() { nginx -V 2>&1; }
+_nl_nginx_dump() { nginx -T 2>/dev/null; }
+
+# nginx_conf_path: the main configuration file of the nginx on PATH, as that
+# nginx was built: --conf-path, or conf/nginx.conf under --prefix, or under
+# nginx's own default prefix.  The distributions' path when there is no nginx
+# to ask, or none that answers like one.
+nginx_conf_path() {
+    command -v nginx >/dev/null 2>&1 || { echo "$PACKAGED_NGINX_CONF"; return 0; }
+    _nl_v=$(_nl_nginx_v)
+    case "$_nl_v" in
+        *"configure arguments:"*) ;;
+        *) echo "$PACKAGED_NGINX_CONF"; return 0 ;;
+    esac
+    _nl_args=$(printf '%s\n' "$_nl_v" | tr ' ' '\n')
+    _nl_conf=$(printf '%s\n' "$_nl_args" | sed -n 's|^--conf-path=||p' | head -1)
+    _nl_prefix=$(printf '%s\n' "$_nl_args" | sed -n 's|^--prefix=||p' | head -1)
+    [ -n "$_nl_prefix" ] || _nl_prefix=/usr/local/nginx
+    case "$_nl_conf" in
+        /*) echo "$_nl_conf" ;;
+        "") echo "$_nl_prefix/conf/nginx.conf" ;;
+        *)  echo "$_nl_prefix/$_nl_conf" ;;
+    esac
+}
+
+# nginx_is_packaged: 0 when that file is the one the distributions use.
+nginx_is_packaged() { [ "$(nginx_conf_path)" = "$PACKAGED_NGINX_CONF" ]; }
+
+# own_includes_missing: which of the two include lines the configuration of
+# a self-built nginx does not carry -- "main", "http", both (one per line) or
+# nothing.  Read from the configuration as nginx reads it, so that a line in
+# an included file counts; from the main file alone when that cannot be had.
+own_includes_missing() {
+    _nl_cfg=$(_nl_nginx_dump)
+    [ -n "$_nl_cfg" ] || _nl_cfg=$(cat "$(nginx_conf_path)" 2>/dev/null)
+    for _nl_k in main http; do
+        case $_nl_k in
+            main) _nl_d=$OWN_MAIN_DIR ;;
+            *)    _nl_d=$OWN_HTTP_DIR ;;
+        esac
+        printf '%s\n' "$_nl_cfg" | sed 's/#.*//' |
+            grep -qE "(^|[[:space:];{}])include[[:space:]]+[\"']?$_nl_d/[*][.]conf[\"']?[[:space:]]*;" ||
+            echo "$_nl_k"
+    done
+}
+
+# own_includes_say <package>: name the include lines still to be added and the
+# file they go into.  Says nothing once both are there.
+own_includes_say() {
+    _nl_miss=" $(own_includes_missing | tr '\n' ' ')"
+    [ "$_nl_miss" = " " ] && return 0
+    echo ""
+    echo "$1: this nginx was not installed from a package, so nothing of its"
+    echo "  configuration is edited.  Add to $(nginx_conf_path), once:"
+    case "$_nl_miss" in *" main "*)
+        echo ""
+        echo "      include $OWN_MAIN_DIR/*.conf;     <- as the first line of the file"
+        ;;
+    esac
+    case "$_nl_miss" in *" http "*)
+        echo ""
+        echo "      include $OWN_HTTP_DIR/*.conf;     <- inside http { }"
+        ;;
+    esac
+    echo ""
+    echo "  then  nginx -t  and restart nginx (a reload does not load a module)."
+    echo "  Both lines can stay when unmask is removed: nginx reads them as nothing then."
+}
+# <<< nginx-layout <<<
+
+# The configuration this run reads -- and, where it is a distribution's,
+# writes to.  SELFBUILT_NGINX=1 is the nginx whose files are left alone.
+NGINX_CONF=$(nginx_conf_path)
+SELFBUILT_NGINX=0
+[ "$NGINX_CONF" = "$PACKAGED_NGINX_CONF" ] || SELFBUILT_NGINX=1
 # Fallback .so home for hosts whose /usr is read-only at runtime (Fedora
 # Silverblue / ostree and friends).  The distro-conventional modules path is
 # still preferred when writable: it inherits the right SELinux label and
@@ -61,8 +166,8 @@ FALLBACK_SO_DIR=/var/lib/unmask/plugin
 # module wired, which also renders the full configuration again.
 FAILSAFE_MARKER=/var/lib/unmask/nginx/.native-failsafe
 # The http.inc auto-load symlink the two postinstalls create (= see the wiring
-# step below for the http.d variant).
-HTTP_INC_LINKS="/etc/nginx/conf.d/00-unmask.conf /etc/nginx/http.d/00-unmask.conf"
+# step below for the http.d variant, and for a self-built nginx's).
+HTTP_INC_LINKS="/etc/nginx/conf.d/00-unmask.conf /etc/nginx/http.d/00-unmask.conf $OWN_HTTP_DIR/00-unmask.conf"
 
 # Hooks the unit test (place-module_test.sh) overrides; the defaults are the
 # real thing.
@@ -80,7 +185,7 @@ _pm_nginx_t() { nginx -t 2>&1; }
 _pm_strip_module() { unwire_module strip; }
 _pm_module_wired() {
     mp=$(nginx -V 2>&1 | tr ' ' '\n' | sed -n 's|^--modules-path=||p' | head -1)
-    { [ -n "$mp" ] && [ -e "$mp/$SO_NAME" ]; } || [ -e "$FALLBACK_SO_DIR/$SO_NAME" ]
+    { [ -n "$mp" ] && [ -e "$mp/$SO_NAME" ]; } || [ -e "$FALLBACK_SO_DIR/$SO_NAME" ] || [ -e "$OWN_SO_DIR/$SO_NAME" ]
 }
 
 # >>> unwire >>>
@@ -104,10 +209,11 @@ _pm_module_wired() {
 #   - the directory nginx.conf names now, found the way the placer finds it
 #     (main_include_dir);
 #   - the directories the distributions use ($LOAD_CONF_DIRS): an install from
-#     before the note, whose nginx.conf has changed since.
+#     before the note, whose nginx.conf has changed since -- and unmask's own
+#     one, which a self-built nginx includes (see nginx-layout above).
 WIRED_STATE=/var/lib/unmask/plugin/.wired
 LOAD_CONF=50-mod-unmask.conf
-LOAD_CONF_DIRS="/etc/nginx/modules-enabled /etc/nginx/modules.d /etc/nginx/modules-available /etc/nginx/modules /usr/share/nginx/modules"
+LOAD_CONF_DIRS="/etc/nginx/modules-enabled /etc/nginx/modules.d /etc/nginx/modules-available /etc/nginx/modules /usr/share/nginx/modules $OWN_MAIN_DIR"
 # The comment the placer puts on a load_module line it adds to nginx.conf
 # itself (a host with no include directory): what tells that line from one
 # the operator wrote.
@@ -183,20 +289,26 @@ unwire_module() {
         _uw_rm "$_uw_d/$LOAD_CONF"
     done
 
-    # The .so: nginx's modules path, and the home it gets on a read-only /usr.
+    # The .so: nginx's modules path, the home it gets on a read-only /usr, and
+    # the one beside unmask's own directories for a self-built nginx (whose
+    # modules path is not written to, so nothing is looked for there).
     _uw_mp=""
-    if command -v nginx >/dev/null 2>&1; then
+    if [ "${SELFBUILT_NGINX:-0}" != 1 ] && command -v nginx >/dev/null 2>&1; then
         _uw_mp=$(nginx -V 2>&1 | tr ' ' '\n' | sed -n 's|^--modules-path=||p' | head -1)
     fi
     [ -n "$_uw_mp" ] && _uw_rm "$_uw_mp/$SO_NAME"
     _uw_rm "$FALLBACK_SO_DIR/$SO_NAME"
+    _uw_rm "$OWN_SO_DIR/$SO_NAME"
 
     # The line in nginx.conf itself.  Built beside it and renamed into place,
     # so that nginx.conf is never half-written; the copy first keeps its mode
-    # and owner.
+    # and owner.  Not in a self-built nginx's: no line there is this
+    # package's (it loads the module through the include of $OWN_MAIN_DIR,
+    # emptied above), and its file is not edited, by the fail-safe either -- a
+    # load_module the operator wrote there is named below, on a removal.
     _uw_re='load_module.*ngx_http_unmask_module'
     [ "$_uw_mode" = remove ] && _uw_re="$_uw_re.*$LOAD_TAG"
-    if [ -w "$NGINX_CONF" ] && grep -q "$_uw_re" "$NGINX_CONF" 2>/dev/null; then
+    if [ "${SELFBUILT_NGINX:-0}" != 1 ] && [ -w "$NGINX_CONF" ] && grep -q "$_uw_re" "$NGINX_CONF" 2>/dev/null; then
         _uw_t="$NGINX_CONF.unmask-unwire.$$"
         if cp -p "$NGINX_CONF" "$_uw_t" 2>/dev/null &&
            sed "/$_uw_re/d" "$NGINX_CONF" > "$_uw_t" 2>/dev/null &&
@@ -224,7 +336,10 @@ unwire_module() {
     fi
 
     rm -f "$WIRED_STATE" 2>/dev/null
-    [ "$_uw_mode" = remove ] && rmdir "$FALLBACK_SO_DIR" 2>/dev/null
+    if [ "$_uw_mode" = remove ]; then
+        rmdir "$FALLBACK_SO_DIR" "$OWN_SO_DIR" "$OWN_MAIN_DIR" 2>/dev/null
+        rmdir "$OWN_NGINX_DIR" 2>/dev/null     # unless unmask-web-nginx still has its own in it
+    fi
     return 0
 }
 # <<< unwire <<<
@@ -600,6 +715,54 @@ no_module_report() {
     } >&2
 }
 
+# _pm_dry_load <so>: whether THIS nginx takes THIS file -- `nginx -t` on a
+# configuration of three lines that loads the module and nothing else, in a
+# directory of its own.  Nothing of the operator's is read or written for it.
+# Prints what nginx said; non-zero when nginx refuses.  For a self-built
+# nginx, which has reasons to refuse that a distribution's does not: built
+# without --with-compat, or with a module of its own that changes nginx's
+# structures.  Where no directory can be made to ask in, it does not stand in
+# the way (the check after the wiring still looks).
+_pm_dry_load() {
+    _dl_dir=$(mktemp -d 2>/dev/null) || return 0
+    mkdir -p "$_dl_dir/logs" 2>/dev/null
+    printf 'load_module "%s";\npid %s/nginx.pid;\nevents {}\n' "$1" "$_dl_dir" > "$_dl_dir/nginx.conf"
+    _dl_out=$(nginx -t -p "$_dl_dir/" -c "$_dl_dir/nginx.conf" 2>&1)
+    _dl_rc=$?
+    rm -rf "$_dl_dir"
+    printf '%s\n' "$_dl_out"
+    return "$_dl_rc"
+}
+
+# selfbuilt_refused_report <nginx's words>: what the operator reads when a
+# self-built nginx does not take the module.  To stderr, like the report for
+# a version with no module.
+selfbuilt_refused_report() {
+    {
+        echo "================================================================"
+        echo "unmask-plugin-nginx: this nginx does not take the module -- nothing placed"
+        echo "================================================================"
+        echo "Asked to load the module and nothing else, nginx -t said:"
+        printf '%s\n' "$1" | grep -E 'emerg|error' | head -3 | sed 's/^/    /'
+        echo ""
+        case "$1" in
+            *"not binary compatible"*)
+                echo "An nginx built from source loads a packaged module only when it was"
+                echo "configured --with-compat.  Add that option to its configure line and"
+                echo "build it again -- with a hosting panel, in the custom parameters of"
+                echo "its nginx build -- then run:"
+                ;;
+            *)
+                echo "Once that is out of the way, run:"
+                ;;
+        esac
+        echo "    sh $PLUGIN_BASE/place-module.sh"
+        echo "Until then nginx runs WITHOUT unmask and no request is challenged;"
+        echo "\`unmask doctor\` and the admin's notification list say so."
+        echo "================================================================"
+    } >&2
+}
+
 # Guard: when sourced by the unit test, stop here (no install side effects).
 [ -n "${PLACE_MODULE_TEST:-}" ] && return 0 2>/dev/null
 
@@ -668,15 +831,53 @@ SRC=$(pick_bundled "$PLUGIN_DIR" "$HOST_VER") || {
 }
 echo "  exact match: $(basename "$SRC")"
 
-# ---- 3. extract modules-path from `nginx -V` ----
-MODULES_PATH=$(nginx -V 2>&1 | tr ' ' '\n' | sed -n 's|^--modules-path=||p' | head -1)
-if [ -z "$MODULES_PATH" ]; then
-    cat >&2 <<EOF
+# ---- 3. where the module file goes ----
+# A distribution's nginx: its modules path, from `nginx -V`.  A self-built
+# one: unmask's own directory beside the two that nginx includes -- nothing is
+# written under its prefix, a modules path it may name included.
+if [ "$SELFBUILT_NGINX" = 1 ]; then
+    MODULES_PATH=$OWN_SO_DIR
+    echo "unmask-plugin-nginx: an nginx built from source (configuration: $NGINX_CONF) -- its files are left as they are"
+    # A fork that names an nginx version (Tengine does, and a panel offers it
+    # beside nginx) is not that nginx: its structures differ, and a module
+    # built for the version it names may load and then read the wrong fields.
+    # Not placed there, whatever a load test would say.
+    case "$(nginx -v 2>&1)" in
+        *[Tt]engine*|*[Oo]pen[Rr]esty*)
+            {
+                echo "================================================================"
+                echo "unmask-plugin-nginx: a fork of nginx, not nginx ${HOST_VER} -- nothing placed"
+                echo "================================================================"
+                nginx -v 2>&1 | sed 's/^/    /'
+                echo "The bundled modules are built for nginx itself, version by version; a"
+                echo "fork changes nginx's structures, and a module that loads into it can"
+                echo "read the wrong fields.  Use nginx (one of the bundled versions), or the"
+                echo "gateway container in front of this server: https://unmask.sh/install/"
+                echo "================================================================"
+            } >&2
+            disable_unmask_module "a fork of nginx, not nginx ${HOST_VER}"
+            exit 1
+            ;;
+    esac
+    # Does it take the module at all?  Asked before anything is placed, so
+    # that the answer comes here and in words, not as a failed `nginx -t`
+    # after the operator has added the include lines.
+    if ! _pm_dry_err=$(_pm_dry_load "$SRC"); then
+        selfbuilt_refused_report "$_pm_dry_err"
+        # A module wired by an earlier run would stop this nginx from starting.
+        disable_unmask_module "nginx ${HOST_VER} does not load the module: $(printf '%s\n' "$_pm_dry_err" | grep -m1 -E 'emerg|error')"
+        exit 1
+    fi
+else
+    MODULES_PATH=$(nginx -V 2>&1 | tr ' ' '\n' | sed -n 's|^--modules-path=||p' | head -1)
+    if [ -z "$MODULES_PATH" ]; then
+        cat >&2 <<EOF
 ERROR: nginx -V has no --modules-path, cannot place automatically.
   Place the chosen module by hand:
     cp $SRC /usr/lib/nginx/modules/$SO_NAME
 EOF
-    exit 1
+        exit 1
+    fi
 fi
 
 # ---- 4. install (with an immutable-/usr fallback) ----
@@ -735,8 +936,19 @@ if grep -q "^[[:space:]]*load_module.*ngx_http_unmask_module.*$LOAD_TAG" "$NGINX
     OWN_LINE=1
 fi
 
-if [ -r "$NGINX_CONF" ]; then
-    INCLUDE_DIR=$(main_include_dir)
+if [ "$SELFBUILT_NGINX" = 1 ]; then
+    # unmask's own directory, which that nginx includes -- or will: the last
+    # lines of this run name the include to add.  Not the directory of the
+    # first include its nginx.conf happens to carry (main_include_dir), which
+    # there is as likely a stream block's as a place for modules.
+    mkdir -p "$OWN_MAIN_DIR" 2>/dev/null && chmod 0755 "$OWN_NGINX_DIR" "$OWN_MAIN_DIR" 2>/dev/null
+fi
+if [ -r "$NGINX_CONF" ] || [ "$SELFBUILT_NGINX" = 1 ]; then
+    if [ "$SELFBUILT_NGINX" = 1 ]; then
+        INCLUDE_DIR=$OWN_MAIN_DIR
+    else
+        INCLUDE_DIR=$(main_include_dir)
+    fi
     if [ -n "$INCLUDE_DIR" ] && [ -d "$INCLUDE_DIR" ] && [ -n "$OWN_LINE" ]; then
         # A conf of ours beside the line: one of the two has to go.
         rm -f "$INCLUDE_DIR/$LOAD_CONF" 2>/dev/null
@@ -769,6 +981,10 @@ if [ -r "$NGINX_CONF" ]; then
         if [ -n "$FOREIGN" ]; then
             rm -f "$DROP" 2>/dev/null
             echo "  load_module already present in $FOREIGN (= operator-managed; idempotent skip)"
+            if [ "$SELFBUILT_NGINX" = 1 ]; then
+                echo "  note: that line names a file no upgrade keeps current.  In its place,"
+                echo "        include $OWN_MAIN_DIR/*.conf;   follows every upgrade of unmask and of nginx."
+            fi
         else
             echo "$LOAD_LINE" > "$DROP"
             chmod 0644 "$DROP"
@@ -784,7 +1000,7 @@ fi
 
 # (A line already there and right needs no write: an nginx.conf that cannot be
 # written is then no reason for the warning below.)
-if [ -z "$LOAD_DROPPED" ] && { [ -w "$NGINX_CONF" ] || grep -qF "load_module \"$DEST\"" "$NGINX_CONF" 2>/dev/null; }; then
+if [ -z "$LOAD_DROPPED" ] && [ "$SELFBUILT_NGINX" != 1 ] && { [ -w "$NGINX_CONF" ] || grep -qF "load_module \"$DEST\"" "$NGINX_CONF" 2>/dev/null; }; then
     # No main-scope include dir found (= e.g. CentOS 6 nginx.org 1.18), or
     # the line is in nginx.conf from an earlier run -> edit nginx.conf
     # directly and idempotently add load_module at the top.
@@ -842,7 +1058,9 @@ wired_record "$DEST" "$DROP_PLACED"
 # the C-module directives + plugin-variable maps that only load with this .so.
 if [ -e "$DEST" ]; then
     PINCDIR=/etc/nginx/conf.d
-    if [ -d /etc/nginx/http.d ] && [ -r /etc/nginx/nginx.conf ] && awk '
+    if [ "$SELFBUILT_NGINX" = 1 ]; then
+        PINCDIR=$OWN_HTTP_DIR
+    elif [ -d /etc/nginx/http.d ] && [ -r /etc/nginx/nginx.conf ] && awk '
         /^[[:space:]]*http[[:space:]]*\{/ { in_http=1 }
         in_http && /include[[:space:]]+\/etc\/nginx\/http\.d\// { found=1 }
         /^\}/ { in_http=0 }
@@ -850,6 +1068,9 @@ if [ -e "$DEST" ]; then
         PINCDIR=/etc/nginx/http.d
     fi
     mkdir -p "$PINCDIR" /var/lib/unmask/nginx
+    # unmask's own directories for a self-built nginx are root's and readable,
+    # whatever umask this ran under.
+    [ "$SELFBUILT_NGINX" = 1 ] && chmod 0755 "$OWN_NGINX_DIR" "$OWN_HTTP_DIR" "$OWN_SO_DIR" 2>/dev/null
     PSRC=/var/lib/unmask/nginx/http.inc
     PLINK=$PINCDIR/00-unmask.conf
     [ -e "$PSRC" ] || : > "$PSRC"
@@ -865,15 +1086,31 @@ fi
 # left for the operator.
 verify_or_disable
 
+# A self-built nginx: the two include lines, as long as one is missing.
+[ "$SELFBUILT_NGINX" = 1 ] && own_includes_say unmask-plugin-nginx
+
 echo ""
 echo "next steps (= on the nginx side):"
 echo "  1. (web-nginx package handles 'include /var/lib/unmask/nginx/http.inc' via a symlink)"
 if [ "$MODULE_UNCHANGED" = 1 ]; then
     echo "  2. The module did not change, so nginx needs nothing for it; a reload applies config changes as usual."
+elif [ "$SELFBUILT_NGINX" = 1 ]; then
+    echo "  2. The module file changed: restart nginx (a reload keeps the old module), the way"
+    echo "       this nginx is restarted -- its service, its init script or its panel."
 else
     # nginx loads a module only at startup: a reload keeps running the old one.
     echo "  2. The module file changed: restart nginx (a reload keeps the old module) --"
     echo "       nginx -t && systemctl restart nginx"
+fi
+if [ "$SELFBUILT_NGINX" = 1 ]; then
+    # nginx loads a module built for exactly its own version and options.  A
+    # distribution's nginx is started by a unit this package hooks into, and
+    # the module is picked again before every start; whatever starts this
+    # one (an init script, a panel) asks nobody.
+    echo "  3. When this nginx is built again -- another version, other options -- run"
+    echo "       sh $PLUGIN_BASE/place-module.sh"
+    echo "     BEFORE it is started: it places the module for the new build, or takes"
+    echo "     the module out when there is none, so that nginx starts either way."
 fi
 
 exit 0

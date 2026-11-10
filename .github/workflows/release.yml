@@ -304,6 +304,7 @@ jobs:
             - `unmask` (rpm / deb / apk) — the daemon: binary + service unit + config skeleton
             - `unmask-plugin-nginx` (rpm / deb / apk) — the nginx dynamic module bundle (${{ steps.plugin.outputs.count }} nginx versions, ${{ steps.plugin.outputs.first }} to ${{ steps.plugin.outputs.last }}, each loaded only by exactly that version; OpenSSL 1.0 / 1.1 / 3 builds on x86_64, 1.1 / 3 on arm64)
             - `unmask-web-nginx` / `unmask-web-apache` (rpm / deb / apk) — the web-server snippets (nginx: the upstream and includes for both modes; Apache: forward-auth)
+            - `unmask-nginx-external` (rpm / deb / apk) — only for a host whose nginx was built from source (by hand, by a hosting panel): provides `nginx`, so the two packages above install without the distribution's nginx beside it
             - `unmask-release` (rpm / deb / apk) — the repository definition and public keys
             - `unmask-linux-{amd64,arm64}` — raw Go binary (= no system integration)
             - `unmask-X.Y.Z.cdx.{json,xml}` — SBOM (CycloneDX)

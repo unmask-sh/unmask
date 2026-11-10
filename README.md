@@ -60,6 +60,15 @@ The install guide takes you through either way, step by step: **https://unmask.s
   module is in place.  Pin the nginx package to a bundled version (`dnf
   versionlock`, `apt-mark hold`) where the distribution's updates would
   move it off the list.
+  An nginx built from source -- by hand, or by a hosting panel that
+  compiles its own, aaPanel for one -- runs the module too, when it is one
+  of those versions and built `--with-compat` (a panel: the custom
+  parameters of its nginx build).  unmask edits nothing of such an nginx:
+  it keeps the module and its include files in directories of its own and
+  names the two `include` lines to add to that nginx's `nginx.conf`.
+  Install `unmask-nginx-external` first there -- it tells the package
+  manager that the host has an nginx no package installed, so that the
+  plugin does not bring in the distribution's beside it.
 - **OS**: RHEL / Rocky / AlmaLinux, Debian, Ubuntu and Alpine, on x86_64
   and arm64; the packages are installed on ten distributions before a
   release.  On Alpine 3.22 and older, Alpine's own nginx package is built

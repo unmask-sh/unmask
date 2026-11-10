@@ -30,6 +30,7 @@ import (
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/ban"
+	"github.com/unmask-sh/unmask/admin/internal/banfile"
 	"github.com/unmask-sh/unmask/admin/internal/browsermajors"
 	"github.com/unmask-sh/unmask/admin/internal/cdn"
 	"github.com/unmask-sh/unmask/admin/internal/classify"
@@ -475,6 +476,13 @@ func cmdServe(args []string) error {
 	// database that turns up later: the setup wizard's switch of database and
 	// the wait for one that was away (db_wait.go) both end in a re-exec of
 	// the daemon, which starts them all.
+	// The group nginx's workers run in, as nginx.conf says it: what the
+	// daemon's sockets are shared with (sockperm), ahead of the list of the
+	// usual groups.  Asked each time a socket is bound, of the file the
+	// nginx on this host reads -- a distribution's, or the one under the
+	// prefix of an nginx built from source.
+	sockperm.WorkerGroup = func() string { return banfile.WorkerGroup(s.Nginx.ConfPath) }
+
 	var nlog *nginxlog.Reader
 	var banMgr *ban.Manager
 	if conn == nil {

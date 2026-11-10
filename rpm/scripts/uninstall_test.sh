@@ -109,7 +109,10 @@ case "${1:-}" in
     -v) echo "nginx version: nginx/1.26.3" >&2; exit 0 ;;
     -V) echo "nginx version: nginx/1.26.3" >&2
         echo "built with OpenSSL 3.0.13 30 Jan 2024" >&2
-        echo "configure arguments: --prefix=$ROOT/etc/nginx --modules-path=$ROOT/usr/lib64/nginx/modules --with-compat" >&2
+        # --conf-path as every distribution's nginx names it: it is what tells
+        # the scripts this is a packaged nginx, whose /etc/nginx they may wire
+        # (nginx-layout); without it they take the nginx for a self-built one.
+        echo "configure arguments: --prefix=$ROOT/etc/nginx --conf-path=$ROOT/etc/nginx/nginx.conf --modules-path=$ROOT/usr/lib64/nginx/modules --with-compat" >&2
         exit 0 ;;
     -t) ;;
     *)  exit 0 ;;

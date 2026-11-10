@@ -29,6 +29,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/unmask-sh/unmask/admin/internal/nginxpath"
 )
 
 // Verdict: whether the worker user reads the ban list, and if not, which
@@ -54,17 +56,16 @@ var ErrNoNginx = errors.New("no nginx on this host")
 
 // userDirectiveRE: `user NAME [GROUP];` at the top of nginx.conf.  A
 // commented line is dropped before matching.
-var userDirectiveRE = regexp.MustCompile(`^\s*user\s+([^\s;]+)`)
+var userDirectiveRE = regexp.MustCompile(`^\s*user\s+([^\s;]+)(?:\s+([^\s;]+))?`)
 
 // WorkerUser: the user nginx's workers run as.  nginx.conf's `user`
 // directive when it has one, else the `--user=` the binary was built with
-// (nginx -V), else nginx's own default, nobody.  confPath "" means
-// /etc/nginx/nginx.conf.  ErrNoNginx when there is neither a conf nor a
-// binary to ask.
+// (nginx -V), else nginx's own default, nobody.  confPath "" means the file
+// the nginx on PATH was built to read (nginxpath.ConfPath: a distribution's
+// /etc/nginx/nginx.conf, or the one under the prefix of an nginx built from
+// source).  ErrNoNginx when there is neither a conf nor a binary to ask.
 func WorkerUser(confPath string) (name, source string, err error) {
-	if strings.TrimSpace(confPath) == "" {
-		confPath = "/etc/nginx/nginx.conf"
-	}
+	confPath = nginxpath.ConfPath(confPath)
 	b, rerr := os.ReadFile(confPath)
 	if rerr == nil {
 		for _, line := range strings.Split(string(b), "\n") {
@@ -94,6 +95,47 @@ func WorkerUser(confPath string) (name, source string, err error) {
 		}
 	}
 	return "nobody", "default", nil
+}
+
+// WorkerGroup: the group nginx's workers run in, as nginx.conf says it --
+// the second word of `user`, or the primary group of the first.  "" when
+// the file names no user (the answer is then the binary's, which the list of
+// usual groups covers) or names one this host does not have.
+//
+// The daemon shares its sockets with that group (sockperm).  The first of
+// the usual groups that exists is not always it: every Debian has a www-data
+// group, nginx or not, and a hosting panel's nginx runs as a user of the
+// panel's own.
+func WorkerGroup(confPath string) string {
+	b, err := os.ReadFile(nginxpath.ConfPath(confPath))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if i := strings.IndexByte(line, '#'); i >= 0 {
+			line = line[:i]
+		}
+		m := userDirectiveRE.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		if m[2] != "" {
+			if _, err := user.LookupGroup(m[2]); err != nil {
+				return ""
+			}
+			return m[2]
+		}
+		u, err := user.Lookup(m[1])
+		if err != nil {
+			return ""
+		}
+		g, err := user.LookupGroupId(u.Gid)
+		if err != nil {
+			return ""
+		}
+		return g.Name
+	}
+	return ""
 }
 
 // Check: the verdict for the ban list at path, read by nginx's worker.

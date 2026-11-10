@@ -14,6 +14,113 @@
 
 echo "unmask-web-nginx: installing nginx integration..."
 
+# >>> nginx-layout >>>
+# Whose nginx this is, and where unmask's part of its configuration lives.
+#
+# A distribution's nginx reads /etc/nginx/nginx.conf, and that file includes
+# directories a package may put a file into: the packages wire unmask in
+# there.  An nginx built from source -- by hand under /usr/local/nginx, by a
+# hosting panel under a prefix of its own -- keeps its nginx.conf elsewhere,
+# says nothing about directories, and the file is its builder's (a panel
+# writes it again when it pleases).  The packages edit nothing of such an
+# nginx.  They keep directories of their own, root's, and the operator
+# includes two of them, once:
+#
+#     include /usr/share/unmask/nginx/modules-enabled/*.conf;    the first line of nginx.conf
+#     include /usr/share/unmask/nginx/conf.d/*.conf;             inside http { }
+#
+# Wildcard includes, which nginx accepts with nothing behind them: the module
+# can be taken out again (the fail-safe) and the packages removed with the two
+# lines still there, and nginx starts.  The module file is kept beside them
+# ($OWN_SO_DIR), not under the prefix of that nginx.
+#
+# The lines between the two markers are the same, byte for byte, in every
+# script that carries them; nginx-layout_test.sh fails when they differ.
+OWN_NGINX_DIR=/usr/share/unmask/nginx
+OWN_MAIN_DIR=$OWN_NGINX_DIR/modules-enabled
+OWN_HTTP_DIR=$OWN_NGINX_DIR/conf.d
+OWN_SO_DIR=$OWN_NGINX_DIR/modules
+PACKAGED_NGINX_CONF=/etc/nginx/nginx.conf
+
+# What a test overrides: `nginx -V`, and the configuration as nginx reads it
+# (every included file; nothing when the configuration does not load).
+_nl_nginx_v() { nginx -V 2>&1; }
+_nl_nginx_dump() { nginx -T 2>/dev/null; }
+
+# nginx_conf_path: the main configuration file of the nginx on PATH, as that
+# nginx was built: --conf-path, or conf/nginx.conf under --prefix, or under
+# nginx's own default prefix.  The distributions' path when there is no nginx
+# to ask, or none that answers like one.
+nginx_conf_path() {
+    command -v nginx >/dev/null 2>&1 || { echo "$PACKAGED_NGINX_CONF"; return 0; }
+    _nl_v=$(_nl_nginx_v)
+    case "$_nl_v" in
+        *"configure arguments:"*) ;;
+        *) echo "$PACKAGED_NGINX_CONF"; return 0 ;;
+    esac
+    _nl_args=$(printf '%s\n' "$_nl_v" | tr ' ' '\n')
+    _nl_conf=$(printf '%s\n' "$_nl_args" | sed -n 's|^--conf-path=||p' | head -1)
+    _nl_prefix=$(printf '%s\n' "$_nl_args" | sed -n 's|^--prefix=||p' | head -1)
+    [ -n "$_nl_prefix" ] || _nl_prefix=/usr/local/nginx
+    case "$_nl_conf" in
+        /*) echo "$_nl_conf" ;;
+        "") echo "$_nl_prefix/conf/nginx.conf" ;;
+        *)  echo "$_nl_prefix/$_nl_conf" ;;
+    esac
+}
+
+# nginx_is_packaged: 0 when that file is the one the distributions use.
+nginx_is_packaged() { [ "$(nginx_conf_path)" = "$PACKAGED_NGINX_CONF" ]; }
+
+# own_includes_missing: which of the two include lines the configuration of
+# a self-built nginx does not carry -- "main", "http", both (one per line) or
+# nothing.  Read from the configuration as nginx reads it, so that a line in
+# an included file counts; from the main file alone when that cannot be had.
+own_includes_missing() {
+    _nl_cfg=$(_nl_nginx_dump)
+    [ -n "$_nl_cfg" ] || _nl_cfg=$(cat "$(nginx_conf_path)" 2>/dev/null)
+    for _nl_k in main http; do
+        case $_nl_k in
+            main) _nl_d=$OWN_MAIN_DIR ;;
+            *)    _nl_d=$OWN_HTTP_DIR ;;
+        esac
+        printf '%s\n' "$_nl_cfg" | sed 's/#.*//' |
+            grep -qE "(^|[[:space:];{}])include[[:space:]]+[\"']?$_nl_d/[*][.]conf[\"']?[[:space:]]*;" ||
+            echo "$_nl_k"
+    done
+}
+
+# own_includes_say <package>: name the include lines still to be added and the
+# file they go into.  Says nothing once both are there.
+own_includes_say() {
+    _nl_miss=" $(own_includes_missing | tr '\n' ' ')"
+    [ "$_nl_miss" = " " ] && return 0
+    echo ""
+    echo "$1: this nginx was not installed from a package, so nothing of its"
+    echo "  configuration is edited.  Add to $(nginx_conf_path), once:"
+    case "$_nl_miss" in *" main "*)
+        echo ""
+        echo "      include $OWN_MAIN_DIR/*.conf;     <- as the first line of the file"
+        ;;
+    esac
+    case "$_nl_miss" in *" http "*)
+        echo ""
+        echo "      include $OWN_HTTP_DIR/*.conf;     <- inside http { }"
+        ;;
+    esac
+    echo ""
+    echo "  then  nginx -t  and restart nginx (a reload does not load a module)."
+    echo "  Both lines can stay when unmask is removed: nginx reads them as nothing then."
+}
+# <<< nginx-layout <<<
+
+# SELFBUILT_NGINX=1: an nginx built from source, whose files this package
+# leaves alone.  What it wires goes into unmask's own http directory, which
+# the operator includes once (the last lines of this run say so while the
+# include is missing).
+SELFBUILT_NGINX=0
+nginx_is_packaged || SELFBUILT_NGINX=1
+
 # upstream auto-load.  Forward-auth mode's server.inc does `proxy_pass
 # http://unmask_daemon;`, so that upstream must exist in http {} scope.  Native
 # mode defines its own `upstream unmask` inside the rendered http.inc; for
@@ -52,7 +159,9 @@ fi
 # directives that only belong in http {}, so route by what the host nginx.conf
 # actually does.
 NGINX_INCDIR=/etc/nginx/conf.d
-if [ -d /etc/nginx/http.d ] \
+if [ "$SELFBUILT_NGINX" = 1 ]; then
+    NGINX_INCDIR=$OWN_HTTP_DIR
+elif [ -d /etc/nginx/http.d ] \
    && [ -r /etc/nginx/nginx.conf ] \
    && awk '
        /^[[:space:]]*http[[:space:]]*\{/ { in_http=1 }
@@ -63,6 +172,7 @@ if [ -d /etc/nginx/http.d ] \
     NGINX_INCDIR=/etc/nginx/http.d
 fi
 mkdir -p "$NGINX_INCDIR"
+[ "$SELFBUILT_NGINX" = 1 ] && chmod 0755 "$OWN_NGINX_DIR" "$OWN_HTTP_DIR" 2>/dev/null
 UPSTREAM_LINK=$NGINX_INCDIR/00-unmask-upstream.conf
 # (Re)point our symlink at the current source -- this also migrates an older
 # install whose link still points at /etc/unmask/upstream.conf to the
@@ -118,6 +228,9 @@ fi
 # is what the setup banner at the end reads: the include it names is the one
 # that works on this host.
 PLUGIN_MODPATH=$(nginx -V 2>&1 | tr " " "\n" | sed -n "s|^--modules-path=||p" | head -1)
+# A self-built nginx: the module is kept beside unmask's own directories,
+# whatever modules path that nginx names.
+[ "$SELFBUILT_NGINX" = 1 ] && PLUGIN_MODPATH=$OWN_SO_DIR
 NATIVE_PLUGIN=0
 if [ -n "$PLUGIN_MODPATH" ] && [ -e "$PLUGIN_MODPATH/ngx_http_unmask_module.so" ]; then
     NATIVE_PLUGIN=1
@@ -136,7 +249,7 @@ if [ -n "$PLUGIN_MODPATH" ] && [ -e "$PLUGIN_MODPATH/ngx_http_unmask_module.so" 
 else
     # forward-auth mode (no native plugin): http.inc would fail nginx -t, so
     # leave it unwired and clear any stale symlink from a prior native install.
-    rm -f /etc/nginx/conf.d/00-unmask.conf /etc/nginx/http.d/00-unmask.conf
+    rm -f /etc/nginx/conf.d/00-unmask.conf /etc/nginx/http.d/00-unmask.conf "$OWN_HTTP_DIR/00-unmask.conf"
     echo "unmask-web-nginx: native plugin not installed -> forward-auth mode (http.inc left unwired)"
 fi
 
@@ -296,6 +409,11 @@ else
     echo "unmask-web-nginx: nginx binary not found — install nginx first, then 'nginx -s reload'."
 fi
 
+# A self-built nginx reads none of the above until its nginx.conf includes
+# unmask's directories: say which line is still missing, on every run that
+# finds one missing.
+[ "$SELFBUILT_NGINX" = 1 ] && own_includes_say unmask-web-nginx
+
 # setup wizard URL + token hint (= the main package creates .setup-token on first install).
 #
 # Only while the setup is still to be done -- the token is there until the
@@ -335,7 +453,11 @@ echo ""
 # -- no JA4, fixes only -- on an install that had the module.
 if [ "$NATIVE_PLUGIN" = 1 ]; then
     echo "  [1] Recommended — add 1 line to your existing nginx vhost"
-    echo "        Edit a server { } block in /etc/nginx/conf.d/ and add:"
+    if [ "$SELFBUILT_NGINX" = 1 ]; then
+        echo "        Edit the server { } block of your site and add:"
+    else
+        echo "        Edit a server { } block in /etc/nginx/conf.d/ and add:"
+    fi
     echo ""
     echo "            include /var/lib/unmask/nginx/server.inc;"
     echo ""
@@ -347,7 +469,7 @@ if [ "$NATIVE_PLUGIN" = 1 ]; then
 else
     echo "  [1] Recommended — the native nginx module"
     echo "        Install unmask-plugin-nginx (no ngx_http_unmask_module.so under"
-    echo "        ${PLUGIN_MODPATH:-the modules path of nginx}), then add to a server { } block in /etc/nginx/conf.d/:"
+    echo "        ${PLUGIN_MODPATH:-the modules path of nginx}), then add to a server { } block of your site:"
     echo ""
     echo "            include /var/lib/unmask/nginx/server.inc;"
     echo ""

@@ -37,7 +37,110 @@ else
     esac
 fi
 
-NGINX_CONF=/etc/nginx/nginx.conf
+# >>> nginx-layout >>>
+# Whose nginx this is, and where unmask's part of its configuration lives.
+#
+# A distribution's nginx reads /etc/nginx/nginx.conf, and that file includes
+# directories a package may put a file into: the packages wire unmask in
+# there.  An nginx built from source -- by hand under /usr/local/nginx, by a
+# hosting panel under a prefix of its own -- keeps its nginx.conf elsewhere,
+# says nothing about directories, and the file is its builder's (a panel
+# writes it again when it pleases).  The packages edit nothing of such an
+# nginx.  They keep directories of their own, root's, and the operator
+# includes two of them, once:
+#
+#     include /usr/share/unmask/nginx/modules-enabled/*.conf;    the first line of nginx.conf
+#     include /usr/share/unmask/nginx/conf.d/*.conf;             inside http { }
+#
+# Wildcard includes, which nginx accepts with nothing behind them: the module
+# can be taken out again (the fail-safe) and the packages removed with the two
+# lines still there, and nginx starts.  The module file is kept beside them
+# ($OWN_SO_DIR), not under the prefix of that nginx.
+#
+# The lines between the two markers are the same, byte for byte, in every
+# script that carries them; nginx-layout_test.sh fails when they differ.
+OWN_NGINX_DIR=/usr/share/unmask/nginx
+OWN_MAIN_DIR=$OWN_NGINX_DIR/modules-enabled
+OWN_HTTP_DIR=$OWN_NGINX_DIR/conf.d
+OWN_SO_DIR=$OWN_NGINX_DIR/modules
+PACKAGED_NGINX_CONF=/etc/nginx/nginx.conf
+
+# What a test overrides: `nginx -V`, and the configuration as nginx reads it
+# (every included file; nothing when the configuration does not load).
+_nl_nginx_v() { nginx -V 2>&1; }
+_nl_nginx_dump() { nginx -T 2>/dev/null; }
+
+# nginx_conf_path: the main configuration file of the nginx on PATH, as that
+# nginx was built: --conf-path, or conf/nginx.conf under --prefix, or under
+# nginx's own default prefix.  The distributions' path when there is no nginx
+# to ask, or none that answers like one.
+nginx_conf_path() {
+    command -v nginx >/dev/null 2>&1 || { echo "$PACKAGED_NGINX_CONF"; return 0; }
+    _nl_v=$(_nl_nginx_v)
+    case "$_nl_v" in
+        *"configure arguments:"*) ;;
+        *) echo "$PACKAGED_NGINX_CONF"; return 0 ;;
+    esac
+    _nl_args=$(printf '%s\n' "$_nl_v" | tr ' ' '\n')
+    _nl_conf=$(printf '%s\n' "$_nl_args" | sed -n 's|^--conf-path=||p' | head -1)
+    _nl_prefix=$(printf '%s\n' "$_nl_args" | sed -n 's|^--prefix=||p' | head -1)
+    [ -n "$_nl_prefix" ] || _nl_prefix=/usr/local/nginx
+    case "$_nl_conf" in
+        /*) echo "$_nl_conf" ;;
+        "") echo "$_nl_prefix/conf/nginx.conf" ;;
+        *)  echo "$_nl_prefix/$_nl_conf" ;;
+    esac
+}
+
+# nginx_is_packaged: 0 when that file is the one the distributions use.
+nginx_is_packaged() { [ "$(nginx_conf_path)" = "$PACKAGED_NGINX_CONF" ]; }
+
+# own_includes_missing: which of the two include lines the configuration of
+# a self-built nginx does not carry -- "main", "http", both (one per line) or
+# nothing.  Read from the configuration as nginx reads it, so that a line in
+# an included file counts; from the main file alone when that cannot be had.
+own_includes_missing() {
+    _nl_cfg=$(_nl_nginx_dump)
+    [ -n "$_nl_cfg" ] || _nl_cfg=$(cat "$(nginx_conf_path)" 2>/dev/null)
+    for _nl_k in main http; do
+        case $_nl_k in
+            main) _nl_d=$OWN_MAIN_DIR ;;
+            *)    _nl_d=$OWN_HTTP_DIR ;;
+        esac
+        printf '%s\n' "$_nl_cfg" | sed 's/#.*//' |
+            grep -qE "(^|[[:space:];{}])include[[:space:]]+[\"']?$_nl_d/[*][.]conf[\"']?[[:space:]]*;" ||
+            echo "$_nl_k"
+    done
+}
+
+# own_includes_say <package>: name the include lines still to be added and the
+# file they go into.  Says nothing once both are there.
+own_includes_say() {
+    _nl_miss=" $(own_includes_missing | tr '\n' ' ')"
+    [ "$_nl_miss" = " " ] && return 0
+    echo ""
+    echo "$1: this nginx was not installed from a package, so nothing of its"
+    echo "  configuration is edited.  Add to $(nginx_conf_path), once:"
+    case "$_nl_miss" in *" main "*)
+        echo ""
+        echo "      include $OWN_MAIN_DIR/*.conf;     <- as the first line of the file"
+        ;;
+    esac
+    case "$_nl_miss" in *" http "*)
+        echo ""
+        echo "      include $OWN_HTTP_DIR/*.conf;     <- inside http { }"
+        ;;
+    esac
+    echo ""
+    echo "  then  nginx -t  and restart nginx (a reload does not load a module)."
+    echo "  Both lines can stay when unmask is removed: nginx reads them as nothing then."
+}
+# <<< nginx-layout <<<
+
+# The configuration whose includes are read below: a distribution's, or that
+# of an nginx built from source -- whose own files this package never wrote
+# to, and whose links sit in unmask's own http directory.
+NGINX_CONF=$(nginx_conf_path)
 
 # >>> leftover >>>
 # What a removal leaves for the operator: the lines of their own configuration
@@ -137,7 +240,10 @@ if [ "$do_cleanup" = 1 ]; then
                 /etc/nginx/http.d/00-unmask-upstream.conf \
                 /etc/nginx/http.d/zz-unmask-fa-lbtrust.conf \
                 /etc/nginx/http.d/00-unmask-fa-lbtrust.conf \
-                /etc/nginx/http.d/00-unmask-rendered.conf; do
+                /etc/nginx/http.d/00-unmask-rendered.conf \
+                "$OWN_HTTP_DIR/00-unmask.conf" \
+                "$OWN_HTTP_DIR/00-unmask-upstream.conf" \
+                "$OWN_HTTP_DIR/zz-unmask-fa-lbtrust.conf"; do
         if [ -L "$link" ]; then
             case "$link" in
                 */00-unmask.conf) HAD_HTTP_INC=1 ;;
@@ -145,6 +251,10 @@ if [ "$do_cleanup" = 1 ]; then
             rm -f "$link"
         fi
     done
+    # unmask's own http directory for a self-built nginx: gone with its links
+    # (the include of it in that nginx's nginx.conf reads as nothing then).
+    rmdir "$OWN_HTTP_DIR" 2>/dev/null
+    rmdir "$OWN_NGINX_DIR" 2>/dev/null     # unless unmask-plugin-nginx still has its own in it
 
     # The SELinux runtime-label drop-in exists only to let nginx (httpd_t)
     # write the daemon's log socket, so it has no reason to outlive this

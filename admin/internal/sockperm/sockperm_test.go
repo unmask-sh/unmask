@@ -50,6 +50,37 @@ func TestDetectWebServerGroupAnswersFromItsList(t *testing.T) {
 	}
 }
 
+// The group nginx.conf names for its workers comes ahead of the list -- the
+// first listed group that exists is not always the worker's -- and only when
+// it is a group of this host.
+func TestDetectWebServerGroupPrefersTheWorkersGroup(t *testing.T) {
+	t.Cleanup(func() { WorkerGroup = nil })
+	me, err := osuser.Current()
+	if err != nil {
+		t.Skip(err)
+	}
+	mine, err := osuser.LookupGroupId(me.Gid)
+	if err != nil {
+		t.Skip(err)
+	}
+	listed, listedAll := DetectWebServerGroup()
+
+	WorkerGroup = func() string { return " " + mine.Name + " " }
+	g, all := DetectWebServerGroup()
+	if g != mine.Name || len(all) != 1 || all[0] != mine.Name {
+		t.Errorf("the worker's group %q: got %q %v", mine.Name, g, all)
+	}
+
+	// A name that is no group here, or no answer: the list, as without it.
+	for _, answer := range []string{"no-such-group-unmask-test", ""} {
+		WorkerGroup = func() string { return answer }
+		g, all = DetectWebServerGroup()
+		if g != listed || len(all) != len(listedAll) {
+			t.Errorf("worker group %q: got %q %v, want the list's %q %v", answer, g, all, listed, listedAll)
+		}
+	}
+}
+
 func bindSocket(t *testing.T) string {
 	t.Helper()
 	// Short path: a unix socket path is limited to about a hundred bytes.

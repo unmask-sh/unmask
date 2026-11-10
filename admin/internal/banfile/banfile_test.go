@@ -3,6 +3,7 @@ package banfile
 import (
 	"encoding/binary"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -178,6 +179,40 @@ func TestWorkerUserFromConf(t *testing.T) {
 	}
 	if source == "nginx.conf" || name == "" {
 		t.Errorf("got %q from %q, want the binary's default or nobody", name, source)
+	}
+}
+
+// The worker's group is the second word of `user`, or the primary group of
+// the first; a user or a group this host does not have is no answer.
+func TestWorkerGroupFromConf(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip(err)
+	}
+	mine, err := user.LookupGroupId(me.Gid)
+	if err != nil {
+		t.Skip(err)
+	}
+	dir := t.TempDir()
+	conf := filepath.Join(dir, "nginx.conf")
+	for _, tc := range []struct {
+		name, body, want string
+	}{
+		{"user and group", "# user nobody nogroup;\nuser  " + me.Username + " " + mine.Name + ";\n", mine.Name},
+		{"user alone: its primary group", "worker_processes auto;\nuser " + me.Username + ";\n", mine.Name},
+		{"a user this host does not have", "user no-such-user-unmask-test;\n", ""},
+		{"a group this host does not have", "user " + me.Username + " no-such-group-unmask-test;\n", ""},
+		{"no user directive", "worker_processes auto;\n", ""},
+	} {
+		if err := os.WriteFile(conf, []byte(tc.body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if got := WorkerGroup(conf); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	if got := WorkerGroup(filepath.Join(dir, "absent.conf")); got != "" {
+		t.Errorf("a conf that is not there: %q", got)
 	}
 }
 
