@@ -12,6 +12,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Added
+
+- (2026-11-10) **An nginx built from source can run the module.**  For an nginx no package installed -- built by hand, or by a hosting panel -- the plugin placed nothing. The packages keep the module and their include files in their own directories, edit nothing of that nginx, and name the two `include` lines to add to its `nginx.conf`. It must be built `--with-compat`; the plugin says when it is not.
+
+- (2026-11-10) **`unmask-nginx-external`: for a host whose nginx no package installed.**  `unmask-plugin-nginx` and `unmask-web-nginx` depend on `nginx`, which on a host with a self-built nginx brought in the distribution's nginx beside it -- a second nginx that takes the name on PATH. The new package provides `nginx` and ships its README, nothing else: installed first, on purpose, it lets the other two in without one.
+
+### Fixed
+
+- (2026-11-10) **Compiled into nginx (`--add-module`), the module no longer breaks an nginx with a static OpenSSL.**  The module's build file named `-lcrypto` for that build too, ahead of the `libcrypto.a` of an nginx configured `--with-openssl=DIR`: the binary mixed two OpenSSL releases and died of a segfault at its first start, with no build error. Compiled in, the module now leaves OpenSSL to nginx. The packaged module is unchanged, byte for byte.
+
+- (2026-11-10) **An nginx with a static OpenSSL gets a module the system can load.**  For an nginx with OpenSSL linked in, the plugin picked the module by nginx's own OpenSSL: a static 1.1.1 on a distribution that only has `libcrypto.so.3` got a module whose library could not be found. The module calls the OpenSSL inside nginx either way, so it is now picked by the libcrypto the system has.
+
+- (2026-11-10) **The daemon shares its sockets with the group nginx's workers run in.**  The group was the first of a fixed list that exists on the host -- `www-data` on every Debian, whatever nginx runs as -- so a worker of another group could not write the access-log socket, and its lines never reached the dashboard. The `user` of the host's `nginx.conf` now decides; the list is what is left without one.
+
 ## [0.1.56] - 2026-11-10
 
 ### Security
