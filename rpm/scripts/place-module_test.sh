@@ -53,6 +53,28 @@ check "static OpenSSL 1.1.1w via nginx -V" "libcrypto.so.1.1" "$(resolve_libcryp
 _rl_nginx_v() { echo "built with OpenSSL 1.0.2k-fips"; }
 check "static OpenSSL 1.0.2k via nginx -V" "libcrypto.so.10" "$(resolve_libcrypto)"
 
+# --- case 2b: a static OpenSSL 1.1 / 3, and what the SYSTEM has ---
+# The module's calls go into the OpenSSL inside the nginx binary either way;
+# the family decides the libcrypto the module file names, which the loader
+# must find.  A hosting panel's nginx is the case: built with a static 1.1.1w
+# on a distribution that has libcrypto.so.3 and no libcrypto.so.1.1 -- going
+# by nginx's OpenSSL alone placed a module that could not be opened.
+_rl_ldd_soname() { echo ""; }
+_rl_nginx_v() { echo "built with OpenSSL 1.1.1w  11 Sep 2023"; }
+_rl_have_so() { [ "$1" = "libcrypto.so.3" ]; }
+check "static 1.1.1w, system has only libcrypto.so.3 -> the 3 module" "libcrypto.so.3" "$(resolve_libcrypto)"
+_rl_have_so() { [ "$1" = "libcrypto.so.1.1" ] || [ "$1" = "libcrypto.so.3" ]; }
+check "static 1.1.1w, system has both -> nginx's own family" "libcrypto.so.1.1" "$(resolve_libcrypto)"
+_rl_nginx_v() { echo "built with OpenSSL 3.5.4 30 Sep 2025"; }
+_rl_have_so() { [ "$1" = "libcrypto.so.1.1" ]; }
+check "static 3.5.4, system has only libcrypto.so.1.1 -> the 1.1 module" "libcrypto.so.1.1" "$(resolve_libcrypto)"
+_rl_have_so() { [ "$1" = "libcrypto.so.1.1" ] || [ "$1" = "libcrypto.so.3" ]; }
+check "static 3.5.4, system has both -> nginx's own family" "libcrypto.so.3" "$(resolve_libcrypto)"
+# 1.0 is never traded for another family, whatever the system has.
+_rl_nginx_v() { echo "built with OpenSSL 1.0.2u  20 Dec 2019"; }
+_rl_have_so() { [ "$1" = "libcrypto.so.3" ]; }
+check "static 1.0.2u stays the 1.0 module" "libcrypto.so.10" "$(resolve_libcrypto)"
+
 # --- case 3: ldd silent AND nginx -V inconclusive -> system SONAME ---
 _rl_ldd_soname() { echo ""; }
 _rl_nginx_v() { echo "built with LibreSSL 3.8.2"; }          # no OpenSSL version

@@ -497,6 +497,28 @@ so_in_place() {
     done
     return 1
 }
+# _rl_static_pick <own> <other>: the SONAME for an nginx that has OpenSSL 1.1
+# or 3 linked in statically (a self-built nginx, a hosting panel's).
+#
+# The module then calls the OpenSSL inside the nginx binary -- nginx exports
+# it, and the loader looks there first -- whichever of the two families the
+# module was built in: the functions it uses are the same in both.  What the
+# family does decide is the libcrypto the module FILE names, and the loader
+# has to find that one on this system or the module is not loaded at all.
+# Going by nginx's own OpenSSL alone picked the 1.1 module for an nginx built
+# with a static 1.1.1 on a system that only has libcrypto.so.3 (every current
+# distribution), and that module could not be opened.  So: nginx's own family
+# when its libcrypto is on the system, the other one when only that is, and
+# nginx's own again when neither is, for the error to name it.
+# OpenSSL 1.0 is not part of this: its ex-data classes are numbered
+# differently, and a module of another family would file its per-connection
+# data under the wrong one.
+_rl_static_pick() {
+    if _rl_have_so "$1"; then echo "$1"
+    elif _rl_have_so "$2"; then echo "$2"
+    else echo "$1"
+    fi
+}
 resolve_libcrypto() {
     local so ver
     so=$(_rl_ldd_soname)
@@ -504,8 +526,8 @@ resolve_libcrypto() {
     # ldd silent: parse `nginx -V`'s OpenSSL version.
     ver=$(_rl_nginx_v | sed -n 's|.*[Oo]pen[Ss][Ss][Ll] \([0-9][0-9.]*\).*|\1|p' | head -1)
     case "$ver" in
-        3.*)   echo "libcrypto.so.3";   return ;;
-        1.1.*) echo "libcrypto.so.1.1"; return ;;
+        3.*)   _rl_static_pick libcrypto.so.3 libcrypto.so.1.1; return ;;
+        1.1.*) _rl_static_pick libcrypto.so.1.1 libcrypto.so.3; return ;;
         1.0.*) echo "libcrypto.so.10";  return ;;
     esac
     # Still unknown (LibreSSL/BoringSSL/no version): newest system SONAME.
@@ -586,8 +608,12 @@ if command -v ldd >/dev/null 2>&1; then
     NGINX_LIBCRYPTO=$(_rl_ldd_soname)
     if [ -z "$NGINX_LIBCRYPTO" ]; then
         NGINX_LIBCRYPTO=$(resolve_libcrypto)
+        # (An nginx with its OpenSSL built in: the module calls that one, and
+        # is picked by the libcrypto its FILE names, which this system must
+        # have -- see _rl_static_pick.  The line below then names the module's
+        # family, not the OpenSSL inside nginx.)
         [ -n "$NGINX_LIBCRYPTO" ] && \
-            echo "unmask-plugin-nginx: nginx -V/system probe -> $NGINX_LIBCRYPTO (ldd was silent, e.g. nginx.org static build)"
+            echo "unmask-plugin-nginx: nginx -V/system probe -> $NGINX_LIBCRYPTO (ldd was silent: this nginx has its OpenSSL built in)"
     fi
     case "$NGINX_LIBCRYPTO" in
         libcrypto.so.3)
