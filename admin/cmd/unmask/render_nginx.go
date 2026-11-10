@@ -142,6 +142,10 @@ func cmdRenderNginx(args []string) error {
 		fmt.Fprintln(os.Stderr, "      render leaves the module out (nginx starts, the admin UI is reachable, protection is OFF).")
 		fmt.Fprintln(os.Stderr, "      Run `unmask doctor` for the cause; place-module.sh renders the full configuration once")
 		fmt.Fprintln(os.Stderr, "      nginx -t passes with the module wired again.")
+		if nginxconf.FailsafeInert(dst) {
+			fmt.Fprintln(os.Stderr, "      The marker also says nginx does not read http.inc: server.inc and protect.inc are rendered")
+			fmt.Fprintln(os.Stderr, "      INERT (no directive in them), so the sites start as they would without unmask.")
+		}
 	}
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "To apply:  sudo nginx -s reload")

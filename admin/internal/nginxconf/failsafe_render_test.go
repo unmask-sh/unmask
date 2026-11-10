@@ -387,3 +387,106 @@ func TestFailsafeMarkerInThePackageDirCountsToo(t *testing.T) {
 		t.Error("the full render did not come back once the marker went")
 	}
 }
+
+// The marker's `inert:` line says nginx does not read http.inc either: the
+// nginx.conf of an nginx built from source lost the include lines (a panel
+// wrote the file anew), and the panel tests the result before it starts
+// nginx.  Everything server.inc names is defined in http.inc, so a single
+// directive left in it is an nginx that does not start, and every site on
+// the host is down.  Rendered inert, server.inc and protect.inc carry
+// nothing nginx reads -- and the full files come back with the marker gone.
+func TestInertRenderLeavesNothingForNginxToRead(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, FailsafeMarker)
+	write := func(body string) {
+		t.Helper()
+		if err := os.WriteFile(marker, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	read := func(name string) string {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			t.Fatalf("read %s: %v", name, err)
+		}
+		return string(b)
+	}
+
+	write("native wiring stripped by place-module fail-safe\nreason: the nginx binary changed\ninert: nginx does not read unmask's http directory\n")
+	if !FailsafeInert(dir) || !FailsafeActive(dir) {
+		t.Fatalf("a marker with an inert line: FailsafeInert=%v FailsafeActive=%v, want both", FailsafeInert(dir), FailsafeActive(dir))
+	}
+	if _, reason, _ := FailsafeState(dir); reason != "the nginx binary changed" {
+		t.Errorf("the reason beside the inert line reads %q", reason)
+	}
+	renderInto(t, dir, "test", withLogAndBans)
+	for _, name := range []string{"server.inc", "protect.inc"} {
+		body := read(name)
+		if left := strings.TrimSpace(withoutComments(body)); left != "" {
+			t.Errorf("inert %s still carries something nginx reads:\n%s", name, left)
+		}
+	}
+	if !strings.Contains(read("server.inc"), "unmask: INERT") {
+		t.Error("inert server.inc does not say so at its top")
+	}
+	// http.inc is the degraded one: when nginx does read it (the http line
+	// is there and the module line is not), it must load without the module.
+	inc := read("http.inc")
+	for _, d := range moduleDirectives {
+		if n := directives(inc, d); n != 0 {
+			t.Errorf("http.inc beside an inert server.inc carries the module directive %s (%d)", d, n)
+		}
+	}
+
+	// A marker without the line is the degraded render, as before: the
+	// access log and the /unmask/ proxy stay.
+	write("native wiring stripped by place-module fail-safe\nreason: no bundled module for host nginx 1.99.0\n")
+	if FailsafeInert(dir) {
+		t.Fatal("a marker without an inert line counts as inert")
+	}
+	renderInto(t, dir, "test", withLogAndBans)
+	if s := read("server.inc"); directives(s, "access_log") == 0 || !strings.Contains(s, "location ^~ /unmask/") {
+		t.Error("the degraded server.inc lost its access log or its /unmask/ location")
+	}
+
+	// And with no marker, the full files.
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	if FailsafeInert(dir) {
+		t.Fatal("FailsafeInert still reports the removed marker")
+	}
+	renderInto(t, dir, "test", withLogAndBans)
+	if s := read("server.inc"); strings.Contains(s, "unmask: INERT") || directives(s, "access_log") == 0 {
+		t.Error("the full server.inc did not come back once the marker was gone")
+	}
+	if s := read("protect.inc"); directives(s, "limit_req") == 0 {
+		t.Error("the full protect.inc did not come back once the marker was gone")
+	}
+}
+
+// The marker counts from the package dir too (place-module reads no
+// config.yml), and so does its inert line.
+func TestInertLineInThePackageDirCountsToo(t *testing.T) {
+	pkgDir := t.TempDir()
+	prev := FailsafePackageDir
+	FailsafePackageDir = pkgDir
+	t.Cleanup(func() { FailsafePackageDir = prev })
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(pkgDir, FailsafeMarker), []byte("reason: nginx is not installed\ninert: yes\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !FailsafeInert(dir) {
+		t.Fatal("an inert line in the package dir's marker did not count for another output dir")
+	}
+	renderInto(t, dir, "test", withLogAndBans)
+	b, err := os.ReadFile(filepath.Join(dir, "server.inc"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if left := strings.TrimSpace(withoutComments(string(b))); left != "" {
+		t.Errorf("server.inc is not inert with the marker in the package dir:\n%s", left)
+	}
+}

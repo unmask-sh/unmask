@@ -70,6 +70,34 @@ func FailsafeState(dir string) (active bool, reason string, since time.Time) {
 	return true, reason, fi.ModTime()
 }
 
+// FailsafeInert reports whether the marker that applies to dir says more
+// than "the module is not loaded": an `inert:` line, written when nginx does
+// not read unmask's http scope either -- the log format, the maps and the
+// upstream that server.inc names are defined there.  It happens to an nginx
+// built from source, whose nginx.conf carries the two include lines by the
+// operator's hand: a panel that installs another build writes that file anew,
+// or brings an older copy back, and tests the result before it starts nginx.
+// A server.inc with a single directive in it would stop that nginx; rendered
+// inert (renderData.Inert) it carries none, and the sites start as they would
+// without unmask.  place-module writes the line and takes it away with the
+// marker.
+func FailsafeInert(dir string) bool {
+	p, ok := failsafeMarkerPath(dir)
+	if !ok {
+		return false
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return false
+	}
+	for _, ln := range strings.Split(string(b), "\n") {
+		if strings.HasPrefix(ln, "inert:") {
+			return true
+		}
+	}
+	return false
+}
+
 // ReloadNeededMarker is written beside the rendered files by every render
 // that changed one of them, with the render id the files now carry.  It says
 // "nginx has not loaded this render yet" to whatever applies reloads -- the

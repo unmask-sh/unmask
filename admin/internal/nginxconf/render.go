@@ -61,7 +61,8 @@ var templatesFS embed.FS
 //
 // When outDir carries the plugin's fail-safe marker (FailsafeMarker), the
 // files are rendered for a host whose module is not loaded: see
-// renderData.Degraded.
+// renderData.Degraded -- and, when the marker says nginx does not read
+// http.inc either, renderData.Inert.
 
 // ObserveHostRow is one site whose monitor-mode answer differs from the
 // default record's: Value is 1 (the site is being watched) or 0 (enforcing).
@@ -645,7 +646,13 @@ type renderData struct {
 	// the admin UI is reachable through server.inc's proxy, and protection
 	// is off until place-module clears the marker and renders again.  Each
 	// file says so in a banner at its top.
-	Degraded              bool
+	Degraded bool
+	// Inert: the marker also says that nginx does not read http.inc
+	// (FailsafeInert).  server.inc then carries no directive at all --
+	// everything it names is defined in http.inc -- and protect.inc is the
+	// inert file the degraded render already writes.  A server that
+	// includes them starts and serves as if unmask were not installed.
+	Inert                 bool
 	BVSecret              string
 	BVPowValidSeconds     int // unmask_bv_pow_valid_seconds     (= per-kind seconds)
 	BVCaptchaValidSeconds int // unmask_bv_captcha_valid_seconds (= per-kind seconds)
@@ -1405,6 +1412,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		Version:     version,
 		OutputDir:   sanitizeConfPath(outDir),
 		Degraded:    FailsafeActive(outDir),
+		Inert:       FailsafeInert(outDir),
 		BVSecret:    s.Secret.BVSecret,
 		// _bv HMAC validation runs in nginx with one shared secret + cookie
 		// window; per-site challenge fields (PowDifficulty, theme, branding

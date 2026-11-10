@@ -34,7 +34,7 @@
 #
 # The log_format unmask_minimal definition and the bind to {{ .NginxLogSocket }}
 # are declared by admin at /var/lib/unmask/nginx/http.inc (= http scope).
-{{- if .Degraded }}
+{{- if and .Degraded (not .Inert) }}
 #
 # unmask: NATIVE FAIL-SAFE ACTIVE -- the nginx module is not loaded, protection
 # is off; run 'unmask doctor'.  Rendered without the ban, deny and signed-agent
@@ -42,6 +42,17 @@
 # /unmask/ proxy to the admin daemon and its header hygiene stay, so the admin
 # UI is reachable and reports what happened.  See the banner in http.inc.
 {{- end }}
+{{- if .Inert }}
+#
+# unmask: INERT -- nginx does not read unmask's http scope (http.inc), where
+# the log format, the maps and the upstream this file names are defined.  So
+# this file carries no directive: a server that includes it starts, and serves
+# as if unmask were not installed -- no challenge, no ban, no /unmask/ (the
+# admin UI answers on the daemon's own port, see server.bind / server.port in
+# config.yml).  The cause is in {{ .OutputDir }}/.native-failsafe and in
+# 'unmask doctor'.  place-module renders the full file again before an nginx
+# start that finds the include lines in place and the module loading.
+{{- else }}
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed
 # ($unmask_log_keep is defined in http.inc, http scope).
@@ -343,6 +354,7 @@ location @unmask_rate_challenge {
 # /unmask/admin/ location and the unprotected machinery catch-all via this
 # define, so there is one source copy (no separate .inc file) yet each location
 # carries the identical proxy / header set (incl. the X-Original-* spoof strip).
+{{- end }}{{/* of "if .Inert ... else": a define is top-level, so the branch closes here and opens again after it */}}
 {{ define "unmask_daemon_proxy" }}
     # Cap the connect wait so an unreachable daemon trips @unmask_daemon_down in
     # ~2s instead of hanging on the 60s default.  read/send stay at default so
@@ -424,7 +436,7 @@ location @unmask_rate_challenge {
     # location; the daemon-down and challenge paths keep the vhost's.
     proxy_read_timeout 3600s;
     proxy_send_timeout 3600s;
-{{ end }}
+{{ end }}{{ if not .Inert }}
 
 # What a daemon proxy location does when the daemon cannot answer.  Kept OUT
 # of unmask_daemon_proxy on purpose: nginx takes the FIRST error_page written
@@ -432,6 +444,7 @@ location @unmask_rate_challenge {
 # page, which must fail closed) cannot override a hook the proxy template
 # already emitted -- it has to be the only one in its block.  Every other
 # daemon location includes this right after the proxy template.
+{{- end }}
 {{ define "unmask_daemon_failopen" }}
     # Daemon unreachable -> fail open via @unmask_daemon_down (replays orig).
     # "Unreachable" is nginx's own 502/504 -- no connection, a timeout, a
@@ -445,7 +458,7 @@ location @unmask_rate_challenge {
     # inherited here.
     proxy_intercept_errors off;
     error_page 502 503 504 = @unmask_daemon_down;
-{{ end }}
+{{ end }}{{ if not .Inert }}
 
 # /unmask/admin/ — the admin UI runs through the SAME protection as a normal
 # site path.  include protect.inc so a _bv-less visitor hits the protected-path
@@ -555,3 +568,4 @@ location @unmask_daemon_down {
 # path.  Instead each such zone's limit_req lives in protect.inc with a
 # path-conditional key (http.inc $rl_<zone>_key), so it only counts on its
 # patterns yet composes with every other protection in the same location.
+{{- end }}
