@@ -18,6 +18,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-10) **An nginx built from source can run the module.**  For an nginx no package installed -- built by hand, or by a hosting panel -- the plugin placed nothing. The packages keep the module and their include files in their own directories, edit nothing of that nginx, and name the two `include` lines to add to its `nginx.conf`. It must be built `--with-compat`; the plugin says when it is not.
 
+- (2026-11-10) **An nginx built from source can be built again without stopping on unmask.**  A panel that installs another nginx build tests the new configuration before it starts anything; a module built for the old binary, or a site including `server.inc` after the panel rewrote `nginx.conf`, failed that test, and no nginx ran. unmask now watches the binary: when it changes, the module comes out and its include files are rendered empty until the next start can load them.
+
 - (2026-11-10) **`unmask-nginx-external`: for a host whose nginx no package installed.**  `unmask-plugin-nginx` and `unmask-web-nginx` depend on `nginx`, which on a host with a self-built nginx brought in the distribution's nginx beside it -- a second nginx that takes the name on PATH. The new package provides `nginx` and ships its README, nothing else: installed first, on purpose, it lets the other two in without one.
 
 ### Changed
@@ -30,7 +32,11 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-10) **An nginx with a static OpenSSL gets a module the system can load.**  For an nginx with OpenSSL linked in, the plugin picked the module by nginx's own OpenSSL: a static 1.1.1 on a distribution that only has `libcrypto.so.3` got a module whose library could not be found. The module calls the OpenSSL inside nginx either way, so it is now picked by the libcrypto the system has.
 
-- (2026-11-10) **The daemon shares its sockets with the group nginx's workers run in.**  The group was the first of a fixed list that exists on the host -- `www-data` on every Debian, whatever nginx runs as -- so a worker of another group could not write the access-log socket, and its lines never reached the dashboard. The `user` of the host's `nginx.conf` now decides; the list is what is left without one.
+- (2026-11-10) **The daemon shares its sockets with the group nginx's workers run in.**  The group was the first of a fixed list that exists on the host -- `www-data` on every Debian, whatever nginx runs as -- so a worker of another group could not write the access-log socket, and its lines never reached the dashboard. The `user` of `nginx.conf` now decides, then the binary's configured group, then a group the service was given; the list comes last.
+
+- (2026-11-10) **The fail-safe's last step: include files with nothing in them.**  When `nginx -t` still failed on unmask's own files with the module taken out -- `http.inc` not included, or included after the sites -- the fail-safe had nothing left to do and nginx did not start. `server.inc` and `protect.inc` are then rendered without a directive: the sites serve as they would without unmask, and `unmask doctor` names the cause.
+
+- (2026-11-10) **`unmask doctor` no longer reports the plugin's own directory as residue.**  Since 0.1.56 the plugin notes where it placed the module in `/var/lib/unmask/plugin`, a directory that is root's by design. `unmask doctor` listed it under data ownership as left by a command run as root -- on every host with the plugin -- and advised a `chown` that would hand the note to the daemon's user. The check leaves that directory out.
 
 ## [0.1.56] - 2026-11-10
 
