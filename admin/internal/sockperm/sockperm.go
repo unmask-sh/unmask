@@ -61,10 +61,32 @@ var WebServerGroups = []string{"nginx", "apache", "www-data", "http", "www"}
 // one the worker cannot write.
 var WorkerGroup func() string
 
-// DetectWebServerGroup returns the group to share a socket with -- the one
-// nginx.conf names for its workers when that is known and exists here, else
-// the first of the common web server groups that exists -- plus all the
-// candidates that exist ("", nil when none).
+// processGIDs are the groups this process is in -- its own and the
+// supplementary ones (the unit's SupplementaryGroups=).  A variable for the
+// tests.
+var processGIDs = func() []string {
+	out := []string{strconv.Itoa(os.Getegid())}
+	if gids, err := os.Getgroups(); err == nil {
+		for _, g := range gids {
+			out = append(out, strconv.Itoa(g))
+		}
+	}
+	return out
+}
+
+// DetectWebServerGroup returns the group to share a socket with, plus all
+// the candidates that exist ("", nil when none):
+//
+//   - the one nginx.conf names for its workers, when that is known and exists
+//     here (WorkerGroup);
+//   - else the first of the common web server groups that this process is a
+//     member of.  The package put it there, as root and having read
+//     nginx.conf -- which the daemon's user often cannot: a hosting panel
+//     keeps that file to root, and the daemon then took the first group of
+//     the list that exists (www-data, on every Debian), a group it is not
+//     in, could not give the socket to it, and left the socket open to every
+//     local user;
+//   - else the first of them that exists.
 func DetectWebServerGroup() (string, []string) {
 	if WorkerGroup != nil {
 		if g := strings.TrimSpace(WorkerGroup()); g != "" {
@@ -73,11 +95,20 @@ func DetectWebServerGroup() (string, []string) {
 			}
 		}
 	}
+	in := map[string]bool{}
+	for _, gid := range processGIDs() {
+		in[gid] = true
+	}
 	var found []string
 	for _, cand := range WebServerGroups {
-		if _, err := osuser.LookupGroup(cand); err == nil {
-			found = append(found, cand)
+		g, err := osuser.LookupGroup(cand)
+		if err != nil {
+			continue
 		}
+		if in[g.Gid] {
+			return cand, []string{cand}
+		}
+		found = append(found, cand)
 	}
 	if len(found) == 0 {
 		return "", nil

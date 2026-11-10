@@ -172,6 +172,29 @@ dump 'include /usr/share/unmask/nginx/modules-enabled/*.conf;
 http { include /usr/share/unmask/nginx/conf.d/*.conf; }'
 check "with both there, nothing is said" "" "$(own_includes_say unmask-plugin-nginx)"
 
+# ---- the group nginx's workers run in (postinstall.sh, which shares the
+# daemon's sockets with it) ----
+# nginx.conf's `user` first; where the file names none, what the binary was
+# configured with -- a self-built nginx often says it there and nowhere else.
+eval "$(sed -n '/^nginx_worker_group() {/,/^}/p' "$DIR/postinstall.sh")"
+me=$(id -un)
+mygrp=$(id -gn)
+nginx() { :; }      # there is one to ask (the function asks `command -v nginx`)
+printf 'user %s %s;\n' "$me" "$mygrp" > "$T/wg-both.conf"
+printf 'user %s;\n' "$me" > "$T/wg-user.conf"
+printf 'worker_processes auto;\n' > "$T/wg-none.conf"
+v "configure arguments: --prefix=/x --user=no-such-user-unmask --group=no-such-group-unmask"
+check "worker group: nginx.conf's user and group" "$mygrp" "$(nginx_worker_group "$T/wg-both.conf")"
+check "worker group: a user alone has its own group, not the binary's" "$mygrp" "$(nginx_worker_group "$T/wg-user.conf")"
+v "configure arguments: --prefix=/x --user=$me --group=$mygrp"
+check "worker group: no user in the file -> the binary's --group" "$mygrp" "$(nginx_worker_group "$T/wg-none.conf")"
+v "configure arguments: --prefix=/x --user=$me"
+check "worker group: no user in the file -> the group of the binary's --user" "$mygrp" "$(nginx_worker_group "$T/wg-none.conf")"
+v "configure arguments: --prefix=/x"
+check "worker group: neither says" "" "$(nginx_worker_group "$T/wg-none.conf")"
+v "configure arguments: --prefix=/x --user=$me --group=no-such-group-unmask"
+check "worker group: a group this host does not have" "" "$(nginx_worker_group "$T/wg-none.conf")"
+
 echo "----"
 [ "$fails" -eq 0 ] && echo "nginx-layout_test: all passed" || echo "nginx-layout_test: $fails FAILED"
 exit "$fails"

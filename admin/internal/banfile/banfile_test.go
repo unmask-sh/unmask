@@ -2,6 +2,7 @@ package banfile
 
 import (
 	"encoding/binary"
+	"errors"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -195,6 +196,12 @@ func TestWorkerGroupFromConf(t *testing.T) {
 	}
 	dir := t.TempDir()
 	conf := filepath.Join(dir, "nginx.conf")
+	// No nginx to ask what it was configured with: this test is about the
+	// file (TestWorkerGroupFromTheBinary is about the binary), whatever the
+	// host running it has installed.
+	prev := nginxBinary
+	t.Cleanup(func() { nginxBinary = prev })
+	nginxBinary = func() (string, error) { return "", errors.New("no nginx") }
 	for _, tc := range []struct {
 		name, body, want string
 	}{
@@ -213,6 +220,66 @@ func TestWorkerGroupFromConf(t *testing.T) {
 	}
 	if got := WorkerGroup(filepath.Join(dir, "absent.conf")); got != "" {
 		t.Errorf("a conf that is not there: %q", got)
+	}
+}
+
+// Where nginx.conf names no user, or the daemon's user cannot read it (a
+// hosting panel keeps it to root), the workers run as the binary was
+// configured: --group=, or the group of --user=.
+func TestWorkerGroupFromTheBinary(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip(err)
+	}
+	mine, err := user.LookupGroupId(me.Gid)
+	if err != nil {
+		t.Skip(err)
+	}
+	dir := t.TempDir()
+	prev := nginxBinary
+	t.Cleanup(func() { nginxBinary = prev })
+	stub := func(args string) {
+		t.Helper()
+		bin := filepath.Join(dir, "nginx")
+		body := "#!/bin/sh\necho 'nginx version: nginx/1.30.6' >&2\necho 'configure arguments: --prefix=/www/server/nginx " + args + " --with-http_ssl_module' >&2\n"
+		if err := os.WriteFile(bin, []byte(body), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		nginxBinary = func() (string, error) { return bin, nil }
+	}
+	noUser := filepath.Join(dir, "nginx.conf")
+	if err := os.WriteFile(noUser, []byte("worker_processes auto;\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	absent := filepath.Join(dir, "kept-to-root.conf")
+
+	for _, tc := range []struct{ name, args, want string }{
+		{"--user and --group", "--user=" + me.Username + " --group=" + mine.Name, mine.Name},
+		{"--user alone: its primary group", "--user=" + me.Username, mine.Name},
+		{"--group alone", "--group=" + mine.Name, mine.Name},
+		{"neither", "", ""},
+		{"a group this host does not have", "--user=" + me.Username + " --group=no-such-group-unmask-test", ""},
+	} {
+		stub(tc.args)
+		for _, conf := range []string{noUser, absent} {
+			if got := WorkerGroup(conf); got != tc.want {
+				t.Errorf("%s (%s): %q, want %q", tc.name, filepath.Base(conf), got, tc.want)
+			}
+		}
+	}
+
+	// nginx.conf's own `user` comes first.
+	stub("--user=no-such-user-unmask-test --group=no-such-group-unmask-test")
+	withUser := filepath.Join(dir, "with-user.conf")
+	if err := os.WriteFile(withUser, []byte("user "+me.Username+" "+mine.Name+";\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := WorkerGroup(withUser); got != mine.Name {
+		t.Errorf("nginx.conf's user did not come ahead of the binary's: %q", got)
+	}
+
+	if u, g := configuredFrom("configure arguments: --user=www --group=www --prefix=/www/server/nginx"); u != "www" || g != "www" {
+		t.Errorf("configuredFrom: %q %q", u, g)
 	}
 }
 

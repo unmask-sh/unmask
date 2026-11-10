@@ -84,58 +84,91 @@ func WorkerUser(confPath string) (name, source string, err error) {
 		}
 		return "nobody", "default", nil
 	}
-	ctx, cancel := contextWithTimeout(3 * time.Second)
-	defer cancel()
-	out, _ := exec.CommandContext(ctx, bin, "-V").CombinedOutput()
-	for _, f := range strings.Fields(string(out)) {
-		if strings.HasPrefix(f, "--user=") {
-			if u := strings.TrimPrefix(f, "--user="); u != "" {
-				return u, "nginx -V", nil
-			}
-		}
+	if u, _ := configuredAs(bin); u != "" {
+		return u, "nginx -V", nil
 	}
 	return "nobody", "default", nil
 }
 
+// configuredAs: the user and group the nginx at bin was configured to run
+// its workers as (--user=, --group=), "" for what its configure line does
+// not name.  They hold where nginx.conf has no `user` of its own.
+func configuredAs(bin string) (usr, grp string) {
+	ctx, cancel := contextWithTimeout(3 * time.Second)
+	defer cancel()
+	out, _ := exec.CommandContext(ctx, bin, "-V").CombinedOutput()
+	return configuredFrom(string(out))
+}
+
+// configuredFrom reads --user= and --group= out of `nginx -V`.
+func configuredFrom(out string) (usr, grp string) {
+	for _, f := range strings.Fields(out) {
+		if v, ok := strings.CutPrefix(f, "--user="); ok && usr == "" {
+			usr = v
+		}
+		if v, ok := strings.CutPrefix(f, "--group="); ok && grp == "" {
+			grp = v
+		}
+	}
+	return usr, grp
+}
+
 // WorkerGroup: the group nginx's workers run in, as nginx.conf says it --
-// the second word of `user`, or the primary group of the first.  "" when
-// the file names no user (the answer is then the binary's, which the list of
-// usual groups covers) or names one this host does not have.
+// the second word of `user`, or the primary group of the first -- and, where
+// that file names no user or cannot be read (a hosting panel keeps it to
+// root), as the binary was configured (--group=, or the group of --user=).
+// "" when neither says, or what they say is no group of this host.
 //
 // The daemon shares its sockets with that group (sockperm).  The first of
 // the usual groups that exists is not always it: every Debian has a www-data
 // group, nginx or not, and a hosting panel's nginx runs as a user of the
 // panel's own.
 func WorkerGroup(confPath string) string {
-	b, err := os.ReadFile(nginxpath.ConfPath(confPath))
+	if b, err := os.ReadFile(nginxpath.ConfPath(confPath)); err == nil {
+		for _, line := range strings.Split(string(b), "\n") {
+			if i := strings.IndexByte(line, '#'); i >= 0 {
+				line = line[:i]
+			}
+			if m := userDirectiveRE.FindStringSubmatch(line); m != nil {
+				return groupOf(m[1], m[2])
+			}
+		}
+	}
+	bin, err := nginxBinary()
 	if err != nil {
 		return ""
 	}
-	for _, line := range strings.Split(string(b), "\n") {
-		if i := strings.IndexByte(line, '#'); i >= 0 {
-			line = line[:i]
-		}
-		m := userDirectiveRE.FindStringSubmatch(line)
-		if m == nil {
-			continue
-		}
-		if m[2] != "" {
-			if _, err := user.LookupGroup(m[2]); err != nil {
-				return ""
-			}
-			return m[2]
-		}
-		u, err := user.Lookup(m[1])
-		if err != nil {
-			return ""
-		}
-		g, err := user.LookupGroupId(u.Gid)
-		if err != nil {
-			return ""
-		}
-		return g.Name
+	usr, grp := configuredAs(bin)
+	if usr == "" && grp == "" {
+		return ""
 	}
-	return ""
+	return groupOf(usr, grp)
+}
+
+// nginxBinary finds the nginx on PATH (a variable for the tests).
+var nginxBinary = func() (string, error) { return exec.LookPath("nginx") }
+
+// groupOf: grp when it is a group of this host, else -- with no group named
+// -- the primary group of usr.  "" when what is named does not exist here.
+func groupOf(usr, grp string) string {
+	if grp != "" {
+		if _, err := user.LookupGroup(grp); err != nil {
+			return ""
+		}
+		return grp
+	}
+	if usr == "" {
+		return ""
+	}
+	u, err := user.Lookup(usr)
+	if err != nil {
+		return ""
+	}
+	g, err := user.LookupGroupId(u.Gid)
+	if err != nil {
+		return ""
+	}
+	return g.Name
 }
 
 // Check: the verdict for the ban list at path, read by nginx's worker.

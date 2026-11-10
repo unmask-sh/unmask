@@ -129,8 +129,10 @@ own_includes_say() {
 # <<< nginx-layout <<<
 
 # nginx_worker_group <nginx.conf>: the group nginx's workers run in -- the
-# second word of that file's `user`, or the first one's primary group.
-# Nothing when the file names no user, or a group this host does not have.
+# second word of that file's `user`, or the first one's primary group; where
+# the file names no user, what the binary was configured with (--group=, or
+# the group of --user=).  Nothing when neither says, or for a group this host
+# does not have.
 #
 # The daemon shares its sockets with that group, and has to be a member to
 # hand them over (the drop-in below).  The first group of a fixed list that
@@ -140,9 +142,15 @@ nginx_worker_group() {
     _wg=$(sed -n 's/^[[:space:]]*user[[:space:]]\{1,\}\([^;]*\);.*/\1/p' "$1" 2>/dev/null | head -1)
     # shellcheck disable=SC2086
     set -- $_wg
+    _wg_u=${1:-}
     _wg_g=${2:-}
-    if [ -z "$_wg_g" ] && [ -n "${1:-}" ]; then
-        _wg_g=$(id -gn "$1" 2>/dev/null)
+    if [ -z "$_wg_u" ] && command -v nginx >/dev/null 2>&1; then
+        _wg_v=$(_nl_nginx_v | tr ' ' '\n')
+        _wg_u=$(printf '%s\n' "$_wg_v" | sed -n 's|^--user=||p' | head -1)
+        _wg_g=$(printf '%s\n' "$_wg_v" | sed -n 's|^--group=||p' | head -1)
+    fi
+    if [ -z "$_wg_g" ] && [ -n "$_wg_u" ]; then
+        _wg_g=$(id -gn "$_wg_u" 2>/dev/null)
     fi
     [ -n "$_wg_g" ] && getent group "$_wg_g" >/dev/null 2>&1 && echo "$_wg_g"
 }

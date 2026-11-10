@@ -81,6 +81,43 @@ func TestDetectWebServerGroupPrefersTheWorkersGroup(t *testing.T) {
 	}
 }
 
+// With no answer from nginx.conf (the daemon's user cannot read a panel's),
+// the group this process was put in comes ahead of an earlier name of the
+// list that merely exists: the socket can be given to the one and not to the
+// other.
+func TestDetectWebServerGroupPrefersAGroupItIsIn(t *testing.T) {
+	prevGroups, prevGIDs := WebServerGroups, processGIDs
+	t.Cleanup(func() { WebServerGroups, processGIDs = prevGroups, prevGIDs })
+	me, err := osuser.Current()
+	if err != nil {
+		t.Skip(err)
+	}
+	mine, err := osuser.LookupGroupId(me.Gid)
+	if err != nil {
+		t.Skip(err)
+	}
+	other, err := osuser.LookupGroupId("0")
+	if err != nil || other.Name == mine.Name {
+		t.Skip("no second group to tell apart")
+	}
+	WebServerGroups = []string{"no-such-group-unmask-test", other.Name, mine.Name}
+
+	processGIDs = func() []string { return []string{mine.Gid} }
+	if g, all := DetectWebServerGroup(); g != mine.Name || len(all) != 1 {
+		t.Errorf("a member of %q only: got %q %v", mine.Name, g, all)
+	}
+	// In neither: the first that exists, and both are named as candidates.
+	processGIDs = func() []string { return nil }
+	if g, all := DetectWebServerGroup(); g != other.Name || len(all) != 2 {
+		t.Errorf("a member of neither: got %q %v, want %q and two candidates", g, all, other.Name)
+	}
+	// In both: the list's order decides.
+	processGIDs = func() []string { return []string{mine.Gid, other.Gid} }
+	if g, _ := DetectWebServerGroup(); g != other.Name {
+		t.Errorf("a member of both: got %q, want the earlier %q", g, other.Name)
+	}
+}
+
 func bindSocket(t *testing.T) string {
 	t.Helper()
 	// Short path: a unix socket path is limited to about a hundred bytes.
