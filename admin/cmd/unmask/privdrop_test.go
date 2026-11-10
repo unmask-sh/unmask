@@ -107,6 +107,29 @@ func TestOwnershipProblemsFindsUnwritableFiles(t *testing.T) {
 	}
 }
 
+// The placer's directory is root's by design: its notes say which files root
+// removes, so doctor must not list them as residue (and advise a chown that
+// hands them to the daemon's user).  Everything else stays listed.
+func TestOwnershipCheckLeavesThePlacersDirectoryToRoot(t *testing.T) {
+	data := "/var/lib/unmask"
+	in := []string{
+		data + "/plugin",
+		data + "/plugin/.wired",
+		data + "/plugin/.nginx-binary",
+		data + "/plugin/ngx_http_unmask_module.so",
+		data + "/plugins-of-mine/x",
+		data + "/ipgeo/dbip-country.mmdb",
+	}
+	got := withoutRootsOwn(in, data)
+	want := []string{data + "/plugins-of-mine/x", data + "/ipgeo/dbip-country.mmdb"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("withoutRootsOwn = %v, want %v", got, want)
+	}
+	if left := withoutRootsOwn([]string{data + "/plugin/.wired"}, data); len(left) != 0 {
+		t.Errorf("the placer's note is still reported: %v", left)
+	}
+}
+
 // serve must go through the same path: a hand-started `sudo unmask serve`
 // otherwise writes root-owned state (SQLite -wal / -shm above all) that the
 // service-managed daemon then cannot use.

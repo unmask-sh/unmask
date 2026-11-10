@@ -1138,7 +1138,7 @@ func checkDataOwnership(s settings.Settings, addOK, addWarn func(t, m string)) {
 	if d := filepath.Dir(s.DB.SQLitePath); d != "" && d != dataDirForOwner {
 		dirs = append(dirs, d)
 	}
-	bad := ownershipProblems(dirs, uid, gid)
+	bad := withoutRootsOwn(ownershipProblems(dirs, uid, gid), dataDirForOwner)
 	if len(bad) == 0 {
 		addOK("data ownership", fmt.Sprintf("every file under %s is usable by the daemon user (%s)", dataDirForOwner, name))
 		return
@@ -1152,6 +1152,32 @@ func checkDataOwnership(s settings.Settings, addOK, addWarn func(t, m string)) {
 	addWarn("data ownership", fmt.Sprintf(
 		"%d file(s) under the daemon's directories are not writable by its user (%s): %s%s — left by a command run as root; fix with `chown -R %s %s` (the CLI now drops to that user by itself)",
 		len(bad), name, strings.Join(show, ", "), suffix, name, dataDirForOwner))
+}
+
+// rootsOwnDirs are the directories under the data dir that are root's by
+// design, not residue: plugin/ is where unmask-plugin-nginx's placer (run as
+// root by the package and before every nginx start) keeps its notes of what
+// it placed and for which nginx, and the module itself on a host whose /usr
+// is read-only.  root removes files by what those notes say, so the daemon's
+// user must not be able to write them -- and the `chown -R` this check
+// advises for real residue would hand it exactly that.
+var rootsOwnDirs = []string{"plugin"}
+
+// withoutRootsOwn drops from paths what lies in one of rootsOwnDirs under
+// dataDir.
+func withoutRootsOwn(paths []string, dataDir string) []string {
+	var out []string
+next:
+	for _, p := range paths {
+		for _, d := range rootsOwnDirs {
+			root := filepath.Join(dataDir, d)
+			if p == root || strings.HasPrefix(p, root+string(filepath.Separator)) {
+				continue next
+			}
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 func checkAdminBind(s settings.Settings, addOK, addWarn func(t, m string)) {
