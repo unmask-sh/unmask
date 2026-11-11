@@ -118,13 +118,25 @@ func TestCommunityBansMapHashSizing(t *testing.T) {
 		}
 	})
 
-	t.Run("off_mode_no_maphash", func(t *testing.T) {
+	t.Run("off_mode_bucket_only", func(t *testing.T) {
+		// No community-bans maps, but a long host name or exact path in any
+		// other map still overflows the default bucket: the bucket is sized
+		// where that is safe, the max (a feed's size) is not.
 		d := build(t, "http {\n}\n", settings.SubscribeOff)
-		if d.CommunityBansMapHashBucket || d.CommunityBansMapHashMax {
-			t.Error("off mode: no community-bans maps -> no map_hash")
+		if !d.CommunityBansMapHashBucket || d.CommunityBansMapHashMax {
+			t.Errorf("off mode: want the bucket only, got bucket=%v max=%v", d.CommunityBansMapHashBucket, d.CommunityBansMapHashMax)
 		}
 		if d.mapHashWarning != "" {
 			t.Errorf("off mode: unexpected warning: %s", d.mapHashWarning)
+		}
+	})
+
+	t.Run("off_mode_host_map_block_or_unreadable_no_maphash", func(t *testing.T) {
+		for _, conf := range []string{"http {\n  map $http_upgrade $x { default 0; }\n}\n", missing} {
+			d := build(t, conf, settings.SubscribeOff)
+			if d.CommunityBansMapHashBucket || d.CommunityBansMapHashMax {
+				t.Errorf("off mode with %q: emitting could duplicate or follow a map block; got bucket=%v max=%v", conf, d.CommunityBansMapHashBucket, d.CommunityBansMapHashMax)
+			}
 		}
 	})
 }

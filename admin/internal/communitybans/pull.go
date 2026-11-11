@@ -132,7 +132,11 @@ func (c *Client) Pull(ctx context.Context) (FeedDocument, error) {
 			c.logf("communitybans: %d promoted entr(ies) held back: %d on a current browser's JA4, %d in the %s grace for a new ja4_only entry, %d over the cap of %d new entries per pull",
 				pend.Total(), pend.Majors, pend.Grace, GraceJA4, pend.Capped, ApplyCap)
 		}
-		if err := WriteMapFiles(enforce, mapDir); err != nil {
+		keyMax := 0
+		if c.MapKeyMax != nil {
+			keyMax = c.MapKeyMax(cur)
+		}
+		if err := WriteMapFilesLimited(enforce, mapDir, keyMax); err != nil {
 			return doc, fmt.Errorf("write map files: %w", err)
 		}
 		c.reloadMatcher(mapDir)

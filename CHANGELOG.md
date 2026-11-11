@@ -30,6 +30,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **A rejected settings save keeps every row as the operator left it.**  The page a rejected save returns to now shows each row's switch, title, action and dates as submitted, so saving it again no longer switches disabled bypass addresses back on or moves an action to the next row. A long list keeps its rows too, and a blank JA4 row no longer shifts the chains below it.
 
+- (2026-11-11) **A long site name or one shared ban no longer makes nginx refuse its configuration.**  nginx's default map bucket holds keys up to 46 bytes, and unmask sized it for shared bans only: a 47-byte site name broke the configuration, and where nginx.conf opens a map first, one shared IPv4 entry did. The bucket is now sized wherever safe; shared entries that cannot fit are left out with a warning.
+
 ### Security
 
 - (2026-11-11) **Go 1.27.4 in the released binaries.**  The binaries of 0.1.54 to 0.1.56 were built with Go 1.27.3, whose HTTP/1 server can panic when a handler reads a body capped by `MaxBytesReader` while another goroutine sets a response header (GO-2026-6859).  unmask's handlers read such a body before they answer, so no route is known to reach it; go.mod now names Go 1.27.4, which the release and both container builds use.

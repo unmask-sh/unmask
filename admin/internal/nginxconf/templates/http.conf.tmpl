@@ -43,7 +43,7 @@
 # value is present but smaller than 256.
 # -----------------------------------------------------------------------------
 {{- if .CommunityBansMapHashBucket }}
-map_hash_bucket_size 256;  # unmask: community-bans ipja4 keys reach ~76 chars (IPv6)
+map_hash_bucket_size 256;  # unmask: keys over 46 bytes (ip:ja4, long hosts / exact paths) overflow the default 64
 {{- end }}
 {{- if .CommunityBansMapHashMax }}
 map_hash_max_size 4096;    # unmask: community-bans feed can exceed the 2048 default

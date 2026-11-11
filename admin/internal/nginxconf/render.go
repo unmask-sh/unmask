@@ -993,11 +993,14 @@ type renderData struct {
 	CommunityBansSubscribe bool
 	CommunityBansMapDir    string
 	// CommunityBansMapHashBucket/Max: emit map_hash_bucket_size / map_hash_max_size
-	// at the top of http.inc.  The community-bans ipja4 key reaches ~76 chars with
-	// an IPv6 address and overflows nginx's default map_hash_bucket_size (64), and a
-	// large feed exceeds the default map_hash_max_size (2048).  Each is set only when
-	// fetch_apply is active AND the host nginx.conf does not already declare that
-	// directive (a duplicate is a fatal `nginx -t` error).  See buildRenderData.
+	// at the top of http.inc.  nginx's default bucket (64 bytes) holds keys up to
+	// 46 bytes, and a longer key anywhere -- a community-bans ip:ja4 key (44-76),
+	// a long host name in a per-site map, a long exact path -- makes nginx refuse
+	// the configuration; a large feed also exceeds the default
+	// map_hash_max_size (2048).  The bucket is set whenever it is known to be
+	// safe (the host nginx.conf declares neither it nor a map before http.inc),
+	// the max with fetch_apply; never when the host conf declares the directive
+	// (a duplicate is a fatal `nginx -t` error).  See buildRenderData.
 	CommunityBansMapHashBucket bool
 	CommunityBansMapHashMax    bool
 
@@ -2344,6 +2347,31 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// block nothing.
 	d.HardDenyActive = d.HardDenyActive || d.CommunityBansDeny
 
+	// Without the community-bans maps the bucket still matters: a host name
+	// or an exact path over 46 bytes in any of unmask's maps overflows nginx's
+	// default bucket and nginx refuses the whole configuration.  Size it when
+	// that is known to be safe -- the host conf was read, declares no
+	// map_hash_bucket_size and opens no map before http.inc (an unreadable
+	// conf might declare it, and a duplicate is fatal).
+	if !d.CommunityBansMapHashBucket {
+		if hb, _, hasMap, readable := readHostMapHash(nginxpath.ConfPath(s.Nginx.ConfPath)); readable && hb == 0 && !hasMap {
+			d.CommunityBansMapHashBucket = true
+		}
+	}
+	// A host-keyed map with a key the bucket in force cannot hold: say how to
+	// fix it, as nginx will refuse the configuration.
+	if !d.CommunityBansMapHashBucket {
+		if host, limit := longestHostKey(d), hostMapKeyMax(s); len(host) > limit {
+			w := fmt.Sprintf("the site %q (%d bytes) is a key of a per-site map, and nginx's map_hash_bucket_size here holds keys up to %d bytes: "+
+				"nginx will refuse this configuration.  Add `map_hash_bucket_size 256;` at the top of nginx.conf's http{} block, before its first map.",
+				host, len(host), limit)
+			if d.mapHashWarning != "" {
+				w = d.mapHashWarning + "  " + w
+			}
+			d.mapHashWarning = w
+		}
+	}
+
 	return d, nil
 }
 
@@ -2482,19 +2510,20 @@ func resolveMapHash(s settings.Settings) (emitBucket, emitMax bool, warning stri
 		// precede EVERY map block, so emitting ours from http.inc -- after the
 		// host's block -- is a fatal "directive is duplicate" `nginx -t` error
 		// (the placer's fail-safe then strips the whole module).  Skip emission:
-		// the community-bans maps fall back to nginx's default bucket (64), which
-		// is fine for an empty feed or IPv4 ip:ja4 keys (~55 chars), and warn so
-		// the operator can size it themselves for a large IPv6 feed.
+		// the maps keep nginx's default bucket (64 bytes, keys up to 46), which
+		// no ip:ja4 key fits (44-76 bytes), so the map writer leaves the
+		// entries that do not fit out of the files (CommunityBansMapKeyMax)
+		// and this warning says how to apply them.
 		return false, false, fmt.Sprintf("%s opens a map/geo/split_clients block before unmask's http.inc include; "+
-			"nginx forbids map_hash_bucket_size after a map block, so unmask cannot size the community-bans maps from "+
-			"http.inc (they use nginx's default bucket, 64).  If the community-bans feed carries long IPv6 ip:ja4 keys "+
-			"(~76 chars), add `map_hash_bucket_size %d;` + `map_hash_max_size 4096;` to the TOP of your nginx.conf "+
-			"http{} block (before the first map).", confPath, wantBucket)
+			"nginx forbids map_hash_bucket_size after a map block, so unmask cannot size its maps from http.inc "+
+			"(they keep nginx's default bucket, 64 bytes: keys up to 46).  Community-bans ip:ja4 keys are 44-76 bytes, "+
+			"so most such entries are left out of the map files.  Add `map_hash_bucket_size %d;` + `map_hash_max_size 4096;` "+
+			"to the TOP of your nginx.conf http{} block (before the first map) to apply them.", confPath, wantBucket)
 	}
 	if hb > 0 && hb < wantBucket {
-		warning = fmt.Sprintf("%s sets map_hash_bucket_size %d, but unmask community-bans map keys reach ~76 chars "+
-			"(IPv6) and need >= %d. Raise it to %d (or remove it so unmask manages it), or `nginx -t` will fail once "+
-			"the community-bans feed populates.", confPath, hb, wantBucket, wantBucket)
+		warning = fmt.Sprintf("%s sets map_hash_bucket_size %d (keys up to %d bytes), but community-bans ip:ja4 keys "+
+			"reach 76 bytes (IPv6) and need >= %d.  Raise it to %d (or remove it so unmask manages it); entries that do "+
+			"not fit are left out of the map files until then.", confPath, hb, bucketKeyMax(hb), wantBucket, wantBucket)
 	}
 	return hb == 0, hmax == 0, warning
 }
@@ -2518,6 +2547,65 @@ func MapHashAdvice(s settings.Settings) string {
 // duplicate.  readable is false when the file can't be read (missing / permission
 // denied), letting the caller fall back to emitting its own.  Best-effort line
 // scan: it does not follow include directives, matching the postinstall's old grep.
+// bucketKeyMax: the longest key a map_hash bucket of the given size holds.
+// An element takes a pointer plus the key and its 2-byte length rounded up to
+// a pointer, and a bucket keeps room for its terminating pointer: with 8-byte
+// pointers, bucket - 18 (46 for the default 64).
+func bucketKeyMax(bucket int) int {
+	return bucket - 18
+}
+
+// hostMapKeyMax: the longest map key nginx loads under the configuration in
+// force -- 256-byte buckets when http.inc sizes them (or the host conf could
+// not be read and http.inc emits them), the host's own size when it declares
+// one, else nginx's default (64).
+func hostMapKeyMax(s settings.Settings) int {
+	hb, _, hasMap, readable := readHostMapHash(nginxpath.ConfPath(s.Nginx.ConfPath))
+	switch {
+	case !readable:
+		return bucketKeyMax(256)
+	case hb > 0:
+		return bucketKeyMax(hb)
+	case !hasMap:
+		return bucketKeyMax(256)
+	}
+	return bucketKeyMax(64)
+}
+
+// CommunityBansMapKeyMax: the longest key the community-bans map files may
+// carry under the configuration in force (communitybans.Client.MapKeyMax).
+func CommunityBansMapKeyMax(s settings.Settings) int {
+	return hostMapKeyMax(s)
+}
+
+// longestHostKey: the longest host name rendered as a key of a per-site map.
+func longestHostKey(d renderData) string {
+	longest := ""
+	keep := func(h string) {
+		if len(h) > len(longest) {
+			longest = h
+		}
+	}
+	for _, r := range d.PowDifficultyHosts {
+		keep(r.Host)
+	}
+	for _, r := range d.ObservePerHost {
+		keep(r.Host)
+	}
+	for _, r := range d.HoneypotPatternsPerHost {
+		keep(r.Host)
+	}
+	for _, r := range d.ProtectedPathsPerHost {
+		keep(r.Host)
+	}
+	for _, list := range [][]BypassPathHostMaps{d.BypassPathsPerHost, d.GeoExemptPathsPerHost, d.AsnExemptPathsPerHost} {
+		for _, r := range list {
+			keep(r.Host)
+		}
+	}
+	return longest
+}
+
 func readHostMapHash(path string) (bucket, maxsz int, hasMapBlock, readable bool) {
 	b, err := os.ReadFile(path)
 	if err != nil {

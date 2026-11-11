@@ -34,6 +34,14 @@ type Client struct {
 	// MapDir: output dir for community-bans-*.map.  Empty → settings.Nginx.OutputDir.
 	MapDir string
 
+	// MapKeyMax: the longest map key nginx can load from the map files under
+	// the configuration in force (nginxconf.CommunityBansMapKeyMax), or nil
+	// for no limit.  A key over it is left out of the files and counted: a
+	// key that does not fit a map_hash bucket makes nginx refuse the whole
+	// configuration, so one shared entry could stop the host's nginx from
+	// reloading or starting.
+	MapKeyMax func(settings.Settings) int
+
 	// StatePath: the guard's state file (guard.go: what was seen when, what
 	// is applied).  Empty → community-bans-state.json beside the map files.
 	StatePath string

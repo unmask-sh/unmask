@@ -825,6 +825,7 @@ func cmdServe(args []string) error {
 			UserAgent:      "unmask/" + Version,
 			SettingsGetter: h.SnapshotSettings,
 			SettingsUpdate: h.UpdateSettings,
+			MapKeyMax:      nginxconf.CommunityBansMapKeyMax,
 		}
 		// Build the client unconditionally (the BAN button's share path needs
 		// it), but only start the register + periodic-pull loop once setup is

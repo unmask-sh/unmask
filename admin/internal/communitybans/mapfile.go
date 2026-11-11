@@ -85,6 +85,16 @@ func ensureMapPlaceholders(dir string) {
 // Always generates all 3 files even on empty feed (= avoids nginx startup
 // failure on missing include).
 func WriteMapFiles(doc FeedDocument, dir string) error {
+	return WriteMapFilesLimited(doc, dir, 0)
+}
+
+// WriteMapFilesLimited is WriteMapFiles with a cap on the key length: an entry
+// whose key is longer than keyMax bytes (0 = no cap) is left out and counted.
+// nginx loads a map only when every key fits a map_hash bucket, and a host
+// whose nginx.conf opens a map before unmask's include keeps the default
+// bucket (64 bytes, keys up to 46): an IPv4 ip:ja4 key is 44-52 bytes, so one
+// promoted entry made nginx refuse its whole configuration.
+func WriteMapFilesLimited(doc FeedDocument, dir string, keyMax int) error {
 	if dir == "" {
 		return fmt.Errorf("WriteMapFiles: empty dir")
 	}
@@ -95,7 +105,14 @@ func WriteMapFiles(doc FeedDocument, dir string) error {
 	now := time.Now().Unix()
 
 	var ipja4, ja4, ip []string
-	dropped := 0
+	dropped, tooLong := 0, 0
+	fits := func(key string) bool {
+		if keyMax > 0 && len(key) > keyMax {
+			tooLong++
+			return false
+		}
+		return true
+	}
 	for _, e := range doc.Entries {
 		if e.ExpiresAt > 0 && e.ExpiresAt < now {
 			continue
@@ -113,23 +130,32 @@ func WriteMapFiles(doc FeedDocument, dir string) error {
 				dropped++
 				continue
 			}
-			ipja4 = append(ipja4, fmt.Sprintf("%q 1;", ipv+":"+j))
+			if k := ipv + ":" + j; fits(k) {
+				ipja4 = append(ipja4, fmt.Sprintf("%q 1;", k))
+			}
 		case MatchJA4:
 			if j == "" {
 				dropped++
 				continue
 			}
-			ja4 = append(ja4, fmt.Sprintf("%q 1;", j))
+			if fits(j) {
+				ja4 = append(ja4, fmt.Sprintf("%q 1;", j))
+			}
 		case MatchIPOnly:
 			if ipv == "" {
 				dropped++
 				continue
 			}
-			ip = append(ip, fmt.Sprintf("%q 1;", ipv))
+			if fits(ipv) {
+				ip = append(ip, fmt.Sprintf("%q 1;", ipv))
+			}
 		}
 	}
 	if dropped > 0 {
 		log.Printf("communitybans: %d promoted entries dropped from the map files: address or JA4 not in the expected shape", dropped)
+	}
+	if tooLong > 0 {
+		log.Printf("communitybans: %d promoted entries left out of the map files: their key is longer than the %d bytes nginx's map_hash_bucket_size holds here -- add `map_hash_bucket_size 256;` at the top of nginx.conf's http{} block, before its first map, to apply them", tooLong, keyMax)
 	}
 	sort.Strings(ipja4)
 	sort.Strings(ja4)
