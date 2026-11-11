@@ -12,6 +12,20 @@ Versioning follows [Semantic Versioning](https://semver.org/).
   entry — how it was reachable and which release closes it.  About 40–70
   words.  The reasoning behind a change belongs in the commit message.
 
+## [Unreleased]
+
+### Changed
+
+- (2026-11-11) **The rpm and deb packages no longer install nginx.**  `unmask-plugin-nginx` and `unmask-web-nginx` required `nginx`; on a host whose nginx no package installed, `dnf` and `apt` met that with the distribution's, beside the one in use. nginx is now a suggestion: install it first on a host without one. Where `dnf` brought nginx in for an earlier unmask, `sudo dnf mark install nginx` keeps `dnf autoremove` off it.
+
+### Fixed
+
+- (2026-11-11) **After a host nginx upgrade, the module is re-picked before nginx tests its configuration.**  The re-pick ran as a step of `nginx.service`, after the `nginx -t` of the distributions' own units; that test failed on the module left from the old version, so nginx did not start and the re-pick never ran. It is now a unit of its own, `unmask-place-module.service`, started before anything of nginx's service.
+
+- (2026-11-11) **An nginx built without the realip module is told so, and keeps starting.**  unmask's include files read `$realip_remote_addr`. An nginx configured without `--with-http_realip_module` -- a plain `./configure` -- refused its whole configuration once they were included, in an error that names no file: the fail-safe did not act, and nginx did not start. The packages now wire nothing into such an nginx and name the missing option.
+
+- (2026-11-11) **An nginx linked into `/usr/local/sbin` is found by the packages.**  `apt` and `rpm` run a package's scripts with a PATH that leaves `/usr/local` out, so an nginx built by hand and linked there was reported as not installed -- while the nginx service's own start saw it and wired half of unmask. The scripts now look there too when the PATH they are given has no nginx.
+
 ## [0.1.57-rc1] - 2026-11-11 (testing build)
 
 ### Added
@@ -19,8 +33,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-11-10) **An nginx built from source can run the module.**  For an nginx no package installed -- built by hand, or by a hosting panel -- the plugin placed nothing. The packages keep the module and their include files in their own directories, edit nothing of that nginx, and name the two `include` lines to add to its `nginx.conf`. It must be built `--with-compat`; the plugin says when it is not.
 
 - (2026-11-10) **An nginx built from source can be built again without stopping on unmask.**  A panel that installs another nginx build tests the new configuration before it starts anything; a module built for the old binary, or a site including `server.inc` after the panel rewrote `nginx.conf`, failed that test, and no nginx ran. unmask now watches the binary: when it changes, the module comes out and its include files are rendered empty until the next start can load them.
-
-- (2026-11-10) **`unmask-nginx-external`: for a host whose nginx no package installed.**  `unmask-plugin-nginx` and `unmask-web-nginx` depend on `nginx`, which on a host with a self-built nginx brought in the distribution's nginx beside it -- a second nginx that takes the name on PATH. The new package provides `nginx` and ships its README, nothing else: installed first, on purpose, it lets the other two in without one.
 
 ### Changed
 
