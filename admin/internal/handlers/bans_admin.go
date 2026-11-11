@@ -30,6 +30,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/cdn"
 	"github.com/unmask-sh/unmask/admin/internal/communitybans"
 	"github.com/unmask-sh/unmask/admin/internal/i18n"
+	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 	"github.com/unmask-sh/unmask/admin/internal/user"
 )
@@ -205,6 +206,7 @@ func (h *Handler) AdminBansIndex(w http.ResponseWriter, r *http.Request) {
 		"BanFilePath":               h.cfg().Nginx.Honeypot.BanFilePath,
 		"Bans":                      h.cfg().Nginx.Bans,
 		"Saved":                     r.URL.Query().Get("saved") != "",
+		"SavedReload":               r.URL.Query().Get("reload") == "1",
 		"Error":                     readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		"SubscribeMode":             cur.CommunityBans.ResolvedSubscribeMode(),
 		"MyHN":                      myHN,
@@ -413,8 +415,13 @@ func (h *Handler) AdminCommunityBansIndex(w http.ResponseWriter, r *http.Request
 		nextPullAt = cur.CommunityBans.LastPulledAt + int64(communitybans.PullInterval.Seconds())
 	}
 
+	// SavedReload / Error: the subscribe mode is saved from this page
+	// (return_to): a change that rendered nginx's configuration says it
+	// waits for a reload, and a save that failed says why.
 	data := map[string]any{
 		"BanTab":                       "community",
+		"SavedReload":                  r.URL.Query().Get("reload") == "1",
+		"Error":                        readFlash(w, r, h.cfg().Server.BasePath, "err"),
 		"Lang":                         i18n.Resolve(r),
 		"TZ":                           resolveTZ(r),
 		"BasePath":                     h.cfg().Server.BasePath,
@@ -813,6 +820,11 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		}
 		http.Redirect(w, r, dst, http.StatusFound)
 	}
+	// redirRendered: a save that rendered nginx's configuration, whose page
+	// says the change waits for a reload.
+	redirRendered := func() {
+		http.Redirect(w, r, returnTo+"?saved=1&reload=1", http.StatusFound)
+	}
 
 	pay := SessionFromContext(r)
 	if pay == nil {
@@ -966,14 +978,27 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 		default:
 			modeVal = settings.SubscribeOff
 		}
+		// The mode decides whether http.inc includes the community-bans maps
+		// (fetch_apply) or not, so the same RenderSignature diff as the
+		// settings save decides whether to render.  Without the render, a
+		// switch to fetch_apply applied nothing after a reload, and a switch
+		// away from it kept the shared bans enforced.
+		reload := false
 		cur, err := h.mutateSettings(func(cur *settings.Settings) error {
+			before, beforeErr := nginxconf.RenderSignature(*cur, "", h.Version)
 			cur.CommunityBans.SubscribeMode = modeVal
 			cur.Nginx.SeenVersion = "v" + h.Version
+			after, afterErr := nginxconf.RenderSignature(*cur, "", h.Version)
+			reload = beforeErr != nil || afterErr != nil || after != before
 			return nil
 		})
 		if err != nil {
 			redir(err.Error())
 			return
+		}
+		renderErr := error(nil)
+		if reload {
+			renderErr = nginxconf.RenderFor(cur, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderBySettings, Detail: "community-bans"})
 		}
 
 		// To keep the first pull right after turning this ON from hitting "no
@@ -992,7 +1017,16 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 			h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "subscribe_toggle",
 				"", fmt.Sprintf(`{"mode":%q}`, modeVal))
 		}
-		redir("")
+		switch {
+		case renderErr != nil:
+			// As the settings save: the mode is saved, nginx keeps the
+			// configuration it has until a render succeeds.
+			redir("save ok / render failed: " + renderErr.Error())
+		case reload:
+			redirRendered()
+		default:
+			redir("")
+		}
 		return
 
 	default:

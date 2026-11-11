@@ -32,6 +32,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **A long site name or one shared ban no longer makes nginx refuse its configuration.**  nginx's default map bucket holds keys up to 46 bytes, and unmask sized it for shared bans only: a 47-byte site name broke the configuration, and where nginx.conf opens a map first, one shared IPv4 entry did. The bucket is now sized wherever safe; shared entries that cannot fit are left out with a warning.
 
+- (2026-11-11) **Switching the shared ban list and installing a GeoIP file now reach nginx.**  Two saves changed what nginx's configuration should be without rewriting it: the subscribe mode on the ban pages (switching to "apply" applied nothing, switching away kept the shared bans enforced), and the one-click GeoIP install (country and ASN rules stayed empty). Both now rewrite it and ask for the reload.
+
 ### Security
 
 - (2026-11-11) **Go 1.27.4 in the released binaries.**  The binaries of 0.1.54 to 0.1.56 were built with Go 1.27.3, whose HTTP/1 server can panic when a handler reads a body capped by `MaxBytesReader` while another goroutine sets a response header (GO-2026-6859).  unmask's handlers read such a body before they answer, so no route is known to reach it; go.mod now names Go 1.27.4, which the release and both container builds use.

@@ -30,17 +30,19 @@
 {{- end }}
 
 # -----------------------------------------------------------------------------
-# Map hash sizing for the community-bans maps.  The widest key is the ipja4
-# "<ip>:<ja4>" pair -- up to ~76 chars with an IPv6 address, which overflows the
-# default map_hash_bucket_size (= ngx_cacheline_size, 64 on x86_64 / aarch64);
-# a large feed also exceeds the default map_hash_max_size (2048).  Both are
-# single-occurrence http{} directives that must precede the map blocks they size
-# (nginx builds the map hash at parse time), so they are emitted HERE at the top
-# of http.inc -- which sits above every map below -- not in nginx.conf.  They are
-# emitted only when (a) community-bans enforcement is active and (b) the host
-# nginx.conf does not already declare that directive (a duplicate is a fatal
-# `nginx -t` error); buildRenderData probes nginx.conf and warns when a host
-# value is present but smaller than 256.
+# Map hash sizing.  The default map_hash_bucket_size (= ngx_cacheline_size, 64
+# on x86_64 / aarch64) holds keys up to 46 bytes, and one longer key makes nginx
+# refuse the configuration: a community-bans "<ip>:<ja4>" key is 44-76 bytes, and
+# a long host name or exact path in a per-site map can pass 46 too.  A large feed
+# also exceeds the default map_hash_max_size (2048).  Both are single-occurrence
+# http{} directives that must precede the map blocks they size (nginx builds the
+# map hash at parse time), so they are emitted HERE at the top of http.inc --
+# which sits above every map below -- not in nginx.conf.  The bucket is emitted
+# when the host nginx.conf was read and neither declares it nor opens a map
+# before this include (a duplicate, or one after a map, is a fatal `nginx -t`
+# error); the max when community-bans enforcement is active and the host does
+# not declare it.  buildRenderData probes nginx.conf and warns where a key
+# cannot fit.
 # -----------------------------------------------------------------------------
 {{- if .CommunityBansMapHashBucket }}
 map_hash_bucket_size 256;  # unmask: keys over 46 bytes (ip:ja4, long hosts / exact paths) overflow the default 64

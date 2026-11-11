@@ -226,7 +226,7 @@ table.feed tbody tr.feed-row.not-promoted .match-pill{opacity:.65}
 </h1>
   {{ template "ban_tabs" . }}
 
-{{ if .Saved }}<div class="banner ok">{{ t .Lang "bans.saved" }}</div>{{ end }}
+{{ if .Saved }}<div class="banner ok">{{ t .Lang "bans.saved" }}{{ if .SavedReload }} {{ if .GatewayActive }}{{ safeHTML (t .Lang "settings.saved_banner_also_reload_gateway") }}{{ else }}{{ safeHTML (t .Lang "settings.saved_banner_also_reload") }}{{ end }}{{ end }}</div>{{ end }}
 {{ if .Error }}<div class="banner bad">{{ t .Lang "bans.error_prefix" }}{{ .Error }}</div>{{ end }}
 {{ if .CDNRows }}<div class="banner" style="background:#fffbeb;border:1px solid #fcd34d;color:#78350f">{{ safeHTML (tf .Lang "bans.cdn_note" .CDNRows) }} <span class="info-tip" tabindex="0" aria-label="help" data-pin-title="{{ t .Lang "bans.cdn_note_title" }}" style="margin-left:.2rem">?<span class="info-popup">{{ safeHTML (t .Lang "bans.cdn_note_help") }}</span></span></div>{{ end }}
 

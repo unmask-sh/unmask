@@ -1316,7 +1316,14 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
             if (r.ok && r.body.ok === 1) {
               box.style.color = '#166534';
               box.textContent = '✓ ' + (r.body.path || '') + ' · ' + (r.body.month || '') + ' · ' + (r.body.bytes || '?') + ' B';
-              setTimeout(function(){ location.reload(); }, 1200);
+              if (r.body.render_error) { box.textContent += ' · nginx render failed: ' + r.body.render_error; }
+              // The install rendered nginx's configuration (the country and
+              // ASN rules carry CIDRs read from the file): when it changed,
+              // land on the saved banner that asks for the reload.
+              setTimeout(function(){
+                if (r.body.reload) { location.href = location.pathname + '?saved=1&section=network&reload=1'; }
+                else if (!r.body.render_error) { location.reload(); }
+              }, 1200);
             } else {
               box.style.color = '#991b1b';
               box.textContent = '✗ ' + (r.body && r.body.error ? r.body.error : 'install failed');
