@@ -239,14 +239,18 @@ func (h *Handler) setupHasAdmin() (bool, error) {
 }
 
 // setupSuperadmin returns the session payload IFF the request is an
-// authenticated superadmin that also clears the admin IP allowlist.  Once setup
-// is complete the bootstrap token is gone, so re-running the wizard is gated by
-// the same auth as the rest of the admin (= a logged-in superadmin), not a
-// token.  Returns nil otherwise.
+// authenticated superadmin that also clears the admin IP and Host allowlists.
+// Once setup is complete the bootstrap token is gone, so re-running the wizard
+// is gated by the same auth as the rest of the admin (= a logged-in
+// superadmin), not a token.  Returns nil otherwise.
 func (h *Handler) setupSuperadmin(r *http.Request) *SessionPayload {
-	// Same IP allowlist every other admin route enforces.
-	ip := adminClientIP(r, h.snapshotSettings())
+	// The same IP and Host allowlists every other admin route enforces.
+	cur := h.snapshotSettings()
+	ip := adminClientIP(r, cur)
 	if !ipAllowed(ip, settings.EnabledValues(h.cfg().Nginx.AdminAllowedIPs, h.cfg().Nginx.AdminAllowedIPsDisabled)) {
+		return nil
+	}
+	if !hostAllowed(adminClientHost(r, cur), settings.EnabledValues(h.cfg().Nginx.AdminAllowedHosts, h.cfg().Nginx.AdminAllowedHostsDisabled)) {
 		return nil
 	}
 	c, err := r.Cookie(sessionCookieName)
@@ -257,17 +261,28 @@ func (h *Handler) setupSuperadmin(r *http.Request) *SessionPayload {
 	if pay == nil {
 		return nil
 	}
-	// Honor the CURRENT DB role so a demoted account can't reconfigure on a
-	// frozen cookie, and refuse a cookie whose session generation the account
-	// has moved past -- a password change or a suspension revoked it (mirrors
-	// AuthMiddleware).
-	if h.UserRepo != nil {
-		if u, uerr := h.UserRepo.GetByID(r.Context(), pay.UserID); uerr == nil && u != nil {
-			if u.Disabled || u.SessionGen != pay.Gen {
-				return nil
-			}
-			pay.Role = u.Role
+	// The account check AuthMiddleware makes (sessionAccount): anything but
+	// a live account on the cookie's session generation -- suspended, signed
+	// out, a password changed, or a database that did not answer -- is no
+	// superadmin, and the payload takes the CURRENT role, so a demoted
+	// account cannot reconfigure on a frozen cookie.
+	//
+	// One exception, for an account with no row at all: a live database
+	// that has no account at all is the fresh one the wizard switched to
+	// mid-reconfigure, and the superadmin who started the switch has to get
+	// back in to finish it (create that database's first admin).  The signed
+	// cookie's role stands there, as it always did.  A database that has
+	// accounts and no row for this one had it deleted: that cookie is dead.
+	// This exception had no condition before, so a deleted superadmin's
+	// cookie opened the wizard on a running instance.
+	switch verdict, u := h.sessionAccount(r, pay); {
+	case verdict == sessionValid:
+	case verdict == sessionRevoked && u == nil:
+		if has, err := h.setupHasAdmin(); err != nil || has {
+			return nil
 		}
+	default:
+		return nil
 	}
 	if !roleAtLeast(pay.Role, user.RoleSuperadmin) {
 		return nil

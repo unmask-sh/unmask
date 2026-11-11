@@ -26,6 +26,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **An nginx linked into `/usr/local/sbin` is found by the packages.**  `apt` and `rpm` run a package's scripts with a PATH that leaves `/usr/local` out, so an nginx built by hand and linked there was reported as not installed -- while the nginx service's own start saw it and wired half of unmask. The scripts now look there too when the PATH they are given has no nginx.
 
+### Security
+
+- (2026-11-11) **A revoked admin session stays revoked.**  Every admin page and the setup wizard now make one account check: the wizard opened for the cookie of a deleted superadmin, and a lookup that failed kept any session -- a client could make it fail by hanging up on its own request. When the database does not answer, the request is refused and the session kept.
+
 ## [0.1.57-rc1] - 2026-11-11 (testing build)
 
 ### Added

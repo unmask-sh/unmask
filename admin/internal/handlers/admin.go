@@ -605,40 +605,24 @@ func (h *Handler) AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		cookiePath := adminCookiePath(h.cfg().Server.BasePath)
 		if c, err := r.Cookie(sessionCookieName); err == nil {
 			if pay := verifySessionCookie(secret, c.Value); pay != nil {
-				// Re-check the user against the DB so a deleted or demoted account
-				// loses access immediately instead of riding its cookie's frozen
-				// role for up to 30 days.  Honor the CURRENT DB role (not the
-				// cookie's); a transient DB error keeps the session (fail-open) so
-				// a blip doesn't log every admin out.
-				if h.UserRepo != nil {
-					if u, uerr := h.UserRepo.GetByID(r.Context(), pay.UserID); uerr == nil && u != nil {
-						if u.Disabled {
-							// A suspended account loses its session on the very
-							// next request — same treatment as a deleted one.
-							// This immediacy is the point of disabling: it cuts
-							// access faster than a password change ever could.
-							sec := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-							http.SetCookie(w, clearSessionCookie(cookiePath, sec))
-							http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/login", http.StatusFound)
-							return
-						}
-						if u.SessionGen != pay.Gen {
-							// The account's session generation moved on since
-							// this cookie was issued -- its password was changed
-							// or reset, or it was suspended and re-enabled -- so
-							// the cookie is revoked, however long it had left.
-							sec := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-							http.SetCookie(w, clearSessionCookie(cookiePath, sec))
-							http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/login", http.StatusFound)
-							return
-						}
-						pay.Role = u.Role
+				// Re-check the account against the database so a deleted,
+				// suspended or demoted account, or one whose password was
+				// changed, loses access on its next request instead of riding
+				// its cookie for up to 30 days; the payload takes the CURRENT
+				// role.  When the database does not answer, the request is
+				// refused and the cookie kept (sessionAccount).
+				switch verdict, u := h.sessionAccount(r, pay); verdict {
+				case sessionRevoked:
+					sec := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
+					http.SetCookie(w, clearSessionCookie(cookiePath, sec))
+					http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/login", http.StatusFound)
+					return
+				case sessionUnchecked:
+					h.respondSessionUnchecked(w, r)
+					return
+				default:
+					if u != nil {
 						h.rememberUILang(r, u)
-					} else if errors.Is(uerr, user.ErrNotFound) {
-						sec := r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https"
-						http.SetCookie(w, clearSessionCookie(cookiePath, sec))
-						http.Redirect(w, r, h.cfg().Server.BasePath+"/admin/login", http.StatusFound)
-						return
 					}
 				}
 				// Sliding extension on each request: refresh when remaining lifetime drops below half of TTL.
