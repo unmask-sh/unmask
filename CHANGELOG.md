@@ -28,6 +28,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ### Security
 
+- (2026-11-11) **Go 1.27.4 in the released binaries.**  The binaries of 0.1.54 to 0.1.56 were built with Go 1.27.3, whose HTTP/1 server can panic when a handler reads a body capped by `MaxBytesReader` while another goroutine sets a response header (GO-2026-6859).  unmask's handlers read such a body before they answer, so no route is known to reach it; go.mod now names Go 1.27.4, which the release and both container builds use.
+
 - (2026-11-11) **A revoked admin session stays revoked.**  Every admin page and the setup wizard now make one account check: the wizard opened for the cookie of a deleted superadmin, and a lookup that failed kept any session -- a client could make it fail by hanging up on its own request. When the database does not answer, the request is refused and the session kept.
 
 - (2026-11-11) **A passed challenge never leaves the site.**  The page went on to the address it was opened at as a path alone, and a browser reads a path that begins with `//` as another site's address: a link to `https://site//other.example/` sent a visitor who passed the challenge to other.example. The page, its relay and the re-bind bounce now go on to the full address on the site.
