@@ -112,7 +112,7 @@ case "${1:-}" in
         # --conf-path as every distribution's nginx names it: it is what tells
         # the scripts this is a packaged nginx, whose /etc/nginx they may wire
         # (nginx-layout); without it they take the nginx for a self-built one.
-        echo "configure arguments: --prefix=$ROOT/etc/nginx --conf-path=$ROOT/etc/nginx/nginx.conf --modules-path=$ROOT/usr/lib64/nginx/modules --with-compat" >&2
+        echo "configure arguments: --prefix=$ROOT/etc/nginx --conf-path=$ROOT/etc/nginx/nginx.conf --modules-path=$ROOT/usr/lib64/nginx/modules --with-compat --with-http_realip_module" >&2
         exit 0 ;;
     -t) ;;
     *)  exit 0 ;;

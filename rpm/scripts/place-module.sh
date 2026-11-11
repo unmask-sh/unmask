@@ -9,8 +9,9 @@
 # WITHOUT the module instead of dying on an ABI-incompatible load_module.
 # Idempotent.  Exits 0 when a module is in place for the host's nginx once it
 # returns (placed now, or already there unchanged) and 1 when none is: no
-# nginx to place one for, no bundled module for its version, a modules path
-# that cannot be written, musl without gcompat.  The systemd drop-in prefixes
+# nginx to place one for, an nginx that cannot read unmask's configuration
+# (nginx_missing), no bundled module for its version, a modules path that
+# cannot be written, musl without gcompat.  The systemd drop-in prefixes
 # the call with '-', so that 1 never blocks an nginx start; it is for the
 # plugin postinstall, which then says that nothing was placed instead of
 # "module placed", and for whoever reads the journal.  `--verify` exits 0.
@@ -122,6 +123,26 @@ nginx_conf_path() {
 # nginx_is_packaged: 0 when that file is the one the distributions use.
 nginx_is_packaged() { [ "$(nginx_conf_path)" = "$PACKAGED_NGINX_CONF" ]; }
 
+# nginx_missing: what this nginx was built without, of what unmask's
+# configuration needs from it besides the module -- "realip", or nothing.
+# The files nginx includes read $realip_remote_addr, a variable nginx has
+# only when it was configured --with-http_realip_module.  Every
+# distribution's build is; a plain ./configure is not, and that nginx stops
+# on those files (unknown "realip_remote_addr" variable -- no file named, so
+# nothing points at unmask).  Such an nginx gets nothing of unmask to read.
+# Nothing is missing where nginx cannot be asked how it was built.
+nginx_missing() {
+    _nl_mv=$(_nl_nginx_v)
+    case "$_nl_mv" in
+        *"configure arguments:"*) ;;
+        *) return 0 ;;
+    esac
+    case "$_nl_mv" in
+        *--with-http_realip_module*) ;;
+        *) echo realip ;;
+    esac
+}
+
 # own_includes_missing: which of the two include lines the configuration of
 # a self-built nginx does not carry -- "main", "http", both (one per line) or
 # nothing.  Read from the configuration as nginx reads it, so that a line in
@@ -191,6 +212,12 @@ FAILSAFE_MARKER=/var/lib/unmask/nginx/.native-failsafe
 # The http.inc auto-load symlink the two postinstalls create (= see the wiring
 # step below for the http.d variant, and for a self-built nginx's).
 HTTP_INC_LINKS="/etc/nginx/conf.d/00-unmask.conf /etc/nginx/http.d/00-unmask.conf $OWN_HTTP_DIR/00-unmask.conf"
+# Every link the packages put into an http include directory: http.inc, and
+# unmask-web-nginx's two -- the daemon's upstream and the forward-auth LB
+# gate.  $WEB_PACKAGE_SIGN is a file only that package ships.
+HTTP_LINK_NAMES="00-unmask.conf 00-unmask-upstream.conf zz-unmask-fa-lbtrust.conf"
+HTTP_LINK_DIRS="/etc/nginx/conf.d /etc/nginx/http.d $OWN_HTTP_DIR"
+WEB_PACKAGE_SIGN=/usr/share/unmask/nginx-reload-if-stale.sh
 
 # Hooks the unit test (place-module_test.sh) overrides; the defaults are the
 # real thing.
@@ -421,6 +448,76 @@ go_inert_say() {
         echo "    unmask render-nginx"
         echo "  once it can (see its error), or take the include lines out of the server blocks until then."
     fi
+}
+
+# http_links_out: take the packages' links out of every http include
+# directory -- as links only; a file of one of those names is the operator's.
+http_links_out() {
+    for _ho_d in $HTTP_LINK_DIRS; do
+        for _ho_n in $HTTP_LINK_NAMES; do
+            [ -L "$_ho_d/$_ho_n" ] && rm -f "$_ho_d/$_ho_n" 2>/dev/null
+        done
+    done
+    return 0
+}
+
+# web_links_in <dir>: put unmask-web-nginx's two links back into the http
+# include directory, where that package is installed and a link is gone: an
+# nginx that was refused (refuse_nginx) and has been built again since, or
+# one that arrived after the packages and reads another directory than the
+# one they wired.  Made as the package's own postinstall makes them, and
+# only where nothing is: never over a file, never over a link.
+web_links_in() {
+    [ -e "$WEB_PACKAGE_SIGN" ] || return 0
+    for _wl in "00-unmask-upstream.conf:upstream.conf" "zz-unmask-fa-lbtrust.conf:forward-auth-lbtrust.conf"; do
+        _wl_link=$1/${_wl%%:*}
+        _wl_src=/var/lib/unmask/nginx/${_wl#*:}
+        [ -e "$_wl_src" ] || continue
+        if [ ! -e "$_wl_link" ] && [ ! -L "$_wl_link" ]; then
+            ln -s "$_wl_src" "$_wl_link" 2>/dev/null && echo "  linked: $_wl_link -> $_wl_src"
+        fi
+    done
+    return 0
+}
+
+# nginx_missing_report: what the operator reads when the nginx cannot read
+# unmask's configuration (nginx_missing).  To stderr, like the report for a
+# version with no module.
+nginx_missing_report() {
+    {
+        echo "================================================================"
+        echo "unmask-plugin-nginx: this nginx cannot read unmask's configuration -- nothing placed"
+        echo "================================================================"
+        echo "It was built without --with-http_realip_module.  unmask's include files"
+        echo "read \$realip_remote_addr, a variable nginx has only with that module"
+        echo "(every distribution's build has it, a plain ./configure does not): with"
+        echo "them included, this nginx would not load its configuration."
+        echo ""
+        echo "Add --with-http_realip_module to its configure line, beside --with-compat,"
+        echo "and build it again -- with a hosting panel, in the custom parameters of"
+        echo "its nginx build.  The module is placed for the new build when nginx's"
+        echo "service starts it; started some other way, run:"
+        echo "    sh $PLUGIN_BASE/place-module.sh"
+        echo "Until then nothing of unmask is where this nginx reads it: nginx runs"
+        echo "WITHOUT unmask and no request is challenged; \`unmask doctor\` and the"
+        echo "admin's notification list say so."
+        echo "================================================================"
+    } >&2
+}
+
+# refuse_nginx [quiet]: an nginx that cannot read unmask's configuration at
+# all.  Nothing of unmask stays where it reads: the module and its loader,
+# the packages' links in the http include directory, and the directives of
+# the files a server block includes (the inert render).  The operator's own
+# include lines can stay -- there is nothing behind them.  "quiet" leaves the
+# report out: the web package's check, in a run that has printed it already.
+refuse_nginx() {
+    [ "${1:-}" = quiet ] || nginx_missing_report
+    _pm_strip_module
+    http_links_out
+    _pm_marker "this nginx was built without --with-http_realip_module, which unmask's configuration needs (it reads \$realip_remote_addr)" inert
+    rm -f "$INCLUDES_NOTE" 2>/dev/null
+    _pm_render || echo "  ('unmask render-nginx' could not run: server.inc and protect.inc are as they were; run it once it can.)" >&2
 }
 
 # >>> unwire >>>
@@ -762,6 +859,11 @@ if [ "${1:-}" = "--nginx-changed" ]; then
     echo "unmask-plugin-nginx: $_nc_why."
     go_inert "$_nc_why"
     go_inert_say $?
+    # A new build that cannot read unmask's http files at all (nginx_missing)
+    # does not find them in its way either.
+    if command -v nginx >/dev/null 2>&1 && [ -n "$(nginx_missing)" ]; then
+        http_links_out
+    fi
     exit 0
 fi
 
@@ -785,6 +887,18 @@ unmask-plugin-nginx: no nginx command on this host, so no module was placed.
       sudo sh /usr/share/unmask/plugin/place-module.sh
   (where systemd starts nginx.service, that start places it.)
 EOF
+    exit 1
+fi
+
+# An nginx built without what unmask's configuration needs gets nothing of
+# it, on every run: the package's, the one before nginx starts, the web
+# package's check (nginx_missing, refuse_nginx).
+if [ -n "$(nginx_missing)" ]; then
+    if [ "${1:-}" = "--verify" ]; then
+        refuse_nginx quiet
+        exit 0
+    fi
+    refuse_nginx
     exit 1
 fi
 
@@ -1390,6 +1504,7 @@ if [ -e "$DEST" ]; then
         ln -sf "$PSRC" "$PLINK"
         echo "  http.inc auto-load symlinked: $PLINK -> $PSRC"
     fi
+    web_links_in "$PINCDIR"
 fi
 
 # Final gate: now that the .so + load_module + http.inc are wired, make sure the

@@ -62,8 +62,10 @@ The install guide takes you through either way, step by step: **https://unmask.s
   move it off the list.
   An nginx built from source -- by hand, or by a hosting panel that
   compiles its own, aaPanel for one -- runs the module too, when it is one
-  of those versions and built `--with-compat` (a panel: the custom
-  parameters of its nginx build).  unmask edits nothing of such an nginx:
+  of those versions and built `--with-compat` and
+  `--with-http_realip_module` (a panel: the custom parameters of its nginx
+  build; a plain `./configure` has neither, and the plugin says which one
+  is missing and places nothing).  unmask edits nothing of such an nginx:
   it keeps the module and its include files in directories of its own and
   names the two `include` lines to add to that nginx's `nginx.conf`.
   When that nginx is built again -- another version, a panel's reinstall --

@@ -61,7 +61,7 @@ new_root() {
     # --conf-path as every distribution's nginx names it: without it the
     # scripts take the nginx for a self-built one and leave /etc/nginx alone
     # (nginx-layout).
-    stub nginx "case \"\$1\" in -V) echo 'configure arguments: --conf-path=$T/etc/nginx/nginx.conf --modules-path=$T/modules' >&2 ;; esac; exit 0"
+    stub nginx "case \"\$1\" in -V) echo 'configure arguments: --conf-path=$T/etc/nginx/nginx.conf --modules-path=$T/modules --with-http_realip_module' >&2 ;; esac; exit 0"
     for c in $tools; do stub "$c"; done
     # What the scripts need from the system, and nothing else: no real
     # systemctl, chcon or semanage may be reachable from here.
@@ -249,6 +249,23 @@ new_root Permissive "" 252
 mkdir -p "$T/usr/local/sbin" && mv "$T/stub/nginx" "$T/usr/local/sbin/nginx"
 post 1; rc=$?
 check "nginx only in /usr/local/sbin: found, and asked" "0 0 1" "$rc $(grep -ci 'no nginx command on this host' "$T/out") $(called '^nginx -V' | awk '{print ($1>0)?1:0}')"
+rm -rf "$T"
+# --- an nginx built without the realip module --------------------------------
+# What this package wires reads $realip_remote_addr; that nginx would not load
+# its configuration with it included.  Nothing is wired, what an earlier run
+# wired goes, and the output says which option the nginx lacks.
+new_root Permissive "" 252
+printf 'f00dfacecafe\n' > "$T/var/lib/unmask/.setup-token"
+post 1
+check "with the realip module: the upstream and the LB gate are wired" "yes yes" "$([ -L "$T/etc/nginx/conf.d/00-unmask-upstream.conf" ] && echo yes || echo no) $([ -L "$T/etc/nginx/conf.d/zz-unmask-fa-lbtrust.conf" ] && echo yes || echo no)"
+stub nginx "case \"\$1\" in -V) echo 'configure arguments: --conf-path=$T/etc/nginx/nginx.conf --modules-path=$T/modules' >&2 ;; esac; exit 0"
+: > "$T/modules/ngx_http_unmask_module.so"
+post 2; rc=$?
+check "no realip module: the script ends well" 0 "$rc"
+check "no realip module: what was wired is taken out" "no no no" "$([ -e "$T/etc/nginx/conf.d/00-unmask-upstream.conf" ] && echo yes || echo no) $([ -e "$T/etc/nginx/conf.d/zz-unmask-fa-lbtrust.conf" ] && echo yes || echo no) $([ -e "$T/etc/nginx/conf.d/00-unmask.conf" ] && echo yes || echo no)"
+check "no realip module: it says which option the nginx lacks" 1 "$(grep -c 'built without --with-http_realip_module' "$T/out")"
+check "no realip module: nothing calls the configuration ready" 0 "$(grep -c "config rendered, 'nginx -t' OK" "$T/out")"
+check "no realip module: the banner says what [1] waits for" 1 "$(grep -c 'cannot read unmask.s files yet' "$T/out")"
 rm -rf "$T"
 # With an nginx, the banner says nothing of the kind.
 new_root Permissive "" 252

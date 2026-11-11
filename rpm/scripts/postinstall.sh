@@ -88,6 +88,26 @@ nginx_conf_path() {
 # nginx_is_packaged: 0 when that file is the one the distributions use.
 nginx_is_packaged() { [ "$(nginx_conf_path)" = "$PACKAGED_NGINX_CONF" ]; }
 
+# nginx_missing: what this nginx was built without, of what unmask's
+# configuration needs from it besides the module -- "realip", or nothing.
+# The files nginx includes read $realip_remote_addr, a variable nginx has
+# only when it was configured --with-http_realip_module.  Every
+# distribution's build is; a plain ./configure is not, and that nginx stops
+# on those files (unknown "realip_remote_addr" variable -- no file named, so
+# nothing points at unmask).  Such an nginx gets nothing of unmask to read.
+# Nothing is missing where nginx cannot be asked how it was built.
+nginx_missing() {
+    _nl_mv=$(_nl_nginx_v)
+    case "$_nl_mv" in
+        *"configure arguments:"*) ;;
+        *) return 0 ;;
+    esac
+    case "$_nl_mv" in
+        *--with-http_realip_module*) ;;
+        *) echo realip ;;
+    esac
+}
+
 # own_includes_missing: which of the two include lines the configuration of
 # a self-built nginx does not carry -- "main", "http", both (one per line) or
 # nothing.  Read from the configuration as nginx reads it, so that a line in

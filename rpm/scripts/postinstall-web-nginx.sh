@@ -83,6 +83,26 @@ nginx_conf_path() {
 # nginx_is_packaged: 0 when that file is the one the distributions use.
 nginx_is_packaged() { [ "$(nginx_conf_path)" = "$PACKAGED_NGINX_CONF" ]; }
 
+# nginx_missing: what this nginx was built without, of what unmask's
+# configuration needs from it besides the module -- "realip", or nothing.
+# The files nginx includes read $realip_remote_addr, a variable nginx has
+# only when it was configured --with-http_realip_module.  Every
+# distribution's build is; a plain ./configure is not, and that nginx stops
+# on those files (unknown "realip_remote_addr" variable -- no file named, so
+# nothing points at unmask).  Such an nginx gets nothing of unmask to read.
+# Nothing is missing where nginx cannot be asked how it was built.
+nginx_missing() {
+    _nl_mv=$(_nl_nginx_v)
+    case "$_nl_mv" in
+        *"configure arguments:"*) ;;
+        *) return 0 ;;
+    esac
+    case "$_nl_mv" in
+        *--with-http_realip_module*) ;;
+        *) echo realip ;;
+    esac
+}
+
 # own_includes_missing: which of the two include lines the configuration of
 # a self-built nginx does not carry -- "main", "http", both (one per line) or
 # nothing.  Read from the configuration as nginx reads it, so that a line in
@@ -142,6 +162,12 @@ nginx_is_packaged || SELFBUILT_NGINX=1
 HAVE_NGINX=1
 command -v nginx >/dev/null 2>&1 || HAVE_NGINX=0
 
+# NGINX_LACKS: what this nginx was built without, of what the files wired
+# below need from it (nginx_missing: the realip module).  Such an nginx would
+# not load its configuration with them included, so nothing is wired into it,
+# what an earlier run wired is taken out again, and the last lines say why.
+NGINX_LACKS=$(nginx_missing)
+
 # upstream auto-load.  Forward-auth mode's server.inc does `proxy_pass
 # http://unmask_daemon;`, so that upstream must exist in http {} scope.  Native
 # mode defines its own `upstream unmask` inside the rendered http.inc; for
@@ -199,7 +225,9 @@ UPSTREAM_LINK=$NGINX_INCDIR/00-unmask-upstream.conf
 # install whose link still points at /etc/unmask/upstream.conf to the
 # /var/lib/unmask/nginx location.  Created if absent; a real file an operator
 # dropped in (not a symlink) is left untouched.
-if [ -L "$UPSTREAM_LINK" ] || [ ! -e "$UPSTREAM_LINK" ]; then
+if [ -n "$NGINX_LACKS" ]; then
+    [ -L "$UPSTREAM_LINK" ] && rm -f "$UPSTREAM_LINK"
+elif [ -L "$UPSTREAM_LINK" ] || [ ! -e "$UPSTREAM_LINK" ]; then
     ln -sf "$UPSTREAM_SRC" "$UPSTREAM_LINK"
     echo "unmask-web-nginx: symlinked $UPSTREAM_LINK -> $UPSTREAM_SRC"
 fi
@@ -233,7 +261,9 @@ fi
 # tripped the map_hash duplicate, so drop it in both candidate include dirs.
 rm -f /etc/nginx/conf.d/00-unmask-fa-lbtrust.conf /etc/nginx/http.d/00-unmask-fa-lbtrust.conf
 FA_GATE_LINK=$NGINX_INCDIR/zz-unmask-fa-lbtrust.conf
-if [ -L "$FA_GATE_LINK" ] || [ ! -e "$FA_GATE_LINK" ]; then
+if [ -n "$NGINX_LACKS" ]; then
+    [ -L "$FA_GATE_LINK" ] && rm -f "$FA_GATE_LINK"
+elif [ -L "$FA_GATE_LINK" ] || [ ! -e "$FA_GATE_LINK" ]; then
     ln -sf "$FA_GATE_SRC" "$FA_GATE_LINK"
     echo "unmask-web-nginx: symlinked $FA_GATE_LINK -> $FA_GATE_SRC"
 fi
@@ -253,7 +283,7 @@ PLUGIN_MODPATH=$(nginx -V 2>&1 | tr " " "\n" | sed -n "s|^--modules-path=||p" | 
 # whatever modules path that nginx names.
 [ "$SELFBUILT_NGINX" = 1 ] && PLUGIN_MODPATH=$OWN_SO_DIR
 NATIVE_PLUGIN=0
-if [ -n "$PLUGIN_MODPATH" ] && [ -e "$PLUGIN_MODPATH/ngx_http_unmask_module.so" ]; then
+if [ -z "$NGINX_LACKS" ] && [ -n "$PLUGIN_MODPATH" ] && [ -e "$PLUGIN_MODPATH/ngx_http_unmask_module.so" ]; then
     NATIVE_PLUGIN=1
     RENDERED_SRC=/var/lib/unmask/nginx/http.inc
     RENDERED_LINK=$NGINX_INCDIR/00-unmask.conf
@@ -273,7 +303,7 @@ else
     rm -f /etc/nginx/conf.d/00-unmask.conf /etc/nginx/http.d/00-unmask.conf "$OWN_HTTP_DIR/00-unmask.conf"
     # Without an nginx there is no telling which of the two it will be: the
     # plugin wires http.inc itself once it has placed a module.
-    if [ "$HAVE_NGINX" = 1 ]; then
+    if [ "$HAVE_NGINX" = 1 ] && [ -z "$NGINX_LACKS" ]; then
         echo "unmask-web-nginx: native plugin not installed -> forward-auth mode (http.inc left unwired)"
     fi
 fi
@@ -418,7 +448,17 @@ if command -v nginx >/dev/null 2>&1; then
     # their own wiring, so whichever lands last leaves the correct state.  No-op
     # in forward-auth mode (no picker shipped).
     [ -f /usr/share/unmask/plugin/place-module.sh ] && sh /usr/share/unmask/plugin/place-module.sh --verify
-    if nginx -t >/dev/null 2>&1; then
+    if [ -n "$NGINX_LACKS" ]; then
+        echo "unmask-web-nginx: this nginx was built without --with-http_realip_module, which unmask's"
+        echo "  include files need (they read \$realip_remote_addr): nothing is wired into it."
+        echo "  Build nginx with that option -- every distribution's build has it."
+        if [ -f /usr/share/unmask/plugin/place-module.sh ]; then
+            echo "  unmask-plugin-nginx wires this package's files back, with its module, when"
+            echo "  nginx's service starts the new build."
+        else
+            echo "  Then install this package again."
+        fi
+    elif nginx -t >/dev/null 2>&1; then
         # Do NOT reload/restart nginx here -- touching the running web server is
         # the operator's call (predictable blast radius).  We render + validate
         # the config only; the operator applies it when they choose.
@@ -439,7 +479,7 @@ fi
 # A self-built nginx reads none of the above until its nginx.conf includes
 # unmask's directories: say which line is still missing, on every run that
 # finds one missing.
-[ "$SELFBUILT_NGINX" = 1 ] && own_includes_say unmask-web-nginx
+[ "$SELFBUILT_NGINX" = 1 ] && [ -z "$NGINX_LACKS" ] && own_includes_say unmask-web-nginx
 
 # setup wizard URL + token hint (= the main package creates .setup-token on first install).
 #
@@ -486,6 +526,11 @@ BANNER_NATIVE=$NATIVE_PLUGIN
 if [ "$HAVE_NGINX" = 0 ]; then
     [ -f /usr/share/unmask/plugin/place-module.sh ] && BANNER_NATIVE=1
     echo "  (No nginx command on this host yet: [1] is for once nginx is installed.)"
+    echo ""
+elif [ -n "$NGINX_LACKS" ]; then
+    [ -f /usr/share/unmask/plugin/place-module.sh ] && BANNER_NATIVE=1
+    echo "  (This nginx cannot read unmask's files yet, see above: [1] is for once it is"
+    echo "   built --with-http_realip_module.)"
     echo ""
 fi
 if [ "$BANNER_NATIVE" = 1 ]; then

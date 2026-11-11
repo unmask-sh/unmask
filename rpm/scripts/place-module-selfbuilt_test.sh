@@ -72,7 +72,8 @@ case "${1:-}" in
     -V) echo "nginx version: nginx/1.26.3" >&2
         echo "built with OpenSSL 1.1.1w  11 Sep 2023" >&2
         compat=""; [ "$(cat "$ROOT/compat")" = yes ] && compat=" --with-compat"
-        echo "configure arguments: --user=www --group=www --prefix=$PREFIX --with-http_ssl_module$compat" >&2
+        realip=" --with-http_realip_module"; [ -f "$ROOT/no-realip" ] && realip=""
+        echo "configure arguments: --user=www --group=www --prefix=$PREFIX --with-http_ssl_module$realip$compat" >&2
         exit 0 ;;
     -T) cat "$PREFIX/conf/nginx.conf"
         for f in "$ROOT"/site/*.conf; do [ -f "$f" ] && { echo "# configuration file $f:"; cat "$f"; }; done
@@ -432,6 +433,45 @@ mkdir -p "$T/usr/local/sbin" && mv "$T/stub/unmask-test-nginx" "$T/usr/local/sbi
 ln -sf "$T/stub/nginx" "$T/usr/local/sbin/unmask-test-nginx"
 place; rc=$?
 check "18 an nginx only in /usr/local/sbin is found and gets its module" "0 yes MODULE-1.26.3" "$rc $(out_has "an nginx built from source") $(cat "$OWN/modules/$SO" 2>/dev/null)"
+
+# --- 19. an nginx built without the realip module ---
+# unmask's http files read $realip_remote_addr, and that nginx has no such
+# variable: with them included it does not load its configuration, and its
+# error names no file of unmask's.  So it gets nothing to read -- not the
+# module, not the links in the http directory, not a directive in what a
+# server block includes -- and is told which configure option it lacks.
+rm -rf "$T"
+new_root
+mkdir -p "$T/usr/share/unmask" "$T/var/lib/unmask/nginx" "$OWN/conf.d"
+: > "$T/usr/share/unmask/nginx-reload-if-stale.sh"          # unmask-web-nginx is installed
+echo "upstream unmask_daemon { server 127.0.0.1:9477; }" > "$T/var/lib/unmask/nginx/upstream.conf"
+echo "# lb gate" > "$T/var/lib/unmask/nginx/forward-auth-lbtrust.conf"
+web_links() { echo "$(is_there "$OWN/conf.d/00-unmask-upstream.conf") $(is_there "$OWN/conf.d/zz-unmask-fa-lbtrust.conf")"; }
+place; rc=$?
+check "19 with the module, the placer puts the web package's links beside http.inc" "0 present present" "$rc $(web_links)"
+: > "$T/no-realip"
+: > "$T/calls.log"
+place; rc=$?
+check "19 an nginx without the realip module is refused" "1 yes" "$rc $(out_has "this nginx cannot read unmask's configuration -- nothing placed")"
+check "19 the option to add is named" yes "$(out_has "Add --with-http_realip_module to its configure line")"
+check "19 the module and its loader are out" "absent absent" "$(is_there "$OWN/modules/$SO") $(is_there "$OWN/modules-enabled/50-mod-unmask.conf")"
+check "19 nothing is left in the http directory" "absent absent absent" "$(is_there "$OWN/conf.d/00-unmask.conf") $(web_links)"
+check "19 the marker asks for the inert render, and says why" "inert yes inert" "$(marker) $(marker_says 'built without --with-http_realip_module') $(rendered)"
+check "19 nginx.conf is as it was, and nginx was not run for a test" "same 0" "$(conf_same "$T/nginx.conf.orig") $(grep -c '^nginx -t' "$T/calls.log")"
+# A file of the operator's under one of the names is not a link, and stays.
+echo "# the operator's own" > "$OWN/conf.d/00-unmask-upstream.conf"
+place --verify; rc=$?
+check "19 the web package's check does the same, without the report" "0 no inert" "$rc $(out_has "nothing placed") $(marker)"
+check "19 a file of that name is the operator's and stays" present "$(is_there "$OWN/conf.d/00-unmask-upstream.conf")"
+rm -f "$OWN/conf.d/00-unmask-upstream.conf"
+# Built again with the module: the ordinary run places everything back.
+rm -f "$T/no-realip"
+place; rc=$?
+check "19 built again with the realip module: placed, and the links are back" "0 MODULE-1.26.3 present present present" "$rc $(cat "$OWN/modules/$SO" 2>/dev/null) $(is_there "$OWN/conf.d/00-unmask.conf") $(web_links)"
+# Without unmask-web-nginx its links are not the placer's to make.
+rm -f "$T/usr/share/unmask/nginx-reload-if-stale.sh" "$OWN/conf.d/00-unmask-upstream.conf" "$OWN/conf.d/zz-unmask-fa-lbtrust.conf"
+place; rc=$?
+check "19 without the web package, its links are not made" "0 absent absent" "$rc $(web_links)"
 
 rm -rf "$T"
 echo "----"

@@ -195,6 +195,20 @@ check "worker group: neither says" "" "$(nginx_worker_group "$T/wg-none.conf")"
 v "configure arguments: --prefix=/x --user=$me --group=no-such-group-unmask"
 check "worker group: a group this host does not have" "" "$(nginx_worker_group "$T/wg-none.conf")"
 
+# ---- nginx_missing: what the nginx was built without ----
+# unmask's files read $realip_remote_addr; an nginx configured without the
+# realip module has no such variable and gets nothing of unmask to read.
+v 'nginx version: nginx/1.22.1
+configure arguments: --with-cc-opt=-g --prefix=/usr/share/nginx --conf-path=/etc/nginx/nginx.conf --with-compat --with-http_ssl_module --with-http_realip_module --with-http_auth_request_module'
+check "nginx_missing: a distribution's build lacks nothing" "" "$(nginx_missing)"
+v 'nginx version: nginx/1.28.3
+configure arguments: --prefix=/usr/local/nginx --with-compat --with-http_ssl_module --with-http_v2_module'
+check "nginx_missing: a plain ./configure has no realip module" "realip" "$(nginx_missing)"
+v ''
+check "nginx_missing: an nginx that answers nothing is not judged" "" "$(nginx_missing)"
+v 'sh: nginx: Permission denied'
+check "nginx_missing: nor one that cannot be asked" "" "$(nginx_missing)"
+
 echo "----"
 [ "$fails" -eq 0 ] && echo "nginx-layout_test: all passed" || echo "nginx-layout_test: $fails FAILED"
 exit "$fails"

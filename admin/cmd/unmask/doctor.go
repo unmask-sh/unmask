@@ -1553,16 +1553,18 @@ func checkNativeFailsafe(outputDir string, addErr func(t, m string)) {
 	}
 	msg += ")."
 	if nginxconf.FailsafeInert(dir) {
-		// nginx does not read http.inc either (the nginx.conf of an nginx
-		// built from source without the include lines, or with a build that
-		// came after them): server.inc and protect.inc carry no directive.
-		msg += " nginx does not read unmask's http directory, so server.inc and protect.inc are rendered INERT (no directive in them): the sites serve as they would without unmask, nothing is challenged, banned or rate-limited, and the admin UI answers on the daemon's own port only."
+		// nginx reads nothing of unmask at the http level either: the
+		// nginx.conf of an nginx built from source without the include
+		// lines, a build that came after them, or a build that cannot read
+		// unmask's files at all (no realip module), which gets none.
+		// server.inc and protect.inc carry no directive.
+		msg += " nginx reads nothing of unmask's http directory (the include line is missing, or the plugin left nothing there for a build that cannot read it), so server.inc and protect.inc are rendered INERT (no directive in them): the sites serve as they would without unmask, nothing is challenged, banned or rate-limited, and the admin UI answers on the daemon's own port only."
 	} else if degraded {
 		msg += " The configuration is rendered DEGRADED (module not loaded): nginx starts and the admin UI is reachable, but nothing is challenged, banned or rate-limited."
 	} else {
 		msg += " The rendered configuration is NOT the degraded one (the re-render under the fail-safe failed), so http.inc is left out of nginx; run `unmask render-nginx` and `nginx -t`."
 	}
-	msg += " Fix the cause (an nginx the plugin has no module for: install a plugin build that has one, or build the module for it; a config error: fix it; an nginx built from source that was built again: see the `self-built nginx` check for the include lines it needs), then run `sh /usr/share/unmask/plugin/place-module.sh` or restart nginx (systemd runs it before each start): once `nginx -t` passes with the module wired, the marker clears and the full configuration is rendered."
+	msg += " Fix the cause (an nginx the plugin has no module for: install a plugin build that has one, or build the module for it; a config error: fix it; an nginx built from source that was built again: see the `self-built nginx` check for the include lines it needs; an nginx built without --with-http_realip_module: build it with that option), then run `sh /usr/share/unmask/plugin/place-module.sh` or restart nginx (systemd runs it before each start): once `nginx -t` passes with the module wired, the marker clears and the full configuration is rendered."
 	addErr("native module disabled (fail-safe)", msg)
 }
 
