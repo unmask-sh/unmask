@@ -26,6 +26,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **An nginx linked into `/usr/local/sbin` is found by the packages.**  `apt` and `rpm` run a package's scripts with a PATH that leaves `/usr/local` out, so an nginx built by hand and linked there was reported as not installed -- while the nginx service's own start saw it and wired half of unmask. The scripts now look there too when the PATH they are given has no nginx.
 
+- (2026-11-11) **A per-site challenge save reaches nginx, and keeps the site's CAPTCHA.**  A site's own PoW difficulty is part of nginx's configuration, but saving it rendered nothing and asked for no reload: the daemon served the new difficulty while nginx checked the old one, and solves went back to the challenge. The same save also switched the site to the built-in CAPTCHA, its form having no CAPTCHA fields.
+
 ### Security
 
 - (2026-11-11) **Go 1.27.4 in the released binaries.**  The binaries of 0.1.54 to 0.1.56 were built with Go 1.27.3, whose HTTP/1 server can panic when a handler reads a body capped by `MaxBytesReader` while another goroutine sets a response header (GO-2026-6859).  unmask's handlers read such a body before they answer, so no route is known to reach it; go.mod now names Go 1.27.4, which the release and both container builds use.

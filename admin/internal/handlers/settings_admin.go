@@ -6940,12 +6940,17 @@ func (h *Handler) AdminChallengeSiteSave(w http.ResponseWriter, r *http.Request)
 		if err := applyChallengeForm(&cv, r); err != nil {
 			return err
 		}
-		// captcha provider shares the form field names with the captcha tab.
-		// Reuse the existing parser so the per-site card form behaves the same
-		// as the default form.  The theme is NOT read here: it belongs to the
-		// branding record, and picking one must not create a challenge override.
-		if err := applyCaptchaForm(&cv.CaptchaProvider, r); err != nil {
-			return err
+		// The captcha provider is read only from a form that carries its
+		// fields (the captcha tab's names).  The per-site challenge form has
+		// none: read anyway, the absent provider meant "builtin" and blank
+		// site keys, so saving a site's cookie lifetime switched that site's
+		// CAPTCHA from Turnstile (or any provider) to the built-in one.  The
+		// theme is NOT read here either: it belongs to the branding record,
+		// and picking one must not create a challenge override.
+		if _, ok := r.Form["provider"]; ok {
+			if err := applyCaptchaForm(&cv.CaptchaProvider, r); err != nil {
+				return err
+			}
 		}
 		cv.Disabled = false
 		// Same as the branding save: keep only the fields this site really
@@ -7017,6 +7022,15 @@ func (h *Handler) adminScalarSiteApply(w http.ResponseWriter, r *http.Request, t
 	// The host a successful delete was for, named by the banner on the page
 	// the delete lands on (the Default scope, where the host is not in view).
 	deleted := ""
+	// reload: the save changed what nginx's configuration should be.  A
+	// per-site PoW difficulty is rendered (http.inc's host map of
+	// $unmask_pow_difficulty, which the module verifies against), so the
+	// same RenderSignature diff as the main save decides, the files are
+	// rendered, and the banner asks for a reload.  Without it the daemon
+	// served the site's new difficulty at once while nginx kept verifying
+	// the old one -- a lower difficulty sent every solve back to the
+	// challenge, and a reload did not help, nothing having been rendered.
+	reload := false
 	redirBack := func(msg string, scopeHost string) {
 		dst := base + "/admin/settings/" + tab + "/"
 		sep := "?"
@@ -7025,12 +7039,10 @@ func (h *Handler) adminScalarSiteApply(w http.ResponseWriter, r *http.Request, t
 			sep = "&"
 		}
 		if msg == "" {
-			// Per-site branding / challenge / theme are admin-only (= never
-			// touch the rendered conf), so no &reload=1 is appended and the
-			// banner shows "applies immediately".  If a per-site setting ever
-			// reaches the conf, add the same RenderSignature diff used by the
-			// main save handler here.
 			dst += sep + "saved=1&section=" + url.QueryEscape(tab)
+			if reload {
+				dst += "&reload=1"
+			}
 			if deleted != "" {
 				dst += "&deleted=" + url.QueryEscape(deleted)
 			}
@@ -7043,9 +7055,31 @@ func (h *Handler) adminScalarSiteApply(w http.ResponseWriter, r *http.Request, t
 		redirBack("site is required", "")
 		return
 	}
-	if _, err := h.mutateSettings(func(cur *settings.Settings) error { return mutate(cur, site) }); err != nil {
+	saved, err := h.mutateSettings(func(cur *settings.Settings) error {
+		before, beforeErr := nginxconf.RenderSignature(*cur, "", h.Version)
+		if err := mutate(cur, site); err != nil {
+			return err
+		}
+		after, afterErr := nginxconf.RenderSignature(*cur, "", h.Version)
+		reload = beforeErr != nil || afterErr != nil || after != before
+		return nil
+	})
+	if err != nil {
 		redirBack(err.Error(), site)
 		return
+	}
+	if reload {
+		if err := nginxconf.RenderFor(saved, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderBySettings, Detail: tab}); err != nil {
+			// As the main save: the settings are saved, nginx keeps the old
+			// configuration until the render succeeds.  A delete still lands
+			// on the Default scope, its host having no record left.
+			scope := site
+			if backToDefault {
+				scope = ""
+			}
+			redirBack("save ok / render failed: "+err.Error(), scope)
+			return
+		}
 	}
 	// Stay on the just-saved scope even when the save dropped the entry
 	// (= operator unchecked "override on" + saved).  The redirect target is

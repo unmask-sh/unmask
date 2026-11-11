@@ -30,6 +30,10 @@ func deleteTestHandler(t *testing.T, s settings.Settings) *Handler {
 	h := newTestHandler(t)
 	cfgPath := filepath.Join(t.TempDir(), "config.yml")
 	s.Server.BasePath = "/unmask"
+	// A per-site delete that changes the rendered configuration renders it
+	// (a challenge record's PoW difficulty is in http.inc), so the files go
+	// somewhere writable.
+	s.Nginx.OutputDir = filepath.Join(t.TempDir(), "nginx")
 	if err := settings.Save(s, cfgPath); err != nil {
 		t.Fatal(err)
 	}
