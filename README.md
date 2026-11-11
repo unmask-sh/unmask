@@ -131,7 +131,10 @@ About ten minutes from a shell on the host.
 5. Protect a location: `include /var/lib/unmask/nginx/protect.inc;` inside
    its `location { }`, then `sudo nginx -t && sudo systemctl reload nginx`
    (a reload is enough from here on: only a changed module needs a
-   restart, and the admin says which).
+   restart, and the admin says which).  In a regex location, read the path
+   with a named capture (`location ~ ^/api/(?<rest>.+)$` and `$rest`):
+   nginx resets `$1`..`$9` when one of unmask's maps matches, and
+   `unmask doctor` lists the locations that read them.
 6. See it work: `curl -sS -o /dev/null -w '%{http_code}\n' https://<your-host>/<that path>`
    answers 403 (the challenge page) to a client that holds no pass and runs
    no JavaScript, a browser clears the proof-of-work and gets the page, and

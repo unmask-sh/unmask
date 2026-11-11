@@ -1498,6 +1498,8 @@ func checkNginxProtectScope(addWarn func(t, m string)) {
 			}
 		}
 	}
+	// The same dump: regex locations whose $1..$9 unmask's maps reset.
+	warnNumberedCaptures(string(out), addWarn)
 	if serverScope {
 		addWarn("nginx protect.inc scope", "protect.inc is included at server scope (not inside a location {} block). At server scope the challenge gate also catches /unmask/ machinery, which can loop human visitors (the 2026-07-02 unmask.sh self-DoS). Move `include .../protect.inc;` INSIDE the `location / {}` (or the specific locations) you want protected. The current unmask render exempts /unmask/ machinery so it still works, but location-scope is the intended placement.")
 	}

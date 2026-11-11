@@ -8,6 +8,20 @@
 #         proxy_pass http://backend;
 #     }
 #
+# In a regex location, read the path with a named capture, not $1..$9:
+#
+#     location ~ ^/api/(?<rest>.+)$ {
+#         include /var/lib/unmask/nginx/protect.inc;
+#         proxy_pass http://backend/backend/$rest;
+#     }
+#
+# nginx resets the numbered captures each time a regex key of a map matches,
+# and this file evaluates unmask's maps (the challenge gate, the rate-limit
+# keys) before the location's own directives read them; a named capture keeps
+# its value.  Included at server scope, it does the same to proxy_pass,
+# try_files and the other directives past the rewrite phase in every location
+# of the server.  `unmask doctor` lists the locations that read $1..$9.
+#
 # Enables rate-limit + forced challenge on JA4 / honeypot / protected-path hits
 # + fail-open when the admin daemon is down.
 #

@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- (2026-11-11) **`unmask doctor` names the regex locations whose `$1` unmask empties.**  nginx resets `$1`..`$9` whenever a regex key of a map matches, and protect.inc evaluates unmask's maps first: with it in `location ~ ^/api/(.+)$`, `proxy_pass http://backend/$1` lost the path while `nginx -t` passed. The doctor lists such locations from `nginx -T`, and the README and protect.inc say to use a named capture instead.
+
 ### Changed
 
 - (2026-11-11) **The rpm and deb packages no longer install nginx.**  `unmask-plugin-nginx` and `unmask-web-nginx` required `nginx`; on a host whose nginx no package installed, `dnf` and `apt` met that with the distribution's, beside the one in use. nginx is now a suggestion: install it first on a host without one. Where `dnf` brought nginx in for an earlier unmask, `sudo dnf mark install nginx` keeps `dnf autoremove` off it.
