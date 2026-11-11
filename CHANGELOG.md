@@ -64,6 +64,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **Web Bot Auth fetches each operator's key directory once an hour, whatever the request says.**  The cache of key directories was keyed by the whole agent URL a request named, so changing its query fetched the operator's directory again on every request and grew the cache without end. It is now keyed by the operator's host, which is where the directory lives, and holds a bounded number of entries.
 
+- (2026-11-11) **`unmask db-prune -mode rebuild` no longer stops the hourly statistics or loses indexes.**  A rebuild that kept no row restarted the event ids at 1, below the hourly aggregate's position, so it skipped every new event while reporting itself current. One stopped while recreating indexes left them missing for good. Ids now continue, and the next rebuild finishes the indexes first; `unmask doctor` says when some are missing.
+
 ### Security
 
 - (2026-11-11) **Go 1.27.4 in the released binaries.**  The binaries of 0.1.54 to 0.1.56 were built with Go 1.27.3, whose HTTP/1 server can panic when a handler reads a body capped by `MaxBytesReader` while another goroutine sets a response header (GO-2026-6859).  unmask's handlers read such a body before they answer, so no route is known to reach it; go.mod now names Go 1.27.4, which the release and both container builds use.

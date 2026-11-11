@@ -48,6 +48,7 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/dashboard"
 	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/handlers"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
@@ -421,6 +422,7 @@ func cmdDoctor(args []string) error {
 		checkSchema(s, conn, addOK, addWarn)
 		checkHostIDPinned(s, conn, addOK, addWarn)
 		checkEventsRetention(s, conn, addOK, addWarn)
+		checkRebuildIndexes(conn, addWarn)
 		checkWALSize(conn, addOK, addWarn)
 		checkAggregateStatus(conn, addOK, addWarn)
 		checkNamedRescue(conn, addOK, addWarn)
@@ -847,6 +849,24 @@ func checkEventsRetention(s settings.Settings, conn *db.DB, addOK, addWarn func(
 // stay small (64 MB after a checkpoint).  A large one means checkpoints are
 // not completing -- a reader holds an older snapshot -- and it is what makes
 // a stop slow and the next start slower (10.7 GB on 2026-09-08).
+// checkRebuildIndexes: indexes an interrupted `db-prune -mode rebuild` left
+// to create.  The event queries run without them -- the hunt page, the
+// aggregate, the prune -- until the next rebuild creates them first.
+func checkRebuildIndexes(conn *db.DB, addWarn func(t, m string)) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	pending, err := events.PendingRebuildIndexes(ctx, conn)
+	if err != nil || len(pending) == 0 {
+		return
+	}
+	names := make([]string, 0, len(pending))
+	for _, ix := range pending {
+		names = append(names, ix[0])
+	}
+	addWarn("events rebuild", fmt.Sprintf("an interrupted `unmask db-prune -mode rebuild` left %d index(es) of unmask_event to create (%s): the event queries run without them.  "+
+		"Stop unmask and run `unmask db-prune -mode rebuild` again; it creates them first.", len(pending), strings.Join(names, ", ")))
+}
+
 func checkWALSize(conn *db.DB, addOK, addWarn func(t, m string)) {
 	if conn.Driver != db.DriverSQLite {
 		return

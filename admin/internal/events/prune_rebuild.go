@@ -47,6 +47,14 @@ func RebuildEvents(ctx context.Context, d *db.DB, retentionDays int, progress fu
 	defer func() { res.Elapsed = time.Since(start) }()
 	cutoff := time.Now().UTC().Add(-time.Duration(retentionDays) * 24 * time.Hour)
 
+	// A rebuild stopped after its swap left indexes to create: they come
+	// first, so the table's schema read below is whole again.
+	if n, err := FinishRebuildIndexes(ctx, d, say); err != nil {
+		return res, err
+	} else if n > 0 {
+		say("created %d index(es) an interrupted rebuild had left", n)
+	}
+
 	// The table and its indexes exactly as the schema has them: the new table
 	// is created from the stored CREATE statement with only the name changed,
 	// so columns, defaults and the column comments come along.
@@ -62,14 +70,14 @@ func RebuildEvents(ctx context.Context, d *db.DB, retentionDays int, progress fu
 	if qerr != nil {
 		return res, fmt.Errorf("rebuild: read indexes: %w", qerr)
 	}
-	var indexSQL []string
+	var indexes [][2]string // name, CREATE INDEX statement
 	for rows.Next() {
 		var name, sqlText string
 		if err := rows.Scan(&name, &sqlText); err != nil {
 			rows.Close()
 			return res, err
 		}
-		indexSQL = append(indexSQL, sqlText)
+		indexes = append(indexes, [2]string{name, sqlText})
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
@@ -108,9 +116,25 @@ func RebuildEvents(ctx context.Context, d *db.DB, retentionDays int, progress fu
 	if terr != nil {
 		return res, terr
 	}
+	// The counter the old table reached, taken before the drop takes its
+	// sqlite_sequence row: the new one goes on from the higher of that and
+	// the highest id kept.  A rebuild that kept no row restarted the ids at
+	// 1, under the hourly aggregate's cursor, which then skipped every new
+	// row while it reported itself caught up.
+	var oldSeq int64
+	if err := tx.QueryRowContext(ctx, `SELECT MAX(COALESCE((SELECT MAX(seq) FROM sqlite_sequence WHERE name='unmask_event'), 0), COALESCE((SELECT MAX(id) FROM unmask_event), 0))`).Scan(&oldSeq); err != nil {
+		tx.Rollback()
+		return res, fmt.Errorf("rebuild: sequence: %w", err)
+	}
 	swap := []string{
 		`DROP TABLE unmask_event`,
 		`ALTER TABLE unmask_event_rebuild RENAME TO unmask_event`,
+		`DELETE FROM sqlite_sequence WHERE name='unmask_event'`,
+		// The indexes to create, recorded with the swap: a rebuild stopped
+		// before it created them all left the table without them for good
+		// -- the next start does not create them and the next rebuild read
+		// the table as it found it.  FinishRebuildIndexes works the list.
+		rebuildPendingCreate,
 	}
 	for _, q := range swap {
 		if _, err := tx.ExecContext(ctx, q); err != nil {
@@ -118,29 +142,98 @@ func RebuildEvents(ctx context.Context, d *db.DB, retentionDays int, progress fu
 			return res, fmt.Errorf("rebuild: swap: %w", err)
 		}
 	}
-	// A rename moves the sqlite_sequence row along; make sure the counter is
-	// at least the highest id kept either way.
-	if _, err := tx.ExecContext(ctx, `INSERT INTO sqlite_sequence(name, seq) SELECT 'unmask_event', COALESCE(MAX(id), 0) FROM unmask_event WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name='unmask_event')`); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO sqlite_sequence(name, seq) SELECT 'unmask_event', MAX(?, COALESCE((SELECT MAX(id) FROM unmask_event), 0))`, oldSeq); err != nil {
 		tx.Rollback()
 		return res, fmt.Errorf("rebuild: sequence: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE sqlite_sequence SET seq = (SELECT COALESCE(MAX(id), 0) FROM unmask_event) WHERE name='unmask_event' AND seq < (SELECT COALESCE(MAX(id), 0) FROM unmask_event)`); err != nil {
-		tx.Rollback()
-		return res, fmt.Errorf("rebuild: sequence: %w", err)
+	for _, ix := range indexes {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO `+rebuildPendingTable+`(name, sql) VALUES (?, ?)`, ix[0], ix[1]); err != nil {
+			tx.Rollback()
+			return res, fmt.Errorf("rebuild: record the indexes: %w", err)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return res, err
 	}
-	for _, q := range indexSQL {
-		t1 := time.Now()
-		if _, err := d.ExecContext(ctx, q); err != nil {
-			return res, fmt.Errorf("rebuild: index: %w (%s)", err, q)
-		}
-		res.Indexes++
-		say("index %d/%d rebuilt in %v", res.Indexes, len(indexSQL), time.Since(t1).Round(time.Millisecond))
+	n, err := FinishRebuildIndexes(ctx, d, say)
+	res.Indexes = n
+	if err != nil {
+		return res, err
 	}
 	pruneCheckpointWAL(ctx, d, res.Kept)
 	return res, nil
+}
+
+// rebuildPendingTable lists the indexes a rebuild has still to create on
+// the new unmask_event; it exists only between a rebuild's swap and its
+// last index (RebuildEvents, FinishRebuildIndexes).
+const rebuildPendingTable = "unmask_event_rebuild_indexes"
+
+const rebuildPendingCreate = `CREATE TABLE IF NOT EXISTS ` + rebuildPendingTable + ` (
+    name TEXT PRIMARY KEY,  -- the index's name, as sqlite_master had it on the old unmask_event
+    sql  TEXT NOT NULL      -- its CREATE INDEX statement, run on the new table and then deleted from here
+)`
+
+// FinishRebuildIndexes creates the indexes a rebuild recorded and has not
+// created yet, deleting each from the list once it exists, and drops the
+// list when it is empty.  It returns how many it created; 0 with no list.
+// Run by the rebuild after its swap, and first by the next one when a
+// rebuild was stopped halfway.
+func FinishRebuildIndexes(ctx context.Context, d *db.DB, say func(string, ...any)) (int, error) {
+	pending, err := PendingRebuildIndexes(ctx, d)
+	if err != nil || len(pending) == 0 {
+		return 0, err
+	}
+	created := 0
+	for i, ix := range pending {
+		var exists int
+		if err := d.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND name=?`, ix[0]).Scan(&exists); err != nil {
+			return created, err
+		}
+		if exists == 0 {
+			t1 := time.Now()
+			if _, err := d.ExecContext(ctx, ix[1]); err != nil {
+				return created, fmt.Errorf("rebuild: index: %w (%s)", err, ix[1])
+			}
+			created++
+			if say != nil {
+				say("index %d/%d rebuilt in %v", i+1, len(pending), time.Since(t1).Round(time.Millisecond))
+			}
+		}
+		if _, err := d.ExecContext(ctx, `DELETE FROM `+rebuildPendingTable+` WHERE name = ?`, ix[0]); err != nil {
+			return created, err
+		}
+	}
+	if _, err := d.ExecContext(ctx, `DROP TABLE IF EXISTS `+rebuildPendingTable); err != nil {
+		return created, err
+	}
+	return created, nil
+}
+
+// PendingRebuildIndexes: the indexes an interrupted rebuild left to create
+// (name, statement), none when no rebuild was stopped halfway.
+func PendingRebuildIndexes(ctx context.Context, d *db.DB) ([][2]string, error) {
+	if d == nil || d.Driver != db.DriverSQLite {
+		return nil, nil
+	}
+	var n int
+	if err := d.QueryRowContext(ctx, `SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?`, rebuildPendingTable).Scan(&n); err != nil || n == 0 {
+		return nil, err
+	}
+	rows, err := d.QueryContext(ctx, `SELECT name, sql FROM `+rebuildPendingTable+` ORDER BY name`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out [][2]string
+	for rows.Next() {
+		var name, sqlText string
+		if err := rows.Scan(&name, &sqlText); err != nil {
+			return nil, err
+		}
+		out = append(out, [2]string{name, sqlText})
+	}
+	return out, rows.Err()
 }
 
 // rebuildCopySQL is the copy.  NOT INDEXED pins the plan to a walk of the
