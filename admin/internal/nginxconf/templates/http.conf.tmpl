@@ -1759,14 +1759,15 @@ map "$final_challenge:$unmask_verified" $final_challenge_eff {
 # mode is rendered -- the decision above for a site the operator is not
 # watching, 0 for one they are.  The log's fc= keeps the decision without it
 # ($unmask_fc_log), so the dashboard still counts what would have fired.
-# volatile because the source
-# may be (the veto-pass detours set $unmask_verified mid-request).
+# volatile only with the veto-pass detours, which set $unmask_verified
+# mid-request; without them nothing changes the source within a request, and
+# nginx before 1.11.7 (the supported range starts at 1.10.3) refuses the word.
 {{- if or .WebBotAuthEnabled .PrivacyPassEnabled }}
 map "$final_challenge_eff:$unmask_observe" $unmask_enforce {
+    volatile;
 {{- else }}
 map "$final_challenge:$unmask_observe" $unmask_enforce {
 {{- end }}
-    volatile;
     "1:0"    1;
     default  0;
 }
