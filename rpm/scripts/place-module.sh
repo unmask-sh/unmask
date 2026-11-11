@@ -381,11 +381,21 @@ WantedBy=multi-user.target"
 # argument it also says that nginx does not read unmask's http directory: the
 # render then puts nothing into the files a server block includes.
 _pm_marker() {
-    mkdir -p "$(dirname "$FAILSAFE_MARKER")" 2>/dev/null
-    { echo "native wiring stripped by place-module fail-safe ($(date 2>/dev/null))"
-      [ -n "${1:-}" ] && echo "reason: $1"
-      [ -n "${2:-}" ] && echo "inert: nginx does not read unmask's http directory; server.inc and protect.inc carry no directive"
-    } > "$FAILSAFE_MARKER" 2>/dev/null || true
+    _pm_dir=$(dirname "$FAILSAFE_MARKER")
+    mkdir -p "$_pm_dir" 2>/dev/null
+    # Written to a new file beside it and renamed over the name: the
+    # directory is the unmask user's, and a symbolic link left at the name
+    # had this script -- root, at every nginx start -- write into its target.
+    _pm_tmp=$(mktemp "$_pm_dir/.native-failsafe.XXXXXX" 2>/dev/null) || return 0
+    if { echo "native wiring stripped by place-module fail-safe ($(date 2>/dev/null))"
+         [ -n "${1:-}" ] && echo "reason: $1"
+         [ -n "${2:-}" ] && echo "inert: nginx does not read unmask's http directory; server.inc and protect.inc carry no directive"
+         true
+       } > "$_pm_tmp" 2>/dev/null && chmod 0644 "$_pm_tmp" 2>/dev/null && mv -f "$_pm_tmp" "$FAILSAFE_MARKER" 2>/dev/null; then
+        return 0
+    fi
+    rm -f "$_pm_tmp" 2>/dev/null
+    return 0
 }
 _pm_marker_inert() { grep '^inert:' "$FAILSAFE_MARKER" >/dev/null 2>&1; }
 

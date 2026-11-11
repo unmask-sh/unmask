@@ -299,6 +299,23 @@ check "9 a relative include is passed over" "/etc/nginx/modules-enabled" \
 rm -f "$NGINX_CONF"
 check "9 no nginx.conf, none" "" "$(main_include_dir 2>&1)"
 
+# --- case 10: the fail-safe's marker is written beside it and renamed --------
+# The marker's directory is the unmask user's; a symbolic link left at its
+# name had this script -- root, at every nginx start -- write into the
+# link's target.
+FAILSAFE_MARKER="$T/fs/.native-failsafe"
+mkdir -p "$T/fs"
+printf 'keep\n' > "$T/victim"
+rm -f "$FAILSAFE_MARKER"; ln -s "$T/victim" "$FAILSAFE_MARKER"
+_pm_marker "test reason"
+check "10 the link's target is left alone" "keep" "$(cat "$T/victim")"
+check "10 the marker is a file in the link's place" "file" "$([ -f "$FAILSAFE_MARKER" ] && [ ! -L "$FAILSAFE_MARKER" ] && echo file || echo other)"
+check "10 the marker names the cause" "reason: test reason" "$(grep '^reason:' "$FAILSAFE_MARKER")"
+check "10 the marker is readable by the daemon" "644" "$(stat -c %a "$FAILSAFE_MARKER")"
+left=""
+for f in "$T/fs"/.native-failsafe.*; do [ -e "$f" ] && left="$left $f"; done
+check "10 nothing temporary is left" "" "$left"
+
 echo "----"
 [ "$fails" -eq 0 ] && echo "ALL PASS" || echo "$fails FAILED"
 exit "$fails"

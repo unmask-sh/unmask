@@ -192,15 +192,21 @@ nginx_worker_group() {
 chown -h -R unmask:unmask "$CONFIG_DIR" 2>/dev/null || true
 chmod 0755 "$CONFIG_DIR" 2>/dev/null || true
 
-if [ ! -f "$CONFIG" ]; then
-    /usr/sbin/unmask config-init -out "$CONFIG" || \
-        echo "unmask: WARNING: config-init failed (= run sudo /usr/sbin/unmask config-init -out $CONFIG manually later)"
-    chown unmask:unmask "$CONFIG" 2>/dev/null || true
+# The directory is the unmask user's (above), so config.yml there may be a
+# symbolic link that user made: root does not follow one.  chown, chmod and
+# config-init act on a link's target, so a link to a file of root's had this
+# script hand that file to unmask, or write a new config through it.
+if [ -L "$CONFIG" ]; then
+    echo "unmask: WARNING: $CONFIG is a symbolic link; it and its target are left as they are (the daemon reads it as the unmask user)"
+else
+    if [ ! -f "$CONFIG" ]; then
+        /usr/sbin/unmask config-init -out "$CONFIG" || \
+            echo "unmask: WARNING: config-init failed (= run sudo /usr/sbin/unmask config-init -out $CONFIG manually later)"
+        [ -f "$CONFIG" ] && echo "unmask: generated $CONFIG with random secrets"
+    fi
+    chown -h unmask:unmask "$CONFIG" 2>/dev/null || true
     chmod 0640 "$CONFIG" 2>/dev/null || true
-    [ -f "$CONFIG" ] && echo "unmask: generated $CONFIG with random secrets"
 fi
-chown unmask:unmask "$CONFIG" 2>/dev/null || true
-chmod 0640 "$CONFIG" 2>/dev/null || true
 
 # Setup token (= protects against a third party racing through the wizard
 # first).  Skip if a user already exists in the user table (= idempotent
@@ -222,13 +228,18 @@ TOKEN_FILE=/var/lib/unmask/.setup-token
 if [ "${1:-}" = "1" ] || { [ "${1:-}" = "configure" ] && [ -z "${2:-}" ]; } || [ -d /lib/apk ]; then
     if [ ! -f "$TOKEN_FILE" ]; then
         token=$(head -c 18 /dev/urandom | od -An -tx1 | tr -d ' \n')
-        # Write the token inside a `umask 077` subshell so the file is born
-        # 0600 -- the prior shape created it under the default umask (= 0644)
-        # and only chmod'd it on the next line, briefly exposing the secret
-        # to any local reader who raced the chmod.
-        ( umask 077; printf '%s\n' "$token" > "$TOKEN_FILE" )
-        chown unmask:unmask "$TOKEN_FILE"
-        chmod 0600 "$TOKEN_FILE"
+        # Written to a new file beside it (mktemp: 0600 from the start, so
+        # no reader races a chmod) and renamed over the name: the directory
+        # is the unmask user's, and a symbolic link left at the name had
+        # root write the token into its target.
+        if tf=$(mktemp "$(dirname "$TOKEN_FILE")/.setup-token.XXXXXX"); then
+            if printf '%s\n' "$token" > "$tf" && chown -h unmask:unmask "$tf" && mv -f "$tf" "$TOKEN_FILE"; then
+                :
+            else
+                rm -f "$tf"
+                echo "unmask: WARNING: could not write $TOKEN_FILE"
+            fi
+        fi
         # The admin listens on localhost:9477.  External access is intended
         # to go through a web server at https://host/unmask/admin/setup/.
         # That's why the user is expected to install one of the next
@@ -273,7 +284,9 @@ RENDER_DIR=/var/lib/unmask/nginx
 # The render runs as root here, so the dir + files land root-owned; the daemon
 # runs as unmask and must rewrite them (community-bans map files, web-UI
 # re-render), so hand the whole render dir to unmask.
-chown -R unmask:unmask "$RENDER_DIR" 2>/dev/null || true
+# -h: the files are the unmask user's to replace, a symbolic link included;
+# root changes the link, never its target.
+chown -h -R unmask:unmask "$RENDER_DIR" 2>/dev/null || true
 # http.inc carries unmask_bv_secret -- not world-readable (a local user could
 # otherwise read the key and forge _bv cookies).  nginx's master reads config
 # as root, so 0640 unmask:unmask is sufficient.
@@ -283,7 +296,9 @@ chown -R unmask:unmask "$RENDER_DIR" 2>/dev/null || true
 # step: a `chmod 0644 *.inc` followed by a 0640 for http.inc left the key
 # readable by every local user for the moment in between, on every upgrade.
 for f in "$RENDER_DIR"/*.inc; do
-    [ -e "$f" ] || continue
+    # chmod follows a symbolic link: one the unmask user left here would have
+    # root change the mode of its target.  The render writes plain files.
+    [ -e "$f" ] && [ ! -L "$f" ] || continue
     case "$f" in
         */http.inc) chmod 0640 "$f" 2>/dev/null || true ;;
         *)          chmod 0644 "$f" 2>/dev/null || true ;;
@@ -302,9 +317,9 @@ done
 # is 0644 (the daemon rewrites it so after every change).
 chmod 0751 /var/lib/unmask 2>/dev/null || true
 for f in /var/lib/unmask/*.sqlite /var/lib/unmask/*.sqlite-wal /var/lib/unmask/*.sqlite-shm; do
-    [ -e "$f" ] && chmod 0640 "$f" 2>/dev/null || true
+    [ -e "$f" ] && [ ! -L "$f" ] && chmod 0640 "$f" 2>/dev/null || true
 done
-[ -e "$RENDER_DIR/banned.txt" ] && chmod 0644 "$RENDER_DIR/banned.txt" 2>/dev/null || true
+[ -e "$RENDER_DIR/banned.txt" ] && [ ! -L "$RENDER_DIR/banned.txt" ] && chmod 0644 "$RENDER_DIR/banned.txt" 2>/dev/null || true
 
 # Say so when the worker still cannot read the list (a user with no account
 # here, an ACL that shuts it out, a custom path): until it can, nginx

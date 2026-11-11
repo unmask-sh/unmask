@@ -84,6 +84,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **A failed login can no longer write megabytes into the audit log.**  The login form was read up to 10 MB, and a failed attempt recorded the user name it carried, so one request could store a 3 MB name in a log kept for good. The form is now capped at 64 KB, and the audit cuts every name, action and target to its column.
 
+- (2026-11-11) **The package scripts no longer follow links the unmask user could plant.**  Running as root, the install script and the module placer (at every nginx start) changed owners and modes in, and wrote into, directories the daemon's user owns, following symbolic links: whoever took over the daemon could point one at a file of root's and have it handed over. Such links are now left alone.
+
 ## [0.1.57-rc1] - 2026-11-11 (testing build)
 
 ### Added

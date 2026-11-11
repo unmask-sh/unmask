@@ -77,7 +77,7 @@ STUB
     chmod +x "$T/bin/unmask"
     # What the script needs from the system, and nothing else: no real
     # systemctl / service may be reachable from here.
-    for c in head od tr cat mkdir cp ln rm sed grep; do
+    for c in head od tr cat mkdir cp ln rm sed grep mktemp mv dirname; do
         ln -s "$(command -v $c)" "$T/tools/$c"
     done
     sed -e "s|/usr/sbin/unmask|$T/bin/unmask|g" \
@@ -95,6 +95,8 @@ STUB
         mkdir -p "$T/etc/systemd/system/unmask.service.d"
         printf '[Service]\nFileDescriptorStoreMax=1\n' > "$T/etc/systemd/system/unmask.service.d/20-log-handover.conf"
     fi
+    # PRE_HOOK: shell to run in the throwaway root before the script does.
+    if [ -n "${PRE_HOOK:-}" ]; then eval "$PRE_HOOK"; fi
     PATH="$T/stub:$T/tools" STUB_NOTICE="$notice" STUB_SYSTEMD_VER="${STUB_SYSTEMD_VER:-}" \
         /bin/sh "$T/postinstall.sh" "$@" > "$T/out" 2>&1
 }
@@ -232,6 +234,25 @@ rm -rf "$T"
 
 run_case sysvinit 0 "$NOTICE" 2
 check "SysVinit: the notice is the last thing printed" "$NOTICE" "$(grep -v '^$' "$T/out" | tail -1)"
+rm -rf "$T"
+
+# --- root follows no symbolic link the unmask user could have left -----------
+# /etc/unmask and /var/lib/unmask are the unmask user's, so a link there is
+# one that user may have made.  The script ran chown and chmod on them (both
+# act on a link's target) and wrote the setup token through one: from a
+# compromised daemon, the next install or upgrade reached root's files.
+PRE_HOOK='printf "victim\n" > "$T/victim"; rm -f "$T/etc/unmask/config.yml"; ln -s "$T/victim" "$T/etc/unmask/config.yml"; ln -s "$T/token-victim" "$T/var/lib/unmask/.setup-token"; rm -f "$T/var/lib/unmask/nginx/http.inc"; ln -s "$T/victim" "$T/var/lib/unmask/nginx/http.inc"'
+run_case systemd 0 "" 1
+PRE_HOOK=
+check "a linked config.yml is not chowned" 0 "$(called "^chown .*$T/etc/unmask/config.yml$")"
+check "a linked config.yml is not chmodded" 0 "$(called "^chmod .*$T/etc/unmask/config.yml$")"
+check "a linked config.yml is not written through" "victim" "$(cat "$T/victim")"
+check "a linked config.yml is said" 1 "$(grep -c "config.yml is a symbolic link" "$T/out")"
+check "the setup token is not written through a link" "absent" "$([ -e "$T/token-victim" ] && echo present || echo absent)"
+check "the setup token replaces the link with a file" "file" "$([ -f "$T/var/lib/unmask/.setup-token" ] && [ ! -L "$T/var/lib/unmask/.setup-token" ] && echo file || echo other)"
+check "the setup token is the token" 1 "$(grep -cE '^[0-9a-f]{36}$' "$T/var/lib/unmask/.setup-token")"
+check "a linked http.inc is not chmodded" 0 "$(called "^chmod .*$T/var/lib/unmask/nginx/http.inc$")"
+check "the render dir is chowned without following links" 1 "$(called "^chown -h -R unmask:unmask $T/var/lib/unmask/nginx$")"
 rm -rf "$T"
 
 echo
