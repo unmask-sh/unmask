@@ -4277,10 +4277,11 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		if strings.ContainsAny(p, "\"\\\x00\r\n") {
 			return &listFieldError{Field: "ja4_extra_pat", Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_char", p)}
 		}
-		// The verdict is emitted into a quoted nginx map value, so it needs the
-		// same character reject as the pattern or a '"' would break the quote.
-		if strings.ContainsAny(v, "\"\\\x00\r\n") {
-			return &listFieldError{Field: "ja4_extra_pat", Value: p, Msg: i18n.Tf(lang, "err.rule_pattern_char", v)}
+		// The verdict is the value of nginx's $ja4_verdict map: a '"' would
+		// break the quote, and nginx reads a '$' as a variable
+		// (settings.ValidVerdictLabel).
+		if !settings.ValidVerdictLabel(v) {
+			return &listFieldError{Field: "ja4_extra_pat", Value: p, Msg: i18n.Tf(lang, "err.verdict_label", v)}
 		}
 		if err := settings.CheckRegex(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: "ja4_extra_pat", Value: p, Msg: i18n.Tf(lang, "err.verdict_regex", p, err)}

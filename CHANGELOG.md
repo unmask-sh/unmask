@@ -50,6 +50,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **A per-site rule's Site must be a host name, and a malformed one no longer applies everywhere.**  A quoted Site turned the rule into one for every host; a trailing backslash, `default` or `include` made nginx refuse the configuration. The admin now refuses such a Site, and one hand-edited into config.yml is left out with a warning.
 
+- (2026-11-11) **Marking a JA4 pattern ending in `$` as a bot from the hunt page no longer breaks the nginx configuration.**  The page named the new verdict after the pattern, `$` included, and nginx reads a `$` in that place as a variable, so it refused the configuration. Names now keep the pattern's letters and digits, and the settings page refuses a `$` in a verdict name.
+
 ### Security
 
 - (2026-11-11) **Go 1.27.4 in the released binaries.**  The binaries of 0.1.54 to 0.1.56 were built with Go 1.27.3, whose HTTP/1 server can panic when a handler reads a body capped by `MaxBytesReader` while another goroutine sets a response header (GO-2026-6859).  unmask's handlers read such a body before they answer, so no route is known to reach it; go.mod now names Go 1.27.4, which the release and both container builds use.

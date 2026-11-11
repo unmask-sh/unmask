@@ -1281,7 +1281,17 @@ func (h *Handler) appendJA4Bot(r *http.Request, pattern, title, username string,
 		return fmt.Errorf("invalid JA4 pattern regex: %w", err)
 	}
 	t := strings.NewReplacer("\n", " ", "\r", " ", "\"", "'", "\\", "/").Replace(title)
-	verdict := "hunt_" + strings.ReplaceAll(strings.ReplaceAll(pattern, "_", ""), "[", "")
+	// The name: "hunt_" and the pattern's letters and digits.  It used to
+	// keep everything but "_" and "[", so a pattern anchored with "$" gave a
+	// name nginx reads as a variable, and the configuration was refused
+	// (settings.ValidVerdictLabel).
+	var name strings.Builder
+	for _, c := range pattern {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') {
+			name.WriteRune(c)
+		}
+	}
+	verdict := "hunt_" + name.String()
 	if len(verdict) > 40 {
 		verdict = verdict[:40]
 	}

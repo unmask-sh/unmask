@@ -1599,7 +1599,7 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		// settings-tab form validates this, but the hunt "ja4_bot" path appends
 		// without it -- so re-validate at the render layer (the single
 		// chokepoint that also covers a config.yml hand-edit).
-		if strings.ContainsAny(r.Pattern, "\"\\\x00\r\n") || strings.ContainsAny(r.Verdict, "\"\\\x00\r\n") {
+		if strings.ContainsAny(r.Pattern, "\"\\\x00\r\n") || !settings.ValidVerdictLabel(r.Verdict) {
 			continue
 		}
 		action := r.Action
