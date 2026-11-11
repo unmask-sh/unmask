@@ -238,7 +238,7 @@ STUB
     # What the scripts need from the system, and nothing else: no real nginx,
     # systemctl or restorecon may be reachable from here.  `sh` is the shell
     # under test, for the scripts that start another.
-    for c in awk sed grep cat cp mv rm rmdir mkdir chmod ln readlink cmp tr head sort ls dirname basename date; do
+    for c in awk sed grep cat cp mv rm rmdir mkdir mktemp chmod ln readlink cmp tr head sort ls dirname basename date; do
         p=$(command -v "$c") && ln -s "$p" "$T/tools/$c"
     done
     ln -s "$SH" "$T/tools/sh"
