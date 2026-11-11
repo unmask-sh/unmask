@@ -76,8 +76,10 @@ func supervise(exe string, args []string, backoff time.Duration, limit int, wind
 		// nothing to signal.
 		select {
 		case sig := <-sigs:
-			logf("supervise: %s; not starting unmask serve again", sig)
-			return 0
+			if sig != syscall.SIGHUP {
+				logf("supervise: %s; not starting unmask serve again", sig)
+				return 0
+			}
 		default:
 		}
 		cmd := exec.Command(exe, args...)
@@ -95,8 +97,12 @@ func supervise(exe string, args []string, backoff time.Duration, limit int, wind
 			select {
 			case sig := <-sigs:
 				// The child gets the signal and ends in its own way; a
-				// second one is passed on too.
-				stopping = true
+				// second one is passed on too.  A hangup is passed on and
+				// is no stop: serve re-opens its files on it and goes on,
+				// and a child that died afterwards was not started again.
+				if sig != syscall.SIGHUP {
+					stopping = true
+				}
 				_ = cmd.Process.Signal(sig)
 			case err = <-done:
 				break wait
@@ -115,11 +121,26 @@ func supervise(exe string, args []string, backoff time.Duration, limit int, wind
 			return 1
 		}
 		logf("supervise: unmask serve ended with %v; starting it again in %s", err, backoff)
-		select {
-		case sig := <-sigs:
+		if sig, stopped := waitBackoff(backoff, sigs); stopped {
 			logf("supervise: %s; not starting unmask serve again", sig)
 			return 0
-		case <-time.After(backoff):
+		}
+	}
+}
+
+// waitBackoff waits out the backoff before a restart, or until a stop
+// arrives; a hangup does not stop it.
+func waitBackoff(backoff time.Duration, sigs <-chan os.Signal) (os.Signal, bool) {
+	timer := time.NewTimer(backoff)
+	defer timer.Stop()
+	for {
+		select {
+		case sig := <-sigs:
+			if sig != syscall.SIGHUP {
+				return sig, true
+			}
+		case <-timer.C:
+			return nil, false
 		}
 	}
 }
@@ -135,4 +156,15 @@ func exitStatus(err error) int {
 		return ee.ExitCode()
 	}
 	return 1
+}
+
+// notifyHangup: serve's hangups, kept from Go's default for SIGHUP, which
+// ends the process at once -- nothing flushed, the sockets left behind --
+// with a status systemd counts as clean, so Restart=on-failure did not start
+// it again: one `kill -HUP` (a logrotate postrotate, a supervisor passing a
+// hangup on) left the daemon down until someone noticed.
+func notifyHangup() chan os.Signal {
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	return hup
 }

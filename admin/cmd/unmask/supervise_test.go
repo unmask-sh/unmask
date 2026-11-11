@@ -41,6 +41,15 @@ func TestMain(m *testing.M) {
 	case "crash":
 		superviseCount()
 		os.Exit(2)
+	case "hup-then-crash":
+		// The first start dies on a hangup; the next one exits cleanly.
+		if superviseCount() == 1 {
+			sigs := make(chan os.Signal, 1)
+			signal.Notify(sigs, syscall.SIGHUP)
+			<-sigs
+			os.Exit(2)
+		}
+		os.Exit(0)
 	case "crash-twice-then-run":
 		// Dies twice, then runs until told to stop, and stops cleanly.
 		if superviseCount() <= 2 {
@@ -127,6 +136,54 @@ func TestSuperviseRestartsACrashedChildAndHandsOnTheStop(t *testing.T) {
 	}
 	if n := strings.Count(logged, "starting it again"); n != 2 {
 		t.Errorf("%d restarts logged, want 2:\n%s", n, logged)
+	}
+}
+
+// A hangup is handed on and is no stop: serve re-opens its files on one and
+// goes on, so a child that dies afterwards is started again.  The hangup
+// marked the run as stopping, and the child's next crash ended it for good.
+func TestSuperviseHandsOnAHangupWithoutStopping(t *testing.T) {
+	sigs := make(chan os.Signal, 1)
+	code, starts, logged := superviseChild(t, "hup-then-crash", superviseLimit, sigs, func(starts func() int) {
+		for i := 0; i < 200 && starts() < 1; i++ {
+			time.Sleep(50 * time.Millisecond)
+		}
+		time.Sleep(200 * time.Millisecond) // the child's signal handler is up
+		sigs <- syscall.SIGHUP
+	})
+	if code != 0 || starts != 2 {
+		t.Errorf("exit %d after %d starts, want 0 after 2; log:\n%s", code, starts, logged)
+	}
+}
+
+// A hangup during the wait before a restart neither ends the wait early nor
+// stops the supervisor.
+func TestWaitBackoffIgnoresAHangup(t *testing.T) {
+	sigs := make(chan os.Signal, 2)
+	sigs <- syscall.SIGHUP
+	start := time.Now()
+	if _, stopped := waitBackoff(150*time.Millisecond, sigs); stopped || time.Since(start) < 140*time.Millisecond {
+		t.Errorf("stopped=%v after %s", stopped, time.Since(start))
+	}
+	sigs <- syscall.SIGTERM
+	if sig, stopped := waitBackoff(time.Minute, sigs); !stopped || sig != syscall.SIGTERM {
+		t.Errorf("a SIGTERM did not stop the wait: %v %v", sig, stopped)
+	}
+}
+
+// serve keeps its hangups from Go's default, which ends the process at once
+// with a status systemd counts as clean (no restart): the signal reaches the
+// channel, and this test process is still here to see it.
+func TestServeKeepsAHangup(t *testing.T) {
+	hup := notifyHangup()
+	defer signal.Stop(hup)
+	if err := syscall.Kill(os.Getpid(), syscall.SIGHUP); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-hup:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the hangup did not reach serve's channel")
 	}
 }
 

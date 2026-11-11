@@ -293,6 +293,9 @@ func cmdServe(args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	configPath := fs.String("config", "", "path to config.yml")
 	_ = fs.Parse(args)
+	// A hangup from here on is kept for the loop below (notifyHangup).
+	hupCh := notifyHangup()
+	defer signal.Stop(hupCh)
 
 	s, err := loadSettings(*configPath)
 	if err != nil {
@@ -1003,9 +1006,19 @@ func cmdServe(args []string) error {
 		MaxHeaderBytes: 64 << 10,
 	}
 
-	// SIGINT / SIGTERM trigger graceful shutdown.  SIGHUP is no longer
-	// special-cased (= the app no longer owns a log file to reopen; the
-	// init system handles routing).
+	// SIGINT / SIGTERM trigger graceful shutdown.  SIGHUP re-opens the
+	// GeoIP files and renders from them, as the daily update does after
+	// replacing one (`unmask install-ipgeo` points here); the settings are
+	// re-read when they are saved from the admin.
+	go func() {
+		for range hupCh {
+			cur := h.SnapshotSettings()
+			log.Printf("SIGHUP: re-opening the GeoIP files (settings are re-read when saved from the admin; restart unmask after editing config.yml by hand)")
+			gip.Reload("", "")
+			gip.Reload(cur.IPGeo.MMDBPath, cur.IPGeo.MMDBASNPath)
+			renderAfterGeoUpdate(func() error { return renderNow(nginxconf.RenderCause{Kind: nginxconf.RenderByGeoIP}) }, renderOutDir())
+		}
+	}()
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	shutdownDone := make(chan struct{})

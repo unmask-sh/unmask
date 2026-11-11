@@ -9,9 +9,10 @@
 // data; this command specifically installs the IP-geolocation database.
 //
 // If a running admin daemon was using the old DB, it picks up the new file
-// on the next settings save / SIGHUP / restart.  For zero-touch reload use
-// the web UI's 1-click install button (= calls the same library function
-// and reloads in-process).
+// on SIGHUP (`systemctl kill -s HUP unmask`: it re-opens the files and
+// renders nginx's configuration from them) or a restart.  The web UI's
+// 1-click install button calls the same library function and does both
+// in-process.
 package main
 
 import (
