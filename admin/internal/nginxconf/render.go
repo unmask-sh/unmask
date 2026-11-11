@@ -129,6 +129,9 @@ func RenderFor(s settings.Settings, outDir, version string, cause RenderCause) e
 	if data.mapHashWarning != "" {
 		log.Printf("unmask: WARNING: %s", data.mapHashWarning)
 	}
+	if data.siteWarning != "" {
+		log.Printf("unmask: WARNING: %s", data.siteWarning)
+	}
 
 	// Each render* call reports whether it actually changed the file; the
 	// marker below records the moment any of them did.  Accumulated through a
@@ -1037,6 +1040,9 @@ type renderData struct {
 	// read to check.  Logged by Render only -- RenderSignature must stay
 	// side-effect free.  Unexported so the template can't reference it.
 	mapHashWarning string
+	// siteWarning: per-site rows left out of the host maps because their
+	// Site cannot key one (settings.ValidSiteHost); logged like the above.
+	siteWarning string
 }
 
 // RateZoneRender: zone values used to generate the nginx config.  KeyVar is
@@ -1672,7 +1678,10 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		if p == "" {
 			continue
 		}
-		site := trimSpaceAndQuotes(u.Site)
+		// The Site as written: one that cannot key a host map is left out
+		// with a warning (dropUnkeyableSites), never widened to every host --
+		// trimSpaceAndQuotes turned a quoted one into "" (global).
+		site := strings.TrimSpace(u.Site)
 		key := site + "|" + p
 		if hpSeen[key] {
 			continue
@@ -1754,7 +1763,10 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		if p == "" {
 			continue
 		}
-		site := trimSpaceAndQuotes(r.Site)
+		// The Site as written: one that cannot key a host map is left out
+		// with a warning (dropUnkeyableSites), never widened to every host --
+		// trimSpaceAndQuotes turned a quoted one into "" (global).
+		site := strings.TrimSpace(r.Site)
 		key := site + "|" + p
 		if i, ok := bpSeen[key]; ok {
 			bp[i].SafeOnly = false
@@ -1801,7 +1813,10 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 			if p == "" {
 				continue
 			}
-			site := trimSpaceAndQuotes(r.Site)
+			// The Site as written: one that cannot key a host map is left out
+			// with a warning (dropUnkeyableSites), never widened to every host --
+			// trimSpaceAndQuotes turned a quoted one into "" (global).
+			site := strings.TrimSpace(r.Site)
 			key := site + "|" + p
 			if seen[key] {
 				continue
@@ -2354,6 +2369,12 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// block nothing.
 	d.HardDenyActive = d.HardDenyActive || d.CommunityBansDeny
 
+	// A Site that cannot key a host map -- a quote, a backslash, a word the
+	// map reserves -- broke nginx's configuration (settings.ValidSiteHost).
+	// The admin refuses one; a hand-edited config.yml can still carry it,
+	// and its rows are left out here rather than in nginx's hands.
+	d.siteWarning = dropUnkeyableSites(&d)
+
 	// Without the community-bans maps the bucket still matters: a host name
 	// or an exact path over 46 bytes in any of unmask's maps overflows nginx's
 	// default bucket and nginx refuses the whole configuration.  Size it when
@@ -2583,6 +2604,47 @@ func hostMapKeyMax(s settings.Settings) int {
 // carry under the configuration in force (communitybans.Client.MapKeyMax).
 func CommunityBansMapKeyMax(s settings.Settings) int {
 	return hostMapKeyMax(s)
+}
+
+// dropUnkeyableSites removes the per-site rows whose host cannot key a host
+// map and says which (settings.ValidSiteHost).
+func dropUnkeyableSites(d *renderData) string {
+	var bad []string
+	seen := map[string]bool{}
+	keep := func(h string) bool {
+		if settings.ValidSiteHost(h) {
+			return true
+		}
+		if !seen[h] {
+			seen[h] = true
+			bad = append(bad, fmt.Sprintf("%q", h))
+		}
+		return false
+	}
+	d.PowDifficultyHosts = filterHosts(d.PowDifficultyHosts, func(r PowDifficultyHost) string { return r.Host }, keep)
+	d.ObservePerHost = filterHosts(d.ObservePerHost, func(r ObserveHostRow) string { return r.Host }, keep)
+	d.HoneypotPatternsPerHost = filterHosts(d.HoneypotPatternsPerHost, func(r HoneypotHostMaps) string { return r.Host }, keep)
+	d.ProtectedPathsPerHost = filterHosts(d.ProtectedPathsPerHost, func(r ProtectedPathHostMaps) string { return r.Host }, keep)
+	hostOf := func(r BypassPathHostMaps) string { return r.Host }
+	d.BypassPathsPerHost = filterHosts(d.BypassPathsPerHost, hostOf, keep)
+	d.GeoExemptPathsPerHost = filterHosts(d.GeoExemptPathsPerHost, hostOf, keep)
+	d.AsnExemptPathsPerHost = filterHosts(d.AsnExemptPathsPerHost, hostOf, keep)
+	if len(bad) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("per-site rules for %s left out of nginx's configuration: a site there has to be a host name "+
+		"(letters, digits, '.', '-', '_'; not default / include / hostnames / volatile).  Fix the Site column in config.yml or the admin.",
+		strings.Join(bad, ", "))
+}
+
+func filterHosts[T any](rows []T, host func(T) string, keep func(string) bool) []T {
+	out := rows[:0]
+	for _, r := range rows {
+		if keep(host(r)) {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // longestHostKey: the longest host name rendered as a key of a per-site map.

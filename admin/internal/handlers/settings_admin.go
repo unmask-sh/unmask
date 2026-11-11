@@ -3978,6 +3978,11 @@ func applyHoneypotForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error
 		if i < len(sites) {
 			site = strings.TrimSpace(sites[i])
 		}
+		// The Site keys nginx's host maps: a host name or nothing
+		// (settings.ValidSiteHost).
+		if p != "" && site != "" && !settings.ValidSiteHost(site) {
+			return &listFieldError{Field: "honeypot_url_site", Value: site, Msg: i18n.Tf(lang, "err.site_host", site)}
+		}
 		if i < len(actions) {
 			v := strings.TrimSpace(actions[i])
 			if v != "" && v != "inherit" && settings.IsValidRateChallengeMode(v) {
@@ -4424,6 +4429,11 @@ func applyProtectedForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		if i < len(sites) {
 			site = strings.TrimSpace(sites[i])
 		}
+		// The Site keys nginx's host maps: a host name or nothing
+		// (settings.ValidSiteHost).
+		if p != "" && site != "" && !settings.ValidSiteHost(site) {
+			return &listFieldError{Field: "protected_site", Value: site, Msg: i18n.Tf(lang, "err.site_host", site)}
+		}
 		if p == "" {
 			continue
 		}
@@ -4655,6 +4665,11 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		if i < len(sites) {
 			site = strings.TrimSpace(sites[i])
 		}
+		// The Site keys nginx's host maps: a host name or nothing
+		// (settings.ValidSiteHost).
+		if p != "" && site != "" && !settings.ValidSiteHost(site) {
+			return &listFieldError{Field: "bp_site", Value: site, Msg: i18n.Tf(lang, "err.site_host", site)}
+		}
 		if p == "" {
 			continue
 		}
@@ -4722,6 +4737,11 @@ func applyExemptPathsForm(dst *[]settings.BypassPath, prefix string, r *http.Req
 		}
 		if i < len(sites) {
 			site = strings.TrimSpace(sites[i])
+		}
+		// The Site keys nginx's host maps: a host name or nothing
+		// (settings.ValidSiteHost).
+		if p != "" && site != "" && !settings.ValidSiteHost(site) {
+			return &listFieldError{Field: prefix + "_site", Value: site, Msg: i18n.Tf(lang, "err.site_host", site)}
 		}
 		if p == "" {
 			continue
@@ -5278,6 +5298,9 @@ func applyRateLimitForm(c *settings.RateLimitConfig, r *http.Request) error {
 		// that was written through the picker / datalist, and the site list
 		// supplied to .Sites already comes from the canonical observed pool.
 		site := strings.TrimSpace(r.FormValue(prefix + "site"))
+		if site != "" && !settings.ValidSiteHost(site) {
+			return fmt.Errorf("zone %s: site %q is not a host name (letters, digits, '.', '-', '_'; not default / include / hostnames / volatile)", name, site)
+		}
 		// key: per-zone counter-key kind.  Empty = inherit the install-wide
 		// key ("ip" is NOT normalised away here: at zone level it means "pin
 		// to IP even if the global key changes", which is a real choice).

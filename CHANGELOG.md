@@ -48,6 +48,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **Monitor mode no longer breaks the configuration on nginx 1.10.**  Its decision map was marked `volatile`, a word nginx learned in 1.11.7, so turning monitor mode on (a setup wizard choice) made an nginx from the supported 1.10 series refuse the configuration. The map is volatile only with Web Bot Auth or Privacy Pass, whose detours change its input mid-request.
 
+- (2026-11-11) **A per-site rule's Site must be a host name, and a malformed one no longer applies everywhere.**  A quoted Site turned the rule into one for every host; a trailing backslash, `default` or `include` made nginx refuse the configuration. The admin now refuses such a Site, and one hand-edited into config.yml is left out with a warning.
+
 ### Security
 
 - (2026-11-11) **Go 1.27.4 in the released binaries.**  The binaries of 0.1.54 to 0.1.56 were built with Go 1.27.3, whose HTTP/1 server can panic when a handler reads a body capped by `MaxBytesReader` while another goroutine sets a response header (GO-2026-6859).  unmask's handlers read such a body before they answer, so no route is known to reach it; go.mod now names Go 1.27.4, which the release and both container builds use.

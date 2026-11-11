@@ -194,7 +194,10 @@ func EffectiveProtectedPathRules(s settings.Settings) []ProtectedPathRule {
 			continue
 		}
 		p := trimPattern(r.Path)
-		site := trimSpaceAndQuotes(r.Site)
+		// The Site as written: one that cannot key a host map is left out
+		// with a warning (dropUnkeyableSites), never widened to every host --
+		// trimSpaceAndQuotes turned a quoted one into "" (global).
+		site := strings.TrimSpace(r.Site)
 		key := site + "|" + p
 		if p == "" || ppSeen[key] {
 			continue
