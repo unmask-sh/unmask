@@ -9,7 +9,7 @@
 # files with nothing in them, and the new build loads whatever nginx.conf it
 # is given.  nginx itself is not touched.  The module for the new build is
 # placed by the ordinary run of the same script, before nginx's service
-# starts (nginx.service.d/10-unmask-repick.conf).
+# starts (unmask-place-module.service, which nginx.service wants).
 [Unit]
 Description=unmask: an nginx built from source changed -- take the module out until it is placed for the new build
 

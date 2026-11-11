@@ -84,17 +84,24 @@ scripts:
 # output (= dist/multi-modules/<X.Y.Z>/ngx_http_unmask_module.so), appends the
 # .so entries after these, then invokes nfpm pkg.
 contents:
-  # On-disk module placer, shared by the postinstall scriptlet and the
-  # nginx.service ExecStartPre drop-in (= the host-nginx-upgrade re-pick).
+  # On-disk module placer, shared by the postinstall scriptlet and the unit
+  # nginx.service starts before itself (= the host-nginx-upgrade re-pick).
   - src: ./scripts/place-module.sh
     dst: /usr/share/unmask/plugin/place-module.sh
     file_info:
       mode: 0755
-  # nginx.service drop-in: re-pick the module for the running nginx version
-  # before nginx starts, so a host nginx upgrade can't orphan the .so and kill
-  # nginx.  Non-fatal ExecStartPre; degrades to module-off if no .so matches.
+  # nginx.service drop-in and the unit it wants: re-pick the module for the
+  # host's nginx version before nginx starts, so a host nginx upgrade can't
+  # orphan the .so and kill nginx.  A unit ordered before nginx.service, not
+  # an ExecStartPre of it -- that would come after the distribution unit's own
+  # `nginx -t`, which the orphaned .so fails.  Never fatal to nginx's start;
+  # degrades to module-off if no .so matches.
   - src: ./nginx-unmask-repick.conf
     dst: /usr/lib/systemd/system/nginx.service.d/10-unmask-repick.conf
+    file_info:
+      mode: 0644
+  - src: ./unmask-place-module.service
+    dst: /usr/lib/systemd/system/unmask-place-module.service
     file_info:
       mode: 0644
   # What the watch on a self-built nginx's binary starts (the watch itself,

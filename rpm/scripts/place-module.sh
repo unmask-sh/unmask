@@ -1,8 +1,9 @@
 #!/bin/sh
 # place-module.sh -- pick + place the unmask nginx native module for the host
 # nginx.  Shipped on-disk at /usr/share/unmask/plugin/place-module.sh and run by
-# BOTH the unmask-plugin-nginx postinstall AND the nginx.service ExecStartPre
-# drop-in (10-unmask-repick.conf).  Running it before every nginx start is what
+# BOTH the unmask-plugin-nginx postinstall AND unmask-place-module.service,
+# which nginx.service wants and starts after (the drop-in
+# 10-unmask-repick.conf).  Running it before every nginx start is what
 # closes the host-nginx-upgrade .so orphan: when the host upgrades nginx, the
 # matching bundled .so is re-picked -- or, if none matches the new version, the
 # wiring is fail-safe-stripped (disable_unmask_module) so nginx still starts
@@ -11,10 +12,11 @@
 # returns (placed now, or already there unchanged) and 1 when none is: no
 # nginx to place one for, an nginx that cannot read unmask's configuration
 # (nginx_missing), no bundled module for its version, a modules path that
-# cannot be written, musl without gcompat.  The systemd drop-in prefixes
-# the call with '-', so that 1 never blocks an nginx start; it is for the
-# plugin postinstall, which then says that nothing was placed instead of
-# "module placed", and for whoever reads the journal.  `--verify` exits 0.
+# cannot be written, musl without gcompat.  The systemd unit prefixes the
+# call with '-' and nginx.service only wants that unit, so that 1 never
+# blocks an nginx start; it is for the plugin postinstall, which then says
+# that nothing was placed instead of "module placed", and for whoever reads
+# the journal.  `--verify` exits 0.
 #
 # Only systemd hosts get the automatic per-start re-pick (via the drop-in).
 # Non-systemd hosts (Alpine OpenRC -- which ships no nginx service at all -- and

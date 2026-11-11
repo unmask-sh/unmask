@@ -1,0 +1,28 @@
+# Shipped by unmask-plugin-nginx.  Started by nginx.service through the
+# drop-in nginx.service.d/10-unmask-repick.conf (Wants= and After=), so it
+# has run to its end before anything of nginx.service does.
+#
+# It picks the module for the nginx on the host (place-module.sh): after the
+# host's nginx was upgraded, the module built for the new version -- or none,
+# and the configuration rendered without it, where the plugin bundles none.
+#
+# A unit of its own and not an ExecStartPre= of nginx.service: a drop-in's
+# ExecStartPre= runs after the unit's own, and the nginx units of Debian,
+# Ubuntu and the RHEL family test the configuration there (nginx -t).  With
+# a module left from the version before, that test fails and nginx is not
+# started at all -- the placer, next in line, never ran.
+#
+# A oneshot without RemainAfterExit=: over when the script ends, so every
+# start of nginx runs it again.  The '-' keeps a host the script leaves
+# without a module (no build for this nginx version, an nginx that does not
+# take it) from carrying a failed unit; nginx starts either way, it wants
+# this unit and does not require it.  The timeout is for a script that
+# hangs: nginx then starts without waiting any longer.
+[Unit]
+Description=unmask: the nginx module for the nginx about to start
+Documentation=https://github.com/unmask-sh/unmask
+
+[Service]
+Type=oneshot
+ExecStart=-/bin/sh /usr/share/unmask/plugin/place-module.sh
+TimeoutStartSec=120
