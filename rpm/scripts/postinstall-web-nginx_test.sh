@@ -215,6 +215,40 @@ check "module: the protect line is the native one" 1 "$(grep -c "include $T/var/
 check "module: no line calls forward-auth recommended" 0 "$(grep -c 'Recommended.*forward-auth' "$T/out")"
 rm -rf "$T"
 
+# --- a host without nginx ----------------------------------------------------
+# The rpm and deb packages install none, so the script meets this state: it
+# wires where a packaged nginx reads, says so, and claims nothing about a
+# module it has no nginx to look in for.
+new_root Permissive "" 252
+rm -f "$T/stub/nginx"
+printf 'f00dfacecafe\n' > "$T/var/lib/unmask/.setup-token"
+post 1; rc=$?
+check "no nginx: the script ends well" 0 "$rc"
+check "no nginx: it says so" 1 "$(grep -c 'unmask-web-nginx: no nginx command on this host yet' "$T/out")"
+check "no nginx: the upstream is wired where a packaged nginx reads it" "$T/var/lib/unmask/nginx/upstream.conf" "$(readlink "$T/etc/nginx/conf.d/00-unmask-upstream.conf" 2>/dev/null)"
+check "no nginx: http.inc is left unwired (nothing loads the module yet)" no "$([ -e "$T/etc/nginx/conf.d/00-unmask.conf" ] && echo yes || echo no)"
+check "no nginx: nothing is said about forward-auth mode" 0 "$(grep -c 'forward-auth mode (http.inc left unwired)' "$T/out")"
+check "no nginx: the banner says what [1] waits for" 1 "$(grep -c 'No nginx command on this host yet' "$T/out")"
+check "no nginx, no plugin: [1] is the native module" 1 "$(grep -c '\[1\] Recommended — the native nginx module' "$T/out")"
+rm -rf "$T"
+# With unmask-plugin-nginx installed (its placer is there) the module follows
+# the nginx, so the native include is the one the banner names.
+new_root Permissive "" 252
+rm -f "$T/stub/nginx"
+printf 'f00dfacecafe\n' > "$T/var/lib/unmask/.setup-token"
+mkdir -p "$T/usr/share/unmask/plugin" && : > "$T/usr/share/unmask/plugin/place-module.sh"
+post 1; rc=$?
+check "no nginx, plugin installed: the script ends well" 0 "$rc"
+check "no nginx, plugin installed: [1] adds the native include" 1 "$(grep -c '\[1\] Recommended — add 1 line' "$T/out")"
+check "no nginx, plugin installed: the protect line is the native one" 1 "$(grep -c "include $T/var/lib/unmask/nginx/protect.inc;  # fires" "$T/out")"
+rm -rf "$T"
+# With an nginx, the banner says nothing of the kind.
+new_root Permissive "" 252
+printf 'f00dfacecafe\n' > "$T/var/lib/unmask/.setup-token"
+post 1
+check "with an nginx: no word about a missing one" 0 "$(grep -ci 'no nginx command on this host' "$T/out")"
+rm -rf "$T"
+
 echo
 if [ "$fails" -gt 0 ]; then
     echo "postinstall-web-nginx_test: $fails FAILED"

@@ -768,12 +768,15 @@ if ! command -v nginx >/dev/null 2>&1; then
         go_inert "nginx is not installed (an nginx built from source was removed)"
         go_inert_say $?
     fi
+    # The packages install no nginx (rpm and deb name it as a suggestion):
+    # the module goes into the one the host runs, whichever that is.
     cat <<EOF
-unmask-plugin-nginx: nginx is not installed, so skipped placing the module.
-  Install nginx and then re-place by one of:
-    1. dnf reinstall unmask-plugin-nginx
-    2. Copy /usr/share/unmask/plugin/openssl{11,3}/ngx_http_unmask_module-<version>.so by hand to
-       \$(nginx -V 2>&1 | tr ' ' '\n' | grep modules-path)
+unmask-plugin-nginx: no nginx command on this host, so no module was placed.
+  unmask installs none -- the module goes into the nginx the host runs: the
+  distribution's package, nginx.org's, or one built from source --with-compat.
+  Once it is there, place the module:
+      sudo sh /usr/share/unmask/plugin/place-module.sh
+  (where systemd starts nginx.service, that start places it.)
 EOF
     exit 1
 fi

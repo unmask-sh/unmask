@@ -70,9 +70,10 @@ The install guide takes you through either way, step by step: **https://unmask.s
   unmask takes its module out the moment the binary changes, so that the
   new build starts with whatever `nginx.conf` it is given, and puts it back
   when nginx's service starts with the two lines in place.
-  Install `unmask-nginx-external` first there -- it tells the package
-  manager that the host has an nginx no package installed, so that the
-  plugin does not bring in the distribution's beside it.
+  The rpm and deb packages install no nginx of their own, so none is
+  brought in beside a self-built one; where the host has no nginx yet,
+  install it first.  (apk knows no optional dependency: on Alpine the
+  plugin brings Alpine's nginx with it.)
 - **OS**: RHEL / Rocky / AlmaLinux, Debian, Ubuntu and Alpine, on x86_64
   and arm64; the packages are installed on ten distributions before a
   release.  On Alpine 3.22 and older, Alpine's own nginx package is built
@@ -116,7 +117,9 @@ About ten minutes from a shell on the host.
 2. `sudo dnf install unmask unmask-plugin-nginx unmask-web-nginx`
    (`apt install` / `apk add`, same names): the daemon with the admin UI, the
    nginx module, and the nginx snippets.  The plugin's postinstall places the
-   `load_module` line, or says where to add it.
+   `load_module` line, or says where to add it.  nginx is on the host
+   before this step: `dnf` and `apt` install none with these packages (the
+   install guide has the line for each distribution).
 3. Add `include /var/lib/unmask/nginx/server.inc;` to the `server { }` block
    of the site, then `sudo nginx -t && sudo systemctl restart nginx`: a
    restart, not a reload, because nginx loads a module only when it starts

@@ -24,6 +24,10 @@ description: |
 
 depends:
   - unmask
+
+# nginx is named, not required (rpm and deb): these packages never install
+# an nginx.  The reasons are in plugin-nginx-fat-body.yaml.in.
+suggests:
   - nginx
 
 contents:
@@ -94,13 +98,12 @@ overrides:
   rpm:
     depends:
       - "unmask = ${UNMASK_VERSION}"
-      - nginx
   deb:
     depends:
       - "unmask (= ${UNMASK_VERSION}-${UNMASK_RELEASE})"
-      - nginx
-  # apk: also re-run the idempotent postinstall on `apk upgrade` (no maintainer
-  # script runs otherwise) so symlinks/maphash are re-applied.
+  # apk requires nginx (it has nothing weaker), and also re-runs the
+  # idempotent postinstall on `apk upgrade` (no maintainer script runs
+  # otherwise) so symlinks/maphash are re-applied.
   apk:
     depends:
       - "unmask=${UNMASK_APK_PKGVER}"

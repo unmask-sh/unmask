@@ -347,7 +347,7 @@ check "11 the watch's run takes unmask out" "0 inert absent absent" "$rc $(marke
 check "11 the marker says the binary is gone" yes "$(marker_says 'the nginx binary is gone')"
 check "11 rendered inert, and no nginx was run" "inert 0" "$(rendered) $(grep -c '^nginx ' "$T/calls.log")"
 place; rc=$?
-check "11 the ordinary run without an nginx says so, and unmask stays out" "1 yes inert" "$rc $(out_has 'nginx is not installed') $(marker)"
+check "11 the ordinary run without an nginx says so, and unmask stays out" "1 yes inert" "$rc $(out_has 'no nginx command on this host') $(marker)"
 ln -s nginx "$T/stub/unmask-test-nginx"
 
 # --- 12. the http include after the sites ---
@@ -407,6 +407,19 @@ place; rc=$?
 check "16 the placer succeeds" 0 "$rc"
 check "16 no watch is written, and systemd is not asked" "absent " "$(is_there "$T/$WATCH_REL") $(systemctls)"
 check "16 it says to run the placer before the rebuilt nginx starts" yes "$(out_has "BEFORE it is started")"
+
+# --- 17. no nginx on the host, and nothing wired ---
+# The rpm and deb packages install no nginx, so the placer meets a host
+# without one: it says so, says how the module gets placed once there is
+# one, and writes nothing.
+rm -rf "$T"
+new_root
+rm -f "$T/stub/unmask-test-nginx"
+: > "$T/calls.log"
+place; rc=$?
+check "17 without an nginx the placer says so and places nothing" "1 yes" "$rc $(out_has 'no nginx command on this host, so no module was placed')"
+check "17 it names the run that places the module later" yes "$(out_has "sudo sh $T/usr/share/unmask/plugin/place-module.sh")"
+check "17 nothing is written: no marker, no render, no watch, no module" "none 0 absent absent" "$(marker) $(renders) $(is_there "$T/$WATCH_REL") $(is_there "$OWN/modules/$SO")"
 
 rm -rf "$T"
 echo "----"

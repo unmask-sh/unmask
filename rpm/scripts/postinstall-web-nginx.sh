@@ -130,6 +130,12 @@ own_includes_say() {
 SELFBUILT_NGINX=0
 nginx_is_packaged || SELFBUILT_NGINX=1
 
+# HAVE_NGINX=0: no nginx on the host.  The packages install none (rpm and deb
+# name it as a suggestion), so this is a state to meet: the snippets are
+# wired where a packaged nginx reads them, and the last lines say so.
+HAVE_NGINX=1
+command -v nginx >/dev/null 2>&1 || HAVE_NGINX=0
+
 # upstream auto-load.  Forward-auth mode's server.inc does `proxy_pass
 # http://unmask_daemon;`, so that upstream must exist in http {} scope.  Native
 # mode defines its own `upstream unmask` inside the rendered http.inc; for
@@ -259,7 +265,11 @@ else
     # forward-auth mode (no native plugin): http.inc would fail nginx -t, so
     # leave it unwired and clear any stale symlink from a prior native install.
     rm -f /etc/nginx/conf.d/00-unmask.conf /etc/nginx/http.d/00-unmask.conf "$OWN_HTTP_DIR/00-unmask.conf"
-    echo "unmask-web-nginx: native plugin not installed -> forward-auth mode (http.inc left unwired)"
+    # Without an nginx there is no telling which of the two it will be: the
+    # plugin wires http.inc itself once it has placed a module.
+    if [ "$HAVE_NGINX" = 1 ]; then
+        echo "unmask-web-nginx: native plugin not installed -> forward-auth mode (http.inc left unwired)"
+    fi
 fi
 
 # map_hash sizing for the community-bans maps is no longer injected into
@@ -415,7 +425,9 @@ if command -v nginx >/dev/null 2>&1; then
         echo "  → run 'sudo nginx -t' to see the error, fix, then 'sudo nginx -s reload'."
     fi
 else
-    echo "unmask-web-nginx: nginx binary not found — install nginx first, then 'nginx -s reload'."
+    echo "unmask-web-nginx: no nginx command on this host yet (unmask installs none)."
+    echo "  The snippets are wired for a packaged nginx, under $NGINX_INCDIR.  If the nginx"
+    echo "  you install is one built from source, install this package again afterwards."
 fi
 
 # A self-built nginx reads none of the above until its nginx.conf includes
@@ -460,7 +472,17 @@ echo ""
 # banner used to name the forward-auth include as "[1] Recommended" on every
 # host, plugin or not, and an operator who followed it wired the frozen path
 # -- no JA4, fixes only -- on an install that had the module.
-if [ "$NATIVE_PLUGIN" = 1 ]; then
+#
+# With no nginx on the host there is no module to find yet.  The banner then
+# goes by the plugin package: where it is installed the module follows the
+# nginx, and the native include is the one to name.
+BANNER_NATIVE=$NATIVE_PLUGIN
+if [ "$HAVE_NGINX" = 0 ]; then
+    [ -f /usr/share/unmask/plugin/place-module.sh ] && BANNER_NATIVE=1
+    echo "  (No nginx command on this host yet: [1] is for once nginx is installed.)"
+    echo ""
+fi
+if [ "$BANNER_NATIVE" = 1 ]; then
     echo "  [1] Recommended — add 1 line to your existing nginx vhost"
     if [ "$SELFBUILT_NGINX" = 1 ]; then
         echo "        Edit the server { } block of your site and add:"
@@ -503,7 +525,7 @@ echo "        open:  http://localhost:9477/unmask/admin/setup/"
 echo ""
 echo "  After setup, add protection to your location { } block:"
 echo "        include $PROTECT_INC;  # fires the bot challenge"
-if [ "$NATIVE_PLUGIN" = 1 ]; then
+if [ "$BANNER_NATIVE" = 1 ]; then
     echo "        (forward-auth: /etc/unmask/forward-auth/protect.inc)"
 fi
 echo ""

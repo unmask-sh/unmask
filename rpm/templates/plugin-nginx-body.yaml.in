@@ -23,9 +23,12 @@ description: |
 
 depends:
   - unmask
-  # nginx is required at install time so postinstall can detect the host
-  # version and place the .so into nginx's --modules-path.  See the
-  # equivalent comment in plugin-nginx-fat-body.yaml.in.
+
+# nginx is named, not required (rpm and deb): these packages never install
+# an nginx.  The reasons are in plugin-nginx-fat-body.yaml.in.  This variant
+# is built for one nginx version, and its preinstall refuses a host whose
+# nginx is another, or has none.
+suggests:
   - nginx
 
 contents:
@@ -59,8 +62,7 @@ contents:
 overrides:
   # Pin unmask to the EXACT build version per packager (rpm `=`, deb `(= )`,
   # apk `=`): the .so and the daemon share the _bv / JA4 contract, so a mixed
-  # upgrade must be impossible.  nfpm overrides REPLACE the top-level depends,
-  # so each lists nginx too.
+  # upgrade must be impossible.  nfpm overrides REPLACE the top-level depends.
   #
   # deb and apk need the RELEASE as well, rpm does not.  rpm's `=` with no
   # release given matches any release; dpkg and apk compare the whole version
@@ -70,13 +72,12 @@ overrides:
   rpm:
     depends:
       - "unmask = ${UNMASK_VERSION}"
-      - nginx
   deb:
     depends:
       - "unmask (= ${UNMASK_VERSION}-${UNMASK_RELEASE})"
-      - nginx
-  # apk: also re-run the idempotent postinstall on `apk upgrade` (no maintainer
-  # script runs otherwise) so the new .so is re-placed.
+  # apk requires nginx (it has nothing weaker), and also re-runs the
+  # idempotent postinstall on `apk upgrade` (no maintainer script runs
+  # otherwise) so the new .so is re-placed.
   apk:
     depends:
       - "unmask=${UNMASK_APK_PKGVER}"
