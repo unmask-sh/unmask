@@ -183,7 +183,7 @@ func TestNotificationsSaveFlagsDroppedPassword(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/save?section=notifications", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr := httptest.NewRecorder()
-	h.AdminSettingsSave(rr, req)
+	h.AdminSettingsSave(rr, asRole(req, "superadmin"))
 	loc := rr.Header().Get("Location")
 	if rr.Code != http.StatusFound || !strings.Contains(loc, "credential_cleared=smtp_password") {
 		t.Fatalf("save: want a 302 flagged credential_cleared=smtp_password, got %d -> %s", rr.Code, loc)
@@ -210,7 +210,7 @@ func TestNotificationsSaveFlagsDroppedPassword(t *testing.T) {
 	req = httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/save?section=notifications", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr = httptest.NewRecorder()
-	h.AdminSettingsSave(rr, req)
+	h.AdminSettingsSave(rr, asRole(req, "superadmin"))
 	if loc := rr.Header().Get("Location"); strings.Contains(loc, "credential_cleared") {
 		t.Errorf("a port change flagged the password as dropped: %s", loc)
 	}

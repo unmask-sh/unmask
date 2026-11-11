@@ -1941,6 +1941,17 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		case "notifications":
 			// One tab, one form: the channel fields and the SMTP-server card
 			// submit together.  There is no separate smtp section.
+			//
+			// The relay carries every account's password-reset link, a
+			// superadmin's among them: an admin who pointed it at a server of
+			// their own could read that link and take the account.  Only a
+			// superadmin changes where the mail goes (smtpRelayChange); the
+			// sender fields and the channels stay open to an admin.
+			if !isSuperadmin(r) && smtpRelayChange(cur.SMTP, r) {
+				if sectionErr("notifications", nil, errors.New(i18n.T(lang, "err.smtp_superadmin"))) {
+					return errSettingsAnswered
+				}
+			}
 			applyNotificationsForm(&cur.Notifications, r)
 			if applySMTPForm(&cur.SMTP, r) {
 				credentialCleared = "smtp_password"
@@ -6091,6 +6102,22 @@ func applySMTPForm(c *settings.SMTP, r *http.Request) (passwordCleared bool) {
 	c.StartTLS = r.FormValue("starttls") == "1"
 	c.InsecureSkipVerify = r.FormValue("insecure_skip_verify") == "1"
 	return passwordCleared
+}
+
+// smtpRelayChange: whether the posted SMTP card changes where mail goes --
+// the relay's host, port, account, password or TLS checks -- against the
+// saved card, read the way applySMTPForm reads it.
+func smtpRelayChange(saved settings.SMTP, r *http.Request) bool {
+	next := saved
+	applySMTPForm(&next, r)
+	port := func(p int) int {
+		if p == 0 {
+			return 587
+		}
+		return p
+	}
+	return !strings.EqualFold(next.Host, saved.Host) || port(next.Port) != port(saved.Port) || next.Username != saved.Username ||
+		next.Password != saved.Password || next.StartTLS != saved.StartTLS || next.InsecureSkipVerify != saved.InsecureSkipVerify
 }
 
 // smtpSameServer reports whether host / port / username name the saved SMTP

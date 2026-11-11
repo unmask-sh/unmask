@@ -97,6 +97,10 @@ h1{font-size:1.5rem;margin:0 0 .2rem}
       <input type="email" id="email" name="email" value="{{ if .User.Email.Valid }}{{ .User.Email.String }}{{ end }}" placeholder="{{ t .Lang "users.placeholder.email" }}" autocomplete="email">
     </div>
     <div class="field">
+      <label for="email_cur">{{ t .Lang "profile.field.current" }} <span class="muted">({{ t .Lang "profile.email_password_note" }})</span></label>
+      <input type="password" id="email_cur" name="email_current_password" autocomplete="current-password">
+    </div>
+    <div class="field">
       <label class="check"><input type="checkbox" name="alert_opt_out" value="1" {{ if .User.AlertOptOut }}checked{{ end }}> {{ t .Lang "profile.alert_opt_out_label" }}</label>
       {{ if .MailToActive }}
       {{/* mail_to routes alerts past the admin users, so this toggle has no

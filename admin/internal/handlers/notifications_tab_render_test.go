@@ -142,7 +142,7 @@ func TestNotificationsSaveCarriesBothCards(t *testing.T) {
 		strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr := httptest.NewRecorder()
-	h.AdminSettingsSave(rr, req)
+	h.AdminSettingsSave(rr, asRole(req, "superadmin")) // the SMTP card: a superadmin's
 	if rr.Code != http.StatusFound {
 		t.Fatalf("save: want 302, got %d body=%s", rr.Code, rr.Body.String())
 	}

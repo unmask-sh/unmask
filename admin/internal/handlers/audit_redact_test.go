@@ -75,6 +75,13 @@ func asAdmin(r *http.Request, id int64) *http.Request {
 		&SessionPayload{UserID: id, Role: "admin", Exp: time.Now().Add(time.Hour).Unix()}))
 }
 
+// asSuperadmin: as asAdmin, for what only a superadmin may change (the
+// mail relay).
+func asSuperadmin(r *http.Request, id int64) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), sessionCtxKey{},
+		&SessionPayload{UserID: id, Role: "superadmin", Exp: time.Now().Add(time.Hour).Unix()}))
+}
+
 // latestAudit returns the newest audit row with the action, parsed.
 func latestAudit(t *testing.T, h *Handler, action string) (*user.AuditEntry, AuditSettingsDetail) {
 	t.Helper()
@@ -116,7 +123,7 @@ func TestSettingsSaveAuditRowCarriesNoSecrets(t *testing.T) {
 		"password": {"LEAK-smtp-new"}, "starttls": {"1"},
 		"url": {"https://hooks.example/services/LEAK-hook-new"}, "format": {"slack"},
 	}
-	req := asAdmin(httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/save?section=notifications",
+	req := asSuperadmin(httptest.NewRequest(http.MethodPost, "/unmask/admin/settings/save?section=notifications",
 		strings.NewReader(form.Encode())), uid)
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	rr := httptest.NewRecorder()

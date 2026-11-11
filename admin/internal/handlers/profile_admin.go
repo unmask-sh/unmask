@@ -106,6 +106,24 @@ func (h *Handler) AdminProfileSave(w http.ResponseWriter, r *http.Request) {
 	case "profile":
 		email := strings.TrimSpace(r.FormValue("email"))
 		alertOptOut := r.FormValue("alert_opt_out") == "1"
+		// The address is where a password reset goes: changing it takes the
+		// current password, as changing the password does.  With the
+		// session alone, whoever held it could move the reset to an
+		// address of their own and set the password from there.
+		curEmail := ""
+		if me.Email.Valid {
+			curEmail = me.Email.String
+		}
+		if !strings.EqualFold(email, strings.TrimSpace(curEmail)) {
+			if err := user.CheckPassword(me.PasswordHash, r.FormValue("email_current_password")); err != nil {
+				if errors.Is(err, user.ErrBusy) {
+					passwordCheckBusy(w)
+					return
+				}
+				redir("profile.err.email_current")
+				return
+			}
+		}
 		if err := h.UserRepo.SetProfile(r.Context(), me.ID, email, alertOptOut); err != nil {
 			log.Printf("profile: set profile for user %d: %v", me.ID, err)
 			http.Error(w, "the profile could not be saved", http.StatusInternalServerError)

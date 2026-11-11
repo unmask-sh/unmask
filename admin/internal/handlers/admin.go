@@ -726,6 +726,12 @@ func (h *Handler) RequireRole(min string, next http.HandlerFunc) http.HandlerFun
 	}
 }
 
+// isSuperadmin: the request's session is a superadmin's.
+func isSuperadmin(r *http.Request) bool {
+	pay := SessionFromContext(r)
+	return pay != nil && roleAtLeast(pay.Role, user.RoleSuperadmin)
+}
+
 // roleAtLeast reports whether role >= min.  superadmin > admin > viewer.
 func roleAtLeast(role, min string) bool {
 	rank := map[string]int{"viewer": 1, "admin": 2, "superadmin": 3}

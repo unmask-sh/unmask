@@ -70,6 +70,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **A Web Bot Auth or Privacy Pass header no longer skips the site's own checks.**  The verification detour counted any pass from the daemon's check as a verified credential, including the pass a proof-of-work cookie earns, so adding a junk `Signature-Input` or `PrivateToken` header skipped CAPTCHA-grade rules and the header checks. Only the daemon's answer for a verified signature or token counts now.
 
+- (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.
+
+- (2026-11-11) **Changing your email address takes your current password.**  The address on the profile page is where a password reset goes, and it changed with the session alone, so whoever held a session could move the reset to an address of their own and set the password from there. The profile now asks for the current password when the address changes; the alert switch does not.
+
 ## [0.1.57-rc1] - 2026-11-11 (testing build)
 
 ### Added
