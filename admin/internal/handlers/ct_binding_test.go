@@ -75,6 +75,54 @@ func solvePoW(t *testing.T, h *Handler, key, host string, issued int64, diff int
 	return ""
 }
 
+// solvePoWNot: a proof for (key, host, issued) that is no proof for the page
+// under test (pageKey, pageHost, pageIssued).  With an 8-bit difficulty one
+// nonce in about 256 also solves an unrelated seed, and the verifier tries a
+// seed under both hashes, so a proof meant to be refused passed now and then
+// (TestVerifyJSON_ChainOwesItsProofOfWork in a full run, 2026-11-11).
+func solvePoWNot(t *testing.T, h *Handler, key, host string, issued int64, diff int, pageKey, pageHost string, pageIssued int64) string {
+	t.Helper()
+	secret := h.cfg().Secret.BVSecret
+	seed := cookies.PowSeedH(h.sigHash(), secret, key, host, issued)
+	avoid := []string{
+		cookies.PowSeedH(cookies.SigSHA1, secret, pageKey, pageHost, pageIssued),
+		cookies.PowSeedH(cookies.SigSHA256, secret, pageKey, pageHost, pageIssued),
+	}
+	for nonce := int64(0); nonce < 1<<26; nonce++ {
+		if powZeroBits(seed, nonce) < diff {
+			continue
+		}
+		solvesPage := false
+		for _, a := range avoid {
+			if powZeroBits(a, nonce) >= diff {
+				solvesPage = true
+				break
+			}
+		}
+		if !solvesPage {
+			return strconv.FormatInt(issued, 10) + ".pow2." + strconv.FormatInt(nonce, 36) + ".0"
+		}
+	}
+	t.Fatal("no nonce found")
+	return ""
+}
+
+// powZeroBits: the leading zero bits of sha256(seed ":" nonce).
+func powZeroBits(seed string, nonce int64) int {
+	sum := sha256.Sum256([]byte(seed + ":" + strconv.FormatInt(nonce, 10)))
+	n := 0
+	for _, v := range sum {
+		if v != 0 {
+			for m := byte(0x80); m != 0 && v&m == 0; m >>= 1 {
+				n++
+			}
+			break
+		}
+		n += 8
+	}
+	return n
+}
+
 // The token is the client's: another host, or another TLS stack over the
 // same transport, is refused; the device's own fingerprint drift -- a resumed
 // session, the QUIC side -- and a deployment with no fingerprint are not.
@@ -130,12 +178,12 @@ func TestVerifyJSON_ChainOwesItsProofOfWork(t *testing.T) {
 		t.Fatalf("the chain's CAPTCHA without its proof-of-work: want 403 pow_required and no cookie, got %d %s", rr.Code, rr.Body.String())
 	}
 	// A proof of another page (another second).
-	rr = postSignal(t, h, ip, ct(settings.RateChallengePoWThenCaptcha), solvePoW(t, h, ip, host, issued-30, 8), nil)
+	rr = postSignal(t, h, ip, ct(settings.RateChallengePoWThenCaptcha), solvePoWNot(t, h, ip, host, issued-30, 8, ip, host, issued), nil)
 	if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "pow_required") {
 		t.Fatalf("a proof of another page: want 403 pow_required, got %d %s", rr.Code, rr.Body.String())
 	}
 	// A proof of another client's page.
-	rr = postSignal(t, h, ip, ct(settings.RateChallengePoWThenCaptcha), solvePoW(t, h, "198.51.100.9", host, issued, 8), nil)
+	rr = postSignal(t, h, ip, ct(settings.RateChallengePoWThenCaptcha), solvePoWNot(t, h, "198.51.100.9", host, issued, 8, ip, host, issued), nil)
 	if rr.Code != http.StatusForbidden || !strings.Contains(rr.Body.String(), "pow_required") {
 		t.Fatalf("another client's proof: want 403 pow_required, got %d %s", rr.Code, rr.Body.String())
 	}
