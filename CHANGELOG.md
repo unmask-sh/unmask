@@ -44,6 +44,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **A changed default ban action reaches nginx without waiting for the next ban.**  Bans with no action of their own follow their source's default, but changing the default did not rewrite the ban file: only a ban added or lifted did, so nginx kept the old action indefinitely on a quiet site. The file is now rewritten within a minute, and at once from the bans page.
 
+- (2026-11-11) **A rate-limit axis row with its burst left at 0 no longer breaks the nginx configuration.**  An IP, JA4 or IP+JA4 row enabled beside the main one wrote `burst=0`, which nginx refuses, so the next `nginx -t` failed. The row now takes its axis's default burst, as its rate and the main row already did.
+
 ### Security
 
 - (2026-11-11) **Go 1.27.4 in the released binaries.**  The binaries of 0.1.54 to 0.1.56 were built with Go 1.27.3, whose HTTP/1 server can panic when a handler reads a body capped by `MaxBytesReader` while another goroutine sets a response header (GO-2026-6859).  unmask's handlers read such a body before they answer, so no route is known to reach it; go.mod now names Go 1.27.4, which the release and both container builds use.

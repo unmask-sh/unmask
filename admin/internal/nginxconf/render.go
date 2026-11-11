@@ -2023,15 +2023,22 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		if rpm <= 0 {
 			rpm = settings.AxisSeedRPM(row.Kind)
 		}
+		// A burst left at 0 takes the axis's seed, as the rate does and as
+		// the primary row and the named zones take theirs: nginx refuses
+		// `burst=0` ("invalid burst value"), and this row rendered it.
+		burst := row.Burst
+		if burst <= 0 {
+			burst = settings.AxisSeedBurst(row.Kind)
+		}
 		d.RateZones = append(d.RateZones, RateZoneRender{
 			Name:           name,
 			RequestsPerMin: rpm,
-			Burst:          row.Burst,
+			Burst:          burst,
 			KeyVar:         axisKey,
 		})
 		d.RatePlainZones = append(d.RatePlainZones, RatePlainZoneRender{
 			ZoneName: name,
-			Burst:    row.Burst,
+			Burst:    burst,
 			Label:    "default-axis",
 		})
 	}
