@@ -221,6 +221,12 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 			offset = n
 		}
 	}
+	// The event queries read no deeper than huntMaxOffset and took a
+	// deeper offset for the first page; the page stops at the deepest one
+	// instead, with no link past it.
+	if offset > huntMaxOffset {
+		offset = huntMaxOffset
+	}
 
 	// Freeze the result set the moment the operator leaves page 1, and carry
 	// that id in the pager links (see events.WithHuntFreeze -- without it,
@@ -415,7 +421,7 @@ func (h *Handler) AdminHuntIndex(w http.ResponseWriter, r *http.Request) {
 	// Row count is no longer the signal: rows now includes whatever spilled in
 	// from the neighbouring pages to finish a session, so it can exceed
 	// pageSize on a full page and fall short on the last one.
-	hasMore := hasMoreRows
+	hasMore := hasMoreRows && offset+pageSize <= huntMaxOffset
 
 	// Attach country code + ban status to event rows.  The same IP appears
 	// on multiple rows, so cache per IP (= avoid duplicate lookups).
@@ -1345,6 +1351,10 @@ func huntRangeText(lang i18n.Lang, offset, gotRows, sessions int) string {
 	return i18n.Tf(lang, "pager.range_caption", offset+1, offset+gotRows)
 }
 
+// huntMaxOffset: the deepest offset the event queries read
+// (events.FetchPagedWithBleed).
+const huntMaxOffset = 100000
+
 // buildHuntPagerSeek builds a PagerSeekData for the hunt page.  The base
 // query carries range / ip / ja4 / phase plus any host=... selections so
 // pager links keep the operator's filters intact.
@@ -1361,10 +1371,20 @@ func buildHuntPagerSeek(lang i18n.Lang, rng, ipFilter, ja4Filter, uaFilter, phas
 		sb.WriteByte('&')
 	}
 	appendIfSet("range", rng)
+	if rng == "custom" {
+		appendIfSet("from", strings.TrimSpace(q.Get("from")))
+		appendIfSet("to", strings.TrimSpace(q.Get("to")))
+	}
 	appendIfSet("ip", ipFilter)
 	appendIfSet("ja4", ja4Filter)
 	appendIfSet("ua", uaFilter)
 	appendIfSet("phase", phase)
+	// The other filters the page reads ride along too: the next page used
+	// to drop them and list the whole window (a drill-down from a network
+	// row or a Ref ID lost its subject on page 2).
+	for _, k := range []string{"force_reason", "asn", "ref", "site"} {
+		appendIfSet(k, strings.TrimSpace(q.Get(k)))
+	}
 	// host can be repeated (= multi-select).
 	for _, h := range q["host"] {
 		appendIfSet("host", h)

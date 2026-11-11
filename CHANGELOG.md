@@ -54,6 +54,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **The gateway refuses a hostname with a `*` that nginx would not take.**  A `*` anywhere in a gateway hostname or domain was accepted, while nginx takes one only as the whole first or last label (`*.example.com`, `www.example.*`), so a name like `a*b.example.com` was saved and the gateway's nginx then refused its configuration.
 
+- (2026-11-11) **Paging through Bot hunt keeps every filter.**  The next and previous links dropped a custom date range, the forced-reason, network, Ref ID and site filters, so page 2 of a drill-down listed the whole window instead. A page past the deepest one the log is read to (offset 100,000) also jumped back to the first; it now stops at the deepest page.
+
 ### Security
 
 - (2026-11-11) **Go 1.27.4 in the released binaries.**  The binaries of 0.1.54 to 0.1.56 were built with Go 1.27.3, whose HTTP/1 server can panic when a handler reads a body capped by `MaxBytesReader` while another goroutine sets a response header (GO-2026-6859).  unmask's handlers read such a body before they answer, so no route is known to reach it; go.mod now names Go 1.27.4, which the release and both container builds use.
