@@ -26,7 +26,7 @@ UA_BOT='curl/8.0'
 # ---- the package family ---------------------------------------------------
 if command -v dnf >/dev/null 2>&1; then
     FAM=rpm
-    pkg_setup()   { dnf -q -y install nginx >/dev/null 2>&1; }
+    pkg_setup()   { dnf -q -y install nginx >/tmp/setup.log 2>&1; }
     pkg_files()   { echo "/work/unmask-$1-1.x86_64.rpm /work/unmask-plugin-nginx-$1-1.x86_64.rpm /work/unmask-web-nginx-$1-1.x86_64.rpm"; }
     pkg_install() { dnf -q -y install $(pkg_files "$1"); }
     # Not -q: dnf then drops what the scriptlets print, and what a removal
@@ -35,13 +35,14 @@ if command -v dnf >/dev/null 2>&1; then
 elif command -v apt-get >/dev/null 2>&1; then
     FAM=deb
     export DEBIAN_FRONTEND=noninteractive
-    pkg_setup()   { apt-get -qq update >/dev/null 2>&1 && apt-get -qq install -y nginx curl ca-certificates >/dev/null 2>&1; }
+    # Retries: a mirror that drops a connection is retried by apt itself.
+    pkg_setup()   { apt-get -o Acquire::Retries=5 -qq update >/tmp/setup.log 2>&1 && apt-get -o Acquire::Retries=5 -qq install -y nginx curl ca-certificates >>/tmp/setup.log 2>&1; }
     pkg_files()   { echo "/work/unmask_$1-1_amd64.deb /work/unmask-plugin-nginx_$1-1_amd64.deb /work/unmask-web-nginx_$1-1_amd64.deb"; }
     pkg_install() { apt-get -qq install -y $(pkg_files "$1"); }
     pkg_remove()  { apt-get -qq remove -y unmask-plugin-nginx unmask-web-nginx unmask; }
 elif command -v apk >/dev/null 2>&1; then
     FAM=apk
-    pkg_setup()   { apk add --no-cache nginx curl >/dev/null 2>&1; }
+    pkg_setup()   { apk add --no-cache nginx curl >/tmp/setup.log 2>&1; }
     pkg_files()   { echo "/work/unmask_$1-r1_x86_64.apk /work/unmask-plugin-nginx_$1-r1_x86_64.apk /work/unmask-web-nginx_$1-r1_x86_64.apk"; }
     pkg_install() { apk add --allow-untrusted $(pkg_files "$1"); }
     pkg_remove()  { apk del unmask-plugin-nginx unmask-web-nginx unmask; }
@@ -85,7 +86,9 @@ nginx_restart() {
 
 echo "### setup: the distribution's nginx ($FAM) ###"
 pkg_setup
-command -v nginx >/dev/null 2>&1 || { echo "FATAL: nginx missing"; exit 2; }
+# The package manager's own words when the distribution's nginx did not come:
+# hidden, as they were, a failing mirror and a failing package looked alike.
+command -v nginx >/dev/null 2>&1 || { echo "FATAL: nginx missing; the package manager said:"; tail -n 25 /tmp/setup.log 2>/dev/null; exit 2; }
 NGINX_VER=$(nginx -v 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 MODULES_PATH=$(nginx -V 2>&1 | tr ' ' '\n' | sed -n 's|^--modules-path=||p' | head -1)
 echo "    nginx $NGINX_VER, modules in $MODULES_PATH"
