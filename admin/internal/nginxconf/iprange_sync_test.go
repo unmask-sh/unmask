@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -24,13 +25,13 @@ func TestSyncPullOnce_HappyPath(t *testing.T) {
 				// Dated now: a copy just pulled is newer than the snapshot the
 				// binary carries, so it is the one the group loads.
 				CreationTime: time.Now().UTC().Format("2006-01-02T15:04:05.000000"),
-				Prefixes: []AggregatedPrefix{
-					{IPv4Prefix: "203.0.113.0/24"},
-					{IPv6Prefix: "2001:db8::/32"},
-				},
+				// The snapshot's ranges and one more: a source far smaller
+				// than the ranges in use is refused (BypassMinRetention).
+				Prefixes: append(snapshotPrefixes("google-common"), AggregatedPrefix{IPv4Prefix: "203.0.113.0/24"}),
 			},
 		},
 	}
+	want := len(doc.Sources["google-common"].Prefixes)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Last-Modified", "Tue, 03 Jun 2026 00:00:00 GMT")
 		w.Header().Set("Content-Type", "application/json")
@@ -55,8 +56,8 @@ func TestSyncPullOnce_HappyPath(t *testing.T) {
 	if err := json.Unmarshal(body, &got); err != nil {
 		t.Fatalf("unmarshal written file: %v", err)
 	}
-	if len(got.Prefixes) != 2 {
-		t.Fatalf("expected 2 prefixes, got %d", len(got.Prefixes))
+	if len(got.Prefixes) != want {
+		t.Fatalf("expected %d prefixes, got %d", want, len(got.Prefixes))
 	}
 	if s.LastSyncedAt().IsZero() {
 		t.Fatal("LastSyncedAt zero after successful pull")
@@ -65,8 +66,8 @@ func TestSyncPullOnce_HappyPath(t *testing.T) {
 		t.Fatalf("LastError nonempty after success: %q", s.LastError())
 	}
 
-	// Group must read from the override file (= 2 prefixes instead of the
-	// embed's 900+).
+	// Group must read from the override file (= the snapshot's ranges and
+	// the one more).
 	SetOverrideDir(dir)
 	defer SetOverrideDir("")
 	var g *BypassIPGroup
@@ -79,8 +80,8 @@ func TestSyncPullOnce_HappyPath(t *testing.T) {
 	if g == nil {
 		t.Fatal("google-common group missing")
 	}
-	if got := g.PrefixCount(); got != 2 {
-		t.Fatalf("expected 2 prefixes from override, got %d", got)
+	if got := g.PrefixCount(); got != want {
+		t.Fatalf("expected %d prefixes from override, got %d", want, got)
 	}
 }
 
@@ -145,7 +146,7 @@ func TestSyncPullOnce_RenderFuncFires(t *testing.T) {
 	doc := AggregatedDoc{
 		SchemaVersion: 1,
 		Sources: map[string]AggregatedSource{
-			"bing": {CreationTime: "2026-06-02T00:00:00.000000", Prefixes: []AggregatedPrefix{{IPv4Prefix: "198.51.100.0/24"}}},
+			"bing": {CreationTime: "2026-06-02T00:00:00.000000", Prefixes: append(snapshotPrefixes("bing"), AggregatedPrefix{IPv4Prefix: "198.51.100.0/24"})},
 		},
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -230,14 +231,15 @@ func TestSyncPullFromFile(t *testing.T) {
 			"amazonbot": {
 				CreationTime: "2026-08-17T00:00:00.000000",
 				// Bare host IPs, the shape Amazon actually publishes: the
-				// offline path must not be stricter than the hub pull.
-				Prefixes: []AggregatedPrefix{
-					{IPv4Prefix: "198.51.100.7"},
-					{IPv4Prefix: "203.0.113.0/24"},
-				},
+				// offline path must not be stricter than the hub pull.  On
+				// top of the snapshot's ranges, as a smaller list is refused.
+				Prefixes: append(snapshotPrefixes("amazonbot"),
+					AggregatedPrefix{IPv4Prefix: "198.51.100.7"},
+					AggregatedPrefix{IPv4Prefix: "203.0.113.0/24"}),
 			},
 		},
 	}
+	want := len(doc.Sources["amazonbot"].Prefixes)
 	src := filepath.Join(t.TempDir(), "bypass-iprange-all.json")
 	raw, _ := json.Marshal(doc)
 	if err := os.WriteFile(src, raw, 0o644); err != nil {
@@ -258,8 +260,8 @@ func TestSyncPullFromFile(t *testing.T) {
 	if err := json.Unmarshal(body, &got); err != nil {
 		t.Fatalf("unmarshal written file: %v", err)
 	}
-	if len(got.Prefixes) != 2 {
-		t.Fatalf("expected 2 prefixes, got %d", len(got.Prefixes))
+	if len(got.Prefixes) != want {
+		t.Fatalf("expected %d prefixes, got %d", want, len(got.Prefixes))
 	}
 	if s.LastSyncedAt().IsZero() {
 		t.Fatal("LastSyncedAt zero after successful file pull")
@@ -399,5 +401,56 @@ func TestScheduledPullSkipsWhileSwitchedOff(t *testing.T) {
 	off = false
 	if pulled, err := s.scheduledPull(context.Background()); !pulled || err != nil || hits != 1 {
 		t.Fatalf("switched on: pulled=%v err=%v hits=%d, want one request", pulled, err, hits)
+	}
+}
+
+// A source that keeps less than half of the ranges in use is not taken: an
+// empty Googlebot list from the hub replaced googlebot.json, and the real
+// crawler was challenged everywhere until the next good pull.  The other
+// sources of the same document still are.
+func TestSyncRefusesAShrunkSource(t *testing.T) {
+	dir := t.TempDir()
+	doc := AggregatedDoc{
+		SchemaVersion: 1,
+		GeneratedAt:   "2026-06-03T00:00:00Z",
+		Sources: map[string]AggregatedSource{
+			"google-common": {CreationTime: time.Now().UTC().Format("2006-01-02T15:04:05.000000")},
+			"bing":          {CreationTime: time.Now().UTC().Format("2006-01-02T15:04:05.000000"), Prefixes: snapshotPrefixes("bing")},
+		},
+	}
+	raw, _ := json.Marshal(doc)
+	src := filepath.Join(t.TempDir(), "bypass-iprange-all.json")
+	if err := os.WriteFile(src, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s := NewSync()
+	s.Dir = dir
+	if err := s.PullFromFile(src); err != nil {
+		t.Fatalf("PullFromFile: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "googlebot.json")); err == nil {
+		t.Error("an empty Googlebot source was written over the ranges in use")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "bingbot.json")); err != nil {
+		t.Errorf("the other source was not written: %v", err)
+	}
+	SetOverrideDir(dir)
+	defer SetOverrideDir("")
+	for i := range BypassIPGroups {
+		if g := &BypassIPGroups[i]; g.ID == "google-common" && g.PrefixCount() == 0 {
+			t.Error("Googlebot has no ranges after the pull")
+		}
+	}
+
+	// Every source shrunk: nothing is written, and the pull says why.
+	only := AggregatedDoc{SchemaVersion: 1, GeneratedAt: "2026-06-04T00:00:00Z", Sources: map[string]AggregatedSource{
+		"google-common": {Prefixes: snapshotPrefixes("google-common")[:1]},
+	}}
+	raw, _ = json.Marshal(only)
+	if err := os.WriteFile(src, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.PullFromFile(src); err == nil || !strings.Contains(err.Error(), "below half") {
+		t.Errorf("a document whose every source shrank: %v", err)
 	}
 }

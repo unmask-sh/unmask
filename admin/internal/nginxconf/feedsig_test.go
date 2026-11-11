@@ -51,14 +51,36 @@ func feedDoc(generatedAt string) []byte {
 		SchemaVersion: 1,
 		GeneratedAt:   generatedAt,
 		Sources: map[string]AggregatedSource{
+			// The snapshot's own ranges: a source far smaller than the ranges
+			// in use is refused (BypassMinRetention).
 			"google-common": {
 				CreationTime: "2026-08-01T00:00:00.000000",
-				Prefixes:     []AggregatedPrefix{{IPv4Prefix: "203.0.113.0/24"}},
+				Prefixes:     snapshotPrefixes("google-common"),
 			},
 		},
 	}
 	raw, _ := json.Marshal(doc)
 	return raw
+}
+
+// snapshotPrefixes: the ranges the binary carries for a group, as a hub
+// document lists them.
+func snapshotPrefixes(id string) []AggregatedPrefix {
+	SetOverrideDir("")
+	var out []AggregatedPrefix
+	for i := range BypassIPGroups {
+		if BypassIPGroups[i].ID != id {
+			continue
+		}
+		for _, p := range BypassIPGroups[i].Prefixes() {
+			if strings.Contains(p, ":") {
+				out = append(out, AggregatedPrefix{IPv6Prefix: p})
+			} else {
+				out = append(out, AggregatedPrefix{IPv4Prefix: p})
+			}
+		}
+	}
+	return out
 }
 
 // hubFor serves body at / and, when sig != "", the signature at /..sig.

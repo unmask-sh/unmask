@@ -56,6 +56,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **Paging through Bot hunt keeps every filter.**  The next and previous links dropped a custom date range, the forced-reason, network, Ref ID and site filters, so page 2 of a drill-down listed the whole window instead. A page past the deepest one the log is read to (offset 100,000) also jumped back to the first; it now stops at the deepest page.
 
+- (2026-11-11) **An empty or truncated crawler list from the hub no longer replaces the one in use.**  The search-crawler address lists were taken from the hub whatever their size, so an empty Googlebot list overwrote the ranges in use and the real crawler was challenged on every site. A list keeping less than half of the ranges in use is now refused, as the CDN and relay lists already were.
+
 ### Security
 
 - (2026-11-11) **Go 1.27.4 in the released binaries.**  The binaries of 0.1.54 to 0.1.56 were built with Go 1.27.3, whose HTTP/1 server can panic when a handler reads a body capped by `MaxBytesReader` while another goroutine sets a response header (GO-2026-6859).  unmask's handlers read such a body before they answer, so no route is known to reach it; go.mod now names Go 1.27.4, which the release and both container builds use.

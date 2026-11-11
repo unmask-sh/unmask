@@ -521,6 +521,10 @@ func (s *Sync) PullFromFile(path string) error {
 	return nil
 }
 
+// BypassMinRetention: a source keeping less than this share of the
+// ranges in use is not taken (cdn.MinRetention, relay.MinRetention).
+const BypassMinRetention = 0.5
+
 // ingest parses one aggregated document, writes the per-vendor files, and
 // reloads + re-renders.  Shared by the hub pull and the local-file path so
 // the two cannot drift; `from` names the origin in log lines only.
@@ -557,10 +561,21 @@ func (s *Sync) ingest(body []byte, from, sigState string) (int, error) {
 		return 0, fmt.Errorf("mkdir %s: %w", dir, err)
 	}
 
-	written := 0
-	for _, g := range BypassIPGroups {
+	written, refused := 0, 0
+	for i := range BypassIPGroups {
+		g := &BypassIPGroups[i]
 		src, ok := doc.Sources[g.ID]
 		if !ok {
+			continue
+		}
+		// A source that keeps less than half of the ranges in use -- the
+		// built-in snapshot or the last copy taken -- is refused, as the CDN
+		// and relay lists refuse theirs.  Without it an empty or truncated
+		// source replaced googlebot.json, and the real crawler was
+		// challenged on every site until the next good pull.
+		if cur := g.PrefixCount(); cur > 0 && float64(len(src.Prefixes)) < BypassMinRetention*float64(cur) {
+			s.logf("iprange sync: %s dropped %d -> %d prefixes: keeping the ranges in use", g.ID, cur, len(src.Prefixes))
+			refused++
 			continue
 		}
 		if err := s.writeSource(dir, g.File, src); err != nil {
@@ -570,6 +585,9 @@ func (s *Sync) ingest(body []byte, from, sigState string) (int, error) {
 		written++
 	}
 	if written == 0 {
+		if refused > 0 {
+			return 0, fmt.Errorf("%d source(s) dropped below half of the ranges in use, none written: keeping the ranges in use", refused)
+		}
 		return 0, fmt.Errorf("no group matched hub doc")
 	}
 
