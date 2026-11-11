@@ -77,6 +77,7 @@ new_root() {
             -e "s|/run/nginx|$T/run/nginx|g" \
             -e "s|/usr/share/unmask|$T/usr/share/unmask|g" \
             -e "s|/lib/apk|$T/lib/apk|g" \
+            -e "s|:/usr/local/sbin:/usr/local/bin|:$T/usr/local/sbin:$T/usr/local/bin|" \
             "$DIR/$s" > "$T/$s"
     done
     DROPIN="$T/etc/systemd/system/unmask.service.d/10-unmask-selinux-runtime.conf"
@@ -241,6 +242,13 @@ post 1; rc=$?
 check "no nginx, plugin installed: the script ends well" 0 "$rc"
 check "no nginx, plugin installed: [1] adds the native include" 1 "$(grep -c '\[1\] Recommended — add 1 line' "$T/out")"
 check "no nginx, plugin installed: the protect line is the native one" 1 "$(grep -c "include $T/var/lib/unmask/nginx/protect.inc;  # fires" "$T/out")"
+rm -rf "$T"
+# An nginx built by hand, linked into /usr/local/sbin: not on the PATH apt
+# and rpm give this script, and found all the same.
+new_root Permissive "" 252
+mkdir -p "$T/usr/local/sbin" && mv "$T/stub/nginx" "$T/usr/local/sbin/nginx"
+post 1; rc=$?
+check "nginx only in /usr/local/sbin: found, and asked" "0 0 1" "$rc $(grep -ci 'no nginx command on this host' "$T/out") $(called '^nginx -V' | awk '{print ($1>0)?1:0}')"
 rm -rf "$T"
 # With an nginx, the banner says nothing of the kind.
 new_root Permissive "" 252

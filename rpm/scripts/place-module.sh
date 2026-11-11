@@ -86,6 +86,12 @@ OWN_HTTP_DIR=$OWN_NGINX_DIR/conf.d
 OWN_SO_DIR=$OWN_NGINX_DIR/modules
 PACKAGED_NGINX_CONF=/etc/nginx/nginx.conf
 
+# The nginx these scripts ask is the one a root shell finds.  One built by
+# hand is commonly linked into /usr/local/sbin, which a shell and systemd
+# search and the PATH apt and rpm give a package's scripts does not: it is
+# looked for there too, when the PATH given has none.
+command -v nginx >/dev/null 2>&1 || PATH=$PATH:/usr/local/sbin:/usr/local/bin
+
 # What a test overrides: `nginx -V`, and the configuration as nginx reads it
 # (every included file; nothing when the configuration does not load).
 _nl_nginx_v() { nginx -V 2>&1; }
@@ -773,7 +779,8 @@ if ! command -v nginx >/dev/null 2>&1; then
     cat <<EOF
 unmask-plugin-nginx: no nginx command on this host, so no module was placed.
   unmask installs none -- the module goes into the nginx the host runs: the
-  distribution's package, nginx.org's, or one built from source --with-compat.
+  distribution's package, nginx.org's, or one built from source --with-compat
+  (on root's PATH: link one that is not into /usr/local/sbin).
   Once it is there, place the module:
       sudo sh /usr/share/unmask/plugin/place-module.sh
   (where systemd starts nginx.service, that start places it.)

@@ -159,6 +159,7 @@ STUB
         -e "s|/run/systemd/system|$T/run/systemd/system|g" \
         -e "s|/run/unmask-place-module.lock|$T/run/unmask-place-module.lock|g" \
         -e "s|command -v nginx|command -v unmask-test-nginx|g" \
+        -e "s|:/usr/local/sbin:/usr/local/bin|:$T/usr/local/sbin:$T/usr/local/bin|" \
         -e "s|/lib/ld-|$T/lib/ld-|g" \
         -e "s|for d in /lib64 /usr/lib64 /lib /usr/lib /usr/lib/x86_64-linux-gnu /usr/lib/aarch64-linux-gnu; do|for d in $T/usr/lib64; do|" \
         "$DIR/place-module.sh" > "$T/place-module.sh"
@@ -420,6 +421,17 @@ place; rc=$?
 check "17 without an nginx the placer says so and places nothing" "1 yes" "$rc $(out_has 'no nginx command on this host, so no module was placed')"
 check "17 it names the run that places the module later" yes "$(out_has "sudo sh $T/usr/share/unmask/plugin/place-module.sh")"
 check "17 nothing is written: no marker, no render, no watch, no module" "none 0 absent absent" "$(marker) $(renders) $(is_there "$T/$WATCH_REL") $(is_there "$OWN/modules/$SO")"
+
+# --- 18. the nginx is linked into /usr/local/sbin and nowhere else ---
+# Where a build by hand is commonly linked: on a root shell's PATH and
+# systemd's, not on the one apt and rpm give a package's scripts.  The
+# placer looks there when the PATH it was given has no nginx.
+rm -rf "$T"
+new_root
+mkdir -p "$T/usr/local/sbin" && mv "$T/stub/unmask-test-nginx" "$T/usr/local/sbin/unmask-test-nginx"
+ln -sf "$T/stub/nginx" "$T/usr/local/sbin/unmask-test-nginx"
+place; rc=$?
+check "18 an nginx only in /usr/local/sbin is found and gets its module" "0 yes MODULE-1.26.3" "$rc $(out_has "an nginx built from source") $(cat "$OWN/modules/$SO" 2>/dev/null)"
 
 rm -rf "$T"
 echo "----"
