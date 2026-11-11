@@ -70,7 +70,7 @@ func TestNetListDraftRoundTrip(t *testing.T) {
 }
 
 // The draft is a convenience; an oversized payload must not break the redirect.
-func TestNetListDraftSkipsOversized(t *testing.T) {
+func TestNetListDraftKeepsOversizedByID(t *testing.T) {
 	form := url.Values{}
 	big := make([]string, 0, 500)
 	for i := 0; i < 500; i++ {
@@ -81,10 +81,22 @@ func TestNetListDraftSkipsOversized(t *testing.T) {
 	w := httptest.NewRecorder()
 	r := httptest.NewRequest("POST", "/x", nil)
 	setSectionDraft(w, r, "/unmask", "network", form, nil, "", "", "")
+	var raw string
 	for _, c := range w.Result().Cookies() {
 		if c.Name == flashCookiePrefix+netListDraftFlash {
-			t.Fatal("an oversized draft was written to a cookie instead of being skipped")
+			if len(c.Value) > draftCookieMax {
+				t.Fatalf("an oversized draft went into the cookie itself (%d bytes)", len(c.Value))
+			}
+			raw, _ = url.QueryUnescape(c.Value)
 		}
+	}
+	if !strings.HasPrefix(raw, draftStorePrefix) {
+		t.Fatalf("the cookie does not name a kept draft: %q", raw)
+	}
+	full := &settings.Settings{}
+	overlaySectionDraft(full, "network", draftFromFlash(raw))
+	if len(full.Nginx.AdminAllowedHosts) != 500 {
+		t.Fatalf("the kept draft restored %d rows, want 500", len(full.Nginx.AdminAllowedHosts))
 	}
 }
 
@@ -153,8 +165,11 @@ func TestChangedListValues(t *testing.T) {
 // network tab does, through the shared registry.
 func TestSectionDraftBypassIPs(t *testing.T) {
 	form := url.Values{}
+	// The names the page posts (bypass_title / bypass_enabled, not the
+	// name+"_suffix" convention), the second row switched off.
 	form["bypass_ip"] = []string{"10.0.0.0/8", "not-an-ip"}
-	form["bypass_ip_enabled"] = []string{"1", "1"}
+	form["bypass_title"] = []string{"office", "new"}
+	form["bypass_enabled"] = []string{"1", "0"}
 	form["stats_exclude_ips"] = []string{"192.0.2.5"}
 
 	w := httptest.NewRecorder()
@@ -176,6 +191,10 @@ func TestSectionDraftBypassIPs(t *testing.T) {
 
 	if len(full.Nginx.BypassIPs) != 2 || full.Nginx.BypassIPs[1] != "not-an-ip" {
 		t.Fatalf("bypass rows not preserved (invalid value included): %#v", full.Nginx.BypassIPs)
+	}
+	if len(full.Nginx.BypassIPsTitle) != 2 || full.Nginx.BypassIPsTitle[0] != "office" ||
+		len(full.Nginx.BypassIPsDisabled) != 2 || !full.Nginx.BypassIPsDisabled[1] {
+		t.Errorf("bypass titles / switch not preserved: %q / %v", full.Nginx.BypassIPsTitle, full.Nginx.BypassIPsDisabled)
 	}
 	if len(full.Nginx.StatsExcludeIPs) != 1 || full.Nginx.StatsExcludeIPs[0] != "192.0.2.5" {
 		t.Errorf("stats-exclude rows not preserved: %#v", full.Nginx.StatsExcludeIPs)

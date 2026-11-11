@@ -264,7 +264,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	// section name for every tab that carries rule-lists.
 	var netDraft netDraftView
 	if _, ok := ruleListRegistry[tab]; ok {
-		if raw := readFlash(w, r, h.cfg().Server.BasePath, netListDraftFlash); raw != "" {
+		if raw := draftFromFlash(readFlash(w, r, h.cfg().Server.BasePath, netListDraftFlash)); raw != "" {
 			netDraft = overlaySectionDraft(&full, tab, raw)
 		}
 	}
@@ -2435,6 +2435,10 @@ type listRows struct {
 	// Verdicts / Rates: extra value columns some lists carry -- JA4's verdict,
 	// the geo/asn rate-rule tables' per-row rate.  Empty for lists without them.
 	Verdicts, Rates []string
+	// CreatedAt / UpdatedAt: the rows' hidden unix-second stamps, so a re-save
+	// from the error page keeps when each row was added and last edited.
+	// Chains / IDs: JA4's per-row chain override and rename-safe row id.
+	CreatedAt, UpdatedAt, Chains, IDs []string
 }
 
 // pathRow is one structured path/URL row rebuilt from a draft, in the shape the
@@ -2442,6 +2446,7 @@ type listRows struct {
 type pathRow struct {
 	Path, Title, Action, Site string
 	Disabled                  bool
+	CreatedAt, UpdatedAt      int64
 }
 
 // draftPathRows zips a listRows into aligned path rows, dropping blank paths --
@@ -2460,11 +2465,13 @@ func draftPathRows(rows listRows) []pathRow {
 			return ""
 		}
 		out = append(out, pathRow{
-			Path:     v,
-			Title:    get(rows.Titles),
-			Action:   get(rows.Actions),
-			Site:     get(rows.Sites),
-			Disabled: i < len(rows.Enabled) && rows.Enabled[i] == "0",
+			Path:      v,
+			Title:     get(rows.Titles),
+			Action:    get(rows.Actions),
+			Site:      get(rows.Sites),
+			Disabled:  i < len(rows.Enabled) && rows.Enabled[i] == "0",
+			CreatedAt: draftStamp(get(rows.CreatedAt)),
+			UpdatedAt: draftStamp(get(rows.UpdatedAt)),
 		})
 	}
 	return out
@@ -2497,6 +2504,8 @@ type ruleListSpec struct {
 	Title, Enabled, Action, Site string // parallel form field names ("" if absent)
 	Verdict                      string // JA4's second value column ("" for the rest)
 	Rate                         string // geo/asn per-row rate column ("" for the rest)
+	CreatedAt, UpdatedAt         string // the rows' hidden stamp fields ("" if absent)
+	Chain, ID                    string // JA4's chain override and row id ("" for the rest)
 	Overlay                      func(c *settings.Settings, rows listRows)
 }
 
@@ -2504,7 +2513,8 @@ type ruleListSpec struct {
 // name via the common "<name>_title / _enabled" convention (network, bypass,
 // ua-filter).  Structured lists set their fields explicitly instead.
 func simpleFields(name string, overlay func(*settings.Settings, listRows)) ruleListSpec {
-	return ruleListSpec{Name: name, Title: name + "_title", Enabled: name + "_enabled", Overlay: overlay}
+	return ruleListSpec{Name: name, Title: name + "_title", Enabled: name + "_enabled",
+		CreatedAt: name + "_created_at", UpdatedAt: name + "_updated_at", Overlay: overlay}
 }
 
 // ruleListRegistry maps a save section to the rule-list widgets on it.  Adding a
@@ -2527,23 +2537,40 @@ var ruleListRegistry = map[string][]ruleListSpec{
 		}),
 	},
 	"bypass-ips": {
-		simpleFields("bypass_ip", func(c *settings.Settings, rows listRows) {
-			overlayStrList(rows, &c.Nginx.BypassIPs, &c.Nginx.BypassIPsTitle, &c.Nginx.BypassIPsDisabled, &c.Nginx.BypassIPsCreatedAt, &c.Nginx.BypassIPsUpdatedAt)
-		}),
-		simpleFields("stats_exclude_ips", func(c *settings.Settings, rows listRows) {
-			overlayStrList(rows, &c.Nginx.StatsExcludeIPs, &c.Nginx.StatsExcludeIPsTitle, nil, nil, nil)
-		}),
+		// Not the name+"_suffix" convention: the page posts this list's
+		// columns as bypass_title / bypass_enabled / bypass_*_at.  Read under
+		// the conventional names they were absent, so a rejected save's page
+		// showed every row enabled and untitled, and a re-save switched the
+		// disabled rows on.
+		{Name: "bypass_ip", Title: "bypass_title", Enabled: "bypass_enabled",
+			CreatedAt: "bypass_created_at", UpdatedAt: "bypass_updated_at",
+			Overlay: func(c *settings.Settings, rows listRows) {
+				overlayStrList(rows, &c.Nginx.BypassIPs, &c.Nginx.BypassIPsTitle, &c.Nginx.BypassIPsDisabled, &c.Nginx.BypassIPsCreatedAt, &c.Nginx.BypassIPsUpdatedAt)
+			}},
+		// A value and a title per row, nothing else (no switch, no stamps).
+		{Name: "stats_exclude_ips", Title: "stats_exclude_ips_title",
+			Overlay: func(c *settings.Settings, rows listRows) {
+				overlayStrList(rows, &c.Nginx.StatsExcludeIPs, &c.Nginx.StatsExcludeIPsTitle, nil, nil, nil)
+			}},
 	},
 	"ua-filter": {
 		simpleFields("white_extra", func(c *settings.Settings, rows listRows) {
 			overlayStrList(rows, &c.Nginx.SearchBots.Extra, &c.Nginx.SearchBots.ExtraTitle, &c.Nginx.SearchBots.ExtraDisabled, &c.Nginx.SearchBots.ExtraCreatedAt, &c.Nginx.SearchBots.ExtraUpdatedAt)
 		}),
-		simpleFields("black_extra", func(c *settings.Settings, rows listRows) {
-			overlayStrList(rows, &c.Nginx.ChallengeTargets.Extra, &c.Nginx.ChallengeTargets.ExtraTitle, &c.Nginx.ChallengeTargets.ExtraDisabled, &c.Nginx.ChallengeTargets.ExtraCreatedAt, &c.Nginx.ChallengeTargets.ExtraUpdatedAt)
-		}),
+		func() ruleListSpec {
+			sp := simpleFields("black_extra", func(c *settings.Settings, rows listRows) {
+				overlayStrList(rows, &c.Nginx.ChallengeTargets.Extra, &c.Nginx.ChallengeTargets.ExtraTitle, &c.Nginx.ChallengeTargets.ExtraDisabled, &c.Nginx.ChallengeTargets.ExtraCreatedAt, &c.Nginx.ChallengeTargets.ExtraUpdatedAt)
+				// The per-row chain, aligned with the rows kept: without it the
+				// error page showed each action one row off where a row had
+				// been removed, and a re-save stored them that way.
+				c.Nginx.ChallengeTargets.ExtraAction = draftColumn(rows, rows.Actions)
+			})
+			sp.Action = "black_extra_action"
+			return sp
+		}(),
 	},
 	"honeypot": {
-		{Name: "honeypot_url_path", Title: "honeypot_url_title", Enabled: "honeypot_url_enabled", Action: "honeypot_url_action", Site: "honeypot_url_site",
+		{Name: "honeypot_url_path", CreatedAt: "honeypot_url_created_at", UpdatedAt: "honeypot_url_updated_at", Title: "honeypot_url_title", Enabled: "honeypot_url_enabled", Action: "honeypot_url_action", Site: "honeypot_url_site",
 			Overlay: func(c *settings.Settings, rows listRows) {
 				c.Nginx.Honeypot.URLs = overlayHoneypot(rows)
 			}},
@@ -2551,13 +2578,13 @@ var ruleListRegistry = map[string][]ruleListSpec{
 	"protected": {
 		// Mode == action for protected paths, so the shared "Action" slot of the
 		// draft carries the row's mode (the protected_mode field).
-		{Name: "protected_path", Title: "protected_title", Enabled: "protected_enabled", Action: "protected_mode", Site: "protected_site",
+		{Name: "protected_path", CreatedAt: "protected_created_at", UpdatedAt: "protected_updated_at", Title: "protected_title", Enabled: "protected_enabled", Action: "protected_mode", Site: "protected_site",
 			Overlay: func(c *settings.Settings, rows listRows) {
 				c.Nginx.ProtectedPaths.Paths = overlayProtected(rows)
 			}},
 	},
 	"bypass-paths": {
-		{Name: "bp_path", Title: "bp_title", Enabled: "bp_enabled", Site: "bp_site",
+		{Name: "bp_path", CreatedAt: "bp_created_at", UpdatedAt: "bp_updated_at", Title: "bp_title", Enabled: "bp_enabled", Site: "bp_site",
 			Overlay: func(c *settings.Settings, rows listRows) {
 				c.Nginx.BypassPaths.Paths = overlayBypassPaths(rows)
 			}},
@@ -2566,34 +2593,37 @@ var ruleListRegistry = map[string][]ruleListSpec{
 	// exempt-path list that shares the BypassPath shape -- the exempt list gets
 	// the full treatment here.
 	"geo": {
-		{Name: "geo_country", Title: "geo_label", Enabled: "geo_enabled", Action: "geo_action", Rate: "geo_rate",
+		{Name: "geo_country", CreatedAt: "geo_created_at", UpdatedAt: "geo_updated_at", Title: "geo_label", Enabled: "geo_enabled", Action: "geo_action", Rate: "geo_rate",
 			Overlay: func(c *settings.Settings, rows listRows) {
 				c.Nginx.Geo.Rules = overlayGeoRules(rows)
 			}},
-		{Name: "gx_path", Title: "gx_title", Enabled: "gx_enabled", Site: "gx_site",
+		{Name: "gx_path", CreatedAt: "gx_created_at", UpdatedAt: "gx_updated_at", Title: "gx_title", Enabled: "gx_enabled", Site: "gx_site",
 			Overlay: func(c *settings.Settings, rows listRows) {
 				c.Nginx.Geo.ExemptPaths = overlayBypassPaths(rows)
 			}},
 	},
 	"asn": {
-		{Name: "asn_number", Title: "asn_label", Enabled: "asn_enabled", Action: "asn_action", Rate: "asn_rate",
+		{Name: "asn_number", CreatedAt: "asn_created_at", UpdatedAt: "asn_updated_at", Title: "asn_label", Enabled: "asn_enabled", Action: "asn_action", Rate: "asn_rate",
 			Overlay: func(c *settings.Settings, rows listRows) {
 				c.Nginx.Asn.Rules = overlayAsnRules(rows)
 			}},
-		{Name: "ax_path", Title: "ax_title", Enabled: "ax_enabled", Site: "ax_site",
+		{Name: "ax_path", CreatedAt: "ax_created_at", UpdatedAt: "ax_updated_at", Title: "ax_title", Enabled: "ax_enabled", Site: "ax_site",
 			Overlay: func(c *settings.Settings, rows listRows) {
 				c.Nginx.Asn.ExemptPaths = overlayBypassPaths(rows)
 			}},
 	},
 	"ja4-verdicts": {
 		{Name: "ja4_extra_pat", Title: "ja4_extra_title", Enabled: "ja4_extra_enabled", Action: "ja4_extra_action", Verdict: "ja4_extra_verd",
+			CreatedAt: "ja4_extra_created_at", UpdatedAt: "ja4_extra_updated_at", Chain: "ja4_extra_action_chain", ID: "ja4_extra_id",
 			Overlay: func(c *settings.Settings, rows listRows) {
 				c.Nginx.JA4Verdicts.Extra = overlayJA4(rows)
-				// The parallel columns the render reads alongside Extra.
-				c.Nginx.JA4Verdicts.ExtraTitle = rows.Titles
+				// The parallel columns the render reads alongside Extra, each
+				// aligned with the rows kept.
+				c.Nginx.JA4Verdicts.ExtraTitle = draftColumn(rows, rows.Titles)
 				c.Nginx.JA4Verdicts.ExtraDisabled = draftDisabled(rows)
-				c.Nginx.JA4Verdicts.ExtraCreatedAt = nil
-				c.Nginx.JA4Verdicts.ExtraUpdatedAt = nil
+				c.Nginx.JA4Verdicts.ExtraCreatedAt = draftStamps(rows, rows.CreatedAt)
+				c.Nginx.JA4Verdicts.ExtraUpdatedAt = draftStamps(rows, rows.UpdatedAt)
+				c.Nginx.JA4Verdicts.ExtraAction = draftColumn(rows, rows.Chains)
 			}},
 	},
 }
@@ -2613,7 +2643,8 @@ func overlayJA4(rows listRows) []settings.JA4VerdictExtraRule {
 			}
 			return ""
 		}
-		out = append(out, settings.JA4VerdictExtraRule{Pattern: p, Verdict: col(rows.Verdicts), Action: col(rows.Actions)})
+		id, _ := strconv.Atoi(col(rows.IDs))
+		out = append(out, settings.JA4VerdictExtraRule{ID: id, Pattern: p, Verdict: col(rows.Verdicts), Action: col(rows.Actions)})
 	}
 	return out
 }
@@ -2653,6 +2684,8 @@ func overlayGeoRules(rows listRows) []settings.GeoRule {
 			Action:     col(rows.Actions),
 			RatePerMin: draftRatePtr(col(rows.Rates)),
 			Enabled:    !(i < len(rows.Enabled) && rows.Enabled[i] == "0"),
+			CreatedAt:  draftStamp(col(rows.CreatedAt)),
+			UpdatedAt:  draftStamp(col(rows.UpdatedAt)),
 		})
 	}
 	return out
@@ -2679,6 +2712,8 @@ func overlayAsnRules(rows listRows) []settings.AsnRule {
 			Action:     col(rows.Actions),
 			RatePerMin: draftRatePtr(col(rows.Rates)),
 			Enabled:    !(i < len(rows.Enabled) && rows.Enabled[i] == "0"),
+			CreatedAt:  draftStamp(col(rows.CreatedAt)),
+			UpdatedAt:  draftStamp(col(rows.UpdatedAt)),
 		}
 		num := strings.TrimSpace(strings.TrimPrefix(strings.TrimPrefix(v, "AS"), "as"))
 		if n, err := strconv.ParseUint(num, 10, 32); err == nil && n != 0 {
@@ -2716,7 +2751,7 @@ func draftDisabled(rows listRows) []bool {
 func overlayHoneypot(rows listRows) []settings.HoneypotURL {
 	out := []settings.HoneypotURL{}
 	for _, p := range draftPathRows(rows) {
-		out = append(out, settings.HoneypotURL{Path: p.Path, Title: p.Title, Action: p.Action, Site: p.Site, Disabled: p.Disabled})
+		out = append(out, settings.HoneypotURL{Path: p.Path, Title: p.Title, Action: p.Action, Site: p.Site, Disabled: p.Disabled, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt})
 	}
 	return out
 }
@@ -2730,7 +2765,7 @@ func overlayProtected(rows listRows) []settings.ProtectedPath {
 		if !nginxconf.IsValidProtectedMode(mode) {
 			mode = "" // blank = follow the tab default
 		}
-		out = append(out, settings.ProtectedPath{Path: p.Path, Title: p.Title, Mode: mode, Site: p.Site, Disabled: p.Disabled})
+		out = append(out, settings.ProtectedPath{Path: p.Path, Title: p.Title, Mode: mode, Site: p.Site, Disabled: p.Disabled, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt})
 	}
 	return out
 }
@@ -2738,7 +2773,7 @@ func overlayProtected(rows listRows) []settings.ProtectedPath {
 func overlayBypassPaths(rows listRows) []settings.BypassPath {
 	out := []settings.BypassPath{}
 	for _, p := range draftPathRows(rows) {
-		out = append(out, settings.BypassPath{Path: p.Path, Title: p.Title, Site: p.Site, Disabled: p.Disabled})
+		out = append(out, settings.BypassPath{Path: p.Path, Title: p.Title, Site: p.Site, Disabled: p.Disabled, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt})
 	}
 	return out
 }
@@ -2838,11 +2873,59 @@ func overlayStrList(rows listRows, val, title *[]string, dis *[]bool, cr, up *[]
 		}
 	}
 	if cr != nil {
-		*cr = nil
+		*cr = draftStamps(rows, rows.CreatedAt)
 	}
 	if up != nil {
-		*up = nil
+		*up = draftStamps(rows, rows.UpdatedAt)
 	}
+}
+
+// draftColumn: a parallel string column of a restored draft, aligned with the
+// rows overlays keep (blank values dropped), nil when the column was not sent.
+func draftColumn(rows listRows, col []string) []string {
+	if len(col) == 0 {
+		return nil
+	}
+	out := []string{}
+	for i, v := range rows.Values {
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		c := ""
+		if i < len(col) {
+			c = strings.TrimSpace(col[i])
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// draftStamps: a parallel unix-second column, aligned like draftColumn.
+func draftStamps(rows listRows, col []string) []int64 {
+	if len(col) == 0 {
+		return nil
+	}
+	out := []int64{}
+	for i, v := range rows.Values {
+		if strings.TrimSpace(v) == "" {
+			continue
+		}
+		var c string
+		if i < len(col) {
+			c = col[i]
+		}
+		out = append(out, draftStamp(c))
+	}
+	return out
+}
+
+// draftStamp parses one stamp of a draft; 0 (unknown) when it does not parse.
+func draftStamp(v string) int64 {
+	n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+	if err != nil || n < 0 {
+		return 0
+	}
+	return n
 }
 
 // changedListValues returns the submitted values, across the given fields, that
@@ -2896,13 +2979,24 @@ func setSectionDraft(w http.ResponseWriter, r *http.Request, base, section strin
 			Sites:    pick(sp.Site),
 			Verdicts: pick(sp.Verdict),
 			Rates:    pick(sp.Rate),
+			// The stamps and JA4's chain / id, so a re-save from the error
+			// page stores what the operator's rows held.
+			CreatedAt: pick(sp.CreatedAt),
+			UpdatedAt: pick(sp.UpdatedAt),
+			Chains:    pick(sp.Chain),
+			IDs:       pick(sp.ID),
 		}
 	}
 	b, err := json.Marshal(d)
-	if err != nil || len(b) > 3500 {
+	if err != nil {
 		return
 	}
-	setFlash(w, r, base, netListDraftFlash, string(b))
+	// The cookie carries the draft when it fits, else the id of a copy kept
+	// by the daemon (settings_draft_store.go): a long list no longer loses the
+	// operator's rows to the cookie's size.
+	if v := draftFlashValue(string(b)); v != "" {
+		setFlash(w, r, base, netListDraftFlash, v)
+	}
 }
 
 // netDraftView is what the render needs from a restored draft: which rows to
@@ -4121,8 +4215,13 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 	createdAtArr := r.Form["ja4_extra_created_at"]
 	updsUpdated := r.Form["ja4_extra_updated_at"]
 	ids := r.Form["ja4_extra_id"] // hidden input for ID-based linking; existing entries keep their ID.
+	// The per-row chain override, read with the other columns by the form
+	// row's index.  It was read after the loop by the index of the rows
+	// kept, so a blank row ("+" adds one under the current row) moved every
+	// chain below it one row up: a deny dropped, or landed on another rule.
+	chains := r.Form["ja4_extra_action_chain"]
 	maxLen := len(pats)
-	for _, l := range []int{len(verds), len(acts), len(titles), len(enabledArr), len(createdAtArr), len(ids)} {
+	for _, l := range []int{len(verds), len(acts), len(titles), len(enabledArr), len(createdAtArr), len(ids), len(chains)} {
 		if l > maxLen {
 			maxLen = l
 		}
@@ -4132,6 +4231,7 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 	outDisabled := make([]bool, 0, maxLen)
 	outUpdated := make([]int64, 0, maxLen)
 	outChanged := make([]int64, 0, maxLen)
+	outChains := make([]string, 0, maxLen)
 	now := time.Now().Unix()
 	for i := 0; i < maxLen; i++ {
 		var p, v, a, t string
@@ -4190,7 +4290,14 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		if i < len(ids) {
 			id, _ = strconv.Atoi(strings.TrimSpace(ids[i]))
 		}
+		chain := ""
+		if i < len(chains) {
+			if c := strings.TrimSpace(chains[i]); c != "inherit" && settings.IsValidRateChallengeMode(c) {
+				chain = c
+			}
+		}
 		extras = append(extras, settings.JA4VerdictExtraRule{ID: id, Pattern: p, Verdict: v, Action: a})
+		outChains = append(outChains, chain)
 		outTitles = append(outTitles, t)
 		outDisabled = append(outDisabled, !isEnabled)
 		outUpdated = append(outUpdated, ts)
@@ -4234,19 +4341,8 @@ func applyJA4VerdictsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 	} else {
 		n.JA4Verdicts.PresetAction = presetActions
 	}
-	// JA4 per-extra action override (parallel slice aligned with Extra).
-	chains := r.Form["ja4_extra_action_chain"]
-	outChains := make([]string, len(extras))
-	for i := range outChains {
-		if i < len(chains) {
-			v := strings.TrimSpace(chains[i])
-			if v == "" || v == "inherit" || !settings.IsValidRateChallengeMode(v) {
-				outChains[i] = ""
-			} else {
-				outChains[i] = v
-			}
-		}
-	}
+	// JA4 per-extra action override (parallel slice aligned with Extra; read
+	// in the row loop above).
 	// Compact: drop a trailing run of empties so the YAML stays small.
 	for len(outChains) > 0 && outChains[len(outChains)-1] == "" {
 		outChains = outChains[:len(outChains)-1]
