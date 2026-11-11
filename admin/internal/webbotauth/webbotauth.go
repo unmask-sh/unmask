@@ -114,7 +114,7 @@ type Verifier struct {
 	AllowPrivateDial bool
 
 	mu    sync.RWMutex
-	cache map[string]cachedDir // key = agent URL string
+	cache map[string]cachedDir // key = the operator's host, lower case (fetchDirectory)
 
 	// nonceMu guards both seenNonces and lastNonceGC.  Single mutex is fine
 	// — Verify's hot path is dominated by HTTP fetch + ed25519 verify, not
@@ -832,19 +832,22 @@ func componentValue(req *http.Request, name, key, agentHdr string) (string, erro
 // .well-known/http-message-signatures-directory.  Cache eviction is lazy:
 // we just check fetchedAt + CacheTTL on each read.
 func (v *Verifier) fetchDirectory(ctx context.Context, agentURL string) ([]directoryKey, error) {
-	v.mu.RLock()
-	c, ok := v.cache[agentURL]
-	v.mu.RUnlock()
-	if ok && v.now().Sub(c.fetchedAt) < v.cacheTTL() {
-		return c.keys, nil
-	}
-
 	u, err := url.Parse(agentURL)
 	if err != nil {
 		return nil, err
 	}
-	u.Path = WellKnownPath
-	u.RawQuery = ""
+	// One directory per operator host, at the well-known path: the cache is
+	// keyed by the host.  Keyed by the whole agent URL, whose path, query
+	// and case the client chooses, a changed query fetched the directory
+	// again on every request and grew the cache without end.
+	key := strings.ToLower(u.Host)
+	v.mu.RLock()
+	c, ok := v.cache[key]
+	v.mu.RUnlock()
+	if ok && v.now().Sub(c.fetchedAt) < v.cacheTTL() {
+		return c.keys, nil
+	}
+	u = &url.URL{Scheme: u.Scheme, Host: key, Path: WellKnownPath}
 
 	// agentURL is allowlist-gated (fail-closed empty list) + https-only, and the
 	// httpClient's dialer refuses private / loopback / link-local / cloud-metadata
@@ -874,10 +877,18 @@ func (v *Verifier) fetchDirectory(ctx context.Context, agentURL string) ([]direc
 	}
 
 	v.mu.Lock()
-	v.cache[agentURL] = cachedDir{keys: keys, fetchedAt: v.now()}
+	// The hosts are the operator's allowlist, so this is a few entries; the
+	// cap only keeps a misconfiguration from growing it for good.
+	if len(v.cache) >= maxCachedDirectories {
+		v.cache = map[string]cachedDir{}
+	}
+	v.cache[key] = cachedDir{keys: keys, fetchedAt: v.now()}
 	v.mu.Unlock()
 	return keys, nil
 }
+
+// maxCachedDirectories: the most operator directories kept at once.
+const maxCachedDirectories = 256
 
 // parseDirectoryKeys accepts both shapes the current draft hints at:
 //

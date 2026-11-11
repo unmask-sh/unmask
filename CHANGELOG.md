@@ -62,6 +62,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **A client hammering a trap URL no longer makes the access log drop lines.**  Each ban from the access log is checked against the crawler allowlist, which was rebuilt for every check -- some 4,700 ranges, about 5 ms -- so a stream of trap hits kept the log reader busy until lines were dropped. The list is now kept until the settings or the ranges change.
 
+- (2026-11-11) **Web Bot Auth fetches each operator's key directory once an hour, whatever the request says.**  The cache of key directories was keyed by the whole agent URL a request named, so changing its query fetched the operator's directory again on every request and grew the cache without end. It is now keyed by the operator's host, which is where the directory lives, and holds a bounded number of entries.
+
 ### Security
 
 - (2026-11-11) **Go 1.27.4 in the released binaries.**  The binaries of 0.1.54 to 0.1.56 were built with Go 1.27.3, whose HTTP/1 server can panic when a handler reads a body capped by `MaxBytesReader` while another goroutine sets a response header (GO-2026-6859).  unmask's handlers read such a body before they answer, so no route is known to reach it; go.mod now names Go 1.27.4, which the release and both container builds use.

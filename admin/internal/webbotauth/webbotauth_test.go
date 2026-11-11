@@ -788,3 +788,24 @@ func TestVerify_MalformedByteSequence_NoPanic(t *testing.T) {
 		t.Fatal("malformed single-quote agent url passed verify")
 	}
 }
+
+// The directory is fetched once per operator host: the cache was keyed by
+// the whole agent URL, so a client varying its query (or path, or case)
+// fetched the directory again on every request and grew the cache without
+// end.
+func TestDirectoryCacheKeyedByHost(t *testing.T) {
+	fx := newFixtureKey(t)
+	var hits int32
+	v, fxs := newVerifier(t, fx, fx.directory, &hits)
+	for i, variant := range []string{fxs.agentURL, fxs.agentURL + "?a=1", fxs.agentURL + "x/y?b=2", strings.ToUpper(fxs.agentURL[:8]) + fxs.agentURL[8:]} {
+		if _, err := v.fetchDirectory(t.Context(), variant); err != nil {
+			t.Fatalf("variant %d (%s): %v", i, variant, err)
+		}
+	}
+	if got := atomic.LoadInt32(&hits); got != 1 {
+		t.Errorf("%d directory fetches for one host, want 1", got)
+	}
+	if n := len(v.SortedOperators()); n != 1 {
+		t.Errorf("%d cache entries for one host: %v", n, v.SortedOperators())
+	}
+}
