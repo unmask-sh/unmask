@@ -65,6 +65,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
@@ -209,6 +210,11 @@ type Reader struct {
 	// receive goroutine's own.
 	droppedLines atomic.Uint64
 	dropSaid     time.Time
+	// truncatedLines counts the datagrams that arrived longer than the
+	// receive buffer and were dropped unread (TruncatedLines); truncSaid is
+	// when the log last said so.  Only recvLoop touches truncSaid.
+	truncatedLines atomic.Uint64
+	truncSaid      time.Time
 
 	// siteKnown answers whether a Host is a site to count on its own
 	// (SetSiteCheck); nil accepts every Host.  Set before Receive, read
@@ -845,7 +851,16 @@ var lineRE = regexp.MustCompile(
 		// mo: the module file nginx loaded, by content hash (the module's
 		// $unmask_module_id, 16 hex); "" from a configuration rendered
 		// without the module, absent from older configurations.
-		`(?: sfs=([a-z-]*))?(?: sfd=([a-z]*))?(?: rh=([A-Za-z0-9.:-]*))?(?: bv=([0-9A-Za-z.~]*))?(?: mo=([0-9a-f]*))?(?: ua=(.*))?`)
+		`(?: sfs=([a-z-]*))?(?: sfd=([a-z]*))?(?: rh=([A-Za-z0-9.:-]*))?(?: bv=([0-9A-Za-z.~]*))?(?: mo=([0-9a-f]*))?(?: ua=(.*))?` +
+		// The match runs to the end of the line.  Unanchored, a line whose
+		// Host carried a space and fields of its own (nginx before 1.21.1
+		// passes such a Host through) parsed as those fields, the line's
+		// real ones left over and ignored -- a honeypot ban on an address
+		// of the client's choosing.  The configuration now logs the Host,
+		// the forwarded JA4 and the trap URL without spaces (http.inc's
+		// $unmask_site_log and its neighbours); this holds the parser to
+		// the whole line as well.
+		`$`)
 
 // parsed: struct holding the regex match result.
 type parsed struct {
@@ -920,6 +935,9 @@ func (p parsed) plaintext() bool {
 }
 
 func (r *Reader) parse(line string) (parsed, bool) {
+	// The match is held to the end of the line (lineRE), and Go's $ does not
+	// match before a trailing newline the way a PCRE $ does.
+	line = strings.TrimRight(line, "\r\n")
 	m := lineRE.FindStringSubmatch(line)
 	if m == nil {
 		return parsed{}, false
@@ -929,7 +947,9 @@ func (r *Reader) parse(line string) (parsed, bool) {
 		return parsed{}, false
 	}
 	s := m[2]
-	if s == "" {
+	if s == "" || s == "-" {
+		// A Host the configuration would not log as it was ($unmask_site_log
+		// is empty then), or "-" for an unset one.
 		s = "default"
 	}
 	if len(s) > 64 {
@@ -1996,14 +2016,25 @@ func (r *Reader) recvLoop() {
 	case <-r.stop:
 		return
 	}
-	buf := make([]byte, 4*1024) // unmask_minimal is ~80 bytes; 4 KB with plenty of headroom
+	// One datagram per line, and a datagram longer than the buffer loses its
+	// tail without a word -- the fields the honeypot ban's vetoes read come
+	// after the trap URL, so a cut line banned what the whole one spares.
+	// unmask_minimal is ~200 bytes; its free-text fields are the User-Agent
+	// (bounded by nginx's header buffers) and the trap URL (1000 at most,
+	// http.inc), so 64 KB is never reached by a line nginx sends.  One that
+	// does arrive cut is counted and dropped (MSG_TRUNC), never read.
+	buf := make([]byte, 64*1024)
 	for {
 		select {
 		case <-r.stop:
 			return
 		default:
 		}
-		n, _, err := r.conn.ReadFromUnix(buf)
+		n, _, flags, _, err := r.conn.ReadMsgUnix(buf, nil)
+		if err == nil && flags&syscall.MSG_TRUNC != 0 {
+			r.dropTruncated(n)
+			continue
+		}
 		if err != nil {
 			// When SetReadDeadline tripped, exit via the stop signal.
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
@@ -2039,6 +2070,26 @@ func (r *Reader) dropLine() {
 		r.dropSaid = now
 		log.Printf("nginxlog: the line queue is full (%d lines waiting): %d line(s) dropped so far -- the lines are handled slower than nginx logs them", cap(r.lines), n)
 	}
+}
+
+// dropTruncated counts a datagram that arrived longer than the receive buffer
+// (recvLoop): its tail is gone, so it is not read at all.  The log says so
+// once a minute at most.
+func (r *Reader) dropTruncated(kept int) {
+	n := r.truncatedLines.Add(1)
+	if now := time.Now(); now.Sub(r.truncSaid) >= time.Minute {
+		r.truncSaid = now
+		log.Printf("nginxlog: a line longer than %d bytes arrived cut and was dropped (%d so far)", kept, n)
+	}
+}
+
+// TruncatedLines is how many lines arrived cut and were dropped (recvLoop),
+// since the start.  nil-safe.
+func (r *Reader) TruncatedLines() uint64 {
+	if r == nil {
+		return 0
+	}
+	return r.truncatedLines.Load()
 }
 
 // DroppedLines is how many lines the receiver let go for a full queue

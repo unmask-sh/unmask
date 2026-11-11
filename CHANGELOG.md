@@ -32,6 +32,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **A passed challenge never leaves the site.**  The page went on to the address it was opened at as a path alone, and a browser reads a path that begins with `//` as another site's address: a link to `https://site//other.example/` sent a visitor who passed the challenge to other.example. The page, its relay and the re-bind bounce now go on to the full address on the site.
 
+- (2026-11-11) **A request cannot write fields of its own into the access-log line.**  The daemon reads it field by field, and a Host header with spaces -- nginx before 1.21.1 accepts one -- could name a honeypot hit and an address to ban. The Host, a forwarded JA4 and the trap URL are now logged without spaces, and a line cut short is dropped unread. Reload nginx after upgrading.
+
 ## [0.1.57-rc1] - 2026-11-11 (testing build)
 
 ### Added

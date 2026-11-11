@@ -2277,7 +2277,29 @@ map "$unmask_bv_kind:$cookie__bv" $unmask_bv_log {
     default                                      "";
     "~^[a-z]+:(?<bv_log_v>[0-9A-Za-z.~]{1,512})$"  $bv_log_v;
 }
-log_format unmask_minimal '$msec site=$host kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$effective_ja4 hpuri=$unmask_hp_uri bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} pv=$unmask_preview_verified sb=$is_search_bot sfs=$unmask_sfs_log sfd=$unmask_sfd_log rh=$unmask_ref_host bv=$unmask_bv_log mo=$unmask_module_id ua=$http_user_agent';
+# site= / ja4= / hpuri=: the other fields that come from the request -- the
+# Host, the fingerprint a trusted proxy forwarded, the trap URL -- each held
+# to the characters it can carry and to no space.  The daemon reads the line
+# field by field, the User-Agent last and whole, so a space in an earlier
+# field could carry fields of the client's choosing into the line (an
+# address to ban among them).  nginx refuses a space in the Host and in the
+# request line from 1.21.1 on; releases before that pass one through, and a
+# trusted proxy may pass on whatever the client sent as its JA4 header.
+map $host $unmask_site_log {
+    default                                    "";
+    "~^(?<site_log_v>[][0-9A-Za-z._:-]{1,253})$"  $site_log_v;
+}
+map $effective_ja4 $unmask_ja4_log {
+    default                                "";
+    "~^(?<ja4_log_v>[0-9A-Za-z_]{1,64})$"  $ja4_log_v;
+}
+# The trap URL up to its first space, and no more than 1000 characters: it
+# names the trap, and the line stays one datagram the daemon reads whole.
+map $unmask_hp_uri $unmask_hp_uri_log {
+    default                            "";
+    "~^(?<hp_uri_log_v>[^ ]{1,1000})"  $hp_uri_log_v;
+}
+log_format unmask_minimal '$msec site=$unmask_site_log kind=$bv_kind fc=$unmask_fc_log hp=$serve_bot_challenge ip=$remote_addr ja4=$unmask_ja4_log hpuri=$unmask_hp_uri_log bp=$unmask_bp_log scheme=$unmask_forwarded_proto cr=$unmask_cr_id{{ if .MonitorMode }} ob=$unmask_observe{{ end }}{{ if .RenderID }} rv={{ .RenderID }}{{ end }} pv=$unmask_preview_verified sb=$is_search_bot sfs=$unmask_sfs_log sfd=$unmask_sfd_log rh=$unmask_ref_host bv=$unmask_bv_log mo=$unmask_module_id ua=$http_user_agent';
 {{- if .NginxLogEnabled }}
 # if=$unmask_log_keep drops nginx.stats_exclude_ips from the dashboard feed.
 access_log syslog:server=unix:{{ .NginxLogSocket }} unmask_minimal if=$unmask_log_keep;
