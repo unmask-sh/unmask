@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
+	"syscall"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
@@ -46,7 +48,12 @@ func cmdBackup(args []string) error {
 	_ = fs.Parse(args)
 
 	say := func(f string, a ...any) { fmt.Printf("backup: "+f+"\n", a...) }
-	path, err := runBackup(context.Background(), *configPath, *out, time.Now(), say)
+	// Ctrl-C or a stop cancels the run, which then takes its partial files
+	// away (runBackup's work directory); a second signal ends it at once.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	go func() { <-ctx.Done(); stop() }()
+	path, err := runBackup(ctx, *configPath, *out, time.Now(), say)
 	if err != nil {
 		return fmt.Errorf("backup: %w", err)
 	}
@@ -107,20 +114,27 @@ func runBackup(ctx context.Context, configPath, outDir string, now time.Time, sa
 	stamp := now.UTC().Format("20060102-150405")
 	path := filepath.Join(outDir, "unmask-backup-"+stamp+".tar.gz")
 
+	// The work -- the archive under a temporary name, the database's
+	// snapshot -- happens in a directory only this user can enter (0700),
+	// next to the archive so the rename below stays on one file system.
+	// The snapshot used to go beside the archive at the umask's 0644: a
+	// copy of the database, every secret and address in it, readable by
+	// every local user, and left behind when the run stopped halfway (the
+	// database itself is 0640).  The directory goes when the run ends,
+	// complete or not.
+	work, err := os.MkdirTemp(outDir, ".unmask-backup-"+stamp+"-")
+	if err != nil {
+		return "", err
+	}
+	defer os.RemoveAll(work)
 	// Written under a temporary name and renamed when complete, so a run
 	// that stops halfway leaves no archive that looks whole.
-	tmp := path + ".tmp"
+	tmp := filepath.Join(work, "archive.tar.gz")
 	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
 	if err != nil {
 		return "", err
 	}
-	done := false
-	defer func() {
-		if !done {
-			f.Close()
-			os.Remove(tmp)
-		}
-	}()
+	defer f.Close()
 	gz := gzip.NewWriter(f)
 	tw := tar.NewWriter(gz)
 
@@ -149,14 +163,17 @@ func runBackup(ctx context.Context, configPath, outDir string, now time.Time, sa
 	case noSQLiteFile(s.DB):
 		say("database: %s does not exist yet; nothing to copy", s.DB.SQLitePath)
 	default:
-		// The snapshot goes next to the archive, not next to the database:
-		// SQLite refuses to write INTO an existing file, and a leftover from
-		// an earlier run would otherwise make every later run fail.
-		snap := filepath.Join(outDir, ".unmask-backup-"+stamp+".sqlite")
+		// The snapshot goes into the work directory, not next to the
+		// database: SQLite refuses to write INTO an existing file, and a
+		// leftover from an earlier run would otherwise make every later
+		// run fail.
+		snap := filepath.Join(work, "snapshot.sqlite")
 		if err := sqliteSnapshot(ctx, s.DB, snap); err != nil {
 			return "", fmt.Errorf("database snapshot: %w", err)
 		}
-		defer os.Remove(snap)
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
 		name := filepath.Base(s.DB.SQLitePath)
 		n, err := addFileToTar(tw, snap, name, now)
 		if err != nil {
@@ -177,10 +194,12 @@ func runBackup(ctx context.Context, configPath, outDir string, now time.Time, sa
 	if err := f.Close(); err != nil {
 		return "", err
 	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if err := os.Rename(tmp, path); err != nil {
 		return "", err
 	}
-	done = true
 	return path, nil
 }
 

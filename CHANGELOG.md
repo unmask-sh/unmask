@@ -86,6 +86,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **The package scripts no longer follow links the unmask user could plant.**  Running as root, the install script and the module placer (at every nginx start) changed owners and modes in, and wrote into, directories the daemon's user owns, following symbolic links: whoever took over the daemon could point one at a file of root's and have it handed over. Such links are now left alone.
 
+- (2026-11-11) **`unmask backup` no longer leaves a readable copy of the database behind.**  The database snapshot it archives was written next to the archive with the default permissions, readable by every local user, and stayed there when the run was interrupted. The work now happens in a directory only its user can open, which goes when the run ends, and Ctrl-C stops the run and clears it.
+
 ## [0.1.57-rc1] - 2026-11-11 (testing build)
 
 ### Added
