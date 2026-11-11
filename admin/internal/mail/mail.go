@@ -195,6 +195,9 @@ func sendSession(addr string, cfg Config, auth smtp.Auth, from, to string, msg [
 	if err != nil {
 		return fmt.Errorf("smtp dial: %w", err)
 	}
+	// The whole session, STARTTLS and DATA included, ends by this time
+	// (smtpSessionTimeout): the dial had a timeout and nothing after it did.
+	_ = conn.SetDeadline(time.Now().Add(smtpSessionTimeout))
 	c, err := smtp.NewClient(conn, cfg.Host)
 	if err != nil {
 		_ = conn.Close()
@@ -238,7 +241,23 @@ func sendSession(addr string, cfg Config, auth smtp.Auth, from, to string, msg [
 	if err := w.Close(); err != nil {
 		return fmt.Errorf("smtp close data: %w", err)
 	}
-	return c.Quit()
+	quitAfterAccepted(c)
+	return nil
+}
+
+// smtpSessionTimeout: how long one SMTP session may take, from the dial to
+// QUIT.  A relay that took the connection and then said nothing held an
+// invitation, a test send or the scheduled digest -- and its caller --
+// for as long as the connection lived.  A var for the tests.
+var smtpSessionTimeout = 60 * time.Second
+
+// quitAfterAccepted ends a session whose message the relay has accepted (the
+// DATA's final reply was positive): a QUIT that fails now is logged, not a
+// failed send, since sending again would deliver the message twice.
+func quitAfterAccepted(c *smtp.Client) {
+	if err := c.Quit(); err != nil {
+		log.Printf("mail: the relay accepted the message; QUIT then failed: %v", err)
+	}
 }
 
 // smtpDialer is the dialer of every SMTP session, under the outbound policy
@@ -256,6 +275,7 @@ func sendImplicitTLS(addr string, cfg Config, auth smtp.Auth, from, to string, m
 	if err != nil {
 		return fmt.Errorf("smtp tls dial: %w", err)
 	}
+	_ = conn.SetDeadline(time.Now().Add(smtpSessionTimeout))
 	c, err := smtp.NewClient(conn, cfg.Host)
 	if err != nil {
 		_ = conn.Close()
@@ -286,7 +306,8 @@ func sendImplicitTLS(addr string, cfg Config, auth smtp.Auth, from, to string, m
 	if err := w.Close(); err != nil {
 		return fmt.Errorf("smtp close data: %w", err)
 	}
-	return c.Quit()
+	quitAfterAccepted(c)
+	return nil
 }
 
 // headerValue makes a string safe to place after "Name: " in a mail header.
