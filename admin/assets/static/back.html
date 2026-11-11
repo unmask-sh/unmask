@@ -20,15 +20,17 @@ body{margin:0}
 // fetched with.  Step back only when the previous entry is that page; else go
 // to the page directly, the way a pass always left before.
 (function () {
-  var to = '/', mark = null;
+  var to = location.origin + '/', mark = null;
   try { mark = JSON.parse(sessionStorage.getItem('unmask_back') || 'null'); } catch (e) {}
   if (mark && typeof mark.to === 'string') {
     // Resolve against this origin and compare origins: the only check that
     // holds against what the URL parser does with the string (see
-    // challenge.js's _test_redirect).
+    // challenge.js's _test_redirect).  The destination is the absolute URL:
+    // a same-origin path can begin with "//", and location.replace reads
+    // such a path on its own as a link to another host.
     try {
       var u = new URL(mark.to, location.origin);
-      if (u.origin === location.origin) to = u.pathname + u.search;
+      if (u.origin === location.origin) to = u.origin + u.pathname + u.search;
     } catch (e) {}
   }
   try { paint(mark && mark.look); } catch (e) {}
@@ -42,7 +44,7 @@ body{margin:0}
     if (nav && nav.currentEntry && nav.entries) {
       var prev = nav.entries()[nav.currentEntry.index - 1];
       var pu = prev && prev.url ? new URL(prev.url) : null;
-      back = !!pu && pu.origin === location.origin && pu.pathname + pu.search === to;
+      back = !!pu && pu.origin === location.origin && pu.origin + pu.pathname + pu.search === to;
     }
   } catch (e) {}
   if (back) history.back(); else location.replace(to);

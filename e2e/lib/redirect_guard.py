@@ -46,6 +46,12 @@ OFF_SITE = [
     "//evil.example",      # the shape the old guard did catch
     "/%5cevil.example",    # backslash: an authority separator to a browser
     "https://evil.example/",
+    # Same-origin by the origin check, with a path that begins with "//" once
+    # resolved.  The page used to navigate to that path alone, which a browser
+    # reads as a link to evil.example.
+    "/.//evil.example/",   # dot segment  -> path //evil.example/
+    "/%2e//evil.example/", # the dot percent-encoded
+    BASE + "//evil.example/",
 ]
 
 failures = []

@@ -30,6 +30,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **A revoked admin session stays revoked.**  Every admin page and the setup wizard now make one account check: the wizard opened for the cookie of a deleted superadmin, and a lookup that failed kept any session -- a client could make it fail by hanging up on its own request. When the database does not answer, the request is refused and the session kept.
 
+- (2026-11-11) **A passed challenge never leaves the site.**  The page went on to the address it was opened at as a path alone, and a browser reads a path that begins with `//` as another site's address: a link to `https://site//other.example/` sent a visitor who passed the challenge to other.example. The page, its relay and the re-bind bounce now go on to the full address on the site.
+
 ## [0.1.57-rc1] - 2026-11-11 (testing build)
 
 ### Added

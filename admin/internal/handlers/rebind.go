@@ -641,7 +641,10 @@ func (h *Handler) logRebindReject(r *http.Request, site, ip, ja4, reason, lineag
 // the browser really is parked on a challenge/test URL (direct access), which
 // would otherwise re-enter this handler in a loop.  Mirrors challenge.js
 // passAndRedirect; same two-tier meta-refresh + location.replace shape as the
-// observe-only bounce.
+// observe-only bounce.  The script navigates to an absolute URL on this
+// origin: the browser's own path can begin with "//" (a page asked for as
+// https://site//other.example/x), and a path handed to location.replace on
+// its own is a link to another host.
 func (h *Handler) serveRebindRedirect(w http.ResponseWriter, origPath string) {
 	base := h.basePath()
 	origJSON, _ := json.Marshal(origPath)
@@ -653,11 +656,11 @@ func (h *Handler) serveRebindRedirect(w http.ResponseWriter, origPath string) {
 	body := []byte(`<!doctype html><meta charset=utf-8>` +
 		`<title>unmask: rebind</title>` + meta +
 		`<script>(function(){var o=` + string(origJSON) + `,b=` + string(baseJSON) + `,t;` +
-		`if(o){t=o}` +
+		`if(o){t=location.origin+o}` +
 		`else if(location.pathname.indexOf(b+"/challenge")===0||` +
 		`location.pathname.indexOf(b+"/test/")===0||` +
 		`location.pathname.indexOf(b+"/admin/test/")===0){t="/"}` +
-		`else{t=location.pathname+location.search}` +
+		`else{t=location.origin+location.pathname+location.search}` +
 		`try{location.replace(t)}catch(e){}})()</script>` +
 		`<noscript>redirecting...</noscript>`)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

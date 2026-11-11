@@ -805,17 +805,26 @@
       // The gate around this block is the challenge / test path, not a test
       // flag, so this runs on ordinary installs: a visitor who completes a
       // challenge at /unmask/challenge/?_test_redirect=... goes where it says.
+      //
+      // What navigates is the resolved URL itself (rt.href), never its path
+      // put back together: a same-origin URL can still have a path that
+      // begins with "//" -- "/.//evil.example" resolves to the path
+      // "//evil.example" -- and a path handed to location.replace on its own
+      // is a network-path reference, i.e. a link to another host.
       var target = '/';
       var qsRedir = u.searchParams.get('_test_redirect');
       if (qsRedir) {
         try {
           var rt = new URL(qsRedir, location.origin);
-          if (rt.origin === location.origin) target = rt.pathname + rt.search + rt.hash;
+          if (rt.origin === location.origin) target = rt.href;
         } catch (e) { /* unparseable -> "/" */ }
       }
       location.replace(target);
     } else if (!returnToArrival(u.pathname+u.search)) {
-      location.replace(u.pathname+u.search);
+      // The absolute URL for the same reason: a page asked for as
+      // https://site//other.example/x has the path "//other.example/x",
+      // which location.replace would read as a link to other.example.
+      location.replace(location.origin+u.pathname+u.search);
     }
   }
 
@@ -894,7 +903,7 @@
       // browser that keeps a no-store page whose cookies changed): go on to
       // the page as before.
       window.addEventListener('pageshow', function(e){
-        if (e.persisted) location.replace(to);
+        if (e.persisted) location.replace(location.origin + to);
       });
       location.replace('/unmask/static/back.html');
       return true;
