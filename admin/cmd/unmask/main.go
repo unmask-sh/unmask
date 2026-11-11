@@ -306,6 +306,13 @@ func cmdServe(args []string) error {
 		nginxlog.Release()
 		return err
 	}
+	// One serve per database, decided before any socket is touched
+	// (serve_lock.go).
+	releaseLock, err := lockServe(s)
+	if err != nil {
+		return err
+	}
+	defer releaseLock()
 	// Point the setup-token file at the resolved config's directory, so a
 	// relocated install or a second instance reads its OWN .setup-token rather
 	// than the hard-coded /etc/unmask one.  Package installs (config in
