@@ -384,6 +384,16 @@ func hostnameOK(label, name string) error {
 			return fmt.Errorf("%s: unexpected character %q", label, r)
 		}
 	}
+	// nginx takes a `*` as a whole first or last label only
+	// (*.example.com, www.example.*); anywhere else it refuses the
+	// configuration ("invalid server name or wildcard").
+	if n := strings.Count(name, "*"); n > 0 {
+		head := strings.HasPrefix(name, "*.") && len(name) > 2
+		tail := strings.HasSuffix(name, ".*") && len(name) > 2
+		if n > 1 || !(head || tail) {
+			return fmt.Errorf("%s: %q has a * nginx does not take -- only as the whole first or last label (*.example.com, www.example.*)", label, name)
+		}
+	}
 	return nil
 }
 
