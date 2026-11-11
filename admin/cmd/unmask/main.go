@@ -734,9 +734,7 @@ func cmdServe(args []string) error {
 		// URI is never auto-banned (a search crawler must never be blocked).
 		// The map-based whitelist this
 		// replaces saw only literal operator IPs, not presets or CIDRs.
-		banMgr.SetWhitelist(func(ip string) bool {
-			return nginxconf.NewIPBypassMatcher(h.SnapshotSettings().Nginx).Match(ip)
-		})
+		banMgr.SetWhitelist(h.BanBypassMatch)
 		// A CDN's origin-facing address (cdn package: the hub's list or the
 		// built-in snapshot, plus the operator's own ranges) gets no
 		// automatic ban: it is every customer of the CDN's, and a site

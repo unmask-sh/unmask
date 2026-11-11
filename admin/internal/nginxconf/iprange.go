@@ -232,7 +232,20 @@ var (
 	iprangeDiskStamp    time.Time // newest override-file mtime the cache reflects
 	iprangeCheckedAt    time.Time // last time the override dir was stat'ed
 	iprangeRecheckEvery = 2 * time.Second
+	// iprangeGen counts the loads: a matcher built from the ranges can tell
+	// it is out of date (IPRangeGeneration).
+	iprangeGen uint64
 )
+
+// IPRangeGeneration: a number that changes whenever the crawler ranges are
+// loaded again (a pull, an override file another process wrote).  A cache of
+// something built from them rebuilds when it moves.
+func IPRangeGeneration() uint64 {
+	loadAll()
+	iprangeMu.RLock()
+	defer iprangeMu.RUnlock()
+	return iprangeGen
+}
 
 // newestOverrideMtime: the newest mtime across the override dir's *.json
 // (snapshot-meta.json included -- the sync always rewrites it, so it advances
@@ -351,6 +364,7 @@ func loadAll() {
 	iprangeDiskStamp = newestOverrideMtime(overrideDir)
 	iprangeCheckedAt = time.Now()
 	iprangeLoaded = true
+	iprangeGen++
 }
 
 // parseCreationTime: a vendor JSON's creationTime, whose format varies
