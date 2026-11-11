@@ -34,6 +34,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **A request cannot write fields of its own into the access-log line.**  The daemon reads it field by field, and a Host header with spaces -- nginx before 1.21.1 accepts one -- could name a honeypot hit and an address to ban. The Host, a forwarded JA4 and the trap URL are now logged without spaces, and a line cut short is dropped unread. Reload nginx after upgrading.
 
+- (2026-11-11) **A Web Bot Auth or Privacy Pass header no longer skips the site's own checks.**  The verification detour counted any pass from the daemon's check as a verified credential, including the pass a proof-of-work cookie earns, so adding a junk `Signature-Input` or `PrivateToken` header skipped CAPTCHA-grade rules and the header checks. Only the daemon's answer for a verified signature or token counts now.
+
 ## [0.1.57-rc1] - 2026-11-11 (testing build)
 
 ### Added

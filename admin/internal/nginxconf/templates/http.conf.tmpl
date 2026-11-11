@@ -1686,12 +1686,17 @@ map "$unmask_has_signed_agent:$unmask_uri_is_unmask" $unmask_signed_gate {
 }
 
 # $unmask_signed_verified: "1" iff the daemon verified the signature AND the
-# operator is allowlisted (= X-Unmask-Action: pass).  Any other daemon answer
-# (challenge / block / unreachable) leaves it 0.
-map $unmask_signed_action $unmask_signed_verified {
+# operator is allowlisted: X-Unmask-Action "pass" for the reason
+# "signed_agent:<operator>".  The detour asks the whole forward-auth check,
+# which also answers "pass" for a pass cookie or a request no axis of its
+# own flags -- reasons that say nothing of the signature, and that know
+# nothing of the axes only this configuration judges (custom rules, the
+# header-integrity and UA-TLS tiers).  Any other answer (challenge / block /
+# unreachable) leaves it 0, and the native judgement stands.
+map "$unmask_signed_action:$unmask_signed_reason" $unmask_signed_verified {
     volatile;
-    "pass"   1;
-    default  0;
+    "~^pass:signed_agent:"  1;
+    default                 0;
 }
 {{ end }}
 {{ if .PrivacyPassEnabled }}
@@ -1716,11 +1721,14 @@ map "$unmask_has_pat:$unmask_uri_is_unmask" $unmask_pat_gate {
 }
 
 # $unmask_pat_verified: "1" iff the daemon verified the token against a trusted
-# issuer (= X-Unmask-Action: pass).  Any other answer leaves it 0.
-map $unmask_pat_action $unmask_pat_verified {
+# issuer: X-Unmask-Action "pass" for the reason "privacy_pass:<issuer>".  The
+# detour asks the whole forward-auth check, whose "pass" for a pass cookie or
+# for a request nothing it judges flagged says nothing of the token.  Any
+# other answer leaves it 0, and the native judgement stands.
+map "$unmask_pat_action:$unmask_pat_reason" $unmask_pat_verified {
     volatile;
-    "pass"   1;
-    default  0;
+    "~^pass:privacy_pass:"  1;
+    default                 0;
 }
 {{ end }}
 {{ if or .WebBotAuthEnabled .PrivacyPassEnabled }}

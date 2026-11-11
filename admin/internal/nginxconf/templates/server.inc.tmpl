@@ -187,16 +187,21 @@ if ($unmask_signed_gate = "1") {
 {{- end }}
 
 # Verification detour.  The auth_request consults admin /_unmask/check; its
-# X-Unmask-Action answer is captured into $unmask_signed_action.  EVERY
+# X-Unmask-Action and X-Unmask-Reason answers are captured into
+# $unmask_signed_action and $unmask_signed_reason.  EVERY
 # outcome then converges on @unmask_signed_continue, which re-enters the
 # original URI on the normal native flow:
-#   - verified + operator allowed  -> action "pass"   -> protect.inc's
+#   - verified + operator allowed  -> action "pass", reason
+#                                     "signed_agent:..." -> protect.inc's
 #     $final_challenge_eff sees $unmask_signed_verified=1 and skips the
 #     challenge (= the signed agent reaches the site's own content/proxy
 #     locations -- never served off this location's filesystem, which is
 #     what 404'd proxy sites before v0.1.2).
 #   - bad signature / not allowlisted -> 401/403       -> action stays unset
 #     or non-pass -> the normal challenge applies.
+#   - "pass" for any other reason (a pass cookie, nothing the check judges
+#     flagged) -> not verified -> the native judgement applies, the CAPTCHA
+#     grade and the axes only this configuration judges included.
 #   - daemon down / erroring          -> 5xx (incl. auth_request's "unexpected
 #     status" 500) -> same degradation: normal challenge, no raw 5xx leaks to
 #     the agent.
@@ -206,6 +211,7 @@ location ^~ /_unmask/_signed_route/ {
     internal;
     auth_request /_unmask/_signed_verify;
     auth_request_set $unmask_signed_action $upstream_http_x_unmask_action;
+    auth_request_set $unmask_signed_reason $upstream_http_x_unmask_reason;
     error_page 401 403 500 502 503 504 = @unmask_signed_continue;
     try_files /__unmask_signed_continue__ @unmask_signed_continue;
 }
@@ -270,16 +276,20 @@ if ($unmask_pat_gate = "1") {
 {{- end }}
 
 # Verification detour.  auth_request consults admin /_unmask/check; its
-# X-Unmask-Action answer is captured into $unmask_pat_action.  Every outcome
+# X-Unmask-Action and X-Unmask-Reason answers are captured into
+# $unmask_pat_action and $unmask_pat_reason.  Every outcome
 # converges on @unmask_pat_continue, which re-enters the original URI:
-#   - verified token from a trusted issuer -> action "pass" -> protect.inc's
+#   - verified token from a trusted issuer -> action "pass", reason
+#     "privacy_pass:..." -> protect.inc's
 #     $final_challenge_eff sees $unmask_pat_verified=1 and skips the challenge.
 #   - invalid / untrusted / no issuer match -> 401/403 -> normal challenge.
+#   - "pass" for any other reason -> not verified -> the native judgement.
 #   - daemon down / erroring -> 5xx -> normal challenge, no raw 5xx to the client.
 location ^~ /_unmask/_pat_route/ {
     internal;
     auth_request /_unmask/_pat_verify;
     auth_request_set $unmask_pat_action $upstream_http_x_unmask_action;
+    auth_request_set $unmask_pat_reason $upstream_http_x_unmask_reason;
     error_page 401 403 500 502 503 504 = @unmask_pat_continue;
     try_files /__unmask_pat_continue__ @unmask_pat_continue;
 }
