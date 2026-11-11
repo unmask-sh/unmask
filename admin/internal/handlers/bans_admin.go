@@ -961,6 +961,9 @@ func (h *Handler) AdminBansSave(w http.ResponseWriter, r *http.Request) {
 			redir(err.Error())
 			return
 		}
+		// The manual bans that defer to the default are enforced with
+		// the new one now: the file is written at once.
+		h.BanMgr.ActionsChanged()
 		if h.UserRepo != nil {
 			h.UserRepo.Record(r.Context(), pay.UserID, meUsername, "bans_save_defaults",
 				"", fmt.Sprintf(`{"manual":%q}`, manualAct))

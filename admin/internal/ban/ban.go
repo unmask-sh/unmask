@@ -157,6 +157,11 @@ type Manager struct {
 	// Read on every flush() so a settings change reflects on the next
 	// 60s tick without a manager restart.
 	actionResolver ActionResolver
+	// actionsWritten: what the resolver answered for each source when the
+	// file was last written (actionsFingerprint).  The tick compares it
+	// with what it answers now: a changed default action marks the file
+	// for writing.  Under mu.
+	actionsWritten string
 
 	// OnCreated: callback invoked when a ban is successfully added (= so
 	// notifier can stay decoupled).  Nil is fine.  Assigned by the caller
@@ -1042,6 +1047,47 @@ func (m *Manager) markDirty() {
 	m.mu.Unlock()
 }
 
+// actionSources: the sources a ban row can carry, whose default action the
+// resolver decides.
+var actionSources = []string{SourceHoneypot, SourceManual, SourceCrawlerForged, SourceProtectedFailed, SourceRateLimitAbuse}
+
+// actionsFingerprint: the resolver's answer for every source, as one string.
+func (m *Manager) actionsFingerprint() string {
+	m.mu.Lock()
+	resolver := m.actionResolver
+	m.mu.Unlock()
+	if resolver == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, src := range actionSources {
+		b.WriteString(src)
+		b.WriteByte('=')
+		b.WriteString(strings.TrimSpace(resolver(src)))
+		b.WriteByte(';')
+	}
+	return b.String()
+}
+
+// actionsChangedSinceWrite: the resolver answers otherwise than when the
+// file was last written.
+func (m *Manager) actionsChangedSinceWrite() bool {
+	fp := m.actionsFingerprint()
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return fp != m.actionsWritten
+}
+
+// ActionsChanged: a default action was just changed in the settings; the
+// file is written with it now, not at the next tick.
+func (m *Manager) ActionsChanged() {
+	if m == nil {
+		return
+	}
+	m.markDirty()
+	m.requestFlush()
+}
+
 // upsert: update on conflict by the unique key (ip + ja4).  clause.OnConflict
 // renders portably -- ON CONFLICT on sqlite, ON DUPLICATE KEY UPDATE on
 // mariadb -- so the prior two-branch driver switch collapses to one path.
@@ -1307,6 +1353,13 @@ func (m *Manager) loop() {
 						m.markDirty()
 					}
 				}
+				// A default action changed in the settings: the rows
+				// that defer to it are written with the new one.  Only
+				// a ban added or lifted marked the file before, so a
+				// changed default waited for the next one, however long.
+				if m.actionsChangedSinceWrite() {
+					m.markDirty()
+				}
 				if m.shouldFlush() && m.filePath != "" {
 					_ = m.flush()
 				}
@@ -1422,11 +1475,13 @@ func (m *Manager) flush() (err error) {
 	}
 	m.flushMu.Lock()
 	defer m.flushMu.Unlock()
+	fp := m.actionsFingerprint()
 	m.mu.Lock()
 	resolver := m.actionResolver
 	// A change from here on belongs to the next write: the loop's tick
 	// writes again if one comes in while this write is under way.
 	m.dirty = false
+	m.actionsWritten = fp
 	m.mu.Unlock()
 	defer func() {
 		if err != nil {
