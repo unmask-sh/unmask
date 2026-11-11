@@ -726,6 +726,9 @@ func (h *Handler) RequireRole(min string, next http.HandlerFunc) http.HandlerFun
 	}
 }
 
+// loginBodyMax: the most a login POST may carry (AdminLoginPost).
+const loginBodyMax = 64 << 10
+
 // isSuperadmin: the request's session is a superadmin's.
 func isSuperadmin(r *http.Request) bool {
 	pay := SessionFromContext(r)
@@ -1269,6 +1272,11 @@ func (h *Handler) AdminLoginGet(w http.ResponseWriter, r *http.Request) {
 // AdminLoginPost: POST {base}/admin/login — verify username + password, set cookie, then redirect.
 func (h *Handler) AdminLoginPost(w http.ResponseWriter, r *http.Request) {
 	base := h.cfg().Server.BasePath
+	// The form is a name, a password of at most user.MaxPasswordLen, a
+	// token and a return path: a body far past that is not one, and was
+	// read whole (10 MB) before anything looked at it.  Past the cap the
+	// form reads empty, and the token check below sends the page again.
+	r.Body = http.MaxBytesReader(w, r.Body, loginBodyMax)
 	ret := r.FormValue("return")
 	// Must be a local path (not "//" / "/\" = a protocol-relative off-site URL).
 	if !isLocalRedirect(ret) {

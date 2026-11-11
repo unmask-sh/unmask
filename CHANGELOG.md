@@ -74,6 +74,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **Changing your email address takes your current password.**  The address on the profile page is where a password reset goes, and it changed with the session alone, so whoever held a session could move the reset to an address of their own and set the password from there. The profile now asks for the current password when the address changes; the alert switch does not.
 
+- (2026-11-11) **A failed login can no longer write megabytes into the audit log.**  The login form was read up to 10 MB, and a failed attempt recorded the user name it carried, so one request could store a 3 MB name in a log kept for good. The form is now capped at 64 KB, and the audit cuts every name, action and target to its column.
+
 ## [0.1.57-rc1] - 2026-11-11 (testing build)
 
 ### Added

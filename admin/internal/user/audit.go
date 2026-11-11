@@ -15,7 +15,9 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 )
@@ -36,11 +38,16 @@ type AuditEntry struct {
 //
 // userID == 0 is anonymous (= login failure / bootstrap etc.).
 func (r *Repository) Record(ctx context.Context, userID int64, username, action, target, detailJSON string) {
-	row := db.UserAudit{Username: username, Action: action, At: time.Now()}
+	// The name, the action and the target fit their columns (64, 64 and 128
+	// characters): a failed login records the name it was sent, which a
+	// client chooses, and SQLite kept 3 MB of it in a row the audit keeps
+	// for good, while MariaDB refused the row outright.
+	row := db.UserAudit{Username: auditField(username, 64), Action: auditField(action, 64), At: time.Now()}
 	if userID > 0 {
 		row.UserID = &userID
 	}
 	if target != "" {
+		target = auditField(target, 128)
 		row.Target = &target
 	}
 	if detailJSON != "" {
@@ -181,4 +188,15 @@ func formatAt(v any) string {
 	default:
 		return ""
 	}
+}
+
+// auditField: s as valid UTF-8, cut to at most n characters with an
+// ellipsis as the last one when it was longer.
+func auditField(s string, n int) string {
+	s = strings.ToValidUTF8(s, "\uFFFD")
+	if utf8.RuneCountInString(s) <= n {
+		return s
+	}
+	r := []rune(s)
+	return string(r[:n-1]) + "…"
 }
