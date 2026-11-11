@@ -86,6 +86,17 @@ nginx_restart() {
 
 echo "### setup: the distribution's nginx ($FAM) ###"
 pkg_setup
+# When the archive's name did not resolve, once more through public
+# resolvers: on 2026-11-11 GitHub's runners stopped resolving *.ubuntu.com
+# inside containers for hours (AlmaLinux's and Alpine's mirrors resolved),
+# and the job failed before it reached a single unmask package.  Where names
+# resolve this never runs; where it runs, the resolvers stay for the rest of
+# the scenario, whose installs may need the archive too.
+if ! command -v nginx >/dev/null 2>&1 && grep -qiE 'resolv|lookup' /tmp/setup.log 2>/dev/null; then
+    echo "    the archive's name did not resolve; trying public resolvers (1.1.1.1, 9.9.9.9)"
+    printf 'nameserver 1.1.1.1\nnameserver 9.9.9.9\n' > /etc/resolv.conf
+    pkg_setup
+fi
 # The package manager's own words when the distribution's nginx did not come:
 # hidden, as they were, a failing mirror and a failing package looked alike.
 command -v nginx >/dev/null 2>&1 || { echo "FATAL: nginx missing; the package manager said:"; tail -n 25 /tmp/setup.log 2>/dev/null; exit 2; }
