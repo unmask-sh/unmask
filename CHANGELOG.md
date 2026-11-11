@@ -14,6 +14,38 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- (2026-11-11) **An empty or truncated crawler list from the hub no longer replaces the one in use.**  The search-crawler address lists were taken from the hub whatever their size, so an empty Googlebot list overwrote the ranges in use and the real crawler was challenged on every site. A list keeping less than half of the ranges in use is now refused, as the CDN and relay lists already were.
+
+- (2026-11-11) **A mail relay that stops answering no longer hangs the admin.**  Only connecting to the relay had a time limit, so a relay that accepted the connection and then said nothing held an invitation, a test send or the scheduled digest indefinitely. A session now ends after 60 seconds, and a message the relay accepted no longer counts as failed when the goodbye fails, which delivered it twice.
+
+- (2026-11-11) **A client hammering a trap URL no longer makes the access log drop lines.**  Each ban from the access log is checked against the crawler allowlist, which was rebuilt for every check -- some 4,700 ranges, about 5 ms -- so a stream of trap hits kept the log reader busy until lines were dropped. The list is now kept until the settings or the ranges change.
+
+- (2026-11-11) **Web Bot Auth fetches each operator's key directory once an hour, whatever the request says.**  The cache of key directories was keyed by the whole agent URL a request named, so changing its query fetched the operator's directory again on every request and grew the cache without end. It is now keyed by the operator's host, which is where the directory lives, and holds a bounded number of entries.
+
+- (2026-11-11) **`unmask db-prune -mode rebuild` no longer stops the hourly statistics or loses indexes.**  A rebuild that kept no row restarted the event ids at 1, below the hourly aggregate's position, so it skipped every new event while reporting itself current. One stopped while recreating indexes left them missing for good. Ids now continue, and the next rebuild finishes the indexes first; `unmask doctor` says when some are missing.
+
+### Security
+
+- (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.
+
+- (2026-11-11) **Changing your email address takes your current password.**  The address on the profile page is where a password reset goes, and it changed with the session alone, so whoever held a session could move the reset to an address of their own and set the password from there. The profile now asks for the current password when the address changes; the alert switch does not.
+
+- (2026-11-11) **A failed login can no longer write megabytes into the audit log.**  The login form was read up to 10 MB, and a failed attempt recorded the user name it carried, so one request could store a 3 MB name in a log kept for good. The form is now capped at 64 KB, and the audit cuts every name, action and target to its column.
+
+- (2026-11-11) **The package scripts no longer follow links the unmask user could plant.**  Running as root, the install script and the module placer (at every nginx start) changed owners and modes in, and wrote into, directories the daemon's user owns, following symbolic links: whoever took over the daemon could point one at a file of root's and have it handed over. Such links are now left alone.
+
+- (2026-11-11) **`unmask backup` no longer leaves a readable copy of the database behind.**  The database snapshot it archives was written next to the archive with the default permissions, readable by every local user, and stayed there when the run was interrupted. The work now happens in a directory only its user can open, which goes when the run ends, and Ctrl-C stops the run and clears it.
+
+- (2026-11-11) **The arithmetic fallback no longer hands a CAPTCHA-grade pass to an answer that reports no typing.**  A correct sum that came with no input events earns only a proof-of-work pass, since a script fills the field without typing, but an answer that left the evidence out entirely still got the full grade, so a script omitted it. A missing report now counts as none.
+
+## [0.1.57-rc2] - 2026-11-11 (testing build)
+
+### Since rc1
+
+- `unmask-nginx-external`, which rc1 brought for an nginx no package installed, is gone: the packages no longer require nginx, so nothing has to stand in for it. A host that installed it can remove it once rc2 is in.
+
 ### Added
 
 - (2026-11-11) **`unmask doctor` names the regex locations whose `$1` unmask empties.**  nginx resets `$1`..`$9` whenever a regex key of a map matches, and protect.inc evaluates unmask's maps first: with it in `location ~ ^/api/(.+)$`, `proxy_pass http://backend/$1` lost the path while `nginx -t` passed. The doctor lists such locations from `nginx -T`, and the README and protect.inc say to use a named capture instead.
@@ -56,16 +88,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **Paging through Bot hunt keeps every filter.**  The next and previous links dropped a custom date range, the forced-reason, network, Ref ID and site filters, so page 2 of a drill-down listed the whole window instead. A page past the deepest one the log is read to (offset 100,000) also jumped back to the first; it now stops at the deepest page.
 
-- (2026-11-11) **An empty or truncated crawler list from the hub no longer replaces the one in use.**  The search-crawler address lists were taken from the hub whatever their size, so an empty Googlebot list overwrote the ranges in use and the real crawler was challenged on every site. A list keeping less than half of the ranges in use is now refused, as the CDN and relay lists already were.
-
-- (2026-11-11) **A mail relay that stops answering no longer hangs the admin.**  Only connecting to the relay had a time limit, so a relay that accepted the connection and then said nothing held an invitation, a test send or the scheduled digest indefinitely. A session now ends after 60 seconds, and a message the relay accepted no longer counts as failed when the goodbye fails, which delivered it twice.
-
-- (2026-11-11) **A client hammering a trap URL no longer makes the access log drop lines.**  Each ban from the access log is checked against the crawler allowlist, which was rebuilt for every check -- some 4,700 ranges, about 5 ms -- so a stream of trap hits kept the log reader busy until lines were dropped. The list is now kept until the settings or the ranges change.
-
-- (2026-11-11) **Web Bot Auth fetches each operator's key directory once an hour, whatever the request says.**  The cache of key directories was keyed by the whole agent URL a request named, so changing its query fetched the operator's directory again on every request and grew the cache without end. It is now keyed by the operator's host, which is where the directory lives, and holds a bounded number of entries.
-
-- (2026-11-11) **`unmask db-prune -mode rebuild` no longer stops the hourly statistics or loses indexes.**  A rebuild that kept no row restarted the event ids at 1, below the hourly aggregate's position, so it skipped every new event while reporting itself current. One stopped while recreating indexes left them missing for good. Ids now continue, and the next rebuild finishes the indexes first; `unmask doctor` says when some are missing.
-
 ### Security
 
 - (2026-11-11) **Go 1.27.4 in the released binaries.**  The binaries of 0.1.54 to 0.1.56 were built with Go 1.27.3, whose HTTP/1 server can panic when a handler reads a body capped by `MaxBytesReader` while another goroutine sets a response header (GO-2026-6859).  unmask's handlers read such a body before they answer, so no route is known to reach it; go.mod now names Go 1.27.4, which the release and both container builds use.
@@ -77,18 +99,6 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-11-11) **A request cannot write fields of its own into the access-log line.**  The daemon reads it field by field, and a Host header with spaces -- nginx before 1.21.1 accepts one -- could name a honeypot hit and an address to ban. The Host, a forwarded JA4 and the trap URL are now logged without spaces, and a line cut short is dropped unread. Reload nginx after upgrading.
 
 - (2026-11-11) **A Web Bot Auth or Privacy Pass header no longer skips the site's own checks.**  The verification detour counted any pass from the daemon's check as a verified credential, including the pass a proof-of-work cookie earns, so adding a junk `Signature-Input` or `PrivateToken` header skipped CAPTCHA-grade rules and the header checks. Only the daemon's answer for a verified signature or token counts now.
-
-- (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.
-
-- (2026-11-11) **Changing your email address takes your current password.**  The address on the profile page is where a password reset goes, and it changed with the session alone, so whoever held a session could move the reset to an address of their own and set the password from there. The profile now asks for the current password when the address changes; the alert switch does not.
-
-- (2026-11-11) **A failed login can no longer write megabytes into the audit log.**  The login form was read up to 10 MB, and a failed attempt recorded the user name it carried, so one request could store a 3 MB name in a log kept for good. The form is now capped at 64 KB, and the audit cuts every name, action and target to its column.
-
-- (2026-11-11) **The package scripts no longer follow links the unmask user could plant.**  Running as root, the install script and the module placer (at every nginx start) changed owners and modes in, and wrote into, directories the daemon's user owns, following symbolic links: whoever took over the daemon could point one at a file of root's and have it handed over. Such links are now left alone.
-
-- (2026-11-11) **`unmask backup` no longer leaves a readable copy of the database behind.**  The database snapshot it archives was written next to the archive with the default permissions, readable by every local user, and stayed there when the run was interrupted. The work now happens in a directory only its user can open, which goes when the run ends, and Ctrl-C stops the run and clears it.
-
-- (2026-11-11) **The arithmetic fallback no longer hands a CAPTCHA-grade pass to an answer that reports no typing.**  A correct sum that came with no input events earns only a proof-of-work pass, since a script fills the field without typing, but an answer that left the evidence out entirely still got the full grade, so a script omitted it. A missing report now counts as none.
 
 ## [0.1.57-rc1] - 2026-11-11 (testing build)
 
