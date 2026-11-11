@@ -88,8 +88,10 @@ func TestMathAnswerWithoutInputEventsIsDowngraded(t *testing.T) {
 	}
 }
 
-// A typed answer keeps the full grade, and so does a client too old to report
-// evidence at all -- an upgrade must not strand anyone mid-answer.
+// A typed answer keeps the full grade.  One that reports no evidence field at
+// all is downgraded like a zero: the absent field was kept at full grade for
+// a page cached from before iv shipped, and a script left it out to collect
+// a CAPTCHA-grade pass.
 func TestMathAnswerWithEvidenceKeepsCaptchaGrade(t *testing.T) {
 	h := newTestHandler(t)
 
@@ -108,13 +110,13 @@ func TestMathAnswerWithEvidenceKeepsCaptchaGrade(t *testing.T) {
 	const legacyIP = "203.0.113.11"
 	ans2, token2, ct2 := mathAnswerFor(t, h, legacyIP)
 	res2, out2 := postMath(t, h, legacyIP, map[string]any{
-		"answer": ans2, "token": token2, "ct": ct2, // no iv/dt: a page cached from before this shipped
+		"answer": ans2, "token": token2, "ct": ct2, // no iv/dt
 	})
-	if fmt.Sprint(out2["ok"]) != "1" || out2["downgraded"] != nil {
-		t.Fatalf("a client that reports no evidence field must keep the old behavior, got %v", out2)
+	if fmt.Sprint(out2["ok"]) != "1" || fmt.Sprint(out2["downgraded"]) != "1" {
+		t.Fatalf("an answer with no evidence field must pass downgraded, got %v", out2)
 	}
-	if k := bvKindFrom(t, res2); k != "captcha" {
-		t.Errorf("legacy client cookie kind = %q, want captcha", k)
+	if k := bvKindFrom(t, res2); k != "pow" {
+		t.Errorf("no-evidence cookie kind = %q, want pow", k)
 	}
 }
 

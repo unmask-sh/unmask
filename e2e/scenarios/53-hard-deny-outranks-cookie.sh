@@ -44,7 +44,7 @@ ct=$(echo "$new" | grep -oE '"ct":"[^"]+"' | sed -E 's/.*"ct":"([^"]+)".*/\1/')
 [ -n "$a" ] && [ -n "$b" ] && [ -n "$token" ] || { log_fail "captcha new failed: $new"; exit 1; }
 verify=$(curl -sk -A "$UA_BROWSER" -H "X-Forwarded-For: $CLIENT_IP" -c "$ck" \
     -H 'Content-Type: application/json' \
-    -d "{\"token\":\"$token\",\"answer\":\"$((a + b))\",\"ct\":\"$ct\",\"pow\":\"$(captcha_page_pow "$pct")\"}" \
+    -d "{\"iv\":2,\"dt\":3000,\"token\":\"$token\",\"answer\":\"$((a + b))\",\"ct\":\"$ct\",\"pow\":\"$(captcha_page_pow "$pct")\"}" \
     "${BASE_URL}/unmask/api/verify")
 assert_in '"ok":1' "$verify" "captcha verify issues a pass cookie" || exit 1
 grep -q '_bv' "$ck" || { log_fail "no _bv in the cookie jar"; exit 1; }

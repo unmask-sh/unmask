@@ -154,7 +154,7 @@ ct=$(printf '%s' "$new" | grep -oE '"ct":"[^"]+"' | sed -E 's/.*"ct":"([^"]+)".*
 BVC=""
 if [ -n "$a" ] && [ -n "$b" ] && [ -n "$token" ]; then
     verify=$(curl -sk --max-time 8 -A "$UA_BROWSER" -H "X-Forwarded-For: $IP1" -c "$WORK/jar" -H 'Content-Type: application/json' \
-        -d "{\"token\":\"$token\",\"answer\":\"$((a + b))\",\"ct\":\"$ct\",\"pow\":\"$(captcha_page_pow "$pct")\"}" "${BASE_URL}/unmask/api/verify")
+        -d "{\"iv\":2,\"dt\":3000,\"token\":\"$token\",\"answer\":\"$((a + b))\",\"ct\":\"$ct\",\"pow\":\"$(captcha_page_pow "$pct")\"}" "${BASE_URL}/unmask/api/verify")
     assert_in '"ok":1' "$verify" "the CAPTCHA is solved"
     BVC=$(awk '$6 == "_bv" {print $7}' "$WORK/jar")
 fi

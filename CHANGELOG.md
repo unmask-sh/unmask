@@ -88,6 +88,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **`unmask backup` no longer leaves a readable copy of the database behind.**  The database snapshot it archives was written next to the archive with the default permissions, readable by every local user, and stayed there when the run was interrupted. The work now happens in a directory only its user can open, which goes when the run ends, and Ctrl-C stops the run and clears it.
 
+- (2026-11-11) **The arithmetic fallback no longer hands a CAPTCHA-grade pass to an answer that reports no typing.**  A correct sum that came with no input events earns only a proof-of-work pass, since a script fills the field without typing, but an answer that left the evidence out entirely still got the full grade, so a script omitted it. A missing report now counts as none.
+
 ## [0.1.57-rc1] - 2026-11-11 (testing build)
 
 ### Added

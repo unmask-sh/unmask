@@ -2928,9 +2928,8 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		Answer json.RawMessage `json:"answer"`
 		// IV / DT: liveness evidence for the typed math answer -- how many
 		// input events the answer field saw, and how long the visitor took.
-		// Pointers so "the client never reported this" (a challenge page
-		// cached from before this shipped) stays distinguishable from "the
-		// client reported zero", which is the machine tell.
+		// Pointers so "the client never reported this" can be told from
+		// zero; both are taken for no evidence (see the downgrade below).
 		IV            *int            `json:"iv"`
 		DT            *int            `json:"dt"`
 		Sig           *captcha.Signal `json:"sig"`
@@ -3161,10 +3160,12 @@ func (h *Handler) VerifyJSON(w http.ResponseWriter, r *http.Request) {
 		// CAPTCHA -- a protected path, or a geo / ASN rule.  Those are exactly
 		// the populations the fallback was being used to walk past.
 		//
-		// Absent fields mean a challenge page cached from before this shipped;
-		// those keep the full grade so an upgrade never strands anyone
-		// mid-answer.
-		downgraded := payload.IV != nil && *payload.IV == 0
+		// An answer that reports no evidence at all counts as zero.  The
+		// absent field used to mean a challenge page cached from before iv
+		// shipped (2026-08), and kept the full grade; a page that old is long
+		// gone, and a script that left the field out walked past every gate
+		// that asks for a CAPTCHA.
+		downgraded := payload.IV == nil || *payload.IV == 0
 		issueKind := grade
 		if downgraded {
 			issueKind = "pow"
