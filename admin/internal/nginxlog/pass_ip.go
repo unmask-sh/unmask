@@ -145,12 +145,8 @@ func (r *Reader) bumpPassAt(site, host, ip, ja4, ua, bv, kind string, judged boo
 		name = bv
 	}
 	id := passID(name)
-	if len(ua) > cookieIPUAMax {
-		ua = ua[:cookieIPUAMax]
-	}
-	if len(ja4) > passJA4Width {
-		ja4 = ja4[:passJA4Width]
-	}
+	ua = fitColumn(ua, cookieIPUAMax)
+	ja4 = fitColumn(ja4, passJA4Width)
 	// The observer hears of a pass's first sight on its own, after the lock
 	// is dropped: it may place a ban, which is no work for the lock.
 	if r.bumpPassLocked(site, ip, ja4, ua, id, judged, now) && verified && observe != nil {

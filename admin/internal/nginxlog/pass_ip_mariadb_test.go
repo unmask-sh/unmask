@@ -3,6 +3,7 @@ package nginxlog
 import (
 	"os"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -76,5 +77,52 @@ func TestMariaDB_PassIPUpsert(t *testing.T) {
 	want = passRow{cookies: 2, ja4s: 2, cnt: 4, judged: 3, peak: 2, ja4: "t13d_a", ua: "UA-A"}
 	if got != want {
 		t.Fatalf("after a restart: %+v, want %+v", got, want)
+	}
+}
+
+// TestMariaDB_FlushTakesAUserAgentOfAnyBytes: a User-Agent that is not
+// UTF-8, and one a cut at 255 bytes would end inside a character, are
+// written -- and with them the rest of the minute's flush.  MariaDB refuses
+// a string that is not UTF-8 ("Incorrect string value"), which rolls the
+// whole transaction back; the rows return to memory and are tried again a
+// minute later, the same value among them, so one such request stopped the
+// per-minute tables until the daemon was restarted.  In forward-auth mode
+// the value is the request's own header.
+func TestMariaDB_FlushTakesAUserAgentOfAnyBytes(t *testing.T) {
+	r, d := mariadbReader(t)
+	const site = "nginxlog-mariadb-ua"
+	for _, q := range []string{
+		`DELETE FROM unmask_cookie_ip_minute WHERE site = '` + site + `'`,
+		`DELETE FROM unmask_pass_ip_day WHERE site = '` + site + `'`,
+	} {
+		if _, err := d.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	uas := map[string]string{
+		"203.0.113.21": "curl/8\xff\xfe.0",                              // not UTF-8
+		"203.0.113.22": strings.Repeat("a", 254) + "あいう",                // a character across byte 255
+		"203.0.113.23": "Mozilla/5.0 (plain)",                           // rides in the same flush
+		"203.0.113.24": strings.Repeat("\xe3\x81", 200),                 // nothing but halves of characters
+		"203.0.113.25": "Mozilla/5.0 " + strings.Repeat("あ", 300) + "z", // wide characters past the width
+	}
+	now := time.Now()
+	for ip, ua := range uas {
+		r.BumpCookieIP(site, ip, strings.Repeat("j", 64), ua, "pow")
+		r.bumpPassAt(site, "s1.example", ip, strings.Repeat("j", 64), ua, "1785943030.pow2.aaaa.0", "pow", true, now)
+	}
+	r.flushOnce(true)
+	for _, table := range []string{"unmask_cookie_ip_minute", "unmask_pass_ip_day"} {
+		var n int
+		if err := d.QueryRow(`SELECT COUNT(*) FROM ` + table + ` WHERE site = '` + site + `'`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		if n != len(uas) {
+			t.Errorf("%s: %d of the flush's %d rows were written", table, n, len(uas))
+		}
+	}
+	var plain string
+	if err := d.QueryRow(`SELECT ua FROM unmask_cookie_ip_minute WHERE site = '` + site + `' AND ua LIKE 'Mozilla/5.0 (plain)'`).Scan(&plain); err != nil {
+		t.Errorf("the plain User-Agent that rode in the same flush was not written: %v", err)
 	}
 }

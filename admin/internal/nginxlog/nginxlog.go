@@ -67,6 +67,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/unmask-sh/unmask/admin/internal/db"
 	"github.com/unmask-sh/unmask/admin/internal/events"
@@ -1440,6 +1441,34 @@ func (r *Reader) BumpCountry(site, ip, kind string) {
 // mirroring parse()'s site truncation.
 const cookieIPUAMax = 255
 
+// fitColumn makes s a value a utf8mb4 column of n characters takes: bytes
+// that are not UTF-8 are dropped, and what lies past n characters is cut, on
+// a character.
+//
+// The User-Agent was cut at 255 bytes, which can fall inside a character,
+// and in forward-auth mode it is the request's own header, which can hold
+// any bytes at all (in module mode nginx has escaped them in the log line).
+// MariaDB refuses such a string, and with it the transaction it rides in --
+// the whole minute's flush.  The rows go back into memory and are tried
+// again the next minute, with the same value among them: one request, and
+// the per-minute tables stood still until the daemon was restarted.
+func fitColumn(s string, n int) string {
+	if !utf8.ValidString(s) {
+		s = strings.ToValidUTF8(s, "")
+	}
+	if len(s) <= n {
+		return s // within n bytes is within n characters
+	}
+	chars := 0
+	for i := range s {
+		if chars == n {
+			return s[:i]
+		}
+		chars++
+	}
+	return s
+}
+
 // cookieIPKinds: the _bv kinds whose reuse is ranked per IP.  Deliberately not
 // every value $bv_kind can take: "challenge_served" is a challenge being shown
 // (which does write an unmask_event row, so hunt already sees it) and "" is no
@@ -1471,9 +1500,8 @@ func (r *Reader) bumpCookieIP(site, ip, ja4, ua, kind string, judged bool) {
 	if r == nil || r.d == nil || !cookieIPKinds(kind) || ip == "" {
 		return
 	}
-	if len(ua) > cookieIPUAMax {
-		ua = ua[:cookieIPUAMax]
-	}
+	ua = fitColumn(ua, cookieIPUAMax)
+	ja4 = fitColumn(ja4, passJA4Width)
 	now := time.Now().Unix()
 	key := cookieIPKey{minute: now / 60, site: site, ip: ip, kind: kind}
 	r.mu.Lock()
