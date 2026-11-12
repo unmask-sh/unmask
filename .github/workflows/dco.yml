@@ -1,0 +1,42 @@
+# dco: every commit of a pull request carries its author's Signed-off-by.
+#
+# CONTRIBUTING.md asks for the trailer (the Developer Certificate of Origin)
+# on each commit of a contribution, and nothing looked: a pull request
+# without it would have been merged as readily as one with.  This reads the
+# pull request's commits from the API and fails with the list of the ones
+# that lack the line, and how to add it (tools/check-dco.sh).
+#
+# What it runs is the base branch's copy of the script, not the pull
+# request's: a contribution cannot edit the check it is held to.  Nothing of
+# the pull request's code is checked out or run, and the token reads only.
+name: dco
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: dco-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  signed-off:
+    timeout-minutes: 5
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          sparse-checkout: tools/check-dco.sh
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: every commit is signed off by its author
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh api --paginate "repos/$REPO/pulls/$PR/commits" | sh tools/check-dco.sh

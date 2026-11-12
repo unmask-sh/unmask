@@ -49,6 +49,10 @@ jobs:
         run: |
           ./tools/check-public-text.sh --self-test
           ./tools/check-public-text.sh
+      # The pull-request check for sign-offs (dco.yml) runs this script on a
+      # stranger's commit messages; its own cases are run here, on every push.
+      - name: the sign-off check reads commits as it should
+        run: sh tools/check-dco.sh --self-test
       # The package scripts are shell that the package manager runs as root,
       # out of reach of every Go test.  These run them for real against a
       # throwaway root: the daemon's (re)start per init system and packager,

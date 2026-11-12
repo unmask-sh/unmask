@@ -143,9 +143,13 @@ Exceptions (preserved as Japanese):
 
 ## Developer Certificate of Origin (DCO)
 
-Every commit must carry a `Signed-off-by:` trailer that asserts you have
-the right to submit the change under the project's license.  We follow
-the [Developer Certificate of Origin 1.1](https://developercertificate.org/).
+Every commit of a pull request must carry a `Signed-off-by:` trailer that
+asserts you have the right to submit the change under the project's
+license.  We follow the
+[Developer Certificate of Origin 1.1](https://developercertificate.org/).
+A check on the pull request (`dco`) reads its commits and names any that
+lack the line; the address in it has to be the commit author's.  Merge
+commits and the dependency bot's commits are not asked.
 
 The trailer is one line at the bottom of the commit message:
 

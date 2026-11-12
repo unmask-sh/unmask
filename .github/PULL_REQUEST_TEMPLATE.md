@@ -6,6 +6,7 @@ Thanks for the contribution.  A few notes:
   nginx upstream style, challenge.js is plain ES5-compatible JavaScript.
 - Update CHANGELOG.md under [Unreleased] (= or the active release section).
 - Run `go test -timeout 20m ./...` from admin/ before submitting.
+- Sign off each commit (`git commit -s`): the `dco` check reads them.
 - See CONTRIBUTING.md for the full guidelines.
 -->
 
