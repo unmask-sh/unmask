@@ -22,6 +22,9 @@ const (
 	m = 1 << p // 1024 registers
 	// Size is the on-disk / in-memory byte length of a sketch.
 	Size = m
+	// maxRank is the largest value Add can put in a register: the sentinel
+	// bit bounds the leading zeros at 64-p.
+	maxRank = 64 - p + 1
 )
 
 // Sketch is a HyperLogLog register array.  The zero value is a valid empty
@@ -62,6 +65,13 @@ func (s *Sketch) Estimate() int {
 	sum := 0.0
 	zeros := 0
 	for _, r := range s {
+		// A register no Add can have written -- a stored row gone wrong --
+		// is read as the largest one can.  Left as it is, a value of 64 or
+		// more shifts the one out of the word: the term is 1/0, the sum is
+		// infinite, and every window the row is merged into estimates 0.
+		if r > maxRank {
+			r = maxRank
+		}
 		sum += 1.0 / float64(uint64(1)<<r)
 		if r == 0 {
 			zeros++
@@ -73,6 +83,12 @@ func (s *Sketch) Estimate() int {
 	// empty.  The 64-bit hash makes the large-range correction unnecessary.
 	if est <= 2.5*float64(m) && zeros > 0 {
 		est = float64(m) * math.Log(float64(m)/float64(zeros))
+	}
+	// Registers that are all at the top give a figure past what an int
+	// holds, and the conversion of such a float is not defined (it came out
+	// negative).  No count of clients is near this bound.
+	if est > 1<<53 {
+		return 1 << 53
 	}
 	return int(est + 0.5)
 }

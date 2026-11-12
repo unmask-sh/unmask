@@ -16,6 +16,9 @@ import (
 const (
 	hllP = 10
 	hllM = 1 << hllP // 1024 registers
+	// hllMaxRank is the largest value add can put in a register: the
+	// sentinel bit bounds the leading zeros at 64-p.
+	hllMaxRank = 64 - hllP + 1
 )
 
 type hll [hllM]byte
@@ -54,6 +57,13 @@ func (h *hll) estimate() int {
 	sum := 0.0
 	zeros := 0
 	for _, r := range h {
+		// A register no add can have written -- a stored row gone wrong --
+		// is read as the largest one can.  Left as it is, a value of 64 or
+		// more shifts the one out of the word: the term is 1/0, the sum is
+		// infinite, and every window the row is merged into estimates 0.
+		if r > hllMaxRank {
+			r = hllMaxRank
+		}
 		sum += 1.0 / float64(uint64(1)<<r)
 		if r == 0 {
 			zeros++
@@ -65,6 +75,12 @@ func (h *hll) estimate() int {
 	// empty. The 64-bit hash makes the large-range correction unnecessary.
 	if est <= 2.5*float64(hllM) && zeros > 0 {
 		est = float64(hllM) * math.Log(float64(hllM)/float64(zeros))
+	}
+	// Registers that are all at the top give a figure past what an int
+	// holds, and the conversion of such a float is not defined (it came out
+	// negative).  No count of clients is near this bound.
+	if est > 1<<53 {
+		return 1 << 53
 	}
 	return int(est + 0.5)
 }

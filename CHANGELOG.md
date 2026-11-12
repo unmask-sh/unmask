@@ -40,6 +40,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **A malformed AI answer can no longer exhaust the daemon's memory.**  The advisor built a streamed answer in a list sized by a number the provider sends; one event naming a block index in the billions made the daemon allocate tens of gigabytes. A message now holds at most 256 blocks, and a failure while reading one review batch ends that batch, not the daemon.
 
+- (2026-11-12) **One damaged statistics row no longer zeroes the unique-visitor figures.**  The unique-client counts are kept as sketches that merge over time. A stored sketch with a single out-of-range byte made the estimate of every window it was merged into come out as 0, for as long as the row was kept. Such a byte is now read as the largest valid value.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.

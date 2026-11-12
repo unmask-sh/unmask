@@ -115,3 +115,36 @@ func TestHashIsStableAcrossProcesses(t *testing.T) {
 		t.Fatal("the same key produced a different sketch")
 	}
 }
+
+// TestOutOfRangeRegisterDoesNotZeroTheEstimate: a stored sketch with a
+// register no Add can write (the largest is maxRank) -- one byte of one row
+// gone wrong -- used to turn every window it was merged into to an estimate
+// of 0: a register of 64 or more shifts the one out of the word and the
+// harmonic sum becomes infinite.  It is read as the largest valid register,
+// which moves the estimate by about a thousandth.
+func TestOutOfRangeRegisterDoesNotZeroTheEstimate(t *testing.T) {
+	var good Sketch
+	for i := 0; i < 50000; i++ {
+		good.Add([]byte(fmt.Sprintf("10.%d.%d.%d", i>>16, (i>>8)&255, i&255)))
+	}
+	want := good.Estimate()
+	for _, r := range []byte{maxRank + 1, 63, 64, 200, 255} {
+		bad := make([]byte, Size)
+		bad[17] = r
+		merged := good
+		merged.Merge(Load(bad))
+		got := merged.Estimate()
+		if diff := float64(got-want) / float64(want); diff < -0.01 || diff > 0.01 {
+			t.Errorf("merged with a row whose register reads %d: estimate %d, want about %d", r, got, want)
+		}
+	}
+	// A sketch made of nothing but such registers still estimates a number:
+	// a large one, not the negative an overflowing conversion gave.
+	var all Sketch
+	for i := range all {
+		all[i] = 255
+	}
+	if got := all.Estimate(); got != 1<<53 {
+		t.Errorf("a sketch of out-of-range registers estimates %d, want the bound %d", got, 1<<53)
+	}
+}
