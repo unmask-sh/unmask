@@ -119,8 +119,19 @@ function handle_request(r)
         -- visitor originally tried as _orig: the daemon resolves a protected
         -- path's per-path screen (pow / captcha / strict) from it, and the
         -- hunt page shows it as the original URL.
-        r.headers_out["Location"] = "/unmask/challenge/?_orig="
-            .. r:escape(r.unparsed_uri or r.uri or "/")
+        --
+        -- _return is where the visitor goes once the challenge is passed.
+        -- nginx serves the challenge at the page's own address and the page
+        -- loads again in its place; here the browser is at /unmask/challenge/,
+        -- and without _return a pass landed on the site's top page, whatever
+        -- had been asked for.  For a GET only: what a form was posted to is
+        -- not a page to load.
+        local orig = r:escape(r.unparsed_uri or r.uri or "/")
+        local loc = "/unmask/challenge/?_orig=" .. orig
+        if r.method == "GET" then
+            loc = loc .. "&_return=" .. orig
+        end
+        r.headers_out["Location"] = loc
         return 302
     end
     -- unknown → fail open.

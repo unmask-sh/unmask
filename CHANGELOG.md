@@ -76,6 +76,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **Forward-auth on MariaDB: one odd User-Agent no longer stops the statistics.**  The per-address counters cut the User-Agent at 255 bytes, which can end inside a character, and took the header's bytes as sent. MariaDB refused such a value and the whole per-minute write with it, every minute, until the daemon was restarted. Values are now stored as valid text within the column's width.
 
+- (2026-11-12) **Apache: a visitor who passes the challenge now lands on the page they asked for.**  With the Apache snippet the challenge is reached by a redirect, and after a pass the visitor was sent to the site's top page whatever link they had followed. To get the fix, copy this release's `apache-unmask.lua` over your `unmask.lua` again, as at install.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.

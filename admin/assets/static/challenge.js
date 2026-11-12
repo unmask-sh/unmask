@@ -784,9 +784,7 @@
     // site-id parser at the top of this file over whether a site segment may
     // contain dots.  /unmask/challenge/ itself is back to exactly one shape,
     // and anything under /test/ is by definition not an original page.
-    if (u.pathname === '/unmask/challenge.html' ||
-        /^\/unmask\/challenge\/?$/.test(u.pathname) ||
-        /^\/unmask\/(admin\/)?test(\/|$)/.test(u.pathname)) {
+    if (ownPage(u.pathname)) {
       // Test-only override: ?_test_redirect=PATH (same-origin only).  Empty
       // or off-site falls back to "/".
       //
@@ -818,6 +816,26 @@
           var rt = new URL(qsRedir, location.origin);
           if (rt.origin === location.origin) target = rt.href;
         } catch (e) { /* unparseable -> "/" */ }
+      } else {
+        // _return: the page the visitor asked for, from a dispatcher that
+        // sent the browser here instead of serving the challenge at the
+        // page's own address -- the Apache snippet answers with a redirect.
+        // Without it a pass on that setup landed on the site's top page,
+        // whatever had been asked for.  Read as _test_redirect is, through
+        // the parser and on this origin only; and never one of this page's
+        // own addresses, which would be another challenge on every pass.
+        //
+        // _orig is not it, though it carries the same URL there: the JSON
+        // answer to an API call names /unmask/challenge/?_orig=<the API's
+        // path> as the page to send the visitor to, and that path is not a
+        // page to load.
+        var back = u.searchParams.get('_return');
+        if (back) {
+          try {
+            var bt = new URL(back, location.origin);
+            if (bt.origin === location.origin && !ownPage(bt.pathname)) target = bt.href;
+          } catch (e) { /* unparseable -> "/" */ }
+        }
       }
       location.replace(target);
     } else if (!returnToArrival(u.pathname+u.search)) {
@@ -871,6 +889,15 @@
   //     is already stopped twice: it loaded as "back_forward", and the relay
   //     is still ahead of it in history, so a push adds no entry.  The mark
   //     is the last stop, for a browser that gets both of those wrong.
+  // ownPage: a path that is this page's own (the challenge, the test
+  // subtree) and not a page of the site -- there is no "original page" behind
+  // it, and loading it again serves another challenge.
+  function ownPage(path){
+    return path === '/unmask/challenge.html' ||
+           /^\/unmask\/challenge\/?$/.test(path) ||
+           /^\/unmask\/(admin\/)?test(\/|$)/.test(path);
+  }
+
   function returnToArrival(to){
     try {
       if (!window.UNMASK || window.UNMASK.step_back !== 1) return false;
