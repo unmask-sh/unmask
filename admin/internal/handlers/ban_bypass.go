@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"net/netip"
 	"sync"
 	"time"
 
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
+	"github.com/unmask-sh/unmask/admin/internal/relay"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
 
@@ -39,4 +41,25 @@ func (h *Handler) BanBypassMatch(ip string) bool {
 	m := banBypassM
 	banBypassMu.Unlock()
 	return m.Match(ip)
+}
+
+// BanSharedExit: the relay ip is a shared exit of -- iCloud Private Relay, a
+// secure web gateway: the relay list, while it is in use (relay.Active) --
+// for the ban manager, which places no automatic ban on such an address
+// (ban.Manager.SetSharedExit).  Everyone the relay sends out through the
+// address shares it: one visitor's request to a trap banned them all.
+func (h *Handler) BanSharedExit(ip string) (string, bool) {
+	t := relay.Active()
+	if t == nil {
+		return "", false
+	}
+	a, err := netip.ParseAddr(ip)
+	if err != nil {
+		return "", false
+	}
+	hit, ok := t.Lookup(a)
+	if !ok {
+		return "", false
+	}
+	return relay.Name(hit.Relay), true
 }

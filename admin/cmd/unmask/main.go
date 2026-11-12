@@ -765,6 +765,11 @@ func cmdServe(args []string) error {
 			}
 			return cdn.Match(ip, cdn.ParsePrefixes(n.CDNEgressExtra))
 		})
+		// A relay's exit (iCloud Private Relay, a secure web gateway) is
+		// shared by everyone the relay sends out through it: no automatic
+		// ban there either.  The relay list, read live (its switch in
+		// settings > IP geo turns this off with it).
+		banMgr.SetSharedExit(h.BanSharedExit)
 		// Native-mode honeypot auto-ban: record which trap URL was hit (= hpuri
 		// from the access-log line) as the reason, AND resolve the matched rule's
 		// per-preset / per-URL action so it is pinned onto the ban's action

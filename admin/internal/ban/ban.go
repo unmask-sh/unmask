@@ -145,6 +145,14 @@ type Manager struct {
 	// operator put it there (banned_by).  Injected by the admin like
 	// whitelistFn, reading the live settings; nil = no address is one.
 	egressFn func(ip string) (string, bool)
+	// sharedExitFn reports the relay an address is a shared exit of (iCloud
+	// Private Relay, a secure web gateway: the relay list), or "" and false.
+	// Everyone the relay sends out through the address shares it, so no
+	// automatic ban is placed on it either -- one visitor's request to a
+	// trap would ban them all.  Unlike a CDN's egress, a ban that is there
+	// already stays in force until it expires, and an operator's own ban is
+	// placed as ever.  Injected by the admin; nil = no address is one.
+	sharedExitFn func(ip string) (string, bool)
 	// egressSkipped: the active rows the last flush left out of the file
 	// for sitting on a CDN egress (EgressSkipped, for the pages).
 	egressSkipped int
@@ -199,7 +207,9 @@ type Manager struct {
 	// a minute, not one a hit).  Under mu.
 	keptLoggedAt   time.Time
 	egressLoggedAt time.Time
-	skip64LoggedAt time.Time // escalate64: a /64 withheld for a bypass range, once a minute
+	// sharedExitLoggedAt: the same once-a-minute clock for sharedExitLog.
+	sharedExitLoggedAt time.Time
+	skip64LoggedAt     time.Time // escalate64: a /64 withheld for a bypass range, once a minute
 
 	// mirror: the table's live bans in memory, what the checks read (see
 	// mirror.go).  mirrorMu guards it; loadMu makes one load at a time.
@@ -295,6 +305,47 @@ func (m *Manager) isEgress(ip string) (string, bool) {
 		return "", false
 	}
 	return fn(ip)
+}
+
+// SetSharedExit installs the relay-exit lookup (see sharedExitFn).  nil
+// clears it.
+func (m *Manager) SetSharedExit(fn func(ip string) (string, bool)) {
+	if m == nil {
+		return
+	}
+	m.wlMu.Lock()
+	m.sharedExitFn = fn
+	m.wlMu.Unlock()
+}
+
+// isSharedExit: the relay ip is a shared exit of, if any.
+func (m *Manager) isSharedExit(ip string) (string, bool) {
+	if m == nil || ip == "" {
+		return "", false
+	}
+	m.wlMu.RLock()
+	fn := m.sharedExitFn
+	m.wlMu.RUnlock()
+	if fn == nil {
+		return "", false
+	}
+	return fn(ip)
+}
+
+// sharedExitLog says once a minute that an automatic ban was withheld from
+// a relay's exit.
+func (m *Manager) sharedExitLog(ip, relay, what string) {
+	m.mu.Lock()
+	say := time.Since(m.sharedExitLoggedAt) > time.Minute
+	if say {
+		m.sharedExitLoggedAt = time.Now()
+	}
+	m.mu.Unlock()
+	if say {
+		// The address came off the wire and the relay's name out of the
+		// relay list: neither may end the line early (logsafe).
+		log.Printf("ban: %s is an exit of %s, shared by everyone the relay sends out through it: %s not placed (a ban placed by hand still is)", logsafe.String(ip), logsafe.String(relay), logsafe.String(what))
+	}
 }
 
 // EgressSkipped: how many active bans the last flush left out of the file
@@ -508,6 +559,10 @@ func (m *Manager) AddWithSourceAction(ctx context.Context, ip, ja4, source, reas
 			m.egressLog(ip, vendor, "the "+source+" ban")
 			return
 		}
+		if relay, ok := m.isSharedExit(ip); ok {
+			m.sharedExitLog(ip, relay, "the "+source+" ban")
+			return
+		}
 	}
 	now := time.Now().Unix()
 	// The client is banned this way already, and recently: nothing to
@@ -590,6 +645,10 @@ func (m *Manager) AddAuto(ctx context.Context, ip, ja4, scope, source, reason, a
 	}
 	if vendor, ok := m.isEgress(ip); ok {
 		m.egressLog(ip, vendor, "the "+source+" ban")
+		return
+	}
+	if relay, ok := m.isSharedExit(ip); ok {
+		m.sharedExitLog(ip, relay, "the "+source+" ban")
 		return
 	}
 	if scope == "" || (ja4 == "" && (scope == ScopeIPJA4 || scope == ScopeJA4Only)) {
@@ -1714,6 +1773,11 @@ func (m *Manager) escalateIP(ctx context.Context, ip, source, action string, now
 	// fingerprint of the CDN's own: never the address as a whole.
 	if vendor, ok := m.isEgress(ip); ok {
 		m.egressLog(ip, vendor, "the address-wide ban")
+		return
+	}
+	// A relay's exit likewise: the fingerprints on it are its visitors'.
+	if relay, ok := m.isSharedExit(ip); ok {
+		m.sharedExitLog(ip, relay, "the address-wide ban")
 		return
 	}
 	// Counted from the mirror: the automatic (address, JA4) bans on the
