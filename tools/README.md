@@ -18,6 +18,7 @@ this repository; the scripts here build and check the trees it publishes.
 | `module-src-hash.sh`  | The stamp on a cached module `.so`: its source, build options and recipes. |
 | `check-so-hardening.sh` | Read RELRO / BIND_NOW / the stack protector back out of a built `.so`. |
 | `module-load-test.sh` | `nginx -t` with a container-built `.so`, in a distribution of its ABI.  |
+| `build-test-nginx.sh` | Build one nginx with the module for the renderer's `nginx -t` test (`make test-nginx-accepts`). |
 | `Dockerfile.alpine`   | Image used by `make repo-apk` (apk-tools + abuild on Alpine 3.20).      |
 
 ## Common flows

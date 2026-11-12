@@ -49,6 +49,11 @@ cd admin && go test ./internal/i18n/
 # The same tests against MariaDB (they skip without a server): starts a
 # throwaway mariadb container, so it needs docker.
 make test-mariadb
+# A real nginx over what the renderer writes: builds the oldest nginx
+# supported (NGINX_TEST_VERSION=1.30.6 for the newest) with the module and
+# runs `nginx -t` on a table of configurations.  Run whenever a template or
+# the renderer changes; needs a C compiler and the OpenSSL / PCRE headers.
+make test-nginx-accepts
 # golangci-lint, exactly as CI runs it (pins the Go version from go.mod).
 make lint
 # The C parsers: unit tests, the same under ASan/UBSan, and the fuzzers.

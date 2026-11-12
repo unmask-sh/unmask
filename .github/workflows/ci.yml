@@ -145,6 +145,39 @@ jobs:
         run: make test-mariadb-env
 
   # --------------------------------------------------------------------
+  # A real nginx reads what the renderer writes.  go-test reads the rendered
+  # files as text and the e2e stack runs one current nginx, so neither
+  # refused what an nginx in the field did: monitor mode's `volatile` on
+  # nginx 1.10.3, a map keyed "default", a burst of 0.  The oldest nginx
+  # supported and the newest each parse the table of
+  # TestNginxAcceptsTheRender.  `make test-nginx-accepts` is the command
+  # line the local target runs, and it fails when the test skipped instead
+  # of running.
+  #
+  # ubuntu-24.04, not -latest: nginx 1.10.3 knows only PCRE 1, which the
+  # later image no longer carries.
+  # --------------------------------------------------------------------
+  nginx-accepts:
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        nginx: ["1.10.3", "1.30.6"]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: admin/go.mod
+          cache-dependency-path: admin/go.sum
+      - name: install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev zlib1g-dev libpcre2-dev libpcre3-dev
+      - name: nginx ${{ matrix.nginx }} accepts every rendered configuration
+        run: make test-nginx-accepts NGINX_TEST_VERSION=${{ matrix.nginx }}
+
+  # --------------------------------------------------------------------
   # C parser unit test + fuzz.  The JA4 ClientHello parser (raw TLS bytes on
   # every request) and the _bv pass-cookie parser (a fully client-set cookie)
   # are the two untrusted-input C parsers in the tree -- the most

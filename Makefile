@@ -1067,6 +1067,29 @@ test-mariadb-env:
 	[ "$$ret" = 0 ] || exit "$$ret"; \
 	if [ "$$ran" = 0 ] || [ "$$skipped" != 0 ]; then echo "test-mariadb-env: the MariaDB tests did not all run -- is the server reachable?" >&2; exit 1; fi
 
+## test-nginx-accepts - run a real nginx over what the renderer writes
+# Builds nginx $(NGINX_TEST_VERSION) with the module under build/test-nginx/
+# (tools/build-test-nginx.sh: a binary for `nginx -t`, not the one any
+# package ships) and runs TestNginxAcceptsTheRender against it: every
+# configuration in that test's table has to pass `nginx -t`.  The default is
+# the oldest nginx supported, the one that refuses a directive or a parameter
+# newer than itself; CI runs that and the newest.
+#
+# The test skips itself when it is given no nginx, and a run that skipped is
+# green and proves nothing: the target fails unless the test ran.
+NGINX_TEST_VERSION ?= 1.10.3
+.PHONY: test-nginx-accepts
+test-nginx-accepts:
+	@mkdir -p build/test-nginx
+	@tools/build-test-nginx.sh $(NGINX_TEST_VERSION) build/test-nginx > build/test-nginx/build-$(NGINX_TEST_VERSION).log 2>&1 \
+		|| { cat build/test-nginx/build-$(NGINX_TEST_VERSION).log; exit 1; }
+	@eval "$$(tail -n 2 build/test-nginx/build-$(NGINX_TEST_VERSION).log | sed 's/^/export /')"; \
+	out=$$(cd admin && go test -timeout $(GO_TEST_TIMEOUT) ./internal/nginxconf/ -run TestNginxAcceptsTheRender -v -count=1 2>&1); ret=$$?; \
+	echo "$$out" | grep -E '^( *--- (PASS|FAIL|SKIP)|FAIL|ok|panic:)|_test\.go:[0-9]+:'; \
+	[ "$$ret" = 0 ] || exit "$$ret"; \
+	echo "$$out" | grep -q -- '^--- PASS: TestNginxAcceptsTheRender ' \
+		|| { echo "test-nginx-accepts: the test did not run against nginx $(NGINX_TEST_VERSION)" >&2; exit 1; }
+
 ## e2e           - bare-metal e2e (run 4 scenarios via curl).  BASE_URL switches the target.
 # Examples:
 #   make e2e BASE_URL=https://localhost:8443
