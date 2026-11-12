@@ -24,6 +24,13 @@ type Limiter struct {
 	m     map[string]*window
 	nowFn func() time.Time // for testability.  Defaults to time.Now.
 	base  time.Time        // captured when the clock is set; window math uses elapsed-since-base so it rides the monotonic clock (RL-1).
+
+	// Bookkeeping for makeRoom.  swept/sweptAt: when the last stale sweep ran
+	// (seconds since base).  passes: how many whole-table passes (a sweep or an
+	// eviction) have run, so a test can hold the bound without timing anything.
+	swept   bool
+	sweptAt int64
+	passes  int
 }
 
 type window struct {
@@ -46,6 +53,7 @@ func (l *Limiter) SetClock(fn func() time.Time) {
 	defer l.mu.Unlock()
 	l.nowFn = fn
 	l.base = fn()
+	l.swept, l.sweptAt = false, 0
 }
 
 // nowSec returns seconds elapsed since base.  It is built on time.Time.Sub,
@@ -66,10 +74,39 @@ const (
 	// leaves us at/above this (= every window is inside the stale window, i.e. an
 	// active key-rotation flood), evict the oldest keys so memory stays bounded (RL-2).
 	rlHardCap = 120_000
+	// rlSweepEverySec: the least time between two stale sweeps.  A sweep walks
+	// the whole table under the lock, and a key is stale only after
+	// rlStaleSeconds, so sweeping more often than this frees next to nothing.
+	rlSweepEverySec = 10
+	// rlEvictBatch: how many keys one eviction drops at the hard cap.  Evicting a
+	// batch buys that many inserts before the next whole-table pass; evicting
+	// one key at a time made every new key pay for a sort of the table.
+	rlEvictBatch = rlHardCap / 10
 )
+
+// makeRoom bounds the table before a new key goes in.  Caller holds l.mu.
+//
+// Both steps walk the whole table, so neither may run once per new key: under
+// a key-rotation flood (the case the bound exists for) every request is a new
+// key, and a pass per request held the lock for milliseconds at a time --
+// long enough for forward-auth checks queued behind it to time out, which
+// nginx answers by failing open.  The sweep is spaced by rlSweepEverySec and
+// the eviction makes room for rlEvictBatch inserts at once, so a flood costs
+// one pass per rlEvictBatch new keys and the table still never exceeds
+// rlHardCap.
+func (l *Limiter) makeRoom(now int64) {
+	if !l.swept || now-l.sweptAt >= rlSweepEverySec {
+		l.sweepStale(now)
+		l.swept, l.sweptAt = true, now
+	}
+	if len(l.m) >= rlHardCap {
+		l.evictOldest(len(l.m) - rlHardCap + rlEvictBatch)
+	}
+}
 
 // sweepStale drops windows idle longer than rlStaleSeconds.  Caller holds l.mu.
 func (l *Limiter) sweepStale(now int64) {
+	l.passes++
 	cutoff := now - rlStaleSeconds
 	for k, w := range l.m {
 		if len(w.hits) == 0 || w.hits[len(w.hits)-1] < cutoff {
@@ -82,11 +119,13 @@ func (l *Limiter) sweepStale(now int64) {
 // l.mu.  This is the hard backstop for RL-2: it runs only when sweepStale can't
 // get the map under rlHardCap, i.e. under an active key-rotation flood.  Evicted
 // keys are recreated on their next hit (= counter reset), trading exactness for
-// a bounded map.
+// a bounded map.  Oldest-first means the flood's own one-shot keys go before a
+// client that is still sending.
 func (l *Limiter) evictOldest(n int) {
 	if n <= 0 {
 		return
 	}
+	l.passes++
 	type keyAge struct {
 		key  string
 		last int64
@@ -149,10 +188,7 @@ func (l *Limiter) Hit(key string, spec Spec) Result {
 		// would otherwise add an entry per request forever = OOM.  When the map
 		// is large, evict keys idle past any reasonable window before adding.
 		if len(l.m) >= rlSweepThreshold {
-			l.sweepStale(now)
-			if len(l.m) >= rlHardCap {
-				l.evictOldest(len(l.m) - rlHardCap + 1)
-			}
+			l.makeRoom(now)
 		}
 		w = &window{hits: make([]int64, 0, 16)}
 		l.m[key] = w

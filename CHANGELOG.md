@@ -26,6 +26,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-11) **`unmask db-prune -mode rebuild` no longer stops the hourly statistics or loses indexes.**  A rebuild that kept no row restarted the event ids at 1, below the hourly aggregate's position, so it skipped every new event while reporting itself current. One stopped while recreating indexes left them missing for good. Ids now continue, and the next rebuild finishes the indexes first; `unmask doctor` says when some are missing.
 
+- (2026-11-12) **Forward-auth: a flood of new rate-limit keys no longer stalls every check.**  Past 100,000 keys the limiter walked its whole table for each new key, and at the cap sorted it to evict one. A client rotating its key held every check behind that walk until the snippet's two-second limit failed them open. The sweep and the eviction now run once per batch of new keys.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.

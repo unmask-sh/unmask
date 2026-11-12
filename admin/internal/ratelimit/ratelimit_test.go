@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -115,5 +116,90 @@ func TestEvictOldest(t *testing.T) {
 	}
 	if _, ok := l.m["d"]; ok {
 		t.Error("key d (last=20) should have been evicted")
+	}
+}
+
+// A key-rotation flood is the case the table's bound exists for, and there
+// every request is a new key.  Both bounding steps walk the whole table under
+// the lock; when they ran once per new key, one check cost milliseconds and
+// the forward-auth checks queued behind it timed out (which nginx answers by
+// failing open).  The number of whole-table passes must not follow the number
+// of new keys.  Counted, not timed: the passes are what cost.
+func TestNewKeysDoNotEachWalkTheTable(t *testing.T) {
+	spec := Spec{RequestsPerMin: 60, WindowSec: 60}
+	for _, size := range []int{rlSweepThreshold, rlHardCap} {
+		l := New()
+		clock := time.Unix(1000, 0)
+		l.SetClock(func() time.Time { return clock })
+		// Live keys: all hit "now", so no sweep can free any of them.
+		for i := 0; i < size; i++ {
+			l.m[fmt.Sprintf("2001:db8:1:2::%x|default", i)] = &window{hits: []int64{0}}
+		}
+		const fresh = 2000
+		for i := 0; i < fresh; i++ {
+			l.Hit(fmt.Sprintf("2001:db8:9:%x::1|default", i), spec)
+		}
+		// One sweep (it has never run) and at most one eviction.
+		if l.passes > 2 {
+			t.Errorf("table of %d: %d new keys cost %d whole-table passes, want at most 2", size, fresh, l.passes)
+		}
+		if got := l.Size(); got > rlHardCap {
+			t.Errorf("table of %d: grew to %d, over the hard cap %d", size, got, rlHardCap)
+		}
+	}
+}
+
+// The hard cap holds through a flood far longer than one eviction batch, and
+// a client that keeps sending is not the one evicted: eviction takes the keys
+// whose last hit is oldest, which are the flood's own one-shot keys.
+func TestFloodKeepsTheCapAndTheActiveKey(t *testing.T) {
+	spec := Spec{RequestsPerMin: 60, WindowSec: 60}
+	l := New()
+	clock := time.Unix(1000, 0)
+	l.SetClock(func() time.Time { return clock })
+	const active = "203.0.113.7|default"
+	const flood = rlHardCap + 3*rlEvictBatch
+	for i := 0; i < flood; i++ {
+		if i%1000 == 0 {
+			clock = clock.Add(time.Second) // 1,000 new keys a second
+			l.Hit(active, spec)
+		}
+		l.Hit(fmt.Sprintf("2001:db8:%x:%x::1|default", i>>16, i&0xffff), spec)
+		if n := len(l.m); n > rlHardCap {
+			t.Fatalf("after %d new keys the table holds %d, over the hard cap %d", i+1, n, rlHardCap)
+		}
+	}
+	w, ok := l.m[active]
+	if !ok {
+		t.Fatal("the key that kept sending was evicted")
+	}
+	// Its count is the hits inside the window, not reset by an eviction.
+	if len(w.hits) < 2 {
+		t.Errorf("the active key holds %d hits, want its window intact", len(w.hits))
+	}
+	// 3+ batches past the cap is a handful of passes, not one per key.
+	if l.passes > 40 {
+		t.Errorf("%d new keys cost %d whole-table passes", flood, l.passes)
+	}
+}
+
+// Stale keys still go: once the sweep interval has passed, a new key at the
+// threshold drops every window idle past rlStaleSeconds.
+func TestSweepStillFreesStaleKeys(t *testing.T) {
+	spec := Spec{RequestsPerMin: 60, WindowSec: 60}
+	l := New()
+	clock := time.Unix(1000, 0)
+	l.SetClock(func() time.Time { return clock })
+	for i := 0; i < rlSweepThreshold; i++ {
+		l.m[fmt.Sprintf("198.51.100.%d|z%d", i%250, i)] = &window{hits: []int64{0}}
+	}
+	l.Hit("first-new-key", spec) // sweeps at t=0: nothing is stale yet
+	if got := l.Size(); got != rlSweepThreshold+1 {
+		t.Fatalf("size after the first sweep = %d, want %d (nothing stale yet)", got, rlSweepThreshold+1)
+	}
+	clock = clock.Add((rlStaleSeconds + rlSweepEverySec + 1) * time.Second)
+	l.Hit("second-new-key", spec)
+	if got := l.Size(); got != 1 {
+		t.Errorf("size after the stale sweep = %d, want 1 (only the new key)", got)
 	}
 }
