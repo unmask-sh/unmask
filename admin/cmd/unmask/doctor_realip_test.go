@@ -44,9 +44,17 @@ func TestCheckRealIP(t *testing.T) {
 	if _, _, errs := run(d, true); len(errs) != 1 || !strings.Contains(errs[0], "NOT restoring") || !strings.Contains(errs[0], "(2 distinct)") {
 		t.Errorf("only LB addresses: want the error, got %v", errs)
 	}
-	// One visitor from outside: the address is restored.
-	seed(d, "CB007109")
-	if oks, _, errs := run(d, true); len(errs) != 0 || len(oks) != 1 || !strings.Contains(oks[0], "restores the client address: 3 distinct addresses in the last hour, 2 of them") {
-		t.Errorf("an outside address: want the OK, got %v / %v", oks, errs)
+	// One address from outside and no other: nginx stops at an address that
+	// is the same for everybody -- a load balancer's own, written after the
+	// visitor's -- or the site had one visitor.  A warning naming it.
+	seed(d, "CB007109") // 203.0.113.9
+	if oks, warns, errs := run(d, true); len(errs) != 0 || len(oks) != 0 || len(warns) != 1 ||
+		!strings.Contains(warns[0], "came from one address, 203.0.113.9.") || !strings.Contains(warns[0], "list it as a trusted LB of your own") {
+		t.Errorf("one outside address: want the warning naming it, got %v / %v / %v", oks, warns, errs)
+	}
+	// A second visitor from outside: the address is restored.
+	seed(d, "CB00710A")
+	if oks, warns, errs := run(d, true); len(errs) != 0 || len(warns) != 0 || len(oks) != 1 || !strings.Contains(oks[0], "restores the client address: 4 distinct addresses in the last hour, 2 of them") {
+		t.Errorf("outside addresses: want the OK, got %v / %v / %v", oks, warns, errs)
 	}
 }

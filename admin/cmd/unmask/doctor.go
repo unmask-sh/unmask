@@ -1229,6 +1229,13 @@ func checkAdminBind(s settings.Settings, addOK, addWarn func(t, m string)) {
 // whose addresses all fall there means nothing is restored, and an hour
 // with addresses from outside means it is.  Without events there is nothing
 // to tell by, and the reminder stands.
+//
+// One address from outside and no other is the shape of the other way it
+// goes wrong: nginx reads past the proxies but stops at the load balancer's
+// own address, which some load balancers (Google's) write into
+// X-Forwarded-For after the visitor's, so every visitor is that address.  A
+// quiet site can show the same with one real visitor, so it is a warning
+// that names the address and says what to compare it with.
 func checkRealIP(conn *db.DB, s settings.Settings, addOK, addWarn, addErr func(t, m string)) {
 	if len(s.Nginx.TrustedLBPresets) == 0 && len(s.Nginx.TrustedLBExtra) == 0 {
 		return
@@ -1248,7 +1255,7 @@ func checkRealIP(conn *db.DB, s settings.Settings, addOK, addWarn, addErr func(t
 		return
 	}
 	defer rows.Close()
-	total, inside := 0, 0
+	total, inside, outsider := 0, 0, ""
 	for rows.Next() {
 		var raw []byte
 		if rows.Scan(&raw) != nil || (len(raw) != 4 && len(raw) != 16) {
@@ -1257,9 +1264,13 @@ func checkRealIP(conn *db.DB, s settings.Settings, addOK, addWarn, addErr func(t
 		total++
 		if ok, _ := nginxconf.IsTrustedLBIP(net.IP(raw).String(), s.Nginx); ok {
 			inside++
+		} else {
+			outsider = net.IP(raw).String()
 		}
 	}
 	switch {
+	case total-inside == 1:
+		addWarn(title, fmt.Sprintf("every request of the last hour from outside the load balancer's ranges came from one address, %s.  If that is the load balancer's own address (the one visitors connect to), list it as a trusted LB of your own: the load balancer writes it into X-Forwarded-For after the visitor's, and until it is listed every visitor is that address", outsider))
 	case total == 0:
 		addWarn(title, "a trusted LB is configured and no request of the last hour says whether nginx restores the client address; "+remind)
 	case inside == total:

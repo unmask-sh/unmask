@@ -122,8 +122,7 @@ func RenderFor(s settings.Settings, outDir, version string, cause RenderCause) e
 	}
 	data.Gateway = gatewayRenderOf(s, outDir)
 	// What config.yml's other writers can put where nginx reads it as
-	// written, and a trusted-LB set that would name the load balancer as
-	// every visitor (render_inputs.go).
+	// written (render_inputs.go).
 	if err := checkRenderInputs(data); err != nil {
 		return err
 	}
@@ -578,6 +577,9 @@ func gatewayRenderOf(s settings.Settings, outDir string) gatewayRender {
 	out := gatewayRender{Active: true, ACMEVerify: "on", Upstream: g.Upstream, HTTPNone: !g.ListenHTTP()}
 	for _, lb := range EffectiveLBs(s.Nginx) {
 		out.TrustedProxies = append(out.TrustedProxies, lb.CIDRs...)
+		// And the addresses the load balancer puts into X-Forwarded-For
+		// as its own: the gateway's real_ip reads past them too.
+		out.TrustedProxies = append(out.TrustedProxies, lb.XFFHops...)
 	}
 	if g.TLSInFront() {
 		out.TLSNone = true

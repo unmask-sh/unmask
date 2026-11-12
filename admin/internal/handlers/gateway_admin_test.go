@@ -398,9 +398,6 @@ func TestGatewayUpstreamForm(t *testing.T) {
 	}
 	s.Nginx.OutputDir = t.TempDir()
 	s.Nginx.TrustedLBPresets = []string{"gcp"}
-	// ...and the load balancer's own address beside it, which the render
-	// asks for behind Google's (it ends X-Forwarded-For with that address).
-	s.Nginx.TrustedLBExtra = []settings.TrustedLBExtra{{ID: "my-lb", CIDRs: []string{"203.0.113.9"}}}
 	s.Gateway = settings.GatewayConfig{
 		Hostnames:    settings.GatewayHostnames{Mode: settings.GatewayHostsCustom, Names: "shop.example"},
 		Certificates: []settings.GatewayCertificate{{Mode: settings.GatewayTLSFiles, Domains: "shop.example"}},

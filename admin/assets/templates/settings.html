@@ -1427,7 +1427,7 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <label for="lb-{{ .ID }}" class="lbl">
           <div class="ttl">{{ .Label }}{{ if .AddedIn }}<span class="added">{{ tf $.Lang "settings.ua.added_in" .AddedIn }}</span>{{ end }}{{ if .UpdatedIn }}<span class="added">{{ tf $.Lang "settings.ua.updated_in" .UpdatedIn }}</span>{{ end }}{{ if .IsNew }}<span class="new-badge" title="{{ t $.Lang "settings.ua.new_tooltip" }}">{{ t $.Lang "settings.ua.new_badge" }}</span>{{ end }}</div>
           <div class="pat" style="font-size:.7rem;color:#94a3b8;font-family:ui-monospace,Menlo,monospace">
-            <details class="lb-cidrs"><summary>{{ .CIDRCount }} CIDRs</summary><div class="lb-cidrs-body">{{ range .CIDRs }}<div>{{ . }}</div>{{ end }}{{ if .Source }}<div class="lb-cidrs-src"><a href="{{ .Source }}" target="_blank" rel="noopener">source ↗</a></div>{{ end }}</div></details>
+            <details class="lb-cidrs"><summary>{{ .CIDRCount }} CIDRs</summary><div class="lb-cidrs-body">{{ range .CIDRs }}<div>{{ . }}</div>{{ end }}{{ if .Source }}<div class="lb-cidrs-src"><a href="{{ .Source }}" target="_blank" rel="noopener">source ↗</a></div>{{ end }}{{ if .Hops }}<div class="lb-cidrs-src">{{ tf $.Lang "settings.network.lb_hops_label" (len .Hops) }}</div>{{ range .Hops }}<div>{{ . }}</div>{{ end }}{{ end }}</div></details>
             · header: <code>{{ .Header }}</code>
           </div>
         </label>

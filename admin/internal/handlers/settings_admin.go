@@ -3310,7 +3310,10 @@ type LBPresetView struct {
 	Label     string
 	CIDRCount int
 	CIDRs     []string // actual IP / CIDR list (= shown when details is expanded)
-	Source    string   // distribution URL
+	// Hops: the load balancer's own addresses, read past in X-Forwarded-For
+	// (nginxconf.LBIPRange.XFFHops); listed under the proxies' ranges.
+	Hops      []string
+	Source    string // distribution URL
 	Header    string
 	Enabled   bool
 	AddedIn   string // "since vX.Y.Z" label
@@ -3345,6 +3348,7 @@ func buildLBPresetView(n settings.Nginx) []LBPresetView {
 			Label:     p.Label,
 			CIDRCount: len(p.CIDRs),
 			CIDRs:     p.CIDRs,
+			Hops:      p.XFFHops,
 			Source:    p.Source,
 			Header:    nginxconf.HeaderFromNginxVar(p.Header),
 			Enabled:   enabled[p.ID],

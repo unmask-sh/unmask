@@ -44,97 +44,21 @@ func TestNginxJudgesAnUntrustedHeaderByTheConnection(t *testing.T) {
 		t.Skip("UNMASK_TEST_NGINX / UNMASK_TEST_NGINX_MODULE are not set")
 	}
 
-	// ask starts nginx on the render of yaml and returns what it says of a
-	// request: "<the fingerprint it judges by>|<the trust diagnosis>".
-	type asker func(tlsConn bool, header string) string
-	start := func(t *testing.T, yaml string) asker {
-		t.Helper()
-		dir := t.TempDir()
-		s, err := settings.LoadFromYAML("secret:\n  bv_secret: \"0123456789abcdef0123456789abcdef\"\nnginx_log:\n  enabled: false\ncommunity_bans:\n  subscribe_mode: \"off\"\n" + yaml)
-		if err != nil {
-			t.Fatalf("config.yml: %v", err)
-		}
-		certPath, keyPath := selfSigned(t, dir)
-		plainPort, tlsPort := freePort(t), freePort(t)
-		var b strings.Builder
-		b.WriteString("load_module " + mod + ";\n")
-		b.WriteString("daemon off;\nmaster_process off;\npid " + dir + "/nginx.pid;\nerror_log " + dir + "/error.log notice;\nevents { worker_connections 64; }\nhttp {\n")
-		for _, p := range []string{"client_body", "proxy", "fastcgi", "uwsgi", "scgi"} {
-			b.WriteString("    " + p + "_temp_path " + dir + "/tmp-" + p + ";\n")
-		}
-		b.WriteString("    access_log off;\n")
-		b.WriteString("    include " + dir + "/http.inc;\n")
-		b.WriteString("    server {\n")
-		fmt.Fprintf(&b, "        listen 127.0.0.1:%d;\n        listen 127.0.0.1:%d ssl;\n", plainPort, tlsPort)
-		b.WriteString("        ssl_certificate " + certPath + ";\n        ssl_certificate_key " + keyPath + ";\n")
-		b.WriteString("        server_name test.local;\n")
-		b.WriteString("        location / { return 200 \"$effective_ja4|$ja4_diag\"; }\n")
-		b.WriteString("    }\n}\n")
-		conf := filepath.Join(dir, "nginx.conf")
-		if err := os.WriteFile(conf, []byte(b.String()), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		s.Nginx.OutputDir = dir
-		s.Nginx.ConfPath = conf
-		if err := Render(s, dir, "test"); err != nil {
-			t.Fatalf("Render: %v", err)
-		}
-		ctx, cancel := context.WithCancel(context.Background())
-		cmd := exec.CommandContext(ctx, bin, "-p", dir, "-c", conf)
-		if err := cmd.Start(); err != nil {
-			cancel()
-			t.Fatalf("nginx: %v", err)
-		}
-		t.Cleanup(func() {
-			cancel()
-			_ = cmd.Wait()
-		})
-		// Up when the plain port answers.
-		deadline := time.Now().Add(10 * time.Second)
-		for {
-			c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", plainPort), 200*time.Millisecond)
-			if err == nil {
-				_ = c.Close()
-				break
-			}
-			if time.Now().After(deadline) {
-				log, _ := os.ReadFile(filepath.Join(dir, "error.log"))
-				t.Fatalf("nginx did not come up: %v\n%s", err, log)
-			}
-			time.Sleep(50 * time.Millisecond)
-		}
-		client := &http.Client{
-			Timeout:   5 * time.Second,
-			Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DisableKeepAlives: true}, //nolint:gosec // a certificate made for this test
-		}
-		return func(tlsConn bool, header string) string {
-			t.Helper()
-			u := fmt.Sprintf("http://127.0.0.1:%d/", plainPort)
-			if tlsConn {
-				u = fmt.Sprintf("https://127.0.0.1:%d/", tlsPort)
-			}
-			req, err := http.NewRequest(http.MethodGet, u, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			req.Host = "test.local"
-			if header != "" {
-				req.Header.Set("X-Client-JA4", header)
-			}
-			resp, err := client.Do(req)
-			if err != nil {
-				log, _ := os.ReadFile(filepath.Join(dir, "error.log"))
-				t.Fatalf("GET %s: %v\n%s", u, err, log)
-			}
-			defer resp.Body.Close()
-			body, _ := io.ReadAll(resp.Body)
-			return string(body)
-		}
-	}
 	const forged = "t13d1516h2_8daaf6152771_02713d6af862"
 
+	const answer = "$effective_ja4|$ja4_diag"
+	hdr := func(v string) map[string]string {
+		if v == "" {
+			return nil
+		}
+		return map[string]string{"X-Client-JA4": v}
+	}
 	// The Google Cloud preset: its ranges are trusted, 127.0.0.1 is not.
-	ask := start(t, "nginx:\n  trusted_lb_presets: [gcp]\n")
+	start := func(yaml string) func(bool, string) string {
+		a := startNginx(t, bin, mod, yaml, answer)
+		return func(tlsConn bool, v string) string { return a(tlsConn, hdr(v)) }
+	}
+	ask := start("nginx:\n  trusted_lb_presets: [gcp]\n")
 
 	own := ask(true, "")
 	ja4, diag, _ := strings.Cut(own, "|")
@@ -157,12 +81,52 @@ func TestNginxJudgesAnUntrustedHeaderByTheConnection(t *testing.T) {
 	}
 
 	// A trusted load balancer's header is the visitor's fingerprint, as ever.
-	ask = start(t, "nginx:\n  trusted_lb_extra:\n    - id: local\n      cidrs: [\"127.0.0.1\"]\n      header: \"$http_x_client_ja4\"\n")
+	ask = start("nginx:\n  trusted_lb_extra:\n    - id: local\n      cidrs: [\"127.0.0.1\"]\n      header: \"$http_x_client_ja4\"\n")
 	if got := ask(true, forged); got != forged+"|ok" {
 		t.Errorf("a trusted load balancer's header: %q, want %q", got, forged+"|ok")
 	}
 	if got := ask(false, forged); got != forged+"|ok" {
 		t.Errorf("a trusted load balancer's header over plain HTTP: %q, want %q", got, forged+"|ok")
+	}
+}
+
+// TestNginxReadsPastTheLoadBalancersOwnAddress: what address nginx takes for
+// the visitor's behind a Google load balancer, with the preset and the
+// real_ip block.
+//
+// The load balancer ends X-Forwarded-For with its own address, so the header
+// reads "<visitor>, <load balancer>".  nginx takes the rightmost address that
+// is not a trusted one: the load balancer's has to be read past, and a
+// visitor must not be.  Until 0.1.57 the preset trusted all of 35.227.0.0/16
+// for that -- which read past a customer's machine in that range as well, so
+// an address it wrote ahead of its own became its address.
+//
+// 127.0.0.1 stands in for one of the load balancer's proxies, and an IPv6
+// load balancer address is listed the way the operator lists one: both in a
+// trusted LB of the test's own.  The preset supplies 35.227.192.0/18.
+func TestNginxReadsPastTheLoadBalancersOwnAddress(t *testing.T) {
+	bin, mod := os.Getenv("UNMASK_TEST_NGINX"), os.Getenv("UNMASK_TEST_NGINX_MODULE")
+	if bin == "" || mod == "" {
+		t.Skip("UNMASK_TEST_NGINX / UNMASK_TEST_NGINX_MODULE are not set")
+	}
+	ask := startNginx(t, bin, mod,
+		"nginx:\n  trusted_lb_presets: [gcp]\n  trusted_lb_realip: true\n  trusted_lb_extra:\n    - id: local\n      cidrs: [\"127.0.0.1\", \"2600:1901:0:1234::\"]\n      header: \"$http_x_client_ja4\"\n",
+		"$remote_addr|$realip_remote_addr")
+	for _, c := range []struct{ what, xff, want string }{
+		{"the visitor, then the load balancer's own address", "198.51.100.7, 35.227.200.20", "198.51.100.7"},
+		{"over IPv6, the load balancer's address listed by the operator", "2001:db8::7, 2600:1901:0:1234::", "2001:db8::7"},
+		{"a load balancer address the preset does not cover and nobody listed is where the reading stops", "198.51.100.7, 34.120.9.9", "34.120.9.9"},
+		{"an address the visitor wrote ahead of its own is not taken", "203.0.113.99, 198.51.100.7, 35.227.200.20", "198.51.100.7"},
+		{"a customer's machine in 35.227.0.0/17 is a visitor, not a proxy", "203.0.113.99, 35.227.10.10, 35.227.200.20", "35.227.10.10"},
+		{"...and one in 35.227.128.0/18", "203.0.113.99, 35.227.130.9, 35.227.200.20", "35.227.130.9"},
+	} {
+		if got := ask(false, map[string]string{"X-Forwarded-For": c.xff}); got != c.want+"|127.0.0.1" {
+			t.Errorf("%s: X-Forwarded-For %q gives %q, want the visitor %q (and the peer 127.0.0.1)", c.what, c.xff, got, c.want)
+		}
+	}
+	// No X-Forwarded-For: the peer itself.
+	if got := ask(false, nil); got != "127.0.0.1|127.0.0.1" {
+		t.Errorf("without X-Forwarded-For: %q", got)
 	}
 }
 
@@ -183,6 +147,98 @@ func TestUntrustedHeaderMapNamesTheConnectionsFingerprint(t *testing.T) {
 	}
 	if strings.Contains(http, `"untrusted_lb_header" "NOT_TRUSTED";`) {
 		t.Error("an untrusted header still makes every such request NOT_TRUSTED")
+	}
+}
+
+// nginxAsker starts the nginx under test (UNMASK_TEST_NGINX, with the module)
+// on the render of yaml and returns a function that sends it one request --
+// over TLS or plain HTTP, with the given headers -- and gives back the body.
+// The one location answers with `answer`, a string of nginx variables: what
+// nginx made of the request.
+type nginxAsker func(tlsConn bool, headers map[string]string) string
+
+func startNginx(t *testing.T, bin, mod, yaml, answer string) nginxAsker {
+	t.Helper()
+	dir := t.TempDir()
+	s, err := settings.LoadFromYAML("secret:\n  bv_secret: \"0123456789abcdef0123456789abcdef\"\nnginx_log:\n  enabled: false\ncommunity_bans:\n  subscribe_mode: \"off\"\n" + yaml)
+	if err != nil {
+		t.Fatalf("config.yml: %v", err)
+	}
+	certPath, keyPath := selfSigned(t, dir)
+	plainPort, tlsPort := freePort(t), freePort(t)
+	var b strings.Builder
+	b.WriteString("load_module " + mod + ";\n")
+	b.WriteString("daemon off;\nmaster_process off;\npid " + dir + "/nginx.pid;\nerror_log " + dir + "/error.log notice;\nevents { worker_connections 64; }\nhttp {\n")
+	for _, p := range []string{"client_body", "proxy", "fastcgi", "uwsgi", "scgi"} {
+		b.WriteString("    " + p + "_temp_path " + dir + "/tmp-" + p + ";\n")
+	}
+	b.WriteString("    access_log off;\n")
+	b.WriteString("    include " + dir + "/http.inc;\n")
+	b.WriteString("    server {\n")
+	fmt.Fprintf(&b, "        listen 127.0.0.1:%d;\n        listen 127.0.0.1:%d ssl;\n", plainPort, tlsPort)
+	b.WriteString("        ssl_certificate " + certPath + ";\n        ssl_certificate_key " + keyPath + ";\n")
+	b.WriteString("        server_name test.local;\n")
+	b.WriteString("        location / { return 200 \"" + answer + "\"; }\n")
+	b.WriteString("    }\n}\n")
+	conf := filepath.Join(dir, "nginx.conf")
+	if err := os.WriteFile(conf, []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s.Nginx.OutputDir = dir
+	s.Nginx.ConfPath = conf
+	if err := Render(s, dir, "test"); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cmd := exec.CommandContext(ctx, bin, "-p", dir, "-c", conf)
+	if err := cmd.Start(); err != nil {
+		cancel()
+		t.Fatalf("nginx: %v", err)
+	}
+	t.Cleanup(func() {
+		cancel()
+		_ = cmd.Wait()
+	})
+	// Up when the plain port answers.
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		c, err := net.DialTimeout("tcp", fmt.Sprintf("127.0.0.1:%d", plainPort), 200*time.Millisecond)
+		if err == nil {
+			_ = c.Close()
+			break
+		}
+		if time.Now().After(deadline) {
+			log, _ := os.ReadFile(filepath.Join(dir, "error.log"))
+			t.Fatalf("nginx did not come up: %v\n%s", err, log)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	client := &http.Client{
+		Timeout:   5 * time.Second,
+		Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, DisableKeepAlives: true}, //nolint:gosec // a certificate made for this test
+	}
+	return func(tlsConn bool, headers map[string]string) string {
+		t.Helper()
+		u := fmt.Sprintf("http://127.0.0.1:%d/", plainPort)
+		if tlsConn {
+			u = fmt.Sprintf("https://127.0.0.1:%d/", tlsPort)
+		}
+		req, err := http.NewRequest(http.MethodGet, u, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req.Host = "test.local"
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			log, _ := os.ReadFile(filepath.Join(dir, "error.log"))
+			t.Fatalf("GET %s: %v\n%s", u, err, log)
+		}
+		defer resp.Body.Close()
+		body, _ := io.ReadAll(resp.Body)
+		return string(body)
 	}
 }
 

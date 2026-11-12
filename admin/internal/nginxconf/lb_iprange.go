@@ -240,6 +240,19 @@ type LBIPRange struct {
 	Source string   // distribution URL (= the snapshot's origin.  for the user to look up an updated list)
 	Header string   // the nginx variable this vendor puts JA4 in (= "$http_x_client_ja4" / "$http_cf_ja4" etc.)
 	CIDRs  []string // mixed IPv4 / IPv6.  goes directly into a geo directive.
+	// XFFHops: ranges the load balancer's own address comes from -- the
+	// address it writes into X-Forwarded-For after the visitor's.  nginx's
+	// real_ip_recursive reads past an address only when it is listed, so
+	// with the real_ip block on these join set_real_ip_from, and nothing
+	// else: they are not in the geo that decides whose JA4 header is
+	// believed, nor in IsTrustedLBIP.
+	//
+	// A range here is read past wherever it stands in the header, so a
+	// client whose own address is in it is read past as well, and what it
+	// wrote ahead of itself is taken for the visitor.  Keep the list to
+	// ranges nothing connects from, as far as that can be said; the exact
+	// form is the operator's own entry with the load balancer's address.
+	XFFHops []string
 	// AddedIn: release this vendor joined the catalog (v-form).  Drives the
 	// settings UI "since vX.Y.Z" label + NEW badge, like every other preset.
 	// Empty is defaulted to "v0.1.0" in data.go's init().  UpdatedIn: the last
@@ -279,30 +292,55 @@ var LBIPRanges = []LBIPRange{
 		Label:  "GCP HTTPS Load Balancer (Global / Regional)",
 		Source: "https://cloud.google.com/load-balancing/docs/https#health-check-firewall-rules",
 		Header: "$http_x_client_ja4", // the convention of issuing X-Client-JA4 via gcloud's custom_request_header
+		// 0.1.57: 35.227.0.0/16 out of the proxies' ranges; its last quarter,
+		// load balancers' own addresses, stays as XFFHops.
+		UpdatedIn: "v0.1.57",
 		CIDRs: []string{
 			// Source IPs that GCP HTTPS LB uses to forward to backends.
 			// The same range issues the GCP health checks.
 			// **Not assigned to customer instances** (= reserved for GCP infra).
 			//
 			// 35.227.0.0/16 stood here until 0.1.57, and it is not such a
-			// range: Google assigns it to customers (us-east1, us-west1,
-			// and the global forwarding rules -- load balancers' own
-			// addresses).  It was listed because of the last of those.  A
-			// Google load balancer ends X-Forwarded-For with its own
-			// address, after the visitor's, and nginx's real_ip_recursive
-			// reads past an address only when it is trusted; a load
-			// balancer whose address lies in that /16 was read past, and so
-			// was every machine a customer runs there: reaching the origin
-			// directly, it could write X-Client-JA4 and, with the real_ip
-			// block on, X-Forwarded-For.  The operator now lists the load
-			// balancer's own address as a trusted LB of their own, and the
-			// render asks for it (gcpWantsOwnAddress).
+			// range: Google assigns its lower three quarters to customers'
+			// machines (us-east1, us-west1).  A machine there, reaching
+			// the origin directly, was a trusted proxy: its X-Client-JA4
+			// was the visitor's fingerprint and, with the real_ip block
+			// on, its X-Forwarded-For the visitor's address -- and going
+			// through the load balancer it was read past like a proxy, so
+			// an address it wrote ahead of its own was taken for it.  The
+			// range was listed for its last quarter, where load balancers'
+			// own addresses are, and that quarter is XFFHops below.
 			"35.191.0.0/16",
 			"130.211.0.0/22",
 			// IPv6 (= added after 2024).  See official docs.
 			"2600:1901:8001::/48",
 			"2600:2d00:1:1::/64",
 			"2600:2d00:1:b029::/64",
+		},
+		// The load balancer's own address.  A Google load balancer ends
+		// X-Forwarded-For with the address the visitor connected to (its
+		// forwarding rule's), after the visitor's own, and real_ip reads
+		// past it only when it is listed.  That is what 35.227.0.0/16 was
+		// in the preset for, and this is the part of it that holds such
+		// addresses: Google publishes 35.227.192.0/18 with the scope
+		// "global" (https://www.gstatic.com/ipranges/cloud.json, read
+		// 2026-11-12), the addresses of global forwarding rules.  An install
+		// whose load balancer's address is in it worked through the /16 and
+		// keeps working.
+		//
+		// Not Google's other "global" ranges, and not its IPv6 one.  A
+		// global address is a load balancer's, but that does not make it
+		// nobody's source address: behind a global passthrough load
+		// balancer the backends answer from the forwarding rule's address
+		// themselves.  Every range listed here is one more that a client
+		// could be read past in, so the list stays at what the /16 already
+		// covered.  A load balancer whose address is elsewhere (another
+		// range, IPv6, a regional one) is listed by the operator as a
+		// trusted LB of their own, the exact address, as it always had to
+		// be; `unmask doctor` names the address when every visitor shows as
+		// one.
+		XFFHops: []string{
+			"35.227.192.0/18",
 		},
 	},
 	{
@@ -424,28 +462,4 @@ func lbExtraWarning(extras []settings.TrustedLBExtra) string {
 		return ""
 	}
 	return "trusted load balancers of your own left out of nginx's configuration: " + strings.Join(bad, "; ") + ".  Fix nginx.trusted_lb_extra in config.yml or on the admin's network tab."
-}
-
-// gcpWantsOwnAddress: the Google Cloud preset is among lbs with no trusted LB
-// of the operator's own beside it.
-//
-// Behind a Google load balancer X-Forwarded-For reads "<visitor>, <the load
-// balancer's address>".  With the real_ip block on, nginx takes the
-// rightmost address that is not a trusted one: unless the load balancer's
-// own address is trusted too, that is the load balancer's, for every
-// request -- one address for all visitors, which a rate limit or a ban then
-// applies to all of them at once.  The preset cannot know the address (it is
-// the forwarding rule's, different for every load balancer), so the operator
-// lists it: a trusted LB of their own.  This reports the set that has none.
-func gcpWantsOwnAddress(lbs []LBIPRange) bool {
-	gcp, own := false, false
-	for _, lb := range lbs {
-		switch {
-		case lb.Source == "(custom)":
-			own = true
-		case lb.ID == "gcp":
-			gcp = true
-		}
-	}
-	return gcp && !own
 }
