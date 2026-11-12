@@ -193,3 +193,32 @@ func TestClassify_Human(t *testing.T) {
 		t.Errorf("human Safari with ok verdict should be Human, got %v", got)
 	}
 }
+
+// Cubot is a phone maker: the model name in an Android Chrome's UA ends in
+// "BOT", and the generic "a name ending in bot" pattern counted every such
+// visitor as a service.  The one word is excepted; names ending in bot are
+// still what they were.
+func TestClassify_ACubotPhoneIsNoBot(t *testing.T) {
+	for _, ua := range []string{
+		"Mozilla/5.0 (Linux; Android 11; CUBOT NOTE 20 PRO) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36",
+		"Mozilla/5.0 (Linux; Android 13; Cubot P80) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36",
+	} {
+		if got := IsBot(ua, ""); got != Human {
+			t.Errorf("IsBot(%q) = %v, want Human", ua, got)
+		}
+	}
+	for _, ua := range []string{
+		"ZzzExampleBot/1.0 (+https://example.test/bot)",
+		"Mozilla/5.0 (compatible; zzzexamplebot/2.1; +https://example.test)",
+		"Bot/2.0",
+		"some-bot (https://example.test)",
+		"Mozilla/5.0 (compatible; ZzzXubot/1.0)",
+		"ZzzSubot/1.0",
+		"ZzzCubot/1.0",
+		"zzz12bot",
+	} {
+		if got := IsBot(ua, ""); got != Service {
+			t.Errorf("IsBot(%q) = %v, want Service", ua, got)
+		}
+	}
+}

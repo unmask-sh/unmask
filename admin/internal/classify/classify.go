@@ -94,7 +94,13 @@ var extraUserDev = []string{
 var extraService = []string{
 	"nikto", "nmap", "masscan", "zgrab", "nuclei", "sqlmap",
 	"xymon", "nagios", "zabbix", "prometheus",
-	`bot\b`, "crawler", "spider", "slurp",
+	// A name that ends in "bot" (Googlebot, MJ12bot, CCBot, "Bot/1.0") --
+	// except the one word "cubot": Cubot is a phone maker, and the model name
+	// in an Android Chrome's UA ("CUBOT NOTE 20 PRO") counted every such
+	// visitor as a service.  RE2 has no lookbehind, so the pattern spells out
+	// what may precede: nothing or a non-letter, a letter other than u, "ubot"
+	// not after c, and "cubot" only as the tail of a longer word.
+	`(?:^|[^a-z])bot\b|[a-tv-z]bot\b|(?:^|[^c])ubot\b|[a-z]cubot\b`, "crawler", "spider", "slurp",
 	"monitoring",
 	// The original Perl was `fetch(?!\.)` (= "fetch" not followed by ".").
 	// RE2 lacks negative lookahead, so rewrite as an equivalent: "fetch
