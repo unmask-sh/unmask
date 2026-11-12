@@ -70,6 +70,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **Theme colours set on the design page are saved.**  Each theme's "customize" box, and the deny and ban pages' boxes, were posted in a form the server did not read: the save was reported as taken, and the page came back with the box unticked. A theme's background and text colours can now be set from the page; before, only `config.yml` could.
 
+- (2026-11-12) **A site's settings form shows what the site inherits, and saving it no longer overrides that.**  On the per-site challenge and design forms an unset field showed the built-in value, and one save stored it for the site: a seven-day PoW cookie where the global record said one day. A site's display style now takes effect, its theme colours are saved, and inherited fields are marked.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.

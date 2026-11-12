@@ -202,10 +202,9 @@ type ChallengeConfig struct {
 // only) means only nginx (= the local proxy) can supply JA4, which is the
 // shape every native-mode install ends up in by default.
 
-// Resolve returns the ChallengeValues for the given site.  When site has an
-// entry in Sites the entry is returned verbatim (= no merge with Default,
-// even if a field is the zero value -- that's intentional per the v2 design).
-// Otherwise Default is returned verbatim.
+// Resolve returns the ChallengeValues the given site gets: its record in
+// Sites laid over Default field by field (inherit.go), or Default where the
+// site has no record or the record is turned off.
 func (c ChallengeConfig) Resolve(site string) ChallengeValues {
 	if v, ok := c.Sites[site]; ok && !v.Disabled {
 		return mergeChallenge(c.Default, v)
@@ -492,9 +491,9 @@ type Branding struct {
 // config.yml.  Not configurable.
 const DefaultBrandingLogoDir = "/var/lib/unmask/branding"
 
-// Resolve returns the BrandingValues for the given site.  When site has an
-// entry in Sites the entry is returned verbatim (no merge with Default).
-// Otherwise Default is returned verbatim.
+// Resolve returns the BrandingValues the given site gets: its record in
+// Sites laid over Default field by field (inherit.go), or Default where the
+// site has no record or the record is turned off.
 func (b Branding) Resolve(site string) BrandingValues {
 	if v, ok := b.Sites[site]; ok && !v.Disabled {
 		return mergeBranding(b.Default, v)

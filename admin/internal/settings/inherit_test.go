@@ -107,7 +107,9 @@ func TestBrandingSparsifyAndMerge(t *testing.T) {
 	if res.LogoPath != "/etc/unmask/shop.svg" || res.LogoHeight != 64 || res.SiteName != "MyCo" || !res.IsShowCredit() {
 		t.Errorf("resolve after sparsify: %+v", res)
 	}
-	if ov := BrandingOverridesFor(b, "s"); !ov["logo_height"] || ov["site_name"] {
+	// Keyed by the names the form's fields carry: the page looks each field
+	// up by its name.
+	if ov := BrandingOverridesFor(b, "s"); !ov["branding_logo_height"] || !ov["branding_logo_file"] || ov["branding_site_name"] {
 		t.Errorf("overrides map: %v", ov)
 	}
 	// A site that leaves the height unset inherits Default's.
@@ -174,5 +176,118 @@ func TestNormalizeDefaultsKeepsSiteFalse(t *testing.T) {
 	}
 	if s.Challenge.Sites["s"].PublicTestPages == nil {
 		t.Fatal("a site's explicit off was normalized away; it would inherit the global")
+	}
+}
+
+// How the page is shown is a site's to set like the rest.  The four fields
+// were stored on the site's record and left out of the merge: the form showed
+// "invisible" selected for the site and the site got Default's page.
+func TestDisplayFieldsFollowTheSite(t *testing.T) {
+	zero, fade := 0, 50
+	c := ChallengeConfig{
+		Default: ChallengeValues{},
+		Sites: map[string]ChallengeValues{
+			"s": {DisplayStyle: ChallengeDisplayInvisible, MinDisplayMS: &zero, InvisibleRevealMS: 3000, RevealFadeMS: &fade},
+			"t": {PowDifficulty: 20},
+		},
+	}
+	got := c.Resolve("s")
+	if got.ResolvedDisplayStyle() != ChallengeDisplayInvisible || got.ResolvedMinDisplayMS() != 0 || got.ResolvedInvisibleRevealMS() != 3000 || got.ResolvedRevealFadeMS() != 50 {
+		t.Errorf("the site's display settings are not what the site gets: style=%s min=%d reveal=%d fade=%d",
+			got.ResolvedDisplayStyle(), got.ResolvedMinDisplayMS(), got.ResolvedInvisibleRevealMS(), got.ResolvedRevealFadeMS())
+	}
+	ov := ChallengeOverridesFor(c, "s")
+	for _, k := range []string{"challenge_display_style", "min_display_ms", "invisible_reveal_ms", "reveal_fade_ms"} {
+		if !ov[k] {
+			t.Errorf("%s, which the site sets, is not reported as its own", k)
+		}
+	}
+	// A site that sets something else follows Default in these, also after
+	// Default moves.
+	c.Default.DisplayStyle = ChallengeDisplayInvisible
+	c.Default.InvisibleRevealMS = 2000
+	if got := c.Resolve("t"); got.ResolvedDisplayStyle() != ChallengeDisplayInvisible || got.ResolvedInvisibleRevealMS() != 2000 || got.PowDifficulty != 20 {
+		t.Errorf("a site that set only its difficulty: style=%s reveal=%d difficulty=%d", got.ResolvedDisplayStyle(), got.ResolvedInvisibleRevealMS(), got.PowDifficulty)
+	}
+	// And under an invisible Default a site can be given the visible page:
+	// said outright, since unset would inherit.
+	c.Sites["v"] = SparsifyChallenge(ChallengeValues{DisplayStyle: ChallengeDisplayVisible}, c.Default)
+	if c.Sites["v"].DisplayStyle != ChallengeDisplayVisible || c.Resolve("v").ResolvedDisplayStyle() != ChallengeDisplayVisible {
+		t.Errorf("the visible page for a site under an invisible Default: stored %q, the site gets %s", c.Sites["v"].DisplayStyle, c.Resolve("v").ResolvedDisplayStyle())
+	}
+}
+
+// What matches Default is decided by what a value comes to.  The form states
+// the built-in values outright -- a seven-day cookie, "friendly", "auto", an
+// unticked box -- and a Default that leaves the field unset comes to the same:
+// compared as written the two differed, and the first save of a site's form
+// stored the built-in value for the site, which stayed when Default was given
+// another.
+func TestSparsifyComparesWhatTheValuesComeTo(t *testing.T) {
+	min, fade := 800, 200
+	got := SparsifyChallenge(ChallengeValues{
+		PowCookieValidSeconds:     86400 * 7,
+		CaptchaCookieValidSeconds: 86400 * 14,
+		PowDifficulty:             PowDifficultyDefault,
+		DisplayStyle:              ChallengeDisplayVisible,
+		MinDisplayMS:              &min,
+		InvisibleRevealMS:         1200,
+		RevealFadeMS:              &fade,
+		PublicTestPages:           BoolPtr(false),
+		PublicTestPagesSitePicker: BoolPtr(true),
+	}, ChallengeValues{})
+	if got.PowCookieValidSeconds != 0 || got.CaptchaCookieValidSeconds != 0 || got.PowDifficulty != 0 || got.DisplayStyle != "" ||
+		got.MinDisplayMS != nil || got.InvisibleRevealMS != 0 || got.RevealFadeMS != nil || got.PublicTestPages != nil || got.PublicTestPagesSitePicker != nil {
+		t.Errorf("the built-in values, stated outright, were stored over a Default that says nothing: %+v", got)
+	}
+	b := SparsifyBranding(BrandingValues{
+		CopyPreset: BrandingPresetFriendly, Theme: "auto", ShowCredit: BoolPtr(false),
+		DenyRateTheme: DenyThemeAuto, DenyRateCopyPreset: BrandingPresetFriendly,
+		DenyBanTheme: DenyThemeAuto, DenyBanCopyPreset: BrandingPresetFriendly,
+	}, BrandingValues{})
+	if b.CopyPreset != "" || b.Theme != "" || b.ShowCredit != nil || b.DenyRateTheme != "" || b.DenyRateCopyPreset != "" || b.DenyBanTheme != "" || b.DenyBanCopyPreset != "" {
+		t.Errorf("the built-in appearance values, stated outright, were stored over a Default that says nothing: %+v", b)
+	}
+	// Where Default says something else, the built-in value is the site's
+	// own choice and stays.
+	def := BrandingValues{CopyPreset: BrandingPresetNeutral, Theme: "dark", ShowCredit: BoolPtr(true), DenyRateTheme: DenyThemeDark}
+	b = SparsifyBranding(BrandingValues{CopyPreset: BrandingPresetFriendly, Theme: "auto", ShowCredit: BoolPtr(false), DenyRateTheme: DenyThemeAuto}, def)
+	if b.CopyPreset != BrandingPresetFriendly || b.Theme != "auto" || b.ShowCredit == nil || b.DenyRateTheme != DenyThemeAuto {
+		t.Errorf("a site's choice of the built-in value under a Default that says another was stripped: %+v", b)
+	}
+	// A field the site leaves unset stays unset, whatever Default says: it
+	// is not the built-in value stated, it is nothing stated.
+	if got := SparsifyChallenge(ChallengeValues{}, ChallengeValues{PowCookieValidSeconds: 86400, PowDifficulty: 20, DisplayStyle: ChallengeDisplayInvisible}); got != (ChallengeValues{}) {
+		t.Errorf("an empty record came out of Sparsify saying something: %+v", got)
+	}
+}
+
+// Shown is what the site's form shows: the record over Default, in force or
+// not.  Resolve is what the site gets.
+func TestShownIsTheRecordOverDefaultInForceOrNot(t *testing.T) {
+	c := ChallengeConfig{
+		Default: ChallengeValues{PowCookieValidSeconds: 86400, PowDifficulty: 18},
+		Sites: map[string]ChallengeValues{
+			"on":  {PowDifficulty: 22},
+			"off": {PowDifficulty: 22, Disabled: true},
+		},
+	}
+	for _, site := range []string{"on", "off"} {
+		if got := c.Shown(site); got.PowDifficulty != 22 || got.PowCookieValidSeconds != 86400 {
+			t.Errorf("Shown(%s): difficulty=%d PoW cookie=%d, want the site's 22 over Default's 86400", site, got.PowDifficulty, got.PowCookieValidSeconds)
+		}
+	}
+	if got := c.Resolve("off"); got.PowDifficulty != 18 {
+		t.Errorf("a record that is off: the site gets difficulty %d, want Default's 18", got.PowDifficulty)
+	}
+	if got := c.Shown("absent"); got.PowDifficulty != 18 {
+		t.Errorf("a site with no record is shown difficulty %d, want Default's 18", got.PowDifficulty)
+	}
+	b := Branding{
+		Default: BrandingValues{SiteName: "MyCo", Theme: "dark"},
+		Sites:   map[string]BrandingValues{"off": {Theme: "paper", Disabled: true}},
+	}
+	if got := b.Shown("off"); got.Theme != "paper" || got.SiteName != "MyCo" {
+		t.Errorf("Shown of an appearance record that is off: theme=%q name=%q", got.Theme, got.SiteName)
 	}
 }

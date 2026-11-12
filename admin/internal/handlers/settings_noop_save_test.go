@@ -151,6 +151,13 @@ func parseSelect(attrs map[string]string, inner string) formField {
 
 // parseForms extracts every <form> whose action targets /admin/settings/save.
 func parseForms(doc string) []htmlForm {
+	return parseFormsWhere(doc, func(action string) bool {
+		return strings.Contains(action, "/admin/settings/save")
+	})
+}
+
+// parseFormsWhere extracts every <form> whose action the caller wants.
+func parseFormsWhere(doc string, want func(action string) bool) []htmlForm {
 	var forms []htmlForm
 	pos := 0
 	for {
@@ -167,7 +174,7 @@ func parseForms(doc string) []htmlForm {
 
 		attrs := parseAttrs(body)
 		f := htmlForm{action: attrs["action"]}
-		if !strings.Contains(f.action, "/admin/settings/save") {
+		if !want(f.action) {
 			continue
 		}
 

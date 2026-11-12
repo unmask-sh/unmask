@@ -91,11 +91,50 @@ func mergeChallenge(base, over ChallengeValues) ChallengeValues {
 	if over.PowDifficulty != 0 {
 		out.PowDifficulty = over.PowDifficulty
 	}
+	// How the page is shown.  These four were stored on a site's record and
+	// never read from it: the site's form showed "invisible" selected and the
+	// site got Default's page.
+	if over.DisplayStyle != "" {
+		out.DisplayStyle = over.DisplayStyle
+	}
+	if over.MinDisplayMS != nil {
+		out.MinDisplayMS = over.MinDisplayMS
+	}
+	if over.InvisibleRevealMS != 0 {
+		out.InvisibleRevealMS = over.InvisibleRevealMS
+	}
+	if over.RevealFadeMS != nil {
+		out.RevealFadeMS = over.RevealFadeMS
+	}
 	if over.ObserveOnly != nil {
 		out.ObserveOnly = over.ObserveOnly
 	}
 	out.Disabled = over.Disabled
 	return out
+}
+
+// Shown returns what the site's form shows: Default with the site's record
+// laid over it, whether the record is in force or not.  Resolve is what the
+// site gets; a record turned off keeps its values for the day it is turned
+// on again, and the form, greyed out, shows those.
+//
+// The form shows this and not the record: a field the site has not set is
+// empty in the record, and shown as such it read as the built-in value --
+// seven days of PoW cookie where Default said one -- which a save of the form
+// as shown then stored for the site.
+func (c ChallengeConfig) Shown(site string) ChallengeValues {
+	if v, ok := c.Sites[site]; ok {
+		return mergeChallenge(c.Default, v)
+	}
+	return c.Default
+}
+
+// Shown: the same for the appearance record.
+func (b Branding) Shown(site string) BrandingValues {
+	if v, ok := b.Sites[site]; ok {
+		return mergeBranding(b.Default, v)
+	}
+	return b.Default
 }
 
 // mergeBranding: same rule for the appearance record.
@@ -155,6 +194,13 @@ func mergeBranding(base, over BrandingValues) BrandingValues {
 // record: Disabled means "inherit for now, remember my values", and stripping
 // them is exactly what that state promises not to do.
 //
+// "Match" is by what the value comes to, not by how it is written: a field
+// the form states as the built-in value (a seven-day cookie, a flag that is
+// off, the visible page) matches a Default that leaves that field unset.
+// Compared as written, the two differed, and the first save of a site's form
+// stored the built-in value for the site -- which then stayed when Default
+// was given another.
+//
 // Consequence worth knowing: a site cannot pin a value by setting it to the
 // same value Default already has -- that reads as "unchanged", and the site
 // follows Default if Default later moves.  Pinning would need a per-field
@@ -164,10 +210,10 @@ func SparsifyChallenge(v, def ChallengeValues) ChallengeValues {
 	if v.Disabled {
 		return v
 	}
-	if v.PowCookieValidSeconds == def.PowCookieValidSeconds {
+	if v.PowCookieValidSecondsResolved() == def.PowCookieValidSecondsResolved() {
 		v.PowCookieValidSeconds = 0
 	}
-	if v.CaptchaCookieValidSeconds == def.CaptchaCookieValidSeconds {
+	if v.CaptchaCookieValidSecondsResolved() == def.CaptchaCookieValidSecondsResolved() {
 		v.CaptchaCookieValidSeconds = 0
 	}
 	if v.DebugRateLimitPer5Min == def.DebugRateLimitPer5Min {
@@ -179,21 +225,34 @@ func SparsifyChallenge(v, def ChallengeValues) ChallengeValues {
 	if v.ChallengeJSPath == def.ChallengeJSPath {
 		v.ChallengeJSPath = ""
 	}
-	if boolEq(v.PublicTestPages, def.PublicTestPages) {
+	if v.IsPublicTestPages() == def.IsPublicTestPages() {
 		v.PublicTestPages = nil
 	}
 	if v.PublicTestPagesPassword == def.PublicTestPagesPassword {
 		v.PublicTestPagesPassword = ""
 	}
-	if boolEq(v.PublicTestPagesSitePicker, def.PublicTestPagesSitePicker) {
+	if v.IsPublicTestPagesSitePicker() == def.IsPublicTestPagesSitePicker() {
 		v.PublicTestPagesSitePicker = nil
 	}
 	if v.CaptchaProvider == def.CaptchaProvider {
 		v.CaptchaProvider = Captcha{}
 	}
-	if v.PowDifficulty == def.PowDifficulty {
+	if v.ResolvedPowDifficulty() == def.ResolvedPowDifficulty() {
 		v.PowDifficulty = 0
 	}
+	if v.ResolvedDisplayStyle() == def.ResolvedDisplayStyle() {
+		v.DisplayStyle = ""
+	}
+	if v.ResolvedMinDisplayMS() == def.ResolvedMinDisplayMS() {
+		v.MinDisplayMS = nil
+	}
+	if v.ResolvedInvisibleRevealMS() == def.ResolvedInvisibleRevealMS() {
+		v.InvisibleRevealMS = 0
+	}
+	if v.ResolvedRevealFadeMS() == def.ResolvedRevealFadeMS() {
+		v.RevealFadeMS = nil
+	}
+	// observe_only is not on the form: it passes through as it is written.
 	if boolEq(v.ObserveOnly, def.ObserveOnly) {
 		v.ObserveOnly = nil
 	}
@@ -217,37 +276,49 @@ func SparsifyBranding(v, def BrandingValues) BrandingValues {
 	if v.FooterText == def.FooterText {
 		v.FooterText = ""
 	}
-	if v.CopyPreset == def.CopyPreset {
+	// By what the value comes to, as in SparsifyChallenge: the form states
+	// "friendly", "auto" and an unticked credit line outright, and those are
+	// what a Default that says nothing comes to.
+	if v.ResolvedCopyPreset() == def.ResolvedCopyPreset() {
 		v.CopyPreset = ""
 	}
-	if v.Theme == def.Theme {
+	if themeOrAuto(v.Theme) == themeOrAuto(def.Theme) {
 		v.Theme = ""
 	}
 	if colorsEq(v.CustomColors, def.CustomColors) {
 		v.CustomColors = nil
 	}
-	if boolEq(v.ShowCredit, def.ShowCredit) {
+	if v.IsShowCredit() == def.IsShowCredit() {
 		v.ShowCredit = nil
 	}
-	if v.DenyRateTheme == def.DenyRateTheme {
+	if v.ResolvedDenyRateTheme() == def.ResolvedDenyRateTheme() {
 		v.DenyRateTheme = ""
 	}
-	if v.DenyRateCopyPreset == def.DenyRateCopyPreset {
+	if v.ResolvedDenyRateCopyPreset() == def.ResolvedDenyRateCopyPreset() {
 		v.DenyRateCopyPreset = ""
 	}
 	if colorsEq(v.DenyRateColors, def.DenyRateColors) {
 		v.DenyRateColors = nil
 	}
-	if v.DenyBanTheme == def.DenyBanTheme {
+	if v.ResolvedDenyBanTheme() == def.ResolvedDenyBanTheme() {
 		v.DenyBanTheme = ""
 	}
-	if v.DenyBanCopyPreset == def.DenyBanCopyPreset {
+	if v.ResolvedDenyBanCopyPreset() == def.ResolvedDenyBanCopyPreset() {
 		v.DenyBanCopyPreset = ""
 	}
 	if colorsEq(v.DenyBanColors, def.DenyBanColors) {
 		v.DenyBanColors = nil
 	}
 	return v
+}
+
+// themeOrAuto: the challenge theme a record's Theme comes to where it says
+// nothing.  ("auto" is the page's own fallback: handlers.pickChallengeTheme.)
+func themeOrAuto(t string) string {
+	if t == "" {
+		return "auto"
+	}
+	return t
 }
 
 func boolEq(a, b *bool) bool {
@@ -276,6 +347,12 @@ func colorsEq(a, b map[string]ChallengeThemeColors) bool {
 // on the per-site form are the site's own and which are following the global
 // record -- without that, a form pre-filled with resolved values looks
 // identical whether a number is pinned or borrowed.
+//
+// The keys are the names the form's fields carry, since the page's script
+// looks each field up by its name: a key that is not a field's name marks
+// nothing, and the field it was meant for reads "inherited" whatever the
+// site set.  (The appearance map was keyed by the YAML names, which only
+// "theme" and "show_credit" share with the form.)
 func ChallengeOverridesFor(c ChallengeConfig, site string) map[string]bool {
 	v, ok := c.Sites[site]
 	if !ok || v.Disabled {
@@ -292,6 +369,10 @@ func ChallengeOverridesFor(c ChallengeConfig, site string) map[string]bool {
 		"public_test_pages_site_picker": v.PublicTestPagesSitePicker != nil,
 		"captcha":                       v.CaptchaProvider.Provider != "",
 		"pow_difficulty":                v.PowDifficulty != 0,
+		"challenge_display_style":       v.DisplayStyle != "",
+		"min_display_ms":                v.MinDisplayMS != nil,
+		"invisible_reveal_ms":           v.InvisibleRevealMS != 0,
+		"reveal_fade_ms":                v.RevealFadeMS != nil,
 		"observe_only":                  v.ObserveOnly != nil,
 	}
 }
@@ -302,20 +383,22 @@ func BrandingOverridesFor(b Branding, site string) map[string]bool {
 		return map[string]bool{}
 	}
 	return map[string]bool{
-		"logo_path":             v.LogoPath != "",
-		"logo_height":           v.LogoHeight != 0,
-		"site_name":             v.SiteName != "",
-		"footer_text":           v.FooterText != "",
-		"copy_preset":           v.CopyPreset != "",
-		"theme":                 v.Theme != "",
-		"custom_colors":         v.CustomColors != nil,
-		"show_credit":           v.ShowCredit != nil,
-		"deny_rate_theme":       v.DenyRateTheme != "",
-		"deny_rate_copy_preset": v.DenyRateCopyPreset != "",
-		"deny_rate_colors":      v.DenyRateColors != nil,
-		"deny_ban_theme":        v.DenyBanTheme != "",
-		"deny_ban_copy_preset":  v.DenyBanCopyPreset != "",
-		"deny_ban_colors":       v.DenyBanColors != nil,
+		// The logo's field holds two controls: the file and the "remove" box.
+		"branding_logo_file":   v.LogoPath != "",
+		"branding_logo_clear":  v.LogoPath != "",
+		"branding_logo_height": v.LogoHeight != 0,
+		"branding_site_name":   v.SiteName != "",
+		"branding_footer_text": v.FooterText != "",
+		"branding_copy_preset": v.CopyPreset != "",
+		"theme":                v.Theme != "",
+		"custom_colors":        v.CustomColors != nil,
+		"show_credit":          v.ShowCredit != nil,
+		"deny_theme":           v.DenyRateTheme != "",
+		"deny_copy_preset":     v.DenyRateCopyPreset != "",
+		"deny_colors":          v.DenyRateColors != nil,
+		"ban_deny_theme":       v.DenyBanTheme != "",
+		"ban_copy_preset":      v.DenyBanCopyPreset != "",
+		"ban_colors":           v.DenyBanColors != nil,
 	}
 }
 

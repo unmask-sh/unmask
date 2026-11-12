@@ -3631,20 +3631,33 @@ document.getElementById('scope-select-challenge').addEventListener('change', fun
     if (!holder) return;
     var over = {};
     try { over = JSON.parse(holder.textContent) || {}; } catch (_) { return; }
-    form.querySelectorAll('[name]').forEach(function(input){
-      var n = input.getAttribute('name');
-      if (!n || n === 'site' || n === 'use_site_override' || n.indexOf('_present') >= 0) return;
-      if (over[n]) return;                       // the site sets this one
-      var field = input.closest('.field');
-      if (!field || field.querySelector('.inherit-chip')) return;
-      var label = field.querySelector('label, .field-label');
-      if (!label) return;
-      var chip = document.createElement('span');
-      chip.className = 'inherit-chip';
-      chip.textContent = {{ toJSON (t .Lang "settings.scope.inherited") }};
-      chip.title = {{ toJSON (t .Lang "settings.scope.inherited_hint") }};
-      label.appendChild(chip);
-    });
+    // Once the document is parsed: this script sits above the form's fields,
+    // and run where it stands it found none of them -- no field was ever
+    // marked.  A field is marked when none of its controls is the site's own
+    // (the test pages' field holds a box, a password and a second box); of a
+    // group of radios that sit in a field each, the one that is selected.
+    function mark(){
+      form.querySelectorAll('.field').forEach(function(field){
+        var names = [];
+        field.querySelectorAll('[name]').forEach(function(input){
+          var n = input.getAttribute('name');
+          if (input.closest('.field') !== field) return;
+          if (!n || n === 'site' || n === 'use_site_override' || n.indexOf('_present') >= 0) return;
+          if (input.type === 'radio' && !input.checked) return;
+          names.push(n);
+        });
+        if (!names.length || names.some(function(n){ return over[n]; })) return;
+        var label = field.querySelector('label, .field-label');
+        if (!label) return;
+        var chip = document.createElement('span');
+        chip.className = 'inherit-chip';
+        chip.textContent = {{ toJSON (t .Lang "settings.scope.inherited") }};
+        chip.title = {{ toJSON (t .Lang "settings.scope.inherited_hint") }};
+        label.appendChild(chip);
+      });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mark);
+    else mark();
   })();
   </script>
 
@@ -3687,7 +3700,7 @@ document.getElementById('scope-select-challenge').addEventListener('change', fun
       <script{{ nonceAttr . }} type="text/html" id="ch-pow-help">{{ safeHTML (t .Lang "settings.challenge.pow_difficulty_help") }}</script>
       <input type="number" id="ch-pow-diff" name="pow_difficulty" min="8" max="24" step="1"
              value="{{ if gt .ChallengeValues.PowDifficulty 0 }}{{ .ChallengeValues.PowDifficulty }}{{ end }}"
-             placeholder="{{ .ChallengeValues.ResolvedPowDifficulty }} (default)"
+             placeholder="{{ .ChallengeBlank.ResolvedPowDifficulty }} (default)"
              style="width:6rem">
       <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">bit</span>
     </div>
@@ -3726,7 +3739,7 @@ document.getElementById('scope-select-challenge').addEventListener('change', fun
             <script{{ nonceAttr . }} type="text/html" id="ch-min-display-help">{{ safeHTML (t .Lang "settings.challenge.min_display_ms_help") }}</script>
             <input type="number" id="ch-min-display" name="min_display_ms" min="0" max="30000" step="50"
                    value="{{ .ChallengeValues.MinDisplayMSField }}"
-                   placeholder="800 (default)"
+                   placeholder="{{ .ChallengeBlank.ResolvedMinDisplayMS }} (default)"
                    style="width:8rem">
             <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">ms</span>
           </div>
@@ -3748,7 +3761,7 @@ document.getElementById('scope-select-challenge').addEventListener('change', fun
             <script{{ nonceAttr . }} type="text/html" id="ch-inv-reveal-help">{{ safeHTML (t .Lang "settings.challenge.invisible_reveal_ms_help") }}</script>
             <input type="number" id="ch-inv-reveal" name="invisible_reveal_ms" min="100" max="30000" step="100"
                    value="{{ if gt .ChallengeValues.InvisibleRevealMS 0 }}{{ .ChallengeValues.InvisibleRevealMS }}{{ end }}"
-                   placeholder="1200 (default)"
+                   placeholder="{{ .ChallengeBlank.ResolvedInvisibleRevealMS }} (default)"
                    style="width:8rem">
             <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">ms</span>
           </div>
@@ -3760,7 +3773,7 @@ document.getElementById('scope-select-challenge').addEventListener('change', fun
             <script{{ nonceAttr . }} type="text/html" id="ch-reveal-fade-help">{{ safeHTML (t .Lang "settings.challenge.reveal_fade_ms_help") }}</script>
             <input type="number" id="ch-reveal-fade" name="reveal_fade_ms" min="0" max="5000" step="50"
                    value="{{ .ChallengeValues.RevealFadeMSField }}"
-                   placeholder="200 (default)"
+                   placeholder="{{ .ChallengeBlank.ResolvedRevealFadeMS }} (default)"
                    style="width:8rem">
             <span style="margin-left:.6rem;color:#64748b;font-size:.85rem">ms</span>
           </div>
@@ -3793,7 +3806,7 @@ document.getElementById('scope-select-challenge').addEventListener('change', fun
       <script{{ nonceAttr . }} type="text/html" id="ch-test-help">{{ safeHTML (t .Lang "settings.challenge.public_test_pages_help") }}</script>
       <label style="display:flex;align-items:center;gap:.4rem;font-weight:normal">
         <input type="hidden" name="public_test_pages_present" value="1">
-        <input type="checkbox" name="public_test_pages" value="1" {{ if .ChallengeEff.IsPublicTestPages }}checked{{ end }}>
+        <input type="checkbox" name="public_test_pages" value="1" {{ if .ChallengeValues.IsPublicTestPages }}checked{{ end }}>
         <span>{{ safeHTML (t .Lang "settings.challenge.public_test_pages_label") }}</span>
       </label>
       {{/* Optional Basic Auth password gate for the public pages.  Hidden
@@ -3819,7 +3832,7 @@ document.getElementById('scope-select-challenge').addEventListener('change', fun
         <div style="display:flex;align-items:center;gap:.4rem">
           <label style="display:flex;align-items:center;gap:.4rem;font-weight:normal">
             <input type="hidden" name="public_test_pages_site_picker_present" value="1">
-            <input type="checkbox" name="public_test_pages_site_picker" value="1" {{ if .ChallengeEff.IsPublicTestPagesSitePicker }}checked{{ end }}>
+            <input type="checkbox" name="public_test_pages_site_picker" value="1" {{ if .ChallengeValues.IsPublicTestPagesSitePicker }}checked{{ end }}>
             <span>{{ t .Lang "settings.challenge.public_test_pages_site_picker" }}</span>
           </label>
           <button type="button" class="ua-help-trigger" data-help-target="ch-test-site-picker-help" aria-label="?">?</button>
@@ -5303,20 +5316,33 @@ document.getElementById('scope-select-theme').addEventListener('change', functio
     if (!holder) return;
     var over = {};
     try { over = JSON.parse(holder.textContent) || {}; } catch (_) { return; }
-    form.querySelectorAll('[name]').forEach(function(input){
-      var n = input.getAttribute('name');
-      if (!n || n === 'site' || n === 'use_site_override' || n.indexOf('_present') >= 0) return;
-      if (over[n]) return;                       // the site sets this one
-      var field = input.closest('.field');
-      if (!field || field.querySelector('.inherit-chip')) return;
-      var label = field.querySelector('label, .field-label');
-      if (!label) return;
-      var chip = document.createElement('span');
-      chip.className = 'inherit-chip';
-      chip.textContent = {{ toJSON (t .Lang "settings.scope.inherited") }};
-      chip.title = {{ toJSON (t .Lang "settings.scope.inherited_hint") }};
-      label.appendChild(chip);
-    });
+    // Once the document is parsed: this script sits above the form's fields,
+    // and run where it stands it found none of them -- no field was ever
+    // marked.  A field is marked when none of its controls is the site's own
+    // (the test pages' field holds a box, a password and a second box); of a
+    // group of radios that sit in a field each, the one that is selected.
+    function mark(){
+      form.querySelectorAll('.field').forEach(function(field){
+        var names = [];
+        field.querySelectorAll('[name]').forEach(function(input){
+          var n = input.getAttribute('name');
+          if (input.closest('.field') !== field) return;
+          if (!n || n === 'site' || n === 'use_site_override' || n.indexOf('_present') >= 0) return;
+          if (input.type === 'radio' && !input.checked) return;
+          names.push(n);
+        });
+        if (!names.length || names.some(function(n){ return over[n]; })) return;
+        var label = field.querySelector('label, .field-label');
+        if (!label) return;
+        var chip = document.createElement('span');
+        chip.className = 'inherit-chip';
+        chip.textContent = {{ toJSON (t .Lang "settings.scope.inherited") }};
+        chip.title = {{ toJSON (t .Lang "settings.scope.inherited_hint") }};
+        label.appendChild(chip);
+      });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mark);
+    else mark();
   })();
   </script>
 
@@ -5463,7 +5489,7 @@ document.getElementById('scope-select-theme').addEventListener('change', functio
         </div>
         <script{{ nonceAttr . }} type="text/html" id="th-credit-help">{{ safeHTML (t .Lang "settings.challenge.show_credit_help") }}</script>
         <label style="font-size:.92rem;color:#475569;display:inline-flex;align-items:center;gap:.4rem;font-weight:normal">
-          <input type="checkbox" id="branding-show-credit" name="show_credit" value="1" {{ if .BrandingEff.IsShowCredit }}checked{{ end }}>
+          <input type="checkbox" id="branding-show-credit" name="show_credit" value="1" {{ if .BrandingValues.IsShowCredit }}checked{{ end }}>
           {{ safeHTML (t .Lang "settings.challenge.show_credit_label") }}
         </label>
       </div>
@@ -5620,7 +5646,7 @@ document.getElementById('scope-select-theme').addEventListener('change', functio
                (= radio + theme name) which sits outside the iframe. */}}
           <iframe data-theme="{{ $opt }}" loading="lazy" scrolling="auto"
                   title="theme preview: {{ $opt }}"
-                  src="{{ $.ChallengePreviewBase }}?_test_ja4=0&theme={{ $opt }}&_preview=1{{ if $.BrandingValues.CopyPreset }}&_preview_preset={{ $.BrandingValues.CopyPreset }}{{ else }}&_preview_preset=friendly{{ end }}{{ if $.BrandingValues.SiteName }}&_preview_site_name={{ $.BrandingValues.SiteName }}{{ end }}{{ if $.BrandingValues.FooterText }}&_preview_footer_text={{ $.BrandingValues.FooterText }}{{ end }}&_preview_show_credit={{ if $.BrandingEff.IsShowCredit }}1{{ else }}0{{ end }}&_preview_lang={{ $.Lang }}"></iframe>
+                  src="{{ $.ChallengePreviewBase }}?_test_ja4=0&theme={{ $opt }}&_preview=1{{ if $.BrandingValues.CopyPreset }}&_preview_preset={{ $.BrandingValues.CopyPreset }}{{ else }}&_preview_preset=friendly{{ end }}{{ if $.BrandingValues.SiteName }}&_preview_site_name={{ $.BrandingValues.SiteName }}{{ end }}{{ if $.BrandingValues.FooterText }}&_preview_footer_text={{ $.BrandingValues.FooterText }}{{ end }}&_preview_show_credit={{ if $.BrandingValues.IsShowCredit }}1{{ else }}0{{ end }}&_preview_lang={{ $.Lang }}"></iframe>
         </div>
         {{/* Pin theme (= card); preset inherited from the form's currently
              selected preset (= updated live by inline JS below). */}}

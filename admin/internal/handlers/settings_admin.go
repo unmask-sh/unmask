@@ -617,15 +617,23 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 	snap := h.snapshotSettings()
 	scopeBranding := snap.Branding.Default
 	scopeChallenge := snap.Challenge.Default
+	// ownBranding: the record whose own logo file the logo control shows and
+	// removes.  blankChallenge: what a field left blank comes to at this
+	// scope -- the built-in value at the Default scope, Default's at a
+	// site's -- for the placeholders.
+	ownBranding := snap.Branding.Default
+	blankChallenge := settings.ChallengeValues{}
 	scopeIsSite := false
 	if scope != "" {
 		scopeIsSite = true
-		if bv, ok := snap.Branding.Sites[scope]; ok {
-			scopeBranding = bv
-		}
-		if cv, ok := snap.Challenge.Sites[scope]; ok {
-			scopeChallenge = cv
-		}
+		// A site's form shows what the site gets: its record laid over
+		// Default (settings.Shown), not the record -- which holds only what
+		// the site set, so that every other field read as the built-in
+		// value and a save of the form as shown stored that for the site.
+		scopeBranding = snap.Branding.Shown(scope)
+		scopeChallenge = snap.Challenge.Shown(scope)
+		ownBranding = snap.Branding.Sites[scope]
+		blankChallenge = snap.Challenge.Default
 	}
 	// Sorted union of every host that has appeared anywhere in the config or
 	// the dashboard's site picker.  Feeds both the scope picker (theme +
@@ -1037,6 +1045,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// (= seeds the new entry on first save).
 		"Challenge":       snap.Challenge,
 		"ChallengeValues": scopeChallenge,
+		"ChallengeBlank":  blankChallenge,
 		// Settings used by the rate-limit tab (= default zone + named zones list).
 		"RateLimit": h.snapshotSettings().RateLimit,
 		// Settings used by the geo tab (= Nginx.Geo config).  Pass the whole
@@ -1084,25 +1093,26 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// and refused past them in applyBrandingForm.
 		"BrandingSiteNameMax": brandingSiteNameMax,
 		"BrandingFooterMax":   brandingFooterMax,
-		// Resolved (site-over-Default) records for the checkbox fields.  A
-		// checkbox cannot show "inherit" as a third state, so it renders the
-		// EFFECTIVE value -- what the challenge page actually does.  Rendering
-		// the raw *bool lies in both directions: Go templates treat any
-		// non-nil pointer as true, so a site that pinned a flag OFF shows a
-		// ticked box (and the next save of that form flips the flag back on),
-		// while a site that inherits ON shows an empty box (and an untouched
-		// save pins it off).  Sparsify keeps the round trip lossless: posting
-		// the inherited value back collapses to nil = still inheriting.
-		"BrandingEff":  snap.Branding.Resolve(scope),
+		// What the site gets (Resolve), for the one line that speaks of the
+		// site as it is served: whether its public test pages answer.  The
+		// form's fields, checkboxes included, show ChallengeValues /
+		// BrandingValues -- the record over Default whether it is in force
+		// or not -- so that a record turned off and on again comes back as
+		// it was.  (The checkboxes read these, and a record that was off
+		// showed Default's boxes beside its own numbers.)  A checkbox goes
+		// through Is*(), never the raw *bool: a template takes any non-nil
+		// pointer for true.
 		"ChallengeEff": snap.Challenge.Resolve(scope),
-		// Whether the scope-resolved Branding has a logo on disk.  Used to
-		// show the "current logo" thumbnail + the "remove logo" toggle.
+		// Whether this scope's own record has a logo on disk: the "current
+		// logo" thumbnail and its "remove" button are for the file this
+		// record holds.  A site that follows Default's logo has none of its
+		// own to remove; the previews below show the one it gets.
 		// Path is not shown to the operator (= internal detail).
 		"BrandingHasLogo": func() bool {
-			if strings.TrimSpace(scopeBranding.LogoPath) == "" {
+			if strings.TrimSpace(ownBranding.LogoPath) == "" {
 				return false
 			}
-			st, err := os.Stat(scopeBranding.LogoPath)
+			st, err := os.Stat(ownBranding.LogoPath)
 			return err == nil && !st.IsDir()
 		}(),
 		// Pre-computed admin-side logo URL with a cache-bust query so the
@@ -1111,7 +1121,7 @@ func (h *Handler) settingsViewData(w http.ResponseWriter, r *http.Request, tab s
 		// the scope-resolved LogoPath so the operator sees the per-site
 		// logo when scope=<host> is selected.
 		"BrandingLogoURL": func() string {
-			p := strings.TrimSpace(scopeBranding.LogoPath)
+			p := strings.TrimSpace(ownBranding.LogoPath)
 			if p == "" {
 				return ""
 			}
@@ -7018,7 +7028,8 @@ func (h *Handler) AdminBrandingSiteSave(w http.ResponseWriter, r *http.Request) 
 		// the first time via the scope picker, the form arrives with the
 		// Default values pre-filled, so the new entry inherits Default's
 		// fields with whatever the operator changed.
-		bv := cur.Branding.Sites[site]
+		prev := cur.Branding.Sites[site]
+		bv := prev
 		if err := applyBrandingForm(&bv, site, r); err != nil {
 			return err
 		}
@@ -7031,17 +7042,75 @@ func (h *Handler) AdminBrandingSiteSave(w http.ResponseWriter, r *http.Request) 
 		// stopped tracking Default forever after.
 		t := strings.TrimSpace(r.FormValue("theme"))
 		if !challengeThemes[t] {
-			t = "default"
+			t = "auto"
 		}
 		bv.Theme = t
 		bv.ShowCredit = settings.BoolPtr(r.FormValue("show_credit") == "1")
+		// A deny theme the form states is the site's, "auto" included: as
+		// applyBrandingForm writes it for the Default record, "auto" is the
+		// empty string, which on a site's record is "follow Default" -- under
+		// a dark Default a site could not be given the theme that follows the
+		// visitor's system.
+		if _, posted := r.Form["deny_theme"]; posted {
+			bv.DenyRateTheme = bv.ResolvedDenyRateTheme()
+		}
+		if _, posted := r.Form["ban_deny_theme"]; posted {
+			bv.DenyBanTheme = bv.ResolvedDenyBanTheme()
+		}
+		// The theme colours.  They were read for the Default record only:
+		// the site's form carried the same inputs and the site's save
+		// dropped them.
+		def := cur.Branding.Default
+		bv.CustomColors = siteColors(parseChallengeCustomColors(r), prev.CustomColors, def.CustomColors)
+		bv.DenyRateColors = siteColors(bv.DenyRateColors, prev.DenyRateColors, def.DenyRateColors)
+		bv.DenyBanColors = siteColors(bv.DenyBanColors, prev.DenyBanColors, def.DenyBanColors)
 		bv.Disabled = false
 		// The form submits every field, so store only what actually differs
 		// from Default: the rest keeps tracking Default instead of freezing at
 		// whatever it happened to say the day this site was first saved.
-		cur.Branding.Sites[site] = settings.SparsifyBranding(bv, cur.Branding.Default)
+		cur.Branding.Sites[site] = settings.SparsifyBranding(bv, def)
 		return nil
 	})
+}
+
+// siteColors: the set of theme colours a site's form states, as the site's
+// record holds it.  posted is what the form's ticked boxes come to (nil when
+// none is ticked), prev the record's set before this save, def Default's.
+//
+// A record's set stands in for Default's as a whole, and a record with no
+// set follows Default's.  So "no colours of its own" has to be said where
+// Default recolours a theme: an entry with no colours for each theme Default
+// recolours.  The page reads an entry without two valid colours as no
+// override (settings.CustomColorsFor), and the form shows its box unticked.
+// Without it the save was taken, and the page came back with Default's
+// colours ticked for the site.
+func siteColors(posted, prev, def map[string]settings.ChallengeThemeColors) map[string]settings.ChallengeThemeColors {
+	if len(posted) > 0 {
+		return posted
+	}
+	// The record says "none" already: as it is, so that a save of the form
+	// as shown writes what was there, whatever Default has come to since.
+	if len(prev) > 0 {
+		none := true
+		for _, c := range prev {
+			if settings.IsValidHexColor(c.Bg) && settings.IsValidHexColor(c.Text) {
+				none = false
+			}
+		}
+		if none {
+			return prev
+		}
+	}
+	var out map[string]settings.ChallengeThemeColors
+	for name, c := range def {
+		if settings.IsValidHexColor(c.Bg) && settings.IsValidHexColor(c.Text) {
+			if out == nil {
+				out = map[string]settings.ChallengeThemeColors{}
+			}
+			out[name] = settings.ChallengeThemeColors{}
+		}
+	}
+	return out
 }
 
 // AdminBrandingSiteDelete: POST {base}/admin/settings/branding/site/delete
@@ -7083,16 +7152,20 @@ func (h *Handler) AdminChallengeSiteSave(w http.ResponseWriter, r *http.Request)
 		if cur.Challenge.Sites == nil {
 			cur.Challenge.Sites = map[string]settings.ChallengeValues{}
 		}
-		cv, existed := cur.Challenge.Sites[site]
-		if !existed {
-			// First save for this site: seed from Default so the knobs this
-			// form does not expose keep the operator's configured values
-			// rather than dropping to the built-in ones.  (A record is
-			// inherited whole or owned whole -- see ChallengeConfig.Resolve.)
-			cv = cur.Challenge.Default
-		}
+		// From the site's own record, or from nothing: a field this form
+		// does not carry (the CAPTCHA provider, observe-only) stays as the
+		// record has it, and one the record does not set follows Default.
+		cv := cur.Challenge.Sites[site]
 		if err := applyChallengeForm(&cv, r); err != nil {
 			return err
+		}
+		// The display style the form states is the site's, "visible"
+		// included: as applyChallengeForm writes it for the Default record,
+		// "visible" is the empty string, which on a site's record is "follow
+		// Default" -- under an invisible Default a site could not be given
+		// the visible page.
+		if _, posted := r.Form["challenge_display_style"]; posted {
+			cv.DisplayStyle = cv.ResolvedDisplayStyle()
 		}
 		// The captcha provider is read only from a form that carries its
 		// fields (the captcha tab's names).  The per-site challenge form has
