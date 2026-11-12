@@ -48,6 +48,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **A database outage no longer floods the log with one line per event.**  When events could not be written, the daemon meant to retry once per flush interval, but every event that arrived meanwhile set off another write and another log line: hundreds a second against a database that refuses at once. It now retries on the interval, and still keeps a bounded backlog.
 
+- (2026-11-12) **A settings save no longer swaps the keys of an install whose key files cannot be written.**  Where the daemon could not write its generated `_bv` and admin keys beside its state, it drew new ones at every load: the first save from the admin signed everyone out and invalidated every pass. A generated key now stays the same for as long as the daemon runs.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.

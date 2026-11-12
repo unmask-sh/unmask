@@ -5099,7 +5099,9 @@ func Load(path string) (Settings, error) {
 		}
 	}
 	if s.Secret.CaptchaSecretBase == "" {
-		s.Secret.CaptchaSecretBase = randomHex(24)
+		// No sidecar for this one: generated, and kept for the process
+		// (processSecrets), until a settings save writes it into config.yml.
+		s.Secret.CaptchaSecretBase = processSecret("captcha:" + resolved)
 	}
 	if s.Secret.AdminSecret == "" {
 		// The admin's own key (sessions, CSRF): config.yml, else a sidecar
@@ -5209,7 +5211,9 @@ func loadOrCreateSidecarSecret(p string) (secret string, persisted, created bool
 			return sec, true, false
 		}
 	}
-	sec := randomHex(24)
+	// One value per process, written or not (processSecrets): a key that
+	// cannot be persisted must not also change at the next load.
+	sec := processSecret("sidecar:" + p)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err == nil {
 		if err := os.WriteFile(p, []byte(sec+"\n"), 0o600); err == nil {
 			return sec, true, true
