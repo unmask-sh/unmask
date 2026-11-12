@@ -281,8 +281,21 @@ func (g HoneypotGroup) Name() string {
 // Pieces of the sql-injection patterns, each spelt as it may reach
 // $request_uri: as is or percent-encoded (see the group below).  sqlSp is one
 // space, + or tab-like byte, or an inline comment (/**/, %2f%2a...%2a%2f).
+//
+// The comment's body is a bounded run that cannot hold the character its
+// closing mark begins with ([^*] before */, [^%] before %2a%2f), so a comment
+// has one extent and is found or given up within its bound.  It used to be
+// .*? -- any text up to any later closing mark -- and the patterns repeat
+// sqlSp: a URL of "/*/" over and over after one of the keywords could be
+// read as comments in more ways than nginx's regex engine will try, and
+// every such request held a worker until the engine gave up, logging an
+// alert each time.  The save refuses that shape in an operator's pattern
+// (settings.CheckRegex); TestShippedPatternsPassTheOperatorCheck now holds
+// the presets to the same rule.  What it costs: a comment longer than the
+// bound, or one with a * (or, encoded, a %) inside it, is not read as
+// whitespace -- the probes that pad with /**/ and /*!50000*/ still are.
 const (
-	sqlSp = `(?:\s|\+|%20|%09|%0a|%0b|%0c|%0d|%a0|/\*.*?\*/|%2f%2a.*?%2a%2f)`
+	sqlSp = `(?:\s|\+|%20|%09|%0a|%0b|%0c|%0d|%a0|/\*[^*]{0,64}\*/|%2f%2a[^%]{0,64}%2a%2f)`
 	sqlQ  = `(?:'|%27)`
 	sqlEq = `(?:=|%3d)`
 	sqlLP = `(?:\(|%28)`

@@ -2,6 +2,7 @@ package nginxconf
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/unmask-sh/unmask/admin/internal/settings"
@@ -65,6 +66,62 @@ func TestSQLInjectionPatternsMatchEncodedProbes(t *testing.T) {
 	} {
 		if sqlInjectionHit(g, uri) < 0 {
 			t.Errorf("no pattern matches the probe %s", uri)
+		}
+	}
+}
+
+// TestSQLInjectionPatternsReadCommentsAsWhitespace: a probe pads its keywords
+// with inline comments where a space would be filtered -- empty ones, MySQL's
+// versioned ones, as they are or percent-encoded -- and the patterns read each
+// as whitespace.  The comment's body is bounded and cannot hold the character
+// its closing mark begins with (see sqlSp), which these all satisfy.
+func TestSQLInjectionPatternsReadCommentsAsWhitespace(t *testing.T) {
+	g := sqlInjectionGroup(t)
+	for _, uri := range []string{
+		"/item?id=1/**/UNION/**/SELECT/**/1",
+		"/item?id=1/**/UNION/*!50000*/SELECT/**/1",
+		"/item?id=1%2f%2a%2a%2fUNION%2f%2a%2a%2fSELECT%201",
+		"/item?id=1%2F%2A%2A%2FUNION%2F%2A%2A%2FSELECT%201",
+		"/item?id=1%20union/*%20x%20*/select%201",
+		"/item?id=1'/**/OR/**/'1'='1",
+		"/item?id=1%20AND%20SLEEP/**/(/**/5/**/)",
+		"/item?id=1;WAITFOR/**/DELAY%20'0:0:5'--",
+		"/item?id=1%20INTO/**/OUTFILE%20'/tmp/x'",
+		"/item?id=1;/**/DROP/**/TABLE%20users",
+	} {
+		if sqlInjectionHit(g, uri) < 0 {
+			t.Errorf("no pattern matches the probe %s", uri)
+		}
+	}
+}
+
+// TestSQLInjectionCommentHasOneExtent: sqlSp is repeated by nearly every
+// pattern of the group, so what it calls a comment must be readable in one
+// way only.  Written as "/*", any text, "*/", a run of "/*/" could be cut into
+// comments in a number of ways that doubles with every repeat, and nginx's
+// engine tried them all on a request made of such a run.  The body is now a
+// bounded run of characters that cannot begin the closing mark; this pins
+// the two pieces that make it so.
+func TestSQLInjectionCommentHasOneExtent(t *testing.T) {
+	for _, piece := range []string{`/\*[^*]{0,64}\*/`, `%2f%2a[^%]{0,64}%2a%2f`} {
+		if !strings.Contains(sqlSp, piece) {
+			t.Errorf("sqlSp lacks the bounded comment %s: %s", piece, sqlSp)
+		}
+	}
+	if strings.Contains(sqlSp, ".*") || strings.Contains(sqlSp, ".+") {
+		t.Errorf("sqlSp repeats any character again: %s", sqlSp)
+	}
+	// One extent: on a run of comment openers the first comment ends at the
+	// first closing mark and nowhere later.
+	re := regexp.MustCompile("^(?:" + sqlSp + ")")
+	for subject, want := range map[string]string{
+		"/*/*/*/*/":                           "/*/*/",
+		"/**//**/":                            "/**/",
+		"%2f%2a%2a%2f%2f%2a%2a%2f":            "%2f%2a%2a%2f",
+		"/*" + strings.Repeat("a", 65) + "*/": "", // past the bound: not a comment
+	} {
+		if got := re.FindString(subject); got != want {
+			t.Errorf("sqlSp at the start of %q read %q, want %q", subject, got, want)
 		}
 	}
 }
