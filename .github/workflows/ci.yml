@@ -150,9 +150,10 @@ jobs:
   # refused what an nginx in the field did: monitor mode's `volatile` on
   # nginx 1.10.3, a map keyed "default", a burst of 0.  The oldest nginx
   # supported and the newest each parse the table of
-  # TestNginxAcceptsTheRender.  `make test-nginx-accepts` is the command
-  # line the local target runs, and it fails when the test skipped instead
-  # of running.
+  # TestNginxAcceptsTheRender, and each compiles the patterns the settings
+  # page accepts -- with PCRE 1 and PCRE 2, which refuse different things.
+  # `make test-nginx-accepts` is the command line the local target runs, and
+  # it fails when a test skipped instead of running.
   #
   # ubuntu-24.04, not -latest: nginx 1.10.3 knows only PCRE 1, which the
   # later image no longer carries.
@@ -174,7 +175,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libssl-dev zlib1g-dev libpcre2-dev libpcre3-dev
-      - name: nginx ${{ matrix.nginx }} accepts every rendered configuration
+      - name: nginx ${{ matrix.nginx }} accepts the rendered configurations and the patterns
         run: make test-nginx-accepts NGINX_TEST_VERSION=${{ matrix.nginx }}
 
   # --------------------------------------------------------------------

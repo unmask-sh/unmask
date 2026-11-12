@@ -33,8 +33,9 @@ const PatternMaxLen = 1024
 // large one is the unbounded case under another name.
 const repeatBoundedMax = 10
 
-// CheckRegex compiles expr as the daemon does (Go's syntax) and refuses what
-// nginx's engine would take exponential time on: a pattern longer than
+// CheckRegex compiles expr as the daemon does (Go's syntax), refuses the few
+// shapes Go compiles and nginx's engine does not (pcreRefuses), and refuses
+// what nginx's engine would take exponential time on: a pattern longer than
 // PatternMaxLen, and an unbounded repetition -- *, +, {n,} or a count over
 // repeatBoundedMax -- whose operand itself repeats (*, +, ?, {n,m}) in a way
 // the subject can satisfy in more than one way.  The error names the
@@ -50,6 +51,10 @@ func CheckRegex(expr string) error {
 	}
 	tree, err := syntax.Parse(expr, syntax.Perl)
 	if err != nil {
+		return err
+	}
+	// What Go compiles and nginx's PCRE does not (pattern_pcre.go).
+	if err := pcreRefuses(expr, tree); err != nil {
 		return err
 	}
 	if bad := nestedRepeat(tree); bad != nil {

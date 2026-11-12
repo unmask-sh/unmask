@@ -158,6 +158,10 @@ nginx:
         - kind: host
           values: ["default"]
 `},
+		// Every preset the tabs offer, switched on at once: a shipped pattern
+		// has to compile in the engine of every nginx in the range.
+		{name: "every-preset", mutate: everyPresetOn},
+		{name: "every-preset-compose", compose: true, mutate: everyPresetOn},
 	}
 	for _, c := range cases {
 		c := c
@@ -184,6 +188,26 @@ type acceptCase struct {
 	// files: written into the output directory after the render (the
 	// community-bans maps are the daemon's to write, not the render's).
 	files map[string]string
+	// mutate: changes to the loaded settings that a fragment cannot say.
+	mutate func(*settings.Settings)
+}
+
+// everyPresetOn switches on every preset group of the honeypot, protected
+// path, bypass path and HTTPS-redirect exemption lists.
+func everyPresetOn(s *settings.Settings) {
+	for _, g := range HoneypotPresetGroups {
+		s.Nginx.Honeypot.EnabledPresets = append(s.Nginx.Honeypot.EnabledPresets, g.ID)
+	}
+	for _, g := range ProtectedPathPresetGroups {
+		s.Nginx.ProtectedPaths.EnabledPresets = append(s.Nginx.ProtectedPaths.EnabledPresets, g.ID)
+	}
+	for _, g := range BypassPathPresetGroups {
+		s.Nginx.BypassPaths.EnabledPresets = append(s.Nginx.BypassPaths.EnabledPresets, g.ID)
+	}
+	s.Nginx.HTTPSRedirect = true
+	for _, g := range RedirectExemptPresetGroups {
+		s.Nginx.HTTPSRedirectExempt.EnabledPresets = append(s.Nginx.HTTPSRedirectExempt.EnabledPresets, g.ID)
+	}
 }
 
 // nginxTestRender renders c into a fresh directory, wires the files into a
@@ -228,6 +252,9 @@ func nginxTestRender(t *testing.T, bin string, c acceptCase) (string, error) {
 	}
 	s.Nginx.OutputDir = dir
 	s.Nginx.ConfPath = hostConf
+	if c.mutate != nil {
+		c.mutate(&s)
+	}
 	SetDryRunSupported(c.compose)
 	defer SetDryRunSupported(false)
 	if err := Render(s, dir, "test"); err != nil {
@@ -240,4 +267,71 @@ func nginxTestRender(t *testing.T, bin string, c acceptCase) (string, error) {
 	}
 	out, err := exec.Command(bin, "-t", "-p", dir, "-c", hostConf).CombinedOutput()
 	return strings.TrimSpace(string(out)), err
+}
+
+// TestNginxCompilesWhatCheckRegexAccepts holds the settings page's pattern
+// check to the engine that runs the patterns.  CheckRegex compiles with Go's
+// regexp and nginx with PCRE; a pattern Go takes and PCRE does not was
+// "saved" and then failed the next `nginx -t`.  Every pattern below that
+// CheckRegex accepts has to compile as a map's regex key in the nginx under
+// test -- built with PCRE 1 at the old end of the range and PCRE 2 at the
+// new, which disagree with each other too ([\w-.]).  What CheckRegex refuses
+// is not this test's business; settings has its own list.
+//
+// Skipped like TestNginxAcceptsTheRender, unless UNMASK_TEST_NGINX is set.
+func TestNginxCompilesWhatCheckRegexAccepts(t *testing.T) {
+	bin := os.Getenv("UNMASK_TEST_NGINX")
+	if bin == "" {
+		t.Skip("UNMASK_TEST_NGINX is not set")
+	}
+	patterns := []string{
+		// Escapes for one character.
+		`^/\x{3042}`, `^/\x{41}`, `^/\x{ff}`, `^/\x{100}`, `^/\xff`, `\x{10FFFF}`, `[\x{100}-\x{200}]`, `\x{0100}`,
+		`[\x{00e9}]`, `(?i)\x{e9}`, `\x41`, `\x{0041}`, `\377`, `\400`, `\777`, `[\400-\500]`, `\08`, `\12`, `\012`,
+		"^/あ", "[あ-ん]",
+		// Groups and flags.
+		`(?P<uri>admin)`, `(?P<foo>admin)`, `(?<foo>admin)`, `(?P<http_x>a)`, `(?P<final_challenge>a)`, `(?P<n>a)|(?P<m>b)`,
+		`(?:a|b)`, `(?i)abc`, `(?i:abc)`, `(?-i)abc`, `(?s)a.b`, `(?m)^a$`, `(?U)a+`,
+		// Classes.
+		`[\w-.]`, `[\w-]`, `[\w.-]`, `[^\w-.]`, `[\s-\d]`, `[\d-\s]`, `[[:alpha:]-z]`, `[[:alpha:]-]`, `[\pL-z]`, `[\p{L}-z]`,
+		`[\d\-z]`, `[\x41-\x5a]`, `[\n-\r]`, `[a-z-9]`, `[\w-\.]`, `[\w+-.]`, `[.\w-]`, `[\D-a]`, `[\W-a]`, `[\S-a]`, `[\w-\d]`,
+		`[+--]`, `[\d-]x`, `[^-\d]`, `[-\d]`, `[\d-\]]`, `[\w-. ]+@`, `[\t-z]`, `[\x{41}-z]`, `[\101-z]`, `[\--z]`, `[\.-z]`,
+		`[a\d-z]`, `[\d-z\d-9]`, `[[:alpha:][:digit:]-]`, `[[:alpha:]\d-z]`, `[]a]`, `[^]a]`, `[]\w-.]`, `[[:word:]]+`, `[[:^alpha:]]`,
+		`[[:ascii:]]`, `[\p{L}\d]`, `[\\d-z]`,
+		// Unicode properties (the scripts every PCRE in the range knows).
+		`\p{Greek}`, `\pL+`, `\P{Lu}`, `\pN`, `\pZ`, `\p{^L}`, `\p{Han}`, `\p{Latin}`, `\p{Cyrillic}`, `\p{L}`, `\p{Any}`,
+		// The rest of the syntax the two share.
+		`\z`, `\A/x`, `a\b`, `\Qa.b\E`, `\Q[\d-z]\E`, `\Q\x{3042}\E`, `a{2,5}`, `a{,5}`, `\$`, `\/`, `\-`, `\ `, `\d+`,
+		`\\x{30}`, `^/(wp-admin|wp-login\.php)`, `(?i)(curl|wget|python-requests)/[\d.]+`,
+	}
+	accepted := 0
+	for _, p := range patterns {
+		if settings.CheckRegex(p) != nil {
+			continue
+		}
+		accepted++
+		dir := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(dir, "logs"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		var b strings.Builder
+		b.WriteString("pid " + dir + "/nginx.pid;\nerror_log stderr notice;\nevents { worker_connections 64; }\nhttp {\n")
+		for _, tp := range []string{"client_body", "proxy", "fastcgi", "uwsgi", "scgi"} {
+			b.WriteString("    " + tp + "_temp_path " + dir + "/tmp-" + tp + ";\n")
+		}
+		b.WriteString("    access_log off;\n    map $uri $unmask_test_p {\n        default 0;\n        \"~" + nginxQuote(p) + "\" 1;\n    }\n")
+		b.WriteString("    server {\n        listen 127.0.0.1:18089;\n        location / { return 200 \"$unmask_test_p\"; }\n    }\n}\n")
+		conf := filepath.Join(dir, "nginx.conf")
+		if err := os.WriteFile(conf, []byte(b.String()), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if out, err := exec.Command(bin, "-t", "-p", dir, "-c", conf).CombinedOutput(); err != nil {
+			t.Errorf("CheckRegex accepts %s and nginx does not:\n%s", p, strings.TrimSpace(string(out)))
+		}
+	}
+	// The list is no use if the check has grown to refuse most of it.
+	if accepted < len(patterns)/2 {
+		t.Errorf("CheckRegex accepted %d of %d patterns; the list no longer tests the engine", accepted, len(patterns))
+	}
+	t.Logf("%d of %d patterns pass CheckRegex, and nginx compiles each", accepted, len(patterns))
 }
