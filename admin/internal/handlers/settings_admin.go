@@ -1676,7 +1676,13 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 				setSectionDraft(w, r, base, "network", r.Form, netFocus, field, value, err.Error())
 				redirBack(err.Error())
 			}
-			if err := applyNetworkForm(&cur.Nginx, r, lang, adminClientIP(r, h.snapshotSettings()), r.Host); err != nil {
+			// The address and the host this request arrived under, read the way
+			// the /admin/* gate reads them.  The raw Host is not that: behind a
+			// proxy that rewrites it (Apache's ProxyPass) the gate takes the
+			// trusted X-Forwarded-Host, and a lockout check on r.Host refused
+			// the operator's own name while accepting the one that locks them out.
+			gateCfg := h.snapshotSettings()
+			if err := applyNetworkForm(&cur.Nginx, r, lang, adminClientIP(r, gateCfg), adminClientHost(r, gateCfg)); err != nil {
 				netErr(err)
 				return errSettingsAnswered
 			}

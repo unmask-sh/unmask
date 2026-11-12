@@ -28,6 +28,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **Forward-auth: a flood of new rate-limit keys no longer stalls every check.**  Past 100,000 keys the limiter walked its whole table for each new key, and at the cap sorted it to evict one. A client rotating its key held every check behind that walk until the snippet's two-second limit failed them open. The sweep and the eviction now run once per batch of new keys.
 
+- (2026-11-12) **The admin Host allowlist's lockout check agrees with the gate behind a proxy.**  Saving `admin_allowed_hosts` refuses a list that would turn the operator away, but it judged the raw Host while the gate reads a trusted proxy's `X-Forwarded-Host`. Behind Apache's ProxyPass the operator's own domain was refused, and the backend address the message suggested was accepted and locked them out. Both now read the same host.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.
