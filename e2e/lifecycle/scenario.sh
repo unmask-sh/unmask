@@ -52,13 +52,17 @@ echo "### scenario 2: upgrade v$V1 -> v$V2 (config/token preserved, no dup) ###"
 # would race a checksum.  The B1 audit concern is secret regeneration / a driver
 # reset to sqlite, so assert exactly those survive the upgrade.
 SECRETS_BEFORE=$(grep -E 'bv_secret:|captcha_secret_base:|^[[:space:]]*driver:' /etc/unmask/config.yml 2>/dev/null | sort)
-TOK_BEFORE=$(cat /etc/unmask/.setup-token 2>/dev/null || echo "")
+# The token lives under /var/lib/unmask (since 0.1.9).  This read the path it
+# had before that: both sides were empty, and the check below passed whatever
+# an upgrade did to the token.
+TOK_BEFORE=$(cat /var/lib/unmask/.setup-token 2>/dev/null || echo "")
+[ -n "$TOK_BEFORE" ] && ok "setup token present before the upgrade" || ng "setup token before the upgrade" "none in /var/lib/unmask/.setup-token"
 rpm -Uvh --nodeps /work/unmask-$V2-1.x86_64.rpm /work/unmask-plugin-nginx-$V2-1.x86_64.rpm /work/unmask-web-nginx-$V2-1.x86_64.rpm >/tmp/i2.log 2>&1 \
   && ok "upgrade to v$V2 (rpm -U scriptlets exit 0)" || ng "upgrade to v$V2" "$(tail -1 /tmp/i2.log)"
 SECRETS_AFTER=$(grep -E 'bv_secret:|captcha_secret_base:|^[[:space:]]*driver:' /etc/unmask/config.yml 2>/dev/null | sort)
 [ "$SECRETS_AFTER" = "$SECRETS_BEFORE" ] && ok "secrets + DB driver preserved across upgrade" || ng "secrets/driver preserved"
-TOK_AFTER=$(cat /etc/unmask/.setup-token 2>/dev/null || echo "")
-[ "$TOK_AFTER" = "$TOK_BEFORE" ] && ok "setup-token not re-minted on upgrade (no admin re-lock)" || ng "setup-token stable" "before=$TOK_BEFORE after=$TOK_AFTER"
+TOK_AFTER=$(cat /var/lib/unmask/.setup-token 2>/dev/null || echo "")
+[ -n "$TOK_BEFORE" ] && [ "$TOK_AFTER" = "$TOK_BEFORE" ] && ok "setup-token not re-minted on upgrade (no admin re-lock)" || ng "setup-token stable" "before=$TOK_BEFORE after=$TOK_AFTER"
 [ "$(grep -c 'load_module.*ngx_http_unmask_module' /etc/nginx/nginx.conf 2>/dev/null)" = 1 ] && ok "no duplicate load_module after upgrade" || ng "single load_module" "count=$(grep -c 'load_module.*ngx_http_unmask_module' /etc/nginx/nginx.conf 2>/dev/null)"
 [ "$(ngxt)" = ok ] && ok "nginx -t after upgrade" || ng "nginx -t after upgrade" "$(nginx -t 2>&1 | tail -1)"
 [ "$(/usr/sbin/unmask version 2>&1 | awk '{print $2}')" = "$V2" ] && ok "new binary active (v$V2)" || ng "binary version" "$(/usr/sbin/unmask version 2>&1)"

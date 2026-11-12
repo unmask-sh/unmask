@@ -158,7 +158,8 @@ pkg_install "$V2" >/tmp/i2.log 2>&1 \
 SECRETS_AFTER=$(grep -E 'bv_secret:|captcha_secret_base:|^[[:space:]]*driver:' /etc/unmask/config.yml 2>/dev/null | sort)
 [ -n "$SECRETS_BEFORE" ] && [ "$SECRETS_AFTER" = "$SECRETS_BEFORE" ] && ok "secrets and DB driver kept across the upgrade" || ng "secrets and DB driver kept"
 TOK_AFTER=$(cat /var/lib/unmask/.setup-token 2>/dev/null || echo "")
-[ "$TOK_AFTER" = "$TOK_BEFORE" ] && ok "setup token not re-minted by the upgrade" || ng "setup token stable" "before=$TOK_BEFORE after=$TOK_AFTER"
+# With a token to compare: two empty reads are equal too.
+[ -n "$TOK_BEFORE" ] && [ "$TOK_AFTER" = "$TOK_BEFORE" ] && ok "setup token not re-minted by the upgrade" || ng "setup token stable" "before=$TOK_BEFORE after=$TOK_AFTER"
 [ "$(loader_count)" = 1 ] && ok "still one load_module after the upgrade" || ng "one load_module after the upgrade" "found in: $(loader_files | tr '\n' ' ')"
 [ "$(ngxt)" = ok ] && ok "nginx -t after the upgrade" || ng "nginx -t after the upgrade" "$(nginx -t 2>&1 | tail -1)"
 [ "$(/usr/sbin/unmask version 2>/dev/null | awk '{print $2}')" = "$V2" ] && ok "the new binary is in place (v$V2)" || ng "binary version" "$(/usr/sbin/unmask version 2>/dev/null | head -1)"

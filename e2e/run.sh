@@ -95,7 +95,10 @@ case "$BASE_URL" in
         fi
         ;;
 esac
-NO_STACK_RE='needs the docker e2e stack|compose not reachable|container not running locally|needs python3 with sqlite3'
+# The browser scenarios skip the same way when the Playwright image cannot be
+# had (lib/browser.sh), and returned 0: with the stack up -- CI -- five
+# scenarios could go unrun and the suite stay green.
+NO_STACK_RE='needs the docker e2e stack|compose not reachable|container not running locally|needs python3 with sqlite3|Playwright image [^ ]+ unavailable'
 
 # stack_report <since>: what the containers did while a scenario that failed
 # was running.  Printed here because nothing later can: the target that runs
@@ -138,7 +141,7 @@ for s in "$DIR"/scenarios/[0-9]*.sh; do
     bash "$s" 2>&1 | tee "$SCENARIO_OUT"
     rc=${PIPESTATUS[0]}
     if [ "$rc" -eq 0 ] && [ -n "$STACK_UP" ] && grep -qE "$NO_STACK_RE" "$SCENARIO_OUT"; then
-        echo "  FAIL  the docker stack is up and this scenario skipped for want of it -- it is looking for a service or a path that is not there"
+        echo "  FAIL  the docker stack is up and this scenario skipped for want of it -- it is looking for a service, a path or an image that is not there"
         rc=1
     fi
     if [ "$rc" -eq 0 ]; then
