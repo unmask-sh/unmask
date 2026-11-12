@@ -1530,7 +1530,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// isPreview: the operator's theme-tab iframe (?_preview=1) or an
 	// auth-gated /admin/test/ page.  Must serve the real challenge markup, not
 	// a redirect -- the operator is inspecting the page, not passing it.
-	isPreview := strings.Contains(r.URL.Path, "/admin/test/") || strings.TrimSpace(r.URL.Query().Get("_preview")) == "1"
+	isPreview := h.isAdminTestRoute(r) || previewAsked(r)
 
 	// Silent roaming rebind: a client that already solved (valid _bvj) and
 	// merely changed IP gets its _bv re-bound and bounced back instead of a
@@ -1978,7 +1978,7 @@ func (h *Handler) ServeChallenge(w http.ResponseWriter, r *http.Request) {
 	// can override via ?_preview_show_credit=0|1 so the theme-tab iframe
 	// reflects the toggle live without saving.
 	showCredit := br.IsShowCredit()
-	if isAdminTest := strings.Contains(r.URL.Path, "/admin/test/"); isAdminTest || strings.TrimSpace(r.URL.Query().Get("_preview")) == "1" {
+	if h.isAdminTestRoute(r) || previewAsked(r) {
 		if v := strings.TrimSpace(r.URL.Query().Get("_preview_show_credit")); v == "1" {
 			showCredit = true
 		} else if v == "0" {
@@ -2172,6 +2172,31 @@ func isLocalRedirect(s string) bool {
 func htmlEscape(s string) string {
 	rep := strings.NewReplacer(`&`, "&amp;", `"`, "&quot;", `<`, "&lt;", `>`, "&gt;")
 	return rep.Replace(s)
+}
+
+// isAdminTestRoute reports whether the request is for one of the login's
+// test pages, {base}/admin/test/...  By where the path begins: "contains"
+// was true of a visitor's own page too -- the rate route's path carries the
+// visitor's URI after /_rl -- and such a page is not a preview.
+func (h *Handler) isAdminTestRoute(r *http.Request) bool {
+	return strings.HasPrefix(strings.TrimPrefix(r.URL.Path, h.basePath()), "/admin/test/")
+}
+
+// previewAsked reports whether ?_preview=1 was said to this page itself: by
+// the theme tab's previews, which load the challenge at its own address.
+//
+// Not where the query is a visitor's page's.  The dispatcher hands the
+// request over as /challenge/?_orig=<the page> and nginx appends the page's
+// own arguments after that; the rate route carries them whole.  A page whose
+// URL says _preview=1 there -- a CMS's draft link, or a link made to say so
+// -- was served as a preview: no silent rebind, the visible style, and the
+// colours named in the link.
+func previewAsked(r *http.Request) bool {
+	q := r.URL.Query()
+	if strings.TrimSpace(q.Get("_preview")) != "1" {
+		return false
+	}
+	return q.Get("_orig") == "" && !strings.Contains(r.URL.Path, "/_rl/")
 }
 
 // testPagePrefix derives the /test/ index prefix from r.URL.Path.

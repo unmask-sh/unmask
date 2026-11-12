@@ -212,9 +212,11 @@
       // admin one -- otherwise language is the single thing you cannot check
       // there.  It stays gated: /unmask/test/ only exists when the operator has
       // turned public test pages on.
-      var isPrev=pq.get('_preview')==='1'
-        ||location.pathname.indexOf('/admin/test/')!==-1
-        ||location.pathname.indexOf('/test/')!==-1;
+      // This page's own addresses, by where the path begins: served in
+      // place of a visitor's page, the path and the query are that page's,
+      // and "contains /test/" was true of any page under a /test/ directory.
+      var isPrev=(pq.get('_preview')==='1'&&ownPage(location.pathname))
+        ||/^\/unmask\/(admin\/)?test\//.test(location.pathname);
       var pl=pq.get('_preview_lang');
       if(isPrev&&pl&&L[pl])return pl;
     }catch(_){}
@@ -317,16 +319,20 @@
   // hitting /unmask/challenge/ without _preview=1 cannot inject a preset.
   try {
     var qs = new URLSearchParams(location.search);
-    var isAdminTest = location.pathname.indexOf('/admin/test/') !== -1;
+    // The login's test pages, by where the path begins.  "Contains
+    // /admin/test/" was true of a visitor's page under such a directory,
+    // and the challenge served in its place then took its site name and
+    // footer from the link's query.
+    var isAdminTest = /^\/unmask\/admin\/test\//.test(location.pathname);
     // _preview=1 is reachable without auth, so a phishing link
     // (/unmask/challenge/?_preview=1&_preview_site_name=...) could rewrite the
     // page's site name / footer.  Gate the free-text override on a same-origin
     // /admin/ referrer: the theme-tab iframe carries it, a victim-facing link
     // does not (M-C1).  /admin/test/ stays trusted via isAdminTest (auth path).
-    var isIframePreview = qs.get('_preview') === '1' && (function () {
+    var isIframePreview = qs.get('_preview') === '1' && ownPage(location.pathname) && (function () {
       try {
         var ref = new URL(document.referrer);
-        return ref.origin === location.origin && ref.pathname.indexOf('/admin/') !== -1;
+        return ref.origin === location.origin && ref.pathname.indexOf('/unmask/admin/') === 0;
       } catch (e) { return false; }
     })();
     if (isAdminTest || isIframePreview) {

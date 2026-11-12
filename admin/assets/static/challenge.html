@@ -410,7 +410,14 @@ body.uc-on button:disabled{opacity:.5}
   // operator sees the bar's styling next to the spinner / msg while picking
   // a theme.  Real PoW progress logic stays bypassed by challenge.js's
   // early-return on window.UNMASK._preview.
-  if(/[?&]_preview=1\b/.test(location.search)){
+  //
+  // At this page's own addresses only -- the challenge and the test pages,
+  // where the theme tab's previews load it.  Served in place of a visitor's
+  // page, the query is that page's: a link to it that said _preview=1 (a
+  // CMS's draft link does) left the visitor in front of a challenge that
+  // never ran.
+  if(/[?&]_preview=1\b/.test(location.search)&&
+     /^\/unmask\/(challenge(\.html|\/)?$|(admin\/)?test(\/|$))/.test(location.pathname)){
     window.UNMASK._preview=true;
     var pb=document.getElementById('powProgress');
     var pf=document.getElementById('powProgressFill');
