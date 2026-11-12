@@ -350,9 +350,12 @@ func (h *Handler) AdminAuditRestore(w http.ResponseWriter, r *http.Request) {
 	redir("")
 }
 
-// maxDiffLines bounds the snapshot sizes UnifiedDiff will build an LCS table
-// for.  See the note at the allocation.
-const maxDiffLines = 20000
+// maxDiffCells bounds the table UnifiedDiff builds, in cells (four bytes
+// each).  See the note where it is used.
+const maxDiffCells = 4 << 20
+
+// diffMaxLines is how many changed lines an audit row keeps.
+const diffMaxLines = 500
 
 // UnifiedDiff produces a compact unified-diff-style text from two snapshots.
 // Only changed lines are emitted (= no surrounding context) so storage stays
@@ -361,58 +364,113 @@ const maxDiffLines = 20000
 func UnifiedDiff(before, after string) string {
 	a := strings.Split(strings.TrimRight(before, "\n"), "\n")
 	b := strings.Split(strings.TrimRight(after, "\n"), "\n")
+	// A save changes a few lines of a snapshot that an install with long
+	// lists makes tens of thousands of lines long, and the table of a
+	// longest-common-subsequence diff is quadratic in what it is given: the
+	// whole of two 10,000-line snapshots was 100 million cells, most of a
+	// gigabyte allocated in the daemon that is also serving challenges, for
+	// a diff of one line.  The lines the two share at the start and at the
+	// end belong to a longest common subsequence whatever lies between, so
+	// they are set aside first and the table covers the middle alone.
+	for len(a) > 0 && len(b) > 0 && a[0] == b[0] {
+		a, b = a[1:], b[1:]
+	}
+	for len(a) > 0 && len(b) > 0 && a[len(a)-1] == b[len(b)-1] {
+		a, b = a[:len(a)-1], b[:len(b)-1]
+	}
 	m, n := len(a), len(b)
-	// The LCS table below is (m+1)*(n+1) ints -- quadratic in the line counts,
-	// while the output is capped at 500 lines.  Two large snapshots (a preset
-	// list edited wholesale, a pasted allowlist) therefore cost memory out of
-	// all proportion to what anyone will read: a pair of 50k-line settings
-	// snapshots is 2.5 billion cells, or ~20 GB.  Above the ceiling, say so
-	// instead of computing it; a diff nobody can read is not worth an OOM in
-	// the daemon that is also serving challenges.
-	if m > maxDiffLines || n > maxDiffLines {
-		return fmt.Sprintf("(diff omitted: %d -> %d lines, over the %d-line limit)", m, n, maxDiffLines)
+	if m == 0 && n == 0 {
+		return "(no changes)"
 	}
-	dp := make([][]int, m+1)
-	for i := range dp {
-		dp[i] = make([]int, n+1)
+	var out []string
+	if (m+1)*(n+1) > maxDiffCells {
+		// A change that spans thousands of lines on both sides (a list
+		// pasted over wholesale).  Line order is given up rather than the
+		// diff: what left and what came, each in its own order.
+		out = bagDiff(a, b)
+	} else {
+		out = lcsDiff(a, b)
 	}
-	for i := 1; i <= m; i++ {
-		for j := 1; j <= n; j++ {
-			if a[i-1] == b[j-1] {
-				dp[i][j] = dp[i-1][j-1] + 1
-			} else if dp[i-1][j] >= dp[i][j-1] {
-				dp[i][j] = dp[i-1][j]
-			} else {
-				dp[i][j] = dp[i][j-1]
-			}
-		}
-	}
-	const maxLines = 500
-	out := make([]string, 0, 64)
-	var walk func(i, j int)
-	walk = func(i, j int) {
-		if len(out) > maxLines {
-			return
-		}
-		switch {
-		case i > 0 && j > 0 && a[i-1] == b[j-1]:
-			walk(i-1, j-1)
-		case j > 0 && (i == 0 || dp[i][j-1] >= dp[i-1][j]):
-			walk(i, j-1)
-			out = append(out, "+ "+b[j-1])
-		case i > 0:
-			walk(i-1, j)
-			out = append(out, "- "+a[i-1])
-		}
-	}
-	walk(m, n)
-	if len(out) > maxLines {
-		out = append(out[:maxLines], "  ... (diff truncated)")
+	if len(out) > diffMaxLines {
+		out = append(out[:diffMaxLines], "  ... (diff truncated)")
 	}
 	if len(out) == 0 {
 		return "(no changes)"
 	}
 	return strings.Join(out, "\n")
+}
+
+// lcsDiff: the lines of a not in a longest common subsequence with b as
+// "- line", those of b as "+ line", in the order of the two texts.  The
+// caller keeps len(a)*len(b) within maxDiffCells.
+func lcsDiff(a, b []string) []string {
+	m, n := len(a), len(b)
+	w := n + 1
+	dp := make([]int32, (m+1)*w)
+	for i := 1; i <= m; i++ {
+		for j := 1; j <= n; j++ {
+			switch {
+			case a[i-1] == b[j-1]:
+				dp[i*w+j] = dp[(i-1)*w+j-1] + 1
+			case dp[(i-1)*w+j] >= dp[i*w+j-1]:
+				dp[i*w+j] = dp[(i-1)*w+j]
+			default:
+				dp[i*w+j] = dp[i*w+j-1]
+			}
+		}
+	}
+	// Walked back from the end, so the lines come out last first.
+	var rev []string
+	for i, j := m, n; i > 0 || j > 0; {
+		switch {
+		case i > 0 && j > 0 && a[i-1] == b[j-1]:
+			i, j = i-1, j-1
+		case j > 0 && (i == 0 || dp[i*w+j-1] >= dp[(i-1)*w+j]):
+			rev = append(rev, "+ "+b[j-1])
+			j--
+		default:
+			rev = append(rev, "- "+a[i-1])
+			i--
+		}
+	}
+	for l, r := 0, len(rev)-1; l < r; l, r = l+1, r-1 {
+		rev[l], rev[r] = rev[r], rev[l]
+	}
+	return rev
+}
+
+// bagDiff: the lines a has more of than b as "- line", then those b has more
+// of as "+ line", each in its text's order, under a first line that says the
+// order was not compared.  Linear in the two texts.
+func bagDiff(a, b []string) []string {
+	out := []string{fmt.Sprintf("  (%d lines became %d: too many to align line by line, so shown as what left and what came)", len(a), len(b))}
+	left := make(map[string]int, len(b))
+	for _, l := range b {
+		left[l]++
+	}
+	for _, l := range a {
+		if left[l] > 0 {
+			left[l]--
+			continue
+		}
+		out = append(out, "- "+l)
+	}
+	left = make(map[string]int, len(a))
+	for _, l := range a {
+		left[l]++
+	}
+	for _, l := range b {
+		if left[l] > 0 {
+			left[l]--
+			continue
+		}
+		out = append(out, "+ "+l)
+	}
+	if len(out) == 1 {
+		// The same lines in another order.
+		out = append(out, "  (the same lines, in a different order)")
+	}
+	return out
 }
 
 // auditWriteSettingsSave: shared between AdminSettingsSave and any other

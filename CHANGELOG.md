@@ -36,6 +36,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **A tag that fails the release checks no longer pushes an image.**  The release workflow checks that the tag matches the Makefile's version and that the embedded IP ranges are fresh, but the job that pushes `ghcr.io/unmask-sh/unmask:<version>` did not wait for those checks: a tag that failed them still published an image under its version. The image job now runs after them.
 
+- (2026-11-12) **Saving settings on an install with long lists no longer allocates hundreds of megabytes.**  The audit log's diff of a save compared the two whole settings snapshots, quadratic in their length: with a few thousand list rows, one changed field cost most of a gigabyte in the daemon, and past 20,000 lines there was no diff. Only the part that changed is compared now.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.
