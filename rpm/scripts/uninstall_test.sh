@@ -474,6 +474,48 @@ check "no note, no include directory: the line the placer tagged is taken out of
 check "no note: it says so" 1 "$(says "unmask-plugin-nginx: removed the load_module line from $N/nginx.conf")"
 rm -rf "$T"
 
+# --- nginx.conf behind a symlink, and with a mode of its own --------------------
+# Where the line goes into nginx.conf itself, the new file used to be built
+# beside nginx.conf and renamed onto it.  An nginx.conf that is a symlink (a
+# configuration manager's, a panel's: the real file is kept elsewhere) became
+# a regular file, and the file it named kept its old content; and a file made
+# from nothing was 0644, whatever nginx.conf had been.  Adding the line,
+# moving it and taking it out now write the file the link names, with the
+# mode it had.
+new_root none
+mkdir -p "$T/srv/managed"
+mv "$N/nginx.conf" "$T/srv/managed/nginx.conf"
+chmod 0640 "$T/srv/managed/nginx.conf"
+ln -s "$T/srv/managed/nginx.conf" "$N/nginx.conf"
+kind_of() { if [ -L "$1" ]; then echo link; elif [ -f "$1" ]; then echo file; else echo none; fi; }
+mode_of() { stat -c %a "$1" 2>/dev/null; }
+install_all
+check "a symlinked nginx.conf: still a symlink once the line is added" link "$(kind_of "$N/nginx.conf")"
+check "...the line is in the file it names, once" 1 "$(grep -c 'load_module.*ngx_http_unmask_module' "$T/srv/managed/nginx.conf")"
+check "...whose mode is the one it had" 640 "$(mode_of "$T/srv/managed/nginx.conf")"
+check "...and nothing is left beside either" "" "$(ls "$N" "$T/srv/managed" | grep -E 'unmask-edit|\.tmp\.|unmask-unwire' | tr '\n' ' ')"
+# The module moves (the placer run again after the line was pointed
+# elsewhere): the line is rewritten in the same file.
+sed 's|load_module "[^"]*"|load_module "/somewhere/else/ngx_http_unmask_module.so"|' "$T/srv/managed/nginx.conf" > "$T/moved" && cat "$T/moved" > "$T/srv/managed/nginx.conf"
+run place-module.sh
+check "the line's path is put right: still a symlink" link "$(kind_of "$N/nginx.conf")"
+check "...one line, and not the stale one" "1 0" "$(grep -c 'load_module.*ngx_http_unmask_module' "$T/srv/managed/nginx.conf") $(grep -c '/somewhere/else/' "$T/srv/managed/nginx.conf")"
+check "...mode kept" 640 "$(mode_of "$T/srv/managed/nginx.conf")"
+plugin_prerm 0
+check "on removal: still a symlink" link "$(kind_of "$N/nginx.conf")"
+check "...the file it names is what it was" same "$(same "$T/srv/managed/nginx.conf" "$T/nginx.conf.orig")"
+check "...mode kept" 640 "$(mode_of "$T/srv/managed/nginx.conf")"
+rm -rf "$T"
+
+# A regular nginx.conf with a mode of its own keeps it too.
+new_root none
+chmod 0600 "$N/nginx.conf"
+install_all
+check "a 0600 nginx.conf: the mode is kept when the line is added" "600 1" "$(mode_of "$N/nginx.conf") $(grep -c 'load_module.*ngx_http_unmask_module' "$N/nginx.conf")"
+plugin_prerm 0
+check "...and when it is taken out" "600 same" "$(mode_of "$N/nginx.conf") $(same "$N/nginx.conf" "$T/nginx.conf.orig")"
+rm -rf "$T"
+
 # A directory of the operator's own, on no list: nginx.conf names it.
 new_root custom
 install_all

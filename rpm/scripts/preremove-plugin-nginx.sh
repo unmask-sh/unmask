@@ -224,6 +224,31 @@ main_include_dir() {
     ' "$NGINX_CONF" | sed 's|/\*\.conf;$||; s|;$||' | head -1
 }
 
+# conf_rewrite <file> <new>: make <file>'s content that of <new>, a scratch
+# file the caller has written in full (and which is removed either way).
+#
+# The new content is put beside the file and renamed into place, so that
+# nginx.conf is never half-written.  "The file" is the one a symlink names,
+# not the link: nginx.conf is a symlink where a configuration manager or a
+# panel keeps the real file elsewhere, and a rename onto the link turned it
+# into a regular file while the file it named kept the old content.  And a
+# copy of the file is made first (cp -p) and then filled, so the result has
+# the file's own mode and owner: a temporary file made from nothing was
+# root's and 0644, whatever nginx.conf had been.  An empty <new> is refused:
+# no edit here empties nginx.conf.  On a failure the file is as it was.
+conf_rewrite() {
+    _cw_f=$(readlink -f "$1" 2>/dev/null) || _cw_f=
+    [ -n "$_cw_f" ] && [ -f "$_cw_f" ] || _cw_f=$1
+    _cw_t="$_cw_f.unmask-edit.$$"
+    if [ -s "$2" ] && cp -p "$_cw_f" "$_cw_t" 2>/dev/null && cat "$2" > "$_cw_t" 2>/dev/null &&
+       mv -f "$_cw_t" "$_cw_f" 2>/dev/null; then
+        rm -f "$2" 2>/dev/null
+        return 0
+    fi
+    rm -f "$_cw_t" "$2" 2>/dev/null
+    return 1
+}
+
 # _uw_rm <path>: remove one file the package put there and, on a removal, say so.
 _uw_rm() {
     [ -f "$1" ] || [ -L "$1" ] || return 0
@@ -283,9 +308,9 @@ unwire_module() {
     _uw_rm "$FALLBACK_SO_DIR/$SO_NAME"
     _uw_rm "$OWN_SO_DIR/$SO_NAME"
 
-    # The line in nginx.conf itself.  Built beside it and renamed into place,
-    # so that nginx.conf is never half-written; the copy first keeps its mode
-    # and owner.  Not in a self-built nginx's: no line there is this
+    # The line in nginx.conf itself (conf_rewrite: never half-written, its
+    # mode and owner kept, a symlink left a symlink).  Not in a self-built
+    # nginx's: no line there is this
     # package's (it loads the module through the include of $OWN_MAIN_DIR,
     # emptied above), and its file is not edited, by the fail-safe either -- a
     # load_module the operator wrote there is named below, on a removal.
@@ -293,9 +318,7 @@ unwire_module() {
     [ "$_uw_mode" = remove ] && _uw_re="$_uw_re.*$LOAD_TAG"
     if [ "${SELFBUILT_NGINX:-0}" != 1 ] && [ -w "$NGINX_CONF" ] && grep -q "$_uw_re" "$NGINX_CONF" 2>/dev/null; then
         _uw_t="$NGINX_CONF.unmask-unwire.$$"
-        if cp -p "$NGINX_CONF" "$_uw_t" 2>/dev/null &&
-           sed "/$_uw_re/d" "$NGINX_CONF" > "$_uw_t" 2>/dev/null &&
-           mv -f "$_uw_t" "$NGINX_CONF" 2>/dev/null; then
+        if sed "/$_uw_re/d" "$NGINX_CONF" > "$_uw_t" 2>/dev/null && conf_rewrite "$NGINX_CONF" "$_uw_t"; then
             UNWIRE_REMOVED=1
             [ "$_uw_mode" = remove ] && echo "unmask-plugin-nginx: removed the load_module line from $NGINX_CONF"
         else
