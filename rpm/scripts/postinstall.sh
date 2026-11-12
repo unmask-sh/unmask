@@ -458,6 +458,15 @@ elif command -v chkconfig >/dev/null 2>&1 && [ -d /etc/rc.d/init.d ]; then
     # cleanup lives in preremove.sh.
     cp -f /usr/share/unmask/init/unmask.sysv /etc/rc.d/init.d/unmask
     chmod 0755 /etc/rc.d/init.d/unmask
+    # The init script appends the daemon's output to /var/log/unmask.log, and
+    # nothing rotated that file (systemd has the journal, OpenRC hands the
+    # output to syslog).  The rotation is put in place once: a file of that
+    # name already there is the operator's, or this one as they changed it,
+    # and is left as it is.
+    if [ -d /etc/logrotate.d ] && [ ! -e /etc/logrotate.d/unmask ]; then
+        cp -f /usr/share/unmask/init/unmask.logrotate /etc/logrotate.d/unmask 2>/dev/null \
+            && chmod 0644 /etc/logrotate.d/unmask 2>/dev/null || true
+    fi
     chkconfig --add unmask 2>/dev/null || true
     chkconfig unmask on 2>/dev/null || true
     # restart (not condrestart) so a stopped-by-prior-remove daemon still

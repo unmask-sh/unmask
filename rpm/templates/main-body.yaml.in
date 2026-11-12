@@ -100,6 +100,13 @@ contents:
     dst: /usr/share/unmask/init/unmask.sysv
     file_info:
       mode: 0755
+  # The SysVinit script appends the daemon's output to /var/log/unmask.log;
+  # postinstall puts this beside it as /etc/logrotate.d/unmask (SysVinit
+  # only, and only where no file of that name is there already).
+  - src: ./init.d/unmask.logrotate
+    dst: /usr/share/unmask/init/unmask.logrotate
+    file_info:
+      mode: 0644
 
   # state directories.  0751, not 0750: nginx's worker reads the ban list
   # (nginx/banned.txt) on every request and runs as nginx.conf's `user`,

@@ -41,6 +41,11 @@ if [ "$do_remove" = 1 ]; then
         service unmask stop 2>/dev/null || /etc/rc.d/init.d/unmask stop 2>/dev/null || true
         chkconfig --del unmask 2>/dev/null || true
         rm -f /etc/rc.d/init.d/unmask
+        # The log rotation postinstall put in place, while it still carries
+        # the package's first line; an operator's own file stays.
+        if grep -q '^# unmask: installed by the package' /etc/logrotate.d/unmask 2>/dev/null; then
+            rm -f /etc/logrotate.d/unmask
+        fi
     fi
 fi
 

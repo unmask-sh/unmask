@@ -31,6 +31,9 @@ run_case() {
     mkdir -p "$T/stub" "$T/tools" "$T/etc/unmask" "$T/var/lib/unmask/nginx" "$T/usr/share/unmask/init" "$T/etc/init.d" "$T/bin"
     : > "$T/calls.log"
     : > "$T/usr/share/unmask/init/unmask.sysv"
+    cp "$DIR/../init.d/unmask.logrotate" "$T/usr/share/unmask/init/unmask.logrotate"
+    # logrotate's directory is there on every init; only SysVinit gets a file.
+    [ -n "${NO_LOGROTATE_DIR:-}" ] || mkdir -p "$T/etc/logrotate.d"
     : > "$T/usr/share/unmask/init/unmask.openrc"
     : > "$T/etc/unmask/config.yml"           # an upgrade: the config is there
     # ...and so are the files of the last render.
@@ -84,6 +87,7 @@ STUB
         -e "s|/usr/share/unmask|$T/usr/share/unmask|g" \
         -e "s|/etc/rc.d/init.d|$T/etc/rc.d/init.d|g" \
         -e "s|/etc/init.d|$T/etc/init.d|g" \
+        -e "s|/etc/logrotate.d|$T/etc/logrotate.d|g" \
         -e "s|/etc/systemd/system|$T/etc/systemd/system|g" \
         -e "s|/etc/unmask|$T/etc/unmask|g" \
         -e "s|/var/lib/unmask|$T/var/lib/unmask|g" \
@@ -170,6 +174,30 @@ run_case sysvinit 0 "" 2
 check "SysVinit, rpm upgrade: started once" 1 "$(starts)"
 check "SysVinit, rpm upgrade: a restart (brings up a daemon a prior remove stopped)" 1 "$(called '^service unmask restart$')"
 [ -f "$T/etc/rc.d/init.d/unmask" ] && pass "SysVinit: the init script is installed" || fail "SysVinit: the init script is installed"
+rm -rf "$T"
+
+# --- the log's rotation on SysVinit -----------------------------------------
+# The init script appends the daemon's output to /var/log/unmask.log, and no
+# package file rotated it.  postinstall puts the rotation in place once.
+run_case sysvinit 0 "" 1
+check "SysVinit: the log's rotation is installed" yes "$(cmp -s "$T/etc/logrotate.d/unmask" "$DIR/../init.d/unmask.logrotate" && echo yes || echo no)"
+grep -q '^    copytruncate$' "$T/etc/logrotate.d/unmask" && pass "SysVinit: the rotation empties the log in place (the daemon cannot reopen it)" || fail "SysVinit: the rotation empties the log in place"
+grep -qE '^[[:space:]]*postrotate' "$T/etc/logrotate.d/unmask" && fail "SysVinit: the rotation signals nothing" || pass "SysVinit: the rotation signals nothing"
+rm -rf "$T"
+
+PRE_HOOK='printf "# kept by the operator\n" > "$T/etc/logrotate.d/unmask"' run_case sysvinit 0 "" 2
+check "SysVinit upgrade: a rotation file already there is left as it is" "# kept by the operator" "$(cat "$T/etc/logrotate.d/unmask")"
+rm -rf "$T"
+
+NO_LOGROTATE_DIR=1 run_case sysvinit 0 "" 1
+check "SysVinit without logrotate: nothing is created, and the install goes on" "no 1" "$([ -e "$T/etc/logrotate.d" ] && echo yes || echo no) $(starts)"
+rm -rf "$T"
+
+run_case systemd 0 "" 1
+check "systemd: no rotation file (the journal has the output)" no "$([ -e "$T/etc/logrotate.d/unmask" ] && echo yes || echo no)"
+rm -rf "$T"
+run_case openrc 1 "" 0.1.57-r0
+check "OpenRC: no rotation file (syslog has the output)" no "$([ -e "$T/etc/logrotate.d/unmask" ] && echo yes || echo no)"
 rm -rf "$T"
 
 # --- nginx's access-log socket over a restart (the handover drop-in) --------

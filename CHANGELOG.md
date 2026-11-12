@@ -88,6 +88,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **A mistyped address in config.yml no longer reaches nginx's configuration.**  The daemon's address, the log socket and a custom load balancer's ranges were written into the rendered files as config.yml had them, so a stray space or semicolon gave nginx a file it refused. A bad address or socket path now stops the render, keeping the previous files; a bad range is left out with a warning.
 
+- (2026-11-12) **On SysVinit hosts the daemon's log is rotated.**  On RHEL 6 and CentOS 6 the init script appends the daemon's output to /var/log/unmask.log, and no package file rotated it, so it grew for as long as the host ran. The package now installs /etc/logrotate.d/unmask there: weekly, eight files kept, compressed. A rotation file of your own under that name is left as it is.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.

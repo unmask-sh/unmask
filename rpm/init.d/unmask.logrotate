@@ -1,0 +1,19 @@
+# unmask: installed by the package (remove this line to keep the file when the package is removed)
+#
+# /etc/logrotate.d/unmask on a SysVinit host (RHEL 6 / CentOS 6), where the
+# init script appends the daemon's output to /var/log/unmask.log.  systemd
+# keeps that output in the journal and OpenRC hands it to syslog; neither
+# needs this file.
+#
+# copytruncate: the daemon writes through the descriptor the init script
+# opened for it (">>", append mode) and has no way to reopen a file, so the
+# log is copied and then emptied in place.  No postrotate signal is sent.
+/var/log/unmask.log {
+    weekly
+    rotate 8
+    missingok
+    notifempty
+    compress
+    delaycompress
+    copytruncate
+}

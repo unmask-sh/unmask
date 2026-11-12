@@ -37,6 +37,9 @@ user="unmask"
 # passes through it and no other local user does.
 rundir="/run/unmask"
 pidfile="$rundir/unmask.pid"
+# The daemon's output, appended (start below).  Rotated by
+# /etc/logrotate.d/unmask, which the package puts in place: copytruncate,
+# since the daemon cannot reopen a file it was handed as a descriptor.
 logfile="/var/log/unmask.log"
 lockfile="/var/lock/subsys/unmask"
 
