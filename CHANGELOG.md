@@ -62,6 +62,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **An address list no longer saves a value that is not an address.**  The bypass addresses, the admin and metrics allow lists and the statistics exclusions accepted anything made of digits, dots, colons and slashes: `192.168.1` or `10.0.0.0/33` was saved as if it worked, and then matched nothing. Such a row is now refused, named, when it is saved.
 
+- (2026-11-12) **The container starts with a wildcard host name or an IPv6 address in its environment.**  The entrypoint wrote the environment's values into `config.yml` unquoted: `UNMASK_SERVER_NAME=*.example.com` or `UNMASK_DAEMON_ADDR=[::1]:9477` produced a file the daemon could not parse, and the container restarted in a loop. The values are now written as quoted strings.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.

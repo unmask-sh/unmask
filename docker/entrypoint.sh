@@ -20,6 +20,15 @@ set -e
 
 CFG=/etc/unmask/config.yml
 
+# yaml_str: a value from the environment as a YAML double-quoted scalar.
+# Written bare, a value was YAML's to read: "*.example.com" is an alias,
+# "[::1]:9477" a list, "a: b" a mapping -- the daemon then refused the file
+# this script had just written, and the container restarted in a loop with
+# nothing in the log but the parse error.
+yaml_str() {
+    printf '"%s"' "$(printf '%s' "$1" | tr -d '\r\n' | sed 's/\\/\\\\/g; s/"/\\"/g')"
+}
+
 if [ ! -f "$CFG" ]; then
     BV=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
     CB=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
@@ -89,7 +98,7 @@ ${GATEWAY_REDIRECT_LINE}
     # Where the rendered nginx config proxies /unmask/ to.  A sidecar nginx
     # container reaches this one by service name (compose: unmask:9477); a
     # host nginx talking to a published port keeps the loopback default.
-    upstream_addr: ${UNMASK_DAEMON_ADDR:-127.0.0.1:9477}
+    upstream_addr: $(yaml_str "${UNMASK_DAEMON_ADDR:-127.0.0.1:9477}")
     metrics_allow_from:
         - 127.0.0.1
 ${TRUSTED_LB_LINES}
@@ -118,28 +127,28 @@ EOF
         if [ "$mode" = none ]; then listen='[http]'; vhmode=selfsigned; fi
         # "_" (or nothing) = any hostname; otherwise the list, which is
         # also what the seeded certificate is for.
-        hostmode=all; hostnames='""'
+        hostmode=all; hostnames=""
         case "${UNMASK_SERVER_NAME:-_}" in _|"") ;; *) hostmode=custom; hostnames="${UNMASK_SERVER_NAME}" ;; esac
         insecure=false
         case "${UNMASK_ACME_INSECURE:-}" in 1|true|yes|on) insecure=true ;; esac
         cat >> "$CFG" <<EOF
 gateway:
     listen: ${listen}
-    upstream: ${UNMASK_UPSTREAM:-}
+    upstream: $(yaml_str "${UNMASK_UPSTREAM:-}")
     hostnames:
         mode: ${hostmode}
-        names: ${hostnames}
-    acme_email: ${UNMASK_ACME_EMAIL:-}
-    acme_directory: ${UNMASK_ACME_DIRECTORY:-}
+        names: $(yaml_str "${hostnames}")
+    acme_email: $(yaml_str "${UNMASK_ACME_EMAIL:-}")
+    acme_directory: $(yaml_str "${UNMASK_ACME_DIRECTORY:-}")
     acme_insecure: ${insecure}
     certificates:
         - mode: ${vhmode}
-          domains: ${hostnames}
+          domains: $(yaml_str "${hostnames}")
 EOF
         if [ "$vhmode" = files ]; then
             cat >> "$CFG" <<EOF
-          cert_path: ${UNMASK_TLS_CERT:-/etc/unmask/tls/fullchain.pem}
-          key_path: ${UNMASK_TLS_KEY:-/etc/unmask/tls/privkey.pem}
+          cert_path: $(yaml_str "${UNMASK_TLS_CERT:-/etc/unmask/tls/fullchain.pem}")
+          key_path: $(yaml_str "${UNMASK_TLS_KEY:-/etc/unmask/tls/privkey.pem}")
 EOF
         fi
     fi
