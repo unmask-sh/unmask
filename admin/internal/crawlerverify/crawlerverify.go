@@ -69,7 +69,12 @@ type crawler struct {
 var crawlers = []crawler{
 	{"Googlebot", "googlebot", []string{"googlebot.com", "google.com"}, true},
 	{"Bingbot", "bingbot", []string{"search.msn.com"}, true},
-	{"YandexBot", "yandex", []string{"yandex.com", "yandex.net", "yandex.ru"}, false},
+	// Yandex's robots all carry "+http://yandex.com/bots" (the pattern the
+	// embedded crawler list names them by).  The bare word "yandex" is also
+	// in the UA of a person's browser -- the Yandex app's web view, Yandex
+	// Browser's search suffix -- who is no crawler and whose home address
+	// then failed the PTR check as a forged YandexBot.
+	{"YandexBot", "yandex.com/bots", []string{"yandex.com", "yandex.net", "yandex.ru"}, false},
 	{"Applebot", "applebot", []string{"applebot.apple.com"}, true},
 	{"Baiduspider", "baiduspider", []string{"baidu.com", "baidu.jp"}, false},
 }

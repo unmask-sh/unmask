@@ -225,3 +225,34 @@ func TestDomainMatch(t *testing.T) {
 		t.Error("must not match when the domain is a mid-label, not a suffix")
 	}
 }
+
+// A UA that carries the word "yandex" is not thereby a Yandex robot: the
+// Yandex app's web view and Yandex Browser are people.  The claim is the
+// robots' own mark, "+http://yandex.com/bots"; matched on the bare word, a
+// phone on a home connection failed the PTR check as a forged YandexBot.
+func TestYandexClaimIsTheRobotsMarkNotTheWord(t *testing.T) {
+	people := []string{
+		"Mozilla/5.0 (Linux; Android 10; SM-A515F Build/QP1A.190711.020; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/83.0.4103.106 Mobile Safari/537.36 YandexSearch/8.75 YandexSearchBrowser/8.75",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 YaBrowser/24.1.0.0 Yowser/2.5 Safari/537.36",
+		"Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 YaBrowser/23.9.0 Mobile/15E148 Safari/604.1 Yandex",
+	}
+	for _, ua := range people {
+		if got := ClaimedCrawler(ua); got != "" {
+			t.Errorf("ClaimedCrawler(%.60q...) = %q, want none", ua, got)
+		}
+	}
+	f := &fakeResolver{ptr: map[string][]string{"198.51.100.44": {"ppp-44.dsl.isp.example."}}}
+	if r := newV(f).Verify(context.Background(), "198.51.100.44", people[0]); r.Status != NotApplicable {
+		t.Errorf("a person's browser on a home connection: status %s, want n/a", r.Status)
+	}
+	robots := []string{
+		"Mozilla/5.0 (compatible; YandexBot/3.0; +http://yandex.com/bots)",
+		"Mozilla/5.0 (compatible; YandexImages/3.0; +http://yandex.com/bots)",
+		"Mozilla/5.0 (iPhone; CPU iPhone OS 8_1 like Mac OS X) AppleWebKit/600.1.4 (KHTML, like Gecko) Version/8.0 Mobile/12B411 Safari/600.1.4 (compatible; YandexMobileBot/3.0; +http://yandex.com/bots)",
+	}
+	for _, ua := range robots {
+		if got := ClaimedCrawler(ua); got != "YandexBot" {
+			t.Errorf("ClaimedCrawler(%.60q...) = %q, want YandexBot", ua, got)
+		}
+	}
+}

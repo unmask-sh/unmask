@@ -58,6 +58,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **The challenge page's beacon can no longer fill the statistics with made-up keys.**  The beacon endpoint accepted the daemon's own phases and any number as flags; a client holding one page's token could write serve events with invented reasons, and every new reason or flags value became a statistics row kept for a month. It now takes only the phases and the flag bits the page sends.
 
+- (2026-11-12) **Yandex Browser and the Yandex app are no longer taken for a forged YandexBot.**  With crawler rDNS verification on, any User-Agent containing "yandex" was held to YandexBot's reverse-DNS check, and a person's browser on a home connection failed it as a forgery. Only the robots' own mark, `yandex.com/bots`, counts as the claim now.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.
