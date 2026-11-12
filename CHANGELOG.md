@@ -18,6 +18,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **A bypass path of your own can pass GET, HEAD and OPTIONS only.**  A custom bypass row passed every method, so listing a file that is only ever fetched also let a POST to it through unjudged, its body reaching the application behind the path. Each row now has a methods picker, for every site or for one; existing rows keep passing every method.
 
+- (2026-11-12) **The crawler card follows the site picker, and its counts download as a daily CSV.**  Per-crawler counts covered the whole install, so an operator of many sites could not say what each site served them. They are now kept per site too: the card shows the picked site's, and its CSV link gives a row per day, site and crawler, with requests from the vendor's published ranges.
+
 ### Changed
 
 - (2026-11-12) **The daemon picks up a config.yml changed outside the admin.**  It read the file only at start and at its own saves: after `unmask upgrade-review --apply` or an edit it kept the old settings, and its next automatic render wrote them back to nginx. It now re-reads the file seconds after a change, renders, and records it in the audit log. Reloading nginx stays your step.

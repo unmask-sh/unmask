@@ -549,6 +549,14 @@ func cmdServe(args []string) error {
 		// crawler drill-down: resolve the individual crawler within its category
 		// (Googlebot, Bingbot, ...), folded into unmask_crawler_detail_hourly.
 		nlog.SetCrawlerNamer(classify.LookupCrawlerIn)
+		// per-site crawler rows: whether the request's address is inside the
+		// ranges that crawler's vendor publishes -- the vendor's ranges as
+		// loaded, whichever presets the operator enabled, since it is the
+		// request that is being described.  Counted as verified.
+		nlog.SetCrawlerRangeCheck(func(name, ip string) bool {
+			_, inRange := nginxconf.CrawlerVendorRange(name, ip)
+			return inRange
+		})
 		// country breakdown for the 30-day chart: per-packet IP -> country
 		// lookup, folded into unmask_traffic_country_hourly on the hour flush.
 		nlog.SetIPGeo(gip)
@@ -1368,6 +1376,10 @@ func buildRouter(s settings.Settings, h *handlers.Handler) *http.ServeMux {
 		h.AuthMiddleware(h.AdminSiteList))
 	mux.HandleFunc("GET "+base+"/admin/stats/{site}/{$}",
 		h.AuthMiddleware(h.AdminStats))
+	// The crawler card's counters by day, as a CSV file: the statistics
+	// page's data, so every role that opens the page may take it.
+	mux.HandleFunc("GET "+base+"/admin/stats/crawlers.csv",
+		h.AuthMiddleware(h.AdminCrawlersCSV))
 	mux.HandleFunc("GET "+base+"/admin/api/funnel",
 		h.AuthMiddleware(h.AdminFunnelJSON))
 	mux.HandleFunc("GET "+base+"/admin/api/myip",

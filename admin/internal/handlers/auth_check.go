@@ -736,7 +736,7 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 		// aggregates onLine() fills in native mode -- otherwise the crawler
 		// funnel, unique-IP (DailyUniqueIPs) and per-country (DailyPassByCountry)
 		// charts are blank in forward-auth.
-		h.NginxLog.BumpCrawler(ua, action != "pass")
+		h.NginxLog.BumpCrawler(site, ua, ip, action != "pass")
 		// The same classification onLine performs natively, in the same order:
 		// pass cookie, then challenged, then listed crawler, then bypassed.
 		// Exactly one may fire, because all four are shares of the one total the

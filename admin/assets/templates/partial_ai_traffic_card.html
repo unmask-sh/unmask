@@ -5,22 +5,34 @@
   sees layout drift between the two views.
 
   The caller is expected to expose:
-    .Lang             current locale (= passed through to t / safeHTML)
-    .AITraffic        []handlers.AITrafficRow      (all-traffic tab)
-    .AITrafficServed  []dashboard.AITrafficRow     (served-only tab)
+    .Lang               current locale (= passed through to t / safeHTML)
+    .AITraffic          []handlers.AITrafficRow      (all-traffic tab)
+    .AITrafficServed    []dashboard.AITrafficRow     (served-only tab)
+    .AITrafficDetail    map[category][]handlers.AICrawlerRow (the drill-down)
+    .AITrafficPreSplit  a site is picked and the window reaches back to
+                        counts taken before the counters were kept per site
+    .AITrafficCSV       handlers.crawlersCSVLink: the window the CSV link
+                        hands over (absent = no link)
 
-  The "all" tab reads .AITraffic (= unmask_crawler_minute, install-wide,
+  The "all" tab reads .AITraffic (= the access log's crawler counters,
   includes rescued/bypassed crawlers; carries Total / Served / Passed /
   pass-rate metrics).  The "served" tab reads .AITrafficServed (= hkAITag
   aggregate fed by phase=serve events; carries Count / UniqIP).  Both
-  share classify.CrawlerTagOrder so the tag list is stable.
+  share classify.CrawlerTagOrder so the tag list is stable, and both follow
+  the site picker: with none picked the "all" tab is the install-wide
+  unmask_crawler_minute and its drill-down unmask_crawler_detail_hourly,
+  with one picked both are that site's rows of unmask_crawler_site_hourly.
 
   Zero-row rows are marked with class="muted-row"; the page-level zero-row
   toggle picks those up and inserts the checkbox under each table.
 */}}
 {{ define "ai_traffic_card" }}
 <div class="bcd-card ai-traffic-card" data-ai-card>
-  <h2>{{ t .Lang "ai_traffic.title" }}<span class="ai-window">{{ t .Lang (printf "ai_traffic.window%s" $.WinSuffix) }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "ai_traffic.desc") }}</span></span></h2>
+  {{/* The CSV link comes last in the heading and floats to its right edge, so
+       the title, the window and the help stay where they were.  Its window is
+       the caller's (the page's range on the statistics page); the site is the
+       picker's cookie, which the request carries by itself. */}}
+  <h2>{{ t .Lang "ai_traffic.title" }}<span class="ai-window">{{ t .Lang (printf "ai_traffic.window%s" $.WinSuffix) }}</span><span class="info-tip" tabindex="0" aria-label="help" style="margin-left:.35rem">?<span class="info-popup">{{ safeHTML (t .Lang "ai_traffic.desc") }}</span></span>{{ with .AITrafficCSV }}<a class="ai-csv" href="{{ $.BasePath }}/admin/stats/crawlers.csv?range={{ .Range }}{{ if .From }}&amp;from={{ .From }}&amp;to={{ .To }}{{ end }}">{{ t $.Lang "ai_traffic.csv" }}</a>{{ end }}</h2>
   <div class="ai-tabs" role="tablist">
     <button class="ai-tab active" data-tab="all" role="tab">{{ t .Lang "ai_traffic.tab.all" }}</button>
     <button class="ai-tab" data-tab="served" role="tab">{{ t .Lang "ai_traffic.tab.served" }}</button>
@@ -40,6 +52,9 @@
         {{ end }}
       </tbody>
     </table>
+    {{/* A site's rows begin where the counters began to be kept per site:
+         what was counted before is in the all-sites figures only. */}}
+    {{ if .AITrafficPreSplit }}<p class="ai-presplit">{{ t .Lang "ai_traffic.presplit_note" }}</p>{{ end }}
   </div>
   <div class="ai-pane" data-pane="served" style="display:none">
     <p class="muted" style="margin:.5rem 0;font-size:.8rem">{{ safeHTML (t .Lang "ai_traffic.tab.served.note") }}</p>
@@ -91,11 +106,18 @@
 {{ define "ai_traffic_card_assets" }}
 <style>
 /* The card carries no other date context, and its three sources are not
-   equally precise: the "all" table is minute-granular, while the drill-down
-   popover and the "served" tab read hourly rollups whose lower bound snaps
-   down to the containing hour (deliberately -- see aiTrafficDrilldown --
-   so a drill-down never reads lower than the row it opened from). */
+   equally precise: the "all" table is minute-granular (hour-granular once a
+   site is picked, when it is summed from the rows its drill-down reads),
+   while the drill-down popover and the "served" tab read hourly rollups
+   whose lower bound snaps down to the containing hour (deliberately -- see
+   aiTrafficDrilldown -- so a drill-down never reads lower than the row it
+   opened from). */
 .ai-traffic-card h2 .ai-window{font-size:.72rem;font-weight:500;color:#94a3b8;margin-left:.5rem;letter-spacing:0}
+/* The CSV download: a text link at the heading's right edge, sized like the
+   window label so it reads as a tool of the card, not as part of its title. */
+.ai-traffic-card h2 .ai-csv{float:right;margin-top:.3rem;font-size:.75rem;font-weight:500;letter-spacing:0;color:#2563eb;text-decoration:none}
+.ai-traffic-card h2 .ai-csv:hover{text-decoration:underline}
+.ai-traffic-card .ai-presplit{margin:.5rem 0 0;font-size:.75rem;line-height:1.5;color:#94a3b8}
 .ai-traffic-card .ai-tabs{display:flex;gap:.25rem;margin-bottom:.5rem;border-bottom:1px solid #e2e8f0}
 .ai-traffic-card .ai-tab{background:none;border:none;padding:.4rem .75rem;font-size:.85rem;color:#64748b;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px}
 .ai-traffic-card .ai-tab:hover{color:#0f172a}

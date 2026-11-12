@@ -47,6 +47,7 @@ type statsCards struct {
 	aiTraffic               []dashboard.AITrafficRow
 	aiTrafficAll            []AITrafficRow
 	aiTrafficDetail         map[string][]AICrawlerRow
+	aiTrafficPreSplit       bool
 	dailyKind               []dashboard.DailyKindBucket
 	dailyTotal              []dashboard.DailyTotal
 	dailyServeKind          []dashboard.DailyKindBucket

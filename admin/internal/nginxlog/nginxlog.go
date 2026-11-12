@@ -93,6 +93,7 @@ type Reader struct {
 	buckets              map[bucketKey]*bucket
 	crawlerBuckets       map[crawlerKey]*crawlerBucket
 	crawlerDetailBuckets map[crawlerDetailKey]*crawlerBucket
+	crawlerSiteBuckets   map[crawlerSiteKey]*crawlerSiteBucket
 	namedBuckets         map[namedKey]*namedBucket
 	countryHourlyBuckets map[countryHourKey]*countryHourBucket
 	cookieIPBuckets      map[cookieIPKey]*cookieIPBucket
@@ -185,6 +186,14 @@ type Reader struct {
 	// unset); takes the category from classifyCrawler so the two always agree.
 	crawlerNamer func(ua, tag string) string
 
+	// crawlerInRange: (crawler name, client address) -> true when the address
+	// is inside the ranges that crawler's vendor publishes.  Wired by main via
+	// SetCrawlerRangeCheck (nginxconf.CrawlerVendorRange); the per-site rows
+	// count those requests as verified, which is how they tell the vendor's
+	// crawler from a client wearing its name.  nil-safe (nothing counts as
+	// verified when unset).
+	crawlerInRange func(name, ip string) bool
+
 	// crawlerObserve: (ip, ua) for every access-log line, so the native rDNS
 	// post-pass can verify a crawler-claiming visitor and auto-ban a forgery.
 	// Wired by main via SetCrawlerObserver; nil-safe.  The callback itself is
@@ -241,7 +250,9 @@ var recvQueueSize = 8192
 // and its own rows in every per-site table, for as long as the client
 // cared to vary it.  The parentheses keep it apart from any hostname.  No
 // page shows it: the site lists come from the event table, and these
-// tables are read by a picked site or as a whole.
+// tables are read by a picked site or as a whole.  The one place it is
+// written out is the crawler CSV, which lists every site the per-site
+// crawler rows are filed under, this one among them.
 const OtherSite = "(other)"
 
 // siteCapPerMinute bounds the distinct sites the minute buckets hold.
@@ -363,6 +374,18 @@ func (r *Reader) SetCrawlerNamer(f func(ua, tag string) string) {
 		return
 	}
 	r.crawlerNamer = f
+}
+
+// SetCrawlerRangeCheck: register the (crawler name, client address) ->
+// "inside the ranges its vendor publishes" function
+// (nginxconf.CrawlerVendorRange).  Without it the per-site rows' verified
+// count stays at zero.  Set once at startup before traffic, like the
+// classifier.
+func (r *Reader) SetCrawlerRangeCheck(f func(name, ip string) bool) {
+	if r == nil {
+		return
+	}
+	r.crawlerInRange = f
 }
 
 // SetIPGeo: register the ipgeo reader for per-packet country lookup.  Without
@@ -500,6 +523,46 @@ type crawlerDetailKey struct {
 	crawler  string
 }
 
+// crawlerSiteKey / crawlerSiteBucket: per-hour, per-(site, category,
+// individual-crawler) aggregation for the crawler card once a site is picked
+// and for the daily CSV (= unmask_crawler_site_hourly).  It is kept beside
+// the install-wide drill-down above, not in its place: the card with no site
+// picked reads that one, whose rows do not multiply with the number of
+// sites, and a daemon from before this table goes on writing it as it always
+// did.  site is the one the other per-site buckets use (aggSite), so the
+// rows a client can mint by varying its Host are bounded here as they are
+// there.
+//
+// total and served mean what they do in crawlerBucket; verified is the
+// requests whose address is inside the ranges the crawler's vendor publishes
+// (crawlerInRange), named the ones the configuration let through on the
+// crawler's name alone.  The two say what kind of request the name was on: a
+// crawler with published ranges and few verified requests is mostly someone
+// else.
+type crawlerSiteKey struct {
+	hour     int64
+	site     string
+	category string
+	crawler  string
+}
+
+type crawlerSiteBucket struct {
+	total    int
+	served   int
+	verified int
+	named    int
+}
+
+// crawlerSiteBucketsMax bounds the per-site crawler buckets kept between
+// flushes.  A flush drains them every minute; the bound is reached only when
+// flushes cannot write -- through a schema update's hold, a database that
+// refuses writes -- and a client varying its Host and its crawler name must
+// not grow them without limit meanwhile.  Past it a request for a site and
+// crawler that have no bucket yet is counted under OtherSite, so the sites
+// still add up to the install-wide rows.  A variable so a test can make it
+// small.
+var crawlerSiteBucketsMax = 200000
+
 // namedKey / namedBucket: per-hour, per-crawler count of the requests the
 // configuration let through on the crawler's name alone (sb=1, no challenge, no
 // cookie, no bypass), with a HyperLogLog sketch of the addresses they came
@@ -611,6 +674,7 @@ func StartWith(socketPath string, d *db.DB, perm sockperm.Spec) *Reader {
 		buckets:              map[bucketKey]*bucket{},
 		crawlerBuckets:       map[crawlerKey]*crawlerBucket{},
 		crawlerDetailBuckets: map[crawlerDetailKey]*crawlerBucket{},
+		crawlerSiteBuckets:   map[crawlerSiteKey]*crawlerSiteBucket{},
 		namedBuckets:         map[namedKey]*namedBucket{},
 		countryHourlyBuckets: map[countryHourKey]*countryHourBucket{},
 		cookieIPBuckets:      map[cookieIPKey]*cookieIPBucket{},
@@ -1108,8 +1172,9 @@ func (r *Reader) onLine(line string) {
 	// through (rescued / valid cookie / a site in monitor mode, where nothing
 	// is served).
 	// A line with sb=1 and nothing else passing it -- no challenge, no cookie,
-	// no bypass -- went through on the crawler's name alone.
-	r.bumpCrawler(p.ua, p.fc && !p.observe, p.sb && !p.pv && !p.fc && !p.bypassed && p.kind == "", p.ip)
+	// no bypass -- went through on the crawler's name alone.  The per-site
+	// rows are kept under the site the buckets above use.
+	r.bumpCrawler(site, p.ua, p.fc && !p.observe, p.sb && !p.pv && !p.fc && !p.bypassed && p.kind == "", p.ip)
 	// Native rDNS post-pass: verify a crawler-claiming visitor and auto-ban a
 	// forgery.  Cheap for the common (non-crawler) UA -- the callback short-
 	// circuits before any DNS or lock.
@@ -1299,19 +1364,39 @@ func (r *Reader) bumpCountryHourly(site, ip, kind string) {
 	r.mu.Unlock()
 }
 
-// bumpCrawler: classify ua and increment its per-minute crawler bucket.
+// crawlerCategory: the crawler category of ua, "" when there is nothing to
+// count -- the Reader is not running, no classifier is set, or the UA is not
+// a crawler's.
+func (r *Reader) crawlerCategory(ua string) string {
+	if r == nil || r.d == nil || r.classifyCrawler == nil || ua == "" {
+		return ""
+	}
+	return r.classifyCrawler(ua)
+}
+
+// bumpCrawler: classify ua and increment its per-minute crawler bucket, the
+// hourly drill-down bucket of the crawler and the bucket of the crawler on
+// that site.
+// site is the one the line's other buckets are keyed by (aggSite); only the
+// per-site rows carry it, the per-minute category bucket, the drill-down and
+// the name-only claims stay install-wide.
 // served=true means the request did not pass straight through (= challenged).
 // named=true means the request went through on the crawler's name alone
 // (the access-log line's sb=1 with nothing else passing it); ip is then folded
-// into that crawler's hourly address sketch.  No-op when the classifier is
-// unset or the UA is not a crawler.
-func (r *Reader) bumpCrawler(ua string, served, named bool, ip string) {
-	if r == nil || r.d == nil || r.classifyCrawler == nil || ua == "" {
-		return
+// into that crawler's hourly address sketch.  ip is also what the per-site
+// rows' verified count is decided on (crawlerInRange).  No-op when the
+// classifier is unset or the UA is not a crawler.
+func (r *Reader) bumpCrawler(site, ua string, served, named bool, ip string) {
+	if cat := r.crawlerCategory(ua); cat != "" {
+		r.countCrawler(site, cat, ua, served, named, ip)
 	}
-	cat := r.classifyCrawler(ua)
-	if cat == "" {
-		return
+}
+
+// countCrawler is bumpCrawler past the classification: cat is ua's category
+// (crawlerCategory), never "".
+func (r *Reader) countCrawler(site, cat, ua string, served, named bool, ip string) {
+	if site == "" {
+		site = "default" // a request without a host, as parse files it
 	}
 	now := time.Now().Unix()
 	key := crawlerKey{minute: now / 60, category: cat}
@@ -1325,11 +1410,16 @@ func (r *Reader) bumpCrawler(ua string, served, named bool, ip string) {
 	// dimension) outside the lock -- regex matching must not hold r.mu.  Empty
 	// when the namer is unwired (= only per-category aggregation runs).
 	var dkey crawlerDetailKey
-	haveDetail := false
+	haveDetail, verified := false, false
 	if r.crawlerNamer != nil {
 		if name := r.crawlerNamer(ua, cat); name != "" {
 			dkey = crawlerDetailKey{hour: now / 3600, category: cat, crawler: name}
 			haveDetail = true
+			// Whether the address is one the crawler's vendor publishes: a
+			// prefix lookup, outside the lock like the two above.
+			if r.crawlerInRange != nil && ip != "" {
+				verified = r.crawlerInRange(name, ip)
+			}
 		}
 	}
 	r.mu.Lock()
@@ -1355,7 +1445,34 @@ func (r *Reader) bumpCrawler(ua string, served, named bool, ip string) {
 		if served {
 			db.served++
 		}
+		// The same request under its site, for the card with a site picked
+		// and for the CSV.
+		if r.crawlerSiteBuckets == nil { // as above: a Reader made by hand may have none
+			r.crawlerSiteBuckets = map[crawlerSiteKey]*crawlerSiteBucket{}
+		}
+		skey := crawlerSiteKey{hour: dkey.hour, site: site, category: cat, crawler: dkey.crawler}
+		sb := r.crawlerSiteBuckets[skey]
+		if sb == nil {
+			if len(r.crawlerSiteBuckets) >= crawlerSiteBucketsMax && site != OtherSite {
+				// Only while nothing drains them (crawlerSiteBucketsMax): a
+				// site and crawler with no bucket yet go under OtherSite.
+				skey.site = OtherSite
+				sb = r.crawlerSiteBuckets[skey]
+			}
+			if sb == nil {
+				sb = &crawlerSiteBucket{}
+				r.crawlerSiteBuckets[skey] = sb
+			}
+		}
+		sb.total++
+		if served {
+			sb.served++
+		}
+		if verified {
+			sb.verified++
+		}
 		if named {
+			sb.named++
 			if r.namedBuckets == nil {
 				r.namedBuckets = map[namedKey]*namedBucket{}
 			}
@@ -1375,12 +1492,22 @@ func (r *Reader) bumpCrawler(ua string, served, named bool, ip string) {
 }
 
 // BumpCrawler: exported entry point for forward-auth mode (= /api/check has
-// the UA but emits no access-log line of its own).  nil-safe.
-func (r *Reader) BumpCrawler(ua string, served bool) {
-	if r == nil {
+// the UA but emits no access-log line of its own).  site is the request's
+// site as /api/check resolved it and ip its client address, for the per-site
+// rows and their verified count.  nil-safe.
+//
+// The site goes through aggSite, as a logged Host does in onLine: the Host
+// header names it, and a client varying that header would otherwise get a
+// row per value, per crawler, per hour.  (Bump and the other forward-auth
+// entry points key their buckets by the site as given.)  Only for a request
+// that is counted: every request of the install passes here, and the others
+// neither take aggSite's lock nor use up its distinct sites of the minute.
+func (r *Reader) BumpCrawler(site, ua, ip string, served bool) {
+	cat := r.crawlerCategory(ua)
+	if cat == "" {
 		return
 	}
-	r.bumpCrawler(ua, served, false, "")
+	r.countCrawler(r.aggSite(site), cat, ua, served, false, ip)
 }
 
 // BumpBypass records a request the configuration let through without judging
@@ -1575,6 +1702,10 @@ func (r *Reader) flushOnce(final bool) {
 		key crawlerDetailKey
 		b   crawlerBucket
 	}
+	type crawlerSiteEntry struct {
+		key crawlerSiteKey
+		b   crawlerSiteBucket
+	}
 
 	type namedEntry struct {
 		key namedKey
@@ -1620,6 +1751,12 @@ func (r *Reader) flushOnce(final bool) {
 		crawlerDetailReady = append(crawlerDetailReady, crawlerDetailEntry{k, *b})
 		delete(r.crawlerDetailBuckets, k)
 	}
+	// the per-site crawler buckets flush every tick too, for the same reason.
+	crawlerSiteReady := make([]crawlerSiteEntry, 0, len(r.crawlerSiteBuckets))
+	for k, b := range r.crawlerSiteBuckets {
+		crawlerSiteReady = append(crawlerSiteReady, crawlerSiteEntry{k, *b})
+		delete(r.crawlerSiteBuckets, k)
+	}
 	// name-only claims flush every tick too, for the same reason.
 	namedReady := make([]namedEntry, 0, len(r.namedBuckets))
 	for k, b := range r.namedBuckets {
@@ -1654,14 +1791,14 @@ func (r *Reader) flushOnce(final bool) {
 	passReady := r.collectPassLocked(time.Now())
 	r.mu.Unlock()
 
-	if len(ready) == 0 && len(crawlerReady) == 0 && len(crawlerDetailReady) == 0 && len(namedReady) == 0 && len(countryReady) == 0 && len(cookieIPReady) == 0 && len(passReady) == 0 {
+	if len(ready) == 0 && len(crawlerReady) == 0 && len(crawlerDetailReady) == 0 && len(crawlerSiteReady) == 0 && len(namedReady) == 0 && len(countryReady) == 0 && len(cookieIPReady) == 0 && len(passReady) == 0 {
 		return
 	}
 
 	// Ten seconds for a minute's worth; more for the backlog of a hold, which
 	// is written in this one transaction and would otherwise miss the
 	// deadline at every try.
-	rows := len(ready)*4 + len(crawlerReady) + len(crawlerDetailReady) + len(namedReady) + len(countryReady)*2 + len(cookieIPReady) + len(passReady)
+	rows := len(ready)*4 + len(crawlerReady) + len(crawlerDetailReady) + len(crawlerSiteReady) + len(namedReady) + len(countryReady)*2 + len(cookieIPReady) + len(passReady)
 	within := 10*time.Second + time.Duration(rows)*time.Millisecond
 	if within > 2*time.Minute {
 		within = 2 * time.Minute
@@ -1714,6 +1851,20 @@ func (r *Reader) flushOnce(final bool) {
 			} else {
 				bb := e.b
 				r.crawlerDetailBuckets[e.key] = &bb
+			}
+		}
+		for _, e := range crawlerSiteReady {
+			if b, ok := r.crawlerSiteBuckets[e.key]; ok {
+				b.total += e.b.total
+				b.served += e.b.served
+				b.verified += e.b.verified
+				b.named += e.b.named
+			} else {
+				bb := e.b
+				if r.crawlerSiteBuckets == nil {
+					r.crawlerSiteBuckets = map[crawlerSiteKey]*crawlerSiteBucket{}
+				}
+				r.crawlerSiteBuckets[e.key] = &bb
 			}
 		}
 		// The name-only claims were the one family taken out above and not
@@ -1839,6 +1990,15 @@ func (r *Reader) flushOnce(final bool) {
 			return
 		}
 	}
+	stmtCrawlerSite := crawlerSiteUpsertStmt(r.d.Driver)
+	for _, e := range crawlerSiteReady {
+		if _, err := tx.ExecContext(ctx, stmtCrawlerSite,
+			e.key.hour, e.key.site, e.key.category, e.key.crawler,
+			e.b.total, e.b.served, e.b.verified, e.b.named); err != nil {
+			log.Printf("nginxlog: flush exec(crawler-site %s/%s): %v", e.key.category, e.key.crawler, err)
+			return
+		}
+	}
 	// Name-only claims: the count accumulates; the address sketch is
 	// read-merge-written like the traffic sketches, so a restart or a late
 	// line unions with what is stored instead of overwriting it.
@@ -1948,6 +2108,24 @@ func crawlerDetailUpsertStmt(drv db.Driver) string {
 		VALUES (?, ?, ?, ?, ?)
 		ON DUPLICATE KEY UPDATE
 			total = total + VALUES(total), served = served + VALUES(served)`
+}
+
+// crawlerSiteUpsertStmt: accumulate the four counters with (bucket_hour, site,
+// category, crawler) as the unique key, into unmask_crawler_site_hourly.  The
+// drill-down's rows once more, with the site kept.
+func crawlerSiteUpsertStmt(drv db.Driver) string {
+	if drv == db.DriverSQLite {
+		return `INSERT INTO unmask_crawler_site_hourly (bucket_hour, site, category, crawler, total, served, verified, named)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			ON CONFLICT(bucket_hour, site, category, crawler) DO UPDATE SET
+				total = total + excluded.total, served = served + excluded.served,
+				verified = verified + excluded.verified, named = named + excluded.named`
+	}
+	return `INSERT INTO unmask_crawler_site_hourly (bucket_hour, site, category, crawler, total, served, verified, named)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON DUPLICATE KEY UPDATE
+			total = total + VALUES(total), served = served + VALUES(served),
+			verified = verified + VALUES(verified), named = named + VALUES(named)`
 }
 
 // namedUpsertStmt: accumulate cnt with (bucket_hour, crawler, country) as the

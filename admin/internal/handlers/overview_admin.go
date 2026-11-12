@@ -10,6 +10,7 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
@@ -96,11 +97,12 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 		overBlock                             OverBlockHealth
 		// The crawler card (the stats page's, same partial and the same three
 		// reads over the day) and the detections-by-reason card.
-		aiAll     []AITrafficRow
-		aiDetail  map[string][]AICrawlerRow
-		aiServed  []dashboard.AITrafficRow
-		reasons   map[string]int
-		reasonsOK bool
+		aiAll      []AITrafficRow
+		aiDetail   map[string][]AICrawlerRow
+		aiPreSplit bool
+		aiServed   []dashboard.AITrafficRow
+		reasons    map[string]int
+		reasonsOK  bool
 	)
 	var wg sync.WaitGroup
 	launch := func(f func()) {
@@ -148,11 +150,14 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	// Over-block circuit-breaker health -- a global signal, so it lives on the
 	// landing rather than the per-site stats dashboard.
 	launch(func() { overBlock, _ = h.OverBlockHealth(ctx) })
-	// Who the known crawlers were and whether any was challenged: the "all"
-	// tab is install-wide (the access log's crawler counters carry no site),
-	// the "challenged" tab follows the site picker, as on the stats page.
-	launch(func() { aiAll = aiTrafficSummary(ctx, h, winMinutes) })
-	launch(func() { aiDetail = aiTrafficDrilldown(ctx, h, winMinutes) })
+	// Who the known crawlers were and whether any was challenged.  Both tabs
+	// follow the site picker, as on the stats page: the access log's crawler
+	// counters are kept per site as well, and with one picked the "all" tab
+	// reads that site's.  The window may still reach back to before they
+	// were, to requests no site's rows hold; the card says so.
+	launch(func() { aiAll = aiTrafficSummary(ctx, h, winMinutes, site) })
+	launch(func() { aiDetail = aiTrafficDrilldown(ctx, h, winMinutes, site) })
+	launch(func() { aiPreSplit = aiTrafficPreSplit(ctx, h, winMinutes, site) })
 	launch(func() {
 		var err error
 		if aiServed, err = dashboard.AITrafficBreakdown(ctx, h.DB, site, hosts, winHours); err != nil {
@@ -461,9 +466,15 @@ func (h *Handler) AdminTopOverview(w http.ResponseWriter, r *http.Request) {
 	data := map[string]any{
 		"Lang": lang,
 		// Crawler card (partial_ai_traffic_card), same keys as the stats page.
-		"AITraffic":       aiAll,
-		"AITrafficServed": aiServed,
-		"AITrafficDetail": aiDetail,
+		"AITraffic":         aiAll,
+		"AITrafficServed":   aiServed,
+		"AITrafficDetail":   aiDetail,
+		"AITrafficPreSplit": aiPreSplit,
+		// The card's CSV link.  The section's own window is a day or a week,
+		// where a table by day is wanted over a longer run, and this page has
+		// no range of the statistics page's to hand over: the file covers the
+		// last 30 days.
+		"AITrafficCSV": crawlersCSVLink{Range: "30d"},
 		// Detections by reason: every known reason (zeros collapse behind the
 		// table's toggle), then any the daemon wrote that no label covers.
 		"Reasons":         reasonRows,
@@ -597,12 +608,49 @@ type AITrafficRow struct {
 	Passed   int
 }
 
-// aiTrafficSummary reads the last `minutes` of the unmask_crawler_minute
-// aggregate (fed by the nginx access-log pipeline / auth_request BumpCrawler).
+// The crawler card's reads once a site is picked: that site's rows of
+// unmask_crawler_site_hourly, sought through its (site, bucket_hour) index,
+// so a site's view costs that site's rows and not the install's.  With no
+// site picked the card reads the install-wide tables with the statements it
+// always had.  Statements of their own so that a test can hold the planner
+// to it (crawler_plan_test.go).
+const (
+	crawlerSiteDetailStmt = `SELECT category, crawler, bucket_hour, total, served FROM unmask_crawler_site_hourly
+		 WHERE bucket_hour >= ? AND site = ?`
+	crawlerSiteCategoryStmt = `SELECT category, SUM(total), SUM(served) FROM unmask_crawler_site_hourly
+		 WHERE bucket_hour >= ? AND site = ? GROUP BY category`
+	// The three of aiTrafficPreSplit: the hour the per-site rows begin at,
+	// and whether the install-wide table holds a row in the window at all, or
+	// one from before that hour.
+	crawlerSiteFirstHourStmt = `SELECT MIN(bucket_hour) FROM unmask_crawler_site_hourly`
+	crawlerDetailSinceStmt   = `SELECT 1 FROM unmask_crawler_detail_hourly WHERE bucket_hour >= ? LIMIT 1`
+	crawlerDetailBeforeStmt  = `SELECT 1 FROM unmask_crawler_detail_hourly WHERE bucket_hour >= ? AND bucket_hour < ? LIMIT 1`
+)
+
+// crawlerSiteFilter is the site the per-site crawler counters are read for:
+// the site picker's value, with "" for no selection and for the "default"
+// sentinel alike, as the dashboard's queries have it (dashboard.siteCond) --
+// both mean every site.
+func crawlerSiteFilter(site string) string {
+	if site == "default" {
+		return ""
+	}
+	return site
+}
+
+// aiTrafficSummary reads the last `minutes` of the crawler counters by
+// category (fed by the nginx access-log pipeline / auth_request BumpCrawler).
 // This is the only source that sees rescued crawlers — they are passed
-// straight through and never recorded in unmask_event.  Global (not scoped by
-// the host / site picker; the aggregate has no host dimension).  Best-effort.
-func aiTrafficSummary(ctx context.Context, h *Handler, minutes int) []AITrafficRow {
+// straight through and never recorded in unmask_event.
+//
+// With no site picked it reads unmask_crawler_minute, which is install-wide
+// and minute-granular.  With one picked it sums that site's rows of
+// unmask_crawler_site_hourly, the only crawler counters that carry a site:
+// hour-granular, the lower bound snapped down to the containing hour as the
+// drill-down's is, so a category row and the crawlers under it add up.  The
+// host picker does not narrow either (the counters have no host dimension).
+// Best-effort.
+func aiTrafficSummary(ctx context.Context, h *Handler, minutes int, site string) []AITrafficRow {
 	// Order matches the stats card so the operator's eye doesn't have to
 	// re-anchor when switching between views.  Zero-row tags stay visible
 	// per the feedback_zero_row_policy.
@@ -611,10 +659,14 @@ func aiTrafficSummary(ctx context.Context, h *Handler, minutes int) []AITrafficR
 		byCat[k] = &AITrafficRow{Category: k}
 	}
 	if h.DB != nil {
-		sinceMin := time.Now().Unix()/60 - int64(minutes)
-		rows, err := h.DB.QueryContext(ctx,
-			`SELECT category, SUM(total), SUM(served) FROM unmask_crawler_minute
-			 WHERE bucket_min > ? GROUP BY category`, sinceMin)
+		stmt := `SELECT category, SUM(total), SUM(served) FROM unmask_crawler_minute
+			 WHERE bucket_min > ? GROUP BY category`
+		args := []any{time.Now().Unix()/60 - int64(minutes)}
+		if site = crawlerSiteFilter(site); site != "" {
+			stmt = crawlerSiteCategoryStmt
+			args = []any{(time.Now().Unix() - int64(minutes)*60) / 3600, site}
+		}
+		rows, err := h.DB.QueryContext(ctx, stmt, args...)
 		if err != nil {
 			log.Printf("aiTrafficSummary: %v", err)
 		} else {
@@ -676,7 +728,13 @@ type AICrawlerRow struct {
 // popover numbers and the sparkline come from one query.  The lower bound snaps
 // down to the containing hour, so the totals never under-count vs the category
 // row above.  Only crawlers actually seen produce rows.  Best-effort.
-func aiTrafficDrilldown(ctx context.Context, h *Handler, minutes int) map[string][]AICrawlerRow {
+//
+// site is the site picker's.  With none ("" or "default") the rows are the
+// install-wide table's, read as they always were: one row per hour and
+// crawler, however many sites the install has.  With one picked they are
+// that site's rows of unmask_crawler_site_hourly, the same counts kept per
+// site, which begin at the release that added that table.
+func aiTrafficDrilldown(ctx context.Context, h *Handler, minutes int, site string) map[string][]AICrawlerRow {
 	if h.DB == nil {
 		return nil
 	}
@@ -707,9 +765,13 @@ func aiTrafficDrilldown(ctx context.Context, h *Handler, minutes int) map[string
 	}
 	nBuckets := int((spanHours + chunkHours - 1) / chunkHours) // ceil
 
-	rows, err := h.DB.QueryContext(ctx,
-		`SELECT category, crawler, bucket_hour, total, served FROM unmask_crawler_detail_hourly
-		 WHERE bucket_hour >= ?`, sinceHour)
+	stmt := `SELECT category, crawler, bucket_hour, total, served FROM unmask_crawler_detail_hourly
+		 WHERE bucket_hour >= ?`
+	args := []any{sinceHour}
+	if site = crawlerSiteFilter(site); site != "" {
+		stmt, args = crawlerSiteDetailStmt, append(args, site)
+	}
+	rows, err := h.DB.QueryContext(ctx, stmt, args...)
 	if err != nil {
 		log.Printf("aiTrafficDrilldown: %v", err)
 		return nil
@@ -764,6 +826,37 @@ func aiTrafficDrilldown(ctx context.Context, h *Handler, minutes int) map[string
 		})
 	}
 	return byCat
+}
+
+// aiTrafficPreSplit reports whether a site's view of the crawler card reads a
+// window that reaches back to before the counters were kept per site: the
+// install-wide table holds rows in the window that are older than the
+// per-site table's first hour (any row in the window, while the per-site
+// table is still empty).  Those requests were on some site, and which one is
+// not recorded: they are in the all-sites figures and in no site's, so for as
+// long as the window reaches back to them a site's figures run short of what
+// it received, and the card says so.  On a new install the two tables begin
+// together and this is never true; on an upgraded one it stops being true
+// once the older rows have been pruned.  The lower bound is the drill-down's.
+// False with no site picked, and on a read that fails: the note is an aside,
+// and the tables it sits under report their own failures.
+func aiTrafficPreSplit(ctx context.Context, h *Handler, minutes int, site string) bool {
+	if h.DB == nil || crawlerSiteFilter(site) == "" {
+		return false
+	}
+	sinceHour := (time.Now().Unix() - int64(minutes)*60) / 3600
+	var first sql.NullInt64
+	if err := h.DB.QueryRowContext(ctx, crawlerSiteFirstHourStmt).Scan(&first); err != nil {
+		return false
+	}
+	var one int
+	switch {
+	case !first.Valid:
+		return h.DB.QueryRowContext(ctx, crawlerDetailSinceStmt, sinceHour).Scan(&one) == nil
+	case first.Int64 <= sinceHour:
+		return false // the per-site rows begin before the window does
+	}
+	return h.DB.QueryRowContext(ctx, crawlerDetailBeforeStmt, sinceHour, first.Int64).Scan(&one) == nil
 }
 
 // sparkPoints renders a series of per-chunk counts as the "points" attribute of

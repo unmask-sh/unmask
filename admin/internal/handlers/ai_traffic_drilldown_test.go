@@ -43,7 +43,7 @@ func TestAITrafficDrilldownQuery(t *testing.T) {
 	ins(nowHour, "ai-training", "GPTBot", 200, 80)
 	ins(nowHour-1000, "search-engine", "OldBot", 999, 0) // outside a 24h window -> excluded
 
-	got := aiTrafficDrilldown(context.Background(), h, 1440) // 24h window
+	got := aiTrafficDrilldown(context.Background(), h, 1440, "") // 24h window, every site
 
 	se := got["search-engine"]
 	if len(se) != 2 {
@@ -98,7 +98,7 @@ func TestAITrafficDrilldownRangeVerified(t *testing.T) {
 	ins("search-engine", "Yeti", 427, 50)           // NO published range
 
 	rvOf := func() map[string]bool {
-		got := aiTrafficDrilldown(context.Background(), h, 1440)
+		got := aiTrafficDrilldown(context.Background(), h, 1440, "")
 		out := map[string]bool{}
 		for _, r := range got["search-engine"] {
 			out[r.Crawler] = r.RangeVerified
@@ -194,7 +194,7 @@ func TestAITrafficDrilldownSparkline(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got := aiTrafficDrilldown(context.Background(), h, 24*60) // 24h window
+	got := aiTrafficDrilldown(context.Background(), h, 24*60, "") // 24h window, every site
 	rows := got["ai-training"]
 	if len(rows) != 1 || rows[0].Crawler != "ClaudeBot" {
 		t.Fatalf("want one ClaudeBot row, got %+v", rows)

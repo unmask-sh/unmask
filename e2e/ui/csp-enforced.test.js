@@ -49,6 +49,7 @@ const NOT_A_PAGE = {
   '/admin/docs/{$}': 'a redirect to the documentation site',
   '/admin/install/{$}': 'a redirect to the documentation site',
   '/admin/settings/export': 'a download',
+  '/admin/stats/crawlers.csv': 'a download',
   '/admin/settings/custom-rules/draft': 'a fragment the Ask page puts in a dialog',
   '/admin/settings/asn/suggest': 'JSON for the ASN tab',
   '/admin/settings/geo/preview-impact': 'JSON for the country tab',

@@ -120,11 +120,11 @@ func TestCrawlerAggregation(t *testing.T) {
 		return ""
 	})
 
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "")  // passed
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "")  // passed
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", true, false, "")   // served (challenged)
-	r.bumpCrawler("Mozilla/5.0 (Windows NT 10.0) Chrome/120", false, false, "") // not a crawler -> ignored
-	r.bumpCrawler("", false, false, "")                                         // empty UA -> ignored
+	r.bumpCrawler("s1.example", "Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "")  // passed
+	r.bumpCrawler("s1.example", "Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "")  // passed
+	r.bumpCrawler("s1.example", "Mozilla/5.0 (compatible; Googlebot/2.1)", true, false, "")   // served (challenged)
+	r.bumpCrawler("s1.example", "Mozilla/5.0 (Windows NT 10.0) Chrome/120", false, false, "") // not a crawler -> ignored
+	r.bumpCrawler("s1.example", "", false, false, "")                                         // empty UA -> ignored
 
 	r.flushOnce(true)
 
@@ -187,11 +187,11 @@ func TestCrawlerDetailAggregation(t *testing.T) {
 		}
 	})
 
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "")  // Googlebot passed
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "")  // Googlebot passed
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", true, false, "")   // Googlebot served
-	r.bumpCrawler("Mozilla/5.0 (compatible; bingbot/2.0)", false, false, "")    // Bingbot passed
-	r.bumpCrawler("Mozilla/5.0 (Windows NT 10.0) Chrome/120", false, false, "") // not a crawler -> ignored
+	r.bumpCrawler("s1.example", "Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "")  // Googlebot passed
+	r.bumpCrawler("s1.example", "Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "")  // Googlebot passed
+	r.bumpCrawler("s1.example", "Mozilla/5.0 (compatible; Googlebot/2.1)", true, false, "")   // Googlebot served
+	r.bumpCrawler("s1.example", "Mozilla/5.0 (compatible; bingbot/2.0)", false, false, "")    // Bingbot passed
+	r.bumpCrawler("s1.example", "Mozilla/5.0 (Windows NT 10.0) Chrome/120", false, false, "") // not a crawler -> ignored
 
 	r.flushOnce(true)
 
@@ -265,7 +265,7 @@ func TestCrawlerDetailNamerUnset(t *testing.T) {
 		return ""
 	})
 	// no SetCrawlerNamer
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "")
+	r.bumpCrawler("s1.example", "Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "")
 	r.flushOnce(true)
 	var nDetail, nCat int
 	if err := d.QueryRowContext(context.Background(),
@@ -296,7 +296,7 @@ func TestCrawlerClassifierUnset(t *testing.T) {
 		t.Fatal(err)
 	}
 	r := &Reader{d: d, buckets: map[bucketKey]*bucket{}, crawlerBuckets: map[crawlerKey]*crawlerBucket{}}
-	r.bumpCrawler("Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "") // classifier nil -> no-op
+	r.bumpCrawler("s1.example", "Mozilla/5.0 (compatible; Googlebot/2.1)", false, false, "") // classifier nil -> no-op
 	r.flushOnce(true)
 	var n int
 	if err := d.QueryRowContext(context.Background(),
@@ -508,10 +508,10 @@ func TestNamedRescueAggregation(t *testing.T) {
 		t.Fatalf("a line without sb must read as not claimed: ok=%v sb=%v", ok, p.sb)
 	}
 
-	r.bumpCrawler(ua, false, true, "203.0.113.9")
-	r.bumpCrawler(ua, false, true, "203.0.113.9")
-	r.bumpCrawler(ua, false, true, "198.51.100.7")
-	r.bumpCrawler(ua, true, false, "203.0.113.9") // challenged: not a pass on the name
+	r.bumpCrawler("example.com", ua, false, true, "203.0.113.9")
+	r.bumpCrawler("example.com", ua, false, true, "203.0.113.9")
+	r.bumpCrawler("example.com", ua, false, true, "198.51.100.7")
+	r.bumpCrawler("example.com", ua, true, false, "203.0.113.9") // challenged: not a pass on the name
 	r.flushOnce(true)
 
 	var cnt int

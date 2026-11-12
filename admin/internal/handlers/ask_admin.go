@@ -134,12 +134,13 @@ func (h *Handler) askTools(r *http.Request) aitools.Deps {
 // known crawler and each crawler in it, with its requests, how many were
 // challenged and how many passed over the trailing window.  Asked how much
 // the search engines and AI crawlers came and whether they got through, the
-// model had only the install-wide pass count to go on.
+// model had only the install-wide pass count to go on.  Every site together,
+// whatever the site picker holds: the tool takes no site.
 func (h *Handler) askCrawlers(ctx context.Context, hours int) (any, error) {
 	minutes := hours * 60
-	detail := aiTrafficDrilldown(ctx, h, minutes)
+	detail := aiTrafficDrilldown(ctx, h, minutes, "")
 	cats := []map[string]any{}
-	for _, c := range aiTrafficSummary(ctx, h, minutes) {
+	for _, c := range aiTrafficSummary(ctx, h, minutes, "") {
 		if c.Total == 0 {
 			continue
 		}

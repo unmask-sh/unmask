@@ -311,3 +311,52 @@ func TestAdminRoutesViewerCannotWrite(t *testing.T) {
 		}
 	}
 }
+
+// TestCrawlersCSVUnderTheStatsGate: the crawler CSV is the statistics page's
+// data as a file, and is gated as the page is.  Without a session it sends
+// the visitor to the login page like the page does; a viewer, who may open
+// the page, gets the file.  A route moved under a stricter gate, or left out
+// of the router, fails here.
+func TestCrawlersCSVUnderTheStatsGate(t *testing.T) {
+	s, _, mux := routeFixture(t)
+	base := s.Server.BasePath
+	const page, file = "/admin/stats/", "/admin/stats/crawlers.csv?range=7d"
+	for _, path := range []string{page, file} {
+		rec := serve(mux, httptest.NewRequest(http.MethodGet, base+path, nil))
+		if loc := rec.Header().Get("Location"); rec.Code != http.StatusFound || !strings.Contains(loc, base+"/admin/login") {
+			t.Errorf("%s without a session: %d (Location %q), want the login page", path, rec.Code, loc)
+		}
+		if strings.Contains(rec.Body.String(), "date,site,category") {
+			t.Errorf("%s without a session: the file was served", path)
+		}
+	}
+	cookies := viewerLogin(t, mux, base)
+	get := func(path string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodGet, base+path, nil)
+		for _, c := range cookies {
+			req.AddCookie(c)
+		}
+		return serve(mux, req)
+	}
+	if rec := get(page); rec.Code != http.StatusOK {
+		t.Fatalf("%s as a viewer: %d, want 200", page, rec.Code)
+	}
+	rec := get(file)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%s as a viewer: %d, want 200 -- the page it belongs to opens for the role", file, rec.Code)
+	}
+	if ct := rec.Header().Get("Content-Type"); ct != "text/csv; charset=utf-8" {
+		t.Errorf("%s as a viewer: Content-Type %q", file, ct)
+	}
+	if body := rec.Body.String(); !strings.HasPrefix(body, "date,site,category,crawler,total,challenged,passed,verified,named_pass,range_published\n") {
+		t.Errorf("%s as a viewer: body starts %.80q, want the header row", file, body)
+	}
+	// A write to it is not a route at all.
+	req := httptest.NewRequest(http.MethodPost, base+"/admin/stats/crawlers.csv", strings.NewReader(""))
+	for _, c := range cookies {
+		req.AddCookie(c)
+	}
+	if rec := serve(mux, req); rec.Code == http.StatusOK {
+		t.Errorf("POST to the CSV answered %d", rec.Code)
+	}
+}

@@ -534,6 +534,14 @@ func PruneHourly(ctx context.Context, d *db.DB) error {
 	// tracks the dashboard's 30-day range like every other aggregate.
 	_, err := PruneCrawlerDetailHourly(ctx, d, hourlyKeep)
 	step("unmask_crawler_detail_hourly", err)
+	// The same counts kept per site (the crawler card with a site picked, the
+	// daily CSV): the drill-down's window, since the card reads the two
+	// tables side by side.  A row per hour, site and crawler, so on an
+	// install with many sites this is the widest of the crawler tables: in
+	// chunks, for the pass that finds a backlog.  bucket_hour is unix
+	// seconds / 3600.
+	step("unmask_crawler_site_hourly", pruneRowsInChunks(ctx, d, "unmask_crawler_site_hourly", "bucket_hour",
+		time.Now().Unix()/3600-int64(hourlyKeep)*24))
 	// Name-only crawler claims: the same fixed window as the drill-down beside
 	// it (the UA-filter tab reads a day, doctor a day).
 	exec("unmask_crawler_named_hourly",

@@ -1894,22 +1894,26 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		return func(c *statsCards) { c.aiTraffic = v }, e
 	})
 	// All-traffic view (= access-log pipeline, includes rescued/bypassed
-	// crawlers).  unmask_crawler_minute is install-wide; the site filter
-	// doesn't narrow it, but we still expose the data so the stats card
-	// can show the "all" tab alongside the site-scoped "served" view.
+	// crawlers).  It follows the site picker like the "served" view beside
+	// it: with a site picked the categories are summed from that site's
+	// rows of the per-site crawler table, with none they are the
+	// install-wide per-minute counters, as before (aiTrafficSummary).
 	// return ctx.Err() (not nil): aiTrafficSummary / aiTrafficDrilldown swallow
 	// their query error internally and just yield zero rows, so without this a
 	// deadline-exceeded would leave the AI card silently empty instead of
 	// joining the FailedCards banner like every other card on this dashboard.
 	run("AITrafficAll", func() (func(*statsCards), error) {
-		v := aiTrafficSummary(ctx, h, hours*60)
+		v := aiTrafficSummary(ctx, h, hours*60, site)
 		return func(c *statsCards) { c.aiTrafficAll = v }, ctx.Err()
 	})
-	// Per-crawler drill-down for the "all" tab's popover (= same window as
-	// AITrafficAll, resolved category -> individual crawler).
+	// Per-crawler drill-down for the "all" tab's popover (= same window and
+	// site as AITrafficAll, resolved category -> individual crawler), and
+	// whether that window reaches back to before the counters were kept per
+	// site, to requests a site's figures leave out (the card's note).
 	run("AITrafficDetail", func() (func(*statsCards), error) {
-		v := aiTrafficDrilldown(ctx, h, hours*60)
-		return func(c *statsCards) { c.aiTrafficDetail = v }, ctx.Err()
+		v := aiTrafficDrilldown(ctx, h, hours*60, site)
+		pre := aiTrafficPreSplit(ctx, h, hours*60, site)
+		return func(c *statsCards) { c.aiTrafficDetail, c.aiTrafficPreSplit = v, pre }, ctx.Err()
 	})
 	// 30-day trend chart 1: aggregate all nginx requests from unmask_cookie_minute
 	// into a stacked bar with 3 categories: white / PoW / not pass (only
@@ -2016,6 +2020,7 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		passPeaks = nil // the same rows in the same order say nothing twice
 	}
 	aiTraffic, aiTrafficAll, aiTrafficDetail := snap.aiTraffic, snap.aiTrafficAll, snap.aiTrafficDetail
+	aiTrafficPreSplit := snap.aiTrafficPreSplit
 	dailyKind, dailyTotal := snap.dailyKind, snap.dailyTotal
 	dailyServeKind, dailyServeTotal, dailyBlocked := snap.dailyServeKind, snap.dailyServeTotal, snap.dailyBlocked
 	countries, dailyCountry, dailyUniq := snap.countries, snap.dailyCountry, snap.dailyUniq
@@ -2322,6 +2327,19 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		customTo = rangeEnd.In(loc).Format("2006-01-02")
 	}
 
+	// The crawler card's CSV link hands the page's range over as it is.  A
+	// custom range goes by its two dates; one that did not parse is not a
+	// window, and the cards above read the last day instead, so the link says
+	// that.
+	csvLink := crawlersCSVLink{Range: rng}
+	if rng == "custom" {
+		if customValid {
+			csvLink.From, csvLink.To = customFrom, customTo
+		} else {
+			csvLink.Range = "24h"
+		}
+	}
+
 	// The sites the page names -- the heading's, the rate-limit paths' and the
 	// CAPTCHA report's -- for the amber colouring of a host that is not a
 	// defined site, as the hunt's rows have it.
@@ -2385,6 +2403,8 @@ func (h *Handler) renderStats(w http.ResponseWriter, r *http.Request, site strin
 		"AITrafficServed":     aiTraffic,
 		"AITraffic":           aiTrafficAll,
 		"AITrafficDetail":     aiTrafficDetail,
+		"AITrafficPreSplit":   aiTrafficPreSplit,
+		"AITrafficCSV":        csvLink,
 		"DailyKindJSON":       template.JS(dailyKindJSON),
 		"DailyTotal":          dailyTotal,
 		"PassSumTotal":        sumTotal,

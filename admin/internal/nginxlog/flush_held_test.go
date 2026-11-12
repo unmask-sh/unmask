@@ -89,7 +89,7 @@ func TestFailedFlushPutsBackTheNameOnlyClaims(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		r.bumpLine("example.org", "")
 		r.bumpCountryHourly("example.org", "198.51.100.7", "")
-		r.bumpCrawler("ExampleBot/1.0", false, true, "198.51.100.7")
+		r.bumpCrawler("example.org", "ExampleBot/1.0", false, true, "198.51.100.7")
 	}
 	// The flush fails at a statement after the named claims were written.
 	if _, err := d.Exec(`ALTER TABLE unmask_traffic_country_hourly RENAME TO unmask_traffic_country_hourly_away`); err != nil {
@@ -108,7 +108,7 @@ func TestFailedFlushPutsBackTheNameOnlyClaims(t *testing.T) {
 	if inMemory != 3 {
 		t.Fatalf("after a failed flush %d name-only claims are in memory, want the 3 it carried", inMemory)
 	}
-	r.bumpCrawler("ExampleBot/1.0", false, true, "198.51.100.8") // counted since
+	r.bumpCrawler("example.org", "ExampleBot/1.0", false, true, "198.51.100.8") // counted since
 	r.flushOnce(true)
 	var stored int
 	if err := d.QueryRow(`SELECT COALESCE(SUM(cnt), 0) FROM unmask_crawler_named_hourly`).Scan(&stored); err != nil {
