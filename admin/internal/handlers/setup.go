@@ -1248,6 +1248,22 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 			applyWizardOptions(live, s.Options)
 		}
 	})
+	// The wizard's own row in the audit log of the database the install uses
+	// from here on.  It wrote none: the log of a new install began with the
+	// first login, and a reconfiguration -- another database, another admin
+	// -- left nothing.  Under the account that ran it: the superadmin who is
+	// signed in, or on a first run the one the wizard has just created.
+	wizardActor, wizardUID := s.Username, int64(0)
+	if pay := h.setupSuperadmin(r); pay != nil && h.UserRepo != nil {
+		if u, err := h.UserRepo.GetByID(r.Context(), pay.UserID); err == nil {
+			wizardActor = u.Username
+			if !switched {
+				wizardUID = u.ID // the same database: the id is this account's
+			}
+		}
+	}
+	repo.Record(r.Context(), wizardUID, wizardActor, "setup_wizard", "",
+		fmt.Sprintf(`{"reconfigure":%v,"db":%q,"db_switched":%v,"admin_created":%v}`, reconfigure, s.DB.Driver, switched, s.UserSet))
 	if switched {
 		// The handle the wizard opened on the new database: its work (the
 		// schema, the admin) is committed, and the re-exec opens its own.

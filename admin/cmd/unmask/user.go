@@ -126,8 +126,18 @@ func cmdUserCreate(args []string) error {
 			return fmt.Errorf("created user %s, but the password lock was not set: %w", u.Username, err)
 		}
 	}
+	auditCLI(repo, "user_create", u.Username, fmt.Sprintf(`{"role":%q,"password_locked":%v}`, u.Role, *passwordLocked))
 	fmt.Printf("created user: id=%d username=%s role=%s password_locked=%v\n", u.ID, u.Username, u.Role, *passwordLocked)
 	return nil
+}
+
+// auditCLI writes the audit row of an account change made from the shell:
+// the action the admin's own page records for the same change, under the
+// name a shell is recorded as.  These commands wrote none -- an account
+// created, promoted or deleted with `unmask user` was nowhere in the log the
+// admin shows.
+func auditCLI(repo *user.Repository, action, target, detail string) {
+	repo.Record(context.Background(), 0, db.SchemaUpdateByCLI, action, target, detail)
 }
 
 func cmdUserResetPassword(args []string) error {
@@ -161,6 +171,7 @@ func cmdUserResetPassword(args []string) error {
 	if err := repo.SetPassword(context.Background(), u.ID, pass); err != nil {
 		return err
 	}
+	auditCLI(repo, "user_reset_password", u.Username, "")
 	fmt.Printf("password reset: username=%s\n", username)
 	return nil
 }
@@ -192,6 +203,7 @@ func cmdUserSetRole(args []string) error {
 	if err := repo.SetRole(context.Background(), u.ID, role); err != nil {
 		return err
 	}
+	auditCLI(repo, "user_set_role", u.Username, fmt.Sprintf(`{"role":%q}`, role))
 	fmt.Printf("role updated: username=%s role=%s\n", username, role)
 	return nil
 }
@@ -219,6 +231,7 @@ func cmdUserDelete(args []string) error {
 	if err := repo.Delete(context.Background(), u.ID); err != nil {
 		return err
 	}
+	auditCLI(repo, "user_delete", u.Username, "")
 	fmt.Printf("deleted user: username=%s\n", username)
 	return nil
 }

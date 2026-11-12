@@ -2072,12 +2072,25 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if err := nginxconf.RenderFor(cur, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderBySettings, Detail: section}); err != nil {
-		// A render failure is critical (= the file is saved but nginx keeps the
-		// old conf). Surface the error in the banner while noting that the
-		// save itself did complete.
-		redirBack("save ok / render failed: " + err.Error())
-		return
+	// The save is made: config.yml is written and the settings are live.
+	// What follows from that comes before the render, which can fail on its
+	// own (the output directory, a full disk) and used to return from here
+	// first -- a change that was saved and published, with no row in the
+	// audit log and the notifier, the mailer and the GeoIP reader still on
+	// the settings from before.
+	//
+	// audit log: who / what / before-after diff.  detail is a JSON blob with
+	// both yaml snapshots (secrets redacted) so the audit UI can show a
+	// unified diff and offer 1-click rollback to the captured `before`.
+	// Marshal failure (= huge yaml etc.) downgrades silently to an empty
+	// detail; the audit row is still written.
+	if pay := SessionFromContext(r); pay != nil && h.UserRepo != nil {
+		username := ""
+		if u, err := h.UserRepo.GetByID(r.Context(), pay.UserID); err == nil {
+			username = u.Username
+		}
+		afterYAML, _ := auditSnapshotYAML(cur)
+		auditWriteSettingsSave(r.Context(), h, pay.UserID, username, section, beforeYAML, afterYAML)
 	}
 
 	// The components that keep a copy of some settings -- the GeoIP reader,
@@ -2085,6 +2098,14 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 	// take the saved ones (config_watch.go: the same function the watch
 	// calls when config.yml changed on disk).
 	h.applyLiveSettings(cur)
+
+	if err := nginxconf.RenderFor(cur, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderBySettings, Detail: section}); err != nil {
+		// A render failure is critical (= the file is saved but nginx keeps the
+		// old conf). Surface the error in the banner while noting that the
+		// save itself did complete.
+		redirBack("save ok / render failed: " + err.Error())
+		return
+	}
 
 	// Avoid "no token" right after enabling community-bans and immediately BANning:
 	// when terms accepted + submit_enabled / subscribe active and no
@@ -2118,20 +2139,6 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 				log.Printf("communitybans: pull after subscribe enable: %v", err)
 			}
 		}()
-	}
-
-	// audit log: who / what / before-after diff.  detail is a JSON blob with
-	// both yaml snapshots (secrets redacted) so the audit UI can show a
-	// unified diff and offer 1-click rollback to the captured `before`.
-	// Marshal failure (= huge yaml etc.) downgrades silently to an empty
-	// detail; the audit row is still written.
-	if pay := SessionFromContext(r); pay != nil && h.UserRepo != nil {
-		username := ""
-		if u, err := h.UserRepo.GetByID(r.Context(), pay.UserID); err == nil {
-			username = u.Username
-		}
-		afterYAML, _ := auditSnapshotYAML(cur)
-		auditWriteSettingsSave(r.Context(), h, pay.UserID, username, section, beforeYAML, afterYAML)
 	}
 
 	// A rule added from an answer of the ask page: the history shows that
@@ -7190,7 +7197,9 @@ func (h *Handler) adminScalarSiteApply(w http.ResponseWriter, r *http.Request, t
 		redirBack("site is required", "")
 		return
 	}
+	var beforeYAML string
 	saved, err := h.mutateSettings(func(cur *settings.Settings) error {
+		beforeYAML, _ = auditSnapshotYAML(*cur)
 		before, beforeErr := nginxconf.RenderSignature(*cur, "", h.Version)
 		if err := mutate(cur, site); err != nil {
 			return err
@@ -7202,6 +7211,18 @@ func (h *Handler) adminScalarSiteApply(w http.ResponseWriter, r *http.Request, t
 	if err != nil {
 		redirBack(err.Error(), site)
 		return
+	}
+	// The audit row, like the main save's and before the render for the same
+	// reason.  A site's record carries its CAPTCHA provider and keys, its
+	// proof-of-work difficulty, its branding: these saves and deletes wrote
+	// nothing to the log at all.  The section names the tab and the site.
+	if pay := SessionFromContext(r); pay != nil && h.UserRepo != nil {
+		username := ""
+		if u, err := h.UserRepo.GetByID(r.Context(), pay.UserID); err == nil {
+			username = u.Username
+		}
+		afterYAML, _ := auditSnapshotYAML(saved)
+		auditWriteSettingsSave(r.Context(), h, pay.UserID, username, tab+"@"+site, beforeYAML, afterYAML)
 	}
 	if reload {
 		if err := nginxconf.RenderFor(saved, "", h.Version, nginxconf.RenderCause{Kind: nginxconf.RenderBySettings, Detail: tab}); err != nil {

@@ -54,6 +54,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **A settings save no longer swaps the keys of an install whose key files cannot be written.**  Where the daemon could not write its generated `_bv` and admin keys beside its state, it drew new ones at every load: the first save from the admin signed everyone out and invalidated every pass. A generated key now stays the same for as long as the daemon runs.
 
+- (2026-11-12) **The audit log no longer misses four kinds of change.**  A settings save whose nginx render failed was saved and live but left no row, and the notifier and mailer kept the old settings. A site's own challenge or branding record, the setup wizard, and `unmask user` commands recorded nothing at all. Each now writes its row, with keys redacted as in every other snapshot.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.
