@@ -177,6 +177,27 @@ community_bans:
 challenge:
   default:
     public_test_pages: true
+  # Three sites whose CAPTCHA is an outside provider's widget, one each, for
+  # provider-retry.test.js, which opens their previews (/test/site/<site>/).
+  # The spec answers the provider's script and the daemon's verify itself, so
+  # these keys are sent nowhere.  The sites are not declared under sites:
+  # above -- that list stays at one for site-badge.test.js.
+  sites:
+    turnstile.ui-e2e.example:
+      captcha:
+        provider: turnstile
+        turnstile_site_key: "ui-e2e-turnstile-site-key"
+        turnstile_secret_key: "ui-e2e-turnstile-secret-key"
+    hcaptcha.ui-e2e.example:
+      captcha:
+        provider: hcaptcha
+        hcaptcha_site_key: "ui-e2e-hcaptcha-site-key"
+        hcaptcha_secret_key: "ui-e2e-hcaptcha-secret-key"
+    recaptcha.ui-e2e.example:
+      captcha:
+        provider: recaptcha
+        recaptcha_site_key: "ui-e2e-recaptcha-site-key"
+        recaptcha_secret_key: "ui-e2e-recaptcha-secret-key"
 # The daemon refuses its own connections to loopback since 0.1.54 (webhooks,
 # feeds, AI endpoints), and the tests stand their dead hooks on 127.0.0.1:
 # notify-test-error.test.js posts the webhook test at a port on this host.

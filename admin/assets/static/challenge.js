@@ -572,6 +572,58 @@
   // --- 3rd party CAPTCHA widget mount ---
   // Turnstile / hCaptcha hand the token to a callback.  reCAPTCHA v3 is invisible
   // and needs execute() at render time to fetch the token.
+  //
+  // extReset asks the mounted widget for another token, where the provider
+  // has such a thing (Turnstile and hCaptcha reset to their unsolved state;
+  // reCAPTCHA v3 has no widget and nothing to redo).  extRefused counts the
+  // tokens of this page that did not get through.
+  var extReset = null;
+  var extRefused = 0;
+
+  // The provider's token did not get the visitor through: the daemon refused
+  // it, could not reach the provider, or was not reached itself.  The token
+  // is spent either way and the widget still shows its tick, so the card had
+  // nothing left to click -- the visitor's one move was the browser's own
+  // reload, which nothing on the page named.  A widget that can be reset is
+  // reset, twice at most, and the visitor solves it again; after that, and
+  // where there is nothing to reset, the card offers the reload.
+  function providerRetry(msg){
+    extRefused++;
+    if (extReset && extRefused <= 2) {
+      showError(msg);
+      try { extReset(); return; } catch (_) {}
+    }
+    offerReload(msg);
+  }
+
+  // offerReload puts msg on the card with a button that reloads the page
+  // for a fresh challenge -- the block the expired check uses, without its
+  // automatic reload.
+  function offerReload(msg){
+    revealNow();
+    var hide = ['extCaptcha', 'errMsg', 'captchaBusy'];
+    for (var i = 0; i < hide.length; i++) {
+      var h = document.getElementById(hide[i]);
+      if (h) h.style.display = 'none';
+    }
+    var box = document.getElementById('ctExpired');
+    var line = document.getElementById('ctExpiredMsg');
+    var btn = document.getElementById('ctExpiredReload');
+    if (!(box && line && btn)) {
+      // An operator's overlay copy of challenge.html from before the block
+      // existed: the error line carries the text.
+      showError(msg);
+      return;
+    }
+    line.textContent = msg;
+    btn.textContent = t.reload || 'Reload';
+    btn.onclick = function(){
+      try { window.__unmaskReloading = true; } catch (_) {}
+      location.reload();
+    };
+    box.style.display = 'block';
+  }
+
   function mountExternalCaptcha(provider, siteKey){
     var mount = document.getElementById('extCaptcha');
     mount.style.display='block';
@@ -609,18 +661,27 @@
     // error / timeout: external widgets can fail silently (= provider key not
     // enabled for this domain, network blocked, script blocked).  Surface it
     // instead of leaving a blank/stuck box the visitor cannot act on.
-    function extFail(kind){ return function(e){ stopSpin(); widget.innerHTML=''; showError(t.error + ' (E-WIDGET)'); _bcDebug('error', { kind:kind, provider:provider, error:(e===undefined?'':String(e)) }); }; }
+    // The widget is gone after this, so the card offers the reload.
+    function extFail(kind){ return function(e){ stopSpin(); widget.innerHTML=''; extReset = null; offerReload(t.error + ' (E-WIDGET)'); _bcDebug('error', { kind:kind, provider:provider, error:(e===undefined?'':String(e)) }); }; }
     function done(token){ submitProviderToken(token); }
     if (provider === 'turnstile') {
       window._unmaskTurnstileCb = function(){
-        try { spinUntilWidget(); window.turnstile.render(widget, { sitekey: siteKey, callback: done, 'error-callback': extFail('ext_error_cb'), 'timeout-callback': extFail('ext_timeout_cb') }); }
-        catch(e){ stopSpin(); showError(t.error + ' (E-WIDGET)'); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
+        try {
+          spinUntilWidget();
+          var tsId = window.turnstile.render(widget, { sitekey: siteKey, callback: done, 'error-callback': extFail('ext_error_cb'), 'timeout-callback': extFail('ext_timeout_cb') });
+          extReset = function(){ window.turnstile.reset(tsId); };
+        }
+        catch(e){ stopSpin(); offerReload(t.error + ' (E-WIDGET)'); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
       };
       injectScript('https://challenges.cloudflare.com/turnstile/v0/api.js?onload=_unmaskTurnstileCb&render=explicit');
     } else if (provider === 'hcaptcha') {
       window._unmaskHcaptchaCb = function(){
-        try { spinUntilWidget(); window.hcaptcha.render(widget, { sitekey: siteKey, callback: done, 'error-callback': extFail('ext_error_cb') }); }
-        catch(e){ stopSpin(); showError(t.error + ' (E-WIDGET)'); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
+        try {
+          spinUntilWidget();
+          var hcId = window.hcaptcha.render(widget, { sitekey: siteKey, callback: done, 'error-callback': extFail('ext_error_cb') });
+          extReset = function(){ window.hcaptcha.reset(hcId); };
+        }
+        catch(e){ stopSpin(); offerReload(t.error + ' (E-WIDGET)'); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
       };
       injectScript('https://js.hcaptcha.com/1/api.js?onload=_unmaskHcaptchaCb&render=explicit');
     } else if (provider === 'recaptcha') {
@@ -630,15 +691,15 @@
         try {
           window.grecaptcha.ready(function(){
             window.grecaptcha.execute(siteKey, { action: 'unmask' }).then(function(tok){ stopSpin(); done(tok); }).catch(function(e){
-              stopSpin(); showError(t.error + ' (E-WIDGET)'); _bcDebug('error', { kind:'ext_exec_err', provider: provider, error: String(e) });
+              stopSpin(); offerReload(t.error + ' (E-WIDGET)'); _bcDebug('error', { kind:'ext_exec_err', provider: provider, error: String(e) });
             });
           });
-        } catch(e){ stopSpin(); showError(t.error + ' (E-WIDGET)'); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
+        } catch(e){ stopSpin(); offerReload(t.error + ' (E-WIDGET)'); _bcDebug('error', { kind:'ext_render_err', provider: provider, error: String(e) }); }
       };
       injectScript('https://www.google.com/recaptcha/api.js?render=' + encodeURIComponent(siteKey) + '&onload=_unmaskRecaptchaCb');
     } else {
       stopSpin();
-      showError(t.error + ' (E-WIDGET)');
+      offerReload(t.error + ' (E-WIDGET)');
       _bcDebug('error', { kind:'ext_unknown_provider', provider: provider });
     }
   }
@@ -669,9 +730,13 @@
         passAndRedirect();
       } else {
         _bcDebug('verify_ng', { method:'provider', http_status: res.status, error: res.data.error, detail: res.data.detail });
-        showError(t.wrong);
+        providerRetry(t.wrong);
       }
-    }).catch(function(e){ verifyFailed(e, 'provider'); });
+    }).catch(function(e){
+      // The same dead end by another road: no answer, or not the daemon's.
+      verifyFailed(e, 'provider');
+      providerRetry(t.error + ' ' + failCode(e));
+    });
   }
 
   // Post-click status: hide the checkbox / math, show a spinner + message so a
