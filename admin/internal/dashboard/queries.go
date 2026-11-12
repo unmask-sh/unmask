@@ -1627,10 +1627,12 @@ func FlagsDistribution(ctx context.Context, d *db.DB, site string, hosts []strin
 // flagsDistributionScan: the original raw-scan path.  Used when a host or
 // site filter rules out the install-wide aggregate.
 func flagsDistributionScan(ctx context.Context, d *db.DB, site string, hosts []string, hours int) ([]FlagsRow, error) {
+	// The known bits, as the rollup counts them (events.BeaconFlagsMask): a
+	// row from before the beacon held the value to them can carry any number.
 	stmt := fmt.Sprintf(`
-        SELECT flags, COUNT(*) AS n, COUNT(DISTINCT ip_address) AS uniq
-        FROM unmask_event WHERE %s%s AND phase='load'
-        GROUP BY flags`, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts))
+        SELECT (flags & %[3]d) AS fl, COUNT(*) AS n, COUNT(DISTINCT ip_address) AS uniq
+        FROM unmask_event WHERE %[1]s%[2]s AND phase='load'
+        GROUP BY (flags & %[3]d)`, tsWindow(ctx, hours, "date_created"), siteCond(site)+hostCond(hosts), events.BeaconFlagsMask)
 	rows, err := d.QueryContext(ctx, stmt)
 	if err != nil {
 		return nil, err

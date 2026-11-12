@@ -56,6 +56,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **The audit log no longer misses four kinds of change.**  A settings save whose nginx render failed was saved and live but left no row, and the notifier and mailer kept the old settings. A site's own challenge or branding record, the setup wizard, and `unmask user` commands recorded nothing at all. Each now writes its row, with keys redacted as in every other snapshot.
 
+- (2026-11-12) **The challenge page's beacon can no longer fill the statistics with made-up keys.**  The beacon endpoint accepted the daemon's own phases and any number as flags; a client holding one page's token could write serve events with invented reasons, and every new reason or flags value became a statistics row kept for a month. It now takes only the phases and the flag bits the page sends.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.

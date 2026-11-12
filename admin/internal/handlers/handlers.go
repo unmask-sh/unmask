@@ -3237,10 +3237,14 @@ func (h *Handler) DebugBeacon(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0, "error": "invalid_json"})
 		return
 	}
-	if !events.IsValidPhase(p.Phase) {
+	// The phases the page reports, not every phase there is: serve, check
+	// and the rebinds are the daemon's own records (events.IsBeaconPhase).
+	if !events.IsBeaconPhase(p.Phase) {
 		writeJSON(w, http.StatusBadRequest, map[string]any{"ok": 0, "error": "invalid_phase"})
 		return
 	}
+	// The flags are a few known bits; the statistics key rows by the value.
+	p.Flags &= events.BeaconFlagsMask
 
 	ip := clientIP(r)
 	pkt := events.PackIP(ip)

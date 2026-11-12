@@ -69,6 +69,38 @@ var allowedPhases = map[string]bool{
 
 func IsValidPhase(p string) bool { return allowedPhases[p] }
 
+// beaconPhases is what the challenge page itself reports on /api/debug: the
+// phases challenge.js sends, and no others.  serve, check and the two
+// rebind phases are the daemon's own records -- written where it serves a
+// page, answers a check, re-binds a pass -- and the statistics read them as
+// such: a serve's reason is counted under whatever name it carries.  The
+// endpoint took any valid phase, so a page's token was enough to write
+// "serve" rows with a reason of the client's choosing, each new reason a
+// rollup row kept for a month.
+var beaconPhases = map[string]bool{
+	"load":                true,
+	"pow_pass":            true,
+	"captcha":             true,
+	"bv_pow_only":         true,
+	"bv_captcha_only":     true,
+	"bv_pow_then_captcha": true,
+	"verify_ng":           true,
+	"error":               true,
+	"cookie_err":          true,
+	"abandon":             true,
+}
+
+// IsBeaconPhase: may the challenge page report p?
+func IsBeaconPhase(p string) bool { return beaconPhases[p] }
+
+// BeaconFlagsMask is the bits challenge.js sets in a beacon's flags (the
+// automation signs: webdriver, no plugins, no languages, a zero screen, and
+// the retired Chrome-without-window.chrome bit).  The hourly rollup keys a
+// row and a 1 KiB sketch by the flags value, so the value is held to these
+// bits where it comes in and where it is counted: sent as it pleased, each
+// number was a rollup key of its own.
+const BeaconFlagsMask = 1 | 2 | 4 | 8 | 16
+
 // parsePhaseList turns the hunt filter's phase value into a validated set.
 // One name behaves as before; a comma-separated list lets the UI offer groups
 // ("passed", "in flight", "rejected") without a second query parameter.

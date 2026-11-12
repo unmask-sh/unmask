@@ -25,11 +25,13 @@ func TestFlagsDistribution_AggMatchesScan(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	// 7 seeded events:
+	// 8 seeded events:
 	//   flags=0  ×3 (= 2 distinct IPs)  -- the default "no signal" bucket
 	//   flags=1  ×2 (= 2 distinct IPs)  -- webdriver
 	//   flags=17 ×1                     -- webdriver + chrome-spoof (a keyFlag)
-	//   flags=64 ×1                     -- not in keyFlags (= "remaining observed" path)
+	//   flags=6  ×1                     -- not in keyFlags (= "remaining observed" path)
+	//   flags=65 ×1                     -- a bit no page sets, on a row from before the
+	//                                      beacon held flags to its bits: counted as 1
 	seed := []struct {
 		ip    string
 		flags int
@@ -40,7 +42,8 @@ func TestFlagsDistribution_AggMatchesScan(t *testing.T) {
 		{"3.3.3.3", 1},
 		{"4.4.4.4", 1},
 		{"5.5.5.5", 17},
-		{"6.6.6.6", 64},
+		{"6.6.6.6", 6},
+		{"7.7.7.7", 65},
 	}
 	for i, s := range seed {
 		if _, err := d.Exec(
@@ -100,8 +103,8 @@ func TestFlagsDistribution_AggMatchesScan(t *testing.T) {
 		gotCount[r.Flags] = r.Count
 		gotUniq[r.Flags] = r.UniqIP
 	}
-	wantCount := map[int]int{0: 3, 1: 2, 17: 1, 64: 1}
-	wantUniq := map[int]int{0: 2, 1: 2, 17: 1, 64: 1}
+	wantCount := map[int]int{0: 3, 1: 3, 17: 1, 6: 1}
+	wantUniq := map[int]int{0: 2, 1: 3, 17: 1, 6: 1}
 	for fl, n := range wantCount {
 		if gotCount[fl] != n {
 			t.Errorf("agg count[flags=%d] = %d, want %d", fl, gotCount[fl], n)

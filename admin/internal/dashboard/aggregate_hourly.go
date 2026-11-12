@@ -13,6 +13,7 @@ import (
 
 	"github.com/unmask-sh/unmask/admin/internal/classify"
 	"github.com/unmask-sh/unmask/admin/internal/db"
+	"github.com/unmask-sh/unmask/admin/internal/events"
 	"github.com/unmask-sh/unmask/admin/internal/ipgeo"
 )
 
@@ -712,7 +713,9 @@ func aggregateHourlyChunk(ctx context.Context, d *db.DB, gip *ipgeo.Reader, afte
 			// small bitfield (= mostly 0..31), so key cardinality stays low.
 			// Stored as a decimal string so the bucket_key column matches
 			// other count keys' type.
-			flagsKey := strconv.Itoa(flags)
+			// The known bits only: a row written before the beacon held the
+			// value to them can carry any number, and each would be a key.
+			flagsKey := strconv.Itoa(flags & events.BeaconFlagsMask)
 			batch.counts[hourlyKey{hour, hkFlags, flagsKey}]++
 			batch.sketch(hllKey{hour, hkFlagsIP, flagsKey}).add(ip)
 		case "serve":
