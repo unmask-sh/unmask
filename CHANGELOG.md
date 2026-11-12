@@ -60,6 +60,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **Yandex Browser and the Yandex app are no longer taken for a forged YandexBot.**  With crawler rDNS verification on, any User-Agent containing "yandex" was held to YandexBot's reverse-DNS check, and a person's browser on a home connection failed it as a forgery. Only the robots' own mark, `yandex.com/bots`, counts as the claim now.
 
+- (2026-11-12) **An address list no longer saves a value that is not an address.**  The bypass addresses, the admin and metrics allow lists and the statistics exclusions accepted anything made of digits, dots, colons and slashes: `192.168.1` or `10.0.0.0/33` was saved as if it worked, and then matched nothing. Such a row is now refused, named, when it is saved.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.

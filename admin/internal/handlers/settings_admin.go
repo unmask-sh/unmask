@@ -2224,7 +2224,19 @@ var ErrNoConfigPath = errors.New("handler: ConfigPath is empty (= cannot persist
 // per-form apply
 // ---------------------------------------------------------------------------
 
-var ipOrCIDRRE = regexp.MustCompile(`^[0-9a-fA-F:.\/]+$`)
+// isIPOrCIDR: is v an address or a CIDR?  The lists that take one -- the
+// admin's and the metrics' allow lists, the bypass addresses, the addresses
+// left out of the statistics -- checked the characters only, so "192.168.1",
+// "10.0.0.0/33" or "::::" were saved under a success banner and then matched
+// nothing: the renderer leaves out what nginx would refuse, and the admin's
+// own check parses each entry the way this does.
+func isIPOrCIDR(v string) bool {
+	if strings.Contains(v, "/") {
+		_, _, err := net.ParseCIDR(v)
+		return err == nil
+	}
+	return net.ParseIP(v) != nil
+}
 
 // listenModeOf: returns the listen mode ("tcp" | "socket") from settings.Server.Bind.
 func listenModeOf(s settings.Server) string {
@@ -2346,7 +2358,7 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 	// resolved the same way the /admin/* gate resolves them).
 	allow, allowNotes, allowDis, allowCr, allowUp := formListWithNotesEnabled(r.Form["admin_allowed_ips"], r.Form["admin_allowed_ips_title"], r.Form["admin_allowed_ips_enabled"], r.Form["admin_allowed_ips_created_at"], r.Form["admin_allowed_ips_updated_at"])
 	for _, a := range allow {
-		if !ipOrCIDRRE.MatchString(a) {
+		if !isIPOrCIDR(a) {
 			return &listFieldError{Field: "admin_allowed_ips", Value: a, Msg: i18n.Tf(lang, "err.admin_allow_invalid", a)}
 		}
 	}
@@ -2390,7 +2402,7 @@ func applyNetworkForm(n *settings.Nginx, r *http.Request, lang i18n.Lang, curIP,
 
 	mallow, mallowNotes, mallowDis, mallowCr, mallowUp := formListWithNotesEnabled(r.Form["metrics_allow_from"], r.Form["metrics_allow_from_title"], r.Form["metrics_allow_from_enabled"], r.Form["metrics_allow_from_created_at"], r.Form["metrics_allow_from_updated_at"])
 	for _, a := range mallow {
-		if !ipOrCIDRRE.MatchString(a) {
+		if !isIPOrCIDR(a) {
 			return &listFieldError{Field: "metrics_allow_from", Value: a, Msg: i18n.Tf(lang, "err.metrics_allow_invalid", a)}
 		}
 	}
@@ -3785,7 +3797,7 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		if ip == "" {
 			continue
 		}
-		if !ipOrCIDRRE.MatchString(ip) {
+		if !isIPOrCIDR(ip) {
 			return &listFieldError{Field: "bypass_ip", Value: ip, Msg: i18n.Tf(lang, "err.bypass_invalid", ip)}
 		}
 		if ts <= 0 {
@@ -3862,7 +3874,7 @@ func applyBypassIPsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) erro
 		if ip == "" || stxSeen[ip] {
 			continue
 		}
-		if !ipOrCIDRRE.MatchString(ip) {
+		if !isIPOrCIDR(ip) {
 			return &listFieldError{Field: "stats_exclude_ips", Value: ip, Msg: i18n.Tf(lang, "err.bypass_invalid", ip)}
 		}
 		var t string
