@@ -34,6 +34,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **A pattern nginx cannot compile is refused when it is saved.**  The settings page checked patterns with Go's regex engine and nginx runs them with PCRE: `[\w-.]` (a range starting at a class, refused by PCRE2), `\x{3042}` and a named group like `(?P<uri>...)` were saved, and the next `nginx -t` failed. The page refuses them and says what to write; `unmask doctor` names any already in `config.yml`.
 
+- (2026-11-12) **A tag that fails the release checks no longer pushes an image.**  The release workflow checks that the tag matches the Makefile's version and that the embedded IP ranges are fresh, but the job that pushes `ghcr.io/unmask-sh/unmask:<version>` did not wait for those checks: a tag that failed them still published an image under its version. The image job now runs after them.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.

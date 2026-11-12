@@ -129,6 +129,12 @@ jobs:
   # release: the gateway -- the official nginx image with the unmask module
   # built against that exact nginx version, plus the daemon (Dockerfile).
   docker:
+    # After build-admin, for the two gates it holds: the tag is the
+    # Makefile's version, and the embedded IP ranges are fresh.  This job
+    # started beside it, so a tag that failed either one still pushed
+    # ghcr.io/unmask-sh/unmask:<version> -- an image of a release that never
+    # came to be, under a version tag that is not moved afterwards.
+    needs: build-admin
     runs-on: ubuntu-latest
     # The arm64 half of the image is built under qemu.
     timeout-minutes: 45
