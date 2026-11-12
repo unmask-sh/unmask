@@ -194,6 +194,10 @@ type Handler struct {
 	// failsafe: the last look at the plugin's fail-safe marker, for the
 	// notice written when it comes and when it goes (failsafe_watch.go).
 	failsafe failsafeSeen
+	// cfgWatch: config.yml as the daemon last read or wrote it, for the
+	// watch that re-reads it when someone else has changed it
+	// (config_watch.go).
+	cfgWatch configWatchState
 	// mapAuto: the server's own position worked out for the dashboard's map
 	// (map_admin.go autoMapLocation), kept for an hour.
 	mapAutoMu sync.Mutex

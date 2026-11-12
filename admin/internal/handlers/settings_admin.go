@@ -51,7 +51,6 @@ import (
 	"github.com/unmask-sh/unmask/admin/internal/mail"
 	"github.com/unmask-sh/unmask/admin/internal/nginxconf"
 	"github.com/unmask-sh/unmask/admin/internal/notifier"
-	"github.com/unmask-sh/unmask/admin/internal/outbound"
 	"github.com/unmask-sh/unmask/admin/internal/relay"
 	"github.com/unmask-sh/unmask/admin/internal/settings"
 )
@@ -117,6 +116,8 @@ func (h *Handler) mutateSettings(fn func(*settings.Settings) error) (settings.Se
 	// pointer published here is never written to afterwards; the caller gets
 	// a further copy.
 	h.settingsPtr.Store(&cur)
+	// The file is this save's now: the config watch does not read it back.
+	h.noteConfigWritten()
 	return cur, nil
 }
 
@@ -2079,30 +2080,11 @@ func (h *Handler) AdminSettingsSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ipgeo hot-swap (= picks up mmdb path changes immediately, no restart)
-	if h.IPGeo != nil {
-		h.IPGeo.Reload(cur.IPGeo.MMDBPath, cur.IPGeo.MMDBASNPath)
-	}
-
-	// classify hot-swap: rebuild the filter of crawlers set one by one so
-	// the next IsBot call reflects the saved settings.
-	if section == "ua-filter" {
-		classify.SetUpstreamUnrescued(nginxconf.UpstreamUnrescued(cur.Nginx))
-	}
-
-	// notifier hot-swap (= picks up URL / format / threshold changes immediately)
-	if h.Notifier != nil {
-		h.Notifier.SetConfig(NotifierConfigFrom(cur.Notifications, h.HostID))
-	}
-
-	// outbound policy (= where the daemon's own connections may go; a
-	// config-file key, re-read here so an edit lands with the next save).
-	outbound.SetPolicy(outbound.Policy{DenyPrivate: cur.Outbound.DenyPrivate, AllowLoopback: cur.Outbound.AllowLoopback})
-
-	// mailer hot-swap (= picks up host/auth changes immediately)
-	if h.Mailer != nil {
-		h.Mailer.SetConfig(MailConfigFrom(cur.SMTP, h.HostID))
-	}
+	// The components that keep a copy of some settings -- the GeoIP reader,
+	// the crawler filter, the notifier, the outbound policy, the mailer --
+	// take the saved ones (config_watch.go: the same function the watch
+	// calls when config.yml changed on disk).
+	h.applyLiveSettings(cur)
 
 	// Avoid "no token" right after enabling community-bans and immediately BANning:
 	// when terms accepted + submit_enabled / subscribe active and no

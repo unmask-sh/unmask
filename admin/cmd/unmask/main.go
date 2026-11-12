@@ -297,6 +297,10 @@ func cmdServe(args []string) error {
 	hupCh := notifyHangup()
 	defer signal.Stop(hupCh)
 
+	// The file as it is just before it is read: what the config watch
+	// (handlers/config_watch.go) compares later looks with.  Taken first, so
+	// a write that lands during the load is seen as a change, not missed.
+	configSig := settings.FileSignature(settings.ResolvePath(*configPath))
 	s, err := loadSettings(*configPath)
 	if err != nil {
 		// No log receiver will come up.  The log socket systemd kept over
@@ -651,6 +655,7 @@ func cmdServe(args []string) error {
 	// Publish the initial settings snapshot.  settingsPtr is unexported, so the
 	// daemon seeds it through the exported setter rather than a struct literal.
 	h.SetSettings(s)
+	h.SetConfigSignature(configSig)
 
 	// The relay egress list (relay package): the copy the IP-range sync keeps,
 	// and the operator's switch, read live so a settings save takes effect at
@@ -705,6 +710,10 @@ func cmdServe(args []string) error {
 	// settles once nginx logs the render, and the plugin's fail-safe marker
 	// is a notice when it comes and when it goes (handlers/failsafe_watch.go).
 	workers.Go("native-failsafe-watch", h.RunNativeFailsafeWatch)
+	// config.yml has other writers than the admin (the CLI's upgrade-review,
+	// an edit, a configuration manager): re-read a few seconds after it
+	// changes, and adopted like a save (handlers/config_watch.go).
+	workers.Go("config-watch", h.RunConfigWatch)
 
 	// Keep a managed mmdb current (runIPGeoAutoUpdate): a daily check
 	// against the snapshot's own build date.  Same gating as AutoFetch
@@ -1014,12 +1023,12 @@ func cmdServe(args []string) error {
 
 	// SIGINT / SIGTERM trigger graceful shutdown.  SIGHUP re-opens the
 	// GeoIP files and renders from them, as the daily update does after
-	// replacing one (`unmask install-ipgeo` points here); the settings are
-	// re-read when they are saved from the admin.
+	// replacing one (`unmask install-ipgeo` points here); the settings need
+	// no signal: config.yml is re-read a few seconds after it changes.
 	go func() {
 		for range hupCh {
 			cur := h.SnapshotSettings()
-			log.Printf("SIGHUP: re-opening the GeoIP files (settings are re-read when saved from the admin; restart unmask after editing config.yml by hand)")
+			log.Printf("SIGHUP: re-opening the GeoIP files (config.yml needs no signal: unmask re-reads it a few seconds after it changes)")
 			gip.Reload("", "")
 			gip.Reload(cur.IPGeo.MMDBPath, cur.IPGeo.MMDBASNPath)
 			renderAfterGeoUpdate(func() error { return renderNow(nginxconf.RenderCause{Kind: nginxconf.RenderByGeoIP}) }, renderOutDir())

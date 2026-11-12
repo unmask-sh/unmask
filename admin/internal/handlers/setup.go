@@ -1227,6 +1227,9 @@ func (h *Handler) AdminSetupInstall(w http.ResponseWriter, r *http.Request) {
 		redirErr("config.yml: " + err.Error())
 		return
 	}
+	// The wizard's own write: the config watch does not read it back (the
+	// live settings take the wizard's fields just below, as they always did).
+	h.noteConfigWritten()
 	// 4. the live settings.  The database handle is not swapped here: every
 	// request goroutine and background worker reads h.DB without a lock, so
 	// a write to it raced them all (and the workers stayed bound to the old

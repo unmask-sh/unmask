@@ -24,6 +24,9 @@ const (
 	RenderByIPRange  = "iprange"  // the IP-range sync; Detail = "relay" or "sources:<n>"
 	RenderByGeoIP    = "geoip"    // the GeoIP database update
 	RenderByCLI      = "cli"      // unmask render-nginx (install, upgrade, by hand)
+	// config.yml changed on disk -- a CLI command, an edit by hand, a
+	// configuration manager -- and the running daemon re-read it.
+	RenderByConfigFile = "config-file"
 )
 
 // RenderChange: one top-level block of a rendered file whose lines moved --

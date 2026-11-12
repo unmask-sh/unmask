@@ -14,6 +14,10 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- (2026-11-12) **The daemon picks up a config.yml changed outside the admin.**  It read the file only at start and at its own saves: after `unmask upgrade-review --apply` or an edit it kept the old settings, and its next automatic render wrote them back to nginx. It now re-reads the file seconds after a change, renders, and records it in the audit log. Reloading nginx stays your step.
+
 ### Fixed
 
 - (2026-11-11) **An empty or truncated crawler list from the hub no longer replaces the one in use.**  The search-crawler address lists were taken from the hub whatever their size, so an empty Googlebot list overwrote the ranges in use and the real crawler was challenged on every site. A list keeping less than half of the ranges in use is now refused, as the CDN and relay lists already were.

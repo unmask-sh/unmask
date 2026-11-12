@@ -177,9 +177,14 @@ pick up.  Delete them by hand when they are no longer wanted.
 ### Configuration
 
 `/etc/unmask/config.yml` is the one place settings live: the admin UI
-writes it on save (comments do not survive), `unmask doctor` checks it,
-`unmask config-init` writes a starting one.  Its sections, each a tab of
-the settings page:
+writes it on save (keeping its comments), `unmask doctor` checks it,
+`unmask config-init` writes a starting one.  A change made to the file by
+anything else -- an edit, `unmask upgrade-review --apply`, a configuration
+manager -- is picked up by the running daemon a few seconds later: it
+re-reads the file, renders nginx's configuration from it and writes the
+change to the audit log under the name `config.yml`.  Reloading nginx stays
+your step, as after a save in the admin; the `server` and `db` sections are
+read when the daemon starts.  Its sections, each a tab of the settings page:
 
 - `db` (driver, location), `secret` (`bv_secret` behind every pass, `sig_hash`),
   `server` (listener, `host_id`), `nginx_log` (the socket nginx's log arrives on);

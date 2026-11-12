@@ -26,6 +26,12 @@ import (
 // shell.
 const SystemActor = "system"
 
+// ConfigFileActor is the username of a settings change that came from
+// config.yml itself -- a CLI command, an edit, a configuration manager --
+// and that the running daemon re-read (handlers/config_watch.go): nobody
+// was signed in for it.
+const ConfigFileActor = "config.yml"
+
 // maintLastRun is the maint-state record of the version the daemon last
 // started as.
 const maintLastRun = "last_run"
@@ -94,7 +100,7 @@ func (r *Repository) RecordSchemaUpdate(ctx context.Context, by string, applied 
 // IsSystemActor reports whether an audit entry's username is the daemon's
 // or the shell's rather than an account's.
 func IsSystemActor(username string) bool {
-	return username == SystemActor || username == db.SchemaUpdateByCLI
+	return username == SystemActor || username == db.SchemaUpdateByCLI || username == ConfigFileActor
 }
 
 func runDetail(from, to, commit string) string {
