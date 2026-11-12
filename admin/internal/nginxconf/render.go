@@ -120,12 +120,13 @@ func RenderFor(s settings.Settings, outDir, version string, cause RenderCause) e
 	if err != nil {
 		return err
 	}
+	data.Gateway = gatewayRenderOf(s, outDir)
 	// What config.yml's other writers can put where nginx reads it as
-	// written (render_inputs.go).
+	// written, and a trusted-LB set that would name the load balancer as
+	// every visitor (render_inputs.go).
 	if err := checkRenderInputs(data); err != nil {
 		return err
 	}
-	data.Gateway = gatewayRenderOf(s, outDir)
 	id, err := renderIDOf(data)
 	if err != nil {
 		return err

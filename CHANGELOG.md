@@ -128,6 +128,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **On Alpine and CentOS 6 the access-log socket is no longer open to every local user.**  Under OpenRC and SysVinit the daemon was never put in nginx's group, so it could not share the socket with nginx's workers by group and opened it to all: any local account could write log lines the daemon believed. The package adds the unmask user to that group. Upgrade to apply.
 
+- (2026-11-12) **The Google Cloud load-balancer preset no longer trusts 35.227.0.0/16.**  Google assigns that range to customers: a machine there that reached the origin directly could name its own JA4 and, with real_ip on, its own address. With the preset and real_ip both on, list your load balancer's own address as an LB of your own; until you do, unmask refuses to render and nginx keeps its previous files.
+
 ## [0.1.57-rc2] - 2026-11-11 (testing build)
 
 ### Since rc1

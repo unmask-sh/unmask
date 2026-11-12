@@ -283,9 +283,22 @@ var LBIPRanges = []LBIPRange{
 			// Source IPs that GCP HTTPS LB uses to forward to backends.
 			// The same range issues the GCP health checks.
 			// **Not assigned to customer instances** (= reserved for GCP infra).
+			//
+			// 35.227.0.0/16 stood here until 0.1.57, and it is not such a
+			// range: Google assigns it to customers (us-east1, us-west1,
+			// and the global forwarding rules -- load balancers' own
+			// addresses).  It was listed because of the last of those.  A
+			// Google load balancer ends X-Forwarded-For with its own
+			// address, after the visitor's, and nginx's real_ip_recursive
+			// reads past an address only when it is trusted; a load
+			// balancer whose address lies in that /16 was read past, and so
+			// was every machine a customer runs there: reaching the origin
+			// directly, it could write X-Client-JA4 and, with the real_ip
+			// block on, X-Forwarded-For.  The operator now lists the load
+			// balancer's own address as a trusted LB of their own, and the
+			// render asks for it (gcpWantsOwnAddress).
 			"35.191.0.0/16",
 			"130.211.0.0/22",
-			"35.227.0.0/16",
 			// IPv6 (= added after 2024).  See official docs.
 			"2600:1901:8001::/48",
 			"2600:2d00:1:1::/64",
@@ -411,4 +424,28 @@ func lbExtraWarning(extras []settings.TrustedLBExtra) string {
 		return ""
 	}
 	return "trusted load balancers of your own left out of nginx's configuration: " + strings.Join(bad, "; ") + ".  Fix nginx.trusted_lb_extra in config.yml or on the admin's network tab."
+}
+
+// gcpWantsOwnAddress: the Google Cloud preset is among lbs with no trusted LB
+// of the operator's own beside it.
+//
+// Behind a Google load balancer X-Forwarded-For reads "<visitor>, <the load
+// balancer's address>".  With the real_ip block on, nginx takes the
+// rightmost address that is not a trusted one: unless the load balancer's
+// own address is trusted too, that is the load balancer's, for every
+// request -- one address for all visitors, which a rate limit or a ban then
+// applies to all of them at once.  The preset cannot know the address (it is
+// the forwarding rule's, different for every load balancer), so the operator
+// lists it: a trusted LB of their own.  This reports the set that has none.
+func gcpWantsOwnAddress(lbs []LBIPRange) bool {
+	gcp, own := false, false
+	for _, lb := range lbs {
+		switch {
+		case lb.Source == "(custom)":
+			own = true
+		case lb.ID == "gcp":
+			gcp = true
+		}
+	}
+	return gcp && !own
 }

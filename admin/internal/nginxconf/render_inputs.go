@@ -21,6 +21,9 @@ import (
 //     nginx.upstream_addr or server.bind: the render is refused;
 //   - the log socket (`access_log syslog:server=unix:<path> ...`, and the
 //     comments that name it): the render is refused;
+//   - the Google Cloud preset with the real_ip block and no load balancer of
+//     the operator's own listed: the render is refused (gcpWantsOwnAddress
+//     says why);
 //   - a trusted load balancer of one's own (nginx.trusted_lb_extra): its id
 //     names a variable and a map key, its ranges go into a geo block
 //     unquoted; an entry whose id is not a name is left out, and so is a
@@ -98,6 +101,17 @@ func lbCIDROK(v string) bool {
 func checkRenderInputs(d renderData) error {
 	if !upstreamServerOK(d.UpstreamServer) {
 		return fmt.Errorf("render refused: the daemon's address %q (nginx.upstream_addr, or server.bind) is not an address nginx's upstream takes as it is -- host:port, [IPv6]:port or unix:/absolute/path, nothing more; fix it in config.yml (the files of the last render are kept)", d.UpstreamServer)
+	}
+	// The Google Cloud preset with the real_ip block and no address of the
+	// operator's own load balancer: rendered, every visitor would be seen as
+	// the load balancer's address (gcpWantsOwnAddress).  Until 0.1.57 the
+	// preset trusted 35.227.0.0/16 for it; an install that relied on that
+	// keeps the files of its last render until the address is listed.
+	// The gateway writes its real_ip block from the same set whenever the
+	// set is not empty (gateway-proxies.inc), so it is asked the same.
+	realIP := d.TrustedLBRealIP || (d.Gateway.Active && len(d.Gateway.TrustedProxies) > 0)
+	if realIP && gcpWantsOwnAddress(d.LBIPRanges) {
+		return fmt.Errorf("render refused: the Google Cloud load-balancer preset is on, with the visitor's address taken from X-Forwarded-For (nginx.trusted_lb_realip, or the gateway), and no load balancer of your own is listed.  A Google load balancer ends X-Forwarded-For with its own address, and nginx reads past it to the visitor's only when that address is trusted: without it, every visitor is seen as the load balancer.  The preset no longer trusts 35.227.0.0/16 for this (Google assigns that range to customers).  Add your load balancer's own address -- the forwarding rule's IPv4 and IPv6 -- as a trusted LB of your own (nginx.trusted_lb_extra in config.yml, or the network tab), or turn trusted_lb_realip off (on the gateway: take the preset out and list the proxy ranges and the address together as your own) (the files of the last render are kept)")
 	}
 	if d.NginxLogSocket != "" && !socketPathOK(d.NginxLogSocket) {
 		return fmt.Errorf("render refused: nginx_log.socket_path %q is not a path nginx's access_log can be given -- an absolute path without spaces, quotes, commas or any of ; { } # $ \\; fix it in config.yml (the files of the last render are kept)", d.NginxLogSocket)
