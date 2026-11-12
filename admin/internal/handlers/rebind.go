@@ -464,12 +464,27 @@ func (h *Handler) tryRebind(w http.ResponseWriter, r *http.Request, site, bt str
 	if !h.rebind(w, r, site, bt) {
 		return false
 	}
-	origPath := truncateAt(r.URL.Query().Get("_orig"), 200)
-	if !isLocalRedirect(origPath) {
-		origPath = "" // client-supplied; never bounce off-site
-	}
-	h.serveRebindRedirect(w, origPath)
+	h.serveRebindRedirect(w, rebindBounceTarget(r.URL.Query().Get("_orig")))
 	return true
+}
+
+// rebindOrigMax: the longest _orig the bounce names as its target.  nginx
+// takes a request line of 8 KiB as shipped; past that the bounce names
+// none, and the page asks again for the address the browser is at.
+const rebindOrigMax = 8192
+
+// rebindBounceTarget: where the bounce after a rebind sends the visitor --
+// the page that was asked for, whole.  It was the event's copy of that URL,
+// cut to 200 bytes for the log: a visitor whose address changed while on a
+// page with a longer query (a search, a link with tracking parameters) was
+// sent to the first 200 bytes of it -- another page, or, cut inside a
+// percent escape, nginx's 400.  "" where there is none to trust: the value
+// is the client's, and the bounce never leaves this site.
+func rebindBounceTarget(orig string) string {
+	if len(orig) > rebindOrigMax || !isLocalRedirect(orig) {
+		return ""
+	}
+	return orig
 }
 
 // bodyRebindEligible reports whether a request carrying a body may be

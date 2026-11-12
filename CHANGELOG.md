@@ -80,6 +80,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **The challenge's sum accepts digits typed with an input method.**  A visitor the checkbox could not confirm is asked a small sum; typed in full-width digits, as a Japanese input method writes them while it is on, or in Arabic, Persian, Hindi or Thai digits, the right answer was refused with "Please enter a number". Those digits are now read as the numbers they are.
 
+- (2026-11-12) **A visitor whose network changes is returned to the full URL.**  When the pass cookie is re-bound to a new address, the visitor is sent back to the page they asked for; its address was cut to 200 bytes, so a page with a long query, such as a search, came back as a different page or as an error. The whole URL is used now.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.
