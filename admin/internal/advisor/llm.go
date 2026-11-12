@@ -387,6 +387,14 @@ func ReviewWithPool(ctx context.Context, cfg settings.AIAdvisorConfig, cands []C
 			defer wg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			// A batch reads what the provider wrote.  A panic here is in a
+			// goroutine of its own, out of reach of the run's recover, and
+			// would end the daemon; it ends the batch instead.
+			defer func() {
+				if r := recover(); r != nil {
+					outs[i].err = fmt.Errorf("advisor: review batch %d: %v", i+1, r)
+				}
+			}()
 			p := Pool{}
 			if i == 0 {
 				p = pool.forWire()

@@ -105,6 +105,11 @@ func anthropicPost(ctx context.Context, url string, headers map[string]string, b
 // streamedMessage is a message as its events build it: the blocks by
 // index, a tool call's input as the JSON pieces arrive, the stop and the
 // token counts.
+// maxStreamBlocks: how many content blocks one streamed message may hold.
+// A reply is a few (thinking, text, a tool call or two); the bound is what
+// keeps a block index from being a memory size.
+const maxStreamBlocks = 256
+
 type streamedMessage struct {
 	blocks      []map[string]any
 	inputs      map[int]*strings.Builder
@@ -157,6 +162,12 @@ func (m *streamedMessage) apply(data []byte) (done bool, err error) {
 	case "content_block_start":
 		if ev.Index < 0 || ev.ContentBlock == nil {
 			return false, fmt.Errorf("reading the provider's stream: a block without its start")
+		}
+		// The index sizes the slice below, and it is the other end's number:
+		// one event naming block two billion would have this allocate tens of
+		// gigabytes.  An answer is a handful of blocks.
+		if ev.Index >= maxStreamBlocks {
+			return false, fmt.Errorf("reading the provider's stream: block %d is past the %d a message may hold", ev.Index, maxStreamBlocks)
 		}
 		for len(m.blocks) <= ev.Index {
 			m.blocks = append(m.blocks, nil)
