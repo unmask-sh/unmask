@@ -27,3 +27,21 @@ func TestValidSiteHost(t *testing.T) {
 		}
 	}
 }
+
+// A custom rule's host line names hosts; the scope picker's word for the
+// default scope is not one, and as a map key nginx would read it as its own.
+func TestCustomRuleHostRefusesMapWords(t *testing.T) {
+	for _, v := range []string{"default", "Default", "include"} {
+		c := CustomCondition{Kind: CustomCondHost, Values: []string{v}}
+		if err := NormalizeCustomCondition(&c); err == nil {
+			t.Errorf("host %q was accepted", v)
+		}
+	}
+	c := CustomCondition{Kind: CustomCondHost, Values: []string{"Shop.Example.com", "defaults.example.com"}}
+	if err := NormalizeCustomCondition(&c); err != nil {
+		t.Fatalf("real host names were refused: %v", err)
+	}
+	if len(c.Values) != 2 || c.Values[0] != "shop.example.com" {
+		t.Errorf("values = %v", c.Values)
+	}
+}

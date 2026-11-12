@@ -82,7 +82,7 @@ type ObserveHostRow struct {
 // and handed the rest of the pattern to nginx as directives, in a file it
 // loads as root.  Quoting every mode here rather than in PatternRegex keeps
 // the escape nginx's reader needs at the one place that writes nginx config.
-var tmplFuncs = template.FuncMap{"nq": nginxQuote, "rx": func(p string) string { return nginxQuote(settings.PatternRegex(p)) }}
+var tmplFuncs = template.FuncMap{"nq": nginxQuote, "mapkey": mapKey, "rx": func(p string) string { return nginxQuote(settings.PatternRegex(p)) }}
 
 // Render renders with no cause named: RenderFor with the zero RenderCause,
 // for a dry run or a caller that has nothing to say about why.
@@ -1286,6 +1286,30 @@ func nginxQuote(v string) string {
 	return strings.ReplaceAll(v, `"`, `\"`)
 }
 
+// mapKey makes a value a LITERAL key of an nginx map, for use inside double
+// quotes like nginxQuote.
+//
+// nginx reads a few things in a map's key position as its own, quoted or
+// not: `default` is the map's default (a second one is "duplicate default map
+// parameter"), `include` opens the file the value names, and a leading `~`
+// starts a regex.  A leading backslash says "none of those": map strips it
+// and takes the rest as the key.  Inside quotes that backslash is written
+// `\\`; a single one before t, n or r would become the control character.
+// Values that need no escape come out exactly as nginxQuote leaves them, so
+// the keys of an existing render do not move.
+func mapKey(v string) string {
+	q := nginxQuote(v)
+	if strings.HasPrefix(v, "~") || strings.HasPrefix(v, `\`) {
+		return `\\` + q
+	}
+	for _, w := range []string{"default", "include", "hostnames", "volatile"} {
+		if strings.EqualFold(v, w) {
+			return `\\` + q
+		}
+	}
+	return q
+}
+
 // OneLine makes an operator-supplied string safe on a `# ...` comment line of
 // the rendered config: a newline would end the comment and hand the rest of
 // the string to nginx as directives.  Other control characters go too.  The
@@ -1327,13 +1351,13 @@ func customRulesRender(s settings.Settings) (rules []CustomRuleRender, zones []C
 					if strings.HasSuffix(x, "*") {
 						cc.Entries = append(cc.Entries, `"~^`+strings.TrimSuffix(x, "*")+`"`)
 					} else {
-						cc.Entries = append(cc.Entries, `"`+x+`"`)
+						cc.Entries = append(cc.Entries, `"`+mapKey(x)+`"`)
 					}
 				}
 			case settings.CustomCondCountry:
 				cc.Source = "$unmask_country"
 				for _, x := range c.Values {
-					cc.Entries = append(cc.Entries, `"`+x+`"`)
+					cc.Entries = append(cc.Entries, `"`+mapKey(x)+`"`)
 					if !seenCC[x] {
 						seenCC[x] = true
 						countries = append(countries, x)
@@ -1342,7 +1366,7 @@ func customRulesRender(s settings.Settings) (rules []CustomRuleRender, zones []C
 			case settings.CustomCondASN:
 				cc.Source = "$unmask_asn"
 				for _, x := range c.Values {
-					cc.Entries = append(cc.Entries, `"AS`+x+`"`)
+					cc.Entries = append(cc.Entries, `"`+mapKey("AS"+x)+`"`)
 					if n, err := strconv.ParseUint(x, 10, 32); err == nil && !seenASN[uint32(n)] {
 						seenASN[uint32(n)] = true
 						asns = append(asns, uint32(n))
@@ -1359,9 +1383,11 @@ func customRulesRender(s settings.Settings) (rules []CustomRuleRender, zones []C
 					cc.Entries = append(cc.Entries, `"~`+nginxQuote(x)+`"`)
 				}
 			case settings.CustomCondHost:
+				// A literal key: `default` here would be the map's second
+				// default, and nginx refuses the configuration.
 				cc.Source = "$host"
 				for _, x := range c.Values {
-					cc.Entries = append(cc.Entries, `"`+x+`"`)
+					cc.Entries = append(cc.Entries, `"`+mapKey(x)+`"`)
 				}
 			default:
 				continue

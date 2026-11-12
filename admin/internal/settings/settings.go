@@ -1708,6 +1708,12 @@ func NormalizeCustomCondition(c *CustomCondition) error {
 			if !customRuleHostRE.MatchString(v) {
 				return fmt.Errorf("%q is not a host name", v)
 			}
+			// The scope picker calls the default scope "default", so the
+			// word is easy to type here -- where it would only ever match a
+			// request whose Host is literally that.
+			if mapReservedWords[v] {
+				return fmt.Errorf("%q is not a host name: name the site's host (a rule with no host line applies to every site)", v)
+			}
 		}
 		vals = append(vals, v)
 	}

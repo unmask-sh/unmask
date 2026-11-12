@@ -41,7 +41,7 @@ geo $realip_remote_addr $unmask_fa_lb_vendor {
 
     # {{ $g.Label }} ({{ $g.Source }})
 {{- range $g.CIDRs }}
-    {{ . }} "{{ $g.ID }}";
+    {{ . }} "{{ nq $g.ID }}";
 {{- end }}
 {{- end }}
 {{- end }}
@@ -54,7 +54,7 @@ map $unmask_fa_lb_vendor $unmask_fa_ja4 {
     default "";
 {{- range .LBIPRanges }}
 {{- if .CIDRs }}
-    "{{ .ID }}" {{ .Header }};
+    "{{ mapkey .ID }}" {{ .Header }};
 {{- end }}
 {{- end }}
 }

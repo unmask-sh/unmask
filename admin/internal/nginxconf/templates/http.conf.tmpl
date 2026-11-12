@@ -309,7 +309,7 @@ geo $realip_remote_addr $unmask_lb_vendor {
 
     # {{ $g.Label }} ({{ $g.Source }})
 {{- range $g.CIDRs }}
-    {{ . }} "{{ $g.ID }}";
+    {{ . }} "{{ nq $g.ID }}";
 {{- end }}
 {{- end }}
 {{- end }}
@@ -320,7 +320,7 @@ map $unmask_lb_vendor $unmask_lb_ja4 {
     default "";
 {{- range .LBIPRanges }}
 {{- if .CIDRs }}
-    "{{ .ID }}" {{ .Header }};
+    "{{ mapkey .ID }}" {{ .Header }};
 {{- end }}
 {{- end }}
 }
@@ -1042,7 +1042,7 @@ map $unmask_cr_id $unmask_cr_action {
     default "";
 {{- range .CustomRules }}
 {{- if .Action }}
-    "{{ .ID }}" "{{ .Action }}";
+    "{{ mapkey .ID }}" "{{ .Action }}";
 {{- end }}
 {{- end }}
 }
@@ -1052,7 +1052,7 @@ map $unmask_cr_id $unmask_cr_rate_action {
     default "";
 {{- range .CustomRules }}
 {{- if .RateAction }}
-    "{{ .ID }}" "{{ .RateAction }}";
+    "{{ mapkey .ID }}" "{{ .RateAction }}";
 {{- end }}
 {{- end }}
 }
