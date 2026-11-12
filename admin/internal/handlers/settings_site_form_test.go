@@ -54,6 +54,7 @@ func customisedDefault(s *settings.Settings) {
 	c.DebugRateLimitPer5Min = 50
 	c.PublicTestPages = settings.BoolPtr(true)
 	c.PublicTestPagesPassword = "s3cret"
+	c.PublicTestPagesSitePicker = settings.BoolPtr(false)
 	b := &s.Branding.Default
 	b.SiteName = "Example"
 	b.FooterText = "Operated by Example"
@@ -560,19 +561,23 @@ func TestSiteThemeFormSavesOnlyWhatTheSiteSets(t *testing.T) {
 // The challenge form too has built-in values a site can choose where Default
 // says another: the visible page under an invisible Default, the public test
 // pages off under a Default that has them on, the seven-day cookie under a
-// one-day Default.  And the site picker, which is on unless turned off, off.
+// one-day Default, and the site picker -- on unless turned off -- on under a
+// Default that turned it off.
 func TestSiteChallengeFormCanChooseTheBuiltinValue(t *testing.T) {
 	e := newSiteEnv(t, customisedDefault)
 	f := e.form("challenge")
 	vals := siteFormValues(f, true)
 	vals.Set("challenge_display_style", settings.ChallengeDisplayVisible)
 	vals.Del("public_test_pages")
-	vals.Del("public_test_pages_site_picker")
+	vals.Set("public_test_pages_site_picker", tickedValue(t, f, "public_test_pages_site_picker"))
 	vals.Set("pow_cookie_valid_seconds", "604800")
 	e.post("challenge", f, vals)
+	if e.load().Challenge.Default.IsPublicTestPagesSitePicker() {
+		t.Fatal("Default's site picker, turned off, is on in the config that was written")
+	}
 	got := e.load().Challenge.Resolve(formSite)
-	if got.ResolvedDisplayStyle() != settings.ChallengeDisplayVisible || got.IsPublicTestPages() || got.IsPublicTestPagesSitePicker() || got.PowCookieValidSecondsResolved() != 604800 {
-		t.Errorf("the site was set to the visible page, no public test pages, no site picker and a seven-day PoW cookie, and gets: %s", challengeMeaning(got))
+	if got.ResolvedDisplayStyle() != settings.ChallengeDisplayVisible || got.IsPublicTestPages() || !got.IsPublicTestPagesSitePicker() || got.PowCookieValidSecondsResolved() != 604800 {
+		t.Errorf("the site was set to the visible page, no public test pages, the site picker on and a seven-day PoW cookie, and gets: %s", challengeMeaning(got))
 	}
 	wantOwn(t, e.fieldOverrides("challenge"), "challenge_display_style", "public_test_pages", "public_test_pages_site_picker", "pow_cookie_valid_seconds")
 	e.untouched("challenge", "a site set to the built-in values")

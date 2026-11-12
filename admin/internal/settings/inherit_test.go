@@ -291,3 +291,47 @@ func TestShownIsTheRecordOverDefaultInForceOrNot(t *testing.T) {
 		t.Errorf("Shown of an appearance record that is off: theme=%q name=%q", got.Theme, got.SiteName)
 	}
 }
+
+// The site picker of the public test pages is on where nothing is said, so
+// on the Default record it is the explicit true that says nothing and the
+// explicit false that is the operator's choice.  Save dropped the false with
+// the other flags' -- off being what those come to unset -- and the picker,
+// turned off, was on again after the next restart.
+func TestNormalizeDefaultsKeepsTheSitePickerOff(t *testing.T) {
+	s := Settings{}
+	s.Challenge.Default.PublicTestPagesSitePicker = BoolPtr(false)
+	normalizeDefaults(&s)
+	if p := s.Challenge.Default.PublicTestPagesSitePicker; p == nil || *p {
+		t.Fatal("the site picker's explicit off did not survive on the Default record")
+	}
+	if s.Challenge.Default.IsPublicTestPagesSitePicker() {
+		t.Error("the site picker reads as on after it was turned off")
+	}
+	// And the value that says nothing does not churn the file.
+	s.Challenge.Default.PublicTestPagesSitePicker = BoolPtr(true)
+	normalizeDefaults(&s)
+	if s.Challenge.Default.PublicTestPagesSitePicker != nil {
+		t.Error("an explicit on, which is what unset means, was kept on the Default record")
+	}
+}
+
+// The same through the file: written, read back, still off.
+func TestSitePickerOffSurvivesSaveAndLoad(t *testing.T) {
+	path := t.TempDir() + "/config.yml"
+	var s Settings
+	s.Challenge.Default.PublicTestPages = BoolPtr(true)
+	s.Challenge.Default.PublicTestPagesSitePicker = BoolPtr(false)
+	if err := Save(s, path); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Challenge.Default.IsPublicTestPagesSitePicker() {
+		t.Error("the site picker, turned off and saved, is on in the settings read back")
+	}
+	if !got.Challenge.Default.IsPublicTestPages() {
+		t.Error("the public test pages, turned on and saved, are off in the settings read back")
+	}
+}

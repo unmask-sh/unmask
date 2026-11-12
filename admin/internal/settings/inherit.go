@@ -403,7 +403,8 @@ func BrandingOverridesFor(b Branding, site string) map[string]bool {
 }
 
 // normalizeDefaults turns an explicit false into "unset" on the Default
-// records.  On a site record the difference matters -- false means "off here
+// records -- for the flags that are off where nothing is said; the site
+// picker, which is on, the other way round.  On a site record the difference matters -- false means "off here
 // even though the global says on" -- but Default is the bottom of the chain,
 // with nothing above it to inherit from, so there the two say the same thing.
 // Keeping the pointer would rewrite the config file on every save (yaml's
@@ -413,7 +414,13 @@ func normalizeDefaults(s *Settings) {
 	if s.Challenge.Default.PublicTestPages != nil && !*s.Challenge.Default.PublicTestPages {
 		s.Challenge.Default.PublicTestPages = nil
 	}
-	if s.Challenge.Default.PublicTestPagesSitePicker != nil && !*s.Challenge.Default.PublicTestPagesSitePicker {
+	// The site picker is the one flag here that is ON where nothing is said
+	// (IsPublicTestPagesSitePicker), so the value that says nothing is the
+	// explicit true.  The explicit false is the operator's "off", and it was
+	// dropped with the others': the picker stayed off until the daemon was
+	// restarted, read the file, found nothing about it, and showed the public
+	// test pages' visitors the list of sites again.
+	if p := s.Challenge.Default.PublicTestPagesSitePicker; p != nil && *p {
 		s.Challenge.Default.PublicTestPagesSitePicker = nil
 	}
 	if s.Challenge.Default.ObserveOnly != nil && !*s.Challenge.Default.ObserveOnly {
