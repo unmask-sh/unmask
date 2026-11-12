@@ -130,6 +130,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **The Google Cloud load-balancer preset no longer trusts 35.227.0.0/16.**  Google assigns that range to customers: a machine there that reached the origin directly could name its own JA4 and, with real_ip on, its own address. With the preset and real_ip both on, list your load balancer's own address as an LB of your own; until you do, unmask refuses to render and nginx keeps its previous files.
 
+- (2026-11-12) **A JA4 header from an untrusted address no longer takes a client out of the JA4 rules.**  With a trusted load-balancer preset on, a request that reached the origin directly and carried the load balancer's JA4 header was recorded as NOT_TRUSTED, which no JA4 rule and no address-and-fingerprint ban matches. Such a request is now judged by its own connection's fingerprint. Reload nginx to apply.
+
 ## [0.1.57-rc2] - 2026-11-11 (testing build)
 
 ### Since rc1

@@ -350,18 +350,27 @@ map "$unmask_lb_vendor:$unmask_any_lb_header" $ja4_diag {
 # 4) JA4 fingerprint -> verdict
 # Priority: $unmask_lb_ja4 (header via trusted LB) > $client_ja4 (module self-computed)
 #
-# When the vendor is not classified but an LB header is present (i.e.
-# ja4_diag=untrusted_lb_header), flow the sentinel value "NOT_TRUSTED" into
-# $effective_ja4.  This way:
-#   - NOT_TRUSTED appears in log / dashboard / events.JA4 columns —
-#     trust-path mistakes are immediately visible.
-#   - In the ja4_verdict / ja4_action maps NOT_TRUSTED doesn't match any preset
-#     pattern, so it falls to default "ok" — no side effect on the challenge
-#     trigger logic (same as legacy behavior).
-#   - If aggregations / charts show NOT_TRUSTED counts, it's a signal to
-#     "verify trust LB settings / real_ip module ordering / etc".
+# A JA4 header that arrives from an address outside the trusted set
+# (ja4_diag=untrusted_lb_header) is not the visitor's fingerprint: it is what
+# the client wrote.  The connection's own fingerprint is used, as if the
+# header were not there.
+#
+# Until 0.1.57 every such request got the sentinel "NOT_TRUSTED" instead,
+# which no JA4 rule and no "<ip>|<ja4>" ban matches: with a trusted-LB preset
+# on and the origin reachable past the load balancer, one header of any
+# content took a client out of all of them.
+#
+# The sentinel remains for the one case it was made to show and where there
+# is nothing else to judge by: the header came from an untrusted address and
+# the connection has no fingerprint of its own (plain HTTP from a load
+# balancer that is missing from the trusted set).  NOT_TRUSTED in the log and
+# the dashboard's JA4 column still says "check the trusted LB settings".
+map $client_ja4 $unmask_untrusted_ja4 {
+    ""      "NOT_TRUSTED";
+    default $client_ja4;
+}
 map $ja4_diag $unmask_lb_ja4_or_sentinel {
-    "untrusted_lb_header" "NOT_TRUSTED";
+    "untrusted_lb_header" $unmask_untrusted_ja4;
     default               $unmask_lb_ja4;
 }
 map $unmask_lb_ja4_or_sentinel $effective_ja4 {
