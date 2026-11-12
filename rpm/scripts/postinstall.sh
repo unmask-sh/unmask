@@ -424,14 +424,19 @@ if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     fi
 
     systemctl daemon-reload || true
-    if [ "${1:-}" = "1" ] || { [ "${1:-}" = "configure" ] && [ -z "${2:-}" ]; } || [ -d /lib/apk ]; then
+    # The mark preremove.sh leaves when a deb removal disabled the unit: the
+    # install after it is called like an upgrade (`configure <version>`), and
+    # is one more case of a fresh install.
+    REMOVED_MARK="$DROP_IN/.disabled-by-remove"
+    if [ "${1:-}" = "1" ] || { [ "${1:-}" = "configure" ] && [ -z "${2:-}" ]; } || [ -d /lib/apk ] || [ -f "$REMOVED_MARK" ]; then
         # Enable for boot on a fresh install: rpm $1=1, or deb "configure" with
         # an empty $2 (deb "configure" ALSO fires on upgrades, which carry the
-        # previous version in $2).  apk passes the package version as $1, never
-        # "1"/"configure", so it cannot tell the two apart: enable every time
-        # there, which is idempotent.
+        # previous version in $2) or after a removal (the mark).  apk passes
+        # the package version as $1, never "1"/"configure", so it cannot tell
+        # the two apart: enable every time there, which is idempotent.
         systemctl enable unmask.service || true
     fi
+    rm -f "$REMOVED_MARK"
     systemctl restart unmask.service 2>/dev/null || systemctl start unmask.service 2>/dev/null || true
     INIT_KIND=systemd
 elif command -v rc-service >/dev/null 2>&1 || [ -x /sbin/openrc-run ]; then

@@ -19,6 +19,18 @@ fi
 if [ "$do_remove" = 1 ]; then
     if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
         systemctl disable --now unmask.service || true
+        # dpkg keeps a removed package's configuration, and at the next
+        # install calls the postinst as `configure <the version removed>` --
+        # the way it calls an upgrade, which must not enable a unit the
+        # operator may have disabled.  The mark says this disable was the
+        # package's own, so that install enables the unit again
+        # (postinstall.sh); without it the daemon ran after a remove and a
+        # reinstall, and did not come back at the next boot.  In the unit's
+        # drop-in directory: root's, kept by a remove, gone with a purge.
+        # rpm needs none: its reinstall is a fresh install.
+        if [ "${1:-}" = "remove" ] && [ -d /etc/systemd/system/unmask.service.d ]; then
+            : > /etc/systemd/system/unmask.service.d/.disabled-by-remove 2>/dev/null || true
+        fi
     elif command -v rc-service >/dev/null 2>&1 || [ -x /sbin/openrc-run ]; then
         # OpenRC (= Alpine).  stop + rc-update del + delete the symlink.
         rc-service unmask stop 2>/dev/null || true

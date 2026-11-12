@@ -64,6 +64,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **The container starts with a wildcard host name or an IPv6 address in its environment.**  The entrypoint wrote the environment's values into `config.yml` unquoted: `UNMASK_SERVER_NAME=*.example.com` or `UNMASK_DAEMON_ADDR=[::1]:9477` produced a file the daemon could not parse, and the container restarted in a loop. The values are now written as quoted strings.
 
+- (2026-11-12) **On Debian and Ubuntu, removing and reinstalling unmask keeps it starting at boot.**  After `apt remove unmask` and a later `apt install unmask`, the daemon ran but its unit stayed disabled, because dpkg presents such an install like an upgrade: the next reboot left the site without the daemon. The reinstall now enables the unit again; a unit you disabled yourself stays disabled across upgrades.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.

@@ -139,6 +139,17 @@ check "systemd, deb upgrade: started once" 1 "$(starts)"
 check "systemd, deb upgrade: not re-enabled" 0 "$(called '^systemctl enable')"
 rm -rf "$T"
 
+# A deb removed and installed again is configured like an upgrade -- dpkg
+# passes the version it had -- and the removal disabled the unit.  The mark
+# preremove.sh left says so (preremove_test.sh has that half): the unit is
+# enabled again, and the mark goes.
+PRE_HOOK='mkdir -p "$T/etc/systemd/system/unmask.service.d" && : > "$T/etc/systemd/system/unmask.service.d/.disabled-by-remove"' \
+    run_case systemd 0 "" configure 0.1.47-1
+check "systemd, deb reinstall after a remove: enabled for boot again" 1 "$(called '^systemctl enable unmask.service$')"
+check "systemd, deb reinstall after a remove: started once" 1 "$(starts)"
+check "systemd, deb reinstall after a remove: the mark is taken away" no "$([ -e "$T/etc/systemd/system/unmask.service.d/.disabled-by-remove" ] && echo yes || echo no)"
+rm -rf "$T"
+
 run_case systemd 1 "" 0.1.48-r1
 check "systemd on Alpine: started once" 1 "$(starts)"
 check "systemd on Alpine: enabled (apk cannot tell an install from an upgrade)" 1 "$(called '^systemctl enable unmask.service$')"

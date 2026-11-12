@@ -68,6 +68,7 @@ jobs:
       - name: package scripts
         run: |
           bash rpm/scripts/postinstall_test.sh
+          bash rpm/scripts/preremove_test.sh
           bash rpm/scripts/postremove_test.sh
           bash rpm/scripts/postinstall-web-nginx_test.sh
           bash rpm/scripts/nginx-reload-if-stale_test.sh
