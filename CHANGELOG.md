@@ -86,6 +86,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 - (2026-11-12) **A broken crawler-list file no longer leaves search crawlers challenged.**  Where `UNMASK_CRAWLER_UA_JSON` names a file, the daemon built its crawler rescue lists from it whatever it held: a download cut short or a saved error page left the lists empty, and Googlebot was challenged. Such a file is now refused in favour of the built-in list, and `unmask update-crawler-list` refuses to write one.
 
+- (2026-11-12) **A mistyped address in config.yml no longer reaches nginx's configuration.**  The daemon's address, the log socket and a custom load balancer's ranges were written into the rendered files as config.yml had them, so a stray space or semicolon gave nginx a file it refused. A bad address or socket path now stops the render, keeping the previous files; a bad range is left out with a warning.
+
 ### Security
 
 - (2026-11-11) **Only a superadmin can change where the admin's mail goes.**  The mail relay carries every account's password-reset link, and an admin could point it at a server of their own, ask for a superadmin's reset and read the link. Changing the relay's host, port, account, password or TLS checks now takes a superadmin; an admin still changes the sender and the notification channels.

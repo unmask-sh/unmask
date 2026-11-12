@@ -120,6 +120,11 @@ func RenderFor(s settings.Settings, outDir, version string, cause RenderCause) e
 	if err != nil {
 		return err
 	}
+	// What config.yml's other writers can put where nginx reads it as
+	// written (render_inputs.go).
+	if err := checkRenderInputs(data); err != nil {
+		return err
+	}
 	data.Gateway = gatewayRenderOf(s, outDir)
 	id, err := renderIDOf(data)
 	if err != nil {
@@ -134,6 +139,9 @@ func RenderFor(s settings.Settings, outDir, version string, cause RenderCause) e
 	}
 	if data.siteWarning != "" {
 		log.Printf("unmask: WARNING: %s", data.siteWarning)
+	}
+	if w := lbExtraWarning(s.Nginx.TrustedLBExtra); w != "" {
+		log.Printf("unmask: WARNING: %s", w)
 	}
 
 	// Each render* call reports whether it actually changed the file; the

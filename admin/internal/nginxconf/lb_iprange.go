@@ -18,6 +18,7 @@
 package nginxconf
 
 import (
+	"fmt"
 	"net"
 	"regexp"
 	"strings"
@@ -175,6 +176,20 @@ func effectiveLBs(enabledIDs []string, extras []settings.TrustedLBExtra) []LBIPR
 		if e.ID == "" || len(e.CIDRs) == 0 || e.Disabled {
 			continue
 		}
+		// The id names a variable and a map key, and the ranges go into a
+		// geo block unquoted.  The form checks them, but config.yml has
+		// other writers (render_inputs.go); what is not a name or a range
+		// is left out, and RenderFor says so (lbExtraWarning).
+		cidrs := make([]string, 0, len(e.CIDRs))
+		for _, c := range e.CIDRs {
+			if c = strings.TrimSpace(c); lbCIDROK(c) {
+				cidrs = append(cidrs, c)
+			}
+		}
+		if !lbExtraIDRE.MatchString(e.ID) || len(cidrs) == 0 {
+			continue
+		}
+		e.CIDRs = cidrs
 		// The header is an nginx variable name the templates place unquoted
 		// in a map, and the label goes on a comment line.  The form checks
 		// both, but a hand-edited config reaches here too, and this is the
@@ -366,4 +381,34 @@ var LBIPRanges = []LBIPRange{
 			// This preset is intentionally empty to prevent misuse.
 		},
 	},
+}
+
+// lbExtraWarning names the entries of nginx.trusted_lb_extra, and the
+// ranges, that effectiveLBs leaves out: "" when there are none.
+func lbExtraWarning(extras []settings.TrustedLBExtra) string {
+	var bad []string
+	for _, e := range extras {
+		if e.ID == "" || len(e.CIDRs) == 0 || e.Disabled {
+			continue
+		}
+		if !lbExtraIDRE.MatchString(e.ID) {
+			bad = append(bad, fmt.Sprintf("the entry %q (its id is not a name: letters, digits, '-', '_')", e.ID))
+			continue
+		}
+		var off []string
+		for _, c := range e.CIDRs {
+			if c = strings.TrimSpace(c); !lbCIDROK(c) {
+				off = append(off, fmt.Sprintf("%q", c))
+			}
+		}
+		if len(off) == len(e.CIDRs) {
+			bad = append(bad, fmt.Sprintf("the entry %q (none of its ranges is an address or a CIDR)", e.ID))
+		} else if len(off) > 0 {
+			bad = append(bad, fmt.Sprintf("from the entry %q, %s (not an address or a CIDR)", e.ID, strings.Join(off, ", ")))
+		}
+	}
+	if len(bad) == 0 {
+		return ""
+	}
+	return "trusted load balancers of your own left out of nginx's configuration: " + strings.Join(bad, "; ") + ".  Fix nginx.trusted_lb_extra in config.yml or on the admin's network tab."
 }
