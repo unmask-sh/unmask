@@ -237,6 +237,26 @@ PLUGIN_NGINX_VERSIONS ?= 1.10.3 1.12.2 1.14.1 1.14.2 1.16.1 1.18.0 1.20.1 1.20.2
 # release tooling checks the same stamp before it packages a cache.
 MODULE_SRC_HASH := $(shell $(CURDIR)/tools/module-src-hash.sh)
 
+# _require_module_set: the last step of every build-module-multi* recipe, and
+# the whole of check-module-set.  $(1) = the cache dirs.  The loops below go
+# on to the next version when one fails to build, so the log shows every
+# failure of a run -- and the recipe used to end there, successful, one
+# module short; the fat plugin bundles whatever a cache holds, and shipped
+# without that nginx version.  Each cache has to hold a .so built from this
+# source for every version asked for.
+define _require_module_set
+	@fail=0; for d in $(1); do \
+		missing=""; \
+		for v in $(PLUGIN_NGINX_VERSIONS); do \
+			if [ ! -f $$d/$$v/ngx_http_unmask_module.so ] || [ "$$(cat $$d/$$v/.src-hash 2>/dev/null)" != "$(MODULE_SRC_HASH)" ]; then \
+				missing="$$missing $$v"; \
+			fi; \
+		done; \
+		if [ -n "$$missing" ]; then echo "!!! $$d: no module built from this source for nginx:$$missing" >&2; fail=1; fi; \
+	done; \
+	[ $$fail -eq 0 ] || exit 1
+endef
+
 # multi-modules output dir.  amd64 keeps the existing dist/multi-modules/
 # (compat); arm64 etc. coexist as dist/multi-modules-<arch>/.
 # package-plugin-nginx-fat switches the scan target based on GOARCH.
@@ -275,6 +295,7 @@ build-module-multi:
 	@echo ""
 	@echo ">>> built modules:"
 	@ls -la $(MULTI_DIR)/*/*.so 2>/dev/null || echo "  (none)"
+	$(call _require_module_set,$(MULTI_DIR))
 
 # build-module-multi-openssl11: batch-build OpenSSL 1.1 ABI-linked plugin .so
 # via an AlmaLinux 8 docker container (targets rhel6/7/8, Debian 11, Ubuntu
@@ -331,6 +352,7 @@ build-module-multi-openssl11:
 	@echo ""
 	@echo ">>> built modules (OpenSSL 1.1):"
 	@ls -la $(MULTI_OPENSSL11_DIR)/*/*.so 2>/dev/null || echo "  (none)"
+	$(call _require_module_set,$(MULTI_OPENSSL11_DIR))
 
 # build-module-multi-openssl10: batch-build OpenSSL 1.0 ABI-linked plugin .so
 # via a CentOS 7 docker container (targets CentOS 7 / RHEL 7 / Oracle Linux 7
@@ -377,6 +399,7 @@ build-module-multi-openssl10:
 	@echo ""
 	@echo ">>> built modules (OpenSSL 1.0):"
 	@ls -la $(MULTI_OPENSSL10_DIR)/*/*.so 2>/dev/null || echo "  (none)"
+	$(call _require_module_set,$(MULTI_OPENSSL10_DIR))
 
 # build-module-multi-glibc212: batch-build glibc 2.12 + OpenSSL 1.0 ABI-linked
 # plugin .so via a CentOS 6 docker container (targets CentOS 6 / RHEL 6 hosts).
@@ -423,6 +446,7 @@ build-module-multi-glibc212:
 	@echo ""
 	@echo ">>> built modules (glibc 2.12):"
 	@ls -la $(MULTI_GLIBC212_DIR)/*/*.so 2>/dev/null || echo "  (none)"
+	$(call _require_module_set,$(MULTI_GLIBC212_DIR))
 
 # build-module-multi-all: build OpenSSL 3 + 1.1 + 1.0 + glibc 2.12 ABIs (for unmask-plugin-nginx-fat).
 .PHONY: build-module-multi-all
@@ -435,6 +459,23 @@ else
 # the arm64 fat plugin bundles just the two modern ABIs.
 build-module-multi-all: build-module-multi build-module-multi-openssl11
 endif
+
+## check-module-set - every shipped nginx version has its .so in every module cache of $(GOARCH)
+# Builds nothing: reads the caches the fat plugin of $(GOARCH) is packaged
+# from (four ABIs on amd64, two on arm64) and fails unless each holds a .so
+# built from this source for every version of PLUGIN_NGINX_VERSIONS.  The
+# release target asks it for both architectures before it packages -- the
+# arm64 caches are built ahead of time under qemu, where nothing else looks
+# at how many versions came out.
+.PHONY: check-module-set
+ifeq ($(GOARCH),amd64)
+MODULE_SET_DIRS = $(MULTI_DIR) $(MULTI_OPENSSL11_DIR) $(MULTI_OPENSSL10_DIR) $(MULTI_GLIBC212_DIR)
+else
+MODULE_SET_DIRS = $(MULTI_DIR) $(MULTI_OPENSSL11_DIR)
+endif
+check-module-set:
+	$(call _require_module_set,$(MODULE_SET_DIRS))
+	@echo "check-module-set: $(GOARCH): $(words $(MODULE_SET_DIRS)) caches x $(words $(PLUGIN_NGINX_VERSIONS)) nginx versions, all built from $(MODULE_SRC_HASH)"
 
 ## module-load-test - load one container-built .so of each older ABI into an nginx of that ABI (docker)
 # After build-module-multi-all: `nginx -t` with the module, in AlmaLinux 8
@@ -870,6 +911,12 @@ release: release-clean
 	# the release if the arm64 plugin (or the cache) is missing.
 	$(MAKE) package-plugin-nginx-fat UNMASK_VERSION=$(UNMASK_VERSION) GOARCH=arm64 || \
 		echo "!!! arm64 fat plugin build failed (continuing; gate will catch a missing artifact)"
+	# What the two fat plugins were packaged from: every shipped nginx
+	# version, in every ABI of the architecture, built from this source.  The
+	# gate further down sees that a plugin package exists, not what is in it,
+	# and a cache one version short packages without complaint.
+	$(MAKE) --no-print-directory check-module-set GOARCH=amd64
+	$(MAKE) --no-print-directory check-module-set GOARCH=arm64
 	# Web-server integration packages + the unmask-release repo bootstrap --
 	# the rest of the advertised install set.  Without these, build-repo.sh
 	# (which globs dist/*) would silently republish whatever stale
