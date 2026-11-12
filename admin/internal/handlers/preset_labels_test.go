@@ -47,9 +47,13 @@ func TestPresetRowsSayModeAndVersions(t *testing.T) {
 	}
 
 	// The machine-access path presets went on by default in v0.1.2 and pass
-	// GET / HEAD / OPTIONS only since v0.1.53, which the row says.
+	// GET / HEAD / OPTIONS only since v0.1.53, which the row says.  The
+	// static-assets one took the child sitemaps and llms.txt in v0.1.57.
 	bp := renderTab(t, h, "bypass-paths", user.RoleSuperadmin, "en")
-	if r := row(bp, `value="static-assets"`); !strings.Contains(r, updated("v0.1.53")) || !strings.Contains(r, regexChip) || !strings.Contains(r, "GET, HEAD, OPTIONS only") {
+	if r := row(bp, `value="well-known"`); !strings.Contains(r, updated("v0.1.53")) || !strings.Contains(r, regexChip) || !strings.Contains(r, "GET, HEAD, OPTIONS only") {
+		t.Error("the well-known preset row lacks its updated label, its mode chip or its methods")
+	}
+	if r := row(bp, `value="static-assets"`); !strings.Contains(r, updated("v0.1.57")) || !strings.Contains(r, regexChip) || !strings.Contains(r, "GET, HEAD, OPTIONS only") {
 		t.Error("the static-assets preset row lacks its updated label, its mode chip or its methods")
 	}
 	if r := row(bp, `value="api-paths"`); strings.Contains(r, "GET, HEAD, OPTIONS only") {

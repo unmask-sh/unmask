@@ -14,9 +14,15 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- (2026-11-12) **A bypass path of your own can pass GET, HEAD and OPTIONS only.**  A custom bypass row passed every method, so listing a file that is only ever fetched also let a POST to it through unjudged, its body reaching the application behind the path. Each row now has a methods picker, for every site or for one; existing rows keep passing every method.
+
 ### Changed
 
 - (2026-11-12) **The daemon picks up a config.yml changed outside the admin.**  It read the file only at start and at its own saves: after `unmask upgrade-review --apply` or an edit it kept the old settings, and its next automatic render wrote them back to nginx. It now re-reads the file seconds after a change, renders, and records it in the audit log. Reloading nginx stays your step.
+
+- (2026-11-12) **The sitemaps a sitemap index names, and llms.txt, pass like robots.txt.**  The static-assets bypass preset named `/sitemap.xml` alone, so a client that cannot run a challenge read the index and was stopped on the sitemaps it lists; `/llms.txt`, written for such clients, was challenged too. The preset now covers top-level `*sitemap*.xml` and `.xml.gz`, `/llms.txt` and `/llms-full.txt`, for GET, HEAD and OPTIONS. Reload nginx to apply.
 
 ### Fixed
 
@@ -91,6 +97,8 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 - (2026-11-12) **On SysVinit hosts the daemon's log is rotated.**  On RHEL 6 and CentOS 6 the init script appends the daemon's output to /var/log/unmask.log, and no package file rotated it, so it grew for as long as the host ran. The package now installs /etc/logrotate.d/unmask there: weekly, eight files kept, compressed. A rotation file of your own under that name is left as it is.
 
 - (2026-11-12) **The module's line no longer replaces a symlinked nginx.conf, or changes its mode.**  Where nginx has no directory for module files, the package writes its load_module line into nginx.conf by renaming a new file over it. A symlinked nginx.conf became a regular file, leaving the real file unchanged, and the mode became 0644. The file the link names is now written, keeping its mode and owner.
+
+- (2026-11-12) **A rule's pattern box keeps its width on a Japanese page.**  Opened for editing, a protected-path or honeypot row left the pattern box a few characters wide when the page was in Japanese: the name box could not shrink below twenty full-width characters and took the room. The name box now gives way, and the pattern gets about twice its width, as on an English page.
 
 ### Security
 

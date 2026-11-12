@@ -266,11 +266,12 @@ func (h *Handler) AuthCheck(w http.ResponseWriter, r *http.Request) {
 	ja4 := resolveForwardedJA4(r, cfg)
 
 	matchers := h.bypassMatchers(snap, site)
-	// A bypass path: an operator's row passes every method; a preset for
-	// files that are only ever fetched passes GET / HEAD / OPTIONS only, as
-	// native renders it.  The method rides X-Original-Method (the shipped
-	// snippets send it); a snippet from before that sends none, and the
-	// presets then pass every method, as they did.
+	// A bypass path: an operator's row passes every method unless it is set
+	// to GET / HEAD / OPTIONS only; a preset for files that are only ever
+	// fetched passes those three, as native renders it.  The method rides
+	// X-Original-Method (the shipped snippets send it); a snippet from before
+	// that sends none, and the restricted paths then pass every method, as
+	// the presets did.
 	origMethod := strings.TrimSpace(r.Header.Get("X-Original-Method"))
 	bypassPath := matchPath(uri, matchers.bypass) ||
 		((origMethod == "" || nginxconf.IsSafeMethod(origMethod)) && matchPath(uri, matchers.bypassSafe))
@@ -1785,8 +1786,8 @@ func detectLBHeaderWarning(r *http.Request, cfg settings.Settings) string {
 
 type pathMatchers struct {
 	bypass []*regexp.Regexp
-	// bypassSafe: the SafeMethodsOnly presets' patterns, which pass GET /
-	// HEAD / OPTIONS only.
+	// bypassSafe: the patterns that pass GET / HEAD / OPTIONS only -- the
+	// SafeMethodsOnly presets' and the operator's rows set to them.
 	bypassSafe []*regexp.Regexp
 	geoExempt  []*regexp.Regexp // country-axis-only exemption (RSS/Atom feeds etc.); asn/ja4/honeypot/ua still run
 	asnExempt  []*regexp.Regexp // ASN-axis-only exemption; geo/ja4/honeypot/ua still run
@@ -1963,7 +1964,14 @@ func (h *Handler) bypassMatchers(snap *settings.Settings, site string) pathMatch
 			continue
 		}
 		if re := compileCachedRe(settings.PatternRegex(row.Path)); re != nil {
-			pm.bypass = append(pm.bypass, re)
+			// A row set to GET / HEAD / OPTIONS only joins the presets'
+			// list: read as passing every method, the restriction the
+			// operator set would not hold on this wire.
+			if row.SafeMethodsOnly {
+				pm.bypassSafe = append(pm.bypassSafe, re)
+			} else {
+				pm.bypass = append(pm.bypass, re)
+			}
 		}
 	}
 

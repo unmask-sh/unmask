@@ -1314,7 +1314,8 @@ map $uri $unmask_bp_global {
 }
 
 # Stage A2: the presets for files that are only ever fetched (robots.txt, a
-# favicon, an ACME token, a health check) pass GET / HEAD / OPTIONS only.  A
+# favicon, an ACME token, a health check), and the operator's rows set to
+# "GET, HEAD, OPTIONS only", pass those three methods and no other.  A
 # POST to one of them is judged like any other request: passed unjudged, its
 # body reached whatever serves the path -- on a site that hands every path it
 # has no file for to one script (try_files ... /index.php), that script's
@@ -1327,7 +1328,31 @@ map $uri $unmask_bp_safe_path {
     "~{{ rx . }}" "1";
 {{- end }}
 }
-map "$request_method:$unmask_bp_safe_path" $unmask_bp_safe {
+{{- if .BypassPathsPerHostSafe }}
+# The same for one site: a map per host, the dispatcher that picks the
+# current host's, and the two path results ORed before the method is asked.
+# The per-host maps are $unmask_bps_host_<host>, a prefix of their own: under
+# $unmask_bp_host_ a site named safe.example.com would have met example.com's.
+{{- range .BypassPathsPerHostSafe }}
+map $uri $unmask_bps_host_{{ .VarName }} {
+    default "0";
+{{- range .Patterns }}
+    "~{{ rx . }}" "1";
+{{- end }}
+}
+{{- end }}
+map $host $unmask_bp_safe_per_host {
+    default "0";
+{{- range .BypassPathsPerHostSafe }}
+    "{{ .Host }}" $unmask_bps_host_{{ .VarName }};
+{{- end }}
+}
+map "$unmask_bp_safe_path$unmask_bp_safe_per_host" $unmask_bp_safe_hit {
+    default "0";
+    "~1" "1";
+}
+{{- end }}
+map "$request_method:{{ if .BypassPathsPerHostSafe }}$unmask_bp_safe_hit{{ else }}$unmask_bp_safe_path{{ end }}" $unmask_bp_safe {
     default   "0";
     "GET:1"     "1";
     "HEAD:1"    "1";

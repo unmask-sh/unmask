@@ -782,9 +782,12 @@ type renderData struct {
 	// no anchor stripping needed because no map ever concatenates host + uri.
 	BypassPathsGlobal  []string             // patterns from rules with Site == "" (any method)
 	BypassPathsPerHost []BypassPathHostMaps // one entry per unique non-empty Site
-	// BypassPathsGlobalSafe: patterns of the SafeMethodsOnly presets, which
-	// pass GET / HEAD / OPTIONS only (their own map, ANDed with the method).
-	BypassPathsGlobalSafe []string
+	// BypassPathsGlobalSafe / BypassPathsPerHostSafe: the rules that pass GET /
+	// HEAD / OPTIONS only -- the SafeMethodsOnly presets (global) and the
+	// operator's rows set to them (global or per site) -- in maps of their
+	// own, ANDed with the method.
+	BypassPathsGlobalSafe  []string
+	BypassPathsPerHostSafe []BypassPathHostMaps
 	// GeoExemptPaths* / AsnExemptPaths*: per-axis path exemptions (RSS/Atom
 	// feeds etc.).  Same global + per-host split as bypass paths, but each
 	// feeds its own signal ($is_geo_exempt_path / $is_asn_exempt_path), which
@@ -1766,10 +1769,12 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// EffectiveBypassPathPresets so this render agrees with the forward-auth
 	// matcher and the settings UI.
 	//
-	// A SafeMethodsOnly preset's rules are marked SafeOnly and rendered into
-	// their own map, which passes GET / HEAD / OPTIONS only.  An operator's row
-	// for the same pattern lifts the mark: the row is the operator saying the
-	// path passes, whatever the method.
+	// A SafeMethodsOnly preset's rules, and an operator's row set to those
+	// methods, are marked SafeOnly and rendered into maps of their own, which
+	// pass GET / HEAD / OPTIONS only.  Where two rules name the same pattern
+	// for the same site, the wider one stands: an operator's every-method row
+	// lifts a preset's mark -- the row is the operator saying the path
+	// passes, whatever the method.
 	bp := []BypassPathRule{}
 	bpSeen := map[string]int{} // Site|Pattern -> index in bp
 	enabledBPath := EffectiveBypassPathPresets(s.Nginx.BypassPaths.EnabledPresets, s.Nginx.BypassPaths.DisabledPresets)
@@ -1806,11 +1811,11 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 		site := strings.TrimSpace(r.Site)
 		key := site + "|" + p
 		if i, ok := bpSeen[key]; ok {
-			bp[i].SafeOnly = false
+			bp[i].SafeOnly = bp[i].SafeOnly && r.SafeMethodsOnly
 			continue
 		}
 		bpSeen[key] = len(bp)
-		bp = append(bp, BypassPathRule{Pattern: p, Site: site})
+		bp = append(bp, BypassPathRule{Pattern: p, Site: site, SafeOnly: r.SafeMethodsOnly})
 	}
 	sort.Slice(bp, func(i, j int) bool {
 		if bp[i].Site != bp[j].Site {
@@ -1824,17 +1829,18 @@ func buildRenderData(s settings.Settings, outDir, version string) (renderData, e
 	// global map keyed on $uri + one path-only map per unique host + a host
 	// dispatcher map.  Keeping the path patterns alone in each map means
 	// `^/api/` is honored literally with no double-anchor wart.  The
-	// safe-method rules (presets, so global) go to a map of their own.
+	// safe-method rules go to maps of their own, split the same way.
 	bpAny := make([]BypassPathRule, 0, len(bp))
-	d.BypassPathsGlobalSafe = nil
+	bpSafe := make([]BypassPathRule, 0, len(bp))
 	for _, r := range bp {
-		if r.SafeOnly && r.Site == "" {
-			d.BypassPathsGlobalSafe = append(d.BypassPathsGlobalSafe, r.Pattern)
+		if r.SafeOnly {
+			bpSafe = append(bpSafe, r)
 			continue
 		}
 		bpAny = append(bpAny, r)
 	}
 	d.BypassPathsGlobal, d.BypassPathsPerHost = splitBypassPathsForRender(bpAny)
+	d.BypassPathsGlobalSafe, d.BypassPathsPerHostSafe = splitBypassPathsForRender(bpSafe)
 
 	// Per-axis exempt paths: same render machinery (global + per-host maps) as
 	// bypass paths, but no presets.  Each feeds its own signal so a matched
@@ -2664,6 +2670,7 @@ func dropUnkeyableSites(d *renderData) string {
 	d.ProtectedPathsPerHost = filterHosts(d.ProtectedPathsPerHost, func(r ProtectedPathHostMaps) string { return r.Host }, keep)
 	hostOf := func(r BypassPathHostMaps) string { return r.Host }
 	d.BypassPathsPerHost = filterHosts(d.BypassPathsPerHost, hostOf, keep)
+	d.BypassPathsPerHostSafe = filterHosts(d.BypassPathsPerHostSafe, hostOf, keep)
 	d.GeoExemptPathsPerHost = filterHosts(d.GeoExemptPathsPerHost, hostOf, keep)
 	d.AsnExemptPathsPerHost = filterHosts(d.AsnExemptPathsPerHost, hostOf, keep)
 	if len(bad) == 0 {
@@ -2704,7 +2711,7 @@ func longestHostKey(d renderData) string {
 	for _, r := range d.ProtectedPathsPerHost {
 		keep(r.Host)
 	}
-	for _, list := range [][]BypassPathHostMaps{d.BypassPathsPerHost, d.GeoExemptPathsPerHost, d.AsnExemptPathsPerHost} {
+	for _, list := range [][]BypassPathHostMaps{d.BypassPathsPerHost, d.BypassPathsPerHostSafe, d.GeoExemptPathsPerHost, d.AsnExemptPathsPerHost} {
 		for _, r := range list {
 			keep(r.Host)
 		}

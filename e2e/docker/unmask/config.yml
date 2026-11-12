@@ -328,6 +328,15 @@ nginx:
       - path: "^/e2e-shop-bypass/"
         title: "scenario 21 per-site bypass (shop only)"
         site: "shop.example.com"
+      # scenario 70: rows that pass GET / HEAD / OPTIONS only -- one for every
+      # site, one for shop.example.com alone.
+      - path: "^/e2e-fetch-only/"
+        title: "scenario 70 fetched-only row"
+        safe_methods_only: true
+      - path: "^/e2e-shop-fetch-only/"
+        title: "scenario 70 fetched-only row (shop only)"
+        site: "shop.example.com"
+        safe_methods_only: true
 
 # Community feed: enforcement ON so the maps are rendered and the daemon builds
 # its matcher, but every hub URL points at a dead local port so the suite never

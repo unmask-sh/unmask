@@ -2382,6 +2382,13 @@ type BypassPath struct {
 	// it was added.
 	UpdatedAt int64  `yaml:"updated_at,omitempty"`
 	Site      string `yaml:"site,omitempty"`
+	// SafeMethodsOnly: the row passes GET, HEAD and OPTIONS only; any other
+	// method on the path is judged as usual.  Unset, the row passes every
+	// method -- an API takes its POSTs.  A path that is only ever fetched (a
+	// feed, a text file) wants it set: a body sent there is then judged before
+	// it reaches whatever serves the path.  Read by bypass_paths.paths; the
+	// per-axis exempt-path lists share this struct and do not read it.
+	SafeMethodsOnly bool `yaml:"safe_methods_only,omitempty"`
 }
 
 // ResolvePaths returns the BypassPath rows whose Site matches the requested

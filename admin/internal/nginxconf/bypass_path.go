@@ -14,8 +14,10 @@
 // dispatcher map that selects the right per-host result.
 //
 // Methods: a path the operator lists passes whatever the method -- an API
-// takes its POSTs.  The default-on presets name files that are only ever
-// fetched (robots.txt, a favicon, an ACME token, a health check), so they
+// takes its POSTs -- unless the row says GET, HEAD and OPTIONS only
+// (settings.BypassPath.SafeMethodsOnly), the choice for a path that is only
+// ever fetched: a feed, a text file.  The default-on presets name files of
+// that kind (robots.txt, a favicon, an ACME token, a health check), so they
 // pass GET, HEAD and OPTIONS only; anything else on them is judged like any
 // other request.  Without that, a POST to /robots.txt passed unjudged, and on
 // a site that hands every path it has no file for to one script (a PHP front
@@ -51,14 +53,13 @@ type BypassPathGroup struct {
 	// SafeMethodsOnly: the group's paths pass GET, HEAD and OPTIONS only
 	// (SafeMethods); another method on them is judged as usual.  Set on the
 	// presets for files that are only ever fetched; an API or Git preset
-	// takes POSTs and leaves it false.  Preset rules carry no Site, so the
-	// render keeps them in the global map.
+	// takes POSTs and leaves it false.
 	SafeMethodsOnly bool
 }
 
-// SafeMethods: the methods a SafeMethodsOnly preset passes -- the ones that
-// fetch rather than send.  OPTIONS stays, for a CORS preflight; no server
-// parses a request body for any of the three.
+// SafeMethods: the methods a SafeMethodsOnly preset, or an operator's row set
+// to them, passes -- the ones that fetch rather than send.  OPTIONS stays, for
+// a CORS preflight; no server parses a request body for any of the three.
 var SafeMethods = []string{"GET", "HEAD", "OPTIONS"}
 
 // IsSafeMethod reports whether m is one of SafeMethods (case-insensitive,
@@ -86,8 +87,8 @@ func IsSafeMethod(m string) bool {
 type BypassPathRule struct {
 	Pattern string // path-anchored PCRE (e.g., "^/api/", "/static/", "/foo$")
 	Site    string // empty = global (= every host); else exact host match
-	// SafeOnly: pass only SafeMethods (from a SafeMethodsOnly preset; the
-	// render fills it).  An operator's row never sets it.
+	// SafeOnly: pass only SafeMethods -- a SafeMethodsOnly preset's rule, or
+	// an operator's row set to them.  The render fills it.
 	SafeOnly bool
 }
 
@@ -99,20 +100,41 @@ var BypassPathPresetGroups = []BypassPathGroup{
 	{
 		ID:              "static-assets",
 		DefaultOn:       true,      // robots.txt / sitemap.xml behind a challenge = SEO incident
-		UpdatedIn:       "v0.1.53", // GET / HEAD / OPTIONS only
+		UpdatedIn:       "v0.1.57", // the sitemaps a sitemap index names, llms.txt
 		SafeMethodsOnly: true,
-		Label:           "Static assets (= /static/ /assets/ /favicon.ico /robots.txt /sitemap.xml /ads.txt etc.)",
+		Label:           "Static assets (= /static/ /assets/ /favicon.ico /robots.txt /ads.txt /llms.txt, sitemaps etc.)",
 		Rules: []BypassPathRule{
 			{Pattern: `^/static/`},
 			{Pattern: `^/assets/`},
 			{Pattern: `^/favicon\.ico$`},
 			{Pattern: `^/robots\.txt$`},
-			{Pattern: `^/sitemap\.xml$`},
+			// The sitemap and the ones a sitemap index names: a file at the
+			// top level with "sitemap" in its name, .xml or .xml.gz
+			// (/sitemap.xml, /sitemap-2026.xml, /sitemap_index.xml, and what
+			// the common CMS plugins write: /wp-sitemap-posts-post-1.xml,
+			// /post-sitemap.xml, /news-sitemap.xml).  With only /sitemap.xml
+			// passed, a client that cannot run a challenge read the index and
+			// could then be stopped on every sitemap it lists.
+			//
+			// The two runs around "sitemap" are bounded on purpose.  Written
+			// with `*`, a path of "sitemap" repeated to the length nginx
+			// accepts makes the matcher try every pair of positions, which
+			// holds a worker for a hundred times as long as an ordinary
+			// request -- and this map is asked on every request.  No
+			// sitemap's name comes near 64 characters on either side.
+			{Pattern: `^/[^/]{0,64}sitemap[^/]{0,64}\.xml(?:\.gz)?$`},
 			// IAB ads ecosystem (= ad crawlers always fetch these).
 			{Pattern: `^/ads\.txt$`},
 			{Pattern: `^/app-ads\.txt$`},
 			// Site / author metadata (= curious crawlers + browser extensions).
 			{Pattern: `^/humans\.txt$`},
+			// llms.txt (llmstxt.org): the site's own summary for language
+			// models, and the long form many sites publish beside it.  What
+			// reads it is mostly an assistant or a tool on someone's own
+			// machine -- no published range, no way to run a challenge -- so
+			// behind one the file a site wrote for them is never read.
+			{Pattern: `^/llms\.txt$`},
+			{Pattern: `^/llms-full\.txt$`},
 		},
 	},
 	{

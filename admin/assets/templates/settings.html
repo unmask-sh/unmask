@@ -315,6 +315,15 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
 /* edit mode inputs */
 .rule-row input[type=text]{background:#fff;border:1px solid #cbd5e1;border-radius:.25rem;color:#0f172a;padding:.4rem .55rem;font-size:.85rem}
 .rule-row input.rule-title{flex:1;font-family:-apple-system,sans-serif;font-weight:600}
+/* An input's automatic minimum is its intrinsic width, twenty characters of
+   its font -- and a Japanese font's average character is a full-width one, so
+   on a Japanese page the name box could not go below a third of the row.  A
+   row that also holds a site box and a picker (bypass paths, protected paths,
+   honeypot) then had nothing left for the pattern, the one box that has to
+   show a whole expression: it was squeezed to a few characters while the
+   name box stood half empty.  With a floor of its own the name box takes its
+   share (1 part to the pattern's 2) and the pattern gets the rest. */
+.rule-row.editing input.rule-title{min-width:8rem}
 .rule-row input.rule-pat{flex:2;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem}
 /* Pattern-mode toggle.  Every one of these fields is a regular expression, and
    the obvious thing to do with one -- paste the value you want to match -- is
@@ -1986,12 +1995,16 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
         <input type="hidden" name="bp_created_at" value="{{ .CreatedAt }}"><input type="hidden" name="bp_updated_at" value="{{ .UpdatedAt }}">
         <span class="rule-view">
           <div class="ttl{{ if not .Title }} empty{{ end }}">{{ if .Title }}{{ .Title }}{{ else }}{{ t $.Lang "settings.ua.empty_title" }}{{ end }}</div>
-          <div class="pat{{ if not .Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.bypass_paths.empty_pattern" }}">{{ if .Pattern }}{{ patText .Pattern }}<span class="pat-lit" data-mode="{{ patMode .Pattern }}">{{ patModeLabel $.Lang .Pattern }}</span>{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}{{ if .Site }} <span class="action-pill action-suspect" data-pill="site">site={{ .Site }}</span>{{ end }}</div>
+          <div class="pat{{ if not .Pattern }} empty{{ end }}" data-empty="{{ t $.Lang "settings.bypass_paths.empty_pattern" }}">{{ if .Pattern }}{{ patText .Pattern }}<span class="pat-lit" data-mode="{{ patMode .Pattern }}">{{ patModeLabel $.Lang .Pattern }}</span>{{ else }}{{ t $.Lang "settings.bypass_paths.empty_pattern" }}{{ end }}{{ if .Site }} <span class="action-pill action-suspect" data-pill="site">site={{ .Site }}</span>{{ end }}{{ if .SafeOnly }} <span class="action-pill action-ok" data-pill="methods">{{ t $.Lang "settings.bypass_paths.preset_safe_methods" }}</span>{{ end }}</div>
           {{ if gt .CreatedAt 0 }}<div class="rule-meta"><span class="meta-k">{{ t $.Lang "settings.rule.added" }}</span> <time class="js-datetime" data-ts="{{ .CreatedAt }}">{{ .CreatedAt }}</time>{{ if gt .UpdatedAt 0 }} <span class="meta-k">{{ t $.Lang "settings.rule.updated" }}</span> <time class="js-datetime" data-ts="{{ .UpdatedAt }}">{{ .UpdatedAt }}</time>{{ end }}</div>{{ end }}
         </span>
         <input type="text" name="bp_title" value="{{ .Title }}" placeholder="{{ t $.Lang "settings.ua.placeholder.title" }}" class="rule-title">
         <span class="rule-pat-wrap"><input type="text" name="bp_path"  value="{{ .Pattern }}" placeholder="{{ t $.Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
         <input type="text" name="bp_site" list="bp-site-candidates" value="{{ .Site }}" placeholder="{{ t $.Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
+        <select name="bp_methods" class="rule-mode-sel" title="{{ t $.Lang "settings.bypass_paths.methods_title" }}">
+          <option value=""     {{ if not .SafeOnly }}selected{{ end }}>{{ t $.Lang "settings.bypass_paths.methods_all" }}</option>
+          <option value="safe" {{ if .SafeOnly }}selected{{ end }}>{{ t $.Lang "settings.bypass_paths.preset_safe_methods" }}</option>
+        </select>
         {{ template "ruleButtons" (dict "Lang" $.Lang "Reorder" true) }}
       </div>
       {{ if $rrs.Err }}<div class="rule-err">{{ $.SecErrMsg }}</div>{{ end }}
@@ -2008,6 +2021,10 @@ h1 .meta{font-size:.85rem;color:#64748b;font-weight:normal;margin-left:.5rem}
           <input type="text" name="bp_title" value="" placeholder="{{ t .Lang "settings.ua.placeholder.title" }}" class="rule-title">
           <span class="rule-pat-wrap"><input type="text" name="bp_path"  value="" placeholder="{{ t .Lang "settings.bypass_paths.placeholder.pattern" }}" class="rule-pat"><button type="button" class="rule-pat-mode" data-mode="regex" aria-label="{{ t $.Lang "settings.rule.pat_mode" }}"></button></span>
           <input type="text" name="bp_site" list="bp-site-candidates" value="" placeholder="{{ t .Lang "settings.bypass_paths.site_all" }}" class="rule-action" style="width:7rem">
+          <select name="bp_methods" class="rule-mode-sel" title="{{ t .Lang "settings.bypass_paths.methods_title" }}">
+            <option value="" selected>{{ t .Lang "settings.bypass_paths.methods_all" }}</option>
+            <option value="safe">{{ t .Lang "settings.bypass_paths.preset_safe_methods" }}</option>
+          </select>
           {{ template "ruleButtons" (dict "Lang" .Lang "Reorder" true) }}
         </div>
       </template>
@@ -8283,6 +8300,14 @@ document.addEventListener('DOMContentLoaded', function(){
     }
     const site = row.querySelector('input.rule-action[name$="_site"]');
     if (site) upsert('site', site.value.trim() ? 'site=' + site.value.trim() : '', 'action-suspect');
+    // Bypass paths: a row set to GET / HEAD / OPTIONS only says so in the
+    // folded row, in the picker's own words; a row passing every method
+    // carries no pill, as it did before the picker existed.
+    const meth = row.querySelector('select[name$="_methods"]');
+    if (meth) {
+      const mo = meth.options[meth.selectedIndex];
+      upsert('methods', meth.value && mo ? mo.textContent.trim() : '', 'action-ok');
+    }
     // The JA4 rows keep two more values in the folded row: the verdict label
     // behind the arrow and the block / observe / allow pill, both read from
     // the row's own controls.  A row added on this page has neither yet, so

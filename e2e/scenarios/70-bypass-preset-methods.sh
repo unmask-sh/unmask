@@ -7,16 +7,24 @@
 # one script (a PHP front controller: try_files ... /index.php) the body reached
 # that script's request parser: the exemption decided for /robots.txt held
 # after the internal redirect.  A POST there is now judged like any other
-# request; an operator's own bypass path still passes every method.
+# request; an operator's own bypass path still passes every method, unless the
+# row is set to GET / HEAD / OPTIONS only.
 #   1. native: GET / HEAD / OPTIONS on /robots.txt pass unjudged (the curl UA
 #      is challenged on any other path)
 #   2. native: a multipart POST to /robots.txt, /.well-known/x, /healthz and
 #      /static/x is challenged (403, the challenge's JSON)
 #   3. native: the same POST with a pass cookie goes through
 #   4. native: an operator's bypass path (^/e2e-bypass-only/) passes a POST
-#   5. forward-auth nginx (the shipped server.inc sends X-Original-Method):
-#      GET on /robots.txt passes, a POST is challenged
-#   6. forward-auth Apache (the shipped lua): the same
+#   5. native: an operator's row set to GET / HEAD / OPTIONS only
+#      (^/e2e-fetch-only/) passes the fetch and judges the POST; the same row
+#      for one site (^/e2e-shop-fetch-only/, shop.example.com) does so on that
+#      site and is no bypass on another
+#   6. native: the sitemaps a sitemap index names and llms.txt pass a GET and
+#      judge a POST, like the rest of the preset
+#   7. forward-auth nginx (the shipped server.inc sends X-Original-Method):
+#      GET on /robots.txt passes, a POST is challenged; the same for the
+#      operator's fetched-only row
+#   8. forward-auth Apache (the shipped lua): the same
 set -u
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 . "$DIR/lib/env.sh"
@@ -26,6 +34,11 @@ IP=203.0.113.170
 IP_PASS=203.0.113.171
 IP_FA=203.0.113.172
 IP_AP=203.0.113.173
+# The steps added after the first four judge more requests than one address's
+# rate budget covers on top of them, so each has an address of its own.
+IP_ROW=203.0.113.174
+IP_SITE=203.0.113.175
+IP_MAP=203.0.113.176
 
 up=$(mktemp)
 body=$(mktemp)
@@ -83,7 +96,45 @@ fi
 assert_eq 200 "$(post "$BASE_URL" "$IP" "PHPSESSID=e2e70" /e2e-bypass-only/upload)" \
     "native: a POST to the operator's bypass path passes (200)"
 
-# 5-6. Forward-auth: the method rides X-Original-Method from the shipped
+# 5. An operator's row set to GET / HEAD / OPTIONS only.
+for m in GET HEAD OPTIONS; do
+    assert_eq 200 "$(curl -sk -X "$m" -o /dev/null -w '%{http_code}' -A "$UA_CURL" -H "X-Forwarded-For: $IP_ROW" "${BASE_URL}/e2e-fetch-only/feed")" \
+        "native: $m on the operator's fetched-only path passes"
+done
+assert_eq 403 "$(post "$BASE_URL" "$IP_ROW" "PHPSESSID=e2e70" /e2e-fetch-only/feed)" \
+    "native: a multipart POST to the operator's fetched-only path is judged (403)"
+assert_in '"challenge_required"' "$(cat "$body")" "native: ... answered with the challenge's JSON, not the backend"
+
+# The same row for one site: on that site as above, on another no bypass.
+# The site names resolve to the stack the way scenario 21 reaches them.
+E2E_PORT=$(echo "$BASE_URL" | sed -nE 's|^https?://[^:/]+:([0-9]+).*|\1|p')
+E2E_PORT=${E2E_PORT:-8443}
+site_code() { # <host> <method> <path> -> status, the request sent to <host>
+    curl -sk -X "$2" -o /dev/null -w '%{http_code}' -A "$UA_CURL" -H "X-Forwarded-For: $IP_SITE" \
+        --resolve "$1:${E2E_PORT}:127.0.0.1" "https://$1:${E2E_PORT}$3"
+}
+assert_eq 200 "$(site_code shop.example.com GET /e2e-shop-fetch-only/feed)" \
+    "native: GET on the site's fetched-only path passes on that site"
+assert_eq 403 "$(site_code shop.example.com POST /e2e-shop-fetch-only/feed)" \
+    "native: a POST to the site's fetched-only path is judged on that site (403)"
+assert_eq 403 "$(site_code blog.example.com GET /e2e-shop-fetch-only/feed)" \
+    "native: the site's fetched-only path is no bypass on another site (403)"
+
+# 6. The sitemaps a sitemap index names, and llms.txt, ride the preset.
+for p in /sitemap-2026.xml /wp-sitemap-posts-post-1.xml /sitemap.xml.gz /llms.txt /llms-full.txt; do
+    assert_eq 200 "$(curl -sk -o /dev/null -w '%{http_code}' -A "$UA_CURL" -H "X-Forwarded-For: $IP_MAP" "${BASE_URL}$p")" \
+        "native: GET $p passes (bypass preset)"
+    assert_eq 403 "$(post "$BASE_URL" "$IP_MAP" "PHPSESSID=e2e70" "$p")" "native: a multipart POST to $p is judged (403)"
+done
+assert_eq 403 "$(curl -sk -o /dev/null -w '%{http_code}' -A "$UA_CURL" -H "X-Forwarded-For: $IP_MAP" "${BASE_URL}/blog/sitemap.xml")" \
+    "native: a sitemap below the top level is not in the preset (403)"
+# The preset bounds the name on either side of "sitemap" (an unbounded pattern
+# let one long path hold a worker); a name past the bound is no sitemap.
+long=$(printf 'a%.0s' $(seq 1 65))
+assert_eq 403 "$(curl -sk -o /dev/null -w '%{http_code}' -A "$UA_CURL" -H "X-Forwarded-For: $IP_MAP" "${BASE_URL}/${long}sitemap.xml")" \
+    "native: a name longer than the preset's bound is not in the preset (403)"
+
+# 7-8. Forward-auth: the method rides X-Original-Method from the shipped
 #      server.inc and lua.  Neither container runs in socket mode.
 if [ "${UNMASK_E2E_SOCKET:-}" = "1" ]; then
     log_skip "forward-auth checks: the forward-auth containers are not part of socket mode"
@@ -97,6 +148,10 @@ assert_eq 404 "$(curl -s -o /dev/null -w '%{http_code}' -A "$UA_CURL" -H "X-Forw
 assert_eq 403 "$(post "$FA_NGINX_URL" "$IP_FA" "PHPSESSID=e2e70" /robots.txt)" \
     "forward-auth nginx: a multipart POST to /robots.txt is judged (403)"
 assert_in '"challenge_required"' "$(cat "$body")" "forward-auth nginx: ... the challenge's JSON"
+assert_eq 404 "$(curl -s -o /dev/null -w '%{http_code}' -A "$UA_CURL" -H "X-Forwarded-For: $IP_FA" "${FA_NGINX_URL}/e2e-fetch-only/feed")" \
+    "forward-auth nginx: GET on the operator's fetched-only path passes the gate (404 from the static root)"
+assert_eq 403 "$(post "$FA_NGINX_URL" "$IP_FA" "PHPSESSID=e2e70" /e2e-fetch-only/feed)" \
+    "forward-auth nginx: a multipart POST to the operator's fetched-only path is judged (403)"
 
 # Apache: a judged request is redirected to the challenge page (302).
 hdr=$(curl -s -o /dev/null -D - -A "$UA_CURL" -H "X-Forwarded-For: $IP_AP" "${APACHE_URL}/robots.txt" | tr -d '\r')

@@ -2612,7 +2612,9 @@ var ruleListRegistry = map[string][]ruleListSpec{
 			}},
 	},
 	"bypass-paths": {
-		{Name: "bp_path", CreatedAt: "bp_created_at", UpdatedAt: "bp_updated_at", Title: "bp_title", Enabled: "bp_enabled", Site: "bp_site",
+		// The row's methods picker rides the draft's shared "Action" slot, as
+		// the protected paths' mode does.
+		{Name: "bp_path", CreatedAt: "bp_created_at", UpdatedAt: "bp_updated_at", Title: "bp_title", Enabled: "bp_enabled", Action: "bp_methods", Site: "bp_site",
 			Overlay: func(c *settings.Settings, rows listRows) {
 				c.Nginx.BypassPaths.Paths = overlayBypassPaths(rows)
 			}},
@@ -2801,7 +2803,10 @@ func overlayProtected(rows listRows) []settings.ProtectedPath {
 func overlayBypassPaths(rows listRows) []settings.BypassPath {
 	out := []settings.BypassPath{}
 	for _, p := range draftPathRows(rows) {
-		out = append(out, settings.BypassPath{Path: p.Path, Title: p.Title, Site: p.Site, Disabled: p.Disabled, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt})
+		// p.Action carries the bypass-paths rows' methods picker; the
+		// exempt-path lists that share this overlay submit none.
+		out = append(out, settings.BypassPath{Path: p.Path, Title: p.Title, Site: p.Site, Disabled: p.Disabled, CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+			SafeMethodsOnly: p.Action == bypassMethodsSafe})
 	}
 	return out
 }
@@ -4595,6 +4600,7 @@ func bypassPathRows(rows []settings.BypassPath) []bypassPathRule {
 			Enabled:   !r.Disabled,
 			CreatedAt: r.CreatedAt,
 			UpdatedAt: r.UpdatedAt,
+			SafeOnly:  r.SafeMethodsOnly,
 		}
 	}
 	return out
@@ -4633,7 +4639,7 @@ func honeypotURLRows(rows []settings.HoneypotURL) []honeypotURLRow {
 
 // applyBypassPathsForm: receive the bypass-paths tab form (v2 = flat
 // BypassPath slice).  Form fields: bp_path / _title / _enabled /
-// _updated_at / _site -- zipped into BypassPath.
+// _updated_at / _site / _methods -- zipped into BypassPath.
 func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) error {
 	// Preset checkboxes: store only DEVIATIONS from each preset's DefaultOn —
 	// checked-but-default-OFF lands in EnabledPresets, unchecked-but-default-ON
@@ -4663,6 +4669,7 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 	createdAtArr := r.Form["bp_created_at"]
 	updatedAtArr := r.Form["bp_updated_at"]
 	sites := r.Form["bp_site"]
+	methodsArr := r.Form["bp_methods"]
 	maxLen := len(pats)
 	for _, l := range []int{len(titles), len(rowEnabled), len(createdAtArr), len(sites)} {
 		if l > maxLen {
@@ -4672,7 +4679,7 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 	rows := make([]settings.BypassPath, 0, maxLen)
 	now := time.Now().Unix()
 	for i := 0; i < maxLen; i++ {
-		var p, t, site string
+		var p, t, site, methods string
 		isEnabled := true
 		var ts, cs int64
 		if i < len(pats) {
@@ -4694,6 +4701,9 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		if i < len(sites) {
 			site = strings.TrimSpace(sites[i])
 		}
+		if i < len(methodsArr) {
+			methods = strings.TrimSpace(methodsArr[i])
+		}
 		// The Site keys nginx's host maps: a host name or nothing
 		// (settings.ValidSiteHost).
 		if p != "" && site != "" && !settings.ValidSiteHost(site) {
@@ -4708,16 +4718,23 @@ func applyBypassPathsForm(n *settings.Nginx, r *http.Request, lang i18n.Lang) er
 		if err := settings.CheckRegex(settings.PatternRegex(p)); err != nil {
 			return &listFieldError{Field: "bp_path", Value: p, Msg: i18n.Tf(lang, "err.bypass_path_regex", p, err)}
 		}
+		// The methods picker offers two values.  Anything else is refused
+		// rather than read as "every method": a restriction the operator
+		// asked for must not be dropped in silence.
+		if methods != "" && methods != bypassMethodsSafe {
+			return &listFieldError{Field: "bp_path", Value: p, Msg: i18n.Tf(lang, "err.bypass_path_methods", methods)}
+		}
 		if ts <= 0 {
 			ts = now
 		}
 		rows = append(rows, settings.BypassPath{
-			Path:      p,
-			Title:     t,
-			Disabled:  !isEnabled,
-			CreatedAt: ts,
-			UpdatedAt: clampUpdatedAt(cs, ts, now),
-			Site:      site,
+			Path:            p,
+			Title:           t,
+			Disabled:        !isEnabled,
+			CreatedAt:       ts,
+			UpdatedAt:       clampUpdatedAt(cs, ts, now),
+			Site:            site,
+			SafeMethodsOnly: methods == bypassMethodsSafe,
 		})
 	}
 	n.BypassPaths.Paths = rows
@@ -4892,7 +4909,14 @@ type bypassPathRule struct {
 	Enabled   bool
 	CreatedAt int64
 	UpdatedAt int64 // unix sec of the last edit, 0 while untouched
+	// SafeOnly: the row passes GET / HEAD / OPTIONS only (bypass paths; the
+	// exempt-path lists have no such column).
+	SafeOnly bool
 }
+
+// bypassMethodsSafe: the value the bypass-paths rows' methods picker
+// (bp_methods) submits for "GET, HEAD, OPTIONS only"; "" is every method.
+const bypassMethodsSafe = "safe"
 
 // applyCaptchaForm: receive the captcha tab form. Reads the provider radio +
 // per-provider site_key / secret_key + recaptcha min_score. An empty secret_key

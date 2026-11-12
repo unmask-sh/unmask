@@ -69,6 +69,11 @@ func TestBlockLabelKey(t *testing.T) {
 	for _, c := range []struct{ key, want string }{
 		{"geo $unmask_country", "country"},
 		{"geo $is_bypass_ip", "bypass"},
+		{"map $unmask_bp_safe_path", "bypass_paths"},
+		{"map $unmask_bp_host_shop_example_com", "bypass_paths"},
+		{"map $unmask_bps_host_shop_example_com", "bypass_paths"},
+		{"map $is_bypass_path", "bypass_paths"},
+		{"map $unmask_bp_log", ""},
 		{"geo $unmask_bind_key", "relay"},
 		{"map $is_search_bot", "crawlers"},
 		{"map $unmask_cr_1_ip", "custom_rules"},

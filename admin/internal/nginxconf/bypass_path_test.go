@@ -47,6 +47,28 @@ func TestPresetPatternsMatchRealisticURIs(t *testing.T) {
 		{"static-assets", "/favicon.ico", true},
 		{"static-assets", "/robots.txt", true},
 		{"static-assets", "/sitemap.xml", true},
+		// The sitemaps a sitemap index names, as sites and the common CMS
+		// plugins write them.
+		{"static-assets", "/sitemap-2026.xml", true},
+		{"static-assets", "/sitemap_index.xml", true},
+		{"static-assets", "/sitemap1.xml.gz", true},
+		{"static-assets", "/wp-sitemap-posts-post-1.xml", true},
+		{"static-assets", "/post-sitemap.xml", true},
+		{"static-assets", "/news-sitemap.xml", true},
+		{"static-assets", "/sitemap", false},           // an HTML sitemap page
+		{"static-assets", "/sitemap.xml/extra", false}, // nothing below it
+		{"static-assets", "/blog/sitemap.xml", false},  // top level only
+		{"static-assets", "/sitemap.xml.bak", false},   // .xml or .xml.gz, nothing after
+		{"static-assets", "/sitemap.php", false},       // a script is not a sitemap file
+		{"static-assets", "/sitemapxml", false},        // the dot is a dot
+		// The runs around "sitemap" are bounded (see the preset's comment).
+		{"static-assets", "/" + strings.Repeat("a", 64) + "sitemap" + strings.Repeat("b", 64) + ".xml", true},
+		{"static-assets", "/" + strings.Repeat("a", 65) + "sitemap.xml", false},
+		{"static-assets", "/sitemap" + strings.Repeat("b", 65) + ".xml", false},
+		{"static-assets", "/llms.txt", true},
+		{"static-assets", "/llms-full.txt", true},
+		{"static-assets", "/llms.txt.php", false},
+		{"static-assets", "/docs/llms.txt", false},     // top level only
 		{"static-assets", "/admin/static.html", false}, // not at start
 		{"well-known", "/.well-known/acme-challenge/abc", true},
 		{"health", "/healthz", true},
